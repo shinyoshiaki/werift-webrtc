@@ -112,7 +112,10 @@ export class DtlsSocket {
     this.bufferFragmentedHandshakes = [];
   }
 
-  protected udpOnMessage = (data: Buffer) => {
+  protected udpOnMessage = (
+    data: Buffer,
+    _addr?: import("./imports/common").Address,
+  ) => {
     this.handleUdpDatagram(data);
   };
 

@@ -13,6 +13,7 @@
 import type { NamedCurveAlgorithms } from "../../cipher/const";
 import type { SessionTypes } from "../../cipher/suites/abstract";
 import { HandshakeType } from "../../handshake/const";
+import { peerKeyFromAddr } from "../../handshake/extensions/cookie";
 import { ClientHello } from "../../handshake/message/client/hello";
 import { DtlsRandom } from "../../handshake/random";
 import { AlertDesc, ContentType } from "../../record/const";
@@ -187,6 +188,29 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
   /** True after close() or fail() has torn down the association. */
   isClosed(): boolean {
     return this.closed;
+  }
+
+  /**
+   * Expected association peer key (pinned or provisional), for dual demux
+   * before version commit. Undefined if no peer is associated yet.
+   */
+  getExpectedPeerKey(): string | undefined {
+    return this.expectedPeerKey();
+  }
+
+  /**
+   * True when `addr` matches the engine peer pin (or no pin is set yet).
+   * Used by DtlsClient association dispatcher so spoofed SH cannot commit
+   * version before the engine would drop the packet.
+   */
+  matchesAssociationPeer(
+    addr?: [string, number] | { address?: string; port?: number } | string,
+  ): boolean {
+    const expected = this.expectedPeerKey();
+    if (!expected) return true;
+    const key = peerKeyFromAddr(addr);
+    if (!key || key === "unknown") return false;
+    return key === expected;
   }
 
   /** Test helper: pending retransmittable flight length. */

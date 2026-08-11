@@ -25,6 +25,8 @@ import { ClientHello } from "./handshake/message/client/hello";
 import { ServerHello } from "./handshake/message/server/hello";
 import { ServerHelloVerifyRequest } from "./handshake/message/server/helloVerifyRequest";
 import { DtlsRandom } from "./handshake/random";
+import { peerKeyFromAddr } from "./handshake/extensions/cookie";
+import type { Address } from "./imports/common";
 import { debug } from "./imports/common";
 import { AlertDesc, ContentType } from "./record/const";
 import type { FragmentedHandshake } from "./record/message/fragment";
@@ -89,6 +91,12 @@ export class DtlsClient extends DtlsSocket {
    * the association 1.2 path without holding a dead engine reference.
    */
   private associationCarrier?: import("./carrier/types").DtlsHandshakeCarrier;
+
+  /**
+   * Peer pin snapshot for dual probing (from parked 1.3 engine at HVR).
+   * Version commit (1.3 SH/HRR or 1.2 SH) requires matching source address.
+   */
+  private dualAssociationPeerKey?: string;
 
   /** Public constructor — accepts stable {@link Options} only. */
   constructor(options: Options) {
@@ -166,6 +174,8 @@ export class DtlsClient extends DtlsSocket {
         this.engine13 = undefined;
         this.dualPhase = "probing";
         this.connected = false;
+        // Snapshot peer pin for association demux before version commit.
+        this.dualAssociationPeerKey = engine.getExpectedPeerKey();
         // Association owns RX demux: both UDP onData and carrier.inject.
         // Leaving inject bound to the parked engine would let Epic 2 SPED
         // complete 1.3 while public engine13 stays undefined.
@@ -201,8 +211,13 @@ export class DtlsClient extends DtlsSocket {
    * Does **not** clear or close {@link associationCarrier} — callers that hard-
    * close the association must call {@link closeAssociationCarrier} so that
    * commit12 soft-dispose (engine gone, carrier still open) cannot leak.
+   *
+   * @returns true when at least one engine was asked to graceful-close (may
+   *   still be sending close_notify asynchronously — do not close transport yet).
    */
-  private closeAllDtls13Candidates(opts?: { hardDispose?: boolean }): void {
+  private closeAllDtls13Candidates(opts?: {
+    hardDispose?: boolean;
+  }): boolean {
     this.unbridgeEngine13();
     const candidates = new Set<Dtls13Connection>();
     if (this.engine13) candidates.add(this.engine13);
@@ -210,15 +225,21 @@ export class DtlsClient extends DtlsSocket {
     this.engine13 = undefined;
     this.parkedEngine13 = undefined;
     this.dualResume = undefined;
+    this.dualAssociationPeerKey = undefined;
+    let deferredTransportClose = false;
     for (const eng of candidates) {
       if (opts?.hardDispose) {
         // Fatal path: force carrier/timer stop even after soft ProtocolVersionError
         // (isClosed already true but carrier may still be open).
         eng.hardDisposeResources();
       } else if (!eng.isClosed()) {
+        // Graceful: may async-send close_notify then teardownAssociation
+        // (closes transport). Caller must not close transport synchronously.
         eng.close();
+        deferredTransportClose = true;
       }
     }
+    return deferredTransportClose;
   }
 
   /**
@@ -236,11 +257,14 @@ export class DtlsClient extends DtlsSocket {
 
   /**
    * Full association hard-close: 1.2 flight stop, all 1.3 candidates, carrier,
-   * timers, phase → closed, RX drop, **always** transport close.
+   * timers, phase → closed, RX drop.
    *
-   * Candidate hardDispose does not close the UDP socket; skipping transport
-   * close when a 1.3 candidate existed left sockets open after fatal teardown.
-   * Double-close is tolerated (Promise catch / already-closed).
+   * Transport close policy:
+   * - **Fatal** (`hardDisposeCandidates`): always close transport immediately
+   *   (hardDispose does not close the UDP socket).
+   * - **Graceful** local close: if an engine is still sending close_notify,
+   *   defer transport close to engine `teardownAssociation` so notify is not
+   *   dropped. When no live 1.3 candidate remains, close transport here.
    */
   private closeAssociationHard(opts?: {
     hardDisposeCandidates?: boolean;
@@ -254,15 +278,19 @@ export class DtlsClient extends DtlsSocket {
     this.dtls.flight = 99;
     this.connected = false;
     this.dualPhase = "closed";
-    this.closeAllDtls13Candidates({
+    const deferredTransport = this.closeAllDtls13Candidates({
       hardDispose: opts?.hardDisposeCandidates,
     });
     // Always close association carrier (survives soft commit12 release).
+    // close_notify uses transport.send, not the handshake carrier.
     this.closeAssociationCarrier();
     // Association demux stays closed-gated so late inject is a no-op.
     this.transport.socket.onData = this.udpOnMessage;
-    // Always close transport regardless of candidate path (hardDispose does not).
-    void this.transport.socket.close().catch(() => {});
+    if (opts?.hardDisposeCandidates || !deferredTransport) {
+      // Fatal path, or no engine left to finish close_notify + teardown.
+      void this.transport.socket.close().catch(() => {});
+    }
+    // Graceful with live engine: teardownAssociation closes transport after notify.
   }
 
   /**
@@ -342,25 +370,45 @@ export class DtlsClient extends DtlsSocket {
     peer?: [string, number] | { address?: string; port?: number } | string,
   ): void {
     if (this.dualPhase === "closed") return;
+    let addr: Address | undefined;
     if (peer != null) {
       const t = this.options.transport as {
         rinfo?: { address?: string; port?: number };
       };
       if (Array.isArray(peer)) {
         t.rinfo = { address: peer[0], port: peer[1] };
+        addr = [peer[0], peer[1]];
       } else if (typeof peer === "string") {
         const i = peer.lastIndexOf(":");
         if (i > 0) {
-          t.rinfo = {
-            address: peer.slice(0, i),
-            port: Number(peer.slice(i + 1)),
-          };
+          const host = peer.slice(0, i);
+          const port = Number(peer.slice(i + 1));
+          t.rinfo = { address: host, port };
+          addr = [host, port];
         }
       } else if (peer.address != null && peer.port != null) {
         t.rinfo = { address: peer.address, port: peer.port };
+        addr = [peer.address, peer.port];
       }
     }
-    this.udpOnMessage(Buffer.from(bytes));
+    this.udpOnMessage(Buffer.from(bytes), addr);
+  }
+
+  /**
+   * True when inbound source matches dual association peer pin (or no pin yet).
+   * Drops spoofed SH/HRR/alerts before version commit stops the other candidate.
+   */
+  private isAssociationPeer(addr?: Address): boolean {
+    const peer = addr ? ([addr[0], addr[1]] as [string, number]) : undefined;
+    const candidate = this.engine13 ?? this.parkedEngine13;
+    if (candidate) {
+      return candidate.matchesAssociationPeer(peer);
+    }
+    const expected = this.dualAssociationPeerKey;
+    if (!expected) return true;
+    const key = peerKeyFromAddr(peer);
+    if (!key || key === "unknown") return false;
+    return key === expected;
   }
 
   /** Commit dual probe to DTLS 1.2: stop 1.3 candidate and alert suppression. */
@@ -839,21 +887,58 @@ export class DtlsClient extends DtlsSocket {
    * Association inbound dispatcher (UDP onData and carrier.inject).
    *
    * - closed: drop everything (no reconnect, no timer restart)
+   * - non-association peer: drop before version commit (anti-spoof)
    * - active engine13 (committed13 / pure 1.3 after dual resume): forward to 1.3
-   * - probing + 1.3 SH/HRR: version commit to 1.3
+   * - probing + 1.3 SH/HRR from association peer: version commit to 1.3
    * - probing + epoch-0 illegal_parameter only: suppress (legacy_cookie vs 1.3)
    * - else: DTLS 1.2 record path (committed12 / dual cookie / pure 1.2)
    */
-  protected udpOnMessage = (data: Buffer) => {
+  protected udpOnMessage = (data: Buffer, addr?: Address) => {
     if (this.dualPhase === "closed") {
       return;
     }
+    // Prefer explicit addr (UDP / inject); fall back to last rinfo.
+    const peerAddr =
+      addr ??
+      (() => {
+        const r = (
+          this.options.transport as {
+            rinfo?: { address?: string; port?: number };
+          }
+        ).rinfo;
+        if (r?.address != null && r?.port != null) {
+          return [r.address, r.port] as Address;
+        }
+        return undefined;
+      })();
+
     // Committed (or pure) 1.3: association still owns demux so late 1.2 / post-
     // close races cannot bypass closed/committed12 guards via engine-only RX.
+    const peerTuple = peerAddr
+      ? ([peerAddr[0], peerAddr[1]] as [string, number])
+      : undefined;
+
     if (this.engine13 && !this.engine13.isClosed()) {
-      this.engine13.injectDatagram(data);
+      this.engine13.injectDatagram(data, peerTuple);
       return;
     }
+
+    // Version commit / dual probing: require association peer before acting.
+    // Spoofed SH must not stop 1.2 Flight1 or unpark 1.3 (DoS).
+    if (
+      (this.dualPhase === "probing" ||
+        this.dualPhase === "committed12" ||
+        this.dualPhase === "committed13") &&
+      !this.isAssociationPeer(peerAddr)
+    ) {
+      log(
+        "dual association: drop datagram from non-association peer",
+        peerKeyFromAddr(peerTuple),
+        this.dualAssociationPeerKey,
+      );
+      return;
+    }
+
     if (
       this.dualPhase === "probing" &&
       !this.engine13 &&
@@ -865,10 +950,10 @@ export class DtlsClient extends DtlsSocket {
     if (
       this.dualPhase === "probing" &&
       !this.engine13 &&
-      this.datagramIsIllegalParameterAlert(data)
+      this.datagramIsEpoch0IllegalParameterAlert(data)
     ) {
       log(
-        "dual probing: ignore illegal_parameter alert (likely legacy_cookie vs DTLS 1.3)",
+        "dual probing: ignore epoch-0 illegal_parameter alert (likely legacy_cookie vs DTLS 1.3)",
       );
       return;
     }
@@ -879,13 +964,16 @@ export class DtlsClient extends DtlsSocket {
   /**
    * Epoch-0 fatal illegal_parameter (47) only — used while dual-probing to
    * ignore DTLS 1.3 servers rejecting a non-empty legacy_cookie ClientHello.
-   * Must not swallow handshake_failure / other actionable 1.2 alerts.
+   * Must not swallow epoch≥1 or non-illegal_parameter actionable alerts.
    */
-  private datagramIsIllegalParameterAlert(data: Buffer): boolean {
+  private datagramIsEpoch0IllegalParameterAlert(data: Buffer): boolean {
     try {
       if (data.length < 15) return false;
       const contentType = data[0];
       if (contentType !== ContentType.alert) return false;
+      // DTLSPlaintext: type(1) version(2) epoch(2) seq(6) length(2) body
+      const epoch = data.readUInt16BE(3);
+      if (epoch !== 0) return false;
       const contentLen = data.readUInt16BE(11);
       if (contentLen < 2 || 13 + contentLen > data.length) return false;
       const level = data[13];

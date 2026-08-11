@@ -1870,3 +1870,175 @@ test("e2e/dual: 1.3-only version mismatch closes transport", async () => {
     /* */
   }
 }, 15_000);
+
+/**
+ * P1: probing 中、異なる peer からの 1.3 SH は version commit しない（1.2 Flight を止めない）。
+ */
+test("e2e/dual: spoofed 1.3 SH from non-association peer does not commit version", async () => {
+  // Arrange: dual client を probing まで進め、parked peer pin を確立
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+  });
+
+  let hvrInjected = false;
+  clientTransport.send = async () => {
+    if (!hvrInjected && (client as any).dualPhase === "none") {
+      hvrInjected = true;
+      queueMicrotask(() => {
+        injectHvr(clientTransport, serverTransport);
+      });
+    }
+  };
+
+  void client.connect();
+  for (let i = 0; i < 50; i++) {
+    if ((client as any).dualPhase === "probing") break;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  expect((client as any).dualPhase).toBe("probing");
+  expect((client as any).parkedEngine13).toBeTruthy();
+  const flightBefore = (client as any).dtls.flight;
+
+  // Act: 別 peer からの 1.3-looking SH（spoof）
+  const spoofPeer: [string, number] = ["203.0.113.50", 44444];
+  clientTransport.onData?.(buildMinimalDtls13ServerHelloRecord(), spoofPeer);
+  await new Promise((r) => setTimeout(r, 30));
+
+  // Assert: version commit せず probing 維持、1.2 flight 未停止
+  expect((client as any).dualPhase).toBe("probing");
+  expect(client.isDtls13).toBe(false);
+  expect((client as any).engine13).toBeUndefined();
+  expect((client as any).parkedEngine13).toBeTruthy();
+  // flight=99 は commit13 の印 — spoof では進まない
+  expect((client as any).dtls.flight).toBe(flightBefore);
+
+  client.close();
+  await serverTransport.close().catch(() => {});
+  await clientTransport.close().catch(() => {});
+}, 10_000);
+
+/**
+ * P1: probing 中の illegal_parameter 抑制は epoch-0 のみ。epoch≥1 は actionable。
+ */
+test("e2e/dual: epoch-1 illegal_parameter during probing surfaces onError", async () => {
+  // Arrange: probing まで進める
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+  });
+
+  let hvrInjected = false;
+  clientTransport.send = async () => {
+    if (!hvrInjected && (client as any).dualPhase === "none") {
+      hvrInjected = true;
+      queueMicrotask(() => {
+        injectHvr(clientTransport, serverTransport);
+      });
+    }
+  };
+
+  void client.connect();
+  for (let i = 0; i < 50; i++) {
+    if ((client as any).dualPhase === "probing") break;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  expect((client as any).dualPhase).toBe("probing");
+
+  // Act: epoch-1 fatal illegal_parameter（抑制対象外）
+  const alertBody = Buffer.from([2, AlertDesc.IllegalParameter]);
+  const epoch1Alert = serializePlaintextRecord(
+    ContentType.alert,
+    1, // epoch ≥ 1
+    0,
+    alertBody,
+  );
+
+  const err = await new Promise<Error>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("expected onError for epoch-1 illegal_parameter")),
+      3_000,
+    );
+    client.onError.subscribe((e) => {
+      clearTimeout(timer);
+      resolve(e);
+    });
+    clientTransport.onData?.(
+      epoch1Alert,
+      clientFacingServerPeer(serverTransport),
+    );
+  });
+
+  // Assert: public onError（timeout 化・握りつぶしではない）
+  expect(err.message).toMatch(/alert|illegal|fatal/i);
+
+  client.close();
+  await serverTransport.close().catch(() => {});
+  await clientTransport.close().catch(() => {});
+}, 10_000);
+
+/**
+ * P2: connected 後の client.close() は close_notify を transport に載せる
+ * （association hard-close が notify 送信前に socket を殺さない）。
+ */
+test("e2e/dual: local close sends close_notify before transport teardown", async () => {
+  // Arrange: dual 1.3 完走
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3],
+    addressValidation: "none",
+  });
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3],
+    addressValidation: "none",
+  });
+
+  await Promise.all([
+    new Promise<void>((r) => client.onConnect.once(r)),
+    new Promise<void>((r) => server.onConnect.once(r)),
+    client.connect(),
+  ]);
+
+  // Act: close 後に wire へ出た client TX を数える
+  let clientTxAfterClose = 0;
+  const origSend = clientTransport.send.bind(clientTransport);
+  clientTransport.send = async (buf: Buffer, addr?: any) => {
+    clientTxAfterClose += 1;
+    return origSend(buf, addr);
+  };
+
+  client.close();
+  // close_notify は async finally 前に await send
+  await new Promise((r) => setTimeout(r, 100));
+
+  // Assert: close 後に少なくとも 1 パケット（close_notify）が出る
+  expect(clientTxAfterClose).toBeGreaterThanOrEqual(1);
+  expect((client as any).dualPhase).toBe("closed");
+
+  try {
+    server.close();
+  } catch {
+    /* */
+  }
+}, 20_000);
