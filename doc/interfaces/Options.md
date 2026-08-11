@@ -63,14 +63,17 @@ Default: X25519 then P-256. Use `[NamedCurveAlgorithm.secp256r1_23]` for P-256 o
 
 > `optional` **protocolVersions**: readonly [`DtlsVersion`](../enumerations/DtlsVersion.md)[]
 
-Protocol versions in preference order.
+Protocol versions in **preference order** (first = highest priority).
 Default: `[DtlsVersion.V1_2]` (backward compatible).
 DTLS 1.3 requires explicit opt-in.
 
-Epic 1 supported dual pattern is **`[V1_3, V1_2]` only**.
-`[V1_2, V1_3]` is rejected (fail-fast) — full 1.2-first dual with
-downgrade-sentinel server semantics is out of scope for Epic 1.
-Single-version lists `[V1_3]` / `[V1_2]` are always accepted.
+Dual-stack examples:
+- `[V1_3, V1_2]` — prefer DTLS 1.3, fall back to 1.2
+- `[V1_2, V1_3]` — prefer DTLS 1.2 when the peer also offers it
+
+Both roles use the same selectVersion semantics:
+first local preference that appears in the peer's supported set.
+ClientHello `supported_versions` is advertised in this order.
 
 ***
 

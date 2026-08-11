@@ -206,9 +206,7 @@ export class DtlsClient extends DtlsSocket {
     }
     // Build cookie CH from original dualResume without mutating 1.3 resume material.
     const hello = ClientHello.deSerialize(this.dualResume.clientHelloBody);
-    hello.cookie = legacyCookie
-      ? Buffer.from(legacyCookie)
-      : Buffer.from([]);
+    hello.cookie = legacyCookie ? Buffer.from(legacyCookie) : Buffer.from([]);
     // Clear messageSeq so Flight1 re-assigns seq 0 for this transmission
     hello.messageSeq = undefined as any;
 

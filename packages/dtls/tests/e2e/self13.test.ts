@@ -1311,14 +1311,8 @@ test("e2e/self13 [V1_2,V1_3] is accepted (preference order preserved)", () => {
     protocolVersions: [DtlsVersion.V1_2, DtlsVersion.V1_3],
   });
   // Assert: 順序が preference として保持される
-  expect(server.protocolVersions).toEqual([
-    DtlsVersion.V1_2,
-    DtlsVersion.V1_3,
-  ]);
-  expect(client.protocolVersions).toEqual([
-    DtlsVersion.V1_2,
-    DtlsVersion.V1_3,
-  ]);
+  expect(server.protocolVersions).toEqual([DtlsVersion.V1_2, DtlsVersion.V1_3]);
+  expect(client.protocolVersions).toEqual([DtlsVersion.V1_2, DtlsVersion.V1_3]);
   expect(client.isDtls13).toBe(false); // 1.2-first dual は association path 開始
   expect(server.isDtls13).toBe(false);
 });
