@@ -315,7 +315,10 @@ export class GccBandwidthEstimator
         if (!congested) {
           if (initialProbing) {
             if (ackedBps > kMinBitrateBps) {
-              accepted = Math.min(accepted, ackedBps * kProbeResultMaxOverAcked);
+              accepted = Math.min(
+                accepted,
+                ackedBps * kProbeResultMaxOverAcked,
+              );
             }
           } else {
             // Recovery: min(probe, max(target×1.5, acked×2)).

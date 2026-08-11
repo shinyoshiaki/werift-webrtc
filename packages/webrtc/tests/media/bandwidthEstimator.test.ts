@@ -2029,14 +2029,7 @@ describe("media/sender bandwidth estimator", () => {
       // seq 順: recv 130,90,100,110,120 → 旧 first/last では interval 負
       const recv = [130, 90, 100, 110, 120];
       for (let i = 0; i < 5; i++) {
-        probe.onAckedPacket(
-          size,
-          recv[i],
-          true,
-          i + 1,
-          2_000,
-          1_000 + i * 2,
-        );
+        probe.onAckedPacket(size, recv[i], true, i + 1, 2_000, 1_000 + i * 2);
       }
       const est = probe.takePendingEstimateBps();
       expect(est).toBeGreaterThan(0);
