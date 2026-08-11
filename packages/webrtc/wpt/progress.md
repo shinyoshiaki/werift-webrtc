@@ -1,12 +1,13 @@
 # WPT partial-pass progress
 
-| Generated at | 2026-08-11T02:36:36.757Z |
+| Generated at | 2026-08-11T07:00:58.793Z |
 
 ## Target success rates
 
 | File | Variant | PASS | FAIL | TIMEOUT | TOTAL | Excluded | Effective PASS/TOTAL | Success rate | Status |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| webrtc/RTCPeerConnection-remote-track-properties.https.html | (default) | 0 | 0 | 1 | 1 | 0 | 0/1 | 0.0% | active |
+| webrtc/RTCPeerConnection-addIceCandidate-connectionSetup.html | (default) | 0 | 0 | 1 | 1 | 0 | 0/1 | 0.0% | active |
+| webrtc/RTCPeerConnection-addTransceiver-renegotiation.https.html | (default) | 0 | 0 | 1 | 1 | 0 | 0/1 | 0.0% | active |
 | webrtc/simulcast/negotiation-encodings.https.html | (default) | 1 | 19 | 0 | 20 | 0 | 1/20 | 5.0% | active |
 | webrtc/RTCPeerConnection-mandatory-getStats.https.html | (default) | 4 | 69 | 0 | 73 | 0 | 4/73 | 5.5% | active |
 | webrtc/RTCRtpParameters-codec.html | (default) | 2 | 20 | 0 | 22 | 0 | 2/22 | 9.1% | active |
@@ -26,7 +27,6 @@
 | webrtc/RTCTrackEvent-constructor.html | (default) | 3 | 4 | 0 | 7 | 0 | 3/7 | 42.9% | active |
 | webrtc/getstats.html | (default) | 1 | 1 | 0 | 2 | 0 | 1/2 | 50.0% | active |
 | webrtc/protocol/sdes-dont-dont-dont.html | (default) | 1 | 1 | 0 | 2 | 0 | 1/2 | 50.0% | active |
-| webrtc/RTCPeerConnection-addTransceiver-renegotiation.https.html | (default) | 2 | 2 | 0 | 4 | 0 | 2/4 | 50.0% | active |
 | webrtc/RTCPeerConnection-createDataChannel.html | (default) | 1 | 1 | 0 | 2 | 0 | 1/2 | 50.0% | active |
 | webrtc/RTCPeerConnection-createDataChannel.html | ?rest | 1 | 1 | 0 | 2 | 0 | 1/2 | 50.0% | active |
 | webrtc/RTCPeerConnection-iceGatheringState.html | (default) | 1 | 1 | 0 | 2 | 0 | 1/2 | 50.0% | active |
@@ -58,7 +58,6 @@
 | webrtc/RTCDataChannelInit-maxRetransmits-enforce-range.html | (default) | 17 | 0 | 0 | 17 | 0 | 17/17 | 100.0% | done |
 | webrtc/RTCIceConnectionState-candidate-pair.https.html | (default) | 1 | 0 | 0 | 1 | 0 | 1/1 | 100.0% | done |
 | webrtc/RTCPeerConnection-add-track-no-deadlock.https.html | (default) | 1 | 0 | 0 | 1 | 0 | 1/1 | 100.0% | done |
-| webrtc/RTCPeerConnection-addIceCandidate-connectionSetup.html | (default) | 3 | 0 | 0 | 3 | 0 | 3/3 | 100.0% | done |
 | webrtc/RTCPeerConnection-addIceCandidate.html | (default) | 36 | 0 | 0 | 36 | 0 | 36/36 | 100.0% | done |
 | webrtc/RTCPeerConnection-addIceCandidate.html | ?rest | 34 | 0 | 0 | 34 | 0 | 34/34 | 100.0% | done |
 | webrtc/RTCPeerConnection-addTrack.https.html | (default) | 12 | 0 | 0 | 12 | 0 | 12/12 | 100.0% | done |
@@ -70,6 +69,7 @@
 | webrtc/RTCPeerConnection-helper-test.html | (default) | 1 | 0 | 0 | 1 | 0 | 1/1 | 100.0% | done |
 | webrtc/RTCPeerConnection-iceConnectionState.https.html | (default) | 1 | 0 | 0 | 1 | 0 | 1/1 | 100.0% | done |
 | webrtc/RTCPeerConnection-ontrack.https.html | (default) | 9 | 0 | 0 | 9 | 0 | 9/9 | 100.0% | done |
+| webrtc/RTCPeerConnection-remote-track-properties.https.html | (default) | 8 | 0 | 0 | 8 | 0 | 8/8 | 100.0% | done |
 | webrtc/RTCPeerConnection-removeTrack.https.html | (default) | 14 | 0 | 0 | 14 | 0 | 14/14 | 100.0% | done |
 | webrtc/RTCPeerConnection-restartIce-onnegotiationneeded.https.html | (default) | 1 | 0 | 0 | 1 | 0 | 1/1 | 100.0% | done |
 | webrtc/RTCPeerConnection-setLocalDescription-answer.html | (default) | 7 | 0 | 0 | 7 | 0 | 7/7 | 100.0% | done |

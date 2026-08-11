@@ -159,7 +159,7 @@ ProbeBitrateEstimator / SortedByReceiveTime semantics) so reorder does
 not invert the receive interval.
 
 80% ACK is the *minimum* to produce an estimate; further ACKs keep
-updating cluster stats and may overwrite pendingEstimateBps.
+updating cluster stats and may overwrite the pending estimate.
 
 #### Parameters
 
