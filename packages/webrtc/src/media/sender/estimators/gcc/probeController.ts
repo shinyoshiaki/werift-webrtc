@@ -211,11 +211,15 @@ export class ProbeController {
     if (!this.cooldownElapsed(nowMs)) return [];
 
     const base = Math.max(estimatedBps, this.minBitrateBps);
-    const uncapped = base * kProbeRecoveryScale;
-    const capped = Math.min(uncapped, base * kProbeRecoveryMaxScale);
-    const target = clamp(capped, this.maxBitrateBps);
+    const uncapped = Math.min(
+      base * kProbeRecoveryScale,
+      base * kProbeRecoveryMaxScale,
+    );
+    const target = clamp(uncapped, this.maxBitrateBps);
     if (target <= base * 1.05) return [];
-    return this.enqueueClusters(nowMs, [target]);
+    // libwebrtc: if uncapped target would exceed max, one last max probe then stop.
+    const stopFurtherAfter = uncapped >= this.maxBitrateBps;
+    return this.enqueueClusters(nowMs, [target], { stopFurtherAfter });
   }
 
   setEstimatedBitrate(bitrateBps: number, nowMs: number): ProbeClusterConfig[] {
@@ -223,19 +227,23 @@ export class ProbeController {
       return [];
     }
     // Further-probe uses last **planned** target threshold, not last success.
+    // Infinity disables further probes after a max-bitrate last cluster.
     if (
       this.minBitrateToProbeFurther > 0 &&
+      Number.isFinite(this.minBitrateToProbeFurther) &&
       bitrateBps > this.minBitrateToProbeFurther &&
       (this.state === "complete" || this.state === "waiting_for_result")
     ) {
-      const next = clamp(
-        Math.min(
-          bitrateBps * kFurtherProbeStepMultiplier,
-          bitrateBps * kProbeRecoveryMaxScale,
-        ),
-        this.maxBitrateBps,
+      const uncapped = Math.min(
+        bitrateBps * kFurtherProbeStepMultiplier,
+        bitrateBps * kProbeRecoveryMaxScale,
       );
-      return this.enqueueClusters(nowMs, [next]);
+      const next = clamp(uncapped, this.maxBitrateBps);
+      // libwebrtc InitiateProbing: when bitrate would exceed max_bitrate, probe
+      // once at max and set min_bitrate_to_probe_further = +inf so exponential
+      // further probing ends (avoids infinite max-bitrate padding near ceiling).
+      const stopFurtherAfter = uncapped >= this.maxBitrateBps;
+      return this.enqueueClusters(nowMs, [next], { stopFurtherAfter });
     }
     return [];
   }
@@ -483,17 +491,23 @@ export class ProbeController {
   }
 
   private initiateExponentialProbing(nowMs: number): ProbeClusterConfig[] {
-    const bitrates = kProbeBitrateMultipliers.map((s) =>
-      clamp(this.startBitrateBps * s, this.maxBitrateBps),
+    const uncapped = kProbeBitrateMultipliers.map(
+      (s) => this.startBitrateBps * s,
     );
+    const bitrates = uncapped.map((b) => clamp(b, this.maxBitrateBps));
+    // If the last step was limited by max_bitrate, do not schedule further
+    // probes after the initial session (same as libwebrtc limited_by_max).
+    const stopFurtherAfter =
+      uncapped[uncapped.length - 1]! >= this.maxBitrateBps;
     // Only return **activated** configs (front 3x). 6x stays queued until
     // 3x send-fill completes (BitrateProber FIFO).
-    return this.enqueueClusters(nowMs, bitrates);
+    return this.enqueueClusters(nowMs, bitrates, { stopFurtherAfter });
   }
 
   private enqueueClusters(
     nowMs: number,
     bitrates: number[],
+    opts?: { stopFurtherAfter?: boolean },
   ): ProbeClusterConfig[] {
     for (const bps of bitrates) {
       const minBytes = Math.max(
@@ -509,12 +523,17 @@ export class ProbeController {
       });
     }
     if (bitrates.length) {
-      // libwebrtc: min_bitrate_to_probe_further = last planned target × 0.7
-      // (for initial session: 6x × 0.7, not 3x after first success).
-      const lastPlanned = bitrates[bitrates.length - 1]!;
-      this.minBitrateToProbeFurther = Math.round(
-        lastPlanned * kFurtherProbeThreshold,
-      );
+      if (opts?.stopFurtherAfter) {
+        // No more exponential further probes after max-bitrate last cluster.
+        this.minBitrateToProbeFurther = Number.POSITIVE_INFINITY;
+      } else {
+        // libwebrtc: min_bitrate_to_probe_further = last planned target × 0.7
+        // (for initial session: 6x × 0.7, not 3x after first success).
+        const lastPlanned = bitrates[bitrates.length - 1]!;
+        this.minBitrateToProbeFurther = Math.round(
+          lastPlanned * kFurtherProbeThreshold,
+        );
+      }
       this.state = "waiting_for_result";
     }
     return this.maybeActivateQueued(nowMs);

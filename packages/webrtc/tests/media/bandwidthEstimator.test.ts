@@ -1723,6 +1723,52 @@ describe("media/sender bandwidth estimator", () => {
       expect(probe.currentProbeTargetBps).toBe(recovery[0].targetBps);
     });
 
+    test("max bitrate 到達後は last max probe のみで further を止め complete する", () => {
+      // Arrange: max=1Mbps。further の uncapped (×2) が max を超えると
+      // libwebrtc 同様に max で 1 回だけ probe し、以降 further しない。
+      const maxBps = 1_000_000;
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, maxBps, 0);
+      // 初期 3x/6x を破棄し、further 可能な complete 状態へ
+      probe.abort(1_000);
+      expect(probe.probeState).toBe("complete");
+      (probe as any).lastProbeEndMs = Number.NEGATIVE_INFINITY;
+      (probe as any).minBitrateToProbeFurther = 400_000;
+      (probe as any).estimatedBps = 800_000;
+
+      // Act: 800kbps ×2 = 1.6Mbps → clamp max、stopFurtherAfter
+      const last = probe.setEstimatedBitrate(800_000, 10_000);
+      expect(last.length).toBe(1);
+      expect(last[0].targetBps).toBe(maxBps);
+      expect(probe.furtherProbeThresholdBps).toBe(Number.POSITIVE_INFINITY);
+      expect(probe.probeState).toBe("waiting_for_result");
+
+      // Assert: 同じ高 estimate でも追加 further は増えない
+      const again = probe.setEstimatedBitrate(950_000, 10_100);
+      expect(again).toEqual([]);
+      expect(probe.queuedClusterCount).toBe(0);
+
+      // Act: max cluster を send-fill + result timeout で完了
+      // minBytes for 1Mbps ≈ 1875 → 400B×5 で確実に fill
+      let lastSend = 0;
+      for (let i = 0; i < 5; i++) {
+        lastSend = 11_000 + i * 2;
+        probe.onProbePacketSent(400, lastSend, i + 1);
+      }
+      expect(probe.currentProbeTargetBps).toBe(0);
+      expect(probe.awaitingResultCount).toBe(1);
+      probe.process(lastSend + 1_001);
+      expect(probe.awaitingResultCount).toBe(0);
+      expect(probe.probeState).toBe("complete");
+      expect(probe.queuedClusterCount).toBe(0);
+      expect(probe.currentProbeTargetBps).toBe(0);
+
+      // complete 後も Infinity threshold なら further しない（cooldown 経過後でも）
+      (probe as any).lastProbeEndMs = 0;
+      const afterComplete = probe.setEstimatedBitrate(990_000, 100_000);
+      expect(afterComplete).toEqual([]);
+    });
+
     test("6x result 受理後も complete 前なら further probe を enqueue できる", () => {
       // Arrange: 3x/6x を send-fill + 有効 ACK まで進め、6x 結果が threshold を超える
       const probe = new ProbeController();
