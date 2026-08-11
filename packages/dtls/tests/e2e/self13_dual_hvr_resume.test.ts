@@ -4,6 +4,7 @@ import { DtlsClient, DtlsServer, DtlsVersion } from "../../src";
 import { DirectHandshakeCarrier } from "../../src/carrier/direct";
 import { ServerHelloVerifyRequest } from "../../src/handshake/message/server/helloVerifyRequest";
 import { createDtlsClientInternal } from "../../src/internal";
+import { INITIAL_RTO_MS } from "../../src/engine/v1_3/types";
 import { AlertDesc, ContentType } from "../../src/record/const";
 import { serializePlaintextRecord } from "../../src/record/v1_3/record";
 import { certPem, keyPem } from "../fixture";
@@ -719,3 +720,198 @@ test("e2e/dual: lost CH-A response after HVR recovers via CH-A retransmit", asyn
   client.close();
   server.close();
 }, 30_000);
+
+/**
+ * P1: public close() during dual probing must hard-teardown parkedEngine13
+ * (timers + pendingFlight + carrier). Merge-blocker for carrier lifecycle.
+ */
+test("e2e/dual: close() during probing tears down parked engine and carrier timers", async () => {
+  // Arrange: dual client が CH-A 送出後 HVR で probing に入る
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const clientCarrier = new DirectHandshakeCarrier(clientTransport, {
+    mtu: 1200,
+  });
+  const client = createDtlsClientInternal({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+    handshakeCarrier: clientCarrier,
+  });
+  // Blackhole peer — only need HVR to enter probing with pending CH-A
+  let hvrInjected = false;
+  clientTransport.send = async () => {
+    if (!hvrInjected && (client as any).dualPhase === "none") {
+      hvrInjected = true;
+      queueMicrotask(() => {
+        injectHvr(clientTransport, serverTransport);
+      });
+    }
+  };
+
+  const errors: Error[] = [];
+  client.onError.subscribe((e) => errors.push(e));
+
+  // Count carrier wire attempts after close (must stay 0 past RTO)
+  let carrierSendsAfterClose = 0;
+  const origCarrierSend = clientCarrier.send.bind(clientCarrier);
+  clientCarrier.send = async (packet, addr) => {
+    if (clientCarrier.isClosed()) {
+      carrierSendsAfterClose += 1;
+      return;
+    }
+    return origCarrierSend(packet, addr);
+  };
+
+  void client.connect();
+  for (let i = 0; i < 50; i++) {
+    if ((client as any).dualPhase === "probing") break;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  expect((client as any).dualPhase).toBe("probing");
+  const parked = (client as any).parkedEngine13;
+  expect(parked).toBeTruthy();
+  expect(parked.isDualProbeParked()).toBe(true);
+  expect(parked.getPendingFlightSize()).toBeGreaterThan(0);
+  expect(clientCarrier.isClosed()).toBe(false);
+
+  // Act: public close while probing
+  client.close();
+
+  // Assert: parked candidate hard-closed; carrier permanently closed
+  expect(parked.isClosed()).toBe(true);
+  expect(clientCarrier.isClosed()).toBe(true);
+  expect(parked.getPendingFlightSize()).toBe(0);
+  expect((client as any).parkedEngine13).toBeUndefined();
+  expect((client as any).engine13).toBeUndefined();
+
+  // RTO を越えても carrier send / onError なし
+  await new Promise((r) => setTimeout(r, INITIAL_RTO_MS + 400));
+  expect(carrierSendsAfterClose).toBe(0);
+  expect(errors).toEqual([]);
+
+  await serverTransport.close().catch(() => {});
+  await clientTransport.close().catch(() => {});
+}, 10_000);
+
+/**
+ * P2: carrier.inject during probing must go through association demux so
+ * public engine13 is restored on 1.3 commit (not only UDP onData).
+ */
+test("e2e/dual: carrier.inject of 1.3 SH during probing commits via association", async () => {
+  // Arrange: custom carrier; hold server TX; HVR → probing; inject SH via carrier
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const clientCarrier = new DirectHandshakeCarrier(clientTransport, {
+    mtu: 1200,
+  });
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+    addressValidation: "none",
+  });
+  const client = createDtlsClientInternal({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+    addressValidation: "none",
+    handshakeCarrier: clientCarrier,
+  });
+
+  const heldServerTx: { buf: Buffer; addr?: any }[] = [];
+  let releaseServer = false;
+  const origServerSend = serverTransport.send.bind(serverTransport);
+  serverTransport.send = async (buf: Buffer, addr?: any) => {
+    if (!releaseServer) {
+      heldServerTx.push({ buf: Buffer.from(buf), addr });
+      return;
+    }
+    return origServerSend(buf, addr);
+  };
+
+  let clientSends = 0;
+  const origClientSend = clientTransport.send.bind(clientTransport);
+  clientTransport.send = async (buf: Buffer, addr?: any) => {
+    clientSends += 1;
+    if (clientSends === 1) {
+      await origClientSend(buf, addr);
+      for (let i = 0; i < 50 && heldServerTx.length === 0; i++) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      expect(heldServerTx.length).toBeGreaterThan(0);
+      const shFlight = heldServerTx.splice(0);
+      injectHvr(clientTransport, serverTransport);
+      for (let i = 0; i < 50; i++) {
+        if ((client as any).dualPhase === "probing") break;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      expect((client as any).dualPhase).toBe("probing");
+      expect((client as any).engine13).toBeUndefined();
+      expect(client.isDtls13).toBe(false);
+
+      // Act: deliver 1.3 response via carrier.inject (not UDP onData)
+      // — association demux must unpark and set engine13
+      releaseServer = true;
+      for (const pkt of shFlight) {
+        clientCarrier.inject(
+          pkt.buf,
+          clientFacingServerPeer(serverTransport),
+        );
+      }
+      return;
+    }
+    return origClientSend(buf, addr);
+  };
+
+  await new Promise<void>(async (resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("carrier.inject dual commit timeout")),
+      20_000,
+    );
+    client.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    server.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    client.onConnect.subscribe(() => {
+      try {
+        // Assert: public socket owns the 1.3 engine after association demux
+        expect(client.isDtls13).toBe(true);
+        expect((client as any).engine13).toBeTruthy();
+        expect((client as any).dualPhase).toBe("committed13");
+        expect((client as any).parkedEngine13).toBeUndefined();
+        const eng = (client as any).engine13;
+        expect(eng.getHandshakeCarrier()).toBe(clientCarrier);
+        void client.send(Buffer.from("inject-demux"));
+      } catch (e) {
+        clearTimeout(timer);
+        reject(e);
+      }
+    });
+    server.onData.subscribe((d) => {
+      try {
+        expect(d.toString()).toBe("inject-demux");
+        clearTimeout(timer);
+        resolve();
+      } catch (e) {
+        clearTimeout(timer);
+        reject(e);
+      }
+    });
+    await client.connect();
+  });
+
+  client.close();
+  server.close();
+}, 25_000);

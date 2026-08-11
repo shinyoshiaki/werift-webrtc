@@ -155,7 +155,13 @@ export class DtlsClient extends DtlsSocket {
         this.engine13 = undefined;
         this.dualPhase = "probing";
         this.connected = false;
+        // Association owns RX demux: both UDP onData and carrier.inject.
+        // Leaving inject bound to the parked engine would let Epic 2 SPED
+        // complete 1.3 while public engine13 stays undefined.
         this.transport.socket.onData = this.udpOnMessage;
+        engine.bindInjectToAssociation((bytes, peer) =>
+          this.associationInject(bytes, peer),
+        );
         this.dtls = new (this.dtls.constructor as any)(
           this.options,
           this.sessionType,
@@ -176,6 +182,73 @@ export class DtlsClient extends DtlsSocket {
         );
       });
     }
+  }
+
+  /**
+   * Hard-close every DTLS 1.3 candidate owned by this association (active
+   * engine13 and/or parked dual probe). Cancels RTO timers and pending flights.
+   */
+  private closeAllDtls13Candidates(): void {
+    const candidates = new Set<Dtls13Connection>();
+    if (this.engine13) candidates.add(this.engine13);
+    if (this.parkedEngine13) candidates.add(this.parkedEngine13);
+    this.engine13 = undefined;
+    this.parkedEngine13 = undefined;
+    this.dualResume = undefined;
+    if (this.dualPhase === "probing") {
+      this.dualPhase = "none";
+    }
+    for (const eng of candidates) {
+      if (!eng.isClosed()) {
+        eng.close();
+      }
+    }
+  }
+
+  /**
+   * Public close: tear down all dual candidates first so parked CH-A RTO cannot
+   * fire after the association is closed (carrier timer cancel requirement).
+   */
+  close() {
+    // Stop dual Flight1 retransmit if probing (1.2 cookie path).
+    this.dtls.flight = 99;
+    const had13Candidate = !!(this.engine13 || this.parkedEngine13);
+    this.closeAllDtls13Candidates();
+    this.connected = false;
+    if (had13Candidate) {
+      // Candidate close() already closed the UDP transport.
+      return;
+    }
+    this.transport.socket.close();
+  }
+
+  /**
+   * carrier.inject / dual demux entry: same path as UDP onData so 1.3 SH/HRR
+   * commits via association (restores engine13) rather than a silent park complete.
+   */
+  private associationInject(
+    bytes: Buffer,
+    peer?: [string, number] | { address?: string; port?: number } | string,
+  ): void {
+    if (peer != null) {
+      const t = this.options.transport as {
+        rinfo?: { address?: string; port?: number };
+      };
+      if (Array.isArray(peer)) {
+        t.rinfo = { address: peer[0], port: peer[1] };
+      } else if (typeof peer === "string") {
+        const i = peer.lastIndexOf(":");
+        if (i > 0) {
+          t.rinfo = {
+            address: peer.slice(0, i),
+            port: Number(peer.slice(i + 1)),
+          };
+        }
+      } else if (peer.address != null && peer.port != null) {
+        t.rinfo = { address: peer.address, port: peer.port };
+      }
+    }
+    this.udpOnMessage(Buffer.from(bytes));
   }
 
   /** Commit dual probe to DTLS 1.2: stop 1.3 candidate and alert suppression. */

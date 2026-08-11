@@ -221,8 +221,8 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
   }
 
   /**
-   * Leave dual-probe park and re-own transport RX after association commits
-   * to DTLS 1.3 (genuine SH/HRR for the original CH-A).
+   * Leave dual-probe park and re-own transport RX + carrier inject after
+   * association commits to DTLS 1.3 (genuine SH/HRR for the original CH-A).
    */
   unparkFromDualProbe(): void {
     this.dualProbeParked = false;
@@ -235,6 +235,25 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
     );
     this.options.transport.onData = (data, addr) =>
       self.handleDatagram(data, addr as [string, number] | undefined);
+  }
+
+  /**
+   * Dual probing: point carrier.inject at the association demux so SPED /
+   * custom carriers do not bypass DtlsClient (which would complete 1.3 on the
+   * parked engine while public engine13 stays undefined).
+   */
+  bindInjectToAssociation(
+    handler: (
+      bytes: Buffer,
+      peer?: [string, number] | { address?: string; port?: number } | string,
+    ) => void,
+  ): void {
+    this.carrier.setInjectHandler(handler);
+  }
+
+  /** Handshake carrier (default or injected). Used by association dual demux. */
+  getHandshakeCarrier() {
+    return this.carrier;
   }
 
   /** True while dual-probing after HVR (CH-A retransmit still active). */
