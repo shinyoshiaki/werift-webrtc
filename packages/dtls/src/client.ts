@@ -26,7 +26,7 @@ import { ServerHello } from "./handshake/message/server/hello";
 import { ServerHelloVerifyRequest } from "./handshake/message/server/helloVerifyRequest";
 import { DtlsRandom } from "./handshake/random";
 import { debug } from "./imports/common";
-import { ContentType } from "./record/const";
+import { AlertDesc, ContentType } from "./record/const";
 import type { FragmentedHandshake } from "./record/message/fragment";
 import { serializePlaintextRecord } from "./record/v1_3/record";
 import { type DtlsInternalOptions, DtlsSocket, type Options } from "./socket";
@@ -43,20 +43,41 @@ import {
 
 const log = debug("werift-dtls : packages/dtls/src/client.ts : log");
 
+/**
+ * Dual-stack association phase after HVR may open a parallel 1.2 cookie path
+ * while a 1.3 CH-A candidate is still alive.
+ * - none: not dual-probing
+ * - probing: 1.3 candidate (+ optional parked engine retransmit) and 1.2 cookie path
+ * - committed12 / committed13: version finalized; alert suppression off
+ */
+type DualPhase = "none" | "probing" | "committed12" | "committed13";
+
 export class DtlsClient extends DtlsSocket {
   /**
-   * Dual association active: ClientHello still advertises all configured
-   * versions in `supported_versions` preference order. Final version is
-   * confirmed by ServerHello (1.3 resume or 1.2 + DOWNGRD check), never by
-   * unauthenticated HelloVerifyRequest alone.
+   * Dual association phase. Final version is confirmed by ServerHello
+   * (1.3 commit or 1.2 + DOWNGRD check), never by unauthenticated HVR alone.
    */
-  private dualCookiePath = false;
+  private dualPhase: DualPhase = "none";
 
   /**
-   * Last dual-negotiation ClientHello + ECDHE key material so a later
-   * DTLS 1.3 ServerHello/HRR can prime a fresh 1.3 engine without re-sending CH.
+   * @deprecated Use dualPhase === "probing". Kept for internal/tests that still
+   * read dualCookiePath via casting.
+   */
+  private get dualCookiePath(): boolean {
+    return this.dualPhase === "probing";
+  }
+
+  /**
+   * Original dual ClientHello + ECDHE material for 1.3 resume / retransmit.
+   * Cleared when committed to 1.2 or 1.3.
    */
   private dualResume?: DualResumeClientHello;
+
+  /**
+   * Parked 1.3 engine after HVR: keeps CH-A retransmit (RFC 9147) while the
+   * association probes the 1.2 cookie path.
+   */
+  private parkedEngine13?: Dtls13Connection;
 
   /** Public constructor — accepts stable {@link Options} only. */
   constructor(options: Options) {
@@ -68,17 +89,12 @@ export class DtlsClient extends DtlsSocket {
     const dual =
       supportsVersion(versions, DtlsVersion.V1_3) &&
       supportsVersion(versions, DtlsVersion.V1_2);
-    // protocolVersions[0] is highest local preference (shared selectVersion semantics).
+    // normalizeProtocolVersions maps [1.2,1.3] → [1.3,1.2]; dual always 1.3-first.
     const prefer13 = versions[0] === DtlsVersion.V1_3;
 
-    // Pure 1.3, or dual with 1.3 preferred: start 1.3 engine; CH advertises full list.
-    // Dual with 1.2 preferred: stay on association dual-CH path (no pure-1.3 engine first).
+    // Pure 1.3 or dual [1.3,1.2]: start 1.3 engine; CH advertises full list.
     if (only13 || (dual && prefer13)) {
       this.startEngine13(only13, versions);
-    } else if (dual && !prefer13) {
-      // [V1_2, V1_3]: dual CH on 1.2 carrier; ServerHello decides 1.2 vs 1.3 resume.
-      this.dualCookiePath = true;
-      this.setupExtensionsForDualCookiePath();
     }
 
     log(this.dtls.sessionId, "start client", {
@@ -115,14 +131,14 @@ export class DtlsClient extends DtlsSocket {
     this.bridgeEngine13(engine, {
       filterError: (e) =>
         dualCanContinue12 &&
-        !this.dualCookiePath &&
+        this.dualPhase === "none" &&
         e instanceof DtlsVersionSelected &&
         e.version === DtlsVersion.V1_2,
     });
 
     if (dualCanContinue12) {
       engine.onError.subscribe((e) => {
-        if (this.dualCookiePath) return;
+        if (this.dualPhase !== "none") return;
         if (
           !(e instanceof DtlsVersionSelected) ||
           e.version !== DtlsVersion.V1_2
@@ -130,16 +146,15 @@ export class DtlsClient extends DtlsSocket {
           return;
         }
         log(
-          "dual association: HVR → dual negotiation path (still offer 1.3 until ServerHello)",
+          "dual association: HVR → probing (1.3 CH-A park + 1.2 cookie path)",
           e.message,
         );
-        this.dualCookiePath = true;
-        this.engine13 = undefined;
-        this.connected = false;
-        // Capture CH1 before release so we re-send the same random + cookie
-        // (flight2 already bound remoteRandom to that CH).
+        // Engine already parked via tryParkDualProbe (CH-A retransmit kept).
         this.dualResume = engine.exportDualResumeClientHello();
-        engine.releaseForVersionFallback();
+        this.parkedEngine13 = engine;
+        this.engine13 = undefined;
+        this.dualPhase = "probing";
+        this.connected = false;
         this.transport.socket.onData = this.udpOnMessage;
         this.dtls = new (this.dtls.constructor as any)(
           this.options,
@@ -160,6 +175,20 @@ export class DtlsClient extends DtlsSocket {
           ),
         );
       });
+    }
+  }
+
+  /** Commit dual probe to DTLS 1.2: stop 1.3 candidate and alert suppression. */
+  private commitDualTo12(): void {
+    if (this.dualPhase === "committed12" || this.dualPhase === "committed13") {
+      return;
+    }
+    log("dual association: commit DTLS 1.2");
+    this.dualPhase = "committed12";
+    this.dualResume = undefined;
+    if (this.parkedEngine13) {
+      this.parkedEngine13.releaseForVersionFallback();
+      this.parkedEngine13 = undefined;
     }
   }
 
@@ -344,12 +373,39 @@ export class DtlsClient extends DtlsSocket {
   }
 
   /**
-   * Dual path: ServerHello selected DTLS 1.3 — prime a new 1.3 engine from the
-   * dual CH already sent and reinject the full datagram (SH/HRR + any coalesced
-   * records).
+   * Dual path: ServerHello/HRR selected DTLS 1.3 — prefer unparking the parked
+   * CH-A engine (keeps transcript continuity); else prime a fresh engine from
+   * dualResume and reinject the datagram.
    */
   private resumeDtls13FromDualPath(datagram: Buffer): void {
-    if (!this.dualResume) {
+    // Stop 1.2 Flight1 retransmit by advancing flight only — never set fatalError
+    // for a successful version commit (would surface as delayed public onError).
+    this.dtls.flight = 99;
+    this.dualPhase = "committed13";
+
+    const rinfo = (
+      this.options.transport as {
+        rinfo?: { address?: string; port?: number };
+      }
+    ).rinfo;
+
+    const parked = this.parkedEngine13;
+    this.parkedEngine13 = undefined;
+    const material = this.dualResume;
+    this.dualResume = undefined;
+
+    if (parked && !parked.isClosed()) {
+      log(
+        "dual association: ServerHello selected DTLS 1.3 — unpark parked engine",
+      );
+      parked.unparkFromDualProbe();
+      // Events already bridged at startEngine13; re-own public engine13 handle.
+      this.engine13 = parked;
+      parked.injectDatagram(datagram, rinfo);
+      return;
+    }
+
+    if (!material) {
       this.onError.execute(
         new ProtocolVersionError(
           "dual path selected DTLS 1.3 but dual ClientHello material is missing",
@@ -357,11 +413,10 @@ export class DtlsClient extends DtlsSocket {
       );
       return;
     }
-    // Stop 1.2 Flight1 retransmit by advancing flight only — never set fatalError
-    // for a successful version commit (would surface as delayed public onError).
-    this.dtls.flight = 99;
 
-    log("dual association: ServerHello selected DTLS 1.3 — resume 1.3 engine");
+    log(
+      "dual association: ServerHello selected DTLS 1.3 — resume 1.3 engine from dualResume",
+    );
     const engine = new Dtls13Connection(
       {
         transport: this.options.transport,
@@ -383,16 +438,9 @@ export class DtlsClient extends DtlsSocket {
     );
     // Prime with original CH-A (pre-cookie) so transcript/ECDHE match the
     // server response for the first dual ClientHello, not a post-HVR rewrite.
-    engine.primeFromSentClientHello(this.dualResume);
+    engine.primeFromSentClientHello(material);
     this.bridgeEngine13(engine);
-    this.dualCookiePath = false;
-    this.dualResume = undefined;
     // Full datagram reinject so coalesced epoch-2 records are not lost
-    const rinfo = (
-      this.options.transport as {
-        rinfo?: { address?: string; port?: number };
-      }
-    ).rinfo;
     engine.injectDatagram(datagram, rinfo);
   }
 
@@ -401,8 +449,8 @@ export class DtlsClient extends DtlsSocket {
       await this.engine13.connect();
       return;
     }
-    // Dual [V1_2, V1_3] (or post-HVR dual path): send dual CH, not pure 1.2 Flight1
-    if (this.dualCookiePath) {
+    // Probing dual path (post-HVR): send dual CH, not pure 1.2 Flight1
+    if (this.dualPhase === "probing") {
       await this.sendDualNegotiationClientHello();
       return;
     }
@@ -454,9 +502,9 @@ export class DtlsClient extends DtlsSocket {
               return;
             }
 
-            // Dual cookie path: prefer 1.3 if ServerHello selects it (should
+            // Dual probing: prefer 1.3 if ServerHello selects it (should
             // normally be handled at udpOnMessage reinject; keep as safety net).
-            if (this.dualCookiePath) {
+            if (this.dualPhase === "probing") {
               try {
                 const sh = ServerHello.deSerialize(handshake.fragment);
                 const versionsExt = sh.extensions.find(
@@ -489,10 +537,10 @@ export class DtlsClient extends DtlsSocket {
               }
             }
 
-            // Dual cookie path: 1.2 ServerHello while we still offered 1.3 —
+            // Dual / dual-capable: 1.2 ServerHello while we still offered 1.3 —
             // enforce RFC 8446 / 9147 downgrade sentinel check.
             if (
-              this.dualCookiePath ||
+              this.dualPhase === "probing" ||
               supportsVersion(this.protocolVersions, DtlsVersion.V1_3)
             ) {
               try {
@@ -524,6 +572,12 @@ export class DtlsClient extends DtlsSocket {
                 }
                 // fall through to normal 1.2 handling if parse issues
               }
+            }
+
+            // Legitimate 1.2 ServerHello: leave dual probing so fatal alerts
+            // (and the rest of the 1.2 handshake) are no longer suppressed.
+            if (this.dualPhase === "probing") {
+              this.commitDualTo12();
             }
 
             this.flight5 = new Flight5(
@@ -572,17 +626,16 @@ export class DtlsClient extends DtlsSocket {
   };
 
   /**
-   * Override UDP RX: while dualCookiePath is active, detect DTLS 1.3 selection
-   * and resume the 1.3 engine before the 1.2 parser consumes the datagram.
-   *
-   * Also ignore unauthenticated fatal alerts while dualResume is still open:
-   * a dual 1.3 server may reject the post-HVR legacy-cookie ClientHello
-   * (RFC 9147: legacy_cookie must be empty) without that killing the still-
-   * valid CH-A → 1.3 path.
+   * Override UDP RX while dual-probing:
+   * - DTLS 1.3 SH/HRR → commit 1.3 (unpark or prime)
+   * - Only suppress epoch-0 illegal_parameter alerts (typical dual-1.3
+   *   reaction to non-empty legacy_cookie). Other fatal alerts (e.g.
+   *   handshake_failure from a real 1.2 server) surface immediately.
+   * - After commit to 1.2/1.3, no alert suppression.
    */
   protected udpOnMessage = (data: Buffer) => {
     if (
-      this.dualCookiePath &&
+      this.dualPhase === "probing" &&
       !this.engine13 &&
       this.datagramSelectsDtls13(data)
     ) {
@@ -590,13 +643,12 @@ export class DtlsClient extends DtlsSocket {
       return;
     }
     if (
-      this.dualCookiePath &&
-      this.dualResume &&
+      this.dualPhase === "probing" &&
       !this.engine13 &&
-      this.datagramIsUnauthenticatedFatalAlert(data)
+      this.datagramIsIllegalParameterAlert(data)
     ) {
       log(
-        "dual association: ignore unauthenticated alert while dualResume open",
+        "dual probing: ignore illegal_parameter alert (likely legacy_cookie vs DTLS 1.3)",
       );
       return;
     }
@@ -604,10 +656,11 @@ export class DtlsClient extends DtlsSocket {
   };
 
   /**
-   * Epoch-0 fatal Alert record (e.g. illegal_parameter from a dual 1.3 server
-   * that rejected a legacy-cookie ClientHello). Not authenticated.
+   * Epoch-0 fatal illegal_parameter (47) only — used while dual-probing to
+   * ignore DTLS 1.3 servers rejecting a non-empty legacy_cookie ClientHello.
+   * Must not swallow handshake_failure / other actionable 1.2 alerts.
    */
-  private datagramIsUnauthenticatedFatalAlert(data: Buffer): boolean {
+  private datagramIsIllegalParameterAlert(data: Buffer): boolean {
     try {
       if (data.length < 15) return false;
       const contentType = data[0];
@@ -615,8 +668,8 @@ export class DtlsClient extends DtlsSocket {
       const contentLen = data.readUInt16BE(11);
       if (contentLen < 2 || 13 + contentLen > data.length) return false;
       const level = data[13];
-      // TLS alert: level 2 = fatal (also treat unknown high levels as fatal)
-      return level >= 2;
+      const description = data[14];
+      return level >= 2 && description === AlertDesc.IllegalParameter;
     } catch {
       return false;
     }

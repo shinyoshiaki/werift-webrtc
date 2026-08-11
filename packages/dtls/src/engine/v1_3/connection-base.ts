@@ -28,6 +28,7 @@ import {
   DtlsVersion,
   ProtocolVersionError,
   normalizeProtocolVersions,
+  supportsVersion,
 } from "../../version";
 import { HandshakeTranscript } from "./transcript";
 import {
@@ -163,6 +164,11 @@ export abstract class Dtls13ConnectionBase {
   protected retransmitCount = 0;
   protected readonly maxRetransmit = 10;
   protected closed = false;
+  /**
+   * Dual-stack HVR probe: engine stays open with CH-A retransmit while the
+   * association also runs the DTLS 1.2 cookie candidate. Not a hard fail.
+   */
+  protected dualProbeParked = false;
   protected remoteCert?: Buffer;
   protected serverFlightComplete = false;
   protected clientExpectsServerFlight = false;
@@ -847,8 +853,35 @@ export abstract class Dtls13ConnectionBase {
     this.earlyAppDataBytes = 0;
   }
 
+  /**
+   * Dual HVR: park for parallel 1.2 cookie probe without killing CH-A retransmit.
+   * Returns true when the error was handled as a soft dual probe (not a hard fail).
+   */
+  protected tryParkDualProbe(err: Error): boolean {
+    if (this.role !== "client" || this.closed || this.dualProbeParked) {
+      return false;
+    }
+    const isDualHvr =
+      err.name === "DtlsVersionSelected" ||
+      (err as { code?: string }).code === "version_selected";
+    if (!isDualHvr) return false;
+    if (!supportsVersion(this.offeredProtocolVersions, DtlsVersion.V1_2)) {
+      return false;
+    }
+    // Keep pendingFlight + retransmit timers so original CH-A is still RTO'd
+    // (RFC 9147: lost HRR/SH is recovered by ClientHello retransmit).
+    this.dualProbeParked = true;
+    this.connected = false;
+    log("dual probe park: keep CH-A retransmit, signal association", err.message);
+    this.onError.execute(err);
+    return true;
+  }
+
   protected fail(err: Error) {
     if (this.closed) return;
+    // Dual HVR with 1.2 fallback offered: park rather than tear down CH-A.
+    if (this.tryParkDualProbe(err)) return;
+
     log("fail", err.message);
     // Always stop timers / pending retransmits and refuse further 1.3 RX
     this.clearPendingFlight();
@@ -858,14 +891,14 @@ export abstract class Dtls13ConnectionBase {
     this.carrier.cancelAllTimers();
     this.closed = true;
     this.connected = false;
+    this.dualProbeParked = false;
     this.onError.execute(err);
 
-    // Protocol-version soft fail / dual version selection: keep UDP socket open
-    // so association can rebind onData and continue as DTLS 1.2 on the same Transport.
+    // Protocol-version soft fail: keep UDP socket open so association can
+    // rebind onData and continue as DTLS 1.2 on the same Transport.
     const softVersion =
       err instanceof ProtocolVersionError ||
       err.name === "ProtocolVersionError" ||
-      err.name === "DtlsVersionSelected" ||
       (err as { code?: string }).code === "version_selected";
     if (softVersion) {
       return;

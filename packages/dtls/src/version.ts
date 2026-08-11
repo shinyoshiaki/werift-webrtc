@@ -40,7 +40,6 @@ export function normalizeProtocolVersions(
   }
   // Preserve order (priority) while de-duplicating.
   // Order is preference: first entry is highest priority for selectVersion().
-  // Both [V1_3, V1_2] and [V1_2, V1_3] are valid dual-stack configurations.
   const seen = new Set<DtlsVersion>();
   const out: DtlsVersion[] = [];
   for (const v of versions) {
@@ -48,6 +47,17 @@ export function normalizeProtocolVersions(
       seen.add(v);
       out.push(v);
     }
+  }
+  // Dual-stack is only [V1_3, V1_2] (prefer 1.3, fall back to 1.2-only peers).
+  // [V1_2, V1_3] cannot complete dual×dual under RFC 8446/9147 DOWNGRD: a
+  // 1.3-capable server that selects 1.2 must set the sentinel and a dual client
+  // must abort. Normalize 1.2-first dual to the only supported dual order.
+  if (
+    out.length === 2 &&
+    out[0] === DtlsVersion.V1_2 &&
+    out[1] === DtlsVersion.V1_3
+  ) {
+    return [DtlsVersion.V1_3, DtlsVersion.V1_2];
   }
   return out;
 }

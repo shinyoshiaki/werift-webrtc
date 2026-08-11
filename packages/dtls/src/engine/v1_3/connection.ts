@@ -204,6 +204,9 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
    * permanently closing the carrier. Injected carriers (Epic 2) must remain
    * reusable when the association resumes a fresh 1.3 engine on the same
    * instance. Hard close() is only for association teardown.
+   *
+   * Prefer {@link parkForDualProbe} / unpark when HVR starts a dual probe so
+   * original CH-A retransmit continues (RFC 9147 loss recovery).
    */
   releaseForVersionFallback(): void {
     this.clearPendingFlight();
@@ -213,7 +216,30 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
     // Detach inject so this dead engine no longer receives SPED reinjects.
     // Do NOT carrier.close() — soft transition must not kill shared carriers.
     this.carrier.setInjectHandler(() => {});
+    this.dualProbeParked = false;
     this.closed = true;
+  }
+
+  /**
+   * Leave dual-probe park and re-own transport RX after association commits
+   * to DTLS 1.3 (genuine SH/HRR for the original CH-A).
+   */
+  unparkFromDualProbe(): void {
+    this.dualProbeParked = false;
+    this.closed = false;
+    const self = this as this & {
+      handleDatagram: (data: Buffer, addr?: any) => void;
+    };
+    this.carrier.setInjectHandler((bytes, peer) =>
+      self.handleDatagram(bytes, peer),
+    );
+    this.options.transport.onData = (data, addr) =>
+      self.handleDatagram(data, addr as [string, number] | undefined);
+  }
+
+  /** True while dual-probing after HVR (CH-A retransmit still active). */
+  isDualProbeParked(): boolean {
+    return this.dualProbeParked;
   }
 
   /**

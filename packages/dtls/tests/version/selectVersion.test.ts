@@ -32,14 +32,14 @@ describe("selectVersion (association layer)", () => {
     expect(v).toBe(DtlsVersion.V1_2);
   });
 
-  test("normalizeProtocolVersions preserves preference order for both dual patterns", () => {
-    // Arrange / Act / Assert: 順序 = 優先順位、両 dual を受理
+  test("normalizeProtocolVersions: dual is [1.3,1.2] only; [1.2,1.3] normalizes", () => {
+    // Arrange / Act / Assert: 唯一の dual は 1.3 優先。1.2-first は DOWNGRD 非両立のため正規化
     expect(
       normalizeProtocolVersions([DtlsVersion.V1_3, DtlsVersion.V1_2]),
     ).toEqual([DtlsVersion.V1_3, DtlsVersion.V1_2]);
     expect(
       normalizeProtocolVersions([DtlsVersion.V1_2, DtlsVersion.V1_3]),
-    ).toEqual([DtlsVersion.V1_2, DtlsVersion.V1_3]);
+    ).toEqual([DtlsVersion.V1_3, DtlsVersion.V1_2]);
     expect(normalizeProtocolVersions([DtlsVersion.V1_3])).toEqual([
       DtlsVersion.V1_3,
     ]);

@@ -4,7 +4,7 @@ import { DtlsClient, DtlsServer, DtlsVersion } from "../../src";
 import { DirectHandshakeCarrier } from "../../src/carrier/direct";
 import { ServerHelloVerifyRequest } from "../../src/handshake/message/server/helloVerifyRequest";
 import { createDtlsClientInternal } from "../../src/internal";
-import { ContentType } from "../../src/record/const";
+import { AlertDesc, ContentType } from "../../src/record/const";
 import { serializePlaintextRecord } from "../../src/record/v1_3/record";
 import { certPem, keyPem } from "../fixture";
 
@@ -130,12 +130,16 @@ async function setupChAThenSpoofedHvr(opts?: {
       holdPostHvrClientTx = true;
       injectHvr(clientTransport, serverTransport);
       for (let i = 0; i < 50; i++) {
-        if ((client as any).dualCookiePath && !(client as any).engine13) break;
+        if ((client as any).dualPhase === "probing" && !(client as any).engine13)
+          break;
         await new Promise((r) => setTimeout(r, 10));
       }
-      expect((client as any).dualCookiePath).toBe(true);
+      expect((client as any).dualPhase).toBe("probing");
       expect((client as any).engine13).toBeUndefined();
       expect((client as any).dualResume).toBeTruthy();
+      // Parked engine keeps CH-A retransmit for RFC 9147 loss recovery
+      expect((client as any).parkedEngine13).toBeTruthy();
+      expect((client as any).parkedEngine13.isDualProbeParked()).toBe(true);
       // 4) Release CH-A 向け server flight first; dual cookie CH stays held.
       //    1.3 resume will stop Flight1 (flight=99) so held cookie CH is obsolete.
       heldServerTx.length = 0;
@@ -353,11 +357,12 @@ test("e2e/dual: injected carrier survives HVR soft fallback → 1.3 resume", asy
       holdPostHvrClientTx = true;
       injectHvr(clientTransport, serverTransport);
       for (let i = 0; i < 50; i++) {
-        if ((client as any).dualCookiePath && !(client as any).engine13) break;
+        if ((client as any).dualPhase === "probing" && !(client as any).engine13)
+          break;
         await new Promise((r) => setTimeout(r, 10));
       }
-      expect((client as any).dualCookiePath).toBe(true);
-      // Soft release must not permanently close the injected carrier
+      expect((client as any).dualPhase).toBe("probing");
+      // Soft park must not permanently close the injected carrier
       expect(clientCarrier.isClosed()).toBe(false);
       heldServerTx.length = 0;
       releaseServerTx = true;
@@ -488,3 +493,222 @@ test("e2e/dual: HVR path still falls back to pure 1.2 server", async () => {
     await client.connect();
   });
 }, 25_000);
+
+/**
+ * P1: genuine 1.2 fatal alert during dual probing must surface immediately
+ * (not only after retransmission timeout). Only illegal_parameter is suppressed.
+ */
+test("e2e/dual: genuine 1.2 handshake_failure during probing fires onError immediately", async () => {
+  // Arrange: dual client × pure 1.2 server。HVR 後 probing に入り、
+  // 正当な handshake_failure を注入したら即 onError すること。
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const { HashAlgorithm, SignatureAlgorithm } = await import(
+    "../../src/cipher/const"
+  );
+  const sig = {
+    hash: HashAlgorithm.sha256_4,
+    signature: SignatureAlgorithm.rsa_1,
+  };
+
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_2],
+  });
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+  });
+
+  // After server HVR, drop further server TX and inject handshake_failure
+  let sawClientCookieCh = false;
+  const origServerSend = serverTransport.send.bind(serverTransport);
+  serverTransport.send = async (buf: Buffer, addr?: any) => {
+    // First server messages include HVR — deliver them
+    if (!sawClientCookieCh) {
+      return origServerSend(buf, addr);
+    }
+    // After probing cookie CH, suppress real SH and inject fatal instead
+    return;
+  };
+
+  const origClientSend = clientTransport.send.bind(clientTransport);
+  let clientSends = 0;
+  clientTransport.send = async (buf: Buffer, addr?: any) => {
+    clientSends += 1;
+    await origClientSend(buf, addr);
+    // After dual probing starts, client will send cookie CH (2nd+ flight)
+    if ((client as any).dualPhase === "probing" && clientSends >= 2) {
+      sawClientCookieCh = true;
+      // Act: inject genuine 1.2-style fatal handshake_failure (not illegal_parameter)
+      const alertBody = Buffer.from([2, AlertDesc.HandshakeFailure]);
+      const alertPkt = serializePlaintextRecord(
+        ContentType.alert,
+        0,
+        0,
+        alertBody,
+      );
+      queueMicrotask(() => {
+        clientTransport.onData?.(
+          alertPkt,
+          clientFacingServerPeer(serverTransport),
+        );
+      });
+    }
+  };
+
+  const t0 = Date.now();
+  const err = await new Promise<Error>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("expected immediate onError on handshake_failure")),
+      5_000,
+    );
+    client.onError.subscribe((e) => {
+      clearTimeout(timer);
+      resolve(e);
+    });
+    client.onConnect.subscribe(() => {
+      clearTimeout(timer);
+      reject(new Error("must not connect after handshake_failure"));
+    });
+    void client.connect();
+  });
+
+  // Assert: 即時失敗（RTO 待ちにしない）
+  expect(Date.now() - t0).toBeLessThan(3_000);
+  expect(err.message).toMatch(/alert|handshake|fatal/i);
+  expect((client as any).dualPhase).toBe("probing"); // never committed-12 via SH
+
+  client.close();
+  server.close();
+}, 10_000);
+
+/**
+ * P2: when genuine CH-A HRR/SH is lost after HVR, parked engine must still
+ * retransmit original CH-A so the 1.3 handshake can recover.
+ */
+test("e2e/dual: lost CH-A response after HVR recovers via CH-A retransmit", async () => {
+  // Arrange:
+  // 1) CH-A → server
+  // 2) drop server's first response(s)
+  // 3) spoofed HVR → dual probing (park keeps CH-A RTO)
+  // 4) allow later server responses from CH-A retransmit
+  // 5) DTLS 1.3 connects
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+    // dtls-cookie: first reply is HRR; retransmitted CH-A can mint a fresh HRR
+  });
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+  });
+
+  const errors: Error[] = [];
+  client.onError.subscribe((e) => errors.push(e));
+  server.onError.subscribe((e) => errors.push(e));
+
+  let clientHelloCount = 0;
+  let dropServerUntilChaRetransmit = true;
+  let chaRetransmitSeen = false;
+  const firstChaBodies: Buffer[] = [];
+
+  const origClientSend = clientTransport.send.bind(clientTransport);
+  clientTransport.send = async (buf: Buffer, addr?: any) => {
+    // Count epoch-0 ClientHello-looking handshake records (msg type 1)
+    if (buf.length >= 14 && buf[0] === ContentType.handshake && buf[13] === 1) {
+      clientHelloCount += 1;
+      if (clientHelloCount === 1) {
+        firstChaBodies.push(Buffer.from(buf));
+      } else if (
+        (client as any).dualPhase === "probing" &&
+        firstChaBodies[0] &&
+        buf.equals(firstChaBodies[0])
+      ) {
+        // Act: original CH-A retransmitted (same wire bytes, empty legacy cookie)
+        chaRetransmitSeen = true;
+        dropServerUntilChaRetransmit = false;
+      }
+    }
+    if (clientHelloCount === 1) {
+      await origClientSend(buf, addr);
+      // Inject HVR after CH-A is on the wire; first server response stays dropped
+      queueMicrotask(() => {
+        injectHvr(clientTransport, serverTransport);
+      });
+      return;
+    }
+    return origClientSend(buf, addr);
+  };
+
+  const origServerSend = serverTransport.send.bind(serverTransport);
+  serverTransport.send = async (buf: Buffer, addr?: any) => {
+    if (dropServerUntilChaRetransmit) {
+      // Drop first genuine SH/HRR for CH-A (and any illegal_parameter for cookie CH)
+      return;
+    }
+    return origServerSend(buf, addr);
+  };
+
+  await new Promise<void>(async (resolve, reject) => {
+    const timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            `CH-A retransmit recovery timeout (chaRetransmit=${chaRetransmitSeen}, dualPhase=${(client as any).dualPhase})`,
+          ),
+        ),
+      25_000,
+    );
+    client.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    server.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    client.onConnect.subscribe(() => {
+      try {
+        expect(client.isDtls13).toBe(true);
+        expect(server.isDtls13).toBe(true);
+        expect(chaRetransmitSeen).toBe(true);
+        void client.send(Buffer.from("cha-rto-ok"));
+      } catch (e) {
+        clearTimeout(timer);
+        reject(e);
+      }
+    });
+    server.onData.subscribe((d) => {
+      try {
+        expect(d.toString()).toBe("cha-rto-ok");
+        clearTimeout(timer);
+        resolve();
+      } catch (e) {
+        clearTimeout(timer);
+        reject(e);
+      }
+    });
+    await client.connect();
+  });
+
+  expect(errors).toEqual([]);
+  client.close();
+  server.close();
+}, 30_000);

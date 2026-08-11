@@ -48,7 +48,7 @@ export class DtlsServer extends DtlsSocket {
       supportsVersion(versions, DtlsVersion.V1_3) &&
       supportsVersion(versions, DtlsVersion.V1_2);
     // Pure DTLS 1.3 server: engine owns the transport from the start.
-    // Dual (either preference order) starts on 1.2 association path and
+    // Dual [1.3,1.2] (only dual order after normalize) starts on 1.2 association path and
     // dispatches to 1.3 only after selectVersion chooses V1_3.
     if (only13) {
       this.startEngine13();
