@@ -486,9 +486,12 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     }
 
     // Cookie HRR: message_seq 0; one-shot send to current peer only.
-    // Not retransmittable: unauthenticated sources must not occupy pending
-    // flight / exhaust maxRetransmit and fail() the shared server (RFC 9147
-    // stateless cookie exchange keeps no retransmit state for CH1).
+    // Must NOT be retransmittable: RFC 9147 stateless cookie — if HRR is lost,
+    // client retransmits CH1 and server mints a fresh cookie HRR against that
+    // CH's RX budget. Putting cookie HRR into global pendingFlight would:
+    //   - set pendingFlightReplyTo = A
+    //   - allow B's later CH to overwrite anti-amp counters
+    //   - retransmit HRR to A using B's budget (amplification / source mix-up)
     this.messageSeq = 0;
     const hrr = new ServerHello(
       WireVersion.DTLS_1_2,
@@ -515,7 +518,7 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     await this.sendHandshakeFlight(
       [frag],
       0,
-      false, // non-retransmittable
+      false, // non-retransmittable (stateless cookie; no RTO cache)
       this.currentPeerAddr,
     );
   }

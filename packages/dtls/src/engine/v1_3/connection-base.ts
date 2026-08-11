@@ -13,6 +13,7 @@ import { generateKeyPair } from "../../cipher/namedCurve";
 import { SessionType, type SessionTypes } from "../../cipher/suites/abstract";
 import { defaultKeySchedule } from "../../cipher/tls13/keySchedule";
 import { parseCertAndKey } from "../../cipher/tls13/signature";
+import { peerKeyFromAddr } from "../../handshake/extensions/cookie";
 import { DEFAULT_SIGNATURE_SCHEMES } from "../../handshake/extensions/signatureAlgorithms";
 import type { AckRecordNumber } from "../../handshake/message/tls13/ack";
 import { DtlsRandom } from "../../handshake/random";
@@ -232,6 +233,13 @@ export abstract class Dtls13ConnectionBase {
   protected addressValidated = false;
   protected bytesReceived = 0;
   protected bytesSent = 0;
+  /**
+   * Pre-cookie anti-amplification budget owner (peerKey).
+   * Unassociated RX resets the global counters for *this* source only — TX
+   * charged against that budget must target the same peer (never retransmit
+   * A's HRR using B's inflated RX).
+   */
+  protected antiAmpBudgetPeerKey?: string;
   /** Current peer key (ip:port) for cookie binding / address validation. */
   protected peerKey = "unknown";
   /**
@@ -604,6 +612,8 @@ export abstract class Dtls13ConnectionBase {
    * Unassociated (no provisional/pin): treat this datagram as a fresh
    * unauthenticated exchange — reset counters so attacker B cannot lock
    * budget, and each CH reply is budgeted only against that CH.
+   * The budget owner peerKey is recorded so TX/retransmit cannot charge
+   * another source's RX against a different destination.
    */
   protected accountCurrentDatagramForAntiAmp(): void {
     if (this.currentDatagramCounted) return;
@@ -611,6 +621,10 @@ export abstract class Dtls13ConnectionBase {
     if (!this.provisionalPeerKey && !this.pinnedPeerKey) {
       this.bytesReceived = this.currentDatagramBytes;
       this.bytesSent = 0;
+      this.antiAmpBudgetPeerKey =
+        this.currentPeerKey && this.currentPeerKey !== "unknown"
+          ? this.currentPeerKey
+          : undefined;
       this.currentDatagramCounted = true;
       return;
     }
@@ -629,6 +643,29 @@ export abstract class Dtls13ConnectionBase {
       this.addressValidation === "dtls-cookie" &&
       !this.addressValidated
     );
+  }
+
+  /**
+   * Pre-cookie: outbound bytes may only use budget owned by the destination.
+   * Prevents "TX to A, budget from B" after a second source overwrites counters.
+   */
+  protected antiAmpAllowsSendTo(
+    dest?: [string, number] | undefined,
+  ): boolean {
+    if (
+      this.role !== "server" ||
+      this.addressValidated ||
+      this.addressValidation !== "dtls-cookie"
+    ) {
+      return true;
+    }
+    if (!this.antiAmpBudgetPeerKey) {
+      // No owner yet (or unknown source) — deny amplification-sensitive TX
+      return false;
+    }
+    const destKey = peerKeyFromAddr(dest);
+    if (!destKey || destKey === "unknown") return false;
+    return destKey === this.antiAmpBudgetPeerKey;
   }
 
   protected prunePreCookieAttempts(now = Date.now()): void {

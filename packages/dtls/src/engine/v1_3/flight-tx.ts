@@ -94,14 +94,23 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
       datagramRecordGroups.push(currentRecs);
     }
 
+    // Explicit dest for one-shot responses; otherwise pin / retransmit reply-to
+    const sendAddr = dest ?? this.getSendAddr();
+
     // Anti-amplification: before address validation, send ≤ 3× received (strict).
     // No exception for "first datagram" — CH receipt must provide budget for HRR.
     // Retransmits also consume budget via consumeSendBudget().
+    // Pre-cookie: budget is owned by the RX source — never spend it toward another dest.
     if (
       this.role === "server" &&
       !this.addressValidated &&
       this.addressValidation === "dtls-cookie"
     ) {
+      if (!this.antiAmpAllowsSendTo(sendAddr)) {
+        throw new Error(
+          `anti-amplification: dest is not budget owner (owner=${this.antiAmpBudgetPeerKey} dest=${sendAddr?.[0]}:${sendAddr?.[1]})`,
+        );
+      }
       const budget =
         ANTI_AMPLIFICATION_FACTOR * this.bytesReceived - this.bytesSent;
       let allowed = Math.max(0, budget);
@@ -175,15 +184,19 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
         }
       }
       // Unpinned retransmit: remember reply-to for timer-driven resend
+      // (trusted / post-cookie only — pre-cookie cookie HRR is one-shot below)
       if (!this.peerAddr && this.currentPeerAddr) {
         this.pendingFlightReplyTo = [...this.currentPeerAddr];
       }
       this.retransmitCount = 0;
       this.scheduleRetransmit();
+    } else if (this.isPreCookieUnvalidatedServer()) {
+      // Stateless cookie HRR / one-shot pre-cookie replies: never leave global
+      // pendingFlight / pendingFlightReplyTo / RTO for unauthenticated sources
+      // (would mix budget and dest across peers A/B).
+      this.clearPendingFlight();
     }
 
-    // Explicit dest for one-shot responses; otherwise pin / retransmit reply-to
-    const sendAddr = dest ?? this.getSendAddr();
     for (const pkt of cachePackets) {
       // Single-record datagrams must fit MTU (RFC 9147 / UDP path MTU)
       if (pkt.bytes.length > mtu) {
@@ -191,8 +204,8 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
           `handshake record ${pkt.bytes.length} exceeds MTU ${mtu}`,
         );
       }
-      // carrier.send copies bytes; budget still enforced here
-      if (!this.consumeSendBudget(pkt.bytes.length)) {
+      // carrier.send copies bytes; budget still enforced here (peer-matched)
+      if (!this.consumeSendBudget(pkt.bytes.length, sendAddr)) {
         throw new Error(
           `anti-amplification: budget exhausted on send (received=${this.bytesReceived} sent=${this.bytesSent} need=${pkt.bytes.length})`,
         );
@@ -247,12 +260,28 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
    * Account outbound bytes and enforce 3× anti-amplification before address
    * validation (including retransmissions of HRR / incomplete flights).
    */
-  protected consumeSendBudget(len: number): boolean {
+  /**
+   * @param dest Destination for peer-budget match (pre-cookie). When omitted,
+   * uses getSendAddr() — retransmit must still match antiAmpBudgetPeerKey.
+   */
+  protected consumeSendBudget(
+    len: number,
+    dest?: [string, number],
+  ): boolean {
     if (
       this.role === "server" &&
       !this.addressValidated &&
       this.addressValidation === "dtls-cookie"
     ) {
+      const to = dest ?? this.getSendAddr();
+      if (!this.antiAmpAllowsSendTo(to)) {
+        log(
+          "consumeSendBudget blocked: dest is not anti-amp budget owner",
+          this.antiAmpBudgetPeerKey,
+          to,
+        );
+        return false;
+      }
       const budget =
         ANTI_AMPLIFICATION_FACTOR * this.bytesReceived - this.bytesSent;
       if (len > budget) return false;
@@ -265,8 +294,6 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
    * All outbound DTLS records (handshake flights, retransmit, ACK, alerts)
    * must pass through this path so anti-amplification covers aggregate TX.
    * @returns false if budget blocked the send (caller must not assume wire TX).
-   */
-  /**
    * @param dest Optional explicit peer for request/response (alerts / pre-cookie
    * HRR). When omitted, uses getSendAddr() (pin / retransmit reply-to).
    * Never route a response to pendingFlightReplyTo of a *different* source by
@@ -276,7 +303,8 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
     record: Buffer,
     dest?: [string, number],
   ): Promise<boolean> {
-    if (!this.consumeSendBudget(record.length)) {
+    const to = dest ?? this.getSendAddr();
+    if (!this.consumeSendBudget(record.length, to)) {
       log(
         "sendWithBudget blocked by anti-amplification",
         this.bytesReceived,
@@ -285,7 +313,7 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
       );
       return false;
     }
-    await this.options.transport.send(record, dest ?? this.getSendAddr());
+    await this.options.transport.send(record, to);
     return true;
   }
 
@@ -312,6 +340,20 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
         !this.pendingFlightSource)
     ) {
       return;
+    }
+    // Pre-cookie: never retransmit toward a dest that does not own the budget
+    // (B's large CH must not fund RTO of A's pending HRR).
+    if (this.isPreCookieUnvalidatedServer()) {
+      const dest = this.getSendAddr();
+      if (!this.antiAmpAllowsSendTo(dest)) {
+        log(
+          "retransmit suppressed: pending dest is not anti-amp budget owner",
+          this.antiAmpBudgetPeerKey,
+          dest,
+        );
+        this.clearPendingFlight();
+        return;
+      }
     }
     this.retransmitCount++;
     if (this.retransmitCount > this.maxRetransmit) {
@@ -357,7 +399,7 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
         log("skip retransmit: record exceeds current MTU", p.bytes.length);
         continue;
       }
-      if (!this.consumeSendBudget(p.bytes.length)) {
+      if (!this.consumeSendBudget(p.bytes.length, sendAddr)) {
         log(
           "retransmit blocked by anti-amplification",
           this.bytesReceived,
