@@ -10,10 +10,10 @@
  */
 
 import {
-  kRobustRequiredPackets,
   kRobustMaxWindowDurationMs,
   kRobustMaxWindowPackets,
   kRobustMinWindowDurationMs,
+  kRobustRequiredPackets,
   kRobustWindowPackets,
 } from "./constants";
 
@@ -219,8 +219,7 @@ export class BitrateEstimator {
     this.bitrateEstimateKbps =
       (sampleVar * this.bitrateEstimateKbps + predVar * sampleKbps) /
       (sampleVar + predVar);
-    this.bitrateEstimateVar =
-      (sampleVar * predVar) / (sampleVar + predVar);
+    this.bitrateEstimateVar = (sampleVar * predVar) / (sampleVar + predVar);
   }
 
   bitrate(): number {

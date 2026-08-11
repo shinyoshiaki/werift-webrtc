@@ -2765,7 +2765,17 @@ describe("media/sender bandwidth estimator", () => {
       const loss = (gcc as any).lossBwe as LossBasedBwe;
       loss.reset(400_000);
       for (let i = 0; i < 5; i++) {
-        loss.update(0.02, 400_000, 380_000, 20, 0, i * 300, 20_000, i * 300 + 250, 0);
+        loss.update(
+          0.02,
+          400_000,
+          380_000,
+          20,
+          0,
+          i * 300,
+          20_000,
+          i * 300 + 250,
+          0,
+        );
       }
       const obsBefore = loss.observationCount;
       expect(obsBefore).toBeGreaterThanOrEqual(1);
@@ -2781,9 +2791,7 @@ describe("media/sender bandwidth estimator", () => {
       );
       (gcc as any).probe.pendingEstimateBps = 700_000;
 
-      gcc.rtpPacketSent(
-        sent(1, 500, t0 + 200, { isProbation: false }),
-      );
+      gcc.rtpPacketSent(sent(1, 500, t0 + 200, { isProbation: false }));
 
       // Act: matched TWCC で probe 適用
       gcc.receiveTWCC(
