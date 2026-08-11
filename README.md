@@ -193,7 +193,6 @@ werift is a participating implementation in [`sipsorcery/webrtc-interop`](https:
 - Pion
 - SIPSorcery
 - webrtc-rs
-- webrtc-server
 
 This provides an independent interoperability signal in addition to werift's own E2E tests.
 
