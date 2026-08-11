@@ -41,6 +41,7 @@ import {
   hasTlsDowngradeSentinel,
   protocolVersionsToWire,
   supportsVersion,
+  wireVersionToNumber,
 } from "./version";
 
 const log = debug("werift-dtls : packages/dtls/src/client.ts : log");
@@ -751,6 +752,150 @@ export class DtlsClient extends DtlsSocket {
     );
   }
 
+  /** 32-byte ServerHello.random for DOWNGRD checks. */
+  private serverHelloRandom32(sh: ServerHello): Buffer {
+    const b = Buffer.alloc(4);
+    b.writeUInt32BE(sh.random.gmt_unix_time >>> 0, 0);
+    return Buffer.concat([b, sh.random.random_bytes]);
+  }
+
+  /**
+   * During dual probing, classify a ServerHello body before version commit.
+   * - dtls13: supported_versions selected 1.3 (and suite consistent)
+   * - dtls12: fully parsed legitimate 1.2 SH (cipher, legacy version, optional SV)
+   * - drop: malformed / inconsistent wire (keep parked 1.3, no commit)
+   * - error: actionable protocol failure (e.g. unknown selected version)
+   */
+  private classifyProbingServerHello(
+    fragment: Buffer,
+  ):
+    | { kind: "dtls13"; sh: ServerHello }
+    | {
+        kind: "dtls12";
+        sh: ServerHello;
+        hasDowngradeSentinel: boolean;
+      }
+    | { kind: "drop"; reason: string }
+    | { kind: "error"; error: Error } {
+    let sh: ServerHello;
+    try {
+      sh = ServerHello.deSerialize(fragment);
+    } catch (e) {
+      return {
+        kind: "drop",
+        reason: e instanceof Error ? e.message : "ServerHello parse failed",
+      };
+    }
+    // Required fields must be present after deserialize
+    if (
+      !sh.serverVersion ||
+      sh.cipherSuite == null ||
+      sh.random?.random_bytes == null ||
+      !Buffer.isBuffer(sh.sessionId)
+    ) {
+      return { kind: "drop", reason: "ServerHello incomplete fields" };
+    }
+    // Round-trip: reject trailing garbage / incomplete extension parse
+    try {
+      const round = sh.serialize();
+      if (round.length !== fragment.length) {
+        return {
+          kind: "drop",
+          reason: `ServerHello length mismatch serialize=${round.length} wire=${fragment.length}`,
+        };
+      }
+    } catch (e) {
+      return {
+        kind: "drop",
+        reason: e instanceof Error ? e.message : "ServerHello re-serialize failed",
+      };
+    }
+
+    const legacyWire = wireVersionToNumber(sh.serverVersion);
+    // DTLS ServerHello.legacy_version is DTLS 1.2 (0xfefd) for both 1.2 and 1.3
+    if (legacyWire !== DTLS_1_2_VERSION) {
+      return {
+        kind: "drop",
+        reason: `unexpected ServerHello.serverVersion 0x${legacyWire.toString(16)}`,
+      };
+    }
+
+    const versionsExt = sh.extensions?.find(
+      (e) => e.type === SupportedVersions.type,
+    );
+    if (versionsExt) {
+      let sv: SupportedVersions;
+      try {
+        sv = SupportedVersions.fromData(versionsExt.data, true);
+      } catch (e) {
+        return {
+          kind: "drop",
+          reason:
+            e instanceof Error
+              ? e.message
+              : "supported_versions parse failed",
+        };
+      }
+      if (sv.selected === DTLS_1_3_VERSION) {
+        // 1.3 selection should use a 1.3 suite
+        if (sh.cipherSuite === CipherSuite.TLS_AES_128_GCM_SHA256_0x1301) {
+          return { kind: "dtls13", sh };
+        }
+        // Inconsistent: 1.3 selected with 1.2 suite — do not commit either way
+        return {
+          kind: "drop",
+          reason: "supported_versions=1.3 but cipher suite is not TLS 1.3",
+        };
+      }
+      if (sv.selected === DTLS_1_2_VERSION) {
+        // fall through to 1.2 suite checks
+      } else if (sv.selected != null) {
+        return {
+          kind: "error",
+          error: new ProtocolVersionError(
+            `unsupported ServerHello selected version 0x${sv.selected.toString(16)}`,
+          ),
+        };
+      } else {
+        return { kind: "drop", reason: "supported_versions missing selected" };
+      }
+    }
+
+    // DTLS 1.2 path: reject TLS 1.3-only suite
+    if (sh.cipherSuite === CipherSuite.TLS_AES_128_GCM_SHA256_0x1301) {
+      return {
+        kind: "drop",
+        reason: "TLS 1.3 cipher suite without DTLS 1.3 selected version",
+      };
+    }
+    // Known 1.2 suites we negotiate (reject unknown / garbage suite codes)
+    const suite12ok =
+      sh.cipherSuite ===
+        CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195 ||
+      sh.cipherSuite === CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199;
+    if (!suite12ok) {
+      return {
+        kind: "drop",
+        reason: `unknown or unsupported DTLS 1.2 cipher suite 0x${Number(sh.cipherSuite).toString(16)}`,
+      };
+    }
+    // Null compression only
+    if (sh.compressionMethod !== 0) {
+      return {
+        kind: "drop",
+        reason: `unsupported compression_method ${sh.compressionMethod}`,
+      };
+    }
+
+    return {
+      kind: "dtls12",
+      sh,
+      hasDowngradeSentinel: hasTlsDowngradeSentinel(
+        this.serverHelloRandom32(sh),
+      ),
+    };
+  }
+
   /**
    * True when a DTLSPlaintext datagram contains ServerHello/HRR that selects
    * DTLS 1.3 via supported_versions (extension type 43).
@@ -969,58 +1114,62 @@ export class DtlsClient extends DtlsSocket {
               return;
             }
 
-            // Dual probing: prefer 1.3 if ServerHello selects it (should
-            // normally be handled at udpOnMessage reinject; keep as safety net).
+            // Dual probing: strict SH validation before version commit.
+            // Malformed / unknown version must NOT commit12 (keeps 1.3 candidate).
             if (this.dualPhase === "probing") {
-              try {
-                const sh = ServerHello.deSerialize(handshake.fragment);
-                const versionsExt = sh.extensions.find(
-                  (e) => e.type === SupportedVersions.type,
+              const verdict = this.classifyProbingServerHello(
+                handshake.fragment,
+              );
+              if (verdict.kind === "drop") {
+                log(
+                  "dual probing: discard invalid ServerHello (no version commit)",
+                  verdict.reason,
                 );
-                if (versionsExt) {
-                  const sv = SupportedVersions.fromData(versionsExt.data, true);
-                  if (sv.selected === DTLS_1_3_VERSION) {
-                    // Reconstruct a minimal record for reinject (may miss
-                    // coalesced records — primary path is udpOnMessage).
-                    const fragBytes = handshake.serialize();
-                    const pkt = serializePlaintextRecord(
-                      ContentType.handshake,
-                      0,
-                      0,
-                      fragBytes,
-                    );
-                    this.resumeDtls13FromDualPath(pkt);
-                    return;
-                  }
-                }
-              } catch (e) {
-                if (
-                  e instanceof ProtocolVersionError ||
-                  (e instanceof Error && e.name === "ProtocolVersionError")
-                ) {
-                  this.onError.execute(e as Error);
-                  return;
-                }
+                return;
               }
+              if (verdict.kind === "error") {
+                this.onError.execute(verdict.error);
+                return;
+              }
+              if (verdict.kind === "dtls13") {
+                const fragBytes = handshake.serialize();
+                const pkt = serializePlaintextRecord(
+                  ContentType.handshake,
+                  0,
+                  0,
+                  fragBytes,
+                );
+                this.resumeDtls13FromDualPath(pkt);
+                return;
+              }
+              // kind === "dtls12": DOWNGRD check then commit
+              if (verdict.hasDowngradeSentinel) {
+                this.onError.execute(
+                  new ProtocolVersionError(
+                    "illegal_parameter: ServerHello Random contains TLS downgrade sentinel while client offered DTLS 1.3",
+                  ),
+                );
+                return;
+              }
+              if (!this.isLegacy12PathActive(gen)) return;
+              this.commitDualTo12();
+              if (!this.isLegacy12PathActive(gen)) return;
+              this.flight5 = new Flight5(
+                this.transport,
+                this.dtls,
+                this.cipher,
+                this.srtp,
+              );
+              this.flight5.handleHandshake(handshake);
+              break;
             }
 
-            // Dual / dual-capable: 1.2 ServerHello while we still offered 1.3 —
-            // enforce RFC 8446 / 9147 downgrade sentinel check.
-            if (
-              this.dualPhase === "probing" ||
-              supportsVersion(this.protocolVersions, DtlsVersion.V1_3)
-            ) {
+            // Non-probing (pure 1.2 or already committed12): legacy path with
+            // DOWNGRD when client still offered 1.3.
+            if (supportsVersion(this.protocolVersions, DtlsVersion.V1_3)) {
               try {
                 const sh = ServerHello.deSerialize(handshake.fragment);
-                const random32 = Buffer.concat([
-                  (() => {
-                    const b = Buffer.alloc(4);
-                    b.writeUInt32BE(sh.random.gmt_unix_time >>> 0, 0);
-                    return b;
-                  })(),
-                  sh.random.random_bytes,
-                ]);
-                // negotiated version is DTLS 1.2 wire (legacy)
+                const random32 = this.serverHelloRandom32(sh);
                 if (hasTlsDowngradeSentinel(random32)) {
                   this.onError.execute(
                     new ProtocolVersionError(
@@ -1037,16 +1186,7 @@ export class DtlsClient extends DtlsSocket {
                   this.onError.execute(e as Error);
                   return;
                 }
-                // fall through to normal 1.2 handling if parse issues
               }
-            }
-
-            if (!this.isLegacy12PathActive(gen)) return;
-
-            // Legitimate 1.2 ServerHello: leave dual probing so fatal alerts
-            // (and the rest of the 1.2 handshake) are no longer suppressed.
-            if (this.dualPhase === "probing") {
-              this.commitDualTo12();
             }
 
             if (!this.isLegacy12PathActive(gen)) return;

@@ -1267,25 +1267,37 @@ test("e2e/dual: close races with carrier.inject leave association closed", async
 }, 10_000);
 
 /**
+ * DTLSPlaintext wrapping a handshake fragment (type/len/seq/off/len + body).
+ */
+function buildPlaintextHandshake(msgType: number, body: Buffer): Buffer {
+  const frag = Buffer.alloc(12 + body.length);
+  frag[0] = msgType;
+  frag[1] = (body.length >> 16) & 0xff;
+  frag[2] = (body.length >> 8) & 0xff;
+  frag[3] = body.length & 0xff;
+  frag[9] = (body.length >> 16) & 0xff;
+  frag[10] = (body.length >> 8) & 0xff;
+  frag[11] = body.length & 0xff;
+  body.copy(frag, 12);
+  return serializePlaintextRecord(ContentType.handshake, 0, 0, frag);
+}
+
+/**
  * Minimal DTLSPlaintext ServerHello that advertises selected DTLS 1.3
  * (supported_versions). Used for late-packet / demux tests — not a full HS.
  */
 function buildMinimalDtls13ServerHelloRecord(): Buffer {
-  // Handshake fragment layout: type(1) length(3) msg_seq(2) frag_off(3) frag_len(3) body
-  // ServerHello body (partial): server_version(2) random(32) session_id(1+0)
-  // cipher(2) compression(1) extensions_len(2) + supported_versions ext
   const random = Buffer.alloc(32, 0x11);
-  // supported_versions extension: type=43, length=2, selected=0xfefc (DTLS 1.3)
   const svExt = Buffer.alloc(6);
   svExt.writeUInt16BE(43, 0);
   svExt.writeUInt16BE(2, 2);
   svExt.writeUInt16BE(0xfefc, 4);
   const shBody = Buffer.concat([
-    Buffer.from([0xfe, 0xfd]), // legacy version DTLS 1.2
+    Buffer.from([0xfe, 0xfd]),
     random,
-    Buffer.from([0]), // session_id empty
-    Buffer.from([0x13, 0x01]), // TLS_AES_128_GCM_SHA256
-    Buffer.from([0]), // compression null
+    Buffer.from([0]),
+    Buffer.from([0x13, 0x01]),
+    Buffer.from([0]),
     (() => {
       const l = Buffer.alloc(2);
       l.writeUInt16BE(svExt.length, 0);
@@ -1293,17 +1305,42 @@ function buildMinimalDtls13ServerHelloRecord(): Buffer {
     })(),
     svExt,
   ]);
-  const frag = Buffer.alloc(12 + shBody.length);
-  frag[0] = 2; // server_hello
-  frag[1] = (shBody.length >> 16) & 0xff;
-  frag[2] = (shBody.length >> 8) & 0xff;
-  frag[3] = shBody.length & 0xff;
-  // message_seq = 0, fragment_offset = 0
-  frag[9] = (shBody.length >> 16) & 0xff;
-  frag[10] = (shBody.length >> 8) & 0xff;
-  frag[11] = shBody.length & 0xff;
-  shBody.copy(frag, 12);
-  return serializePlaintextRecord(ContentType.handshake, 0, 0, frag);
+  return buildPlaintextHandshake(2, shBody);
+}
+
+/**
+ * Synthetic DTLS 1.2-style ServerHello record for negative probing tests.
+ * @param cipherSuite default ECDHE_RSA_AES_128_GCM (0xc02f)
+ * @param supportedVersionsData raw extension data (without type/len header), or omit ext
+ */
+function buildDtls12StyleServerHelloRecord(opts?: {
+  cipherSuite?: number;
+  supportedVersionsData?: Buffer;
+}): Buffer {
+  const random = Buffer.alloc(32, 0x22);
+  const suite = opts?.cipherSuite ?? 0xc02f;
+  const suiteBuf = Buffer.alloc(2);
+  suiteBuf.writeUInt16BE(suite, 0);
+  let extensions = Buffer.alloc(0);
+  if (opts?.supportedVersionsData) {
+    const data = opts.supportedVersionsData;
+    const ext = Buffer.alloc(4 + data.length);
+    ext.writeUInt16BE(43, 0);
+    ext.writeUInt16BE(data.length, 2);
+    data.copy(ext, 4);
+    const extLen = Buffer.alloc(2);
+    extLen.writeUInt16BE(ext.length, 0);
+    extensions = Buffer.concat([extLen, ext]);
+  }
+  const shBody = Buffer.concat([
+    Buffer.from([0xfe, 0xfd]), // legacy DTLS 1.2
+    random,
+    Buffer.from([0]), // empty session id
+    suiteBuf,
+    Buffer.from([0]), // compression null
+    extensions,
+  ]);
+  return buildPlaintextHandshake(2, shBody);
 }
 
 /**
@@ -2829,3 +2866,95 @@ test("e2e/dual: carrier.inject without peer works after commit12", async () => {
   client.close();
   server.close();
 }, 25_000);
+
+/**
+ * P1: probing 中の malformed / unknown-version ServerHello は commit12 しない。
+ * 1.3 parked candidate を維持する。
+ */
+test("e2e/dual: malformed or unknown ServerHello during probing does not commit12", async () => {
+  // Arrange: dual client を probing まで（parked 1.3 あり）
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+  });
+  const errors: Error[] = [];
+  client.onError.subscribe((e) => errors.push(e));
+
+  let hvrInjected = false;
+  clientTransport.send = async () => {
+    if (!hvrInjected && (client as any).dualPhase === "none") {
+      hvrInjected = true;
+      queueMicrotask(() => {
+        injectHvr(clientTransport, serverTransport);
+      });
+    }
+  };
+
+  void client.connect();
+  for (let i = 0; i < 50; i++) {
+    if ((client as any).dualPhase === "probing") break;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  expect((client as any).dualPhase).toBe("probing");
+  expect((client as any).parkedEngine13).toBeTruthy();
+  const genBefore = (client as any).associationGen;
+
+  const peer = clientFacingServerPeer(serverTransport);
+
+  // Act: 異常 SH を順に注入
+  const cases: { name: string; buf: Buffer; expectError?: boolean }[] = [
+    {
+      name: "truncated body",
+      buf: buildPlaintextHandshake(2, Buffer.from([0xfe, 0xfd, 0x11])),
+    },
+    {
+      name: "malformed supported_versions length",
+      buf: buildDtls12StyleServerHelloRecord({
+        supportedVersionsData: Buffer.from([0xfe, 0xfd, 0x00, 0x00]), // not 2 bytes
+      }),
+    },
+    {
+      name: "unknown selected version",
+      buf: buildDtls12StyleServerHelloRecord({
+        supportedVersionsData: Buffer.from([0x03, 0x03]), // TLS 1.2 wire, not DTLS
+      }),
+      expectError: true,
+    },
+    {
+      name: "TLS1.3 suite without SV 1.3",
+      buf: buildDtls12StyleServerHelloRecord({
+        cipherSuite: 0x1301,
+      }),
+    },
+  ];
+
+  for (const c of cases) {
+    const errCount = errors.length;
+    clientTransport.onData?.(c.buf, peer);
+    await new Promise((r) => setTimeout(r, 30));
+    // Assert: 常に probing + parked 1.3 維持（commit12 しない）
+    expect((client as any).dualPhase, c.name).toBe("probing");
+    expect((client as any).parkedEngine13, c.name).toBeTruthy();
+    expect((client as any).engine13, c.name).toBeUndefined();
+    expect(client.isDtls13, c.name).toBe(false);
+    if (c.expectError) {
+      expect(errors.length, c.name).toBeGreaterThan(errCount);
+      expect(errors[errors.length - 1].message).toMatch(
+        /unsupported|version|protocol/i,
+      );
+    }
+  }
+
+  // gen は commit13 時のみ上がる — drop では不変
+  expect((client as any).associationGen).toBe(genBefore);
+
+  client.close();
+  await serverTransport.close().catch(() => {});
+  await clientTransport.close().catch(() => {});
+}, 15_000);
