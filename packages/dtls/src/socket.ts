@@ -395,9 +395,18 @@ export class DtlsSocket {
   }
 
   /**
+   * Before public onClose for engine teardown: mark association closed so
+   * re-entrant client.close() inside onClose handlers is idempotent.
+   * Dual client sets dualPhase → closed here.
+   */
+  protected prepareAssociationClosedFromEngine(): void {
+    this.connected = false;
+  }
+
+  /**
    * After engine onClose (peer close_notify or local engine close) has been
-   * delivered publicly: drop the 1.3 handle. Dual client overrides to also set
-   * dualPhase → closed and hard-close carrier / transport.
+   * delivered publicly: drop the 1.3 handle. Dual client overrides to also
+   * hard-close carrier / transport / candidates.
    */
   protected onEngine13PeerOrLocalClose(): void {
     this.unbridgeEngine13();
@@ -448,13 +457,12 @@ export class DtlsSocket {
       .disposer(this.engine13Bridge);
     engine.onClose
       .subscribe(() => {
-        // Keep public DtlsSocket.connected in sync with engine teardown
-        // (peer close_notify or local close).
-        this.connected = false;
-        // Fire public onClose first so handlers can still inspect engine13.
+        // Mark closed before public onClose so handlers that call close()
+        // re-entrantly do not double-fire onClose.
+        this.prepareAssociationClosedFromEngine();
+        // Fire public onClose while engine13 is still inspectable.
         this.onClose.execute();
-        // Then association-level close: dualPhase → closed, carrier/transport,
-        // clear public 1.3 handle so send/exporter cannot fall through to 1.2.
+        // Then association-level close: carrier/transport/candidates.
         this.onEngine13PeerOrLocalClose();
       })
       .disposer(this.engine13Bridge);

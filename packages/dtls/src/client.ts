@@ -265,19 +265,46 @@ export class DtlsClient extends DtlsSocket {
    * - **Graceful** local close: if an engine is still sending close_notify,
    *   defer transport close to engine `teardownAssociation` so notify is not
    *   dropped. When no live 1.3 candidate remains, close transport here.
+   *
+   * Public onClose ownership:
+   * - **Local close** (`firePublicOnClose`): association fires onClose once
+   *   (bridge is unsubscribed before eng.close, so engine teardown cannot).
+   * - **Fatal**: caller (`bridgeEngine13` onError) fires onClose after this.
+   * - **Peer close**: caller already fired onClose before this hook.
    */
   private closeAssociationHard(opts?: {
     hardDisposeCandidates?: boolean;
+    /** Local close only — fire public onClose once while engine13 still visible. */
+    firePublicOnClose?: boolean;
   }): void {
-    if (this.dualPhase === "closed" && !this.engine13 && !this.parkedEngine13) {
-      // Idempotent re-entry (e.g. public close() after peer-close association sync).
-      this.closeAssociationCarrier();
-      void this.transport.socket.close().catch(() => {});
+    // dualPhase already closed: never re-fire onClose.
+    // - Peer/fatal finish path: hardDisposeCandidates + candidates still present
+    // - Re-entrant local close() from onClose handlers: pure no-op (outer continues)
+    if (this.dualPhase === "closed") {
+      if (
+        opts?.hardDisposeCandidates &&
+        (this.engine13 || this.parkedEngine13)
+      ) {
+        this.closeAllDtls13Candidates({ hardDispose: true });
+        this.closeAssociationCarrier();
+        this.transport.socket.onData = this.udpOnMessage;
+        void this.transport.socket.close().catch(() => {});
+      } else if (!this.engine13 && !this.parkedEngine13) {
+        this.closeAssociationCarrier();
+        void this.transport.socket.close().catch(() => {});
+      }
       return;
     }
     this.dtls.flight = 99;
     this.connected = false;
+    // Mark closed before onClose so re-entrant client.close() is a no-op
+    // (handlers that call close() inside onClose must not recurse).
     this.dualPhase = "closed";
+    // Local close: fire onClose while engine13 still visible (peer path parity).
+    // Fatal/peer paths omit this flag — they already fire or will fire elsewhere.
+    if (opts?.firePublicOnClose) {
+      this.onClose.execute();
+    }
     const deferredTransport = this.closeAllDtls13Candidates({
       hardDispose: opts?.hardDisposeCandidates,
     });
@@ -298,6 +325,7 @@ export class DtlsClient extends DtlsSocket {
    * stopped, RX drops further inject. Invoked from bridge on non-soft 1.3 errors
    * (committed13 fatal alert, 1.3-only version mismatch, RTO exhaust, …).
    * HVR soft (DtlsVersionSelected) never reaches here (filterError).
+   * Public onClose is fired by bridge after this returns (not here).
    */
   protected failAssociationFromEngine13(err: Error): boolean {
     log("dual association: fatal teardown", err.message);
@@ -306,21 +334,34 @@ export class DtlsClient extends DtlsSocket {
   }
 
   /**
+   * Peer/engine onClose: mark dualPhase closed before public onClose so
+   * re-entrant local close() inside handlers is idempotent (no second onClose).
+   */
+  protected prepareAssociationClosedFromEngine(): void {
+    this.connected = false;
+    this.dtls.flight = 99;
+    this.dualPhase = "closed";
+  }
+
+  /**
    * Peer close_notify / engine onClose: full association closed (phase, carrier,
    * transport, public API guards). Called after public onClose so handlers can
    * still inspect engine13, then hard-closes association ownership.
+   * Does not re-fire onClose (already delivered by bridge; dualPhase already closed).
    */
   protected onEngine13PeerOrLocalClose(): void {
     log("dual association: engine closed → association hard-close");
+    // dualPhase already "closed" via prepareAssociationClosedFromEngine.
     this.closeAssociationHard({ hardDisposeCandidates: true });
   }
 
   /**
    * Public close: tear down all dual candidates, association carrier, and
    * 1.2 flight timers. Phase becomes permanently `closed`.
+   * Fires public onClose once (bridge is disposed before eng.close).
    */
   close() {
-    this.closeAssociationHard();
+    this.closeAssociationHard({ firePublicOnClose: true });
   }
 
   /**

@@ -2042,3 +2042,117 @@ test("e2e/dual: local close sends close_notify before transport teardown", async
     /* */
   }
 }, 20_000);
+
+/**
+ * P2: local client.close() は public onClose をちょうど 1 回発火する
+ * （bridge を先に切っても association が代替発火する）。
+ */
+test("e2e/dual: local client.close() fires onClose once", async () => {
+  // Arrange: pure 1.3 完走
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3],
+    addressValidation: "none",
+  });
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3],
+    addressValidation: "none",
+  });
+
+  await Promise.all([
+    new Promise<void>((r) => client.onConnect.once(r)),
+    new Promise<void>((r) => server.onConnect.once(r)),
+    client.connect(),
+  ]);
+
+  const closes: number[] = [];
+  client.onClose.subscribe(() => {
+    // Act 時点で engine13 をまだ検査できる（peer close 経路と対称）
+    expect((client as any).engine13).toBeTruthy();
+    closes.push(Date.now());
+  });
+
+  // Act: local close
+  client.close();
+  await new Promise((r) => setTimeout(r, 50));
+
+  // Assert: onClose はちょうど 1 回、phase closed、再 close で二重発火なし
+  expect(closes.length).toBe(1);
+  expect((client as any).dualPhase).toBe("closed");
+  expect(client.isDtls13).toBe(false);
+  client.close();
+  await new Promise((r) => setTimeout(r, 20));
+  expect(closes.length).toBe(1);
+
+  try {
+    server.close();
+  } catch {
+    /* */
+  }
+}, 20_000);
+
+/**
+ * P3 補強: probing 中の spoofed 1.2-looking 入力も peer gate で落とす
+ * （1.3 SH と同型の送信元検証）。
+ */
+test("e2e/dual: spoofed 1.2 alert from non-association peer does not surface onError", async () => {
+  // Arrange: probing
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+  });
+
+  let hvrInjected = false;
+  clientTransport.send = async () => {
+    if (!hvrInjected && (client as any).dualPhase === "none") {
+      hvrInjected = true;
+      queueMicrotask(() => {
+        injectHvr(clientTransport, serverTransport);
+      });
+    }
+  };
+
+  const errors: Error[] = [];
+  client.onError.subscribe((e) => errors.push(e));
+
+  void client.connect();
+  for (let i = 0; i < 50; i++) {
+    if ((client as any).dualPhase === "probing") break;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  expect((client as any).dualPhase).toBe("probing");
+
+  // Act: 別 peer からの epoch-0 handshake_failure（本来は actionable）
+  const alertBody = Buffer.from([2, AlertDesc.HandshakeFailure]);
+  const alertPkt = serializePlaintextRecord(
+    ContentType.alert,
+    0,
+    0,
+    alertBody,
+  );
+  clientTransport.onData?.(alertPkt, ["198.51.100.9", 55555]);
+  await new Promise((r) => setTimeout(r, 50));
+
+  // Assert: peer gate で drop → onError なし、probing 維持
+  expect(errors).toEqual([]);
+  expect((client as any).dualPhase).toBe("probing");
+
+  client.close();
+  await serverTransport.close().catch(() => {});
+  await clientTransport.close().catch(() => {});
+}, 10_000);
