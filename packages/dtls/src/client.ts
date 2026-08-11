@@ -1,16 +1,35 @@
+import {
+  CipherSuite,
+  NamedCurveAlgorithm,
+  type NamedCurveAlgorithms,
+} from "./cipher/const";
+import { generateKeyPair } from "./cipher/namedCurve";
 import { SessionType } from "./cipher/suites/abstract";
-import { Dtls13Connection } from "./engine/v1_3/connection";
+import {
+  Dtls13Connection,
+  type DualResumeClientHello,
+} from "./engine/v1_3/connection";
 import { Flight1 } from "./flight/client/flight1";
 import { Flight3 } from "./flight/client/flight3";
 import { Flight5 } from "./flight/client/flight5";
 import { HandshakeType } from "./handshake/const";
+import { CookieExtension } from "./handshake/extensions/cookie";
+import { EllipticCurves } from "./handshake/extensions/ellipticCurves";
+import { KeyShare } from "./handshake/extensions/keyShare";
+import {
+  DEFAULT_SIGNATURE_SCHEMES,
+  SignatureAlgorithms,
+} from "./handshake/extensions/signatureAlgorithms";
 import { SupportedVersions } from "./handshake/extensions/supportedVersions";
+import { ClientHello } from "./handshake/message/client/hello";
 import { ServerHello } from "./handshake/message/server/hello";
 import { ServerHelloVerifyRequest } from "./handshake/message/server/helloVerifyRequest";
 import { debug } from "./imports/common";
+import { DtlsRandom } from "./handshake/random";
+import { ContentType } from "./record/const";
 import type { FragmentedHandshake } from "./record/message/fragment";
-import { DtlsSocket, type Options } from "./socket";
-import type { DtlsInternalOptions } from "./socket";
+import { serializePlaintextRecord } from "./record/v1_3/record";
+import { DtlsSocket, type DtlsInternalOptions, type Options } from "./socket";
 import {
   DTLS_1_2_VERSION,
   DTLS_1_3_VERSION,
@@ -25,10 +44,17 @@ const log = debug("werift-dtls : packages/dtls/src/client.ts : log");
 
 export class DtlsClient extends DtlsSocket {
   /**
-   * True while dual [1.3,1.2] association is continuing on the DTLS 1.2 cookie
-   * path after HVR — still offers 1.3 in supported_versions (not pure 1.2-only).
+   * True while dual [1.3,1.2] association is continuing after unauthenticated
+   * HVR — still offers 1.3 in supported_versions. Final version is confirmed by
+   * ServerHello (1.3 resume or 1.2 + DOWNGRD check), not by HVR alone.
    */
   private dualCookiePath = false;
+
+  /**
+   * Last dual-negotiation ClientHello + ECDHE key material so a later
+   * DTLS 1.3 ServerHello/HRR can prime a fresh 1.3 engine without re-sending CH.
+   */
+  private dualResume?: DualResumeClientHello;
 
   /** Public constructor — accepts stable {@link Options} only. */
   constructor(options: Options) {
@@ -90,7 +116,7 @@ export class DtlsClient extends DtlsSocket {
           return;
         }
         log(
-          "dual association: HVR → continue on 1.2 cookie path with supported_versions still offering 1.3",
+          "dual association: HVR → dual negotiation path (still offer 1.3 until ServerHello)",
           e.message,
         );
         this.dualCookiePath = true;
@@ -109,7 +135,7 @@ export class DtlsClient extends DtlsSocket {
           this.options.signatureHash,
         );
         this.srtp = new (this.srtp.constructor as any)();
-        // Dual extensions: 1.2 suites + supported_versions [1.3,1.2]
+        // Dual extensions: 1.2 + 1.3 capable CH (supported_versions stays [1.3,1.2])
         this.setupExtensionsForDualCookiePath();
         void this.continueDualAfterHvr(e.helloVerifyCookie).catch((err) =>
           this.onError.execute(
@@ -121,9 +147,9 @@ export class DtlsClient extends DtlsSocket {
   }
 
   /**
-   * Dual cookie path extensions: keep advertising DTLS 1.3 in supported_versions
-   * so a 1.3-capable server that sees a MITM-stripped CH can still put the
-   * DOWNGRD sentinel; pure 1.2-only peers ignore the extension.
+   * Dual negotiation extensions: keep advertising DTLS 1.3 in supported_versions
+   * and include key_share / 0x1301 so a 1.3-capable server can still select 1.3
+   * after an unauthenticated HVR. 1.2-only peers ignore 1.3 extensions.
    */
   private setupExtensionsForDualCookiePath() {
     this.extensions = [];
@@ -137,16 +163,177 @@ export class DtlsClient extends DtlsSocket {
   }
 
   /**
-   * After HVR: start the 1.2 flight stack with dual extensions still advertising
-   * supported_versions [1.3, 1.2]. A fresh Flight1→HVR→Flight3 uses the normal
-   * 1.2 cookie path (same CH body with cookie for Finished MAC) rather than a
-   * pure 1.2-only ClientHello without supported_versions.
-   *
-   * The unauthenticated HVR only moves association onto the dual cookie path;
-   * final version is confirmed by ServerHello + DOWNGRD sentinel check.
+   * After HVR: send a dual ClientHello that still offers 1.3 (key_share +
+   * supported_versions) while remaining usable on the DTLS 1.2 cookie path.
+   * Final version is confirmed by ServerHello, not by HVR.
    */
   private async continueDualAfterHvr(_cookie?: Buffer) {
-    await this.connect12();
+    await this.sendDualNegotiationClientHello();
+  }
+
+  /**
+   * Build & send dual CH: 1.3 suites/extensions + 1.2 suites for true dual peers.
+   * Stores ECDHE material for possible 1.3 resume when ServerHello selects 1.3.
+   */
+  private async sendDualNegotiationClientHello(legacyCookie?: Buffer) {
+    const group = NamedCurveAlgorithm.x25519_29 as NamedCurveAlgorithms;
+    const keyPair = generateKeyPair(group);
+    const curves = EllipticCurves.createEmpty();
+    curves.data = [
+      NamedCurveAlgorithm.x25519_29,
+      NamedCurveAlgorithm.secp256r1_23,
+    ] as any;
+
+    // 1.3 CertificateVerify schemes + rsa_pkcs1 for DTLS 1.2 peers
+    const schemes = [...DEFAULT_SIGNATURE_SCHEMES];
+    if (!schemes.includes(0x0401)) schemes.push(0x0401);
+
+    const extensions = [
+      SupportedVersions.forClient([DTLS_1_3_VERSION, DTLS_1_2_VERSION])
+        .clientExtension,
+      curves.extension,
+      KeyShare.forClient([
+        { group, keyExchange: keyPair.publicKey },
+      ]).clientExtension,
+      SignatureAlgorithms.create(schemes).extension,
+      ...this.extensions.filter(
+        (e) =>
+          e.type !== SupportedVersions.type &&
+          e.type !== EllipticCurves.type &&
+          e.type !== SignatureAlgorithms.type &&
+          e.type !== KeyShare.type &&
+          e.type !== CookieExtension.type,
+      ),
+    ];
+
+    const cipherSuites = [
+      CipherSuite.TLS_AES_128_GCM_SHA256_0x1301,
+      CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195,
+      CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199,
+    ];
+
+    const hello = new ClientHello(
+      { major: 255 - 1, minor: 255 - 2 },
+      new DtlsRandom(),
+      Buffer.from([]),
+      legacyCookie ? Buffer.from(legacyCookie) : Buffer.from([]),
+      cipherSuites,
+      [0],
+      extensions,
+    );
+
+    const body = hello.serialize();
+    this.dualResume = {
+      clientHelloBody: Buffer.from(body),
+      keyPair: {
+        publicKey: Buffer.from(keyPair.publicKey),
+        privateKey: Buffer.from(keyPair.privateKey),
+        curve: group,
+      },
+      group,
+    };
+
+    // Flight retransmit until HVR (flight 3) or we stop on 1.3 resume
+    await new Flight1(this.transport, this.dtls, this.cipher).exec(
+      this.extensions,
+      hello,
+    );
+  }
+
+  /**
+   * True when a DTLSPlaintext datagram contains ServerHello/HRR that selects
+   * DTLS 1.3 via supported_versions (extension type 43).
+   */
+  private datagramSelectsDtls13(data: Buffer): boolean {
+    try {
+      let off = 0;
+      while (off + 13 <= data.length) {
+        const contentType = data[off];
+        const contentLen = data.readUInt16BE(off + 11);
+        if (contentLen < 0 || off + 13 + contentLen > data.length) break;
+        const body = data.subarray(off + 13, off + 13 + contentLen);
+        if (contentType === ContentType.handshake && body.length >= 12) {
+          const msgType = body[0];
+          if (msgType === HandshakeType.server_hello_2) {
+            // DTLS HS fragment: type(1) length(3) message_seq(2)
+            // fragment_offset(3) fragment_length(3) + body
+            const fragLen = (body[9] << 16) | (body[10] << 8) | body[11];
+            const hsBody = body.subarray(
+              12,
+              12 + Math.min(fragLen, body.length - 12),
+            );
+            if (hsBody.length >= 2) {
+              try {
+                const sh = ServerHello.deSerialize(hsBody);
+                const versionsExt = sh.extensions.find(
+                  (e) => e.type === SupportedVersions.type,
+                );
+                if (versionsExt) {
+                  const sv = SupportedVersions.fromData(versionsExt.data, true);
+                  if (sv.selected === DTLS_1_3_VERSION) return true;
+                }
+              } catch {
+                // not a complete ServerHello — keep scanning
+              }
+            }
+          }
+        }
+        off += 13 + contentLen;
+        if (contentLen === 0) break;
+      }
+    } catch {
+      return false;
+    }
+    return false;
+  }
+
+  /**
+   * Dual path: ServerHello selected DTLS 1.3 — prime a new 1.3 engine from the
+   * dual CH already sent and reinject the full datagram (SH/HRR + any coalesced
+   * records).
+   */
+  private resumeDtls13FromDualPath(datagram: Buffer): void {
+    if (!this.dualResume) {
+      this.onError.execute(
+        new ProtocolVersionError(
+          "dual path selected DTLS 1.3 but dual ClientHello material is missing",
+        ),
+      );
+      return;
+    }
+    // Stop 1.2 Flight retransmit loop
+    this.dtls.flight = 99;
+    this.dtls.fatalError = new Error("dual negotiation committed to DTLS 1.3");
+
+    log("dual association: ServerHello selected DTLS 1.3 — resume 1.3 engine");
+    const engine = new Dtls13Connection(
+      {
+        transport: this.options.transport,
+        cert: this.options.cert,
+        key: this.options.key,
+        srtpProfiles: this.options.srtpProfiles,
+        certificateRequest: this.options.certificateRequest,
+        addressValidation: this.options.addressValidation,
+        groups: this.options.namedGroups
+          ? [...this.options.namedGroups]
+          : undefined,
+        mtu: this.options.mtu,
+        carrier: (this.options as DtlsInternalOptions).handshakeCarrier,
+        offeredProtocolVersions: this.protocolVersions,
+      },
+      SessionType.CLIENT,
+    );
+    engine.primeFromSentClientHello(this.dualResume);
+    this.bridgeEngine13(engine);
+    this.dualCookiePath = false;
+    this.dualResume = undefined;
+    // Full datagram reinject so coalesced epoch-2 records are not lost
+    const rinfo = (
+      this.options.transport as {
+        rinfo?: { address?: string; port?: number };
+      }
+    ).rinfo;
+    engine.injectDatagram(datagram, rinfo);
   }
 
   async connect() {
@@ -181,6 +368,18 @@ export class DtlsClient extends DtlsSocket {
               handshake.fragment,
             );
             await new Flight3(this.transport, this.dtls).exec(verifyReq);
+            // Refresh dual resume body after cookie-bearing CH2 on pure 1.2 path
+            if (this.dualCookiePath && this.dualResume) {
+              const [ch] = this.dtls.lastFlight as [ClientHello];
+              if (ch) {
+                // Flight3 mutates cookie on lastFlight CH; re-serialize for resume
+                // (1.3 servers reject non-empty legacy_cookie — this path is 1.2).
+                this.dualResume = {
+                  ...this.dualResume,
+                  clientHelloBody: ch.serialize(),
+                };
+              }
+            }
           }
           break;
         case HandshakeType.server_hello_2:
@@ -196,6 +395,44 @@ export class DtlsClient extends DtlsSocket {
                 ),
               );
               return;
+            }
+
+            // Dual cookie path: prefer 1.3 if ServerHello selects it (should
+            // normally be handled at udpOnMessage reinject; keep as safety net).
+            if (this.dualCookiePath) {
+              try {
+                const sh = ServerHello.deSerialize(handshake.fragment);
+                const versionsExt = sh.extensions.find(
+                  (e) => e.type === SupportedVersions.type,
+                );
+                if (versionsExt) {
+                  const sv = SupportedVersions.fromData(
+                    versionsExt.data,
+                    true,
+                  );
+                  if (sv.selected === DTLS_1_3_VERSION) {
+                    // Reconstruct a minimal record for reinject (may miss
+                    // coalesced records — primary path is udpOnMessage).
+                    const fragBytes = handshake.serialize();
+                    const pkt = serializePlaintextRecord(
+                      ContentType.handshake,
+                      0,
+                      0,
+                      fragBytes,
+                    );
+                    this.resumeDtls13FromDualPath(pkt);
+                    return;
+                  }
+                }
+              } catch (e) {
+                if (
+                  e instanceof ProtocolVersionError ||
+                  (e instanceof Error && e.name === "ProtocolVersionError")
+                ) {
+                  this.onError.execute(e as Error);
+                  return;
+                }
+              }
             }
 
             // Dual cookie path: 1.2 ServerHello while we still offered 1.3 —
@@ -278,5 +515,21 @@ export class DtlsClient extends DtlsSocket {
           break;
       }
     }
+  };
+
+  /**
+   * Override UDP RX: while dualCookiePath is active, detect DTLS 1.3 selection
+   * and resume the 1.3 engine before the 1.2 parser consumes the datagram.
+   */
+  protected udpOnMessage = (data: Buffer) => {
+    if (
+      this.dualCookiePath &&
+      !this.engine13 &&
+      this.datagramSelectsDtls13(data)
+    ) {
+      this.resumeDtls13FromDualPath(data);
+      return;
+    }
+    this.handleUdpDatagram(data);
   };
 }

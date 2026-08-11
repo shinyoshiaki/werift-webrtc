@@ -10,13 +10,18 @@
  *
  * Mutable crypto state stays in this stack; isolated from the DTLS 1.2 engine.
  */
+import type { NamedCurveAlgorithms } from "../../cipher/const";
 import type { SessionTypes } from "../../cipher/suites/abstract";
+import { HandshakeType } from "../../handshake/const";
+import { ClientHello } from "../../handshake/message/client/hello";
+import { DtlsRandom } from "../../handshake/random";
 import { AlertDesc, ContentType } from "../../record/const";
 import {
   encryptRecord,
   serializePlaintextRecord,
 } from "../../record/v1_3/record";
 import { Dtls13HandshakeFlights } from "./handshake-flights";
+import { HandshakeTranscript } from "./transcript";
 import type { Dtls13Options } from "./types";
 
 export type { AddressValidationMode, Dtls13Options } from "./types";
@@ -28,6 +33,17 @@ function normalizeClientDest(addr: [string, number]): [string, number] {
   if (host === "::" || host === "[::]") return ["::1", addr[1]];
   return addr;
 }
+
+/** Material for dual-cookie-path resume into a fresh 1.3 engine. */
+export type DualResumeClientHello = {
+  clientHelloBody: Buffer;
+  keyPair: {
+    publicKey: Buffer;
+    privateKey: Buffer;
+    curve: NamedCurveAlgorithms;
+  };
+  group: NamedCurveAlgorithms;
+};
 
 export class Dtls13Connection extends Dtls13HandshakeFlights {
   constructor(options: Dtls13Options, sessionType: SessionTypes) {
@@ -194,5 +210,50 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
     this.carrier.cancelAllTimers();
     this.carrier.close();
     this.closed = true;
+  }
+
+  /**
+   * Dual cookie path → DTLS 1.3 resume: adopt a ClientHello already on the wire
+   * (with matching ECDHE key pair) so a subsequent ServerHello/HRR can continue
+   * without re-sending CH1. Does not transmit.
+   */
+  primeFromSentClientHello(material: DualResumeClientHello): void {
+    if (this.role !== "client") {
+      throw new Error("primeFromSentClientHello is client-only");
+    }
+    if (this.connected) {
+      throw new Error("primeFromSentClientHello: already connected");
+    }
+    // Engine may have been constructed fresh (closed=false); ensure RX is live.
+    this.closed = false;
+
+    const ch = ClientHello.deSerialize(material.clientHelloBody);
+    this.clientRandom = DtlsRandom.from(ch.random as any);
+    this.sessionId = Buffer.from(ch.sessionId ?? Buffer.alloc(0));
+    this.localKeyPair = {
+      publicKey: Buffer.from(material.keyPair.publicKey),
+      privateKey: Buffer.from(material.keyPair.privateKey),
+      curve: material.keyPair.curve ?? material.group,
+    };
+    this.selectedGroup = material.group;
+    this.initialKeyShareGroups = [material.group];
+    this.firstClientHelloBody = Buffer.from(material.clientHelloBody);
+    this.transcript = new HandshakeTranscript();
+    this.transcript.add(HandshakeType.client_hello_1, this.firstClientHelloBody);
+    this.messageSeq = 0;
+    this.hsPhase = "wait_server_hello";
+    this.clientOfferedExtensionTypes = new Set(
+      ch.extensions.map((e) => e.type),
+    );
+    this.clientExpectsServerFlight = true;
+    this.awaitingHrr = false;
+    this.hrrCount = 0;
+
+    const raw = this.addrToTuple(this.peerFromTransport());
+    if (raw) {
+      const dest = normalizeClientDest(raw);
+      this.peerAddr = dest;
+      this.pinPeer(`${dest[0]}:${dest[1]}`, dest);
+    }
   }
 }

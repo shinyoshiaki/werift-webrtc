@@ -16,19 +16,26 @@ export class Flight1 extends Flight {
     super(udp, dtls, 1, 3);
   }
 
-  async exec(extensions: Extension[]) {
+  /**
+   * @param extensions Used when `prebuilt` is omitted (classic DTLS 1.2 CH).
+   * @param prebuilt Optional dual-negotiation ClientHello already assembled
+   *   (e.g. supported_versions + key_share). When set, sent as-is.
+   */
+  async exec(extensions: Extension[], prebuilt?: ClientHello) {
     if (this.dtls.flight === 1) throw new Error();
     this.dtls.flight = 1;
 
-    const hello = new ClientHello(
-      { major: 255 - 1, minor: 255 - 2 },
-      new DtlsRandom(),
-      Buffer.from([]),
-      Buffer.from([]),
-      CipherSuiteList,
-      [0], // don't compress
-      extensions,
-    );
+    const hello =
+      prebuilt ??
+      new ClientHello(
+        { major: 255 - 1, minor: 255 - 2 },
+        new DtlsRandom(),
+        Buffer.from([]),
+        Buffer.from([]),
+        CipherSuiteList,
+        [0], // don't compress
+        extensions,
+      );
     this.dtls.version = hello.clientVersion;
     this.cipher.localRandom = DtlsRandom.from(hello.random);
 

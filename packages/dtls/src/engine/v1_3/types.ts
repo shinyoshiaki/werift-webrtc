@@ -13,6 +13,15 @@ import type { DtlsVersion } from "../../version";
 export const ANTI_AMPLIFICATION_FACTOR = 3;
 
 /**
+ * Association retransmission (RFC 9147 style backoff from carrier RTT).
+ * baseRto = clamp(rtt * RTO_FACTOR, MIN_RTO, MAX_RTO)
+ * rto = min(baseRto * 2^retransmitCount, MAX_RTO)
+ */
+export const RTO_FACTOR = 4;
+export const MIN_RTO_MS = 100;
+export const MAX_RTO_MS = 5000;
+
+/**
  * Pre-cookie HRR attempt table (per source 5-tuple). Bounded so spoofed CH
  * floods cannot grow unbounded server state (RFC 9147 cookie exchange).
  */

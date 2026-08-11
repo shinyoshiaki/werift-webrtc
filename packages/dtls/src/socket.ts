@@ -107,6 +107,14 @@ export class DtlsSocket {
   }
 
   protected udpOnMessage = (data: Buffer) => {
+    this.handleUdpDatagram(data);
+  };
+
+  /**
+   * Process one UDP datagram on the DTLS 1.2 record path.
+   * Subclasses (dual client) may intercept before calling this.
+   */
+  protected handleUdpDatagram(data: Buffer): void {
     const packets = parsePacket(data);
 
     for (const packet of packets) {
@@ -171,7 +179,7 @@ export class DtlsSocket {
         err(this.dtls.sessionId, "catch udpOnMessage error", error);
       }
     }
-  };
+  }
 
   protected setupExtensions() {
     log(this.dtls.sessionId, "support srtpProfiles", this.options.srtpProfiles);
