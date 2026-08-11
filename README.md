@@ -4,7 +4,7 @@
 
 ### Programmable WebRTC for TypeScript & Node.js
 
-Build media servers, gateways, recorders, bots, test peers, and custom real-time pipelines with a WebRTC stack you can inspect and extend down to **ICE, DTLS, SCTP, RTP/RTCP, SRTP/SRTCP, and DataChannel**.
+Build media servers, gateways, recorders, bots, test peers, and custom real-time pipelines with a **browser-compatible WebRTC API** backed by a TypeScript stack you can inspect and extend down to **ICE, DTLS, SCTP, RTP/RTCP, SRTP/SRTCP, and DataChannel**.
 
 [![npm version](https://img.shields.io/npm/v/werift)](https://www.npmjs.com/package/werift)
 [![npm downloads](https://img.shields.io/npm/dm/werift)](https://www.npmjs.com/package/werift)
@@ -20,12 +20,12 @@ Build media servers, gateways, recorders, bots, test peers, and custom real-time
 
 **werift** (**We**b**R**TC **I**mplementation **f**or **T**ypeScript) is a WebRTC implementation for Node.js written in TypeScript.
 
-Use the familiar `RTCPeerConnection` model when you want to build quickly, then drop down into ICE, DTLS, SCTP, RTP/RTCP, SRTP/SRTCP, or individual packets when your server-side application needs more control than a browser abstraction provides.
+Use the browser-compatible `RTCPeerConnection` API when you want to build quickly, then drop down into ICE, DTLS, SCTP, RTP/RTCP, SRTP/SRTCP, or individual packets when your server-side application needs more control than a browser abstraction provides.
 
 ## Why werift?
 
+- **Browser-compatible WebRTC API** — use familiar `RTCPeerConnection`, tracks, transceivers, DataChannels, standard events, ICE configuration, and stats in Node.js.
 - **TypeScript from PeerConnection down to the protocols** — build and debug WebRTC without wrapping a native browser engine or native WebRTC binding.
-- **Familiar WebRTC APIs, deeper control** — W3C-style PeerConnection configuration, events, descriptions, ICE candidates, tracks, DataChannels, and stats coexist with lower-level protocol primitives.
 - **Packet-oriented media control** — send and receive RTP directly, making werift a natural fit for SFUs, recorders, relays, gateways, bots, test peers, and custom media pipelines.
 - **Modern server connectivity** — ICE-Lite, ICE restart, ICE-TCP, and TURN over UDP, TCP, and TLS are implemented in the TypeScript stack.
 - **Modular protocol packages** — use the full PeerConnection stack or focused ICE, DTLS, SCTP, RTP, and STUN/TURN server packages.
@@ -42,7 +42,7 @@ The published `werift` package currently declares Node.js 16 or newer in its pac
 
 ## Quick start
 
-The public API is intentionally familiar to browser WebRTC developers:
+The API follows the familiar browser WebRTC model:
 
 ```ts
 import { RTCPeerConnection } from "werift";
@@ -78,21 +78,11 @@ Here the two peers exchange SDP directly. `setLocalDescription()` gathers candid
 
 See [`examples/datachannel`](./examples/datachannel) for runnable variants.
 
-## Familiar API without giving up the internals
+## Browser-compatible WebRTC API
 
-werift is actively converging on browser-compatible `RTCPeerConnection` behavior while preserving server-side control and backward compatibility.
+werift exposes a browser-compatible WebRTC API for normal application code, including PeerConnection negotiation, tracks/transceivers, DataChannels, standard events, ICE configuration, and `getStats()`.
 
-Current W3C-style surface includes, among other things:
-
-- standard PeerConnection events such as `icecandidate`, `track`, `datachannel`, `negotiationneeded`, and connection/signaling state changes
-- `addEventListener` / `removeEventListener` support alongside werift's event subscriptions
-- `currentLocalDescription`, `pendingLocalDescription`, `currentRemoteDescription`, and `pendingRemoteDescription`
-- `canTrickleIceCandidates` and `sctp`
-- `RTCConfiguration` fields including `iceServers`, `iceTransportPolicy`, `bundlePolicy`, `rtcpMuxPolicy`, `iceCandidatePoolSize`, and `certificates`
-- ICE server URL arrays and end-of-candidates handling
-- W3C-oriented `getStats()` reports covering RTP, transport, ICE candidates/pairs, codecs, certificates, DataChannels, and related objects
-
-Some browser compatibility details intentionally remain different for backward compatibility. See [`packages/webrtc/README.md`](./packages/webrtc/README.md#rtcpeerconnection-w3c-compatibility-notes) for the current compatibility notes.
+A small number of intentional or known edge-case differences remain for backward compatibility or unsupported legacy APIs. They are documented separately in [Browser API compatibility](./docs/browser-api-compatibility.md), together with the WPT strategy used to track exact browser behavior.
 
 ## A WebRTC stack that stays programmable
 
@@ -122,13 +112,13 @@ flowchart LR
   DTLS -. DTLS-SRTP keying .-> SRTP
 ```
 
-DTLS and SRTP share the ICE transport, but media is **not tunneled through DTLS**: DTLS negotiates/export keys for SRTP, while encrypted RTP/RTCP packets flow over the selected ICE path.
+DTLS and SRTP share the ICE transport, but media is **not tunneled through DTLS**: DTLS negotiates/exports keys for SRTP, while encrypted RTP/RTCP packets flow over the selected ICE path.
 
 ## Features
 
 | Area | Highlights |
 | --- | --- |
-| **PeerConnection** | Offer/answer negotiation, transceivers, media directions, multiple tracks, DataChannel, W3C-style events/configuration |
+| **Browser API** | `RTCPeerConnection`, tracks/transceivers, DataChannel, standard events, ICE configuration, and browser-compatible negotiation behavior |
 | **ICE** | Full ICE, local ICE-Lite mode, remote ICE-Lite interoperability, trickle ICE, ICE restart, ICE-TCP host candidates |
 | **STUN / TURN** | STUN plus TURN relay control transports over UDP, TCP, and TLS; `turn:` / `turns:` URL handling |
 | **Security** | DTLS-SRTP, SRTP, SRTCP, certificate/fingerprint handling |
@@ -138,7 +128,7 @@ DTLS and SRTP share the ICE transport, but media is **not tunneled through DTLS*
 | **RTP payloads** | RTP helpers for VP8, VP9, H.264, AV1, Opus, and RED-related workflows |
 | **Simulcast** | Receive-side simulcast |
 | **Bandwidth estimation** | Sender-side estimator driven by Transport-Wide CC feedback |
-| **Statistics** | W3C-oriented `getStats()` report model for RTP, transport, ICE, codec, certificate, DataChannel, and related stats |
+| **Statistics** | Browser-compatible `getStats()` report model for RTP, transport, ICE, codec, certificate, DataChannel, and related stats |
 | **Recording** | Nonstandard `MediaRecorder` / WebM writer paths for Opus, VP8, VP9, H.264, and AV1 tracks |
 | **Nonstandard media** | MP4/WebM file playback via mediabunny plus configurable/dummy media-device sources |
 | **RTP processing** | Jitter buffer, RED encoder/decoder, DTX, NACK, lip sync, and other packet processors |
@@ -175,14 +165,14 @@ Use the PeerConnection stack or only the protocol layer you need.
 
 | Package | Purpose |
 | --- | --- |
-| [`werift`](https://www.npmjs.com/package/werift) | WebRTC PeerConnection, media transport, DataChannel, and related APIs |
+| [`werift`](https://www.npmjs.com/package/werift) | Browser-compatible WebRTC API, media transport, DataChannel, and related APIs |
 | [`werift-ice`](https://www.npmjs.com/package/werift-ice) | ICE / STUN / TURN client-side transport implementation |
 | [`werift-dtls`](https://www.npmjs.com/package/werift-dtls) | DTLS implementation |
 | [`werift-sctp`](https://www.npmjs.com/package/werift-sctp) | SCTP implementation |
 | [`werift-rtp`](https://www.npmjs.com/package/werift-rtp) | RTP / RTCP / SRTP / SRTCP and RTP processing utilities |
 | [`werift-ice-server`](https://www.npmjs.com/package/werift-ice-server) | RFC 8489 STUN / RFC 8656 TURN server stack and Node reference implementation |
 
-The top-level `werift` package also exports lower-level WebRTC transport and RTP primitives, so applications can mix high-level PeerConnection behavior with packet-level control.
+The top-level `werift` package also exports lower-level WebRTC transport and RTP primitives, so applications can mix the browser-compatible API with packet-level control.
 
 ## Interoperability
 
@@ -269,7 +259,7 @@ Because the implementation is TypeScript, protocol behavior can be traced direct
 - [Documentation website](https://shinyoshiaki.github.io/werift-webrtc/website/build/)
 - [API reference](https://shinyoshiaki.github.io/werift-webrtc/website/build/docs/api)
 - [Examples](./examples)
-- [RTCPeerConnection W3C compatibility notes](./packages/webrtc/README.md#rtcpeerconnection-w3c-compatibility-notes)
+- [Browser API compatibility differences](./docs/browser-api-compatibility.md)
 
 Documentation coverage is still evolving. The examples and source remain useful references for developers working at protocol level.
 
@@ -287,16 +277,15 @@ The repository-level package metadata declares Node.js 18 or newer. The opt-in m
 
 ### Towards 1.0
 
-The core WebRTC transport and media-packet stack is implemented. Current work towards 1.0 focuses on hardening, standards compatibility, and developer experience:
+The core WebRTC transport, browser-compatible API, and media-packet stack are implemented. Current work towards 1.0 focuses on hardening, test coverage, and developer experience:
 
 - [ ] Expand and improve documentation
 - [ ] Increase Web Platform Tests coverage
-- [ ] Continue converging on browser `RTCPeerConnection` behavior while preserving backward compatibility
+- [ ] Close remaining documented browser API edge-case differences
 - [ ] Continue strengthening unit, E2E, interoperability, and long-running reliability tests
 
 ### Towards 2.0
 
-- [ ] Complete remaining browser API compatibility gaps
 - [ ] Simulcast send support
 - [ ] Additional cipher suites
 - [ ] Richer WebRTC statistics coverage
@@ -306,6 +295,7 @@ The core WebRTC transport and media-packet stack is implemented. Current work to
 <details>
 <summary>Implemented protocol/features checklist</summary>
 
+- [x] Browser-compatible WebRTC API
 - [x] STUN
 - [x] TURN relay client
   - [x] UDP control transport
@@ -352,7 +342,7 @@ The core WebRTC transport and media-packet stack is implemented. Current work to
 - [x] PeerConnection
 - [x] Simulcast receive
 - [x] Sender-side bandwidth estimation
-- [x] W3C-oriented `getStats()` model
+- [x] Browser-compatible `getStats()` model
 - [x] Nonstandard MediaRecorder workflows
   - [x] Opus
   - [x] VP8
