@@ -68,6 +68,12 @@ export class GccBandwidthEstimator
    * (TWCC PacketNotReceived ≠ definitive loss).
    */
   private finalizedSeqs = new Set<number>();
+  /**
+   * Sequences already reported as soft loss. Keep them eligible for a later
+   * received correction, but do not count overlapping not-received feedback
+   * more than once (libwebrtc `previously_reported_lost`).
+   */
+  private softLostSeqs = new Set<number>();
   private lastUsage: BandwidthUsage = "normal";
   /**
    * libwebrtc RobustThroughputEstimator (default acked bitrate path).
@@ -149,6 +155,7 @@ export class GccBandwidthEstimator
     this.sentInfos.set(seq, info);
     // Re-sending the same wide-seq (after wrap / reuse) clears prior finalize.
     this.finalizedSeqs.delete(seq);
+    this.softLostSeqs.delete(seq);
     this.ensureProbing(info.sendingAtMs);
 
     // Assign probation packets to the **pacing** cluster (wideSeq → id).
@@ -212,6 +219,11 @@ export class GccBandwidthEstimator
         // Already confirmed received — ignore duplicate / overlapping reports.
         continue;
       }
+      if (!result.received && this.softLostSeqs.has(seq)) {
+        // A repeated not-received report is not a new loss observation; keep
+        // the sequence open for a later received correction.
+        continue;
+      }
 
       matched++;
       batchBytes += info.size;
@@ -220,6 +232,7 @@ export class GccBandwidthEstimator
 
       if (!result.received) {
         // Soft loss: count for this observation, do NOT permanently finalize.
+        this.softLostSeqs.add(seq);
         lost++;
         lostBytes += info.size;
         lossPackets.push({
@@ -234,6 +247,7 @@ export class GccBandwidthEstimator
       // Received — may unmark a prior soft loss inside LossBasedBwe partial map.
       received++;
       this.finalizedSeqs.add(seq);
+      this.softLostSeqs.delete(seq);
       lossPackets.push({
         seq,
         size: info.size,
@@ -437,6 +451,7 @@ export class GccBandwidthEstimator
     this.refTimeUnwrapper.reset();
     this.sentInfos.clear();
     this.finalizedSeqs.clear();
+    this.softLostSeqs.clear();
     this.lastUsage = "normal";
     this.ackedBitrate.reset();
     this._availableBitrate = 0;
@@ -494,6 +509,7 @@ export class GccBandwidthEstimator
       if (nowMs - info.sendingAtMs > kSentInfoMaxAgeMs) {
         this.sentInfos.delete(seq);
         this.finalizedSeqs.delete(seq);
+        this.softLostSeqs.delete(seq);
       }
     }
     if (this.sentInfos.size <= keepWindow) {
@@ -508,6 +524,7 @@ export class GccBandwidthEstimator
       if (back >= keepWindow) {
         this.sentInfos.delete(seq);
         this.finalizedSeqs.delete(seq);
+        this.softLostSeqs.delete(seq);
       }
     }
     if (this.finalizedSeqs.size > 8192) {

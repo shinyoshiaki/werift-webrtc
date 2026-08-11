@@ -2644,6 +2644,60 @@ describe("media/sender bandwidth estimator", () => {
       expect(gcc.availableBitrate).toBeGreaterThan(0);
     });
 
+    test("重複した not-received は損失を二重計上せず、後続 received で訂正する", () => {
+      // Arrange: 1 パケットを送信し、まだ確定していない soft loss を作る
+      const gcc = new GccBandwidthEstimator(300_000);
+      const t0 = 60_000;
+      gcc.rtpPacketSent(sent(10, 500, t0));
+      const loss = (gcc as any).lossBwe as LossBasedBwe;
+
+      // Act: 最初の not-received を損失観測として登録する
+      gcc.receiveTWCC(
+        makeTwccFeedback([
+          new PacketResult({
+            sequenceNumber: 10,
+            received: false,
+          }),
+        ]),
+      );
+      const afterFirstLoss = (loss as any).partial;
+
+      // Assert: soft loss は partial observation に 1 回だけ入る
+      expect(afterFirstLoss.numPackets).toBe(1);
+      expect(afterFirstLoss.lostPackets.has(10)).toBe(true);
+
+      // Act: overlapping feedback の同じ not-received は再度処理しない
+      gcc.receiveTWCC(
+        makeTwccFeedback([
+          new PacketResult({
+            sequenceNumber: 10,
+            received: false,
+          }),
+        ]),
+      );
+      const afterDuplicateLoss = (loss as any).partial;
+
+      // Assert: 重複 feedback で packet/loss 数が増えない
+      expect(afterDuplicateLoss.numPackets).toBe(1);
+      expect(afterDuplicateLoss.lostPackets.size).toBe(1);
+
+      // Act: 遅れて届いた received を訂正として処理する
+      gcc.receiveTWCC(
+        makeTwccFeedback([
+          new PacketResult({
+            sequenceNumber: 10,
+            received: true,
+            receivedAtMs: t0 + 10,
+          }),
+        ]),
+      );
+
+      // Assert: packet は二重計上されず、soft loss だけが解除される
+      const afterCorrection = (loss as any).partial;
+      expect(afterCorrection.numPackets).toBe(1);
+      expect(afterCorrection.lostPackets.has(10)).toBe(false);
+    });
+
     test("InterArrivalDelta は group の latest send time 同士の差分を使う", () => {
       // Arrange
       const ia = new InterArrivalDelta(5);
