@@ -1,4 +1,11 @@
 export {
+  getBandwidthLimitedCause,
+  isProbeInitiationAllowed,
+  isRttAboveLimit,
+  maxProbeBitrateBps,
+} from "./bandwidthLimitedCause";
+export type { BandwidthLimitedCause } from "./bandwidthLimitedCause";
+export {
   GCC_KNOWN_DIFFERENCES,
   kBeta,
   kDefaultStartBitrateBps,
@@ -7,10 +14,12 @@ export {
   kLossDecreaseThreshold,
   kLossIncreaseFactor,
   kLossIncreaseThreshold,
+  kLossLimitedProbeScale,
   kMaxBitrateBps,
   kMinBitrateBps,
   kProbeBitrateMultipliers,
   kProbePaddingPacketBytes,
+  kRttBasedBackOffHighRttMs,
   kTrendlineMinNumDeltas,
   kTrendlineThresholdGain,
   kTrendlineWindowSize,

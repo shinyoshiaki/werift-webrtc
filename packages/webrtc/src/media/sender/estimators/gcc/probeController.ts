@@ -241,24 +241,45 @@ export class ProbeController {
     return [];
   }
 
-  requestProbe(estimatedBps: number, nowMs: number): ProbeClusterConfig[] {
+  /**
+   * Recovery / capacity probe (caller must already pass BandwidthLimitedCause
+   * gating). Optional `maxProbeBps` is InitiateProbing's max_probe_bitrate
+   * (e.g. estimated × loss_limited_probe_scale when loss-limited increasing).
+   */
+  requestProbe(
+    estimatedBps: number,
+    nowMs: number,
+    opts?: { maxProbeBps?: number },
+  ): ProbeClusterConfig[] {
     if (this.state === "waiting_for_result") return [];
     if (this.state === "init") return [];
     if (!this.cooldownElapsed(nowMs)) return [];
+
+    const maxProbe = this.effectiveMaxProbeBps(opts?.maxProbeBps);
+    if (maxProbe <= 0) return [];
 
     const base = Math.max(estimatedBps, this.minBitrateBps);
     const uncapped = Math.min(
       base * kProbeRecoveryScale,
       base * kProbeRecoveryMaxScale,
     );
-    const target = clamp(uncapped, this.maxBitrateBps);
+    const target = clamp(uncapped, maxProbe);
     if (target <= base * 1.05) return [];
     // libwebrtc: bitrate >= max_probe_bitrate → clamp + probe_further=false.
-    const stopFurtherAfter = uncapped >= this.maxBitrateBps;
+    const stopFurtherAfter = uncapped >= maxProbe;
     return this.enqueueClusters(nowMs, [target], { stopFurtherAfter });
   }
 
-  setEstimatedBitrate(bitrateBps: number, nowMs: number): ProbeClusterConfig[] {
+  /**
+   * Further-probe after a successful estimate update.
+   * `maxProbeBps` mirrors InitiateProbing max_probe_bitrate for the current
+   * BandwidthLimitedCause (loss-limited increasing → estimated × 1.5).
+   */
+  setEstimatedBitrate(
+    bitrateBps: number,
+    nowMs: number,
+    opts?: { maxProbeBps?: number },
+  ): ProbeClusterConfig[] {
     if (!this.cooldownElapsed(nowMs) && this.state === "complete") {
       return [];
     }
@@ -270,16 +291,25 @@ export class ProbeController {
       bitrateBps > this.minBitrateToProbeFurther &&
       (this.state === "complete" || this.state === "waiting_for_result")
     ) {
+      const maxProbe = this.effectiveMaxProbeBps(opts?.maxProbeBps);
+      if (maxProbe <= 0) return [];
       const uncapped = Math.min(
         bitrateBps * kFurtherProbeStepMultiplier,
         bitrateBps * kProbeRecoveryMaxScale,
       );
-      const next = clamp(uncapped, this.maxBitrateBps);
+      const next = clamp(uncapped, maxProbe);
       // libwebrtc InitiateProbing: bitrate >= max_probe_bitrate → clamp + stop.
-      const stopFurtherAfter = uncapped >= this.maxBitrateBps;
+      const stopFurtherAfter = uncapped >= maxProbe;
       return this.enqueueClusters(nowMs, [next], { stopFurtherAfter });
     }
     return [];
+  }
+
+  /** Configured max_bitrate combined with optional cause-based probe cap. */
+  private effectiveMaxProbeBps(maxProbeBps?: number): number {
+    if (maxProbeBps === undefined) return this.maxBitrateBps;
+    if (!Number.isFinite(maxProbeBps) || maxProbeBps <= 0) return 0;
+    return Math.min(this.maxBitrateBps, maxProbeBps);
   }
 
   /**
