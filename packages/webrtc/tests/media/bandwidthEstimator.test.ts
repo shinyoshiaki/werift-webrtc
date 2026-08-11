@@ -1391,6 +1391,89 @@ describe("media/sender bandwidth estimator", () => {
       expect(wireSeqs.slice(0, 3)).toEqual([10, 12, 11]);
     });
 
+    test("reorder media 後の probe padding でも late media と RTP sequence が衝突しない", async () => {
+      // Arrange: sequence 割当は sender 側。GCC の async padding inject を避けるため
+      // legacy estimator で media 10 → 12 → padding N → late 11 を再現する。
+      // 旧実装は paddingSeqSinceMedia を seqOffset に一律加算し wire=11+N が衝突した。
+      const { sender, sentPackets } = await prepareConnectedSender();
+
+      const sendMedia = async (seq: number) => {
+        await (sender as any).sendRtpInternal(
+          new RtpPacket(
+            new RtpHeader({
+              sequenceNumber: seq,
+              timestamp: seq * 100,
+              payloadType: 96,
+              ssrc: 1,
+              extension: true,
+              extensions: [],
+              marker: false,
+              padding: false,
+              payloadOffset: 12,
+            }),
+            Buffer.alloc(40),
+          ),
+          { injectProbePadding: false },
+        );
+      };
+
+      const sendPad = async () => {
+        await (sender as any).sendRtpInternal(
+          new RtpPacket(
+            new RtpHeader({
+              sequenceNumber: 0,
+              timestamp: 0,
+              payloadType: 96,
+              ssrc: 1,
+              extension: true,
+              extensions: [],
+              marker: false,
+              padding: true,
+              paddingSize: kProbePaddingPacketBytes,
+              payloadOffset: 12,
+            }),
+            Buffer.alloc(0),
+          ),
+          { injectProbePadding: false, isProbePadding: true },
+        );
+      };
+
+      // Act: media 10, 12 → padding 5 → late media 11
+      await sendMedia(10);
+      await sendMedia(12);
+      for (let i = 0; i < 5; i++) {
+        await sendPad();
+      }
+      const padSeqs = sentPackets
+        .filter((p) => p.header.padding)
+        .map((p) => p.header.sequenceNumber);
+      expect(padSeqs.length).toBe(5);
+      // padding は high-water(12) の後（hole 11 を埋めない）
+      expect(Math.min(...padSeqs)).toBe(13);
+
+      await sendMedia(11);
+
+      // Assert: 全 wire RTP sequence が一意
+      const all = sentPackets.map((p) => p.header.sequenceNumber);
+      expect(new Set(all).size).toBe(all.length);
+
+      // rtpCache も既送 packet と衝突しない
+      const cache = (sender as any).rtpCache as Array<
+        { header: { sequenceNumber: number } } | undefined
+      >;
+      const history = 128;
+      for (const seq of all) {
+        const slot = cache[seq % history];
+        expect(slot).toBeDefined();
+        expect(slot!.header.sequenceNumber).toBe(seq);
+      }
+
+      const mediaSeqs = sentPackets
+        .filter((p) => !p.header.padding)
+        .map((p) => p.header.sequenceNumber);
+      expect(mediaSeqs).toEqual([10, 12, 11]);
+    });
+
     test("media → padding → media で sequence 衝突せず source 相対は維持", async () => {
       // Arrange
       const gcc = new GccBandwidthEstimator(100_000);
@@ -1640,6 +1723,69 @@ describe("media/sender bandwidth estimator", () => {
       expect(probe.currentProbeTargetBps).toBe(recovery[0].targetBps);
     });
 
+    test("6x result 受理後も complete 前なら further probe を enqueue できる", () => {
+      // Arrange: 3x/6x を send-fill + 有効 ACK まで進め、6x 結果が threshold を超える
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, 1e9, 0);
+      const threshold6x = Math.round(600_000 * 0.7);
+      expect(probe.furtherProbeThresholdBps).toBe(threshold6x);
+
+      const fillAndAck = (
+        startSend: number,
+        seq0: number,
+        pktSize: number,
+        n: number,
+      ) => {
+        for (let i = 0; i < n; i++) {
+          probe.onProbePacketSent(pktSize, startSend + i * 2, seq0 + i);
+        }
+        for (let i = 0; i < n; i++) {
+          probe.onAckedPacket(
+            pktSize,
+            startSend + 20 + i * 2,
+            true,
+            seq0 + i,
+            startSend + 40,
+          );
+        }
+      };
+
+      // Act: 3x fill+ACK（低め result を想定 — threshold 未満でもよい）
+      fillAndAck(1_000, 1, 300, 5);
+      // 6x が pacing に進んでいること
+      expect(probe.currentProbeTargetBps).toBe(600_000);
+
+      // Act: 6x fill+ACK → result 成立、awaiting 空でもまだ complete にしない
+      fillAndAck(2_000, 20, 300, 5);
+      expect(probe.awaitingResultCount).toBe(0);
+      // onAcked だけでは complete にしない
+      expect(probe.probeState).toBe("waiting_for_result");
+
+      const pending = probe.takePendingEstimateBps();
+      expect(pending).toBeGreaterThan(0);
+
+      // Act: 6x×0.7 を超える estimate で further probe（cooldown 未開始）
+      const over = Math.max(pending, threshold6x + 1);
+      const further = probe.setEstimatedBitrate(over, 2_050);
+      // 6x は既に send-fill 済みなので further は即 activate され得る
+      expect(further.length + probe.queuedClusterCount).toBeGreaterThanOrEqual(
+        1,
+      );
+      if (further.length === 0) {
+        expect(probe.queuedClusterCount).toBeGreaterThanOrEqual(1);
+      } else {
+        expect(further[0].targetBps).toBeGreaterThan(over * 0.5);
+      }
+
+      // process 後に empty なら complete（further がある間は waiting）
+      probe.process(2_060);
+      if (probe.queuedClusterCount === 0 && !probe.currentProbeTargetBps) {
+        // further を消化しきった場合のみ
+      } else {
+        expect(probe.probeState).toBe("waiting_for_result");
+      }
+    });
+
     test("further-probe threshold は計画上の最後の target（6x）基準", () => {
       // Arrange: initial 3x/6x、minBitrateToProbeFurther = 6x × 0.7
       // （成功した cluster の target=3x ではなく計画上の最後=6x が基準）
@@ -1684,6 +1830,78 @@ describe("media/sender bandwidth estimator", () => {
           expect(r.activated[0].targetBps).toBeGreaterThan(over6x);
         }
       }
+    });
+
+    test("現在 bitrate より低い valid probe result も backoff guard 付きで反映する", () => {
+      // Arrange: 高い current estimate の後、低い probe result を注入
+      const gcc = new GccBandwidthEstimator(1_000_000);
+      // ensure probing configured
+      gcc.shouldTagProbePacket();
+      // 強制的に高い available と delay/loss を立てる
+      (gcc as any).hasValidSample = true;
+      (gcc as any).delayBasedBps = 1_000_000;
+      (gcc as any).lossBasedBps = 1_000_000;
+      (gcc as any)._availableBitrate = 1_000_000;
+      (gcc as any).initialExponentialDone = true;
+      // ProbeController に pending の低い result を直接セット
+      const probe = (gcc as any).probe as ProbeController;
+      (probe as any).pendingEstimateBps = 300_000;
+      (probe as any).state = "complete";
+      (probe as any).lastProbeEndMs = 0;
+
+      // acked window を ~900kbps 相当に
+      const now = Date.now();
+      (gcc as any).ackedBytesWindow = [
+        { tMs: now - 100, bytes: 11_250 }, // 900_000 bps over 100ms
+      ];
+
+      // Act: 低い probe を含む TWCC 経路（matched=0 を避けるため 1 packet）
+      const t0 = now;
+      gcc.rtpPacketSent({
+        wideSeq: 1,
+        size: 1000,
+        sendingAtMs: t0,
+        isProbation: false,
+      } as any);
+      // pending は take 前に再セット（rtpPacketSent で消えない）
+      (probe as any).pendingEstimateBps = 300_000;
+
+      gcc.receiveTWCC(
+        makeTwccFeedback([
+          new PacketResult({
+            sequenceNumber: 1,
+            received: true,
+            receivedAtMs: t0 + 5,
+          }),
+        ]),
+      );
+
+      // Assert: 300kbps をそのまま落とさず、acked×0.85 付近を下回らない
+      // acked ≈ 900kbps → floor ≈ 765kbps、target was 1Mbps → accepted ≥ 765k かつ ≤ 1M
+      expect(gcc.availableBitrate).toBeGreaterThan(300_000);
+      expect(gcc.availableBitrate).toBeLessThanOrEqual(1_000_000);
+      // 明確に capacity 制限が効いている（1Mbps から下がっているか、guard floor 以上）
+      const floor = 900_000 * 0.85;
+      expect(gcc.availableBitrate).toBeGreaterThanOrEqual(floor * 0.9);
+    });
+
+    test("ProbeController は高低に関係なく valid result を pending に出す", () => {
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, 1e9, 0);
+      // 先に高い estimate を持たせる
+      (probe as any).estimatedBps = 1_000_000;
+
+      for (let i = 0; i < 5; i++) {
+        probe.onProbePacketSent(300, 1_000 + i * 2, i + 1);
+      }
+      for (let i = 0; i < 5; i++) {
+        probe.onAckedPacket(300, 1_020 + i * 2, true, i + 1, 1_040);
+      }
+
+      const pending = probe.takePendingEstimateBps();
+      // 推定は send/recv 間隔から数百 kbps〜数 Mbps になり得るが、0 ではなく
+      // estimatedBps(1M) より低くても pending に出る
+      expect(pending).toBeGreaterThan(0);
     });
 
     test("pacing timeout 5s と result timeout 1s は独立", () => {

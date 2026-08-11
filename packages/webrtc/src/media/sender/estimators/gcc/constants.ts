@@ -220,6 +220,13 @@ export const kProbeResultMaxOverTarget = 1.5;
  * Filters multi-fold outliers from a single short TWCC window.
  */
 export const kProbeResultMaxOverAcked = 2.0;
+/**
+ * libwebrtc kProbeDropThroughputFraction: when a valid probe result is **below**
+ * the current BWE, floor the applied value at acked×this so a single glitchy
+ * probe cannot crash the estimate far below observed throughput. Still allows
+ * a modest drop to drain queues when truly overusing.
+ */
+export const kProbeDropThroughputFraction = 0.85;
 
 /**
  * RTP padding size (bytes) when RTCRtpSender injects probe padding.
@@ -243,7 +250,7 @@ export const kSentInfoMaxAgeMs = 10_000;
 export const GCC_KNOWN_DIFFERENCES = [
   "LossBasedBweV2: byte-loss objective/derivative (UseByteLossRate), bias adjustment by loss ratio, instant upper/lower bounds, delayed-increase window, HOLD (state stays decreasing while holdUntil active; ramp-up 1.2× when acked still below hold×1.3 else 1.5×); full ALR/padding-duration state machine simplified (IncreaseUsingPadding collapsed into increasing when padding path is unused)",
   "No REMB integration; TWCC-only send-side mode (ticket non-goal; future work)",
-  "Probe pacing uses RTCRtpSender token-bucket + RTP padding injection (not webrtc::PacedSender); 3x/6x queued FIFO — pacing advances on send-fill (minBytes AND minPackets), not on ACK; result clusters await TWCC separately; lifecycle/timeout/cooldown use sender clock only; onProbeClusterConfig fires on activate only; ProbeBitrateEstimator receive % / ratio checks; recovery + 5s cooldown; abort on loss≥5% or overuse; no ALR-only probe path",
+  "Probe pacing uses RTCRtpSender token-bucket + RTP padding injection (not webrtc::PacedSender); 3x/6x queued FIFO — pacing advances on send-fill (minBytes AND minPackets), not on ACK; result clusters await TWCC separately; session complete deferred to process() so last-cluster setEstimatedBitrate can still enqueue further probes; lifecycle/timeout/cooldown use sender clock only; onProbeClusterConfig fires on activate only; ProbeBitrateEstimator receive % / ratio checks; valid results always surfaced (lower probes floored at acked×0.85); recovery + 5s cooldown; abort on loss≥5% or overuse; no ALR-only probe path",
   "AIMD: TimeToReduceFurther (RTT spacing + throughput check) and hold-after-decrease ported; RTT is estimated from feedback arrival − last send (not full ICE/STUN RTT stats / NetworkController RTT)",
   "TWCC 24-bit reference_time is unwrapped across feedbacks in GccBandwidthEstimator (continuous ms timeline); packetResults alone still report raw wrap-relative times; ReceiverTWCC late-reorder history is ~500ms (time-based) with a sequence safety bound",
   "Floating-point / wall-clock differences may cause sub-bps numerical drift vs C++ (not bit-identical to libwebrtc public test vectors)",

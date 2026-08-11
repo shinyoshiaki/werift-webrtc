@@ -373,9 +373,11 @@ export class ProbeController {
     const estimate = this.estimateClusterBitrate(cluster);
     if (estimate === undefined) return;
 
+    // Always surface a valid ProbeBitrateEstimator result (up or down).
+    // GCC applies rise caps / lower-probe backoff guards separately.
+    this.pendingEstimateBps = estimate;
     if (estimate > this.estimatedBps) {
       this.estimatedBps = estimate;
-      this.pendingEstimateBps = Math.max(this.pendingEstimateBps, estimate);
     }
     this.lastProbeTargetBps = Math.max(
       this.lastProbeTargetBps,
@@ -385,10 +387,15 @@ export class ProbeController {
 
     // Settle only if already in awaitingResults. Never clear pacing here —
     // send-fill (100% minPackets AND minBytes) is independent of 80% ACK.
+    //
+    // Do **not** maybeMarkComplete here: GccBandwidthEstimator applies
+    // takePendingEstimateBps → setEstimatedBitrate in the same TWCC turn.
+    // Completing first would start cooldown and block further exponential
+    // probes from the last (e.g. 6x) result (libwebrtc stays in
+    // kWaitingForProbingResult until Process timeout / no further probe).
     if (this.awaitingResults.has(cluster.config.id)) {
       this.dropClusterSeqs(cluster.config.id);
       this.awaitingResults.delete(cluster.config.id);
-      this.maybeMarkComplete(senderNowMs);
     }
   }
 

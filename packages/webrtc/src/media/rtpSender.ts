@@ -24,7 +24,13 @@ import { randomBytes } from "crypto";
 
 import { randomUUID } from "crypto";
 import { setTimeout } from "timers/promises";
-import { Event, random16, uint16Add, uint32Add } from "../imports/common";
+import {
+  Event,
+  random16,
+  uint16Add,
+  uint16Gt,
+  uint32Add,
+} from "../imports/common";
 
 import { codecParametersFromString } from "..";
 import {
@@ -185,11 +191,13 @@ export class RTCRtpSender {
   // rtp
   private sequenceNumber?: number;
   /**
-   * Padding packets sent since the last media packet. Applied to
-   * {@link seqOffset} on the next media send so probe padding cannot collide
-   * with subsequent media while **media source gaps/reorders are preserved**.
+   * Wrap-aware high-water of allocated outbound RTP sequences.
+   * Padding always allocates after this; media prefers `source + seqOffset`
+   * and only remaps when that candidate was already used (e.g. by padding).
    */
-  private paddingSeqSinceMedia = 0;
+  private highWaterWireSeq?: number;
+  /** Recently allocated wire sequences (collision detection for reorder + padding). */
+  private usedWireSeqs = new Set<number>();
   private timestamp?: number;
   private timestampOffset = 0;
   private seqOffset = 0;
@@ -501,7 +509,70 @@ export class RTCRtpSender {
       }
     }
     this.rtpCache = [];
+    // New source mapping — clear allocation bookkeeping so prior padding
+    // ranges cannot collide with the replaced stream.
+    this.usedWireSeqs.clear();
+    this.highWaterWireSeq = undefined;
     log("replaceRTP", this.sequenceNumber, sequenceNumber, this.seqOffset);
+  }
+
+  private markWireSeqUsed(wire: number) {
+    const seq = wire & 0xffff;
+    this.usedWireSeqs.add(seq);
+    if (
+      this.highWaterWireSeq === undefined ||
+      uint16Gt(seq, this.highWaterWireSeq)
+    ) {
+      this.highWaterWireSeq = seq;
+    }
+    // Prune sequences far behind high-water so 16-bit wrap can reuse them.
+    if (this.usedWireSeqs.size > 4096 && this.highWaterWireSeq !== undefined) {
+      const h = this.highWaterWireSeq;
+      for (const s of this.usedWireSeqs) {
+        const dist = uint16Add(h, -s);
+        if (dist > 4096 && dist < 0x8000) {
+          this.usedWireSeqs.delete(s);
+        }
+      }
+    }
+  }
+
+  /**
+   * Media: prefer `sourceSeq + seqOffset` so source gaps/reorders stay visible.
+   * On collision with an already-sent wire seq (e.g. probe padding), remap to
+   * high-water + 1 and permanently bump {@link seqOffset}.
+   */
+  private allocateMediaSequence(sourceSeq: number): number {
+    const preferred = uint16Add(sourceSeq & 0xffff, this.seqOffset);
+    if (!this.usedWireSeqs.has(preferred)) {
+      this.markWireSeqUsed(preferred);
+      return preferred;
+    }
+    let wire =
+      this.highWaterWireSeq === undefined
+        ? uint16Add(preferred, 1)
+        : uint16Add(this.highWaterWireSeq, 1);
+    while (this.usedWireSeqs.has(wire)) {
+      wire = uint16Add(wire, 1);
+    }
+    this.seqOffset = uint16Add(wire, -(sourceSeq & 0xffff));
+    this.markWireSeqUsed(wire);
+    return wire;
+  }
+
+  /** Padding: always after high-water so media holes (reorder) stay free. */
+  private allocatePaddingSequence(): number {
+    let wire =
+      this.highWaterWireSeq === undefined
+        ? this.sequenceNumber === undefined
+          ? 0
+          : uint16Add(this.sequenceNumber, 1)
+        : uint16Add(this.highWaterWireSeq, 1);
+    while (this.usedWireSeqs.has(wire)) {
+      wire = uint16Add(wire, 1);
+    }
+    this.markWireSeqUsed(wire);
+    return wire;
   }
 
   async sendRtp(rtp: Buffer | RtpPacket) {
@@ -614,30 +685,24 @@ export class RTCRtpSender {
     header.ssrc = this.ssrc;
     header.payloadType = this.codec.payloadType;
     header.timestamp = uint32Add(header.timestamp, this.timestampOffset);
-    // Outbound RTP sequence allocation:
-    // - **Media**: `sourceSeq + seqOffset` so source gaps/reorders stay visible
-    //   on the wire (NACK / jitter buffer / SFU semantics).
-    // - **Probe padding**: `lastSent + 1` so padding never reuses a media seq.
-    // - After padding, the next media send absorbs `paddingSeqSinceMedia` into
-    //   seqOffset so media continues after the padding range without collision.
+    // Outbound RTP sequence allocation (high-water uniqueness):
+    // - **Media**: prefer `sourceSeq + seqOffset` (source gaps/reorders visible).
+    // - **Probe padding**: high-water + 1 (does not fill reorder holes).
+    // - Collision (padding then late media, or media after padding range):
+    //   remap to free seq after high-water and bump seqOffset permanently.
+    // This avoids the old paddingSeqSinceMedia bug where late source 11 after
+    // pads 13..17 remapped to wire 16 and collided with padding.
     {
-      const sourceSeq = header.sequenceNumber;
       if (opts.absoluteSequenceNumber !== undefined) {
-        header.sequenceNumber = opts.absoluteSequenceNumber & 0xffff;
-        this.paddingSeqSinceMedia = 0;
+        const abs = opts.absoluteSequenceNumber & 0xffff;
+        header.sequenceNumber = abs;
+        this.markWireSeqUsed(abs);
       } else if (opts.isProbePadding) {
-        header.sequenceNumber =
-          this.sequenceNumber === undefined
-            ? 0
-            : uint16Add(this.sequenceNumber, 1);
-        this.paddingSeqSinceMedia = uint16Add(this.paddingSeqSinceMedia, 1);
+        header.sequenceNumber = this.allocatePaddingSequence();
       } else {
-        // Media path
-        if (this.paddingSeqSinceMedia > 0) {
-          this.seqOffset = uint16Add(this.seqOffset, this.paddingSeqSinceMedia);
-          this.paddingSeqSinceMedia = 0;
-        }
-        header.sequenceNumber = uint16Add(sourceSeq, this.seqOffset);
+        header.sequenceNumber = this.allocateMediaSequence(
+          header.sequenceNumber,
+        );
       }
     }
     this.timestamp = header.timestamp;
