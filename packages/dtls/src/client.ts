@@ -310,9 +310,8 @@ export class DtlsClient extends DtlsSocket {
       }
       return;
     }
-    this.dtls.flight = 99;
     // Cancel cancelable 1.2 retransmit sleeps (not just flight=99 sentinel).
-    this.dtls.cancelFlightTimers();
+    this.stopLegacy12Flight();
     this.connected = false;
     // Mark closed before onClose so re-entrant client.close() is a no-op
     // (handlers that call close() inside onClose must not recurse).
@@ -359,8 +358,7 @@ export class DtlsClient extends DtlsSocket {
    */
   protected prepareAssociationClosedFromEngine(): void {
     this.connected = false;
-    this.dtls.flight = 99;
-    this.dtls.cancelFlightTimers();
+    this.stopLegacy12Flight();
     this.dualPhase = "closed";
     this.associationGen++;
     this.flight5 = undefined;
@@ -947,8 +945,7 @@ export class DtlsClient extends DtlsSocket {
     }
     // Stop 1.2 Flight1 retransmit by advancing flight only — never set fatalError
     // for a successful version commit (would surface as delayed public onError).
-    this.dtls.flight = 99;
-    this.dtls.cancelFlightTimers();
+    this.stopLegacy12Flight();
     this.dualPhase = "committed13";
     // Invalidate in-flight 1.2 handleHandshakes / Flight5 after version commit.
     this.associationGen++;

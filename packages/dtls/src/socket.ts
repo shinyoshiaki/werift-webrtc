@@ -283,11 +283,24 @@ export class DtlsSocket {
     await this.transport.send(this.cipher.encryptPacket(pkt).serialize(), addr);
   };
 
+  /**
+   * Stop legacy DTLS 1.2 flight retransmit (cancelable flightSleep + flight=99).
+   * Shared by client dual teardown and server/client pure-1.2 close so
+   * Flight4/Flight1 timers cannot wake after association close.
+   */
+  protected stopLegacy12Flight(): void {
+    this.dtls.flight = 99;
+    this.dtls.cancelFlightTimers();
+  }
+
   close() {
     if (this.engine13) {
       this.engine13.close();
       return;
     }
+    // DTLS 1.2 (server and client): stop retransmit timers before socket close.
+    this.stopLegacy12Flight();
+    this.connected = false;
     this.transport.socket.close();
   }
 
