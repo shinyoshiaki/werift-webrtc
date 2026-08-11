@@ -209,16 +209,18 @@ export class TransportWideCC {
 
     let body = Buffer.concat([constBuf, chunks, deltas]);
 
-    // RTCP packets must be 32-bit aligned (RFC 3550). Always pad when needed
-    // and set the P bit; previously padding was applied only if header.padding
-    // was already true, which left misaligned TWCC feedback that SRTCP/receivers
-    // could not parse (onAvailableBitrate never updated on real peer paths).
+    // RTCP packets must be 32-bit aligned (RFC 3550). Normalize the P bit on
+    // every serialize — do not leave a stale header.padding from a previous
+    // packet when the body is already aligned (P=1 without padding octets
+    // breaks deSerialize / packetResults).
     if (body.length % 4 !== 0) {
       const rest = 4 - (body.length % 4);
       const padding = Buffer.alloc(rest);
       padding[padding.length - 1] = padding.length;
       body = Buffer.concat([body, padding]);
       this.header.padding = true;
+    } else {
+      this.header.padding = false;
     }
 
     // length = (header + body) in 32-bit words minus 1  →  body.length / 4

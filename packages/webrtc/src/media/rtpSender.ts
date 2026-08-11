@@ -699,6 +699,11 @@ export class RTCRtpSender {
 
     const ntpTimestamp = ntpTime();
 
+    // Capture this packet's transport-wide sequence when the extension is
+    // written — not after await sendRtp. Concurrent sends share the counter;
+    // reading it post-await races and duplicates wideSeq in SentInfo.
+    let packetWideSeq: number | undefined;
+
     const originalHeaderExtensions = [...header.extensions];
     header.extensions = this.headerExtensions
       .map((extension) => {
@@ -721,14 +726,14 @@ export class RTCRtpSender {
                 return serializeRepairedRtpStreamId(this.repairedRtpStreamId);
               }
               return;
-            case RTP_EXTENSION_URI.transportWideCC:
+            case RTP_EXTENSION_URI.transportWideCC: {
               this.dtlsTransport.transportSequenceNumber = uint16Add(
                 this.dtlsTransport.transportSequenceNumber,
                 1,
               );
-              return serializeTransportWideCC(
-                this.dtlsTransport.transportSequenceNumber,
-              );
+              packetWideSeq = this.dtlsTransport.transportSequenceNumber;
+              return serializeTransportWideCC(packetWideSeq);
+            }
             case RTP_EXTENSION_URI.absSendTime:
               return serializeAbsSendTime(ntpTimestamp);
           }
@@ -787,13 +792,13 @@ export class RTCRtpSender {
     this.runRtcp();
     // BWE / TWCC only when transport-cc is negotiated — otherwise wideSeq would
     // not advance and probe padding would be useless / harmful.
-    if (twccOn) {
+    if (twccOn && packetWideSeq !== undefined) {
       const millitime = milliTime();
       const probeCtl = isProbePacingController(this._senderBWE)
         ? this._senderBWE
         : undefined;
       const sentInfo: SentInfo = {
-        wideSeq: this.dtlsTransport.transportSequenceNumber,
+        wideSeq: packetWideSeq,
         size,
         sendingAtMs: millitime,
         sentAtMs: millitime,

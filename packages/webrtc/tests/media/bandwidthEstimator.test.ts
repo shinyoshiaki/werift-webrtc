@@ -1058,6 +1058,66 @@ describe("media/sender bandwidth estimator", () => {
         expect(padCalls[i].size).toBe(sizes[i]);
       }
     });
+
+    test("並行 sendRtp でも SentInfo.wideSeq が重複しない", async () => {
+      // Arrange: 遅延する transport で 2 件を並行送信
+      // 旧実装は await 後に共有カウンタを読み直し [2,2] になっていた
+      const gcc = new GccBandwidthEstimator(100_000);
+      // 初期 probe を止めて isProbation 注入を避ける
+      gcc.shouldTagProbePacket();
+      (gcc as any).probe.abort(0);
+      (gcc as any).probe.state = "complete";
+      (gcc as any).probingConfigured = true;
+
+      const { sender, dtls } = await prepareConnectedSender(gcc);
+      const gates: Array<() => void> = [];
+      dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
+        await new Promise<void>((resolve) => {
+          gates.push(resolve);
+        });
+        return payload.length + header.serializeSize;
+      }) as typeof dtls.sendRtp;
+
+      const wideSeqs: number[] = [];
+      const orig = gcc.rtpPacketSent.bind(gcc);
+      gcc.rtpPacketSent = (info: SentInfo) => {
+        wideSeqs.push(info.wideSeq);
+        orig(info);
+      };
+
+      const mk = (seq: number) =>
+        new RtpPacket(
+          new RtpHeader({
+            sequenceNumber: seq,
+            timestamp: seq * 1000,
+            payloadType: 96,
+            ssrc: 1,
+            extension: true,
+            extensions: [],
+            marker: false,
+            padding: false,
+            payloadOffset: 12,
+          }),
+          Buffer.alloc(80),
+        );
+
+      // Act: 2 件を並行起動 → 両方 await 中に両 gate を解放
+      const p1 = sender.sendRtp(mk(1));
+      const p2 = sender.sendRtp(mk(2));
+      // 両方が sendRtp に入るまで待つ
+      for (let i = 0; i < 50 && gates.length < 2; i++) {
+        await new Promise((r) => setTimeout(r, 1));
+      }
+      expect(gates.length).toBe(2);
+      for (const release of gates) {
+        release();
+      }
+      await Promise.all([p1, p2]);
+
+      // Assert: wire TWCC は 1,2 — estimator 入力も [1,2]（重複なし）
+      expect(wideSeqs).toEqual([1, 2]);
+      expect(new Set(wideSeqs).size).toBe(2);
+    });
   });
 
   describe("sendRtp → handleRtcpPacket 決定的系列", () => {
