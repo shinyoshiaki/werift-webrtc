@@ -1,7 +1,7 @@
 import { decode, types } from "@shinyoshiaki/binary-data";
 
 import { setTimeout } from "timers/promises";
-import { Event, debug } from "./imports/common";
+import { Event, EventDisposer, debug } from "./imports/common";
 import type { Address, Transport } from "./imports/common";
 
 import {
@@ -56,6 +56,12 @@ export class DtlsSocket {
 
   /** When set, DTLS 1.3 engine owns the transport and crypto state. */
   protected engine13?: Dtls13Connection;
+  /**
+   * Bridge subscriptions for the active / parked 1.3 candidate.
+   * Disposed on hard close, version commit to 1.2, or re-bridge so dead
+   * candidates cannot surface stale onConnect / onError / onClose.
+   */
+  private engine13Bridge = new EventDisposer();
   /** Negotiated / configured protocol versions (priority order). */
   readonly protocolVersions: DtlsVersion[];
 
@@ -336,6 +342,42 @@ export class DtlsSocket {
     await this.engine13.keyUpdate(requestUpdate);
   }
 
+  /** Drop bridge subscriptions for a disposed or replaced 1.3 candidate. */
+  protected unbridgeEngine13(): void {
+    this.engine13Bridge.dispose();
+  }
+
+  /**
+   * Association-level fatal teardown after a non-soft 1.3 engine error.
+   * Clears public engine13 (isDtls13 → false), stops bridge callbacks, and
+   * hard-disposes candidate resources. HVR dual soft transition must not call
+   * this (filterError swallows DtlsVersionSelected before we reach here).
+   *
+   * Subclasses (dual client) override to also flip dualPhase → closed and
+   * tear down parked candidates / 1.2 flight timers.
+   *
+   * @returns true when public onClose should be fired after onError (caller
+   *   owns ordering so handlers observe isDtls13 === false first).
+   */
+  protected failAssociationFromEngine13(_err: Error): boolean {
+    this.connected = false;
+    // Unbridge first so subsequent engine onClose/onError cannot re-enter or
+    // double-fire public callbacks when fail() continues to onClose.
+    this.unbridgeEngine13();
+    const eng = this.engine13;
+    this.engine13 = undefined;
+    if (eng) {
+      // Soft ProtocolVersionError leaves carrier open; hard fail may already
+      // have closed it. Always force resource dispose without re-firing events.
+      eng.hardDisposeResources();
+      // Ensure transport is dead so late inject / retransmit cannot continue.
+      void this.transport.socket.close().catch(() => {});
+    }
+    // Engine hard-fail would have fired onClose after onError, but unbridge
+    // removed that subscription — association owns the single public onClose.
+    return true;
+  }
+
   /**
    * Wire DTLS 1.3 engine events onto this socket.
    * @param filterError return true to swallow the error (e.g. dual-stack version
@@ -345,28 +387,52 @@ export class DtlsSocket {
     engine: Dtls13Connection,
     options?: { filterError?: (e: Error) => boolean },
   ) {
+    // Replace any prior bridge so only the current candidate is public.
+    this.unbridgeEngine13();
     this.engine13 = engine;
-    engine.onConnect.subscribe(() => {
-      this.connected = true;
-      // Bridge negotiated use_srtp into public DtlsSocket.srtp (DTLS 1.2 path parity)
-      const profile = engine.srtpProfile;
-      if (profile !== undefined) {
-        this.srtp.srtpProfile = profile;
-      }
-      this.onConnect.execute();
-    });
-    engine.onData.subscribe((data) => this.onData.execute(data));
-    engine.onError.subscribe((e) => {
-      if (options?.filterError?.(e)) return;
-      this.connected = false;
-      this.onError.execute(e);
-    });
-    engine.onClose.subscribe(() => {
-      // Keep public DtlsSocket.connected in sync with engine teardown
-      // (peer close_notify or local close).
-      this.connected = false;
-      this.onClose.execute();
-    });
+    engine.onConnect
+      .subscribe(() => {
+        this.connected = true;
+        // Bridge negotiated use_srtp into public DtlsSocket.srtp (DTLS 1.2 path parity)
+        const profile = engine.srtpProfile;
+        if (profile !== undefined) {
+          this.srtp.srtpProfile = profile;
+        }
+        this.onConnect.execute();
+      })
+      .disposer(this.engine13Bridge);
+    engine.onData
+      .subscribe((data) => this.onData.execute(data))
+      .disposer(this.engine13Bridge);
+    engine.onError
+      .subscribe((e) => {
+        // HVR soft dual transition only: do not public-error or fatal-teardown.
+        if (options?.filterError?.(e)) return;
+        this.connected = false;
+        // Tear down association before public onError so handlers observe
+        // isDtls13 === false and dualPhase === closed (client override).
+        const fireClose = this.failAssociationFromEngine13(e);
+        this.onError.execute(e);
+        // Single public onClose (engine's own onClose is unsubscribed above).
+        if (fireClose) {
+          this.onClose.execute();
+        }
+      })
+      .disposer(this.engine13Bridge);
+    engine.onClose
+      .subscribe(() => {
+        // Keep public DtlsSocket.connected in sync with engine teardown
+        // (peer close_notify or local close).
+        this.connected = false;
+        // Fire public onClose first so handlers can still inspect engine13.
+        this.onClose.execute();
+        // Then drop the public 1.3 handle (isDtls13 → false) and bridge.
+        if (this.engine13) {
+          this.unbridgeEngine13();
+          this.engine13 = undefined;
+        }
+      })
+      .disposer(this.engine13Bridge);
   }
 
   /**

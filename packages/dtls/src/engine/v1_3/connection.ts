@@ -221,20 +221,17 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
   }
 
   /**
-   * Leave dual-probe park and re-own transport RX + carrier inject after
-   * association commits to DTLS 1.3 (genuine SH/HRR for the original CH-A).
+   * Leave dual-probe park after association commits to DTLS 1.3 (genuine
+   * SH/HRR for the original CH-A).
+   *
+   * Does **not** rebind transport.onData / carrier.inject — the dual
+   * association keeps RX ownership and forwards to this engine via
+   * {@link injectDatagram}. Stealing RX here would bypass association
+   * closed/committed guards and late-packet policy.
    */
   unparkFromDualProbe(): void {
     this.dualProbeParked = false;
     this.closed = false;
-    const self = this as this & {
-      handleDatagram: (data: Buffer, addr?: any) => void;
-    };
-    this.carrier.setInjectHandler((bytes, peer) =>
-      self.handleDatagram(bytes, peer),
-    );
-    this.options.transport.onData = (data, addr) =>
-      self.handleDatagram(data, addr as [string, number] | undefined);
   }
 
   /**

@@ -44,13 +44,17 @@ import {
 const log = debug("werift-dtls : packages/dtls/src/client.ts : log");
 
 /**
- * Dual-stack association phase after HVR may open a parallel 1.2 cookie path
- * while a 1.3 CH-A candidate is still alive.
- * - none: not dual-probing
- * - probing: 1.3 candidate (+ optional parked engine retransmit) and 1.2 cookie path
- * - committed12 / committed13: version finalized; alert suppression off
+ * Dual-stack association phase machine.
+ * - none: initial / not dual-probing
+ * - probing: after unauth HVR; parked 1.3 CH-A + 1.2 cookie path in parallel
+ * - committed12 / committed13: version finalized by SH/HRR (never by HVR alone)
+ * - closed: hard association teardown; all RX and candidates dead
+ *
+ * Ownership:
+ *   Association owns transport RX + carrier.inject for the whole dual lifecycle
+ *   (probing → committed → closed). Engines never steal RX on unpark.
  */
-type DualPhase = "none" | "probing" | "committed12" | "committed13";
+type DualPhase = "none" | "probing" | "committed12" | "committed13" | "closed";
 
 export class DtlsClient extends DtlsSocket {
   /**
@@ -78,6 +82,13 @@ export class DtlsClient extends DtlsSocket {
    * association probes the 1.2 cookie path.
    */
   private parkedEngine13?: Dtls13Connection;
+
+  /**
+   * Handshake carrier used by the dual association (default engine carrier or
+   * injected). Kept after soft 1.3 dispose so commit12 can rebind inject to
+   * the association 1.2 path without holding a dead engine reference.
+   */
+  private associationCarrier?: import("./carrier/types").DtlsHandshakeCarrier;
 
   /** Public constructor — accepts stable {@link Options} only. */
   constructor(options: Options) {
@@ -158,10 +169,7 @@ export class DtlsClient extends DtlsSocket {
         // Association owns RX demux: both UDP onData and carrier.inject.
         // Leaving inject bound to the parked engine would let Epic 2 SPED
         // complete 1.3 while public engine13 stays undefined.
-        this.transport.socket.onData = this.udpOnMessage;
-        engine.bindInjectToAssociation((bytes, peer) =>
-          this.associationInject(bytes, peer),
-        );
+        this.bindAssociationInbound(engine);
         this.dtls = new (this.dtls.constructor as any)(
           this.options,
           this.sessionType,
@@ -187,27 +195,52 @@ export class DtlsClient extends DtlsSocket {
   /**
    * Hard-close every DTLS 1.3 candidate owned by this association (active
    * engine13 and/or parked dual probe). Cancels RTO timers and pending flights.
+   * Bridge subscriptions are cut first so teardown onClose/onError cannot
+   * leak to the public socket after association close.
    */
-  private closeAllDtls13Candidates(): void {
+  private closeAllDtls13Candidates(opts?: { hardDispose?: boolean }): void {
+    this.unbridgeEngine13();
     const candidates = new Set<Dtls13Connection>();
     if (this.engine13) candidates.add(this.engine13);
     if (this.parkedEngine13) candidates.add(this.parkedEngine13);
     this.engine13 = undefined;
     this.parkedEngine13 = undefined;
     this.dualResume = undefined;
-    if (this.dualPhase === "probing") {
-      this.dualPhase = "none";
-    }
+    this.associationCarrier = undefined;
     for (const eng of candidates) {
-      if (!eng.isClosed()) {
+      if (opts?.hardDispose) {
+        // Fatal path: force carrier/timer stop even after soft ProtocolVersionError
+        // (isClosed already true but carrier may still be open).
+        eng.hardDisposeResources();
+      } else if (!eng.isClosed()) {
         eng.close();
       }
     }
   }
 
   /**
+   * Dual association fatal teardown: phase → closed, all candidates + 1.2 flight
+   * stopped, RX drops further inject. Invoked from bridge on non-soft 1.3 errors
+   * (committed13 fatal alert, 1.3-only version mismatch, RTO exhaust, …).
+   * HVR soft (DtlsVersionSelected) never reaches here (filterError).
+   */
+  protected failAssociationFromEngine13(err: Error): boolean {
+    log("dual association: fatal teardown", err.message);
+    // Stop 1.2 cookie Flight1 if still probing / dual.
+    this.dtls.flight = 99;
+    this.connected = false;
+    this.dualPhase = "closed";
+    this.closeAllDtls13Candidates({ hardDispose: true });
+    // Association demux stays closed-gated so late carrier.inject is a no-op.
+    this.transport.socket.onData = this.udpOnMessage;
+    void this.transport.socket.close().catch(() => {});
+    return true;
+  }
+
+  /**
    * Public close: tear down all dual candidates first so parked CH-A RTO cannot
    * fire after the association is closed (carrier timer cancel requirement).
+   * Phase becomes permanently `closed` — further inject / UDP is dropped.
    */
   close() {
     // Stop dual Flight1 retransmit if probing (1.2 cookie path).
@@ -215,11 +248,38 @@ export class DtlsClient extends DtlsSocket {
     const had13Candidate = !!(this.engine13 || this.parkedEngine13);
     this.closeAllDtls13Candidates();
     this.connected = false;
+    this.dualPhase = "closed";
+    // Keep association RX bound so late inject hits the closed guard (not a
+    // dead engine handler or pre-dual socket path).
+    this.transport.socket.onData = this.udpOnMessage;
     if (had13Candidate) {
-      // Candidate close() already closed the UDP transport.
+      // Candidate close() already closed the UDP transport + carrier.
       return;
     }
     this.transport.socket.close();
+  }
+
+  /**
+   * Point both UDP onData and carrier inject at the association dispatcher.
+   * Used on dual probing entry, after commit12 soft-dispose of 1.3, and after
+   * commit13 so carrier.inject never becomes a no-op or engine-only path that
+   * bypasses closed/committed guards.
+   */
+  private bindAssociationInbound(engineWithCarrier?: Dtls13Connection): void {
+    this.transport.socket.onData = this.udpOnMessage;
+    if (engineWithCarrier) {
+      this.associationCarrier = engineWithCarrier.getHandshakeCarrier();
+    } else if (!this.associationCarrier) {
+      this.associationCarrier =
+        this.engine13?.getHandshakeCarrier() ??
+        this.parkedEngine13?.getHandshakeCarrier();
+    }
+    const carrier = this.associationCarrier;
+    if (carrier && !carrier.isClosed()) {
+      carrier.setInjectHandler((bytes, peer) =>
+        this.associationInject(bytes, peer),
+      );
+    }
   }
 
   /**
@@ -230,6 +290,7 @@ export class DtlsClient extends DtlsSocket {
     bytes: Buffer,
     peer?: [string, number] | { address?: string; port?: number } | string,
   ): void {
+    if (this.dualPhase === "closed") return;
     if (peer != null) {
       const t = this.options.transport as {
         rinfo?: { address?: string; port?: number };
@@ -253,16 +314,29 @@ export class DtlsClient extends DtlsSocket {
 
   /** Commit dual probe to DTLS 1.2: stop 1.3 candidate and alert suppression. */
   private commitDualTo12(): void {
-    if (this.dualPhase === "committed12" || this.dualPhase === "committed13") {
+    if (
+      this.dualPhase === "committed12" ||
+      this.dualPhase === "committed13" ||
+      this.dualPhase === "closed"
+    ) {
       return;
     }
     log("dual association: commit DTLS 1.2");
     this.dualPhase = "committed12";
     this.dualResume = undefined;
+    // Soft-dispose parked 1.3 (stops RTO, detaches inject to no-op).
+    // Do not hard-close the shared carrier — Epic 2 / tests reuse it.
     if (this.parkedEngine13) {
+      // Remember carrier before soft dispose so inject can be rebound.
+      this.associationCarrier = this.parkedEngine13.getHandshakeCarrier();
+      // Drop bridge before soft close so stale engine events cannot fire.
+      this.unbridgeEngine13();
       this.parkedEngine13.releaseForVersionFallback();
       this.parkedEngine13 = undefined;
     }
+    // Reclaim carrier.inject → association 1.2 path (not the no-op left by
+    // releaseForVersionFallback). UDP onData already points here from probing.
+    this.bindAssociationInbound();
   }
 
   /**
@@ -451,6 +525,10 @@ export class DtlsClient extends DtlsSocket {
    * dualResume and reinject the datagram.
    */
   private resumeDtls13FromDualPath(datagram: Buffer): void {
+    if (this.dualPhase === "closed" || this.dualPhase === "committed12") {
+      // Late 1.3 after close or 1.2 commit must not reverse the association.
+      return;
+    }
     // Stop 1.2 Flight1 retransmit by advancing flight only — never set fatalError
     // for a successful version commit (would surface as delayed public onError).
     this.dtls.flight = 99;
@@ -474,6 +552,8 @@ export class DtlsClient extends DtlsSocket {
       parked.unparkFromDualProbe();
       // Events already bridged at startEngine13; re-own public engine13 handle.
       this.engine13 = parked;
+      // Association keeps UDP + carrier.inject; engine RX only via injectDatagram.
+      this.bindAssociationInbound(parked);
       parked.injectDatagram(datagram, rinfo);
       return;
     }
@@ -513,6 +593,8 @@ export class DtlsClient extends DtlsSocket {
     // server response for the first dual ClientHello, not a post-HVR rewrite.
     engine.primeFromSentClientHello(material);
     this.bridgeEngine13(engine);
+    // Constructor stole transport.onData / inject — reclaim for association.
+    this.bindAssociationInbound(engine);
     // Full datagram reinject so coalesced epoch-2 records are not lost
     engine.injectDatagram(datagram, rinfo);
   }
@@ -699,14 +781,24 @@ export class DtlsClient extends DtlsSocket {
   };
 
   /**
-   * Override UDP RX while dual-probing:
-   * - DTLS 1.3 SH/HRR → commit 1.3 (unpark or prime)
-   * - Only suppress epoch-0 illegal_parameter alerts (typical dual-1.3
-   *   reaction to non-empty legacy_cookie). Other fatal alerts (e.g.
-   *   handshake_failure from a real 1.2 server) surface immediately.
-   * - After commit to 1.2/1.3, no alert suppression.
+   * Association inbound dispatcher (UDP onData and carrier.inject).
+   *
+   * - closed: drop everything (no reconnect, no timer restart)
+   * - active engine13 (committed13 / pure 1.3 after dual resume): forward to 1.3
+   * - probing + 1.3 SH/HRR: version commit to 1.3
+   * - probing + epoch-0 illegal_parameter only: suppress (legacy_cookie vs 1.3)
+   * - else: DTLS 1.2 record path (committed12 / dual cookie / pure 1.2)
    */
   protected udpOnMessage = (data: Buffer) => {
+    if (this.dualPhase === "closed") {
+      return;
+    }
+    // Committed (or pure) 1.3: association still owns demux so late 1.2 / post-
+    // close races cannot bypass closed/committed12 guards via engine-only RX.
+    if (this.engine13 && !this.engine13.isClosed()) {
+      this.engine13.injectDatagram(data);
+      return;
+    }
     if (
       this.dualPhase === "probing" &&
       !this.engine13 &&
@@ -725,6 +817,7 @@ export class DtlsClient extends DtlsSocket {
       );
       return;
     }
+    // After commit12, late 1.3 SH must not reverse version (resume guards too).
     this.handleUdpDatagram(data);
   };
 

@@ -499,6 +499,22 @@ Send a fatal DTLSPlaintext alert (used for protocol_version mismatch).
 
 ***
 
+### unbridgeEngine13()
+
+> `protected` **unbridgeEngine13**(): `void`
+
+Drop bridge subscriptions for a disposed or replaced 1.3 candidate.
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`unbridgeEngine13`](DtlsSocket.md#unbridgeengine13)
+
+***
+
 ### waitForReady()
 
 > `protected` **waitForReady**(`condition`): `Promise`\<`void`\>

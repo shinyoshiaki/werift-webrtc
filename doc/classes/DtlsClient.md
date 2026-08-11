@@ -266,6 +266,7 @@ Wire DTLS 1.3 engine events onto this socket.
 
 Public close: tear down all dual candidates first so parked CH-A RTO cannot
 fire after the association is closed (carrier timer cancel requirement).
+Phase becomes permanently `closed` — further inject / UDP is dropped.
 
 #### Returns
 
@@ -496,12 +497,13 @@ Send a fatal DTLSPlaintext alert (used for protocol_version mismatch).
 
 > `protected` **udpOnMessage**(`data`): `void`
 
-Override UDP RX while dual-probing:
-- DTLS 1.3 SH/HRR → commit 1.3 (unpark or prime)
-- Only suppress epoch-0 illegal_parameter alerts (typical dual-1.3
-  reaction to non-empty legacy_cookie). Other fatal alerts (e.g.
-  handshake_failure from a real 1.2 server) surface immediately.
-- After commit to 1.2/1.3, no alert suppression.
+Association inbound dispatcher (UDP onData and carrier.inject).
+
+- closed: drop everything (no reconnect, no timer restart)
+- active engine13 (committed13 / pure 1.3 after dual resume): forward to 1.3
+- probing + 1.3 SH/HRR: version commit to 1.3
+- probing + epoch-0 illegal_parameter only: suppress (legacy_cookie vs 1.3)
+- else: DTLS 1.2 record path (committed12 / dual cookie / pure 1.2)
 
 #### Parameters
 
@@ -516,6 +518,22 @@ Override UDP RX while dual-probing:
 #### Overrides
 
 [`DtlsSocket`](DtlsSocket.md).[`udpOnMessage`](DtlsSocket.md#udponmessage)
+
+***
+
+### unbridgeEngine13()
+
+> `protected` **unbridgeEngine13**(): `void`
+
+Drop bridge subscriptions for a disposed or replaced 1.3 candidate.
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`unbridgeEngine13`](DtlsSocket.md#unbridgeengine13)
 
 ***
 

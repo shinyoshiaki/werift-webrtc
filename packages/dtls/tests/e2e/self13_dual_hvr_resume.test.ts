@@ -778,19 +778,33 @@ test("e2e/dual: close() during probing tears down parked engine and carrier time
   expect(parked.getPendingFlightSize()).toBeGreaterThan(0);
   expect(clientCarrier.isClosed()).toBe(false);
 
+  const connects: number[] = [];
+  client.onConnect.subscribe(() => connects.push(Date.now()));
+
   // Act: public close while probing
   client.close();
 
-  // Assert: parked candidate hard-closed; carrier permanently closed
+  // Assert: parked candidate hard-closed; carrier permanently closed; phase closed
   expect(parked.isClosed()).toBe(true);
   expect(clientCarrier.isClosed()).toBe(true);
   expect(parked.getPendingFlightSize()).toBe(0);
   expect((client as any).parkedEngine13).toBeUndefined();
   expect((client as any).engine13).toBeUndefined();
+  expect((client as any).dualPhase).toBe("closed");
 
-  // RTO を越えても carrier send / onError なし
+  // RTO を越えても carrier send / onError / onConnect なし
   await new Promise((r) => setTimeout(r, INITIAL_RTO_MS + 400));
   expect(carrierSendsAfterClose).toBe(0);
+  expect(errors).toEqual([]);
+  expect(connects).toEqual([]);
+
+  // close 後の inject は closed を壊さない
+  clientCarrier.inject(
+    buildHvrDatagram(),
+    clientFacingServerPeer(serverTransport),
+  );
+  expect((client as any).dualPhase).toBe("closed");
+  expect(connects).toEqual([]);
   expect(errors).toEqual([]);
 
   await serverTransport.close().catch(() => {});
@@ -912,3 +926,591 @@ test("e2e/dual: carrier.inject of 1.3 SH during probing commits via association"
   client.close();
   server.close();
 }, 25_000);
+
+/**
+ * Test 3 (必須): probing 中に carrier.inject で正当な DTLS 1.2 ServerHello を
+ * 届けて commit12 し、1.2 データと post-commit inject が association 1.2 path
+ * を通ること（releaseForVersionFallback の no-op inject を踏まない）。
+ */
+test("e2e/dual: carrier.inject of 1.2 SH during probing commits via association", async () => {
+  // Arrange: dual client × 1.2-only server。HVR 後 probing に入り、
+  // server の 1.2 SH 以降を carrier.inject で client に届ける。
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const { HashAlgorithm, SignatureAlgorithm } = await import(
+    "../../src/cipher/const"
+  );
+  const sig = {
+    hash: HashAlgorithm.sha256_4,
+    signature: SignatureAlgorithm.rsa_1,
+  };
+
+  const clientCarrier = new DirectHandshakeCarrier(clientTransport, {
+    mtu: 1200,
+  });
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_2],
+  });
+  const client = createDtlsClientInternal({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+    handshakeCarrier: clientCarrier,
+  });
+
+  const errors: Error[] = [];
+  client.onError.subscribe((e) => errors.push(e));
+  server.onError.subscribe((e) => errors.push(e));
+
+  // Hold all server→client wire TX; deliver only via carrier.inject after probing
+  const heldServerTx: { buf: Buffer; addr?: any }[] = [];
+  let injectViaCarrier = false;
+  const origServerSend = serverTransport.send.bind(serverTransport);
+  serverTransport.send = async (buf: Buffer, addr?: any) => {
+    if (!injectViaCarrier) {
+      heldServerTx.push({ buf: Buffer.from(buf), addr });
+      return;
+    }
+    // After commit path starts, still deliver remaining flights via inject so
+    // association 1.2 path (not UDP only) is exercised for the whole HS.
+    clientCarrier.inject(
+      Buffer.from(buf),
+      clientFacingServerPeer(serverTransport),
+    );
+  };
+
+  let clientSends = 0;
+  const origClientSend = clientTransport.send.bind(clientTransport);
+  clientTransport.send = async (buf: Buffer, addr?: any) => {
+    clientSends += 1;
+    await origClientSend(buf, addr);
+    // 最初の CH のあと HVR を注入して probing へ
+    if (clientSends === 1) {
+      for (let i = 0; i < 50 && heldServerTx.length === 0; i++) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      // 1.2 server は通常 HVR を返す — wire へは出さず client に注入
+      const firstFlight = heldServerTx.splice(0);
+      for (const pkt of firstFlight) {
+        clientTransport.onData?.(
+          pkt.buf,
+          clientFacingServerPeer(serverTransport),
+        );
+      }
+      for (let i = 0; i < 50; i++) {
+        if ((client as any).dualPhase === "probing") break;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      expect((client as any).dualPhase).toBe("probing");
+      expect(client.isDtls13).toBe(false);
+      expect((client as any).parkedEngine13).toBeTruthy();
+      // 以降の 1.2 SH 等は carrier.inject 経由
+      injectViaCarrier = true;
+      for (const pkt of heldServerTx.splice(0)) {
+        clientCarrier.inject(pkt.buf, clientFacingServerPeer(serverTransport));
+      }
+    }
+  };
+
+  await new Promise<void>(async (resolve, reject) => {
+    const timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            `carrier.inject 1.2 commit timeout (phase=${(client as any).dualPhase})`,
+          ),
+        ),
+      20_000,
+    );
+    client.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    server.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    client.onConnect.subscribe(() => {
+      try {
+        // Assert: commit12 — 1.3 ではない、parked は停止
+        expect(client.isDtls13).toBe(false);
+        expect((client as any).dualPhase).toBe("committed12");
+        expect((client as any).parkedEngine13).toBeUndefined();
+        expect((client as any).engine13).toBeUndefined();
+        // Act: 1.2 アプリデータ
+        void client.send(Buffer.from("inject-12"));
+      } catch (e) {
+        clearTimeout(timer);
+        reject(e);
+      }
+    });
+    server.onData.subscribe((d) => {
+      try {
+        expect(d.toString()).toBe("inject-12");
+        clearTimeout(timer);
+        resolve();
+      } catch (e) {
+        clearTimeout(timer);
+        reject(e);
+      }
+    });
+    await client.connect();
+  });
+
+  expect(errors).toEqual([]);
+  // carrier は soft transition 後も生きている（hard close ではない）
+  expect(clientCarrier.isClosed()).toBe(false);
+
+  client.close();
+  server.close();
+}, 25_000);
+
+/**
+ * Test 4a (必須): commit12 後の late 1.3 SH/HRR は version を巻き戻さない。
+ */
+test("e2e/dual: late 1.3 packet after commit12 does not reverse version", async () => {
+  // Arrange: dual → pure 1.2 で commit12 まで完走
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const { HashAlgorithm, SignatureAlgorithm } = await import(
+    "../../src/cipher/const"
+  );
+  const sig = {
+    hash: HashAlgorithm.sha256_4,
+    signature: SignatureAlgorithm.rsa_1,
+  };
+
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_2],
+  });
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+  });
+
+  const errors: Error[] = [];
+  const connects: number[] = [];
+  client.onError.subscribe((e) => errors.push(e));
+  client.onConnect.subscribe(() => connects.push(Date.now()));
+
+  await new Promise<void>(async (resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("commit12 setup timeout")),
+      20_000,
+    );
+    client.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    client.onConnect.subscribe(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+    await client.connect();
+  });
+
+  expect(client.isDtls13).toBe(false);
+  expect((client as any).dualPhase).toBe("committed12");
+  const connectCountAfter12 = connects.length;
+
+  // Act: late 1.3-looking SH（supported_versions=1.3）を注入
+  const late13 = buildMinimalDtls13ServerHelloRecord();
+  clientTransport.onData?.(late13, clientFacingServerPeer(serverTransport));
+  await new Promise((r) => setTimeout(r, 50));
+
+  // Assert: 1.2 のまま、二重 connect なし
+  expect((client as any).dualPhase).toBe("committed12");
+  expect(client.isDtls13).toBe(false);
+  expect((client as any).engine13).toBeUndefined();
+  expect(connects.length).toBe(connectCountAfter12);
+
+  client.close();
+  server.close();
+}, 25_000);
+
+/**
+ * Test 4b (必須): commit13 後の late 1.2 SH / HVR / alert は 1.2 に戻らず、
+ * public error を誤発火しない。
+ */
+test("e2e/dual: late 1.2 packet after commit13 does not reverse version", async () => {
+  // Arrange: CH-A + spoofed HVR race で 1.3 完走
+  const { server, client, errors, serverTransport, clientTransport } =
+    await setupChAThenSpoofedHvr({ addressValidation: "none" });
+
+  await new Promise<void>(async (resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("commit13 setup timeout")),
+      20_000,
+    );
+    client.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    client.onConnect.subscribe(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+    await client.connect();
+  });
+
+  expect(client.isDtls13).toBe(true);
+  expect((client as any).dualPhase).toBe("committed13");
+  const errCount = errors.length;
+  const connects: number[] = [];
+  client.onConnect.subscribe(() => connects.push(Date.now()));
+
+  // Act: late 1.2-style packets
+  clientTransport.onData?.(
+    buildHvrDatagram(Buffer.alloc(8, 0xcd)),
+    clientFacingServerPeer(serverTransport),
+  );
+  const alertBody = Buffer.from([2, AlertDesc.HandshakeFailure]);
+  clientTransport.onData?.(
+    serializePlaintextRecord(ContentType.alert, 0, 0, alertBody),
+    clientFacingServerPeer(serverTransport),
+  );
+  await new Promise((r) => setTimeout(r, 50));
+
+  // Assert: still 1.3 committed; no extra connect; no new public error required
+  // (engine may silently discard unauthenticated late records)
+  expect((client as any).dualPhase).toBe("committed13");
+  expect(client.isDtls13).toBe(true);
+  expect(connects).toEqual([]);
+  // late unauthenticated alert must not surface as association-level version flip
+  expect(errors.length).toBe(errCount);
+
+  client.close();
+  server.close();
+}, 25_000);
+
+/**
+ * Test 5 (必須): probing 中の close と packet arrival の race。
+ * 最終 state は必ず closed（再 connect なし、timer なし、error/connect なし）。
+ */
+test("e2e/dual: close races with carrier.inject leave association closed", async () => {
+  // Arrange: custom carrier + probing
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const clientCarrier = new DirectHandshakeCarrier(clientTransport, {
+    mtu: 1200,
+  });
+  const client = createDtlsClientInternal({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+    handshakeCarrier: clientCarrier,
+  });
+
+  let hvrInjected = false;
+  clientTransport.send = async () => {
+    if (!hvrInjected && (client as any).dualPhase === "none") {
+      hvrInjected = true;
+      queueMicrotask(() => {
+        injectHvr(clientTransport, serverTransport);
+      });
+    }
+  };
+
+  const errors: Error[] = [];
+  const connects: number[] = [];
+  client.onError.subscribe((e) => errors.push(e));
+  client.onConnect.subscribe(() => connects.push(Date.now()));
+
+  void client.connect();
+  for (let i = 0; i < 50; i++) {
+    if ((client as any).dualPhase === "probing") break;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  expect((client as any).dualPhase).toBe("probing");
+
+  // Act: close 直後に inject（race）
+  client.close();
+  const peer = clientFacingServerPeer(serverTransport);
+  clientCarrier.inject(buildHvrDatagram(), peer);
+  clientCarrier.inject(buildMinimalDtls13ServerHelloRecord(), peer);
+  // ほぼ同時パターン: inject 中に再度 close してもよい
+  client.close();
+
+  // Assert: 最終 closed 不変
+  expect((client as any).dualPhase).toBe("closed");
+  expect((client as any).engine13).toBeUndefined();
+  expect((client as any).parkedEngine13).toBeUndefined();
+  expect(clientCarrier.isClosed()).toBe(true);
+
+  await new Promise((r) => setTimeout(r, INITIAL_RTO_MS + 400));
+  expect(errors).toEqual([]);
+  expect(connects).toEqual([]);
+  expect((client as any).dualPhase).toBe("closed");
+
+  await serverTransport.close().catch(() => {});
+  await clientTransport.close().catch(() => {});
+}, 10_000);
+
+/**
+ * Minimal DTLSPlaintext ServerHello that advertises selected DTLS 1.3
+ * (supported_versions). Used for late-packet / demux tests — not a full HS.
+ */
+function buildMinimalDtls13ServerHelloRecord(): Buffer {
+  // Handshake fragment layout: type(1) length(3) msg_seq(2) frag_off(3) frag_len(3) body
+  // ServerHello body (partial): server_version(2) random(32) session_id(1+0)
+  // cipher(2) compression(1) extensions_len(2) + supported_versions ext
+  const random = Buffer.alloc(32, 0x11);
+  // supported_versions extension: type=43, length=2, selected=0xfefc (DTLS 1.3)
+  const svExt = Buffer.alloc(6);
+  svExt.writeUInt16BE(43, 0);
+  svExt.writeUInt16BE(2, 2);
+  svExt.writeUInt16BE(0xfefc, 4);
+  const shBody = Buffer.concat([
+    Buffer.from([0xfe, 0xfd]), // legacy version DTLS 1.2
+    random,
+    Buffer.from([0]), // session_id empty
+    Buffer.from([0x13, 0x01]), // TLS_AES_128_GCM_SHA256
+    Buffer.from([0]), // compression null
+    (() => {
+      const l = Buffer.alloc(2);
+      l.writeUInt16BE(svExt.length, 0);
+      return l;
+    })(),
+    svExt,
+  ]);
+  const frag = Buffer.alloc(12 + shBody.length);
+  frag[0] = 2; // server_hello
+  frag[1] = (shBody.length >> 16) & 0xff;
+  frag[2] = (shBody.length >> 8) & 0xff;
+  frag[3] = shBody.length & 0xff;
+  // message_seq = 0, fragment_offset = 0
+  frag[9] = (shBody.length >> 16) & 0xff;
+  frag[10] = (shBody.length >> 8) & 0xff;
+  frag[11] = shBody.length & 0xff;
+  shBody.copy(frag, 12);
+  return serializePlaintextRecord(ContentType.handshake, 0, 0, frag);
+}
+
+/**
+ * P1: committed13 後の fatal（authenticated 相当の engine.fail）で association が
+ * closed に遷移し、isDtls13 が false、stale callback / retransmit が残らないこと。
+ */
+test("e2e/dual: fatal after committed13 tears down association to closed", async () => {
+  // Arrange: dual 1.3 完走（committed13）。carrier は setup 内 transport と同一にする。
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const clientCarrier = new DirectHandshakeCarrier(clientTransport, {
+    mtu: 1200,
+  });
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+    addressValidation: "none",
+  });
+  const client = createDtlsClientInternal({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+    addressValidation: "none",
+    handshakeCarrier: clientCarrier,
+  });
+
+  // CH-A 到達 → spoofed HVR → genuine 1.3 応答（setupChA と同型の簡易版）
+  let releaseServerTx = false;
+  const heldServerTx: { buf: Buffer; addr?: any }[] = [];
+  const origServerSend = serverTransport.send.bind(serverTransport);
+  serverTransport.send = async (buf: Buffer, addr?: any) => {
+    if (!releaseServerTx) {
+      heldServerTx.push({ buf: Buffer.from(buf), addr });
+      return;
+    }
+    return origServerSend(buf, addr);
+  };
+  let clientSends = 0;
+  let holdPostHvrClientTx = false;
+  const origClientSend = clientTransport.send.bind(clientTransport);
+  clientTransport.send = async (buf: Buffer, addr?: any) => {
+    clientSends += 1;
+    if (clientSends === 1) {
+      await origClientSend(buf, addr);
+      for (let i = 0; i < 50 && heldServerTx.length === 0; i++) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      const chAServerFlight = heldServerTx.splice(0);
+      holdPostHvrClientTx = true;
+      injectHvr(clientTransport, serverTransport);
+      for (let i = 0; i < 50; i++) {
+        if ((client as any).dualPhase === "probing") break;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      heldServerTx.length = 0;
+      releaseServerTx = true;
+      for (const pkt of chAServerFlight) {
+        await origServerSend(pkt.buf, pkt.addr);
+      }
+      holdPostHvrClientTx = false;
+      return;
+    }
+    if (holdPostHvrClientTx) return;
+    return origClientSend(buf, addr);
+  };
+
+  let setupDone = false;
+  await new Promise<void>(async (resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("committed13 setup timeout")),
+      20_000,
+    );
+    client.onError.subscribe((e) => {
+      if (setupDone) return;
+      clearTimeout(timer);
+      reject(e);
+    });
+    client.onConnect.subscribe(() => {
+      clearTimeout(timer);
+      setupDone = true;
+      resolve();
+    });
+    await client.connect();
+  });
+
+  expect(client.isDtls13).toBe(true);
+  expect((client as any).dualPhase).toBe("committed13");
+  const eng = (client as any).engine13;
+  expect(eng).toBeTruthy();
+  expect(clientCarrier.isClosed()).toBe(false);
+
+  const fatalErrors: Error[] = [];
+  const closes: number[] = [];
+  const connectsAfter: number[] = [];
+  client.onError.subscribe((e) => fatalErrors.push(e));
+  client.onClose.subscribe(() => closes.push(Date.now()));
+  client.onConnect.subscribe(() => connectsAfter.push(Date.now()));
+
+  // Act: committed13 後の authenticated fatal（AEAD 済み peer alert 相当）
+  // engine.fail は bridge → failAssociationFromEngine13 を通る
+  eng.fail(new Error("fatal alert handshake_failure (authenticated)"));
+
+  // Assert: association closed / public 1.3 ハンドルなし
+  expect(fatalErrors.length).toBe(1);
+  expect(fatalErrors[0].message).toMatch(/handshake_failure|fatal/i);
+  expect(closes.length).toBe(1);
+  expect(client.isDtls13).toBe(false);
+  expect((client as any).engine13).toBeUndefined();
+  expect((client as any).parkedEngine13).toBeUndefined();
+  expect((client as any).dualPhase).toBe("closed");
+  expect(clientCarrier.isClosed()).toBe(true);
+  expect(eng.isClosed()).toBe(true);
+  expect(eng.getPendingFlightSize()).toBe(0);
+
+  // 再 inject / RTO 進行でも connect 二重・追加 error なし
+  clientCarrier.inject(
+    buildMinimalDtls13ServerHelloRecord(),
+    clientFacingServerPeer(serverTransport),
+  );
+  await new Promise((r) => setTimeout(r, INITIAL_RTO_MS + 200));
+  expect(connectsAfter).toEqual([]);
+  expect(fatalErrors.length).toBe(1);
+  expect(closes.length).toBe(1);
+  expect((client as any).dualPhase).toBe("closed");
+  expect(client.isDtls13).toBe(false);
+
+  try {
+    server.close();
+  } catch {
+    /* transport may already be closed */
+  }
+}, 30_000);
+
+/**
+ * P1: 1.3-only client × 1.2-only server の version mismatch 後、
+ * association が closed で isDtls13 === false、carrier/retransmit が残らない。
+ */
+test("e2e/dual: 1.3-only version mismatch tears down association to closed", async () => {
+  // Arrange
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const { HashAlgorithm, SignatureAlgorithm } = await import(
+    "../../src/cipher/const"
+  );
+  const sig = {
+    hash: HashAlgorithm.sha256_4,
+    signature: SignatureAlgorithm.rsa_1,
+  };
+
+  const clientCarrier = new DirectHandshakeCarrier(clientTransport, {
+    mtu: 1200,
+  });
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_2],
+  });
+  const client = createDtlsClientInternal({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3],
+    handshakeCarrier: clientCarrier,
+  });
+
+  const fatalErrors: Error[] = [];
+  const connects: number[] = [];
+  client.onError.subscribe((e) => fatalErrors.push(e));
+  client.onConnect.subscribe(() => connects.push(Date.now()));
+
+  // Act: HVR → ProtocolVersionError（1.3-only は dual soft に入らない）
+  void client.connect();
+  for (let i = 0; i < 100 && fatalErrors.length === 0; i++) {
+    await new Promise((r) => setTimeout(r, 20));
+  }
+
+  // Assert: 公開 error は 1 回、version 系、association closed
+  expect(fatalErrors.length).toBeGreaterThanOrEqual(1);
+  expect(fatalErrors[0].message).toMatch(
+    /protocol version|HelloVerifyRequest|DTLS 1\.2-only|ProtocolVersion/i,
+  );
+  expect(client.isDtls13).toBe(false);
+  expect((client as any).engine13).toBeUndefined();
+  expect((client as any).dualPhase).toBe("closed");
+  expect(clientCarrier.isClosed()).toBe(true);
+  expect(connects).toEqual([]);
+
+  // 再 inject しても state 不変・追加 connect なし
+  const errCount = fatalErrors.length;
+  clientCarrier.inject(
+    buildHvrDatagram(),
+    clientFacingServerPeer(serverTransport),
+  );
+  await new Promise((r) => setTimeout(r, INITIAL_RTO_MS + 200));
+  expect(fatalErrors.length).toBe(errCount);
+  expect(connects).toEqual([]);
+  expect((client as any).dualPhase).toBe("closed");
+  expect(client.isDtls13).toBe(false);
+
+  server.close();
+}, 15_000);
