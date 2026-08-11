@@ -232,6 +232,29 @@ True when this socket is operating on the DTLS 1.3 engine.
 
 ## Methods
 
+### assertReadyForApplicationApi()
+
+> `protected` **assertReadyForApplicationApi**(`op`): `void`
+
+Reject Public data / re-connect APIs while dual is probing or after hard close.
+Active committed12 / committed13 / pure 1.2 (none) are allowed.
+
+#### Parameters
+
+##### op
+
+`string`
+
+#### Returns
+
+`void`
+
+#### Overrides
+
+[`DtlsSocket`](DtlsSocket.md).[`assertReadyForApplicationApi`](DtlsSocket.md#assertreadyforapplicationapi)
+
+***
+
 ### bridgeEngine13()
 
 > `protected` **bridgeEngine13**(`engine`, `options`?): `void`
@@ -264,9 +287,9 @@ Wire DTLS 1.3 engine events onto this socket.
 
 > **close**(): `void`
 
-Public close: tear down all dual candidates first so parked CH-A RTO cannot
-fire after the association is closed (carrier timer cancel requirement).
-Phase becomes permanently `closed` — further inject / UDP is dropped.
+Public close: tear down all dual candidates, association carrier, and
+1.2 flight timers. Phase becomes permanently `closed`.
+Fires public onClose once (bridge is disposed before eng.close).
 
 #### Returns
 
@@ -352,6 +375,32 @@ Phase becomes permanently `closed` — further inject / UDP is dropped.
 
 ***
 
+### failAssociationFromEngine13()
+
+> `protected` **failAssociationFromEngine13**(`err`): `boolean`
+
+Dual association fatal teardown: phase → closed, all candidates + 1.2 flight
+stopped, RX drops further inject. Invoked from bridge on non-soft 1.3 errors
+(committed13 fatal alert, 1.3-only version mismatch, RTO exhaust, …).
+HVR soft (DtlsVersionSelected) never reaches here (filterError).
+Public onClose is fired by bridge after this returns (not here).
+
+#### Parameters
+
+##### err
+
+`Error`
+
+#### Returns
+
+`boolean`
+
+#### Overrides
+
+[`DtlsSocket`](DtlsSocket.md).[`failAssociationFromEngine13`](DtlsSocket.md#failassociationfromengine13)
+
+***
+
 ### handleFragmentHandshake()
 
 > **handleFragmentHandshake**(`messages`): `FragmentedHandshake`[]
@@ -414,6 +463,42 @@ Request KeyUpdate on DTLS 1.3 connections.
 #### Inherited from
 
 [`DtlsSocket`](DtlsSocket.md).[`keyUpdate`](DtlsSocket.md#keyupdate)
+
+***
+
+### onEngine13PeerOrLocalClose()
+
+> `protected` **onEngine13PeerOrLocalClose**(): `void`
+
+Peer close_notify / engine onClose: full association closed (phase, carrier,
+transport, public API guards). Called after public onClose so handlers can
+still inspect engine13, then hard-closes association ownership.
+Does not re-fire onClose (already delivered by bridge; dualPhase already closed).
+
+#### Returns
+
+`void`
+
+#### Overrides
+
+[`DtlsSocket`](DtlsSocket.md).[`onEngine13PeerOrLocalClose`](DtlsSocket.md#onengine13peerorlocalclose)
+
+***
+
+### prepareAssociationClosedFromEngine()
+
+> `protected` **prepareAssociationClosedFromEngine**(): `void`
+
+Peer/engine onClose: mark dualPhase closed before public onClose so
+re-entrant local close() inside handlers is idempotent (no second onClose).
+
+#### Returns
+
+`void`
+
+#### Overrides
+
+[`DtlsSocket`](DtlsSocket.md).[`prepareAssociationClosedFromEngine`](DtlsSocket.md#prepareassociationclosedfromengine)
 
 ***
 
@@ -495,13 +580,14 @@ Send a fatal DTLSPlaintext alert (used for protocol_version mismatch).
 
 ### udpOnMessage()
 
-> `protected` **udpOnMessage**(`data`): `void`
+> `protected` **udpOnMessage**(`data`, `addr`?): `void`
 
 Association inbound dispatcher (UDP onData and carrier.inject).
 
 - closed: drop everything (no reconnect, no timer restart)
+- non-association peer: drop before version commit (anti-spoof)
 - active engine13 (committed13 / pure 1.3 after dual resume): forward to 1.3
-- probing + 1.3 SH/HRR: version commit to 1.3
+- probing + 1.3 SH/HRR from association peer: version commit to 1.3
 - probing + epoch-0 illegal_parameter only: suppress (legacy_cookie vs 1.3)
 - else: DTLS 1.2 record path (committed12 / dual cookie / pure 1.2)
 
@@ -510,6 +596,10 @@ Association inbound dispatcher (UDP onData and carrier.inject).
 ##### data
 
 `Buffer`
+
+##### addr?
+
+readonly \[`string`, `number`\]
 
 #### Returns
 

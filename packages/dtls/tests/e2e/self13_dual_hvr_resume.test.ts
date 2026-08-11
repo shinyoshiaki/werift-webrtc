@@ -1652,9 +1652,7 @@ test("e2e/dual: probing rejects send/export/reconnect fallthrough to 1.2", async
   expect(() => client.exportKeyingMaterial("EXTRACTOR-dtls_srtp", 16)).toThrow(
     /probing/i,
   );
-  expect(() =>
-    client.extractSessionKeys(16, 14),
-  ).toThrow(/probing/i);
+  expect(() => client.extractSessionKeys(16, 14)).toThrow(/probing/i);
   expect(() => client.remoteCertificate).toThrow(/probing/i);
   await expect(client.connect()).rejects.toThrow(/probing/i);
 
@@ -2139,12 +2137,7 @@ test("e2e/dual: spoofed 1.2 alert from non-association peer does not surface onE
 
   // Act: 別 peer からの epoch-0 handshake_failure（本来は actionable）
   const alertBody = Buffer.from([2, AlertDesc.HandshakeFailure]);
-  const alertPkt = serializePlaintextRecord(
-    ContentType.alert,
-    0,
-    0,
-    alertBody,
-  );
+  const alertPkt = serializePlaintextRecord(ContentType.alert, 0, 0, alertBody);
   clientTransport.onData?.(alertPkt, ["198.51.100.9", 55555]);
   await new Promise((r) => setTimeout(r, 50));
 
@@ -2156,3 +2149,232 @@ test("e2e/dual: spoofed 1.2 alert from non-association peer does not surface onE
   await serverTransport.close().catch(() => {});
   await clientTransport.close().catch(() => {});
 }, 10_000);
+
+/**
+ * P1: handleHandshakes の await 中に close すると、再開後に Flight5 / onConnect しない。
+ * 「処理開始 → close → 非同期再開」競合（inject 後 close だけではない）。
+ */
+test("e2e/dual: close during handleHandshakes await aborts 1.2 flight", async () => {
+  // Arrange: dual client × 1.2-only server
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const { HashAlgorithm, SignatureAlgorithm } = await import(
+    "../../src/cipher/const"
+  );
+  const sig = {
+    hash: HashAlgorithm.sha256_4,
+    signature: SignatureAlgorithm.rsa_1,
+  };
+
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_2],
+  });
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+  });
+
+  const connects: number[] = [];
+  const errors: Error[] = [];
+  client.onConnect.subscribe(() => connects.push(Date.now()));
+  client.onError.subscribe((e) => errors.push(e));
+
+  // Act: waitForReady 入口で必ず遅延し、その間に close（条件即 true でも競合を起こす）
+  const origWait = (client as any).waitForReady.bind(client);
+  let closedDuringWait = false;
+  (client as any).waitForReady = async (cond: () => boolean) => {
+    // ハンドシェイク非同期区間に入ったことを確実にする
+    await new Promise((r) => setTimeout(r, 80));
+    if (!closedDuringWait && (client as any).dualPhase !== "closed") {
+      closedDuringWait = true;
+      client.close();
+    }
+    if ((client as any).dualPhase === "closed") return;
+    try {
+      return await origWait(cond);
+    } catch {
+      return;
+    }
+  };
+
+  void client.connect();
+  for (let i = 0; i < 100 && !closedDuringWait; i++) {
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  // 非同期 handleHandshakes が再開しきる余裕
+  await new Promise((r) => setTimeout(r, 500));
+
+  // Assert: closed のまま、遅延 onConnect / 1.2 完走なし
+  expect(closedDuringWait).toBe(true);
+  expect((client as any).dualPhase).toBe("closed");
+  expect(connects).toEqual([]);
+  expect(client.connected).toBe(false);
+  expect((client as any).flight5).toBeUndefined();
+
+  try {
+    server.close();
+  } catch {
+    /* */
+  }
+}, 20_000);
+
+/**
+ * P1: handleHandshakes await 中に 1.3 commit すると 1.2 Flight5 が再開しない。
+ */
+test("e2e/dual: commit13 during handleHandshakes await aborts 1.2 path", async () => {
+  // Arrange: dual client × 1.2 server。wait 中に gen/phase を commit13 相当に進める
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const { HashAlgorithm, SignatureAlgorithm } = await import(
+    "../../src/cipher/const"
+  );
+  const sig = {
+    hash: HashAlgorithm.sha256_4,
+    signature: SignatureAlgorithm.rsa_1,
+  };
+
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_2],
+  });
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+  });
+
+  const connects: number[] = [];
+  client.onConnect.subscribe(() => connects.push(Date.now()));
+
+  const origWait = (client as any).waitForReady.bind(client);
+  let committedDuringWait = false;
+  (client as any).waitForReady = async (cond: () => boolean) => {
+    await new Promise((r) => setTimeout(r, 80));
+    if (
+      !committedDuringWait &&
+      ((client as any).dualPhase === "committed12" ||
+        (client as any).dualPhase === "probing")
+    ) {
+      // Act: 1.2 非同期待機中に association gen を進める（commit13 相当）
+      committedDuringWait = true;
+      (client as any).dualPhase = "committed13";
+      (client as any).associationGen++;
+      (client as any).flight5 = undefined;
+      (client as any).dtls.flight = 99;
+      // handleHandshakes 側の isLegacy12PathActive(gen) が false になる
+      return;
+    }
+    if ((client as any).dualPhase === "committed13") return;
+    try {
+      return await origWait(cond);
+    } catch {
+      return;
+    }
+  };
+
+  void client.connect();
+  for (let i = 0; i < 150 && !committedDuringWait; i++) {
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  await new Promise((r) => setTimeout(r, 500));
+
+  // Assert: 1.2 onConnect なし（commit13 後の Flight5 再開抑止）
+  expect(committedDuringWait).toBe(true);
+  expect(connects).toEqual([]);
+  expect(client.connected).toBe(false);
+
+  client.close();
+  try {
+    server.close();
+  } catch {
+    /* */
+  }
+}, 20_000);
+
+/**
+ * P1: continueDualAfterHvr の Flight1 await 中に close しても public onError しない。
+ */
+test("e2e/dual: close during continueDualAfterHvr does not fire onError", async () => {
+  // Arrange: dual client を HVR → probing に入れ、cookie Flight1 を遅延
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+  });
+
+  const errors: Error[] = [];
+  client.onError.subscribe((e) => errors.push(e));
+
+  // Flight1.exec を遅延させて close を挟む
+  const { Flight1 } = await import("../../src/flight/client/flight1");
+  const origExec = Flight1.prototype.exec;
+  let delayed = false;
+  Flight1.prototype.exec = async function (
+    this: any,
+    extensions: any,
+    prebuilt?: any,
+  ) {
+    if (!delayed && (client as any).dualPhase === "probing") {
+      delayed = true;
+      // Act: cookie CH 送信中に hard-close
+      await new Promise((r) => setTimeout(r, 30));
+      client.close();
+      await new Promise((r) => setTimeout(r, 30));
+    }
+    try {
+      return await origExec.call(this, extensions, prebuilt);
+    } catch {
+      // close 後の retransmit 失敗は public に上げない（continueDual が抑止）
+      return;
+    }
+  };
+
+  try {
+    let hvrInjected = false;
+    clientTransport.send = async () => {
+      if (!hvrInjected && (client as any).dualPhase === "none") {
+        hvrInjected = true;
+        queueMicrotask(() => {
+          injectHvr(clientTransport, serverTransport);
+        });
+      }
+    };
+
+    void client.connect();
+    for (let i = 0; i < 80 && !delayed; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    await new Promise((r) => setTimeout(r, 400));
+
+    // Assert: closed、delayed onError なし
+    expect(delayed).toBe(true);
+    expect((client as any).dualPhase).toBe("closed");
+    expect(errors).toEqual([]);
+  } finally {
+    Flight1.prototype.exec = origExec;
+  }
+
+  await serverTransport.close().catch(() => {});
+  await clientTransport.close().catch(() => {});
+}, 15_000);

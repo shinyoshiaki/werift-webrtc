@@ -14,6 +14,7 @@ import { Flight3 } from "./flight/client/flight3";
 import { Flight5 } from "./flight/client/flight5";
 import { HandshakeType } from "./handshake/const";
 import { CookieExtension } from "./handshake/extensions/cookie";
+import { peerKeyFromAddr } from "./handshake/extensions/cookie";
 import { EllipticCurves } from "./handshake/extensions/ellipticCurves";
 import { KeyShare } from "./handshake/extensions/keyShare";
 import {
@@ -25,7 +26,6 @@ import { ClientHello } from "./handshake/message/client/hello";
 import { ServerHello } from "./handshake/message/server/hello";
 import { ServerHelloVerifyRequest } from "./handshake/message/server/helloVerifyRequest";
 import { DtlsRandom } from "./handshake/random";
-import { peerKeyFromAddr } from "./handshake/extensions/cookie";
 import type { Address } from "./imports/common";
 import { debug } from "./imports/common";
 import { AlertDesc, ContentType } from "./record/const";
@@ -97,6 +97,13 @@ export class DtlsClient extends DtlsSocket {
    * Version commit (1.3 SH/HRR or 1.2 SH) requires matching source address.
    */
   private dualAssociationPeerKey?: string;
+
+  /**
+   * Association generation token. Bumped on hard-close and on commit to 1.3
+   * so in-flight async 1.2 handshake work (waitForReady / Flight5) cannot
+   * resume after the association or version decision has moved on.
+   */
+  private associationGen = 0;
 
   /** Public constructor — accepts stable {@link Options} only. */
   constructor(options: Options) {
@@ -300,6 +307,9 @@ export class DtlsClient extends DtlsSocket {
     // Mark closed before onClose so re-entrant client.close() is a no-op
     // (handlers that call close() inside onClose must not recurse).
     this.dualPhase = "closed";
+    // Invalidate any in-flight 1.2 handshake / dual cookie async work.
+    this.associationGen++;
+    this.flight5 = undefined;
     // Local close: fire onClose while engine13 still visible (peer path parity).
     // Fatal/peer paths omit this flag — they already fire or will fire elsewhere.
     if (opts?.firePublicOnClose) {
@@ -341,6 +351,31 @@ export class DtlsClient extends DtlsSocket {
     this.connected = false;
     this.dtls.flight = 99;
     this.dualPhase = "closed";
+    this.associationGen++;
+    this.flight5 = undefined;
+  }
+
+  /**
+   * True when a captured associationGen still owns the DTLS 1.2 handshake path.
+   * False after hard-close or commit to 1.3 (1.2 Flight5 must not resume).
+   */
+  private isLegacy12PathActive(gen: number): boolean {
+    if (gen !== this.associationGen) return false;
+    if (this.dualPhase === "closed") return false;
+    if (this.dualPhase === "committed13") return false;
+    if (this.engine13) return false;
+    return true;
+  }
+
+  /**
+   * True when dual cookie-path work after HVR may still send / throw publicly.
+   */
+  private isDualCookiePathActive(gen: number): boolean {
+    return (
+      gen === this.associationGen &&
+      this.dualPhase === "probing" &&
+      !this.engine13
+    );
   }
 
   /**
@@ -498,13 +533,22 @@ export class DtlsClient extends DtlsSocket {
   /**
    * After HVR: continue dual negotiation with the **same** ClientHello (same
    * random) plus DTLS 1.2 legacy cookie. Never treat HVR as final version pick.
+   * Aborts silently if the association closes or commits to 1.3 mid-flight.
    */
   private async continueDualAfterHvr(cookie?: Buffer) {
-    if (this.dualResume) {
-      await this.resendDualClientHelloWithCookie(cookie);
-      return;
+    const gen = this.associationGen;
+    if (!this.isDualCookiePathActive(gen)) return;
+    try {
+      if (this.dualResume) {
+        await this.resendDualClientHelloWithCookie(cookie, gen);
+        return;
+      }
+      await this.sendDualNegotiationClientHello(cookie, gen);
+    } catch (err) {
+      // close / version commit during Flight1 — do not surface as public onError
+      if (!this.isDualCookiePathActive(gen)) return;
+      throw err;
     }
-    await this.sendDualNegotiationClientHello(cookie);
   }
 
   /**
@@ -516,7 +560,11 @@ export class DtlsClient extends DtlsSocket {
    * spoofed/stale HVR; 1.3 resume must prime with the CH the server saw.
    * Random + ECDHE keyPair are unchanged so flight2 / key_share stay aligned.
    */
-  private async resendDualClientHelloWithCookie(legacyCookie?: Buffer) {
+  private async resendDualClientHelloWithCookie(
+    legacyCookie?: Buffer,
+    gen = this.associationGen,
+  ) {
+    if (!this.isDualCookiePathActive(gen)) return;
     if (!this.dualResume) {
       throw new Error("dual resume ClientHello missing for HVR cookie path");
     }
@@ -526,6 +574,7 @@ export class DtlsClient extends DtlsSocket {
     // Clear messageSeq so Flight1 re-assigns seq 0 for this transmission
     hello.messageSeq = undefined as any;
 
+    if (!this.isDualCookiePathActive(gen)) return;
     await new Flight1(this.transport, this.dtls, this.cipher).exec(
       this.extensions,
       hello,
@@ -537,7 +586,11 @@ export class DtlsClient extends DtlsSocket {
    * + 1.2 suites for true dual peers. Stores ECDHE material for possible 1.3
    * resume when ServerHello selects 1.3.
    */
-  private async sendDualNegotiationClientHello(legacyCookie?: Buffer) {
+  private async sendDualNegotiationClientHello(
+    legacyCookie?: Buffer,
+    gen = this.associationGen,
+  ) {
+    if (!this.isDualCookiePathActive(gen)) return;
     const named =
       this.options.namedGroups?.length && this.options.namedGroups.length > 0
         ? ([...this.options.namedGroups] as NamedCurveAlgorithms[])
@@ -594,6 +647,7 @@ export class DtlsClient extends DtlsSocket {
       extensions,
     );
 
+    if (!this.isDualCookiePathActive(gen)) return;
     const body = hello.serialize();
     this.dualResume = {
       clientHelloBody: Buffer.from(body),
@@ -606,6 +660,7 @@ export class DtlsClient extends DtlsSocket {
     };
 
     // Flight retransmit until HVR (flight 3) or we stop on 1.3 resume
+    if (!this.isDualCookiePathActive(gen)) return;
     await new Flight1(this.transport, this.dtls, this.cipher).exec(
       this.extensions,
       hello,
@@ -673,6 +728,9 @@ export class DtlsClient extends DtlsSocket {
     // for a successful version commit (would surface as delayed public onError).
     this.dtls.flight = 99;
     this.dualPhase = "committed13";
+    // Invalidate in-flight 1.2 handleHandshakes / Flight5 after version commit.
+    this.associationGen++;
+    this.flight5 = undefined;
 
     const rinfo = (
       this.options.transport as {
@@ -765,6 +823,9 @@ export class DtlsClient extends DtlsSocket {
   private flight5?: Flight5;
   private handleHandshakes = async (assembled: FragmentedHandshake[]) => {
     if (this.engine13) return;
+    if (this.dualPhase === "closed") return;
+    // Capture generation so awaits cannot resume after close / commit13.
+    const gen = this.associationGen;
 
     log(
       this.dtls.sessionId,
@@ -773,6 +834,7 @@ export class DtlsClient extends DtlsSocket {
     );
 
     for (const handshake of assembled) {
+      if (!this.isLegacy12PathActive(gen)) return;
       switch (handshake.msg_type) {
         case HandshakeType.hello_verify_request_3:
           {
@@ -780,6 +842,7 @@ export class DtlsClient extends DtlsSocket {
               handshake.fragment,
             );
             await new Flight3(this.transport, this.dtls).exec(verifyReq);
+            if (!this.isLegacy12PathActive(gen)) return;
             // Do not overwrite dualResume with the cookie-bearing CH2 body.
             // dualResume is the original dual CH-A used if a 1.3 SH/HRR for
             // that first CH still arrives (spoofed HVR race). Pure 1.2 peers
@@ -789,6 +852,7 @@ export class DtlsClient extends DtlsSocket {
         case HandshakeType.server_hello_2:
           {
             if (this.connected) return;
+            if (!this.isLegacy12PathActive(gen)) return;
             const only13 =
               this.protocolVersions.length === 1 &&
               this.protocolVersions[0] === DtlsVersion.V1_3;
@@ -873,12 +937,15 @@ export class DtlsClient extends DtlsSocket {
               }
             }
 
+            if (!this.isLegacy12PathActive(gen)) return;
+
             // Legitimate 1.2 ServerHello: leave dual probing so fatal alerts
             // (and the rest of the 1.2 handshake) are no longer suppressed.
             if (this.dualPhase === "probing") {
               this.commitDualTo12();
             }
 
+            if (!this.isLegacy12PathActive(gen)) return;
             this.flight5 = new Flight5(
               this.transport,
               this.dtls,
@@ -893,12 +960,15 @@ export class DtlsClient extends DtlsSocket {
         case HandshakeType.certificate_request_13:
           {
             await this.waitForReady(() => !!this.flight5);
+            // 解放済み candidate に触れないよう await 後に再検証
+            if (!this.isLegacy12PathActive(gen)) return;
             this.flight5?.handleHandshake(handshake);
           }
           break;
         case HandshakeType.server_hello_done_14:
           {
             await this.waitForReady(() => !!this.flight5);
+            if (!this.isLegacy12PathActive(gen)) return;
             this.flight5?.handleHandshake(handshake);
 
             const targets = [
@@ -909,11 +979,16 @@ export class DtlsClient extends DtlsSocket {
             await this.waitForReady(() =>
               this.dtls.checkHandshakesExist(targets),
             );
+            // close / commit13 後は Flight5.exec も onConnect も行わない
+            if (!this.isLegacy12PathActive(gen)) return;
             await this.flight5?.exec();
+            if (!this.isLegacy12PathActive(gen)) return;
           }
           break;
         case HandshakeType.finished_20:
           {
+            if (!this.isLegacy12PathActive(gen)) return;
+            if (this.connected) return;
             this.dtls.flight = 7;
             this.connected = true;
             this.onConnect.execute();

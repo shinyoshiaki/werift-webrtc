@@ -163,6 +163,25 @@ True when this socket is operating on the DTLS 1.3 engine.
 
 ## Methods
 
+### assertReadyForApplicationApi()
+
+> `protected` **assertReadyForApplicationApi**(`_op`): `void`
+
+Guard for send / exporter / remoteCertificate.
+Dual client overrides to reject `closed` and `probing` (no 1.2 fallthrough).
+
+#### Parameters
+
+##### \_op
+
+`string`
+
+#### Returns
+
+`void`
+
+***
+
 ### bridgeEngine13()
 
 > `protected` **bridgeEngine13**(`engine`, `options`?): `void`
@@ -253,6 +272,33 @@ Wire DTLS 1.3 engine events onto this socket.
 
 ***
 
+### failAssociationFromEngine13()
+
+> `protected` **failAssociationFromEngine13**(`_err`): `boolean`
+
+Association-level fatal teardown after a non-soft 1.3 engine error.
+Clears public engine13 (isDtls13 → false), stops bridge callbacks, and
+hard-disposes candidate resources. HVR dual soft transition must not call
+this (filterError swallows DtlsVersionSelected before we reach here).
+
+Subclasses (dual client) override to also flip dualPhase → closed and
+tear down parked candidates / 1.2 flight timers.
+
+#### Parameters
+
+##### \_err
+
+`Error`
+
+#### Returns
+
+`boolean`
+
+true when public onClose should be fired after onError (caller
+  owns ordering so handlers observe isDtls13 === false first).
+
+***
+
 ### handleFragmentHandshake()
 
 > **handleFragmentHandshake**(`messages`): `FragmentedHandshake`[]
@@ -303,6 +349,34 @@ Request KeyUpdate on DTLS 1.3 connections.
 #### Returns
 
 `Promise`\<`void`\>
+
+***
+
+### onEngine13PeerOrLocalClose()
+
+> `protected` **onEngine13PeerOrLocalClose**(): `void`
+
+After engine onClose (peer close_notify or local engine close) has been
+delivered publicly: drop the 1.3 handle. Dual client overrides to also
+hard-close carrier / transport / candidates.
+
+#### Returns
+
+`void`
+
+***
+
+### prepareAssociationClosedFromEngine()
+
+> `protected` **prepareAssociationClosedFromEngine**(): `void`
+
+Before public onClose for engine teardown: mark association closed so
+re-entrant client.close() inside onClose handlers is idempotent.
+Dual client sets dualPhase → closed here.
+
+#### Returns
+
+`void`
 
 ***
 
@@ -368,13 +442,17 @@ Send a fatal DTLSPlaintext alert (used for protocol_version mismatch).
 
 ### udpOnMessage()
 
-> `protected` **udpOnMessage**(`data`): `void`
+> `protected` **udpOnMessage**(`data`, `_addr`?): `void`
 
 #### Parameters
 
 ##### data
 
 `Buffer`
+
+##### \_addr?
+
+readonly \[`string`, `number`\]
 
 #### Returns
 
