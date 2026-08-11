@@ -130,7 +130,10 @@ async function setupChAThenSpoofedHvr(opts?: {
       holdPostHvrClientTx = true;
       injectHvr(clientTransport, serverTransport);
       for (let i = 0; i < 50; i++) {
-        if ((client as any).dualPhase === "probing" && !(client as any).engine13)
+        if (
+          (client as any).dualPhase === "probing" &&
+          !(client as any).engine13
+        )
           break;
         await new Promise((r) => setTimeout(r, 10));
       }
@@ -357,7 +360,10 @@ test("e2e/dual: injected carrier survives HVR soft fallback → 1.3 resume", asy
       holdPostHvrClientTx = true;
       injectHvr(clientTransport, serverTransport);
       for (let i = 0; i < 50; i++) {
-        if ((client as any).dualPhase === "probing" && !(client as any).engine13)
+        if (
+          (client as any).dualPhase === "probing" &&
+          !(client as any).engine13
+        )
           break;
         await new Promise((r) => setTimeout(r, 10));
       }
@@ -568,7 +574,8 @@ test("e2e/dual: genuine 1.2 handshake_failure during probing fires onError immed
   const t0 = Date.now();
   const err = await new Promise<Error>((resolve, reject) => {
     const timer = setTimeout(
-      () => reject(new Error("expected immediate onError on handshake_failure")),
+      () =>
+        reject(new Error("expected immediate onError on handshake_failure")),
       5_000,
     );
     client.onError.subscribe((e) => {

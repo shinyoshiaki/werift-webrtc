@@ -493,13 +493,12 @@ Send a fatal DTLSPlaintext alert (used for protocol_version mismatch).
 
 > `protected` **udpOnMessage**(`data`): `void`
 
-Override UDP RX: while dualCookiePath is active, detect DTLS 1.3 selection
-and resume the 1.3 engine before the 1.2 parser consumes the datagram.
-
-Also ignore unauthenticated fatal alerts while dualResume is still open:
-a dual 1.3 server may reject the post-HVR legacy-cookie ClientHello
-(RFC 9147: legacy_cookie must be empty) without that killing the still-
-valid CH-A → 1.3 path.
+Override UDP RX while dual-probing:
+- DTLS 1.3 SH/HRR → commit 1.3 (unpark or prime)
+- Only suppress epoch-0 illegal_parameter alerts (typical dual-1.3
+  reaction to non-empty legacy_cookie). Other fatal alerts (e.g.
+  handshake_failure from a real 1.2 server) surface immediately.
+- After commit to 1.2/1.3, no alert suppression.
 
 #### Parameters
 

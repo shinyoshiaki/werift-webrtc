@@ -67,9 +67,14 @@ Protocol versions in **preference order** (first = highest priority).
 Default: `[DtlsVersion.V1_2]` (backward compatible).
 DTLS 1.3 requires explicit opt-in.
 
-Dual-stack examples:
-- `[V1_3, V1_2]` — prefer DTLS 1.3, fall back to 1.2
-- `[V1_2, V1_3]` — prefer DTLS 1.2 when the peer also offers it
+Supported configurations:
+- `[V1_2]` — DTLS 1.2 only (default)
+- `[V1_3]` — DTLS 1.3 only
+- `[V1_3, V1_2]` — prefer DTLS 1.3; fall back to 1.2-only peers
+
+`[V1_2, V1_3]` is normalized to `[V1_3, V1_2]`. A 1.2-first dual is not
+viable under RFC 8446/9147 downgrade protection (DOWNGRD): dual×dual peers
+cannot complete a deliberate 1.2 selection without aborting.
 
 Both roles use the same selectVersion semantics:
 first local preference that appears in the peer's supported set.

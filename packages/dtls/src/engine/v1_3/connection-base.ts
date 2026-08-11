@@ -872,7 +872,10 @@ export abstract class Dtls13ConnectionBase {
     // (RFC 9147: lost HRR/SH is recovered by ClientHello retransmit).
     this.dualProbeParked = true;
     this.connected = false;
-    log("dual probe park: keep CH-A retransmit, signal association", err.message);
+    log(
+      "dual probe park: keep CH-A retransmit, signal association",
+      err.message,
+    );
     this.onError.execute(err);
     return true;
   }
