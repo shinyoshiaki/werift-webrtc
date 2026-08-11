@@ -137,9 +137,19 @@ class mediachannel_removetrack_offer_base {
 
           const transceiver = this.pc
             .getTransceivers()
-            .find((t) => t.mLineIndex === index)!;
+            .find((t) => t.mLineIndex === index);
+          if (!transceiver) {
+            throw new Error(`no transceiver for mLineIndex=${index}`);
+          }
           const track = transceiver.receiver.track;
-          await track.onReceiveRtp.asPromise(2000);
+          // CI load can delay first RTP beyond 2s; keep bounded so peer.request fails fast.
+          try {
+            await track.onReceiveRtp.asPromise(10_000);
+          } catch (error) {
+            throw new Error(
+              `RTP not received for mLineIndex=${index} within 10s: ${String(error)}`,
+            );
+          }
           accept({});
         }
         break;

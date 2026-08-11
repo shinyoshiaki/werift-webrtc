@@ -264,11 +264,14 @@ Wire DTLS 1.3 engine events onto this socket.
 
 > **close**(): `void`
 
+Public close: tear down all dual candidates first so parked CH-A RTO cannot
+fire after the association is closed (carrier timer cancel requirement).
+
 #### Returns
 
 `void`
 
-#### Inherited from
+#### Overrides
 
 [`DtlsSocket`](DtlsSocket.md).[`close`](DtlsSocket.md#close)
 
