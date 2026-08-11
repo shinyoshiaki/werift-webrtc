@@ -344,14 +344,17 @@ export class GccBandwidthEstimator
     const batchLastSend = lastSend > 0 ? lastSend : batchFirstSend;
 
     // RTT proxy: feedback arrival wall time − last send of this batch.
-    // Unclamped value drives IsRttAboveLimit (3s); AIMD uses a clamped RTT
-    // for TimeToReduceFurther only (not full ICE/STUN / CorrectedRtt).
+    // Always refresh lastFeedbackRttMs for any finite proxy (clamp to ≥0) so
+    // high-RTT → normal-RTT (incl. <10ms) and >30s spikes update gating.
+    // AIMD TimeToReduceFurther only receives a clamped [10, 2000] ms RTT.
     if (batchLastSend > 0) {
       const rttProxy = nowMs - batchLastSend;
-      if (rttProxy >= 10 && rttProxy <= 30_000) {
-        this.lastFeedbackRttMs = rttProxy;
-        if (rttProxy <= 2000) {
-          this.aimd.setRtt(Math.max(kDefaultRttMs, rttProxy));
+      if (Number.isFinite(rttProxy)) {
+        const rttMs = Math.max(0, rttProxy);
+        this.lastFeedbackRttMs = rttMs;
+        // AIMD: practical clamp only — does not gate IsRttAboveLimit.
+        if (rttMs >= 10 && rttMs <= 2000) {
+          this.aimd.setRtt(Math.max(kDefaultRttMs, rttMs));
         }
       }
     }

@@ -2758,6 +2758,163 @@ describe("media/sender bandwidth estimator", () => {
       );
     });
 
+    test("高 RTT → 正常 RTT(<10ms) で probe 禁止と backoff が解除される", () => {
+      // Arrange: 先に high RTT を刻み、probe/backoff が効いた状態にする
+      const gcc = new GccBandwidthEstimator(200_000);
+      gcc.shouldTagProbePacket();
+      (gcc as any).probe.abort(0);
+      (gcc as any).probe.state = "complete";
+      (gcc as any).probe.lastProbeEndMs = Date.now() - 10_000;
+      (gcc as any).hasValidSample = true;
+      (gcc as any).delayBasedBps = 200_000;
+      (gcc as any).lossBasedBps = 200_000;
+      (gcc as any)._availableBitrate = 200_000;
+      (gcc as any).initialExponentialDone = true;
+      (gcc as any).probingConfigured = true;
+      (gcc as any).lastUsage = "underuse";
+      (gcc as any).lossBwe.state = "delay_based";
+      (gcc as any).lastFeedbackRttMs = kRttBasedBackOffHighRttMs + 1_000;
+      (gcc as any).lastRttBackoffDecreaseMs = Number.NEGATIVE_INFINITY;
+      (gcc as any).lossBwe.update = () => {
+        (gcc as any).lossBwe.state = "delay_based";
+        return (gcc as any).lossBasedBps;
+      };
+      (gcc as any).aimd.update = () => (gcc as any).delayBasedBps;
+      const origSetEstimate = (gcc as any).aimd.setEstimate.bind(
+        (gcc as any).aimd,
+      );
+      (gcc as any).aimd.setEstimate = (bps: number, t: number) => {
+        origSetEstimate(bps, t);
+        (gcc as any).delayBasedBps = bps;
+      };
+      const origSetBw = (gcc as any).lossBwe.setBandwidthEstimate.bind(
+        (gcc as any).lossBwe,
+      );
+      (gcc as any).lossBwe.setBandwidthEstimate = (bps: number) => {
+        origSetBw(bps);
+        (gcc as any).lossBasedBps = bps;
+      };
+
+      Object.defineProperty((gcc as any).trendline, "state", {
+        get: () => "normal",
+        configurable: true,
+      });
+
+      // Act 1: high RTT feedback（last send が ~3.5s 前）→ backoff 発火
+      const highT0 = Date.now() - 3_500;
+      for (let i = 1; i <= 8; i++) {
+        gcc.rtpPacketSent({
+          wideSeq: i,
+          size: 500,
+          sendingAtMs: highT0 + i * 20,
+          isProbation: false,
+        } as any);
+      }
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 8 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: true,
+              receivedAtMs: highT0 + 30 + i * 20,
+            });
+          }),
+        ),
+      );
+      expect((gcc as any).lastFeedbackRttMs).toBeGreaterThan(
+        kRttBasedBackOffHighRttMs,
+      );
+      expect(gcc.availableBitrate).toBeLessThan(200_000);
+
+      // Act 2: 送信時刻を feedback 直前に置き、RTT proxy < 10ms を強制
+      // 旧実装は rttProxy < 10 を捨てて high RTT が sticky になっていた
+      const probeCfgs: number[] = [];
+      gcc.onProbeClusterConfig.subscribe((c) => probeCfgs.push(c.targetBps));
+      (gcc as any).lastUsage = "underuse"; // recovery トリガ用
+      (gcc as any).probe.lastProbeEndMs = Date.now() - 10_000;
+
+      // 全パケットを「今」近傍に置き直してから TWCC（proxy ≈ 数 ms）
+      const sendAt = Date.now() - 3;
+      for (let i = 9; i <= 18; i++) {
+        gcc.rtpPacketSent({
+          wideSeq: i,
+          size: 500,
+          sendingAtMs: sendAt,
+          isProbation: false,
+        } as any);
+      }
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 10 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: 9 + i,
+              received: true,
+              receivedAtMs: sendAt + 1 + i,
+            });
+          }),
+        ),
+      );
+
+      // Assert: proxy が 10ms 未満でも更新され、RTT limited が解除される
+      expect((gcc as any).lastFeedbackRttMs).toBeLessThan(10);
+      expect((gcc as any).lastFeedbackRttMs).toBeLessThanOrEqual(
+        kRttBasedBackOffHighRttMs,
+      );
+      // recovery が許可される（delay_based + normal + complete + cooldown）
+      expect(probeCfgs.length).toBeGreaterThanOrEqual(1);
+      expect(gcc.probeState).toBe("waiting_for_result");
+    });
+
+    test("RTT proxy > 30s でも lastFeedbackRttMs を更新する", () => {
+      // Arrange: 古い high RTT が残っている状態から 35s 超の proxy を供給
+      const gcc = new GccBandwidthEstimator(150_000);
+      gcc.shouldTagProbePacket();
+      (gcc as any).probe.abort(0);
+      (gcc as any).probe.state = "complete";
+      (gcc as any).probingConfigured = true;
+      (gcc as any).hasValidSample = true;
+      (gcc as any).lastFeedbackRttMs = 100; // 正常値で開始
+      (gcc as any).lossBwe.state = "delay_based";
+      (gcc as any).lossBwe.update = () => {
+        (gcc as any).lossBwe.state = "delay_based";
+        return 150_000;
+      };
+      (gcc as any).aimd.update = () => 150_000;
+
+      Object.defineProperty((gcc as any).trendline, "state", {
+        get: () => "normal",
+        configurable: true,
+      });
+
+      // Act: last send を 35s 前にして unclamped proxy を強制
+      const t0 = Date.now() - 35_000;
+      for (let i = 1; i <= 5; i++) {
+        gcc.rtpPacketSent({
+          wideSeq: i,
+          size: 400,
+          sendingAtMs: t0 + i * 10,
+          isProbation: false,
+        } as any);
+      }
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 5 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: true,
+              receivedAtMs: t0 + 20 + i * 10,
+            });
+          }),
+        ),
+      );
+
+      // Assert: 旧 30s 上限では捨てられていた値が記録され、RTT limited になる
+      expect((gcc as any).lastFeedbackRttMs).toBeGreaterThan(30_000);
+      expect((gcc as any).lastFeedbackRttMs).toBeGreaterThan(
+        kRttBasedBackOffHighRttMs,
+      );
+    });
+
     test("loss increasing 中の further probe は estimated×1.5 で cap される", () => {
       // Arrange: ProbeController 単体 — cause cap を InitiateProbing 相当で適用
       const probe = new ProbeController();

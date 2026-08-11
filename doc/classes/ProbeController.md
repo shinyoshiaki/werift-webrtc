@@ -14,12 +14,15 @@ Pacing vs result-wait are **separated** (libwebrtc BitrateProber):
 - `awaitingResults`: send-fill done; ProbeController still waiting for a
   result to decide further probing (sender-clock 1s lifetime)
 - `estimatorHistory`: ProbeBitrateEstimator clusters kept after controller
-  timeout so late TWCC can still produce estimates (receive-timeline 1s)
+  timeout so late TWCC can still produce estimates (receive-timeline 1s).
+  Also pruned by **sender-side** age (kSentInfoMaxAgeMs) so clusters
+  that never receive ACK cannot grow unbounded.
 - On **send** fill (minBytes AND minPackets), front is moved to awaiting and
   the next queued cluster becomes pacing — **without waiting for ACK**
 - ACK / 80% estimate must **never** clear pacing (send-fill is independent)
 - Controller timeout / cooldown / startMs use **sender clock**; estimator
-  history prune uses **receive timeline** (`receivedAtMs`)
+  history prune uses **receive timeline** (`receivedAtMs`) plus sender age
+- Zero-packet pacing timeouts are discarded (nothing measurable for TWCC)
 - `setBitrates` / activate returns only **activated** configs (for pacing)
 
 ## Constructors
@@ -295,7 +298,11 @@ Bytes still needed for the **pacing** cluster (padding injection).
 
 ### requestProbe()
 
-> **requestProbe**(`estimatedBps`, `nowMs`): [`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
+> **requestProbe**(`estimatedBps`, `nowMs`, `opts`?): [`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
+
+Recovery / capacity probe (caller must already pass BandwidthLimitedCause
+gating). Optional `maxProbeBps` is InitiateProbing's max_probe_bitrate
+(e.g. estimated × loss_limited_probe_scale when loss-limited increasing).
 
 #### Parameters
 
@@ -304,6 +311,12 @@ Bytes still needed for the **pacing** cluster (padding injection).
 `number`
 
 ##### nowMs
+
+`number`
+
+##### opts?
+
+###### maxProbeBps?
 
 `number`
 
@@ -359,7 +372,11 @@ Bytes still needed for the **pacing** cluster (padding injection).
 
 ### setEstimatedBitrate()
 
-> **setEstimatedBitrate**(`bitrateBps`, `nowMs`): [`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
+> **setEstimatedBitrate**(`bitrateBps`, `nowMs`, `opts`?): [`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
+
+Further-probe after a successful estimate update.
+`maxProbeBps` mirrors InitiateProbing max_probe_bitrate for the current
+BandwidthLimitedCause (loss-limited increasing → estimated × 1.5).
 
 #### Parameters
 
@@ -368,6 +385,12 @@ Bytes still needed for the **pacing** cluster (padding injection).
 `number`
 
 ##### nowMs
+
+`number`
+
+##### opts?
+
+###### maxProbeBps?
 
 `number`
 
