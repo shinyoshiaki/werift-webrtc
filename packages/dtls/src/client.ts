@@ -370,10 +370,7 @@ export class DtlsClient extends DtlsSocket {
    * Own association peer key + address for demux and 1.2 TX pin.
    * Sets TransportContext.pinnedPeer so Flight/app send ignore hijacked rinfo.
    */
-  private pinAssociationPeer(
-    addr?: [string, number],
-    key?: string,
-  ): void {
+  private pinAssociationPeer(addr?: [string, number], key?: string): void {
     if (addr) {
       const host =
         addr[0] === "0.0.0.0"
@@ -525,10 +522,7 @@ export class DtlsClient extends DtlsSocket {
           this.dualAssociationPeerAddr[1],
         ];
       } else if (this.transport.pinnedPeer) {
-        addr = [
-          this.transport.pinnedPeer[0],
-          this.transport.pinnedPeer[1],
-        ];
+        addr = [this.transport.pinnedPeer[0], this.transport.pinnedPeer[1]];
       }
     }
     // Peer gate before mutating shared transport.rinfo
@@ -766,9 +760,7 @@ export class DtlsClient extends DtlsSocket {
    * - drop: malformed / inconsistent wire (keep parked 1.3, no commit)
    * - error: actionable protocol failure (e.g. unknown selected version)
    */
-  private classifyProbingServerHello(
-    fragment: Buffer,
-  ):
+  private classifyProbingServerHello(fragment: Buffer):
     | { kind: "dtls13"; sh: ServerHello }
     | {
         kind: "dtls12";
@@ -807,7 +799,8 @@ export class DtlsClient extends DtlsSocket {
     } catch (e) {
       return {
         kind: "drop",
-        reason: e instanceof Error ? e.message : "ServerHello re-serialize failed",
+        reason:
+          e instanceof Error ? e.message : "ServerHello re-serialize failed",
       };
     }
 
@@ -831,9 +824,7 @@ export class DtlsClient extends DtlsSocket {
         return {
           kind: "drop",
           reason:
-            e instanceof Error
-              ? e.message
-              : "supported_versions parse failed",
+            e instanceof Error ? e.message : "supported_versions parse failed",
         };
       }
       if (sv.selected === DTLS_1_3_VERSION) {
@@ -872,7 +863,8 @@ export class DtlsClient extends DtlsSocket {
     const suite12ok =
       sh.cipherSuite ===
         CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195 ||
-      sh.cipherSuite === CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199;
+      sh.cipherSuite ===
+        CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199;
     if (!suite12ok) {
       return {
         kind: "drop",

@@ -40,7 +40,10 @@ export abstract class Flight {
     let retransmitCount = 0;
     for (; retransmitCount <= Flight.RetransmitCount; retransmitCount++) {
       // Association may have advanced flight=99 / canceled timers while sleeping.
-      if (this.nextFlight !== undefined && this.dtls.flight >= this.nextFlight) {
+      if (
+        this.nextFlight !== undefined &&
+        this.dtls.flight >= this.nextFlight
+      ) {
         this.setState("FINISHED");
         break;
       }

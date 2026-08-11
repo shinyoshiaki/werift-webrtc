@@ -280,10 +280,7 @@ export class DtlsSocket {
     )[0];
     // Prefer explicit addr, else TransportContext.pinnedPeer (association pin).
     // Never rely solely on last UDP rinfo (spoof hijack).
-    await this.transport.send(
-      this.cipher.encryptPacket(pkt).serialize(),
-      addr,
-    );
+    await this.transport.send(this.cipher.encryptPacket(pkt).serialize(), addr);
   };
 
   close() {
