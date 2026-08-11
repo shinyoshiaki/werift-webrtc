@@ -23,7 +23,9 @@ export {
   SenderBandwidthEstimator,
 } from "./sender/estimators/legacyCumulativeBwe";
 export {
+  AcknowledgedBitrateEstimator,
   AimdRateControl,
+  BitrateEstimator,
   GCC_KNOWN_DIFFERENCES,
   GccBandwidthEstimator,
   InterArrivalDelta,
@@ -48,6 +50,7 @@ export {
   sortPacketResultsByWideSeq,
 } from "./sender/estimators/gcc";
 export type {
+  AckedPacketSample,
   BandwidthUsage,
   LossBasedState,
   ProbeClusterConfig,

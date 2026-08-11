@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 import type { Config } from "../../../rtp/src/srtp/session";
 import { SrtpSession } from "../../../rtp/src/srtp/srtp";
 import {
+  AcknowledgedBitrateEstimator,
   AimdRateControl,
   type BandwidthEstimator,
   GccBandwidthEstimator,
@@ -1955,18 +1956,28 @@ describe("media/sender bandwidth estimator", () => {
       (probe as any).state = "complete";
       (probe as any).lastProbeEndMs = 0;
 
-      // acked window を ~900kbps 相当に
-      const now = Date.now();
-      (gcc as any).ackedBytesWindow = [
-        { tMs: now - 100, bytes: 11_250 }, // 900_000 bps over 100ms
-      ];
+      // RobustThroughput に ~900kbps 相当の ACK 履歴を注入
+      // （後続 1 packet を足しても rate が崩れないよう十分な窓）
+      const t0 = 80_000;
+      const size = 1125; // 1125B / 10ms → 900 kbps
+      const seedN = 40;
+      (gcc as any).ackedBitrate.incomingPacketFeedbackVector(
+        Array.from({ length: seedN }, (_, i) => ({
+          receiveTimeMs: t0 + i * 10,
+          sendTimeMs: t0 + i * 10,
+          sizeBytes: size,
+        })),
+      );
+      const ackedBefore = (gcc as any).ackedBitrate.bitrate() as number;
+      expect(ackedBefore).toBeGreaterThan(700_000);
 
       // Act: 低い probe を含む TWCC 経路（matched=0 を避けるため 1 packet）
-      const t0 = now;
+      // send/recv を窓末尾に連続させて rate を維持
+      const last = t0 + (seedN - 1) * 10;
       gcc.rtpPacketSent({
         wideSeq: 1,
-        size: 1000,
-        sendingAtMs: t0,
+        size,
+        sendingAtMs: last + 10,
         isProbation: false,
       } as any);
       // pending は take 前に再セット（rtpPacketSent で消えない）
@@ -1977,17 +1988,17 @@ describe("media/sender bandwidth estimator", () => {
           new PacketResult({
             sequenceNumber: 1,
             received: true,
-            receivedAtMs: t0 + 5,
+            receivedAtMs: last + 20,
           }),
         ]),
       );
 
       // Assert: 300kbps をそのまま落とさず、acked×0.85 付近を下回らない
-      // acked ≈ 900kbps → floor ≈ 765kbps、target was 1Mbps → accepted ≥ 765k かつ ≤ 1M
+      const ackedAfter = (gcc as any).ackedBitrate.bitrate() as number;
       expect(gcc.availableBitrate).toBeGreaterThan(300_000);
       expect(gcc.availableBitrate).toBeLessThanOrEqual(1_000_000);
-      // 明確に capacity 制限が効いている（1Mbps から下がっているか、guard floor 以上）
-      const floor = 900_000 * 0.85;
+      // floor は適用時の acked に追随（RobustThroughput の実測）
+      const floor = ackedAfter * 0.85;
       expect(gcc.availableBitrate).toBeGreaterThanOrEqual(floor * 0.9);
     });
 
@@ -2093,11 +2104,15 @@ describe("media/sender bandwidth estimator", () => {
           isProbation: false,
         } as any);
       }
-      // acked ≈ 900kbps（receiveTWCC の recordAck 後も floor が効くよう幅を持たせる）
-      (gcc as any).ackedBytesWindow = [
-        { tMs: t0, bytes: 11_250 },
-        { tMs: t0 + 100, bytes: 0 },
-      ];
+      // acked ≈ 900kbps（RobustThroughput に履歴を注入）
+      const size = 1125;
+      (gcc as any).ackedBitrate.incomingPacketFeedbackVector(
+        Array.from({ length: 12 }, (_, i) => ({
+          receiveTimeMs: t0 + i * 10,
+          sendTimeMs: t0 + i * 10,
+          sizeBytes: size,
+        })),
+      );
       (gcc as any).probe.pendingEstimateBps = 300_000;
 
       const results = Array.from({ length: 10 }, (_, i) => {
@@ -2668,6 +2683,146 @@ describe("media/sender bandwidth estimator", () => {
       // group1: 100..102 (max 102), group2: 110 (max 110) → 8
       expect(d).toBeUndefined();
       expect(d2?.sendDeltaMs).toBe(8);
+    });
+
+    test("probe 適用は AIMD/LossBased の full reset ではなく setEstimate を使う", () => {
+      // Arrange: RTT・観測履歴を持たせた後に probe を適用
+      const gcc = new GccBandwidthEstimator(300_000);
+      gcc.shouldTagProbePacket();
+      (gcc as any).probe.abort(0);
+      (gcc as any).probe.state = "complete";
+      (gcc as any).probe.lastProbeEndMs = 0;
+      (gcc as any).hasValidSample = true;
+      (gcc as any).initialExponentialDone = true;
+      (gcc as any).probingConfigured = true;
+      (gcc as any).delayBasedBps = 400_000;
+      (gcc as any).lossBasedBps = 400_000;
+      (gcc as any)._availableBitrate = 400_000;
+
+      // AIMD に RTT と slow-start 離脱を刻む
+      const aimd = (gcc as any).aimd as AimdRateControl;
+      aimd.reset(400_000);
+      aimd.setRtt(180);
+      aimd.update("overuse", 400_000, 1_000); // leaves slow-start
+      expect(aimd.rtt).toBe(180);
+      expect((aimd as any).inSlowStart).toBe(false);
+
+      // LossBased に observation を積む
+      const loss = (gcc as any).lossBwe as LossBasedBwe;
+      loss.reset(400_000);
+      for (let i = 0; i < 5; i++) {
+        loss.update(0.02, 400_000, 380_000, 20, 0, i * 300, 20_000, i * 300 + 250, 0);
+      }
+      const obsBefore = loss.observationCount;
+      expect(obsBefore).toBeGreaterThanOrEqual(1);
+
+      // acked ~ 500kbps 相当 + rising probe
+      const t0 = 50_000;
+      (gcc as any).ackedBitrate.incomingPacketFeedbackVector(
+        Array.from({ length: 12 }, (_, i) => ({
+          receiveTimeMs: t0 + i * 10,
+          sendTimeMs: t0 + i * 10,
+          sizeBytes: 625, // 625B/10ms = 500kbps
+        })),
+      );
+      (gcc as any).probe.pendingEstimateBps = 700_000;
+
+      gcc.rtpPacketSent(
+        sent(1, 500, t0 + 200, { isProbation: false }),
+      );
+
+      // Act: matched TWCC で probe 適用
+      gcc.receiveTWCC(
+        makeTwccFeedback([
+          new PacketResult({
+            sequenceNumber: 1,
+            received: true,
+            receivedAtMs: t0 + 205,
+          }),
+        ]),
+      );
+
+      // Assert: estimate は上がるが RTT / observation 履歴は保持
+      // （receiveTWCC の loss.update で observation が 1 増えるのは正常。
+      //  full reset なら 0 に戻る）
+      expect(gcc.availableBitrate).toBeGreaterThan(400_000);
+      expect(aimd.rtt).toBe(180);
+      expect((aimd as any).inSlowStart).toBe(false);
+      expect(loss.observationCount).toBeGreaterThanOrEqual(obsBefore);
+      expect(loss.observationCount).toBeGreaterThan(0);
+      // full reset なら inherentLoss も初期値に戻る — 戻っていないこと
+      expect(loss.inherentLossEstimate).not.toBe(0.01);
+    });
+
+    test("AcknowledgedBitrateEstimator は required_packets 未満で 0、以後は gap 耐性あり", () => {
+      // Arrange
+      const est = new AcknowledgedBitrateEstimator();
+      const size = 1000;
+      // Act: 9 packets → not ready
+      est.incomingPacketFeedbackVector(
+        Array.from({ length: 9 }, (_, i) => ({
+          receiveTimeMs: 1000 + i * 20,
+          sendTimeMs: 1000 + i * 20,
+          sizeBytes: size,
+        })),
+      );
+      // Assert
+      expect(est.bitrate()).toBe(0);
+
+      // Act: 10 個目で ready
+      est.incomingPacketFeedbackVector([
+        {
+          receiveTimeMs: 1000 + 9 * 20,
+          sendTimeMs: 1000 + 9 * 20,
+          sizeBytes: size,
+        },
+      ]);
+      const base = est.bitrate();
+      // Assert: ~400 kbps (1000B / 20ms)
+      expect(base).toBeGreaterThan(200_000);
+      expect(base).toBeLessThan(600_000);
+
+      // Act: 大きな receive gap があっても largest-gap 置換で極端に落ちない
+      est.incomingPacketFeedbackVector([
+        {
+          receiveTimeMs: 1000 + 9 * 20 + 400,
+          sendTimeMs: 1000 + 10 * 20,
+          sizeBytes: size,
+        },
+      ]);
+      const withSpike = est.bitrate();
+      // Assert: spike で 0 にならず、ベースの半分以上を維持
+      expect(withSpike).toBeGreaterThan(base * 0.4);
+    });
+
+    test("delay/acked 経路は receive-time 順で処理する（seq 逆順 feedback）", () => {
+      // Arrange: transport-seq 昇順だが recv 時刻は逆順
+      const gcc = new GccBandwidthEstimator(300_000);
+      (gcc as any).probe.abort(0);
+      (gcc as any).probe.state = "complete";
+      (gcc as any).probingConfigured = true;
+      const t0 = 10_000;
+      const n = 20;
+      for (let i = 0; i < n; i++) {
+        gcc.rtpPacketSent(sent(i + 1, 600, t0 + i * 10));
+      }
+      // recv 時刻を seq 逆順に（後ろの seq ほど早く届いた）
+      const results = Array.from({ length: n }, (_, i) => {
+        const seq = i + 1;
+        return new PacketResult({
+          sequenceNumber: seq,
+          received: true,
+          // seq 1 → late, seq n → early
+          receivedAtMs: t0 + (n - i) * 10,
+        });
+      });
+
+      // Act
+      gcc.receiveTWCC(makeTwccFeedback(results));
+
+      // Assert: reverse-recv でも acked ready + estimate > 0（窓リセットで 0 にならない）
+      expect((gcc as any).ackedBitrate.bitrate()).toBeGreaterThan(0);
+      expect(gcc.availableBitrate).toBeGreaterThan(0);
     });
   });
 });
