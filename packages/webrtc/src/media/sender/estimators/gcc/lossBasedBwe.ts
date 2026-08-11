@@ -144,6 +144,17 @@ export class LossBasedBwe {
     this.recomputeTemporalWeights();
   }
 
+  /**
+   * State-preserving bandwidth update (libwebrtc
+   * `LossBasedBweV2::SetBandwidthEstimate`).
+   * Sets the loss-limited bandwidth and marks delay-based alignment without
+   * clearing observation history, HOLD timers, or inherent-loss estimates.
+   */
+  setBandwidthEstimate(bandwidthBps: number) {
+    this.current.lossLimitedBandwidthBps = clamp(bandwidthBps);
+    this.state = "delay_based";
+  }
+
   get targetBitrateBps() {
     return this.current.lossLimitedBandwidthBps;
   }

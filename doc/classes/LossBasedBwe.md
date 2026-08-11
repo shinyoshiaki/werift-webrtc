@@ -106,6 +106,27 @@ Number of committed observations (for readiness tests).
 
 ***
 
+### setBandwidthEstimate()
+
+> **setBandwidthEstimate**(`bandwidthBps`): `void`
+
+State-preserving bandwidth update (libwebrtc
+`LossBasedBweV2::SetBandwidthEstimate`).
+Sets the loss-limited bandwidth and marks delay-based alignment without
+clearing observation history, HOLD timers, or inherent-loss estimates.
+
+#### Parameters
+
+##### bandwidthBps
+
+`number`
+
+#### Returns
+
+`void`
+
+***
+
 ### setBitrateIfHigher()
 
 > **setBitrateIfHigher**(`bps`): `void`

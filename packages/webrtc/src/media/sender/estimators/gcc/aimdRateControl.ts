@@ -45,6 +45,21 @@ export class AimdRateControl {
     this.inSlowStart = true;
   }
 
+  /**
+   * State-preserving estimate update (libwebrtc `AimdRateControl::SetEstimate`).
+   * Used when applying a valid probe result — does **not** wipe RTT, max-bitrate
+   * variance, or slow-start bookkeeping the way {@link reset} does.
+   */
+  setEstimate(bitrateBps: number, atTimeMs: number) {
+    const prev = this.bitrateBps;
+    this.bitrateBps = clamp(bitrateBps);
+    this.lastUpdateMs = atTimeMs;
+    if (this.bitrateBps < prev) {
+      this.lastDecreaseMs = atTimeMs;
+      this.inSlowStart = false;
+    }
+  }
+
   setRtt(rttMs: number) {
     if (rttMs > 0) {
       // Clamp to a practical range (10 ms .. 2000 ms).

@@ -9,10 +9,10 @@ import type {
 import { setAvailableBitrateIfChanged } from "../../bandwidthEstimator";
 import { hasTwccReceiveTiming } from "../twccReceiveTiming";
 import { TwccReferenceTimeUnwrapper } from "../twccReferenceTime";
+import { AcknowledgedBitrateEstimator } from "./acknowledgedBitrateEstimator";
 import { AimdRateControl } from "./aimdRateControl";
 import {
   GCC_KNOWN_DIFFERENCES,
-  kBitrateWindowMs,
   kDefaultRttMs,
   kDefaultStartBitrateBps,
   kMaxBitrateBps,
@@ -68,8 +68,18 @@ export class GccBandwidthEstimator
    * (TWCC PacketNotReceived ≠ definitive loss).
    */
   private finalizedSeqs = new Set<number>();
+  /**
+   * Sequences already reported as soft loss. Keep them eligible for a later
+   * received correction, but do not count overlapping not-received feedback
+   * more than once (libwebrtc `previously_reported_lost`).
+   */
+  private softLostSeqs = new Set<number>();
   private lastUsage: BandwidthUsage = "normal";
-  private ackedBytesWindow: { tMs: number; bytes: number }[] = [];
+  /**
+   * libwebrtc RobustThroughputEstimator (default acked bitrate path).
+   * Fed receive-time-ordered ACKs; does not mix sender wall clock.
+   */
+  private readonly ackedBitrate = new AcknowledgedBitrateEstimator();
   private delayBasedBps = kDefaultStartBitrateBps;
   private lossBasedBps = kDefaultStartBitrateBps;
   private startBitrateBps: number;
@@ -145,6 +155,7 @@ export class GccBandwidthEstimator
     this.sentInfos.set(seq, info);
     // Re-sending the same wide-seq (after wrap / reuse) clears prior finalize.
     this.finalizedSeqs.delete(seq);
+    this.softLostSeqs.delete(seq);
     this.ensureProbing(info.sendingAtMs);
 
     // Assign probation packets to the **pacing** cluster (wideSeq → id).
@@ -183,7 +194,19 @@ export class GccBandwidthEstimator
       feedback.packetResults,
       feedback.referenceTime,
     );
+    // Loss / soft-loss path: transport-seq (send) order is stable and matches
+    // sentInfos. Delay + acked + probe use receive-time order below (libwebrtc
+    // SortedByReceiveTime for those subsystems).
     const results = sortPacketResultsByWideSeq(rebased);
+
+    /** Received packets with valid TWCC timing for delay / acked / probe. */
+    const timedReceived: {
+      seq: number;
+      size: number;
+      sendMs: number;
+      recvMs: number;
+      isProbation: boolean;
+    }[] = [];
 
     for (const result of results) {
       const seq = result.sequenceNumber & 0xffff;
@@ -196,6 +219,11 @@ export class GccBandwidthEstimator
         // Already confirmed received — ignore duplicate / overlapping reports.
         continue;
       }
+      if (!result.received && this.softLostSeqs.has(seq)) {
+        // A repeated not-received report is not a new loss observation; keep
+        // the sequence open for a later received correction.
+        continue;
+      }
 
       matched++;
       batchBytes += info.size;
@@ -204,6 +232,7 @@ export class GccBandwidthEstimator
 
       if (!result.received) {
         // Soft loss: count for this observation, do NOT permanently finalize.
+        this.softLostSeqs.add(seq);
         lost++;
         lostBytes += info.size;
         lossPackets.push({
@@ -218,6 +247,7 @@ export class GccBandwidthEstimator
       // Received — may unmark a prior soft loss inside LossBasedBwe partial map.
       received++;
       this.finalizedSeqs.add(seq);
+      this.softLostSeqs.delete(seq);
       lossPackets.push({
         seq,
         size: info.size,
@@ -231,19 +261,13 @@ export class GccBandwidthEstimator
         continue;
       }
 
-      this.recordAck(info.size, result.receivedAtMs);
-      // Result validation only (sender clock for session complete/cooldown).
-      // FIFO pacing advance happens on send-fill, not on ACK.
-      // Pass sendingAtMs so ProbeBitrateEstimator uses ACKed min/max send times.
-      this.probe.onAckedPacket(
-        info.size,
-        result.receivedAtMs,
-        !!info.isProbation,
+      timedReceived.push({
         seq,
-        nowMs,
-        info.sendingAtMs,
-      );
-      this.pushInterArrival(info.sendingAtMs, result.receivedAtMs, info.size);
+        size: info.size,
+        sendMs: info.sendingAtMs,
+        recvMs: result.receivedAtMs,
+        isProbation: !!info.isProbation,
+      });
     }
 
     // No known samples → do not update estimate or fire events.
@@ -252,9 +276,35 @@ export class GccBandwidthEstimator
     }
     this.hasValidSample = true;
 
+    // libwebrtc: delay detector, acked bitrate, and probe estimator consume
+    // feedback in receive-time order (not transport-seq order).
+    timedReceived.sort((a, b) => a.recvMs - b.recvMs || a.seq - b.seq);
+
+    this.ackedBitrate.incomingPacketFeedbackVector(
+      timedReceived.map((p) => ({
+        receiveTimeMs: p.recvMs,
+        sendTimeMs: p.sendMs,
+        sizeBytes: p.size,
+      })),
+    );
+
+    for (const p of timedReceived) {
+      // Result validation only (sender clock for session complete/cooldown).
+      // FIFO pacing advance happens on send-fill, not on ACK.
+      this.probe.onAckedPacket(
+        p.size,
+        p.recvMs,
+        p.isProbation,
+        p.seq,
+        nowMs,
+        p.sendMs,
+      );
+      this.pushInterArrival(p.sendMs, p.recvMs, p.size);
+    }
+
     const known = received + lost;
     const lossFraction = known > 0 ? lost / known : 0;
-    const ackedBps = this.measureAckedBitrate(nowMs);
+    const ackedBps = this.ackedBitrate.bitrate();
 
     const usage = this.trendline.state;
     if (usage !== this.lastUsage) {
@@ -347,8 +397,10 @@ export class GccBandwidthEstimator
 
       if (apply && accepted > 0) {
         target = accepted;
-        this.aimd.reset(accepted);
-        this.lossBwe.reset(accepted);
+        // libwebrtc: SetEstimate / SetBandwidthEstimate — preserve controller
+        // history (RTT, max-bitrate variance, loss observations, HOLD).
+        this.aimd.setEstimate(accepted, nowMs);
+        this.lossBwe.setBandwidthEstimate(accepted);
         this.delayBasedBps = accepted;
         this.lossBasedBps = accepted;
       }
@@ -399,8 +451,9 @@ export class GccBandwidthEstimator
     this.refTimeUnwrapper.reset();
     this.sentInfos.clear();
     this.finalizedSeqs.clear();
+    this.softLostSeqs.clear();
     this.lastUsage = "normal";
-    this.ackedBytesWindow = [];
+    this.ackedBitrate.reset();
     this._availableBitrate = 0;
     this.delayBasedBps = this.startBitrateBps;
     this.lossBasedBps = this.startBitrateBps;
@@ -456,6 +509,7 @@ export class GccBandwidthEstimator
       if (nowMs - info.sendingAtMs > kSentInfoMaxAgeMs) {
         this.sentInfos.delete(seq);
         this.finalizedSeqs.delete(seq);
+        this.softLostSeqs.delete(seq);
       }
     }
     if (this.sentInfos.size <= keepWindow) {
@@ -470,54 +524,12 @@ export class GccBandwidthEstimator
       if (back >= keepWindow) {
         this.sentInfos.delete(seq);
         this.finalizedSeqs.delete(seq);
+        this.softLostSeqs.delete(seq);
       }
     }
     if (this.finalizedSeqs.size > 8192) {
       this.finalizedSeqs.clear();
     }
-  }
-
-  /**
-   * Record an acked packet using TWCC receive timeline only.
-   * `recvMs` is the feedback-derived receive timestamp (referenceTime + deltas),
-   * not the sender wall clock — so real sessions where TWCC times are far from
-   * `Date.now()` still yield a valid throughput estimate.
-   */
-  private recordAck(sizeBytes: number, recvMs: number) {
-    this.ackedBytesWindow.push({ tMs: recvMs, bytes: sizeBytes });
-    // Prune using the latest TWCC-relative time in the window (not wall clock).
-    let latest = recvMs;
-    for (const s of this.ackedBytesWindow) {
-      if (s.tMs > latest) latest = s.tMs;
-    }
-    const cutoff = latest - kBitrateWindowMs;
-    while (
-      this.ackedBytesWindow.length &&
-      this.ackedBytesWindow[0].tMs < cutoff
-    ) {
-      this.ackedBytesWindow.shift();
-    }
-  }
-
-  /**
-   * Acknowledged bitrate from TWCC receive-time intervals and packet sizes.
-   * Does **not** compare TWCC timestamps to sender wall clock.
-   */
-  private measureAckedBitrate(_nowMs?: number): number {
-    if (this.ackedBytesWindow.length === 0) return 0;
-    let bytes = 0;
-    let first = this.ackedBytesWindow[0].tMs;
-    let last = this.ackedBytesWindow[0].tMs;
-    for (const s of this.ackedBytesWindow) {
-      bytes += s.bytes;
-      if (s.tMs < first) first = s.tMs;
-      if (s.tMs > last) last = s.tMs;
-    }
-    const dt = last - first;
-    if (bytes === 0) return 0;
-    // Single-sample or zero-duration window: treat as instantaneous over 1 ms.
-    const intervalMs = Math.max(dt, 1);
-    return (bytes * 8 * 1000) / intervalMs;
   }
 
   private pushInterArrival(sendMs: number, recvMs: number, size: number) {

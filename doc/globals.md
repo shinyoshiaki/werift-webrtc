@@ -14,9 +14,11 @@
 
 ## Classes
 
+- [AcknowledgedBitrateEstimator](classes/AcknowledgedBitrateEstimator.md)
 - [AimdRateControl](classes/AimdRateControl.md)
 - [AV1Obu](classes/AV1Obu.md)
 - [AV1RtpPayload](classes/AV1RtpPayload.md)
+- [BitrateEstimator](classes/BitrateEstimator.md)
 - [BitStream](classes/BitStream.md)
 - [BitWriter](classes/BitWriter.md)
 - [BitWriter2](classes/BitWriter2.md)
@@ -123,6 +125,7 @@
 
 ## Interfaces
 
+- [AckedPacketSample](interfaces/AckedPacketSample.md)
 - [BandwidthEstimator](interfaces/BandwidthEstimator.md)
 - [CandidatePairStats](interfaces/CandidatePairStats.md)
 - [DataChannelStats](interfaces/DataChannelStats.md)

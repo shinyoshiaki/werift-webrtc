@@ -81,6 +81,30 @@ modules/congestion_controller/goog_cc/aimd_rate_control.cc
 
 ***
 
+### setEstimate()
+
+> **setEstimate**(`bitrateBps`, `atTimeMs`): `void`
+
+State-preserving estimate update (libwebrtc `AimdRateControl::SetEstimate`).
+Used when applying a valid probe result — does **not** wipe RTT, max-bitrate
+variance, or slow-start bookkeeping the way [reset](AimdRateControl.md#reset) does.
+
+#### Parameters
+
+##### bitrateBps
+
+`number`
+
+##### atTimeMs
+
+`number`
+
+#### Returns
+
+`void`
+
+***
+
 ### setRtt()
 
 > **setRtt**(`rttMs`): `void`

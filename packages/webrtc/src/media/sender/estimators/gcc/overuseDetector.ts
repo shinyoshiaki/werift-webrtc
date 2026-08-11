@@ -12,6 +12,11 @@ export type BandwidthUsage = "normal" | "overuse" | "underuse";
 
 /**
  * Adaptive-threshold over-use detector (draft-ietf-rmcat-gcc-02 §5.4).
+ *
+ * **Runtime note:** {@link TrendlineEstimator} embeds the same Detect /
+ * UpdateThreshold logic (libwebrtc `TrendlineEstimator::Detect`). This class
+ * is retained for unit tests and as the shared {@link BandwidthUsage} type
+ * home; production GCC uses TrendlineEstimator only.
  */
 export class OveruseDetector {
   private thresholdMs = kInitialThresholdMs;

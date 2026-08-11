@@ -15,6 +15,11 @@ export {
   kTrendlineThresholdGain,
   kTrendlineWindowSize,
 } from "./constants";
+export {
+  AcknowledgedBitrateEstimator,
+  BitrateEstimator,
+} from "./acknowledgedBitrateEstimator";
+export type { AckedPacketSample } from "./acknowledgedBitrateEstimator";
 export { AimdRateControl } from "./aimdRateControl";
 export { GccBandwidthEstimator } from "./gccBwe";
 export {
