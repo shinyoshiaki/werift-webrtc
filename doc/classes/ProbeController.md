@@ -11,12 +11,15 @@ ProbeBitrateEstimator).
 
 Pacing vs result-wait are **separated** (libwebrtc BitrateProber):
 - `pacing`: cluster currently being sent (at most one)
-- `awaitingResults`: clusters whose send fill is done, waiting for TWCC ACK
+- `awaitingResults`: send-fill done; ProbeController still waiting for a
+  result to decide further probing (sender-clock 1s lifetime)
+- `estimatorHistory`: ProbeBitrateEstimator clusters kept after controller
+  timeout so late TWCC can still produce estimates (receive-timeline 1s)
 - On **send** fill (minBytes AND minPackets), front is moved to awaiting and
   the next queued cluster becomes pacing — **without waiting for ACK**
 - ACK / 80% estimate must **never** clear pacing (send-fill is independent)
-- Timeout / cooldown / startMs use **sender clock** only; `receivedAtMs` is
-  used solely for receive-rate estimation
+- Controller timeout / cooldown / startMs use **sender clock**; estimator
+  history prune uses **receive timeline** (`receivedAtMs`)
 - `setBitrates` / activate returns only **activated** configs (for pacing)
 
 ## Constructors
@@ -74,6 +77,20 @@ Pacing target = current pacing cluster only (not queued, not awaiting).
 #### Get Signature
 
 > **get** **estimatedBitrateBps**(): `number`
+
+##### Returns
+
+`number`
+
+***
+
+### estimatorHistoryCount
+
+#### Get Signature
+
+> **get** **estimatorHistoryCount**(): `number`
+
+Clusters kept only for late TWCC measurement (tests / diagnostics).
 
 ##### Returns
 
@@ -241,7 +258,9 @@ newly activated pacing configs (may include the next FIFO cluster)
 
 > **process**(`nowMs`): [`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
 
-Advance timeouts using **sender clock** (`nowMs` = milliTime / Date.now).
+Advance **controller** timeouts using sender clock (`nowMs` = milliTime).
+Does not erase ProbeBitrateEstimator seq maps — late TWCC may still
+produce estimates from estimatorHistory.
 Returns newly activated pacing configs (if any).
 
 #### Parameters

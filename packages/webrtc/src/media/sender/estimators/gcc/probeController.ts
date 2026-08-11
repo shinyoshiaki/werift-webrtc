@@ -497,7 +497,10 @@ export class ProbeController {
    */
   private eraseOldEstimatorClusters(receiveTimeMs: number) {
     for (const [id, c] of this.estimatorHistory) {
-      if (c.lastRecvMs > 0 && receiveTimeMs - c.lastRecvMs > kProbeResultTimeoutMs) {
+      if (
+        c.lastRecvMs > 0 &&
+        receiveTimeMs - c.lastRecvMs > kProbeResultTimeoutMs
+      ) {
         this.dropClusterSeqs(id);
         this.estimatorHistory.delete(id);
       }
