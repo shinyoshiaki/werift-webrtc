@@ -685,25 +685,14 @@ export class RTCRtpSender {
     header.ssrc = this.ssrc;
     header.payloadType = this.codec.payloadType;
     header.timestamp = uint32Add(header.timestamp, this.timestampOffset);
-    // Outbound RTP sequence allocation (high-water uniqueness):
-    // - **Media**: prefer `sourceSeq + seqOffset` (source gaps/reorders visible).
-    // - **Probe padding**: high-water + 1 (does not fill reorder holes).
-    // - Collision (padding then late media, or media after padding range):
-    //   remap to free seq after high-water and bump seqOffset permanently.
-    // This avoids the old paddingSeqSinceMedia bug where late source 11 after
-    // pads 13..17 remapped to wire 16 and collided with padding.
-    {
-      if (opts.absoluteSequenceNumber !== undefined) {
-        const abs = opts.absoluteSequenceNumber & 0xffff;
-        header.sequenceNumber = abs;
-        this.markWireSeqUsed(abs);
-      } else if (opts.isProbePadding) {
-        header.sequenceNumber = this.allocatePaddingSequence();
-      } else {
-        header.sequenceNumber = this.allocateMediaSequence(
-          header.sequenceNumber,
-        );
-      }
+    if (opts.absoluteSequenceNumber !== undefined) {
+      const abs = opts.absoluteSequenceNumber & 0xffff;
+      header.sequenceNumber = abs;
+      this.markWireSeqUsed(abs);
+    } else if (opts.isProbePadding) {
+      header.sequenceNumber = this.allocatePaddingSequence();
+    } else {
+      header.sequenceNumber = this.allocateMediaSequence(header.sequenceNumber);
     }
     this.timestamp = header.timestamp;
     this.sequenceNumber = header.sequenceNumber;
