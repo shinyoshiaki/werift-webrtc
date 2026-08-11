@@ -84,7 +84,9 @@ See the [repository README](../../README.md#protocol-coverage-at-a-glance) for t
 
 ## Interoperability
 
-The repository contains Chromium-focused browser E2E tests and a Firefox test runner. werift also participates in the independent [`sipsorcery/webrtc-interop`](https://github.com/sipsorcery/webrtc-interop) Peer Connection and Data Channel Echo matrices.
+The repository contains Chromium-focused browser E2E tests and a Firefox test runner. Safari interoperability is also community-verified: users have reported extensive real-world use with Safari in [Issue #346](https://github.com/shinyoshiaki/werift-webrtc/issues/346). Safari is not currently part of the automated browser E2E matrix, so this is community validation rather than a CI guarantee.
+
+werift also participates in the independent [`sipsorcery/webrtc-interop`](https://github.com/sipsorcery/webrtc-interop) Peer Connection and Data Channel Echo matrices.
 
 ## RTCPeerConnection W3C compatibility notes
 
