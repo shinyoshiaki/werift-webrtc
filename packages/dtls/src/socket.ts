@@ -167,7 +167,9 @@ export class DtlsSocket {
                   const pe = new ProtocolVersionError(
                     "peer rejected protocol version (alert protocol_version)",
                   );
-                  this.dtls.fatalError = pe;
+                  // Abort flight immediately so pending RTO sleep does not remain
+                  // after onError (carrier/lifecycle: cancel all timers on error).
+                  this.abortLegacy12Flight(pe);
                   this.onError.execute(pe);
                 } else if (alert && alert.level >= 2) {
                   const fe = new Error(
@@ -175,7 +177,7 @@ export class DtlsSocket {
                       AlertDesc[alert.description] ?? alert.description
                     }`,
                   );
-                  this.dtls.fatalError = fe;
+                  this.abortLegacy12Flight(fe);
                   this.onError.execute(fe);
                 } else {
                   this.onClose.execute();
@@ -284,12 +286,21 @@ export class DtlsSocket {
   };
 
   /**
-   * Stop legacy DTLS 1.2 flight retransmit (cancelable flightSleep + flight=99).
-   * Shared by client dual teardown and server/client pure-1.2 close so
-   * Flight4/Flight1 timers cannot wake after association close
-   * (server close() must not leave sleep pending).
+   * Cancel pending DTLS 1.2 flight retransmit sleeps only (leave flight number).
+   * Use on successful handshake complete so Flight4/Flight5 sleep does not
+   * linger until the next RTO after onConnect.
    */
-  protected stopLegacy12Flight(): void {
+  protected cancelLegacy12FlightTimers(): void {
+    this.dtls.cancelFlightTimers();
+  }
+
+  /**
+   * Abort legacy DTLS 1.2 flight: optional fatalError, flight=99, cancel timers.
+   * Use on close / fatal alert / version commit away from 1.2 — not on
+   * successful handshake complete (that only needs cancelLegacy12FlightTimers).
+   */
+  protected abortLegacy12Flight(error?: Error): void {
+    if (error) this.dtls.fatalError = error;
     this.dtls.flight = 99;
     this.dtls.cancelFlightTimers();
   }
@@ -300,7 +311,7 @@ export class DtlsSocket {
       return;
     }
     // DTLS 1.2 (server and client): stop retransmit timers before socket close.
-    this.stopLegacy12Flight();
+    this.abortLegacy12Flight();
     this.connected = false;
     this.transport.socket.close();
   }

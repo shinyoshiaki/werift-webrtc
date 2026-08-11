@@ -271,6 +271,9 @@ export class DtlsServer extends DtlsSocket {
             await this.flight6?.exec();
 
             this.connected = true;
+            // Flight4 retransmit sleep (nextFlight=6) may still be pending even
+            // after flight=6; cancel before onConnect for lifecycle completeness.
+            this.cancelLegacy12FlightTimers();
             this.onConnect.execute();
             log(this.dtls.sessionId, "dtls connected");
           }

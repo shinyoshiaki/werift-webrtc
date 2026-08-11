@@ -569,6 +569,25 @@ Send a fatal DTLSPlaintext alert (used for protocol_version mismatch).
 
 ***
 
+### stopLegacy12Flight()
+
+> `protected` **stopLegacy12Flight**(): `void`
+
+Stop legacy DTLS 1.2 flight retransmit (cancelable flightSleep + flight=99).
+Shared by client dual teardown and server/client pure-1.2 close so
+Flight4/Flight1 timers cannot wake after association close
+(server close() must not leave sleep pending).
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`stopLegacy12Flight`](DtlsSocket.md#stoplegacy12flight)
+
+***
+
 ### udpOnMessage()
 
 > `protected` **udpOnMessage**(`data`, `_addr`?): `void`
