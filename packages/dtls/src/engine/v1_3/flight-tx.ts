@@ -264,10 +264,7 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
    * @param dest Destination for peer-budget match (pre-cookie). When omitted,
    * uses getSendAddr() — retransmit must still match antiAmpBudgetPeerKey.
    */
-  protected consumeSendBudget(
-    len: number,
-    dest?: [string, number],
-  ): boolean {
+  protected consumeSendBudget(len: number, dest?: [string, number]): boolean {
     if (
       this.role === "server" &&
       !this.addressValidated &&

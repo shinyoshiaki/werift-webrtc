@@ -215,9 +215,7 @@ describe("anti-amplification budget (per association peer)", () => {
 
     const txTo = (addr: Address) =>
       sends
-        .filter(
-          (s) => s.addr?.[0] === addr[0] && s.addr?.[1] === addr[1],
-        )
+        .filter((s) => s.addr?.[0] === addr[0] && s.addr?.[1] === addr[1])
         .reduce((n, s) => n + s.buf.length, 0);
 
     // Act: A → CH1 → HRR(A)

@@ -649,9 +649,7 @@ export abstract class Dtls13ConnectionBase {
    * Pre-cookie: outbound bytes may only use budget owned by the destination.
    * Prevents "TX to A, budget from B" after a second source overwrites counters.
    */
-  protected antiAmpAllowsSendTo(
-    dest?: [string, number] | undefined,
-  ): boolean {
+  protected antiAmpAllowsSendTo(dest?: [string, number] | undefined): boolean {
     if (
       this.role !== "server" ||
       this.addressValidated ||
