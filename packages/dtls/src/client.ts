@@ -37,6 +37,7 @@ import {
   DtlsVersionSelected,
   ProtocolVersionError,
   hasTlsDowngradeSentinel,
+  protocolVersionsToWire,
   supportsVersion,
 } from "./version";
 
@@ -44,9 +45,10 @@ const log = debug("werift-dtls : packages/dtls/src/client.ts : log");
 
 export class DtlsClient extends DtlsSocket {
   /**
-   * True while dual [1.3,1.2] association is continuing after unauthenticated
-   * HVR — still offers 1.3 in supported_versions. Final version is confirmed by
-   * ServerHello (1.3 resume or 1.2 + DOWNGRD check), not by HVR alone.
+   * Dual association active: ClientHello still advertises all configured
+   * versions in `supported_versions` preference order. Final version is
+   * confirmed by ServerHello (1.3 resume or 1.2 + DOWNGRD check), never by
+   * unauthenticated HelloVerifyRequest alone.
    */
   private dualCookiePath = false;
 
@@ -66,13 +68,25 @@ export class DtlsClient extends DtlsSocket {
     const dual =
       supportsVersion(versions, DtlsVersion.V1_3) &&
       supportsVersion(versions, DtlsVersion.V1_2);
+    // protocolVersions[0] is highest local preference (shared selectVersion semantics).
+    const prefer13 = versions[0] === DtlsVersion.V1_3;
 
-    // Pure 1.3 or dual [1.3,1.2]: start 1.3 engine advertising offered versions.
-    if (only13 || dual) {
+    // Pure 1.3, or dual with 1.3 preferred: start 1.3 engine; CH advertises full list.
+    // Dual with 1.2 preferred: stay on association dual-CH path (no pure-1.3 engine first).
+    if (only13 || (dual && prefer13)) {
       this.startEngine13(only13, versions);
+    } else if (dual && !prefer13) {
+      // [V1_2, V1_3]: dual CH on 1.2 carrier; ServerHello decides 1.2 vs 1.3 resume.
+      this.dualCookiePath = true;
+      this.setupExtensionsForDualCookiePath();
     }
 
-    log(this.dtls.sessionId, "start client", { versions, only13, dual });
+    log(this.dtls.sessionId, "start client", {
+      versions,
+      only13,
+      dual,
+      prefer13,
+    });
   }
 
   private startEngine13(strict13: boolean, offered: readonly DtlsVersion[]) {
@@ -122,6 +136,9 @@ export class DtlsClient extends DtlsSocket {
         this.dualCookiePath = true;
         this.engine13 = undefined;
         this.connected = false;
+        // Capture CH1 before release so we re-send the same random + cookie
+        // (flight2 already bound remoteRandom to that CH).
+        this.dualResume = engine.exportDualResumeClientHello();
         engine.releaseForVersionFallback();
         this.transport.socket.onData = this.udpOnMessage;
         this.dtls = new (this.dtls.constructor as any)(
@@ -135,7 +152,7 @@ export class DtlsClient extends DtlsSocket {
           this.options.signatureHash,
         );
         this.srtp = new (this.srtp.constructor as any)();
-        // Dual extensions: 1.2 + 1.3 capable CH (supported_versions stays [1.3,1.2])
+        // Dual extensions: keep advertising full supported_versions preference order
         this.setupExtensionsForDualCookiePath();
         void this.continueDualAfterHvr(e.helloVerifyCookie).catch((err) =>
           this.onError.execute(
@@ -147,50 +164,87 @@ export class DtlsClient extends DtlsSocket {
   }
 
   /**
-   * Dual negotiation extensions: keep advertising DTLS 1.3 in supported_versions
-   * and include key_share / 0x1301 so a 1.3-capable server can still select 1.3
-   * after an unauthenticated HVR. 1.2-only peers ignore 1.3 extensions.
+   * Dual negotiation extensions: advertise all configured versions in
+   * preference order and keep key_share / 0x1301 so a 1.3-capable server can
+   * still select 1.3 after an unauthenticated HVR. 1.2-only peers ignore 1.3
+   * extensions. HVR never finalizes the version.
    */
   private setupExtensionsForDualCookiePath() {
     this.extensions = [];
     this.setupExtensions();
-    // Prepend supported_versions [1.3, 1.2] (preference order)
-    const sv = SupportedVersions.forClient([
-      DTLS_1_3_VERSION,
-      DTLS_1_2_VERSION,
-    ]);
+    // supported_versions in local preference order (protocolVersions)
+    const sv = SupportedVersions.forClient(
+      protocolVersionsToWire(this.protocolVersions),
+    );
     this.extensions.unshift(sv.clientExtension);
   }
 
   /**
-   * After HVR: send a dual ClientHello that still offers 1.3 (key_share +
-   * supported_versions) while remaining usable on the DTLS 1.2 cookie path.
-   * Final version is confirmed by ServerHello, not by HVR.
+   * After HVR: continue dual negotiation with the **same** ClientHello (same
+   * random) plus DTLS 1.2 legacy cookie. Never treat HVR as final version pick.
    */
-  private async continueDualAfterHvr(_cookie?: Buffer) {
-    await this.sendDualNegotiationClientHello();
+  private async continueDualAfterHvr(cookie?: Buffer) {
+    if (this.dualResume) {
+      await this.resendDualClientHelloWithCookie(cookie);
+      return;
+    }
+    await this.sendDualNegotiationClientHello(cookie);
   }
 
   /**
-   * Build & send dual CH: 1.3 suites/extensions + 1.2 suites for true dual peers.
-   * Stores ECDHE material for possible 1.3 resume when ServerHello selects 1.3.
+   * Resend the dual CH already exported from the 1.3 engine (or prior dual CH),
+   * only adding/replacing the legacy cookie — preserves random for flight2 state.
+   */
+  private async resendDualClientHelloWithCookie(legacyCookie?: Buffer) {
+    if (!this.dualResume) {
+      throw new Error("dual resume ClientHello missing for HVR cookie path");
+    }
+    const hello = ClientHello.deSerialize(this.dualResume.clientHelloBody);
+    hello.cookie = legacyCookie
+      ? Buffer.from(legacyCookie)
+      : Buffer.from([]);
+    // Clear messageSeq so Flight1 re-assigns seq 0 for this transmission
+    hello.messageSeq = undefined as any;
+
+    const body = hello.serialize();
+    this.dualResume = {
+      ...this.dualResume,
+      clientHelloBody: Buffer.from(body),
+    };
+
+    await new Flight1(this.transport, this.dtls, this.cipher).exec(
+      this.extensions,
+      hello,
+    );
+  }
+
+  /**
+   * Build & send dual CH: versions in preference order, 1.3 suites/extensions
+   * + 1.2 suites for true dual peers. Stores ECDHE material for possible 1.3
+   * resume when ServerHello selects 1.3.
    */
   private async sendDualNegotiationClientHello(legacyCookie?: Buffer) {
-    const group = NamedCurveAlgorithm.x25519_29 as NamedCurveAlgorithms;
+    const named =
+      this.options.namedGroups?.length && this.options.namedGroups.length > 0
+        ? ([...this.options.namedGroups] as NamedCurveAlgorithms[])
+        : ([
+            NamedCurveAlgorithm.x25519_29,
+            NamedCurveAlgorithm.secp256r1_23,
+          ] as NamedCurveAlgorithms[]);
+    const group = named[0];
     const keyPair = generateKeyPair(group);
     const curves = EllipticCurves.createEmpty();
-    curves.data = [
-      NamedCurveAlgorithm.x25519_29,
-      NamedCurveAlgorithm.secp256r1_23,
-    ] as any;
+    curves.data = named as any;
 
     // 1.3 CertificateVerify schemes + rsa_pkcs1 for DTLS 1.2 peers
     const schemes = [...DEFAULT_SIGNATURE_SCHEMES];
     if (!schemes.includes(0x0401)) schemes.push(0x0401);
 
+    // Preference order from Options.protocolVersions (not hard-coded 1.3-first)
+    const wireVersions = protocolVersionsToWire(this.protocolVersions);
+
     const extensions = [
-      SupportedVersions.forClient([DTLS_1_3_VERSION, DTLS_1_2_VERSION])
-        .clientExtension,
+      SupportedVersions.forClient(wireVersions).clientExtension,
       curves.extension,
       KeyShare.forClient([{ group, keyExchange: keyPair.publicKey }])
         .clientExtension,
@@ -205,11 +259,16 @@ export class DtlsClient extends DtlsSocket {
       ),
     ];
 
-    const cipherSuites = [
-      CipherSuite.TLS_AES_128_GCM_SHA256_0x1301,
+    // Suite list: when preferring 1.2, list 1.2 suites first (cosmetic / legacy peers)
+    const prefer13 = this.protocolVersions[0] === DtlsVersion.V1_3;
+    const suite13 = CipherSuite.TLS_AES_128_GCM_SHA256_0x1301;
+    const suites12 = [
       CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195,
       CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199,
     ];
+    const cipherSuites = prefer13
+      ? [suite13, ...suites12]
+      : [...suites12, suite13];
 
     const hello = new ClientHello(
       { major: 255 - 1, minor: 255 - 2 },
@@ -338,6 +397,11 @@ export class DtlsClient extends DtlsSocket {
   async connect() {
     if (this.engine13) {
       await this.engine13.connect();
+      return;
+    }
+    // Dual [V1_2, V1_3] (or post-HVR dual path): send dual CH, not pure 1.2 Flight1
+    if (this.dualCookiePath) {
+      await this.sendDualNegotiationClientHello();
       return;
     }
     await this.connect12();

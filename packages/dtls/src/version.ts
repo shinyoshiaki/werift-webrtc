@@ -38,7 +38,9 @@ export function normalizeProtocolVersions(
   if (!versions || versions.length === 0) {
     return [DtlsVersion.V1_2];
   }
-  // Preserve order (priority) while de-duplicating
+  // Preserve order (priority) while de-duplicating.
+  // Order is preference: first entry is highest priority for selectVersion().
+  // Both [V1_3, V1_2] and [V1_2, V1_3] are valid dual-stack configurations.
   const seen = new Set<DtlsVersion>();
   const out: DtlsVersion[] = [];
   for (const v of versions) {
@@ -46,18 +48,6 @@ export function normalizeProtocolVersions(
       seen.add(v);
       out.push(v);
     }
-  }
-  // Epic 1 supported dual pattern is [V1_3, V1_2] only.
-  // Preferring 1.2 while advertising 1.3 requires full downgrade-sentinel server
-  // semantics — fail-fast rather than silently rewriting preference order.
-  if (
-    out.includes(DtlsVersion.V1_2) &&
-    out.includes(DtlsVersion.V1_3) &&
-    out[0] !== DtlsVersion.V1_3
-  ) {
-    throw new Error(
-      "protocolVersions [V1_2, V1_3] is not supported; use [V1_3, V1_2]",
-    );
   }
   return out;
 }

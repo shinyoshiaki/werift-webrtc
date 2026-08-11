@@ -44,12 +44,22 @@ export class DtlsServer extends DtlsSocket {
 
     const versions = this.protocolVersions;
     const only13 = versions.length === 1 && versions[0] === DtlsVersion.V1_3;
+    const dual =
+      supportsVersion(versions, DtlsVersion.V1_3) &&
+      supportsVersion(versions, DtlsVersion.V1_2);
     // Pure DTLS 1.3 server: engine owns the transport from the start.
+    // Dual (either preference order) starts on 1.2 association path and
+    // dispatches to 1.3 only after selectVersion chooses V1_3.
     if (only13) {
       this.startEngine13();
     }
 
-    log(this.dtls.sessionId, "start server", { versions, only13 });
+    log(this.dtls.sessionId, "start server", {
+      versions,
+      only13,
+      dual,
+      prefer13: versions[0] === DtlsVersion.V1_3,
+    });
   }
 
   private startEngine13() {
@@ -129,7 +139,9 @@ export class DtlsServer extends DtlsSocket {
             }
             const clientHello = ClientHello.deSerialize(handshake.fragment);
 
-            // Dual / multi-version: select via local preference ∩ peer supported
+            // Dual / multi-version: association-layer selectVersion
+            // (local protocolVersions order ∩ peer supported_versions).
+            // Does not use HelloVerifyRequest or error-string heuristics.
             if (
               supportsVersion(this.protocolVersions, DtlsVersion.V1_3) &&
               supportsVersion(this.protocolVersions, DtlsVersion.V1_2)
@@ -157,10 +169,12 @@ export class DtlsServer extends DtlsSocket {
                 }
                 log("association selected DTLS 1.3, reinjected ClientHello", {
                   peer: peerAddr,
+                  preference: this.protocolVersions,
                 });
                 return;
               }
-              // selected === V1_2 or undefined → stay on 1.2 path below
+              // selected === V1_2 → stay on DTLS 1.2 path (flight2/4).
+              // ServerHello will include DOWNGRD sentinel when dual-capable.
               if (selected === undefined) {
                 // No overlap with dual server — alert
                 await this.sendPlaintextAlert(AlertDesc.ProtocolVersion);
@@ -171,6 +185,9 @@ export class DtlsServer extends DtlsSocket {
                 );
                 return;
               }
+              log("association selected DTLS 1.2 (local preference order)", {
+                preference: this.protocolVersions,
+              });
             }
 
             // 1.3-only is handled by engine13; if we are here with only 1.3 config

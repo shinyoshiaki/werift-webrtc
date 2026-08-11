@@ -22,11 +22,31 @@ describe("selectVersion (association layer)", () => {
     expect(v).toBe(DtlsVersion.V1_3);
   });
 
-  test("normalizeProtocolVersions rejects [1.2,1.3] (fail-fast)", () => {
-    // Arrange: 前提を準備する
-    expect(() =>
+  test("prefers first local version in peer intersection [1.2,1.3]", () => {
+    // Arrange: local は 1.2 優先
+    const v = selectVersion(
+      [DtlsVersion.V1_2, DtlsVersion.V1_3],
+      [DtlsVersion.V1_3, DtlsVersion.V1_2],
+    );
+    // Assert: 交差集合内で local 先頭を選ぶ
+    expect(v).toBe(DtlsVersion.V1_2);
+  });
+
+  test("normalizeProtocolVersions preserves preference order for both dual patterns", () => {
+    // Arrange / Act / Assert: 順序 = 優先順位、両 dual を受理
+    expect(
+      normalizeProtocolVersions([DtlsVersion.V1_3, DtlsVersion.V1_2]),
+    ).toEqual([DtlsVersion.V1_3, DtlsVersion.V1_2]);
+    expect(
       normalizeProtocolVersions([DtlsVersion.V1_2, DtlsVersion.V1_3]),
-    ).toThrow(/not supported.*\[V1_3, V1_2\]/);
+    ).toEqual([DtlsVersion.V1_2, DtlsVersion.V1_3]);
+    expect(normalizeProtocolVersions([DtlsVersion.V1_3])).toEqual([
+      DtlsVersion.V1_3,
+    ]);
+    expect(normalizeProtocolVersions([DtlsVersion.V1_2])).toEqual([
+      DtlsVersion.V1_2,
+    ]);
+    expect(normalizeProtocolVersions(undefined)).toEqual([DtlsVersion.V1_2]);
   });
 
   test("1.3-only local with dual peer → 1.3", () => {

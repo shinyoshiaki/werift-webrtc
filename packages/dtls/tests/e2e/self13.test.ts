@@ -1293,33 +1293,211 @@ test("e2e/self13 [1.3,1.2] client falls back to 1.2-only server", async () => {
   });
 }, 20_000);
 
-test("e2e/self13 [V1_2,V1_3] is rejected (fail-fast, no silent rewrite)", () => {
-  // Arrange: 前提を準備する
-  expect(
-    () =>
-      new DtlsServer({
-        transport: {
-          send: async () => {},
-          onData: () => {},
-          close: async () => {},
-        } as any,
-        cert: certPem,
-        key: keyPem,
-        protocolVersions: [DtlsVersion.V1_2, DtlsVersion.V1_3],
-      }),
-  ).toThrow(/not supported.*\[V1_3, V1_2\]/);
-  expect(
-    () =>
-      new DtlsClient({
-        transport: {
-          send: async () => {},
-          onData: () => {},
-          close: async () => {},
-        } as any,
-        protocolVersions: [DtlsVersion.V1_2, DtlsVersion.V1_3],
-      }),
-  ).toThrow(/not supported.*\[V1_3, V1_2\]/);
+test("e2e/self13 [V1_2,V1_3] is accepted (preference order preserved)", () => {
+  // Arrange: 1.2 優先 dual を public API で受理
+  const transport = {
+    send: async () => {},
+    onData: () => {},
+    close: async () => {},
+  } as any;
+  const server = new DtlsServer({
+    transport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_2, DtlsVersion.V1_3],
+  });
+  const client = new DtlsClient({
+    transport,
+    protocolVersions: [DtlsVersion.V1_2, DtlsVersion.V1_3],
+  });
+  // Assert: 順序が preference として保持される
+  expect(server.protocolVersions).toEqual([
+    DtlsVersion.V1_2,
+    DtlsVersion.V1_3,
+  ]);
+  expect(client.protocolVersions).toEqual([
+    DtlsVersion.V1_2,
+    DtlsVersion.V1_3,
+  ]);
+  expect(client.isDtls13).toBe(false); // 1.2-first dual は association path 開始
+  expect(server.isDtls13).toBe(false);
 });
+
+test("e2e/self13 server [1.2,1.3] prefers 1.2 when dual client offers both", async () => {
+  // Arrange: server 優先 1.2、client dual [1.3,1.2]
+  // association selectVersion → 1.2。DOWNGRD により dual client は abort（RFC）。
+  // ここでは server が 1.3 engine に昇格しないこと（preference 遵守）を検証。
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+  const { HashAlgorithm, SignatureAlgorithm } = await import(
+    "../../src/cipher/const"
+  );
+  const sig = {
+    hash: HashAlgorithm.sha256_4,
+    signature: SignatureAlgorithm.rsa_1,
+  };
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_2, DtlsVersion.V1_3],
+  });
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+  });
+
+  await new Promise<void>(async (resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("1.2-pref server path timeout")),
+      15_000,
+    );
+    // Act: dual client が接続試行
+    client.onConnect.subscribe(() => {
+      // dual×dual で server が 1.2 を選ぶと DOWNGRD で client は通常失敗する。
+      // もし接続しても server は 1.3 へ昇格してはならない。
+      if (server.isDtls13) {
+        clearTimeout(timer);
+        reject(new Error("server must not upgrade to 1.3 when preferring 1.2"));
+        return;
+      }
+      clearTimeout(timer);
+      client.close();
+      server.close();
+      resolve();
+    });
+    client.onError.subscribe((e) => {
+      // Assert: server は 1.3 に切替えていない + downgrade / version 系で終了し得る
+      try {
+        expect(server.isDtls13).toBe(false);
+        clearTimeout(timer);
+        client.close();
+        server.close();
+        resolve();
+      } catch (err) {
+        clearTimeout(timer);
+        reject(err);
+      }
+    });
+    server.onError.subscribe(() => {
+      // server 側エラーは無視（client の DOWNGRD abort と並行し得る）
+    });
+    await client.connect();
+  });
+}, 20_000);
+
+test("e2e/self13 server [1.2,1.3] × client [1.3-only] selects 1.3", async () => {
+  // Arrange: server は 1.2 優先 dual だが peer が 1.3 only なら 1.3 を選ぶ
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_2, DtlsVersion.V1_3],
+    addressValidation: "none",
+  });
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3],
+    addressValidation: "none",
+  });
+
+  await new Promise<void>(async (resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("1.2-pref server × 1.3 client timeout")),
+      15_000,
+    );
+    client.onConnect.subscribe(() => {
+      // Assert: intersection が 1.3 のみなので 1.3 で接続
+      expect(client.isDtls13).toBe(true);
+      expect(server.isDtls13).toBe(true);
+      void client.send(Buffer.from("pref12-but-13"));
+    });
+    server.onData.subscribe((d) => {
+      expect(d.toString()).toBe("pref12-but-13");
+      clearTimeout(timer);
+      client.close();
+      server.close();
+      resolve();
+    });
+    client.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    server.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    await client.connect();
+  });
+}, 20_000);
+
+test("e2e/self13 client [1.2,1.3] × server [1.3] resumes 1.3 via dual CH", async () => {
+  // Arrange: client は 1.2 優先 dual だが dual CH で 1.3 を広告 → 1.3 server と接続
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+  const { HashAlgorithm, SignatureAlgorithm } = await import(
+    "../../src/cipher/const"
+  );
+  const sig = {
+    hash: HashAlgorithm.sha256_4,
+    signature: SignatureAlgorithm.rsa_1,
+  };
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3],
+    addressValidation: "none",
+  });
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_2, DtlsVersion.V1_3],
+    addressValidation: "none",
+  });
+
+  await new Promise<void>(async (resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("client 1.2-first dual → 1.3 resume timeout")),
+      15_000,
+    );
+    client.onConnect.subscribe(() => {
+      // Assert: ServerHello で 1.3 が選ばれ dual path から resume
+      expect(client.isDtls13).toBe(true);
+      expect(server.isDtls13).toBe(true);
+      void client.send(Buffer.from("client-pref12-13"));
+    });
+    server.onData.subscribe((d) => {
+      expect(d.toString()).toBe("client-pref12-13");
+      clearTimeout(timer);
+      client.close();
+      server.close();
+      resolve();
+    });
+    client.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    server.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    await client.connect();
+  });
+}, 20_000);
 
 test("e2e/self13 default options remain DTLS 1.2", async () => {
   // Arrange: protocolVersions 未指定 + 1.2 に必要な signatureHash

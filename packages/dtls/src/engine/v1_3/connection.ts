@@ -213,6 +213,24 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
   }
 
   /**
+   * Snapshot the ClientHello already sent by this engine so dual association
+   * can re-send the **same** CH (same random) with a DTLS 1.2 HVR cookie.
+   * Creating a fresh CH would desync server flight2 remoteRandom / keying.
+   */
+  exportDualResumeClientHello(): DualResumeClientHello | undefined {
+    if (this.role !== "client" || !this.firstClientHelloBody) return undefined;
+    return {
+      clientHelloBody: Buffer.from(this.firstClientHelloBody),
+      keyPair: {
+        publicKey: Buffer.from(this.localKeyPair.publicKey),
+        privateKey: Buffer.from(this.localKeyPair.privateKey),
+        curve: this.localKeyPair.curve,
+      },
+      group: this.selectedGroup,
+    };
+  }
+
+  /**
    * Dual cookie path → DTLS 1.3 resume: adopt a ClientHello already on the wire
    * (with matching ECDHE key pair) so a subsequent ServerHello/HRR can continue
    * without re-sending CH1. Does not transmit.
