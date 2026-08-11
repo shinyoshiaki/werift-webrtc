@@ -12,24 +12,25 @@ Build media servers, gateways, recorders, bots, test peers, and custom real-time
 [![node](https://img.shields.io/node/v/werift)](https://www.npmjs.com/package/werift)
 [![GitHub stars](https://img.shields.io/github/stars/shinyoshiaki/werift-webrtc?style=social)](https://github.com/shinyoshiaki/werift-webrtc)
 
-[Documentation](https://shinyoshiaki.github.io/werift-webrtc/website/build/) · [API Reference](https://shinyoshiaki.github.io/werift-webrtc/website/build/docs/api) · [Examples](./examples) · [Issues](https://github.com/shinyoshiaki/werift-webrtc/issues)
+[Documentation](https://shinyoshiaki.github.io/werift-webrtc/website/build/) · [API Reference](https://shinyoshiaki.github.io/werift-webrtc/website/build/docs/api) · [Examples](./examples) · [Interoperability](#interoperability) · [Roadmap](#roadmap)
 
 </div>
 
 ---
 
-**werift** (**We**b**R**TC **I**mplementation **f**or **T**ypeScript) is a WebRTC implementation for Node.js written in TypeScript.
+**werift** (**We**b**r**tc **I**mplementation **f**or **T**ypeScript) is a WebRTC implementation for Node.js written in TypeScript.
 
-It gives you a high-level `RTCPeerConnection` API when you want to build quickly, while still exposing the protocol layers and RTP packets needed for server-side media systems where the browser abstraction is not enough.
+Use the familiar `RTCPeerConnection` model when you want to build quickly, then drop down into ICE, DTLS, SCTP, RTP/RTCP, or individual packets when your server-side application needs more control than a browser abstraction can provide.
 
 ## Why werift?
 
-- **TypeScript from PeerConnection down to the protocols** — work with WebRTC without wrapping a native browser engine or opaque native WebRTC binding.
+- **TypeScript from PeerConnection down to the protocols** — build WebRTC without wrapping a native browser engine or opaque native WebRTC binding.
+- **Familiar WebRTC APIs, deeper control** — W3C-style PeerConnection configuration, events, descriptions, ICE candidates, tracks, and DataChannels coexist with werift's lower-level primitives.
 - **RTP-first media model** — receive and send encoded RTP directly, making werift a natural fit for SFUs, recorders, relays, gateways, bots, and custom media processing.
-- **Modular protocol stack** — ICE, DTLS, SCTP, and RTP are also available as focused packages for applications that do not need the whole WebRTC stack.
+- **Modular protocol stack** — ICE, DTLS, SCTP, and RTP are also published as focused packages for applications that do not need the whole WebRTC stack.
 - **Built for interoperability** — compatibility is tracked against Chrome, Safari, Firefox, Pion, aiortc, sipsorcery, and webrtc-rs.
-- **Server-oriented building blocks** — full/lite ICE, trickle ICE, ICE restart, STUN/TURN, DTLS-SRTP, DataChannel, RTP/RTCP feedback, simulcast receive, sender-side bandwidth estimation, and recording utilities.
-- **Inspectable and extensible** — the packet path is yours. Add RTP transformations, custom congestion logic, protocol experiments, logging, or test instrumentation without crossing a native boundary.
+- **Server-oriented building blocks** — full/lite ICE, trickle ICE, ICE restart, STUN/TURN, DTLS-SRTP, RTP/RTCP feedback, simulcast receive, sender-side bandwidth estimation, recording, and RTP processing utilities.
+- **Inspectable and extensible** — add RTP transforms, custom congestion logic, protocol experiments, logging, or test instrumentation without crossing a native boundary.
 
 ## Install
 
@@ -41,32 +42,30 @@ The published `werift` package supports Node.js 16 or newer.
 
 ## Quick start
 
-A complete in-process DataChannel connection can be created with only two peer connections and ordinary offer/answer signaling:
+The public API is intentionally familiar to browser WebRTC developers:
 
 ```ts
 import { RTCPeerConnection } from "werift";
 
-const offerer = new RTCPeerConnection({});
-const answerer = new RTCPeerConnection({});
+const offerer = new RTCPeerConnection();
+const answerer = new RTCPeerConnection();
 
-answerer.onDataChannel.subscribe((channel) => {
-  channel.onMessage.subscribe((message) => {
-    console.log("answerer received:", message.toString());
-    channel.send(Buffer.from("hello from answerer"));
-  });
-});
+answerer.ondatachannel = ({ channel }) => {
+  channel.onmessage = ({ data }) => {
+    console.log("answerer received:", data.toString());
+    channel.send("hello from answerer");
+  };
+};
 
 const channel = offerer.createDataChannel("chat");
 
-channel.stateChanged.subscribe((state) => {
-  if (state === "open") {
-    channel.send(Buffer.from("hello from offerer"));
-  }
-});
+channel.onopen = () => {
+  channel.send("hello from offerer");
+};
 
-channel.onMessage.subscribe((message) => {
-  console.log("offerer received:", message.toString());
-});
+channel.onmessage = ({ data }) => {
+  console.log("offerer received:", data.toString());
+};
 
 await offerer.setLocalDescription(await offerer.createOffer());
 await answerer.setRemoteDescription(offerer.localDescription!);
@@ -75,15 +74,30 @@ await answerer.setLocalDescription(await answerer.createAnswer());
 await offerer.setRemoteDescription(answerer.localDescription!);
 ```
 
-In a real application, replace the direct description exchange with your signaling transport: WebSocket, HTTP, SIP infrastructure, a queue, or anything else appropriate for your system.
+Here the two peers exchange SDP directly. In a real application, move that exchange to your signaling transport: WebSocket, HTTP, SIP infrastructure, a queue, or anything else appropriate for your system.
 
 See [`examples/datachannel`](./examples/datachannel) for runnable variants.
+
+## Familiar API without giving up the internals
+
+werift is actively converging on browser-compatible `RTCPeerConnection` behavior while preserving server-side control and backward compatibility.
+
+Current W3C-style surface includes, among other things:
+
+- standard PeerConnection events such as `icecandidate`, `track`, `datachannel`, `negotiationneeded`, and connection/signaling state changes
+- `addEventListener` support alongside werift's event subscriptions
+- `currentLocalDescription`, `pendingLocalDescription`, `currentRemoteDescription`, and `pendingRemoteDescription`
+- `canTrickleIceCandidates` and `sctp`
+- `RTCConfiguration` fields such as `iceServers`, `iceTransportPolicy`, `bundlePolicy`, `rtcpMuxPolicy`, `iceCandidatePoolSize`, and `certificates`
+- W3C-style ICE server URL arrays and end-of-candidates handling
+
+Some browser compatibility details intentionally remain different for backward compatibility. See [`packages/webrtc/README.md`](./packages/webrtc/README.md#rtcpeerconnection-w3c-compatibility-notes) for the current compatibility notes.
 
 ## A WebRTC stack that stays programmable
 
 Browser WebRTC intentionally hides most packet-level details. Server-side systems often need the opposite.
 
-werift does **not** try to provide browser capture/render APIs such as `getUserMedia()`. Instead, media can enter and leave the WebRTC stack as RTP packets. That makes it straightforward to connect werift to your own encoder, decoder, transcoder, recorder, RTP router, media pipeline, or test harness.
+werift does **not** try to provide browser capture/render APIs such as `getUserMedia()`. Instead, media can enter and leave the WebRTC stack as RTP packets. Connect those packets to your own encoder, decoder, transcoder, recorder, RTP router, media pipeline, or test harness.
 
 ```mermaid
 flowchart LR
@@ -113,18 +127,18 @@ This design is especially useful when you need to understand, transform, record,
 
 | Area | Highlights |
 | --- | --- |
-| **PeerConnection** | Offer/answer negotiation, media directions, multiple tracks, DataChannel |
+| **PeerConnection** | Offer/answer negotiation, transceivers, media directions, multiple tracks, DataChannel, W3C-style events/configuration |
 | **ICE** | Full ICE, ICE-Lite client/server modes, trickle ICE, ICE restart, STUN, TURN |
 | **TURN transports** | UDP and TCP support, plus TURN/TLS loopback examples |
 | **Security** | DTLS-SRTP, Curve25519, P-256, SRTP, SRTCP |
-| **DataChannel** | SCTP over DTLS |
+| **DataChannel** | SCTP over DTLS, ordered/unordered and reliability controls |
 | **RTP / RTCP** | RFC 3550, SR/RR, PLI, Generic NACK, REMB, Transport-Wide CC |
 | **Media resilience** | RTX and RED (RFC 2198) |
 | **RTP payloads** | VP8, VP9, H.264, and AV1 RTP payload parsing |
 | **Simulcast** | Receive-side simulcast |
 | **Bandwidth estimation** | Sender-side BWE |
 | **Recording** | MediaRecorder support for Opus, VP8, VP9, H.264, and AV1 workflows |
-| **RTP processing** | Jitter buffer, RED encoder/decoder, DTX, NACK, lip-sync and other packet processors |
+| **RTP processing** | Jitter buffer, RED encoder/decoder, DTX, NACK, lip sync, and other packet processors |
 
 > werift is a WebRTC transport and media-packet stack. Codec capture, rendering, and general-purpose encode/decode are intentionally outside the core abstraction.
 
@@ -154,7 +168,7 @@ Use the lower layers directly when you need custom ICE, DTLS, SCTP, RTP/RTCP, co
 
 ## Modular packages
 
-You can use the full WebRTC package or only the protocol layer you need.
+Use the complete WebRTC stack or only the protocol layer you need.
 
 | Package | Purpose |
 | --- | --- |
@@ -244,6 +258,7 @@ Because the implementation is TypeScript, protocol behavior can be traced direct
 - [Documentation website](https://shinyoshiaki.github.io/werift-webrtc/website/build/)
 - [API reference](https://shinyoshiaki.github.io/werift-webrtc/website/build/docs/api)
 - [Examples](./examples)
+- [RTCPeerConnection W3C compatibility notes](./packages/webrtc/README.md#rtcpeerconnection-w3c-compatibility-notes)
 
 Documentation coverage is still evolving. The examples and source are intentionally kept accessible for developers working at protocol level.
 
@@ -261,15 +276,16 @@ The repository-level development tooling requires Node.js 18 or newer.
 
 ### Towards 1.0
 
-The core WebRTC transport and media packet stack is already implemented. Current work towards 1.0 focuses on hardening and developer experience:
+The core WebRTC transport and media packet stack is already implemented. Current work towards 1.0 focuses on hardening, standards compatibility, and developer experience:
 
 - [ ] Expand and improve documentation
 - [ ] Increase Web Platform Tests coverage
+- [ ] Continue converging on browser `RTCPeerConnection` behavior while preserving backward compatibility
 - [ ] Continue strengthening unit, E2E, interoperability, and long-running reliability tests
 
 ### Towards 2.0
 
-- [ ] Closer browser `RTCPeerConnection` API compatibility
+- [ ] Complete the remaining browser API compatibility gaps
 - [ ] Simulcast send support
 - [ ] Additional cipher suites
 - [ ] Richer WebRTC statistics coverage
