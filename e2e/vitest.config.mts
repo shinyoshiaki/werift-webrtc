@@ -2,8 +2,8 @@
 
 import { existsSync } from "node:fs";
 
-import { defineConfig } from "vitest/config";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
+import { defineConfig } from "vitest/config";
 
 const chromiumExecutablePath = [
   process.env.CHROME_BIN,

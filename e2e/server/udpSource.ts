@@ -1,4 +1,4 @@
-import { createSocket, type Socket } from "dgram";
+import { type Socket, createSocket } from "dgram";
 import { randomPort } from "./index";
 
 /**
