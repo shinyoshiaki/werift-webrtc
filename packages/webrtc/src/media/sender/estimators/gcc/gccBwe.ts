@@ -305,16 +305,23 @@ export class GccBandwidthEstimator
     const lossFraction = known > 0 ? lost / known : 0;
     const ackedBps = this.ackedBitrate.bitrate();
 
+    // Capture previous usage *before* updating — recovery probe is gated on
+    // underuse → normal (libwebrtc recovered_from_overuse), not on lingering
+    // underuse while the queue is still draining.
+    const previousUsage = this.lastUsage;
     const usage = this.trendline.state;
     if (usage !== this.lastUsage) {
       this.lastUsage = usage;
       this.onOveruseDetected.execute(usage);
     }
 
-    // Congestion gates *new* probes and upward probe-result application only.
+    // Probe gating is split (libwebrtc GetBandwidthLimitedCause / ProbeController):
+    // - Upward probe *results* apply unless delay path is overusing.
+    // - *New* recovery/further clusters only when delay usage is normal and
+    //   loss-based state is not decreasing/hold.
     // Active clusters keep pacing until send-fill or pacing timeout (libwebrtc
     // does not mid-abort BitrateProber clusters on TWCC batch loss).
-    const congested = usage === "overuse";
+    const allowUpwardProbeResult = usage !== "overuse";
 
     const batchFirstSend = Number.isFinite(firstSend) ? firstSend : 0;
     const batchLastSend = lastSend > 0 ? lastSend : batchFirstSend;
@@ -342,13 +349,22 @@ export class GccBandwidthEstimator
       lossPackets,
     );
 
+    // Align with libwebrtc GetBandwidthLimitedCause:
+    // decreasing / hold → no new probes; increasing / delay_based → ok.
+    // (Increasing may still cap max probe bitrate upstream; we only gate here.)
+    const lossState = this.lossBwe.lossState;
+    const lossStateIsProbeCompatible =
+      lossState === "increasing" || lossState === "delay_based";
+    const allowNewProbe =
+      usage === "normal" && lossStateIsProbeCompatible;
+
     let target = Math.min(this.delayBasedBps, this.lossBasedBps);
 
     // Apply valid probe results (libwebrtc GoogCc):
-    // - Rise: only when not congested; soft caps by initial vs recovery phase.
+    // - Rise: only when not overusing; soft caps by initial vs recovery phase.
     // - Fall: always apply with acked×0.85 floor — same feedback may show loss
     //   while ProbeBitrateEstimator still has a valid lower result (80% ACKed).
-    // Do not discard lower results solely because congested is true.
+    // Do not discard lower results solely because delay is overusing.
     const probeBps = this.probe.takePendingEstimateBps();
     if (probeBps > 0) {
       const initialProbing = !this.initialExponentialDone;
@@ -356,7 +372,7 @@ export class GccBandwidthEstimator
       let apply = false;
 
       if (accepted > target) {
-        if (!congested) {
+        if (allowUpwardProbeResult) {
           if (initialProbing) {
             if (ackedBps > kMinBitrateBps) {
               accepted = Math.min(
@@ -375,7 +391,7 @@ export class GccBandwidthEstimator
           }
           apply = accepted > target;
         }
-        // congested + rising: ignore upward probe (padding may still finish)
+        // overuse + rising: ignore upward probe (padding may still finish)
       } else if (accepted < target) {
         // libwebrtc limit_probes_lower_than_throughput_estimate:
         // probe = max(probe, min(delayEstimate, acked × 0.85)).
@@ -398,10 +414,10 @@ export class GccBandwidthEstimator
         this.delayBasedBps = accepted;
         this.lossBasedBps = accepted;
       }
-      // Further-probe decision (even if we only took pending for a rejected rise).
-      // Use applied target so further threshold sees the effective estimate.
+      // Further-probe decision: only while delay usage is normal and loss
+      // state allows probing (not while underuse / overuse / loss decreasing).
       const forFurther = apply && accepted > 0 ? accepted : target;
-      if (forFurther > 0 && !congested) {
+      if (forFurther > 0 && allowNewProbe) {
         for (const cfg of this.probe.setEstimatedBitrate(forFurther, nowMs)) {
           this.onProbeClusterActivated(cfg, nowMs);
         }
@@ -416,14 +432,14 @@ export class GccBandwidthEstimator
       setAvailableBitrateIfChanged(this, target);
     }
 
-    // Recovery probe only after initial probing is complete, delay path
-    // reports underuse, and loss is not the binding constraint.
-    const lossBinding = this.lossBasedBps < this.delayBasedBps * 0.98;
+    // Recovery probe only on underuse → normal (libwebrtc recovered_from_overuse).
+    // Do not request probes while still underusing (queue drain in progress).
+    const recoveredFromUnderuse =
+      previousUsage === "underuse" && usage === "normal";
     if (
-      usage === "underuse" &&
+      recoveredFromUnderuse &&
       this.probe.probeState === "complete" &&
-      !congested &&
-      !lossBinding
+      allowNewProbe
     ) {
       const est = this._availableBitrate > 0 ? this._availableBitrate : target;
       for (const cfg of this.probe.requestProbe(est, nowMs)) {

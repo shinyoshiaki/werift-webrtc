@@ -18,6 +18,7 @@ import {
   kProbeRecoveryScale,
   kProbeResultTimeoutMs,
   kProbeTargetUtilization,
+  kSentInfoMaxAgeMs,
 } from "./constants";
 
 /**
@@ -85,12 +86,15 @@ interface ClusterRuntime {
  * - `awaitingResults`: send-fill done; ProbeController still waiting for a
  *   result to decide further probing (sender-clock 1s lifetime)
  * - `estimatorHistory`: ProbeBitrateEstimator clusters kept after controller
- *   timeout so late TWCC can still produce estimates (receive-timeline 1s)
+ *   timeout so late TWCC can still produce estimates (receive-timeline 1s).
+ *   Also pruned by **sender-side** age ({@link kSentInfoMaxAgeMs}) so clusters
+ *   that never receive ACK cannot grow unbounded.
  * - On **send** fill (minBytes AND minPackets), front is moved to awaiting and
  *   the next queued cluster becomes pacing — **without waiting for ACK**
  * - ACK / 80% estimate must **never** clear pacing (send-fill is independent)
  * - Controller timeout / cooldown / startMs use **sender clock**; estimator
- *   history prune uses **receive timeline** (`receivedAtMs`)
+ *   history prune uses **receive timeline** (`receivedAtMs`) plus sender age
+ * - Zero-packet pacing timeouts are discarded (nothing measurable for TWCC)
  * - `setBitrates` / activate returns only **activated** configs (for pacing)
  */
 export class ProbeController {
@@ -286,20 +290,31 @@ export class ProbeController {
    */
   process(nowMs: number): ProbeClusterConfig[] {
     // BitrateProber: pacing cluster that never filled — 5s.
-    // Stop pacing but keep sent packets measurable for late TWCC.
+    // Keep sent packets measurable for late TWCC; drop empty clusters entirely.
     if (this.pacing && nowMs - this.pacing.startMs > kProbePacingTimeoutMs) {
-      this.moveToEstimatorHistory(this.pacing);
+      if (this.pacing.sentPackets > 0) {
+        this.moveToEstimatorHistory(this.pacing);
+      } else {
+        this.dropClusterSeqs(this.pacing.config.id);
+      }
       this.pacing = undefined;
     }
     // ProbeController: result wait after send-fill — 1s from last send.
-    // Controller leaves waiting_for_result; estimator history stays.
+    // Controller leaves waiting_for_result; estimator history stays when useful.
     for (const [id, c] of this.awaitingResults) {
       const waitStart = c.lastSendMs > 0 ? c.lastSendMs : c.startMs;
       if (nowMs - waitStart > kProbeResultTimeoutMs) {
         this.awaitingResults.delete(id);
-        this.moveToEstimatorHistory(c);
+        if (c.sentPackets > 0) {
+          this.moveToEstimatorHistory(c);
+        } else {
+          this.dropClusterSeqs(id);
+        }
       }
     }
+    // Absolute sender-side cap (align with GccBandwidthEstimator sentInfos).
+    // Receive-time 1s history alone never prunes lastRecvMs===0 clusters.
+    this.pruneEstimatorHistoryBySendAge(nowMs);
     const activated = this.maybeActivateQueued(nowMs);
     this.maybeMarkComplete(nowMs);
     return activated;
@@ -488,6 +503,11 @@ export class ProbeController {
   }
 
   private moveToEstimatorHistory(c: ClusterRuntime) {
+    // Nothing sent ⇒ no TWCC will match; skip history retention.
+    if (c.sentPackets <= 0) {
+      this.dropClusterSeqs(c.config.id);
+      return;
+    }
     this.estimatorHistory.set(c.config.id, c);
   }
 
@@ -501,6 +521,22 @@ export class ProbeController {
         c.lastRecvMs > 0 &&
         receiveTimeMs - c.lastRecvMs > kProbeResultTimeoutMs
       ) {
+        this.dropClusterSeqs(id);
+        this.estimatorHistory.delete(id);
+      }
+    }
+  }
+
+  /**
+   * Drop estimator-history clusters whose last send is older than the
+   * sentInfos lifetime. GCC cannot match late TWCC after that window, so
+   * keeping seq maps would only leak memory (esp. never-ACK'd clusters with
+   * lastRecvMs === 0 that receive-time prune never removes).
+   */
+  private pruneEstimatorHistoryBySendAge(nowMs: number) {
+    for (const [id, c] of this.estimatorHistory) {
+      const lastSend = c.lastSendMs > 0 ? c.lastSendMs : c.startMs;
+      if (nowMs - lastSend > kSentInfoMaxAgeMs) {
         this.dropClusterSeqs(id);
         this.estimatorHistory.delete(id);
       }
