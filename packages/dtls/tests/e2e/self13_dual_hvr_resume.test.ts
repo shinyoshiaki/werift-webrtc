@@ -2378,3 +2378,248 @@ test("e2e/dual: close during continueDualAfterHvr does not fire onError", async 
   await serverTransport.close().catch(() => {});
   await clientTransport.close().catch(() => {});
 }, 15_000);
+
+/**
+ * P1: commit12 後、spoof peer からの inject は drop し、app send は association pin の A へ。
+ * rinfo hijack で B に暗号化データを送らないこと。
+ */
+test("e2e/dual: after commit12 spoof inject does not redirect send to attacker", async () => {
+  // Arrange: dual × 1.2-only → commit12 + custom carrier
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const { HashAlgorithm, SignatureAlgorithm } = await import(
+    "../../src/cipher/const"
+  );
+  const sig = {
+    hash: HashAlgorithm.sha256_4,
+    signature: SignatureAlgorithm.rsa_1,
+  };
+
+  const clientCarrier = new DirectHandshakeCarrier(clientTransport, {
+    mtu: 1200,
+  });
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_2],
+  });
+  const client = createDtlsClientInternal({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+    handshakeCarrier: clientCarrier,
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("commit12 setup timeout")),
+      20_000,
+    );
+    client.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    client.onConnect.subscribe(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+    void client.connect();
+  });
+
+  expect((client as any).dualPhase).toBe("committed12");
+  expect(client.isDtls13).toBe(false);
+
+  const peerA = clientFacingServerPeer(serverTransport);
+  const peerB: [string, number] = ["203.0.113.99", 40000];
+
+  // Act: spoof inject from B（packet は drop、rinfo を汚さない）
+  clientCarrier.inject(buildMinimalDtls13ServerHelloRecord(), peerB);
+  await new Promise((r) => setTimeout(r, 20));
+
+  // rinfo は A のまま、または pin に復元されている
+  const rinfo = (clientTransport as any).rinfo as
+    | { address?: string; port?: number }
+    | undefined;
+  if (rinfo?.address != null && rinfo?.port != null) {
+    expect([rinfo.address, rinfo.port]).toEqual(peerA);
+  }
+  expect((client as any).transport.pinnedPeer).toEqual(peerA);
+
+  // 送信先を記録
+  const dests: Array<[string, number] | undefined> = [];
+  const origSend = clientTransport.send.bind(clientTransport);
+  clientTransport.send = async (buf: Buffer, addr?: any) => {
+    if (Array.isArray(addr)) {
+      dests.push([addr[0], addr[1]]);
+    } else if (addr?.address != null) {
+      dests.push([addr.address, addr.port]);
+    } else {
+      dests.push(undefined);
+    }
+    return origSend(buf, addr);
+  };
+
+  // Act: app data — pin 経由で A へ
+  await client.send(Buffer.from("after-spoof"));
+  await new Promise((r) => setTimeout(r, 50));
+
+  // Assert: B へは送らない
+  expect(dests.length).toBeGreaterThan(0);
+  for (const d of dests) {
+    expect(d).not.toEqual(peerB);
+    if (d) {
+      expect(d[0]).toBe(peerA[0]);
+      expect(d[1]).toBe(peerA[1]);
+    }
+  }
+
+  client.close();
+  try {
+    server.close();
+  } catch {
+    /* */
+  }
+}, 25_000);
+
+/**
+ * P1: 実 UDP 経路の spoof でも rinfo を pin に戻し、send は A へ。
+ */
+test("e2e/dual: after commit12 real-UDP spoof does not redirect send", async () => {
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const { HashAlgorithm, SignatureAlgorithm } = await import(
+    "../../src/cipher/const"
+  );
+  const sig = {
+    hash: HashAlgorithm.sha256_4,
+    signature: SignatureAlgorithm.rsa_1,
+  };
+
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_2],
+  });
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("commit12 setup timeout")),
+      20_000,
+    );
+    client.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    client.onConnect.subscribe(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+    void client.connect();
+  });
+
+  const peerA = clientFacingServerPeer(serverTransport);
+  const peerB: [string, number] = ["198.51.100.77", 41000];
+
+  // Act: UDP onData 経路で spoof（UdpTransport 相当: 先に rinfo を B に汚す）
+  (clientTransport as any).rinfo = { address: peerB[0], port: peerB[1] };
+  clientTransport.onData?.(buildMinimalDtls13ServerHelloRecord(), peerB);
+  await new Promise((r) => setTimeout(r, 20));
+
+  // Assert: demux drop 後 rinfo が pin に復元
+  const rinfo = (clientTransport as any).rinfo as {
+    address: string;
+    port: number;
+  };
+  expect(rinfo.address).toBe(peerA[0]);
+  expect(rinfo.port).toBe(peerA[1]);
+
+  const dests: Array<[string, number]> = [];
+  const origSend = clientTransport.send.bind(clientTransport);
+  clientTransport.send = async (buf: Buffer, addr?: any) => {
+    const a = addr ?? [
+      (clientTransport as any).rinfo.address,
+      (clientTransport as any).rinfo.port,
+    ];
+    dests.push([a[0], a[1]]);
+    return origSend(buf, addr);
+  };
+
+  await client.send(Buffer.from("after-udp-spoof"));
+  await new Promise((r) => setTimeout(r, 50));
+
+  expect(dests.length).toBeGreaterThan(0);
+  for (const d of dests) {
+    expect(d).toEqual(peerA);
+  }
+
+  client.close();
+  try {
+    server.close();
+  } catch {
+    /* */
+  }
+}, 25_000);
+
+/**
+ * P2: close 後、1.2 Flight の cancelable timer が即 cancel され pending が残らない。
+ */
+test("e2e/dual: close cancels 1.2 flight timers immediately", async () => {
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+  });
+
+  // probing まで進めて dual cookie Flight1 を起動
+  let hvrInjected = false;
+  clientTransport.send = async () => {
+    if (!hvrInjected && (client as any).dualPhase === "none") {
+      hvrInjected = true;
+      queueMicrotask(() => {
+        injectHvr(clientTransport, serverTransport);
+      });
+    }
+  };
+
+  void client.connect();
+  for (let i = 0; i < 50; i++) {
+    if ((client as any).dualPhase === "probing") break;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  expect((client as any).dualPhase).toBe("probing");
+
+  // Act
+  const dtls = (client as any).dtls;
+  client.close();
+
+  // Assert: flight timers が空（cancelFlightTimers 済み）
+  expect(dtls.flight).toBe(99);
+  expect((dtls as any).flightTimers?.size ?? 0).toBe(0);
+  expect((dtls as any).flightSleepResolvers?.size ?? 0).toBe(0);
+  expect((client as any).dualPhase).toBe("closed");
+
+  await serverTransport.close().catch(() => {});
+  await clientTransport.close().catch(() => {});
+}, 10_000);

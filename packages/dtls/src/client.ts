@@ -95,8 +95,10 @@ export class DtlsClient extends DtlsSocket {
   /**
    * Peer pin snapshot for dual probing (from parked 1.3 engine at HVR).
    * Version commit (1.3 SH/HRR or 1.2 SH) requires matching source address.
+   * Also owns the 1.2 TX destination so spoofed packets cannot hijack rinfo.
    */
   private dualAssociationPeerKey?: string;
+  private dualAssociationPeerAddr?: [string, number];
 
   /**
    * Association generation token. Bumped on hard-close and on commit to 1.3
@@ -181,8 +183,11 @@ export class DtlsClient extends DtlsSocket {
         this.engine13 = undefined;
         this.dualPhase = "probing";
         this.connected = false;
-        // Snapshot peer pin for association demux before version commit.
-        this.dualAssociationPeerKey = engine.getExpectedPeerKey();
+        // Snapshot peer pin for association demux + 1.2 TX destination.
+        this.pinAssociationPeer(
+          engine.getPeerAddr(),
+          engine.getExpectedPeerKey(),
+        );
         // Association owns RX demux: both UDP onData and carrier.inject.
         // Leaving inject bound to the parked engine would let Epic 2 SPED
         // complete 1.3 while public engine13 stays undefined.
@@ -233,6 +238,8 @@ export class DtlsClient extends DtlsSocket {
     this.parkedEngine13 = undefined;
     this.dualResume = undefined;
     this.dualAssociationPeerKey = undefined;
+    this.dualAssociationPeerAddr = undefined;
+    this.transport.pinnedPeer = undefined;
     let deferredTransportClose = false;
     for (const eng of candidates) {
       if (opts?.hardDispose) {
@@ -303,6 +310,8 @@ export class DtlsClient extends DtlsSocket {
       return;
     }
     this.dtls.flight = 99;
+    // Cancel cancelable 1.2 retransmit sleeps (not just flight=99 sentinel).
+    this.dtls.cancelFlightTimers();
     this.connected = false;
     // Mark closed before onClose so re-entrant client.close() is a no-op
     // (handlers that call close() inside onClose must not recurse).
@@ -350,9 +359,46 @@ export class DtlsClient extends DtlsSocket {
   protected prepareAssociationClosedFromEngine(): void {
     this.connected = false;
     this.dtls.flight = 99;
+    this.dtls.cancelFlightTimers();
     this.dualPhase = "closed";
     this.associationGen++;
     this.flight5 = undefined;
+  }
+
+  /**
+   * Own association peer key + address for demux and 1.2 TX pin.
+   * Sets TransportContext.pinnedPeer so Flight/app send ignore hijacked rinfo.
+   */
+  private pinAssociationPeer(
+    addr?: [string, number],
+    key?: string,
+  ): void {
+    if (addr) {
+      const host =
+        addr[0] === "0.0.0.0"
+          ? "127.0.0.1"
+          : addr[0] === "::" || addr[0] === "[::]"
+            ? "::1"
+            : addr[0];
+      this.dualAssociationPeerAddr = [host, addr[1]];
+      this.transport.pinnedPeer = this.dualAssociationPeerAddr;
+      this.dualAssociationPeerKey =
+        key ?? peerKeyFromAddr(this.dualAssociationPeerAddr);
+    } else if (key) {
+      this.dualAssociationPeerKey = key;
+    }
+  }
+
+  /** After dropping a spoofed packet, restore rinfo to the association pin. */
+  private restorePinnedRinfo(): void {
+    if (!this.dualAssociationPeerAddr) return;
+    const t = this.options.transport as {
+      rinfo?: { address?: string; port?: number };
+    };
+    t.rinfo = {
+      address: this.dualAssociationPeerAddr[0],
+      port: this.dualAssociationPeerAddr[1],
+    };
   }
 
   /**
@@ -446,26 +492,41 @@ export class DtlsClient extends DtlsSocket {
     peer?: [string, number] | { address?: string; port?: number } | string,
   ): void {
     if (this.dualPhase === "closed") return;
+    // Parse peer first; do NOT write transport.rinfo until peer gate accepts
+    // (otherwise spoofed inject redirects 1.2 Flight / app send via rinfo).
     let addr: Address | undefined;
     if (peer != null) {
-      const t = this.options.transport as {
-        rinfo?: { address?: string; port?: number };
-      };
       if (Array.isArray(peer)) {
-        t.rinfo = { address: peer[0], port: peer[1] };
         addr = [peer[0], peer[1]];
       } else if (typeof peer === "string") {
         const i = peer.lastIndexOf(":");
         if (i > 0) {
-          const host = peer.slice(0, i);
-          const port = Number(peer.slice(i + 1));
-          t.rinfo = { address: host, port };
-          addr = [host, port];
+          addr = [peer.slice(0, i), Number(peer.slice(i + 1))];
         }
       } else if (peer.address != null && peer.port != null) {
-        t.rinfo = { address: peer.address, port: peer.port };
         addr = [peer.address, peer.port];
       }
+    }
+    // Peer gate before mutating shared transport.rinfo
+    if (
+      (this.dualPhase === "probing" ||
+        this.dualPhase === "committed12" ||
+        this.dualPhase === "committed13") &&
+      !this.isAssociationPeer(addr)
+    ) {
+      log(
+        "dual association: inject drop non-association peer (rinfo unchanged)",
+        peerKeyFromAddr(
+          addr ? ([addr[0], addr[1]] as [string, number]) : undefined,
+        ),
+      );
+      return;
+    }
+    if (addr) {
+      const t = this.options.transport as {
+        rinfo?: { address?: string; port?: number };
+      };
+      t.rinfo = { address: addr[0], port: addr[1] };
     }
     this.udpOnMessage(Buffer.from(bytes), addr);
   }
@@ -727,6 +788,7 @@ export class DtlsClient extends DtlsSocket {
     // Stop 1.2 Flight1 retransmit by advancing flight only — never set fatalError
     // for a successful version commit (would surface as delayed public onError).
     this.dtls.flight = 99;
+    this.dtls.cancelFlightTimers();
     this.dualPhase = "committed13";
     // Invalidate in-flight 1.2 handleHandshakes / Flight5 after version commit.
     this.associationGen++;
@@ -807,14 +869,33 @@ export class DtlsClient extends DtlsSocket {
         "DTLS dual probing in progress; connect() already started (wait for version commit)",
       );
     }
+    // Pin 1.2 TX destination from configured rinfo before any flight retransmit.
+    this.pinSendPeerFromTransportRinfo();
     if (this.engine13) {
       await this.engine13.connect();
+      // After 1.3 connect pin, sync association pin for dual fallout.
+      const eng = this.engine13;
+      if (eng) {
+        this.pinAssociationPeer(eng.getPeerAddr(), eng.getExpectedPeerKey());
+      }
       return;
     }
     await this.connect12();
   }
 
+  private pinSendPeerFromTransportRinfo(): void {
+    const r = (
+      this.options.transport as {
+        rinfo?: { address?: string; port?: number };
+      }
+    ).rinfo;
+    if (r?.address != null && r?.port != null) {
+      this.pinAssociationPeer([r.address, r.port]);
+    }
+  }
+
   private async connect12() {
+    this.pinSendPeerFromTransportRinfo();
     await new Flight1(this.transport, this.dtls, this.cipher).exec(
       this.extensions,
     );
@@ -1041,6 +1122,7 @@ export class DtlsClient extends DtlsSocket {
 
     // Version commit / dual probing: require association peer before acting.
     // Spoofed SH must not stop 1.2 Flight1 or unpark 1.3 (DoS).
+    // Also restore rinfo after UDP path already overwrote it with the spoof source.
     if (
       (this.dualPhase === "probing" ||
         this.dualPhase === "committed12" ||
@@ -1052,6 +1134,7 @@ export class DtlsClient extends DtlsSocket {
         peerKeyFromAddr(peerTuple),
         this.dualAssociationPeerKey,
       );
+      this.restorePinnedRinfo();
       return;
     }
 

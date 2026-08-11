@@ -278,7 +278,12 @@ export class DtlsSocket {
       [{ type: ContentType.applicationData, fragment: buf }],
       ++this.dtls.recordSequenceNumber,
     )[0];
-    await this.transport.send(this.cipher.encryptPacket(pkt).serialize(), addr);
+    // Prefer explicit addr, else TransportContext.pinnedPeer (association pin).
+    // Never rely solely on last UDP rinfo (spoof hijack).
+    await this.transport.send(
+      this.cipher.encryptPacket(pkt).serialize(),
+      addr,
+    );
   };
 
   close() {

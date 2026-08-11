@@ -36,10 +36,47 @@ export class DtlsContext {
    */
   fatalError?: Error;
 
+  /**
+   * Cancelable retransmit sleeps for legacy 1.2 Flight.transmit.
+   * Cleared by {@link cancelFlightTimers} on association hard-close / commit13.
+   */
+  private flightTimers = new Set<ReturnType<typeof setTimeout>>();
+  private flightSleepResolvers = new Set<() => void>();
+
   constructor(
     public options: Options,
     public sessionType: SessionTypes,
   ) {}
+
+  /**
+   * Association-owned cancelable sleep (replaces bare timers/promises setTimeout
+   * so close can cancel pending retransmit waits immediately).
+   */
+  flightSleep(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const id = setTimeout(() => {
+        this.flightTimers.delete(id);
+        this.flightSleepResolvers.delete(resolve);
+        resolve();
+      }, ms);
+      this.flightTimers.add(id);
+      this.flightSleepResolvers.add(resolve);
+    });
+  }
+
+  /** Cancel all pending 1.2 flight retransmit timers (association teardown). */
+  cancelFlightTimers(): void {
+    for (const id of this.flightTimers) {
+      clearTimeout(id);
+    }
+    this.flightTimers.clear();
+    // Resolve sleepers so transmit loops can observe flight=99 / fatal and exit
+    // (do not reject — Flight treats resolve + flight check as clean stop).
+    for (const resolve of this.flightSleepResolvers) {
+      resolve();
+    }
+    this.flightSleepResolvers.clear();
+  }
 
   get sessionId() {
     return this.cookie ? this.cookie.toString("hex").slice(0, 10) : "";

@@ -198,6 +198,13 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
     return this.expectedPeerKey();
   }
 
+  /** Pinned peer address tuple for association TX ownership (copy). */
+  getPeerAddr(): [string, number] | undefined {
+    return this.peerAddr
+      ? ([this.peerAddr[0], this.peerAddr[1]] as [string, number])
+      : undefined;
+  }
+
   /**
    * True when `addr` matches the engine peer pin (or no pin is set yet).
    * Used by DtlsClient association dispatcher so spoofed SH cannot commit
