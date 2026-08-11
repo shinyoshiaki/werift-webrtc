@@ -13,6 +13,7 @@ import {
   kProbeMinRatioForUnsaturated,
   kProbeMinReceivedBytesPercent,
   kProbeMinReceivedProbesPercent,
+  kProbePacingTimeoutMs,
   kProbeRecoveryMaxScale,
   kProbeRecoveryScale,
   kProbeResultTimeoutMs,
@@ -23,7 +24,7 @@ import {
  * libwebrtc ProbeController-aligned states:
  * - init: no probing initiated yet
  * - waiting_for_result: pacing and/or awaiting-ACK clusters outstanding
- * - complete: initial exponential probing finished
+ * - complete: initial exponential probing finished (success or failure)
  */
 export type ProbeState = "init" | "waiting_for_result" | "complete";
 
@@ -57,6 +58,11 @@ interface ClusterRuntime {
   firstRecvMs: number;
   lastRecvMs: number;
   sizeFirstRecv: number;
+  /**
+   * ProbeBitrateEstimator accepted a result (80% ACK) while send-fill may
+   * still be incomplete. Pacing must continue until minPackets/minBytes.
+   */
+  resultAccepted: boolean;
 }
 
 /**
@@ -68,6 +74,7 @@ interface ClusterRuntime {
  * - `awaitingResults`: clusters whose send fill is done, waiting for TWCC ACK
  * - On **send** fill (minBytes AND minPackets), front is moved to awaiting and
  *   the next queued cluster becomes pacing — **without waiting for ACK**
+ * - ACK / 80% estimate must **never** clear pacing (send-fill is independent)
  * - Timeout / cooldown / startMs use **sender clock** only; `receivedAtMs` is
  *   used solely for receive-rate estimation
  * - `setBitrates` / activate returns only **activated** configs (for pacing)
@@ -83,6 +90,12 @@ export class ProbeController {
   private estimatedBps = 0;
   private pendingEstimateBps = 0;
   private lastProbeTargetBps = 0;
+  /**
+   * Further-probe threshold from the **last planned** cluster target
+   * (libwebrtc min_bitrate_to_probe_further = last_pending_target × 0.7),
+   * not from the last successful result.
+   */
+  private minBitrateToProbeFurther = 0;
   /** Sender-clock time when last probe session ended. */
   private lastProbeEndMs = Number.NEGATIVE_INFINITY;
   private minBitrateBps = kMinBitrateBps;
@@ -101,6 +114,7 @@ export class ProbeController {
     this.estimatedBps = 0;
     this.pendingEstimateBps = 0;
     this.lastProbeTargetBps = 0;
+    this.minBitrateToProbeFurther = 0;
     this.lastProbeEndMs = Number.NEGATIVE_INFINITY;
     this.minBitrateBps = kMinBitrateBps;
     this.startBitrateBps = kDefaultStartBitrateBps;
@@ -136,6 +150,11 @@ export class ProbeController {
 
   get awaitingResultCount() {
     return this.awaitingResults.size;
+  }
+
+  /** Exposed for tests / diagnostics (last planned further-probe threshold). */
+  get furtherProbeThresholdBps() {
+    return this.minBitrateToProbeFurther;
   }
 
   takePendingEstimateBps(): number {
@@ -176,6 +195,10 @@ export class ProbeController {
     this.minBitrateBps = Math.max(minBps, kMinBitrateBps);
     this.startBitrateBps = Math.max(startBps, this.minBitrateBps);
     this.maxBitrateBps = Math.max(maxBps, this.startBitrateBps);
+    // libwebrtc ProbeController keeps start bitrate as the initial estimate.
+    if (this.estimatedBps <= 0) {
+      this.estimatedBps = this.startBitrateBps;
+    }
     if (this.state === "init" && this.networkAvailable) {
       return this.initiateExponentialProbing(nowMs);
     }
@@ -199,9 +222,10 @@ export class ProbeController {
     if (!this.cooldownElapsed(nowMs) && this.state === "complete") {
       return [];
     }
+    // Further-probe uses last **planned** target threshold, not last success.
     if (
-      this.lastProbeTargetBps > 0 &&
-      bitrateBps > this.lastProbeTargetBps * kFurtherProbeThreshold &&
+      this.minBitrateToProbeFurther > 0 &&
+      bitrateBps > this.minBitrateToProbeFurther &&
       (this.state === "complete" || this.state === "waiting_for_result")
     ) {
       const next = clamp(
@@ -221,14 +245,15 @@ export class ProbeController {
    * Returns newly activated pacing configs (if any).
    */
   process(nowMs: number): ProbeClusterConfig[] {
-    // Timeout pacing cluster (never sent enough).
-    if (this.pacing && nowMs - this.pacing.startMs > kProbeResultTimeoutMs) {
+    // BitrateProber: pacing cluster that never filled — 5s.
+    if (this.pacing && nowMs - this.pacing.startMs > kProbePacingTimeoutMs) {
       this.dropClusterSeqs(this.pacing.config.id);
       this.pacing = undefined;
     }
-    // Timeout clusters waiting for ACK.
+    // ProbeController: result wait after send-fill — 1s from last send.
     for (const [id, c] of this.awaitingResults) {
-      if (nowMs - c.startMs > kProbeResultTimeoutMs) {
+      const waitStart = c.lastSendMs > 0 ? c.lastSendMs : c.startMs;
+      if (nowMs - waitStart > kProbeResultTimeoutMs) {
         this.dropClusterSeqs(id);
         this.awaitingResults.delete(id);
       }
@@ -283,20 +308,30 @@ export class ProbeController {
   }
 
   /**
-   * Move pacing cluster to awaiting-results and activate next from queue.
+   * Move pacing cluster to awaiting-results (or settle if result already
+   * accepted) and activate next from queue.
    * Uses **sender clock** for the new cluster's startMs.
    */
   private finishPacingSend(senderNowMs: number): ProbeClusterConfig[] {
     if (!this.pacing) return [];
     const done = this.pacing;
-    this.awaitingResults.set(done.config.id, done);
     this.pacing = undefined;
-    return this.maybeActivateQueued(senderNowMs);
+
+    if (done.resultAccepted) {
+      // Estimate already applied while still pacing — do not re-wait.
+      this.dropClusterSeqs(done.config.id);
+    } else {
+      this.awaitingResults.set(done.config.id, done);
+    }
+
+    const activated = this.maybeActivateQueued(senderNowMs);
+    this.maybeMarkComplete(senderNowMs);
+    return activated;
   }
 
   /**
    * ACK a probe packet. Credits the cluster that owned wideSeq (pacing or
-   * awaiting). Does **not** advance FIFO pacing — that happens on send fill.
+   * awaiting). Does **not** advance or clear FIFO pacing — send-fill only.
    *
    * @param receivedAtMs TWCC receiver timeline (rate math only)
    * @param senderNowMs sender clock for session completion / cooldown
@@ -324,6 +359,9 @@ export class ProbeController {
     }
     if (!cluster) return;
 
+    // Already accepted a result for this cluster (may still be pacing).
+    if (cluster.resultAccepted) return;
+
     if (cluster.ackedPackets === 0) {
       cluster.firstRecvMs = receivedAtMs;
       cluster.sizeFirstRecv = sizeBytes;
@@ -343,14 +381,15 @@ export class ProbeController {
       this.lastProbeTargetBps,
       cluster.config.targetBps,
     );
+    cluster.resultAccepted = true;
 
-    // Result accepted — drop from awaiting (or clear pacing if still there).
-    this.dropClusterSeqs(cluster.config.id);
-    this.awaitingResults.delete(cluster.config.id);
-    if (this.pacing?.config.id === cluster.config.id) {
-      this.pacing = undefined;
+    // Settle only if already in awaitingResults. Never clear pacing here —
+    // send-fill (100% minPackets AND minBytes) is independent of 80% ACK.
+    if (this.awaitingResults.has(cluster.config.id)) {
+      this.dropClusterSeqs(cluster.config.id);
+      this.awaitingResults.delete(cluster.config.id);
+      this.maybeMarkComplete(senderNowMs);
     }
-    this.maybeMarkComplete(senderNowMs);
   }
 
   abort(nowMs: number) {
@@ -359,7 +398,9 @@ export class ProbeController {
     this.queue = [];
     this.seqToCluster.clear();
     if (this.state === "waiting_for_result") {
-      this.state = this.estimatedBps > 0 ? "complete" : "init";
+      // After probing was initiated, failures still end in complete so
+      // recovery probing remains available (libwebrtc kProbingComplete).
+      this.state = "complete";
       this.lastProbeEndMs = nowMs;
     }
   }
@@ -372,7 +413,10 @@ export class ProbeController {
       this.state === "waiting_for_result"
     ) {
       this.lastProbeEndMs = senderNowMs;
-      this.state = this.estimatedBps > 0 ? "complete" : "init";
+      // Always complete once a session was started — even if every cluster
+      // timed out / failed. Returning to init permanently disables recovery
+      // because ensureProbing() will not re-run setBitrates().
+      this.state = "complete";
     }
   }
 
@@ -458,6 +502,12 @@ export class ProbeController {
       });
     }
     if (bitrates.length) {
+      // libwebrtc: min_bitrate_to_probe_further = last planned target × 0.7
+      // (for initial session: 6x × 0.7, not 3x after first success).
+      const lastPlanned = bitrates[bitrates.length - 1]!;
+      this.minBitrateToProbeFurther = Math.round(
+        lastPlanned * kFurtherProbeThreshold,
+      );
       this.state = "waiting_for_result";
     }
     return this.maybeActivateQueued(nowMs);
@@ -488,6 +538,7 @@ export class ProbeController {
       firstRecvMs: 0,
       lastRecvMs: 0,
       sizeFirstRecv: 0,
+      resultAccepted: false,
     };
   }
 }

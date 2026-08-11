@@ -1562,6 +1562,162 @@ describe("media/sender bandwidth estimator", () => {
       expect(probe.awaitingResultCount).toBe(1);
     });
 
+    test("80% ACK でも send-fill 未完了なら pacing を終了しない", () => {
+      // Arrange: minPackets=5 / minBytes≥1000 → 4×300B で 80% ACK は成立し得るが
+      // send-fill (5 pkts AND minBytes) は未完了
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, 1e9, 0);
+      expect(probe.currentProbeTargetBps).toBe(300_000);
+
+      const pktSize = 300;
+      const sendBase = 1_000;
+      // Act: 4/5 packets 送信（minPackets 未達）
+      for (let i = 0; i < 4; i++) {
+        const r = probe.onProbePacketSent(pktSize, sendBase + i * 2, i + 1);
+        expect(r.activated).toEqual([]);
+      }
+      expect(probe.currentProbeTargetBps).toBe(300_000);
+      expect(probe.shouldTagProbePacket()).toBe(true);
+
+      // Act: 4 packets を全 ACK（ceil(5×0.8)=4, bytes 80% も満たす）
+      for (let i = 0; i < 4; i++) {
+        probe.onAckedPacket(
+          pktSize,
+          sendBase + 5 + i * 2,
+          true,
+          i + 1,
+          sendBase + 20,
+        );
+      }
+
+      // Assert: result が成立しても pacing は 3x のまま（5 packet 目が必要）
+      expect(probe.currentProbeTargetBps).toBe(300_000);
+      expect(probe.shouldTagProbePacket()).toBe(true);
+      expect(probe.queuedClusterCount).toBe(1);
+      expect(probe.awaitingResultCount).toBe(0);
+
+      // Act: 5 packet 目で初めて send-fill → 6x へ advance
+      const r5 = probe.onProbePacketSent(pktSize, sendBase + 8, 5);
+      expect(r5.activated.map((c) => c.targetBps)).toEqual([600_000]);
+      expect(probe.currentProbeTargetBps).toBe(600_000);
+      expect(probe.shouldTagProbePacket()).toBe(true);
+    });
+
+    test("initial probe 全失敗でも complete になり recovery 可能", () => {
+      // Arrange: 3x/6x を send-fill まで送るが ACK なし
+      // 6x minBytes ≈ 1125 なので 300B×5 で確実に fill
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, 1e9, 0);
+      expect(probe.probeState).toBe("waiting_for_result");
+
+      // Act: 3x fill → 6x active
+      for (let i = 0; i < 5; i++) {
+        probe.onProbePacketSent(300, 1_000 + i, i + 1);
+      }
+      expect(probe.currentProbeTargetBps).toBe(600_000);
+
+      // Act: 6x fill → pacing 空・両 cluster が awaiting
+      let lastSend = 0;
+      for (let i = 0; i < 5; i++) {
+        lastSend = 1_010 + i;
+        probe.onProbePacketSent(300, lastSend, 10 + i);
+      }
+      expect(probe.currentProbeTargetBps).toBe(0);
+      expect(probe.awaitingResultCount).toBe(2);
+
+      // Act: result timeout (1s from last send) — ACK なし
+      const afterTimeout = lastSend + 1_001;
+      probe.process(afterTimeout);
+      expect(probe.awaitingResultCount).toBe(0);
+      // Assert: init に戻さず complete（ensureProbing 再実行不能でも recovery 可）
+      expect(probe.probeState).toBe("complete");
+
+      // Act: cooldown (5s) 後に recovery
+      const recovery = probe.requestProbe(150_000, afterTimeout + 5_000);
+      expect(recovery.length).toBe(1);
+      expect(recovery[0].targetBps).toBeGreaterThan(150_000);
+      expect(probe.probeState).toBe("waiting_for_result");
+      expect(probe.currentProbeTargetBps).toBe(recovery[0].targetBps);
+    });
+
+    test("further-probe threshold は計画上の最後の target（6x）基準", () => {
+      // Arrange: initial 3x/6x、minBitrateToProbeFurther = 6x × 0.7
+      // （成功した cluster の target=3x ではなく計画上の最後=6x が基準）
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, 1e9, 0);
+      const threshold6x = Math.round(600_000 * 0.7);
+      expect(probe.furtherProbeThresholdBps).toBe(threshold6x);
+
+      // Act: 3x send-fill → 6x pacing 開始
+      for (let i = 0; i < 5; i++) {
+        probe.onProbePacketSent(300, 2_000 + i * 2, i + 1);
+      }
+      expect(probe.currentProbeTargetBps).toBe(600_000);
+      expect(probe.queuedClusterCount).toBe(0);
+
+      // Act: 3x の ACK で result 成功 → lastProbeTarget は 3x に更新され得る
+      for (let i = 0; i < 5; i++) {
+        probe.onAckedPacket(300, 2_010 + i * 2, true, i + 1, 2_030);
+      }
+      expect(probe.takePendingEstimateBps()).toBeGreaterThan(0);
+
+      // Assert: 3x×0.7 は超えるが 6x×0.7 未満 → extra probe は増えない
+      // （旧実装は lastProbeTarget=3x 基準で誤って enqueue してしまう）
+      const mid = 300_000; // > 3x*0.7(=210k), < 6x*0.7(=420k)
+      expect(probe.setEstimatedBitrate(mid, 2_040)).toEqual([]);
+      expect(probe.queuedClusterCount).toBe(0);
+      expect(probe.currentProbeTargetBps).toBe(600_000);
+
+      // Assert: 6x 相当 threshold を超えると further probe が計画される
+      // （6x がまだ pacing 中なら activate 戻りは空でも queue に積まれる）
+      const over6x = threshold6x + 1;
+      const beforeQ = probe.queuedClusterCount;
+      const activated = probe.setEstimatedBitrate(over6x, 2_050);
+      expect(probe.queuedClusterCount).toBe(beforeQ + 1);
+      // pacing 中は activate されないが、完了後に出る
+      expect(activated).toEqual([]);
+      // 6x を fill すると further が activate
+      for (let i = 0; i < 5; i++) {
+        const r = probe.onProbePacketSent(300, 2_100 + i * 2, 20 + i);
+        if (i === 4) {
+          expect(r.activated.length).toBe(1);
+          expect(r.activated[0].targetBps).toBeGreaterThan(over6x);
+        }
+      }
+    });
+
+    test("pacing timeout 5s と result timeout 1s は独立", () => {
+      // Arrange
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, 1e9, 0);
+      // 1 packet only — send-fill 未完了
+      probe.onProbePacketSent(200, 0, 1);
+      expect(probe.currentProbeTargetBps).toBe(300_000);
+
+      // Act: result timeout 相当 (1s) では pacing は残る
+      probe.process(1_000);
+      expect(probe.currentProbeTargetBps).toBe(300_000);
+      expect(probe.shouldTagProbePacket()).toBe(true);
+
+      // Act: pacing timeout (5s) で 3x drop → queue の 6x が activate
+      probe.process(5_001);
+      expect(probe.currentProbeTargetBps).toBe(600_000);
+
+      // Act: 6x を send-fill して awaiting へ（minBytes≈1125 → 300B×5）
+      let lastSend = 0;
+      for (let i = 0; i < 5; i++) {
+        lastSend = 5_100 + i;
+        probe.onProbePacketSent(300, lastSend, 10 + i);
+      }
+      expect(probe.awaitingResultCount).toBe(1);
+      expect(probe.currentProbeTargetBps).toBe(0);
+
+      // Act: result timeout 1s（lastSend から）で awaiting クリア → complete
+      probe.process(lastSend + 1_001);
+      expect(probe.awaitingResultCount).toBe(0);
+      expect(probe.probeState).toBe("complete");
+    });
+
     test("使用済み estimator の再注入で reset され履歴が残らない", async () => {
       // Arrange: 一度 TWCC を処理して availableBitrate を立てる
       const gcc = new GccBandwidthEstimator(300_000);

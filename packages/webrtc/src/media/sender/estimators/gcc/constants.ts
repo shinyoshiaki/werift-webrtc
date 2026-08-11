@@ -171,7 +171,17 @@ export const kFurtherProbeStepMultiplier = 2;
 export const kFurtherProbeThreshold = 0.7;
 export const kProbeMinDurationMs = 15;
 export const kProbeMinPackets = 5;
-export const kProbeResultTimeoutMs = 1000;
+/**
+ * BitrateProber pacing-cluster timeout (ms).
+ * A cluster that never reaches send-fill is dropped after this (libwebrtc ≈ 5s).
+ */
+export const kProbePacingTimeoutMs = 5_000;
+/**
+ * ProbeController result-wait timeout (ms).
+ * After send-fill, waiting for TWCC/result validation uses this (libwebrtc ≈ 1s).
+ * Also used as ProbeBitrateEstimator cluster history horizon.
+ */
+export const kProbeResultTimeoutMs = 1_000;
 /** libwebrtc ProbeBitrateEstimator: min % of probes that must be ACKed. */
 export const kProbeMinReceivedProbesPercent = 80;
 /** libwebrtc ProbeBitrateEstimator: min % of bytes that must be ACKed. */
