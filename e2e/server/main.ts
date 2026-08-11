@@ -66,6 +66,7 @@ import {
   mediachannel_simulcast_answer,
   mediachannel_simulcast_offer,
 } from "./handler/mediachannel/simulcast";
+import { codecRtpHandlers } from "./handler/mediachannel/codecRtp";
 import { getTurnRelayConfig, startTurnServer, stopTurnServer } from "./turn";
 
 const app = express();
@@ -190,6 +191,8 @@ function attachWebSocketServer() {
         new mediachannel_offer_replace_second(),
       ice_restart_web_trigger: new ice_restart_web_trigger(),
       ice_restart_node_trigger: new ice_restart_node_trigger(),
+      // packages/rtp Packetizer / Depacketizer Chrome E2E
+      ...codecRtpHandlers,
     };
 
     const transport = accept();

@@ -133,6 +133,88 @@ const jobs: CodecJob[] = [
       `port=${port}`,
     ],
   },
+  // Existing-codec packetizers (RFC 7741 / 9628 / 6184 / 7587; AV1 RTP)
+  {
+    name: "VP8",
+    outFile: "vector_vp8.bin",
+    pipeline: (port) => [
+      "videotestsrc",
+      "num-buffers=8",
+      "!",
+      "video/x-raw,width=160,height=120,format=I420,framerate=15/1",
+      "!",
+      "vp8enc",
+      "deadline=1",
+      "!",
+      "rtpvp8pay",
+      "!",
+      "udpsink",
+      `host=${HOST}`,
+      `port=${port}`,
+    ],
+  },
+  {
+    name: "VP9",
+    outFile: "vector_vp9.bin",
+    pipeline: (port) => [
+      "videotestsrc",
+      "num-buffers=6",
+      "!",
+      "video/x-raw,width=160,height=120,format=I420,framerate=15/1",
+      "!",
+      "vp9enc",
+      "deadline=1",
+      "!",
+      "rtpvp9pay",
+      "!",
+      "udpsink",
+      `host=${HOST}`,
+      `port=${port}`,
+    ],
+  },
+  {
+    name: "H264",
+    outFile: "vector_h264.bin",
+    pipeline: (port) => [
+      "videotestsrc",
+      "num-buffers=8",
+      "!",
+      "video/x-raw,width=160,height=120,format=I420,framerate=15/1",
+      "!",
+      "x264enc",
+      "tune=zerolatency",
+      "!",
+      "rtph264pay",
+      "config-interval=1",
+      "aggregate-mode=zero-latency",
+      "!",
+      "udpsink",
+      `host=${HOST}`,
+      `port=${port}`,
+    ],
+  },
+  {
+    name: "Opus",
+    outFile: "vector_opus.bin",
+    pipeline: (port) => [
+      "audiotestsrc",
+      "num-buffers=20",
+      "!",
+      "audioconvert",
+      "!",
+      "audio/x-raw,rate=48000,channels=2",
+      "!",
+      "opusenc",
+      "!",
+      "rtpopuspay",
+      "!",
+      "udpsink",
+      `host=${HOST}`,
+      `port=${port}`,
+    ],
+  },
+  // AV1 RTP payloader is not always available (no rtpav1pay on many distros).
+  // When missing, collectCodec returns false and synthetic Av1Packetizer fills in.
 ];
 
 function encodePayloadBag(payloads: Buffer[]): Buffer {
@@ -261,32 +343,45 @@ function expectedBodyFile(codecName: string): string | null {
       return "vector_pcma_expected.bin";
     case "G722":
       return "vector_g722_expected.bin";
+    case "Opus":
+      // RFC 7587: RTP payload is the Opus packet itself
+      return "vector_opus_expected.bin";
     default:
       return null;
   }
 }
 
 async function main() {
-  console.log("Generating RTP test vectors with GStreamer…");
+  // Synthetic baseline first so every codec has a committed-shape file even
+  // when a GStreamer plugin is missing (e.g. no rtpav1pay). GST overwrites.
+  console.log("Writing synthetic baseline vectors (package packetizers)…");
+  writeSyntheticVectors();
+
+  console.log("Capturing GStreamer vectors (overwrites synthetic when OK)…");
   let wrote = 0;
+  const ok: string[] = [];
   for (const job of jobs) {
-    if (await collectCodec(job)) wrote++;
+    if (await collectCodec(job)) {
+      wrote++;
+      ok.push(job.name);
+    }
   }
-  if (wrote === 0) {
-    console.warn(
-      "No GStreamer vectors written. Falling back to RFC wire-format " +
-        "packetizer synthetic vectors (non-fill PRNG bodies). " +
-        "See tests/data/VECTOR_SOURCE.md",
-    );
-    writeSyntheticVectors();
-  } else {
-    writeFileSync(
-      join(OUT_DIR, "VECTOR_SOURCE.md"),
-      `# RTP test vector source
 
-**GStreamer-generated** (${wrote} codecs via gst-launch-1.0).
+  writeFileSync(
+    join(OUT_DIR, "VECTOR_SOURCE.md"),
+    `# RTP test vector source
 
-Regenerate (Docker example if host has no GStreamer):
+**Mixed**: GStreamer where plugins succeeded (${wrote}: ${ok.join(", ") || "none"});
+package packetizer synthetic for the rest (including telephone-event / AV1 without payloader).
+
+Regenerate:
+
+\`\`\`bash
+cd packages/rtp
+npx tsx tools/generateVectors/generate.ts
+\`\`\`
+
+Docker (if host has no GStreamer):
 
 \`\`\`bash
 docker run --rm --network host -v "$(pwd)/../..":/workspace -w /workspace/packages/rtp \\
@@ -297,13 +392,24 @@ docker run --rm --network host -v "$(pwd)/../..":/workspace -w /workspace/packag
    npx tsx tools/generateVectors/generate.ts"
 \`\`\`
 
-Expected sidecars are rebuilt automatically after capture.
-telephone-event remains synthetic (no standard GST payloader).
+| File | Source (when GST available) |
+|------|------------------------------|
+| vector_pcmu / pcma | mulawenc/alawenc + rtppay |
+| vector_g722 | avenc_g722 + rtpg722pay |
+| vector_aac | avenc_aac + rtpmp4gpay |
+| vector_h265 | x265enc + rtph265pay |
+| vector_h264 | x264enc + rtph264pay |
+| vector_vp8 | vp8enc + rtpvp8pay |
+| vector_vp9 | vp9enc + rtpvp9pay |
+| vector_opus | opusenc + rtpopuspay |
+| vector_av1 | synthetic Av1Packetizer (no rtpav1pay on most distros) |
+| vector_telephone_event | synthetic RFC 4733 |
+| vector_*_expected.bin | depacketized / concatenated media for tests |
 `,
-    );
-    // Depacketize / concat payloads → *_expected.bin for test equality
-    buildExpectedFromVectors();
-  }
+  );
+
+  // Depacketize / concat payloads → *_expected.bin for test equality
+  buildExpectedFromVectors();
   console.log("Done. Commit tests/data/vector_*.bin if refreshed.");
 }
 

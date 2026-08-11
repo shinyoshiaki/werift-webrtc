@@ -1312,13 +1312,23 @@ export interface PeerConfig {
   maxMessageSize: number;
 }
 
+/** Normalize codec names so AV1 and legacy AV1X match each other. */
+const normalizeCodecMimeType = (mimeType: string) => {
+  const lower = mimeType.toLowerCase();
+  if (lower === "video/av1x") {
+    return "video/av1";
+  }
+  return lower;
+};
+
 export const findCodecByMimeType = (
   codecs: RTCRtpCodecParameters[],
   target: RTCRtpCodecParameters,
 ) =>
   codecs.find(
     (localCodec) =>
-      localCodec.mimeType.toLowerCase() === target.mimeType.toLowerCase(),
+      normalizeCodecMimeType(localCodec.mimeType) ===
+      normalizeCodecMimeType(target.mimeType),
   )
     ? target
     : undefined;
@@ -1365,6 +1375,8 @@ function generateDefaultPeerConfig(): PeerConfig {
   return {
     codecs: {
       audio: [useOPUS(), usePCMU()],
+      // Default remains VP8 for negotiation stability; AV1/VP9/H264 are opt-in
+      // via useAV1() / PeerConnection codecs config (see supportedCodecs).
       video: [useVP8()],
     },
     headerExtensions: {
