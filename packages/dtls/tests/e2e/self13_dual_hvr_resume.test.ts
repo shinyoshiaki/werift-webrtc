@@ -2,9 +2,9 @@ import { expect, test } from "vitest";
 import { UdpTransport } from "../../../common/src";
 import { DtlsClient, DtlsServer, DtlsVersion } from "../../src";
 import { DirectHandshakeCarrier } from "../../src/carrier/direct";
+import { INITIAL_RTO_MS } from "../../src/engine/v1_3/types";
 import { ServerHelloVerifyRequest } from "../../src/handshake/message/server/helloVerifyRequest";
 import { createDtlsClientInternal } from "../../src/internal";
-import { INITIAL_RTO_MS } from "../../src/engine/v1_3/types";
 import { AlertDesc, ContentType } from "../../src/record/const";
 import { serializePlaintextRecord } from "../../src/record/v1_3/record";
 import { certPem, keyPem } from "../fixture";
@@ -861,10 +861,7 @@ test("e2e/dual: carrier.inject of 1.3 SH during probing commits via association"
       // — association demux must unpark and set engine13
       releaseServer = true;
       for (const pkt of shFlight) {
-        clientCarrier.inject(
-          pkt.buf,
-          clientFacingServerPeer(serverTransport),
-        );
+        clientCarrier.inject(pkt.buf, clientFacingServerPeer(serverTransport));
       }
       return;
     }
