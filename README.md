@@ -280,7 +280,6 @@ The core WebRTC transport, browser-compatible API, and media-packet stack are im
 
 - [ ] Expand and improve documentation
 - [ ] Increase Web Platform Tests coverage
-- [ ] Close remaining documented browser API edge-case differences
 - [ ] Continue strengthening unit, E2E, interoperability, and long-running reliability tests
 
 ### Towards 2.0
