@@ -2623,3 +2623,209 @@ test("e2e/dual: close cancels 1.2 flight timers immediately", async () => {
   await serverTransport.close().catch(() => {});
   await clientTransport.close().catch(() => {});
 }, 10_000);
+
+/**
+ * P1: peer 省略の carrier.inject は rinfo（association peer）から補完され、
+ * probing 中の 1.3 SH でも commit できる（明示 peer 無し API 契約）。
+ */
+test("e2e/dual: carrier.inject without peer uses rinfo during probing", async () => {
+  // Arrange: custom carrier; hold server TX; HVR → probing; inject SH without peer
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const clientCarrier = new DirectHandshakeCarrier(clientTransport, {
+    mtu: 1200,
+  });
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+    addressValidation: "none",
+  });
+  const client = createDtlsClientInternal({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+    addressValidation: "none",
+    handshakeCarrier: clientCarrier,
+  });
+
+  const heldServerTx: { buf: Buffer; addr?: any }[] = [];
+  let releaseServer = false;
+  const origServerSend = serverTransport.send.bind(serverTransport);
+  serverTransport.send = async (buf: Buffer, addr?: any) => {
+    if (!releaseServer) {
+      heldServerTx.push({ buf: Buffer.from(buf), addr });
+      return;
+    }
+    return origServerSend(buf, addr);
+  };
+
+  let clientSends = 0;
+  const origClientSend = clientTransport.send.bind(clientTransport);
+  clientTransport.send = async (buf: Buffer, addr?: any) => {
+    clientSends += 1;
+    if (clientSends === 1) {
+      await origClientSend(buf, addr);
+      for (let i = 0; i < 50 && heldServerTx.length === 0; i++) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      expect(heldServerTx.length).toBeGreaterThan(0);
+      const shFlight = heldServerTx.splice(0);
+      injectHvr(clientTransport, serverTransport);
+      for (let i = 0; i < 50; i++) {
+        if ((client as any).dualPhase === "probing") break;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      expect((client as any).dualPhase).toBe("probing");
+      // rinfo は association peer（server）のまま
+      expect(clientTransport.rinfo).toBeTruthy();
+
+      // Act: peer 引数なしで carrier.inject（rinfo 補完）
+      releaseServer = true;
+      for (const pkt of shFlight) {
+        clientCarrier.inject(pkt.buf); // no peer
+      }
+      return;
+    }
+    return origClientSend(buf, addr);
+  };
+
+  await new Promise<void>(async (resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("inject without peer probing timeout")),
+      20_000,
+    );
+    client.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    server.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    client.onConnect.subscribe(() => {
+      try {
+        // Assert: peer 省略でも commit13
+        expect(client.isDtls13).toBe(true);
+        expect((client as any).dualPhase).toBe("committed13");
+        clearTimeout(timer);
+        resolve();
+      } catch (e) {
+        clearTimeout(timer);
+        reject(e);
+      }
+    });
+    await client.connect();
+  });
+
+  client.close();
+  server.close();
+}, 25_000);
+
+/**
+ * P1: commit12 後も peer 省略 inject が association 1.2 path に入り、
+ * drop されない（rinfo 補完）。
+ */
+test("e2e/dual: carrier.inject without peer works after commit12", async () => {
+  // Arrange: dual × 1.2 → commit12
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const { HashAlgorithm, SignatureAlgorithm } = await import(
+    "../../src/cipher/const"
+  );
+  const sig = {
+    hash: HashAlgorithm.sha256_4,
+    signature: SignatureAlgorithm.rsa_1,
+  };
+
+  const clientCarrier = new DirectHandshakeCarrier(clientTransport, {
+    mtu: 1200,
+  });
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_2],
+  });
+  const client = createDtlsClientInternal({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+    handshakeCarrier: clientCarrier,
+  });
+
+  // Hold server TX after probing 開始後は inject（peer 省略）で届ける
+  let injectMode = false;
+  const origServerSend = serverTransport.send.bind(serverTransport);
+  serverTransport.send = async (buf: Buffer, addr?: any) => {
+    if (!injectMode) {
+      // 最初の HVR 等は通常 UDP で届ける
+      return origServerSend(buf, addr);
+    }
+    // Act: peer なし inject
+    clientCarrier.inject(Buffer.from(buf));
+  };
+
+  let clientSends = 0;
+  const origClientSend = clientTransport.send.bind(clientTransport);
+  clientTransport.send = async (buf: Buffer, addr?: any) => {
+    clientSends += 1;
+    await origClientSend(buf, addr);
+    if (clientSends >= 2 && (client as any).dualPhase === "probing") {
+      injectMode = true;
+    }
+  };
+
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("commit12 inject-without-peer timeout")),
+      20_000,
+    );
+    client.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    server.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    client.onConnect.subscribe(() => {
+      try {
+        expect((client as any).dualPhase).toBe("committed12");
+        expect(client.isDtls13).toBe(false);
+        // 接続後も peer 省略 inject が drop されないこと（app 応答経路）
+        void client.send(Buffer.from("no-peer-ok"));
+      } catch (e) {
+        clearTimeout(timer);
+        reject(e);
+      }
+    });
+    server.onData.subscribe((d) => {
+      try {
+        expect(d.toString()).toBe("no-peer-ok");
+        clearTimeout(timer);
+        resolve();
+      } catch (e) {
+        clearTimeout(timer);
+        reject(e);
+      }
+    });
+    void client.connect();
+  });
+
+  // 追加: commit12 後に peer 省略で無意味な inject しても phase 不変
+  clientCarrier.inject(buildHvrDatagram());
+  expect((client as any).dualPhase).toBe("committed12");
+
+  client.close();
+  server.close();
+}, 25_000);

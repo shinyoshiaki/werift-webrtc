@@ -486,6 +486,10 @@ export class DtlsClient extends DtlsSocket {
   /**
    * carrier.inject / dual demux entry: same path as UDP onData so 1.3 SH/HRR
    * commits via association (restores engine13) rather than a silent park complete.
+   *
+   * When `peer` is omitted, address is filled from `transport.rinfo` (then
+   * association pin) before the peer gate — so inject of association-path
+   * datagrams without an explicit peer still matches the pin.
    */
   private associationInject(
     bytes: Buffer,
@@ -505,6 +509,25 @@ export class DtlsClient extends DtlsSocket {
         }
       } else if (peer.address != null && peer.port != null) {
         addr = [peer.address, peer.port];
+      }
+    }
+    // Peer omitted: fill from last rinfo, then association pin (TX ownership).
+    if (!addr) {
+      const t = this.options.transport as {
+        rinfo?: { address?: string; port?: number };
+      };
+      if (t.rinfo?.address != null && t.rinfo?.port != null) {
+        addr = [t.rinfo.address, t.rinfo.port];
+      } else if (this.dualAssociationPeerAddr) {
+        addr = [
+          this.dualAssociationPeerAddr[0],
+          this.dualAssociationPeerAddr[1],
+        ];
+      } else if (this.transport.pinnedPeer) {
+        addr = [
+          this.transport.pinnedPeer[0],
+          this.transport.pinnedPeer[1],
+        ];
       }
     }
     // Peer gate before mutating shared transport.rinfo
