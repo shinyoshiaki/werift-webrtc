@@ -82,12 +82,15 @@ interface ClusterRuntime {
  *
  * Pacing vs result-wait are **separated** (libwebrtc BitrateProber):
  * - `pacing`: cluster currently being sent (at most one)
- * - `awaitingResults`: clusters whose send fill is done, waiting for TWCC ACK
+ * - `awaitingResults`: send-fill done; ProbeController still waiting for a
+ *   result to decide further probing (sender-clock 1s lifetime)
+ * - `estimatorHistory`: ProbeBitrateEstimator clusters kept after controller
+ *   timeout so late TWCC can still produce estimates (receive-timeline 1s)
  * - On **send** fill (minBytes AND minPackets), front is moved to awaiting and
  *   the next queued cluster becomes pacing — **without waiting for ACK**
  * - ACK / 80% estimate must **never** clear pacing (send-fill is independent)
- * - Timeout / cooldown / startMs use **sender clock** only; `receivedAtMs` is
- *   used solely for receive-rate estimation
+ * - Controller timeout / cooldown / startMs use **sender clock**; estimator
+ *   history prune uses **receive timeline** (`receivedAtMs`)
  * - `setBitrates` / activate returns only **activated** configs (for pacing)
  */
 export class ProbeController {
@@ -95,8 +98,17 @@ export class ProbeController {
   private nextClusterId = 1;
   /** Cluster currently being paced/sent (FIFO front). */
   private pacing: ClusterRuntime | undefined;
-  /** Send-complete clusters awaiting TWCC result validation. */
+  /**
+   * Send-complete clusters while ProbeController still waits for a result
+   * (further-probe decision). Cleared on sender-clock 1s timeout without
+   * dropping ProbeBitrateEstimator seq maps.
+   */
   private awaitingResults = new Map<number, ClusterRuntime>();
+  /**
+   * Clusters retained for late TWCC measurement after controller wait ends
+   * (libwebrtc ProbeBitrateEstimator cluster history).
+   */
+  private estimatorHistory = new Map<number, ClusterRuntime>();
   private queue: ProbeClusterConfig[] = [];
   private estimatedBps = 0;
   private pendingEstimateBps = 0;
@@ -123,6 +135,7 @@ export class ProbeController {
     this.nextClusterId = 1;
     this.pacing = undefined;
     this.awaitingResults.clear();
+    this.estimatorHistory.clear();
     this.queue = [];
     this.estimatedBps = 0;
     this.pendingEstimateBps = 0;
@@ -164,6 +177,11 @@ export class ProbeController {
 
   get awaitingResultCount() {
     return this.awaitingResults.size;
+  }
+
+  /** Clusters kept only for late TWCC measurement (tests / diagnostics). */
+  get estimatorHistoryCount() {
+    return this.estimatorHistory.size;
   }
 
   /** Exposed for tests / diagnostics (last planned further-probe threshold). */
@@ -231,8 +249,8 @@ export class ProbeController {
     );
     const target = clamp(uncapped, this.maxBitrateBps);
     if (target <= base * 1.05) return [];
-    // libwebrtc: only when uncapped would *exceed* max (strict >), last max probe.
-    const stopFurtherAfter = uncapped > this.maxBitrateBps;
+    // libwebrtc: bitrate >= max_probe_bitrate → clamp + probe_further=false.
+    const stopFurtherAfter = uncapped >= this.maxBitrateBps;
     return this.enqueueClusters(nowMs, [target], { stopFurtherAfter });
   }
 
@@ -253,30 +271,33 @@ export class ProbeController {
         bitrateBps * kProbeRecoveryMaxScale,
       );
       const next = clamp(uncapped, this.maxBitrateBps);
-      // libwebrtc InitiateProbing: bitrate > max_probe_bitrate → clamp + stop further.
-      // Exactly equal to max keeps waiting for further (strict >).
-      const stopFurtherAfter = uncapped > this.maxBitrateBps;
+      // libwebrtc InitiateProbing: bitrate >= max_probe_bitrate → clamp + stop.
+      const stopFurtherAfter = uncapped >= this.maxBitrateBps;
       return this.enqueueClusters(nowMs, [next], { stopFurtherAfter });
     }
     return [];
   }
 
   /**
-   * Advance timeouts using **sender clock** (`nowMs` = milliTime / Date.now).
+   * Advance **controller** timeouts using sender clock (`nowMs` = milliTime).
+   * Does not erase ProbeBitrateEstimator seq maps — late TWCC may still
+   * produce estimates from {@link estimatorHistory}.
    * Returns newly activated pacing configs (if any).
    */
   process(nowMs: number): ProbeClusterConfig[] {
     // BitrateProber: pacing cluster that never filled — 5s.
+    // Stop pacing but keep sent packets measurable for late TWCC.
     if (this.pacing && nowMs - this.pacing.startMs > kProbePacingTimeoutMs) {
-      this.dropClusterSeqs(this.pacing.config.id);
+      this.moveToEstimatorHistory(this.pacing);
       this.pacing = undefined;
     }
     // ProbeController: result wait after send-fill — 1s from last send.
+    // Controller leaves waiting_for_result; estimator history stays.
     for (const [id, c] of this.awaitingResults) {
       const waitStart = c.lastSendMs > 0 ? c.lastSendMs : c.startMs;
       if (nowMs - waitStart > kProbeResultTimeoutMs) {
-        this.dropClusterSeqs(id);
         this.awaitingResults.delete(id);
+        this.moveToEstimatorHistory(c);
       }
     }
     const activated = this.maybeActivateQueued(nowMs);
@@ -371,15 +392,16 @@ export class ProbeController {
   ): void {
     if (!isProbe) return;
 
+    // Prune estimator history first (libwebrtc EraseOldClusters on receive time).
+    this.eraseOldEstimatorClusters(receivedAtMs);
+
     let cluster: ClusterRuntime | undefined;
     let sendMs = sendingAtMs;
     if (wideSeq !== undefined) {
       const seq = wideSeq & 0xffff;
       const id = this.seqToCluster.get(seq);
       if (id !== undefined) {
-        cluster =
-          this.awaitingResults.get(id) ??
-          (this.pacing?.config.id === id ? this.pacing : undefined);
+        cluster = this.lookupCluster(id);
       }
       if (sendMs === undefined) {
         sendMs = this.seqToSendInfo.get(seq)?.sendMs;
@@ -439,14 +461,15 @@ export class ProbeController {
       cluster.config.targetBps,
     );
     cluster.resultAccepted = true;
-    // Keep cluster + seq map until process() result timeout so remaining
-    // ACKs (the last 20%) can refine the estimate.
+    // Controller awaiting / estimator history keep seq maps until their
+    // respective lifetimes end so the remaining 20% of ACKs can refine.
     void senderNowMs;
   }
 
   abort(nowMs: number) {
     this.pacing = undefined;
     this.awaitingResults.clear();
+    this.estimatorHistory.clear();
     this.queue = [];
     this.seqToCluster.clear();
     this.seqToSendInfo.clear();
@@ -455,6 +478,29 @@ export class ProbeController {
       // recovery probing remains available (libwebrtc kProbingComplete).
       this.state = "complete";
       this.lastProbeEndMs = nowMs;
+    }
+  }
+
+  /** Resolve cluster across pacing / controller-await / estimator history. */
+  private lookupCluster(id: number): ClusterRuntime | undefined {
+    if (this.pacing?.config.id === id) return this.pacing;
+    return this.awaitingResults.get(id) ?? this.estimatorHistory.get(id);
+  }
+
+  private moveToEstimatorHistory(c: ClusterRuntime) {
+    this.estimatorHistory.set(c.config.id, c);
+  }
+
+  /**
+   * libwebrtc ProbeBitrateEstimator::EraseOldClusters — drop clusters whose
+   * last receive is more than {@link kProbeResultTimeoutMs} before `receiveTimeMs`.
+   */
+  private eraseOldEstimatorClusters(receiveTimeMs: number) {
+    for (const [id, c] of this.estimatorHistory) {
+      if (c.lastRecvMs > 0 && receiveTimeMs - c.lastRecvMs > kProbeResultTimeoutMs) {
+        this.dropClusterSeqs(id);
+        this.estimatorHistory.delete(id);
+      }
     }
   }
 
@@ -538,10 +584,10 @@ export class ProbeController {
       (s) => this.startBitrateBps * s,
     );
     const bitrates = uncapped.map((b) => clamp(b, this.maxBitrateBps));
-    // If the last step was limited by max_bitrate, do not schedule further
-    // probes after the initial session (same as libwebrtc limited_by_max).
+    // If the last step is limited by max_bitrate (>= max), do not schedule
+    // further probes after the initial session (libwebrtc probe_further=false).
     const stopFurtherAfter =
-      uncapped[uncapped.length - 1]! > this.maxBitrateBps;
+      uncapped[uncapped.length - 1]! >= this.maxBitrateBps;
     // Only return **activated** configs (front 3x). 6x stays queued until
     // 3x send-fill completes (BitrateProber FIFO).
     return this.enqueueClusters(nowMs, bitrates, { stopFurtherAfter });

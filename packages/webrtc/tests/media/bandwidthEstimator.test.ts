@@ -2142,9 +2142,10 @@ describe("media/sender bandwidth estimator", () => {
       expect(probe.currentProbeTargetBps).toBe(300_000);
       expect(probe.shouldTagProbePacket()).toBe(true);
 
-      // Act: pacing timeout (5s) で 3x drop → queue の 6x が activate
+      // Act: pacing timeout (5s) で 3x を history へ → queue の 6x が activate
       probe.process(5_001);
       expect(probe.currentProbeTargetBps).toBe(600_000);
+      expect(probe.estimatorHistoryCount).toBeGreaterThanOrEqual(1);
 
       // Act: 6x を send-fill して awaiting へ（minBytes≈1125 → 300B×5）
       let lastSend = 0;
@@ -2155,10 +2156,196 @@ describe("media/sender bandwidth estimator", () => {
       expect(probe.awaitingResultCount).toBe(1);
       expect(probe.currentProbeTargetBps).toBe(0);
 
-      // Act: result timeout 1s（lastSend から）で awaiting クリア → complete
+      // Act: controller result timeout 1s → awaiting クリア + complete
+      // estimator history は残る（late TWCC 用）
       probe.process(lastSend + 1_001);
       expect(probe.awaitingResultCount).toBe(0);
       expect(probe.probeState).toBe("complete");
+      expect(probe.estimatorHistoryCount).toBeGreaterThanOrEqual(1);
+    });
+
+    test("controller result timeout 後の late TWCC でも probe estimate が得られる", () => {
+      // Arrange: single cluster send-fill, no ACK yet
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, 1e9, 0);
+      // Abort queue 6x so only one cluster is under test
+      (probe as any).queue = [];
+      const size = 300;
+      let lastSend = 0;
+      for (let i = 0; i < 5; i++) {
+        lastSend = 1_000 + i * 2;
+        probe.onProbePacketSent(size, lastSend, i + 1);
+      }
+      expect(probe.awaitingResultCount).toBe(1);
+      expect(probe.currentProbeTargetBps).toBe(0);
+
+      // Act: controller timeout → complete, history keeps seq maps
+      probe.process(lastSend + 1_001);
+      expect(probe.awaitingResultCount).toBe(0);
+      expect(probe.probeState).toBe("complete");
+      expect(probe.estimatorHistoryCount).toBe(1);
+      expect(probe.takePendingEstimateBps()).toBe(0);
+
+      // Act: late TWCC ACKs after controller complete
+      for (let i = 0; i < 5; i++) {
+        probe.onAckedPacket(
+          size,
+          lastSend + 50 + i * 2,
+          true,
+          i + 1,
+          lastSend + 2_000,
+          1_000 + i * 2,
+        );
+      }
+
+      // Assert: ProbeBitrateEstimator が valid pending estimate を返す
+      const pending = probe.takePendingEstimateBps();
+      expect(pending).toBeGreaterThan(0);
+    });
+
+    test("receive timeline で 1s 超古い estimator history は prune される", () => {
+      // Arrange: send-fill + ACK で estimate 成立 → controller timeout で history へ
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, 1e9, 0);
+      (probe as any).queue = [];
+      const size = 300;
+      let lastSend = 0;
+      for (let i = 0; i < 5; i++) {
+        lastSend = 1_000 + i * 2;
+        probe.onProbePacketSent(size, lastSend, i + 1);
+      }
+      for (let i = 0; i < 5; i++) {
+        probe.onAckedPacket(
+          size,
+          1_020 + i * 2,
+          true,
+          i + 1,
+          lastSend + 100,
+          1_000 + i * 2,
+        );
+      }
+      expect(probe.takePendingEstimateBps()).toBeGreaterThan(0);
+
+      probe.process(lastSend + 1_001);
+      expect(probe.probeState).toBe("complete");
+      expect(probe.estimatorHistoryCount).toBe(1);
+
+      // Act: last receive から 1s 超の receive timeline で prune
+      const lastRecv = 1_020 + 4 * 2;
+      probe.onAckedPacket(
+        size,
+        lastRecv + 1_001,
+        true,
+        99, // unknown seq — still triggers EraseOldClusters
+        lastSend + 3_000,
+      );
+
+      // Assert: history と seq map が消える
+      expect(probe.estimatorHistoryCount).toBe(0);
+      // 既に prune 済み cluster への late ACK は estimate を生まない
+      probe.onAckedPacket(
+        size,
+        lastRecv + 1_050,
+        true,
+        1,
+        lastSend + 3_100,
+        1_000,
+      );
+      expect(probe.takePendingEstimateBps()).toBe(0);
+    });
+
+    test("max ちょうど一致する initial probe は further を止める（>=）", () => {
+      // Arrange: start=100kbps, max=600kbps → initial [300, 600]
+      // libwebrtc: 600 >= max → probe_further=false
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, 600_000, 0);
+      expect(probe.currentProbeTargetBps).toBe(300_000);
+      expect(probe.queuedClusterCount).toBe(1);
+      // Assert: exact-max で further threshold が Infinity
+      expect(probe.furtherProbeThresholdBps).toBe(Number.POSITIVE_INFINITY);
+
+      // Act: 3x/6x send-fill + valid ACK まで進め complete へ
+      let lastSend = 0;
+      for (let i = 0; i < 5; i++) {
+        lastSend = 1_000 + i;
+        probe.onProbePacketSent(300, lastSend, i + 1);
+      }
+      for (let i = 0; i < 5; i++) {
+        lastSend = 1_100 + i;
+        probe.onProbePacketSent(300, lastSend, 10 + i);
+      }
+      for (let i = 0; i < 5; i++) {
+        probe.onAckedPacket(300, 1_120 + i * 2, true, 10 + i, lastSend + 50);
+      }
+      // Act: 6x の lastSend から 1s 超で controller complete
+      probe.process(lastSend + 1_001);
+      expect(probe.probeState).toBe("complete");
+
+      // Assert: 高 estimate でも further は増えない
+      (probe as any).lastProbeEndMs = Number.NEGATIVE_INFINITY;
+      const further = probe.setEstimatedBitrate(500_000, 10_000);
+      expect(further).toEqual([]);
+      expect(probe.queuedClusterCount).toBe(0);
+    });
+
+    test("congestion feedback は active probe を abort しない", () => {
+      // Arrange: GCC が probing 中に overuse + batch loss を受けても
+      // pacing 中の cluster は send-fill まで継続する。
+      // receiveTWCC は milliTime() で process するため、送信時刻は壁時計近傍にする
+      // （合成の小さな t0 だと pacing timeout 5s が即発火する）。
+      const gcc = new GccBandwidthEstimator(100_000);
+      const t0 = Date.now();
+      // ensureProbing → 3x active
+      gcc.rtpPacketSent({
+        wideSeq: 1,
+        size: 300,
+        sendingAtMs: t0,
+        isProbation: true,
+      } as any);
+      expect(gcc.shouldTagProbePacket()).toBe(true);
+      expect(gcc.suggestedProbeBitrateBps).toBe(300_000);
+
+      // partial probe sends (not yet fill: 3 packets < minPackets=5)
+      for (let i = 2; i <= 3; i++) {
+        gcc.rtpPacketSent({
+          wideSeq: i,
+          size: 300,
+          sendingAtMs: t0 + i,
+          isProbation: true,
+        } as any);
+      }
+      // media-looking packets for loss fraction in TWCC
+      for (let i = 10; i <= 20; i++) {
+        gcc.rtpPacketSent({
+          wideSeq: i,
+          size: 500,
+          sendingAtMs: t0 + i * 5,
+          isProbation: false,
+        } as any);
+      }
+
+      Object.defineProperty((gcc as any).trendline, "state", {
+        get: () => "overuse",
+        configurable: true,
+      });
+
+      // Act: 10% loss batch (1 lost / 10 known media) + overuse
+      const results = Array.from({ length: 10 }, (_, i) => {
+        const seq = 10 + i;
+        return new PacketResult({
+          sequenceNumber: seq,
+          received: i !== 0, // 1 lost → 10%
+          receivedAtMs: t0 + 100 + i * 10,
+        });
+      });
+      gcc.receiveTWCC(makeTwccFeedback(results));
+
+      // Assert: active probe は abort されていない（3x pacing 継続）
+      expect(gcc.shouldTagProbePacket()).toBe(true);
+      expect(gcc.suggestedProbeBitrateBps).toBe(300_000);
+      expect((gcc as any).probe.probeState).toBe("waiting_for_result");
+      // 6x も queue に残る
+      expect((gcc as any).probe.queuedClusterCount).toBe(1);
     });
 
     test("使用済み estimator の再注入で reset され履歴が残らない", async () => {

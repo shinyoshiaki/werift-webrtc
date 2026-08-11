@@ -219,11 +219,6 @@ export const kProbeRecoveryScale = 1.5;
 /** Cap recovery probe at this multiple of current estimate. */
 export const kProbeRecoveryMaxScale = 2.0;
 /**
- * Abort active probe clusters when batch loss fraction reaches this
- * (libwebrtc stops probing under clear congestion).
- */
-export const kProbeAbortLossFraction = 0.05;
-/**
  * Recovery-phase only: do not accept a probe result more than this multiple
  * of the current delay/loss target. **Not applied during initial exponential
  * probing** (×3/×6 must be able to raise the estimate well above start).
@@ -264,7 +259,7 @@ export const kSentInfoMaxAgeMs = 10_000;
 export const GCC_KNOWN_DIFFERENCES = [
   "LossBasedBweV2: byte-loss objective/derivative (UseByteLossRate), bias adjustment by loss ratio, instant upper/lower bounds, delayed-increase window, HOLD (state stays decreasing while holdUntil active; ramp-up 1.2× when acked still below hold×1.3 else 1.5×); full ALR/padding-duration state machine simplified (IncreaseUsingPadding collapsed into increasing when padding path is unused)",
   "No REMB integration; TWCC-only send-side mode (ticket non-goal; future work)",
-  "Probe pacing uses RTCRtpSender token-bucket + RTP padding injection (not webrtc::PacedSender); 3x/6x queued FIFO — pacing advances on send-fill (minBytes AND minPackets), not on ACK; result clusters await TWCC until result timeout (not cleared at first 80% estimate); ProbeBitrateEstimator uses ACKed-only min/max send·recv times and sizes (order-independent); further after 80% still refines pending estimate; when uncapped further/recovery target would exceed max_bitrate (strict >), one last max probe then min_bitrate_to_probe_further=+inf; upward probe blocked when congested, lower probe still applied with acked×0.85 floor; recovery + 5s cooldown; abort on loss≥5% or overuse (libwebrtc primarily gates new probes / result application rather than mid-cluster abort — intentional lightweight congestion stop for padding path); no ALR-only probe path",
+  "Probe pacing uses RTCRtpSender token-bucket + RTP padding injection (not webrtc::PacedSender); 3x/6x queued FIFO — pacing advances on send-fill (minBytes AND minPackets), not on ACK; ProbeController result-wait (sender clock 1s) is separate from ProbeBitrateEstimator history (receive timeline 1s) so late TWCC after controller complete can still yield estimates; further after 80% still refines pending estimate; when uncapped further/recovery/initial target ≥ max_bitrate, clamp to max and stop further (probe_further=false, min_bitrate_to_probe_further=+inf); active clusters are never aborted mid-send by TWCC loss/overuse — congestion only suppresses new recovery/further probes and upward probe-result application (lower results still applied with acked×0.85 floor); recovery + 5s cooldown; no ALR-only probe path",
   "AIMD: TimeToReduceFurther (RTT spacing + throughput check) and hold-after-decrease ported; RTT is estimated from feedback arrival − last send (not full ICE/STUN RTT stats / NetworkController RTT); probe accept uses setEstimate (preserves RTT / max-bitrate stats), not full reset",
   "Acknowledged bitrate uses RobustThroughputEstimator defaults (window_packets=20, min_duration=1s, required_packets=10, largest-gap replace); Bayesian BitrateEstimator kept as utility; prior_unacked_data / ALR hooks omitted (all TWCC-tagged media)",
   "TWCC 24-bit reference_time is unwrapped across feedbacks in GccBandwidthEstimator (continuous ms timeline); packetResults alone still report raw wrap-relative times; ReceiverTWCC late-reorder history is ~500ms (time-based) with a sequence safety bound",

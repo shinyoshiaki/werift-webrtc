@@ -17,7 +17,6 @@ import {
   kDefaultStartBitrateBps,
   kMaxBitrateBps,
   kMinBitrateBps,
-  kProbeAbortLossFraction,
   kProbeDropThroughputFraction,
   kProbePaddingPacketBytes,
   kProbeResultMaxOverAcked,
@@ -312,15 +311,10 @@ export class GccBandwidthEstimator
       this.onOveruseDetected.execute(usage);
     }
 
-    // Stop probe padding immediately under clear congestion so recovery
-    // does not re-flood a capacity-limited link.
-    const congested =
-      usage === "overuse" || lossFraction >= kProbeAbortLossFraction;
-    if (congested && this.probe.shouldTagProbePacket()) {
-      this.probe.abort(nowMs);
-      this.probeClusterSentBytes = 0;
-      this.lastProbeTargetBps = 0;
-    }
+    // Congestion gates *new* probes and upward probe-result application only.
+    // Active clusters keep pacing until send-fill or pacing timeout (libwebrtc
+    // does not mid-abort BitrateProber clusters on TWCC batch loss).
+    const congested = usage === "overuse";
 
     const batchFirstSend = Number.isFinite(firstSend) ? firstSend : 0;
     const batchLastSend = lastSend > 0 ? lastSend : batchFirstSend;
@@ -381,7 +375,7 @@ export class GccBandwidthEstimator
           }
           apply = accepted > target;
         }
-        // congested + rising: ignore upward probe (abort already stopped padding)
+        // congested + rising: ignore upward probe (padding may still finish)
       } else if (accepted < target) {
         // libwebrtc limit_probes_lower_than_throughput_estimate:
         // probe = max(probe, min(delayEstimate, acked × 0.85)).
