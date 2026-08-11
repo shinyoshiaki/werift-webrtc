@@ -200,15 +200,19 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
   }
 
   /**
-   * Dual-stack fallback: stop 1.3 carrier timers/handlers without closing UDP
-   * transport or emitting onClose (soft version fail already set closed).
+   * Dual-stack soft version transition: stop 1.3 timers / RX ownership without
+   * permanently closing the carrier. Injected carriers (Epic 2) must remain
+   * reusable when the association resumes a fresh 1.3 engine on the same
+   * instance. Hard close() is only for association teardown.
    */
   releaseForVersionFallback(): void {
     this.clearPendingFlight();
     this.cancelEpochPrune?.();
     this.cancelEpochPrune = undefined;
     this.carrier.cancelAllTimers();
-    this.carrier.close();
+    // Detach inject so this dead engine no longer receives SPED reinjects.
+    // Do NOT carrier.close() — soft transition must not kill shared carriers.
+    this.carrier.setInjectHandler(() => {});
     this.closed = true;
   }
 

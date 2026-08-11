@@ -15,7 +15,12 @@ const DEFAULT_MTU = 1200;
  */
 export class DirectHandshakeCarrier implements DtlsHandshakeCarrier {
   private mtu: number;
-  private rttMs = 100;
+  /**
+   * RTT sample in ms. `undefined` until {@link updateRtt} — RFC 9147 §5.8.2
+   * then uses the profile initial RTO (1000ms generic / 400ms DTLS-SRTP).
+   * Never invent a default sample (previous 100ms falsely looked "known").
+   */
+  private rttMs: number | undefined = undefined;
   private mode: RetransmissionMode = "internal";
   private injectHandler?: (bytes: Buffer, peer?: InjectPeerAddr) => void;
   private closed = false;
@@ -27,10 +32,15 @@ export class DirectHandshakeCarrier implements DtlsHandshakeCarrier {
     options?: {
       mtu?: number;
       onInject?: (bytes: Buffer, peer?: InjectPeerAddr) => void;
+      /** Optional initial RTT sample (e.g. ICE pair RTT). Omit = unknown. */
+      rttMs?: number;
     },
   ) {
     this.mtu = options?.mtu ?? DEFAULT_MTU;
     this.injectHandler = options?.onInject;
+    if (options?.rttMs != null && options.rttMs > 0) {
+      this.rttMs = options.rttMs;
+    }
   }
 
   setInjectHandler(handler: (bytes: Buffer, peer?: InjectPeerAddr) => void) {
@@ -79,8 +89,17 @@ export class DirectHandshakeCarrier implements DtlsHandshakeCarrier {
     if (rttMs > 0) this.rttMs = rttMs;
   }
 
+  /**
+   * Last RTT sample in ms, or `0` when no sample has been provided yet
+   * (association treats 0 as "RTT unknown" and uses initial RTO).
+   */
   getRtt(): number {
-    return this.rttMs;
+    return this.rttMs ?? 0;
+  }
+
+  /** True after a positive updateRtt / constructor sample. */
+  hasRttSample(): boolean {
+    return this.rttMs != null && this.rttMs > 0;
   }
 
   setRetransmissionMode(mode: RetransmissionMode): void {

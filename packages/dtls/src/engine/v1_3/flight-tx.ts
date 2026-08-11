@@ -14,6 +14,8 @@ import {
   ACK_PLAINTEXT_OVERHEAD,
   ACK_RECORD_NUMBER_BYTES,
   ANTI_AMPLIFICATION_FACTOR,
+  DTLS_SRTP_INITIAL_RTO_MS,
+  INITIAL_RTO_MS,
   MAX_ACK_RECORD_NUMBERS,
   MAX_RTO_MS,
   MIN_RTO_MS,
@@ -318,15 +320,25 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
   }
 
   /**
-   * Compute association RTO from carrier RTT (Epic 1 hooks ICE pair RTT via
-   * carrier.updateRtt in Epic 2). Exponential backoff on retransmitCount.
+   * Compute association RTO (RFC 9147 §5.8.2).
+   * RTT known → 1.5 × RTT; unknown → 1000ms (400ms when DTLS-SRTP profile).
+   * Exponential backoff on retransmitCount. ICE/SPED feed RTT via
+   * carrier.updateRtt (Epic 2).
    */
   protected computeRetransmitRtoMs(): number {
-    const rtt = Math.max(1, this.carrier.getRtt());
-    const base = Math.min(
-      MAX_RTO_MS,
-      Math.max(MIN_RTO_MS, Math.round(rtt * RTO_FACTOR)),
-    );
+    const rtt = this.carrier.getRtt();
+    let base: number;
+    if (rtt > 0) {
+      // RFC 9147: when external RTT is available, recommend 1.5 × RTT
+      base = Math.round(rtt * RTO_FACTOR);
+    } else {
+      // RTT unknown — profile initial RTO (SRTP vs generic DTLS)
+      base =
+        this.options.srtpProfiles && this.options.srtpProfiles.length > 0
+          ? DTLS_SRTP_INITIAL_RTO_MS
+          : INITIAL_RTO_MS;
+    }
+    base = Math.min(MAX_RTO_MS, Math.max(MIN_RTO_MS, base));
     const rto = Math.round(base * 2 ** this.retransmitCount);
     return Math.min(MAX_RTO_MS, rto);
   }

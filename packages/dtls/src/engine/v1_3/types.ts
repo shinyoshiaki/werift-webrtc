@@ -13,13 +13,24 @@ import type { DtlsVersion } from "../../version";
 export const ANTI_AMPLIFICATION_FACTOR = 3;
 
 /**
- * Association retransmission (RFC 9147 style backoff from carrier RTT).
- * baseRto = clamp(rtt * RTO_FACTOR, MIN_RTO, MAX_RTO)
- * rto = min(baseRto * 2^retransmitCount, MAX_RTO)
+ * Association retransmission (RFC 9147 §5.8.2).
+ *
+ * - RTT unknown: INITIAL_RTO_MS (1000). DTLS-SRTP profile may use
+ *   DTLS_SRTP_INITIAL_RTO_MS (400) when use_srtp is configured.
+ * - RTT known (carrier.updateRtt / ICE): base = RTO_FACTOR × RTT (1.5).
+ * - Each retransmit doubles; clamp to [MIN_RTO_MS, MAX_RTO_MS].
  */
-export const RTO_FACTOR = 4;
+export const RTO_FACTOR = 1.5;
+/** RFC 9147 recommended initial RTO when RTT is unknown. */
+export const INITIAL_RTO_MS = 1000;
+/** RFC 9147 recommended initial RTO for the DTLS-SRTP profile. */
+export const DTLS_SRTP_INITIAL_RTO_MS = 400;
 export const MIN_RTO_MS = 100;
-export const MAX_RTO_MS = 5000;
+/**
+ * Soft upper bound on a single RTO. RFC does not mandate a max; 60s bounds
+ * pathological backoff without the previous 5s generic-DTLS clamp.
+ */
+export const MAX_RTO_MS = 60_000;
 
 /**
  * Pre-cookie HRR attempt table (per source 5-tuple). Bounded so spoofed CH

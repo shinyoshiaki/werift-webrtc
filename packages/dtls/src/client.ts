@@ -193,24 +193,24 @@ export class DtlsClient extends DtlsSocket {
 
   /**
    * Resend the dual CH already exported from the 1.3 engine (or prior dual CH),
-   * only adding/replacing the legacy cookie — preserves random for flight2 state.
+   * only adding/replacing the legacy cookie for the DTLS 1.2 cookie path.
+   *
+   * **Important:** dualResume keeps the original CH-A body (no legacy cookie).
+   * A legitimate dual 1.3 server may still answer CH-A (HRR/SH) after a
+   * spoofed/stale HVR; 1.3 resume must prime with the CH the server saw.
+   * Random + ECDHE keyPair are unchanged so flight2 / key_share stay aligned.
    */
   private async resendDualClientHelloWithCookie(legacyCookie?: Buffer) {
     if (!this.dualResume) {
       throw new Error("dual resume ClientHello missing for HVR cookie path");
     }
+    // Build cookie CH from original dualResume without mutating 1.3 resume material.
     const hello = ClientHello.deSerialize(this.dualResume.clientHelloBody);
     hello.cookie = legacyCookie
       ? Buffer.from(legacyCookie)
       : Buffer.from([]);
     // Clear messageSeq so Flight1 re-assigns seq 0 for this transmission
     hello.messageSeq = undefined as any;
-
-    const body = hello.serialize();
-    this.dualResume = {
-      ...this.dualResume,
-      clientHelloBody: Buffer.from(body),
-    };
 
     await new Flight1(this.transport, this.dtls, this.cipher).exec(
       this.extensions,
@@ -359,9 +359,9 @@ export class DtlsClient extends DtlsSocket {
       );
       return;
     }
-    // Stop 1.2 Flight retransmit loop
+    // Stop 1.2 Flight1 retransmit by advancing flight only — never set fatalError
+    // for a successful version commit (would surface as delayed public onError).
     this.dtls.flight = 99;
-    this.dtls.fatalError = new Error("dual negotiation committed to DTLS 1.3");
 
     log("dual association: ServerHello selected DTLS 1.3 — resume 1.3 engine");
     const engine = new Dtls13Connection(
@@ -376,11 +376,15 @@ export class DtlsClient extends DtlsSocket {
           ? [...this.options.namedGroups]
           : undefined,
         mtu: this.options.mtu,
+        // Same injected carrier instance as Epic 2; soft HVR detach must not
+        // have permanently closed it (releaseForVersionFallback).
         carrier: (this.options as DtlsInternalOptions).handshakeCarrier,
         offeredProtocolVersions: this.protocolVersions,
       },
       SessionType.CLIENT,
     );
+    // Prime with original CH-A (pre-cookie) so transcript/ECDHE match the
+    // server response for the first dual ClientHello, not a post-HVR rewrite.
     engine.primeFromSentClientHello(this.dualResume);
     this.bridgeEngine13(engine);
     this.dualCookiePath = false;
@@ -431,18 +435,10 @@ export class DtlsClient extends DtlsSocket {
               handshake.fragment,
             );
             await new Flight3(this.transport, this.dtls).exec(verifyReq);
-            // Refresh dual resume body after cookie-bearing CH2 on pure 1.2 path
-            if (this.dualCookiePath && this.dualResume) {
-              const [ch] = this.dtls.lastFlight as [ClientHello];
-              if (ch) {
-                // Flight3 mutates cookie on lastFlight CH; re-serialize for resume
-                // (1.3 servers reject non-empty legacy_cookie — this path is 1.2).
-                this.dualResume = {
-                  ...this.dualResume,
-                  clientHelloBody: ch.serialize(),
-                };
-              }
-            }
+            // Do not overwrite dualResume with the cookie-bearing CH2 body.
+            // dualResume is the original dual CH-A used if a 1.3 SH/HRR for
+            // that first CH still arrives (spoofed HVR race). Pure 1.2 peers
+            // never select 1.3, so cookie CH is only needed on the 1.2 flights.
           }
           break;
         case HandshakeType.server_hello_2:
@@ -580,6 +576,11 @@ export class DtlsClient extends DtlsSocket {
   /**
    * Override UDP RX: while dualCookiePath is active, detect DTLS 1.3 selection
    * and resume the 1.3 engine before the 1.2 parser consumes the datagram.
+   *
+   * Also ignore unauthenticated fatal alerts while dualResume is still open:
+   * a dual 1.3 server may reject the post-HVR legacy-cookie ClientHello
+   * (RFC 9147: legacy_cookie must be empty) without that killing the still-
+   * valid CH-A → 1.3 path.
    */
   protected udpOnMessage = (data: Buffer) => {
     if (
@@ -590,6 +591,36 @@ export class DtlsClient extends DtlsSocket {
       this.resumeDtls13FromDualPath(data);
       return;
     }
+    if (
+      this.dualCookiePath &&
+      this.dualResume &&
+      !this.engine13 &&
+      this.datagramIsUnauthenticatedFatalAlert(data)
+    ) {
+      log(
+        "dual association: ignore unauthenticated alert while dualResume open",
+      );
+      return;
+    }
     this.handleUdpDatagram(data);
   };
+
+  /**
+   * Epoch-0 fatal Alert record (e.g. illegal_parameter from a dual 1.3 server
+   * that rejected a legacy-cookie ClientHello). Not authenticated.
+   */
+  private datagramIsUnauthenticatedFatalAlert(data: Buffer): boolean {
+    try {
+      if (data.length < 15) return false;
+      const contentType = data[0];
+      if (contentType !== ContentType.alert) return false;
+      const contentLen = data.readUInt16BE(11);
+      if (contentLen < 2 || 13 + contentLen > data.length) return false;
+      const level = data[13];
+      // TLS alert: level 2 = fatal (also treat unknown high levels as fatal)
+      return level >= 2;
+    } catch {
+      return false;
+    }
+  }
 }
