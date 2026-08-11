@@ -197,6 +197,10 @@ export class DtlsClient extends DtlsSocket {
    * engine13 and/or parked dual probe). Cancels RTO timers and pending flights.
    * Bridge subscriptions are cut first so teardown onClose/onError cannot
    * leak to the public socket after association close.
+   *
+   * Does **not** clear or close {@link associationCarrier} — callers that hard-
+   * close the association must call {@link closeAssociationCarrier} so that
+   * commit12 soft-dispose (engine gone, carrier still open) cannot leak.
    */
   private closeAllDtls13Candidates(opts?: { hardDispose?: boolean }): void {
     this.unbridgeEngine13();
@@ -206,7 +210,6 @@ export class DtlsClient extends DtlsSocket {
     this.engine13 = undefined;
     this.parkedEngine13 = undefined;
     this.dualResume = undefined;
-    this.associationCarrier = undefined;
     for (const eng of candidates) {
       if (opts?.hardDispose) {
         // Fatal path: force carrier/timer stop even after soft ProtocolVersionError
@@ -219,6 +222,43 @@ export class DtlsClient extends DtlsSocket {
   }
 
   /**
+   * Hard-close the association-owned handshake carrier if still open.
+   * Required after commit12: soft 1.3 dispose deliberately leaves the carrier
+   * reusable until association hard-close.
+   */
+  private closeAssociationCarrier(): void {
+    const carrier = this.associationCarrier;
+    this.associationCarrier = undefined;
+    if (carrier && !carrier.isClosed()) {
+      carrier.close();
+    }
+  }
+
+  /**
+   * Full association hard-close: 1.2 flight stop, all 1.3 candidates, carrier,
+   * timers, phase → closed, RX drop. Transport is closed when no candidate
+   * already closed it (committed12 / pure 1.2 dual completion path).
+   */
+  private closeAssociationHard(opts?: { hardDisposeCandidates?: boolean }): void {
+    this.dtls.flight = 99;
+    this.connected = false;
+    this.dualPhase = "closed";
+    const had13Candidate = !!(this.engine13 || this.parkedEngine13);
+    this.closeAllDtls13Candidates({
+      hardDispose: opts?.hardDisposeCandidates,
+    });
+    // Always close association carrier (survives soft commit12 release).
+    this.closeAssociationCarrier();
+    // Association demux stays closed-gated so late inject is a no-op.
+    this.transport.socket.onData = this.udpOnMessage;
+    if (!had13Candidate) {
+      // No 1.3 candidate closed the UDP socket (e.g. committed12).
+      void this.transport.socket.close().catch(() => {});
+    }
+    // had13Candidate: eng.close / hardDispose already closed transport (+ often carrier).
+  }
+
+  /**
    * Dual association fatal teardown: phase → closed, all candidates + 1.2 flight
    * stopped, RX drops further inject. Invoked from bridge on non-soft 1.3 errors
    * (committed13 fatal alert, 1.3-only version mismatch, RTO exhaust, …).
@@ -226,37 +266,31 @@ export class DtlsClient extends DtlsSocket {
    */
   protected failAssociationFromEngine13(err: Error): boolean {
     log("dual association: fatal teardown", err.message);
-    // Stop 1.2 cookie Flight1 if still probing / dual.
-    this.dtls.flight = 99;
-    this.connected = false;
-    this.dualPhase = "closed";
-    this.closeAllDtls13Candidates({ hardDispose: true });
-    // Association demux stays closed-gated so late carrier.inject is a no-op.
-    this.transport.socket.onData = this.udpOnMessage;
-    void this.transport.socket.close().catch(() => {});
+    this.closeAssociationHard({ hardDisposeCandidates: true });
     return true;
   }
 
   /**
-   * Public close: tear down all dual candidates first so parked CH-A RTO cannot
-   * fire after the association is closed (carrier timer cancel requirement).
-   * Phase becomes permanently `closed` — further inject / UDP is dropped.
+   * Public close: tear down all dual candidates, association carrier, and
+   * 1.2 flight timers. Phase becomes permanently `closed`.
    */
   close() {
-    // Stop dual Flight1 retransmit if probing (1.2 cookie path).
-    this.dtls.flight = 99;
-    const had13Candidate = !!(this.engine13 || this.parkedEngine13);
-    this.closeAllDtls13Candidates();
-    this.connected = false;
-    this.dualPhase = "closed";
-    // Keep association RX bound so late inject hits the closed guard (not a
-    // dead engine handler or pre-dual socket path).
-    this.transport.socket.onData = this.udpOnMessage;
-    if (had13Candidate) {
-      // Candidate close() already closed the UDP transport + carrier.
-      return;
+    this.closeAssociationHard();
+  }
+
+  /**
+   * Reject Public data / re-connect APIs while dual is probing or after hard close.
+   * Active committed12 / committed13 / pure 1.2 (none) are allowed.
+   */
+  protected assertReadyForApplicationApi(op: string): void {
+    if (this.dualPhase === "closed") {
+      throw new Error(`DTLS association is closed; cannot ${op}`);
     }
-    this.transport.socket.close();
+    if (this.dualPhase === "probing") {
+      throw new Error(
+        `DTLS dual probing in progress; cannot ${op} until version is committed`,
+      );
+    }
   }
 
   /**
@@ -600,13 +634,17 @@ export class DtlsClient extends DtlsSocket {
   }
 
   async connect() {
+    // closed / probing must not fall through to pure 1.2 Flight1.
+    if (this.dualPhase === "closed") {
+      throw new Error("DTLS association is closed; cannot connect");
+    }
+    if (this.dualPhase === "probing") {
+      throw new Error(
+        "DTLS dual probing in progress; connect() already started (wait for version commit)",
+      );
+    }
     if (this.engine13) {
       await this.engine13.connect();
-      return;
-    }
-    // Probing dual path (post-HVR): send dual CH, not pure 1.2 Flight1
-    if (this.dualPhase === "probing") {
-      await this.sendDualNegotiationClientHello();
       return;
     }
     await this.connect12();

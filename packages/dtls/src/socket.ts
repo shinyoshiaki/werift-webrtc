@@ -256,8 +256,17 @@ export class DtlsSocket {
     return handshakes; // return un fragmented handshakes
   }
 
+  /**
+   * Guard for send / exporter / remoteCertificate.
+   * Dual client overrides to reject `closed` and `probing` (no 1.2 fallthrough).
+   */
+  protected assertReadyForApplicationApi(_op: string): void {
+    // Default: pure 1.2 / server paths have no dual phase machine.
+  }
+
   /**send application data */
   send = async (buf: Buffer, addr?: Address) => {
+    this.assertReadyForApplicationApi("send");
     if (this.engine13) {
       await this.engine13.send(buf);
       return;
@@ -278,6 +287,7 @@ export class DtlsSocket {
   }
 
   extractSessionKeys(keyLength: number, saltLength: number) {
+    this.assertReadyForApplicationApi("extractSessionKeys");
     if (this.engine13) {
       return this.engine13.extractSessionKeys(keyLength, saltLength);
     }
@@ -314,6 +324,7 @@ export class DtlsSocket {
   }
 
   exportKeyingMaterial(label: string, length: number) {
+    this.assertReadyForApplicationApi("exportKeyingMaterial");
     if (this.engine13) {
       return this.engine13.exportKeyingMaterial(label, length);
     }
@@ -328,6 +339,7 @@ export class DtlsSocket {
   }
 
   get remoteCertificate() {
+    this.assertReadyForApplicationApi("remoteCertificate");
     if (this.engine13) {
       return this.engine13.remoteCertificate;
     }
@@ -336,6 +348,7 @@ export class DtlsSocket {
 
   /** Request KeyUpdate on DTLS 1.3 connections. */
   async keyUpdate(requestUpdate = false): Promise<void> {
+    this.assertReadyForApplicationApi("keyUpdate");
     if (!this.engine13) {
       throw new Error("KeyUpdate is only available for DTLS 1.3");
     }

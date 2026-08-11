@@ -1514,3 +1514,158 @@ test("e2e/dual: 1.3-only version mismatch tears down association to closed", asy
 
   server.close();
 }, 15_000);
+
+/**
+ * P1: commit12 後の hard close は associationCarrier を閉じる（1.3 engine 無しでも）。
+ * soft release 後に carrier が生きたまま残るバグの回帰。
+ */
+test("e2e/dual: close() after committed12 closes association carrier", async () => {
+  // Arrange: dual client × 1.2-only server → commit12 完走 + custom carrier
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const { HashAlgorithm, SignatureAlgorithm } = await import(
+    "../../src/cipher/const"
+  );
+  const sig = {
+    hash: HashAlgorithm.sha256_4,
+    signature: SignatureAlgorithm.rsa_1,
+  };
+
+  const clientCarrier = new DirectHandshakeCarrier(clientTransport, {
+    mtu: 1200,
+  });
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_2],
+  });
+  const client = createDtlsClientInternal({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+    handshakeCarrier: clientCarrier,
+  });
+
+  await new Promise<void>(async (resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("committed12 setup timeout")),
+      20_000,
+    );
+    client.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    client.onConnect.subscribe(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+    await client.connect();
+  });
+
+  // Assert: commit12 — engine 無し、carrier は soft transition 後も生存
+  expect(client.isDtls13).toBe(false);
+  expect((client as any).dualPhase).toBe("committed12");
+  expect((client as any).engine13).toBeUndefined();
+  expect((client as any).parkedEngine13).toBeUndefined();
+  expect(clientCarrier.isClosed()).toBe(false);
+
+  // Act: public hard close（1.3 candidate 無し経路）
+  client.close();
+
+  // Assert: phase closed + carrier も hard-close
+  expect((client as any).dualPhase).toBe("closed");
+  expect(clientCarrier.isClosed()).toBe(true);
+  expect((client as any).associationCarrier).toBeUndefined();
+
+  // schedule / inject は no-op
+  let scheduled = false;
+  clientCarrier.schedule(10, () => {
+    scheduled = true;
+  });
+  clientCarrier.inject(buildHvrDatagram());
+  await new Promise((r) => setTimeout(r, 50));
+  expect(scheduled).toBe(false);
+
+  // closed 後の Public API は legacy 1.2 に落ちない
+  await expect(client.connect()).rejects.toThrow(/closed/i);
+  await expect(client.send(Buffer.from("x"))).rejects.toThrow(/closed/i);
+  expect(() => client.exportKeyingMaterial("EXTRACTOR-dtls_srtp", 16)).toThrow(
+    /closed/i,
+  );
+  expect(() => client.remoteCertificate).toThrow(/closed/i);
+
+  try {
+    server.close();
+  } catch {
+    /* transport may already be closed */
+  }
+}, 25_000);
+
+/**
+ * P1: probing 中の send / exporter / 再 connect は 1.2 path にフォールスルーしない。
+ */
+test("e2e/dual: probing rejects send/export/reconnect fallthrough to 1.2", async () => {
+  // Arrange: dual client を probing まで進める
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const clientCarrier = new DirectHandshakeCarrier(clientTransport, {
+    mtu: 1200,
+  });
+  const client = createDtlsClientInternal({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+    handshakeCarrier: clientCarrier,
+  });
+
+  let hvrInjected = false;
+  clientTransport.send = async () => {
+    if (!hvrInjected && (client as any).dualPhase === "none") {
+      hvrInjected = true;
+      queueMicrotask(() => {
+        injectHvr(clientTransport, serverTransport);
+      });
+    }
+  };
+
+  void client.connect();
+  for (let i = 0; i < 50; i++) {
+    if ((client as any).dualPhase === "probing") break;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  expect((client as any).dualPhase).toBe("probing");
+  expect(client.isDtls13).toBe(false);
+
+  // Act / Assert: probing 中は誤 1.2 送信・exporter・再 connect を拒否
+  await expect(client.send(Buffer.from("probe-send"))).rejects.toThrow(
+    /probing/i,
+  );
+  expect(() => client.exportKeyingMaterial("EXTRACTOR-dtls_srtp", 16)).toThrow(
+    /probing/i,
+  );
+  expect(() =>
+    client.extractSessionKeys(16, 14),
+  ).toThrow(/probing/i);
+  expect(() => client.remoteCertificate).toThrow(/probing/i);
+  await expect(client.connect()).rejects.toThrow(/probing/i);
+
+  // まだ probing / carrier 生存（soft ではない）
+  expect((client as any).dualPhase).toBe("probing");
+  expect(clientCarrier.isClosed()).toBe(false);
+
+  client.close();
+  expect((client as any).dualPhase).toBe("closed");
+  expect(clientCarrier.isClosed()).toBe(true);
+
+  await serverTransport.close().catch(() => {});
+  await clientTransport.close().catch(() => {});
+}, 10_000);
