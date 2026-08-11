@@ -1288,6 +1288,11 @@ export interface PeerConfig {
   iceUseTcp: boolean;
   /** Gather passive (listening) TCP host candidates. Defaults to true. */
   iceTcpPassive: boolean;
+  /**
+   * Seconds to wait for server-reflexive candidates while gathering.
+   * Defaults to 5 when undefined.
+   */
+  iceStunGatherTimeout: number | undefined;
   turnTransport: "udp" | "tcp" | "tls" | undefined;
   turnTlsOptions: TlsConnectionOptions | undefined;
   /** @deprecated Prefer turn URL transport parameters or turnTransport. */
@@ -1383,6 +1388,7 @@ function generateDefaultPeerConfig(): PeerConfig {
     iceUseIpv6: true,
     iceUseTcp: false,
     iceTcpPassive: true,
+    iceStunGatherTimeout: undefined,
     turnTransport: undefined,
     turnTlsOptions: undefined,
     iceFilterStunResponse: undefined,

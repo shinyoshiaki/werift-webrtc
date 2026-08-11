@@ -226,7 +226,10 @@ export class Connection implements IceConnection {
         );
       }
 
-      const candidatePromises = this.getCandidatePromises(address, 5);
+      const candidatePromises = this.getCandidatePromises(
+        address,
+        this.options.stunGatherTimeout,
+      );
       await Promise.allSettled(candidatePromises);
 
       this.localCandidatesEnd = true;

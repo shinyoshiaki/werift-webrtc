@@ -239,6 +239,13 @@ export interface IceOptions {
    * active TCP candidates.
    */
   tcpPassive?: boolean;
+  /**
+   * Seconds to wait for server-reflexive candidates while gathering.
+   * Defaults to 5. Where UDP is blocked these STUN queries are never answered,
+   * so the wait always runs to the timeout; agents that must not stall on such
+   * networks can lower it.
+   */
+  stunGatherTimeout?: number;
   stunServer?: Address;
   turnServer?: Address;
   turnUsername?: string;
