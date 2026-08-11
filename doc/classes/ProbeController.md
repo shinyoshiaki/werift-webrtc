@@ -149,10 +149,17 @@ Exposed for tests / diagnostics (last planned further-probe threshold).
 
 ### onAckedPacket()
 
-> **onAckedPacket**(`sizeBytes`, `receivedAtMs`, `isProbe`, `wideSeq`, `senderNowMs`): `void`
+> **onAckedPacket**(`sizeBytes`, `receivedAtMs`, `isProbe`, `wideSeq`, `senderNowMs`, `sendingAtMs`?): `void`
 
 ACK a probe packet. Credits the cluster that owned wideSeq (pacing or
 awaiting). Does **not** advance or clear FIFO pacing — send-fill only.
+
+Rate stats use min/max of ACKed send/receive times (libwebrtc
+ProbeBitrateEstimator / SortedByReceiveTime semantics) so reorder does
+not invert the receive interval.
+
+80% ACK is the *minimum* to produce an estimate; further ACKs keep
+updating cluster stats and may overwrite pendingEstimateBps.
 
 #### Parameters
 
@@ -179,6 +186,12 @@ TWCC receiver timeline (rate math only)
 `number`
 
 sender clock for session completion / cooldown
+
+##### sendingAtMs?
+
+`number`
+
+optional send time; defaults to seq map from ProbeSent
 
 #### Returns
 

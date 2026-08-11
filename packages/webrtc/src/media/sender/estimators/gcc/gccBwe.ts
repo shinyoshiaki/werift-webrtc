@@ -234,12 +234,14 @@ export class GccBandwidthEstimator
       this.recordAck(info.size, result.receivedAtMs);
       // Result validation only (sender clock for session complete/cooldown).
       // FIFO pacing advance happens on send-fill, not on ACK.
+      // Pass sendingAtMs so ProbeBitrateEstimator uses ACKed min/max send times.
       this.probe.onAckedPacket(
         info.size,
         result.receivedAtMs,
         !!info.isProbation,
         seq,
         nowMs,
+        info.sendingAtMs,
       );
       this.pushInterArrival(info.sendingAtMs, result.receivedAtMs, info.size);
     }
@@ -298,30 +300,35 @@ export class GccBandwidthEstimator
 
     let target = Math.min(this.delayBasedBps, this.lossBasedBps);
 
-    // Apply probe result only when the path is not congested.
-    // Valid results may raise **or lower** the target (libwebrtc GoogCc):
-    // - Rise: soft caps differ by initial vs recovery phase.
-    // - Fall: floor at min(current target, acked×kProbeDropThroughputFraction)
-    //   so a single glitchy low probe cannot crash far below observed throughput.
+    // Apply valid probe results (libwebrtc GoogCc):
+    // - Rise: only when not congested; soft caps by initial vs recovery phase.
+    // - Fall: always apply with acked×0.85 floor — same feedback may show loss
+    //   while ProbeBitrateEstimator still has a valid lower result (80% ACKed).
+    // Do not discard lower results solely because congested is true.
     const probeBps = this.probe.takePendingEstimateBps();
-    if (probeBps > 0 && !congested) {
+    if (probeBps > 0) {
       const initialProbing = !this.initialExponentialDone;
       let accepted = Math.min(probeBps, kMaxBitrateBps);
+      let apply = false;
 
       if (accepted > target) {
-        if (initialProbing) {
-          if (ackedBps > kMinBitrateBps) {
-            accepted = Math.min(accepted, ackedBps * kProbeResultMaxOverAcked);
+        if (!congested) {
+          if (initialProbing) {
+            if (ackedBps > kMinBitrateBps) {
+              accepted = Math.min(accepted, ackedBps * kProbeResultMaxOverAcked);
+            }
+          } else {
+            // Recovery: min(probe, max(target×1.5, acked×2)).
+            const targetCap = target * kProbeResultMaxOverTarget;
+            const ackedCap =
+              ackedBps > kMinBitrateBps
+                ? ackedBps * kProbeResultMaxOverAcked
+                : targetCap;
+            accepted = Math.min(accepted, Math.max(targetCap, ackedCap));
           }
-        } else {
-          // Recovery: min(probe, max(target×1.5, acked×2)).
-          const targetCap = target * kProbeResultMaxOverTarget;
-          const ackedCap =
-            ackedBps > kMinBitrateBps
-              ? ackedBps * kProbeResultMaxOverAcked
-              : targetCap;
-          accepted = Math.min(accepted, Math.max(targetCap, ackedCap));
+          apply = accepted > target;
         }
+        // congested + rising: ignore upward probe (abort already stopped padding)
       } else if (accepted < target) {
         // libwebrtc limit_probes_lower_than_throughput_estimate:
         // probe = max(probe, min(delayEstimate, acked × 0.85)).
@@ -332,20 +339,21 @@ export class GccBandwidthEstimator
         const floor = Math.min(target, ackedFloor);
         accepted = Math.max(accepted, floor);
         accepted = Math.min(accepted, target); // never raise via lower path
+        apply = accepted < target && accepted > 0;
       }
 
-      if (accepted !== target && accepted > 0) {
+      if (apply && accepted > 0) {
         target = accepted;
         this.aimd.reset(accepted);
         this.lossBwe.reset(accepted);
         this.delayBasedBps = accepted;
         this.lossBasedBps = accepted;
       }
-      // Further-probe decision uses the (possibly capped) applied estimate.
-      // Must run while still waiting_for_result when the last cluster just
-      // completed — process() marks complete afterwards.
-      if (accepted > 0) {
-        for (const cfg of this.probe.setEstimatedBitrate(accepted, nowMs)) {
+      // Further-probe decision (even if we only took pending for a rejected rise).
+      // Use applied target so further threshold sees the effective estimate.
+      const forFurther = apply && accepted > 0 ? accepted : target;
+      if (forFurther > 0 && !congested) {
+        for (const cfg of this.probe.setEstimatedBitrate(forFurther, nowMs)) {
           this.onProbeClusterActivated(cfg, nowMs);
         }
       }

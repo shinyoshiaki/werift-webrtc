@@ -41,26 +41,37 @@ export interface ProbeClusterConfig {
 /**
  * Per-cluster stats for libwebrtc ProbeBitrateEstimator-style validation.
  * Packets are assigned a cluster id at send time (wideSeq → clusterId map).
+ *
+ * Rate math uses **ACKed** packets only (libwebrtc ProbeBitrateEstimator),
+ * with min/max send and receive times (order-independent).
  */
 interface ClusterRuntime {
   config: ProbeClusterConfig;
   /** Sender-clock (Date.now / milliTime) when pacing for this cluster started. */
   startMs: number;
-  // Send-side
+  // Send-side (all probation sends — for send-fill / timeout only)
   sentBytes: number;
   sentPackets: number;
   firstSendMs: number;
   lastSendMs: number;
-  sizeLastSend: number;
-  // Receive / ACK side (TWCC receiver timeline — only for rate math)
+  // ACKed-only aggregation (ProbeBitrateEstimator)
   ackedBytes: number;
   ackedPackets: number;
+  /** min send time among ACKed probe packets */
+  firstAckedSendMs: number;
+  /** max send time among ACKed probe packets */
+  lastAckedSendMs: number;
+  /** size of the ACKed packet with max send time */
+  sizeLastAckedSend: number;
+  /** min receive time among ACKed probe packets */
   firstRecvMs: number;
+  /** max receive time among ACKed probe packets */
   lastRecvMs: number;
+  /** size of the ACKed packet with min receive time */
   sizeFirstRecv: number;
   /**
-   * ProbeBitrateEstimator accepted a result (80% ACK) while send-fill may
-   * still be incomplete. Pacing must continue until minPackets/minBytes.
+   * At least one valid estimate has been produced (80%+ ACKed).
+   * Further ACKs still update stats and may overwrite pending estimate.
    */
   resultAccepted: boolean;
 }
@@ -104,6 +115,8 @@ export class ProbeController {
   private networkAvailable = true;
   /** transport-wide seq → cluster id for probation packets. */
   private seqToCluster = new Map<number, number>();
+  /** transport-wide seq → send-time / size for ACKed-only rate math. */
+  private seqToSendInfo = new Map<number, { sendMs: number; size: number }>();
 
   reset(_atTimeMs = 0) {
     this.state = "init";
@@ -121,6 +134,7 @@ export class ProbeController {
     this.maxBitrateBps = kMaxBitrateBps;
     this.networkAvailable = true;
     this.seqToCluster.clear();
+    this.seqToSendInfo.clear();
   }
 
   get probeState(): ProbeState {
@@ -217,8 +231,8 @@ export class ProbeController {
     );
     const target = clamp(uncapped, this.maxBitrateBps);
     if (target <= base * 1.05) return [];
-    // libwebrtc: if uncapped target would exceed max, one last max probe then stop.
-    const stopFurtherAfter = uncapped >= this.maxBitrateBps;
+    // libwebrtc: only when uncapped would *exceed* max (strict >), last max probe.
+    const stopFurtherAfter = uncapped > this.maxBitrateBps;
     return this.enqueueClusters(nowMs, [target], { stopFurtherAfter });
   }
 
@@ -239,10 +253,9 @@ export class ProbeController {
         bitrateBps * kProbeRecoveryMaxScale,
       );
       const next = clamp(uncapped, this.maxBitrateBps);
-      // libwebrtc InitiateProbing: when bitrate would exceed max_bitrate, probe
-      // once at max and set min_bitrate_to_probe_further = +inf so exponential
-      // further probing ends (avoids infinite max-bitrate padding near ceiling).
-      const stopFurtherAfter = uncapped >= this.maxBitrateBps;
+      // libwebrtc InitiateProbing: bitrate > max_probe_bitrate → clamp + stop further.
+      // Exactly equal to max keeps waiting for further (strict >).
+      const stopFurtherAfter = uncapped > this.maxBitrateBps;
       return this.enqueueClusters(nowMs, [next], { stopFurtherAfter });
     }
     return [];
@@ -297,12 +310,12 @@ export class ProbeController {
     const cluster = this.pacing;
     const seq = wideSeq & 0xffff;
     this.seqToCluster.set(seq, cluster.config.id);
+    this.seqToSendInfo.set(seq, { sendMs, size: sizeBytes });
 
     if (cluster.sentPackets === 0) {
       cluster.firstSendMs = sendMs;
     }
     cluster.lastSendMs = sendMs;
-    cluster.sizeLastSend = sizeBytes;
     cluster.sentBytes += sizeBytes;
     cluster.sentPackets += 1;
 
@@ -324,13 +337,9 @@ export class ProbeController {
     if (!this.pacing) return [];
     const done = this.pacing;
     this.pacing = undefined;
-
-    if (done.resultAccepted) {
-      // Estimate already applied while still pacing — do not re-wait.
-      this.dropClusterSeqs(done.config.id);
-    } else {
-      this.awaitingResults.set(done.config.id, done);
-    }
+    // Always await TWCC (including late ACKs after an early 80% result).
+    // Cluster is removed on result timeout in process(), not on first estimate.
+    this.awaitingResults.set(done.config.id, done);
 
     const activated = this.maybeActivateQueued(senderNowMs);
     this.maybeMarkComplete(senderNowMs);
@@ -341,8 +350,16 @@ export class ProbeController {
    * ACK a probe packet. Credits the cluster that owned wideSeq (pacing or
    * awaiting). Does **not** advance or clear FIFO pacing — send-fill only.
    *
+   * Rate stats use min/max of ACKed send/receive times (libwebrtc
+   * ProbeBitrateEstimator / SortedByReceiveTime semantics) so reorder does
+   * not invert the receive interval.
+   *
+   * 80% ACK is the *minimum* to produce an estimate; further ACKs keep
+   * updating cluster stats and may overwrite the pending estimate.
+   *
    * @param receivedAtMs TWCC receiver timeline (rate math only)
    * @param senderNowMs sender clock for session completion / cooldown
+   * @param sendingAtMs optional send time; defaults to seq map from ProbeSent
    */
   onAckedPacket(
     sizeBytes: number,
@@ -350,39 +367,69 @@ export class ProbeController {
     isProbe: boolean,
     wideSeq: number | undefined,
     senderNowMs: number,
+    sendingAtMs?: number,
   ): void {
     if (!isProbe) return;
 
     let cluster: ClusterRuntime | undefined;
+    let sendMs = sendingAtMs;
     if (wideSeq !== undefined) {
-      const id = this.seqToCluster.get(wideSeq & 0xffff);
+      const seq = wideSeq & 0xffff;
+      const id = this.seqToCluster.get(seq);
       if (id !== undefined) {
         cluster =
           this.awaitingResults.get(id) ??
           (this.pacing?.config.id === id ? this.pacing : undefined);
+      }
+      if (sendMs === undefined) {
+        sendMs = this.seqToSendInfo.get(seq)?.sendMs;
       }
     } else if (this.pacing && this.awaitingResults.size === 0) {
       // Unit-test fallback without seq map.
       cluster = this.pacing;
     }
     if (!cluster) return;
-
-    // Already accepted a result for this cluster (may still be pacing).
-    if (cluster.resultAccepted) return;
-
-    if (cluster.ackedPackets === 0) {
-      cluster.firstRecvMs = receivedAtMs;
-      cluster.sizeFirstRecv = sizeBytes;
+    // Need a send timestamp for ACKed-only send-rate math.
+    if (sendMs === undefined || !Number.isFinite(sendMs)) {
+      // Last resort: use cluster send span endpoints (less accurate).
+      sendMs =
+        cluster.ackedPackets === 0
+          ? cluster.firstSendMs || cluster.lastSendMs
+          : cluster.lastSendMs;
     }
-    cluster.lastRecvMs = receivedAtMs;
+    if (!Number.isFinite(sendMs) || sendMs <= 0) return;
+
+    // libwebrtc-style min/max aggregation (order-independent).
+    if (cluster.ackedPackets === 0) {
+      cluster.firstAckedSendMs = sendMs;
+      cluster.lastAckedSendMs = sendMs;
+      cluster.sizeLastAckedSend = sizeBytes;
+      cluster.firstRecvMs = receivedAtMs;
+      cluster.lastRecvMs = receivedAtMs;
+      cluster.sizeFirstRecv = sizeBytes;
+    } else {
+      if (sendMs < cluster.firstAckedSendMs) {
+        cluster.firstAckedSendMs = sendMs;
+      }
+      if (sendMs > cluster.lastAckedSendMs) {
+        cluster.lastAckedSendMs = sendMs;
+        cluster.sizeLastAckedSend = sizeBytes;
+      }
+      if (receivedAtMs < cluster.firstRecvMs) {
+        cluster.firstRecvMs = receivedAtMs;
+        cluster.sizeFirstRecv = sizeBytes;
+      }
+      if (receivedAtMs > cluster.lastRecvMs) {
+        cluster.lastRecvMs = receivedAtMs;
+      }
+    }
     cluster.ackedBytes += sizeBytes;
     cluster.ackedPackets += 1;
 
     const estimate = this.estimateClusterBitrate(cluster);
     if (estimate === undefined) return;
 
-    // Always surface a valid ProbeBitrateEstimator result (up or down).
-    // GCC applies rise caps / lower-probe backoff guards separately.
+    // Always surface latest valid result (up or down). Later ACKs overwrite.
     this.pendingEstimateBps = estimate;
     if (estimate > this.estimatedBps) {
       this.estimatedBps = estimate;
@@ -392,19 +439,9 @@ export class ProbeController {
       cluster.config.targetBps,
     );
     cluster.resultAccepted = true;
-
-    // Settle only if already in awaitingResults. Never clear pacing here —
-    // send-fill (100% minPackets AND minBytes) is independent of 80% ACK.
-    //
-    // Do **not** maybeMarkComplete here: GccBandwidthEstimator applies
-    // takePendingEstimateBps → setEstimatedBitrate in the same TWCC turn.
-    // Completing first would start cooldown and block further exponential
-    // probes from the last (e.g. 6x) result (libwebrtc stays in
-    // kWaitingForProbingResult until Process timeout / no further probe).
-    if (this.awaitingResults.has(cluster.config.id)) {
-      this.dropClusterSeqs(cluster.config.id);
-      this.awaitingResults.delete(cluster.config.id);
-    }
+    // Keep cluster + seq map until process() result timeout so remaining
+    // ACKs (the last 20%) can refine the estimate.
+    void senderNowMs;
   }
 
   abort(nowMs: number) {
@@ -412,6 +449,7 @@ export class ProbeController {
     this.awaitingResults.clear();
     this.queue = [];
     this.seqToCluster.clear();
+    this.seqToSendInfo.clear();
     if (this.state === "waiting_for_result") {
       // After probing was initiated, failures still end in complete so
       // recovery probing remains available (libwebrtc kProbingComplete).
@@ -436,8 +474,10 @@ export class ProbeController {
   }
 
   /**
-   * libwebrtc ProbeBitrateEstimator validation.
-   * Uses send times (sender clock) and recv times (TWCC timeline) separately.
+   * libwebrtc ProbeBitrateEstimator validation on **ACKed** packets only:
+   * sendInterval = max(ack send) − min(ack send)
+   * recvInterval = max(ack recv) − min(ack recv)
+   * sizes exclude the last-sent and first-received packet payloads.
    */
   private estimateClusterBitrate(c: ClusterRuntime): number | undefined {
     const minProbes = Math.ceil(
@@ -450,7 +490,7 @@ export class ProbeController {
       return undefined;
     }
 
-    const sendIntervalMs = c.lastSendMs - c.firstSendMs;
+    const sendIntervalMs = c.lastAckedSendMs - c.firstAckedSendMs;
     const recvIntervalMs = c.lastRecvMs - c.firstRecvMs;
     if (
       sendIntervalMs <= 0 ||
@@ -461,7 +501,7 @@ export class ProbeController {
       return undefined;
     }
 
-    const sendSize = Math.max(0, c.sentBytes - c.sizeLastSend);
+    const sendSize = Math.max(0, c.ackedBytes - c.sizeLastAckedSend);
     const recvSize = Math.max(0, c.ackedBytes - c.sizeFirstRecv);
     if (sendSize <= 0 || recvSize <= 0) return undefined;
 
@@ -481,7 +521,10 @@ export class ProbeController {
 
   private dropClusterSeqs(clusterId: number) {
     for (const [seq, id] of this.seqToCluster) {
-      if (id === clusterId) this.seqToCluster.delete(seq);
+      if (id === clusterId) {
+        this.seqToCluster.delete(seq);
+        this.seqToSendInfo.delete(seq);
+      }
     }
   }
 
@@ -498,7 +541,7 @@ export class ProbeController {
     // If the last step was limited by max_bitrate, do not schedule further
     // probes after the initial session (same as libwebrtc limited_by_max).
     const stopFurtherAfter =
-      uncapped[uncapped.length - 1]! >= this.maxBitrateBps;
+      uncapped[uncapped.length - 1]! > this.maxBitrateBps;
     // Only return **activated** configs (front 3x). 6x stays queued until
     // 3x send-fill completes (BitrateProber FIFO).
     return this.enqueueClusters(nowMs, bitrates, { stopFurtherAfter });
@@ -558,9 +601,11 @@ export class ProbeController {
       sentPackets: 0,
       firstSendMs: 0,
       lastSendMs: 0,
-      sizeLastSend: 0,
       ackedBytes: 0,
       ackedPackets: 0,
+      firstAckedSendMs: 0,
+      lastAckedSendMs: 0,
+      sizeLastAckedSend: 0,
       firstRecvMs: 0,
       lastRecvMs: 0,
       sizeFirstRecv: 0,
