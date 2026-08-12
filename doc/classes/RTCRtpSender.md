@@ -442,9 +442,12 @@ Default is the legacy [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstima
 `new GccBandwidthEstimator()` to use Google Congestion Control.
 
 Behavior on swap:
-1. Stops delivering `rtpPacketSent` / `receiveTWCC` to the previous instance.
-2. Unbinds the stable [onAvailableBitrate](RTCRtpSender.md#onavailablebitrate) bridge, then `dispose()`/`reset()` the old instance.
-3. **Always** `reset()` the injected `impl` so a previously used instance
+1. Bumps bweGeneration so in-flight sends discard `rtpPacketSent`
+   delivery and in-flight [maybeInjectProbePadding](RTCRtpSender.md#maybeinjectprobepadding) loops exit
+   (cancelled — no packets to disposed / previous estimator).
+2. Stops delivering `rtpPacketSent` / `receiveTWCC` to the previous instance.
+3. Unbinds the stable [onAvailableBitrate](RTCRtpSender.md#onavailablebitrate) bridge, then `dispose()`/`reset()` the old instance.
+4. **Always** `reset()` the injected `impl` so a previously used instance
    starts clean (no implicit state merge), then rebinds the bridge.
 
 Subscriptions to [onAvailableBitrate](RTCRtpSender.md#onavailablebitrate) on this sender are preserved.

@@ -129,6 +129,7 @@
 
 - [AckedPacketSample](interfaces/AckedPacketSample.md)
 - [BandwidthEstimator](interfaces/BandwidthEstimator.md)
+- [BandwidthEstimatorProcessor](interfaces/BandwidthEstimatorProcessor.md)
 - [CandidatePairStats](interfaces/CandidatePairStats.md)
 - [DataChannelStats](interfaces/DataChannelStats.md)
 - [DtlsTransportStats](interfaces/DtlsTransportStats.md)
@@ -367,6 +368,7 @@
 - [int](functions/int.md)
 - [Int](functions/Int-1.md)
 - [interfaceAddress](functions/interfaceAddress.md)
+- [isBandwidthEstimatorProcessor](functions/isBandwidthEstimatorProcessor.md)
 - [isComprehensionRequiredAttribute](functions/isComprehensionRequiredAttribute.md)
 - [isDtls](functions/isDtls.md)
 - [isLinkLocalAddress](functions/isLinkLocalAddress.md)

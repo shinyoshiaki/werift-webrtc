@@ -4,13 +4,21 @@
 
 # werift
 
-werift (**We**b**r**tc **I**mplementation **f**or **T**ypeScript)
+werift (**We**b**R**TC **I**mplementation **f**or **T**ypeScript) is a WebRTC implementation for Node.js written in TypeScript with a browser-compatible WebRTC API.
 
-werift is a WebRTC Implementation for TypeScript (Node.js)
+For the project overview, current features, examples, architecture, and interoperability information, see the [repository README](_media/README.md).
 
-# install
+## Install
 
-`npm install werift`
+```sh
+npm install werift
+```
+
+## Browser-compatible WebRTC API
+
+werift is designed so application code can use the familiar browser WebRTC model in Node.js: `RTCPeerConnection`, tracks and transceivers, `RTCDataChannel`, standard events, ICE configuration, offer/answer negotiation, and `getStats()`.
+
+A small number of intentional or known edge-case differences remain for backward compatibility or unsupported legacy APIs. See [Browser API compatibility](_media/browser-api-compatibility.md) for those differences and the WPT strategy used to track exact browser behavior.
 
 ## Development setup
 
@@ -34,10 +42,12 @@ npm run wpt --workspace packages/webrtc -- --update-baseline
 WPT_UPDATE_COVERAGE_BASELINE=1 npm run wpt:coverage --workspace packages/webrtc
 ```
 
-# Documentation (WIP)
+## Documentation
 
 - [Website](https://shinyoshiaki.github.io/werift-webrtc/website/build/)
 - [API Reference](https://shinyoshiaki.github.io/werift-webrtc/website/build/docs/api)
+- [Examples](../../examples)
+- [Browser API compatibility differences](_media/browser-api-compatibility.md)
 
 ## TWCC send-side bandwidth estimation
 
@@ -52,6 +62,7 @@ WPT_UPDATE_COVERAGE_BASELINE=1 npm run wpt:coverage --workspace packages/webrtc
 | `sender.onProbeClusterConfig` | GCC probe cluster targets for pacing / encoder ramp |
 | `isProbePacingController(e)` | Type guard for probe/pacing hooks (not on common interface) |
 | `isRoundTripTimeConsumer(e)` | Type guard for raw RTCP RTT → AIMD (GCC only; not on common interface) |
+| `isBandwidthEstimatorProcessor(e)` | Type guard for pin ProcessInterval-style `process(nowMs)` (GCC RTT backoff) |
 
 ```ts
 import {
@@ -87,128 +98,70 @@ Until TWCC is negotiated and enough samples arrive, `availableBitrate` may stay 
 - GCC is structure-compatible with libwebrtc goog_cc, not bit-identical. See `GccBandwidthEstimator.knownDifferences` / `GCC_KNOWN_DIFFERENCES` for intentional gaps (no REMB, lightweight pacer, float/clock drift, etc.).
 - Bottleneck simulations are **CI-excluded**: `cd packages/webrtc && npm run test:sim`, and `cd e2e && npm run test:sim` (Chrome). Run them before merging GCC/TWCC changes.
 
-# examples
+## Demos
 
-https://github.com/shinyoshiaki/werift-webrtc/tree/master/examples
+### MediaChannel
 
-### SFU
-
-https://github.com/shinyoshiaki/node-sfu
-
-# demo
-
-## MediaChannel
+From the repository root:
 
 ```sh
-yarn media
+npm run media
 ```
 
-open
+Open:
+
 https://shinyoshiaki.github.io/werift-webrtc/examples/mediachannel/pubsub/answer
 
-see console & chrome://webrtc-internals/
+Use the browser console and `chrome://webrtc-internals/` for inspection.
 
-## DataChannel
+### DataChannel
 
-run
+From the repository root:
 
 ```sh
-yarn datachannel
+npm run datachannel
 ```
 
-open
+Open:
+
 https://shinyoshiaki.github.io/werift-webrtc/examples/datachannel/answer
 
-see console & chrome://webrtc-internals/
+## Current implementation highlights
 
-# RoadMap
+- Browser-compatible `RTCPeerConnection` API and standard WebRTC events
+- STUN and TURN relay support, including TURN control transports over UDP, TCP, and TLS
+- Full ICE, trickle ICE, ICE-Lite support/interoperability, ICE restart, and ICE-TCP
+- DTLS-SRTP, SRTP, and SRTCP
+- DataChannel over SCTP/DTLS
+- Media sendonly / recvonly / sendrecv and multiple tracks
+- RTP/RTCP feedback including SR/RR, PLI, REMB, Generic NACK, and Transport-Wide CC
+- RTX and RED
+- Receive-side simulcast
+- Sender-side bandwidth estimation
+- Browser-compatible `getStats()` reporting
+- Compatibility validation backed by an allowlisted upstream WPT runner
 
-## Work in Progress Towards 1.0
+See the [repository README](_media/README.md#protocol-coverage-at-a-glance) for the broader feature checklist.
 
-- [x] STUN
-- [x] TURN
-  - [x] UDP
-- [x] ICE
-  - [x] Vanilla ICE
-  - [x] Trickle ICE
-- [x] DTLS
-  - [x] DTLS-SRTP
-  - [x] Curve25519
-  - [x] P-256
-- [x] DataChannel
-- [x] MediaChannel
-  - [x] sendonly
-  - [x] recvonly
-  - [x] sendrecv
-  - [x] multi track
-- [x] RTP
-- [x] RTCP
-  - [x] SR/RR
-  - [x] Picture Loss Indication
-  - [x] ReceiverEstimatedMaxBitrate
-  - [x] GenericNack
-  - [x] TransportWideCC
-- [x] SRTP
-- [x] SRTCP
-- [x] SDP
-- [x] PeerConnection
-- [x] Simulcast
-  - [x] recv
-- [x] BWE
-  - [x] sender side BWE
-- [ ] Documentation
-- [x] Compatibility
-  - [x] Chrome
-  - [x] FireFox
-  - [x] Pion
-  - [x] aiortc
-  - [x] sipsorcery
-- [x] Interop E2E test
-  - [x] Chrome
-  - ↓↓↓ https://github.com/sipsorcery/webrtc-echoes
-  - [x] Pion
-  - [x] aiortc
-  - [x] sipsorcery
-- [ ] Unit Tests
-  - [ ] follow [Web Platform Tests](https://github.com/web-platform-tests/wpt)
+## Interoperability
 
-## Road Map Towards 2.0
+The repository contains Chromium-focused browser E2E tests and a Firefox test runner. Safari interoperability is also community-verified: users have reported extensive real-world use with Safari in [Issue #346](https://github.com/shinyoshiaki/werift-webrtc/issues/346). Safari is not currently part of the automated browser E2E matrix, so this is community validation rather than a CI guarantee.
 
-- [ ] API compatible with browser RTCPeerConnection
-- [ ] ICE
-  - [ ] ICE restart
-- [ ] SDP
-  - [ ] reuse inactive m-line
-- [ ] Simulcast
-  - [ ] send
-- [ ] support more cipher suites
+werift also participates in the independent [`sipsorcery/webrtc-interop`](https://github.com/sipsorcery/webrtc-interop) Peer Connection and Data Channel Echo matrices.
 
-## RTCPeerConnection W3C compatibility notes
+## Roadmap
 
-API reference markdown can be regenerated with `cd packages/webrtc && npm run doc`.
-For this task, the reviewable compatibility notes live in this README and in
-`src/peerConnection.ts`; the generated `packages/webrtc/doc/` output is not
-tracked in git, so it is not committed as part of this change.
+Current work is focused on:
 
-| Status | API | Notes |
-| --- | --- | --- |
-| Added | `currentLocalDescription`, `pendingLocalDescription`, `currentRemoteDescription`, `pendingRemoteDescription`, `canTrickleIceCandidates`, `sctp` | Public getters now follow W3C-style pending/current description visibility and expose SCTP/canTrickle state. |
-| Added | `setLocalDescription()` input compatibility | Accepts omitted `type`, empty `sdp`, and provisional `pranswer`. |
-| Added | `setRemoteDescription()` input compatibility | Accepts `pranswer` and `rollback`, updating pending/current descriptions accordingly. |
-| Added | `addIceCandidate()` input compatibility | Accepts omitted input, `null`, and `{ candidate: "" }` as end-of-candidates, validates `sdpMid` / `sdpMLineIndex` / `usernameFragment`, updates the matching remote m-section, rejects calls before `remoteDescription` is set, and rejects malformed candidate strings. |
-| Added | `RTCConfiguration` compatibility | Accepts `iceServers`, `iceTransportPolicy`, `bundlePolicy`, `rtcpMuxPolicy: "require"`, `iceCandidatePoolSize: 0`, and `certificates`; `setConfiguration(getConfiguration())` round-trips without changing certificates. |
-| Deferred | `bundlePolicy: "balanced"` round-trip | `"balanced"` is accepted for input compatibility, but it is internally normalized to werift's `"max-compat"` behavior, so `getConfiguration()` returns `"max-compat"`. |
-| Added | `RTCIceServer.urls: string \| string[]` | Arrays are accepted and parsed in order. |
-| Added | Standard event names | `signalingstatechange`, `iceconnectionstatechange`, `icegatheringstatechange`, `connectionstatechange`, `negotiationneeded`, `icecandidate`, `track`, and `datachannel` are emitted for `addEventListener`. |
-| Not implemented | Legacy callback overloads | Kept out of scope because they are legacy browser APIs. |
-| Not implemented | `addStream`, `removeStream`, `createDTMFSender` | These are obsolete; use `addTrack`, `removeTrack`, and transceiver/sender APIs instead. |
-| Deferred | `close()` return type | Remains async for backward compatibility even though W3C defines synchronous `undefined`. |
-| Deferred | `setLocalDescription()` return type | Non-rollback calls still return the applied `SessionDescription` instead of `Promise<void>` for backward compatibility; the local `rollback` path resolves with `undefined`. |
-| Compatible | `setRemoteDescription()` return type | `setRemoteDescription()` resolves `Promise<void>` like the W3C API. |
-| Deferred | `RTCPeerConnection.generateCertificate()` | `RTCCertificate` and `RTCConfiguration.certificates` are supported, but the static W3C helper is still optional work. |
+- improving documentation and WPT coverage
+- closing remaining documented browser API edge-case differences
+- simulcast send support
+- additional cipher suites
+- richer WebRTC statistics coverage
+- continued unit, E2E, interoperability, and long-running reliability testing
 
-# reference
+## References
 
-- aiortc https://github.com/aiortc/aiortc
-- pion/webrtc https://github.com/pion/webrtc
-- etc ....
+- [aiortc](https://github.com/aiortc/aiortc)
+- [Pion WebRTC](https://github.com/pion/webrtc)
+- [sipsorcery/webrtc-interop](https://github.com/sipsorcery/webrtc-interop)

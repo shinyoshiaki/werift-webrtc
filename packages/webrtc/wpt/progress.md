@@ -1,11 +1,12 @@
 # WPT partial-pass progress
 
-| Generated at | 2026-08-11T08:17:18.922Z |
+| Generated at | 2026-08-12T12:38:29.783Z |
 
 ## Target success rates
 
 | File | Variant | PASS | FAIL | TIMEOUT | TOTAL | Excluded | Effective PASS/TOTAL | Success rate | Status |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| webrtc/protocol/bundle.https.html | (default) | 0 | 0 | 1 | 1 | 0 | 0/1 | 0.0% | active |
 | webrtc/simulcast/negotiation-encodings.https.html | (default) | 1 | 19 | 0 | 20 | 0 | 1/20 | 5.0% | active |
 | webrtc/RTCPeerConnection-mandatory-getStats.https.html | (default) | 4 | 69 | 0 | 73 | 0 | 4/73 | 5.5% | active |
 | webrtc/RTCRtpParameters-codec.html | (default) | 2 | 20 | 0 | 22 | 0 | 2/22 | 9.1% | active |
@@ -16,7 +17,6 @@
 | webrtc/legacy/munge-dont.html | (default) | 1 | 4 | 0 | 5 | 0 | 1/5 | 20.0% | active |
 | webrtc/RTCDataChannel-id.html | (default) | 1 | 4 | 0 | 5 | 0 | 1/5 | 20.0% | active |
 | webrtc/legacy/RTCPeerConnection-createOffer-offerToReceive.optional.html | (default) | 4 | 14 | 0 | 18 | 0 | 4/18 | 22.2% | active |
-| webrtc/protocol/bundle.https.html | (default) | 1 | 3 | 0 | 4 | 0 | 1/4 | 25.0% | active |
 | webrtc/receiver-track-live.https.html | (default) | 1 | 3 | 0 | 4 | 0 | 1/4 | 25.0% | active |
 | webrtc/outbound-rtp-encoding-index.https.html | (default) | 1 | 2 | 0 | 3 | 0 | 1/3 | 33.3% | active |
 | webrtc/protocol/simulcast-answer.html | (default) | 1 | 2 | 0 | 3 | 0 | 1/3 | 33.3% | active |

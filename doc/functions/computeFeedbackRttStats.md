@@ -16,9 +16,12 @@ For each received packet with send/recv times:
 - min_pending_time = max_recv_time − receive_time
 - propagation_rtt = feedback_rtt − min_pending_time
 
+`feedbackTimeMs` and each packet's `sendMs` must share the **sender local
+clock** (production: both from [milliTime](milliTime.md)). Receive times are used
+only for pending-time deltas within the batch — pin does not mix wall and
+TWCC receive timelines for `feedback_time`.
+
 Returns undefined when there are no finite samples.
-Prefer feedbackTimeMsForRtt for `feedbackTimeMs` so send/feedback
-share a clock domain.
 
 ## Parameters
 
