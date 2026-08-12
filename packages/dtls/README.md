@@ -101,7 +101,7 @@ Outbound **and inbound** DTLS 1.2 traffic use an **association-owned peer pin**,
 
 DTLS 1.3: pure/dual **server** association owns UDP and `carrier.inject` (same dispatcher), forwarding to the engine via `injectDatagram`. Epoch-0 alerts are processed only from an already-associated peer and only before protected keys; unassociated sources cannot fatal/close the listener. Post-handshake epoch-0 handshake/alert/ACK are dropped without state change. Local/peer close uses synchronous terminal (`onClosing` / `associationTornDown`) before async `close_notify`. `renegotiation()` is rejected after terminal close.
 
-Generated Public API docs (`doc/classes/DtlsClient.md`, `DtlsServer.md`, `DtlsSocket.md`) are produced by root `npm run doc` and verified by `npm run doc:check` (part of `npm run ci`). After Public API or lifecycle changes, regenerate and commit `doc/` so the gate stays green (also part of root `npm run ci`).
+Generated Public API docs (`doc/classes/DtlsClient.md`, `DtlsServer.md`, `DtlsSocket.md`) are produced by root `npm run doc` and verified by `npm run doc:check` (part of `npm run ci`). After Public API or lifecycle changes, regenerate and commit `doc/` so the gate stays green (also part of root `npm run ci` / `doc:check`).
 
 BoringSSL DTLS 1.3 interop (P0): see `tests/e2e/boringssl/README.md`. CI job `dtls13-boringssl` runs `fetch-and-build-boringssl.sh` against the pinned revision in `BORINGSSL_REVISION` and fails on pin/harness mismatch (`CI=true` / `WERIFT_REQUIRE_BORINGSSL=1`).
 
