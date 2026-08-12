@@ -118,6 +118,13 @@ export class DtlsSocket {
     }
     log("renegotiation", this.sessionType);
     this.connected = false;
+    // Cancel retransmit timers on the *old* context before abandoning it.
+    // Otherwise Flight.transmit sleeps keep firing against a detached DtlsContext
+    // and can still TX after renegotiation replaces cipher/dtls.
+    this.abortLegacy12Flight();
+    this.abortAssociationWaits();
+    // Fresh AbortController for the new handshake waits (previous signal aborted).
+    this.associationAbort = new AbortController();
     this.cipher = new CipherContext(
       this.sessionType,
       this.options.cert,
@@ -128,6 +135,7 @@ export class DtlsSocket {
     this.srtp = new SrtpContext();
     this.extensions = [];
     this.bufferFragmentedHandshakes = [];
+    this.setupExtensions();
   }
 
   protected udpOnMessage = (
@@ -167,14 +175,35 @@ export class DtlsSocket {
    * True when inbound source matches association TX/RX pin, or no pin yet
    * (pre-cookie server / pre-connect). After pin, unknown or non-pin peer
    * must not drive handshake / app / alert lifecycle (RX ownership).
+   *
+   * Peer-authentication vs address pin are separate:
+   * - UDP 5-tuple pin: require matching source address when present
+   * - authenticated-single-peer transport (ICE / peerAuthenticated): the
+   *   transport path is the identity; addressless RX is accepted even if a
+   *   pin was set for TX convenience (WebRTC does not pass rinfo into DTLS)
    */
   protected matchesPinnedPeer(addr?: Address): boolean {
     const pin = this.transport.pinnedPeer;
     if (!pin) return true;
-    if (!addr) return false;
+    if (!addr) {
+      // No 5-tuple on this datagram: only authenticated-single-peer carriers
+      // may deliver (ICE). Pure UDP pin without addr is a drop.
+      return this.isAuthenticatedSinglePeerTransport();
+    }
     const a: [string, number] = [this.normalizePeerHost(addr[0]), addr[1]];
     const p: [string, number] = [this.normalizePeerHost(pin[0]), pin[1]];
     return peerKeyFromAddr(a) === peerKeyFromAddr(p);
+  }
+
+  /**
+   * Transport path already authenticates a single peer (ICE / equivalent).
+   * Distinct from {@link TransportContext.pinnedPeer} (UDP return-routability).
+   */
+  protected isAuthenticatedSinglePeerTransport(): boolean {
+    const t = this.options.transport as { peerAuthenticated?: boolean };
+    if (t.peerAuthenticated === true) return true;
+    if (this.options.addressValidation === "ice-authenticated") return true;
+    return false;
   }
 
   /**
@@ -192,20 +221,17 @@ export class DtlsSocket {
   /**
    * Peer-auth boundary for DTLS 1.2 association lifecycle (alerts / HS errors).
    *
-   * - UDP pin after cookie / connect (classic return-routability)
-   * - Transport.peerAuthenticated (ICE / already-authenticated path): AEAD
-   *   protected records must not be treated as "pre-auth" merely because the
-   *   transport does not expose a 5-tuple (WebRTC IceTransport).
-   * - addressValidation "ice-authenticated" / "none" on the association
+   * - UDP pin after cookie / connect (classic return-routability / datagram-address)
+   * - authenticated-single-peer transport (ICE peerAuthenticated / ice-authenticated):
+   *   AEAD-protected records must not be treated as "pre-auth" merely because
+   *   the transport does not expose a 5-tuple (WebRTC IceTransport).
+   *
+   * These modes are not interchangeable for TX routing (pin still owns UDP TX),
+   * but either is sufficient for association-lifecycle alert decisions.
    */
   protected hasAssociationPeerAuth(): boolean {
     if (this.transport.pinnedPeer) return true;
-    const t = this.options.transport as { peerAuthenticated?: boolean };
-    if (t.peerAuthenticated === true) return true;
-    // Explicit ICE-authenticated association (WebRTC may set this alongside
-    // peerAuthenticated on the IceTransport).
-    if (this.options.addressValidation === "ice-authenticated") return true;
-    return false;
+    return this.isAuthenticatedSinglePeerTransport();
   }
 
   /** Restore transport.rinfo to pin so spoof sources do not stick for later TX fallbacks. */

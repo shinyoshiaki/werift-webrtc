@@ -178,3 +178,75 @@ test("e2e/self12: peerAuthenticated transport delivers protected close_notify", 
   await t1.close().catch(() => {});
   await t2.close().catch(() => {});
 }, 25_000);
+
+test("e2e/self12: peerAuthenticated transport app data + local close + epoch-0 ignore", async () => {
+  // Arrange: ICE-like addressless path
+  const { client, server, t1, t2 } = await connectPeerAuthPair();
+  expect((client as any).hasAssociationPeerAuth()).toBe(true);
+
+  // Act/Assert: protected app data bidirectional without UDP addresses
+  await new Promise<void>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error("app data timeout")), 5_000);
+    server.onData.subscribe((d) => {
+      try {
+        expect(d.toString()).toBe("peer-auth-app");
+        clearTimeout(t);
+        resolve();
+      } catch (e) {
+        clearTimeout(t);
+        reject(e);
+      }
+    });
+    void client.send(Buffer.from("peer-auth-app"));
+  });
+
+  // Act: epoch-0 unauthenticated fatal must NOT tear down
+  const errorsBefore = { n: 0 };
+  client.onError.subscribe(() => {
+    errorsBefore.n += 1;
+  });
+  const epoch0Fatal = Buffer.from([
+    ContentType.alert,
+    0xfe,
+    0xfd,
+    0,
+    0, // epoch 0
+    0,
+    0,
+    0,
+    0,
+    0,
+    1, // seq
+    0,
+    2, // length
+    2, // fatal
+    AlertDesc.InternalError,
+  ]);
+  t2.onData(epoch0Fatal, undefined as any);
+  await new Promise((r) => setTimeout(r, 30));
+  expect(errorsBefore.n).toBe(0);
+  expect((client as any).associationTornDown).toBe(false);
+  expect(client.connected).toBe(true);
+
+  // Act: local close → terminal, Public API rejects, onClose once
+  const closes: number[] = [];
+  client.onClose.subscribe(() => closes.push(1));
+  server.onClose.subscribe(() => closes.push(1));
+  client.close();
+  await new Promise((r) => setTimeout(r, 50));
+  expect((client as any).associationTornDown).toBe(true);
+  await expect(client.send(Buffer.from("after-close"))).rejects.toThrow(
+    /closed/i,
+  );
+  // Re-entrant close is idempotent
+  client.close();
+  expect(closes.length).toBeGreaterThanOrEqual(1);
+
+  try {
+    server.close();
+  } catch {
+    /* */
+  }
+  await t1.close().catch(() => {});
+  await t2.close().catch(() => {});
+}, 25_000);

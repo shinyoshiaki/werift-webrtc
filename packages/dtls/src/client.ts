@@ -1238,6 +1238,11 @@ export class DtlsClient extends DtlsSocket {
               if (!this.isLegacy12PathActive(gen)) return;
               this.commitDualTo12();
               if (!this.isLegacy12PathActive(gen)) return;
+              // Same as pure 1.2: do not replace Flight5 on duplicate SH.
+              if (this.flight5 || this.dtls.flight >= 5 || this.connected) {
+                this.flight5?.handleHandshake(handshake);
+                break;
+              }
               this.flight5 = new Flight5(
                 this.transport,
                 this.dtls,
@@ -1274,6 +1279,12 @@ export class DtlsClient extends DtlsSocket {
             }
 
             if (!this.isLegacy12PathActive(gen)) return;
+            // Duplicate ServerHello (Flight4 retransmit) must not replace an
+            // existing Flight5 mid-handshake or re-apply crypto (ECDHE).
+            if (this.flight5 || this.dtls.flight >= 5 || this.connected) {
+              this.flight5?.handleHandshake(handshake);
+              break;
+            }
             this.flight5 = new Flight5(
               this.transport,
               this.dtls,
