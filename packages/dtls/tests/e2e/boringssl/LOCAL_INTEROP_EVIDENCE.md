@@ -17,3 +17,5 @@ Review-fix coverage:
 - Flight6 Finished duplicate unit — cache de-dupe
 - HVR stale retransmit — `activeFlight3Waiting() === 1` after gen1 exit
 - Flight.transmit — `flightTxGeneration` tags send waves; stale errors ignored
+
+re-review trigger 2026-08-12T10:49:06Z
