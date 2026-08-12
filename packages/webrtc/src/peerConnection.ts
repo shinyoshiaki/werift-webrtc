@@ -476,27 +476,19 @@ export class RTCPeerConnection extends EventTarget {
       v.id = 1 + i;
     });
 
-    // Propagate ICE server changes to live transports.
-    // JSEP (RFC 8829 §4.1.18): STUN/TURN changes affect the next gathering
-    // phase. Always stage the new servers on Connection; if any gatherer has
-    // already started, mark needRestart so the next createOffer regenerates
-    // ICE credentials and uses the new servers (WHIP Link-header path and
-    // post-gather updates both rely on this).
+    // Propagate ICE server changes only to transports still in gathering
+    // state "new". JSEP (RFC 8829 §4.1.18): STUN/TURN changes affect the next
+    // gathering phase; once gathering has started or finished, nothing is
+    // applied to the live Connection (WHIP: createOffer → setConfiguration →
+    // setLocalDescription). Per-transport state is used so a gatherer that
+    // was reset to "new" (e.g. after ICE restart) is not blocked by a stale
+    // manager aggregate of "complete".
     if (
       isReconfiguration &&
       this.secureManager &&
       normalizedConfig.iceServers !== undefined
     ) {
       this.secureManager.updateIceServers();
-
-      // Prefer per-transport gatherer state over the manager aggregate: after
-      // ICE restart the gatherer is "new" even if the cached aggregate lagged.
-      const hasStartedGathering = this.secureManager.iceTransports.some(
-        (transport) => transport.gatheringState !== "new",
-      );
-      if (hasStartedGathering) {
-        this.needRestart = true;
-      }
     }
   }
 

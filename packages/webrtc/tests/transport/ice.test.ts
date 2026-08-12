@@ -139,8 +139,8 @@ describe("iceTransport", () => {
       }
     });
 
-    test("gathering 完了後の setConfiguration は servers を stage し needRestart を立てる", async () => {
-      // Arrange: gather 完了まで進める
+    test("gathering 完了後の setConfiguration は live Connection を更新しない", async () => {
+      // Arrange: gather 完了まで進める（チケット: started/finished には何も適用しない）
       const pc = new RTCPeerConnection({ iceServers: [] });
       try {
         pc.createDataChannel("post-gather");
@@ -149,8 +149,9 @@ describe("iceTransport", () => {
         await ice.gather();
         expect(ice.gatheringState).toBe("complete");
         expect(pc.iceGatheringState).toBe("complete");
+        expect(ice.connection.turnServer).toBeUndefined();
 
-        // Act: gathering 完了後に TURN を設定（RFC 8829 §4.1.18）
+        // Act: gathering 完了後に TURN を設定
         pc.setConfiguration({
           iceServers: [
             {
@@ -161,26 +162,26 @@ describe("iceTransport", () => {
           ],
         });
 
-        // Assert: Connection には常に stage され、次 createOffer で restart が要る
-        expect(ice.connection.turnServer).toEqual(["turn.example.com", 3478]);
-        expect(ice.connection.options.turnUsername).toBe("late-user");
-        expect((pc as any).needRestart).toBe(true);
-
-        // Act: createOffer で ICE restart
-        await pc.createOffer();
-
-        // Assert: restart 後は gatherer が new、新 TURN が残っている
-        expect(ice.gatheringState).toBe("new");
-        expect(pc.iceGatheringState).toBe("new");
-        expect(ice.connection.turnServer).toEqual(["turn.example.com", 3478]);
+        // Assert: PeerConfig には入るが live Connection は触らない
+        // （古い TURN protocol / relay を再広告する危険を避ける）
+        expect(pc.getConfiguration().iceServers).toEqual([
+          {
+            urls: "turn:turn.example.com:3478",
+            username: "late-user",
+            credential: "late-pass",
+          },
+        ]);
+        expect(ice.connection.turnServer).toBeUndefined();
+        expect(ice.connection.options.turnUsername).toBeUndefined();
         expect((pc as any).needRestart).toBe(false);
       } finally {
         await pc.close();
       }
     });
 
-    test("ICE restart 後の gatherer は new で setConfiguration が即時反映される", async () => {
-      // Arrange: 一度 gather 完了 → restart（旧実装では manager が complete のまま残った）
+    test("ICE restart 後 gatheringState が new なら setConfiguration が反映される", async () => {
+      // Arrange: 一度 gather 完了 → restart
+      // setGatheringState 経由で manager 集約も new に戻る
       const pc = new RTCPeerConnection({ iceServers: [] });
       try {
         pc.createDataChannel("restart-sync");
@@ -194,7 +195,7 @@ describe("iceTransport", () => {
         expect(ice.gatheringState).toBe("new");
         expect(pc.iceGatheringState).toBe("new");
 
-        // Act: restart 直後に setConfiguration（PR の「まだ gather していない gatherer」）
+        // Act: restart 直後（まだ gather していない）に setConfiguration
         pc.setConfiguration({
           iceServers: [
             {
@@ -205,7 +206,7 @@ describe("iceTransport", () => {
           ],
         });
 
-        // Assert: 状態 new なので needRestart なしで TURN が即 stage される
+        // Assert: gatheringState new なので TURN が stage される（needRestart は立てない）
         expect(ice.connection.turnServer).toEqual([
           "post-restart.example.com",
           3478,
