@@ -1162,6 +1162,8 @@ test("e2e/dual: late 1.3 packet after commit12 does not reverse version", async 
 /**
  * Test 4b (必須): commit13 後の late 1.2 SH / HVR / alert は 1.2 に戻らず、
  * public error を誤発火しない。
+ *
+ * late 1.2 ServerHello 本体も明示注入し、version 巻き戻しなしを固定する。
  */
 test("e2e/dual: late 1.2 packet after commit13 does not reverse version", async () => {
   // Arrange: CH-A + spoofed HVR race で 1.3 完走
@@ -1190,29 +1192,99 @@ test("e2e/dual: late 1.2 packet after commit13 does not reverse version", async 
   const connects: number[] = [];
   client.onConnect.subscribe(() => connects.push(Date.now()));
 
-  // Act: late 1.2-style packets
-  clientTransport.onData?.(
-    buildHvrDatagram(Buffer.alloc(8, 0xcd)),
-    clientFacingServerPeer(serverTransport),
-  );
+  const peer = clientFacingServerPeer(serverTransport);
+
+  // Act: late 1.2-style packets（HVR / epoch-0 alert / **1.2 ServerHello 本体**）
+  clientTransport.onData?.(buildHvrDatagram(Buffer.alloc(8, 0xcd)), peer);
   const alertBody = Buffer.from([2, AlertDesc.HandshakeFailure]);
   clientTransport.onData?.(
     serializePlaintextRecord(ContentType.alert, 0, 0, alertBody),
-    clientFacingServerPeer(serverTransport),
+    peer,
   );
+  // Explicit late 1.2 SH: must not commit12 or surface public version error
+  clientTransport.onData?.(buildDtls12StyleServerHelloRecord(), peer);
   await new Promise((r) => setTimeout(r, 50));
 
-  // Assert: still 1.3 committed; no extra connect; no new public error required
-  // (engine may silently discard unauthenticated late records)
+  // Assert: still 1.3 committed; no version rollback; no extra connect/error
   expect(client.dualAssociationPhase).toBe("committed13");
   expect(client.isDtls13).toBe(true);
+  expect((client as any).engine13).toBeTruthy();
   expect(connects).toEqual([]);
-  // late unauthenticated alert must not surface as association-level version flip
   expect(errors.length).toBe(errCount);
+  // Public API still 1.3 (send path must not fall through to 1.2)
+  await client.send(Buffer.from("still-dtls13"));
 
   client.close();
   server.close();
 }, 25_000);
+
+/**
+ * P2: resumeDtls13FromDualPath で parked / dualResume が両方欠ける場合は
+ * onError のみで dualPhase=committed13 に残さず association を閉じる。
+ */
+test("e2e/dual: resume 1.3 without parked/material tears down association", async () => {
+  // Arrange: probing まで進めてから resume 材料を意図的に落とす
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+  });
+  const errors: Error[] = [];
+  client.onError.subscribe((e) => errors.push(e));
+
+  let hvrInjected = false;
+  clientTransport.send = async () => {
+    if (!hvrInjected && client.dualAssociationPhase === "none") {
+      hvrInjected = true;
+      queueMicrotask(() => {
+        injectHvr(clientTransport, serverTransport);
+      });
+    }
+  };
+
+  void client.connect();
+  for (let i = 0; i < 50; i++) {
+    if (client.dualAssociationPhase === "probing") break;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  expect(client.dualAssociationPhase).toBe("probing");
+  expect((client as any).parkedEngine13).toBeTruthy();
+  expect((client as any).dualResume).toBeTruthy();
+
+  // Act: resume 材料を除去してから 1.3 SH を注入
+  (client as any).parkedEngine13 = undefined;
+  (client as any).dualResume = undefined;
+  clientTransport.onData?.(
+    buildMinimalDtls13ServerHelloRecord(),
+    clientFacingServerPeer(serverTransport),
+  );
+  await new Promise((r) => setTimeout(r, 30));
+
+  // Assert: association closed（committed13 に片肺で残らない）
+  expect(errors.length).toBeGreaterThanOrEqual(1);
+  expect(errors[errors.length - 1].message).toMatch(
+    /dual ClientHello material is missing|protocol/i,
+  );
+  expect(client.dualAssociationPhase).toBe("closed");
+  expect(client.connected).toBe(false);
+  expect(client.isDtls13).toBe(false);
+  await expect(client.send(Buffer.from("after-missing-resume"))).rejects.toThrow(
+    /closed/i,
+  );
+
+  try {
+    client.close();
+  } catch {
+    /* */
+  }
+  await serverTransport.close().catch(() => {});
+  await clientTransport.close().catch(() => {});
+}, 15_000);
 
 /**
  * Test 5 (必須): probing 中の close と packet arrival の race。
@@ -2279,10 +2351,12 @@ test("e2e/dual: close during handleHandshakes await aborts 1.2 flight", async ()
 }, 20_000);
 
 /**
- * P1: handleHandshakes await 中に 1.3 commit すると 1.2 Flight5 が再開しない。
+ * P1: handleHandshakes await 中に association gen が進むと 1.2 Flight5 が再開しない。
+ * dualPhase を直接書き換えず、associationGen 無効化 + flight abort で再現する
+ * （観測 API / 実 lifecycle トークンに寄せる）。
  */
 test("e2e/dual: commit13 during handleHandshakes await aborts 1.2 path", async () => {
-  // Arrange: dual client × 1.2 server。wait 中に gen/phase を commit13 相当に進める
+  // Arrange: dual client × 1.2 server。wait 中に gen を進めて in-flight 1.2 を無効化
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
@@ -2314,25 +2388,24 @@ test("e2e/dual: commit13 during handleHandshakes await aborts 1.2 path", async (
   client.onConnect.subscribe(() => connects.push(Date.now()));
 
   const origWait = (client as any).waitForReady.bind(client);
-  let committedDuringWait = false;
+  let invalidatedDuringWait = false;
   (client as any).waitForReady = async (cond: () => boolean) => {
     await new Promise((r) => setTimeout(r, 80));
     if (
-      !committedDuringWait &&
+      !invalidatedDuringWait &&
       (client.dualAssociationPhase === "committed12" ||
         client.dualAssociationPhase === "probing")
     ) {
-      // Act: 1.2 非同期待機中に association gen を進める（commit13 相当）
-      committedDuringWait = true;
-      // private dualPhase を直接進める（観測用 getter は read-only）
-      (client as any).dualPhase = "committed13";
+      // Act: associationGen を進め in-flight handleHandshakes を無効化
+      // （dualPhase 直書きは使わない — gen token が commit13/close 相当）
+      invalidatedDuringWait = true;
       (client as any).associationGen++;
       (client as any).flight5 = undefined;
-      (client as any).dtls.flight = 99;
+      (client as any).abortLegacy12Flight();
       // handleHandshakes 側の isLegacy12PathActive(gen) が false になる
       return;
     }
-    if (client.dualAssociationPhase === "committed13") return;
+    if (invalidatedDuringWait) return;
     try {
       return await origWait(cond);
     } catch {
@@ -2341,13 +2414,13 @@ test("e2e/dual: commit13 during handleHandshakes await aborts 1.2 path", async (
   };
 
   void client.connect();
-  for (let i = 0; i < 150 && !committedDuringWait; i++) {
+  for (let i = 0; i < 150 && !invalidatedDuringWait; i++) {
     await new Promise((r) => setTimeout(r, 20));
   }
   await new Promise((r) => setTimeout(r, 500));
 
-  // Assert: 1.2 onConnect なし（commit13 後の Flight5 再開抑止）
-  expect(committedDuringWait).toBe(true);
+  // Assert: 1.2 onConnect なし（gen 無効化後の Flight5 再開抑止）
+  expect(invalidatedDuringWait).toBe(true);
   expect(connects).toEqual([]);
   expect(client.connected).toBe(false);
 

@@ -996,13 +996,6 @@ export class DtlsClient extends DtlsSocket {
       // Late 1.3 after close or 1.2 commit must not reverse the association.
       return;
     }
-    // Stop 1.2 Flight1 retransmit by advancing flight only — never set fatalError
-    // for a successful version commit (would surface as delayed public onError).
-    this.abortLegacy12Flight();
-    this.dualPhase = "committed13";
-    // Invalidate in-flight 1.2 handleHandshakes / Flight5 after version commit.
-    this.associationGen++;
-    this.flight5 = undefined;
 
     const rinfo = (
       this.options.transport as {
@@ -1011,8 +1004,27 @@ export class DtlsClient extends DtlsSocket {
     ).rinfo;
 
     const parked = this.parkedEngine13;
-    this.parkedEngine13 = undefined;
     const material = this.dualResume;
+
+    // No parked engine and no CH-A material: cannot complete 1.3 resume.
+    // Tear down association (do not leave dualPhase=committed13 without engine).
+    if ((!parked || parked.isClosed()) && !material) {
+      this.reportLegacy12Fatal(
+        new ProtocolVersionError(
+          "dual path selected DTLS 1.3 but dual ClientHello material is missing",
+        ),
+      );
+      return;
+    }
+
+    // Stop 1.2 Flight1 retransmit by advancing flight only — never set fatalError
+    // for a successful version commit (would surface as delayed public onError).
+    this.abortLegacy12Flight();
+    this.dualPhase = "committed13";
+    // Invalidate in-flight 1.2 handleHandshakes / Flight5 after version commit.
+    this.associationGen++;
+    this.flight5 = undefined;
+    this.parkedEngine13 = undefined;
     this.dualResume = undefined;
 
     if (parked && !parked.isClosed()) {
@@ -1028,15 +1040,8 @@ export class DtlsClient extends DtlsSocket {
       return;
     }
 
-    if (!material) {
-      this.onError.execute(
-        new ProtocolVersionError(
-          "dual path selected DTLS 1.3 but dual ClientHello material is missing",
-        ),
-      );
-      return;
-    }
-
+    // material is defined: early return when both parked and material missing.
+    const resumeMaterial = material!;
     log(
       "dual association: ServerHello selected DTLS 1.3 — resume 1.3 engine from dualResume",
     );
@@ -1061,7 +1066,7 @@ export class DtlsClient extends DtlsSocket {
     );
     // Prime with original CH-A (pre-cookie) so transcript/ECDHE match the
     // server response for the first dual ClientHello, not a post-HVR rewrite.
-    engine.primeFromSentClientHello(material);
+    engine.primeFromSentClientHello(resumeMaterial);
     this.bridgeEngine13(engine);
     // Constructor stole transport.onData / inject — reclaim for association.
     this.bindAssociationInbound(engine);
