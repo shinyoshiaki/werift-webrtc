@@ -97,6 +97,8 @@ Other warning alerts keep the association open. Create a **new** client/server f
 
 Outbound DTLS 1.2 application and flight data use an **association-owned peer pin**, not the last UDP `rinfo` alone, so spoofed packets cannot redirect TX after cookie verification (server) or `connect()` (client). DTLS 1.3 engines pin the peer independently inside the engine.
 
+Generated Public API docs (`doc/classes/DtlsClient.md`, `DtlsServer.md`, `DtlsSocket.md`) are produced by root `npm run doc` and verified by `npm run doc:check` (part of `npm run ci`). After Public API or lifecycle changes, regenerate and commit `doc/` so the gate stays green.
+
 BoringSSL DTLS 1.3 interop (P0): see `tests/e2e/boringssl/README.md`. CI job `dtls13-boringssl` runs `fetch-and-build-boringssl.sh` against the pinned revision in `BORINGSSL_REVISION` and fails on pin/harness mismatch (`CI=true` / `WERIFT_REQUIRE_BORINGSSL=1`).
 
 # reference
