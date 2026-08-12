@@ -1173,6 +1173,19 @@ Advertise local ICE lite and operate in the controlled role.
 
 > **iceServers**: `object`[]
 
+##### iceStunGatherTimeout
+
+> **iceStunGatherTimeout**: `undefined` \| `number`
+
+Seconds to wait for server-reflexive candidates while gathering.
+Defaults to 5 when undefined.
+
+##### iceTcpPassive
+
+> **iceTcpPassive**: `boolean`
+
+Gather passive (listening) TCP host candidates. Defaults to true.
+
 ##### iceTransportPolicy
 
 > **iceTransportPolicy**: `"relay"` \| `"all"`
