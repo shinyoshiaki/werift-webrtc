@@ -9,9 +9,9 @@ const sig = {
   signature: SignatureAlgorithm.rsa_1,
 };
 
-async function connectPair13(serverVersions: readonly DtlsVersion[] = [
-  DtlsVersion.V1_3,
-]) {
+async function connectPair13(
+  serverVersions: readonly DtlsVersion[] = [DtlsVersion.V1_3],
+) {
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
@@ -32,7 +32,10 @@ async function connectPair13(serverVersions: readonly DtlsVersion[] = [
   });
 
   await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("connect timeout")), 15_000);
+    const timer = setTimeout(
+      () => reject(new Error("connect timeout")),
+      15_000,
+    );
     let c = false;
     let s = false;
     const done = () => {

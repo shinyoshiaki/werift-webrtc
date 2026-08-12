@@ -29,7 +29,10 @@ async function connectPair12() {
   });
 
   await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("connect timeout")), 15_000);
+    const timer = setTimeout(
+      () => reject(new Error("connect timeout")),
+      15_000,
+    );
     let c = false;
     let s = false;
     const done = () => {
@@ -125,9 +128,10 @@ test("e2e/self12: server pin is set-if-empty (spoof cannot replace)", async () =
   const { client, server, clientTransport, serverTransport } =
     await connectPair12();
 
-  const pinBefore = [
-    ...(server as any).transport.pinnedPeer,
-  ] as [string, number];
+  const pinBefore = [...(server as any).transport.pinnedPeer] as [
+    string,
+    number,
+  ];
 
   // Act: spoof + send path that might re-pin from rinfo
   const spoof = createSocket("udp4");
