@@ -2642,9 +2642,7 @@ describe("media/sender bandwidth estimator", () => {
       // AIMD は acked 上限制約で下がり得るが、×0.8 固定 drop は入らない
       expect(gcc.availableBitrate).toBeGreaterThan(startBps * 0.5);
       // 少なくとも start×0.8 ちょうどに張り付く実装ではない
-      expect(gcc.availableBitrate).not.toBe(
-        Math.round(startBps * 0.8),
-      );
+      expect(gcc.availableBitrate).not.toBe(Math.round(startBps * 0.8));
     });
 
     test("同一 batch 先頭 RTT>3s・末尾 RTT<3s でも max RTT で probe cause が high", () => {
