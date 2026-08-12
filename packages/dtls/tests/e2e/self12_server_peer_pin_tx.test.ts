@@ -92,9 +92,10 @@ test("e2e/self12: server app send stays on real peer after spoof RX", async () =
   // Act: spoof datagram — UdpTransport updates rinfo then association RX
   // drops non-pin and restores rinfo to pin (RX ownership).
   const serverPort = (serverTransport.address as { port: number }).port;
-  const pinBefore = [
-    ...(server as any).transport.pinnedPeer,
-  ] as [string, number];
+  const pinBefore = [...(server as any).transport.pinnedPeer] as [
+    string,
+    number,
+  ];
   await new Promise<void>((resolve, reject) => {
     spoof.send(Buffer.from("spoof-noise"), serverPort, "127.0.0.1", (err) => {
       if (err) reject(err);

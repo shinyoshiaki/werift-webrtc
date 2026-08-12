@@ -90,11 +90,7 @@ test("e2e/dual: committed12 fatal alert tears down association", async () => {
   client.onClose.subscribe(() => closes.push(Date.now()));
 
   // AEAD-protected fatal (epoch-0 plaintext is ignored post-handshake)
-  const alertPkt = encryptServerAlert(
-    server,
-    2,
-    AlertDesc.HandshakeFailure,
-  );
+  const alertPkt = encryptServerAlert(server, 2, AlertDesc.HandshakeFailure);
   (client as any).udpOnMessage(alertPkt, serverPeer(serverTransport));
 
   // Assert: onError 直後に association は閉じている

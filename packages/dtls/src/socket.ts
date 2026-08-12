@@ -17,12 +17,12 @@ import { DtlsContext } from "./context/dtls";
 import { SrtpContext } from "./context/srtp";
 import { TransportContext } from "./context/transport";
 import type { Dtls13Connection } from "./engine/v1_3/connection";
+import { peerKeyFromAddr } from "./handshake/extensions/cookie";
 import { EllipticCurves } from "./handshake/extensions/ellipticCurves";
 import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecret";
 import { RenegotiationIndication } from "./handshake/extensions/renegotiationIndication";
 import { Signature } from "./handshake/extensions/signature";
 import { UseSRTP } from "./handshake/extensions/useSrtp";
-import { peerKeyFromAddr } from "./handshake/extensions/cookie";
 import type { Alert } from "./handshake/message/alert";
 import type { SrtpProfile } from "./imports/rtp";
 import { createPlaintext } from "./record/builder";
@@ -216,10 +216,10 @@ export class DtlsSocket {
         ),
         peerKeyFromAddr(
           this.transport.pinnedPeer
-            ? ([
-                this.transport.pinnedPeer[0],
-                this.transport.pinnedPeer[1],
-              ] as [string, number])
+            ? ([this.transport.pinnedPeer[0], this.transport.pinnedPeer[1]] as [
+                string,
+                number,
+              ])
             : undefined,
         ),
       );

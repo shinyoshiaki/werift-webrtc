@@ -32,7 +32,10 @@ async function connectPair12() {
   });
 
   await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("connect timeout")), 15_000);
+    const timer = setTimeout(
+      () => reject(new Error("connect timeout")),
+      15_000,
+    );
     let c = false;
     let s = false;
     const done = () => {
