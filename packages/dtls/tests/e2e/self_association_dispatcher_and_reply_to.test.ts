@@ -1,12 +1,12 @@
 import { expect, test } from "vitest";
 import { UdpTransport } from "../../../common/src";
 import { DtlsServer, DtlsVersion } from "../../src";
+import { DirectHandshakeCarrier } from "../../src/carrier/direct";
 import {
   CipherSuite,
   HashAlgorithm,
   SignatureAlgorithm,
 } from "../../src/cipher/const";
-import { DirectHandshakeCarrier } from "../../src/carrier/direct";
 import { EllipticCurves } from "../../src/handshake/extensions/ellipticCurves";
 import { Signature } from "../../src/handshake/extensions/signature";
 import { ClientHello } from "../../src/handshake/message/client/hello";
@@ -341,5 +341,3 @@ test("e2e/self13: close then carrier.inject is dropped by association", async ()
   await clientTransport.close().catch(() => {});
   await serverTransport.close().catch(() => {});
 }, 20_000);
-
-

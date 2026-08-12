@@ -1,11 +1,12 @@
 # WPT partial-pass progress
 
-| Generated at | 2026-08-12T04:23:58.179Z |
+| Generated at | 2026-08-12T06:49:25.634Z |
 
 ## Target success rates
 
 | File | Variant | PASS | FAIL | TIMEOUT | TOTAL | Excluded | Effective PASS/TOTAL | Success rate | Status |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| webrtc/RTCPeerConnection-setRemoteDescription-rollback.html | ?rest | 0 | 0 | 1 | 1 | 0 | 0/1 | 0.0% | active |
 | webrtc/simulcast/negotiation-encodings.https.html | (default) | 1 | 19 | 0 | 20 | 0 | 1/20 | 5.0% | active |
 | webrtc/RTCPeerConnection-mandatory-getStats.https.html | (default) | 4 | 69 | 0 | 73 | 0 | 4/73 | 5.5% | active |
 | webrtc/RTCRtpParameters-codec.html | (default) | 2 | 20 | 0 | 22 | 0 | 2/22 | 9.1% | active |
@@ -37,7 +38,6 @@
 | webrtc/protocol/msid-generate.html | (default) | 7 | 5 | 0 | 12 | 0 | 7/12 | 58.3% | active |
 | webrtc/protocol/msid-parse.html | (default) | 3 | 2 | 0 | 5 | 0 | 3/5 | 60.0% | active |
 | webrtc/RTCPeerConnection-createOffer.html | (default) | 3 | 2 | 0 | 5 | 0 | 3/5 | 60.0% | active |
-| webrtc/RTCPeerConnection-setRemoteDescription-rollback.html | ?rest | 12 | 8 | 0 | 20 | 0 | 12/20 | 60.0% | active |
 | webrtc/RTCRtpReceiver.https.html | (default) | 5 | 3 | 0 | 8 | 0 | 5/8 | 62.5% | active |
 | webrtc/protocol/rtp-payloadtypes.html | (default) | 2 | 1 | 0 | 3 | 0 | 2/3 | 66.7% | active |
 | webrtc/RTCPeerConnection-createAnswer.html | (default) | 2 | 1 | 0 | 3 | 0 | 2/3 | 66.7% | active |

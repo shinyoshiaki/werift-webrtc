@@ -304,10 +304,7 @@ export class DtlsServer extends DtlsSocket {
               !supportsVersion(this.protocolVersions, DtlsVersion.V1_3) &&
               clientHello.cipherSuites.every((c) => c === 0x1301)
             ) {
-              await this.sendPlaintextAlert(
-                AlertDesc.ProtocolVersion,
-                replyTo,
-              );
+              await this.sendPlaintextAlert(AlertDesc.ProtocolVersion, replyTo);
               if (this.associationTornDown) return;
               if (this.transport.pinnedPeer) {
                 this.reportLegacy12Fatal(
