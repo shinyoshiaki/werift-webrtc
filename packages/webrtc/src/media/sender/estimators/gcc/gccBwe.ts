@@ -34,10 +34,7 @@ import { LossBasedBwe, type LossPacketFeedback } from "./lossBasedBwe";
 import type { BandwidthUsage } from "./overuseDetector";
 import type { ProbeClusterConfig, ProbeState } from "./probeController";
 import { ProbeController } from "./probeController";
-import {
-  computeFeedbackRttStats,
-  RttBasedBackoff,
-} from "./rttBasedBackoff";
+import { RttBasedBackoff, computeFeedbackRttStats } from "./rttBasedBackoff";
 import { sortPacketResultsByWideSeq } from "./sequenceNumber";
 import { TrendlineEstimator } from "./trendlineEstimator";
 
@@ -381,10 +378,7 @@ export class GccBandwidthEstimator
     if (rttStats) {
       this.lastMaxFeedbackRttMs = rttStats.maxFeedbackRttMs;
       this.lastPropagationRttMs = rttStats.minPropagationRttMs;
-      this.rttBackoff.updatePropagationRtt(
-        nowMs,
-        rttStats.minPropagationRttMs,
-      );
+      this.rttBackoff.updatePropagationRtt(nowMs, rttStats.minPropagationRttMs);
       // AIMD TimeToReduceFurther: practical clamp on corrected/propagation RTT.
       const aimdRtt = this.rttBackoff.correctedRttMs();
       if (aimdRtt >= 10 && aimdRtt <= 2000) {
@@ -413,7 +407,9 @@ export class GccBandwidthEstimator
       let accepted = Math.min(probeBps, kMaxBitrateBps);
       let apply = false;
       const delayTarget =
-        this.delayBasedBps > 0 ? this.delayBasedBps : this.aimd.targetBitrateBps;
+        this.delayBasedBps > 0
+          ? this.delayBasedBps
+          : this.aimd.targetBitrateBps;
 
       if (accepted > delayTarget) {
         if (initialProbing) {

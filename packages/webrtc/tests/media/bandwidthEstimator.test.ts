@@ -3976,7 +3976,9 @@ describe("media/sender bandwidth estimator", () => {
       });
 
       const lossUpdateArgs: number[] = [];
-      const origLossUpdate = (gcc as any).lossBwe.update.bind((gcc as any).lossBwe);
+      const origLossUpdate = (gcc as any).lossBwe.update.bind(
+        (gcc as any).lossBwe,
+      );
       (gcc as any).lossBwe.update = (
         lossFraction: number,
         delayBasedBps: number,
