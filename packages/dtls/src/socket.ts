@@ -124,12 +124,18 @@ export class DtlsSocket {
    * Subclasses (dual client) may intercept before calling this.
    */
   protected handleUdpDatagram(data: Buffer): void {
+    // Terminal association: drop all RX (no onData / handshake resume after fatal).
+    if (this.associationTornDown) return;
+
     const packets = parsePacket(data);
 
     for (const packet of packets) {
       try {
+        // Re-check: async fatal during multi-record datagram must stop mid-loop.
+        if (this.associationTornDown) return;
         const messages = parsePlainText(this.dtls, this.cipher)(packet);
         for (const message of messages) {
+          if (this.associationTornDown) return;
           switch (message.type) {
             case ContentType.handshake:
               {
@@ -150,12 +156,18 @@ export class DtlsSocket {
 
                 this.onHandleHandshakes(assembled).catch((error) => {
                   err(this.dtls.sessionId, "onHandleHandshakes error", error);
-                  this.onError.execute(error);
+                  // Handshake failure is association-fatal: tear down (not onError-only).
+                  // Idempotent if a concurrent fatal already closed the association.
+                  const e =
+                    error instanceof Error ? error : new Error(String(error));
+                  this.reportLegacy12Fatal(e);
                 });
               }
               break;
             case ContentType.applicationData:
               {
+                // Never deliver app data after association terminal teardown.
+                if (this.associationTornDown) return;
                 this.onData.execute(message.data as Buffer);
               }
               break;
@@ -242,14 +254,18 @@ export class DtlsSocket {
   protected waitForReady = (condition: () => boolean) =>
     new Promise<void>(async (r, f) => {
       for (let i = 0; i < 10; i++) {
+        // Terminal association: stop polling so async HS does not linger after fatal/close.
+        if (this.associationTornDown) {
+          f(new Error("association closed during waitForReady"));
+          return;
+        }
         if (condition()) {
           r();
-          break;
-        } else {
-          await setTimeout(100 * i);
+          return;
         }
+        await setTimeout(100 * i);
       }
-      f("waitForReady timeout");
+      f(new Error("waitForReady timeout"));
     });
 
   handleFragmentHandshake(messages: FragmentedHandshake[]) {
@@ -343,14 +359,16 @@ export class DtlsSocket {
   }
 
   /**
-   * Tear down the 1.2 association then fire onError (and onClose when teardown ran).
-   * Used for fatal alerts, probing DOWNGRD / classify error, and other 1.2
-   * ProtocolVersionError paths so lifecycle matches handshake_failure alerts.
+   * Tear down the 1.2 association then fire onError + onClose once.
+   * Used for fatal alerts, handshake failures, probing DOWNGRD / classify error,
+   * and ProtocolVersionError paths. Idempotent: concurrent terminal paths must
+   * not double-fire public events.
    */
   protected reportLegacy12Fatal(error: Error): void {
-    const fireClose = this.failLegacy12Association(error);
+    // failLegacy12Association returns false when already terminal.
+    if (!this.failLegacy12Association(error)) return;
     this.onError.execute(error);
-    if (fireClose) this.onClose.execute();
+    this.onClose.execute();
   }
 
   /**

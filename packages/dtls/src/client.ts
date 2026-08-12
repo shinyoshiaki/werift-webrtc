@@ -222,11 +222,27 @@ export class DtlsClient extends DtlsSocket {
         this.srtp = new (this.srtp.constructor as any)();
         // Dual extensions: keep advertising full supported_versions preference order
         this.setupExtensionsForDualCookiePath();
-        void this.continueDualAfterHvr(e.helloVerifyCookie).catch((err) =>
-          this.onError.execute(
-            err instanceof Error ? err : new Error(String(err)),
-          ),
-        );
+        void this.continueDualAfterHvr(e.helloVerifyCookie).catch((err) => {
+          // Cookie-path failure while still probing with a live parked 1.3:
+          // stop 1.2 retransmit only — do not public-fail the association
+          // (CH-A RTO may still complete 1.3). If no 1.3 candidate remains,
+          // fail the whole association (no onError-only zombie state).
+          if (this.dualPhase === "closed" || this.associationTornDown) return;
+          const e = err instanceof Error ? err : new Error(String(err));
+          if (
+            this.dualPhase === "probing" &&
+            this.parkedEngine13 &&
+            !this.parkedEngine13.isClosed()
+          ) {
+            log(
+              "dual cookie path failed while parked 1.3 live — abort 1.2 flight only",
+              e.message,
+            );
+            this.abortLegacy12Flight(e);
+            return;
+          }
+          this.reportLegacy12Fatal(e);
+        });
       });
     }
   }

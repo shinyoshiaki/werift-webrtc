@@ -1273,9 +1273,9 @@ test("e2e/dual: resume 1.3 without parked/material tears down association", asyn
   expect(client.dualAssociationPhase).toBe("closed");
   expect(client.connected).toBe(false);
   expect(client.isDtls13).toBe(false);
-  await expect(client.send(Buffer.from("after-missing-resume"))).rejects.toThrow(
-    /closed/i,
-  );
+  await expect(
+    client.send(Buffer.from("after-missing-resume")),
+  ).rejects.toThrow(/closed/i);
 
   try {
     client.close();
@@ -1606,6 +1606,9 @@ test("e2e/dual: 1.3-only version mismatch tears down association to closed", asy
   client.onError.subscribe((e) => fatalErrors.push(e));
   client.onConnect.subscribe(() => connects.push(Date.now()));
 
+  // Server may hard-close transport on protocol_version — pin peer while open.
+  const serverPeer = clientFacingServerPeer(serverTransport);
+
   // Act: HVR → ProtocolVersionError（1.3-only は dual soft に入らない）
   void client.connect();
   for (let i = 0; i < 100 && fatalErrors.length === 0; i++) {
@@ -1625,10 +1628,7 @@ test("e2e/dual: 1.3-only version mismatch tears down association to closed", asy
 
   // 再 inject しても state 不変・追加 connect なし
   const errCount = fatalErrors.length;
-  clientCarrier.inject(
-    buildHvrDatagram(),
-    clientFacingServerPeer(serverTransport),
-  );
+  clientCarrier.inject(buildHvrDatagram(), serverPeer);
   await new Promise((r) => setTimeout(r, INITIAL_RTO_MS + 200));
   expect(fatalErrors.length).toBe(errCount);
   expect(connects).toEqual([]);

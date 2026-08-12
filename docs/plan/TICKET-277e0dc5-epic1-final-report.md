@@ -20,6 +20,12 @@
 | A7 | P2 | レビュー | probing DOWNGRD / classify `error` が onError のみ | `reportLegacy12Fatal` で association 閉じる |
 | A8 | P2 | レビュー | `resumeDtls13FromDualPath` material 欠落が onError のみ | 欠落時は `reportLegacy12Fatal`（committed13 に残さない） |
 | A9 | P3 | 改善 | e2e の `(client as any).dualPhase` | `dualAssociationPhase` getter へ段階移行 |
+| A10 | P1 | 自律 | `onHandleHandshakes` 失敗が onError のみ | `reportLegacy12Fatal` で association tear down |
+| A11 | P1 | 自律 | server `ProtocolVersionError` が onError のみ | `reportLegacy12Fatal` |
+| A12 | P1 | 自律 | terminal 後も pure 1.2 RX が onData し得る | `handleUdpDatagram` で `associationTornDown` drop |
+| A13 | P2 | 自律 | dual cookie path fail が onError のみで parked 1.3 を巻き込み得る | probing+parked 時は 1.2 flight のみ abort |
+| A14 | P2 | 自律 | `reportLegacy12Fatal` 二重呼び出しで onError 二重 | 既 terminal なら event 再発火しない |
+| A15 | P2 | 自律 | `waitForReady` が close 後もポーリング継続 | `associationTornDown` で即 reject |
 
 ---
 
@@ -28,14 +34,15 @@
 | コマンド | 結果 |
 | --- | --- |
 | `cd packages/dtls && npm run type` | 成功 |
-| `cd packages/dtls && npm test` | **294 passed** / 1 skipped |
-| dual e2e (`self13_dual_hvr_resume` 等) | 全成功（必須 1–5 + late 1.2 SH / missing resume） |
+| `cd packages/dtls && npm test` | **298 passed** / 1 skipped |
+| dual e2e (`self13_dual_hvr_resume` 等) | 全成功（必須 1–5 + lifecycle） |
 | OpenSSL DTLS 1.2 (`client` / `server` / `client_dual_openssl`) | 成功 |
-| BoringSSL DTLS 1.3 (`npm run test:boringssl`) | **5 passed** |
+| BoringSSL DTLS 1.3 (`npm run test:boringssl`) | **5 passed**（client + server roles） |
+| werift self 1.2 (`self.test`) | 成功 |
+| werift self 1.3 (`self13.test`) | 成功 |
+| dual fallback (`[1.3,1.2]` → 1.2-only) | 成功 |
 | `npm run type:packages` | 成功 |
-| `npm run test:small` | 成功（workspace unit） |
-| `npm run doc:check` | 生成 docs とソース整合 |
-| root `npm run ci` | WPT 含むフルゲートはマージ前に推奨 |
+| root `npm run ci` | 未確認（WPT 含むフルゲートはマージ前推奨） |
 
 ---
 
