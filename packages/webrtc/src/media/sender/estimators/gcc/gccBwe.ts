@@ -355,8 +355,7 @@ export class GccBandwidthEstimator
     const lossState = this.lossBwe.lossState;
     const lossStateIsProbeCompatible =
       lossState === "increasing" || lossState === "delay_based";
-    const allowNewProbe =
-      usage === "normal" && lossStateIsProbeCompatible;
+    const allowNewProbe = usage === "normal" && lossStateIsProbeCompatible;
 
     let target = Math.min(this.delayBasedBps, this.lossBasedBps);
 
