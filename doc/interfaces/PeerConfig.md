@@ -118,6 +118,23 @@ Minimum port and Maximum port must not be the same value
 
 ***
 
+### iceStunGatherTimeout
+
+> **iceStunGatherTimeout**: `undefined` \| `number`
+
+Seconds to wait for server-reflexive candidates while gathering.
+Defaults to 5 when undefined.
+
+***
+
+### iceTcpPassive
+
+> **iceTcpPassive**: `boolean`
+
+Gather passive (listening) TCP host candidates. Defaults to true.
+
+***
+
 ### iceTransportPolicy
 
 > **iceTransportPolicy**: `"relay"` \| `"all"`
