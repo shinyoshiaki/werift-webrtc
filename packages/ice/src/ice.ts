@@ -40,6 +40,9 @@ import { getHostAddresses } from "./utils";
 
 const log = debug("werift-ice : packages/ice/src/ice.ts : log");
 
+/** Fallback STUN server when none is configured (constructor / setIceServers). */
+const DEFAULT_STUN_SERVER: Address = ["stun.l.google.com", 19302];
+
 export class Connection implements IceConnection {
   localUsername = randomString(4);
   localPassword = randomString(22);
@@ -92,12 +95,7 @@ export class Connection implements IceConnection {
     if (this.iceLite) {
       this._iceControlling = false;
     }
-    const { stunServer, turnServer } = this.options;
-    this.stunServer = validateAddress(stunServer) ?? [
-      "stun.l.google.com",
-      19302,
-    ];
-    this.turnServer = validateAddress(turnServer);
+    this.applyStunTurnServersFromOptions();
     this.restart();
     log("new Connection", this.options);
   }
@@ -132,12 +130,19 @@ export class Connection implements IceConnection {
       this.options.turnTlsOptions = options.turnTlsOptions;
     }
 
-    this.stunServer = validateAddress(this.options.stunServer) ?? [
-      "stun.l.google.com",
-      19302,
-    ];
-    this.turnServer = validateAddress(this.options.turnServer);
+    this.applyStunTurnServersFromOptions();
     log("Connection ice servers updated", this.options);
+  }
+
+  /**
+   * Derive Connection.stunServer / turnServer from this.options.
+   * Shared by the constructor and setIceServers so both paths validate and
+   * default identically.
+   */
+  private applyStunTurnServersFromOptions() {
+    this.stunServer =
+      validateAddress(this.options.stunServer) ?? DEFAULT_STUN_SERVER;
+    this.turnServer = validateAddress(this.options.turnServer);
   }
 
   get iceControlling() {
