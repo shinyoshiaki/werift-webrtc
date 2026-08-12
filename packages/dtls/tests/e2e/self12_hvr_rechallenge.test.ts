@@ -128,9 +128,7 @@ test("e2e/self12: client handles second HVR after invalid-cookie re-challenge", 
   await new Promise<void>((resolve, reject) => {
     const t = setTimeout(
       () =>
-        reject(
-          new Error(`re-HVR handshake timeout (hvrCount=${hvrCount})`),
-        ),
+        reject(new Error(`re-HVR handshake timeout (hvrCount=${hvrCount})`)),
       25_000,
     );
     client.onConnect.subscribe(() => {

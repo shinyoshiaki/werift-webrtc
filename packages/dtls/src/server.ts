@@ -323,10 +323,7 @@ export class DtlsServer extends DtlsSocket {
 
             if (clientHello.cookie.length === 0) {
               // Late cookie-less CH after commit must not re-enter flight2 / HVR.
-              if (
-                this.dtls.clientHelloCommitted ||
-                this.dtls.flight >= 4
-              ) {
+              if (this.dtls.clientHelloCommitted || this.dtls.flight >= 4) {
                 log(
                   this.dtls.sessionId,
                   "ignore cookie-less ClientHello after association commit",
@@ -350,10 +347,7 @@ export class DtlsServer extends DtlsSocket {
               if (!cookieOk) {
                 // Already committed: do not re-challenge (would confuse client
                 // mid-Flight4). Drop invalid late CH2.
-                if (
-                  this.dtls.clientHelloCommitted ||
-                  this.dtls.flight >= 4
-                ) {
+                if (this.dtls.clientHelloCommitted || this.dtls.flight >= 4) {
                   log(
                     this.dtls.sessionId,
                     "ignore invalid cookie CH2 after association commit",
@@ -375,10 +369,7 @@ export class DtlsServer extends DtlsSocket {
 
               // Duplicate / retransmitted CH2 after first commit: resend cached
               // Flight4 only — never regenerate serverRandom / ECDHE.
-              if (
-                this.dtls.clientHelloCommitted ||
-                this.dtls.flight >= 4
-              ) {
+              if (this.dtls.clientHelloCommitted || this.dtls.flight >= 4) {
                 log(
                   this.dtls.sessionId,
                   "duplicate cookie CH2 — Flight4 resend without re-commit",
