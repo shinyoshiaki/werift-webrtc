@@ -23,3 +23,5 @@ re-review trigger 2026-08-12T10:49:06Z
 git-status-repair 2026-08-12T10:50:45Z
 
 re-review-after-git-env-clear 2026-08-12T10:53:31Z
+
+force-rereview 2026-08-12T10:55:08Z
