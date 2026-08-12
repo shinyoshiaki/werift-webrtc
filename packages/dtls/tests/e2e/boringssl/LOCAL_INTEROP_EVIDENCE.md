@@ -19,3 +19,5 @@ Review-fix coverage:
 - Flight.transmit — `flightTxGeneration` tags send waves; stale errors ignored
 
 re-review trigger 2026-08-12T10:49:06Z
+
+git-status-repair 2026-08-12T10:50:45Z
