@@ -8,6 +8,9 @@
 
 > `const` **kRttBasedBackOffHighRttMs**: `3000` = `3_000`
 
-libwebrtc RttBasedBackoff `configured_limit_` default (WebRTC-Bwe-MaxRttLimit
-field trial, default 3s). CorrectedRtt > this → IsRttAboveLimit →
-kRttBasedBackOffHighRtt → no new probes + periodic target drop.
+RTT threshold used with GetBandwidthLimitedCause (pin goog_cc_network_control):
+when IsRttAboveLimit is true, cause becomes kRttBasedBackOffHighRtt and
+ProbeController::InitiateProbing returns no clusters.
+Default 3s matches the common WebRTC-Bwe-MaxRttLimit field-trial default;
+send_side_bandwidth_estimation (rate ×0.8 drop) is **not** in this pin set,
+so high RTT only forbids probes — it does not force target bitrate drops.

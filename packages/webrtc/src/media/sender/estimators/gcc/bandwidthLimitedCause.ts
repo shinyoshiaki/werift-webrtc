@@ -1,10 +1,10 @@
-import type { LossBasedState } from "./lossBasedBwe";
-import type { BandwidthUsage } from "./overuseDetector";
 import {
   kLossLimitedProbeScale,
   kMaxBitrateBps,
   kRttBasedBackOffHighRttMs,
 } from "./constants";
+import type { LossBasedState } from "./lossBasedBwe";
+import type { BandwidthUsage } from "./overuseDetector";
 
 /**
  * libwebrtc `BandwidthLimitedCause` (probe_controller.h) — reason the BWE

@@ -27,9 +27,6 @@ import {
   kProbePaddingPacketBytes,
   kProbeResultMaxOverAcked,
   kProbeResultMaxOverTarget,
-  kRttBasedBackOffBandwidthFloorBps,
-  kRttBasedBackOffDropFraction,
-  kRttBasedBackOffDropIntervalMs,
   kSentInfoMaxAgeMs,
 } from "./constants";
 import { InterArrivalDelta } from "./interArrivalDelta";
@@ -111,8 +108,6 @@ export class GccBandwidthEstimator
    * AIMD keeps a separately clamped RTT for TimeToReduceFurther only.
    */
   private lastFeedbackRttMs = kDefaultRttMs;
-  /** Sender-clock time of last RttBasedBackoff target drop. */
-  private lastRttBackoffDecreaseMs = Number.NEGATIVE_INFINITY;
 
   get availableBitrate() {
     return this._availableBitrate;
@@ -400,39 +395,11 @@ export class GccBandwidthEstimator
     );
     const allowNewProbe = isProbeInitiationAllowed(bandwidthLimitedCause);
 
+    // High RTT only gates new probes (kRttBasedBackOffHighRtt → InitiateProbing
+    // empty). Target bitrate stays on delay/loss/probe paths in this pin set;
+    // SendSideBandwidthEstimation ×0.8 RttBasedBackoff drops are not applied
+    // (source file outside third_party/libwebrtc-ref).
     let target = Math.min(this.delayBasedBps, this.lossBasedBps);
-
-    // libwebrtc SendSideBandwidthEstimation::UpdateEstimate RttBasedBackoff:
-    // while CorrectedRtt > limit, periodically drop by drop_fraction and do
-    // not ramp up between drops (UpdateEstimate returns early after handling).
-    if (rttLimited) {
-      const floor = Math.max(
-        kMinBitrateBps,
-        kRttBasedBackOffBandwidthFloorBps,
-      );
-      const baseline =
-        this._availableBitrate > 0 ? this._availableBitrate : target;
-      if (
-        baseline > floor &&
-        nowMs - this.lastRttBackoffDecreaseMs >= kRttBasedBackOffDropIntervalMs
-      ) {
-        const dropped = Math.max(
-          baseline * kRttBasedBackOffDropFraction,
-          floor,
-        );
-        target = dropped;
-        this.aimd.setEstimate(dropped, nowMs);
-        this.lossBwe.setBandwidthEstimate(dropped);
-        this.delayBasedBps = dropped;
-        this.lossBasedBps = dropped;
-        this.lastRttBackoffDecreaseMs = nowMs;
-      } else {
-        // Hold: no increase while RTT remains above limit.
-        target = Math.min(target, baseline);
-        this.delayBasedBps = Math.min(this.delayBasedBps, target);
-        this.lossBasedBps = Math.min(this.lossBasedBps, target);
-      }
-    }
 
     // Apply valid probe results (libwebrtc GoogCc):
     // - Rise: only when not overusing; soft caps by initial vs recovery phase.
@@ -563,7 +530,6 @@ export class GccBandwidthEstimator
     this.probeClusterStartMs = 0;
     this.lastProbeTargetBps = 0;
     this.lastFeedbackRttMs = kDefaultRttMs;
-    this.lastRttBackoffDecreaseMs = Number.NEGATIVE_INFINITY;
   }
 
   dispose() {

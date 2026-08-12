@@ -37,7 +37,6 @@ import {
   kBeta,
   kLossLimitedProbeScale,
   kProbePaddingPacketBytes,
-  kRttBasedBackOffDropFraction,
   kRttBasedBackOffHighRttMs,
   kTrendlineWindowSize,
   maxProbeBitrateBps,
@@ -2609,15 +2608,13 @@ describe("media/sender bandwidth estimator", () => {
       expect(isRttAboveLimit(kRttBasedBackOffHighRttMs + 1)).toBe(true);
     });
 
-    test("RTT > 3s full-path で RttBasedBackoff が target を ×0.8 減速する", () => {
-      // Arrange: 送信時刻・TWCC のみで high RTT を作る（private 直書きなし）
-      // start=300kbps → 最初の valid sample 後に RTT limited drop が掛かる
+    test("RTT 高値・lossなし・overuseなしでは availableBitrate を強制低下させない", () => {
+      // Arrange: pin 内 GetBandwidthLimitedCause は high RTT → probe 禁止のみ。
+      // SendSideBandwidthEstimation の ×0.8 drop は pin 外なので適用しない。
       const startBps = 300_000;
       const gcc = new GccBandwidthEstimator(startBps);
-      const rates: number[] = [];
-      gcc.onAvailableBitrate.subscribe((r) => rates.push(r));
 
-      // Act: 全パケット earliest send ≈ now−3.5s → max_feedback_rtt > 3s
+      // Act: 全パケット received / stretch なし（overuse 誘発しない）+ high RTT
       const t0 = Date.now() - 3_500;
       const n = 12;
       for (let i = 0; i < n; i++) {
@@ -2629,54 +2626,36 @@ describe("media/sender bandwidth estimator", () => {
             return new PacketResult({
               sequenceNumber: i + 1,
               received: true,
+              // send 間隔と同等の recv 間隔 → delay gradient ≈ 0
               receivedAtMs: t0 + 40 + i * 20,
             });
           }),
         ),
       );
 
-      // Assert: 推定が公開され、RttBasedBackoff で start 未満（×0.8 方向）
-      expect(gcc.availableBitrate).toBeGreaterThan(0);
-      expect(gcc.availableBitrate).toBeLessThanOrEqual(
-        Math.round(startBps * kRttBasedBackOffDropFraction) + 1,
-      );
-      // max RTT = now − earliest send ≳ 3.5s
+      // Assert: max RTT > 3s だが target を RTT だけで ×0.8 しない
       expect((gcc as any).lastFeedbackRttMs).toBeGreaterThan(
         kRttBasedBackOffHighRttMs,
       );
-
-      // Act: drop_interval 未満の再 feedback（同じ high RTT 帯）でも再 drop しない
-      const afterFirst = gcc.availableBitrate;
-      const t1 = Date.now() - 3_400;
-      for (let i = 0; i < 5; i++) {
-        gcc.rtpPacketSent(sent(100 + i, 500, t1 + i * 10));
-      }
-      gcc.receiveTWCC(
-        makeTwccFeedback(
-          Array.from({ length: 5 }, (_, i) => {
-            return new PacketResult({
-              sequenceNumber: 100 + i,
-              received: true,
-              receivedAtMs: t1 + 20 + i * 10,
-            });
-          }),
-        ),
+      expect(gcc.availableBitrate).toBeGreaterThan(0);
+      // start から大きく強制減速されていない（delay/loss 以外の RTT drop なし）
+      // AIMD は acked 上限制約で下がり得るが、×0.8 固定 drop は入らない
+      expect(gcc.availableBitrate).toBeGreaterThan(startBps * 0.5);
+      // 少なくとも start×0.8 ちょうどに張り付く実装ではない
+      expect(gcc.availableBitrate).not.toBe(
+        Math.round(startBps * 0.8),
       );
-      // Assert: 1s interval 未満なら target を再度 ×0.8 しない
-      expect(gcc.availableBitrate).toBe(afterFirst);
-      expect(rates.length).toBeGreaterThanOrEqual(1);
     });
 
-    test("同一 batch 先頭 RTT>3s・末尾 RTT<3s でも max RTT で limited", () => {
+    test("同一 batch 先頭 RTT>3s・末尾 RTT<3s でも max RTT で probe cause が high", () => {
       // Arrange / pin: max_feedback_rtt = feedback_time − min(send_i)
-      // 先頭だけ 4s 前、末尾は 1s 前 → last-send 基準だと 1s で limited を逃す
+      // 先頭だけ 4s 前、末尾は 1s 前 → last-send 基準だと 1s で high を逃す
       const gcc = new GccBandwidthEstimator(250_000);
       const now = Date.now();
       const earlySend = now - 4_000; // RTT ≈ 4s
       const lateSend = now - 1_000; // RTT ≈ 1s (< 3s)
       const n = 10;
       for (let i = 0; i < n; i++) {
-        // 線形に early → late（先頭 high / 末尾 low）
         const sendMs =
           earlySend + Math.round(((lateSend - earlySend) * i) / (n - 1));
         gcc.rtpPacketSent(sent(i + 1, 600, sendMs));
@@ -2695,19 +2674,23 @@ describe("media/sender bandwidth estimator", () => {
         ),
       );
 
-      // Assert: max RTT は earliest send 基準で > 3s（末尾 1s では limited にならない）
+      // Assert: max RTT は earliest send 基準で > 3s
       const maxRtt = (gcc as any).lastFeedbackRttMs as number;
       expect(maxRtt).toBeGreaterThan(kRttBasedBackOffHighRttMs);
       expect(maxRtt).toBeGreaterThan(3_500);
-      // last-send only なら ≈1000ms になるはず → それより十分大きい
+      // last-send only なら ≈1000ms → それより大きい
       expect(maxRtt).toBeGreaterThan(2_500);
-      // public: high RTT で estimate が start から下がる（backoff）
+      // cause は RTT high → probe 禁止（bitrate 強制 drop はしない）
+      expect(
+        isProbeInitiationAllowed(
+          getBandwidthLimitedCause("normal", true, "delay_based"),
+        ),
+      ).toBe(false);
       expect(gcc.availableBitrate).toBeGreaterThan(0);
-      expect(gcc.availableBitrate).toBeLessThan(250_000);
     });
 
-    test("高 RTT → 正常 RTT full-path で backoff が解除され推定が回復し得る", () => {
-      // Arrange: 送信時刻と TWCC 到着（壁時計）だけで high → low を遷移
+    test("高 RTT → 正常 RTT full-path で sticky high が解消される", () => {
+      // Arrange: 送信時刻と TWCC だけで high → low を遷移
       const gcc = new GccBandwidthEstimator(200_000);
 
       // Act 1: high RTT batch
@@ -2729,12 +2712,10 @@ describe("media/sender bandwidth estimator", () => {
       expect((gcc as any).lastFeedbackRttMs).toBeGreaterThan(
         kRttBasedBackOffHighRttMs,
       );
-      const highLimitedBps = gcc.availableBitrate;
-      expect(highLimitedBps).toBeGreaterThan(0);
-      expect(highLimitedBps).toBeLessThan(200_000);
+      const highBps = gcc.availableBitrate;
+      expect(highBps).toBeGreaterThan(0);
 
-      // Act 2: 直後に low RTT batch（earliest send ≈ now−3ms）
-      // drop_interval 経過後も low RTT なら hold/forbid が解け、上昇し得る
+      // Act 2: low RTT batch（earliest send ≈ now−3ms）
       const lowSend = Date.now() - 3;
       for (let i = 11; i <= 25; i++) {
         gcc.rtpPacketSent(sent(i, 500, lowSend));
@@ -2751,10 +2732,17 @@ describe("media/sender bandwidth estimator", () => {
         ),
       );
 
-      // Assert: proxy が 10ms 未満に更新（sticky high 解消）
+      // Assert: proxy が 10ms 未満に更新（sticky high 解消 → probe 許可側へ）
       expect((gcc as any).lastFeedbackRttMs).toBeLessThan(10);
-      // RTT limited 解除後は high 時の強制 drop 状態から離れられる
-      // （AIMD が hold 中でも availableBitrate は 0 に張り付かない）
+      expect(
+        isProbeInitiationAllowed(
+          getBandwidthLimitedCause(
+            "normal",
+            isRttAboveLimit((gcc as any).lastFeedbackRttMs),
+            "delay_based",
+          ),
+        ),
+      ).toBe(true);
       expect(gcc.availableBitrate).toBeGreaterThan(0);
     });
 
@@ -2777,11 +2765,16 @@ describe("media/sender bandwidth estimator", () => {
         ),
       );
 
-      // Assert
+      // Assert: high RTT 記録 + probe cause forbid（bitrate 強制 drop なし）
       expect((gcc as any).lastFeedbackRttMs).toBeGreaterThan(30_000);
       expect((gcc as any).lastFeedbackRttMs).toBeGreaterThan(
         kRttBasedBackOffHighRttMs,
       );
+      expect(
+        isProbeInitiationAllowed(
+          getBandwidthLimitedCause("normal", true, "delay_based"),
+        ),
+      ).toBe(false);
       expect(gcc.availableBitrate).toBeGreaterThan(0);
     });
 
@@ -2795,9 +2788,7 @@ describe("media/sender bandwidth estimator", () => {
       let seq = 1;
       const fillAt = (base: number, count: number) => {
         for (let i = 0; i < count; i++) {
-          gcc.rtpPacketSent(
-            sent(seq++, 400, base + i, { isProbation: true }),
-          );
+          gcc.rtpPacketSent(sent(seq++, 400, base + i, { isProbation: true }));
         }
       };
       // 3x minPackets=5
@@ -2950,7 +2941,9 @@ describe("media/sender bandwidth estimator", () => {
       expect(probeCfgs.length).toBeGreaterThanOrEqual(1);
       const accepted = Math.max(...probeCfgs);
       // pending 400k が適用された後 forFurther 周りで ×1.5 cap
-      expect(accepted).toBeLessThanOrEqual(400_000 * kLossLimitedProbeScale + 1);
+      expect(accepted).toBeLessThanOrEqual(
+        400_000 * kLossLimitedProbeScale + 1,
+      );
       expect(accepted).toBeLessThan(400_000 * 2);
     });
 
