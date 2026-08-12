@@ -98,13 +98,19 @@ test("e2e/self12: fatal alert during retransmit sleep cancels timers", async () 
       ]),
   );
 
-  // Assert: onError 直後に timer/resolver が 0、flight 停止
+  // Assert: onError 直後に timer/resolver が 0、flight 停止 + association tear down
   expect(errors.length).toBe(1);
   expect(errors[0].message).toMatch(/alert|handshake|fatal/i);
   expect(serverDtls.fatalError).toBeTruthy();
   expect(serverDtls.flight).toBe(99);
   expect(serverDtls.flightTimers.size).toBe(0);
   expect(serverDtls.flightSleepResolvers.size).toBe(0);
+  expect(server.connected).toBe(false);
+  expect((server as any).associationTornDown).toBe(true);
+  // pure 1.2 Public API も閉じている（fatal 後に send 可能であってはならない）
+  await expect(server.send(Buffer.from("after-fatal"))).rejects.toThrow(
+    /closed/i,
+  );
 
   // RTO 相当待っても追加 retransmit なし
   await new Promise((r) => setTimeout(r, 600));

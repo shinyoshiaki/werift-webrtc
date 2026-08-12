@@ -313,6 +313,7 @@ export class DtlsClient extends DtlsSocket {
     // Cancel cancelable 1.2 retransmit sleeps (not just flight=99 sentinel).
     this.abortLegacy12Flight();
     this.connected = false;
+    this.associationTornDown = true;
     // Mark closed before onClose so re-entrant client.close() is a no-op
     // (handlers that call close() inside onClose must not recurse).
     this.dualPhase = "closed";
@@ -353,11 +354,47 @@ export class DtlsClient extends DtlsSocket {
   }
 
   /**
+   * DTLS 1.2 fatal alert / protocol_version on dual association (incl. committed12).
+   * Same ownership as 1.3 fatal: phase closed, carrier/transport down, Public API off.
+   * Caller fires onError then onClose when this returns true.
+   */
+  protected failLegacy12Association(error: Error): boolean {
+    if (this.dualPhase === "closed" || this.associationTornDown) return false;
+    log("dual association: 1.2 fatal teardown", error.message);
+    // Preserve fatalError for Flight loops; hard-close owns phase/carrier/transport.
+    this.abortLegacy12Flight(error);
+    this.closeAssociationHard({ hardDisposeCandidates: true });
+    return true;
+  }
+
+  /**
+   * Peer close_notify on DTLS 1.2 path (committed12 / pure dual 1.2):
+   * best-effort reply, then association hard-close with a single public onClose.
+   */
+  protected onLegacy12PeerCloseNotify(): void {
+    if (this.dualPhase === "closed" || this.associationTornDown) return;
+    log("dual association: 1.2 peer close_notify");
+    // Stop 1.2 retransmit before async reply so timers do not race teardown.
+    this.abortLegacy12Flight();
+    this.connected = false;
+    this.associationTornDown = true;
+    void this.sendLegacy12CloseNotify().finally(() => {
+      // closeAssociationHard is idempotent when dualPhase already closed;
+      // fire onClose once via firePublicOnClose if still open.
+      this.closeAssociationHard({
+        firePublicOnClose: true,
+        hardDisposeCandidates: true,
+      });
+    });
+  }
+
+  /**
    * Peer/engine onClose: mark dualPhase closed before public onClose so
    * re-entrant local close() inside handlers is idempotent (no second onClose).
    */
   protected prepareAssociationClosedFromEngine(): void {
     this.connected = false;
+    this.associationTornDown = true;
     this.abortLegacy12Flight();
     this.dualPhase = "closed";
     this.associationGen++;
@@ -446,7 +483,7 @@ export class DtlsClient extends DtlsSocket {
    * Active committed12 / committed13 / pure 1.2 (none) are allowed.
    */
   protected assertReadyForApplicationApi(op: string): void {
-    if (this.dualPhase === "closed") {
+    if (this.dualPhase === "closed" || this.associationTornDown) {
       throw new Error(`DTLS association is closed; cannot ${op}`);
     }
     if (this.dualPhase === "probing") {

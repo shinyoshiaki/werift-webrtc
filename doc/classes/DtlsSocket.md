@@ -33,6 +33,16 @@
 
 ## Properties
 
+### associationTornDown
+
+> `protected` **associationTornDown**: `boolean` = `false`
+
+True after DTLS 1.2 association hard/graceful teardown so pure-1.2 Public
+APIs stay disabled even if transport close is still racing.
+Dual client primarily uses dualPhase=closed; this flag is the base guard.
+
+***
+
 ### cipher
 
 > **cipher**: [`CipherContext`](CipherContext.md)
@@ -185,14 +195,14 @@ successful handshake complete (that only needs cancelLegacy12FlightTimers).
 
 ### assertReadyForApplicationApi()
 
-> `protected` **assertReadyForApplicationApi**(`_op`): `void`
+> `protected` **assertReadyForApplicationApi**(`op`): `void`
 
 Guard for send / exporter / remoteCertificate.
 Dual client overrides to reject `closed` and `probing` (no 1.2 fallthrough).
 
 #### Parameters
 
-##### \_op
+##### op
 
 `string`
 
@@ -333,6 +343,29 @@ true when public onClose should be fired after onError (caller
 
 ***
 
+### failLegacy12Association()
+
+> `protected` **failLegacy12Association**(`error`): `boolean`
+
+Association-wide fatal teardown for DTLS 1.2 (TLS: immediate connection end).
+Stops flight timers, clears connected, closes transport, disables Public API.
+Dual client overrides to also set dualPhase=closed and close carrier/candidates.
+
+#### Parameters
+
+##### error
+
+`Error`
+
+#### Returns
+
+`boolean`
+
+true when the caller should fire public onClose after onError
+  (same ordering as 1.3 [failAssociationFromEngine13](DtlsSocket.md#failassociationfromengine13)).
+
+***
+
 ### handleFragmentHandshake()
 
 > **handleFragmentHandshake**(`messages`): `FragmentedHandshake`[]
@@ -400,6 +433,20 @@ hard-close carrier / transport / candidates.
 
 ***
 
+### onLegacy12PeerCloseNotify()
+
+> `protected` **onLegacy12PeerCloseNotify**(): `void`
+
+Peer close_notify on DTLS 1.2 path: best-effort reply, then graceful
+association close (connected=false, timers cancel, onClose, transport).
+Dual client overrides for phase/carrier/transport ownership.
+
+#### Returns
+
+`void`
+
+***
+
 ### prepareAssociationClosedFromEngine()
 
 > `protected` **prepareAssociationClosedFromEngine**(): `void`
@@ -439,6 +486,18 @@ send application data
 ##### addr?
 
 readonly \[`string`, `number`\]
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### sendLegacy12CloseNotify()
+
+> `protected` **sendLegacy12CloseNotify**(): `Promise`\<`void`\>
+
+Best-effort close_notify on the current 1.2 write epoch.
 
 #### Returns
 

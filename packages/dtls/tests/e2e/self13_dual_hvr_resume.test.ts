@@ -590,13 +590,27 @@ test("e2e/dual: genuine 1.2 handshake_failure during probing fires onError immed
     void client.connect();
   });
 
-  // Assert: 即時失敗（RTO 待ちにしない）
+  // Assert: 即時失敗（RTO 待ちにしない）+ association 全体 tear down
+  // fatal は probing 中でも phase=closed（committed12 に落ちない / 生存しない）
   expect(Date.now() - t0).toBeLessThan(3_000);
   expect(err.message).toMatch(/alert|handshake|fatal/i);
-  expect((client as any).dualPhase).toBe("probing"); // never committed-12 via SH
+  expect((client as any).dualPhase).toBe("closed");
+  expect(client.connected).toBe(false);
+  expect((client as any).associationTornDown).toBe(true);
+  await expect(client.send(Buffer.from("after-fatal"))).rejects.toThrow(
+    /closed/i,
+  );
 
-  client.close();
-  server.close();
+  try {
+    client.close();
+  } catch {
+    /* already closed */
+  }
+  try {
+    server.close();
+  } catch {
+    /* */
+  }
 }, 10_000);
 
 /**

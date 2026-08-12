@@ -162,25 +162,38 @@ export class DtlsSocket {
             case ContentType.alert:
               {
                 const alert = message.data as Alert | undefined;
-                if (alert && alert.description === AlertDesc.ProtocolVersion) {
-                  // 1.2-only peer × 1.3-only server: protocol_version(70)
-                  const pe = new ProtocolVersionError(
-                    "peer rejected protocol version (alert protocol_version)",
-                  );
-                  // Abort flight immediately so pending RTO sleep does not remain
-                  // after onError (carrier/lifecycle: cancel all timers on error).
-                  this.abortLegacy12Flight(pe);
-                  this.onError.execute(pe);
-                } else if (alert && alert.level >= 2) {
-                  const fe = new Error(
-                    `alert fatal error: ${
-                      AlertDesc[alert.description] ?? alert.description
-                    }`,
-                  );
-                  this.abortLegacy12Flight(fe);
+                if (!alert) break;
+                // Association lifecycle (aligned with 1.3 / TLS 1.2):
+                //   fatal / protocol_version → fail association (onError + tear down)
+                //   close_notify             → graceful association close
+                //   other warning            → log / continue (not connection close)
+                if (
+                  alert.level >= 2 ||
+                  alert.description === AlertDesc.ProtocolVersion
+                ) {
+                  const fe =
+                    alert.description === AlertDesc.ProtocolVersion
+                      ? new ProtocolVersionError(
+                          "peer rejected protocol version (alert protocol_version)",
+                        )
+                      : new Error(
+                          `alert fatal error: ${
+                            AlertDesc[alert.description] ?? alert.description
+                          }`,
+                        );
+                  // Tear down association *before* onError so handlers observe
+                  // connected=false / dualPhase=closed / Public API disabled.
+                  const fireClose = this.failLegacy12Association(fe);
                   this.onError.execute(fe);
+                  if (fireClose) this.onClose.execute();
+                } else if (alert.description === AlertDesc.CloseNotify) {
+                  this.onLegacy12PeerCloseNotify();
                 } else {
-                  this.onClose.execute();
+                  log(
+                    this.dtls.sessionId,
+                    "DTLS 1.2 warning alert (continue)",
+                    AlertDesc[alert.description] ?? alert.description,
+                  );
                 }
               }
               break;
@@ -262,11 +275,20 @@ export class DtlsSocket {
   }
 
   /**
+   * True after DTLS 1.2 association hard/graceful teardown so pure-1.2 Public
+   * APIs stay disabled even if transport close is still racing.
+   * Dual client primarily uses dualPhase=closed; this flag is the base guard.
+   */
+  protected associationTornDown = false;
+
+  /**
    * Guard for send / exporter / remoteCertificate.
    * Dual client overrides to reject `closed` and `probing` (no 1.2 fallthrough).
    */
-  protected assertReadyForApplicationApi(_op: string): void {
-    // Default: pure 1.2 / server paths have no dual phase machine.
+  protected assertReadyForApplicationApi(op: string): void {
+    if (this.associationTornDown) {
+      throw new Error(`DTLS association is closed; cannot ${op}`);
+    }
   }
 
   /**send application data */
@@ -305,6 +327,59 @@ export class DtlsSocket {
     this.dtls.cancelFlightTimers();
   }
 
+  /**
+   * Association-wide fatal teardown for DTLS 1.2 (TLS: immediate connection end).
+   * Stops flight timers, clears connected, closes transport, disables Public API.
+   * Dual client overrides to also set dualPhase=closed and close carrier/candidates.
+   *
+   * @returns true when the caller should fire public onClose after onError
+   *   (same ordering as 1.3 {@link failAssociationFromEngine13}).
+   */
+  protected failLegacy12Association(error: Error): boolean {
+    if (this.associationTornDown) return false;
+    this.abortLegacy12Flight(error);
+    this.connected = false;
+    this.associationTornDown = true;
+    void this.transport.socket.close().catch(() => {});
+    return true;
+  }
+
+  /**
+   * Peer close_notify on DTLS 1.2 path: best-effort reply, then graceful
+   * association close (connected=false, timers cancel, onClose, transport).
+   * Dual client overrides for phase/carrier/transport ownership.
+   */
+  protected onLegacy12PeerCloseNotify(): void {
+    if (this.associationTornDown) return;
+    // Mark torn-down first so re-entrant send/exporter fail while reply is in flight.
+    this.abortLegacy12Flight();
+    this.connected = false;
+    this.associationTornDown = true;
+    void this.sendLegacy12CloseNotify().finally(() => {
+      this.onClose.execute();
+      void this.transport.socket.close().catch(() => {});
+    });
+  }
+
+  /** Best-effort close_notify on the current 1.2 write epoch. */
+  protected async sendLegacy12CloseNotify(): Promise<void> {
+    try {
+      const alert = Buffer.from([1, AlertDesc.CloseNotify]); // warning
+      const pkt = createPlaintext(this.dtls)(
+        [{ type: ContentType.alert, fragment: alert }],
+        ++this.dtls.recordSequenceNumber,
+      )[0];
+      // Post-handshake alerts are encrypted when epoch > 0 (keys established).
+      const wire =
+        this.dtls.epoch > 0
+          ? this.cipher.encryptPacket(pkt).serialize()
+          : pkt.serialize();
+      await this.transport.send(wire);
+    } catch (e) {
+      log(this.dtls.sessionId, "sendLegacy12CloseNotify failed", e);
+    }
+  }
+
   close() {
     if (this.engine13) {
       this.engine13.close();
@@ -313,6 +388,7 @@ export class DtlsSocket {
     // DTLS 1.2 (server and client): stop retransmit timers before socket close.
     this.abortLegacy12Flight();
     this.connected = false;
+    this.associationTornDown = true;
     this.transport.socket.close();
   }
 

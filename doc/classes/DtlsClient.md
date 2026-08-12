@@ -34,6 +34,20 @@ Public constructor — accepts stable [Options](../interfaces/Options.md) only.
 
 ## Properties
 
+### associationTornDown
+
+> `protected` **associationTornDown**: `boolean` = `false`
+
+True after DTLS 1.2 association hard/graceful teardown so pure-1.2 Public
+APIs stay disabled even if transport close is still racing.
+Dual client primarily uses dualPhase=closed; this flag is the base guard.
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`associationTornDown`](DtlsSocket.md#associationtorndown)
+
+***
+
 ### cipher
 
 > **cipher**: [`CipherContext`](CipherContext.md)
@@ -443,6 +457,30 @@ Public onClose is fired by bridge after this returns (not here).
 
 ***
 
+### failLegacy12Association()
+
+> `protected` **failLegacy12Association**(`error`): `boolean`
+
+DTLS 1.2 fatal alert / protocol_version on dual association (incl. committed12).
+Same ownership as 1.3 fatal: phase closed, carrier/transport down, Public API off.
+Caller fires onError then onClose when this returns true.
+
+#### Parameters
+
+##### error
+
+`Error`
+
+#### Returns
+
+`boolean`
+
+#### Overrides
+
+[`DtlsSocket`](DtlsSocket.md).[`failLegacy12Association`](DtlsSocket.md#faillegacy12association)
+
+***
+
 ### handleFragmentHandshake()
 
 > **handleFragmentHandshake**(`messages`): `FragmentedHandshake`[]
@@ -527,6 +565,23 @@ Does not re-fire onClose (already delivered by bridge; dualPhase already closed)
 
 ***
 
+### onLegacy12PeerCloseNotify()
+
+> `protected` **onLegacy12PeerCloseNotify**(): `void`
+
+Peer close_notify on DTLS 1.2 path (committed12 / pure dual 1.2):
+best-effort reply, then association hard-close with a single public onClose.
+
+#### Returns
+
+`void`
+
+#### Overrides
+
+[`DtlsSocket`](DtlsSocket.md).[`onLegacy12PeerCloseNotify`](DtlsSocket.md#onlegacy12peerclosenotify)
+
+***
+
 ### prepareAssociationClosedFromEngine()
 
 > `protected` **prepareAssociationClosedFromEngine**(): `void`
@@ -581,6 +636,22 @@ readonly \[`string`, `number`\]
 #### Inherited from
 
 [`DtlsSocket`](DtlsSocket.md).[`send`](DtlsSocket.md#send)
+
+***
+
+### sendLegacy12CloseNotify()
+
+> `protected` **sendLegacy12CloseNotify**(): `Promise`\<`void`\>
+
+Best-effort close_notify on the current 1.2 write epoch.
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`sendLegacy12CloseNotify`](DtlsSocket.md#sendlegacy12closenotify)
 
 ***
 
