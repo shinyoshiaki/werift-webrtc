@@ -17,6 +17,10 @@ import { DtlsContext } from "./context/dtls";
 import { SrtpContext } from "./context/srtp";
 import { TransportContext } from "./context/transport";
 import type { Dtls13Connection } from "./engine/v1_3/connection";
+import {
+  type PeerIdentityMode,
+  resolvePeerIdentityMode,
+} from "./engine/v1_3/types";
 import { peerKeyFromAddr } from "./handshake/extensions/cookie";
 import { EllipticCurves } from "./handshake/extensions/ellipticCurves";
 import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecret";
@@ -35,6 +39,8 @@ import {
   ProtocolVersionError,
   normalizeProtocolVersions,
 } from "./version";
+
+export type { PeerIdentityMode } from "./engine/v1_3/types";
 
 const log = debug("werift-dtls : packages/dtls/src/socket.ts : log");
 const err = debug("werift-dtls : packages/dtls/src/socket.ts : err");
@@ -183,12 +189,14 @@ export class DtlsSocket {
    *   pin was set for TX convenience (WebRTC does not pass rinfo into DTLS)
    */
   protected matchesPinnedPeer(addr?: Address): boolean {
+    // Transport identity is the peer: 5-tuple is not an auth boundary.
+    // Accept addressless and alternate addresses (ICE may not expose stable rinfo).
+    if (this.isAuthenticatedSinglePeerTransport()) return true;
     const pin = this.transport.pinnedPeer;
     if (!pin) return true;
     if (!addr) {
-      // No 5-tuple on this datagram: only authenticated-single-peer carriers
-      // may deliver (ICE). Pure UDP pin without addr is a drop.
-      return this.isAuthenticatedSinglePeerTransport();
+      // datagram-address after pin: addressless RX is a drop.
+      return false;
     }
     const a: [string, number] = [this.normalizePeerHost(addr[0]), addr[1]];
     const p: [string, number] = [this.normalizePeerHost(pin[0]), pin[1]];
@@ -201,13 +209,11 @@ export class DtlsSocket {
    * transport.peerAuthenticated / addressValidation for backward compatibility.
    */
   get peerIdentityMode(): PeerIdentityMode {
-    if (this.options.peerIdentityMode) return this.options.peerIdentityMode;
-    const t = this.options.transport as { peerAuthenticated?: boolean };
-    if (t.peerAuthenticated === true) return "authenticated-single-peer";
-    if (this.options.addressValidation === "ice-authenticated") {
-      return "authenticated-single-peer";
-    }
-    return "datagram-address";
+    return resolvePeerIdentityMode({
+      peerIdentityMode: this.options.peerIdentityMode,
+      addressValidation: this.options.addressValidation,
+      transport: this.options.transport as { peerAuthenticated?: boolean },
+    });
   }
 
   /**
@@ -994,20 +1000,6 @@ export class DtlsSocket {
     await this.transport.send(pkt.serialize(), dest);
   }
 }
-
-/**
- * How the DTLS association identifies the remote peer for TX/RX lifecycle.
- *
- * - `"datagram-address"` — classic UDP return-routability: pin the 5-tuple after
- *   cookie/connect; RX from other addresses is dropped; addressless RX is not
- *   accepted once pinned.
- * - `"authenticated-single-peer"` — the transport path already authenticates a
- *   single peer (ICE / equivalent). Addressless RX is valid; a UDP pin is
- *   optional TX convenience, not the authentication boundary.
- *
- * Distinct from {@link Options.addressValidation} (HelloVerify / cookie policy).
- */
-export type PeerIdentityMode = "datagram-address" | "authenticated-single-peer";
 
 export interface Options {
   transport: Transport;

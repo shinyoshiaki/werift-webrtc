@@ -483,4 +483,3 @@ test("e2e/self12: peerAuthenticated transport app data + local close + epoch-0 i
   await t1.close().catch(() => {});
   await t2.close().catch(() => {});
 }, 25_000);
-
