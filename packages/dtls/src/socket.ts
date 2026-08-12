@@ -355,7 +355,11 @@ export class DtlsSocket {
     this.transport.pinnedPeer = [host, addr[1]];
   }
 
-  /** Pin from last transport rinfo when present (never overwrites existing pin). */
+  /**
+   * Pin from last transport rinfo when present.
+   * Default mode is `set-if-empty` (keeps an existing authenticated pin).
+   * Pass `replace` when the association deliberately re-pins (e.g. client connect).
+   */
   protected pinSendPeerFromTransportRinfo(
     mode: "set-if-empty" | "replace" = "set-if-empty",
   ): void {
