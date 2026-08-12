@@ -35,6 +35,9 @@ export class Flight3 extends Flight {
 
     const rechallenge = this.dtls.flight === 3;
     this.dtls.flight = 3;
+    // Invalidate any prior Flight3 retransmit loop (stale cookie).
+    this.dtls.hvrGeneration += 1;
+    this.transmitGeneration = this.dtls.hvrGeneration;
 
     // Clear local handshake cache for a fresh CH2 transmission.
     // (Object map — do not assign [].)
@@ -47,6 +50,8 @@ export class Flight3 extends Flight {
     log(
       this.dtls.sessionId,
       rechallenge ? "HVR re-challenge" : "HVR first",
+      "generation",
+      this.transmitGeneration,
       "dtls version",
       clientHello.clientVersion,
     );

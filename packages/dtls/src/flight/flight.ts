@@ -15,6 +15,11 @@ type FlightType = (typeof flightTypes)[number];
 export abstract class Flight {
   state: FlightType = "PREPARING";
   static RetransmitCount = 10;
+  /**
+   * When set, transmit aborts after sleep if {@link DtlsContext.hvrGeneration}
+   * no longer matches (superseded HVR / Flight3 re-challenge).
+   */
+  protected transmitGeneration?: number;
 
   constructor(
     private transport: TransportContext,
@@ -69,6 +74,16 @@ export abstract class Flight {
       if (this.dtls.fatalError) {
         this.setState("FINISHED");
         throw this.dtls.fatalError;
+      }
+
+      // Superseded by a newer HVR generation (Flight3 re-challenge) — stop
+      // without throwing so only the latest cookie-bearing CH2 is retransmitted.
+      if (
+        this.transmitGeneration !== undefined &&
+        this.transmitGeneration !== this.dtls.hvrGeneration
+      ) {
+        this.setState("FINISHED");
+        break;
       }
 
       if (this.dtls.flight >= this.nextFlight) {

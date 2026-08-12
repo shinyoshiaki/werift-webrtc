@@ -687,6 +687,11 @@ const selectPreferredFingerprintAlgorithm = (
 
 class IceTransport implements Transport {
   closed: boolean = false;
+  /**
+   * ICE selected-pair path is already authenticated — DTLS 1.2 must not treat
+   * AEAD-protected alerts as "pre-auth" merely because UDP pin is unavailable.
+   */
+  readonly peerAuthenticated = true;
   constructor(private ice: IceConnection) {
     ice.onData.subscribe((buf) => {
       if (isDtls(buf)) {

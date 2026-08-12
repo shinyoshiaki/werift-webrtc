@@ -40,6 +40,11 @@ export class DtlsContext {
    * (would regenerate serverRandom / ECDHE and desync cached Flight4).
    */
   clientHelloCommitted = false;
+  /**
+   * Incremented on every HelloVerifyRequest processed by the client (Flight3).
+   * Older Flight3 retransmit loops observe a mismatch and stop (stale cookie).
+   */
+  hvrGeneration = 0;
   requestedCertificateTypes: number[] = [];
   requestedSignatureAlgorithms: {
     hash: HashAlgorithms;

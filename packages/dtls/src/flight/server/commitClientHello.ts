@@ -21,19 +21,32 @@ const log = debug(
   "werift-dtls : packages/dtls/flight/server/commitClientHello.ts : log",
 );
 
+/** Fully validated ClientHello negotiation — no association mutation yet. */
+export type NegotiatedClientHello = {
+  namedCurve: NamedCurveAlgorithms;
+  cipherSuite: number;
+  remoteRandom: DtlsRandom;
+  localRandom: DtlsRandom;
+  localKeyPair: ReturnType<typeof generateKeyPair>;
+  srtpProfile?: SrtpProfile;
+  remoteExtendedMasterSecret: boolean;
+};
+
 /**
- * Commit ClientHello parameters into association cipher/srtp/dtls state.
- *
- * Call only after DTLS 1.2 HelloVerify cookie verification (return-routability).
- * Pre-cookie CH1 must not invoke this — concurrent peers would poison state.
+ * Validate ClientHello and build negotiated locals only.
+ * Must not write association state (cipher / srtp / dtls) so a mid-parse failure
+ * cannot poison the next peer.
  */
-export function commitClientHelloToAssociation(
+export function validateAndNegotiateClientHello(
   clientHello: ClientHello,
   dtls: DtlsContext,
   cipher: CipherContext,
-  srtp: SrtpContext,
-): void {
-  clientHello.extensions.forEach((extension) => {
+): NegotiatedClientHello {
+  let namedCurve: NamedCurveAlgorithms | undefined;
+  let srtpProfile: SrtpProfile | undefined;
+  let remoteExtendedMasterSecret = false;
+
+  for (const extension of clientHello.extensions) {
     switch (extension.type) {
       case EllipticCurves.type:
         {
@@ -41,9 +54,12 @@ export function commitClientHelloToAssociation(
           log(dtls.sessionId, "curves", curves);
           const curve = curves.filter((c) =>
             NamedCurveAlgorithmList.includes(c as any),
-          )[0] as NamedCurveAlgorithms;
-          cipher.namedCurve = curve;
-          log(dtls.sessionId, "curve selected", cipher.namedCurve);
+          )[0] as NamedCurveAlgorithms | undefined;
+          if (curve === undefined) {
+            throw new Error("no overlapping named curve");
+          }
+          namedCurve = curve;
+          log(dtls.sessionId, "curve selected", namedCurve);
         }
         break;
       case Signature.type:
@@ -66,25 +82,24 @@ export function commitClientHelloToAssociation(
         break;
       case UseSRTP.type:
         {
-          if (!dtls.options?.srtpProfiles) return;
-          if (dtls.options.srtpProfiles.length === 0) return;
+          if (!dtls.options?.srtpProfiles?.length) break;
 
           const useSrtp = UseSRTP.fromData(extension.data);
           log(dtls.sessionId, "srtp profiles", useSrtp.profiles);
           const profile = SrtpContext.findMatchingSRTPProfile(
             useSrtp.profiles as SrtpProfile[],
-            dtls.options?.srtpProfiles,
+            dtls.options.srtpProfiles,
           );
           if (!profile) {
-            throw new Error();
+            throw new Error("no matching SRTP profile");
           }
-          srtp.srtpProfile = profile;
-          log(dtls.sessionId, "srtp profile selected", srtp.srtpProfile);
+          srtpProfile = profile;
+          log(dtls.sessionId, "srtp profile selected", srtpProfile);
         }
         break;
       case ExtendedMasterSecret.type:
         {
-          dtls.remoteExtendedMasterSecret = true;
+          remoteExtendedMasterSecret = true;
         }
         break;
       case RenegotiationIndication.type:
@@ -94,17 +109,18 @@ export function commitClientHelloToAssociation(
         break;
       case 43:
         {
-          // supported_versions (DTLS 1.3 dual path log only on 1.2 flight)
           const data = extension.data.subarray(1);
           const versions = [...data].map((v) => v.toString(10));
           log("dtls supported version", versions);
         }
         break;
     }
-  });
+  }
 
-  cipher.localRandom = new DtlsRandom();
-  cipher.remoteRandom = DtlsRandom.from(clientHello.random);
+  if (namedCurve === undefined) {
+    // Prefer first local supported if peer omitted elliptic_curves (rare)
+    namedCurve = NamedCurveAlgorithmList[0] as NamedCurveAlgorithms;
+  }
 
   const suites = clientHello.cipherSuites;
   log(dtls.sessionId, "cipher suites", suites);
@@ -119,8 +135,59 @@ export function commitClientHelloToAssociation(
   if (suite === undefined || !suites.includes(suite)) {
     throw new Error("dtls cipher suite negotiation failed");
   }
-  cipher.cipherSuite = suite;
-  log(dtls.sessionId, "selected cipherSuite", cipher.cipherSuite);
+  log(dtls.sessionId, "selected cipherSuite", suite);
 
-  cipher.localKeyPair = generateKeyPair(cipher.namedCurve);
+  const localRandom = new DtlsRandom();
+  const remoteRandom = DtlsRandom.from(clientHello.random);
+  const localKeyPair = generateKeyPair(namedCurve);
+
+  return {
+    namedCurve,
+    cipherSuite: suite,
+    remoteRandom,
+    localRandom,
+    localKeyPair,
+    srtpProfile,
+    remoteExtendedMasterSecret,
+  };
+}
+
+/** Apply a fully negotiated result — only call after validation succeeds. */
+export function applyNegotiatedClientHello(
+  negotiated: NegotiatedClientHello,
+  dtls: DtlsContext,
+  cipher: CipherContext,
+  srtp: SrtpContext,
+): void {
+  cipher.namedCurve = negotiated.namedCurve;
+  cipher.cipherSuite = negotiated.cipherSuite as any;
+  cipher.localRandom = negotiated.localRandom;
+  cipher.remoteRandom = negotiated.remoteRandom;
+  cipher.localKeyPair = negotiated.localKeyPair;
+  if (negotiated.srtpProfile !== undefined) {
+    srtp.srtpProfile = negotiated.srtpProfile;
+  }
+  dtls.remoteExtendedMasterSecret = negotiated.remoteExtendedMasterSecret;
+}
+
+/**
+ * Commit ClientHello parameters into association cipher/srtp/dtls state.
+ *
+ * Transactional: validation builds locals first; association is only written
+ * after every check succeeds (no partial poison on throw).
+ *
+ * Call only after DTLS 1.2 HelloVerify cookie verification.
+ */
+export function commitClientHelloToAssociation(
+  clientHello: ClientHello,
+  dtls: DtlsContext,
+  cipher: CipherContext,
+  srtp: SrtpContext,
+): void {
+  const negotiated = validateAndNegotiateClientHello(
+    clientHello,
+    dtls,
+    cipher,
+  );
+  applyNegotiatedClientHello(negotiated, dtls, cipher, srtp);
 }

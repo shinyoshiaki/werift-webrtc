@@ -190,12 +190,22 @@ export class DtlsSocket {
   }
 
   /**
-   * Cookie / connect pin is the association peer-auth boundary for DTLS 1.2.
-   * Pre-pin (server pre-cookie): unauthenticated sources must not force
-   * association-fatal teardown (alert / malformed HS DoS).
+   * Peer-auth boundary for DTLS 1.2 association lifecycle (alerts / HS errors).
+   *
+   * - UDP pin after cookie / connect (classic return-routability)
+   * - Transport.peerAuthenticated (ICE / already-authenticated path): AEAD
+   *   protected records must not be treated as "pre-auth" merely because the
+   *   transport does not expose a 5-tuple (WebRTC IceTransport).
+   * - addressValidation "ice-authenticated" / "none" on the association
    */
   protected hasAssociationPeerAuth(): boolean {
-    return !!this.transport.pinnedPeer;
+    if (this.transport.pinnedPeer) return true;
+    const t = this.options.transport as { peerAuthenticated?: boolean };
+    if (t.peerAuthenticated === true) return true;
+    // Explicit ICE-authenticated association (WebRTC may set this alongside
+    // peerAuthenticated on the IceTransport).
+    if (this.options.addressValidation === "ice-authenticated") return true;
+    return false;
   }
 
   /** Restore transport.rinfo to pin so spoof sources do not stick for later TX fallbacks. */

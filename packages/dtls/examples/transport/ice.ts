@@ -4,6 +4,8 @@ import type { Connection } from "../../../ice/src";
 
 export class IceTransport implements Transport {
   closed: boolean = false;
+  /** ICE selected pair is peer-authenticated (no UDP 5-tuple on RX). */
+  readonly peerAuthenticated = true;
   constructor(private ice: Connection) {
     ice.onData.subscribe((buf) => {
       if (this.onData) this.onData(buf);
