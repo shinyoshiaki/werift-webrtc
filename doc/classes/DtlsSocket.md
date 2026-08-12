@@ -33,6 +33,15 @@
 
 ## Properties
 
+### associationAbort
+
+> `protected` **associationAbort**: `AbortController`
+
+Cancels pending [waitForReady](DtlsSocket.md#waitforready) association sleeps on terminal teardown.
+Replaced only if a future multi-HS redesign needs a fresh controller mid-life.
+
+***
+
 ### associationTornDown
 
 > `protected` **associationTornDown**: `boolean` = `false`
@@ -173,6 +182,20 @@ True when this socket is operating on the DTLS 1.3 engine.
 
 ## Methods
 
+### abortAssociationWaits()
+
+> `protected` **abortAssociationWaits**(): `void`
+
+Aborts association-owned async waits ([waitForReady](DtlsSocket.md#waitforready) sleeps).
+Invoked on every terminal transition so pending timers/promises cancel
+immediately (not only "wake later and check torn-down").
+
+#### Returns
+
+`void`
+
+***
+
 ### abortLegacy12Flight()
 
 > `protected` **abortLegacy12Flight**(`error`?): `void`
@@ -253,6 +276,26 @@ linger until the next RTO after onConnect.
 ### close()
 
 > **close**(): `void`
+
+#### Returns
+
+`void`
+
+***
+
+### closeLegacy12Association()
+
+> `protected` **closeLegacy12Association**(`firePublicOnClose`): `void`
+
+Local close for pure DTLS 1.2 (server and non-dual paths).
+Terminal transition + optional single public onClose (client dual uses
+closeAssociationHard instead).
+
+#### Parameters
+
+##### firePublicOnClose
+
+`boolean` = `true`
 
 #### Returns
 
