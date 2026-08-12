@@ -1,20 +1,17 @@
 # WPT partial-pass progress
 
-| Generated at | 2026-08-12T03:17:28.822Z |
+| Generated at | 2026-08-12T05:24:44.987Z |
 
 ## Target success rates
 
 | File | Variant | PASS | FAIL | TIMEOUT | TOTAL | Excluded | Effective PASS/TOTAL | Success rate | Status |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| webrtc/RTCPeerConnection-setRemoteDescription-rollback.html | (default) | 0 | 0 | 1 | 1 | 0 | 0/1 | 0.0% | active |
-| webrtc/RTCPeerConnection-setRemoteDescription-rollback.html | ?rest | 0 | 0 | 1 | 1 | 0 | 0/1 | 0.0% | active |
-| webrtc/RTCRtpTransceiver-stop.html | (default) | 0 | 0 | 1 | 1 | 0 | 0/1 | 0.0% | active |
-| webrtc/RTCSctpTransport-maxMessageSize.html | (default) | 0 | 0 | 1 | 1 | 0 | 0/1 | 0.0% | active |
 | webrtc/simulcast/negotiation-encodings.https.html | (default) | 1 | 19 | 0 | 20 | 0 | 1/20 | 5.0% | active |
 | webrtc/RTCPeerConnection-mandatory-getStats.https.html | (default) | 4 | 69 | 0 | 73 | 0 | 4/73 | 5.5% | active |
 | webrtc/RTCRtpParameters-codec.html | (default) | 2 | 20 | 0 | 22 | 0 | 2/22 | 9.1% | active |
 | webrtc/RTCRtpSender-transport.https.html | (default) | 1 | 7 | 0 | 8 | 0 | 1/8 | 12.5% | active |
 | webrtc/RTCPeerConnection-setRemoteDescription-replaceTrack.https.html | (default) | 1 | 2 | 4 | 7 | 0 | 1/7 | 14.3% | active |
+| webrtc/RTCSctpTransport-maxMessageSize.html | (default) | 1 | 6 | 0 | 7 | 0 | 1/7 | 14.3% | active |
 | webrtc/RTCPeerConnection-setDescription-transceiver.html | (default) | 1 | 5 | 0 | 6 | 0 | 1/6 | 16.7% | active |
 | webrtc/legacy/munge-dont.html | (default) | 1 | 4 | 0 | 5 | 0 | 1/5 | 20.0% | active |
 | webrtc/RTCDataChannel-id.html | (default) | 1 | 4 | 0 | 5 | 0 | 1/5 | 20.0% | active |
@@ -24,6 +21,7 @@
 | webrtc/outbound-rtp-encoding-index.https.html | (default) | 1 | 2 | 0 | 3 | 0 | 1/3 | 33.3% | active |
 | webrtc/protocol/simulcast-answer.html | (default) | 1 | 2 | 0 | 3 | 0 | 1/3 | 33.3% | active |
 | webrtc/RTCRtpSender-setParameters.html | (default) | 1 | 2 | 0 | 3 | 0 | 1/3 | 33.3% | active |
+| webrtc/RTCRtpTransceiver-stop.html | (default) | 3 | 6 | 0 | 9 | 0 | 3/9 | 33.3% | active |
 | webrtc/RTCTrackEvent-constructor.html | (default) | 3 | 4 | 0 | 7 | 0 | 3/7 | 42.9% | active |
 | webrtc/getstats.html | (default) | 1 | 1 | 0 | 2 | 0 | 1/2 | 50.0% | active |
 | webrtc/protocol/sdes-dont-dont-dont.html | (default) | 1 | 1 | 0 | 2 | 0 | 1/2 | 50.0% | active |
@@ -32,12 +30,14 @@
 | webrtc/RTCPeerConnection-createDataChannel.html | ?rest | 1 | 1 | 0 | 2 | 0 | 1/2 | 50.0% | active |
 | webrtc/RTCPeerConnection-iceGatheringState.html | (default) | 1 | 1 | 0 | 2 | 0 | 1/2 | 50.0% | active |
 | webrtc/RTCSctpTransport-constructor.html | (default) | 2 | 2 | 0 | 4 | 0 | 2/4 | 50.0% | active |
+| webrtc/RTCPeerConnection-setRemoteDescription-rollback.html | (default) | 12 | 10 | 0 | 22 | 0 | 12/22 | 54.5% | active |
 | webrtc/RTCRtpSender-replaceTrack.https.html | (default) | 6 | 5 | 0 | 11 | 0 | 6/11 | 54.5% | active |
 | webrtc/RTCConfiguration-iceCandidatePoolSize.html | (default) | 5 | 4 | 0 | 9 | 0 | 5/9 | 55.6% | active |
 | webrtc/protocol/dtls-setup.https.html | (default) | 4 | 3 | 0 | 7 | 0 | 4/7 | 57.1% | active |
 | webrtc/protocol/msid-generate.html | (default) | 7 | 5 | 0 | 12 | 0 | 7/12 | 58.3% | active |
 | webrtc/protocol/msid-parse.html | (default) | 3 | 2 | 0 | 5 | 0 | 3/5 | 60.0% | active |
 | webrtc/RTCPeerConnection-createOffer.html | (default) | 3 | 2 | 0 | 5 | 0 | 3/5 | 60.0% | active |
+| webrtc/RTCPeerConnection-setRemoteDescription-rollback.html | ?rest | 12 | 8 | 0 | 20 | 0 | 12/20 | 60.0% | active |
 | webrtc/RTCRtpReceiver.https.html | (default) | 5 | 3 | 0 | 8 | 0 | 5/8 | 62.5% | active |
 | webrtc/protocol/rtp-payloadtypes.html | (default) | 2 | 1 | 0 | 3 | 0 | 2/3 | 66.7% | active |
 | webrtc/RTCPeerConnection-createAnswer.html | (default) | 2 | 1 | 0 | 3 | 0 | 2/3 | 66.7% | active |
