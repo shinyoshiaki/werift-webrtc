@@ -137,16 +137,11 @@ export class DtlsServer extends DtlsSocket {
    * Association RX: 1.3 engine when active, else DTLS 1.2 record path.
    * Terminal association drops all inbound (UDP and inject).
    */
-  protected udpOnMessage = (
-    data: Buffer,
-    addr?: Address,
-  ) => {
+  protected udpOnMessage = (data: Buffer, addr?: Address) => {
     if (this.associationTornDown) return;
     const eng = this.engine13;
     if (eng && !eng.isClosed()) {
-      const peer = addr
-        ? ([addr[0], addr[1]] as [string, number])
-        : undefined;
+      const peer = addr ? ([addr[0], addr[1]] as [string, number]) : undefined;
       eng.injectDatagram(data, peer);
       return;
     }

@@ -33,7 +33,10 @@ async function connectPair12(clientVersions?: readonly DtlsVersion[]) {
   });
 
   await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("connect timeout")), 15_000);
+    const timer = setTimeout(
+      () => reject(new Error("connect timeout")),
+      15_000,
+    );
     let c = false;
     let s = false;
     const done = () => {
@@ -103,7 +106,10 @@ test("e2e/self12: post-handshake epoch-0 ClientHello does not renegotiate", asyn
   server.onError.subscribe((e) => errors.push(e));
 
   // Act: inject epoch-0 CH-like record from pin peer
-  (server as any).udpOnMessage(epoch0ClientHelloLike(), peerOf(clientTransport));
+  (server as any).udpOnMessage(
+    epoch0ClientHelloLike(),
+    peerOf(clientTransport),
+  );
 
   // Assert: lifecycle unchanged (sync — no await sleep required)
   expect(server.connected).toBe(true);
@@ -130,8 +136,14 @@ test("e2e/self12: dual committed12 post-handshake epoch-0 HS is noop", async () 
   expect(server.connected).toBe(true);
   expect(client.connected).toBe(true);
 
-  (server as any).udpOnMessage(epoch0ClientHelloLike(), peerOf(clientTransport));
-  (client as any).udpOnMessage(epoch0ClientHelloLike(), peerOf(serverTransport));
+  (server as any).udpOnMessage(
+    epoch0ClientHelloLike(),
+    peerOf(clientTransport),
+  );
+  (client as any).udpOnMessage(
+    epoch0ClientHelloLike(),
+    peerOf(serverTransport),
+  );
 
   expect(server.connected).toBe(true);
   expect(client.connected).toBe(true);

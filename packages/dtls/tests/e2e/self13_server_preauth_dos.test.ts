@@ -135,8 +135,11 @@ test("e2e/self13: dual server after 1.3 select ignores unauth fatal", async () =
   await new Promise<void>((r) => spoof.bind(0, "127.0.0.1", () => r()));
   const port = (serverTransport.address as { port: number }).port;
   await new Promise<void>((resolve, reject) => {
-    spoof.send(epoch0Alert(AlertDesc.HandshakeFailure), port, "127.0.0.1", (e) =>
-      e ? reject(e) : resolve(),
+    spoof.send(
+      epoch0Alert(AlertDesc.HandshakeFailure),
+      port,
+      "127.0.0.1",
+      (e) => (e ? reject(e) : resolve()),
     );
   });
   await new Promise((r) => setTimeout(r, 50));
