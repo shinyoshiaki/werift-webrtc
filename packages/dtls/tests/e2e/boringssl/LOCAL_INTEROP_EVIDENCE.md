@@ -8,14 +8,12 @@ Command:
 WERIFT_REQUIRE_BORINGSSL=1 npm run test:boringssl
 ```
 
-Result (2026-08-12): **5 passed** — werift client↔BoringSSL server and BoringSSL client↔werift server
-bidirectional DTLS 1.3 data.
+Result: **5 passed** — werift client↔BoringSSL server and BoringSSL client↔werift server
+bidirectional DTLS 1.3 data (both roles).
 
-Reviewed fixes verified 2026-08-12T10:27:34+00:00
-
-interop verified 2026-08-12T10:30:36+00:00
-final-review 2026-08-12T10:31:34+00:00
-review-ready 2026-08-12T10:32:44+00:00
-ready 2026-08-12T10:33:24+00:00
-re-review 2026-08-12T10:33:50+00:00
-
+Review-fix coverage:
+- Flight4 pre-connect wire re-inject (epoch-0 window before SHD) — `handleCalls > 0`, apply skipped
+- Flight6 mid-handshake CKE duplicate wire — `!connected`, `handleCalls > 0`, masterSecret stable
+- Flight6 Finished duplicate unit — cache de-dupe
+- HVR stale retransmit — `activeFlight3Waiting() === 1` after gen1 exit
+- Flight.transmit — `flightTxGeneration` tags send waves; stale errors ignored

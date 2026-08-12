@@ -95,17 +95,21 @@ export abstract class Flight {
       // Capture generation for this wave so close/fallback mid-send silences
       // late rejections (fire-and-forget must not surface after terminal).
       const waveGen = this.dtls.flightTxGeneration;
-      this.send(buffers).catch((e) => {
-        if (
-          waveGen !== this.dtls.flightTxGeneration ||
-          this.dtls.flight === 99 ||
-          this.dtls.fatalError
-        ) {
-          // Stale after cancelFlightTimers / hard-close / fatal — ignore.
-          return;
-        }
-        err(this.dtls.sessionId, "fail to send", e);
-      });
+      // Association-tagged send: if generation advances before the promise
+      // settles, drop the error callback; if already stale, skip TX entirely.
+      if (waveGen === this.dtls.flightTxGeneration && !this.dtls.fatalError) {
+        this.send(buffers).catch((e) => {
+          if (
+            waveGen !== this.dtls.flightTxGeneration ||
+            this.dtls.flight === 99 ||
+            this.dtls.fatalError
+          ) {
+            // Stale after cancelFlightTimers / hard-close / fatal — ignore.
+            return;
+          }
+          err(this.dtls.sessionId, "fail to send", e);
+        });
+      }
       this.setState("WAITING");
 
       if (this.nextFlight === undefined) {
