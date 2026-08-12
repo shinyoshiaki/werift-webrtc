@@ -20,6 +20,7 @@ export {
   kProbeBitrateMultipliers,
   kProbePaddingPacketBytes,
   kRttBasedBackOffHighRttMs,
+  kStreamTimeOutMs,
   kTrendlineMinNumDeltas,
   kTrendlineThresholdGain,
   kTrendlineWindowSize,

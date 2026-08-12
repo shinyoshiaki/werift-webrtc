@@ -2175,10 +2175,10 @@ describe("media/sender bandwidth estimator", () => {
       expect(estB).toBeLessThan(estA);
     });
 
-    test("congested でも lower probe result は 0.85×acked guard で反映する", () => {
-      // Arrange: overuse で congested でも lower probe は捨てない
+    test("overuse 中は probe result を一切適用しない（pin MaybeUpdateEstimate）", () => {
+      // pin DelayBasedBwe::MaybeUpdateEstimate: overusing 分岐は probe を無視し
+      // AIMD TimeToReduceFurther のみ。lower probe も適用しない。
       const gcc = new GccBandwidthEstimator(1_000_000);
-      // ensureProbing 後に abort し complete へ — media が isProbation にならない
       gcc.shouldTagProbePacket();
       (gcc as any).probe.abort(0);
       (gcc as any).probe.state = "complete";
@@ -2187,6 +2187,7 @@ describe("media/sender bandwidth estimator", () => {
       (gcc as any).delayBasedBps = 1_000_000;
       (gcc as any).lossBasedBps = 1_000_000;
       (gcc as any)._availableBitrate = 1_000_000;
+      (gcc as any).aimd.bitrateBps = 1_000_000;
       (gcc as any).initialExponentialDone = true;
       (gcc as any).probingConfigured = true;
 
@@ -2204,7 +2205,6 @@ describe("media/sender bandwidth estimator", () => {
           isProbation: false,
         } as any);
       }
-      // acked ≈ 900kbps（RobustThroughput に履歴を注入）
       const size = 1125;
       (gcc as any).ackedBitrate.incomingPacketFeedbackVector(
         Array.from({ length: 12 }, (_, i) => ({
@@ -2213,7 +2213,9 @@ describe("media/sender bandwidth estimator", () => {
           sizeBytes: size,
         })),
       );
+      // 低い probe result を注入しても overuse では無視される
       (gcc as any).probe.pendingEstimateBps = 300_000;
+      const before = gcc.availableBitrate;
 
       const results = Array.from({ length: 10 }, (_, i) => {
         return new PacketResult({
@@ -2224,9 +2226,209 @@ describe("media/sender bandwidth estimator", () => {
       });
       gcc.receiveTWCC(makeTwccFeedback(results));
 
-      // Assert: lower probe 適用（1Mbps から下降）
-      expect(gcc.availableBitrate).toBeGreaterThan(0);
-      expect(gcc.availableBitrate).toBeLessThan(1_000_000);
+      // Assert: probe 300kbps は反映されない（floor 付きでも delay に SetEstimate しない）
+      // AIMD overuse 減少は RTT spacing 内で 0 回または beta 1 回まで
+      expect((gcc as any).probe.pendingEstimateBps).toBe(0);
+      // available は probe 由来の 300k 帯には落ちない
+      expect(gcc.availableBitrate).toBeGreaterThan(500_000);
+      // overuse による減少はあっても probe floor 経路ではない
+      expect(gcc.availableBitrate).toBeLessThanOrEqual(before);
+    });
+
+    test("probe result がある feedback では recovered_from_overuse recovery を出さない", () => {
+      // pin: probe_bitrate がある場合 recovered_from_overuse を result に載せない
+      const gcc = new GccBandwidthEstimator(150_000);
+      gcc.shouldTagProbePacket();
+      (gcc as any).probe.abort(0);
+      (gcc as any).probe.state = "complete";
+      (gcc as any).probe.lastProbeEndMs = Date.now() - 10_000;
+      (gcc as any).hasValidSample = true;
+      (gcc as any).delayBasedBps = 150_000;
+      (gcc as any).lossBasedBps = 150_000;
+      (gcc as any)._availableBitrate = 150_000;
+      (gcc as any).initialExponentialDone = true;
+      (gcc as any).probingConfigured = true;
+      (gcc as any).lastUsage = "normal";
+      (gcc as any).lossBwe.state = "delay_based";
+      (gcc as any).lossBwe.update = () => {
+        (gcc as any).lossBwe.state = "delay_based";
+        return 150_000;
+      };
+
+      const states: Array<"normal" | "underuse" | "overuse"> = [
+        "normal",
+        "underuse",
+        "underuse",
+        "normal",
+        "normal",
+        "normal",
+        "normal",
+        "normal",
+        "normal",
+        "normal",
+      ];
+      let stateIdx = 0;
+      let current: "normal" | "underuse" | "overuse" = "normal";
+      Object.defineProperty((gcc as any).trendline, "state", {
+        get: () => current,
+        configurable: true,
+      });
+      (gcc as any).pushInterArrival = () => {
+        if (stateIdx < states.length) {
+          current = states[stateIdx++]!;
+        }
+      };
+
+      // valid probe estimate present this feedback → recovery suppressed
+      (gcc as any).probe.pendingEstimateBps = 200_000;
+
+      const probeCfgs: number[] = [];
+      gcc.onProbeClusterConfig.subscribe((c) => probeCfgs.push(c.targetBps));
+
+      const t0 = Date.now();
+      for (let i = 1; i <= 10; i++) {
+        gcc.rtpPacketSent({
+          wideSeq: i,
+          size: 500,
+          sendingAtMs: t0 + i * 20,
+          isProbation: false,
+        } as any);
+      }
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 10 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: true,
+              receivedAtMs: t0 + 30 + i * 20,
+            });
+          }),
+        ),
+      );
+
+      // Assert: underuse→normal があっても probe estimate と同時なら recovery なし
+      expect(probeCfgs).toEqual([]);
+    });
+
+    test("delay path idle > 2s で InterArrival/Trendline を reset する", () => {
+      // pin DelayBasedBwe::kStreamTimeOut = 2s
+      const gcc = new GccBandwidthEstimator(300_000);
+      const t0 = 100_000;
+      for (let i = 1; i <= 5; i++) {
+        gcc.rtpPacketSent({
+          wideSeq: i,
+          size: 200,
+          sendingAtMs: t0 + i * 20,
+          isProbation: false,
+        } as any);
+      }
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 5 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: true,
+              receivedAtMs: t0 + 40 + i * 20,
+            });
+          }),
+        ),
+      );
+
+      // Arrange: idle > 2s と、reset 検出用の偽 history
+      (gcc as any).lastSeenPacketMs = Date.now() - 2_500;
+      (gcc as any).trendline.delayHist.push({
+        arrivalTimeMs: 9999,
+        smoothedDelayMs: 9999,
+        rawDelayMs: 9999,
+      });
+      const samplesBefore = (gcc as any).trendline.sampleCount as number;
+      expect(samplesBefore).toBeGreaterThan(0);
+
+      const resetSpy = vi.spyOn((gcc as any).trendline, "reset");
+      const interResetSpy = vi.spyOn((gcc as any).interArrival, "reset");
+
+      for (let i = 6; i <= 8; i++) {
+        gcc.rtpPacketSent({
+          wideSeq: i,
+          size: 200,
+          sendingAtMs: t0 + 3_000 + (i - 5) * 20,
+          isProbation: false,
+        } as any);
+      }
+      // Act: idle 超え後の feedback
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 3 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 6,
+              received: true,
+              receivedAtMs: t0 + 3_040 + i * 20,
+            });
+          }),
+        ),
+      );
+
+      // Assert: pin kStreamTimeOut 相当で delay path が reset される
+      expect(resetSpy).toHaveBeenCalled();
+      expect(interResetSpy).toHaveBeenCalled();
+      // 偽 sample (arrivalTimeMs=9999) は残らない
+      const hist = (gcc as any).trendline.delayHist as Array<{
+        arrivalTimeMs: number;
+      }>;
+      expect(hist.every((p) => p.arrivalTimeMs !== 9999)).toBe(true);
+      resetSpy.mockRestore();
+      interResetSpy.mockRestore();
+    });
+
+    test("delay path idle が 2s 未満なら Trendline を reset しない", () => {
+      const gcc = new GccBandwidthEstimator(300_000);
+      const t0 = 200_000;
+      for (let i = 1; i <= 3; i++) {
+        gcc.rtpPacketSent({
+          wideSeq: i,
+          size: 200,
+          sendingAtMs: t0 + i * 20,
+          isProbation: false,
+        } as any);
+      }
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 3 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: true,
+              receivedAtMs: t0 + 40 + i * 20,
+            });
+          }),
+        ),
+      );
+      // timeout - 1ms 相当（直近 lastSeen を now-1999 に）
+      (gcc as any).lastSeenPacketMs = Date.now() - 1_999;
+      const resetSpy = vi.spyOn((gcc as any).trendline, "reset");
+
+      for (let i = 4; i <= 5; i++) {
+        gcc.rtpPacketSent({
+          wideSeq: i,
+          size: 200,
+          sendingAtMs: t0 + 500 + i * 20,
+          isProbation: false,
+        } as any);
+      }
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 2 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 4,
+              received: true,
+              receivedAtMs: t0 + 540 + i * 20,
+            });
+          }),
+        ),
+      );
+
+      // Assert: 境界 timeout-1 では reset しない
+      expect(resetSpy).not.toHaveBeenCalled();
+      resetSpy.mockRestore();
     });
 
     test("pacing timeout 5s と result timeout 1s は独立", () => {
@@ -3712,6 +3914,110 @@ describe("media/sender bandwidth estimator", () => {
         ),
       ).toBe(false);
       expect(gcc.availableBitrate).toBeGreaterThan(0);
+    });
+
+    test("finalizedSeqs の orphan は wholesale clear せず sentInfos 連動で削除する", () => {
+      // Arrange: finalize 済み seq が sentInfos から外れた後も再処理されないこと
+      const gcc = new GccBandwidthEstimator(300_000);
+      const t0 = 300_000;
+      for (let i = 1; i <= 5; i++) {
+        gcc.rtpPacketSent({
+          wideSeq: i,
+          size: 200,
+          sendingAtMs: t0 + i,
+          isProbation: false,
+        } as any);
+      }
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 5 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: true,
+              receivedAtMs: t0 + 20 + i,
+            });
+          }),
+        ),
+      );
+      expect((gcc as any).finalizedSeqs.has(1)).toBe(true);
+
+      // Act: age-out prune（sendingAtMs を古くして rtpPacketSent）
+      gcc.rtpPacketSent({
+        wideSeq: 100,
+        size: 200,
+        sendingAtMs: t0 + 60_000,
+        isProbation: false,
+      } as any);
+
+      // Assert: orphan finalized は消え、live seq だけ残る
+      expect((gcc as any).sentInfos.has(1)).toBe(false);
+      expect((gcc as any).finalizedSeqs.has(1)).toBe(false);
+      // wholesale clear ではない: まだ sentInfos にある 100 は残しうる
+      expect((gcc as any).sentInfos.has(100)).toBe(true);
+    });
+
+    test("same-feedback で probe result + loss があっても loss が post-probe delay で更新される", () => {
+      // pin order: delay/probe SetEstimate → LossBased.update(post-probe delay)
+      const gcc = new GccBandwidthEstimator(200_000);
+      gcc.shouldTagProbePacket();
+      (gcc as any).probe.abort(0);
+      (gcc as any).probe.state = "complete";
+      (gcc as any).probe.lastProbeEndMs = 0;
+      (gcc as any).hasValidSample = true;
+      (gcc as any).delayBasedBps = 200_000;
+      (gcc as any).lossBasedBps = 200_000;
+      (gcc as any)._availableBitrate = 200_000;
+      (gcc as any).aimd.bitrateBps = 200_000;
+      (gcc as any).initialExponentialDone = true;
+      (gcc as any).probingConfigured = true;
+      Object.defineProperty((gcc as any).trendline, "state", {
+        get: () => "normal",
+        configurable: true,
+      });
+
+      const lossUpdateArgs: number[] = [];
+      const origLossUpdate = (gcc as any).lossBwe.update.bind(
+        (gcc as any).lossBwe,
+      );
+      (gcc as any).lossBwe.update = (
+        lossFraction: number,
+        delayBasedBps: number,
+        ...rest: unknown[]
+      ) => {
+        lossUpdateArgs.push(delayBasedBps);
+        return origLossUpdate(lossFraction, delayBasedBps, ...rest);
+      };
+
+      // upward probe pending
+      (gcc as any).probe.pendingEstimateBps = 400_000;
+      const t0 = 400_000;
+      for (let i = 1; i <= 10; i++) {
+        gcc.rtpPacketSent({
+          wideSeq: i,
+          size: 500,
+          sendingAtMs: t0 + i * 30,
+          isProbation: false,
+        } as any);
+      }
+      // mixed loss in same feedback
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 10 }, (_, i) => {
+            const lost = i % 3 === 0;
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: !lost,
+              receivedAtMs: lost ? 0 : t0 + 40 + i * 30,
+            });
+          }),
+        ),
+      );
+
+      // Assert: loss path は probe 適用後の delay (≥200k、可能なら ~400k) を入力に使う
+      expect(lossUpdateArgs.length).toBeGreaterThan(0);
+      expect(lossUpdateArgs[0]).toBeGreaterThanOrEqual(200_000);
+      // probe が delay に載っていれば 200k を超える
+      expect(lossUpdateArgs[0]).toBeGreaterThan(200_000);
     });
 
     test("sentInfos pruning は最新から後方 2048 を保持する", () => {
