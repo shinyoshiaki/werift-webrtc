@@ -42,6 +42,10 @@ export type { LossBasedState } from "./lossBasedBwe";
 export { ProbeController } from "./probeController";
 export type { ProbeClusterConfig, ProbeState } from "./probeController";
 export {
+  computeFeedbackRttStats,
+  RttBasedBackoff,
+} from "./rttBasedBackoff";
+export {
   compareTransportWideSeq,
   sortPacketResultsByWideSeq,
 } from "./sequenceNumber";

@@ -44,6 +44,8 @@ FILES = [
     "modules/congestion_controller/goog_cc/probe_controller.cc",
     "modules/congestion_controller/goog_cc/probe_bitrate_estimator.h",
     "modules/congestion_controller/goog_cc/probe_bitrate_estimator.cc",
+    "modules/congestion_controller/goog_cc/send_side_bandwidth_estimation.h",
+    "modules/congestion_controller/goog_cc/send_side_bandwidth_estimation.cc",
     "modules/remote_bitrate_estimator/aimd_rate_control.h",
     "modules/remote_bitrate_estimator/aimd_rate_control.cc",
     "modules/pacing/bitrate_prober.h",

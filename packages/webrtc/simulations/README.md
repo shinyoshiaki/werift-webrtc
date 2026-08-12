@@ -42,6 +42,6 @@ cd e2e && npm run test:sim
 
 - `hasTwccReceiveTiming`: `ReceivedWithoutDelta` と `receivedAtMs === 0` を分離（delay サンプル判定）
 - 決定的 bitrate 系列テスト: `bandwidthEstimator.test.ts` の「決定的入力での bitrate 系列」
-- Probe gating: libwebrtc `GetBandwidthLimitedCause` 相当（underuse/overuse / RTT>3s / loss decreasing|hold は新規 probe 禁止、loss increasing は estimated×1.5 cap、delay_based は uncapped）
-- RTT: batch 内 **max_feedback_rtt** = feedback 到着 − earliest received send（末尾 RTT だけ見ない）；RTT>3s は probe 禁止のみ（pin 外の ×0.8 target drop は行わない）
+- Probe gating: libwebrtc `GetBandwidthLimitedCause` 相当（underuse/overuse / CorrectedRtt(propagation)>3s / loss decreasing|hold は新規 probe 禁止、loss increasing は estimated×1.5 cap、delay_based は uncapped）。更新順は delay→probe→loss→post-loss cause
+- RTT: **min_propagation_rtt** = min(feedback_rtt − (max_recv − recv)) を `UpdatePropagationRtt` へ；IsRttAboveLimit は CorrectedRtt（raw max_feedback_rtt ではない）。>3s は probe 禁止のみ（×0.8 target drop は行わない）
 - Playwright ブラウザは `e2e/.playwright-browsers/`（git 管理外）。履歴にもバイナリを含めない

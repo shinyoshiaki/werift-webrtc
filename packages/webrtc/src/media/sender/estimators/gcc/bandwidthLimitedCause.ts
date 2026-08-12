@@ -87,7 +87,11 @@ export function maxProbeBitrateBps(
   return max;
 }
 
-/** RTT above libwebrtc RttBasedBackoff default limit (3s). */
+/**
+ * RTT above libwebrtc RttBasedBackoff default limit (3s).
+ * Call with **CorrectedRtt / propagation RTT** (not raw max feedback RTT).
+ * Prefer {@link RttBasedBackoff.isRttAboveLimit} when the helper is available.
+ */
 export function isRttAboveLimit(
   rttMs: number,
   limitMs = kRttBasedBackOffHighRttMs,
