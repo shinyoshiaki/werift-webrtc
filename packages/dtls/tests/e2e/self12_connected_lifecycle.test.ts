@@ -220,6 +220,76 @@ test("e2e/self12: non-close_notify warning does not tear down", async () => {
 }, 20_000);
 
 /**
+ * P2: pure 1.2 server local close() も client と同様に onClose をちょうど 1 回。
+ * （以前は DtlsSocket.close が onClose なしで server だけ不整合だった）
+ */
+test("e2e/self12: server.close() fires onClose exactly once", async () => {
+  // Arrange: pure 1.2 接続完了
+  const { client, server, clientTransport, serverTransport } =
+    await connectPair();
+  expect(server.connected).toBe(true);
+
+  const closes: number[] = [];
+  server.onClose.subscribe(() => closes.push(Date.now()));
+
+  // Act: local close
+  server.close();
+
+  // Assert: terminal + onClose 1 回
+  expect(server.connected).toBe(false);
+  expect((server as any).associationTornDown).toBe(true);
+  expect(closes.length).toBe(1);
+
+  // Act: second close は no-op
+  server.close();
+  expect(closes.length).toBe(1);
+
+  await expect(server.send(Buffer.from("x"))).rejects.toThrow(/closed/i);
+
+  try {
+    client.close();
+  } catch {
+    /* */
+  }
+  await clientTransport.close().catch(() => {});
+  await serverTransport.close().catch(() => {});
+}, 20_000);
+
+/**
+ * P2: waitForReady の association sleep は close で即 abort（次 RTO まで残さない）。
+ */
+test("e2e/self12: waitForReady sleep aborts immediately on close", async () => {
+  // Arrange: socket だけ用意（HS 完了不要）。長い sleep に入らせる
+  const serverTransport = await UdpTransport.init("udp4");
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+  });
+
+  // never-true condition → ループで 100ms, 200ms, … の cancelable sleep
+  const pending = (server as any).waitForReady(() => false) as Promise<void>;
+
+  // 少なくとも 1 回の non-zero sleep に入る
+  await new Promise((r) => setTimeout(r, 50));
+  expect((server as any).associationAbort.signal.aborted).toBe(false);
+
+  // Act: close は pending sleep を AbortSignal で即 cancel
+  const t0 = Date.now();
+  server.close();
+
+  await expect(pending).rejects.toThrow(/association closed|waitForReady/i);
+  const elapsed = Date.now() - t0;
+  // 次のフル delay (100ms+) を待たず即 settle（余裕を見て 80ms 未満）
+  expect(elapsed).toBeLessThan(80);
+  expect((server as any).associationAbort.signal.aborted).toBe(true);
+  expect((server as any).associationTornDown).toBe(true);
+
+  await serverTransport.close().catch(() => {});
+}, 10_000);
+
+/**
  * P1: fatal と local close の race — event 二重なし、terminal 維持。
  */
 test("e2e/self12: fatal vs local close race is terminal once", async () => {

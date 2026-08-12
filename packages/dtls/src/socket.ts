@@ -251,11 +251,24 @@ export class DtlsSocket {
     }
   }
 
+  /**
+   * Aborts association-owned async waits ({@link waitForReady} sleeps).
+   * Invoked on every terminal transition so pending timers/promises cancel
+   * immediately (not only "wake later and check torn-down").
+   */
+  protected abortAssociationWaits(): void {
+    if (!this.associationAbort.signal.aborted) {
+      this.associationAbort.abort();
+    }
+  }
+
   protected waitForReady = (condition: () => boolean) =>
     new Promise<void>(async (r, f) => {
       for (let i = 0; i < 10; i++) {
-        // Terminal association: stop polling so async HS does not linger after fatal/close.
-        if (this.associationTornDown) {
+        if (
+          this.associationTornDown ||
+          this.associationAbort.signal.aborted
+        ) {
           f(new Error("association closed during waitForReady"));
           return;
         }
@@ -263,7 +276,15 @@ export class DtlsSocket {
           r();
           return;
         }
-        await setTimeout(100 * i);
+        try {
+          // AbortSignal: close/fatal cancels this sleep immediately.
+          await setTimeout(100 * i, undefined, {
+            signal: this.associationAbort.signal,
+          });
+        } catch {
+          f(new Error("association closed during waitForReady"));
+          return;
+        }
       }
       f(new Error("waitForReady timeout"));
     });
@@ -294,6 +315,12 @@ export class DtlsSocket {
    * Dual client primarily uses dualPhase=closed; this flag is the base guard.
    */
   protected associationTornDown = false;
+
+  /**
+   * Cancels pending {@link waitForReady} association sleeps on terminal teardown.
+   * Replaced only if a future multi-HS redesign needs a fresh controller mid-life.
+   */
+  protected associationAbort = new AbortController();
 
   /**
    * Guard for send / exporter / remoteCertificate.
@@ -354,6 +381,7 @@ export class DtlsSocket {
     this.abortLegacy12Flight(error);
     this.connected = false;
     this.associationTornDown = true;
+    this.abortAssociationWaits();
     void this.transport.socket.close().catch(() => {});
     return true;
   }
@@ -372,6 +400,23 @@ export class DtlsSocket {
   }
 
   /**
+   * Local close for pure DTLS 1.2 (server and non-dual paths).
+   * Terminal transition + optional single public onClose (client dual uses
+   * closeAssociationHard instead).
+   */
+  protected closeLegacy12Association(firePublicOnClose = true): void {
+    if (this.associationTornDown) return;
+    this.abortLegacy12Flight();
+    this.connected = false;
+    this.associationTornDown = true;
+    this.abortAssociationWaits();
+    if (firePublicOnClose) {
+      this.onClose.execute();
+    }
+    void this.transport.socket.close().catch(() => {});
+  }
+
+  /**
    * Peer close_notify on DTLS 1.2 path: best-effort reply, then graceful
    * association close (connected=false, timers cancel, onClose, transport).
    * Dual client overrides for phase/carrier/transport ownership.
@@ -382,6 +427,7 @@ export class DtlsSocket {
     this.abortLegacy12Flight();
     this.connected = false;
     this.associationTornDown = true;
+    this.abortAssociationWaits();
     void this.sendLegacy12CloseNotify().finally(() => {
       this.onClose.execute();
       void this.transport.socket.close().catch(() => {});
@@ -412,11 +458,8 @@ export class DtlsSocket {
       this.engine13.close();
       return;
     }
-    // DTLS 1.2 (server and client): stop retransmit timers before socket close.
-    this.abortLegacy12Flight();
-    this.connected = false;
-    this.associationTornDown = true;
-    this.transport.socket.close();
+    // DTLS 1.2 server (and any non-overridden close): terminal + onClose once.
+    this.closeLegacy12Association(true);
   }
 
   extractSessionKeys(keyLength: number, saltLength: number) {

@@ -346,6 +346,8 @@ export class DtlsClient extends DtlsSocket {
     this.abortLegacy12Flight();
     this.connected = false;
     this.associationTornDown = true;
+    // Cancel waitForReady association sleeps immediately.
+    this.abortAssociationWaits();
     // Mark closed before onClose so re-entrant client.close() is a no-op
     // (handlers that call close() inside onClose must not recurse).
     this.dualPhase = "closed";
@@ -410,6 +412,7 @@ export class DtlsClient extends DtlsSocket {
     this.abortLegacy12Flight();
     this.connected = false;
     this.associationTornDown = true;
+    this.abortAssociationWaits();
     void this.sendLegacy12CloseNotify().finally(() => {
       // closeAssociationHard is idempotent when dualPhase already closed;
       // fire onClose once via firePublicOnClose if still open.
@@ -428,6 +431,7 @@ export class DtlsClient extends DtlsSocket {
     this.connected = false;
     this.associationTornDown = true;
     this.abortLegacy12Flight();
+    this.abortAssociationWaits();
     this.dualPhase = "closed";
     this.associationGen++;
     this.flight5 = undefined;
