@@ -230,6 +230,11 @@ export class DtlsServer extends DtlsSocket {
               this.dtls.cookie &&
               clientHello.cookie.equals(this.dtls.cookie)
             ) {
+              // Cookie return-routability succeeded: pin TX peer so spoofed
+              // datagrams that overwrite UdpTransport.rinfo cannot redirect
+              // Flight4 retransmit or later application data (association TX
+              // ownership; client already pins at connect()).
+              this.pinSendPeerFromTransportRinfo("set-if-empty");
               log(this.dtls.sessionId, "send flight4");
               await new Flight4(
                 this.transport,
@@ -271,6 +276,9 @@ export class DtlsServer extends DtlsSocket {
             await this.flight6?.exec();
 
             this.connected = true;
+            // Safety net: pin from last authenticated HS peer if Flight4 pin
+            // was skipped (should not overwrite an existing pin after spoof).
+            this.pinSendPeerFromTransportRinfo("set-if-empty");
             // Flight4 retransmit sleep (nextFlight=6) may still be pending even
             // after flight=6; cancel before onConnect for lifecycle completeness.
             this.cancelLegacy12FlightTimers();

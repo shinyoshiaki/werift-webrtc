@@ -83,6 +83,20 @@ Mismatch **1.3-only × 1.2-only** fails with `ProtocolVersionError` / `protocol_
 
 `namedGroups` selects DTLS 1.3 key_share preference (e.g. `[NamedCurveAlgorithm.secp256r1_23]` for P-256 only). `mtu` controls handshake fragmentation.
 
+## Association lifecycle (1.2 / 1.3 / dual)
+
+One `DtlsClient` / `DtlsServer` instance is a **single association**. After any terminal transition the socket is not reusable:
+
+| Terminal cause | Events | Public API (`send` / exporter / `remoteCertificate` / `connect`) |
+| --- | --- | --- |
+| Local `close()` | `onClose` once | Rejected (`DTLS association is closed`) |
+| Peer `close_notify` | `onClose` once (no `onError`) | Rejected |
+| Fatal alert / handshake failure | `onError` then `onClose` (each once) | Rejected |
+
+Other warning alerts keep the association open. Create a **new** client/server for a new handshake.
+
+Outbound DTLS 1.2 application and flight data use an **association-owned peer pin**, not the last UDP `rinfo` alone, so spoofed packets cannot redirect TX after cookie verification (server) or `connect()` (client). DTLS 1.3 engines pin the peer independently inside the engine.
+
 BoringSSL DTLS 1.3 interop (P0): see `tests/e2e/boringssl/README.md`. CI job `dtls13-boringssl` runs `fetch-and-build-boringssl.sh` against the pinned revision in `BORINGSSL_REVISION` and fails on pin/harness mismatch (`CI=true` / `WERIFT_REQUIRE_BORINGSSL=1`).
 
 # reference

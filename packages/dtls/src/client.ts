@@ -432,6 +432,8 @@ export class DtlsClient extends DtlsSocket {
     this.associationTornDown = true;
     this.abortLegacy12Flight();
     this.abortAssociationWaits();
+    // Base parity: drop TX pin on terminal (hard-close also clears).
+    this.clearSendPeerPin();
     this.dualPhase = "closed";
     this.associationGen++;
     this.flight5 = undefined;
@@ -443,16 +445,22 @@ export class DtlsClient extends DtlsSocket {
    */
   private pinAssociationPeer(addr?: [string, number], key?: string): void {
     if (addr) {
-      const host =
-        addr[0] === "0.0.0.0"
-          ? "127.0.0.1"
-          : addr[0] === "::" || addr[0] === "[::]"
-            ? "::1"
-            : addr[0];
-      this.dualAssociationPeerAddr = [host, addr[1]];
-      this.transport.pinnedPeer = this.dualAssociationPeerAddr;
+      // replace: dual association / client connect must own TX destination
+      // even if a stale pin existed from a prior incomplete probe.
+      this.pinSendPeer(addr, "replace");
+      this.dualAssociationPeerAddr = this.transport.pinnedPeer
+        ? [this.transport.pinnedPeer[0], this.transport.pinnedPeer[1]]
+        : undefined;
       this.dualAssociationPeerKey =
-        key ?? peerKeyFromAddr(this.dualAssociationPeerAddr);
+        key ??
+        peerKeyFromAddr(
+          this.dualAssociationPeerAddr
+            ? ([
+                this.dualAssociationPeerAddr[0],
+                this.dualAssociationPeerAddr[1],
+              ] as [string, number])
+            : undefined,
+        );
     } else if (key) {
       this.dualAssociationPeerKey = key;
     }
@@ -1095,8 +1103,8 @@ export class DtlsClient extends DtlsSocket {
   }
 
   async connect() {
-    // closed / probing must not fall through to pure 1.2 Flight1.
-    if (this.dualPhase === "closed") {
+    // Terminal / probing must not fall through to pure 1.2 Flight1 or re-HS.
+    if (this.dualPhase === "closed" || this.associationTornDown) {
       throw new Error("DTLS association is closed; cannot connect");
     }
     if (this.dualPhase === "probing") {
@@ -1105,7 +1113,13 @@ export class DtlsClient extends DtlsSocket {
       );
     }
     // Pin 1.2 TX destination from configured rinfo before any flight retransmit.
-    this.pinSendPeerFromTransportRinfo();
+    // replace: connect() is the client association start of truth for peer TX.
+    this.pinSendPeerFromTransportRinfo("replace");
+    this.pinAssociationPeer(
+      this.transport.pinnedPeer
+        ? [this.transport.pinnedPeer[0], this.transport.pinnedPeer[1]]
+        : undefined,
+    );
     if (this.engine13) {
       await this.engine13.connect();
       // After 1.3 connect pin, sync association pin for dual fallout.
@@ -1118,19 +1132,13 @@ export class DtlsClient extends DtlsSocket {
     await this.connect12();
   }
 
-  private pinSendPeerFromTransportRinfo(): void {
-    const r = (
-      this.options.transport as {
-        rinfo?: { address?: string; port?: number };
-      }
-    ).rinfo;
-    if (r?.address != null && r?.port != null) {
-      this.pinAssociationPeer([r.address, r.port]);
-    }
-  }
-
   private async connect12() {
-    this.pinSendPeerFromTransportRinfo();
+    this.pinSendPeerFromTransportRinfo("replace");
+    this.pinAssociationPeer(
+      this.transport.pinnedPeer
+        ? [this.transport.pinnedPeer[0], this.transport.pinnedPeer[1]]
+        : undefined,
+    );
     await new Flight1(this.transport, this.dtls, this.cipher).exec(
       this.extensions,
     );
@@ -1307,6 +1315,9 @@ export class DtlsClient extends DtlsSocket {
             if (this.connected) return;
             this.dtls.flight = 7;
             this.connected = true;
+            // Keep existing connect()-time pin; never replace from last rinfo
+            // (spoof before Finished must not hijack app TX).
+            this.pinSendPeerFromTransportRinfo("set-if-empty");
             // Flight5 was sleeping until nextFlight=7; cancel RTO sleep before
             // onConnect so pending timers/tasks are gone on handshake complete.
             this.cancelLegacy12FlightTimers();

@@ -307,9 +307,10 @@ export class DtlsSocket {
   }
 
   /**
-   * True after DTLS 1.2 association hard/graceful teardown so pure-1.2 Public
-   * APIs stay disabled even if transport close is still racing.
-   * Dual client primarily uses dualPhase=closed; this flag is the base guard.
+   * True after association hard/graceful/fatal teardown so Public APIs stay
+   * disabled for pure 1.2, pure 1.3, and dual paths alike (even if transport
+   * close is still racing or engine13 has already been cleared).
+   * Dual client also flips dualPhase=closed; this flag is the base guard.
    */
   protected associationTornDown = false;
 
@@ -329,12 +330,61 @@ export class DtlsSocket {
     }
   }
 
+  /**
+   * Normalize and store association TX peer pin on TransportContext.
+   *
+   * Why association-owned: UdpTransport.rinfo is overwritten by every inbound
+   * datagram (including spoof). Flight retransmit and application send must not
+   * follow last-rinfo alone (ticket peer-pinning / TX ownership).
+   *
+   * @param mode `set-if-empty` keeps the first authenticated pin (server Flight4 /
+   *   connect). `replace` is for dual association re-pin / client connect.
+   */
+  protected pinSendPeer(
+    addr?: Address,
+    mode: "set-if-empty" | "replace" = "set-if-empty",
+  ): void {
+    if (!addr || addr[0] == null || addr[1] == null) return;
+    if (mode === "set-if-empty" && this.transport.pinnedPeer) return;
+    const host =
+      addr[0] === "0.0.0.0"
+        ? "127.0.0.1"
+        : addr[0] === "::" || addr[0] === "[::]"
+          ? "::1"
+          : addr[0];
+    this.transport.pinnedPeer = [host, addr[1]];
+  }
+
+  /** Pin from last transport rinfo when present (never overwrites existing pin). */
+  protected pinSendPeerFromTransportRinfo(
+    mode: "set-if-empty" | "replace" = "set-if-empty",
+  ): void {
+    const r = (
+      this.options.transport as {
+        rinfo?: { address?: string; port?: number };
+      }
+    ).rinfo;
+    if (r?.address != null && r?.port != null) {
+      this.pinSendPeer([r.address, r.port], mode);
+    }
+  }
+
+  /** Clear TX pin on association terminal teardown. */
+  protected clearSendPeerPin(): void {
+    this.transport.pinnedPeer = undefined;
+  }
+
   /**send application data */
   send = async (buf: Buffer, addr?: Address) => {
     this.assertReadyForApplicationApi("send");
     if (this.engine13) {
       await this.engine13.send(buf);
       return;
+    }
+    // Pure 1.2 only after version commit / handshake; require pin so we never
+    // fall back to spoofed last-rinfo when the caller omits addr.
+    if (!addr && !this.transport.pinnedPeer) {
+      this.pinSendPeerFromTransportRinfo("set-if-empty");
     }
     const pkt = createPlaintext(this.dtls)(
       [{ type: ContentType.applicationData, fragment: buf }],
@@ -379,6 +429,7 @@ export class DtlsSocket {
     this.connected = false;
     this.associationTornDown = true;
     this.abortAssociationWaits();
+    this.clearSendPeerPin();
     void this.transport.socket.close().catch(() => {});
     return true;
   }
@@ -397,7 +448,7 @@ export class DtlsSocket {
   }
 
   /**
-   * Local close for pure DTLS 1.2 (server and non-dual paths).
+   * Local close for pure DTLS 1.2 (server and non-overridden paths).
    * Terminal transition + optional single public onClose (client dual uses
    * closeAssociationHard instead).
    */
@@ -407,6 +458,7 @@ export class DtlsSocket {
     this.connected = false;
     this.associationTornDown = true;
     this.abortAssociationWaits();
+    this.clearSendPeerPin();
     if (firePublicOnClose) {
       this.onClose.execute();
     }
@@ -425,7 +477,9 @@ export class DtlsSocket {
     this.connected = false;
     this.associationTornDown = true;
     this.abortAssociationWaits();
+    // Keep TX pin until close_notify is sent so reply still reaches the peer.
     void this.sendLegacy12CloseNotify().finally(() => {
+      this.clearSendPeerPin();
       this.onClose.execute();
       void this.transport.socket.close().catch(() => {});
     });
@@ -546,7 +600,16 @@ export class DtlsSocket {
    *   owns ordering so handlers observe isDtls13 === false first).
    */
   protected failAssociationFromEngine13(_err: Error): boolean {
+    // Terminal for pure 1.3 and dual-server 1.3: same Public-API disable as 1.2.
+    // Without associationTornDown, send/exporter fall through to an empty 1.2
+    // cipher path after engine13 is cleared (role/version asymmetry / P1).
+    if (this.associationTornDown && !this.engine13) {
+      return false;
+    }
     this.connected = false;
+    this.associationTornDown = true;
+    this.abortAssociationWaits();
+    this.clearSendPeerPin();
     // Unbridge first so subsequent engine onClose/onError cannot re-enter or
     // double-fire public callbacks when fail() continues to onClose.
     this.unbridgeEngine13();
@@ -566,11 +629,15 @@ export class DtlsSocket {
 
   /**
    * Before public onClose for engine teardown: mark association closed so
-   * re-entrant client.close() inside onClose handlers is idempotent.
-   * Dual client sets dualPhase → closed here.
+   * re-entrant client.close() inside onClose handlers is idempotent and
+   * Public APIs reject (send/exporter/cert) without 1.2 fallthrough.
+   * Dual client also sets dualPhase → closed here.
    */
   protected prepareAssociationClosedFromEngine(): void {
     this.connected = false;
+    this.associationTornDown = true;
+    this.abortAssociationWaits();
+    this.clearSendPeerPin();
   }
 
   /**
@@ -579,6 +646,10 @@ export class DtlsSocket {
    * hard-close carrier / transport / candidates.
    */
   protected onEngine13PeerOrLocalClose(): void {
+    // Idempotent terminal mark (prepareAssociationClosedFromEngine already ran).
+    this.associationTornDown = true;
+    this.connected = false;
+    this.clearSendPeerPin();
     this.unbridgeEngine13();
     this.engine13 = undefined;
     void this.transport.socket.close().catch(() => {});
