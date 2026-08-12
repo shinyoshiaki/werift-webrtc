@@ -1229,59 +1229,88 @@ describe("media/sender bandwidth estimator", () => {
   });
 
   describe("AIMD", () => {
-    test("overuse で beta 倍（1 回）", () => {
+    /** pin: decreased = throughput * beta; if > 5kbps then − 5kbps */
+    const pinDecrease = (throughputBps: number) => {
+      let d = throughputBps * kBeta;
+      if (d > 5_000) d -= 5_000;
+      return Math.round(d);
+    };
+
+    test("overuse で pin 更新式（beta×throughput − 5kbps）", () => {
       // Arrange
       const aimd = new AimdRateControl();
       aimd.reset(500_000);
-      aimd.setRtt(100);
-      // Act / Assert: 初回 overuse は beta 倍
-      expect(aimd.update("overuse", 500_000, 1000)).toBe(
-        Math.round(500_000 * kBeta),
-      );
-    });
-
-    test("overuse 連続でも RTT 以内は再減速しない（TimeToReduceFurther）", () => {
-      // Arrange: RTT=200ms
-      const aimd = new AimdRateControl();
+      aimd.setRtt(200);
+      // Act / Assert: 初回 overuse = pin decrease
+      expect(aimd.update("overuse", 500_000, 1000)).toBe(pinDecrease(500_000));
+      // 400kbps → 400×0.85 − 5 = 335 kbps（werift 旧 340kbps ではない）
       aimd.reset(400_000);
       aimd.setRtt(200);
+      expect(aimd.update("overuse", 400_000, 2000)).toBe(335_000);
+    });
+
+    test("overuse 連続でも clamp(RTT,10,200)ms 以内は再減速しない", () => {
+      // Arrange: RTT=500ms → TimeToReduceFurther interval は 200ms に clamp
+      const aimd = new AimdRateControl();
+      aimd.reset(400_000);
+      aimd.setRtt(500);
       const t0 = 10_000;
-      // Act: 初回 decrease → acked * beta
       const after1 = aimd.update("overuse", 400_000, t0);
-      expect(after1).toBe(Math.round(400_000 * kBeta));
-      // Act: RTT 未満で再度 overuse
-      const after2 = aimd.update("overuse", 380_000, t0 + 50);
-      // Assert: 再減速しない（TimeToReduceFurther=false）
+      expect(after1).toBe(pinDecrease(400_000));
+      // Act: 150ms 後（clamp 上限 200ms 未満）→ 再減速しない
+      const after2 = aimd.update("overuse", 380_000, t0 + 150);
       expect(after2).toBe(after1);
-      // Act: RTT 経過後は再減速可。推定 = acked * beta（現推定への連乗ではない）
+      // Act: 200ms 経過後は再減速可
       const after3 = aimd.update("overuse", 380_000, t0 + 250);
-      expect(after3).toBe(Math.round(380_000 * kBeta));
-      // 日本語: 過剰反応で kMin まで連打されない
+      expect(after3).toBe(pinDecrease(380_000));
       expect(after3).toBeGreaterThan(100_000);
     });
 
-    test("決定的 overuse 系列は libwebrtc 的に RTT 間隔で減速する", () => {
-      // Arrange: 固定入力に対する期待系列
-      // decrease = beta * acked（現推定への連乗ではない）→ acked 一定なら 1 回で収束
+    test("決定的 overuse 系列は pin 間隔で減速し連乗しない", () => {
+      // Arrange: decrease = beta*acked − 5kbps → acked 一定なら 1 回で収束
       const aimd = new AimdRateControl();
       aimd.reset(800_000);
-      aimd.setRtt(100);
+      aimd.setRtt(200);
       const series: number[] = [];
       const acked = 600_000;
-      // Act: 50ms 刻みで 10 回 overuse
       for (let i = 0; i < 10; i++) {
         series.push(aimd.update("overuse", acked, 1000 + i * 50));
       }
-      const once = Math.round(acked * kBeta);
-      // Assert: 初回で acked*beta、以降 RTT 内は不変、RTT 後も acked 不変なら同じ値
+      const once = pinDecrease(acked);
       expect(series[0]).toBe(once);
-      expect(series[1]).toBe(once);
-      expect(series[2]).toBe(once);
       expect(series.every((v) => v === once)).toBe(true);
-      // 日本語: 10 回連打しても 0.85^10 には落ちない
       expect(series[series.length - 1]).toBeGreaterThan(
         Math.round(acked * kBeta ** 5),
       );
+    });
+
+    test("default RTT は 200ms で propagation と独立", () => {
+      const aimd = new AimdRateControl();
+      aimd.reset(300_000);
+      expect(aimd.rtt).toBe(200);
+      // setRtt は RTCP 経路のみ（clamp しない）
+      aimd.setRtt(1_500);
+      expect(aimd.rtt).toBe(1_500);
+      // TTRF 間隔はなお [10,200] に clamp
+      expect(aimd.timeToReduceFurther(0, 300_000)).toBe(true);
+      aimd.update("overuse", 300_000, 10_000);
+      expect(aimd.timeToReduceFurther(10_100, 300_000)).toBe(false);
+      expect(aimd.timeToReduceFurther(10_200, 300_000)).toBe(true);
+    });
+
+    test("increase limit は 1.5×throughput + 10kbps", () => {
+      const aimd = new AimdRateControl();
+      aimd.reset(100_000);
+      aimd.setRtt(200);
+      // normal increase from hold
+      const t0 = 1_000;
+      // First normal: hold→increase, change time set
+      aimd.update("normal", 200_000, t0);
+      // Second update 1s later: multiplicative increase capped by 1.5*200k+10k
+      const after = aimd.update("normal", 200_000, t0 + 1_000);
+      const limit = 1.5 * 200_000 + 10_000;
+      expect(after).toBeLessThanOrEqual(limit);
+      expect(after).toBeGreaterThan(100_000);
     });
   });
 
@@ -3224,6 +3253,58 @@ describe("media/sender bandwidth estimator", () => {
       expect(gcc.shouldTagProbePacket()).toBe(false);
     });
 
+    test("rising probe は acked×2 で cap されず delay path にそのまま載る", () => {
+      // Arrange: pin は upward cap なし — probe 1.8M を SetEstimate
+      const gcc = new GccBandwidthEstimator(300_000);
+      gcc.shouldTagProbePacket();
+      (gcc as any).probe.abort(0);
+      (gcc as any).probe.state = "complete";
+      (gcc as any).probe.pendingEstimateBps = 1_800_000;
+      (gcc as any).hasValidSample = true;
+      (gcc as any).delayBasedBps = 300_000;
+      (gcc as any).lossBasedBps = 300_000;
+      (gcc as any)._availableBitrate = 300_000;
+      (gcc as any).initialExponentialDone = true;
+      (gcc as any).probingConfigured = true;
+      (gcc as any).lastUsage = "normal";
+      Object.defineProperty((gcc as any).trendline, "state", {
+        get: () => "normal",
+        configurable: true,
+      });
+      // loss は delay をそのまま返す（ready 前 / delay_based）
+      (gcc as any).lossBwe.update = (_lf: number, delayBasedBps: number) => {
+        (gcc as any).lossBwe.state = "delay_based";
+        return delayBasedBps;
+      };
+      (gcc as any).ackedBitrate.incomingPacketFeedbackVector(
+        Array.from({ length: 12 }, (_, i) => ({
+          receiveTimeMs: 1_000 + i * 10,
+          sendTimeMs: 1_000 + i * 10,
+          sizeBytes: 375, // ~300kbps-ish
+        })),
+      );
+
+      const t0 = Date.now();
+      for (let i = 1; i <= 8; i++) {
+        gcc.rtpPacketSent(sent(i, 500, t0 + i * 10));
+      }
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 8 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: true,
+              receivedAtMs: t0 + 20 + i * 10,
+            });
+          }),
+        ),
+      );
+
+      // Assert: 旧 acked×2=600k ではなく probe 1.8M が delay/target に載る
+      expect(gcc.availableBitrate).toBeGreaterThan(600_000);
+      expect(gcc.availableBitrate).toBe(1_800_000);
+    });
+
     test("probe 適用後に LossBased が再更新され post-loss cause を使う", () => {
       // Arrange: high probe pending + loss update sees elevated delay
       const gcc = new GccBandwidthEstimator(200_000);
@@ -3603,8 +3684,8 @@ describe("media/sender bandwidth estimator", () => {
       expect(denied).toEqual([]);
     });
 
-    test("初期 probe は target×1.5 を超えて上昇でき、recovery は cap される", () => {
-      // Arrange: cold start
+    test("初期 probe は pin 同様 upward cap なしで start×1.5 を超えられる", () => {
+      // Arrange: cold start — pin は rising probe を Aimd SetEstimate にそのまま渡す
       const start = 100_000;
       const gcc = new GccBandwidthEstimator(start);
       gcc.shouldTagProbePacket();
@@ -3631,7 +3712,7 @@ describe("media/sender bandwidth estimator", () => {
         ),
       );
       const afterInitial = gcc.availableBitrate;
-      // Assert: initial は start×1.5 を大きく超え得る
+      // Assert: pin に upward acked×2 / delay×1.5 cap はない → start×1.5 超え可
       expect(afterInitial).toBeGreaterThan(start * 1.5);
 
       // Act 2: complete まで進め、低い delay/loss target に戻してから recovery
@@ -3689,8 +3770,8 @@ describe("media/sender bandwidth estimator", () => {
       expect(afterLoss).toBeLessThanOrEqual(afterInitial);
       expect(afterLoss).toBeLessThan(afterInitial * 1.01);
 
-      // recovery 時の target×1.5 方針は ProbeController 側 + gccBwe で担保済み
-      // （requestProbe が start に張り付かないこと）
+      // recovery 探索 target は ProbeController.requestProbe が scale（start 張り付きなし）
+      // rising probe 自体に delay×1.5 / acked×2 の upward cap は無い（pin 準拠）
       expect(gcc.availableBitrate).toBeGreaterThan(0);
     });
 
@@ -4237,13 +4318,13 @@ describe("media/sender bandwidth estimator", () => {
       (gcc as any).lossBasedBps = 400_000;
       (gcc as any)._availableBitrate = 400_000;
 
-      // AIMD に RTT と slow-start 離脱を刻む
+      // AIMD に RTT と decrease 履歴を刻む（pin SetEstimate は RTT を消さない）
       const aimd = (gcc as any).aimd as AimdRateControl;
       aimd.reset(400_000);
       aimd.setRtt(180);
-      aimd.update("overuse", 400_000, 1_000); // leaves slow-start
+      aimd.update("overuse", 400_000, 1_000);
       expect(aimd.rtt).toBe(180);
-      expect((aimd as any).inSlowStart).toBe(false);
+      expect(aimd.targetBitrateBps).toBeLessThan(400_000);
 
       // LossBased に observation を積む
       const loss = (gcc as any).lossBwe as LossBasedBwe;
@@ -4293,7 +4374,7 @@ describe("media/sender bandwidth estimator", () => {
       //  full reset なら 0 に戻る）
       expect(gcc.availableBitrate).toBeGreaterThan(400_000);
       expect(aimd.rtt).toBe(180);
-      expect((aimd as any).inSlowStart).toBe(false);
+      // RTT preserved across SetEstimate (not full reset)
       expect(loss.observationCount).toBeGreaterThanOrEqual(obsBefore);
       expect(loss.observationCount).toBeGreaterThan(0);
       // full reset なら inherentLoss も初期値に戻る — 戻っていないこと

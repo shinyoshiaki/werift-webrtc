@@ -18,14 +18,11 @@ import {
 } from "./bandwidthLimitedCause";
 import {
   GCC_KNOWN_DIFFERENCES,
-  kDefaultRttMs,
   kDefaultStartBitrateBps,
   kMaxBitrateBps,
   kMinBitrateBps,
   kProbeDropThroughputFraction,
   kProbePaddingPacketBytes,
-  kProbeResultMaxOverAcked,
-  kProbeResultMaxOverTarget,
   kSentInfoMaxAgeMs,
   kStreamTimeOutMs,
 } from "./constants";
@@ -158,6 +155,15 @@ export class GccBandwidthEstimator
     const remaining = this.probe.remainingProbeBytes(packetBytes);
     if (remaining <= 0) return 0;
     return Math.ceil(remaining / Math.max(1, packetBytes));
+  }
+
+  /**
+   * pin OnRoundTripTimeUpdate → DelayBasedBwe::OnRttUpdate → AimdRateControl::SetRtt.
+   * Pass RTCP RR RTT in **milliseconds**. Independent of TWCC propagation RTT
+   * used by {@link RttBasedBackoff}.
+   */
+  setRoundTripTime(rttMs: number): void {
+    this.aimd.setRtt(rttMs);
   }
 
   static readonly knownDifferences = GCC_KNOWN_DIFFERENCES;
@@ -370,7 +376,9 @@ export class GccBandwidthEstimator
 
     // libwebrtc OnTransportPacketsFeedback RTT split:
     //   max_feedback_rtt  → feedback_max_rtts_ (CWND; not probe cause)
-    //   min_propagation_rtt → UpdatePropagationRtt → IsRttAboveLimit
+    //   min_propagation_rtt → UpdatePropagationRtt → IsRttAboveLimit only
+    // AIMD RTT is a separate path (OnRoundTripTimeUpdate / RTCP RR via
+    // {@link setRoundTripTime}) — never copy propagation RTT into AIMD.
     const rttStats = computeFeedbackRttStats(
       timedReceived.map((p) => ({ sendMs: p.sendMs, recvMs: p.recvMs })),
       nowMs,
@@ -378,12 +386,10 @@ export class GccBandwidthEstimator
     if (rttStats) {
       this.lastMaxFeedbackRttMs = rttStats.maxFeedbackRttMs;
       this.lastPropagationRttMs = rttStats.minPropagationRttMs;
-      this.rttBackoff.updatePropagationRtt(nowMs, rttStats.minPropagationRttMs);
-      // AIMD TimeToReduceFurther: practical clamp on corrected/propagation RTT.
-      const aimdRtt = this.rttBackoff.correctedRttMs();
-      if (aimdRtt >= 10 && aimdRtt <= 2000) {
-        this.aimd.setRtt(Math.max(kDefaultRttMs, aimdRtt));
-      }
+      this.rttBackoff.updatePropagationRtt(
+        nowMs,
+        rttStats.minPropagationRttMs,
+      );
     }
 
     // --- Pin order (goog_cc_network_control OnTransportPacketsFeedback) ---
@@ -400,56 +406,30 @@ export class GccBandwidthEstimator
       // pin: overuse branch never applies probe_bitrate.
       this.delayBasedBps = this.aimd.update(usage, ackedBps, nowMs);
     } else if (hasProbeEstimate) {
-      // pin: SetEstimate(probe) only — no UpdateEstimate this feedback.
-      // limit_probes_lower_than_throughput_estimate floors a low probe so we
-      // do not drop far below measured throughput (drain queues slightly).
-      const initialProbing = !this.initialExponentialDone;
+      // pin MaybeUpdateEstimate (non-overuse + probe_bitrate):
+      // SetEstimate(probe) as-is — **no upward caps**. Only lower probes get
+      // limit_probes_lower_than_throughput_estimate:
+      //   probe = max(probe, min(delayEstimate, acked × 0.85)).
       let accepted = Math.min(probeBps, kMaxBitrateBps);
-      let apply = false;
       const delayTarget =
         this.delayBasedBps > 0
           ? this.delayBasedBps
           : this.aimd.targetBitrateBps;
 
-      if (accepted > delayTarget) {
-        if (initialProbing) {
-          if (ackedBps > kMinBitrateBps) {
-            accepted = Math.min(accepted, ackedBps * kProbeResultMaxOverAcked);
-          }
-        } else {
-          // Recovery: min(probe, max(delay×1.5, acked×2)).
-          const targetCap = delayTarget * kProbeResultMaxOverTarget;
-          const ackedCap =
-            ackedBps > kMinBitrateBps
-              ? ackedBps * kProbeResultMaxOverAcked
-              : targetCap;
-          accepted = Math.min(accepted, Math.max(targetCap, ackedCap));
-        }
-        // Werift recovery/initial caps may clip a rising probe; do not apply a
-        // "upward" result that no longer exceeds the current delay target.
-        apply = accepted > delayTarget;
-      } else if (accepted < delayTarget) {
-        // libwebrtc limit_probes_lower_than_throughput_estimate:
-        // probe = max(probe, min(delayEstimate, acked × 0.85)).
+      if (accepted < delayTarget) {
         const ackedFloor =
           ackedBps > kMinBitrateBps
             ? ackedBps * kProbeDropThroughputFraction
             : accepted;
         const floor = Math.min(delayTarget, ackedFloor);
         accepted = Math.max(accepted, floor);
-        accepted = Math.min(accepted, delayTarget); // never raise via lower path
-        apply = accepted < delayTarget && accepted > 0;
-      } else {
-        // Equal to delay target — SetEstimate is a no-op but keeps pin order.
-        apply = accepted > 0;
+        accepted = Math.min(accepted, delayTarget);
       }
 
-      if (apply && accepted > 0) {
+      if (accepted > 0) {
         this.aimd.setEstimate(accepted, nowMs);
-        this.delayBasedBps = accepted;
+        this.delayBasedBps = this.aimd.targetBitrateBps;
       } else {
-        // Probe present but not applied (caps): keep prior delay estimate.
-        // Do not run AIMD UpdateEstimate this feedback (pin probe branch).
         this.delayBasedBps = this.aimd.targetBitrateBps;
       }
     } else {

@@ -1,7 +1,5 @@
 import {
-  kAdditiveIncreaseFactor,
   kBeta,
-  kBitrateWindowMs,
   kDefaultRttMs,
   kDefaultStartBitrateBps,
   kMaxBitrateBps,
@@ -10,60 +8,88 @@ import {
   kReactionTimeMs,
   kThroughputLowerFraction,
 } from "./constants";
+import { LinkCapacityEstimator } from "./linkCapacityEstimator";
 import type { BandwidthUsage } from "./overuseDetector";
 
 type RateControlState = "hold" | "increase" | "decrease";
 
 /**
- * AIMD rate controller for the delay-based estimate A_hat.
+ * AIMD rate controller for the delay-based estimate (pin
+ * `modules/remote_bitrate_estimator/aimd_rate_control.{h,cc}`).
  *
- * Aligns with libwebrtc `AimdRateControl` control points:
- * - Decrease at most once per RTT (`TimeToReduceFurther`), then hold
- * - Multiplicative increase in slow-start / far from max; additive near max
- * - Soft upper bound vs acknowledged throughput
+ * Ports ChangeState / ChangeBitrate / MultiplicativeRateIncrease /
+ * AdditiveRateIncrease / TimeToReduceFurther / GetNearMaxIncreaseRate.
  *
- * @see modules/congestion_controller/goog_cc/aimd_rate_control.cc
+ * RTT is **only** via {@link setRtt} (RTCP / OnRoundTripTimeUpdate path) —
+ * never from TWCC propagation RTT / RttBasedBackoff.
  */
 export class AimdRateControl {
-  private bitrateBps = kDefaultStartBitrateBps;
-  private state: RateControlState = "increase";
-  private lastUpdateMs = 0;
-  private lastDecreaseMs = 0;
+  private minConfiguredBps = kMinBitrateBps;
+  private maxConfiguredBps = kMaxBitrateBps;
+  private currentBitrateBps = kDefaultStartBitrateBps;
+  private latestEstimatedThroughputBps = kDefaultStartBitrateBps;
+  private readonly linkCapacity = new LinkCapacityEstimator();
+  private rateControlState: RateControlState = "hold";
+  /** Pin `time_last_bitrate_change_` — used by TimeToReduceFurther. */
+  private timeLastBitrateChangeMs = Number.NEGATIVE_INFINITY;
+  private timeLastBitrateDecreaseMs = Number.NEGATIVE_INFINITY;
+  private timeFirstThroughputEstimateMs = Number.NEGATIVE_INFINITY;
+  private bitrateIsInitialized = false;
+  private readonly beta = kBeta;
+  private inAlr = false;
+  /** Default 200ms (pin kDefaultRtt). Updated only via {@link setRtt}. */
   private rttMs = kDefaultRttMs;
-  private avgMaxBitrateKbps = -1;
-  private varMaxBitrateKbps = 0.4;
-  private inSlowStart = true;
+  /** send_side AIMD (GoogCc uses send-side). */
+  private readonly sendSide = true;
+  private readonly noBitrateIncreaseInAlr = false;
 
   reset(startBps = kDefaultStartBitrateBps) {
-    this.bitrateBps = clamp(startBps);
-    this.state = "increase";
-    this.lastUpdateMs = 0;
-    this.lastDecreaseMs = 0;
+    this.minConfiguredBps = kMinBitrateBps;
+    this.maxConfiguredBps = kMaxBitrateBps;
+    this.currentBitrateBps = clamp(startBps, this.minConfiguredBps, this.maxConfiguredBps);
+    this.latestEstimatedThroughputBps = this.currentBitrateBps;
+    this.linkCapacity.reset();
+    this.rateControlState = "hold";
+    this.timeLastBitrateChangeMs = Number.NEGATIVE_INFINITY;
+    this.timeLastBitrateDecreaseMs = Number.NEGATIVE_INFINITY;
+    this.timeFirstThroughputEstimateMs = Number.NEGATIVE_INFINITY;
+    this.bitrateIsInitialized = startBps > 0;
+    this.inAlr = false;
     this.rttMs = kDefaultRttMs;
-    this.avgMaxBitrateKbps = -1;
-    this.varMaxBitrateKbps = 0.4;
-    this.inSlowStart = true;
+  }
+
+  setStartBitrate(startBps: number) {
+    this.currentBitrateBps = clamp(startBps, this.minConfiguredBps, this.maxConfiguredBps);
+    this.latestEstimatedThroughputBps = this.currentBitrateBps;
+    this.bitrateIsInitialized = true;
+  }
+
+  setMinBitrate(minBps: number) {
+    this.minConfiguredBps = Math.max(0, minBps);
+    this.currentBitrateBps = Math.max(this.minConfiguredBps, this.currentBitrateBps);
   }
 
   /**
-   * State-preserving estimate update (libwebrtc `AimdRateControl::SetEstimate`).
-   * Used when applying a valid probe result — does **not** wipe RTT, max-bitrate
-   * variance, or slow-start bookkeeping the way {@link reset} does.
+   * State-preserving estimate update (pin `AimdRateControl::SetEstimate`).
+   * Used for valid probe results — does not wipe RTT or link-capacity history.
    */
   setEstimate(bitrateBps: number, atTimeMs: number) {
-    const prev = this.bitrateBps;
-    this.bitrateBps = clamp(bitrateBps);
-    this.lastUpdateMs = atTimeMs;
-    if (this.bitrateBps < prev) {
-      this.lastDecreaseMs = atTimeMs;
-      this.inSlowStart = false;
+    this.bitrateIsInitialized = true;
+    const prev = this.currentBitrateBps;
+    this.currentBitrateBps = this.clampBitrate(bitrateBps);
+    this.timeLastBitrateChangeMs = atTimeMs;
+    if (this.currentBitrateBps < prev) {
+      this.timeLastBitrateDecreaseMs = atTimeMs;
     }
   }
 
+  /**
+   * pin `AimdRateControl::SetRtt` — RTCP / network-controller RTT only.
+   * No clamp to 2000ms; TimeToReduceFurther clamps to [10, 200] ms internally.
+   */
   setRtt(rttMs: number) {
-    if (rttMs > 0) {
-      // Clamp to a practical range (10 ms .. 2000 ms).
-      this.rttMs = Math.min(2000, Math.max(10, rttMs));
+    if (Number.isFinite(rttMs) && rttMs > 0) {
+      this.rttMs = rttMs;
     }
   }
 
@@ -72,149 +98,272 @@ export class AimdRateControl {
   }
 
   get targetBitrateBps() {
-    return this.bitrateBps;
+    return this.currentBitrateBps;
   }
 
   get controlState(): RateControlState {
-    return this.state;
+    return this.rateControlState;
+  }
+
+  setInApplicationLimitedRegion(inAlr: boolean) {
+    this.inAlr = inAlr;
+  }
+
+  validEstimate(): boolean {
+    return this.bitrateIsInitialized;
   }
 
   /**
    * @param usage overuse detector state
-   * @param acknowledgedBitrateBps measured incoming / acked bitrate R_hat
-   * @param nowMs wall clock (or feedback timeline)
+   * @param acknowledgedBitrateBps estimated throughput R_hat (acked bitrate)
+   * @param nowMs feedback / wall clock ms
    */
   update(
     usage: BandwidthUsage,
     acknowledgedBitrateBps: number,
     nowMs: number,
   ): number {
-    if (this.lastUpdateMs === 0) {
-      this.lastUpdateMs = nowMs;
-    }
-    const timeSinceUpdateMs = Math.max(nowMs - this.lastUpdateMs, 0);
-
-    if (usage === "overuse") {
-      // libwebrtc: decrease only when TimeToReduceFurther, then hold so we do
-      // not multiply-apply beta on every TWCC batch (~100 ms).
-      if (this.timeToReduceFurther(nowMs, acknowledgedBitrateBps)) {
-        const input =
-          acknowledgedBitrateBps > 0 ? acknowledgedBitrateBps : this.bitrateBps;
-        const decreased = Math.max(input * kBeta, kMinBitrateBps);
-        if (decreased < this.bitrateBps) {
-          this.bitrateBps = decreased;
-        }
-        this.lastDecreaseMs = nowMs;
-        this.inSlowStart = false;
+    // pin: initialize from throughput after 5s of samples (we still accept
+    // explicit setStartBitrate / setEstimate earlier).
+    if (!this.bitrateIsInitialized) {
+      const kInitializationTimeMs = 5_000;
+      if (
+        !Number.isFinite(this.timeFirstThroughputEstimateMs) ||
+        this.timeFirstThroughputEstimateMs < 0
+      ) {
         if (acknowledgedBitrateBps > 0) {
-          this.updateMaxBitrateEstimate(acknowledgedBitrateBps / 1000);
+          this.timeFirstThroughputEstimateMs = nowMs;
         }
+      } else if (
+        nowMs - this.timeFirstThroughputEstimateMs > kInitializationTimeMs &&
+        acknowledgedBitrateBps > 0
+      ) {
+        this.currentBitrateBps = acknowledgedBitrateBps;
+        this.bitrateIsInitialized = true;
       }
-      this.state = "hold";
-    } else if (usage === "normal") {
-      if (this.state === "hold" || this.state === "increase") {
-        this.state = "increase";
-        this.bitrateBps = this.increase(
-          this.bitrateBps,
-          acknowledgedBitrateBps,
-          timeSinceUpdateMs,
-        );
-      }
-    } else {
-      // underuse: hold to let queues drain (libwebrtc stay on hold)
-      this.state = "hold";
     }
 
-    // Bound estimate near actual throughput (draft A_hat < 1.5 * R_hat).
-    // Skip when acked is vanishingly small (queue drain / sparse feedback)
-    // so we do not cascade the estimate to kMinBitrateBps.
-    if (
-      acknowledgedBitrateBps > 0 &&
-      acknowledgedBitrateBps > this.bitrateBps * 0.05
-    ) {
-      this.bitrateBps = Math.min(this.bitrateBps, 1.5 * acknowledgedBitrateBps);
+    // pin DelayBasedBwe::MaybeUpdateEstimate gates overuse updates with
+    // TimeToReduceFurther / InitialTimeToReduceFurther before calling Update.
+    if (usage === "overuse") {
+      if (acknowledgedBitrateBps > 0) {
+        if (
+          this.bitrateIsInitialized &&
+          !this.timeToReduceFurther(nowMs, acknowledgedBitrateBps)
+        ) {
+          return this.currentBitrateBps;
+        }
+      } else if (this.bitrateIsInitialized) {
+        if (!this.initialTimeToReduceFurther(nowMs)) {
+          return this.currentBitrateBps;
+        }
+        // No throughput yet: reduce by 50% (pin InitialTimeToReduceFurther path).
+        this.setEstimate(this.currentBitrateBps / 2, nowMs);
+        return this.currentBitrateBps;
+      }
     }
 
-    this.bitrateBps = clamp(this.bitrateBps);
-    this.lastUpdateMs = nowMs;
-    return this.bitrateBps;
+    this.changeBitrate(usage, acknowledgedBitrateBps, nowMs);
+    return this.currentBitrateBps;
   }
 
   /**
-   * libwebrtc `TimeToReduceFurther`: allow another decrease after ≥ RTT, or
-   * when measured throughput falls well below the current estimate.
+   * pin `TimeToReduceFurther`:
+   * - allow after clamp(rtt, 10ms, 200ms) since last bitrate **change**
+   * - or when estimated_throughput < 0.5 * LatestEstimate
    */
-  timeToReduceFurther(nowMs: number, acknowledgedBitrateBps: number): boolean {
-    if (this.lastDecreaseMs === 0) return true;
-    const sinceMs = nowMs - this.lastDecreaseMs;
-    if (sinceMs >= Math.max(this.rttMs, kReactionTimeMs)) return true;
+  timeToReduceFurther(nowMs: number, estimatedThroughputBps: number): boolean {
+    const reductionIntervalMs = Math.min(200, Math.max(10, this.rttMs));
+    // pin: time_last_bitrate_change_ starts MinusInfinity → first reduce always OK
     if (
-      acknowledgedBitrateBps > 0 &&
-      acknowledgedBitrateBps < this.bitrateBps * kThroughputLowerFraction
+      !Number.isFinite(this.timeLastBitrateChangeMs) ||
+      nowMs - this.timeLastBitrateChangeMs >= reductionIntervalMs
     ) {
       return true;
+    }
+    if (this.bitrateIsInitialized) {
+      const threshold = this.currentBitrateBps * kThroughputLowerFraction;
+      return estimatedThroughputBps > 0 && estimatedThroughputBps < threshold;
     }
     return false;
   }
 
-  private increase(
-    currentBps: number,
-    acknowledgedBitrateBps: number,
-    timeSinceUpdateMs: number,
-  ): number {
-    const useMultiplicative =
-      this.inSlowStart ||
-      this.avgMaxBitrateKbps < 0 ||
-      !this.nearMax(acknowledgedBitrateBps);
-
-    if (useMultiplicative) {
-      // eta = 1.08 ^ min(Δt_sec, 1)
-      const eta =
-        kMultiplicativeIncreaseFactor **
-        Math.min(timeSinceUpdateMs / 1000, 1.0);
-      return currentBps * eta;
-    }
-
-    // Additive: ~1 packet per RTT-scale response time
-    const responseTimeMs = kReactionTimeMs + this.rttMs;
-    const alpha =
-      kAdditiveIncreaseFactor *
-      Math.min(timeSinceUpdateMs / Math.max(responseTimeMs, 1), 1.0);
-    const packetSizeBits = expectedPacketSizeBits(currentBps);
-    return currentBps + Math.max(1000, alpha * packetSizeBits);
-  }
-
-  private nearMax(acknowledgedBitrateBps: number): boolean {
-    if (this.avgMaxBitrateKbps < 0) return false;
-    const ackKbps = acknowledgedBitrateBps / 1000;
-    const sigma = Math.sqrt(Math.max(this.varMaxBitrateKbps, 0.4));
-    return Math.abs(ackKbps - this.avgMaxBitrateKbps) < 3 * sigma;
-  }
-
-  private updateMaxBitrateEstimate(ackKbps: number) {
-    const alpha = 0.05;
-    if (this.avgMaxBitrateKbps < 0) {
-      this.avgMaxBitrateKbps = ackKbps;
-    } else {
-      this.avgMaxBitrateKbps =
-        (1 - alpha) * this.avgMaxBitrateKbps + alpha * ackKbps;
-    }
-    const norm = ackKbps - this.avgMaxBitrateKbps;
-    this.varMaxBitrateKbps = Math.max(
-      (1 - alpha) * this.varMaxBitrateKbps + alpha * norm * norm,
-      0.4,
+  /** pin `InitialTimeToReduceFurther`. */
+  initialTimeToReduceFurther(nowMs: number): boolean {
+    return (
+      this.bitrateIsInitialized &&
+      this.timeToReduceFurther(
+        nowMs,
+        this.currentBitrateBps / 2 - 1,
+      )
     );
   }
+
+  /**
+   * pin `GetNearMaxIncreaseRateBpsPerSecond`:
+   * response_time = (rtt + 100ms) * 2; min increase 4000 bps/s.
+   */
+  getNearMaxIncreaseRateBpsPerSecond(): number {
+    const frameIntervalSec = 1 / 30;
+    const frameSizeBits = this.currentBitrateBps * frameIntervalSec;
+    const packetSizeBits = 1200 * 8;
+    const packetsPerFrame = Math.max(1, Math.ceil(frameSizeBits / packetSizeBits));
+    const avgPacketSizeBits = frameSizeBits / packetsPerFrame;
+    // Approximate over-use estimator delay to 100 ms; double for response time.
+    const responseTimeSec = ((this.rttMs + kReactionTimeMs) * 2) / 1000;
+    const increaseRate =
+      responseTimeSec > 0 ? avgPacketSizeBits / responseTimeSec : 4000;
+    return Math.max(4000, increaseRate);
+  }
+
+  private changeBitrate(
+    usage: BandwidthUsage,
+    estimatedThroughputBps: number,
+    nowMs: number,
+  ) {
+    let newBitrate: number | undefined;
+    let estimatedThroughput =
+      estimatedThroughputBps > 0
+        ? estimatedThroughputBps
+        : this.latestEstimatedThroughputBps;
+    if (estimatedThroughputBps > 0) {
+      this.latestEstimatedThroughputBps = estimatedThroughputBps;
+      estimatedThroughput = estimatedThroughputBps;
+    }
+
+    // An over-use always triggers a reduce path even before first estimate.
+    if (!this.bitrateIsInitialized && usage !== "overuse") {
+      return;
+    }
+
+    this.changeState(usage, nowMs);
+
+    switch (this.rateControlState) {
+      case "hold":
+        break;
+
+      case "increase": {
+        if (estimatedThroughput > this.linkCapacity.upperBoundBps()) {
+          this.linkCapacity.reset();
+        }
+
+        // pin: 1.5 * throughput + 10 kbps
+        let increaseLimit = 1.5 * estimatedThroughput + 10_000;
+        if (this.sendSide && this.inAlr && this.noBitrateIncreaseInAlr) {
+          increaseLimit = this.currentBitrateBps;
+        }
+
+        if (this.currentBitrateBps < increaseLimit) {
+          let increased: number;
+          if (this.linkCapacity.hasEstimate()) {
+            const additive = this.additiveRateIncrease(
+              nowMs,
+              this.timeLastBitrateChangeMs,
+            );
+            increased = this.currentBitrateBps + additive;
+          } else {
+            const multi = this.multiplicativeRateIncrease(
+              nowMs,
+              this.timeLastBitrateChangeMs,
+              this.currentBitrateBps,
+            );
+            increased = this.currentBitrateBps + multi;
+          }
+          newBitrate = Math.min(increased, increaseLimit);
+        }
+        this.timeLastBitrateChangeMs = nowMs;
+        break;
+      }
+
+      case "decrease": {
+        // pin: estimated_throughput * beta, then −5 kbps if above 5 kbps
+        let decreased = estimatedThroughput * this.beta;
+        if (decreased > 5_000) {
+          decreased -= 5_000;
+        }
+
+        if (decreased > this.currentBitrateBps) {
+          if (this.linkCapacity.hasEstimate()) {
+            decreased = this.beta * this.linkCapacity.estimateBps();
+          }
+        }
+
+        if (decreased < this.currentBitrateBps) {
+          newBitrate = decreased;
+        }
+
+        if (
+          this.bitrateIsInitialized &&
+          estimatedThroughput < this.currentBitrateBps
+        ) {
+          // last_decrease_ tracked in pin; not required for external API
+        }
+        if (estimatedThroughput < this.linkCapacity.lowerBoundBps()) {
+          this.linkCapacity.reset();
+        }
+
+        this.bitrateIsInitialized = true;
+        this.linkCapacity.onOveruseDetected(estimatedThroughput);
+        // Stay on hold until the pipes are cleared.
+        this.rateControlState = "hold";
+        this.timeLastBitrateChangeMs = nowMs;
+        this.timeLastBitrateDecreaseMs = nowMs;
+        break;
+      }
+    }
+
+    this.currentBitrateBps = this.clampBitrate(
+      newBitrate !== undefined ? newBitrate : this.currentBitrateBps,
+    );
+  }
+
+  private changeState(usage: BandwidthUsage, nowMs: number) {
+    switch (usage) {
+      case "normal":
+        if (this.rateControlState === "hold") {
+          this.timeLastBitrateChangeMs = nowMs;
+          this.rateControlState = "increase";
+        }
+        break;
+      case "overuse":
+        if (this.rateControlState !== "decrease") {
+          this.rateControlState = "decrease";
+        }
+        break;
+      case "underuse":
+        this.rateControlState = "hold";
+        break;
+    }
+  }
+
+  private multiplicativeRateIncrease(
+    atTimeMs: number,
+    lastTimeMs: number,
+    currentBitrateBps: number,
+  ): number {
+    let alpha = kMultiplicativeIncreaseFactor;
+    if (Number.isFinite(lastTimeMs) && lastTimeMs > Number.NEGATIVE_INFINITY) {
+      const timeSinceSec = Math.max(0, (atTimeMs - lastTimeMs) / 1000);
+      alpha = kMultiplicativeIncreaseFactor ** Math.min(timeSinceSec, 1.0);
+    }
+    // max(current * (alpha - 1), 1000 bps)
+    return Math.max(currentBitrateBps * (alpha - 1.0), 1000);
+  }
+
+  private additiveRateIncrease(atTimeMs: number, lastTimeMs: number): number {
+    const timePeriodSec =
+      Number.isFinite(lastTimeMs) && lastTimeMs > Number.NEGATIVE_INFINITY
+        ? Math.max(0, (atTimeMs - lastTimeMs) / 1000)
+        : 0;
+    return this.getNearMaxIncreaseRateBpsPerSecond() * timePeriodSec;
+  }
+
+  private clampBitrate(newBitrateBps: number): number {
+    // NetworkStateEstimate upper/lower bounds omitted (no network_estimator path).
+    return Math.max(newBitrateBps, this.minConfiguredBps);
+  }
 }
 
-function expectedPacketSizeBits(bitrateBps: number): number {
-  const bitsPerFrame = bitrateBps / 30;
-  const packetsPerFrame = Math.max(1, Math.ceil(bitsPerFrame / (1200 * 8)));
-  return bitsPerFrame / packetsPerFrame;
+function clamp(bps: number, minBps: number, maxBps: number) {
+  return Math.min(Math.max(Math.round(bps), minBps), maxBps);
 }
-
-function clamp(bps: number) {
-  return Math.min(Math.max(Math.round(bps), kMinBitrateBps), kMaxBitrateBps);
-}
-
-export { kBitrateWindowMs };

@@ -17,7 +17,7 @@ https://webrtc.googlesource.com/src/+/0fda16159e33adf59c71a7ad1173dcbe5a632102/m
 
 ## Included paths
 
-- `modules/congestion_controller/goog_cc/` — network control, delay BWE, trendline, inter-arrival, acked/robust throughput, loss-based V2, probe controller/estimator, **send_side_bandwidth_estimation** (RttBasedBackoff / IsRttAboveLimit / UpdatePropagationRtt)
+- `modules/congestion_controller/goog_cc/` — network control, delay BWE, trendline, inter-arrival, acked/robust throughput, loss-based V2, probe controller/estimator, **send_side_bandwidth_estimation, link_capacity_estimator** (RttBasedBackoff / IsRttAboveLimit / UpdatePropagationRtt)
 - `modules/remote_bitrate_estimator/aimd_rate_control.{h,cc}`
 - `modules/pacing/bitrate_prober.{h,cc}`
 - `modules/congestion_controller/rtp/transport_feedback_{adapter,demuxer}.{h,cc}`

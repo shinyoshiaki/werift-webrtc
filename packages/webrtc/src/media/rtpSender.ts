@@ -892,6 +892,11 @@ export class RTCRtpSender {
                   } else {
                     this.rtt = RTT_ALPHA * this.rtt + (1 - RTT_ALPHA) * rtt;
                   }
+                  // pin OnRoundTripTimeUpdate → AIMD SetRtt (ms). Separate from
+                  // TWCC propagation RTT used by GCC RttBasedBackoff.
+                  if (this.rtt !== undefined && this.rtt > 0) {
+                    this._senderBWE.setRoundTripTime?.(this.rtt * 1000);
+                  }
                 }
               }
             });

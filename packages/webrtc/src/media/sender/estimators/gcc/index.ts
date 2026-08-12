@@ -32,6 +32,7 @@ export {
 export type { AckedPacketSample } from "./acknowledgedBitrateEstimator";
 export { AimdRateControl } from "./aimdRateControl";
 export { GccBandwidthEstimator } from "./gccBwe";
+export { LinkCapacityEstimator } from "./linkCapacityEstimator";
 export {
   InterArrivalDelta,
   kBurstDeltaThresholdMs,

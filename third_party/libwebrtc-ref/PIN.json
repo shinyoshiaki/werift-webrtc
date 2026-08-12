@@ -35,7 +35,9 @@
     "modules/congestion_controller/rtp/transport_feedback_adapter.h",
     "modules/congestion_controller/rtp/transport_feedback_adapter.cc",
     "modules/congestion_controller/rtp/transport_feedback_demuxer.h",
-    "modules/congestion_controller/rtp/transport_feedback_demuxer.cc"
+    "modules/congestion_controller/rtp/transport_feedback_demuxer.cc",
+    "modules/congestion_controller/goog_cc/link_capacity_estimator.h",
+    "modules/congestion_controller/goog_cc/link_capacity_estimator.cc"
   ],
   "failed": []
 }

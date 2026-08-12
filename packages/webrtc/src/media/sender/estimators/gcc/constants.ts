@@ -63,23 +63,44 @@ export const kThresholdGainDown = 0.039;
 
 export const kMaxAdaptOffsetMs = 15;
 
-// --- AIMD (libwebrtc AimdRateControl) ---
+// --- AIMD (pin aimd_rate_control.cc) ---
 
-/** Multiplicative decrease factor (libwebrtc beta ≈ 0.85). */
+/** Multiplicative decrease factor (pin kDefaultBackoffFactor / beta_ = 0.85). */
 export const kBeta = 0.85;
-/** Multiplicative increase base per second (≈ 1.08). */
+/** Multiplicative increase base per second (pin alpha = 1.08). */
 export const kMultiplicativeIncreaseFactor = 1.08;
-/** Additive increase scale (packets per response-time unit). */
-export const kAdditiveIncreaseFactor = 0.5;
-/** Extra delay added to RTT for additive response time. */
+/**
+ * Extra delay added to RTT for near-max additive response time
+ * (pin: response_time = (rtt + 100ms) * 2).
+ */
 export const kReactionTimeMs = 100;
 export const kBitrateWindowMs = 1000;
-export const kDefaultRttMs = 100;
 /**
- * Allow another decrease before RTT elapses when acked throughput falls
- * below this fraction of the current estimate (libwebrtc-style throughput check).
+ * pin `kDefaultRtt` = 200ms. AIMD RTT is **not** TWCC propagation RTT;
+ * only OnRoundTripTimeUpdate / RTCP RR path updates it via setRtt.
+ */
+export const kDefaultRttMs = 200;
+/**
+ * TimeToReduceFurther throughput check: estimated_throughput < 0.5 * estimate.
  */
 export const kThroughputLowerFraction = 0.5;
+/**
+ * Subtracted from beta * throughput on overuse when result > 5 kbps
+ * (pin: decreased_bitrate -= 5 kbps).
+ */
+export const kAimdDecreaseOffsetBps = 5_000;
+/**
+ * Additive increase floor (pin kMinIncreaseRateBpsPerSecond = 4000).
+ */
+export const kAimdMinIncreaseRateBpsPerSecond = 4_000;
+/**
+ * Multiplicative increase floor per update (pin BitsPerSec(1000)).
+ */
+export const kAimdMinMultiplicativeIncreaseBps = 1_000;
+/**
+ * Throughput upper bound offset on increase (pin + 10 kbps).
+ */
+export const kAimdThroughputUpperOffsetBps = 10_000;
 
 // --- Acknowledged bitrate (libwebrtc RobustThroughputEstimator defaults) ---
 // Pin: RobustThroughputEstimatorSettings.enabled = true
@@ -243,21 +264,10 @@ export const kLossLimitedProbeScale = 1.5;
  */
 export const kRttBasedBackOffHighRttMs = 3_000;
 /**
- * Recovery-phase only: do not accept a probe result more than this multiple
- * of the current delay/loss target. **Not applied during initial exponential
- * probing** (×3/×6 must be able to raise the estimate well above start).
- */
-export const kProbeResultMaxOverTarget = 1.5;
-/**
- * Soft ceiling vs recent acked bitrate when acked > 0 (both initial and recovery).
- * Filters multi-fold outliers from a single short TWCC window.
- */
-export const kProbeResultMaxOverAcked = 2.0;
-/**
- * libwebrtc kProbeDropThroughputFraction: when a valid probe result is **below**
- * the current BWE, floor the applied value at acked×this so a single glitchy
- * probe cannot crash the estimate far below observed throughput. Still allows
- * a modest drop to drain queues when truly overusing.
+ * pin kProbeDropThroughputFraction: when a valid probe result is **below** the
+ * current delay estimate, floor at acked×this so a single glitchy probe cannot
+ * crash the estimate far below observed throughput. **No matching upward cap**
+ * in pin production path — rising probes pass through to Aimd SetEstimate.
  */
 export const kProbeDropThroughputFraction = 0.85;
 
@@ -283,8 +293,8 @@ export const kSentInfoMaxAgeMs = 10_000;
 export const GCC_KNOWN_DIFFERENCES = [
   "LossBasedBweV2: byte-loss objective/derivative (UseByteLossRate), bias adjustment by loss ratio, instant upper/lower bounds, delayed-increase window, HOLD (state stays decreasing while holdUntil active; ramp-up 1.2× when acked still below hold×1.3 else 1.5×); full ALR/padding-duration state machine simplified (IncreaseUsingPadding collapsed into increasing when padding path is unused)",
   "No REMB integration; TWCC-only send-side mode (ticket non-goal; future work)",
-  "Probe pacing uses RTCRtpSender token-bucket + RTP padding injection (not webrtc::PacedSender); 3x/6x queued FIFO — pacing advances on send-fill (minBytes AND minPackets), not on ACK; ProbeController result-wait (sender clock 1s) is separate from ProbeBitrateEstimator history (receive timeline 1s + sender-side kSentInfoMaxAgeMs cap; zero-packet timeouts never enter history) so late TWCC after controller complete can still yield estimates within the window; further after 80% still refines pending estimate; SetEstimatedBitrate further only while waiting_for_result (pin); session complete (timeout/empty queue/abort) sets min_bitrate_to_probe_further=+∞ so further cannot re-open after complete; when uncapped further/recovery/initial target ≥ max_bitrate (or cause max_probe), clamp and stop further (probe_further=false, min=+inf); active clusters are never aborted mid-send by TWCC loss/overuse — update order matches pin DelayBasedBwe::MaybeUpdateEstimate: while overusing ignore probe_bitrate entirely (AIMD TimeToReduceFurther only); when not overusing apply probe SetEstimate on delay path (lower results floored with acked×0.85); recovered_from_overuse only when no probe_bitrate this feedback and not overusing; then LossBasedBwe.update(post-probe delay) → GetBandwidthLimitedCause from **post-loss** state; underuse/overuse → forbid; CorrectedRtt (propagation + timeout) > 3s → forbid; loss decreasing/hold → forbid; loss increasing → allow with max_probe = estimated × 1.5; delay_based → allow uncapped; recovery latched on per-packet underuse→normal; 5s cooldown; no ALR-only / network-state-estimate probe path (recovery probe is always eligible after complete+cooldown when cause allows)",
-  "AIMD: TimeToReduceFurther (RTT spacing + throughput check) and hold-after-decrease ported; RttBasedBackoff from pin send_side_bandwidth_estimation: UpdatePropagationRtt(min_propagation_rtt) where propagation_rtt = feedback_rtt − (max_recv − recv); IsRttAboveLimit uses CorrectedRtt = max(last_sent−last_update,0)+propagation (not raw max_feedback_rtt); max_feedback_rtt stored for diagnostics only (CWND path not ported); ×0.8 RttBasedBackoff target drop not applied; AIMD decrease spacing uses clamped [10, 2000] ms CorrectedRtt; probe accept uses setEstimate on delay path before loss re-update (preserves AIMD RTT / max-bitrate stats), not LossBased setBandwidthEstimate force delay_based; DelayBasedBwe kStreamTimeOut (2s) resets InterArrivalDelta + TrendlineEstimator",
+  "Probe pacing uses RTCRtpSender token-bucket + RTP padding injection (not webrtc::PacedSender); 3x/6x queued FIFO — pacing advances on send-fill (minBytes AND minPackets), not on ACK; ProbeController result-wait (sender clock 1s) is separate from ProbeBitrateEstimator history (receive timeline 1s + sender-side kSentInfoMaxAgeMs cap; zero-packet timeouts never enter history) so late TWCC after controller complete can still yield estimates within the window; further after 80% still refines pending estimate; SetEstimatedBitrate further only while waiting_for_result (pin); session complete (timeout/empty queue/abort) sets min_bitrate_to_probe_further=+∞ so further cannot re-open after complete; when uncapped further/recovery/initial target ≥ max_bitrate (or cause max_probe), clamp and stop further (probe_further=false, min=+inf); active clusters are never aborted mid-send by TWCC loss/overuse — update order matches pin DelayBasedBwe::MaybeUpdateEstimate: while overusing ignore probe_bitrate entirely (AIMD TimeToReduceFurther only); when not overusing apply probe SetEstimate on delay path **without upward caps** (lower results floored with acked×0.85 only); recovered_from_overuse only when no probe_bitrate this feedback and not overusing; then LossBasedBwe.update(post-probe delay) → GetBandwidthLimitedCause from **post-loss** state; underuse/overuse → forbid; CorrectedRtt (propagation + timeout) > 3s → forbid; loss decreasing/hold → forbid; loss increasing → allow with max_probe = estimated × 1.5; delay_based → allow uncapped; recovery latched on per-packet underuse→normal; 5s cooldown; no ALR-only / network-state-estimate probe path",
+  "AIMD ported from pin aimd_rate_control: ChangeState/ChangeBitrate, decrease = throughput×β then −5kbps if >5kbps, increase limit 1.5×throughput+10kbps, multiplicative 1.08^Δt (min +1000bps), additive via GetNearMaxIncreaseRate ((rtt+100ms)×2, min 4000bps/s), LinkCapacityEstimator for additive vs multi; TimeToReduceFurther clamps RTT to [10,200]ms on time_last_bitrate_change_; default RTT 200ms; AIMD RTT only via setRoundTripTime (RTCP RR) — RttBasedBackoff propagation RTT is separate (IsRttAboveLimit only); ×0.8 RttBasedBackoff target drop not applied; NetworkStateEstimate bound on ClampBitrate omitted; DelayBasedBwe kStreamTimeOut (2s) resets InterArrivalDelta + TrendlineEstimator",
   "Acknowledged bitrate uses RobustThroughputEstimator defaults (window_packets=20, min_duration=1s, required_packets=10, largest-gap replace); Bayesian BitrateEstimator kept as utility; prior_unacked_data / ALR hooks omitted (all TWCC-tagged media)",
   "TWCC 24-bit reference_time is unwrapped across feedbacks in GccBandwidthEstimator (continuous ms timeline); packetResults alone still report raw wrap-relative times; ReceiverTWCC late-reorder history is ~500ms (time-based) with a sequence safety bound",
   "Floating-point / wall-clock differences may cause sub-bps numerical drift vs C++ (not bit-identical to libwebrtc public test vectors)",

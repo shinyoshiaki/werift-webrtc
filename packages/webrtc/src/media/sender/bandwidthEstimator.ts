@@ -46,6 +46,13 @@ export interface BandwidthEstimator {
   reset?(): void;
 
   /**
+   * Optional RTCP / network RTT update in **milliseconds** (pin
+   * OnRoundTripTimeUpdate). Not TWCC propagation RTT — only estimators that
+   * need AIMD spacing (e.g. GCC) implement this.
+   */
+  setRoundTripTime?(rttMs: number): void;
+
+  /**
    * Release listeners / timers when the sender replaces the estimator.
    * {@link RTCRtpSender} rebinds its stable `onAvailableBitrate` bridge after dispose.
    */
