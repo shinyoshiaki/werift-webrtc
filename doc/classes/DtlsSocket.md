@@ -440,10 +440,14 @@ true when the caller should fire public onClose after onError
 
 ### handleUdpDatagram()
 
-> `protected` **handleUdpDatagram**(`data`): `void`
+> `protected` **handleUdpDatagram**(`data`, `addr`?): `void`
 
 Process one UDP datagram on the DTLS 1.2 record path.
 Subclasses (dual client) may intercept before calling this.
+
+RX ownership (when pin set): drop non-pin peers before parse/decrypt so
+spoofed UDP / carrier inject cannot deliver app data or force terminal
+via unauthenticated alerts.
 
 #### Parameters
 
@@ -451,9 +455,33 @@ Subclasses (dual client) may intercept before calling this.
 
 `Buffer`
 
+##### addr?
+
+readonly \[`string`, `number`\]
+
 #### Returns
 
 `void`
+
+***
+
+### isAuthenticatedLegacy12Record()
+
+> `protected` **isAuthenticatedLegacy12Record**(`epoch`): `boolean`
+
+After keys exist (connected or write epoch advanced), only epoch>0 records
+are cryptographically authenticated for lifecycle alerts. Epoch-0 fatal /
+close_notify must not tear down a post-handshake association (unauth DoS).
+
+#### Parameters
+
+##### epoch
+
+`number`
+
+#### Returns
+
+`boolean`
 
 ***
 
@@ -472,6 +500,26 @@ Request KeyUpdate on DTLS 1.3 connections.
 #### Returns
 
 `Promise`\<`void`\>
+
+***
+
+### matchesPinnedPeer()
+
+> `protected` **matchesPinnedPeer**(`addr`?): `boolean`
+
+True when inbound source matches association TX/RX pin, or no pin yet
+(pre-cookie server / pre-connect). After pin, unknown or non-pin peer
+must not drive handshake / app / alert lifecycle (RX ownership).
+
+#### Parameters
+
+##### addr?
+
+readonly \[`string`, `number`\]
+
+#### Returns
+
+`boolean`
 
 ***
 
@@ -536,7 +584,9 @@ readonly \[`string`, `number`\]
 
 > `protected` **pinSendPeerFromTransportRinfo**(`mode`): `void`
 
-Pin from last transport rinfo when present (never overwrites existing pin).
+Pin from last transport rinfo when present.
+Default mode is `set-if-empty` (keeps an existing authenticated pin).
+Pass `replace` when the association deliberately re-pins (e.g. client connect).
 
 #### Parameters
 
@@ -589,6 +639,37 @@ not double-fire public events.
 ##### error
 
 `Error`
+
+#### Returns
+
+`void`
+
+***
+
+### resolveInboundPeer()
+
+> `protected` **resolveInboundPeer**(`addr`?): `undefined` \| readonly \[`string`, `number`\]
+
+Resolve inbound peer for RX ownership: explicit UDP/inject addr first,
+else last transport rinfo (may be spoofed — always gate with pin).
+
+#### Parameters
+
+##### addr?
+
+readonly \[`string`, `number`\]
+
+#### Returns
+
+`undefined` \| readonly \[`string`, `number`\]
+
+***
+
+### restorePinnedRinfo()
+
+> `protected` **restorePinnedRinfo**(): `void`
+
+Restore transport.rinfo to pin so spoof sources do not stick for later TX fallbacks.
 
 #### Returns
 
@@ -660,7 +741,7 @@ Send a fatal DTLSPlaintext alert (used for protocol_version mismatch).
 
 ### udpOnMessage()
 
-> `protected` **udpOnMessage**(`data`, `_addr`?): `void`
+> `protected` **udpOnMessage**(`data`, `addr`?): `void`
 
 #### Parameters
 
@@ -668,7 +749,7 @@ Send a fatal DTLSPlaintext alert (used for protocol_version mismatch).
 
 `Buffer`
 
-##### \_addr?
+##### addr?
 
 readonly \[`string`, `number`\]
 

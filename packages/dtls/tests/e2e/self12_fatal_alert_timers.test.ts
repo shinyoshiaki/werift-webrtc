@@ -80,23 +80,19 @@ test("e2e/self12: fatal alert during retransmit sleep cancels timers", async () 
   server.onError.subscribe((e) => errors.push(e));
 
   // Act: retransmit sleep 中に epoch-0 fatal handshake_failure を注入
+  // (HS 中は epoch-0 が正規; peer は pin 済み client アドレス)
   const alertBody = Buffer.from([2, AlertDesc.HandshakeFailure]);
   const alertPkt = serializePlaintextRecord(ContentType.alert, 0, 0, alertBody);
-  const serverPeer = clientTransport.rinfo
-    ? ([clientTransport.rinfo.address, clientTransport.rinfo.port] as [
-        string,
-        number,
-      ])
-    : undefined;
-  // server の inbound に直接 inject（peer からの fatal alert 相当）
-  (server as any).udpOnMessage(
-    alertPkt,
-    serverPeer ??
-      ([clientTransport.address[0], clientTransport.address[1]] as [
-        string,
-        number,
-      ]),
-  );
+  const clientAddr = clientTransport.address as {
+    address: string;
+    port: number;
+  };
+  const peerFromClient: [string, number] = [
+    clientAddr.address === "0.0.0.0" ? "127.0.0.1" : clientAddr.address,
+    clientAddr.port,
+  ];
+  // server の inbound に直接 inject（pin 済み client からの fatal alert 相当）
+  (server as any).udpOnMessage(alertPkt, peerFromClient);
 
   // Assert: onError 直後に timer/resolver が 0、flight 停止 + association tear down
   expect(errors.length).toBe(1);

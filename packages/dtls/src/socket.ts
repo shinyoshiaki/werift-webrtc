@@ -22,6 +22,7 @@ import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecre
 import { RenegotiationIndication } from "./handshake/extensions/renegotiationIndication";
 import { Signature } from "./handshake/extensions/signature";
 import { UseSRTP } from "./handshake/extensions/useSrtp";
+import { peerKeyFromAddr } from "./handshake/extensions/cookie";
 import type { Alert } from "./handshake/message/alert";
 import type { SrtpProfile } from "./imports/rtp";
 import { createPlaintext } from "./record/builder";
@@ -90,6 +91,15 @@ export class DtlsSocket {
   }
 
   renegotiation() {
+    // Terminal association must not re-init flight/cipher state (invariant:
+    // reconnect / renegotiation on a closed association is prohibited).
+    if (this.associationTornDown) {
+      const error = new Error(
+        "DTLS association is closed; cannot renegotiation",
+      );
+      this.onError.execute(error);
+      return;
+    }
     if (this.engine13) {
       // DTLS 1.3 renegotiation is not defined; reject.
       const error = new Error(
@@ -114,18 +124,108 @@ export class DtlsSocket {
 
   protected udpOnMessage = (
     data: Buffer,
-    _addr?: import("./imports/common").Address,
+    addr?: import("./imports/common").Address,
   ) => {
-    this.handleUdpDatagram(data);
+    this.handleUdpDatagram(data, addr);
   };
+
+  /** Normalize host so 0.0.0.0 / :: match loopback pin keys used by Flight. */
+  private normalizePeerHost(host: string): string {
+    if (host === "0.0.0.0") return "127.0.0.1";
+    if (host === "::" || host === "[::]") return "::1";
+    return host;
+  }
+
+  /**
+   * Resolve inbound peer for RX ownership: explicit UDP/inject addr first,
+   * else last transport rinfo (may be spoofed — always gate with pin).
+   */
+  protected resolveInboundPeer(addr?: Address): Address | undefined {
+    if (addr != null && addr[0] != null && addr[1] != null) {
+      return [addr[0], addr[1]];
+    }
+    const r = (
+      this.options.transport as {
+        rinfo?: { address?: string; port?: number };
+      }
+    ).rinfo;
+    if (r?.address != null && r?.port != null) {
+      return [r.address, r.port];
+    }
+    return undefined;
+  }
+
+  /**
+   * True when inbound source matches association TX/RX pin, or no pin yet
+   * (pre-cookie server / pre-connect). After pin, unknown or non-pin peer
+   * must not drive handshake / app / alert lifecycle (RX ownership).
+   */
+  protected matchesPinnedPeer(addr?: Address): boolean {
+    const pin = this.transport.pinnedPeer;
+    if (!pin) return true;
+    if (!addr) return false;
+    const a: [string, number] = [this.normalizePeerHost(addr[0]), addr[1]];
+    const p: [string, number] = [this.normalizePeerHost(pin[0]), pin[1]];
+    return peerKeyFromAddr(a) === peerKeyFromAddr(p);
+  }
+
+  /**
+   * After keys exist (connected or write epoch advanced), only epoch>0 records
+   * are cryptographically authenticated for lifecycle alerts. Epoch-0 fatal /
+   * close_notify must not tear down a post-handshake association (unauth DoS).
+   */
+  protected isAuthenticatedLegacy12Record(epoch: number): boolean {
+    if (this.connected || this.dtls.epoch > 0) {
+      return epoch > 0;
+    }
+    return true;
+  }
+
+  /** Restore transport.rinfo to pin so spoof sources do not stick for later TX fallbacks. */
+  protected restorePinnedRinfo(): void {
+    const pin = this.transport.pinnedPeer;
+    if (!pin) return;
+    const t = this.options.transport as {
+      rinfo?: { address?: string; port?: number };
+    };
+    t.rinfo = { address: pin[0], port: pin[1] };
+  }
 
   /**
    * Process one UDP datagram on the DTLS 1.2 record path.
    * Subclasses (dual client) may intercept before calling this.
+   *
+   * RX ownership (when pin set): drop non-pin peers before parse/decrypt so
+   * spoofed UDP / carrier inject cannot deliver app data or force terminal
+   * via unauthenticated alerts.
    */
-  protected handleUdpDatagram(data: Buffer): void {
+  protected handleUdpDatagram(data: Buffer, addr?: Address): void {
     // Terminal association: drop all RX (no onData / handshake resume after fatal).
     if (this.associationTornDown) return;
+
+    const peer = this.resolveInboundPeer(addr);
+    // Association peer pin owns RX as well as TX once set (cookie / connect).
+    if (!this.matchesPinnedPeer(peer)) {
+      log(
+        this.dtls.sessionId,
+        "DTLS 1.2: drop RX from non-association peer",
+        peerKeyFromAddr(
+          peer
+            ? ([this.normalizePeerHost(peer[0]), peer[1]] as [string, number])
+            : undefined,
+        ),
+        peerKeyFromAddr(
+          this.transport.pinnedPeer
+            ? ([
+                this.transport.pinnedPeer[0],
+                this.transport.pinnedPeer[1],
+              ] as [string, number])
+            : undefined,
+        ),
+      );
+      this.restorePinnedRinfo();
+      return;
+    }
 
     const packets = parsePacket(data);
 
@@ -133,6 +233,7 @@ export class DtlsSocket {
       try {
         // Re-check: async fatal during multi-record datagram must stop mid-loop.
         if (this.associationTornDown) return;
+        const recordEpoch = packet.recordLayerHeader.epoch;
         const messages = parsePlainText(this.dtls, this.cipher)(packet);
         for (const message of messages) {
           if (this.associationTornDown) return;
@@ -168,6 +269,15 @@ export class DtlsSocket {
               {
                 // Never deliver app data after association terminal teardown.
                 if (this.associationTornDown) return;
+                // App data is always epoch>0 AEAD; unauthenticated epoch-0 must not deliver.
+                if (!this.isAuthenticatedLegacy12Record(recordEpoch)) {
+                  log(
+                    this.dtls.sessionId,
+                    "DTLS 1.2: drop unauthenticated application_data",
+                    recordEpoch,
+                  );
+                  break;
+                }
                 this.onData.execute(message.data as Buffer);
               }
               break;
@@ -175,6 +285,18 @@ export class DtlsSocket {
               {
                 const alert = message.data as Alert | undefined;
                 if (!alert) break;
+                // Unauthenticated (epoch-0 after keys) alerts must not change
+                // association lifecycle — only AEAD-protected records may.
+                if (!this.isAuthenticatedLegacy12Record(recordEpoch)) {
+                  log(
+                    this.dtls.sessionId,
+                    "DTLS 1.2: ignore unauthenticated alert (no terminal)",
+                    AlertDesc[alert.description] ?? alert.description,
+                    "epoch",
+                    recordEpoch,
+                  );
+                  break;
+                }
                 // Association lifecycle (aligned with 1.3 / TLS 1.2):
                 //   fatal / protocol_version → fail association (onError + tear down)
                 //   close_notify             → graceful association close
@@ -210,6 +332,7 @@ export class DtlsSocket {
           }
         }
       } catch (error) {
+        // Decrypt / parse failures: drop record, do not tear down (unauth garbage).
         err(this.dtls.sessionId, "catch udpOnMessage error", error);
       }
     }

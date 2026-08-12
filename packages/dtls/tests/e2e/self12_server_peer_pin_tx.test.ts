@@ -89,8 +89,12 @@ test("e2e/self12: server app send stays on real peer after spoof RX", async () =
     payloads.push(d.toString("utf8"));
   });
 
-  // Act: spoof datagram overwrites server UdpTransport.rinfo
+  // Act: spoof datagram — UdpTransport updates rinfo then association RX
+  // drops non-pin and restores rinfo to pin (RX ownership).
   const serverPort = (serverTransport.address as { port: number }).port;
+  const pinBefore = [
+    ...(server as any).transport.pinnedPeer,
+  ] as [string, number];
   await new Promise<void>((resolve, reject) => {
     spoof.send(Buffer.from("spoof-noise"), serverPort, "127.0.0.1", (err) => {
       if (err) reject(err);
@@ -99,10 +103,12 @@ test("e2e/self12: server app send stays on real peer after spoof RX", async () =
   });
   await new Promise((r) => setTimeout(r, 40));
 
-  // rinfo は spoof に変わっているが pin は本物のまま
-  expect((serverTransport as any).rinfo?.port).toBe(spoof.address().port);
+  // pin 不変; spoof 後 rinfo は pin へ restore（last-rinfo に攻撃者を残さない）
   const pin = (server as any).transport.pinnedPeer as [string, number];
+  expect(pin[0]).toBe(pinBefore[0]);
+  expect(pin[1]).toBe(pinBefore[1]);
   expect(pin[1]).not.toBe(spoof.address().port);
+  expect((serverTransport as any).rinfo?.port).toBe(pin[1]);
 
   await server.send(Buffer.from("only-to-client"));
   await new Promise((r) => setTimeout(r, 80));

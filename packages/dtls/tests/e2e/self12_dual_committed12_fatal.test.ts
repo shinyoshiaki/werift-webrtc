@@ -4,9 +4,28 @@ import { DtlsClient, DtlsServer, DtlsVersion } from "../../src";
 import { DirectHandshakeCarrier } from "../../src/carrier/direct";
 import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
 import { createDtlsClientInternal } from "../../src/internal";
+import { createPlaintext } from "../../src/record/builder";
 import { AlertDesc, ContentType } from "../../src/record/const";
 import { serializePlaintextRecord } from "../../src/record/v1_3/record";
 import { certPem, keyPem } from "../fixture";
+
+function encryptServerAlert(
+  server: DtlsServer,
+  level: number,
+  desc: number,
+): Buffer {
+  const frag = Buffer.from([level, desc]);
+  const pkt = createPlaintext((server as any).dtls)(
+    [{ type: ContentType.alert, fragment: frag }],
+    ++(server as any).dtls.recordSequenceNumber,
+  )[0];
+  return (server as any).cipher.encryptPacket(pkt).serialize();
+}
+
+function serverPeer(serverTransport: UdpTransport): [string, number] {
+  const a = serverTransport.address as { address: string; port: number };
+  return [a.address === "0.0.0.0" ? "127.0.0.1" : a.address, a.port];
+}
 
 /**
  * P1: dual → committed12 → connected の後に peer fatal alert を受けると、
@@ -70,14 +89,13 @@ test("e2e/dual: committed12 fatal alert tears down association", async () => {
   client.onError.subscribe((e) => errors.push(e));
   client.onClose.subscribe(() => closes.push(Date.now()));
 
-  const alertBody = Buffer.from([2, AlertDesc.HandshakeFailure]);
-  const alertPkt = serializePlaintextRecord(ContentType.alert, 0, 0, alertBody);
-  (client as any).udpOnMessage(alertPkt, [
-    (serverTransport.address as any).address === "0.0.0.0"
-      ? "127.0.0.1"
-      : (serverTransport.address as any).address,
-    (serverTransport.address as any).port,
-  ]);
+  // AEAD-protected fatal (epoch-0 plaintext is ignored post-handshake)
+  const alertPkt = encryptServerAlert(
+    server,
+    2,
+    AlertDesc.HandshakeFailure,
+  );
+  (client as any).udpOnMessage(alertPkt, serverPeer(serverTransport));
 
   // Assert: onError 直後に association は閉じている
   expect(errors.length).toBe(1);
@@ -163,9 +181,8 @@ test("e2e/dual: committed12 peer close_notify closes association gracefully", as
   const errors: Error[] = [];
   client.onError.subscribe((e) => errors.push(e));
 
-  // Act: peer close_notify (warning level)
-  const closeBody = Buffer.from([1, AlertDesc.CloseNotify]);
-  const closePkt = serializePlaintextRecord(ContentType.alert, 0, 0, closeBody);
+  // Act: peer close_notify (AEAD-protected warning)
+  const closePkt = encryptServerAlert(server, 1, AlertDesc.CloseNotify);
 
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(
@@ -176,12 +193,7 @@ test("e2e/dual: committed12 peer close_notify closes association gracefully", as
       clearTimeout(timer);
       resolve();
     });
-    (client as any).udpOnMessage(closePkt, [
-      (serverTransport.address as any).address === "0.0.0.0"
-        ? "127.0.0.1"
-        : (serverTransport.address as any).address,
-      (serverTransport.address as any).port,
-    ]);
+    (client as any).udpOnMessage(closePkt, serverPeer(serverTransport));
   });
 
   // Assert: graceful close — onError なし、phase closed

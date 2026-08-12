@@ -83,12 +83,24 @@ export const parsePlainText =
         ];
       }
       case ContentType.alert: {
-        let alert = Alert.deSerialize(plain.fragment);
-
-        // TODO impl more better about handle encrypted alert
-        if (AlertDesc[alert.description] == undefined) {
+        // After local epoch advances, epoch>0 alerts must AEAD-verify.
+        // Before keys (local epoch 0): epoch>0 may still be structural
+        // (dual probing distinguishes epoch-0 vs epoch≥1 suppress filters);
+        // post-handshake lifecycle ignores unauthenticated epoch-0 at socket.
+        let alert: Alert;
+        if (plain.recordLayerHeader.epoch > 0 && dtls.epoch > 0) {
           const dec = cipher.decryptPacket(plain);
           alert = Alert.deSerialize(dec);
+        } else if (plain.recordLayerHeader.epoch > 0 && dtls.epoch === 0) {
+          try {
+            const dec = cipher.decryptPacket(plain);
+            alert = Alert.deSerialize(dec);
+          } catch {
+            // No read keys yet — structural parse for HS-time dual demux only.
+            alert = Alert.deSerialize(plain.fragment);
+          }
+        } else {
+          alert = Alert.deSerialize(plain.fragment);
         }
         err(
           dtls.sessionId,

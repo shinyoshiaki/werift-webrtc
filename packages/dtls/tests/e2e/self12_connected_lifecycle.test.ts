@@ -73,9 +73,10 @@ function peerOf(t: { address: { address: string; port: number } | string }): [
 }
 
 /**
- * P1: pure DTLS 1.2 接続完了後の fatal → association terminal（dual 以外も）。
+ * P1: pure DTLS 1.2 接続完了後の **認証済み (epoch>0 AEAD)** fatal → association terminal。
+ * epoch-0 平文 fatal は unauth として無視する（別テスト）。
  */
-test("e2e/self12: connected fatal alert tears down pure association", async () => {
+test("e2e/self12: connected authenticated fatal alert tears down pure association", async () => {
   // Arrange
   const { client, server, clientTransport, serverTransport } =
     await connectPair();
@@ -89,13 +90,14 @@ test("e2e/self12: connected fatal alert tears down pure association", async () =
   client.onClose.subscribe(() => closes.push(Date.now()));
   client.onData.subscribe((d) => data.push(d));
 
-  // Act: peer fatal
-  const alertPkt = serializePlaintextRecord(
-    ContentType.alert,
-    0,
-    0,
-    Buffer.from([2, AlertDesc.HandshakeFailure]),
-  );
+  // Act: peer fatal encrypted with server write keys (epoch = server.dtls.epoch)
+  const { createPlaintext } = await import("../../src/record/builder");
+  const alertFrag = Buffer.from([2, AlertDesc.HandshakeFailure]);
+  const pkt = createPlaintext((server as any).dtls)(
+    [{ type: ContentType.alert, fragment: alertFrag }],
+    ++(server as any).dtls.recordSequenceNumber,
+  )[0];
+  const alertPkt = (server as any).cipher.encryptPacket(pkt).serialize();
   (client as any).udpOnMessage(alertPkt, peerOf(serverTransport));
 
   // Assert: terminal
@@ -134,7 +136,7 @@ test("e2e/self12: connected fatal alert tears down pure association", async () =
 }, 20_000);
 
 /**
- * P2: pure 1.2 peer close_notify → graceful close, API 不可, late drop.
+ * P2: pure 1.2 peer close_notify（AEAD 保護）→ graceful close, API 不可, late drop。
  */
 test("e2e/self12: connected close_notify graceful association close", async () => {
   const { client, server, clientTransport, serverTransport } =
@@ -145,12 +147,16 @@ test("e2e/self12: connected close_notify graceful association close", async () =
   client.onError.subscribe((e) => errors.push(e));
   client.onClose.subscribe(() => closes.push(Date.now()));
 
-  const closePkt = serializePlaintextRecord(
-    ContentType.alert,
-    0,
-    0,
-    Buffer.from([1, AlertDesc.CloseNotify]),
-  );
+  // Authenticated close_notify (epoch>0) — epoch-0 plaintext is ignored post-HS.
+  const { createPlaintext } = await import("../../src/record/builder");
+  const closeFrag = Buffer.from([1, AlertDesc.CloseNotify]);
+  const closePktPlain = createPlaintext((server as any).dtls)(
+    [{ type: ContentType.alert, fragment: closeFrag }],
+    ++(server as any).dtls.recordSequenceNumber,
+  )[0];
+  const closePkt = (server as any).cipher
+    .encryptPacket(closePktPlain)
+    .serialize();
 
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("onClose timeout")), 5_000);

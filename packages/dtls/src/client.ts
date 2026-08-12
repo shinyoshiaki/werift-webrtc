@@ -466,18 +466,6 @@ export class DtlsClient extends DtlsSocket {
     }
   }
 
-  /** After dropping a spoofed packet, restore rinfo to the association pin. */
-  private restorePinnedRinfo(): void {
-    if (!this.dualAssociationPeerAddr) return;
-    const t = this.options.transport as {
-      rinfo?: { address?: string; port?: number };
-    };
-    t.rinfo = {
-      address: this.dualAssociationPeerAddr[0],
-      port: this.dualAssociationPeerAddr[1],
-    };
-  }
-
   /**
    * True when a captured associationGen still owns the DTLS 1.2 handshake path.
    * False after hard-close or commit to 1.3 (1.2 Flight5 must not resume).
@@ -1406,7 +1394,8 @@ export class DtlsClient extends DtlsSocket {
       return;
     }
     // After commit12, late 1.3 SH must not reverse version (resume guards too).
-    this.handleUdpDatagram(data);
+    // Pass peer so base 1.2 RX pin gate applies (UDP + carrier.inject parity).
+    this.handleUdpDatagram(data, peerAddr);
   };
 
   /**
