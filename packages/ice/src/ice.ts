@@ -244,7 +244,10 @@ export class Connection implements IceConnection {
         );
       }
 
-      const candidatePromises = this.getCandidatePromises(address, 5);
+      const candidatePromises = this.getCandidatePromises(
+        address,
+        this.options.stunGatherTimeout,
+      );
       await Promise.allSettled(candidatePromises);
 
       this.localCandidatesEnd = true;
@@ -418,29 +421,34 @@ export class Connection implements IceConnection {
 
     if (!gatherRelayOnly && this.options.useTcp) {
       const tcpCandidatePromises = addresses.map(async (address) => {
-        const passiveProtocol = new TcpPassiveProtocol();
-        this.ensureProtocol(passiveProtocol);
-        await passiveProtocol.connectionMade(address, this.options.portRange);
-        passiveProtocol.localIp = address;
-        passiveProtocol.localCandidate = new Candidate(
-          candidateFoundation("host", "tcp", address),
-          1,
-          "tcp",
-          candidatePriority("host", {
-            transport: "tcp",
-            tcptype: "passive",
-          }),
-          address,
-          passiveProtocol.listeningPort,
-          "host",
-          undefined,
-          undefined,
-          "passive",
-          this.generation,
-          this.localUsername,
-        );
-        this.protocols.push(passiveProtocol);
-        this.appendLocalCandidate(passiveProtocol.localCandidate);
+        // Passive candidates open a listening TCP server; skip them when the
+        // agent only makes outbound connections (tcpPassive === false). Active
+        // candidates below still dial out, so direct TCP egress is unaffected.
+        if (this.options.tcpPassive !== false) {
+          const passiveProtocol = new TcpPassiveProtocol();
+          this.ensureProtocol(passiveProtocol);
+          await passiveProtocol.connectionMade(address, this.options.portRange);
+          passiveProtocol.localIp = address;
+          passiveProtocol.localCandidate = new Candidate(
+            candidateFoundation("host", "tcp", address),
+            1,
+            "tcp",
+            candidatePriority("host", {
+              transport: "tcp",
+              tcptype: "passive",
+            }),
+            address,
+            passiveProtocol.listeningPort,
+            "host",
+            undefined,
+            undefined,
+            "passive",
+            this.generation,
+            this.localUsername,
+          );
+          this.protocols.push(passiveProtocol);
+          this.appendLocalCandidate(passiveProtocol.localCandidate);
+        }
 
         if (!gatherIceLite) {
           const activeProtocol = new TcpActiveProtocol();

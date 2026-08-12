@@ -134,6 +134,8 @@ export class SecureTransportManager {
       useIpv4: this.config.iceUseIpv4,
       useIpv6: this.config.iceUseIpv6,
       useTcp: this.config.iceUseTcp,
+      tcpPassive: this.config.iceTcpPassive,
+      stunGatherTimeout: this.config.iceStunGatherTimeout,
       turnTlsOptions: this.config.turnTlsOptions,
       useLinkLocalAddress: this.config.iceUseLinkLocalAddress,
     });
