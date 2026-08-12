@@ -94,7 +94,7 @@ export type AddressValidationMode =
  */
 export type PeerIdentityMode = "datagram-address" | "authenticated-single-peer";
 
-/** Resolve peer-identity policy from explicit option or transport/cookie hints. */
+/** Resolve peer-identity policy (association + DTLS 1.3 engine share this). */
 export function resolvePeerIdentityMode(opts: {
   peerIdentityMode?: PeerIdentityMode;
   addressValidation?: AddressValidationMode;
