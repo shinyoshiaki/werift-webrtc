@@ -199,8 +199,16 @@ export class DtlsServer extends DtlsSocket {
         // flight1,3
         case HandshakeType.client_hello_1:
           {
-            if (this.connected) {
-              this.renegotiation();
+            // Wire-initiated renegotiation is not supported after connect.
+            // Unauthenticated epoch-0 ClientHello is already dropped in
+            // handleUdpDatagram; defense in depth if an authenticated path ever
+            // delivers a late CH.
+            if (this.connected || this.associationTornDown) {
+              log(
+                this.dtls.sessionId,
+                "ignore ClientHello after connected (no wire renegotiation)",
+              );
+              return;
             }
             const clientHello = ClientHello.deSerialize(handshake.fragment);
 

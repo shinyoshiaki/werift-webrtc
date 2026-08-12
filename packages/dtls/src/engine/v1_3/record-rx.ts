@@ -545,7 +545,8 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
     if (alert.description === AlertDesc.CloseNotify) {
       // RFC 9147: record epoch/seq boundary for reordered app data; then align
       // public lifecycle with local close() (onClose, timers, connected=false).
-      // Only AEAD-authenticated close_notify reaches here (epoch > 0).
+      // Epoch>0: AEAD-authenticated. Epoch-0 only if pre-keys + associated peer
+      // (onPlaintextRecord gate); post-keys epoch-0 never reaches here.
       log("peer close_notify", receivedEpoch, sequenceNumber);
       this.onPeerCloseNotify(receivedEpoch, sequenceNumber);
       return;

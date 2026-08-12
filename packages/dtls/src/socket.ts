@@ -249,6 +249,18 @@ export class DtlsSocket {
           switch (message.type) {
             case ContentType.handshake:
               {
+                // Post-handshake epoch-0 HS is unauthenticated plaintext — same
+                // invariant as DTLS 1.3 (drop without lifecycle change). Must not
+                // call renegotiation() / reset cipher on garbage or spoofed CH.
+                if (!this.isAuthenticatedLegacy12Record(recordEpoch)) {
+                  log(
+                    this.dtls.sessionId,
+                    "DTLS 1.2: drop unauthenticated handshake record",
+                    recordEpoch,
+                    this.connected,
+                  );
+                  break;
+                }
                 const handshake = message.data as FragmentedHandshake;
                 const handshakes = this.handleFragmentHandshake([handshake]);
                 const assembled = Object.values(
