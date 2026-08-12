@@ -1,12 +1,12 @@
 # WPT partial-pass progress
 
-| Generated at | 2026-08-12T05:45:11.940Z |
+| Generated at | 2026-08-12T06:26:24.676Z |
 
 ## Target success rates
 
 | File | Variant | PASS | FAIL | TIMEOUT | TOTAL | Excluded | Effective PASS/TOTAL | Success rate | Status |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| webrtc/RTCPeerConnection-setRemoteDescription-pranswer.html | (default) | 0 | 0 | 1 | 1 | 0 | 0/1 | 0.0% | active |
+| webrtc/protocol/handover.html | (default) | 0 | 0 | 1 | 1 | 0 | 0/1 | 0.0% | active |
 | webrtc/simulcast/negotiation-encodings.https.html | (default) | 1 | 19 | 0 | 20 | 0 | 1/20 | 5.0% | active |
 | webrtc/RTCPeerConnection-mandatory-getStats.https.html | (default) | 4 | 69 | 0 | 73 | 0 | 4/73 | 5.5% | active |
 | webrtc/RTCRtpParameters-codec.html | (default) | 2 | 20 | 0 | 22 | 0 | 2/22 | 9.1% | active |
@@ -44,7 +44,6 @@
 | webrtc/RTCPeerConnection-createAnswer.html | (default) | 2 | 1 | 0 | 3 | 0 | 2/3 | 66.7% | active |
 | webrtc/RTCPeerConnection-setRemoteDescription-offer.html | (default) | 10 | 5 | 0 | 15 | 0 | 10/15 | 66.7% | active |
 | webrtc/historical.html | (default) | 1 | 0 | 0 | 1 | 0 | 1/1 | 100.0% | done |
-| webrtc/protocol/handover.html | (default) | 2 | 0 | 0 | 2 | 0 | 2/2 | 100.0% | done |
 | webrtc/protocol/jsep-initial-offer.https.html | (default) | 1 | 0 | 0 | 1 | 0 | 1/1 | 100.0% | done |
 | webrtc/protocol/pt-no-bundle.html | (default) | 1 | 0 | 0 | 1 | 0 | 1/1 | 100.0% | done |
 | webrtc/protocol/RTCPeerConnection-payloadTypes.html | (default) | 1 | 0 | 0 | 1 | 0 | 1/1 | 100.0% | done |
@@ -81,6 +80,7 @@
 | webrtc/RTCPeerConnection-setLocalDescription-rollback.html | (default) | 6 | 0 | 0 | 6 | 0 | 6/6 | 100.0% | done |
 | webrtc/RTCPeerConnection-setLocalDescription.html | (default) | 3 | 0 | 0 | 3 | 0 | 3/3 | 100.0% | done |
 | webrtc/RTCPeerConnection-setRemoteDescription-answer.html | (default) | 3 | 0 | 0 | 3 | 0 | 3/3 | 100.0% | done |
+| webrtc/RTCPeerConnection-setRemoteDescription-pranswer.html | (default) | 4 | 0 | 0 | 4 | 0 | 4/4 | 100.0% | done |
 | webrtc/RTCPeerConnection-setRemoteDescription-simulcast.https.html | (default) | 1 | 0 | 0 | 1 | 0 | 1/1 | 100.0% | done |
 | webrtc/RTCPeerConnection-setRemoteDescription.html | (default) | 7 | 0 | 0 | 7 | 0 | 7/7 | 100.0% | done |
 | webrtc/RTCPeerConnection-SLD-SRD-timing.https.html | (default) | 1 | 0 | 0 | 1 | 0 | 1/1 | 100.0% | done |
