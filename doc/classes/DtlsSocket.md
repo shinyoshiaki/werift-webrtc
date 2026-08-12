@@ -465,6 +465,20 @@ readonly \[`string`, `number`\]
 
 ***
 
+### hasAssociationPeerAuth()
+
+> `protected` **hasAssociationPeerAuth**(): `boolean`
+
+Cookie / connect pin is the association peer-auth boundary for DTLS 1.2.
+Pre-pin (server pre-cookie): unauthenticated sources must not force
+association-fatal teardown (alert / malformed HS DoS).
+
+#### Returns
+
+`boolean`
+
+***
+
 ### isAuthenticatedLegacy12Record()
 
 > `protected` **isAuthenticatedLegacy12Record**(`epoch`): `boolean`

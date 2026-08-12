@@ -181,6 +181,15 @@ export class DtlsSocket {
     return true;
   }
 
+  /**
+   * Cookie / connect pin is the association peer-auth boundary for DTLS 1.2.
+   * Pre-pin (server pre-cookie): unauthenticated sources must not force
+   * association-fatal teardown (alert / malformed HS DoS).
+   */
+  protected hasAssociationPeerAuth(): boolean {
+    return !!this.transport.pinnedPeer;
+  }
+
   /** Restore transport.rinfo to pin so spoof sources do not stick for later TX fallbacks. */
   protected restorePinnedRinfo(): void {
     const pin = this.transport.pinnedPeer;
@@ -257,10 +266,19 @@ export class DtlsSocket {
 
                 this.onHandleHandshakes(assembled).catch((error) => {
                   err(this.dtls.sessionId, "onHandleHandshakes error", error);
-                  // Handshake failure is association-fatal: tear down (not onError-only).
-                  // Idempotent if a concurrent fatal already closed the association.
                   const e =
                     error instanceof Error ? error : new Error(String(error));
+                  // Pre-cookie / unpinned: drop per-source only — never tear down
+                  // the listening association (unauthenticated DoS).
+                  if (!this.hasAssociationPeerAuth()) {
+                    log(
+                      this.dtls.sessionId,
+                      "DTLS 1.2: drop pre-auth handshake error (no association fatal)",
+                      e.message,
+                    );
+                    return;
+                  }
+                  // Post-pin: handshake failure is association-fatal.
                   this.reportLegacy12Fatal(e);
                 });
               }
@@ -285,6 +303,15 @@ export class DtlsSocket {
               {
                 const alert = message.data as Alert | undefined;
                 if (!alert) break;
+                // Pre-cookie (no pin): any alert is unauthenticated — drop only.
+                if (!this.hasAssociationPeerAuth()) {
+                  log(
+                    this.dtls.sessionId,
+                    "DTLS 1.2: ignore pre-auth alert (no association fatal)",
+                    AlertDesc[alert.description] ?? alert.description,
+                  );
+                  break;
+                }
                 // Unauthenticated (epoch-0 after keys) alerts must not change
                 // association lifecycle — only AEAD-protected records may.
                 if (!this.isAuthenticatedLegacy12Record(recordEpoch)) {
@@ -449,6 +476,11 @@ export class DtlsSocket {
    */
   protected assertReadyForApplicationApi(op: string): void {
     if (this.associationTornDown) {
+      throw new Error(`DTLS association is closed; cannot ${op}`);
+    }
+    // Engine may enter closing (onClosing) before associationTornDown if a
+    // direct engine path races; still reject Public API.
+    if (this.engine13?.isClosed()) {
       throw new Error(`DTLS association is closed; cannot ${op}`);
     }
   }
@@ -633,6 +665,10 @@ export class DtlsSocket {
 
   close() {
     if (this.engine13) {
+      // Sync Public-API terminal *before* async close_notify so send() cannot
+      // race pure 1.3 / dual-server graceful close (client dual overrides this).
+      // onClosing from the engine is idempotent with prepareAssociationClosed.
+      this.prepareAssociationClosedFromEngine();
       this.engine13.close();
       return;
     }
@@ -808,6 +844,13 @@ export class DtlsSocket {
     engine.onData
       .subscribe((data) => this.onData.execute(data))
       .disposer(this.engine13Bridge);
+    // Graceful close start (local close / peer close_notify): Public API off
+    // immediately — before async close_notify completes.
+    engine.onClosing
+      .subscribe(() => {
+        this.prepareAssociationClosedFromEngine();
+      })
+      .disposer(this.engine13Bridge);
     engine.onError
       .subscribe((e) => {
         // HVR soft dual transition only: do not public-error or fatal-teardown.
@@ -826,7 +869,7 @@ export class DtlsSocket {
     engine.onClose
       .subscribe(() => {
         // Mark closed before public onClose so handlers that call close()
-        // re-entrantly do not double-fire onClose.
+        // re-entrantly do not double-fire onClose. (Often already set via onClosing.)
         this.prepareAssociationClosedFromEngine();
         // Fire public onClose while engine13 is still inspectable.
         this.onClose.execute();

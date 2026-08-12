@@ -95,7 +95,7 @@ One `DtlsClient` / `DtlsServer` instance is a **single association**. After any 
 
 Other warning alerts keep the association open. Create a **new** client/server for a new handshake.
 
-Outbound **and inbound** DTLS 1.2 traffic use an **association-owned peer pin**, not the last UDP `rinfo` alone: after cookie verification (server) or `connect()` (client), non-pin peers are dropped on RX and cannot redirect TX. Post-handshake, only AEAD-protected (epoch &gt; 0) alerts may change association lifecycle — epoch-0 fatal/`close_notify` is ignored (unauthenticated DoS). `renegotiation()` is rejected after terminal close. DTLS 1.3 engines pin the peer independently inside the engine.
+Outbound **and inbound** DTLS 1.2 traffic use an **association-owned peer pin**, not the last UDP `rinfo` alone: after cookie verification (server) or `connect()` (client), non-pin peers are dropped on RX and cannot redirect TX. **Pre-cookie (unpinned)** servers ignore unauthenticated alerts and malformed handshake errors without association teardown (per-source drop only). Post-handshake, only AEAD-protected (epoch &gt; 0) alerts may change association lifecycle — epoch-0 fatal/`close_notify` is ignored. DTLS 1.3 local/peer close fires a synchronous terminal transition (`onClosing` / `associationTornDown`) before async `close_notify`, so `send()` cannot race teardown. `renegotiation()` is rejected after terminal close.
 
 Generated Public API docs (`doc/classes/DtlsClient.md`, `DtlsServer.md`, `DtlsSocket.md`) are produced by root `npm run doc` and verified by `npm run doc:check` (part of `npm run ci`). After Public API or lifecycle changes, regenerate and commit `doc/` so the gate stays green.
 

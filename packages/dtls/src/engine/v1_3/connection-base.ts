@@ -71,8 +71,19 @@ export abstract class Dtls13ConnectionBase {
   readonly onData = new Event<[Buffer]>();
   readonly onError = new Event<[Error]>();
   readonly onClose = new Event();
+  /**
+   * Fires once when graceful close begins (local close or peer close_notify),
+   * *before* async close_notify / teardown. Association layer uses this to
+   * disable Public API synchronously so send() cannot race the notify path.
+   */
+  readonly onClosing = new Event();
 
   connected = false;
+  /**
+   * Graceful close in progress (close_notify may still be in flight).
+   * Distinct from {@link closed} (full teardown finished).
+   */
+  protected closing = false;
   protected readonly role: Role;
   /** Handshake carrier (injectable; default DirectHandshakeCarrier). */
   protected readonly carrier: DtlsHandshakeCarrier;
@@ -780,8 +791,29 @@ export abstract class Dtls13ConnectionBase {
    * Used by local close() and peer close_notify so public lifecycle stays consistent
    * (connected=false, onClose fires).
    */
+  /**
+   * Enter graceful-close terminal for Public API: connected=false, closing=true,
+   * onClosing once. Safe to call repeatedly. Does not fire onClose or free carrier.
+   */
+  protected beginGracefulClose(): void {
+    if (this.closed || this.closing) {
+      this.connected = false;
+      return;
+    }
+    this.closing = true;
+    this.connected = false;
+    this.onClosing.execute();
+  }
+
+  /** True after full teardown, or while close_notify/teardown is in flight. */
+  isClosed(): boolean {
+    return this.closed || this.closing;
+  }
+
   protected teardownAssociation(opts?: { closeTransport?: boolean }): void {
     if (this.closed) return;
+    // Ensure onClosing ran even if teardown is called without beginGracefulClose.
+    this.beginGracefulClose();
     this.closed = true;
     this.connected = false;
     this.clearPendingFlight();
@@ -803,7 +835,10 @@ export abstract class Dtls13ConnectionBase {
   protected onPeerCloseNotify(epoch: number, sequenceNumber: number): void {
     this.peerCloseBoundary = { epoch, sequenceNumber };
     this.clearPendingFlight();
-    if (!this.closed && this.connected) {
+    if (this.closed) return;
+    // Sync terminal (onClosing) before any further work.
+    this.beginGracefulClose();
+    if (!this.closed) {
       this.teardownAssociation();
     }
   }
@@ -893,6 +928,7 @@ export abstract class Dtls13ConnectionBase {
     this.cancelEpochPrune = undefined;
     this.carrier.cancelAllTimers();
     this.dualProbeParked = false;
+    this.closing = true;
     this.closed = true;
     this.connected = false;
     if (!this.carrier.isClosed()) {

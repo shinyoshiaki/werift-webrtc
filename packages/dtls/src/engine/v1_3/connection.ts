@@ -72,6 +72,10 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
   }
 
   async send(buf: Buffer): Promise<void> {
+    // closing/closed: Public API must fail immediately (close vs send race).
+    if (this.closed || this.closing) {
+      throw new Error("DTLS association is closed; cannot send");
+    }
     if (!this.connected && this.writeEpoch < 3) {
       throw new Error("DTLS 1.3 not ready to send application data");
     }
@@ -130,9 +134,11 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
 
   close() {
     if (this.closed) return;
+    // Sync terminal (onClosing → associationTornDown) before async notify.
+    this.beginGracefulClose();
     // RFC 8446: send close_notify before tearing down write side (unless already sent).
     // Use write keys (not only connected) so a race where the peer finished first
-    // still emits close_notify.
+    // still emits close_notify. beginGracefulClose cleared connected but write keys remain.
     const canSendCloseNotify =
       !this.localCloseNotifySent &&
       !!this.epochs.get(this.writeEpoch)?.writeKeys;
@@ -172,22 +178,23 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
   /**
    * Peer sent close_notify: record boundary, stop retransmits, reply close_notify,
    * then full teardown so public state matches local close() (onClose + !connected).
+   * Terminal (onClosing) is synchronous so Public API rejects before notify completes.
    */
   protected onPeerCloseNotify(epoch: number, sequenceNumber: number): void {
     this.peerCloseBoundary = { epoch, sequenceNumber };
     // Stop any pending handshake / KeyUpdate retransmit immediately
     this.clearPendingFlight();
     if (this.closed) return;
-    if (this.connected && !this.localCloseNotifySent) {
+    // Snapshot whether we still need a reply *before* beginGracefulClose clears connected.
+    const shouldReply =
+      !this.localCloseNotifySent &&
+      !!this.epochs.get(this.writeEpoch)?.writeKeys;
+    this.beginGracefulClose();
+    if (shouldReply) {
       void this.sendCloseNotify().finally(() => this.teardownAssociation());
       return;
     }
     this.teardownAssociation();
-  }
-
-  /** True after close() or fail() has torn down the association. */
-  isClosed(): boolean {
-    return this.closed;
   }
 
   /**

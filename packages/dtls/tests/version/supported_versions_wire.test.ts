@@ -103,33 +103,27 @@ describe("dual server supported_versions negative integration", () => {
     return { server, serverTransport };
   }
 
-  test("unknown version only → protocol_version (not silent 1.2)", async () => {
-    // Arrange: 前提を準備する
+  test("unknown version only → no connect and no listening-association DoS", async () => {
+    // Arrange: pre-cookie dual server (unpinned). Unknown wire versions must
+    // not select silent 1.2, and must not association-fatal the listener.
     const { server, serverTransport } = await dualServer();
     const pkt = buildChWithSupportedVersionsData(
       Buffer.from([0x02, 0x03, 0x03]), // TLS 1.2 0x0303 — not a DTLS wire version
     );
-    // Act / Assert: version 交渉を検証する
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new Error("unknown-only should fail promptly")),
-        5_000,
-      );
-      server.onError.subscribe((e) => {
-        clearTimeout(timer);
-        // Act / Assert: version 交渉を検証する
-        expect(server.connected).toBe(false);
-        server.close();
-        resolve();
-      });
-      server.onConnect.subscribe(() => {
-        clearTimeout(timer);
-        reject(
-          new Error("must not connect on unknown-only supported_versions"),
-        );
-      });
-      serverTransport.onData?.(pkt, ["127.0.0.1", 40001] as any);
+    const errors: Error[] = [];
+    server.onError.subscribe((e) => errors.push(e));
+    server.onConnect.subscribe(() => {
+      throw new Error("must not connect on unknown-only supported_versions");
     });
+    // Act
+    serverTransport.onData?.(pkt, ["127.0.0.1", 40001] as any);
+    await new Promise((r) => setTimeout(r, 200));
+    // Assert: no 1.2 fallthrough connect; listening association stays up
+    expect(server.connected).toBe(false);
+    expect((server as any).associationTornDown).toBe(false);
+    // Pre-auth: optional onError only if pin existed — here must not tear down
+    expect((server as any).associationTornDown).toBe(false);
+    server.close();
   }, 10_000);
 
   test("empty supported_versions list → protocol failure", async () => {
