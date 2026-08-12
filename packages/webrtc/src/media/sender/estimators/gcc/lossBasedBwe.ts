@@ -110,6 +110,11 @@ export class LossBasedBwe {
     seenPackets: new Map<number, number>(),
     size: 0,
   };
+  /**
+   * Hard cap on partial observation maps. If send-timeline duration never
+   * reaches the 250ms lower bound (e.g. stuck clocks), maps stay bounded.
+   */
+  private static readonly kMaxPartialPackets = 4096;
   private temporalWeights: number[] = [];
 
   constructor() {
@@ -502,6 +507,20 @@ export class LossBasedBwe {
 
     if (!Number.isFinite(this.lastSendTimeMostRecentObservation)) {
       this.lastSendTimeMostRecentObservation = firstSendMs;
+    }
+
+    // Bound partial maps if the observation duration never advances
+    // (identical send timestamps / stalled clock). Prefer dropping the
+    // incomplete window over unbounded growth.
+    if (this.partial.seenPackets.size > LossBasedBwe.kMaxPartialPackets) {
+      this.partial = {
+        numPackets: 0,
+        lostPackets: new Map(),
+        seenPackets: new Map(),
+        size: 0,
+      };
+      this.lastSendTimeMostRecentObservation = lastSendMs;
+      return;
     }
 
     const observationDuration =

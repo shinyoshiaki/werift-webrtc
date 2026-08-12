@@ -27,6 +27,7 @@ import {
   kProbeResultMaxOverAcked,
   kProbeResultMaxOverTarget,
   kSentInfoMaxAgeMs,
+  kStreamTimeOutMs,
 } from "./constants";
 import { InterArrivalDelta } from "./interArrivalDelta";
 import { LossBasedBwe, type LossPacketFeedback } from "./lossBasedBwe";
@@ -114,6 +115,11 @@ export class GccBandwidthEstimator
   private lastMaxFeedbackRttMs = 0;
   /** Last batch min_propagation_rtt (before timeout correction). */
   private lastPropagationRttMs = 0;
+  /**
+   * Sender clock of the last TWCC packet feedback that fed the delay path
+   * (libwebrtc DelayBasedBwe::last_seen_packet_).
+   */
+  private lastSeenPacketMs = Number.NEGATIVE_INFINITY;
 
   get availableBitrate() {
     return this._availableBitrate;
@@ -307,6 +313,21 @@ export class GccBandwidthEstimator
       })),
     );
 
+    // libwebrtc DelayBasedBwe::kStreamTimeOut — idle > 2s resets delay path
+    // so stale trendline history does not produce false overuse/underuse.
+    if (
+      timedReceived.length > 0 &&
+      Number.isFinite(this.lastSeenPacketMs) &&
+      nowMs - this.lastSeenPacketMs > kStreamTimeOutMs
+    ) {
+      this.interArrival.reset();
+      this.trendline.reset();
+      this.lastUsage = "normal";
+    }
+    if (timedReceived.length > 0) {
+      this.lastSeenPacketMs = nowMs;
+    }
+
     // libwebrtc DelayBasedBwe::IncomingPacketFeedbackVector — latch
     // recovered_from_overuse on **per-packet** underuse→normal transitions
     // inside this feedback (not only feedback-to-feedback lastUsage).
@@ -340,10 +361,12 @@ export class GccBandwidthEstimator
       this.onOveruseDetected.execute(usage);
     }
 
-    // Upward probe *results* apply unless delay path is overusing (pin
-    // MaybeUpdateEstimate skips SetEstimate(probe) while overusing).
+    // pin DelayBasedBwe::MaybeUpdateEstimate:
+    // - overusing → ignore probe_bitrate entirely (AIMD decrease only)
+    // - else if probe_bitrate → SetEstimate(probe); recovered_from_overuse=false
+    // - else → UpdateEstimate; may surface recovered_from_overuse
     // Active clusters keep pacing until send-fill or pacing timeout.
-    const allowUpwardProbeResult = usage !== "overuse";
+    const overusing = usage === "overuse";
 
     const batchFirstSend = Number.isFinite(firstSend) ? firstSend : 0;
     const batchLastSend = lastSend > 0 ? lastSend : batchFirstSend;
@@ -373,41 +396,43 @@ export class GccBandwidthEstimator
     // 1) Delay path (AIMD) with optional probe SetEstimate
     // 2) LossBased estimator with post-probe delay estimate as input
     // 3) GetBandwidthLimitedCause / target from **post-loss** state
-    this.delayBasedBps = this.aimd.update(usage, ackedBps, nowMs);
-
-    // Apply valid probe results onto the delay path *before* loss update.
-    // Do **not** call LossBasedBwe.setBandwidthEstimate here — that would force
-    // delay_based and skip re-observing this feedback's loss against the
-    // probe-elevated delay estimate (pin UpdateLossBasedEstimator after probe).
+    //
+    // Consume pending probe before deciding recovery (pin FetchAndReset before
+    // MaybeUpdateEstimate — any probe estimate suppresses recovered_from_overuse).
     const probeBps = this.probe.takePendingEstimateBps();
-    if (probeBps > 0) {
+    const hasProbeEstimate = probeBps > 0;
+
+    if (overusing) {
+      // pin: overuse branch never applies probe_bitrate.
+      this.delayBasedBps = this.aimd.update(usage, ackedBps, nowMs);
+    } else if (hasProbeEstimate) {
+      // pin: SetEstimate(probe) only — no UpdateEstimate this feedback.
+      // limit_probes_lower_than_throughput_estimate floors a low probe so we
+      // do not drop far below measured throughput (drain queues slightly).
       const initialProbing = !this.initialExponentialDone;
       let accepted = Math.min(probeBps, kMaxBitrateBps);
       let apply = false;
-      const delayTarget = this.delayBasedBps;
+      const delayTarget =
+        this.delayBasedBps > 0 ? this.delayBasedBps : this.aimd.targetBitrateBps;
 
       if (accepted > delayTarget) {
-        if (allowUpwardProbeResult) {
-          if (initialProbing) {
-            if (ackedBps > kMinBitrateBps) {
-              accepted = Math.min(
-                accepted,
-                ackedBps * kProbeResultMaxOverAcked,
-              );
-            }
-          } else {
-            // Recovery: min(probe, max(delay×1.5, acked×2)).
-            const targetCap = delayTarget * kProbeResultMaxOverTarget;
-            const ackedCap =
-              ackedBps > kMinBitrateBps
-                ? ackedBps * kProbeResultMaxOverAcked
-                : targetCap;
-            accepted = Math.min(accepted, Math.max(targetCap, ackedCap));
+        if (initialProbing) {
+          if (ackedBps > kMinBitrateBps) {
+            accepted = Math.min(accepted, ackedBps * kProbeResultMaxOverAcked);
           }
-          apply = accepted > delayTarget;
+        } else {
+          // Recovery: min(probe, max(delay×1.5, acked×2)).
+          const targetCap = delayTarget * kProbeResultMaxOverTarget;
+          const ackedCap =
+            ackedBps > kMinBitrateBps
+              ? ackedBps * kProbeResultMaxOverAcked
+              : targetCap;
+          accepted = Math.min(accepted, Math.max(targetCap, ackedCap));
         }
-        // overuse + rising: ignore upward probe (padding may still finish)
-      } else if (accepted < delayTarget && allowUpwardProbeResult) {
+        // Werift recovery/initial caps may clip a rising probe; do not apply a
+        // "upward" result that no longer exceeds the current delay target.
+        apply = accepted > delayTarget;
+      } else if (accepted < delayTarget) {
         // libwebrtc limit_probes_lower_than_throughput_estimate:
         // probe = max(probe, min(delayEstimate, acked × 0.85)).
         const ackedFloor =
@@ -418,22 +443,21 @@ export class GccBandwidthEstimator
         accepted = Math.max(accepted, floor);
         accepted = Math.min(accepted, delayTarget); // never raise via lower path
         apply = accepted < delayTarget && accepted > 0;
-      } else if (accepted < delayTarget && !allowUpwardProbeResult) {
-        // Overusing: still allow lower probe with acked floor (drain queues).
-        const ackedFloor =
-          ackedBps > kMinBitrateBps
-            ? ackedBps * kProbeDropThroughputFraction
-            : accepted;
-        const floor = Math.min(delayTarget, ackedFloor);
-        accepted = Math.max(accepted, floor);
-        accepted = Math.min(accepted, delayTarget);
-        apply = accepted < delayTarget && accepted > 0;
+      } else {
+        // Equal to delay target — SetEstimate is a no-op but keeps pin order.
+        apply = accepted > 0;
       }
 
       if (apply && accepted > 0) {
         this.aimd.setEstimate(accepted, nowMs);
         this.delayBasedBps = accepted;
+      } else {
+        // Probe present but not applied (caps): keep prior delay estimate.
+        // Do not run AIMD UpdateEstimate this feedback (pin probe branch).
+        this.delayBasedBps = this.aimd.targetBitrateBps;
       }
+    } else {
+      this.delayBasedBps = this.aimd.update(usage, ackedBps, nowMs);
     }
 
     // Loss path after delay/probe (pin UpdateLossBasedEstimator).
@@ -489,9 +513,13 @@ export class GccBandwidthEstimator
     }
 
     // Recovery probe only on latched underuse→normal (recovered_from_overuse).
+    // pin MaybeUpdateEstimate: recovered_from_overuse is surfaced only when
+    // not overusing and no probe_bitrate was present this feedback.
     // Same post-loss cause gate as further (including RTT-high and loss-limited).
     if (
       recoveredFromUnderuse &&
+      !overusing &&
+      !hasProbeEstimate &&
       this.probe.probeState === "complete" &&
       allowNewProbe
     ) {
@@ -537,6 +565,7 @@ export class GccBandwidthEstimator
     this.rttBackoff.reset();
     this.lastMaxFeedbackRttMs = 0;
     this.lastPropagationRttMs = 0;
+    this.lastSeenPacketMs = Number.NEGATIVE_INFINITY;
   }
 
   dispose() {
@@ -576,6 +605,10 @@ export class GccBandwidthEstimator
    * sequences measured by wrap-aware **backward** distance from
    * `latestWideSeq` (0 = latest). Using forward distance wrongly deleted
    * recent packets and retained the oldest half of the ring.
+   *
+   * finalized/soft-lost sets are pruned to keys still present in sentInfos
+   * (never wholesale-cleared while live seqs remain — that would re-count
+   * received packets in LossBased partial observations).
    */
   private pruneSentInfos(nowMs: number, latestWideSeq: number) {
     const keepWindow = 2048;
@@ -586,23 +619,29 @@ export class GccBandwidthEstimator
         this.softLostSeqs.delete(seq);
       }
     }
-    if (this.sentInfos.size <= keepWindow) {
-      if (this.finalizedSeqs.size > 8192) this.finalizedSeqs.clear();
-      return;
-    }
-    const origin = latestWideSeq & 0xffff;
-    for (const seq of [...this.sentInfos.keys()]) {
-      const s = seq & 0xffff;
-      // How many sequence steps **before** origin (wrap-aware). 0 = latest.
-      const back = (origin - s + 0x10000) % 0x10000;
-      if (back >= keepWindow) {
-        this.sentInfos.delete(seq);
-        this.finalizedSeqs.delete(seq);
-        this.softLostSeqs.delete(seq);
+    if (this.sentInfos.size > keepWindow) {
+      const origin = latestWideSeq & 0xffff;
+      for (const seq of [...this.sentInfos.keys()]) {
+        const s = seq & 0xffff;
+        // How many sequence steps **before** origin (wrap-aware). 0 = latest.
+        const back = (origin - s + 0x10000) % 0x10000;
+        if (back >= keepWindow) {
+          this.sentInfos.delete(seq);
+          this.finalizedSeqs.delete(seq);
+          this.softLostSeqs.delete(seq);
+        }
       }
     }
-    if (this.finalizedSeqs.size > 8192) {
-      this.finalizedSeqs.clear();
+    // Drop orphan finalize/soft-loss markers no longer backed by sentInfos.
+    if (this.finalizedSeqs.size > this.sentInfos.size) {
+      for (const seq of this.finalizedSeqs) {
+        if (!this.sentInfos.has(seq)) this.finalizedSeqs.delete(seq);
+      }
+    }
+    if (this.softLostSeqs.size > this.sentInfos.size) {
+      for (const seq of this.softLostSeqs) {
+        if (!this.sentInfos.has(seq)) this.softLostSeqs.delete(seq);
+      }
     }
   }
 
