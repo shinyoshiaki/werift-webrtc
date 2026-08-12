@@ -12,3 +12,6 @@ Result (2026-08-12): **5 passed** — werift client↔BoringSSL server and Borin
 bidirectional DTLS 1.3 data.
 
 Reviewed fixes verified 2026-08-12T10:27:34+00:00
+
+interop verified 2026-08-12T10:30:36+00:00
+final-review 2026-08-12T10:31:34+00:00
