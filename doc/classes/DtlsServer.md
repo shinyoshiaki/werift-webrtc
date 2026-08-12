@@ -612,9 +612,10 @@ Dual client sets dualPhase → closed here.
 
 > `protected` **reportLegacy12Fatal**(`error`): `void`
 
-Tear down the 1.2 association then fire onError (and onClose when teardown ran).
-Used for fatal alerts, probing DOWNGRD / classify error, and other 1.2
-ProtocolVersionError paths so lifecycle matches handshake_failure alerts.
+Tear down the 1.2 association then fire onError + onClose once.
+Used for fatal alerts, handshake failures, probing DOWNGRD / classify error,
+and ProtocolVersionError paths. Idempotent: concurrent terminal paths must
+not double-fire public events.
 
 #### Parameters
 
