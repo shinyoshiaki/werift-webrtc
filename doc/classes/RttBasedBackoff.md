@@ -8,11 +8,13 @@
 
 libwebrtc `RttBasedBackoff` (send_side_bandwidth_estimation.{h,cc}).
 
-Probe gating uses IsRttAboveLimit on **propagation RTT**, not raw
-max feedback RTT. Congestion-window paths may still track max feedback RTT
-separately (not implemented here).
+IsRttAboveLimit uses **propagation RTT** (CorrectedRtt), not raw max
+feedback RTT. When above limit, pin `SendSideBandwidthEstimation::UpdateEstimate`
+multiplies the target by drop_fraction every drop_interval down to
+bandwidth_floor — see [GccBandwidthEstimator](GccBandwidthEstimator.md) sender-clock process.
 
-Field-trial default: WebRTC-Bwe-MaxRttLimit limit=3s (Enabled).
+Field-trial default: WebRTC-Bwe-MaxRttLimit limit=3s, fraction=0.8,
+interval=1s, floor=5kbps (Enabled).
 
 ## Constructors
 

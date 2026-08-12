@@ -17,6 +17,8 @@ For each received packet with send/recv times:
 - propagation_rtt = feedback_rtt − min_pending_time
 
 Returns undefined when there are no finite samples.
+Prefer feedbackTimeMsForRtt for `feedbackTimeMs` so send/feedback
+share a clock domain.
 
 ## Parameters
 

@@ -15,4 +15,6 @@ GetBandwidthLimitedCause becomes kRttBasedBackOffHighRtt and
 ProbeController::InitiateProbing returns no clusters.
 Default 3s = WebRTC-Bwe-MaxRttLimit field-trial default (`limit`).
 Raw max_feedback_rtt is **not** used for probe cause (CWND only in pin).
-werift does not apply the ×0.8 target drop from UpdateEstimate.
+SendSideBandwidthEstimation::UpdateEstimate also multiplies the target by
+[kRttBasedBackOffDropFraction](kRttBasedBackOffDropFraction.md) every [kRttBasedBackOffDropIntervalMs](kRttBasedBackOffDropIntervalMs.md)
+down to [kRttBasedBackOffBandwidthFloorBps](kRttBasedBackOffBandwidthFloorBps.md).

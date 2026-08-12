@@ -3305,10 +3305,7 @@ describe("media/sender bandwidth estimator", () => {
         sent(
           seq++,
           500,
-          t0 +
-            kRttBasedBackOffHighRttMs +
-            1 +
-            kRttBasedBackOffDropIntervalMs,
+          t0 + kRttBasedBackOffHighRttMs + 1 + kRttBasedBackOffDropIntervalMs,
         ),
       );
       expect(gcc.availableBitrate).toBe(
@@ -3316,7 +3313,8 @@ describe("media/sender bandwidth estimator", () => {
       );
 
       // 繰り返し floor まで — 5kbps 未満にはしない
-      let t = t0 + kRttBasedBackOffHighRttMs + 1 + kRttBasedBackOffDropIntervalMs;
+      let t =
+        t0 + kRttBasedBackOffHighRttMs + 1 + kRttBasedBackOffDropIntervalMs;
       for (let i = 0; i < 40; i++) {
         t += kRttBasedBackOffDropIntervalMs;
         gcc.rtpPacketSent(sent(seq++, 500, t));
