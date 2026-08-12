@@ -30,17 +30,17 @@ Instructions for coding agents working in `packages/ice-server`.
 | Task                    | Command                                      |
 | ----------------------- | -------------------------------------------- |
 | build package           | `npm run build`                              |
-| test package (unit)     | `npm test`                                   |
+| test package            | `npm test`                                   |
 | type-check package      | `npm run type`                               |
-| run package Chrome E2E  | `npm run chrome-e2e` / `npm run test:chrome-e2e` |
+| run package Chrome E2E  | `npm run chrome-e2e`                         |
 | run harness directly    | `cd chrome-e2e && npm run ci:silent`         |
 | type-check harness      | `cd chrome-e2e && npm run type`              |
 
 ## Validation
 
-* Protocol or Node server changes: run `npm test && npm run type` (unit only; Playwright not required).
+* Protocol or Node server changes: run `npm test && npm run type`.
 * Chrome harness changes: run `cd chrome-e2e && npm run type && npm run ci:silent`.
-* Browser interop fixes that touch STUN/TURN behavior: run the package unit tests and `npm run chrome-e2e` together.
+* Browser interop fixes that touch STUN/TURN behavior: run the package tests and the Chrome harness together.
 
 ## Maintenance
 
