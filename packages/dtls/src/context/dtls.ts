@@ -45,6 +45,13 @@ export class DtlsContext {
    * Older Flight3 retransmit loops observe a mismatch and stop (stale cookie).
    */
   hvrGeneration = 0;
+  /**
+   * Association-wide flight TX generation. Bumped on hard-close / version
+   * commit away from 1.2 / fatal so in-flight `transport.send` completions
+   * cannot surface error callbacks or drive further retransmit side effects.
+   * Distinct from {@link hvrGeneration} (HVR re-challenge only).
+   */
+  flightTxGeneration = 0;
   requestedCertificateTypes: number[] = [];
   requestedSignatureAlgorithms: {
     hash: HashAlgorithms;
@@ -87,6 +94,9 @@ export class DtlsContext {
 
   /** Cancel all pending 1.2 flight retransmit timers (association teardown). */
   cancelFlightTimers(): void {
+    // Invalidate any in-flight transport.send from Flight.transmit so late
+    // rejections after close/fallback do not log as live association errors.
+    this.flightTxGeneration += 1;
     for (const id of this.flightTimers) {
       clearTimeout(id);
     }

@@ -56,6 +56,10 @@ test("e2e/flight3: HVR2 supersedes; stale gen1 RTO does not retransmit cookie1",
   const f3a = new Flight3(udp, dtls);
   const f3b = new Flight3(udp, dtls);
 
+  /** Count Flight3 instances still in WAITING (active retransmit owner). */
+  const activeFlight3Waiting = () =>
+    [f3a, f3b].filter((f) => f.state === "WAITING").length;
+
   const cookie1 = Buffer.alloc(20, 0x11);
   const cookie2 = Buffer.alloc(20, 0x22);
   const hvr1 = new ServerHelloVerifyRequest(
@@ -74,6 +78,9 @@ test("e2e/flight3: HVR2 supersedes; stale gen1 RTO does not retransmit cookie1",
   expect(sends[0].cookie.equals(cookie1)).toBe(true);
   expect(dtls.hvrGeneration).toBe(1);
   expect(sleepWaiters.length).toBe(1);
+  // Exactly one Flight3 retransmit loop is waiting
+  expect(activeFlight3Waiting()).toBe(1);
+  expect(f3a.state).toBe("WAITING");
 
   // HVR2 while gen1 sleeping — active cookie becomes cookie2
   dtls.flight = 3;
@@ -82,11 +89,20 @@ test("e2e/flight3: HVR2 supersedes; stale gen1 RTO does not retransmit cookie1",
   expect(dtls.hvrGeneration).toBe(2);
   expect(sends.length).toBe(2);
   expect(sends[1].cookie.equals(cookie2)).toBe(true);
+  // Both instances may be WAITING until gen1 wakes and observes mismatch
+  expect(f3a.state).toBe("WAITING");
+  expect(f3b.state).toBe("WAITING");
+  expect(activeFlight3Waiting()).toBe(2);
+
   // "Drop" CH2(cookie2) retransmit: we simply do not wake gen2 yet.
-  // Stale gen1 RTO fires — must not send cookie1 again.
+  // Stale gen1 RTO fires — must not send cookie1 again; gen1 loop exits FINISHED.
   sleepWaiters[0]();
   await new Promise((r) => setTimeout(r, 15));
   expect(sends.length).toBe(2); // no third send from stale gen1
+  expect(f3a.state).toBe("FINISHED"); // superseded generation exits
+  // Direct assertion: only one Flight3 loop remains active (WAITING)
+  expect(activeFlight3Waiting()).toBe(1);
+  expect(f3b.state).toBe("WAITING");
 
   // Only gen2 remains active: wake it once → still cookie2 only
   dtls.flight = 3; // still waiting for SH
@@ -98,11 +114,16 @@ test("e2e/flight3: HVR2 supersedes; stale gen1 RTO does not retransmit cookie1",
     expect(s.cookie.equals(cookie2)).toBe(true);
     expect(s.cookie.equals(cookie1)).toBe(false);
   }
+  // Still only gen2 owns retransmit (may be WAITING again after re-send)
+  expect(f3a.state).toBe("FINISHED");
+  expect(activeFlight3Waiting()).toBeLessThanOrEqual(1);
 
   // Finish loops
   dtls.flight = 5;
   for (const w of sleepWaiters) w();
   await Promise.all([p1, p2]);
+  expect(f3b.state).toBe("FINISHED");
+  expect(activeFlight3Waiting()).toBe(0);
 
   // Assert: every send after HVR1 initial is cookie2 or the HVR2 first send
   expect(sends[0].cookie.equals(cookie1)).toBe(true);

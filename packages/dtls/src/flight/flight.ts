@@ -20,13 +20,21 @@ export abstract class Flight {
    * no longer matches (superseded HVR / Flight3 re-challenge).
    */
   protected transmitGeneration?: number;
+  /**
+   * Captured {@link DtlsContext.flightTxGeneration} at Flight construction /
+   * first transmit. Late transport.send completions after
+   * cancelFlightTimers must not log or treat as live association failures.
+   */
+  private sendGeneration: number;
 
   constructor(
     private transport: TransportContext,
     public dtls: DtlsContext,
     private flight: number,
     private nextFlight?: number,
-  ) {}
+  ) {
+    this.sendGeneration = dtls.flightTxGeneration;
+  }
 
   protected createPacket(handshakes: Handshake[]) {
     const fragments = createFragments(this.dtls)(handshakes);
@@ -41,7 +49,29 @@ export abstract class Flight {
     return packets;
   }
 
+  /**
+   * True when this Flight instance still owns TX for the association
+   * (not closed / not version-committed away / not HVR-superseded).
+   */
+  private isTransmitStillCurrent(): boolean {
+    if (this.dtls.fatalError) return false;
+    if (this.dtls.flight === 99) return false;
+    if (this.sendGeneration !== this.dtls.flightTxGeneration) return false;
+    if (
+      this.transmitGeneration !== undefined &&
+      this.transmitGeneration !== this.dtls.hvrGeneration
+    ) {
+      return false;
+    }
+    return true;
+  }
+
   protected async transmit(buffers: Buffer[]) {
+    // Refresh send generation at transmit start so a long-lived Flight that
+    // began before a soft timer cancel still tracks the latest association TX gen
+    // only when still the active path (fatal/close already bumped gen).
+    this.sendGeneration = this.dtls.flightTxGeneration;
+
     let retransmitCount = 0;
     for (; retransmitCount <= Flight.RetransmitCount; retransmitCount++) {
       // Association may have advanced flight=99 / canceled timers while sleeping.
@@ -56,10 +86,25 @@ export abstract class Flight {
         this.setState("FINISHED");
         throw this.dtls.fatalError;
       }
+      if (!this.isTransmitStillCurrent()) {
+        this.setState("FINISHED");
+        break;
+      }
 
       this.setState("SENDING");
+      // Capture generation for this wave so close/fallback mid-send silences
+      // late rejections (fire-and-forget must not surface after terminal).
+      const waveGen = this.dtls.flightTxGeneration;
       this.send(buffers).catch((e) => {
-        err("fail to send", err);
+        if (
+          waveGen !== this.dtls.flightTxGeneration ||
+          this.dtls.flight === 99 ||
+          this.dtls.fatalError
+        ) {
+          // Stale after cancelFlightTimers / hard-close / fatal — ignore.
+          return;
+        }
+        err(this.dtls.sessionId, "fail to send", e);
       });
       this.setState("WAITING");
 
@@ -86,6 +131,11 @@ export abstract class Flight {
         break;
       }
 
+      if (this.sendGeneration !== this.dtls.flightTxGeneration) {
+        this.setState("FINISHED");
+        break;
+      }
+
       if (this.dtls.flight >= this.nextFlight) {
         this.setState("FINISHED");
         break;
@@ -108,6 +158,10 @@ export abstract class Flight {
       this.dtls.flight < this.nextFlight &&
       retransmitCount > Flight.RetransmitCount
     ) {
+      // Do not throw "over retransmit" after association already terminal.
+      if (!this.isTransmitStillCurrent()) {
+        return;
+      }
       err(this.dtls.sessionId, "retransmit failed", retransmitCount);
       throw new Error(
         `over retransmitCount : ${this.flight} ${this.nextFlight}`,

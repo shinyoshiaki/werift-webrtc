@@ -25,3 +25,4 @@ packages/dtls/tests/e2e/boringssl/.built-revision
 packages/dtls/third_party/
 artifacts/
 .sak
+packages/dtls/tools/boringssl-dtls13/dtls13_echo
