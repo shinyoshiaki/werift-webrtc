@@ -19,6 +19,9 @@ export {
   kMinBitrateBps,
   kProbeBitrateMultipliers,
   kProbePaddingPacketBytes,
+  kRttBasedBackOffBandwidthFloorBps,
+  kRttBasedBackOffDropFraction,
+  kRttBasedBackOffDropIntervalMs,
   kRttBasedBackOffHighRttMs,
   kStreamTimeOutMs,
   kTrendlineMinNumDeltas,
@@ -45,6 +48,7 @@ export { ProbeController } from "./probeController";
 export type { ProbeClusterConfig, ProbeState } from "./probeController";
 export {
   computeFeedbackRttStats,
+  feedbackTimeMsForRtt,
   RttBasedBackoff,
 } from "./rttBasedBackoff";
 export {

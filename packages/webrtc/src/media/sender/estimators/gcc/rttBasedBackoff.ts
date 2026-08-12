@@ -3,11 +3,13 @@ import { kRttBasedBackOffHighRttMs } from "./constants";
 /**
  * libwebrtc `RttBasedBackoff` (send_side_bandwidth_estimation.{h,cc}).
  *
- * Probe gating uses {@link IsRttAboveLimit} on **propagation RTT**, not raw
- * max feedback RTT. Congestion-window paths may still track max feedback RTT
- * separately (not implemented here).
+ * {@link IsRttAboveLimit} uses **propagation RTT** (CorrectedRtt), not raw max
+ * feedback RTT. When above limit, pin `SendSideBandwidthEstimation::UpdateEstimate`
+ * multiplies the target by drop_fraction every drop_interval down to
+ * bandwidth_floor — see {@link GccBandwidthEstimator} sender-clock process.
  *
- * Field-trial default: WebRTC-Bwe-MaxRttLimit limit=3s (Enabled).
+ * Field-trial default: WebRTC-Bwe-MaxRttLimit limit=3s, fraction=0.8,
+ * interval=1s, floor=5kbps (Enabled).
  */
 export class RttBasedBackoff {
   /** Propagation RTT from last feedback (ms). */
@@ -73,6 +75,45 @@ export class RttBasedBackoff {
 }
 
 /**
+ * Choose a feedback-arrival time on the **same clock domain as send times**
+ * for RTT math (pin uses one Timestamp domain for send / recv / feedback).
+ *
+ * Production: `sendingAtMs` and wall `nowMs` both come from {@link milliTime},
+ * so `nowMs - maxSend` is a plausible RTT window and wall time is used.
+ *
+ * Unit tests often use synthetic send/recv timelines with wall-clock
+ * `receiveTWCC`; mixing those would inflate propagation RTT into years.
+ * When wall delta is outside a sane window, fall back to the receive
+ * timeline (`maxRecv`) as the feedback clock.
+ */
+export function feedbackTimeMsForRtt(
+  packets: ReadonlyArray<{ sendMs: number; recvMs: number }>,
+  wallNowMs: number,
+  /** Max plausible feedback_rtt from latest send before treating clocks as divergent. */
+  maxPlausibleFeedbackRttMs = 60_000,
+): number {
+  let maxSend = Number.NEGATIVE_INFINITY;
+  let maxRecv = Number.NEGATIVE_INFINITY;
+  for (const p of packets) {
+    if (Number.isFinite(p.sendMs) && p.sendMs > maxSend) maxSend = p.sendMs;
+    if (Number.isFinite(p.recvMs) && p.recvMs > maxRecv) maxRecv = p.recvMs;
+  }
+  if (!Number.isFinite(maxSend)) {
+    return wallNowMs;
+  }
+  if (Number.isFinite(wallNowMs)) {
+    const wallDelta = wallNowMs - maxSend;
+    if (wallDelta >= 0 && wallDelta <= maxPlausibleFeedbackRttMs) {
+      return wallNowMs;
+    }
+  }
+  if (Number.isFinite(maxRecv)) {
+    return Math.max(maxRecv, maxSend);
+  }
+  return maxSend;
+}
+
+/**
  * Compute max feedback RTT and min propagation RTT for a received-packet batch
  * (libwebrtc GoogCcNetworkController::OnTransportPacketsFeedback).
  *
@@ -82,6 +123,8 @@ export class RttBasedBackoff {
  * - propagation_rtt = feedback_rtt − min_pending_time
  *
  * Returns undefined when there are no finite samples.
+ * Prefer {@link feedbackTimeMsForRtt} for `feedbackTimeMs` so send/feedback
+ * share a clock domain.
  */
 export function computeFeedbackRttStats(
   packets: ReadonlyArray<{ sendMs: number; recvMs: number }>,

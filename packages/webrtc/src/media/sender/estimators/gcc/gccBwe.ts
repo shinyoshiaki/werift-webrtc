@@ -24,6 +24,9 @@ import {
   kMinBitrateBps,
   kProbeDropThroughputFraction,
   kProbePaddingPacketBytes,
+  kRttBasedBackOffBandwidthFloorBps,
+  kRttBasedBackOffDropFraction,
+  kRttBasedBackOffDropIntervalMs,
   kSentInfoMaxAgeMs,
   kStreamTimeOutMs,
 } from "./constants";
@@ -32,7 +35,11 @@ import { LossBasedBwe, type LossPacketFeedback } from "./lossBasedBwe";
 import type { BandwidthUsage } from "./overuseDetector";
 import type { ProbeClusterConfig, ProbeState } from "./probeController";
 import { ProbeController } from "./probeController";
-import { RttBasedBackoff, computeFeedbackRttStats } from "./rttBasedBackoff";
+import {
+  RttBasedBackoff,
+  computeFeedbackRttStats,
+  feedbackTimeMsForRtt,
+} from "./rttBasedBackoff";
 import { sortPacketResultsByWideSeq } from "./sequenceNumber";
 import { TrendlineEstimator } from "./trendlineEstimator";
 
@@ -98,8 +105,21 @@ export class GccBandwidthEstimator
    * libwebrtc RttBasedBackoff — IsRttAboveLimit uses **propagation RTT**
    * (CorrectedRtt), not raw max feedback RTT. max feedback RTT is stored only
    * for diagnostics (congestion-window style uses in pin).
+   * When above limit, pin UpdateEstimate applies ×0.8 target drops.
    */
   private readonly rttBackoff = new RttBasedBackoff();
+  /**
+   * pin `SendSideBandwidthEstimation::current_target_` — final target layer
+   * that RTT backoff multiplies. Initialized to start bitrate (constraints).
+   */
+  private currentTargetBps: number;
+  /**
+   * pin `time_last_decrease_` for RTT-based target drops
+   * (MinusInfinity so the first drop fires immediately when above limit).
+   */
+  private lastRttDecreaseMs = Number.NEGATIVE_INFINITY;
+  /** pin `first_packet_sent_` — seeds UpdatePropagationRtt(send, 0). */
+  private firstPacketSent = false;
   /** Last batch max_feedback_rtt (diagnostics; not used for probe cause). */
   private lastMaxFeedbackRttMs = 0;
   /** Last batch min_propagation_rtt (before timeout correction). */
@@ -166,6 +186,7 @@ export class GccBandwidthEstimator
 
   constructor(startBitrateBps = kDefaultStartBitrateBps) {
     this.startBitrateBps = startBitrateBps;
+    this.currentTargetBps = startBitrateBps;
     this.aimd.reset(startBitrateBps);
     this.lossBwe.reset(startBitrateBps);
     this.delayBasedBps = startBitrateBps;
@@ -179,7 +200,17 @@ export class GccBandwidthEstimator
     // Re-sending the same wide-seq (after wrap / reuse) clears prior finalize.
     this.finalizedSeqs.delete(seq);
     this.softLostSeqs.delete(seq);
+    // pin GoogCcNetworkController::OnSentPacket — first packet seeds
+    // UpdatePropagationRtt(send_time, 0) so CorrectedRtt grows while
+    // packets are sent without feedback (ProcessInterval / sender clock).
+    if (!this.firstPacketSent) {
+      this.firstPacketSent = true;
+      this.rttBackoff.updatePropagationRtt(info.sendingAtMs, 0);
+    }
     this.rttBackoff.onSentPacket(info.sendingAtMs);
+    // pin ProcessInterval → UpdateEstimate on sender clock while sending.
+    // No packets → last_packet_sent does not advance → timeout does not grow.
+    this.maybeApplyRttBasedBackoff(info.sendingAtMs);
     this.ensureProbing(info.sendingAtMs);
 
     // Assign probation packets to the **pacing** cluster (wideSeq → id).
@@ -372,17 +403,23 @@ export class GccBandwidthEstimator
 
     // libwebrtc OnTransportPacketsFeedback RTT split:
     //   max_feedback_rtt  → feedback_max_rtts_ (CWND; not probe cause)
-    //   min_propagation_rtt → UpdatePropagationRtt → IsRttAboveLimit only
+    //   min_propagation_rtt → UpdatePropagationRtt → IsRttAboveLimit + target drop
     // AIMD RTT is a separate path (OnRoundTripTimeUpdate / RTCP RR via
     // {@link setRoundTripTime}) — never copy propagation RTT into AIMD.
-    const rttStats = computeFeedbackRttStats(
-      timedReceived.map((p) => ({ sendMs: p.sendMs, recvMs: p.recvMs })),
-      nowMs,
-    );
+    // Feedback clock must share the send-time domain (see feedbackTimeMsForRtt).
+    const rttPackets = timedReceived.map((p) => ({
+      sendMs: p.sendMs,
+      recvMs: p.recvMs,
+    }));
+    const feedbackTimeMs = feedbackTimeMsForRtt(rttPackets, nowMs);
+    const rttStats = computeFeedbackRttStats(rttPackets, feedbackTimeMs);
     if (rttStats) {
       this.lastMaxFeedbackRttMs = rttStats.maxFeedbackRttMs;
       this.lastPropagationRttMs = rttStats.minPropagationRttMs;
-      this.rttBackoff.updatePropagationRtt(nowMs, rttStats.minPropagationRttMs);
+      this.rttBackoff.updatePropagationRtt(
+        feedbackTimeMs,
+        rttStats.minPropagationRttMs,
+      );
     }
 
     // --- Pin order (goog_cc_network_control OnTransportPacketsFeedback) ---
@@ -443,13 +480,36 @@ export class GccBandwidthEstimator
       lossPackets,
     );
 
-    // Final target = loss-based result (already min'd vs delay inside LossBasedBwe).
-    // Keep explicit min as a safety belt for cold-start / stub paths.
-    const target = Math.min(this.delayBasedBps, this.lossBasedBps);
+    // Final delay/loss candidate (loss already min'd vs delay inside LossBasedBwe).
+    const delayLossTarget = Math.min(this.delayBasedBps, this.lossBasedBps);
+
+    // pin UpdateEstimate RTT branch vs normal:
+    // - When RTT-limited: ignore rising loss-based result; only upper-clamp +
+    //   ×0.8 drops. Exception: probe SetSendBitrate already raised current
+    //   before UpdateEstimate (delay path holds post-probe estimate).
+    // - When not RTT-limited: current_target = post-loss estimate.
+    const rttLimited = this.rttBackoff.isRttAboveLimit();
+    if (rttLimited) {
+      if (hasProbeEstimate && !overusing && this.delayBasedBps > 0) {
+        // pin SetSendBitrate(probe) → current_target = probe estimate, then
+        // UpdateEstimate may immediately ×0.8 if still above RTT limit.
+        this.currentTargetBps = this.delayBasedBps;
+      } else if (delayLossTarget > 0) {
+        // GetUpperLimit-style: delay/loss may pull the target **down**, never up.
+        this.currentTargetBps = Math.min(
+          this.currentTargetBps > 0 ? this.currentTargetBps : delayLossTarget,
+          delayLossTarget,
+        );
+      }
+      this.maybeApplyRttBasedBackoff(feedbackTimeMs);
+    } else if (delayLossTarget > 0) {
+      this.currentTargetBps = delayLossTarget;
+    }
+
+    const target = this.currentTargetBps;
 
     // Post-loss GetBandwidthLimitedCause (pin MaybeTriggerOnNetworkChanged).
-    // High RTT only gates new probes (×0.8 target drop not applied in werift).
-    const rttLimited = this.rttBackoff.isRttAboveLimit();
+    // High RTT forbids new probes **and** drives ×0.8 target drops above.
     const bandwidthLimitedCause = getBandwidthLimitedCause(
       usage,
       rttLimited,
@@ -521,6 +581,9 @@ export class GccBandwidthEstimator
     this._availableBitrate = 0;
     this.delayBasedBps = this.startBitrateBps;
     this.lossBasedBps = this.startBitrateBps;
+    this.currentTargetBps = this.startBitrateBps;
+    this.lastRttDecreaseMs = Number.NEGATIVE_INFINITY;
+    this.firstPacketSent = false;
     this.probingConfigured = false;
     this.hasValidSample = false;
     this.probeClusterSentBytes = 0;
@@ -530,6 +593,36 @@ export class GccBandwidthEstimator
     this.lastMaxFeedbackRttMs = 0;
     this.lastPropagationRttMs = 0;
     this.lastSeenPacketMs = Number.NEGATIVE_INFINITY;
+  }
+
+  /**
+   * pin `SendSideBandwidthEstimation::UpdateEstimate` RTT branch:
+   * if CorrectedRtt above limit and drop_interval elapsed and target > floor,
+   * set target = max(target × drop_fraction, floor) and publish.
+   *
+   * Called from sender-clock `rtpPacketSent` (no ProcessInterval) and after
+   * TWCC when still RTT-limited. Returns true when a drop was applied.
+   */
+  private maybeApplyRttBasedBackoff(nowMs: number): boolean {
+    if (!Number.isFinite(nowMs)) return false;
+    if (!this.rttBackoff.isRttAboveLimit()) return false;
+    if (this.currentTargetBps <= 0) {
+      this.currentTargetBps = this.startBitrateBps;
+    }
+    if (
+      nowMs - this.lastRttDecreaseMs >= kRttBasedBackOffDropIntervalMs &&
+      this.currentTargetBps > kRttBasedBackOffBandwidthFloorBps
+    ) {
+      this.lastRttDecreaseMs = nowMs;
+      this.currentTargetBps = Math.max(
+        this.currentTargetBps * kRttBasedBackOffDropFraction,
+        kRttBasedBackOffBandwidthFloorBps,
+      );
+      // Safety drop publishes even before first TWCC (pin ProcessInterval path).
+      setAvailableBitrateIfChanged(this, this.currentTargetBps);
+      return true;
+    }
+    return false;
   }
 
   dispose() {

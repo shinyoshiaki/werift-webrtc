@@ -39,6 +39,9 @@ import {
   kBeta,
   kLossLimitedProbeScale,
   kProbePaddingPacketBytes,
+  kRttBasedBackOffBandwidthFloorBps,
+  kRttBasedBackOffDropFraction,
+  kRttBasedBackOffDropIntervalMs,
   kRttBasedBackOffHighRttMs,
   kTrendlineWindowSize,
   maxProbeBitrateBps,
@@ -2141,7 +2144,6 @@ describe("media/sender bandwidth estimator", () => {
       (gcc as any).delayBasedBps = 1_000_000;
       (gcc as any).lossBasedBps = 1_000_000;
       (gcc as any)._availableBitrate = 1_000_000;
-      (gcc as any).initialExponentialDone = true;
       // ProbeController に pending の低い result を直接セット
       const probe = (gcc as any).probe as ProbeController;
       (probe as any).pendingEstimateBps = 300_000;
@@ -2280,7 +2282,6 @@ describe("media/sender bandwidth estimator", () => {
       (gcc as any).lossBasedBps = 1_000_000;
       (gcc as any)._availableBitrate = 1_000_000;
       (gcc as any).aimd.bitrateBps = 1_000_000;
-      (gcc as any).initialExponentialDone = true;
       (gcc as any).probingConfigured = true;
 
       Object.defineProperty((gcc as any).trendline, "state", {
@@ -2338,7 +2339,6 @@ describe("media/sender bandwidth estimator", () => {
       (gcc as any).delayBasedBps = 150_000;
       (gcc as any).lossBasedBps = 150_000;
       (gcc as any)._availableBitrate = 150_000;
-      (gcc as any).initialExponentialDone = true;
       (gcc as any).probingConfigured = true;
       (gcc as any).lastUsage = "normal";
       (gcc as any).lossBwe.state = "delay_based";
@@ -2741,7 +2741,6 @@ describe("media/sender bandwidth estimator", () => {
       (gcc as any).delayBasedBps = 200_000;
       (gcc as any).lossBasedBps = 200_000;
       (gcc as any)._availableBitrate = 200_000;
-      (gcc as any).initialExponentialDone = true;
       (gcc as any).probingConfigured = true;
       (gcc as any).lastUsage = "underuse";
       (gcc as any).lossBwe.state = "delay_based";
@@ -2793,7 +2792,6 @@ describe("media/sender bandwidth estimator", () => {
       (gcc as any).delayBasedBps = 150_000;
       (gcc as any).lossBasedBps = 150_000;
       (gcc as any)._availableBitrate = 150_000;
-      (gcc as any).initialExponentialDone = true;
       (gcc as any).probingConfigured = true;
       (gcc as any).lastUsage = "normal";
       (gcc as any).lossBwe.state = "delay_based";
@@ -2881,7 +2879,6 @@ describe("media/sender bandwidth estimator", () => {
       (gcc as any).delayBasedBps = 180_000;
       (gcc as any).lossBasedBps = 180_000;
       (gcc as any)._availableBitrate = 180_000;
-      (gcc as any).initialExponentialDone = true;
       (gcc as any).probingConfigured = true;
       (gcc as any).lastUsage = "normal";
       (gcc as any).lossBwe.update = () => {
@@ -2945,7 +2942,6 @@ describe("media/sender bandwidth estimator", () => {
       (gcc as any).delayBasedBps = 200_000;
       (gcc as any).lossBasedBps = 100_000;
       (gcc as any)._availableBitrate = 100_000;
-      (gcc as any).initialExponentialDone = true;
       (gcc as any).probingConfigured = true;
       (gcc as any).lastUsage = "underuse"; // would recover if loss allowed
       (gcc as any).lossBwe.state = "decreasing";
@@ -3096,18 +3092,16 @@ describe("media/sender bandwidth estimator", () => {
       expect(isRttAboveLimit(kRttBasedBackOffHighRttMs + 1)).toBe(true);
     });
 
-    test("propagation RTT 高値・lossなし・overuseなしでは availableBitrate を強制低下させない", () => {
-      // Arrange: IsRttAboveLimit は probe 禁止のみ。×0.8 drop は適用しない。
+    test("propagation RTT 高値では probe 禁止に加え target を ×0.8 backoff する", () => {
+      // Arrange: pin UpdateEstimate — IsRttAboveLimit で target ×0.8
       const startBps = 300_000;
       const gcc = new GccBandwidthEstimator(startBps);
 
       // Act: one-way delay が ~3.5s になるよう recv を send から大きく離す
-      // propagation ≈ (recv−send) + (feedback−max_recv) → high
+      // propagation ≈ feedback_rtt − pending → high CorrectedRtt
       const now = Date.now();
       const n = 12;
       for (let i = 0; i < n; i++) {
-        // send near feedback−100 so max feedback RTT is small-ish;
-        // large recv-send separation is encoded by old wall send + late recv
         gcc.rtpPacketSent(sent(i + 1, 500, now - 3_600 + i * 5));
       }
       gcc.receiveTWCC(
@@ -3116,21 +3110,24 @@ describe("media/sender bandwidth estimator", () => {
             return new PacketResult({
               sequenceNumber: i + 1,
               received: true,
-              // recv ≈ send + 50 → still large feedback_rtt ≈ 3.5s with low pending
               receivedAtMs: now - 3_550 + i * 5,
             });
           }),
         ),
       );
 
-      // Assert: CorrectedRtt / propagation > 3s だが target を ×0.8 しない
+      // Assert: CorrectedRtt > 3s → probe cause high + target ≤ start×0.8
       expect((gcc as any).rttBackoff.isRttAboveLimit()).toBe(true);
       expect((gcc as any).lastPropagationRttMs).toBeGreaterThan(
         kRttBasedBackOffHighRttMs,
       );
       expect(gcc.availableBitrate).toBeGreaterThan(0);
-      expect(gcc.availableBitrate).toBeGreaterThan(startBps * 0.5);
-      expect(gcc.availableBitrate).not.toBe(Math.round(startBps * 0.8));
+      expect(gcc.availableBitrate).toBeLessThanOrEqual(
+        Math.round(startBps * kRttBasedBackOffDropFraction),
+      );
+      expect(gcc.availableBitrate).toBeGreaterThanOrEqual(
+        kRttBasedBackOffBandwidthFloorBps,
+      );
     });
 
     test("max feedback RTT>3s でも propagation RTT が低ければ probe cause は high にしない", () => {
@@ -3258,7 +3255,7 @@ describe("media/sender bandwidth estimator", () => {
         ),
       );
 
-      // Assert: high propagation + probe cause forbid（bitrate 強制 drop なし）
+      // Assert: high propagation + probe cause forbid + RTT target backoff
       expect((gcc as any).lastPropagationRttMs).toBeGreaterThan(30_000);
       expect((gcc as any).rttBackoff.isRttAboveLimit()).toBe(true);
       expect(
@@ -3267,6 +3264,140 @@ describe("media/sender bandwidth estimator", () => {
         ),
       ).toBe(false);
       expect(gcc.availableBitrate).toBeGreaterThan(0);
+      expect(gcc.availableBitrate).toBeLessThanOrEqual(
+        Math.round(150_000 * kRttBasedBackOffDropFraction),
+      );
+    });
+
+    test("送信継続・feedbackなしで 3s 超えると target を ×0.8 し 1s ごとにさらに下げ floor 未満にはしない", () => {
+      // Arrange: pin first_packet UpdatePropagationRtt(send,0) + ProcessInterval
+      const startBps = 1_000_000;
+      const gcc = new GccBandwidthEstimator(startBps);
+      const t0 = 10_000;
+
+      // Act: 送信を継続（feedback なし）— CorrectedRtt = lastSend − firstSend
+      let seq = 1;
+      gcc.rtpPacketSent(sent(seq++, 500, t0));
+      expect(gcc.availableBitrate).toBe(0); // TWCC 前・RTT 未超過は未公開
+
+      // ちょうど limit では drop しない（> limit）
+      gcc.rtpPacketSent(sent(seq++, 500, t0 + kRttBasedBackOffHighRttMs));
+      expect((gcc as any).rttBackoff.isRttAboveLimit()).toBe(false);
+      expect(gcc.availableBitrate).toBe(0);
+
+      // 3s+1ms: 初回 drop → 800kbps
+      gcc.rtpPacketSent(sent(seq++, 500, t0 + kRttBasedBackOffHighRttMs + 1));
+      expect((gcc as any).rttBackoff.isRttAboveLimit()).toBe(true);
+      expect(gcc.availableBitrate).toBe(
+        Math.round(startBps * kRttBasedBackOffDropFraction),
+      );
+
+      // drop_interval 未満では再 drop しない
+      gcc.rtpPacketSent(
+        sent(seq++, 500, t0 + kRttBasedBackOffHighRttMs + 1 + 500),
+      );
+      expect(gcc.availableBitrate).toBe(
+        Math.round(startBps * kRttBasedBackOffDropFraction),
+      );
+
+      // +1s: 2 回目 drop → 640kbps
+      gcc.rtpPacketSent(
+        sent(
+          seq++,
+          500,
+          t0 +
+            kRttBasedBackOffHighRttMs +
+            1 +
+            kRttBasedBackOffDropIntervalMs,
+        ),
+      );
+      expect(gcc.availableBitrate).toBe(
+        Math.round(startBps * kRttBasedBackOffDropFraction ** 2),
+      );
+
+      // 繰り返し floor まで — 5kbps 未満にはしない
+      let t = t0 + kRttBasedBackOffHighRttMs + 1 + kRttBasedBackOffDropIntervalMs;
+      for (let i = 0; i < 40; i++) {
+        t += kRttBasedBackOffDropIntervalMs;
+        gcc.rtpPacketSent(sent(seq++, 500, t));
+      }
+      expect(gcc.availableBitrate).toBe(kRttBasedBackOffBandwidthFloorBps);
+      expect(gcc.availableBitrate).toBeGreaterThanOrEqual(
+        kRttBasedBackOffBandwidthFloorBps,
+      );
+    });
+
+    test("feedback 後に送信が止まれば CorrectedRtt は時間だけでは増えない", () => {
+      // Arrange: 正常 propagation の TWCC を 1 回入れ、その後送信停止
+      // send/recv は wall に近い時刻（production と同じ clock domain）
+      const gcc = new GccBandwidthEstimator(500_000);
+      const t0 = Date.now() - 50;
+      for (let i = 1; i <= 8; i++) {
+        gcc.rtpPacketSent(sent(i, 400, t0 + i * 2));
+      }
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 8 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: true,
+              receivedAtMs: t0 + 5 + i * 2,
+            });
+          }),
+        ),
+      );
+      const rttAfterFeedback = (gcc as any).rttBackoff.correctedRttMs();
+      expect(rttAfterFeedback).toBeLessThan(kRttBasedBackOffHighRttMs);
+      expect((gcc as any).rttBackoff.isRttAboveLimit()).toBe(false);
+
+      // Act: 送信なし → last_packet_sent が進まないので timeout correction は増えない
+      // （壁時計だけ進んでも process を呼ばなければ CorrectedRtt は不変）
+      const frozen = (gcc as any).rttBackoff.correctedRttMs();
+      expect(frozen).toBe(rttAfterFeedback);
+      expect((gcc as any).rttBackoff.isRttAboveLimit()).toBe(false);
+      // 送信再開しても feedback 直後なら limit 未満
+      gcc.rtpPacketSent(sent(100, 400, Date.now()));
+      expect((gcc as any).rttBackoff.correctedRttMs()).toBeLessThan(
+        kRttBasedBackOffHighRttMs,
+      );
+    });
+
+    test("正常 feedback 到着後は propagation 更新で不要な RTT backoff が止まる", () => {
+      // Arrange: 送信継続で RTT high → drop 済み（sender-clock のみ）
+      const startBps = 1_000_000;
+      const gcc = new GccBandwidthEstimator(startBps);
+      const t0 = 30_000;
+      let seq = 1;
+      gcc.rtpPacketSent(sent(seq++, 500, t0));
+      gcc.rtpPacketSent(sent(seq++, 500, t0 + kRttBasedBackOffHighRttMs + 1));
+      expect(gcc.availableBitrate).toBe(
+        Math.round(startBps * kRttBasedBackOffDropFraction),
+      );
+      const dropped = gcc.availableBitrate;
+
+      // Act: wall と整合する低 propagation TWCC で high を解消
+      const lowSend = Date.now() - 20;
+      const n = 10;
+      for (let i = 0; i < n; i++) {
+        gcc.rtpPacketSent(sent(seq + i, 500, lowSend + i * 2));
+      }
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: n }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: seq + i,
+              received: true,
+              receivedAtMs: lowSend + 5 + i * 2,
+            });
+          }),
+        ),
+      );
+
+      // Assert: high 解消。delay/loss が target を再設定でき、再 drop しない
+      expect((gcc as any).rttBackoff.isRttAboveLimit()).toBe(false);
+      expect((gcc as any).lastPropagationRttMs).toBeLessThan(100);
+      // 正常 path では availableBitrate が維持または回復方向（再×0.8 しない）
+      expect(gcc.availableBitrate).toBeGreaterThanOrEqual(dropped);
     });
 
     test("high propagation RTT 中は complete 後の recovery probe が開始されない（send/TWCC 配線）", () => {
@@ -3327,7 +3458,6 @@ describe("media/sender bandwidth estimator", () => {
       (gcc as any).delayBasedBps = 300_000;
       (gcc as any).lossBasedBps = 300_000;
       (gcc as any)._availableBitrate = 300_000;
-      (gcc as any).initialExponentialDone = true;
       (gcc as any).probingConfigured = true;
       (gcc as any).lastUsage = "normal";
       Object.defineProperty((gcc as any).trendline, "state", {
@@ -3380,7 +3510,6 @@ describe("media/sender bandwidth estimator", () => {
       (gcc as any).delayBasedBps = 200_000;
       (gcc as any).lossBasedBps = 200_000;
       (gcc as any)._availableBitrate = 200_000;
-      (gcc as any).initialExponentialDone = true;
       (gcc as any).probingConfigured = true;
       (gcc as any).lastUsage = "normal";
       Object.defineProperty((gcc as any).trendline, "state", {
@@ -3502,7 +3631,6 @@ describe("media/sender bandwidth estimator", () => {
       (gcc as any).delayBasedBps = 200_000;
       (gcc as any).lossBasedBps = 200_000;
       (gcc as any)._availableBitrate = 200_000;
-      (gcc as any).initialExponentialDone = true;
       (gcc as any).probingConfigured = true;
       (gcc as any).lastUsage = "normal";
       (gcc as any).rttBackoff.reset();
@@ -4112,7 +4240,6 @@ describe("media/sender bandwidth estimator", () => {
       (gcc as any).lossBasedBps = 200_000;
       (gcc as any)._availableBitrate = 200_000;
       (gcc as any).aimd.bitrateBps = 200_000;
-      (gcc as any).initialExponentialDone = true;
       (gcc as any).probingConfigured = true;
       Object.defineProperty((gcc as any).trendline, "state", {
         get: () => "normal",
@@ -4375,7 +4502,6 @@ describe("media/sender bandwidth estimator", () => {
       (gcc as any).probe.state = "complete";
       (gcc as any).probe.lastProbeEndMs = 0;
       (gcc as any).hasValidSample = true;
-      (gcc as any).initialExponentialDone = true;
       (gcc as any).probingConfigured = true;
       (gcc as any).delayBasedBps = 400_000;
       (gcc as any).lossBasedBps = 400_000;
