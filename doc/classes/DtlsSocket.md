@@ -422,6 +422,25 @@ true when the caller should fire public onClose after onError
 
 ***
 
+### finishLegacy12PeerCloseWithOptionalNotify()
+
+> `protected` **finishLegacy12PeerCloseWithOptionalNotify**(`after`?): `void`
+
+Best-effort 1.2 close_notify reply then onClose/transport free even if
+transport.send never settles (~250ms budget, parity with 1.3).
+
+#### Parameters
+
+##### after?
+
+() => `void`
+
+#### Returns
+
+`void`
+
+***
+
 ### handleFragmentHandshake()
 
 > **handleFragmentHandshake**(`messages`): `FragmentedHandshake`[]
@@ -555,8 +574,8 @@ hard-close carrier / transport / candidates.
 
 > `protected` **onLegacy12PeerCloseNotify**(): `void`
 
-Peer close_notify on DTLS 1.2 path: best-effort reply, then graceful
-association close (connected=false, timers cancel, onClose, transport).
+Peer close_notify on DTLS 1.2 path: sync terminal + best-effort reply with
+a short send budget (same root cause as 1.3 hung transport.send).
 Dual client overrides for phase/carrier/transport ownership.
 
 #### Returns

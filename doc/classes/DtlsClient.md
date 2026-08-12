@@ -553,6 +553,29 @@ Caller fires onError then onClose when this returns true.
 
 ***
 
+### finishLegacy12PeerCloseWithOptionalNotify()
+
+> `protected` **finishLegacy12PeerCloseWithOptionalNotify**(`after`?): `void`
+
+Best-effort 1.2 close_notify reply then onClose/transport free even if
+transport.send never settles (~250ms budget, parity with 1.3).
+
+#### Parameters
+
+##### after?
+
+() => `void`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`finishLegacy12PeerCloseWithOptionalNotify`](DtlsSocket.md#finishlegacy12peerclosewithoptionalnotify)
+
+***
+
 ### handleFragmentHandshake()
 
 > **handleFragmentHandshake**(`messages`): `FragmentedHandshake`[]
@@ -716,7 +739,9 @@ Does not re-fire onClose (already delivered by bridge; dualPhase already closed)
 > `protected` **onLegacy12PeerCloseNotify**(): `void`
 
 Peer close_notify on DTLS 1.2 path (committed12 / pure dual 1.2):
-best-effort reply, then association hard-close with a single public onClose.
+sync Public-API terminal (associationTornDown), best-effort reply with
+send budget, then hard-close which flips dualPhase=closed + onClose once.
+Do not set dualPhase=closed before hard-close or firePublicOnClose is skipped.
 
 #### Returns
 
