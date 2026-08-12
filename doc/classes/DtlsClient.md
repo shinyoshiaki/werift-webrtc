@@ -51,9 +51,10 @@ Replaced only if a future multi-HS redesign needs a fresh controller mid-life.
 
 > `protected` **associationTornDown**: `boolean` = `false`
 
-True after DTLS 1.2 association hard/graceful teardown so pure-1.2 Public
-APIs stay disabled even if transport close is still racing.
-Dual client primarily uses dualPhase=closed; this flag is the base guard.
+True after association hard/graceful/fatal teardown so Public APIs stay
+disabled for pure 1.2, pure 1.3, and dual paths alike (even if transport
+close is still racing or engine13 has already been cleared).
+Dual client also flips dualPhase=closed; this flag is the base guard.
 
 #### Inherited from
 
@@ -370,6 +371,22 @@ linger until the next RTO after onConnect.
 
 ***
 
+### clearSendPeerPin()
+
+> `protected` **clearSendPeerPin**(): `void`
+
+Clear TX pin on association terminal teardown.
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`clearSendPeerPin`](DtlsSocket.md#clearsendpeerpin)
+
+***
+
 ### close()
 
 > **close**(): `void`
@@ -392,7 +409,7 @@ Fires public onClose once (bridge is disposed before eng.close).
 
 > `protected` **closeLegacy12Association**(`firePublicOnClose`): `void`
 
-Local close for pure DTLS 1.2 (server and non-dual paths).
+Local close for pure DTLS 1.2 (server and non-overridden paths).
 Terminal transition + optional single public onClose (client dual uses
 closeAssociationHard instead).
 
@@ -634,6 +651,61 @@ best-effort reply, then association hard-close with a single public onClose.
 #### Overrides
 
 [`DtlsSocket`](DtlsSocket.md).[`onLegacy12PeerCloseNotify`](DtlsSocket.md#onlegacy12peerclosenotify)
+
+***
+
+### pinSendPeer()
+
+> `protected` **pinSendPeer**(`addr`?, `mode`?): `void`
+
+Normalize and store association TX peer pin on TransportContext.
+
+Why association-owned: UdpTransport.rinfo is overwritten by every inbound
+datagram (including spoof). Flight retransmit and application send must not
+follow last-rinfo alone (ticket peer-pinning / TX ownership).
+
+#### Parameters
+
+##### addr?
+
+readonly \[`string`, `number`\]
+
+##### mode?
+
+`set-if-empty` keeps the first authenticated pin (server Flight4 /
+  connect). `replace` is for dual association re-pin / client connect.
+
+`"replace"` | `"set-if-empty"`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`pinSendPeer`](DtlsSocket.md#pinsendpeer)
+
+***
+
+### pinSendPeerFromTransportRinfo()
+
+> `protected` **pinSendPeerFromTransportRinfo**(`mode`): `void`
+
+Pin from last transport rinfo when present (never overwrites existing pin).
+
+#### Parameters
+
+##### mode
+
+`"replace"` | `"set-if-empty"`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`pinSendPeerFromTransportRinfo`](DtlsSocket.md#pinsendpeerfromtransportrinfo)
 
 ***
 
