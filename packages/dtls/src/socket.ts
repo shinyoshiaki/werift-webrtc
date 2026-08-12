@@ -196,14 +196,27 @@ export class DtlsSocket {
   }
 
   /**
+   * Resolved peer-identity policy for this association.
+   * Prefer explicit {@link Options.peerIdentityMode}; otherwise infer from
+   * transport.peerAuthenticated / addressValidation for backward compatibility.
+   */
+  get peerIdentityMode(): PeerIdentityMode {
+    if (this.options.peerIdentityMode) return this.options.peerIdentityMode;
+    const t = this.options.transport as { peerAuthenticated?: boolean };
+    if (t.peerAuthenticated === true) return "authenticated-single-peer";
+    if (this.options.addressValidation === "ice-authenticated") {
+      return "authenticated-single-peer";
+    }
+    return "datagram-address";
+  }
+
+  /**
    * Transport path already authenticates a single peer (ICE / equivalent).
    * Distinct from TransportContext.pinnedPeer (UDP return-routability).
+   * Driven by {@link peerIdentityMode} (public Options) when set.
    */
   protected isAuthenticatedSinglePeerTransport(): boolean {
-    const t = this.options.transport as { peerAuthenticated?: boolean };
-    if (t.peerAuthenticated === true) return true;
-    if (this.options.addressValidation === "ice-authenticated") return true;
-    return false;
+    return this.peerIdentityMode === "authenticated-single-peer";
   }
 
   /**
@@ -982,6 +995,20 @@ export class DtlsSocket {
   }
 }
 
+/**
+ * How the DTLS association identifies the remote peer for TX/RX lifecycle.
+ *
+ * - `"datagram-address"` — classic UDP return-routability: pin the 5-tuple after
+ *   cookie/connect; RX from other addresses is dropped; addressless RX is not
+ *   accepted once pinned.
+ * - `"authenticated-single-peer"` — the transport path already authenticates a
+ *   single peer (ICE / equivalent). Addressless RX is valid; a UDP pin is
+ *   optional TX convenience, not the authentication boundary.
+ *
+ * Distinct from {@link Options.addressValidation} (HelloVerify / cookie policy).
+ */
+export type PeerIdentityMode = "datagram-address" | "authenticated-single-peer";
+
 export interface Options {
   transport: Transport;
   srtpProfiles?: SrtpProfile[];
@@ -1015,6 +1042,16 @@ export interface Options {
    * WebRTC ICE-authenticated peers use `"ice-authenticated"` (Epic 2/3).
    */
   addressValidation?: "dtls-cookie" | "ice-authenticated" | "none";
+  /**
+   * Peer-identity policy for association TX/RX lifecycle.
+   * Default (when omitted): inferred as `"authenticated-single-peer"` when
+   * `transport.peerAuthenticated` or `addressValidation: "ice-authenticated"`,
+   * otherwise `"datagram-address"`.
+   *
+   * Prefer setting this explicitly for custom carriers / ICE so call sites do
+   * not depend on inference.
+   */
+  peerIdentityMode?: PeerIdentityMode;
   /**
    * DTLS 1.3 named groups preference order (key_share).
    * Default: X25519 then P-256. Use `[NamedCurveAlgorithm.secp256r1_23]` for P-256 only.

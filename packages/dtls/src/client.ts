@@ -642,7 +642,10 @@ export class DtlsClient extends DtlsSocket {
     const expected = this.dualAssociationPeerKey;
     if (!expected) return true;
     const key = peerKeyFromAddr(peer);
-    if (!key || key === "unknown") return false;
+    if (!key || key === "unknown") {
+      // authenticated-single-peer (ICE): addressless RX remains valid after pin.
+      return this.peerIdentityMode === "authenticated-single-peer";
+    }
     return key === expected;
   }
 

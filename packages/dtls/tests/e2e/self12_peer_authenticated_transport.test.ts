@@ -1,10 +1,14 @@
 import { expect, test } from "vitest";
 import { UdpTransport } from "../../../common/src";
 import type { Address, Transport } from "../../../common/src";
-import { DtlsClient, DtlsServer } from "../../src";
+import {
+  DtlsClient,
+  DtlsServer,
+  DtlsVersion,
+  ProtocolVersionError,
+} from "../../src";
 import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
 import { AlertDesc, ContentType } from "../../src/record/const";
-import { serializePlaintextRecord } from "../../src/record/v1_3/record";
 import { certPem, keyPem } from "../fixture";
 
 const sig = {
@@ -53,25 +57,43 @@ class PeerAuthTransport implements Transport {
   };
 }
 
-async function connectPeerAuthPair() {
+/**
+ * Peer-auth Options base: explicit peerIdentityMode (public API).
+ * addressValidation "none" keeps DTLS 1.2 HelloVerify optional for addressless
+ * ICE-like paths (same as ice-authenticated for 1.3 anti-amp; cookie still
+ * works with peerKey "unknown" when dtls-cookie is default).
+ */
+const peerAuthOpts = {
+  signatureHash: sig,
+  peerIdentityMode: "authenticated-single-peer" as const,
+  // ICE path: skip cookie / treat address as pre-validated (1.3 anti-amp).
+  addressValidation: "ice-authenticated" as const,
+};
+
+async function peerAuthTransports() {
   const u1 = await UdpTransport.init("udp4");
   const u2 = await UdpTransport.init("udp4");
   const t1 = new PeerAuthTransport(u1);
   const t2 = new PeerAuthTransport(u2);
   t1.link(t2);
   t2.link(t1);
+  return { t1, t2 };
+}
+
+async function connectPeerAuthPair() {
+  const { t1, t2 } = await peerAuthTransports();
 
   const server = new DtlsServer({
     transport: t1,
     cert: certPem,
     key: keyPem,
-    signatureHash: sig,
+    ...peerAuthOpts,
   });
   const client = new DtlsClient({
     transport: t2,
     cert: certPem,
     key: keyPem,
-    signatureHash: sig,
+    ...peerAuthOpts,
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -179,10 +201,221 @@ test("e2e/self12: peerAuthenticated transport delivers protected close_notify", 
   await t2.close().catch(() => {});
 }, 25_000);
 
+test("e2e/self12: peerIdentityMode authenticated-single-peer is public and resolved", async () => {
+  // Arrange: explicit Options.peerIdentityMode (not only transport flag inference)
+  const { t1, t2 } = await peerAuthTransports();
+  const server = new DtlsServer({
+    transport: t1,
+    cert: certPem,
+    key: keyPem,
+    ...peerAuthOpts,
+  });
+  const client = new DtlsClient({
+    transport: t2,
+    cert: certPem,
+    key: keyPem,
+    ...peerAuthOpts,
+  });
+
+  // Assert: public getter exposes fixed mode without connecting
+  expect(client.peerIdentityMode).toBe("authenticated-single-peer");
+  expect(server.peerIdentityMode).toBe("authenticated-single-peer");
+  // datagram-address when omitted and no peerAuthenticated
+  const plain = await UdpTransport.init("udp4");
+  const plainClient = new DtlsClient({
+    transport: plain,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    peerIdentityMode: "datagram-address",
+  });
+  expect(plainClient.peerIdentityMode).toBe("datagram-address");
+
+  try {
+    client.close();
+  } catch {
+    /* */
+  }
+  try {
+    server.close();
+  } catch {
+    /* */
+  }
+  try {
+    plainClient.close();
+  } catch {
+    /* */
+  }
+  await t1.close().catch(() => {});
+  await t2.close().catch(() => {});
+  await plain.close().catch(() => {});
+});
+
+/**
+ * Ticket B required: version mismatch on addressless authenticated transport
+ * must surface ProtocolVersionError (not hang on retransmit timeout).
+ *
+ * 1.2-only client × 1.3-only server: server rejects with protocol_version /
+ * ProtocolVersionError under peerIdentityMode authenticated-single-peer.
+ */
+test("e2e/peerAuth: 1.2-only client vs 1.3-only server → ProtocolVersionError", async () => {
+  // Arrange: same PeerAuthTransport fixture as lifecycle tests
+  const { t1, t2 } = await peerAuthTransports();
+  const server = new DtlsServer({
+    transport: t1,
+    cert: certPem,
+    key: keyPem,
+    ...peerAuthOpts,
+    protocolVersions: [DtlsVersion.V1_3],
+  });
+  const client = new DtlsClient({
+    transport: t2,
+    cert: certPem,
+    key: keyPem,
+    ...peerAuthOpts,
+    protocolVersions: [DtlsVersion.V1_2],
+  });
+
+  // Act / Assert: mismatch is actionable error (timeout would fail this test)
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("expected ProtocolVersionError, got timeout")),
+      12_000,
+    );
+    const onErr = (e: Error) => {
+      clearTimeout(timer);
+      try {
+        client.close();
+      } catch {
+        /* */
+      }
+      try {
+        server.close();
+      } catch {
+        /* */
+      }
+      if (
+        e instanceof ProtocolVersionError ||
+        e.name === "ProtocolVersionError" ||
+        /protocol_version|protocol version|no overlapping/i.test(e.message)
+      ) {
+        expect(client.connected).toBe(false);
+        resolve();
+        return;
+      }
+      reject(
+        new Error(`expected ProtocolVersionError, got ${e.name}: ${e.message}`),
+      );
+    };
+    client.onError.subscribe(onErr);
+    server.onError.subscribe(onErr);
+    client.onConnect.subscribe(() => {
+      clearTimeout(timer);
+      reject(new Error("should not connect 1.2-only to 1.3-only on peerAuth"));
+    });
+    void client.connect().catch((e) => onErr(e as Error));
+  });
+
+  await t1.close().catch(() => {});
+  await t2.close().catch(() => {});
+}, 15_000);
+
+/**
+ * Ticket B required: dual [1.3,1.2] on peer-auth transport falls back to 1.2
+ * and completes handshake + app data without UDP addresses.
+ */
+test("e2e/peerAuth: dual [1.3,1.2] client → 1.2-only server completes", async () => {
+  // Arrange
+  const { t1, t2 } = await peerAuthTransports();
+  const server = new DtlsServer({
+    transport: t1,
+    cert: certPem,
+    key: keyPem,
+    ...peerAuthOpts,
+    protocolVersions: [DtlsVersion.V1_2],
+  });
+  const client = new DtlsClient({
+    transport: t2,
+    cert: certPem,
+    key: keyPem,
+    ...peerAuthOpts,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+  });
+
+  // Act: dual client falls back to 1.2 on addressless peer-auth path
+  await new Promise<void>((resolve, reject) => {
+    const t = setTimeout(
+      () => reject(new Error("dual fallback timeout")),
+      20_000,
+    );
+    let clientOk = false;
+    let serverOk = false;
+    const maybeDone = () => {
+      if (clientOk && serverOk) {
+        clearTimeout(t);
+        resolve();
+      }
+    };
+    client.onConnect.subscribe(() => {
+      clientOk = true;
+      maybeDone();
+    });
+    server.onConnect.subscribe(() => {
+      serverOk = true;
+      maybeDone();
+    });
+    client.onError.subscribe((e) => {
+      clearTimeout(t);
+      reject(e);
+    });
+    server.onError.subscribe((e) => {
+      clearTimeout(t);
+      reject(e);
+    });
+    void client.connect();
+  });
+
+  // Assert: 1.2 association (not 1.3 engine)
+  expect(client.connected).toBe(true);
+  expect(server.connected).toBe(true);
+  expect(client.isDtls13).toBe(false);
+  expect(client.peerIdentityMode).toBe("authenticated-single-peer");
+
+  // Protected app data still works addressless
+  await new Promise<void>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error("app data timeout")), 5_000);
+    server.onData.subscribe((d) => {
+      try {
+        expect(d.toString()).toBe("peer-auth-dual-12");
+        clearTimeout(t);
+        resolve();
+      } catch (e) {
+        clearTimeout(t);
+        reject(e);
+      }
+    });
+    void client.send(Buffer.from("peer-auth-dual-12"));
+  });
+
+  try {
+    client.close();
+  } catch {
+    /* */
+  }
+  try {
+    server.close();
+  } catch {
+    /* */
+  }
+  await t1.close().catch(() => {});
+  await t2.close().catch(() => {});
+}, 25_000);
+
 test("e2e/self12: peerAuthenticated transport app data + local close + epoch-0 ignore", async () => {
   // Arrange: ICE-like addressless path
   const { client, server, t1, t2 } = await connectPeerAuthPair();
   expect((client as any).hasAssociationPeerAuth()).toBe(true);
+  expect(client.peerIdentityMode).toBe("authenticated-single-peer");
 
   // Act/Assert: protected app data bidirectional without UDP addresses
   await new Promise<void>((resolve, reject) => {

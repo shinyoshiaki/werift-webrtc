@@ -252,6 +252,26 @@ True when this socket is operating on the DTLS 1.3 engine.
 
 ***
 
+### peerIdentityMode
+
+#### Get Signature
+
+> **get** **peerIdentityMode**(): [`PeerIdentityMode`](../type-aliases/PeerIdentityMode.md)
+
+Resolved peer-identity policy for this association.
+Prefer explicit [Options.peerIdentityMode](../interfaces/Options.md#peeridentitymode); otherwise infer from
+transport.peerAuthenticated / addressValidation for backward compatibility.
+
+##### Returns
+
+[`PeerIdentityMode`](../type-aliases/PeerIdentityMode.md)
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`peerIdentityMode`](DtlsSocket.md#peeridentitymode)
+
+***
+
 ### remoteCertificate
 
 #### Get Signature
@@ -689,6 +709,7 @@ close_notify must not tear down a post-handshake association (unauth DoS).
 
 Transport path already authenticates a single peer (ICE / equivalent).
 Distinct from TransportContext.pinnedPeer (UDP return-routability).
+Driven by [peerIdentityMode](DtlsSocket.md#peeridentitymode) (public Options) when set.
 
 #### Returns
 

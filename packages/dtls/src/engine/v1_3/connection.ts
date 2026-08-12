@@ -242,7 +242,21 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
     const expected = this.expectedPeerKey();
     if (!expected) return true;
     const key = peerKeyFromAddr(addr);
-    if (!key || key === "unknown") return false;
+    if (!key || key === "unknown") {
+      // Addressless RX (ICE / peerAuthenticated): transport path is identity.
+      // Do not require a UDP 5-tuple once the association has a pin for TX.
+      const t = this.options.transport as { peerAuthenticated?: boolean };
+      if (t.peerAuthenticated === true) return true;
+      if (
+        this.addressValidation === "ice-authenticated" ||
+        this.addressValidation === "none"
+      ) {
+        // "none" alone is not enough on multi-peer UDP; only ICE modes trust
+        // addressless after pin. peerAuthenticated covers WebRTC IceTransport.
+        return this.addressValidation === "ice-authenticated";
+      }
+      return false;
+    }
     return key === expected;
   }
 
