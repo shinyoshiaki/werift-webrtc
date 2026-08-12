@@ -292,3 +292,4 @@ test("e2e/self13 peerIdentityMode: datagram-address rejects non-pin peer after c
   await clientTransport.close().catch(() => {});
   await serverTransport.close().catch(() => {});
 }, 25_000);
+
