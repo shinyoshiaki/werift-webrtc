@@ -1,10 +1,15 @@
 /**
  * werift↔Chrome 帯域シミュレーション実行ランナー（CI 対象外）。
  * サーバと vitest を並列起動し、テスト終了後にサーバを停止する。
+ *
+ * PLAYWRIGHT_BROWSERS_PATH は ensure-browser.js と同じ worktree ローカル
+ * キャッシュへ揃え、`npm run install:browsers` 後の `npm run test:sim` が
+ * 明示 export なしでも Chromium を見つけられるようにする。
  */
 const net = require("node:net");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
+const { ensureBrowsersPathEnv } = require("../ensure-browser");
 const { requestServerStop } = require("../stop");
 
 function npmCommand() {
@@ -58,9 +63,12 @@ async function main() {
     E2E_PORT: port,
     VITE_E2E_PORT: port,
   };
+  // Align Playwright cache with install:browsers / run-ci / run-chrome-prod.
+  const browsersPath = ensureBrowsersPathEnv(env);
   const cwd = path.join(__dirname, "..");
 
   console.log(`using e2e sim port ${port}`);
+  console.log(`using PLAYWRIGHT_BROWSERS_PATH=${browsersPath}`);
 
   const server = spawn(npmCommand(), ["run", "server:silent"], {
     cwd,

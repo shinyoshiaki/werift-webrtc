@@ -6,13 +6,16 @@ const { basename, dirname, join } = require("node:path");
  * Prefer a worktree-local browser cache so concurrent CI jobs sharing
  * ~/.cache/ms-playwright cannot race / prune each other's installs.
  * Matches e2e/.gitignore `.playwright-browsers/`.
+ *
+ * Exported for run-sim.js / run-ci.js / run-chrome-prod.js so every Playwright
+ * entrypoint uses the same path without requiring the user to export it.
  */
-function ensureBrowsersPathEnv() {
-  if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
-    process.env.PLAYWRIGHT_BROWSERS_PATH = join(__dirname, ".playwright-browsers");
+function ensureBrowsersPathEnv(env = process.env) {
+  if (!env.PLAYWRIGHT_BROWSERS_PATH) {
+    env.PLAYWRIGHT_BROWSERS_PATH = join(__dirname, ".playwright-browsers");
   }
-  mkdirSync(process.env.PLAYWRIGHT_BROWSERS_PATH, { recursive: true });
-  return process.env.PLAYWRIGHT_BROWSERS_PATH;
+  mkdirSync(env.PLAYWRIGHT_BROWSERS_PATH, { recursive: true });
+  return env.PLAYWRIGHT_BROWSERS_PATH;
 }
 
 function resolveSystemChrome() {
@@ -86,7 +89,7 @@ function installPlaywrightBrowsers() {
 }
 
 function main() {
-  ensureBrowsersPathEnv();
+  ensureBrowsersPathEnv(process.env);
 
   // vitest.config.mts pins launch.executablePath when a system Chrome exists,
   // so Playwright headless-shell is optional in that environment.
@@ -140,4 +143,12 @@ function main() {
   process.exit(0);
 }
 
-main();
+module.exports = {
+  ensureBrowsersPathEnv,
+  hasPlaywrightChromium,
+  resolveSystemChrome,
+};
+
+if (require.main === module) {
+  main();
+}

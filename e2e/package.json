@@ -23,7 +23,7 @@
     "upgrade-interactive": "npx npm-check-updates -i",
     "knip": "npx knip --config ./knip.json",
     "chrome:sim": "vitest run --config ./simulations/vitest.sim.config.mts --browser.headless",
-    "test:sim": "npm run build && node simulations/run-sim.js"
+    "test:sim": "npm run install:browsers && npm run build && node simulations/run-sim.js"
   },
   "dependencies": {
     "bowser": "^2.12.1",

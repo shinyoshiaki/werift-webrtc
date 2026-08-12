@@ -1,9 +1,20 @@
 /// <reference types="@vitest/browser/providers/playwright" />
 
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { nodePolyfills } from "vite-plugin-node-polyfills";
 import { defineConfig } from "vitest/config";
+
+const e2eRoot = join(fileURLToPath(new URL(".", import.meta.url)), "..");
+
+// Align with ensure-browser.js / run-sim.js when chrome:sim is invoked directly
+// (without run-sim). install:browsers writes here by default.
+if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
+  process.env.PLAYWRIGHT_BROWSERS_PATH = join(e2eRoot, ".playwright-browsers");
+}
+mkdirSync(process.env.PLAYWRIGHT_BROWSERS_PATH, { recursive: true });
 
 const chromiumExecutablePath = [
   process.env.CHROME_BIN,

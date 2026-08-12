@@ -1,20 +1,10 @@
 const net = require("node:net");
 const { spawn } = require("node:child_process");
-const { mkdirSync } = require("node:fs");
-const { join } = require("node:path");
+const { ensureBrowsersPathEnv } = require("./ensure-browser");
 const { requestServerStop } = require("./stop");
 
 function npmCommand() {
   return process.platform === "win32" ? "npm.cmd" : "npm";
-}
-
-/** Keep browser cache aligned with ensure-browser.js (worktree-local). */
-function ensurePlaywrightBrowsersPath(env) {
-  if (!env.PLAYWRIGHT_BROWSERS_PATH) {
-    env.PLAYWRIGHT_BROWSERS_PATH = join(__dirname, ".playwright-browsers");
-  }
-  mkdirSync(env.PLAYWRIGHT_BROWSERS_PATH, { recursive: true });
-  return env;
 }
 
 function signalExitCode(signal) {
@@ -60,11 +50,12 @@ function getAvailablePort() {
 async function main() {
   const mode = process.argv[2] === "prod" ? "prod" : "silent";
   const port = String(await getAvailablePort());
-  const env = ensurePlaywrightBrowsersPath({
+  const env = {
     ...process.env,
     E2E_PORT: port,
     VITE_E2E_PORT: port,
-  });
+  };
+  ensureBrowsersPathEnv(env);
   const serverScript = mode === "prod" ? "server:prod" : "server:silent";
 
   console.log(`using e2e port ${port}`);

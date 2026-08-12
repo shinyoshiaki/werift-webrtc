@@ -1,19 +1,9 @@
 const { spawn } = require("node:child_process");
-const { mkdirSync } = require("node:fs");
-const { join } = require("node:path");
+const { ensureBrowsersPathEnv } = require("./ensure-browser");
 const { requestServerStop } = require("./stop");
 
 function npmCommand() {
   return process.platform === "win32" ? "npm.cmd" : "npm";
-}
-
-/** Align with ensure-browser.js / run-ci.js worktree-local cache. */
-function ensurePlaywrightBrowsersPath(env) {
-  if (!env.PLAYWRIGHT_BROWSERS_PATH) {
-    env.PLAYWRIGHT_BROWSERS_PATH = join(__dirname, ".playwright-browsers");
-  }
-  mkdirSync(env.PLAYWRIGHT_BROWSERS_PATH, { recursive: true });
-  return env;
 }
 
 function signalExitCode(signal) {
@@ -49,7 +39,11 @@ async function main() {
     ],
     {
       cwd: __dirname,
-      env: ensurePlaywrightBrowsersPath({ ...process.env }),
+      env: (() => {
+        const env = { ...process.env };
+        ensureBrowsersPathEnv(env);
+        return env;
+      })(),
       stdio: "inherit",
     },
   );
