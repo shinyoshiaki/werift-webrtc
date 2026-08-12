@@ -12,6 +12,12 @@ import { TwccReferenceTimeUnwrapper } from "../twccReferenceTime";
 import { AcknowledgedBitrateEstimator } from "./acknowledgedBitrateEstimator";
 import { AimdRateControl } from "./aimdRateControl";
 import {
+  getBandwidthLimitedCause,
+  isProbeInitiationAllowed,
+  isRttAboveLimit,
+  maxProbeBitrateBps,
+} from "./bandwidthLimitedCause";
+import {
   GCC_KNOWN_DIFFERENCES,
   kDefaultRttMs,
   kDefaultStartBitrateBps,
@@ -95,6 +101,13 @@ export class GccBandwidthEstimator
   private probeClusterSentBytes = 0;
   private probeClusterStartMs = 0;
   private lastProbeTargetBps = 0;
+  /**
+   * Feedback RTT proxy = feedback arrival − **earliest send among received**
+   * packets in the TWCC batch (libwebrtc max_feedback_rtt). Refreshed on every
+   * finite sample (clamped ≥0). Used for IsRttAboveLimit (3s).
+   * AIMD keeps a separately clamped RTT for TimeToReduceFurther only.
+   */
+  private lastFeedbackRttMs = kDefaultRttMs;
 
   get availableBitrate() {
     return this._availableBitrate;
@@ -185,6 +198,12 @@ export class GccBandwidthEstimator
     let batchBytes = 0;
     let firstSend = Number.POSITIVE_INFINITY;
     let lastSend = 0;
+    /**
+     * Earliest send among **received** packets in this feedback.
+     * libwebrtc max_feedback_rtt = max_i (feedback_time − send_i)
+     * = feedback_time − min(send_i) over ReceivedWithSendInfo.
+     */
+    let earliestReceivedSend = Number.POSITIVE_INFINITY;
     const lossPackets: LossPacketFeedback[] = [];
 
     // Expand 24-bit reference_time across feedbacks so receivedAtMs stays
@@ -247,6 +266,9 @@ export class GccBandwidthEstimator
       received++;
       this.finalizedSeqs.add(seq);
       this.softLostSeqs.delete(seq);
+      if (info.sendingAtMs < earliestReceivedSend) {
+        earliestReceivedSend = info.sendingAtMs;
+      }
       lossPackets.push({
         seq,
         size: info.size,
@@ -317,8 +339,9 @@ export class GccBandwidthEstimator
 
     // Probe gating is split (libwebrtc GetBandwidthLimitedCause / ProbeController):
     // - Upward probe *results* apply unless delay path is overusing.
-    // - *New* recovery/further clusters only when delay usage is normal and
-    //   loss-based state is not decreasing/hold.
+    // - *New* recovery/further clusters use full cause mapping (not a single
+    //   congested bit): underuse/overuse / high RTT / loss decreasing|hold
+    //   forbid; loss increasing allows with scale cap; delay_based uncapped.
     // Active clusters keep pacing until send-fill or pacing timeout (libwebrtc
     // does not mid-abort BitrateProber clusters on TWCC batch loss).
     const allowUpwardProbeResult = usage !== "overuse";
@@ -326,12 +349,23 @@ export class GccBandwidthEstimator
     const batchFirstSend = Number.isFinite(firstSend) ? firstSend : 0;
     const batchLastSend = lastSend > 0 ? lastSend : batchFirstSend;
 
-    // RTT proxy: feedback arrival wall time − last send of this batch.
-    // Not full ICE/STUN RTT; used for AIMD decrease spacing (TimeToReduceFurther).
-    if (batchLastSend > 0) {
-      const rttProxy = nowMs - batchLastSend;
-      if (rttProxy >= 10 && rttProxy <= 2000) {
-        this.aimd.setRtt(Math.max(kDefaultRttMs, rttProxy));
+    // libwebrtc OnTransportPacketsFeedback: max_feedback_rtt =
+    //   max over received of (feedback_time − send_time)
+    // = feedback_time − earliest send among received packets.
+    // Using only last-send RTT would miss a high-RTT head packet when the
+    // tail of the same batch is still under the 3s limit.
+    // Always refresh lastFeedbackRttMs for any finite proxy (clamp ≥0) so
+    // high-RTT → normal recovery and >30s spikes update gating.
+    // AIMD TimeToReduceFurther only receives a clamped [10, 2000] ms RTT.
+    if (Number.isFinite(earliestReceivedSend)) {
+      const rttProxy = nowMs - earliestReceivedSend;
+      if (Number.isFinite(rttProxy)) {
+        const rttMs = Math.max(0, rttProxy);
+        this.lastFeedbackRttMs = rttMs;
+        // AIMD: practical clamp only — does not gate IsRttAboveLimit.
+        if (rttMs >= 10 && rttMs <= 2000) {
+          this.aimd.setRtt(Math.max(kDefaultRttMs, rttMs));
+        }
       }
     }
 
@@ -349,14 +383,22 @@ export class GccBandwidthEstimator
       lossPackets,
     );
 
-    // Align with libwebrtc GetBandwidthLimitedCause:
-    // decreasing / hold → no new probes; increasing / delay_based → ok.
-    // (Increasing may still cap max probe bitrate upstream; we only gate here.)
+    // libwebrtc GetBandwidthLimitedCause → InitiateProbing permission / cap.
+    // Cause is evaluated on pre-probe-apply loss state (matches MaybeTrigger
+    // ordering: loss estimator update then SetEstimatedBitrate with cause).
     const lossState = this.lossBwe.lossState;
-    const lossStateIsProbeCompatible =
-      lossState === "increasing" || lossState === "delay_based";
-    const allowNewProbe = usage === "normal" && lossStateIsProbeCompatible;
+    const rttLimited = isRttAboveLimit(this.lastFeedbackRttMs);
+    const bandwidthLimitedCause = getBandwidthLimitedCause(
+      usage,
+      rttLimited,
+      lossState,
+    );
+    const allowNewProbe = isProbeInitiationAllowed(bandwidthLimitedCause);
 
+    // High RTT only gates new probes (kRttBasedBackOffHighRtt → InitiateProbing
+    // empty). Target bitrate stays on delay/loss/probe paths in this pin set;
+    // SendSideBandwidthEstimation ×0.8 RttBasedBackoff drops are not applied
+    // (source file outside third_party/libwebrtc-ref).
     let target = Math.min(this.delayBasedBps, this.lossBasedBps);
 
     // Apply valid probe results (libwebrtc GoogCc):
@@ -413,11 +455,18 @@ export class GccBandwidthEstimator
         this.delayBasedBps = accepted;
         this.lossBasedBps = accepted;
       }
-      // Further-probe decision: only while delay usage is normal and loss
-      // state allows probing (not while underuse / overuse / loss decreasing).
+      // Further-probe: cause from pre-apply state; max_probe uses the estimate
+      // passed into SetEstimatedBitrate (libwebrtc estimated_bitrate_ = bitrate).
       const forFurther = apply && accepted > 0 ? accepted : target;
       if (forFurther > 0 && allowNewProbe) {
-        for (const cfg of this.probe.setEstimatedBitrate(forFurther, nowMs)) {
+        const maxProbe = maxProbeBitrateBps(
+          bandwidthLimitedCause,
+          forFurther,
+          kMaxBitrateBps,
+        );
+        for (const cfg of this.probe.setEstimatedBitrate(forFurther, nowMs, {
+          maxProbeBps: maxProbe,
+        })) {
           this.onProbeClusterActivated(cfg, nowMs);
         }
       }
@@ -433,6 +482,7 @@ export class GccBandwidthEstimator
 
     // Recovery probe only on underuse → normal (libwebrtc recovered_from_overuse).
     // Do not request probes while still underusing (queue drain in progress).
+    // Same cause gate as further (including RTT-high and loss-limited cap).
     const recoveredFromUnderuse =
       previousUsage === "underuse" && usage === "normal";
     if (
@@ -441,7 +491,14 @@ export class GccBandwidthEstimator
       allowNewProbe
     ) {
       const est = this._availableBitrate > 0 ? this._availableBitrate : target;
-      for (const cfg of this.probe.requestProbe(est, nowMs)) {
+      const maxProbe = maxProbeBitrateBps(
+        bandwidthLimitedCause,
+        est,
+        kMaxBitrateBps,
+      );
+      for (const cfg of this.probe.requestProbe(est, nowMs, {
+        maxProbeBps: maxProbe,
+      })) {
         this.onProbeClusterActivated(cfg, nowMs);
       }
     }
@@ -472,6 +529,7 @@ export class GccBandwidthEstimator
     this.probeClusterSentBytes = 0;
     this.probeClusterStartMs = 0;
     this.lastProbeTargetBps = 0;
+    this.lastFeedbackRttMs = kDefaultRttMs;
   }
 
   dispose() {

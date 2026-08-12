@@ -29,11 +29,17 @@ import {
   TrendlineEstimator,
   TwccReferenceTimeUnwrapper,
   appendRfc3550Padding,
+  getBandwidthLimitedCause,
   hasTwccReceiveTiming,
+  isProbeInitiationAllowed,
   isProbePacingController,
+  isRttAboveLimit,
   kBeta,
+  kLossLimitedProbeScale,
   kProbePaddingPacketBytes,
+  kRttBasedBackOffHighRttMs,
   kTrendlineWindowSize,
+  maxProbeBitrateBps,
   sortPacketResultsByWideSeq,
 } from "../../src";
 import { RTP_EXTENSION_URI } from "../../src/imports/rtp";
@@ -2524,6 +2530,419 @@ describe("media/sender bandwidth estimator", () => {
       );
       expect(probeCfgs).toEqual([]);
       expect(gcc.probeState).toBe("complete");
+    });
+
+    test("GetBandwidthLimitedCause 相当の state→cause→InitiateProbing 対応表", () => {
+      // Arrange / Assert: pin goog_cc GetBandwidthLimitedCause + InitiateProbing
+      const cases: Array<{
+        usage: "normal" | "underuse" | "overuse";
+        rttHigh: boolean;
+        loss: "increasing" | "decreasing" | "delay_based" | "hold";
+        allow: boolean;
+        scaleCap: boolean;
+      }> = [
+        {
+          usage: "overuse",
+          rttHigh: false,
+          loss: "delay_based",
+          allow: false,
+          scaleCap: false,
+        },
+        {
+          usage: "underuse",
+          rttHigh: false,
+          loss: "delay_based",
+          allow: false,
+          scaleCap: false,
+        },
+        {
+          usage: "normal",
+          rttHigh: true,
+          loss: "delay_based",
+          allow: false,
+          scaleCap: false,
+        },
+        {
+          usage: "normal",
+          rttHigh: false,
+          loss: "decreasing",
+          allow: false,
+          scaleCap: false,
+        },
+        {
+          usage: "normal",
+          rttHigh: false,
+          loss: "hold",
+          allow: false,
+          scaleCap: false,
+        },
+        {
+          usage: "normal",
+          rttHigh: false,
+          loss: "increasing",
+          allow: true,
+          scaleCap: true,
+        },
+        {
+          usage: "normal",
+          rttHigh: false,
+          loss: "delay_based",
+          allow: true,
+          scaleCap: false,
+        },
+      ];
+      for (const c of cases) {
+        const cause = getBandwidthLimitedCause(c.usage, c.rttHigh, c.loss);
+        expect(isProbeInitiationAllowed(cause)).toBe(c.allow);
+        const max = maxProbeBitrateBps(cause, 200_000);
+        if (!c.allow) {
+          expect(max).toBe(0);
+        } else if (c.scaleCap) {
+          expect(max).toBe(200_000 * kLossLimitedProbeScale);
+        } else {
+          expect(max).toBeGreaterThan(200_000 * kLossLimitedProbeScale);
+        }
+      }
+      // Assert: RTT threshold は pin の 3s（> limit で high）
+      expect(isRttAboveLimit(kRttBasedBackOffHighRttMs)).toBe(false);
+      expect(isRttAboveLimit(kRttBasedBackOffHighRttMs + 1)).toBe(true);
+    });
+
+    test("RTT 高値・lossなし・overuseなしでは availableBitrate を強制低下させない", () => {
+      // Arrange: pin 内 GetBandwidthLimitedCause は high RTT → probe 禁止のみ。
+      // SendSideBandwidthEstimation の ×0.8 drop は pin 外なので適用しない。
+      const startBps = 300_000;
+      const gcc = new GccBandwidthEstimator(startBps);
+
+      // Act: 全パケット received / stretch なし（overuse 誘発しない）+ high RTT
+      const t0 = Date.now() - 3_500;
+      const n = 12;
+      for (let i = 0; i < n; i++) {
+        gcc.rtpPacketSent(sent(i + 1, 500, t0 + i * 20));
+      }
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: n }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: true,
+              // send 間隔と同等の recv 間隔 → delay gradient ≈ 0
+              receivedAtMs: t0 + 40 + i * 20,
+            });
+          }),
+        ),
+      );
+
+      // Assert: max RTT > 3s だが target を RTT だけで ×0.8 しない
+      expect((gcc as any).lastFeedbackRttMs).toBeGreaterThan(
+        kRttBasedBackOffHighRttMs,
+      );
+      expect(gcc.availableBitrate).toBeGreaterThan(0);
+      // start から大きく強制減速されていない（delay/loss 以外の RTT drop なし）
+      // AIMD は acked 上限制約で下がり得るが、×0.8 固定 drop は入らない
+      expect(gcc.availableBitrate).toBeGreaterThan(startBps * 0.5);
+      // 少なくとも start×0.8 ちょうどに張り付く実装ではない
+      expect(gcc.availableBitrate).not.toBe(Math.round(startBps * 0.8));
+    });
+
+    test("同一 batch 先頭 RTT>3s・末尾 RTT<3s でも max RTT で probe cause が high", () => {
+      // Arrange / pin: max_feedback_rtt = feedback_time − min(send_i)
+      // 先頭だけ 4s 前、末尾は 1s 前 → last-send 基準だと 1s で high を逃す
+      const gcc = new GccBandwidthEstimator(250_000);
+      const now = Date.now();
+      const earlySend = now - 4_000; // RTT ≈ 4s
+      const lateSend = now - 1_000; // RTT ≈ 1s (< 3s)
+      const n = 10;
+      for (let i = 0; i < n; i++) {
+        const sendMs =
+          earlySend + Math.round(((lateSend - earlySend) * i) / (n - 1));
+        gcc.rtpPacketSent(sent(i + 1, 600, sendMs));
+      }
+
+      // Act
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: n }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: true,
+              receivedAtMs: earlySend + 50 + i * 5,
+            });
+          }),
+        ),
+      );
+
+      // Assert: max RTT は earliest send 基準で > 3s
+      const maxRtt = (gcc as any).lastFeedbackRttMs as number;
+      expect(maxRtt).toBeGreaterThan(kRttBasedBackOffHighRttMs);
+      expect(maxRtt).toBeGreaterThan(3_500);
+      // last-send only なら ≈1000ms → それより大きい
+      expect(maxRtt).toBeGreaterThan(2_500);
+      // cause は RTT high → probe 禁止（bitrate 強制 drop はしない）
+      expect(
+        isProbeInitiationAllowed(
+          getBandwidthLimitedCause("normal", true, "delay_based"),
+        ),
+      ).toBe(false);
+      expect(gcc.availableBitrate).toBeGreaterThan(0);
+    });
+
+    test("高 RTT → 正常 RTT full-path で sticky high が解消される", () => {
+      // Arrange: 送信時刻と TWCC だけで high → low を遷移
+      const gcc = new GccBandwidthEstimator(200_000);
+
+      // Act 1: high RTT batch
+      const highT0 = Date.now() - 3_500;
+      for (let i = 1; i <= 10; i++) {
+        gcc.rtpPacketSent(sent(i, 500, highT0 + i * 15));
+      }
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 10 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: true,
+              receivedAtMs: highT0 + 30 + i * 15,
+            });
+          }),
+        ),
+      );
+      expect((gcc as any).lastFeedbackRttMs).toBeGreaterThan(
+        kRttBasedBackOffHighRttMs,
+      );
+      const highBps = gcc.availableBitrate;
+      expect(highBps).toBeGreaterThan(0);
+
+      // Act 2: low RTT batch（earliest send ≈ now−3ms）
+      const lowSend = Date.now() - 3;
+      for (let i = 11; i <= 25; i++) {
+        gcc.rtpPacketSent(sent(i, 500, lowSend));
+      }
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 15 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: 11 + i,
+              received: true,
+              receivedAtMs: lowSend + 1 + i,
+            });
+          }),
+        ),
+      );
+
+      // Assert: proxy が 10ms 未満に更新（sticky high 解消 → probe 許可側へ）
+      expect((gcc as any).lastFeedbackRttMs).toBeLessThan(10);
+      expect(
+        isProbeInitiationAllowed(
+          getBandwidthLimitedCause(
+            "normal",
+            isRttAboveLimit((gcc as any).lastFeedbackRttMs),
+            "delay_based",
+          ),
+        ),
+      ).toBe(true);
+      expect(gcc.availableBitrate).toBeGreaterThan(0);
+    });
+
+    test("RTT proxy > 30s full-path でも max RTT を記録する", () => {
+      // Arrange / Act: earliest send を 35s 前に置く
+      const gcc = new GccBandwidthEstimator(150_000);
+      const t0 = Date.now() - 35_000;
+      for (let i = 1; i <= 8; i++) {
+        gcc.rtpPacketSent(sent(i, 400, t0 + i * 10));
+      }
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 8 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: true,
+              receivedAtMs: t0 + 20 + i * 10,
+            });
+          }),
+        ),
+      );
+
+      // Assert: high RTT 記録 + probe cause forbid（bitrate 強制 drop なし）
+      expect((gcc as any).lastFeedbackRttMs).toBeGreaterThan(30_000);
+      expect((gcc as any).lastFeedbackRttMs).toBeGreaterThan(
+        kRttBasedBackOffHighRttMs,
+      );
+      expect(
+        isProbeInitiationAllowed(
+          getBandwidthLimitedCause("normal", true, "delay_based"),
+        ),
+      ).toBe(false);
+      expect(gcc.availableBitrate).toBeGreaterThan(0);
+    });
+
+    test("high RTT 中は complete 後の recovery probe が開始されない（send/TWCC 配線）", () => {
+      // Arrange: public path で initial probe を send-fill + timeout → complete
+      const gcc = new GccBandwidthEstimator(100_000);
+      const probeCfgs: number[] = [];
+      gcc.onProbeClusterConfig.subscribe((c) => probeCfgs.push(c.targetBps));
+
+      // ensureProbing + 3x/6x send-fill（ACK なし → result timeout で complete）
+      let seq = 1;
+      const fillAt = (base: number, count: number) => {
+        for (let i = 0; i < count; i++) {
+          gcc.rtpPacketSent(sent(seq++, 400, base + i, { isProbation: true }));
+        }
+      };
+      // 3x minPackets=5
+      fillAt(1_000, 5);
+      // 6x
+      fillAt(1_010, 5);
+      // result-wait 1s 超えで complete（process は rtpPacketSent 経由）
+      gcc.rtpPacketSent(sent(seq++, 200, 1_010 + 1_100));
+      expect(gcc.probeState).toBe("complete");
+
+      // cooldown 経過後の media + high RTT TWCC
+      // underuse→normal の recovery は trendline 依存のため、ここでは
+      // high RTT 中に pending further 相当が走らないことと max RTT を検証
+      const before = probeCfgs.length;
+      const highT0 = Date.now() - 3_500;
+      const media0 = seq;
+      for (let i = 0; i < 12; i++) {
+        gcc.rtpPacketSent(sent(media0 + i, 500, highT0 + i * 20));
+      }
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 12 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: media0 + i,
+              received: true,
+              receivedAtMs: highT0 + 40 + i * 20,
+            });
+          }),
+        ),
+      );
+
+      // Assert: high RTT 記録 + この TWCC で新しい probe cluster が増えない
+      expect((gcc as any).lastFeedbackRttMs).toBeGreaterThan(
+        kRttBasedBackOffHighRttMs,
+      );
+      expect(probeCfgs.length).toBe(before);
+      expect(gcc.probeState).toBe("complete");
+      expect(gcc.shouldTagProbePacket()).toBe(false);
+    });
+
+    test("loss increasing 中の further probe は estimated×1.5 で cap される", () => {
+      // Arrange: ProbeController 単体 — cause cap を InitiateProbing 相当で適用
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, 1e9, 0);
+      probe.abort(1_000);
+      (probe as any).lastProbeEndMs = Number.NEGATIVE_INFINITY;
+      (probe as any).minBitrateToProbeFurther = 100_000;
+      (probe as any).state = "complete";
+
+      const estimated = 400_000;
+      const maxProbe = estimated * kLossLimitedProbeScale; // 600kbps
+      // Act: further の uncapped は 400k×2=800k → cap 600k + stopFurther
+      const further = probe.setEstimatedBitrate(estimated, 10_000, {
+        maxProbeBps: maxProbe,
+      });
+      // Assert
+      expect(further.length).toBe(1);
+      expect(further[0].targetBps).toBe(maxProbe);
+      expect(probe.furtherProbeThresholdBps).toBe(Number.POSITIVE_INFINITY);
+
+      // 同じ cap では追加 further なし
+      const again = probe.setEstimatedBitrate(estimated, 10_100, {
+        maxProbeBps: maxProbe,
+      });
+      expect(again).toEqual([]);
+    });
+
+    test("loss increasing 中の recovery probe は estimated×1.5 を超えない", () => {
+      // Arrange
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, 1e9, 0);
+      probe.abort(1_000);
+      (probe as any).lastProbeEndMs = Number.NEGATIVE_INFINITY;
+      (probe as any).state = "complete";
+
+      const estimated = 200_000;
+      const maxProbe = estimated * kLossLimitedProbeScale; // 300kbps
+      // Act: recovery uncapped = 200k×1.5 = 300k → equals cap
+      const recovery = probe.requestProbe(estimated, 10_000, {
+        maxProbeBps: maxProbe,
+      });
+      // Assert
+      expect(recovery.length).toBe(1);
+      expect(recovery[0].targetBps).toBe(maxProbe);
+      expect(probe.furtherProbeThresholdBps).toBe(Number.POSITIVE_INFINITY);
+    });
+
+    test("loss increasing でも GCC full-path で further が scale cap される", () => {
+      // Arrange: complete + further 可能 + loss=increasing + rising probe result
+      const gcc = new GccBandwidthEstimator(200_000);
+      gcc.shouldTagProbePacket();
+      (gcc as any).probe.abort(0);
+      (gcc as any).probe.state = "complete";
+      (gcc as any).probe.lastProbeEndMs = Date.now() - 10_000;
+      (gcc as any).probe.minBitrateToProbeFurther = 50_000;
+      (gcc as any).probe.pendingEstimateBps = 400_000;
+      (gcc as any).hasValidSample = true;
+      (gcc as any).delayBasedBps = 200_000;
+      (gcc as any).lossBasedBps = 200_000;
+      (gcc as any)._availableBitrate = 200_000;
+      (gcc as any).initialExponentialDone = true;
+      (gcc as any).probingConfigured = true;
+      (gcc as any).lastUsage = "normal";
+      (gcc as any).lastFeedbackRttMs = 100;
+      (gcc as any).lossBwe.update = () => {
+        (gcc as any).lossBwe.state = "increasing";
+        return 200_000;
+      };
+
+      Object.defineProperty((gcc as any).trendline, "state", {
+        get: () => "normal",
+        configurable: true,
+      });
+
+      // acked を十分高くして rising probe が cap で落ちないようにする
+      (gcc as any).ackedBitrate.incomingPacketFeedbackVector(
+        Array.from({ length: 15 }, (_, i) => ({
+          receiveTimeMs: 1_000 + i * 10,
+          sendTimeMs: 1_000 + i * 10,
+          sizeBytes: 500,
+        })),
+      );
+
+      const probeCfgs: number[] = [];
+      gcc.onProbeClusterConfig.subscribe((c) => probeCfgs.push(c.targetBps));
+
+      const t0 = Date.now();
+      for (let i = 1; i <= 12; i++) {
+        gcc.rtpPacketSent({
+          wideSeq: i,
+          size: 500,
+          sendingAtMs: t0 + i * 20,
+          isProbation: false,
+        } as any);
+      }
+      // Act
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 12 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: true,
+              receivedAtMs: t0 + 30 + i * 20,
+            });
+          }),
+        ),
+      );
+
+      // Assert: further が起動し、target ≤ accepted×1.5（pin loss_limited_scale）
+      expect(probeCfgs.length).toBeGreaterThanOrEqual(1);
+      const accepted = Math.max(...probeCfgs);
+      // pending 400k が適用された後 forFurther 周りで ×1.5 cap
+      expect(accepted).toBeLessThanOrEqual(
+        400_000 * kLossLimitedProbeScale + 1,
+      );
+      expect(accepted).toBeLessThan(400_000 * 2);
     });
 
     test("max ちょうど一致する initial probe は further を止める（>=）", () => {

@@ -298,7 +298,11 @@ Bytes still needed for the **pacing** cluster (padding injection).
 
 ### requestProbe()
 
-> **requestProbe**(`estimatedBps`, `nowMs`): [`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
+> **requestProbe**(`estimatedBps`, `nowMs`, `opts`?): [`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
+
+Recovery / capacity probe (caller must already pass BandwidthLimitedCause
+gating). Optional `maxProbeBps` is InitiateProbing's max_probe_bitrate
+(e.g. estimated × loss_limited_probe_scale when loss-limited increasing).
 
 #### Parameters
 
@@ -307,6 +311,12 @@ Bytes still needed for the **pacing** cluster (padding injection).
 `number`
 
 ##### nowMs
+
+`number`
+
+##### opts?
+
+###### maxProbeBps?
 
 `number`
 
@@ -362,7 +372,11 @@ Bytes still needed for the **pacing** cluster (padding injection).
 
 ### setEstimatedBitrate()
 
-> **setEstimatedBitrate**(`bitrateBps`, `nowMs`): [`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
+> **setEstimatedBitrate**(`bitrateBps`, `nowMs`, `opts`?): [`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
+
+Further-probe after a successful estimate update.
+`maxProbeBps` mirrors InitiateProbing max_probe_bitrate for the current
+BandwidthLimitedCause (loss-limited increasing → estimated × 1.5).
 
 #### Parameters
 
@@ -371,6 +385,12 @@ Bytes still needed for the **pacing** cluster (padding injection).
 `number`
 
 ##### nowMs
+
+`number`
+
+##### opts?
+
+###### maxProbeBps?
 
 `number`
 
