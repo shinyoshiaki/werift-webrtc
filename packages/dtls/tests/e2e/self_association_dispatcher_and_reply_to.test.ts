@@ -22,9 +22,21 @@ const sig = {
   signature: SignatureAlgorithm.rsa_1,
 };
 
+type ClientRandom = { gmt_unix_time: number; random_bytes: Buffer };
+
+function fixedClientRandom(): ClientRandom {
+  const r = new DtlsRandom();
+  return {
+    gmt_unix_time: r.gmt_unix_time,
+    random_bytes: Buffer.from(r.random_bytes),
+  };
+}
+
 function build12ClientHello(opts?: {
   cookie?: Buffer;
   only13Cipher?: boolean;
+  /** Fixed random for CH1/CH2 cookie binding (RFC 6347 same parameters). */
+  random?: ClientRandom;
 }): ClientHello {
   // EllipticCurves / Signature matching RSA fixture cert
   const curves = new EllipticCurves({ data: [23, 29] }); // secp256r1, x25519
@@ -35,7 +47,7 @@ function build12ClientHello(opts?: {
   });
   return new ClientHello(
     { major: 254, minor: 253 },
-    new DtlsRandom(),
+    opts?.random ?? fixedClientRandom(),
     Buffer.alloc(0),
     opts?.cookie ?? Buffer.alloc(0),
     opts?.only13Cipher
@@ -244,8 +256,9 @@ test("e2e/self12: cookie pin uses CH source under concurrent rinfo spoof", async
   const realPeer: [string, number] = ["127.0.0.1", 19001];
   const spoofPeer: [string, number] = ["127.0.0.1", 19002];
 
-  // First empty-cookie CH → mint cookie + HVR
-  const ch1 = build12ClientHello();
+  // First empty-cookie CH → mint cookie + HVR (same random for CH2 binding)
+  const rnd = fixedClientRandom();
+  const ch1 = build12ClientHello({ random: rnd });
   (serverTransport as any).rinfo = {
     address: spoofPeer[0],
     port: spoofPeer[1],
@@ -256,7 +269,10 @@ test("e2e/self12: cookie pin uses CH source under concurrent rinfo spoof", async
 
   // Cookie CH from real peer while rinfo still spoofed.
   // Flight4 may retransmit without a full peer HS — pin is set *before* exec.
-  const ch2 = build12ClientHello({ cookie: Buffer.from(cookie) });
+  const ch2 = build12ClientHello({
+    cookie: Buffer.from(cookie),
+    random: rnd,
+  });
   const hsPromise = (server as any).handleHandshakes(
     chAsAssembled(ch2),
     realPeer,

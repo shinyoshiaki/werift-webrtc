@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import type { HashAlgorithms, SignatureAlgorithms } from "../cipher/const";
 import type { SessionTypes } from "../cipher/suites/abstract";
 import { debug } from "../imports/common";
@@ -23,7 +24,16 @@ export class DtlsContext {
       flight: number;
     };
   } = {};
+  /**
+   * Last HelloVerify cookie (display / sessionId only). Verification is
+   * stateless HMAC via {@link cookieSecret} + peer + ClientHello parameters.
+   */
   cookie?: Buffer;
+  /**
+   * Secret for DTLS 1.2 HelloVerify cookies (RFC 6347 HMAC style).
+   * Not shared across associations; never committed from peer input.
+   */
+  readonly cookieSecret = randomBytes(16);
   requestedCertificateTypes: number[] = [];
   requestedSignatureAlgorithms: {
     hash: HashAlgorithms;

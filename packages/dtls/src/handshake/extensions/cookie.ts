@@ -142,6 +142,59 @@ export function cookieBinding(
   return Buffer.concat([peer, Buffer.from([0]), chHash]);
 }
 
+/**
+ * ClientHello body for DTLS 1.2 HelloVerifyRequest cookie binding (RFC 6347).
+ * Zeros `legacy_cookie` so CH1 and the cookie-bearing CH2 hash the same
+ * version/random/session_id/cipher_suites/compression/extensions.
+ */
+export function clientHelloBodyForDtls12Cookie(
+  clientHelloBody: Buffer,
+): Buffer {
+  const ch = ClientHello.deSerialize(clientHelloBody);
+  ch.cookie = Buffer.alloc(0);
+  return ch.serialize();
+}
+
+/**
+ * Mint a DTLS 1.2 address cookie: HMAC-bound to peer + CH parameters (cookie-free).
+ * Reuses the DTLS 1.3 stateless cookie layout for peer + expiry + field binding.
+ */
+export function mintDtls12HelloVerifyCookie(
+  secret: Buffer,
+  peerKey: string,
+  clientHelloBody: Buffer,
+  opts?: { nowSec?: number },
+): Buffer {
+  return mintAddressCookie(
+    secret,
+    peerKey,
+    clientHelloBodyForDtls12Cookie(clientHelloBody),
+    opts,
+  );
+}
+
+/**
+ * Verify a DTLS 1.2 HelloVerify cookie for this peer and ClientHello parameters.
+ * Returns false when MAC/peer/expiry fails or CH2 immutable fields diverge from CH1.
+ */
+export function verifyDtls12HelloVerifyCookie(
+  secret: Buffer,
+  cookie: Buffer,
+  peerKey: string,
+  clientHelloBody: Buffer,
+  opts?: { nowSec?: number; maxAgeSec?: number },
+): boolean {
+  const bindingBody = clientHelloBodyForDtls12Cookie(clientHelloBody);
+  const verified = verifyAddressCookie(secret, cookie, peerKey, opts);
+  if (!verified) return false;
+  const imm = clientHelloImmutableFieldsHash(bindingBody);
+  try {
+    return timingSafeEqual(imm, verified.ch1ImmutableHash);
+  } catch {
+    return false;
+  }
+}
+
 export type AddressCookiePayload = {
   ch1MessageHash: Buffer;
   ch1ImmutableHash: Buffer;
@@ -324,13 +377,18 @@ export function verifyCookie(
 
 /** Format peer key from address tuple. */
 export function peerKeyFromAddr(
-  addr?: { address?: string; port?: number } | [string, number] | string,
+  addr?:
+    | { address?: string; port?: number }
+    | [string, number]
+    | readonly [string, number]
+    | string,
 ): string {
   if (!addr) return "unknown";
   if (typeof addr === "string") return addr;
   if (Array.isArray(addr)) return `${addr[0]}:${addr[1]}`;
-  if (addr.address != null && addr.port != null) {
-    return `${addr.address}:${addr.port}`;
+  const obj = addr as { address?: string; port?: number };
+  if (obj.address != null && obj.port != null) {
+    return `${obj.address}:${obj.port}`;
   }
   return "unknown";
 }

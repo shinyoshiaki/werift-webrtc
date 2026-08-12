@@ -262,10 +262,12 @@ test("e2e/self12: server.close() fires onClose exactly once", async () => {
 }, 20_000);
 
 /**
- * P2: waitForReady の association sleep は close で即 abort（次 RTO まで残さない）。
+ * P2: waitForReady の association sleep は close で即 AbortSignal cancel。
+ * 旧実装（sleep 完了後に tornDown を見て reject）では 400ms sleep の残りを
+ * 待ってしまうため、elapsed < 100ms は AbortSignal 修正の回帰になる。
  */
 test("e2e/self12: waitForReady sleep aborts immediately on close", async () => {
-  // Arrange: socket だけ用意（HS 完了不要）。長い sleep に入らせる
+  // Arrange: socket だけ用意（HS 完了不要）
   const serverTransport = await UdpTransport.init("udp4");
   const server = new DtlsServer({
     transport: serverTransport,
@@ -274,26 +276,34 @@ test("e2e/self12: waitForReady sleep aborts immediately on close", async () => {
     signatureHash: sig,
   });
 
-  // never-true condition → ループで 100ms, 200ms, … の cancelable sleep
-  const pending = (server as any).waitForReady(() => false) as Promise<void>;
+  // never-true → i=0 sleep0, i=1 sleep100, … i=4 sleep400
+  let conditionCalls = 0;
+  const pending = (server as any).waitForReady(() => {
+    conditionCalls += 1;
+    return false;
+  }) as Promise<void>;
 
-  // 少なくとも 1 回の non-zero sleep に入る
-  await new Promise((r) => setTimeout(r, 50));
+  // 確実に 400ms sleep (i=4) に入ってから close する
+  // conditionCalls=5 の直後が await setTimeout(400, { signal })
+  for (let i = 0; i < 200 && conditionCalls < 5; i++) {
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  expect(conditionCalls).toBeGreaterThanOrEqual(5);
   expect((server as any).associationAbort.signal.aborted).toBe(false);
 
-  // Act: close は pending sleep を AbortSignal で即 cancel
+  // Act: close は pending 400ms sleep を AbortSignal で即 cancel
   const t0 = Date.now();
   server.close();
 
   await expect(pending).rejects.toThrow(/association closed|waitForReady/i);
   const elapsed = Date.now() - t0;
-  // 次のフル delay (100ms+) を待たず即 settle（余裕を見て 80ms 未満）
-  expect(elapsed).toBeLessThan(80);
+  // 旧実装なら残り ~400ms 待ち → 100ms 未満は AbortSignal cancel の証拠
+  expect(elapsed).toBeLessThan(100);
   expect((server as any).associationAbort.signal.aborted).toBe(true);
   expect((server as any).associationTornDown).toBe(true);
 
   await serverTransport.close().catch(() => {});
-}, 10_000);
+}, 15_000);
 
 /**
  * P1: fatal と local close の race — event 二重なし、terminal 維持。

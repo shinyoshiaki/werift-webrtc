@@ -1,9 +1,14 @@
 import { SessionType } from "./cipher/suites/abstract";
 import { Dtls13Connection } from "./engine/v1_3/connection";
+import { commitClientHelloToAssociation } from "./flight/server/commitClientHello";
 import { flight2 } from "./flight/server/flight2";
 import { Flight4 } from "./flight/server/flight4";
 import { Flight6 } from "./flight/server/flight6";
 import { HandshakeType } from "./handshake/const";
+import {
+  peerKeyFromAddr,
+  verifyDtls12HelloVerifyCookie,
+} from "./handshake/extensions/cookie";
 import { SupportedVersions } from "./handshake/extensions/supportedVersions";
 import { ClientHello } from "./handshake/message/client/hello";
 import type { Address } from "./imports/common";
@@ -317,17 +322,57 @@ export class DtlsServer extends DtlsSocket {
             }
 
             if (clientHello.cookie.length === 0) {
-              log(this.dtls.sessionId, "send flight2");
-              flight2(
-                this.transport,
-                this.dtls,
-                this.cipher,
-                this.srtp,
-              )(clientHello, replyTo);
-            } else if (
-              this.dtls.cookie &&
-              clientHello.cookie.equals(this.dtls.cookie)
-            ) {
+              // Pre-cookie: HVR only — no association cipher/srtp commit.
+              log(this.dtls.sessionId, "send flight2 (HelloVerifyRequest)");
+              flight2(this.transport, this.dtls)(clientHello, replyTo);
+            } else {
+              // Cookie must bind source address + ClientHello parameters
+              // (RFC 6347 HMAC style / RFC 9147 address dependency).
+              const peerKey = peerKeyFromAddr(replyTo);
+              const chBody = clientHello.serialize();
+              const cookieOk = verifyDtls12HelloVerifyCookie(
+                this.dtls.cookieSecret,
+                clientHello.cookie,
+                peerKey,
+                chBody,
+              );
+              if (!cookieOk) {
+                log(this.dtls.sessionId, "invalid DTLS 1.2 cookie — no pin", {
+                  peerKey,
+                  cookieLen: clientHello.cookie.length,
+                });
+                // Do not pin, do not Flight4, do not commit crypto state.
+                // Optionally re-challenge this source with a fresh HVR (new mint).
+                // Re-mint against this CH (as CH1 shape with empty cookie binding).
+                const ch1Shape = ClientHello.deSerialize(chBody);
+                ch1Shape.cookie = Buffer.alloc(0);
+                flight2(this.transport, this.dtls)(ch1Shape, replyTo);
+                return;
+              }
+
+              // Return-routability OK: commit CH params then pin and amplify.
+              try {
+                commitClientHelloToAssociation(
+                  clientHello,
+                  this.dtls,
+                  this.cipher,
+                  this.srtp,
+                );
+              } catch (e) {
+                log(
+                  this.dtls.sessionId,
+                  "commit ClientHello after cookie failed",
+                  e,
+                );
+                // Pre-pin: do not association-fatal (spoofed CH2 after valid cookie shape)
+                if (this.transport.pinnedPeer) {
+                  this.reportLegacy12Fatal(
+                    e instanceof Error ? e : new Error(String(e)),
+                  );
+                }
+                return;
+              }
+              this.dtls.cookie = Buffer.from(clientHello.cookie);
               // Cookie return-routability succeeded: pin TX peer from the CH
               // source (not last rinfo) so spoofed datagrams cannot redirect
               // Flight4 retransmit or later application data.
@@ -341,11 +386,6 @@ export class DtlsServer extends DtlsSocket {
               ).exec(handshake, this.options.certificateRequest);
               // close/fatal during Flight4 must not continue HS
               if (this.associationTornDown) return;
-            } else {
-              log("wrong state", {
-                dtlsCookie: this.dtls.cookie?.toString("hex").slice(10),
-                helloCookie: clientHello.cookie.toString("hex").slice(10),
-              });
             }
           }
           break;
