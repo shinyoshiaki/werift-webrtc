@@ -265,10 +265,7 @@ export class DtlsSocket {
   protected waitForReady = (condition: () => boolean) =>
     new Promise<void>(async (r, f) => {
       for (let i = 0; i < 10; i++) {
-        if (
-          this.associationTornDown ||
-          this.associationAbort.signal.aborted
-        ) {
+        if (this.associationTornDown || this.associationAbort.signal.aborted) {
           f(new Error("association closed during waitForReady"));
           return;
         }
