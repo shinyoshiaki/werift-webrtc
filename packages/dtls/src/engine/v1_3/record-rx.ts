@@ -357,8 +357,8 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
       log("drop plaintext with non-zero epoch", rec.epoch);
       return false;
     }
-    // After protected keys exist, discard unauthenticated epoch-0 ACK/alert
-    // (forged plaintext must not drive retransmit / KeyUpdate / close).
+    // Epoch-0 ACK/alert is plaintext (unauthenticated AEAD).
+    // After protected keys: never process (forged close / retransmit DoS).
     if (
       this.hasProtectedWriteKeys() &&
       (rec.contentType === ContentType.ack ||
@@ -368,10 +368,38 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
       return false;
     }
     if (rec.contentType === ContentType.alert) {
+      // Pre-keys: only accept from an already-associated peer (client pin at
+      // connect, or post-cookie provisional/pin). Server pre-cookie has no
+      // expected peer → drop (listener DoS). Client still sees 1.2-only
+      // protocol_version from its pinned server.
+      const expected = this.expectedPeerKey();
+      if (
+        !expected ||
+        !this.currentPeerKey ||
+        this.currentPeerKey === "unknown" ||
+        this.currentPeerKey !== expected
+      ) {
+        log(
+          "drop epoch-0 alert from unassociated peer (no association fatal)",
+          this.currentPeerKey,
+          expected,
+        );
+        return false;
+      }
       this.handleAlert(rec.fragment, 0, rec.sequenceNumber);
       return false;
     }
     if (rec.contentType === ContentType.ack) {
+      // Pre-keys empty/forged ACK from random sources: only associated peer.
+      const expected = this.expectedPeerKey();
+      if (
+        !expected ||
+        !this.currentPeerKey ||
+        this.currentPeerKey !== expected
+      ) {
+        log("drop epoch-0 ACK from unassociated peer");
+        return false;
+      }
       this.handleAck(rec.fragment, 0);
       return false;
     }
@@ -482,7 +510,14 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
     receivedEpoch: number,
     sequenceNumber = 0,
   ) {
+    // Epoch-0: only reached when onPlaintextRecord verified associated peer
+    // and pre-protected-keys. Epoch>0: AEAD-authenticated.
     if (fragment.length < 2) {
+      // Unauthenticated truncated alert must not kill association.
+      if (receivedEpoch === 0) {
+        log("drop truncated epoch-0 alert");
+        return;
+      }
       this.fail(new Error("decode_error: truncated alert"));
       return;
     }
@@ -490,6 +525,10 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
     try {
       alert = Alert.deSerialize(fragment);
     } catch {
+      if (receivedEpoch === 0) {
+        log("drop malformed epoch-0 alert");
+        return;
+      }
       this.fail(new Error("decode_error: malformed alert"));
       return;
     }
@@ -506,6 +545,7 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
     if (alert.description === AlertDesc.CloseNotify) {
       // RFC 9147: record epoch/seq boundary for reordered app data; then align
       // public lifecycle with local close() (onClose, timers, connected=false).
+      // Only AEAD-authenticated close_notify reaches here (epoch > 0).
       log("peer close_notify", receivedEpoch, sequenceNumber);
       this.onPeerCloseNotify(receivedEpoch, sequenceNumber);
       return;

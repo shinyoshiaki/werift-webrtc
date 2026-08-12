@@ -958,6 +958,9 @@ Send a fatal DTLSPlaintext alert (used for protocol_version mismatch).
 
 > `protected` **udpOnMessage**(`data`, `addr`?): `void`
 
+Association RX: 1.3 engine when active, else DTLS 1.2 record path.
+Terminal association drops all inbound (UDP and inject).
+
 #### Parameters
 
 ##### data
@@ -972,7 +975,7 @@ readonly \[`string`, `number`\]
 
 `void`
 
-#### Inherited from
+#### Overrides
 
 [`DtlsSocket`](DtlsSocket.md).[`udpOnMessage`](DtlsSocket.md#udponmessage)
 

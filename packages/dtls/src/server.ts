@@ -6,6 +6,7 @@ import { Flight6 } from "./flight/server/flight6";
 import { HandshakeType } from "./handshake/const";
 import { SupportedVersions } from "./handshake/extensions/supportedVersions";
 import { ClientHello } from "./handshake/message/client/hello";
+import type { Address } from "./imports/common";
 import { debug } from "./imports/common";
 import { AlertDesc, ContentType } from "./record/const";
 import type { FragmentedHandshake } from "./record/message/fragment";
@@ -86,7 +87,71 @@ export class DtlsServer extends DtlsSocket {
       SessionType.SERVER,
     );
     this.bridgeEngine13(engine);
+    // Association owns UDP + carrier.inject for pure/dual 1.3 server so
+    // engine constructor cannot keep exclusive RX (phase/peer gate parity
+    // with dual client association dispatcher).
+    this.bindServerEngine13Inbound(engine);
   }
+
+  /**
+   * Point transport.onData and carrier.inject at the association dispatcher.
+   * Engine still processes 1.3 records via injectDatagram; association drops
+   * RX when torn down and never lets engine steal ownership after commit.
+   */
+  private bindServerEngine13Inbound(engine: Dtls13Connection): void {
+    this.transport.socket.onData = this.udpOnMessage;
+    const carrier = engine.getHandshakeCarrier();
+    if (carrier && !carrier.isClosed()) {
+      carrier.setInjectHandler((bytes, peer) =>
+        this.serverAssociationInject(bytes, peer),
+      );
+    }
+  }
+
+  /**
+   * carrier.inject entry for server 1.3: same terminal/peer path as UDP.
+   * Does not mutate transport.rinfo before engine peer gate.
+   */
+  private serverAssociationInject(
+    bytes: Buffer,
+    peer?: [string, number] | { address?: string; port?: number } | string,
+  ): void {
+    if (this.associationTornDown) return;
+    let addr: Address | undefined;
+    if (peer != null) {
+      if (Array.isArray(peer)) {
+        addr = [peer[0], peer[1]];
+      } else if (typeof peer === "string") {
+        const i = peer.lastIndexOf(":");
+        if (i > 0) {
+          addr = [peer.slice(0, i), Number(peer.slice(i + 1))];
+        }
+      } else if (peer.address != null && peer.port != null) {
+        addr = [peer.address, peer.port];
+      }
+    }
+    this.udpOnMessage(Buffer.from(bytes), addr);
+  }
+
+  /**
+   * Association RX: 1.3 engine when active, else DTLS 1.2 record path.
+   * Terminal association drops all inbound (UDP and inject).
+   */
+  protected udpOnMessage = (
+    data: Buffer,
+    addr?: Address,
+  ) => {
+    if (this.associationTornDown) return;
+    const eng = this.engine13;
+    if (eng && !eng.isClosed()) {
+      const peer = addr
+        ? ([addr[0], addr[1]] as [string, number])
+        : undefined;
+      eng.injectDatagram(data, peer);
+      return;
+    }
+    this.handleUdpDatagram(data, addr);
+  };
 
   /**
    * Association-layer version selection from ClientHello supported_versions
