@@ -51,6 +51,7 @@ WPT_UPDATE_COVERAGE_BASELINE=1 npm run wpt:coverage --workspace packages/webrtc
 | `sender.pacingBitrateBps` | Effective send rate including active GCC probe target (`ProbePacingController`) |
 | `sender.onProbeClusterConfig` | GCC probe cluster targets for pacing / encoder ramp |
 | `isProbePacingController(e)` | Type guard for probe/pacing hooks (not on common interface) |
+| `isRoundTripTimeConsumer(e)` | Type guard for raw RTCP RTT → AIMD (GCC only; not on common interface) |
 
 ```ts
 import {

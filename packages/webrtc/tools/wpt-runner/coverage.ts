@@ -27,6 +27,29 @@ const coverageBaselinePath = resolve(packageDir, "wpt", "coverage-baseline.json"
 const sourceDir = resolve(packageDir, "src");
 const tsconfigPath = resolve(packageDir, "tsconfig.json");
 
+/**
+ * GCC / selectable BWE algorithm sources are public API (barrel-exported) so
+ * they load during WPT, but allowlisted upstream WPT does not exercise them.
+ * Including ~350 mostly-uncovered functions dilutes the WPT coverage ratchet
+ * without reflecting WebRTC WPT surface regressions. Unit tests + package/e2e
+ * sims cover GCC; keep WPT coverage focused on the default media stack.
+ */
+const wptCoverageExcludeGlobs = [
+  "src/media/sender/estimators/gcc/**",
+] as const;
+
+function isWptCoverageTargetPath(filePath: string) {
+  if (!filePath.startsWith(sourceDir) || !filePath.endsWith(".ts")) {
+    return false;
+  }
+  const relative = filePath.slice(sourceDir.length).replaceAll("\\", "/");
+  // Match exclude globs under src/ (path is absolute; relative starts with /…).
+  if (relative.includes("/media/sender/estimators/gcc/")) {
+    return false;
+  }
+  return true;
+}
+
 async function main() {
   const rawCoverageDir = await mkdtemp(resolve(tmpdir(), "werift-wpt-v8-"));
 
@@ -61,9 +84,7 @@ async function main() {
     });
 
     const coverageMap = await provider.generateCoverage({ allTestsRun: true });
-    coverageMap.filter((filePath) => {
-      return filePath.startsWith(sourceDir) && filePath.endsWith(".ts");
-    });
+    coverageMap.filter((filePath) => isWptCoverageTargetPath(filePath));
     await provider.generateReports(coverageMap, true);
     await provider.cleanAfterRun();
     await mkdir(dirname(defaultMarkdownReportPath), { recursive: true });
@@ -108,8 +129,8 @@ function createCoverageProvider() {
         allowExternal: false,
         clean: true,
         cleanOnRerun: true,
-        exclude: [],
-        excludeAfterRemap: false,
+        exclude: [...wptCoverageExcludeGlobs],
+        excludeAfterRemap: true,
         extension: [".ts"],
         ignoreEmptyLines: true,
         include: ["src/**/*.ts"],
@@ -253,7 +274,13 @@ function isTargetSourceUrl(value: unknown) {
     return false;
   }
 
-  return value.startsWith(`file://${sourceDir}/`) && value.endsWith(".ts");
+  if (!value.startsWith(`file://${sourceDir}/`) || !value.endsWith(".ts")) {
+    return false;
+  }
+
+  // file:///abs/path → /abs/path (strip scheme only).
+  const filePath = value.slice("file://".length);
+  return isWptCoverageTargetPath(filePath);
 }
 
 async function readMarkdownReport() {

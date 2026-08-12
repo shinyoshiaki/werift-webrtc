@@ -8,8 +8,10 @@
 
 Common contract for send-side bandwidth estimators driven by TWCC feedback.
 
-Limited to TWCC I/O + recommended bitrate. Probe / pacing hooks live on
-[ProbePacingController](ProbePacingController.md) so the shared surface stays thin.
+Limited to TWCC I/O + recommended bitrate (`rtpPacketSent` / `receiveTWCC` /
+`availableBitrate` / `onAvailableBitrate`). Algorithm-specific inputs such as
+probe pacing or RTCP RTT live on separate capability interfaces so the shared
+surface stays thin.
 
 ## Properties
 
@@ -85,26 +87,6 @@ Record an outgoing RTP packet for later matching against TWCC feedback.
 ##### info
 
 [`SentInfo`](SentInfo.md)
-
-#### Returns
-
-`void`
-
-***
-
-### setRoundTripTime()?
-
-> `optional` **setRoundTripTime**(`rttMs`): `void`
-
-Optional RTCP / network RTT update in **milliseconds** (pin
-OnRoundTripTimeUpdate). Not TWCC propagation RTT — only estimators that
-need AIMD spacing (e.g. GCC) implement this.
-
-#### Parameters
-
-##### rttMs
-
-`number`
 
 #### Returns
 
