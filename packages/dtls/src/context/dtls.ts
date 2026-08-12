@@ -34,6 +34,12 @@ export class DtlsContext {
    * Not shared across associations; never committed from peer input.
    */
   readonly cookieSecret = randomBytes(16);
+  /**
+   * True after a cookie-validated ClientHello has been committed into
+   * cipher/srtp association state. Duplicate CH2 must not re-commit
+   * (would regenerate serverRandom / ECDHE and desync cached Flight4).
+   */
+  clientHelloCommitted = false;
   requestedCertificateTypes: number[] = [];
   requestedSignatureAlgorithms: {
     hash: HashAlgorithms;

@@ -322,6 +322,17 @@ export class DtlsServer extends DtlsSocket {
             }
 
             if (clientHello.cookie.length === 0) {
+              // Late cookie-less CH after commit must not re-enter flight2 / HVR.
+              if (
+                this.dtls.clientHelloCommitted ||
+                this.dtls.flight >= 4
+              ) {
+                log(
+                  this.dtls.sessionId,
+                  "ignore cookie-less ClientHello after association commit",
+                );
+                return;
+              }
               // Pre-cookie: HVR only — no association cipher/srtp commit.
               log(this.dtls.sessionId, "send flight2 (HelloVerifyRequest)");
               flight2(this.transport, this.dtls)(clientHello, replyTo);
@@ -337,20 +348,52 @@ export class DtlsServer extends DtlsSocket {
                 chBody,
               );
               if (!cookieOk) {
-                log(this.dtls.sessionId, "invalid DTLS 1.2 cookie — no pin", {
+                // Already committed: do not re-challenge (would confuse client
+                // mid-Flight4). Drop invalid late CH2.
+                if (
+                  this.dtls.clientHelloCommitted ||
+                  this.dtls.flight >= 4
+                ) {
+                  log(
+                    this.dtls.sessionId,
+                    "ignore invalid cookie CH2 after association commit",
+                    { peerKey },
+                  );
+                  return;
+                }
+                log(this.dtls.sessionId, "invalid DTLS 1.2 cookie — re-HVR", {
                   peerKey,
                   cookieLen: clientHello.cookie.length,
                 });
                 // Do not pin, do not Flight4, do not commit crypto state.
-                // Optionally re-challenge this source with a fresh HVR (new mint).
-                // Re-mint against this CH (as CH1 shape with empty cookie binding).
+                // Re-challenge: mint fresh HVR for this source (RFC 6347).
                 const ch1Shape = ClientHello.deSerialize(chBody);
                 ch1Shape.cookie = Buffer.alloc(0);
                 flight2(this.transport, this.dtls)(ch1Shape, replyTo);
                 return;
               }
 
-              // Return-routability OK: commit CH params then pin and amplify.
+              // Duplicate / retransmitted CH2 after first commit: resend cached
+              // Flight4 only — never regenerate serverRandom / ECDHE.
+              if (
+                this.dtls.clientHelloCommitted ||
+                this.dtls.flight >= 4
+              ) {
+                log(
+                  this.dtls.sessionId,
+                  "duplicate cookie CH2 — Flight4 resend without re-commit",
+                );
+                await new Flight4(
+                  this.transport,
+                  this.dtls,
+                  this.cipher,
+                  this.srtp,
+                ).exec(handshake, this.options.certificateRequest);
+                if (this.associationTornDown) return;
+                return;
+              }
+
+              // First cookie-validated CH2: commit CH params then pin and amplify.
               try {
                 commitClientHelloToAssociation(
                   clientHello,
@@ -372,6 +415,7 @@ export class DtlsServer extends DtlsSocket {
                 }
                 return;
               }
+              this.dtls.clientHelloCommitted = true;
               this.dtls.cookie = Buffer.from(clientHello.cookie);
               // Cookie return-routability succeeded: pin TX peer from the CH
               // source (not last rinfo) so spoofed datagrams cannot redirect
