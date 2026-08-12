@@ -183,9 +183,7 @@ export class DtlsSocket {
                         );
                   // Tear down association *before* onError so handlers observe
                   // connected=false / dualPhase=closed / Public API disabled.
-                  const fireClose = this.failLegacy12Association(fe);
-                  this.onError.execute(fe);
-                  if (fireClose) this.onClose.execute();
+                  this.reportLegacy12Fatal(fe);
                 } else if (alert.description === AlertDesc.CloseNotify) {
                   this.onLegacy12PeerCloseNotify();
                 } else {
@@ -342,6 +340,17 @@ export class DtlsSocket {
     this.associationTornDown = true;
     void this.transport.socket.close().catch(() => {});
     return true;
+  }
+
+  /**
+   * Tear down the 1.2 association then fire onError (and onClose when teardown ran).
+   * Used for fatal alerts, probing DOWNGRD / classify error, and other 1.2
+   * ProtocolVersionError paths so lifecycle matches handshake_failure alerts.
+   */
+  protected reportLegacy12Fatal(error: Error): void {
+    const fireClose = this.failLegacy12Association(error);
+    this.onError.execute(error);
+    if (fireClose) this.onClose.execute();
   }
 
   /**

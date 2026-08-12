@@ -613,6 +613,30 @@ re-entrant local close() inside handlers is idempotent (no second onClose).
 
 ***
 
+### reportLegacy12Fatal()
+
+> `protected` **reportLegacy12Fatal**(`error`): `void`
+
+Tear down the 1.2 association then fire onError (and onClose when teardown ran).
+Used for fatal alerts, probing DOWNGRD / classify error, and other 1.2
+ProtocolVersionError paths so lifecycle matches handshake_failure alerts.
+
+#### Parameters
+
+##### error
+
+`Error`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`reportLegacy12Fatal`](DtlsSocket.md#reportlegacy12fatal)
+
+***
+
 ### send()
 
 > **send**(`buf`, `addr`?): `Promise`\<`void`\>

@@ -61,7 +61,7 @@ test("e2e/dual: committed12 fatal alert tears down association", async () => {
 
   expect(client.connected).toBe(true);
   expect(client.isDtls13).toBe(false);
-  expect((client as any).dualPhase).toBe("committed12");
+  expect(client.dualAssociationPhase).toBe("committed12");
   expect(clientCarrier.isClosed()).toBe(false);
 
   // Act: peer fatal handshake_failure（1.2 record path）
@@ -83,7 +83,7 @@ test("e2e/dual: committed12 fatal alert tears down association", async () => {
   expect(errors.length).toBe(1);
   expect(errors[0].message).toMatch(/alert|handshake|fatal/i);
   expect(client.connected).toBe(false);
-  expect((client as any).dualPhase).toBe("closed");
+  expect(client.dualAssociationPhase).toBe("closed");
   expect((client as any).associationTornDown).toBe(true);
   expect((client as any).dtls.flight).toBe(99);
   expect((client as any).dtls.flightTimers.size).toBe(0);
@@ -157,7 +157,7 @@ test("e2e/dual: committed12 peer close_notify closes association gracefully", as
     void client.connect();
   });
 
-  expect((client as any).dualPhase).toBe("committed12");
+  expect(client.dualAssociationPhase).toBe("committed12");
   expect(client.connected).toBe(true);
 
   const errors: Error[] = [];
@@ -187,7 +187,7 @@ test("e2e/dual: committed12 peer close_notify closes association gracefully", as
   // Assert: graceful close — onError なし、phase closed
   expect(errors.length).toBe(0);
   expect(client.connected).toBe(false);
-  expect((client as any).dualPhase).toBe("closed");
+  expect(client.dualAssociationPhase).toBe("closed");
   expect((client as any).associationTornDown).toBe(true);
   expect((client as any).dtls.flightTimers.size).toBe(0);
   expect(clientCarrier.isClosed()).toBe(true);
@@ -249,7 +249,7 @@ test("e2e/dual: committed12 non-close_notify warning does not tear down", async 
     void client.connect();
   });
 
-  expect((client as any).dualPhase).toBe("committed12");
+  expect(client.dualAssociationPhase).toBe("committed12");
   expect(client.connected).toBe(true);
 
   const errors: Error[] = [];
@@ -273,7 +273,7 @@ test("e2e/dual: committed12 non-close_notify warning does not tear down", async 
   expect(errors.length).toBe(0);
   expect(closes.length).toBe(0);
   expect(client.connected).toBe(true);
-  expect((client as any).dualPhase).toBe("committed12");
+  expect(client.dualAssociationPhase).toBe("committed12");
   // send 可能（association 生存）
   await client.send(Buffer.from("still-open"));
 

@@ -57,7 +57,15 @@ const log = debug("werift-dtls : packages/dtls/src/client.ts : log");
  *   Association owns transport RX + carrier.inject for the whole dual lifecycle
  *   (probing → committed → closed). Engines never steal RX on unpark.
  */
-type DualPhase = "none" | "probing" | "committed12" | "committed13" | "closed";
+export type DualAssociationPhase =
+  | "none"
+  | "probing"
+  | "committed12"
+  | "committed13"
+  | "closed";
+
+/** @internal alias used by implementation fields */
+type DualPhase = DualAssociationPhase;
 
 export class DtlsClient extends DtlsSocket {
   /**
@@ -67,8 +75,16 @@ export class DtlsClient extends DtlsSocket {
   private dualPhase: DualPhase = "none";
 
   /**
-   * @deprecated Use dualPhase === "probing". Kept for internal/tests that still
-   * read dualCookiePath via casting.
+   * @internal Dual association phase for tests and diagnostics.
+   * Not part of the stable Public API (typedoc `--excludeInternal`).
+   */
+  get dualAssociationPhase(): DualAssociationPhase {
+    return this.dualPhase;
+  }
+
+  /**
+   * @deprecated Use dualAssociationPhase === "probing". Kept for internal/tests
+   * that still read dualCookiePath via casting.
    */
   private get dualCookiePath(): boolean {
     return this.dualPhase === "probing";
@@ -1132,7 +1148,8 @@ export class DtlsClient extends DtlsSocket {
               this.protocolVersions.length === 1 &&
               this.protocolVersions[0] === DtlsVersion.V1_3;
             if (only13) {
-              this.onError.execute(
+              // Hard version mismatch: tear down association (no parked RTO left).
+              this.reportLegacy12Fatal(
                 new ProtocolVersionError(
                   "DTLS 1.3-only client received non-1.3 ServerHello",
                 ),
@@ -1154,7 +1171,9 @@ export class DtlsClient extends DtlsSocket {
                 return;
               }
               if (verdict.kind === "error") {
-                this.onError.execute(verdict.error);
+                // Actionable protocol failure (e.g. unknown selected version):
+                // same association teardown as fatal alert / DOWNGRD.
+                this.reportLegacy12Fatal(verdict.error);
                 return;
               }
               if (verdict.kind === "dtls13") {
@@ -1170,7 +1189,9 @@ export class DtlsClient extends DtlsSocket {
               }
               // kind === "dtls12": DOWNGRD check then commit
               if (verdict.hasDowngradeSentinel) {
-                this.onError.execute(
+                // Client still offered 1.3 — illegal downgrade. Close association
+                // so parked 1.3 RTO / carrier cannot outlive onError.
+                this.reportLegacy12Fatal(
                   new ProtocolVersionError(
                     "illegal_parameter: ServerHello Random contains TLS downgrade sentinel while client offered DTLS 1.3",
                   ),
@@ -1197,7 +1218,7 @@ export class DtlsClient extends DtlsSocket {
                 const sh = ServerHello.deSerialize(handshake.fragment);
                 const random32 = this.serverHelloRandom32(sh);
                 if (hasTlsDowngradeSentinel(random32)) {
-                  this.onError.execute(
+                  this.reportLegacy12Fatal(
                     new ProtocolVersionError(
                       "illegal_parameter: ServerHello Random contains TLS downgrade sentinel while client offered DTLS 1.3",
                     ),
@@ -1209,7 +1230,7 @@ export class DtlsClient extends DtlsSocket {
                   e instanceof ProtocolVersionError ||
                   (e instanceof Error && e.name === "ProtocolVersionError")
                 ) {
-                  this.onError.execute(e as Error);
+                  this.reportLegacy12Fatal(e as Error);
                   return;
                 }
               }

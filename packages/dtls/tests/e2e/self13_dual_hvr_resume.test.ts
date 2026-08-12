@@ -132,13 +132,13 @@ async function setupChAThenSpoofedHvr(opts?: {
       injectHvr(clientTransport, serverTransport);
       for (let i = 0; i < 50; i++) {
         if (
-          (client as any).dualPhase === "probing" &&
+          client.dualAssociationPhase === "probing" &&
           !(client as any).engine13
         )
           break;
         await new Promise((r) => setTimeout(r, 10));
       }
-      expect((client as any).dualPhase).toBe("probing");
+      expect(client.dualAssociationPhase).toBe("probing");
       expect((client as any).engine13).toBeUndefined();
       expect((client as any).dualResume).toBeTruthy();
       // Parked engine keeps CH-A retransmit for RFC 9147 loss recovery
@@ -362,13 +362,13 @@ test("e2e/dual: injected carrier survives HVR soft fallback → 1.3 resume", asy
       injectHvr(clientTransport, serverTransport);
       for (let i = 0; i < 50; i++) {
         if (
-          (client as any).dualPhase === "probing" &&
+          client.dualAssociationPhase === "probing" &&
           !(client as any).engine13
         )
           break;
         await new Promise((r) => setTimeout(r, 10));
       }
-      expect((client as any).dualPhase).toBe("probing");
+      expect(client.dualAssociationPhase).toBe("probing");
       // Soft park must not permanently close the injected carrier
       expect(clientCarrier.isClosed()).toBe(false);
       heldServerTx.length = 0;
@@ -553,7 +553,7 @@ test("e2e/dual: genuine 1.2 handshake_failure during probing fires onError immed
     clientSends += 1;
     await origClientSend(buf, addr);
     // After dual probing starts, client will send cookie CH (2nd+ flight)
-    if ((client as any).dualPhase === "probing" && clientSends >= 2) {
+    if (client.dualAssociationPhase === "probing" && clientSends >= 2) {
       sawClientCookieCh = true;
       // Act: inject genuine 1.2-style fatal handshake_failure (not illegal_parameter)
       const alertBody = Buffer.from([2, AlertDesc.HandshakeFailure]);
@@ -594,7 +594,7 @@ test("e2e/dual: genuine 1.2 handshake_failure during probing fires onError immed
   // fatal は probing 中でも phase=closed（committed12 に落ちない / 生存しない）
   expect(Date.now() - t0).toBeLessThan(3_000);
   expect(err.message).toMatch(/alert|handshake|fatal/i);
-  expect((client as any).dualPhase).toBe("closed");
+  expect(client.dualAssociationPhase).toBe("closed");
   expect(client.connected).toBe(false);
   expect((client as any).associationTornDown).toBe(true);
   await expect(client.send(Buffer.from("after-fatal"))).rejects.toThrow(
@@ -659,7 +659,7 @@ test("e2e/dual: lost CH-A response after HVR recovers via CH-A retransmit", asyn
       if (clientHelloCount === 1) {
         firstChaBodies.push(Buffer.from(buf));
       } else if (
-        (client as any).dualPhase === "probing" &&
+        client.dualAssociationPhase === "probing" &&
         firstChaBodies[0] &&
         buf.equals(firstChaBodies[0])
       ) {
@@ -693,7 +693,7 @@ test("e2e/dual: lost CH-A response after HVR recovers via CH-A retransmit", asyn
       () =>
         reject(
           new Error(
-            `CH-A retransmit recovery timeout (chaRetransmit=${chaRetransmitSeen}, dualPhase=${(client as any).dualPhase})`,
+            `CH-A retransmit recovery timeout (chaRetransmit=${chaRetransmitSeen}, dualPhase=${client.dualAssociationPhase})`,
           ),
         ),
       25_000,
@@ -758,7 +758,7 @@ test("e2e/dual: close() during probing tears down parked engine and carrier time
   // Blackhole peer — only need HVR to enter probing with pending CH-A
   let hvrInjected = false;
   clientTransport.send = async () => {
-    if (!hvrInjected && (client as any).dualPhase === "none") {
+    if (!hvrInjected && client.dualAssociationPhase === "none") {
       hvrInjected = true;
       queueMicrotask(() => {
         injectHvr(clientTransport, serverTransport);
@@ -782,10 +782,10 @@ test("e2e/dual: close() during probing tears down parked engine and carrier time
 
   void client.connect();
   for (let i = 0; i < 50; i++) {
-    if ((client as any).dualPhase === "probing") break;
+    if (client.dualAssociationPhase === "probing") break;
     await new Promise((r) => setTimeout(r, 10));
   }
-  expect((client as any).dualPhase).toBe("probing");
+  expect(client.dualAssociationPhase).toBe("probing");
   const parked = (client as any).parkedEngine13;
   expect(parked).toBeTruthy();
   expect(parked.isDualProbeParked()).toBe(true);
@@ -804,7 +804,7 @@ test("e2e/dual: close() during probing tears down parked engine and carrier time
   expect(parked.getPendingFlightSize()).toBe(0);
   expect((client as any).parkedEngine13).toBeUndefined();
   expect((client as any).engine13).toBeUndefined();
-  expect((client as any).dualPhase).toBe("closed");
+  expect(client.dualAssociationPhase).toBe("closed");
 
   // RTO を越えても carrier send / onError / onConnect なし
   await new Promise((r) => setTimeout(r, INITIAL_RTO_MS + 400));
@@ -817,7 +817,7 @@ test("e2e/dual: close() during probing tears down parked engine and carrier time
     buildHvrDatagram(),
     clientFacingServerPeer(serverTransport),
   );
-  expect((client as any).dualPhase).toBe("closed");
+  expect(client.dualAssociationPhase).toBe("closed");
   expect(connects).toEqual([]);
   expect(errors).toEqual([]);
 
@@ -878,10 +878,10 @@ test("e2e/dual: carrier.inject of 1.3 SH during probing commits via association"
       const shFlight = heldServerTx.splice(0);
       injectHvr(clientTransport, serverTransport);
       for (let i = 0; i < 50; i++) {
-        if ((client as any).dualPhase === "probing") break;
+        if (client.dualAssociationPhase === "probing") break;
         await new Promise((r) => setTimeout(r, 10));
       }
-      expect((client as any).dualPhase).toBe("probing");
+      expect(client.dualAssociationPhase).toBe("probing");
       expect((client as any).engine13).toBeUndefined();
       expect(client.isDtls13).toBe(false);
 
@@ -914,7 +914,7 @@ test("e2e/dual: carrier.inject of 1.3 SH during probing commits via association"
         // Assert: public socket owns the 1.3 engine after association demux
         expect(client.isDtls13).toBe(true);
         expect((client as any).engine13).toBeTruthy();
-        expect((client as any).dualPhase).toBe("committed13");
+        expect(client.dualAssociationPhase).toBe("committed13");
         expect((client as any).parkedEngine13).toBeUndefined();
         const eng = (client as any).engine13;
         expect(eng.getHandshakeCarrier()).toBe(clientCarrier);
@@ -1020,10 +1020,10 @@ test("e2e/dual: carrier.inject of 1.2 SH during probing commits via association"
         );
       }
       for (let i = 0; i < 50; i++) {
-        if ((client as any).dualPhase === "probing") break;
+        if (client.dualAssociationPhase === "probing") break;
         await new Promise((r) => setTimeout(r, 10));
       }
-      expect((client as any).dualPhase).toBe("probing");
+      expect(client.dualAssociationPhase).toBe("probing");
       expect(client.isDtls13).toBe(false);
       expect((client as any).parkedEngine13).toBeTruthy();
       // 以降の 1.2 SH 等は carrier.inject 経由
@@ -1039,7 +1039,7 @@ test("e2e/dual: carrier.inject of 1.2 SH during probing commits via association"
       () =>
         reject(
           new Error(
-            `carrier.inject 1.2 commit timeout (phase=${(client as any).dualPhase})`,
+            `carrier.inject 1.2 commit timeout (phase=${client.dualAssociationPhase})`,
           ),
         ),
       20_000,
@@ -1056,7 +1056,7 @@ test("e2e/dual: carrier.inject of 1.2 SH during probing commits via association"
       try {
         // Assert: commit12 — 1.3 ではない、parked は停止
         expect(client.isDtls13).toBe(false);
-        expect((client as any).dualPhase).toBe("committed12");
+        expect(client.dualAssociationPhase).toBe("committed12");
         expect((client as any).parkedEngine13).toBeUndefined();
         expect((client as any).engine13).toBeUndefined();
         // Act: 1.2 アプリデータ
@@ -1141,7 +1141,7 @@ test("e2e/dual: late 1.3 packet after commit12 does not reverse version", async 
   });
 
   expect(client.isDtls13).toBe(false);
-  expect((client as any).dualPhase).toBe("committed12");
+  expect(client.dualAssociationPhase).toBe("committed12");
   const connectCountAfter12 = connects.length;
 
   // Act: late 1.3-looking SH（supported_versions=1.3）を注入
@@ -1150,7 +1150,7 @@ test("e2e/dual: late 1.3 packet after commit12 does not reverse version", async 
   await new Promise((r) => setTimeout(r, 50));
 
   // Assert: 1.2 のまま、二重 connect なし
-  expect((client as any).dualPhase).toBe("committed12");
+  expect(client.dualAssociationPhase).toBe("committed12");
   expect(client.isDtls13).toBe(false);
   expect((client as any).engine13).toBeUndefined();
   expect(connects.length).toBe(connectCountAfter12);
@@ -1185,7 +1185,7 @@ test("e2e/dual: late 1.2 packet after commit13 does not reverse version", async 
   });
 
   expect(client.isDtls13).toBe(true);
-  expect((client as any).dualPhase).toBe("committed13");
+  expect(client.dualAssociationPhase).toBe("committed13");
   const errCount = errors.length;
   const connects: number[] = [];
   client.onConnect.subscribe(() => connects.push(Date.now()));
@@ -1204,7 +1204,7 @@ test("e2e/dual: late 1.2 packet after commit13 does not reverse version", async 
 
   // Assert: still 1.3 committed; no extra connect; no new public error required
   // (engine may silently discard unauthenticated late records)
-  expect((client as any).dualPhase).toBe("committed13");
+  expect(client.dualAssociationPhase).toBe("committed13");
   expect(client.isDtls13).toBe(true);
   expect(connects).toEqual([]);
   // late unauthenticated alert must not surface as association-level version flip
@@ -1237,7 +1237,7 @@ test("e2e/dual: close races with carrier.inject leave association closed", async
 
   let hvrInjected = false;
   clientTransport.send = async () => {
-    if (!hvrInjected && (client as any).dualPhase === "none") {
+    if (!hvrInjected && client.dualAssociationPhase === "none") {
       hvrInjected = true;
       queueMicrotask(() => {
         injectHvr(clientTransport, serverTransport);
@@ -1252,10 +1252,10 @@ test("e2e/dual: close races with carrier.inject leave association closed", async
 
   void client.connect();
   for (let i = 0; i < 50; i++) {
-    if ((client as any).dualPhase === "probing") break;
+    if (client.dualAssociationPhase === "probing") break;
     await new Promise((r) => setTimeout(r, 10));
   }
-  expect((client as any).dualPhase).toBe("probing");
+  expect(client.dualAssociationPhase).toBe("probing");
 
   // Act: close 直後に inject（race）
   client.close();
@@ -1266,7 +1266,7 @@ test("e2e/dual: close races with carrier.inject leave association closed", async
   client.close();
 
   // Assert: 最終 closed 不変
-  expect((client as any).dualPhase).toBe("closed");
+  expect(client.dualAssociationPhase).toBe("closed");
   expect((client as any).engine13).toBeUndefined();
   expect((client as any).parkedEngine13).toBeUndefined();
   expect(clientCarrier.isClosed()).toBe(true);
@@ -1274,7 +1274,7 @@ test("e2e/dual: close races with carrier.inject leave association closed", async
   await new Promise((r) => setTimeout(r, INITIAL_RTO_MS + 400));
   expect(errors).toEqual([]);
   expect(connects).toEqual([]);
-  expect((client as any).dualPhase).toBe("closed");
+  expect(client.dualAssociationPhase).toBe("closed");
 
   await serverTransport.close().catch(() => {});
   await clientTransport.close().catch(() => {});
@@ -1411,7 +1411,7 @@ test("e2e/dual: fatal after committed13 tears down association to closed", async
       holdPostHvrClientTx = true;
       injectHvr(clientTransport, serverTransport);
       for (let i = 0; i < 50; i++) {
-        if ((client as any).dualPhase === "probing") break;
+        if (client.dualAssociationPhase === "probing") break;
         await new Promise((r) => setTimeout(r, 10));
       }
       heldServerTx.length = 0;
@@ -1446,7 +1446,7 @@ test("e2e/dual: fatal after committed13 tears down association to closed", async
   });
 
   expect(client.isDtls13).toBe(true);
-  expect((client as any).dualPhase).toBe("committed13");
+  expect(client.dualAssociationPhase).toBe("committed13");
   const eng = (client as any).engine13;
   expect(eng).toBeTruthy();
   expect(clientCarrier.isClosed()).toBe(false);
@@ -1469,7 +1469,7 @@ test("e2e/dual: fatal after committed13 tears down association to closed", async
   expect(client.isDtls13).toBe(false);
   expect((client as any).engine13).toBeUndefined();
   expect((client as any).parkedEngine13).toBeUndefined();
-  expect((client as any).dualPhase).toBe("closed");
+  expect(client.dualAssociationPhase).toBe("closed");
   expect(clientCarrier.isClosed()).toBe(true);
   expect(eng.isClosed()).toBe(true);
   expect(eng.getPendingFlightSize()).toBe(0);
@@ -1483,7 +1483,7 @@ test("e2e/dual: fatal after committed13 tears down association to closed", async
   expect(connectsAfter).toEqual([]);
   expect(fatalErrors.length).toBe(1);
   expect(closes.length).toBe(1);
-  expect((client as any).dualPhase).toBe("closed");
+  expect(client.dualAssociationPhase).toBe("closed");
   expect(client.isDtls13).toBe(false);
 
   try {
@@ -1547,7 +1547,7 @@ test("e2e/dual: 1.3-only version mismatch tears down association to closed", asy
   );
   expect(client.isDtls13).toBe(false);
   expect((client as any).engine13).toBeUndefined();
-  expect((client as any).dualPhase).toBe("closed");
+  expect(client.dualAssociationPhase).toBe("closed");
   expect(clientCarrier.isClosed()).toBe(true);
   expect(connects).toEqual([]);
 
@@ -1560,7 +1560,7 @@ test("e2e/dual: 1.3-only version mismatch tears down association to closed", asy
   await new Promise((r) => setTimeout(r, INITIAL_RTO_MS + 200));
   expect(fatalErrors.length).toBe(errCount);
   expect(connects).toEqual([]);
-  expect((client as any).dualPhase).toBe("closed");
+  expect(client.dualAssociationPhase).toBe("closed");
   expect(client.isDtls13).toBe(false);
 
   server.close();
@@ -1621,7 +1621,7 @@ test("e2e/dual: close() after committed12 closes association carrier", async () 
 
   // Assert: commit12 — engine 無し、carrier は soft transition 後も生存
   expect(client.isDtls13).toBe(false);
-  expect((client as any).dualPhase).toBe("committed12");
+  expect(client.dualAssociationPhase).toBe("committed12");
   expect((client as any).engine13).toBeUndefined();
   expect((client as any).parkedEngine13).toBeUndefined();
   expect(clientCarrier.isClosed()).toBe(false);
@@ -1630,7 +1630,7 @@ test("e2e/dual: close() after committed12 closes association carrier", async () 
   client.close();
 
   // Assert: phase closed + carrier も hard-close
-  expect((client as any).dualPhase).toBe("closed");
+  expect(client.dualAssociationPhase).toBe("closed");
   expect(clientCarrier.isClosed()).toBe(true);
   expect((client as any).associationCarrier).toBeUndefined();
 
@@ -1680,7 +1680,7 @@ test("e2e/dual: probing rejects send/export/reconnect fallthrough to 1.2", async
 
   let hvrInjected = false;
   clientTransport.send = async () => {
-    if (!hvrInjected && (client as any).dualPhase === "none") {
+    if (!hvrInjected && client.dualAssociationPhase === "none") {
       hvrInjected = true;
       queueMicrotask(() => {
         injectHvr(clientTransport, serverTransport);
@@ -1690,10 +1690,10 @@ test("e2e/dual: probing rejects send/export/reconnect fallthrough to 1.2", async
 
   void client.connect();
   for (let i = 0; i < 50; i++) {
-    if ((client as any).dualPhase === "probing") break;
+    if (client.dualAssociationPhase === "probing") break;
     await new Promise((r) => setTimeout(r, 10));
   }
-  expect((client as any).dualPhase).toBe("probing");
+  expect(client.dualAssociationPhase).toBe("probing");
   expect(client.isDtls13).toBe(false);
 
   // Act / Assert: probing 中は誤 1.2 送信・exporter・再 connect を拒否
@@ -1708,11 +1708,11 @@ test("e2e/dual: probing rejects send/export/reconnect fallthrough to 1.2", async
   await expect(client.connect()).rejects.toThrow(/probing/i);
 
   // まだ probing / carrier 生存（soft ではない）
-  expect((client as any).dualPhase).toBe("probing");
+  expect(client.dualAssociationPhase).toBe("probing");
   expect(clientCarrier.isClosed()).toBe(false);
 
   client.close();
-  expect((client as any).dualPhase).toBe("closed");
+  expect(client.dualAssociationPhase).toBe("closed");
   expect(clientCarrier.isClosed()).toBe(true);
 
   await serverTransport.close().catch(() => {});
@@ -1770,7 +1770,7 @@ test("e2e/dual: fatal after committed13 closes transport", async () => {
   eng.fail(new Error("fatal alert handshake_failure (authenticated)"));
 
   // Assert: association closed + UDP transport closed
-  expect((client as any).dualPhase).toBe("closed");
+  expect(client.dualAssociationPhase).toBe("closed");
   expect(client.isDtls13).toBe(false);
   expect((clientTransport as any).closed).toBe(true);
   await expect(client.send(Buffer.from("x"))).rejects.toThrow(/closed/i);
@@ -1840,10 +1840,10 @@ test("e2e/dual: peer close_notify sets phase closed and blocks 1.2 fallthrough",
 
   // Assert: association closed（phase / API / transport）
   // peer-close 後の bridge が dualPhase を closed にする
-  for (let i = 0; i < 20 && (client as any).dualPhase !== "closed"; i++) {
+  for (let i = 0; i < 20 && client.dualAssociationPhase !== "closed"; i++) {
     await new Promise((r) => setTimeout(r, 10));
   }
-  expect((client as any).dualPhase).toBe("closed");
+  expect(client.dualAssociationPhase).toBe("closed");
   expect(client.isDtls13).toBe(false);
   expect((client as any).engine13).toBeUndefined();
   expect((clientTransport as any).closed).toBe(true);
@@ -1907,7 +1907,7 @@ test("e2e/dual: 1.3-only version mismatch closes transport", async () => {
   expect(err.message).toMatch(
     /protocol version|HelloVerifyRequest|DTLS 1\.2-only/i,
   );
-  expect((client as any).dualPhase).toBe("closed");
+  expect(client.dualAssociationPhase).toBe("closed");
   expect(client.isDtls13).toBe(false);
   expect((clientTransport as any).closed).toBe(true);
   await expect(client.send(Buffer.from("x"))).rejects.toThrow(/closed/i);
@@ -1938,7 +1938,7 @@ test("e2e/dual: spoofed 1.3 SH from non-association peer does not commit version
 
   let hvrInjected = false;
   clientTransport.send = async () => {
-    if (!hvrInjected && (client as any).dualPhase === "none") {
+    if (!hvrInjected && client.dualAssociationPhase === "none") {
       hvrInjected = true;
       queueMicrotask(() => {
         injectHvr(clientTransport, serverTransport);
@@ -1948,10 +1948,10 @@ test("e2e/dual: spoofed 1.3 SH from non-association peer does not commit version
 
   void client.connect();
   for (let i = 0; i < 50; i++) {
-    if ((client as any).dualPhase === "probing") break;
+    if (client.dualAssociationPhase === "probing") break;
     await new Promise((r) => setTimeout(r, 10));
   }
-  expect((client as any).dualPhase).toBe("probing");
+  expect(client.dualAssociationPhase).toBe("probing");
   expect((client as any).parkedEngine13).toBeTruthy();
   const flightBefore = (client as any).dtls.flight;
 
@@ -1961,7 +1961,7 @@ test("e2e/dual: spoofed 1.3 SH from non-association peer does not commit version
   await new Promise((r) => setTimeout(r, 30));
 
   // Assert: version commit せず probing 維持、1.2 flight 未停止
-  expect((client as any).dualPhase).toBe("probing");
+  expect(client.dualAssociationPhase).toBe("probing");
   expect(client.isDtls13).toBe(false);
   expect((client as any).engine13).toBeUndefined();
   expect((client as any).parkedEngine13).toBeTruthy();
@@ -1991,7 +1991,7 @@ test("e2e/dual: epoch-1 illegal_parameter during probing surfaces onError", asyn
 
   let hvrInjected = false;
   clientTransport.send = async () => {
-    if (!hvrInjected && (client as any).dualPhase === "none") {
+    if (!hvrInjected && client.dualAssociationPhase === "none") {
       hvrInjected = true;
       queueMicrotask(() => {
         injectHvr(clientTransport, serverTransport);
@@ -2001,10 +2001,10 @@ test("e2e/dual: epoch-1 illegal_parameter during probing surfaces onError", asyn
 
   void client.connect();
   for (let i = 0; i < 50; i++) {
-    if ((client as any).dualPhase === "probing") break;
+    if (client.dualAssociationPhase === "probing") break;
     await new Promise((r) => setTimeout(r, 10));
   }
-  expect((client as any).dualPhase).toBe("probing");
+  expect(client.dualAssociationPhase).toBe("probing");
 
   // Act: epoch-1 fatal illegal_parameter（抑制対象外）
   const alertBody = Buffer.from([2, AlertDesc.IllegalParameter]);
@@ -2083,7 +2083,7 @@ test("e2e/dual: local close sends close_notify before transport teardown", async
 
   // Assert: close 後に少なくとも 1 パケット（close_notify）が出る
   expect(clientTxAfterClose).toBeGreaterThanOrEqual(1);
-  expect((client as any).dualPhase).toBe("closed");
+  expect(client.dualAssociationPhase).toBe("closed");
 
   try {
     server.close();
@@ -2136,7 +2136,7 @@ test("e2e/dual: local client.close() fires onClose once", async () => {
 
   // Assert: onClose はちょうど 1 回、phase closed、再 close で二重発火なし
   expect(closes.length).toBe(1);
-  expect((client as any).dualPhase).toBe("closed");
+  expect(client.dualAssociationPhase).toBe("closed");
   expect(client.isDtls13).toBe(false);
   client.close();
   await new Promise((r) => setTimeout(r, 20));
@@ -2168,7 +2168,7 @@ test("e2e/dual: spoofed 1.2 alert from non-association peer does not surface onE
 
   let hvrInjected = false;
   clientTransport.send = async () => {
-    if (!hvrInjected && (client as any).dualPhase === "none") {
+    if (!hvrInjected && client.dualAssociationPhase === "none") {
       hvrInjected = true;
       queueMicrotask(() => {
         injectHvr(clientTransport, serverTransport);
@@ -2181,10 +2181,10 @@ test("e2e/dual: spoofed 1.2 alert from non-association peer does not surface onE
 
   void client.connect();
   for (let i = 0; i < 50; i++) {
-    if ((client as any).dualPhase === "probing") break;
+    if (client.dualAssociationPhase === "probing") break;
     await new Promise((r) => setTimeout(r, 10));
   }
-  expect((client as any).dualPhase).toBe("probing");
+  expect(client.dualAssociationPhase).toBe("probing");
 
   // Act: 別 peer からの epoch-0 handshake_failure（本来は actionable）
   const alertBody = Buffer.from([2, AlertDesc.HandshakeFailure]);
@@ -2194,7 +2194,7 @@ test("e2e/dual: spoofed 1.2 alert from non-association peer does not surface onE
 
   // Assert: peer gate で drop → onError なし、probing 維持
   expect(errors).toEqual([]);
-  expect((client as any).dualPhase).toBe("probing");
+  expect(client.dualAssociationPhase).toBe("probing");
 
   client.close();
   await serverTransport.close().catch(() => {});
@@ -2245,11 +2245,11 @@ test("e2e/dual: close during handleHandshakes await aborts 1.2 flight", async ()
   (client as any).waitForReady = async (cond: () => boolean) => {
     // ハンドシェイク非同期区間に入ったことを確実にする
     await new Promise((r) => setTimeout(r, 80));
-    if (!closedDuringWait && (client as any).dualPhase !== "closed") {
+    if (!closedDuringWait && client.dualAssociationPhase !== "closed") {
       closedDuringWait = true;
       client.close();
     }
-    if ((client as any).dualPhase === "closed") return;
+    if (client.dualAssociationPhase === "closed") return;
     try {
       return await origWait(cond);
     } catch {
@@ -2266,7 +2266,7 @@ test("e2e/dual: close during handleHandshakes await aborts 1.2 flight", async ()
 
   // Assert: closed のまま、遅延 onConnect / 1.2 完走なし
   expect(closedDuringWait).toBe(true);
-  expect((client as any).dualPhase).toBe("closed");
+  expect(client.dualAssociationPhase).toBe("closed");
   expect(connects).toEqual([]);
   expect(client.connected).toBe(false);
   expect((client as any).flight5).toBeUndefined();
@@ -2319,11 +2319,12 @@ test("e2e/dual: commit13 during handleHandshakes await aborts 1.2 path", async (
     await new Promise((r) => setTimeout(r, 80));
     if (
       !committedDuringWait &&
-      ((client as any).dualPhase === "committed12" ||
-        (client as any).dualPhase === "probing")
+      (client.dualAssociationPhase === "committed12" ||
+        client.dualAssociationPhase === "probing")
     ) {
       // Act: 1.2 非同期待機中に association gen を進める（commit13 相当）
       committedDuringWait = true;
+      // private dualPhase を直接進める（観測用 getter は read-only）
       (client as any).dualPhase = "committed13";
       (client as any).associationGen++;
       (client as any).flight5 = undefined;
@@ -2331,7 +2332,7 @@ test("e2e/dual: commit13 during handleHandshakes await aborts 1.2 path", async (
       // handleHandshakes 側の isLegacy12PathActive(gen) が false になる
       return;
     }
-    if ((client as any).dualPhase === "committed13") return;
+    if (client.dualAssociationPhase === "committed13") return;
     try {
       return await origWait(cond);
     } catch {
@@ -2386,7 +2387,7 @@ test("e2e/dual: close during continueDualAfterHvr does not fire onError", async 
     extensions: any,
     prebuilt?: any,
   ) {
-    if (!delayed && (client as any).dualPhase === "probing") {
+    if (!delayed && client.dualAssociationPhase === "probing") {
       delayed = true;
       // Act: cookie CH 送信中に hard-close
       await new Promise((r) => setTimeout(r, 30));
@@ -2404,7 +2405,7 @@ test("e2e/dual: close during continueDualAfterHvr does not fire onError", async 
   try {
     let hvrInjected = false;
     clientTransport.send = async () => {
-      if (!hvrInjected && (client as any).dualPhase === "none") {
+      if (!hvrInjected && client.dualAssociationPhase === "none") {
         hvrInjected = true;
         queueMicrotask(() => {
           injectHvr(clientTransport, serverTransport);
@@ -2420,7 +2421,7 @@ test("e2e/dual: close during continueDualAfterHvr does not fire onError", async 
 
     // Assert: closed、delayed onError なし
     expect(delayed).toBe(true);
-    expect((client as any).dualPhase).toBe("closed");
+    expect(client.dualAssociationPhase).toBe("closed");
     expect(errors).toEqual([]);
   } finally {
     Flight1.prototype.exec = origExec;
@@ -2483,7 +2484,7 @@ test("e2e/dual: after commit12 spoof inject does not redirect send to attacker",
     void client.connect();
   });
 
-  expect((client as any).dualPhase).toBe("committed12");
+  expect(client.dualAssociationPhase).toBe("committed12");
   expect(client.isDtls13).toBe(false);
 
   const peerA = clientFacingServerPeer(serverTransport);
@@ -2646,7 +2647,7 @@ test("e2e/dual: close cancels 1.2 flight timers immediately", async () => {
   // probing まで進めて dual cookie Flight1 を起動
   let hvrInjected = false;
   clientTransport.send = async () => {
-    if (!hvrInjected && (client as any).dualPhase === "none") {
+    if (!hvrInjected && client.dualAssociationPhase === "none") {
       hvrInjected = true;
       queueMicrotask(() => {
         injectHvr(clientTransport, serverTransport);
@@ -2656,10 +2657,10 @@ test("e2e/dual: close cancels 1.2 flight timers immediately", async () => {
 
   void client.connect();
   for (let i = 0; i < 50; i++) {
-    if ((client as any).dualPhase === "probing") break;
+    if (client.dualAssociationPhase === "probing") break;
     await new Promise((r) => setTimeout(r, 10));
   }
-  expect((client as any).dualPhase).toBe("probing");
+  expect(client.dualAssociationPhase).toBe("probing");
 
   // Act
   const dtls = (client as any).dtls;
@@ -2669,7 +2670,7 @@ test("e2e/dual: close cancels 1.2 flight timers immediately", async () => {
   expect(dtls.flight).toBe(99);
   expect((dtls as any).flightTimers?.size ?? 0).toBe(0);
   expect((dtls as any).flightSleepResolvers?.size ?? 0).toBe(0);
-  expect((client as any).dualPhase).toBe("closed");
+  expect(client.dualAssociationPhase).toBe("closed");
 
   await serverTransport.close().catch(() => {});
   await clientTransport.close().catch(() => {});
@@ -2728,10 +2729,10 @@ test("e2e/dual: carrier.inject without peer uses rinfo during probing", async ()
       const shFlight = heldServerTx.splice(0);
       injectHvr(clientTransport, serverTransport);
       for (let i = 0; i < 50; i++) {
-        if ((client as any).dualPhase === "probing") break;
+        if (client.dualAssociationPhase === "probing") break;
         await new Promise((r) => setTimeout(r, 10));
       }
-      expect((client as any).dualPhase).toBe("probing");
+      expect(client.dualAssociationPhase).toBe("probing");
       // rinfo は association peer（server）のまま
       expect(clientTransport.rinfo).toBeTruthy();
 
@@ -2762,7 +2763,7 @@ test("e2e/dual: carrier.inject without peer uses rinfo during probing", async ()
       try {
         // Assert: peer 省略でも commit13
         expect(client.isDtls13).toBe(true);
-        expect((client as any).dualPhase).toBe("committed13");
+        expect(client.dualAssociationPhase).toBe("committed13");
         clearTimeout(timer);
         resolve();
       } catch (e) {
@@ -2831,7 +2832,7 @@ test("e2e/dual: carrier.inject without peer works after commit12", async () => {
   clientTransport.send = async (buf: Buffer, addr?: any) => {
     clientSends += 1;
     await origClientSend(buf, addr);
-    if (clientSends >= 2 && (client as any).dualPhase === "probing") {
+    if (clientSends >= 2 && client.dualAssociationPhase === "probing") {
       injectMode = true;
     }
   };
@@ -2851,7 +2852,7 @@ test("e2e/dual: carrier.inject without peer works after commit12", async () => {
     });
     client.onConnect.subscribe(() => {
       try {
-        expect((client as any).dualPhase).toBe("committed12");
+        expect(client.dualAssociationPhase).toBe("committed12");
         expect(client.isDtls13).toBe(false);
         // 接続後も peer 省略 inject が drop されないこと（app 応答経路）
         void client.send(Buffer.from("no-peer-ok"));
@@ -2875,15 +2876,16 @@ test("e2e/dual: carrier.inject without peer works after commit12", async () => {
 
   // 追加: commit12 後に peer 省略で無意味な inject しても phase 不変
   clientCarrier.inject(buildHvrDatagram());
-  expect((client as any).dualPhase).toBe("committed12");
+  expect(client.dualAssociationPhase).toBe("committed12");
 
   client.close();
   server.close();
 }, 25_000);
 
 /**
- * P1: probing 中の malformed / unknown-version ServerHello は commit12 しない。
- * 1.3 parked candidate を維持する。
+ * P1: probing 中の malformed ServerHello は commit12 せず parked 1.3 を維持。
+ * actionable `kind === "error"`（unknown selected version）は association 全体を
+ * tear down し dualPhase=closed にする（fatal alert / DOWNGRD と対称）。
  */
 test("e2e/dual: malformed or unknown ServerHello during probing does not commit12", async () => {
   // Arrange: dual client を probing まで（parked 1.3 あり）
@@ -2902,7 +2904,7 @@ test("e2e/dual: malformed or unknown ServerHello during probing does not commit1
 
   let hvrInjected = false;
   clientTransport.send = async () => {
-    if (!hvrInjected && (client as any).dualPhase === "none") {
+    if (!hvrInjected && client.dualAssociationPhase === "none") {
       hvrInjected = true;
       queueMicrotask(() => {
         injectHvr(clientTransport, serverTransport);
@@ -2912,17 +2914,17 @@ test("e2e/dual: malformed or unknown ServerHello during probing does not commit1
 
   void client.connect();
   for (let i = 0; i < 50; i++) {
-    if ((client as any).dualPhase === "probing") break;
+    if (client.dualAssociationPhase === "probing") break;
     await new Promise((r) => setTimeout(r, 10));
   }
-  expect((client as any).dualPhase).toBe("probing");
+  expect(client.dualAssociationPhase).toBe("probing");
   expect((client as any).parkedEngine13).toBeTruthy();
   const genBefore = (client as any).associationGen;
 
   const peer = clientFacingServerPeer(serverTransport);
 
-  // Act: 異常 SH を順に注入
-  const cases: { name: string; buf: Buffer; expectError?: boolean }[] = [
+  // Act / Assert: drop 系 — probing 維持・commit12 しない
+  const dropCases: { name: string; buf: Buffer }[] = [
     {
       name: "truncated body",
       buf: buildPlaintextHandshake(2, Buffer.from([0xfe, 0xfd, 0x11])),
@@ -2934,13 +2936,6 @@ test("e2e/dual: malformed or unknown ServerHello during probing does not commit1
       }),
     },
     {
-      name: "unknown selected version",
-      buf: buildDtls12StyleServerHelloRecord({
-        supportedVersionsData: Buffer.from([0x03, 0x03]), // TLS 1.2 wire, not DTLS
-      }),
-      expectError: true,
-    },
-    {
       name: "TLS1.3 suite without SV 1.3",
       buf: buildDtls12StyleServerHelloRecord({
         cipherSuite: 0x1301,
@@ -2948,27 +2943,48 @@ test("e2e/dual: malformed or unknown ServerHello during probing does not commit1
     },
   ];
 
-  for (const c of cases) {
+  for (const c of dropCases) {
     const errCount = errors.length;
     clientTransport.onData?.(c.buf, peer);
     await new Promise((r) => setTimeout(r, 30));
-    // Assert: 常に probing + parked 1.3 維持（commit12 しない）
-    expect((client as any).dualPhase, c.name).toBe("probing");
+    expect(client.dualAssociationPhase, c.name).toBe("probing");
     expect((client as any).parkedEngine13, c.name).toBeTruthy();
     expect((client as any).engine13, c.name).toBeUndefined();
     expect(client.isDtls13, c.name).toBe(false);
-    if (c.expectError) {
-      expect(errors.length, c.name).toBeGreaterThan(errCount);
-      expect(errors[errors.length - 1].message).toMatch(
-        /unsupported|version|protocol/i,
-      );
-    }
+    expect(errors.length, c.name).toBe(errCount);
   }
 
-  // gen は commit13 時のみ上がる — drop では不変
+  // gen は drop では不変
   expect((client as any).associationGen).toBe(genBefore);
 
-  client.close();
+  // Act: actionable error — unknown selected version → association closed
+  const errCountBefore = errors.length;
+  clientTransport.onData?.(
+    buildDtls12StyleServerHelloRecord({
+      supportedVersionsData: Buffer.from([0x03, 0x03]), // TLS 1.2 wire, not DTLS
+    }),
+    peer,
+  );
+  await new Promise((r) => setTimeout(r, 30));
+
+  // Assert: failLegacy12Association 経路（handshake_failure と対称）
+  expect(errors.length).toBeGreaterThan(errCountBefore);
+  expect(errors[errors.length - 1].message).toMatch(
+    /unsupported|version|protocol/i,
+  );
+  expect(client.dualAssociationPhase).toBe("closed");
+  expect(client.connected).toBe(false);
+  expect((client as any).parkedEngine13).toBeUndefined();
+  expect((client as any).engine13).toBeUndefined();
+  await expect(client.send(Buffer.from("after-unknown-sv"))).rejects.toThrow(
+    /closed/i,
+  );
+
+  try {
+    client.close();
+  } catch {
+    /* already closed */
+  }
   await serverTransport.close().catch(() => {});
   await clientTransport.close().catch(() => {});
 }, 15_000);
