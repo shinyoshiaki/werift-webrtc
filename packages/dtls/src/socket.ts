@@ -197,7 +197,7 @@ export class DtlsSocket {
 
   /**
    * Transport path already authenticates a single peer (ICE / equivalent).
-   * Distinct from {@link TransportContext.pinnedPeer} (UDP return-routability).
+   * Distinct from TransportContext.pinnedPeer (UDP return-routability).
    */
   protected isAuthenticatedSinglePeerTransport(): boolean {
     const t = this.options.transport as { peerAuthenticated?: boolean };
