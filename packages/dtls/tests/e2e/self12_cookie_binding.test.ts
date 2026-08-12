@@ -48,9 +48,7 @@ function build12ClientHello(opts?: {
     opts?.random ?? fixedClientRandom(),
     Buffer.alloc(0),
     opts?.cookie ?? Buffer.alloc(0),
-    opts?.ciphers ?? [
-      CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199,
-    ],
+    opts?.ciphers ?? [CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199],
     [0],
     [curves.extension, signature.extension],
   );
@@ -307,7 +305,10 @@ test("e2e/self12: full handshake still completes with bound cookies", async () =
   });
 
   await new Promise<void>((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error("self12 cookie e2e timeout")), 15_000);
+    const t = setTimeout(
+      () => reject(new Error("self12 cookie e2e timeout")),
+      15_000,
+    );
     client.onConnect.subscribe(() => {
       clearTimeout(t);
       resolve();

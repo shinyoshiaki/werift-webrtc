@@ -1,9 +1,9 @@
+import type { DtlsContext } from "../../context/dtls";
+import type { TransportContext } from "../../context/transport";
 import {
   mintDtls12HelloVerifyCookie,
   peerKeyFromAddr,
 } from "../../handshake/extensions/cookie";
-import type { DtlsContext } from "../../context/dtls";
-import type { TransportContext } from "../../context/transport";
 import type { ClientHello } from "../../handshake/message/client/hello";
 import { ServerHelloVerifyRequest } from "../../handshake/message/server/helloVerifyRequest";
 import type { Address } from "../../imports/common";
