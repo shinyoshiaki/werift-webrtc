@@ -89,3 +89,23 @@ Record an outgoing RTP packet for later matching against TWCC feedback.
 #### Returns
 
 `void`
+
+***
+
+### setRoundTripTime()?
+
+> `optional` **setRoundTripTime**(`rttMs`): `void`
+
+Optional RTCP / network RTT update in **milliseconds** (pin
+OnRoundTripTimeUpdate). Not TWCC propagation RTT — only estimators that
+need AIMD spacing (e.g. GCC) implement this.
+
+#### Parameters
+
+##### rttMs
+
+`number`
+
+#### Returns
+
+`void`

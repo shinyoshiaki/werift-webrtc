@@ -6,16 +6,14 @@
 
 # Class: AimdRateControl
 
-AIMD rate controller for the delay-based estimate A_hat.
+AIMD rate controller for the delay-based estimate (pin
+`modules/remote_bitrate_estimator/aimd_rate_control.{h,cc}`).
 
-Aligns with libwebrtc `AimdRateControl` control points:
-- Decrease at most once per RTT (`TimeToReduceFurther`), then hold
-- Multiplicative increase in slow-start / far from max; additive near max
-- Soft upper bound vs acknowledged throughput
+Ports ChangeState / ChangeBitrate / MultiplicativeRateIncrease /
+AdditiveRateIncrease / TimeToReduceFurther / GetNearMaxIncreaseRate.
 
-## See
-
-modules/congestion_controller/goog_cc/aimd_rate_control.cc
+RTT is **only** via [setRtt](AimdRateControl.md#setrtt) (RTCP / OnRoundTripTimeUpdate path) —
+never from TWCC propagation RTT / RttBasedBackoff.
 
 ## Constructors
 
@@ -65,6 +63,37 @@ modules/congestion_controller/goog_cc/aimd_rate_control.cc
 
 ## Methods
 
+### getNearMaxIncreaseRateBpsPerSecond()
+
+> **getNearMaxIncreaseRateBpsPerSecond**(): `number`
+
+pin `GetNearMaxIncreaseRateBpsPerSecond`:
+response_time = (rtt + 100ms) * 2; min increase 4000 bps/s.
+
+#### Returns
+
+`number`
+
+***
+
+### initialTimeToReduceFurther()
+
+> **initialTimeToReduceFurther**(`nowMs`): `boolean`
+
+pin `InitialTimeToReduceFurther`.
+
+#### Parameters
+
+##### nowMs
+
+`number`
+
+#### Returns
+
+`boolean`
+
+***
+
 ### reset()
 
 > **reset**(`startBps`): `void`
@@ -85,9 +114,8 @@ modules/congestion_controller/goog_cc/aimd_rate_control.cc
 
 > **setEstimate**(`bitrateBps`, `atTimeMs`): `void`
 
-State-preserving estimate update (libwebrtc `AimdRateControl::SetEstimate`).
-Used when applying a valid probe result — does **not** wipe RTT, max-bitrate
-variance, or slow-start bookkeeping the way [reset](AimdRateControl.md#reset) does.
+State-preserving estimate update (pin `AimdRateControl::SetEstimate`).
+Used for valid probe results — does not wipe RTT or link-capacity history.
 
 #### Parameters
 
@@ -105,9 +133,44 @@ variance, or slow-start bookkeeping the way [reset](AimdRateControl.md#reset) do
 
 ***
 
+### setInApplicationLimitedRegion()
+
+> **setInApplicationLimitedRegion**(`inAlr`): `void`
+
+#### Parameters
+
+##### inAlr
+
+`boolean`
+
+#### Returns
+
+`void`
+
+***
+
+### setMinBitrate()
+
+> **setMinBitrate**(`minBps`): `void`
+
+#### Parameters
+
+##### minBps
+
+`number`
+
+#### Returns
+
+`void`
+
+***
+
 ### setRtt()
 
 > **setRtt**(`rttMs`): `void`
+
+pin `AimdRateControl::SetRtt` — RTCP / network-controller RTT only.
+No clamp to 2000ms; TimeToReduceFurther clamps to [10, 200] ms internally.
 
 #### Parameters
 
@@ -121,12 +184,29 @@ variance, or slow-start bookkeeping the way [reset](AimdRateControl.md#reset) do
 
 ***
 
+### setStartBitrate()
+
+> **setStartBitrate**(`startBps`): `void`
+
+#### Parameters
+
+##### startBps
+
+`number`
+
+#### Returns
+
+`void`
+
+***
+
 ### timeToReduceFurther()
 
-> **timeToReduceFurther**(`nowMs`, `acknowledgedBitrateBps`): `boolean`
+> **timeToReduceFurther**(`nowMs`, `estimatedThroughputBps`): `boolean`
 
-libwebrtc `TimeToReduceFurther`: allow another decrease after ≥ RTT, or
-when measured throughput falls well below the current estimate.
+pin `TimeToReduceFurther`:
+- allow after clamp(rtt, 10ms, 200ms) since last bitrate **change**
+- or when estimated_throughput < 0.5 * LatestEstimate
 
 #### Parameters
 
@@ -134,7 +214,7 @@ when measured throughput falls well below the current estimate.
 
 `number`
 
-##### acknowledgedBitrateBps
+##### estimatedThroughputBps
 
 `number`
 
@@ -160,14 +240,24 @@ overuse detector state
 
 `number`
 
-measured incoming / acked bitrate R_hat
+estimated throughput R_hat (acked bitrate)
 
 ##### nowMs
 
 `number`
 
-wall clock (or feedback timeline)
+feedback / wall clock ms
 
 #### Returns
 
 `number`
+
+***
+
+### validEstimate()
+
+> **validEstimate**(): `boolean`
+
+#### Returns
+
+`boolean`

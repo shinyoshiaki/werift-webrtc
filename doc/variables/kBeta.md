@@ -8,4 +8,4 @@
 
 > `const` **kBeta**: `0.85` = `0.85`
 
-Multiplicative decrease factor (libwebrtc beta ≈ 0.85).
+Multiplicative decrease factor (pin kDefaultBackoffFactor / beta_ = 0.85).

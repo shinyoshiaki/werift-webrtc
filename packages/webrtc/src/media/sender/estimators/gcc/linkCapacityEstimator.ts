@@ -26,7 +26,9 @@ export class LinkCapacityEstimator {
     if (this.estimateKbps === undefined) {
       return Number.POSITIVE_INFINITY;
     }
-    return Math.round((this.estimateKbps + 3 * this.deviationEstimateKbps()) * 1000);
+    return Math.round(
+      (this.estimateKbps + 3 * this.deviationEstimateKbps()) * 1000,
+    );
   }
 
   /** Lower bound bps (estimate − 3σ), or 0 if unknown. */
@@ -57,8 +59,7 @@ export class LinkCapacityEstimator {
     const norm = Math.max(this.estimateKbps, 1.0);
     const errorKbps = this.estimateKbps - sampleKbps;
     this.deviationKbps =
-      (1 - alpha) * this.deviationKbps +
-      (alpha * errorKbps * errorKbps) / norm;
+      (1 - alpha) * this.deviationKbps + (alpha * errorKbps * errorKbps) / norm;
     // 0.4 ~= 14 kbit/s at 500 kbit/s; 2.5 ~= 35 kbit/s at 500 kbit/s
     this.deviationKbps = Math.min(2.5, Math.max(0.4, this.deviationKbps));
   }

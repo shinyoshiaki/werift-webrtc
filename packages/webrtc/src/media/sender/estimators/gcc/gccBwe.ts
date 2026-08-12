@@ -386,10 +386,7 @@ export class GccBandwidthEstimator
     if (rttStats) {
       this.lastMaxFeedbackRttMs = rttStats.maxFeedbackRttMs;
       this.lastPropagationRttMs = rttStats.minPropagationRttMs;
-      this.rttBackoff.updatePropagationRtt(
-        nowMs,
-        rttStats.minPropagationRttMs,
-      );
+      this.rttBackoff.updatePropagationRtt(nowMs, rttStats.minPropagationRttMs);
     }
 
     // --- Pin order (goog_cc_network_control OnTransportPacketsFeedback) ---

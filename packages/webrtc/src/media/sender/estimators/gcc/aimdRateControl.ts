@@ -46,7 +46,11 @@ export class AimdRateControl {
   reset(startBps = kDefaultStartBitrateBps) {
     this.minConfiguredBps = kMinBitrateBps;
     this.maxConfiguredBps = kMaxBitrateBps;
-    this.currentBitrateBps = clamp(startBps, this.minConfiguredBps, this.maxConfiguredBps);
+    this.currentBitrateBps = clamp(
+      startBps,
+      this.minConfiguredBps,
+      this.maxConfiguredBps,
+    );
     this.latestEstimatedThroughputBps = this.currentBitrateBps;
     this.linkCapacity.reset();
     this.rateControlState = "hold";
@@ -59,14 +63,21 @@ export class AimdRateControl {
   }
 
   setStartBitrate(startBps: number) {
-    this.currentBitrateBps = clamp(startBps, this.minConfiguredBps, this.maxConfiguredBps);
+    this.currentBitrateBps = clamp(
+      startBps,
+      this.minConfiguredBps,
+      this.maxConfiguredBps,
+    );
     this.latestEstimatedThroughputBps = this.currentBitrateBps;
     this.bitrateIsInitialized = true;
   }
 
   setMinBitrate(minBps: number) {
     this.minConfiguredBps = Math.max(0, minBps);
-    this.currentBitrateBps = Math.max(this.minConfiguredBps, this.currentBitrateBps);
+    this.currentBitrateBps = Math.max(
+      this.minConfiguredBps,
+      this.currentBitrateBps,
+    );
   }
 
   /**
@@ -192,10 +203,7 @@ export class AimdRateControl {
   initialTimeToReduceFurther(nowMs: number): boolean {
     return (
       this.bitrateIsInitialized &&
-      this.timeToReduceFurther(
-        nowMs,
-        this.currentBitrateBps / 2 - 1,
-      )
+      this.timeToReduceFurther(nowMs, this.currentBitrateBps / 2 - 1)
     );
   }
 
@@ -207,7 +215,10 @@ export class AimdRateControl {
     const frameIntervalSec = 1 / 30;
     const frameSizeBits = this.currentBitrateBps * frameIntervalSec;
     const packetSizeBits = 1200 * 8;
-    const packetsPerFrame = Math.max(1, Math.ceil(frameSizeBits / packetSizeBits));
+    const packetsPerFrame = Math.max(
+      1,
+      Math.ceil(frameSizeBits / packetSizeBits),
+    );
     const avgPacketSizeBits = frameSizeBits / packetsPerFrame;
     // Approximate over-use estimator delay to 100 ms; double for response time.
     const responseTimeSec = ((this.rttMs + kReactionTimeMs) * 2) / 1000;
