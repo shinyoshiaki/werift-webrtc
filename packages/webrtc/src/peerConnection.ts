@@ -476,17 +476,27 @@ export class RTCPeerConnection extends EventTarget {
       v.id = 1 + i;
     });
 
-    // Propagate ICE server changes to a transport that already exists but has
-    // not gathered yet. werift binds ICE servers when the gatherer is built
-    // (at createOffer); this lets TURN learned afterwards (e.g. from a WHIP
-    // Link header) take effect before setLocalDescription triggers gathering.
+    // Propagate ICE server changes to live transports.
+    // JSEP (RFC 8829 §4.1.18): STUN/TURN changes affect the next gathering
+    // phase. Always stage the new servers on Connection; if any gatherer has
+    // already started, mark needRestart so the next createOffer regenerates
+    // ICE credentials and uses the new servers (WHIP Link-header path and
+    // post-gather updates both rely on this).
     if (
       isReconfiguration &&
       this.secureManager &&
-      normalizedConfig.iceServers !== undefined &&
-      this.secureManager.iceGatheringState === "new"
+      normalizedConfig.iceServers !== undefined
     ) {
       this.secureManager.updateIceServers();
+
+      // Prefer per-transport gatherer state over the manager aggregate: after
+      // ICE restart the gatherer is "new" even if the cached aggregate lagged.
+      const hasStartedGathering = this.secureManager.iceTransports.some(
+        (transport) => transport.gatheringState !== "new",
+      );
+      if (hasStartedGathering) {
+        this.needRestart = true;
+      }
     }
   }
 

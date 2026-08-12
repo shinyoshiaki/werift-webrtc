@@ -26,6 +26,199 @@ describe("iceTransport", () => {
     }
   });
 
+  describe("setConfiguration iceServers", () => {
+    test("gathering 前の setConfiguration が Connection に TURN を反映する", async () => {
+      // Arrange: createOffer で gatherer を作るが、まだ gather していない (WHIP パス)
+      const pc = new RTCPeerConnection({ iceServers: [] });
+      try {
+        pc.createDataChannel("whip");
+        await pc.createOffer();
+        const ice = (pc as any).secureManager
+          .iceTransports[0] as RTCIceTransport;
+        expect(ice.gatheringState).toBe("new");
+        expect(ice.connection.turnServer).toBeUndefined();
+
+        // Act: WHIP Link ヘッダ相当の TURN を setConfiguration
+        pc.setConfiguration({
+          iceServers: [
+            {
+              urls: "turn:turn.example.com:3478",
+              username: "whip-user",
+              credential: "whip-pass",
+            },
+          ],
+        });
+
+        // Assert: 次の gather で使えるよう Connection に stage される
+        expect(ice.connection.turnServer).toEqual(["turn.example.com", 3478]);
+        expect(ice.connection.options.turnUsername).toBe("whip-user");
+        expect(ice.connection.options.turnPassword).toBe("whip-pass");
+        expect((pc as any).needRestart).toBe(false);
+      } finally {
+        await pc.close();
+      }
+    });
+
+    test("TURN A → STUN only で Connection 上の TURN residual が消える", async () => {
+      // Arrange: TURN A で PeerConnection を構築
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          {
+            urls: "turn:turn-a.example.com:3478",
+            username: "user-a",
+            credential: "pass-a",
+          },
+        ],
+      });
+      try {
+        pc.createDataChannel("residual");
+        await pc.createOffer();
+        const ice = (pc as any).secureManager
+          .iceTransports[0] as RTCIceTransport;
+        expect(ice.connection.turnServer).toEqual([
+          "turn-a.example.com",
+          3478,
+        ]);
+
+        // Act: STUN only に置換
+        pc.setConfiguration({
+          iceServers: [{ urls: "stun:stun.example.com:19302" }],
+        });
+
+        // Assert: TURN A の server / credential が残らない
+        expect(ice.connection.turnServer).toBeUndefined();
+        expect(ice.connection.options.turnUsername).toBeUndefined();
+        expect(ice.connection.options.turnPassword).toBeUndefined();
+        expect(ice.connection.stunServer).toEqual([
+          "stun.example.com",
+          19302,
+        ]);
+      } finally {
+        await pc.close();
+      }
+    });
+
+    test("TURN A → TURN B で Connection 上の server / credential が置換される", async () => {
+      // Arrange
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          {
+            urls: "turn:turn-a.example.com:3478",
+            username: "user-a",
+            credential: "pass-a",
+          },
+        ],
+      });
+      try {
+        pc.createDataChannel("replace");
+        await pc.createOffer();
+        const ice = (pc as any).secureManager
+          .iceTransports[0] as RTCIceTransport;
+
+        // Act
+        pc.setConfiguration({
+          iceServers: [
+            {
+              urls: "turn:turn-b.example.com:5349?transport=tcp",
+              username: "user-b",
+              credential: "pass-b",
+            },
+          ],
+        });
+
+        // Assert
+        expect(ice.connection.turnServer).toEqual([
+          "turn-b.example.com",
+          5349,
+        ]);
+        expect(ice.connection.options.turnUsername).toBe("user-b");
+        expect(ice.connection.options.turnPassword).toBe("pass-b");
+        expect(ice.connection.options.turnTransport).toBe("tcp");
+      } finally {
+        await pc.close();
+      }
+    });
+
+    test("gathering 完了後の setConfiguration は servers を stage し needRestart を立てる", async () => {
+      // Arrange: gather 完了まで進める
+      const pc = new RTCPeerConnection({ iceServers: [] });
+      try {
+        pc.createDataChannel("post-gather");
+        const ice = (pc as any).secureManager
+          .iceTransports[0] as RTCIceTransport;
+        await ice.gather();
+        expect(ice.gatheringState).toBe("complete");
+        expect(pc.iceGatheringState).toBe("complete");
+
+        // Act: gathering 完了後に TURN を設定（RFC 8829 §4.1.18）
+        pc.setConfiguration({
+          iceServers: [
+            {
+              urls: "turn:turn.example.com:3478",
+              username: "late-user",
+              credential: "late-pass",
+            },
+          ],
+        });
+
+        // Assert: Connection には常に stage され、次 createOffer で restart が要る
+        expect(ice.connection.turnServer).toEqual(["turn.example.com", 3478]);
+        expect(ice.connection.options.turnUsername).toBe("late-user");
+        expect((pc as any).needRestart).toBe(true);
+
+        // Act: createOffer で ICE restart
+        await pc.createOffer();
+
+        // Assert: restart 後は gatherer が new、新 TURN が残っている
+        expect(ice.gatheringState).toBe("new");
+        expect(pc.iceGatheringState).toBe("new");
+        expect(ice.connection.turnServer).toEqual(["turn.example.com", 3478]);
+        expect((pc as any).needRestart).toBe(false);
+      } finally {
+        await pc.close();
+      }
+    });
+
+    test("ICE restart 後の gatherer は new で setConfiguration が即時反映される", async () => {
+      // Arrange: 一度 gather 完了 → restart（旧実装では manager が complete のまま残った）
+      const pc = new RTCPeerConnection({ iceServers: [] });
+      try {
+        pc.createDataChannel("restart-sync");
+        const ice = (pc as any).secureManager
+          .iceTransports[0] as RTCIceTransport;
+        await ice.gather();
+        expect(pc.iceGatheringState).toBe("complete");
+
+        // Act: ICE restart（gatherer は new、manager 集約も追従する）
+        (pc as any).secureManager.restartIce();
+        expect(ice.gatheringState).toBe("new");
+        expect(pc.iceGatheringState).toBe("new");
+
+        // Act: restart 直後に setConfiguration（PR の「まだ gather していない gatherer」）
+        pc.setConfiguration({
+          iceServers: [
+            {
+              urls: "turn:post-restart.example.com:3478",
+              username: "post",
+              credential: "restart",
+            },
+          ],
+        });
+
+        // Assert: 状態 new なので needRestart なしで TURN が即 stage される
+        expect(ice.connection.turnServer).toEqual([
+          "post-restart.example.com",
+          3478,
+        ]);
+        expect(ice.connection.options.turnUsername).toBe("post");
+        expect((pc as any).needRestart).toBe(false);
+      } finally {
+        await pc.close();
+      }
+    });
+  });
+
+
   test("consent expiry 後の ICE transport restart で新 credentials により再接続できる", async () => {
     // Arrange: host のみの ICE transport pair
     const [transport1, transport2] = await iceTransportPair();

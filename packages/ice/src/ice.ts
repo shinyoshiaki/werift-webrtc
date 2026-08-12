@@ -103,20 +103,40 @@ export class Connection implements IceConnection {
   }
 
   /**
-   * Update STUN/TURN servers after construction but before gathering.
-   * The gatherer captures ICE servers when it is built (at createOffer time),
-   * yet a relay candidate can only be gathered if TURN is known before the
-   * single gather pass. This lets servers learned later (e.g. from a WHIP
-   * Link header) be applied before setLocalDescription triggers gathering.
+   * Replace STUN/TURN servers after construction.
+   * Server-related fields are replaced (not partial-merged) so that removing
+   * TURN clears residual credentials. W3C setConfiguration replaces the ICE
+   * server list rather than merging additively.
+   *
+   * Used when servers are learned after the gatherer was built (e.g. WHIP
+   * Link headers) and must take effect before the next gather pass.
    */
   setIceServers(options: Partial<IceOptions>) {
-    this.options = { ...this.options, ...options };
-    const { stunServer, turnServer } = this.options;
-    this.stunServer = validateAddress(stunServer) ?? [
+    // Explicitly assign server fields even when undefined so a STUN-only
+    // update cannot leave a previous TURN host/credential in options.
+    this.options = {
+      ...this.options,
+      stunServer: options.stunServer,
+      turnServer: options.turnServer,
+      turnUsername: options.turnUsername,
+      turnPassword: options.turnPassword,
+      turnTransport: options.turnTransport,
+    };
+    if (options.forceTurn !== undefined) {
+      this.options.forceTurn = options.forceTurn;
+    }
+    if (options.useTcp !== undefined) {
+      this.options.useTcp = options.useTcp;
+    }
+    if (options.turnTlsOptions !== undefined) {
+      this.options.turnTlsOptions = options.turnTlsOptions;
+    }
+
+    this.stunServer = validateAddress(this.options.stunServer) ?? [
       "stun.l.google.com",
       19302,
     ];
-    this.turnServer = validateAddress(turnServer);
+    this.turnServer = validateAddress(this.options.turnServer);
     log("Connection ice servers updated", this.options);
   }
 

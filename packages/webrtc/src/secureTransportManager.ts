@@ -90,6 +90,11 @@ export class SecureTransportManager {
     );
   }
 
+  /**
+   * Resolve STUN/TURN options from the current PeerConfig.
+   * Always returns every server-related field (including undefined) so
+   * Connection.setIceServers can fully replace residual TURN credentials.
+   */
   private resolveIceServerOptions() {
     const iceServerOptions = parseIceServers(this.config.iceServers);
     const turnTransport = resolveTurnTransport({
@@ -97,13 +102,20 @@ export class SecureTransportManager {
       configuredTurnTransport: this.config.turnTransport,
       forceTurnTCP: this.config.forceTurnTCP,
     });
-    return { ...iceServerOptions, turnTransport };
+    return {
+      stunServer: iceServerOptions.stunServer,
+      turnServer: iceServerOptions.turnServer,
+      turnUsername: iceServerOptions.turnUsername,
+      turnPassword: iceServerOptions.turnPassword,
+      turnTransport,
+    };
   }
 
   /**
    * Re-apply ICE servers from the current config to every live ICE transport.
-   * Used when TURN is learned after the gatherer was built (e.g. from a WHIP
-   * Link header) so the next gather pass can produce a relay candidate.
+   * Always stages the new servers on Connection so the next gather pass
+   * (including after ICE restart) uses them. Used when TURN is learned after
+   * the gatherer was built (e.g. from a WHIP Link header).
    */
   updateIceServers() {
     const options = {
@@ -376,6 +388,9 @@ export class SecureTransportManager {
     for (const transport of this.iceTransports) {
       transport.restart();
     }
+    // restart() resets each gatherer to "new"; refresh the aggregate cache
+    // even if a gatherer failed to emit onGatheringStateChange.
+    this.updateIceGatheringState();
   }
 
   setLocalRole({

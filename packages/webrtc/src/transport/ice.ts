@@ -220,7 +220,9 @@ export class RTCIceTransport {
     this.iceRestarts++;
     this.connection.restart();
     this.setState("new");
-    this.iceGather.gatheringState = "new";
+    // Use setGatheringState so onGatheringStateChange fires and the
+    // SecureTransportManager aggregate iceGatheringState stays in sync.
+    this.iceGather.setGatheringState("new");
     this.waitStart = undefined;
     this.onNegotiationNeeded.execute();
   }
@@ -394,6 +396,15 @@ export class RTCIceGatherer {
 
   setIceServers(options: Partial<IceOptions>) {
     this.connection.setIceServers(options);
+  }
+
+  /**
+   * Set gathering state and notify listeners.
+   * ICE restart must use this instead of writing gatheringState directly so
+   * SecureTransportManager can refresh its aggregate iceGatheringState.
+   */
+  setGatheringState(state: IceGathererState) {
+    this.setState(state);
   }
 
   get localCandidates() {
