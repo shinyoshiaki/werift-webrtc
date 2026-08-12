@@ -880,9 +880,30 @@ export abstract class Dtls13ConnectionBase {
     return true;
   }
 
+  /**
+   * Force-stop timers / carrier after a soft engine fail (e.g. ProtocolVersionError
+   * that left the carrier open for legacy dual rebind). Association-level fatal
+   * teardown calls this so inject/RTO cannot continue after public onError.
+   * Does not fire onError/onClose (association owns public lifecycle).
+   */
+  hardDisposeResources(): void {
+    this.clearPendingFlight();
+    this.clearEarlyAppData();
+    this.cancelEpochPrune?.();
+    this.cancelEpochPrune = undefined;
+    this.carrier.cancelAllTimers();
+    this.dualProbeParked = false;
+    this.closed = true;
+    this.connected = false;
+    if (!this.carrier.isClosed()) {
+      this.carrier.close();
+    }
+  }
+
   protected fail(err: Error) {
     if (this.closed) return;
     // Dual HVR with 1.2 fallback offered: park rather than tear down CH-A.
+    // Association must NOT treat this as fatal (filterError + dual probing).
     if (this.tryParkDualProbe(err)) return;
 
     log("fail", err.message);
@@ -897,8 +918,10 @@ export abstract class Dtls13ConnectionBase {
     this.dualProbeParked = false;
     this.onError.execute(err);
 
-    // Protocol-version soft fail: keep UDP socket open so association can
-    // rebind onData and continue as DTLS 1.2 on the same Transport.
+    // Protocol-version engine soft fail: keep UDP socket open only long enough
+    // for association to rebind (legacy dual). Association fatal teardown will
+    // hardDisposeResources + close transport when the error is public.
+    // DtlsVersionSelected soft park is handled above via tryParkDualProbe.
     const softVersion =
       err instanceof ProtocolVersionError ||
       err.name === "ProtocolVersionError" ||
@@ -928,11 +951,17 @@ export abstract class Dtls13ConnectionBase {
   /**
    * Package-internal: reinject a datagram (dual-engine association).
    * Not a stable Public API — Epic 2 may re-export a carrier interface.
+   *
+   * Calls engine RX directly (not carrier.inject) so association-owned inject
+   * handlers cannot re-enter demux when dual commit reinjects SH/HRR.
    */
   injectDatagram(
     bytes: Buffer,
     peer?: [string, number] | { address?: string; port?: number } | string,
   ): void {
-    this.carrier.inject(bytes, peer);
+    const self = this as this & {
+      handleDatagram: (data: Buffer, addr?: any) => void;
+    };
+    self.handleDatagram(Buffer.from(bytes), peer);
   }
 }

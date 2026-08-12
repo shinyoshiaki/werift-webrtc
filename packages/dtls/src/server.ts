@@ -176,9 +176,9 @@ export class DtlsServer extends DtlsSocket {
               // selected === V1_2 → stay on DTLS 1.2 path (flight2/4).
               // ServerHello will include DOWNGRD sentinel when dual-capable.
               if (selected === undefined) {
-                // No overlap with dual server — alert
+                // No overlap with dual server — alert + association fatal teardown
                 await this.sendPlaintextAlert(AlertDesc.ProtocolVersion);
-                this.onError.execute(
+                this.reportLegacy12Fatal(
                   new ProtocolVersionError(
                     "no overlapping DTLS protocol version with peer",
                   ),
@@ -196,7 +196,7 @@ export class DtlsServer extends DtlsSocket {
               this.protocolVersions.length === 1 &&
               this.protocolVersions[0] === DtlsVersion.V1_3
             ) {
-              this.onError.execute(
+              this.reportLegacy12Fatal(
                 new ProtocolVersionError(
                   "DTLS 1.3-only server rejected ClientHello without DTLS 1.3",
                 ),
@@ -210,7 +210,7 @@ export class DtlsServer extends DtlsSocket {
               clientHello.cipherSuites.every((c) => c === 0x1301)
             ) {
               await this.sendPlaintextAlert(AlertDesc.ProtocolVersion);
-              this.onError.execute(
+              this.reportLegacy12Fatal(
                 new ProtocolVersionError(
                   "DTLS 1.2-only server: peer offered only DTLS 1.3 cipher suites",
                 ),
@@ -271,6 +271,9 @@ export class DtlsServer extends DtlsSocket {
             await this.flight6?.exec();
 
             this.connected = true;
+            // Flight4 retransmit sleep (nextFlight=6) may still be pending even
+            // after flight=6; cancel before onConnect for lifecycle completeness.
+            this.cancelLegacy12FlightTimers();
             this.onConnect.execute();
             log(this.dtls.sessionId, "dtls connected");
           }

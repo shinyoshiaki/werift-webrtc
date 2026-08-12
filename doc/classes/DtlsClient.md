@@ -34,6 +34,33 @@ Public constructor — accepts stable [Options](../interfaces/Options.md) only.
 
 ## Properties
 
+### associationAbort
+
+> `protected` **associationAbort**: `AbortController`
+
+Cancels pending [waitForReady](DtlsSocket.md#waitforready) association sleeps on terminal teardown.
+Replaced only if a future multi-HS redesign needs a fresh controller mid-life.
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`associationAbort`](DtlsSocket.md#associationabort)
+
+***
+
+### associationTornDown
+
+> `protected` **associationTornDown**: `boolean` = `false`
+
+True after DTLS 1.2 association hard/graceful teardown so pure-1.2 Public
+APIs stay disabled even if transport close is still racing.
+Dual client primarily uses dualPhase=closed; this flag is the base guard.
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`associationTornDown`](DtlsSocket.md#associationtorndown)
+
+***
+
 ### cipher
 
 > **cipher**: [`CipherContext`](CipherContext.md)
@@ -232,6 +259,71 @@ True when this socket is operating on the DTLS 1.3 engine.
 
 ## Methods
 
+### abortAssociationWaits()
+
+> `protected` **abortAssociationWaits**(): `void`
+
+Aborts association-owned async waits ([waitForReady](DtlsSocket.md#waitforready) sleeps).
+Invoked on every terminal transition so pending timers/promises cancel
+immediately (not only "wake later and check torn-down").
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`abortAssociationWaits`](DtlsSocket.md#abortassociationwaits)
+
+***
+
+### abortLegacy12Flight()
+
+> `protected` **abortLegacy12Flight**(`error`?): `void`
+
+Abort legacy DTLS 1.2 flight: optional fatalError, flight=99, cancel timers.
+Use on close / fatal alert / version commit away from 1.2 — not on
+successful handshake complete (that only needs cancelLegacy12FlightTimers).
+
+#### Parameters
+
+##### error?
+
+`Error`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`abortLegacy12Flight`](DtlsSocket.md#abortlegacy12flight)
+
+***
+
+### assertReadyForApplicationApi()
+
+> `protected` **assertReadyForApplicationApi**(`op`): `void`
+
+Reject Public data / re-connect APIs while dual is probing or after hard close.
+Active committed12 / committed13 / pure 1.2 (none) are allowed.
+
+#### Parameters
+
+##### op
+
+`string`
+
+#### Returns
+
+`void`
+
+#### Overrides
+
+[`DtlsSocket`](DtlsSocket.md).[`assertReadyForApplicationApi`](DtlsSocket.md#assertreadyforapplicationapi)
+
+***
+
 ### bridgeEngine13()
 
 > `protected` **bridgeEngine13**(`engine`, `options`?): `void`
@@ -260,12 +352,31 @@ Wire DTLS 1.3 engine events onto this socket.
 
 ***
 
+### cancelLegacy12FlightTimers()
+
+> `protected` **cancelLegacy12FlightTimers**(): `void`
+
+Cancel pending DTLS 1.2 flight retransmit sleeps only (leave flight number).
+Use on successful handshake complete so Flight4/Flight5 sleep does not
+linger until the next RTO after onConnect.
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`cancelLegacy12FlightTimers`](DtlsSocket.md#cancellegacy12flighttimers)
+
+***
+
 ### close()
 
 > **close**(): `void`
 
-Public close: tear down all dual candidates first so parked CH-A RTO cannot
-fire after the association is closed (carrier timer cancel requirement).
+Public close: tear down all dual candidates, association carrier, and
+1.2 flight timers. Phase becomes permanently `closed`.
+Fires public onClose once (bridge is disposed before eng.close).
 
 #### Returns
 
@@ -274,6 +385,30 @@ fire after the association is closed (carrier timer cancel requirement).
 #### Overrides
 
 [`DtlsSocket`](DtlsSocket.md).[`close`](DtlsSocket.md#close)
+
+***
+
+### closeLegacy12Association()
+
+> `protected` **closeLegacy12Association**(`firePublicOnClose`): `void`
+
+Local close for pure DTLS 1.2 (server and non-dual paths).
+Terminal transition + optional single public onClose (client dual uses
+closeAssociationHard instead).
+
+#### Parameters
+
+##### firePublicOnClose
+
+`boolean` = `true`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`closeLegacy12Association`](DtlsSocket.md#closelegacy12association)
 
 ***
 
@@ -351,6 +486,56 @@ fire after the association is closed (carrier timer cancel requirement).
 
 ***
 
+### failAssociationFromEngine13()
+
+> `protected` **failAssociationFromEngine13**(`err`): `boolean`
+
+Dual association fatal teardown: phase → closed, all candidates + 1.2 flight
+stopped, RX drops further inject. Invoked from bridge on non-soft 1.3 errors
+(committed13 fatal alert, 1.3-only version mismatch, RTO exhaust, …).
+HVR soft (DtlsVersionSelected) never reaches here (filterError).
+Public onClose is fired by bridge after this returns (not here).
+
+#### Parameters
+
+##### err
+
+`Error`
+
+#### Returns
+
+`boolean`
+
+#### Overrides
+
+[`DtlsSocket`](DtlsSocket.md).[`failAssociationFromEngine13`](DtlsSocket.md#failassociationfromengine13)
+
+***
+
+### failLegacy12Association()
+
+> `protected` **failLegacy12Association**(`error`): `boolean`
+
+DTLS 1.2 fatal alert / protocol_version on dual association (incl. committed12).
+Same ownership as 1.3 fatal: phase closed, carrier/transport down, Public API off.
+Caller fires onError then onClose when this returns true.
+
+#### Parameters
+
+##### error
+
+`Error`
+
+#### Returns
+
+`boolean`
+
+#### Overrides
+
+[`DtlsSocket`](DtlsSocket.md).[`failLegacy12Association`](DtlsSocket.md#faillegacy12association)
+
+***
+
 ### handleFragmentHandshake()
 
 > **handleFragmentHandshake**(`messages`): `FragmentedHandshake`[]
@@ -416,6 +601,59 @@ Request KeyUpdate on DTLS 1.3 connections.
 
 ***
 
+### onEngine13PeerOrLocalClose()
+
+> `protected` **onEngine13PeerOrLocalClose**(): `void`
+
+Peer close_notify / engine onClose: full association closed (phase, carrier,
+transport, public API guards). Called after public onClose so handlers can
+still inspect engine13, then hard-closes association ownership.
+Does not re-fire onClose (already delivered by bridge; dualPhase already closed).
+
+#### Returns
+
+`void`
+
+#### Overrides
+
+[`DtlsSocket`](DtlsSocket.md).[`onEngine13PeerOrLocalClose`](DtlsSocket.md#onengine13peerorlocalclose)
+
+***
+
+### onLegacy12PeerCloseNotify()
+
+> `protected` **onLegacy12PeerCloseNotify**(): `void`
+
+Peer close_notify on DTLS 1.2 path (committed12 / pure dual 1.2):
+best-effort reply, then association hard-close with a single public onClose.
+
+#### Returns
+
+`void`
+
+#### Overrides
+
+[`DtlsSocket`](DtlsSocket.md).[`onLegacy12PeerCloseNotify`](DtlsSocket.md#onlegacy12peerclosenotify)
+
+***
+
+### prepareAssociationClosedFromEngine()
+
+> `protected` **prepareAssociationClosedFromEngine**(): `void`
+
+Peer/engine onClose: mark dualPhase closed before public onClose so
+re-entrant local close() inside handlers is idempotent (no second onClose).
+
+#### Returns
+
+`void`
+
+#### Overrides
+
+[`DtlsSocket`](DtlsSocket.md).[`prepareAssociationClosedFromEngine`](DtlsSocket.md#prepareassociationclosedfromengine)
+
+***
+
 ### renegotiation()
 
 > **renegotiation**(): `void`
@@ -427,6 +665,31 @@ Request KeyUpdate on DTLS 1.3 connections.
 #### Inherited from
 
 [`DtlsSocket`](DtlsSocket.md).[`renegotiation`](DtlsSocket.md#renegotiation)
+
+***
+
+### reportLegacy12Fatal()
+
+> `protected` **reportLegacy12Fatal**(`error`): `void`
+
+Tear down the 1.2 association then fire onError + onClose once.
+Used for fatal alerts, handshake failures, probing DOWNGRD / classify error,
+and ProtocolVersionError paths. Idempotent: concurrent terminal paths must
+not double-fire public events.
+
+#### Parameters
+
+##### error
+
+`Error`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`reportLegacy12Fatal`](DtlsSocket.md#reportlegacy12fatal)
 
 ***
 
@@ -453,6 +716,22 @@ readonly \[`string`, `number`\]
 #### Inherited from
 
 [`DtlsSocket`](DtlsSocket.md).[`send`](DtlsSocket.md#send)
+
+***
+
+### sendLegacy12CloseNotify()
+
+> `protected` **sendLegacy12CloseNotify**(): `Promise`\<`void`\>
+
+Best-effort close_notify on the current 1.2 write epoch.
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`sendLegacy12CloseNotify`](DtlsSocket.md#sendlegacy12closenotify)
 
 ***
 
@@ -494,20 +773,26 @@ Send a fatal DTLSPlaintext alert (used for protocol_version mismatch).
 
 ### udpOnMessage()
 
-> `protected` **udpOnMessage**(`data`): `void`
+> `protected` **udpOnMessage**(`data`, `addr`?): `void`
 
-Override UDP RX while dual-probing:
-- DTLS 1.3 SH/HRR → commit 1.3 (unpark or prime)
-- Only suppress epoch-0 illegal_parameter alerts (typical dual-1.3
-  reaction to non-empty legacy_cookie). Other fatal alerts (e.g.
-  handshake_failure from a real 1.2 server) surface immediately.
-- After commit to 1.2/1.3, no alert suppression.
+Association inbound dispatcher (UDP onData and carrier.inject).
+
+- closed: drop everything (no reconnect, no timer restart)
+- non-association peer: drop before version commit (anti-spoof)
+- active engine13 (committed13 / pure 1.3 after dual resume): forward to 1.3
+- probing + 1.3 SH/HRR from association peer: version commit to 1.3
+- probing + epoch-0 illegal_parameter only: suppress (legacy_cookie vs 1.3)
+- else: DTLS 1.2 record path (committed12 / dual cookie / pure 1.2)
 
 #### Parameters
 
 ##### data
 
 `Buffer`
+
+##### addr?
+
+readonly \[`string`, `number`\]
 
 #### Returns
 
@@ -516,6 +801,22 @@ Override UDP RX while dual-probing:
 #### Overrides
 
 [`DtlsSocket`](DtlsSocket.md).[`udpOnMessage`](DtlsSocket.md#udponmessage)
+
+***
+
+### unbridgeEngine13()
+
+> `protected` **unbridgeEngine13**(): `void`
+
+Drop bridge subscriptions for a disposed or replaced 1.3 candidate.
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`unbridgeEngine13`](DtlsSocket.md#unbridgeengine13)
 
 ***
 

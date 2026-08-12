@@ -3,7 +3,7 @@
  * Non-public factories for unit tests and Epic 2 SPED carrier injection.
  * Not re-exported from package root (`src/index.ts`).
  */
-import { DtlsClient } from "./client";
+import { DtlsClient, type DualAssociationPhase } from "./client";
 import { DtlsServer } from "./server";
 import type { DtlsInternalOptions, Options } from "./socket";
 
@@ -28,5 +28,14 @@ export function createDtlsServerInternal(
   return new DtlsServer(options as Options);
 }
 
+/**
+ * @internal Dual association phase observation for e2e (avoids `(client as any).dualPhase`).
+ */
+export function dualAssociationPhaseOf(
+  client: DtlsClient,
+): DualAssociationPhase {
+  return client.dualAssociationPhase;
+}
+
 // Re-export type for tests without promoting it through package root.
-export type { DtlsInternalOptions };
+export type { DtlsInternalOptions, DualAssociationPhase };

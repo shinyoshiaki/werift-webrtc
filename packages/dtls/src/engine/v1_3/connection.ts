@@ -13,6 +13,7 @@
 import type { NamedCurveAlgorithms } from "../../cipher/const";
 import type { SessionTypes } from "../../cipher/suites/abstract";
 import { HandshakeType } from "../../handshake/const";
+import { peerKeyFromAddr } from "../../handshake/extensions/cookie";
 import { ClientHello } from "../../handshake/message/client/hello";
 import { DtlsRandom } from "../../handshake/random";
 import { AlertDesc, ContentType } from "../../record/const";
@@ -189,6 +190,36 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
     return this.closed;
   }
 
+  /**
+   * Expected association peer key (pinned or provisional), for dual demux
+   * before version commit. Undefined if no peer is associated yet.
+   */
+  getExpectedPeerKey(): string | undefined {
+    return this.expectedPeerKey();
+  }
+
+  /** Pinned peer address tuple for association TX ownership (copy). */
+  getPeerAddr(): [string, number] | undefined {
+    return this.peerAddr
+      ? ([this.peerAddr[0], this.peerAddr[1]] as [string, number])
+      : undefined;
+  }
+
+  /**
+   * True when `addr` matches the engine peer pin (or no pin is set yet).
+   * Used by DtlsClient association dispatcher so spoofed SH cannot commit
+   * version before the engine would drop the packet.
+   */
+  matchesAssociationPeer(
+    addr?: [string, number] | { address?: string; port?: number } | string,
+  ): boolean {
+    const expected = this.expectedPeerKey();
+    if (!expected) return true;
+    const key = peerKeyFromAddr(addr);
+    if (!key || key === "unknown") return false;
+    return key === expected;
+  }
+
   /** Test helper: pending retransmittable flight length. */
   getPendingFlightSize(): number {
     return this.pendingFlight.length;
@@ -221,20 +252,17 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
   }
 
   /**
-   * Leave dual-probe park and re-own transport RX + carrier inject after
-   * association commits to DTLS 1.3 (genuine SH/HRR for the original CH-A).
+   * Leave dual-probe park after association commits to DTLS 1.3 (genuine
+   * SH/HRR for the original CH-A).
+   *
+   * Does **not** rebind transport.onData / carrier.inject — the dual
+   * association keeps RX ownership and forwards to this engine via
+   * {@link injectDatagram}. Stealing RX here would bypass association
+   * closed/committed guards and late-packet policy.
    */
   unparkFromDualProbe(): void {
     this.dualProbeParked = false;
     this.closed = false;
-    const self = this as this & {
-      handleDatagram: (data: Buffer, addr?: any) => void;
-    };
-    this.carrier.setInjectHandler((bytes, peer) =>
-      self.handleDatagram(bytes, peer),
-    );
-    this.options.transport.onData = (data, addr) =>
-      self.handleDatagram(data, addr as [string, number] | undefined);
   }
 
   /**

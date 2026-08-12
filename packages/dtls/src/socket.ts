@@ -1,7 +1,7 @@
 import { decode, types } from "@shinyoshiaki/binary-data";
 
 import { setTimeout } from "timers/promises";
-import { Event, debug } from "./imports/common";
+import { Event, EventDisposer, debug } from "./imports/common";
 import type { Address, Transport } from "./imports/common";
 
 import {
@@ -56,6 +56,12 @@ export class DtlsSocket {
 
   /** When set, DTLS 1.3 engine owns the transport and crypto state. */
   protected engine13?: Dtls13Connection;
+  /**
+   * Bridge subscriptions for the active / parked 1.3 candidate.
+   * Disposed on hard close, version commit to 1.2, or re-bridge so dead
+   * candidates cannot surface stale onConnect / onError / onClose.
+   */
+  private engine13Bridge = new EventDisposer();
   /** Negotiated / configured protocol versions (priority order). */
   readonly protocolVersions: DtlsVersion[];
 
@@ -106,7 +112,10 @@ export class DtlsSocket {
     this.bufferFragmentedHandshakes = [];
   }
 
-  protected udpOnMessage = (data: Buffer) => {
+  protected udpOnMessage = (
+    data: Buffer,
+    _addr?: import("./imports/common").Address,
+  ) => {
     this.handleUdpDatagram(data);
   };
 
@@ -115,12 +124,18 @@ export class DtlsSocket {
    * Subclasses (dual client) may intercept before calling this.
    */
   protected handleUdpDatagram(data: Buffer): void {
+    // Terminal association: drop all RX (no onData / handshake resume after fatal).
+    if (this.associationTornDown) return;
+
     const packets = parsePacket(data);
 
     for (const packet of packets) {
       try {
+        // Re-check: async fatal during multi-record datagram must stop mid-loop.
+        if (this.associationTornDown) return;
         const messages = parsePlainText(this.dtls, this.cipher)(packet);
         for (const message of messages) {
+          if (this.associationTornDown) return;
           switch (message.type) {
             case ContentType.handshake:
               {
@@ -141,35 +156,54 @@ export class DtlsSocket {
 
                 this.onHandleHandshakes(assembled).catch((error) => {
                   err(this.dtls.sessionId, "onHandleHandshakes error", error);
-                  this.onError.execute(error);
+                  // Handshake failure is association-fatal: tear down (not onError-only).
+                  // Idempotent if a concurrent fatal already closed the association.
+                  const e =
+                    error instanceof Error ? error : new Error(String(error));
+                  this.reportLegacy12Fatal(e);
                 });
               }
               break;
             case ContentType.applicationData:
               {
+                // Never deliver app data after association terminal teardown.
+                if (this.associationTornDown) return;
                 this.onData.execute(message.data as Buffer);
               }
               break;
             case ContentType.alert:
               {
                 const alert = message.data as Alert | undefined;
-                if (alert && alert.description === AlertDesc.ProtocolVersion) {
-                  // 1.2-only peer × 1.3-only server: protocol_version(70)
-                  const pe = new ProtocolVersionError(
-                    "peer rejected protocol version (alert protocol_version)",
-                  );
-                  this.dtls.fatalError = pe;
-                  this.onError.execute(pe);
-                } else if (alert && alert.level >= 2) {
-                  const fe = new Error(
-                    `alert fatal error: ${
-                      AlertDesc[alert.description] ?? alert.description
-                    }`,
-                  );
-                  this.dtls.fatalError = fe;
-                  this.onError.execute(fe);
+                if (!alert) break;
+                // Association lifecycle (aligned with 1.3 / TLS 1.2):
+                //   fatal / protocol_version → fail association (onError + tear down)
+                //   close_notify             → graceful association close
+                //   other warning            → log / continue (not connection close)
+                if (
+                  alert.level >= 2 ||
+                  alert.description === AlertDesc.ProtocolVersion
+                ) {
+                  const fe =
+                    alert.description === AlertDesc.ProtocolVersion
+                      ? new ProtocolVersionError(
+                          "peer rejected protocol version (alert protocol_version)",
+                        )
+                      : new Error(
+                          `alert fatal error: ${
+                            AlertDesc[alert.description] ?? alert.description
+                          }`,
+                        );
+                  // Tear down association *before* onError so handlers observe
+                  // connected=false / dualPhase=closed / Public API disabled.
+                  this.reportLegacy12Fatal(fe);
+                } else if (alert.description === AlertDesc.CloseNotify) {
+                  this.onLegacy12PeerCloseNotify();
                 } else {
-                  this.onClose.execute();
+                  log(
+                    this.dtls.sessionId,
+                    "DTLS 1.2 warning alert (continue)",
+                    AlertDesc[alert.description] ?? alert.description,
+                  );
                 }
               }
               break;
@@ -217,17 +251,39 @@ export class DtlsSocket {
     }
   }
 
+  /**
+   * Aborts association-owned async waits ({@link waitForReady} sleeps).
+   * Invoked on every terminal transition so pending timers/promises cancel
+   * immediately (not only "wake later and check torn-down").
+   */
+  protected abortAssociationWaits(): void {
+    if (!this.associationAbort.signal.aborted) {
+      this.associationAbort.abort();
+    }
+  }
+
   protected waitForReady = (condition: () => boolean) =>
     new Promise<void>(async (r, f) => {
       for (let i = 0; i < 10; i++) {
+        if (this.associationTornDown || this.associationAbort.signal.aborted) {
+          f(new Error("association closed during waitForReady"));
+          return;
+        }
         if (condition()) {
           r();
-          break;
-        } else {
-          await setTimeout(100 * i);
+          return;
+        }
+        try {
+          // AbortSignal: close/fatal cancels this sleep immediately.
+          await setTimeout(100 * i, undefined, {
+            signal: this.associationAbort.signal,
+          });
+        } catch {
+          f(new Error("association closed during waitForReady"));
+          return;
         }
       }
-      f("waitForReady timeout");
+      f(new Error("waitForReady timeout"));
     });
 
   handleFragmentHandshake(messages: FragmentedHandshake[]) {
@@ -250,8 +306,32 @@ export class DtlsSocket {
     return handshakes; // return un fragmented handshakes
   }
 
+  /**
+   * True after DTLS 1.2 association hard/graceful teardown so pure-1.2 Public
+   * APIs stay disabled even if transport close is still racing.
+   * Dual client primarily uses dualPhase=closed; this flag is the base guard.
+   */
+  protected associationTornDown = false;
+
+  /**
+   * Cancels pending {@link waitForReady} association sleeps on terminal teardown.
+   * Replaced only if a future multi-HS redesign needs a fresh controller mid-life.
+   */
+  protected associationAbort = new AbortController();
+
+  /**
+   * Guard for send / exporter / remoteCertificate.
+   * Dual client overrides to reject `closed` and `probing` (no 1.2 fallthrough).
+   */
+  protected assertReadyForApplicationApi(op: string): void {
+    if (this.associationTornDown) {
+      throw new Error(`DTLS association is closed; cannot ${op}`);
+    }
+  }
+
   /**send application data */
   send = async (buf: Buffer, addr?: Address) => {
+    this.assertReadyForApplicationApi("send");
     if (this.engine13) {
       await this.engine13.send(buf);
       return;
@@ -260,18 +340,127 @@ export class DtlsSocket {
       [{ type: ContentType.applicationData, fragment: buf }],
       ++this.dtls.recordSequenceNumber,
     )[0];
+    // Prefer explicit addr, else TransportContext.pinnedPeer (association pin).
+    // Never rely solely on last UDP rinfo (spoof hijack).
     await this.transport.send(this.cipher.encryptPacket(pkt).serialize(), addr);
   };
+
+  /**
+   * Cancel pending DTLS 1.2 flight retransmit sleeps only (leave flight number).
+   * Use on successful handshake complete so Flight4/Flight5 sleep does not
+   * linger until the next RTO after onConnect.
+   */
+  protected cancelLegacy12FlightTimers(): void {
+    this.dtls.cancelFlightTimers();
+  }
+
+  /**
+   * Abort legacy DTLS 1.2 flight: optional fatalError, flight=99, cancel timers.
+   * Use on close / fatal alert / version commit away from 1.2 — not on
+   * successful handshake complete (that only needs cancelLegacy12FlightTimers).
+   */
+  protected abortLegacy12Flight(error?: Error): void {
+    if (error) this.dtls.fatalError = error;
+    this.dtls.flight = 99;
+    this.dtls.cancelFlightTimers();
+  }
+
+  /**
+   * Association-wide fatal teardown for DTLS 1.2 (TLS: immediate connection end).
+   * Stops flight timers, clears connected, closes transport, disables Public API.
+   * Dual client overrides to also set dualPhase=closed and close carrier/candidates.
+   *
+   * @returns true when the caller should fire public onClose after onError
+   *   (same ordering as 1.3 {@link failAssociationFromEngine13}).
+   */
+  protected failLegacy12Association(error: Error): boolean {
+    if (this.associationTornDown) return false;
+    this.abortLegacy12Flight(error);
+    this.connected = false;
+    this.associationTornDown = true;
+    this.abortAssociationWaits();
+    void this.transport.socket.close().catch(() => {});
+    return true;
+  }
+
+  /**
+   * Tear down the 1.2 association then fire onError + onClose once.
+   * Used for fatal alerts, handshake failures, probing DOWNGRD / classify error,
+   * and ProtocolVersionError paths. Idempotent: concurrent terminal paths must
+   * not double-fire public events.
+   */
+  protected reportLegacy12Fatal(error: Error): void {
+    // failLegacy12Association returns false when already terminal.
+    if (!this.failLegacy12Association(error)) return;
+    this.onError.execute(error);
+    this.onClose.execute();
+  }
+
+  /**
+   * Local close for pure DTLS 1.2 (server and non-dual paths).
+   * Terminal transition + optional single public onClose (client dual uses
+   * closeAssociationHard instead).
+   */
+  protected closeLegacy12Association(firePublicOnClose = true): void {
+    if (this.associationTornDown) return;
+    this.abortLegacy12Flight();
+    this.connected = false;
+    this.associationTornDown = true;
+    this.abortAssociationWaits();
+    if (firePublicOnClose) {
+      this.onClose.execute();
+    }
+    void this.transport.socket.close().catch(() => {});
+  }
+
+  /**
+   * Peer close_notify on DTLS 1.2 path: best-effort reply, then graceful
+   * association close (connected=false, timers cancel, onClose, transport).
+   * Dual client overrides for phase/carrier/transport ownership.
+   */
+  protected onLegacy12PeerCloseNotify(): void {
+    if (this.associationTornDown) return;
+    // Mark torn-down first so re-entrant send/exporter fail while reply is in flight.
+    this.abortLegacy12Flight();
+    this.connected = false;
+    this.associationTornDown = true;
+    this.abortAssociationWaits();
+    void this.sendLegacy12CloseNotify().finally(() => {
+      this.onClose.execute();
+      void this.transport.socket.close().catch(() => {});
+    });
+  }
+
+  /** Best-effort close_notify on the current 1.2 write epoch. */
+  protected async sendLegacy12CloseNotify(): Promise<void> {
+    try {
+      const alert = Buffer.from([1, AlertDesc.CloseNotify]); // warning
+      const pkt = createPlaintext(this.dtls)(
+        [{ type: ContentType.alert, fragment: alert }],
+        ++this.dtls.recordSequenceNumber,
+      )[0];
+      // Post-handshake alerts are encrypted when epoch > 0 (keys established).
+      const wire =
+        this.dtls.epoch > 0
+          ? this.cipher.encryptPacket(pkt).serialize()
+          : pkt.serialize();
+      await this.transport.send(wire);
+    } catch (e) {
+      log(this.dtls.sessionId, "sendLegacy12CloseNotify failed", e);
+    }
+  }
 
   close() {
     if (this.engine13) {
       this.engine13.close();
       return;
     }
-    this.transport.socket.close();
+    // DTLS 1.2 server (and any non-overridden close): terminal + onClose once.
+    this.closeLegacy12Association(true);
   }
 
   extractSessionKeys(keyLength: number, saltLength: number) {
+    this.assertReadyForApplicationApi("extractSessionKeys");
     if (this.engine13) {
       return this.engine13.extractSessionKeys(keyLength, saltLength);
     }
@@ -308,6 +497,7 @@ export class DtlsSocket {
   }
 
   exportKeyingMaterial(label: string, length: number) {
+    this.assertReadyForApplicationApi("exportKeyingMaterial");
     if (this.engine13) {
       return this.engine13.exportKeyingMaterial(label, length);
     }
@@ -322,6 +512,7 @@ export class DtlsSocket {
   }
 
   get remoteCertificate() {
+    this.assertReadyForApplicationApi("remoteCertificate");
     if (this.engine13) {
       return this.engine13.remoteCertificate;
     }
@@ -330,10 +521,67 @@ export class DtlsSocket {
 
   /** Request KeyUpdate on DTLS 1.3 connections. */
   async keyUpdate(requestUpdate = false): Promise<void> {
+    this.assertReadyForApplicationApi("keyUpdate");
     if (!this.engine13) {
       throw new Error("KeyUpdate is only available for DTLS 1.3");
     }
     await this.engine13.keyUpdate(requestUpdate);
+  }
+
+  /** Drop bridge subscriptions for a disposed or replaced 1.3 candidate. */
+  protected unbridgeEngine13(): void {
+    this.engine13Bridge.dispose();
+  }
+
+  /**
+   * Association-level fatal teardown after a non-soft 1.3 engine error.
+   * Clears public engine13 (isDtls13 → false), stops bridge callbacks, and
+   * hard-disposes candidate resources. HVR dual soft transition must not call
+   * this (filterError swallows DtlsVersionSelected before we reach here).
+   *
+   * Subclasses (dual client) override to also flip dualPhase → closed and
+   * tear down parked candidates / 1.2 flight timers.
+   *
+   * @returns true when public onClose should be fired after onError (caller
+   *   owns ordering so handlers observe isDtls13 === false first).
+   */
+  protected failAssociationFromEngine13(_err: Error): boolean {
+    this.connected = false;
+    // Unbridge first so subsequent engine onClose/onError cannot re-enter or
+    // double-fire public callbacks when fail() continues to onClose.
+    this.unbridgeEngine13();
+    const eng = this.engine13;
+    this.engine13 = undefined;
+    if (eng) {
+      // Soft ProtocolVersionError leaves carrier open; hard fail may already
+      // have closed it. Always force resource dispose without re-firing events.
+      eng.hardDisposeResources();
+    }
+    // Always close transport (hardDispose does not). Double-close is fine.
+    void this.transport.socket.close().catch(() => {});
+    // Engine hard-fail would have fired onClose after onError, but unbridge
+    // removed that subscription — association owns the single public onClose.
+    return true;
+  }
+
+  /**
+   * Before public onClose for engine teardown: mark association closed so
+   * re-entrant client.close() inside onClose handlers is idempotent.
+   * Dual client sets dualPhase → closed here.
+   */
+  protected prepareAssociationClosedFromEngine(): void {
+    this.connected = false;
+  }
+
+  /**
+   * After engine onClose (peer close_notify or local engine close) has been
+   * delivered publicly: drop the 1.3 handle. Dual client overrides to also
+   * hard-close carrier / transport / candidates.
+   */
+  protected onEngine13PeerOrLocalClose(): void {
+    this.unbridgeEngine13();
+    this.engine13 = undefined;
+    void this.transport.socket.close().catch(() => {});
   }
 
   /**
@@ -345,28 +593,49 @@ export class DtlsSocket {
     engine: Dtls13Connection,
     options?: { filterError?: (e: Error) => boolean },
   ) {
+    // Replace any prior bridge so only the current candidate is public.
+    this.unbridgeEngine13();
     this.engine13 = engine;
-    engine.onConnect.subscribe(() => {
-      this.connected = true;
-      // Bridge negotiated use_srtp into public DtlsSocket.srtp (DTLS 1.2 path parity)
-      const profile = engine.srtpProfile;
-      if (profile !== undefined) {
-        this.srtp.srtpProfile = profile;
-      }
-      this.onConnect.execute();
-    });
-    engine.onData.subscribe((data) => this.onData.execute(data));
-    engine.onError.subscribe((e) => {
-      if (options?.filterError?.(e)) return;
-      this.connected = false;
-      this.onError.execute(e);
-    });
-    engine.onClose.subscribe(() => {
-      // Keep public DtlsSocket.connected in sync with engine teardown
-      // (peer close_notify or local close).
-      this.connected = false;
-      this.onClose.execute();
-    });
+    engine.onConnect
+      .subscribe(() => {
+        this.connected = true;
+        // Bridge negotiated use_srtp into public DtlsSocket.srtp (DTLS 1.2 path parity)
+        const profile = engine.srtpProfile;
+        if (profile !== undefined) {
+          this.srtp.srtpProfile = profile;
+        }
+        this.onConnect.execute();
+      })
+      .disposer(this.engine13Bridge);
+    engine.onData
+      .subscribe((data) => this.onData.execute(data))
+      .disposer(this.engine13Bridge);
+    engine.onError
+      .subscribe((e) => {
+        // HVR soft dual transition only: do not public-error or fatal-teardown.
+        if (options?.filterError?.(e)) return;
+        this.connected = false;
+        // Tear down association before public onError so handlers observe
+        // isDtls13 === false and dualPhase === closed (client override).
+        const fireClose = this.failAssociationFromEngine13(e);
+        this.onError.execute(e);
+        // Single public onClose (engine's own onClose is unsubscribed above).
+        if (fireClose) {
+          this.onClose.execute();
+        }
+      })
+      .disposer(this.engine13Bridge);
+    engine.onClose
+      .subscribe(() => {
+        // Mark closed before public onClose so handlers that call close()
+        // re-entrantly do not double-fire onClose.
+        this.prepareAssociationClosedFromEngine();
+        // Fire public onClose while engine13 is still inspectable.
+        this.onClose.execute();
+        // Then association-level close: carrier/transport/candidates.
+        this.onEngine13PeerOrLocalClose();
+      })
+      .disposer(this.engine13Bridge);
   }
 
   /**

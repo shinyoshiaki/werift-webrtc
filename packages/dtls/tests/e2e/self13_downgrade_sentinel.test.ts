@@ -318,8 +318,12 @@ test("e2e/downgrade: dual client aborts when 1.2 ServerHello carries DOWNGRD sen
               e.message,
             ),
         ).toBe(true);
-        client.close();
-        server.close();
+        // P2: DOWNGRD / ProtocolVersionError must tear down association
+        // (not leave dualPhase=probing with parked 1.3 RTO).
+        expect(client.dualAssociationPhase).toBe("closed");
+        expect(client.connected).toBe(false);
+        expect((client as any).parkedEngine13).toBeUndefined();
+        expect((client as any).engine13).toBeUndefined();
         resolve();
       } catch (err) {
         reject(err);
@@ -337,12 +341,26 @@ test("e2e/downgrade: dual client aborts when 1.2 ServerHello carries DOWNGRD sen
         e instanceof ProtocolVersionError ||
         (e instanceof Error && /sentinel|protocol_version/i.test(e.message))
       ) {
-        client.close();
-        server.close();
+        expect(client.dualAssociationPhase).toBe("closed");
         resolve();
         return;
       }
       reject(e instanceof Error ? e : new Error(String(e)));
     }
   });
+
+  // Assert: Public API stays disabled after DOWNGRD association fail
+  await expect(client.send(Buffer.from("after-downgrd"))).rejects.toThrow(
+    /closed/i,
+  );
+  try {
+    client.close();
+  } catch {
+    /* already closed */
+  }
+  try {
+    server.close();
+  } catch {
+    /* */
+  }
 }, 20_000);

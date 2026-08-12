@@ -1,5 +1,3 @@
-import { setTimeout } from "timers/promises";
-
 import type { DtlsContext } from "../context/dtls";
 import type { TransportContext } from "../context/transport";
 import { debug } from "../imports/common";
@@ -41,6 +39,19 @@ export abstract class Flight {
   protected async transmit(buffers: Buffer[]) {
     let retransmitCount = 0;
     for (; retransmitCount <= Flight.RetransmitCount; retransmitCount++) {
+      // Association may have advanced flight=99 / canceled timers while sleeping.
+      if (
+        this.nextFlight !== undefined &&
+        this.dtls.flight >= this.nextFlight
+      ) {
+        this.setState("FINISHED");
+        break;
+      }
+      if (this.dtls.fatalError) {
+        this.setState("FINISHED");
+        throw this.dtls.fatalError;
+      }
+
       this.setState("SENDING");
       this.send(buffers).catch((e) => {
         err("fail to send", err);
@@ -52,7 +63,8 @@ export abstract class Flight {
         break;
       }
 
-      await setTimeout(1000 * ((retransmitCount + 1) / 2));
+      // Cancelable via DtlsContext.cancelFlightTimers (association hard-close).
+      await this.dtls.flightSleep(1000 * ((retransmitCount + 1) / 2));
 
       if (this.dtls.fatalError) {
         this.setState("FINISHED");
@@ -76,7 +88,11 @@ export abstract class Flight {
       throw this.dtls.fatalError;
     }
 
-    if (retransmitCount > Flight.RetransmitCount) {
+    if (
+      this.nextFlight !== undefined &&
+      this.dtls.flight < this.nextFlight &&
+      retransmitCount > Flight.RetransmitCount
+    ) {
       err(this.dtls.sessionId, "retransmit failed", retransmitCount);
       throw new Error(
         `over retransmitCount : ${this.flight} ${this.nextFlight}`,
@@ -84,6 +100,7 @@ export abstract class Flight {
     }
   }
 
+  /** Send with association pin when TransportContext.pinnedPeer is set. */
   protected send = (buf: Buffer[]) =>
     Promise.all(buf.map((v) => this.transport.send(v)));
 
