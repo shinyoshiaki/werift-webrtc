@@ -184,10 +184,6 @@ export function commitClientHelloToAssociation(
   cipher: CipherContext,
   srtp: SrtpContext,
 ): void {
-  const negotiated = validateAndNegotiateClientHello(
-    clientHello,
-    dtls,
-    cipher,
-  );
+  const negotiated = validateAndNegotiateClientHello(clientHello, dtls, cipher);
   applyNegotiatedClientHello(negotiated, dtls, cipher, srtp);
 }

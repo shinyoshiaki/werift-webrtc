@@ -645,9 +645,13 @@ readonly \[`string`, `number`\]
 
 > `protected` **hasAssociationPeerAuth**(): `boolean`
 
-Cookie / connect pin is the association peer-auth boundary for DTLS 1.2.
-Pre-pin (server pre-cookie): unauthenticated sources must not force
-association-fatal teardown (alert / malformed HS DoS).
+Peer-auth boundary for DTLS 1.2 association lifecycle (alerts / HS errors).
+
+- UDP pin after cookie / connect (classic return-routability)
+- Transport.peerAuthenticated (ICE / already-authenticated path): AEAD
+  protected records must not be treated as "pre-auth" merely because the
+  transport does not expose a 5-tuple (WebRTC IceTransport).
+- addressValidation "ice-authenticated" / "none" on the association
 
 #### Returns
 
