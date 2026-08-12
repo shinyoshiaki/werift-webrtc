@@ -71,4 +71,3 @@ test("unit/dtls: cancelFlightTimers bumps flightTxGeneration each call", () => {
   dtls.cancelFlightTimers();
   expect(dtls.flightTxGeneration).toBe(g0 + 2);
 });
-

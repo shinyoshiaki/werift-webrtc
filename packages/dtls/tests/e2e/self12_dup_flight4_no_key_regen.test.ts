@@ -57,10 +57,6 @@ test("e2e/self12: duplicate Flight4 does not regenerate client ECDHE", async () 
     return origServerSend(buf, addr);
   };
 
-  // Capture client localKeyPair after first SKX by polling once Flight5 exists
-  let keyAfterFirstSkx: Buffer | undefined;
-  let keyAfterDupFlight4: Buffer | undefined;
-
   await new Promise<void>((resolve, reject) => {
     const t = setTimeout(() => reject(new Error("handshake timeout")), 20_000);
     client.onConnect.subscribe(() => {
@@ -84,10 +80,9 @@ test("e2e/self12: duplicate Flight4 does not regenerate client ECDHE", async () 
   const firstWave = flight4Waves[0];
   expect(firstWave.length).toBeGreaterThan(0);
 
-  const keyBefore = Buffer.from(
+  const keyAfterFirstSkx = Buffer.from(
     (client as any).cipher.localKeyPair.publicKey as Buffer,
   );
-  keyAfterFirstSkx = keyBefore;
 
   // Act: re-inject entire first Flight4 wave as if retransmitted (duplicate HS)
   const serverAddr = serverTransport.address;
@@ -97,12 +92,12 @@ test("e2e/self12: duplicate Flight4 does not regenerate client ECDHE", async () 
   }
   await new Promise((r) => setTimeout(r, 50));
 
-  keyAfterDupFlight4 = Buffer.from(
+  const keyAfterDupFlight4 = Buffer.from(
     (client as any).cipher.localKeyPair.publicKey as Buffer,
   );
 
   // Assert: ECDHE public key unchanged after duplicate Flight4
-  expect(keyAfterDupFlight4.equals(keyAfterFirstSkx!)).toBe(true);
+  expect(keyAfterDupFlight4.equals(keyAfterFirstSkx)).toBe(true);
   expect(client.connected).toBe(true);
   expect(server.connected).toBe(true);
 
@@ -139,10 +134,12 @@ test("unit/flight5: second ServerKeyExchange does not regenerate localKeyPair", 
   const { TransportContext } = await import("../../src/context/transport");
   const { SessionType } = await import("../../src/cipher/suites/abstract");
   const { Flight5 } = await import("../../src/flight/client/flight5");
-  const { ServerKeyExchange } =
-    await import("../../src/handshake/message/server/keyExchange");
-  const { CurveType, NamedCurveAlgorithm } =
-    await import("../../src/cipher/const");
+  const { ServerKeyExchange } = await import(
+    "../../src/handshake/message/server/keyExchange"
+  );
+  const { CurveType, NamedCurveAlgorithm } = await import(
+    "../../src/cipher/const"
+  );
   const { DtlsRandom } = await import("../../src/handshake/random");
   const { generateKeyPair } = await import("../../src/cipher/namedCurve");
   const transport = await UdpTransport.init("udp4");
@@ -152,7 +149,12 @@ test("unit/flight5: second ServerKeyExchange does not regenerate localKeyPair", 
   cipher.localRandom = new DtlsRandom();
   cipher.remoteRandom = new DtlsRandom();
   const srtp = new SrtpContext();
-  const flight5 = new Flight5(new TransportContext(transport), dtls, cipher, srtp);
+  const flight5 = new Flight5(
+    new TransportContext(transport),
+    dtls,
+    cipher,
+    srtp,
+  );
 
   const serverKp = generateKeyPair(NamedCurveAlgorithm.secp256r1_23 as any);
   const skx = new ServerKeyExchange(

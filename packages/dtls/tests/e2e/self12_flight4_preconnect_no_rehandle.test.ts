@@ -93,9 +93,8 @@ test("e2e/self12: pre-connect Flight4 re-inject does not re-run Flight5 handlers
   const keyPairBefore = (client as any).cipher.localKeyPair;
   const keyBefore = Buffer.from(keyPairBefore.publicKey as Buffer);
   const remoteRandomBefore = (client as any).cipher.remoteRandom;
-  const cacheLenBefore = (
-    (client as any).dtls.handshakeCache[4]?.data ?? []
-  ).length;
+  const cacheLenBefore = ((client as any).dtls.handshakeCache[4]?.data ?? [])
+    .length;
 
   const flight5 = (client as any).flight5;
   let handlerCalls = 0;
@@ -122,9 +121,8 @@ test("e2e/self12: pre-connect Flight4 re-inject does not re-run Flight5 handlers
 
   const keyPairAfter = (client as any).cipher.localKeyPair;
   const keyAfter = Buffer.from(keyPairAfter.publicKey as Buffer);
-  const cacheLenAfter = (
-    (client as any).dtls.handshakeCache[4]?.data ?? []
-  ).length;
+  const cacheLenAfter = ((client as any).dtls.handshakeCache[4]?.data ?? [])
+    .length;
 
   // Assert: ECDHE object identity unchanged (handlers short-circuit on cache)
   expect(keyPairAfter).toBe(keyPairBefore);

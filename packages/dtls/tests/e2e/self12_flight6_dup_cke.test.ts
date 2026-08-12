@@ -125,7 +125,9 @@ test("e2e/self12: duplicate Flight5 CKE/Finished does not re-init server cipher"
   }
   await new Promise((r) => setTimeout(r, 40));
 
-  const masterAfter = Buffer.from((server as any).cipher.masterSecret as Buffer);
+  const masterAfter = Buffer.from(
+    (server as any).cipher.masterSecret as Buffer,
+  );
   const writeKeyAfter = Buffer.from(
     (server as any).cipher.cipher?.writeKey ?? Buffer.alloc(0),
   );
@@ -201,12 +203,14 @@ test("unit/flight6: second ClientKeyExchange does not re-init masterSecret", asy
   const { TransportContext } = await import("../../src/context/transport");
   const { SessionType } = await import("../../src/cipher/suites/abstract");
   const { Flight6 } = await import("../../src/flight/server/flight6");
-  const { ClientKeyExchange } =
-    await import("../../src/handshake/message/client/keyExchange");
+  const { ClientKeyExchange } = await import(
+    "../../src/handshake/message/client/keyExchange"
+  );
   const { DtlsRandom } = await import("../../src/handshake/random");
   const { generateKeyPair } = await import("../../src/cipher/namedCurve");
-  const { NamedCurveAlgorithm, CipherSuite } =
-    await import("../../src/cipher/const");
+  const { NamedCurveAlgorithm, CipherSuite } = await import(
+    "../../src/cipher/const"
+  );
   const { createCipher } = await import("../../src/cipher/create");
 
   const transport = await UdpTransport.init("udp4");
