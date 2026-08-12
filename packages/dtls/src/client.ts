@@ -403,23 +403,35 @@ export class DtlsClient extends DtlsSocket {
 
   /**
    * Peer close_notify on DTLS 1.2 path (committed12 / pure dual 1.2):
-   * best-effort reply, then association hard-close with a single public onClose.
+   * sync Public-API terminal (associationTornDown), best-effort reply with
+   * send budget, then hard-close which flips dualPhase=closed + onClose once.
+   * Do not set dualPhase=closed before hard-close or firePublicOnClose is skipped.
    */
   protected onLegacy12PeerCloseNotify(): void {
     if (this.dualPhase === "closed" || this.associationTornDown) return;
     log("dual association: 1.2 peer close_notify");
-    // Stop 1.2 retransmit before async reply so timers do not race teardown.
+    // Sync Public API off immediately (send/exporter) while reply is in flight.
     this.abortLegacy12Flight();
     this.connected = false;
     this.associationTornDown = true;
     this.abortAssociationWaits();
-    void this.sendLegacy12CloseNotify().finally(() => {
-      // closeAssociationHard is idempotent when dualPhase already closed;
-      // fire onClose once via firePublicOnClose if still open.
+    this.associationGen++;
+    this.flight5 = undefined;
+    // Budget-bound reply then hard-close (sets dualPhase closed + onClose).
+    const notify = this.sendLegacy12CloseNotify().catch(() => {});
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
       this.closeAssociationHard({
         firePublicOnClose: true,
         hardDisposeCandidates: true,
       });
+    };
+    const timer = globalThis.setTimeout(finish, 250);
+    void notify.finally(() => {
+      globalThis.clearTimeout(timer);
+      finish();
     });
   }
 
@@ -1328,7 +1340,8 @@ export class DtlsClient extends DtlsSocket {
    * - else: DTLS 1.2 record path (committed12 / dual cookie / pure 1.2)
    */
   protected udpOnMessage = (data: Buffer, addr?: Address) => {
-    if (this.dualPhase === "closed") {
+    // Terminal: dualPhase closed *or* associationTornDown mid peer-close reply.
+    if (this.dualPhase === "closed" || this.associationTornDown) {
       return;
     }
     // Prefer explicit addr (UDP / inject); fall back to last rinfo.

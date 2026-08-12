@@ -637,22 +637,43 @@ export class DtlsSocket {
   }
 
   /**
-   * Peer close_notify on DTLS 1.2 path: best-effort reply, then graceful
-   * association close (connected=false, timers cancel, onClose, transport).
+   * Peer close_notify on DTLS 1.2 path: sync terminal + best-effort reply with
+   * a short send budget (same root cause as 1.3 hung transport.send).
    * Dual client overrides for phase/carrier/transport ownership.
    */
   protected onLegacy12PeerCloseNotify(): void {
     if (this.associationTornDown) return;
-    // Mark torn-down first so re-entrant send/exporter fail while reply is in flight.
+    // Sync terminal first so Public API / late HS cannot resume.
     this.abortLegacy12Flight();
     this.connected = false;
     this.associationTornDown = true;
     this.abortAssociationWaits();
-    // Keep TX pin until close_notify is sent so reply still reaches the peer.
-    void this.sendLegacy12CloseNotify().finally(() => {
+    // Keep TX pin for best-effort reply, then free with budget.
+    this.finishLegacy12PeerCloseWithOptionalNotify();
+  }
+
+  /**
+   * Best-effort 1.2 close_notify reply then onClose/transport free even if
+   * transport.send never settles (~250ms budget, parity with 1.3).
+   */
+  protected finishLegacy12PeerCloseWithOptionalNotify(
+    after?: () => void,
+  ): void {
+    const notify = this.sendLegacy12CloseNotify().catch(() => {});
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
       this.clearSendPeerPin();
+      after?.();
       this.onClose.execute();
       void this.transport.socket.close().catch(() => {});
+    };
+    // Use global timer APIs — module imports setTimeout from timers/promises.
+    const timer = globalThis.setTimeout(finish, 250);
+    void notify.finally(() => {
+      globalThis.clearTimeout(timer);
+      finish();
     });
   }
 
@@ -844,6 +865,8 @@ export class DtlsSocket {
     this.engine13 = engine;
     engine.onConnect
       .subscribe(() => {
+        // Terminal mid-handshake: do not flip connected back to true / re-fire.
+        if (this.associationTornDown) return;
         this.connected = true;
         // Bridge negotiated use_srtp into public DtlsSocket.srtp (DTLS 1.2 path parity)
         const profile = engine.srtpProfile;

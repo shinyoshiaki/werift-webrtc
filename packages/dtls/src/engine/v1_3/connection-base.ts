@@ -875,6 +875,11 @@ export abstract class Dtls13ConnectionBase {
   }
 
   protected markConnected(opts?: { keepPendingFlight?: boolean }) {
+    // close/fatal mid-Finished must not resurrect connected after terminal.
+    if (this.closed || this.closing) {
+      log("skip markConnected: association already closing/closed");
+      return;
+    }
     this.connected = true;
     this.hsPhase = "connected";
     // Pin peer at handshake complete if not already (ICE/none or dual reinject)
