@@ -51,7 +51,15 @@ export class DtlsSocket {
 
   connected = false;
   extensions: Extension[] = [];
-  onHandleHandshakes!: (assembled: FragmentedHandshake[]) => Promise<void>;
+  /**
+   * Assembled handshake handler. `peer` is the source of the datagram that
+   * produced these messages (explicit UDP/inject addr) — async handlers must
+   * reply to this address rather than reading mutable transport.rinfo.
+   */
+  onHandleHandshakes!: (
+    assembled: FragmentedHandshake[],
+    peer?: Address,
+  ) => Promise<void>;
 
   private bufferFragmentedHandshakes: FragmentedHandshake[] = [];
 
@@ -276,7 +284,9 @@ export class DtlsSocket {
                   .map((v) => FragmentedHandshake.assemble(v))
                   .sort((a, b) => a.msg_type - b.msg_type);
 
-                this.onHandleHandshakes(assembled).catch((error) => {
+                // Pass the datagram source so async Flight2 / protocol alerts
+                // do not depend on mutable UdpTransport.rinfo after await.
+                this.onHandleHandshakes(assembled, peer).catch((error) => {
                   err(this.dtls.sessionId, "onHandleHandshakes error", error);
                   const e =
                     error instanceof Error ? error : new Error(String(error));
@@ -853,8 +863,10 @@ export class DtlsSocket {
 
   /**
    * Wire DTLS 1.3 engine events onto this socket.
-   * @param filterError return true to swallow the error (e.g. dual-stack version
-   *   mismatch handled by transparent fallback without public onError).
+   * @param engine DTLS 1.3 connection to bridge.
+   * @param options Optional bridge options. When `options.filterError` returns
+   *   true, swallow the error (e.g. dual-stack version mismatch handled by
+   *   transparent fallback without public onError).
    */
   protected bridgeEngine13(
     engine: Dtls13Connection,
@@ -916,14 +928,21 @@ export class DtlsSocket {
 
   /**
    * Send a fatal DTLSPlaintext alert (used for protocol_version mismatch).
+   * @param description Alert description code.
+   * @param dest Explicit peer for this reply. Required pre-cookie so a concurrent
+   *   spoof cannot redirect via mutable transport.rinfo; post-pin falls back to
+   *   TransportContext.pinnedPeer when omitted.
    */
-  protected async sendPlaintextAlert(description: number): Promise<void> {
+  protected async sendPlaintextAlert(
+    description: number,
+    dest?: Address,
+  ): Promise<void> {
     const alert = Buffer.from([2, description]); // fatal
     const pkt = createPlaintext(this.dtls)(
       [{ type: ContentType.alert, fragment: alert }],
       ++this.dtls.recordSequenceNumber,
     )[0];
-    await this.transport.send(pkt.serialize());
+    await this.transport.send(pkt.serialize(), dest);
   }
 }
 
@@ -949,7 +968,7 @@ export interface Options {
    * viable under RFC 8446/9147 downgrade protection (DOWNGRD): dual×dual peers
    * cannot complete a deliberate 1.2 selection without aborting.
    *
-   * Both roles use the same {@link selectVersion} semantics:
+   * Both roles use the same association version-selection semantics:
    * first local preference that appears in the peer's supported set.
    * ClientHello `supported_versions` is advertised in this order.
    */

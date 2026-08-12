@@ -180,8 +180,28 @@ export class DtlsServer extends DtlsSocket {
   }
 
   private flight6?: Flight6;
-  private handleHandshakes = async (assembled: FragmentedHandshake[]) => {
+  private handleHandshakes = async (
+    assembled: FragmentedHandshake[],
+    peer?: Address,
+  ) => {
     if (this.engine13) return;
+
+    // Freeze the datagram source for this async turn. Concurrent spoof RX may
+    // overwrite UdpTransport.rinfo before Flight2 / protocol alerts send.
+    const replyTo: Address | undefined =
+      peer ??
+      (() => {
+        const p = peerAddrFromTransport(
+          this.options.transport as {
+            rinfo?: { address?: string; port?: number };
+          },
+        );
+        if (Array.isArray(p)) return [p[0], p[1]] as Address;
+        if (p && p.address != null && p.port != null) {
+          return [p.address, p.port] as Address;
+        }
+        return undefined;
+      })();
 
     log(
       this.dtls.sessionId,
@@ -216,13 +236,10 @@ export class DtlsServer extends DtlsSocket {
             ) {
               const selected = this.selectVersionFromClientHello(clientHello);
               if (selected === DtlsVersion.V1_3) {
-                // Preserve ClientHello source address so dtls-cookie binding
-                // uses the same peerKey at mint and verify (not "unknown").
-                const peerAddr = peerAddrFromTransport(
-                  this.options.transport as {
-                    rinfo?: { address?: string; port?: number };
-                  },
-                );
+                // Preserve ClientHello source for dtls-cookie peerKey mint/verify.
+                const peerAddr: [string, number] | undefined = replyTo
+                  ? [replyTo[0], replyTo[1]]
+                  : undefined;
                 this.startEngine13();
                 const eng = this.engine13 as Dtls13Connection | undefined;
                 if (eng) {
@@ -246,7 +263,10 @@ export class DtlsServer extends DtlsSocket {
               if (selected === undefined) {
                 // No overlap — send alert. Only association-fatal after pin
                 // (post-cookie); pre-cookie must not DoS the listening server.
-                await this.sendPlaintextAlert(AlertDesc.ProtocolVersion);
+                await this.sendPlaintextAlert(
+                  AlertDesc.ProtocolVersion,
+                  replyTo,
+                );
                 if (this.associationTornDown) return;
                 if (this.transport.pinnedPeer) {
                   this.reportLegacy12Fatal(
@@ -284,7 +304,10 @@ export class DtlsServer extends DtlsSocket {
               !supportsVersion(this.protocolVersions, DtlsVersion.V1_3) &&
               clientHello.cipherSuites.every((c) => c === 0x1301)
             ) {
-              await this.sendPlaintextAlert(AlertDesc.ProtocolVersion);
+              await this.sendPlaintextAlert(
+                AlertDesc.ProtocolVersion,
+                replyTo,
+              );
               if (this.associationTornDown) return;
               if (this.transport.pinnedPeer) {
                 this.reportLegacy12Fatal(
@@ -303,16 +326,15 @@ export class DtlsServer extends DtlsSocket {
                 this.dtls,
                 this.cipher,
                 this.srtp,
-              )(clientHello);
+              )(clientHello, replyTo);
             } else if (
               this.dtls.cookie &&
               clientHello.cookie.equals(this.dtls.cookie)
             ) {
-              // Cookie return-routability succeeded: pin TX peer so spoofed
-              // datagrams that overwrite UdpTransport.rinfo cannot redirect
-              // Flight4 retransmit or later application data (association TX
-              // ownership; client already pins at connect()).
-              this.pinSendPeerFromTransportRinfo("set-if-empty");
+              // Cookie return-routability succeeded: pin TX peer from the CH
+              // source (not last rinfo) so spoofed datagrams cannot redirect
+              // Flight4 retransmit or later application data.
+              this.pinSendPeer(replyTo, "set-if-empty");
               log(this.dtls.sessionId, "send flight4");
               await new Flight4(
                 this.transport,

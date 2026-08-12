@@ -245,6 +245,11 @@ export class DtlsClient extends DtlsSocket {
         });
       });
     }
+
+    // Engine constructor binds transport.onData / carrier.inject to itself.
+    // Association must own both immediately (pure 1.3 and dual initial) so
+    // terminal/peer gates and carrier.inject never bypass udpOnMessage.
+    this.bindAssociationInbound(engine);
   }
 
   /**
@@ -604,13 +609,9 @@ export class DtlsClient extends DtlsSocket {
         addr = [this.transport.pinnedPeer[0], this.transport.pinnedPeer[1]];
       }
     }
-    // Peer gate before mutating shared transport.rinfo
-    if (
-      (this.dualPhase === "probing" ||
-        this.dualPhase === "committed12" ||
-        this.dualPhase === "committed13") &&
-      !this.isAssociationPeer(addr)
-    ) {
+    // Peer gate before mutating shared transport.rinfo (all phases with a pin:
+    // pure/none, probing, committed12/13). isAssociationPeer is true when unpinned.
+    if (!this.isAssociationPeer(addr)) {
       log(
         "dual association: inject drop non-association peer (rinfo unchanged)",
         peerKeyFromAddr(
@@ -1145,7 +1146,10 @@ export class DtlsClient extends DtlsSocket {
   }
 
   private flight5?: Flight5;
-  private handleHandshakes = async (assembled: FragmentedHandshake[]) => {
+  private handleHandshakes = async (
+    assembled: FragmentedHandshake[],
+    _peer?: Address,
+  ) => {
     if (this.engine13) return;
     if (this.dualPhase === "closed") return;
     // Capture generation so awaits cannot resume after close / commit13.
@@ -1365,26 +1369,20 @@ export class DtlsClient extends DtlsSocket {
       ? ([peerAddr[0], peerAddr[1]] as [string, number])
       : undefined;
 
-    if (this.engine13 && !this.engine13.isClosed()) {
-      this.engine13.injectDatagram(data, peerTuple);
-      return;
-    }
-
-    // Version commit / dual probing: require association peer before acting.
-    // Spoofed SH must not stop 1.2 Flight1 or unpark 1.3 (DoS).
-    // Also restore rinfo after UDP path already overwrote it with the spoof source.
-    if (
-      (this.dualPhase === "probing" ||
-        this.dualPhase === "committed12" ||
-        this.dualPhase === "committed13") &&
-      !this.isAssociationPeer(peerAddr)
-    ) {
+    // Peer gate for every phase that has a pin (pure 1.3 after connect, dual
+    // probing/committed). Unpinned pure/initial still accepts (engine/pre-HS).
+    if (!this.isAssociationPeer(peerAddr)) {
       log(
         "dual association: drop datagram from non-association peer",
         peerKeyFromAddr(peerTuple),
         this.dualAssociationPeerKey,
       );
       this.restorePinnedRinfo();
+      return;
+    }
+
+    if (this.engine13 && !this.engine13.isClosed()) {
+      this.engine13.injectDatagram(data, peerTuple);
       return;
     }
 

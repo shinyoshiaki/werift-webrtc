@@ -19,6 +19,7 @@ import { UseSRTP } from "../../handshake/extensions/useSrtp";
 import type { ClientHello } from "../../handshake/message/client/hello";
 import { ServerHelloVerifyRequest } from "../../handshake/message/server/helloVerifyRequest";
 import { DtlsRandom } from "../../handshake/random";
+import type { Address } from "../../imports/common";
 import { type SrtpProfile, debug } from "../../imports/rtp";
 import { createFragments, createPlaintext } from "../../record/builder";
 import { ContentType } from "../../record/const";
@@ -34,7 +35,7 @@ export const flight2 =
     cipher: CipherContext,
     srtp: SrtpContext,
   ) =>
-  (clientHello: ClientHello) => {
+  (clientHello: ClientHello, dest?: Address) => {
     log("dtls version", clientHello.clientVersion);
 
     dtls.flight = 2;
@@ -159,7 +160,9 @@ export const flight2 =
     );
 
     const chunk = packets.map((v) => v.serialize());
+    // Explicit dest freezes the ClientHello source across async handleHandshakes
+    // so concurrent spoof RX cannot redirect HVR via mutable transport.rinfo.
     for (const buf of chunk) {
-      udp.send(buf);
+      udp.send(buf, dest);
     }
   };

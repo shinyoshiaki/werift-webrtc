@@ -111,13 +111,21 @@ When set, DTLS 1.3 engine owns the transport and crypto state.
 
 ### onHandleHandshakes()
 
-> **onHandleHandshakes**: (`assembled`) => `Promise`\<`void`\>
+> **onHandleHandshakes**: (`assembled`, `peer`?) => `Promise`\<`void`\>
+
+Assembled handshake handler. `peer` is the source of the datagram that
+produced these messages (explicit UDP/inject addr) — async handlers must
+reply to this address rather than reading mutable transport.rinfo.
 
 #### Parameters
 
 ##### assembled
 
 `FragmentedHandshake`[]
+
+##### peer?
+
+readonly \[`string`, `number`\]
 
 #### Returns
 
@@ -248,7 +256,13 @@ Wire DTLS 1.3 engine events onto this socket.
 
 `Dtls13Connection`
 
+DTLS 1.3 connection to bridge.
+
 ##### options?
+
+Optional bridge options. When `options.filterError` returns
+  true, swallow the error (e.g. dual-stack version mismatch handled by
+  transparent fallback without public onError).
 
 ###### filterError?
 
@@ -746,7 +760,7 @@ Best-effort close_notify on the current 1.2 write epoch.
 
 ### sendPlaintextAlert()
 
-> `protected` **sendPlaintextAlert**(`description`): `Promise`\<`void`\>
+> `protected` **sendPlaintextAlert**(`description`, `dest`?): `Promise`\<`void`\>
 
 Send a fatal DTLSPlaintext alert (used for protocol_version mismatch).
 
@@ -755,6 +769,16 @@ Send a fatal DTLSPlaintext alert (used for protocol_version mismatch).
 ##### description
 
 `number`
+
+Alert description code.
+
+##### dest?
+
+readonly \[`string`, `number`\]
+
+Explicit peer for this reply. Required pre-cookie so a concurrent
+  spoof cannot redirect via mutable transport.rinfo; post-pin falls back to
+  TransportContext.pinnedPeer when omitted.
 
 #### Returns
 

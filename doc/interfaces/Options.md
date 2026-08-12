@@ -76,7 +76,7 @@ Supported configurations:
 viable under RFC 8446/9147 downgrade protection (DOWNGRD): dual×dual peers
 cannot complete a deliberate 1.2 selection without aborting.
 
-Both roles use the same selectVersion semantics:
+Both roles use the same association version-selection semantics:
 first local preference that appears in the peer's supported set.
 ClientHello `supported_versions` is advertised in this order.
 
