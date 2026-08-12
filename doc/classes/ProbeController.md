@@ -24,6 +24,10 @@ Pacing vs result-wait are **separated** (libwebrtc BitrateProber):
   history prune uses **receive timeline** (`receivedAtMs`) plus sender age
 - Zero-packet pacing timeouts are discarded (nothing measurable for TWCC)
 - `setBitrates` / activate returns only **activated** configs (for pacing)
+- Further via [setEstimatedBitrate](ProbeController.md#setestimatedbitrate) only while `waiting_for_result`
+  (pin SetEstimatedBitrate); session `complete` sets
+  `minBitrateToProbeFurther = +∞` (UpdateState(kProbingComplete))
+- Recovery after complete uses [requestProbe](ProbeController.md#requestprobe) (not further threshold)
 
 ## Constructors
 
@@ -375,6 +379,12 @@ gating). Optional `maxProbeBps` is InitiateProbing's max_probe_bitrate
 > **setEstimatedBitrate**(`bitrateBps`, `nowMs`, `opts`?): [`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
 
 Further-probe after a successful estimate update.
+
+libwebrtc `ProbeController::SetEstimatedBitrate` only continues exponential
+further probing while `state_ == kWaitingForProbingResult`. Once the session
+is `kProbingComplete`, `min_bitrate_to_probe_further_` is +∞ and further
+clusters are not opened from this path (recovery uses [requestProbe](ProbeController.md#requestprobe)).
+
 `maxProbeBps` mirrors InitiateProbing max_probe_bitrate for the current
 BandwidthLimitedCause (loss-limited increasing → estimated × 1.5).
 

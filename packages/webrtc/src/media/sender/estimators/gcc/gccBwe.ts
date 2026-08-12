@@ -383,23 +383,26 @@ export class GccBandwidthEstimator
       lossPackets,
     );
 
-    // libwebrtc GetBandwidthLimitedCause → InitiateProbing permission / cap.
-    // Cause is evaluated on pre-probe-apply loss state (matches MaybeTrigger
-    // ordering: loss estimator update then SetEstimatedBitrate with cause).
-    const lossState = this.lossBwe.lossState;
-    const rttLimited = isRttAboveLimit(this.lastFeedbackRttMs);
-    const bandwidthLimitedCause = getBandwidthLimitedCause(
-      usage,
-      rttLimited,
-      lossState,
-    );
-    const allowNewProbe = isProbeInitiationAllowed(bandwidthLimitedCause);
-
     // High RTT only gates new probes (kRttBasedBackOffHighRtt → InitiateProbing
     // empty). Target bitrate stays on delay/loss/probe paths in this pin set;
     // SendSideBandwidthEstimation ×0.8 RttBasedBackoff drops are not applied
     // (source file outside third_party/libwebrtc-ref).
     let target = Math.min(this.delayBasedBps, this.lossBasedBps);
+
+    // GetBandwidthLimitedCause for *new* probes must use the loss state from
+    // this feedback's loss update — **before** probe apply's setBandwidthEstimate
+    // forces delay_based. Pin production path re-runs UpdateLossBasedEstimator
+    // after delay/probe and only then builds the cause; we do not re-observe
+    // here, so pre-apply loss state is the correct gating snapshot (otherwise
+    // a rising probe result would wipe decreasing/hold and incorrectly allow
+    // recovery/further on the same TWCC batch).
+    const rttLimited = isRttAboveLimit(this.lastFeedbackRttMs);
+    const bandwidthLimitedCause = getBandwidthLimitedCause(
+      usage,
+      rttLimited,
+      this.lossBwe.lossState,
+    );
+    const allowNewProbe = isProbeInitiationAllowed(bandwidthLimitedCause);
 
     // Apply valid probe results (libwebrtc GoogCc):
     // - Rise: only when not overusing; soft caps by initial vs recovery phase.
@@ -455,21 +458,6 @@ export class GccBandwidthEstimator
         this.delayBasedBps = accepted;
         this.lossBasedBps = accepted;
       }
-      // Further-probe: cause from pre-apply state; max_probe uses the estimate
-      // passed into SetEstimatedBitrate (libwebrtc estimated_bitrate_ = bitrate).
-      const forFurther = apply && accepted > 0 ? accepted : target;
-      if (forFurther > 0 && allowNewProbe) {
-        const maxProbe = maxProbeBitrateBps(
-          bandwidthLimitedCause,
-          forFurther,
-          kMaxBitrateBps,
-        );
-        for (const cfg of this.probe.setEstimatedBitrate(forFurther, nowMs, {
-          maxProbeBps: maxProbe,
-        })) {
-          this.onProbeClusterActivated(cfg, nowMs);
-        }
-      }
     }
 
     if (this.probe.probeState === "complete") {
@@ -478,6 +466,22 @@ export class GccBandwidthEstimator
 
     if (target > 0 && this.hasValidSample) {
       setAvailableBitrateIfChanged(this, target);
+    }
+
+    // libwebrtc MaybeTriggerOnNetworkChanged → SetEstimatedBitrate on every
+    // target update (not only when a probe result is pending). Further clusters
+    // open only while ProbeController is still waiting_for_result; complete
+    // clears min_bitrate_to_probe_further so this call is a no-op after session end.
+    // maxProbeBps=0 when cause forbids InitiateProbing (still updates estimated).
+    if (target > 0) {
+      const maxProbe = allowNewProbe
+        ? maxProbeBitrateBps(bandwidthLimitedCause, target, kMaxBitrateBps)
+        : 0;
+      for (const cfg of this.probe.setEstimatedBitrate(target, nowMs, {
+        maxProbeBps: maxProbe,
+      })) {
+        this.onProbeClusterActivated(cfg, nowMs);
+      }
     }
 
     // Recovery probe only on underuse → normal (libwebrtc recovered_from_overuse).
