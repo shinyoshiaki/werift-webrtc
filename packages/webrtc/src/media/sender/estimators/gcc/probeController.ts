@@ -96,6 +96,10 @@ interface ClusterRuntime {
  *   history prune uses **receive timeline** (`receivedAtMs`) plus sender age
  * - Zero-packet pacing timeouts are discarded (nothing measurable for TWCC)
  * - `setBitrates` / activate returns only **activated** configs (for pacing)
+ * - Further via {@link setEstimatedBitrate} only while `waiting_for_result`
+ *   (pin SetEstimatedBitrate); session `complete` sets
+ *   `minBitrateToProbeFurther = +∞` (UpdateState(kProbingComplete))
+ * - Recovery after complete uses {@link requestProbe} (not further threshold)
  */
 export class ProbeController {
   private state: ProbeState = "init";
@@ -272,6 +276,12 @@ export class ProbeController {
 
   /**
    * Further-probe after a successful estimate update.
+   *
+   * libwebrtc `ProbeController::SetEstimatedBitrate` only continues exponential
+   * further probing while `state_ == kWaitingForProbingResult`. Once the session
+   * is `kProbingComplete`, `min_bitrate_to_probe_further_` is +∞ and further
+   * clusters are not opened from this path (recovery uses {@link requestProbe}).
+   *
    * `maxProbeBps` mirrors InitiateProbing max_probe_bitrate for the current
    * BandwidthLimitedCause (loss-limited increasing → estimated × 1.5).
    */
@@ -280,16 +290,22 @@ export class ProbeController {
     nowMs: number,
     opts?: { maxProbeBps?: number },
   ): ProbeClusterConfig[] {
-    if (!this.cooldownElapsed(nowMs) && this.state === "complete") {
+    // Track the latest BWE target (libwebrtc updates estimated_bitrate_ always).
+    if (bitrateBps > 0) {
+      this.estimatedBps = bitrateBps;
+    }
+    // Further probing is **only** while the controller still awaits results.
+    // complete / init never open further via this path (pin SetEstimatedBitrate).
+    if (this.state !== "waiting_for_result") {
       return [];
     }
     // Further-probe uses last **planned** target threshold, not last success.
-    // Infinity disables further probes after a max-bitrate last cluster.
+    // Infinity disables further probes after a max-bitrate last cluster or after
+    // the session transitions to complete (UpdateState(kProbingComplete)).
     if (
       this.minBitrateToProbeFurther > 0 &&
       Number.isFinite(this.minBitrateToProbeFurther) &&
-      bitrateBps > this.minBitrateToProbeFurther &&
-      (this.state === "complete" || this.state === "waiting_for_result")
+      bitrateBps > this.minBitrateToProbeFurther
     ) {
       const maxProbe = this.effectiveMaxProbeBps(opts?.maxProbeBps);
       if (maxProbe <= 0) return [];
@@ -518,6 +534,9 @@ export class ProbeController {
     this.queue = [];
     this.seqToCluster.clear();
     this.seqToSendInfo.clear();
+    // Any abort ends further-probe eligibility for this session (same as
+    // UpdateState(kProbingComplete) clearing min_bitrate_to_probe_further_).
+    this.minBitrateToProbeFurther = Number.POSITIVE_INFINITY;
     if (this.state === "waiting_for_result") {
       // After probing was initiated, failures still end in complete so
       // recovery probing remains available (libwebrtc kProbingComplete).
@@ -584,6 +603,11 @@ export class ProbeController {
       // Always complete once a session was started — even if every cluster
       // timed out / failed. Returning to init permanently disables recovery
       // because ensureProbing() will not re-run setBitrates().
+      //
+      // libwebrtc UpdateState(kProbingComplete): min_bitrate_to_probe_further_
+      // becomes +∞ so SetEstimatedBitrate cannot re-open further clusters after
+      // the controller leaves kWaitingForProbingResult (timeout or empty queue).
+      this.minBitrateToProbeFurther = Number.POSITIVE_INFINITY;
       this.state = "complete";
     }
   }

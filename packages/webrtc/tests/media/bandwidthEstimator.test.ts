@@ -1781,6 +1781,10 @@ describe("media/sender bandwidth estimator", () => {
       expect(probe.awaitingResultCount).toBe(0);
       // Assert: init に戻さず complete（ensureProbing 再実行不能でも recovery 可）
       expect(probe.probeState).toBe("complete");
+      // Assert: complete 時 further threshold は +∞（pin UpdateState(kProbingComplete)）
+      expect(probe.furtherProbeThresholdBps).toBe(Number.POSITIVE_INFINITY);
+      // Assert: complete 後 SetEstimatedBitrate では further を再開しない
+      expect(probe.setEstimatedBitrate(500_000, afterTimeout + 1)).toEqual([]);
 
       // Act: cooldown (5s) 後に recovery
       const recovery = probe.requestProbe(150_000, afterTimeout + 5_000);
@@ -1793,13 +1797,15 @@ describe("media/sender bandwidth estimator", () => {
     test("max bitrate 到達後は last max probe のみで further を止め complete する", () => {
       // Arrange: max=1Mbps。further の uncapped (×2) が max を超えると
       // libwebrtc 同様に max で 1 回だけ probe し、以降 further しない。
+      // SetEstimatedBitrate の further は waiting_for_result の間だけ（pin）。
       const maxBps = 1_000_000;
       const probe = new ProbeController();
       probe.setBitrates(10_000, 100_000, maxBps, 0);
-      // 初期 3x/6x を破棄し、further 可能な complete 状態へ
+      // 初期 3x/6x を破棄し、waiting 中に further threshold だけ再注入
       probe.abort(1_000);
       expect(probe.probeState).toBe("complete");
-      (probe as any).lastProbeEndMs = Number.NEGATIVE_INFINITY;
+      expect(probe.furtherProbeThresholdBps).toBe(Number.POSITIVE_INFINITY);
+      (probe as any).state = "waiting_for_result";
       (probe as any).minBitrateToProbeFurther = 400_000;
       (probe as any).estimatedBps = 800_000;
 
@@ -1827,13 +1833,101 @@ describe("media/sender bandwidth estimator", () => {
       probe.process(lastSend + 1_001);
       expect(probe.awaitingResultCount).toBe(0);
       expect(probe.probeState).toBe("complete");
+      expect(probe.furtherProbeThresholdBps).toBe(Number.POSITIVE_INFINITY);
       expect(probe.queuedClusterCount).toBe(0);
       expect(probe.currentProbeTargetBps).toBe(0);
 
-      // complete 後も Infinity threshold なら further しない（cooldown 経過後でも）
+      // complete 後は state ゲート + Infinity threshold で further しない
       (probe as any).lastProbeEndMs = 0;
       const afterComplete = probe.setEstimatedBitrate(990_000, 100_000);
       expect(afterComplete).toEqual([]);
+    });
+
+    test("repeated recovery でも estimator history / seq map は有界", () => {
+      // Arrange: recovery を多数回繰り返し、history が無制限に増えないこと
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, 1e9, 0);
+      // 初期 session を abort → complete
+      probe.abort(1_000);
+      expect(probe.probeState).toBe("complete");
+
+      let t = 10_000;
+      let seq = 1;
+      const historySamples: number[] = [];
+
+      for (let round = 0; round < 40; round++) {
+        // Act: cooldown 経過後に recovery
+        t += 5_001;
+        const activated = probe.requestProbe(150_000 + round * 1_000, t);
+        expect(activated.length).toBe(1);
+        // send-fill（minPackets=5, 大きめ size で minBytes も満たす）
+        for (let i = 0; i < 5; i++) {
+          t += 2;
+          probe.onProbePacketSent(400, t, seq++);
+        }
+        // ACK して result 成立 → awaiting に残る
+        for (let i = 0; i < 5; i++) {
+          probe.onAckedPacket(
+            400,
+            t + 20 + i * 2,
+            true,
+            seq - 5 + i,
+            t + 40,
+            t - 8 + i * 2,
+          );
+        }
+        // controller timeout → history へ
+        t += 1_001;
+        probe.process(t);
+        expect(probe.probeState).toBe("complete");
+        historySamples.push(probe.estimatorHistoryCount);
+        // sender-side 10s prune を進める（古い history を回収）
+        t += 10_001;
+        probe.process(t);
+      }
+
+      // Assert: 最終 history は有界（sender age prune 後は 0 近傍）
+      expect(probe.estimatorHistoryCount).toBeLessThanOrEqual(2);
+      // 途中も数十オーダーに張り付かない（40 round 全保持しない）
+      expect(Math.max(...historySamples)).toBeLessThanOrEqual(5);
+      // seq maps も process 後に実質空
+      expect((probe as any).seqToCluster.size).toBeLessThanOrEqual(16);
+    });
+
+    test("controller complete 後は further threshold が Infinity になり further を再開しない", () => {
+      // Arrange: initial 3x/6x を send-fill → result timeout で complete
+      // pin UpdateState(kProbingComplete): min_bitrate_to_probe_further = +∞
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, 1e9, 0);
+      expect(probe.furtherProbeThresholdBps).toBe(Math.round(600_000 * 0.7));
+
+      let lastSend = 0;
+      for (let i = 0; i < 5; i++) {
+        lastSend = 1_000 + i;
+        probe.onProbePacketSent(300, lastSend, i + 1);
+      }
+      for (let i = 0; i < 5; i++) {
+        lastSend = 1_100 + i;
+        probe.onProbePacketSent(300, lastSend, 10 + i);
+      }
+      expect(probe.awaitingResultCount).toBe(2);
+      expect(probe.probeState).toBe("waiting_for_result");
+
+      // Act: controller result-wait timeout → complete
+      probe.process(lastSend + 1_001);
+
+      // Assert: complete + further 閾値が +∞（session 終了後の SetEstimatedBitrate は no-op）
+      expect(probe.probeState).toBe("complete");
+      expect(probe.furtherProbeThresholdBps).toBe(Number.POSITIVE_INFINITY);
+      const further = probe.setEstimatedBitrate(900_000, lastSend + 10_000);
+      expect(further).toEqual([]);
+      expect(probe.probeState).toBe("complete");
+      expect(probe.queuedClusterCount).toBe(0);
+      expect(probe.currentProbeTargetBps).toBe(0);
+
+      // Assert: complete 中に threshold を人為的に戻しても state ゲートで further しない
+      (probe as any).minBitrateToProbeFurther = 100_000;
+      expect(probe.setEstimatedBitrate(500_000, lastSend + 20_000)).toEqual([]);
     });
 
     test("6x result 受理後も complete 前なら further probe を enqueue できる", () => {
@@ -2829,12 +2923,12 @@ describe("media/sender bandwidth estimator", () => {
 
     test("loss increasing 中の further probe は estimated×1.5 で cap される", () => {
       // Arrange: ProbeController 単体 — cause cap を InitiateProbing 相当で適用
+      // further は waiting_for_result の間のみ（pin SetEstimatedBitrate）
       const probe = new ProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       probe.abort(1_000);
-      (probe as any).lastProbeEndMs = Number.NEGATIVE_INFINITY;
+      (probe as any).state = "waiting_for_result";
       (probe as any).minBitrateToProbeFurther = 100_000;
-      (probe as any).state = "complete";
 
       const estimated = 400_000;
       const maxProbe = estimated * kLossLimitedProbeScale; // 600kbps
@@ -2875,14 +2969,13 @@ describe("media/sender bandwidth estimator", () => {
     });
 
     test("loss increasing でも GCC full-path で further が scale cap される", () => {
-      // Arrange: complete + further 可能 + loss=increasing + rising probe result
+      // Arrange: waiting_for_result + further 可能 + loss=increasing + rising probe
+      // （pin: SetEstimatedBitrate further は waiting 中のみ。complete では再開しない）
+      // 注意: rtpPacketSent → process() は empty waiting を complete に落とすため、
+      // waiting / further threshold / pending は TWCC 直前に注入する。
       const gcc = new GccBandwidthEstimator(200_000);
       gcc.shouldTagProbePacket();
       (gcc as any).probe.abort(0);
-      (gcc as any).probe.state = "complete";
-      (gcc as any).probe.lastProbeEndMs = Date.now() - 10_000;
-      (gcc as any).probe.minBitrateToProbeFurther = 50_000;
-      (gcc as any).probe.pendingEstimateBps = 400_000;
       (gcc as any).hasValidSample = true;
       (gcc as any).delayBasedBps = 200_000;
       (gcc as any).lossBasedBps = 200_000;
@@ -2922,6 +3015,36 @@ describe("media/sender bandwidth estimator", () => {
           isProbation: false,
         } as any);
       }
+
+      // Act 準備: process 後に waiting session を開き直す
+      (gcc as any).probe.state = "waiting_for_result";
+      (gcc as any).probe.minBitrateToProbeFurther = 50_000;
+      (gcc as any).probe.pendingEstimateBps = 400_000;
+      // empty waiting が process で complete に落ちないよう dummy awaiting を残す
+      (gcc as any).probe.awaitingResults.set(9999, {
+        config: {
+          id: 9999,
+          targetBps: 100_000,
+          minPackets: 5,
+          minDurationMs: 15,
+          minBytes: 1000,
+        },
+        startMs: t0,
+        sentBytes: 1000,
+        sentPackets: 5,
+        firstSendMs: t0,
+        lastSendMs: t0 + 50_000, // process の 1s timeout を避ける
+        ackedBytes: 0,
+        ackedPackets: 0,
+        firstAckedSendMs: 0,
+        lastAckedSendMs: 0,
+        sizeLastAckedSend: 0,
+        firstRecvMs: 0,
+        lastRecvMs: 0,
+        sizeFirstRecv: 0,
+        resultAccepted: false,
+      });
+
       // Act
       gcc.receiveTWCC(
         makeTwccFeedback(
@@ -2938,7 +3061,7 @@ describe("media/sender bandwidth estimator", () => {
       // Assert: further が起動し、target ≤ accepted×1.5（pin loss_limited_scale）
       expect(probeCfgs.length).toBeGreaterThanOrEqual(1);
       const accepted = Math.max(...probeCfgs);
-      // pending 400k が適用された後 forFurther 周りで ×1.5 cap
+      // pending 400k 適用後 target≈400k → further uncapped 800k → cap 600k
       expect(accepted).toBeLessThanOrEqual(
         400_000 * kLossLimitedProbeScale + 1,
       );
