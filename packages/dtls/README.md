@@ -85,6 +85,8 @@ Mismatch **1.3-only × 1.2-only** fails with `ProtocolVersionError` / `protocol_
 
 ## Association lifecycle (1.2 / 1.3 / dual)
 
+Wire-initiated renegotiation is not supported after connect; post-handshake epoch-0 handshake records are dropped.
+
 One `DtlsClient` / `DtlsServer` instance is a **single association**. After any terminal transition the socket is not reusable:
 
 | Terminal cause | Events | Public API (`send` / exporter / `remoteCertificate` / `connect`) |
