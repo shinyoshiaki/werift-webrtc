@@ -1,3 +1,9 @@
+import { getHostAddresses } from "../../../ice/src/utils";
+import {
+  TURN_TEST_PASSWORD,
+  TURN_TEST_USERNAME,
+  createLocalTurnServer,
+} from "../../../ice/tests/utils";
 import { RTCIceGatherer, RTCIceTransport, RTCPeerConnection } from "../../src";
 import { iceTransportPair } from "../fixture";
 
@@ -58,6 +64,67 @@ describe("iceTransport", () => {
         await pc.close();
       }
     });
+
+    test(
+      "WHIP: setConfiguration 後の setLocalDescription/gather で TURN relay が生成される",
+      async () => {
+        // Arrange: ローカル TURN + WHIP 相当（offer 時点では iceServers 空）
+        const localTurnHost = getHostAddresses(true, false)[0]!;
+        const turnServer = await createLocalTurnServer(localTurnHost);
+        const [turnHost, turnPort] = turnServer.address!;
+
+        const pc = new RTCPeerConnection({
+          iceServers: [],
+          iceTransportPolicy: "relay",
+        });
+        try {
+          pc.createDataChannel("whip-relay");
+          // Act: 先に offer を作り gatherer を構築（まだ gather しない）
+          const offer = await pc.createOffer();
+          const ice = (pc as any).secureManager
+            .iceTransports[0] as RTCIceTransport;
+          expect(ice.gatheringState).toBe("new");
+          expect(ice.connection.turnServer).toBeUndefined();
+          expect(ice.localCandidates).toEqual([]);
+
+          // Act: WHIP Link ヘッダ相当で TURN を setConfiguration してから gather
+          pc.setConfiguration({
+            iceServers: [
+              {
+                urls: `turn:${turnHost}:${turnPort}`,
+                username: TURN_TEST_USERNAME,
+                credential: TURN_TEST_PASSWORD,
+              },
+            ],
+          });
+          expect(ice.connection.turnServer).toEqual([turnHost, turnPort]);
+
+          // Act: setLocalDescription が gathering を起動する（チケット Usage と同じ順序）
+          await pc.setLocalDescription(offer);
+
+          // Assert: gathering 完了し、stage した TURN から relay candidate が実際に出る
+          expect(ice.gatheringState).toBe("complete");
+          expect(pc.iceGatheringState).toBe("complete");
+          const relayCandidates = ice.localCandidates.filter(
+            (candidate) => candidate.type === "relay",
+          );
+          expect(relayCandidates.length).toBeGreaterThan(0);
+          // relay-only ポリシーなので host は出さず relay のみ
+          expect(
+            ice.localCandidates.every(
+              (candidate) => candidate.type === "relay",
+            ),
+          ).toBe(true);
+          // 認証に使った TURN が Connection に残っている（残滓クリアの逆方向）
+          expect(ice.connection.options.turnUsername).toBe(TURN_TEST_USERNAME);
+          expect(ice.connection.options.turnPassword).toBe(TURN_TEST_PASSWORD);
+        } finally {
+          await pc.close();
+          await turnServer.close();
+        }
+      },
+      20_000,
+    );
 
     test("TURN A → STUN only で Connection 上の TURN residual が消える", async () => {
       // Arrange: TURN A で PeerConnection を構築
