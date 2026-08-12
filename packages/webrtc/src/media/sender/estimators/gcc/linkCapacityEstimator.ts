@@ -5,9 +5,22 @@
  */
 export class LinkCapacityEstimator {
   private estimateKbps: number | undefined;
+  /** Normalized variance; constructor default 0.4. Pin Reset does **not** clear this. */
   private deviationKbps = 0.4;
 
+  /**
+   * pin `LinkCapacityEstimator::Reset` — clear capacity estimate only.
+   * Deviation history is retained (used on AIMD throughput bound transitions).
+   */
   reset() {
+    this.estimateKbps = undefined;
+  }
+
+  /**
+   * Full estimator re-init (route change / GccBandwidthEstimator.reset).
+   * Not the same as pin Reset() during AIMD state transitions.
+   */
+  resetAll() {
     this.estimateKbps = undefined;
     this.deviationKbps = 0.4;
   }
@@ -19,6 +32,11 @@ export class LinkCapacityEstimator {
   /** Estimated capacity in bps. */
   estimateBps(): number {
     return Math.round((this.estimateKbps ?? 0) * 1000);
+  }
+
+  /** Diagnostics: current deviation_kbps_ (normalized variance). */
+  get deviationKbpsValue(): number {
+    return this.deviationKbps;
   }
 
   /** Upper bound bps (estimate + 3σ), or +∞ if unknown. */

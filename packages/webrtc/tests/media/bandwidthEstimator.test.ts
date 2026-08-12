@@ -33,8 +33,10 @@ import {
   hasTwccReceiveTiming,
   isProbeInitiationAllowed,
   isProbePacingController,
+  isRoundTripTimeConsumer,
   isRttAboveLimit,
   kBeta,
+  LinkCapacityEstimator,
   kLossLimitedProbeScale,
   kProbePaddingPacketBytes,
   kRttBasedBackOffHighRttMs,
@@ -175,6 +177,25 @@ describe("media/sender bandwidth estimator", () => {
       expect(isProbePacingController(gcc)).toBe(true);
       const probe: ProbePacingController = gcc;
       expect(probe.getPacingBitrateBps()).toBeGreaterThan(0);
+    });
+
+    test("共通 BandwidthEstimator に setRoundTripTime は含まれない（capability 分離）", () => {
+      // Arrange
+      const legacy: BandwidthEstimator = new SenderBandwidthEstimator();
+      const gcc = new GccBandwidthEstimator();
+
+      // Assert: type-level — common に RTT 入力が無い
+      type Forbidden = "setRoundTripTime";
+      type Intersection = Extract<keyof BandwidthEstimator, Forbidden>;
+      type AssertNoRtt = [Intersection] extends [never] ? true : false;
+      const noRttOnCommon: AssertNoRtt = true;
+      expect(noRttOnCommon).toBe(true);
+
+      // runtime: RoundTripTimeConsumer は GCC のみ
+      expect(isRoundTripTimeConsumer(legacy)).toBe(false);
+      expect(isRoundTripTimeConsumer(gcc)).toBe(true);
+      gcc.setRoundTripTime(42);
+      expect((gcc as any).aimd.rtt).toBe(42);
     });
 
     test("共通 BandwidthEstimator に congestion API は含まれない（compile-time）", () => {
@@ -1311,6 +1332,48 @@ describe("media/sender bandwidth estimator", () => {
       const limit = 1.5 * 200_000 + 10_000;
       expect(after).toBeLessThanOrEqual(limit);
       expect(after).toBeGreaterThan(100_000);
+    });
+
+    test("raw RTT 180ms→20ms は AIMD に 20ms が渡る（smoothed ではない）", () => {
+      // Arrange: pin OnRoundTripTimeUpdate discards smoothed RTT
+      const gcc = new GccBandwidthEstimator(200_000);
+      gcc.setRoundTripTime(180);
+      expect((gcc as any).aimd.rtt).toBe(180);
+      // Act: next raw sample is 20ms (stats EWMA would be ~156ms)
+      gcc.setRoundTripTime(20);
+      // Assert
+      expect((gcc as any).aimd.rtt).toBe(20);
+      // TimeToReduceFurther interval clamps to max(10, min(200, 20)) = 20ms
+      const aimd = (gcc as any).aimd as AimdRateControl;
+      aimd.reset(300_000);
+      aimd.setRtt(20);
+      aimd.update("overuse", 300_000, 10_000);
+      expect(aimd.timeToReduceFurther(10_015, 300_000)).toBe(false);
+      expect(aimd.timeToReduceFurther(10_020, 300_000)).toBe(true);
+    });
+
+    test("LinkCapacityEstimator.reset は estimate のみ消し deviation を保つ", () => {
+      // Arrange
+      const lc = new LinkCapacityEstimator();
+      // Train deviation above default 0.4
+      for (let i = 0; i < 40; i++) {
+        // Alternating samples around 500 kbps to grow variance
+        lc.onOveruseDetected(i % 2 === 0 ? 200_000 : 800_000);
+      }
+      expect(lc.hasEstimate()).toBe(true);
+      const devBefore = lc.deviationKbpsValue;
+      expect(devBefore).toBeGreaterThan(0.4);
+
+      // Act: pin Reset
+      lc.reset();
+
+      // Assert: estimate gone, deviation retained
+      expect(lc.hasEstimate()).toBe(false);
+      expect(lc.deviationKbpsValue).toBe(devBefore);
+
+      // Act: full reset
+      lc.resetAll();
+      expect(lc.deviationKbpsValue).toBe(0.4);
     });
   });
 

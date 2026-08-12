@@ -12,10 +12,12 @@ export * from "./track";
 export type {
   BandwidthEstimator,
   ProbePacingController,
+  RoundTripTimeConsumer,
   SentInfo,
 } from "./sender/bandwidthEstimator";
 export {
   isProbePacingController,
+  isRoundTripTimeConsumer,
   setAvailableBitrateIfChanged,
 } from "./sender/bandwidthEstimator";
 export {
@@ -29,6 +31,7 @@ export {
   GCC_KNOWN_DIFFERENCES,
   GccBandwidthEstimator,
   InterArrivalDelta,
+  LinkCapacityEstimator,
   LossBasedBwe,
   ProbeController,
   RttBasedBackoff,

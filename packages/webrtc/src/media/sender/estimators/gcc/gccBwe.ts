@@ -4,6 +4,7 @@ import { milliTime } from "../../../../utils";
 import type {
   BandwidthEstimator,
   ProbePacingController,
+  RoundTripTimeConsumer,
   SentInfo,
 } from "../../bandwidthEstimator";
 import { setAvailableBitrateIfChanged } from "../../bandwidthEstimator";
@@ -47,7 +48,7 @@ import { TrendlineEstimator } from "./trendlineEstimator";
  * observed in TWCC (empty / unmatched feedback does not notify).
  */
 export class GccBandwidthEstimator
-  implements BandwidthEstimator, ProbePacingController
+  implements BandwidthEstimator, ProbePacingController, RoundTripTimeConsumer
 {
   /** @internal */
   _availableBitrate = 0;
@@ -87,12 +88,6 @@ export class GccBandwidthEstimator
   private lossBasedBps = kDefaultStartBitrateBps;
   private startBitrateBps: number;
   private probingConfigured = false;
-  /**
-   * False until the first exponential probe session reaches `complete`.
-   * Probe-result target×1.5 cap is applied only after this becomes true, so
-   * cold-start ×3/×6 exploration is not clipped to start×1.5.
-   */
-  private initialExponentialDone = false;
   /** Valid TWCC samples seen at least once (gates publishing estimates). */
   private hasValidSample = false;
   /** Bytes already sent while any probe cluster is active. */
@@ -159,7 +154,8 @@ export class GccBandwidthEstimator
 
   /**
    * pin OnRoundTripTimeUpdate → DelayBasedBwe::OnRttUpdate → AimdRateControl::SetRtt.
-   * Pass RTCP RR RTT in **milliseconds**. Independent of TWCC propagation RTT
+   * Callers must pass **raw** (unsmoothed) RTCP RR RTT in milliseconds — pin
+   * GoogCc discards smoothed RTT updates. Independent of TWCC propagation RTT
    * used by {@link RttBasedBackoff}.
    */
   setRoundTripTime(rttMs: number): void {
@@ -461,10 +457,6 @@ export class GccBandwidthEstimator
     );
     const allowNewProbe = isProbeInitiationAllowed(bandwidthLimitedCause);
 
-    if (this.probe.probeState === "complete") {
-      this.initialExponentialDone = true;
-    }
-
     if (target > 0 && this.hasValidSample) {
       setAvailableBitrateIfChanged(this, target);
     }
@@ -530,7 +522,6 @@ export class GccBandwidthEstimator
     this.delayBasedBps = this.startBitrateBps;
     this.lossBasedBps = this.startBitrateBps;
     this.probingConfigured = false;
-    this.initialExponentialDone = false;
     this.hasValidSample = false;
     this.probeClusterSentBytes = 0;
     this.probeClusterStartMs = 0;

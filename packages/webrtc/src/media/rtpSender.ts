@@ -69,7 +69,10 @@ import type {
   RTCRtpSendParameters,
 } from "./parameters";
 import type { BandwidthEstimator } from "./sender/bandwidthEstimator";
-import { isProbePacingController } from "./sender/bandwidthEstimator";
+import {
+  isProbePacingController,
+  isRoundTripTimeConsumer,
+} from "./sender/bandwidthEstimator";
 import {
   kProbePaddingMaxBurst,
   kProbePaddingPacketBytes,
@@ -881,21 +884,27 @@ export class RTCRtpSender {
               this.remoteFractionLost = report.fractionLost / 256;
               if (this.lastSRtimestamp === report.lsr && report.dlsr) {
                 if (this.lastSentSRTimestamp) {
-                  const rtt =
+                  // Raw RTT for this RR sample (seconds).
+                  const rawRttSeconds =
                     timestampSeconds() -
                     this.lastSentSRTimestamp -
                     report.dlsr / 65536;
-                  this.totalRoundTripTime += rtt;
+                  this.totalRoundTripTime += rawRttSeconds;
                   this.roundTripTimeMeasurements++;
-                  if (this.rtt === undefined) {
-                    this.rtt = rtt;
-                  } else {
-                    this.rtt = RTT_ALPHA * this.rtt + (1 - RTT_ALPHA) * rtt;
+                  // pin OnRoundTripTimeUpdate: only **unsmoothed** RTT goes to
+                  // AIMD (smoothed updates are discarded in GoogCc).
+                  if (
+                    rawRttSeconds > 0 &&
+                    isRoundTripTimeConsumer(this._senderBWE)
+                  ) {
+                    this._senderBWE.setRoundTripTime(rawRttSeconds * 1000);
                   }
-                  // pin OnRoundTripTimeUpdate → AIMD SetRtt (ms). Separate from
-                  // TWCC propagation RTT used by GCC RttBasedBackoff.
-                  if (this.rtt !== undefined && this.rtt > 0) {
-                    this._senderBWE.setRoundTripTime?.(this.rtt * 1000);
+                  // Stats / getStats keep an EWMA separately.
+                  if (this.rtt === undefined) {
+                    this.rtt = rawRttSeconds;
+                  } else {
+                    this.rtt =
+                      RTT_ALPHA * this.rtt + (1 - RTT_ALPHA) * rawRttSeconds;
                   }
                 }
               }

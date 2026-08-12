@@ -20,8 +20,10 @@ export interface SentInfo {
 /**
  * Common contract for send-side bandwidth estimators driven by TWCC feedback.
  *
- * Limited to TWCC I/O + recommended bitrate. Probe / pacing hooks live on
- * {@link ProbePacingController} so the shared surface stays thin.
+ * Limited to TWCC I/O + recommended bitrate (`rtpPacketSent` / `receiveTWCC` /
+ * `availableBitrate` / `onAvailableBitrate`). Algorithm-specific inputs such as
+ * probe pacing or RTCP RTT live on separate capability interfaces so the shared
+ * surface stays thin.
  */
 export interface BandwidthEstimator {
   /**
@@ -44,13 +46,6 @@ export interface BandwidthEstimator {
 
   /** Clear internal history / estimates. */
   reset?(): void;
-
-  /**
-   * Optional RTCP / network RTT update in **milliseconds** (pin
-   * OnRoundTripTimeUpdate). Not TWCC propagation RTT — only estimators that
-   * need AIMD spacing (e.g. GCC) implement this.
-   */
-  setRoundTripTime?(rttMs: number): void;
 
   /**
    * Release listeners / timers when the sender replaces the estimator.
@@ -92,6 +87,29 @@ export function isProbePacingController(
     typeof c.getPacingBitrateBps === "function" &&
     typeof c.pendingProbePaddingPackets === "function"
   );
+}
+
+/**
+ * Optional RTCP / network RTT consumer (pin OnRoundTripTimeUpdate).
+ *
+ * Not part of the common {@link BandwidthEstimator} contract. Pin discards
+ * **smoothed** RTT updates and feeds **raw** RTT into AIMD — callers must pass
+ * the per-report raw sample, not a stats-smoothed value.
+ */
+export interface RoundTripTimeConsumer {
+  /**
+   * Raw round-trip time in **milliseconds** (not TWCC propagation RTT).
+   * Pin GoogCc ignores smoothed RTT and only applies unsmoothed updates.
+   */
+  setRoundTripTime(rttMs: number): void;
+}
+
+/** Type guard for estimators that consume RTCP RTT (e.g. GCC AIMD). */
+export function isRoundTripTimeConsumer(
+  e: BandwidthEstimator,
+): e is BandwidthEstimator & RoundTripTimeConsumer {
+  const c = e as BandwidthEstimator & Partial<RoundTripTimeConsumer>;
+  return typeof c.setRoundTripTime === "function";
 }
 
 /**

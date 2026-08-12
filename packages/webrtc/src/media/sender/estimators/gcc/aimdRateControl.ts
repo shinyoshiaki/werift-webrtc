@@ -52,7 +52,8 @@ export class AimdRateControl {
       this.maxConfiguredBps,
     );
     this.latestEstimatedThroughputBps = this.currentBitrateBps;
-    this.linkCapacity.reset();
+    // Full re-init (not pin Reset which only clears estimate).
+    this.linkCapacity.resetAll();
     this.rateControlState = "hold";
     this.timeLastBitrateChangeMs = Number.NEGATIVE_INFINITY;
     this.timeLastBitrateDecreaseMs = Number.NEGATIVE_INFINITY;
