@@ -50,6 +50,7 @@ FILES = [
     "modules/congestion_controller/goog_cc/link_capacity_estimator.cc",
     "modules/remote_bitrate_estimator/aimd_rate_control.h",
     "modules/remote_bitrate_estimator/aimd_rate_control.cc",
+    "modules/remote_bitrate_estimator/include/bwe_defines.h",
     "modules/pacing/bitrate_prober.h",
     "modules/pacing/bitrate_prober.cc",
     "modules/congestion_controller/rtp/transport_feedback_adapter.h",

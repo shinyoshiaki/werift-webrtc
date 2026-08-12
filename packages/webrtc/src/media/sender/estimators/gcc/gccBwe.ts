@@ -3,6 +3,7 @@ import type { TransportWideCC } from "../../../../imports/rtp";
 import { milliTime } from "../../../../utils";
 import type {
   BandwidthEstimator,
+  BandwidthEstimatorProcessor,
   ProbePacingController,
   RoundTripTimeConsumer,
   SentInfo,
@@ -38,10 +39,15 @@ import { ProbeController } from "./probeController";
 import {
   RttBasedBackoff,
   computeFeedbackRttStats,
-  feedbackTimeMsForRtt,
 } from "./rttBasedBackoff";
 import { sortPacketResultsByWideSeq } from "./sequenceNumber";
 import { TrendlineEstimator } from "./trendlineEstimator";
+
+/**
+ * Optional sender clock for tests. Production uses {@link milliTime} so
+ * `sendingAtMs` and TWCC feedback arrival share one domain (pin Timestamp).
+ */
+export type GccClock = () => number;
 
 /**
  * Google Congestion Control send-side bandwidth estimator (libwebrtc-aligned).
@@ -55,7 +61,11 @@ import { TrendlineEstimator } from "./trendlineEstimator";
  * observed in TWCC (empty / unmatched feedback does not notify).
  */
 export class GccBandwidthEstimator
-  implements BandwidthEstimator, ProbePacingController, RoundTripTimeConsumer
+  implements
+    BandwidthEstimator,
+    ProbePacingController,
+    RoundTripTimeConsumer,
+    BandwidthEstimatorProcessor
 {
   /** @internal */
   _availableBitrate = 0;
@@ -71,6 +81,11 @@ export class GccBandwidthEstimator
   private readonly interArrival = new InterArrivalDelta();
   /** Unwraps 24-bit TWCC reference_time across feedbacks. */
   private readonly refTimeUnwrapper = new TwccReferenceTimeUnwrapper();
+  /**
+   * Sender clock. Production: {@link milliTime}. Tests may inject a synthetic
+   * clock so send / feedback stay in one domain (no production clock heuristic).
+   */
+  private readonly clock: GccClock;
 
   private sentInfos = new Map<number, SentInfo>();
   /**
@@ -156,7 +171,7 @@ export class GccBandwidthEstimator
   }
 
   shouldTagProbePacket(): boolean {
-    this.ensureProbing(milliTime());
+    this.ensureProbing(this.clock());
     return this.probe.shouldTagProbePacket();
   }
 
@@ -165,11 +180,25 @@ export class GccBandwidthEstimator
    * probe cluster when media is sparse. 0 if not probing or cluster is full.
    */
   pendingProbePaddingPackets(packetBytes = kProbePaddingPacketBytes): number {
-    this.ensureProbing(milliTime());
+    this.ensureProbing(this.clock());
     if (!this.probe.shouldTagProbePacket()) return 0;
     const remaining = this.probe.remainingProbeBytes(packetBytes);
     if (remaining <= 0) return 0;
     return Math.ceil(remaining / Math.max(1, packetBytes));
+  }
+
+  /**
+   * pin GoogCcNetworkController::OnProcessInterval → UpdateEstimate +
+   * ProbeController::Process. Advances RTT-based target drops on the sender
+   * clock even when no new RTP/TWCC arrives (e.g. feedback stalled, media idle
+   * after high RTT). Does **not** call {@link RttBasedBackoff.onSentPacket}.
+   */
+  process(nowMs: number): void {
+    if (!Number.isFinite(nowMs)) return;
+    this.maybeApplyRttBasedBackoff(nowMs);
+    for (const cfg of this.probe.process(nowMs)) {
+      this.onProbeClusterActivated(cfg, nowMs);
+    }
   }
 
   /**
@@ -184,9 +213,19 @@ export class GccBandwidthEstimator
 
   static readonly knownDifferences = GCC_KNOWN_DIFFERENCES;
 
-  constructor(startBitrateBps = kDefaultStartBitrateBps) {
+  /**
+   * @param startBitrateBps Initial target / AIMD start (bps).
+   * @param options.clock Optional sender clock for unit tests. Must match the
+   *   domain of {@link SentInfo.sendingAtMs} used with this instance.
+   *   Production omits this (defaults to {@link milliTime}).
+   */
+  constructor(
+    startBitrateBps = kDefaultStartBitrateBps,
+    options?: { clock?: GccClock },
+  ) {
     this.startBitrateBps = startBitrateBps;
     this.currentTargetBps = startBitrateBps;
+    this.clock = options?.clock ?? milliTime;
     this.aimd.reset(startBitrateBps);
     this.lossBwe.reset(startBitrateBps);
     this.delayBasedBps = startBitrateBps;
@@ -233,7 +272,10 @@ export class GccBandwidthEstimator
   }
 
   receiveTWCC(feedback: TransportWideCC) {
-    const nowMs = milliTime();
+    // pin feedback_time is sender-local Timestamp (same domain as send times).
+    // No wall/receive-timeline heuristic — tests inject {@link GccClock} when
+    // using synthetic send timelines.
+    const nowMs = this.clock();
     let received = 0;
     let lost = 0;
     let matched = 0;
@@ -406,18 +448,17 @@ export class GccBandwidthEstimator
     //   min_propagation_rtt → UpdatePropagationRtt → IsRttAboveLimit + target drop
     // AIMD RTT is a separate path (OnRoundTripTimeUpdate / RTCP RR via
     // {@link setRoundTripTime}) — never copy propagation RTT into AIMD.
-    // Feedback clock must share the send-time domain (see feedbackTimeMsForRtt).
+    // feedback_time = sender clock now (pin report.feedback_time domain).
     const rttPackets = timedReceived.map((p) => ({
       sendMs: p.sendMs,
       recvMs: p.recvMs,
     }));
-    const feedbackTimeMs = feedbackTimeMsForRtt(rttPackets, nowMs);
-    const rttStats = computeFeedbackRttStats(rttPackets, feedbackTimeMs);
+    const rttStats = computeFeedbackRttStats(rttPackets, nowMs);
     if (rttStats) {
       this.lastMaxFeedbackRttMs = rttStats.maxFeedbackRttMs;
       this.lastPropagationRttMs = rttStats.minPropagationRttMs;
       this.rttBackoff.updatePropagationRtt(
-        feedbackTimeMs,
+        nowMs,
         rttStats.minPropagationRttMs,
       );
     }
@@ -467,6 +508,9 @@ export class GccBandwidthEstimator
     }
 
     // Loss path after delay/probe (pin UpdateLossBasedEstimator).
+    // Always update LossBasedBwe state, but when RTT-limited pin UpdateEstimate
+    // never adopts the loss result as current_target_ (RTT branch returns
+    // before LossBasedBandwidthEstimatorV2ReadyForUse).
     this.lossBasedBps = this.lossBwe.update(
       lossFraction,
       this.delayBasedBps,
@@ -484,9 +528,10 @@ export class GccBandwidthEstimator
     const delayLossTarget = Math.min(this.delayBasedBps, this.lossBasedBps);
 
     // pin UpdateEstimate RTT branch vs normal:
-    // - When RTT-limited: ignore rising loss-based result; only upper-clamp +
-    //   ×0.8 drops. Exception: probe SetSendBitrate already raised current
-    //   before UpdateEstimate (delay path holds post-probe estimate).
+    // - When RTT-limited: **do not** apply LossBasedBwe result to target.
+    //   GetUpperLimit = delay_based (and configured max) only; then ×0.8 drops.
+    //   Exception: probe SetSendBitrate already raised current before
+    //   UpdateEstimate (delay path holds post-probe estimate).
     // - When not RTT-limited: current_target = post-loss estimate.
     const rttLimited = this.rttBackoff.isRttAboveLimit();
     if (rttLimited) {
@@ -494,14 +539,18 @@ export class GccBandwidthEstimator
         // pin SetSendBitrate(probe) → current_target = probe estimate, then
         // UpdateEstimate may immediately ×0.8 if still above RTT limit.
         this.currentTargetBps = this.delayBasedBps;
-      } else if (delayLossTarget > 0) {
-        // GetUpperLimit-style: delay/loss may pull the target **down**, never up.
+      } else if (this.delayBasedBps > 0) {
+        // ApplyTargetLimits / GetUpperLimit: delay-based upper only — never
+        // pull down by lossBasedBps while high RTT (pin skips loss branch).
         this.currentTargetBps = Math.min(
-          this.currentTargetBps > 0 ? this.currentTargetBps : delayLossTarget,
-          delayLossTarget,
+          this.currentTargetBps > 0
+            ? this.currentTargetBps
+            : this.delayBasedBps,
+          this.delayBasedBps,
+          kMaxBitrateBps,
         );
       }
-      this.maybeApplyRttBasedBackoff(feedbackTimeMs);
+      this.maybeApplyRttBasedBackoff(nowMs);
     } else if (delayLossTarget > 0) {
       this.currentTargetBps = delayLossTarget;
     }
@@ -600,7 +649,7 @@ export class GccBandwidthEstimator
    * if CorrectedRtt above limit and drop_interval elapsed and target > floor,
    * set target = max(target × drop_fraction, floor) and publish.
    *
-   * Called from sender-clock `rtpPacketSent` (no ProcessInterval) and after
+   * Called from `rtpPacketSent`, `process` (pin OnProcessInterval), and after
    * TWCC when still RTT-limited. Returns true when a drop was applied.
    */
   private maybeApplyRttBasedBackoff(nowMs: number): boolean {

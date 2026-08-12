@@ -86,6 +86,25 @@ function sent(
   };
 }
 
+/**
+ * Controllable sender clock for GCC tests that use synthetic send timelines.
+ * Production uses milliTime; pin keeps send/feedback in one Timestamp domain.
+ */
+function createClockGcc(startBps: number, initialNow = 0) {
+  let nowMs = initialNow;
+  const gcc = new GccBandwidthEstimator(startBps, { clock: () => nowMs });
+  return {
+    gcc,
+    now: () => nowMs,
+    setNow: (t: number) => {
+      nowMs = t;
+    },
+    advanceTo: (t: number) => {
+      nowMs = Math.max(nowMs, t);
+    },
+  };
+}
+
 function feedDelayScenario(
   gcc: GccBandwidthEstimator,
   opts: {
@@ -97,6 +116,7 @@ function feedDelayScenario(
     lossRatio?: number;
     baseOneWayMs?: number;
   },
+  clock?: { advanceTo: (t: number) => void },
 ) {
   const {
     seq0,
@@ -111,18 +131,24 @@ function feedDelayScenario(
     gcc.rtpPacketSent(sent(seq0 + i, 1000, t0 + i * sendInterval));
   }
   let recv = t0 + baseOneWayMs;
+  let lastEvent = t0;
   const results = Array.from({ length: count }, (_, i) => {
     const sendMs = t0 + i * sendInterval;
     const lost = lossRatio > 0 && i / count < lossRatio;
     if (!lost) {
       recv += sendInterval + recvStretchPerStep;
     }
+    const recvMs = lost ? 0 : Math.max(recv, sendMs + 1);
+    if (!lost) lastEvent = Math.max(lastEvent, recvMs, sendMs);
+    else lastEvent = Math.max(lastEvent, sendMs);
     return new PacketResult({
       sequenceNumber: seq0 + i,
       received: !lost,
-      receivedAtMs: lost ? 0 : Math.max(recv, sendMs + 1),
+      receivedAtMs: recvMs,
     });
   });
+  // feedback_time on sender clock just after last event (pin feedback_time).
+  clock?.advanceTo(lastEvent + 1);
   gcc.receiveTWCC(makeTwccFeedback(results));
 }
 
@@ -286,9 +312,10 @@ describe("media/sender bandwidth estimator", () => {
 
   describe("acked bitrate (TWCC 相対時刻)", () => {
     test("TWCC 受信時刻が壁時計と大きくずれても acked bitrate > 0 になる", () => {
-      // Arrange: TWCC receivedAtMs は referenceTime 由来で壁時計と無関係
-      const gcc = new GccBandwidthEstimator(300_000);
-      const twccRecvBase = 50_000; // 壁時計とは無関係な小さなタイムライン
+      // Arrange: TWCC receivedAtMs は referenceTime 由来で壁時計と無関係。
+      // send / feedback は injectable clock で同一 domain（pin Timestamp）。
+      const twccRecvBase = 50_000;
+      const { gcc, advanceTo } = createClockGcc(300_000, twccRecvBase);
       const n = 40;
       const size = 1200;
       const interval = 20;
@@ -309,6 +336,7 @@ describe("media/sender bandwidth estimator", () => {
       // Act
       const fired: number[] = [];
       gcc.onAvailableBitrate.subscribe((v) => fired.push(v));
+      advanceTo(twccRecvBase + n * interval + 10);
       gcc.receiveTWCC(makeTwccFeedback(results));
 
       // Assert: 壁時計比較バグなら available が 0 のまま / AIMD が異常
@@ -419,47 +447,64 @@ describe("media/sender bandwidth estimator", () => {
 
   describe("GccBandwidthEstimator loss 統合", () => {
     test("高損失 TWCC で availableBitrate が下がる", () => {
-      // Arrange
-      const gcc = new GccBandwidthEstimator(500_000);
-      const t0 = Date.now() - 8_000;
+      // Arrange: synthetic clock で RTT high にならないよう send/feedback を揃える
+      const t0 = 1_000;
+      const { gcc, advanceTo } = createClockGcc(500_000, t0);
+      const clock = { advanceTo };
 
       // Act: 無損失でベース
-      feedDelayScenario(gcc, {
-        seq0: 1,
-        t0,
-        count: 40,
-        sendInterval: 15,
-        recvStretchPerStep: 0,
-        lossRatio: 0,
-      });
-      feedDelayScenario(gcc, {
-        seq0: 50,
-        t0: t0 + 1000,
-        count: 40,
-        sendInterval: 15,
-        recvStretchPerStep: 0,
-        lossRatio: 0,
-      });
+      feedDelayScenario(
+        gcc,
+        {
+          seq0: 1,
+          t0,
+          count: 40,
+          sendInterval: 15,
+          recvStretchPerStep: 0,
+          lossRatio: 0,
+        },
+        clock,
+      );
+      feedDelayScenario(
+        gcc,
+        {
+          seq0: 50,
+          t0: t0 + 1000,
+          count: 40,
+          sendInterval: 15,
+          recvStretchPerStep: 0,
+          lossRatio: 0,
+        },
+        clock,
+      );
       const lowLoss = gcc.availableBitrate;
       expect(lowLoss).toBeGreaterThan(0);
 
       // Act: 40% loss
-      feedDelayScenario(gcc, {
-        seq0: 100,
-        t0: t0 + 2000,
-        count: 50,
-        sendInterval: 15,
-        recvStretchPerStep: 0,
-        lossRatio: 0.4,
-      });
-      feedDelayScenario(gcc, {
-        seq0: 160,
-        t0: t0 + 3000,
-        count: 50,
-        sendInterval: 15,
-        recvStretchPerStep: 0,
-        lossRatio: 0.4,
-      });
+      feedDelayScenario(
+        gcc,
+        {
+          seq0: 100,
+          t0: t0 + 2000,
+          count: 50,
+          sendInterval: 15,
+          recvStretchPerStep: 0,
+          lossRatio: 0.4,
+        },
+        clock,
+      );
+      feedDelayScenario(
+        gcc,
+        {
+          seq0: 160,
+          t0: t0 + 3000,
+          count: 50,
+          sendInterval: 15,
+          recvStretchPerStep: 0,
+          lossRatio: 0.4,
+        },
+        clock,
+      );
       const highLoss = gcc.availableBitrate;
 
       // Assert
@@ -467,26 +512,31 @@ describe("media/sender bandwidth estimator", () => {
     });
 
     test("決定的入力での bitrate 系列（制御応答の形状回帰）", () => {
-      // Arrange: 壁時計に依存しない固定 send/recv タイムライン
+      // Arrange: 壁時計に依存しない固定 send/recv タイムライン + injectable clock
       // 参照ベクトル（許容幅）: 形状 + 粗いレンジで libwebrtc 完全一致は非ゴール
       const start = 400_000;
-      const gcc = new GccBandwidthEstimator(start);
+      const t0 = 1_000_000; // fixed epoch ms
+      const { gcc, advanceTo } = createClockGcc(start, t0);
+      const clock = { advanceTo };
       const series: number[] = [];
       const record = () => {
         if (gcc.availableBitrate > 0) series.push(gcc.availableBitrate);
       };
-      const t0 = 1_000_000; // fixed epoch ms
 
       // Act phase 1: 安定・無損失・一定遅延 → 推定が立つ
       for (let b = 0; b < 3; b++) {
-        feedDelayScenario(gcc, {
-          seq0: 1 + b * 40,
-          t0: t0 + b * 800,
-          count: 40,
-          sendInterval: 20,
-          recvStretchPerStep: 0,
-          lossRatio: 0,
-        });
+        feedDelayScenario(
+          gcc,
+          {
+            seq0: 1 + b * 40,
+            t0: t0 + b * 800,
+            count: 40,
+            sendInterval: 20,
+            recvStretchPerStep: 0,
+            lossRatio: 0,
+          },
+          clock,
+        );
         record();
       }
       // Assert 1: 安定期は正の推定（400kbps スタート近傍〜数 Mbps 探索帯）
@@ -496,34 +546,46 @@ describe("media/sender bandwidth estimator", () => {
       expect(steady).toBeLessThan(10_000_000);
 
       // Act phase 2: 遅延勾配で overuse → 推定が下がる方向
-      feedDelayScenario(gcc, {
-        seq0: 200,
-        t0: t0 + 3_000,
-        count: 80,
-        sendInterval: 20,
-        recvStretchPerStep: 25,
-        lossRatio: 0,
-      });
+      feedDelayScenario(
+        gcc,
+        {
+          seq0: 200,
+          t0: t0 + 3_000,
+          count: 80,
+          sendInterval: 20,
+          recvStretchPerStep: 25,
+          lossRatio: 0,
+        },
+        clock,
+      );
       record();
       const afterDelay = series[series.length - 1];
 
       // Act phase 3: 高損失 → さらに下がる（または維持）方向
-      feedDelayScenario(gcc, {
-        seq0: 300,
-        t0: t0 + 5_000,
-        count: 60,
-        sendInterval: 20,
-        recvStretchPerStep: 0,
-        lossRatio: 0.35,
-      });
-      feedDelayScenario(gcc, {
-        seq0: 400,
-        t0: t0 + 6_500,
-        count: 60,
-        sendInterval: 20,
-        recvStretchPerStep: 0,
-        lossRatio: 0.35,
-      });
+      feedDelayScenario(
+        gcc,
+        {
+          seq0: 300,
+          t0: t0 + 5_000,
+          count: 60,
+          sendInterval: 20,
+          recvStretchPerStep: 0,
+          lossRatio: 0.35,
+        },
+        clock,
+      );
+      feedDelayScenario(
+        gcc,
+        {
+          seq0: 400,
+          t0: t0 + 6_500,
+          count: 60,
+          sendInterval: 20,
+          recvStretchPerStep: 0,
+          lossRatio: 0.35,
+        },
+        clock,
+      );
       record();
       const afterLoss = series[series.length - 1];
 
@@ -2136,7 +2198,9 @@ describe("media/sender bandwidth estimator", () => {
 
     test("現在 bitrate より低い valid probe result も backoff guard 付きで反映する", () => {
       // Arrange: 高い current estimate の後、低い probe result を注入
-      const gcc = new GccBandwidthEstimator(1_000_000);
+      // synthetic timeline は injectable clock で feedback domain を揃える
+      const t0 = 80_000;
+      const { gcc, setNow } = createClockGcc(1_000_000, t0);
       // ensure probing configured
       gcc.shouldTagProbePacket();
       // 強制的に高い available と delay/loss を立てる
@@ -2144,6 +2208,7 @@ describe("media/sender bandwidth estimator", () => {
       (gcc as any).delayBasedBps = 1_000_000;
       (gcc as any).lossBasedBps = 1_000_000;
       (gcc as any)._availableBitrate = 1_000_000;
+      (gcc as any).currentTargetBps = 1_000_000;
       // ProbeController に pending の低い result を直接セット
       const probe = (gcc as any).probe as ProbeController;
       (probe as any).pendingEstimateBps = 300_000;
@@ -2152,7 +2217,6 @@ describe("media/sender bandwidth estimator", () => {
 
       // RobustThroughput に ~900kbps 相当の ACK 履歴を注入
       // （後続 1 packet を足しても rate が崩れないよう十分な窓）
-      const t0 = 80_000;
       const size = 1125; // 1125B / 10ms → 900 kbps
       const seedN = 40;
       (gcc as any).ackedBitrate.incomingPacketFeedbackVector(
@@ -2177,6 +2241,7 @@ describe("media/sender bandwidth estimator", () => {
       // pending は take 前に再セット（rtpPacketSent で消えない）
       (probe as any).pendingEstimateBps = 300_000;
 
+      setNow(last + 25);
       gcc.receiveTWCC(
         makeTwccFeedback([
           new PacketResult({
@@ -2272,7 +2337,8 @@ describe("media/sender bandwidth estimator", () => {
     test("overuse 中は probe result を一切適用しない（pin MaybeUpdateEstimate）", () => {
       // pin DelayBasedBwe::MaybeUpdateEstimate: overusing 分岐は probe を無視し
       // AIMD TimeToReduceFurther のみ。lower probe も適用しない。
-      const gcc = new GccBandwidthEstimator(1_000_000);
+      const t0 = 50_000;
+      const { gcc, setNow } = createClockGcc(1_000_000, t0);
       gcc.shouldTagProbePacket();
       (gcc as any).probe.abort(0);
       (gcc as any).probe.state = "complete";
@@ -2281,6 +2347,7 @@ describe("media/sender bandwidth estimator", () => {
       (gcc as any).delayBasedBps = 1_000_000;
       (gcc as any).lossBasedBps = 1_000_000;
       (gcc as any)._availableBitrate = 1_000_000;
+      (gcc as any).currentTargetBps = 1_000_000;
       (gcc as any).aimd.bitrateBps = 1_000_000;
       (gcc as any).probingConfigured = true;
 
@@ -2289,7 +2356,6 @@ describe("media/sender bandwidth estimator", () => {
         configurable: true,
       });
 
-      const t0 = 50_000;
       for (let i = 1; i <= 10; i++) {
         gcc.rtpPacketSent({
           wideSeq: i,
@@ -2317,6 +2383,7 @@ describe("media/sender bandwidth estimator", () => {
           receivedAtMs: t0 + 30 + i * 20,
         });
       });
+      setNow(t0 + 250);
       gcc.receiveTWCC(makeTwccFeedback(results));
 
       // Assert: probe 300kbps は反映されない（floor 付きでも delay に SetEstimate しない）
@@ -3396,6 +3463,123 @@ describe("media/sender bandwidth estimator", () => {
       expect((gcc as any).lastPropagationRttMs).toBeLessThan(100);
       // 正常 path では availableBitrate が維持または回復方向（再×0.8 しない）
       expect(gcc.availableBitrate).toBeGreaterThanOrEqual(dropped);
+    });
+
+    test("high RTT 中は lossBwe が極端に低くても target は old×0.8 であり loss×0.8 ではない", () => {
+      // Arrange: pin UpdateEstimate RTT branch は loss result を採用しない
+      // current=1Mbps, delay=1Mbps, loss=300kbps, RTT high → 800kbps（240 ではない）
+      const startBps = 1_000_000;
+      const t0 = 40_000;
+      const { gcc, setNow } = createClockGcc(startBps, t0);
+      gcc.rtpPacketSent(sent(1, 500, t0));
+      // 3s+ 送信で high RTT 初回 drop → 800kbps
+      const highT = t0 + kRttBasedBackOffHighRttMs + 1;
+      gcc.rtpPacketSent(sent(2, 500, highT));
+      const afterFirstDrop = Math.round(
+        startBps * kRttBasedBackOffDropFraction,
+      );
+      expect(gcc.availableBitrate).toBe(afterFirstDrop);
+
+      // Act: high RTT を固定したまま、lossBwe だけ 300kbps を返す TWCC
+      (gcc as any).rttBackoff.isRttAboveLimit = () => true;
+      (gcc as any).lastRttDecreaseMs = highT; // drop_interval 内 → 再 drop なし
+      (gcc as any).hasValidSample = true;
+      (gcc as any).delayBasedBps = startBps;
+      (gcc as any).currentTargetBps = afterFirstDrop;
+      (gcc as any)._availableBitrate = afterFirstDrop;
+      (gcc as any).lossBwe.update = () => {
+        (gcc as any).lossBwe.state = "decreasing";
+        return 300_000;
+      };
+      Object.defineProperty((gcc as any).trendline, "state", {
+        get: () => "normal",
+        configurable: true,
+      });
+
+      const twccT = highT + 100;
+      setNow(twccT);
+      gcc.rtpPacketSent(sent(3, 500, twccT));
+      // rtpPacketSent は isRttAboveLimit true でも interval 内なので 800k 維持
+      expect(gcc.availableBitrate).toBe(afterFirstDrop);
+
+      setNow(twccT + 20);
+      gcc.receiveTWCC(
+        makeTwccFeedback([
+          new PacketResult({
+            sequenceNumber: 3,
+            received: true,
+            receivedAtMs: twccT + 10,
+          }),
+        ]),
+      );
+
+      // Assert: loss 300k を clamp に使わない → 800k 維持
+      // 旧実装は min(800k,300k)=300 → さらに ×0.8=240 になり得た
+      expect(gcc.availableBitrate).toBe(afterFirstDrop);
+      expect(gcc.availableBitrate).not.toBe(300_000);
+      expect(gcc.availableBitrate).not.toBe(
+        Math.round(300_000 * kRttBasedBackOffDropFraction),
+      );
+    });
+
+    test("high RTT 後に送信が止まっても process だけで 1s ごとに target drop する", () => {
+      // Arrange: pin OnProcessInterval は packet 無しでも UpdateEstimate 継続
+      const startBps = 1_000_000;
+      const t0 = 50_000;
+      const { gcc, setNow } = createClockGcc(startBps, t0);
+      gcc.rtpPacketSent(sent(1, 500, t0));
+      const highT = t0 + kRttBasedBackOffHighRttMs + 1;
+      gcc.rtpPacketSent(sent(2, 500, highT));
+      expect(gcc.availableBitrate).toBe(
+        Math.round(startBps * kRttBasedBackOffDropFraction),
+      );
+
+      // Act: 送信なし・process のみで drop_interval を進める
+      // CorrectedRtt は last_packet_sent 固定なので high のまま
+      setNow(highT + kRttBasedBackOffDropIntervalMs);
+      gcc.process(highT + kRttBasedBackOffDropIntervalMs);
+      expect(gcc.availableBitrate).toBe(
+        Math.round(startBps * kRttBasedBackOffDropFraction ** 2),
+      );
+
+      setNow(highT + 2 * kRttBasedBackOffDropIntervalMs);
+      gcc.process(highT + 2 * kRttBasedBackOffDropIntervalMs);
+      expect(gcc.availableBitrate).toBe(
+        Math.round(startBps * kRttBasedBackOffDropFraction ** 3),
+      );
+
+      // Assert: CorrectedRtt は process だけでは増えない（last_packet_sent 固定）
+      const rttFrozen = (gcc as any).rttBackoff.correctedRttMs();
+      setNow(highT + 60_000);
+      expect((gcc as any).rttBackoff.correctedRttMs()).toBe(rttFrozen);
+      expect((gcc as any).rttBackoff.isRttAboveLimit()).toBe(true);
+    });
+
+    test("receiveTWCC は wall/receive 混在 heuristic を使わず feedback_time=sender clock", () => {
+      // Arrange: synthetic send と wall が乖離しても injectable clock なら正常 RTT
+      const t0 = 1000;
+      const { gcc, setNow } = createClockGcc(200_000, t0);
+      for (let i = 1; i <= 8; i++) {
+        gcc.rtpPacketSent(sent(i, 400, t0 + i * 10));
+      }
+      // feedback は send から 50ms 後（propagation 低）
+      setNow(t0 + 80 + 50);
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 8 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: true,
+              receivedAtMs: t0 + 30 + i * 10,
+            });
+          }),
+        ),
+      );
+
+      // Assert: 旧 heuristic 無しでも CorrectedRtt は low（clock domain 一致）
+      expect((gcc as any).lastPropagationRttMs).toBeLessThan(200);
+      expect((gcc as any).rttBackoff.isRttAboveLimit()).toBe(false);
+      expect(gcc.availableBitrate).toBeGreaterThan(0);
     });
 
     test("high propagation RTT 中は complete 後の recovery probe が開始されない（send/TWCC 配線）", () => {

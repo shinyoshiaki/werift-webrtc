@@ -11,11 +11,13 @@ export * from "../transceiverManager";
 export * from "./track";
 export type {
   BandwidthEstimator,
+  BandwidthEstimatorProcessor,
   ProbePacingController,
   RoundTripTimeConsumer,
   SentInfo,
 } from "./sender/bandwidthEstimator";
 export {
+  isBandwidthEstimatorProcessor,
   isProbePacingController,
   isRoundTripTimeConsumer,
   setAvailableBitrateIfChanged,

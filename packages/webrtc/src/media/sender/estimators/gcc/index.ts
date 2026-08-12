@@ -35,6 +35,7 @@ export {
 export type { AckedPacketSample } from "./acknowledgedBitrateEstimator";
 export { AimdRateControl } from "./aimdRateControl";
 export { GccBandwidthEstimator } from "./gccBwe";
+export type { GccClock } from "./gccBwe";
 export { LinkCapacityEstimator } from "./linkCapacityEstimator";
 export {
   InterArrivalDelta,
@@ -48,7 +49,6 @@ export { ProbeController } from "./probeController";
 export type { ProbeClusterConfig, ProbeState } from "./probeController";
 export {
   computeFeedbackRttStats,
-  feedbackTimeMsForRtt,
   RttBasedBackoff,
 } from "./rttBasedBackoff";
 export {

@@ -113,6 +113,30 @@ export function isRoundTripTimeConsumer(
 }
 
 /**
+ * Optional periodic process surface (pin GoogCc `OnProcessInterval`).
+ *
+ * Not part of the common {@link BandwidthEstimator} contract. Callers (e.g.
+ * {@link RTCRtpSender} RTCP loop) advance sender-clock work such as RTT-based
+ * target backoff while media may be idle.
+ */
+export interface BandwidthEstimatorProcessor {
+  /**
+   * Advance sender-clock estimator state at `nowMs` (milliseconds).
+   * Does not count as a sent packet — CorrectedRtt timeout only grows on
+   * `rtpPacketSent`.
+   */
+  process(nowMs: number): void;
+}
+
+/** Type guard for estimators that expose pin ProcessInterval-style process. */
+export function isBandwidthEstimatorProcessor(
+  e: BandwidthEstimator,
+): e is BandwidthEstimator & BandwidthEstimatorProcessor {
+  const c = e as BandwidthEstimator & Partial<BandwidthEstimatorProcessor>;
+  return typeof c.process === "function";
+}
+
+/**
  * Helper for concrete estimators: assign `availableBitrate` only when it changes
  * and notify `onAvailableBitrate` with the new value in bps.
  */

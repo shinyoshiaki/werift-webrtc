@@ -70,6 +70,7 @@ import type {
 } from "./parameters";
 import type { BandwidthEstimator } from "./sender/bandwidthEstimator";
 import {
+  isBandwidthEstimatorProcessor,
   isProbePacingController,
   isRoundTripTimeConsumer,
 } from "./sender/bandwidthEstimator";
@@ -452,6 +453,12 @@ export class RTCRtpSender {
         await setTimeout(500 + Math.random() * 1000, undefined, {
           signal: this.rtcpCancel.signal,
         });
+
+        // pin OnProcessInterval equivalent: advance RTT backoff / probe process
+        // on sender clock even when media is idle (e.g. high-RTT target drops).
+        if (isBandwidthEstimatorProcessor(this._senderBWE)) {
+          this._senderBWE.process(milliTime());
+        }
 
         const packets: RtcpPacket[] = [
           new RtcpSrPacket({
