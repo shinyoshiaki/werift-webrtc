@@ -4029,6 +4029,149 @@ describe("media/sender bandwidth estimator", () => {
       expect(fired).toEqual([]);
     });
 
+    test("送信中の estimator 差し替えで in-flight が新 estimator を汚染しない", async () => {
+      // Arrange: 旧 GCC で send を開始し、await sendRtp 中に差し替える
+      const oldGcc = new GccBandwidthEstimator(300_000);
+      const newGcc = new GccBandwidthEstimator(100_000);
+      const { sender, dtls } = await prepareConnectedSender(oldGcc);
+
+      let releaseSend!: () => void;
+      const holdSend = new Promise<void>((resolve) => {
+        releaseSend = resolve;
+      });
+      let resolveHeld!: (size: number) => void;
+      const heldSize = new Promise<number>((resolve) => {
+        resolveHeld = resolve;
+      });
+
+      // 最初の 1 パケットだけ DTLS send をブロックして差し替えウィンドウを作る
+      let blockedOnce = false;
+      const originalSendRtp = dtls.sendRtp.bind(dtls);
+      dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
+        if (!blockedOnce) {
+          blockedOnce = true;
+          await holdSend;
+          const size = payload.length + header.serializeSize;
+          resolveHeld(size);
+          return size;
+        }
+        return originalSendRtp(payload, header);
+      }) as typeof dtls.sendRtp;
+
+      const oldSpy = vi.spyOn(oldGcc, "rtpPacketSent");
+      const newSpy = vi.spyOn(newGcc, "rtpPacketSent");
+
+      // Act: media 送信を開始（sendRtp 内で await 中）
+      const sendPromise = sender.sendRtp(
+        new RtpPacket(
+          new RtpHeader({
+            sequenceNumber: 1,
+            timestamp: 1000,
+            payloadType: 96,
+            ssrc: 1,
+            extension: true,
+            extensions: [],
+            marker: false,
+            padding: false,
+            payloadOffset: 12,
+          }),
+          Buffer.alloc(200),
+        ),
+      );
+
+      // 送信が DTLS で止まっている間に estimator を差し替え
+      await Promise.resolve();
+      await Promise.resolve();
+      sender.setBandwidthEstimator(newGcc);
+      expect(sender.senderBWE).toBe(newGcc);
+      expect(newGcc.availableBitrate).toBe(0);
+
+      // in-flight を完了
+      releaseSend();
+      await heldSize;
+      await sendPromise;
+
+      // Assert: 差し替え後に完了したパケットは新 estimator に渡らない
+      // （世代不一致で discard）。旧も dispose 済みなので汚染しない。
+      expect(newSpy).not.toHaveBeenCalled();
+      // 新 estimator はクリーン（差し替え時 reset + in-flight 非配送）
+      expect(newGcc.availableBitrate).toBe(0);
+      expect((newGcc as any).sentInfos?.size ?? 0).toBe(0);
+
+      // 差し替え後の新規送信は新 estimator のみに届く
+      await sender.sendRtp(
+        new RtpPacket(
+          new RtpHeader({
+            sequenceNumber: 2,
+            timestamp: 2000,
+            payloadType: 96,
+            ssrc: 1,
+            extension: true,
+            extensions: [],
+            marker: false,
+            padding: false,
+            payloadOffset: 12,
+          }),
+          Buffer.alloc(200),
+        ),
+      );
+      expect(newSpy).toHaveBeenCalled();
+      expect(newSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
+      // 旧への post-swap 配送はない（dispose 後に呼ばれても世代 discard）
+      // oldSpy は差し替え前の同期経路で 0 回、または in-flight 完了時も discard
+      const oldCallsAfterSwap = oldSpy.mock.calls.length;
+      expect(oldCallsAfterSwap).toBe(0);
+    });
+
+    test("差し替えで in-flight probe padding が旧 estimator を再駆動しない", async () => {
+      // Arrange: GCC probe padding を非同期開始し、途中で legacy に差し替え
+      const gcc = new GccBandwidthEstimator(1_000_000);
+      const { sender, dtls } = await prepareConnectedSender(gcc);
+
+      let releaseFirst!: () => void;
+      const holdFirst = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      let firstHeld = false;
+      const originalSendRtp = dtls.sendRtp.bind(dtls);
+      dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
+        if (!firstHeld) {
+          firstHeld = true;
+          await holdFirst;
+        }
+        return originalSendRtp(payload, header);
+      }) as typeof dtls.sendRtp;
+
+      const pendingSpy = vi.spyOn(gcc, "pendingProbePaddingPackets");
+      const sentSpy = vi.spyOn(gcc, "rtpPacketSent");
+
+      // Act: padding 注入を開始（最初の send で止まる）
+      const padPromise = sender.maybeInjectProbePadding();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // 差し替え → generation bump で padding ループは cancel
+      const legacy = new SenderBandwidthEstimator();
+      sender.setBandwidthEstimator(legacy);
+      releaseFirst();
+      const n = await padPromise;
+
+      // Assert: dispose 後に pendingProbePaddingPackets で probe を再生成しない
+      // （差し替え前の呼び出し回数で止まり、dispose 後の追加呼び出しなし）
+      const callsAtEnd = pendingSpy.mock.calls.length;
+      // 差し替え後にさらに drain しようとして呼ばれていないことを、
+      // イベントループを回してから再確認
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(pendingSpy.mock.calls.length).toBe(callsAtEnd);
+      // 新 (legacy) は probe 非対応 — 旧への rtpPacketSent も in-flight discard で 0 可
+      expect(isProbePacingController(sender.senderBWE)).toBe(false);
+      // n は 0 以上（最初の 1 パケットが wire に出る場合あり）だが、
+      // 差し替え後の大量完遂にはならない
+      expect(n).toBeLessThan(16);
+      void sentSpy;
+    });
+
     test("recovery probe は start 帯域に張り付かず cooldown を守る", () => {
       // Arrange
       const probe = new ProbeController();

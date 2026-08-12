@@ -158,6 +158,14 @@ export class RTCRtpSender {
   private lastPaceMs = 0;
   /** Prevent re-entrant probe padding injection (async race). */
   private probePaddingInFlight = false;
+  /**
+   * Bumped on every {@link setBandwidthEstimator} (including same-instance reset).
+   * In-flight `sendRtpInternal` / `maybeInjectProbePadding` capture the generation
+   * at start and discard BWE delivery / stop padding when it no longer matches —
+   * so a mid-send swap cannot pollute the new clean estimator or revive a disposed
+   * probe controller.
+   */
+  private bweGeneration = 0;
 
   private cname?: string;
   private mid?: string;
@@ -261,15 +269,21 @@ export class RTCRtpSender {
    * `new GccBandwidthEstimator()` to use Google Congestion Control.
    *
    * Behavior on swap:
-   * 1. Stops delivering `rtpPacketSent` / `receiveTWCC` to the previous instance.
-   * 2. Unbinds the stable {@link onAvailableBitrate} bridge, then `dispose()`/`reset()` the old instance.
-   * 3. **Always** `reset()` the injected `impl` so a previously used instance
+   * 1. Bumps {@link bweGeneration} so in-flight sends discard `rtpPacketSent`
+   *    delivery and in-flight {@link maybeInjectProbePadding} loops exit
+   *    (cancelled — no packets to disposed / previous estimator).
+   * 2. Stops delivering `rtpPacketSent` / `receiveTWCC` to the previous instance.
+   * 3. Unbinds the stable {@link onAvailableBitrate} bridge, then `dispose()`/`reset()` the old instance.
+   * 4. **Always** `reset()` the injected `impl` so a previously used instance
    *    starts clean (no implicit state merge), then rebinds the bridge.
    *
    * Subscriptions to {@link onAvailableBitrate} on this sender are preserved.
    * Re-subscribe algorithm-specific events on the new concrete instance.
    */
   setBandwidthEstimator(impl: BandwidthEstimator): void {
+    // Invalidate in-flight media/padding so they do not touch the next estimator
+    // (or revive a disposed probe controller after dispose/reset).
+    this.bweGeneration++;
     const prev = this._senderBWE;
     if (prev === impl) {
       // Same instance: still reset so callers get a clean estimator state.
@@ -619,6 +633,9 @@ export class RTCRtpSender {
     if (this.probePaddingInFlight) {
       return 0;
     }
+    // Capture estimator + generation for the whole async drain. On swap,
+    // generation bumps and we stop — never call dispose()'d controllers.
+    const generation = this.bweGeneration;
     const e = this._senderBWE;
     if (!isProbePacingController(e)) {
       return 0;
@@ -629,10 +646,15 @@ export class RTCRtpSender {
       // Drain the full probe cluster across multiple bursts if needed.
       // Without this, large clusters stall when only maxBurst packets are sent.
       for (let safety = 0; safety < 64; safety++) {
+        if (generation !== this.bweGeneration) {
+          // setBandwidthEstimator cancelled this injection.
+          break;
+        }
         const pending = e.pendingProbePaddingPackets(kProbePaddingPacketBytes);
         if (pending <= 0) break;
         const n = Math.min(pending, kProbePaddingMaxBurst);
         for (let i = 0; i < n; i++) {
+          if (generation !== this.bweGeneration) break;
           // Sequence is allocated by sendRtpInternal (unified outbound counter).
           const pad = new RtpPacket(
             new RtpHeader({
@@ -655,6 +677,7 @@ export class RTCRtpSender {
             forceProbeTag: true,
             isProbePadding: true,
           });
+          if (generation !== this.bweGeneration) break;
           totalSent++;
         }
       }
@@ -682,15 +705,24 @@ export class RTCRtpSender {
 
     const { header, payload } = rtp;
 
+    // Capture BWE generation at send start. After await sendRtp, only deliver
+    // SentInfo when the generation is unchanged — mid-send setBandwidthEstimator
+    // must not pollute the new clean estimator with packets planned under the old one.
+    const sendGeneration = this.bweGeneration;
+    const estimatorAtStart = this._senderBWE;
+
     // Token-bucket pacing only for GCC when transport-cc is negotiated.
     // Legacy default estimator must not alter send timing.
     const padBytes = header.padding ? header.paddingSize : 0;
     const payloadLen = payload.length + padBytes + (header.serializeSize || 12);
     const twccOn = this.isTransportCcNegotiated();
-    if (twccOn && isProbePacingController(this._senderBWE)) {
+    if (twccOn && isProbePacingController(estimatorAtStart)) {
       if (!(await this.awaitPacingBudget(payloadLen))) {
         return;
       }
+      // Mid-pacing swap: generation no longer matches. Still may emit on the
+      // wire for media continuity; BWE delivery / follow-on probe inject is
+      // skipped after await sendRtp (generation check below).
     }
     header.ssrc = this.ssrc;
     header.payloadType = this.codec.payloadType;
@@ -802,10 +834,16 @@ export class RTCRtpSender {
     this.runRtcp();
     // BWE / TWCC only when transport-cc is negotiated — otherwise wideSeq would
     // not advance and probe padding would be useless / harmful.
-    if (twccOn && packetWideSeq !== undefined) {
+    // Generation match: estimator was not swapped (or reset) while this packet
+    // was in flight. Mismatch → discard (do not feed disposed or new clean BWE).
+    if (
+      twccOn &&
+      packetWideSeq !== undefined &&
+      sendGeneration === this.bweGeneration
+    ) {
       const millitime = milliTime();
-      const probeCtl = isProbePacingController(this._senderBWE)
-        ? this._senderBWE
+      const probeCtl = isProbePacingController(estimatorAtStart)
+        ? estimatorAtStart
         : undefined;
       const sentInfo: SentInfo = {
         wideSeq: packetWideSeq,
@@ -816,10 +854,15 @@ export class RTCRtpSender {
           opts.forceProbeTag === true ||
           probeCtl?.shouldTagProbePacket() === true,
       };
-      this._senderBWE.rtpPacketSent(sentInfo);
+      // generation match ⇒ estimatorAtStart is still the active _senderBWE
+      estimatorAtStart.rtpPacketSent(sentInfo);
     }
 
-    if (opts.injectProbePadding && twccOn) {
+    if (
+      opts.injectProbePadding &&
+      twccOn &&
+      sendGeneration === this.bweGeneration
+    ) {
       await this.maybeInjectProbePadding();
     }
   }
