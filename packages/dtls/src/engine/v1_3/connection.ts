@@ -134,19 +134,11 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
 
   close() {
     if (this.closed) return;
-    // Sync terminal (onClosing → associationTornDown) before async notify.
+    // Sync terminal + cancel RTO/prune/carrier timers before any notify.
     this.beginGracefulClose();
-    // RFC 8446: send close_notify before tearing down write side (unless already sent).
-    // Use write keys (not only connected) so a race where the peer finished first
-    // still emits close_notify. beginGracefulClose cleared connected but write keys remain.
-    const canSendCloseNotify =
-      !this.localCloseNotifySent &&
-      !!this.epochs.get(this.writeEpoch)?.writeKeys;
-    if (canSendCloseNotify) {
-      void this.sendCloseNotify().finally(() => this.teardownAssociation());
-      return;
-    }
-    this.teardownAssociation();
+    // RFC 8446: best-effort close_notify. Do not hold carrier/teardown on a
+    // stalled transport.send Promise — race notify against a short budget.
+    this.finishGracefulCloseWithOptionalNotify();
   }
 
   /** Best-effort close_notify on current write epoch. */
@@ -176,22 +168,49 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
   }
 
   /**
+   * Kick off optional close_notify then free association resources even if
+   * transport.send never settles (P2: hung Promise must not leak carrier).
+   */
+  private finishGracefulCloseWithOptionalNotify(): void {
+    const canSendCloseNotify =
+      !this.localCloseNotifySent &&
+      !!this.epochs.get(this.writeEpoch)?.writeKeys;
+    if (!canSendCloseNotify) {
+      this.teardownAssociation();
+      return;
+    }
+    const notify = this.sendCloseNotify().catch(() => {});
+    // Prefer completing notify quickly; always teardown by budget so a hung
+    // transport.send cannot leak carrier/timers (beginGracefulClose already
+    // cancelled RTO/prune; teardown closes carrier).
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      this.teardownAssociation();
+    };
+    const timer = setTimeout(finish, 250);
+    void notify.finally(() => {
+      clearTimeout(timer);
+      finish();
+    });
+  }
+
+  /**
    * Peer sent close_notify: record boundary, stop retransmits, reply close_notify,
    * then full teardown so public state matches local close() (onClose + !connected).
    * Terminal (onClosing) is synchronous so Public API rejects before notify completes.
    */
   protected onPeerCloseNotify(epoch: number, sequenceNumber: number): void {
     this.peerCloseBoundary = { epoch, sequenceNumber };
-    // Stop any pending handshake / KeyUpdate retransmit immediately
-    this.clearPendingFlight();
     if (this.closed) return;
-    // Snapshot whether we still need a reply *before* beginGracefulClose clears connected.
+    // Snapshot whether we still need a reply *before* beginGracefulClose.
     const shouldReply =
       !this.localCloseNotifySent &&
       !!this.epochs.get(this.writeEpoch)?.writeKeys;
     this.beginGracefulClose();
     if (shouldReply) {
-      void this.sendCloseNotify().finally(() => this.teardownAssociation());
+      this.finishGracefulCloseWithOptionalNotify();
       return;
     }
     this.teardownAssociation();

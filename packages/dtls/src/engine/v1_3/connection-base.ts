@@ -793,15 +793,27 @@ export abstract class Dtls13ConnectionBase {
    */
   /**
    * Enter graceful-close terminal for Public API: connected=false, closing=true,
-   * onClosing once. Safe to call repeatedly. Does not fire onClose or free carrier.
+   * onClosing once. Immediately cancels retransmission / epoch prune / carrier
+   * timers so a stalled close_notify send cannot hold association resources.
+   * Does not fire onClose or close the carrier (that is teardownAssociation).
    */
   protected beginGracefulClose(): void {
     if (this.closed || this.closing) {
       this.connected = false;
+      // Idempotent: still ensure work is stopped if re-entered mid-teardown.
+      this.clearPendingFlight();
+      this.cancelEpochPrune?.();
+      this.cancelEpochPrune = undefined;
+      this.carrier.cancelAllTimers();
       return;
     }
     this.closing = true;
     this.connected = false;
+    // Stop HS/KeyUpdate RTO and TTL prune before any async close_notify.
+    this.clearPendingFlight();
+    this.cancelEpochPrune?.();
+    this.cancelEpochPrune = undefined;
+    this.carrier.cancelAllTimers();
     this.onClosing.execute();
   }
 

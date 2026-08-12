@@ -252,6 +252,7 @@ export class DtlsServer extends DtlsSocket {
                 // No overlap — send alert. Only association-fatal after pin
                 // (post-cookie); pre-cookie must not DoS the listening server.
                 await this.sendPlaintextAlert(AlertDesc.ProtocolVersion);
+                if (this.associationTornDown) return;
                 if (this.transport.pinnedPeer) {
                   this.reportLegacy12Fatal(
                     new ProtocolVersionError(
@@ -289,6 +290,7 @@ export class DtlsServer extends DtlsSocket {
               clientHello.cipherSuites.every((c) => c === 0x1301)
             ) {
               await this.sendPlaintextAlert(AlertDesc.ProtocolVersion);
+              if (this.associationTornDown) return;
               if (this.transport.pinnedPeer) {
                 this.reportLegacy12Fatal(
                   new ProtocolVersionError(
@@ -323,6 +325,8 @@ export class DtlsServer extends DtlsSocket {
                 this.cipher,
                 this.srtp,
               ).exec(handshake, this.options.certificateRequest);
+              // close/fatal during Flight4 must not continue HS
+              if (this.associationTornDown) return;
             } else {
               log("wrong state", {
                 dtlsCookie: this.dtls.cookie?.toString("hex").slice(10),
@@ -336,14 +340,17 @@ export class DtlsServer extends DtlsSocket {
         case HandshakeType.certificate_verify_15:
         case HandshakeType.client_key_exchange_16:
           {
-            if (this.connected) return;
+            if (this.connected || this.associationTornDown) return;
             this.flight6 = new Flight6(this.transport, this.dtls, this.cipher);
             this.flight6.handleHandshake(handshake);
           }
           break;
         case HandshakeType.finished_20:
           {
+            // Terminal / already connected: never re-enter connect path
+            if (this.associationTornDown || this.connected) return;
             await this.waitForReady(() => !!this.flight6);
+            if (this.associationTornDown || this.connected) return;
             this.flight6?.handleHandshake(handshake);
 
             const requiredHandshakes = [
@@ -354,7 +361,10 @@ export class DtlsServer extends DtlsSocket {
             await this.waitForReady(() =>
               this.dtls.checkHandshakesExist(requiredHandshakes),
             );
+            // close/fatal during waitForReady must not Flight6.exec or onConnect
+            if (this.associationTornDown || this.connected) return;
             await this.flight6?.exec();
+            if (this.associationTornDown || this.connected) return;
 
             this.connected = true;
             // Safety net: pin from last authenticated HS peer if Flight4 pin
