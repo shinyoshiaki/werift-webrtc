@@ -125,6 +125,24 @@ export function isRoundTripTimeConsumer(
 }
 
 /**
+ * Optional pin `OnNetworkAvailability` consumer.
+ *
+ * Not part of the common {@link BandwidthEstimator} contract. Initial
+ * exponential probing must not start until the transport can actually send.
+ */
+export interface NetworkAvailabilityConsumer {
+  /** True when ICE/DTLS (or equivalent) can emit RTP. */
+  setNetworkAvailable(available: boolean): void;
+}
+
+export function isNetworkAvailabilityConsumer(
+  e: BandwidthEstimator,
+): e is BandwidthEstimator & NetworkAvailabilityConsumer {
+  const c = e as BandwidthEstimator & Partial<NetworkAvailabilityConsumer>;
+  return typeof c.setNetworkAvailable === "function";
+}
+
+/**
  * Optional periodic process surface (pin GoogCc `OnProcessInterval`).
  *
  * Not part of the common {@link BandwidthEstimator} contract. Callers (e.g.

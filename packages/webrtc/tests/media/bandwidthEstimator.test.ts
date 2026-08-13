@@ -34,6 +34,7 @@ import {
   appendRfc3550Padding,
   getBandwidthLimitedCause,
   hasTwccReceiveTiming,
+  isNetworkAvailabilityConsumer,
   isProbeInitiationAllowed,
   isProbePacingController,
   isRoundTripTimeConsumer,
@@ -119,6 +120,37 @@ function createClockGcc(
       nowMs = Math.max(nowMs, t);
     },
   };
+}
+
+/** pin OnNetworkAvailability(true) then first ProcessInterval SetBitrates. */
+function startGccProbing(gcc: GccBandwidthEstimator, nowMs?: number) {
+  gcc.setNetworkAvailable(true);
+  // 合成 clock の GCC では Date.now() を使わない（ALR origin が壁時計になる）。
+  gcc.process(nowMs ?? (gcc as unknown as { clock: () => number }).clock());
+}
+
+/**
+ * 3x/6x を開始するが、RTCRtpSender の onProbeClusterConfig 自動 padding は抑止する。
+ * sendRtp 後の注入や maybeInjectProbePadding 自体を検証するテスト用。
+ */
+function startGccProbingWithoutSenderPadding(
+  sender: RTCRtpSender,
+  gcc: GccBandwidthEstimator,
+  nowMs?: number,
+) {
+  const spy = vi.spyOn(sender, "maybeInjectProbePadding").mockResolvedValue(0);
+  try {
+    startGccProbing(gcc, nowMs);
+  } finally {
+    spy.mockRestore();
+  }
+}
+
+/** ProbeController with network already available (most unit tests). */
+function createProbeController() {
+  const probe = new ProbeController();
+  probe.onNetworkAvailability(true, 0);
+  return probe;
 }
 
 function feedDelayScenario(
@@ -241,6 +273,23 @@ describe("media/sender bandwidth estimator", () => {
       expect(isRoundTripTimeConsumer(gcc)).toBe(true);
       gcc.setRoundTripTime(42);
       expect((gcc as any).aimd.rtt).toBe(42);
+    });
+
+    test("共通 BandwidthEstimator に setNetworkAvailable は含まれない（capability 分離）", () => {
+      // Arrange
+      const legacy: BandwidthEstimator = new SenderBandwidthEstimator();
+      const gcc = new GccBandwidthEstimator();
+
+      // Assert: type-level — common に availability 入力が無い
+      type Forbidden = "setNetworkAvailable";
+      type Intersection = Extract<keyof BandwidthEstimator, Forbidden>;
+      type AssertNoNet = [Intersection] extends [never] ? true : false;
+      const noNetOnCommon: AssertNoNet = true;
+      expect(noNetOnCommon).toBe(true);
+
+      // runtime: NetworkAvailabilityConsumer は GCC のみ
+      expect(isNetworkAvailabilityConsumer(legacy)).toBe(false);
+      expect(isNetworkAvailabilityConsumer(gcc)).toBe(true);
     });
 
     test("共通 BandwidthEstimator に congestion API は含まれない（compile-time）", () => {
@@ -871,6 +920,7 @@ describe("media/sender bandwidth estimator", () => {
       const gcc = new GccBandwidthEstimator(start);
       const clusters: number[] = [];
       gcc.onProbeClusterConfig.subscribe((c) => clusters.push(c.targetBps));
+      startGccProbing(gcc);
       expect(gcc.shouldTagProbePacket()).toBe(true);
       // FIFO: pacing target / activate event is front=3x only
       expect(gcc.suggestedProbeBitrateBps).toBe(start * 3);
@@ -908,7 +958,7 @@ describe("media/sender bandwidth estimator", () => {
       const gcc = new GccBandwidthEstimator(100_000);
       const clusters: number[] = [];
       gcc.onProbeClusterConfig.subscribe((c) => clusters.push(c.targetBps));
-      gcc.shouldTagProbePacket();
+      startGccProbing(gcc);
 
       const runProbe = (seq0: number, t0: number, n: number) => {
         for (let i = 0; i < n; i++) {
@@ -958,7 +1008,7 @@ describe("media/sender bandwidth estimator", () => {
     test("probe 失敗（未 ACK）では推定がスタート付近のまま", () => {
       // Arrange
       const gcc = new GccBandwidthEstimator(100_000);
-      gcc.shouldTagProbePacket();
+      startGccProbing(gcc);
       const fired: number[] = [];
       gcc.onAvailableBitrate.subscribe((v) => fired.push(v));
 
@@ -987,6 +1037,8 @@ describe("media/sender bandwidth estimator", () => {
       // Arrange: 高 start → 3x probe target が大きく、minBytes が maxBurst を超える
       const gcc = new GccBandwidthEstimator(1_000_000);
       const { sender } = await prepareConnectedSender(gcc);
+      // Arrange: cluster 開始時の自動注入を止め、本呼び出しで完遂を検証する
+      startGccProbingWithoutSenderPadding(sender, gcc);
       // Act
       const n = await sender.maybeInjectProbePadding();
       // Assert: 単一 maxBurst では足りず、外側ループで完遂する
@@ -1000,6 +1052,7 @@ describe("media/sender bandwidth estimator", () => {
       // Arrange
       const gcc = new GccBandwidthEstimator(100_000);
       const { sender, sentPackets } = await prepareConnectedSender(gcc);
+      startGccProbing(gcc);
       const rtpSpy = vi.spyOn(gcc, "rtpPacketSent");
 
       // Act: メディア 1 + probe padding
@@ -1062,9 +1115,9 @@ describe("media/sender bandwidth estimator", () => {
     });
 
     test("maybeInjectProbePadding が専用経路で padding を送る", async () => {
-      const { sender, sentPackets } = await prepareConnectedSender(
-        new GccBandwidthEstimator(100_000),
-      );
+      const gcc = new GccBandwidthEstimator(100_000);
+      const { sender, sentPackets } = await prepareConnectedSender(gcc);
+      startGccProbingWithoutSenderPadding(sender, gcc);
       const n = await sender.maybeInjectProbePadding();
       expect(n).toBeGreaterThan(0);
       expect(sentPackets.every((p) => p.header.padding)).toBe(true);
@@ -1142,6 +1195,7 @@ describe("media/sender bandwidth estimator", () => {
       // Arrange
       const gcc = new GccBandwidthEstimator(100_000);
       const { sender, dtls } = await prepareConnectedSender(gcc);
+      startGccProbingWithoutSenderPadding(sender, gcc);
       const sizes: number[] = [];
       const payloads: Buffer[] = [];
       dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
@@ -1175,7 +1229,7 @@ describe("media/sender bandwidth estimator", () => {
       // 旧実装は await 後に共有カウンタを読み直し [2,2] になっていた
       const gcc = new GccBandwidthEstimator(100_000);
       // 初期 probe を止めて isProbation 注入を避ける
-      gcc.shouldTagProbePacket();
+      startGccProbing(gcc);
       (gcc as any).probe.abort(0);
       (gcc as any).probe.state = "complete";
       (gcc as any).probingConfigured = true;
@@ -1690,7 +1744,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("probe wrap 後も旧 seq の cluster mapping を残す", () => {
       // Arrange: 同じ 16bit seq が 2 世代ある
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       (probe as any).queue = [];
 
@@ -1880,6 +1934,8 @@ describe("media/sender bandwidth estimator", () => {
       // Arrange
       const gcc = new GccBandwidthEstimator(100_000);
       const { sender, sentPackets } = await prepareConnectedSender(gcc);
+      // Arrange: media 送信より先に cluster を埋めない
+      startGccProbingWithoutSenderPadding(sender, gcc);
       // Act: media 10（sendRtp 後に probe padding が自動注入される）
       await sender.sendRtp(
         new RtpPacket(
@@ -1939,6 +1995,7 @@ describe("media/sender bandwidth estimator", () => {
       // Arrange
       const gcc = new GccBandwidthEstimator(100_000);
       const { sender, sentPackets } = await prepareConnectedSender(gcc);
+      startGccProbing(gcc);
 
       // Act: media
       await sender.sendRtp(
@@ -1993,6 +2050,7 @@ describe("media/sender bandwidth estimator", () => {
       // Arrange
       const gcc = new GccBandwidthEstimator(100_000);
       const { sender, sentPackets } = await prepareConnectedSender(gcc);
+      startGccProbingWithoutSenderPadding(sender, gcc);
       const before = (sender as any).octetCount as number;
 
       // Act: padding only
@@ -2011,8 +2069,8 @@ describe("media/sender bandwidth estimator", () => {
       const activated: number[] = [];
       gcc.onProbeClusterConfig.subscribe((c) => activated.push(c.targetBps));
 
-      // Act: 最初の送信で ensureProbing
-      gcc.rtpPacketSent(sent(1, 200, Date.now()));
+      // Act: pin は ProcessInterval + network available で SetBitrates
+      startGccProbing(gcc);
 
       // Assert: pacing イベントは active になった 3x のみ（6x はまだ queue）
       expect(activated).toEqual([100_000 * 3]);
@@ -2022,7 +2080,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("probe fill 完了で ACK を待たず FIFO 次 cluster へ進む", () => {
       // Arrange: start=100kbps → 3x then 6x queued
-      const probe = new ProbeController();
+      const probe = createProbeController();
       const activated = probe.setBitrates(10_000, 100_000, 1e9, 0);
       expect(activated.map((c) => c.targetBps)).toEqual([300_000]);
       expect(probe.currentProbeTargetBps).toBe(300_000);
@@ -2050,7 +2108,7 @@ describe("media/sender bandwidth estimator", () => {
     test("80% ACK でも send-fill 未完了なら pacing を終了しない", () => {
       // Arrange: minPackets=5 / minBytes≥1000 → 4×300B で 80% ACK は成立し得るが
       // send-fill (5 pkts AND minBytes) は未完了
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       expect(probe.currentProbeTargetBps).toBe(300_000);
 
@@ -2091,7 +2149,7 @@ describe("media/sender bandwidth estimator", () => {
     test("initial probe 全失敗でも complete になり recovery 可能", () => {
       // Arrange: 3x/6x を send-fill まで送るが ACK なし
       // 6x minBytes ≈ 1125 なので 300B×5 で確実に fill
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       expect(probe.probeState).toBe("waiting_for_result");
 
@@ -2141,7 +2199,7 @@ describe("media/sender bandwidth estimator", () => {
       // libwebrtc 同様に max で 1 回だけ probe し、以降 further しない。
       // SetEstimatedBitrate の further は waiting_for_result の間だけ（pin）。
       const maxBps = 1_000_000;
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, maxBps, 0);
       // 初期 3x/6x を破棄し、waiting 中に further threshold だけ再注入
       probe.abort(1_000);
@@ -2188,7 +2246,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("repeated recovery でも estimator history / seq map は有界", () => {
       // Arrange: recovery を多数回繰り返し、history が無制限に増えないこと
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       // 初期 session を abort → complete
       probe.abort(1_000);
@@ -2245,7 +2303,7 @@ describe("media/sender bandwidth estimator", () => {
     test("controller complete 後は further threshold が Infinity になり further を再開しない", () => {
       // Arrange: initial 3x/6x を send-fill → result timeout で complete
       // pin UpdateState(kProbingComplete): min_bitrate_to_probe_further = +∞
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       expect(probe.furtherProbeThresholdBps).toBe(Math.round(600_000 * 0.7));
 
@@ -2280,7 +2338,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("6x result 受理後も complete 前なら further probe を enqueue できる", () => {
       // Arrange: 3x/6x を send-fill + 有効 ACK まで進め、6x 結果が threshold を超える
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       const threshold6x = Math.round(600_000 * 0.7);
       expect(probe.furtherProbeThresholdBps).toBe(threshold6x);
@@ -2344,7 +2402,7 @@ describe("media/sender bandwidth estimator", () => {
     test("further-probe threshold は計画上の最後の target（6x）基準", () => {
       // Arrange: initial 3x/6x、minBitrateToProbeFurther = 6x × 0.7
       // （成功した cluster の target=3x ではなく計画上の最後=6x が基準）
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       const threshold6x = Math.round(600_000 * 0.7);
       expect(probe.furtherProbeThresholdBps).toBe(threshold6x);
@@ -2393,7 +2451,7 @@ describe("media/sender bandwidth estimator", () => {
       const t0 = 80_000;
       const { gcc, setNow } = createClockGcc(1_000_000, t0);
       // ensure probing configured
-      gcc.shouldTagProbePacket();
+      startGccProbing(gcc);
       // 強制的に高い available と delay/loss を立てる
       (gcc as any).hasValidSample = true;
       (gcc as any).delayBasedBps = 1_000_000;
@@ -2453,7 +2511,7 @@ describe("media/sender bandwidth estimator", () => {
     });
 
     test("ProbeController は高低に関係なく valid result を pending に出す", () => {
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       // 先に高い estimate を持たせる
       (probe as any).estimatedBps = 1_000_000;
@@ -2481,7 +2539,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("receive reorder でも min/max arrival で probe estimate が成立する", () => {
       // Arrange: sequence 順に処理しても recv 時刻が逆転していても valid
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       const size = 300;
       for (let i = 0; i < 5; i++) {
@@ -2498,7 +2556,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("80% 成立後も遅延 ACK で estimate を再計算する", () => {
       // Arrange: 4/5 ACK で estimate A、5 packet 目が遅延 → B < A
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       const size = 300;
       for (let i = 0; i < 5; i++) {
@@ -2530,7 +2588,7 @@ describe("media/sender bandwidth estimator", () => {
       // AIMD TimeToReduceFurther のみ。lower probe も適用しない。
       const t0 = 50_000;
       const { gcc, setNow } = createClockGcc(1_000_000, t0);
-      gcc.shouldTagProbePacket();
+      startGccProbing(gcc);
       (gcc as any).probe.abort(0);
       (gcc as any).probe.state = "complete";
       (gcc as any).probe.lastProbeEndMs = 0;
@@ -2589,7 +2647,7 @@ describe("media/sender bandwidth estimator", () => {
     test("probe result がある feedback では recovered_from_overuse recovery を出さない", () => {
       // pin: probe_bitrate がある場合 recovered_from_overuse を result に載せない
       const gcc = new GccBandwidthEstimator(150_000);
-      gcc.shouldTagProbePacket();
+      startGccProbing(gcc);
       (gcc as any).probe.abort(0);
       (gcc as any).probe.state = "complete";
       (gcc as any).probe.lastProbeEndMs = Date.now() - 10_000;
@@ -2783,7 +2841,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("pacing timeout 5s と result timeout 1s は独立", () => {
       // Arrange
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       // 1 packet only — send-fill 未完了
       probe.onProbePacketSent(200, 0, 1);
@@ -2818,7 +2876,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("controller result timeout 後の late TWCC でも probe estimate が得られる", () => {
       // Arrange: single cluster send-fill, no ACK yet
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       // Abort queue 6x so only one cluster is under test
       (probe as any).queue = [];
@@ -2857,7 +2915,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("receive timeline で 1s 超古い estimator history は prune される", () => {
       // Arrange: send-fill + ACK で estimate 成立 → controller timeout で history へ
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       (probe as any).queue = [];
       const size = 300;
@@ -2908,7 +2966,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("0 packet の pacing timeout は estimator history に残らない", () => {
       // Arrange: activate のみ、1 packet も送らない
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       (probe as any).queue = [];
       expect(probe.currentProbeTargetBps).toBe(300_000);
@@ -2926,7 +2984,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("ACK なし cluster は controller complete 後 sender-side 60s で history から消える", () => {
       // Arrange: 1+ packet 送信 → result timeout → history 残留
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       (probe as any).queue = [];
       const size = 300;
@@ -2958,7 +3016,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("controller timeout 後 10s 以内の late TWCC は estimate 可能", () => {
       // Arrange: send-fill → controller timeout → history
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       (probe as any).queue = [];
       const size = 300;
@@ -2991,7 +3049,7 @@ describe("media/sender bandwidth estimator", () => {
     test("underuse 中は recovery/further probe を生成しない", () => {
       // Arrange: complete 済み + further 可能な threshold、usage=underuse 固定
       const gcc = new GccBandwidthEstimator(100_000);
-      gcc.shouldTagProbePacket();
+      startGccProbing(gcc);
       (gcc as any).probe.abort(0);
       (gcc as any).probe.state = "complete";
       (gcc as any).probe.lastProbeEndMs = Date.now() - 10_000;
@@ -3044,7 +3102,7 @@ describe("media/sender bandwidth estimator", () => {
       // Arrange: complete + cooldown 済み。feedback 内 per-packet で
       // underuse→normal を latch（pin DelayBasedBwe recovered_from_overuse）
       const gcc = new GccBandwidthEstimator(150_000);
-      gcc.shouldTagProbePacket();
+      startGccProbing(gcc);
       (gcc as any).probe.abort(0);
       (gcc as any).probe.state = "complete";
       (gcc as any).probe.lastProbeEndMs = Date.now() - 10_000;
@@ -3139,7 +3197,7 @@ describe("media/sender bandwidth estimator", () => {
     test("feedback 開始/終了が normal でも途中 underuse→normal で recovery を latch", () => {
       // Arrange: lastUsage=normal, final state=normal, but mid-feedback recovery
       const gcc = new GccBandwidthEstimator(180_000);
-      gcc.shouldTagProbePacket();
+      startGccProbing(gcc);
       (gcc as any).probe.abort(0);
       (gcc as any).probe.state = "complete";
       (gcc as any).probe.lastProbeEndMs = Date.now() - 10_000;
@@ -3207,7 +3265,7 @@ describe("media/sender bandwidth estimator", () => {
     test("ALR なしの underuse→normal では recovery probe しない", () => {
       // Arrange: pin RequestProbe は ALR / 直近 ALR 終了が必須
       const gcc = new GccBandwidthEstimator(150_000);
-      gcc.shouldTagProbePacket();
+      startGccProbing(gcc);
       (gcc as any).probe.abort(0);
       (gcc as any).probe.state = "complete";
       (gcc as any).hasValidSample = true;
@@ -3267,7 +3325,7 @@ describe("media/sender bandwidth estimator", () => {
     test("loss decreasing/hold では further/recovery probe を生成しない", () => {
       // Arrange: usage=normal だが loss が decreasing
       const gcc = new GccBandwidthEstimator(200_000);
-      gcc.shouldTagProbePacket();
+      startGccProbing(gcc);
       (gcc as any).probe.abort(0);
       (gcc as any).probe.state = "complete";
       (gcc as any).probe.lastProbeEndMs = Date.now() - 10_000;
@@ -3891,7 +3949,7 @@ describe("media/sender bandwidth estimator", () => {
       const { gcc, setNow } = createClockGcc(startBps, t0, {
         periodicAlrProbing: true,
       });
-      gcc.shouldTagProbePacket();
+      startGccProbing(gcc);
       (gcc as any).probe.abort(t0);
       expect(gcc.probeState).toBe("complete");
 
@@ -3939,7 +3997,7 @@ describe("media/sender bandwidth estimator", () => {
       const { gcc, setNow } = createClockGcc(startBps, t0, {
         periodicAlrProbing: true,
       });
-      gcc.shouldTagProbePacket();
+      startGccProbing(gcc);
       (gcc as any).probe.abort(t0);
       gcc.rtpPacketSent(sent(1, 500, t0));
 
@@ -4167,6 +4225,7 @@ describe("media/sender bandwidth estimator", () => {
       gcc.onProbeClusterConfig.subscribe((c) => probeCfgs.push(c.targetBps));
 
       // ensureProbing + 3x/6x send-fill（ACK なし → result timeout で complete）
+      startGccProbing(gcc, 1_000);
       let seq = 1;
       const fillAt = (base: number, count: number) => {
         for (let i = 0; i < count; i++) {
@@ -4212,7 +4271,7 @@ describe("media/sender bandwidth estimator", () => {
     test("rising probe は acked×2 で cap されず delay path にそのまま載る", () => {
       // Arrange: pin は upward cap なし — probe 1.8M を SetEstimate
       const gcc = new GccBandwidthEstimator(300_000);
-      gcc.shouldTagProbePacket();
+      startGccProbing(gcc);
       (gcc as any).probe.abort(0);
       (gcc as any).probe.state = "complete";
       (gcc as any).probe.pendingEstimateBps = 1_800_000;
@@ -4263,7 +4322,7 @@ describe("media/sender bandwidth estimator", () => {
     test("probe 適用後に LossBased が再更新され post-loss cause を使う", () => {
       // Arrange: high probe pending + loss update sees elevated delay
       const gcc = new GccBandwidthEstimator(200_000);
-      gcc.shouldTagProbePacket();
+      startGccProbing(gcc);
       (gcc as any).probe.abort(0);
       (gcc as any).probe.state = "waiting_for_result";
       (gcc as any).probe.minBitrateToProbeFurther = 50_000;
@@ -4337,7 +4396,7 @@ describe("media/sender bandwidth estimator", () => {
     test("loss increasing 中の further probe は estimated×1.5 で cap される", () => {
       // Arrange: ProbeController 単体 — cause cap を InitiateProbing 相当で適用
       // further は waiting_for_result の間のみ（pin SetEstimatedBitrate）
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       probe.abort(1_000);
       (probe as any).state = "waiting_for_result";
@@ -4363,7 +4422,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("loss increasing 中の recovery probe は 0.85×pre-drop を cause cap する", () => {
       // Arrange: 400k → 200k drop。pin target 340k を loss-increasing 1.5×=300k で cap
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       probe.abort(1_000);
       (probe as any).state = "complete";
@@ -4390,7 +4449,7 @@ describe("media/sender bandwidth estimator", () => {
       // 注意: rtpPacketSent → process() は empty waiting を complete に落とすため、
       // waiting / further threshold / pending は TWCC 直前に注入する。
       const gcc = new GccBandwidthEstimator(200_000);
-      gcc.shouldTagProbePacket();
+      startGccProbing(gcc);
       (gcc as any).probe.abort(0);
       (gcc as any).hasValidSample = true;
       (gcc as any).delayBasedBps = 200_000;
@@ -4487,7 +4546,7 @@ describe("media/sender bandwidth estimator", () => {
     test("max ちょうど一致する initial probe は further を止める（>=）", () => {
       // Arrange: start=100kbps, max=600kbps → initial [300, 600]
       // libwebrtc: 600 >= max → probe_further=false
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 600_000, 0);
       expect(probe.currentProbeTargetBps).toBe(300_000);
       expect(probe.queuedClusterCount).toBe(1);
@@ -4525,7 +4584,7 @@ describe("media/sender bandwidth estimator", () => {
       // 合成タイムラインでも pacing timeout は発火しない。
       const gcc = new GccBandwidthEstimator(100_000);
       const t0 = 40_000;
-      // ensureProbing → 3x active
+      startGccProbing(gcc, t0);
       gcc.rtpPacketSent({
         wideSeq: 1,
         size: 300,
@@ -4710,6 +4769,7 @@ describe("media/sender bandwidth estimator", () => {
       // Arrange: GCC probe padding を非同期開始し、途中で legacy に差し替え
       const gcc = new GccBandwidthEstimator(1_000_000);
       const { sender, dtls } = await prepareConnectedSender(gcc);
+      startGccProbing(gcc);
 
       let releaseFirst!: () => void;
       const holdFirst = new Promise<void>((resolve) => {
@@ -4757,7 +4817,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("recovery probe は 0.85×pre-drop の単発で ALR probe 間隔を守る", () => {
       // Arrange: 700k → 150k の large drop + ALR
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 700_000, 1_000_000_000, 0);
       probe.abort(2_000);
       (probe as any).state = "complete";
@@ -4784,7 +4844,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("ALR 終了後 3s 以内なら RequestProbe が 0.85×pre-drop を出す", () => {
       // Arrange: pin kAlrEndedTimeout=3s。ALR 終了直後も recovery 可
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 200_000, 1e9, 0);
       probe.abort(1_000);
       (probe as any).state = "complete";
@@ -4814,7 +4874,7 @@ describe("media/sender bandwidth estimator", () => {
       // Arrange: cold start — pin は rising probe を Aimd SetEstimate にそのまま渡す
       const start = 100_000;
       const gcc = new GccBandwidthEstimator(start);
-      gcc.shouldTagProbePacket();
+      startGccProbing(gcc);
       expect(gcc.probeState).toBe("waiting_for_result");
 
       // Act 1: 高レート initial probe
@@ -5166,7 +5226,7 @@ describe("media/sender bandwidth estimator", () => {
     test("same-feedback で probe result + loss があっても loss が post-probe delay で更新される", () => {
       // pin order: delay/probe SetEstimate → LossBased.update(post-probe delay)
       const gcc = new GccBandwidthEstimator(200_000);
-      gcc.shouldTagProbePacket();
+      startGccProbing(gcc);
       (gcc as any).probe.abort(0);
       (gcc as any).probe.state = "complete";
       (gcc as any).probe.lastProbeEndMs = 0;
@@ -5281,7 +5341,7 @@ describe("media/sender bandwidth estimator", () => {
     test("estimator dispose / reset は sentInfos と probe seq map を残さない", () => {
       // Arrange: 送信履歴と probe mapping を積む
       const gcc = new GccBandwidthEstimator(300_000);
-      gcc.shouldTagProbePacket();
+      startGccProbing(gcc);
       gcc.rtpPacketSent(sent(1, 200, 1_000, { isProbation: true }));
       gcc.rtpPacketSent(sent(2, 200, 1_010, { isProbation: true }));
       expect((gcc as any).sentInfos.size).toBeGreaterThan(0);
@@ -5301,7 +5361,7 @@ describe("media/sender bandwidth estimator", () => {
       // Arrange: GCC + 送信履歴 + probe mapping
       const gcc = new GccBandwidthEstimator(300_000);
       const { sender, dtls } = await prepareConnectedSender(gcc);
-      gcc.shouldTagProbePacket();
+      startGccProbing(gcc);
       gcc.rtpPacketSent(sent(1, 200, 1_000, { isProbation: true }));
       gcc.rtpPacketSent(sent(2, 200, 1_010, { isProbation: true }));
       expect((gcc as any).sentInfos.size).toBeGreaterThan(0);
@@ -5352,6 +5412,7 @@ describe("media/sender bandwidth estimator", () => {
       // Arrange: padding 注入を非同期開始し、途中で stop
       const gcc = new GccBandwidthEstimator(1_000_000);
       const { sender, dtls } = await prepareConnectedSender(gcc);
+      startGccProbing(gcc);
 
       let releaseFirst!: () => void;
       const holdFirst = new Promise<void>((resolve) => {
@@ -5435,7 +5496,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("ALR 中の process は complete 後 5s で periodic probe を出す", () => {
       // Arrange: initial session を complete にして ALR probing を有効化
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       probe.abort(1_000);
       expect(probe.probeState).toBe("complete");
@@ -5462,7 +5523,7 @@ describe("media/sender bandwidth estimator", () => {
       // Arrange: pin enable_periodic_alr_probing_ 初期値は false
       const t0 = 110_000;
       const { gcc, setNow } = createClockGcc(1_000_000, t0);
-      gcc.shouldTagProbePacket();
+      startGccProbing(gcc);
       (gcc as any).probe.abort(t0);
       expect(gcc.probeState).toBe("complete");
 
@@ -5499,7 +5560,7 @@ describe("media/sender bandwidth estimator", () => {
       const { gcc, setNow } = createClockGcc(1_000_000, t0, {
         periodicAlrProbing: true,
       });
-      gcc.shouldTagProbePacket();
+      startGccProbing(gcc);
       (gcc as any).probe.abort(t0);
       expect(gcc.probeState).toBe("complete");
 
@@ -5535,7 +5596,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("high RTT 中は ALR periodic probe を出さない", () => {
       // Arrange
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       probe.abort(1_000);
       probe.enablePeriodicAlrProbing(true);
@@ -5554,7 +5615,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("network-state estimate が低く interval が有限なら periodic probe する", () => {
       // Arrange: pin TimeForNetworkStateProbe（interval 既定 +∞ なので明示設定）
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       probe.abort(1_000);
       probe.setEstimatedBitrate(200_000, 1_000, {
@@ -5593,8 +5654,8 @@ describe("media/sender bandwidth estimator", () => {
       expect(alr.inAlr).toBe(false);
     });
 
-    test("observation commit 後の late received は committed loss を訂正する", () => {
-      // Arrange: 250ms 以上の send span で 1 パケット lost を commit
+    test("observation commit 後の late received は過去 observation を書き換えない", () => {
+      // Arrange: pin PushBackObservation — commit 後は seq map が無い
       const loss = new LossBasedBwe();
       loss.reset(300_000);
       loss.update(0.5, 300_000, 250_000, 2, 1, 0, 200, 300, 100, [
@@ -5602,36 +5663,28 @@ describe("media/sender bandwidth estimator", () => {
         { seq: 2, size: 100, received: true, sendMs: 300 },
       ]);
 
-      // Assert: 観測が commit され seq1 は lost
       expect(loss.observationCount).toBe(1);
       const obs = (loss as any).observations[0];
-      expect(obs.numPackets).toBe(2);
       expect(obs.numLostPackets).toBe(1);
       expect(obs.lostSize).toBe(100);
-      expect(obs.numReceivedPackets).toBe(1);
       const avgBefore = loss.averageLossRatio;
       expect(avgBefore).toBeCloseTo(0.5, 5);
-      expect((loss as any).partial.seenPackets.size).toBe(0);
 
       // Act: commit 後に seq1 の late ACK
       loss.update(0, 300_000, 250_000, 1, 0, 0, 100, 0, 0, [
         { seq: 1, size: 100, received: true, sendMs: 0 },
       ]);
 
-      // Assert: 過去 observation の loss が減り、新 partial には再計上しない
-      expect(loss.observationCount).toBe(1);
-      expect(obs.numLostPackets).toBe(0);
-      expect(obs.lostSize).toBe(0);
-      expect(obs.numReceivedPackets).toBe(2);
-      expect(obs.numPackets).toBe(2);
-      expect(loss.averageLossRatio).toBe(0);
-      expect(loss.averageLossRatio).toBeLessThan(avgBefore);
-      expect((loss as any).partial.numPackets).toBe(0);
-      expect((loss as any).partial.seenPackets.has(1)).toBe(false);
+      // Assert: 過去 observation は変更せず、新しい partial の received として扱う
+      expect(obs.numLostPackets).toBe(1);
+      expect(obs.lostSize).toBe(100);
+      expect(loss.averageLossRatio).toBeCloseTo(avgBefore, 5);
+      expect((loss as any).partial.seenPackets.get(1)).toBe(100);
+      expect((loss as any).partial.lostPackets.has(1)).toBe(false);
     });
 
-    test("late TWCC correction は loss partial を二重計上しない", () => {
-      // Arrange
+    test("commit 前の lost→received は loss を解除する", () => {
+      // Arrange: pin は partial_observation_.lost_packets.erase(seq)
       const loss = new LossBasedBwe();
       loss.reset(300_000);
       const packetsLost = [
@@ -5660,7 +5713,7 @@ describe("media/sender bandwidth estimator", () => {
       expect(partial2.lostPackets.has(10)).toBe(false);
     });
 
-    test("commit 後の late TWCC は GCC 経路でも committed loss を訂正する", () => {
+    test("commit 後の late TWCC は GCC 経路でも過去 observation を書き換えない", () => {
       // Arrange: 300ms 超の送信 + 1 パケット not-received で observation を commit
       const t0 = 80_000;
       const { gcc, setNow } = createClockGcc(300_000, t0);
@@ -5685,7 +5738,6 @@ describe("media/sender bandwidth estimator", () => {
       expect(obs.numLostPackets).toBe(1);
       expect(obs.lostSize).toBe(200);
       const avgBefore = loss.averageLossRatio;
-      expect(avgBefore).toBeGreaterThan(0);
 
       // Act: commit 済み seq=3 の late received
       setNow(t0 + 500);
@@ -5699,11 +5751,11 @@ describe("media/sender bandwidth estimator", () => {
         ]),
       );
 
-      // Assert: committed observation の loss が訂正され、二重計上しない
-      expect(obs.numLostPackets).toBe(0);
-      expect(obs.lostSize).toBe(0);
-      expect(loss.averageLossRatio).toBeLessThan(avgBefore);
-      expect((loss as any).partial.seenPackets.has(3)).toBe(false);
+      // Assert: pin どおり committed loss はそのまま。late received は新 partial
+      expect(obs.numLostPackets).toBe(1);
+      expect(obs.lostSize).toBe(200);
+      expect(loss.averageLossRatio).toBeCloseTo(avgBefore, 5);
+      expect((loss as any).partial.seenPackets.has(3)).toBe(true);
     });
 
     test("not-received は永久 finalize せず後続 received を受理する", () => {
@@ -5861,7 +5913,7 @@ describe("media/sender bandwidth estimator", () => {
     test("probe 適用は AIMD/LossBased の full reset ではなく setEstimate を使う", () => {
       // Arrange: RTT・観測履歴を持たせた後に probe を適用
       const gcc = new GccBandwidthEstimator(300_000);
-      gcc.shouldTagProbePacket();
+      startGccProbing(gcc);
       (gcc as any).probe.abort(0);
       (gcc as any).probe.state = "complete";
       (gcc as any).probe.lastProbeEndMs = 0;
@@ -6009,6 +6061,7 @@ describe("media/sender bandwidth estimator", () => {
       // Arrange: pin OnTransportPacketsFeedback に Process は無い。
       // 旧実装は milliTime() で process するため小さな t0 だと 5s pacing timeout が即発火した。
       const { gcc, setNow } = createClockGcc(100_000, 1_000);
+      startGccProbing(gcc, 1_000);
       gcc.rtpPacketSent(sent(1, 300, 1_000, { isProbation: true }));
       gcc.rtpPacketSent(sent(2, 300, 1_001, { isProbation: true }));
       expect(gcc.shouldTagProbePacket()).toBe(true);
@@ -6088,6 +6141,126 @@ describe("media/sender bandwidth estimator", () => {
       aimdSpy.mockRestore();
     });
 
+    test("未接続で 5s process しても initial probe は開始しない", () => {
+      // Arrange: pin network_available_=false。SetBitrates しても probe しない
+      const { gcc, setNow } = createClockGcc(100_000, 0);
+      const probeCfgs: number[] = [];
+      gcc.onProbeClusterConfig.subscribe((c) => probeCfgs.push(c.targetBps));
+
+      // Act: 5s 相当の ProcessInterval（接続前）
+      for (let t = 25; t <= 5_000; t += 25) {
+        setNow(t);
+        gcc.process(t);
+      }
+
+      // Assert
+      expect(probeCfgs).toEqual([]);
+      expect(gcc.probeState).toBe("init");
+      expect(gcc.shouldTagProbePacket()).toBe(false);
+      expect((gcc as any).probe.isNetworkAvailable).toBe(false);
+    });
+
+    test("first process 前の RTP send は initial probe を開始しない", () => {
+      // Arrange
+      const gcc = new GccBandwidthEstimator(100_000);
+      const probeCfgs: number[] = [];
+      gcc.onProbeClusterConfig.subscribe((c) => probeCfgs.push(c.targetBps));
+
+      // Act: 最初の media 送信。shouldTag も probe を起こさない
+      gcc.rtpPacketSent(sent(1, 200, Date.now()));
+      expect(gcc.shouldTagProbePacket()).toBe(false);
+
+      // Assert
+      expect(probeCfgs).toEqual([]);
+      expect(gcc.probeState).toBe("init");
+    });
+
+    test("network available になって初めて 3x/6x が開始する", () => {
+      // Arrange
+      const { gcc, setNow } = createClockGcc(100_000, 1_000);
+      const probeCfgs: number[] = [];
+      gcc.onProbeClusterConfig.subscribe((c) => probeCfgs.push(c.targetBps));
+      setNow(1_025);
+      gcc.process(1_025);
+      expect(probeCfgs).toEqual([]);
+      expect(gcc.probeState).toBe("init");
+
+      // Act
+      setNow(1_050);
+      gcc.setNetworkAvailable(true);
+
+      // Assert: OnNetworkAvailability が start bitrate を見て 3x を起動
+      expect(probeCfgs).toEqual([300_000]);
+      expect(gcc.probeState).toBe("waiting_for_result");
+      expect(gcc.shouldTagProbePacket()).toBe(true);
+    });
+
+    test("all-lost TWCC では propagateTarget せず次の Process は前回 cause を使う", () => {
+      // Arrange: pin Result.updated=false → MaybeTrigger しない
+      const t0 = 200_000;
+      const { gcc, setNow } = createClockGcc(200_000, t0, {
+        periodicAlrProbing: true,
+      });
+      startGccProbing(gcc, t0);
+      (gcc as any).probe.abort(t0);
+      expect(gcc.probeState).toBe("complete");
+      (gcc as any).hasValidSample = true;
+      (gcc as any).alr.startedMs = t0;
+      (gcc as any).probe.setAlrStartTime(t0);
+      (gcc as any).probe.setEstimatedBitrate(200_000, t0, {
+        cause: "delay_based_limited",
+      });
+
+      gcc.rtpPacketSent(sent(1, 400, t0 + 10));
+      gcc.rtpPacketSent(sent(2, 400, t0 + 20));
+      setNow(t0 + 30);
+      gcc.receiveTWCC(
+        makeTwccFeedback([
+          new PacketResult({
+            sequenceNumber: 1,
+            received: false,
+            receivedAtMs: 0,
+          }),
+          new PacketResult({
+            sequenceNumber: 2,
+            received: false,
+            receivedAtMs: 0,
+          }),
+        ]),
+      );
+      // send 後に ALR を立て直す（OnBytesSent が budget で ALR を落とすため）
+      (gcc as any).alr.startedMs = t0;
+      (gcc as any).probe.setAlrStartTime(t0);
+
+      // Assert: all-lost では ProbeController cause を更新しない
+      expect((gcc as any).probe.lastBandwidthLimitedCause).toBe(
+        "delay_based_limited",
+      );
+
+      // Act: ALR due の Process。pin はまだ delay_based を見る
+      const probeCfgs: number[] = [];
+      gcc.onProbeClusterConfig.subscribe((c) => probeCfgs.push(c.targetBps));
+      const dueT = t0 + kAlrProbingIntervalMs;
+      setNow(dueT);
+      gcc.process(dueT);
+
+      // Assert: 前回 cause で periodic probe を出せる
+      expect(probeCfgs.length).toBe(1);
+      expect(probeCfgs[0]).toBe(200_000 * kAlrProbeScale);
+    });
+
+    test("connected sender に差し込むと network available が同期される", async () => {
+      // Arrange
+      const gcc = new GccBandwidthEstimator(100_000);
+      expect((gcc as any).probe.isNetworkAvailable).toBe(false);
+
+      // Act: 既に DTLS connected な sender へ差し込む
+      await prepareConnectedSender(gcc);
+
+      // Assert: pin OnNetworkAvailability(true) 相当。process 前なので 3x はまだ
+      expect((gcc as any).probe.isNetworkAvailable).toBe(true);
+    });
+
     test("ProcessInterval は最初の RTP 無しでも initial probe を開始する", () => {
       // Arrange: pin 初回 OnProcessInterval の ResetConstraints → SetBitrates
       const { gcc, setNow } = createClockGcc(100_000, 5_000);
@@ -6095,7 +6268,8 @@ describe("media/sender bandwidth estimator", () => {
       gcc.onProbeClusterConfig.subscribe((c) => probeCfgs.push(c.targetBps));
       expect(gcc.probeState).toBe("init");
 
-      // Act
+      // Act: network available 後の ProcessInterval
+      gcc.setNetworkAvailable(true);
       setNow(5_025);
       gcc.process(5_025);
 
@@ -6107,7 +6281,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("SetEstimatedBitrate further は high RTT cause では空（InitiateProbing）", () => {
       // Arrange: pin InitiateProbing は kRttBasedBackOffHighRtt で return {}
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       expect(probe.probeState).toBe("waiting_for_result");
       (probe as any).minBitrateToProbeFurther = 50_000;
@@ -6124,7 +6298,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("ProbeController Process は initiation から 1s 超で session complete（境界）", () => {
       // Arrange: pin Process は at_time - time_last_probing_initiated_ > 1s
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       probe.onProbePacketSent(200, 0, 1);
       expect(probe.probeState).toBe("waiting_for_result");
@@ -6177,7 +6351,7 @@ describe("media/sender bandwidth estimator", () => {
     test("complete 後に max が上がると new max で単発 probe する", () => {
       // Arrange: pin SetBitrates kProbingComplete —
       // old_max < new_max && estimated < new_max → InitiateProbing({max}, false)
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1_000_000, 0);
       probe.abort(1_000);
       expect(probe.probeState).toBe("complete");
@@ -6197,7 +6371,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("complete 後の max 据え置き / 低下 / 境界では probe しない", () => {
       // Arrange
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1_000_000, 0);
       probe.abort(1_000);
       probe.setEstimatedBitrate(400_000, 6_000, {
@@ -6217,7 +6391,7 @@ describe("media/sender bandwidth estimator", () => {
     test("reset は periodic ALR と ALR start を残し drop-probe cooldown を now にする", () => {
       // Arrange: pin Reset は enable_periodic_alr_probing_ / alr_start_time_
       // を残し、last_bwe_drop_probing_time_ = at_time
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       probe.enablePeriodicAlrProbing(true);
       probe.setAlrStartTime(2_000);
@@ -6258,6 +6432,7 @@ describe("media/sender bandwidth estimator", () => {
     test("GccBandwidthEstimator.setBitrates は complete 後の max 上昇で probe する", () => {
       // Arrange: public production path。初期 max 1Mbps で session を閉じる
       const { gcc, setNow } = createClockGcc(100_000, 20_000);
+      startGccProbing(gcc, 20_000);
       gcc.setBitrates(10_000, 100_000, 1_000_000);
       (gcc as any).probe.abort(20_000);
       expect(gcc.probeState).toBe("complete");
@@ -6427,7 +6602,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("complete 後の max 上昇 probe の直後にさらに max を上げると 2 本目が始まる", () => {
       // Arrange: pin probe_further=false → complete のままなので次の SetBitrates が再び発火
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1_000_000, 0);
       probe.abort(1_000);
       probe.setEstimatedBitrate(200_000, 6_000, {
@@ -6479,6 +6654,8 @@ describe("media/sender bandwidth estimator", () => {
       const { gcc } = createClockGcc(300_000, 90_000);
       (gcc as any).hasValidSample = true;
       (gcc as any)._availableBitrate = 300_000;
+      // Act 前: 接続済みなら SetBitrates が 3x を開始する（pin network_available_）
+      gcc.setNetworkAvailable(true);
 
       // Act: start = min-1
       gcc.setBitrates(min, min - 1, 2_000_000);
@@ -6502,6 +6679,7 @@ describe("media/sender bandwidth estimator", () => {
       (gcc as any).hasValidSample = true;
       (gcc as any)._availableBitrate = 300_000;
       const min = 1_000_000;
+      gcc.setNetworkAvailable(true);
 
       // Act: max = min-1
       gcc.setBitrates(min, 300_000, min - 1);
@@ -6525,7 +6703,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("probe ACK は sendMs=0（Timestamp::Zero）でも推定する", () => {
       // Arrange: pin は Zero を無効にしない。合成 clock=0 の先頭パケット
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       const n = 6;
       for (let i = 0; i < n; i++) {
@@ -6543,7 +6721,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("probe session timeout は initiation=0 でも 1s 境界", () => {
       // Arrange: pin Process は at_time - time_last_probing_initiated_ > 1s
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       probe.onProbePacketSent(200, 0, 1);
       expect(probe.probeState).toBe("waiting_for_result");
@@ -6559,7 +6737,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("probe ACK は TWCC seq wrap 後も同一 cluster に載る", () => {
       // Arrange: production は unwrapped seq を渡す。wire 0xffff→0 は 65535→65536
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       const seqs = [0xfffd, 0xfffe, 0xffff, 0x10000, 0x10001, 0x10002];
       for (let i = 0; i < seqs.length; i++) {
@@ -6632,7 +6810,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("RequestProbe の 5s 境界は pin の > / < に従う", () => {
       // Arrange
-      const probe = new ProbeController();
+      const probe = createProbeController();
       probe.setBitrates(10_000, 200_000, 1e9, 0);
       probe.abort(1_000);
       probe.setAlrStartTime(0);

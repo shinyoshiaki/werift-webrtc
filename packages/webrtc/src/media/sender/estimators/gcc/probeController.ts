@@ -151,7 +151,8 @@ export class ProbeController {
   private minBitrateBps = kMinBitrateBps;
   private startBitrateBps = kDefaultStartBitrateBps;
   private maxBitrateBps = kMaxBitrateBps;
-  private networkAvailable = true;
+  /** pin `network_available_` — starts false until OnNetworkAvailability. */
+  private networkAvailable = false;
   /** Unwrapped transport-wide seq → cluster id for probation packets. */
   private seqToCluster = new Map<number, number>();
   /** Unwrapped transport-wide seq → send-time / size for ACKed-only rate math. */
@@ -274,6 +275,31 @@ export class ProbeController {
     return this.pacing !== undefined && !this.sendFillComplete(this.pacing);
   }
 
+  /**
+   * pin `ProbeController::OnNetworkAvailability`.
+   * Initial exponential probing starts only after the network is available
+   * **and** start bitrate is set (SetBitrates or this call).
+   */
+  onNetworkAvailability(
+    available: boolean,
+    nowMs: number,
+  ): ProbeClusterConfig[] {
+    this.networkAvailable = available;
+    if (!available && this.state === "waiting_for_result") {
+      this.state = "complete";
+      this.minBitrateToProbeFurther = Number.POSITIVE_INFINITY;
+    }
+    if (available && this.state === "init" && this.startBitrateBps > 0) {
+      return this.initiateExponentialProbing(nowMs);
+    }
+    return [];
+  }
+
+  /** pin `network_available_` (tests / diagnostics). */
+  get isNetworkAvailable(): boolean {
+    return this.networkAvailable;
+  }
+
   private sendFillComplete(c: ClusterRuntime): boolean {
     return (
       c.sentPackets >= c.config.minPackets && c.sentBytes >= c.config.minBytes
@@ -317,6 +343,7 @@ export class ProbeController {
     if (this.state === "init" && this.networkAvailable) {
       return this.initiateExponentialProbing(nowMs);
     }
+    // network unavailable: store bitrates only (pin SetBitrates kInit).
     if (this.state === "waiting_for_result") {
       return [];
     }

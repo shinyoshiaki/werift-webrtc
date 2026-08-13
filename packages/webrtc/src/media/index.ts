@@ -12,12 +12,14 @@ export * from "./track";
 export type {
   BandwidthEstimator,
   BandwidthEstimatorProcessor,
+  NetworkAvailabilityConsumer,
   ProbePacingController,
   RoundTripTimeConsumer,
   SentInfo,
 } from "./sender/bandwidthEstimator";
 export {
   isBandwidthEstimatorProcessor,
+  isNetworkAvailabilityConsumer,
   isProbePacingController,
   isRoundTripTimeConsumer,
   setAvailableBitrateIfChanged,

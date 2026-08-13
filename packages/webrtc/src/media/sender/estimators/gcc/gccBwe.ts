@@ -4,6 +4,7 @@ import { milliTime } from "../../../../utils";
 import type {
   BandwidthEstimator,
   BandwidthEstimatorProcessor,
+  NetworkAvailabilityConsumer,
   ProbePacingController,
   RoundTripTimeConsumer,
   SentInfo,
@@ -53,6 +54,14 @@ import { TrendlineEstimator } from "./trendlineEstimator";
  */
 export type GccClock = () => number;
 
+/** pin `DelayBasedBwe::Result`. */
+type DelayBasedBweResult = {
+  updated: boolean;
+  probe: boolean;
+  recoveredFromOveruse: boolean;
+  targetBps: number;
+};
+
 /**
  * Optional GCC constructor settings. Probe / RTT inputs stay off the thin
  * {@link BandwidthEstimator} interface (capability + constructor, not common I/O).
@@ -87,7 +96,8 @@ export class GccBandwidthEstimator
     BandwidthEstimator,
     ProbePacingController,
     RoundTripTimeConsumer,
-    BandwidthEstimatorProcessor
+    BandwidthEstimatorProcessor,
+    NetworkAvailabilityConsumer
 {
   /** @internal */
   _availableBitrate = 0;
@@ -250,7 +260,6 @@ export class GccBandwidthEstimator
    */
   pendingLossPaddingPackets(packetBytes = kProbePaddingPacketBytes): number {
     if (this.disposed) return 0;
-    this.ensureProbing(this.clock());
     if (this.probe.shouldTagProbePacket()) return 0;
     this.accrueLossPadding(this.clock());
     if (this.paddingDueBytes <= 0) return 0;
@@ -259,7 +268,6 @@ export class GccBandwidthEstimator
 
   shouldTagProbePacket(): boolean {
     if (this.disposed) return false;
-    this.ensureProbing(this.clock());
     return this.probe.shouldTagProbePacket();
   }
 
@@ -269,7 +277,6 @@ export class GccBandwidthEstimator
    */
   pendingProbePaddingPackets(packetBytes = kProbePaddingPacketBytes): number {
     if (this.disposed) return 0;
-    this.ensureProbing(this.clock());
     if (!this.probe.shouldTagProbePacket()) return 0;
     const remaining = this.probe.remainingProbeBytes(packetBytes);
     if (remaining <= 0) return 0;
@@ -393,6 +400,19 @@ export class GccBandwidthEstimator
     this.aimd.setRtt(rttMs);
   }
 
+  /**
+   * pin `OnNetworkAvailability`. Initial 3x/6x probing starts only after the
+   * transport is send-ready (and SetBitrates / first ProcessInterval has
+   * stored a start bitrate).
+   */
+  setNetworkAvailable(available: boolean): void {
+    if (this.disposed) return;
+    const nowMs = this.clock();
+    for (const cfg of this.probe.onNetworkAvailability(available, nowMs)) {
+      this.onProbeClusterActivated(cfg, nowMs);
+    }
+  }
+
   static readonly knownDifferences = GCC_KNOWN_DIFFERENCES;
 
   /**
@@ -439,9 +459,9 @@ export class GccBandwidthEstimator
       this.rttBackoff.updatePropagationRtt(info.sendingAtMs, 0);
     }
     this.rttBackoff.onSentPacket(info.sendingAtMs);
-    // pin OnSentPacket does **not** call UpdateEstimate or ProbeController::Process.
-    // Those run on the 25ms ProcessInterval ({@link process}).
-    this.ensureProbing(info.sendingAtMs);
+    // pin OnSentPacket does **not** call UpdateEstimate, ProbeController::Process,
+    // or SetBitrates / initial probing. Those run on ProcessInterval /
+    // OnNetworkAvailability.
 
     // Assign probation packets to the **pacing** cluster (wideSeq → id).
     // On send-fill complete, FIFO advances to the next cluster (no ACK wait).
@@ -585,8 +605,8 @@ export class GccBandwidthEstimator
     );
 
     // pin DelayBasedBwe::IncomingPacketFeedbackVector: SortedByReceiveTime
-    // empty (all lost / ReceivedWithoutDelta) → Result() and **no** AIMD
-    // update. ProbeController::Process is ProcessInterval-only.
+    // empty (all lost / ReceivedWithoutDelta) → Result() (updated=false)
+    // and **no** AIMD update. ProbeController::Process is ProcessInterval-only.
     const delayFeedback = timedReceived.length > 0;
 
     // libwebrtc DelayBasedBwe::kStreamTimeOut — idle > 2s resets delay path
@@ -676,10 +696,20 @@ export class GccBandwidthEstimator
     const probeBps = this.probe.takePendingEstimateBps();
     const hasProbeEstimate = probeBps > 0;
 
+    // pin DelayBasedBwe::Result — default (updated=false) when no receive-time
+    // samples. MaybeTriggerOnNetworkChanged only runs when updated.
+    const delayResult: DelayBasedBweResult = {
+      updated: false,
+      probe: false,
+      recoveredFromOveruse: false,
+      targetBps: this.delayBasedBps,
+    };
+
     if (delayFeedback) {
       if (overusing) {
         // pin: overuse branch never applies probe_bitrate.
         this.delayBasedBps = this.aimd.update(usage, ackedBps, nowMs);
+        delayResult.updated = true;
       } else if (hasProbeEstimate) {
         // pin MaybeUpdateEstimate (non-overuse + probe_bitrate):
         // SetEstimate(probe) as-is — **no upward caps**. Only lower probes get
@@ -707,9 +737,14 @@ export class GccBandwidthEstimator
         } else {
           this.delayBasedBps = this.aimd.targetBitrateBps;
         }
+        delayResult.updated = true;
+        delayResult.probe = true;
       } else {
         this.delayBasedBps = this.aimd.update(usage, ackedBps, nowMs);
+        delayResult.updated = true;
+        delayResult.recoveredFromOveruse = recoveredFromUnderuse;
       }
+      delayResult.targetBps = this.delayBasedBps;
       // pin UpdateDelayBasedEstimate after MaybeUpdateEstimate (and after
       // probe SetSendBitrate). 0 → PlusInfinity.
       this.noteDelayBasedEstimate(this.delayBasedBps);
@@ -766,10 +801,13 @@ export class GccBandwidthEstimator
 
     const target = this.currentTargetBps;
 
-    // pin MaybeTriggerOnNetworkChanged (when delay result.updated, and also
-    // after loss UpdateEstimate so the published target matches current_target_).
-    // ProbeController::Process is **not** called here.
-    const bandwidthLimitedCause = this.propagateTarget(nowMs);
+    // pin MaybeTriggerOnNetworkChanged **only** when delay Result.updated.
+    // All-lost / no-timing feedback updates LossBased + current_target_ but
+    // must not push cause to ProbeController before the next ProcessInterval.
+    let bandwidthLimitedCause: BandwidthLimitedCause | undefined;
+    if (delayResult.updated) {
+      bandwidthLimitedCause = this.propagateTarget(nowMs);
+    }
     const allowNewProbe = bandwidthLimitedCause
       ? isProbeInitiationAllowed(bandwidthLimitedCause)
       : false;
@@ -779,7 +817,7 @@ export class GccBandwidthEstimator
     // not overusing and no probe_bitrate was present this feedback.
     // Same post-loss cause gate as further (including RTT-high and loss-limited).
     if (
-      recoveredFromUnderuse &&
+      delayResult.recoveredFromOveruse &&
       !overusing &&
       !hasProbeEstimate &&
       this.probe.probeState === "complete" &&

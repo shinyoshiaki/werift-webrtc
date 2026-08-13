@@ -121,6 +121,20 @@ Exposed for tests / diagnostics (last planned further-probe threshold).
 
 ***
 
+### isNetworkAvailable
+
+#### Get Signature
+
+> **get** **isNetworkAvailable**(): `boolean`
+
+pin `network_available_` (tests / diagnostics).
+
+##### Returns
+
+`boolean`
+
+***
+
 ### lastBandwidthLimitedCause
 
 #### Get Signature
@@ -254,6 +268,30 @@ optional send time; defaults to seq map from ProbeSent
 #### Returns
 
 `void`
+
+***
+
+### onNetworkAvailability()
+
+> **onNetworkAvailability**(`available`, `nowMs`): [`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
+
+pin `ProbeController::OnNetworkAvailability`.
+Initial exponential probing starts only after the network is available
+**and** start bitrate is set (SetBitrates or this call).
+
+#### Parameters
+
+##### available
+
+`boolean`
+
+##### nowMs
+
+`number`
+
+#### Returns
+
+[`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
 
 ***
 

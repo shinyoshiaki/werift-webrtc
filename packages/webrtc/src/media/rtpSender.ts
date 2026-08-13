@@ -71,6 +71,7 @@ import type {
 import type { BandwidthEstimator } from "./sender/bandwidthEstimator";
 import {
   isBandwidthEstimatorProcessor,
+  isNetworkAvailabilityConsumer,
   isProbePacingController,
   isRoundTripTimeConsumer,
 } from "./sender/bandwidthEstimator";
@@ -262,11 +263,13 @@ export class RTCRtpSender {
     this.dtlsTransport = dtlsTransport;
     this.dtlsDisposer = [
       this.dtlsTransport.onStateChange.subscribe((state) => {
+        this.syncNetworkAvailability();
         if (state === "connected") {
           this.onReady.execute();
         }
       }).unSubscribe,
     ];
+    this.syncNetworkAvailability();
   }
 
   /**
@@ -297,6 +300,7 @@ export class RTCRtpSender {
       impl.reset?.();
       this.paceBudgetBytes = 0;
       this.lastPaceMs = 0;
+      this.syncNetworkAvailability();
       this.syncBweProcessTimer();
       return;
     }
@@ -315,7 +319,19 @@ export class RTCRtpSender {
     this.bindBandwidthEstimatorEvents(impl);
     this.paceBudgetBytes = 0;
     this.lastPaceMs = 0;
+    this.syncNetworkAvailability();
     this.syncBweProcessTimer();
+  }
+
+  /**
+   * pin `OnNetworkAvailability` — initial probes wait until DTLS can send.
+   * Also syncs when swapping onto an already-connected sender.
+   */
+  private syncNetworkAvailability(): void {
+    if (!isNetworkAvailabilityConsumer(this._senderBWE)) return;
+    this._senderBWE.setNetworkAvailable(
+      this.dtlsTransport?.state === "connected",
+    );
   }
 
   /**
