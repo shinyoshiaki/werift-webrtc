@@ -22,6 +22,9 @@ https://webrtc.googlesource.com/src/+/0fda16159e33adf59c71a7ad1173dcbe5a632102/m
 - `modules/remote_bitrate_estimator/include/bwe_defines.h` — `kCongestionControllerMinBitrate` (10 kbps) used by AIMD / send-side BWE
 - `modules/pacing/bitrate_prober.{h,cc}`
 - `modules/congestion_controller/rtp/transport_feedback_{adapter,demuxer}.{h,cc}`
+- `rtc_base/numerics/sequence_number_unwrapper.h` — `SeqNumUnwrapper` / `RtpSequenceNumberUnwrapper` used by TransportFeedbackAdapter
+- `rtc_base/numerics/sequence_number_util.h` — `ForwardDiff` / `AheadOrAt` helpers used by the unwrapper
+- `rtc_base/numerics/mod_ops.h` — modular arithmetic used by sequence_number_util
 - `api/transport/goog_cc_factory.{h,cc}` — `GetProcessInterval` / `kUpdateIntervalMs` (25ms)
 
 ## Policy

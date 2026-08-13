@@ -54,6 +54,8 @@ export {
   RttBasedBackoff,
 } from "./rttBasedBackoff";
 export {
+  TWCC_SEQ_MOD,
+  TransportWideSeqUnwrapper,
   compareTransportWideSeq,
   sortPacketResultsByWideSeq,
 } from "./sequenceNumber";

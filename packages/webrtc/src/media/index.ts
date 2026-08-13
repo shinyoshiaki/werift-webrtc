@@ -38,6 +38,8 @@ export {
   ProbeController,
   RttBasedBackoff,
   TrendlineEstimator,
+  TWCC_SEQ_MOD,
+  TransportWideSeqUnwrapper,
   compareTransportWideSeq,
   computeFeedbackRttStats,
   getBandwidthLimitedCause,

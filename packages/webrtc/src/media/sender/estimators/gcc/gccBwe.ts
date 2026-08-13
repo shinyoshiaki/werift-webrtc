@@ -319,7 +319,10 @@ export class GccBandwidthEstimator
     }[] = [];
 
     for (const result of results) {
-      const seq = this.resolveFeedbackSeq(result.sequenceNumber, result.received);
+      const seq = this.resolveFeedbackSeq(
+        result.sequenceNumber,
+        result.received,
+      );
       if (seq === undefined) {
         // Unknown sequence (swap / late feedback) — do not count as loss.
         continue;
@@ -629,6 +632,7 @@ export class GccBandwidthEstimator
     this.sentInfos.clear();
     this.finalizedSeqs.clear();
     this.softLostSeqs.clear();
+    this.seqUnwrapper.reset();
     this.lastUsage = "normal";
     this.ackedBitrate.reset();
     this._availableBitrate = 0;
@@ -733,15 +737,18 @@ export class GccBandwidthEstimator
 
   /**
    * pin `TransportFeedbackAdapter` send-time history: drop entries older than
-   * {@link kSendTimeHistoryWindowMs} (60s). No extra 2048-sequence cap —
-   * 16-bit wide-seq keys already bound the map, and high-rate probe padding
-   * would otherwise evict late-ACK-able packets too early.
+   * {@link kSendTimeHistoryWindowMs} (60s). Called from `rtpPacketSent` **and**
+   * `process()` so idle / send-stop paths still expire history. No extra
+   * 2048-sequence cap — high-rate probe padding would otherwise evict
+   * late-ACK-able packets too early.
+   *
+   * Keys are unwrapped (extended) sequences; wrap does not bound the map.
    *
    * finalized/soft-lost sets are pruned to keys still present in sentInfos
    * (never wholesale-cleared while live seqs remain — that would re-count
    * received packets in LossBased partial observations).
    */
-  private pruneSentInfos(nowMs: number, _latestWideSeq: number) {
+  private pruneSentInfos(nowMs: number) {
     for (const [seq, info] of this.sentInfos) {
       if (nowMs - info.sendingAtMs > kSendTimeHistoryWindowMs) {
         this.sentInfos.delete(seq);
@@ -760,6 +767,37 @@ export class GccBandwidthEstimator
         if (!this.sentInfos.has(seq)) this.softLostSeqs.delete(seq);
       }
     }
+  }
+
+  /**
+   * Map a 16-bit TWCC feedback sequence onto the unwrapped sentInfos key.
+   *
+   * Prefers the newest generation that is still open:
+   * - received: newest not-yet-finalized (new packet first; late old after
+   *   the new generation is finalized)
+   * - not-received: newest not-yet-soft-lost; a duplicate on the newest
+   *   generation is ignored (does not walk to an older packet)
+   *
+   * Walks at most a few wrap generations — the 60s send-time window cannot
+   * hold more at realistic packet rates.
+   */
+  private resolveFeedbackSeq(
+    seq16: number,
+    received: boolean,
+  ): number | undefined {
+    const latest = this.seqUnwrapper.peek(seq16);
+    let key = latest;
+    for (let gen = 0; gen < 8 && key >= 0; gen++, key -= TWCC_SEQ_MOD) {
+      if (!this.sentInfos.has(key)) continue;
+      if (this.finalizedSeqs.has(key)) continue;
+      if (!received && this.softLostSeqs.has(key)) {
+        // Duplicate not-received for this generation.
+        if (gen === 0) return undefined;
+        continue;
+      }
+      return key;
+    }
+    return undefined;
   }
 
   private pushInterArrival(sendMs: number, recvMs: number, size: number) {

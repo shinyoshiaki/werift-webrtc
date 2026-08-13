@@ -20,6 +20,7 @@ import {
   kProbeTargetUtilization,
   kSendTimeHistoryWindowMs,
 } from "./constants";
+import { TransportWideSeqUnwrapper } from "./sequenceNumber";
 
 /**
  * libwebrtc ProbeController-aligned states:
@@ -133,10 +134,12 @@ export class ProbeController {
   private startBitrateBps = kDefaultStartBitrateBps;
   private maxBitrateBps = kMaxBitrateBps;
   private networkAvailable = true;
-  /** transport-wide seq → cluster id for probation packets. */
+  /** Unwrapped transport-wide seq → cluster id for probation packets. */
   private seqToCluster = new Map<number, number>();
-  /** transport-wide seq → send-time / size for ACKed-only rate math. */
+  /** Unwrapped transport-wide seq → send-time / size for ACKed-only rate math. */
   private seqToSendInfo = new Map<number, { sendMs: number; size: number }>();
+  /** Same unwrap rules as GccBandwidthEstimator (extended seq after wrap). */
+  private readonly seqUnwrapper = new TransportWideSeqUnwrapper();
 
   reset(_atTimeMs = 0) {
     this.state = "init";
@@ -156,6 +159,7 @@ export class ProbeController {
     this.networkAvailable = true;
     this.seqToCluster.clear();
     this.seqToSendInfo.clear();
+    this.seqUnwrapper.reset();
   }
 
   get probeState(): ProbeState {
@@ -361,6 +365,7 @@ export class ProbeController {
     // Absolute sender-side cap (align with GccBandwidthEstimator sentInfos).
     // Receive-time 1s history alone never prunes lastRecvMs===0 clusters.
     this.pruneEstimatorHistoryBySendAge(nowMs);
+    this.pruneSeqMapsBySendAge(nowMs);
     const activated = this.maybeActivateQueued(nowMs);
     this.maybeMarkComplete(nowMs);
     return activated;
@@ -390,7 +395,7 @@ export class ProbeController {
     }
 
     const cluster = this.pacing;
-    const seq = wideSeq & 0xffff;
+    const seq = this.seqUnwrapper.unwrap(wideSeq);
     this.seqToCluster.set(seq, cluster.config.id);
     this.seqToSendInfo.set(seq, { sendMs, size: sizeBytes });
 
@@ -459,7 +464,9 @@ export class ProbeController {
     let cluster: ClusterRuntime | undefined;
     let sendMs = sendingAtMs;
     if (wideSeq !== undefined) {
-      const seq = wideSeq & 0xffff;
+      // Gcc passes the already-resolved extended seq. Use it as an opaque key
+      // so a late ACK for generation N does not re-unwrap onto generation N+1.
+      const seq = wideSeq;
       const id = this.seqToCluster.get(seq);
       if (id !== undefined) {
         cluster = this.lookupCluster(id);
@@ -534,6 +541,7 @@ export class ProbeController {
     this.queue = [];
     this.seqToCluster.clear();
     this.seqToSendInfo.clear();
+    this.seqUnwrapper.reset();
     // Any abort ends further-probe eligibility for this session (same as
     // UpdateState(kProbingComplete) clearing min_bitrate_to_probe_further_).
     this.minBitrateToProbeFurther = Number.POSITIVE_INFINITY;
@@ -588,6 +596,21 @@ export class ProbeController {
       if (nowMs - lastSend > kSendTimeHistoryWindowMs) {
         this.dropClusterSeqs(id);
         this.estimatorHistory.delete(id);
+      }
+    }
+  }
+
+  /**
+   * Drop seq maps whose send time is older than the sentInfos window, even
+   * if the owning cluster is still pacing / awaiting. After 60s GCC cannot
+   * match TWCC, so keeping the mapping only leaks (and after wrap would
+   * collide if we still keyed by 16-bit seq).
+   */
+  private pruneSeqMapsBySendAge(nowMs: number) {
+    for (const [seq, info] of this.seqToSendInfo) {
+      if (nowMs - info.sendMs > kSendTimeHistoryWindowMs) {
+        this.seqToCluster.delete(seq);
+        this.seqToSendInfo.delete(seq);
       }
     }
   }

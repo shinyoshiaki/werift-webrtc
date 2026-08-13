@@ -459,7 +459,9 @@ export class LossBasedBwe {
   ) {
     if (packets && packets.length > 0) {
       for (const p of packets) {
-        const seq = p.seq & 0xffff;
+        // Use the caller-supplied seq as-is (gcc passes unwrapped / generation
+        // keys). Masking to 16-bit would merge wrap generations in one window.
+        const seq = p.seq;
         const prevSize = this.partial.seenPackets.get(seq);
         if (prevSize !== undefined) {
           // Already counted in this partial window — late correction only.

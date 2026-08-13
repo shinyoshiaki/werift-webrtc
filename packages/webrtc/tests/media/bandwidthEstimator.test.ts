@@ -27,6 +27,7 @@ import {
   TWCC_REFERENCE_TIME_MOD,
   TWCC_REFERENCE_TIME_UNIT_MS,
   TransportWideCC,
+  TransportWideSeqUnwrapper,
   TrendlineEstimator,
   TwccReferenceTimeUnwrapper,
   appendRfc3550Padding,
@@ -1446,6 +1447,28 @@ describe("media/sender bandwidth estimator", () => {
   });
 
   describe("wrap-around", () => {
+    test("TransportWideSeqUnwrapper は 16bit wrap と extended seq を区別する", () => {
+      // Arrange
+      const u = new TransportWideSeqUnwrapper();
+
+      // Act / Assert: 通常の連続 seq
+      expect(u.unwrap(1)).toBe(1);
+      expect(u.unwrap(2)).toBe(2);
+
+      // Act: 呼び出し側が generation を進めた extended seq
+      expect(u.unwrap(65537)).toBe(65537);
+      // Assert: 16bit feedback 1 は最新世代へ peek
+      expect(u.peek(1)).toBe(65537);
+      expect(u.peek(2)).toBe(65538);
+
+      // Act: wrap を 16bit だけで辿る
+      const u2 = new TransportWideSeqUnwrapper();
+      expect(u2.unwrap(65534)).toBe(65534);
+      expect(u2.unwrap(65535)).toBe(65535);
+      expect(u2.unwrap(0)).toBe(65536);
+      expect(u2.unwrap(1)).toBe(65537);
+    });
+
     test("sortPacketResultsByWideSeq", () => {
       expect(
         sortPacketResultsByWideSeq([
@@ -1530,6 +1553,23 @@ describe("media/sender bandwidth estimator", () => {
 
       // Assert: estimate advances (wrap で窓が壊れ 0 張り付きにならない)
       expect(gcc.availableBitrate).toBeGreaterThan(0);
+    });
+
+    test("16-bit wrap 連続送信でも旧世代の sentInfo が残る", () => {
+      // Arrange / Act: 本番の uint16 カウンタと同じ 65534,65535,0,1
+      const gcc = new GccBandwidthEstimator(300_000);
+      gcc.rtpPacketSent(sent(65534, 10, 1_000));
+      gcc.rtpPacketSent(sent(65535, 11, 1_001));
+      gcc.rtpPacketSent(sent(0, 12, 1_002));
+      gcc.rtpPacketSent(sent(1, 13, 1_003));
+
+      // Assert: unwrap 済みキーで両世代が共存する
+      const map = (gcc as any).sentInfos as Map<number, SentInfo>;
+      expect(map.get(65534)?.size).toBe(10);
+      expect(map.get(65535)?.size).toBe(11);
+      expect(map.get(65536)?.size).toBe(12);
+      expect(map.get(65537)?.size).toBe(13);
+      expect(map.size).toBe(4);
     });
 
     test("wideSeq wrap (1 の後 65537) で旧 sentInfo を上書きしない", () => {
@@ -4928,10 +4968,17 @@ describe("media/sender bandwidth estimator", () => {
       expect((gcc as any).sentInfos.has(1)).toBe(true);
       expect((gcc as any).sentInfos.has(2)).toBe(true);
 
-      // Act: 送信なしのまま 60s 超
+      // Act: packet 1 だけ 60s 超（packet 2 はまだ窓内）
       gcc.process(t0 + kSendTimeHistoryWindowMs + 1);
 
-      // Assert: process 経路だけで履歴が消える（rtpPacketSent 依存ではない）
+      // Assert: 期限切れだけ消え、新しい方は残る
+      expect((gcc as any).sentInfos.has(1)).toBe(false);
+      expect((gcc as any).sentInfos.has(2)).toBe(true);
+
+      // Act: packet 2 も 60s 超
+      gcc.process(t0 + 10 + kSendTimeHistoryWindowMs + 1);
+
+      // Assert: process 経路だけで履歴が空になる（rtpPacketSent 依存ではない）
       expect((gcc as any).sentInfos.size).toBe(0);
       expect((gcc as any).finalizedSeqs.size).toBe(0);
       expect((gcc as any).softLostSeqs.size).toBe(0);
