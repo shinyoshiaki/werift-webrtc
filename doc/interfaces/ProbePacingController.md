@@ -26,6 +26,38 @@ Typically `max(availableBitrate, activeProbeTarget)`.
 
 ***
 
+### getPaddingBitrateBps()?
+
+> `optional` **getPaddingBitrateBps**(): `number`
+
+pin `GetPacingRates` padding_rate while loss-limited
+`kIncreaseUsingPadding`. 0 when not in that state.
+
+#### Returns
+
+`number`
+
+***
+
+### pendingLossPaddingPackets()?
+
+> `optional` **pendingLossPaddingPackets**(`packetBytes`?): `number`
+
+Padding packets to send to approach [getPaddingBitrateBps](ProbePacingController.md#getpaddingbitratebps) when
+media is sparse. Not probe/probation packets.
+
+#### Parameters
+
+##### packetBytes?
+
+`number`
+
+#### Returns
+
+`number`
+
+***
+
 ### pendingProbePaddingPackets()
 
 > **pendingProbePaddingPackets**(`packetBytes`?): `number`

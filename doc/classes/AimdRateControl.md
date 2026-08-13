@@ -165,6 +165,29 @@ Used for valid probe results — does not wipe RTT or link-capacity history.
 
 ***
 
+### setNetworkStateEstimate()
+
+> **setNetworkStateEstimate**(`linkCapacityUpperBps`, `linkCapacityLowerBps`): `void`
+
+pin `AimdRateControl::SetNetworkStateEstimate`.
+Non-finite / non-positive upper clears the estimate.
+
+#### Parameters
+
+##### linkCapacityUpperBps
+
+`number`
+
+##### linkCapacityLowerBps
+
+`number` = `0`
+
+#### Returns
+
+`void`
+
+***
+
 ### setRtt()
 
 > **setRtt**(`rttMs`): `void`

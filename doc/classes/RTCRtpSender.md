@@ -328,6 +328,19 @@ survive estimator swaps. Algorithm-specific events remain on concrete instances.
 
 ***
 
+### maybeInjectLossPadding()
+
+> **maybeInjectLossPadding**(): `Promise`\<`number`\>
+
+pin padding_rate while LossBased is `kIncreaseUsingPadding`.
+Regular RTP padding (not probe/probation). Probe padding takes priority.
+
+#### Returns
+
+`Promise`\<`number`\>
+
+***
+
 ### maybeInjectProbePadding()
 
 > **maybeInjectProbePadding**(): `Promise`\<`number`\>
