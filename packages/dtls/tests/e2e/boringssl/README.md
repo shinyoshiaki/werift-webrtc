@@ -12,7 +12,9 @@ libraries (`DTLS_method` + `DTLS1_3_VERSION`).
 | --- | --- |
 | Repository | https://boringssl.googlesource.com/boringssl |
 | Git revision | `0bcc1e8473a1264b4de88e05a651763dc9a71b09` (pin; do not use floating HEAD) |
-| Helper binary | `tests/e2e/boringssl/dtls13_echo` |
+| Helper source | `packages/dtls/tools/boringssl-dtls13/native/dtls13_echo.c` (canonical) |
+| Helper binary | `tests/e2e/boringssl/dtls13_echo` (built from the tools source) |
+| Pin file | `packages/dtls/tools/boringssl-dtls13/BORINGSSL_REVISION` |
 | Optional tool | `bssl` (not required for DTLS interop) |
 
 Environment overrides:
@@ -42,7 +44,7 @@ depend on preinstalled `/usr/local` libraries.
 ```bash
 git clone https://boringssl.googlesource.com/boringssl
 cd boringssl
-git checkout "$(cat packages/dtls/tests/e2e/boringssl/BORINGSSL_REVISION)"
+git checkout "$(cat packages/dtls/tools/boringssl-dtls13/BORINGSSL_REVISION)"
 mkdir -p build && cd build
 cmake -GNinja -DCMAKE_BUILD_TYPE=Release ..
 ninja

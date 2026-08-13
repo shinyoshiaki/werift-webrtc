@@ -1,7 +1,7 @@
 import { spawn } from "child_process";
 import { describe, expect, test } from "vitest";
 import { UdpTransport } from "../../../common/src";
-import { DtlsClient, DtlsVersion } from "../../src";
+import { DtlsClient, DtlsServer, DtlsVersion } from "../../src";
 import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
 import { certPem, keyPem } from "../fixture";
 
@@ -130,5 +130,70 @@ describe("e2e/client dual fallback openssl", () => {
       openssl.kill("SIGTERM");
       void transport.close();
     });
+  }, 20_000);
+});
+
+/**
+ * OpenSSL DTLS 1.2 regression for dual-stack server:
+ * openssl s_client -dtls1_2 → werift [V1_3, V1_2] server
+ */
+describe("e2e/server dual fallback openssl", () => {
+  test("openssl -dtls1_2 client connects to werift [1.3,1.2] server", async () => {
+    // Arrange
+    const transport = await UdpTransport.init("udp4");
+    const server = new DtlsServer({
+      transport,
+      cert: certPem,
+      key: keyPem,
+      signatureHash: {
+        hash: HashAlgorithm.sha256_4,
+        signature: SignatureAlgorithm.rsa_1,
+      },
+      protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+    });
+
+    const openssl = spawn("openssl", [
+      "s_client",
+      "-dtls1_2",
+      "-connect",
+      `127.0.0.1:${transport.port}`,
+    ]);
+    openssl.stdout?.setEncoding("ascii");
+
+    // Act / Assert: 1.3 preferred server が 1.2-only OpenSSL に fallback
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          reject(new Error("openssl s_client dual server fallback timeout"));
+        }, 15_000);
+        server.onConnect.subscribe(() => {
+          expect(server.isDtls13).toBe(false);
+          expect(server.connected).toBe(true);
+          void server.send(Buffer.from("dual-openssl-12-server"));
+        });
+        server.onError.subscribe((e) => {
+          clearTimeout(timer);
+          reject(e);
+        });
+        openssl.stdout?.on("data", (data: string) => {
+          if (data.includes("dual-openssl-12-server")) {
+            clearTimeout(timer);
+            resolve();
+          }
+        });
+        openssl.on("error", (e) => {
+          clearTimeout(timer);
+          reject(e);
+        });
+      });
+    } finally {
+      openssl.kill("SIGTERM");
+      try {
+        server.close();
+      } catch {
+        /* */
+      }
+      await transport.close().catch(() => {});
+    }
   }, 20_000);
 });

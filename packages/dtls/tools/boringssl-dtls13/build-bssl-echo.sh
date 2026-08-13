@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-OUT="${ROOT}/dtls13_echo"
+OUT="${WERIFT_DTLS13_ECHO_OUT:-${ROOT}/dtls13_echo}"
 SRC="${ROOT}/native/dtls13_echo.c"
 OBJ="${ROOT}/dtls13_echo.o"
 

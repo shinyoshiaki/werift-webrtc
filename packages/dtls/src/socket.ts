@@ -755,7 +755,7 @@ export class DtlsSocket {
         this.dtls.epoch > 0
           ? this.cipher.encryptPacket(pkt).serialize()
           : pkt.serialize();
-      await this.transport.send(wire);
+      await this.transport.sendAndWait(wire);
     } catch (e) {
       log(this.dtls.sessionId, "sendLegacy12CloseNotify failed", e);
     }

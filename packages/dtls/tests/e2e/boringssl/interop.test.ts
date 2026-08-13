@@ -181,6 +181,8 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
         });
         void client.send(Buffer.from("hello-bssl"));
       });
+      expect(stderr).toMatch(/negotiated cipher=TLS_AES_128_GCM_SHA256/);
+      expect(stderr).toMatch(/group=X25519/);
       interopLog(
         "werift-client-bssl-server-ok",
         `handshake+bidirectional data ok\nstderr=${stderr}`,
@@ -294,6 +296,8 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
       // Peer may send close_notify after app data; association teardown sets
       // connected=false intentionally (public lifecycle parity with local close).
       expect(gotData).toContain("hello-from-bssl");
+      expect(stderr).toMatch(/negotiated cipher=TLS_AES_128_GCM_SHA256/);
+      expect(stderr).toMatch(/group=X25519/);
       interopLog(
         "bssl-client-werift-server-ok",
         `handshake+bidirectional data ok gotData=${gotData}\nstdout=${stdout}\nstderr=${stderr}`,

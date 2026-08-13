@@ -13,6 +13,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netinet/in.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -129,6 +130,31 @@ static BIO_METHOD *udp_method(void) {
   return g_udp_method;
 }
 
+#ifndef SSL_GROUP_X25519
+#define SSL_GROUP_X25519 29
+#endif
+
+static void check_negotiated(SSL *ssl) {
+  const SSL_CIPHER *cipher = SSL_get_current_cipher(ssl);
+  const char *name = cipher ? SSL_CIPHER_standard_name(cipher) : NULL;
+  if (!name) {
+    name = cipher ? SSL_CIPHER_get_name(cipher) : NULL;
+  }
+  if (!name || strcmp(name, "TLS_AES_128_GCM_SHA256") != 0) {
+    fprintf(stderr, "bssl-echo: negotiated cipher=%s, expected TLS_AES_128_GCM_SHA256\n",
+            name ? name : "(null)");
+    exit(1);
+  }
+  uint16_t gid = SSL_get_group_id(ssl);
+  if (gid != SSL_GROUP_X25519) {
+    fprintf(stderr, "bssl-echo: negotiated group=%u, expected X25519 (%u)\n",
+            (unsigned)gid, (unsigned)SSL_GROUP_X25519);
+    exit(1);
+  }
+  fprintf(stderr, "bssl-echo: negotiated cipher=TLS_AES_128_GCM_SHA256 group=X25519\n");
+  fflush(stderr);
+}
+
 static BIO *BIO_new_udp(int fd) {
   BIO *bio = BIO_new(udp_method());
   if (!bio) return NULL;
@@ -146,11 +172,11 @@ static SSL_CTX *make_ctx(const char *cert, const char *key) {
   }
 
   if (!SSL_CTX_set_strict_cipher_list(ctx, "TLS_AES_128_GCM_SHA256")) {
-    /* some builds use different API — continue with defaults */
-    fprintf(stderr, "bssl-echo: warning: strict cipher list failed\n");
+    die_ssl("SSL_CTX_set_strict_cipher_list TLS_AES_128_GCM_SHA256");
   }
-  if (!SSL_CTX_set1_groups_list(ctx, "X25519:P-256")) {
-    fprintf(stderr, "bssl-echo: warning: groups list failed\n");
+  /* Ticket P0: X25519 is the required group. P-256 is optional elsewhere. */
+  if (!SSL_CTX_set1_groups_list(ctx, "X25519")) {
+    die_ssl("SSL_CTX_set1_groups_list X25519");
   }
 
   if (SSL_CTX_use_certificate_file(ctx, cert, SSL_FILETYPE_PEM) != 1) {
@@ -194,6 +220,7 @@ static int run_server(int port, const char *cert, const char *key) {
   if (SSL_accept(ssl) != 1) {
     die_ssl("SSL_accept");
   }
+  check_negotiated(ssl);
   fprintf(stderr, "bssl-echo: server handshake done\n");
   fflush(stderr);
 
@@ -246,6 +273,7 @@ static int run_client(const char *host, int port, const char *cert,
   if (SSL_connect(ssl) != 1) {
     die_ssl("SSL_connect");
   }
+  check_negotiated(ssl);
   fprintf(stderr, "bssl-echo: client handshake done\n");
   fflush(stderr);
 

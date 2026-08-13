@@ -103,7 +103,7 @@ DTLS 1.3: pure/dual **server** association owns UDP and `carrier.inject` (same d
 
 Generated Public API docs (`doc/classes/DtlsClient.md`, `DtlsServer.md`, `DtlsSocket.md`) are produced by root `npm run doc` and verified by `npm run doc:check` (part of `npm run ci`). After Public API or lifecycle changes, regenerate and commit `doc/` so the gate stays green (also part of root `npm run ci` / `doc:check`).
 
-BoringSSL DTLS 1.3 interop (P0): see `tests/e2e/boringssl/README.md`. CI job `dtls13-boringssl` runs `fetch-and-build-boringssl.sh` against the pinned revision in `BORINGSSL_REVISION` and fails on pin/harness mismatch (`CI=true` / `WERIFT_REQUIRE_BORINGSSL=1`).
+BoringSSL DTLS 1.3 interop (P0): see `tests/e2e/boringssl/README.md`. Canonical pin and C source live in `tools/boringssl-dtls13/`. CI job `dtls13-boringssl` runs `tests/e2e/boringssl/fetch-and-build-boringssl.sh` (wrapper) against that pin and fails on pin/harness mismatch (`WERIFT_REQUIRE_BORINGSSL=1`).
 
 # reference
 

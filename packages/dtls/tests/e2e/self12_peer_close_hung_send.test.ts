@@ -66,11 +66,13 @@ test("e2e/self12: peer close_notify frees association if send hangs", async () =
   const { client, server, clientTransport, serverTransport } =
     await connectPair12();
 
-  // Hang client reply send after we inject peer close_notify
-  clientTransport.send = async () =>
+  // Hang flush path used by close_notify reply
+  const hang = () =>
     new Promise<void>(() => {
       /* never resolve */
     });
+  clientTransport.send = hang;
+  clientTransport.sendAndWait = hang;
 
   const closes: number[] = [];
   client.onClose.subscribe(() => closes.push(Date.now()));

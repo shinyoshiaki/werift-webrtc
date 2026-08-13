@@ -11,7 +11,7 @@ import {
   remainingAfterAck,
 } from "../../../src/handshake/message/tls13/ack";
 
-describe("ACK epoch filtering (Erratum 8108)", () => {
+describe("ACK epoch filtering (RFC 9147; ignore higher-epoch numbers)", () => {
   test("filters record_numbers with epoch > receivedEpoch", () => {
     // Arrange: 前提を準備する
     const claimed = [

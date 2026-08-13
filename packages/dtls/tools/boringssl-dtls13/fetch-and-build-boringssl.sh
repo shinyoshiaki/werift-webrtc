@@ -80,10 +80,11 @@ echo "Building dtls13_echo against pin..."
 cd "${ROOT}"
 chmod +x ./build-bssl-echo.sh
 ./build-bssl-echo.sh
-test -x "${ROOT}/dtls13_echo"
+ECHO_BIN="${WERIFT_DTLS13_ECHO_OUT:-${ROOT}/dtls13_echo}"
+test -x "${ECHO_BIN}"
 
 # Record pin in helpers-readable file (already .built-revision)
 echo "OK: BoringSSL ${ACTUAL} + dtls13_echo ready"
 echo "  include=${WERIFT_BORINGSSL_INCLUDE}"
 echo "  lib=${WERIFT_BORINGSSL_LIB}"
-echo "  echo=${ROOT}/dtls13_echo"
+echo "  echo=${ECHO_BIN}"

@@ -52,7 +52,7 @@ describe("e2e/self13 plaintext ACK after protected state", () => {
           expect(pending.length).toBeGreaterThan(0);
 
           // Act: KeyUpdate を検証する
-          // the encrypted KeyUpdate records (Erratum 8108 attack)
+          // plaintext ACK of encrypted KeyUpdate records must not complete them
           eng.handleAck(new DtlsAck(pending).serialize(), 0);
 
           // Assert: KeyUpdate を検証する

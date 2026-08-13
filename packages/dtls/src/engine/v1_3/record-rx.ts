@@ -344,7 +344,7 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
    */
   /**
    * True once we have (or had) protected traffic keys — epoch-0 ACK/alert must
-   * not affect protected state (RFC 9147 + Erratum 8108).
+   * not affect protected state (RFC 9147).
    */
   protected hasProtectedWriteKeys(): boolean {
     return this.writeEpoch >= 2 || this.connected;
@@ -578,8 +578,10 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
   }
 
   /**
-   * @param receivedEpoch epoch of the ACK record itself (Erratum 8108:
-   *   ignore RecordNumbers with epoch > receivedEpoch).
+   * @param receivedEpoch epoch of the ACK record itself.
+   * Higher-epoch RecordNumbers are ignored (not used to ACK protected flights).
+   * RFC 9147 Erratum 8108 (Reported, not verified) would terminate with
+   * illegal_parameter instead; this stack follows verified errata only.
    */
   protected handleAck(content: Buffer, receivedEpoch: number) {
     try {
@@ -601,8 +603,8 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
         }
         return;
       }
-      // Erratum 8108 / RFC 9147: ACK must not claim higher-epoch records than
-      // the epoch it was received on (blocks plaintext ACK of encrypted flight).
+      // RFC 9147: do not apply RecordNumbers whose epoch exceeds the ACK's
+      // own epoch (blocks a plaintext ACK from completing an encrypted flight).
       const applicable = ack.recordNumbers.filter(
         (r) => r.epoch <= receivedEpoch,
       );

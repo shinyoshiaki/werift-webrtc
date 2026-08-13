@@ -69,7 +69,7 @@ jobs:
           ./fetch-and-build-boringssl.sh
           test -x ./dtls13_echo
           test -f ./.built-revision
-          PIN=$(tr -d '[:space:]' < ./BORINGSSL_REVISION)
+          PIN=$(tr -d '[:space:]' < ../../../tools/boringssl-dtls13/BORINGSSL_REVISION)
           BUILT=$(tr -d '[:space:]' < ./.built-revision)
           echo "pin=${PIN} built=${BUILT}"
           case "${BUILT}" in

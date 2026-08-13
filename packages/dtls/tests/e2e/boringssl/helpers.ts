@@ -7,9 +7,14 @@ import { readFileSync } from "fs";
 /** Pinned BoringSSL revision (BORINGSSL_REVISION file is source of truth). */
 export const BORINGSSL_PIN_REVISION = (() => {
   try {
-    const p = join(__dirname, "BORINGSSL_REVISION");
-    if (existsSync(p)) {
-      return readFileSync(p, "utf8").trim();
+    const candidates = [
+      join(__dirname, "../../../tools/boringssl-dtls13/BORINGSSL_REVISION"),
+      join(__dirname, "BORINGSSL_REVISION"),
+    ];
+    for (const p of candidates) {
+      if (existsSync(p)) {
+        return readFileSync(p, "utf8").trim();
+      }
     }
   } catch {
     /* fall through */

@@ -23,7 +23,8 @@
   "scripts": {
     "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
     "deploy": "npm run build && npm publish",
-    "format": "biome check --write src",
+    "format": "biome check --write src tests",
+    "test": "vitest run ./tests",
     "type": "tsc --noEmit --project ./tsconfig.json",
     "unused": "organize-imports-cli src/**/*.ts"
   },

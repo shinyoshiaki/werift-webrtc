@@ -2142,11 +2142,17 @@ test("e2e/dual: local close sends close_notify before transport teardown", async
   ]);
 
   // Act: close 後に wire へ出た client TX を数える
+  // close_notify は hot-path send ではなく sendAndWait（flush）を使う
   let clientTxAfterClose = 0;
   const origSend = clientTransport.send.bind(clientTransport);
+  const origFlush = clientTransport.sendAndWait.bind(clientTransport);
   clientTransport.send = async (buf: Buffer, addr?: any) => {
     clientTxAfterClose += 1;
     return origSend(buf, addr);
+  };
+  clientTransport.sendAndWait = async (buf: Buffer, addr?: any) => {
+    clientTxAfterClose += 1;
+    return origFlush(buf, addr);
   };
 
   client.close();
