@@ -15,6 +15,7 @@ import { AcknowledgedBitrateEstimator } from "./acknowledgedBitrateEstimator";
 import { AimdRateControl } from "./aimdRateControl";
 import { AlrDetector } from "./alrDetector";
 import {
+  type BandwidthLimitedCause,
   getBandwidthLimitedCause,
   isProbeInitiationAllowed,
   maxProbeBitrateBps,
@@ -51,6 +52,24 @@ import { TrendlineEstimator } from "./trendlineEstimator";
  * `sendingAtMs` and TWCC feedback arrival share one domain (pin Timestamp).
  */
 export type GccClock = () => number;
+
+/**
+ * Optional GCC constructor settings. Probe / RTT inputs stay off the thin
+ * {@link BandwidthEstimator} interface (capability + constructor, not common I/O).
+ */
+export type GccBandwidthEstimatorOptions = {
+  /**
+   * Sender clock. Tests may inject a synthetic clock so send / feedback stay
+   * in one domain. Production omits this (defaults to {@link milliTime}).
+   */
+  clock?: GccClock;
+  /**
+   * pin `requests_alr_probing` / `ProbeController::EnablePeriodicAlrProbing`.
+   * Default **false** — GoogCc does not enable periodic ALR probing after the
+   * first TWCC; only an explicit config / this option turns it on.
+   */
+  periodicAlrProbing?: boolean;
+};
 
 /**
  * Google Congestion Control send-side bandwidth estimator (libwebrtc-aligned).
@@ -159,6 +178,11 @@ export class GccBandwidthEstimator
    * (libwebrtc DelayBasedBwe::last_seen_packet_).
    */
   private lastSeenPacketMs = Number.NEGATIVE_INFINITY;
+  /**
+   * pin `enable_periodic_alr_probing_` — persisted across {@link reset}
+   * (constructor / {@link enablePeriodicAlrProbing}).
+   */
+  private periodicAlrProbing = false;
 
   get availableBitrate() {
     return this._availableBitrate;
@@ -206,9 +230,11 @@ export class GccBandwidthEstimator
 
   /**
    * pin GoogCcNetworkController::OnProcessInterval → UpdateEstimate +
-   * ProbeController::Process. Advances RTT-based target drops on the sender
-   * clock even when no new RTP/TWCC arrives (e.g. feedback stalled, media idle
-   * after high RTT). Does **not** call {@link RttBasedBackoff.onSentPacket}.
+   * MaybeTriggerOnNetworkChanged + ProbeController::Process.
+   * Advances RTT-based target drops on the sender clock even when no new
+   * RTP/TWCC arrives, then pushes the new target/cause into ALR + ProbeController
+   * so periodic ALR probes see `kRttBasedBackOffHighRtt`. Does **not** call
+   * {@link RttBasedBackoff.onSentPacket}.
    */
   process(nowMs: number): void {
     if (this.disposed || !Number.isFinite(nowMs)) return;
@@ -216,10 +242,20 @@ export class GccBandwidthEstimator
     // rtpPacketSent-only prune would leak after send stop.
     this.pruneSentInfos(nowMs);
     this.maybeApplyRttBasedBackoff(nowMs);
+    this.propagateTarget(nowMs);
     this.syncAlr(nowMs);
     for (const cfg of this.probe.process(nowMs)) {
       this.onProbeClusterActivated(cfg, nowMs);
     }
+  }
+
+  /**
+   * pin `EnablePeriodicAlrProbing` / later `OnStreamsConfig`.
+   * Default remains false until the caller opts in.
+   */
+  enablePeriodicAlrProbing(enable: boolean): void {
+    this.periodicAlrProbing = enable;
+    this.probe.enablePeriodicAlrProbing(enable);
   }
 
   /**
@@ -248,10 +284,11 @@ export class GccBandwidthEstimator
    * @param options.clock Optional sender clock for unit tests. Must match the
    *   domain of {@link SentInfo.sendingAtMs} used with this instance.
    *   Production omits this (defaults to {@link milliTime}).
+   * @param options.periodicAlrProbing pin `requests_alr_probing` (default false).
    */
   constructor(
     startBitrateBps = kDefaultStartBitrateBps,
-    options?: { clock?: GccClock },
+    options?: GccBandwidthEstimatorOptions,
   ) {
     this.startBitrateBps = startBitrateBps;
     this.currentTargetBps = startBitrateBps;
@@ -260,6 +297,7 @@ export class GccBandwidthEstimator
     this.lossBwe.reset(startBitrateBps);
     this.delayBasedBps = startBitrateBps;
     this.lossBasedBps = startBitrateBps;
+    this.enablePeriodicAlrProbing(options?.periodicAlrProbing === true);
   }
 
   rtpPacketSent(info: SentInfo) {
@@ -588,39 +626,13 @@ export class GccBandwidthEstimator
 
     const target = this.currentTargetBps;
 
-    // Post-loss GetBandwidthLimitedCause (pin MaybeTriggerOnNetworkChanged).
-    // High RTT forbids new probes **and** drives ×0.8 target drops above.
-    const bandwidthLimitedCause = getBandwidthLimitedCause(
-      usage,
-      rttLimited,
-      this.lossBwe.lossState,
-    );
-    const allowNewProbe = isProbeInitiationAllowed(bandwidthLimitedCause);
-
-    if (target > 0 && this.hasValidSample) {
-      setAvailableBitrateIfChanged(this, target);
-    }
-    if (target > 0) {
-      this.alr.setEstimatedBitrate(target);
-    }
+    // TWCC and ProcessInterval share MaybeTriggerOnNetworkChanged:
+    // publish target, ALR budget, ProbeController estimated + cause.
+    const bandwidthLimitedCause = this.propagateTarget(nowMs);
+    const allowNewProbe = bandwidthLimitedCause
+      ? isProbeInitiationAllowed(bandwidthLimitedCause)
+      : false;
     this.syncAlr(nowMs);
-
-    // libwebrtc MaybeTriggerOnNetworkChanged → SetEstimatedBitrate on every
-    // target update (not only when a probe result is pending). Further clusters
-    // open only while ProbeController is still waiting_for_result; complete
-    // clears min_bitrate_to_probe_further so this call is a no-op after session end.
-    // maxProbeBps=0 when cause forbids InitiateProbing (still updates estimated).
-    if (target > 0) {
-      const maxProbe = allowNewProbe
-        ? maxProbeBitrateBps(bandwidthLimitedCause, target, kMaxBitrateBps)
-        : 0;
-      for (const cfg of this.probe.setEstimatedBitrate(target, nowMs, {
-        maxProbeBps: maxProbe,
-        cause: bandwidthLimitedCause,
-      })) {
-        this.onProbeClusterActivated(cfg, nowMs);
-      }
-    }
 
     // Recovery probe only on latched underuse→normal (recovered_from_overuse).
     // pin MaybeUpdateEstimate: recovered_from_overuse is surfaced only when
@@ -631,7 +643,8 @@ export class GccBandwidthEstimator
       !overusing &&
       !hasProbeEstimate &&
       this.probe.probeState === "complete" &&
-      allowNewProbe
+      allowNewProbe &&
+      bandwidthLimitedCause
     ) {
       const est = this._availableBitrate > 0 ? this._availableBitrate : target;
       const maxProbe = maxProbeBitrateBps(
@@ -682,6 +695,8 @@ export class GccBandwidthEstimator
     this.lastSeenPacketMs = Number.NEGATIVE_INFINITY;
     this.alr.reset();
     this.previouslyInAlr = false;
+    // ProbeController.reset() clears the flag; restore the caller config.
+    this.probe.enablePeriodicAlrProbing(this.periodicAlrProbing);
   }
 
   /**
@@ -744,15 +759,44 @@ export class GccBandwidthEstimator
   }
 
   /**
+   * pin MaybeTriggerOnNetworkChanged — publish target, ALR budget, and
+   * ProbeController estimated bitrate + BandwidthLimitedCause.
+   * Used from both TWCC and {@link process} so RTT backoff cannot leave
+   * stale delay_based cause (which would allow periodic ALR probes).
+   */
+  private propagateTarget(nowMs: number): BandwidthLimitedCause | undefined {
+    const target = this.currentTargetBps;
+    if (!(target > 0)) return undefined;
+    // Do not publish the constructor start rate on ProcessInterval before
+    // the first TWCC. RTT safety drops already publish via maybeApplyRttBasedBackoff.
+    if (this.hasValidSample || this._availableBitrate > 0) {
+      setAvailableBitrateIfChanged(this, target);
+    }
+    this.alr.setEstimatedBitrate(target);
+    const cause = getBandwidthLimitedCause(
+      this.trendline.state,
+      this.rttBackoff.isRttAboveLimit(),
+      this.lossBwe.lossState,
+    );
+    const maxProbe = isProbeInitiationAllowed(cause)
+      ? maxProbeBitrateBps(cause, target, kMaxBitrateBps)
+      : 0;
+    for (const cfg of this.probe.setEstimatedBitrate(target, nowMs, {
+      cause,
+      maxProbeBps: maxProbe,
+    })) {
+      this.onProbeClusterActivated(cfg, nowMs);
+    }
+    return cause;
+  }
+
+  /**
    * pin OnProcessInterval / OnTransportPacketsFeedback ALR wiring:
-   * after the first TWCC, enable periodic ALR probing and publish ALR
-   * start/end to ProbeController + AIMD.
+   * publish ALR start/end to ProbeController + AIMD.
+   * Does **not** enable periodic ALR probing (pin default false).
    */
   private syncAlr(nowMs: number) {
     const inAlr = this.hasValidSample && this.alr.inAlr;
-    if (this.hasValidSample) {
-      this.probe.enablePeriodicAlrProbing(true);
-    }
     this.probe.setAlrStartTime(
       this.hasValidSample ? this.alr.startMs : undefined,
     );

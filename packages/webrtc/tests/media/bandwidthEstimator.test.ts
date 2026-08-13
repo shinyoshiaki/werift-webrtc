@@ -98,9 +98,16 @@ function sent(
  * Controllable sender clock for GCC tests that use synthetic send timelines.
  * Production uses milliTime; pin keeps send/feedback in one Timestamp domain.
  */
-function createClockGcc(startBps: number, initialNow = 0) {
+function createClockGcc(
+  startBps: number,
+  initialNow = 0,
+  options?: { periodicAlrProbing?: boolean },
+) {
   let nowMs = initialNow;
-  const gcc = new GccBandwidthEstimator(startBps, { clock: () => nowMs });
+  const gcc = new GccBandwidthEstimator(startBps, {
+    clock: () => nowMs,
+    periodicAlrProbing: options?.periodicAlrProbing,
+  });
   return {
     gcc,
     now: () => nowMs,
@@ -3607,18 +3614,18 @@ describe("media/sender bandwidth estimator", () => {
         Math.round(startBps * kRttBasedBackOffDropFraction ** 2),
       );
 
-      // 繰り返し floor まで — pin UpdateTargetBitrate は min_bitrate(10kbps)
-      // まで引き上げる（drop 式の 5kbps は中間値で、公開 target は 10kbps）
+      // 繰り返し floor まで — pin kCongestionControllerMinBitrate = 5kbps
+      // （RTT drop floor と同じ 5kbps。旧実装は 10kbps に押し戻していた）
       let t =
         t0 + kRttBasedBackOffHighRttMs + 1 + kRttBasedBackOffDropIntervalMs;
       for (let i = 0; i < 40; i++) {
         t += kRttBasedBackOffDropIntervalMs;
         gcc.rtpPacketSent(sent(seq++, 500, t));
       }
+      expect(kMinBitrateBps).toBe(5_000);
+      expect(gcc.availableBitrate).toBe(5_000);
       expect(gcc.availableBitrate).toBe(kMinBitrateBps);
-      expect(gcc.availableBitrate).toBeGreaterThan(
-        kRttBasedBackOffBandwidthFloorBps,
-      );
+      expect(gcc.availableBitrate).toBe(kRttBasedBackOffBandwidthFloorBps);
     });
 
     test("feedback 後に送信が止まれば CorrectedRtt は時間だけでは増えない", () => {
@@ -3810,6 +3817,62 @@ describe("media/sender bandwidth estimator", () => {
       expect(gcc.availableBitrate).toBe(400_000);
       expect(gcc.availableBitrate).not.toBe(
         Math.round(800_000 * kRttBasedBackOffDropFraction),
+      );
+    });
+
+    test("periodic process の RTT drop は ProbeController の estimated/cause に伝播し ALR probe を出さない", () => {
+      // Arrange: pin OnProcessInterval → UpdateEstimate → MaybeTriggerOnNetworkChanged
+      // ALR 中に feedback stall すると、target だけでなく cause も high RTT に更新する
+      const startBps = 1_000_000;
+      const t0 = 100_000;
+      const { gcc, setNow } = createClockGcc(startBps, t0, {
+        periodicAlrProbing: true,
+      });
+      gcc.shouldTagProbePacket();
+      (gcc as any).probe.abort(t0);
+      expect(gcc.probeState).toBe("complete");
+
+      gcc.rtpPacketSent(sent(1, 500, t0));
+      const highT = t0 + kRttBasedBackOffHighRttMs + 1;
+      gcc.rtpPacketSent(sent(2, 500, highT));
+      const afterDrop = Math.round(startBps * kRttBasedBackOffDropFraction);
+      expect(gcc.availableBitrate).toBe(afterDrop);
+
+      // 直近 TWCC が delay_based / 1Mbps のまま残っている状況を再現
+      (gcc as any).hasValidSample = true;
+      (gcc as any).alr.startedMs = t0;
+      (gcc as any).probe.setAlrStartTime(t0);
+      (gcc as any).probe.setEstimatedBitrate(startBps, t0, {
+        cause: "delay_based_limited",
+      });
+      expect((gcc as any).probe.estimatedBitrateBps).toBe(startBps);
+      expect((gcc as any).probe.lastBandwidthLimitedCause).toBe(
+        "delay_based_limited",
+      );
+
+      // Act: drop 直後の ProcessInterval（drop interval 内なので再 drop しない）
+      setNow(highT);
+      gcc.process(highT);
+
+      // Assert: 1M → 800k が ProbeController に届き cause は high RTT
+      expect(gcc.availableBitrate).toBe(afterDrop);
+      expect((gcc as any).probe.estimatedBitrateBps).toBe(afterDrop);
+      expect((gcc as any).probe.lastBandwidthLimitedCause).toBe(
+        "rtt_based_back_off_high_rtt",
+      );
+
+      // Act: ALR 5s 経過。stale delay_based なら periodic probe が出る
+      const probeCfgs: number[] = [];
+      gcc.onProbeClusterConfig.subscribe((c) => probeCfgs.push(c.targetBps));
+      const alrT = t0 + kAlrProbingIntervalMs;
+      setNow(alrT);
+      gcc.process(alrT);
+
+      // Assert: high RTT cause のままなので InitiateProbing は空
+      expect(probeCfgs).toEqual([]);
+      expect(gcc.probeState).toBe("complete");
+      expect((gcc as any).probe.lastBandwidthLimitedCause).toBe(
+        "rtt_based_back_off_high_rtt",
       );
     });
 
@@ -5293,6 +5356,81 @@ describe("media/sender bandwidth estimator", () => {
       expect(started.length).toBe(1);
       expect(started[0].targetBps).toBe(200_000 * kAlrProbeScale);
       expect(probe.probeState).toBe("waiting_for_result");
+    });
+
+    test("default は first TWCC 後も ALR 5s で periodic probe を出さない", () => {
+      // Arrange: pin enable_periodic_alr_probing_ 初期値は false
+      const t0 = 110_000;
+      const { gcc, setNow } = createClockGcc(1_000_000, t0);
+      gcc.shouldTagProbePacket();
+      (gcc as any).probe.abort(t0);
+      expect(gcc.probeState).toBe("complete");
+
+      gcc.rtpPacketSent(sent(1, 200, t0));
+      setNow(t0 + 20);
+      gcc.receiveTWCC(
+        makeTwccFeedback([
+          new PacketResult({
+            sequenceNumber: 1,
+            received: true,
+            receivedAtMs: t0 + 10,
+          }),
+        ]),
+      );
+      (gcc as any).alr.startedMs = t0;
+      setNow(t0 + 30);
+      gcc.process(t0 + 30);
+
+      // Act: ALR interval 経過
+      const probeCfgs: number[] = [];
+      gcc.onProbeClusterConfig.subscribe((c) => probeCfgs.push(c.targetBps));
+      setNow(t0 + kAlrProbingIntervalMs);
+      gcc.process(t0 + kAlrProbingIntervalMs);
+
+      // Assert: first TWCC でも自動 enable しない
+      expect((gcc as any).probe.periodicAlrProbing).toBe(false);
+      expect(probeCfgs).toEqual([]);
+      expect(gcc.probeState).toBe("complete");
+    });
+
+    test("periodicAlrProbing:true なら ALR 5s 後に probe する", () => {
+      // Arrange: 明示 opt-in（pin requests_alr_probing）
+      const t0 = 120_000;
+      const { gcc, setNow } = createClockGcc(1_000_000, t0, {
+        periodicAlrProbing: true,
+      });
+      gcc.shouldTagProbePacket();
+      (gcc as any).probe.abort(t0);
+      expect(gcc.probeState).toBe("complete");
+
+      gcc.rtpPacketSent(sent(1, 200, t0));
+      setNow(t0 + 20);
+      gcc.receiveTWCC(
+        makeTwccFeedback([
+          new PacketResult({
+            sequenceNumber: 1,
+            received: true,
+            receivedAtMs: t0 + 10,
+          }),
+        ]),
+      );
+      (gcc as any).alr.startedMs = t0;
+      setNow(t0 + 30);
+      gcc.process(t0 + 30);
+      expect((gcc as any).probe.periodicAlrProbing).toBe(true);
+      expect((gcc as any).probe.alrStartMs).toBe(t0);
+
+      // Act
+      const probeCfgs: number[] = [];
+      gcc.onProbeClusterConfig.subscribe((c) => probeCfgs.push(c.targetBps));
+      setNow(t0 + kAlrProbingIntervalMs);
+      gcc.process(t0 + kAlrProbingIntervalMs);
+
+      // Assert: estimated × alr_scale
+      expect(probeCfgs.length).toBe(1);
+      const estimated = (gcc as any).probe.estimatedBitrateBps;
+      expect(probeCfgs[0]).toBe(estimated * kAlrProbeScale);
+      expect(gcc.probeState).toBe("waiting_for_result");
     });
 
     test("high RTT 中は ALR periodic probe を出さない", () => {

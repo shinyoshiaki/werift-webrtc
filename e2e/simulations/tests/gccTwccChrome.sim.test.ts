@@ -99,8 +99,8 @@ describe("e2e/simulations/gcc-twcc-chrome", () => {
     expect(adapted.targetBps).toBeLessThanOrEqual(capacityBps * 1.05);
     // 日本語: 最終推定が開始帯の高値に張り付いていない
     expect(adapted.lastBitrate).toBeLessThan(500_000);
-    // 日本語: ゼロ張り付きではない（GCC 下限 ~10kbps 近傍までは許容）
-    expect(adapted.lastBitrate).toBeGreaterThanOrEqual(10_000);
+    // 日本語: ゼロ張り付きではない（GCC 下限 kMinBitrateBps = 5kbps 近傍までは許容）
+    expect(adapted.lastBitrate).toBeGreaterThanOrEqual(5_000);
     // 日本語: 適応期は輻輳期よりドロップ率が厳密に低下する（追従後の輻輳緩和）
     const congRate =
       congested.outbound.enqueued > 0

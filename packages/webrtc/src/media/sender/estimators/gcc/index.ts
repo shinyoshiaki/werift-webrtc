@@ -42,7 +42,7 @@ export type { AckedPacketSample } from "./acknowledgedBitrateEstimator";
 export { AimdRateControl } from "./aimdRateControl";
 export { AlrDetector } from "./alrDetector";
 export { GccBandwidthEstimator } from "./gccBwe";
-export type { GccClock } from "./gccBwe";
+export type { GccBandwidthEstimatorOptions, GccClock } from "./gccBwe";
 export { IntervalBudget } from "./intervalBudget";
 export { LinkCapacityEstimator } from "./linkCapacityEstimator";
 export {

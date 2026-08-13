@@ -79,6 +79,8 @@ export type {
   AckedPacketSample,
   BandwidthLimitedCause,
   BandwidthUsage,
+  GccBandwidthEstimatorOptions,
+  GccClock,
   LossBasedState,
   ProbeClusterConfig,
   ProbeState,
