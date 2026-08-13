@@ -1531,6 +1531,88 @@ describe("media/sender bandwidth estimator", () => {
       // Assert: estimate advances (wrap で窓が壊れ 0 張り付きにならない)
       expect(gcc.availableBitrate).toBeGreaterThan(0);
     });
+
+    test("wideSeq wrap (1 の後 65537) で旧 sentInfo を上書きしない", () => {
+      // Arrange: レビュー再現。16bit だけだと 65537 & 0xffff === 1 で置換される
+      const gcc = new GccBandwidthEstimator(300_000);
+      gcc.rtpPacketSent(sent(1, 100, 1_000));
+
+      // Act: wrap 後の新 packet（extended seq）
+      gcc.rtpPacketSent(sent(65537, 999, 2_000));
+
+      // Assert: 旧 packet の size/send time が残る
+      const map = (gcc as any).sentInfos as Map<number, SentInfo>;
+      expect(map.get(1)?.size).toBe(100);
+      expect(map.get(1)?.sendingAtMs).toBe(1_000);
+      expect(map.get(65537)?.size).toBe(999);
+      expect(map.get(65537)?.sendingAtMs).toBe(2_000);
+      expect(map.size).toBe(2);
+    });
+
+    test("wrap 後の late received は finalize 済み新 packet に誤結合せず旧 packet を訂正する", () => {
+      // Arrange: 旧 seq=1 と wrap 後 seq=65537 を両方送る
+      const t0 = 20_000;
+      const { gcc, setNow } = createClockGcc(300_000, t0);
+      gcc.rtpPacketSent(sent(1, 100, t0));
+      gcc.rtpPacketSent(sent(65537, 999, t0 + 1_000));
+      const loss = (gcc as any).lossBwe as LossBasedBwe;
+
+      // Act: 先に 16bit seq=1 の received。新 packet（未 finalize の最新世代）へ結合
+      setNow(t0 + 1_020);
+      gcc.receiveTWCC(
+        makeTwccFeedback([
+          new PacketResult({
+            sequenceNumber: 1,
+            received: true,
+            receivedAtMs: t0 + 1_020,
+          }),
+        ]),
+      );
+
+      // Assert: 新 packet だけ finalize。旧 size=100 は残る
+      expect((gcc as any).finalizedSeqs.has(65537)).toBe(true);
+      expect((gcc as any).finalizedSeqs.has(1)).toBe(false);
+      expect((gcc as any).sentInfos.get(1)?.size).toBe(100);
+      expect((loss as any).partial.seenPackets.has(65537)).toBe(true);
+      expect((loss as any).partial.seenPackets.has(1)).toBe(false);
+
+      // Act: 旧 packet 向けの late received（同じ 16bit seq）
+      setNow(t0 + 1_100);
+      gcc.receiveTWCC(
+        makeTwccFeedback([
+          new PacketResult({
+            sequenceNumber: 1,
+            received: true,
+            receivedAtMs: t0 + 20,
+          }),
+        ]),
+      );
+
+      // Assert: 新 packet に再結合せず、旧 packet を訂正する
+      expect((gcc as any).finalizedSeqs.has(1)).toBe(true);
+      expect((gcc as any).finalizedSeqs.has(65537)).toBe(true);
+      expect((loss as any).partial.seenPackets.get(1)).toBe(100);
+      expect((loss as any).partial.seenPackets.get(65537)).toBe(999);
+    });
+
+    test("probe wrap 後も旧 seq の cluster mapping を残す", () => {
+      // Arrange: 同じ 16bit seq が 2 世代ある
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, 1e9, 0);
+      (probe as any).queue = [];
+
+      // Act: cluster A に seq=1、続けて wrap 後 seq=65537
+      probe.onProbePacketSent(400, 1_000, 1);
+      const clusterA = (probe as any).seqToCluster.get(1);
+      probe.onProbePacketSent(400, 2_000, 65537);
+
+      // Assert: 旧 mapping / send time が新 packet に置換されない
+      expect((probe as any).seqToCluster.get(1)).toBe(clusterA);
+      expect((probe as any).seqToSendInfo.get(1)?.sendMs).toBe(1_000);
+      expect((probe as any).seqToCluster.has(65537)).toBe(true);
+      expect((probe as any).seqToSendInfo.get(65537)?.sendMs).toBe(2_000);
+      expect((probe as any).seqToCluster.get(1)).not.toBeUndefined();
+    });
   });
 
   describe("Blocker regressions", () => {
@@ -4828,6 +4910,50 @@ describe("media/sender bandwidth estimator", () => {
       gcc.rtpPacketSent(sent(5000, 200, t0 + kSendTimeHistoryWindowMs + 1));
       expect((gcc as any).sentInfos.has(0)).toBe(false);
       expect((gcc as any).sentInfos.has(5000)).toBe(true);
+    });
+
+    test("process() は送信停止後も 60s 超の sentInfos を prune する", () => {
+      // Arrange: 1 パケット送信後、rtpPacketSent は呼ばない
+      const t0 = 80_000;
+      const gcc = new GccBandwidthEstimator(300_000);
+      gcc.rtpPacketSent(sent(1, 400, t0));
+      gcc.rtpPacketSent(sent(2, 400, t0 + 10));
+      expect((gcc as any).sentInfos.has(1)).toBe(true);
+      expect((gcc as any).sentInfos.size).toBe(2);
+
+      // Act: 送信停止後の periodic process（窓内）
+      gcc.process(t0 + 30_000);
+
+      // Assert: 60s 未満は late TWCC 用に残る
+      expect((gcc as any).sentInfos.has(1)).toBe(true);
+      expect((gcc as any).sentInfos.has(2)).toBe(true);
+
+      // Act: 送信なしのまま 60s 超
+      gcc.process(t0 + kSendTimeHistoryWindowMs + 1);
+
+      // Assert: process 経路だけで履歴が消える（rtpPacketSent 依存ではない）
+      expect((gcc as any).sentInfos.size).toBe(0);
+      expect((gcc as any).finalizedSeqs.size).toBe(0);
+      expect((gcc as any).softLostSeqs.size).toBe(0);
+    });
+
+    test("estimator dispose / reset は sentInfos と probe seq map を残さない", () => {
+      // Arrange: 送信履歴と probe mapping を積む
+      const gcc = new GccBandwidthEstimator(300_000);
+      gcc.shouldTagProbePacket();
+      gcc.rtpPacketSent(sent(1, 200, 1_000, { isProbation: true }));
+      gcc.rtpPacketSent(sent(2, 200, 1_010, { isProbation: true }));
+      expect((gcc as any).sentInfos.size).toBeGreaterThan(0);
+
+      // Act
+      gcc.dispose();
+
+      // Assert: stop/dispose 後に履歴が残らない
+      expect((gcc as any).sentInfos.size).toBe(0);
+      expect((gcc as any).finalizedSeqs.size).toBe(0);
+      expect((gcc as any).softLostSeqs.size).toBe(0);
+      expect((gcc as any).probe.seqToCluster.size).toBe(0);
+      expect((gcc as any).probe.seqToSendInfo.size).toBe(0);
     });
 
     test("late TWCC correction は loss partial を二重計上しない", () => {

@@ -37,7 +37,11 @@ import type { BandwidthUsage } from "./overuseDetector";
 import type { ProbeClusterConfig, ProbeState } from "./probeController";
 import { ProbeController } from "./probeController";
 import { RttBasedBackoff, computeFeedbackRttStats } from "./rttBasedBackoff";
-import { sortPacketResultsByWideSeq } from "./sequenceNumber";
+import {
+  TWCC_SEQ_MOD,
+  TransportWideSeqUnwrapper,
+  sortPacketResultsByWideSeq,
+} from "./sequenceNumber";
 import { TrendlineEstimator } from "./trendlineEstimator";
 
 /**
@@ -84,7 +88,14 @@ export class GccBandwidthEstimator
    */
   private readonly clock: GccClock;
 
+  /**
+   * Sent-packet history keyed by **unwrapped** transport-wide sequence
+   * (pin TransportFeedbackAdapter `history_`). 16-bit wire seq alone would
+   * overwrite the previous generation after wrap.
+   */
   private sentInfos = new Map<number, SentInfo>();
+  /** pin `RtpSequenceNumberUnwrapper` shared by send and feedback lookup. */
+  private readonly seqUnwrapper = new TransportWideSeqUnwrapper();
   /**
    * Sequences finalized as **received**. Not-received is never permanently
    * finalized — a later feedback may report the same seq as received
@@ -192,6 +203,9 @@ export class GccBandwidthEstimator
    */
   process(nowMs: number): void {
     if (!Number.isFinite(nowMs)) return;
+    // Age-out send history even when media is idle (pin 60s window).
+    // rtpPacketSent-only prune would leak after send stop.
+    this.pruneSentInfos(nowMs);
     this.maybeApplyRttBasedBackoff(nowMs);
     for (const cfg of this.probe.process(nowMs)) {
       this.onProbeClusterActivated(cfg, nowMs);
@@ -230,10 +244,12 @@ export class GccBandwidthEstimator
   }
 
   rtpPacketSent(info: SentInfo) {
-    this.pruneSentInfos(info.sendingAtMs, info.wideSeq);
-    const seq = info.wideSeq & 0xffff;
+    this.pruneSentInfos(info.sendingAtMs);
+    const seq = this.seqUnwrapper.unwrap(info.wideSeq);
     this.sentInfos.set(seq, info);
-    // Re-sending the same wide-seq (after wrap / reuse) clears prior finalize.
+    // Re-sending the same extended seq (true retransmit of that generation)
+    // clears prior finalize. A wrap creates a *new* key and leaves the old
+    // generation intact.
     this.finalizedSeqs.delete(seq);
     this.softLostSeqs.delete(seq);
     // pin GoogCcNetworkController::OnSentPacket — first packet seeds
@@ -303,10 +319,13 @@ export class GccBandwidthEstimator
     }[] = [];
 
     for (const result of results) {
-      const seq = result.sequenceNumber & 0xffff;
+      const seq = this.resolveFeedbackSeq(result.sequenceNumber, result.received);
+      if (seq === undefined) {
+        // Unknown sequence (swap / late feedback) — do not count as loss.
+        continue;
+      }
       const info = this.sentInfos.get(seq);
       if (!info) {
-        // Unknown sequence (swap / late feedback) — do not count as loss.
         continue;
       }
       if (this.finalizedSeqs.has(seq)) {
