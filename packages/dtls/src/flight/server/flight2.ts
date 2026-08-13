@@ -30,11 +30,11 @@ export const flight2 =
 
     dtls.flight = 2;
 
-    // Record sequence restarts for this HVR flight (RFC 6347 §4.2.2).
-    // Handshake message_seq must match the ClientHello we are answering so a
-    // cookie re-challenge does not rewind HVR to 0 (RFC 6347 multiple cookie
-    // exchanges / Errata 5186: "record sequence number" → message_seq).
-    dtls.recordSequenceNumber = 0;
+    // Handshake message_seq tracks the ClientHello we are answering
+    // (CH1=0 → HVR=0; re-challenge CH2=1 → HVR=1). Errata 5186: RFC 6347's
+    // "record sequence number" wording here means handshake message_seq.
+    // Epoch-0 record sequence must keep increasing — never rewind — or a
+    // replay window will discard HVR2 as a duplicate of HVR1.
     dtls.sequenceNumber = clientHelloMessageSeq;
 
     const peerKey = peerKeyFromAddr(dest);

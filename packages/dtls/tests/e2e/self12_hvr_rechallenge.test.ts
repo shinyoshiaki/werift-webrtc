@@ -1,3 +1,4 @@
+import { spawn } from "child_process";
 import { expect, test } from "vitest";
 import { UdpTransport } from "../../../common/src";
 import { DtlsClient, DtlsServer } from "../../src";
@@ -165,37 +166,70 @@ test("e2e/self12: client handles second HVR after invalid-cookie re-challenge", 
   await serverTransport.close().catch(() => {});
 }, 30_000);
 
-/** DTLS 1.2 handshake fragments in a datagram: type + message_seq. */
-function handshakeSeqsFromDatagram(
-  buf: Buffer,
-): Array<{ type: number; seq: number }> {
-  const out: Array<{ type: number; seq: number }> = [];
-  let start = 0;
-  while (buf.length > start + 13) {
-    const contentType = buf[start];
-    const fragLen = buf.readUInt16BE(start + 11);
-    const recStart = start + 13;
-    const recEnd = recStart + fragLen;
-    if (buf.length < recEnd) break;
-    if (contentType === ContentType.handshake) {
-      let off = recStart;
-      while (off + 12 <= recEnd) {
-        const type = buf[off];
-        const seq = buf.readUInt16BE(off + 4);
-        const fragmentLength = buf.readUIntBE(off + 9, 3);
-        out.push({ type, seq });
-        off += 12 + fragmentLength;
+type WireHs = {
+  epoch: number;
+  recordSeq: number;
+  type: number;
+  messageSeq: number;
+};
+
+/**
+ * DTLS 1.2 handshake fragments: epoch + record sequence + message_seq.
+ * Read-only on the wire buffer — must never throw or mutate TX bytes.
+ */
+function handshakeSeqsFromDatagram(buf: Buffer): WireHs[] {
+  const out: WireHs[] = [];
+  try {
+    let start = 0;
+    while (buf.length > start + 13) {
+      const contentType = buf[start];
+      const epoch = buf.readUInt16BE(start + 3);
+      const recordSeq = buf.readUIntBE(start + 5, 6);
+      const fragLen = buf.readUInt16BE(start + 11);
+      const recEnd = start + 13 + fragLen;
+      if (buf.length < recEnd) break;
+      if (contentType === ContentType.handshake && fragLen >= 12) {
+        let off = start + 13;
+        while (off + 12 <= recEnd) {
+          const type = buf[off];
+          const messageSeq = buf.readUInt16BE(off + 4);
+          const fragmentLength = buf.readUIntBE(off + 9, 3);
+          out.push({ epoch, recordSeq, type, messageSeq });
+          const next = off + 12 + fragmentLength;
+          if (next <= off) break;
+          off = next;
+        }
       }
+      start = recEnd;
     }
-    start = recEnd;
+  } catch {
+    // Observation only — never block the datagram.
   }
   return out;
 }
 
+function firstOfType(rows: WireHs[], type: number): WireHs | undefined {
+  return rows.find((r) => r.type === type);
+}
+
+function firstNOfType(rows: WireHs[], type: number, n: number): WireHs[] {
+  return rows.filter((r) => r.type === type).slice(0, n);
+}
+
+/** Same (epoch, recordSeq) must not appear twice among distinct records. */
+function assertUniqueEpochRecordSeq(rows: WireHs[]) {
+  const seen = new Set<string>();
+  for (const r of rows) {
+    const key = `${r.epoch}:${r.recordSeq}`;
+    expect(seen.has(key), `duplicate epoch/record_seq ${key}`).toBe(false);
+    seen.add(key);
+  }
+}
+
 /**
- * P2 unit: re-HVR must use the ClientHello message_seq, not rewind to 0.
+ * P2 unit: re-HVR は ClientHello の message_seq に合わせ、record_seq は巻き戻さない。
  */
-test("unit/flight2: HVR message_seq follows ClientHello message_seq", async () => {
+test("unit/flight2: HVR message_seq follows ClientHello; record_seq increases", async () => {
   // Arrange
   const transport = await UdpTransport.init("udp4");
   const sent: Buffer[] = [];
@@ -214,29 +248,33 @@ test("unit/flight2: HVR message_seq follows ClientHello message_seq", async () =
     [],
   );
 
-  // Act: CH seq=0 → HVR seq=0、続けて CH seq=1 → HVR seq=1
+  // Act: CH seq=0 → HVR、続けて CH seq=1 → 再 HVR
   flight2(udp, dtls)(hello, ["127.0.0.1", 9], 0);
   flight2(udp, dtls)(hello, ["127.0.0.1", 9], 1);
 
-  // Assert
+  // Assert: handshake seq は CH に追従、record seq は epoch 0 で単調増加
   expect(sent.length).toBe(2);
   const hvr0 = handshakeSeqsFromDatagram(sent[0]);
   const hvr1 = handshakeSeqsFromDatagram(sent[1]);
-  expect(hvr0).toEqual([
-    { type: HandshakeType.hello_verify_request_3, seq: 0 },
-  ]);
-  expect(hvr1).toEqual([
-    { type: HandshakeType.hello_verify_request_3, seq: 1 },
-  ]);
+  expect(hvr0).toHaveLength(1);
+  expect(hvr1).toHaveLength(1);
+  expect(hvr0[0].type).toBe(HandshakeType.hello_verify_request_3);
+  expect(hvr1[0].type).toBe(HandshakeType.hello_verify_request_3);
+  expect(hvr0[0].messageSeq).toBe(0);
+  expect(hvr1[0].messageSeq).toBe(1);
+  expect(hvr0[0].epoch).toBe(0);
+  expect(hvr1[0].epoch).toBe(0);
+  expect(hvr1[0].recordSeq).toBeGreaterThan(hvr0[0].recordSeq);
+  assertUniqueEpochRecordSeq([...hvr0, ...hvr1]);
 
   await transport.close().catch(() => {});
 });
 
 /**
- * P2 E2E: cookie re-challenge の wire message_seq を明示検証する。
- * CH1=0 → HVR1=0 → CH2=1 → HVR2=1 → CH3=2 → ServerHello=2 → Certificate=3
+ * P2 E2E: cookie re-challenge の wire 上 handshake / record sequence。
+ * CH1=0 → HVR1 msg=0 rec=1 → CH2=1 → HVR2 msg=1 rec>1 → CH3=2 → SH msg=2 rec>HVR2
  */
-test("e2e/self12: re-HVR wire message_seq progresses with ClientHello", async () => {
+test("e2e/self12: re-HVR wire message_seq and record_seq progress", async () => {
   // Arrange
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
@@ -255,39 +293,27 @@ test("e2e/self12: re-HVR wire message_seq progresses with ClientHello", async ()
     signatureHash: sig,
   });
 
-  const chSeqs: number[] = [];
-  const hvrSeqs: number[] = [];
-  const serverHelloSeqs: number[] = [];
-  const certificateSeqs: number[] = [];
+  const clientHs: WireHs[] = [];
+  const serverHs: WireHs[] = [];
+  let hvrCount = 0;
 
   const origClientSend = clientTransport.send.bind(clientTransport);
   clientTransport.send = async (buf: Buffer, addr?: any) => {
-    for (const hs of handshakeSeqsFromDatagram(buf)) {
-      if (hs.type === HandshakeType.client_hello_1) {
-        chSeqs.push(hs.seq);
-      }
-    }
+    clientHs.push(...handshakeSeqsFromDatagram(buf));
     return origClientSend(buf, addr);
   };
 
-  let hvrCount = 0;
   const origServerSend = serverTransport.send.bind(serverTransport);
   serverTransport.send = async (buf: Buffer, addr?: any) => {
     for (const hs of handshakeSeqsFromDatagram(buf)) {
+      serverHs.push(hs);
       if (hs.type === HandshakeType.hello_verify_request_3) {
-        hvrSeqs.push(hs.seq);
         hvrCount += 1;
         // 最初の HVR 送信直後に cookie secret を回し、CH2 を invalid にする
         if (hvrCount === 1) {
           const secret = (server as any).dtls.cookieSecret as Buffer;
           secret.fill(0x5a);
         }
-      }
-      if (hs.type === HandshakeType.server_hello_2) {
-        serverHelloSeqs.push(hs.seq);
-      }
-      if (hs.type === HandshakeType.certificate_11) {
-        certificateSeqs.push(hs.seq);
       }
     }
     return origServerSend(buf, addr);
@@ -298,9 +324,7 @@ test("e2e/self12: re-HVR wire message_seq progresses with ClientHello", async ()
     const t = setTimeout(
       () =>
         reject(
-          new Error(
-            `re-HVR seq handshake timeout (hvrCount=${hvrCount} ch=${chSeqs.join(",")} hvr=${hvrSeqs.join(",")})`,
-          ),
+          new Error(`re-HVR seq handshake timeout (hvrCount=${hvrCount})`),
         ),
       25_000,
     );
@@ -319,17 +343,32 @@ test("e2e/self12: re-HVR wire message_seq progresses with ClientHello", async ()
     void client.connect();
   });
 
-  // Assert: 初出の各 message_seq（再送は無視）
-  const firstCh = [...new Set(chSeqs)];
-  const firstHvr = [...new Set(hvrSeqs)];
+  // Assert: handshake message_seq と record sequence の両方
+  const chs = firstNOfType(clientHs, HandshakeType.client_hello_1, 3);
+  const hvrs = firstNOfType(serverHs, HandshakeType.hello_verify_request_3, 2);
+  const sh = firstOfType(serverHs, HandshakeType.server_hello_2);
+  const cert = firstOfType(serverHs, HandshakeType.certificate_11);
   expect(hvrCount).toBeGreaterThanOrEqual(2);
-  expect(firstCh[0]).toBe(0);
-  expect(firstCh[1]).toBe(1);
-  expect(firstCh[2]).toBe(2);
-  expect(firstHvr[0]).toBe(0);
-  expect(firstHvr[1]).toBe(1);
-  expect(serverHelloSeqs[0]).toBe(2);
-  expect(certificateSeqs[0]).toBe(3);
+  expect(chs.map((c) => c.messageSeq)).toEqual([0, 1, 2]);
+  expect(hvrs[0].messageSeq).toBe(0);
+  expect(hvrs[1].messageSeq).toBe(1);
+  expect(sh?.messageSeq).toBe(2);
+  expect(cert?.messageSeq).toBe(3);
+  expect(hvrs[0].epoch).toBe(0);
+  expect(hvrs[1].epoch).toBe(0);
+  expect(sh?.epoch).toBe(0);
+  expect(hvrs[1].recordSeq).toBeGreaterThan(hvrs[0].recordSeq);
+  expect(sh!.recordSeq).toBeGreaterThan(hvrs[1].recordSeq);
+  // 最初の Flight4 再送より前（HVR1/HVR2 + 初回 SH..）で record_seq 重複なし
+  const firstSh = serverHs.findIndex(
+    (r) => r.type === HandshakeType.server_hello_2,
+  );
+  const secondSh = serverHs.findIndex(
+    (r, i) => r.type === HandshakeType.server_hello_2 && i > firstSh,
+  );
+  assertUniqueEpochRecordSeq(
+    secondSh === -1 ? serverHs : serverHs.slice(0, secondSh),
+  );
   expect(client.connected).toBe(true);
   expect(server.connected).toBe(true);
 
@@ -338,3 +377,99 @@ test("e2e/self12: re-HVR wire message_seq progresses with ClientHello", async ()
   await clientTransport.close().catch(() => {});
   await serverTransport.close().catch(() => {});
 }, 30_000);
+
+/**
+ * P2: replay window を持つ OpenSSL DTLS 1.2 client でも re-HVR 後に接続できる。
+ * HVR2 が HVR1 と同じ record_seq だと OpenSSL が replay discard して timeout する。
+ */
+test("e2e/openssl: re-HVR after cookie rotation completes DTLS 1.2", async () => {
+  // Arrange
+  const serverTransport = await UdpTransport.init("udp4");
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+  });
+
+  const serverHs: WireHs[] = [];
+  let hvrCount = 0;
+  const origServerSend = serverTransport.send.bind(serverTransport);
+  serverTransport.send = async (buf: Buffer, addr?: any) => {
+    for (const hs of handshakeSeqsFromDatagram(buf)) {
+      serverHs.push(hs);
+      if (hs.type === HandshakeType.hello_verify_request_3) {
+        hvrCount += 1;
+        if (hvrCount === 1) {
+          const secret = (server as any).dtls.cookieSecret as Buffer;
+          secret.fill(0x5a);
+        }
+      }
+    }
+    return origServerSend(buf, addr);
+  };
+
+  const openssl = spawn("openssl", [
+    "s_client",
+    "-dtls1_2",
+    "-connect",
+    `127.0.0.1:${serverTransport.port}`,
+  ]);
+  openssl.stdout?.setEncoding("ascii");
+
+  // Act: OpenSSL client が re-HVR を受けて接続し、app data を受信する
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const t = setTimeout(() => {
+        reject(
+          new Error(
+            `openssl re-HVR timeout (hvrCount=${hvrCount} hvrs=${serverHs
+              .filter((h) => h.type === HandshakeType.hello_verify_request_3)
+              .map((h) => `msg=${h.messageSeq}/rec=${h.recordSeq}`)
+              .join(",")})`,
+          ),
+        );
+      }, 15_000);
+      server.onConnect.subscribe(() => {
+        void server.send(Buffer.from("re-hvr-openssl"));
+      });
+      server.onError.subscribe((e) => {
+        clearTimeout(t);
+        reject(e);
+      });
+      openssl.stdout?.on("data", (data: string) => {
+        if (data.includes("re-hvr-openssl")) {
+          clearTimeout(t);
+          resolve();
+        }
+      });
+      openssl.on("error", (e) => {
+        clearTimeout(t);
+        reject(e);
+      });
+    });
+
+    // Assert: 2 回の HVR があり record_seq は増加、handshake 完了
+    const hvrs = firstNOfType(
+      serverHs,
+      HandshakeType.hello_verify_request_3,
+      2,
+    );
+    const sh = firstOfType(serverHs, HandshakeType.server_hello_2);
+    expect(hvrCount).toBeGreaterThanOrEqual(2);
+    expect(hvrs[0].messageSeq).toBe(0);
+    expect(hvrs[1].messageSeq).toBe(1);
+    expect(hvrs[1].recordSeq).toBeGreaterThan(hvrs[0].recordSeq);
+    expect(sh).toBeTruthy();
+    expect(sh!.recordSeq).toBeGreaterThan(hvrs[1].recordSeq);
+    expect(server.connected).toBe(true);
+  } finally {
+    openssl.kill("SIGTERM");
+    try {
+      server.close();
+    } catch {
+      /* */
+    }
+    await serverTransport.close().catch(() => {});
+  }
+}, 20_000);
