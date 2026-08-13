@@ -4,6 +4,7 @@ import { SrtpSession } from "../../../rtp/src/srtp/srtp";
 import {
   AcknowledgedBitrateEstimator,
   AimdRateControl,
+  AlrDetector,
   type BandwidthEstimator,
   GccBandwidthEstimator,
   InterArrivalDelta,
@@ -37,6 +38,8 @@ import {
   isProbePacingController,
   isRoundTripTimeConsumer,
   isRttAboveLimit,
+  kAlrProbeScale,
+  kAlrProbingIntervalMs,
   kBeta,
   kGoogCcProcessIntervalMs,
   kLossLimitedProbeScale,
@@ -3215,7 +3218,12 @@ describe("media/sender bandwidth estimator", () => {
       const cases: Array<{
         usage: "normal" | "underuse" | "overuse";
         rttHigh: boolean;
-        loss: "increasing" | "decreasing" | "delay_based" | "hold";
+        loss:
+          | "increasing"
+          | "increase_using_padding"
+          | "decreasing"
+          | "delay_based"
+          | "hold";
         allow: boolean;
         scaleCap: boolean;
       }> = [
@@ -3251,6 +3259,13 @@ describe("media/sender bandwidth estimator", () => {
           usage: "normal",
           rttHigh: false,
           loss: "hold",
+          allow: false,
+          scaleCap: false,
+        },
+        {
+          usage: "normal",
+          rttHigh: false,
+          loss: "increase_using_padding",
           allow: false,
           scaleCap: false,
         },
@@ -5001,6 +5016,227 @@ describe("media/sender bandwidth estimator", () => {
       expect((gcc as any).softLostSeqs.size).toBe(0);
       expect((gcc as any).probe.seqToCluster.size).toBe(0);
       expect((gcc as any).probe.seqToSendInfo.size).toBe(0);
+    });
+
+    test("RTCRtpSender.stop は世代無効化・padding 停止・estimator dispose する", async () => {
+      // Arrange: GCC + 送信履歴 + probe mapping
+      const gcc = new GccBandwidthEstimator(300_000);
+      const { sender, dtls } = await prepareConnectedSender(gcc);
+      gcc.shouldTagProbePacket();
+      gcc.rtpPacketSent(sent(1, 200, 1_000, { isProbation: true }));
+      gcc.rtpPacketSent(sent(2, 200, 1_010, { isProbation: true }));
+      expect((gcc as any).sentInfos.size).toBeGreaterThan(0);
+      await Promise.resolve();
+      await Promise.resolve();
+      const sendsBeforeStop = (dtls.sendRtp as ReturnType<typeof vi.fn>).mock
+        .calls.length;
+
+      // Act
+      sender.stop();
+
+      // Assert: 履歴は dispose で解放される
+      expect((gcc as any).sentInfos.size).toBe(0);
+      expect((gcc as any).probe.seqToCluster.size).toBe(0);
+      expect(
+        ((gcc as any).lossBwe.partial.seenPackets as Map<number, number>).size,
+      ).toBe(0);
+      expect((gcc as any).disposed).toBe(true);
+
+      // Act: stop 後の padding / send は何も送らない
+      const n = await sender.maybeInjectProbePadding();
+      await sender.sendRtp(
+        new RtpPacket(
+          new RtpHeader({
+            sequenceNumber: 9,
+            timestamp: 9,
+            payloadType: 96,
+            ssrc: 1,
+            extension: true,
+            extensions: [],
+            marker: false,
+            padding: false,
+            payloadOffset: 12,
+          }),
+          Buffer.alloc(100),
+        ),
+      );
+
+      // Assert: stop 後に追加の RTP / padding は出ない
+      expect(n).toBe(0);
+      expect((dtls.sendRtp as ReturnType<typeof vi.fn>).mock.calls.length).toBe(
+        sendsBeforeStop,
+      );
+      expect(gcc.pendingProbePaddingPackets()).toBe(0);
+    });
+
+    test("stop と in-flight padding の競合で disposed estimator を再駆動しない", async () => {
+      // Arrange: padding 注入を非同期開始し、途中で stop
+      const gcc = new GccBandwidthEstimator(1_000_000);
+      const { sender, dtls } = await prepareConnectedSender(gcc);
+
+      let releaseFirst!: () => void;
+      const holdFirst = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      let firstHeld = false;
+      const originalSendRtp = dtls.sendRtp.bind(dtls);
+      dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
+        if (!firstHeld) {
+          firstHeld = true;
+          await holdFirst;
+        }
+        return originalSendRtp(payload, header);
+      }) as typeof dtls.sendRtp;
+
+      const pendingSpy = vi.spyOn(gcc, "pendingProbePaddingPackets");
+
+      // Act: padding 開始（最初の send で止まる）→ stop
+      const padPromise = sender.maybeInjectProbePadding();
+      await Promise.resolve();
+      await Promise.resolve();
+      sender.stop();
+      releaseFirst();
+      const n = await padPromise;
+
+      // Assert: stop 後に pendingProbe で probe を再生成しない
+      const callsAtEnd = pendingSpy.mock.calls.length;
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(pendingSpy.mock.calls.length).toBe(callsAtEnd);
+      expect(n).toBeLessThan(16);
+      expect(gcc.pendingProbePaddingPackets()).toBe(0);
+      expect((gcc as any).sentInfos.size).toBe(0);
+    });
+
+    test("PaddingDuration>0 の loss increase は increase_using_padding になり probe を禁止する", () => {
+      // Arrange: pin PaddingDuration 有効時の state
+      const loss = new LossBasedBwe();
+      loss.reset(200_000);
+      loss.setPaddingDurationMs(200);
+      // delay を高くして loss-limited increase にする
+      const t0 = 10_000;
+      const r = loss.update(
+        0,
+        1_000_000,
+        150_000,
+        8,
+        0,
+        t0,
+        1600,
+        t0 + 300,
+        0,
+        Array.from({ length: 8 }, (_, i) => ({
+          seq: i + 1,
+          size: 200,
+          received: true,
+          sendMs: t0 + i * 40,
+        })),
+      );
+      void r;
+
+      // Act / Assert: padding duration 付きなら increase_using_padding
+      // （観測が足りず delay_based のままなら skip しないよう state を直接確認）
+      if (loss.observationCount >= 1 && loss.lossState !== "delay_based") {
+        expect(loss.lossState).toBe("increase_using_padding");
+      } else {
+        // 観測不足で delay_based のときは setter 後の遷移を直接検証
+        (loss as any).delayBasedBps = 1_000_000;
+        (loss as any).updateState(200_000, 250_000, t0 + 400);
+        expect(loss.lossState).toBe("increase_using_padding");
+      }
+      expect(
+        getBandwidthLimitedCause("normal", false, "increase_using_padding"),
+      ).toBe("loss_limited_bwe");
+      expect(
+        isProbeInitiationAllowed(
+          getBandwidthLimitedCause("normal", false, "increase_using_padding"),
+        ),
+      ).toBe(false);
+    });
+
+    test("ALR 中の process は complete 後 5s で periodic probe を出す", () => {
+      // Arrange: initial session を complete にして ALR probing を有効化
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, 1e9, 0);
+      probe.abort(1_000);
+      expect(probe.probeState).toBe("complete");
+      probe.enablePeriodicAlrProbing(true);
+      probe.setAlrStartTime(2_000);
+      (probe as any).estimatedBps = 200_000;
+      probe.setEstimatedBitrate(200_000, 2_000, {
+        cause: "delay_based_limited",
+      });
+
+      // Act: 5s 未満は出さない
+      expect(probe.process(2_000 + kAlrProbingIntervalMs - 1)).toEqual([]);
+
+      // Act: ALR interval 経過
+      const started = probe.process(2_000 + kAlrProbingIntervalMs);
+
+      // Assert: estimated × alr_scale の cluster
+      expect(started.length).toBe(1);
+      expect(started[0].targetBps).toBe(200_000 * kAlrProbeScale);
+      expect(probe.probeState).toBe("waiting_for_result");
+    });
+
+    test("high RTT 中は ALR periodic probe を出さない", () => {
+      // Arrange
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, 1e9, 0);
+      probe.abort(1_000);
+      probe.enablePeriodicAlrProbing(true);
+      probe.setAlrStartTime(0);
+      probe.setEstimatedBitrate(200_000, 0, {
+        cause: "rtt_based_back_off_high_rtt",
+      });
+
+      // Act
+      const started = probe.process(kAlrProbingIntervalMs + 1);
+
+      // Assert: pin InitiateProbing は high RTT で空
+      expect(started).toEqual([]);
+      expect(probe.probeState).toBe("complete");
+    });
+
+    test("network-state estimate が低く interval が有限なら periodic probe する", () => {
+      // Arrange: pin TimeForNetworkStateProbe（interval 既定 +∞ なので明示設定）
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, 1e9, 0);
+      probe.abort(1_000);
+      probe.setEstimatedBitrate(200_000, 1_000, {
+        cause: "delay_based_limited",
+      });
+      probe.setNetworkStateEstimate(800_000);
+      probe.setNetworkStateProbeIntervalMs(1_000);
+
+      // Act
+      const started = probe.process(1_000 + 1_000);
+
+      // Assert: estimated × alr_scale、NSE upper で cap
+      expect(started.length).toBe(1);
+      expect(started[0].targetBps).toBe(200_000 * kAlrProbeScale);
+    });
+
+    test("AlrDetector は低送信で ALR に入り高送信で抜ける", () => {
+      // Arrange
+      const alr = new AlrDetector();
+      alr.setEstimatedBitrate(1_000_000);
+
+      // Act: 小さなパケットを間隔を空けて送ると budget が溜まる
+      alr.onBytesSent(100, 0);
+      for (let i = 1; i <= 8; i++) {
+        alr.onBytesSent(20, i * 200);
+      }
+
+      // Assert: ALR 開始
+      expect(alr.inAlr).toBe(true);
+      expect(alr.startMs).toBeGreaterThan(0);
+
+      // Act: 推定の大半を一気に送ると ALR 終了
+      alr.onBytesSent(80_000, 8 * 200 + 10);
+
+      // Assert
+      expect(alr.inAlr).toBe(false);
     });
 
     test("late TWCC correction は loss partial を二重計上しない", () => {

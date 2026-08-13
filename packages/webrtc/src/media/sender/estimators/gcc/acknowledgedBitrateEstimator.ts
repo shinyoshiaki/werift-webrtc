@@ -45,6 +45,15 @@ export class AcknowledgedBitrateEstimator {
   }
 
   /**
+   * pin RobustThroughputEstimator::SetAlr — no-op on the robust path.
+   * Kept so GCC can publish ALR without branching on estimator type.
+   */
+  setAlr(_inAlr: boolean) {}
+
+  /** pin RobustThroughputEstimator::SetAlrEndedTime — no-op. */
+  setAlrEndedTime(_atTimeMs: number) {}
+
+  /**
    * Ingest ACKed packets. Prefer **receive-time order** (libwebrtc
    * `SortedByReceiveTime`); out-of-order samples are insertion-sorted.
    */

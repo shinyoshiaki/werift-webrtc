@@ -485,9 +485,21 @@ export class RTCRtpSender {
 
   stop() {
     this.stopped = true;
+    // Invalidate in-flight sendRtp / maybeInjectProbePadding before dispose
+    // so they cannot emit padding or revive a disposed estimator.
+    this.bweGeneration++;
     this.rtcpRunning = false;
     this.rtcpCancel.abort();
     this.stopBweProcessTimer();
+    this.bweAvailableBitrateUnsub?.();
+    this.bweAvailableBitrateUnsub = undefined;
+    this.bweProbeUnsub?.();
+    this.bweProbeUnsub = undefined;
+    if (this._senderBWE.dispose) {
+      this._senderBWE.dispose();
+    } else {
+      this._senderBWE.reset?.();
+    }
     if (this.disposeTrack) {
       this.disposeTrack();
     }
@@ -659,6 +671,7 @@ export class RTCRtpSender {
   }
 
   async maybeInjectProbePadding(): Promise<number> {
+    if (this.stopped) return 0;
     if (this.dtlsTransport?.state !== "connected" || !this.codec) {
       return 0;
     }
@@ -682,15 +695,15 @@ export class RTCRtpSender {
       // Drain the full probe cluster across multiple bursts if needed.
       // Without this, large clusters stall when only maxBurst packets are sent.
       for (let safety = 0; safety < 64; safety++) {
-        if (generation !== this.bweGeneration) {
-          // setBandwidthEstimator cancelled this injection.
+        if (this.stopped || generation !== this.bweGeneration) {
+          // stop() / setBandwidthEstimator cancelled this injection.
           break;
         }
         const pending = e.pendingProbePaddingPackets(kProbePaddingPacketBytes);
         if (pending <= 0) break;
         const n = Math.min(pending, kProbePaddingMaxBurst);
         for (let i = 0; i < n; i++) {
-          if (generation !== this.bweGeneration) break;
+          if (this.stopped || generation !== this.bweGeneration) break;
           // Sequence is allocated by sendRtpInternal (unified outbound counter).
           const pad = new RtpPacket(
             new RtpHeader({
@@ -713,7 +726,7 @@ export class RTCRtpSender {
             forceProbeTag: true,
             isProbePadding: true,
           });
-          if (generation !== this.bweGeneration) break;
+          if (this.stopped || generation !== this.bweGeneration) break;
           totalSent++;
         }
       }
@@ -733,6 +746,7 @@ export class RTCRtpSender {
       isProbePadding?: boolean;
     } = {},
   ) {
+    if (this.stopped) return;
     if (this.dtlsTransport.state !== "connected" || !this.codec) {
       return;
     }

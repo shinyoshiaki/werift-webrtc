@@ -17,7 +17,7 @@ https://webrtc.googlesource.com/src/+/0fda16159e33adf59c71a7ad1173dcbe5a632102/m
 
 ## Included paths
 
-- `modules/congestion_controller/goog_cc/` — network control, delay BWE, trendline, inter-arrival, acked/robust throughput, loss-based V2, probe controller/estimator, **send_side_bandwidth_estimation, link_capacity_estimator** (RttBasedBackoff / IsRttAboveLimit / UpdatePropagationRtt)
+- `modules/congestion_controller/goog_cc/` — network control, delay BWE, trendline, inter-arrival, acked/robust throughput, loss-based V2, probe controller/estimator, **send_side_bandwidth_estimation, link_capacity_estimator** (RttBasedBackoff / IsRttAboveLimit / UpdatePropagationRtt), **alr_detector**
 - `modules/remote_bitrate_estimator/aimd_rate_control.{h,cc}`
 - `modules/remote_bitrate_estimator/include/bwe_defines.h` — `kCongestionControllerMinBitrate` (10 kbps) used by AIMD / send-side BWE
 - `modules/pacing/bitrate_prober.{h,cc}`

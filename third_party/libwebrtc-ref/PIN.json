@@ -30,6 +30,8 @@
     "modules/congestion_controller/goog_cc/send_side_bandwidth_estimation.cc",
     "modules/congestion_controller/goog_cc/link_capacity_estimator.h",
     "modules/congestion_controller/goog_cc/link_capacity_estimator.cc",
+    "modules/congestion_controller/goog_cc/alr_detector.h",
+    "modules/congestion_controller/goog_cc/alr_detector.cc",
     "modules/remote_bitrate_estimator/aimd_rate_control.h",
     "modules/remote_bitrate_estimator/aimd_rate_control.cc",
     "modules/remote_bitrate_estimator/include/bwe_defines.h",

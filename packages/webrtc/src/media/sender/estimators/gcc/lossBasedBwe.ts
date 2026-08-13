@@ -24,6 +24,7 @@ import {
   kLossBasedNotIncreaseIfInherentLessThanAverage,
   kLossBasedObservationDurationLowerBoundMs,
   kLossBasedObservationWindow,
+  kLossBasedPaddingDurationMs,
   kLossBasedRampupUpperBoundFactor,
   kLossBasedRampupUpperBoundHoldThreshold,
   kLossBasedRampupUpperBoundInHoldFactor,
@@ -35,11 +36,12 @@ import {
 
 /**
  * Loss-based BWE states (libwebrtc LossBasedBweV2 naming).
- * `increase_using_padding` is folded into `increasing` (no separate padding
- * duration controller on this lightweight pacer path).
+ * `increase_using_padding` is used when {@link kLossBasedPaddingDurationMs} > 0
+ * (pin PaddingDuration); default 0 keeps `increasing`.
  */
 export type LossBasedState =
   | "increasing"
+  | "increase_using_padding"
   | "decreasing"
   | "delay_based"
   | "hold";
@@ -99,6 +101,13 @@ export class LossBasedBwe {
   private holdUntilMs = Number.NEGATIVE_INFINITY;
   private holdDurationMs = kLossBasedInitHoldDurationMs;
   private holdRateBps = kMaxBitrateBps;
+  /**
+   * pin PaddingDuration. 0 (default) never enters increase_using_padding.
+   * Tests / future field-trial wiring may raise this.
+   */
+  private paddingDurationMs = kLossBasedPaddingDurationMs;
+  private lastPaddingMs = Number.NEGATIVE_INFINITY;
+  private lastPaddingRateBps = 0;
   private partial = {
     numPackets: 0,
     /** seq → lost size (soft loss map). */
@@ -140,6 +149,9 @@ export class LossBasedBwe {
     this.holdUntilMs = Number.NEGATIVE_INFINITY;
     this.holdDurationMs = kLossBasedInitHoldDurationMs;
     this.holdRateBps = kMaxBitrateBps;
+    this.paddingDurationMs = kLossBasedPaddingDurationMs;
+    this.lastPaddingMs = Number.NEGATIVE_INFINITY;
+    this.lastPaddingRateBps = 0;
     this.partial = {
       numPackets: 0,
       lostPackets: new Map(),
@@ -147,6 +159,14 @@ export class LossBasedBwe {
       size: 0,
     };
     this.recomputeTemporalWeights();
+  }
+
+  /**
+   * pin PaddingDuration. 0 keeps `increasing`; >0 enters
+   * `increase_using_padding` on loss-limited increase (maps to kLossLimitedBwe).
+   */
+  setPaddingDurationMs(ms: number) {
+    this.paddingDurationMs = Number.isFinite(ms) ? Math.max(0, ms) : 0;
   }
 
   /**
@@ -395,10 +415,12 @@ export class LossBasedBwe {
           ),
         );
         this.state = "decreasing";
+        this.lastPaddingMs = Number.NEGATIVE_INFINITY;
+        this.lastPaddingRateBps = 0;
         return;
       }
       if (next > prev) {
-        this.state = "increasing";
+        this.enterIncreasingState(next, lastSendMs);
         return;
       }
       this.state = "hold";
@@ -408,13 +430,15 @@ export class LossBasedBwe {
     this.holdUntilMs = Number.NEGATIVE_INFINITY;
     this.holdDurationMs = kLossBasedInitHoldDurationMs;
     this.holdRateBps = kMaxBitrateBps;
+    this.lastPaddingMs = Number.NEGATIVE_INFINITY;
+    this.lastPaddingRateBps = 0;
     if (
       this.delayBasedBps > 0 &&
       Math.abs(next - this.delayBasedBps) / this.delayBasedBps < 0.05
     ) {
       this.state = "delay_based";
     } else if (next > prev * 1.02) {
-      this.state = "increasing";
+      this.enterIncreasingState(next, lastSendMs);
     } else if (next < prev * 0.95) {
       this.state = "decreasing";
     } else {
@@ -422,10 +446,27 @@ export class LossBasedBwe {
     }
   }
 
+  /**
+   * pin: when PaddingDuration > 0 and estimate is increasing while
+   * loss-limited, state is kIncreaseUsingPadding; otherwise kIncreasing.
+   */
+  private enterIncreasingState(nextBps: number, lastSendMs: number) {
+    if (this.paddingDurationMs > 0) {
+      if (nextBps > this.lastPaddingRateBps) {
+        this.lastPaddingRateBps = nextBps;
+        this.lastPaddingMs = lastSendMs;
+      }
+      this.state = "increase_using_padding";
+      return;
+    }
+    this.state = "increasing";
+  }
+
   private isInLossLimitedState(): boolean {
     return (
       this.state === "decreasing" ||
       this.state === "increasing" ||
+      this.state === "increase_using_padding" ||
       this.state === "hold"
     );
   }

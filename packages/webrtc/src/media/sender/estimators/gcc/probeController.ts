@@ -1,9 +1,20 @@
 import {
+  type BandwidthLimitedCause,
+  isProbeInitiationAllowed,
+  maxProbeBitrateBps,
+} from "./bandwidthLimitedCause";
+import {
+  kAlrProbeScale,
+  kAlrProbingIntervalMs,
   kDefaultStartBitrateBps,
+  kEstimateLowerThanNetworkStateIntervalMs,
+  kEstimateLowerThanNetworkStateRatio,
   kFurtherProbeStepMultiplier,
   kFurtherProbeThreshold,
   kMaxBitrateBps,
   kMinBitrateBps,
+  kNetworkStateEstimateProbingIntervalMs,
+  kNetworkStateProbeScale,
   kProbeBitrateMultipliers,
   kProbeMaxIntervalMs,
   kProbeMaxValidRatio,
@@ -140,6 +151,25 @@ export class ProbeController {
   private seqToSendInfo = new Map<number, { sendMs: number; size: number }>();
   /** Same unwrap rules as GccBandwidthEstimator (extended seq after wrap). */
   private readonly seqUnwrapper = new TransportWideSeqUnwrapper();
+  /** pin `enable_periodic_alr_probing_`. */
+  private periodicAlrProbing = false;
+  /** pin `alr_start_time_`. */
+  private alrStartMs: number | undefined;
+  /** pin `alr_end_time_`. */
+  private alrEndMs: number | undefined;
+  /** pin `time_last_probing_initiated_`. */
+  private lastProbeInitiatedMs = Number.NEGATIVE_INFINITY;
+  /**
+   * pin `bandwidth_limited_cause_` — gates InitiateProbing from Process()
+   * ALR / network-state probes.
+   */
+  private lastCause: BandwidthLimitedCause = "delay_based_limited";
+  /** pin `network_estimate_.link_capacity_upper` (bps); 0 = unset. */
+  private networkStateUpperBps = 0;
+  /**
+   * pin `network_state_estimate_probing_interval` (ms). Default +∞.
+   */
+  private networkStateProbeIntervalMs = kNetworkStateEstimateProbingIntervalMs;
 
   reset(_atTimeMs = 0) {
     this.state = "init";
@@ -160,6 +190,13 @@ export class ProbeController {
     this.seqToCluster.clear();
     this.seqToSendInfo.clear();
     this.seqUnwrapper.reset();
+    this.periodicAlrProbing = false;
+    this.alrStartMs = undefined;
+    this.alrEndMs = undefined;
+    this.lastProbeInitiatedMs = Number.NEGATIVE_INFINITY;
+    this.lastCause = "delay_based_limited";
+    this.networkStateUpperBps = 0;
+    this.networkStateProbeIntervalMs = kNetworkStateEstimateProbingIntervalMs;
   }
 
   get probeState(): ProbeState {
@@ -292,11 +329,14 @@ export class ProbeController {
   setEstimatedBitrate(
     bitrateBps: number,
     nowMs: number,
-    opts?: { maxProbeBps?: number },
+    opts?: { maxProbeBps?: number; cause?: BandwidthLimitedCause },
   ): ProbeClusterConfig[] {
     // Track the latest BWE target (libwebrtc updates estimated_bitrate_ always).
     if (bitrateBps > 0) {
       this.estimatedBps = bitrateBps;
+    }
+    if (opts?.cause) {
+      this.lastCause = opts.cause;
     }
     // Further probing is **only** while the controller still awaits results.
     // complete / init never open further via this path (pin SetEstimatedBitrate).
@@ -306,10 +346,16 @@ export class ProbeController {
     // Further-probe uses last **planned** target threshold, not last success.
     // Infinity disables further probes after a max-bitrate last cluster or after
     // the session transitions to complete (UpdateState(kProbingComplete)).
+    // pin: further-probe also stops if bitrate exceeds NSE upper × 0.7.
+    const nseFurtherLimit =
+      this.networkStateUpperBps > 0
+        ? this.networkStateUpperBps * kFurtherProbeThreshold
+        : Number.POSITIVE_INFINITY;
     if (
       this.minBitrateToProbeFurther > 0 &&
       Number.isFinite(this.minBitrateToProbeFurther) &&
-      bitrateBps > this.minBitrateToProbeFurther
+      bitrateBps > this.minBitrateToProbeFurther &&
+      bitrateBps <= nseFurtherLimit
     ) {
       const maxProbe = this.effectiveMaxProbeBps(opts?.maxProbeBps);
       if (maxProbe <= 0) return [];
@@ -368,7 +414,113 @@ export class ProbeController {
     this.pruneSeqMapsBySendAge(nowMs);
     const activated = this.maybeActivateQueued(nowMs);
     this.maybeMarkComplete(nowMs);
-    return activated;
+    if (activated.length > 0) return activated;
+    // pin ProbeController::Process — ALR / network-state probes only after
+    // the session is complete (not while waiting_for_result).
+    if (this.state === "complete") {
+      return this.maybePeriodicProbe(nowMs);
+    }
+    return [];
+  }
+
+  /** pin `EnablePeriodicAlrProbing`. */
+  enablePeriodicAlrProbing(enable: boolean) {
+    this.periodicAlrProbing = enable;
+  }
+
+  /** pin `SetAlrStartTime` (`undefined` = not in ALR). */
+  setAlrStartTime(startMs: number | undefined) {
+    this.alrStartMs = startMs;
+  }
+
+  /** pin `SetAlrEndedTime`. */
+  setAlrEndedTime(endMs: number) {
+    if (Number.isFinite(endMs)) this.alrEndMs = endMs;
+  }
+
+  /**
+   * pin `SetNetworkStateEstimate` — `linkCapacityUpperBps <= 0` clears.
+   */
+  setNetworkStateEstimate(linkCapacityUpperBps: number) {
+    this.networkStateUpperBps =
+      Number.isFinite(linkCapacityUpperBps) && linkCapacityUpperBps > 0
+        ? linkCapacityUpperBps
+        : 0;
+  }
+
+  /**
+   * Override pin-default +∞ NSE probe interval (ms) so tests / callers can
+   * enable TimeForNetworkStateProbe.
+   */
+  setNetworkStateProbeIntervalMs(ms: number) {
+    this.networkStateProbeIntervalMs = Number.isFinite(ms)
+      ? Math.max(0, ms)
+      : kNetworkStateEstimateProbingIntervalMs;
+  }
+
+  /** Last BandwidthLimitedCause (tests / diagnostics). */
+  get lastBandwidthLimitedCause(): BandwidthLimitedCause {
+    return this.lastCause;
+  }
+
+  /** pin `TimeForAlrProbe`. */
+  private timeForAlrProbe(nowMs: number): boolean {
+    if (!this.periodicAlrProbing || this.alrStartMs === undefined) return false;
+    const origin = Math.max(this.alrStartMs, this.lastProbeInitiatedMs);
+    return nowMs >= origin + kAlrProbingIntervalMs;
+  }
+
+  /** pin `TimeForNetworkStateProbe`. */
+  private timeForNetworkStateProbe(nowMs: number): boolean {
+    if (this.networkStateUpperBps <= 0) return false;
+    const lowEstimate =
+      this.lastCause === "delay_based_limited" &&
+      this.estimatedBps <
+        kEstimateLowerThanNetworkStateRatio * this.networkStateUpperBps;
+    if (
+      lowEstimate &&
+      Number.isFinite(kEstimateLowerThanNetworkStateIntervalMs)
+    ) {
+      return (
+        nowMs >=
+        this.lastProbeInitiatedMs + kEstimateLowerThanNetworkStateIntervalMs
+      );
+    }
+    if (
+      this.estimatedBps < this.networkStateUpperBps &&
+      Number.isFinite(this.networkStateProbeIntervalMs)
+    ) {
+      return (
+        nowMs >= this.lastProbeInitiatedMs + this.networkStateProbeIntervalMs
+      );
+    }
+    return false;
+  }
+
+  /**
+   * pin Process() after kProbingComplete: ALR or NSE periodic probe at
+   * estimated × alr_scale, gated by BandwidthLimitedCause.
+   */
+  private maybePeriodicProbe(nowMs: number): ProbeClusterConfig[] {
+    if (!this.timeForAlrProbe(nowMs) && !this.timeForNetworkStateProbe(nowMs)) {
+      return [];
+    }
+    if (!isProbeInitiationAllowed(this.lastCause)) return [];
+    if (this.estimatedBps <= 0) return [];
+    let target = this.estimatedBps * kAlrProbeScale;
+    const causeMax = maxProbeBitrateBps(this.lastCause, this.estimatedBps);
+    if (causeMax > 0) target = Math.min(target, causeMax);
+    if (this.networkStateUpperBps > 0) {
+      target = Math.min(
+        target,
+        Math.max(
+          this.estimatedBps,
+          this.networkStateUpperBps * kNetworkStateProbeScale,
+        ),
+      );
+    }
+    if (target <= this.estimatedBps * 1.05) return [];
+    return this.enqueueClusters(nowMs, [target], { stopFurtherAfter: false });
   }
 
   /**
@@ -728,6 +880,7 @@ export class ProbeController {
       });
     }
     if (bitrates.length) {
+      this.lastProbeInitiatedMs = nowMs;
       if (opts?.stopFurtherAfter) {
         // No more exponential further probes after max-bitrate last cluster.
         this.minBitrateToProbeFurther = Number.POSITIVE_INFINITY;

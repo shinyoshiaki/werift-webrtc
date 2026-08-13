@@ -27,7 +27,9 @@ export {
   SenderBandwidthEstimator,
 } from "./sender/estimators/legacyCumulativeBwe";
 export {
+  AlrDetector,
   AcknowledgedBitrateEstimator,
+  IntervalBudget,
   AimdRateControl,
   BitrateEstimator,
   GCC_KNOWN_DIFFERENCES,
@@ -50,6 +52,8 @@ export {
   TwccReferenceTimeUnwrapper,
   TWCC_REFERENCE_TIME_MOD,
   TWCC_REFERENCE_TIME_UNIT_MS,
+  kAlrProbeScale,
+  kAlrProbingIntervalMs,
   kBeta,
   kDefaultStartBitrateBps,
   kGoogCcProcessIntervalMs,

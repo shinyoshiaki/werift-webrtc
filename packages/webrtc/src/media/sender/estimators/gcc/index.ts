@@ -7,6 +7,8 @@ export {
 export type { BandwidthLimitedCause } from "./bandwidthLimitedCause";
 export {
   GCC_KNOWN_DIFFERENCES,
+  kAlrProbeScale,
+  kAlrProbingIntervalMs,
   kBeta,
   kDefaultStartBitrateBps,
   kGoogCcProcessIntervalMs,
@@ -36,8 +38,10 @@ export {
 } from "./acknowledgedBitrateEstimator";
 export type { AckedPacketSample } from "./acknowledgedBitrateEstimator";
 export { AimdRateControl } from "./aimdRateControl";
+export { AlrDetector } from "./alrDetector";
 export { GccBandwidthEstimator } from "./gccBwe";
 export type { GccClock } from "./gccBwe";
+export { IntervalBudget } from "./intervalBudget";
 export { LinkCapacityEstimator } from "./linkCapacityEstimator";
 export {
   InterArrivalDelta,

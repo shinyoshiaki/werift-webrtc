@@ -13,6 +13,7 @@ import { hasTwccReceiveTiming } from "../twccReceiveTiming";
 import { TwccReferenceTimeUnwrapper } from "../twccReferenceTime";
 import { AcknowledgedBitrateEstimator } from "./acknowledgedBitrateEstimator";
 import { AimdRateControl } from "./aimdRateControl";
+import { AlrDetector } from "./alrDetector";
 import {
   getBandwidthLimitedCause,
   isProbeInitiationAllowed,
@@ -79,6 +80,11 @@ export class GccBandwidthEstimator
   private readonly aimd = new AimdRateControl();
   private readonly lossBwe = new LossBasedBwe();
   private readonly probe = new ProbeController();
+  /** pin `AlrDetector` — send vs estimate budget. */
+  private readonly alr = new AlrDetector();
+  private previouslyInAlr = false;
+  /** After dispose(), public I/O is a no-op so a leftover padding loop cannot revive state. */
+  private disposed = false;
   private readonly interArrival = new InterArrivalDelta();
   /** Unwraps 24-bit TWCC reference_time across feedbacks. */
   private readonly refTimeUnwrapper = new TwccReferenceTimeUnwrapper();
@@ -179,6 +185,7 @@ export class GccBandwidthEstimator
   }
 
   shouldTagProbePacket(): boolean {
+    if (this.disposed) return false;
     this.ensureProbing(this.clock());
     return this.probe.shouldTagProbePacket();
   }
@@ -188,6 +195,7 @@ export class GccBandwidthEstimator
    * probe cluster when media is sparse. 0 if not probing or cluster is full.
    */
   pendingProbePaddingPackets(packetBytes = kProbePaddingPacketBytes): number {
+    if (this.disposed) return 0;
     this.ensureProbing(this.clock());
     if (!this.probe.shouldTagProbePacket()) return 0;
     const remaining = this.probe.remainingProbeBytes(packetBytes);
@@ -202,14 +210,24 @@ export class GccBandwidthEstimator
    * after high RTT). Does **not** call {@link RttBasedBackoff.onSentPacket}.
    */
   process(nowMs: number): void {
-    if (!Number.isFinite(nowMs)) return;
+    if (this.disposed || !Number.isFinite(nowMs)) return;
     // Age-out send history even when media is idle (pin 60s window).
     // rtpPacketSent-only prune would leak after send stop.
     this.pruneSentInfos(nowMs);
     this.maybeApplyRttBasedBackoff(nowMs);
+    this.syncAlr(nowMs);
     for (const cfg of this.probe.process(nowMs)) {
       this.onProbeClusterActivated(cfg, nowMs);
     }
+  }
+
+  /**
+   * pin `OnNetworkStateEstimate` / `SetNetworkStateEstimate`.
+   * `linkCapacityUpperBps <= 0` clears the estimate.
+   */
+  setNetworkStateEstimate(linkCapacityUpperBps: number): void {
+    if (this.disposed) return;
+    this.probe.setNetworkStateEstimate(linkCapacityUpperBps);
   }
 
   /**
@@ -244,6 +262,10 @@ export class GccBandwidthEstimator
   }
 
   rtpPacketSent(info: SentInfo) {
+    if (this.disposed) return;
+    this.alr.onBytesSent(info.size, info.sendingAtMs);
+    this.ackedBitrate.setAlr(this.alr.inAlr);
+    this.aimd.setInApplicationLimitedRegion(this.alr.inAlr);
     this.pruneSentInfos(info.sendingAtMs);
     const seq = this.seqUnwrapper.unwrap(info.wideSeq);
     this.sentInfos.set(seq, info);
@@ -285,6 +307,7 @@ export class GccBandwidthEstimator
   }
 
   receiveTWCC(feedback: TransportWideCC) {
+    if (this.disposed) return;
     // pin feedback_time is sender-local Timestamp (same domain as send times).
     // No wall/receive-timeline heuristic — tests inject {@link GccClock} when
     // using synthetic send timelines.
@@ -576,6 +599,10 @@ export class GccBandwidthEstimator
     if (target > 0 && this.hasValidSample) {
       setAvailableBitrateIfChanged(this, target);
     }
+    if (target > 0) {
+      this.alr.setEstimatedBitrate(target);
+    }
+    this.syncAlr(nowMs);
 
     // libwebrtc MaybeTriggerOnNetworkChanged → SetEstimatedBitrate on every
     // target update (not only when a probe result is pending). Further clusters
@@ -588,6 +615,7 @@ export class GccBandwidthEstimator
         : 0;
       for (const cfg of this.probe.setEstimatedBitrate(target, nowMs, {
         maxProbeBps: maxProbe,
+        cause: bandwidthLimitedCause,
       })) {
         this.onProbeClusterActivated(cfg, nowMs);
       }
@@ -623,6 +651,7 @@ export class GccBandwidthEstimator
   }
 
   reset() {
+    this.disposed = false;
     this.trendline.reset();
     this.aimd.reset(this.startBitrateBps);
     this.lossBwe.reset(this.startBitrateBps);
@@ -650,6 +679,8 @@ export class GccBandwidthEstimator
     this.lastMaxFeedbackRttMs = 0;
     this.lastPropagationRttMs = 0;
     this.lastSeenPacketMs = Number.NEGATIVE_INFINITY;
+    this.alr.reset();
+    this.previouslyInAlr = false;
   }
 
   /**
@@ -708,6 +739,29 @@ export class GccBandwidthEstimator
     this.onOveruseDetected.allUnsubscribe();
     this.onProbeClusterConfig.allUnsubscribe();
     this.reset();
+    this.disposed = true;
+  }
+
+  /**
+   * pin OnProcessInterval / OnTransportPacketsFeedback ALR wiring:
+   * after the first TWCC, enable periodic ALR probing and publish ALR
+   * start/end to ProbeController + AIMD.
+   */
+  private syncAlr(nowMs: number) {
+    const inAlr = this.hasValidSample && this.alr.inAlr;
+    if (this.hasValidSample) {
+      this.probe.enablePeriodicAlrProbing(true);
+    }
+    this.probe.setAlrStartTime(
+      this.hasValidSample ? this.alr.startMs : undefined,
+    );
+    if (this.previouslyInAlr && !inAlr) {
+      this.probe.setAlrEndedTime(nowMs);
+      this.ackedBitrate.setAlrEndedTime(nowMs);
+    }
+    this.previouslyInAlr = inAlr;
+    this.aimd.setInApplicationLimitedRegion(inAlr);
+    this.ackedBitrate.setAlr(inAlr);
   }
 
   /**
