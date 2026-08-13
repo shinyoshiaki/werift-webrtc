@@ -117,6 +117,7 @@
 - [TlsTransport](classes/TlsTransport.md)
 - [TransceiverManager](classes/TransceiverManager.md)
 - [TransportWideCC](classes/TransportWideCC.md)
+- [TransportWideSeqUnwrapper](classes/TransportWideSeqUnwrapper.md)
 - [TrendlineEstimator](classes/TrendlineEstimator.md)
 - [TurnProtocol](classes/TurnProtocol.md)
 - [TwccReferenceTimeUnwrapper](classes/TwccReferenceTimeUnwrapper.md)
@@ -310,6 +311,7 @@
 - [timer](variables/timer.md)
 - [TWCC\_REFERENCE\_TIME\_MOD](variables/TWCC_REFERENCE_TIME_MOD.md)
 - [TWCC\_REFERENCE\_TIME\_UNIT\_MS](variables/TWCC_REFERENCE_TIME_UNIT_MS.md)
+- [TWCC\_SEQ\_MOD](variables/TWCC_SEQ_MOD.md)
 
 ## Functions
 
