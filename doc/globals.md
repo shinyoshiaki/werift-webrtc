@@ -201,6 +201,8 @@
 - [DtlsRole](type-aliases/DtlsRole.md)
 - [DtlsState](type-aliases/DtlsState.md)
 - [Extension](type-aliases/Extension.md)
+- [GccBandwidthEstimatorOptions](type-aliases/GccBandwidthEstimatorOptions.md)
+- [GccClock](type-aliases/GccClock.md)
 - [HashAlgorithms](type-aliases/HashAlgorithms.md)
 - [IceGathererState](type-aliases/IceGathererState.md)
 - [IceState](type-aliases/IceState.md)
