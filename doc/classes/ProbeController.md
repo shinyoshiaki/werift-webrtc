@@ -23,7 +23,9 @@ Pacing vs result-wait are **separated** (libwebrtc BitrateProber):
 - Controller timeout / cooldown / startMs use **sender clock**; estimator
   history prune uses **receive timeline** (`receivedAtMs`) plus sender age
 - Zero-packet pacing timeouts are discarded (nothing measurable for TWCC)
-- `setBitrates` / activate returns only **activated** configs (for pacing)
+- `setBitrates` / activate returns only **activated** configs (for pacing).
+  In `complete`, a higher max than the previous max (and than the estimate)
+  starts one probe at the new max (`probe_further=false`).
 - Further via [setEstimatedBitrate](ProbeController.md#setestimatedbitrate) only while `waiting_for_result`
   (pin SetEstimatedBitrate); session `complete` sets
   `minBitrateToProbeFurther = +∞` (UpdateState(kProbingComplete))
@@ -365,11 +367,18 @@ Target is 0.85 × bitrate_before_last_large_drop. Always probe_further=false.
 
 ### reset()
 
-> **reset**(`_atTimeMs`): `void`
+> **reset**(`atTimeMs`): `void`
+
+pin `ProbeController::Reset(at_time)`.
+
+Keeps configuration: `enable_periodic_alr_probing_`, `network_available_`,
+`alr_start_time_`, NSE probe interval. Sets drop / recovery cooldown
+clocks to `atTimeMs` so RequestProbe cannot fire until
+kMinTimeBetweenAlrProbesMs after reset.
 
 #### Parameters
 
-##### \_atTimeMs
+##### atTimeMs
 
 `number` = `0`
 

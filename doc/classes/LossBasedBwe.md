@@ -144,6 +144,29 @@ clearing observation history, HOLD timers, or inherent-loss estimates.
 
 ***
 
+### setMinMaxBitrate()
+
+> **setMinMaxBitrate**(`minBps`, `maxBps`): `void`
+
+pin `LossBasedBweV2::SetMinMaxBitrate`.
+`maxBps <= 0` / non-finite → [kMaxBitrateBps](../variables/kMaxBitrateBps.md) (1 Gbps).
+
+#### Parameters
+
+##### minBps
+
+`number`
+
+##### maxBps
+
+`number`
+
+#### Returns
+
+`void`
+
+***
+
 ### setPaddingDurationMs()
 
 > **setPaddingDurationMs**(`ms`): `void`
