@@ -143,9 +143,15 @@ export class GccBandwidthEstimator
   private delayBasedBps = kDefaultStartBitrateBps;
   private lossBasedBps = kDefaultStartBitrateBps;
   private startBitrateBps: number;
-  /** pin TargetRateConstraints min / max forwarded to ProbeController. */
+  /** pin TargetRateConstraints min. */
   private minConfiguredBps = kMinBitrateBps;
-  private maxConfiguredBps = kDefaultMaxProbingBitrateBps;
+  /**
+   * App-configured max from {@link setBitrates}. Unset → target uses
+   * {@link kMaxBitrateBps} (1 Gbps) and probing uses
+   * {@link kDefaultMaxProbingBitrateBps} (5 Mbps). After setBitrates both
+   * get the same app max (pin ResetConstraints).
+   */
+  private appMaxBps: number | undefined;
   private probingConfigured = false;
   /** Valid TWCC samples seen at least once (gates publishing estimates). */
   private hasValidSample = false;
@@ -299,18 +305,23 @@ export class GccBandwidthEstimator
       this.startBitrateBps = startBps;
       this.aimd.setStartBitrate(startBps);
     }
-    this.maxConfiguredBps =
-      Number.isFinite(maxBps) && maxBps !== Number.POSITIVE_INFINITY
-        ? maxBps
-        : kDefaultMaxProbingBitrateBps;
+    // pin ResetConstraints: the same max is applied to send-side BWE and
+    // ProbeController. start=0 must not overwrite estimated_bitrate_.
+    if (Number.isFinite(maxBps) && maxBps !== Number.POSITIVE_INFINITY) {
+      this.appMaxBps = maxBps;
+    }
     this.probingConfigured = true;
     for (const cfg of this.probe.setBitrates(
       this.minConfiguredBps,
-      startBps > 0 ? startBps : this.startBitrateBps,
-      this.maxConfiguredBps,
+      startBps,
+      this.probeMaxBps(),
       nowMs,
     )) {
       this.onProbeClusterActivated(cfg, nowMs);
+    }
+    this.applyTargetLimits();
+    if (this.hasValidSample || this._availableBitrate > 0) {
+      setAvailableBitrateIfChanged(this, this.currentTargetBps);
     }
   }
 
@@ -683,6 +694,8 @@ export class GccBandwidthEstimator
       this.maybeApplyRttBasedBackoff(nowMs);
     } else if (delayLossTarget > 0) {
       this.currentTargetBps = delayLossTarget;
+      // pin UpdateTargetBitrate / ApplyTargetLimits after adopting loss/delay.
+      this.applyTargetLimits();
     }
 
     const target = this.currentTargetBps;
@@ -713,7 +726,7 @@ export class GccBandwidthEstimator
       const maxProbe = maxProbeBitrateBps(
         bandwidthLimitedCause,
         est,
-        kMaxBitrateBps,
+        this.targetMaxBps(),
       );
       for (const cfg of this.probe.requestProbe(est, nowMs, {
         maxProbeBps: maxProbe,
@@ -755,7 +768,7 @@ export class GccBandwidthEstimator
     this.alr.reset();
     this.previouslyInAlr = false;
     this.minConfiguredBps = kMinBitrateBps;
-    this.maxConfiguredBps = kDefaultMaxProbingBitrateBps;
+    this.appMaxBps = undefined;
     // pin Reset keeps enable_periodic_alr_probing_; restore in case a
     // direct ProbeController.reset(0) was used without the flag.
     this.probe.enablePeriodicAlrProbing(this.periodicAlrProbing);
@@ -772,15 +785,25 @@ export class GccBandwidthEstimator
     return this.delayBasedBps;
   }
 
+  /** pin send-side max: app max or kDefaultMaxBitrate (1 Gbps). */
+  private targetMaxBps(): number {
+    return this.appMaxBps !== undefined && this.appMaxBps > 0
+      ? this.appMaxBps
+      : kMaxBitrateBps;
+  }
+
+  /** pin probe max: app max or kDefaultMaxProbingBitrate (5 Mbps). */
+  private probeMaxBps(): number {
+    return this.appMaxBps !== undefined && this.appMaxBps > 0
+      ? this.appMaxBps
+      : kDefaultMaxProbingBitrateBps;
+  }
+
   private applyTargetLimits(): void {
     if (this.currentTargetBps <= 0) {
       this.currentTargetBps = this.startBitrateBps;
     }
-    const upper = Math.min(
-      this.delayBasedUpperLimitBps(),
-      this.maxConfiguredBps,
-      kMaxBitrateBps,
-    );
+    const upper = Math.min(this.delayBasedUpperLimitBps(), this.targetMaxBps());
     this.currentTargetBps = Math.min(this.currentTargetBps, upper);
     this.currentTargetBps = Math.max(
       this.currentTargetBps,
@@ -879,7 +902,7 @@ export class GccBandwidthEstimator
       this.lossBwe.lossState,
     );
     const maxProbe = isProbeInitiationAllowed(cause)
-      ? maxProbeBitrateBps(cause, target, kMaxBitrateBps)
+      ? maxProbeBitrateBps(cause, target, this.targetMaxBps())
       : 0;
     for (const cfg of this.probe.setEstimatedBitrate(target, nowMs, {
       cause,
@@ -934,7 +957,7 @@ export class GccBandwidthEstimator
     for (const cfg of this.probe.setBitrates(
       this.minConfiguredBps,
       this.startBitrateBps,
-      this.maxConfiguredBps,
+      this.probeMaxBps(),
       nowMs,
     )) {
       this.onProbeClusterActivated(cfg, nowMs);

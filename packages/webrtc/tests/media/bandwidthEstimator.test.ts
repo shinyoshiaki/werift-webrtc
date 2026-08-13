@@ -609,7 +609,9 @@ describe("media/sender bandwidth estimator", () => {
       expect(afterDelay).toBeLessThanOrEqual(steady * 1.15);
       // 日本語: 高損失後は安定期より明確に下がる
       expect(afterLoss).toBeLessThan(steady);
-      expect(afterLoss).toBeLessThanOrEqual(afterDelay * 1.05);
+      // pin complete_time は last arrival なので overuse 窓のあと無遅延ロス窓で
+      // わずかに戻ることがある。安定期より低く、delay 期の +15% 以内なら形状一致。
+      expect(afterLoss).toBeLessThanOrEqual(afterDelay * 1.15);
       // 日本語: ゼロ張り付きや異常な上限跳躍がない
       expect(afterLoss).toBeGreaterThanOrEqual(10_000);
       expect(afterLoss).toBeLessThan(5_000_000);
@@ -2089,7 +2091,8 @@ describe("media/sender bandwidth estimator", () => {
       const recovery = probe.requestProbe(150_000, 5_001);
       expect(recovery.length).toBe(1);
       expect(recovery[0].targetBps).toBe(1_000_000 * kProbeFractionAfterDrop);
-      expect(probe.probeState).toBe("waiting_for_result");
+      // pin RequestProbe → InitiateProbing(probe_further=false) → complete
+      expect(probe.probeState).toBe("complete");
       expect(probe.currentProbeTargetBps).toBe(recovery[0].targetBps);
     });
 
@@ -2113,7 +2116,8 @@ describe("media/sender bandwidth estimator", () => {
       expect(last.length).toBe(1);
       expect(last[0].targetBps).toBe(maxBps);
       expect(probe.furtherProbeThresholdBps).toBe(Number.POSITIVE_INFINITY);
-      expect(probe.probeState).toBe("waiting_for_result");
+      // pin probe_further=false → kProbingComplete（pacing は残る）
+      expect(probe.probeState).toBe("complete");
 
       // Assert: 同じ高 estimate でも追加 further は増えない
       const again = probe.setEstimatedBitrate(950_000, 10_100);
@@ -3089,7 +3093,7 @@ describe("media/sender bandwidth estimator", () => {
       // Assert: latch + pin RequestProbe（0.85 × 1 Mbps）
       expect(probeCfgs.length).toBeGreaterThanOrEqual(1);
       expect(probeCfgs[0]).toBe(1_000_000 * kProbeFractionAfterDrop);
-      expect(gcc.probeState).toBe("waiting_for_result");
+      expect(gcc.probeState).toBe("complete");
     });
 
     test("feedback 開始/終了が normal でも途中 underuse→normal で recovery を latch", () => {
@@ -3157,7 +3161,7 @@ describe("media/sender bandwidth estimator", () => {
       // Assert: feedback 間比較では見逃す N→…→N でも latch + pin RequestProbe
       expect(probeCfgs.length).toBeGreaterThanOrEqual(1);
       expect(probeCfgs[0]).toBe(1_000_000 * kProbeFractionAfterDrop);
-      expect(gcc.probeState).toBe("waiting_for_result");
+      expect(gcc.probeState).toBe("complete");
     });
 
     test("ALR なしの underuse→normal では recovery probe しない", () => {
@@ -6204,7 +6208,9 @@ describe("media/sender bandwidth estimator", () => {
       });
       expect(probe.requestProbe(200_000, resetAt + 100)).toEqual([]);
 
-      // Act: cooldown 経過後（timeout + 1）
+      // Act / Assert: pin time_since_probe > 5s（timeout-1 / timeout は拒否）
+      expect(probe.requestProbe(200_000, resetAt + 4_999)).toEqual([]);
+      expect(probe.requestProbe(200_000, resetAt + 5_000)).toEqual([]);
       expect(probe.requestProbe(200_000, resetAt + 5_001).length).toBe(1);
     });
 
@@ -6225,6 +6231,141 @@ describe("media/sender bandwidth estimator", () => {
       expect(probeCfgs).toEqual([2_000_000]);
       expect(gcc.shouldTagProbePacket()).toBe(true);
       expect(gcc.suggestedProbeBitrateBps).toBe(2_000_000);
+    });
+
+    test("未設定 max では delay>5Mbps を process が 5Mbps に落とさない", () => {
+      // Arrange: pin 未設定 target max = 1 Gbps。probe 既定 5Mbps と混ぜない
+      const { gcc, setNow } = createClockGcc(300_000, 40_000);
+      (gcc as any).probe.abort(40_000);
+      (gcc as any).probingConfigured = true;
+      (gcc as any).hasValidSample = true;
+      (gcc as any).delayBasedBps = 8_000_000;
+      (gcc as any).lossBasedBps = 8_000_000;
+      (gcc as any).currentTargetBps = 8_000_000;
+      (gcc as any)._availableBitrate = 8_000_000;
+
+      // Act
+      setNow(40_050);
+      gcc.process(40_050);
+
+      // Assert: 8Mbps のまま（5Mbps probe cap を target に使わない）
+      expect(gcc.availableBitrate).toBe(8_000_000);
+    });
+
+    test("setBitrates(max=1M) 後の TWCC は delay/loss=3M を即 1M に clamp する", () => {
+      // Arrange: pin ResetConstraints の app max は UpdateTargetBitrate 上限
+      const { gcc, setNow } = createClockGcc(300_000, 50_000);
+      gcc.setBitrates(10_000, 300_000, 1_000_000);
+      (gcc as any).probe.abort(50_000);
+      (gcc as any).probingConfigured = true;
+      (gcc as any).lossBwe.update = () => {
+        (gcc as any).lossBwe.state = "delay_based";
+        return 3_000_000;
+      };
+      (gcc as any).aimd.update = () => 3_000_000;
+      Object.defineProperty((gcc as any).trendline, "state", {
+        get: () => "normal",
+        configurable: true,
+      });
+      for (let i = 1; i <= 8; i++) {
+        gcc.rtpPacketSent(sent(i, 500, 50_000 + i * 10));
+      }
+
+      // Act
+      setNow(50_200);
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 8 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: true,
+              receivedAtMs: 50_040 + i * 10,
+            });
+          }),
+        ),
+      );
+
+      // Assert: TWCC 直後に app max で clamp（次の process を待たない）
+      expect(gcc.availableBitrate).toBeLessThanOrEqual(1_000_000);
+      expect(gcc.availableBitrate).toBeGreaterThan(0);
+    });
+
+    test("complete 後の max 上昇 probe の直後にさらに max を上げると 2 本目が始まる", () => {
+      // Arrange: pin probe_further=false → complete のままなので次の SetBitrates が再び発火
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, 1_000_000, 0);
+      probe.abort(1_000);
+      probe.setEstimatedBitrate(200_000, 6_000, {
+        cause: "delay_based_limited",
+      });
+      const first = probe.setBitrates(10_000, 0, 2_000_000, 6_000);
+      expect(first.length).toBe(1);
+      expect(first[0].targetBps).toBe(2_000_000);
+      expect(probe.probeState).toBe("complete");
+      expect(probe.shouldTagProbePacket()).toBe(true);
+
+      // Act: start=0 は estimated を上書きしない。max 2M→3M は FIFO に積む
+      probe.setBitrates(10_000, 0, 3_000_000, 6_100);
+      expect(probe.probeState).toBe("complete");
+      expect(probe.queuedClusterCount).toBe(1);
+
+      // Act: 先頭 2M を send-fill すると 3M が pacing になる
+      for (let i = 0; i < 5; i++) {
+        probe.onProbePacketSent(2_000, 6_200 + i, i + 1);
+      }
+
+      // Assert
+      expect(probe.currentProbeTargetBps).toBe(3_000_000);
+      expect(probe.shouldTagProbePacket()).toBe(true);
+    });
+
+    test("group 単位の負の arrival delta では prev/current を進めない", () => {
+      // Arrange: pin complete_time は group 内 last arrival（max ではない）
+      const ia = new InterArrivalDelta(5);
+      ia.computeDeltas(0, 200, 100);
+      ia.computeDeltas(4, 210, 100);
+      ia.computeDeltas(10, 220, 100);
+      // 同じ g2 の後着 packet が complete_time を 100 に戻す
+      ia.computeDeltas(12, 100, 100);
+
+      // Act: g2 vs g1 の recvDelta=100-210<0。packet 破棄、group は進まない
+      expect(ia.computeDeltas(20, 240, 100)).toBeUndefined();
+      // g2 を正しい complete に戻してから次 group を閉じる
+      ia.computeDeltas(13, 230, 100);
+      const d = ia.computeDeltas(20, 250, 100);
+
+      // Assert: 進めていたら send 13 は firstSend=20 より古く無視され delta が出ない
+      expect(d?.sendDeltaMs).toBe(9);
+    });
+
+    test("RequestProbe の 5s 境界は pin の > / < に従う", () => {
+      // Arrange
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 200_000, 1e9, 0);
+      probe.abort(1_000);
+      probe.setAlrStartTime(0);
+      probe.setEstimatedBitrate(800_000, 1_000);
+      probe.setEstimatedBitrate(200_000, 1_100, {
+        cause: "delay_based_limited",
+      });
+      (probe as any).lastBweDropProbingMs = 10_000;
+      // drop は 12s 時点なので probe 境界 15s でもまだ <5s
+      (probe as any).timeOfLastLargeDropMs = 12_000;
+
+      // Act / Assert: time_since_probe > 5s
+      expect(probe.requestProbe(200_000, 14_999)).toEqual([]);
+      expect(probe.requestProbe(200_000, 15_000)).toEqual([]);
+      expect(probe.requestProbe(200_000, 15_001).length).toBe(1);
+
+      // Act / Assert: time_since_drop < 5s（ちょうど 5s は拒否）
+      (probe as any).state = "complete";
+      (probe as any).queue = [];
+      (probe as any).pacing = undefined;
+      (probe as any).lastBweDropProbingMs = 0;
+      (probe as any).timeOfLastLargeDropMs = 20_000;
+      expect(probe.requestProbe(200_000, 25_000)).toEqual([]);
+      (probe as any).timeOfLastLargeDropMs = 20_001;
+      expect(probe.requestProbe(200_000, 25_000).length).toBe(1);
     });
   });
 });

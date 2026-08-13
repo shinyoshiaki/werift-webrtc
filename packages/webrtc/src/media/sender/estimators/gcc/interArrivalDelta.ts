@@ -115,45 +115,29 @@ export class InterArrivalDelta {
         const systemDeltaMs =
           this.current.lastSystemMs - this.prev.lastSystemMs;
 
-        // pin: arrival_time_delta - system_time_delta >= 3000ms → Reset.
+        // pin: arrival_time_delta - system_time_delta >= 3000ms → Reset
+        // and return false **without** installing this packet as current.
         if (recvDeltaMs - systemDeltaMs >= kArrivalTimeOffsetThresholdMs) {
           this.reset();
-          this.current = {
-            firstSendMs: sendMs,
-            sendMs,
-            firstRecvMs: recvMs,
-            recvMs,
-            lastSystemMs: system,
-            size: packetSize,
-            complete: false,
-          };
           return undefined;
         }
 
         if (recvDeltaMs < 0) {
+          // pin: increment, maybe Reset, then return false — do not
+          // advance prev/current and do not accept this packet.
           this.numConsecutiveReorderedPackets++;
           if (this.numConsecutiveReorderedPackets >= kReorderedResetThreshold) {
             this.reset();
-            this.current = {
-              firstSendMs: sendMs,
-              sendMs,
-              firstRecvMs: recvMs,
-              recvMs,
-              lastSystemMs: system,
-              size: packetSize,
-              complete: false,
-            };
-            return undefined;
           }
-        } else {
-          this.numConsecutiveReorderedPackets = 0;
-          if (sendDeltaMs > 0) {
-            out = {
-              sendDeltaMs,
-              recvDeltaMs,
-              sizeDelta: this.current.size - this.prev.size,
-            };
-          }
+          return undefined;
+        }
+        this.numConsecutiveReorderedPackets = 0;
+        if (sendDeltaMs > 0) {
+          out = {
+            sendDeltaMs,
+            recvDeltaMs,
+            sizeDelta: this.current.size - this.prev.size,
+          };
         }
       }
       this.prev = { ...this.current, complete: true };
@@ -169,9 +153,10 @@ export class InterArrivalDelta {
       return out;
     }
 
-    // Same group: extend with max send/recv; never rewind sendMs on reorder.
+    // Same group: send time is monotonic max (pin). complete_time /
+    // last_system_time are the **last** packet (pin overwrites, not max).
     this.current.sendMs = Math.max(this.current.sendMs, sendMs);
-    this.current.recvMs = Math.max(this.current.recvMs, recvMs);
+    this.current.recvMs = recvMs;
     this.current.lastSystemMs = system;
     this.current.size += packetSize;
     return undefined;

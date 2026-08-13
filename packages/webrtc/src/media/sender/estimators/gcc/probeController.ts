@@ -25,7 +25,6 @@ import {
   kProbeMaxIntervalMs,
   kProbeMaxValidRatio,
   kProbeMinDurationMs,
-  kProbeMinIntervalMs,
   kProbeMinPackets,
   kProbeMinRatioForUnsaturated,
   kProbeMinReceivedBytesPercent,
@@ -355,8 +354,9 @@ export class ProbeController {
     const suggested = this.bitrateBeforeLastLargeDrop * kProbeFractionAfterDrop;
     const minExpected = suggested * (1 - kProbeUncertainty);
     if (!(suggested > 0) || minExpected <= this.estimatedBps) return [];
-    if (nowMs - this.timeOfLastLargeDropMs > kBitrateDropTimeoutMs) return [];
-    if (nowMs - this.lastBweDropProbingMs < kMinTimeBetweenAlrProbesMs) {
+    // pin: time_since_drop < 5s  AND  time_since_probe > 5s
+    if (nowMs - this.timeOfLastLargeDropMs >= kBitrateDropTimeoutMs) return [];
+    if (nowMs - this.lastBweDropProbingMs <= kMinTimeBetweenAlrProbesMs) {
       return [];
     }
     const maxProbe = this.effectiveMaxProbeBps(opts?.maxProbeBps);
@@ -923,11 +923,6 @@ export class ProbeController {
     }
   }
 
-  private cooldownElapsed(nowMs: number): boolean {
-    if (!Number.isFinite(this.lastProbeEndMs)) return true;
-    return nowMs - this.lastProbeEndMs >= kProbeMinIntervalMs;
-  }
-
   private initiateExponentialProbing(nowMs: number): ProbeClusterConfig[] {
     const uncapped = kProbeBitrateMultipliers.map(
       (s) => this.startBitrateBps * s,
@@ -968,8 +963,10 @@ export class ProbeController {
     if (bitrates.length) {
       this.lastProbeInitiatedMs = nowMs;
       if (opts?.stopFurtherAfter) {
-        // No more exponential further probes after max-bitrate last cluster.
+        // pin InitiateProbing(probe_further=false) → kProbingComplete.
+        // BitrateProber FIFO / pacing continues independently.
         this.minBitrateToProbeFurther = Number.POSITIVE_INFINITY;
+        this.state = "complete";
       } else {
         // libwebrtc: min_bitrate_to_probe_further = last planned target × 0.7
         // (for initial session: 6x × 0.7, not 3x after first success).
@@ -977,8 +974,8 @@ export class ProbeController {
         this.minBitrateToProbeFurther = Math.round(
           lastPlanned * kFurtherProbeThreshold,
         );
+        this.state = "waiting_for_result";
       }
-      this.state = "waiting_for_result";
     }
     return this.maybeActivateQueued(nowMs);
   }
