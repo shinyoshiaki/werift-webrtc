@@ -286,7 +286,7 @@ export class GccBandwidthEstimator
    *
    * While probing is `complete`, a **higher** max than the previous max
    * (and than the current estimate) starts a single probe at the new max
-   * (`probe_further=false`).
+   * (`probe_further=false`, pin `SetBitrates` / `kProbingComplete`).
    */
   setBitrates(minBps: number, startBps: number, maxBps: number): void {
     if (this.disposed) return;
