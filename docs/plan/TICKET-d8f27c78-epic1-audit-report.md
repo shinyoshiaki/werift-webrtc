@@ -3,7 +3,7 @@
 - Ticket: `d8f27c78-9492-4da8-a225-6e21e974b1b9`
 - Parent Epic: `5fc64332-b0d1-4ab0-bc1e-4b0f3a26c135`
 - Branch: `ticket/d8f27c78-9492-4da8-a225-6e21e974b1b9`
-- Head (this report): `2b4118ee` (dual `isAssociationPeer` + 1.3 RTO `flightId`)
+- Head (this report): `f0f7950f` (dual `isAssociationPeer` + 1.3 RTO `flightId` + §11 report)
 - Scope: `packages/dtls` association / DTLS 1.2 / 1.3 / dual / WebRTC ICE default 1.2
 
 ## 修正結果
