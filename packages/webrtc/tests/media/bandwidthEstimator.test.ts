@@ -4619,6 +4619,34 @@ describe("media/sender bandwidth estimator", () => {
       expect(denied).toEqual([]);
     });
 
+    test("ALR 終了後 3s 以内なら RequestProbe が 0.85×pre-drop を出す", () => {
+      // Arrange: pin kAlrEndedTimeout=3s。ALR 終了直後も recovery 可
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 200_000, 1e9, 0);
+      probe.abort(1_000);
+      (probe as any).state = "complete";
+      probe.setAlrStartTime(undefined);
+      probe.setAlrEndedTime(9_000);
+      probe.setEstimatedBitrate(800_000, 8_000);
+      probe.setEstimatedBitrate(200_000, 8_500, {
+        cause: "delay_based_limited",
+      });
+
+      // Act: ALR 終了から 2s
+      const recovery = probe.requestProbe(200_000, 11_000);
+
+      // Assert
+      expect(recovery.length).toBe(1);
+      expect(recovery[0].targetBps).toBe(800_000 * kProbeFractionAfterDrop);
+      expect(probe.furtherProbeThresholdBps).toBe(Number.POSITIVE_INFINITY);
+
+      // Act: 3s 超は出さない（drop probe 間隔は別要因なので解除）
+      (probe as any).state = "complete";
+      (probe as any).queue = [];
+      (probe as any).lastBweDropProbingMs = Number.NEGATIVE_INFINITY;
+      expect(probe.requestProbe(200_000, 12_001)).toEqual([]);
+    });
+
     test("初期 probe は pin 同様 upward cap なしで start×1.5 を超えられる", () => {
       // Arrange: cold start — pin は rising probe を Aimd SetEstimate にそのまま渡す
       const start = 100_000;
