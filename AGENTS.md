@@ -44,20 +44,21 @@ If a rule applies only to a specific package or subdirectory, put it in the near
 
 ## Commands
 
-| Task                         | Command               |
-| ---------------------------- | --------------------- |
-| build all packages           | `npm run build`       |
-| broad workspace validation   | `npm run ci`          |
-| run package / unit tests     | `npm run test:small`  |
-| run full suite including E2E | `npm run test`        |
-| run E2E only                 | `npm run e2e`         |
-| run verbose E2E              | `npm run e2e:verbose` |
-| type-check workspace         | `npm run type`        |
-| run allowlisted upstream WPT | `npm run wpt`         |
-| measure WPT coverage         | `npm run wpt:coverage` |
-| format code                  | `npm run format`      |
-| regenerate docs              | `npm run doc`         |
-| verify docs match sources    | `npm run doc:check`   |
+| Task                         | Command                        |
+| ---------------------------- | ------------------------------ |
+| build all packages           | `npm run build`                |
+| broad workspace validation   | `npm run ci`                   |
+| run package / unit tests     | `npm run test:small`           |
+| run full suite including E2E | `npm run test`                 |
+| install Playwright browsers  | `npm run install:browsers`     |
+| run E2E only                 | `npm run e2e`                  |
+| run verbose E2E              | `npm run e2e:verbose`          |
+| type-check workspace         | `npm run type`                 |
+| run allowlisted upstream WPT | `npm run wpt`                  |
+| measure WPT coverage         | `npm run wpt:coverage`         |
+| format code                  | `npm run format`               |
+| regenerate docs              | `npm run doc`                  |
+| verify docs match sources    | `npm run doc:check`            |
 | memory leak test (webrtc, local only) | `cd packages/webrtc && npm run memleak` |
 
 For targeted work, prefer the narrowest package command first, for example:
@@ -72,7 +73,7 @@ For targeted work, prefer the narrowest package command first, for example:
 * Single-package logic changes: run that package's relevant test and/or type-check command.
 * Cross-package, public API, or protocol changes: run `npm run type` and `npm run test:small`; use `npm run ci` when the change spans the full stack.
 * WPT runner, dummy media, or compatibility allowlist changes: run `npm run wpt --workspace packages/webrtc`; run `npm run wpt:coverage --workspace packages/webrtc` when coverage or baseline wiring changes.
-* Browser interop, examples, or signaling flow changes: run the relevant example and/or `npm run e2e` when feasible.
+* Browser interop, examples, or signaling flow changes: run `npm run install:browsers` once from the repo root, then the relevant example and/or `npm run e2e` when feasible. The root install covers `e2e`, `packages/ice-server/chrome-e2e`, and `examples/turn-loopback/chrome-e2e`.
 * Test code changes: confirm shared Arrange utilities remain reusable and appropriately scoped, and review that Act / Assert comments are present at a useful Japanese granularity.
 * Infrastructure-backed E2E changes: run the targeted scenario with its required opt-in environment flag before finishing, so the real dependency path is exercised.
 
