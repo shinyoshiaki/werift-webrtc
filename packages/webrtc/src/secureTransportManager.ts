@@ -90,19 +90,60 @@ export class SecureTransportManager {
     );
   }
 
-  createTransport() {
-    const existing = this.iceTransports.find(
-      (transport) => transport.state !== "closed",
-    );
+  /**
+   * Resolve STUN/TURN options from the current PeerConfig.
+   * Always returns every server-related field (including undefined) so
+   * Connection.setIceServers can fully replace residual TURN credentials.
+   */
+  private resolveIceServerOptions() {
     const iceServerOptions = parseIceServers(this.config.iceServers);
     const turnTransport = resolveTurnTransport({
       parsedTurnTransport: iceServerOptions.turnTransport,
       configuredTurnTransport: this.config.turnTransport,
       forceTurnTCP: this.config.forceTurnTCP,
     });
+    return {
+      stunServer: iceServerOptions.stunServer,
+      turnServer: iceServerOptions.turnServer,
+      turnUsername: iceServerOptions.turnUsername,
+      turnPassword: iceServerOptions.turnPassword,
+      turnTransport,
+    };
+  }
+
+  /**
+   * Re-apply ICE servers from the current config to ICE transports that have
+   * not started gathering yet (`gatheringState === "new"`).
+   *
+   * JSEP (RFC 8829 §4.1.18) / ticket scope: server changes affect the next
+   * gathering phase. Once gathering has started or finished, leave the live
+   * Connection alone so existing candidates and TURN protocols are not
+   * disturbed. Used when TURN is learned after the gatherer was built
+   * (e.g. from a WHIP Link header) but before setLocalDescription gathers.
+   */
+  updateIceServers() {
+    const options = {
+      ...this.resolveIceServerOptions(),
+      forceTurn: this.config.iceTransportPolicy === "relay",
+      useTcp: this.config.iceUseTcp,
+    };
+    for (const iceTransport of this.iceTransports) {
+      // Only update gatherers that have never gathered in this generation.
+      // Applying after gathering would leave stale TURN protocols in
+      // Connection.protocols that get re-advertised on a later restart.
+      if (iceTransport.gatheringState === "new") {
+        iceTransport.setIceServers(options);
+      }
+    }
+  }
+
+  createTransport() {
+    const existing = this.iceTransports.find(
+      (transport) => transport.state !== "closed",
+    );
 
     const iceGatherer = new RTCIceGatherer({
-      ...iceServerOptions,
+      ...this.resolveIceServerOptions(),
       iceLite: this.config.iceLite,
       forceTurn: this.config.iceTransportPolicy === "relay",
       portRange: this.config.icePortRange,
@@ -114,7 +155,6 @@ export class SecureTransportManager {
       useIpv4: this.config.iceUseIpv4,
       useIpv6: this.config.iceUseIpv6,
       useTcp: this.config.iceUseTcp,
-      turnTransport,
       tcpPassive: this.config.iceTcpPassive,
       stunGatherTimeout: this.config.iceStunGatherTimeout,
       turnTlsOptions: this.config.turnTlsOptions,
@@ -359,6 +399,9 @@ export class SecureTransportManager {
     for (const transport of this.iceTransports) {
       transport.restart();
     }
+    // restart() resets each gatherer to "new"; refresh the aggregate cache
+    // even if a gatherer failed to emit onGatheringStateChange.
+    this.updateIceGatheringState();
   }
 
   setLocalRole({
