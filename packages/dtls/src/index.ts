@@ -5,6 +5,7 @@ export { DtlsClient } from "./client";
 export { DtlsServer } from "./server";
 export { DtlsSocket, DtlsVersion } from "./socket";
 export type { Options } from "./socket";
+export type { PeerIdentityMode } from "./engine/v1_3/types";
 // DtlsInternalOptions / createDtls*Internal are intentionally NOT exported
 // (not stable Public API). Import from "./internal" only in tests / Epic 2.
 export { ProtocolVersionError } from "./version";

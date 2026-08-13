@@ -239,11 +239,7 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
   matchesAssociationPeer(
     addr?: [string, number] | { address?: string; port?: number } | string,
   ): boolean {
-    const expected = this.expectedPeerKey();
-    if (!expected) return true;
-    const key = peerKeyFromAddr(addr);
-    if (!key || key === "unknown") return false;
-    return key === expected;
+    return this.allowsAssociationPeer(peerKeyFromAddr(addr));
   }
 
   /** Test helper: pending retransmittable flight length. */

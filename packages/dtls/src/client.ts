@@ -111,8 +111,9 @@ export class DtlsClient extends DtlsSocket {
 
   /**
    * Peer pin snapshot for dual probing (from parked 1.3 engine at HVR).
-   * Version commit (1.3 SH/HRR or 1.2 SH) requires matching source address.
-   * Also owns the 1.2 TX destination so spoofed packets cannot hijack rinfo.
+   * datagram-address: version commit / RX require matching 5-tuple.
+   * authenticated-single-peer: transport identity is the peer — 5-tuple is
+   * TX convenience only (ICE may omit or change rinfo).
    */
   private dualAssociationPeerKey?: string;
   private dualAssociationPeerAddr?: [string, number];
@@ -159,6 +160,7 @@ export class DtlsClient extends DtlsSocket {
         srtpProfiles: this.options.srtpProfiles,
         certificateRequest: this.options.certificateRequest,
         addressValidation: this.options.addressValidation,
+        peerIdentityMode: this.peerIdentityMode,
         groups: this.options.namedGroups
           ? [...this.options.namedGroups]
           : undefined,
@@ -630,8 +632,15 @@ export class DtlsClient extends DtlsSocket {
   }
 
   /**
-   * True when inbound source matches dual association peer pin (or no pin yet).
-   * Drops spoofed SH/HRR/alerts before version commit stops the other candidate.
+   * True when inbound source may deliver for this association.
+   * Same policy as 1.3 {@link Dtls13Connection.allowsAssociationPeer}:
+   * - no pin yet: allow
+   * - authenticated-single-peer: always allow (transport is identity;
+   *   addressless and alternate 5-tuples are not an auth boundary)
+   * - datagram-address: require matching peer key
+   *
+   * After dual → 1.2 the 1.3 candidate is gone; this fallback must still
+   * honor peerIdentityMode (do not require 5-tuple match on ICE).
    */
   private isAssociationPeer(addr?: Address): boolean {
     const peer = addr ? ([addr[0], addr[1]] as [string, number]) : undefined;
@@ -639,6 +648,7 @@ export class DtlsClient extends DtlsSocket {
     if (candidate) {
       return candidate.matchesAssociationPeer(peer);
     }
+    if (this.peerIdentityMode === "authenticated-single-peer") return true;
     const expected = this.dualAssociationPeerKey;
     if (!expected) return true;
     const key = peerKeyFromAddr(peer);
@@ -658,8 +668,9 @@ export class DtlsClient extends DtlsSocket {
     log("dual association: commit DTLS 1.2");
     this.dualPhase = "committed12";
     this.dualResume = undefined;
-    // Soft-dispose parked 1.3 (stops RTO, detaches inject to no-op).
-    // Do not hard-close the shared carrier — Epic 2 / tests reuse it.
+    // Soft-dispose parked 1.3 (stops RTO via closed + flightId-scoped
+    // scheduleRetransmit; equivalent to 1.2 cancelFlightTimers /
+    // flightTxGeneration bump). Do not hard-close the shared carrier.
     if (this.parkedEngine13) {
       // Remember carrier before soft dispose so inject can be rebound.
       this.associationCarrier = this.parkedEngine13.getHandshakeCarrier();
@@ -1082,6 +1093,7 @@ export class DtlsClient extends DtlsSocket {
         srtpProfiles: this.options.srtpProfiles,
         certificateRequest: this.options.certificateRequest,
         addressValidation: this.options.addressValidation,
+        peerIdentityMode: this.peerIdentityMode,
         groups: this.options.namedGroups
           ? [...this.options.namedGroups]
           : undefined,
@@ -1238,6 +1250,11 @@ export class DtlsClient extends DtlsSocket {
               if (!this.isLegacy12PathActive(gen)) return;
               this.commitDualTo12();
               if (!this.isLegacy12PathActive(gen)) return;
+              // Same as pure 1.2: do not replace Flight5 on duplicate SH.
+              if (this.flight5 || this.dtls.flight >= 5 || this.connected) {
+                this.flight5?.handleHandshake(handshake);
+                break;
+              }
               this.flight5 = new Flight5(
                 this.transport,
                 this.dtls,
@@ -1274,6 +1291,12 @@ export class DtlsClient extends DtlsSocket {
             }
 
             if (!this.isLegacy12PathActive(gen)) return;
+            // Duplicate ServerHello (Flight4 retransmit) must not replace an
+            // existing Flight5 mid-handshake or re-apply crypto (ECDHE).
+            if (this.flight5 || this.dtls.flight >= 5 || this.connected) {
+              this.flight5?.handleHandshake(handshake);
+              break;
+            }
             this.flight5 = new Flight5(
               this.transport,
               this.dtls,

@@ -91,14 +91,17 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
   ): Promise<void> {
     if (this.closed) return;
 
-    // Epic 1: once a remote 5-tuple is associated (provisional or pinned),
-    // only that source may deliver datagrams. Prevents UdpTransport.rinfo
-    // hijack redirecting TX / sharing anti-amp budget across attackers.
-    // Provisional is set only after a valid DTLS hello is accepted — not on
-    // raw garbage (that would create a pre-handshake peer-lock DoS).
-    const expected = this.expectedPeerKey();
-    if (expected && peerKey && peerKey !== "unknown" && peerKey !== expected) {
-      log("drop datagram from non-association peer", peerKey, expected);
+    // Epic 1 peer gate:
+    // - datagram-address: once provisional/pin, only that 5-tuple may deliver
+    // - authenticated-single-peer: transport identity is the peer; do not drop
+    //   addressless or alternate 5-tuple RX (ICE never exposes stable rinfo)
+    if (!this.allowsAssociationPeer(peerKey)) {
+      log(
+        "drop datagram from non-association peer",
+        peerKey,
+        this.expectedPeerKey(),
+        this.peerIdentityMode,
+      );
       return;
     }
 
@@ -108,6 +111,7 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
     this.currentDatagramBytes = data.length;
     this.currentDatagramCounted = false;
     // Already-associated peer: count RX for anti-amp immediately
+    const expected = this.expectedPeerKey();
     if (expected && peerKey === expected) {
       this.bytesReceived += data.length;
       this.currentDatagramCounted = true;
@@ -370,17 +374,20 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
     if (rec.contentType === ContentType.alert) {
       // Pre-keys: only accept from an already-associated peer (client pin at
       // connect, or post-cookie provisional/pin). Server pre-cookie has no
-      // expected peer → drop (listener DoS). Client still sees 1.2-only
-      // protocol_version from its pinned server.
+      // expected peer → drop (listener DoS). authenticated-single-peer trusts
+      // transport identity (addressless / non-matching 5-tuple OK).
       const expected = this.expectedPeerKey();
-      if (
-        !expected ||
-        !this.currentPeerKey ||
-        this.currentPeerKey === "unknown" ||
-        this.currentPeerKey !== expected
-      ) {
+      if (!expected) {
         log(
           "drop epoch-0 alert from unassociated peer (no association fatal)",
+          this.currentPeerKey,
+          expected,
+        );
+        return false;
+      }
+      if (!this.allowsAssociationPeer(this.currentPeerKey)) {
+        log(
+          "drop epoch-0 alert from non-association peer",
           this.currentPeerKey,
           expected,
         );
@@ -392,11 +399,7 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
     if (rec.contentType === ContentType.ack) {
       // Pre-keys empty/forged ACK from random sources: only associated peer.
       const expected = this.expectedPeerKey();
-      if (
-        !expected ||
-        !this.currentPeerKey ||
-        this.currentPeerKey !== expected
-      ) {
+      if (!expected || !this.allowsAssociationPeer(this.currentPeerKey)) {
         log("drop epoch-0 ACK from unassociated peer");
         return false;
       }

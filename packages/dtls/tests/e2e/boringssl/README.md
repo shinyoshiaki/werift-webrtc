@@ -81,3 +81,4 @@ Failures must surface alerts / flight logs (no catch-and-ignore).
 
 - OpenSSL is used only for DTLS 1.2 regression, not DTLS 1.3 interop.
 - SPED / ICE are out of scope for this harness (Epic 2+).
+Wed Aug 12 10:22:39 UTC 2026

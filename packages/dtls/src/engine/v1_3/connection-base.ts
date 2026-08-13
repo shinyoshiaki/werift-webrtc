@@ -40,8 +40,10 @@ import {
   MAX_PRE_COOKIE_ATTEMPTS,
   MAX_RETAINED_APP_EPOCHS,
   PRE_COOKIE_ATTEMPT_TTL_MS,
+  type PeerIdentityMode,
   type Role,
   log,
+  resolvePeerIdentityMode,
 } from "./types";
 
 /**
@@ -319,6 +321,11 @@ export abstract class Dtls13ConnectionBase {
   /** Extension types offered in the (last accepted) ClientHello — for EE allowlist. */
   protected clientOfferedExtensionTypes = new Set<number>();
   protected readonly addressValidation: AddressValidationMode;
+  /**
+   * Association peer-identity policy (datagram-address vs authenticated-single-peer).
+   * Resolved once at construction from options / transport hints.
+   */
+  protected readonly peerIdentityMode: PeerIdentityMode;
   protected certificateRequestContext = Buffer.alloc(0);
   protected expectClientCertificate = false;
   protected clientCertificateReceived = false;
@@ -393,6 +400,11 @@ export abstract class Dtls13ConnectionBase {
     this.addressValidated =
       this.addressValidation === "none" ||
       this.addressValidation === "ice-authenticated";
+    this.peerIdentityMode = resolvePeerIdentityMode({
+      peerIdentityMode: options.peerIdentityMode,
+      addressValidation: this.addressValidation,
+      transport: options.transport as { peerAuthenticated?: boolean },
+    });
     this.hsPhase =
       this.role === "client" ? "wait_server_hello" : "wait_client_hello";
     this.installEpoch(0, createEpochProtection(0));
@@ -740,6 +752,23 @@ export abstract class Dtls13ConnectionBase {
   }
 
   /** Pin association to a single remote 5-tuple (no migration in Epic 1). */
+  /**
+   * Whether inbound source may deliver for this association.
+   *
+   * - No expected peer yet: allow (pre-pin / listening)
+   * - authenticated-single-peer: always allow (transport is identity; 5-tuple
+   *   is not an auth boundary — addressless and wrong-addr spoof of the
+   *   transport path still share the single authenticated peer)
+   * - datagram-address: require matching peer key; addressless after pin drops
+   */
+  protected allowsAssociationPeer(peerKey?: string): boolean {
+    const expected = this.expectedPeerKey();
+    if (!expected) return true;
+    if (this.peerIdentityMode === "authenticated-single-peer") return true;
+    if (!peerKey || peerKey === "unknown") return false;
+    return peerKey === expected;
+  }
+
   protected pinPeer(key: string, addr?: [string, number]): void {
     if (!key || key === "unknown") return;
     this.pinnedPeerKey = key;

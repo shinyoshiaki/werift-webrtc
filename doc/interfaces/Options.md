@@ -59,6 +59,20 @@ Default: X25519 then P-256. Use `[NamedCurveAlgorithm.secp256r1_23]` for P-256 o
 
 ***
 
+### peerIdentityMode?
+
+> `optional` **peerIdentityMode**: [`PeerIdentityMode`](../type-aliases/PeerIdentityMode.md)
+
+Peer-identity policy for association TX/RX lifecycle.
+Default (when omitted): inferred as `"authenticated-single-peer"` when
+`transport.peerAuthenticated` or `addressValidation: "ice-authenticated"`,
+otherwise `"datagram-address"`.
+
+Prefer setting this explicitly for custom carriers / ICE so call sites do
+not depend on inference.
+
+***
+
 ### protocolVersions?
 
 > `optional` **protocolVersions**: readonly [`DtlsVersion`](../enumerations/DtlsVersion.md)[]

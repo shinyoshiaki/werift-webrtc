@@ -39,7 +39,7 @@ Instructions for coding agents working in `examples/turn-loopback`.
 ## Validation
 
 * Example changes: run `npm run type` and `npm run build`.
-* Browser-hosting or client flow changes: also run `npm run chrome-e2e`.
+* Browser-hosting or client flow changes: also run `npm run chrome-e2e`. Install Playwright browsers once from the repository root instead of from `chrome-e2e`.
 * If the server or TURN wiring changes, also run `cd ../../packages/ice-server && npm test`.
 
 ## Maintenance

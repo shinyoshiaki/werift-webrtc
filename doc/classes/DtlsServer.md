@@ -252,6 +252,26 @@ True when this socket is operating on the DTLS 1.3 engine.
 
 ***
 
+### peerIdentityMode
+
+#### Get Signature
+
+> **get** **peerIdentityMode**(): [`PeerIdentityMode`](../type-aliases/PeerIdentityMode.md)
+
+Resolved peer-identity policy for this association.
+Prefer explicit [Options.peerIdentityMode](../interfaces/Options.md#peeridentitymode); otherwise infer from
+transport.peerAuthenticated / addressValidation for backward compatibility.
+
+##### Returns
+
+[`PeerIdentityMode`](../type-aliases/PeerIdentityMode.md)
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`peerIdentityMode`](DtlsSocket.md#peeridentitymode)
+
+***
+
 ### remoteCertificate
 
 #### Get Signature
@@ -641,11 +661,13 @@ readonly \[`string`, `number`\]
 
 Peer-auth boundary for DTLS 1.2 association lifecycle (alerts / HS errors).
 
-- UDP pin after cookie / connect (classic return-routability)
-- Transport.peerAuthenticated (ICE / already-authenticated path): AEAD
-  protected records must not be treated as "pre-auth" merely because the
-  transport does not expose a 5-tuple (WebRTC IceTransport).
-- addressValidation "ice-authenticated" / "none" on the association
+- UDP pin after cookie / connect (classic return-routability / datagram-address)
+- authenticated-single-peer transport (ICE peerAuthenticated / ice-authenticated):
+  AEAD-protected records must not be treated as "pre-auth" merely because
+  the transport does not expose a 5-tuple (WebRTC IceTransport).
+
+These modes are not interchangeable for TX routing (pin still owns UDP TX),
+but either is sufficient for association-lifecycle alert decisions.
 
 #### Returns
 
@@ -681,6 +703,24 @@ close_notify must not tear down a post-handshake association (unauth DoS).
 
 ***
 
+### isAuthenticatedSinglePeerTransport()
+
+> `protected` **isAuthenticatedSinglePeerTransport**(): `boolean`
+
+Transport path already authenticates a single peer (ICE / equivalent).
+Distinct from TransportContext.pinnedPeer (UDP return-routability).
+Driven by [peerIdentityMode](DtlsSocket.md#peeridentitymode) (public Options) when set.
+
+#### Returns
+
+`boolean`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`isAuthenticatedSinglePeerTransport`](DtlsSocket.md#isauthenticatedsinglepeertransport)
+
+***
+
 ### keyUpdate()
 
 > **keyUpdate**(`requestUpdate`): `Promise`\<`void`\>
@@ -710,6 +750,12 @@ Request KeyUpdate on DTLS 1.3 connections.
 True when inbound source matches association TX/RX pin, or no pin yet
 (pre-cookie server / pre-connect). After pin, unknown or non-pin peer
 must not drive handshake / app / alert lifecycle (RX ownership).
+
+Peer-authentication vs address pin are separate:
+- UDP 5-tuple pin: require matching source address when present
+- authenticated-single-peer transport (ICE / peerAuthenticated): the
+  transport path is the identity; addressless RX is accepted even if a
+  pin was set for TX convenience (WebRTC does not pass rinfo into DTLS)
 
 #### Parameters
 

@@ -17,6 +17,10 @@ import { DtlsContext } from "./context/dtls";
 import { SrtpContext } from "./context/srtp";
 import { TransportContext } from "./context/transport";
 import type { Dtls13Connection } from "./engine/v1_3/connection";
+import {
+  type PeerIdentityMode,
+  resolvePeerIdentityMode,
+} from "./engine/v1_3/types";
 import { peerKeyFromAddr } from "./handshake/extensions/cookie";
 import { EllipticCurves } from "./handshake/extensions/ellipticCurves";
 import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecret";
@@ -35,6 +39,8 @@ import {
   ProtocolVersionError,
   normalizeProtocolVersions,
 } from "./version";
+
+export type { PeerIdentityMode } from "./engine/v1_3/types";
 
 const log = debug("werift-dtls : packages/dtls/src/socket.ts : log");
 const err = debug("werift-dtls : packages/dtls/src/socket.ts : err");
@@ -118,6 +124,13 @@ export class DtlsSocket {
     }
     log("renegotiation", this.sessionType);
     this.connected = false;
+    // Cancel retransmit timers on the *old* context before abandoning it.
+    // Otherwise Flight.transmit sleeps keep firing against a detached DtlsContext
+    // and can still TX after renegotiation replaces cipher/dtls.
+    this.abortLegacy12Flight();
+    this.abortAssociationWaits();
+    // Fresh AbortController for the new handshake waits (previous signal aborted).
+    this.associationAbort = new AbortController();
     this.cipher = new CipherContext(
       this.sessionType,
       this.options.cert,
@@ -128,6 +141,7 @@ export class DtlsSocket {
     this.srtp = new SrtpContext();
     this.extensions = [];
     this.bufferFragmentedHandshakes = [];
+    this.setupExtensions();
   }
 
   protected udpOnMessage = (
@@ -167,14 +181,48 @@ export class DtlsSocket {
    * True when inbound source matches association TX/RX pin, or no pin yet
    * (pre-cookie server / pre-connect). After pin, unknown or non-pin peer
    * must not drive handshake / app / alert lifecycle (RX ownership).
+   *
+   * Peer-authentication vs address pin are separate:
+   * - UDP 5-tuple pin: require matching source address when present
+   * - authenticated-single-peer transport (ICE / peerAuthenticated): the
+   *   transport path is the identity; addressless RX is accepted even if a
+   *   pin was set for TX convenience (WebRTC does not pass rinfo into DTLS)
    */
   protected matchesPinnedPeer(addr?: Address): boolean {
+    // Transport identity is the peer: 5-tuple is not an auth boundary.
+    // Accept addressless and alternate addresses (ICE may not expose stable rinfo).
+    if (this.isAuthenticatedSinglePeerTransport()) return true;
     const pin = this.transport.pinnedPeer;
     if (!pin) return true;
-    if (!addr) return false;
+    if (!addr) {
+      // datagram-address after pin: addressless RX is a drop.
+      return false;
+    }
     const a: [string, number] = [this.normalizePeerHost(addr[0]), addr[1]];
     const p: [string, number] = [this.normalizePeerHost(pin[0]), pin[1]];
     return peerKeyFromAddr(a) === peerKeyFromAddr(p);
+  }
+
+  /**
+   * Resolved peer-identity policy for this association.
+   * Prefer explicit {@link Options.peerIdentityMode}; otherwise infer from
+   * transport.peerAuthenticated / addressValidation for backward compatibility.
+   */
+  get peerIdentityMode(): PeerIdentityMode {
+    return resolvePeerIdentityMode({
+      peerIdentityMode: this.options.peerIdentityMode,
+      addressValidation: this.options.addressValidation,
+      transport: this.options.transport as { peerAuthenticated?: boolean },
+    });
+  }
+
+  /**
+   * Transport path already authenticates a single peer (ICE / equivalent).
+   * Distinct from TransportContext.pinnedPeer (UDP return-routability).
+   * Driven by {@link peerIdentityMode} (public Options) when set.
+   */
+  protected isAuthenticatedSinglePeerTransport(): boolean {
+    return this.peerIdentityMode === "authenticated-single-peer";
   }
 
   /**
@@ -192,20 +240,17 @@ export class DtlsSocket {
   /**
    * Peer-auth boundary for DTLS 1.2 association lifecycle (alerts / HS errors).
    *
-   * - UDP pin after cookie / connect (classic return-routability)
-   * - Transport.peerAuthenticated (ICE / already-authenticated path): AEAD
-   *   protected records must not be treated as "pre-auth" merely because the
-   *   transport does not expose a 5-tuple (WebRTC IceTransport).
-   * - addressValidation "ice-authenticated" / "none" on the association
+   * - UDP pin after cookie / connect (classic return-routability / datagram-address)
+   * - authenticated-single-peer transport (ICE peerAuthenticated / ice-authenticated):
+   *   AEAD-protected records must not be treated as "pre-auth" merely because
+   *   the transport does not expose a 5-tuple (WebRTC IceTransport).
+   *
+   * These modes are not interchangeable for TX routing (pin still owns UDP TX),
+   * but either is sufficient for association-lifecycle alert decisions.
    */
   protected hasAssociationPeerAuth(): boolean {
     if (this.transport.pinnedPeer) return true;
-    const t = this.options.transport as { peerAuthenticated?: boolean };
-    if (t.peerAuthenticated === true) return true;
-    // Explicit ICE-authenticated association (WebRTC may set this alongside
-    // peerAuthenticated on the IceTransport).
-    if (this.options.addressValidation === "ice-authenticated") return true;
-    return false;
+    return this.isAuthenticatedSinglePeerTransport();
   }
 
   /** Restore transport.rinfo to pin so spoof sources do not stick for later TX fallbacks. */
@@ -989,6 +1034,16 @@ export interface Options {
    * WebRTC ICE-authenticated peers use `"ice-authenticated"` (Epic 2/3).
    */
   addressValidation?: "dtls-cookie" | "ice-authenticated" | "none";
+  /**
+   * Peer-identity policy for association TX/RX lifecycle.
+   * Default (when omitted): inferred as `"authenticated-single-peer"` when
+   * `transport.peerAuthenticated` or `addressValidation: "ice-authenticated"`,
+   * otherwise `"datagram-address"`.
+   *
+   * Prefer setting this explicitly for custom carriers / ICE so call sites do
+   * not depend on inference.
+   */
+  peerIdentityMode?: PeerIdentityMode;
   /**
    * DTLS 1.3 named groups preference order (key_share).
    * Default: X25519 then P-256. Use `[NamedCurveAlgorithm.secp256r1_23]` for P-256 only.

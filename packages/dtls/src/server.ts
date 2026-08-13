@@ -80,6 +80,7 @@ export class DtlsServer extends DtlsSocket {
         srtpProfiles: this.options.srtpProfiles,
         certificateRequest: this.options.certificateRequest,
         addressValidation: this.options.addressValidation,
+        peerIdentityMode: this.peerIdentityMode,
         groups: this.options.namedGroups
           ? [...this.options.namedGroups]
           : undefined,
@@ -430,7 +431,16 @@ export class DtlsServer extends DtlsSocket {
         case HandshakeType.client_key_exchange_16:
           {
             if (this.connected || this.associationTornDown) return;
-            this.flight6 = new Flight6(this.transport, this.dtls, this.cipher);
+            // Do not replace Flight6 on retransmitted Flight5 fragments —
+            // ClientKeyExchange handler is idempotent via cache, but replacing
+            // the instance mid-waitForReady would race Finished processing.
+            if (!this.flight6) {
+              this.flight6 = new Flight6(
+                this.transport,
+                this.dtls,
+                this.cipher,
+              );
+            }
             this.flight6.handleHandshake(handshake);
           }
           break;

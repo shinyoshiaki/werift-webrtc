@@ -84,6 +84,32 @@ export type AddressValidationMode =
   | "ice-authenticated"
   | "none";
 
+/**
+ * How the association identifies the remote peer for TX/RX lifecycle.
+ * Shared by DTLS 1.2 association (Options) and DTLS 1.3 engine.
+ *
+ * - `"datagram-address"` — UDP 5-tuple pin after cookie/connect
+ * - `"authenticated-single-peer"` — transport path is the identity (ICE);
+ *   addressless and non-matching 5-tuples do not drop authenticated RX
+ */
+export type PeerIdentityMode = "datagram-address" | "authenticated-single-peer";
+
+/** Resolve peer-identity policy (association + DTLS 1.3 engine share this). */
+export function resolvePeerIdentityMode(opts: {
+  peerIdentityMode?: PeerIdentityMode;
+  addressValidation?: AddressValidationMode;
+  transport?: { peerAuthenticated?: boolean };
+}): PeerIdentityMode {
+  if (opts.peerIdentityMode) return opts.peerIdentityMode;
+  if (opts.transport?.peerAuthenticated === true) {
+    return "authenticated-single-peer";
+  }
+  if (opts.addressValidation === "ice-authenticated") {
+    return "authenticated-single-peer";
+  }
+  return "datagram-address";
+}
+
 export interface Dtls13Options {
   transport: Transport;
   /**
@@ -110,6 +136,12 @@ export interface Dtls13Options {
    * - ice-authenticated / none: skip cookie (peer path already authenticated)
    */
   addressValidation?: AddressValidationMode;
+  /**
+   * Peer-identity policy for association RX demux / lifecycle.
+   * Default: inferred from transport.peerAuthenticated / addressValidation.
+   * Must match association Options.peerIdentityMode when engine is nested.
+   */
+  peerIdentityMode?: PeerIdentityMode;
   /**
    * Versions advertised in ClientHello supported_versions (preference order).
    * Default: `[V1_3]` only. Dual-stack association passes `[V1_3, V1_2]` etc.

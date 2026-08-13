@@ -187,6 +187,7 @@
 - [Kind](type-aliases/Kind.md)
 - [MediaDirection](type-aliases/MediaDirection.md)
 - [NamedCurveAlgorithms](type-aliases/NamedCurveAlgorithms.md)
+- [PeerIdentityMode](type-aliases/PeerIdentityMode.md)
 - [RequireAtLeastOne](type-aliases/RequireAtLeastOne.md)
 - [RTCBundlePolicy](type-aliases/RTCBundlePolicy.md)
 - [RTCDataChannelState](type-aliases/RTCDataChannelState.md)
