@@ -71,6 +71,7 @@ export async function createGccTwccPeerPair(opts?: {
   baseDelayMs?: number;
   maxQueueBytes?: number;
   startBitrateBps?: number;
+  periodicAlrProbing?: boolean;
 }): Promise<TwccPeerPair> {
   const startBitrateBps = opts?.startBitrateBps ?? 600_000;
   const link = new BottleneckLink({
@@ -88,7 +89,9 @@ export async function createGccTwccPeerPair(opts?: {
   });
   receiverPc.addTransceiver("video", { direction: "recvonly" });
 
-  const gcc = new GccBandwidthEstimator(startBitrateBps);
+  const gcc = new GccBandwidthEstimator(startBitrateBps, {
+    periodicAlrProbing: opts?.periodicAlrProbing === true,
+  });
   const sender = senderTransceiver.sender;
   sender.setBandwidthEstimator(gcc);
 

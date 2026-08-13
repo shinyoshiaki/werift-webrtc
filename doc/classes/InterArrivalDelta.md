@@ -30,7 +30,7 @@ continuous ≤5ms spacing still closes groups after `kSendTimeGroupLengthMs`.
 
 ### computeDeltas()
 
-> **computeDeltas**(`sendMs`, `recvMs`, `packetSize`): `undefined` \| `InterArrivalDeltas`
+> **computeDeltas**(`sendMs`, `recvMs`, `packetSize`, `systemMs`?): `undefined` \| `InterArrivalDeltas`
 
 Ingest one packet. When a completed previous group pair is available,
 returns send/recv/size deltas; otherwise `undefined`.
@@ -48,6 +48,14 @@ returns send/recv/size deltas; otherwise `undefined`.
 ##### packetSize
 
 `number`
+
+##### systemMs?
+
+`number`
+
+pin `system_time` (feedback_time / sender clock). When
+  omitted, receive time is stored so the arrival−system offset check is
+  a no-op (same-domain). Production GCC passes sender-clock now.
 
 #### Returns
 

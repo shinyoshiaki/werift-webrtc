@@ -433,6 +433,27 @@ export class ProbeController {
         }
       }
     }
+    // pin ProbeController::Process:
+    //   if (at_time - time_last_probing_initiated_ > 1s && waiting)
+    //     UpdateState(kProbingComplete)
+    // Pacing / queued clusters continue (BitrateProber is independent).
+    if (
+      this.state === "waiting_for_result" &&
+      Number.isFinite(this.lastProbeInitiatedMs) &&
+      nowMs - this.lastProbeInitiatedMs > kProbeResultTimeoutMs
+    ) {
+      this.minBitrateToProbeFurther = Number.POSITIVE_INFINITY;
+      this.state = "complete";
+      this.lastProbeEndMs = nowMs;
+      for (const [id, c] of this.awaitingResults) {
+        this.awaitingResults.delete(id);
+        if (c.sentPackets > 0) {
+          this.moveToEstimatorHistory(c);
+        } else {
+          this.dropClusterSeqs(id);
+        }
+      }
+    }
     // Absolute sender-side cap (align with GccBandwidthEstimator sentInfos).
     // Receive-time 1s history alone never prunes lastRecvMs===0 clusters.
     this.pruneEstimatorHistoryBySendAge(nowMs);
@@ -441,7 +462,8 @@ export class ProbeController {
     this.maybeMarkComplete(nowMs);
     if (activated.length > 0) return activated;
     // pin ProbeController::Process — ALR / network-state probes only after
-    // the session is complete (not while waiting_for_result).
+    // the session is complete (not while waiting_for_result). Same tick that
+    // just timed out to complete may still start an ALR/NSE probe.
     if (this.state === "complete") {
       return this.maybePeriodicProbe(nowMs);
     }
@@ -891,6 +913,11 @@ export class ProbeController {
     bitrates: number[],
     opts?: { stopFurtherAfter?: boolean },
   ): ProbeClusterConfig[] {
+    // pin InitiateProbing: high-RTT / delay-increased / loss-limited forbid
+    // every new cluster, including further probes from SetEstimatedBitrate.
+    if (!isProbeInitiationAllowed(this.lastCause)) {
+      return [];
+    }
     for (const bps of bitrates) {
       const minBytes = Math.max(
         kProbeMinPackets * 200,
@@ -926,7 +953,8 @@ export class ProbeController {
     if (this.pacing || this.queue.length === 0) return [];
     const config = this.queue.shift()!;
     this.pacing = this.newRuntime(config, nowMs);
-    this.state = "waiting_for_result";
+    // BitrateProber FIFO must not reopen ProbeController waiting_for_result.
+    // pin pacer activation is independent of ProbeController::state_.
     return [config];
   }
 

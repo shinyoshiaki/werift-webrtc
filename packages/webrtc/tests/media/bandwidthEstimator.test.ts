@@ -4475,10 +4475,10 @@ describe("media/sender bandwidth estimator", () => {
     test("congestion feedback は active probe を abort しない", () => {
       // Arrange: GCC が probing 中に overuse + batch loss を受けても
       // pacing 中の cluster は send-fill まで継続する。
-      // receiveTWCC は milliTime() で process するため、送信時刻は壁時計近傍にする
-      // （合成の小さな t0 だと pacing timeout 5s が即発火する）。
+      // receiveTWCC は pin OnTransportPacketsFeedback 相当で Process しない。
+      // 合成タイムラインでも pacing timeout は発火しない。
       const gcc = new GccBandwidthEstimator(100_000);
-      const t0 = Date.now();
+      const t0 = 40_000;
       // ensureProbing → 3x active
       gcc.rtpPacketSent({
         wideSeq: 1,
@@ -5957,6 +5957,175 @@ describe("media/sender bandwidth estimator", () => {
       // Assert: reverse-recv でも acked ready + estimate > 0（窓リセットで 0 にならない）
       expect((gcc as any).ackedBitrate.bitrate()).toBeGreaterThan(0);
       expect(gcc.availableBitrate).toBeGreaterThan(0);
+    });
+
+    test("receiveTWCC は ProbeController::Process を呼ばない（合成 t0 でも pacing 継続）", () => {
+      // Arrange: pin OnTransportPacketsFeedback に Process は無い。
+      // 旧実装は milliTime() で process するため小さな t0 だと 5s pacing timeout が即発火した。
+      const { gcc, setNow } = createClockGcc(100_000, 1_000);
+      gcc.rtpPacketSent(sent(1, 300, 1_000, { isProbation: true }));
+      gcc.rtpPacketSent(sent(2, 300, 1_001, { isProbation: true }));
+      expect(gcc.shouldTagProbePacket()).toBe(true);
+      expect(gcc.suggestedProbeBitrateBps).toBe(300_000);
+
+      const processSpy = vi.spyOn((gcc as any).probe, "process");
+      setNow(1_050);
+      for (let i = 10; i <= 16; i++) {
+        gcc.rtpPacketSent(sent(i, 400, 1_000 + i));
+      }
+
+      // Act: 全ロス TWCC（delay 空）でも Process しない
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 7 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: 10 + i,
+              received: false,
+              receivedAtMs: 0,
+            });
+          }),
+        ),
+      );
+
+      // Assert
+      expect(processSpy).not.toHaveBeenCalled();
+      expect(gcc.shouldTagProbePacket()).toBe(true);
+      expect(gcc.suggestedProbeBitrateBps).toBe(300_000);
+      processSpy.mockRestore();
+    });
+
+    test("all-lost TWCC は AIMD を進めず delay target を上げない", () => {
+      // Arrange: pin DelayBasedBwe は SortedByReceiveTime 空なら Result()
+      const { gcc, setNow } = createClockGcc(300_000, 20_000);
+      (gcc as any).probe.abort(20_000);
+      (gcc as any).probe.state = "complete";
+      (gcc as any).probingConfigured = true;
+      const t0 = 20_000;
+      for (let i = 1; i <= 12; i++) {
+        gcc.rtpPacketSent(sent(i, 500, t0 + i * 10));
+      }
+      setNow(t0 + 200);
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 12 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: true,
+              receivedAtMs: t0 + 30 + i * 10,
+            });
+          }),
+        ),
+      );
+      const delayBefore = (gcc as any).delayBasedBps as number;
+      const aimdSpy = vi.spyOn((gcc as any).aimd, "update");
+
+      // Act: 未知でない全ロス（timing なし）
+      for (let i = 20; i <= 31; i++) {
+        gcc.rtpPacketSent(sent(i, 500, t0 + 400 + (i - 20) * 10));
+      }
+      setNow(t0 + 600);
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 12 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: 20 + i,
+              received: false,
+              receivedAtMs: 0,
+            });
+          }),
+        ),
+      );
+
+      // Assert: AIMD Update は走らず delay 推定は据え置き
+      expect(aimdSpy).not.toHaveBeenCalled();
+      expect((gcc as any).delayBasedBps).toBe(delayBefore);
+      aimdSpy.mockRestore();
+    });
+
+    test("ProcessInterval は最初の RTP 無しでも initial probe を開始する", () => {
+      // Arrange: pin 初回 OnProcessInterval の ResetConstraints → SetBitrates
+      const { gcc, setNow } = createClockGcc(100_000, 5_000);
+      const probeCfgs: number[] = [];
+      gcc.onProbeClusterConfig.subscribe((c) => probeCfgs.push(c.targetBps));
+      expect(gcc.probeState).toBe("init");
+
+      // Act
+      setNow(5_025);
+      gcc.process(5_025);
+
+      // Assert: 3x が activate（6x は queue）
+      expect(probeCfgs).toEqual([300_000]);
+      expect(gcc.probeState).toBe("waiting_for_result");
+      expect(gcc.shouldTagProbePacket()).toBe(true);
+    });
+
+    test("SetEstimatedBitrate further は high RTT cause では空（InitiateProbing）", () => {
+      // Arrange: pin InitiateProbing は kRttBasedBackOffHighRtt で return {}
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, 1e9, 0);
+      expect(probe.probeState).toBe("waiting_for_result");
+      (probe as any).minBitrateToProbeFurther = 50_000;
+
+      // Act: further 条件は満たすが cause が forbid
+      const further = probe.setEstimatedBitrate(200_000, 10, {
+        cause: "rtt_based_back_off_high_rtt",
+      });
+
+      // Assert
+      expect(further).toEqual([]);
+      expect(probe.queuedClusterCount).toBe(1);
+    });
+
+    test("ProbeController Process は initiation から 1s 超で session complete（境界）", () => {
+      // Arrange: pin Process は at_time - time_last_probing_initiated_ > 1s
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, 1e9, 0);
+      probe.onProbePacketSent(200, 0, 1);
+      expect(probe.probeState).toBe("waiting_for_result");
+      const timeoutMs = 1_000;
+
+      // Act / Assert: timeout - 1 と timeout では waiting のまま
+      expect(probe.process(timeoutMs - 1)).toEqual([]);
+      expect(probe.probeState).toBe("waiting_for_result");
+      expect(probe.process(timeoutMs)).toEqual([]);
+      expect(probe.probeState).toBe("waiting_for_result");
+
+      // Act: timeout + 1 で complete。pacing は BitrateProber として残る
+      expect(probe.process(timeoutMs + 1)).toEqual([]);
+      expect(probe.probeState).toBe("complete");
+      expect(probe.furtherProbeThresholdBps).toBe(Number.POSITIVE_INFINITY);
+      expect(probe.shouldTagProbePacket()).toBe(true);
+      expect(probe.setEstimatedBitrate(500_000, timeoutMs + 2)).toEqual([]);
+    });
+
+    test("InterArrivalDelta は arrival−system offset >= 3000ms で reset する", () => {
+      // Arrange: pin ComputeDeltas の arrival_delta - system_delta >= 3000
+      const ia = new InterArrivalDelta(5);
+      ia.computeDeltas(0, 100, 100, 1_000);
+      ia.computeDeltas(4, 110, 100, 1_000);
+      // 2nd group（この時点では prev が無く delta なし）
+      ia.computeDeltas(10, 3_120, 100, 1_010);
+      // Act: 3rd group 開始で g2 vs g1 を比較
+      // recvDelta=3120-110=3010, systemDelta=10 → offset 3000
+      const d = ia.computeDeltas(20, 3_140, 100, 1_020);
+
+      // Assert: 境界ちょうどで reset、delta なし
+      expect(d).toBeUndefined();
+      expect(ia.computeDeltas(30, 3_160, 100, 1_030)).toBeUndefined();
+    });
+
+    test("InterArrivalDelta は offset 境界 2999 では reset しない", () => {
+      // Arrange
+      const ia = new InterArrivalDelta(5);
+      ia.computeDeltas(0, 100, 100, 1_000);
+      ia.computeDeltas(4, 110, 100, 1_000);
+      ia.computeDeltas(10, 3_119, 100, 1_010);
+      // Act: recvDelta=3119-110=3009, systemDelta=10 → offset 2999
+      const d = ia.computeDeltas(20, 3_130, 100, 1_020);
+
+      // Assert: reset せず group close の delta が出る
+      expect(d).toBeDefined();
+      expect(d!.sendDeltaMs).toBe(6);
     });
   });
 });

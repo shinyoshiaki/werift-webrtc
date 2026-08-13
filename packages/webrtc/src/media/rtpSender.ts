@@ -516,12 +516,6 @@ export class RTCRtpSender {
           signal: this.rtcpCancel.signal,
         });
 
-        // pin OnProcessInterval equivalent: advance RTT backoff / probe process
-        // on sender clock even when media is idle (e.g. high-RTT target drops).
-        if (isBandwidthEstimatorProcessor(this._senderBWE)) {
-          this._senderBWE.process(milliTime());
-        }
-
         const packets: RtcpPacket[] = [
           new RtcpSrPacket({
             ssrc: this.ssrc,

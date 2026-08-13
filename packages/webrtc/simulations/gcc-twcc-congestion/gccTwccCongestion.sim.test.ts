@@ -75,6 +75,8 @@ describe("simulations/gcc-twcc-congestion", () => {
       expect(finalEstimate).toBeLessThan(500_000);
       // 日本語: ゼロ張り付きではない（有効な推定が継続）
       expect(finalEstimate).toBeGreaterThan(20_000);
+      // 日本語: 5kbps floor に張り付いていない
+      expect(finalEstimate).toBeGreaterThan(5_000 * 3);
 
       // 診断用（失敗時の差分確認）
       // eslint-disable-next-line no-console
@@ -126,4 +128,86 @@ describe("simulations/gcc-twcc-congestion", () => {
       await pair.close();
     }
   }, 20_000);
+
+  test("TWCC feedback stall では推定が安全側へ下がる", async () => {
+    // Arrange: 容量内で一度推定を立ててから b→a（TWCC）を全ドロップ
+    const pair = await createGccTwccPeerPair({
+      capacityBps: 400_000,
+      baseDelayMs: 20,
+      maxQueueBytes: 80_000,
+      startBitrateBps: 300_000,
+    });
+    const media = startMediaSource(pair.track, () => 200_000, {
+      payloadBytes: 600,
+    });
+
+    try {
+      // Act: まず TWCC が回り availableBitrate が立つ
+      await sleep(2_000);
+      const beforeStall =
+        pair.bitrateSamples[pair.bitrateSamples.length - 1] ??
+        pair.gcc.availableBitrate;
+      expect(beforeStall).toBeGreaterThan(20_000);
+
+      // Act: feedback を止め、送信は継続（CorrectedRtt が伸びる）
+      pair.link.setDropAll("b2a", true);
+      await sleep(5_000);
+      const afterStall =
+        pair.bitrateSamples[pair.bitrateSamples.length - 1] ??
+        pair.gcc.availableBitrate;
+
+      // Assert: pin RttBasedBackoff — 3s 超で ×0.8 を繰り返し安全側へ
+      // 日本語: stall 後の推定は stall 前より低い
+      expect(afterStall).toBeLessThan(beforeStall);
+      // 日本語: 開始 300kbps 帯に張り付いたままではない
+      expect(afterStall).toBeLessThan(250_000);
+    } finally {
+      media.stop();
+      await pair.close();
+    }
+  }, 20_000);
+
+  test("容量が回復すると推定は floor に張り付かず上向きに動く", async () => {
+    // Arrange: 狭いボトルネックで下げたあと容量を広げる
+    const pair = await createGccTwccPeerPair({
+      capacityBps: 150_000,
+      baseDelayMs: 40,
+      maxQueueBytes: 20_000,
+      startBitrateBps: 600_000,
+      periodicAlrProbing: true,
+    });
+    let targetBps = 600_000;
+    const media = startMediaSource(pair.track, () => targetBps, {
+      payloadBytes: 700,
+    });
+    const unsub = pair.sender.onAvailableBitrate.subscribe((bps) => {
+      if (bps > 0) targetBps = Math.max(40_000, bps);
+    });
+
+    try {
+      await sleep(4_000);
+      const congested =
+        pair.bitrateSamples[pair.bitrateSamples.length - 1] ??
+        pair.gcc.availableBitrate;
+      expect(congested).toBeLessThan(400_000);
+      expect(congested).toBeGreaterThan(15_000);
+
+      // Act: 容量を回復し、推定に追従
+      pair.link.setCapacityBps(700_000);
+      await sleep(6_000);
+      const recovered =
+        pair.bitrateSamples[pair.bitrateSamples.length - 1] ??
+        pair.gcc.availableBitrate;
+
+      // Assert: floor 張り付きではなく、輻輳期より回復方向
+      // 日本語: 5kbps 下限に張り付いていない
+      expect(recovered).toBeGreaterThan(15_000);
+      // 日本語: 回復後は輻輳期推定の 80% 以上、または少なくとも下がっていない
+      expect(recovered).toBeGreaterThanOrEqual(congested * 0.8);
+    } finally {
+      unsub.unSubscribe();
+      media.stop();
+      await pair.close();
+    }
+  }, 25_000);
 });

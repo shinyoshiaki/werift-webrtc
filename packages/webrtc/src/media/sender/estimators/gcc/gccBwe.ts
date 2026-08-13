@@ -230,7 +230,8 @@ export class GccBandwidthEstimator
 
   /**
    * pin GoogCcNetworkController::OnProcessInterval order:
-   *   UpdateEstimate
+   *   ResetConstraints / SetBitrates (first interval → {@link ensureProbing})
+   *   → UpdateEstimate
    *   → SetAlrStartTime
    *   → ProbeController::Process
    *   → MaybeTriggerOnNetworkChanged
@@ -245,8 +246,10 @@ export class GccBandwidthEstimator
     // Age-out send history even when media is idle (pin 60s window).
     // rtpPacketSent-only prune would leak after send stop.
     this.pruneSentInfos(nowMs);
+    // pin first OnProcessInterval ResetConstraints → ProbeController::SetBitrates
+    this.ensureProbing(nowMs);
     // 1) bandwidth_estimation_.UpdateEstimate
-    this.maybeApplyRttBasedBackoff(nowMs);
+    this.updateEstimateOnProcessInterval(nowMs);
     // 2) ProbeController::SetAlrStartTime
     this.syncAlr(nowMs);
     // 3) ProbeController::Process (still previous cause)
@@ -457,6 +460,11 @@ export class GccBandwidthEstimator
     }
     this.hasValidSample = true;
 
+    // pin OnTransportPacketsFeedback: ALR-ended is published *before*
+    // delay / loss / RequestProbe. SetAlrStartTime is ProcessInterval-only
+    // except the recovered_from_overuse path below.
+    this.noteAlrLeave(nowMs);
+
     // libwebrtc: delay detector, acked bitrate, and probe estimator consume
     // feedback in receive-time order (not transport-seq order).
     timedReceived.sort((a, b) => a.recvMs - b.recvMs || a.seq - b.seq);
@@ -469,10 +477,15 @@ export class GccBandwidthEstimator
       })),
     );
 
+    // pin DelayBasedBwe::IncomingPacketFeedbackVector: SortedByReceiveTime
+    // empty (all lost / ReceivedWithoutDelta) → Result() and **no** AIMD
+    // update. ProbeController::Process is ProcessInterval-only.
+    const delayFeedback = timedReceived.length > 0;
+
     // libwebrtc DelayBasedBwe::kStreamTimeOut — idle > 2s resets delay path
     // so stale trendline history does not produce false overuse/underuse.
     if (
-      timedReceived.length > 0 &&
+      delayFeedback &&
       Number.isFinite(this.lastSeenPacketMs) &&
       nowMs - this.lastSeenPacketMs > kStreamTimeOutMs
     ) {
@@ -480,7 +493,7 @@ export class GccBandwidthEstimator
       this.trendline.reset();
       this.lastUsage = "normal";
     }
-    if (timedReceived.length > 0) {
+    if (delayFeedback) {
       this.lastSeenPacketMs = nowMs;
     }
 
@@ -488,22 +501,24 @@ export class GccBandwidthEstimator
     // recovered_from_overuse on **per-packet** underuse→normal transitions
     // inside this feedback (not only feedback-to-feedback lastUsage).
     let recoveredFromUnderuse = false;
-    for (const p of timedReceived) {
-      // Result validation only (sender clock for session complete/cooldown).
-      // FIFO pacing advance happens on send-fill, not on ACK.
-      this.probe.onAckedPacket(
-        p.size,
-        p.recvMs,
-        p.isProbation,
-        p.seq,
-        nowMs,
-        p.sendMs,
-      );
-      const prevUsage = this.trendline.state;
-      this.pushInterArrival(p.sendMs, p.recvMs, p.size);
-      const nextUsage = this.trendline.state;
-      if (prevUsage === "underuse" && nextUsage === "normal") {
-        recoveredFromUnderuse = true;
+    if (delayFeedback) {
+      for (const p of timedReceived) {
+        // Result validation only (sender clock for session complete/cooldown).
+        // FIFO pacing advance happens on send-fill, not on ACK.
+        this.probe.onAckedPacket(
+          p.size,
+          p.recvMs,
+          p.isProbation,
+          p.seq,
+          nowMs,
+          p.sendMs,
+        );
+        const prevUsage = this.trendline.state;
+        this.pushInterArrival(p.sendMs, p.recvMs, p.size, nowMs);
+        const nextUsage = this.trendline.state;
+        if (prevUsage === "underuse" && nextUsage === "normal") {
+          recoveredFromUnderuse = true;
+        }
       }
     }
 
@@ -512,7 +527,7 @@ export class GccBandwidthEstimator
     const ackedBps = this.ackedBitrate.bitrate();
 
     const usage = this.trendline.state;
-    if (usage !== this.lastUsage) {
+    if (delayFeedback && usage !== this.lastUsage) {
       this.lastUsage = usage;
       this.onOveruseDetected.execute(usage);
     }
@@ -554,38 +569,40 @@ export class GccBandwidthEstimator
     const probeBps = this.probe.takePendingEstimateBps();
     const hasProbeEstimate = probeBps > 0;
 
-    if (overusing) {
-      // pin: overuse branch never applies probe_bitrate.
-      this.delayBasedBps = this.aimd.update(usage, ackedBps, nowMs);
-    } else if (hasProbeEstimate) {
-      // pin MaybeUpdateEstimate (non-overuse + probe_bitrate):
-      // SetEstimate(probe) as-is — **no upward caps**. Only lower probes get
-      // limit_probes_lower_than_throughput_estimate:
-      //   probe = max(probe, min(delayEstimate, acked × 0.85)).
-      let accepted = Math.min(probeBps, kMaxBitrateBps);
-      const delayTarget =
-        this.delayBasedBps > 0
-          ? this.delayBasedBps
-          : this.aimd.targetBitrateBps;
+    if (delayFeedback) {
+      if (overusing) {
+        // pin: overuse branch never applies probe_bitrate.
+        this.delayBasedBps = this.aimd.update(usage, ackedBps, nowMs);
+      } else if (hasProbeEstimate) {
+        // pin MaybeUpdateEstimate (non-overuse + probe_bitrate):
+        // SetEstimate(probe) as-is — **no upward caps**. Only lower probes get
+        // limit_probes_lower_than_throughput_estimate:
+        //   probe = max(probe, min(delayEstimate, acked × 0.85)).
+        let accepted = Math.min(probeBps, kMaxBitrateBps);
+        const delayTarget =
+          this.delayBasedBps > 0
+            ? this.delayBasedBps
+            : this.aimd.targetBitrateBps;
 
-      if (accepted < delayTarget) {
-        const ackedFloor =
-          ackedBps > kMinBitrateBps
-            ? ackedBps * kProbeDropThroughputFraction
-            : accepted;
-        const floor = Math.min(delayTarget, ackedFloor);
-        accepted = Math.max(accepted, floor);
-        accepted = Math.min(accepted, delayTarget);
-      }
+        if (accepted < delayTarget) {
+          const ackedFloor =
+            ackedBps > kMinBitrateBps
+              ? ackedBps * kProbeDropThroughputFraction
+              : accepted;
+          const floor = Math.min(delayTarget, ackedFloor);
+          accepted = Math.max(accepted, floor);
+          accepted = Math.min(accepted, delayTarget);
+        }
 
-      if (accepted > 0) {
-        this.aimd.setEstimate(accepted, nowMs);
-        this.delayBasedBps = this.aimd.targetBitrateBps;
+        if (accepted > 0) {
+          this.aimd.setEstimate(accepted, nowMs);
+          this.delayBasedBps = this.aimd.targetBitrateBps;
+        } else {
+          this.delayBasedBps = this.aimd.targetBitrateBps;
+        }
       } else {
-        this.delayBasedBps = this.aimd.targetBitrateBps;
+        this.delayBasedBps = this.aimd.update(usage, ackedBps, nowMs);
       }
-    } else {
-      this.delayBasedBps = this.aimd.update(usage, ackedBps, nowMs);
     }
 
     // Loss path after delay/probe (pin UpdateLossBasedEstimator).
@@ -617,7 +634,12 @@ export class GccBandwidthEstimator
     // - When not RTT-limited: current_target = post-loss estimate.
     const rttLimited = this.rttBackoff.isRttAboveLimit();
     if (rttLimited) {
-      if (hasProbeEstimate && !overusing && this.delayBasedBps > 0) {
+      if (
+        delayFeedback &&
+        hasProbeEstimate &&
+        !overusing &&
+        this.delayBasedBps > 0
+      ) {
         // pin SetSendBitrate(probe) → current_target = probe estimate, then
         // UpdateEstimate may immediately ×0.8 if still above RTT limit.
         this.currentTargetBps = this.delayBasedBps;
@@ -629,13 +651,13 @@ export class GccBandwidthEstimator
 
     const target = this.currentTargetBps;
 
-    // TWCC and ProcessInterval share MaybeTriggerOnNetworkChanged:
-    // publish target, ALR budget, ProbeController estimated + cause.
+    // pin MaybeTriggerOnNetworkChanged (when delay result.updated, and also
+    // after loss UpdateEstimate so the published target matches current_target_).
+    // ProbeController::Process is **not** called here.
     const bandwidthLimitedCause = this.propagateTarget(nowMs);
     const allowNewProbe = bandwidthLimitedCause
       ? isProbeInitiationAllowed(bandwidthLimitedCause)
       : false;
-    this.syncAlr(nowMs);
 
     // Recovery probe only on latched underuse→normal (recovered_from_overuse).
     // pin MaybeUpdateEstimate: recovered_from_overuse is surfaced only when
@@ -649,6 +671,8 @@ export class GccBandwidthEstimator
       allowNewProbe &&
       bandwidthLimitedCause
     ) {
+      // pin: SetAlrStartTime immediately before RequestProbe.
+      this.probe.setAlrStartTime(this.alr.startMs);
       const est = this._availableBitrate > 0 ? this._availableBitrate : target;
       const maxProbe = maxProbeBitrateBps(
         bandwidthLimitedCause,
@@ -660,10 +684,6 @@ export class GccBandwidthEstimator
       })) {
         this.onProbeClusterActivated(cfg, nowMs);
       }
-    }
-
-    for (const cfg of this.probe.process(nowMs)) {
-      this.onProbeClusterActivated(cfg, nowMs);
     }
   }
 
@@ -720,6 +740,35 @@ export class GccBandwidthEstimator
     const upper = Math.min(this.delayBasedUpperLimitBps(), kMaxBitrateBps);
     this.currentTargetBps = Math.min(this.currentTargetBps, upper);
     this.currentTargetBps = Math.max(this.currentTargetBps, kMinBitrateBps);
+  }
+
+  /**
+   * pin `SendSideBandwidthEstimation::UpdateEstimate` on OnProcessInterval.
+   *
+   * RTT-limited: drop first (if interval due), then ApplyTargetLimits.
+   * Otherwise: adopt the last delay/loss candidate (LossBasedBweV2 ready
+   * path) and ApplyTargetLimits. Does **not** invent a new delay sample.
+   */
+  private updateEstimateOnProcessInterval(nowMs: number): void {
+    if (this.rttBackoff.isRttAboveLimit()) {
+      this.maybeApplyRttBasedBackoff(nowMs);
+      return;
+    }
+    if (this.hasValidSample) {
+      const delay =
+        this.delayBasedBps > 0 ? this.delayBasedBps : this.currentTargetBps;
+      const loss =
+        this.lossBasedBps > 0 ? this.lossBasedBps : this.currentTargetBps;
+      const delayLossTarget = Math.min(delay, loss);
+      if (delayLossTarget > 0) {
+        this.currentTargetBps = delayLossTarget;
+      }
+    }
+    if (this.currentTargetBps <= 0) return;
+    this.applyTargetLimits();
+    if (this.hasValidSample || this._availableBitrate > 0) {
+      setAvailableBitrateIfChanged(this, this.currentTargetBps);
+    }
   }
 
   /**
@@ -795,15 +844,11 @@ export class GccBandwidthEstimator
   }
 
   /**
-   * pin OnProcessInterval / OnTransportPacketsFeedback ALR wiring:
-   * publish ALR start/end to ProbeController + AIMD.
-   * Does **not** enable periodic ALR probing (pin default false).
+   * pin OnTransportPacketsFeedback ALR-ended wiring (before delay/loss).
+   * Does **not** SetAlrStartTime — that is ProcessInterval + recovery only.
    */
-  private syncAlr(nowMs: number) {
+  private noteAlrLeave(nowMs: number) {
     const inAlr = this.hasValidSample && this.alr.inAlr;
-    this.probe.setAlrStartTime(
-      this.hasValidSample ? this.alr.startMs : undefined,
-    );
     if (this.previouslyInAlr && !inAlr) {
       this.probe.setAlrEndedTime(nowMs);
       this.ackedBitrate.setAlrEndedTime(nowMs);
@@ -811,6 +856,17 @@ export class GccBandwidthEstimator
     this.previouslyInAlr = inAlr;
     this.aimd.setInApplicationLimitedRegion(inAlr);
     this.ackedBitrate.setAlr(inAlr);
+  }
+
+  /**
+   * pin OnProcessInterval ALR wiring: SetAlrStartTime then leave detection.
+   * Does **not** enable periodic ALR probing (pin default false).
+   */
+  private syncAlr(nowMs: number) {
+    this.probe.setAlrStartTime(
+      this.hasValidSample ? this.alr.startMs : undefined,
+    );
+    this.noteAlrLeave(nowMs);
   }
 
   /**
@@ -903,8 +959,18 @@ export class GccBandwidthEstimator
     return undefined;
   }
 
-  private pushInterArrival(sendMs: number, recvMs: number, size: number) {
-    const deltas = this.interArrival.computeDeltas(sendMs, recvMs, size);
+  private pushInterArrival(
+    sendMs: number,
+    recvMs: number,
+    size: number,
+    systemMs: number,
+  ) {
+    const deltas = this.interArrival.computeDeltas(
+      sendMs,
+      recvMs,
+      size,
+      systemMs,
+    );
     if (deltas) {
       this.trendline.update(deltas.recvDeltaMs, deltas.sendDeltaMs, recvMs);
     }

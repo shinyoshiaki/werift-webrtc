@@ -45,6 +45,8 @@ interface TimestampGroup {
   firstRecvMs: number;
   /** Latest packet arrival time / complete time (ms). */
   recvMs: number;
+  /** pin `last_system_time` — feedback_time / sender clock of last packet. */
+  lastSystemMs: number;
   size: number;
   complete: boolean;
 }
@@ -73,13 +75,19 @@ export class InterArrivalDelta {
   /**
    * Ingest one packet. When a completed previous group pair is available,
    * returns send/recv/size deltas; otherwise `undefined`.
+   *
+   * @param systemMs pin `system_time` (feedback_time / sender clock). When
+   *   omitted, receive time is stored so the arrival−system offset check is
+   *   a no-op (same-domain). Production GCC passes sender-clock now.
    */
   computeDeltas(
     sendMs: number,
     recvMs: number,
     packetSize: number,
+    systemMs?: number,
   ): InterArrivalDeltas | undefined {
     let out: InterArrivalDeltas | undefined;
+    const system = Number.isFinite(systemMs) ? (systemMs as number) : recvMs;
 
     if (!this.current) {
       this.current = {
@@ -87,6 +95,7 @@ export class InterArrivalDelta {
         sendMs,
         firstRecvMs: recvMs,
         recvMs,
+        lastSystemMs: system,
         size: packetSize,
         complete: false,
       };
@@ -103,6 +112,23 @@ export class InterArrivalDelta {
         // libwebrtc: send delta = latest send times of the two groups.
         const sendDeltaMs = this.current.sendMs - this.prev.sendMs;
         const recvDeltaMs = this.current.recvMs - this.prev.recvMs;
+        const systemDeltaMs =
+          this.current.lastSystemMs - this.prev.lastSystemMs;
+
+        // pin: arrival_time_delta - system_time_delta >= 3000ms → Reset.
+        if (recvDeltaMs - systemDeltaMs >= kArrivalTimeOffsetThresholdMs) {
+          this.reset();
+          this.current = {
+            firstSendMs: sendMs,
+            sendMs,
+            firstRecvMs: recvMs,
+            recvMs,
+            lastSystemMs: system,
+            size: packetSize,
+            complete: false,
+          };
+          return undefined;
+        }
 
         if (recvDeltaMs < 0) {
           this.numConsecutiveReorderedPackets++;
@@ -113,6 +139,7 @@ export class InterArrivalDelta {
               sendMs,
               firstRecvMs: recvMs,
               recvMs,
+              lastSystemMs: system,
               size: packetSize,
               complete: false,
             };
@@ -135,6 +162,7 @@ export class InterArrivalDelta {
         sendMs,
         firstRecvMs: recvMs,
         recvMs,
+        lastSystemMs: system,
         size: packetSize,
         complete: false,
       };
@@ -144,6 +172,7 @@ export class InterArrivalDelta {
     // Same group: extend with max send/recv; never rewind sendMs on reorder.
     this.current.sendMs = Math.max(this.current.sendMs, sendMs);
     this.current.recvMs = Math.max(this.current.recvMs, recvMs);
+    this.current.lastSystemMs = system;
     this.current.size += packetSize;
     return undefined;
   }
@@ -173,17 +202,8 @@ export class InterArrivalDelta {
 
   private newTimestampGroup(sendMs: number, recvMs: number): boolean {
     if (!this.current) return true;
-
-    // Large arrival/system offset → treat as new timeline (caller resets via
-    // negative-delta path if needed). Check offset vs previous complete time.
-    if (this.prev) {
-      const offset = this.current.firstRecvMs - this.prev.recvMs;
-      if (Math.abs(offset) > kArrivalTimeOffsetThresholdMs) {
-        // Force group boundary; deltas may be discarded by reorder logic.
-        return true;
-      }
-    }
-
+    // pin NewTimestampGroup: burst membership, else send-span > group length.
+    // Arrival/system offset is checked when deltas are computed, not here.
     if (this.belongsToBurst(sendMs, recvMs)) return false;
     return sendMs - this.current.firstSendMs > this.sendTimeGroupLengthMs;
   }

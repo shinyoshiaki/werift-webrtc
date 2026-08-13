@@ -74,6 +74,10 @@ export class BottleneckLink {
     },
   };
   private closed = false;
+  private readonly dropAll: Record<BottleneckDirection, boolean> = {
+    a2b: false,
+    b2a: false,
+  };
 
   constructor(opts: Partial<BottleneckOptions> = {}) {
     this.opts = {
@@ -89,6 +93,18 @@ export class BottleneckLink {
 
   get capacityBps() {
     return this.opts.capacityBps;
+  }
+
+  /** Change token-bucket capacity at runtime (recovery / step tests). */
+  setCapacityBps(bps: number) {
+    this.opts.capacityBps = Number.isFinite(bps) ? bps : this.opts.capacityBps;
+  }
+
+  /**
+   * Drop every packet on a direction (TWCC feedback stall when `b2a` is true).
+   */
+  setDropAll(direction: BottleneckDirection, drop: boolean) {
+    this.dropAll[direction] = drop;
   }
 
   stats(dir: BottleneckDirection): BottleneckStats {
@@ -147,6 +163,12 @@ export class BottleneckLink {
     const size = data.length;
     state.stats.enqueued++;
     state.stats.bytesEnqueued += size;
+
+    if (this.dropAll[direction]) {
+      state.stats.dropped++;
+      state.stats.bytesDropped += size;
+      return;
+    }
 
     // キュー上限超過 → ロス（輻輳）
     if (state.queueBytes + size > this.opts.maxQueueBytes) {
