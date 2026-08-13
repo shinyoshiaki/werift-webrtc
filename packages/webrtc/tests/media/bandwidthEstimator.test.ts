@@ -6303,6 +6303,24 @@ describe("media/sender bandwidth estimator", () => {
       // Assert: 古い delay 200kbps に張り付かない
       expect((gcc as any).delayBasedLimitBps).toBe(Number.POSITIVE_INFINITY);
       expect(gcc.availableBitrate).toBe(1_000_000);
+
+      // Act: 全ロス TWCC は pin 同様 +∞ を LossBased に渡す（古い delay cap を消す）
+      for (let i = 1; i <= 4; i++) {
+        gcc.rtpPacketSent(sent(i, 500, 70_000 + i * 10));
+      }
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 4 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: false,
+            });
+          }),
+        ),
+      );
+
+      // Assert: LossBased の delay 入力もクリアされる
+      expect((gcc as any).lossBwe.delayBasedBps).toBe(0);
     });
 
     test("setBitrates(start=0) は current target を上書きしない", () => {
