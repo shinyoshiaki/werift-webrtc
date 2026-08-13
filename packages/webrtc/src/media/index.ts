@@ -50,6 +50,7 @@ export {
   TWCC_REFERENCE_TIME_UNIT_MS,
   kBeta,
   kDefaultStartBitrateBps,
+  kGoogCcProcessIntervalMs,
   kLossBasedIncreaseFactor,
   kLossDecreaseThreshold,
   kLossIncreaseFactor,
@@ -62,6 +63,7 @@ export {
   kRttBasedBackOffDropFraction,
   kRttBasedBackOffDropIntervalMs,
   kRttBasedBackOffHighRttMs,
+  kSendTimeHistoryWindowMs,
   kTrendlineWindowSize,
   sortPacketResultsByWideSeq,
 } from "./sender/estimators/gcc";

@@ -37,12 +37,15 @@ import {
   isRoundTripTimeConsumer,
   isRttAboveLimit,
   kBeta,
+  kGoogCcProcessIntervalMs,
   kLossLimitedProbeScale,
+  kMinBitrateBps,
   kProbePaddingPacketBytes,
   kRttBasedBackOffBandwidthFloorBps,
   kRttBasedBackOffDropFraction,
   kRttBasedBackOffDropIntervalMs,
   kRttBasedBackOffHighRttMs,
+  kSendTimeHistoryWindowMs,
   kTrendlineWindowSize,
   maxProbeBitrateBps,
   sortPacketResultsByWideSeq,
@@ -2038,8 +2041,8 @@ describe("media/sender bandwidth estimator", () => {
         probe.process(t);
         expect(probe.probeState).toBe("complete");
         historySamples.push(probe.estimatorHistoryCount);
-        // sender-side 10s prune を進める（古い history を回収）
-        t += 10_001;
+        // sender-side 60s prune を進める（古い history を回収）
+        t += kSendTimeHistoryWindowMs + 1;
         probe.process(t);
       }
 
@@ -2733,7 +2736,7 @@ describe("media/sender bandwidth estimator", () => {
       expect((probe as any).seqToSendInfo.size).toBe(0);
     });
 
-    test("ACK なし cluster は controller complete 後 sender-side 10s で history から消える", () => {
+    test("ACK なし cluster は controller complete 後 sender-side 60s で history から消える", () => {
       // Arrange: 1+ packet 送信 → result timeout → history 残留
       const probe = new ProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
@@ -2752,12 +2755,14 @@ describe("media/sender bandwidth estimator", () => {
       expect(probe.estimatorHistoryCount).toBe(1);
       expect((probe as any).seqToCluster.size).toBe(5);
 
-      // Act: 10s 以内は late TWCC 用に残る（sender age < kSentInfoMaxAgeMs）
+      // Act: 60s 未満は late TWCC 用に残る（pin send-time history）
       probe.process(lastSend + 5_000);
       expect(probe.estimatorHistoryCount).toBe(1);
-
-      // Act: lastSend から 10s 超で sender-side prune
       probe.process(lastSend + 10_001);
+      expect(probe.estimatorHistoryCount).toBe(1);
+
+      // Act: lastSend から 60s 超で sender-side prune
+      probe.process(lastSend + kSendTimeHistoryWindowMs + 1);
       expect(probe.estimatorHistoryCount).toBe(0);
       expect((probe as any).seqToCluster.size).toBe(0);
       expect((probe as any).seqToSendInfo.size).toBe(0);
@@ -3379,15 +3384,16 @@ describe("media/sender bandwidth estimator", () => {
         Math.round(startBps * kRttBasedBackOffDropFraction ** 2),
       );
 
-      // 繰り返し floor まで — 5kbps 未満にはしない
+      // 繰り返し floor まで — pin UpdateTargetBitrate は min_bitrate(10kbps)
+      // まで引き上げる（drop 式の 5kbps は中間値で、公開 target は 10kbps）
       let t =
         t0 + kRttBasedBackOffHighRttMs + 1 + kRttBasedBackOffDropIntervalMs;
       for (let i = 0; i < 40; i++) {
         t += kRttBasedBackOffDropIntervalMs;
         gcc.rtpPacketSent(sent(seq++, 500, t));
       }
-      expect(gcc.availableBitrate).toBe(kRttBasedBackOffBandwidthFloorBps);
-      expect(gcc.availableBitrate).toBeGreaterThanOrEqual(
+      expect(gcc.availableBitrate).toBe(kMinBitrateBps);
+      expect(gcc.availableBitrate).toBeGreaterThan(
         kRttBasedBackOffBandwidthFloorBps,
       );
     });
@@ -3553,6 +3559,194 @@ describe("media/sender bandwidth estimator", () => {
       setNow(highT + 60_000);
       expect((gcc as any).rttBackoff.correctedRttMs()).toBe(rttFrozen);
       expect((gcc as any).rttBackoff.isRttAboveLimit()).toBe(true);
+    });
+
+    test("high RTT の process は drop 後に delay upper へ clamp する（GetUpperLimit）", () => {
+      // Arrange: pin UpdateEstimate は first drop してから GetUpperLimit=delay
+      // current=800kbps, delay=400kbps, drop due → 400kbps
+      // 禁止: delay clamp 無しで 800×0.8=640 のまま
+      const startBps = 1_000_000;
+      const t0 = 60_000;
+      const { gcc, setNow } = createClockGcc(startBps, t0);
+      gcc.rtpPacketSent(sent(1, 500, t0));
+      const highT = t0 + kRttBasedBackOffHighRttMs + 1;
+      gcc.rtpPacketSent(sent(2, 500, highT));
+      expect(gcc.availableBitrate).toBe(
+        Math.round(startBps * kRttBasedBackOffDropFraction),
+      );
+
+      (gcc as any).hasValidSample = true;
+      (gcc as any).delayBasedBps = 400_000;
+
+      // Act: drop_interval 経過後の ProcessInterval
+      const later = highT + kRttBasedBackOffDropIntervalMs;
+      setNow(later);
+      gcc.process(later);
+
+      // Assert: drop 800→640 のあと delay 400 で upper clamp
+      expect(gcc.availableBitrate).toBe(400_000);
+      expect(gcc.availableBitrate).not.toBe(
+        Math.round(800_000 * kRttBasedBackOffDropFraction),
+      );
+    });
+
+    test("high RTT の TWCC は loss を無視し drop→delay clamp であり clamp→drop ではない", () => {
+      // Arrange: current=800kbps, delay=400kbps, loss=300kbps, drop due
+      // pin: drop 800×0.8=640 → GetUpperLimit delay 400 → 400
+      // 禁止: min(800,400)=400 を先に入れてから ×0.8 → 320
+      // 禁止: 300kbps を採用してから ×0.8 → 240
+      const startBps = 1_000_000;
+      const t0 = 70_000;
+      const { gcc, setNow } = createClockGcc(startBps, t0);
+      gcc.rtpPacketSent(sent(1, 500, t0));
+      const highT = t0 + kRttBasedBackOffHighRttMs + 1;
+      gcc.rtpPacketSent(sent(2, 500, highT));
+      expect(gcc.availableBitrate).toBe(
+        Math.round(startBps * kRttBasedBackOffDropFraction),
+      );
+
+      (gcc as any).rttBackoff.isRttAboveLimit = () => true;
+      // drop は receiveTWCC 内の UpdateEstimate で一度だけ（先に rtpPacketSent しない）
+      (gcc as any).lastRttDecreaseMs = highT - kRttBasedBackOffDropIntervalMs;
+      (gcc as any).hasValidSample = true;
+      (gcc as any).currentTargetBps = 800_000;
+      (gcc as any)._availableBitrate = 800_000;
+      (gcc as any).aimd.update = () => 400_000;
+      Object.defineProperty((gcc as any).aimd, "targetBitrateBps", {
+        get: () => 400_000,
+        configurable: true,
+      });
+      (gcc as any).lossBwe.update = () => {
+        (gcc as any).lossBwe.state = "decreasing";
+        return 300_000;
+      };
+      Object.defineProperty((gcc as any).trendline, "state", {
+        get: () => "normal",
+        configurable: true,
+      });
+
+      const twccT = highT + kRttBasedBackOffDropIntervalMs;
+      setNow(twccT);
+      gcc.receiveTWCC(
+        makeTwccFeedback([
+          new PacketResult({
+            sequenceNumber: 2,
+            received: true,
+            receivedAtMs: highT + 10,
+          }),
+        ]),
+      );
+
+      // Assert: pin と同じ 400kbps。320 / 240 ではない
+      expect(gcc.availableBitrate).toBe(400_000);
+      expect(gcc.availableBitrate).not.toBe(320_000);
+      expect(gcc.availableBitrate).not.toBe(240_000);
+      expect(gcc.availableBitrate).not.toBe(300_000);
+    });
+
+    test("60s 超 late feedback でも feedback_time を receive timeline に切替えない", () => {
+      // Arrange: sender clock と TWCC recv が 65s 離れる
+      const t0 = 1_000;
+      const { gcc, setNow } = createClockGcc(300_000, t0);
+      gcc.rtpPacketSent(sent(1, 400, t0));
+
+      // Act: 65s 後の sender clock で feedback（recv timeline は t0+20）
+      setNow(t0 + 65_000);
+      gcc.receiveTWCC(
+        makeTwccFeedback([
+          new PacketResult({
+            sequenceNumber: 1,
+            received: true,
+            receivedAtMs: t0 + 20,
+          }),
+        ]),
+      );
+
+      // Assert: 旧 heuristic だと receive timeline に fallback して低 RTT になる
+      expect((gcc as any).lastPropagationRttMs).toBeGreaterThan(60_000);
+      expect((gcc as any).rttBackoff.isRttAboveLimit()).toBe(true);
+    });
+
+    test("pin 60s send history 内の 11s late TWCC は sentInfos から照合できる", () => {
+      // Arrange: 10s で prune すると 11s late ACK が消える（pin は 60s）
+      const t0 = 10_000;
+      const { gcc, setNow } = createClockGcc(300_000, t0);
+      gcc.rtpPacketSent(sent(1, 400, t0));
+      setNow(t0 + 11_000);
+      gcc.rtpPacketSent(sent(2, 400, t0 + 11_000));
+
+      // Act: packet 1 の late received
+      setNow(t0 + 11_050);
+      gcc.receiveTWCC(
+        makeTwccFeedback([
+          new PacketResult({
+            sequenceNumber: 1,
+            received: true,
+            receivedAtMs: t0 + 20,
+          }),
+          new PacketResult({
+            sequenceNumber: 2,
+            received: true,
+            receivedAtMs: t0 + 11_020,
+          }),
+        ]),
+      );
+
+      // Assert: 11s ではまだ history に残る
+      expect((gcc as any).sentInfos.has(1)).toBe(true);
+      expect((gcc as any).finalizedSeqs.has(1)).toBe(true);
+      expect(gcc.availableBitrate).toBeGreaterThan(0);
+    });
+
+    test("RTCRtpSender は GCC 差し替え後に pin 25ms ProcessInterval で process する", () => {
+      // Arrange: production wiring（runRtcp の 500–1500ms ではなく 25ms）
+      vi.useFakeTimers();
+      const gcc = new GccBandwidthEstimator(300_000);
+      const spy = vi.spyOn(gcc, "process");
+      const sender = new RTCRtpSender("video");
+      try {
+        sender.setBandwidthEstimator(gcc);
+
+        // Act: pin kUpdateIntervalMs
+        expect(kGoogCcProcessIntervalMs).toBe(25);
+        expect(spy).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(kGoogCcProcessIntervalMs);
+        expect(spy.mock.calls.length).toBeGreaterThanOrEqual(1);
+        vi.advanceTimersByTime(kGoogCcProcessIntervalMs);
+        expect(spy.mock.calls.length).toBeGreaterThanOrEqual(2);
+
+        // Assert: stop で timer が止まる
+        sender.stop();
+        const n = spy.mock.calls.length;
+        vi.advanceTimersByTime(kGoogCcProcessIntervalMs * 4);
+        expect(spy.mock.calls.length).toBe(n);
+      } finally {
+        sender.stop();
+        vi.useRealTimers();
+      }
+    });
+
+    test("estimator swap で旧 GCC の ProcessInterval timer が止まる", () => {
+      vi.useFakeTimers();
+      const gcc = new GccBandwidthEstimator(300_000);
+      const spy = vi.spyOn(gcc, "process");
+      const sender = new RTCRtpSender("video");
+      try {
+        sender.setBandwidthEstimator(gcc);
+        vi.advanceTimersByTime(kGoogCcProcessIntervalMs);
+        expect(spy.mock.calls.length).toBeGreaterThanOrEqual(1);
+
+        // Act: legacy に差し替え
+        sender.setBandwidthEstimator(new SenderBandwidthEstimator());
+        const n = spy.mock.calls.length;
+        vi.advanceTimersByTime(kGoogCcProcessIntervalMs * 4);
+
+        // Assert: 旧 instance へはもう process しない
+        expect(spy.mock.calls.length).toBe(n);
+      } finally {
+        sender.stop();
+        vi.useRealTimers();
+      }
     });
 
     test("receiveTWCC は wall/receive 混在 heuristic を使わず feedback_time=sender clock", () => {
@@ -4538,11 +4732,11 @@ describe("media/sender bandwidth estimator", () => {
       );
       expect((gcc as any).finalizedSeqs.has(1)).toBe(true);
 
-      // Act: age-out prune（sendingAtMs を古くして rtpPacketSent）
+      // Act: age-out prune（sendingAtMs を 60s 超にして rtpPacketSent）
       gcc.rtpPacketSent({
         wideSeq: 100,
         size: 200,
-        sendingAtMs: t0 + 60_000,
+        sendingAtMs: t0 + kSendTimeHistoryWindowMs + 10,
         isProbation: false,
       } as any);
 
@@ -4616,25 +4810,24 @@ describe("media/sender bandwidth estimator", () => {
       expect(lossUpdateArgs[0]).toBeGreaterThan(200_000);
     });
 
-    test("sentInfos pruning は最新から後方 2048 を保持する", () => {
-      // Arrange
+    test("sentInfos pruning は pin 60s 窓で、件数 2048 では切らない", () => {
+      // Arrange: pin kSendTimeHistoryWindow=60s。高レート probe でも 2048 で落とさない
       const gcc = new GccBandwidthEstimator(300_000);
       const t0 = 100_000;
-      // Act: 4098 packets (exceeds 4096 trigger / 2048 keep)
+      // Act: 4098 packets in ~4s（60s 未満）
       for (let i = 0; i < 4098; i++) {
         gcc.rtpPacketSent(sent(i, 200, t0 + i));
       }
-      // Assert via private map: recent half kept, old half gone
       const map = (gcc as any).sentInfos as Map<number, unknown>;
-      expect(map.size).toBeLessThanOrEqual(2048);
-      // 最新付近は残る
+      // Assert: 時間窓内なら 2048 を超えて残る
+      expect(map.size).toBeGreaterThan(2048);
+      expect(map.has(0)).toBe(true);
       expect(map.has(4097)).toBe(true);
-      expect(map.has(4096)).toBe(true);
-      expect(map.has(4097 - 2047)).toBe(true); // back=2047 → keep
-      // 古い方は消える
-      expect(map.has(0)).toBe(false);
-      expect(map.has(1000)).toBe(false);
-      expect(map.has(4097 - 2048)).toBe(false); // back=2048 → prune
+
+      // Act: 60s 超の古い packet だけ落ちる
+      gcc.rtpPacketSent(sent(5000, 200, t0 + kSendTimeHistoryWindowMs + 1));
+      expect((gcc as any).sentInfos.has(0)).toBe(false);
+      expect((gcc as any).sentInfos.has(5000)).toBe(true);
     });
 
     test("late TWCC correction は loss partial を二重計上しない", () => {

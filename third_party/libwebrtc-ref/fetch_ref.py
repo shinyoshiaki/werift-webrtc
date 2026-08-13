@@ -57,6 +57,8 @@ FILES = [
     "modules/congestion_controller/rtp/transport_feedback_adapter.cc",
     "modules/congestion_controller/rtp/transport_feedback_demuxer.h",
     "modules/congestion_controller/rtp/transport_feedback_demuxer.cc",
+    "api/transport/goog_cc_factory.h",
+    "api/transport/goog_cc_factory.cc",
 ]
 
 

@@ -28,7 +28,7 @@ import {
   kRttBasedBackOffBandwidthFloorBps,
   kRttBasedBackOffDropFraction,
   kRttBasedBackOffDropIntervalMs,
-  kSentInfoMaxAgeMs,
+  kSendTimeHistoryWindowMs,
   kStreamTimeOutMs,
 } from "./constants";
 import { InterArrivalDelta } from "./interArrivalDelta";
@@ -523,7 +523,8 @@ export class GccBandwidthEstimator
 
     // pin UpdateEstimate RTT branch vs normal:
     // - When RTT-limited: **do not** apply LossBasedBwe result to target.
-    //   GetUpperLimit = delay_based (and configured max) only; then ×0.8 drops.
+    //   Drop first (if due), then ApplyTargetLimits / GetUpperLimit
+    //   (delay_based + configured max, then min_bitrate). Never clamp-then-drop.
     //   Exception: probe SetSendBitrate already raised current before
     //   UpdateEstimate (delay path holds post-probe estimate).
     // - When not RTT-limited: current_target = post-loss estimate.
@@ -533,16 +534,6 @@ export class GccBandwidthEstimator
         // pin SetSendBitrate(probe) → current_target = probe estimate, then
         // UpdateEstimate may immediately ×0.8 if still above RTT limit.
         this.currentTargetBps = this.delayBasedBps;
-      } else if (this.delayBasedBps > 0) {
-        // ApplyTargetLimits / GetUpperLimit: delay-based upper only — never
-        // pull down by lossBasedBps while high RTT (pin skips loss branch).
-        this.currentTargetBps = Math.min(
-          this.currentTargetBps > 0
-            ? this.currentTargetBps
-            : this.delayBasedBps,
-          this.delayBasedBps,
-          kMaxBitrateBps,
-        );
       }
       this.maybeApplyRttBasedBackoff(nowMs);
     } else if (delayLossTarget > 0) {
@@ -639,9 +630,28 @@ export class GccBandwidthEstimator
   }
 
   /**
+   * pin `GetUpperLimit` + `UpdateTargetBitrate` min clamp.
+   * delay_based_limit_ is +∞ until a delay sample exists (`hasValidSample`).
+   */
+  private delayBasedUpperLimitBps(): number {
+    if (!this.hasValidSample || this.delayBasedBps <= 0) {
+      return kMaxBitrateBps;
+    }
+    return this.delayBasedBps;
+  }
+
+  private applyTargetLimits(): void {
+    if (this.currentTargetBps <= 0) {
+      this.currentTargetBps = this.startBitrateBps;
+    }
+    const upper = Math.min(this.delayBasedUpperLimitBps(), kMaxBitrateBps);
+    this.currentTargetBps = Math.min(this.currentTargetBps, upper);
+    this.currentTargetBps = Math.max(this.currentTargetBps, kMinBitrateBps);
+  }
+
+  /**
    * pin `SendSideBandwidthEstimation::UpdateEstimate` RTT branch:
-   * if CorrectedRtt above limit and drop_interval elapsed and target > floor,
-   * set target = max(target × drop_fraction, floor) and publish.
+   * drop first (if interval due), then ApplyTargetLimits (delay upper + min).
    *
    * Called from `rtpPacketSent`, `process` (pin OnProcessInterval), and after
    * TWCC when still RTT-limited. Returns true when a drop was applied.
@@ -652,6 +662,7 @@ export class GccBandwidthEstimator
     if (this.currentTargetBps <= 0) {
       this.currentTargetBps = this.startBitrateBps;
     }
+    let dropped = false;
     if (
       nowMs - this.lastRttDecreaseMs >= kRttBasedBackOffDropIntervalMs &&
       this.currentTargetBps > kRttBasedBackOffBandwidthFloorBps
@@ -661,11 +672,12 @@ export class GccBandwidthEstimator
         this.currentTargetBps * kRttBasedBackOffDropFraction,
         kRttBasedBackOffBandwidthFloorBps,
       );
-      // Safety drop publishes even before first TWCC (pin ProcessInterval path).
-      setAvailableBitrateIfChanged(this, this.currentTargetBps);
-      return true;
+      dropped = true;
     }
-    return false;
+    this.applyTargetLimits();
+    // Safety drop publishes even before first TWCC (pin ProcessInterval path).
+    setAvailableBitrateIfChanged(this, this.currentTargetBps);
+    return dropped;
   }
 
   dispose() {
@@ -701,35 +713,21 @@ export class GccBandwidthEstimator
   }
 
   /**
-   * Drop aged entries and keep only the **most recent** {@link keepWindow}
-   * sequences measured by wrap-aware **backward** distance from
-   * `latestWideSeq` (0 = latest). Using forward distance wrongly deleted
-   * recent packets and retained the oldest half of the ring.
+   * pin `TransportFeedbackAdapter` send-time history: drop entries older than
+   * {@link kSendTimeHistoryWindowMs} (60s). No extra 2048-sequence cap —
+   * 16-bit wide-seq keys already bound the map, and high-rate probe padding
+   * would otherwise evict late-ACK-able packets too early.
    *
    * finalized/soft-lost sets are pruned to keys still present in sentInfos
    * (never wholesale-cleared while live seqs remain — that would re-count
    * received packets in LossBased partial observations).
    */
-  private pruneSentInfos(nowMs: number, latestWideSeq: number) {
-    const keepWindow = 2048;
+  private pruneSentInfos(nowMs: number, _latestWideSeq: number) {
     for (const [seq, info] of this.sentInfos) {
-      if (nowMs - info.sendingAtMs > kSentInfoMaxAgeMs) {
+      if (nowMs - info.sendingAtMs > kSendTimeHistoryWindowMs) {
         this.sentInfos.delete(seq);
         this.finalizedSeqs.delete(seq);
         this.softLostSeqs.delete(seq);
-      }
-    }
-    if (this.sentInfos.size > keepWindow) {
-      const origin = latestWideSeq & 0xffff;
-      for (const seq of [...this.sentInfos.keys()]) {
-        const s = seq & 0xffff;
-        // How many sequence steps **before** origin (wrap-aware). 0 = latest.
-        const back = (origin - s + 0x10000) % 0x10000;
-        if (back >= keepWindow) {
-          this.sentInfos.delete(seq);
-          this.finalizedSeqs.delete(seq);
-          this.softLostSeqs.delete(seq);
-        }
       }
     }
     // Drop orphan finalize/soft-loss markers no longer backed by sentInfos.

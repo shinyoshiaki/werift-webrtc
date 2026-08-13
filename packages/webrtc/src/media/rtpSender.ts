@@ -75,6 +75,7 @@ import {
   isRoundTripTimeConsumer,
 } from "./sender/bandwidthEstimator";
 import {
+  kGoogCcProcessIntervalMs,
   kProbePaddingMaxBurst,
   kProbePaddingPacketBytes,
 } from "./sender/estimators/gcc/constants";
@@ -166,6 +167,12 @@ export class RTCRtpSender {
    * probe controller.
    */
   private bweGeneration = 0;
+  /**
+   * pin GoogCc ProcessInterval timer (25ms). Started only when the active
+   * estimator implements {@link BandwidthEstimatorProcessor}. Cleared on
+   * stop / swap to a non-processor / dispose.
+   */
+  private bweProcessTimer?: ReturnType<typeof setInterval>;
 
   private cname?: string;
   private mid?: string;
@@ -290,6 +297,7 @@ export class RTCRtpSender {
       impl.reset?.();
       this.paceBudgetBytes = 0;
       this.lastPaceMs = 0;
+      this.syncBweProcessTimer();
       return;
     }
     this.bweAvailableBitrateUnsub?.();
@@ -307,6 +315,33 @@ export class RTCRtpSender {
     this.bindBandwidthEstimatorEvents(impl);
     this.paceBudgetBytes = 0;
     this.lastPaceMs = 0;
+    this.syncBweProcessTimer();
+  }
+
+  /**
+   * pin `GoogCcNetworkControllerFactory::GetProcessInterval` (25ms).
+   * Advances RTT backoff / ProbeController::Process on the sender clock even
+   * when RTP/TWCC events are idle. Does not start for legacy estimators.
+   */
+  private syncBweProcessTimer(): void {
+    this.stopBweProcessTimer();
+    if (this.stopped) return;
+    if (!isBandwidthEstimatorProcessor(this._senderBWE)) return;
+    const timer = setInterval(() => {
+      if (this.stopped) return;
+      if (isBandwidthEstimatorProcessor(this._senderBWE)) {
+        this._senderBWE.process(milliTime());
+      }
+    }, kGoogCcProcessIntervalMs);
+    timer.unref?.();
+    this.bweProcessTimer = timer;
+  }
+
+  private stopBweProcessTimer(): void {
+    if (this.bweProcessTimer !== undefined) {
+      clearInterval(this.bweProcessTimer);
+      this.bweProcessTimer = undefined;
+    }
   }
 
   private bindBandwidthEstimatorEvents(impl: BandwidthEstimator) {
@@ -452,6 +487,7 @@ export class RTCRtpSender {
     this.stopped = true;
     this.rtcpRunning = false;
     this.rtcpCancel.abort();
+    this.stopBweProcessTimer();
     if (this.disposeTrack) {
       this.disposeTrack();
     }

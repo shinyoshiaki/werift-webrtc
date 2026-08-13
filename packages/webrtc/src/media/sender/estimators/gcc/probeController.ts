@@ -18,7 +18,7 @@ import {
   kProbeRecoveryScale,
   kProbeResultTimeoutMs,
   kProbeTargetUtilization,
-  kSentInfoMaxAgeMs,
+  kSendTimeHistoryWindowMs,
 } from "./constants";
 
 /**
@@ -87,7 +87,7 @@ interface ClusterRuntime {
  *   result to decide further probing (sender-clock 1s lifetime)
  * - `estimatorHistory`: ProbeBitrateEstimator clusters kept after controller
  *   timeout so late TWCC can still produce estimates (receive-timeline 1s).
- *   Also pruned by **sender-side** age ({@link kSentInfoMaxAgeMs}) so clusters
+ *   Also pruned by **sender-side** age ({@link kSendTimeHistoryWindowMs}) so clusters
  *   that never receive ACK cannot grow unbounded.
  * - On **send** fill (minBytes AND minPackets), front is moved to awaiting and
  *   the next queued cluster becomes pacing — **without waiting for ACK**
@@ -585,7 +585,7 @@ export class ProbeController {
   private pruneEstimatorHistoryBySendAge(nowMs: number) {
     for (const [id, c] of this.estimatorHistory) {
       const lastSend = c.lastSendMs > 0 ? c.lastSendMs : c.startMs;
-      if (nowMs - lastSend > kSentInfoMaxAgeMs) {
+      if (nowMs - lastSend > kSendTimeHistoryWindowMs) {
         this.dropClusterSeqs(id);
         this.estimatorHistory.delete(id);
       }
