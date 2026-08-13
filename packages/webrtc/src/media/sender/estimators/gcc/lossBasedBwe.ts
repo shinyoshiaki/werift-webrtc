@@ -95,6 +95,9 @@ export class LossBasedBwe {
   private numObservations = 0;
   private acknowledgedBps = 0;
   private delayBasedBps = 0;
+  /** pin `min_bitrate_` / `max_bitrate_` from SetMinMaxBitrate. */
+  private minBitrateBps = kMinBitrateBps;
+  private maxBitrateBps = kMaxBitrateBps;
   private averageReportedLossRatio = 0;
   private cachedInstantUpperBoundBps = kMaxBitrateBps;
   private cachedInstantLowerBoundBps = 0;
@@ -151,6 +154,8 @@ export class LossBasedBwe {
     this.numObservations = 0;
     this.acknowledgedBps = 0;
     this.delayBasedBps = 0;
+    this.minBitrateBps = kMinBitrateBps;
+    this.maxBitrateBps = kMaxBitrateBps;
     this.averageReportedLossRatio = 0;
     this.cachedInstantUpperBoundBps = kMaxBitrateBps;
     this.cachedInstantLowerBoundBps = 0;
@@ -179,6 +184,22 @@ export class LossBasedBwe {
    */
   setPaddingDurationMs(ms: number) {
     this.paddingDurationMs = Number.isFinite(ms) ? Math.max(0, ms) : 0;
+  }
+
+  /**
+   * pin `LossBasedBweV2::SetMinMaxBitrate`.
+   * `maxBps <= 0` / non-finite → {@link kMaxBitrateBps} (1 Gbps).
+   */
+  setMinMaxBitrate(minBps: number, maxBps: number): void {
+    if (Number.isFinite(minBps) && minBps > 0) {
+      this.minBitrateBps = Math.max(minBps, kMinBitrateBps);
+      this.calculateInstantLowerBound();
+    }
+    if (Number.isFinite(maxBps) && maxBps > 0) {
+      this.maxBitrateBps = Math.max(this.minBitrateBps, maxBps);
+    } else {
+      this.maxBitrateBps = kMaxBitrateBps;
+    }
   }
 
   /**
@@ -248,9 +269,9 @@ export class LossBasedBwe {
       this.acknowledgedBps = acknowledgedBps;
       this.calculateInstantLowerBound();
     }
-    if (delayBasedBps > 0) {
-      this.delayBasedBps = delayBasedBps;
-    }
+    // pin always assigns delay_based_estimate_ (PlusInfinity → 0 here).
+    // Keep a stale delay cap only when the caller still has a finite limit.
+    this.delayBasedBps = delayBasedBps > 0 ? delayBasedBps : 0;
 
     const n = packetCount > 0 ? packetCount : 0;
     const lost =
@@ -737,7 +758,7 @@ export class LossBasedBwe {
   }
 
   private calculateInstantUpperBound() {
-    let instant = kMaxBitrateBps;
+    let instant = this.maxBitrateBps;
     if (this.averageReportedLossRatio > kLossBasedInstantUpperBoundLossOffset) {
       instant =
         kLossBasedInstantUpperBoundBwBalanceBps /
@@ -751,7 +772,7 @@ export class LossBasedBwe {
     if (this.acknowledgedBps > 0 && kLossBasedLowerBoundByAckedRateFactor > 0) {
       lower = kLossBasedLowerBoundByAckedRateFactor * this.acknowledgedBps;
     }
-    lower = Math.max(lower, kMinBitrateBps);
+    lower = Math.max(lower, this.minBitrateBps);
     this.cachedInstantLowerBoundBps = lower;
   }
 
@@ -770,7 +791,7 @@ export class LossBasedBwe {
     const rampupCap =
       this.acknowledgedBps > 0
         ? this.acknowledgedBps * this.rampupBoundFactor()
-        : kMaxBitrateBps;
+        : this.maxBitrateBps;
 
     return bandwidths.map((bw) => {
       let lossLimited = bw;
@@ -782,7 +803,7 @@ export class LossBasedBwe {
       }
       const candidate: ChannelParameters = {
         inherentLoss: this.current.inherentLoss,
-        lossLimitedBandwidthBps: lossLimited,
+        lossLimitedBandwidthBps: Math.min(lossLimited, this.maxBitrateBps),
       };
       candidate.inherentLoss = this.getFeasibleInherentLoss(candidate);
       return candidate;

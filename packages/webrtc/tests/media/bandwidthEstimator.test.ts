@@ -3827,6 +3827,7 @@ describe("media/sender bandwidth estimator", () => {
 
       (gcc as any).hasValidSample = true;
       (gcc as any).delayBasedBps = 400_000;
+      (gcc as any).delayBasedLimitBps = 400_000;
 
       // Act: drop_interval 経過後の ProcessInterval
       const later = firstProcess + kRttBasedBackOffDropIntervalMs;
@@ -6240,16 +6241,92 @@ describe("media/sender bandwidth estimator", () => {
       (gcc as any).probingConfigured = true;
       (gcc as any).hasValidSample = true;
       (gcc as any).delayBasedBps = 8_000_000;
+      (gcc as any).delayBasedLimitBps = 8_000_000;
       (gcc as any).lossBasedBps = 8_000_000;
       (gcc as any).currentTargetBps = 8_000_000;
       (gcc as any)._availableBitrate = 8_000_000;
 
-      // Act
+      // Act: ProcessInterval が delay 上限を適用する
       setNow(40_050);
       gcc.process(40_050);
 
       // Assert: 8Mbps のまま（5Mbps probe cap を target に使わない）
       expect(gcc.availableBitrate).toBe(8_000_000);
+    });
+
+    test("全ロス TWCC だけでは start bitrate を delay cap にしない", () => {
+      // Arrange: pin delay_based_limit_ は +∞ のまま（result.updated なし）
+      const start = 300_000;
+      const { gcc, setNow } = createClockGcc(start, 60_000);
+      (gcc as any).probe.abort(60_000);
+      (gcc as any).probingConfigured = true;
+      for (let i = 1; i <= 8; i++) {
+        gcc.rtpPacketSent(sent(i, 500, 60_000 + i * 10));
+      }
+      setNow(60_200);
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 8 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: false,
+            });
+          }),
+        ),
+      );
+      expect((gcc as any).delayBasedLimitBps).toBe(Number.POSITIVE_INFINITY);
+
+      // Act: 損失側が 8Mbps を返したあとの ProcessInterval
+      (gcc as any).lossBasedBps = 8_000_000;
+      (gcc as any).currentTargetBps = 8_000_000;
+      (gcc as any)._availableBitrate = 8_000_000;
+      setNow(60_250);
+      gcc.process(60_250);
+
+      // Assert: start 300kbps で clamp されない
+      expect(gcc.availableBitrate).toBe(8_000_000);
+    });
+
+    test("setBitrates(start>0) は delay cap を外して新しい start を採用する", () => {
+      // Arrange: pin SetSendBitrate は delay_based_limit_ = +∞
+      const { gcc } = createClockGcc(300_000, 70_000);
+      (gcc as any).hasValidSample = true;
+      (gcc as any).delayBasedBps = 200_000;
+      (gcc as any).delayBasedLimitBps = 200_000;
+      (gcc as any).lossBasedBps = 200_000;
+      (gcc as any).currentTargetBps = 200_000;
+      (gcc as any)._availableBitrate = 200_000;
+
+      // Act: start=1Mbps を伴う constraint 更新
+      gcc.setBitrates(10_000, 1_000_000, 2_000_000);
+
+      // Assert: 古い delay 200kbps に張り付かない
+      expect((gcc as any).delayBasedLimitBps).toBe(Number.POSITIVE_INFINITY);
+      expect(gcc.availableBitrate).toBe(1_000_000);
+    });
+
+    test("setBitrates(start=0) は current target を上書きしない", () => {
+      // Arrange: pin SetBitrates は start=0 なら SetSendBitrate しない
+      const { gcc } = createClockGcc(300_000, 80_000);
+      (gcc as any).hasValidSample = true;
+      (gcc as any).delayBasedBps = 400_000;
+      (gcc as any).delayBasedLimitBps = 400_000;
+      (gcc as any).lossBasedBps = 400_000;
+      (gcc as any).currentTargetBps = 400_000;
+      (gcc as any)._availableBitrate = 400_000;
+      (gcc as any).startBitrateBps = 300_000;
+
+      // Act: max だけ更新
+      gcc.setBitrates(10_000, 0, 2_000_000);
+
+      // Assert: start/current は据え置き、max は効く
+      expect((gcc as any).startBitrateBps).toBe(300_000);
+      expect(gcc.availableBitrate).toBe(400_000);
+      (gcc as any).currentTargetBps = 3_000_000;
+      (gcc as any).delayBasedLimitBps = Number.POSITIVE_INFINITY;
+      (gcc as any).lossBasedBps = 3_000_000;
+      gcc.process(80_025);
+      expect(gcc.availableBitrate).toBeLessThanOrEqual(2_000_000);
     });
 
     test("setBitrates(max=1M) 後の TWCC は delay/loss=3M を即 1M に clamp する", () => {

@@ -152,6 +152,14 @@ export class GccBandwidthEstimator
    * get the same app max (pin ResetConstraints).
    */
   private appMaxBps: number | undefined;
+  /**
+   * pin `SendSideBandwidthEstimation::delay_based_limit_`.
+   * Starts at +∞ and is written only by a delay-path result
+   * (`UpdateDelayBasedEstimate`). A matched TWCC without receive times
+   * (all-lost / ReceivedWithoutDelta) must **not** turn the constructor
+   * start bitrate into a delay cap (pin `delay_based_limit_`).
+   */
+  private delayBasedLimitBps = Number.POSITIVE_INFINITY;
   private probingConfigured = false;
   /** Valid TWCC samples seen at least once (gates publishing estimates). */
   private hasValidSample = false;
@@ -304,12 +312,18 @@ export class GccBandwidthEstimator
     if (startBps > 0) {
       this.startBitrateBps = startBps;
       this.aimd.setStartBitrate(startBps);
+      // pin SetSendBitrate: delay_based_limit_ = +∞ so the new start is
+      // not capped by a stale delay estimate, then current_target = start.
+      this.delayBasedLimitBps = Number.POSITIVE_INFINITY;
+      this.currentTargetBps = startBps;
     }
     // pin ResetConstraints: the same max is applied to send-side BWE and
-    // ProbeController. start=0 must not overwrite estimated_bitrate_.
+    // ProbeController. start=0 must not overwrite estimated_bitrate_ /
+    // current_target_ (pin SetBitrates skips SetSendBitrate).
     if (Number.isFinite(maxBps) && maxBps !== Number.POSITIVE_INFINITY) {
-      this.appMaxBps = maxBps;
+      this.appMaxBps = maxBps > 0 ? maxBps : undefined;
     }
+    this.lossBwe.setMinMaxBitrate(this.minConfiguredBps, this.targetMaxBps());
     this.probingConfigured = true;
     for (const cfg of this.probe.setBitrates(
       this.minConfiguredBps,
@@ -650,15 +664,19 @@ export class GccBandwidthEstimator
       } else {
         this.delayBasedBps = this.aimd.update(usage, ackedBps, nowMs);
       }
+      // pin UpdateDelayBasedEstimate after MaybeUpdateEstimate (and after
+      // probe SetSendBitrate). 0 → PlusInfinity.
+      this.noteDelayBasedEstimate(this.delayBasedBps);
     }
 
     // Loss path after delay/probe (pin UpdateLossBasedEstimator).
     // Always update LossBasedBwe state, but when RTT-limited pin UpdateEstimate
     // never adopts the loss result as current_target_ (RTT branch returns
     // before LossBasedBandwidthEstimatorV2ReadyForUse).
+    // pin passes delay_based_limit_ (PlusInfinity until the first delay result).
     this.lossBasedBps = this.lossBwe.update(
       lossFraction,
-      this.delayBasedBps,
+      this.delayLimitForLossBwe(),
       ackedBps,
       known,
       lost,
@@ -669,8 +687,10 @@ export class GccBandwidthEstimator
       lossPackets,
     );
 
-    // Final delay/loss candidate (loss already min'd vs delay inside LossBasedBwe).
-    const delayLossTarget = Math.min(this.delayBasedBps, this.lossBasedBps);
+    // Final delay/loss candidate. LossBasedBwe already mins against the delay
+    // limit when one exists. Until the first delay result, pin delay_based_limit_
+    // is +∞ — do not min() against the constructor start bitrate.
+    const delayLossTarget = this.combineDelayLossTarget(this.lossBasedBps);
 
     // pin UpdateEstimate RTT branch vs normal:
     // - When RTT-limited: **do not** apply LossBasedBwe result to target.
@@ -769,20 +789,58 @@ export class GccBandwidthEstimator
     this.previouslyInAlr = false;
     this.minConfiguredBps = kMinBitrateBps;
     this.appMaxBps = undefined;
+    this.delayBasedLimitBps = Number.POSITIVE_INFINITY;
+    this.lossBwe.setMinMaxBitrate(this.minConfiguredBps, this.targetMaxBps());
     // pin Reset keeps enable_periodic_alr_probing_; restore in case a
     // direct ProbeController.reset(0) was used without the flag.
     this.probe.enablePeriodicAlrProbing(this.periodicAlrProbing);
   }
 
   /**
-   * pin `GetUpperLimit` + `UpdateTargetBitrate` min clamp.
-   * delay_based_limit_ is +∞ until a delay sample exists (`hasValidSample`).
+   * pin `GetUpperLimit` delay_based_limit_. +∞ until
+   * {@link noteDelayBasedEstimate} (not merely `hasValidSample`).
    */
   private delayBasedUpperLimitBps(): number {
-    if (!this.hasValidSample || this.delayBasedBps <= 0) {
+    if (
+      !Number.isFinite(this.delayBasedLimitBps) ||
+      this.delayBasedLimitBps <= 0
+    ) {
       return kMaxBitrateBps;
     }
-    return this.delayBasedBps;
+    return this.delayBasedLimitBps;
+  }
+
+  /**
+   * pin `UpdateDelayBasedEstimate`: zero means PlusInfinity (no delay cap).
+   */
+  private noteDelayBasedEstimate(bitrateBps: number): void {
+    this.delayBasedBps = bitrateBps;
+    this.delayBasedLimitBps =
+      bitrateBps > 0 ? bitrateBps : Number.POSITIVE_INFINITY;
+  }
+
+  /** pin loss BWE input: delay_based_limit_, or 0 while it is +∞. */
+  private delayLimitForLossBwe(): number {
+    return Number.isFinite(this.delayBasedLimitBps) &&
+      this.delayBasedLimitBps > 0
+      ? this.delayBasedLimitBps
+      : 0;
+  }
+
+  /**
+   * pin UpdateEstimate (LossBased ready): adopt the loss result, then
+   * ApplyTargetLimits. Without a delay result, do not min() against start.
+   */
+  private combineDelayLossTarget(lossBps: number): number {
+    if (lossBps <= 0) return 0;
+    if (
+      Number.isFinite(this.delayBasedLimitBps) &&
+      this.delayBasedLimitBps > 0 &&
+      this.delayBasedBps > 0
+    ) {
+      return Math.min(this.delayBasedBps, lossBps);
+    }
+    return lossBps;
   }
 
   /** pin send-side max: app max or kDefaultMaxBitrate (1 Gbps). */
@@ -825,11 +883,9 @@ export class GccBandwidthEstimator
       return;
     }
     if (this.hasValidSample) {
-      const delay =
-        this.delayBasedBps > 0 ? this.delayBasedBps : this.currentTargetBps;
       const loss =
         this.lossBasedBps > 0 ? this.lossBasedBps : this.currentTargetBps;
-      const delayLossTarget = Math.min(delay, loss);
+      const delayLossTarget = this.combineDelayLossTarget(loss);
       if (delayLossTarget > 0) {
         this.currentTargetBps = delayLossTarget;
       }
