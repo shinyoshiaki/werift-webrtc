@@ -372,16 +372,15 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
       return false;
     }
     if (rec.contentType === ContentType.alert) {
-      // Pre-keys: only accept from an already-associated peer (client pin at
-      // connect, or post-cookie provisional/pin). Server pre-cookie has no
-      // expected peer → drop (listener DoS). authenticated-single-peer trusts
-      // transport identity (addressless / non-matching 5-tuple OK).
-      const expected = this.expectedPeerKey();
-      if (!expected) {
+      // Pre-keys: only accept from an associated peer (client pin at connect,
+      // post-cookie provisional/pin, or authenticated-single-peer / ICE where
+      // the transport is the identity and no 5-tuple pin exists).
+      // Server pre-cookie datagram-address: drop (listener DoS).
+      if (!this.hasAssociationPeerAuth()) {
         log(
           "drop epoch-0 alert from unassociated peer (no association fatal)",
           this.currentPeerKey,
-          expected,
+          this.expectedPeerKey(),
         );
         return false;
       }
@@ -389,7 +388,7 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
         log(
           "drop epoch-0 alert from non-association peer",
           this.currentPeerKey,
-          expected,
+          this.expectedPeerKey(),
         );
         return false;
       }

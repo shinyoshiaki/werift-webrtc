@@ -43,7 +43,9 @@ export class Flight4 extends Flight {
       return;
     }
     this.dtls.flight = 4;
-    this.dtls.sequenceNumber = 1;
+    // ServerHello message_seq corresponds to the final cookie-validated
+    // ClientHello (CH1=0 → HVR=0; CH2=1 → SH=1; re-challenge CH3=2 → SH=2).
+    this.dtls.sequenceNumber = clientHello.message_seq;
     this.dtls.bufferHandshakeCache([clientHello], false, 4);
 
     const messages = [

@@ -267,14 +267,16 @@ export class DtlsServer extends DtlsSocket {
               // selected === V1_2 → stay on DTLS 1.2 path (flight2/4).
               // ServerHello will include DOWNGRD sentinel when dual-capable.
               if (selected === undefined) {
-                // No overlap — send alert. Only association-fatal after pin
-                // (post-cookie); pre-cookie must not DoS the listening server.
+                // No overlap — send alert. Association-fatal only when the
+                // peer is authenticated (UDP pin after cookie, or ICE /
+                // authenticated-single-peer). Pre-auth UDP must not DoS
+                // the listening server.
                 await this.sendPlaintextAlert(
                   AlertDesc.ProtocolVersion,
                   replyTo,
                 );
                 if (this.associationTornDown) return;
-                if (this.transport.pinnedPeer) {
+                if (this.hasAssociationPeerAuth()) {
                   this.reportLegacy12Fatal(
                     new ProtocolVersionError(
                       "no overlapping DTLS protocol version with peer",
@@ -294,8 +296,9 @@ export class DtlsServer extends DtlsSocket {
               this.protocolVersions.length === 1 &&
               this.protocolVersions[0] === DtlsVersion.V1_3
             ) {
-              // Pre-auth CH without 1.3: drop only (no association fatal DoS).
-              if (this.transport.pinnedPeer) {
+              // Unauthenticated datagram-address CH: drop only (no DoS).
+              // Authenticated-single-peer / post-pin: version error is terminal.
+              if (this.hasAssociationPeerAuth()) {
                 this.reportLegacy12Fatal(
                   new ProtocolVersionError(
                     "DTLS 1.3-only server rejected ClientHello without DTLS 1.3",
@@ -312,7 +315,7 @@ export class DtlsServer extends DtlsSocket {
             ) {
               await this.sendPlaintextAlert(AlertDesc.ProtocolVersion, replyTo);
               if (this.associationTornDown) return;
-              if (this.transport.pinnedPeer) {
+              if (this.hasAssociationPeerAuth()) {
                 this.reportLegacy12Fatal(
                   new ProtocolVersionError(
                     "DTLS 1.2-only server: peer offered only DTLS 1.3 cipher suites",
@@ -333,7 +336,11 @@ export class DtlsServer extends DtlsSocket {
               }
               // Pre-cookie: HVR only — no association cipher/srtp commit.
               log(this.dtls.sessionId, "send flight2 (HelloVerifyRequest)");
-              flight2(this.transport, this.dtls)(clientHello, replyTo);
+              flight2(this.transport, this.dtls)(
+                clientHello,
+                replyTo,
+                handshake.message_seq,
+              );
             } else {
               // Cookie must bind source address + ClientHello parameters
               // (RFC 6347 HMAC style / RFC 9147 address dependency).
@@ -364,7 +371,11 @@ export class DtlsServer extends DtlsSocket {
                 // Re-challenge: mint fresh HVR for this source (RFC 6347).
                 const ch1Shape = ClientHello.deSerialize(chBody);
                 ch1Shape.cookie = Buffer.alloc(0);
-                flight2(this.transport, this.dtls)(ch1Shape, replyTo);
+                flight2(this.transport, this.dtls)(
+                  ch1Shape,
+                  replyTo,
+                  handshake.message_seq,
+                );
                 return;
               }
 
@@ -399,8 +410,10 @@ export class DtlsServer extends DtlsSocket {
                   "commit ClientHello after cookie failed",
                   e,
                 );
-                // Pre-pin: do not association-fatal (spoofed CH2 after valid cookie shape)
-                if (this.transport.pinnedPeer) {
+                // UDP without pin: keep listening (do not DoS the server).
+                // Authenticated-single-peer (ICE): handshake failed with the
+                // only peer — association-fatal.
+                if (this.hasAssociationPeerAuth()) {
                   this.reportLegacy12Fatal(
                     e instanceof Error ? e : new Error(String(e)),
                   );

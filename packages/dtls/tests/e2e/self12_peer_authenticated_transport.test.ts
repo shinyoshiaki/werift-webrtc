@@ -323,6 +323,99 @@ test("e2e/peerAuth: 1.2-only client vs 1.3-only server → ProtocolVersionError"
 }, 15_000);
 
 /**
+ * Reverse of the 1.2-only client × 1.3-only server case: ICE-like
+ * authenticated-single-peer must make the *server* terminal too.
+ * UDP pin is never set on this transport, so version-error paths that
+ * still key off transport.pinnedPeer would leave the server listening.
+ */
+test("e2e/peerAuth: 1.3-only client vs 1.2-only server → both ProtocolVersionError", async () => {
+  // Arrange: addressless peer-auth, 1.3-only client / 1.2-only server
+  const { t1, t2 } = await peerAuthTransports();
+  const server = new DtlsServer({
+    transport: t1,
+    cert: certPem,
+    key: keyPem,
+    ...peerAuthOpts,
+    protocolVersions: [DtlsVersion.V1_2],
+  });
+  const client = new DtlsClient({
+    transport: t2,
+    cert: certPem,
+    key: keyPem,
+    ...peerAuthOpts,
+    protocolVersions: [DtlsVersion.V1_3],
+  });
+
+  const isPv = (e: Error) =>
+    e instanceof ProtocolVersionError ||
+    e.name === "ProtocolVersionError" ||
+    /protocol_version|protocol version|DTLS 1\.2-only|only DTLS 1\.3/i.test(
+      e.message,
+    );
+
+  const clientErrors: Error[] = [];
+  const serverErrors: Error[] = [];
+
+  // Act: 双方が ProtocolVersionError で終わるまで待つ（片側だけでは不十分）
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(
+        new Error(
+          `expected both ProtocolVersionError; client=${clientErrors.map((e) => e.message).join(" | ") || "(none)"} server=${serverErrors.map((e) => e.message).join(" | ") || "(none)"}`,
+        ),
+      );
+    }, 12_000);
+    const maybeDone = () => {
+      if (clientErrors.length > 0 && serverErrors.length > 0) {
+        clearTimeout(timer);
+        resolve();
+      }
+    };
+    client.onError.subscribe((e) => {
+      clientErrors.push(e);
+      maybeDone();
+    });
+    server.onError.subscribe((e) => {
+      serverErrors.push(e);
+      maybeDone();
+    });
+    client.onConnect.subscribe(() => {
+      clearTimeout(timer);
+      reject(new Error("should not connect 1.3-only to 1.2-only on peerAuth"));
+    });
+    server.onConnect.subscribe(() => {
+      clearTimeout(timer);
+      reject(new Error("1.2-only server must not connect to 1.3-only client"));
+    });
+    void client.connect().catch((e) => {
+      clientErrors.push(e as Error);
+      maybeDone();
+    });
+  });
+
+  // Assert: 双方が version error、server は terminal、pending timer なし
+  expect(isPv(clientErrors[0])).toBe(true);
+  expect(isPv(serverErrors[0])).toBe(true);
+  expect(server.connected).toBe(false);
+  expect((server as any).associationTornDown).toBe(true);
+  expect((server as any).dtls.flightTimers.size).toBe(0);
+  expect((server as any).transport.pinnedPeer).toBeUndefined();
+
+  try {
+    client.close();
+  } catch {
+    /* */
+  }
+  try {
+    server.close();
+  } catch {
+    /* */
+  }
+  await t1.close().catch(() => {});
+  await t2.close().catch(() => {});
+}, 15_000);
+
+/**
  * Ticket B required: dual [1.3,1.2] on peer-auth transport falls back to 1.2
  * and completes handshake + app data without UDP addresses.
  */

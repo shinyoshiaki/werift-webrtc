@@ -769,6 +769,16 @@ export abstract class Dtls13ConnectionBase {
     return peerKey === expected;
   }
 
+  /**
+   * Lifecycle peer-auth (epoch-0 alerts / version errors), distinct from
+   * 5-tuple TX pin. ICE / authenticated-single-peer is associated even when
+   * the transport never exposes an address (WebRTC IceTransport).
+   */
+  protected hasAssociationPeerAuth(): boolean {
+    if (this.expectedPeerKey()) return true;
+    return this.peerIdentityMode === "authenticated-single-peer";
+  }
+
   protected pinPeer(key: string, addr?: [string, number]): void {
     if (!key || key === "unknown") return;
     this.pinnedPeerKey = key;

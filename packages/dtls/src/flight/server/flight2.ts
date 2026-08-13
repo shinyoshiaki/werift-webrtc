@@ -25,15 +25,17 @@ const log = debug("werift-dtls : packages/dtls/flight/server/flight2.ts : log");
  */
 export const flight2 =
   (udp: TransportContext, dtls: DtlsContext) =>
-  (clientHello: ClientHello, dest?: Address) => {
+  (clientHello: ClientHello, dest?: Address, clientHelloMessageSeq = 0) => {
     log("dtls version", clientHello.clientVersion);
 
     dtls.flight = 2;
 
-    // if flight 2 restarts due to packet loss, sequence numbers are reused from the top:
-    // https://datatracker.ietf.org/doc/html/rfc6347#section-4.2.2
+    // Record sequence restarts for this HVR flight (RFC 6347 §4.2.2).
+    // Handshake message_seq must match the ClientHello we are answering so a
+    // cookie re-challenge does not rewind HVR to 0 (RFC 6347 multiple cookie
+    // exchanges / Errata 5186: "record sequence number" → message_seq).
     dtls.recordSequenceNumber = 0;
-    dtls.sequenceNumber = 0;
+    dtls.sequenceNumber = clientHelloMessageSeq;
 
     const peerKey = peerKeyFromAddr(dest);
     const chBody = clientHello.serialize();
