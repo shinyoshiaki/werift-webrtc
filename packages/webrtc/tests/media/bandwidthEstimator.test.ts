@@ -2085,7 +2085,8 @@ describe("media/sender bandwidth estimator", () => {
       probe.setEstimatedBitrate(150_000, afterTimeout + 2, {
         cause: "delay_based_limited",
       });
-      const recovery = probe.requestProbe(150_000, afterTimeout + 3);
+      // pin last_bwe_drop_probing_time_ starts at 0; RequestProbe needs >5s
+      const recovery = probe.requestProbe(150_000, 5_001);
       expect(recovery.length).toBe(1);
       expect(recovery[0].targetBps).toBe(1_000_000 * kProbeFractionAfterDrop);
       expect(probe.probeState).toBe("waiting_for_result");
@@ -6126,6 +6127,104 @@ describe("media/sender bandwidth estimator", () => {
       // Assert: reset せず group close の delta が出る
       expect(d).toBeDefined();
       expect(d!.sendDeltaMs).toBe(6);
+    });
+
+    test("complete 後に max が上がると new max で単発 probe する", () => {
+      // Arrange: pin SetBitrates kProbingComplete —
+      // old_max < new_max && estimated < new_max → InitiateProbing({max}, false)
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, 1_000_000, 0);
+      probe.abort(1_000);
+      expect(probe.probeState).toBe("complete");
+      probe.setEstimatedBitrate(400_000, 6_000, {
+        cause: "delay_based_limited",
+      });
+
+      // Act: max 1M → 2M
+      const started = probe.setBitrates(10_000, 100_000, 2_000_000, 6_000);
+
+      // Assert: start>0 で estimated は start に上書きされ、target=new max
+      expect(started.length).toBe(1);
+      expect(started[0].targetBps).toBe(2_000_000);
+      expect(probe.furtherProbeThresholdBps).toBe(Number.POSITIVE_INFINITY);
+      expect(probe.currentProbeTargetBps).toBe(2_000_000);
+    });
+
+    test("complete 後の max 据え置き / 低下 / 境界では probe しない", () => {
+      // Arrange
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, 1_000_000, 0);
+      probe.abort(1_000);
+      probe.setEstimatedBitrate(400_000, 6_000, {
+        cause: "delay_based_limited",
+      });
+
+      // Act / Assert: 同じ max（old < new ではない）
+      expect(probe.setBitrates(10_000, 100_000, 1_000_000, 6_000)).toEqual([]);
+      // Act / Assert: より低い max
+      expect(probe.setBitrates(10_000, 100_000, 500_000, 6_100)).toEqual([]);
+      // Act / Assert: max+1 なら開始
+      const up = probe.setBitrates(10_000, 100_000, 1_000_001, 6_200);
+      expect(up.length).toBe(1);
+      expect(up[0].targetBps).toBe(1_000_001);
+    });
+
+    test("reset は periodic ALR と ALR start を残し drop-probe cooldown を now にする", () => {
+      // Arrange: pin Reset は enable_periodic_alr_probing_ / alr_start_time_
+      // を残し、last_bwe_drop_probing_time_ = at_time
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, 1e9, 0);
+      probe.enablePeriodicAlrProbing(true);
+      probe.setAlrStartTime(2_000);
+      probe.abort(3_000);
+      probe.setEstimatedBitrate(800_000, 8_000);
+      probe.setEstimatedBitrate(200_000, 8_100, {
+        cause: "delay_based_limited",
+      });
+
+      // Act
+      const resetAt = 9_000;
+      probe.reset(resetAt);
+
+      // Assert: 設定保持
+      expect(probe.probeState).toBe("init");
+      expect((probe as any).periodicAlrProbing).toBe(true);
+      expect((probe as any).alrStartMs).toBe(2_000);
+      expect((probe as any).alrEndMs).toBeUndefined();
+      expect((probe as any).lastBweDropProbingMs).toBe(resetAt);
+      expect((probe as any).timeOfLastLargeDropMs).toBe(resetAt);
+      expect(probe.furtherProbeThresholdBps).toBe(Number.POSITIVE_INFINITY);
+
+      // Act: reset 直後の RequestProbe は 5s cooldown
+      probe.setBitrates(10_000, 100_000, 1e9, resetAt);
+      probe.abort(resetAt + 1);
+      probe.setEstimatedBitrate(800_000, resetAt + 2);
+      probe.setEstimatedBitrate(200_000, resetAt + 3, {
+        cause: "delay_based_limited",
+      });
+      expect(probe.requestProbe(200_000, resetAt + 100)).toEqual([]);
+
+      // Act: cooldown 経過後（timeout + 1）
+      expect(probe.requestProbe(200_000, resetAt + 5_001).length).toBe(1);
+    });
+
+    test("GccBandwidthEstimator.setBitrates は complete 後の max 上昇で probe する", () => {
+      // Arrange: public production path。初期 max 1Mbps で session を閉じる
+      const { gcc, setNow } = createClockGcc(100_000, 20_000);
+      gcc.setBitrates(10_000, 100_000, 1_000_000);
+      (gcc as any).probe.abort(20_000);
+      expect(gcc.probeState).toBe("complete");
+      const probeCfgs: number[] = [];
+      gcc.onProbeClusterConfig.subscribe((c) => probeCfgs.push(c.targetBps));
+
+      // Act: max 1M → 2M
+      setNow(26_000);
+      gcc.setBitrates(10_000, 100_000, 2_000_000);
+
+      // Assert
+      expect(probeCfgs).toEqual([2_000_000]);
+      expect(gcc.shouldTagProbePacket()).toBe(true);
+      expect(gcc.suggestedProbeBitrateBps).toBe(2_000_000);
     });
   });
 });

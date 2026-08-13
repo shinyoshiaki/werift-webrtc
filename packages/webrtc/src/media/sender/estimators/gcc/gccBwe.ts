@@ -143,6 +143,9 @@ export class GccBandwidthEstimator
   private delayBasedBps = kDefaultStartBitrateBps;
   private lossBasedBps = kDefaultStartBitrateBps;
   private startBitrateBps: number;
+  /** pin TargetRateConstraints min / max forwarded to ProbeController. */
+  private minConfiguredBps = kMinBitrateBps;
+  private maxConfiguredBps = kDefaultMaxProbingBitrateBps;
   private probingConfigured = false;
   /** Valid TWCC samples seen at least once (gates publishing estimates). */
   private hasValidSample = false;
@@ -276,6 +279,39 @@ export class GccBandwidthEstimator
   setNetworkStateEstimate(linkCapacityUpperBps: number): void {
     if (this.disposed) return;
     this.probe.setNetworkStateEstimate(linkCapacityUpperBps);
+  }
+
+  /**
+   * pin `OnTargetRateConstraints` / `ProbeController::SetBitrates`.
+   *
+   * While probing is `complete`, a **higher** max than the previous max
+   * (and than the current estimate) starts a single probe at the new max
+   * (`probe_further=false`).
+   */
+  setBitrates(minBps: number, startBps: number, maxBps: number): void {
+    if (this.disposed) return;
+    const nowMs = this.clock();
+    if (minBps > 0) {
+      this.minConfiguredBps = Math.max(minBps, kMinBitrateBps);
+      this.aimd.setMinBitrate(this.minConfiguredBps);
+    }
+    if (startBps > 0) {
+      this.startBitrateBps = startBps;
+      this.aimd.setStartBitrate(startBps);
+    }
+    this.maxConfiguredBps =
+      Number.isFinite(maxBps) && maxBps !== Number.POSITIVE_INFINITY
+        ? maxBps
+        : kDefaultMaxProbingBitrateBps;
+    this.probingConfigured = true;
+    for (const cfg of this.probe.setBitrates(
+      this.minConfiguredBps,
+      startBps > 0 ? startBps : this.startBitrateBps,
+      this.maxConfiguredBps,
+      nowMs,
+    )) {
+      this.onProbeClusterActivated(cfg, nowMs);
+    }
   }
 
   /**
@@ -692,7 +728,7 @@ export class GccBandwidthEstimator
     this.trendline.reset();
     this.aimd.reset(this.startBitrateBps);
     this.lossBwe.reset(this.startBitrateBps);
-    this.probe.reset();
+    this.probe.reset(this.clock());
     this.interArrival.reset();
     this.refTimeUnwrapper.reset();
     this.sentInfos.clear();
@@ -718,7 +754,10 @@ export class GccBandwidthEstimator
     this.lastSeenPacketMs = Number.NEGATIVE_INFINITY;
     this.alr.reset();
     this.previouslyInAlr = false;
-    // ProbeController.reset() clears the flag; restore the caller config.
+    this.minConfiguredBps = kMinBitrateBps;
+    this.maxConfiguredBps = kDefaultMaxProbingBitrateBps;
+    // pin Reset keeps enable_periodic_alr_probing_; restore in case a
+    // direct ProbeController.reset(0) was used without the flag.
     this.probe.enablePeriodicAlrProbing(this.periodicAlrProbing);
   }
 
@@ -737,9 +776,17 @@ export class GccBandwidthEstimator
     if (this.currentTargetBps <= 0) {
       this.currentTargetBps = this.startBitrateBps;
     }
-    const upper = Math.min(this.delayBasedUpperLimitBps(), kMaxBitrateBps);
+    const upper = Math.min(
+      this.delayBasedUpperLimitBps(),
+      this.maxConfiguredBps,
+      kMaxBitrateBps,
+    );
     this.currentTargetBps = Math.min(this.currentTargetBps, upper);
-    this.currentTargetBps = Math.max(this.currentTargetBps, kMinBitrateBps);
+    this.currentTargetBps = Math.max(
+      this.currentTargetBps,
+      this.minConfiguredBps,
+      kMinBitrateBps,
+    );
   }
 
   /**
@@ -885,9 +932,9 @@ export class GccBandwidthEstimator
     if (this.probingConfigured) return;
     this.probingConfigured = true;
     for (const cfg of this.probe.setBitrates(
-      kMinBitrateBps,
+      this.minConfiguredBps,
       this.startBitrateBps,
-      kDefaultMaxProbingBitrateBps,
+      this.maxConfiguredBps,
       nowMs,
     )) {
       this.onProbeClusterActivated(cfg, nowMs);

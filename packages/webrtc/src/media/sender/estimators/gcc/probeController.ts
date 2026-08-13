@@ -9,6 +9,7 @@ import {
   kAlrProbingIntervalMs,
   kBitrateDropThreshold,
   kBitrateDropTimeoutMs,
+  kDefaultMaxProbingBitrateBps,
   kDefaultStartBitrateBps,
   kEstimateLowerThanNetworkStateIntervalMs,
   kEstimateLowerThanNetworkStateRatio,
@@ -178,13 +179,22 @@ export class ProbeController {
   /** pin `bitrate_before_last_large_drop_`. */
   private bitrateBeforeLastLargeDrop = 0;
   /** pin `time_of_last_large_drop_`. */
-  private timeOfLastLargeDropMs = Number.NEGATIVE_INFINITY;
+  private timeOfLastLargeDropMs = 0;
   /** pin `last_bwe_drop_probing_time_`. */
-  private lastBweDropProbingMs = Number.NEGATIVE_INFINITY;
+  private lastBweDropProbingMs = 0;
 
-  reset(_atTimeMs = 0) {
+  /**
+   * pin `ProbeController::Reset(at_time)`.
+   *
+   * Keeps configuration: `enable_periodic_alr_probing_`, `network_available_`,
+   * `alr_start_time_`, NSE probe interval. Sets drop / recovery cooldown
+   * clocks to `atTimeMs` so RequestProbe cannot fire until
+   * {@link kMinTimeBetweenAlrProbesMs} after reset.
+   */
+  reset(atTimeMs = 0) {
+    const now = Number.isFinite(atTimeMs) ? atTimeMs : 0;
     this.state = "init";
-    this.nextClusterId = 1;
+    // pin does not reset next_probe_cluster_id_.
     this.pacing = undefined;
     this.awaitingResults.clear();
     this.estimatorHistory.clear();
@@ -192,25 +202,26 @@ export class ProbeController {
     this.estimatedBps = 0;
     this.pendingEstimateBps = 0;
     this.lastProbeTargetBps = 0;
-    this.minBitrateToProbeFurther = 0;
+    this.minBitrateToProbeFurther = Number.POSITIVE_INFINITY;
     this.lastProbeEndMs = Number.NEGATIVE_INFINITY;
     this.minBitrateBps = kMinBitrateBps;
-    this.startBitrateBps = kDefaultStartBitrateBps;
-    this.maxBitrateBps = kMaxBitrateBps;
-    this.networkAvailable = true;
+    this.startBitrateBps = 0;
+    this.maxBitrateBps = kDefaultMaxProbingBitrateBps;
     this.seqToCluster.clear();
     this.seqToSendInfo.clear();
     this.seqUnwrapper.reset();
-    this.periodicAlrProbing = false;
-    this.alrStartMs = undefined;
+    // Keep periodicAlrProbing, networkAvailable, alrStartMs, NSE interval.
     this.alrEndMs = undefined;
-    this.lastProbeInitiatedMs = Number.NEGATIVE_INFINITY;
+    this.lastProbeInitiatedMs = 0;
     this.lastCause = "delay_based_limited";
     this.networkStateUpperBps = 0;
-    this.networkStateProbeIntervalMs = kNetworkStateEstimateProbingIntervalMs;
     this.bitrateBeforeLastLargeDrop = 0;
-    this.timeOfLastLargeDropMs = Number.NEGATIVE_INFINITY;
-    this.lastBweDropProbingMs = Number.NEGATIVE_INFINITY;
+    this.timeOfLastLargeDropMs = now;
+    this.lastBweDropProbingMs = now;
+  }
+
+  constructor() {
+    this.reset(0);
   }
 
   get probeState(): ProbeState {
@@ -288,14 +299,35 @@ export class ProbeController {
     nowMs: number,
   ): ProbeClusterConfig[] {
     this.minBitrateBps = Math.max(minBps, kMinBitrateBps);
-    this.startBitrateBps = Math.max(startBps, this.minBitrateBps);
-    this.maxBitrateBps = Math.max(maxBps, this.startBitrateBps);
-    // libwebrtc ProbeController keeps start bitrate as the initial estimate.
-    if (this.estimatedBps <= 0) {
-      this.estimatedBps = this.startBitrateBps;
+    // pin: start > 0 overwrites start_bitrate_ and estimated_bitrate_.
+    if (startBps > 0) {
+      this.startBitrateBps = startBps;
+      this.estimatedBps = startBps;
+    } else if (this.startBitrateBps <= 0) {
+      this.startBitrateBps = this.minBitrateBps;
     }
+    // pin: non-finite max → kDefaultMaxProbingBitrate (5 Mbps).
+    const oldMax = this.maxBitrateBps;
+    this.maxBitrateBps =
+      Number.isFinite(maxBps) && maxBps !== Number.POSITIVE_INFINITY
+        ? maxBps
+        : kDefaultMaxProbingBitrateBps;
+
     if (this.state === "init" && this.networkAvailable) {
       return this.initiateExponentialProbing(nowMs);
+    }
+    if (this.state === "waiting_for_result") {
+      return [];
+    }
+    // pin kProbingComplete: new max higher than old max and estimate.
+    if (
+      this.estimatedBps > 0 &&
+      oldMax < this.maxBitrateBps &&
+      this.estimatedBps < this.maxBitrateBps
+    ) {
+      return this.enqueueClusters(nowMs, [this.maxBitrateBps], {
+        stopFurtherAfter: true,
+      });
     }
     return [];
   }
