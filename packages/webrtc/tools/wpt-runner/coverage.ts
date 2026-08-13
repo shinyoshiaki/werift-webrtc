@@ -212,9 +212,21 @@ async function mergeRawCoverage(directoryPath: string) {
     .sort();
 
   for (const fileName of coverageFiles) {
-    const payload = JSON.parse(
-      await readFile(resolve(directoryPath, fileName), "utf8"),
-    ) as { result?: Array<Record<string, unknown>> };
+    const filePath = resolve(directoryPath, fileName);
+    let payload: { result?: Array<Record<string, unknown>> };
+    try {
+      payload = JSON.parse(await readFile(filePath, "utf8")) as {
+        result?: Array<Record<string, unknown>>;
+      };
+    } catch (error) {
+      // Worker coverage dumps can be truncated when WPT workers are killed.
+      // Skip the broken file so a single dump cannot fail the whole CI run.
+      console.warn(
+        `[wpt:coverage] skip unreadable coverage dump ${fileName}:`,
+        error instanceof Error ? error.message : error,
+      );
+      continue;
+    }
     if (!payload.result) {
       continue;
     }
