@@ -157,7 +157,7 @@ export class GccBandwidthEstimator
    * Starts at +∞ and is written only by a delay-path result
    * (`UpdateDelayBasedEstimate`). A matched TWCC without receive times
    * (all-lost / ReceivedWithoutDelta) must **not** turn the constructor
-   * start bitrate into a delay cap (pin `delay_based_limit_`).
+   * start bitrate into a delay cap. See pin `delay_based_limit_`.
    */
   private delayBasedLimitBps = Number.POSITIVE_INFINITY;
   private probingConfigured = false;
