@@ -55,6 +55,8 @@ export {
   kAlrProbeScale,
   kAlrProbingIntervalMs,
   kBeta,
+  kDefaultMaxProbingBitrateBps,
+  kProbeFractionAfterDrop,
   kDefaultStartBitrateBps,
   kGoogCcProcessIntervalMs,
   kLossBasedIncreaseFactor,

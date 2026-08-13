@@ -4,8 +4,11 @@ import {
   maxProbeBitrateBps,
 } from "./bandwidthLimitedCause";
 import {
+  kAlrEndedTimeoutMs,
   kAlrProbeScale,
   kAlrProbingIntervalMs,
+  kBitrateDropThreshold,
+  kBitrateDropTimeoutMs,
   kDefaultStartBitrateBps,
   kEstimateLowerThanNetworkStateIntervalMs,
   kEstimateLowerThanNetworkStateRatio,
@@ -13,9 +16,11 @@ import {
   kFurtherProbeThreshold,
   kMaxBitrateBps,
   kMinBitrateBps,
+  kMinTimeBetweenAlrProbesMs,
   kNetworkStateEstimateProbingIntervalMs,
   kNetworkStateProbeScale,
   kProbeBitrateMultipliers,
+  kProbeFractionAfterDrop,
   kProbeMaxIntervalMs,
   kProbeMaxValidRatio,
   kProbeMinDurationMs,
@@ -26,9 +31,9 @@ import {
   kProbeMinReceivedProbesPercent,
   kProbePacingTimeoutMs,
   kProbeRecoveryMaxScale,
-  kProbeRecoveryScale,
   kProbeResultTimeoutMs,
   kProbeTargetUtilization,
+  kProbeUncertainty,
   kSendTimeHistoryWindowMs,
 } from "./constants";
 import { TransportWideSeqUnwrapper } from "./sequenceNumber";
@@ -170,6 +175,12 @@ export class ProbeController {
    * pin `network_state_estimate_probing_interval` (ms). Default +∞.
    */
   private networkStateProbeIntervalMs = kNetworkStateEstimateProbingIntervalMs;
+  /** pin `bitrate_before_last_large_drop_`. */
+  private bitrateBeforeLastLargeDrop = 0;
+  /** pin `time_of_last_large_drop_`. */
+  private timeOfLastLargeDropMs = Number.NEGATIVE_INFINITY;
+  /** pin `last_bwe_drop_probing_time_`. */
+  private lastBweDropProbingMs = Number.NEGATIVE_INFINITY;
 
   reset(_atTimeMs = 0) {
     this.state = "init";
@@ -197,6 +208,9 @@ export class ProbeController {
     this.lastCause = "delay_based_limited";
     this.networkStateUpperBps = 0;
     this.networkStateProbeIntervalMs = kNetworkStateEstimateProbingIntervalMs;
+    this.bitrateBeforeLastLargeDrop = 0;
+    this.timeOfLastLargeDropMs = Number.NEGATIVE_INFINITY;
+    this.lastBweDropProbingMs = Number.NEGATIVE_INFINITY;
   }
 
   get probeState(): ProbeState {
@@ -287,32 +301,36 @@ export class ProbeController {
   }
 
   /**
-   * Recovery / capacity probe (caller must already pass BandwidthLimitedCause
-   * gating). Optional `maxProbeBps` is InitiateProbing's max_probe_bitrate
-   * (e.g. estimated × loss_limited_probe_scale when loss-limited increasing).
+   * pin `ProbeController::RequestProbe`.
+   *
+   * Only while complete + (in ALR or ALR ended < 3s) + large drop within 5s.
+   * Target is 0.85 × bitrate_before_last_large_drop. Always probe_further=false.
    */
   requestProbe(
     estimatedBps: number,
     nowMs: number,
     opts?: { maxProbeBps?: number },
   ): ProbeClusterConfig[] {
-    if (this.state === "waiting_for_result") return [];
-    if (this.state === "init") return [];
-    if (!this.cooldownElapsed(nowMs)) return [];
-
+    if (estimatedBps > 0) this.estimatedBps = estimatedBps;
+    if (this.state !== "complete") return [];
+    const inAlr = this.alrStartMs !== undefined;
+    const alrEndedRecently =
+      this.alrEndMs !== undefined && nowMs - this.alrEndMs < kAlrEndedTimeoutMs;
+    if (!inAlr && !alrEndedRecently) return [];
+    if (!isProbeInitiationAllowed(this.lastCause)) return [];
+    const suggested = this.bitrateBeforeLastLargeDrop * kProbeFractionAfterDrop;
+    const minExpected = suggested * (1 - kProbeUncertainty);
+    if (!(suggested > 0) || minExpected <= this.estimatedBps) return [];
+    if (nowMs - this.timeOfLastLargeDropMs > kBitrateDropTimeoutMs) return [];
+    if (nowMs - this.lastBweDropProbingMs < kMinTimeBetweenAlrProbesMs) {
+      return [];
+    }
     const maxProbe = this.effectiveMaxProbeBps(opts?.maxProbeBps);
     if (maxProbe <= 0) return [];
-
-    const base = Math.max(estimatedBps, this.minBitrateBps);
-    const uncapped = Math.min(
-      base * kProbeRecoveryScale,
-      base * kProbeRecoveryMaxScale,
-    );
-    const target = clamp(uncapped, maxProbe);
-    if (target <= base * 1.05) return [];
-    // libwebrtc: bitrate >= max_probe_bitrate → clamp + probe_further=false.
-    const stopFurtherAfter = uncapped >= maxProbe;
-    return this.enqueueClusters(nowMs, [target], { stopFurtherAfter });
+    const target = Math.min(suggested, maxProbe);
+    if (target <= this.estimatedBps * (1 + kProbeUncertainty)) return [];
+    this.lastBweDropProbingMs = nowMs;
+    return this.enqueueClusters(nowMs, [target], { stopFurtherAfter: true });
   }
 
   /**
@@ -333,6 +351,13 @@ export class ProbeController {
   ): ProbeClusterConfig[] {
     // Track the latest BWE target (libwebrtc updates estimated_bitrate_ always).
     if (bitrateBps > 0) {
+      if (
+        this.estimatedBps > 0 &&
+        bitrateBps < this.estimatedBps * kBitrateDropThreshold
+      ) {
+        this.timeOfLastLargeDropMs = nowMs;
+        this.bitrateBeforeLastLargeDrop = this.estimatedBps;
+      }
       this.estimatedBps = bitrateBps;
     }
     if (opts?.cause) {

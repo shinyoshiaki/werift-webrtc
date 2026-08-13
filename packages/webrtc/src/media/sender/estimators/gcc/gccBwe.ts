@@ -21,6 +21,7 @@ import {
 } from "./bandwidthLimitedCause";
 import {
   GCC_KNOWN_DIFFERENCES,
+  kDefaultMaxProbingBitrateBps,
   kDefaultStartBitrateBps,
   kMaxBitrateBps,
   kMinBitrateBps,
@@ -782,7 +783,7 @@ export class GccBandwidthEstimator
     for (const cfg of this.probe.setBitrates(
       kMinBitrateBps,
       this.startBitrateBps,
-      kMaxBitrateBps,
+      kDefaultMaxProbingBitrateBps,
       nowMs,
     )) {
       this.onProbeClusterActivated(cfg, nowMs);

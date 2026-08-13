@@ -44,6 +44,7 @@ import {
   kGoogCcProcessIntervalMs,
   kLossLimitedProbeScale,
   kMinBitrateBps,
+  kProbeFractionAfterDrop,
   kProbePaddingPacketBytes,
   kRttBasedBackOffBandwidthFloorBps,
   kRttBasedBackOffDropFraction,
@@ -2071,10 +2072,15 @@ describe("media/sender bandwidth estimator", () => {
       // Assert: complete 後 SetEstimatedBitrate では further を再開しない
       expect(probe.setEstimatedBitrate(500_000, afterTimeout + 1)).toEqual([]);
 
-      // Act: cooldown (5s) 後に recovery
-      const recovery = probe.requestProbe(150_000, afterTimeout + 5_000);
+      // Act: pin RequestProbe — ALR + large drop 後に 0.85×pre-drop
+      probe.setAlrStartTime(afterTimeout);
+      probe.setEstimatedBitrate(1_000_000, afterTimeout + 1);
+      probe.setEstimatedBitrate(150_000, afterTimeout + 2, {
+        cause: "delay_based_limited",
+      });
+      const recovery = probe.requestProbe(150_000, afterTimeout + 3);
       expect(recovery.length).toBe(1);
-      expect(recovery[0].targetBps).toBeGreaterThan(150_000);
+      expect(recovery[0].targetBps).toBe(1_000_000 * kProbeFractionAfterDrop);
       expect(probe.probeState).toBe("waiting_for_result");
       expect(probe.currentProbeTargetBps).toBe(recovery[0].targetBps);
     });
@@ -2141,8 +2147,13 @@ describe("media/sender bandwidth estimator", () => {
       const historySamples: number[] = [];
 
       for (let round = 0; round < 40; round++) {
-        // Act: cooldown 経過後に recovery
+        // Act: 各 round で ALR + large drop を再記録して pin RequestProbe
         t += 5_001;
+        probe.setAlrStartTime(t - 10);
+        probe.setEstimatedBitrate(400_000, t - 2);
+        probe.setEstimatedBitrate(150_000 + round * 1_000, t - 1, {
+          cause: "delay_based_limited",
+        });
         const activated = probe.requestProbe(150_000 + round * 1_000, t);
         expect(activated.length).toBe(1);
         // send-fill（minPackets=5, 大きめ size で minBytes も満たす）
@@ -2992,6 +3003,13 @@ describe("media/sender bandwidth estimator", () => {
       (gcc as any).probingConfigured = true;
       (gcc as any).lastUsage = "normal";
       (gcc as any).lossBwe.state = "delay_based";
+      const t0 = Date.now();
+      // pin RequestProbe: ALR + large drop（1 Mbps → 150 kbps）
+      (gcc as any).probe.setAlrStartTime(t0);
+      (gcc as any).probe.setEstimatedBitrate(1_000_000, t0);
+      (gcc as any).probe.setEstimatedBitrate(150_000, t0 + 1, {
+        cause: "delay_based_limited",
+      });
       // Stable delay_based after loss update so cause allows recovery
       (gcc as any).lossBwe.update = () => {
         (gcc as any).lossBwe.state = "delay_based";
@@ -3038,7 +3056,6 @@ describe("media/sender bandwidth estimator", () => {
       const probeCfgs: number[] = [];
       gcc.onProbeClusterConfig.subscribe((c) => probeCfgs.push(c.targetBps));
 
-      const t0 = Date.now();
       for (let i = 1; i <= 10; i++) {
         gcc.rtpPacketSent({
           wideSeq: i,
@@ -3047,6 +3064,8 @@ describe("media/sender bandwidth estimator", () => {
           isProbation: false,
         } as any);
       }
+      // TWCC 直前に ALR を立てる（syncAlr が detector を probe に渡す）
+      (gcc as any).alr.startedMs = t0;
       gcc.receiveTWCC(
         makeTwccFeedback(
           Array.from({ length: 10 }, (_, i) => {
@@ -3059,9 +3078,9 @@ describe("media/sender bandwidth estimator", () => {
         ),
       );
 
-      // Assert: feedback 内 underuse→normal latch で recovery probe
+      // Assert: latch + pin RequestProbe（0.85 × 1 Mbps）
       expect(probeCfgs.length).toBeGreaterThanOrEqual(1);
-      expect(probeCfgs[0]).toBeGreaterThan(150_000);
+      expect(probeCfgs[0]).toBe(1_000_000 * kProbeFractionAfterDrop);
       expect(gcc.probeState).toBe("waiting_for_result");
     });
 
@@ -3078,6 +3097,12 @@ describe("media/sender bandwidth estimator", () => {
       (gcc as any)._availableBitrate = 180_000;
       (gcc as any).probingConfigured = true;
       (gcc as any).lastUsage = "normal";
+      const t0 = Date.now();
+      (gcc as any).probe.setAlrStartTime(t0);
+      (gcc as any).probe.setEstimatedBitrate(1_000_000, t0);
+      (gcc as any).probe.setEstimatedBitrate(180_000, t0 + 1, {
+        cause: "delay_based_limited",
+      });
       (gcc as any).lossBwe.update = () => {
         (gcc as any).lossBwe.state = "delay_based";
         return 180_000;
@@ -3105,10 +3130,10 @@ describe("media/sender bandwidth estimator", () => {
       const probeCfgs: number[] = [];
       gcc.onProbeClusterConfig.subscribe((c) => probeCfgs.push(c.targetBps));
 
-      const t0 = Date.now();
       for (let s = 1; s <= 6; s++) {
         gcc.rtpPacketSent(sent(s, 500, t0 + s * 10));
       }
+      (gcc as any).alr.startedMs = t0;
       gcc.receiveTWCC(
         makeTwccFeedback(
           Array.from({ length: 6 }, (_, j) => {
@@ -3121,9 +3146,70 @@ describe("media/sender bandwidth estimator", () => {
         ),
       );
 
-      // Assert: feedback 間比較では見逃す N→…→N でも latch で recovery
+      // Assert: feedback 間比較では見逃す N→…→N でも latch + pin RequestProbe
       expect(probeCfgs.length).toBeGreaterThanOrEqual(1);
+      expect(probeCfgs[0]).toBe(1_000_000 * kProbeFractionAfterDrop);
       expect(gcc.probeState).toBe("waiting_for_result");
+    });
+
+    test("ALR なしの underuse→normal では recovery probe しない", () => {
+      // Arrange: pin RequestProbe は ALR / 直近 ALR 終了が必須
+      const gcc = new GccBandwidthEstimator(150_000);
+      gcc.shouldTagProbePacket();
+      (gcc as any).probe.abort(0);
+      (gcc as any).probe.state = "complete";
+      (gcc as any).hasValidSample = true;
+      (gcc as any).delayBasedBps = 150_000;
+      (gcc as any).lossBasedBps = 150_000;
+      (gcc as any)._availableBitrate = 150_000;
+      (gcc as any).probingConfigured = true;
+      (gcc as any).lossBwe.state = "delay_based";
+      (gcc as any).probe.setEstimatedBitrate(1_000_000, 1);
+      (gcc as any).probe.setEstimatedBitrate(150_000, 2, {
+        cause: "delay_based_limited",
+      });
+      (gcc as any).lossBwe.update = () => {
+        (gcc as any).lossBwe.state = "delay_based";
+        return 150_000;
+      };
+      let cur: "normal" | "underuse" = "normal";
+      const seq: Array<"normal" | "underuse"> = [
+        "normal",
+        "underuse",
+        "normal",
+        "normal",
+      ];
+      let i = 0;
+      Object.defineProperty((gcc as any).trendline, "state", {
+        get: () => cur,
+        configurable: true,
+      });
+      (gcc as any).pushInterArrival = () => {
+        if (i < seq.length) cur = seq[i++]!;
+      };
+      const probeCfgs: number[] = [];
+      gcc.onProbeClusterConfig.subscribe((c) => probeCfgs.push(c.targetBps));
+      const t0 = Date.now();
+      for (let s = 1; s <= 4; s++) {
+        gcc.rtpPacketSent(sent(s, 500, t0 + s * 10));
+      }
+
+      // Act
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 4 }, (_, j) => {
+            return new PacketResult({
+              sequenceNumber: j + 1,
+              received: true,
+              receivedAtMs: t0 + 20 + j * 10,
+            });
+          }),
+        ),
+      );
+
+      // Assert: latch しても ALR が無いので RequestProbe は空
+      expect(probeCfgs).toEqual([]);
+      expect(gcc.probeState).toBe("complete");
     });
 
     test("loss decreasing/hold では further/recovery probe を生成しない", () => {
@@ -4112,21 +4198,24 @@ describe("media/sender bandwidth estimator", () => {
       expect(again).toEqual([]);
     });
 
-    test("loss increasing 中の recovery probe は estimated×1.5 を超えない", () => {
-      // Arrange
+    test("loss increasing 中の recovery probe は 0.85×pre-drop を cause cap する", () => {
+      // Arrange: 400k → 200k drop。pin target 340k を loss-increasing 1.5×=300k で cap
       const probe = new ProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       probe.abort(1_000);
-      (probe as any).lastProbeEndMs = Number.NEGATIVE_INFINITY;
       (probe as any).state = "complete";
+      probe.setAlrStartTime(9_000);
+      probe.setEstimatedBitrate(400_000, 9_000);
+      probe.setEstimatedBitrate(200_000, 9_100, {
+        cause: "loss_limited_bwe_increasing",
+      });
 
       const estimated = 200_000;
       const maxProbe = estimated * kLossLimitedProbeScale; // 300kbps
-      // Act: recovery uncapped = 200k×1.5 = 300k → equals cap
       const recovery = probe.requestProbe(estimated, 10_000, {
         maxProbeBps: maxProbe,
       });
-      // Assert
+      // Assert: 340k は 300k に clamp。further は開かない
       expect(recovery.length).toBe(1);
       expect(recovery[0].targetBps).toBe(maxProbe);
       expect(probe.furtherProbeThresholdBps).toBe(Number.POSITIVE_INFINITY);
@@ -4503,29 +4592,28 @@ describe("media/sender bandwidth estimator", () => {
       void sentSpy;
     });
 
-    test("recovery probe は start 帯域に張り付かず cooldown を守る", () => {
-      // Arrange
+    test("recovery probe は 0.85×pre-drop の単発で ALR probe 間隔を守る", () => {
+      // Arrange: 700k → 150k の large drop + ALR
       const probe = new ProbeController();
       probe.setBitrates(10_000, 700_000, 1_000_000_000, 0);
-      // FIFO: abort/clear front + queue, mark complete + 推定 150kbps
       probe.abort(2_000);
       (probe as any).state = "complete";
-      (probe as any).lastProbeEndMs = 0;
-      (probe as any).estimatedBps = 150_000;
+      probe.setAlrStartTime(9_000);
+      probe.setEstimatedBitrate(700_000, 9_000);
+      probe.setEstimatedBitrate(150_000, 9_100, {
+        cause: "delay_based_limited",
+      });
 
       // Act
       const recovery = probe.requestProbe(150_000, 10_000);
 
-      // Assert: target は ~225kbps 付近で、start*1.5(=1.05M) ではない
+      // Assert: pin 0.85 × 700k。start×1.5 ではない。further なし
       expect(recovery.length).toBe(1);
-      expect(recovery[0].targetBps).toBeLessThanOrEqual(150_000 * 2);
-      expect(recovery[0].targetBps).toBeGreaterThan(150_000);
-      expect(recovery[0].targetBps).toBeLessThan(700_000);
+      expect(recovery[0].targetBps).toBe(700_000 * kProbeFractionAfterDrop);
+      expect(probe.furtherProbeThresholdBps).toBe(Number.POSITIVE_INFINITY);
 
-      // cooldown: 直後は拒否
-      (probe as any).lastProbeEndMs = 10_000;
+      // Act: 5s 未満の再 RequestProbe は拒否
       (probe as any).state = "complete";
-      (probe as any).active = [];
       (probe as any).queue = [];
       const denied = probe.requestProbe(150_000, 10_500);
       expect(denied).toEqual([]);
