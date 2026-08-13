@@ -61,6 +61,8 @@ interface Observation {
   lostSize: number;
   sendingRateBps: number;
   id: number;
+  /** Sequences counted in this observation (late-ACK correction / eviction). */
+  countedSeqs: number[];
 }
 
 /** Optional per-packet feedback for soft loss tracking (seq map). */
@@ -77,7 +79,8 @@ export interface LossPacketFeedback {
  *
  * - Partial observations accumulate until send-timeline duration ≥ 250ms
  * - Soft loss: not-received seqs live in a map and can be unmarked if later
- *   reported as received before the observation commits
+ *   reported as received, including **after** the observation commits
+ *   (TWCC PacketNotReceived is not definitive)
  * - Byte-loss objective/derivative when `UseByteLossRate` (default true)
  * - High-bandwidth bias adjusted by average loss ratio
  * - Instant upper/lower bounds + delayed-increase window + HOLD rate
@@ -120,6 +123,14 @@ export class LossBasedBwe {
     size: 0,
   };
   /**
+   * seq → committed observation slot. Late received can unmark a lost
+   * packet that already landed in a committed window.
+   */
+  private committedBySeq = new Map<
+    number,
+    { obsId: number; size: number; lost: boolean }
+  >();
+  /**
    * Hard cap on partial observation maps. If send-timeline duration never
    * reaches the 250ms lower bound (e.g. stuck clocks), maps stay bounded.
    */
@@ -158,6 +169,7 @@ export class LossBasedBwe {
       seenPackets: new Map(),
       size: 0,
     };
+    this.committedBySeq.clear();
     this.recomputeTemporalWeights();
   }
 
@@ -499,10 +511,21 @@ export class LossBasedBwe {
     packets?: LossPacketFeedback[],
   ) {
     if (packets && packets.length > 0) {
+      let minSend = Number.POSITIVE_INFINITY;
+      let maxSend = Number.NEGATIVE_INFINITY;
+      let countedNew = false;
       for (const p of packets) {
         // Use the caller-supplied seq as-is (gcc passes unwrapped / generation
         // keys). Masking to 16-bit would merge wrap generations in one window.
         const seq = p.seq;
+        const committed = this.committedBySeq.get(seq);
+        if (committed) {
+          // Already in a committed observation — correct loss, never re-count.
+          if (p.received && committed.lost) {
+            this.correctCommittedLoss(seq, committed);
+          }
+          continue;
+        }
         const prevSize = this.partial.seenPackets.get(seq);
         if (prevSize !== undefined) {
           // Already counted in this partial window — late correction only.
@@ -524,9 +547,18 @@ export class LossBasedBwe {
         } else {
           this.partial.lostPackets.set(seq, p.size);
         }
+        countedNew = true;
+        if (Number.isFinite(p.sendMs)) {
+          if (p.sendMs < minSend) minSend = p.sendMs;
+          if (p.sendMs > maxSend) maxSend = p.sendMs;
+        }
       }
-      firstSendMs = Math.min(...packets.map((p) => p.sendMs));
-      lastSendMs = Math.max(...packets.map((p) => p.sendMs));
+      if (!countedNew) {
+        // Only late/duplicate corrections — do not advance the commit clock.
+        return;
+      }
+      firstSendMs = minSend;
+      lastSendMs = maxSend;
     } else {
       this.partial.numPackets += numPackets;
       this.partial.size += batchBytes;
@@ -597,6 +629,7 @@ export class LossBasedBwe {
       size: this.partial.size,
       lostSize,
       sendingRateBps,
+      countedSeqs: [...this.partial.seenPackets.keys()],
     });
 
     this.partial = {
@@ -610,14 +643,56 @@ export class LossBasedBwe {
   private commitObservation(o: Omit<Observation, "id">) {
     const obs: Observation = {
       ...o,
+      countedSeqs: o.countedSeqs ?? [],
       id: this.numObservations++,
     };
     this.observations.push(obs);
+    for (const seq of obs.countedSeqs) {
+      const size =
+        this.partial.seenPackets.get(seq) ?? this.partial.lostPackets.get(seq);
+      if (size === undefined) continue;
+      this.committedBySeq.set(seq, {
+        obsId: obs.id,
+        size,
+        lost: this.partial.lostPackets.has(seq),
+      });
+    }
     while (this.observations.length > kLossBasedObservationWindow) {
-      this.observations.shift();
+      const evicted = this.observations.shift();
+      if (evicted) this.forgetCommitted(evicted);
     }
     this.updateAverageReportedLossRatio();
     this.calculateInstantUpperBound();
+  }
+
+  /**
+   * Late received after commit: unmark loss bytes/count on the observation
+   * that first counted this seq. Does not change numPackets/size.
+   */
+  private correctCommittedLoss(
+    seq: number,
+    rec: { obsId: number; size: number; lost: boolean },
+  ) {
+    const obs = this.observations.find((o) => o.id === rec.obsId);
+    if (obs && rec.lost) {
+      obs.lostSize = Math.max(0, obs.lostSize - rec.size);
+      obs.numLostPackets = Math.max(0, obs.numLostPackets - 1);
+      obs.numReceivedPackets = Math.min(
+        obs.numPackets,
+        obs.numReceivedPackets + 1,
+      );
+    }
+    rec.lost = false;
+    this.committedBySeq.set(seq, rec);
+    this.updateAverageReportedLossRatio();
+    this.calculateInstantUpperBound();
+  }
+
+  private forgetCommitted(obs: Observation) {
+    for (const seq of obs.countedSeqs) {
+      const rec = this.committedBySeq.get(seq);
+      if (rec?.obsId === obs.id) this.committedBySeq.delete(seq);
+    }
   }
 
   private recomputeTemporalWeights() {

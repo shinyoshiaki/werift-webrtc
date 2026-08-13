@@ -5547,6 +5547,43 @@ describe("media/sender bandwidth estimator", () => {
       expect(alr.inAlr).toBe(false);
     });
 
+    test("observation commit 後の late received は committed loss を訂正する", () => {
+      // Arrange: 250ms 以上の send span で 1 パケット lost を commit
+      const loss = new LossBasedBwe();
+      loss.reset(300_000);
+      loss.update(0.5, 300_000, 250_000, 2, 1, 0, 200, 300, 100, [
+        { seq: 1, size: 100, received: false, sendMs: 0 },
+        { seq: 2, size: 100, received: true, sendMs: 300 },
+      ]);
+
+      // Assert: 観測が commit され seq1 は lost
+      expect(loss.observationCount).toBe(1);
+      const obs = (loss as any).observations[0];
+      expect(obs.numPackets).toBe(2);
+      expect(obs.numLostPackets).toBe(1);
+      expect(obs.lostSize).toBe(100);
+      expect(obs.numReceivedPackets).toBe(1);
+      const avgBefore = loss.averageLossRatio;
+      expect(avgBefore).toBeCloseTo(0.5, 5);
+      expect((loss as any).partial.seenPackets.size).toBe(0);
+
+      // Act: commit 後に seq1 の late ACK
+      loss.update(0, 300_000, 250_000, 1, 0, 0, 100, 0, 0, [
+        { seq: 1, size: 100, received: true, sendMs: 0 },
+      ]);
+
+      // Assert: 過去 observation の loss が減り、新 partial には再計上しない
+      expect(loss.observationCount).toBe(1);
+      expect(obs.numLostPackets).toBe(0);
+      expect(obs.lostSize).toBe(0);
+      expect(obs.numReceivedPackets).toBe(2);
+      expect(obs.numPackets).toBe(2);
+      expect(loss.averageLossRatio).toBe(0);
+      expect(loss.averageLossRatio).toBeLessThan(avgBefore);
+      expect((loss as any).partial.numPackets).toBe(0);
+      expect((loss as any).partial.seenPackets.has(1)).toBe(false);
+    });
+
     test("late TWCC correction は loss partial を二重計上しない", () => {
       // Arrange
       const loss = new LossBasedBwe();
@@ -5575,6 +5612,52 @@ describe("media/sender bandwidth estimator", () => {
       expect(partial2.numPackets).toBe(1);
       expect(partial2.size).toBe(100);
       expect(partial2.lostPackets.has(10)).toBe(false);
+    });
+
+    test("commit 後の late TWCC は GCC 経路でも committed loss を訂正する", () => {
+      // Arrange: 300ms 超の送信 + 1 パケット not-received で observation を commit
+      const t0 = 80_000;
+      const { gcc, setNow } = createClockGcc(300_000, t0);
+      for (let i = 0; i < 8; i++) {
+        gcc.rtpPacketSent(sent(i + 1, 200, t0 + i * 50));
+      }
+      setNow(t0 + 420);
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 8 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: i !== 2,
+              receivedAtMs: i === 2 ? 0 : t0 + 30 + i * 50,
+            });
+          }),
+        ),
+      );
+      const loss = (gcc as any).lossBwe as LossBasedBwe;
+      expect(loss.observationCount).toBeGreaterThanOrEqual(1);
+      const obs = (loss as any).observations[0];
+      expect(obs.numLostPackets).toBe(1);
+      expect(obs.lostSize).toBe(200);
+      const avgBefore = loss.averageLossRatio;
+      expect(avgBefore).toBeGreaterThan(0);
+
+      // Act: commit 済み seq=3 の late received
+      setNow(t0 + 500);
+      gcc.receiveTWCC(
+        makeTwccFeedback([
+          new PacketResult({
+            sequenceNumber: 3,
+            received: true,
+            receivedAtMs: t0 + 480,
+          }),
+        ]),
+      );
+
+      // Assert: committed observation の loss が訂正され、二重計上しない
+      expect(obs.numLostPackets).toBe(0);
+      expect(obs.lostSize).toBe(0);
+      expect(loss.averageLossRatio).toBeLessThan(avgBefore);
+      expect((loss as any).partial.seenPackets.has(3)).toBe(false);
     });
 
     test("not-received は永久 finalize せず後続 received を受理する", () => {

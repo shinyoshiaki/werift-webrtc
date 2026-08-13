@@ -11,7 +11,8 @@ LossBasedBweV2-aligned controller
 
 - Partial observations accumulate until send-timeline duration ≥ 250ms
 - Soft loss: not-received seqs live in a map and can be unmarked if later
-  reported as received before the observation commits
+  reported as received, including **after** the observation commits
+  (TWCC PacketNotReceived is not definitive)
 - Byte-loss objective/derivative when `UseByteLossRate` (default true)
 - High-bandwidth bias adjusted by average loss ratio
 - Instant upper/lower bounds + delayed-increase window + HOLD rate
