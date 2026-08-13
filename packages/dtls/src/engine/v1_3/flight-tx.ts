@@ -343,6 +343,12 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
     return Math.min(MAX_RTO_MS, rto);
   }
 
+  /**
+   * Schedule RFC 9147 RTO for the current handshake flight.
+   * `flightId` is the 1.3 equivalent of 1.2 `flightTxGeneration`: a newer
+   * sendHandshakeFlight, version fallback (`closed`), or clearPendingFlight
+   * must not let a queued timer retransmit or call fail().
+   */
   protected scheduleRetransmit() {
     this.cancelRetransmit?.();
     // Allow post-handshake retransmit (final flight / KeyUpdate) when connected
@@ -353,12 +359,15 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
       return;
     }
     const rto = this.computeRetransmitRtoMs();
+    const rtoGen = this.flightId;
     this.cancelRetransmit = this.carrier.schedule(rto, () => {
+      if (this.closed || this.flightId !== rtoGen) return;
       void this.doRetransmit();
     });
   }
 
   protected async doRetransmit(): Promise<void> {
+    const rtoGen = this.flightId;
     if (
       this.closed ||
       (this.pendingFlight.length === 0 &&
@@ -436,10 +445,13 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
       try {
         await this.carrier.send(p, sendAddr);
       } catch (e) {
+        // Close / newer flight / version fallback while send was in flight.
+        if (this.closed || this.flightId !== rtoGen) return;
         this.fail(e instanceof Error ? e : new Error(String(e)));
         return;
       }
     }
+    if (this.closed || this.flightId !== rtoGen) return;
     this.scheduleRetransmit();
   }
 

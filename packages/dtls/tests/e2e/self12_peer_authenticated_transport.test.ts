@@ -24,13 +24,15 @@ class PeerAuthTransport implements Transport {
   type = "ice";
   closed = false;
   readonly peerAuthenticated = true;
+  /** When set, onData is invoked with this fake source (wrong-addr RX). */
+  fakeRxAddr?: Address;
   onData: (data: Buffer, addr: Address) => void = () => {};
   private peer?: PeerAuthTransport;
 
   constructor(private readonly udp: UdpTransport) {
     udp.onData = (data) => {
-      // No source address — same as WebRTC IceTransport
-      this.onData(data, undefined as any);
+      // Default: no source address — same as WebRTC IceTransport
+      this.onData(data, this.fakeRxAddr as any);
     };
   }
 
@@ -47,7 +49,7 @@ class PeerAuthTransport implements Transport {
     // Deliver to peer's UDP stack so rinfo is not required
     const p = this.peer;
     queueMicrotask(() => {
-      if (!p.closed) p.onData(data, undefined as any);
+      if (!p.closed) p.onData(data, p.fakeRxAddr as any);
     });
   };
 
@@ -410,6 +412,126 @@ test("e2e/peerAuth: dual [1.3,1.2] client → 1.2-only server completes", async 
   await t1.close().catch(() => {});
   await t2.close().catch(() => {});
 }, 25_000);
+
+/**
+ * After dual → 1.2 the 1.3 candidate is gone. isAssociationPeer must still
+ * treat authenticated-single-peer as transport identity (alternate 5-tuple
+ * and addressless RX). Old code required dualAssociationPeerKey match.
+ */
+test("e2e/peerAuth: dual→1.2 accepts alternate-addr RX after 1.3 candidate gone", async () => {
+  // Arrange
+  const { t1, t2 } = await peerAuthTransports();
+  const server = new DtlsServer({
+    transport: t1,
+    cert: certPem,
+    key: keyPem,
+    ...peerAuthOpts,
+    protocolVersions: [DtlsVersion.V1_2],
+  });
+  const client = new DtlsClient({
+    transport: t2,
+    cert: certPem,
+    key: keyPem,
+    ...peerAuthOpts,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    const t = setTimeout(
+      () => reject(new Error("dual fallback timeout")),
+      20_000,
+    );
+    client.onConnect.subscribe(() => {
+      clearTimeout(t);
+      resolve();
+    });
+    client.onError.subscribe((e) => {
+      clearTimeout(t);
+      reject(e);
+    });
+    server.onError.subscribe((e) => {
+      clearTimeout(t);
+      reject(e);
+    });
+    void client.connect();
+  });
+
+  expect(client.isDtls13).toBe(false);
+  expect((client as any).engine13).toBeUndefined();
+  expect((client as any).parkedEngine13).toBeUndefined();
+
+  // Force a concrete pin key so the old fallback (`key === expected`) would drop
+  (client as any).dualAssociationPeerKey = "192.0.2.1:1111";
+  const spoof: Address = ["203.0.113.50", 44444];
+  // Act: dispatcher peer gate after commit12
+  expect((client as any).isAssociationPeer(undefined)).toBe(true);
+  expect((client as any).isAssociationPeer(spoof)).toBe(true);
+
+  // Act/Assert: wire-level app data from a different fake 5-tuple
+  t2.fakeRxAddr = spoof;
+  await new Promise<void>((resolve, reject) => {
+    const t = setTimeout(
+      () => reject(new Error("alt-addr app data timeout")),
+      5_000,
+    );
+    client.onData.subscribe((d) => {
+      try {
+        expect(d.toString()).toBe("peer-auth-alt-addr");
+        clearTimeout(t);
+        resolve();
+      } catch (e) {
+        clearTimeout(t);
+        reject(e);
+      }
+    });
+    void server.send(Buffer.from("peer-auth-alt-addr"));
+  });
+
+  try {
+    client.close();
+  } catch {
+    /* */
+  }
+  try {
+    server.close();
+  } catch {
+    /* */
+  }
+  await t1.close().catch(() => {});
+  await t2.close().catch(() => {});
+}, 25_000);
+
+test("e2e/peerAuth: datagram-address isAssociationPeer rejects non-pin after 1.3 candidate gone", async () => {
+  // Arrange: 1.2-only client (no engine13) with explicit datagram-address
+  const { t1, t2 } = await peerAuthTransports();
+  const client = new DtlsClient({
+    transport: t2,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    peerIdentityMode: "datagram-address",
+    addressValidation: "none",
+    protocolVersions: [DtlsVersion.V1_2],
+  });
+  expect(client.peerIdentityMode).toBe("datagram-address");
+  expect((client as any).engine13).toBeUndefined();
+
+  // Act/Assert: fallback gate (no 1.3 candidate) is 5-tuple pin
+  (client as any).dualAssociationPeerKey = "192.0.2.1:1111";
+  expect((client as any).isAssociationPeer(undefined)).toBe(false);
+  expect((client as any).isAssociationPeer(["203.0.113.50", 44444])).toBe(
+    false,
+  );
+  expect((client as any).isAssociationPeer(["192.0.2.1", 1111])).toBe(true);
+
+  try {
+    client.close();
+  } catch {
+    /* */
+  }
+  await t1.close().catch(() => {});
+  await t2.close().catch(() => {});
+});
 
 test("e2e/self12: peerAuthenticated transport app data + local close + epoch-0 ignore", async () => {
   // Arrange: ICE-like addressless path

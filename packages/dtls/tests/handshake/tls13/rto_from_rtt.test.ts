@@ -123,6 +123,56 @@ describe("association RTO uses carrier RTT (RFC 9147 §5.8.2)", () => {
     await clientTransport.close();
   });
 
+  test("stale RTO after flightId bump does not retransmit", async () => {
+    // Arrange: capture the first RTO callback; blackhole so CH stays pending
+    const clientTransport = await UdpTransport.init("udp4");
+    clientTransport.rinfo = { address: "203.0.113.50", port: 4444 } as any;
+    const carrier = new DirectHandshakeCarrier(clientTransport, { mtu: 1200 });
+    let pendingFn: (() => void) | undefined;
+    const origSchedule = carrier.schedule.bind(carrier);
+    carrier.schedule = (ms: number, fn: () => void) => {
+      pendingFn = fn;
+      return origSchedule(ms, () => {
+        /* swallow wall-clock */
+      });
+    };
+
+    const client = createDtlsClientInternal({
+      transport: clientTransport,
+      cert: certPem,
+      key: keyPem,
+      protocolVersions: [DtlsVersion.V1_3],
+      addressValidation: "none",
+      handshakeCarrier: carrier,
+    });
+    void client.connect();
+    await new Promise((r) => setTimeout(r, 30));
+
+    const eng = (client as any).engine13;
+    expect(eng).toBeTruthy();
+    expect(typeof pendingFn).toBe("function");
+    const gen = eng.flightId as number;
+    expect(gen).toBeGreaterThan(0);
+
+    const sends: number[] = [];
+    const origSend = carrier.send.bind(carrier);
+    carrier.send = async (...args: Parameters<typeof origSend>) => {
+      sends.push(1);
+      return origSend(...args);
+    };
+
+    // Act: newer flight (sendHandshakeFlight increments flightId) then fire stale RTO
+    eng.flightId = gen + 1;
+    pendingFn!();
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Assert: stale generation must not retransmit the previous flight
+    expect(sends.length).toBe(0);
+
+    client.close();
+    await clientTransport.close();
+  });
+
   test("DTLS-SRTP profile uses 400ms initial when RTT unknown", async () => {
     // Arrange: srtpProfiles set → DTLS-SRTP initial RTO
     const clientTransport = await UdpTransport.init("udp4");
