@@ -42,6 +42,7 @@ import {
   kAlrProbingIntervalMs,
   kBeta,
   kGoogCcProcessIntervalMs,
+  kLossBasedPaddingDurationMs,
   kLossLimitedProbeScale,
   kMinBitrateBps,
   kProbeFractionAfterDrop,
@@ -1414,6 +1415,45 @@ describe("media/sender bandwidth estimator", () => {
       const limit = 1.5 * 200_000 + 10_000;
       expect(after).toBeLessThanOrEqual(limit);
       expect(after).toBeGreaterThan(100_000);
+    });
+
+    test("AIMD ClampBitrate は NSE upper で増加を抑え lower で減少を床する", () => {
+      // Arrange: pin ClampBitrate — upper = max(link_capacity_upper, current)
+      // lower は減少時に max(new, lower × β)
+      const aimd = new AimdRateControl();
+      aimd.reset(400_000);
+      aimd.setRtt(200);
+      aimd.setNetworkStateEstimate(300_000, 200_000);
+
+      // Act: increase は current(400k) が upper 床なので 400k を超えない
+      aimd.update("normal", 800_000, 1_000);
+      const afterInc = aimd.update("normal", 800_000, 2_000);
+
+      // Assert
+      expect(afterInc).toBeLessThanOrEqual(400_000);
+
+      // Act: overuse 減少は lower×β = 170k 未満に落ちない
+      const afterDec = aimd.update("overuse", 100_000, 3_000);
+      expect(afterDec).toBeGreaterThanOrEqual(Math.round(200_000 * kBeta));
+      expect(afterDec).toBeLessThanOrEqual(400_000);
+
+      // Act: upper<=0 で NSE を解除すると clamp しない
+      aimd.setNetworkStateEstimate(0);
+      aimd.setEstimate(900_000, 4_000);
+      expect(aimd.targetBitrateBps).toBe(900_000);
+    });
+
+    test("Gcc.setNetworkStateEstimate は AIMD clamp に伝播する", () => {
+      // Arrange
+      const gcc = new GccBandwidthEstimator(400_000);
+      gcc.setNetworkStateEstimate(250_000);
+      const aimd = (gcc as any).aimd as AimdRateControl;
+
+      // Act
+      aimd.setEstimate(800_000, 1_000);
+
+      // Assert: upper 床 = max(250k, current 400k) = 400k
+      expect(aimd.targetBitrateBps).toBe(400_000);
     });
 
     test("raw RTT 180ms→20ms は AIMD に 20ms が渡る（smoothed ではない）", () => {
@@ -6481,6 +6521,113 @@ describe("media/sender bandwidth estimator", () => {
       // Act: max = min+1 は保持
       gcc.setBitrates(min, 0, min + 1);
       expect((gcc as any).appMaxBps).toBe(min + 1);
+    });
+
+    test("probe ACK は sendMs=0（Timestamp::Zero）でも推定する", () => {
+      // Arrange: pin は Zero を無効にしない。合成 clock=0 の先頭パケット
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, 1e9, 0);
+      const n = 6;
+      for (let i = 0; i < n; i++) {
+        probe.onProbePacketSent(400, i * 2, i + 1);
+      }
+
+      // Act: 先頭 sendMs=0 を含む ACK
+      for (let i = 0; i < n; i++) {
+        probe.onAckedPacket(400, 20 + i * 2, true, i + 1, 20, i * 2);
+      }
+
+      // Assert
+      expect(probe.takePendingEstimateBps()).toBeGreaterThan(0);
+    });
+
+    test("probe session timeout は initiation=0 でも 1s 境界", () => {
+      // Arrange: pin Process は at_time - time_last_probing_initiated_ > 1s
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, 1e9, 0);
+      probe.onProbePacketSent(200, 0, 1);
+      expect(probe.probeState).toBe("waiting_for_result");
+
+      // Act / Assert: timeout-1 / timeout は waiting、+1 で complete
+      expect(probe.process(999)).toEqual([]);
+      expect(probe.probeState).toBe("waiting_for_result");
+      expect(probe.process(1_000)).toEqual([]);
+      expect(probe.probeState).toBe("waiting_for_result");
+      expect(probe.process(1_001)).toEqual([]);
+      expect(probe.probeState).toBe("complete");
+    });
+
+    test("probe ACK は TWCC seq wrap 後も同一 cluster に載る", () => {
+      // Arrange: production は unwrapped seq を渡す。wire 0xffff→0 は 65535→65536
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 100_000, 1e9, 0);
+      const seqs = [0xfffd, 0xfffe, 0xffff, 0x10000, 0x10001, 0x10002];
+      for (let i = 0; i < seqs.length; i++) {
+        probe.onProbePacketSent(400, 100 + i * 2, seqs[i]!);
+      }
+
+      // Act
+      for (let i = 0; i < seqs.length; i++) {
+        probe.onAckedPacket(400, 200 + i * 2, true, seqs[i]!, 220, 100 + i * 2);
+      }
+
+      // Assert: wrap しても 1 cluster の推定が出る
+      expect(probe.takePendingEstimateBps()).toBeGreaterThan(0);
+    });
+
+    test("Gcc receiveTWCC は 16-bit wrap した probe seq を推定できる", () => {
+      // Arrange: wire seq 0xffff → 0。clock=0 の send も含む
+      const { gcc, setNow } = createClockGcc(100_000, 0);
+      gcc.setBitrates(10_000, 100_000, 1e9);
+      const seqs = [0xfffd, 0xfffe, 0xffff, 0, 1, 2];
+      for (let i = 0; i < seqs.length; i++) {
+        gcc.rtpPacketSent(sent(seqs[i]!, 400, i * 2, { isProbation: true }));
+      }
+
+      // Act
+      setNow(40);
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          seqs.map((s, i) => {
+            return new PacketResult({
+              sequenceNumber: s,
+              received: true,
+              receivedAtMs: 20 + i * 2,
+            });
+          }),
+        ),
+      );
+
+      // Assert: wrap + sendMs=0 でも probe 結果が target に載る
+      expect(
+        (gcc as any).probe.takePendingEstimateBps() + gcc.availableBitrate,
+      ).toBeGreaterThan(0);
+    });
+
+    test("PaddingDuration 既定 2s では loss increase が increase_using_padding になる", () => {
+      // Arrange: pin FieldTrial PaddingDuration = 2s
+      expect(kLossBasedPaddingDurationMs).toBe(2_000);
+      const { gcc, setNow } = createClockGcc(200_000, 0);
+      (gcc as any).lossBwe.setPaddingDurationMs(2_000);
+      (gcc as any).hasValidSample = true;
+      (gcc as any).delayBasedBps = 1_000_000;
+      (gcc as any).delayBasedLimitBps = 1_000_000;
+      (gcc as any).currentTargetBps = 200_000;
+      (gcc as any)._availableBitrate = 200_000;
+      (gcc as any).lossBwe.updateState(200_000, 260_000, 1_000);
+
+      // Act
+      setNow(1_050);
+      gcc.process(1_050);
+
+      // Assert: padding rate が target に載り、probe は禁止
+      expect((gcc as any).lossBwe.lossState).toBe("increase_using_padding");
+      expect(gcc.getPaddingBitrateBps()).toBeGreaterThan(0);
+      expect(
+        isProbeInitiationAllowed(
+          getBandwidthLimitedCause("normal", false, "increase_using_padding"),
+        ),
+      ).toBe(false);
     });
 
     test("RequestProbe の 5s 境界は pin の > / < に従う", () => {

@@ -75,6 +75,18 @@ export interface ProbePacingController {
    * probe cluster when media alone is insufficient.
    */
   pendingProbePaddingPackets(packetBytes?: number): number;
+
+  /**
+   * pin `GetPacingRates` padding_rate while loss-limited
+   * `kIncreaseUsingPadding`. 0 when not in that state.
+   */
+  getPaddingBitrateBps?(): number;
+
+  /**
+   * Padding packets to send to approach {@link getPaddingBitrateBps} when
+   * media is sparse. Not probe/probation packets.
+   */
+  pendingLossPaddingPackets?(packetBytes?: number): number;
 }
 
 /** Type guard for estimators that drive probe padding / pacing. */

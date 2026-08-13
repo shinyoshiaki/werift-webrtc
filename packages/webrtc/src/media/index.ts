@@ -59,6 +59,7 @@ export {
   kProbeFractionAfterDrop,
   kDefaultStartBitrateBps,
   kGoogCcProcessIntervalMs,
+  kLossBasedPaddingDurationMs,
   kLossBasedIncreaseFactor,
   kLossDecreaseThreshold,
   kLossIncreaseFactor,

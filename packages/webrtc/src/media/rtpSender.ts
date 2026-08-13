@@ -332,6 +332,8 @@ export class RTCRtpSender {
       if (isBandwidthEstimatorProcessor(this._senderBWE)) {
         this._senderBWE.process(milliTime());
       }
+      // pin GetPacingRates padding_rate while kIncreaseUsingPadding.
+      void this.maybeInjectLossPadding();
     }, kGoogCcProcessIntervalMs);
     timer.unref?.();
     this.bweProcessTimer = timer;
@@ -723,6 +725,65 @@ export class RTCRtpSender {
           if (this.stopped || generation !== this.bweGeneration) break;
           totalSent++;
         }
+      }
+      return totalSent;
+    } finally {
+      this.probePaddingInFlight = false;
+    }
+  }
+
+  /**
+   * pin padding_rate while LossBased is `kIncreaseUsingPadding`.
+   * Regular RTP padding (not probe/probation). Probe padding takes priority.
+   */
+  async maybeInjectLossPadding(): Promise<number> {
+    if (this.stopped) return 0;
+    if (this.dtlsTransport?.state !== "connected" || !this.codec) {
+      return 0;
+    }
+    if (!this.isTransportCcNegotiated()) {
+      return 0;
+    }
+    if (this.probePaddingInFlight) return 0;
+    const generation = this.bweGeneration;
+    const e = this._senderBWE;
+    if (
+      !isProbePacingController(e) ||
+      typeof e.pendingLossPaddingPackets !== "function"
+    ) {
+      return 0;
+    }
+    if (e.shouldTagProbePacket()) return 0;
+    this.probePaddingInFlight = true;
+    let totalSent = 0;
+    try {
+      const pending = e.pendingLossPaddingPackets(kProbePaddingPacketBytes);
+      if (pending <= 0) return 0;
+      const n = Math.min(pending, kProbePaddingMaxBurst);
+      for (let i = 0; i < n; i++) {
+        if (this.stopped || generation !== this.bweGeneration) break;
+        const pad = new RtpPacket(
+          new RtpHeader({
+            sequenceNumber: 0,
+            timestamp: this.timestamp ?? 0,
+            payloadType: this.codec.payloadType,
+            ssrc: this.ssrc,
+            extension: true,
+            extensions: [],
+            marker: false,
+            padding: true,
+            paddingSize: kProbePaddingPacketBytes,
+            payloadOffset: 12,
+          }),
+          Buffer.alloc(0),
+        );
+        await this.sendRtpInternal(pad, {
+          injectProbePadding: false,
+          forceProbeTag: false,
+          isProbePadding: true,
+        });
+        if (this.stopped || generation !== this.bweGeneration) break;
+        totalSent++;
       }
       return totalSent;
     } finally {

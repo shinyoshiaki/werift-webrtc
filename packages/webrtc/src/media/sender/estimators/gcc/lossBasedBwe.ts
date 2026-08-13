@@ -37,7 +37,7 @@ import {
 /**
  * Loss-based BWE states (libwebrtc LossBasedBweV2 naming).
  * `increase_using_padding` is used when {@link kLossBasedPaddingDurationMs} > 0
- * (pin PaddingDuration); default 0 keeps `increasing`.
+ * (pin PaddingDuration FieldTrial default 2s).
  */
 export type LossBasedState =
   | "increasing"
@@ -108,8 +108,8 @@ export class LossBasedBwe {
   private holdDurationMs = kLossBasedInitHoldDurationMs;
   private holdRateBps = kMaxBitrateBps;
   /**
-   * pin PaddingDuration. 0 (default) never enters increase_using_padding.
-   * Tests / future field-trial wiring may raise this.
+   * pin PaddingDuration. Default {@link kLossBasedPaddingDurationMs} (2s).
+   * Tests may override via {@link setPaddingDurationMs}.
    */
   private paddingDurationMs = kLossBasedPaddingDurationMs;
   private lastPaddingMs = Number.NEGATIVE_INFINITY;

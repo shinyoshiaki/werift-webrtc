@@ -20,6 +20,7 @@ export {
   kLossIncreaseFactor,
   kLossIncreaseThreshold,
   kLossLimitedProbeScale,
+  kLossBasedPaddingDurationMs,
   kMaxBitrateBps,
   kMinBitrateBps,
   kProbeBitrateMultipliers,

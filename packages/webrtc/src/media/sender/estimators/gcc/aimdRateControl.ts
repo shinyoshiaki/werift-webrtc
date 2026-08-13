@@ -42,6 +42,13 @@ export class AimdRateControl {
   /** send_side AIMD (GoogCc uses send-side). */
   private readonly sendSide = true;
   private readonly noBitrateIncreaseInAlr = false;
+  /**
+   * pin `network_estimate_` (optional). Unset → ClampBitrate ignores NSE.
+   * `use_current_estimate_as_min_upper_bound_` default true (`c_upper`).
+   */
+  private networkUpperBps: number | undefined;
+  private networkLowerBps: number | undefined;
+  private readonly useCurrentEstimateAsMinUpperBound = true;
 
   reset(startBps = kDefaultStartBitrateBps) {
     this.minConfiguredBps = kMinBitrateBps;
@@ -61,6 +68,8 @@ export class AimdRateControl {
     this.bitrateIsInitialized = startBps > 0;
     this.inAlr = false;
     this.rttMs = kDefaultRttMs;
+    this.networkUpperBps = undefined;
+    this.networkLowerBps = undefined;
   }
 
   setStartBitrate(startBps: number) {
@@ -119,6 +128,26 @@ export class AimdRateControl {
 
   setInApplicationLimitedRegion(inAlr: boolean) {
     this.inAlr = inAlr;
+  }
+
+  /**
+   * pin `AimdRateControl::SetNetworkStateEstimate`.
+   * Non-finite / non-positive upper clears the estimate.
+   */
+  setNetworkStateEstimate(
+    linkCapacityUpperBps: number,
+    linkCapacityLowerBps = 0,
+  ): void {
+    if (!Number.isFinite(linkCapacityUpperBps) || linkCapacityUpperBps <= 0) {
+      this.networkUpperBps = undefined;
+      this.networkLowerBps = undefined;
+      return;
+    }
+    this.networkUpperBps = linkCapacityUpperBps;
+    this.networkLowerBps =
+      Number.isFinite(linkCapacityLowerBps) && linkCapacityLowerBps > 0
+        ? linkCapacityLowerBps
+        : undefined;
   }
 
   validEstimate(): boolean {
@@ -371,8 +400,25 @@ export class AimdRateControl {
   }
 
   private clampBitrate(newBitrateBps: number): number {
-    // NetworkStateEstimate upper/lower bounds omitted (no network_estimator path).
-    return Math.max(newBitrateBps, this.minConfiguredBps);
+    let next = newBitrateBps;
+    // pin ClampBitrate: disable_estimate_bounded_increase_ default off.
+    if (this.networkUpperBps !== undefined && this.networkUpperBps > 0) {
+      const upper = this.useCurrentEstimateAsMinUpperBound
+        ? Math.max(this.networkUpperBps, this.currentBitrateBps)
+        : this.networkUpperBps;
+      next = Math.min(upper, next);
+    }
+    if (
+      this.networkLowerBps !== undefined &&
+      this.networkLowerBps > 0 &&
+      next < this.currentBitrateBps
+    ) {
+      next = Math.min(
+        this.currentBitrateBps,
+        Math.max(next, this.networkLowerBps * this.beta),
+      );
+    }
+    return Math.max(next, this.minConfiguredBps);
   }
 }
 

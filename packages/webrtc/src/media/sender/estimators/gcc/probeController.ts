@@ -457,7 +457,7 @@ export class ProbeController {
     // ProbeController: result wait after send-fill — 1s from last send.
     // Controller leaves waiting_for_result; estimator history stays when useful.
     for (const [id, c] of this.awaitingResults) {
-      const waitStart = c.lastSendMs > 0 ? c.lastSendMs : c.startMs;
+      const waitStart = c.sentPackets > 0 ? c.lastSendMs : c.startMs;
       if (nowMs - waitStart > kProbeResultTimeoutMs) {
         this.awaitingResults.delete(id);
         if (c.sentPackets > 0) {
@@ -714,13 +714,10 @@ export class ProbeController {
     if (!cluster) return;
     // Need a send timestamp for ACKed-only send-rate math.
     if (sendMs === undefined || !Number.isFinite(sendMs)) {
-      // Last resort: use cluster send span endpoints (less accurate).
-      sendMs =
-        cluster.ackedPackets === 0
-          ? cluster.firstSendMs || cluster.lastSendMs
-          : cluster.lastSendMs;
+      // Last resort: cluster send span. 0 is a valid Timestamp::Zero.
+      sendMs = cluster.sentPackets > 0 ? cluster.lastSendMs : cluster.startMs;
     }
-    if (!Number.isFinite(sendMs) || sendMs <= 0) return;
+    if (!Number.isFinite(sendMs)) return;
 
     // libwebrtc-style min/max aggregation (order-independent).
     if (cluster.ackedPackets === 0) {
@@ -808,7 +805,7 @@ export class ProbeController {
   private eraseOldEstimatorClusters(receiveTimeMs: number) {
     for (const [id, c] of this.estimatorHistory) {
       if (
-        c.lastRecvMs > 0 &&
+        c.ackedPackets > 0 &&
         receiveTimeMs - c.lastRecvMs > kProbeResultTimeoutMs
       ) {
         this.dropClusterSeqs(id);
@@ -825,7 +822,7 @@ export class ProbeController {
    */
   private pruneEstimatorHistoryBySendAge(nowMs: number) {
     for (const [id, c] of this.estimatorHistory) {
-      const lastSend = c.lastSendMs > 0 ? c.lastSendMs : c.startMs;
+      const lastSend = c.sentPackets > 0 ? c.lastSendMs : c.startMs;
       if (nowMs - lastSend > kSendTimeHistoryWindowMs) {
         this.dropClusterSeqs(id);
         this.estimatorHistory.delete(id);

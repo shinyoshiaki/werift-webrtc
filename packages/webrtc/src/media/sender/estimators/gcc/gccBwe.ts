@@ -200,6 +200,13 @@ export class GccBandwidthEstimator
    * (constructor / {@link enablePeriodicAlrProbing}).
    */
   private periodicAlrProbing = false;
+  /**
+   * Token-bucket for pin GetPacingRates padding_rate while
+   * `kIncreaseUsingPadding`. Accrued on process / pending query; drained
+   * by media and injected padding.
+   */
+  private paddingDueBytes = 0;
+  private lastPaddingAccrueMs = Number.NEGATIVE_INFINITY;
 
   get availableBitrate() {
     return this._availableBitrate;
@@ -224,6 +231,30 @@ export class GccBandwidthEstimator
         : this.startBitrateBps;
     const probeTarget = this.probe.currentProbeTargetBps;
     return Math.max(estimate, probeTarget);
+  }
+
+  /**
+   * pin `GetPacingRates` padding_rate when loss state is
+   * `kIncreaseUsingPadding`: last loss-based target (current target).
+   */
+  getPaddingBitrateBps(): number {
+    if (this.disposed) return 0;
+    if (this.lossBwe.lossState !== "increase_using_padding") return 0;
+    if (this.currentTargetBps > 0) return this.currentTargetBps;
+    return this.lossBasedBps > 0 ? this.lossBasedBps : 0;
+  }
+
+  /**
+   * Padding packets to send so the token-bucket approaches
+   * {@link getPaddingBitrateBps} when media is sparse. 0 while probing.
+   */
+  pendingLossPaddingPackets(packetBytes = kProbePaddingPacketBytes): number {
+    if (this.disposed) return 0;
+    this.ensureProbing(this.clock());
+    if (this.probe.shouldTagProbePacket()) return 0;
+    this.accrueLossPadding(this.clock());
+    if (this.paddingDueBytes <= 0) return 0;
+    return Math.ceil(this.paddingDueBytes / Math.max(1, packetBytes));
   }
 
   shouldTagProbePacket(): boolean {
@@ -263,6 +294,7 @@ export class GccBandwidthEstimator
     // Age-out send history even when media is idle (pin 60s window).
     // rtpPacketSent-only prune would leak after send stop.
     this.pruneSentInfos(nowMs);
+    this.accrueLossPadding(nowMs);
     // pin first OnProcessInterval ResetConstraints → ProbeController::SetBitrates
     this.ensureProbing(nowMs);
     // 1) bandwidth_estimation_.UpdateEstimate
@@ -288,11 +320,18 @@ export class GccBandwidthEstimator
 
   /**
    * pin `OnNetworkStateEstimate` / `SetNetworkStateEstimate`.
-   * `linkCapacityUpperBps <= 0` clears the estimate.
+   * `linkCapacityUpperBps <= 0` clears the estimate on ProbeController and AIMD.
    */
-  setNetworkStateEstimate(linkCapacityUpperBps: number): void {
+  setNetworkStateEstimate(
+    linkCapacityUpperBps: number,
+    linkCapacityLowerBps = 0,
+  ): void {
     if (this.disposed) return;
     this.probe.setNetworkStateEstimate(linkCapacityUpperBps);
+    this.aimd.setNetworkStateEstimate(
+      linkCapacityUpperBps,
+      linkCapacityLowerBps,
+    );
   }
 
   /**
@@ -380,6 +419,8 @@ export class GccBandwidthEstimator
   rtpPacketSent(info: SentInfo) {
     if (this.disposed) return;
     this.alr.onBytesSent(info.size, info.sendingAtMs);
+    this.accrueLossPadding(info.sendingAtMs);
+    this.paddingDueBytes = Math.max(0, this.paddingDueBytes - info.size);
     this.ackedBitrate.setAlr(this.alr.inAlr);
     this.aimd.setInApplicationLimitedRegion(this.alr.inAlr);
     this.pruneSentInfos(info.sendingAtMs);
@@ -790,6 +831,8 @@ export class GccBandwidthEstimator
     this.lastMaxFeedbackRttMs = 0;
     this.lastPropagationRttMs = 0;
     this.lastSeenPacketMs = Number.NEGATIVE_INFINITY;
+    this.paddingDueBytes = 0;
+    this.lastPaddingAccrueMs = Number.NEGATIVE_INFINITY;
     this.alr.reset();
     this.previouslyInAlr = false;
     this.minConfiguredBps = kMinBitrateBps;
@@ -896,6 +939,28 @@ export class GccBandwidthEstimator
     return this.appMaxBps !== undefined && this.appMaxBps > 0
       ? this.appMaxBps
       : kDefaultMaxProbingBitrateBps;
+  }
+
+  /**
+   * Accrue pin padding_rate × elapsed into {@link paddingDueBytes}.
+   * Cap at 100ms of the current padding rate so idle ticks cannot explode.
+   */
+  private accrueLossPadding(nowMs: number): void {
+    const rate = this.getPaddingBitrateBps();
+    if (!(rate > 0)) {
+      this.paddingDueBytes = 0;
+      this.lastPaddingAccrueMs = nowMs;
+      return;
+    }
+    if (!Number.isFinite(this.lastPaddingAccrueMs)) {
+      this.lastPaddingAccrueMs = nowMs;
+      return;
+    }
+    const dtMs = Math.max(0, nowMs - this.lastPaddingAccrueMs);
+    this.lastPaddingAccrueMs = nowMs;
+    this.paddingDueBytes += (rate / 8) * (dtMs / 1000);
+    const cap = (rate / 8) * 0.1;
+    if (this.paddingDueBytes > cap) this.paddingDueBytes = cap;
   }
 
   private applyTargetLimits(): void {
