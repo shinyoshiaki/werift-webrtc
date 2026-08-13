@@ -63,3 +63,40 @@ Ingest ACKed packets. Prefer **receive-time order** (libwebrtc
 #### Returns
 
 `void`
+
+***
+
+### setAlr()
+
+> **setAlr**(`_inAlr`): `void`
+
+pin RobustThroughputEstimator::SetAlr — no-op on the robust path.
+Kept so GCC can publish ALR without branching on estimator type.
+
+#### Parameters
+
+##### \_inAlr
+
+`boolean`
+
+#### Returns
+
+`void`
+
+***
+
+### setAlrEndedTime()
+
+> **setAlrEndedTime**(`_atTimeMs`): `void`
+
+pin RobustThroughputEstimator::SetAlrEndedTime — no-op.
+
+#### Parameters
+
+##### \_atTimeMs
+
+`number`
+
+#### Returns
+
+`void`

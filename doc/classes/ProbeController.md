@@ -119,6 +119,20 @@ Exposed for tests / diagnostics (last planned further-probe threshold).
 
 ***
 
+### lastBandwidthLimitedCause
+
+#### Get Signature
+
+> **get** **lastBandwidthLimitedCause**(): [`BandwidthLimitedCause`](../type-aliases/BandwidthLimitedCause.md)
+
+Last BandwidthLimitedCause (tests / diagnostics).
+
+##### Returns
+
+[`BandwidthLimitedCause`](../type-aliases/BandwidthLimitedCause.md)
+
+***
+
 ### probeState
 
 #### Get Signature
@@ -164,6 +178,24 @@ Exposed for tests / diagnostics (last planned further-probe threshold).
 ##### nowMs
 
 `number`
+
+#### Returns
+
+`void`
+
+***
+
+### enablePeriodicAlrProbing()
+
+> **enablePeriodicAlrProbing**(`enable`): `void`
+
+pin `EnablePeriodicAlrProbing`.
+
+#### Parameters
+
+##### enable
+
+`boolean`
 
 #### Returns
 
@@ -304,9 +336,10 @@ Bytes still needed for the **pacing** cluster (padding injection).
 
 > **requestProbe**(`estimatedBps`, `nowMs`, `opts`?): [`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
 
-Recovery / capacity probe (caller must already pass BandwidthLimitedCause
-gating). Optional `maxProbeBps` is InitiateProbing's max_probe_bitrate
-(e.g. estimated × loss_limited_probe_scale when loss-limited increasing).
+pin `ProbeController::RequestProbe`.
+
+Only while complete + (in ALR or ALR ended < 3s) + large drop within 5s.
+Target is 0.85 × bitrate_before_last_large_drop. Always probe_further=false.
 
 #### Parameters
 
@@ -339,6 +372,42 @@ gating). Optional `maxProbeBps` is InitiateProbing's max_probe_bitrate
 ##### \_atTimeMs
 
 `number` = `0`
+
+#### Returns
+
+`void`
+
+***
+
+### setAlrEndedTime()
+
+> **setAlrEndedTime**(`endMs`): `void`
+
+pin `SetAlrEndedTime`.
+
+#### Parameters
+
+##### endMs
+
+`number`
+
+#### Returns
+
+`void`
+
+***
+
+### setAlrStartTime()
+
+> **setAlrStartTime**(`startMs`): `void`
+
+pin `SetAlrStartTime` (`undefined` = not in ALR).
+
+#### Parameters
+
+##### startMs
+
+`undefined` | `number`
 
 #### Returns
 
@@ -400,6 +469,10 @@ BandwidthLimitedCause (loss-limited increasing → estimated × 1.5).
 
 ##### opts?
 
+###### cause?
+
+[`BandwidthLimitedCause`](../type-aliases/BandwidthLimitedCause.md)
+
 ###### maxProbeBps?
 
 `number`
@@ -407,6 +480,43 @@ BandwidthLimitedCause (loss-limited increasing → estimated × 1.5).
 #### Returns
 
 [`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
+
+***
+
+### setNetworkStateEstimate()
+
+> **setNetworkStateEstimate**(`linkCapacityUpperBps`): `void`
+
+pin `SetNetworkStateEstimate` — `linkCapacityUpperBps <= 0` clears.
+
+#### Parameters
+
+##### linkCapacityUpperBps
+
+`number`
+
+#### Returns
+
+`void`
+
+***
+
+### setNetworkStateProbeIntervalMs()
+
+> **setNetworkStateProbeIntervalMs**(`ms`): `void`
+
+Override pin-default +∞ NSE probe interval (ms) so tests / callers can
+enable TimeForNetworkStateProbe.
+
+#### Parameters
+
+##### ms
+
+`number`
+
+#### Returns
+
+`void`
 
 ***
 

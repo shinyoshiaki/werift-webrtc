@@ -143,6 +143,25 @@ clearing observation history, HOLD timers, or inherent-loss estimates.
 
 ***
 
+### setPaddingDurationMs()
+
+> **setPaddingDurationMs**(`ms`): `void`
+
+pin PaddingDuration. 0 keeps `increasing`; >0 enters
+`increase_using_padding` on loss-limited increase (maps to kLossLimitedBwe).
+
+#### Parameters
+
+##### ms
+
+`number`
+
+#### Returns
+
+`void`
+
+***
+
 ### update()
 
 > **update**(`lossFraction`, `delayBasedBps`, `acknowledgedBps`, `packetCount`, `lostCount`, `firstSendMs`, `batchBytes`, `lastSendMs`, `lostBytes`, `packets`?): `number`
