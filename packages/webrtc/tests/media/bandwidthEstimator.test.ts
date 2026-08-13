@@ -6433,6 +6433,56 @@ describe("media/sender bandwidth estimator", () => {
       expect(d?.sendDeltaMs).toBe(9);
     });
 
+    test("setBitrates は start<min を min へ正規化する（境界）", () => {
+      // Arrange: pin ClampConstraints — start < min_data_rate_ なら start = min
+      const min = 200_000;
+      const { gcc } = createClockGcc(300_000, 90_000);
+      (gcc as any).hasValidSample = true;
+      (gcc as any)._availableBitrate = 300_000;
+
+      // Act: start = min-1
+      gcc.setBitrates(min, min - 1, 2_000_000);
+
+      // Assert: start / target / probe 初期倍率がすべて min 基準
+      expect((gcc as any).startBitrateBps).toBe(min);
+      expect((gcc as any).minConfiguredBps).toBe(min);
+      expect(gcc.availableBitrate).toBe(min);
+      expect(gcc.suggestedProbeBitrateBps).toBe(min * 3);
+
+      // Act: ちょうど min と min+1 はそのまま
+      gcc.setBitrates(min, min, 2_000_000);
+      expect((gcc as any).startBitrateBps).toBe(min);
+      gcc.setBitrates(min, min + 1, 2_000_000);
+      expect((gcc as any).startBitrateBps).toBe(min + 1);
+    });
+
+    test("setBitrates は min>max のとき max を min へ上げる（境界）", () => {
+      // Arrange: pin ClampConstraints — max_data_rate_ < min なら max = min
+      const { gcc } = createClockGcc(300_000, 91_000);
+      (gcc as any).hasValidSample = true;
+      (gcc as any)._availableBitrate = 300_000;
+      const min = 1_000_000;
+
+      // Act: max = min-1
+      gcc.setBitrates(min, 300_000, min - 1);
+
+      // Assert: max も start も min。probe / target clamp が同じ上限
+      expect((gcc as any).minConfiguredBps).toBe(min);
+      expect((gcc as any).appMaxBps).toBe(min);
+      expect((gcc as any).startBitrateBps).toBe(min);
+      expect(gcc.availableBitrate).toBe(min);
+      expect(gcc.suggestedProbeBitrateBps).toBe(min);
+
+      // Act: max === min はそのまま（上げない）
+      gcc.setBitrates(min, 0, min);
+      expect((gcc as any).appMaxBps).toBe(min);
+      expect((gcc as any).startBitrateBps).toBe(min);
+
+      // Act: max = min+1 は保持
+      gcc.setBitrates(min, 0, min + 1);
+      expect((gcc as any).appMaxBps).toBe(min + 1);
+    });
+
     test("RequestProbe の 5s 境界は pin の > / < に従う", () => {
       // Arrange
       const probe = new ProbeController();

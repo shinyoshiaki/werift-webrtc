@@ -296,7 +296,13 @@ export class GccBandwidthEstimator
   }
 
   /**
-   * pin `OnTargetRateConstraints` / `ProbeController::SetBitrates`.
+   * pin `OnTargetRateConstraints` / `ResetConstraints` / `ClampConstraints`
+   * then `ProbeController::SetBitrates`.
+   *
+   * Constraints are normalized **once** at this entrance (pin order):
+   * min floored at {@link kMinBitrateBps} → max raised to min → start
+   * raised to min when `start > 0`. The same triple is then applied to
+   * AIMD, LossBasedBwe, ProbeController, and {@link applyTargetLimits}.
    *
    * While probing is `complete`, a **higher** max than the previous max
    * (and than the current estimate) starts a single probe at the new max
@@ -305,29 +311,28 @@ export class GccBandwidthEstimator
   setBitrates(minBps: number, startBps: number, maxBps: number): void {
     if (this.disposed) return;
     const nowMs = this.clock();
-    if (minBps > 0) {
-      this.minConfiguredBps = Math.max(minBps, kMinBitrateBps);
-      this.aimd.setMinBitrate(this.minConfiguredBps);
-    }
-    if (startBps > 0) {
-      this.startBitrateBps = startBps;
-      this.aimd.setStartBitrate(startBps);
+    const clamped = this.clampConstraints(minBps, startBps, maxBps);
+    this.minConfiguredBps = clamped.minBps;
+    this.aimd.setMinBitrate(clamped.minBps);
+    if (clamped.startBps > 0) {
+      this.startBitrateBps = clamped.startBps;
+      this.aimd.setStartBitrate(clamped.startBps);
       // pin SetSendBitrate: delay_based_limit_ = +∞ so the new start is
       // not capped by a stale delay estimate, then current_target = start.
       this.delayBasedLimitBps = Number.POSITIVE_INFINITY;
-      this.currentTargetBps = startBps;
+      this.currentTargetBps = clamped.startBps;
     }
     // pin ResetConstraints: the same max is applied to send-side BWE and
     // ProbeController. start=0 must not overwrite estimated_bitrate_ /
     // current_target_ (pin SetBitrates skips SetSendBitrate).
-    if (Number.isFinite(maxBps) && maxBps !== Number.POSITIVE_INFINITY) {
-      this.appMaxBps = maxBps > 0 ? maxBps : undefined;
+    if (clamped.maxBps !== undefined) {
+      this.appMaxBps = clamped.maxBps;
     }
     this.lossBwe.setMinMaxBitrate(this.minConfiguredBps, this.targetMaxBps());
     this.probingConfigured = true;
     for (const cfg of this.probe.setBitrates(
       this.minConfiguredBps,
-      startBps,
+      clamped.startBps,
       this.probeMaxBps(),
       nowMs,
     )) {
@@ -843,6 +848,42 @@ export class GccBandwidthEstimator
     return lossBps;
   }
 
+  /**
+   * pin `GoogCcNetworkController::ClampConstraints`.
+   *
+   * 1. min = max(provided-or-current, kCongestionControllerMinBitrate)
+   * 2. if a finite max is provided and max is below min, max = min
+   * 3. if start is set and below min, start = min
+   *
+   * `start = 0` stays 0 (pin optional starting_rate / skip SetSendBitrate).
+   * Non-finite max is PlusInfinity (unset) and is not raised to min.
+   */
+  private clampConstraints(
+    minBps: number,
+    startBps: number,
+    maxBps: number,
+  ): { minBps: number; startBps: number; maxBps: number | undefined } {
+    const minTarget = Number.isFinite(minBps) && minBps > 0 ? minBps : 0;
+    const min = Math.max(
+      minTarget > 0 ? minTarget : this.minConfiguredBps,
+      kMinBitrateBps,
+    );
+
+    let max: number | undefined;
+    if (Number.isFinite(maxBps) && maxBps !== Number.POSITIVE_INFINITY) {
+      max = maxBps;
+      if (max < min) {
+        max = min;
+      }
+    }
+
+    let start = startBps;
+    if (start > 0 && start < min) {
+      start = min;
+    }
+    return { minBps: min, startBps: start, maxBps: max };
+  }
+
   /** pin send-side max: app max or kDefaultMaxBitrate (1 Gbps). */
   private targetMaxBps(): number {
     return this.appMaxBps !== undefined && this.appMaxBps > 0
@@ -1009,10 +1050,19 @@ export class GccBandwidthEstimator
 
   private ensureProbing(nowMs: number) {
     if (this.probingConfigured) return;
+    const clamped = this.clampConstraints(
+      this.minConfiguredBps,
+      this.startBitrateBps,
+      this.appMaxBps ?? Number.POSITIVE_INFINITY,
+    );
+    this.minConfiguredBps = clamped.minBps;
+    if (clamped.startBps > 0) {
+      this.startBitrateBps = clamped.startBps;
+    }
     this.probingConfigured = true;
     for (const cfg of this.probe.setBitrates(
       this.minConfiguredBps,
-      this.startBitrateBps,
+      clamped.startBps,
       this.probeMaxBps(),
       nowMs,
     )) {
