@@ -3572,7 +3572,7 @@ describe("media/sender bandwidth estimator", () => {
     });
 
     test("送信継続・feedbackなしで 3s 超えると target を ×0.8 し 1s ごとにさらに下げ floor 未満にはしない", () => {
-      // Arrange: pin first_packet UpdatePropagationRtt(send,0) + ProcessInterval
+      // Arrange: pin OnSentPacket は RTT を進めるだけ。drop は ProcessInterval
       const startBps = 1_000_000;
       const gcc = new GccBandwidthEstimator(startBps);
       const t0 = 10_000;
@@ -3580,47 +3580,49 @@ describe("media/sender bandwidth estimator", () => {
       // Act: 送信を継続（feedback なし）— CorrectedRtt = lastSend − firstSend
       let seq = 1;
       gcc.rtpPacketSent(sent(seq++, 500, t0));
+      gcc.process(t0);
       expect(gcc.availableBitrate).toBe(0); // TWCC 前・RTT 未超過は未公開
 
       // ちょうど limit では drop しない（> limit）
       gcc.rtpPacketSent(sent(seq++, 500, t0 + kRttBasedBackOffHighRttMs));
+      gcc.process(t0 + kRttBasedBackOffHighRttMs);
       expect((gcc as any).rttBackoff.isRttAboveLimit()).toBe(false);
       expect(gcc.availableBitrate).toBe(0);
 
-      // 3s+1ms: 初回 drop → 800kbps
-      gcc.rtpPacketSent(sent(seq++, 500, t0 + kRttBasedBackOffHighRttMs + 1));
+      // 3s+1ms の send では high になるが target はまだ変わらない
+      const highSend = t0 + kRttBasedBackOffHighRttMs + 1;
+      gcc.rtpPacketSent(sent(seq++, 500, highSend));
       expect((gcc as any).rttBackoff.isRttAboveLimit()).toBe(true);
+      expect(gcc.availableBitrate).toBe(0);
+
+      // 次の ProcessInterval（+25ms）で初回 drop → 800kbps
+      const firstProcess = highSend + kGoogCcProcessIntervalMs;
+      gcc.process(firstProcess);
       expect(gcc.availableBitrate).toBe(
         Math.round(startBps * kRttBasedBackOffDropFraction),
       );
 
-      // drop_interval 未満では再 drop しない
-      gcc.rtpPacketSent(
-        sent(seq++, 500, t0 + kRttBasedBackOffHighRttMs + 1 + 500),
-      );
+      // drop_interval 未満の send+process では再 drop しない
+      gcc.rtpPacketSent(sent(seq++, 500, highSend + 500));
+      gcc.process(highSend + 500);
       expect(gcc.availableBitrate).toBe(
         Math.round(startBps * kRttBasedBackOffDropFraction),
       );
 
-      // +1s: 2 回目 drop → 640kbps
-      gcc.rtpPacketSent(
-        sent(
-          seq++,
-          500,
-          t0 + kRttBasedBackOffHighRttMs + 1 + kRttBasedBackOffDropIntervalMs,
-        ),
-      );
+      // +1s process: 2 回目 drop → 640kbps
+      const secondProcess = firstProcess + kRttBasedBackOffDropIntervalMs;
+      gcc.rtpPacketSent(sent(seq++, 500, secondProcess));
+      gcc.process(secondProcess);
       expect(gcc.availableBitrate).toBe(
         Math.round(startBps * kRttBasedBackOffDropFraction ** 2),
       );
 
       // 繰り返し floor まで — pin kCongestionControllerMinBitrate = 5kbps
-      // （RTT drop floor と同じ 5kbps。旧実装は 10kbps に押し戻していた）
-      let t =
-        t0 + kRttBasedBackOffHighRttMs + 1 + kRttBasedBackOffDropIntervalMs;
+      let t = secondProcess;
       for (let i = 0; i < 40; i++) {
         t += kRttBasedBackOffDropIntervalMs;
         gcc.rtpPacketSent(sent(seq++, 500, t));
+        gcc.process(t);
       }
       expect(kMinBitrateBps).toBe(5_000);
       expect(gcc.availableBitrate).toBe(5_000);
@@ -3670,7 +3672,10 @@ describe("media/sender bandwidth estimator", () => {
       const t0 = 30_000;
       let seq = 1;
       gcc.rtpPacketSent(sent(seq++, 500, t0));
-      gcc.rtpPacketSent(sent(seq++, 500, t0 + kRttBasedBackOffHighRttMs + 1));
+      const highSend = t0 + kRttBasedBackOffHighRttMs + 1;
+      gcc.rtpPacketSent(sent(seq++, 500, highSend));
+      expect(gcc.availableBitrate).toBe(0);
+      gcc.process(highSend + kGoogCcProcessIntervalMs);
       expect(gcc.availableBitrate).toBe(
         Math.round(startBps * kRttBasedBackOffDropFraction),
       );
@@ -3708,9 +3713,11 @@ describe("media/sender bandwidth estimator", () => {
       const t0 = 40_000;
       const { gcc, setNow } = createClockGcc(startBps, t0);
       gcc.rtpPacketSent(sent(1, 500, t0));
-      // 3s+ 送信で high RTT 初回 drop → 800kbps
+      // 3s+ 送信では high のみ。drop は ProcessInterval
       const highT = t0 + kRttBasedBackOffHighRttMs + 1;
       gcc.rtpPacketSent(sent(2, 500, highT));
+      expect(gcc.availableBitrate).toBe(0);
+      gcc.process(highT + kGoogCcProcessIntervalMs);
       const afterFirstDrop = Math.round(
         startBps * kRttBasedBackOffDropFraction,
       );
@@ -3766,20 +3773,25 @@ describe("media/sender bandwidth estimator", () => {
       gcc.rtpPacketSent(sent(1, 500, t0));
       const highT = t0 + kRttBasedBackOffHighRttMs + 1;
       gcc.rtpPacketSent(sent(2, 500, highT));
+      expect(gcc.availableBitrate).toBe(0);
+
+      // Act: 送信なし・process のみで drop を進める
+      // CorrectedRtt は last_packet_sent 固定なので high のまま
+      const firstProcess = highT + kGoogCcProcessIntervalMs;
+      setNow(firstProcess);
+      gcc.process(firstProcess);
       expect(gcc.availableBitrate).toBe(
         Math.round(startBps * kRttBasedBackOffDropFraction),
       );
 
-      // Act: 送信なし・process のみで drop_interval を進める
-      // CorrectedRtt は last_packet_sent 固定なので high のまま
-      setNow(highT + kRttBasedBackOffDropIntervalMs);
-      gcc.process(highT + kRttBasedBackOffDropIntervalMs);
+      setNow(firstProcess + kRttBasedBackOffDropIntervalMs);
+      gcc.process(firstProcess + kRttBasedBackOffDropIntervalMs);
       expect(gcc.availableBitrate).toBe(
         Math.round(startBps * kRttBasedBackOffDropFraction ** 2),
       );
 
-      setNow(highT + 2 * kRttBasedBackOffDropIntervalMs);
-      gcc.process(highT + 2 * kRttBasedBackOffDropIntervalMs);
+      setNow(firstProcess + 2 * kRttBasedBackOffDropIntervalMs);
+      gcc.process(firstProcess + 2 * kRttBasedBackOffDropIntervalMs);
       expect(gcc.availableBitrate).toBe(
         Math.round(startBps * kRttBasedBackOffDropFraction ** 3),
       );
@@ -3801,6 +3813,9 @@ describe("media/sender bandwidth estimator", () => {
       gcc.rtpPacketSent(sent(1, 500, t0));
       const highT = t0 + kRttBasedBackOffHighRttMs + 1;
       gcc.rtpPacketSent(sent(2, 500, highT));
+      const firstProcess = highT + kGoogCcProcessIntervalMs;
+      setNow(firstProcess);
+      gcc.process(firstProcess);
       expect(gcc.availableBitrate).toBe(
         Math.round(startBps * kRttBasedBackOffDropFraction),
       );
@@ -3809,7 +3824,7 @@ describe("media/sender bandwidth estimator", () => {
       (gcc as any).delayBasedBps = 400_000;
 
       // Act: drop_interval 経過後の ProcessInterval
-      const later = highT + kRttBasedBackOffDropIntervalMs;
+      const later = firstProcess + kRttBasedBackOffDropIntervalMs;
       setNow(later);
       gcc.process(later);
 
@@ -3820,9 +3835,11 @@ describe("media/sender bandwidth estimator", () => {
       );
     });
 
-    test("periodic process の RTT drop は ProbeController の estimated/cause に伝播し ALR probe を出さない", () => {
-      // Arrange: pin OnProcessInterval → UpdateEstimate → MaybeTriggerOnNetworkChanged
-      // ALR 中に feedback stall すると、target だけでなく cause も high RTT に更新する
+    test("periodic process の RTT drop は Process の後に cause を伝播する", () => {
+      // Arrange: pin OnProcessInterval =
+      //   UpdateEstimate → SetAlrStartTime → Process → MaybeTrigger
+      // ALR 未 due の tick で high になると、Process はまだ旧 cause を見るが
+      // MaybeTrigger 後は high RTT。次の ALR due tick では probe しない。
       const startBps = 1_000_000;
       const t0 = 100_000;
       const { gcc, setNow } = createClockGcc(startBps, t0, {
@@ -3835,42 +3852,76 @@ describe("media/sender bandwidth estimator", () => {
       gcc.rtpPacketSent(sent(1, 500, t0));
       const highT = t0 + kRttBasedBackOffHighRttMs + 1;
       gcc.rtpPacketSent(sent(2, 500, highT));
-      const afterDrop = Math.round(startBps * kRttBasedBackOffDropFraction);
-      expect(gcc.availableBitrate).toBe(afterDrop);
+      expect(gcc.availableBitrate).toBe(0);
+      expect((gcc as any).rttBackoff.isRttAboveLimit()).toBe(true);
 
-      // 直近 TWCC が delay_based / 1Mbps のまま残っている状況を再現
       (gcc as any).hasValidSample = true;
       (gcc as any).alr.startedMs = t0;
       (gcc as any).probe.setAlrStartTime(t0);
       (gcc as any).probe.setEstimatedBitrate(startBps, t0, {
         cause: "delay_based_limited",
       });
-      expect((gcc as any).probe.estimatedBitrateBps).toBe(startBps);
-      expect((gcc as any).probe.lastBandwidthLimitedCause).toBe(
-        "delay_based_limited",
-      );
 
-      // Act: drop 直後の ProcessInterval（drop interval 内なので再 drop しない）
-      setNow(highT);
-      gcc.process(highT);
+      // Act: ALR 未 due（t0+3001）の ProcessInterval
+      const firstProcess = highT + kGoogCcProcessIntervalMs;
+      setNow(firstProcess);
+      gcc.process(firstProcess);
 
-      // Assert: 1M → 800k が ProbeController に届き cause は high RTT
+      const afterDrop = Math.round(startBps * kRttBasedBackOffDropFraction);
       expect(gcc.availableBitrate).toBe(afterDrop);
       expect((gcc as any).probe.estimatedBitrateBps).toBe(afterDrop);
       expect((gcc as any).probe.lastBandwidthLimitedCause).toBe(
         "rtt_based_back_off_high_rtt",
       );
 
-      // Act: ALR 5s 経過。stale delay_based なら periodic probe が出る
+      // Act: すでに cause 更新済みのあと ALR interval 経過
       const probeCfgs: number[] = [];
       gcc.onProbeClusterConfig.subscribe((c) => probeCfgs.push(c.targetBps));
       const alrT = t0 + kAlrProbingIntervalMs;
       setNow(alrT);
       gcc.process(alrT);
 
-      // Assert: high RTT cause のままなので InitiateProbing は空
+      // Assert: 前回 MaybeTrigger 済みの high RTT を見て probe しない
       expect(probeCfgs).toEqual([]);
       expect(gcc.probeState).toBe("complete");
+    });
+
+    test("ALR due と RTT high が同じ Process tick なら旧 cause で probe し得る", () => {
+      // Arrange: pin は Process が前回 cause を見たあと MaybeTrigger する
+      const startBps = 1_000_000;
+      const t0 = 130_000;
+      const { gcc, setNow } = createClockGcc(startBps, t0, {
+        periodicAlrProbing: true,
+      });
+      gcc.shouldTagProbePacket();
+      (gcc as any).probe.abort(t0);
+      gcc.rtpPacketSent(sent(1, 500, t0));
+
+      const dueT = t0 + kAlrProbingIntervalMs;
+      gcc.rtpPacketSent(sent(2, 500, dueT));
+      expect((gcc as any).rttBackoff.isRttAboveLimit()).toBe(true);
+      expect(gcc.availableBitrate).toBe(0);
+
+      // send 後に ALR を立てる（OnBytesSent が budget で ALR を落とさないように）
+      (gcc as any).hasValidSample = true;
+      (gcc as any).alr.startedMs = t0;
+      (gcc as any).probe.setAlrStartTime(t0);
+      (gcc as any).probe.setEstimatedBitrate(startBps, t0, {
+        cause: "delay_based_limited",
+      });
+
+      const probeCfgs: number[] = [];
+      gcc.onProbeClusterConfig.subscribe((c) => probeCfgs.push(c.targetBps));
+      setNow(dueT);
+      gcc.process(dueT);
+
+      // Assert: Process はまだ delay_based を見るので ALR probe が出る
+      expect(probeCfgs.length).toBe(1);
+      expect(probeCfgs[0]).toBe(startBps * kAlrProbeScale);
+      // MaybeTrigger 後は target drop + high RTT cause
+      expect(gcc.availableBitrate).toBe(
+        Math.round(startBps * kRttBasedBackOffDropFraction),
+      );
       expect((gcc as any).probe.lastBandwidthLimitedCause).toBe(
         "rtt_based_back_off_high_rtt",
       );
@@ -3887,6 +3938,7 @@ describe("media/sender bandwidth estimator", () => {
       gcc.rtpPacketSent(sent(1, 500, t0));
       const highT = t0 + kRttBasedBackOffHighRttMs + 1;
       gcc.rtpPacketSent(sent(2, 500, highT));
+      gcc.process(highT + kGoogCcProcessIntervalMs);
       expect(gcc.availableBitrate).toBe(
         Math.round(startBps * kRttBasedBackOffDropFraction),
       );
@@ -4079,8 +4131,10 @@ describe("media/sender bandwidth estimator", () => {
       fillAt(1_000, 5);
       // 6x
       fillAt(1_010, 5);
-      // result-wait 1s 超えで complete（process は rtpPacketSent 経由）
-      gcc.rtpPacketSent(sent(seq++, 200, 1_010 + 1_100));
+      // result-wait 1s 超えで complete（ProcessInterval。OnSentPacket では進めない）
+      const timeoutAt = 1_010 + 1_100;
+      gcc.rtpPacketSent(sent(seq++, 200, timeoutAt));
+      gcc.process(timeoutAt);
       expect(gcc.probeState).toBe("complete");
 
       // cooldown 経過後の media + high propagation RTT TWCC

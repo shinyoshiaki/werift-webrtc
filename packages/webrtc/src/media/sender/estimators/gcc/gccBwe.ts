@@ -229,11 +229,15 @@ export class GccBandwidthEstimator
   }
 
   /**
-   * pin GoogCcNetworkController::OnProcessInterval → UpdateEstimate +
-   * MaybeTriggerOnNetworkChanged + ProbeController::Process.
-   * Advances RTT-based target drops on the sender clock even when no new
-   * RTP/TWCC arrives, then pushes the new target/cause into ALR + ProbeController
-   * so periodic ALR probes see `kRttBasedBackOffHighRtt`. Does **not** call
+   * pin GoogCcNetworkController::OnProcessInterval order:
+   *   UpdateEstimate
+   *   → SetAlrStartTime
+   *   → ProbeController::Process
+   *   → MaybeTriggerOnNetworkChanged
+   *
+   * Process still sees the **previous** BandwidthLimitedCause. A tick that
+   * first crosses the RTT limit can therefore emit a due ALR probe, and only
+   * afterwards publish `kRttBasedBackOffHighRtt`. Does **not** call
    * {@link RttBasedBackoff.onSentPacket}.
    */
   process(nowMs: number): void {
@@ -241,12 +245,16 @@ export class GccBandwidthEstimator
     // Age-out send history even when media is idle (pin 60s window).
     // rtpPacketSent-only prune would leak after send stop.
     this.pruneSentInfos(nowMs);
+    // 1) bandwidth_estimation_.UpdateEstimate
     this.maybeApplyRttBasedBackoff(nowMs);
-    this.propagateTarget(nowMs);
+    // 2) ProbeController::SetAlrStartTime
     this.syncAlr(nowMs);
+    // 3) ProbeController::Process (still previous cause)
     for (const cfg of this.probe.process(nowMs)) {
       this.onProbeClusterActivated(cfg, nowMs);
     }
+    // 4) MaybeTriggerOnNetworkChanged — ALR budget + estimated/cause
+    this.propagateTarget(nowMs);
   }
 
   /**
@@ -321,9 +329,8 @@ export class GccBandwidthEstimator
       this.rttBackoff.updatePropagationRtt(info.sendingAtMs, 0);
     }
     this.rttBackoff.onSentPacket(info.sendingAtMs);
-    // pin ProcessInterval → UpdateEstimate on sender clock while sending.
-    // No packets → last_packet_sent does not advance → timeout does not grow.
-    this.maybeApplyRttBasedBackoff(info.sendingAtMs);
+    // pin OnSentPacket does **not** call UpdateEstimate or ProbeController::Process.
+    // Those run on the 25ms ProcessInterval ({@link process}).
     this.ensureProbing(info.sendingAtMs);
 
     // Assign probation packets to the **pacing** cluster (wideSeq → id).
@@ -338,10 +345,6 @@ export class GccBandwidthEstimator
       for (const cfg of activated) {
         this.onProbeClusterActivated(cfg, info.sendingAtMs);
       }
-    }
-
-    for (const cfg of this.probe.process(info.sendingAtMs)) {
-      this.onProbeClusterActivated(cfg, info.sendingAtMs);
     }
   }
 
@@ -723,8 +726,9 @@ export class GccBandwidthEstimator
    * pin `SendSideBandwidthEstimation::UpdateEstimate` RTT branch:
    * drop first (if interval due), then ApplyTargetLimits (delay upper + min).
    *
-   * Called from `rtpPacketSent`, `process` (pin OnProcessInterval), and after
-   * TWCC when still RTT-limited. Returns true when a drop was applied.
+   * Called from {@link process} (pin OnProcessInterval) and after TWCC when
+   * still RTT-limited. **Not** from `rtpPacketSent` (pin OnSentPacket).
+   * Returns true when a drop was applied.
    */
   private maybeApplyRttBasedBackoff(nowMs: number): boolean {
     if (!Number.isFinite(nowMs)) return false;
@@ -761,8 +765,8 @@ export class GccBandwidthEstimator
   /**
    * pin MaybeTriggerOnNetworkChanged — publish target, ALR budget, and
    * ProbeController estimated bitrate + BandwidthLimitedCause.
-   * Used from both TWCC and {@link process} so RTT backoff cannot leave
-   * stale delay_based cause (which would allow periodic ALR probes).
+   * On {@link process} this runs **after** ProbeController::Process so the
+   * same tick still uses the previous cause (pin order).
    */
   private propagateTarget(nowMs: number): BandwidthLimitedCause | undefined {
     const target = this.currentTargetBps;
