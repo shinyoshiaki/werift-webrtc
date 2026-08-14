@@ -18,6 +18,8 @@ LossBasedBweV2-aligned controller
 - Byte-loss objective/derivative when `UseByteLossRate` (default true)
 - High-bandwidth bias adjusted by average loss ratio
 - Instant upper/lower bounds + delayed-increase window + HOLD rate
+- `currentBestEstimate` (candidate model) is distinct from
+  `lossBasedResult` (published GoogCC output). HOLD clamps only the result.
 
 ## Constructors
 

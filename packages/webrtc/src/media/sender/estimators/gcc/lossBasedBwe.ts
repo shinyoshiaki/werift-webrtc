@@ -37,20 +37,26 @@ import {
 } from "./constants";
 
 /**
- * Loss-based BWE states (libwebrtc LossBasedBweV2 naming).
- * `increase_using_padding` is used when {@link kLossBasedPaddingDurationMs} > 0
- * (pin PaddingDuration FieldTrial default 2s).
+ * Loss-based BWE states (libwebrtc `LossBasedState`).
+ * There is no `kHold` — HOLD is a timer inside `kDecreasing`
+ * (`last_hold_info_`). `increase_using_padding` is used when
+ * {@link kLossBasedPaddingDurationMs} > 0 (pin PaddingDuration default 2s).
  */
 export type LossBasedState =
   | "increasing"
   | "increase_using_padding"
   | "decreasing"
-  | "delay_based"
-  | "hold";
+  | "delay_based";
 
 interface ChannelParameters {
   inherentLoss: number;
   lossLimitedBandwidthBps: number;
+}
+
+/** pin `LossBasedBweV2::Result`. */
+interface LossBasedResult {
+  bandwidthEstimateBps: number;
+  state: LossBasedState;
 }
 
 interface Observation {
@@ -86,13 +92,23 @@ export interface LossPacketFeedback {
  * - Byte-loss objective/derivative when `UseByteLossRate` (default true)
  * - High-bandwidth bias adjusted by average loss ratio
  * - Instant upper/lower bounds + delayed-increase window + HOLD rate
+ * - `currentBestEstimate` (candidate model) is distinct from
+ *   `lossBasedResult` (published GoogCC output). HOLD clamps only the result.
  */
 export class LossBasedBwe {
-  private current: ChannelParameters = {
+  /** pin `current_best_estimate_` — next candidate generation basis. */
+  private currentBestEstimate: ChannelParameters = {
     inherentLoss: kLossBasedInitialInherentLoss,
     lossLimitedBandwidthBps: kDefaultStartBitrateBps,
   };
-  private state: LossBasedState = "increasing";
+  /**
+   * pin `loss_based_result_` — value returned to GoogCC.
+   * Initial state is `kDelayBasedEstimate`.
+   */
+  private lossBasedResult: LossBasedResult = {
+    bandwidthEstimateBps: kDefaultStartBitrateBps,
+    state: "delay_based",
+  };
   private observations: Observation[] = [];
   private numObservations = 0;
   private acknowledgedBps = 0;
@@ -136,11 +152,15 @@ export class LossBasedBwe {
   }
 
   reset(startBps = kDefaultStartBitrateBps) {
-    this.current = {
+    const start = clamp(startBps);
+    this.currentBestEstimate = {
       inherentLoss: kLossBasedInitialInherentLoss,
-      lossLimitedBandwidthBps: clamp(startBps),
+      lossLimitedBandwidthBps: start,
     };
-    this.state = "increasing";
+    this.lossBasedResult = {
+      bandwidthEstimateBps: start,
+      state: "delay_based",
+    };
     this.observations = [];
     this.numObservations = 0;
     this.acknowledgedBps = 0;
@@ -199,16 +219,39 @@ export class LossBasedBwe {
    * clearing observation history, HOLD timers, or inherent-loss estimates.
    */
   setBandwidthEstimate(bandwidthBps: number) {
-    this.current.lossLimitedBandwidthBps = clamp(bandwidthBps);
-    this.state = "delay_based";
+    const bps = clamp(bandwidthBps);
+    this.currentBestEstimate.lossLimitedBandwidthBps = bps;
+    this.lossBasedResult = {
+      bandwidthEstimateBps: bps,
+      state: "delay_based",
+    };
   }
 
   get targetBitrateBps() {
-    return this.current.lossLimitedBandwidthBps;
+    return this.lossBasedResult.bandwidthEstimateBps;
   }
 
   get lossState(): LossBasedState {
-    return this.state;
+    return this.lossBasedResult.state;
+  }
+
+  /**
+   * @internal test hook — pin `loss_based_result_.state`.
+   * Production callers use {@link lossState}.
+   */
+  private get state(): LossBasedState {
+    return this.lossBasedResult.state;
+  }
+  private set state(s: LossBasedState) {
+    this.lossBasedResult.state = s;
+  }
+
+  /**
+   * @internal test hook — pin `current_best_estimate_`.
+   * Mutating fields updates the candidate model, not the published result.
+   */
+  private get current(): ChannelParameters {
+    return this.currentBestEstimate;
   }
 
   get averageLossRatio(): number {
@@ -216,7 +259,7 @@ export class LossBasedBwe {
   }
 
   get inherentLossEstimate(): number {
-    return this.current.inherentLoss;
+    return this.currentBestEstimate.inherentLoss;
   }
 
   /** Number of committed observations (for readiness tests). */
@@ -225,8 +268,8 @@ export class LossBasedBwe {
   }
 
   setBitrateIfHigher(bps: number) {
-    if (bps > this.current.lossLimitedBandwidthBps) {
-      this.current.lossLimitedBandwidthBps = clamp(bps);
+    if (bps > this.currentBestEstimate.lossLimitedBandwidthBps) {
+      this.currentBestEstimate.lossLimitedBandwidthBps = clamp(bps);
     }
   }
 
@@ -302,19 +345,23 @@ export class LossBasedBwe {
     // with the start/current loss-limited value during cold start or after
     // probe reset clears observations.
     if (this.numObservations < kLossBasedMinNumObservations) {
-      if (this.delayBasedBps > 0) {
-        this.state = "delay_based";
-        return this.delayBasedBps;
-      }
-      return this.current.lossLimitedBandwidthBps;
+      const estimate =
+        this.delayBasedBps > 0
+          ? this.delayBasedBps
+          : this.currentBestEstimate.lossLimitedBandwidthBps;
+      this.lossBasedResult = {
+        bandwidthEstimateBps: estimate,
+        state: "delay_based",
+      };
+      return estimate;
     }
 
     this.updateAverageReportedLossRatio();
     this.calculateInstantUpperBound();
     this.calculateInstantLowerBound();
 
-    const prev = this.current.lossLimitedBandwidthBps;
-    let best = { ...this.current };
+    const currentBw = this.currentBestEstimate.lossLimitedBandwidthBps;
+    let best = { ...this.currentBestEstimate };
     let bestObjective = Number.NEGATIVE_INFINITY;
 
     for (const candidate of this.getCandidates(this.inAlr)) {
@@ -334,12 +381,13 @@ export class LossBasedBwe {
     if (
       kLossBasedNotIncreaseIfInherentLessThanAverage &&
       this.averageReportedLossRatio > best.inherentLoss &&
-      this.current.lossLimitedBandwidthBps < best.lossLimitedBandwidthBps
+      currentBw < best.lossLimitedBandwidthBps
     ) {
-      best.lossLimitedBandwidthBps = this.current.lossLimitedBandwidthBps;
+      best.lossLimitedBandwidthBps = currentBw;
     }
 
-    // Delayed increase window after a loss reduction.
+    // pin order after best: delayed-increase cap → acked ramp-up cap →
+    // decreasing→increasing 1bps nudge. Acked cap is **not** in GetCandidates.
     if (this.isInLossLimitedState()) {
       if (
         Number.isFinite(this.recoveringAfterLossMs) &&
@@ -350,15 +398,25 @@ export class LossBasedBwe {
         best.lossLimitedBandwidthBps = this.bandwidthLimitInCurrentWindow;
       }
 
-      if (
-        best.lossLimitedBandwidthBps > this.current.lossLimitedBandwidthBps &&
-        this.acknowledgedBps > 0
-      ) {
+      const increasingWhenLossLimited =
+        this.isEstimateIncreasingWhenLossLimited(
+          currentBw,
+          best.lossLimitedBandwidthBps,
+        );
+      if (increasingWhenLossLimited && this.acknowledgedBps > 0) {
         const rampupCap = this.acknowledgedBps * this.rampupBoundFactor();
         best.lossLimitedBandwidthBps = Math.max(
-          this.current.lossLimitedBandwidthBps,
+          currentBw,
           Math.min(best.lossLimitedBandwidthBps, rampupCap),
         );
+        // pin: if acked cap pinned the estimate to current while decreasing,
+        // raise 1bps so state can switch to kIncreasing / padding.
+        if (
+          this.lossBasedResult.state === "decreasing" &&
+          best.lossLimitedBandwidthBps === currentBw
+        ) {
+          best.lossLimitedBandwidthBps = currentBw + 1;
+        }
       }
     }
 
@@ -366,8 +424,9 @@ export class LossBasedBwe {
     let bounded = best.lossLimitedBandwidthBps;
     const upper = this.cachedInstantUpperBoundBps;
     const lower = this.cachedInstantLowerBoundBps;
-    if (this.delayBasedBps > 0) {
-      bounded = Math.max(lower, Math.min(bounded, upper, this.delayBasedBps));
+    const delayCap = this.delayBasedCapBps();
+    if (Number.isFinite(delayCap)) {
+      bounded = Math.max(lower, Math.min(bounded, upper, delayCap));
     } else {
       bounded = Math.max(lower, Math.min(bounded, upper));
     }
@@ -376,33 +435,35 @@ export class LossBasedBwe {
       kLossBasedBoundBestCandidate &&
       bounded < best.lossLimitedBandwidthBps
     ) {
-      this.current.lossLimitedBandwidthBps = clamp(bounded);
-      this.current.inherentLoss = 0;
+      this.currentBestEstimate.lossLimitedBandwidthBps = clamp(bounded);
+      this.currentBestEstimate.inherentLoss = 0;
     } else {
-      this.current = best;
-      this.current.lossLimitedBandwidthBps = clamp(
-        Math.max(this.current.lossLimitedBandwidthBps, lower),
+      this.currentBestEstimate = best;
+      this.currentBestEstimate.lossLimitedBandwidthBps = clamp(
+        Math.max(this.currentBestEstimate.lossLimitedBandwidthBps, lower),
       );
     }
 
-    // HOLD: after a decrease, do not ramp above hold rate until hold expires.
-    // libwebrtc keeps state as kDecreasing while last_hold_info_.timestamp is
-    // in the future — do **not** flip to a separate hold state that would
-    // skip this guard on the next update.
+    // HOLD: publish min(holdRate, bounded) without rewriting currentBestEstimate.
+    // pin keeps kDecreasing while last_hold_info_.timestamp is in the future.
     const lastSend = this.lastSendTimeMostRecentObservation;
     if (
-      this.state === "decreasing" &&
+      this.lossBasedResult.state === "decreasing" &&
       this.holdUntilMs > lastSend &&
-      this.current.lossLimitedBandwidthBps < this.delayBasedBps
+      bounded < delayCap
     ) {
       this.holdRateBps = Math.max(lower, this.holdRateBps);
-      this.current.lossLimitedBandwidthBps = clamp(
-        Math.min(this.holdRateBps, this.current.lossLimitedBandwidthBps),
+      this.lossBasedResult.bandwidthEstimateBps = clamp(
+        Math.min(this.holdRateBps, bounded),
       );
-      return this.current.lossLimitedBandwidthBps;
+      return this.lossBasedResult.bandwidthEstimateBps;
     }
 
-    this.updateState(prev, this.current.lossLimitedBandwidthBps, lastSend);
+    this.updateState(
+      this.lossBasedResult.bandwidthEstimateBps,
+      bounded,
+      lastSend,
+    );
 
     if (this.isInLossLimitedState()) {
       if (
@@ -412,70 +473,84 @@ export class LossBasedBwe {
       ) {
         this.bandwidthLimitInCurrentWindow = Math.max(
           kMinBitrateBps,
-          this.current.lossLimitedBandwidthBps * kLossBasedMaxIncreaseFactor,
+          this.currentBestEstimate.lossLimitedBandwidthBps *
+            kLossBasedMaxIncreaseFactor,
         );
         this.recoveringAfterLossMs = lastSend;
       }
     }
 
-    if (this.current.lossLimitedBandwidthBps < prev) {
-      this.lastSendTimeMostRecentObservation = lastSend;
-    }
-
-    return this.current.lossLimitedBandwidthBps;
+    return this.lossBasedResult.bandwidthEstimateBps;
   }
 
+  /**
+   * pin state transition after HOLD early-return is skipped.
+   * `prev` is the previously **published** `loss_based_result_.bandwidth_estimate`.
+   * `next` is the bounded candidate (not necessarily `current_best_estimate_`).
+   */
   private updateState(prev: number, next: number, lastSendMs: number) {
-    if (next < this.delayBasedBps && next < kMaxBitrateBps) {
-      if (next < prev * 0.99 || next < prev) {
-        // Enter decreasing + arm HOLD (libwebrtc order):
-        // 1) hold_until = now + *current* duration (first time = 300 ms)
-        // 2) then duration *= factor for the *next* HOLD (600 ms, …)
-        this.holdUntilMs = lastSendMs + this.holdDurationMs;
-        this.holdRateBps = next;
-        this.holdDurationMs = Math.min(
-          kLossBasedMaxHoldDurationMs,
-          Math.max(
-            kLossBasedInitHoldDurationMs,
-            this.holdDurationMs * kLossBasedHoldDurationFactor,
-          ),
-        );
-        this.state = "decreasing";
-        this.lastPaddingMs = Number.NEGATIVE_INFINITY;
-        this.lastPaddingRateBps = 0;
-        return;
-      }
-      // pin IsEstimateIncreasingWhenLossLimited && CanKeepIncreasingState.
-      // `next > prev` from delay_based still starts a padding/increase window.
+    const delayCap = this.delayBasedCapBps();
+    const belowDelay = next < delayCap;
+    const belowMax = next < this.maxBitrateBps;
+
+    if (
+      this.isEstimateIncreasingWhenLossLimited(prev, next) &&
+      this.canKeepIncreasingState(next) &&
+      belowDelay &&
+      belowMax
+    ) {
+      this.enterIncreasingState(next, lastSendMs);
+    } else if (belowDelay && belowMax) {
+      // Arm HOLD only when *entering* decreasing. Stepwise extra decreases
+      // keep the existing last_hold_info_ (pin hold_duration_factor > 0).
       if (
-        (next > prev && !this.isInLossLimitedState()) ||
-        (this.isEstimateIncreasingWhenLossLimited(prev, next) &&
-          this.canKeepIncreasingState(next))
+        this.lossBasedResult.state !== "decreasing" &&
+        kLossBasedHoldDurationFactor > 0
       ) {
-        this.enterIncreasingState(next, lastSendMs);
-        return;
+        this.armHold(next, lastSendMs);
       }
-      this.state = "hold";
-      return;
+      this.clearPaddingInfo();
+      this.lossBasedResult.state = "decreasing";
+    } else {
+      this.resetHold();
+      this.clearPaddingInfo();
+      this.lossBasedResult.state = "delay_based";
     }
-    // Delay-based is lower or equal → delay path wins.
+    this.lossBasedResult.bandwidthEstimateBps = clamp(next);
+  }
+
+  /** pin `delay_based_estimate_` defaults to +∞ when unset. */
+  private delayBasedCapBps(): number {
+    return this.delayBasedBps > 0
+      ? this.delayBasedBps
+      : Number.POSITIVE_INFINITY;
+  }
+
+  /**
+   * pin `last_hold_info_` arm: hold_until = now + *current* duration
+   * (first time 300ms), then duration *= factor for the *next* HOLD.
+   */
+  private armHold(rateBps: number, lastSendMs: number) {
+    this.holdUntilMs = lastSendMs + this.holdDurationMs;
+    this.holdRateBps = rateBps;
+    this.holdDurationMs = Math.min(
+      kLossBasedMaxHoldDurationMs,
+      Math.max(
+        kLossBasedInitHoldDurationMs,
+        this.holdDurationMs * kLossBasedHoldDurationFactor,
+      ),
+    );
+  }
+
+  private resetHold() {
     this.holdUntilMs = Number.NEGATIVE_INFINITY;
     this.holdDurationMs = kLossBasedInitHoldDurationMs;
     this.holdRateBps = kMaxBitrateBps;
+  }
+
+  private clearPaddingInfo() {
     this.lastPaddingMs = Number.NEGATIVE_INFINITY;
     this.lastPaddingRateBps = 0;
-    if (
-      this.delayBasedBps > 0 &&
-      Math.abs(next - this.delayBasedBps) / this.delayBasedBps < 0.05
-    ) {
-      this.state = "delay_based";
-    } else if (next > prev * 1.02) {
-      this.enterIncreasingState(next, lastSendMs);
-    } else if (next < prev * 0.95) {
-      this.state = "decreasing";
-    } else {
-      this.state = "hold";
-    }
   }
 
   /**
@@ -491,7 +566,8 @@ export class LossBasedBwe {
     if (next > prev) return true;
     return (
       next === prev &&
-      (this.state === "increasing" || this.state === "increase_using_padding")
+      (this.lossBasedResult.state === "increasing" ||
+        this.lossBasedResult.state === "increase_using_padding")
     );
   }
 
@@ -504,7 +580,7 @@ export class LossBasedBwe {
   private canKeepIncreasingState(estimateBps: number): boolean {
     if (
       this.paddingDurationMs <= 0 ||
-      this.state !== "increase_using_padding"
+      this.lossBasedResult.state !== "increase_using_padding"
     ) {
       return true;
     }
@@ -525,19 +601,15 @@ export class LossBasedBwe {
         this.lastPaddingRateBps = nextBps;
         this.lastPaddingMs = lastSendMs;
       }
-      this.state = "increase_using_padding";
+      this.lossBasedResult.state = "increase_using_padding";
       return;
     }
-    this.state = "increasing";
+    this.lossBasedResult.state = "increasing";
   }
 
+  /** pin: any state other than `kDelayBasedEstimate`. */
   private isInLossLimitedState(): boolean {
-    return (
-      this.state === "decreasing" ||
-      this.state === "increasing" ||
-      this.state === "increase_using_padding" ||
-      this.state === "hold"
-    );
+    return this.lossBasedResult.state !== "delay_based";
   }
 
   /**
@@ -652,7 +724,7 @@ export class LossBasedBwe {
         ? (this.partial.size * 8 * 1000) / observationDuration
         : this.acknowledgedBps > 0
           ? this.acknowledgedBps
-          : this.current.lossLimitedBandwidthBps;
+          : this.currentBestEstimate.lossLimitedBandwidthBps;
 
     this.commitObservation({
       numPackets: numPkts,
@@ -803,10 +875,27 @@ export class LossBasedBwe {
     this.cachedInstantLowerBoundBps = lower;
   }
 
+  /**
+   * pin `GetCandidateBandwidthUpperBound`.
+   * Delayed-increase window (when loss-limited) or configured max.
+   * Acked-rate ramp-up (1.5× / 1.2×) is **not** applied here.
+   */
+  private getCandidateBandwidthUpperBound(): number {
+    let upper = this.maxBitrateBps;
+    if (
+      this.isInLossLimitedState() &&
+      this.bandwidthLimitInCurrentWindow < kMaxBitrateBps
+    ) {
+      upper = this.bandwidthLimitInCurrentWindow;
+    }
+    return upper;
+  }
+
   private getCandidates(inAlr = this.inAlr): ChannelParameters[] {
+    const currentBw = this.currentBestEstimate.lossLimitedBandwidthBps;
     const bandwidths: number[] = [];
     for (const f of kLossBasedCandidateFactors) {
-      bandwidths.push(this.current.lossLimitedBandwidthBps * f);
+      bandwidths.push(currentBw * f);
     }
     if (this.acknowledgedBps > 0) {
       const skipAckedInAlr = kLossBasedNotUseAckedRateInAlr && inAlr;
@@ -818,25 +907,15 @@ export class LossBasedBwe {
         bandwidths.push(this.acknowledgedBps);
       }
     }
-    if (this.delayBasedBps > this.current.lossLimitedBandwidthBps) {
+    if (this.delayBasedBps > currentBw) {
       bandwidths.push(this.delayBasedBps);
     }
 
-    const rampupCap =
-      this.acknowledgedBps > 0
-        ? this.acknowledgedBps * this.rampupBoundFactor()
-        : this.maxBitrateBps;
-
+    const candidateUpper = this.getCandidateBandwidthUpperBound();
     return bandwidths.map((bw) => {
-      let lossLimited = bw;
-      if (bw > this.current.lossLimitedBandwidthBps) {
-        lossLimited = Math.min(
-          bw,
-          Math.max(this.current.lossLimitedBandwidthBps, rampupCap),
-        );
-      }
+      const lossLimited = Math.min(bw, Math.max(currentBw, candidateUpper));
       const candidate: ChannelParameters = {
-        inherentLoss: this.current.inherentLoss,
+        inherentLoss: this.currentBestEstimate.inherentLoss,
         lossLimitedBandwidthBps: Math.min(lossLimited, this.maxBitrateBps),
       };
       candidate.inherentLoss = this.getFeasibleInherentLoss(candidate);
