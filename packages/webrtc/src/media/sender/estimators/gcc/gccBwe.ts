@@ -140,8 +140,8 @@ export class GccBandwidthEstimator
   private finalizedSeqs = new Set<number>();
   /**
    * Sequences already reported as soft loss. Keep them eligible for a later
-   * received correction, but do not count overlapping not-received feedback
-   * more than once (libwebrtc `previously_reported_lost`).
+   * received correction. Repeated PacketNotReceived is still forwarded to
+   * LossBasedBwe (pin PushBackObservation increments num_packets/size).
    */
   private softLostSeqs = new Set<number>();
   private lastUsage: BandwidthUsage = "normal";
@@ -543,11 +543,6 @@ export class GccBandwidthEstimator
         // Already confirmed received — ignore duplicate / overlapping reports.
         continue;
       }
-      if (!result.received && this.softLostSeqs.has(seq)) {
-        // A repeated not-received report is not a new loss observation; keep
-        // the sequence open for a later received correction.
-        continue;
-      }
 
       matched++;
       batchBytes += info.size;
@@ -779,6 +774,7 @@ export class GccBandwidthEstimator
       batchLastSend,
       lostBytes,
       lossPackets,
+      this.alr.inAlr,
     );
 
     // Final delay/loss candidate. LossBasedBwe already mins against the delay
@@ -1223,11 +1219,11 @@ export class GccBandwidthEstimator
   /**
    * Map a 16-bit TWCC feedback sequence onto the unwrapped sentInfos key.
    *
-   * Prefers the newest generation that is still open:
+   * Prefers the newest generation that is still open (not finalized):
    * - received: newest not-yet-finalized (new packet first; late old after
    *   the new generation is finalized)
-   * - not-received: newest not-yet-soft-lost; a duplicate on the newest
-   *   generation is ignored (does not walk to an older packet)
+   * - not-received: same binding; repeated PacketNotReceived is forwarded to
+   *   LossBasedBwe (does not walk to an older packet)
    *
    * Walks at most a few wrap generations — the 60s send-time window cannot
    * hold more at realistic packet rates.
@@ -1241,11 +1237,6 @@ export class GccBandwidthEstimator
     for (let gen = 0; gen < 8 && key >= 0; gen++, key -= TWCC_SEQ_MOD) {
       if (!this.sentInfos.has(key)) continue;
       if (this.finalizedSeqs.has(key)) continue;
-      if (!received && this.softLostSeqs.has(key)) {
-        // Duplicate not-received for this generation.
-        if (gen === 0) return undefined;
-        continue;
-      }
       return key;
     }
     return undefined;

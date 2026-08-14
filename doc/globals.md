@@ -283,6 +283,8 @@
 - [kDefaultStartBitrateBps](variables/kDefaultStartBitrateBps.md)
 - [kGoogCcProcessIntervalMs](variables/kGoogCcProcessIntervalMs.md)
 - [kLossBasedIncreaseFactor](variables/kLossBasedIncreaseFactor.md)
+- [kLossBasedMedianSendingRateFactor](variables/kLossBasedMedianSendingRateFactor.md)
+- [kLossBasedNotUseAckedRateInAlr](variables/kLossBasedNotUseAckedRateInAlr.md)
 - [kLossBasedPaddingDurationMs](variables/kLossBasedPaddingDurationMs.md)
 - [kLossDecreaseThreshold](variables/kLossDecreaseThreshold.md)
 - [kLossIncreaseFactor](variables/kLossIncreaseFactor.md)

@@ -12,7 +12,9 @@ LossBasedBweV2-aligned controller
 - Partial observations accumulate until send-timeline duration ≥ 250ms
 - Soft loss: not-received seqs live in a map and can be unmarked if later
   reported as received **before** the observation commits (pin
-  PushBackObservation). After commit, a late received is a new packet.
+  PushBackObservation). `num_packets` / `size` increase on every feedback
+  appearance; the lost map is keyed by seq. After commit, a late received
+  is a new packet.
 - Byte-loss objective/derivative when `UseByteLossRate` (default true)
 - High-bandwidth bias adjusted by average loss ratio
 - Instant upper/lower bounds + delayed-increase window + HOLD rate
@@ -188,7 +190,7 @@ pin PaddingDuration. 0 keeps `increasing`; >0 enters
 
 ### update()
 
-> **update**(`lossFraction`, `delayBasedBps`, `acknowledgedBps`, `packetCount`, `lostCount`, `firstSendMs`, `batchBytes`, `lastSendMs`, `lostBytes`, `packets`?): `number`
+> **update**(`lossFraction`, `delayBasedBps`, `acknowledgedBps`, `packetCount`, `lostCount`, `firstSendMs`, `batchBytes`, `lastSendMs`, `lostBytes`, `packets`?, `inAlr`?): `number`
 
 #### Parameters
 
@@ -252,6 +254,12 @@ lost bytes in batch (byte-loss mode); if 0 with losses,
 `LossPacketFeedback`[]
 
 optional per-packet feedback for soft-loss map
+
+##### inAlr?
+
+`boolean` = `false`
+
+pin `GetCandidates(in_alr)` — skip acked-rate in ALR
 
 #### Returns
 

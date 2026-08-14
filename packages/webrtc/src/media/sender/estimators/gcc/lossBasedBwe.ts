@@ -18,10 +18,12 @@ import {
   kLossBasedLowerBoundByAckedRateFactor,
   kLossBasedMaxHoldDurationMs,
   kLossBasedMaxIncreaseFactor,
+  kLossBasedMedianSendingRateFactor,
   kLossBasedMinNumObservations,
   kLossBasedNewtonIterations,
   kLossBasedNewtonStepSize,
   kLossBasedNotIncreaseIfInherentLessThanAverage,
+  kLossBasedNotUseAckedRateInAlr,
   kLossBasedObservationDurationLowerBoundMs,
   kLossBasedObservationWindow,
   kLossBasedPaddingDurationMs,
@@ -78,7 +80,9 @@ export interface LossPacketFeedback {
  * - Partial observations accumulate until send-timeline duration ≥ 250ms
  * - Soft loss: not-received seqs live in a map and can be unmarked if later
  *   reported as received **before** the observation commits (pin
- *   PushBackObservation). After commit, a late received is a new packet.
+ *   PushBackObservation). `num_packets` / `size` increase on every feedback
+ *   appearance; the lost map is keyed by seq. After commit, a late received
+ *   is a new packet.
  * - Byte-loss objective/derivative when `UseByteLossRate` (default true)
  * - High-bandwidth bias adjusted by average loss ratio
  * - Instant upper/lower bounds + delayed-increase window + HOLD rate
@@ -112,15 +116,12 @@ export class LossBasedBwe {
   private paddingDurationMs = kLossBasedPaddingDurationMs;
   private lastPaddingMs = Number.NEGATIVE_INFINITY;
   private lastPaddingRateBps = 0;
+  /** Last `in_alr` passed to {@link update} (GetCandidates). */
+  private inAlr = false;
   private partial = {
     numPackets: 0,
     /** seq → lost size (soft loss map). */
     lostPackets: new Map<number, number>(),
-    /**
-     * seq → size for every packet already counted in this partial window.
-     * Late TWCC corrections update state in place without double-counting.
-     */
-    seenPackets: new Map<number, number>(),
     size: 0,
   };
   /**
@@ -158,10 +159,10 @@ export class LossBasedBwe {
     this.paddingDurationMs = kLossBasedPaddingDurationMs;
     this.lastPaddingMs = Number.NEGATIVE_INFINITY;
     this.lastPaddingRateBps = 0;
+    this.inAlr = false;
     this.partial = {
       numPackets: 0,
       lostPackets: new Map(),
-      seenPackets: new Map(),
       size: 0,
     };
     this.recomputeTemporalWeights();
@@ -241,6 +242,7 @@ export class LossBasedBwe {
    * @param lostBytes lost bytes in batch (byte-loss mode); if 0 with losses,
    *   approximated from average packet size
    * @param packets optional per-packet feedback for soft-loss map
+   * @param inAlr pin `GetCandidates(in_alr)` — skip acked-rate in ALR
    */
   update(
     lossFraction: number,
@@ -253,7 +255,9 @@ export class LossBasedBwe {
     lastSendMs = 0,
     lostBytes = 0,
     packets?: LossPacketFeedback[],
+    inAlr = false,
   ): number {
+    this.inAlr = inAlr;
     if (acknowledgedBps > 0) {
       this.acknowledgedBps = acknowledgedBps;
       this.calculateInstantLowerBound();
@@ -313,7 +317,7 @@ export class LossBasedBwe {
     let best = { ...this.current };
     let bestObjective = Number.NEGATIVE_INFINITY;
 
-    for (const candidate of this.getCandidates()) {
+    for (const candidate of this.getCandidates(this.inAlr)) {
       this.newtonsMethodUpdate(candidate);
       const obj = this.getObjective(candidate);
       if (
@@ -441,7 +445,13 @@ export class LossBasedBwe {
         this.lastPaddingRateBps = 0;
         return;
       }
-      if (next > prev) {
+      // pin IsEstimateIncreasingWhenLossLimited && CanKeepIncreasingState.
+      // `next > prev` from delay_based still starts a padding/increase window.
+      if (
+        (next > prev && !this.isInLossLimitedState()) ||
+        (this.isEstimateIncreasingWhenLossLimited(prev, next) &&
+          this.canKeepIncreasingState(next))
+      ) {
         this.enterIncreasingState(next, lastSendMs);
         return;
       }
@@ -466,6 +476,43 @@ export class LossBasedBwe {
     } else {
       this.state = "hold";
     }
+  }
+
+  /**
+   * pin `IsEstimateIncreasingWhenLossLimited`.
+   * Flat estimate still counts as increasing while already
+   * `increasing` / `increase_using_padding`.
+   */
+  private isEstimateIncreasingWhenLossLimited(
+    prev: number,
+    next: number,
+  ): boolean {
+    if (!this.isInLossLimitedState()) return false;
+    if (next > prev) return true;
+    return (
+      next === prev &&
+      (this.state === "increasing" || this.state === "increase_using_padding")
+    );
+  }
+
+  /**
+   * pin `CanKeepIncreasingState`.
+   * While `increase_using_padding`, keep the state if the padding window
+   * (last_padding + PaddingDuration) still covers the latest send time,
+   * or if the estimate rose above the last padding rate.
+   */
+  private canKeepIncreasingState(estimateBps: number): boolean {
+    if (
+      this.paddingDurationMs <= 0 ||
+      this.state !== "increase_using_padding"
+    ) {
+      return true;
+    }
+    return (
+      this.lastPaddingMs + this.paddingDurationMs >=
+        this.lastSendTimeMostRecentObservation ||
+      this.lastPaddingRateBps < estimateBps
+    );
   }
 
   /**
@@ -521,46 +568,30 @@ export class LossBasedBwe {
     packets?: LossPacketFeedback[],
   ) {
     if (packets && packets.length > 0) {
+      // pin PushBackObservation: count/size grow on every feedback appearance.
+      this.partial.numPackets += packets.length;
       let minSend = Number.POSITIVE_INFINITY;
       let maxSend = Number.NEGATIVE_INFINITY;
-      let countedNew = false;
       for (const p of packets) {
         // Use the caller-supplied seq as-is (gcc passes unwrapped / generation
         // keys). Masking to 16-bit would merge wrap generations in one window.
         const seq = p.seq;
-        const prevSize = this.partial.seenPackets.get(seq);
-        if (prevSize !== undefined) {
-          // Already counted in this partial window — late correction only.
-          if (p.received) {
-            // not-received → received: unmark loss, keep numPackets/size.
-            this.partial.lostPackets.delete(seq);
-          } else if (!this.partial.lostPackets.has(seq)) {
-            // received → not-received (rare): mark soft loss without re-count.
-            this.partial.lostPackets.set(seq, prevSize);
-          }
-          continue;
-        }
-        // First time seeing this sequence in the partial observation.
-        this.partial.seenPackets.set(seq, p.size);
-        this.partial.numPackets += 1;
-        this.partial.size += p.size;
         if (p.received) {
           this.partial.lostPackets.delete(seq);
         } else {
-          this.partial.lostPackets.set(seq, p.size);
+          // emplace: first size wins; later not-received does not grow lost_size.
+          if (!this.partial.lostPackets.has(seq)) {
+            this.partial.lostPackets.set(seq, p.size);
+          }
         }
-        countedNew = true;
+        this.partial.size += p.size;
         if (Number.isFinite(p.sendMs)) {
           if (p.sendMs < minSend) minSend = p.sendMs;
           if (p.sendMs > maxSend) maxSend = p.sendMs;
         }
       }
-      if (!countedNew) {
-        // Only late/duplicate corrections — do not advance the commit clock.
-        return;
-      }
-      firstSendMs = minSend;
-      lastSendMs = maxSend;
+      if (Number.isFinite(minSend)) firstSendMs = minSend;
+      if (Number.isFinite(maxSend)) lastSendMs = maxSend;
     } else {
       this.partial.numPackets += numPackets;
       this.partial.size += batchBytes;
@@ -589,11 +620,10 @@ export class LossBasedBwe {
     // Bound partial maps if the observation duration never advances
     // (identical send timestamps / stalled clock). Prefer dropping the
     // incomplete window over unbounded growth.
-    if (this.partial.seenPackets.size > LossBasedBwe.kMaxPartialPackets) {
+    if (this.partial.numPackets > LossBasedBwe.kMaxPartialPackets) {
       this.partial = {
         numPackets: 0,
         lostPackets: new Map(),
-        seenPackets: new Map(),
         size: 0,
       };
       this.lastSendTimeMostRecentObservation = lastSendMs;
@@ -636,7 +666,6 @@ export class LossBasedBwe {
     this.partial = {
       numPackets: 0,
       lostPackets: new Map(),
-      seenPackets: new Map(),
       size: 0,
     };
   }
@@ -675,14 +704,8 @@ export class LossBasedBwe {
       return;
     }
     if (kLossBasedUseByteLossRate) {
-      let lost = 0;
-      let total = 0;
-      for (const o of this.observations) {
-        const w = this.temporalWeightFor(o);
-        lost += w * o.lostSize;
-        total += w * o.size;
-      }
-      this.averageReportedLossRatio = total > 0 ? lost / total : 0;
+      this.averageReportedLossRatio =
+        this.calculateAverageReportedByteLossRatio();
     } else {
       let lost = 0;
       let total = 0;
@@ -693,6 +716,72 @@ export class LossBasedBwe {
       }
       this.averageReportedLossRatio = total > 0 ? lost / total : 0;
     }
+  }
+
+  /**
+   * pin `CalculateAverageReportedByteLossRatio`.
+   * When more than 3 observations exist, drop the min and max loss-rate
+   * windows unless the max-loss window's send rate is ≥ median × 2.
+   */
+  private calculateAverageReportedByteLossRatio(): number {
+    if (this.observations.length === 0) return 0;
+    let lost = 0;
+    let total = 0;
+    let minLossRate = 1;
+    let maxLossRate = 0;
+    let minLost = 0;
+    let maxLost = 0;
+    let minBytes = 0;
+    let maxBytes = 0;
+    let sendRateOfMaxLoss = 0;
+    for (const o of this.observations) {
+      const w = this.temporalWeightFor(o);
+      const wLost = w * o.lostSize;
+      const wSize = w * o.size;
+      lost += wLost;
+      total += wSize;
+      const lossRate = o.size > 0 ? o.lostSize / o.size : 0;
+      if (this.numObservations > 3) {
+        if (lossRate > maxLossRate) {
+          maxLossRate = lossRate;
+          maxLost = wLost;
+          maxBytes = wSize;
+          sendRateOfMaxLoss = o.sendingRateBps;
+        }
+        if (lossRate < minLossRate) {
+          minLossRate = lossRate;
+          minLost = wLost;
+          minBytes = wSize;
+        }
+      }
+    }
+    if (total <= 0) return 0;
+    if (
+      this.getMedianSendingRate() * kLossBasedMedianSendingRateFactor <=
+      sendRateOfMaxLoss
+    ) {
+      return lost / total;
+    }
+    if (total === maxBytes + minBytes) {
+      return lost / total;
+    }
+    const filteredLost = lost - minLost - maxLost;
+    const filteredTotal = total - maxBytes - minBytes;
+    if (filteredTotal <= 0) return 0;
+    return filteredLost / filteredTotal;
+  }
+
+  private getMedianSendingRate(): number {
+    const rates = this.observations
+      .map((o) => o.sendingRateBps)
+      .filter((r) => Number.isFinite(r) && r > 0)
+      .sort((a, b) => a - b);
+    if (rates.length === 0) return 0;
+    const mid = Math.floor(rates.length / 2);
+    if (rates.length % 2 === 0) {
+      return (rates[mid - 1]! + rates[mid]!) / 2;
+    }
+    return rates[mid]!;
   }
 
   private calculateInstantUpperBound() {
@@ -714,13 +803,20 @@ export class LossBasedBwe {
     this.cachedInstantLowerBoundBps = lower;
   }
 
-  private getCandidates(): ChannelParameters[] {
+  private getCandidates(inAlr = this.inAlr): ChannelParameters[] {
     const bandwidths: number[] = [];
     for (const f of kLossBasedCandidateFactors) {
       bandwidths.push(this.current.lossLimitedBandwidthBps * f);
     }
     if (this.acknowledgedBps > 0) {
-      bandwidths.push(this.acknowledgedBps);
+      const skipAckedInAlr = kLossBasedNotUseAckedRateInAlr && inAlr;
+      const paddingWindowOpen =
+        this.paddingDurationMs > 0 &&
+        this.lastPaddingMs + this.paddingDurationMs >=
+          this.lastSendTimeMostRecentObservation;
+      if (!skipAckedInAlr || paddingWindowOpen) {
+        bandwidths.push(this.acknowledgedBps);
+      }
     }
     if (this.delayBasedBps > this.current.lossLimitedBandwidthBps) {
       bandwidths.push(this.delayBasedBps);

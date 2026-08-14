@@ -1720,8 +1720,8 @@ describe("media/sender bandwidth estimator", () => {
       expect((gcc as any).finalizedSeqs.has(65537)).toBe(true);
       expect((gcc as any).finalizedSeqs.has(1)).toBe(false);
       expect((gcc as any).sentInfos.get(1)?.size).toBe(100);
-      expect((loss as any).partial.seenPackets.has(65537)).toBe(true);
-      expect((loss as any).partial.seenPackets.has(1)).toBe(false);
+      expect((loss as any).partial.numPackets).toBe(1);
+      expect((loss as any).partial.size).toBe(999);
 
       // Act: 旧 packet 向けの late received（同じ 16bit seq）
       setNow(t0 + 1_100);
@@ -1738,8 +1738,8 @@ describe("media/sender bandwidth estimator", () => {
       // Assert: 新 packet に再結合せず、旧 packet を訂正する
       expect((gcc as any).finalizedSeqs.has(1)).toBe(true);
       expect((gcc as any).finalizedSeqs.has(65537)).toBe(true);
-      expect((loss as any).partial.seenPackets.get(1)).toBe(100);
-      expect((loss as any).partial.seenPackets.get(65537)).toBe(999);
+      expect((loss as any).partial.numPackets).toBe(2);
+      expect((loss as any).partial.size).toBe(1099);
     });
 
     test("probe wrap 後も旧 seq の cluster mapping を残す", () => {
@@ -5446,9 +5446,8 @@ describe("media/sender bandwidth estimator", () => {
       // Assert: 履歴は dispose で解放される
       expect((gcc as any).sentInfos.size).toBe(0);
       expect((gcc as any).probe.seqToCluster.size).toBe(0);
-      expect(
-        ((gcc as any).lossBwe.partial.seenPackets as Map<number, number>).size,
-      ).toBe(0);
+      expect((gcc as any).lossBwe.partial.numPackets).toBe(0);
+      expect((gcc as any).lossBwe.partial.lostPackets.size).toBe(0);
       expect((gcc as any).disposed).toBe(true);
 
       // Act: stop 後の padding / send は何も送らない
@@ -5749,7 +5748,8 @@ describe("media/sender bandwidth estimator", () => {
       expect(obs.numLostPackets).toBe(1);
       expect(obs.lostSize).toBe(100);
       expect(loss.averageLossRatio).toBeCloseTo(avgBefore, 5);
-      expect((loss as any).partial.seenPackets.get(1)).toBe(100);
+      expect((loss as any).partial.numPackets).toBe(1);
+      expect((loss as any).partial.size).toBe(100);
       expect((loss as any).partial.lostPackets.has(1)).toBe(false);
     });
 
@@ -5777,9 +5777,9 @@ describe("media/sender bandwidth estimator", () => {
         { seq: 10, size: 100, received: true, sendMs: 1000 },
       ]);
       const partial2 = (loss as any).partial;
-      // Assert: still one packet / 100 bytes; loss cleared
-      expect(partial2.numPackets).toBe(1);
-      expect(partial2.size).toBe(100);
+      // Assert: pin は count/size を毎回加算し、lost map だけ解除する
+      expect(partial2.numPackets).toBe(2);
+      expect(partial2.size).toBe(200);
       expect(partial2.lostPackets.has(10)).toBe(false);
     });
 
@@ -5825,7 +5825,9 @@ describe("media/sender bandwidth estimator", () => {
       expect(obs.numLostPackets).toBe(1);
       expect(obs.lostSize).toBe(200);
       expect(loss.averageLossRatio).toBeCloseTo(avgBefore, 5);
-      expect((loss as any).partial.seenPackets.has(3)).toBe(true);
+      expect((loss as any).partial.numPackets).toBe(1);
+      expect((loss as any).partial.size).toBe(200);
+      expect((loss as any).partial.lostPackets.has(3)).toBe(false);
     });
 
     test("not-received は永久 finalize せず後続 received を受理する", () => {
@@ -5885,8 +5887,8 @@ describe("media/sender bandwidth estimator", () => {
       expect(gcc.availableBitrate).toBeGreaterThan(0);
     });
 
-    test("重複した not-received は損失を二重計上せず、後続 received で訂正する", () => {
-      // Arrange: 1 パケットを送信し、まだ確定していない soft loss を作る
+    test("重複した not-received は count/size を加算し lost map は seq 一意のまま", () => {
+      // Arrange: pin PushBackObservation — num_packets/size は毎回加算
       const gcc = new GccBandwidthEstimator(300_000);
       const t0 = 60_000;
       gcc.rtpPacketSent(sent(10, 500, t0));
@@ -5903,11 +5905,12 @@ describe("media/sender bandwidth estimator", () => {
       );
       const afterFirstLoss = (loss as any).partial;
 
-      // Assert: soft loss は partial observation に 1 回だけ入る
+      // Assert: 1 回目は 1 packet / 500B / lost=1
       expect(afterFirstLoss.numPackets).toBe(1);
+      expect(afterFirstLoss.size).toBe(500);
       expect(afterFirstLoss.lostPackets.has(10)).toBe(true);
 
-      // Act: overlapping feedback の同じ not-received は再度処理しない
+      // Act: overlapping feedback の同じ not-received も LossBased へ渡す
       gcc.receiveTWCC(
         makeTwccFeedback([
           new PacketResult({
@@ -5918,9 +5921,13 @@ describe("media/sender bandwidth estimator", () => {
       );
       const afterDuplicateLoss = (loss as any).partial;
 
-      // Assert: 重複 feedback で packet/loss 数が増えない
-      expect(afterDuplicateLoss.numPackets).toBe(1);
+      // Assert: pin — num=2, size=1000, lost map は 1 件のまま（byte loss 50%）
+      expect(afterDuplicateLoss.numPackets).toBe(2);
+      expect(afterDuplicateLoss.size).toBe(1_000);
       expect(afterDuplicateLoss.lostPackets.size).toBe(1);
+      let lostSize = 0;
+      for (const s of afterDuplicateLoss.lostPackets.values()) lostSize += s;
+      expect(lostSize).toBe(500);
 
       // Act: 遅れて届いた received を訂正として処理する
       gcc.receiveTWCC(
@@ -5933,9 +5940,10 @@ describe("media/sender bandwidth estimator", () => {
         ]),
       );
 
-      // Assert: packet は二重計上されず、soft loss だけが解除される
+      // Assert: count/size はさらに増え、lost だけ解除
       const afterCorrection = (loss as any).partial;
-      expect(afterCorrection.numPackets).toBe(1);
+      expect(afterCorrection.numPackets).toBe(3);
+      expect(afterCorrection.size).toBe(1_500);
       expect(afterCorrection.lostPackets.has(10)).toBe(false);
     });
 
@@ -6876,6 +6884,176 @@ describe("media/sender bandwidth estimator", () => {
           getBandwidthLimitedCause("normal", false, "increase_using_padding"),
         ),
       ).toBe(false);
+    });
+
+    test("同じ packet の連続 not-received は count/size を加算し byte loss は 50% になる", () => {
+      // Arrange: pin PushBackObservation — 1000B を 2 回 not-received
+      const loss = new LossBasedBwe();
+      loss.reset(300_000);
+
+      // Act
+      loss.update(1, 300_000, 0, 1, 1, 0, 1_000, 0, 1_000, [
+        { seq: 1, size: 1_000, received: false, sendMs: 0 },
+      ]);
+      loss.update(1, 300_000, 0, 1, 1, 0, 1_000, 0, 1_000, [
+        { seq: 1, size: 1_000, received: false, sendMs: 0 },
+      ]);
+
+      // Assert
+      const p = (loss as any).partial;
+      expect(p.numPackets).toBe(2);
+      expect(p.size).toBe(2_000);
+      expect(p.lostPackets.size).toBe(1);
+      let lostSize = 0;
+      for (const s of p.lostPackets.values()) lostSize += s;
+      expect(lostSize).toBe(1_000);
+    });
+
+    test("ALR 中は acked-rate candidate を使わず padding window 中は例外", () => {
+      // Arrange: pin NotUseAckedRateInAlr=true、acked は 80kbps
+      const loss = new LossBasedBwe();
+      loss.reset(200_000);
+      (loss as any).acknowledgedBps = 80_000;
+
+      // Act
+      const notAlr = (loss as any).getCandidates(false) as Array<{
+        lossLimitedBandwidthBps: number;
+      }>;
+      const alr = (loss as any).getCandidates(true) as Array<{
+        lossLimitedBandwidthBps: number;
+      }>;
+
+      // Assert: ALR 外では acked candidate あり、ALR 中は無し
+      expect(notAlr.some((c) => c.lossLimitedBandwidthBps === 80_000)).toBe(
+        true,
+      );
+      expect(alr.some((c) => c.lossLimitedBandwidthBps === 80_000)).toBe(false);
+
+      // Act: padding window 内なら ALR でも acked を使う
+      (loss as any).lastPaddingMs = 1_000;
+      (loss as any).lastSendTimeMostRecentObservation = 2_500;
+      const alrPad = (loss as any).getCandidates(true) as Array<{
+        lossLimitedBandwidthBps: number;
+      }>;
+      expect(alrPad.some((c) => c.lossLimitedBandwidthBps === 80_000)).toBe(
+        true,
+      );
+
+      // Act: window 切れ
+      (loss as any).lastSendTimeMostRecentObservation = 3_001;
+      const alrExpired = (loss as any).getCandidates(true) as Array<{
+        lossLimitedBandwidthBps: number;
+      }>;
+      expect(alrExpired.some((c) => c.lossLimitedBandwidthBps === 80_000)).toBe(
+        false,
+      );
+    });
+
+    test("receiveTWCC は ALR 状態を LossBased.update に渡す", () => {
+      // Arrange
+      const gcc = new GccBandwidthEstimator(300_000);
+      (gcc as any).alr.startedMs = 1;
+      const spy = vi.spyOn((gcc as any).lossBwe, "update");
+      gcc.rtpPacketSent(sent(1, 200, 1_000));
+
+      // Act
+      gcc.receiveTWCC(
+        makeTwccFeedback([
+          new PacketResult({
+            sequenceNumber: 1,
+            received: true,
+            receivedAtMs: 1_020,
+          }),
+        ]),
+      );
+
+      // Assert: 最後の引数が inAlr=true
+      expect(spy).toHaveBeenCalled();
+      const args = spy.mock.calls[0]!;
+      expect(args[args.length - 1]).toBe(true);
+    });
+
+    test("PaddingDuration 2s は同一 estimate でも window 内は increase_using_padding を維持する", () => {
+      // Arrange: pin CanKeepIncreasingState
+      const loss = new LossBasedBwe();
+      loss.reset(200_000);
+      (loss as any).delayBasedBps = 1_000_000;
+      (loss as any).lastSendTimeMostRecentObservation = 1_000;
+
+      // Act: t0 で padding 開始
+      (loss as any).updateState(200_000, 250_000, 1_000);
+      // Assert
+      expect(loss.lossState).toBe("increase_using_padding");
+      expect((loss as any).lastPaddingMs).toBe(1_000);
+      expect((loss as any).lastPaddingRateBps).toBe(250_000);
+
+      // Act: t0+1999 同一 estimate
+      (loss as any).lastSendTimeMostRecentObservation = 1_000 + 1_999;
+      (loss as any).updateState(250_000, 250_000, 1_000 + 1_999);
+      // Assert: まだ padding
+      expect(loss.lossState).toBe("increase_using_padding");
+
+      // Act: t0+2001 増加なし
+      (loss as any).lastSendTimeMostRecentObservation = 1_000 + 2_001;
+      (loss as any).updateState(250_000, 250_000, 1_000 + 2_001);
+      // Assert: window 切れ → hold
+      expect(loss.lossState).toBe("hold");
+
+      // Act: estimate 上昇で duration 更新
+      (loss as any).lastSendTimeMostRecentObservation = 1_000 + 2_100;
+      (loss as any).updateState(250_000, 300_000, 1_000 + 2_100);
+      // Assert
+      expect(loss.lossState).toBe("increase_using_padding");
+      expect((loss as any).lastPaddingMs).toBe(1_000 + 2_100);
+      expect((loss as any).lastPaddingRateBps).toBe(300_000);
+    });
+
+    test("byte-loss average は n>3 で min/max spike を除外し高レート max は残す", () => {
+      // Arrange: pin CalculateAverageReportedByteLossRatio
+      const loss = new LossBasedBwe();
+      loss.reset(300_000);
+      const mk = (
+        id: number,
+        lostSize: number,
+        size: number,
+        sendingRateBps: number,
+      ) => ({
+        numPackets: 10,
+        numLostPackets: lostSize > 0 ? 1 : 0,
+        numReceivedPackets: lostSize > 0 ? 9 : 10,
+        size,
+        lostSize,
+        sendingRateBps,
+        id,
+      });
+      (loss as any).observations = [
+        mk(0, 0, 1_000, 100_000),
+        mk(1, 50, 1_000, 100_000),
+        mk(2, 80, 1_000, 100_000),
+        mk(3, 800, 1_000, 100_000),
+        mk(4, 100, 1_000, 100_000),
+      ];
+      (loss as any).numObservations = 5;
+      const w = (age: number) => 0.9 ** age;
+
+      // Act
+      (loss as any).updateAverageReportedLossRatio();
+      // Assert: 0% と 80% を除外。残り 5/8/10%
+      const filteredLost = 50 * w(3) + 80 * w(2) + 100 * w(0);
+      const filteredTotal = 1_000 * (w(3) + w(2) + w(0));
+      expect(loss.averageLossRatio).toBeCloseTo(
+        filteredLost / filteredTotal,
+        5,
+      );
+
+      // Act: max-loss の send rate が median×2 以上なら除外しない
+      (loss as any).observations[3].sendingRateBps = 300_000;
+      (loss as any).updateAverageReportedLossRatio();
+      // Assert
+      const allLost =
+        0 * w(4) + 50 * w(3) + 80 * w(2) + 800 * w(1) + 100 * w(0);
+      const allTotal = 1_000 * (w(4) + w(3) + w(2) + w(1) + w(0));
+      expect(loss.averageLossRatio).toBeCloseTo(allLost / allTotal, 5);
     });
 
     test("RequestProbe の 5s 境界は pin の > / < に従う", () => {

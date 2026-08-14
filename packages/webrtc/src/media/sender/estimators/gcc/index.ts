@@ -21,6 +21,8 @@ export {
   kLossIncreaseThreshold,
   kLossLimitedProbeScale,
   kLossBasedPaddingDurationMs,
+  kLossBasedNotUseAckedRateInAlr,
+  kLossBasedMedianSendingRateFactor,
   kMaxBitrateBps,
   kMinBitrateBps,
   kProbeBitrateMultipliers,

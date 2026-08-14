@@ -62,6 +62,8 @@ export {
   kDefaultStartBitrateBps,
   kGoogCcProcessIntervalMs,
   kLossBasedPaddingDurationMs,
+  kLossBasedNotUseAckedRateInAlr,
+  kLossBasedMedianSendingRateFactor,
   kLossBasedIncreaseFactor,
   kLossDecreaseThreshold,
   kLossIncreaseFactor,
