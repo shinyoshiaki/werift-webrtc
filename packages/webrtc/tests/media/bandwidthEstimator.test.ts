@@ -712,14 +712,16 @@ describe("media/sender bandwidth estimator", () => {
       expect((loss as any).holdUntilMs).toBe(5_000 + 300);
       expect((loss as any).holdDurationMs).toBe(600);
       expect((loss as any).holdRateBps).toBe(200_000);
-      expect(loss.lossState).toBe("decreasing");
+      // pin GetLossBasedResult は !IsReady の間 delay_based を返す。
+      // updateState 自体は内部 loss_based_result_ を遷移させる。
+      expect((loss as any).state).toBe("decreasing");
       // Act: すでに decreasing の追加低下
       (loss as any).updateState(200_000, 100_000, 6_000);
       // Assert: pin は decreasing 中に HOLD を再 arm しない
       expect((loss as any).holdUntilMs).toBe(5_000 + 300);
       expect((loss as any).holdDurationMs).toBe(600);
       expect((loss as any).holdRateBps).toBe(200_000);
-      expect(loss.lossState).toBe("decreasing");
+      expect((loss as any).state).toBe("decreasing");
     });
 
     test("LossBasedBwe HOLD は複数 update にわたり holdRate を超えない", () => {
@@ -822,16 +824,16 @@ describe("media/sender bandwidth estimator", () => {
       (loss as any).holdRateBps = 200_000;
       (loss as any).lastSendTimeMostRecentObservation = 10_000;
 
-      // Act: HOLD 内の低損失 update（acked は hold 未満なので lower bound で hold を押し上げない）
+      // Act: HOLD 内の低損失 update。250ms 以上かつ holdUntil(10300) 未満で commit。
       const published = loss.update(
         0.0,
         1_000_000,
         150_000,
         30,
         0,
-        10_050,
+        10_020,
         18_000,
-        10_100,
+        10_270,
         0,
       );
 
@@ -904,8 +906,8 @@ describe("media/sender bandwidth estimator", () => {
       (loss as any).updateState(500_000, 500_000, 1_000);
 
       // Assert: 500k < 1Gbps でも 500k < max(500k) は false → kDelayBasedEstimate
-      expect(loss.lossState).toBe("delay_based");
-      expect(loss.targetBitrateBps).toBe(500_000);
+      expect((loss as any).state).toBe("delay_based");
+      expect((loss as any).lossBasedResult.bandwidthEstimateBps).toBe(500_000);
     });
 
     test("LossBasedBwe の初期 state は delay_based", () => {
@@ -990,6 +992,241 @@ describe("media/sender bandwidth estimator", () => {
       expect(bigLoss.targetBitrateBps).toBeLessThanOrEqual(
         smallLoss.targetBitrateBps,
       );
+    });
+
+    test("観測が commit されない update は Newton / state を動かさない", () => {
+      // Arrange: 3 観測で ready にしたあと current / state を固定
+      const loss = new LossBasedBwe();
+      loss.reset(400_000);
+      for (let i = 0; i < 3; i++) {
+        const first = 1_000 + i * 300;
+        loss.update(0, 400_000, 380_000, 30, 0, first, 15_000, first + 300, 0);
+      }
+      expect(loss.isReady).toBe(true);
+      const beforeBest = (loss as any).currentBestEstimate
+        .lossLimitedBandwidthBps as number;
+      const beforeState = (loss as any).state as string;
+      const beforePublished = loss.targetBitrateBps;
+
+      // Act: 40ms しか進まないので pin PushBackObservation は false
+      const out = loss.update(
+        0.4,
+        200_000,
+        100_000,
+        20,
+        8,
+        2_000,
+        8_000,
+        2_040,
+        4_000,
+      );
+
+      // Assert: 内部候補も公開値も変わらない
+      expect(out).toBe(beforePublished);
+      expect(loss.targetBitrateBps).toBe(beforePublished);
+      expect((loss as any).currentBestEstimate.lossLimitedBandwidthBps).toBe(
+        beforeBest,
+      );
+      expect((loss as any).state).toBe(beforeState);
+    });
+
+    test("最初の commit は current_best を delay_based_estimate で初期化する", () => {
+      // Arrange: pin current_best は MinusInfinity。start=300k でも
+      // 最初の観測後は delay(800k) から candidate を作る。
+      const loss = new LossBasedBwe();
+      loss.reset(300_000);
+
+      // Act: 300ms を 1 回 commit（まだ !IsReady）
+      const published = loss.update(
+        0,
+        800_000,
+        700_000,
+        30,
+        0,
+        1_000,
+        18_000,
+        1_300,
+        0,
+      );
+
+      // Assert: 公開は delay。内部 current_best は 300k ではなく delay 起点。
+      expect(loss.isReady).toBe(false);
+      expect(published).toBe(800_000);
+      expect(loss.targetBitrateBps).toBe(800_000);
+      expect(loss.lossState).toBe("delay_based");
+      expect((loss as any).currentBestInitialized).toBe(true);
+      expect(
+        (loss as any).currentBestEstimate.lossLimitedBandwidthBps,
+      ).toBeGreaterThan(300_000);
+    });
+
+    test("IsReady 前は内部 state が進んでも公開 result は delay_based", () => {
+      // Arrange
+      const loss = new LossBasedBwe();
+      loss.reset(300_000);
+
+      // Act: 高損失 2 観測（min=3 未満）
+      for (let i = 0; i < 2; i++) {
+        const first = 1_000 + i * 300;
+        loss.update(
+          0.5,
+          600_000,
+          150_000,
+          40,
+          20,
+          first,
+          12_000,
+          first + 300,
+          6_000,
+        );
+      }
+
+      // Assert: 公開は常に delay。内部 result は探索済みでもよい。
+      expect(loss.isReady).toBe(false);
+      expect(loss.observationCount).toBe(2);
+      expect(loss.lossState).toBe("delay_based");
+      expect(loss.targetBitrateBps).toBe(600_000);
+      expect((loss as any).currentBestInitialized).toBe(true);
+    });
+
+    test("LossBasedBweV2 代表系列: delay → decrease+HOLD → 内部上昇 → expire → padding → delay", () => {
+      // Arrange: pin UpdateBandwidthEstimate の公開/内部分離と HOLD 寿命
+      const loss = new LossBasedBwe();
+      loss.reset(500_000);
+      const steps: Array<{
+        name: string;
+        published: number;
+        publicState: string;
+        internalState: string;
+        internalBest: number;
+        holdUntil: number;
+      }> = [];
+      const snap = (name: string) => {
+        steps.push({
+          name,
+          published: loss.targetBitrateBps,
+          publicState: loss.lossState,
+          internalState: (loss as any).state,
+          internalBest: (loss as any).currentBestEstimate
+            .lossLimitedBandwidthBps,
+          holdUntil: (loss as any).holdUntilMs,
+        });
+      };
+
+      // Act 1: 無損失 3 観測で ready。delay=1Mbps
+      for (let i = 0; i < 3; i++) {
+        const first = 1_000 + i * 300;
+        loss.update(
+          0,
+          1_000_000,
+          480_000,
+          30,
+          0,
+          first,
+          18_000,
+          first + 300,
+          0,
+        );
+      }
+      snap("after_warmup");
+
+      // Act 2: 高損失を commit し、初めて decreasing に入った窓で止める
+      // （追加低下で HOLD を再 arm しないので、expire 前に内部上昇を見る）
+      let decFirst = 2_000;
+      for (let i = 0; i < 8; i++) {
+        decFirst = 2_000 + i * 300;
+        loss.update(
+          0.55,
+          1_000_000,
+          160_000,
+          40,
+          22,
+          decFirst,
+          12_000,
+          decFirst + 300,
+          6_600,
+        );
+        if ((loss as any).state === "decreasing") break;
+      }
+      snap("after_loss_decrease");
+
+      // Act 3: HOLD 中（lastSend < holdUntil）に低損失 260ms を commit
+      const holdUntil = (loss as any).holdUntilMs as number;
+      const holdLast = (loss as any)
+        .lastSendTimeMostRecentObservation as number;
+      const holdCommitLast = Math.min(holdUntil - 1, holdLast + 260);
+      const publishedHold = loss.update(
+        0.0,
+        1_000_000,
+        180_000,
+        30,
+        0,
+        holdLast + 10,
+        18_000,
+        holdCommitLast,
+        0,
+      );
+      snap("during_hold");
+
+      // Act 4: HOLD 期限後に低損失
+      const afterHoldFirst = holdUntil + 20;
+      loss.update(
+        0.0,
+        1_000_000,
+        450_000,
+        30,
+        0,
+        afterHoldFirst,
+        18_000,
+        afterHoldFirst + 300,
+        0,
+      );
+      snap("after_hold_expire");
+
+      // Act 5: delay cap に到達するまで低損失を続ける
+      for (let i = 0; i < 8; i++) {
+        const first = afterHoldFirst + 400 + i * 300;
+        loss.update(
+          0,
+          1_000_000,
+          900_000,
+          30,
+          0,
+          first,
+          18_000,
+          first + 300,
+          0,
+        );
+      }
+      snap("after_ramp");
+
+      // Assert: warmup 公開は delay_based
+      expect(steps[0]!.publicState).toBe("delay_based");
+      expect(steps[0]!.published).toBeGreaterThan(0);
+
+      // Assert: 損失後は decreasing + HOLD timer
+      expect(steps[1]!.internalState).toBe("decreasing");
+      expect(steps[1]!.publicState).toBe("decreasing");
+      expect(steps[1]!.holdUntil).toBeGreaterThan(decFirst);
+      expect(steps[1]!.published).toBeLessThan(1_000_000);
+
+      // Assert: HOLD 中は公開 ≤ holdRate、内部 best は公開より下げない
+      expect(steps[2]!.publicState).toBe("decreasing");
+      expect(publishedHold).toBe(steps[2]!.published);
+      expect(steps[2]!.internalBest).toBeGreaterThanOrEqual(
+        steps[2]!.published,
+      );
+
+      // Assert: 期限後は increasing / padding または delay_based へ戻れる
+      expect(["increase_using_padding", "increasing", "delay_based"]).toContain(
+        steps[3]!.publicState,
+      );
+
+      // Assert: delay cap 到達で delay_based になり得る（到達しなくても上昇方向）
+      expect(steps[4]!.published).toBeGreaterThan(0);
+      if (steps[4]!.published >= 1_000_000) {
+        expect(steps[4]!.publicState).toBe("delay_based");
+      }
     });
   });
 
@@ -4539,6 +4776,8 @@ describe("media/sender bandwidth estimator", () => {
 
       const delayArgs: number[] = [];
       let lossCalls = 0;
+      (gcc as any).lossBwe.currentBestInitialized = true;
+      (gcc as any).lossBwe.numObservations = 3;
       (gcc as any).lossBwe.update = (
         _lf: number,
         delayBasedBps: number,
@@ -5674,7 +5913,7 @@ describe("media/sender bandwidth estimator", () => {
         (loss as any).delayBasedBps = 1_000_000;
         (loss as any).state = "decreasing";
         (loss as any).updateState(200_000, 250_000, t0 + 400);
-        expect(loss.lossState).toBe("increase_using_padding");
+        expect((loss as any).state).toBe("increase_using_padding");
       }
       expect(
         getBandwidthLimitedCause("normal", false, "increase_using_padding"),
@@ -6342,6 +6581,90 @@ describe("media/sender bandwidth estimator", () => {
       aimdSpy.mockRestore();
     });
 
+    test("overuse でも TimeToReduceFurther 前は Result.updated=false で propagate しない", () => {
+      // Arrange: pin MaybeUpdateEstimate — overuse かつ !TimeToReduceFurther
+      // なら delay Result.updated=false。LossBased は更新するが
+      // MaybeTriggerOnNetworkChanged は走らない。
+      const t0 = 80_000;
+      const { gcc, setNow } = createClockGcc(400_000, t0);
+      (gcc as any).probe.abort(t0);
+      (gcc as any).probe.state = "complete";
+      (gcc as any).probingConfigured = true;
+      const aimd = (gcc as any).aimd as AimdRateControl;
+      aimd.setRtt(200);
+      aimd.setStartBitrate(400_000);
+      // 初回 overuse で減速し time_last_bitrate_change_ を立てる
+      aimd.update("overuse", 400_000, t0);
+      (gcc as any).delayBasedBps = aimd.targetBitrateBps;
+      (gcc as any).lastDelayEstimateBps = aimd.targetBitrateBps;
+      (gcc as any).hasValidSample = true;
+
+      gcc.rtpPacketSent(sent(1, 800, t0 + 10));
+      gcc.rtpPacketSent(sent(2, 800, t0 + 20));
+      const causeSpy = vi.spyOn((gcc as any).probe, "setEstimatedBitrate");
+      const delayBefore = aimd.targetBitrateBps;
+      vi.spyOn((gcc as any).trendline, "state", "get").mockReturnValue(
+        "overuse",
+      );
+      // acked あり + 0.5×estimate 以上 → 時間窓だけが TTRF 条件
+      vi.spyOn((gcc as any).ackedBitrate, "bitrate").mockReturnValue(300_000);
+
+      // Act: 150ms 後（clamp 上限 200ms 未満）の overuse TWCC
+      setNow(t0 + 150);
+      gcc.receiveTWCC(
+        makeTwccFeedback([
+          new PacketResult({
+            sequenceNumber: 1,
+            received: true,
+            receivedAtMs: t0 + 30,
+          }),
+          new PacketResult({
+            sequenceNumber: 2,
+            received: true,
+            receivedAtMs: t0 + 40,
+          }),
+        ]),
+      );
+
+      // Assert: AIMD 再減速なし + ProbeController へ cause を流さない
+      expect(aimd.targetBitrateBps).toBe(delayBefore);
+      expect(causeSpy).not.toHaveBeenCalled();
+      causeSpy.mockRestore();
+    });
+
+    test("NSE lower 未満かつ last delay 未満の probe は捨てる", () => {
+      // Arrange: pin ignore_probes_lower_than_network_estimate_
+      const t0 = 90_000;
+      const { gcc, setNow } = createClockGcc(500_000, t0);
+      (gcc as any).probe.abort(t0);
+      (gcc as any).probe.state = "complete";
+      (gcc as any).probingConfigured = true;
+      gcc.setNetworkStateEstimate(2_000_000, 400_000);
+      (gcc as any).lastDelayEstimateBps = 500_000;
+      (gcc as any).delayBasedBps = 500_000;
+      (gcc as any).hasValidSample = true;
+      const aimd = (gcc as any).aimd as AimdRateControl;
+      aimd.setStartBitrate(500_000);
+      const setEst = vi.spyOn(aimd, "setEstimate");
+      (gcc as any).probe.pendingEstimateBps = 200_000;
+
+      gcc.rtpPacketSent(sent(1, 800, t0 + 10));
+      setNow(t0 + 40);
+      gcc.receiveTWCC(
+        makeTwccFeedback([
+          new PacketResult({
+            sequenceNumber: 1,
+            received: true,
+            receivedAtMs: t0 + 20,
+          }),
+        ]),
+      );
+
+      // Assert: 200k < last delay 500k かつ < NSE lower 400k → probe SetEstimate しない
+      expect(setEst).not.toHaveBeenCalled();
+      setEst.mockRestore();
+    });
+
     test("未接続で 5s process しても initial probe は開始しない", () => {
       // Arrange: pin network_available_=false。SetBitrates しても probe しない
       const { gcc, setNow } = createClockGcc(100_000, 0);
@@ -6996,6 +7319,9 @@ describe("media/sender bandwidth estimator", () => {
       // pin: kIncreasing へは loss-limited 中の上昇でのみ入る
       (gcc as any).lossBwe.state = "decreasing";
       (gcc as any).lossBwe.updateState(200_000, 260_000, 1_000);
+      // pin GetLossBasedResult は IsReady のあとだけ内部 state を公開する
+      (gcc as any).lossBwe.currentBestInitialized = true;
+      (gcc as any).lossBwe.numObservations = 3;
 
       // Act
       setNow(1_050);
@@ -7109,8 +7435,8 @@ describe("media/sender bandwidth estimator", () => {
 
       // Act: t0 で padding 開始
       (loss as any).updateState(200_000, 250_000, 1_000);
-      // Assert
-      expect(loss.lossState).toBe("increase_using_padding");
+      // Assert: 内部 state（!IsReady では公開 result は delay_based）
+      expect((loss as any).state).toBe("increase_using_padding");
       expect((loss as any).lastPaddingMs).toBe(1_000);
       expect((loss as any).lastPaddingRateBps).toBe(250_000);
 
@@ -7118,20 +7444,20 @@ describe("media/sender bandwidth estimator", () => {
       (loss as any).lastSendTimeMostRecentObservation = 1_000 + 1_999;
       (loss as any).updateState(250_000, 250_000, 1_000 + 1_999);
       // Assert: まだ padding
-      expect(loss.lossState).toBe("increase_using_padding");
+      expect((loss as any).state).toBe("increase_using_padding");
 
       // Act: t0+2001 増加なし
       (loss as any).lastSendTimeMostRecentObservation = 1_000 + 2_001;
       (loss as any).updateState(250_000, 250_000, 1_000 + 2_001);
       // Assert: window 切れ → decreasing（kHold は無く HOLD timer を arm）
-      expect(loss.lossState).toBe("decreasing");
+      expect((loss as any).state).toBe("decreasing");
       expect((loss as any).holdUntilMs).toBe(1_000 + 2_001 + 300);
 
       // Act: estimate 上昇で duration 更新
       (loss as any).lastSendTimeMostRecentObservation = 1_000 + 2_100;
       (loss as any).updateState(250_000, 300_000, 1_000 + 2_100);
       // Assert
-      expect(loss.lossState).toBe("increase_using_padding");
+      expect((loss as any).state).toBe("increase_using_padding");
       expect((loss as any).lastPaddingMs).toBe(1_000 + 2_100);
       expect((loss as any).lastPaddingRateBps).toBe(300_000);
     });

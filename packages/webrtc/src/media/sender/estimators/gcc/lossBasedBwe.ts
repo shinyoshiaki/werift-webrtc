@@ -1,5 +1,6 @@
 import {
   kDefaultStartBitrateBps,
+  kLossBasedBandwidthBackoffLowerBoundFactor,
   kLossBasedBandwidthPreferenceSmoothingFactor,
   kLossBasedBoundBestCandidate,
   kLossBasedCandidateFactors,
@@ -14,6 +15,7 @@ import {
   kLossBasedInitialInherentLoss,
   kLossBasedInstantUpperBoundBwBalanceBps,
   kLossBasedInstantUpperBoundLossOffset,
+  kLossBasedInstantUpperBoundTemporalWeightFactor,
   kLossBasedLossThresholdOfHighBandwidthPreference,
   kLossBasedLowerBoundByAckedRateFactor,
   kLossBasedMaxHoldDurationMs,
@@ -30,6 +32,7 @@ import {
   kLossBasedRampupUpperBoundFactor,
   kLossBasedRampupUpperBoundHoldThreshold,
   kLossBasedRampupUpperBoundInHoldFactor,
+  kLossBasedSendingRateSmoothingFactor,
   kLossBasedTemporalWeightFactor,
   kLossBasedUseByteLossRate,
   kMaxBitrateBps,
@@ -93,7 +96,9 @@ export interface LossPacketFeedback {
  * - High-bandwidth bias adjusted by average loss ratio
  * - Instant upper/lower bounds + delayed-increase window + HOLD rate
  * - `currentBestEstimate` (candidate model) is distinct from
- *   `lossBasedResult` (published GoogCC output). HOLD clamps only the result.
+ *   `lossBasedResult` (internal GoogCC result). HOLD clamps only the result.
+ * - Published output (GetLossBasedResult) stays delay-based until
+ *   `IsReady()` (initialized current_best + min observations).
  */
 export class LossBasedBwe {
   /** pin `current_best_estimate_` — next candidate generation basis. */
@@ -101,6 +106,12 @@ export class LossBasedBwe {
     inherentLoss: kLossBasedInitialInherentLoss,
     lossLimitedBandwidthBps: kDefaultStartBitrateBps,
   };
+  /**
+   * pin `IsValid(current_best_estimate_.loss_limited_bandwidth)`.
+   * Starts false (C++ MinusInfinity). First committed observation copies
+   * `delay_based_estimate_`; {@link setBandwidthEstimate} marks it valid.
+   */
+  private currentBestInitialized = false;
   /**
    * pin `loss_based_result_` — value returned to GoogCC.
    * Initial state is `kDelayBasedEstimate`.
@@ -146,6 +157,8 @@ export class LossBasedBwe {
    */
   private static readonly kMaxPartialPackets = 4096;
   private temporalWeights: number[] = [];
+  /** pin `instant_upper_bound_temporal_weights_` (average loss ratio). */
+  private instantTemporalWeights: number[] = [];
 
   constructor() {
     this.recomputeTemporalWeights();
@@ -157,6 +170,7 @@ export class LossBasedBwe {
       inherentLoss: kLossBasedInitialInherentLoss,
       lossLimitedBandwidthBps: start,
     };
+    this.currentBestInitialized = false;
     this.lossBasedResult = {
       bandwidthEstimateBps: start,
       state: "delay_based",
@@ -221,18 +235,35 @@ export class LossBasedBwe {
   setBandwidthEstimate(bandwidthBps: number) {
     const bps = clamp(bandwidthBps);
     this.currentBestEstimate.lossLimitedBandwidthBps = bps;
+    this.currentBestInitialized = true;
     this.lossBasedResult = {
       bandwidthEstimateBps: bps,
       state: "delay_based",
     };
   }
 
+  /**
+   * pin `LossBasedBweV2::IsReady` — initialized current_best and
+   * `num_observations_ >= MinNumObservations`.
+   */
+  get isReady(): boolean {
+    return (
+      this.currentBestInitialized &&
+      this.numObservations >= kLossBasedMinNumObservations
+    );
+  }
+
+  /**
+   * pin `GetLossBasedResult`. Until {@link isReady}, returns the latest
+   * delay-based estimate with `kDelayBasedEstimate` and does **not** expose
+   * the internally evolving `loss_based_result_`.
+   */
   get targetBitrateBps() {
-    return this.lossBasedResult.bandwidthEstimateBps;
+    return this.getLossBasedResult().bandwidthEstimateBps;
   }
 
   get lossState(): LossBasedState {
-    return this.lossBasedResult.state;
+    return this.getLossBasedResult().state;
   }
 
   /**
@@ -265,6 +296,21 @@ export class LossBasedBwe {
   /** Number of committed observations (for readiness tests). */
   get observationCount(): number {
     return this.numObservations;
+  }
+
+  /** pin `GetLossBasedResult`. */
+  private getLossBasedResult(): LossBasedResult {
+    if (!this.isReady) {
+      const estimate =
+        this.delayBasedBps > 0
+          ? this.delayBasedBps
+          : this.currentBestEstimate.lossLimitedBandwidthBps;
+      return {
+        bandwidthEstimateBps: estimate,
+        state: "delay_based",
+      };
+    }
+    return this.lossBasedResult;
   }
 
   setBitrateIfHigher(bps: number) {
@@ -328,8 +374,9 @@ export class LossBasedBwe {
       batchLast = batchFirst;
     }
 
+    let committed = false;
     if (n > 0 || (packets && packets.length > 0)) {
-      this.accumulatePartial(
+      committed = this.accumulatePartial(
         n,
         lost,
         batchBytes,
@@ -340,20 +387,24 @@ export class LossBasedBwe {
       );
     }
 
-    // Not ready: libwebrtc LossBasedBweV2::IsReady() false → return the
-    // delay-based estimate (state kDelayBasedEstimate). Do **not** cap delay
-    // with the start/current loss-limited value during cold start or after
-    // probe reset clears observations.
-    if (this.numObservations < kLossBasedMinNumObservations) {
-      const estimate =
-        this.delayBasedBps > 0
-          ? this.delayBasedBps
-          : this.currentBestEstimate.lossLimitedBandwidthBps;
+    // pin UpdateBandwidthEstimate: no new observation → return without
+    // Newton / state transition. GetLossBasedResult still tracks the latest
+    // delay-based estimate while !IsReady().
+    if (!committed) {
+      return this.getLossBasedResult().bandwidthEstimateBps;
+    }
+
+    // pin: first valid current_best_estimate_ is delay_based_estimate_.
+    if (!this.currentBestInitialized) {
+      if (!(this.delayBasedBps > 0)) {
+        return this.getLossBasedResult().bandwidthEstimateBps;
+      }
+      this.currentBestEstimate.lossLimitedBandwidthBps = this.delayBasedBps;
       this.lossBasedResult = {
-        bandwidthEstimateBps: estimate,
+        bandwidthEstimateBps: this.delayBasedBps,
         state: "delay_based",
       };
-      return estimate;
+      this.currentBestInitialized = true;
     }
 
     this.updateAverageReportedLossRatio();
@@ -456,7 +507,7 @@ export class LossBasedBwe {
       this.lossBasedResult.bandwidthEstimateBps = clamp(
         Math.min(this.holdRateBps, bounded),
       );
-      return this.lossBasedResult.bandwidthEstimateBps;
+      return this.getLossBasedResult().bandwidthEstimateBps;
     }
 
     this.updateState(
@@ -480,7 +531,7 @@ export class LossBasedBwe {
       }
     }
 
-    return this.lossBasedResult.bandwidthEstimateBps;
+    return this.getLossBasedResult().bandwidthEstimateBps;
   }
 
   /**
@@ -638,7 +689,7 @@ export class LossBasedBwe {
     firstSendMs: number,
     lastSendMs: number,
     packets?: LossPacketFeedback[],
-  ) {
+  ): boolean {
     if (packets && packets.length > 0) {
       // pin PushBackObservation: count/size grow on every feedback appearance.
       this.partial.numPackets += packets.length;
@@ -699,7 +750,7 @@ export class LossBasedBwe {
         size: 0,
       };
       this.lastSendTimeMostRecentObservation = lastSendMs;
-      return;
+      return false;
     }
 
     const observationDuration =
@@ -708,7 +759,7 @@ export class LossBasedBwe {
       observationDuration <= 0 ||
       observationDuration < kLossBasedObservationDurationLowerBoundMs
     ) {
-      return;
+      return false;
     }
 
     this.lastSendTimeMostRecentObservation = lastSendMs;
@@ -719,12 +770,13 @@ export class LossBasedBwe {
     }
     const numLostPackets = this.partial.lostPackets.size;
     const numPkts = this.partial.numPackets;
-    const sendingRateBps =
+    const instantaneous =
       this.partial.size > 0 && observationDuration > 0
         ? (this.partial.size * 8 * 1000) / observationDuration
         : this.acknowledgedBps > 0
           ? this.acknowledgedBps
           : this.currentBestEstimate.lossLimitedBandwidthBps;
+    const sendingRateBps = this.getSendingRate(instantaneous);
 
     this.commitObservation({
       numPackets: numPkts,
@@ -740,6 +792,7 @@ export class LossBasedBwe {
       lostPackets: new Map(),
       size: 0,
     };
+    return true;
   }
 
   private commitObservation(o: Omit<Observation, "id">) {
@@ -757,8 +810,12 @@ export class LossBasedBwe {
 
   private recomputeTemporalWeights() {
     this.temporalWeights = [];
+    this.instantTemporalWeights = [];
     for (let i = 0; i < kLossBasedObservationWindow; i++) {
       this.temporalWeights.push(kLossBasedTemporalWeightFactor ** i);
+      this.instantTemporalWeights.push(
+        kLossBasedInstantUpperBoundTemporalWeightFactor ** i,
+      );
     }
   }
 
@@ -768,6 +825,28 @@ export class LossBasedBwe {
       return kLossBasedTemporalWeightFactor ** Math.max(age, 0);
     }
     return this.temporalWeights[age];
+  }
+
+  /** pin instant_upper_bound_temporal_weights_ for average loss ratio. */
+  private instantTemporalWeightFor(observation: Observation): number {
+    const age = this.numObservations - 1 - observation.id;
+    if (age < 0 || age >= this.instantTemporalWeights.length) {
+      return (
+        kLossBasedInstantUpperBoundTemporalWeightFactor ** Math.max(age, 0)
+      );
+    }
+    return this.instantTemporalWeights[age];
+  }
+
+  /** pin `GetSendingRate` (smoothing default 0). */
+  private getSendingRate(instantaneousBps: number): number {
+    if (this.numObservations <= 0) return instantaneousBps;
+    const prev = this.observations[this.observations.length - 1];
+    if (!prev || !(prev.sendingRateBps > 0)) return instantaneousBps;
+    return (
+      kLossBasedSendingRateSmoothingFactor * prev.sendingRateBps +
+      (1 - kLossBasedSendingRateSmoothingFactor) * instantaneousBps
+    );
   }
 
   private updateAverageReportedLossRatio() {
@@ -782,7 +861,7 @@ export class LossBasedBwe {
       let lost = 0;
       let total = 0;
       for (const o of this.observations) {
-        const w = this.temporalWeightFor(o);
+        const w = this.instantTemporalWeightFor(o);
         lost += w * o.numLostPackets;
         total += w * o.numPackets;
       }
@@ -807,7 +886,7 @@ export class LossBasedBwe {
     let maxBytes = 0;
     let sendRateOfMaxLoss = 0;
     for (const o of this.observations) {
-      const w = this.temporalWeightFor(o);
+      const w = this.instantTemporalWeightFor(o);
       const wLost = w * o.lostSize;
       const wSize = w * o.size;
       lost += wLost;
@@ -904,7 +983,9 @@ export class LossBasedBwe {
         this.lastPaddingMs + this.paddingDurationMs >=
           this.lastSendTimeMostRecentObservation;
       if (!skipAckedInAlr || paddingWindowOpen) {
-        bandwidths.push(this.acknowledgedBps);
+        bandwidths.push(
+          this.acknowledgedBps * kLossBasedBandwidthBackoffLowerBoundFactor,
+        );
       }
     }
     if (this.delayBasedBps > currentBw) {

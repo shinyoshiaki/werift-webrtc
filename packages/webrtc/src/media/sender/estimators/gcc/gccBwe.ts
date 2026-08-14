@@ -206,6 +206,13 @@ export class GccBandwidthEstimator
    */
   private lastSeenPacketMs = Number.NEGATIVE_INFINITY;
   /**
+   * pin `DelayBasedBwe::prev_bitrate_` / `last_estimate()`.
+   * Used to drop probes below both last delay estimate and NSE lower.
+   */
+  private lastDelayEstimateBps = 0;
+  /** pin `NetworkStateEstimate::link_capacity_lower`. 0 = unset. */
+  private networkLowerBps = 0;
+  /**
    * pin `enable_periodic_alr_probing_` — persisted across {@link reset}
    * (constructor / {@link enablePeriodicAlrProbing}).
    */
@@ -347,6 +354,10 @@ export class GccBandwidthEstimator
     linkCapacityLowerBps = 0,
   ): void {
     if (this.disposed) return;
+    this.networkLowerBps =
+      Number.isFinite(linkCapacityLowerBps) && linkCapacityLowerBps > 0
+        ? linkCapacityLowerBps
+        : 0;
     this.probe.setNetworkStateEstimate(linkCapacityUpperBps);
     this.aimd.setNetworkStateEstimate(
       linkCapacityUpperBps,
@@ -702,7 +713,18 @@ export class GccBandwidthEstimator
     // Consume pending probe before deciding recovery (pin FetchAndReset before
     // MaybeUpdateEstimate — any probe estimate suppresses recovered_from_overuse).
     const probeBps = this.probe.takePendingEstimateBps();
-    const hasProbeEstimate = probeBps > 0;
+    // pin ignore_probes_lower_than_network_estimate_ (default enabled):
+    // drop a probe below both last delay estimate and NSE link_capacity_lower.
+    let hasProbeEstimate = probeBps > 0;
+    if (
+      hasProbeEstimate &&
+      this.networkLowerBps > 0 &&
+      this.lastDelayEstimateBps > 0 &&
+      probeBps < this.lastDelayEstimateBps &&
+      probeBps < this.networkLowerBps
+    ) {
+      hasProbeEstimate = false;
+    }
 
     // pin DelayBasedBwe::Result — default (updated=false) when no receive-time
     // samples. MaybeTriggerOnNetworkChanged only runs when updated.
@@ -715,9 +737,18 @@ export class GccBandwidthEstimator
 
     if (delayFeedback) {
       if (overusing) {
-        // pin: overuse branch never applies probe_bitrate.
-        this.delayBasedBps = this.aimd.update(usage, ackedBps, nowMs);
-        delayResult.updated = true;
+        // pin MaybeUpdateEstimate overuse: Update only when
+        // TimeToReduceFurther / InitialTimeToReduceFurther. Otherwise
+        // Result.updated stays false (no UpdateDelayBasedEstimate /
+        // MaybeTriggerOnNetworkChanged).
+        const canReduce =
+          ackedBps > 0
+            ? this.aimd.timeToReduceFurther(nowMs, ackedBps)
+            : this.aimd.initialTimeToReduceFurther(nowMs);
+        if (canReduce) {
+          this.delayBasedBps = this.aimd.update(usage, ackedBps, nowMs);
+          delayResult.updated = this.aimd.validEstimate();
+        }
       } else if (hasProbeEstimate) {
         // pin MaybeUpdateEstimate (non-overuse + probe_bitrate):
         // SetEstimate(probe) as-is — **no upward caps**. Only lower probes get
@@ -749,13 +780,15 @@ export class GccBandwidthEstimator
         delayResult.probe = true;
       } else {
         this.delayBasedBps = this.aimd.update(usage, ackedBps, nowMs);
-        delayResult.updated = true;
+        delayResult.updated = this.aimd.validEstimate();
         delayResult.recoveredFromOveruse = recoveredFromUnderuse;
       }
       delayResult.targetBps = this.delayBasedBps;
-      // pin UpdateDelayBasedEstimate after MaybeUpdateEstimate (and after
-      // probe SetSendBitrate). 0 → PlusInfinity.
-      this.noteDelayBasedEstimate(this.delayBasedBps);
+      // pin UpdateDelayBasedEstimate only when Result.updated.
+      if (delayResult.updated) {
+        this.noteDelayBasedEstimate(this.delayBasedBps);
+        this.lastDelayEstimateBps = this.delayBasedBps;
+      }
     }
 
     // Loss path after delay/probe (pin UpdateLossBasedEstimator).
@@ -878,6 +911,8 @@ export class GccBandwidthEstimator
     this.lastMaxFeedbackRttMs = 0;
     this.lastPropagationRttMs = 0;
     this.lastSeenPacketMs = Number.NEGATIVE_INFINITY;
+    this.lastDelayEstimateBps = 0;
+    this.networkLowerBps = 0;
     this.paddingDueBytes = 0;
     this.lastPaddingAccrueMs = Number.NEGATIVE_INFINITY;
     this.alr.reset();
