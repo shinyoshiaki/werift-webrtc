@@ -14,6 +14,15 @@ export type BottleneckOptions = {
   maxQueueBytes: number;
 };
 
+export type IcePayloadKind = "rtp" | "rtcp" | "stun" | "dtls" | "other";
+
+export type BottleneckKindStats = {
+  enqueued: number;
+  forwarded: number;
+  dropped: number;
+  bytesEnqueued: number;
+};
+
 export type BottleneckStats = {
   enqueued: number;
   forwarded: number;
@@ -22,6 +31,8 @@ export type BottleneckStats = {
   bytesForwarded: number;
   bytesDropped: number;
   peakQueueBytes: number;
+  /** ICE send を STUN / DTLS / RTP / RTCP に分けた統計。 */
+  byKind: Record<IcePayloadKind, BottleneckKindStats>;
 };
 
 type Queued = {
@@ -39,6 +50,25 @@ type DirState = {
   stats: BottleneckStats;
 };
 
+function emptyKindStats(): BottleneckKindStats {
+  return {
+    enqueued: 0,
+    forwarded: 0,
+    dropped: 0,
+    bytesEnqueued: 0,
+  };
+}
+
+function emptyByKind(): Record<IcePayloadKind, BottleneckKindStats> {
+  return {
+    rtp: emptyKindStats(),
+    rtcp: emptyKindStats(),
+    stun: emptyKindStats(),
+    dtls: emptyKindStats(),
+    other: emptyKindStats(),
+  };
+}
+
 function emptyStats(): BottleneckStats {
   return {
     enqueued: 0,
@@ -48,7 +78,25 @@ function emptyStats(): BottleneckStats {
     bytesForwarded: 0,
     bytesDropped: 0,
     peakQueueBytes: 0,
+    byKind: emptyByKind(),
   };
+}
+
+/**
+ * RFC 5764 demux on the first bytes of an ICE application datagram
+ * (post-DTLS-handshake SRTP still exposes the RTP/RTCP header).
+ */
+export function classifyIcePayload(data: Buffer): IcePayloadKind {
+  if (!data.length) return "other";
+  const b0 = data[0]!;
+  if (b0 <= 3) return "stun";
+  if (b0 >= 20 && b0 <= 63) return "dtls";
+  if (b0 >= 128 && b0 <= 191) {
+    const pt = data.length > 1 ? data[1]! : 0;
+    if (pt >= 200 && pt <= 211) return "rtcp";
+    return "rtp";
+  }
+  return "other";
 }
 
 /**
@@ -92,12 +140,27 @@ export class BottleneckLink {
   }
 
   stats(dir: BottleneckDirection): BottleneckStats {
-    return { ...this.dirs[dir].stats };
+    const s = this.dirs[dir].stats;
+    const byKind = emptyByKind();
+    for (const kind of Object.keys(byKind) as IcePayloadKind[]) {
+      byKind[kind] = { ...s.byKind[kind] };
+    }
+    return { ...s, byKind };
   }
 
   totalStats(): BottleneckStats {
     const a = this.dirs.a2b.stats;
     const b = this.dirs.b2a.stats;
+    const byKind = emptyByKind();
+    for (const kind of Object.keys(byKind) as IcePayloadKind[]) {
+      byKind[kind] = {
+        enqueued: a.byKind[kind].enqueued + b.byKind[kind].enqueued,
+        forwarded: a.byKind[kind].forwarded + b.byKind[kind].forwarded,
+        dropped: a.byKind[kind].dropped + b.byKind[kind].dropped,
+        bytesEnqueued:
+          a.byKind[kind].bytesEnqueued + b.byKind[kind].bytesEnqueued,
+      };
+    }
     return {
       enqueued: a.enqueued + b.enqueued,
       forwarded: a.forwarded + b.forwarded,
@@ -106,6 +169,7 @@ export class BottleneckLink {
       bytesForwarded: a.bytesForwarded + b.bytesForwarded,
       bytesDropped: a.bytesDropped + b.bytesDropped,
       peakQueueBytes: Math.max(a.peakQueueBytes, b.peakQueueBytes),
+      byKind,
     };
   }
 
@@ -116,16 +180,22 @@ export class BottleneckLink {
   /**
    * ICE 接続の send をボトルネック経由に差し替える。
    * `connection` は `RTCIceTransport.connection`（IceConnection）を想定。
+   * 同一オブジェクトへの再装着は無視する（二重カウント防止）。
    */
   install(
     connection: { send: (data: Buffer) => Promise<void> },
     direction: BottleneckDirection,
-  ) {
+  ): boolean {
+    if (this.wrapped.has(connection)) return false;
+    this.wrapped.add(connection);
     const originalSend = connection.send.bind(connection);
     connection.send = async (data: Buffer) => {
       await this.enqueue(direction, data, originalSend);
     };
+    return true;
   }
+
+  private readonly wrapped = new WeakSet<object>();
 
   close() {
     this.closed = true;
@@ -145,13 +215,17 @@ export class BottleneckLink {
     if (this.closed) return;
     const state = this.dirs[direction];
     const size = data.length;
+    const kind = classifyIcePayload(data);
     state.stats.enqueued++;
     state.stats.bytesEnqueued += size;
+    state.stats.byKind[kind].enqueued++;
+    state.stats.byKind[kind].bytesEnqueued += size;
 
     // キュー上限超過 → ロス（輻輳）
     if (state.queueBytes + size > this.opts.maxQueueBytes) {
       state.stats.dropped++;
       state.stats.bytesDropped += size;
+      state.stats.byKind[kind].dropped++;
       return;
     }
 
@@ -231,6 +305,7 @@ export class BottleneckLink {
       }
       state.stats.forwarded++;
       state.stats.bytesForwarded += head.data.length;
+      state.stats.byKind[classifyIcePayload(head.data)].forwarded++;
       try {
         await head.originalSend(head.data);
       } catch {

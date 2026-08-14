@@ -48,8 +48,8 @@ describe("e2e/simulations/gcc-twcc-chrome", () => {
         capacityBps,
         startBitrateBps: 700_000,
         baseDelayMs: 50,
-        // Small queue so capacity overshoot produces measurable drops.
-        maxQueueBytes: 24_000,
+        // Small queue so media RTP overshoot produces measurable drops.
+        maxQueueBytes: 12_000,
       },
     });
     await pc.setRemoteDescription(offer);
@@ -75,8 +75,20 @@ describe("e2e/simulations/gcc-twcc-chrome", () => {
     // Assert 1: ボトルネックでロスが発生し、推定が下がっている
     // 日本語: 接続と送信が進んでいること
     expect(congested.connectionState).toBe("connected");
+    expect(congested.dtlsState).toBe("connected");
+    expect(congested.hasCodec).toBe(true);
+    // 日本語: ボトルネック対象 ICE が sendRtp と同一
+    expect(congested.iceMatchesSendRtpPath).toBe(true);
+    // 日本語: メディア RTP が sendRtp を通っている
+    expect(congested.mediaRtpSentOk).toBeGreaterThan(10);
     expect(congested.outbound.enqueued).toBeGreaterThan(10);
-    // 日本語: werift 送信経路でドロップが発生していること
+    // 日本語: enqueued の大半が制御パケットではなく RTP
+    expect(congested.rtpOutbound.enqueued).toBeGreaterThan(10);
+    expect(congested.rtpOutbound.enqueued).toBeGreaterThan(
+      congested.outbound.enqueued * 0.5,
+    );
+    // 日本語: メディア RTP がボトルネックでドロップしている
+    expect(congested.rtpOutbound.dropped).toBeGreaterThan(0);
     expect(congested.outbound.dropped).toBeGreaterThan(0);
     // 日本語: TWCC 経由で onAvailableBitrate が少なくとも 1 回発火していること
     expect(congested.sampleCount).toBeGreaterThan(0);
@@ -103,17 +115,24 @@ describe("e2e/simulations/gcc-twcc-chrome", () => {
     expect(adapted.lastBitrate).toBeGreaterThanOrEqual(5_000);
     // 日本語: 適応期は輻輳期よりドロップ率が厳密に低下する（追従後の輻輳緩和）
     const congRate =
-      congested.outbound.enqueued > 0
-        ? congested.outbound.dropped / congested.outbound.enqueued
+      congested.rtpOutbound.enqueued > 0
+        ? congested.rtpOutbound.dropped / congested.rtpOutbound.enqueued
         : 1;
-    const adaptDropped = adapted.dropsDuringAdapt;
+    const adaptDropped =
+      adapted.rtpDropsDuringAdapt ?? adapted.dropsDuringAdapt;
     const baselineEnq =
-      adaptBaseline.enqueuedAtAdaptStart ?? congested.outbound.enqueued;
-    const adaptEnqueued = Math.max(1, adapted.outbound.enqueued - baselineEnq);
+      adaptBaseline.rtpEnqueuedAtAdaptStart ??
+      adaptBaseline.enqueuedAtAdaptStart ??
+      congested.rtpOutbound.enqueued;
+    const adaptEnqueued = Math.max(
+      1,
+      (adapted.rtpOutbound?.enqueued ?? adapted.outbound.enqueued) -
+        baselineEnq,
+    );
     const adaptRate = adaptDropped / adaptEnqueued;
     expect(adaptRate).toBeLessThan(congRate);
-    // 日本語: 適応期の追加ドロップ絶対数も輻輳期より少ない
-    expect(adaptDropped).toBeLessThan(congested.outbound.dropped);
+    // 日本語: 適応期の追加 RTP ドロップ絶対数も輻輳期より少ない
+    expect(adaptDropped).toBeLessThan(congested.rtpOutbound.dropped);
 
     // 日本語: Chrome が RTP を受信していること（getStats）
     let packetsReceived = 0;

@@ -16,6 +16,11 @@ import {
 import { DtlsKeysContext } from "../fixture";
 import { BottleneckLink, type BottleneckStats } from "./bottleneckLink";
 
+/** Tiny VP8 keyframe descriptor so Chrome treats the payload as video RTP. */
+const VP8_KEYFRAME_PREFIX = Buffer.from([
+  0x10, 0x10, 0x00, 0x00, 0x9d, 0x01, 0x2a, 0x02, 0x00, 0x02, 0x00,
+]);
+
 /**
  * werift (sender) ↔ Chrome (recvonly) の GCC/TWCC 帯域シミュレーション用ハンドラ。
  * ネットワーク制限は **werift 側 ICE send** に BottleneckLink を付けて再現する。
@@ -34,12 +39,22 @@ export class sim_gcc_twcc_chrome {
   private adaptMode = false;
   private capacityBps = 200_000;
   private dropsAtCongestionEnd = 0;
+  private rtpDropsAtCongestionEnd = 0;
+  /** Media packets that reached RTCDtlsTransport.sendRtp. */
+  private mediaRtpAttempts = 0;
+  private mediaRtpSentOk = 0;
+  private mediaRtpBytes = 0;
+  private lastSendRtpError?: string;
+  private wrappedIce?: object;
+  private sendRtpHooked = false;
 
   private async peerConfig() {
     return {
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
       iceUseIpv4: true,
       iceUseIpv6: false,
+      // 単一 ICE/DTLS に束ね、sendRtp 経路とボトルネック対象を一致させる
+      bundlePolicy: "max-bundle" as const,
       dtls: { keys: await DtlsKeysContext.get() },
       codecs: {
         video: [
@@ -58,21 +73,65 @@ export class sim_gcc_twcc_chrome {
     };
   }
 
-  private installBottleneckOnWerift(link: BottleneckLink) {
-    // Wrap every ICE send path (media a→b). Prefer iceTransports; fall back to
-    // transceiver.dtlsTransport.iceTransport when the list is still empty.
-    const seen = new Set<object>();
-    const wrap = (connection: { send: (data: Buffer) => Promise<void> }) => {
-      if (seen.has(connection)) return;
-      seen.add(connection);
-      link.install(connection, "a2b");
+  /** ICE connection actually used by RTCDtlsTransport.sendRtp. */
+  private iceConnectionForSendRtp():
+    | { send: (data: Buffer) => Promise<void> }
+    | undefined {
+    return this.sender?.dtlsTransport?.iceTransport?.connection;
+  }
+
+  /**
+   * Wrap **only** the ICE connection sendRtp uses (not an unrelated transport).
+   * Same object as `RTCDtlsTransport.iceTransport.connection.send`.
+   */
+  private installBottleneckOnWerift(link: BottleneckLink): boolean {
+    const conn = this.iceConnectionForSendRtp();
+    if (!conn) return false;
+    link.install(conn, "a2b");
+    this.wrappedIce = conn;
+    return true;
+  }
+
+  private iceMatchesSendRtpPath(): boolean {
+    const sendRtpIce = this.iceConnectionForSendRtp();
+    if (!sendRtpIce) return false;
+    if (this.wrappedIce !== sendRtpIce) return false;
+    const listed = this.pc?.iceTransports.map((ice) => ice.connection) ?? [];
+    return listed.some((ice) => ice === sendRtpIce);
+  }
+
+  /** Count media independently of ICE wrap (proves sendRtp is actually called). */
+  private hookSendRtpCounter() {
+    const dtls = this.sender?.dtlsTransport;
+    if (!dtls || this.sendRtpHooked) return;
+    this.sendRtpHooked = true;
+    const orig = dtls.sendRtp.bind(dtls);
+    dtls.sendRtp = async (payload, header) => {
+      this.mediaRtpAttempts++;
+      try {
+        const n = await orig(payload, header);
+        if (n > 0) {
+          this.mediaRtpSentOk++;
+          this.mediaRtpBytes += n;
+        }
+        return n;
+      } catch (error) {
+        this.lastSendRtpError = String(error);
+        throw error;
+      }
     };
-    for (const ice of this.pc.iceTransports) {
-      wrap(ice.connection);
-    }
-    for (const t of this.pc.getTransceivers()) {
-      const conn = t.dtlsTransport?.iceTransport?.connection;
-      if (conn) wrap(conn);
+  }
+
+  private async waitUntilSenderCanSend(timeoutMs = 2_000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (
+        this.sender?.codec &&
+        this.sender.dtlsTransport?.state === "connected"
+      ) {
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 20));
     }
   }
 
@@ -82,11 +141,14 @@ export class sim_gcc_twcc_chrome {
     let timestamp = 0;
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const body = Math.max(payloadBytes, VP8_KEYFRAME_PREFIX.length);
+    const payload = Buffer.alloc(body, 0x5a);
+    VP8_KEYFRAME_PREFIX.copy(payload);
 
     const tick = () => {
-      if (stopped || !this.track) return;
+      if (stopped || !this.sender) return;
       const target = Math.max(0, this.targetBps);
-      const bits = payloadBytes * 8;
+      const bits = payload.length * 8;
       const intervalMs =
         target <= 0 ? 100 : Math.max(5, Math.round((bits * 1000) / target));
 
@@ -94,15 +156,16 @@ export class sim_gcc_twcc_chrome {
         new RtpHeader({
           sequenceNumber: seq & 0xffff,
           timestamp: timestamp >>> 0,
-          payloadType: 96,
-          marker: false,
+          payloadType: this.sender.codec?.payloadType ?? 96,
+          marker: seq % 30 === 0,
           extension: true,
           extensions: [],
           payloadOffset: 12,
         }),
-        Buffer.alloc(payloadBytes, 0x5a),
+        payload,
       );
-      this.track.writeRtp(rtp);
+      // sendRtp 直呼びで track Event を経由せず、ICE 経路に載せる
+      void this.sender.sendRtp(rtp);
       seq++;
       timestamp = (timestamp + 3000) >>> 0;
       timer = setTimeout(tick, intervalMs);
@@ -120,6 +183,7 @@ export class sim_gcc_twcc_chrome {
       this.bitrateSamples[this.bitrateSamples.length - 1] ??
       this.gcc?.availableBitrate ??
       0;
+    const rtp = outbound.byKind.rtp;
     return {
       capacityBps: this.capacityBps,
       targetBps: this.targetBps,
@@ -129,11 +193,24 @@ export class sim_gcc_twcc_chrome {
       bitrateSamples: [...this.bitrateSamples],
       sampleCount: this.bitrateSamples.length,
       connectionState: this.pc?.connectionState,
+      dtlsState: this.sender?.dtlsTransport?.state,
+      hasCodec: !!this.sender?.codec,
+      iceMatchesSendRtpPath: this.iceMatchesSendRtpPath(),
+      mediaRtpAttempts: this.mediaRtpAttempts,
+      mediaRtpSentOk: this.mediaRtpSentOk,
+      mediaRtpBytes: this.mediaRtpBytes,
+      lastSendRtpError: this.lastSendRtpError,
       outbound,
+      rtpOutbound: rtp,
       dropsAtCongestionEnd: this.dropsAtCongestionEnd,
+      rtpDropsAtCongestionEnd: this.rtpDropsAtCongestionEnd,
       dropsDuringAdapt: Math.max(
         0,
         outbound.dropped - this.dropsAtCongestionEnd,
+      ),
+      rtpDropsDuringAdapt: Math.max(
+        0,
+        rtp.dropped - this.rtpDropsAtCongestionEnd,
       ),
     };
   }
@@ -148,6 +225,13 @@ export class sim_gcc_twcc_chrome {
         this.capacityBps = payload?.capacityBps ?? 200_000;
         this.bitrateSamples = [];
         this.dropsAtCongestionEnd = 0;
+        this.rtpDropsAtCongestionEnd = 0;
+        this.mediaRtpAttempts = 0;
+        this.mediaRtpSentOk = 0;
+        this.mediaRtpBytes = 0;
+        this.lastSendRtpError = undefined;
+        this.wrappedIce = undefined;
+        this.sendRtpHooked = false;
         this.adaptMode = false;
         this.targetBps = 0;
 
@@ -177,7 +261,7 @@ export class sim_gcc_twcc_chrome {
             this.link = new BottleneckLink({
               capacityBps: this.capacityBps,
               baseDelayMs: payload?.baseDelayMs ?? 50,
-              maxQueueBytes: payload?.maxQueueBytes ?? 24_000,
+              maxQueueBytes: payload?.maxQueueBytes ?? 12_000,
             });
             this.installBottleneckOnWerift(this.link);
           }
@@ -202,7 +286,7 @@ export class sim_gcc_twcc_chrome {
           this.link = new BottleneckLink({
             capacityBps: this.capacityBps,
             baseDelayMs: 50,
-            maxQueueBytes: 24_000,
+            maxQueueBytes: 12_000,
           });
           this.installBottleneckOnWerift(this.link);
         }
@@ -210,7 +294,19 @@ export class sim_gcc_twcc_chrome {
         break;
       }
       case "startCongestion": {
-        // 容量超過の固定レートで輻輳を誘発
+        // 送信可能になってから、sendRtp と同一 ICE にボトルネックを装着する
+        await this.waitUntilSenderCanSend();
+        this.hookSendRtpCounter();
+        if (!this.link) {
+          this.link = new BottleneckLink({
+            capacityBps: this.capacityBps,
+            baseDelayMs: 50,
+            maxQueueBytes: 12_000,
+          });
+        }
+        this.installBottleneckOnWerift(this.link);
+        // ボトルネック装着後に probe を開始（装着前の timeout clock を避ける）
+        this.gcc?.setNetworkAvailable(true);
         this.adaptMode = false;
         this.targetBps = payload?.targetBps ?? 700_000;
         this.startMediaLoop(payload?.payloadBytes ?? 800);
@@ -219,7 +315,9 @@ export class sim_gcc_twcc_chrome {
       }
       case "markCongestionEnd": {
         // 輻輳期終了時点のドロップ数を記録
-        this.dropsAtCongestionEnd = this.link?.stats("a2b").dropped ?? 0;
+        const st = this.link?.stats("a2b");
+        this.dropsAtCongestionEnd = st?.dropped ?? 0;
+        this.rtpDropsAtCongestionEnd = st?.byKind.rtp.dropped ?? 0;
         accept(this.snapshot());
         break;
       }
@@ -243,11 +341,14 @@ export class sim_gcc_twcc_chrome {
       case "markAdaptStart": {
         // Call after a short settle so residual queue / aborting probes are
         // not counted as adaptation-period drops.
-        this.dropsAtCongestionEnd = this.link?.stats("a2b").dropped ?? 0;
+        const st = this.link?.stats("a2b");
+        this.dropsAtCongestionEnd = st?.dropped ?? 0;
+        this.rtpDropsAtCongestionEnd = st?.byKind.rtp.dropped ?? 0;
         // Also re-baseline enqueued for rate math on the client.
         accept({
           ...this.snapshot(),
-          enqueuedAtAdaptStart: this.link?.stats("a2b").enqueued ?? 0,
+          enqueuedAtAdaptStart: st?.enqueued ?? 0,
+          rtpEnqueuedAtAdaptStart: st?.byKind.rtp.enqueued ?? 0,
         });
         break;
       }
@@ -287,5 +388,12 @@ function emptyStats(): BottleneckStats {
     bytesForwarded: 0,
     bytesDropped: 0,
     peakQueueBytes: 0,
+    byKind: {
+      rtp: { enqueued: 0, forwarded: 0, dropped: 0, bytesEnqueued: 0 },
+      rtcp: { enqueued: 0, forwarded: 0, dropped: 0, bytesEnqueued: 0 },
+      stun: { enqueued: 0, forwarded: 0, dropped: 0, bytesEnqueued: 0 },
+      dtls: { enqueued: 0, forwarded: 0, dropped: 0, bytesEnqueued: 0 },
+      other: { enqueued: 0, forwarded: 0, dropped: 0, bytesEnqueued: 0 },
+    },
   };
 }
