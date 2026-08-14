@@ -101,6 +101,21 @@ May remain `0` until TWCC is negotiated and enough samples are collected.
 
 ***
 
+### correctedRttMs
+
+#### Get Signature
+
+> **get** **correctedRttMs**(): `number`
+
+pin CorrectedRtt = timeout_correction + last propagation RTT.
+Grows while packets are sent without TWCC (feedback stall).
+
+##### Returns
+
+`number`
+
+***
+
 ### probeState
 
 #### Get Signature
@@ -110,6 +125,20 @@ May remain `0` until TWCC is negotiated and enough samples are collected.
 ##### Returns
 
 [`ProbeState`](../type-aliases/ProbeState.md)
+
+***
+
+### rttAboveLimit
+
+#### Get Signature
+
+> **get** **rttAboveLimit**(): `boolean`
+
+pin `RttBasedBackoff::IsRttAboveLimit` (CorrectedRtt > 3s).
+
+##### Returns
+
+`boolean`
 
 ***
 

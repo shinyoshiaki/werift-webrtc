@@ -234,6 +234,19 @@ export class GccBandwidthEstimator
     return this.probe.suggestedProbeBitrateBps;
   }
 
+  /**
+   * pin CorrectedRtt = timeout_correction + last propagation RTT.
+   * Grows while packets are sent without TWCC (feedback stall).
+   */
+  get correctedRttMs() {
+    return this.rttBackoff.correctedRttMs();
+  }
+
+  /** pin `RttBasedBackoff::IsRttAboveLimit` (CorrectedRtt > 3s). */
+  get rttAboveLimit() {
+    return this.rttBackoff.isRttAboveLimit();
+  }
+
   getPacingBitrateBps(): number {
     const estimate =
       this._availableBitrate > 0

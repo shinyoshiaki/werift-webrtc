@@ -7,6 +7,10 @@
  */
 import { describe, expect, test } from "vitest";
 import {
+  kRttBasedBackOffDropFraction,
+  kRttBasedBackOffHighRttMs,
+} from "../../src";
+import {
   createGccTwccPeerPair,
   sleep,
   startMediaSource,
@@ -149,18 +153,60 @@ describe("simulations/gcc-twcc-congestion", () => {
         pair.gcc.availableBitrate;
       expect(beforeStall).toBeGreaterThan(20_000);
 
-      // Act: feedback を止め、送信は継続（CorrectedRtt が伸びる）
+      // Act: feedback を止め、1s ごとに推定 / CorrectedRtt / backoff を記録
       pair.link.setDropAll("b2a", true);
-      await sleep(5_000);
+      const stallLog: Array<{
+        t: number;
+        bps: number;
+        correctedRttMs: number;
+        above: boolean;
+      }> = [];
+      const stallT0 = Date.now();
+      for (let i = 0; i < 5; i++) {
+        await sleep(1_000);
+        stallLog.push({
+          t: Date.now() - stallT0,
+          bps: pair.gcc.availableBitrate,
+          correctedRttMs: pair.gcc.correctedRttMs,
+          above: pair.gcc.rttAboveLimit,
+        });
+      }
       const afterStall =
         pair.bitrateSamples[pair.bitrateSamples.length - 1] ??
         pair.gcc.availableBitrate;
 
-      // Assert: pin RttBasedBackoff — 3s 超で ×0.8 を繰り返し安全側へ
-      // 日本語: stall 後の推定は stall 前より低い
+      // Assert: CorrectedRtt は送信継続で伸び、3s 超で limit を超える
+      // 日本語: 2s 時点ではまだ 3s limit 未満
+      expect(stallLog[1].above).toBe(false);
+      expect(stallLog[1].correctedRttMs).toBeLessThan(
+        kRttBasedBackOffHighRttMs,
+      );
+      // 日本語: 3s 時点で CorrectedRtt > 3s
+      expect(stallLog[2].above).toBe(true);
+      expect(stallLog[2].correctedRttMs).toBeGreaterThan(
+        kRttBasedBackOffHighRttMs,
+      );
+
+      // Assert: pin drop_fraction=0.8 を 1s ごとに適用
+      const drops: number[] = [];
+      let prev = beforeStall;
+      for (const row of stallLog) {
+        if (row.bps < prev * 0.95) {
+          const ratio = row.bps / prev;
+          expect(ratio).toBeGreaterThan(kRttBasedBackOffDropFraction - 0.03);
+          expect(ratio).toBeLessThan(kRttBasedBackOffDropFraction + 0.03);
+          drops.push(row.bps);
+          prev = row.bps;
+        }
+      }
+      // 日本語: 5s stall で 3s 超過後に少なくとも 2 回は ×0.8
+      expect(drops.length).toBeGreaterThanOrEqual(2);
+      // 日本語: 最終推定は stall 前 × 0.8^dropCount 近傍
+      const expected =
+        beforeStall * kRttBasedBackOffDropFraction ** drops.length;
+      expect(afterStall / expected).toBeGreaterThan(0.95);
+      expect(afterStall / expected).toBeLessThan(1.05);
       expect(afterStall).toBeLessThan(beforeStall);
-      // 日本語: 開始 300kbps 帯に張り付いたままではない
-      expect(afterStall).toBeLessThan(250_000);
     } finally {
       media.stop();
       await pair.close();

@@ -3733,6 +3733,76 @@ describe("media/sender bandwidth estimator", () => {
       expect(gcc.availableBitrate).toBe(kRttBasedBackOffBandwidthFloorBps);
     });
 
+    test("TWCC 後の feedback stall は CorrectedRtt が伸び Process で 1s ごとに ×0.8 する", () => {
+      // Arrange: 低 propagation TWCC で推定を立ててから feedback を止める
+      const startBps = 300_000;
+      const t0 = 80_000;
+      const { gcc, setNow } = createClockGcc(startBps, t0);
+      startGccProbing(gcc, t0);
+      for (let i = 0; i < 12; i++) {
+        gcc.rtpPacketSent(sent(i + 1, 500, t0 + i * 10));
+      }
+      const feedbackAt = t0 + 150;
+      setNow(feedbackAt);
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 12 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: true,
+              receivedAtMs: t0 + 20 + i * 10,
+            });
+          }),
+        ),
+      );
+      const established = gcc.availableBitrate;
+      expect(established).toBeGreaterThan(20_000);
+      expect(gcc.rttAboveLimit).toBe(false);
+      const prop = (gcc as any).lastPropagationRttMs as number;
+      const lastUpdate = feedbackAt;
+
+      // Act: 送信継続・TWCC なし。limit ちょうどではまだ drop しない
+      const almost = lastUpdate + kRttBasedBackOffHighRttMs - Math.max(0, prop);
+      gcc.rtpPacketSent(sent(100, 500, almost));
+      setNow(almost);
+      gcc.process(almost);
+      // Assert: CorrectedRtt = (send−update)+prop ≤ 3s
+      expect(gcc.correctedRttMs).toBeLessThanOrEqual(kRttBasedBackOffHighRttMs);
+      expect(gcc.rttAboveLimit).toBe(false);
+
+      // Act: +1ms で limit 超過。ProcessInterval で初回 ×0.8
+      const highT = almost + 1;
+      gcc.rtpPacketSent(sent(101, 500, highT));
+      const p1 = highT + kGoogCcProcessIntervalMs;
+      setNow(p1);
+      gcc.process(p1);
+      // Assert
+      expect(gcc.rttAboveLimit).toBe(true);
+      expect(gcc.availableBitrate).toBe(
+        Math.round(established * kRttBasedBackOffDropFraction),
+      );
+
+      // Act: drop_interval 後の 2 回目
+      const p2 = p1 + kRttBasedBackOffDropIntervalMs;
+      gcc.rtpPacketSent(sent(102, 500, p2));
+      setNow(p2);
+      gcc.process(p2);
+      // Assert: さらに ×0.8
+      expect(gcc.availableBitrate).toBe(
+        Math.round(established * kRttBasedBackOffDropFraction ** 2),
+      );
+
+      // Act: 3 回目
+      const p3 = p2 + kRttBasedBackOffDropIntervalMs;
+      gcc.rtpPacketSent(sent(103, 500, p3));
+      setNow(p3);
+      gcc.process(p3);
+      // Assert
+      expect(gcc.availableBitrate).toBe(
+        Math.round(established * kRttBasedBackOffDropFraction ** 3),
+      );
+    });
+
     test("feedback 後に送信が止まれば CorrectedRtt は時間だけでは増えない", () => {
       // Arrange: 正常 propagation の TWCC を 1 回入れ、その後送信停止
       // send/recv は wall に近い時刻（production と同じ clock domain）
