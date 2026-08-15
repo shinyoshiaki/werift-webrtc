@@ -15,8 +15,12 @@ import {
   kEstimateLowerThanNetworkStateRatio,
   kFurtherProbeStepMultiplier,
   kFurtherProbeThreshold,
+  kInitialMinProbeDeltaMs,
   kMaxBitrateBps,
+  kMaxPendingProbeClusters,
+  kMaxProbeDelayMs,
   kMinBitrateBps,
+  kMinProbeDeltaMs,
   kMinTimeBetweenAlrProbesMs,
   kNetworkStateEstimateProbingIntervalMs,
   kNetworkStateProbeScale,
@@ -54,6 +58,20 @@ export interface ProbeClusterConfig {
   minDurationMs: number;
   /** Minimum bytes expected for the cluster (for receive-ratio checks). */
   minBytes: number;
+  /**
+   * pin `ProbeClusterConfig.min_probe_delta` (ms). Used for
+   * RecommendedMinProbeSize and stored on the BitrateProber cluster.
+   */
+  minProbeDeltaMs: number;
+  /** pin `requested_at` — queue age for the 5s queued-cluster timeout. */
+  requestedAtMs: number;
+}
+
+/** Reservation taken **before** the async send (pin `CurrentCluster`). */
+export interface ProbeReservation {
+  clusterId: number;
+  /** Next allowed send time (MinusInfinity → send immediately). */
+  nextSendTimeMs: number;
 }
 
 /**
@@ -65,8 +83,13 @@ export interface ProbeClusterConfig {
  */
 interface ClusterRuntime {
   config: ProbeClusterConfig;
-  /** Sender-clock (Date.now / milliTime) when pacing for this cluster started. */
+  /** Sender-clock when the cluster became the pacing front. */
   startMs: number;
+  /**
+   * pin `started_at` — first ProbeSent time. Next probe time is
+   * `startedAt + sentBytes / send_bitrate`.
+   */
+  startedAtMs: number;
   // Send-side (all probation sends — for send-fill / timeout only)
   sentBytes: number;
   sentPackets: number;
@@ -184,6 +207,11 @@ export class ProbeController {
   private timeOfLastLargeDropMs = 0;
   /** pin `last_bwe_drop_probing_time_`. */
   private lastBweDropProbingMs = 0;
+  /**
+   * pin `next_probe_time_`. MinusInfinity until the first packet of the
+   * active cluster; then `started_at + sent_bytes / send_bitrate`.
+   */
+  private nextProbeTimeMs = Number.NEGATIVE_INFINITY;
 
   /**
    * pin `ProbeController::Reset(at_time)`.
@@ -220,6 +248,7 @@ export class ProbeController {
     this.bitrateBeforeLastLargeDrop = 0;
     this.timeOfLastLargeDropMs = now;
     this.lastBweDropProbingMs = now;
+    this.nextProbeTimeMs = Number.NEGATIVE_INFINITY;
   }
 
   constructor() {
@@ -273,6 +302,61 @@ export class ProbeController {
 
   shouldTagProbePacket(): boolean {
     return this.pacing !== undefined && !this.sendFillComplete(this.pacing);
+  }
+
+  /**
+   * pin `BitrateProber::CurrentCluster(now)` — take the active cluster id
+   * **before** send. If `now - next_probe_time > max_probe_delay` (10ms),
+   * the active cluster is discarded (not a 5s scheduling timeout).
+   */
+  reserveOutgoingProbe(nowMs: number): ProbeReservation | undefined {
+    this.maybeDiscardLatePacing(nowMs);
+    if (!this.pacing || this.sendFillComplete(this.pacing)) {
+      return undefined;
+    }
+    return {
+      clusterId: this.pacing.config.id,
+      nextSendTimeMs: this.nextProbeTimeMs,
+    };
+  }
+
+  /**
+   * pin `NextProbeTime`. PlusInfinity when inactive.
+   */
+  nextProbeSendTimeMs(): number {
+    if (!this.pacing) return Number.POSITIVE_INFINITY;
+    return this.nextProbeTimeMs;
+  }
+
+  /**
+   * pin `RecommendedMinProbeSize` = send_rate × min_probe_delta.
+   */
+  recommendedMinProbeSizeBytes(): number {
+    if (!this.pacing) return 0;
+    const rate = this.pacing.config.targetBps;
+    const deltaMs = this.pacing.config.minProbeDeltaMs;
+    if (!(rate > 0) || !(deltaMs > 0)) return 0;
+    return Math.ceil((rate / 8) * (deltaMs / 1000));
+  }
+
+  /**
+   * pin CurrentCluster late-discard: next_probe_time finite and
+   * now - next > max_probe_delay → pop active cluster.
+   */
+  private maybeDiscardLatePacing(nowMs: number): void {
+    if (!this.pacing) return;
+    if (!Number.isFinite(this.nextProbeTimeMs)) return;
+    if (nowMs - this.nextProbeTimeMs <= kMaxProbeDelayMs) return;
+    const dropped = this.pacing;
+    this.pacing = undefined;
+    this.nextProbeTimeMs = Number.NEGATIVE_INFINITY;
+    if (dropped.sentPackets > 0) {
+      this.moveToEstimatorHistory(dropped);
+    } else {
+      this.dropClusterSeqs(dropped.config.id);
+    }
+    this.maybeActivateQueued(nowMs);
+    this.maybeMarkComplete(nowMs);
   }
 
   /**
@@ -471,15 +555,15 @@ export class ProbeController {
    * Returns newly activated pacing configs (if any).
    */
   process(nowMs: number): ProbeClusterConfig[] {
-    // BitrateProber: pacing cluster that never filled — 5s.
-    // Keep sent packets measurable for late TWCC; drop empty clusters entirely.
-    if (this.pacing && nowMs - this.pacing.startMs > kProbePacingTimeoutMs) {
-      if (this.pacing.sentPackets > 0) {
-        this.moveToEstimatorHistory(this.pacing);
-      } else {
-        this.dropClusterSeqs(this.pacing.config.id);
-      }
-      this.pacing = undefined;
+    // pin BitrateProber::CreateProbeCluster — drop **queued** clusters
+    // older than 5s or beyond kMaxPendingProbeClusters. Active pacing
+    // is not timed out here (late discard uses max_probe_delay instead).
+    while (
+      this.queue.length > 0 &&
+      (nowMs - this.queue[0]!.requestedAtMs > kProbePacingTimeoutMs ||
+        this.queue.length > kMaxPendingProbeClusters)
+    ) {
+      this.queue.shift();
     }
     // ProbeController: result wait after send-fill — 1s from last send.
     // Controller leaves waiting_for_result; estimator history stays when useful.
@@ -642,37 +726,57 @@ export class ProbeController {
     sizeBytes: number,
     sendMs: number,
     wideSeq: number,
+    reservedClusterId?: number,
   ): { clusterId: number; activated: ProbeClusterConfig[] } {
-    if (!this.pacing) {
+    const reservedId = reservedClusterId ?? this.pacing?.config.id ?? 0;
+    const cluster =
+      reservedId > 0 ? this.lookupCluster(reservedId) : this.pacing;
+    if (!cluster) {
       return { clusterId: 0, activated: [] };
     }
-    if (this.sendFillComplete(this.pacing)) {
-      // Already full — advance if somehow still pacing.
-      return {
-        clusterId: this.pacing.config.id,
-        activated: this.finishPacingSend(sendMs),
-      };
-    }
 
-    const cluster = this.pacing;
     const seq = this.seqUnwrapper.unwrap(wideSeq);
     this.seqToCluster.set(seq, cluster.config.id);
     this.seqToSendInfo.set(seq, { sendMs, size: sizeBytes });
 
-    if (cluster.sentPackets === 0) {
-      cluster.firstSendMs = sendMs;
-    }
-    cluster.lastSendMs = sendMs;
-    cluster.sentBytes += sizeBytes;
-    cluster.sentPackets += 1;
-
-    if (this.sendFillComplete(cluster)) {
+    const isActivePacing = this.pacing === cluster;
+    if (isActivePacing && this.sendFillComplete(cluster)) {
       return {
         clusterId: cluster.config.id,
         activated: this.finishPacingSend(sendMs),
       };
     }
+
+    if (cluster.sentPackets === 0) {
+      cluster.firstSendMs = sendMs;
+      cluster.startedAtMs = sendMs;
+    }
+    cluster.lastSendMs = sendMs;
+    cluster.sentBytes += sizeBytes;
+    cluster.sentPackets += 1;
+
+    if (isActivePacing) {
+      this.nextProbeTimeMs = this.calculateNextProbeTime(cluster);
+      if (this.sendFillComplete(cluster)) {
+        return {
+          clusterId: cluster.config.id,
+          activated: this.finishPacingSend(sendMs),
+        };
+      }
+    }
     return { clusterId: cluster.config.id, activated: [] };
+  }
+
+  /**
+   * pin `CalculateNextProbeTime`: started_at + sent_bytes / send_bitrate.
+   */
+  private calculateNextProbeTime(cluster: ClusterRuntime): number {
+    const rate = cluster.config.targetBps;
+    if (!(rate > 0) || !Number.isFinite(cluster.startedAtMs)) {
+      return Number.NEGATIVE_INFINITY;
+    }
+    const deltaMs = (cluster.sentBytes * 8 * 1000) / rate;
+    return cluster.startedAtMs + deltaMs;
   }
 
   /**
@@ -684,6 +788,7 @@ export class ProbeController {
     if (!this.pacing) return [];
     const done = this.pacing;
     this.pacing = undefined;
+    this.nextProbeTimeMs = Number.NEGATIVE_INFINITY;
     // Always await TWCC (including late ACKs after an early 80% result).
     // Cluster is removed on result timeout in process(), not on first estimate.
     this.awaitingResults.set(done.config.id, done);
@@ -793,6 +898,7 @@ export class ProbeController {
 
   abort(nowMs: number) {
     this.pacing = undefined;
+    this.nextProbeTimeMs = Number.NEGATIVE_INFINITY;
     this.awaitingResults.clear();
     this.estimatorHistory.clear();
     this.queue = [];
@@ -935,7 +1041,9 @@ export class ProbeController {
     if (recvBps < kProbeMinRatioForUnsaturated * sendBps) {
       res = kProbeTargetUtilization * recvBps;
     }
-    return clamp(res, this.maxBitrateBps);
+    // pin ProbeBitrateEstimator does **not** clamp to configured max.
+    // The send-side target layer applies app max later.
+    return Math.round(res);
   }
 
   private dropClusterSeqs(clusterId: number) {
@@ -958,19 +1066,23 @@ export class ProbeController {
       uncapped[uncapped.length - 1]! >= this.maxBitrateBps;
     // Only return **activated** configs (front 3x). 6x stays queued until
     // 3x send-fill completes (BitrateProber FIFO).
-    return this.enqueueClusters(nowMs, bitrates, { stopFurtherAfter });
+    return this.enqueueClusters(nowMs, bitrates, {
+      stopFurtherAfter,
+      minProbeDeltaMs: kInitialMinProbeDeltaMs,
+    });
   }
 
   private enqueueClusters(
     nowMs: number,
     bitrates: number[],
-    opts?: { stopFurtherAfter?: boolean },
+    opts?: { stopFurtherAfter?: boolean; minProbeDeltaMs?: number },
   ): ProbeClusterConfig[] {
     // pin InitiateProbing: high-RTT / delay-increased / loss-limited forbid
     // every new cluster, including further probes from SetEstimatedBitrate.
     if (!isProbeInitiationAllowed(this.lastCause)) {
       return [];
     }
+    const minProbeDeltaMs = opts?.minProbeDeltaMs ?? kMinProbeDeltaMs;
     for (const bps of bitrates) {
       const minBytes = Math.max(
         kProbeMinPackets * 200,
@@ -982,6 +1094,8 @@ export class ProbeController {
         minPackets: kProbeMinPackets,
         minDurationMs: kProbeMinDurationMs,
         minBytes,
+        minProbeDeltaMs,
+        requestedAtMs: nowMs,
       });
     }
     if (bitrates.length) {
@@ -1008,6 +1122,7 @@ export class ProbeController {
     if (this.pacing || this.queue.length === 0) return [];
     const config = this.queue.shift()!;
     this.pacing = this.newRuntime(config, nowMs);
+    this.nextProbeTimeMs = Number.NEGATIVE_INFINITY;
     // BitrateProber FIFO must not reopen ProbeController waiting_for_result.
     // pin pacer activation is independent of ProbeController::state_.
     return [config];
@@ -1020,6 +1135,7 @@ export class ProbeController {
     return {
       config,
       startMs: senderStartMs,
+      startedAtMs: Number.NEGATIVE_INFINITY,
       sentBytes: 0,
       sentPackets: 0,
       firstSendMs: 0,

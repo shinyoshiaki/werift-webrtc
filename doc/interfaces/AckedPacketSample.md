@@ -10,6 +10,15 @@ One ACKed packet sample (TWCC receive timeline + sender send time).
 
 ## Properties
 
+### priorUnackedBytes?
+
+> `optional` **priorUnackedBytes**: `number`
+
+pin `SentPacket.prior_unacked_data` — added to both send and receive
+size (RobustThroughputEstimator).
+
+***
+
 ### receiveTimeMs
 
 > **receiveTimeMs**: `number`

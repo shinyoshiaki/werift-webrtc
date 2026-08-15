@@ -11,6 +11,19 @@ export interface SentInfo {
   size: number;
   /** Optional flag for probe / probation packets used by some estimators (e.g. GCC). */
   isProbation?: boolean;
+  /**
+   * pin `PacedPacketInfo.probe_cluster_id` reserved **before** send.
+   * ProbeController must attribute this packet to this cluster, not
+   * whatever is current when the async send completes.
+   */
+  probeClusterId?: number;
+  /**
+   * pin `SentPacket.prior_unacked_data` — untracked bytes attributed to
+   * the next TWCC-tracked packet (RobustThroughputEstimator).
+   */
+  priorUnackedBytes?: number;
+  /** True when this packet is an RTX / retransmission. */
+  isRetransmission?: boolean;
   /** Wall-clock send time in milliseconds. */
   sendingAtMs: number;
   /** Wall-clock time when the send completed in milliseconds. */
@@ -66,9 +79,18 @@ export interface ProbePacingController {
 
   /**
    * Pacing target (bps) for the send engine.
-   * Typically `max(availableBitrate, activeProbeTarget)`.
+   * pin GetPacingRates: estimate × 2.5 before first TWCC, × 1.1 after,
+   * raised to the active probe target while probing.
    */
   getPacingBitrateBps(): number;
+
+  /**
+   * pin `BitrateProber::CurrentCluster` — reserve the active probe cluster
+   * **before** the packet is sent (not at send-complete callback).
+   */
+  reserveOutgoingProbe(
+    nowMs: number,
+  ): { clusterId: number; nextSendTimeMs: number } | undefined;
 
   /**
    * Number of padding packets the sender should inject to fill the active
@@ -97,7 +119,8 @@ export function isProbePacingController(
   return (
     typeof c.shouldTagProbePacket === "function" &&
     typeof c.getPacingBitrateBps === "function" &&
-    typeof c.pendingProbePaddingPackets === "function"
+    typeof c.pendingProbePaddingPackets === "function" &&
+    typeof c.reserveOutgoingProbe === "function"
   );
 }
 

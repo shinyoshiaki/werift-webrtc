@@ -34,6 +34,23 @@ Minimum bytes expected for the cluster (for receive-ratio checks).
 
 ***
 
+### minProbeDeltaMs
+
+> **minProbeDeltaMs**: `number`
+
+pin `ProbeClusterConfig.min_probe_delta` (ms). Used for
+RecommendedMinProbeSize and stored on the BitrateProber cluster.
+
+***
+
+### requestedAtMs
+
+> **requestedAtMs**: `number`
+
+pin `requested_at` — queue age for the 5s queued-cluster timeout.
+
+***
+
 ### targetBps
 
 > **targetBps**: `number`

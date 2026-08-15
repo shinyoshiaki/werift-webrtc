@@ -8,6 +8,12 @@ import { hasTwccReceiveTiming } from "./twccReceiveTiming";
 
 const COUNTER_MAX = 20;
 const SCORE_MAX = 10;
+/**
+ * Time-based sent-info window. Prefer this over a sequence-count cap so a
+ * high packet rate plus delayed TWCC still matches (parent-ticket default
+ * estimator must stay backward compatible).
+ */
+const kLegacySentInfoMaxAgeMs = 10_000;
 
 /**
  * Legacy cumulative min(send, recv) bandwidth estimator (mediasoup-inspired).
@@ -133,14 +139,11 @@ export class SenderBandwidthEstimator implements BandwidthEstimator {
 
   rtpPacketSent(sentInfo: SentInfo) {
     const latest = sentInfo.wideSeq & 0xffff;
-    // Keep a reordering window of recent wide-seq numbers (wrap-aware).
-    // Do not delete every older seq — TWCC batches need history.
-    const window = 2048;
+    const nowMs = sentInfo.sendingAtMs;
     for (const key of Object.keys(this.sentInfos)) {
-      const seq = Number(key) & 0xffff;
-      const age = (latest - seq + 0x10000) & 0xffff;
-      if (age > window && age < 0x8000) {
-        delete this.sentInfos[seq];
+      const info = this.sentInfos[Number(key)];
+      if (!info || nowMs - info.sendingAtMs > kLegacySentInfoMaxAgeMs) {
+        delete this.sentInfos[Number(key)];
       }
     }
     this.sentInfos[latest] = sentInfo;

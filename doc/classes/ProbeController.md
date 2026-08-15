@@ -219,6 +219,18 @@ pin `EnablePeriodicAlrProbing`.
 
 ***
 
+### nextProbeSendTimeMs()
+
+> **nextProbeSendTimeMs**(): `number`
+
+pin `NextProbeTime`. PlusInfinity when inactive.
+
+#### Returns
+
+`number`
+
+***
+
 ### onAckedPacket()
 
 > **onAckedPacket**(`sizeBytes`, `receivedAtMs`, `isProbe`, `wideSeq`, `senderNowMs`, `sendingAtMs`?): `void`
@@ -297,7 +309,7 @@ Initial exponential probing starts only after the network is available
 
 ### onProbePacketSent()
 
-> **onProbePacketSent**(`sizeBytes`, `sendMs`, `wideSeq`): `object`
+> **onProbePacketSent**(`sizeBytes`, `sendMs`, `wideSeq`, `reservedClusterId`?): `object`
 
 Record a probation packet at **send** time (sender clock = sendMs).
 When minBytes AND minPackets are met, pops pacing → awaitingResults and
@@ -314,6 +326,10 @@ activates the next queued cluster (libwebrtc BitrateProber::ProbeSent).
 `number`
 
 ##### wideSeq
+
+`number`
+
+##### reservedClusterId?
 
 `number`
 
@@ -351,6 +367,18 @@ Returns newly activated pacing configs (if any).
 #### Returns
 
 [`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
+
+***
+
+### recommendedMinProbeSizeBytes()
+
+> **recommendedMinProbeSizeBytes**(): `number`
+
+pin `RecommendedMinProbeSize` = send_rate × min_probe_delta.
+
+#### Returns
+
+`number`
 
 ***
 
@@ -400,6 +428,26 @@ Target is 0.85 × bitrate_before_last_large_drop. Always probe_further=false.
 #### Returns
 
 [`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
+
+***
+
+### reserveOutgoingProbe()
+
+> **reserveOutgoingProbe**(`nowMs`): `undefined` \| [`ProbeReservation`](../interfaces/ProbeReservation.md)
+
+pin `BitrateProber::CurrentCluster(now)` — take the active cluster id
+**before** send. If `now - next_probe_time > max_probe_delay` (10ms),
+the active cluster is discarded (not a 5s scheduling timeout).
+
+#### Parameters
+
+##### nowMs
+
+`number`
+
+#### Returns
+
+`undefined` \| [`ProbeReservation`](../interfaces/ProbeReservation.md)
 
 ***
 

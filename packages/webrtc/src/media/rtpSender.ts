@@ -155,9 +155,14 @@ export class RTCRtpSender {
   >();
   private bweProbeUnsub?: () => void;
 
-  /** Token-bucket pacer state for probe / target rate enforcement. */
+  /** Token-bucket pacer state for **media** (not probe) rate enforcement. */
   private paceBudgetBytes = 0;
   private lastPaceMs = 0;
+  /**
+   * pin `pending_untracked_size_` — bytes sent without TWCC tracking,
+   * attached to the next tracked packet as `priorUnackedBytes`.
+   */
+  private pendingUntrackedBytes = 0;
   /** Prevent re-entrant probe padding injection (async race). */
   private probePaddingInFlight = false;
   /**
@@ -385,12 +390,8 @@ export class RTCRtpSender {
     if (maybeGcc.onProbeClusterConfig) {
       this.bweProbeUnsub = maybeGcc.onProbeClusterConfig.subscribe((cfg) => {
         this.onProbeClusterConfig.execute(cfg);
-        // Fill budget so probe packets can leave promptly at the new target.
-        this.paceBudgetBytes = Math.max(
-          this.paceBudgetBytes,
-          (cfg.targetBps / 8) * 0.05,
-        );
-        // Inject padding when media alone may not fill the probe cluster.
+        // pin BitrateProber: no prepaid token-bucket credit. Probe packets
+        // wait on next_probe_time = started_at + sent_bytes / send_bitrate.
         void this.maybeInjectProbePadding();
       }).unSubscribe;
     }
@@ -522,6 +523,8 @@ export class RTCRtpSender {
       this.disposeTrack();
     }
     this.track = null;
+    this.dtlsDisposer.forEach((dispose) => dispose());
+    this.dtlsDisposer = [];
   }
 
   async runRtcp() {
@@ -815,6 +818,11 @@ export class RTCRtpSender {
       /** @deprecated Prefer unified allocation; kept for explicit overrides. */
       absoluteSequenceNumber?: number;
       isProbePadding?: boolean;
+      /**
+       * RTX / same-SSRC retransmission. Keep wrapRtx identity (ssrc / PT /
+       * RTX sequence). Still allocate a **new** transport-wide seq.
+       */
+      isRetransmission?: boolean;
     } = {},
   ) {
     if (this.stopped) return;
@@ -832,33 +840,58 @@ export class RTCRtpSender {
     const sendGeneration = this.bweGeneration;
     const estimatorAtStart = this._senderBWE;
 
-    // Token-bucket pacing only for GCC when transport-cc is negotiated.
-    // Legacy default estimator must not alter send timing.
     const padBytes = header.padding ? header.paddingSize : 0;
     const payloadLen = payload.length + padBytes + (header.serializeSize || 12);
     const twccOn = this.isTransportCcNegotiated();
-    if (twccOn && isProbePacingController(estimatorAtStart)) {
+
+    // pin CurrentCluster: reserve probe id **before** the async send so a
+    // concurrent completion cannot re-attribute this packet to the next cluster.
+    let reservedClusterId: number | undefined;
+    const wantsProbe =
+      opts.forceProbeTag === true ||
+      (isProbePacingController(estimatorAtStart) &&
+        estimatorAtStart.shouldTagProbePacket());
+    if (twccOn && wantsProbe && isProbePacingController(estimatorAtStart)) {
+      const reservation = estimatorAtStart.reserveOutgoingProbe(milliTime());
+      if (reservation) {
+        reservedClusterId = reservation.clusterId;
+        if (
+          !(await this.awaitProbeSendTime(
+            reservation.nextSendTimeMs,
+            sendGeneration,
+          ))
+        ) {
+          return;
+        }
+      } else if (opts.forceProbeTag) {
+        // Cluster already filled / discarded — do not emit untagged padding.
+        return;
+      }
+    } else if (twccOn && isProbePacingController(estimatorAtStart)) {
+      // Media / RTX: token-bucket at GetPacingRates (×2.5 / ×1.1).
       if (!(await this.awaitPacingBudget(payloadLen))) {
         return;
       }
-      // Mid-pacing swap: generation no longer matches. Still may emit on the
-      // wire for media continuity; BWE delivery / follow-on probe inject is
-      // skipped after await sendRtp (generation check below).
     }
-    header.ssrc = this.ssrc;
-    header.payloadType = this.codec.payloadType;
-    header.timestamp = uint32Add(header.timestamp, this.timestampOffset);
-    if (opts.absoluteSequenceNumber !== undefined) {
-      const abs = opts.absoluteSequenceNumber & 0xffff;
-      header.sequenceNumber = abs;
-      this.markWireSeqUsed(abs);
-    } else if (opts.isProbePadding) {
-      header.sequenceNumber = this.allocatePaddingSequence();
-    } else {
-      header.sequenceNumber = this.allocateMediaSequence(header.sequenceNumber);
+
+    if (!opts.isRetransmission) {
+      header.ssrc = this.ssrc;
+      header.payloadType = this.codec.payloadType;
+      header.timestamp = uint32Add(header.timestamp, this.timestampOffset);
+      if (opts.absoluteSequenceNumber !== undefined) {
+        const abs = opts.absoluteSequenceNumber & 0xffff;
+        header.sequenceNumber = abs;
+        this.markWireSeqUsed(abs);
+      } else if (opts.isProbePadding) {
+        header.sequenceNumber = this.allocatePaddingSequence();
+      } else {
+        header.sequenceNumber = this.allocateMediaSequence(
+          header.sequenceNumber,
+        );
+      }
+      this.timestamp = header.timestamp;
+      this.sequenceNumber = header.sequenceNumber;
     }
-    this.timestamp = header.timestamp;
-    this.sequenceNumber = header.sequenceNumber;
 
     const ntpTimestamp = ntpTime();
 
@@ -905,7 +938,20 @@ export class RTCRtpSender {
         if (extPayload) return { id: extension.id, payload: extPayload };
       })
       .filter((v) => v) as Extension[];
+    // Hop-by-hop extensions (TWCC / abs-send-time) are regenerated above.
+    // Never copy the inbound payload — relay would otherwise overwrite the
+    // new TSN and desync BWE SentInfo from the wire.
+    const hopByHopIds = new Set(
+      this.headerExtensions
+        .filter(
+          (e) =>
+            e.uri === RTP_EXTENSION_URI.transportWideCC ||
+            e.uri === RTP_EXTENSION_URI.absSendTime,
+        )
+        .map((e) => e.id),
+    );
     for (const ext of originalHeaderExtensions) {
+      if (hopByHopIds.has(ext.id)) continue;
       const exist = header.extensions.find((v) => v.id === ext.id);
       if (exist) {
         exist.payload = ext.payload;
@@ -917,14 +963,23 @@ export class RTCRtpSender {
 
     this.ntpTimestamp = ntpTimestamp;
     this.rtpTimestamp = header.timestamp;
-    this.headerBytesSent += header.serializeSize;
-    this.packetCount = uint32Add(this.packetCount, 1);
-
-    this.rtpCache[header.sequenceNumber % RTP_HISTORY_SIZE] = rtp;
+    if (opts.isRetransmission) {
+      this.retransmittedPacketsSent++;
+      this.retransmittedBytesSent += payload.length;
+      this.headerBytesSent += header.serializeSize;
+    } else {
+      this.headerBytesSent += header.serializeSize;
+      this.packetCount = uint32Add(this.packetCount, 1);
+      this.rtpCache[header.sequenceNumber % RTP_HISTORY_SIZE] = rtp;
+    }
 
     let rtpPayload = payload;
 
-    if (this.redRedundantPayloadType && !opts.isProbePadding) {
+    if (
+      this.redRedundantPayloadType &&
+      !opts.isProbePadding &&
+      !opts.isRetransmission
+    ) {
       this.redEncoder.push({
         block: rtpPayload,
         timestamp: header.timestamp,
@@ -946,7 +1001,9 @@ export class RTCRtpSender {
       rtpPayload = appendRfc3550Padding(rtpPayload, header.paddingSize);
     }
 
-    this.octetCount += payloadOctetsForSr;
+    if (!opts.isRetransmission) {
+      this.octetCount += payloadOctetsForSr;
+    }
 
     // size is actual on-wire SRTP length returned by the transport (includes
     // real padding bytes when present). Do not invent size from paddingSize.
@@ -963,20 +1020,21 @@ export class RTCRtpSender {
       sendGeneration === this.bweGeneration
     ) {
       const millitime = milliTime();
-      const probeCtl = isProbePacingController(estimatorAtStart)
-        ? estimatorAtStart
-        : undefined;
+      const priorUnacked = this.pendingUntrackedBytes;
+      this.pendingUntrackedBytes = 0;
       const sentInfo: SentInfo = {
         wideSeq: packetWideSeq,
         size,
         sendingAtMs: millitime,
         sentAtMs: millitime,
-        isProbation:
-          opts.forceProbeTag === true ||
-          probeCtl?.shouldTagProbePacket() === true,
+        isProbation: reservedClusterId !== undefined,
+        probeClusterId: reservedClusterId,
+        priorUnackedBytes: priorUnacked,
+        isRetransmission: opts.isRetransmission === true,
       };
-      // generation match ⇒ estimatorAtStart is still the active _senderBWE
       estimatorAtStart.rtpPacketSent(sentInfo);
+    } else if (twccOn) {
+      this.pendingUntrackedBytes += size;
     }
 
     if (
@@ -989,7 +1047,28 @@ export class RTCRtpSender {
   }
 
   /**
-   * Token-bucket wait against {@link pacingBitrateBps}.
+   * pin BitrateProber next_probe_time wait. MinusInfinity / past → send now.
+   */
+  private async awaitProbeSendTime(
+    nextSendTimeMs: number,
+    generation: number,
+  ): Promise<boolean> {
+    if (!Number.isFinite(nextSendTimeMs)) return true;
+    const waitMs = nextSendTimeMs - milliTime();
+    if (waitMs <= 0) return true;
+    try {
+      await setTimeout(Math.min(waitMs, 100), undefined, {
+        signal: this.rtcpCancel.signal,
+      });
+    } catch {
+      return !this.stopped && generation === this.bweGeneration;
+    }
+    return !this.stopped && generation === this.bweGeneration;
+  }
+
+  /**
+   * Token-bucket wait against {@link pacingBitrateBps} for **media**.
+   * Probe packets use {@link awaitProbeSendTime} instead.
    * Returns false only if the sender is stopped while waiting.
    */
   private async awaitPacingBudget(packetBytes: number): Promise<boolean> {
@@ -1001,8 +1080,7 @@ export class RTCRtpSender {
     const now = milliTime();
     if (this.lastPaceMs === 0) {
       this.lastPaceMs = now;
-      // Initial burst: 30 ms of rate.
-      this.paceBudgetBytes = (rateBps / 8) * 0.03;
+      this.paceBudgetBytes = 0;
     } else {
       this.refillPaceBudget(rateBps, now);
     }
@@ -1115,13 +1193,12 @@ export class RTCRtpSender {
                         1,
                       );
                     }
-                    this.retransmittedPacketsSent++;
-                    this.retransmittedBytesSent += packet.payload.length;
-                    this.headerBytesSent += packet.header.serializeSize;
-                    await this.dtlsTransport.sendRtp(
-                      packet.payload,
-                      packet.header,
-                    );
+                    // Route through sendRtpInternal: new TWCC seq, pacing,
+                    // BWE SentInfo. Do not reuse the original transport-wide seq.
+                    await this.sendRtpInternal(packet, {
+                      injectProbePadding: false,
+                      isRetransmission: true,
+                    });
                   }
                 });
                 this.onGenericNack.execute(feedback);

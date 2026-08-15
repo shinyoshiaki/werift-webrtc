@@ -18,7 +18,8 @@ that implement probing (e.g. GCC) need this. Use [isProbePacingController](../fu
 > **getPacingBitrateBps**(): `number`
 
 Pacing target (bps) for the send engine.
-Typically `max(availableBitrate, activeProbeTarget)`.
+pin GetPacingRates: estimate × 2.5 before first TWCC, × 1.1 after,
+raised to the active probe target while probing.
 
 #### Returns
 
@@ -74,6 +75,25 @@ probe cluster when media alone is insufficient.
 #### Returns
 
 `number`
+
+***
+
+### reserveOutgoingProbe()
+
+> **reserveOutgoingProbe**(`nowMs`): `undefined` \| \{ `clusterId`: `number`; `nextSendTimeMs`: `number`; \}
+
+pin `BitrateProber::CurrentCluster` — reserve the active probe cluster
+**before** the packet is sent (not at send-complete callback).
+
+#### Parameters
+
+##### nowMs
+
+`number`
+
+#### Returns
+
+`undefined` \| \{ `clusterId`: `number`; `nextSendTimeMs`: `number`; \}
 
 ***
 

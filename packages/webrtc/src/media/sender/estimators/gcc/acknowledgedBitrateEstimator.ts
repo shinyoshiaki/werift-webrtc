@@ -25,6 +25,11 @@ export interface AckedPacketSample {
   sendTimeMs: number;
   /** Packet size in bytes (payload + headers counted by BWE). */
   sizeBytes: number;
+  /**
+   * pin `SentPacket.prior_unacked_data` — added to both send and receive
+   * size (RobustThroughputEstimator).
+   */
+  priorUnackedBytes?: number;
 }
 
 /**
@@ -120,12 +125,14 @@ export class AcknowledgedBitrateEstimator {
     let numSentInWindow = 0;
 
     for (const p of this.window) {
+      const prior = p.priorUnackedBytes ?? 0;
+      const sized = p.sizeBytes + prior;
       if (p.receiveTimeMs < firstRecv) {
         firstRecv = p.receiveTimeMs;
-        firstRecvSize = p.sizeBytes;
+        firstRecvSize = sized;
       }
       lastRecv = Math.max(lastRecv, p.receiveTimeMs);
-      recvSize += p.sizeBytes;
+      recvSize += sized;
 
       if (p.sendTimeMs < this.latestDiscardedSendTimeMs) {
         // Reordered relative to discarded packets — skip for send rate.
@@ -133,10 +140,10 @@ export class AcknowledgedBitrateEstimator {
       }
       if (p.sendTimeMs > lastSend) {
         lastSend = p.sendTimeMs;
-        lastSendSize = p.sizeBytes;
+        lastSendSize = sized;
       }
       firstSend = Math.min(firstSend, p.sendTimeMs);
-      sendSize += p.sizeBytes;
+      sendSize += sized;
       numSentInWindow++;
     }
 

@@ -11,7 +11,12 @@ export {
   kAlrProbingIntervalMs,
   kBeta,
   kDefaultMaxProbingBitrateBps,
+  kDefaultPaceMultiplier,
+  kDefaultPaceMultiplierWithSendSideBwe,
   kDefaultStartBitrateBps,
+  kInitialMinProbeDeltaMs,
+  kMaxProbeDelayMs,
+  kMinProbeDeltaMs,
   kProbeFractionAfterDrop,
   kGoogCcProcessIntervalMs,
   kLossBasedBackoffFactor,
@@ -59,7 +64,11 @@ export {
 export { LossBasedBwe } from "./lossBasedBwe";
 export type { LossBasedResult, LossBasedState } from "./lossBasedBwe";
 export { ProbeController } from "./probeController";
-export type { ProbeClusterConfig, ProbeState } from "./probeController";
+export type {
+  ProbeClusterConfig,
+  ProbeReservation,
+  ProbeState,
+} from "./probeController";
 export {
   computeFeedbackRttStats,
   RttBasedBackoff,

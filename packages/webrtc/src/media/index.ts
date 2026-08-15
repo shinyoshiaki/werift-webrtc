@@ -58,6 +58,11 @@ export {
   kAlrProbingIntervalMs,
   kBeta,
   kDefaultMaxProbingBitrateBps,
+  kDefaultPaceMultiplier,
+  kDefaultPaceMultiplierWithSendSideBwe,
+  kInitialMinProbeDeltaMs,
+  kMaxProbeDelayMs,
+  kMinProbeDeltaMs,
   kProbeFractionAfterDrop,
   kDefaultStartBitrateBps,
   kGoogCcProcessIntervalMs,
@@ -91,5 +96,6 @@ export type {
   LossBasedResult,
   LossBasedState,
   ProbeClusterConfig,
+  ProbeReservation,
   ProbeState,
 } from "./sender/estimators/gcc";

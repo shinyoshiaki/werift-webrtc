@@ -24,6 +24,8 @@ import {
 import {
   GCC_KNOWN_DIFFERENCES,
   kDefaultMaxProbingBitrateBps,
+  kDefaultPaceMultiplier,
+  kDefaultPaceMultiplierWithSendSideBwe,
   kDefaultStartBitrateBps,
   kMaxBitrateBps,
   kMinBitrateBps,
@@ -272,12 +274,26 @@ export class GccBandwidthEstimator
   }
 
   getPacingBitrateBps(): number {
-    const estimate =
+    const target =
       this._availableBitrate > 0
         ? this._availableBitrate
-        : this.startBitrateBps;
+        : this.currentTargetBps > 0
+          ? this.currentTargetBps
+          : this.startBitrateBps;
+    // pin GetPacingRates: 2.5× until first transport feedback, then 1.1×.
+    const factor = this.hasValidSample
+      ? kDefaultPaceMultiplierWithSendSideBwe
+      : kDefaultPaceMultiplier;
     const probeTarget = this.probe.currentProbeTargetBps;
-    return Math.max(estimate, probeTarget);
+    return Math.max(target * factor, probeTarget);
+  }
+
+  /**
+   * pin `BitrateProber::CurrentCluster` — must be called **before** send.
+   */
+  reserveOutgoingProbe(nowMs: number) {
+    if (this.disposed) return undefined;
+    return this.probe.reserveOutgoingProbe(nowMs);
   }
 
   /**
@@ -550,13 +566,16 @@ export class GccBandwidthEstimator
     // or SetBitrates / initial probing. Those run on ProcessInterval /
     // OnNetworkAvailability.
 
-    // Assign probation packets to the **pacing** cluster (wideSeq → id).
-    // On send-fill complete, FIFO advances to the next cluster (no ACK wait).
-    if (info.isProbation && this.probe.shouldTagProbePacket()) {
+    // Attribute using the **reserved** cluster id (pin PacedPacketInfo
+    // captured before send). Do not look at the current pacing front —
+    // a concurrent send may have already advanced FIFO.
+    const reservedId = info.probeClusterId;
+    if (info.isProbation || (reservedId !== undefined && reservedId > 0)) {
       const { activated } = this.probe.onProbePacketSent(
         info.size,
         info.sendingAtMs,
         seq,
+        reservedId,
       );
       this.probeClusterSentBytes += info.size;
       for (const cfg of activated) {
@@ -683,6 +702,7 @@ export class GccBandwidthEstimator
         receiveTimeMs: p.recvMs,
         sendTimeMs: p.sendMs,
         sizeBytes: p.size,
+        priorUnackedBytes: this.sentInfos.get(p.seq)?.priorUnackedBytes ?? 0,
       })),
     );
 

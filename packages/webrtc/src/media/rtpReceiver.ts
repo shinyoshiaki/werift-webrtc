@@ -458,11 +458,9 @@ export class RTCRtpReceiver {
         RTP_EXTENSION_URI.transportWideCC
       ] as TransportWideCCPayload;
 
-      if (!transportSequenceNumber == undefined) {
-        throw new Error("undefined");
+      if (transportSequenceNumber !== undefined) {
+        this.receiverTWCC.handleTWCC(transportSequenceNumber);
       }
-
-      this.receiverTWCC.handleTWCC(transportSequenceNumber);
     } else if (this.twccEnabled) {
       this.setupTWCC(packet.header.ssrc);
     }

@@ -1656,13 +1656,17 @@ describe("media/sender bandwidth estimator", () => {
         .map((c) => c[0] as SentInfo)
         .filter((s) => s.isProbation);
       expect(padCalls.length).toBeGreaterThan(0);
-      expect(payloads.length).toBe(padCalls.length);
+      const padPayloads = payloads.filter(
+        (p) => p.length === kProbePaddingPacketBytes,
+      );
+      expect(padPayloads.length).toBe(padCalls.length);
       for (let i = 0; i < padCalls.length; i++) {
-        expect(payloads[i].length).toBe(kProbePaddingPacketBytes);
-        expect(payloads[i][payloads[i].length - 1]).toBe(
+        expect(padPayloads[i][padPayloads[i].length - 1]).toBe(
           kProbePaddingPacketBytes,
         );
-        expect(padCalls[i].size).toBe(sizes[i]);
+      }
+      for (const info of padCalls) {
+        expect(sizes).toContain(info.size);
       }
     });
 
@@ -3278,25 +3282,26 @@ describe("media/sender bandwidth estimator", () => {
       resetSpy.mockRestore();
     });
 
-    test("pacing timeout 5s と result timeout 1s は独立", () => {
-      // Arrange
+    test("active pacing は 5s process では落とさず、queued だけ 5s で捨てる", () => {
+      // Arrange: pin kProbeClusterTimeout は queued requested_at 用
       const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
-      // 1 packet only — send-fill 未完了
       probe.onProbePacketSent(200, 0, 1);
       expect(probe.currentProbeTargetBps).toBe(300_000);
+      expect(probe.queuedClusterCount).toBe(1);
 
-      // Act: result timeout 相当 (1s) では pacing は残る
+      // Act: result timeout 相当 (1s) では pacing / queue とも残る
       probe.process(1_000);
       expect(probe.currentProbeTargetBps).toBe(300_000);
       expect(probe.shouldTagProbePacket()).toBe(true);
+      expect(probe.queuedClusterCount).toBe(1);
 
-      // Act: pacing timeout (5s) で 3x を history へ → queue の 6x が activate
+      // Act: 5s — queued 6x は落ちる。active 3x は残る
       probe.process(5_001);
-      expect(probe.currentProbeTargetBps).toBe(600_000);
-      expect(probe.estimatorHistoryCount).toBeGreaterThanOrEqual(1);
+      expect(probe.currentProbeTargetBps).toBe(300_000);
+      expect(probe.queuedClusterCount).toBe(0);
 
-      // Act: 6x を send-fill して awaiting へ（minBytes≈1125 → 300B×5）
+      // Act: send-fill 3x → awaiting。queue は空なので次 cluster なし
       let lastSend = 0;
       for (let i = 0; i < 5; i++) {
         lastSend = 5_100 + i;
@@ -3305,8 +3310,7 @@ describe("media/sender bandwidth estimator", () => {
       expect(probe.awaitingResultCount).toBe(1);
       expect(probe.currentProbeTargetBps).toBe(0);
 
-      // Act: controller result timeout 1s → awaiting クリア + complete
-      // estimator history は残る（late TWCC 用）
+      // Act: controller result timeout 1s
       probe.process(lastSend + 1_001);
       expect(probe.awaitingResultCount).toBe(0);
       expect(probe.probeState).toBe("complete");
@@ -3403,22 +3407,37 @@ describe("media/sender bandwidth estimator", () => {
       expect(probe.takePendingEstimateBps()).toBe(0);
     });
 
-    test("0 packet の pacing timeout は estimator history に残らない", () => {
-      // Arrange: activate のみ、1 packet も送らない
+    test("queued cluster の 5s timeout は history に残らない", () => {
+      // Arrange: 3x を activate、6x は queue
+      const probe = createProbeController();
+      probe.setBitrates(10_000, 100_000, 1e9, 0);
+      expect(probe.queuedClusterCount).toBe(1);
+
+      // Act: queued 6x だけ 5s で破棄。active は未送信でも残る
+      probe.process(5_001);
+
+      // Assert
+      expect(probe.queuedClusterCount).toBe(0);
+      expect(probe.currentProbeTargetBps).toBe(300_000);
+      expect(probe.estimatorHistoryCount).toBe(0);
+    });
+
+    test("next_probe_time から 10ms 超遅れた active cluster は破棄する", () => {
+      // Arrange: 1 packet 送信で next_probe_time が立つ
       const probe = createProbeController();
       probe.setBitrates(10_000, 100_000, 1e9, 0);
       (probe as any).queue = [];
-      expect(probe.currentProbeTargetBps).toBe(300_000);
-      expect(probe.shouldTagProbePacket()).toBe(true);
+      probe.onProbePacketSent(200, 1_000, 1);
+      const next = probe.nextProbeSendTimeMs();
+      expect(Number.isFinite(next)).toBe(true);
 
-      // Act: pacing timeout 5s（sentPackets=0）
-      probe.process(5_001);
+      // Act: max_probe_delay=10ms を超えて CurrentCluster
+      const reserved = probe.reserveOutgoingProbe(next + 11);
 
-      // Assert: history に移さず破棄、seq maps も空
-      expect(probe.estimatorHistoryCount).toBe(0);
+      // Assert: pin は late active を破棄。0 packet ではないので history へ
+      expect(reserved).toBeUndefined();
       expect(probe.currentProbeTargetBps).toBe(0);
-      expect((probe as any).seqToCluster.size).toBe(0);
-      expect((probe as any).seqToSendInfo.size).toBe(0);
+      expect(probe.estimatorHistoryCount).toBe(1);
     });
 
     test("ACK なし cluster は controller complete 後 sender-side 60s で history から消える", () => {
@@ -4994,8 +5013,11 @@ describe("media/sender bandwidth estimator", () => {
           minPackets: 5,
           minDurationMs: 15,
           minBytes: 1000,
+          minProbeDeltaMs: 2,
+          requestedAtMs: t0,
         },
         startMs: t0,
+        startedAtMs: t0,
         sentBytes: 1000,
         sentPackets: 5,
         firstSendMs: t0,
@@ -7750,6 +7772,146 @@ describe("media/sender bandwidth estimator", () => {
       expect(probe.requestProbe(200_000, 25_000)).toEqual([]);
       (probe as any).timeOfLastLargeDropMs = 20_001;
       expect(probe.requestProbe(200_000, 25_000).length).toBe(1);
+    });
+
+    test("next_probe_time は started_at + sent_bytes/send_bitrate", () => {
+      // Arrange
+      const probe = createProbeController();
+      probe.setBitrates(10_000, 100_000, 1e9, 0);
+      const size = 400;
+      const sendMs = 1_000;
+
+      // Act
+      probe.onProbePacketSent(size, sendMs, 1);
+
+      // Assert: 300kbps で 400B → 10.666...ms
+      const expected = sendMs + (size * 8 * 1000) / 300_000;
+      expect(probe.nextProbeSendTimeMs()).toBeCloseTo(expected, 5);
+      expect(
+        probe.reserveOutgoingProbe(expected + 1)?.clusterId,
+      ).toBeGreaterThan(0);
+    });
+
+    test("ProbeBitrateEstimator は configured max で clamp しない", () => {
+      // Arrange: max=1Mbps。測定が 1.2Mbps になる interval を作る
+      const probe = createProbeController();
+      probe.setBitrates(10_000, 100_000, 1_000_000, 0);
+      (probe as any).queue = [];
+      const size = 1_500;
+      for (let i = 0; i < 5; i++) {
+        probe.onProbePacketSent(size, 1_000 + i * 10, i + 1);
+      }
+      for (let i = 0; i < 5; i++) {
+        probe.onAckedPacket(
+          size,
+          1_020 + i * 10,
+          true,
+          i + 1,
+          2_000,
+          1_000 + i * 10,
+        );
+      }
+
+      // Act
+      const est = probe.takePendingEstimateBps();
+
+      // Assert: sendSize=6000B / 40ms = 1.2Mbps。pin は estimator で max clamp しない
+      expect(est).toBeGreaterThan(1_000_000);
+      expect(est).toBeCloseTo(1_200_000, -3);
+    });
+
+    test("reserve した cluster id は FIFO が進んでも維持される", () => {
+      // Arrange: 3x が 1 packet 手前
+      const probe = createProbeController();
+      probe.setBitrates(10_000, 100_000, 1e9, 0);
+      const size = 400;
+      for (let i = 0; i < 4; i++) {
+        probe.onProbePacketSent(size, 1_000 + i, i + 1);
+      }
+      const reserved = probe.reserveOutgoingProbe(1_010);
+      expect(reserved?.clusterId).toBeDefined();
+      const id3x = reserved!.clusterId;
+
+      // Act: 別 packet が 3x を fill → 6x へ。予約済み 5 通目は 3x のまま
+      probe.onProbePacketSent(size, 1_011, 5);
+      expect(probe.currentProbeTargetBps).toBe(600_000);
+      const late = probe.onProbePacketSent(size, 1_012, 6, id3x);
+
+      // Assert
+      expect(late.clusterId).toBe(id3x);
+      expect((probe as any).seqToCluster.get(6)).toBe(id3x);
+    });
+
+    test("feedback 前は 2.5 倍、TWCC 後は 1.1 倍で pacing する", () => {
+      // Arrange
+      const gcc = new GccBandwidthEstimator(300_000);
+
+      // Assert: first_transport_feedback 前
+      expect(gcc.getPacingBitrateBps()).toBe(300_000 * 2.5);
+
+      // Act: 公開 target を 300k にしたうえで first TWCC 済みにする
+      (gcc as any).hasValidSample = true;
+      (gcc as any)._availableBitrate = 300_000;
+      (gcc as any).currentTargetBps = 300_000;
+
+      // Assert
+      expect(gcc.getPacingBitrateBps()).toBe(300_000 * 1.1);
+    });
+
+    test("legacy sentInfos は 2048 件ではなく時間窓で prune する", () => {
+      // Arrange
+      const legacy = new SenderBandwidthEstimator();
+      for (let i = 1; i <= 3_000; i++) {
+        legacy.rtpPacketSent({
+          wideSeq: i & 0xffff,
+          size: 100,
+          sendingAtMs: 1_000 + i,
+          sentAtMs: 1_000 + i,
+        });
+      }
+
+      // Assert: 1s 以内なら 2048 を超えて残る
+      expect(Object.keys((legacy as any).sentInfos).length).toBeGreaterThan(
+        2048,
+      );
+
+      // Act: 10s 超の古い packet
+      legacy.rtpPacketSent({
+        wideSeq: 10,
+        size: 100,
+        sendingAtMs: 1_000 + 3_000 + 10_001,
+        sentAtMs: 1_000 + 3_000 + 10_001,
+      });
+
+      // Assert: 時間窓外は消える
+      const remaining = Object.values((legacy as any).sentInfos) as SentInfo[];
+      expect(remaining.every((s) => s.sendingAtMs >= 1_000 + 3_000 + 1)).toBe(
+        true,
+      );
+    });
+
+    test("RobustThroughput は prior_unacked を send/recv size に足す", () => {
+      // Arrange
+      const est = new AcknowledgedBitrateEstimator();
+      const samples = Array.from({ length: 12 }, (_, i) => ({
+        receiveTimeMs: 100 + i * 20,
+        sendTimeMs: i * 20,
+        sizeBytes: 200,
+        // 端パケット以外に載せ、first-recv / last-send 除外後も残るようにする
+        priorUnackedBytes: i === 5 ? 400 : 0,
+      }));
+
+      // Act
+      est.incomingPacketFeedbackVector(samples);
+      const withPrior = est.bitrate();
+      est.reset();
+      est.incomingPacketFeedbackVector(
+        samples.map((s) => ({ ...s, priorUnackedBytes: 0 })),
+      );
+      const withoutPrior = est.bitrate();
+
+      // Assert
+      expect(withPrior).toBeGreaterThan(withoutPrior);
     });
   });
 });

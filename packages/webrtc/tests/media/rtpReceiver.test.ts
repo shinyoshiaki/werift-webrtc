@@ -38,6 +38,45 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
       receiver.stop();
     }));
 
+  test("TWCC extension が無い RTP は handleTWCC に undefined を渡さない", () => {
+    // Arrange
+    const dtls = createDtlsTransport();
+    const receiver = new RTCRtpReceiver(defaultPeerConfig, "video", 1234);
+    receiver.setDtlsTransport(dtls);
+    receiver.prepareReceive({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "video/vp8",
+          clockRate: 90000,
+          payloadType: 96,
+        }),
+      ],
+      encodings: [],
+      headerExtensions: [],
+    });
+    const handleTWCC = vi.fn();
+    (
+      receiver as { receiverTWCC?: { handleTWCC: typeof handleTWCC } }
+    ).receiverTWCC = { handleTWCC };
+
+    // Act
+    receiver.handleRtpBySsrc(
+      new RtpPacket(
+        new RtpHeader({
+          sequenceNumber: 1,
+          timestamp: 1,
+          payloadType: 96,
+          ssrc: 1,
+        }),
+        Buffer.alloc(10),
+      ),
+      {},
+    );
+
+    // Assert
+    expect(handleTWCC).not.toHaveBeenCalled();
+  });
+
   test("handleRTP with RTX packet", async () => {
     const dtls = createDtlsTransport();
     const receiver = new RTCRtpReceiver(defaultPeerConfig, "video", 1234);
