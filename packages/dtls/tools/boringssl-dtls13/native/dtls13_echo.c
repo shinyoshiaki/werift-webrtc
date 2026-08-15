@@ -171,9 +171,9 @@ static SSL_CTX *make_ctx(const char *cert, const char *key) {
     die_ssl("set proto version");
   }
 
-  if (!SSL_CTX_set_strict_cipher_list(ctx, "TLS_AES_128_GCM_SHA256")) {
-    die_ssl("SSL_CTX_set_strict_cipher_list TLS_AES_128_GCM_SHA256");
-  }
+  /* BoringSSL TLS 1.3 ciphers are not configured via SSL_CTX_set_strict_cipher_list
+   * (that API is TLS 1.2-only and rejects TLS_AES_128_GCM_SHA256). The 1.3 suite
+   * is verified after handshake in check_negotiated(). */
   /* Ticket P0: X25519 is the required group. P-256 is optional elsewhere. */
   if (!SSL_CTX_set1_groups_list(ctx, "X25519")) {
     die_ssl("SSL_CTX_set1_groups_list X25519");
@@ -297,6 +297,7 @@ static int run_client(const char *host, int port, const char *cert,
 }
 
 int main(int argc, char **argv) {
+  setvbuf(stderr, NULL, _IONBF, 0);
   if (argc < 2) {
     fprintf(stderr,
             "usage: %s server <port> <cert> <key>\n"

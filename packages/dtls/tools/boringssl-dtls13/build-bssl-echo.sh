@@ -13,7 +13,9 @@ BSSL_LIB="${WERIFT_BORINGSSL_LIB:-/usr/local/lib}"
 echo "Building ${OUT}"
 echo "  include=${BSSL_INCLUDE}"
 echo "  lib=${BSSL_LIB}"
-echo "  pin revision: 0bcc1e8473a1264b4de88e05a651763dc9a71b09 (see README.md)"
+PIN_FILE="${ROOT}/BORINGSSL_REVISION"
+PIN="$(tr -d '[:space:]' < "${PIN_FILE}" 2>/dev/null || true)"
+echo "  pin revision: ${PIN:-see BORINGSSL_REVISION} (see README.md)"
 
 # Compile C source, then link with g++ against BoringSSL static libs
 cc -O2 -std=c11 -c \

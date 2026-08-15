@@ -10,11 +10,13 @@ if [ -z "${PIN}" ] && [ -f "${PIN_FILE}" ]; then
   PIN="$(tr -d '[:space:]' < "${PIN_FILE}")"
 fi
 if [ -z "${PIN}" ]; then
-  PIN="0bcc1e8473a1264b4de88e05a651763dc9a71b09"
+  PIN="a204be272595867e7069221050f19697a0cf66ad"
 fi
 
-REPO_URL="${WERIFT_BORINGSSL_REPO:-https://boringssl.googlesource.com/boringssl}"
-DTLS_PKG="$(cd "${ROOT}/../../.." && pwd)"
+# GitHub is the reliable public mirror. googlesource often returns HTTP 400/500.
+REPO_URL="${WERIFT_BORINGSSL_REPO:-https://github.com/google/boringssl.git}"
+# tools/boringssl-dtls13 -> packages/dtls
+DTLS_PKG="$(cd "${ROOT}/../.." && pwd)"
 SRC_ROOT="${WERIFT_BORINGSSL_SRC:-${DTLS_PKG}/third_party/boringssl}"
 BUILD_DIR="${SRC_ROOT}/build"
 
@@ -24,10 +26,14 @@ echo "Source dir:    ${SRC_ROOT}"
 mkdir -p "$(dirname "${SRC_ROOT}")"
 if [ ! -d "${SRC_ROOT}/.git" ]; then
   echo "Cloning BoringSSL..."
-  git clone "${REPO_URL}" "${SRC_ROOT}"
+  if ! git clone "${REPO_URL}" "${SRC_ROOT}"; then
+    echo "Primary clone failed; retrying googlesource mirror..."
+    git clone https://boringssl.googlesource.com/boringssl "${SRC_ROOT}"
+  fi
 fi
 cd "${SRC_ROOT}"
-git fetch origin "${PIN}" || git fetch --depth 1 origin "${PIN}" || true
+git fetch origin "${PIN}" || git fetch --depth 1 origin "${PIN}" || \
+  git fetch --depth 1 https://github.com/google/boringssl.git "${PIN}" || true
 git checkout --force "${PIN}"
 ACTUAL="$(git rev-parse HEAD)"
 case "${ACTUAL}" in
@@ -51,8 +57,10 @@ fi
 
 mkdir -p "${BUILD_DIR}"
 cd "${BUILD_DIR}"
-cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON ..
-ninja
+# BUILD_TESTING=OFF: BoringSSL's ssl_test does not compile under GCC 12 -Werror.
+# Only the static libs + bssl tool are required for werift interop.
+cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DBUILD_TESTING=OFF ..
+ninja ssl crypto bssl
 
 # Headers: BoringSSL uses ${SRC}/include
 export WERIFT_BORINGSSL_INCLUDE="${SRC_ROOT}/include"

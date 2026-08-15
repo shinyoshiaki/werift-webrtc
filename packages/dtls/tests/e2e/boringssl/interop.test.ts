@@ -181,8 +181,29 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
         });
         void client.send(Buffer.from("hello-bssl"));
       });
-      expect(stderr).toMatch(/negotiated cipher=TLS_AES_128_GCM_SHA256/);
-      expect(stderr).toMatch(/group=X25519/);
+      // Child stderr can arrive after the UDP echo; wait rather than racing the pipe.
+      await new Promise<void>((resolve, reject) => {
+        const deadline = Date.now() + 2_000;
+        const tick = () => {
+          if (
+            /negotiated cipher=TLS_AES_128_GCM_SHA256/.test(stderr) &&
+            /group=X25519/.test(stderr)
+          ) {
+            resolve();
+            return;
+          }
+          if (Date.now() > deadline) {
+            reject(
+              new Error(
+                `missing negotiated cipher/group in server stderr=${stderr}`,
+              ),
+            );
+            return;
+          }
+          setTimeout(tick, 20);
+        };
+        tick();
+      });
       interopLog(
         "werift-client-bssl-server-ok",
         `handshake+bidirectional data ok\nstderr=${stderr}`,

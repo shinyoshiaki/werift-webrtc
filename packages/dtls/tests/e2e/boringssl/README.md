@@ -11,7 +11,7 @@ libraries (`DTLS_method` + `DTLS1_3_VERSION`).
 | Item | Value |
 | --- | --- |
 | Repository | https://boringssl.googlesource.com/boringssl |
-| Git revision | `0bcc1e8473a1264b4de88e05a651763dc9a71b09` (pin; do not use floating HEAD) |
+| Git revision | `a204be272595867e7069221050f19697a0cf66ad` (pin; do not use floating HEAD) |
 | Helper source | `packages/dtls/tools/boringssl-dtls13/native/dtls13_echo.c` (canonical) |
 | Helper binary | `tests/e2e/boringssl/dtls13_echo` (built from the tools source) |
 | Pin file | `packages/dtls/tools/boringssl-dtls13/BORINGSSL_REVISION` |
@@ -42,12 +42,12 @@ depend on preinstalled `/usr/local` libraries.
 ## Manual BoringSSL build (optional)
 
 ```bash
-git clone https://boringssl.googlesource.com/boringssl
+git clone https://github.com/google/boringssl.git
 cd boringssl
 git checkout "$(cat packages/dtls/tools/boringssl-dtls13/BORINGSSL_REVISION)"
 mkdir -p build && cd build
-cmake -GNinja -DCMAKE_BUILD_TYPE=Release ..
-ninja
+cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF ..
+ninja ssl crypto bssl
 export WERIFT_BORINGSSL_INCLUDE=.../boringssl/include
 export WERIFT_BORINGSSL_LIB=.../boringssl/build  # dir with libssl.a + libcrypto.a
 ./build-bssl-echo.sh

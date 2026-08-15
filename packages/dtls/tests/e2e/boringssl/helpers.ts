@@ -19,7 +19,7 @@ export const BORINGSSL_PIN_REVISION = (() => {
   } catch {
     /* fall through */
   }
-  return "0bcc1e8473a1264b4de88e05a651763dc9a71b09";
+  return "a204be272595867e7069221050f19697a0cf66ad";
 })();
 
 /** Path written by fetch-and-build-boringssl.sh after a successful pin build. */
