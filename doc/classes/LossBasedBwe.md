@@ -19,7 +19,9 @@ LossBasedBweV2-aligned controller
 - High-bandwidth bias adjusted by average loss ratio
 - Instant upper/lower bounds + delayed-increase window + HOLD rate
 - `currentBestEstimate` (candidate model) is distinct from
-  `lossBasedResult` (published GoogCC output). HOLD clamps only the result.
+  `lossBasedResult` (internal GoogCC result). HOLD clamps only the result.
+- Published output (GetLossBasedResult) stays delay-based until
+  `IsReady()` (initialized current_best + min observations).
 
 ## Constructors
 
@@ -57,6 +59,21 @@ LossBasedBweV2-aligned controller
 
 ***
 
+### isReady
+
+#### Get Signature
+
+> **get** **isReady**(): `boolean`
+
+pin `LossBasedBweV2::IsReady` — initialized current_best and
+`num_observations_ >= MinNumObservations`.
+
+##### Returns
+
+`boolean`
+
+***
+
 ### lossState
 
 #### Get Signature
@@ -88,6 +105,10 @@ Number of committed observations (for readiness tests).
 #### Get Signature
 
 > **get** **targetBitrateBps**(): `number`
+
+pin `GetLossBasedResult`. Until [isReady](LossBasedBwe.md#isready), returns the latest
+delay-based estimate with `kDelayBasedEstimate` and does **not** expose
+the internally evolving `loss_based_result_`.
 
 ##### Returns
 
