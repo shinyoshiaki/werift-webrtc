@@ -1062,20 +1062,25 @@ export class RTCRtpSender {
 
   /**
    * pin BitrateProber next_probe_time wait. MinusInfinity / past → send now.
+   * Sleeps in ≤100ms slices until `nextSendTimeMs` (same cap as media
+   * {@link awaitPacingBudget}), so a 5–15 kbps recovery probe is not
+   * released 100ms early.
    */
   private async awaitProbeSendTime(
     nextSendTimeMs: number,
     generation: number,
   ): Promise<boolean> {
     if (!Number.isFinite(nextSendTimeMs)) return true;
-    const waitMs = nextSendTimeMs - milliTime();
-    if (waitMs <= 0) return true;
-    try {
-      await setTimeout(Math.min(waitMs, 100), undefined, {
-        signal: this.rtcpCancel.signal,
-      });
-    } catch {
-      return !this.stopped && generation === this.bweGeneration;
+    while (!this.stopped && generation === this.bweGeneration) {
+      const waitMs = nextSendTimeMs - milliTime();
+      if (waitMs <= 0) return true;
+      try {
+        await setTimeout(Math.min(waitMs, 100), undefined, {
+          signal: this.rtcpCancel.signal,
+        });
+      } catch {
+        return !this.stopped && generation === this.bweGeneration;
+      }
     }
     return !this.stopped && generation === this.bweGeneration;
   }

@@ -2,6 +2,7 @@ import { setTimeout } from "timers/promises";
 
 import { describe, expect, test, vi } from "vitest";
 import {
+  GccBandwidthEstimator,
   GenericNack,
   MediaStreamTrack,
   RTCRtpCodecParameters,
@@ -14,6 +15,7 @@ import {
 } from "../../src";
 import { RTCRtpSender } from "../../src/media/rtpSender";
 import { RTCStatsReport } from "../../src/media/stats";
+import { milliTime } from "../../src/utils";
 import { createDtlsTransport, createRtpPacket } from "../fixture";
 
 describe("media/rtpSender", () => {
@@ -218,6 +220,110 @@ describe("media/rtpSender", () => {
     expect(wireTsns[1]).not.toBe(firstTsn);
     expect(wireSsrcs[1]).toBe(sender.rtxSsrc);
   });
+
+  test("probe next_send が 250ms 先でも 100ms で早出ししない", async () => {
+    // Arrange: reserve を now+250 に固定し、実送信時刻を測る
+    const gcc = new GccBandwidthEstimator(10_000);
+    const dtls = createDtlsTransport();
+    (dtls as { state: string }).state = "connected";
+    const sendTimes: number[] = [];
+    dtls.sendRtp = vi.fn(async (_p: Buffer, header: RtpHeader) => {
+      sendTimes.push(milliTime());
+      return 80;
+    }) as typeof dtls.sendRtp;
+    const sender = new RTCRtpSender("video");
+    sender.setDtlsTransport(dtls);
+    sender.setBandwidthEstimator(gcc);
+    sender.prepareSend({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "video/VP8",
+          clockRate: 90000,
+          payloadType: 96,
+        }),
+      ],
+      headerExtensions: [
+        new RTCRtpHeaderExtensionParameters({
+          id: 3,
+          uri: RTP_EXTENSION_URI.transportWideCC,
+        }),
+      ],
+      muxId: "0",
+      rtcp: { cname: "t", mux: true },
+    });
+    const suppress = vi
+      .spyOn(sender, "maybeInjectProbePadding")
+      .mockResolvedValue(0);
+    gcc.setNetworkAvailable(true);
+    gcc.process(milliTime());
+    suppress.mockRestore();
+    const orig = gcc.reserveOutgoingProbe.bind(gcc);
+    gcc.reserveOutgoingProbe = (nowMs: number) => {
+      const r = orig(nowMs);
+      if (!r) return r;
+      return { ...r, nextSendTimeMs: milliTime() + 250 };
+    };
+
+    // Act
+    sendTimes.length = 0;
+    const t0 = milliTime();
+    await sender.maybeInjectProbePadding();
+
+    // Assert: 100ms キャップで出ていない（250ms まで待つ）
+    expect(sendTimes.length).toBeGreaterThan(0);
+    expect(sendTimes[0]! - t0).toBeGreaterThanOrEqual(200);
+  }, 10_000);
+
+  test("低レート probe のパケット間隔は sent_bytes/rate に近い", async () => {
+    // Arrange: start=5kbps → 3x=15kbps。224B なら約 119ms
+    const gcc = new GccBandwidthEstimator(5_000);
+    const dtls = createDtlsTransport();
+    (dtls as { state: string }).state = "connected";
+    const sendTimes: number[] = [];
+    dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
+      sendTimes.push(milliTime());
+      return payload.length + header.serializeSize;
+    }) as typeof dtls.sendRtp;
+    const sender = new RTCRtpSender("video");
+    sender.setDtlsTransport(dtls);
+    sender.prepareSend({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "video/VP8",
+          clockRate: 90000,
+          payloadType: 96,
+        }),
+      ],
+      headerExtensions: [
+        new RTCRtpHeaderExtensionParameters({
+          id: 3,
+          uri: RTP_EXTENSION_URI.transportWideCC,
+        }),
+      ],
+      muxId: "0",
+      rtcp: { cname: "t", mux: true },
+    });
+    const suppress = vi
+      .spyOn(sender, "maybeInjectProbePadding")
+      .mockResolvedValue(0);
+    sender.setBandwidthEstimator(gcc);
+    gcc.setBitrates(5_000, 5_000, 1e9);
+    gcc.setNetworkAvailable(true);
+    gcc.process(milliTime());
+    suppress.mockRestore();
+    (gcc as any).probe.queue = [];
+
+    // Act: 先頭 2 パケット
+    sendTimes.length = 0;
+    await sender.maybeInjectProbePadding();
+
+    // Assert
+    expect(sendTimes.length).toBeGreaterThanOrEqual(2);
+    const gap = sendTimes[1]! - sendTimes[0]!;
+    const expected = (224 * 8 * 1000) / 15_000;
+    expect(gap).toBeGreaterThan(expected * 0.6);
+    expect(gap).toBeLessThan(expected * 1.8);
+  }, 10_000);
 
   test("getStats returns a report rooted at outbound stats", async () => {
     const track = new MediaStreamTrack({ kind: "audio", remote: true });
