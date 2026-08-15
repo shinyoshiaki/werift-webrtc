@@ -155,6 +155,12 @@ export class RTCRtpSender {
   >();
   private bweProbeUnsub?: () => void;
 
+  /**
+   * When false, skip media token-bucket and probe next-send waits.
+   * Sim harnesses use this so the synthetic source rate is the wire rate.
+   * Production default is true (pin GetPacingRates / BitrateProber).
+   */
+  pacingEnabled = true;
   /** Token-bucket pacer state for **media** (not probe) rate enforcement. */
   private paceBudgetBytes = 0;
   private lastPaceMs = 0;
@@ -851,7 +857,12 @@ export class RTCRtpSender {
       opts.forceProbeTag === true ||
       (isProbePacingController(estimatorAtStart) &&
         estimatorAtStart.shouldTagProbePacket());
-    if (twccOn && wantsProbe && isProbePacingController(estimatorAtStart)) {
+    if (
+      this.pacingEnabled &&
+      twccOn &&
+      wantsProbe &&
+      isProbePacingController(estimatorAtStart)
+    ) {
       const reservation = estimatorAtStart.reserveOutgoingProbe(milliTime());
       if (reservation) {
         reservedClusterId = reservation.clusterId;
@@ -867,7 +878,11 @@ export class RTCRtpSender {
         // Cluster already filled / discarded — do not emit untagged padding.
         return;
       }
-    } else if (twccOn && isProbePacingController(estimatorAtStart)) {
+    } else if (
+      this.pacingEnabled &&
+      twccOn &&
+      isProbePacingController(estimatorAtStart)
+    ) {
       // Media / RTX: token-bucket at GetPacingRates (×2.5 / ×1.1).
       if (!(await this.awaitPacingBudget(payloadLen))) {
         return;

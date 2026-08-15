@@ -111,6 +111,19 @@ export class BottleneckLink {
     return { ...this.dirs[dir].stats };
   }
 
+  /**
+   * Reset counters for a direction (or both). Queue contents are kept so a
+   * drain can still be observed after the snapshot.
+   */
+  resetStats(dir?: BottleneckDirection): void {
+    if (dir) {
+      this.dirs[dir].stats = emptyStats();
+      return;
+    }
+    this.dirs.a2b.stats = emptyStats();
+    this.dirs.b2a.stats = emptyStats();
+  }
+
   totalStats(): BottleneckStats {
     const a = this.dirs.a2b.stats;
     const b = this.dirs.b2a.stats;

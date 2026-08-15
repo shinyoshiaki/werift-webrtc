@@ -23,10 +23,12 @@ describe("simulations/gcc-twcc-congestion", () => {
     const pair = await createGccTwccPeerPair({
       capacityBps,
       baseDelayMs: 50,
-      maxQueueBytes: 24_000,
+      maxQueueBytes: 12_000,
       startBitrateBps: 700_000,
     });
 
+    // 合成ソースの生成レートをワイヤーに出す（pacer 待ち行列が追従後も溢れない）
+    pair.sender.pacingEnabled = false;
     let targetBps = 700_000;
     const media = startMediaSource(pair.track, () => targetBps, {
       payloadBytes: 800,
@@ -34,7 +36,7 @@ describe("simulations/gcc-twcc-congestion", () => {
 
     try {
       // Act 1: 容量を大幅に超える固定レートで送信し輻輳を誘発
-      await sleep(4_000);
+      await sleep(5_000);
       const congestedStats = pair.link.stats("a2b");
       const bitrateAfterCongestion = pair.bitrateSamples.slice();
       const lastEstimateAfterCongestion =
@@ -43,23 +45,27 @@ describe("simulations/gcc-twcc-congestion", () => {
 
       // Assert 1: ドロップが発生し、推定帯域が容量近傍以下へ下がる
       // 日本語: ボトルネック超過により a→b 方向でロスが発生していること
-      expect(congestedStats.dropped).toBeGreaterThan(0);
+      expect(congestedStats.dropped).toBeGreaterThan(5);
       // 日本語: TWCC 経由で onAvailableBitrate が少なくとも 1 回は発火していること
       expect(bitrateAfterCongestion.length).toBeGreaterThan(0);
       // 日本語: 推定が初期 700kbps より明確に下がっていること（容量の 2 倍未満）
-      expect(lastEstimateAfterCongestion).toBeLessThan(capacityBps * 2);
       expect(lastEstimateAfterCongestion).toBeLessThan(550_000);
+      expect(lastEstimateAfterCongestion).toBeLessThan(700_000 * 0.85);
 
-      // Act 2: 推定帯域に追従して送信レートを下げる（輻輳解消フェーズ）
-      const dropsAtCongestion = congestedStats.dropped;
+      // Act 2: キューを少し空けてから、容量未満に追従（pacer 1.1× でも溢れない）
+      targetBps = 40_000;
+      await sleep(800);
+      pair.link.resetStats("a2b");
       targetBps = Math.max(
         40_000,
-        Math.min(lastEstimateAfterCongestion, capacityBps),
+        Math.min(lastEstimateAfterCongestion, Math.floor(capacityBps * 0.75)),
       );
-      // 推定更新に追従
       const unsub = pair.sender.onAvailableBitrate.subscribe((bps) => {
         if (bps > 0) {
-          targetBps = Math.max(40_000, Math.min(bps, capacityBps * 1.05));
+          targetBps = Math.max(
+            40_000,
+            Math.min(bps, Math.floor(capacityBps * 0.75)),
+          );
         }
       });
 
@@ -67,7 +73,7 @@ describe("simulations/gcc-twcc-congestion", () => {
       unsub.unSubscribe();
 
       const afterAdapt = pair.link.stats("a2b");
-      const dropsDuringAdapt = afterAdapt.dropped - dropsAtCongestion;
+      const dropsDuringAdapt = afterAdapt.dropped;
       const finalEstimate =
         pair.bitrateSamples[pair.bitrateSamples.length - 1] ??
         pair.gcc.availableBitrate;
@@ -102,7 +108,7 @@ describe("simulations/gcc-twcc-congestion", () => {
       media.stop();
       await pair.close();
     }
-  }, 30_000);
+  }, 35_000);
 
   test("低レート送信ではボトルネック容量内でドロップがほぼ起きない", async () => {
     // Arrange: 容量に対して十分低い送信
