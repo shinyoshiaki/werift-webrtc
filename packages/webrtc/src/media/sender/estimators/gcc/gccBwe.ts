@@ -792,11 +792,11 @@ export class GccBandwidthEstimator
     }
 
     // Loss path after delay/probe (pin UpdateLossBasedEstimator).
-    // Always update LossBasedBwe state, but when RTT-limited pin UpdateEstimate
-    // never adopts the loss result as current_target_ (RTT branch returns
-    // before LossBasedBandwidthEstimatorV2ReadyForUse).
+    // Always update the estimator. UpdateEstimate adopts the result only
+    // when LossBasedBandwidthEstimatorV2ReadyForUse / {@link LossBasedBwe.isReady}.
+    // When RTT-limited pin returns before that gate.
     // pin passes delay_based_limit_ (PlusInfinity until the first delay result).
-    this.lossBasedBps = this.lossBwe.update(
+    this.lossBwe.update(
       lossFraction,
       this.delayLimitForLossBwe(),
       ackedBps,
@@ -810,18 +810,14 @@ export class GccBandwidthEstimator
       this.alr.inAlr,
     );
 
-    // Final delay/loss candidate. LossBasedBwe already mins against the delay
-    // limit when one exists. Until the first delay result, pin delay_based_limit_
-    // is +∞ — do not min() against the constructor start bitrate.
-    const delayLossTarget = this.combineDelayLossTarget(this.lossBasedBps);
-
     // pin UpdateEstimate RTT branch vs normal:
     // - When RTT-limited: **do not** apply LossBasedBwe result to target.
     //   Drop first (if due), then ApplyTargetLimits / GetUpperLimit
     //   (delay_based + configured max, then min_bitrate). Never clamp-then-drop.
     //   Exception: probe SetSendBitrate already raised current before
     //   UpdateEstimate (delay path holds post-probe estimate).
-    // - When not RTT-limited: current_target = post-loss estimate.
+    // - When not RTT-limited and IsReady: current_target = GetLossBasedResult.
+    // - When not ready: keep current_target (ApplyTargetLimits only).
     const rttLimited = this.rttBackoff.isRttAboveLimit();
     if (rttLimited) {
       if (
@@ -835,9 +831,9 @@ export class GccBandwidthEstimator
         this.currentTargetBps = this.delayBasedBps;
       }
       this.maybeApplyRttBasedBackoff(nowMs);
-    } else if (delayLossTarget > 0) {
-      this.currentTargetBps = delayLossTarget;
-      // pin UpdateTargetBitrate / ApplyTargetLimits after adopting loss/delay.
+    } else if (this.lossBwe.isReady) {
+      this.adoptLossBasedResult();
+    } else {
       this.applyTargetLimits();
     }
 
@@ -958,6 +954,27 @@ export class GccBandwidthEstimator
   }
 
   /**
+   * pin `UpdateEstimate` when `LossBasedBandwidthEstimatorV2ReadyForUse`.
+   * Reads {@link LossBasedBwe.getLossBasedResult} and applies target limits.
+   */
+  private adoptLossBasedResult(): void {
+    const result = this.lossBwe.getLossBasedResult();
+    if (!result.ready) return;
+    if (
+      !(result.bandwidthEstimateBps > 0) ||
+      !Number.isFinite(result.bandwidthEstimateBps)
+    ) {
+      return;
+    }
+    this.lossBasedBps = result.bandwidthEstimateBps;
+    const delayLossTarget = this.combineDelayLossTarget(this.lossBasedBps);
+    if (delayLossTarget > 0) {
+      this.currentTargetBps = delayLossTarget;
+      this.applyTargetLimits();
+    }
+  }
+
+  /**
    * pin UpdateEstimate (LossBased ready): adopt the loss result, then
    * ApplyTargetLimits. Without a delay result, do not min() against start.
    */
@@ -1070,16 +1087,13 @@ export class GccBandwidthEstimator
       this.maybeApplyRttBasedBackoff(nowMs);
       return;
     }
-    if (this.hasValidSample) {
-      const loss =
-        this.lossBasedBps > 0 ? this.lossBasedBps : this.currentTargetBps;
-      const delayLossTarget = this.combineDelayLossTarget(loss);
-      if (delayLossTarget > 0) {
-        this.currentTargetBps = delayLossTarget;
-      }
+    if (this.hasValidSample && this.lossBwe.isReady) {
+      this.adoptLossBasedResult();
+    } else if (this.currentTargetBps <= 0) {
+      return;
+    } else {
+      this.applyTargetLimits();
     }
-    if (this.currentTargetBps <= 0) return;
-    this.applyTargetLimits();
     if (this.hasValidSample || this._availableBitrate > 0) {
       setAvailableBitrateIfChanged(this, this.currentTargetBps);
     }

@@ -106,15 +106,30 @@ Number of committed observations (for readiness tests).
 
 > **get** **targetBitrateBps**(): `number`
 
-pin `GetLossBasedResult`. Until [isReady](LossBasedBwe.md#isready), returns the latest
-delay-based estimate with `kDelayBasedEstimate` and does **not** expose
-the internally evolving `loss_based_result_`.
+pin `GetLossBasedResult`. Until [isReady](LossBasedBwe.md#isready), delay (or `+Infinity`
+if delay is unset) with `kDelayBasedEstimate`. Does **not** expose the
+internally evolving `loss_based_result_` or uninitialized current-best.
 
 ##### Returns
 
 `number`
 
 ## Methods
+
+### getLossBasedResult()
+
+> **getLossBasedResult**(): [`LossBasedResult`](../interfaces/LossBasedResult.md)
+
+pin `LossBasedBweV2::GetLossBasedResult`.
+`ready` is [isReady](LossBasedBwe.md#isready). Controllers must ignore
+`bandwidthEstimateBps` until `ready` (pin
+`LossBasedBandwidthEstimatorV2ReadyForUse`).
+
+#### Returns
+
+[`LossBasedResult`](../interfaces/LossBasedResult.md)
+
+***
 
 ### reset()
 

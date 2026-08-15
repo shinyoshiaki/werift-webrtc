@@ -56,8 +56,21 @@ interface ChannelParameters {
   lossLimitedBandwidthBps: number;
 }
 
-/** pin `LossBasedBweV2::Result`. */
-interface LossBasedResult {
+/** pin `LossBasedBweV2::Result` plus an explicit {@link LossBasedResult.ready}. */
+export interface LossBasedResult {
+  /** pin `IsReady()` — controller must not adopt the estimate until true. */
+  ready: boolean;
+  /**
+   * Published bandwidth. When `!ready` and delay is unset this is
+   * `+Infinity` (pin `DataRate::PlusInfinity`), never the stale
+   * uninitialized `current_best_estimate_`.
+   */
+  bandwidthEstimateBps: number;
+  state: LossBasedState;
+}
+
+/** Stored `loss_based_result_` (no readiness bit — that is computed). */
+interface StoredLossBasedResult {
   bandwidthEstimateBps: number;
   state: LossBasedState;
 }
@@ -116,7 +129,7 @@ export class LossBasedBwe {
    * pin `loss_based_result_` — value returned to GoogCC.
    * Initial state is `kDelayBasedEstimate`.
    */
-  private lossBasedResult: LossBasedResult = {
+  private lossBasedResult: StoredLossBasedResult = {
     bandwidthEstimateBps: kDefaultStartBitrateBps,
     state: "delay_based",
   };
@@ -132,7 +145,8 @@ export class LossBasedBwe {
   private cachedInstantLowerBoundBps = 0;
   private lastSendTimeMostRecentObservation = Number.NaN;
   private recoveringAfterLossMs = Number.NaN;
-  private bandwidthLimitInCurrentWindow = kMaxBitrateBps;
+  /** pin `bandwidth_limit_in_current_window_` starts as PlusInfinity. */
+  private bandwidthLimitInCurrentWindow = Number.POSITIVE_INFINITY;
   private holdUntilMs = Number.NEGATIVE_INFINITY;
   private holdDurationMs = kLossBasedInitHoldDurationMs;
   private holdRateBps = kMaxBitrateBps;
@@ -186,7 +200,7 @@ export class LossBasedBwe {
     this.cachedInstantLowerBoundBps = 0;
     this.lastSendTimeMostRecentObservation = Number.NaN;
     this.recoveringAfterLossMs = Number.NaN;
-    this.bandwidthLimitInCurrentWindow = kMaxBitrateBps;
+    this.bandwidthLimitInCurrentWindow = Number.POSITIVE_INFINITY;
     this.holdUntilMs = Number.NEGATIVE_INFINITY;
     this.holdDurationMs = kLossBasedInitHoldDurationMs;
     this.holdRateBps = kMaxBitrateBps;
@@ -254,9 +268,9 @@ export class LossBasedBwe {
   }
 
   /**
-   * pin `GetLossBasedResult`. Until {@link isReady}, returns the latest
-   * delay-based estimate with `kDelayBasedEstimate` and does **not** expose
-   * the internally evolving `loss_based_result_`.
+   * pin `GetLossBasedResult`. Until {@link isReady}, delay (or `+Infinity`
+   * if delay is unset) with `kDelayBasedEstimate`. Does **not** expose the
+   * internally evolving `loss_based_result_` or uninitialized current-best.
    */
   get targetBitrateBps() {
     return this.getLossBasedResult().bandwidthEstimateBps;
@@ -298,19 +312,28 @@ export class LossBasedBwe {
     return this.numObservations;
   }
 
-  /** pin `GetLossBasedResult`. */
-  private getLossBasedResult(): LossBasedResult {
+  /**
+   * pin `LossBasedBweV2::GetLossBasedResult`.
+   * `ready` is {@link isReady}. Controllers must ignore
+   * `bandwidthEstimateBps` until `ready` (pin
+   * `LossBasedBandwidthEstimatorV2ReadyForUse`).
+   */
+  getLossBasedResult(): LossBasedResult {
     if (!this.isReady) {
-      const estimate =
-        this.delayBasedBps > 0
-          ? this.delayBasedBps
-          : this.currentBestEstimate.lossLimitedBandwidthBps;
       return {
-        bandwidthEstimateBps: estimate,
+        ready: false,
+        bandwidthEstimateBps:
+          this.delayBasedBps > 0
+            ? this.delayBasedBps
+            : Number.POSITIVE_INFINITY,
         state: "delay_based",
       };
     }
-    return this.lossBasedResult;
+    return {
+      ready: true,
+      bandwidthEstimateBps: this.lossBasedResult.bandwidthEstimateBps,
+      state: this.lossBasedResult.state,
+    };
   }
 
   setBitrateIfHigher(bps: number) {
@@ -963,7 +986,7 @@ export class LossBasedBwe {
     let upper = this.maxBitrateBps;
     if (
       this.isInLossLimitedState() &&
-      this.bandwidthLimitInCurrentWindow < kMaxBitrateBps
+      Number.isFinite(this.bandwidthLimitInCurrentWindow)
     ) {
       upper = this.bandwidthLimitInCurrentWindow;
     }
@@ -994,10 +1017,13 @@ export class LossBasedBwe {
 
     const candidateUpper = this.getCandidateBandwidthUpperBound();
     return bandwidths.map((bw) => {
-      const lossLimited = Math.min(bw, Math.max(currentBw, candidateUpper));
       const candidate: ChannelParameters = {
         inherentLoss: this.currentBestEstimate.inherentLoss,
-        lossLimitedBandwidthBps: Math.min(lossLimited, this.maxBitrateBps),
+        // pin GetCandidates: no extra configured-max clamp before Newton.
+        lossLimitedBandwidthBps: Math.min(
+          bw,
+          Math.max(currentBw, candidateUpper),
+        ),
       };
       candidate.inherentLoss = this.getFeasibleInherentLoss(candidate);
       return candidate;

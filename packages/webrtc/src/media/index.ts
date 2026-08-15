@@ -86,6 +86,7 @@ export type {
   BandwidthUsage,
   GccBandwidthEstimatorOptions,
   GccClock,
+  LossBasedResult,
   LossBasedState,
   ProbeClusterConfig,
   ProbeState,

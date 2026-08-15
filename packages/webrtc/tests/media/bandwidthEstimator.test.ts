@@ -81,6 +81,30 @@ function makeTwccRtcp(results: PacketResult[]): RtcpTransportLayerFeedback {
   });
 }
 
+/**
+ * pin UpdateEstimate は IsReady のときだけ GetLossBasedResult を採用する。
+ * update() を stub するテストは、戻り値ではなく stored result を載せる。
+ */
+function stubLossBasedReady(
+  gcc: GccBandwidthEstimator,
+  bps: number,
+  state:
+    | "increasing"
+    | "increase_using_padding"
+    | "decreasing"
+    | "delay_based" = "delay_based",
+) {
+  (gcc as any).lossBwe.update = () => {
+    (gcc as any).lossBwe.currentBestInitialized = true;
+    (gcc as any).lossBwe.numObservations = 3;
+    (gcc as any).lossBwe.lossBasedResult = {
+      bandwidthEstimateBps: bps,
+      state,
+    };
+    return bps;
+  };
+}
+
 function sent(
   wideSeq: number,
   size: number,
@@ -917,7 +941,10 @@ describe("media/sender bandwidth estimator", () => {
       expect(loss.lossState).toBe("delay_based");
       loss.reset(300_000);
       expect(loss.lossState).toBe("delay_based");
-      expect(loss.targetBitrateBps).toBe(300_000);
+      expect(loss.isReady).toBe(false);
+      // pin GetLossBasedResult: !ready かつ delay unset → PlusInfinity
+      expect(loss.targetBitrateBps).toBe(Number.POSITIVE_INFINITY);
+      expect((loss as any).lossBasedResult.bandwidthEstimateBps).toBe(300_000);
     });
 
     test("LossBasedBwe は 250ms×3 観測まで delay-based を返す（cap しない）", () => {
@@ -1087,6 +1114,50 @@ describe("media/sender bandwidth estimator", () => {
       expect(loss.lossState).toBe("delay_based");
       expect(loss.targetBitrateBps).toBe(600_000);
       expect((loss as any).currentBestInitialized).toBe(true);
+    });
+
+    test("IsReady 前かつ delay unset の GetLossBasedResult は current-best ではなく +Infinity", () => {
+      // Arrange: pin は delay_based_estimate_ が無効なら PlusInfinity
+      const loss = new LossBasedBwe();
+      loss.reset(300_000);
+
+      // Act
+      const result = loss.getLossBasedResult();
+
+      // Assert
+      expect(loss.isReady).toBe(false);
+      expect(result.ready).toBe(false);
+      expect(result.state).toBe("delay_based");
+      expect(result.bandwidthEstimateBps).toBe(Number.POSITIVE_INFINITY);
+      expect(loss.targetBitrateBps).toBe(Number.POSITIVE_INFINITY);
+    });
+
+    test("GetCandidates は configured max で objective 前に clamp しない", () => {
+      // Arrange: pin GetCandidates = min(bw, max(current, window_upper))
+      const loss = new LossBasedBwe();
+      loss.reset(450_000);
+      loss.setMinMaxBitrate(10_000, 500_000);
+      (loss as any).currentBestEstimate.lossLimitedBandwidthBps = 450_000;
+      (loss as any).currentBestInitialized = true;
+      (loss as any).state = "decreasing";
+      (loss as any).bandwidthLimitInCurrentWindow = 585_000;
+      (loss as any).delayBasedBps = 1_000_000;
+
+      // Act
+      const cands = (loss as any).getCandidates(false) as Array<{
+        lossLimitedBandwidthBps: number;
+      }>;
+
+      // Assert: delay 1M は window 585k のまま Newton に渡る（500k に落とさない）
+      expect(cands.some((c) => c.lossLimitedBandwidthBps === 585_000)).toBe(
+        true,
+      );
+      expect(cands.some((c) => c.lossLimitedBandwidthBps === 1_000_000)).toBe(
+        false,
+      );
+      expect(
+        cands.filter((c) => c.lossLimitedBandwidthBps === 500_000),
+      ).toHaveLength(0);
     });
 
     test("LossBasedBweV2 代表系列: delay → decrease+HOLD → 内部上昇 → expire → padding → delay", () => {
@@ -3024,10 +3095,7 @@ describe("media/sender bandwidth estimator", () => {
       (gcc as any).probingConfigured = true;
       (gcc as any).lastUsage = "normal";
       (gcc as any).lossBwe.state = "delay_based";
-      (gcc as any).lossBwe.update = () => {
-        (gcc as any).lossBwe.state = "delay_based";
-        return 150_000;
-      };
+      stubLossBasedReady(gcc, 150_000, "delay_based");
 
       const states: Array<"normal" | "underuse" | "overuse"> = [
         "normal",
@@ -3487,10 +3555,7 @@ describe("media/sender bandwidth estimator", () => {
         cause: "delay_based_limited",
       });
       // Stable delay_based after loss update so cause allows recovery
-      (gcc as any).lossBwe.update = () => {
-        (gcc as any).lossBwe.state = "delay_based";
-        return 150_000;
-      };
+      stubLossBasedReady(gcc, 150_000, "delay_based");
 
       // Simulate detector transitions inside the receive-time loop:
       // start normal, then underuse, then normal → latch recovery.
@@ -3579,10 +3644,7 @@ describe("media/sender bandwidth estimator", () => {
       (gcc as any).probe.setEstimatedBitrate(180_000, t0 + 1, {
         cause: "delay_based_limited",
       });
-      (gcc as any).lossBwe.update = () => {
-        (gcc as any).lossBwe.state = "delay_based";
-        return 180_000;
-      };
+      stubLossBasedReady(gcc, 180_000, "delay_based");
 
       // Per-packet states: N → U → N (start and end both normal)
       const afterUpdate: Array<"normal" | "underuse"> = [
@@ -3644,10 +3706,7 @@ describe("media/sender bandwidth estimator", () => {
       (gcc as any).probe.setEstimatedBitrate(150_000, 2, {
         cause: "delay_based_limited",
       });
-      (gcc as any).lossBwe.update = () => {
-        (gcc as any).lossBwe.state = "delay_based";
-        return 150_000;
-      };
+      stubLossBasedReady(gcc, 150_000, "delay_based");
       let cur: "normal" | "underuse" = "normal";
       const seq: Array<"normal" | "underuse"> = [
         "normal",
@@ -3712,10 +3771,7 @@ describe("media/sender bandwidth estimator", () => {
 
       // Prevent loss update from clearing decreasing while we still have few
       // observations: stub update to keep state + return loss-limited bps.
-      (gcc as any).lossBwe.update = () => {
-        (gcc as any).lossBwe.state = "decreasing";
-        return 100_000;
-      };
+      stubLossBasedReady(gcc, 100_000, "decreasing");
 
       const probeCfgs: number[] = [];
       gcc.onProbeClusterConfig.subscribe((c) => probeCfgs.push(c.targetBps));
@@ -3746,11 +3802,8 @@ describe("media/sender bandwidth estimator", () => {
       expect(gcc.probeState).toBe("complete");
 
       // HOLD timer 中も state は decreasing のまま（kHold は無い）
-      (gcc as any).lossBwe.update = () => {
-        (gcc as any).lossBwe.state = "decreasing";
-        (gcc as any).lossBwe.holdUntilMs = t0 + 60_000;
-        return 100_000;
-      };
+      stubLossBasedReady(gcc, 100_000, "decreasing");
+      (gcc as any).lossBwe.holdUntilMs = t0 + 60_000;
       (gcc as any).probe.pendingEstimateBps = 500_000;
       (gcc as any).lastUsage = "underuse";
       for (let i = 11; i <= 20; i++) {
@@ -4262,10 +4315,7 @@ describe("media/sender bandwidth estimator", () => {
       (gcc as any).delayBasedBps = startBps;
       (gcc as any).currentTargetBps = afterFirstDrop;
       (gcc as any)._availableBitrate = afterFirstDrop;
-      (gcc as any).lossBwe.update = () => {
-        (gcc as any).lossBwe.state = "decreasing";
-        return 300_000;
-      };
+      stubLossBasedReady(gcc, 300_000, "decreasing");
       Object.defineProperty((gcc as any).trendline, "state", {
         get: () => "normal",
         configurable: true,
@@ -4487,10 +4537,7 @@ describe("media/sender bandwidth estimator", () => {
         get: () => 400_000,
         configurable: true,
       });
-      (gcc as any).lossBwe.update = () => {
-        (gcc as any).lossBwe.state = "decreasing";
-        return 300_000;
-      };
+      stubLossBasedReady(gcc, 300_000, "decreasing");
       Object.defineProperty((gcc as any).trendline, "state", {
         get: () => "normal",
         configurable: true,
@@ -4716,7 +4763,12 @@ describe("media/sender bandwidth estimator", () => {
       });
       // loss は delay をそのまま返す（ready 前 / delay_based）
       (gcc as any).lossBwe.update = (_lf: number, delayBasedBps: number) => {
-        (gcc as any).lossBwe.state = "delay_based";
+        (gcc as any).lossBwe.currentBestInitialized = true;
+        (gcc as any).lossBwe.numObservations = 3;
+        (gcc as any).lossBwe.lossBasedResult = {
+          bandwidthEstimateBps: delayBasedBps,
+          state: "delay_based",
+        };
         return delayBasedBps;
       };
       (gcc as any).ackedBitrate.incomingPacketFeedbackVector(
@@ -4785,9 +4837,15 @@ describe("media/sender bandwidth estimator", () => {
       ) => {
         lossCalls++;
         delayArgs.push(delayBasedBps);
+        const limited = Math.min(delayBasedBps, 250_000);
         // Loss still binds after elevated probe delay
-        (gcc as any).lossBwe.state = "decreasing";
-        return Math.min(delayBasedBps, 250_000);
+        (gcc as any).lossBwe.currentBestInitialized = true;
+        (gcc as any).lossBwe.numObservations = 3;
+        (gcc as any).lossBwe.lossBasedResult = {
+          bandwidthEstimateBps: limited,
+          state: "decreasing",
+        };
+        return limited;
       };
       // Ensure setBandwidthEstimate is NOT used to wipe state before loss
       let setBwCalls = 0;
@@ -4890,10 +4948,7 @@ describe("media/sender bandwidth estimator", () => {
       (gcc as any).lastUsage = "normal";
       (gcc as any).rttBackoff.reset();
       (gcc as any).rttBackoff.updatePropagationRtt(Date.now(), 100);
-      (gcc as any).lossBwe.update = () => {
-        (gcc as any).lossBwe.state = "increasing";
-        return 200_000;
-      };
+      stubLossBasedReady(gcc, 200_000, "increasing");
 
       Object.defineProperty((gcc as any).trendline, "state", {
         get: () => "normal",
@@ -7062,6 +7117,44 @@ describe("media/sender bandwidth estimator", () => {
       expect((gcc as any).lossBwe.delayBasedBps).toBe(0);
     });
 
+    test("IsReady 前の all-lost TWCC は LossBased を採用せず start=800k を維持する", () => {
+      // Arrange: constructor 300k → SetSendBitrate 相当 start=800k
+      const { gcc, setNow } = createClockGcc(300_000, 90_000);
+      gcc.setBitrates(10_000, 800_000, 1e9);
+      (gcc as any).probe.abort(90_000);
+      expect((gcc as any).currentTargetBps).toBe(800_000);
+      expect((gcc as any).lossBwe.isReady).toBe(false);
+
+      // Act: all-lost TWCC（delay なし、観測も 250ms 未満で !IsReady）
+      for (let i = 1; i <= 4; i++) {
+        gcc.rtpPacketSent(sent(i, 500, 90_000 + i * 10));
+      }
+      setNow(90_050);
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 4 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: false,
+            });
+          }),
+        ),
+      );
+
+      // Assert: pin は ReadyForUse まで LossBased result を current_target に載せない
+      expect((gcc as any).lossBwe.isReady).toBe(false);
+      expect((gcc as any).currentTargetBps).toBe(800_000);
+      expect((gcc as any).lossBwe.getLossBasedResult().ready).toBe(false);
+
+      // Act: ProcessInterval も同じ gate
+      setNow(90_075);
+      gcc.process(90_075);
+
+      // Assert
+      expect((gcc as any).currentTargetBps).toBe(800_000);
+      expect(gcc.availableBitrate).toBe(800_000);
+    });
+
     test("setBitrates(start=0) は current target を上書きしない", () => {
       // Arrange: pin SetBitrates は start=0 なら SetSendBitrate しない
       const { gcc } = createClockGcc(300_000, 80_000);
@@ -7092,10 +7185,7 @@ describe("media/sender bandwidth estimator", () => {
       gcc.setBitrates(10_000, 300_000, 1_000_000);
       (gcc as any).probe.abort(50_000);
       (gcc as any).probingConfigured = true;
-      (gcc as any).lossBwe.update = () => {
-        (gcc as any).lossBwe.state = "delay_based";
-        return 3_000_000;
-      };
+      stubLossBasedReady(gcc, 3_000_000, "delay_based");
       (gcc as any).aimd.update = () => 3_000_000;
       Object.defineProperty((gcc as any).trendline, "state", {
         get: () => "normal",

@@ -55,7 +55,7 @@ export {
   kSendTimeGroupLengthMs,
 } from "./interArrivalDelta";
 export { LossBasedBwe } from "./lossBasedBwe";
-export type { LossBasedState } from "./lossBasedBwe";
+export type { LossBasedResult, LossBasedState } from "./lossBasedBwe";
 export { ProbeController } from "./probeController";
 export type { ProbeClusterConfig, ProbeState } from "./probeController";
 export {

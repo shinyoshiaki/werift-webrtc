@@ -139,6 +139,7 @@
 - [Extensions](interfaces/Extensions.md)
 - [IceConnection](interfaces/IceConnection.md)
 - [IceOptions](interfaces/IceOptions.md)
+- [LossBasedResult](interfaces/LossBasedResult.md)
 - [MessageEvent](interfaces/MessageEvent.md)
 - [NetworkAvailabilityConsumer](interfaces/NetworkAvailabilityConsumer.md)
 - [PeerConfig](interfaces/PeerConfig.md)
