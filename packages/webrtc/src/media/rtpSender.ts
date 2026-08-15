@@ -156,11 +156,15 @@ export class RTCRtpSender {
   private bweProbeUnsub?: () => void;
 
   /**
-   * When false, skip media token-bucket and probe next-send waits.
-   * Sim harnesses use this so the synthetic source rate is the wire rate.
-   * Production default is true (pin GetPacingRates / BitrateProber).
+   * @internal Sim / test only. When false, skip the **media** token-bucket
+   * (pin GetPacingRates). Probe `next_probe_time` waits stay enabled so
+   * BitrateProber timing is not disabled by accident.
+   *
+   * Peer/Chrome sims turn this off during the congestion phase so the
+   * synthetic generate rate hits the bottleneck, then turn it back on
+   * when the app follows {@link onAvailableBitrate}.
    */
-  pacingEnabled = true;
+  mediaPacingEnabled = true;
   /** Token-bucket pacer state for **media** (not probe) rate enforcement. */
   private paceBudgetBytes = 0;
   private lastPaceMs = 0;
@@ -857,12 +861,7 @@ export class RTCRtpSender {
       opts.forceProbeTag === true ||
       (isProbePacingController(estimatorAtStart) &&
         estimatorAtStart.shouldTagProbePacket());
-    if (
-      this.pacingEnabled &&
-      twccOn &&
-      wantsProbe &&
-      isProbePacingController(estimatorAtStart)
-    ) {
+    if (twccOn && wantsProbe && isProbePacingController(estimatorAtStart)) {
       const reservation = estimatorAtStart.reserveOutgoingProbe(milliTime());
       if (reservation) {
         reservedClusterId = reservation.clusterId;
@@ -879,7 +878,7 @@ export class RTCRtpSender {
         return;
       }
     } else if (
-      this.pacingEnabled &&
+      this.mediaPacingEnabled &&
       twccOn &&
       isProbePacingController(estimatorAtStart)
     ) {

@@ -27,8 +27,9 @@ describe("simulations/gcc-twcc-congestion", () => {
       startBitrateBps: 700_000,
     });
 
-    // 合成ソースの生成レートをワイヤーに出す（pacer 待ち行列が追従後も溢れない）
-    pair.sender.pacingEnabled = false;
+    // 輻輳期: メディア token-bucket を外し、生成 700kbps をボトルネックへ出す。
+    // probe の next_probe_time は常に有効（BitrateProber を壊さない）。
+    pair.sender.mediaPacingEnabled = false;
     let targetBps = 700_000;
     const media = startMediaSource(pair.track, () => targetBps, {
       payloadBytes: 800,
@@ -48,14 +49,15 @@ describe("simulations/gcc-twcc-congestion", () => {
       expect(congestedStats.dropped).toBeGreaterThan(5);
       // 日本語: TWCC 経由で onAvailableBitrate が少なくとも 1 回は発火していること
       expect(bitrateAfterCongestion.length).toBeGreaterThan(0);
-      // 日本語: 推定が初期 700kbps より明確に下がっていること（容量の 2 倍未満）
+      // 日本語: 推定が初期 700kbps より明確に下がっていること
       expect(lastEstimateAfterCongestion).toBeLessThan(550_000);
       expect(lastEstimateAfterCongestion).toBeLessThan(700_000 * 0.85);
 
-      // Act 2: キューを少し空けてから、容量未満に追従（pacer 1.1× でも溢れない）
+      // Act 2: 低レートでキューを空け、追従期は本番 pacer を戻す
       targetBps = 40_000;
       await sleep(800);
       pair.link.resetStats("a2b");
+      pair.sender.mediaPacingEnabled = true;
       targetBps = Math.max(
         40_000,
         Math.min(lastEstimateAfterCongestion, Math.floor(capacityBps * 0.75)),

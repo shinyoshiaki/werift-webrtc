@@ -308,6 +308,9 @@ export class sim_gcc_twcc_chrome {
         // ボトルネック装着後に probe を開始（装着前の timeout clock を避ける）
         this.gcc?.setNetworkAvailable(true);
         this.adaptMode = false;
+        // 輻輳期はメディア pacer を外し、生成レートをボトルネックへ出す。
+        // probe next_probe_time は常に有効。
+        this.sender.mediaPacingEnabled = false;
         this.targetBps = payload?.targetBps ?? 700_000;
         this.startMediaLoop(payload?.payloadBytes ?? 800);
         accept(this.snapshot());
@@ -322,7 +325,8 @@ export class sim_gcc_twcc_chrome {
         break;
       }
       case "startAdapt": {
-        // 推定帯域に追従して送信レートを下げる
+        // 追従期は本番 GetPacingRates を戻し、アプリが推定に合わせる
+        this.sender.mediaPacingEnabled = true;
         this.adaptMode = true;
         const last =
           this.bitrateSamples[this.bitrateSamples.length - 1] ??

@@ -47,7 +47,8 @@ npm run chrome:sim
 1. werift が TWCC 付き offer を送り、Chrome が recvonly answer。
 2. 接続後、`RTCDtlsTransport.sendRtp` が使う ICE `connection.send` に上限帯域（例: 200 kbps）ボトルネックを装着する（制御パケットではなくメディア RTP を `byKind.rtp` で識別）。
 3. 容量超過の固定レートで RTP を送り、**RTP ドロップ**と `onAvailableBitrate` 低下、Chrome `packetsReceived` を確認。
-4. 推定帯域に送信レートを追従させ、**適応期の RTP ドロップ率・追加ドロップ数が輻輳期より厳密に低下**することを確認。
+   輻輳期は `mediaPacingEnabled = false`（生成レートをワイヤーへ）。probe 間隔は切らない。
+4. 追従期は pacer を戻し、推定帯域に送信レートを合わせ、**適応期の RTP ドロップ率・追加ドロップ数が輻輳期より厳密に低下**することを確認。
 
 ### 補足
 
