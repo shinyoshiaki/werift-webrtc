@@ -35,6 +35,7 @@ import {
   kLossBasedSendingRateSmoothingFactor,
   kLossBasedTemporalWeightFactor,
   kLossBasedUseByteLossRate,
+  kLossBasedUseInStartPhase,
   kMaxBitrateBps,
   kMinBitrateBps,
 } from "./constants";
@@ -265,6 +266,23 @@ export class LossBasedBwe {
       this.currentBestInitialized &&
       this.numObservations >= kLossBasedMinNumObservations
     );
+  }
+
+  /**
+   * pin `LossBasedBweV2::UseInStartPhase` (default true).
+   */
+  get useInStartPhase(): boolean {
+    return kLossBasedUseInStartPhase;
+  }
+
+  /**
+   * pin `LossBasedBweV2::ReadyToUseInStartPhase` —
+   * `IsReady() && UseInStartPhase`. While false, send-side UpdateEstimate
+   * may still raise `current_target_` via delay_based_limit_ during the
+   * start phase (`last_fraction_loss_ == 0`).
+   */
+  get readyToUseInStartPhase(): boolean {
+    return this.isReady && this.useInStartPhase;
   }
 
   /**

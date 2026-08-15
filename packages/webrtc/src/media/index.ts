@@ -77,6 +77,8 @@ export {
   kRttBasedBackOffDropIntervalMs,
   kRttBasedBackOffHighRttMs,
   kSendTimeHistoryWindowMs,
+  kStartPhaseMs,
+  kStartPhaseLossReportMinPackets,
   kTrendlineWindowSize,
   sortPacketResultsByWideSeq,
 } from "./sender/estimators/gcc";

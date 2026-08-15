@@ -42,9 +42,11 @@ import {
   kAlrProbeScale,
   kAlrProbingIntervalMs,
   kBeta,
+  kDefaultMaxProbingBitrateBps,
   kGoogCcProcessIntervalMs,
   kLossBasedPaddingDurationMs,
   kLossLimitedProbeScale,
+  kMaxBitrateBps,
   kMinBitrateBps,
   kProbeFractionAfterDrop,
   kProbePaddingPacketBytes,
@@ -53,6 +55,8 @@ import {
   kRttBasedBackOffDropIntervalMs,
   kRttBasedBackOffHighRttMs,
   kSendTimeHistoryWindowMs,
+  kStartPhaseLossReportMinPackets,
+  kStartPhaseMs,
   kTrendlineWindowSize,
   maxProbeBitrateBps,
   sortPacketResultsByWideSeq,
@@ -942,6 +946,7 @@ describe("media/sender bandwidth estimator", () => {
       loss.reset(300_000);
       expect(loss.lossState).toBe("delay_based");
       expect(loss.isReady).toBe(false);
+      expect(loss.readyToUseInStartPhase).toBe(false);
       // pin GetLossBasedResult: !ready かつ delay unset → PlusInfinity
       expect(loss.targetBitrateBps).toBe(Number.POSITIVE_INFINITY);
       expect((loss as any).lossBasedResult.bandwidthEstimateBps).toBe(300_000);
@@ -7117,6 +7122,104 @@ describe("media/sender bandwidth estimator", () => {
       expect((gcc as any).lossBwe.delayBasedBps).toBe(0);
     });
 
+    test("IsReady 前の start phase は delay estimate で target を引き上げる", () => {
+      // Arrange: start=300k、LossBased は 3 observation 未満、probe は止める
+      const { gcc, setNow } = createClockGcc(300_000, 100_000);
+      (gcc as any).probe.abort(100_000);
+      expect((gcc as any).lossBwe.isReady).toBe(false);
+      expect((gcc as any).lossBwe.readyToUseInStartPhase).toBe(false);
+
+      // Act: 短時間の正常 TWCC（250ms 未満なので observation は commit されない）
+      for (let i = 1; i <= 8; i++) {
+        gcc.rtpPacketSent(sent(i, 500, 100_000 + i * 10));
+      }
+      setNow(100_200);
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 8 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: true,
+              receivedAtMs: 100_020 + i * 10,
+            });
+          }),
+        ),
+      );
+
+      // Assert: pin は delay_based_limit を current へ max する（ApplyTargetLimits では上げられない）
+      expect((gcc as any).lossBwe.isReady).toBe(false);
+      expect((gcc as any).lossBwe.observationCount).toBeLessThan(3);
+      expect((gcc as any).delayBasedLimitBps).toBeGreaterThan(300_000);
+      expect(gcc.availableBitrate).toBeGreaterThan(300_000);
+      expect(gcc.availableBitrate).toBe((gcc as any).currentTargetBps);
+    });
+
+    test("last_fraction_loss!=0 の start phase は delay で target を引き上げない", () => {
+      // Arrange: TransportLossReport で fraction_loss を非ゼロにする
+      const { gcc, setNow } = createClockGcc(300_000, 101_000);
+      (gcc as any).probe.abort(101_000);
+      gcc.updatePacketsLost(
+        kStartPhaseLossReportMinPackets,
+        kStartPhaseLossReportMinPackets,
+        101_000,
+      );
+      expect((gcc as any).lastFractionLoss).toBeGreaterThan(0);
+
+      // Act: 同じ短時間の正常 TWCC
+      for (let i = 1; i <= 8; i++) {
+        gcc.rtpPacketSent(sent(i, 500, 101_000 + i * 10));
+      }
+      setNow(101_200);
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 8 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: true,
+              receivedAtMs: 101_020 + i * 10,
+            });
+          }),
+        ),
+      );
+
+      // Assert: startup branch は last_fraction_loss==0 のときだけ。ApplyTargetLimits は上げない
+      expect((gcc as any).lossBwe.isReady).toBe(false);
+      expect((gcc as any).delayBasedLimitBps).toBeGreaterThan(300_000);
+      expect(gcc.availableBitrate).toBe(300_000);
+    });
+
+    test("start phase 終了後は delay で target を引き上げない", () => {
+      // Arrange: 損失 0 の RR で first_report_time を刻み、2s 超へ進める
+      const { gcc, setNow } = createClockGcc(300_000, 102_000);
+      (gcc as any).probe.abort(102_000);
+      gcc.updatePacketsLost(0, kStartPhaseLossReportMinPackets, 102_000);
+      expect((gcc as any).lastFractionLoss).toBe(0);
+      const afterStart = 102_000 + kStartPhaseMs + 1;
+      setNow(afterStart);
+
+      // Act
+      for (let i = 1; i <= 8; i++) {
+        gcc.rtpPacketSent(sent(i, 500, afterStart + i * 10));
+      }
+      setNow(afterStart + 200);
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 8 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: true,
+              receivedAtMs: afterStart + 20 + i * 10,
+            });
+          }),
+        ),
+      );
+
+      // Assert: IsInStartPhase=false なら max(current, delay) しない
+      expect((gcc as any).lossBwe.isReady).toBe(false);
+      expect((gcc as any).delayBasedLimitBps).toBeGreaterThan(300_000);
+      expect(gcc.availableBitrate).toBe(300_000);
+    });
+
     test("IsReady 前の all-lost TWCC は LossBased を採用せず start=800k を維持する", () => {
       // Arrange: constructor 300k → SetSendBitrate 相当 start=800k
       const { gcc, setNow } = createClockGcc(300_000, 90_000);
@@ -7153,6 +7256,25 @@ describe("media/sender bandwidth estimator", () => {
       // Assert
       expect((gcc as any).currentTargetBps).toBe(800_000);
       expect(gcc.availableBitrate).toBe(800_000);
+    });
+
+    test("setBitrates は新しい min/max で古い制約を完全に置き換える", () => {
+      // Arrange: pin ResetConstraints は前回値を fallback に使わない
+      const { gcc } = createClockGcc(300_000, 92_000);
+      gcc.setBitrates(200_000, 300_000, 1_000_000);
+      expect((gcc as any).minConfiguredBps).toBe(200_000);
+      expect((gcc as any).appMaxBps).toBe(1_000_000);
+      expect((gcc as any).currentTargetBps).toBe(300_000);
+
+      // Act: min=0 / start=0 / max=+∞ で解除
+      gcc.setBitrates(0, 0, Number.POSITIVE_INFINITY);
+
+      // Assert: min は 5kbps、app max は消え、target/probe は pin の default
+      expect((gcc as any).minConfiguredBps).toBe(kMinBitrateBps);
+      expect((gcc as any).appMaxBps).toBeUndefined();
+      expect((gcc as any).targetMaxBps()).toBe(kMaxBitrateBps);
+      expect((gcc as any).probeMaxBps()).toBe(kDefaultMaxProbingBitrateBps);
+      expect((gcc as any).currentTargetBps).toBe(300_000);
     });
 
     test("setBitrates(start=0) は current target を上書きしない", () => {

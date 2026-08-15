@@ -100,6 +100,23 @@ Number of committed observations (for readiness tests).
 
 ***
 
+### readyToUseInStartPhase
+
+#### Get Signature
+
+> **get** **readyToUseInStartPhase**(): `boolean`
+
+pin `LossBasedBweV2::ReadyToUseInStartPhase` —
+`IsReady() && UseInStartPhase`. While false, send-side UpdateEstimate
+may still raise `current_target_` via delay_based_limit_ during the
+start phase (`last_fraction_loss_ == 0`).
+
+##### Returns
+
+`boolean`
+
+***
+
 ### targetBitrateBps
 
 #### Get Signature
@@ -113,6 +130,20 @@ internally evolving `loss_based_result_` or uninitialized current-best.
 ##### Returns
 
 `number`
+
+***
+
+### useInStartPhase
+
+#### Get Signature
+
+> **get** **useInStartPhase**(): `boolean`
+
+pin `LossBasedBweV2::UseInStartPhase` (default true).
+
+##### Returns
+
+`boolean`
 
 ## Methods
 

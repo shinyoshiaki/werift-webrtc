@@ -33,6 +33,8 @@ import {
   kRttBasedBackOffDropFraction,
   kRttBasedBackOffDropIntervalMs,
   kSendTimeHistoryWindowMs,
+  kStartPhaseLossReportMinPackets,
+  kStartPhaseMs,
   kStreamTimeOutMs,
 } from "./constants";
 import { InterArrivalDelta } from "./interArrivalDelta";
@@ -196,6 +198,21 @@ export class GccBandwidthEstimator
   private lastRttDecreaseMs = Number.NEGATIVE_INFINITY;
   /** pin `first_packet_sent_` — seeds UpdatePropagationRtt(send, 0). */
   private firstPacketSent = false;
+  /**
+   * pin `last_fraction_loss_` (Q8, 0–255). Updated only via
+   * {@link updatePacketsLost} (OnTransportLossReport). TWCC does not
+   * write this — LossBasedV2 has its own observation path.
+   */
+  private lastFractionLoss = 0;
+  /**
+   * pin `first_report_time_`. MinusInfinity until the first
+   * {@link updatePacketsLost}. `IsInStartPhase` is then true forever
+   * until a TransportLossReport arrives (TWCC-only production path).
+   */
+  private firstReportTimeMs = Number.NEGATIVE_INFINITY;
+  /** pin accumulators for `UpdatePacketsLost` (`kLimitNumPackets` = 20). */
+  private lostPacketsSinceLastLossUpdate = 0;
+  private expectedPacketsSinceLastLossUpdate = 0;
   /** Last batch max_feedback_rtt (diagnostics; not used for probe cause). */
   private lastMaxFeedbackRttMs = 0;
   /** Last batch min_propagation_rtt (before timeout correction). */
@@ -369,10 +386,15 @@ export class GccBandwidthEstimator
    * pin `OnTargetRateConstraints` / `ResetConstraints` / `ClampConstraints`
    * then `ProbeController::SetBitrates`.
    *
-   * Constraints are normalized **once** at this entrance (pin order):
-   * min floored at {@link kMinBitrateBps} → max raised to min → start
-   * raised to min when `start > 0`. The same triple is then applied to
-   * AIMD, LossBasedBwe, ProbeController, and {@link applyTargetLimits}.
+   * Constraints are **replaced** (pin `ResetConstraints`), not merged
+   * with the previous min/max. `min = 0` floors at {@link kMinBitrateBps};
+   * non-finite / non-positive max clears the app cap (target 1 Gbps,
+   * probe 5 Mbps). `start = 0` does not overwrite current_target.
+   *
+   * Normalization (pin order): min floored at {@link kMinBitrateBps} →
+   * max raised to min → start raised to min when `start > 0`. The same
+   * triple is then applied to AIMD, LossBasedBwe, ProbeController, and
+   * {@link applyTargetLimits}.
    *
    * While probing is `complete`, a **higher** max than the previous max
    * (and than the current estimate) starts a single probe at the new max
@@ -392,12 +414,10 @@ export class GccBandwidthEstimator
       this.delayBasedLimitBps = Number.POSITIVE_INFINITY;
       this.currentTargetBps = clamped.startBps;
     }
-    // pin ResetConstraints: the same max is applied to send-side BWE and
-    // ProbeController. start=0 must not overwrite estimated_bitrate_ /
-    // current_target_ (pin SetBitrates skips SetSendBitrate).
-    if (clamped.maxBps !== undefined) {
-      this.appMaxBps = clamped.maxBps;
-    }
+    // pin ResetConstraints: always replace max (PlusInfinity → unset app
+    // cap). start=0 must not overwrite estimated_bitrate_ / current_target_
+    // (pin SetBitrates skips SetSendBitrate).
+    this.appMaxBps = clamped.maxBps;
     this.lossBwe.setMinMaxBitrate(this.minConfiguredBps, this.targetMaxBps());
     this.probingConfigured = true;
     for (const cfg of this.probe.setBitrates(
@@ -422,6 +442,49 @@ export class GccBandwidthEstimator
    */
   setRoundTripTime(rttMs: number): void {
     this.aimd.setRtt(rttMs);
+  }
+
+  /**
+   * pin `OnTransportLossReport` → `UpdatePacketsLost`.
+   *
+   * Feeds `last_fraction_loss_` / `first_report_time_` for the UpdateEstimate
+   * **startup** gate. Does not adopt LossBasedV2 (that stays on TWCC).
+   * Fraction-loss is published only after
+   * {@link kStartPhaseLossReportMinPackets} packets accumulate.
+   *
+   * Not on the thin {@link BandwidthEstimator} interface — RTCP RR / XR
+   * wiring is GCC-specific (same pattern as {@link setRoundTripTime}).
+   */
+  updatePacketsLost(
+    packetsLost: number,
+    numberOfPackets: number,
+    atTimeMs?: number,
+  ): void {
+    if (this.disposed) return;
+    const nowMs = atTimeMs ?? this.clock();
+    if (!Number.isFinite(nowMs)) return;
+    if (
+      !Number.isFinite(this.firstReportTimeMs) ||
+      this.firstReportTimeMs < 0
+    ) {
+      this.firstReportTimeMs = nowMs;
+    }
+    if (!(numberOfPackets > 0)) return;
+    const expected = this.expectedPacketsSinceLastLossUpdate + numberOfPackets;
+    if (expected < kStartPhaseLossReportMinPackets) {
+      this.expectedPacketsSinceLastLossUpdate = expected;
+      this.lostPacketsSinceLastLossUpdate += packetsLost;
+      return;
+    }
+    const lostQ8 =
+      Math.max(this.lostPacketsSinceLastLossUpdate + packetsLost, 0) << 8;
+    this.lastFractionLoss = Math.min(Math.floor(lostQ8 / expected), 255);
+    this.lostPacketsSinceLastLossUpdate = 0;
+    this.expectedPacketsSinceLastLossUpdate = 0;
+    this.updateEstimate(nowMs);
+    if (this.hasValidSample || this._availableBitrate > 0) {
+      setAvailableBitrateIfChanged(this, this.currentTargetBps);
+    }
   }
 
   /**
@@ -810,32 +873,26 @@ export class GccBandwidthEstimator
       this.alr.inAlr,
     );
 
-    // pin UpdateEstimate RTT branch vs normal:
-    // - When RTT-limited: **do not** apply LossBasedBwe result to target.
-    //   Drop first (if due), then ApplyTargetLimits / GetUpperLimit
-    //   (delay_based + configured max, then min_bitrate). Never clamp-then-drop.
-    //   Exception: probe SetSendBitrate already raised current before
-    //   UpdateEstimate (delay path holds post-probe estimate).
-    // - When not RTT-limited and IsReady: current_target = GetLossBasedResult.
-    // - When not ready: keep current_target (ApplyTargetLimits only).
+    // pin UpdateLossBasedEstimator → UpdateEstimate (single function):
+    // 1. RTT-limited: drop / ApplyTargetLimits, return (no LossBased adopt).
+    // 2. Startup: last_fraction_loss==0 && start phase &&
+    //    !ReadyToUseInStartPhase → max(current, delay_based_limit).
+    // 3. IsReady: adopt GetLossBasedResult.
+    // 4. Else: ApplyTargetLimits (do not freeze delay ramp-up at step 2).
+    //
+    // Probe SetSendBitrate is applied *before* UpdateEstimate when a
+    // valid probe result updated the delay path (pin OnTransportPacketsFeedback).
     const rttLimited = this.rttBackoff.isRttAboveLimit();
-    if (rttLimited) {
-      if (
-        delayFeedback &&
-        hasProbeEstimate &&
-        !overusing &&
-        this.delayBasedBps > 0
-      ) {
-        // pin SetSendBitrate(probe) → current_target = probe estimate, then
-        // UpdateEstimate may immediately ×0.8 if still above RTT limit.
-        this.currentTargetBps = this.delayBasedBps;
-      }
-      this.maybeApplyRttBasedBackoff(nowMs);
-    } else if (this.lossBwe.isReady) {
-      this.adoptLossBasedResult();
-    } else {
-      this.applyTargetLimits();
+    if (
+      rttLimited &&
+      delayFeedback &&
+      hasProbeEstimate &&
+      !overusing &&
+      this.delayBasedBps > 0
+    ) {
+      this.currentTargetBps = this.delayBasedBps;
     }
+    this.updateEstimate(nowMs);
 
     const target = this.currentTargetBps;
 
@@ -916,6 +973,10 @@ export class GccBandwidthEstimator
     this.minConfiguredBps = kMinBitrateBps;
     this.appMaxBps = undefined;
     this.delayBasedLimitBps = Number.POSITIVE_INFINITY;
+    this.lastFractionLoss = 0;
+    this.firstReportTimeMs = Number.NEGATIVE_INFINITY;
+    this.lostPacketsSinceLastLossUpdate = 0;
+    this.expectedPacketsSinceLastLossUpdate = 0;
     this.lossBwe.setMinMaxBitrate(this.minConfiguredBps, this.targetMaxBps());
     // pin Reset keeps enable_periodic_alr_probing_; restore in case a
     // direct ProbeController.reset(0) was used without the flag.
@@ -991,14 +1052,15 @@ export class GccBandwidthEstimator
   }
 
   /**
-   * pin `GoogCcNetworkController::ClampConstraints`.
+   * pin `GoogCcNetworkController::ResetConstraints` + `ClampConstraints`.
    *
-   * 1. min = max(provided-or-current, kCongestionControllerMinBitrate)
-   * 2. if a finite max is provided and max is below min, max = min
+   * 1. min_target = provided min, or 0 (never the previous min)
+   *    then min = max(min_target, kCongestionControllerMinBitrate)
+   * 2. max: finite and >0 stays (raised to min if below); 0 / non-finite
+   *    is PlusInfinity (unset app cap — target 1 Gbps, probe 5 Mbps)
    * 3. if start is set and below min, start = min
    *
    * `start = 0` stays 0 (pin optional starting_rate / skip SetSendBitrate).
-   * Non-finite max is PlusInfinity (unset) and is not raised to min.
    */
   private clampConstraints(
     minBps: number,
@@ -1006,13 +1068,10 @@ export class GccBandwidthEstimator
     maxBps: number,
   ): { minBps: number; startBps: number; maxBps: number | undefined } {
     const minTarget = Number.isFinite(minBps) && minBps > 0 ? minBps : 0;
-    const min = Math.max(
-      minTarget > 0 ? minTarget : this.minConfiguredBps,
-      kMinBitrateBps,
-    );
+    const min = Math.max(minTarget, kMinBitrateBps);
 
     let max: number | undefined;
-    if (Number.isFinite(maxBps) && maxBps !== Number.POSITIVE_INFINITY) {
+    if (Number.isFinite(maxBps) && maxBps > 0) {
       max = maxBps;
       if (max < min) {
         max = min;
@@ -1076,24 +1135,71 @@ export class GccBandwidthEstimator
   }
 
   /**
-   * pin `SendSideBandwidthEstimation::UpdateEstimate` on OnProcessInterval.
-   *
-   * RTT-limited: drop first (if interval due), then ApplyTargetLimits.
-   * Otherwise: adopt the last delay/loss candidate (LossBasedBweV2 ready
-   * path) and ApplyTargetLimits. Does **not** invent a new delay sample.
+   * pin `SendSideBandwidthEstimation::IsInStartPhase`.
+   * True until the first TransportLossReport, then for {@link kStartPhaseMs}.
    */
-  private updateEstimateOnProcessInterval(nowMs: number): void {
+  private isInStartPhase(nowMs: number): boolean {
+    if (
+      !Number.isFinite(this.firstReportTimeMs) ||
+      this.firstReportTimeMs < 0
+    ) {
+      return true;
+    }
+    return nowMs - this.firstReportTimeMs < kStartPhaseMs;
+  }
+
+  /**
+   * pin UpdateEstimate startup branch:
+   * `last_fraction_loss_ == 0 && IsInStartPhase && !ReadyToUseInStartPhase`.
+   * Raises current_target to delay_based_limit (REMB not wired).
+   * Returns true when the pin path `UpdateTargetBitrate` + return fired.
+   */
+  private maybeApplyStartupDelayEstimate(_nowMs: number): boolean {
+    if (this.lastFractionLoss !== 0) return false;
+    if (!this.isInStartPhase(_nowMs)) return false;
+    if (this.lossBwe.readyToUseInStartPhase) return false;
+
+    let next = this.currentTargetBps;
+    if (
+      Number.isFinite(this.delayBasedLimitBps) &&
+      this.delayBasedLimitBps > 0
+    ) {
+      next = Math.max(next, this.delayBasedLimitBps);
+    }
+    if (next === this.currentTargetBps) return false;
+    this.currentTargetBps = next;
+    this.applyTargetLimits();
+    return true;
+  }
+
+  /**
+   * pin `SendSideBandwidthEstimation::UpdateEstimate`.
+   *
+   * Shared by receiveTWCC (`UpdateLossBasedEstimator` → UpdateEstimate)
+   * and process() (`OnProcessInterval` → UpdateEstimate).
+   */
+  private updateEstimate(nowMs: number): void {
     if (this.rttBackoff.isRttAboveLimit()) {
       this.maybeApplyRttBasedBackoff(nowMs);
       return;
     }
-    if (this.hasValidSample && this.lossBwe.isReady) {
-      this.adoptLossBasedResult();
-    } else if (this.currentTargetBps <= 0) {
+    if (this.maybeApplyStartupDelayEstimate(nowMs)) {
       return;
-    } else {
-      this.applyTargetLimits();
     }
+    if (this.lossBwe.isReady) {
+      this.adoptLossBasedResult();
+      return;
+    }
+    if (this.currentTargetBps <= 0) return;
+    this.applyTargetLimits();
+  }
+
+  /**
+   * pin `SendSideBandwidthEstimation::UpdateEstimate` on OnProcessInterval.
+   * Does **not** invent a new delay sample.
+   */
+  private updateEstimateOnProcessInterval(nowMs: number): void {
+    this.updateEstimate(nowMs);
     if (this.hasValidSample || this._availableBitrate > 0) {
       setAvailableBitrateIfChanged(this, this.currentTargetBps);
     }

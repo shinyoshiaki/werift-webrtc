@@ -32,6 +32,8 @@ export {
   kRttBasedBackOffDropIntervalMs,
   kRttBasedBackOffHighRttMs,
   kSendTimeHistoryWindowMs,
+  kStartPhaseMs,
+  kStartPhaseLossReportMinPackets,
   kStreamTimeOutMs,
   kTrendlineMinNumDeltas,
   kTrendlineThresholdGain,

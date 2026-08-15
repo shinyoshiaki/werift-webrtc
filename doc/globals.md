@@ -300,6 +300,8 @@
 - [kRttBasedBackOffDropIntervalMs](variables/kRttBasedBackOffDropIntervalMs.md)
 - [kRttBasedBackOffHighRttMs](variables/kRttBasedBackOffHighRttMs.md)
 - [kSendTimeHistoryWindowMs](variables/kSendTimeHistoryWindowMs.md)
+- [kStartPhaseLossReportMinPackets](variables/kStartPhaseLossReportMinPackets.md)
+- [kStartPhaseMs](variables/kStartPhaseMs.md)
 - [kTrendlineWindowSize](variables/kTrendlineWindowSize.md)
 - [NalUnitType](variables/NalUnitType.md)
 - [NamedCurveAlgorithm](variables/NamedCurveAlgorithm.md)
