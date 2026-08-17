@@ -4,10 +4,11 @@ ide:
   version: 1
   title: "Epic 1: Direct DTLS 1.3 endpoint — レビュー解説"
   dock: right
+  baseCommit: ef063d91eaab7f3a564e9ce976d816425401f4f4
 ---
 # Epic 1: Direct DTLS 1.3 endpoint — レビュー解説
 
-ブランチ `ticket/5fc64332-b0d1-4ab0-bc1e-4b0f3a26c135` の現状を、チケット完了条件と複数ラウンドのレビュー指摘の対応結果に沿って説明します。working tree はクリーンです。本文の File Viewer リンクで現行コードへ飛び、Diff Viewer は未コミット差分がある場合に有効です。
+ブランチ `ticket/5fc64332-b0d1-4ab0-bc1e-4b0f3a26c135`（HEAD `ef063d91`、`origin` より 2 コミット先行）の現状です。チケット完了条件と、複数ラウンドのレビュー指摘、その後の **Docker 内 BoringSSL 相互接続** まで含めて説明します。working tree はクリーンです。実装確認は File Viewer、BoringSSL 修正の差分は `ef063d91` の Diff リンクを使ってください。
 
 ---
 
@@ -20,7 +21,7 @@ WARP の土台として、`packages/dtls` に **direct datagram 上の完全な 
 | 完了条件 | 現状 |
 | --- | --- |
 | werift 同士で 1.3 full HS + 双方向 app data | self E2E（両 role / HRR / mutual auth / KeyUpdate / loss） |
-| BoringSSL 両 role interop（AES-128-GCM + X25519） | pin + `dtls13_echo`。CI `dtls13-boringssl` が必須。ローカル未ビルドは skip |
+| BoringSSL 両 role interop（AES-128-GCM + X25519） | pin `a204be27` + `dtls13_echo`。Docker で **5/5 成功**。CI `dtls13-boringssl` も必須 |
 | OpenSSL `-dtls1_2` 回帰 | 既存 E2E 維持 + dual fallback 両 role |
 | `[1.3, 1.2]` → 1.2-only fallback / 1.3-only × 1.2-only は version error | association `selectVersion` + `ProtocolVersionError` |
 | 既定 1.2 / WebRTC 非破壊 | `Options` 未指定は `[V1_2]`。`packages/webrtc` のコンストラクタ互換は維持 |
@@ -31,7 +32,7 @@ WARP の土台として、`packages/dtls` に **direct datagram 上の完全な 
 
 [packages/dtls/src/index.ts:4](review-file:packages/dtls/src/index.ts:4)
 [packages/dtls/src/index.ts:12](review-diff:packages/dtls/src/index.ts:12)
-[packages/dtls/README.md:3](review-file:packages/dtls/README.md:3)
+[packages/dtls/README.md:44](review-file:packages/dtls/README.md:44)
 
 ---
 
@@ -41,8 +42,8 @@ WARP の土台として、`packages/dtls` に **direct datagram 上の完全な 
 
 `Options.protocolVersions` の順序が優先順位。未指定は `[V1_2]`。dual は **`[V1_3, V1_2]` のみ**。`[V1_2, V1_3]` は DOWNGRD と両立しないため normalize する。
 
-[packages/dtls/src/socket.ts:1012](review-file:packages/dtls/src/socket.ts:1012)
-[packages/dtls/src/socket.ts:1022](review-diff:packages/dtls/src/socket.ts:1022)
+[packages/dtls/src/socket.ts:1022](review-file:packages/dtls/src/socket.ts:1022)
+[packages/dtls/src/socket.ts:1030](review-diff:packages/dtls/src/socket.ts:1030)
 [packages/dtls/src/version.ts:35](review-file:packages/dtls/src/version.ts:35)
 [packages/dtls/src/version.ts:51](review-diff:packages/dtls/src/version.ts:51)
 [packages/dtls/src/version.ts:105](review-file:packages/dtls/src/version.ts:105)
@@ -85,8 +86,8 @@ HVR 後の要点:
 
 1.2 確定時は parked 1.3 を soft dispose し、carrier は close しない。association hard-close で初めて carrier を閉じる。
 
-[packages/dtls/src/client.ts:659](review-file:packages/dtls/src/client.ts:659)
 [packages/dtls/src/client.ts:258](review-file:packages/dtls/src/client.ts:258)
+[packages/dtls/src/client.ts:304](review-file:packages/dtls/src/client.ts:304)
 [packages/dtls/src/client.ts:312](review-diff:packages/dtls/src/client.ts:312)
 
 レビューで壊れていた経路（spoofed HVR と本物の 1.3 SH/HRR の race、CH-A 再送消失、version commit の偽 `onError`、injected carrier の close 再利用）は、上記の park + association-owned RX で閉じている。回帰は `self13_dual_hvr_resume.test.ts`。
@@ -197,12 +198,41 @@ ICE は DTLS に source address を渡さない。UDP pin だけで peer-auth �
 [packages/common/src/transport.ts:105](review-diff:packages/common/src/transport.ts:105)
 [packages/common/src/transport.ts:354](review-file:packages/common/src/transport.ts:354)
 
-### 2.8 Interop harness
+### 2.8 Interop harness（Docker で実測済み）
 
-canonical は `packages/dtls/tools/boringssl-dtls13/` のみ。`dtls13_echo` は cipher / group 設定失敗を fatal にし、negotiated `TLS_AES_128_GCM_SHA256` + X25519 を検証する。
+canonical は `packages/dtls/tools/boringssl-dtls13/` のみ。旧 pin `0bcc1e84…` は GitHub / googlesource に存在しなかったため、実在する
 
-[packages/dtls/tests/e2e/boringssl/README.md:8](review-file:packages/dtls/tests/e2e/boringssl/README.md:8)
-[packages/dtls/tools/boringssl-dtls13/native/dtls13_echo.c:1](review-file:packages/dtls/tools/boringssl-dtls13/native/dtls13_echo.c:1)
+`a204be272595867e7069221050f19697a0cf66ad`
+
+へ更新した。
+
+[packages/dtls/tools/boringssl-dtls13/BORINGSSL_REVISION:1](review-file:packages/dtls/tools/boringssl-dtls13/BORINGSSL_REVISION:1)
+[packages/dtls/tools/boringssl-dtls13/BORINGSSL_REVISION](review-diff:packages/dtls/tools/boringssl-dtls13/BORINGSSL_REVISION:commit:ef063d91)
+[packages/dtls/tests/e2e/boringssl/README.md:14](review-file:packages/dtls/tests/e2e/boringssl/README.md:14)
+
+ビルドスクリプトの実測で直した点:
+
+| 問題 | 対応 |
+| --- | --- |
+| `../../../` が `packages/third_party` を指していた | `packages/dtls/third_party/boringssl` |
+| googlesource clone が HTTP 400/500 | 既定を GitHub。失敗時のみ googlesource |
+| フル `ninja` が GCC 12 で `ssl_test` 失敗 | `-DBUILD_TESTING=OFF` + `ninja ssl crypto bssl` |
+
+[packages/dtls/tools/boringssl-dtls13/fetch-and-build-boringssl.sh:17](review-file:packages/dtls/tools/boringssl-dtls13/fetch-and-build-boringssl.sh:17)
+[packages/dtls/tools/boringssl-dtls13/fetch-and-build-boringssl.sh:19](review-diff:packages/dtls/tools/boringssl-dtls13/fetch-and-build-boringssl.sh:commit:ef063d91:19)
+[packages/dtls/tools/boringssl-dtls13/fetch-and-build-boringssl.sh:60](review-file:packages/dtls/tools/boringssl-dtls13/fetch-and-build-boringssl.sh:60)
+[packages/dtls/tools/boringssl-dtls13/install.sh:16](review-file:packages/dtls/tools/boringssl-dtls13/install.sh:16)
+
+`dtls13_echo` は TLS 1.3 スイートを `SSL_CTX_set_strict_cipher_list` に渡さない（BoringSSL では TLS 1.2 専用 API で `NO_CIPHER_MATCH`）。交渉結果を `check_negotiated()` で検証する。stderr は unbuffered。
+
+[packages/dtls/tools/boringssl-dtls13/native/dtls13_echo.c:137](review-file:packages/dtls/tools/boringssl-dtls13/native/dtls13_echo.c:137)
+[packages/dtls/tools/boringssl-dtls13/native/dtls13_echo.c:174](review-diff:packages/dtls/tools/boringssl-dtls13/native/dtls13_echo.c:commit:ef063d91:174)
+[packages/dtls/tools/boringssl-dtls13/native/dtls13_echo.c:300](review-file:packages/dtls/tools/boringssl-dtls13/native/dtls13_echo.c:300)
+
+werift client × BoringSSL server は、UDP echo が先に届いて child stderr が遅れるレースがあった。テストは cipher / group 行を待つ。
+
+[packages/dtls/tests/e2e/boringssl/interop.test.ts:184](review-file:packages/dtls/tests/e2e/boringssl/interop.test.ts:184)
+[packages/dtls/tests/e2e/boringssl/interop.test.ts:184](review-diff:packages/dtls/tests/e2e/boringssl/interop.test.ts:commit:ef063d91:184)
 
 OpenSSL dual fallback は両 role:
 
@@ -224,24 +254,27 @@ OpenSSL dual fallback は両 role:
 6. **handshake seq と record seq を混ぜない。** Errata 5186 は RFC 6347 の「record sequence」が実際には `message_seq` だと訂正している。record seq を HVR ごとに 0 へ戻すと、replay window 付き peer が HVR2 を捨てる。
 7. **verified errata だけを MUST 扱いする。** 8108 は Reported。higher-epoch ACK を無視する現行は仕様として明示し、誤って準拠宣言しない。
 8. **UDP hot path を DTLS close のために変えない。** チケットは common 変更時に workspace 回帰を要求するが、realtime 全経路の semantics 変更は Epic 1 の対価として大きすぎる。
+9. **TLS 1.3 cipher を BoringSSL の TLS 1.2 cipher list API に載せない。** `ssl.h` も「TLS 1.3 ciphers do not participate in this mechanism」と明記している。交渉後検証の方が pin 更新に耐える。
+10. **存在しない pin を残さない。** 再現ビルドの前提が壊れる。GitHub 上で取れる実コミットに差し替えた。
 
 ---
 
 ## 4. リスク
 
-- **BoringSSL はローカル未ビルドだと skip。** 必須検証は CI job `dtls13-boringssl`。この環境の green だけでは P0 interop を証明できない。
+- **BoringSSL P0 は Docker で両 role を通した。** 以前の「ローカル未ビルドだと skip だけで証明できない」状態は、このセッションのコンテナ実行で解消している。CI job `dtls13-boringssl` は引き続き必須。
+- **googlesource は不安定。** clone 既定を GitHub にした。pin fetch が両方失敗すると checkout できない。
 - **OpenSSL DTLS 1.3 interop は対象外。** チケットどおり。1.3 外部参照は BoringSSL のみ。
 - **dual probing 中の cookie CH は 1.3-only server に `illegal_parameter` を誘発し得る。** probing では epoch-0 の 47 だけ落とす。抑制ウィンドウは `committed12/13` で閉じるが、並行 probe の設計自体が複雑で、後続変更で再発しやすい。
-- **DTLS 1.2 受信 path に record anti-replay はまだ無い。** 1.3 は epoch ごと必須。1.2 は「回帰を避け任意」。record_seq 単調増加の self/OpenSSL テストで緩和しているが、1.2 replay window 自体は未統合。
+- **DTLS 1.2 受信 path に record anti-replay はまだ無い。** 1.3 は epoch ごと必須。1.2 は「回帰を避け任意」。
 - **`external` retransmission は骨格のみ。** SPED 駆動は Epic 2。carrier の inject / soft-detach / association demux を壊すと Epic 2 が先に折れる。
 - **early server app data は self 送受信まで。** WebRTC fingerprint ゲート付き配送は Epic 3。
-- **working tree はクリーン。** Diff Viewer は未コミット差分が空のことがある。実装確認は File Viewer を使う。
+- **working tree はクリーン。** 未コミット Diff は空。BoringSSL 修正は [fetch-and-build-boringssl.sh](review-diff:packages/dtls/tools/boringssl-dtls13/fetch-and-build-boringssl.sh:commit:ef063d91) など `ef063d91` の Diff を使う。
 
 ---
 
 ## 5. 検証結果
 
-直近の実装側報告:
+### パッケージ / workspace（実装報告時）
 
 ```text
 cd packages/dtls && npm test
@@ -251,7 +284,20 @@ npm run type && npm run test:small
 → 成功（common / ice / webrtc 含む）
 ```
 
-スキップは主にローカル未ビルドの BoringSSL interop。
+### Docker 内 BoringSSL interop（今回追加で実測）
+
+イメージ `werift-dtls-boringssl-e2e:latest`（Node 18 + cmake/ninja）。ワークスペースをマウントし pin ビルド後:
+
+```text
+cd packages/dtls && npm run test:boringssl
+→ Test Files  1 passed (1)
+   Tests      5 passed (5)
+```
+
+- werift client × BoringSSL server: HS + 双方向 data + `TLS_AES_128_GCM_SHA256` / X25519
+- BoringSSL client × werift server: 同上
+
+DTLS 1.3 本体の handshake / record 実装は、この実行では変更不要だった。失敗していたのは pin・clone パス・CMake 対象・harness の cipher API・stderr レース。
 
 レビューで追加・強化したテストの入口:
 
@@ -266,9 +312,11 @@ npm run type && npm run test:small
 | HVR generation cancel | [packages/dtls/tests/e2e/self12_hvr_generation_cancel.test.ts:13](review-file:packages/dtls/tests/e2e/self12_hvr_generation_cancel.test.ts:13) |
 | OpenSSL dual 両 role | [packages/dtls/tests/e2e/client_dual_openssl.test.ts:10](review-file:packages/dtls/tests/e2e/client_dual_openssl.test.ts:10) |
 | RTO | [packages/dtls/tests/handshake/tls13/rto_from_rtt.test.ts:8](review-file:packages/dtls/tests/handshake/tls13/rto_from_rtt.test.ts:8) |
+| BoringSSL 両 role + stderr wait | [packages/dtls/tests/e2e/boringssl/interop.test.ts:116](review-file:packages/dtls/tests/e2e/boringssl/interop.test.ts:116) |
 
-使い方と BoringSSL pin は docs 済み。
+使い方と pin は docs 済み。
 
-[packages/dtls/README.md:44](review-file:packages/dtls/README.md:44)
+[packages/dtls/README.md:106](review-file:packages/dtls/README.md:106)
 [packages/dtls/README.md:106](review-diff:packages/dtls/README.md:106)
 [packages/dtls/tests/e2e/boringssl/README.md:1](review-file:packages/dtls/tests/e2e/boringssl/README.md:1)
+[packages/dtls/tests/e2e/boringssl/README.md:45](review-diff:packages/dtls/tests/e2e/boringssl/README.md:commit:ef063d91:45)
