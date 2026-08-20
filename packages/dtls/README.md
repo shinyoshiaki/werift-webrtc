@@ -83,6 +83,8 @@ Mismatch **1.3-only × 1.2-only** fails with `ProtocolVersionError` / `protocol_
 
 `namedGroups` selects DTLS 1.3 key_share preference (e.g. `[NamedCurveAlgorithm.secp256r1_23]` for P-256 only). `mtu` controls handshake fragmentation.
 
+`maxEarlyAppDataRecords` / `maxEarlyAppDataBytes` bound epoch-3 application data buffered before `onConnect` (UDP reorder and 0.5-RTT). Defaults are 256 records / 256 KiB — sized for WebRTC DataChannel (`maxMessageSize` 64 KiB plus SCTP control). Raise both when buffering larger messages.
+
 ## Association lifecycle (1.2 / 1.3 / dual)
 
 Wire-initiated renegotiation is not supported after connect; post-handshake epoch-0 handshake records are dropped.

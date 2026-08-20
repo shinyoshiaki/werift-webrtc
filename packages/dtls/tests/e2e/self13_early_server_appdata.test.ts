@@ -111,4 +111,91 @@ describe("e2e/self13 early server application data", () => {
       await client.connect();
     });
   }, 20_000);
+
+  test("maxEarlyAppDataRecords option drops overflow before markConnected", async () => {
+    // Arrange: 早期バッファを 2 レコードに制限し、markConnected だけ遅らせる
+    const serverTransport = await UdpTransport.init("udp4");
+    const clientTransport = await UdpTransport.init("udp4");
+    clientTransport.rinfo = serverTransport.address;
+
+    const server = new Dtls13Connection(
+      {
+        transport: serverTransport,
+        cert: certPem,
+        key: keyPem,
+        addressValidation: "none",
+        offeredProtocolVersions: [DtlsVersion.V1_3],
+      },
+      SessionType.SERVER,
+    );
+    const client = new Dtls13Connection(
+      {
+        transport: clientTransport,
+        cert: certPem,
+        key: keyPem,
+        addressValidation: "none",
+        offeredProtocolVersions: [DtlsVersion.V1_3],
+        maxEarlyAppDataRecords: 2,
+        maxEarlyAppDataBytes: 64 * 1024,
+      },
+      SessionType.CLIENT,
+    );
+    expect(client["maxEarlyAppDataRecords"]).toBe(2);
+
+    // epoch-3 鍵は入れつつ markConnected だけ遅らせ、早期バッファを観測する
+    const origMark = client["markConnected"].bind(client);
+    let heldOpts: Parameters<Dtls13Connection["markConnected"]> | undefined;
+    client["markConnected"] = (opts) => {
+      heldOpts = [opts];
+    };
+
+    const received: string[] = [];
+    client.onData.subscribe((data) => {
+      received.push(data.toString());
+    });
+
+    const errors: Error[] = [];
+    client.onError.subscribe((e) => errors.push(e));
+    server.onError.subscribe((e) => errors.push(e));
+
+    void client.connect();
+
+    for (let i = 0; i < 100; i++) {
+      if (client["epochs"].get(3)?.readKeys && !client.connected) break;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(client["epochs"].get(3)?.readKeys).toBeTruthy();
+    expect(client.connected).toBe(false);
+
+    for (let i = 0; i < 50; i++) {
+      if (server["writeEpoch"] >= 3) break;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    // Act: 未接続のまま制限を超える早期 app data を送る
+    for (let n = 0; n < 4; n++) {
+      await server.send(Buffer.from(`early-${n}`));
+    }
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Assert: 接続前バッファは 2 件で打ち切られる
+    expect(client["earlyAppData"].map((b: Buffer) => b.toString())).toEqual([
+      "early-0",
+      "early-1",
+    ]);
+
+    const connected = new Promise<void>((resolve) => {
+      client.onConnect.subscribe(() => resolve());
+    });
+    client["markConnected"] = origMark;
+    origMark(...(heldOpts ?? []));
+    await connected;
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Assert: flush 後も超過分は届かない
+    expect(received).toEqual(["early-0", "early-1"]);
+    expect(errors).toEqual([]);
+    client.close();
+    server.close();
+  }, 20_000);
 });

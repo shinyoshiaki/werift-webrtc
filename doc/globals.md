@@ -315,6 +315,7 @@
 - [findCodecByMimeType](functions/findCodecByMimeType.md)
 - [findPort](functions/findPort.md)
 - [fingerprint](functions/fingerprint.md)
+- [flushTransportSend](functions/flushTransportSend.md)
 - [generateCodecStatsId](functions/generateCodecStatsId.md)
 - [generateStatsId](functions/generateStatsId.md)
 - [getBit](functions/getBit.md)

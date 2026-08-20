@@ -70,12 +70,62 @@ export const ACK_PLAINTEXT_OVERHEAD = 13 + 2;
 export const ACK_RECORD_NUMBER_BYTES = 16;
 
 /**
- * Epoch-3 application data may arrive before markConnected (UDP reorder).
- * Bound the early buffer to prevent pre-Finished memory DoS (RFC 9147 allows
- * buffer or discard; we keep a small reorder window then drop).
+ * Default early epoch-3 app-data reorder buffer (record count).
+ *
+ * RFC 9147 allows buffering or discarding application data that arrives
+ * before the handshake is marked complete. The default is sized for WebRTC
+ * DataChannel over SCTP: werift's default `maxMessageSize` is 64 KiB, and
+ * SCTP DATA chunks are typically ~1 KiB after DTLS/SCTP headers, so one
+ * message is ~64 records plus INIT/COOKIE and a reorder burst. 256 leaves
+ * comfortable headroom without an unbounded pre-Finished buffer.
+ *
+ * Override via {@link Dtls13Options.maxEarlyAppDataRecords} /
+ * `Options.maxEarlyAppDataRecords`.
  */
-export const MAX_EARLY_APP_DATA_RECORDS = 8;
-export const MAX_EARLY_APP_DATA_BYTES = 32 * 1024;
+export const MAX_EARLY_APP_DATA_RECORDS = 256;
+/**
+ * Default early epoch-3 app-data reorder buffer (bytes).
+ * 256 KiB covers the 64 KiB DataChannel default plus SCTP overhead and a
+ * couple of back-to-back messages.
+ */
+export const MAX_EARLY_APP_DATA_BYTES = 256 * 1024;
+/** Absolute DoS ceiling when Options raise the record cap. */
+export const MAX_EARLY_APP_DATA_RECORDS_CEILING = 4096;
+/** Absolute DoS ceiling when Options raise the byte cap. */
+export const MAX_EARLY_APP_DATA_BYTES_CEILING = 4 * 1024 * 1024;
+
+function resolvePositiveIntCap(
+  name: string,
+  value: number | undefined,
+  fallback: number,
+  ceiling: number,
+): number {
+  if (value === undefined) return fallback;
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return Math.min(value, ceiling);
+}
+
+/** Resolve the early-app-data record cap from options or the DataChannel default. */
+export function resolveMaxEarlyAppDataRecords(value?: number): number {
+  return resolvePositiveIntCap(
+    "maxEarlyAppDataRecords",
+    value,
+    MAX_EARLY_APP_DATA_RECORDS,
+    MAX_EARLY_APP_DATA_RECORDS_CEILING,
+  );
+}
+
+/** Resolve the early-app-data byte cap from options or the DataChannel default. */
+export function resolveMaxEarlyAppDataBytes(value?: number): number {
+  return resolvePositiveIntCap(
+    "maxEarlyAppDataBytes",
+    value,
+    MAX_EARLY_APP_DATA_BYTES,
+    MAX_EARLY_APP_DATA_BYTES_CEILING,
+  );
+}
 
 export const log = debug("werift-dtls : packages/dtls/src/engine/v1_3");
 
@@ -130,6 +180,17 @@ export interface Dtls13Options {
   /** Preferred named groups order */
   groups?: NamedCurveAlgorithms[];
   mtu?: number;
+  /**
+   * Max epoch-3 application-data records buffered before markConnected
+   * (UDP reorder / 0.5-RTT). Default {@link MAX_EARLY_APP_DATA_RECORDS} (256).
+   * Sized for WebRTC DataChannel; raise for larger `maxMessageSize`.
+   */
+  maxEarlyAppDataRecords?: number;
+  /**
+   * Max bytes of epoch-3 application data buffered before markConnected.
+   * Default {@link MAX_EARLY_APP_DATA_BYTES} (256 KiB).
+   */
+  maxEarlyAppDataBytes?: number;
   /**
    * Address validation policy.
    * - dtls-cookie (default): HRR + cookie before amplifying server flight

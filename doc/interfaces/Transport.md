@@ -80,6 +80,30 @@ readonly \[`string`, `number`\]
 
 ***
 
+### sendAndWait()?
+
+> `optional` **sendAndWait**: (`data`, `addr`?) => `Promise`\<`void`\>
+
+Optional flush: wait until the datagram is accepted by the kernel.
+Hot-path [send](Transport.md#send) must stay fire-and-forget for resolved IP peers.
+DTLS close_notify uses this so a following socket.close() cannot drop it.
+
+#### Parameters
+
+##### data
+
+`Buffer`
+
+##### addr?
+
+readonly \[`string`, `number`\]
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
 ### type
 
 > **type**: `string`

@@ -42,6 +42,28 @@ WebRTC ICE-authenticated peers use `"ice-authenticated"` (Epic 2/3).
 
 ***
 
+### maxEarlyAppDataBytes?
+
+> `optional` **maxEarlyAppDataBytes**: `number`
+
+Max bytes of epoch-3 application data buffered before `onConnect`.
+Default 256 KiB. Raise together with `maxEarlyAppDataRecords` when
+buffering larger DataChannel messages.
+
+***
+
+### maxEarlyAppDataRecords?
+
+> `optional` **maxEarlyAppDataRecords**: `number`
+
+Max epoch-3 application-data records buffered before `onConnect`
+(UDP reorder / 0.5-RTT early server data).
+Default 256 — sized for WebRTC DataChannel (64 KiB `maxMessageSize`
+plus SCTP control and reorder burst). Override to match a larger
+DataChannel `maxMessageSize`.
+
+***
+
 ### mtu?
 
 > `optional` **mtu**: `number`

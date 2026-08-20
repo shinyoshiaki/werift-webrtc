@@ -43,6 +43,8 @@ import {
   type PeerIdentityMode,
   type Role,
   log,
+  resolveMaxEarlyAppDataBytes,
+  resolveMaxEarlyAppDataRecords,
   resolvePeerIdentityMode,
 } from "./types";
 
@@ -338,10 +340,14 @@ export abstract class Dtls13ConnectionBase {
   protected presentClientCertificate = false;
   /**
    * Epoch-3 app data received before markConnected (UDP reorder window).
-   * Bounded — see MAX_EARLY_APP_DATA_* in types.ts.
+   * Bounded by {@link maxEarlyAppDataRecords} / {@link maxEarlyAppDataBytes}.
    */
   protected earlyAppData: Buffer[] = [];
   protected earlyAppDataBytes = 0;
+  /** Resolved early-app-data record cap (Options or DataChannel default). */
+  protected readonly maxEarlyAppDataRecords: number;
+  /** Resolved early-app-data byte cap (Options or DataChannel default). */
+  protected readonly maxEarlyAppDataBytes: number;
   /**
    * Peer close_notify boundary (RFC 9147: ignore app data with larger epoch/seq).
    * Not mere receive-order — UDP may reorder.
@@ -405,6 +411,12 @@ export abstract class Dtls13ConnectionBase {
       addressValidation: this.addressValidation,
       transport: options.transport as { peerAuthenticated?: boolean },
     });
+    this.maxEarlyAppDataRecords = resolveMaxEarlyAppDataRecords(
+      options.maxEarlyAppDataRecords,
+    );
+    this.maxEarlyAppDataBytes = resolveMaxEarlyAppDataBytes(
+      options.maxEarlyAppDataBytes,
+    );
     this.hsPhase =
       this.role === "client" ? "wait_server_hello" : "wait_client_hello";
     this.installEpoch(0, createEpochProtection(0));

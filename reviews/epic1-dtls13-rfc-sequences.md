@@ -12,6 +12,48 @@ ide:
 
 working tree の実装は HEAD `ef063d91`。未コミットの実装差分はほぼ無いので、確認は File Viewer を先に使う。
 
+### 略語
+
+| 略語 | 正式名称 |
+| --- | --- |
+| AAD | Additional Authenticated Data（追加認証データ） |
+| ACK | Acknowledgement（DTLS 1.3 の record ContentType 26） |
+| AEAD | Authenticated Encryption with Associated Data |
+| CCS | ChangeCipherSpec |
+| Cert | Certificate |
+| CH | ClientHello |
+| CH-A | 最初に送った dual-capable ClientHello（HVR 前の original） |
+| CID | Connection ID（RFC 9147 unified header の C bit） |
+| CKE | ClientKeyExchange（DTLS 1.2 のみ） |
+| CV | CertificateVerify |
+| DOWNGRD | TLS 1.3 downgrade protection sentinel（`ServerHello.Random` 末尾 8 バイト。`DOWNGRD` \|\| `0x01` / `0x00`） |
+| DTLS | Datagram Transport Layer Security |
+| ECDHE | Elliptic-Curve Diffie–Hellman Ephemeral |
+| EE | EncryptedExtensions |
+| EMS | Extended Master Secret（RFC 7627） |
+| HKDF | HMAC-based Key Derivation Function（RFC 5869 / RFC 8446 §7.1） |
+| HMAC | Hash-based Message Authentication Code |
+| HRR | HelloRetryRequest（TLS 1.3 / DTLS 1.3。RFC 8446 §4.1.4） |
+| HS | Handshake |
+| HVR | HelloVerifyRequest（DTLS 1.2 の cookie challenge。RFC 6347。DTLS 1.3 では使わない） |
+| ICE | Interactive Connectivity Establishment |
+| KU | KeyUpdate |
+| MITM | Man-in-the-Middle |
+| PRF | Pseudorandom Function（TLS 1.2 key derivation） |
+| PSK | Pre-Shared Key |
+| RFC | Request for Comments |
+| RRC | Return Routability Check（RFC 9853。本 Epic 対象外） |
+| RTO | Retransmission Timeout（RFC 9147 §5.8.2） |
+| RTT | Round-Trip Time |
+| SH | ServerHello |
+| SHD | ServerHelloDone（DTLS 1.2 のみ） |
+| SKE | ServerKeyExchange（DTLS 1.2 のみ） |
+| SPED | STUN-embedded / WARP の後続 Epic 2 経路（本 Epic 対象外） |
+| SRTP | Secure Real-time Transport Protocol（RFC 5764 DTLS-SRTP） |
+| TLS | Transport Layer Security |
+| TX / RX | transmit / receive（送信 / 受信） |
+| 0-RTT | Zero Round-Trip Time（PSK early data。本 Epic では未実装） |
+
 [packages/dtls/src/index.ts:63](review-file:packages/dtls/src/index.ts:63)
 [packages/dtls/src/index.ts:104](review-diff:packages/dtls/src/index.ts:commit:ef063d91:104)
 
@@ -24,8 +66,8 @@ Epic 1 は direct datagram 上の **証明書付き DTLS 1.3 full handshake** �
 | RFC | この実装での役割 |
 | --- | --- |
 | RFC 9147 | 1.3 wire / record / ACK / cookie / anti-amp / RTO / KeyUpdate / dual 1.2 相互運用 |
-| RFC 8446 | key schedule、HRR、DOWNGRD、CertificateVerify、KeyUpdate secret |
-| RFC 6347 + Errata 5186 | 既定 1.2 flights、HVR cookie、`message_seq` vs record seq |
+| RFC 8446 | key schedule、HRR（HelloRetryRequest）、DOWNGRD、CertificateVerify、KeyUpdate secret |
+| RFC 6347 + Errata 5186 | 既定 1.2 flights、HVR（HelloVerifyRequest）cookie、`message_seq` vs record seq |
 | RFC 5764 | `EXTRACTOR-dtls_srtp` |
 | RFC 9147 Erratum 8108 | **Reported のみ**。higher-epoch ACK は無視。`illegal_parameter` では止めない |
 
@@ -34,7 +76,7 @@ Epic 1 は direct datagram 上の **証明書付き DTLS 1.3 full handshake** �
 | 完了条件 | RFC 上の根拠 | 実装入口 |
 | --- | --- | --- |
 | 1.3 full HS + 双方向 app data | RFC 9147 Figure 3 / §5 | Figure 3 + engine `handshake-flights` |
-| `[1.3, 1.2]` fallback | RFC 9147: 1.3 は HVR を使わないが dual client は 1.2 server と相互運用する | association dual + HVR は commit ではない |
+| `[1.3, 1.2]` fallback | RFC 9147: 1.3 は HVR（HelloVerifyRequest）を使わないが dual client は 1.2 server と相互運用する | association dual + HVR は commit ではない |
 | 1.3-only × 1.2-only は version error | RFC 8446 / 9147 `protocol_version(70)` | `ProtocolVersionError` |
 | DOWNGRD を弱めない | RFC 8446 §4.1.3 | dual は `[V1_3, V1_2]` のみ |
 | 3× anti-amplification | RFC 9147 cookie security | `ANTI_AMPLIFICATION_FACTOR = 3` |
@@ -79,8 +121,8 @@ ClientHello + cookie*       -------->            Flight 3
 | Flight | RFC | 実装 |
 | --- | --- | --- |
 | 1 / 3 ClientHello | §5.1、legacy_version `0xfefd`、legacy_cookie 空 | `sendClientHello` / `onClientHello` |
-| 2 HRR | RFC 8446 §4.1.4、最大 1 回 | `sendHelloRetryRequest` / `onServerHello` の HRR 分岐 |
-| 4 Server flight | SH + EE + Cert* + CV + Finished | `sendServerFlight` / `onServerHello` … |
+| 2 HRR（HelloRetryRequest） | RFC 8446 §4.1.4、最大 1 回 | `sendHelloRetryRequest` / `onServerHello` の HRR 分岐 |
+| 4 Server flight | SH（ServerHello）+ EE（EncryptedExtensions）+ Cert* + CV（CertificateVerify）+ Finished | `sendServerFlight` / `onServerHello` … |
 | 5 client Finished | 任意 client Cert | `onFinished` client path |
 | post-HS ACK | RFC 9147 §7 | `handleAck` |
 | post-HS KeyUpdate | RFC 9147 §8 | `keyUpdate` / `onKeyUpdate` |
@@ -103,6 +145,7 @@ Server が CH を受けたときの必須検査:
 3. **`legacy_cookie` は空**。非空なら abort（`illegal_parameter`）。DTLS 1.3 の cookie は extension 44。
 4. TLS compatibility mode は使わない。`legacy_session_id` は空をエコー。
 
+<!-- review-bookmark id="bm_1a017415022-417792a8" title="2.2 ClientHello / ServerHello の MUST（RFC" -->
 [packages/dtls/src/engine/v1_3/handshake-flights.ts:534](review-file:packages/dtls/src/engine/v1_3/handshake-flights.ts:534)
 [packages/dtls/src/engine/v1_3/handshake-flights.ts:552](review-diff:packages/dtls/src/engine/v1_3/handshake-flights.ts:commit:ef063d91:552)
 
@@ -111,7 +154,7 @@ ServerHello 側も `legacy_version == 0xfefd`、`compression_method == 0`、sess
 [packages/dtls/src/engine/v1_3/handshake-flights.ts:1320](review-file:packages/dtls/src/engine/v1_3/handshake-flights.ts:1320)
 [packages/dtls/src/engine/v1_3/handshake-flights.ts:1320](review-diff:packages/dtls/src/engine/v1_3/handshake-flights.ts:commit:ef063d91:1320)
 
-HRR 判定は RFC 8446 の特殊 Random:
+HRR（HelloRetryRequest）判定は RFC 8446 の特殊 Random:
 
 ```text
 CF21AD74E59A6111BE1D8C021E65B891C2A211167ABB8C5E079E09E2C8A8339C
@@ -156,9 +199,9 @@ Wire:
 [packages/dtls/src/client.ts:1274](review-file:packages/dtls/src/client.ts:1274)
 [packages/dtls/src/handshake/random.ts:43](review-file:packages/dtls/src/handshake/random.ts:43)
 
-### 2.4 Dual 1.2/1.3 — RFC 9147 の「HVR は 1.3 では使わない」をどう実装したか
+### 2.4 Dual 1.2/1.3 — RFC 9147 の「HVR（HelloVerifyRequest）は 1.3 では使わない」をどう実装したか
 
-RFC 9147 は DTLS 1.3 で **HelloVerifyRequest を使わず HRR を使う**。同時に **dual 1.2/1.3 client は 1.2 server と相互運用できる必要がある**。
+RFC 9147 は DTLS 1.3 で **HelloVerifyRequest を使わず HRR（HelloRetryRequest）を使う**。同時に **dual 1.2/1.3 client は 1.2 server と相互運用できる必要がある**。
 
 実装の解釈:
 
@@ -200,7 +243,7 @@ RFC 9147 の再送モデルは「応答が落ちたら ClientHello を再送し�
 
 1.3 server は非空 `legacy_cookie` の CH を **MUST abort** する。probing 中の cookie CH が 1.3-only server に当たると `illegal_parameter(47)` が返る。association は **probing 中の 47 だけ**落とし、`handshake_failure` など正当な 1.2 fatal は即 fail。commit したら抑制を閉じる。
 
-### 2.5 HRR + cookie + group（RFC 8446 §4.1.4 / RFC 9147 §5.1）
+### 2.5 HRR（HelloRetryRequest）+ cookie + group（RFC 8446 §4.1.4 / RFC 9147 §5.1）
 
 ```text
 CH1 (key_share が空、または server が別 group を選ぶ)
@@ -228,12 +271,15 @@ Cookie は HMAC(secret, peer, CH hash, expiry)。RFC 9147 の「cookie は clien
 
 ### 2.6 RFC 6347 Figure 1 — DTLS 1.2（既定経路）
 
+<!-- review-bookmark id="bm_1a01744b959-69a12fa6" title="2.6 RFC 6347 Figure 1 — DTLS 1.2（既定経路）" -->
 ```text
 ClientHello          -------->   Flight 1
                      <-------    HelloVerifyRequest   Flight 2
 ClientHello+cookie   -------->   Flight 3
                      <-------    SH + Cert + SKE + SHD  Flight 4
-CKE + CCS + Finished -------->
+                                 (ServerHello / Certificate /
+                                  ServerKeyExchange / ServerHelloDone)
+CKE + CCS + Finished -------->   (ClientKeyExchange / ChangeCipherSpec)
                      <-------    CCS + Finished         Flight 6
 ```
 
@@ -264,6 +310,7 @@ Certificate       0         4              3
 
 Client は複数 HVR を処理できる（RFC 6347）。`hvrGeneration` で古い Flight3 RTO を止める。
 
+<!-- review-bookmark id="bm_1a0174d8c70-a3edd0e8" title="2.6 RFC 6347 Figure 1 — DTLS 1.2（既定経路）" -->
 [packages/dtls/src/flight/client/flight3.ts:17](review-file:packages/dtls/src/flight/client/flight3.ts:17)
 [packages/dtls/src/flight/client/flight3.ts:17](review-diff:packages/dtls/src/flight/client/flight3.ts:commit:ef063d91:17)
 
@@ -315,6 +362,7 @@ SRTP（RFC 5764）は label **`EXTRACTOR-dtls_srtp`**。1.3 は RFC 8446 §7.5 e
 
 Unified header（§4.1）: 固定 bit `001`、**C=1（CID）は拒否**。AAD は送出 header。nonce は `write_iv XOR left-pad64(seq)`。**epoch は nonce に入れない**（1.2 の 13-byte AAD + explicit nonce と混ぜない）。
 
+<!-- review-bookmark id="bm_1a01c770930-f18fdef2" title="2.8 Record layer（RFC 9147 §4）" -->
 [packages/dtls/src/record/v1_3/header.ts:1](review-file:packages/dtls/src/record/v1_3/header.ts:1)
 [packages/dtls/src/record/v1_3/header.ts:75](review-file:packages/dtls/src/record/v1_3/header.ts:75)
 [packages/dtls/src/cipher/tls13/aead.ts:40](review-file:packages/dtls/src/cipher/tls13/aead.ts:40)
@@ -333,13 +381,13 @@ Unified header（§4.1）: 固定 bit `001`、**C=1（CID）は拒否**。AAD �
 [packages/dtls/src/engine/v1_3/record-rx.ts:580](review-file:packages/dtls/src/engine/v1_3/record-rx.ts:580)
 [packages/dtls/src/engine/v1_3/record-rx.ts:606](review-diff:packages/dtls/src/engine/v1_3/record-rx.ts:commit:ef063d91:606)
 
-KeyUpdate: **現行 write keys で送り、ACK が来るまで新 keys では送らない**（§8）。`update_requested` なら応答 KU を先に送る。
+KeyUpdate: **現行 write keys で送り、ACK が来るまで新 keys では送らない**（§8）。`update_requested` なら応答 KU（KeyUpdate）を先に送る。
 
 [packages/dtls/src/engine/v1_3/handshake-flights.ts:1921](review-file:packages/dtls/src/engine/v1_3/handshake-flights.ts:1921)
 [packages/dtls/src/engine/v1_3/handshake-flights.ts:1928](review-diff:packages/dtls/src/engine/v1_3/handshake-flights.ts:commit:ef063d91:1928)
 [packages/dtls/src/cipher/tls13/keySchedule.ts:207](review-file:packages/dtls/src/cipher/tls13/keySchedule.ts:207)
 
-### 2.10 RTO（RFC 9147 §5.8.2）
+### 2.10 RTO（Retransmission Timeout、RFC 9147 §5.8.2）
 
 | 条件 | RFC | 実装 |
 | --- | --- | --- |

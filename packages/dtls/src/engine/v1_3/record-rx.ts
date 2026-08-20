@@ -25,8 +25,6 @@ import { Dtls13FlightTx } from "./flight-tx";
 import {
   FRAGMENT_TTL_MS,
   MAX_ACK_RECORD_NUMBERS,
-  MAX_EARLY_APP_DATA_BYTES,
-  MAX_EARLY_APP_DATA_RECORDS,
   MAX_FRAGMENTS_PER_MESSAGE,
   MAX_FRAGMENT_BUFFER_BYTES,
   MAX_FRAGMENT_BUFFER_MESSAGES,
@@ -461,9 +459,9 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
           // UDP reorder: epoch-3 app data before markConnected.
           // Bound buffer to prevent pre-Finished memory DoS (RFC 9147: buffer or discard).
           if (
-            this.earlyAppData.length >= MAX_EARLY_APP_DATA_RECORDS ||
+            this.earlyAppData.length >= this.maxEarlyAppDataRecords ||
             this.earlyAppDataBytes + rec.content.length >
-              MAX_EARLY_APP_DATA_BYTES
+              this.maxEarlyAppDataBytes
           ) {
             log(
               "drop early app data: buffer limit",

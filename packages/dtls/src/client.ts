@@ -165,6 +165,8 @@ export class DtlsClient extends DtlsSocket {
           ? [...this.options.namedGroups]
           : undefined,
         mtu: this.options.mtu,
+        maxEarlyAppDataRecords: this.options.maxEarlyAppDataRecords,
+        maxEarlyAppDataBytes: this.options.maxEarlyAppDataBytes,
         // handshakeCarrier is DtlsInternalOptions only (not stable Public API)
         carrier: (this.options as DtlsInternalOptions).handshakeCarrier,
         offeredProtocolVersions: offered,
@@ -1098,6 +1100,8 @@ export class DtlsClient extends DtlsSocket {
           ? [...this.options.namedGroups]
           : undefined,
         mtu: this.options.mtu,
+        maxEarlyAppDataRecords: this.options.maxEarlyAppDataRecords,
+        maxEarlyAppDataBytes: this.options.maxEarlyAppDataBytes,
         // Same injected carrier instance as Epic 2; soft HVR detach must not
         // have permanently closed it (releaseForVersionFallback).
         carrier: (this.options as DtlsInternalOptions).handshakeCarrier,

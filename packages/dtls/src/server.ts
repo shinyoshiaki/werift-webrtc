@@ -85,6 +85,8 @@ export class DtlsServer extends DtlsSocket {
           ? [...this.options.namedGroups]
           : undefined,
         mtu: this.options.mtu,
+        maxEarlyAppDataRecords: this.options.maxEarlyAppDataRecords,
+        maxEarlyAppDataBytes: this.options.maxEarlyAppDataBytes,
         // handshakeCarrier is DtlsInternalOptions only (not stable Public API)
         carrier: (this.options as DtlsInternalOptions).handshakeCarrier,
         // Engine only speaks 1.3 once selected; preference used at association

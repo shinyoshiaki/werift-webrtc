@@ -102,6 +102,8 @@ export type Dtls13PairExtra = {
   certificateRequest?: boolean;
   addressValidation?: "dtls-cookie" | "ice-authenticated" | "none";
   srtpProfiles?: SrtpProfile[];
+  maxEarlyAppDataRecords?: number;
+  maxEarlyAppDataBytes?: number;
 };
 
 /**
