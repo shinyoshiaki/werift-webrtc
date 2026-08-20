@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { UdpTransport } from "../../../common/src";
-import { DtlsVersion } from "../../src";
+import { DtlsVersion, EARLY_APP_DATA_UNLIMITED } from "../../src";
 import { SessionType } from "../../src/cipher/suites/abstract";
 import { Dtls13Connection } from "../../src/engine/v1_3/connection";
 import { certPem, keyPem } from "../fixture";
@@ -195,6 +195,84 @@ describe("e2e/self13 early server application data", () => {
     // Assert: flush 後も超過分は届かない
     expect(received).toEqual(["early-0", "early-1"]);
     expect(errors).toEqual([]);
+    client.close();
+    server.close();
+  }, 20_000);
+
+  test("EARLY_APP_DATA_UNLIMITED buffers all pre-connect app data", async () => {
+    // Arrange: P2P 向け無制限、markConnected だけ遅らせる
+    const serverTransport = await UdpTransport.init("udp4");
+    const clientTransport = await UdpTransport.init("udp4");
+    clientTransport.rinfo = serverTransport.address;
+
+    const server = new Dtls13Connection(
+      {
+        transport: serverTransport,
+        cert: certPem,
+        key: keyPem,
+        addressValidation: "none",
+        offeredProtocolVersions: [DtlsVersion.V1_3],
+      },
+      SessionType.SERVER,
+    );
+    const client = new Dtls13Connection(
+      {
+        transport: clientTransport,
+        cert: certPem,
+        key: keyPem,
+        addressValidation: "none",
+        offeredProtocolVersions: [DtlsVersion.V1_3],
+        maxEarlyAppDataRecords: EARLY_APP_DATA_UNLIMITED,
+        maxEarlyAppDataBytes: EARLY_APP_DATA_UNLIMITED,
+      },
+      SessionType.CLIENT,
+    );
+    expect(client["maxEarlyAppDataRecords"]).toBe(Number.POSITIVE_INFINITY);
+
+    const origMark = client["markConnected"].bind(client);
+    let heldOpts: Parameters<Dtls13Connection["markConnected"]> | undefined;
+    client["markConnected"] = (opts) => {
+      heldOpts = [opts];
+    };
+
+    const received: string[] = [];
+    client.onData.subscribe((data) => {
+      received.push(data.toString());
+    });
+
+    void client.connect();
+    for (let i = 0; i < 100; i++) {
+      if (client["epochs"].get(3)?.readKeys && !client.connected) break;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(client.connected).toBe(false);
+    for (let i = 0; i < 50; i++) {
+      if (server["writeEpoch"] >= 3) break;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    // Act: 既定 256 より少ないが、上限なしで全件保持できることを確認
+    for (let n = 0; n < 4; n++) {
+      await server.send(Buffer.from(`p2p-${n}`));
+    }
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Assert: 無制限なので 4 件すべてバッファされる
+    expect(client["earlyAppData"].map((b: Buffer) => b.toString())).toEqual([
+      "p2p-0",
+      "p2p-1",
+      "p2p-2",
+      "p2p-3",
+    ]);
+
+    const connected = new Promise<void>((resolve) => {
+      client.onConnect.subscribe(() => resolve());
+    });
+    client["markConnected"] = origMark;
+    origMark(...(heldOpts ?? []));
+    await connected;
+    await new Promise((r) => setTimeout(r, 50));
+    expect(received).toEqual(["p2p-0", "p2p-1", "p2p-2", "p2p-3"]);
     client.close();
     server.close();
   }, 20_000);

@@ -1,10 +1,9 @@
 import { describe, expect, test } from "vitest";
 import { defaultKeySchedule } from "../../../src/cipher/tls13/keySchedule";
 import {
+  EARLY_APP_DATA_UNLIMITED,
   MAX_EARLY_APP_DATA_BYTES,
-  MAX_EARLY_APP_DATA_BYTES_CEILING,
   MAX_EARLY_APP_DATA_RECORDS,
-  MAX_EARLY_APP_DATA_RECORDS_CEILING,
   resolveMaxEarlyAppDataBytes,
   resolveMaxEarlyAppDataRecords,
 } from "../../../src/engine/v1_3/types";
@@ -18,29 +17,28 @@ import {
 import { arrangeDtls13Pair } from "../../fixture";
 
 describe("security bounds: early app data", () => {
-  test("default caps fit WebRTC DataChannel without being unbounded", () => {
+  test("default caps fit WebRTC DataChannel", () => {
     // Arrange: DataChannel 既定 64KiB + SCTP 制御・reorder 余裕
-    // Act / Assert: 既定は DataChannel 向けに十分で、DoS 天井未満
+    // Act / Assert: 既定は DataChannel 向けの有限値
     expect(MAX_EARLY_APP_DATA_RECORDS).toBe(256);
-    expect(MAX_EARLY_APP_DATA_RECORDS).toBeLessThanOrEqual(
-      MAX_EARLY_APP_DATA_RECORDS_CEILING,
-    );
     expect(MAX_EARLY_APP_DATA_BYTES).toBe(256 * 1024);
-    expect(MAX_EARLY_APP_DATA_BYTES).toBeLessThanOrEqual(
-      MAX_EARLY_APP_DATA_BYTES_CEILING,
-    );
+    expect(EARLY_APP_DATA_UNLIMITED).toBe(Number.POSITIVE_INFINITY);
   });
 
-  test("Options override record/byte caps and clamp to the DoS ceiling", () => {
-    // Arrange: 未指定 / 明示値 / 天井超え
-    // Act / Assert: 未指定は既定、正の整数は採用、天井で clamp
+  test("Options override record/byte caps; Infinity is unlimited with no ceiling", () => {
+    // Arrange: 未指定 / 明示値 / P2P 無制限
+    // Act / Assert: 未指定は既定、正の整数は clamp せず採用、UNLIMITED は Infinity
     expect(resolveMaxEarlyAppDataRecords()).toBe(MAX_EARLY_APP_DATA_RECORDS);
     expect(resolveMaxEarlyAppDataRecords(8)).toBe(8);
-    expect(
-      resolveMaxEarlyAppDataRecords(MAX_EARLY_APP_DATA_RECORDS_CEILING + 10),
-    ).toBe(MAX_EARLY_APP_DATA_RECORDS_CEILING);
+    expect(resolveMaxEarlyAppDataRecords(100_000)).toBe(100_000);
+    expect(resolveMaxEarlyAppDataRecords(EARLY_APP_DATA_UNLIMITED)).toBe(
+      Number.POSITIVE_INFINITY,
+    );
     expect(resolveMaxEarlyAppDataBytes()).toBe(MAX_EARLY_APP_DATA_BYTES);
     expect(resolveMaxEarlyAppDataBytes(64 * 1024)).toBe(64 * 1024);
+    expect(resolveMaxEarlyAppDataBytes(EARLY_APP_DATA_UNLIMITED)).toBe(
+      Number.POSITIVE_INFINITY,
+    );
     expect(() => resolveMaxEarlyAppDataRecords(0)).toThrow(
       /maxEarlyAppDataRecords/,
     );
@@ -61,6 +59,29 @@ describe("security bounds: early app data", () => {
       expect(client["engine13"]?.["maxEarlyAppDataBytes"]).toBe(48 * 1024);
       expect(server["engine13"]?.["maxEarlyAppDataRecords"]).toBe(16);
       expect(server["engine13"]?.["maxEarlyAppDataBytes"]).toBe(48 * 1024);
+    } finally {
+      client.close();
+      server.close();
+    }
+  });
+
+  test("DtlsClient Options accept EARLY_APP_DATA_UNLIMITED for P2P", async () => {
+    // Arrange: P2P 向け無制限
+    const { client, server } = await arrangeDtls13Pair({
+      maxEarlyAppDataRecords: EARLY_APP_DATA_UNLIMITED,
+      maxEarlyAppDataBytes: EARLY_APP_DATA_UNLIMITED,
+    });
+    try {
+      // Act / Assert: engine が天井なし Infinity を保持する
+      expect(client["engine13"]?.["maxEarlyAppDataRecords"]).toBe(
+        Number.POSITIVE_INFINITY,
+      );
+      expect(client["engine13"]?.["maxEarlyAppDataBytes"]).toBe(
+        Number.POSITIVE_INFINITY,
+      );
+      expect(server["engine13"]?.["maxEarlyAppDataRecords"]).toBe(
+        Number.POSITIVE_INFINITY,
+      );
     } finally {
       client.close();
       server.close();

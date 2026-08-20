@@ -89,41 +89,43 @@ export const MAX_EARLY_APP_DATA_RECORDS = 256;
  * couple of back-to-back messages.
  */
 export const MAX_EARLY_APP_DATA_BYTES = 256 * 1024;
-/** Absolute DoS ceiling when Options raise the record cap. */
-export const MAX_EARLY_APP_DATA_RECORDS_CEILING = 4096;
-/** Absolute DoS ceiling when Options raise the byte cap. */
-export const MAX_EARLY_APP_DATA_BYTES_CEILING = 4 * 1024 * 1024;
+/**
+ * Opt-in unbounded early-app-data buffer for trusted P2P paths.
+ * Pass as `maxEarlyAppDataRecords` / `maxEarlyAppDataBytes`.
+ * There is no hidden ceiling — the association will buffer until `onConnect`.
+ */
+export const EARLY_APP_DATA_UNLIMITED = Number.POSITIVE_INFINITY;
 
-function resolvePositiveIntCap(
+function resolveEarlyAppDataLimit(
   name: string,
   value: number | undefined,
   fallback: number,
-  ceiling: number,
 ): number {
   if (value === undefined) return fallback;
+  if (value === EARLY_APP_DATA_UNLIMITED) return EARLY_APP_DATA_UNLIMITED;
   if (!Number.isInteger(value) || value < 1) {
-    throw new Error(`${name} must be a positive integer`);
+    throw new Error(
+      `${name} must be a positive integer or EARLY_APP_DATA_UNLIMITED`,
+    );
   }
-  return Math.min(value, ceiling);
+  return value;
 }
 
 /** Resolve the early-app-data record cap from options or the DataChannel default. */
 export function resolveMaxEarlyAppDataRecords(value?: number): number {
-  return resolvePositiveIntCap(
+  return resolveEarlyAppDataLimit(
     "maxEarlyAppDataRecords",
     value,
     MAX_EARLY_APP_DATA_RECORDS,
-    MAX_EARLY_APP_DATA_RECORDS_CEILING,
   );
 }
 
 /** Resolve the early-app-data byte cap from options or the DataChannel default. */
 export function resolveMaxEarlyAppDataBytes(value?: number): number {
-  return resolvePositiveIntCap(
+  return resolveEarlyAppDataLimit(
     "maxEarlyAppDataBytes",
     value,
     MAX_EARLY_APP_DATA_BYTES,
-    MAX_EARLY_APP_DATA_BYTES_CEILING,
   );
 }
 
@@ -183,12 +185,14 @@ export interface Dtls13Options {
   /**
    * Max epoch-3 application-data records buffered before markConnected
    * (UDP reorder / 0.5-RTT). Default {@link MAX_EARLY_APP_DATA_RECORDS} (256).
-   * Sized for WebRTC DataChannel; raise for larger `maxMessageSize`.
+   * Sized for WebRTC DataChannel. Use {@link EARLY_APP_DATA_UNLIMITED} on
+   * trusted P2P paths (no ceiling).
    */
   maxEarlyAppDataRecords?: number;
   /**
    * Max bytes of epoch-3 application data buffered before markConnected.
    * Default {@link MAX_EARLY_APP_DATA_BYTES} (256 KiB).
+   * Use {@link EARLY_APP_DATA_UNLIMITED} on trusted P2P paths (no ceiling).
    */
   maxEarlyAppDataBytes?: number;
   /**
