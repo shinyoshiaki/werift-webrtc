@@ -39,7 +39,11 @@ qtmux name="muxer" ! filesink location=capture.webm`;
       const transceiver = pc.addTransceiver("video");
       transceiver.onTrack.subscribe((track) => {
         transceiver.sender.replaceTrack(track);
-        track.onReceiveRtp.subscribe((rtp) => {
+        track.onReceiveRtp.subscribe((rtp, _extensions, info) => {
+          // GCC probe padding is padding-only RTP; do not forward hop-local probes.
+          if (info?.type === "padding") {
+            return;
+          }
           udp.send(rtp.serialize(), videoPort, "127.0.0.1");
         });
         track.onReceiveRtp.once(() => {
@@ -51,7 +55,11 @@ qtmux name="muxer" ! filesink location=capture.webm`;
       const transceiver = pc.addTransceiver("audio");
       transceiver.onTrack.subscribe((track) => {
         transceiver.sender.replaceTrack(track);
-        track.onReceiveRtp.subscribe((rtp) => {
+        track.onReceiveRtp.subscribe((rtp, _extensions, info) => {
+          // GCC probe padding is padding-only RTP; do not forward hop-local probes.
+          if (info?.type === "padding") {
+            return;
+          }
           udp.send(rtp.serialize(), audioPort, "127.0.0.1");
         });
       });

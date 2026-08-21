@@ -96,7 +96,11 @@ rtpbin. ! rtpvp8depay ! queue ! decodebin ! autovideosink sync=true
 
   const audio = pc.addTransceiver("audio", { direction: "recvonly" });
   audio.onTrack.subscribe((track) => {
-    track.onReceiveRtp.subscribe(async (rtp) => {
+    track.onReceiveRtp.subscribe(async (rtp, _extensions, info) => {
+      // GCC probe padding is padding-only RTP; do not forward hop-local probes.
+      if (info?.type === "padding") {
+        return;
+      }
       rtp.header.payloadType = audioPt;
       rtp.header.ssrc = audioSsrc;
       await setTimeout(1000);
@@ -112,7 +116,11 @@ rtpbin. ! rtpvp8depay ! queue ! decodebin ! autovideosink sync=true
 
   const video = pc.addTransceiver("video", { direction: "recvonly" });
   video.onTrack.subscribe((track) => {
-    track.onReceiveRtp.subscribe((rtp) => {
+    track.onReceiveRtp.subscribe((rtp, _extensions, info) => {
+      // GCC probe padding is padding-only RTP; do not forward hop-local probes.
+      if (info?.type === "padding") {
+        return;
+      }
       rtp.header.payloadType = videoPt;
       rtp.header.ssrc = videoSsrc;
       udp.send(rtp.serialize(), videoRtp, "127.0.0.1");

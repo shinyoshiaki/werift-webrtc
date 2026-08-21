@@ -32,7 +32,11 @@ server.on("connection", async (socket) => {
 
   pc.addTransceiver("video").onTrack.subscribe((track, transceiver) => {
     transceiver.sender.replaceTrack(track);
-    track.onReceiveRtp.subscribe((rtp) => {
+    track.onReceiveRtp.subscribe((rtp, _extensions, info) => {
+      // GCC probe padding is padding-only RTP; do not forward hop-local probes.
+      if (info?.type === "padding") {
+        return;
+      }
       udp.send(rtp.serialize(), port);
     });
 

@@ -30,7 +30,11 @@ server.on("connection", async (socket) => {
 
   pc.addTransceiver("audio", { direction: "recvonly" }).onTrack.subscribe(
     (track) => {
-      track.onReceiveRtp.subscribe((rtp) => {
+      track.onReceiveRtp.subscribe((rtp, _extensions, info) => {
+        // GCC probe padding is padding-only RTP; do not forward hop-local probes.
+        if (info?.type === "padding") {
+          return;
+        }
         udp.send(rtp.serialize(), 4005);
       });
     },

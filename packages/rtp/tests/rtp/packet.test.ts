@@ -268,4 +268,54 @@ describe("RTP padding-only / malformed padding", () => {
     // Act / Assert
     expect(() => packet.serialize()).toThrow(/one-byte header extension/);
   });
+
+  test("rejects RTP with X=1 but no extension header", () => {
+    // Arrange: 固定ヘッダ 12 バイトのみで X=1
+    const buf = Buffer.alloc(12);
+    buf[0] = 0x90; // V=2, X=1
+
+    // Act / Assert: readUInt16BE の RangeError ではなく短すぎるとして失敗する
+    expect(() => RtpHeader.deSerialize(buf)).toThrow(/too short/);
+    expect(() => RtpPacket.deSerialize(buf)).toThrow(/too short/);
+  });
+
+  test("rejects declared extension region longer than remaining bytes", () => {
+    // Arrange: 拡張ヘッダは 1 word (4 バイト) と宣言するが実データは 2 バイト
+    const buf = Buffer.alloc(12 + 4 + 2);
+    buf[0] = 0x90;
+    buf.writeUInt16BE(ExtensionProfiles.OneByte, 12);
+    buf.writeUInt16BE(1, 14);
+
+    // Act / Assert
+    expect(() => RtpHeader.deSerialize(buf)).toThrow(/too short/);
+  });
+
+  test("rejects one-byte extension whose payload exceeds the extension region", () => {
+    // Arrange: 拡張領域 4 バイトなのに payload 長 4 を要求（id オクテットを含めると 5）
+    const buf = Buffer.alloc(20);
+    buf[0] = 0x90;
+    buf.writeUInt16BE(ExtensionProfiles.OneByte, 12);
+    buf.writeUInt16BE(1, 14);
+    buf[16] = 0x13; // id=1, len-1=3 → payload 4 バイト
+
+    // Act / Assert
+    expect(() => RtpHeader.deSerialize(buf)).toThrow(
+      /header extension truncated/,
+    );
+  });
+
+  test("rejects two-byte extension whose payload exceeds the extension region", () => {
+    // Arrange: 拡張領域 4 バイト、id+len のあと payload 3 バイトが必要だが残り 2
+    const buf = Buffer.alloc(20);
+    buf[0] = 0x90;
+    buf.writeUInt16BE(ExtensionProfiles.TwoByte, 12);
+    buf.writeUInt16BE(1, 14);
+    buf[16] = 0x01;
+    buf[17] = 0x03; // payload length 3
+
+    // Act / Assert
+    expect(() => RtpHeader.deSerialize(buf)).toThrow(
+      /header extension truncated/,
+    );
+  });
 });

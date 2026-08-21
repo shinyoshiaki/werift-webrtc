@@ -34,19 +34,22 @@ export class Red {
     let offset = 0;
     [red.header, offset] = RedHeader.deSerialize(buf);
 
-    red.header.fields.forEach(({ blockLength, timestampOffset, blockPT }) => {
-      if (blockLength && timestampOffset) {
-        if (offset + blockLength > buf.length) {
-          throw new Error("RED block truncated");
+    red.header.fields.forEach(
+      ({ fBit, blockLength, timestampOffset, blockPT }) => {
+        if (fBit === 1) {
+          const length = blockLength ?? 0;
+          if (offset + length > buf.length) {
+            throw new Error("RED block truncated");
+          }
+          const block = buf.subarray(offset, offset + length);
+          red.blocks.push({ block, blockPT, timestampOffset });
+          offset += length;
+        } else {
+          const block = buf.subarray(offset);
+          red.blocks.push({ block, blockPT });
         }
-        const block = buf.subarray(offset, offset + blockLength);
-        red.blocks.push({ block, blockPT, timestampOffset });
-        offset += blockLength;
-      } else {
-        const block = buf.subarray(offset);
-        red.blocks.push({ block, blockPT });
-      }
-    });
+      },
+    );
 
     return red;
   }
@@ -55,7 +58,7 @@ export class Red {
     this.header = new RedHeader();
 
     for (const { timestampOffset, blockPT, block } of this.blocks) {
-      if (timestampOffset) {
+      if (timestampOffset != null) {
         this.header.fields.push({
           fBit: 1,
           blockPT,
@@ -119,12 +122,12 @@ export class RedHeader {
     let buf = Buffer.alloc(0);
     for (const field of this.fields) {
       try {
-        if (field.timestampOffset && field.blockLength) {
+        if (field.fBit === 1 || field.blockLength != null) {
           const bitStream = new BitStream(Buffer.alloc(4))
             .writeBits(1, field.fBit)
             .writeBits(7, field.blockPT)
-            .writeBits(14, field.timestampOffset)
-            .writeBits(10, field.blockLength);
+            .writeBits(14, field.timestampOffset ?? 0)
+            .writeBits(10, field.blockLength ?? 0);
           buf = Buffer.concat([buf, bitStream.uint8Array]);
         } else {
           const bitStream = new BitStream(Buffer.alloc(1))

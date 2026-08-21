@@ -54,7 +54,11 @@ server.on("connection", async (socket) => {
     //     });
     //   },
     // });
-    track.onReceiveRtp.subscribe((p) => {
+    track.onReceiveRtp.subscribe((p, _extensions, info) => {
+      // GCC probe padding is padding-only RTP; do not forward hop-local probes.
+      if (info?.type === "padding") {
+        return;
+      }
       udp.send(p.serialize(), port);
     });
 

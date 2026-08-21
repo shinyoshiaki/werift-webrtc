@@ -27,7 +27,11 @@ console.log("start");
     const udp = createSocket("udp4");
 
     pc.ontrack = ({ track }) => {
-      track.onReceiveRtp.subscribe(async (rtp) => {
+      track.onReceiveRtp.subscribe(async (rtp, _extensions, info) => {
+        // GCC probe padding is padding-only RTP; do not forward hop-local probes.
+        if (info?.type === "padding") {
+          return;
+        }
         udp.send(rtp.serialize(), port);
       });
     };

@@ -56,4 +56,49 @@ describe("Red", () => {
     // Act / Assert: 切り詰めで黙って受理せず明示的に失敗する
     expect(() => Red.deSerialize(truncated)).toThrow(/truncated/i);
   });
+
+  it("rejects truncated block even when timestampOffset is 0", () => {
+    // Arrange: timestampOffset=0 は正当な RED。truthiness で検証を飛ばしてはいけない
+    const red = new Red();
+    red.blocks.push({
+      block: Buffer.alloc(10, 0x11),
+      blockPT: 97,
+      timestampOffset: 0,
+    });
+    red.blocks.push({
+      block: Buffer.from([0x22, 0x33]),
+      blockPT: 97,
+    });
+    const serialized = red.serialize();
+    const truncated = serialized.subarray(0, serialized.length - 8);
+
+    // Act / Assert: fBit=1 の blockLength 不足は明示的に失敗する
+    expect(() => Red.deSerialize(truncated)).toThrow(/truncated/i);
+  });
+
+  it("roundtrips a redundant block with timestampOffset 0", () => {
+    // Arrange: 同一 timestamp の冗長ブロック
+    const red = new Red();
+    red.blocks.push({
+      block: Buffer.from([1, 2, 3, 4]),
+      blockPT: 97,
+      timestampOffset: 0,
+    });
+    red.blocks.push({
+      block: Buffer.from([5, 6]),
+      blockPT: 97,
+    });
+
+    // Act
+    const parsed = Red.deSerialize(red.serialize());
+
+    // Assert: offset=0 でも F=1 ブロックとして復元される
+    expect(parsed.header.fields[0]).toMatchObject({
+      fBit: 1,
+      timestampOffset: 0,
+      blockLength: 4,
+    });
+    expect(parsed.blocks[0]?.block).toEqual(Buffer.from([1, 2, 3, 4]));
+    expect(parsed.blocks[1]?.block).toEqual(Buffer.from([5, 6]));
+  });
 });

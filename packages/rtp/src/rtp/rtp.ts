@@ -142,13 +142,15 @@ export class RtpHeader {
       h.csrc[i] = rawPacket.subarray(offset).readUInt32BE();
     }
     if (h.extension) {
-      h.extensionProfile = rawPacket
-        .subarray(currOffset)
-        .readUInt16BE() as ExtensionProfile;
+      assertRtpPacketLength(rawPacket, currOffset + 4);
+      h.extensionProfile = rawPacket.readUInt16BE(
+        currOffset,
+      ) as ExtensionProfile;
       currOffset += 2;
-      const extensionLength = rawPacket.subarray(currOffset).readUInt16BE() * 4;
+      const extensionLength = rawPacket.readUInt16BE(currOffset) * 4;
       h.extensionLength = extensionLength;
       currOffset += 2;
+      assertRtpPacketLength(rawPacket, currOffset + extensionLength);
 
       switch (h.extensionProfile) {
         // RFC 8285 RTP One Byte Header Extension
@@ -168,6 +170,9 @@ export class RtpHeader {
               if (extId === 0xf) {
                 break;
               }
+              if (currOffset + len > end) {
+                throw new Error("RTP header extension truncated");
+              }
               const extension: Extension = {
                 id: extId,
                 payload: rawPacket.subarray(currOffset, currOffset + len),
@@ -186,11 +191,17 @@ export class RtpHeader {
                 currOffset++;
                 continue;
               }
+              if (currOffset + 2 > end) {
+                throw new Error("RTP header extension truncated");
+              }
               const extId = rawPacket[currOffset];
               currOffset++;
               const len = rawPacket[currOffset];
               currOffset++;
 
+              if (currOffset + len > end) {
+                throw new Error("RTP header extension truncated");
+              }
               const extension: Extension = {
                 id: extId,
                 payload: rawPacket.subarray(currOffset, currOffset + len),
