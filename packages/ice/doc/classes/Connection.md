@@ -520,6 +520,34 @@ readonly \[`string`, `number`\]
 
 ***
 
+### setIceServers()
+
+> **setIceServers**(`options`): `void`
+
+Replace STUN/TURN servers after construction.
+Server-related fields are replaced (not partial-merged) so that removing
+TURN clears residual credentials. W3C setConfiguration replaces the ICE
+server list rather than merging additively.
+
+Used when servers are learned after the gatherer was built (e.g. WHIP
+Link headers) and must take effect before the next gather pass.
+
+#### Parameters
+
+##### options
+
+`Partial`\<[`IceOptions`](../interfaces/IceOptions.md)\>
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`setIceServers`](../interfaces/IceConnection.md#seticeservers)
+
+***
+
 ### setRemoteParams()
 
 > **setRemoteParams**(`__namedParameters`): `void`

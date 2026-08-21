@@ -40,6 +40,9 @@ import { getHostAddresses } from "./utils";
 
 const log = debug("werift-ice : packages/ice/src/ice.ts : log");
 
+/** Fallback STUN server when none is configured (constructor / setIceServers). */
+const DEFAULT_STUN_SERVER: Address = ["stun.l.google.com", 19302];
+
 export class Connection implements IceConnection {
   localUsername = randomString(4);
   localPassword = randomString(22);
@@ -92,14 +95,54 @@ export class Connection implements IceConnection {
     if (this.iceLite) {
       this._iceControlling = false;
     }
-    const { stunServer, turnServer } = this.options;
-    this.stunServer = validateAddress(stunServer) ?? [
-      "stun.l.google.com",
-      19302,
-    ];
-    this.turnServer = validateAddress(turnServer);
+    this.applyStunTurnServersFromOptions();
     this.restart();
     log("new Connection", this.options);
+  }
+
+  /**
+   * Replace STUN/TURN servers after construction.
+   * Server-related fields are replaced (not partial-merged) so that removing
+   * TURN clears residual credentials. W3C setConfiguration replaces the ICE
+   * server list rather than merging additively.
+   *
+   * Used when servers are learned after the gatherer was built (e.g. WHIP
+   * Link headers) and must take effect before the next gather pass.
+   */
+  setIceServers(options: Partial<IceOptions>) {
+    // Explicitly assign server fields even when undefined so a STUN-only
+    // update cannot leave a previous TURN host/credential in options.
+    this.options = {
+      ...this.options,
+      stunServer: options.stunServer,
+      turnServer: options.turnServer,
+      turnUsername: options.turnUsername,
+      turnPassword: options.turnPassword,
+      turnTransport: options.turnTransport,
+    };
+    if (options.forceTurn !== undefined) {
+      this.options.forceTurn = options.forceTurn;
+    }
+    if (options.useTcp !== undefined) {
+      this.options.useTcp = options.useTcp;
+    }
+    if (options.turnTlsOptions !== undefined) {
+      this.options.turnTlsOptions = options.turnTlsOptions;
+    }
+
+    this.applyStunTurnServersFromOptions();
+    log("Connection ice servers updated", this.options);
+  }
+
+  /**
+   * Derive Connection.stunServer / turnServer from this.options.
+   * Shared by the constructor and setIceServers so both paths validate and
+   * default identically.
+   */
+  private applyStunTurnServersFromOptions() {
+    this.stunServer =
+      validateAddress(this.options.stunServer) ?? DEFAULT_STUN_SERVER;
+    this.turnServer = validateAddress(this.options.turnServer);
   }
 
   get iceControlling() {

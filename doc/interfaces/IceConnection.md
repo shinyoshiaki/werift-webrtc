@@ -238,6 +238,22 @@
 
 ***
 
+### setIceServers()
+
+> **setIceServers**(`options`): `void`
+
+#### Parameters
+
+##### options
+
+`Partial`\<[`IceOptions`](IceOptions.md)\>
+
+#### Returns
+
+`void`
+
+***
+
 ### setRemoteParams()
 
 > **setRemoteParams**(`params`): `void`

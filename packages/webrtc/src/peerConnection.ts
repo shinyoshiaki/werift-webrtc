@@ -475,6 +475,21 @@ export class RTCPeerConnection extends EventTarget {
     ].forEach((v, i) => {
       v.id = 1 + i;
     });
+
+    // Propagate ICE server changes only to transports still in gathering
+    // state "new". JSEP (RFC 8829 §4.1.18): STUN/TURN changes affect the next
+    // gathering phase; once gathering has started or finished, nothing is
+    // applied to the live Connection (WHIP: createOffer → setConfiguration →
+    // setLocalDescription). Per-transport state is used so a gatherer that
+    // was reset to "new" (e.g. after ICE restart) is not blocked by a stale
+    // manager aggregate of "complete".
+    if (
+      isReconfiguration &&
+      this.secureManager &&
+      normalizedConfig.iceServers !== undefined
+    ) {
+      this.secureManager.updateIceServers();
+    }
   }
 
   getConfiguration() {
