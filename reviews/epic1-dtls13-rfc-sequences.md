@@ -4,13 +4,13 @@ ide:
   version: 1
   title: "Epic 1: RFC シーケンスに基づく DTLS 実装解説"
   dock: right
-  baseCommit: bff482b914226345ee1229b27f6627762d012072
+  baseCommit: ab4627de4b3ef05ee9789f364475a407a2c945d5
 ---
 # Epic 1: RFC シーケンスに基づく DTLS 実装解説
 
-規範は **RFC 9147**（DTLS 1.3）+ **RFC 8446**（TLS 1.3）+ verified errata。DTLS 1.2 既定経路は **RFC 6347**、SRTP exporter は **RFC 5764**。実装のフライト図は [packages/dtls/src/index.ts:16](review-file:packages/dtls/src/index.ts:16) の Figure 1 / 3 が一次地図。ハンドラ対応は [packages/dtls/src/engine/v1_3/README.md:1](review-file:packages/dtls/src/engine/v1_3/README.md:1)。
+規範は **RFC 9147**（DTLS 1.3）+ **RFC 8446**（TLS 1.3）+ verified errata。DTLS 1.2 既定経路は **RFC 6347**、SRTP exporter は **RFC 5764**。実装のフライト図は [packages/dtls/src/index.ts:16](review-file:packages/dtls/src/index.ts:16) の Figure 1 / 3 が一次地図。ハンドラ対応は [packages/dtls/src/engine/v1_3/README.md:1](review-file:packages/dtls/src/engine/v1_3/README.md:1)。継承と関数配置の制約は [packages/dtls/src/engine/v1_3/AGENTS.md:1](review-file:packages/dtls/src/engine/v1_3/AGENTS.md:1)。
 
-working tree の実装は HEAD `bff482b9`。未コミットの実装差分は無いので、確認は File Viewer を先に使う。
+working tree の実装は HEAD `ab4627de`。未コミットの実装差分は無いので、確認は File Viewer を先に使う。
 
 ### 略語
 
@@ -55,7 +55,7 @@ working tree の実装は HEAD `bff482b9`。未コミットの実装差分は無
 | 0-RTT | Zero Round-Trip Time（PSK early data。本 Epic では未実装） |
 
 [packages/dtls/src/index.ts:63](review-file:packages/dtls/src/index.ts:63)
-[packages/dtls/src/index.ts:107](review-diff:packages/dtls/src/index.ts:commit:bff482b9:107)
+[packages/dtls/src/index.ts:107](review-diff:packages/dtls/src/index.ts:commit:ab4627de:107)
 
 ---
 
@@ -63,7 +63,7 @@ working tree の実装は HEAD `bff482b9`。未コミットの実装差分は無
 
 Epic 1 は direct datagram 上の **証明書付き DTLS 1.3 full handshake** を、既存 DTLS 1.2 を壊さずに追加する。RFC が規定する「誰が何をどの順で送るか」と「確定してはいけないタイミング」が、いまのコード分割そのものになっている。
 
-DTLS 1.3 のフライト実装は DTLS 1.2 と同じく `flight/{client,server}/flightN.ts` に分割し、`handshake-flights.ts` は合成スタックの再エクスポートだけを残す。version / peer / RTO の中立ヘルパーは 1.2 association と 1.3 engine で共有する。
+DTLS 1.3 のフライトは DTLS 1.2 と同じく `flight/{client,server}/flightN.ts` に分割する。ハンドラは **mixin クラスではなく** `this: Dtls13Host` の関数で、`Dtls13Connection` がフィールドとして割り当てる。クラス継承は **`Dtls13Connection extends Dtls13ConnectionBase` の 1 段だけ**（session state + lifecycle）。`handshake-flights.ts` は `Dtls13Host` 型の再エクスポートのみ。version / peer / RTO の中立ヘルパーは 1.2 association と 1.3 engine で共有する。
 
 | RFC | この実装での役割 |
 | --- | --- |
@@ -77,7 +77,7 @@ DTLS 1.3 のフライト実装は DTLS 1.2 と同じく `flight/{client,server}/
 
 | 完了条件 | RFC 上の根拠 | 実装入口 |
 | --- | --- | --- |
-| 1.3 full HS + 双方向 app data | RFC 9147 Figure 3 / §5 | Figure 3 + `engine/v1_3/flight/{client,server}` |
+| 1.3 full HS + 双方向 app data | RFC 9147 Figure 3 / §5 | Figure 3 + `engine/v1_3/flight/{client,server}` の関数 |
 | `[1.3, 1.2]` fallback | RFC 9147: 1.3 は HVR（HelloVerifyRequest）を使わないが dual client は 1.2 server と相互運用する | association dual + HVR は commit ではない |
 | 1.3-only × 1.2-only は version error | RFC 8446 / 9147 `protocol_version(70)`。ClientHello に `supported_versions` があれば **それだけ** を使う | `selectVersionFromClientHello` + `ProtocolVersionError` |
 | DOWNGRD を弱めない | RFC 8446 §4.1.3 | dual は `[V1_3, V1_2]` のみ |
@@ -87,9 +87,11 @@ DTLS 1.3 のフライト実装は DTLS 1.2 と同じく `flight/{client,server}/
 公開入口は `DtlsClient` / `DtlsServer`。`selectVersion` と carrier は Public API に出さない。
 
 [packages/dtls/src/index.ts:4](review-file:packages/dtls/src/index.ts:4)
-[packages/dtls/src/index.ts:12](review-diff:packages/dtls/src/index.ts:commit:bff482b9:12)
+[packages/dtls/src/index.ts:12](review-diff:packages/dtls/src/index.ts:commit:ab4627de:12)
+[packages/dtls/src/engine/v1_3/connection.ts:1](review-file:packages/dtls/src/engine/v1_3/connection.ts:1)
+[packages/dtls/src/engine/v1_3/host.ts:1](review-file:packages/dtls/src/engine/v1_3/host.ts:1)
 [packages/dtls/src/engine/v1_3/handshake-flights.ts:1](review-file:packages/dtls/src/engine/v1_3/handshake-flights.ts:1)
-[packages/dtls/src/engine/v1_3/README.md:11](review-file:packages/dtls/src/engine/v1_3/README.md:11)
+[packages/dtls/src/engine/v1_3/README.md:6](review-file:packages/dtls/src/engine/v1_3/README.md:6)
 
 ---
 
@@ -120,22 +122,22 @@ ClientHello + cookie*       -------->            Flight 3
 
 `{ }` は handshake traffic keys（epoch 2）。1.3 経路では **HelloVerifyRequest / ServerKeyExchange / ClientKeyExchange / ServerHelloDone / ChangeCipherSpec を送らない**（チケット 2.3）。
 
-状態機械は [packages/dtls/src/engine/v1_3/connection-base.ts:56](review-file:packages/dtls/src/engine/v1_3/connection-base.ts:56)。dispatch は [packages/dtls/src/engine/v1_3/flight/dispatch.ts:24](review-file:packages/dtls/src/engine/v1_3/flight/dispatch.ts:24)。
+状態機械は [packages/dtls/src/engine/v1_3/connection-base.ts:56](review-file:packages/dtls/src/engine/v1_3/connection-base.ts:56)。dispatch は [packages/dtls/src/engine/v1_3/flight/dispatch.ts:23](review-file:packages/dtls/src/engine/v1_3/flight/dispatch.ts:23)（`isExpectedHandshakeType` / `dispatchHandshake`）。割り当ては [packages/dtls/src/engine/v1_3/connection.ts:66](review-file:packages/dtls/src/engine/v1_3/connection.ts:66)。
 
-Figure 3 → ファイル（`handshake-flights.ts` は再エクスポートのみ）:
+Figure 3 → ファイル（関数名。`handshake-flights.ts` は型の再エクスポートのみ）:
 
 | Flight | RFC | 実装 |
 | --- | --- | --- |
 | 1 / 3 ClientHello | §5.1、legacy_version `0xfefd`、legacy_cookie 空 | `flight/client/flight1.ts` `sendClientHello` / `flight/server/flight4.ts` `onClientHello` |
-| 2 HRR（HelloRetryRequest） | RFC 8446 §4.1.4、最大 1 回 | `flight/server/flight2.ts` `sendHelloRetryRequest` / `flight/client/flight4.ts` の HRR 分岐 |
+| 2 HRR（HelloRetryRequest） | RFC 8446 §4.1.4、最大 1 回 | `flight/server/flight2.ts` `sendHelloRetryRequest` / `flight/client/flight4.ts` `onServerHello` の HRR 分岐 |
 | 4 Server flight | SH（ServerHello）+ EE（EncryptedExtensions）+ Cert* + CV（CertificateVerify）+ Finished | `flight/server/flight4.ts` `sendServerFlight` / `flight/client/flight4.ts` |
 | 5 client Finished | 任意 client Cert | `flight/client/flight5.ts` / `flight/server/flight5.ts` |
 | post-HS ACK | RFC 9147 §7 | `record-rx.ts` `handleAck` |
 | post-HS KeyUpdate | RFC 9147 §8 | `flight/post-hs.ts` `keyUpdate` / `onKeyUpdate` |
 
 [packages/dtls/src/index.ts:107](review-file:packages/dtls/src/index.ts:107)
-[packages/dtls/src/engine/v1_3/flight/client/flight1.ts:29](review-file:packages/dtls/src/engine/v1_3/flight/client/flight1.ts:29)
-[packages/dtls/src/engine/v1_3/flight/dispatch.ts:110](review-diff:packages/dtls/src/engine/v1_3/flight/dispatch.ts:commit:bff482b9:110)
+[packages/dtls/src/engine/v1_3/flight/client/flight1.ts:28](review-file:packages/dtls/src/engine/v1_3/flight/client/flight1.ts:28)
+[packages/dtls/src/engine/v1_3/flight/dispatch.ts:73](review-diff:packages/dtls/src/engine/v1_3/flight/dispatch.ts:commit:ab4627de:73)
 [packages/dtls/src/engine/v1_3/connection.ts:1](review-file:packages/dtls/src/engine/v1_3/connection.ts:1)
 
 1.3 メッセージ型:
@@ -154,12 +156,12 @@ Server が CH を受けたときの必須検査:
 
 <!-- review-bookmark id="bm_1a017415022-417792a8" title="2.2 ClientHello / ServerHello の MUST（RFC" -->
 [packages/dtls/src/engine/v1_3/flight/server/flight4.ts:64](review-file:packages/dtls/src/engine/v1_3/flight/server/flight4.ts:64)
-[packages/dtls/src/engine/v1_3/flight/server/flight4.ts:82](review-diff:packages/dtls/src/engine/v1_3/flight/server/flight4.ts:commit:bff482b9:82)
+[packages/dtls/src/engine/v1_3/flight/server/flight4.ts:82](review-diff:packages/dtls/src/engine/v1_3/flight/server/flight4.ts:commit:ab4627de:82)
 
 ServerHello 側も `legacy_version == 0xfefd`、`compression_method == 0`、session_id echo。
 
 [packages/dtls/src/engine/v1_3/flight/client/flight4.ts:50](review-file:packages/dtls/src/engine/v1_3/flight/client/flight4.ts:50)
-[packages/dtls/src/engine/v1_3/flight/client/flight4.ts:50](review-diff:packages/dtls/src/engine/v1_3/flight/client/flight4.ts:commit:bff482b9:50)
+[packages/dtls/src/engine/v1_3/flight/client/flight4.ts:41](review-diff:packages/dtls/src/engine/v1_3/flight/client/flight4.ts:commit:ab4627de:41)
 
 HRR（HelloRetryRequest）判定は RFC 8446 の特殊 Random:
 
@@ -199,13 +201,13 @@ supported_versions なし
 1.2-only server も dual server も、association は同じ `selectVersionFromClientHello()` を先に実行する。`0x1301` だけのヒューリスティックは使わない（外部 DTLS 1.3 client は `0x1301+0x1302` を offer し得る）。
 
 [packages/dtls/src/version.ts:105](review-file:packages/dtls/src/version.ts:105)
-[packages/dtls/src/version.ts:126](review-diff:packages/dtls/src/version.ts:commit:bff482b9:126)
+[packages/dtls/src/version.ts:126](review-diff:packages/dtls/src/version.ts:commit:ab4627de:126)
 [packages/dtls/src/server.ts:163](review-file:packages/dtls/src/server.ts:163)
 [packages/dtls/src/server.ts:238](review-file:packages/dtls/src/server.ts:238)
 
 1.3 engine 側も cipher 選択の前に `supported_versions` を読む（1.2-only CH を `handshake_failure` に落とさない）。
 
-[packages/dtls/src/engine/v1_3/flight/server/flight4.ts:109](review-file:packages/dtls/src/engine/v1_3/flight/server/flight4.ts:109)
+[packages/dtls/src/engine/v1_3/flight/server/flight4.ts:107](review-file:packages/dtls/src/engine/v1_3/flight/server/flight4.ts:107)
 
 **DOWNGRD（RFC 8446 §4.1.3 / RFC 9147 が DTLS 1.2 へも適用）:**
 
@@ -222,7 +224,7 @@ supported_versions なし
 [packages/dtls/src/version.ts:65](review-file:packages/dtls/src/version.ts:65)
 [packages/dtls/src/socket.ts:1010](review-file:packages/dtls/src/socket.ts:1010)
 [packages/dtls/src/flight/server/flight4.ts:82](review-file:packages/dtls/src/flight/server/flight4.ts:82)
-[packages/dtls/src/flight/server/flight4.ts:82](review-diff:packages/dtls/src/flight/server/flight4.ts:commit:bff482b9:82)
+[packages/dtls/src/flight/server/flight4.ts:82](review-diff:packages/dtls/src/flight/server/flight4.ts:commit:ab4627de:82)
 [packages/dtls/src/client.ts:1274](review-file:packages/dtls/src/client.ts:1274)
 [packages/dtls/src/handshake/random.ts:57](review-file:packages/dtls/src/handshake/random.ts:57)
 
@@ -246,14 +248,14 @@ none → probing → committed12 | committed13 | closed
 ```
 
 [packages/dtls/src/client.ts:51](review-file:packages/dtls/src/client.ts:51)
-[packages/dtls/src/client.ts:62](review-diff:packages/dtls/src/client.ts:commit:bff482b9:62)
+[packages/dtls/src/client.ts:62](review-diff:packages/dtls/src/client.ts:commit:ab4627de:62)
 
 1.3 engine が HVR を受けたとき、1.3-only なら `ProtocolVersionError`。dual なら `DtlsVersionSelected(V1_2)` で association に返し、**CH-A を捨てない**。
 
-[packages/dtls/src/engine/v1_3/flight/dispatch.ts:116](review-file:packages/dtls/src/engine/v1_3/flight/dispatch.ts:116)
-[packages/dtls/src/engine/v1_3/connection-base.ts:966](review-file:packages/dtls/src/engine/v1_3/connection-base.ts:966)
+[packages/dtls/src/engine/v1_3/flight/dispatch.ts:105](review-file:packages/dtls/src/engine/v1_3/flight/dispatch.ts:105)
+[packages/dtls/src/engine/v1_3/connection-base.ts:956](review-file:packages/dtls/src/engine/v1_3/connection-base.ts:956)
 [packages/dtls/src/client.ts:707](review-file:packages/dtls/src/client.ts:707)
-[packages/dtls/src/client.ts:707](review-diff:packages/dtls/src/client.ts:commit:bff482b9:707)
+[packages/dtls/src/client.ts:712](review-diff:packages/dtls/src/client.ts:commit:ab4627de:712)
 
 競合シーケンス（レビューで直した RFC 9147 loss recovery）:
 
@@ -283,9 +285,9 @@ CH2 ≒ CH1 except RFC 8446 §4.1.4 が許す差
 ```
 
 [packages/dtls/src/engine/v1_3/flight/server/flight2.ts:60](review-file:packages/dtls/src/engine/v1_3/flight/server/flight2.ts:60)
-[packages/dtls/src/engine/v1_3/flight/server/flight4.ts:240](review-file:packages/dtls/src/engine/v1_3/flight/server/flight4.ts:240)
-[packages/dtls/src/engine/v1_3/flight/server/flight4.ts:240](review-diff:packages/dtls/src/engine/v1_3/flight/server/flight4.ts:commit:bff482b9:240)
-[packages/dtls/src/engine/v1_3/flight/client/flight4.ts:110](review-file:packages/dtls/src/engine/v1_3/flight/client/flight4.ts:110)
+[packages/dtls/src/engine/v1_3/flight/server/flight4.ts:236](review-file:packages/dtls/src/engine/v1_3/flight/server/flight4.ts:236)
+[packages/dtls/src/engine/v1_3/flight/server/flight4.ts:240](review-diff:packages/dtls/src/engine/v1_3/flight/server/flight4.ts:commit:ab4627de:240)
+[packages/dtls/src/engine/v1_3/flight/client/flight4.ts:109](review-file:packages/dtls/src/engine/v1_3/flight/client/flight4.ts:109)
 
 HRR transcript は CH1 を `message_hash` で置き換える（RFC 8446 §4.4.1）。
 
@@ -295,8 +297,8 @@ Cookie は HMAC(secret, peer, CH hash, expiry)。RFC 9147 の「cookie は clien
 
 [packages/dtls/src/engine/v1_3/types.ts:13](review-file:packages/dtls/src/engine/v1_3/types.ts:13)
 [packages/dtls/src/handshake/extensions/cookie.ts:238](review-file:packages/dtls/src/handshake/extensions/cookie.ts:238)
-[packages/dtls/src/engine/v1_3/flight-tx.ts:270](review-file:packages/dtls/src/engine/v1_3/flight-tx.ts:270)
-[packages/dtls/src/engine/v1_3/flight-tx.ts:283](review-diff:packages/dtls/src/engine/v1_3/flight-tx.ts:commit:bff482b9:283)
+[packages/dtls/src/engine/v1_3/flight-tx.ts:269](review-file:packages/dtls/src/engine/v1_3/flight-tx.ts:269)
+[packages/dtls/src/engine/v1_3/flight-tx.ts:282](review-diff:packages/dtls/src/engine/v1_3/flight-tx.ts:commit:ab4627de:282)
 
 ### 2.6 RFC 6347 Figure 1 — DTLS 1.2（既定経路）
 
@@ -318,7 +320,7 @@ CKE + CCS + Finished -------->   (ClientKeyExchange / ChangeCipherSpec)
 
 [packages/dtls/src/flight/server/flight2.ts:18](review-file:packages/dtls/src/flight/server/flight2.ts:18)
 [packages/dtls/src/handshake/extensions/cookie.ts:147](review-file:packages/dtls/src/handshake/extensions/cookie.ts:147)
-[packages/dtls/src/handshake/extensions/cookie.ts:159](review-diff:packages/dtls/src/handshake/extensions/cookie.ts:commit:bff482b9:159)
+[packages/dtls/src/handshake/extensions/cookie.ts:159](review-diff:packages/dtls/src/handshake/extensions/cookie.ts:commit:ab4627de:159)
 [packages/dtls/src/flight/server/commitClientHello.ts:41](review-file:packages/dtls/src/flight/server/commitClientHello.ts:41)
 
 再送 CH2 は cached Flight4 のみ。serverRandom / ECDHE を作り直すと RFC 6347 の通常ロス回復が Finished mismatch になる。
@@ -334,21 +336,21 @@ Certificate       0         4              3
 ```
 
 [packages/dtls/src/flight/server/flight2.ts:33](review-file:packages/dtls/src/flight/server/flight2.ts:33)
-[packages/dtls/src/flight/server/flight2.ts:33](review-diff:packages/dtls/src/flight/server/flight2.ts:commit:bff482b9:33)
+[packages/dtls/src/flight/server/flight2.ts:33](review-diff:packages/dtls/src/flight/server/flight2.ts:commit:ab4627de:33)
 [packages/dtls/src/flight/server/flight4.ts:46](review-file:packages/dtls/src/flight/server/flight4.ts:46)
 
 Client は複数 HVR を処理できる（RFC 6347）。`hvrGeneration` で古い Flight3 RTO を止める。
 
 <!-- review-bookmark id="bm_1a0174d8c70-a3edd0e8" title="2.6 RFC 6347 Figure 1 — DTLS 1.2（既定経路）" -->
 [packages/dtls/src/flight/client/flight3.ts:17](review-file:packages/dtls/src/flight/client/flight3.ts:17)
-[packages/dtls/src/flight/client/flight3.ts:17](review-diff:packages/dtls/src/flight/client/flight3.ts:commit:bff482b9:17)
+[packages/dtls/src/flight/client/flight3.ts:17](review-diff:packages/dtls/src/flight/client/flight3.ts:commit:ab4627de:17)
 
 ### 2.7 Transcript と key schedule（RFC 8446 §4.4.1 / §7.1、RFC 9147 label）
 
-Transcript に含めない: record header、fragment metadata、再送 duplicate、ACK。ハッシュ入力は `msg_type(1) || length(3) || body`（DTLS の `message_seq` / fragment 欄は除く）。
+Transcript に含めない: record header、fragment metadata、再送 duplicate、ACK。ハッシュ入力は `msg_type(1) || length(3) || body`（DTLS の `message_seq` / fragment 欄は除く）。`HandshakeTranscript` は独立クラスで、継承チェーンには入らない。
 
 [packages/dtls/src/engine/v1_3/transcript.ts:4](review-file:packages/dtls/src/engine/v1_3/transcript.ts:4)
-[packages/dtls/src/engine/v1_3/transcript.ts:4](review-diff:packages/dtls/src/engine/v1_3/transcript.ts:commit:bff482b9:4)
+[packages/dtls/src/engine/v1_3/transcript.ts:4](review-diff:packages/dtls/src/engine/v1_3/transcript.ts:commit:ab4627de:4)
 
 ```text
 Early Secret     = HKDF-Extract(0, PSK=0)
@@ -363,19 +365,19 @@ Expand-Label の prefix は TLS の `tls13 ` ではなく **`dtls13`**。
 [packages/dtls/src/cipher/tls13/hkdf.ts:4](review-file:packages/dtls/src/cipher/tls13/hkdf.ts:4)
 [packages/dtls/src/cipher/tls13/hkdf.ts:8](review-file:packages/dtls/src/cipher/tls13/hkdf.ts:8)
 [packages/dtls/src/cipher/tls13/keySchedule.ts:35](review-file:packages/dtls/src/cipher/tls13/keySchedule.ts:35)
-[packages/dtls/src/cipher/tls13/keySchedule.ts:47](review-diff:packages/dtls/src/cipher/tls13/keySchedule.ts:commit:bff482b9:47)
+[packages/dtls/src/cipher/tls13/keySchedule.ts:47](review-diff:packages/dtls/src/cipher/tls13/keySchedule.ts:commit:ab4627de:47)
 
 CertificateVerify は RFC 8446 §4.4.3。**`rsa_pkcs1_*` は禁止**。RSA は `rsa_pss_rsae_sha256` のみ。既存 1.2 PKCS#1 経路は流用しない。
 
 [packages/dtls/src/cipher/tls13/signature.ts:67](review-file:packages/dtls/src/cipher/tls13/signature.ts:67)
-[packages/dtls/src/cipher/tls13/signature.ts:72](review-diff:packages/dtls/src/cipher/tls13/signature.ts:commit:bff482b9:72)
+[packages/dtls/src/cipher/tls13/signature.ts:72](review-diff:packages/dtls/src/cipher/tls13/signature.ts:commit:ab4627de:72)
 
 SRTP（RFC 5764）は label **`EXTRACTOR-dtls_srtp`**。1.3 は RFC 8446 §7.5 exporter、1.2 は既存 PRF。Public `extractSessionKeys` の意味は変えない。
 
 [packages/dtls/src/cipher/tls13/keySchedule.ts:221](review-file:packages/dtls/src/cipher/tls13/keySchedule.ts:221)
-[packages/dtls/src/engine/v1_3/connection.ts:106](review-file:packages/dtls/src/engine/v1_3/connection.ts:106)
+[packages/dtls/src/engine/v1_3/connection.ts:174](review-file:packages/dtls/src/engine/v1_3/connection.ts:174)
 [packages/dtls/src/socket.ts:773](review-file:packages/dtls/src/socket.ts:773)
-[packages/dtls/src/socket.ts:778](review-diff:packages/dtls/src/socket.ts:commit:bff482b9:778)
+[packages/dtls/src/socket.ts:778](review-diff:packages/dtls/src/socket.ts:commit:ab4627de:778)
 
 ### 2.8 Record layer（RFC 9147 §4）
 
@@ -395,7 +397,7 @@ Unified header（§4.1）: 固定 bit `001`、**C=1（CID）は拒否**。AAD �
 [packages/dtls/src/record/v1_3/header.ts:1](review-file:packages/dtls/src/record/v1_3/header.ts:1)
 [packages/dtls/src/record/v1_3/header.ts:30](review-file:packages/dtls/src/record/v1_3/header.ts:30)
 [packages/dtls/src/cipher/tls13/aead.ts:40](review-file:packages/dtls/src/cipher/tls13/aead.ts:40)
-[packages/dtls/src/cipher/tls13/aead.ts:61](review-diff:packages/dtls/src/cipher/tls13/aead.ts:commit:bff482b9:61)
+[packages/dtls/src/cipher/tls13/aead.ts:61](review-diff:packages/dtls/src/cipher/tls13/aead.ts:commit:ab4627de:61)
 [packages/dtls/src/record/v1_3/record.ts:70](review-file:packages/dtls/src/record/v1_3/record.ts:70)
 
 1.3 受信 path は epoch ごとに `AntiReplayWindow`。1.2 受信 path への適用は回帰回避のため未統合（チケットどおり任意）。
@@ -407,18 +409,18 @@ Unified header（§4.1）: 固定 bit `001`、**C=1（CID）は拒否**。AAD �
 - ACK 自身の epoch より高い RecordNumber は **適用しない**（plaintext ACK で encrypted flight を完了させない）
 - Erratum 8108（Reported）は higher-epoch を `illegal_parameter` にする案。verified ではないので **無視**し、準拠宣言もしない
 
-[packages/dtls/src/engine/v1_3/record-rx.ts:578](review-file:packages/dtls/src/engine/v1_3/record-rx.ts:578)
-[packages/dtls/src/engine/v1_3/record-rx.ts:604](review-diff:packages/dtls/src/engine/v1_3/record-rx.ts:commit:bff482b9:604)
+[packages/dtls/src/engine/v1_3/record-rx.ts:586](review-file:packages/dtls/src/engine/v1_3/record-rx.ts:586)
+[packages/dtls/src/engine/v1_3/record-rx.ts:616](review-diff:packages/dtls/src/engine/v1_3/record-rx.ts:commit:ab4627de:616)
 
 KeyUpdate: **現行 write keys で送り、ACK が来るまで新 keys では送らない**（§8）。`update_requested` なら応答 KU（KeyUpdate）を先に送る。
 
-[packages/dtls/src/engine/v1_3/flight/post-hs.ts:50](review-file:packages/dtls/src/engine/v1_3/flight/post-hs.ts:50)
-[packages/dtls/src/engine/v1_3/flight/post-hs.ts:56](review-diff:packages/dtls/src/engine/v1_3/flight/post-hs.ts:commit:bff482b9:56)
+[packages/dtls/src/engine/v1_3/flight/post-hs.ts:49](review-file:packages/dtls/src/engine/v1_3/flight/post-hs.ts:49)
+[packages/dtls/src/engine/v1_3/flight/post-hs.ts:58](review-diff:packages/dtls/src/engine/v1_3/flight/post-hs.ts:commit:ab4627de:58)
 [packages/dtls/src/cipher/tls13/keySchedule.ts:207](review-file:packages/dtls/src/cipher/tls13/keySchedule.ts:207)
 
 ### 2.10 RTO（Retransmission Timeout、RFC 9147 §5.8.2）
 
-RFC 定数と `computeDtlsRtoMs` は [packages/dtls/src/retransmission.ts:1](review-file:packages/dtls/src/retransmission.ts:1) に置き、1.3 `flight-tx` が呼ぶ。`types.ts` は互換 re-export。
+RFC 定数と `computeDtlsRtoMs` は [packages/dtls/src/retransmission.ts:1](review-file:packages/dtls/src/retransmission.ts:1) に置き、1.3 `flight-tx` の `computeRetransmitRtoMs` が呼ぶ。`types.ts` は互換 re-export。
 
 | 条件 | RFC | 実装 |
 | --- | --- | --- |
@@ -432,15 +434,15 @@ RFC 定数と `computeDtlsRtoMs` は [packages/dtls/src/retransmission.ts:1](rev
 DTLS 1.2 `Flight.transmit` はこの関数を使わない。線形 `1000 * ((retransmitCount + 1) / 2)`（0.5s, 1s, 1.5s…）のまま。dual probing で CH-A 再送と cookie CH 再送が同時発火して 1.3 `illegal_parameter` が漏れるのを避けるため。
 
 [packages/dtls/src/retransmission.ts:23](review-file:packages/dtls/src/retransmission.ts:23)
-[packages/dtls/src/engine/v1_3/flight-tx.ts:318](review-file:packages/dtls/src/engine/v1_3/flight-tx.ts:318)
-[packages/dtls/src/engine/v1_3/flight-tx.ts:325](review-diff:packages/dtls/src/engine/v1_3/flight-tx.ts:commit:bff482b9:325)
+[packages/dtls/src/engine/v1_3/flight-tx.ts:325](review-file:packages/dtls/src/engine/v1_3/flight-tx.ts:325)
+[packages/dtls/src/engine/v1_3/flight-tx.ts:331](review-diff:packages/dtls/src/engine/v1_3/flight-tx.ts:commit:ab4627de:331)
 [packages/dtls/src/flight/flight.ts:120](review-file:packages/dtls/src/flight/flight.ts:120)
 
 ### 2.11 1-RTT 後の application data と early server data
 
 RFC 9147 は server Finished 後・client Finished 前の epoch 3 送信を許す。self では送受信できる。WebRTC fingerprint ゲートは Epic 3。
 
-[packages/dtls/src/engine/v1_3/flight/server/flight4.ts:632](review-file:packages/dtls/src/engine/v1_3/flight/server/flight4.ts:632)
+[packages/dtls/src/engine/v1_3/flight/server/flight4.ts:655](review-file:packages/dtls/src/engine/v1_3/flight/server/flight4.ts:655)
 
 reorder で Finished 前に epoch-3 app data が来る場合は小さな buffer（RFC は buffer または discard）。
 
@@ -453,7 +455,7 @@ reorder で Finished 前に epoch-3 app data が来る場合は小さな buffer�
 1. **HVR を version commit にしない。** RFC 9147 は 1.3 で HVR を使わない。同時に dual client の 1.2 相互運用は必須。未認証 HVR で CH-A / ECDHE を捨てると、遅延 SH/HRR と RFC の再送モデルが両立しない。
 2. **DOWNGRD を弱めない。** 1.3-capable server の 1.2 選択は sentinel 必須。公開 dual を 1.3 優先だけにし、API と RFC を一致させた。
 3. **version 交渉と cipher 交渉を混ぜない。** RFC 8446 は ClientHello に `supported_versions` があるとき、server はそれだけを使う。1.2-only server が `0x1301` のみを 1.3-only 判定に使うと、`0x1301+0x1302` の正当な 1.3 CH が HVR に落ちる。
-4. **1.2 と 1.3 の mutable state を共有しない。** epoch / transcript / keys / replay / timer は RFC 上も別プロトコル世代。既存 1.2 PRF / explicit-nonce を書き換えない。フライト分割と version-neutral helper（`peer.ts` / `retransmission.ts` / `DtlsRandom.bytes32`）は共有しても、wire 状態は混ぜない。
+4. **1.2 と 1.3 の mutable state を共有しない。** epoch / transcript / keys / replay / timer は RFC 上も別プロトコル世代。既存 1.2 PRF / explicit-nonce を書き換えない。フライト分割と version-neutral helper（`peer.ts` / `retransmission.ts` / `DtlsRandom.bytes32`）は共有しても、wire 状態は混ぜない。1.3 側のフライト分割は **関数 + `Dtls13Host`** で、mixin の多段継承にはしない。
 5. **CH1 で association に commit しない。** RFC 6347 cookie は「その address で cookie を受信できた」ことの証明。pre-cookie の共有 cipher state は別 source の CH で poison できる。
 6. **handshake seq と record seq を混ぜない。** Errata 5186。record seq 巻き戻しは anti-replay 付き peer（OpenSSL `-dtls1_2`）で HVR2 を殺す。
 7. **verified errata だけ MUST 扱い。** 8108 は Reported。higher-epoch ACK 無視を仕様として明示し、誤って準拠宣言しない。
@@ -463,6 +465,7 @@ reorder で Finished 前に epoch-3 app data が来る場合は小さな buffer�
 [packages/dtls/src/peer.ts:36](review-file:packages/dtls/src/peer.ts:36)
 [packages/dtls/src/socket.ts:240](review-file:packages/dtls/src/socket.ts:240)
 [packages/dtls/src/engine/v1_3/types.ts:168](review-file:packages/dtls/src/engine/v1_3/types.ts:168)
+[packages/dtls/src/engine/v1_3/AGENTS.md:14](review-file:packages/dtls/src/engine/v1_3/AGENTS.md:14)
 
 ---
 
@@ -499,7 +502,7 @@ RFC シーケンスに対応するテスト入口:
 | RFC 9147 両 role + BoringSSL | [packages/dtls/tests/e2e/boringssl/interop.test.ts:116](review-file:packages/dtls/tests/e2e/boringssl/interop.test.ts:116) |
 | RFC 6347 dual → OpenSSL 1.2 | [packages/dtls/tests/e2e/client_dual_openssl.test.ts:10](review-file:packages/dtls/tests/e2e/client_dual_openssl.test.ts:10) |
 
-直近検証（HEAD `bff482b9`）:
+直近検証（HEAD `ab4627de`、フライト関数化後）:
 
 ```text
 cd packages/dtls && npm run type && npm test
@@ -508,4 +511,4 @@ cd packages/dtls && npm run type && npm test
 Docker: npm run test:boringssl → 5/5
 ```
 
-フライト図の読み方は [packages/dtls/src/index.ts:63](review-file:packages/dtls/src/index.ts:63) と [packages/dtls/src/engine/v1_3/README.md:21](review-file:packages/dtls/src/engine/v1_3/README.md:21)。実装確認は File Viewer、コミット差分は [packages/dtls/src/index.ts](review-diff:packages/dtls/src/index.ts:commit:bff482b9) から辿れる。
+フライト図の読み方は [packages/dtls/src/index.ts:63](review-file:packages/dtls/src/index.ts:63) と [packages/dtls/src/engine/v1_3/README.md:22](review-file:packages/dtls/src/engine/v1_3/README.md:22)。実装確認は File Viewer、コミット差分は [packages/dtls/src/index.ts](review-diff:packages/dtls/src/index.ts:commit:ab4627de) から辿れる。
