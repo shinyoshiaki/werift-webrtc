@@ -34,6 +34,8 @@ export class Red {
     let offset = 0;
     [red.header, offset] = RedHeader.deSerialize(buf);
 
+    // RFC 2198: F=1 blocks always carry timestamp offset + block length,
+    // including timestampOffset=0. Do not gate on truthiness of offset.
     red.header.fields.forEach(
       ({ fBit, blockLength, timestampOffset, blockPT }) => {
         if (fBit === 1) {
@@ -58,6 +60,7 @@ export class Red {
     this.header = new RedHeader();
 
     for (const { timestampOffset, blockPT, block } of this.blocks) {
+      // timestampOffset=0 is a valid redundant block (same timestamp as primary).
       if (timestampOffset != null) {
         this.header.fields.push({
           fBit: 1,

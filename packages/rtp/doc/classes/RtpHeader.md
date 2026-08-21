@@ -150,13 +150,17 @@ deserialize only
 
 ### deSerialize()
 
-> `static` **deSerialize**(`rawPacket`): [`RtpHeader`](RtpHeader.md)
+> `static` **deSerialize**(`rawPacket`, `options`): [`RtpHeader`](RtpHeader.md)
 
 #### Parameters
 
 ##### rawPacket
 
 `Buffer`
+
+##### options
+
+[`RtpHeaderDeSerializeOptions`](../type-aliases/RtpHeaderDeSerializeOptions.md) = `{}`
 
 #### Returns
 

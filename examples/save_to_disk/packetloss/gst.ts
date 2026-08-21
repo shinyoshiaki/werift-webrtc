@@ -32,12 +32,19 @@ server.on("connection", async (socket) => {
 
   pc.addTransceiver("video").onTrack.subscribe((track, transceiver) => {
     transceiver.sender.replaceTrack(track);
+    // Probe padding shares the media RTP sequence space. rtpjitterbuffer
+    // treats holes as loss, so skipped padding must be compacted out of seq.
+    let skippedPadding = 0;
     track.onReceiveRtp.subscribe((rtp, _extensions, info) => {
       // GCC probe padding is padding-only RTP; do not forward hop-local probes.
       if (info?.type === "padding") {
+        skippedPadding++;
         return;
       }
-      udp.send(rtp.serialize(), port);
+      const forwarded = rtp.clone();
+      forwarded.header.sequenceNumber =
+        (forwarded.header.sequenceNumber - skippedPadding) & 0xffff;
+      udp.send(forwarded.serialize(), port);
     });
 
     setInterval(() => {

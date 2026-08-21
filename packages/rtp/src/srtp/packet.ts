@@ -19,6 +19,7 @@ export function parseSrtpRtpHeader(
   const header = wrapAuthenticationError(
     () =>
       RtpHeader.deSerialize(packet.subarray(0, authTagOffset), {
+        // Ciphertext: last octet is not the RFC 3550 padding length yet.
         validatePadding: false,
       }),
     message,
