@@ -464,12 +464,21 @@ export class RTCRtpSender {
 
     track.id = this.trackId;
 
+    // Probe padding shares the media RTP sequence space. Skipping it without
+    // compacting seq looks like media loss on the next hop.
+    let skippedPadding = 0;
     const { unSubscribe } = track.onReceiveRtp.subscribe(
       async (rtp, _extensions, info) => {
         if (info?.type === "padding") {
+          skippedPadding = uint16Add(skippedPadding, 1);
           return;
         }
-        await this.sendRtp(rtp);
+        const forwarded = rtp.clone();
+        forwarded.header.sequenceNumber = uint16Add(
+          forwarded.header.sequenceNumber,
+          -skippedPadding,
+        );
+        await this.sendRtp(forwarded);
       },
     );
     this.track = track;

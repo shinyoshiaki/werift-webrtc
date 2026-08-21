@@ -1,7 +1,7 @@
 import { exec } from "child_process";
 import { createSocket } from "dgram";
 import { Server } from "ws";
-import { RTCPeerConnection, randomPorts } from "../../packages/webrtc/src";
+import { RTCPeerConnection, randomPorts, uint16Add } from "../../packages/webrtc/src";
 
 (async () => {
   const [videoPort, audioPort] = await randomPorts(2);
@@ -39,12 +39,21 @@ qtmux name="muxer" ! filesink location=capture.webm`;
       const transceiver = pc.addTransceiver("video");
       transceiver.onTrack.subscribe((track) => {
         transceiver.sender.replaceTrack(track);
+        // Probe padding shares the media RTP sequence space. Skipping it without
+        // compacting seq looks like loss to rtpvp8depay / the next jitterbuffer.
+        let skippedPadding = 0;
         track.onReceiveRtp.subscribe((rtp, _extensions, info) => {
           // GCC probe padding is padding-only RTP; do not forward hop-local probes.
           if (info?.type === "padding") {
+            skippedPadding = uint16Add(skippedPadding, 1);
             return;
           }
-          udp.send(rtp.serialize(), videoPort, "127.0.0.1");
+          const forwarded = rtp.clone();
+          forwarded.header.sequenceNumber = uint16Add(
+            forwarded.header.sequenceNumber,
+            -skippedPadding,
+          );
+          udp.send(forwarded.serialize(), videoPort, "127.0.0.1");
         });
         track.onReceiveRtp.once(() => {
           setInterval(() => transceiver.receiver.sendRtcpPLI(track.ssrc), 2000);
@@ -55,12 +64,19 @@ qtmux name="muxer" ! filesink location=capture.webm`;
       const transceiver = pc.addTransceiver("audio");
       transceiver.onTrack.subscribe((track) => {
         transceiver.sender.replaceTrack(track);
+        let skippedPadding = 0;
         track.onReceiveRtp.subscribe((rtp, _extensions, info) => {
           // GCC probe padding is padding-only RTP; do not forward hop-local probes.
           if (info?.type === "padding") {
+            skippedPadding = uint16Add(skippedPadding, 1);
             return;
           }
-          udp.send(rtp.serialize(), audioPort, "127.0.0.1");
+          const forwarded = rtp.clone();
+          forwarded.header.sequenceNumber = uint16Add(
+            forwarded.header.sequenceNumber,
+            -skippedPadding,
+          );
+          udp.send(forwarded.serialize(), audioPort, "127.0.0.1");
         });
       });
     }

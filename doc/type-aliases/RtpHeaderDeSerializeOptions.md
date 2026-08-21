@@ -16,5 +16,10 @@
 
 When true (default), RFC 3550 padding length is validated:
 1..`packet.length - payloadOffset`.
-SRTP header parse must pass false because the last octet is still
-ciphertext until authentication completes.
+
+Pass `false` only for SRTP pre-authentication header parse
+(`parseSrtpRtpHeader`). The last octet is still ciphertext then, so it
+is not the RFC 3550 padding-length field. After authentication,
+`finalizeSrtpRtpHeader` / `RtpPacket.deSerialize` validate it.
+Normal RTP parse (including `RtpPacket.deSerialize`) must leave this
+unset or true; P=1 with paddingSize=0 must be rejected.

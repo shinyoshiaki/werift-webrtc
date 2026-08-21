@@ -5,6 +5,7 @@ import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
   randomPort,
+  uint16Add,
   useNACK,
   usePLI,
 } from "../../../packages/webrtc/src";
@@ -38,12 +39,14 @@ server.on("connection", async (socket) => {
     track.onReceiveRtp.subscribe((rtp, _extensions, info) => {
       // GCC probe padding is padding-only RTP; do not forward hop-local probes.
       if (info?.type === "padding") {
-        skippedPadding++;
+        skippedPadding = uint16Add(skippedPadding, 1);
         return;
       }
       const forwarded = rtp.clone();
-      forwarded.header.sequenceNumber =
-        (forwarded.header.sequenceNumber - skippedPadding) & 0xffff;
+      forwarded.header.sequenceNumber = uint16Add(
+        forwarded.header.sequenceNumber,
+        -skippedPadding,
+      );
       udp.send(forwarded.serialize(), port);
     });
 

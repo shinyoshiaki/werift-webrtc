@@ -3,6 +3,7 @@ import { Server } from "ws";
 import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
+  uint16Add,
 } from "../../../packages/webrtc/src";
 
 const udp = createSocket("udp4");
@@ -30,12 +31,21 @@ server.on("connection", async (socket) => {
 
   pc.addTransceiver("audio", { direction: "recvonly" }).onTrack.subscribe(
     (track) => {
+      // Probe padding shares the media RTP sequence space. Skipping it without
+      // compacting seq looks like loss to the next jitterbuffer.
+      let skippedPadding = 0;
       track.onReceiveRtp.subscribe((rtp, _extensions, info) => {
         // GCC probe padding is padding-only RTP; do not forward hop-local probes.
         if (info?.type === "padding") {
+          skippedPadding = uint16Add(skippedPadding, 1);
           return;
         }
-        udp.send(rtp.serialize(), 4005);
+        const forwarded = rtp.clone();
+        forwarded.header.sequenceNumber = uint16Add(
+          forwarded.header.sequenceNumber,
+          -skippedPadding,
+        );
+        udp.send(forwarded.serialize(), 4005);
       });
     },
   );
