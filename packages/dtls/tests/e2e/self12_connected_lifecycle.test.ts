@@ -6,6 +6,8 @@ import { AlertDesc, ContentType } from "../../src/record/const";
 import { serializePlaintextRecord } from "../../src/record/v1_3/record";
 import { certPem, keyPem } from "../fixture";
 
+import { createPlaintext } from "../../src/record/builder";
+
 const sig = {
   hash: HashAlgorithm.sha256_4,
   signature: SignatureAlgorithm.rsa_1,
@@ -91,7 +93,6 @@ test("e2e/self12: connected authenticated fatal alert tears down pure associatio
   client.onData.subscribe((d) => data.push(d));
 
   // Act: peer fatal encrypted with server write keys (epoch = server.dtls.epoch)
-  const { createPlaintext } = await import("../../src/record/builder");
   const alertFrag = Buffer.from([2, AlertDesc.HandshakeFailure]);
   const pkt = createPlaintext((server as any).dtls)(
     [{ type: ContentType.alert, fragment: alertFrag }],
@@ -148,7 +149,6 @@ test("e2e/self12: connected close_notify graceful association close", async () =
   client.onClose.subscribe(() => closes.push(Date.now()));
 
   // Authenticated close_notify (epoch>0) — epoch-0 plaintext is ignored post-HS.
-  const { createPlaintext } = await import("../../src/record/builder");
   const closeFrag = Buffer.from([1, AlertDesc.CloseNotify]);
   const closePktPlain = createPlaintext((server as any).dtls)(
     [{ type: ContentType.alert, fragment: closeFrag }],

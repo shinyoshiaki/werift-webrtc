@@ -33,10 +33,6 @@ test("unit/flight3: second HVR re-challenge updates cookie without throw", async
     sent.push(Buffer.from(buf));
   };
 
-  const { DtlsContext } = await import("../../src/context/dtls");
-  const { SessionType } = await import("../../src/cipher/suites/abstract");
-  const { TransportContext } = await import("../../src/context/transport");
-
   const dtls = new DtlsContext({ transport } as any, SessionType.CLIENT);
   dtls.flight = 1;
   // End Flight3 retransmit loop after first send (advance past nextFlight=5)

@@ -360,7 +360,7 @@ export abstract class Dtls13ConnectionBase {
    * retransmit can re-fragment under a smaller MTU.
    */
   protected pendingFlightSource?: {
-    fragments: import("../../record/message/fragment").FragmentedHandshake[];
+    fragments: FragmentedHandshake[];
     epoch: number;
   };
   /** Serialize datagram handling to avoid races on keys / message_seq inbox. */

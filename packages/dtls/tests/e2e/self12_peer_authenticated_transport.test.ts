@@ -11,6 +11,8 @@ import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
 import { AlertDesc, ContentType } from "../../src/record/const";
 import { certPem, keyPem } from "../fixture";
 
+import { createPlaintext } from "../../src/record/builder";
+
 const sig = {
   hash: HashAlgorithm.sha256_4,
   signature: SignatureAlgorithm.rsa_1,
@@ -137,7 +139,6 @@ test("e2e/self12: peerAuthenticated transport treats protected fatal as terminal
   // Use server internal encrypt if available
   const dtls = (server as any).dtls;
   const cipher = (server as any).cipher;
-  const { createPlaintext } = await import("../../src/record/builder");
   const pkt = createPlaintext(dtls)(
     [{ type: ContentType.alert, fragment: alertBody }],
     ++dtls.recordSequenceNumber,
@@ -176,7 +177,6 @@ test("e2e/self12: peerAuthenticated transport delivers protected close_notify", 
 
   const dtls = (server as any).dtls;
   const cipher = (server as any).cipher;
-  const { createPlaintext } = await import("../../src/record/builder");
   const alertBody = Buffer.from([1, AlertDesc.CloseNotify]); // warning close_notify
   const pkt = createPlaintext(dtls)(
     [{ type: ContentType.alert, fragment: alertBody }],

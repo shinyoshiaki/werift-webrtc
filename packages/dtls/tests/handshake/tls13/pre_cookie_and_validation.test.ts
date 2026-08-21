@@ -3,7 +3,14 @@ import { UdpTransport } from "../../../../common/src";
 import { DtlsClient, DtlsServer, DtlsVersion } from "../../../src";
 import { CipherSuite, NamedCurveAlgorithm } from "../../../src/cipher/const";
 import { generateKeyPair } from "../../../src/cipher/namedCurve";
-import { CookieExtension } from "../../../src/handshake/extensions/cookie";
+import {
+  ADDRESS_COOKIE_LENGTH,
+  CookieExtension,
+  clientHelloImmutableFieldsHash,
+  clientHelloMessageHash,
+  mintAddressCookie,
+  verifyAddressCookie,
+} from "../../../src/handshake/extensions/cookie";
 import { EllipticCurves } from "../../../src/handshake/extensions/ellipticCurves";
 import { KeyShare } from "../../../src/handshake/extensions/keyShare";
 import {
@@ -23,6 +30,8 @@ import {
   ecdsaP256KeyPem,
   keyPem,
 } from "../../fixture";
+
+import { randomBytes } from "crypto";
 
 function buildCh(opts?: {
   compression?: number[];
@@ -647,14 +656,6 @@ describe("P2/P3: strict cookie and CertificateVerify codecs", () => {
 
   test("stateless address cookie embeds hashes, group, expiry; binds peer", async () => {
     // Arrange: 実 ClientHello body で immutable hash を検証
-    const {
-      mintAddressCookie,
-      verifyAddressCookie,
-      clientHelloMessageHash,
-      clientHelloImmutableFieldsHash,
-      ADDRESS_COOKIE_LENGTH,
-    } = await import("../../../src/handshake/extensions/cookie");
-    const { randomBytes } = await import("crypto");
     const secret = randomBytes(16);
     const group = NamedCurveAlgorithm.x25519_29;
     const kp = generateKeyPair(group);

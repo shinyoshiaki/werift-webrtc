@@ -11,6 +11,8 @@ import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
 import { AlertDesc, ContentType } from "../../src/record/const";
 import { certPem, keyPem } from "../fixture";
 
+import { encryptRecord } from "../../src/record/v1_3/record";
+
 const sig = {
   hash: HashAlgorithm.sha256_4,
   signature: SignatureAlgorithm.rsa_1,
@@ -108,7 +110,6 @@ async function encryptAlertFrom(
   const eng = (side as any).engine13;
   expect(eng).toBeTruthy();
   // Use engine send path for alerts when available; fall back to internal AEAD.
-  const { encryptRecord } = await import("../../src/record/v1_3/record");
   const writeEpoch = eng.writeEpoch ?? 3;
   const ep = eng.epochs?.get?.(writeEpoch);
   expect(ep?.writeKeys).toBeTruthy();

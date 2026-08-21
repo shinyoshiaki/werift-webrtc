@@ -44,6 +44,8 @@ import {
   wireVersionToNumber,
 } from "./version";
 
+import type { DtlsHandshakeCarrier } from "./carrier/types";
+
 const log = debug("werift-dtls : packages/dtls/src/client.ts : log");
 
 /**
@@ -107,7 +109,7 @@ export class DtlsClient extends DtlsSocket {
    * injected). Kept after soft 1.3 dispose so commit12 can rebind inject to
    * the association 1.2 path without holding a dead engine reference.
    */
-  private associationCarrier?: import("./carrier/types").DtlsHandshakeCarrier;
+  private associationCarrier?: DtlsHandshakeCarrier;
 
   /**
    * Peer pin snapshot for dual probing (from parked 1.3 engine at HVR).

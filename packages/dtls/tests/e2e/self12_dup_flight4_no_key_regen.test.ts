@@ -1,9 +1,24 @@
 import { expect, test } from "vitest";
 import { UdpTransport } from "../../../common/src";
 import { DtlsClient, DtlsServer } from "../../src";
-import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
+import {
+  CurveType,
+  HashAlgorithm,
+  NamedCurveAlgorithm,
+  SignatureAlgorithm,
+} from "../../src/cipher/const";
 import { ContentType } from "../../src/record/const";
 import { certPem, keyPem } from "../fixture";
+
+import { generateKeyPair } from "../../src/cipher/namedCurve";
+import { SessionType } from "../../src/cipher/suites/abstract";
+import { CipherContext } from "../../src/context/cipher";
+import { DtlsContext } from "../../src/context/dtls";
+import { SrtpContext } from "../../src/context/srtp";
+import { TransportContext } from "../../src/context/transport";
+import { Flight5 } from "../../src/flight/client/flight5";
+import { ServerKeyExchange } from "../../src/handshake/message/server/keyExchange";
+import { DtlsRandom } from "../../src/handshake/random";
 
 const sig = {
   hash: HashAlgorithm.sha256_4,
@@ -128,20 +143,6 @@ test("e2e/self12: duplicate Flight4 does not regenerate client ECDHE", async () 
  * cached — would FAIL if handlers always re-ran generateKeyPair.
  */
 test("unit/flight5: second ServerKeyExchange does not regenerate localKeyPair", async () => {
-  const { DtlsContext } = await import("../../src/context/dtls");
-  const { CipherContext } = await import("../../src/context/cipher");
-  const { SrtpContext } = await import("../../src/context/srtp");
-  const { TransportContext } = await import("../../src/context/transport");
-  const { SessionType } = await import("../../src/cipher/suites/abstract");
-  const { Flight5 } = await import("../../src/flight/client/flight5");
-  const { ServerKeyExchange } = await import(
-    "../../src/handshake/message/server/keyExchange"
-  );
-  const { CurveType, NamedCurveAlgorithm } = await import(
-    "../../src/cipher/const"
-  );
-  const { DtlsRandom } = await import("../../src/handshake/random");
-  const { generateKeyPair } = await import("../../src/cipher/namedCurve");
   const transport = await UdpTransport.init("udp4");
   transport.send = async () => {};
   const dtls = new DtlsContext({ transport } as any, SessionType.CLIENT);

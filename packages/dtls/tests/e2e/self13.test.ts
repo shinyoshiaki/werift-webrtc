@@ -5,8 +5,14 @@ import {
   DtlsVersion,
   ProtocolVersionError,
 } from "../../src";
-import { NamedCurveAlgorithm } from "../../src/cipher/const";
+import {
+  HashAlgorithm,
+  NamedCurveAlgorithm,
+  SignatureAlgorithm,
+} from "../../src/cipher/const";
 import { certPem, keyPem } from "../fixture";
+
+import { ProtectionProfileAeadAes128Gcm } from "../../../rtp/src/srtp/const";
 
 const dtls13Options = {
   cert: certPem,
@@ -715,9 +721,6 @@ test("e2e/self13 1.3-only client vs 1.2-only server fails with ProtocolVersionEr
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
 
-  const { HashAlgorithm, SignatureAlgorithm } = await import(
-    "../../src/cipher/const"
-  );
   const sig = {
     hash: HashAlgorithm.sha256_4,
     signature: SignatureAlgorithm.rsa_1,
@@ -783,9 +786,6 @@ test("e2e/self13 1.2-only client vs 1.3-only server fails with protocol version 
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
 
-  const { HashAlgorithm, SignatureAlgorithm } = await import(
-    "../../src/cipher/const"
-  );
   const sig = {
     hash: HashAlgorithm.sha256_4,
     signature: SignatureAlgorithm.rsa_1,
@@ -1077,9 +1077,6 @@ test("e2e/self13 client without cert/key completes server-auth-only handshake", 
 
 test("e2e/self13 use_srtp bridges to DtlsSocket.srtp.srtpProfile both sides", async () => {
   // Arrange: 前提を準備する
-  const { ProtectionProfileAeadAes128Gcm } = await import(
-    "../../../rtp/src/srtp/const"
-  );
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
@@ -1233,9 +1230,6 @@ test("e2e/self13 [1.3,1.2] client falls back to 1.2-only server", async () => {
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
-  const { HashAlgorithm, SignatureAlgorithm } = await import(
-    "../../src/cipher/const"
-  );
   const sig = {
     hash: HashAlgorithm.sha256_4,
     signature: SignatureAlgorithm.rsa_1,
@@ -1421,9 +1415,6 @@ test("e2e/self13 default options remain DTLS 1.2", async () => {
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
 
-  const { HashAlgorithm, SignatureAlgorithm } = await import(
-    "../../src/cipher/const"
-  );
   const sig = {
     hash: HashAlgorithm.sha256_4,
     signature: SignatureAlgorithm.rsa_1,

@@ -39,7 +39,7 @@ import {
 export abstract class Dtls13RecordRx extends Dtls13FlightTx {
   /** Flight routing — implemented in HandshakeFlights (Figure 3). */
   protected abstract dispatchHandshake(
-    hs: import("../../record/message/fragment").FragmentedHandshake,
+    hs: FragmentedHandshake,
     epoch: number,
   ): Promise<void>;
 

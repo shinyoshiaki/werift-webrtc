@@ -1,10 +1,26 @@
 import { expect, test } from "vitest";
 import { UdpTransport } from "../../../common/src";
 import { DtlsClient, DtlsServer } from "../../src";
-import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
+import {
+  CipherSuite,
+  HashAlgorithm,
+  NamedCurveAlgorithm,
+  SignatureAlgorithm,
+} from "../../src/cipher/const";
 import { HandshakeType } from "../../src/handshake/const";
 import { ContentType } from "../../src/record/const";
 import { certPem, keyPem } from "../fixture";
+
+import { createCipher } from "../../src/cipher/create";
+import { generateKeyPair } from "../../src/cipher/namedCurve";
+import { SessionType } from "../../src/cipher/suites/abstract";
+import { CipherContext } from "../../src/context/cipher";
+import { DtlsContext } from "../../src/context/dtls";
+import { TransportContext } from "../../src/context/transport";
+import { Flight6 } from "../../src/flight/server/flight6";
+import { ClientKeyExchange } from "../../src/handshake/message/client/keyExchange";
+import { Finished } from "../../src/handshake/message/finished";
+import { DtlsRandom } from "../../src/handshake/random";
 
 const sig = {
   hash: HashAlgorithm.sha256_4,
@@ -198,21 +214,6 @@ test("e2e/self12: duplicate Flight5 CKE/Finished does not re-init server cipher"
  * Unit-level: second ClientKeyExchange on Flight6 must not re-init masterSecret.
  */
 test("unit/flight6: second ClientKeyExchange does not re-init masterSecret", async () => {
-  const { DtlsContext } = await import("../../src/context/dtls");
-  const { CipherContext } = await import("../../src/context/cipher");
-  const { TransportContext } = await import("../../src/context/transport");
-  const { SessionType } = await import("../../src/cipher/suites/abstract");
-  const { Flight6 } = await import("../../src/flight/server/flight6");
-  const { ClientKeyExchange } = await import(
-    "../../src/handshake/message/client/keyExchange"
-  );
-  const { DtlsRandom } = await import("../../src/handshake/random");
-  const { generateKeyPair } = await import("../../src/cipher/namedCurve");
-  const { NamedCurveAlgorithm, CipherSuite } = await import(
-    "../../src/cipher/const"
-  );
-  const { createCipher } = await import("../../src/cipher/create");
-
   const transport = await UdpTransport.init("udp4");
   transport.send = async () => {};
   const dtls = new DtlsContext({ transport } as any, SessionType.SERVER);
@@ -259,13 +260,6 @@ test("unit/flight6: second ClientKeyExchange does not re-init masterSecret", asy
  * after the first Finished is cached.
  */
 test("unit/flight6: second Finished does not re-apply Finished handler", async () => {
-  const { DtlsContext } = await import("../../src/context/dtls");
-  const { CipherContext } = await import("../../src/context/cipher");
-  const { TransportContext } = await import("../../src/context/transport");
-  const { SessionType } = await import("../../src/cipher/suites/abstract");
-  const { Flight6 } = await import("../../src/flight/server/flight6");
-  const { Finished } = await import("../../src/handshake/message/finished");
-
   const transport = await UdpTransport.init("udp4");
   transport.send = async () => {};
   const dtls = new DtlsContext({ transport } as any, SessionType.SERVER);

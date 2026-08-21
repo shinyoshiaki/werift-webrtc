@@ -40,6 +40,8 @@ import {
   normalizeProtocolVersions,
 } from "./version";
 
+import type { DtlsHandshakeCarrier } from "./carrier/types";
+
 export type { PeerIdentityMode } from "./engine/v1_3/types";
 
 const log = debug("werift-dtls : packages/dtls/src/socket.ts : log");
@@ -144,10 +146,7 @@ export class DtlsSocket {
     this.setupExtensions();
   }
 
-  protected udpOnMessage = (
-    data: Buffer,
-    addr?: import("./imports/common").Address,
-  ) => {
+  protected udpOnMessage = (data: Buffer, addr?: Address) => {
     this.handleUdpDatagram(data, addr);
   };
 
@@ -1075,7 +1074,7 @@ export interface Options {
  * `handshakeCarrier` is intentionally excluded from {@link Options}.
  */
 export type DtlsInternalOptions = Options & {
-  handshakeCarrier?: import("./carrier/types").DtlsHandshakeCarrier;
+  handshakeCarrier?: DtlsHandshakeCarrier;
 };
 
 export { DtlsVersion };

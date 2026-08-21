@@ -9,6 +9,9 @@ import { AlertDesc, ContentType } from "../../src/record/const";
 import { serializePlaintextRecord } from "../../src/record/v1_3/record";
 import { certPem, keyPem } from "../fixture";
 
+import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
+import { Flight1 } from "../../src/flight/client/flight1";
+
 /**
  * Build a DTLS 1.2 HelloVerifyRequest epoch-0 record (unauthenticated).
  */
@@ -444,9 +447,6 @@ test("e2e/dual: HVR path still falls back to pure 1.2 server", async () => {
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
 
-  const { HashAlgorithm, SignatureAlgorithm } = await import(
-    "../../src/cipher/const"
-  );
   const sig = {
     hash: HashAlgorithm.sha256_4,
     signature: SignatureAlgorithm.rsa_1,
@@ -512,9 +512,6 @@ test("e2e/dual: genuine 1.2 handshake_failure during probing fires onError immed
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
 
-  const { HashAlgorithm, SignatureAlgorithm } = await import(
-    "../../src/cipher/const"
-  );
   const sig = {
     hash: HashAlgorithm.sha256_4,
     signature: SignatureAlgorithm.rsa_1,
@@ -953,9 +950,6 @@ test("e2e/dual: carrier.inject of 1.2 SH during probing commits via association"
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
 
-  const { HashAlgorithm, SignatureAlgorithm } = await import(
-    "../../src/cipher/const"
-  );
   const sig = {
     hash: HashAlgorithm.sha256_4,
     signature: SignatureAlgorithm.rsa_1,
@@ -1096,9 +1090,6 @@ test("e2e/dual: late 1.3 packet after commit12 does not reverse version", async 
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
 
-  const { HashAlgorithm, SignatureAlgorithm } = await import(
-    "../../src/cipher/const"
-  );
   const sig = {
     hash: HashAlgorithm.sha256_4,
     signature: SignatureAlgorithm.rsa_1,
@@ -1575,9 +1566,6 @@ test("e2e/dual: 1.3-only version mismatch tears down association to closed", asy
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
 
-  const { HashAlgorithm, SignatureAlgorithm } = await import(
-    "../../src/cipher/const"
-  );
   const sig = {
     hash: HashAlgorithm.sha256_4,
     signature: SignatureAlgorithm.rsa_1,
@@ -1648,9 +1636,6 @@ test("e2e/dual: close() after committed12 closes association carrier", async () 
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
 
-  const { HashAlgorithm, SignatureAlgorithm } = await import(
-    "../../src/cipher/const"
-  );
   const sig = {
     hash: HashAlgorithm.sha256_4,
     signature: SignatureAlgorithm.rsa_1,
@@ -1938,9 +1923,6 @@ test("e2e/dual: 1.3-only version mismatch closes transport", async () => {
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
 
-  const { HashAlgorithm, SignatureAlgorithm } = await import(
-    "../../src/cipher/const"
-  );
   const sig = {
     hash: HashAlgorithm.sha256_4,
     signature: SignatureAlgorithm.rsa_1,
@@ -2289,9 +2271,6 @@ test("e2e/dual: close during handleHandshakes await aborts 1.2 flight", async ()
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
 
-  const { HashAlgorithm, SignatureAlgorithm } = await import(
-    "../../src/cipher/const"
-  );
   const sig = {
     hash: HashAlgorithm.sha256_4,
     signature: SignatureAlgorithm.rsa_1,
@@ -2367,9 +2346,6 @@ test("e2e/dual: commit13 during handleHandshakes await aborts 1.2 path", async (
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
 
-  const { HashAlgorithm, SignatureAlgorithm } = await import(
-    "../../src/cipher/const"
-  );
   const sig = {
     hash: HashAlgorithm.sha256_4,
     signature: SignatureAlgorithm.rsa_1,
@@ -2458,7 +2434,6 @@ test("e2e/dual: close during continueDualAfterHvr does not fire onError", async 
   client.onError.subscribe((e) => errors.push(e));
 
   // Flight1.exec を遅延させて close を挟む
-  const { Flight1 } = await import("../../src/flight/client/flight1");
   const origExec = Flight1.prototype.exec;
   let delayed = false;
   Flight1.prototype.exec = async function (
@@ -2520,9 +2495,6 @@ test("e2e/dual: after commit12 spoof inject does not redirect send to attacker",
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
 
-  const { HashAlgorithm, SignatureAlgorithm } = await import(
-    "../../src/cipher/const"
-  );
   const sig = {
     hash: HashAlgorithm.sha256_4,
     signature: SignatureAlgorithm.rsa_1,
@@ -2626,9 +2598,6 @@ test("e2e/dual: after commit12 real-UDP spoof does not redirect send", async () 
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
 
-  const { HashAlgorithm, SignatureAlgorithm } = await import(
-    "../../src/cipher/const"
-  );
   const sig = {
     hash: HashAlgorithm.sha256_4,
     signature: SignatureAlgorithm.rsa_1,
@@ -2867,9 +2836,6 @@ test("e2e/dual: carrier.inject without peer works after commit12", async () => {
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
 
-  const { HashAlgorithm, SignatureAlgorithm } = await import(
-    "../../src/cipher/const"
-  );
   const sig = {
     hash: HashAlgorithm.sha256_4,
     signature: SignatureAlgorithm.rsa_1,

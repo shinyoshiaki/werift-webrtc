@@ -20,6 +20,9 @@ import { serializePlaintextRecord } from "../../../src/record/v1_3/record";
 import { DTLS_1_3_VERSION, WireVersion } from "../../../src/version";
 import { certPem, keyPem } from "../../fixture";
 
+import { UseSRTP } from "../../../src/handshake/extensions/useSrtp";
+import { EncryptedExtensions } from "../../../src/handshake/message/tls13/encryptedExtensions";
+
 const dtls13Options = {
   cert: certPem,
   key: keyPem,
@@ -529,12 +532,6 @@ describe("P2: use_srtp RFC 5764 server response", () => {
     eng.clientOfferedExtensionTypes = new Set([14]); // use_srtp
     eng.clientOfferedSrtpMki = Buffer.alloc(0);
     eng.options.srtpProfiles = [1, 2];
-    const { UseSRTP } = await import(
-      "../../../src/handshake/extensions/useSrtp"
-    );
-    const { EncryptedExtensions } = await import(
-      "../../../src/handshake/message/tls13/encryptedExtensions"
-    );
     // Act: レコード保護を検証する
     const multi = UseSRTP.create([1, 2], Buffer.alloc(0));
     const ee = new EncryptedExtensions([multi.extension]);
@@ -553,12 +550,6 @@ describe("P2: use_srtp RFC 5764 server response", () => {
     eng.clientOfferedExtensionTypes = new Set([14]);
     eng.clientOfferedSrtpMki = Buffer.alloc(0);
     eng.options.srtpProfiles = [1];
-    const { UseSRTP } = await import(
-      "../../../src/handshake/extensions/useSrtp"
-    );
-    const { EncryptedExtensions } = await import(
-      "../../../src/handshake/message/tls13/encryptedExtensions"
-    );
     const bad = UseSRTP.create([0x0007], Buffer.alloc(0));
     const ee = new EncryptedExtensions([bad.extension]);
     // Act / Assert: 不正入力を拒否する
@@ -576,12 +567,6 @@ describe("P2: use_srtp RFC 5764 server response", () => {
     eng.clientOfferedExtensionTypes = new Set([14]);
     eng.clientOfferedSrtpMki = Buffer.alloc(0);
     eng.options.srtpProfiles = [1];
-    const { UseSRTP } = await import(
-      "../../../src/handshake/extensions/useSrtp"
-    );
-    const { EncryptedExtensions } = await import(
-      "../../../src/handshake/message/tls13/encryptedExtensions"
-    );
     const badMki = UseSRTP.create([1], Buffer.from([0x01, 0x02]));
     const ee = new EncryptedExtensions([badMki.extension]);
     // Act / Assert: 不正入力を拒否する
@@ -599,12 +584,6 @@ describe("P2: use_srtp RFC 5764 server response", () => {
     eng.clientOfferedExtensionTypes = new Set([14]);
     eng.clientOfferedSrtpMki = Buffer.from([0xaa, 0xbb]);
     eng.options.srtpProfiles = [1];
-    const { UseSRTP } = await import(
-      "../../../src/handshake/extensions/useSrtp"
-    );
-    const { EncryptedExtensions } = await import(
-      "../../../src/handshake/message/tls13/encryptedExtensions"
-    );
     const emptyMki = UseSRTP.create([1], Buffer.alloc(0));
     const ee = new EncryptedExtensions([emptyMki.extension]);
     // Act / Assert: use_srtp/MKI を検証する
@@ -619,9 +598,6 @@ describe("P2: use_srtp RFC 5764 server response", () => {
     const { client, server } = await pair();
     const eng = (client as any).engine13;
     eng.clientOfferedExtensionTypes = new Set([10]); // only supported_groups
-    const { EncryptedExtensions } = await import(
-      "../../../src/handshake/message/tls13/encryptedExtensions"
-    );
     // unknown type 0x9999 not offered
     const ee = new EncryptedExtensions([
       { type: 0x9999, data: Buffer.from([1]) },
@@ -641,9 +617,6 @@ describe("P2: use_srtp RFC 5764 server response", () => {
     eng.clientOfferedExtensionTypes = new Set([EllipticCurves.type]);
     const curves = EllipticCurves.createEmpty();
     curves.data = [NamedCurveAlgorithm.x25519_29] as any;
-    const { EncryptedExtensions } = await import(
-      "../../../src/handshake/message/tls13/encryptedExtensions"
-    );
     const ee = new EncryptedExtensions([curves.extension]);
     // Act: 期待どおりの結果を検証する
     await eng.onEncryptedExtensions(ee.serialize());

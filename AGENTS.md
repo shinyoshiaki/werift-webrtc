@@ -32,6 +32,7 @@ If a rule applies only to a specific package or subdirectory, put it in the near
 12. Follow existing patterns: manager-style orchestration in `packages/webrtc`, asynchronous notifications based on the custom `Event` class, and package-local error handling instead of broad catch-and-ignore logic. Use handling.
 13. When changing public API, protocol behavior, examples, or WPT wiring, update the nearest docs or examples that demonstrate the behavior.
 14. Keep upstream-WPT-only strict behavior inside `packages/webrtc/tools/wpt-runner/*` wrappers. Do not leak stricter WPT shims into the default `packages/webrtc/src` API when that would regress existing werift convenience behavior.
+15. Keep ESM imports at the file header. A literal `import()` that must stay dynamic needs `// hoist-imports-allow: <reason>` on the preceding line (`npm run lint:imports`).
 
 ## Don't
 
@@ -57,6 +58,7 @@ If a rule applies only to a specific package or subdirectory, put it in the near
 | run allowlisted upstream WPT | `npm run wpt`                  |
 | measure WPT coverage         | `npm run wpt:coverage`         |
 | format code                  | `npm run format`               |
+| hoist in-body imports        | `npm run lint:imports`         |
 | regenerate docs              | `npm run doc`                  |
 | verify docs match sources    | `npm run doc:check`            |
 | memory leak test (webrtc, local only) | `cd packages/webrtc && npm run memleak` |
