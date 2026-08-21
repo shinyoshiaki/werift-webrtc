@@ -1,3 +1,4 @@
+import type { ClientHello } from "../../handshake/message/client/hello";
 /**
  * Host object for DTLS 1.3 flight / record functions (`this` parameter).
  *
@@ -6,6 +7,8 @@
  * form another class inheritance chain.
  */
 import type { FragmentedHandshake } from "../../record/message/fragment";
+import type { EpochProtection } from "../../record/v1_3/record";
+import type { Extension } from "../../typings/domain";
 import type { Dtls13ConnectionBase } from "./connection-base";
 
 export interface Dtls13HostMethods {
@@ -49,9 +52,7 @@ export interface Dtls13HostMethods {
   handleAck(content: Buffer, receivedEpoch: number): void;
   processHandshakeBytes(raw: Buffer, epoch: number): Promise<boolean>;
   enqueueHandshake(hs: FragmentedHandshake, epoch: number): Promise<void>;
-  resolveEpochCandidates(
-    low: number,
-  ): import("../../record/v1_3/record").EpochProtection[];
+  resolveEpochCandidates(low: number): EpochProtection[];
   onPlaintextRecordAsync(rec: {
     contentType: number;
     epoch: number;
@@ -78,7 +79,7 @@ export interface Dtls13HostMethods {
   ): Buffer;
   validateClientHelloAfterHrr(
     ch1Body: Buffer,
-    ch2: import("../../handshake/message/client/hello").ClientHello,
+    ch2: ClientHello,
     ch2Body: Buffer,
   ): void;
 
@@ -86,7 +87,7 @@ export interface Dtls13HostMethods {
   dispatchHandshake(hs: FragmentedHandshake, epoch: number): Promise<void>;
 
   sendClientHello(hrrGroup?: number): Promise<void>;
-  buildClientHelloExtensions(): import("../../typings/domain").Extension[];
+  buildClientHelloExtensions(): Extension[];
   onClientHello(body: Buffer, messageSeq: number): Promise<void>;
   onServerHello(body: Buffer, messageSeq: number): Promise<void>;
   onEncryptedExtensions(body: Buffer): Promise<void>;
