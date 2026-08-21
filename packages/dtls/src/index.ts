@@ -105,11 +105,11 @@ export { ProtocolVersionError } from "./version";
  *            Figure 3. Message Flights for Full Handshake (DTLS 1.3)
  *
  * Implementation map (packages/dtls/src/engine/v1_3/):
- *   Flight 1/3 ClientHello     → handshake-flights.ts (sendClientHello / onClientHello)
- *   Flight 2   HelloRetryRequest* → handshake-flights.ts (sendHelloRetryRequest)
- *   Flight 4   ServerHello+{…} → handshake-flights.ts (sendServerFlight / onServerHello…)
- *   Flight 5   client {Finished} → handshake-flights.ts (onFinished client path)
- *   Post-HS    KeyUpdate / ACK → handshake-flights.ts + flight-tx.ts + record-rx.ts
+ *   Flight 1/3 ClientHello     → flight/client/flight1.ts (sendClientHello)
+ *   Flight 2   HelloRetryRequest* → flight/server/flight2.ts (sendHelloRetryRequest)
+ *   Flight 4   ServerHello+{…} → flight/server/flight4.ts + flight/client/flight4.ts
+ *   Flight 5   client {Finished} → flight/client/flight5.ts / flight/server/flight5.ts
+ *   Post-HS    KeyUpdate / ACK → flight/post-hs.ts + flight-tx.ts + record-rx.ts
  *   Wire I/O   records/flights → record-rx.ts (in) / flight-tx.ts (out)
  *   See also engine/v1_3/README.md
  */

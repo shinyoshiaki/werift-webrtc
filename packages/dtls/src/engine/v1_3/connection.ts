@@ -3,7 +3,7 @@
  *
  * Class hierarchy (read bottom-up against index.ts Figure 3):
  *   Dtls13Connection          — public API (connect / send / KeyUpdate / close)
- *     └─ HandshakeFlights     — Flight 1–5 + post-HS KeyUpdate handlers
+ *     └─ HandshakeFlights     — composed from engine/v1_3/flight/{client,server}/
  *         └─ RecordRx         — inbound records, reassembly, ACK/alert
  *             └─ FlightTx     — outbound flights, retransmit, anti-amp
  *                 └─ Base     — session state, epochs, fail lifecycle
