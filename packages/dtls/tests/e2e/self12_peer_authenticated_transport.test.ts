@@ -8,7 +8,13 @@ import {
   ProtocolVersionError,
 } from "../../src";
 import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
+import { HandshakeType } from "../../src/handshake/const";
+import { SupportedVersions } from "../../src/handshake/extensions/supportedVersions";
+import { ClientHello } from "../../src/handshake/message/client/hello";
+import { DtlsRandom } from "../../src/handshake/random";
 import { AlertDesc, ContentType } from "../../src/record/const";
+import { serializePlaintextRecord } from "../../src/record/v1_3/record";
+import { DTLS_1_3_VERSION, WireVersion } from "../../src/version";
 import { certPem, keyPem } from "../fixture";
 
 import { createPlaintext } from "../../src/record/builder";
@@ -406,6 +412,98 @@ test("e2e/peerAuth: 1.3-only client vs 1.2-only server → both ProtocolVersionE
   } catch {
     /* */
   }
+  try {
+    server.close();
+  } catch {
+    /* */
+  }
+  await t1.close().catch(() => {});
+  await t2.close().catch(() => {});
+}, 15_000);
+
+/**
+ * P1: 1.2-only server must reject a legal DTLS 1.3-only ClientHello via
+ * supported_versions, not the 0x1301-only cipher heuristic. External 1.3
+ * clients often offer 0x1301+0x1302; that must still be protocol_version
+ * and must never start a DTLS 1.2 HelloVerifyRequest.
+ */
+test("e2e/peerAuth: 1.2-only server rejects 1.3-only CH with 0x1301+0x1302 (no HVR)", async () => {
+  // Arrange: authenticated-single-peer の 1.2-only server に、
+  // supported_versions=[1.3] かつ cipher=[0x1301,0x1302] の CH を注入する
+  const { t1, t2 } = await peerAuthTransports();
+  const server = new DtlsServer({
+    transport: t1,
+    cert: certPem,
+    key: keyPem,
+    ...peerAuthOpts,
+    protocolVersions: [DtlsVersion.V1_2],
+  });
+
+  const ch = new ClientHello(
+    WireVersion.DTLS_1_2,
+    new DtlsRandom(),
+    Buffer.alloc(0),
+    Buffer.alloc(0),
+    [0x1301, 0x1302],
+    [0],
+    [SupportedVersions.forClient([DTLS_1_3_VERSION]).clientExtension],
+  );
+  ch.messageSeq = 0;
+  const frag = ch.toFragment();
+  frag.message_seq = 0;
+  const pkt = serializePlaintextRecord(
+    ContentType.handshake,
+    0,
+    0,
+    frag.serialize(),
+  );
+
+  const hvrs: Buffer[] = [];
+  const origSend = t1.send;
+  t1.send = async (data: Buffer, addr?: Address) => {
+    if (
+      data.length > 13 &&
+      data[0] === ContentType.handshake &&
+      data[13] === HandshakeType.hello_verify_request_3
+    ) {
+      hvrs.push(data);
+    }
+    return origSend(data, addr);
+  };
+
+  const errors: Error[] = [];
+  server.onError.subscribe((e) => errors.push(e));
+  server.onConnect.subscribe(() => {
+    throw new Error("1.2-only server must not connect to 1.3-only ClientHello");
+  });
+
+  // Act: version 交渉は cipher ではなく supported_versions で行う
+  t1.onData(pkt, undefined as unknown as Address);
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(
+        new Error(
+          `expected ProtocolVersionError; got ${errors.map((e) => e.message).join(" | ") || "(none)"}`,
+        ),
+      );
+    }, 5_000);
+    if (errors.length > 0) {
+      clearTimeout(timer);
+      resolve();
+      return;
+    }
+    server.onError.subscribe(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+
+  // Assert: ProtocolVersionError・terminal、HVR は一度も送られない
+  expect(errors[0]).toBeInstanceOf(ProtocolVersionError);
+  expect((server as any).associationTornDown).toBe(true);
+  expect(hvrs).toHaveLength(0);
+  expect(server.connected).toBe(false);
+
   try {
     server.close();
   } catch {

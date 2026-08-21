@@ -235,97 +235,56 @@ export class DtlsServer extends DtlsSocket {
             }
             const clientHello = ClientHello.deSerialize(handshake.fragment);
 
-            // Dual / multi-version: association-layer selectVersion
-            // (local protocolVersions order ∩ peer supported_versions).
-            // Does not use HelloVerifyRequest or error-string heuristics.
-            if (
-              supportsVersion(this.protocolVersions, DtlsVersion.V1_3) &&
-              supportsVersion(this.protocolVersions, DtlsVersion.V1_2)
-            ) {
-              const selected = this.selectVersionFromClientHello(clientHello);
-              if (selected === DtlsVersion.V1_3) {
-                // Preserve ClientHello source for dtls-cookie peerKey mint/verify.
-                const peerAddr: [string, number] | undefined = replyTo
-                  ? [replyTo[0], replyTo[1]]
-                  : undefined;
-                this.startEngine13();
-                const eng = this.engine13 as Dtls13Connection | undefined;
-                if (eng) {
-                  const fragBytes = handshake.serialize();
-                  const pkt = serializePlaintextRecord(
-                    ContentType.handshake,
-                    0,
-                    0,
-                    fragBytes,
-                  );
-                  eng.injectDatagram(pkt, peerAddr);
-                }
-                log("association selected DTLS 1.3, reinjected ClientHello", {
-                  peer: peerAddr,
-                  preference: this.protocolVersions,
-                });
-                return;
-              }
-              // selected === V1_2 → stay on DTLS 1.2 path (flight2/4).
-              // ServerHello will include DOWNGRD sentinel when dual-capable.
-              if (selected === undefined) {
-                // No overlap — send alert. Association-fatal only when the
-                // peer is authenticated (UDP pin after cookie, or ICE /
-                // authenticated-single-peer). Pre-auth UDP must not DoS
-                // the listening server.
-                await this.sendPlaintextAlert(
-                  AlertDesc.ProtocolVersion,
-                  replyTo,
+            // Association-layer version negotiation for every 1.2-path
+            // ClientHello (1.2-only and dual). RFC 8446 / 9147: when
+            // supported_versions is present, that list is the only input —
+            // never infer 1.3-only from cipher suites (e.g. 0x1301+0x1302).
+            // Extension absent → legacy DTLS 1.2.
+            const selected = this.selectVersionFromClientHello(clientHello);
+            if (selected === DtlsVersion.V1_3) {
+              // Preserve ClientHello source for dtls-cookie peerKey mint/verify.
+              const peerAddr: [string, number] | undefined = replyTo
+                ? [replyTo[0], replyTo[1]]
+                : undefined;
+              this.startEngine13();
+              const eng = this.engine13 as Dtls13Connection | undefined;
+              if (eng) {
+                const fragBytes = handshake.serialize();
+                const pkt = serializePlaintextRecord(
+                  ContentType.handshake,
+                  0,
+                  0,
+                  fragBytes,
                 );
-                if (this.associationTornDown) return;
-                if (this.hasAssociationPeerAuth()) {
-                  this.reportLegacy12Fatal(
-                    new ProtocolVersionError(
-                      "no overlapping DTLS protocol version with peer",
-                    ),
-                  );
-                }
-                return;
+                eng.injectDatagram(pkt, peerAddr);
               }
-              log("association selected DTLS 1.2 (local preference order)", {
+              log("association selected DTLS 1.3, reinjected ClientHello", {
+                peer: peerAddr,
                 preference: this.protocolVersions,
               });
-            }
-
-            // 1.3-only is handled by engine13; if we are here with only 1.3 config
-            // without engine, reject 1.2-looking hellos without 1.3 version.
-            if (
-              this.protocolVersions.length === 1 &&
-              this.protocolVersions[0] === DtlsVersion.V1_3
-            ) {
-              // Unauthenticated datagram-address CH: drop only (no DoS).
-              // Authenticated-single-peer / post-pin: version error is terminal.
-              if (this.hasAssociationPeerAuth()) {
-                this.reportLegacy12Fatal(
-                  new ProtocolVersionError(
-                    "DTLS 1.3-only server rejected ClientHello without DTLS 1.3",
-                  ),
-                );
-              }
               return;
             }
-
-            // 1.2-only server vs 1.3-only peer: protocol_version alert
-            if (
-              !supportsVersion(this.protocolVersions, DtlsVersion.V1_3) &&
-              clientHello.cipherSuites.every((c) => c === 0x1301)
-            ) {
+            if (selected === undefined) {
+              // No overlap (incl. 1.2-only × 1.3-only). Association-fatal
+              // only when the peer is authenticated (UDP pin after cookie,
+              // or ICE / authenticated-single-peer). Pre-auth UDP must not
+              // DoS the listening server.
               await this.sendPlaintextAlert(AlertDesc.ProtocolVersion, replyTo);
               if (this.associationTornDown) return;
               if (this.hasAssociationPeerAuth()) {
                 this.reportLegacy12Fatal(
                   new ProtocolVersionError(
-                    "DTLS 1.2-only server: peer offered only DTLS 1.3 cipher suites",
+                    "no overlapping DTLS protocol version with peer",
                   ),
                 );
               }
               return;
             }
+            // selected === V1_2 → DTLS 1.2 path (flight2/4). Dual-capable
+            // servers include the DOWNGRD sentinel in ServerHello.
+            log("association selected DTLS 1.2 (local preference order)", {
+              preference: this.protocolVersions,
+            });
 
             if (clientHello.cookie.length === 0) {
               // Late cookie-less CH after commit must not re-enter flight2 / HVR.

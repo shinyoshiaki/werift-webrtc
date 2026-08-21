@@ -9,12 +9,14 @@ import {
 } from "../../src/cipher/const";
 import { EllipticCurves } from "../../src/handshake/extensions/ellipticCurves";
 import { Signature } from "../../src/handshake/extensions/signature";
+import { SupportedVersions } from "../../src/handshake/extensions/supportedVersions";
 import { ClientHello } from "../../src/handshake/message/client/hello";
 import { DtlsRandom } from "../../src/handshake/random";
 import { createDtlsClientInternal } from "../../src/internal";
 import { AlertDesc, ContentType } from "../../src/record/const";
 import { FragmentedHandshake } from "../../src/record/message/fragment";
 import { serializePlaintextRecord } from "../../src/record/v1_3/record";
+import { DTLS_1_3_VERSION } from "../../src/version";
 import { certPem, keyPem } from "../fixture";
 
 const sig = {
@@ -35,6 +37,8 @@ function fixedClientRandom(): ClientRandom {
 function build12ClientHello(opts?: {
   cookie?: Buffer;
   only13Cipher?: boolean;
+  /** Wire versions for supported_versions (RFC 8446). Absent = legacy 1.2. */
+  supportedVersions?: number[];
   /** Fixed random for CH1/CH2 cookie binding (RFC 6347 same parameters). */
   random?: ClientRandom;
 }): ClientHello {
@@ -45,6 +49,12 @@ function build12ClientHello(opts?: {
       { hash: HashAlgorithm.sha256_4, signature: SignatureAlgorithm.rsa_1 },
     ],
   });
+  const extensions = [curves.extension, signature.extension];
+  if (opts?.supportedVersions?.length) {
+    extensions.unshift(
+      SupportedVersions.forClient(opts.supportedVersions).clientExtension,
+    );
+  }
   return new ClientHello(
     { major: 254, minor: 253 },
     opts?.random ?? fixedClientRandom(),
@@ -54,7 +64,7 @@ function build12ClientHello(opts?: {
       ? [0x1301]
       : [CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199],
     [0],
-    [curves.extension, signature.extension],
+    extensions,
   );
 }
 
@@ -226,8 +236,11 @@ test("e2e/self12: pre-cookie protocol_version alert targets CH source", async ()
   const realPeer: [string, number] = ["198.51.100.10", 4444];
   (serverTransport as any).rinfo = { address: "203.0.113.1", port: 9 };
 
-  // only TLS_AES_128_GCM_SHA256 → 1.2-only server sends protocol_version
-  const hello = build12ClientHello({ only13Cipher: true });
+  // 1.3-only ClientHello (supported_versions, not cipher heuristic)
+  const hello = build12ClientHello({
+    only13Cipher: true,
+    supportedVersions: [DTLS_1_3_VERSION],
+  });
   await (server as any).handleHandshakes(chAsAssembled(hello), realPeer);
 
   expect(sent.length).toBeGreaterThan(0);
