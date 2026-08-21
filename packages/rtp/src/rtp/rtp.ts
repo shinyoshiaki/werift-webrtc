@@ -38,6 +38,26 @@ function assertRtpPacketLength(
   }
 }
 
+function applyRtpPaddingSize(
+  header: RtpHeader,
+  rawPacket: Buffer,
+  validatePadding: boolean,
+) {
+  if (!header.padding) {
+    header.paddingSize = 0;
+    return;
+  }
+  header.paddingSize = rawPacket[rawPacket.length - 1];
+  if (!validatePadding) {
+    return;
+  }
+  const remaining = rawPacket.length - header.payloadOffset;
+  // RFC 3550 §5.1: padding length is 1..remaining (includes the length octet).
+  if (header.paddingSize < 1 || header.paddingSize > remaining) {
+    throw new Error("invalid RTP padding size");
+  }
+}
+
 /*
  *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
@@ -52,6 +72,16 @@ function assertRtpPacketLength(
  * |                             ....                              |
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  */
+
+export type RtpHeaderDeSerializeOptions = {
+  /**
+   * When true (default), RFC 3550 padding length is validated:
+   * 1..`packet.length - payloadOffset`.
+   * SRTP header parse must pass false because the last octet is still
+   * ciphertext until authentication completes.
+   */
+  validatePadding?: boolean;
+};
 
 export class RtpHeader {
   version = 2;
@@ -76,7 +106,10 @@ export class RtpHeader {
     Object.assign(this, props);
   }
 
-  static deSerialize(rawPacket: Buffer) {
+  static deSerialize(
+    rawPacket: Buffer,
+    options: RtpHeaderDeSerializeOptions = {},
+  ) {
     assertRtpPacketLength(rawPacket, rtpFixedHeaderSize);
     const h = new RtpHeader();
     let currOffset = 0;
@@ -186,12 +219,7 @@ export class RtpHeader {
     if (h.payloadOffset > rawPacket.length) {
       throw new Error("RTP packet too short");
     }
-    if (h.padding) {
-      // Do not validate the last octet here: SRTP header parse runs on
-      // ciphertext, and only {@link RtpPacket.deSerialize} / finalizeSrtpRtpHeader
-      // see the authenticated padding length.
-      h.paddingSize = rawPacket[rawPacket.length - 1];
-    }
+    applyRtpPaddingSize(h, rawPacket, options.validatePadding !== false);
 
     return h;
   }
@@ -344,15 +372,6 @@ export class RtpPacket {
 
   static deSerialize(buf: Buffer) {
     const header = RtpHeader.deSerialize(buf);
-    if (header.padding) {
-      const remaining = buf.length - header.payloadOffset;
-      const paddingSize = buf[buf.length - 1];
-      // RFC 3550 §5.1: padding length is 1..remaining (includes the length octet).
-      if (paddingSize < 1 || paddingSize > remaining) {
-        throw new Error("invalid RTP padding size");
-      }
-      header.paddingSize = paddingSize;
-    }
     return new RtpPacket(
       header,
       buf.subarray(header.payloadOffset, buf.length - header.paddingSize),

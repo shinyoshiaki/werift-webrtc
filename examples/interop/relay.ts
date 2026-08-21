@@ -37,7 +37,11 @@ udp.bind(5000);
     const senderTrack = new MediaStreamTrack({ kind: "video" });
     const senderTransceiver = sender.addTransceiver(senderTrack);
     senderTransceiver.onTrack.once((track) => {
-      track.onReceiveRtp.subscribe((rtp) => {
+      track.onReceiveRtp.subscribe((rtp, _extensions, info) => {
+        // GCC probe padding is padding-only RTP; do not forward hop-local probes.
+        if (info?.type === "padding") {
+          return;
+        }
         console.log("receive", rtp.header);
         udp.send(rtp.serialize(), 4002, "127.0.0.1");
       });
@@ -50,7 +54,11 @@ udp.bind(5000);
       sender.connectionStateChange
         .watch((state) => state === "connected")
         .then(() => {
-          track.onReceiveRtp.subscribe((rtp) => {
+          track.onReceiveRtp.subscribe((rtp, _extensions, info) => {
+            // GCC probe padding is padding-only RTP; do not relay hop-local probes.
+            if (info?.type === "padding") {
+              return;
+            }
             rtp.header.payloadType = senderTransceiver.codecs[0].payloadType;
             senderTrack.writeRtp(rtp);
           });

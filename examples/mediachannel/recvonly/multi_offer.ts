@@ -13,12 +13,20 @@ server.on("connection", async (socket) => {
   );
   pc.addTransceiver("video", {
     direction: "recvonly",
-  }).receiver.tracks[0].onReceiveRtp.subscribe((packet) => {
+  }).receiver.tracks[0].onReceiveRtp.subscribe((packet, _extensions, info) => {
+    // GCC probe padding is padding-only RTP; do not forward hop-local probes.
+    if (info?.type === "padding") {
+      return;
+    }
     udp.send(packet.serialize(), 4002, "127.0.0.1");
   });
   pc.addTransceiver("audio", {
     direction: "recvonly",
-  }).receiver.tracks[0].onReceiveRtp.subscribe((packet) => {
+  }).receiver.tracks[0].onReceiveRtp.subscribe((packet, _extensions, info) => {
+    // GCC probe padding is padding-only RTP; do not forward hop-local probes.
+    if (info?.type === "padding") {
+      return;
+    }
     udp.send(packet.serialize(), 4003, "127.0.0.1");
   });
 

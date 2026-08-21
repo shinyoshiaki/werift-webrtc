@@ -37,4 +37,23 @@ describe("Red", () => {
     // Act / Assert: 偽の PT=0 ブロックを作らず失敗する
     expect(() => Red.deSerialize(empty)).toThrow(/truncated/i);
   });
+
+  it("rejects declared blockLength longer than remaining payload", () => {
+    // Arrange: 先頭ブロック長が実データより長い RED
+    const red = new Red();
+    red.blocks.push({
+      block: Buffer.alloc(10, 0x11),
+      blockPT: 97,
+      timestampOffset: 960,
+    });
+    red.blocks.push({
+      block: Buffer.from([0x22, 0x33]),
+      blockPT: 97,
+    });
+    const serialized = red.serialize();
+    const truncated = serialized.subarray(0, serialized.length - 8);
+
+    // Act / Assert: 切り詰めで黙って受理せず明示的に失敗する
+    expect(() => Red.deSerialize(truncated)).toThrow(/truncated/i);
+  });
 });

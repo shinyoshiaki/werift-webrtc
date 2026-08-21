@@ -17,7 +17,10 @@ export function parseSrtpRtpHeader(
   );
 
   const header = wrapAuthenticationError(
-    () => RtpHeader.deSerialize(packet.subarray(0, authTagOffset)),
+    () =>
+      RtpHeader.deSerialize(packet.subarray(0, authTagOffset), {
+        validatePadding: false,
+      }),
     message,
   );
   header.paddingSize = 0;

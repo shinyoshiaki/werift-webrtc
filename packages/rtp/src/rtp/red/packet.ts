@@ -36,6 +36,9 @@ export class Red {
 
     red.header.fields.forEach(({ blockLength, timestampOffset, blockPT }) => {
       if (blockLength && timestampOffset) {
+        if (offset + blockLength > buf.length) {
+          throw new Error("RED block truncated");
+        }
         const block = buf.subarray(offset, offset + blockLength);
         red.blocks.push({ block, blockPT, timestampOffset });
         offset += blockLength;

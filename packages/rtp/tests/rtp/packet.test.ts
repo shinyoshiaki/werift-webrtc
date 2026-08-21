@@ -210,6 +210,24 @@ describe("RTP padding-only / malformed padding", () => {
     expect(() => RtpPacket.deSerialize(buf)).toThrow(
       /invalid RTP padding size/,
     );
+    expect(() => RtpHeader.deSerialize(buf)).toThrow(
+      /invalid RTP padding size/,
+    );
+  });
+
+  test("RtpHeader.deSerialize can skip padding validation for SRTP ciphertext", () => {
+    // Arrange: P=1・paddingSize=0。SRTP 事前解析では末尾がまだ暗号文
+    const buf = createRtpWithInvalidPadding(0);
+
+    // Act: 検証を外してヘッダだけ読む
+    const header = RtpHeader.deSerialize(buf, { validatePadding: false });
+
+    // Assert: 通常解析は拒否するが、事前解析はヘッダを返せる
+    expect(header.padding).toBe(true);
+    expect(header.paddingSize).toBe(0);
+    expect(() => RtpHeader.deSerialize(buf)).toThrow(
+      /invalid RTP padding size/,
+    );
   });
 
   test("rejects padding size larger than remaining payload", () => {
@@ -218,6 +236,9 @@ describe("RTP padding-only / malformed padding", () => {
 
     // Act / Assert
     expect(() => RtpPacket.deSerialize(buf)).toThrow(
+      /invalid RTP padding size/,
+    );
+    expect(() => RtpHeader.deSerialize(buf)).toThrow(
       /invalid RTP padding size/,
     );
   });

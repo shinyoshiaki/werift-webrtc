@@ -13,7 +13,11 @@ server.on("connection", async (socket) => {
   );
   const transceiver = pc.addTransceiver("video", { direction: "recvonly" });
   transceiver.onTrack.subscribe((track) => {
-    track.onReceiveRtp.subscribe((packet) => {
+    track.onReceiveRtp.subscribe((packet, _extensions, info) => {
+      // GCC probe padding is padding-only RTP; do not forward hop-local probes.
+      if (info?.type === "padding") {
+        return;
+      }
       udp.send(packet.serialize(), 1234, "127.0.0.1");
     });
 
