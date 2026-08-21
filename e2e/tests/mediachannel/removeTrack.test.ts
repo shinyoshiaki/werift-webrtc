@@ -145,105 +145,101 @@ describe("mediachannel_removeTrack", () => {
   // Do not wrap in `new Promise(async (done) => ...)`; an awaited rejection
   // inside that pattern leaves the outer Promise unsettled and hangs until
   // testTimeout (previously 6000s), which exceeded the CI wall clock.
-  it(
-    mediachannel_offer_replace_second,
-    async () => {
-      // Arrange: シグナリング接続と sendonly video トラックを用意する。
-      if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
-      await sleep(100);
+  it(mediachannel_offer_replace_second, async () => {
+    // Arrange: シグナリング接続と sendonly video トラックを用意する。
+    if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
+    await sleep(100);
+
+    await peer.request(mediachannel_offer_replace_second, {
+      type: "init",
+    });
+
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    });
+
+    try {
+      pc.onicecandidate = ({ candidate }) => {
+        peer
+          .request(mediachannel_offer_replace_second, {
+            type: "candidate",
+            payload: candidate,
+          })
+          .catch(() => {});
+      };
+
+      const [video] = (
+        await navigator.mediaDevices.getUserMedia({ video: true })
+      ).getTracks();
+
+      // Act: first / second / third を追加し、remove→replace 後も RTP が届くこと。
+      pc.addTransceiver(video, { direction: "sendonly" });
+      await pc.setLocalDescription(await pc.createOffer());
+      const answer = await peer.request(mediachannel_offer_replace_second, {
+        type: "offer",
+        payload: pc.localDescription,
+      });
+      await pc.setRemoteDescription(answer);
 
       await peer.request(mediachannel_offer_replace_second, {
-        type: "init",
+        type: "check",
+        payload: { index: 0 },
       });
 
-      const pc = new RTCPeerConnection({
-        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-      });
-
-      try {
-        pc.onicecandidate = ({ candidate }) => {
-          peer
-            .request(mediachannel_offer_replace_second, {
-              type: "candidate",
-              payload: candidate,
-            })
-            .catch(() => {});
-        };
-
-        const [video] = (
-          await navigator.mediaDevices.getUserMedia({ video: true })
-        ).getTracks();
-
-        // Act: first / second / third を追加し、remove→replace 後も RTP が届くこと。
-        pc.addTransceiver(video, { direction: "sendonly" });
+      const second = pc.addTransceiver(video, { direction: "sendonly" });
+      {
         await pc.setLocalDescription(await pc.createOffer());
         const answer = await peer.request(mediachannel_offer_replace_second, {
           type: "offer",
           payload: pc.localDescription,
         });
         await pc.setRemoteDescription(answer);
-
-        await peer.request(mediachannel_offer_replace_second, {
-          type: "check",
-          payload: { index: 0 },
-        });
-
-        const second = pc.addTransceiver(video, { direction: "sendonly" });
-        {
-          await pc.setLocalDescription(await pc.createOffer());
-          const answer = await peer.request(mediachannel_offer_replace_second, {
-            type: "offer",
-            payload: pc.localDescription,
-          });
-          await pc.setRemoteDescription(answer);
-        }
-        await peer.request(mediachannel_offer_replace_second, {
-          type: "check",
-          payload: { index: 1 },
-        });
-
-        pc.addTransceiver(video, { direction: "sendonly" });
-        {
-          await pc.setLocalDescription(await pc.createOffer());
-          const answer = await peer.request(mediachannel_offer_replace_second, {
-            type: "offer",
-            payload: pc.localDescription,
-          });
-          await pc.setRemoteDescription(answer);
-        }
-        await peer.request(mediachannel_offer_replace_second, {
-          type: "check",
-          payload: { index: 2 },
-        });
-
-        pc.removeTrack(second.sender);
-        {
-          await pc.setLocalDescription(await pc.createOffer());
-          const answer = await peer.request(mediachannel_offer_replace_second, {
-            type: "offer",
-            payload: pc.localDescription,
-          });
-          await pc.setRemoteDescription(answer);
-        }
-
-        pc.addTransceiver(video, { direction: "sendonly" });
-        {
-          await pc.setLocalDescription(await pc.createOffer());
-          const answer = await peer.request(mediachannel_offer_replace_second, {
-            type: "offer",
-            payload: pc.localDescription,
-          });
-          await pc.setRemoteDescription(answer);
-        }
-        // Assert: replace 後の m-line でも RTP を受信できる。
-        await peer.request(mediachannel_offer_replace_second, {
-          type: "check",
-          payload: { index: 1 },
-        });
-      } finally {
-        pc.close();
       }
-    },
-    60_000,
-  );
+      await peer.request(mediachannel_offer_replace_second, {
+        type: "check",
+        payload: { index: 1 },
+      });
+
+      pc.addTransceiver(video, { direction: "sendonly" });
+      {
+        await pc.setLocalDescription(await pc.createOffer());
+        const answer = await peer.request(mediachannel_offer_replace_second, {
+          type: "offer",
+          payload: pc.localDescription,
+        });
+        await pc.setRemoteDescription(answer);
+      }
+      await peer.request(mediachannel_offer_replace_second, {
+        type: "check",
+        payload: { index: 2 },
+      });
+
+      pc.removeTrack(second.sender);
+      {
+        await pc.setLocalDescription(await pc.createOffer());
+        const answer = await peer.request(mediachannel_offer_replace_second, {
+          type: "offer",
+          payload: pc.localDescription,
+        });
+        await pc.setRemoteDescription(answer);
+      }
+
+      pc.addTransceiver(video, { direction: "sendonly" });
+      {
+        await pc.setLocalDescription(await pc.createOffer());
+        const answer = await peer.request(mediachannel_offer_replace_second, {
+          type: "offer",
+          payload: pc.localDescription,
+        });
+        await pc.setRemoteDescription(answer);
+      }
+      // Assert: replace 後の m-line でも RTP を受信できる。
+      await peer.request(mediachannel_offer_replace_second, {
+        type: "check",
+        payload: { index: 1 },
+      });
+    } finally {
+      pc.close();
+    }
+  }, 60_000);
 });

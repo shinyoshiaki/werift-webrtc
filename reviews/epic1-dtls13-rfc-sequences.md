@@ -445,6 +445,7 @@ reorder で Finished 前に epoch-3 app data が来る場合は小さな buffer�
 
 RFC シーケンスに対応するテスト入口:
 
+<!-- review-bookmark id="bm_1a023c4a9c3-15964baf" title="5. 検証結果" -->
 | RFC 観点 | テスト |
 | --- | --- |
 | version / DOWNGRD / `[1.2,1.3]` normalize | [packages/dtls/tests/version/selectVersion.test.ts:14](review-file:packages/dtls/tests/version/selectVersion.test.ts:14) |
