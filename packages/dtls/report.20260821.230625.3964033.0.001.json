@@ -1,0 +1,755 @@
+
+{
+  "header": {
+    "reportVersion": 5,
+    "event": "Exception",
+    "trigger": "Exception",
+    "filename": "report.20260821.230625.3964033.0.001.json",
+    "dumpEventTime": "2026-08-21T23:06:25Z",
+    "dumpEventTimeStamp": "1787321185240",
+    "processId": 3964033,
+    "threadId": 0,
+    "cwd": "/home/shin/code/werift-webrtc.worktree/5fc64332-b0d1-4ab0-bc1e-4b0f3a26c135/packages/dtls",
+    "commandLine": [
+      "node",
+      "/tmp/flatten-dtls13-classes.mjs",
+      "src/engine/v1_3/flight-tx.ts",
+      "src/engine/v1_3/record-rx.ts",
+      "src/engine/v1_3/flight/dispatch.ts",
+      "src/engine/v1_3/flight/certificate.ts",
+      "src/engine/v1_3/flight/finished.ts",
+      "src/engine/v1_3/flight/post-hs.ts",
+      "src/engine/v1_3/flight/client/flight1.ts",
+      "src/engine/v1_3/flight/client/flight4.ts",
+      "src/engine/v1_3/flight/client/flight5.ts",
+      "src/engine/v1_3/flight/server/flight2.ts",
+      "src/engine/v1_3/flight/server/flight4.ts",
+      "src/engine/v1_3/flight/server/flight5.ts"
+    ],
+    "nodejsVersion": "v24.5.0",
+    "glibcVersionRuntime": "2.43",
+    "glibcVersionCompiler": "2.28",
+    "wordSize": 64,
+    "arch": "x64",
+    "platform": "linux",
+    "componentVersions": {
+      "acorn": "8.15.0",
+      "ada": "3.2.6",
+      "amaro": "1.1.1",
+      "ares": "1.34.5",
+      "brotli": "1.1.0",
+      "cjs_module_lexer": "2.1.0",
+      "cldr": "47.0",
+      "icu": "77.1",
+      "llhttp": "9.3.0",
+      "modules": "137",
+      "napi": "10",
+      "nbytes": "0.1.1",
+      "ncrypto": "0.0.1",
+      "nghttp2": "1.66.0",
+      "node": "24.5.0",
+      "openssl": "3.5.1",
+      "simdjson": "3.13.0",
+      "simdutf": "6.4.0",
+      "sqlite": "3.50.3",
+      "tz": "2025b",
+      "undici": "7.12.0",
+      "unicode": "16.0",
+      "uv": "1.51.0",
+      "uvwasi": "0.0.21",
+      "v8": "13.6.233.10-node.21",
+      "zlib": "1.3.1-470d3a2",
+      "zstd": "1.5.7"
+    },
+    "release": {
+      "name": "node",
+      "headersUrl": "https://nodejs.org/download/release/v24.5.0/node-v24.5.0-headers.tar.gz",
+      "sourceUrl": "https://nodejs.org/download/release/v24.5.0/node-v24.5.0.tar.gz"
+    },
+    "osName": "Linux",
+    "osRelease": "7.0.0-29-generic",
+    "osVersion": "#29-Ubuntu SMP PREEMPT_DYNAMIC Fri Jul 17 20:52:35 UTC 2026",
+    "osMachine": "x86_64",
+    "cpus": [
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 5214,
+        "user": 8788790,
+        "nice": 6590,
+        "sys": 9557000,
+        "idle": 65762940,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 5279,
+        "user": 7445450,
+        "nice": 960,
+        "sys": 6667560,
+        "idle": 70372450,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 5214,
+        "user": 8984010,
+        "nice": 1460,
+        "sys": 10021130,
+        "idle": 65106950,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 5278,
+        "user": 6405620,
+        "nice": 90,
+        "sys": 5038330,
+        "idle": 73384850,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 5302,
+        "user": 6705050,
+        "nice": 90,
+        "sys": 5234160,
+        "idle": 72766610,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 5302,
+        "user": 5842100,
+        "nice": 60,
+        "sys": 4325040,
+        "idle": 74813820,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 5297,
+        "user": 5402990,
+        "nice": 50,
+        "sys": 4103220,
+        "idle": 75620320,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 5302,
+        "user": 5059480,
+        "nice": 70,
+        "sys": 4026710,
+        "idle": 76156550,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 5300,
+        "user": 7602090,
+        "nice": 2390,
+        "sys": 7521250,
+        "idle": 69687630,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 5185,
+        "user": 6361070,
+        "nice": 480,
+        "sys": 4785520,
+        "idle": 73897500,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 5283,
+        "user": 8449960,
+        "nice": 2650,
+        "sys": 9385130,
+        "idle": 66771900,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 5303,
+        "user": 5886260,
+        "nice": 160,
+        "sys": 4227690,
+        "idle": 75008380,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 5299,
+        "user": 6122540,
+        "nice": 670,
+        "sys": 4337040,
+        "idle": 74631580,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 5234,
+        "user": 5591960,
+        "nice": 20,
+        "sys": 3962930,
+        "idle": 75622450,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 5270,
+        "user": 5383530,
+        "nice": 40,
+        "sys": 4025180,
+        "idle": 75737180,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 5215,
+        "user": 5111680,
+        "nice": 60,
+        "sys": 4016970,
+        "idle": 76126730,
+        "irq": 0
+      }
+    ],
+    "networkInterfaces": [
+      {
+        "name": "lo",
+        "internal": true,
+        "mac": "00:00:00:00:00:00",
+        "address": "127.0.0.1",
+        "netmask": "255.0.0.0",
+        "family": "IPv4"
+      },
+      {
+        "name": "enp9s0",
+        "internal": false,
+        "mac": "00:e0:97:26:ff:25",
+        "address": "192.168.0.100",
+        "netmask": "255.255.255.0",
+        "family": "IPv4"
+      },
+      {
+        "name": "tailscale0",
+        "internal": false,
+        "mac": "00:00:00:00:00:00",
+        "address": "100.124.146.41",
+        "netmask": "255.255.255.255",
+        "family": "IPv4"
+      },
+      {
+        "name": "wlxe0d36229f787",
+        "internal": false,
+        "mac": "e0:d3:62:29:f7:87",
+        "address": "192.168.0.190",
+        "netmask": "255.255.255.0",
+        "family": "IPv4"
+      },
+      {
+        "name": "docker0",
+        "internal": false,
+        "mac": "3a:bf:88:30:10:01",
+        "address": "172.20.0.1",
+        "netmask": "255.255.0.0",
+        "family": "IPv4"
+      },
+      {
+        "name": "lo",
+        "internal": true,
+        "mac": "00:00:00:00:00:00",
+        "address": "::1",
+        "netmask": "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+        "family": "IPv6",
+        "scopeid": 0
+      },
+      {
+        "name": "enp9s0",
+        "internal": false,
+        "mac": "00:e0:97:26:ff:25",
+        "address": "2404:7a80:a740:ba00:86f1:41e:531c:2796",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 0
+      },
+      {
+        "name": "enp9s0",
+        "internal": false,
+        "mac": "00:e0:97:26:ff:25",
+        "address": "2404:7a80:a740:ba00:a3f4:5f7e:a3b7:9d1f",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 0
+      },
+      {
+        "name": "enp9s0",
+        "internal": false,
+        "mac": "00:e0:97:26:ff:25",
+        "address": "fe80::b9f0:9a3a:b26f:117b",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 2
+      },
+      {
+        "name": "tailscale0",
+        "internal": false,
+        "mac": "00:00:00:00:00:00",
+        "address": "fd7a:115c:a1e0::1b01:9229",
+        "netmask": "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+        "family": "IPv6",
+        "scopeid": 0
+      },
+      {
+        "name": "tailscale0",
+        "internal": false,
+        "mac": "00:00:00:00:00:00",
+        "address": "fe80::d1bd:dbe2:cc1c:edad",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 3
+      },
+      {
+        "name": "wlxe0d36229f787",
+        "internal": false,
+        "mac": "e0:d3:62:29:f7:87",
+        "address": "2404:7a80:a740:ba00:81a6:9455:2627:6696",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 0
+      },
+      {
+        "name": "wlxe0d36229f787",
+        "internal": false,
+        "mac": "e0:d3:62:29:f7:87",
+        "address": "2404:7a80:a740:ba00:f303:6e9c:939f:df3c",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 0
+      },
+      {
+        "name": "wlxe0d36229f787",
+        "internal": false,
+        "mac": "e0:d3:62:29:f7:87",
+        "address": "fe80::be83:f55c:d9c7:f577",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 4
+      },
+      {
+        "name": "docker0",
+        "internal": false,
+        "mac": "3a:bf:88:30:10:01",
+        "address": "fe80::38bf:88ff:fe30:1001",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 7
+      },
+      {
+        "name": "veth92a5d8f",
+        "internal": false,
+        "mac": "ca:95:b9:47:20:74",
+        "address": "fe80::c895:b9ff:fe47:2074",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 17
+      },
+      {
+        "name": "veth112b574",
+        "internal": false,
+        "mac": "96:e8:4d:64:95:aa",
+        "address": "fe80::94e8:4dff:fe64:95aa",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 20
+      }
+    ],
+    "host": "shin-ONDA-B650PLUS-ITX-W"
+  },
+  "javascriptStack": {
+    "message": "TypeError: Cannot read properties of undefined (reading 'startsWith')",
+    "stack": [
+      "at addHostImport (file:///tmp/flatten-dtls13-classes.mjs:117:48)",
+      "at file:///tmp/flatten-dtls13-classes.mjs:145:10",
+      "at ModuleJob.run (node:internal/modules/esm/module_job:371:25)",
+      "at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:669:26)"
+    ],
+    "errorProperties": {
+    }
+  },
+  "javascriptHeap": {
+    "totalMemory": 7655424,
+    "executableMemory": 524288,
+    "totalCommittedMemory": 8130560,
+    "availableMemory": 12980691424,
+    "totalGlobalHandlesMemory": 8192,
+    "usedGlobalHandlesMemory": 2400,
+    "usedMemory": 4867752,
+    "memoryLimit": 12985565184,
+    "mallocedMemory": 163928,
+    "externalMemory": 1800651,
+    "peakMallocedMemory": 1053560,
+    "nativeContextCount": 1,
+    "detachedContextCount": 0,
+    "doesZapGarbage": 0,
+    "heapSpaces": {
+      "read_only_space": {
+        "memorySize": 0,
+        "committedMemory": 0,
+        "capacity": 0,
+        "used": 0,
+        "available": 0
+      },
+      "new_space": {
+        "memorySize": 2097152,
+        "committedMemory": 2097152,
+        "capacity": 1048512,
+        "used": 309360,
+        "available": 739152
+      },
+      "old_space": {
+        "memorySize": 3436544,
+        "committedMemory": 3670016,
+        "capacity": 3435904,
+        "used": 3223712,
+        "available": 212192
+      },
+      "code_space": {
+        "memorySize": 524288,
+        "committedMemory": 524288,
+        "capacity": 524224,
+        "used": 92480,
+        "available": 431744
+      },
+      "shared_space": {
+        "memorySize": 0,
+        "committedMemory": 0,
+        "capacity": 0,
+        "used": 0,
+        "available": 0
+      },
+      "trusted_space": {
+        "memorySize": 1331200,
+        "committedMemory": 1572864,
+        "capacity": 1330104,
+        "used": 980040,
+        "available": 350064
+      },
+      "shared_trusted_space": {
+        "memorySize": 0,
+        "committedMemory": 0,
+        "capacity": 0,
+        "used": 0,
+        "available": 0
+      },
+      "new_large_object_space": {
+        "memorySize": 0,
+        "committedMemory": 0,
+        "capacity": 1048512,
+        "used": 0,
+        "available": 1048512
+      },
+      "large_object_space": {
+        "memorySize": 266240,
+        "committedMemory": 266240,
+        "capacity": 262160,
+        "used": 262160,
+        "available": 0
+      },
+      "code_large_object_space": {
+        "memorySize": 0,
+        "committedMemory": 0,
+        "capacity": 0,
+        "used": 0,
+        "available": 0
+      },
+      "shared_large_object_space": {
+        "memorySize": 0,
+        "committedMemory": 0,
+        "capacity": 0,
+        "used": 0,
+        "available": 0
+      },
+      "shared_trusted_large_object_space": {
+        "memorySize": 0,
+        "committedMemory": 0,
+        "capacity": 0,
+        "used": 0,
+        "available": 0
+      },
+      "trusted_large_object_space": {
+        "memorySize": 0,
+        "committedMemory": 0,
+        "capacity": 0,
+        "used": 0,
+        "available": 0
+      }
+    }
+  },
+  "nativeStack": [
+    {
+      "pc": "0x0000000001184ffb",
+      "symbol": "node::TriggerNodeReport(v8::Isolate*, node::Environment*, char const*, char const*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, v8::Local<v8::Value>) [node]"
+    },
+    {
+      "pc": "0x0000000001185807",
+      "symbol": "node::TriggerNodeReport(node::Environment*, char const*, char const*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, v8::Local<v8::Value>) [node]"
+    },
+    {
+      "pc": "0x00000000010bacf5",
+      "symbol": " [node]"
+    },
+    {
+      "pc": "0x00000000010bc6db",
+      "symbol": "node::errors::TriggerUncaughtException(v8::Isolate*, v8::Local<v8::Value>, v8::Local<v8::Message>, bool) [node]"
+    },
+    {
+      "pc": "0x00007fc5a3dcf08d",
+      "symbol": ""
+    }
+  ],
+  "resourceUsage": {
+    "free_memory": 55139172352,
+    "total_memory": 63821303808,
+    "rss": 63356928,
+    "constrained_memory": 18446744073709551615,
+    "available_memory": 55139172352,
+    "userCpuSeconds": 0.022509,
+    "kernelCpuSeconds": 0.004092,
+    "cpuConsumptionPercent": 2.6601,
+    "userCpuConsumptionPercent": 2.2509,
+    "kernelCpuConsumptionPercent": 0.4092,
+    "maxRss": 63356928,
+    "pageFaults": {
+      "IORequired": 1,
+      "IONotRequired": 3929
+    },
+    "fsActivity": {
+      "reads": 80,
+      "writes": 152
+    }
+  },
+  "uvthreadResourceUsage": {
+    "userCpuSeconds": 0.019153,
+    "kernelCpuSeconds": 0.004032,
+    "cpuConsumptionPercent": 2.3185,
+    "userCpuConsumptionPercent": 1.9153,
+    "kernelCpuConsumptionPercent": 0.4032,
+    "fsActivity": {
+      "reads": 80,
+      "writes": 152
+    }
+  },
+  "libuv": [
+    {
+      "type": "async",
+      "is_active": true,
+      "is_referenced": false,
+      "address": "0x000000003fc6e660"
+    },
+    {
+      "type": "async",
+      "is_active": true,
+      "is_referenced": false,
+      "address": "0x0000000006e3fa40"
+    },
+    {
+      "type": "timer",
+      "is_active": false,
+      "is_referenced": false,
+      "address": "0x000000003fcea538",
+      "repeat": 0,
+      "firesInMsFromNow": -85807303,
+      "expired": true
+    },
+    {
+      "type": "check",
+      "is_active": true,
+      "is_referenced": false,
+      "address": "0x000000003fcea5d0"
+    },
+    {
+      "type": "idle",
+      "is_active": false,
+      "is_referenced": true,
+      "address": "0x000000003fcea648"
+    },
+    {
+      "type": "prepare",
+      "is_active": true,
+      "is_referenced": false,
+      "address": "0x000000003fcea6c0"
+    },
+    {
+      "type": "check",
+      "is_active": true,
+      "is_referenced": false,
+      "address": "0x000000003fcea738"
+    },
+    {
+      "type": "async",
+      "is_active": true,
+      "is_referenced": false,
+      "address": "0x000000003fcea7b0"
+    },
+    {
+      "type": "pipe",
+      "is_active": false,
+      "is_referenced": true,
+      "address": "0x000000003fd6c688",
+      "localEndpoint": null,
+      "remoteEndpoint": null,
+      "sendBufferSize": 131072,
+      "recvBufferSize": 131072,
+      "fd": 1,
+      "stdio": "stdout",
+      "writeQueueSize": 0,
+      "readable": true,
+      "writable": true
+    },
+    {
+      "type": "pipe",
+      "is_active": false,
+      "is_referenced": true,
+      "address": "0x000000003fd9fcc8",
+      "localEndpoint": null,
+      "remoteEndpoint": null,
+      "sendBufferSize": 131072,
+      "recvBufferSize": 131072,
+      "fd": 2,
+      "stdio": "stderr",
+      "writeQueueSize": 0,
+      "readable": true,
+      "writable": true
+    },
+    {
+      "type": "loop",
+      "is_active": false,
+      "address": "0x0000000006e51a60",
+      "loopIdleTimeSeconds": 0
+    }
+  ],
+  "workers": [
+  ],
+  "environmentVariables": {
+    "SHELL": "/bin/bash",
+    "npm_command": "run-script",
+    "__CURSOR_SANDBOX_ENV_RESTORE": "builtin unset CURSOR_CONVERSATION_ID CURSOR_AGENT_STORE_FILES_DIR CURSOR_AGENT_STORE_SHARED_PATHS 2>/dev/null || true; builtin export CURSOR_CONVERSATION_ID='5c167102-d9ba-42d4-9946-0f18c6836a64'",
+    "AGENT_TRANSCRIPTS": "/home/shin/.cursor/projects/home-shin-code-werift-webrtc-worktree-5fc64332-b0d1-4ab0-bc1e-4b0f3a26c135/agent-transcripts",
+    "ZELLIJ_SESSION_NAME": "oblong-iguanadon",
+    "COREPACK_ENABLE_DOWNLOAD_PROMPT": "1",
+    "_ZO_DOCTOR": "0",
+    "CURSOR_INVOKED_AS": "cursor-agent",
+    "NODE": "/home/shin/n/bin/node",
+    "NODE_OPTIONS": "--max-old-space-size=12192 --heapsnapshot-near-heap-limit=3 --diagnostic-dir=/home/shin/code/sak-worker/packages/server/data/diagnostics --report-on-fatalerror --report-uncaught-exception",
+    "PWD": "/home/shin/code/werift-webrtc.worktree/5fc64332-b0d1-4ab0-bc1e-4b0f3a26c135/packages/dtls",
+    "LOGNAME": "shin",
+    "ZELLIJ_PANE_ID": "0",
+    "XDG_SESSION_TYPE": "tty",
+    "PORT": "22054",
+    "HOME": "/home/shin",
+    "COREPACK_ROOT": "/home/shin/n/lib/node_modules/corepack",
+    "LANG": "ja_JP.UTF-8",
+    "LS_COLORS": "rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=00:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.avif=01;35:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:*~=00;90:*#=00;90:*.bak=00;90:*.old=00;90:*.orig=00;90:*.part=00;90:*.rej=00;90:*.swp=00;90:*.tmp=00;90:*.dpkg-dist=00;90:*.dpkg-old=00;90:*.ucf-dist=00;90:*.ucf-new=00;90:*.ucf-old=00;90:*.rpmnew=00;90:*.rpmorig=00;90:*.rpmsave=00;90:",
+    "npm_package_version": "1.0.0",
+    "IDE_SERVER_DIAGNOSTIC_DIR": "/home/shin/code/sak-worker/packages/server/data/diagnostics",
+    "CURSOR_CONVERSATION_ID": "5c167102-d9ba-42d4-9946-0f18c6836a64",
+    "CURSOR_RIPGREP_PATH": "/home/shin/.local/share/cursor-agent/versions/2026.08.11-e8db854/rg",
+    "N_PREFIX": "/home/shin/n",
+    "FORCE_COLOR": "0",
+    "pnpm_config_verify_deps_before_run": "false",
+    "SSH_CONNECTION": "100.72.193.54 59211 100.124.146.41 22",
+    "INIT_CWD": "/home/shin/code/sak-worker/packages/server",
+    "NODE_COMPILE_CACHE": "/home/shin/.cache/cursor-compile-cache",
+    "npm_lifecycle_script": "node ./scripts/with-server-node-options.mjs tsx watch --tsconfig tsconfig.dev.json src/index.ts",
+    "CURSOR_AGENT": "1",
+    "LESSCLOSE": "/usr/bin/lesspipe %s %s",
+    "XDG_SESSION_CLASS": "user",
+    "ANDROID_HOME": "/home/shin/Android/Sdk",
+    "TERM": "dumb",
+    "npm_package_name": "@ide-project/server",
+    "LESSOPEN": "| /usr/bin/lesspipe %s",
+    "USER": "shin",
+    "TSX_TSCONFIG_PATH": "tsconfig.dev.json",
+    "npm_lifecycle_event": "dev",
+    "SHLVL": "4",
+    "ANDROID_SDK_ROOT": "/home/shin/Android/Sdk",
+    "XDG_SESSION_ID": "3",
+    "GITHUB_COPILOT_API_KEY": "test",
+    "npm_config_user_agent": "pnpm/11.21.0 npm/? node/v24.18.0 linux x64",
+    "NO_COLOR": "1",
+    "PNPM_SCRIPT_SRC_DIR": "/home/shin/code/sak-worker/packages/server",
+    "npm_execpath": "/home/shin/.cache/node/corepack/v1/pnpm/11.21.0/bin/pnpm.mjs",
+    "LC_CTYPE": "ja_JP.UTF-8",
+    "XDG_RUNTIME_DIR": "/run/user/1000",
+    "SSH_CLIENT": "100.72.193.54 59211 22",
+    "NODE_PATH": "/home/shin/code/sak-worker/node_modules/.pnpm/tsx@4.23.11/node_modules/tsx/node_modules:/home/shin/code/sak-worker/node_modules/.pnpm/tsx@4.23.11/node_modules:/home/shin/code/sak-worker/node_modules/.pnpm/node_modules",
+    "DEBUGINFOD_URLS": "https://debuginfod.ubuntu.com ",
+    "IM_CONFIG_ENTRY": "profile",
+    "npm_package_json": "/home/shin/code/sak-worker/packages/server/package.json",
+    "GLOBAL_AGENT_ENVIRONMENT_VARIABLE_NAMESPACE": "",
+    "XDG_DATA_DIRS": "/usr/share/gnome:/usr/local/share:/usr/share:/var/lib/snapd/desktop",
+    "PATH": "/home/shin/.local/bin:/home/shin/bin:/home/shin/.local/bin:/home/shin/.grok/bin:/var/sak/host-home/.kimi-code/bin:/home/shin/.local/bin:/home/shin/.kimi-code/bin:/home/shin/.opencode/bin:/home/shin/.local/share/cursor-agent/versions/2026.08.11-e8db854:/home/shin/code/sak-worker/packages/server/node_modules/.bin:/home/shin/.cache/node/corepack/v1/pnpm/11.21.0/dist/node-gyp-bin:/home/shin/code/sak-worker/node_modules/.bin:/home/shin/code/sak-worker/node_modules/.bin:/home/shin/.cache/node/corepack/v1/pnpm/11.21.0/dist/node-gyp-bin:/home/shin/code/sak-worker/node_modules/.bin:/home/shin/.local/bin:/home/shin/bin:/home/shin/.local/bin:/home/shin/.grok/bin:/var/sak/host-home/.kimi-code/bin:/home/shin/.local/bin:/home/shin/.kimi-code/bin:/home/shin/.opencode/bin:/home/shin/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/home/shin/n/bin:/home/shin/.pulumi/bin:/home/shin/Android/Sdk/platform-tools:/home/shin/Android/Sdk/emulator:/home/shin/Android/Sdk/cmdline-tools/latest/bin:/home/shin/.pulumi/bin:/home/shin/Android/Sdk/platform-tools:/home/shin/Android/Sdk/emulator:/home/shin/Android/Sdk/cmdline-tools/latest/bin",
+    "npm_config_node_gyp": "/home/shin/.cache/node/corepack/v1/pnpm/11.21.0/dist/node_modules/node-gyp/bin/node-gyp.js",
+    "ZELLIJ": "0",
+    "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus",
+    "MAIL": "/var/mail/shin",
+    "SSH_TTY": "/dev/pts/0",
+    "npm_node_execpath": "/home/shin/n/bin/node",
+    "_": "/home/shin/.local/share/cursor-agent/versions/2026.08.11-e8db854/node"
+  },
+  "userLimits": {
+    "core_file_size_blocks": {
+      "soft": 0,
+      "hard": "unlimited"
+    },
+    "data_seg_size_bytes": {
+      "soft": "unlimited",
+      "hard": "unlimited"
+    },
+    "file_size_blocks": {
+      "soft": "unlimited",
+      "hard": "unlimited"
+    },
+    "max_locked_memory_bytes": {
+      "soft": 8388608,
+      "hard": 8388608
+    },
+    "max_memory_size_bytes": {
+      "soft": "unlimited",
+      "hard": "unlimited"
+    },
+    "open_files": {
+      "soft": 65535,
+      "hard": 65535
+    },
+    "stack_size_bytes": {
+      "soft": 8388608,
+      "hard": "unlimited"
+    },
+    "cpu_time_seconds": {
+      "soft": "unlimited",
+      "hard": "unlimited"
+    },
+    "max_user_processes": {
+      "soft": 243092,
+      "hard": 243092
+    },
+    "virtual_memory_bytes": {
+      "soft": "unlimited",
+      "hard": "unlimited"
+    }
+  },
+  "sharedObjects": [
+    "linux-vdso.so.1",
+    "/usr/lib/x86_64-linux-gnu/libdl.so.2",
+    "/usr/lib/x86_64-linux-gnu/libstdc++.so.6",
+    "/usr/lib/x86_64-linux-gnu/libm.so.6",
+    "/usr/lib/x86_64-linux-gnu/libgcc_s.so.1",
+    "/usr/lib/x86_64-linux-gnu/libpthread.so.0",
+    "/usr/lib/x86_64-linux-gnu/libc.so.6",
+    "/lib64/ld-linux-x86-64.so.2"
+  ]
+}

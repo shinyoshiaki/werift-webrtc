@@ -68,10 +68,11 @@ export type HsPhase =
   | "connected";
 
 /**
- * Shared mutable state and lifecycle for the DTLS 1.3 endpoint.
- * Layer 0 in the flight stack (see index.ts Figure 3).
+ * Session state and lifecycle for the DTLS 1.3 endpoint.
+ * Dtls13Connection extends this class once; flight/record logic is functions
+ * with `this: Dtls13Host` (no further inheritance).
  */
-export abstract class Dtls13ConnectionBase {
+export class Dtls13ConnectionBase {
   readonly onConnect = new Event();
   readonly onData = new Event<[Buffer]>();
   readonly onError = new Event<[Error]>();
@@ -88,115 +89,111 @@ export abstract class Dtls13ConnectionBase {
    * Graceful close in progress (close_notify may still be in flight).
    * Distinct from {@link closed} (full teardown finished).
    */
-  protected closing = false;
-  protected readonly role: Role;
+  closing = false;
+  readonly role: Role;
   /** Handshake carrier (injectable; default DirectHandshakeCarrier). */
-  protected readonly carrier: DtlsHandshakeCarrier;
-  protected readonly keySchedule = defaultKeySchedule;
-  protected readonly certDer: Buffer;
-  protected readonly keyPem: string;
-  protected readonly hasLocalIdentity: boolean;
+  readonly carrier: DtlsHandshakeCarrier;
+  readonly keySchedule = defaultKeySchedule;
+  readonly certDer: Buffer;
+  readonly keyPem: string;
+  readonly hasLocalIdentity: boolean;
 
-  protected messageSeq = 0;
-  protected recordSeqEpoch0 = 0;
-  protected transcript = new HandshakeTranscript();
-  protected cookie = Buffer.alloc(0);
-  protected localKeyPair = generateKeyPair(NamedCurveAlgorithm.x25519_29);
-  protected remoteKeyShare?: { group: number; keyExchange: Buffer };
-  protected selectedGroup: NamedCurveAlgorithms = NamedCurveAlgorithm.x25519_29;
-  protected clientRandom = new DtlsRandom();
-  protected serverRandom = new DtlsRandom();
-  protected sessionId = Buffer.alloc(0);
+  messageSeq = 0;
+  recordSeqEpoch0 = 0;
+  transcript = new HandshakeTranscript();
+  cookie = Buffer.alloc(0);
+  localKeyPair = generateKeyPair(NamedCurveAlgorithm.x25519_29);
+  remoteKeyShare?: { group: number; keyExchange: Buffer };
+  selectedGroup: NamedCurveAlgorithms = NamedCurveAlgorithm.x25519_29;
+  clientRandom = new DtlsRandom();
+  serverRandom = new DtlsRandom();
+  sessionId = Buffer.alloc(0);
 
   /** Epoch protections: 0 plaintext, 2 handshake, 3 app, 4+ KeyUpdate */
-  protected epochs = new Map<number, EpochProtection>();
+  epochs = new Map<number, EpochProtection>();
   /** When each epoch's keys were installed (for TTL prune). */
-  protected epochInstalledAt = new Map<number, number>();
-  protected readEpoch = 0;
-  protected writeEpoch = 0;
+  epochInstalledAt = new Map<number, number>();
+  readEpoch = 0;
+  writeEpoch = 0;
 
-  protected clientHsTraffic?: Buffer;
-  protected serverHsTraffic?: Buffer;
-  protected clientAppTraffic?: Buffer;
-  protected serverAppTraffic?: Buffer;
-  protected exporterMasterSecret?: Buffer;
-  protected handshakeSecret?: Buffer;
+  clientHsTraffic?: Buffer;
+  serverHsTraffic?: Buffer;
+  clientAppTraffic?: Buffer;
+  serverAppTraffic?: Buffer;
+  exporterMasterSecret?: Buffer;
+  handshakeSecret?: Buffer;
 
-  protected firstClientHelloBody?: Buffer;
-  protected awaitingHrr = false;
+  firstClientHelloBody?: Buffer;
+  awaitingHrr = false;
   /** Number of HelloRetryRequests processed (client) or sent (server). Max 1. */
-  protected hrrCount = 0;
+  hrrCount = 0;
   /**
    * Cipher suite selected by HRR (client). Final ServerHello must match.
    * RFC 8446 §4.1.4.
    */
-  protected hrrCipherSuite?: number;
+  hrrCipherSuite?: number;
   /**
    * Groups offered in the first ClientHello key_share (client).
    * HRR selected_group must not already appear here (RFC 8446 §4.1.4).
    */
-  protected initialKeyShareGroups: number[] = [];
+  initialKeyShareGroups: number[] = [];
   /**
    * Versions listed in ClientHello supported_versions (preference order).
    * Dual-stack association may include V1_2 for true negotiation.
    */
-  protected readonly offeredProtocolVersions: DtlsVersion[];
+  readonly offeredProtocolVersions: DtlsVersion[];
   /**
    * Peer signature_algorithms from ClientHello (server) or CertificateRequest
    * schemes we will use for client CertificateVerify selection.
    */
-  protected peerSignatureSchemes: number[] = [...DEFAULT_SIGNATURE_SCHEMES];
+  peerSignatureSchemes: number[] = [...DEFAULT_SIGNATURE_SCHEMES];
   /** Schemes we advertised in CertificateRequest (server mutual auth). */
-  protected certificateRequestSignatureSchemes: number[] = [
-    ...DEFAULT_SIGNATURE_SCHEMES,
-  ];
+  certificateRequestSignatureSchemes: number[] = [...DEFAULT_SIGNATURE_SCHEMES];
   /** Schemes we advertise in ClientHello / accept for server CertificateVerify. */
-  protected localOfferedSignatureSchemes: number[] = [
-    ...DEFAULT_SIGNATURE_SCHEMES,
-  ];
-  protected peerFinishedReceived = false;
-  protected localFinishedSent = false;
-  protected flightId = 0;
-  protected pendingFlight: DtlsHandshakeDatagram[] = [];
+  localOfferedSignatureSchemes: number[] = [...DEFAULT_SIGNATURE_SCHEMES];
+  peerFinishedReceived = false;
+  localFinishedSent = false;
+  flightId = 0;
+  pendingFlight: DtlsHandshakeDatagram[] = [];
   /** Record numbers of the current retransmittable flight (for ACK matching). */
-  protected pendingFlightRecords: AckRecordNumber[] = [];
+  pendingFlightRecords: AckRecordNumber[] = [];
   /**
    * Per-datagram record map for selective retransmit after partial ACK.
    * Index aligns with pendingFlight.
    */
-  protected pendingFlightRecordGroups: AckRecordNumber[][] = [];
+  pendingFlightRecordGroups: AckRecordNumber[][] = [];
   /**
    * Wire bytes for each pending handshake record (parallel to pendingFlightRecords).
    * Enables selective retransmit of only un-ACK'd records after partial ACK.
    */
-  protected pendingFlightRecordBytes: Buffer[] = [];
+  pendingFlightRecordBytes: Buffer[] = [];
   /**
    * ServerHello (epoch 0) retransmitted with the encrypted server flight until
    * the flight is fully ACK'd (SH loss otherwise leaves client without keys).
    */
-  protected pendingServerHello?: DtlsHandshakeDatagram;
-  protected cancelRetransmit: (() => void) | undefined;
-  protected cancelEpochPrune: (() => void) | undefined;
-  protected retransmitCount = 0;
-  protected readonly maxRetransmit = 10;
-  protected closed = false;
+  pendingServerHello?: DtlsHandshakeDatagram;
+  cancelRetransmit: (() => void) | undefined;
+  cancelEpochPrune: (() => void) | undefined;
+  retransmitCount = 0;
+  readonly maxRetransmit = 10;
+  closed = false;
   /**
    * Dual-stack HVR probe: engine stays open with CH-A retransmit while the
    * association also runs the DTLS 1.2 cookie candidate. Not a hard fail.
    */
-  protected dualProbeParked = false;
-  protected remoteCert?: Buffer;
-  protected serverFlightComplete = false;
-  protected clientExpectsServerFlight = false;
-  protected negotiatedSrtpProfile?: number;
+  dualProbeParked = false;
+  remoteCert?: Buffer;
+  serverFlightComplete = false;
+  clientExpectsServerFlight = false;
+  negotiatedSrtpProfile?: number;
   /**
    * Named Groups (RFC 8446 §4.2.7 Supported Groups; DTLS 1.3 inherits via RFC 9147).
    * Each value identifies a finite-field or elliptic-curve group used for (EC)DHE
    * key exchange. Preference order drives ClientHello key_share offers and the
    * server's HRR selected_group when the client's share is unacceptable.
    */
-  protected readonly groups: NamedCurveAlgorithms[];
-  protected fragmentBuffer = new Map<
+  readonly groups: NamedCurveAlgorithms[];
+  fragmentBuffer = new Map<
     string,
     {
       parts: FragmentedHandshake[];
@@ -205,70 +202,69 @@ export abstract class Dtls13ConnectionBase {
       coveredBytes: number;
     }
   >();
-  protected fragmentBufferBytes = 0;
+  fragmentBufferBytes = 0;
   /** Out-of-order complete handshake messages (by message_seq). */
-  protected handshakeInbox = new Map<number, FragmentedHandshake>();
-  protected nextReceiveSeq = 0;
+  handshakeInbox = new Map<number, FragmentedHandshake>();
+  nextReceiveSeq = 0;
   /**
    * Handshake records of the *current remote inbound flight* awaiting ACK
    * (RFC 9147 §7: ACK lists only the current outstanding remote flight).
    */
-  protected receivedRecordNumbers: { epoch: number; sequenceNumber: number }[] =
-    [];
+  receivedRecordNumbers: { epoch: number; sequenceNumber: number }[] = [];
   /**
    * After we send a local flight, the next successfully accepted peer handshake
    * record starts a new remote flight — clear the previous ACK list then.
    */
-  protected clearRemoteAckOnNextInbound = false;
+  clearRemoteAckOnNextInbound = false;
   /**
    * Set by handlers (e.g. onFinished / onKeyUpdate) so the RX layer sends ACK
    * only after the current record has been noted for ACK bookkeeping.
    */
-  protected ackAfterCurrentRecord = false;
+  ackAfterCurrentRecord = false;
   /**
    * When peer KeyUpdate has request_update, send our KeyUpdate only after we
    * have ACKed theirs (response KeyUpdate is not an implicit ACK — RFC 9147 §8).
    */
-  protected keyUpdateResponseAfterAck = false;
+  keyUpdateResponseAfterAck = false;
   /**
    * Peer requested update while our own KeyUpdate is still awaiting ACK.
    * Send response KeyUpdate only after applyPendingKeyUpdateWrite() (RFC 9147 §8:
    * no concurrent un-ACKed KeyUpdates; TLS 1.3 crossed update_requested case).
    */
-  protected deferredKeyUpdateResponse = false;
+  deferredKeyUpdateResponse = false;
   /**
    * Handshake records that were successfully accepted (processed or buffered).
    * Replay path re-ACKs only records present here — anti-replay alone does not
    * imply the peer may treat the record as acknowledged.
    */
-  protected acceptedHandshakeRecords = new Set<string>();
+  acceptedHandshakeRecords = new Set<string>();
   /**
    * After sending KeyUpdate, hold next write epoch until peer ACK (RFC 9147 §8).
    * Application data continues on the old writeEpoch until this is applied.
    */
-  protected pendingKeyUpdateWrite?: {
+  pendingKeyUpdateWrite?: {
     nextWriteEpoch: number;
     nextTrafficSecret: Buffer;
   };
-  protected cookieSecret = randomBytes(16);
-  protected tlsCookie = Buffer.alloc(0);
-  protected addressValidated = false;
-  protected bytesReceived = 0;
-  protected bytesSent = 0;
+  cookieSecret = randomBytes(16);
+  tlsCookie = Buffer.alloc(0);
+  addressValidated = false;
+  bytesReceived = 0;
+  bytesSent = 0;
   /**
    * Pre-cookie anti-amplification budget owner (peerKey).
    * Unassociated RX resets the global counters for *this* source only — TX
    * charged against that budget must target the same peer (never retransmit
    * A's HRR using B's inflated RX).
    */
-  protected antiAmpBudgetPeerKey?: string;
+  antiAmpBudgetPeerKey?: string;
   /** Current peer key (ip:port) for cookie binding / address validation. */
-  protected peerKey = "unknown";
+  peerKey = "unknown";
   /**
    * After address validation / connect, only this peer may deliver datagrams
    * and all TX is directed here (Epic 1: no CID migration).
    */
-  protected pinnedPeerKey?: string;
+  pinnedPeerKey?: string;
   /**
    * First *associated* remote 5-tuple (pre-cookie provisional, or post-cookie pin).
    * Server with dtls-cookie: NOT set on the first cookie-less ClientHello —
@@ -276,37 +272,37 @@ export abstract class Dtls13ConnectionBase {
    * use currentPeerAddr and an unauthenticated source cannot lock the association.
    * Client: set/pinned at connect() to the configured destination.
    */
-  protected provisionalPeerKey?: string;
+  provisionalPeerKey?: string;
   /**
    * Source of the datagram currently being processed (temporary).
    * Used for cookie binding / reply TX before provisional promotion.
    */
-  protected currentPeerKey?: string;
-  protected currentPeerAddr?: [string, number];
-  protected currentDatagramBytes = 0;
-  protected currentDatagramCounted = false;
+  currentPeerKey?: string;
+  currentPeerAddr?: [string, number];
+  currentDatagramBytes = 0;
+  currentDatagramCounted = false;
   /**
    * Where to retransmit the pending flight when peer is not yet pinned
    * (e.g. server HRR with cookie before address validation).
    */
-  protected pendingFlightReplyTo?: [string, number];
+  pendingFlightReplyTo?: [string, number];
   /** Explicit send address for transport.send (never rely on last rinfo). */
-  protected peerAddr?: [string, number];
+  peerAddr?: [string, number];
   /**
    * Handshake message-order state machine (RFC 8446 full handshake order).
    * Unexpected HandshakeType → unexpected_message.
    */
-  protected hsPhase: HsPhase = "start";
+  hsPhase: HsPhase = "start";
   /** ClientHello-offered use_srtp MKI (for RFC 5764 response check). */
-  protected clientOfferedSrtpMki = Buffer.alloc(0);
+  clientOfferedSrtpMki = Buffer.alloc(0);
   /** Hash of first ClientHello used when minting the cookie. */
-  protected cookieClientHelloHash?: Buffer;
+  cookieClientHelloHash?: Buffer;
   /**
    * Per-source pre-cookie HRR attempts (CH1 body for optional field checks).
    * Cookie itself is stateless (embeds CH1 message_hash); this map is an
    * optimization and must never be a single global slot shared by all peers.
    */
-  protected preCookieAttempts = new Map<
+  preCookieAttempts = new Map<
     string,
     {
       ch1Body: Buffer;
@@ -319,56 +315,56 @@ export abstract class Dtls13ConnectionBase {
    * HRR deltas that ClientHello2 may apply (RFC 8446 §4.1.4).
    * Set when processing / sending HelloRetryRequest.
    */
-  protected hrrHadCookie = false;
-  protected hrrSelectedGroup?: number;
+  hrrHadCookie = false;
+  hrrSelectedGroup?: number;
   /** Extension types offered in the (last accepted) ClientHello — for EE allowlist. */
-  protected clientOfferedExtensionTypes = new Set<number>();
-  protected readonly addressValidation: AddressValidationMode;
+  clientOfferedExtensionTypes = new Set<number>();
+  readonly addressValidation: AddressValidationMode;
   /**
    * Association peer-identity policy (datagram-address vs authenticated-single-peer).
    * Resolved once at construction from options / transport hints.
    */
-  protected readonly peerIdentityMode: PeerIdentityMode;
-  protected certificateRequestContext = Buffer.alloc(0);
-  protected expectClientCertificate = false;
-  protected clientCertificateReceived = false;
-  protected clientCertificateVerified = false;
-  protected peerRequestedClientCert = false;
+  readonly peerIdentityMode: PeerIdentityMode;
+  certificateRequestContext = Buffer.alloc(0);
+  expectClientCertificate = false;
+  clientCertificateReceived = false;
+  clientCertificateVerified = false;
+  peerRequestedClientCert = false;
   /**
    * After CertificateRequest: whether we will present a local certificate
    * (false → empty Certificate decline when schemes/key do not match).
    */
-  protected presentClientCertificate = false;
+  presentClientCertificate = false;
   /**
    * Epoch-3 app data received before markConnected (UDP reorder window).
    * Bounded by {@link maxEarlyAppDataRecords} / {@link maxEarlyAppDataBytes}.
    */
-  protected earlyAppData: Buffer[] = [];
-  protected earlyAppDataBytes = 0;
+  earlyAppData: Buffer[] = [];
+  earlyAppDataBytes = 0;
   /** Resolved early-app-data record cap (Options or DataChannel default). */
-  protected readonly maxEarlyAppDataRecords: number;
+  readonly maxEarlyAppDataRecords: number;
   /** Resolved early-app-data byte cap (Options or DataChannel default). */
-  protected readonly maxEarlyAppDataBytes: number;
+  readonly maxEarlyAppDataBytes: number;
   /**
    * Peer close_notify boundary (RFC 9147: ignore app data with larger epoch/seq).
    * Not mere receive-order — UDP may reorder.
    */
-  protected peerCloseBoundary?: { epoch: number; sequenceNumber: number };
+  peerCloseBoundary?: { epoch: number; sequenceNumber: number };
   /** We have sent close_notify (or fatal alert) on the write path. */
-  protected localCloseNotifySent = false;
+  localCloseNotifySent = false;
   /**
    * Source fragments for pending retransmittable flight (pre-chunk) so
    * retransmit can re-fragment under a smaller MTU.
    */
-  protected pendingFlightSource?: {
+  pendingFlightSource?: {
     fragments: FragmentedHandshake[];
     epoch: number;
   };
   /** Serialize datagram handling to avoid races on keys / message_seq inbox. */
-  protected rxChain: Promise<void> = Promise.resolve();
+  rxChain: Promise<void> = Promise.resolve();
 
   constructor(
-    protected readonly options: Dtls13Options,
+    readonly options: Dtls13Options,
     sessionType: SessionTypes,
   ) {
     this.role = sessionType === SessionType.CLIENT ? "client" : "server";
@@ -459,7 +455,7 @@ export abstract class Dtls13ConnectionBase {
    * Uses a dedicated timer (not carrier.schedule) so handshake-complete
    * cancelAllTimers() does not stop TTL expiry after connect.
    */
-  protected scheduleEpochPrune(): void {
+  scheduleEpochPrune(): void {
     this.cancelEpochPrune?.();
     if (this.closed) return;
     const id = setInterval(() => {
@@ -479,21 +475,18 @@ export abstract class Dtls13ConnectionBase {
     };
   }
 
-  protected installEpoch(epoch: number, ep: EpochProtection): void {
+  installEpoch(epoch: number, ep: EpochProtection): void {
     this.epochs.set(epoch, ep);
     this.epochInstalledAt.set(epoch, Date.now());
     this.pruneStaleEpochs();
   }
 
-  protected handshakeRecordKey(epoch: number, sequenceNumber: number): string {
+  handshakeRecordKey(epoch: number, sequenceNumber: number): string {
     return `${epoch}:${sequenceNumber}`;
   }
 
   /** Remember a successfully accepted handshake record for future re-ACK on replay. */
-  protected markHandshakeRecordAccepted(
-    epoch: number,
-    sequenceNumber: number,
-  ): void {
+  markHandshakeRecordAccepted(epoch: number, sequenceNumber: number): void {
     const key = this.handshakeRecordKey(epoch, sequenceNumber);
     this.acceptedHandshakeRecords.add(key);
     // Bound memory: drop oldest-ish by re-creating from recent received list
@@ -505,16 +498,13 @@ export abstract class Dtls13ConnectionBase {
     }
   }
 
-  protected wasHandshakeRecordAccepted(
-    epoch: number,
-    sequenceNumber: number,
-  ): boolean {
+  wasHandshakeRecordAccepted(epoch: number, sequenceNumber: number): boolean {
     return this.acceptedHandshakeRecords.has(
       this.handshakeRecordKey(epoch, sequenceNumber),
     );
   }
 
-  protected zeroizeTrafficKeys(keys?: {
+  zeroizeTrafficKeys(keys?: {
     key: Buffer;
     iv: Buffer;
     snKey: Buffer;
@@ -530,7 +520,7 @@ export abstract class Dtls13ConnectionBase {
    * Handshake epochs 0/2 and initial app epoch 3 are retained until connected
    * (or still active); after that they follow TTL like KeyUpdate epochs.
    */
-  protected pruneStaleEpochs(): void {
+  pruneStaleEpochs(): void {
     const now = Date.now();
     const active = new Set([this.readEpoch, this.writeEpoch]);
     if (this.pendingKeyUpdateWrite) {
@@ -560,7 +550,7 @@ export abstract class Dtls13ConnectionBase {
     }
   }
 
-  protected dropEpoch(e: number): void {
+  dropEpoch(e: number): void {
     const ep = this.epochs.get(e);
     if (ep) {
       this.zeroizeTrafficKeys(ep.readKeys);
@@ -576,7 +566,7 @@ export abstract class Dtls13ConnectionBase {
    * Last UDP peer from transport (UdpTransport.rinfo), used when inject/onData
    * omits the address so cookie binding still sees a stable peerKey.
    */
-  protected peerFromTransport():
+  peerFromTransport():
     | [string, number]
     | { address?: string; port?: number }
     | undefined {
@@ -590,7 +580,7 @@ export abstract class Dtls13ConnectionBase {
     return r;
   }
 
-  protected addrToTuple(
+  addrToTuple(
     addr?: [string, number] | { address?: string; port?: number } | string,
   ): [string, number] | undefined {
     if (!addr) return undefined;
@@ -612,7 +602,7 @@ export abstract class Dtls13ConnectionBase {
    * Bind association to the first *accepted* remote 5-tuple (provisional until pin).
    * Subsequent different sources are dropped (Epic 1: no CID / migration).
    */
-  protected lockProvisionalPeer(key: string, addr?: [string, number]): void {
+  lockProvisionalPeer(key: string, addr?: [string, number]): void {
     if (!key || key === "unknown") return;
     if (this.provisionalPeerKey || this.pinnedPeerKey) return;
     this.provisionalPeerKey = key;
@@ -626,7 +616,7 @@ export abstract class Dtls13ConnectionBase {
    * already trusted via ice/none) — never on the first cookie-less ClientHello.
    * Client: destination is pinned at connect(); this only accounts anti-amp RX.
    */
-  protected acceptAssociationPeer(): void {
+  acceptAssociationPeer(): void {
     const key =
       this.currentPeerKey && this.currentPeerKey !== "unknown"
         ? this.currentPeerKey
@@ -657,7 +647,7 @@ export abstract class Dtls13ConnectionBase {
    * The budget owner peerKey is recorded so TX/retransmit cannot charge
    * another source's RX against a different destination.
    */
-  protected accountCurrentDatagramForAntiAmp(): void {
+  accountCurrentDatagramForAntiAmp(): void {
     if (this.currentDatagramCounted) return;
     if (this.currentDatagramBytes <= 0) return;
     if (!this.provisionalPeerKey && !this.pinnedPeerKey) {
@@ -679,7 +669,7 @@ export abstract class Dtls13ConnectionBase {
    * semantic errors must not fail()/close the whole association (spoofed-source
    * DoS). ICE/none keep prompt failure.
    */
-  protected isPreCookieUnvalidatedServer(): boolean {
+  isPreCookieUnvalidatedServer(): boolean {
     return (
       this.role === "server" &&
       this.addressValidation === "dtls-cookie" &&
@@ -691,7 +681,7 @@ export abstract class Dtls13ConnectionBase {
    * Pre-cookie: outbound bytes may only use budget owned by the destination.
    * Prevents "TX to A, budget from B" after a second source overwrites counters.
    */
-  protected antiAmpAllowsSendTo(dest?: [string, number] | undefined): boolean {
+  antiAmpAllowsSendTo(dest?: [string, number] | undefined): boolean {
     if (
       this.role !== "server" ||
       this.addressValidated ||
@@ -708,7 +698,7 @@ export abstract class Dtls13ConnectionBase {
     return destKey === this.antiAmpBudgetPeerKey;
   }
 
-  protected prunePreCookieAttempts(now = Date.now()): void {
+  prunePreCookieAttempts(now = Date.now()): void {
     for (const [k, v] of this.preCookieAttempts) {
       if (now - v.createdAt > PRE_COOKIE_ATTEMPT_TTL_MS) {
         this.preCookieAttempts.delete(k);
@@ -729,7 +719,7 @@ export abstract class Dtls13ConnectionBase {
     }
   }
 
-  protected storePreCookieAttempt(
+  storePreCookieAttempt(
     peerKey: string,
     attempt: {
       ch1Body: Buffer;
@@ -748,7 +738,7 @@ export abstract class Dtls13ConnectionBase {
     this.prunePreCookieAttempts();
   }
 
-  protected getPreCookieAttempt(peerKey: string):
+  getPreCookieAttempt(peerKey: string):
     | {
         ch1Body: Buffer;
         ch1MessageHash: Buffer;
@@ -760,7 +750,7 @@ export abstract class Dtls13ConnectionBase {
     return this.preCookieAttempts.get(peerKey);
   }
 
-  protected clearPreCookieAttempts(): void {
+  clearPreCookieAttempts(): void {
     this.preCookieAttempts.clear();
   }
 
@@ -774,7 +764,7 @@ export abstract class Dtls13ConnectionBase {
    *   transport path still share the single authenticated peer)
    * - datagram-address: require matching peer key; addressless after pin drops
    */
-  protected allowsAssociationPeer(peerKey?: string): boolean {
+  allowsAssociationPeer(peerKey?: string): boolean {
     const expected = this.expectedPeerKey();
     if (!expected) return true;
     if (this.peerIdentityMode === "authenticated-single-peer") return true;
@@ -787,14 +777,14 @@ export abstract class Dtls13ConnectionBase {
    * 5-tuple TX pin. ICE / authenticated-single-peer is associated even when
    * the transport never exposes an address (WebRTC IceTransport).
    */
-  protected hasAssociationPeerAuth(): boolean {
+  hasAssociationPeerAuth(): boolean {
     return associationHasPeerAuth({
       hasPinnedPeer: !!this.expectedPeerKey(),
       identityMode: this.peerIdentityMode,
     });
   }
 
-  protected pinPeer(key: string, addr?: [string, number]): void {
+  pinPeer(key: string, addr?: [string, number]): void {
     if (!key || key === "unknown") return;
     this.pinnedPeerKey = key;
     this.provisionalPeerKey = key;
@@ -804,14 +794,14 @@ export abstract class Dtls13ConnectionBase {
   }
 
   /** Expected peer key for inbound demux (pinned preferred, else provisional). */
-  protected expectedPeerKey(): string | undefined {
+  expectedPeerKey(): string | undefined {
     return this.pinnedPeerKey ?? this.provisionalPeerKey;
   }
 
   /**
    * Peer key for cookie binding during the current datagram (before or after promote).
    */
-  protected associationPeerKey(): string {
+  associationPeerKey(): string {
     return (
       this.pinnedPeerKey ??
       this.provisionalPeerKey ??
@@ -822,12 +812,12 @@ export abstract class Dtls13ConnectionBase {
   }
 
   /** Address for all outbound datagrams — never depend on last UDP rinfo alone. */
-  protected getSendAddr(): [string, number] | undefined {
+  getSendAddr(): [string, number] | undefined {
     // Prefer pinned/provisional peerAddr; pending HRR reply-to; current source
     return this.peerAddr ?? this.pendingFlightReplyTo ?? this.currentPeerAddr;
   }
 
-  protected clearPendingFlight() {
+  clearPendingFlight() {
     this.cancelRetransmit?.();
     this.cancelRetransmit = undefined;
     this.pendingFlight = [];
@@ -851,7 +841,7 @@ export abstract class Dtls13ConnectionBase {
    * timers so a stalled close_notify send cannot hold association resources.
    * Does not fire onClose or close the carrier (that is teardownAssociation).
    */
-  protected beginGracefulClose(): void {
+  beginGracefulClose(): void {
     if (this.closed || this.closing) {
       this.connected = false;
       // Idempotent: still ensure work is stopped if re-entered mid-teardown.
@@ -876,7 +866,7 @@ export abstract class Dtls13ConnectionBase {
     return this.closed || this.closing;
   }
 
-  protected teardownAssociation(opts?: { closeTransport?: boolean }): void {
+  teardownAssociation(opts?: { closeTransport?: boolean }): void {
     if (this.closed) return;
     // Ensure onClosing ran even if teardown is called without beginGracefulClose.
     this.beginGracefulClose();
@@ -898,7 +888,7 @@ export abstract class Dtls13ConnectionBase {
    * Peer close_notify half-close entry (overridden in Dtls13Connection to reply
    * with close_notify before teardown).
    */
-  protected onPeerCloseNotify(epoch: number, sequenceNumber: number): void {
+  onPeerCloseNotify(epoch: number, sequenceNumber: number): void {
     this.peerCloseBoundary = { epoch, sequenceNumber };
     this.clearPendingFlight();
     if (this.closed) return;
@@ -910,11 +900,11 @@ export abstract class Dtls13ConnectionBase {
   }
 
   /** Drop pending remote-flight ACK record numbers. */
-  protected clearAckAccumulator() {
+  clearAckAccumulator() {
     this.receivedRecordNumbers = [];
   }
 
-  protected applyPendingKeyUpdateWrite() {
+  applyPendingKeyUpdateWrite() {
     if (!this.pendingKeyUpdateWrite) return;
     const { nextWriteEpoch, nextTrafficSecret } = this.pendingKeyUpdateWrite;
     if (this.role === "client") {
@@ -928,7 +918,7 @@ export abstract class Dtls13ConnectionBase {
     log("KeyUpdate write epoch advanced after ACK", nextWriteEpoch);
   }
 
-  protected markConnected(opts?: { keepPendingFlight?: boolean }) {
+  markConnected(opts?: { keepPendingFlight?: boolean }) {
     // close/fatal mid-Finished must not resurrect connected after terminal.
     if (this.closed || this.closing) {
       log("skip markConnected: association already closing/closed");
@@ -954,7 +944,7 @@ export abstract class Dtls13ConnectionBase {
     this.earlyAppDataBytes = 0;
   }
 
-  protected clearEarlyAppData() {
+  clearEarlyAppData() {
     this.earlyAppData = [];
     this.earlyAppDataBytes = 0;
   }
@@ -963,7 +953,7 @@ export abstract class Dtls13ConnectionBase {
    * Dual HVR: park for parallel 1.2 cookie probe without killing CH-A retransmit.
    * Returns true when the error was handled as a soft dual probe (not a hard fail).
    */
-  protected tryParkDualProbe(err: Error): boolean {
+  tryParkDualProbe(err: Error): boolean {
     if (this.role !== "client" || this.closed || this.dualProbeParked) {
       return false;
     }
@@ -1007,7 +997,7 @@ export abstract class Dtls13ConnectionBase {
     }
   }
 
-  protected fail(err: Error) {
+  fail(err: Error) {
     if (this.closed) return;
     // Dual HVR with 1.2 fallback offered: park rather than tear down CH-A.
     // Association must NOT treat this as fatal (filterError + dual probing).

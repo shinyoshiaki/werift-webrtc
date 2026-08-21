@@ -1,13 +1,10 @@
 /**
  * DTLS 1.3 endpoint (client or server) over direct datagrams.
  *
- * Class hierarchy (read bottom-up against index.ts Figure 3):
- *   Dtls13Connection          — public API (connect / send / KeyUpdate / close)
- *     └─ HandshakeFlights     — composed from engine/v1_3/flight/{client,server}/
- *         └─ RecordRx         — inbound records, reassembly, ACK/alert
- *             └─ FlightTx     — outbound flights, retransmit, anti-amp
- *                 └─ Base     — session state, epochs, fail lifecycle
+ * Single inheritance only:
+ *   Dtls13Connection → Dtls13ConnectionBase (session state + lifecycle)
  *
+ * Flight / record I/O live as functions with `this: Dtls13Host` (see host.ts).
  * Mutable crypto state stays in this stack; isolated from the DTLS 1.2 engine.
  */
 import type { NamedCurveAlgorithms } from "../../cipher/const";
@@ -23,7 +20,20 @@ import {
   encryptRecord,
   serializePlaintextRecord,
 } from "../../record/v1_3/record";
-import { Dtls13HandshakeFlights } from "./handshake-flights";
+import { Dtls13ConnectionBase } from "./connection-base";
+import * as flightTx from "./flight-tx";
+import * as certificate from "./flight/certificate";
+import * as clientFlight1 from "./flight/client/flight1";
+import * as clientFlight4 from "./flight/client/flight4";
+import * as clientFlight5 from "./flight/client/flight5";
+import * as dispatch from "./flight/dispatch";
+import * as finished from "./flight/finished";
+import * as postHs from "./flight/post-hs";
+import * as serverFlight2 from "./flight/server/flight2";
+import * as serverFlight4 from "./flight/server/flight4";
+import * as serverFlight5 from "./flight/server/flight5";
+import type { Dtls13HostMethods } from "./host";
+import * as recordRx from "./record-rx";
 import { HandshakeTranscript } from "./transcript";
 import type { Dtls13Options } from "./types";
 
@@ -45,10 +55,68 @@ export type DualResumeClientHello = {
   group: NamedCurveAlgorithms;
 };
 
-export class Dtls13Connection extends Dtls13HandshakeFlights {
+export class Dtls13Connection
+  extends Dtls13ConnectionBase
+  implements Dtls13HostMethods
+{
   constructor(options: Dtls13Options, sessionType: SessionTypes) {
     super(options, sessionType);
   }
+
+  sendHandshakeFlight = flightTx.sendHandshakeFlight;
+  rebuildPendingFlightFromRecords = flightTx.rebuildPendingFlightFromRecords;
+  consumeSendBudget = flightTx.consumeSendBudget;
+  sendWithBudget = flightTx.sendWithBudget;
+  computeRetransmitRtoMs = flightTx.computeRetransmitRtoMs;
+  scheduleRetransmit = flightTx.scheduleRetransmit;
+  doRetransmit = flightTx.doRetransmit;
+  maxAckRecordsForMtu = flightTx.maxAckRecordsForMtu;
+  sendAck = flightTx.sendAck;
+  sendEmptyAck = flightTx.sendEmptyAck;
+  sendFatalAlert = flightTx.sendFatalAlert;
+  alertDescForHandshakeError = flightTx.alertDescForHandshakeError;
+  failAuthenticatedHandshake = flightTx.failAuthenticatedHandshake;
+  sendProtocolVersionAlert = flightTx.sendProtocolVersionAlert;
+  noteHandshakeRecordForAck = flightTx.noteHandshakeRecordForAck;
+  noteReplayForAck = flightTx.noteReplayForAck;
+
+  handleDatagram = recordRx.handleDatagram;
+  handleDatagramAsync = recordRx.handleDatagramAsync;
+  processDatagramRecords = recordRx.processDatagramRecords;
+  finishHandshakeRecordAck = recordRx.finishHandshakeRecordAck;
+  hasProtectedWriteKeys = recordRx.hasProtectedWriteKeys;
+  handleAck = recordRx.handleAck;
+  processHandshakeBytes = recordRx.processHandshakeBytes;
+  enqueueHandshake = recordRx.enqueueHandshake;
+  resolveEpochCandidates = recordRx.resolveEpochCandidates;
+  onPlaintextRecordAsync = recordRx.onPlaintextRecordAsync;
+  onCiphertextRecordAsync = recordRx.onCiphertextRecordAsync;
+  handleAlert = recordRx.handleAlert;
+  isAllowedHandshake = recordRx.isAllowedHandshake;
+  evictExpiredFragments = recordRx.evictExpiredFragments;
+  reassemble = recordRx.reassemble;
+
+  isExpectedHandshakeType = dispatch.isExpectedHandshakeType;
+  dispatchHandshake = dispatch.dispatchHandshake;
+
+  sendClientHello = clientFlight1.sendClientHello;
+  buildClientHelloExtensions = clientFlight1.buildClientHelloExtensions;
+  onServerHello = clientFlight4.onServerHello;
+  onEncryptedExtensions = clientFlight4.onEncryptedExtensions;
+  onCertificateRequest = clientFlight4.onCertificateRequest;
+  onServerFinished = clientFlight5.onServerFinished;
+  onClientHello = serverFlight4.onClientHello;
+  sendServerFlight = serverFlight4.sendServerFlight;
+  sendHelloRetryRequest = serverFlight2.sendHelloRetryRequest;
+  buildHelloRetryRequestBody = serverFlight2.buildHelloRetryRequestBody;
+  validateClientHelloAfterHrr = serverFlight2.validateClientHelloAfterHrr;
+  onClientFinished = serverFlight5.onClientFinished;
+  onCertificate = certificate.onCertificate;
+  onCertificateVerify = certificate.onCertificateVerify;
+  onFinished = finished.onFinished;
+  onKeyUpdate = postHs.onKeyUpdate;
+  keyUpdate = postHs.keyUpdate;
+  nextAppEpoch = postHs.nextAppEpoch;
 
   async connect(): Promise<void> {
     if (this.role !== "client") {
@@ -208,7 +276,7 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
    * then full teardown so public state matches local close() (onClose + !connected).
    * Terminal (onClosing) is synchronous so Public API rejects before notify completes.
    */
-  protected onPeerCloseNotify(epoch: number, sequenceNumber: number): void {
+  onPeerCloseNotify(epoch: number, sequenceNumber: number): void {
     this.peerCloseBoundary = { epoch, sequenceNumber };
     if (this.closed) return;
     // Snapshot whether we still need a reply *before* beginGracefulClose.

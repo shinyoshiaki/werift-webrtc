@@ -111,7 +111,9 @@ export { ProtocolVersionError } from "./version";
  *   Flight 5   client {Finished} → flight/client/flight5.ts / flight/server/flight5.ts
  *   Post-HS    KeyUpdate / ACK → flight/post-hs.ts + flight-tx.ts + record-rx.ts
  *   Wire I/O   records/flights → record-rx.ts (in) / flight-tx.ts (out)
- *   See also engine/v1_3/README.md
+ *   Host       Dtls13Connection extends Dtls13ConnectionBase once;
+ *              flight/record modules are functions (this: Dtls13Host)
+ *   See also engine/v1_3/README.md and engine/v1_3/AGENTS.md
  */
 
 // enum HandshakeType {

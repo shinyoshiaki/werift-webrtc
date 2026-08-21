@@ -32,6 +32,7 @@ If a rule applies only to a specific package or subdirectory, put it in the near
 12. Follow existing patterns: manager-style orchestration in `packages/webrtc`, asynchronous notifications based on the custom `Event` class, and package-local error handling instead of broad catch-and-ignore logic. Use handling.
 13. When changing public API, protocol behavior, examples, or WPT wiring, update the nearest docs or examples that demonstrate the behavior.
 14. Keep upstream-WPT-only strict behavior inside `packages/webrtc/tools/wpt-runner/*` wrappers. Do not leak stricter WPT shims into the default `packages/webrtc/src` API when that would regress existing werift convenience behavior.
+15. DTLS 1.3 engine (`packages/dtls/src/engine/v1_3`): at most one `extends` (`Dtls13Connection` → `Dtls13ConnectionBase`). Flight and record logic are functions with `this: Dtls13Host`, not mixin class stacks. See that directory's `AGENTS.md`.
 
 ## Don't
 
@@ -41,6 +42,7 @@ If a rule applies only to a specific package or subdirectory, put it in the near
 * Do not let package guides drift in structure. Differences should mostly be limited to responsibilities, validation, references, and cross-package cautions.
 * Do not duplicate Arrange-phase setup across multiple test files when it can be safely shared through common utilities.
 * Do not leave Act / Assert phases without comments when the operation sequence or expectation is not obvious from a quick read.
+* Do not add multi-level class inheritance in `packages/dtls/src/engine/v1_3` (see that directory's `AGENTS.md`).
 
 ## Commands
 
