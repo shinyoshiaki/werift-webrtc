@@ -12,6 +12,7 @@ import { EllipticCurves } from "../../handshake/extensions/ellipticCurves";
 import { ExtendedMasterSecret } from "../../handshake/extensions/extendedMasterSecret";
 import { RenegotiationIndication } from "../../handshake/extensions/renegotiationIndication";
 import { Signature } from "../../handshake/extensions/signature";
+import { assertUniqueExtensions } from "../../handshake/extensions/unique";
 import { UseSRTP } from "../../handshake/extensions/useSrtp";
 import type { ClientHello } from "../../handshake/message/client/hello";
 import { DtlsRandom } from "../../handshake/random";
@@ -42,6 +43,8 @@ export function validateAndNegotiateClientHello(
   dtls: DtlsContext,
   cipher: CipherContext,
 ): NegotiatedClientHello {
+  assertUniqueExtensions(clientHello.extensions, "ClientHello");
+
   let namedCurve: NamedCurveAlgorithms | undefined;
   let srtpProfile: SrtpProfile | undefined;
   let remoteExtendedMasterSecret = false;

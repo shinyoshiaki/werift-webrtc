@@ -9,6 +9,7 @@ import { KeyShare } from "../../../../handshake/extensions/keyShare";
 import { SupportedVersions } from "../../../../handshake/extensions/supportedVersions";
 import { ClientHello } from "../../../../handshake/message/client/hello";
 import { ServerHello } from "../../../../handshake/message/server/hello";
+import { DtlsRandom } from "../../../../handshake/random";
 import { AlertDesc } from "../../../../record/const";
 import type { Extension } from "../../../../typings/domain";
 import {
@@ -34,10 +35,7 @@ export abstract class Dtls13ServerFlight2 extends Dtls13HandshakeCertificate {
     group: number | undefined,
     cookie: Buffer | undefined,
   ): Buffer {
-    const hrrRandom = {
-      gmt_unix_time: HRR_RANDOM.readUInt32BE(0),
-      random_bytes: HRR_RANDOM.subarray(4),
-    };
+    const hrrRandom = DtlsRandom.deSerialize(HRR_RANDOM);
     const extensions: Extension[] = [
       SupportedVersions.forServer(DTLS_1_3_VERSION).serverExtension,
     ];
@@ -102,10 +100,7 @@ export abstract class Dtls13ServerFlight2 extends Dtls13HandshakeCertificate {
         this.transcript.replaceWithMessageHash(clientHelloBody);
       }
       // Re-serialize HRR with correct message_seq for trusted path
-      const hrrRandom = {
-        gmt_unix_time: HRR_RANDOM.readUInt32BE(0),
-        random_bytes: HRR_RANDOM.subarray(4),
-      };
+      const hrrRandom = DtlsRandom.deSerialize(HRR_RANDOM);
       const extensions: Extension[] = [
         SupportedVersions.forServer(DTLS_1_3_VERSION).serverExtension,
       ];
@@ -141,10 +136,7 @@ export abstract class Dtls13ServerFlight2 extends Dtls13HandshakeCertificate {
     this.messageSeq = 0;
     const hrr = new ServerHello(
       WireVersion.DTLS_1_2,
-      {
-        gmt_unix_time: HRR_RANDOM.readUInt32BE(0),
-        random_bytes: HRR_RANDOM.subarray(4),
-      },
+      DtlsRandom.deSerialize(HRR_RANDOM),
       Buffer.alloc(0),
       CipherSuite.TLS_AES_128_GCM_SHA256_0x1301,
       0,
@@ -195,23 +187,9 @@ export abstract class Dtls13ServerFlight2 extends Dtls13HandshakeCertificate {
       fail("illegal_parameter: ClientHello2 legacy_version differs from CH1");
     }
     // random MUST be identical
-    const r1 = Buffer.concat([
-      (() => {
-        const b = Buffer.alloc(4);
-        b.writeUInt32BE(ch1.random.gmt_unix_time >>> 0, 0);
-        return b;
-      })(),
-      ch1.random.random_bytes,
-    ]);
-    const r2 = Buffer.concat([
-      (() => {
-        const b = Buffer.alloc(4);
-        b.writeUInt32BE(ch2.random.gmt_unix_time >>> 0, 0);
-        return b;
-      })(),
-      ch2.random.random_bytes,
-    ]);
-    if (!r1.equals(r2)) {
+    if (
+      !DtlsRandom.bytes32(ch1.random).equals(DtlsRandom.bytes32(ch2.random))
+    ) {
       fail("illegal_parameter: ClientHello2 random differs from ClientHello1");
     }
     // legacy_session_id

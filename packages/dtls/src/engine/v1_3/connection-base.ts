@@ -42,6 +42,7 @@ import {
   PRE_COOKIE_ATTEMPT_TTL_MS,
   type PeerIdentityMode,
   type Role,
+  associationHasPeerAuth,
   log,
   resolveMaxEarlyAppDataBytes,
   resolveMaxEarlyAppDataRecords,
@@ -787,8 +788,10 @@ export abstract class Dtls13ConnectionBase {
    * the transport never exposes an address (WebRTC IceTransport).
    */
   protected hasAssociationPeerAuth(): boolean {
-    if (this.expectedPeerKey()) return true;
-    return this.peerIdentityMode === "authenticated-single-peer";
+    return associationHasPeerAuth({
+      hasPinnedPeer: !!this.expectedPeerKey(),
+      identityMode: this.peerIdentityMode,
+    });
   }
 
   protected pinPeer(key: string, addr?: [string, number]): void {

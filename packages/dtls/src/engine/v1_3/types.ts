@@ -7,30 +7,20 @@ import type { NamedCurveAlgorithms } from "../../cipher/const";
 import type { Transport } from "../../imports/common";
 import { debug } from "../../imports/common";
 import type { SrtpProfile } from "../../imports/rtp";
+import type { AddressValidationMode, PeerIdentityMode } from "../../peer";
 import type { DtlsVersion } from "../../version";
 
 /** Anti-amplification: server may send at most 3× received before address validated. */
 export const ANTI_AMPLIFICATION_FACTOR = 3;
 
-/**
- * Association retransmission (RFC 9147 §5.8.2).
- *
- * - RTT unknown: INITIAL_RTO_MS (1000). DTLS-SRTP profile may use
- *   DTLS_SRTP_INITIAL_RTO_MS (400) when use_srtp is configured.
- * - RTT known (carrier.updateRtt / ICE): base = RTO_FACTOR × RTT (1.5).
- * - Each retransmit doubles; clamp to [MIN_RTO_MS, MAX_RTO_MS].
- */
-export const RTO_FACTOR = 1.5;
-/** RFC 9147 recommended initial RTO when RTT is unknown. */
-export const INITIAL_RTO_MS = 1000;
-/** RFC 9147 recommended initial RTO for the DTLS-SRTP profile. */
-export const DTLS_SRTP_INITIAL_RTO_MS = 400;
-export const MIN_RTO_MS = 100;
-/**
- * Soft upper bound on a single RTO. RFC does not mandate a max; 60s bounds
- * pathological backoff without the previous 5s generic-DTLS clamp.
- */
-export const MAX_RTO_MS = 60_000;
+export {
+  DTLS_SRTP_INITIAL_RTO_MS,
+  INITIAL_RTO_MS,
+  MAX_RTO_MS,
+  MIN_RTO_MS,
+  RTO_FACTOR,
+  computeDtlsRtoMs,
+} from "../../retransmission";
 
 /**
  * Pre-cookie HRR attempt table (per source 5-tuple). Bounded so spoofed CH
@@ -131,36 +121,11 @@ export function resolveMaxEarlyAppDataBytes(value?: number): number {
 
 export const log = debug("werift-dtls : packages/dtls/src/engine/v1_3");
 
-export type AddressValidationMode =
-  | "dtls-cookie"
-  | "ice-authenticated"
-  | "none";
-
-/**
- * How the association identifies the remote peer for TX/RX lifecycle.
- * Shared by DTLS 1.2 association (Options) and DTLS 1.3 engine.
- *
- * - `"datagram-address"` — UDP 5-tuple pin after cookie/connect
- * - `"authenticated-single-peer"` — transport path is the identity (ICE);
- *   addressless and non-matching 5-tuples do not drop authenticated RX
- */
-export type PeerIdentityMode = "datagram-address" | "authenticated-single-peer";
-
-/** Resolve peer-identity policy (association + DTLS 1.3 engine share this). */
-export function resolvePeerIdentityMode(opts: {
-  peerIdentityMode?: PeerIdentityMode;
-  addressValidation?: AddressValidationMode;
-  transport?: { peerAuthenticated?: boolean };
-}): PeerIdentityMode {
-  if (opts.peerIdentityMode) return opts.peerIdentityMode;
-  if (opts.transport?.peerAuthenticated === true) {
-    return "authenticated-single-peer";
-  }
-  if (opts.addressValidation === "ice-authenticated") {
-    return "authenticated-single-peer";
-  }
-  return "datagram-address";
-}
+export type {
+  AddressValidationMode,
+  PeerIdentityMode,
+} from "../../peer";
+export { associationHasPeerAuth, resolvePeerIdentityMode } from "../../peer";
 
 export interface Dtls13Options {
   transport: Transport;

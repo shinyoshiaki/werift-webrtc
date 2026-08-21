@@ -7,6 +7,7 @@ import {
   encryptRecord,
   serializePlaintextRecord,
 } from "../../record/v1_3/record";
+import { computeDtlsRtoMs } from "../../retransmission";
 import { ProtocolVersionError } from "../../version";
 import { Dtls13ConnectionBase } from "./connection-base";
 import {
@@ -14,12 +15,7 @@ import {
   ACK_PLAINTEXT_OVERHEAD,
   ACK_RECORD_NUMBER_BYTES,
   ANTI_AMPLIFICATION_FACTOR,
-  DTLS_SRTP_INITIAL_RTO_MS,
-  INITIAL_RTO_MS,
   MAX_ACK_RECORD_NUMBERS,
-  MAX_RTO_MS,
-  MIN_RTO_MS,
-  RTO_FACTOR,
   log,
 } from "./types";
 
@@ -326,21 +322,13 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
    * carrier.updateRtt (Epic 2).
    */
   protected computeRetransmitRtoMs(): number {
-    const rtt = this.carrier.getRtt();
-    let base: number;
-    if (rtt > 0) {
-      // RFC 9147: when external RTT is available, recommend 1.5 × RTT
-      base = Math.round(rtt * RTO_FACTOR);
-    } else {
-      // RTT unknown — profile initial RTO (SRTP vs generic DTLS)
-      base =
+    return computeDtlsRtoMs({
+      rttMs: this.carrier.getRtt(),
+      retransmitCount: this.retransmitCount,
+      useSrtpProfile: !!(
         this.options.srtpProfiles && this.options.srtpProfiles.length > 0
-          ? DTLS_SRTP_INITIAL_RTO_MS
-          : INITIAL_RTO_MS;
-    }
-    base = Math.min(MAX_RTO_MS, Math.max(MIN_RTO_MS, base));
-    const rto = Math.round(base * 2 ** this.retransmitCount);
-    return Math.min(MAX_RTO_MS, rto);
+      ),
+    });
   }
 
   /**

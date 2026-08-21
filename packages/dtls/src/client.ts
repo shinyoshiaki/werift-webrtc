@@ -843,9 +843,7 @@ export class DtlsClient extends DtlsSocket {
 
   /** 32-byte ServerHello.random for DOWNGRD checks. */
   private serverHelloRandom32(sh: ServerHello): Buffer {
-    const b = Buffer.alloc(4);
-    b.writeUInt32BE(sh.random.gmt_unix_time >>> 0, 0);
-    return Buffer.concat([b, sh.random.random_bytes]);
+    return DtlsRandom.bytes32(sh.random);
   }
 
   /**

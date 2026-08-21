@@ -76,15 +76,7 @@ export abstract class Dtls13ClientFlight4 extends Dtls13ClientFlight1 {
     }
 
     // Detect HRR by random
-    const randomBuf = Buffer.concat([
-      (() => {
-        const b = Buffer.alloc(4);
-        b.writeUInt32BE(sh.random.gmt_unix_time >>> 0, 0);
-        return b;
-      })(),
-      sh.random.random_bytes,
-    ]);
-    const isHrr = randomBuf.equals(HRR_RANDOM);
+    const isHrr = DtlsRandom.bytes32(sh.random).equals(HRR_RANDOM);
 
     // Extension allowlist (PSK not supported)
     const allowed = isHrr ? HRR_ALLOWED_EXTS : SERVER_HELLO_ALLOWED_EXTS;

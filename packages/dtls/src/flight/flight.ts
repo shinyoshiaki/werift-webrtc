@@ -118,6 +118,9 @@ export abstract class Flight {
       }
 
       // Cancelable via DtlsContext.cancelFlightTimers (association hard-close).
+      // Linear 0.5s, 1s, 1.5s… (existing 1.2 schedule). RFC doubling is
+      // computeDtlsRtoMs in DTLS 1.3 flight-tx — aligning 1.2 onto that timer
+      // collided dual-stack CH-A retransmit with the cookie ClientHello.
       await this.dtls.flightSleep(1000 * ((retransmitCount + 1) / 2));
 
       if (this.dtls.fatalError) {

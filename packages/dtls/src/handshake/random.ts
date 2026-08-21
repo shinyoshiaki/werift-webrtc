@@ -33,11 +33,19 @@ export class DtlsRandom {
   }
 
   /** Full 32-byte Random (gmt_unix_time || random_bytes). */
-  toBuffer32(): Buffer {
+  static bytes32(random: {
+    gmt_unix_time: number;
+    random_bytes: Buffer;
+  }): Buffer {
     const b = Buffer.alloc(32);
-    b.writeUInt32BE(this.gmt_unix_time >>> 0, 0);
-    this.random_bytes.copy(b, 4);
+    b.writeUInt32BE(random.gmt_unix_time >>> 0, 0);
+    random.random_bytes.copy(b, 4);
     return b;
+  }
+
+  /** Full 32-byte Random (gmt_unix_time || random_bytes). */
+  toBuffer32(): Buffer {
+    return DtlsRandom.bytes32(this);
   }
 
   /**

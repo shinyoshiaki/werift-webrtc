@@ -9,6 +9,7 @@ import {
   selectSignatureScheme,
   signCertificateVerify,
 } from "../../../../cipher/tls13/signature";
+import { SrtpContext } from "../../../../context/srtp";
 import { HandshakeType } from "../../../../handshake/const";
 import {
   CookieExtension,
@@ -431,8 +432,9 @@ export abstract class Dtls13ServerFlight4 extends Dtls13ServerFlight2 {
       // Store client MKI for EE response echo check
       this.clientOfferedSrtpMki = Buffer.from(use.mki ?? Buffer.alloc(0));
       if (this.options.srtpProfiles?.length) {
-        const match = use.profiles.find((p) =>
-          this.options.srtpProfiles!.includes(p as SrtpProfile),
+        const match = SrtpContext.findMatchingSRTPProfile(
+          use.profiles as SrtpProfile[],
+          this.options.srtpProfiles,
         );
         if (match !== undefined) {
           this.negotiatedSrtpProfile = match;

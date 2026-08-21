@@ -2,6 +2,8 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import type { Extension } from "../../typings/domain";
 import { HandshakeType } from "../const";
 import { ClientHello } from "../message/client/hello";
+import { DtlsRandom } from "../random";
+import { EXT_EARLY_DATA, EXT_PADDING } from "./ids";
 
 /** TLS 1.3 cookie extension type = 44 (RFC 8446) */
 export const COOKIE_EXTENSION_TYPE = 44;
@@ -26,8 +28,6 @@ export const ADDRESS_COOKIE_CLOCK_SKEW_SEC = 5;
 export const ADDRESS_COOKIE_LENGTH = 1 + 16 + 32 + 32 + 1 + 2 + 4 + 16; // 104
 
 /** Extension types stripped when hashing HRR-immutable ClientHello fields. */
-const EXT_PADDING = 21;
-const EXT_EARLY_DATA = 42;
 const EXT_COOKIE = COOKIE_EXTENSION_TYPE;
 const EXT_KEY_SHARE = 51;
 
@@ -90,10 +90,7 @@ export function clientHelloImmutableFieldsHash(
 
   parts.push(Buffer.from([ch.clientVersion.major, ch.clientVersion.minor]));
 
-  const random32 = Buffer.alloc(32);
-  random32.writeUInt32BE(ch.random.gmt_unix_time >>> 0, 0);
-  ch.random.random_bytes.copy(random32, 4);
-  parts.push(random32);
+  parts.push(DtlsRandom.bytes32(ch.random));
 
   parts.push(Buffer.from([ch.sessionId.length]));
   parts.push(ch.sessionId);

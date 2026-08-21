@@ -17,10 +17,6 @@ import { DtlsContext } from "./context/dtls";
 import { SrtpContext } from "./context/srtp";
 import { TransportContext } from "./context/transport";
 import type { Dtls13Connection } from "./engine/v1_3/connection";
-import {
-  type PeerIdentityMode,
-  resolvePeerIdentityMode,
-} from "./engine/v1_3/types";
 import { peerKeyFromAddr } from "./handshake/extensions/cookie";
 import { EllipticCurves } from "./handshake/extensions/ellipticCurves";
 import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecret";
@@ -41,8 +37,15 @@ import {
 } from "./version";
 
 import type { DtlsHandshakeCarrier } from "./carrier/types";
+import {
+  type PeerIdentityMode,
+  associationHasPeerAuth,
+  normalizeLoopbackHost,
+  normalizePeerTuple,
+  resolvePeerIdentityMode,
+} from "./peer";
 
-export type { PeerIdentityMode } from "./engine/v1_3/types";
+export type { PeerIdentityMode } from "./peer";
 
 const log = debug("werift-dtls : packages/dtls/src/socket.ts : log");
 const err = debug("werift-dtls : packages/dtls/src/socket.ts : err");
@@ -152,9 +155,7 @@ export class DtlsSocket {
 
   /** Normalize host so 0.0.0.0 / :: match loopback pin keys used by Flight. */
   private normalizePeerHost(host: string): string {
-    if (host === "0.0.0.0") return "127.0.0.1";
-    if (host === "::" || host === "[::]") return "::1";
-    return host;
+    return normalizeLoopbackHost(host);
   }
 
   /**
@@ -248,8 +249,10 @@ export class DtlsSocket {
    * but either is sufficient for association-lifecycle alert decisions.
    */
   protected hasAssociationPeerAuth(): boolean {
-    if (this.transport.pinnedPeer) return true;
-    return this.isAuthenticatedSinglePeerTransport();
+    return associationHasPeerAuth({
+      hasPinnedPeer: !!this.transport.pinnedPeer,
+      identityMode: this.peerIdentityMode,
+    });
   }
 
   /** Restore transport.rinfo to pin so spoof sources do not stick for later TX fallbacks. */
@@ -577,13 +580,7 @@ export class DtlsSocket {
   ): void {
     if (!addr || addr[0] == null || addr[1] == null) return;
     if (mode === "set-if-empty" && this.transport.pinnedPeer) return;
-    const host =
-      addr[0] === "0.0.0.0"
-        ? "127.0.0.1"
-        : addr[0] === "::" || addr[0] === "[::]"
-          ? "::1"
-          : addr[0];
-    this.transport.pinnedPeer = [host, addr[1]];
+    this.transport.pinnedPeer = normalizePeerTuple([addr[0], addr[1]]);
   }
 
   /**

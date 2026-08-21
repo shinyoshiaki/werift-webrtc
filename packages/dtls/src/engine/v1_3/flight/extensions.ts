@@ -1,16 +1,13 @@
 import { CookieExtension } from "../../../handshake/extensions/cookie";
 import { EllipticCurves } from "../../../handshake/extensions/ellipticCurves";
+import { EXT_EARLY_DATA, EXT_PADDING } from "../../../handshake/extensions/ids";
 import { KeyShare } from "../../../handshake/extensions/keyShare";
 import { SignatureAlgorithms } from "../../../handshake/extensions/signatureAlgorithms";
 import { SupportedVersions } from "../../../handshake/extensions/supportedVersions";
 import { UseSRTP } from "../../../handshake/extensions/useSrtp";
-import { AlertDesc } from "../../../record/const";
-import { DtlsProtocolError } from "../../../version";
 
-/** TLS 1.3 extension type padding (RFC 7685) — may change after HRR. */
-export const EXT_PADDING = 21;
-/** TLS 1.3 early_data — must be removed in ClientHello2 if present in CH1. */
-export const EXT_EARLY_DATA = 42;
+export { EXT_EARLY_DATA, EXT_PADDING } from "../../../handshake/extensions/ids";
+export { assertUniqueExtensions } from "../../../handshake/extensions/unique";
 
 /** ServerHello (final) allowed extensions when PSK is not negotiated. */
 export const SERVER_HELLO_ALLOWED_EXTS = new Set([
@@ -42,23 +39,3 @@ export const KNOWN_EXTENSION_TYPES = new Set([
   KeyShare.type, // 51
   EXT_EARLY_DATA, // 42
 ]);
-
-/**
- * RFC 8446: There MUST NOT be more than one extension of the same type
- * in a given extension block.
- */
-export function assertUniqueExtensions(
-  extensions: { type: number }[],
-  context: string,
-): void {
-  const seen = new Set<number>();
-  for (const e of extensions) {
-    if (seen.has(e.type)) {
-      throw new DtlsProtocolError(
-        `illegal_parameter: duplicate extension 0x${e.type.toString(16)} in ${context}`,
-        AlertDesc.IllegalParameter,
-      );
-    }
-    seen.add(e.type);
-  }
-}

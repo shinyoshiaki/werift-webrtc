@@ -17,6 +17,7 @@ import { peerKeyFromAddr } from "../../handshake/extensions/cookie";
 import { ClientHello } from "../../handshake/message/client/hello";
 import { DtlsRandom } from "../../handshake/random";
 import { flushTransportSend } from "../../imports/common";
+import { normalizePeerTuple } from "../../peer";
 import { AlertDesc, ContentType } from "../../record/const";
 import {
   encryptRecord,
@@ -30,10 +31,7 @@ export type { AddressValidationMode, Dtls13Options } from "./types";
 
 /** Map unspecified bind addresses to loopback for client peer pin / TX. */
 function normalizeClientDest(addr: [string, number]): [string, number] {
-  const host = addr[0];
-  if (host === "0.0.0.0") return ["127.0.0.1", addr[1]];
-  if (host === "::" || host === "[::]") return ["::1", addr[1]];
-  return addr;
+  return normalizePeerTuple(addr);
 }
 
 /** Material for dual-cookie-path resume into a fresh 1.3 engine. */
