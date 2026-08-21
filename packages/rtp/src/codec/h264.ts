@@ -3,6 +3,7 @@
 
 import { BitStream, getBit } from "../../../common/src";
 import type { RtpHeader } from "../rtp/rtp";
+import { assertRtpCodecPayloadLength } from "./assertPayload";
 import type { DePacketizerBase } from "./base";
 
 // FU indicator octet
@@ -57,20 +58,12 @@ export class H264RtpPayload implements DePacketizerBase {
 
   static deSerialize(buf: Buffer, fragment?: Buffer) {
     const h264 = new H264RtpPayload();
+    assertRtpCodecPayloadLength(buf, 1, "H264");
 
-    let offset = 0;
-
-    const naluHeader = buf[offset];
+    const naluHeader = buf[0];
     h264.f = getBit(naluHeader, 0);
     h264.nri = getBit(naluHeader, 1, 2);
     h264.nalUnitType = getBit(naluHeader, 3, 5);
-    offset++;
-
-    h264.s = getBit(buf[offset], 0);
-    h264.e = getBit(buf[offset], 1);
-    h264.r = getBit(buf[offset], 2);
-    h264.nalUnitPayloadType = getBit(buf[offset], 3, 5);
-    offset++;
 
     // デフォルトでは packetization-mode=0
     // packetization-mode=0だとSingle NAL Unit Packetしか来ない
@@ -85,8 +78,10 @@ export class H264RtpPayload implements DePacketizerBase {
       let offset = stap_aHeaderSize;
       let result: Buffer = Buffer.alloc(0);
       while (offset < buf.length) {
+        assertRtpCodecPayloadLength(buf, stap_aNALULengthSize, "H264", offset);
         const naluSize = buf.readUInt16BE(offset);
         offset += stap_aNALULengthSize;
+        assertRtpCodecPayloadLength(buf, naluSize, "H264", offset);
 
         result = Buffer.concat([
           result,
@@ -97,21 +92,34 @@ export class H264RtpPayload implements DePacketizerBase {
       h264.payload = result;
     }
     // Fragmentation Units
-    else if (h264.nalUnitType === NalUnitType.fu_a) {
-      if (!fragment) {
-        fragment = Buffer.alloc(0);
-      }
-      const fu = buf.subarray(offset);
-      h264.fragment = Buffer.concat([fragment, fu]);
+    else if (
+      h264.nalUnitType === NalUnitType.fu_a ||
+      h264.nalUnitType === NalUnitType.fu_b
+    ) {
+      assertRtpCodecPayloadLength(buf, 2, "H264");
+      let offset = 1;
+      h264.s = getBit(buf[offset], 0);
+      h264.e = getBit(buf[offset], 1);
+      h264.r = getBit(buf[offset], 2);
+      h264.nalUnitPayloadType = getBit(buf[offset], 3, 5);
+      offset++;
 
-      if (h264.e) {
-        const bitStream = new BitStream(Buffer.alloc(1))
-          .writeBits(1, 0)
-          .writeBits(2, h264.nri)
-          .writeBits(5, h264.nalUnitPayloadType);
-        const nalu = Buffer.concat([bitStream.uint8Array, h264.fragment]);
-        h264.fragment = undefined;
-        h264.payload = this.packaging(nalu);
+      if (h264.nalUnitType === NalUnitType.fu_a) {
+        if (!fragment) {
+          fragment = Buffer.alloc(0);
+        }
+        const fu = buf.subarray(offset);
+        h264.fragment = Buffer.concat([fragment, fu]);
+
+        if (h264.e) {
+          const bitStream = new BitStream(Buffer.alloc(1))
+            .writeBits(1, 0)
+            .writeBits(2, h264.nri)
+            .writeBits(5, h264.nalUnitPayloadType);
+          const nalu = Buffer.concat([bitStream.uint8Array, h264.fragment]);
+          h264.fragment = undefined;
+          h264.payload = this.packaging(nalu);
+        }
       }
     }
 

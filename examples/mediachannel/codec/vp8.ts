@@ -13,7 +13,11 @@ console.log("start");
       setInterval(() => {
         transceiver.receiver.sendRtcpPLI(track.ssrc);
       }, 3000);
-      track.onReceiveRtp.subscribe(async (rtp) => {
+      track.onReceiveRtp.subscribe(async (rtp, _extensions, info) => {
+        // GCC probe padding is padding-only RTP; do not decode.
+        if (info?.type === "padding") {
+          return;
+        }
         const vp8 = Vp8RtpPayload.deSerialize(rtp.payload);
 
         if (vp8.isKeyframe) {

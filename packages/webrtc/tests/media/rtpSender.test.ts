@@ -39,6 +39,28 @@ describe("media/rtpSender", () => {
     expect(spy).toBeCalledTimes(2);
   });
 
+  test("registerTrack does not relay padding-only packets", () => {
+    // Arrange: SFU 的に受信 track を sender へつなぐ
+    const track = new MediaStreamTrack({ kind: "video", remote: true });
+    const dtls = createDtlsTransport();
+    const sender = new RTCRtpSender(track);
+    sender.setDtlsTransport(dtls);
+    const spy = vi.spyOn(sender, "sendRtp");
+    const rtp = createRtpPacket();
+
+    // Act: padding 種別は再送しない
+    track.onReceiveRtp.execute(rtp, undefined, { type: "padding" });
+
+    // Assert
+    expect(spy).not.toHaveBeenCalled();
+
+    // Act: メディアは従来どおり送る
+    track.onReceiveRtp.execute(rtp, undefined, { type: "media" });
+
+    // Assert
+    expect(spy).toBeCalledTimes(1);
+  });
+
   test("replaceTrack", async () => {
     const track1 = new MediaStreamTrack({ kind: "audio", remote: true });
     const dtls = createDtlsTransport();

@@ -77,10 +77,16 @@ export class RedHeader {
   fields: RedHeaderField[] = [];
 
   static deSerialize(buf: Buffer) {
+    if (buf.length < 1) {
+      throw new Error("RED payload truncated: need 1 byte, got 0");
+    }
     let offset = 0;
     const header = new RedHeader();
 
     for (;;) {
+      if (offset >= buf.length) {
+        throw new Error("RED header truncated");
+      }
       const field: RedHeaderField = {} as any;
       header.fields.push(field);
 
@@ -94,6 +100,9 @@ export class RedHeader {
         break;
       }
 
+      if (offset + 3 > buf.length) {
+        throw new Error("RED header truncated");
+      }
       field.timestampOffset = bitStream.readBits(14);
       field.blockLength = bitStream.readBits(10);
 

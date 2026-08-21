@@ -1,5 +1,6 @@
 import { getBit, paddingByte } from "../../../common/src";
 import type { RtpHeader } from "../rtp/rtp";
+import { assertRtpCodecPayloadLength } from "./assertPayload";
 import type { DePacketizerBase } from "./base";
 
 // RFC 7741 - RTP Payload Format for VP8 Video
@@ -59,6 +60,7 @@ export class Vp8RtpPayload implements DePacketizerBase {
     const p = new Vp8RtpPayload();
 
     let offset = 0;
+    assertRtpCodecPayloadLength(buf, 1, "VP8", offset);
 
     p.xBit = getBit(buf[offset], 0);
     p.nBit = getBit(buf[offset], 2);
@@ -67,6 +69,7 @@ export class Vp8RtpPayload implements DePacketizerBase {
     offset++;
 
     if (p.xBit) {
+      assertRtpCodecPayloadLength(buf, 1, "VP8", offset);
       p.iBit = getBit(buf[offset], 0);
       p.lBit = getBit(buf[offset], 1);
       p.tBit = getBit(buf[offset], 2);
@@ -75,8 +78,10 @@ export class Vp8RtpPayload implements DePacketizerBase {
     }
 
     if (p.iBit) {
+      assertRtpCodecPayloadLength(buf, 1, "VP8", offset);
       p.mBit = getBit(buf[offset], 0);
       if (p.mBit) {
+        assertRtpCodecPayloadLength(buf, 2, "VP8", offset);
         const _7 = paddingByte(getBit(buf[offset], 1, 7));
         const _8 = paddingByte(buf[offset + 1]);
         p.pictureId = Number.parseInt(_7 + _8, 2);
@@ -88,6 +93,7 @@ export class Vp8RtpPayload implements DePacketizerBase {
     }
 
     if (p.lBit) {
+      assertRtpCodecPayloadLength(buf, 1, "VP8", offset);
       offset++;
     }
 
@@ -96,12 +102,14 @@ export class Vp8RtpPayload implements DePacketizerBase {
       }
       if (p.kBit) {
       }
+      assertRtpCodecPayloadLength(buf, 1, "VP8", offset);
       offset++;
     }
 
     p.payload = buf.subarray(offset);
 
     if (p.payloadHeaderExist) {
+      assertRtpCodecPayloadLength(buf, 3, "VP8", offset);
       p.size0 = getBit(buf[offset], 0, 3);
       p.hBit = getBit(buf[offset], 3);
       p.ver = getBit(buf[offset], 4, 3);

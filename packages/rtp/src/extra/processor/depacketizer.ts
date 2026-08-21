@@ -6,6 +6,7 @@ import {
   type RtpPacket,
   dePacketizeRtpPackets,
   enumerate,
+  isPaddingOnlyRtpPacket,
   uint16Add,
   uint16Gt,
 } from "../..";
@@ -73,6 +74,13 @@ export class DepacketizeBase
         output.push({ eol: true });
         this.stop();
       }
+      return output;
+    }
+
+    // GCC / RFC 3550 padding-only (probe) must not enter codec depacketize.
+    // Keep sequence continuity so a gap is not mistaken for media loss.
+    if (isPaddingOnlyRtpPacket(input.rtp)) {
+      this.notePaddingOnlySequence(input.rtp);
       return output;
     }
 
@@ -162,6 +170,25 @@ export class DepacketizeBase
     this.rtpBuffer.forEach((b) => b.rtp!.clear());
     this.rtpBuffer = [];
     this.frameFragmentBuffer = undefined;
+  }
+
+  /**
+   * Advance sequence tracking for padding-only packets without buffering them.
+   * Real gaps still break the frame; consecutive padding must not discard it.
+   */
+  private notePaddingOnlySequence(rtp: RtpPacket) {
+    const { sequenceNumber } = rtp.header;
+    if (this.lastSeqNum != undefined) {
+      const expect = uint16Add(this.lastSeqNum, 1);
+      if (uint16Gt(expect, sequenceNumber)) {
+        return;
+      }
+      if (uint16Gt(sequenceNumber, expect)) {
+        this.frameBroken = true;
+        this.clearBuffer();
+      }
+    }
+    this.lastSeqNum = sequenceNumber;
   }
 
   private checkFinalPacket({ rtp, time }: DepacketizerInput): boolean {

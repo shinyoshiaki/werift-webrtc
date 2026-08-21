@@ -1,7 +1,7 @@
 import { setTimeout as wait } from "timers/promises";
 
 import type { RtpPacket } from "../../src/imports/rtp";
-import type { MediaStreamTrack } from "../../src/media/track";
+import { MediaStreamTrack } from "../../src/media/track";
 import { Navigator } from "../../src/nonstandard";
 
 describe("nonstandard/navigator dummy media", () => {
@@ -72,6 +72,38 @@ describe("nonstandard/navigator dummy media", () => {
     // 検証: stop 後は open handle を残さず送出が止まる。
     expect(packets).toHaveLength(packetCountBeforeStop);
     unSubscribe();
+    navigator.mediaDevices.cleanup();
+  });
+
+  test("cloned getUserMedia track forwards extensions and receive info", async () => {
+    // Arrange: 既存ソースを clone する Navigator
+    const source = new MediaStreamTrack({ kind: "audio" });
+    const navigator = new Navigator({ audio: source });
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const [cloned] = stream.getAudioTracks();
+    const rtp = {
+      clone() {
+        return this;
+      },
+      header: { sequenceNumber: 1, timestamp: 0 },
+      payload: Buffer.alloc(0),
+    } as unknown as RtpPacket;
+    let forwarded: { extensions?: unknown; info?: unknown } | undefined;
+    cloned.onReceiveRtp.subscribe((_packet, extensions, info) => {
+      forwarded = { extensions, info };
+    });
+
+    // Act: ソースへ padding 付きで配送する
+    source.onReceiveRtp.execute(rtp, { mid: "0" }, { type: "padding" });
+
+    // Assert: 第 2・3 引数を落とさず、padding では unmute しない
+    expect(forwarded).toEqual({
+      extensions: { mid: "0" },
+      info: { type: "padding" },
+    });
+    expect(cloned.muted).toBe(true);
+
+    cloned.stop();
     navigator.mediaDevices.cleanup();
   });
 });

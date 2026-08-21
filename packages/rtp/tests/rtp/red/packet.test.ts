@@ -29,4 +29,12 @@ describe("Red", () => {
     const enc = dec.serialize();
     expect(enc).toEqual(bin);
   });
+
+  it("empty payload is rejected", () => {
+    // Arrange: padding-only を誤って RED に渡した入力
+    const empty = Buffer.alloc(0);
+
+    // Act / Assert: 偽の PT=0 ブロックを作らず失敗する
+    expect(() => Red.deSerialize(empty)).toThrow(/truncated/i);
+  });
 });

@@ -26,4 +26,22 @@ describe("rtp/rtx", () => {
     expect(restored.header.ssrc).toBe(0x11223344);
     expect(restored.header.payloadType).toBe(96);
   });
+
+  test("unwrap rejects RTX payload shorter than 2 bytes", () => {
+    // Arrange: original seq を載せられない短い RTX
+    const rtx = new RtpPacket(
+      new RtpHeader({ payloadType: 97, sequenceNumber: 1, ssrc: 1 }),
+      Buffer.from([0x01]),
+    );
+
+    // Act / Assert: RangeError ではなく明示的に拒否する
+    expect(() => unwrapRtx(rtx, 96, 0x11223344)).toThrow(/too short/i);
+    expect(() =>
+      unwrapRtx(
+        new RtpPacket(new RtpHeader({ payloadType: 97 }), Buffer.alloc(0)),
+        96,
+        1,
+      ),
+    ).toThrow(/too short/i);
+  });
 });

@@ -16,6 +16,7 @@ import {
   type RtpPacket,
   type TransportWideCCPayload,
   debug,
+  isPaddingOnlyRtpPacket,
   unwrapRtx,
 } from "../imports/rtp";
 import type { PeerConfig } from "../peerConnection";
@@ -43,7 +44,11 @@ import {
   generateStatsId,
   getStatsTimestamp,
 } from "./stats";
-import { MediaStreamTrack } from "./track";
+import {
+  MediaStreamTrack,
+  type RtpReceiveInfo,
+  RtpReceivePacketType,
+} from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/rtpReceiver.ts");
 
@@ -465,7 +470,12 @@ export class RTCRtpReceiver {
       this.setupTWCC(packet.header.ssrc);
     }
 
-    if (codec.name.toLowerCase() === "rtx") {
+    const paddingOnly = isPaddingOnlyRtpPacket(packet);
+    let receiveType: RtpReceivePacketType = paddingOnly
+      ? RtpReceivePacketType.padding
+      : RtpReceivePacketType.media;
+
+    if (!paddingOnly && codec.name.toLowerCase() === "rtx") {
       const originalSsrc = this.ssrcByRtx[packet.header.ssrc];
       const codecParams = codecParametersFromString(codec.parameters ?? "");
       const rtxCodec = this.codecs[codecParams["apt"]];
@@ -473,10 +483,11 @@ export class RTCRtpReceiver {
 
       packet = unwrapRtx(packet, rtxCodec.payloadType, originalSsrc);
       track = this.trackBySSRC[originalSsrc];
+      receiveType = RtpReceivePacketType.retransmission;
     }
 
     let red: Red | undefined;
-    if (codec.name.toLowerCase() === "red") {
+    if (!paddingOnly && codec.name.toLowerCase() === "red") {
       red = Red.deSerialize(packet.payload);
       if (
         !Object.keys(this.codecs).includes(
@@ -492,16 +503,19 @@ export class RTCRtpReceiver {
     }
 
     if (track) {
+      const info: RtpReceiveInfo = { type: receiveType };
       if (red) {
         if (track.kind === "audio") {
           const payloads = this.audioRedHandler.push(red, packet);
-          for (const packet of payloads) {
-            track.onReceiveRtp.execute(packet.clone(), extensions);
+          for (const recovered of payloads) {
+            track.onReceiveRtp.execute(recovered.clone(), extensions, {
+              type: RtpReceivePacketType.media,
+            });
           }
         } else {
         }
       } else {
-        track.onReceiveRtp.execute(packet.clone(), extensions);
+        track.onReceiveRtp.execute(packet.clone(), extensions, info);
       }
     }
 

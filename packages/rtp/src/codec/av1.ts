@@ -2,6 +2,7 @@
 
 import type { RtpHeader } from "..";
 import { BitWriter2, debug, getBit } from "../imports/common";
+import { assertRtpCodecPayloadLength } from "./assertPayload";
 import { leb128encode } from "./leb128";
 
 const log = debug("werift-rtp : packages/rtp/src/codec/av1.ts");
@@ -80,6 +81,7 @@ export class AV1RtpPayload {
 
   static deSerialize = (buf: Buffer) => {
     const p = new AV1RtpPayload();
+    assertRtpCodecPayloadLength(buf, 1, "AV1");
 
     let offset = 0;
 

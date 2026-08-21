@@ -13,7 +13,11 @@ server.on("connection", async (socket) => {
   let index = 0;
   const transceiver = pc.addTransceiver("video", { direction: "recvonly" });
   transceiver.onTrack.subscribe((track) => {
-    track.onReceiveRtp.subscribe((packet) => {
+    track.onReceiveRtp.subscribe((packet, _extensions, info) => {
+      // GCC probe padding is padding-only RTP; do not decode or dump as a frame.
+      if (info?.type === "padding") {
+        return;
+      }
       const vp8 = Vp8RtpPayload.deSerialize(packet.payload);
       console.log(vp8.isKeyframe);
       if (index > 0 && vp8.isKeyframe) {

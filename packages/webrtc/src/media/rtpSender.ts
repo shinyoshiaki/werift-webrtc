@@ -464,9 +464,14 @@ export class RTCRtpSender {
 
     track.id = this.trackId;
 
-    const { unSubscribe } = track.onReceiveRtp.subscribe(async (rtp) => {
-      await this.sendRtp(rtp);
-    });
+    const { unSubscribe } = track.onReceiveRtp.subscribe(
+      async (rtp, _extensions, info) => {
+        if (info?.type === "padding") {
+          return;
+        }
+        await this.sendRtp(rtp);
+      },
+    );
     this.track = track;
     this.disposeTrack = unSubscribe;
 

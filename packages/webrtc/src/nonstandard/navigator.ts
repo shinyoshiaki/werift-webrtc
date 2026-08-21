@@ -102,9 +102,11 @@ export class MediaDevices extends EventTarget {
     sourceTrack: MediaStreamTrack,
   ) {
     const track = new MediaStreamTrack({ kind });
-    const { unSubscribe } = sourceTrack.onReceiveRtp.subscribe((rtp) => {
-      track.onReceiveRtp.execute(rtp.clone());
-    });
+    const { unSubscribe } = sourceTrack.onReceiveRtp.subscribe(
+      (rtp, extensions, info) => {
+        track.onReceiveRtp.execute(rtp.clone(), extensions, info);
+      },
+    );
     this.attachTrackStop(track, () => {
       unSubscribe();
     });
