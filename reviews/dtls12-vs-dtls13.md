@@ -48,6 +48,7 @@ DTLS 1.3 は「1.2 の record に TLS 1.3 handshake を載せたもの」では�
 
 既定は 1.2。1.3 は `protocolVersions` の明示 opt-in。dual は `[V1_3, V1_2]` のみ（DOWNGRD のため）。
 
+<!-- review-bookmark id="bm_1a026a97f5f-0ee62a68" title="1. 概要" -->
 [packages/dtls/src/index.ts:4](review-file:packages/dtls/src/index.ts:4)
 [packages/dtls/src/socket.ts:1008](review-file:packages/dtls/src/socket.ts:1008)
 [packages/dtls/src/engine/v1_3/connection.ts:1](review-file:packages/dtls/src/engine/v1_3/connection.ts:1)
