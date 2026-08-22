@@ -219,6 +219,7 @@ Figure 2（session resume、cookie なし 3 flight）は RFC にあるが、証�
 [packages/dtls/src/engine/v1_3/flight/server/flight2.ts:60](review-file:packages/dtls/src/engine/v1_3/flight/server/flight2.ts:60)
 [packages/dtls/src/engine/v1_3/types.ts:183](review-file:packages/dtls/src/engine/v1_3/types.ts:183)
 
+<!-- review-bookmark id="bm_1a02745a65c-a6dc11e8" title="Flight 2 — HelloRetryRequest*（任意・最大 1 回）" -->
 ### Flight 3 — ClientHello + cookie*
 
 **目的:** HRR の条件を満たした CH を出し、server が Flight 4 を増幅してよい状態にする。`legacy_cookie` は空のまま（cookie は extension）。

@@ -145,6 +145,70 @@ Figure 3 → ファイル（関数名。`handshake-flights.ts` は型の再エ�
 [packages/dtls/src/handshake/const.ts:10](review-file:packages/dtls/src/handshake/const.ts:10)
 [packages/dtls/src/record/const.ts:6](review-file:packages/dtls/src/record/const.ts:6)
 
+### 2.1.1 werift 同士で DTLS 1.3 が有効なときの交渉
+
+双方が 1.3 を offer するとは、`protocolVersions` が **`[V1_3]`**（1.3-only）または **`[V1_3, V1_2]`**（dual、normalize 後は常に 1.3 優先）であること。交差は 1.3。HVR / DOWNGRD / 1.2 Flight には入らない。
+
+起動の差（wire の Figure 3 自体は同じ）:
+
+| Options | Client | Server |
+| --- | --- | --- |
+| `[V1_3]` | 構築時に 1.3 engine。CH の `supported_versions` は `[1.3]` | 構築時に 1.3 engine。UDP は association が所有し engine に注入 |
+| `[V1_3, V1_2]` | 構築時に 1.3 engine。CH は `[1.3, 1.2]` を広告 | 1.2 association で待ち、CH を `selectVersionFromClientHello` → **V1_3** なら engine を起こして CH を再注入 |
+
+`connect()` は 1.3 engine があれば `engine13.connect()` → `sendClientHello`。1.2 `Flight1` は走らない。
+
+[packages/dtls/src/client.ts:143](review-file:packages/dtls/src/client.ts:143)
+[packages/dtls/src/client.ts:1140](review-file:packages/dtls/src/client.ts:1140)
+[packages/dtls/src/engine/v1_3/connection.ts:121](review-file:packages/dtls/src/engine/v1_3/connection.ts:121)
+[packages/dtls/src/server.ts:51](review-file:packages/dtls/src/server.ts:51)
+[packages/dtls/src/server.ts:244](review-diff:packages/dtls/src/server.ts:commit:ab4627de:244)
+
+CH の中身（werift client）: `legacy_version=0xfefd`、`legacy_cookie` 空、cipher **`0x1301` のみ**、`key_share` は既定 **X25519**（次点 P-256）。双方が同じ既定なら group HRR は起きない。
+
+[packages/dtls/src/engine/v1_3/flight/client/flight1.ts:28](review-file:packages/dtls/src/engine/v1_3/flight/client/flight1.ts:28)
+[packages/dtls/src/engine/v1_3/connection-base.ts:390](review-file:packages/dtls/src/engine/v1_3/connection-base.ts:390)
+
+**既定 UDP（`addressValidation` 省略 = `dtls-cookie`）** — RFC Figure 3 の HRR あり経路。self でも cookie を踏む:
+
+```text
+Client (werift)                                      Server (werift)
+  protocolVersions に 1.3                              同左
+  engine13.connect()
+  CH1 (epoch 0, key_share=X25519, cookie ext なし)
+       --------------------------------------------->  onClientHello
+                                                       cookie 無し → HRR のみ（Flight 4 はまだ増幅しない）
+       <---------------------------------------------  HRR { cookie }
+  CH2 ≒ CH1 + cookie ext 44
+       --------------------------------------------->  cookie 検証 → sendServerFlight
+       <---------------------------------------------  SH (epoch 0)
+                                                       {EE, Cert, CV, Finished} (epoch 2)
+  onServerFinished → Flight 5
+  {Finished} (epoch 2)  ※ certificateRequest 時は Cert+CV も
+       --------------------------------------------->  onClientFinished
+       <---------------------------------------------  ACK (record 26)
+  epoch 3 application  <--------------------------->  epoch 3 application
+```
+
+[packages/dtls/src/engine/v1_3/flight/server/flight4.ts:240](review-file:packages/dtls/src/engine/v1_3/flight/server/flight4.ts:240)
+[packages/dtls/src/engine/v1_3/connection-base.ts:401](review-file:packages/dtls/src/engine/v1_3/connection-base.ts:401)
+[packages/dtls/src/socket.ts:1027](review-file:packages/dtls/src/socket.ts:1027)
+
+**cookie を飛ばす経路** — `addressValidation: "none"`（self13 の基本 E2E）または `"ice-authenticated"`。CH1 の直後が Flight 4。HRR / Flight 3 は無い。
+
+```text
+  CH1 ------------------------------------------------>  onClientHello（addressValidated 済み）
+       <---------------------------------------------  SH + {EE … Finished}
+  {Finished} ---------------------------------------->
+       <---------------------------------------------  ACK
+```
+
+[packages/dtls/src/engine/v1_3/connection-base.ts:403](review-file:packages/dtls/src/engine/v1_3/connection-base.ts:403)
+[packages/dtls/tests/e2e/self13.test.ts:17](review-file:packages/dtls/tests/e2e/self13.test.ts:17)
+[packages/dtls/tests/e2e/self13.test.ts:48](review-diff:packages/dtls/tests/e2e/self13.test.ts:commit:ab4627de:48)
+
+この経路で **起きない** こと: HelloVerifyRequest、CCS、SKE/CKE/SHD、1.2 Flight 1–6、DOWNGRD（1.3 を選んでいるため）。dual 双方でも server は CH の `supported_versions` で 1.3 を取るので、HVR park（§2.4）には入らない。
+
 ### 2.2 ClientHello / ServerHello の MUST（RFC 9147）
 
 Server が CH を受けたときの必須検査:
@@ -499,6 +563,8 @@ RFC シーケンスに対応するテスト入口:
 | Errata 5186 message_seq + record_seq 単調増加 / OpenSSL re-HVR | 1.2 HVR wire テスト + OpenSSL `-dtls1_2` |
 | RFC 9147 §5.8.2 RTO | [packages/dtls/tests/handshake/tls13/rto_from_rtt.test.ts:20](review-file:packages/dtls/tests/handshake/tls13/rto_from_rtt.test.ts:20) / [packages/dtls/tests/retransmission.test.ts:11](review-file:packages/dtls/tests/retransmission.test.ts:11) |
 | HKDF / transcript / Finished / exporter vectors | `packages/dtls/tests` の tls13 vector |
+| werift × werift 1.3（`none` で HRR なし） | [packages/dtls/tests/e2e/self13.test.ts:48](review-file:packages/dtls/tests/e2e/self13.test.ts:48) |
+| werift × werift 1.3（既定 `dtls-cookie` HRR） | [packages/dtls/tests/e2e/self13.test.ts:901](review-file:packages/dtls/tests/e2e/self13.test.ts:901) |
 | RFC 9147 両 role + BoringSSL | [packages/dtls/tests/e2e/boringssl/interop.test.ts:116](review-file:packages/dtls/tests/e2e/boringssl/interop.test.ts:116) |
 | RFC 6347 dual → OpenSSL 1.2 | [packages/dtls/tests/e2e/client_dual_openssl.test.ts:10](review-file:packages/dtls/tests/e2e/client_dual_openssl.test.ts:10) |
 
