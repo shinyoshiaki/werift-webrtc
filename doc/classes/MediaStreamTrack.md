@@ -96,7 +96,9 @@ Arguments:
    existing 1- and 2-argument subscribers keep compiling.
 
 Padding-only packets (GCC `maybeInjectProbePadding`) are still received so
-TWCC can ACK them, but they must not be decoded. Unmute happens only for
+TWCC can ACK them, but they are not decoded. By default
+(`PeerConfig.filterProbePaddingOnReceiveRtp`) they are omitted from this
+event and later sequence numbers are compacted. Unmute happens only for
 `media` and `retransmission`.
 
 ***

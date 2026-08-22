@@ -38,6 +38,21 @@
 
 ***
 
+### filterProbePaddingOnReceiveRtp
+
+> **filterProbePaddingOnReceiveRtp**: `boolean`
+
+When true (default), padding-only GCC probe RTP is not delivered on
+[MediaStreamTrack.onReceiveRtp](../classes/MediaStreamTrack.md#onreceivertp). Later media / retransmission
+packets have sequence numbers compacted with `uint16Add` so subscribers
+do not see holes. TWCC, NACK, and packet/octet stats still observe the
+original packets.
+
+Set false to receive original sequence numbers and `{ type: "padding" }`
+events (the application must skip or rewrite them).
+
+***
+
 ### ~~forceTurnTCP~~
 
 > **forceTurnTCP**: `boolean`

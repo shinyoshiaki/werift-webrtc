@@ -1,13 +1,13 @@
 import { wrapRtx } from "../../../rtp/src";
 import {
   MediaStreamTrack,
+  type PeerConfig,
   RTCRtpCodecParameters,
   RTCRtpCodingParameters,
   RtpHeader,
   RtpPacket,
   codecParametersToString,
   defaultPeerConfig,
-  type PeerConfig,
 } from "../../src";
 import type { NackHandler } from "../../src/media/receiver/nack";
 import { RTCRtpReceiver } from "../../src/media/rtpReceiver";
