@@ -77,8 +77,6 @@ server.on("connection", async (socket) => {
   pc.addTransceiver("video").onTrack.subscribe((track, transceiver) => {
     transceiver.sender.replaceTrack(track);
     track.onReceiveRtp.subscribe((rtp) => {
-      // Padding-only GCC probes stay in the jitter buffer for sequence continuity;
-      // DepacketizeBase drops them before codec parse.
       video.input(rtp);
     });
 

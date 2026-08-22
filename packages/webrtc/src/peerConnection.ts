@@ -1332,6 +1332,17 @@ export interface PeerConfig {
   midSuffix: boolean;
   /** Advertised local SCTP max-message-size in SDP. Use 0 for unlimited. */
   maxMessageSize: number;
+  /**
+   * When true (default), padding-only GCC probe RTP is not delivered on
+   * {@link MediaStreamTrack.onReceiveRtp}. Later media / retransmission
+   * packets have sequence numbers compacted with `uint16Add` so subscribers
+   * do not see holes. TWCC, NACK, and packet/octet stats still observe the
+   * original packets.
+   *
+   * Set false to receive original sequence numbers and `{ type: "padding" }`
+   * events (the application must skip or rewrite them).
+   */
+  filterProbePaddingOnReceiveRtp: boolean;
 }
 
 export const findCodecByMimeType = (
@@ -1419,6 +1430,7 @@ function generateDefaultPeerConfig(): PeerConfig {
     midSuffix: false,
     forceTurnTCP: false,
     maxMessageSize: DEFAULT_MAX_MESSAGE_SIZE,
+    filterProbePaddingOnReceiveRtp: true,
   };
 }
 export const defaultPeerConfig: PeerConfig = generateDefaultPeerConfig();

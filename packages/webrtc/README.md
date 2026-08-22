@@ -87,7 +87,7 @@ legacy.onCongestionScore.subscribe((score) => { /* … */ });
 ```
 
 Until TWCC is negotiated and enough samples arrive, `availableBitrate` may stay `0`.
-The receiver reports probe padding on `MediaStreamTrack.onReceiveRtp` as `{ type: "padding" }` (empty payload; do not decode).
+The receiver omits padding-only probes from `MediaStreamTrack.onReceiveRtp` by default (`filterProbePaddingOnReceiveRtp`, sequence numbers compacted). Set it to `false` to receive `{ type: "padding" }` with the original sequence.
 
 **Scope notes (ticket constraints / known differences):**
 

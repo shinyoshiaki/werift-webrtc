@@ -7,6 +7,7 @@ import {
   RtpPacket,
   codecParametersToString,
   defaultPeerConfig,
+  type PeerConfig,
 } from "../../src";
 import type { NackHandler } from "../../src/media/receiver/nack";
 import { RTCRtpReceiver } from "../../src/media/rtpReceiver";
@@ -23,13 +24,18 @@ export function createVideoReceiver(
     payloadType?: number;
     ssrc?: number;
     kind?: "audio" | "video";
+    peerConfig?: PeerConfig;
   } = {},
 ) {
   const kind = options.kind ?? "video";
   const payloadType = options.payloadType ?? 96;
   const ssrc = options.ssrc ?? defaultVideoSsrc;
   const dtls = createDtlsTransport();
-  const receiver = new RTCRtpReceiver(defaultPeerConfig, kind, 1234);
+  const receiver = new RTCRtpReceiver(
+    options.peerConfig ?? defaultPeerConfig,
+    kind,
+    1234,
+  );
   receiver.setDtlsTransport(dtls);
 
   const track = new MediaStreamTrack({ kind, remote: true });

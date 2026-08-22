@@ -7,7 +7,6 @@ import {
   RTCRtpCodecParameters,
   RtcpSrPacket,
   randomPorts,
-  uint16Add,
 } from "../../../packages/webrtc/src";
 import { getUserMedia } from "../../../packages/webrtc/src/nonstandard";
 
@@ -97,22 +96,11 @@ rtpbin. ! rtpvp8depay ! queue ! decodebin ! autovideosink sync=true
 
   const audio = pc.addTransceiver("audio", { direction: "recvonly" });
   audio.onTrack.subscribe((track) => {
-    let skippedPadding = 0;
-    track.onReceiveRtp.subscribe(async (rtp, _extensions, info) => {
-      // GCC probe padding is padding-only RTP; do not forward hop-local probes.
-      if (info?.type === "padding") {
-        skippedPadding = uint16Add(skippedPadding, 1);
-        return;
-      }
-      const forwarded = rtp.clone();
-      forwarded.header.sequenceNumber = uint16Add(
-        forwarded.header.sequenceNumber,
-        -skippedPadding,
-      );
-      forwarded.header.payloadType = audioPt;
-      forwarded.header.ssrc = audioSsrc;
+    track.onReceiveRtp.subscribe(async (rtp) => {
+      rtp.header.payloadType = audioPt;
+      rtp.header.ssrc = audioSsrc;
       await setTimeout(1000);
-      udp.send(forwarded.serialize(), audioRtp, "127.0.0.1");
+      udp.send(rtp.serialize(), audioRtp, "127.0.0.1");
     });
   });
   audio.receiver.onRtcp.subscribe((rtcp) => {
@@ -124,21 +112,10 @@ rtpbin. ! rtpvp8depay ! queue ! decodebin ! autovideosink sync=true
 
   const video = pc.addTransceiver("video", { direction: "recvonly" });
   video.onTrack.subscribe((track) => {
-    let skippedPadding = 0;
-    track.onReceiveRtp.subscribe((rtp, _extensions, info) => {
-      // GCC probe padding is padding-only RTP; do not forward hop-local probes.
-      if (info?.type === "padding") {
-        skippedPadding = uint16Add(skippedPadding, 1);
-        return;
-      }
-      const forwarded = rtp.clone();
-      forwarded.header.sequenceNumber = uint16Add(
-        forwarded.header.sequenceNumber,
-        -skippedPadding,
-      );
-      forwarded.header.payloadType = videoPt;
-      forwarded.header.ssrc = videoSsrc;
-      udp.send(forwarded.serialize(), videoRtp, "127.0.0.1");
+    track.onReceiveRtp.subscribe((rtp) => {
+      rtp.header.payloadType = videoPt;
+      rtp.header.ssrc = videoSsrc;
+      udp.send(rtp.serialize(), videoRtp, "127.0.0.1");
     });
   });
   video.receiver.onRtcp.subscribe((rtcp) => {

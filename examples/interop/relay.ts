@@ -3,11 +3,7 @@ import axios from "axios";
 import cors from "cors";
 import express from "express";
 import * as yargs from "yargs";
-import {
-  MediaStreamTrack,
-  RTCPeerConnection,
-  uint16Add,
-} from "../../packages/webrtc/src";
+import { MediaStreamTrack, RTCPeerConnection } from "../../packages/webrtc/src";
 
 const udp = createSocket("udp4");
 udp.bind(5000);
@@ -41,22 +37,9 @@ udp.bind(5000);
     const senderTrack = new MediaStreamTrack({ kind: "video" });
     const senderTransceiver = sender.addTransceiver(senderTrack);
     senderTransceiver.onTrack.once((track) => {
-      // Probe padding shares the media RTP sequence space. Skipping it without
-      // compacting seq looks like loss to the next jitterbuffer.
-      let skippedPadding = 0;
-      track.onReceiveRtp.subscribe((rtp, _extensions, info) => {
-        // GCC probe padding is padding-only RTP; do not forward hop-local probes.
-        if (info?.type === "padding") {
-          skippedPadding = uint16Add(skippedPadding, 1);
-          return;
-        }
-        const forwarded = rtp.clone();
-        forwarded.header.sequenceNumber = uint16Add(
-          forwarded.header.sequenceNumber,
-          -skippedPadding,
-        );
-        console.log("receive", forwarded.header);
-        udp.send(forwarded.serialize(), 4002, "127.0.0.1");
+      track.onReceiveRtp.subscribe((rtp) => {
+        console.log("receive", rtp.header);
+        udp.send(rtp.serialize(), 4002, "127.0.0.1");
       });
     });
 
@@ -67,23 +50,9 @@ udp.bind(5000);
       sender.connectionStateChange
         .watch((state) => state === "connected")
         .then(() => {
-          // Probe padding shares the media RTP sequence space. Skipping it
-          // without compacting seq looks like media loss on the next hop.
-          let skippedPadding = 0;
-          track.onReceiveRtp.subscribe((rtp, _extensions, info) => {
-            // GCC probe padding is padding-only RTP; do not relay hop-local probes.
-            if (info?.type === "padding") {
-              skippedPadding = uint16Add(skippedPadding, 1);
-              return;
-            }
-            const forwarded = rtp.clone();
-            forwarded.header.sequenceNumber = uint16Add(
-              forwarded.header.sequenceNumber,
-              -skippedPadding,
-            );
-            forwarded.header.payloadType =
-              senderTransceiver.codecs[0].payloadType;
-            senderTrack.writeRtp(forwarded);
+          track.onReceiveRtp.subscribe((rtp) => {
+            rtp.header.payloadType = senderTransceiver.codecs[0].payloadType;
+            senderTrack.writeRtp(rtp);
           });
         });
     });

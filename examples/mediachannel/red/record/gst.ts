@@ -5,7 +5,6 @@ import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
   randomPort,
-  uint16Add,
 } from "../../../../packages/webrtc/src";
 
 const server = new Server({ port: 8888 });
@@ -46,21 +45,17 @@ server.on("connection", async (socket) => {
   const audio = pc.addTransceiver("audio");
   audio.onTrack.subscribe((track) => {
     audio.sender.replaceTrack(track);
-    // Probe padding shares the media RTP sequence space. Skipping it without
-    // compacting seq looks like loss to rtpopusdepay / the next jitterbuffer.
-    let skippedPadding = 0;
-    track.onReceiveRtp.subscribe((p, _extensions, info) => {
-      // GCC probe padding is padding-only RTP; do not forward hop-local probes.
-      if (info?.type === "padding") {
-        skippedPadding = uint16Add(skippedPadding, 1);
-        return;
-      }
-      const forwarded = p.clone();
-      forwarded.header.sequenceNumber = uint16Add(
-        forwarded.header.sequenceNumber,
-        -skippedPadding,
-      );
-      udp.send(forwarded.serialize(), port);
+    // const jitterBuffer = new JitterBuffer({ rtpStream: track.onReceiveRtp });
+    // jitterBuffer.pipe({
+    //   pushRtpPackets: (packets) => {
+    //     packets.forEach((p) => {
+    //       console.log("seq", p.header.sequenceNumber);
+    //       udp.send(p.serialize(), port);
+    //     });
+    //   },
+    // });
+    track.onReceiveRtp.subscribe((p) => {
+      udp.send(p.serialize(), port);
     });
 
     setTimeout(() => {

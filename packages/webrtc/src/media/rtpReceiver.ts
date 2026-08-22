@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { setTimeout } from "timers/promises";
-import { Event, int } from "../imports/common";
+import { Event, int, uint16Add } from "../imports/common";
 
 import {
   type Extensions,
@@ -98,6 +98,8 @@ export class RTCRtpReceiver {
   private remoteOctetCountBySsrc: { [ssrc: number]: number } = {};
   private nackCountBySsrc: { [ssrc: number]: number } = {};
   private pliCountBySsrc: { [ssrc: number]: number } = {};
+  /** Padding-only packets skipped from onReceiveRtp, counted per SSRC. */
+  private skippedProbePaddingBySsrc: { [ssrc: number]: number } = {};
 
   constructor(
     readonly config: PeerConfig,
@@ -508,17 +510,53 @@ export class RTCRtpReceiver {
         if (track.kind === "audio") {
           const payloads = this.audioRedHandler.push(red, packet);
           for (const recovered of payloads) {
-            track.onReceiveRtp.execute(recovered.clone(), extensions, {
+            this.emitReceiveRtp(track, recovered, extensions, {
               type: RtpReceivePacketType.media,
             });
           }
         } else {
         }
       } else {
-        track.onReceiveRtp.execute(packet.clone(), extensions, info);
+        this.emitReceiveRtp(track, packet, extensions, info);
       }
     }
 
     this.runRtcp();
+  }
+
+  /**
+   * Deliver a packet on {@link MediaStreamTrack.onReceiveRtp}.
+   * When {@link PeerConfig.filterProbePaddingOnReceiveRtp} is true (default),
+   * padding-only probes are omitted and later sequence numbers are compacted
+   * with {@link uint16Add} so subscribers do not see holes.
+   */
+  private emitReceiveRtp(
+    track: MediaStreamTrack,
+    packet: RtpPacket,
+    extensions: Extensions,
+    info: RtpReceiveInfo,
+  ) {
+    if (this.config.filterProbePaddingOnReceiveRtp !== false) {
+      const ssrc = packet.header.ssrc;
+      if (info.type === RtpReceivePacketType.padding) {
+        this.skippedProbePaddingBySsrc[ssrc] = uint16Add(
+          this.skippedProbePaddingBySsrc[ssrc] ?? 0,
+          1,
+        );
+        return;
+      }
+      const skipped = this.skippedProbePaddingBySsrc[ssrc] ?? 0;
+      const delivered = packet.clone();
+      if (skipped) {
+        delivered.header.sequenceNumber = uint16Add(
+          delivered.header.sequenceNumber,
+          -skipped,
+        );
+      }
+      track.onReceiveRtp.execute(delivered, extensions, info);
+      return;
+    }
+
+    track.onReceiveRtp.execute(packet.clone(), extensions, info);
   }
 }

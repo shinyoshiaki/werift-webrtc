@@ -61,44 +61,6 @@ describe("media/rtpSender", () => {
     expect(spy).toBeCalledTimes(1);
   });
 
-  test("registerTrack compacts sequence numbers when skipping padding", () => {
-    // Arrange: メディア seq の間に padding を挟む
-    const track = new MediaStreamTrack({ kind: "video", remote: true });
-    const dtls = createDtlsTransport();
-    const sender = new RTCRtpSender(track);
-    sender.setDtlsTransport(dtls);
-    const spy = vi.spyOn(sender, "sendRtp");
-    const media1 = new RtpPacket(
-      new RtpHeader({ sequenceNumber: 10, payloadType: 96 }),
-      Buffer.from([1]),
-    );
-    const padding = new RtpPacket(
-      new RtpHeader({
-        sequenceNumber: 11,
-        payloadType: 96,
-        padding: true,
-      }),
-      Buffer.alloc(0),
-    );
-    const media2 = new RtpPacket(
-      new RtpHeader({ sequenceNumber: 12, payloadType: 96 }),
-      Buffer.from([2]),
-    );
-
-    // Act: padding は転送せず、後続メディアの seq を詰める
-    track.onReceiveRtp.execute(media1, undefined, { type: "media" });
-    track.onReceiveRtp.execute(padding, undefined, { type: "padding" });
-    track.onReceiveRtp.execute(media2, undefined, { type: "media" });
-
-    // Assert: 10 の次は 11（元の 12 を uint16Add で -1）
-    expect(spy).toHaveBeenCalledTimes(2);
-    const first = spy.mock.calls[0][0] as RtpPacket;
-    const second = spy.mock.calls[1][0] as RtpPacket;
-    expect(first.header.sequenceNumber).toBe(10);
-    expect(second.header.sequenceNumber).toBe(11);
-    expect(media2.header.sequenceNumber).toBe(12);
-  });
-
   test("replaceTrack", async () => {
     const track1 = new MediaStreamTrack({ kind: "audio", remote: true });
     const dtls = createDtlsTransport();
