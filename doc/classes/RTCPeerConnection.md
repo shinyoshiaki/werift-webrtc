@@ -1108,9 +1108,17 @@ ms
 
 > **dtls**: `object`
 
+###### dtls.helloRetryRequest
+
+> **helloRetryRequest**: `undefined` \| `boolean` = `config.dtls.helloRetryRequest`
+
 ###### dtls.keys?
 
 > `optional` **keys**: [`DtlsKeys`](../type-aliases/DtlsKeys.md)
+
+###### dtls.protocolVersions
+
+> **protocolVersions**: `undefined` \| [`DtlsVersion`](../enumerations/DtlsVersion.md)[]
 
 ##### ~~forceTurnTCP~~
 

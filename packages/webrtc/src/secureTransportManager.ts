@@ -177,7 +177,11 @@ export class SecureTransportManager {
     });
 
     const dtlsTransport = new RTCDtlsTransport(
-      this.config,
+      {
+        debug: this.config.debug,
+        protocolVersions: this.config.dtls.protocolVersions,
+        helloRetryRequest: this.config.dtls.helloRetryRequest,
+      },
       iceTransport,
       this.certificate,
       srtpProfiles,

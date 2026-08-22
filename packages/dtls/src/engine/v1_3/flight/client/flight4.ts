@@ -21,7 +21,10 @@ import {
   DTLS_1_2_VERSION,
   DTLS_1_3_VERSION,
   DtlsProtocolError,
+  DtlsVersion,
+  DtlsVersionSelected,
   ProtocolVersionError,
+  supportsVersion,
 } from "../../../../version";
 import type { Dtls13Host } from "../../host";
 import { HandshakeTranscript } from "../../transcript";
@@ -46,6 +49,22 @@ export async function onServerHello(
   const sh = ServerHello.deSerialize(body);
   this.messageSeq = messageSeq;
   assertUniqueExtensions(sh.extensions, "ServerHello");
+
+  // DTLS 1.2 peers (Chrome ICE path skips HelloVerifyRequest) omit
+  // supported_versions. Detect that before 1.3 session_id / allowlist checks
+  // so dual clients can park and continue on the 1.2 association.
+  const earlyVersionsExt = sh.extensions.find(
+    (e) => e.type === SupportedVersions.type,
+  );
+  if (!earlyVersionsExt) {
+    if (supportsVersion(this.offeredProtocolVersions, DtlsVersion.V1_2)) {
+      throw new DtlsVersionSelected(
+        DtlsVersion.V1_2,
+        "ServerHello without supported_versions: continue dual negotiation on DTLS 1.2",
+      );
+    }
+    throw new ProtocolVersionError("ServerHello missing supported_versions");
+  }
 
   // RFC 9147: ServerHello.legacy_version MUST be DTLS 1.2 (0xfefd)
   const shVer =
@@ -89,13 +108,8 @@ export async function onServerHello(
     }
   }
 
-  const versionsExt = sh.extensions.find(
-    (e) => e.type === SupportedVersions.type,
-  );
-  if (!versionsExt) {
-    throw new ProtocolVersionError("ServerHello missing supported_versions");
-  }
-  const selected = SupportedVersions.fromData(versionsExt.data, true).selected!;
+  const selected = SupportedVersions.fromData(earlyVersionsExt.data, true)
+    .selected!;
   if (selected !== DTLS_1_3_VERSION) {
     throw new ProtocolVersionError(
       `server selected unsupported version 0x${selected.toString(16)}`,

@@ -2,15 +2,15 @@ import { Certificate, PrivateKey } from "@fidm/x509";
 
 import { randomUUID } from "crypto";
 import { setTimeout } from "timers/promises";
-import { Event, type Transport } from "../imports/common";
+import { type Address, Event, type Transport } from "../imports/common";
 
-import type { AddressInfo } from "net";
 import { EventTarget as DomEventTarget } from "../helper";
 import {
   CipherContext,
   DtlsClient,
   DtlsServer,
   type DtlsSocket,
+  type DtlsVersion,
   HashAlgorithm,
   NamedCurveAlgorithm,
   SignatureAlgorithm,
@@ -52,20 +52,36 @@ import type { RTCIceTransport } from "./ice";
 
 const log = debug("werift:packages/webrtc/src/transport/dtls.ts");
 
-function formatDtlsVersion(version?: {
-  major: number;
-  minor: number;
-}) {
-  if (!version) {
+export interface DtlsTransportConfig {
+  debug?: DebugConfig;
+  protocolVersions?: readonly DtlsVersion[];
+  helloRetryRequest?: boolean;
+}
+
+function formatDtlsVersion(socket?: DtlsSocket) {
+  if (!socket) {
     return;
   }
-
+  if (socket.isDtls13) {
+    return "DTLS 1.3";
+  }
+  const version = socket.dtls.version;
   if (version.major === 0xfe && version.minor === 0xfd) {
     return "DTLS 1.2";
   }
   if (version.major === 0xfe && version.minor === 0xff) {
     return "DTLS 1.0";
   }
+}
+
+function formatDtlsCipher(socket?: DtlsSocket) {
+  if (!socket) {
+    return;
+  }
+  if (socket.isDtls13) {
+    return "TLS_AES_128_GCM_SHA256";
+  }
+  return socket.cipher.cipher?.name;
 }
 
 function formatSrtpCipher(profile?: number) {
@@ -103,6 +119,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   dtls?: DtlsSocket;
   srtp!: SrtpSession;
   srtcp!: SrtcpSession;
+  lastError?: Error;
 
   readonly onStateChange = new Event<[DtlsState]>();
   readonly onRtcp = new Event<[RtcpPacket]>();
@@ -115,7 +132,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   private remoteParameters?: RTCDtlsParameters;
 
   constructor(
-    readonly config: { debug?: DebugConfig },
+    readonly config: DtlsTransportConfig,
     readonly iceTransport: RTCIceTransport,
     public localCertificate?: RTCCertificate,
     private readonly srtpProfiles: SrtpProfile[] = [],
@@ -206,6 +223,10 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
     this.setState("connecting");
 
+    const addressValidation = this.config.helloRetryRequest
+      ? "dtls-cookie"
+      : "ice-authenticated";
+
     await new Promise<void>(async (r, f) => {
       if (this.role === "server") {
         this.dtls = new DtlsServer({
@@ -216,9 +237,10 @@ export class RTCDtlsTransport implements DtlsTransportStats {
           srtpProfiles: this.srtpProfiles,
           extendedMasterSecret: true,
           certificateRequest: true,
+          protocolVersions: this.config.protocolVersions,
           // ICE selected pair is already peer-authenticated (no UDP 5-tuple).
           peerIdentityMode: "authenticated-single-peer",
-          addressValidation: "ice-authenticated",
+          addressValidation,
         });
       } else {
         this.dtls = new DtlsClient({
@@ -228,8 +250,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
           transport: createIceTransport(this.iceTransport.connection),
           srtpProfiles: this.srtpProfiles,
           extendedMasterSecret: true,
+          protocolVersions: this.config.protocolVersions,
           peerIdentityMode: "authenticated-single-peer",
-          addressValidation: "ice-authenticated",
+          addressValidation,
         });
       }
       this.dtls.onData.subscribe((buf) => {
@@ -248,6 +271,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       });
       this.dtls.onConnect.once(r);
       this.dtls.onError.once((error) => {
+        this.lastError = error;
         this.setState("failed");
         log("dtls failed", error);
         f(error);
@@ -256,6 +280,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       if (this.dtls instanceof DtlsClient) {
         await setTimeout(100);
         this.dtls.connect().catch((error) => {
+          this.lastError = error;
           this.setState("failed");
           log("dtls connect failed", error);
           f(error);
@@ -266,6 +291,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     try {
       this.verifyRemoteCertificateFingerprint();
     } catch (error) {
+      this.lastError =
+        error instanceof Error ? error : new Error(String(error));
       this.setState("failed");
       this.dtls?.close();
       throw error;
@@ -495,6 +522,17 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     await this.iceTransport.connection.send(enc).catch(() => {});
   }
 
+  private tryRemoteCertificate() {
+    if (!this.dtls) {
+      return;
+    }
+    try {
+      return this.dtls.remoteCertificate;
+    } catch {
+      return;
+    }
+  }
+
   private setState(state: DtlsState, emitEvent = true) {
     if (state != this.state) {
       this.state = state;
@@ -543,12 +581,12 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       localCertificateId: this.localCertificate
         ? generateStatsId("certificate", this.id, "local")
         : undefined,
-      remoteCertificateId: this.dtls?.remoteCertificate
+      remoteCertificateId: this.tryRemoteCertificate()
         ? generateStatsId("certificate", this.id, "remote")
         : undefined,
       dtlsRole: this.role === "auto" ? undefined : this.role,
-      tlsVersion: formatDtlsVersion(this.dtls?.dtls.version),
-      dtlsCipher: this.dtls?.cipher.cipher?.name,
+      tlsVersion: formatDtlsVersion(this.dtls),
+      dtlsCipher: formatDtlsCipher(this.dtls),
       srtpCipher: formatSrtpCipher(this.dtls?.srtp.srtpProfile),
       iceRestarts: this.iceTransport.iceRestarts,
     };
@@ -572,10 +610,11 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       }
     }
 
+    const remoteCertificate = this.tryRemoteCertificate();
     if (
       this.remoteParameters &&
       this.remoteParameters.fingerprints.length > 0 &&
-      this.dtls?.remoteCertificate
+      remoteCertificate
     ) {
       const certStats: RTCCertificateStats = {
         type: "certificate",
@@ -583,9 +622,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         timestamp,
         fingerprint: this.remoteParameters.fingerprints[0].value,
         fingerprintAlgorithm: this.remoteParameters.fingerprints[0].algorithm,
-        base64Certificate: Buffer.from(this.dtls.remoteCertificate).toString(
-          "base64",
-        ),
+        base64Certificate: Buffer.from(remoteCertificate).toString("base64"),
       };
       stats.push(certStats);
     }
@@ -701,26 +738,45 @@ class IceTransport implements Transport {
     ice.onData.subscribe((buf) => {
       if (isDtls(buf)) {
         if (this.onData) {
-          this.onData(buf);
+          this.onData(buf, this.remotePeer());
         }
       }
     });
   }
-  onData: (buf: Buffer) => void = () => {};
+  onData: (buf: Buffer, addr?: Address) => void = () => {};
 
+  /**
+   * DTLS 1.3 cookie HRR / anti-amp keys the peer from the RX 5-tuple.
+   * ICE already demuxed to the nominated pair, so expose that remote address
+   * instead of an empty AddressInfo (which made cookie HRR undeliverable).
+   */
   get address() {
-    return {} as AddressInfo;
+    const [address, port] = this.remotePeer();
+    return { address, port, family: address.includes(":") ? "IPv6" : "IPv4" };
+  }
+
+  get rinfo() {
+    const [address, port] = this.remotePeer();
+    return { address, port };
   }
 
   type: string = "ice";
 
-  readonly send = (data: Buffer) => {
+  readonly send = (data: Buffer, _addr?: Address) => {
     return this.ice.send(data);
   };
 
   async close() {
     this.closed = true;
     this.ice.close();
+  }
+
+  private remotePeer(): Address {
+    const nominated = this.ice.nominated;
+    if (nominated) {
+      return nominated.remoteAddr;
+    }
+    return ["0.0.0.0", 0];
   }
 }
 

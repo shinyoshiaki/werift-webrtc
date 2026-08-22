@@ -33,6 +33,15 @@ import { datachannel_ice_lite_answer } from "./handler/datachannel/iceLite";
 import { datachannel_ice_tcp } from "./handler/datachannel/iceTcp";
 import { datachannel_turn_relay } from "./handler/datachannel/turnRelay";
 import {
+  dtls_datachannel_answer,
+  dtls_datachannel_offer,
+} from "./handler/dtls/datachannel";
+import {
+  dtls_fingerprint_answer,
+  dtls_fingerprint_offer,
+} from "./handler/dtls/fingerprint";
+import { dtls_media_answer, dtls_media_offer } from "./handler/dtls/media";
+import {
   ice_restart_node_trigger,
   ice_restart_web_trigger,
 } from "./handler/ice/restart";
@@ -148,6 +157,12 @@ function attachWebSocketServer() {
   server.on("connectionrequest", async (_, accept) => {
     const tests = {
       datachannel_answer: new datachannel_answer(),
+      dtls_datachannel_answer: new dtls_datachannel_answer(),
+      dtls_datachannel_offer: new dtls_datachannel_offer(),
+      dtls_media_answer: new dtls_media_answer(),
+      dtls_media_offer: new dtls_media_offer(),
+      dtls_fingerprint_answer: new dtls_fingerprint_answer(),
+      dtls_fingerprint_offer: new dtls_fingerprint_offer(),
       datachannel_ice_lite_answer: new datachannel_ice_lite_answer(),
       datachannel_ice_tcp: new datachannel_ice_tcp(),
       datachannel_offer: new datachannel_offer(),
