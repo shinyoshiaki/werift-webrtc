@@ -15,6 +15,8 @@
 
 Epic 1 で完成した DTLS 1.3 endpoint を `RTCPeerConnection` から明示 opt-in し、**SPED / ICE-DTLS 並列起動を入れない通常の WebRTC 接続経路**で DTLS 1.3 を成立させる。
 
+ICE 完了後の WebRTC 経路では peer は既に認証済みなので、**DTLS 1.3 の HelloRetryRequest cookie exchange は既定で省略**し、generic DTLS の cookie HRR が足す 1 RTT を払わない。cookie HRR は明示オプションでのみ送る。
+
 維持する接続シーケンス:
 
 ```text
@@ -46,7 +48,7 @@ Epic 1 により `packages/dtls` は次を既に持つ。
 | `PeerConfig.dtls` | `{ keys?: DtlsKeys }` のみ | `protocolVersions` を追加 |
 | `clonePeerConfiguration` | `dtls: { ...config.dtls }` の shallow copy | `protocolVersions` 配列の defensive copy |
 | `SecureTransportManager.createTransport()` | `new RTCDtlsTransport(this.config, ...)`。version policy を渡さない | 必要な DTLS 設定だけを伝播 |
-| `RTCDtlsTransport.start()` | `DtlsClient`/`DtlsServer` に `protocolVersions` 未指定。既に `addressValidation: "ice-authenticated"` / `peerIdentityMode: "authenticated-single-peer"` は設定済み | **同じ version policy を両 role へ渡す**（ICE 認証モデルは変えない） |
+| `RTCDtlsTransport.start()` | `DtlsClient`/`DtlsServer` に `protocolVersions` 未指定。既に `addressValidation: "ice-authenticated"` / `peerIdentityMode: "authenticated-single-peer"` は設定済み | **同じ version policy を両 role へ渡す**。1.3 の cookie HRR は既定省略（`ice-authenticated`）。オプション時のみ `dtls-cookie` |
 | `formatDtlsVersion()` | `0xfefd` → `"DTLS 1.2"` のみ。入力は `this.dtls?.dtls.version`（1.2 用 `DtlsContext`、既定 `0xfefd`） | 1.3 接続で `"DTLS 1.3"` を返す。`DtlsContext.version` を読んではいけない |
 | `dtlsCipher` stats | `this.dtls?.cipher.cipher?.name`（1.2 `CipherContext`）。1.3 engine は未設定 | 1.3 では `TLS_AES_128_GCM_SHA256` |
 | `peerConnection.connect()` | `await iceTransport.start(); await dtlsTransport.start();` | **この順序を維持** |
@@ -63,7 +65,7 @@ Issue #659 の公式分割に従う。**本チケットは Epic 2 のみ**。
 | SPED / DTLS-in-STUN / nomination 前 handshake | Epic 3 |
 | ICE / DTLS coordinated startup、external retransmission、ICE RTT と DTLS RTO 同期 | Epic 3/4 |
 | SPED L1/L2 queue、early server application data の WebRTC 公開、directional early SRTP、early RTP/RTCP buffer、SNAP | Epic 4 |
-| `addressValidation` / `peerIdentityMode` / WarpOptions を WebRTC Public API にする | しない（内部固定） |
+| `addressValidation` / `peerIdentityMode` の raw enum や WarpOptions を WebRTC Public API にする | しない。cookie HRR は boolean オプションだけ公開する |
 | `e2e/package.json` の `werift` dependency を `file:` や `npm pack` に切り替え | しない |
 
 Epic 1 チケット文面の「SPED = Epic 2」は古い番号であり、**Issue #659 と `epic2-webrtc-dtls13-detailed.md` を正とする**。
@@ -90,6 +92,12 @@ Epic 1 チケット文面の「SPED = Epic 2」は古い番号であり、**Issu
 dtls: Partial<{
   keys: DtlsKeys;
   protocolVersions: readonly DtlsVersion[];
+  /**
+   * DTLS 1.3 HelloRetryRequest cookie exchange.
+   * Default false: ICE 認証済み経路では cookie HRR を省略し 1 RTT 削減。
+   * true: cookie 付き HRR を送る（内部は addressValidation: "dtls-cookie"）。
+   */
+  helloRetryRequest?: boolean;
 }>;
 ```
 
@@ -105,6 +113,14 @@ new RTCPeerConnection({
     protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
   },
 });
+
+// cookie HRR を明示的に送る（RTT が増える。既定では使わない）
+new RTCPeerConnection({
+  dtls: {
+    protocolVersions: [DtlsVersion.V1_3],
+    helloRetryRequest: true,
+  },
+});
 ```
 
 | 設定 | 動作 |
@@ -118,10 +134,14 @@ new RTCPeerConnection({
 
 - DTLS 1.3 は明示 opt-in。default は 1.2 のまま
 - SPED 有無と version selection を独立させる（本 Epic では SPED オプション自体を追加しない）
-- `addressValidation` は WebRTC Public API に出さない
-- ICE-selected path では内部的に `ice-authenticated` を使い続ける（既に `RTCDtlsTransport.start()` にある）
-- `peerIdentityMode` も WebRTC 側では `"authenticated-single-peer"` 固定（既にある）
-- `getConfiguration()` / clone / round-trip で `protocolVersions` 配列を defensive copy する
+- **WebRTC 上の DTLS 1.3 は既定で HRR cookie exchange を省略する**（ICE selected pair が既に return-routability を満たすため）
+- cookie HRR を送りたいときだけ `dtls.helloRetryRequest: true` を付ける
+- `addressValidation` enum 自体は WebRTC Public API に出さない。内部 mapping のみ
+- `helloRetryRequest !== true` → `addressValidation: "ice-authenticated"`（既定。cookie HRR なし）
+- `helloRetryRequest === true` → `addressValidation: "dtls-cookie"`（cookie 付き HRR を送る）
+- `peerIdentityMode` はオプションに関係なく `"authenticated-single-peer"` 固定（ICE の peer モデルは変えない）
+- key_share 不一致のための **group-only HRR はこのオプションと独立**。cookie 省略時でも group HRR はプロトコル上必要なら送ってよい
+- `getConfiguration()` / clone / round-trip で `protocolVersions` 配列を defensive copy し、`helloRetryRequest` も保持する
 
 `clonePeerConfiguration` の現状は `dtls: { ...config.dtls }` のため、配列参照が共有される。次のように copy する。
 
@@ -131,6 +151,7 @@ dtls: {
   protocolVersions: config.dtls.protocolVersions
     ? [...config.dtls.protocolVersions]
     : undefined,
+  helloRetryRequest: config.dtls.helloRetryRequest,
 },
 ```
 
@@ -144,6 +165,7 @@ dtls: {
 interface DtlsTransportConfig {
   debug?: DebugConfig;
   protocolVersions?: readonly DtlsVersion[];
+  helloRetryRequest?: boolean;
 }
 ```
 
@@ -154,6 +176,7 @@ const dtlsTransport = new RTCDtlsTransport(
   {
     debug: this.config.debug,
     protocolVersions: this.config.dtls.protocolVersions,
+    helloRetryRequest: this.config.dtls.helloRetryRequest,
   },
   iceTransport,
   this.certificate,
@@ -163,14 +186,18 @@ const dtlsTransport = new RTCDtlsTransport(
 
 既存テストの `new RTCDtlsTransport(defaultPeerConfig, ...)` は `debug` を持つため互換を維持できる。`protocolVersions` は `defaultPeerConfig.dtls` には置かず、opt-in 時だけ `DtlsTransportConfig` 経由で渡す。
 
-`RTCDtlsTransport.start()` で client / server の両方へ同じ policy を渡す。
+`RTCDtlsTransport.start()` で client / server の両方へ同じ policy を渡す。cookie HRR の有無だけ `helloRetryRequest` から mapping する。
 
 ```ts
+const addressValidation = this.config.helloRetryRequest
+  ? "dtls-cookie"
+  : "ice-authenticated";
+
 new DtlsClient({
   cert, key, signatureHash, transport, srtpProfiles,
   extendedMasterSecret: true,
   protocolVersions: this.config.protocolVersions,
-  addressValidation: "ice-authenticated",
+  addressValidation,
   peerIdentityMode: "authenticated-single-peer",
 });
 ```
@@ -179,11 +206,24 @@ server も同じ。既存の `certificateRequest: true`（server）は残す。
 
 必須:
 
-- 両 role に同じ version policy
+- 両 role に同じ version policy と同じ cookie HRR policy
 - `[V1_3]` で 1.3 engine、未指定で 1.2 engine
 - `[V1_3, V1_2]` は peer capability に応じて選択（選択ロジックは dtls 層の既存 `selectVersion` / dual association）
+- **1.3 既定は cookie HRR なし**（`ice-authenticated`）。CH の次は ServerHello flight であり、cookie 付き HRR を挟まない
+- `helloRetryRequest: true` のときだけ cookie 付き HRR を送る
 - ICE transport の認証モデルを変えない（`IceTransport.peerAuthenticated = true` を維持）
 - `start()` の開始タイミングを変えない（ICE 完了後。client の既存 100ms delay も触らない）
+
+#### DTLS 1.3 HRR cookie と RTT
+
+dtls 1.3 server（`engine/v1_3/flight/server/flight4.ts`）は次のように分岐する。
+
+| `addressValidation` | cookie HRR | 1.3 handshake RTT（ICE 後） |
+| --- | --- | --- |
+| `"ice-authenticated"` / `"none"`（WebRTC 既定） | 送らない。`addressValidated` は初期 true | CH → SH/EE/Cert/CV/Finished（cookie 往復なし） |
+| `"dtls-cookie"`（`helloRetryRequest: true`） | cookie 付き HRR を先に送る | CH → HRR → CH2 → server flight（+1 RTT） |
+
+group 不一致の HRR（`selected_group` のみ、cookie なし）は `ice-authenticated` でも残る。これは cookie exchange ではなく key_share 補正であり、本オプションで止めない。WebRTC 既定の named groups（X25519 優先）では通常発生しない。
 
 ### 2.2 Task B: DTLS 1.3 WebRTC transport integration
 
@@ -300,6 +340,12 @@ const pc = new RTCPeerConnection();
 
 fingerprint mismatch は既存 `tests/transport/dtls.test.ts` に 1.2 がある。1.3 でも同等ケースを追加する（handshake 成功後に mismatch → failed、SCTP/media 非公開）。
 
+#### HRR cookie（self E2E 必須）
+
+- 既定（`helloRetryRequest` 未指定 / `false`）の 1.3: **cookie 付き HRR が飛ばない**。ICE 上の DTLS datagram を観察し、最初の server handshake が HRR+cookie ではなく ServerHello flight であること
+- `helloRetryRequest: true` の 1.3: **cookie 付き HRR が飛ぶ**。その後 CH2 を経て接続が成立し、DataChannel が通る
+- 両ケースとも `peerIdentityMode` は ICE のまま（association の peer モデルを datagram に戻さない）
+
 ### 2.4 Task D: Browser E2E parameterization
 
 Browser E2E は DTLS 1.3 専用ファイルを複製しない。**signaling / ICE / media ロジックを共有**し、version 差分は launch/config と werift `protocolVersions` に閉じ込める。
@@ -380,6 +426,8 @@ werift offerer   → Chromium answerer
 
 これにより offerer/answerer と DTLS client/server の両側を browser 経路でも検証する（Chromium answerer は通常 `setup:active` = DTLS client）。
 
+Chromium interop は **cookie HRR 省略の既定経路**で行う（`helloRetryRequest` 未指定）。Chrome に対して cookie HRR を必須にしない。`helloRetryRequest: true` は werift ↔ werift のオプション検証に留める。
+
 #### DataChannel
 
 同一 test logic を 1.2/1.3 で実行。
@@ -418,7 +466,7 @@ DTLS 1.3 + fingerprint mismatch → failed
 
 Public API を変えるため、少なくとも次を更新する。
 
-- `packages/webrtc/README.md`: DTLS 1.3 opt-in 例と「default は 1.2、SPED とは独立」
+- `packages/webrtc/README.md`: DTLS 1.3 opt-in 例、「default は 1.2、SPED とは独立」、**1.3 では既定で cookie HRR を省略し `helloRetryRequest: true` で送れること**
 - Typedoc が追従するなら `npm run doc` / `npm run doc:check`（`PeerConfig.dtls`）
 - e2e helper に Chromium field trial / 実測 revision を記載
 - `packages/webrtc/AGENTS.md` は scripts が増えたときだけ更新
@@ -449,7 +497,7 @@ WARP 全体説明の完成は Epic 5 でも可だが、Epic 2 の使い方は RE
 | `DtlsClient`/`DtlsServer` + `protocolVersions` + dual fallback | `PeerConfig.dtls.protocolVersions` と defensive copy |
 | `extractSessionKeys` の 1.3 分岐、`use_srtp` | WebRTC 経路での profile/key 方向の E2E assert |
 | `remoteCertificate` 1.3 分岐、既存 fingerprint matcher | 1.3 での mismatch テスト |
-| `addressValidation: "ice-authenticated"`（既に start にある） | 設定を Public API に出さない |
+| `addressValidation: "ice-authenticated"`（既に start にある。cookie HRR 省略） | `dtls.helloRetryRequest` boolean。true のときだけ `"dtls-cookie"` |
 | `IceTransport.peerAuthenticated`、`isDtls()` demux（20–63） | ICE→DTLS 順序の維持 |
 | `createDataChannelPair` / `dtlsTransportPair` / media integrate | `tests/integrate/dtls13.test.ts` の matrix |
 | `e2e/server/index.ts` の source re-export、protoo signaling | `e2e/tests/dtls/*` + Chromium launch helper |
@@ -473,7 +521,19 @@ Issue #659 は「pinned Chromium」。既存 e2e は Playwright browsers + `ensu
 
 `RTCDtlsTransport.start()` の auto role は ICE controlling → DTLS server。`setLocalRole` は offerer を ICE controlling にする。answer の `setup:active` で offerer は DTLS server に確定する。browser E2E の両 offerer 方向で、werift は自然に client と server の両方になる。self E2E の逆 role だけテストから `role` を固定する。
 
-### 3.6 失敗の扱い
+### 3.6 HRR cookie の内部実装（調査結果）
+
+Epic 1 の 1.3 server は既にこの分岐を持つ。WebRTC 側で HRR を再実装しない。
+
+- `connection-base.ts`: `"ice-authenticated"` / `"none"` では `addressValidated` 初期値が true
+- `flight4.ts`: `"dtls-cookie"` かつ未検証なら cookie 付き `sendHelloRetryRequest(..., true, ...)` して return。trusted path ではこの枝に入らない
+- group-only HRR は `needGroupHrr && this.addressValidated` の別枝（`withCookie: false`）
+
+したがって Epic 2 の仕事は **WebRTC 既定を `ice-authenticated` に固定し、`helloRetryRequest: true` のときだけ `dtls-cookie` に切り替える**こと。dtls エンジンに新しい HRR モードを足す必要はない。
+
+Chromium 側は通常 cookie HRR を要求しない（ICE 後の DTLS）。既定省略は Chrome interop とも整合する。`helloRetryRequest: true` は werift が server のとき client（werift または Chrome）が cookie 付き CH2 を返せるかの確認用であり、browser E2E の必須 matrix には入れなくてよい（self E2E で必須）。
+
+### 3.7 失敗の扱い
 
 `RTCDtlsTransport.start()` は既に `onError` → `failed`。`ProtocolVersionError` は dtls が `onError` に載せる。WebRTC 側で timeout 待ちにしない。case 5 は `connectionState === "failed"` / `dtlsState === "failed"` と error 内容（`protocol_version`）を assert する。
 
@@ -486,6 +546,9 @@ Issue #659 は「pinned Chromium」。既存 e2e は Playwright browsers + `ensu
 - fingerprint validation 前に `connected` にしない。既存 `start()` の順序を崩さない。
 - fingerprint 前に application data / media を公開しない。1.3 の epoch-3 early app data は dtls 内部バッファ（`maxEarlyAppDataRecords`）に留まり、`onConnect` 前の `onData` を WebRTC が SCTP/RTP に流さないこと。Epic 2 では early delivery を実装しない。
 - CID / PSK 0-RTT / SNAP / SPED を有効化しない。
+- WebRTC DTLS 1.3 の既定経路で cookie 付き HRR を送らない。ICE 後に余分な RTT を足さない。
+- `helloRetryRequest: true` でも group HRR と cookie HRR を混同しない。cookie 省略は address validation の省略であり、key_share 補正の HRR を無効化しない。
+- `helloRetryRequest: true` にしても `peerIdentityMode` は `"authenticated-single-peer"` のまま。cookie を足しても ICE の 5-tuple pin モデルに戻さない。
 
 ### 互換
 
@@ -539,6 +602,7 @@ Browser E2E は `npm run install:browsers` のあと、既存 e2e と dtls param
 | 逆 DTLS role の出し方 | テストから `RTCDtlsTransport.role` を SDP 前に設定。Public config は増やさない |
 | Chromium 1.2-only フラグ | 実装時に実測して `e2e/tests/dtls/fixture.ts` にピン |
 | ICE restart | 既存 association 継続 + version/media assert |
+| cookie HRR Public 名 | `dtls.helloRetryRequest?: boolean`（default `false`）。`addressValidation` enum は出さない |
 
 ### リスク
 
@@ -561,7 +625,10 @@ Browser E2E は `npm run install:browsers` のあと、既存 e2e と dtls param
 - [ ] DTLS version selection と SPED が独立している（本 Epic で SPED を追加・有効化していない）
 - [ ] config clone / `getConfiguration()` round-trip で `protocolVersions` 配列を defensive copy している
 - [ ] 既存 ICE → DTLS sequential startup を変更していない
-- [ ] `addressValidation` / `peerIdentityMode` を WebRTC Public API に出していない
+- [ ] `addressValidation` / `peerIdentityMode` の raw enum を WebRTC Public API に出していない
+- [ ] `dtls.helloRetryRequest?: boolean` で cookie HRR を opt-in できる
+- [ ] `helloRetryRequest` 未指定 / `false` の DTLS 1.3 では cookie 付き HRR を送らない（ICE 後の 1 RTT 削減）
+- [ ] `helloRetryRequest: true` では cookie 付き HRR を送り、その後接続が成立する
 - [ ] `DtlsVersion` を WebRTC 用に複製していない
 
 ### werift ↔ werift
@@ -578,6 +645,8 @@ Browser E2E は `npm run install:browsers` のあと、既存 e2e と dtls param
 - [ ] ICE restart 後も期待 DTLS version で DataChannel / media が使える
 - [ ] werift stats が `tlsVersion === "DTLS 1.3"`（1.3 時）/ `"DTLS 1.2"`（1.2 時）を返す
 - [ ] 1.3 成功時 `dtlsCipher === "TLS_AES_128_GCM_SHA256"` を assert できる
+- [ ] 既定 1.3 self E2E で最初の server handshake が cookie 付き HRR ではない
+- [ ] `helloRetryRequest: true` の self E2E で cookie 付き HRR → CH2 → 接続成功が確認できる
 
 ### Browser E2E structure
 
@@ -593,7 +662,7 @@ Browser E2E は `npm run install:browsers` のあと、既存 e2e と dtls param
 ### Chromium interoperability
 
 - [ ] Chromium offerer → werift answerer を DTLS 1.2 で確認
-- [ ] Chromium offerer → werift answerer を DTLS 1.3 で確認
+- [ ] Chromium offerer → werift answerer を DTLS 1.3 で確認（cookie HRR 省略の既定経路）
 - [ ] werift offerer → Chromium answerer を DTLS 1.2 で確認
 - [ ] werift offerer → Chromium answerer を DTLS 1.3 で確認
 - [ ] DTLS 1.2 で Chromium `tlsVersion === "FEFD"`
@@ -625,6 +694,7 @@ Browser E2E は `npm run install:browsers` のあと、既存 e2e と dtls param
 ### ドキュメント
 
 - [ ] `packages/webrtc` 近傍に DTLS 1.3 opt-in と default 1.2 が記載されている
+- [ ] 1.3 では既定で cookie HRR を省略することと、`helloRetryRequest: true` で送れることが記載されている
 - [ ] Chromium field trial / 確認方法が e2e helper または近傍 docs にある
 
 ---
