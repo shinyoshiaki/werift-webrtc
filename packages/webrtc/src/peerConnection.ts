@@ -134,9 +134,7 @@ export class RTCPeerConnection extends EventTarget {
     return this.eventHandlers.onicecandidate ?? null;
   }
 
-  set onicecandidate(
-    value: CallbackWithValue<RTCPeerConnectionIceEvent> | null,
-  ) {
+  set onicecandidate(value: CallbackWithValue<RTCPeerConnectionIceEvent> | null) {
     this.eventHandlers.onicecandidate = value ?? undefined;
   }
 
@@ -1383,7 +1381,8 @@ export interface RTCConfiguration {
   certificates?: RTCCertificate[];
 }
 
-export interface RTCLocalSessionDescriptionInit extends RTCSessionDescriptionInit {
+export interface RTCLocalSessionDescriptionInit
+  extends RTCSessionDescriptionInit {
   type?: Exclude<RTCSessionDescriptionInit["type"], "rollback"> | "rollback";
 }
 
