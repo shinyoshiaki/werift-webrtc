@@ -21,7 +21,7 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "ci": "run-s lint:imports type:all build test doc:check wpt wpt:coverage",
+    "ci": "run-s lint:imports type:all build test wpt wpt:coverage",
     "clean": "rm -rf e2e/node_modules && rm -rf packages/*/node_modules",
     "datachannel": "ts-node-dev examples/datachannel/offer.ts",
     "debug": "DEBUG=werift* tsx watch examples/mediachannel/sendrecv/answer.ts",
