@@ -522,15 +522,16 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     await this.iceTransport.connection.send(enc).catch(() => {});
   }
 
-  private tryRemoteCertificate() {
-    if (!this.dtls) {
+  /**
+   * Stats-only remote certificate. The DTLS socket throws if the association
+   * is torn down, so skip the getter unless this transport is connected.
+   * Unexpected throws while connected are left to propagate.
+   */
+  private remoteCertificateForStats() {
+    if (!this.dtls || this.state !== "connected") {
       return;
     }
-    try {
-      return this.dtls.remoteCertificate;
-    } catch {
-      return;
-    }
+    return this.dtls.remoteCertificate;
   }
 
   private setState(state: DtlsState, emitEvent = true) {
@@ -581,7 +582,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       localCertificateId: this.localCertificate
         ? generateStatsId("certificate", this.id, "local")
         : undefined,
-      remoteCertificateId: this.tryRemoteCertificate()
+      remoteCertificateId: this.remoteCertificateForStats()
         ? generateStatsId("certificate", this.id, "remote")
         : undefined,
       dtlsRole: this.role === "auto" ? undefined : this.role,
@@ -610,7 +611,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       }
     }
 
-    const remoteCertificate = this.tryRemoteCertificate();
+    const remoteCertificate = this.remoteCertificateForStats();
     if (
       this.remoteParameters &&
       this.remoteParameters.fingerprints.length > 0 &&

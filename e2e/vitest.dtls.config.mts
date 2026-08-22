@@ -5,6 +5,7 @@ import { existsSync } from "node:fs";
 import { chromium } from "playwright";
 import { defineConfig } from "vitest/config";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
+import { chromiumLaunchArgs } from "./tests/dtls/chromiumLaunch";
 
 let playwrightChromium: string | undefined;
 try {
@@ -24,7 +25,6 @@ const chromiumExecutablePath = [
 
 const chromiumMode =
   process.env.DTLS_CHROMIUM_MODE === "dtls13" ? "dtls13" : "dtls12";
-const forceDtls13 = chromiumMode === "dtls13" ? "Only" : "Off";
 
 export default defineConfig({
   plugins: [nodePolyfills()],
@@ -55,15 +55,7 @@ export default defineConfig({
             ...(chromiumExecutablePath
               ? { executablePath: chromiumExecutablePath }
               : {}),
-            args: [
-              "--use-fake-ui-for-media-stream",
-              "--use-fake-device-for-media-stream",
-              "--ignore-certificate-errors",
-              "--allow-insecure-localhost",
-              "--disable-features=WebRtcHideLocalIpsWithMdns",
-              "--force-webrtc-ip-handling-policy=default_public_interface_only",
-              `--force-fieldtrials=WebRTC-ForceDtls13/${forceDtls13}/WebRTC-IceHandshakeDtls/Disabled/`,
-            ],
+            args: chromiumLaunchArgs(chromiumMode),
           },
         },
       ],

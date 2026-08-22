@@ -28,8 +28,13 @@
 /// <reference types="vite/client" />
 
 import { peer, sleep, waitVideoPlay } from "../fixture";
-
-export type ChromiumDtlsMode = "dtls12" | "dtls13";
+import type { ChromiumDtlsMode } from "./chromiumLaunch";
+export {
+  type ChromiumDtlsMode,
+  chromiumFieldTrialArgs,
+  chromiumLaunchArgs,
+  chromiumMediaArgs,
+} from "./chromiumLaunch";
 
 export type BrowserDtlsTestCase = {
   name: string;
@@ -82,22 +87,6 @@ export function casesForCurrentChromium(): BrowserDtlsTestCase[] {
     (testCase) => testCase.chromiumMode === mode,
   );
 }
-
-export function chromiumFieldTrialArgs(mode: ChromiumDtlsMode) {
-  const forceDtls13 = mode === "dtls13" ? "Only" : "Off";
-  return [
-    `--force-fieldtrials=WebRTC-ForceDtls13/${forceDtls13}/WebRTC-IceHandshakeDtls/Disabled/`,
-  ];
-}
-
-export const chromiumMediaArgs = [
-  "--use-fake-ui-for-media-stream",
-  "--use-fake-device-for-media-stream",
-  "--ignore-certificate-errors",
-  "--allow-insecure-localhost",
-  "--disable-features=WebRtcHideLocalIpsWithMdns",
-  "--force-webrtc-ip-handling-policy=default_public_interface_only",
-];
 
 export type WeriftDtlsDiagnostics = {
   connectionState: string;

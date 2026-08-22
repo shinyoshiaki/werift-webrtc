@@ -217,6 +217,26 @@ export async function waitForDtlsState(
   ]);
 }
 
+export async function waitForIceNominated(
+  pc: RTCPeerConnection,
+  timeoutMs = 10_000,
+) {
+  const started = Date.now();
+  for (;;) {
+    const ice = pc.dtlsTransports[0]?.iceTransport;
+    const iceUp = ice?.state === "connected" || ice?.state === "completed";
+    if (ice?.connection.nominated && iceUp) {
+      return;
+    }
+    if (Date.now() - started > timeoutMs) {
+      throw new Error(
+        `timed out waiting for ICE nominated pair (state=${ice?.state} nominated=${!!ice?.connection.nominated})`,
+      );
+    }
+    await setTimeout(50);
+  }
+}
+
 export async function getTransportStats(pc: RTCPeerConnection) {
   const stats = await pc.getStats();
   return [...stats.values()].find(

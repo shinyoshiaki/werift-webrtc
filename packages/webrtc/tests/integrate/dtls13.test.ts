@@ -23,6 +23,7 @@ import {
   mutateSdpFingerprint,
   waitForConnectionState,
   waitForDtlsState,
+  waitForIceNominated,
 } from "../utils";
 
 const V1_2 = DtlsVersion.V1_2;
@@ -314,14 +315,51 @@ describe("DTLS 1.3 WebRTC opt-in", () => {
     }
   }, 20_000);
 
-  test("ICE restart 後も DTLS 1.3 association を再利用する", async () => {
-    const pc1 = new RTCPeerConnection(dtlsPeerConfig([V1_3]));
-    const pc2 = new RTCPeerConnection(dtlsPeerConfig([V1_3]));
+  test("ICE restart 後も DTLS 1.3 の DataChannel / RTP / RTCP が使える", async () => {
+    const config = {
+      ...dtlsPeerConfig([V1_3]),
+      bundlePolicy: "max-bundle" as const,
+    };
+    const pc1 = new RTCPeerConnection(config);
+    const pc2 = new RTCPeerConnection(config);
+    const track = new MediaStreamTrack({ kind: "video" });
     try {
+      const rtpAfter = new Promise<Buffer>((resolve) => {
+        pc2.onRemoteTransceiverAdded.subscribe((transceiver) => {
+          transceiver.onTrack.subscribe((remoteTrack) => {
+            remoteTrack.onReceiveRtp.subscribe((rtp) => {
+              if (rtp.payload.equals(Buffer.from("after-ice"))) {
+                resolve(rtp.payload);
+              }
+            });
+          });
+        });
+      });
+      pc1.addTransceiver(track, { direction: "sendonly" });
       const [dc1, dc2] = await createDataChannelPair(undefined, pc1, pc2);
       await assertTransportVersion(pc1, "DTLS 1.3");
       dc1.send("before");
       expect(await awaitMessage(dc2)).toBe("before");
+
+      let seq = 1;
+      const write = (payload: string) => {
+        track.writeRtp(
+          new RtpPacket(
+            new RtpHeader({ sequenceNumber: seq++ }),
+            Buffer.from(payload),
+          ).serialize(),
+        );
+      };
+      write("before-ice");
+
+      let rtcp1 = 0;
+      let rtcp2 = 0;
+      pc1.dtlsTransports[0].onRtcp.subscribe(() => {
+        rtcp1++;
+      });
+      pc2.dtlsTransports[0].onRtcp.subscribe(() => {
+        rtcp2++;
+      });
       const dtlsId = pc1.dtlsTransports[0].id;
 
       // Act: ICE restart。DTLS 再 handshake はしない（既存 association 継続）。
@@ -331,19 +369,47 @@ describe("DTLS 1.3 WebRTC opt-in", () => {
       await pc2.setRemoteDescription(pc1.localDescription!);
       await pc2.setLocalDescription(await pc2.createAnswer());
       await pc1.setRemoteDescription(pc2.localDescription!);
+      await Promise.all([waitForIceNominated(pc1), waitForIceNominated(pc2)]);
 
-      // Assert: 同じ DTLS transport / 1.3 / DataChannel が残る。
+      dc1.send("after");
+      expect(await awaitMessage(dc2)).toBe("after");
+
+      const rtpDeadline = Date.now() + 8_000;
+      while (Date.now() < rtpDeadline) {
+        write("after-ice");
+        const received = await Promise.race([
+          rtpAfter.then(() => true),
+          setTimeout(200).then(() => false),
+        ]);
+        if (received) {
+          break;
+        }
+      }
+      expect(await rtpAfter).toEqual(Buffer.from("after-ice"));
+
+      const rtcpDeadline = Date.now() + 8_000;
+      while (rtcp1 === 0 || rtcp2 === 0) {
+        if (Date.now() > rtcpDeadline) {
+          throw new Error(
+            `ICE restart 後 RTCP が届かない pc1=${rtcp1} pc2=${rtcp2}`,
+          );
+        }
+        write("after-ice");
+        await setTimeout(200);
+      }
+
+      // Assert: 同じ DTLS 1.3 association の上で media が使える。
       expect(pc1.dtlsTransports[0].id).toBe(dtlsId);
       expect(pc1.dtlsTransports[0].state).toBe("connected");
       expect(pc1.dtlsTransports[0].iceTransport.iceRestarts).toBeGreaterThan(0);
-      expect(dc1.readyState).toBe("open");
-      expect(dc2.readyState).toBe("open");
       await assertTransportVersion(pc1, "DTLS 1.3");
       await assertTransportVersion(pc2, "DTLS 1.3");
+      expect(rtcp1).toBeGreaterThan(0);
+      expect(rtcp2).toBeGreaterThan(0);
     } finally {
       await Promise.allSettled([pc1.close(), pc2.close()]);
     }
-  }, 20_000);
+  }, 25_000);
 
   test("既定の DTLS 1.3 は cookie 付き HRR を送らない", async () => {
     const pc1 = new RTCPeerConnection(dtlsPeerConfig([V1_3]));

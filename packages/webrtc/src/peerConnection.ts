@@ -134,7 +134,9 @@ export class RTCPeerConnection extends EventTarget {
     return this.eventHandlers.onicecandidate ?? null;
   }
 
-  set onicecandidate(value: CallbackWithValue<RTCPeerConnectionIceEvent> | null) {
+  set onicecandidate(
+    value: CallbackWithValue<RTCPeerConnectionIceEvent> | null,
+  ) {
     this.eventHandlers.onicecandidate = value ?? undefined;
   }
 
@@ -891,23 +893,27 @@ export class RTCPeerConnection extends EventTarget {
     const res = await Promise.allSettled(
       this.dtlsTransports.map(async (dtlsTransport) => {
         const { iceTransport } = dtlsTransport;
-        if (iceTransport.state === "connected") {
-          return;
-        }
-        const checkDtlsConnected = () => dtlsTransport.state === "connected";
-
-        if (checkDtlsConnected()) {
+        // Gathering sets Connection.state to "completed" before any remote
+        // checks. Only "connected" means ICE has a nominated pair.
+        // ICE restart leaves DTLS connected while ICE returns to "new"/gather
+        // "completed"; skip ICE start only when ICE is already connected.
+        if (
+          iceTransport.state === "connected" &&
+          dtlsTransport.state === "connected"
+        ) {
           return;
         }
 
         this.secureManager.setConnectionState("connecting");
 
-        await iceTransport.start().catch((err) => {
-          log("iceTransport.start failed", err);
-          throw err;
-        });
+        if (iceTransport.state !== "connected") {
+          await iceTransport.start().catch((err) => {
+            log("iceTransport.start failed", err);
+            throw err;
+          });
+        }
 
-        if (checkDtlsConnected()) {
+        if (dtlsTransport.state === "connected") {
           return;
         }
 
@@ -1377,8 +1383,7 @@ export interface RTCConfiguration {
   certificates?: RTCCertificate[];
 }
 
-export interface RTCLocalSessionDescriptionInit
-  extends RTCSessionDescriptionInit {
+export interface RTCLocalSessionDescriptionInit extends RTCSessionDescriptionInit {
   type?: Exclude<RTCSessionDescriptionInit["type"], "rollback"> | "rollback";
 }
 

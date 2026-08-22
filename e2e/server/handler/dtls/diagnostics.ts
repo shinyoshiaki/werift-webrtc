@@ -54,12 +54,7 @@ export async function collectWeriftDtlsDiagnostics(
     };
   }
 
-  let stats: Map<string, { type: string }>;
-  try {
-    stats = await pc.getStats();
-  } catch {
-    stats = new Map();
-  }
+  const stats = await pc.getStats();
   const transport = [...stats.values()].find(
     (stat) => stat.type === "transport",
   ) as
