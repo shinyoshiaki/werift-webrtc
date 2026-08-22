@@ -33,8 +33,10 @@ TWCC はアルゴリズムを規定しません。GCC / NADA / SCReAM などを 
 
 [packages/webrtc/src/media/rtpSender.ts:139](review-file:packages/webrtc/src/media/rtpSender.ts:139) の `onAvailableBitrate` は差し替え後も購読が残ります。単位は **bps**、値が変わったときだけ発火します。
 
+<!-- review-bookmark id="bm_1a023df1fcc-622bf38e" title="1. 概要" -->
 [packages/webrtc/src/media/sender/bandwidthEstimator.ts:196](review-file:packages/webrtc/src/media/sender/bandwidthEstimator.ts:196) の `setAvailableBitrateIfChanged` がその「変化時のみ」を実装しています。
 
+<!-- review-bookmark id="bm_1a023e04634-57fcdcd4" title="1. 概要" -->
 ```mermaid
 sequenceDiagram
   participant App
