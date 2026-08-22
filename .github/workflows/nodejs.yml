@@ -11,10 +11,13 @@ on:
       - "shinyoshiaki/*"
   pull_request:
     types: [opened, synchronize, reopened, closed]
-    branches: [develop]
 
 jobs:
   build:
+    if: |
+      github.event_name != 'pull_request' ||
+      github.base_ref == 'develop' ||
+      startsWith(github.head_ref, 'ticket/')
     runs-on: ubuntu-latest
 
     strategy:
@@ -50,6 +53,10 @@ jobs:
 
   dtls13-boringssl:
     name: DTLS 1.3 BoringSSL interop (P0)
+    if: |
+      github.event_name != 'pull_request' ||
+      github.base_ref == 'develop' ||
+      startsWith(github.head_ref, 'ticket/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
