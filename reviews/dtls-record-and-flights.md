@@ -18,11 +18,15 @@ UDP 上では TLS の TCP ストリームが使えない。DTLS は **record** �
 | --- | --- |
 | ACK | DTLS 1.3 の record 型 26。flight 完了通知 |
 | CCS | ChangeCipherSpec。1.2 だけ。epoch 切替の合図 |
+| Cert / CV | Certificate / CertificateVerify |
 | CH / SH | ClientHello / ServerHello |
+| CKE / SKE | ClientKeyExchange / ServerKeyExchange（1.2 だけ） |
 | EE | EncryptedExtensions（1.3） |
 | HRR | HelloRetryRequest（1.3 Flight 2） |
 | HVR | HelloVerifyRequest（1.2 Flight 2） |
+| KU | KeyUpdate（1.3 post-HS） |
 | MTU | 1 datagram に載せられる最大サイズ。handshake は fragment に分割 |
+| SHD | ServerHelloDone（1.2 だけ） |
 
 [packages/dtls/src/index.ts:107](review-diff:packages/dtls/src/index.ts:commit:3bf0b1bd:107)
 
@@ -107,28 +111,48 @@ unified header は先頭 3 bit `001`。CID（C=1）は拒否。seq は header �
 
 ### Flight 1 — ClientHello
 
-client が CH を送る。cipher / random / ECDHE はまだ server に commit しない（cookie 前の poison を防ぐ）。
+**目的:** 握手を開始し、client の能力（cipher / 拡張 / random）を伝える。まだ「その UDP 送信元が返せる」ことの証明は無い。server はここで suite / ECDHE を **commit しない**（cookie 前の poison を防ぐ）。
+
+| メッセージ | 目的 |
+| --- | --- |
+| ClientHello | 提案: version、cipher 一覧、client random、extensions（`use_srtp`、EMS、supported_groups など）。鍵交換の公開値はまだ載せない（SKE/CKE が担う） |
 
 [packages/dtls/src/flight/client/flight1.ts:10](review-file:packages/dtls/src/flight/client/flight1.ts:10)
 [packages/dtls/src/client.ts:752](review-file:packages/dtls/src/client.ts:752)
 
 ### Flight 2 — HelloVerifyRequest
 
-server が cookie だけ返す。HMAC(secret, source, CH params)。**crypto はまだ作らない**。
+**目的:** return-routability。cookie をそのアドレスへ届け、増幅攻撃と偽送信元を抑える。**version 確定でも鍵確定でもない。** HVR 自身は再送しない。
+
+| メッセージ | 目的 |
+| --- | --- |
+| HelloVerifyRequest | HMAC(secret, source, CH params) の cookie を渡す。対向が同じ CH を cookie 付きで返せるか試す |
 
 [packages/dtls/src/flight/server/flight2.ts:18](review-file:packages/dtls/src/flight/server/flight2.ts:18)
 [packages/dtls/src/flight/server/flight2.ts:18](review-diff:packages/dtls/src/flight/server/flight2.ts:commit:3bf0b1bd:18)
 
 ### Flight 3 — ClientHello + cookie
 
-client が同じ CH に cookie を付けて再送。複数 HVR を許容する。
+**目的:** 「HVR をそのアドレスで受け取った」ことを示す。中身は Flight 1 と同じ CH に `legacy_cookie` を付けたもの。複数 HVR（re-challenge）を許容する。
+
+| メッセージ | 目的 |
+| --- | --- |
+| ClientHello（cookie 付き） | 同じ random / 提案のまま cookie をエコーし、server が Flight 4 を始めてよいと示す |
 
 [packages/dtls/src/flight/client/flight3.ts:12](review-file:packages/dtls/src/flight/client/flight3.ts:12)
 [packages/dtls/src/flight/client/flight3.ts:17](review-diff:packages/dtls/src/flight/client/flight3.ts:commit:3bf0b1bd:17)
 
 ### Flight 4 — ServerHello … ServerHelloDone
 
-cookie 検証成功後、はじめて pin / suite / ECDHE を commit。平文で SH + Certificate + ServerKeyExchange + ServerHelloDone（任意で CertificateRequest）。再送 CH2 では **同じ Flight 4 を再送**し、random を作り直さない。
+**目的:** cookie 検証成功後、はじめて pin / suite / ECDHE を commit し、server 側の選択と身元・鍵材料を平文で渡す。再送 CH2 では **同じ Flight 4 を再送**し、random を作り直さない。
+
+| メッセージ | 目的 |
+| --- | --- |
+| ServerHello | 選んだ version / cipher / server random / session_id。DOWNGRD が要るときは Random 末尾に入れる |
+| Certificate | server の X.509。fingerprint / 署名検証の対象 |
+| ServerKeyExchange | ECDHE 公開鍵 + 証明書秘密鍵による署名。PMS の片側と「この Cert の持ち主」を同時に示す |
+| CertificateRequest* | 相互認証。client に Cert + CV を要求 |
+| ServerHelloDone | server の平文束の終わり。client は Flight 5 を送ってよい |
 
 [packages/dtls/src/flight/server/flight4.ts:26](review-file:packages/dtls/src/flight/server/flight4.ts:26)
 [packages/dtls/src/flight/server/commitClientHello.ts:41](review-file:packages/dtls/src/flight/server/commitClientHello.ts:41)
@@ -136,14 +160,27 @@ cookie 検証成功後、はじめて pin / suite / ECDHE を commit。平文で
 
 ### Flight 5 — ClientKeyExchange … Finished
 
-client が CKE（ECDHE）→ 任意 Cert/CV → **CCS** → epoch 1 の Finished。PRF で master secret。
+**目的:** client の ECDHE 片側を渡し、PRF で master secret を作り、CCS で epoch 1 に切り、Finished で transcript を認証する。相互認証なら先に Cert + CV。
+
+| メッセージ | 目的 |
+| --- | --- |
+| Certificate* | client の X.509（CertificateRequest があったとき） |
+| ClientKeyExchange | client の ECDHE 公開鍵。server と合わせて premaster → master secret |
+| CertificateVerify* | これまでの handshake を client 秘密鍵で署名。Cert の持ち主であることを示す |
+| ChangeCipherSpec | 以降の record を epoch 1 の AEAD で書く合図（handshake メッセージではない） |
+| Finished | master secret 由来の verify_data。鍵合意と transcript の一致を証明 |
 
 [packages/dtls/src/flight/client/flight5.ts:37](review-file:packages/dtls/src/flight/client/flight5.ts:37)
 [packages/dtls/src/flight/client/flight5.ts:199](review-file:packages/dtls/src/flight/client/flight5.ts:199)
 
 ### Flight 6 — CCS + Finished
 
-server が CCS → epoch 1 の Finished。双方 Finished が通れば application（この実装では epoch 1）。
+**目的:** server も epoch 1 に切り替え、同じ transcript を Finished で閉じる。双方 Finished が通れば application（この実装では epoch 1）。
+
+| メッセージ | 目的 |
+| --- | --- |
+| ChangeCipherSpec | server write を epoch 1 にする合図 |
+| Finished | server 側の verify_data。client の Flight 5 と同じ master secret / transcript を確認 |
 
 [packages/dtls/src/flight/server/flight6.ts:24](review-file:packages/dtls/src/flight/server/flight6.ts:24)
 [packages/dtls/src/flight/server/flight6.ts:85](review-file:packages/dtls/src/flight/server/flight6.ts:85)
@@ -162,21 +199,33 @@ Figure 2（session resume、cookie なし 3 flight）は RFC にあるが、証�
 
 ### Flight 1 — ClientHello + key_share
 
-legacy_version は `0xfefd`、`legacy_cookie` は空。実 version は `supported_versions`。cipher は `0x1301`。key_share を載せる。
+**目的:** 握手を開始し、1.3 の能力と **最初の ECDHE 公開鍵** を同時に出す（1.2 の CKE 相当を CH に前倒し）。アドレス検証前なので server はまだ大きな Flight 4 を増幅しない。
+
+| メッセージ | 目的 |
+| --- | --- |
+| ClientHello | `legacy_version=0xfefd`、`legacy_cookie` 空。`supported_versions` で実 version。cipher `0x1301`。`key_share` で ECDHE。`signature_algorithms` / `use_srtp` など |
 
 [packages/dtls/src/engine/v1_3/flight/client/flight1.ts:28](review-file:packages/dtls/src/engine/v1_3/flight/client/flight1.ts:28)
 [packages/dtls/src/engine/v1_3/flight/client/flight1.ts:28](review-diff:packages/dtls/src/engine/v1_3/flight/client/flight1.ts:commit:3bf0b1bd:28)
 
 ### Flight 2 — HelloRetryRequest*（任意・最大 1 回）
 
-cookie および/または `selected_group`。stateless。RTO キャッシュしない。SH と同じ型だが Random が RFC 8446 の HRR 定数。
+**目的:** 1.2 の HVR に相当する「小さな挑戦」だが、置き場が違う。cookie でアドレス検証し、必要なら `selected_group` で key_share をやり直させる。stateless。RTO キャッシュしない。SH と同じ handshake 型で、Random が HRR 定数なら HRR。
+
+| メッセージ | 目的 |
+| --- | --- |
+| HelloRetryRequest | cookie extension 44 および/または `selected_group`。CH2 が満たすべき条件を指示する。version の最終確定ではない（本物の SH が確定） |
 
 [packages/dtls/src/engine/v1_3/flight/server/flight2.ts:60](review-file:packages/dtls/src/engine/v1_3/flight/server/flight2.ts:60)
 [packages/dtls/src/engine/v1_3/types.ts:183](review-file:packages/dtls/src/engine/v1_3/types.ts:183)
 
 ### Flight 3 — ClientHello + cookie*
 
-Flight 1 と同じ `sendClientHello`。cookie extension と（必要なら）新しい key_share。`legacy_cookie` は空のまま。
+**目的:** HRR の条件を満たした CH を出し、server が Flight 4 を増幅してよい状態にする。`legacy_cookie` は空のまま（cookie は extension）。
+
+| メッセージ | 目的 |
+| --- | --- |
+| ClientHello | Flight 1 と同じ形 + cookie extension。group を変えられたときは新しい `key_share`。CH1 との差は RFC 8446 §4.1.4 が許す範囲だけ |
 
 server 受信は [packages/dtls/src/engine/v1_3/flight/server/flight4.ts:56](review-file:packages/dtls/src/engine/v1_3/flight/server/flight4.ts:56) `onClientHello`。cookie 無しなら Flight 2 を返し、検証後に Flight 4 へ進む。
 
@@ -185,9 +234,18 @@ server 受信は [packages/dtls/src/engine/v1_3/flight/server/flight4.ts:56](rev
 
 ### Flight 4 — ServerHello + {EE … Finished}
 
-SH だけ epoch 0。その直後から handshake keys（epoch 2）で EncryptedExtensions、任意 CertificateRequest、Certificate、CertificateVerify、Finished。server は Finished 後に epoch 3 で app を送ってよい。
+**目的:** version / cipher / ECDHE を確定し、handshake traffic keys（epoch 2）を立て、server の身元と Finished までを **同じ束** で送る。SH だけ平文。残りは `{ }`。CCS / SKE / SHD は無い。server は自分の Finished 後に epoch 3 で app を送ってよい。
 
 client は [packages/dtls/src/engine/v1_3/flight/client/flight4.ts:41](review-file:packages/dtls/src/engine/v1_3/flight/client/flight4.ts:41) `onServerHello` で HRR か本物の SH かを Random で分ける。
+
+| メッセージ | 目的 |
+| --- | --- |
+| ServerHello | 選んだ 1.3（`supported_versions`）、cipher、server `key_share`。これと CH の key_share から handshake secret が立つ |
+| EncryptedExtensions | SH に出せない拡張（`use_srtp` など）。handshake keys で保護 |
+| CertificateRequest* | 相互認証。client に Cert + CV を要求 |
+| Certificate | server 身元（TLS 1.3 の Cert 形式） |
+| CertificateVerify | transcript を server 秘密鍵で署名（`rsa_pkcs1_*` 禁止） |
+| Finished | handshake traffic secret の verify_data。server 側握手の完了と transcript 認証 |
 
 [packages/dtls/src/engine/v1_3/flight/server/flight4.ts:452](review-file:packages/dtls/src/engine/v1_3/flight/server/flight4.ts:452)
 [packages/dtls/src/engine/v1_3/flight/server/flight4.ts:505](review-diff:packages/dtls/src/engine/v1_3/flight/server/flight4.ts:commit:3bf0b1bd:505)
@@ -195,7 +253,13 @@ client は [packages/dtls/src/engine/v1_3/flight/client/flight4.ts:41](review-fi
 
 ### Flight 5 — {Certificate* CertificateVerify* Finished}
 
-client が server Finished を検証してから、任意の client 証明書と Finished を epoch 2 で送る。server が受け取ると双方 epoch 3。
+**目的:** server Finished を検証したあと、client 側の握手を閉じ application keys（epoch 3）へ進む。CKE / CCS は無い（鍵はすでに SH の key_share）。
+
+| メッセージ | 目的 |
+| --- | --- |
+| Certificate* | client 身元（CertificateRequest があったとき） |
+| CertificateVerify* | client が transcript を署名 |
+| Finished | client handshake traffic secret の verify_data。これが通ると双方 epoch 3 |
 
 [packages/dtls/src/engine/v1_3/flight/client/flight5.ts:14](review-file:packages/dtls/src/engine/v1_3/flight/client/flight5.ts:14)
 [packages/dtls/src/engine/v1_3/flight/server/flight5.ts:7](review-file:packages/dtls/src/engine/v1_3/flight/server/flight5.ts:7)
@@ -203,7 +267,12 @@ client が server Finished を検証してから、任意の client 証明書と
 
 ### Post-HS — ACK と KeyUpdate
 
-Flight 5 のあと server は ACK を返す（record 26）。以降どちらかが KeyUpdate を送り、ACK が来るまで **新しい write keys では送らない**。
+**目的:** handshake 後の損失回復と再鍵。1.2 の Flight 6 CCS に相当する「切替合図」は無く、ACK が再送を止め、KeyUpdate が app 鍵を回す。
+
+| メッセージ | 目的 |
+| --- | --- |
+| ACK（record 26） | 受信した RecordNumber を列挙し、対向の pending flight 再送を止める。handshake 型ではない |
+| KeyUpdate | application traffic secret を更新。現行 write keys で送り、ACK まで新 keys では送らない |
 
 [packages/dtls/src/engine/v1_3/flight/post-hs.ts:5](review-file:packages/dtls/src/engine/v1_3/flight/post-hs.ts:5)
 [packages/dtls/src/engine/v1_3/flight/post-hs.ts:49](review-file:packages/dtls/src/engine/v1_3/flight/post-hs.ts:49)
