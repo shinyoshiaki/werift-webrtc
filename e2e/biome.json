@@ -1,4 +1,15 @@
 {
+  "files": {
+    "ignore": [
+      ".sak-link",
+      "**/build",
+      "**/build/**",
+      "**/dist",
+      "**/dist/**",
+      "**/lib",
+      "**/lib/**"
+    ]
+  },
   "formatter": {
     "indentStyle": "space"
   },
@@ -19,7 +30,7 @@
       "complexity": {
         "noStaticOnlyClass": "off",
         "noUselessCatch": "off",
-        "noForEach": "warn",
+        "noForEach": "off",
         "noThisInStatic": "off",
         "useLiteralKeys": "off",
         "noUselessConstructor": "off"

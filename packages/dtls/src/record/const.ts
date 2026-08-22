@@ -3,6 +3,8 @@ export enum ContentType {
   alert = 21,
   handshake = 22,
   applicationData = 23,
+  /** DTLS 1.3 ACK (RFC 9147) */
+  ack = 26,
 }
 
 export enum AlertDesc {
@@ -30,5 +32,9 @@ export enum AlertDesc {
   InternalError = 80,
   UserCanceled = 90,
   NoRenegotiation = 100,
+  /** RFC 8446 missing_extension */
+  MissingExtension = 109,
   UnsupportedExtension = 110,
+  /** RFC 8446 certificate_required */
+  CertificateRequired = 116,
 }

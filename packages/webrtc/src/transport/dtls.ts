@@ -216,6 +216,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
           srtpProfiles: this.srtpProfiles,
           extendedMasterSecret: true,
           certificateRequest: true,
+          // ICE selected pair is already peer-authenticated (no UDP 5-tuple).
+          peerIdentityMode: "authenticated-single-peer",
+          addressValidation: "ice-authenticated",
         });
       } else {
         this.dtls = new DtlsClient({
@@ -225,6 +228,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
           transport: createIceTransport(this.iceTransport.connection),
           srtpProfiles: this.srtpProfiles,
           extendedMasterSecret: true,
+          peerIdentityMode: "authenticated-single-peer",
+          addressValidation: "ice-authenticated",
         });
       }
       this.dtls.onData.subscribe((buf) => {
@@ -687,6 +692,11 @@ const selectPreferredFingerprintAlgorithm = (
 
 class IceTransport implements Transport {
   closed: boolean = false;
+  /**
+   * ICE selected-pair path is already authenticated — DTLS 1.2 must not treat
+   * AEAD-protected alerts as "pre-auth" merely because UDP pin is unavailable.
+   */
+  readonly peerAuthenticated = true;
   constructor(private ice: IceConnection) {
     ice.onData.subscribe((buf) => {
       if (isDtls(buf)) {

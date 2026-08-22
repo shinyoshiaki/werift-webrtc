@@ -14,14 +14,47 @@ export class Flight3 extends Flight {
     super(udp, dtls, 3, 5);
   }
 
+  /**
+   * Process HelloVerifyRequest: attach cookie and send ClientHello2.
+   *
+   * RFC 6347: clients should tolerate multiple HVRs (re-challenge on invalid /
+   * expired cookie, server restart, address change). First HVR arrives while
+   * flight is still 1; a re-challenge HVR arrives while flight is 3 (waiting
+   * for Flight4). Do not throw on the second case.
+   */
   async exec(verifyReq: ServerHelloVerifyRequest) {
-    if (this.dtls.flight === 3) throw new Error();
-    this.dtls.flight = 3;
+    // After ServerHello path advanced, ignore late HVR.
+    if (this.dtls.flight > 3) {
+      log(
+        this.dtls.sessionId,
+        "ignore HelloVerifyRequest after flight advanced",
+        this.dtls.flight,
+      );
+      return;
+    }
 
-    this.dtls.handshakeCache = [];
+    const rechallenge = this.dtls.flight === 3;
+    this.dtls.flight = 3;
+    // Invalidate any prior Flight3 retransmit loop (stale cookie).
+    this.dtls.hvrGeneration += 1;
+    this.transmitGeneration = this.dtls.hvrGeneration;
+
+    // Clear local handshake cache for a fresh CH2 transmission.
+    // (Object map — do not assign [].)
+    this.dtls.handshakeCache = {};
 
     const [clientHello] = this.dtls.lastFlight as [ClientHello];
-    log("dtls version", clientHello.clientVersion);
+    if (!clientHello) {
+      throw new Error("Flight3: no ClientHello in lastFlight for HVR cookie");
+    }
+    log(
+      this.dtls.sessionId,
+      rechallenge ? "HVR re-challenge" : "HVR first",
+      "generation",
+      this.transmitGeneration,
+      "dtls version",
+      clientHello.clientVersion,
+    );
     clientHello.cookie = verifyReq.cookie;
     this.dtls.cookie = verifyReq.cookie;
 

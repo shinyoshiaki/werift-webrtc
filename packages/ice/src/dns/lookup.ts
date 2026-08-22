@@ -60,6 +60,7 @@ export class DnsLookup {
 
   constructor() {
     const lookupWorkerFunction = () => {
+      // hoist-imports-allow: eval'd worker must resolve modules inside the worker isolate
       const worker_thread = global.require("worker_threads");
       const { lookup } = global.require("dns");
 

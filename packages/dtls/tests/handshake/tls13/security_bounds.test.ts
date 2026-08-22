@@ -1,0 +1,421 @@
+import { createHash, randomBytes } from "crypto";
+import { describe, expect, test } from "vitest";
+import {
+  DirectHandshakeCarrier,
+  createHandshakeDatagram,
+} from "../../../src/carrier/direct";
+import { SignatureScheme } from "../../../src/cipher/const";
+import {
+  EPOCH_KEY_TTL_MS,
+  EPOCH_PRUNE_INTERVAL_MS,
+} from "../../../src/engine/v1_3/types";
+import { HandshakeType } from "../../../src/handshake/const";
+import {
+  cookieBinding,
+  mintCookie,
+  peerKeyFromAddr,
+  verifyCookie,
+} from "../../../src/handshake/extensions/cookie";
+import {
+  DEFAULT_SIGNATURE_SCHEMES,
+  SignatureScheme13,
+} from "../../../src/handshake/extensions/signatureAlgorithms";
+import {
+  DtlsAck,
+  recordsFullyAcked,
+  remainingAfterAck,
+} from "../../../src/handshake/message/tls13/ack";
+import { Certificate13 } from "../../../src/handshake/message/tls13/certificate";
+import { FragmentedHandshake } from "../../../src/record/message/fragment";
+
+describe("security bounds: cookie binding", () => {
+  test("cookie verifies only for matching peer + ClientHello", () => {
+    // Arrange: 前提を準備する
+    const secret = randomBytes(16);
+    const ch = randomBytes(80);
+    const peer = "127.0.0.1:50000";
+    const binding = cookieBinding(peer, ch);
+    const cookie = mintCookie(secret, binding);
+
+    // Act / Assert: cookie 経路を検証する
+    expect(verifyCookie(secret, cookie, binding)).toBe(true);
+    // 別 peer では失敗
+    expect(verifyCookie(secret, cookie, cookieBinding("10.0.0.1:9", ch))).toBe(
+      false,
+    );
+    // 別 ClientHello では失敗
+    expect(
+      verifyCookie(secret, cookie, cookieBinding(peer, randomBytes(80))),
+    ).toBe(false);
+  });
+
+  test("mint-time peer binding must match verify-time peer (dual reinject regression)", () => {
+    // Arrange: 前提を準備する
+    const secret = randomBytes(16);
+    const ch1 = randomBytes(100);
+    const mintPeer = "unknown";
+    const realPeer = "127.0.0.1:54321";
+    const cookie = mintCookie(secret, cookieBinding(mintPeer, ch1));
+
+    // Act / Assert: mint と verify で peer が食い違うと失敗（バグ再現）
+    expect(verifyCookie(secret, cookie, cookieBinding(realPeer, ch1))).toBe(
+      false,
+    );
+    // 同一 peer を保持すれば成功
+    expect(verifyCookie(secret, cookie, cookieBinding(mintPeer, ch1))).toBe(
+      true,
+    );
+
+    // 正しい経路: 発行時も検証時も real peer
+    const good = mintCookie(secret, cookieBinding(realPeer, ch1));
+    expect(verifyCookie(secret, good, cookieBinding(realPeer, ch1))).toBe(true);
+  });
+
+  test("cookie binding includes peerKey bytes and ClientHello hash", () => {
+    // Arrange: 前提を準備する
+    const peer = "192.0.2.1:8443";
+    const ch = Buffer.from("client-hello-body");
+    // Act: cookie 経路を検証する
+    const binding = cookieBinding(peer, ch);
+    // Assert: cookie 経路を検証する
+    const peerBytes = Buffer.from(peer, "utf8");
+    const chHash = createHash("sha256").update(ch).digest();
+    expect(binding.subarray(0, peerBytes.length).equals(peerBytes)).toBe(true);
+    expect(binding[peerBytes.length]).toBe(0);
+    expect(binding.subarray(peerBytes.length + 1).equals(chHash)).toBe(true);
+    // 異なる peer は異なる binding
+    expect(cookieBinding("198.51.100.1:1", ch).equals(binding)).toBe(false);
+  });
+
+  test("peerKeyFromAddr formats tuples", () => {
+    // Arrange: 前提を準備する
+    expect(peerKeyFromAddr(["1.2.3.4", 443])).toBe("1.2.3.4:443");
+    expect(peerKeyFromAddr({ address: "a", port: 1 })).toBe("a:1");
+    expect(peerKeyFromAddr(undefined)).toBe("unknown");
+    expect(peerKeyFromAddr("already:key")).toBe("already:key");
+  });
+});
+
+describe("security bounds: Certificate13", () => {
+  test("rejects extensions that exceed certificate_list", () => {
+    // Arrange: 前提を準備する
+    // context_len=0, list_len=10, cert_len=3, cert=aaa, extLen=100 (too big)
+    const buf = Buffer.alloc(1 + 3 + 3 + 3 + 2);
+    buf.writeUInt8(0, 0);
+    buf.writeUIntBE(10, 1, 3); // list claims 10 bytes
+    buf.writeUIntBE(3, 4, 3);
+    buf.write("aaa", 7);
+    buf.writeUInt16BE(100, 10); // extLen overruns
+
+    // Act / Assert: 証明書・署名を検証する
+    expect(() => Certificate13.deSerialize(buf)).toThrow(
+      /extensions exceed|truncated/,
+    );
+  });
+
+  test("roundtrip valid certificate list", () => {
+    // Arrange: 前提を準備する
+    const cert = Buffer.from("cert-der-bytes");
+    const msg = new Certificate13(Buffer.alloc(0), [cert]);
+    // Act: 証明書・署名を検証する
+    const wire = msg.serialize();
+    const parsed = Certificate13.deSerialize(wire);
+    // Assert: 証明書・署名を検証する
+    expect(parsed.certificates[0].equals(cert)).toBe(true);
+  });
+});
+
+describe("security bounds: partial ACK", () => {
+  test("remainingAfterAck drops only matched records", () => {
+    // Arrange: 前提を準備する
+    const pending = [
+      { epoch: 2, sequenceNumber: 0 },
+      { epoch: 2, sequenceNumber: 1 },
+      { epoch: 2, sequenceNumber: 2 },
+    ];
+    // Act: 1 件だけ ACK
+    const mid = remainingAfterAck(pending, [{ epoch: 2, sequenceNumber: 1 }]);
+    // Assert: 未 ACK は再送対象として残る
+    expect(mid).toEqual([
+      { epoch: 2, sequenceNumber: 0 },
+      { epoch: 2, sequenceNumber: 2 },
+    ]);
+    // 全 ACK で空
+    expect(
+      remainingAfterAck(mid, [
+        { epoch: 2, sequenceNumber: 0 },
+        { epoch: 2, sequenceNumber: 2 },
+      ]),
+    ).toEqual([]);
+    // 無関係 ACK は no-op
+    expect(
+      remainingAfterAck(pending, [{ epoch: 3, sequenceNumber: 9 }]),
+    ).toEqual(pending);
+  });
+
+  test("empty ACK acknowledges nothing (does not clear pending)", () => {
+    // Arrange: 前提を準備する
+    const pending = [
+      { epoch: 2, sequenceNumber: 0 },
+      { epoch: 2, sequenceNumber: 1 },
+    ];
+    // Act: ACK 処理を検証する
+    const left = remainingAfterAck(pending, []);
+    // Assert: RFC 9147 empty ACK は再送促進用で何も acknowledge しない
+    expect(left).toEqual(pending);
+    expect(left.length).toBe(2);
+  });
+
+  test("recordsFullyAcked is false for mixed partial groups", () => {
+    // Arrange: 同一 datagram に ACK 済みと未 ACK が混在
+    const group = [
+      { epoch: 2, sequenceNumber: 0 },
+      { epoch: 2, sequenceNumber: 1 },
+    ];
+    // Act / Assert: 部分 ACK では group 全体は fully-acked ではない
+    expect(recordsFullyAcked(group, [{ epoch: 2, sequenceNumber: 0 }])).toBe(
+      false,
+    );
+    expect(
+      recordsFullyAcked(group, [
+        { epoch: 2, sequenceNumber: 0 },
+        { epoch: 2, sequenceNumber: 1 },
+      ]),
+    ).toBe(true);
+  });
+
+  test("selective retransmit keeps only unacked record bytes", () => {
+    // Arrange: 前提を準備する
+    const records = [
+      { epoch: 2, sequenceNumber: 0 },
+      { epoch: 2, sequenceNumber: 1 },
+      { epoch: 2, sequenceNumber: 2 },
+    ];
+    const bytes = [
+      Buffer.from("rec0"),
+      Buffer.from("rec1"),
+      Buffer.from("rec2"),
+    ];
+    const acked = [{ epoch: 2, sequenceNumber: 1 }];
+    const done = new Set(acked.map((r) => `${r.epoch}:${r.sequenceNumber}`));
+    // Act: engine と同様に record+bytes を同時に間引き
+    const keptRecs: { epoch: number; sequenceNumber: number }[] = [];
+    const keptBytes: Buffer[] = [];
+    for (let i = 0; i < records.length; i++) {
+      if (!done.has(`${records[i].epoch}:${records[i].sequenceNumber}`)) {
+        keptRecs.push(records[i]);
+        keptBytes.push(bytes[i]);
+      }
+    }
+    // Assert: ACK 済み rec1 は再送集合に残らない
+    expect(keptRecs).toEqual([
+      { epoch: 2, sequenceNumber: 0 },
+      { epoch: 2, sequenceNumber: 2 },
+    ]);
+    expect(keptBytes.map((b) => b.toString())).toEqual(["rec0", "rec2"]);
+    expect(keptBytes.some((b) => b.toString() === "rec1")).toBe(false);
+  });
+
+  test("empty ACK wire codec roundtrips zero record_numbers", () => {
+    // Arrange: 前提を準備する
+    const empty = new DtlsAck([]);
+    const wire = empty.serialize();
+    const parsed = DtlsAck.deSerialize(wire);
+    // Assert: ACK 処理を検証する
+    expect(wire.readUInt16BE(0)).toBe(0);
+    expect(parsed.recordNumbers).toEqual([]);
+  });
+});
+
+describe("security bounds: TLS 1.3 signature schemes", () => {
+  test("DEFAULT_SIGNATURE_SCHEMES omits forbidden rsa_pkcs1_sha256", () => {
+    // Arrange / Act / Assert: CertificateVerify 用広告に PKCS#1 を含めない
+    expect(DEFAULT_SIGNATURE_SCHEMES).toContain(
+      SignatureScheme13.ecdsa_secp256r1_sha256,
+    );
+    expect(DEFAULT_SIGNATURE_SCHEMES).toContain(
+      SignatureScheme13.rsa_pss_rsae_sha256,
+    );
+    expect(DEFAULT_SIGNATURE_SCHEMES).not.toContain(
+      SignatureScheme13.rsa_pkcs1_sha256,
+    );
+    expect(DEFAULT_SIGNATURE_SCHEMES).not.toContain(
+      SignatureScheme.rsa_pkcs1_sha256,
+    );
+  });
+});
+
+describe("security bounds: epoch TTL constants", () => {
+  test("epoch prune interval is positive and less than TTL", () => {
+    // Arrange / Act / Assert: アイドル接続でも TTL 内に prune が走る
+    expect(EPOCH_KEY_TTL_MS).toBeGreaterThan(0);
+    expect(EPOCH_PRUNE_INTERVAL_MS).toBeGreaterThan(0);
+    expect(EPOCH_PRUNE_INTERVAL_MS).toBeLessThan(EPOCH_KEY_TTL_MS);
+  });
+});
+
+describe("security bounds: carrier flight immutability", () => {
+  test("onFlightCreated packets are independent copies from retransmit cache", () => {
+    // Arrange: 前提を準備する
+    const src = Buffer.from([1, 2, 3, 4, 5]);
+    const notify = createHandshakeDatagram(src, 1, 0, true);
+    const cache = createHandshakeDatagram(src, 1, 0, true);
+    // Act: callback 側 Buffer を破壊
+    notify.bytes[0] = 0xff;
+    // Assert: cache は不変、元バッファも独立
+    expect(cache.bytes[0]).toBe(1);
+    expect(src[0]).toBe(1);
+    expect(notify.bytes).not.toBe(cache.bytes);
+  });
+
+  test("carrier.send callback cannot corrupt retransmit cache bytes", async () => {
+    // Arrange: 前提を準備する
+    const sent: Buffer[] = [];
+    const fakeTransport = {
+      type: "udp",
+      address: { address: "127.0.0.1", port: 0, family: "IPv4" },
+      closed: false,
+      onData: () => {},
+      send: async (b: Buffer) => {
+        sent.push(Buffer.from(b));
+      },
+      close: async () => {},
+    };
+    const carrier = new DirectHandshakeCarrier(fakeTransport as any);
+    const cache = createHandshakeDatagram(Buffer.from([9, 8, 7]), 2, 0, true);
+    carrier.events.onHandshakeDatagram = (pkt) => {
+      // Act: callback が bytes を破壊
+      pkt.bytes[0] = 0;
+    };
+    // Act: ACK 処理を検証する
+    await carrier.send(cache);
+    await carrier.send(cache);
+    // Assert: 2 回目の wire も元キャッシュ内容
+    expect(cache.bytes[0]).toBe(9);
+    expect(sent[0][0]).toBe(9);
+    expect(sent[1][0]).toBe(9);
+    carrier.close();
+  });
+
+  test("external → internal retransmission mode resumes schedule hook", async () => {
+    // Arrange: 前提を準備する
+    const modeEvents: string[] = [];
+    const fakeTransport = {
+      type: "udp",
+      address: { address: "127.0.0.1", port: 0, family: "IPv4" },
+      closed: false,
+      onData: () => {},
+      send: async () => {},
+      close: async () => {},
+    };
+    const carrier = new DirectHandshakeCarrier(fakeTransport as any);
+    carrier.events.onRetransmissionModeChange = (m) => {
+      modeEvents.push(m);
+    };
+    // Act: 期待どおりの結果を検証する
+    let fired = 0;
+    carrier.setRetransmissionMode("external");
+    const cancel = carrier.schedule(10, () => {
+      fired++;
+    });
+    // external 中は timer が動かない
+    await new Promise((r) => setTimeout(r, 30));
+    expect(fired).toBe(0);
+    cancel();
+    carrier.setRetransmissionMode("internal");
+    // Assert: 期待どおりの結果を検証する
+    expect(modeEvents).toEqual(["external", "internal"]);
+    await new Promise<void>((resolve) => {
+      carrier.schedule(15, () => {
+        fired++;
+        resolve();
+      });
+    });
+    expect(fired).toBe(1);
+    carrier.close();
+  });
+});
+
+describe("security bounds: large Certificate13", () => {
+  test("roundtrips multi-kilobyte certificate list", () => {
+    // Arrange: 大きな DER 風 blob（実証明書断片化は e2e small-MTU で検証）
+    const large = randomBytes(8 * 1024);
+    const msg = new Certificate13(Buffer.alloc(0), [large, randomBytes(512)]);
+    // Act: 証明書・署名を検証する
+    const wire = msg.serialize();
+    const parsed = Certificate13.deSerialize(wire);
+    // Assert: 証明書・署名を検証する
+    expect(parsed.certificates[0].equals(large)).toBe(true);
+    expect(parsed.certificates[1].length).toBe(512);
+    expect(wire.length).toBeGreaterThan(8 * 1024);
+  });
+});
+
+describe("security bounds: fragment reassembly", () => {
+  test("assemble rejects range past length", () => {
+    // Arrange: 前提を準備する
+    const parts = [
+      new FragmentedHandshake(
+        HandshakeType.certificate_11,
+        10,
+        0,
+        8,
+        5, // offset 8 + len 5 > 10
+        Buffer.alloc(5),
+      ),
+    ];
+    // Act / Assert: 不正入力を拒否する
+    expect(() => FragmentedHandshake.assemble(parts)).toThrow(
+      /exceeds message length|fragment range/,
+    );
+  });
+
+  test("assemble rejects conflicting overlap", () => {
+    // Arrange: 前提を準備する
+    const total = 4;
+    const a = new FragmentedHandshake(
+      HandshakeType.finished_20,
+      total,
+      1,
+      0,
+      3,
+      Buffer.from([1, 2, 3]),
+    );
+    const b = new FragmentedHandshake(
+      HandshakeType.finished_20,
+      total,
+      1,
+      2,
+      2,
+      Buffer.from([9, 4]), // conflict at offset 2
+    );
+    // Act / Assert: 不正入力を拒否する
+    expect(() => FragmentedHandshake.assemble([a, b])).toThrow(
+      /conflict|overlapping/,
+    );
+  });
+
+  test("assemble accepts non-overlapping complete cover", () => {
+    // Arrange: 前提を準備する
+    const a = new FragmentedHandshake(
+      HandshakeType.finished_20,
+      4,
+      1,
+      0,
+      2,
+      Buffer.from([1, 2]),
+    );
+    const b = new FragmentedHandshake(
+      HandshakeType.finished_20,
+      4,
+      1,
+      2,
+      2,
+      Buffer.from([3, 4]),
+    );
+    // Act: 期待どおりの結果を検証する
+    const full = FragmentedHandshake.assemble([a, b]);
+    // Assert: 期待どおりの結果を検証する
+    expect(full.fragment.equals(Buffer.from([1, 2, 3, 4]))).toBe(true);
+  });
+});

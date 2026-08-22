@@ -136,7 +136,7 @@
 
 ### onStateChange
 
-> `readonly` **onStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"connecting"`\]\>
+> `readonly` **onStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"connected"` \| `"new"` \| `"failed"` \| `"connecting"`\]\>
 
 ***
 
@@ -186,7 +186,7 @@
 
 ### state
 
-> **state**: `"closed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"connecting"` = `"new"`
+> **state**: `"closed"` \| `"connected"` \| `"new"` \| `"failed"` \| `"connecting"` = `"new"`
 
 ***
 

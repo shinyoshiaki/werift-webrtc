@@ -94,23 +94,30 @@ export class UdpTransport implements Transport {
 
   send = async (data: Buffer, addr?: Address) => {
     if (addr && !net.isIP(addr[0])) {
-      // if address is not resolved, need to use send callback to handle dns failure.
-      return new Promise<void>((r, f) => {
-        this.socket.send(data, addr![1], addr![0], (error) => {
-          if (error) {
-            log("send error", addr, data);
-            f(error);
-          } else {
-            r();
-          }
-        });
-      });
-    } else {
-      addr = addr ?? [this.rinfo?.address!, this.rinfo?.port!];
-      // a preestablished remote address does not need a callback to verify dns.
-      // this is faster because event loop is not used per packet.
-      this.socket.send(data, addr[1], addr[0]);
+      // Unresolved hostname: must wait for the send callback (DNS failure).
+      return this.sendAndWait(data, addr);
     }
+    addr = addr ?? [this.rinfo?.address!, this.rinfo?.port!];
+    // Resolved IP: fire-and-forget so the event loop is not used per packet.
+    this.socket.send(data, addr[1], addr[0]);
+  };
+
+  /**
+   * Wait until the kernel accepts the datagram. Use only when a later
+   * socket.close() must not drop this packet (DTLS close_notify).
+   */
+  sendAndWait = (data: Buffer, addr?: Address) => {
+    addr = addr ?? [this.rinfo?.address!, this.rinfo?.port!];
+    return new Promise<void>((r, f) => {
+      this.socket.send(data, addr![1], addr![0], (error) => {
+        if (error) {
+          log("send error", addr, data);
+          f(error);
+        } else {
+          r();
+        }
+      });
+    });
   };
 
   get address() {
@@ -177,6 +184,10 @@ export class TcpTransport implements Transport {
     await this.stream.send(data, addr);
   };
 
+  sendAndWait = async (data: Buffer, addr?: Address) => {
+    await this.stream.send(data, addr);
+  };
+
   close = async () => {
     await this.stream.close();
   };
@@ -223,6 +234,10 @@ export class TlsTransport implements Transport {
   }
 
   send = async (data: Buffer, addr?: Address) => {
+    await this.stream.send(data, addr);
+  };
+
+  sendAndWait = async (data: Buffer, addr?: Address) => {
     await this.stream.send(data, addr);
   };
 
@@ -321,5 +336,29 @@ export interface Transport {
   closed: boolean;
   onData: (data: Buffer, addr: Address) => void;
   send: (data: Buffer, addr?: Address) => Promise<void>;
+  /**
+   * Optional flush: wait until the datagram is accepted by the kernel.
+   * Hot-path {@link send} must stay fire-and-forget for resolved IP peers.
+   * DTLS close_notify uses this so a following socket.close() cannot drop it.
+   */
+  sendAndWait?: (data: Buffer, addr?: Address) => Promise<void>;
   close: () => Promise<void>;
+  /**
+   * When true, the transport path is already peer-authenticated (e.g. ICE).
+   * DTLS 1.2 may treat protected records as association-authenticated even
+   * without a UDP 5-tuple pin (ICE does not expose source address on RX).
+   */
+  peerAuthenticated?: boolean;
+}
+
+/** Flush one datagram when the transport supports it; else {@link Transport.send}. */
+export function flushTransportSend(
+  transport: Transport,
+  data: Buffer,
+  addr?: Address,
+): Promise<void> {
+  if (transport.sendAndWait) {
+    return transport.sendAndWait(data, addr);
+  }
+  return transport.send(data, addr);
 }

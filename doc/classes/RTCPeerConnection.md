@@ -68,13 +68,13 @@ reviewable diff does not depend on external PR text.
 
 ### connectionStateChange
 
-> `readonly` **connectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"failed"` \| `"connecting"`\]\>
+> `readonly` **connectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"connected"` \| `"disconnected"` \| `"new"` \| `"failed"` \| `"connecting"`\]\>
 
 ***
 
 ### iceConnectionStateChange
 
-> `readonly` **iceConnectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`\]\>
+> `readonly` **iceConnectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"failed"` \| `"checking"`\]\>
 
 ***
 
@@ -271,11 +271,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **connectionState**(): `"closed"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"failed"` \| `"connecting"`
+> **get** **connectionState**(): `"closed"` \| `"connected"` \| `"disconnected"` \| `"new"` \| `"failed"` \| `"connecting"`
 
 ##### Returns
 
-`"closed"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"failed"` \| `"connecting"`
+`"closed"` \| `"connected"` \| `"disconnected"` \| `"new"` \| `"failed"` \| `"connecting"`
 
 ***
 
@@ -331,11 +331,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **iceConnectionState**(): `"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`
+> **get** **iceConnectionState**(): `"closed"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"failed"` \| `"checking"`
 
 ##### Returns
 
-`"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`
+`"closed"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"failed"` \| `"checking"`
 
 ***
 

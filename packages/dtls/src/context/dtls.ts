@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import type { HashAlgorithms, SignatureAlgorithms } from "../cipher/const";
 import type { SessionTypes } from "../cipher/suites/abstract";
 import { debug } from "../imports/common";
@@ -23,18 +24,90 @@ export class DtlsContext {
       flight: number;
     };
   } = {};
+  /**
+   * Last HelloVerify cookie (display / sessionId only). Verification is
+   * stateless HMAC via {@link cookieSecret} + peer + ClientHello parameters.
+   */
   cookie?: Buffer;
+  /**
+   * Secret for DTLS 1.2 HelloVerify cookies (RFC 6347 HMAC style).
+   * Not shared across associations; never committed from peer input.
+   */
+  readonly cookieSecret = randomBytes(16);
+  /**
+   * True after a cookie-validated ClientHello has been committed into
+   * cipher/srtp association state. Duplicate CH2 must not re-commit
+   * (would regenerate serverRandom / ECDHE and desync cached Flight4).
+   */
+  clientHelloCommitted = false;
+  /**
+   * Incremented on every HelloVerifyRequest processed by the client (Flight3).
+   * Older Flight3 retransmit loops observe a mismatch and stop (stale cookie).
+   */
+  hvrGeneration = 0;
+  /**
+   * Association-wide flight TX generation. Bumped on hard-close / version
+   * commit away from 1.2 / fatal so in-flight `transport.send` completions
+   * cannot surface error callbacks or drive further retransmit side effects.
+   * Distinct from {@link hvrGeneration} (HVR re-challenge only).
+   */
+  flightTxGeneration = 0;
   requestedCertificateTypes: number[] = [];
   requestedSignatureAlgorithms: {
     hash: HashAlgorithms;
     signature: SignatureAlgorithms;
   }[] = [];
   remoteExtendedMasterSecret = false;
+  /**
+   * Set when a fatal peer alert / hard error aborts the 1.2 flight loop.
+   * Flight.transmit checks this to stop retransmit and rethrow.
+   */
+  fatalError?: Error;
+
+  /**
+   * Cancelable retransmit sleeps for legacy 1.2 Flight.transmit.
+   * Cleared by {@link cancelFlightTimers} on association hard-close / commit13.
+   */
+  private flightTimers = new Set<ReturnType<typeof setTimeout>>();
+  private flightSleepResolvers = new Set<() => void>();
 
   constructor(
     public options: Options,
     public sessionType: SessionTypes,
   ) {}
+
+  /**
+   * Association-owned cancelable sleep (replaces bare timers/promises setTimeout
+   * so close can cancel pending retransmit waits immediately).
+   */
+  flightSleep(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const id = setTimeout(() => {
+        this.flightTimers.delete(id);
+        this.flightSleepResolvers.delete(resolve);
+        resolve();
+      }, ms);
+      this.flightTimers.add(id);
+      this.flightSleepResolvers.add(resolve);
+    });
+  }
+
+  /** Cancel all pending 1.2 flight retransmit timers (association teardown). */
+  cancelFlightTimers(): void {
+    // Invalidate any in-flight transport.send from Flight.transmit so late
+    // rejections after close/fallback do not log as live association errors.
+    this.flightTxGeneration += 1;
+    for (const id of this.flightTimers) {
+      clearTimeout(id);
+    }
+    this.flightTimers.clear();
+    // Resolve sleepers so transmit loops can observe flight=99 / fatal and exit
+    // (do not reject — Flight treats resolve + flight check as clean stop).
+    for (const resolve of this.flightSleepResolvers) {
+      resolve();
+    }
+    this.flightSleepResolvers.clear();
+  }
 
   get sessionId() {
     return this.cookie ? this.cookie.toString("hex").slice(0, 10) : "";

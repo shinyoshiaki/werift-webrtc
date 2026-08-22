@@ -14,6 +14,11 @@ import { ServerKeyExchange } from "../../handshake/message/server/keyExchange";
 import { debug } from "../../imports/common";
 import type { FragmentedHandshake } from "../../record/message/fragment";
 import type { Extension } from "../../typings/domain";
+import {
+  DtlsVersion,
+  normalizeProtocolVersions,
+  supportsVersion,
+} from "../../version";
 import { Flight } from "../flight";
 
 const log = debug("werift-dtls : packages/dtls/flight/server/flight4.ts : log");
@@ -38,7 +43,9 @@ export class Flight4 extends Flight {
       return;
     }
     this.dtls.flight = 4;
-    this.dtls.sequenceNumber = 1;
+    // ServerHello message_seq corresponds to the final cookie-validated
+    // ClientHello (CH1=0 → HVR=0; CH2=1 → SH=1; re-challenge CH3=2 → SH=2).
+    this.dtls.sequenceNumber = clientHello.message_seq;
     this.dtls.bufferHandshakeCache([clientHello], false, 4);
 
     const messages = [
@@ -57,8 +64,10 @@ export class Flight4 extends Flight {
     // todo fix; should use socket.extensions
     const extensions: Extension[] = [];
     if (this.srtp.srtpProfile) {
+      // mki is payload-only (RFC 5764); empty Buffer → wire mki_len=0.
+      // Do not pass Buffer.from([0x00]) — that is a 1-byte MKI, not "empty".
       extensions.push(
-        UseSRTP.create([this.srtp.srtpProfile], Buffer.from([0x00])).extension,
+        UseSRTP.create([this.srtp.srtpProfile], Buffer.alloc(0)).extension,
       );
     }
     if (this.dtls.options.extendedMasterSecret) {
@@ -69,6 +78,16 @@ export class Flight4 extends Flight {
     }
     const renegotiationIndication = RenegotiationIndication.createEmpty();
     extensions.push(renegotiationIndication.extension);
+
+    // RFC 8446 §4.1.3 / RFC 9147: a TLS 1.3-capable server that negotiates
+    // TLS 1.2 (this flight) MUST place DOWNGRD\x01 in ServerHello.Random[24..31].
+    // Dual [V1_3, V1_2] servers always set this when on the 1.2 flight path.
+    const versions = normalizeProtocolVersions(
+      this.dtls.options.protocolVersions,
+    );
+    if (supportsVersion(versions, DtlsVersion.V1_3)) {
+      this.cipher.localRandom.applyTls12DowngradeSentinel();
+    }
 
     const serverHello = new ServerHello(
       this.dtls.version,

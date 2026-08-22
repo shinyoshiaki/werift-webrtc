@@ -18,9 +18,18 @@ export type SignatureHash = {
 export const CipherSuite = {
   TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195: 0xc02b, //49195,
   TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199: 0xc02f, //49199
+  /** TLS 1.3 AES-128-GCM-SHA256 */
+  TLS_AES_128_GCM_SHA256_0x1301: 0x1301,
 } as const;
 export type CipherSuites = (typeof CipherSuite)[keyof typeof CipherSuite];
-export const CipherSuiteList: CipherSuites[] = Object.values(CipherSuite);
+/** DTLS 1.2 cipher suites only (default negotiation list). */
+export const CipherSuiteList: CipherSuites[] = [
+  CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195,
+  CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199,
+];
+export const TLS13_CIPHER_SUITES = [
+  CipherSuite.TLS_AES_128_GCM_SHA256_0x1301,
+] as const;
 
 export const NamedCurveAlgorithm = {
   x25519_29: 29,
@@ -37,6 +46,8 @@ export type CurveTypes = (typeof CurveType)[keyof typeof CurveType];
 export const SignatureScheme = {
   rsa_pkcs1_sha256: 0x0401,
   ecdsa_secp256r1_sha256: 0x0403,
+  /** TLS 1.3 RSA-PSS with RSAE keys */
+  rsa_pss_rsae_sha256: 0x0804,
 } as const;
 export type SignatureSchemes =
   (typeof SignatureScheme)[keyof typeof SignatureScheme];

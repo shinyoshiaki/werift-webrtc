@@ -31,7 +31,21 @@ export class Flight6 extends Flight {
   }
 
   handleHandshake(handshake: FragmentedHandshake) {
+    // Flight5 retransmits re-deliver the same msg_type. Transcript cache is
+    // de-duped, but ClientKeyExchange handler derives masterSecret + init AEAD
+    // — re-running after keys exist would re-init cipher mid-association.
+    const alreadyCached = !!this.dtls.handshakeCache[5]?.data.some(
+      (t) => t.msg_type === handshake.msg_type,
+    );
     this.dtls.bufferHandshakeCache([handshake], false, 5);
+    if (alreadyCached) {
+      log(
+        this.dtls.sessionId,
+        "skip duplicate Flight5 handshake handler",
+        handshake.msg_type,
+      );
+      return;
+    }
 
     const message = (() => {
       switch (handshake.msg_type) {

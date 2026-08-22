@@ -8,6 +8,7 @@
 
 - [CandidatePairState](enumerations/CandidatePairState.md)
 - [classes](enumerations/classes.md)
+- [DtlsVersion](enumerations/DtlsVersion.md)
 - [methods](enumerations/methods.md)
 - [PacketChunk](enumerations/PacketChunk.md)
 - [PacketStatus](enumerations/PacketStatus.md)
@@ -43,6 +44,7 @@
 - [PacketResult](classes/PacketResult.md)
 - [PictureLossIndication](classes/PictureLossIndication.md)
 - [PromiseQueue](classes/PromiseQueue.md)
+- [ProtocolVersionError](classes/ProtocolVersionError.md)
 - [ReceiverEstimatedMaxBitrate](classes/ReceiverEstimatedMaxBitrate.md)
 - [RecvDelta](classes/RecvDelta.md)
 - [Red](classes/Red.md)
@@ -122,6 +124,7 @@
 - [IceConnection](interfaces/IceConnection.md)
 - [IceOptions](interfaces/IceOptions.md)
 - [MessageEvent](interfaces/MessageEvent.md)
+- [Options](interfaces/Options.md)
 - [PeerConfig](interfaces/PeerConfig.md)
 - [Protocol](interfaces/Protocol.md)
 - [RTCAudioPlayoutStats](interfaces/RTCAudioPlayoutStats.md)
@@ -184,6 +187,7 @@
 - [Kind](type-aliases/Kind.md)
 - [MediaDirection](type-aliases/MediaDirection.md)
 - [NamedCurveAlgorithms](type-aliases/NamedCurveAlgorithms.md)
+- [PeerIdentityMode](type-aliases/PeerIdentityMode.md)
 - [RequireAtLeastOne](type-aliases/RequireAtLeastOne.md)
 - [RTCBundlePolicy](type-aliases/RTCBundlePolicy.md)
 - [RTCDataChannelState](type-aliases/RTCDataChannelState.md)
@@ -233,6 +237,7 @@
 - [depacketizerCodecs](variables/depacketizerCodecs.md)
 - [Directions](variables/Directions.md)
 - [DtlsStates](variables/DtlsStates.md)
+- [EARLY\_APP\_DATA\_UNLIMITED](variables/EARLY_APP_DATA_UNLIMITED.md)
 - [ExtensionProfiles](variables/ExtensionProfiles.md)
 - [FINGERPRINT\_LENGTH](variables/FINGERPRINT_LENGTH.md)
 - [FINGERPRINT\_XOR](variables/FINGERPRINT_XOR.md)
@@ -267,6 +272,7 @@
 - [supportedCodecs](variables/supportedCodecs.md)
 - [supportedVideoCodecs](variables/supportedVideoCodecs.md)
 - [timer](variables/timer.md)
+- [TLS13\_CIPHER\_SUITES](variables/TLS13_CIPHER_SUITES.md)
 
 ## Functions
 
@@ -310,6 +316,7 @@
 - [findCodecByMimeType](functions/findCodecByMimeType.md)
 - [findPort](functions/findPort.md)
 - [fingerprint](functions/fingerprint.md)
+- [flushTransportSend](functions/flushTransportSend.md)
 - [generateCodecStatsId](functions/generateCodecStatsId.md)
 - [generateStatsId](functions/generateStatsId.md)
 - [getBit](functions/getBit.md)

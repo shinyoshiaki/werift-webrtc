@@ -69,7 +69,7 @@ describe("bundle_max_compat", () => {
           })
           .catch(() => {});
       }),
-    6000 * 1000,
+    60_000,
   );
 
   it("bundle_max_compat_offer", async () =>

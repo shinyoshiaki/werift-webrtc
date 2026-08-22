@@ -2,6 +2,8 @@ import { randomBytes } from "crypto";
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 import { decode, encode, types } from "@shinyoshiaki/binary-data";
 
+import { DOWNGRADE_TLS12_SENTINEL } from "../version";
+
 export class DtlsRandom {
   static readonly spec = {
     gmt_unix_time: types.uint32be,
@@ -28,5 +30,39 @@ export class DtlsRandom {
   serialize() {
     const res = encode(this, DtlsRandom.spec).slice();
     return Buffer.from(res);
+  }
+
+  /** Full 32-byte Random (gmt_unix_time || random_bytes). */
+  static bytes32(random: {
+    gmt_unix_time: number;
+    random_bytes: Buffer;
+  }): Buffer {
+    const b = Buffer.alloc(32);
+    b.writeUInt32BE(random.gmt_unix_time >>> 0, 0);
+    random.random_bytes.copy(b, 4);
+    return b;
+  }
+
+  /** Full 32-byte Random (gmt_unix_time || random_bytes). */
+  toBuffer32(): Buffer {
+    return DtlsRandom.bytes32(this);
+  }
+
+  /**
+   * RFC 8446 §4.1.3 / RFC 9147: TLS 1.3-capable server negotiating TLS 1.2
+   * MUST set the last 8 bytes of ServerHello.Random to DOWNGRD\\x01.
+   * Mutates `random_bytes` in place (must run before ServerHello is sent and
+   * before the same Random is used in the PRF).
+   */
+  applyTls12DowngradeSentinel(): void {
+    if (this.random_bytes.length < 8) {
+      throw new Error(
+        "DtlsRandom.random_bytes too short for downgrade sentinel",
+      );
+    }
+    DOWNGRADE_TLS12_SENTINEL.copy(
+      this.random_bytes,
+      this.random_bytes.length - 8,
+    );
   }
 }
