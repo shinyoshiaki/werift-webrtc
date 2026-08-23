@@ -7,17 +7,19 @@
  *   - This worktree pin: Playwright Chromium 140.0.7339.186 (build v1193)
  *   - System Chrome: `google-chrome --version` / CHROME_BIN
  *
- * Field trials used here (pinned for Playwright Chromium 140 / build 1193):
+ * Field trials used here:
  *   DTLS 1.3 only: WebRTC-ForceDtls13/Only/
- *   DTLS 1.2 cap:  WebRTC-ForceDtls13/Off/
+ *   DTLS 1.2 cap:  WebRTC-ForceDtls13/Disabled/
  *   SPED off:      WebRTC-IceHandshakeDtls/Disabled/  (default is already off;
  *                  Disabled is explicit so SDP must not contain goog-sped-v1)
  *
  * WebRTC-ForceDtls13 registration ended 2024-09-01 and Chromium later enabled
- * DTLS 1.3 by default. `--force-fieldtrials` still feeds openssl_stream_adapter
- * Lookup()/IsEnabled(). Measured on Playwright Chromium 140 / build 1193:
- *   Off/  → transport.tlsVersion FEFD (DTLS 1.2)
- *   Only/ → transport.tlsVersion FEFC (DTLS 1.3)
+ * DTLS 1.3 by default. Current Chromium GetForceDtls13 (chromium build) only
+ * honors group `Disabled` (1.2 max) and `Only` (1.3 only); anything else —
+ * including `Off/` — falls through to DTLS 1.3 max. `--force-fieldtrials`
+ * still feeds openssl_stream_adapter. Measured:
+ *   Disabled/ → transport.tlsVersion FEFD (DTLS 1.2)
+ *   Only/     → transport.tlsVersion FEFC (DTLS 1.3)
  * Asserts use those stats strings, not mere connection success.
  *
  * Assert Chromium `getStats()` transport.tlsVersion:

@@ -17,14 +17,18 @@ try {
 const chromiumExecutablePath = [
   process.env.CHROME_BIN,
   process.env.GOOGLE_CHROME_BIN,
+  playwrightChromium,
   "/usr/bin/google-chrome",
   "/usr/bin/chromium",
   "/usr/bin/chromium-browser",
-  playwrightChromium,
 ].find((candidate) => candidate && existsSync(candidate));
 
 const chromiumMode =
   process.env.DTLS_CHROMIUM_MODE === "dtls13" ? "dtls13" : "dtls12";
+
+console.info(
+  `[dtls e2e] mode=${chromiumMode} executable=${chromiumExecutablePath ?? "playwright-default"}`,
+);
 
 export default defineConfig({
   plugins: [nodePolyfills()],
