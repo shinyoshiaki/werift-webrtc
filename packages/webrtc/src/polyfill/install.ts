@@ -52,8 +52,13 @@ export function installPolyfill(options: InstallPolyfillOptions): () => void {
   }
 
   const target = (options.target ?? globalThis) as Record<string, unknown>;
+  const mediaAction = shouldInstallMediaDevices(
+    getExistingMediaDevices(target),
+    options.existingMediaDevices ?? "overwrite",
+  );
   const boundRegisters = bindRegisters(options.mediaRegister);
   const previous = snapshot(target, INSTALLED_KEYS);
+  previous.window = descriptorOf(target, "window");
   const previousNavigator = snapshotNavigator(target);
 
   assign(target, "RTCPeerConnection", RTCPeerConnection);
@@ -71,17 +76,11 @@ export function installPolyfill(options: InstallPolyfillOptions): () => void {
   assign(target, "OverconstrainedError", OverconstrainedError);
 
   const mediaDevices = new MediaDevices(boundRegisters);
-  const existingMediaDevices = getExistingMediaDevices(target);
-  const mediaAction = shouldInstallMediaDevices(
-    existingMediaDevices,
-    options.existingMediaDevices ?? "overwrite",
-  );
   if (mediaAction === "install") {
     installMediaDevices(target, mediaDevices);
   }
 
   if (target.window == null) {
-    previous.window = descriptorOf(target, "window");
     assign(target, "window", target);
   }
 
@@ -148,47 +147,63 @@ function snapshot(target: Record<string, unknown>, keys: readonly string[]) {
 }
 
 function snapshotNavigator(target: Record<string, unknown>) {
-  const navigatorDesc = descriptorOf(target, "navigator");
-  const navigatorValue =
-    navigatorDesc && "value" in navigatorDesc
-      ? navigatorDesc.value
-      : target.navigator;
-  const mediaDevicesDesc =
+  const navigatorValue = target.navigator;
+  const navigatorObject =
     navigatorValue && typeof navigatorValue === "object"
-      ? descriptorOf(navigatorValue as Record<string, unknown>, "mediaDevices")
+      ? (navigatorValue as object)
       : undefined;
-  return { navigatorDesc, mediaDevicesDesc, navigatorValue };
+  return {
+    hadOwnNavigator: hasOwn(target, "navigator"),
+    navigatorDesc: descriptorOf(target, "navigator"),
+    navigatorObject,
+    hadOwnMediaDevices: navigatorObject
+      ? hasOwn(navigatorObject, "mediaDevices")
+      : false,
+    mediaDevicesDesc: navigatorObject
+      ? descriptorOf(navigatorObject, "mediaDevices")
+      : undefined,
+  };
 }
 
 function restoreNavigator(
   target: Record<string, unknown>,
   previous: ReturnType<typeof snapshotNavigator>,
 ) {
-  if (previous.navigatorDesc) {
-    Object.defineProperty(target, "navigator", previous.navigatorDesc);
-  }
-  if (
-    previous.navigatorValue &&
-    typeof previous.navigatorValue === "object" &&
-    previous.mediaDevicesDesc
-  ) {
-    Object.defineProperty(
-      previous.navigatorValue as object,
+  if (previous.navigatorObject) {
+    restoreOwnProperty(
+      previous.navigatorObject,
       "mediaDevices",
+      previous.hadOwnMediaDevices,
       previous.mediaDevicesDesc,
     );
-  } else if (
-    previous.navigatorValue &&
-    typeof previous.navigatorValue === "object" &&
-    !previous.mediaDevicesDesc
-  ) {
-    try {
-      (previous.navigatorValue as Record<string, unknown>).mediaDevices =
-        undefined;
-    } catch {
-      // ignore
-    }
   }
+  restoreOwnProperty(
+    target,
+    "navigator",
+    previous.hadOwnNavigator,
+    previous.navigatorDesc,
+  );
+}
+
+function restoreOwnProperty(
+  target: object,
+  key: string,
+  hadOwn: boolean,
+  descriptor: PropertyDescriptor | undefined,
+) {
+  if (hadOwn) {
+    if (descriptor) {
+      Object.defineProperty(target, key, descriptor);
+    }
+    return;
+  }
+  if (hasOwn(target, key)) {
+    delete (target as Record<string, unknown>)[key];
+  }
+}
+
+function hasOwn(target: object, key: string) {
+  return Object.prototype.hasOwnProperty.call(target, key);
 }
 
 function restore(target: Record<string, unknown>, previous: Snapshot) {

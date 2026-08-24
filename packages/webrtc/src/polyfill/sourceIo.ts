@@ -151,6 +151,36 @@ export function encodeLengthPrefixed(packet: Buffer) {
   return Buffer.concat([header, packet]);
 }
 
+export async function readEntireStream(
+  stream: Readable | ReadableStream<Uint8Array>,
+) {
+  const chunks: Buffer[] = [];
+  if (stream instanceof Readable) {
+    for await (const chunk of stream) {
+      chunks.push(toBuffer(chunk));
+    }
+    return Buffer.concat(chunks);
+  }
+
+  const reader = stream.getReader();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      if (value) {
+        chunks.push(
+          Buffer.from(value.buffer, value.byteOffset, value.byteLength),
+        );
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks);
+}
+
 export function isWebmContainer(buffer: Buffer) {
   return (
     buffer.length >= 4 &&

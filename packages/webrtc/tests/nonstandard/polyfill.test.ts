@@ -3,7 +3,7 @@ import { PassThrough } from "stream";
 
 import { RTCPeerConnection } from "../../src";
 import { OverconstrainedError } from "../../src/errors";
-import { MediaStreamTrack } from "../../src/media/track";
+import { MediaStream, MediaStreamTrack } from "../../src/media/track";
 import { createFileMediaPlayer } from "../../src/nonstandard/userMedia";
 import {
   createEncodedBinaryRegister,
@@ -23,6 +23,8 @@ import {
 import {
   createAvMp4Buffer,
   createAvWebmBuffer,
+  createOpusMp4Buffer,
+  createOpusWebmBuffer,
   createTempMediaFile,
 } from "./userMediaTestUtils";
 
@@ -242,6 +244,58 @@ describe("werift/polyfill installPolyfill", () => {
     expect((globalThis as any).RTCPeerConnection).toBe(previous);
   });
 
+  test("existingMediaDevices throw leaves the target unchanged", () => {
+    const getUserMedia = async () => "original";
+    const target: Record<string, any> = {
+      navigator: {
+        mediaDevices: { getUserMedia },
+      },
+    };
+
+    // 実行: 既存 GUM がある sandbox へ throw モードでインストールする。
+    expect(() =>
+      installPolyfill({
+        target,
+        mediaRegister: [],
+        existingMediaDevices: "throw",
+      }),
+    ).toThrow(/already exists/);
+
+    // 検証: コンストラクタも window も mediaDevices も書き換わっていない。
+    expect("RTCPeerConnection" in target).toBe(false);
+    expect("RTCSessionDescription" in target).toBe(false);
+    expect("MediaStream" in target).toBe(false);
+    expect("window" in target).toBe(false);
+    expect(target.navigator.mediaDevices.getUserMedia).toBe(getUserMedia);
+  });
+
+  test("uninstall removes navigator and constructors that did not exist", () => {
+    const target: Record<string, any> = {};
+
+    // 実行: 空の target にインストールしてから外す。
+    const uninstall = installPolyfill({ target, mediaRegister: [] });
+    expect(Object.prototype.hasOwnProperty.call(target, "navigator")).toBe(
+      true,
+    );
+    expect(
+      Object.prototype.hasOwnProperty.call(target, "RTCPeerConnection"),
+    ).toBe(true);
+    uninstall();
+
+    // 検証: 元々無かったプロパティは undefined ではなく削除される。
+    expect(Object.prototype.hasOwnProperty.call(target, "navigator")).toBe(
+      false,
+    );
+    expect("navigator" in target).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(target, "mediaDevices")).toBe(
+      false,
+    );
+    expect(
+      Object.prototype.hasOwnProperty.call(target, "RTCPeerConnection"),
+    ).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(target, "window")).toBe(false);
+  });
+
   test("existingMediaDevices overwrite / throw / noop", () => {
     const target: Record<string, any> = {
       navigator: {
@@ -277,13 +331,21 @@ describe("werift/polyfill installPolyfill", () => {
     uninstallOverwrite();
   });
 
-  test("returned tracks expose writeRtp", async () => {
+  test("returned tracks expose writeRtp and MediaStream.clone", async () => {
     const uninstall = installTestPolyfill([createVideoCallbackRegister()]);
     try {
+      // 実行: GUM で得たストリームを clone する。
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       const [track] = stream.getVideoTracks();
+      const cloned = stream.clone();
+
+      // 検証: writeRtp が使え、clone は別インスタンスで同じトラックを持つ。
       expect(track).toBeInstanceOf(MediaStreamTrack);
       expect(typeof (track as MediaStreamTrack).writeRtp).toBe("function");
+      expect(cloned).toBeInstanceOf(MediaStream);
+      expect(cloned).not.toBe(stream);
+      expect(cloned.id).not.toBe(stream.id);
+      expect(cloned.getTracks()).toEqual(stream.getTracks());
     } finally {
       uninstall();
     }
@@ -297,14 +359,17 @@ describe("werift/polyfill builtin registers", () => {
     const temp = await createTempMediaFile(mp4, "mp4");
     try {
       // 実行: binary / path / stream の各ソースを polyfill GUM から再生する。
-      await withRegister(createMp4WebmRegister({ binary: webm }), async () => {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-        });
-        await waitForRtp(stream.getVideoTracks()[0] as MediaStreamTrack);
-      });
       await withRegister(
-        createMp4WebmRegister({ path: temp.path }),
+        await createMp4WebmRegister({ binary: webm }),
+        async () => {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+          });
+          await waitForRtp(stream.getVideoTracks()[0] as MediaStreamTrack);
+        },
+      );
+      await withRegister(
+        await createMp4WebmRegister({ path: temp.path }),
         async () => {
           const stream = await navigator.mediaDevices.getUserMedia({
             video: true,
@@ -315,13 +380,38 @@ describe("werift/polyfill builtin registers", () => {
       const passthrough = new PassThrough();
       passthrough.end(webm);
       await withRegister(
-        createMp4WebmRegister({ stream: passthrough }),
+        await createMp4WebmRegister({ stream: passthrough }),
         async () => {
           const stream = await navigator.mediaDevices.getUserMedia({
             video: true,
           });
           await waitForRtp(stream.getVideoTracks()[0] as MediaStreamTrack);
         },
+      );
+    } finally {
+      await temp.cleanup();
+    }
+  }, 20_000);
+
+  test("audio-only mp4/webm path, binary, and stream are not video devices", async () => {
+    const webm = await createOpusWebmBuffer();
+    const mp4 = await createOpusMp4Buffer();
+    const temp = await createTempMediaFile(mp4, "m4a");
+    try {
+      // 実行: 音声専用コンテナを path / binary / stream で登録する。
+      await assertAudioOnlyRegister(
+        await createMp4WebmRegister({ path: temp.path }),
+        "audio/mp4",
+      );
+      await assertAudioOnlyRegister(
+        await createMp4WebmRegister({ binary: webm }),
+        "audio/webm",
+      );
+      const passthrough = new PassThrough();
+      passthrough.end(webm);
+      await assertAudioOnlyRegister(
+        await createMp4WebmRegister({ stream: passthrough }),
+        "audio/webm",
       );
     } finally {
       await temp.cleanup();
@@ -410,7 +500,7 @@ describe("nonstandard getUserMedia({ path }) removal", () => {
         width: 640,
         height: 360,
       } as any),
-    ).rejects.toThrow("File playback no longer accepts { width, height }");
+    ).rejects.toThrow(/File playback no longer accepts/);
   });
 });
 
@@ -424,6 +514,30 @@ async function withRegister(
   } finally {
     uninstall();
   }
+}
+
+async function assertAudioOnlyRegister(
+  register: Parameters<typeof installPolyfill>[0]["mediaRegister"][number],
+  mimeType: string,
+) {
+  expect(register.mimeType).toBe(mimeType);
+  expect(register.kinds).toEqual(["audio"]);
+  await withRegister(register, async () => {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    expect(devices.map((device) => device.kind)).toEqual(["audioinput"]);
+
+    let videoError: unknown;
+    try {
+      await navigator.mediaDevices.getUserMedia({ video: true });
+    } catch (error) {
+      videoError = error;
+    }
+    expectDomException(videoError, "NotFoundError");
+
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    expect(stream.getAudioTracks()).toHaveLength(1);
+    expect(stream.getVideoTracks()).toHaveLength(0);
+  });
 }
 
 function createVp8Rtp() {

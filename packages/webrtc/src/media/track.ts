@@ -121,4 +121,8 @@ export class MediaStream {
   get active() {
     return this.tracks.some((track) => !track.stopped);
   }
+
+  clone() {
+    return new MediaStream(this.tracks.slice());
+  }
 }

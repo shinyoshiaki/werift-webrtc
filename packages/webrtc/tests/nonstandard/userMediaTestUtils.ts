@@ -86,6 +86,37 @@ export async function createAvMp4Buffer() {
   return Buffer.concat(outputs.map((output) => Buffer.from(output)));
 }
 
+export async function createOpusMp4Buffer() {
+  const outputs: Uint8Array[] = [];
+  const done = createDeferred<void>();
+  const mp4 = new MP4Callback([
+    {
+      kind: "audio",
+      codec: "opus",
+      clockRate: 48_000,
+      trackNumber: 1,
+    },
+  ]);
+
+  mp4.pipe(async (output) => {
+    if ("data" in output) {
+      outputs.push(output.data);
+    } else if ("eol" in output && output.eol) {
+      done.resolve();
+    }
+  });
+
+  const audioFrames = createOpusFrames();
+  mp4.inputAudio({ frame: audioFrames[0] });
+  mp4.inputAudio({ frame: audioFrames[1] });
+  mp4.inputAudio({ frame: audioFrames[2] });
+  mp4.inputAudio({ eol: true });
+
+  await done.promise;
+
+  return Buffer.concat(outputs.map((output) => Buffer.from(output)));
+}
+
 export async function createAvWebmBuffer() {
   return createWebmBuffer({
     videoCodec: "vp8",
@@ -169,6 +200,34 @@ async function createWebmBuffer({
       ),
       {
         decoderConfig: videoDecoderConfig,
+      },
+    );
+  }
+
+  await output.finalize();
+  return Buffer.from(output.target.buffer!);
+}
+
+export async function createOpusWebmBuffer() {
+  const audioSource = new EncodedAudioPacketSource("opus");
+  const output = new Output({
+    format: new WebMOutputFormat(),
+    target: new BufferTarget(),
+  });
+
+  output.addAudioTrack(audioSource);
+  await output.start();
+
+  const audioFrames = createOpusFrames();
+  for (const frame of audioFrames) {
+    await audioSource.add(
+      new EncodedPacket(frame.data, "key", frame.time / 1_000, 0.02),
+      {
+        decoderConfig: {
+          codec: "opus",
+          numberOfChannels: 2,
+          sampleRate: 48_000,
+        },
       },
     );
   }
@@ -367,7 +426,9 @@ export async function roundTripMediaAsset({
   let keepOutput = false;
 
   const uninstall = installPolyfill({
-    mediaRegister: [createMp4WebmRegister({ path: sourcePath, loop: true })],
+    mediaRegister: [
+      await createMp4WebmRegister({ path: sourcePath, loop: true }),
+    ],
   });
   try {
     exchangeIceCandidates(sender, receiver);
