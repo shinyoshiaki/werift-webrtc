@@ -18,7 +18,7 @@
 | `rfc5389.txt` | SPED が padding / STUN header サイズで引用する前身（現行処理は 8489） |
 | `rfc8445.txt` | ICE。connectivity check Binding の short-term MI、role conflict は認証後 |
 | `rfc8656.txt` | TURN。既存 ICE TURN regression の根拠。**TURN 経由 SPED は本 Epic スコープ外** |
-| `rfc7675.txt` | Consent Binding。host/srflx で SPED active なら decoration 対象 |
+| `rfc7675.txt` | Consent Binding。UDP host/srflx および TCP ICE で SPED active なら decoration 対象 |
 | `rfc7983.txt` / `rfc9443.txt` | 先頭 byte による demux。DTLS は **20–63 inclusive**。SPED は RFC 9443 §3 を引用（7983 を更新） |
 | `rfc5764.txt` | DTLS-SRTP 多重化の元。9443/7983 の前提 |
 | `rfc9147.txt` | DTLS 1.3。flight、replay（§4.5.1）、RTO（`1.5 × RTT`） |
@@ -108,6 +108,7 @@ Epic 1 carrier コメントの「Epic 2 SPED」は古い番号である。**Issu
 | ice-server の `ATTRIBUTES` に SPED を known attribute として登録 | しない（comprehension-optional の raw のまま扱う） |
 | Chromium `goog-sped-v1` / browser SPED E2E | しない（既定 SDP に出ないことを維持） |
 | 未マージの Pion agent SPED（pion/ice#876、pion/dtls#766、pion/webrtc#3362）を完了条件の前提にする | しない。released codec + werift DTLS で boundary を満たす |
+| ICE2 / `MESSAGE-INTEGRITY-SHA256` を SPED Binding に載せる | **本 Epic スコープ外**。SPED は HMAC-SHA1 の `MESSAGE-INTEGRITY` のみ。`ice2` を SDP に出さない |
 
 ### 確定事項（ユーザー回答 + 2026-08-24 時点の最新版確認）
 
@@ -118,7 +119,11 @@ Epic 1 carrier コメントの「Epic 2 SPED」は古い番号である。**Issu
 | Pion ICE codec | 最新 **pion/ice v4.4.1**（2026-08-06）の `sped.go` は **encode/decode のみ**（ACK max 4、big-endian uint32） |
 | Pion agent / DTLS endpoint | pion/ice#876（agent insert/process）、pion/dtls#766（packet intercept/inject）、pion/webrtc#3362（WebRTC glue）は **いずれも未マージ**。released Pion に SPED 対応 ICE agent / DTLS inject endpoint は無い。完了条件は **wire codec ↔ werift** と、released Pion ICE を **非 SPED peer** とした fallback。DTLS handshake 完了は **werift DTLS 1.3**。未マージ PR 待ちにしない |
 | SPED 有効化 | **Public インターフェースは `RTCPeerConnection` / `PeerConfig.sped` のみ**。既定 `false`。`IceOptions.sped` も `DtlsClient` 公開オプションも作らない。`sped: false` は現行の ICE → DTLS 直列。`sped: true` の PC だけ ICE check と DTLS handshake を重ねる |
-| path MTU 上限 | draft §3.3.3 の MUST どおり RFC 8831 の典型 **1200** から Table 1 の STUN overhead を引く。host / srflx の UDP（必要なら TCP ICE の framing）を実装。TURN ChannelData / Data Indication の overhead は SPED MTU の完了条件に含めない。custom raw はさらに減らす MUST。載らないなら送らない（§4.2 step 2） |
+| path MTU 上限 | draft §3.3.3 の MUST どおり RFC 8831 の典型 **1200** から Table 1 の STUN overhead を引く（**HMAC-SHA1 `MESSAGE-INTEGRITY` 24 のみ。MI-SHA256 は含めない**）。host / srflx の UDP と **TCP ICE の peer Binding** を実装。TURN ChannelData / Data Indication の overhead は SPED MTU の完了条件に含めない。custom raw はさらに減らす MUST。載らないなら送らない（§4.2 step 2） |
+| TCP ICE | **対応する**。TCP host（active / passive）および学習した TCP prflx の peer Binding に SPED を載せる。TCP srflx の新規 gather は足さない。TURN over TCP はスコープ外。framing は RFC 4571 の 2-byte length（既存 `encodeTcpFrame`）。STUN 本体の outer は UDP と同じ **1200**（draft Table 1 に TCP 項目は無い。4571 ヘッダはフレーム外） |
+| ICE2 / MI-SHA256 | **含めない**。SPED の認証・MTU・wire は RFC 8489 HMAC-SHA1 `MESSAGE-INTEGRITY` のみ。`a=ice-options:ice2` を出さない。既存 STUN が SHA256 attribute を parse できることは維持するが、SPED 完了条件にしない |
+| `sped: true` かつ DTLS 1.3 が無い | **`connect()` 開始時に明示的に失敗**（throw）。constructor では落とさない。`protocolVersions` 未指定 / 空 / `1.2` のみは失敗。`1.3` が含まれていれば可（`[V1_3]` または `[V1_3, V1_2]`）。失敗時は SPED を付けない |
+| ACK 5 件以上 | **送信は hard cap 4**（L2 を受信順キューとし、先頭から最大 4 件だけ attribute に入れる。5 件目は次の Binding）。**受信**は、長さが 4 の倍数でないなら ACK 属性だけ無視（STUN / DATA は続ける）。20 bytes 超かつ 4 の倍数なら **先頭 4 CRC だけ採用**し残りは無視。属性全体は drop しない。Pion へは 4 以下しか送らない |
 
 ---
 
@@ -161,6 +166,8 @@ MESSAGE-INTEGRITY
 FINGERPRINT
 ```
 
+SPED Binding に `MESSAGE-INTEGRITY-SHA256` は付けない（ICE2 スコープ外）。RFC 8489 が MI 直後に SHA256 を許すのは既存 STUN の話であり、本 Epic の SPED 目標順には入れない。
+
 - 既存 STUN/TURN の「known だけの新規 Message」の serialize 結果は不要に変えない
 - 4-byte padding は RFC 8489 §14（Length は padding 前、padding bit は送信時 0、受信時 ignore）。現行 `paddingLength()` を維持
 - HMAC は STUN 規則どおり padding 込みの message に対して計算する
@@ -201,6 +208,8 @@ raw STUN bytes
   → current generation 検証
   → role conflict / filter / SPED / response / checkIncoming
 ```
+
+SPED の integrity は **HMAC-SHA1 `MESSAGE-INTEGRITY` のみ**（現行 `parseMessage(data, integrityKey)` と同じ）。ICE2 の `MESSAGE-INTEGRITY-SHA256` 検証を本 Epic で足さない。
 
 generation:
 
@@ -249,9 +258,14 @@ ACK（draft §3.3.2.2）:
 
 - 受信済み SPED DATA **value** の CRC-32 配列（受信順）。uint32、padding は CRC に含めない
 - **empty ACK は合法**（N = 0）
-- 件数の上限 4 は draft の **RECOMMENDED** cap（4–20 bytes = header 4 + 0–16）。MUST ではない。Pion `sped.go` は 4 超を `ErrAttributeSizeInvalid` にするため、**本実装は 4 を hard cap** にして interop する
-- 5 件目を 1 attribute に入れない（cap 超過は drop / 先頭 4 件。Pion と不一致にしない）
-- malformed length（4 の倍数でない、16 bytes 超）は無視（catch-and-ignore で握りつぶさず、検証可能な drop）
+- 件数の上限 4 は draft の **RECOMMENDED** cap（送信 SHOULD。MUST ではない）。Pion `sped.go` の `AddTo` は 4 超を `ErrAttributeSizeInvalid` にする
+- **送信（確定）**: L2 は受信順キュー。1 Binding に入れる CRC は先頭から **最大 4 件**（hard cap）。5 件目以降は次の Binding に残す。Pion へ 5 件を送らない
+- **受信（確定）**:
+  - 長さ 0: empty ACK。合法
+  - 長さが 4 の倍数でない: **ACK 属性だけ無視**。STUN メッセージ全体は落とさない。DATA があれば処理する。catch-and-ignore で握りつぶさず、unit で検証する
+  - 長さ 4 / 8 / 12 / 16: 全 CRC を受信順で処理
+  - 長さ > 16 かつ 4 の倍数（5 件以上）: **先頭 4 CRC だけ採用**し残りは無視。属性全体は drop しない
+- 理由: cap は「attribute に **含める**件数」の SHOULD（draft §3.3.2.2）。受信 MUST-reject ではない。RFC 8489 の「余った bytes は無視」に近い。全体 drop すると認証済みの有効 ACK まで捨てて再送が増える。先頭 4 は RECOMMENDED 窓と一致する。Pion codec 不一致は **送らない**ことで避ける（Pion `GetFrom` は 16 bytes 超を error にするが、werift は 4 以下しか送らない）
 
 CRC:
 
@@ -265,7 +279,7 @@ ICE **generation ごと** に session を持つ。
 
 state: `disabled` | `probing` | `active` | `fallback` | `complete`
 
-内部: L1（未 ACK の current DTLS flight datagram）/ L2（peer へ返す pending CRC、最大 4）/ `roundRobinIndex` / `peerSupport` / `generation` / `carrierMode` / `rttMs` / `mtu`
+内部: L1（未 ACK の current DTLS flight datagram）/ L2（peer へ返す pending CRC。受信順キュー。**保持は 4 超えてよい**。1 Binding に載せるのは先頭最大 4）/ `roundRobinIndex` / `peerSupport` / `generation` / `carrierMode` / `rttMs` / `mtu`
 
 新 DTLS flight（`onFlightCreated`）:
 
@@ -296,13 +310,13 @@ draft §6 の RECOMMENDED「first STUN Binding Response で DTLS timer を再開
 
 ### 2.6 Binding への付加と受信処理
 
-付加対象: **host / srflx**（必要なら TCP ICE）の peer connectivity check Binding Request/Response（ordinary / nomination / triggered / handshake 中 / **consent 中でまだ SPED active なら同様**）。draft §4.2 は SPED active 中の every Binding に DATA を MUST とするが、本 Epic は TURN 経由 SPED を実装しないため **relay pair には付けない**。
+付加対象: **host / srflx の UDP** と **TCP ICE**（host active / passive、学習した TCP prflx）の peer connectivity check Binding Request/Response（ordinary / nomination / triggered / handshake 中 / **consent 中でまだ SPED active なら同様**）。draft §4.2 は SPED active 中の every Binding に DATA を MUST とするが、本 Epic は TURN 経由 SPED を実装しないため **relay pair には付けない**。
 
-非対象: STUN server discovery（`serverReflexiveCandidate`）、TURN control（Allocate 等）、STUN Indication、**TURN 経路の peer Binding**。relay の Binding は SPED support 判定（最初の authenticated STUN に DATA が無いか）に使わない。`sped: true` の完了試験は TURN 無し（host/srflx）で行う。
+非対象: STUN server discovery（`serverReflexiveCandidate`）、TURN control（Allocate 等）、STUN Indication、**TURN 経路の peer Binding**（TURN over TCP 含む）。relay の Binding は SPED support 判定（最初の authenticated STUN に DATA が無いか）に使わない。TCP srflx の新規 gather は本 Epic で足さない。`sped: true` の完了試験は TURN 無し。UDP 主経路に加え **TCP host の E2E を必須**とする。
 
 - L1 が空、または MTU に載らないなら empty DATA を付ける（draft §4.2 step 3）
 - L1 が複数なら 1 Binding = 1 datagram。round-robin は **RECOMMENDED**（本実装は round-robin を採用）
-- L2 から ACK を載せる（empty ACK 可。本実装は最大 4 CRC）。L2 は STUN loss 対策で **同じ ACK を再送してよい**（§4.1 MAY）
+- L2 から ACK を載せる（empty ACK 可。**先頭から最大 4 CRC**。5 件目は次の Binding）。L2 は STUN loss 対策で **同じ ACK を再送してよい**（§4.1 MAY）
 - 送信順は draft §4.2: **ACK を先、DATA を後**（どちらも MI より前）
 - 同一 STUN transaction 再送は同じ serialized message（RFC 8489: resend は同じ transaction ID。新しい tx だけ bit-wise identical でなければ新しい ID）
 
@@ -310,7 +324,7 @@ draft §6 の RECOMMENDED「first STUN Binding Response で DTLS timer を再開
 
 ```text
 最初の authenticated STUN で DATA が無い → unsupported、SPED 終了（§4.3 step 1）
-  → ACK 処理（一致 CRC のみ L1 から除去。未知 CRC は ignore）
+  → ACK 処理（一致 CRC のみ L1 から除去。未知 CRC は ignore。5 件以上は先頭 4）
   → non-empty DATA: demux 検証 → DTLS inject → CRC を L2 へ
 ```
 
@@ -393,7 +407,7 @@ new Binding Response
 
 handler は現状同期。inject 待ちのため **async** にする。generation を capture し、await 後に stale なら response/state を更新しない。
 
-consent の Binding も SPED active 中は decoration 対象（host/srflx）。discovery / TURN control / TURN 経路の peer Binding は対象外。
+consent の Binding も SPED active 中は decoration 対象（UDP host/srflx および TCP ICE）。discovery / TURN control / TURN 経路の peer Binding は対象外。
 
 ### 2.9 source / generation-aware datagram context
 
@@ -429,7 +443,7 @@ pre-nomination direct handshake 用:
 sendHandshakeOnAuthenticatedPair(pair, bytes, generation)
 ```
 
-条件: current generation、authenticated check 成功、protocol / remote が pair と一致、DTLS handshake 専用。`Connection.send()` の consent / nominated セマンティクスは変えない。
+条件: current generation、authenticated check 成功、protocol / remote が pair と一致、DTLS handshake 専用。UDP と TCP ICE の両方。`Connection.send()` の consent / nominated セマンティクスは変えない。
 
 ### 2.10 fallback / RTT / MTU / restart
 
@@ -449,8 +463,10 @@ MTU（draft §3.3.3 Table 1 + RFC 8831 の典型 1200）:
 - Binding skeleton（DATA payload 無し）を serialize し、`outer limit - skeleton = max DTLS datagram`。draft は「typical 1200 を expected overhead だけ減らす」を MUST とする
 - **outer limit は RFC 8831 の典型 1200**（本 Epic の固定値。経路ごとに実測 path MTU が取れない場合も 1200 を使う）
 - Request と Response の小さい方
-- Table 1 の項目（host / srflx UDP）: STUN header 20、ICE-CONTROLLED/CONTROLLING 12、PRIORITY 8、USE-CANDIDATE 4（初回以外）、MI 24、MI-SHA256 36（ice2 のときだけ、RFC 8445 §10）、FINGERPRINT 8、DATA header 4、ACK 4–20、USERNAME 16+
-- 追加で実装が考慮: IP/UDP framing、TCP ICE を使う場合の TCP framing、STUN 4-byte padding、custom raw attribute（draft: table 外の custom はさらに MTU を減らす MUST）
+- Table 1 の項目（host / srflx UDP および TCP ICE の **STUN 本体**）: STUN header 20、ICE-CONTROLLED/CONTROLLING 12、PRIORITY 8、USE-CANDIDATE 4（初回以外）、**MI 24（HMAC-SHA1 のみ）**、FINGERPRINT 8、DATA header 4、ACK 4–20、USERNAME 16+
+- **MI-SHA256（36）は SPED MTU に入れない**（ICE2 スコープ外）
+- TCP ICE: STUN は RFC 4571 フレーム（2-byte length + payload、既存 `tcpFrame.ts`）に載る。**DTLS MTU の outer は UDP と同じ 1200**（STUN メッセージ = フレーム payload）。4571 ヘッダは Table 1 に無いので DTLS datagram 上限から引かない。TCP srflx gather はしない
+- 追加で実装が考慮: STUN 4-byte padding、custom raw attribute（draft: table 外の custom はさらに MTU を減らす MUST）
 - TURN XOR-PEER-ADDRESS / ChannelData / Data Indication の overhead は draft Table 1 にあるが、**TURN 経由 SPED はスコープ外**なので SPED MTU 計算の完了条件に含めない
 - `carrier.setMtu` を path / selected pair / attribute / ICE restart で更新
 - send 直前に最終 STUN サイズが path 上限超なら送らない（draft §4.2 step 2 の「sufficient space」）
@@ -484,17 +500,21 @@ werift ↔ werift の **SPED 有効化 E2E** は `RTCPeerConnection` を使う:
 new RTCPeerConnection({ sped: true, dtls: { protocolVersions: ["1.3"] } })
 ```
 
-必須 matrix（仕様 §20.3 から **TURN 経由 SPED を除外**）:
+必須 matrix（仕様 §20.3 から **TURN 経由 SPED と ICE2 を除外**）:
 
 - role 両方向、Full×Full、Full×Lite
 - DTLS client/server 両方向
 - empty DATA、embedded CH/server flight、CRC ACK
-- loss / reorder / duplicate
+- ACK 受信: empty / 1 / 4 / 非 4 倍数（属性無視）/ 5 件（先頭 4 採用）
+- ACK 送信: L2 が 5 件でも wire は最大 4
+- loss / reorder / duplicate（UDP）
 - non-SPED fallback
 - multi-candidate、ICE restart
 - large / multi-record flight
 - 双方向 application data
+- **TCP ICE**: `iceUseTcp: true` の `RTCPeerConnection({ sped: true, dtls: { protocolVersions: ["1.3"] } })` 同士。TCP host nominated 上で SPED handshake 完了と双方向 app data。wire 上 DATA/ACK が RFC 4571 フレーム内の STUN にあること。TCP の loss/reorder matrix と Pion TCP SPED は必須にしない
 - `sped: false` では SPED attribute が付かないこと、ICE → DTLS 直列が維持されること
+- `sped: true` かつ DTLS 1.3 が選択肢に無い（未指定 / 空 / `1.2` のみ）とき `connect()` が throw し、SPED が wire に出ないこと
 
 wire assert（接続成功だけでは不足）:
 
@@ -543,8 +563,9 @@ export interface PeerConfig {
 - 既定は `generateDefaultPeerConfig()` で `sped: false`
 - `clonePeerConfiguration` は spread でコピーされる。boolean なので追加処理は不要だが、欠落させない
 - `IceOptions` / `DtlsClient` / `DtlsServer` の公開コンストラクタには出さない
-- `dtls.protocolVersions` のコメント「Independent of SPED (this package does not enable SPED)」と README 同趣旨を、本 Epic で更新する。フラグ自体は独立（DTLS 1.3 と SPED は別オプション）だが、本 Epic の完了試験は **`sped: true` + DTLS 1.3** の組み合わせ。`sped: true` で 1.3 が無い場合は接続開始時に失敗させてよい（1.2 default 経路に SPED を載せない）
-- Chromium E2E / 既定 `new RTCPeerConnection()` は SPED 無効のまま。SDP に `goog-sped-v1` を出さない
+- `dtls.protocolVersions` のコメント「Independent of SPED (this package does not enable SPED)」と README 同趣旨を、本 Epic で更新する。フラグ自体は独立（DTLS 1.3 と SPED は別オプション）
+- **`sped: true` で `protocolVersions` に DTLS 1.3（`DtlsVersion.V1_3` / `"1.3"`）が含まれない場合、`connect()` 開始時に明示的に失敗する**（throw）。constructor / `getConfiguration` では落とさない。未指定・空配列・`["1.2"]` のみは失敗。`["1.3"]` と `["1.3", "1.2"]` は可。失敗時は ICE/DTLS を重ねず、SPED attribute を送らない
+- Chromium E2E / 既定 `new RTCPeerConnection()` は SPED 無効のまま。SDP に `goog-sped-v1` を出さない。`ice2` も出さない
 
 `sped: false`（既定）の `connect()`:
 
@@ -651,18 +672,19 @@ WebRTC は `packages/webrtc/src/imports/ice.ts` が ice の barrel を再export 
 | 項目 | 規範 | 本 Epic の扱い |
 | --- | --- | --- |
 | DATA/ACK type | draft は TBD。IANA `0xC070`/`0xC071` | IANA 値を constants に固定 |
-| DATA 必須 | §4.2: SPED active 中の every Binding | 採用。discovery / TURN control / TURN 経路の peer Binding には付けない（TURN SPED はスコープ外） |
+| DATA 必須 | §4.2: SPED active 中の every Binding | 採用。discovery / TURN control / TURN 経路の peer Binding には付けない（TURN SPED はスコープ外）。UDP host/srflx と TCP ICE には付ける |
 | ACK 先・DATA 後 | §4.2 の手順順 | 採用。どちらも MI より前（RFC 8489 §9 / §14.7） |
-| ACK cap 4 | RECOMMENDED | Pion 互換のため hard cap 4 |
+| ACK cap 4 | 送信 SHOULD / RECOMMENDED | 送信 hard cap 4（L2 先頭から）。受信 5 件以上は先頭 4 採用。非 4 倍数は ACK 属性のみ無視 |
 | empty ACK | 合法 | 許可 |
 | invalid demux | SHOULD silent discard（RFC 9443 の 20–63） | silent drop。L2 に載せない |
 | termination | §4.4 MAY（pair 成立で direct でも HS 完了まででも） | HS 完了まで SPED 継続 |
 | DTLS timer | §6 RECOMMENDED: 最初の Binding Response で再開 | 埋め込み中は再開しない（二重送信防止） |
 | fallback | §3.3.4 / §4.3: 最初の authenticated STUN に DATA 無し | 採用。exact same flight bytes は Epic 品質要件 |
 | ICE restart / generation | draft に無し。RFC 8445 ICE restart | current generation 以外は SPED/DTLS を更新しない |
-| Binding 認証 | RFC 8445 §7.3 MUST short-term MI | 未認証 Request で role/SPED しない |
+| Binding 認証 | RFC 8445 §7.3 MUST short-term MI | 未認証 Request で role/SPED しない。SPED は HMAC-SHA1 `MESSAGE-INTEGRITY` のみ（ICE2 / MI-SHA256 は対象外） |
 | 同一 STUN 再送 | RFC 8489 同じ transaction ID / request message | L1 round-robin を再送ごとにやり直さない |
-| 有効化 API | draft は SDP ice-option を定義しない | `PeerConfig.sped` のみ。既定 false |
+| 有効化 API | draft は SDP ice-option を定義しない | `PeerConfig.sped` のみ。既定 false。`sped: true` かつ 1.3 無しは `connect()` で失敗 |
+| TCP ICE | draft は transport を限定しない | host active/passive と TCP prflx の peer Binding に SPED。RFC 4571。STUN outer 1200 |
 
 ### Pion（2026-08-24 最新版）
 
@@ -685,11 +707,13 @@ WebRTC は `packages/webrtc/src/imports/ice.ts` が ice の barrel を再export 
 - **RFC 8489 MI 境界**: DATA/ACK を MI より後に置くと HMAC 対象外かつ受信側が無視する。FINGERPRINT は末尾
 - **RFC 8445 §7.3**: connectivity-check Binding は short-term MI 必須。role conflict は認証後
 - **Public API**: draft codepoint、L1/L2、CRC、carrier bridge、`IceOptions.sped` を stable export しない。露出するのは `PeerConfig.sped`（既定 false）だけ。`npm run doc:check` で意図しない typedoc 増を検出する
-- **WebRTC 配線**: `sped: false` は `connect()` の ICE → DTLS 直列と `RTCDtlsTransport` の nominated `connection.send` を維持。`sped: true` の PC だけ ICE check と DTLS handshake を重ね、handshake 中は `ice.send()` を踏まない。browser E2E は SPED off。draft も SDP ice-option を定義しない
+- **WebRTC 配線**: `sped: false` は `connect()` の ICE → DTLS 直列と `RTCDtlsTransport` の nominated `connection.send` を維持。`sped: true` の PC だけ ICE check と DTLS handshake を重ね、handshake 中は `ice.send()` を踏まない。**`sped: true` で DTLS 1.3 が選択肢に無いときは `connect()` 開始時に throw**。browser E2E は SPED off。draft も SDP ice-option を定義しない。`ice2` を出さない
 - **認証前 inject 禁止**: unauthenticated または旧 generation の DATA を DTLS に入れない（draft §9.1 + ICE restart）
 - **generation と async**: `await inject` の間に `restart()` / `close()` され得る。captured generation で無効化
 - **TURN**: SPED 搬送はスコープ外。既存 ICE TURN の HMAC / peer context / 制御 STUN の MESSAGE-INTEGRITY を壊さない。TURN 制御 STUN に SPED を付けない
-- **TCP ICE**: `tcpProtocol` の Request も同じ認証境界。TCP framing を host/srflx の MTU に入れる（TURN ではない）
+- **TCP ICE**: **SPED 対象**。`tcpProtocol` の Request も同じ認証境界。STUN は RFC 4571 フレーム。DTLS MTU outer は 1200（フレーム payload）。TCP srflx gather は足さない。TURN over TCP は対象外。既存 TCP ICE regression（SPED 無し）は壊さない
+- **ICE2**: SPED Binding に `MESSAGE-INTEGRITY-SHA256` を付けない。MTU に 36 bytes を足さない。既存 STUN parse の SHA256 認識は維持
+- **ACK cap**: 送信最大 4。受信 5 件以上は先頭 4。malformed は ACK 属性のみ無視
 - **anti-amplification**: SPED 経路は `ice-authenticated`。`dtls-cookie` のまま SPED すると HRR/cookie と STUN 埋め込みが競合しうる
 - **CRC**: ACK は RFC 1952 CRC-32、Fingerprint XOR なし。padding は CRC に含めない
 - **ice-server `npm test`**: vitest のあと `chrome-e2e` まで走る。STUN serialize 変更時は unit を先に通し、known-only メッセージのバイトが変わっていないことを確認してから Chrome harness を見る
@@ -702,7 +726,7 @@ WebRTC は `packages/webrtc/src/imports/ice.ts` が ice の barrel を再export 
 
 ## 5. 完了条件
 
-仕様 §26–27 を本リポジトリの検証コマンドに落とし、ユーザー確定事項で TURN SPED と未マージ Pion agent を除外したもの。encode/decode だけでは不足。
+仕様 §26–27 を本リポジトリの検証コマンドに落とし、ユーザー確定事項で TURN SPED・ICE2・未マージ Pion agent を除外したもの。encode/decode だけでは不足。
 
 ### STUN / 認証
 
@@ -716,10 +740,10 @@ WebRTC は `packages/webrtc/src/imports/ice.ts` が ice の barrel を再export 
 
 - [ ] DATA=`0xC070`（IANA META-DTLS-IN-STUN）、ACK=`0xC071`（META-DTLS-IN-STUN-ACKNOWLEDGEMENT）、constants 単一モジュール。ice / dtls の Public API 非露出
 - [ ] empty DATA advertisement（inject MUST NOT）、non-empty は 1 attribute = 1 datagram
-- [ ] ACK は empty 可。本実装は最大 4 CRC / 16 bytes（draft RECOMMENDED cap）。padding を CRC に含めない。Fingerprint XOR なし
+- [ ] ACK は empty 可。**送信は最大 4 CRC**（L2 先頭から。5 件目は次の Binding）。受信で非 4 倍数は ACK 属性のみ無視、5 件以上は先頭 4 を採用。padding を CRC に含めない。Fingerprint XOR なし
 - [ ] invalid DTLS demux（先頭 byte が 20–63 以外）は silent drop、L2 に載せない
 - [ ] L1/L2 と DTLS ACK state が分離されている
-- [ ] SPED active 中の **host/srflx peer Binding** には DATA が必ず付く。送信順は ACK なら ACK → DATA → MI → FP。TURN 経路には載せない
+- [ ] SPED active 中の **UDP host/srflx および TCP ICE の peer Binding** には DATA が必ず付く。送信順は ACK なら ACK → DATA → MI（HMAC-SHA1）→ FP。TURN 経路と MI-SHA256 は載せない
 
 ### DTLS carrier
 
@@ -732,25 +756,26 @@ WebRTC は `packages/webrtc/src/imports/ice.ts` が ice の barrel を再export 
 
 - [ ] internal datagram に source / protocol / pair / generation / authenticated がある
 - [ ] Public `onData(Buffer)` 互換、raw address だけで association を選ばない
-- [ ] pre-nomination handshake は authenticated current-generation pair のみ（host/srflx）。TURN 経由 SPED は実装しない
+- [ ] pre-nomination handshake は authenticated current-generation pair のみ（UDP host/srflx および TCP ICE）。TURN 経由 SPED は実装しない
 - [ ] 非 SPED 判定 → exact same flight → handshake → application data
 - [ ] `CandidatePair.rtt` 秒 → carrier ミリ秒。connectivity check / selected pair で更新。ICE 500ms consent floor を DTLS RTO に使わない
-- [ ] dynamic MTU が RFC 8831 の 1200 − Table 1（host/srflx）+ custom overhead を考慮し、超過 packet を送らない。TURN ChannelData / Data Indication は計算しない
+- [ ] dynamic MTU が RFC 8831 の 1200 − Table 1（HMAC-SHA1 MI 24。MI-SHA256 無し）+ custom overhead を考慮し、超過 packet を送らない。TCP の STUN outer も 1200。TURN ChannelData / Data Indication は計算しない
 - [ ] restart で L1/L2 / round-robin / RTT / MTU / peerSupport を reset。stale inject 無効。close/error/complete で timer 破棄
 
 ### RTCPeerConnection
 
 - [ ] `PeerConfig.sped` が既定 `false`。`IceOptions` / `DtlsClient` に公開しない
 - [ ] `sped: false` の `connect()` は ICE → DTLS 直列のまま。Binding に SPED を付けない
-- [ ] `sped: true` の PC だけ ICE check と DTLS 1.3 handshake を重ね、handshake が SPED 上で完了する
-- [ ] `new RTCPeerConnection({ sped: true })` 同士で werift ↔ werift の SPED + DTLS 1.3 + 双方向 app data が成立する
+- [ ] `sped: true` かつ DTLS 1.3 が選択肢に無い（未指定 / 空 / `1.2` のみ）とき **`connect()` 開始時に throw** し、SPED を送らない
+- [ ] `sped: true` かつ 1.3 ありの PC だけ ICE check と DTLS 1.3 handshake を重ね、handshake が SPED 上で完了する
+- [ ] `new RTCPeerConnection({ sped: true, dtls: { protocolVersions: ["1.3"] } })` 同士で werift ↔ werift の SPED + DTLS 1.3 + 双方向 app data が成立する（UDP および **TCP ICE**）
 
 ### werift E2E / Pion / regression
 
-- [ ] 仕様 §20 の werift ↔ werift matrix（role、Lite、loss/reorder、restart、wire assert）。**TURN 経由 SPED は除外**
-- [ ] Pion: pion/stun v3.1.7 + pion/ice v4.4.1 `sped.go` の encode/decode 両方向、codepoint と MI 境界。released Pion ICE を非 SPED peer とした fallback。DTLS 完了は werift DTLS 1.3
+- [ ] 仕様 §20 の werift ↔ werift matrix（role、Lite、loss/reorder、restart、wire assert、**TCP ICE host**）。**TURN 経由 SPED と ICE2 は除外**
+- [ ] Pion: pion/stun v3.1.7 + pion/ice v4.4.1 `sped.go` の encode/decode 両方向、codepoint と MI 境界（HMAC-SHA1）。ACK は 0/1/4。released Pion ICE を非 SPED peer とした fallback。DTLS 完了は werift DTLS 1.3
 - [ ] default DTLS 1.2 と SPED disabled ICE を変えていない
-- [ ] 既存 ICE TURN / TCP-TURN regression が green（SPED 無し）
+- [ ] 既存 ICE TURN / TCP-TURN / TCP ICE regression が green（SPED 無し）
 - [ ] Epic 1 BoringSSL DTLS 1.3 / OpenSSL DTLS 1.2 interop が green
 - [ ] Epic 2 Chromium DTLS 1.2 / 1.3 browser E2E が green（SPED 無効、SDP に `goog-sped-v1` が無い）
 
@@ -813,6 +838,6 @@ werift                             ↔  released Pion ICE (no agent SPED)  →  
 SPED probe → unsupported → same serialized DTLS flight → direct fallback → handshake complete
 ```
 
-TURN 経由 SPED と未マージの Pion agent/DTLS/WebRTC PR は完了条件に含めない。
+TURN 経由 SPED、ICE2 / MI-SHA256、未マージの Pion agent/DTLS/WebRTC PR は完了条件に含めない。
 
 Epic 4 は early application data / SNAP / SPED stats / `writeReady` / `peerAuthenticated` / `handshakeComplete` の WebRTC 公開を載せる段階とする。**SPED 有効化と ICE/DTLS の重ね合わせは本 Epic で完了していること。**
