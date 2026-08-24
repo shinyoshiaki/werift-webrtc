@@ -22,6 +22,21 @@ describe("RTCDtlsTransportTest", () => {
     expect(receiver2.data).toEqual([Buffer.from("ping")]);
   });
 
+  test("DTLS stop sends close_notify and peer becomes closed", async () => {
+    const [session1, session2] = await dtlsTransportPair();
+    try {
+      // 実行: 一方を stop して close_notify を送る。
+      const closed = waitForDtlsState(session2, "closed");
+      await session1.stop();
+      await closed;
+
+      // 検証: 相手側 DTLS は closed になる。
+      expect(session2.state).toBe("closed");
+    } finally {
+      await session2.stop().catch(() => undefined);
+    }
+  });
+
   test("dtls_start_accepts_matching_fingerprint_in_selected_algorithm_set", async () => {
     const [session1, session2] = await createDtlsSessions();
     const expectedFingerprint = session2.localParameters.fingerprints[0];

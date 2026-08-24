@@ -137,6 +137,37 @@ describe("peerConnection", () => {
       await assertDataChannelOpen(dc);
     }));
 
+  test("ICE restart re-establishes ICE when DTLS is already connected", async () => {
+    const pc1 = new RTCPeerConnection({});
+    const pc2 = new RTCPeerConnection({});
+    try {
+      pc1.createDataChannel("restart");
+      await pc1.setLocalDescription(await pc1.createOffer());
+      await pc2.setRemoteDescription(pc1.localDescription!);
+      await pc2.setLocalDescription(await pc2.createAnswer());
+      await pc1.setRemoteDescription(pc2.localDescription!);
+      await waitForConnectionState(pc1, "connected");
+      const ice = (pc1 as any).secureManager.iceTransports[0];
+      const ufrag = ice.connection.localUsername;
+
+      // 実行: DTLS 接続済みのまま ICE restart する。
+      await pc1.setLocalDescription(
+        await pc1.createOffer({ iceRestart: true }),
+      );
+      await pc2.setRemoteDescription(pc1.localDescription!);
+      await pc2.setLocalDescription(await pc2.createAnswer());
+      await pc1.setRemoteDescription(pc2.localDescription!);
+      await waitForConnectionState(pc1, "connected");
+
+      // 検証: ufrag が変わり、nominated pair が再設定される。
+      expect(ice.connection.localUsername).not.toBe(ufrag);
+      expect(ice.connection.nominated).toBeDefined();
+    } finally {
+      await pc1.close();
+      await pc2.close();
+    }
+  });
+
   test("rejects_tampered_remote_fingerprint", async () => {
     const caller = new RTCPeerConnection({});
     const callee = new RTCPeerConnection({});

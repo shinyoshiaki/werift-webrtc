@@ -20,9 +20,10 @@ import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecre
 import { RenegotiationIndication } from "./handshake/extensions/renegotiationIndication";
 import { Signature } from "./handshake/extensions/signature";
 import { UseSRTP } from "./handshake/extensions/useSrtp";
+import { Alert } from "./handshake/message/alert";
 import type { SrtpProfile } from "./imports/rtp";
 import { createPlaintext } from "./record/builder";
-import { ContentType } from "./record/const";
+import { AlertDesc, ContentType } from "./record/const";
 import { FragmentedHandshake } from "./record/message/fragment";
 import { parsePacket, parsePlainText } from "./record/receive";
 import type { Extension } from "./typings/domain";
@@ -200,6 +201,27 @@ export class DtlsSocket {
     )[0];
     await this.transport.send(this.cipher.encryptPacket(pkt).serialize(), addr);
   };
+
+  async closeNotify() {
+    if (!this.connected) {
+      return;
+    }
+    const alert = new Alert(1, AlertDesc.CloseNotify);
+    const pkt = createPlaintext(this.dtls)(
+      [{ type: ContentType.alert, fragment: alert.serialize() }],
+      ++this.dtls.recordSequenceNumber,
+    )[0];
+    const encoded = this.cipher.encryptPacket(pkt).serialize();
+    const socket = this.transport.socket as Transport & {
+      sendClosing?: (data: Buffer) => Promise<void>;
+    };
+    // ICE consent が切れていても shutdown 通知は nominated pair へ送る。
+    if (socket.sendClosing) {
+      await socket.sendClosing(encoded);
+    } else {
+      await this.transport.send(encoded);
+    }
+  }
 
   close() {
     this.transport.socket.close();

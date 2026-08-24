@@ -32,6 +32,26 @@ describe("iceTransport", () => {
     }
   });
 
+  test("remote DTLS close maps to connectionState disconnected", async () => {
+    // Arrange: datachannel 作成で DTLS transport を用意する
+    const pc = new RTCPeerConnection({ iceServers: [] });
+    try {
+      pc.createDataChannel("dtls-close");
+      const dtls = (pc as any).secureManager.dtlsTransports[0];
+      expect(dtls).toBeDefined();
+      (pc as any).secureManager.setConnectionState("connected");
+
+      // Act: 相手側 DTLS close 相当を通知する。
+      dtls.onStateChange.execute("closed");
+
+      // 検証: connectionState は disconnected。PeerConnection は明示 close しない。
+      expect(pc.connectionState).toBe("disconnected");
+      expect(pc.signalingState).not.toBe("closed");
+    } finally {
+      await pc.close();
+    }
+  });
+
   describe("setConfiguration iceServers", () => {
     test("gathering 前の setConfiguration が Connection に TURN を反映する", async () => {
       // Arrange: createOffer で gatherer を作るが、まだ gather していない (WHIP パス)

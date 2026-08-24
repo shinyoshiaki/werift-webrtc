@@ -25,6 +25,8 @@ import {
   useH264,
   useOPUS,
   usePCMU,
+  useSdesMid,
+  useSdesRTPStreamId,
   useVP8,
 } from "./media";
 import {
@@ -891,23 +893,24 @@ export class RTCPeerConnection extends EventTarget {
     const res = await Promise.allSettled(
       this.dtlsTransports.map(async (dtlsTransport) => {
         const { iceTransport } = dtlsTransport;
-        if (iceTransport.state === "connected") {
-          return;
-        }
-        const checkDtlsConnected = () => dtlsTransport.state === "connected";
+        const iceReady = !!iceTransport.connection.nominated;
+        const dtlsConnected = () => dtlsTransport.state === "connected";
 
-        if (checkDtlsConnected()) {
+        // ICE restart 後は DTLS が残っていても nominated pair が消えるので ICE を再 start する。
+        if (iceReady && dtlsConnected()) {
           return;
         }
 
         this.secureManager.setConnectionState("connecting");
 
-        await iceTransport.start().catch((err) => {
-          log("iceTransport.start failed", err);
-          throw err;
-        });
+        if (!iceReady) {
+          await iceTransport.start().catch((err) => {
+            log("iceTransport.start failed", err);
+            throw err;
+          });
+        }
 
-        if (checkDtlsConnected()) {
+        if (dtlsConnected()) {
           return;
         }
 
@@ -1392,7 +1395,7 @@ function generateDefaultPeerConfig(): PeerConfig {
     },
     headerExtensions: {
       audio: [],
-      video: [],
+      video: [useSdesMid(), useSdesRTPStreamId()],
     },
     iceTransportPolicy: "all",
     iceLite: false,

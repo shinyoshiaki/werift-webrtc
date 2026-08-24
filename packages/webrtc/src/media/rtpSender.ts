@@ -212,7 +212,7 @@ export class RTCRtpSender {
     this.cname = params.rtcp?.cname;
     this.mid = params.muxId;
     this.headerExtensions = params.headerExtensions;
-    this.rtpStreamId = params.rtpStreamId;
+    this.rtpStreamId = params.rtpStreamId ?? this.rtpStreamId;
     this.repairedRtpStreamId = params.repairedRtpStreamId;
 
     this.codec = params.codecs[0];
@@ -299,6 +299,12 @@ export class RTCRtpSender {
       encodings.length > 0
         ? encodings.map((encoding) => ({ ...encoding }))
         : [{}];
+    const rid = this.sendEncodings.find(
+      (encoding) => typeof encoding.rid === "string",
+    )?.rid;
+    if (typeof rid === "string") {
+      this.rtpStreamId = rid;
+    }
   }
 
   async replaceTrack(track: MediaStreamTrack | null) {
