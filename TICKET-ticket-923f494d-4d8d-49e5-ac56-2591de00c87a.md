@@ -2,10 +2,36 @@
 
 - 親 Issue: [shinyoshiaki/werift-webrtc#659](https://github.com/shinyoshiaki/werift-webrtc/issues/659) Epic 3
 - 仕様ベース: リポジトリ直下 `epic3-sped-over-ice-detailed.md`
+- プロトコル原文: `docs/rfc/`（本チケット詳細化時に公式テキストを保存済み）
 - 前提 Epic: Epic 1（`packages/dtls` Direct DTLS 1.3、PR #674）/ Epic 2（`packages/webrtc` DTLS 1.3 opt-in と Chromium interop、PR #675）は完了済み
 - 対象ブランチ: `warp`（本 worktree は `ticket/923f494d-4d8d-49e5-ac56-2591de00c87a`）
 - 主対象パッケージ: **`packages/ice-server`**（STUN wire order）/ **`packages/ice`**（認証境界・SPED・ICE 統合）/ **`packages/dtls`**（awaitable inject と carrier 接続）
 - 本 Epic は **1 つの PR** で完結させる（途中コミット分割は可）
+
+### 規範ソース（`docs/rfc/`）
+
+| ファイル | 役割 |
+| --- | --- |
+| `draft-hancke-webrtc-sped-00.txt` | SPED 本体。Binding への DATA/ACK、L1/L2、fallback、MTU 表、termination |
+| `stun-parameters.xml` | IANA STUN Attributes。draft の TBD1/TBD2 に対する wire 値 |
+| `rfc8489.txt` | 現行 STUN。MI の HMAC 範囲、MI より後の attribute 無視、FINGERPRINT 末尾、padding、再送 |
+| `rfc5389.txt` | SPED が padding / STUN header サイズで引用する前身（現行処理は 8489） |
+| `rfc8445.txt` | ICE。connectivity check Binding の short-term MI、role conflict は認証後 |
+| `rfc8656.txt` | TURN。XOR-PEER-ADDRESS 等の MTU overhead。peer Binding にだけ SPED |
+| `rfc7675.txt` | Consent Binding。SPED active 中は peer Binding として decoration 対象 |
+| `rfc7983.txt` / `rfc9443.txt` | 先頭 byte による demux。DTLS は **20–63 inclusive**。SPED は RFC 9443 §3 を引用（7983 を更新） |
+| `rfc5764.txt` | DTLS-SRTP 多重化の元。9443/7983 の前提 |
+| `rfc9147.txt` | DTLS 1.3。flight、replay（§4.5.1）、RTO（`1.5 × RTT`） |
+| `rfc6347.txt` | DTLS 1.2 flight。SPED DATA は 1.2 datagram も載せられるが、本 Epic の E2E は 1.3 |
+| `rfc8831.txt` | 典型 DTLS MTU 1200（SCTP）。SPED §3.3.3 がこれを STUN overhead 分減らすと規定 |
+| `rfc1952.txt` | CRC-32 多項式（RFC 8489 FINGERPRINT と同じ。SPED ACK は XOR `0x5354554e` しない） |
+
+draft 本文は attribute 名を `DTLS-IN-STUN-DATA` / `DTLS-IN-STUN-ACK`、type を TBD のまま置く。IANA（2024-12-20）は comprehension-optional で次を登録している。実装の wire 値は IANA / Pion に合わせる。
+
+| draft 名称 | IANA 名称 | Type |
+| --- | --- | --- |
+| DTLS-IN-STUN-DATA | META-DTLS-IN-STUN | `0xC070` |
+| DTLS-IN-STUN-ACK | META-DTLS-IN-STUN-ACKNOWLEDGEMENT | `0xC071` |
 
 ---
 
@@ -13,7 +39,7 @@
 
 ### 目的
 
-認証済み ICE Binding Request / Response に SPED draft-00 の `DTLS-IN-STUN-DATA` / `DTLS-IN-STUN-ACK` を載せ、DTLS 1.3 handshake datagram を ICE connectivity check と並行して搬送する。
+認証済み ICE Binding Request / Response に SPED draft-00（`draft-hancke-webrtc-sped-00`）の `DTLS-IN-STUN-DATA` / `DTLS-IN-STUN-ACK` を載せ、DTLS 1.3 handshake datagram を ICE connectivity check と並行して搬送する。wire type は IANA の `0xC070` / `0xC071`。
 
 完了時点で、`RTCPeerConnection` を介さない ICE + DTLS integration harness において次が自動テストで成立していること。
 
@@ -46,7 +72,7 @@ Epic 4（`RTCPeerConnection` の ICE/DTLS coordinated startup と `WarpOptions.s
 | 箇所 | 現状 | Epic 3 で埋めるギャップ |
 | --- | --- | --- |
 | `packages/ice-server/src/stun/message.ts` `serializedAttributes` | known attributes を先に出し、続けて **全ての** `rawAttributes` を末尾へ付ける | unknown/SPED を `MESSAGE-INTEGRITY` より前の wire order に置ける内部表現へ変更する |
-| `packages/ice/src/stun/message.ts` | ice-server の Message を **再 consport** しているだけ（実装の単一ソース） | ice 側に二重実装を作らない。wire order 修正は ice-server で行い ice テストでも検証する |
+| `packages/ice/src/stun/message.ts` | ice-server の Message を **再export** しているだけ（実装の単一ソース） | ice 側に二重実装を作らない。wire order 修正は ice-server で行い ice テストでも検証する |
 | `StunProtocol.datagramReceived` ほか | Binding **Response** は `parseMessage(data, integrityKey)` で HMAC 検証。Binding **Request** は unauthenticated `parseMessage(data)` のまま `onRequestReceived` へ渡す | Request も USERNAME で credential を決めたあと再 parse / HMAC 検証してから role / filter / SPED / pair 更新へ進む |
 | `Connection.ensureProtocol`（`ice.ts` 約 288–354 行） | unauthenticated `msg` で role conflict、`filterStunResponse`、response 送信、`checkIncoming` まで進む。第 3 引数の raw `data` は未使用 | 二段階 parse。SPED DATA は認証後にだけ DTLS inject。response 組み立ては `await inject` の後 |
 | `protocol.request()` | integrityKey があるとき **内部で** `addMessageIntegrity` → `addFingerprint` | SPED decoration は必ずこの直前。MI/FP 追加後に DATA を足すと認証範囲外になる |
@@ -57,7 +83,7 @@ Epic 4（`RTCPeerConnection` の ICE/DTLS coordinated startup と `WarpOptions.s
 | `DtlsHandshakeCarrier.inject` | `void`。`handleDatagram` は `rxChain` に enqueue するだけ | inject 完了を await できるようにし、同じ Binding Response に server flight を載せる |
 | `DirectHandshakeCarrier.send` | 常に `transport.send`（生 DTLS） | SPED active 中は生 DTLS を出さない。`setRetransmissionMode("external")` で内部 RTO を止める |
 | `CandidatePair.rtt` | **秒**（`performance.now()` 差分 / 1000） | carrier は **ミリ秒**。`updateRtt(pair.rtt * 1000)` を明示する |
-| ICE 500ms floor | `CONSENT_RESPONSE_TIMEOUT_MIN = 500`（consent 待ち）。STUN transaction の初期 RTO は `RETRY_RTO = 50` | この 500ms を DTLS RTO に流用しない。DTLS は RFC 9147（`1.5 × RTT`、下限 `MIN_RTO_MS = 100`） |
+| ICE 500ms floor | RFC 8489 §6.2.1 の STUN RTO SHOULD ≥ 500ms（ICE は例外可）。実装は consent 下限 `CONSENT_RESPONSE_TIMEOUT_MIN = 500`、check 初期 `RETRY_RTO = 50` | どちらも DTLS RTO に流用しない。DTLS は RFC 9147（`1.5 × RTT`、下限 `MIN_RTO_MS = 100`） |
 | `peerConnection.connect()` | `await iceTransport.start()` のあと `await dtlsTransport.start()` | **この直列起動は変更しない**（Epic 4） |
 | browser E2E | `goog-sped-v1` が SDP に出ないことを既に assert | 本 Epic でも browser 経路の SPED は無効のまま |
 
@@ -92,7 +118,12 @@ Epic 1 carrier コメントの「Epic 2 SPED」は古い番号である。**Issu
 attributesKeys（known） → rawAttributes（unknown 全部が末尾）
 ```
 
-`appendRawAttribute()` で SPED を足すと `MESSAGE-INTEGRITY` / `FINGERPRINT` より後ろになり、DATA/ACK が HMAC 対象外になる。
+`appendRawAttribute()` で SPED を足すと `MESSAGE-INTEGRITY` / `FINGERPRINT` より後ろになり、次の **RFC 8489 違反** になる。
+
+- §9: agents MUST ignore all attributes that follow MESSAGE-INTEGRITY（例外は MESSAGE-INTEGRITY-SHA256 と FINGERPRINT のみ）。DATA/ACK が MI の後ろだと **HMAC 対象外かつ受信側が無視する**
+- §14.5: HMAC 入力は MI **直前**の attribute まで（Length は MI 末尾まで調整）
+- §14.7: FINGERPRINT があるとき MUST be the last attribute
+- ICE は RFC 8445 §7.3 で FINGERPRINT 必須
 
 実装:
 
@@ -113,7 +144,9 @@ FINGERPRINT
 ```
 
 - 既存 STUN/TURN の「known だけの新規 Message」の serialize 結果は不要に変えない
-- 4-byte padding は現行 `paddingLength()` を維持。HMAC は padding 込みの STUN 規則、SPED CRC は **DATA value のみ**（padding 除外）
+- 4-byte padding は RFC 8489 §14（Length は padding 前、padding bit は送信時 0、受信時 ignore）。現行 `paddingLength()` を維持
+- HMAC は STUN 規則どおり padding 込みの message に対して計算する
+- SPED ACK の CRC-32 は **DATA value のみ**（padding 除外）。draft §3.3.2.2。多項式は RFC 1952 / RFC 8489 FINGERPRINT と同じ IEEE CRC-32。Fingerprint の XOR `0x5354554e` は **付けない**。`crc32c` は使わない
 
 テスト（ice-server および ice の stun テスト）:
 
@@ -122,13 +155,13 @@ FINGERPRINT
 - DATA value 改ざんで HMAC 検証失敗
 - attribute value length 0/1/2/3 byte の padding
 
-注意: `0xC070` / `0xC071` は comprehension-optional（`isComprehensionRequiredAttribute` は `type <= 0x7fff`）。ice-server STUN サーバは未知 optional を 420 にしない。SPED を `ATTRIBUTES` に足すと STUN サーバが解釈し始めるので **足さない**。
+注意: RFC 8489 §14 は `0x8000–0xFFFF` を comprehension-optional とする。IANA `0xC070` / `0xC071` はこの範囲。未知 optional は無視（ice-server の 420 は comprehension-required のみ）。SPED を ice-server `ATTRIBUTES` に足すと STUN サーバが解釈し始めるので **足さない**。draft も SDP ice-option を定義しない（§3.3.4）。`goog-sped-v1` は Chromium 独自で本 Epic の WebRTC 配線対象外。
 
 ### 2.2 Binding Request の認証境界を修正する
 
 対象: `packages/ice/src/ice.ts` の request 処理、および UDP/TCP/TURN の request 配信。
 
-現状: Response だけ二段階 parse。Request は未認証 Message のまま進む。
+現状: RFC 8445 §7.3 は Binding request に short-term `MESSAGE-INTEGRITY` を MUST とし、role conflict（§7.3.1.1）は **受理した request** に対する追加手順である。werift は Response だけ二段階 parse し、Request は未認証 Message のまま role conflict まで進む。SPED DATA をこの経路に載せる前に直す必要がある。
 
 ```text
 StunProtocol / TcpProtocol / StunOverTurnProtocol
@@ -163,7 +196,7 @@ generation:
 - 未認証 request で role が切り替わらない
 - 未認証 request が `filterStunResponse` より先で拒否される
 
-UDP / TCP / TURN（`StunOverTurnProtocol.handleStunMessage`）の Request 経路を同じ境界にする。TURN の Allocate/Refresh/ChannelBind など **サーバ制御 STUN** には SPED を付けない（既存 TURN auth を壊さない）。
+UDP / TCP / TURN（`StunOverTurnProtocol.handleStunMessage`）の Request 経路を同じ境界にする。TURN の Allocate/Refresh/ChannelBind など **サーバ制御 STUN** には SPED を付けない。draft §4.2/§4.3 の対象は **STUN Binding Request or Response** のみ。STUN Indication や TURN 制御メソッドは対象外（RFC 8489 の Indication は再送しない）。
 
 ### 2.3 SPED draft-00 module
 
@@ -187,20 +220,26 @@ codepoint は constants に隔離:
 
 ### 2.4 DATA / ACK codec
 
-DATA:
+DATA（draft §3.3.2.1）:
 
-- empty（length = 0）: peer の SPED support advertisement。DTLS へ inject しない
-- non-empty: **1 attribute = DTLS handshake datagram 1 個**。複数 datagram を coalesce しない
-- 先頭 byte が `20 <= firstByte <= 63` 以外なら silent drop（RFC 7983 / DTLS demux）
+- empty（length = 0）: SPED support advertisement。**DTLS へ inject してはならない**（MUST NOT）
+- non-empty: **1 attribute = DTLS handshake datagram 1 個**（RFC 9147 §5.1 / RFC 6347 §4.2 の flight packet）。複数 datagram を coalesce しない
+- RFC 8489 §14: 同一 type が複数あっても受信は最初の 1 件でよい。送信側は 1 Binding に DATA を 1 つだけ付ける
+- 先頭 byte が DTLS でない（**20–63 inclusive 以外**、RFC 9443 §3 / RFC 7983。draft は RFC 9443 を引用）場合、attribute は **SHOULD silently discarded**。本実装は silent drop する。**inject しないし L2 にも載せない**
 
-ACK:
+ACK（draft §3.3.2.2）:
 
-- 受信済み SPED DATA **value** の CRC-32 配列。4 bytes × N、N ≤ 4（最大 16 bytes）
-- STUN padding は CRC に含めない
-- 5 件目を 1 attribute に入れない
-- malformed length は無視（catch-and-ignore で握りつぶさず、検証可能な drop）
+- 受信済み SPED DATA **value** の CRC-32 配列（受信順）。uint32、padding は CRC に含めない
+- **empty ACK は合法**（N = 0）
+- 件数の上限 4 は draft の **RECOMMENDED** cap（4–20 bytes = header 4 + 0–16）。MUST ではない。Pion `sped.go` は 4 超を `ErrAttributeSizeInvalid` にするため、**本実装は 4 を hard cap** にして interop する
+- 5 件目を 1 attribute に入れない（cap 超過は drop / 先頭 4 件。Pion と不一致にしない）
+- malformed length（4 の倍数でない、16 bytes 超）は無視（catch-and-ignore で握りつぶさず、検証可能な drop）
 
-CRC は `packages/common` の `crc32`（STUN fingerprint と同じ IEEE CRC-32）を使い、Pion ベクトルで確定する。`crc32c` は使わない。
+CRC:
+
+- `packages/common` の `crc32`（RFC 1952 多項式。RFC 8489 FINGERPRINT と同じ生成多項式）
+- SPED ACK は value の CRC-32 **そのもの**。STUN FINGERPRINT の XOR `0x5354554e` は付けない
+- `crc32c` は使わない。Pion ベクトルで確定する
 
 ### 2.5 SPED session state machine
 
@@ -218,43 +257,55 @@ state: `disabled` | `probing` | `active` | `fallback` | `complete`
 
 DTLS flight state machine を SPED 側で再実装しない。`createHandshakeDatagram` と同様、callback と内部 cache で Buffer を共有しない。
 
-handshake complete: L1/L2 clear、round-robin reset、`state = complete`。
+handshake complete: L1/L2 clear、round-robin reset、`state = complete`（draft §4.1: L1 は新 flight または handshake complete で clear）。
 
-termination（初期実装）:
+termination:
 
-- peer が SPED 対応なら **DTLS handshake 完了まで** SPED を継続
-- nomination 成功だけでは direct に切り替えない
-- 切替は `unsupported → fallback` と `handshake complete → complete` のみ
+draft §4.4 は **どちらも MAY**:
+
+- valid ICE candidate pair ができたら SPED を止めて direct DTLS
+- handshake 完了まで embedded を続ける（explicit ACK のため）
+
+§3.3.1 も「valid pair のあと embedded でも usual pair でもよい」とする。
+
+**本 Epic の初期プロファイル**（draft が許す選択。MUST ではない）:
+
+- peer が SPED 対応なら **DTLS handshake 完了まで** SPED を継続する
+- nomination 成功だけでは direct に切り替えない（carrier mode を決定的にする）
+- 切替は `unsupported → fallback`（§3.3.4 / §4.3 step 1）と `handshake complete → complete` のみ
+
+draft §6 の RECOMMENDED「first STUN Binding Response で DTLS timer を再開」は、埋め込み継続中に raw DTLS 再送が二重になる。本プロファイルでは **埋め込み中は external のまま** とし、timer 再開は fallback または complete に限る。
 
 ### 2.6 Binding への付加と受信処理
 
-付加対象: peer connectivity check の Binding Request/Response（ordinary / nomination / triggered / handshake 中 / **consent 中でまだ SPED active なら同様**）。
+付加対象: peer connectivity check の Binding Request/Response（ordinary / nomination / triggered / handshake 中 / **consent 中でまだ SPED active なら同様**）。draft §4.2: SPED active 中は **every** Binding Request or Response に DATA が MUST。
 
-非対象: STUN server discovery（`serverReflexiveCandidate`）、TURN control（Allocate 等）。
+非対象: STUN server discovery（`serverReflexiveCandidate`）、TURN control（Allocate 等）、STUN Indication。
 
-- L1 が空なら empty DATA を必ず付ける（support advertisement）
-- L1 が複数なら 1 Binding = 1 datagram、round-robin
-- L2 から最大 4 CRC を ACK に載せる
-- 同一 STUN transaction 再送は同じ serialized message
+- L1 が空、または MTU に載らないなら empty DATA を付ける（draft §4.2 step 3）
+- L1 が複数なら 1 Binding = 1 datagram。round-robin は **RECOMMENDED**（本実装は round-robin を採用）
+- L2 から ACK を載せる（empty ACK 可。本実装は最大 4 CRC）。L2 は STUN loss 対策で **同じ ACK を再送してよい**（§4.1 MAY）
+- 送信順は draft §4.2: **ACK を先、DATA を後**（どちらも MI より前）
+- 同一 STUN transaction 再送は同じ serialized message（RFC 8489: resend は同じ transaction ID。新しい tx だけ bit-wise identical でなければ新しい ID）
 
-受信（認証済み Binding のみ）:
+受信（**認証済み** Binding のみ。draft §4.3。§9.1 は ICE USERNAME + MESSAGE-INTEGRITY で埋め込みを認証する）:
 
 ```text
-DATA presence → peer capability
+最初の authenticated STUN で DATA が無い → unsupported、SPED 終了（§4.3 step 1）
   → ACK 処理（一致 CRC のみ L1 から除去。未知 CRC は ignore）
-  → DATA validation
-  → DTLS inject（empty / invalid demux は inject しない）
-  → CRC を L2 へ
+  → non-empty DATA: demux 検証 → DTLS inject → CRC を L2 へ
 ```
 
-最初の **current-generation authenticated** Binding:
+- empty DATA: inject しない（MUST NOT）。capability は supported
+- invalid demux: attribute ごと discard。inject しない、L2 に載せない
+- duplicate DATA: DTLS replay（RFC 9147 §4.5.1）に委ねて drop してよい。CRC ACK は duplicate に対して再送してよい（§4.1）
+
+最初の **current-generation authenticated** Binding（generation は ICE restart 用の werift 拡張。draft 本文には generation は無い）:
 
 - DATA あり（empty 含む）→ `supported`
-- DATA なし → `unsupported` → fallback
+- DATA なし → `unsupported` → fallback（§3.3.4）
 
 SPED CRC ACK と DTLS 1.3 record ACK は完全に別 state。DTLS transcript に混ぜない。
-
-duplicate DATA は DTLS replay に委ねて drop してよい。CRC ACK は duplicate に対して再送してよい。
 
 ### 2.7 DTLS carrier bridge と awaitable inject
 
@@ -284,6 +335,8 @@ SPED active:
 DTLS handshake packet → 生 UDP に出さない → L1 → Binding の送信機会で搬送
 carrier.setRetransmissionMode("external")
 ```
+
+draft §6.1 RECOMMENDED は「SPED active 中は内部 DTLS timeout を止め、最初の Binding Response で再開」。埋め込みを handshake 完了まで続ける本プロファイルでは、**最初の Binding Response だけでは internal に戻さない**（STUN 搬送と DTLS RTO が二重になる）。internal 再開は fallback（非 SPED peer）または handshake complete のみ。
 
 `sendHandshakeFlight` は `onFlightCreated` のあと **必ず** `carrier.send` する（`flight-tx.ts` 約 202–216 行）。そのため:
 
@@ -373,13 +426,15 @@ RTT:
 - 成功した connectivity check / consent response / selected pair 変更 / fallback path 選択で `carrier.updateRtt(pair.rtt * 1000)`
 - `pair.rtt` 未設定なら `updateRtt` しない（carrier は RTT unknown → DTLS initial RTO 1000ms / DTLS-SRTP なら 400ms）
 
-MTU:
+MTU（draft §3.3.3 Table 1 + RFC 8831 の典型 1200）:
 
-- Binding skeleton（DATA payload 無し）を serialize し、`outer limit - skeleton = max DTLS datagram`
+- Binding skeleton（DATA payload 無し）を serialize し、`outer limit - skeleton = max DTLS datagram`。draft は「typical 1200 を expected overhead だけ減らす」を MUST とする
 - Request と Response の小さい方
-- overhead: IP/UDP/TCP framing、STUN header、USERNAME/PRIORITY/ICE-CONTROLLED|CONTROLLING/USE-CANDIDATE、MI / MI-SHA256、FP、SPED DATA header、ACK header+最大 16 bytes、STUN padding、TURN XOR-PEER-ADDRESS、ChannelData vs Data Indication、custom raw attribute
+- Table 1 の項目: STUN header 20、ICE-CONTROLLED/CONTROLLING 12、PRIORITY 8、USE-CANDIDATE 4（初回以外）、MI 24、MI-SHA256 36（ice2 のときだけ、RFC 8445 §10）、FINGERPRINT 8、DATA header 4、ACK 4–20、USERNAME 16+、TURN XOR-PEER-ADDRESS 24（IPv6 想定）
+- 追加で実装が考慮: IP/UDP/TCP framing、STUN 4-byte padding、ChannelData vs Data Indication、custom raw attribute（draft: table 外の custom はさらに MTU を減らす MUST）
 - `carrier.setMtu` を path / TURN / selected pair / attribute / ICE restart で更新
-- send 直前に最終 STUN/TURN サイズが path 上限超なら送らない
+- send 直前に最終 STUN/TURN サイズが path 上限超なら送らない（draft §4.2 step 2 の「sufficient space」）
+- PQC は draft §6.2 で MTU ~900 の実験言及。本 Epic は large certificate / multi-record を DTLS 断片化で扱う
 
 `Connection.restart()`（既に `generation++`、ufrag/password 更新、`userHistory` 追記、checkList/nominated/consent 破棄）に **同時に** SPED atomic reset を入れる:
 
@@ -480,7 +535,9 @@ SPED carrier は `send()` で UDP を踏まないこと。さもないと Bindin
 
 ### RTT 単位
 
-`checkStart` も consent も `rtt` を秒で入れる。`DirectHandshakeCarrier.updateRtt` と `computeDtlsRtoMs` はミリ秒。変換忘れは RTO が 1000 倍になり危険。テストで `pair.rtt = 0.050` → `carrier.getRtt() === 50` を固定する。consent の 500ms floor（`consentResponseTimeoutMs`）は ICE 待ち時間専用。
+`checkStart` も consent も `rtt` を秒で入れる。`DirectHandshakeCarrier.updateRtt` と `computeDtlsRtoMs` はミリ秒。変換忘れは RTO が 1000 倍になり危険。テストで `pair.rtt = 0.050` → `carrier.getRtt() === 50` を固定する。
+
+RFC 8489 §6.2.1 の STUN 初期 RTO SHOULD ≥ 500 ms は、ICE が独自の congestion を使う例外を認める。werift の connectivity check 初期待ちは `RETRY_RTO = 50`、consent 下限は `CONSENT_RESPONSE_TIMEOUT_MIN = 500`。**どちらも DTLS RTO に流用しない。** DTLS は RFC 9147（既知 RTT なら `1.5 × RTT`、下限 `MIN_RTO_MS = 100`）。
 
 ### DTLS 1.3 の MTU 断片化
 
@@ -492,7 +549,24 @@ SPED carrier は `send()` で UDP を踏まないこと。さもないと Bindin
 - TURN: `tests/ice/turn.test.ts`、opt-in Pion TURN（`PION_TURN_HOST`、`scripts/run-pion-turn.sh`）
 - 新規 SPED E2E も Arrange を utils に寄せ、Act/Assert に日本語コメントを付ける（リポジトリのテスト規約）
 
-WebRTC は `packages/webrtc/src/imports/ice.ts` が ice の barrel を再 consport している。ice `index.ts` に SPED を足すと WebRTC Public に漏れる。
+WebRTC は `packages/webrtc/src/imports/ice.ts` が ice の barrel を再export している。ice `index.ts` に SPED を足すと WebRTC Public に漏れる。
+
+### 仕様との対応（draft / RFC vs Epic プロファイル）
+
+| 項目 | 規範 | 本 Epic の扱い |
+| --- | --- | --- |
+| DATA/ACK type | draft は TBD。IANA `0xC070`/`0xC071` | IANA 値を constants に固定 |
+| DATA 必須 | §4.2: SPED active 中の every Binding | 採用。discovery/TURN control は peer Binding ではないので付けない |
+| ACK 先・DATA 後 | §4.2 の手順順 | 採用。どちらも MI より前（RFC 8489 §9 / §14.7） |
+| ACK cap 4 | RECOMMENDED | Pion 互換のため hard cap 4 |
+| empty ACK | 合法 | 許可 |
+| invalid demux | SHOULD silent discard（RFC 9443 の 20–63） | silent drop。L2 に載せない |
+| termination | §4.4 MAY（pair 成立で direct でも HS 完了まででも） | HS 完了まで SPED 継続 |
+| DTLS timer | §6 RECOMMENDED: 最初の Binding Response で再開 | 埋め込み中は再開しない（二重送信防止） |
+| fallback | §3.3.4 / §4.3: 最初の authenticated STUN に DATA 無し | 採用。exact same flight bytes は Epic 品質要件 |
+| ICE restart / generation | draft に無し。RFC 8445 ICE restart | current generation 以外は SPED/DTLS を更新しない |
+| Binding 認証 | RFC 8445 §7.3 MUST short-term MI | 未認証 Request で role/SPED しない |
+| 同一 STUN 再送 | RFC 8489 同じ transaction ID / request message | L1 round-robin を再送ごとにやり直さない |
 
 ### Pion
 
@@ -503,13 +577,17 @@ WebRTC は `packages/webrtc/src/imports/ice.ts` が ice の barrel を再 conspo
 ## 4. 考慮すべき制約や注意点
 
 - **既定動作**: SPED disabled / DTLS 1.2 default を維持。opt-in しない `Connection` は現行 ICE とバイト互換に近いこと（wire order 変更は unknown attribute を含むメッセージに限る）
+- **draft vs プロファイル**: §4.4 / §6 の MAY・RECOMMENDED を MUST 扱いしない。HS 完了まで埋め込む選択と、埋め込み中に DTLS RTO を再開しない選択は §2.5 / §2.7 に固定する
+- **RFC 8489 MI 境界**: DATA/ACK を MI より後に置くと HMAC 対象外かつ受信側が無視する。FINGERPRINT は末尾
+- **RFC 8445 §7.3**: connectivity-check Binding は short-term MI 必須。role conflict は認証後
 - **Public API**: draft codepoint、L1/L2、CRC、carrier bridge を stable export しない。`npm run doc:check` で意図しない typedoc 増を検出する
-- **WebRTC 非配線**: `peerConnection.connect()` の ICE→DTLS 直列、`RTCDtlsTransport` の `connection.send` / `onData` 契約、browser E2E の SPED off を維持
-- **認証前 inject 禁止**: unauthenticated または旧 generation の DATA を DTLS に入れない
+- **WebRTC 非配線**: `peerConnection.connect()` の ICE→DTLS 直列、`RTCDtlsTransport` の `connection.send` / `onData` 契約、browser E2E の SPED off を維持。draft も SDP ice-option を定義しない
+- **認証前 inject 禁止**: unauthenticated または旧 generation の DATA を DTLS に入れない（draft §9.1 + ICE restart）
 - **generation と async**: `await inject` の間に `restart()` / `close()` され得る。captured generation で無効化
 - **TURN**: peer Binding にだけ SPED。ChannelData / Data Indication の overhead を MTU に入れる。TURN 制御 STUN の MESSAGE-INTEGRITY を壊さない
 - **TCP ICE**: `tcpProtocol` の Request も同じ認証境界。TCP framing を MTU に入れる
 - **anti-amplification**: harness は `ice-authenticated`。`dtls-cookie` のまま SPED すると HRR/cookie と STUN 埋め込みが競合しうる
+- **CRC**: ACK は RFC 1952 CRC-32、Fingerprint XOR なし。padding は CRC に含めない
 - **ice-server `npm test`**: vitest のあと `chrome-e2e` まで走る。STUN serialize 変更時は unit を先に通し、known-only メッセージのバイトが変わっていないことを確認してから Chrome harness を見る
 - **Pion CI**: 既存 pion-turn 同様 opt-in。完了条件の interop はフラグ付きで実行する。失敗を skip や catch-and-ignore しない
 - **テスト規約**: Arrange は共有 utils、Act/Assert は日本語コメント
@@ -525,24 +603,25 @@ WebRTC は `packages/webrtc/src/imports/ice.ts` が ice の barrel を再 conspo
 ### STUN / 認証
 
 - [ ] known / unknown を含む wire order を保持できる
-- [ ] SPED DATA / ACK が `MESSAGE-INTEGRITY` より前に serialize され、HMAC 範囲に入る
-- [ ] Binding Request は USERNAME で credential 選択後に再 parse / HMAC される
+- [ ] SPED DATA / ACK が `MESSAGE-INTEGRITY` より前に serialize され、HMAC 範囲に入る（RFC 8489 §9 / §14.5）。`FINGERPRINT` が末尾（§14.7）
+- [ ] Binding Request は USERNAME で credential 選択後に再 parse / HMAC される（RFC 8445 §7.3）
 - [ ] 未認証 request は role conflict / filter / SPED / pair state に到達しない
 - [ ] old generation authenticated request が current SPED state を更新しない
 
 ### SPED draft00
 
-- [ ] DATA=`0xC070`、ACK=`0xC071`、constants 単一モジュール、Public API 非露出
-- [ ] empty DATA advertisement、non-empty は 1 attribute = 1 datagram
-- [ ] ACK 最大 4 CRC / 16 bytes、padding を CRC に含めない
-- [ ] invalid DTLS demux は silent drop
+- [ ] DATA=`0xC070`（IANA META-DTLS-IN-STUN）、ACK=`0xC071`（META-DTLS-IN-STUN-ACKNOWLEDGEMENT）、constants 単一モジュール、Public API 非露出
+- [ ] empty DATA advertisement（inject MUST NOT）、non-empty は 1 attribute = 1 datagram
+- [ ] ACK は empty 可。本実装は最大 4 CRC / 16 bytes（draft RECOMMENDED cap）。padding を CRC に含めない。Fingerprint XOR なし
+- [ ] invalid DTLS demux（先頭 byte が 20–63 以外）は silent drop、L2 に載せない
 - [ ] L1/L2 と DTLS ACK state が分離されている
+- [ ] SPED active 中の peer Binding には DATA が必ず付く。送信順は ACK なら ACK → DATA → MI → FP
 
 ### DTLS carrier
 
 - [ ] 新 flight で L1 が置換され、bytes は defensive copy
 - [ ] inject を await でき、同じ Binding Response に server flight を載せられる
-- [ ] SPED active 中は DTLS internal RTO が止まり、生 handshake を直接送らない
+- [ ] SPED active 中は DTLS internal RTO が止まり、生 handshake を直接送らない（埋め込み中は最初の Binding Response だけでは internal に戻さない）
 - [ ] fallback で internal timer が再開し、current flight を作り直さない（bytes 完全一致）
 
 ### ICE routing / fallback / RTT / MTU / lifecycle
@@ -552,7 +631,7 @@ WebRTC は `packages/webrtc/src/imports/ice.ts` が ice の barrel を再 conspo
 - [ ] pre-nomination handshake は authenticated current-generation pair のみ。TURN でも peer context を失わない
 - [ ] 非 SPED 判定 → exact same flight → handshake → application data
 - [ ] `CandidatePair.rtt` 秒 → carrier ミリ秒。connectivity check / selected pair で更新。ICE 500ms consent floor を DTLS RTO に使わない
-- [ ] dynamic MTU が実 STUN/TURN overhead を考慮し、超過 packet を送らない
+- [ ] dynamic MTU が draft Table 1 + custom/TURN overhead を考慮し、超過 packet を送らない（RFC 8831 の 1200 から減算）
 - [ ] restart で L1/L2 / round-robin / RTT / MTU / peerSupport を reset。stale inject 無効。close/error/complete で timer 破棄
 
 ### werift E2E / Pion / regression
