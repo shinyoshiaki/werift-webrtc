@@ -78,7 +78,15 @@ export class MediaDevices extends EventTarget {
   }
 
   private async prepareRegisters() {
-    await Promise.all(this.registers.map((register) => register.prepare?.()));
+    await Promise.all(
+      this.registers.map(async (register) => {
+        try {
+          await register.prepare?.();
+        } catch {
+          // 未選択 register の準備失敗で getUserMedia 全体を落とさない。
+        }
+      }),
+    );
   }
 
   private async createKindTracks(

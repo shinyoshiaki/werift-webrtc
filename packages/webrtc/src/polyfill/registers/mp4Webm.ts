@@ -55,7 +55,11 @@ export function createMp4WebmRegister(
     groupId: options.groupId,
     label: options.label,
     async prepare() {
-      await getPlayer();
+      try {
+        await getPlayer();
+      } catch {
+        kinds.splice(0, kinds.length);
+      }
     },
     async createTracks(request: MediaGetUserMediaRequest) {
       const player = await getPlayer();
@@ -74,20 +78,28 @@ export function createMp4WebmRegister(
       return [track];
     },
     stop() {
-      void playerPromise?.then((player) => player.stop());
+      void playerPromise?.then(
+        (player) => player.stop(),
+        () => undefined,
+      );
     },
   };
   return register;
 
   async function getPlayer() {
     playerPromise ??= (async () => {
-      const file = await resolveFile(options);
-      const player = await createFileMediaPlayer({
-        loop: options.loop,
-        ...file,
-      });
-      applyInspectedMetadata(file, player);
-      return player;
+      try {
+        const file = await resolveFile(options);
+        const player = await createFileMediaPlayer({
+          loop: options.loop,
+          ...file,
+        });
+        applyInspectedMetadata(file, player);
+        return player;
+      } catch (error) {
+        kinds.splice(0, kinds.length);
+        throw mapMediaIoError(error);
+      }
     })();
     return playerPromise;
   }
@@ -218,4 +230,14 @@ function inspectWebmKinds(buffer: Buffer): MediaKind[] {
     }
   }
   return [...found];
+}
+
+function mapMediaIoError(error: unknown) {
+  if (error instanceof DOMException) {
+    return error;
+  }
+  return createWebRtcDomException(
+    "NotReadableError",
+    error instanceof Error ? error.message : "Failed to read media source",
+  );
 }

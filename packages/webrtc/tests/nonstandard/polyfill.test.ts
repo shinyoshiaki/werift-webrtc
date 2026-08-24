@@ -392,6 +392,39 @@ describe("werift/polyfill builtin registers", () => {
     uninstall();
   });
 
+  test("missing mp4 path getUserMedia uses a DOMException and uninstall is safe", async () => {
+    const uninstall = installPolyfill({
+      mediaRegister: [
+        createMp4WebmRegister({ path: "/definitely/missing/clip.mp4" }),
+      ],
+    });
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      // 実行: 存在しない path で GUM し、失敗後に uninstall する。
+      let thrown: unknown;
+      try {
+        await navigator.mediaDevices.getUserMedia({ video: true });
+      } catch (error) {
+        thrown = error;
+      }
+      uninstall();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      // 検証: Node の ENOENT ではなく DOMException。uninstall 後に未処理 rejection はない。
+      expect(thrown).toBeInstanceOf(DOMException);
+      expect(["NotFoundError", "NotReadableError"]).toContain(
+        (thrown as DOMException).name,
+      );
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
   test("mp4/webm path, binary, and stream emit RTP via getUserMedia", async () => {
     const webm = await createAvWebmBuffer();
     const mp4 = await createAvMp4Buffer();
