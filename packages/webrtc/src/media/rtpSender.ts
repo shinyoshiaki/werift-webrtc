@@ -413,6 +413,12 @@ export class RTCRtpSender {
       return;
     }
 
+    const codec = this.codec;
+    if (!codec) {
+      this.enqueuePendingRtp(rtp);
+      return;
+    }
+
     rtp = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;
 
     const { header, payload } = rtp;
@@ -436,7 +442,7 @@ export class RTCRtpSender {
     }
 
     header.ssrc = this.ssrc;
-    header.payloadType = this.codec.payloadType;
+    header.payloadType = codec.payloadType;
     header.timestamp = uint32Add(header.timestamp, this.timestampOffset);
     header.sequenceNumber = uint16Add(header.sequenceNumber, this.seqOffset);
     this.timestamp = header.timestamp;
