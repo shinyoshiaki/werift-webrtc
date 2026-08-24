@@ -14,7 +14,7 @@ npm install werift
 # Design Philosophy
 
 Werift supports DataChannel and MediaChannel.
-Werift does not implement media-related features such as codecs, so APIs like getUserMedia cannot be used. Therefore, to send media from werift, you need to directly input RTP packets into the provided API. Similarly, when receiving media, you can directly receive RTP packets.
+Werift does not implement codecs or OS device capture in the core API. For Node drop-in browser libraries, import `werift/polyfill` and call `installPolyfill({ mediaRegister })` so `navigator.mediaDevices.getUserMedia` is served by registered file/RTP/encoded/custom sources. You can still inject RTP directly via `MediaStreamTrack.writeRtp`. The old nonstandard `getUserMedia({ path })` API was removed.
 
 # Documentation
 

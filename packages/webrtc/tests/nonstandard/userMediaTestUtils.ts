@@ -37,8 +37,10 @@ import {
   RtpSourceCallback,
   RtpTimeCallback,
   WebmCallback,
-  getUserMedia,
 } from "../../src/nonstandard";
+import { createFileMediaPlayer } from "../../src/nonstandard/userMedia";
+import { createMp4WebmRegister, installPolyfill } from "../../src/polyfill";
+import "../../src/polyfill";
 
 export async function createAvMp4Buffer() {
   const outputs: Uint8Array[] = [];
@@ -364,17 +366,26 @@ export async function roundTripMediaAsset({
   const outputPath = join(outputDirectory, `recorded.${recordingFormat}`);
   let keepOutput = false;
 
+  const uninstall = installPolyfill({
+    mediaRegister: [createMp4WebmRegister({ path: sourcePath, loop: true })],
+  });
   try {
     exchangeIceCandidates(sender, receiver);
     const remoteTracksPromise = waitForRemoteTracks(receiver);
-    const media = await getUserMedia({ path: sourcePath });
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: true,
+    });
+    const audio = stream.getAudioTracks()[0];
+    const video = stream.getVideoTracks()[0];
 
-    if (!media.audio || !media.video) {
+    if (!audio || !video) {
+      uninstall();
       throw new Error(`Expected audio and video tracks in ${sourcePath}`);
     }
 
-    sender.addTrack(media.audio);
-    sender.addTrack(media.video);
+    sender.addTrack(audio);
+    sender.addTrack(video);
 
     await exchangeOfferAnswer(sender, receiver);
     await Promise.all([
@@ -390,16 +401,12 @@ export async function roundTripMediaAsset({
     });
 
     try {
-      // 実行: asset を getUserMedia から送出し、対向 peer でそのままファイルへ録画する。
-      await media.start();
-      await waitUntil(
-        () => !(media as any).session && !(media as any).running,
-        10_000,
-      );
-      await waitUntil(() => recording.videoPackets.length > 0, 5_000);
+      // 実行: polyfill getUserMedia で再生を開始した asset を対向 peer で録画する。
+      await waitUntil(() => recording.videoPackets.length > 0, 10_000);
       await new Promise((resolve) => setTimeout(resolve, 200));
     } finally {
-      media.stop();
+      audio.stop();
+      video.stop();
       await recording.stop();
     }
 
@@ -413,6 +420,7 @@ export async function roundTripMediaAsset({
       },
     };
   } finally {
+    uninstall();
     await Promise.allSettled([sender.close(), receiver.close()]);
     if (!keepOutput) {
       await rm(outputDirectory, { recursive: true, force: true }).catch(

@@ -22,6 +22,13 @@ import {
 import { Event } from "../imports/common";
 import type { RTCRtpCodecParameters } from "../media/parameters";
 import { MediaStreamTrack } from "../media/track";
+import {
+  useAV1X,
+  useH264,
+  useOPUS,
+  useVP8,
+  useVP9,
+} from "../media/codec";
 import { codecParametersFromString } from "../sdp";
 import {
   type SupportedSourceCodec,
@@ -47,7 +54,7 @@ export type FileMediaTrackSource = UserMediaSource & {
   loop?: boolean;
 };
 
-export const getUserMedia = async (options: FileMediaTrackSource) => {
+export const createFileMediaPlayer = async (options: FileMediaTrackSource) => {
   assertSupportedOptions(options);
   const replayableSource = await createReplayableSource(options);
   const input = await createInput(replayableSource);
@@ -452,8 +459,24 @@ async function createPlaybackTrack(
       new MediaStreamTrack({
         kind,
         streamId,
+        codec: defaultCodecForSource(sourceCodec),
       }),
   };
+}
+
+function defaultCodecForSource(sourceCodec: SupportedSourceCodec) {
+  switch (sourceCodec) {
+    case "avc":
+      return useH264();
+    case "vp8":
+      return useVP8();
+    case "vp9":
+      return useVP9();
+    case "av1":
+      return useAV1X();
+    case "opus":
+      return useOPUS();
+  }
 }
 
 async function requireSupportedCodec(inputTrack: InputTrack) {
@@ -573,7 +596,7 @@ function assertSupportedOptions(options: FileMediaTrackSource) {
 
   if (legacyOptions.width != undefined || legacyOptions.height != undefined) {
     throw new Error(
-      "getUserMedia({ width, height }) is no longer supported for file playback. Resize or re-encode the source before calling getUserMedia().",
+      "File playback no longer accepts { width, height }. Resize or re-encode the source before creating the mp4/webm register.",
     );
   }
 }

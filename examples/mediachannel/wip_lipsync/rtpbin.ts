@@ -8,7 +8,10 @@ import {
   RtcpSrPacket,
   randomPorts,
 } from "../../../packages/webrtc/src";
-import { getUserMedia } from "../../../packages/webrtc/src/nonstandard";
+import {
+  createMp4WebmRegister,
+  installPolyfill,
+} from "../../../packages/webrtc/src/polyfill";
 
 console.log("start", __dirname);
 
@@ -29,23 +32,31 @@ new Server({ port: 8887 }).on("connection", async (socket) => {
     },
   });
 
-  const stream = await getUserMedia({
-    path: "~/Downloads/test.webm",
-    loop: true,
+  installPolyfill({
+    mediaRegister: [
+      createMp4WebmRegister({
+        path: "~/Downloads/test.webm",
+        loop: true,
+      }),
+    ],
+  });
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: true,
+    video: true,
   });
 
-  if (stream.audio) {
-    pc.addTransceiver(stream.audio, { direction: "sendonly" });
+  const audio = stream.getAudioTracks()[0];
+  const video = stream.getVideoTracks()[0];
+  if (audio) {
+    pc.addTransceiver(audio, { direction: "sendonly" });
   }
-  if (stream.video) {
-    pc.addTransceiver(stream.video, { direction: "sendonly" });
+  if (video) {
+    pc.addTransceiver(video, { direction: "sendonly" });
   }
 
   pc.connectionStateChange
     .watch((state) => state === "connected")
-    .then(() => {
-      stream.start();
-    });
+    .then(() => undefined);
 
   await pc.setLocalDescription(await pc.createOffer());
   const sdp = JSON.stringify(pc.localDescription);

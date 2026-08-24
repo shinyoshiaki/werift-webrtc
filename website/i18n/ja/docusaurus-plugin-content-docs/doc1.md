@@ -14,7 +14,7 @@ npm install werift
 # 設計思想
 
 werift は DataChannel と MediaChannel に対応しています。
-werift はコーデックなどのメディア周りは実装していないので getUserMedia などの API は利用できません。そのため、werift からメディアを送信する場合は、RTP パケットを直接、用意された API に入力します。また受信する場合には RTP のパケットを直接受け取ることができます。
+コア API はコーデックや OS のカメラ取得を持ちません。ブラウザ向けライブラリを Node で動かす場合は `werift/polyfill` の `installPolyfill({ mediaRegister })` でグローバルと `navigator.mediaDevices.getUserMedia` を差し込み、ファイル / RTP / エンコード済みバイナリ / ユーザ定義 register からメディアを供給します。RTP を `MediaStreamTrack.writeRtp` へ直接渡す経路も従来どおり使えます。非標準の `getUserMedia({ path })` は削除されました。
 
 # ドキュメント
 

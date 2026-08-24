@@ -25,6 +25,11 @@
       "types": "./lib/webrtc/src/nonstandard/index.d.ts",
       "require": "./lib/webrtc/src/nonstandard/index.js",
       "import": "./lib/nonstandard/index.mjs"
+    },
+    "./polyfill": {
+      "types": "./lib/webrtc/src/polyfill/index.d.ts",
+      "require": "./lib/webrtc/src/polyfill/index.js",
+      "import": "./lib/polyfill/index.mjs"
     }
   },
   "main": "lib/webrtc/src/index.js",
@@ -35,7 +40,7 @@
   "scripts": {
     "build": "npm i && rm -rf lib && run-s format compile:*",
     "compile:cjs": "tsc -p ./tsconfig.production.json",
-    "compile:esm": "esbuild src/index.ts src/nonstandard/index.ts --bundle --packages=external --platform=node --format=esm --target=es2022 --outdir=lib --out-extension:.js=.mjs && node lib/index.mjs",
+    "compile:esm": "esbuild src/index.ts src/nonstandard/index.ts src/polyfill/index.ts --bundle --packages=external --platform=node --format=esm --target=es2022 --outdir=lib --out-extension:.js=.mjs && node lib/index.mjs",
     "depcheck": "npx depcheck --ignores='@typescript-eslint/*,eslint-*'",
     "deploy": "npm run build && npm publish && cd ../../import-test && npm test",
     "deploy:alpha": "npm run build && npm publish --tag alpha && cd ../../import-test && npm test",

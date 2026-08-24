@@ -41,6 +41,7 @@ export class MediaStreamTrack extends EventTarget {
   ) {
     super();
     Object.assign(this, props);
+    this.id ??= this.uuid;
 
     this.onReceiveRtp.subscribe((rtp) => {
       this.muted = false;
@@ -48,6 +49,10 @@ export class MediaStreamTrack extends EventTarget {
     });
 
     this.label = `${this.remote ? "remote" : "local"} ${this.kind}`;
+  }
+
+  get readyState(): "live" | "ended" {
+    return this.stopped ? "ended" : "live";
   }
 
   stop = () => {
@@ -107,5 +112,13 @@ export class MediaStream {
 
   getVideoTracks() {
     return this.tracks.filter((track) => track.kind === "video");
+  }
+
+  getTrackById(id: string) {
+    return this.tracks.find((track) => track.id === id);
+  }
+
+  get active() {
+    return this.tracks.some((track) => !track.stopped);
   }
 }

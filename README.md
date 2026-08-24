@@ -88,7 +88,9 @@ A small number of intentional or known edge-case differences remain for backward
 
 The core media APIs are packet-oriented: `MediaStreamTrack` can receive and emit RTP, so applications can connect WebRTC directly to an RTP router, recorder, transcoder, media pipeline, or test harness.
 
-werift does not provide operating-system camera/microphone capture as part of the core PeerConnection API. The optional [`werift/nonstandard`](./packages/webrtc/src/nonstandard) surface adds server-oriented helpers such as MP4/WebM file playback, configurable/dummy media-device sources, RTP utilities, and recording.
+werift does not provide operating-system camera/microphone capture as part of the core PeerConnection API. Import `werift/polyfill` and call `installPolyfill({ mediaRegister })` to install browser WebRTC globals and `navigator.mediaDevices.getUserMedia` backed by MP4/WebM, RTP/RTCP, encoded-binary, or custom registers. The nonstandard `getUserMedia({ path })` helper has been removed.
+
+Node TypeScript projects should avoid DOM WebRTC lib types (or include `werift/polyfill`) so global constructors resolve to werift classes. `existingMediaDevices` defaults to `"overwrite"`; use `"throw"` or `"noop"` if you must not replace an existing `navigator.mediaDevices`.
 
 ```mermaid
 flowchart LR
