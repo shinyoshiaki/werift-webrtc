@@ -1,0 +1,806 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<?xml-stylesheet type="text/xsl" href="stun-parameters.xsl"?>
+<?xml-model href="stun-parameters.rng" schematypens="http://relaxng.org/ns/structure/1.0" ?>
+<registry xmlns="http://www.iana.org/assignments" id="stun-parameters">
+  <title>Session Traversal Utilities for NAT (STUN) Parameters</title>
+  <created>2008-08-01</created>
+  <updated>2024-12-20</updated>
+
+
+  <registry id="stun-parameters-2">
+    <title>STUN Methods</title>
+    <xref type="rfc" data="rfc8489"/>
+    <xref type="rfc" data="rfc7983"/>
+    <expert>Dan Wing</expert>
+    <range>
+      <value>0x000-0x07F</value>
+      <registration_rule>IETF Review</registration_rule>
+    </range>
+    <range>
+      <value>0x080-0x0FF</value>
+      <registration_rule>Expert Review</registration_rule>
+    </range>
+    <record>
+      <value>0x000</value>
+      <description>Reserved</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record>
+      <value>0x001</value>
+      <description>Binding</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record>
+      <value>0x002</value>
+      <description>Reserved; was SharedSecret prior to <xref type="rfc" data="rfc5389"/></description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record updated="2019-08-02">
+      <value>0x003</value>
+      <description>Allocate</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record updated="2019-08-02">
+      <value>0x004</value>
+      <description>Refresh</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record>
+      <value>0x005</value>
+      <description>Unassigned</description>
+    </record>
+    <record updated="2019-08-02">
+      <value>0x006</value>
+      <description>Send</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record updated="2019-08-02">
+      <value>0x007</value>
+      <description>Data</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record updated="2019-08-02">
+      <value>0x008</value>
+      <description>CreatePermission</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record updated="2019-08-02">
+      <value>0x009</value>
+      <description>ChannelBind</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record>
+      <value>0x00A</value>
+      <description>Connect</description>
+      <xref type="rfc" data="rfc6062"/>
+    </record>
+    <record>
+      <value>0x00B</value>
+      <description>ConnectionBind</description>
+      <xref type="rfc" data="rfc6062"/>
+    </record>
+    <record>
+      <value>0x00C</value>
+      <description>ConnectionAttempt</description>
+      <xref type="rfc" data="rfc6062"/>
+    </record>
+    <record>
+      <value>0x00D-0x07F</value>
+      <description>Unassigned</description>
+    </record>
+    <record date="2019-11-20">
+      <value>0x080</value>
+      <description>GOOG-PING</description>
+      <xref type="person" data="Jonas_Oreland"/>
+    </record>
+    <record>
+      <value>0x081-0x0FF</value>
+      <description>Unassigned</description>
+    </record>
+    <record date="2016-09-13">
+      <value>0x100-0xFFF</value>
+      <description>Reserved (For DTLS-SRTP multiplexing collision avoidance, see 
+        <xref type="rfc" data="rfc7983"/>. 
+        Cannot be made available for assignment without IETF Review.)</description>
+      <xref type="rfc" data="rfc7983"/>
+    </record>
+  </registry>
+
+
+  <registry id="stun-parameters-4">
+    <title>STUN Attributes</title>
+    <xref type="rfc" data="rfc8489"/>
+    <expert>Dan Wing</expert>
+    <range>
+      <value>0x0000-0x3FFF</value>
+      <registration_rule>IETF Review</registration_rule>
+      <note>comprehension-required range</note>
+    </range>
+    <range>
+      <value>0x4000-0x7FFF</value>
+      <registration_rule>Expert Review</registration_rule>
+      <note>comprehension-required range</note>
+    </range>
+    <range>
+      <value>0x8000-0xBFFF</value>
+      <registration_rule>IETF Review</registration_rule>
+      <note>comprehension-optional range</note>
+    </range>
+    <range>
+      <value>0xC000-0xFFFF</value>
+      <registration_rule>Expert Review</registration_rule>
+      <note>comprehension-optional range</note>
+    </range>
+    <record>
+      <value>0x0000</value>
+      <description>Reserved</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record>
+      <value>0x0001</value>
+      <description>MAPPED-ADDRESS</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record>
+      <value>0x0002</value>
+      <description>Reserved; was RESPONSE-ADDRESS prior to <xref type="rfc" data="rfc5389"/></description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record>
+      <value>0x0003</value>
+      <description>Reserved; was CHANGE-REQUEST prior to <xref type="rfc" data="rfc5389"/></description>
+      <xref type="rfc" data="rfc5780"/>
+      <xref type="rfc-errata" data="4233"/>
+    </record>
+    <record>
+      <value>0x0004</value>
+      <description>Reserved; was SOURCE-ADDRESS prior to <xref type="rfc" data="rfc5389"/></description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record>
+      <value>0x0005</value>
+      <description>Reserved; was CHANGED-ADDRESS prior to <xref type="rfc" data="rfc5389"/></description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record>
+      <value>0x0006</value>
+      <description>USERNAME</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record>
+      <value>0x0007</value>
+      <description>Reserved; was PASSWORD prior to <xref type="rfc" data="rfc5389"/></description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record>
+      <value>0x0008</value>
+      <description>MESSAGE-INTEGRITY</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record>
+      <value>0x0009</value>
+      <description>ERROR-CODE</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record>
+      <value>0x000A</value>
+      <description>UNKNOWN-ATTRIBUTES</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record>
+      <value>0x000B</value>
+      <description>Reserved; was REFLECTED-FROM prior to <xref type="rfc" data="rfc5389"/></description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record updated="2019-08-02">
+      <value>0x000C</value>
+      <description>CHANNEL-NUMBER</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record updated="2019-08-02">
+      <value>0x000D</value>
+      <description>LIFETIME</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record>
+      <value>0x000E-0x000F</value>
+      <description>Reserved</description>
+    </record>
+    <record updated="2019-08-02">
+      <value>0x0010</value>
+      <description>Reserved (was BANDWIDTH)</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record>
+      <value>0x0011</value>
+      <description>Reserved</description>
+    </record>
+    <record updated="2019-08-02">
+      <value>0x0012</value>
+      <description>XOR-PEER-ADDRESS</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record updated="2019-08-02">
+      <value>0x0013</value>
+      <description>DATA</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record>
+      <value>0x0014</value>
+      <description>REALM</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record>
+      <value>0x0015</value>
+      <description>NONCE</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record updated="2019-08-02">
+      <value>0x0016</value>
+      <description>XOR-RELAYED-ADDRESS</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record updated="2019-08-02">
+      <value>0x0017</value>
+      <description>REQUESTED-ADDRESS-FAMILY</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record updated="2019-08-02">
+      <value>0x0018</value>
+      <description>EVEN-PORT</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record updated="2019-08-02">
+      <value>0x0019</value>
+      <description>REQUESTED-TRANSPORT</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record updated="2019-08-02">
+      <value>0x001A</value>
+      <description>DONT-FRAGMENT</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record date="2015-06-12">
+      <value>0x001B</value>
+      <description>ACCESS-TOKEN</description>
+      <xref type="rfc" data="rfc7635"/>
+    </record>
+    <record date="2019-03-28">
+      <value>0x001C</value>
+      <description>MESSAGE-INTEGRITY-SHA256</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record date="2019-03-28">
+      <value>0x001D</value>
+      <description>PASSWORD-ALGORITHM</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record date="2019-03-28">
+      <value>0x001E</value>
+      <description>USERHASH</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record>
+      <value>0x001F-0x001F</value>
+      <description>Unassigned</description>
+    </record>
+    <record>
+      <value>0x0020</value>
+      <description>XOR-MAPPED-ADDRESS</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record updated="2019-08-02">
+      <value>0x0021</value>
+      <description>Reserved (was TIMER-VAL)</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record updated="2019-08-02"> 
+      <value>0x0022</value>
+      <description>RESERVATION-TOKEN</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record>
+      <value>0x0023</value>
+      <description>Reserved</description>
+    </record>
+    <record updated="2018-04-02">
+      <value>0x0024</value>
+      <description>PRIORITY</description>
+      <xref type="rfc" data="rfc8445"/>
+    </record>
+    <record updated="2018-04-02">
+      <value>0x0025</value>
+      <description>USE-CANDIDATE</description>
+      <xref type="rfc" data="rfc8445"/>
+    </record>
+    <record>
+      <value>0x0026</value>
+      <description>PADDING</description>
+      <xref type="rfc" data="rfc5780"/>
+    </record>
+    <record>
+      <value>0x0027</value>
+      <description>RESPONSE-PORT</description>
+      <xref type="rfc" data="rfc5780"/>
+    </record>
+    <record>
+      <value>0x0028-0x0029</value>
+      <description>Reserved</description>
+    </record>
+    <record>
+      <value>0x002A</value>
+      <description>CONNECTION-ID</description>
+      <xref type="rfc" data="rfc6062"/>
+    </record>
+    <record>
+      <value>0x002B-0x002F</value>
+      <description>Unassigned</description>
+    </record>
+    <record>
+      <value>0x0030</value>
+      <description>Reserved</description>
+    </record>
+    <record>
+      <value>0x0031-0x7FFF</value>
+      <description>Unassigned</description>
+    </record>
+    <record date="2019-08-02">
+      <value>0x8000</value>
+      <description>ADDITIONAL-ADDRESS-FAMILY</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record date="2019-08-02">
+      <value>0x8001</value>
+      <description>ADDRESS-ERROR-CODE</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record date="2019-03-28">
+      <value>0x8002</value>
+      <description>PASSWORD-ALGORITHMS</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record date="2019-03-28">
+      <value>0x8003</value>
+      <description>ALTERNATE-DOMAIN</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record date="2019-08-02">
+      <value>0x8004</value>
+      <description>ICMP</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record>
+      <value>0x8005-0x8021</value>
+      <description>Unassigned</description>
+    </record>
+    <record>
+      <value>0x8022</value>
+      <description>SOFTWARE</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record>
+      <value>0x8023</value>
+      <description>ALTERNATE-SERVER</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record>
+      <value>0x8024</value>
+      <description>Reserved</description>
+    </record>
+    <record date="2016-08-25">
+      <value>0x8025</value>
+      <description>TRANSACTION_TRANSMIT_COUNTER</description>
+      <xref type="rfc" data="rfc7982"/>
+    </record>
+    <record>
+      <value>0x8026</value>
+      <description>Reserved</description>
+    </record>
+    <record>
+      <value>0x8027</value>
+      <description>CACHE-TIMEOUT</description>
+      <xref type="rfc" data="rfc5780"/>
+    </record>
+    <record>
+      <value>0x8028</value>
+      <description>FINGERPRINT</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record updated="2018-04-02">
+      <value>0x8029</value>
+      <description>ICE-CONTROLLED</description>
+      <xref type="rfc" data="rfc8445"/>
+    </record>
+    <record updated="2018-04-02">
+      <value>0x802A</value>
+      <description>ICE-CONTROLLING</description>
+      <xref type="rfc" data="rfc8445"/>
+    </record>
+    <record>
+      <value>0x802B</value>
+      <description>RESPONSE-ORIGIN</description>
+      <xref type="rfc" data="rfc5780"/>
+    </record>
+    <record>
+      <value>0x802C</value>
+      <description>OTHER-ADDRESS</description>
+      <xref type="rfc" data="rfc5780"/>
+    </record>
+    <record>
+      <value>0x802D</value>
+      <description>ECN-CHECK STUN</description>
+      <xref type="rfc" data="rfc6679"/>
+    </record>
+    <record date="2015-06-12">
+      <value>0x802E</value>
+      <description>THIRD-PARTY-AUTHORIZATION</description>
+      <xref type="rfc" data="rfc7635"/>
+    </record>
+    <record>
+      <value>0x802F</value>
+      <description>Unassigned</description>
+    </record>
+    <record date="2016-09-26">
+      <value>0x8030</value>
+      <description>MOBILITY-TICKET</description>
+      <xref type="rfc" data="rfc8016"/>
+    </record>
+    <record>
+      <value>0x8031-0xBFFF</value>
+      <description>Unassigned</description>
+    </record>
+    <record date="2008-10-30">
+      <value>0xC000</value>
+      <description>CISCO-STUN-FLOWDATA</description>
+      <xref type="person" data="Dan_Wing"/>
+    </record>
+    <record date="2016-04-20">
+      <value>0xC001</value>
+      <description>ENF-FLOW-DESCRIPTION</description>
+      <xref type="person" data="Pål_Erik_Martinsen"/>
+    </record>
+    <record date="2016-04-20">
+      <value>0xC002</value>
+      <description>ENF-NETWORK-STATUS</description>
+      <xref type="person" data="Pål_Erik_Martinsen"/>
+    </record>
+    <record date="2023-12-07">
+      <value>0xC003</value>
+      <description>CISCO-WEBEX-FLOW-INFO</description>
+      <xref type="person" data="Stefano_Giorcelli"/>
+    </record>
+    <record>
+      <value>0xC004-0xC055</value>
+      <description>Unassigned</description>
+    </record>
+    <record date="2023-12-18">
+      <value>0xC056</value>
+      <description>CITRIX-TRANSACTION-ID</description>
+      <xref type="person" data="Paras_Babbar"/>
+    </record>
+    <record date="2020-09-15">
+      <value>0xC057</value>
+      <description>GOOG-NETWORK-INFO</description>
+      <xref type="person" data="Jonas_Oreland"/>
+    </record>
+    <record date="2020-09-15">
+      <value>0xC058</value>
+      <description>GOOG-LAST-ICE-CHECK-RECEIVED</description>
+      <xref type="person" data="Jonas_Oreland"/>
+    </record>
+    <record date="2019-11-19">
+      <value>0xC059</value>
+      <description>GOOG-MISC-INFO</description>
+      <xref type="person" data="Jonas_Oreland"/>
+    </record>
+    <record date="2019-11-20" updated="2020-09-15">
+      <value>0xC05A</value>
+      <description>GOOG-OBSOLETE-1</description>
+      <xref type="person" data="Jonas_Oreland"/>
+    </record>
+    <record date="2020-09-15">
+      <value>0xC05B</value>
+      <description>GOOG-CONNECTION-ID</description>
+      <xref type="person" data="Jonas_Oreland"/>
+    </record>
+    <record date="2020-09-15">
+      <value>0xC05C</value>
+      <description>GOOG-DELTA</description>
+      <xref type="person" data="Jonas_Oreland"/>
+    </record>
+    <record date="2020-09-15">
+      <value>0xC05D</value>
+      <description>GOOG-DELTA-ACK</description>
+      <xref type="person" data="Jonas_Oreland"/>
+    </record>
+    <record date="2023-03-20">
+      <value>0xC05E</value>
+      <description>GOOG-DELTA-SYNC-REQ</description>
+      <xref type="person" data="Jonas_Oreland"/>
+    </record>
+    <record>
+      <value>0xC05F</value>
+      <description>Unassigned</description>
+    </record>
+    <record date="2020-09-15">
+      <value>0xC060</value>
+      <description>GOOG-MESSAGE-INTEGRITY-32</description>
+      <xref type="person" data="Jonas_Oreland"/>
+    </record>
+    <record>
+      <value>0xC061-0xC06F</value>
+      <description>Unassigned</description>
+    </record>
+    <record date="2024-12-20">
+      <value>0xC070</value>
+      <description>META-DTLS-IN-STUN</description>
+      <xref type="person" data="Philipp_Hancke"/>
+    </record>
+    <record date="2024-12-20">
+      <value>0xC071</value>
+      <description>META-DTLS-IN-STUN-ACKNOWLEDGEMENT</description>
+      <xref type="person" data="Philipp_Hancke"/>
+    </record>
+    <record>
+      <value>0xC072-0xFFFF</value>
+      <description>Unassigned</description>
+    </record>
+  </registry>
+
+
+  <registry id="stun-parameters-6">
+    <title>STUN Error Codes</title>
+    <xref type="rfc" data="rfc8489"/>
+    <registration_rule>IETF Review</registration_rule>
+    <record>
+      <value>0-299</value>
+      <description>Reserved</description>
+    </record>
+    <record>
+      <value>300</value>
+      <description>Try Alternate</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record>
+      <value>301-399</value>
+      <description>Unassigned</description>
+    </record>
+    <record>
+      <value>400</value>
+      <description>Bad Request</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record>
+      <value>401</value>
+      <description>Unauthenticated</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record>
+      <value>402</value>
+      <description>Unassigned</description>
+    </record>
+    <record updated="2019-08-02">
+      <value>403</value>
+      <description>Forbidden</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record>
+      <value>404</value>
+      <description>Unassigned</description>
+    </record>
+    <record date="2016-09-26">
+      <value>405</value>
+      <description>Mobility Forbidden</description>
+      <xref type="rfc" data="rfc8016"/>
+    </record>
+    <record>
+      <value>406-419</value>
+      <description>Unassigned</description>
+    </record>
+    <record>
+      <value>420</value>
+      <description>Unknown Attribute</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record>
+      <value>421-436</value>
+      <description>Unassigned</description>
+    </record>
+    <record updated="2019-08-02">
+      <value>437</value>
+      <description>Allocation Mismatch</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record>
+      <value>438</value>
+      <description>Stale Nonce</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record>
+      <value>439</value>
+      <description>Unassigned</description>
+    </record>
+    <record updated="2019-08-02">
+      <value>440</value>
+      <description>Address Family not Supported</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record updated="2019-08-02"> 
+      <value>441</value>
+      <description>Wrong Credentials</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record updated="2019-08-02">
+      <value>442</value>
+      <description>Unsupported Transport Protocol</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record updated="2019-08-02">
+      <value>443</value>
+      <description>Peer Address Family Mismatch</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record>
+      <value>444-445</value>
+      <description>Unassigned</description>
+    </record>
+    <record>
+      <value>446</value>
+      <description>Connection Already Exists</description>
+      <xref type="rfc" data="rfc6062"/>
+    </record>
+    <record>
+      <value>447</value>
+      <description>Connection Timeout or Failure</description>
+      <xref type="rfc" data="rfc6062"/>
+    </record>
+    <record>
+      <value>448-485</value>
+      <description>Unassigned</description>
+    </record>
+    <record updated="2019-08-02">
+      <value>486</value>
+      <description>Allocation Quota Reached</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record updated="2018-04-02">
+      <value>487</value>
+      <description>Role Conflict</description>
+      <xref type="rfc" data="rfc8445"/>
+    </record>
+    <record>
+      <value>488-499</value>
+      <description>Unassigned</description>
+    </record>
+    <record>
+      <value>500</value>
+      <description>Server Error</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record>
+      <value>501-507</value>
+      <description>Unassigned</description>
+    </record>
+    <record updated="2019-08-02">
+      <value>508</value>
+      <description>Insufficient Capacity</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record>
+      <value>509-699</value>
+      <description>Unassigned</description>
+    </record>
+  </registry>
+  
+  <registry id="turn-channel">
+    <title>Traversal Using Relays around NAT (TURN) Channel Numbers</title>
+    <xref type="rfc" data="rfc7983"/>
+	<xref type="rfc" data="rfc8656"/>
+    <registration_rule>Standards Action</registration_rule>
+    <note>Values 0x0000 through 0x3FFF are not available for use, since they conflict 
+with the STUN header.
+    </note>
+    <record updated="2019-08-02">
+      <value>0x0000-0x3FFF</value>
+      <description>Reserved</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>
+    <record updated="2019-08-02">
+      <value>0x4000-0x4FFF</value>
+      <description>Used by TURN</description>
+      <xref type="rfc" data="rfc8656"/>
+    </record>    
+    <record date="2016-09-13">
+      <value>0x5000-0xFFFF</value>
+      <description>Reserved (For DTLS-SRTP multiplexing collision avoidance, see 
+        <xref type="rfc" data="rfc7983"/>)</description>
+      <xref type="rfc" data="rfc7983"/>
+    </record>
+  </registry>
+  
+  <registry id="stun-security-features">
+    <title>STUN Security Features</title>
+    <xref type="rfc" data="rfc8489"/>
+    <registration_rule>Standards Action</registration_rule>
+    <record date="2019-03-28">
+      <value>0</value>
+      <description>Password algorithms</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record date="2019-03-28">
+      <value>1</value>
+      <description>Username anonymity</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record>
+      <value>2-23</value>
+      <description>Unassigned</description>
+    </record>
+  </registry>
+  
+  <registry id="stun-password-algorithm">
+    <title>STUN Password Algorithms</title>
+    <xref type="rfc" data="rfc8489"/>
+    <range>
+      <value>0x0000-0x7FFF</value>
+      <registration_rule>IETF Review</registration_rule>
+    </range>
+    <range>
+      <value>0x8000-0xFFFF</value>
+      <registration_rule>Expert Review</registration_rule>
+    </range>
+    <expert>Dan Wing</expert>
+    <record date="2019-03-28">
+      <value>0x0000</value>
+      <description>Reserved</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record date="2019-03-28">
+      <value>0x0001</value>
+      <description>MD5</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record date="2019-03-28">
+      <value>0x0002</value>
+      <description>SHA-256</description>
+      <xref type="rfc" data="rfc8489"/>
+    </record>
+    <record>
+      <value>0x0003-0xFFFF</value>
+      <description>Unassigned</description>
+    </record>
+  </registry>
+  
+  <people>
+    <person id="Dan_Wing">
+      <name>Dan Wing</name>
+      <uri>mailto:danwing&amp;gmail.com</uri>
+      <updated>2022-10-14</updated>
+    </person>
+    <person id="Jonas_Oreland">
+      <name>Jonas Oreland</name>
+      <uri>mailto:jonaso&amp;google.com</uri>
+      <updated>2023-03-20</updated>
+    </person>
+    <person id="Pål_Erik_Martinsen">
+      <name>Pål-Erik Martinsen</name>
+      <uri>mailto:palmarti&amp;cisco.com</uri>
+      <updated>2016-04-20</updated>
+    </person>
+    <person id="Paras_Babbar">
+      <name>Paras Babbar</name>
+      <uri>mailto:Paras.Babbar&amp;cloud.com</uri>
+      <updated>2023-12-18</updated>
+    </person>
+    <person id="Philipp_Hancke">
+      <name>Philipp Hancke</name>
+      <uri>mailto:phancke&amp;meta.com</uri>
+      <updated>2024-12-20</updated>
+    </person>
+    <person id="Stefano_Giorcelli">
+      <name>Stefano Giorcelli</name>
+      <uri>mailto:stefanog&amp;cisco.com</uri>
+      <updated>2023-12-07</updated>
+    </person>
+  </people>
+</registry>
