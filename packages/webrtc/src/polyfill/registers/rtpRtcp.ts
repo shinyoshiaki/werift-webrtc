@@ -42,19 +42,25 @@ export function createRtpRtcpRegister(
     label: options.label,
     async createTracks(_request: MediaGetUserMediaRequest) {
       const track = new MediaStreamTrack({ kind, codec });
-      stopSource = await openPacketSource(options, (packet) => {
-        if (isMuxedRtcp(packet)) {
-          try {
-            for (const rtcp of RtcpPacketConverter.deSerialize(packet)) {
-              track.onReceiveRtcp.execute(rtcp);
+      stopSource = await openPacketSource(
+        options,
+        (packet) => {
+          if (isMuxedRtcp(packet)) {
+            try {
+              for (const rtcp of RtcpPacketConverter.deSerialize(packet)) {
+                track.onReceiveRtcp.execute(rtcp);
+              }
+            } catch {
+              // drop unparsable RTCP
             }
-          } catch {
-            // drop unparsable RTCP
+            return;
           }
-          return;
-        }
-        track.writeRtp(packet);
-      });
+          track.writeRtp(packet);
+        },
+        () => {
+          track.stop();
+        },
+      );
       bindTrackStop(track, () => stopSource?.());
       return [track];
     },
@@ -94,24 +100,30 @@ export function createEncodedBinaryRegister(
         sourceCodec,
       });
       const track = new MediaStreamTrack({ kind, codec });
-      stopSource = await openPacketSource(options, (accessUnit) => {
-        const now = performance.now();
-        if (lastReceivedAt != undefined) {
-          const elapsedSeconds = Math.max(0, (now - lastReceivedAt) / 1_000);
-          rtpTimestamp =
-            (rtpTimestamp + Math.round(elapsedSeconds * clockRate)) >>> 0;
-        }
-        lastReceivedAt = now;
-        const encoded = new EncodedPacket(
-          new Uint8Array(accessUnit),
-          "key",
-          rtpTimestamp / clockRate,
-          1 / 30,
-        );
-        for (const rtp of packetizer.packetize(encoded, rtpTimestamp)) {
-          track.writeRtp(rtp);
-        }
-      });
+      stopSource = await openPacketSource(
+        options,
+        (accessUnit) => {
+          const now = performance.now();
+          if (lastReceivedAt != undefined) {
+            const elapsedSeconds = Math.max(0, (now - lastReceivedAt) / 1_000);
+            rtpTimestamp =
+              (rtpTimestamp + Math.round(elapsedSeconds * clockRate)) >>> 0;
+          }
+          lastReceivedAt = now;
+          const encoded = new EncodedPacket(
+            new Uint8Array(accessUnit),
+            "key",
+            rtpTimestamp / clockRate,
+            1 / 30,
+          );
+          for (const rtp of packetizer.packetize(encoded, rtpTimestamp)) {
+            track.writeRtp(rtp);
+          }
+        },
+        () => {
+          track.stop();
+        },
+      );
       bindTrackStop(track, () => stopSource?.());
       return [track];
     },

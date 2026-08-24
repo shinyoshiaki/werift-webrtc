@@ -28,16 +28,18 @@ export function toBuffer(value: BinaryLike | string): Buffer {
 export async function openPacketSource(
   source: UdpOrStreamSource,
   onPacket: (packet: Buffer) => void,
+  onError?: (error: DOMException) => void,
 ): Promise<() => void> {
   if ("udp" in source && source.udp) {
-    return bindUdp(source.udp, onPacket);
+    return bindUdp(source.udp, onPacket, onError);
   }
-  return readLengthPrefixedStream(source.stream, onPacket);
+  return readLengthPrefixedStream(source.stream, onPacket, onError);
 }
 
 async function bindUdp(
   udp: { port: number; address?: string },
   onPacket: (packet: Buffer) => void,
+  onError?: (error: DOMException) => void,
 ) {
   const socket: Socket = createSocket("udp4");
   try {
@@ -65,10 +67,20 @@ async function bindUdp(
   const onMessage = (message: Buffer) => {
     onPacket(Buffer.from(message));
   };
+  const onSocketError = (error: Error) => {
+    onError?.(
+      createWebRtcDomException(
+        "NotReadableError",
+        error.message || "UDP socket error",
+      ),
+    );
+  };
   socket.on("message", onMessage);
+  socket.on("error", onSocketError);
 
   return () => {
     socket.off("message", onMessage);
+    socket.off("error", onSocketError);
     try {
       socket.close();
     } catch {
@@ -80,6 +92,7 @@ async function bindUdp(
 async function readLengthPrefixedStream(
   stream: Readable | ReadableStream<Uint8Array>,
   onPacket: (packet: Buffer) => void,
+  onError?: (error: DOMException) => void,
 ) {
   const abort = new AbortController();
   const run = (async () => {
@@ -98,10 +111,11 @@ async function readLengthPrefixedStream(
   })();
 
   run.catch((error) => {
-    if (abort.signal.aborted) {
+    const mapped = mapStreamError(error, abort.signal);
+    if (mapped.name === "AbortError") {
       return;
     }
-    throw error;
+    onError?.(mapped);
   });
 
   return () => {
@@ -110,6 +124,23 @@ async function readLengthPrefixedStream(
       stream.destroy();
     }
   };
+}
+
+function mapStreamError(error: unknown, signal: AbortSignal) {
+  if (
+    signal.aborted ||
+    (error instanceof DOMException && error.name === "AbortError") ||
+    (error instanceof Error && error.name === "AbortError")
+  ) {
+    return createWebRtcDomException(
+      "AbortError",
+      error instanceof Error ? error.message : "The operation was aborted",
+    );
+  }
+  return createWebRtcDomException(
+    "NotReadableError",
+    error instanceof Error ? error.message : "Failed to read media stream",
+  );
 }
 
 async function* iterateBytes(

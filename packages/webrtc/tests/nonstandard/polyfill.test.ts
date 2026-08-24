@@ -12,7 +12,10 @@ import {
   installPolyfill,
 } from "../../src/polyfill";
 import "../../src/polyfill";
-import { encodeLengthPrefixed } from "../../src/polyfill/sourceIo";
+import {
+  encodeLengthPrefixed,
+  openPacketSource,
+} from "../../src/polyfill/sourceIo";
 import {
   createVideoCallbackRegister,
   expectDomException,
@@ -331,6 +334,25 @@ describe("werift/polyfill installPolyfill", () => {
     uninstallOverwrite();
   });
 
+  test("failed defineProperty rolls back already assigned constructors", () => {
+    const target: Record<string, any> = {};
+    Object.defineProperty(target, "RTCSessionDescription", {
+      configurable: false,
+      enumerable: true,
+      writable: false,
+      value: "locked",
+    });
+
+    // 実行: 後段の RTCSessionDescription が再定義不能な target へインストールする。
+    expect(() => installPolyfill({ target, mediaRegister: [] })).toThrow();
+
+    // 検証: 先に書いた RTCPeerConnection も含め、副作用は残らない。
+    expect("RTCPeerConnection" in target).toBe(false);
+    expect(target.RTCSessionDescription).toBe("locked");
+    expect("navigator" in target).toBe(false);
+    expect("window" in target).toBe(false);
+  });
+
   test("returned tracks expose writeRtp and MediaStream.clone", async () => {
     const uninstall = installTestPolyfill([createVideoCallbackRegister()]);
     try {
@@ -546,6 +568,30 @@ function createVp8Rtp() {
     0x00, 0x00, 0x00,
   ]);
 }
+
+test("packet stream errors become NotReadableError instead of unhandled rejection", async () => {
+  const passthrough = new PassThrough();
+  const errors: DOMException[] = [];
+  const stop = await openPacketSource(
+    { stream: passthrough },
+    () => undefined,
+    (error) => {
+      errors.push(error);
+    },
+  );
+  try {
+    // 実行: 長さ付きストリームをエラー終了させる。
+    passthrough.destroy(new Error("source closed"));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // 検証: NotReadableError が onError に渡り、未処理 rejection にしない。
+    expect(errors).toHaveLength(1);
+    expectDomException(errors[0], "NotReadableError");
+    expect(errors[0].message).toMatch(/source closed/);
+  } finally {
+    stop();
+  }
+});
 
 function sendUdp(payload: Buffer, port: number) {
   return new Promise<void>((resolve, reject) => {

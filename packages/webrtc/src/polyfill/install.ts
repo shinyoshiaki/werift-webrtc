@@ -61,27 +61,34 @@ export function installPolyfill(options: InstallPolyfillOptions): () => void {
   previous.window = descriptorOf(target, "window");
   const previousNavigator = snapshotNavigator(target);
 
-  assign(target, "RTCPeerConnection", RTCPeerConnection);
-  assign(target, "RTCSessionDescription", PolyfillRTCSessionDescription);
-  assign(target, "RTCIceCandidate", RTCIceCandidate);
-  assign(target, "RTCDataChannel", RTCDataChannel);
-  assign(target, "MediaStream", MediaStream);
-  assign(target, "MediaStreamTrack", MediaStreamTrack);
-  assign(target, "RTCRtpSender", RTCRtpSender);
-  assign(target, "RTCRtpReceiver", RTCRtpReceiver);
-  assign(target, "RTCRtpTransceiver", RTCRtpTransceiver);
-  assign(target, "RTCIceTransport", RTCIceTransport);
-  assign(target, "RTCDtlsTransport", RTCDtlsTransport);
-  assign(target, "RTCTrackEvent", RTCTrackEvent);
-  assign(target, "OverconstrainedError", OverconstrainedError);
-
   const mediaDevices = new MediaDevices(boundRegisters);
-  if (mediaAction === "install") {
-    installMediaDevices(target, mediaDevices);
-  }
+  try {
+    assign(target, "RTCPeerConnection", RTCPeerConnection);
+    assign(target, "RTCSessionDescription", PolyfillRTCSessionDescription);
+    assign(target, "RTCIceCandidate", RTCIceCandidate);
+    assign(target, "RTCDataChannel", RTCDataChannel);
+    assign(target, "MediaStream", MediaStream);
+    assign(target, "MediaStreamTrack", MediaStreamTrack);
+    assign(target, "RTCRtpSender", RTCRtpSender);
+    assign(target, "RTCRtpReceiver", RTCRtpReceiver);
+    assign(target, "RTCRtpTransceiver", RTCRtpTransceiver);
+    assign(target, "RTCIceTransport", RTCIceTransport);
+    assign(target, "RTCDtlsTransport", RTCDtlsTransport);
+    assign(target, "RTCTrackEvent", RTCTrackEvent);
+    assign(target, "OverconstrainedError", OverconstrainedError);
 
-  if (target.window == null) {
-    assign(target, "window", target);
+    if (mediaAction === "install") {
+      installMediaDevices(target, mediaDevices);
+    }
+
+    if (target.window == null) {
+      assign(target, "window", target);
+    }
+  } catch (error) {
+    restore(target, previous);
+    restoreNavigator(target, previousNavigator);
+    mediaDevices.cleanup();
+    throw error;
   }
 
   return () => {
