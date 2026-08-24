@@ -64,6 +64,7 @@ declare global {
 
   interface Navigator {
     mediaDevices: MediaDevices;
+    userAgent: string;
   }
 
   var navigator: Navigator;

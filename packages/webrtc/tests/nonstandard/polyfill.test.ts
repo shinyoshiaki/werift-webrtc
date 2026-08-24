@@ -426,6 +426,201 @@ describe("werift/polyfill installPolyfill", () => {
       uninstall();
     }
   });
+
+  test("complements missing and Node.js userAgent with Chrome111 identity", () => {
+    const emptyTarget: Record<string, any> = {};
+    const nodeProto = {
+      get userAgent() {
+        return "Node.js/24";
+      },
+    };
+    const nodeNavigator = Object.create(nodeProto);
+    const nodeTarget: Record<string, any> = { navigator: nodeNavigator };
+
+    // 実行: 空 navigator と Node.js/<major> UA の target へオプション省略で入れる。
+    const uninstallEmpty = installPolyfill({
+      target: emptyTarget,
+      mediaRegister: [],
+    });
+    const uninstallNode = installPolyfill({
+      target: nodeTarget,
+      mediaRegister: [],
+    });
+
+    // 検証: どちらも Chromium 111 互換の固定値になり、既存 navigator オブジェクトは置換されない。
+    expect(emptyTarget.navigator.userAgent).toBe(
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36",
+    );
+    expect(nodeTarget.navigator).toBe(nodeNavigator);
+    expect(nodeTarget.navigator.userAgent).toBe(
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36",
+    );
+    uninstallEmpty();
+    uninstallNode();
+    expect(
+      Object.prototype.hasOwnProperty.call(nodeNavigator, "userAgent"),
+    ).toBe(false);
+    expect(nodeNavigator.userAgent).toBe("Node.js/24");
+  });
+
+  test("keeps a non-Node userAgent when the option is omitted", () => {
+    const browserUa =
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:120.0) Gecko/20100101 Firefox/120.0";
+    const target: Record<string, any> = {
+      navigator: { userAgent: browserUa },
+    };
+
+    // 実行: 既存のブラウザ UA がある target へ userAgent オプションなしで入れる。
+    const uninstall = installPolyfill({ target, mediaRegister: [] });
+
+    // 検証: 実ブラウザ / sandbox の識別情報は暗黙に上書きされない。
+    expect(target.navigator.userAgent).toBe(browserUa);
+    uninstall();
+  });
+
+  test("explicit userAgent overwrites Node, browser, and sandbox values", () => {
+    const explicit =
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    const nodeTarget: Record<string, any> = {
+      navigator: { userAgent: "Node.js/18" },
+    };
+    const browserTarget: Record<string, any> = {
+      navigator: {
+        userAgent:
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:120.0) Gecko/20100101 Firefox/120.0",
+      },
+    };
+    const sandboxTarget: Record<string, any> = {
+      navigator: { userAgent: "WeriftSandbox/1" },
+    };
+
+    // 実行: 明示 userAgent で 3 種類の既存値を上書きする。
+    const uninstalls = [nodeTarget, browserTarget, sandboxTarget].map(
+      (target) =>
+        installPolyfill({ target, mediaRegister: [], userAgent: explicit }),
+    );
+
+    // 検証: 指定文字列がそのまま入り、uninstall でインストール前へ戻る。
+    expect(nodeTarget.navigator.userAgent).toBe(explicit);
+    expect(browserTarget.navigator.userAgent).toBe(explicit);
+    expect(sandboxTarget.navigator.userAgent).toBe(explicit);
+    for (const uninstall of uninstalls) {
+      uninstall();
+    }
+    expect(nodeTarget.navigator.userAgent).toBe("Node.js/18");
+    expect(browserTarget.navigator.userAgent).toContain("Firefox/120.0");
+    expect(sandboxTarget.navigator.userAgent).toBe("WeriftSandbox/1");
+  });
+
+  test("rejects empty, whitespace, and non-string userAgent before mutating globals", () => {
+    const target: Record<string, any> = {};
+
+    // 実行: 無効な userAgent を副作用より前に拒否する。
+    expect(() =>
+      installPolyfill({ target, mediaRegister: [], userAgent: "" }),
+    ).toThrow(TypeError);
+    expect(() =>
+      installPolyfill({ target, mediaRegister: [], userAgent: "   " }),
+    ).toThrow(TypeError);
+    expect(() =>
+      installPolyfill({ target, mediaRegister: [], userAgent: 111 as any }),
+    ).toThrow(TypeError);
+
+    // 検証: コンストラクタも navigator も書かれていない。
+    expect("RTCPeerConnection" in target).toBe(false);
+    expect("navigator" in target).toBe(false);
+  });
+
+  test("userAgent undefined is treated as omitted auto-detect", () => {
+    const target: Record<string, any> = {};
+
+    // 実行: userAgent: undefined は省略と同じ自動補完にする。
+    const uninstall = installPolyfill({
+      target,
+      mediaRegister: [],
+      userAgent: undefined,
+    });
+
+    // 検証: Chrome111 互換値が入る。
+    expect(target.navigator.userAgent).toContain("Chrome/111.0.0.0");
+    uninstall();
+  });
+
+  test("applies userAgent only to the given target", () => {
+    const target: Record<string, any> = {};
+    const previousGlobalUa = (globalThis as any).navigator?.userAgent;
+
+    // 実行: sandbox target だけにインストールする。
+    const uninstall = installPolyfill({ target, mediaRegister: [] });
+
+    // 検証: target.navigator.userAgent だけが変わり、globalThis は触らない。
+    expect(target.navigator.userAgent).toContain("Chrome/111.0.0.0");
+    expect((globalThis as any).navigator?.userAgent).toBe(previousGlobalUa);
+    uninstall();
+  });
+
+  test("noop existingMediaDevices still complements userAgent", () => {
+    const existing = { getUserMedia: async () => undefined };
+    const target: Record<string, any> = {
+      navigator: {
+        mediaDevices: existing,
+        userAgent: "Node.js/18",
+      },
+    };
+
+    // 実行: mediaDevices は残し、UA だけ Handler 検出用に補完する。
+    const uninstall = installPolyfill({
+      target,
+      mediaRegister: [],
+      existingMediaDevices: "noop",
+    });
+
+    // 検証: GUM はそのまま、UA は Chrome111 互換。
+    expect(target.navigator.mediaDevices).toBe(existing);
+    expect(target.navigator.userAgent).toContain("Chrome/111.0.0.0");
+    uninstall();
+    expect(target.navigator.userAgent).toBe("Node.js/18");
+  });
+
+  test("non-configurable Node userAgent fails the whole install", () => {
+    const navigatorObject: Record<string, unknown> = {};
+    Object.defineProperty(navigatorObject, "userAgent", {
+      configurable: false,
+      enumerable: true,
+      writable: false,
+      value: "Node.js/18",
+    });
+    const target: Record<string, any> = { navigator: navigatorObject };
+
+    // 実行: 差し替え不能な Node UA がある target へ入れる。
+    expect(() => installPolyfill({ target, mediaRegister: [] })).toThrow();
+
+    // 検証: コンストラクタを残さず、元の UA もそのまま。
+    expect("RTCPeerConnection" in target).toBe(false);
+    expect(target.navigator.userAgent).toBe("Node.js/18");
+    expect("window" in target).toBe(false);
+  });
+
+  test("failed constructor after userAgent still restores the previous descriptor", () => {
+    const navigatorObject: Record<string, unknown> = {
+      userAgent: "Node.js/18",
+    };
+    const target: Record<string, any> = { navigator: navigatorObject };
+    Object.defineProperty(target, "window", {
+      configurable: false,
+      enumerable: true,
+      writable: false,
+      value: undefined,
+    });
+
+    // 実行: User-Agent 定義後の window 再定義が失敗する target へ入れる。
+    expect(() => installPolyfill({ target, mediaRegister: [] })).toThrow();
+
+    // 検証: navigator オブジェクトと UA はインストール前へ戻る。
+    expect(target.navigator).toBe(navigatorObject);
+    expect(target.navigator.userAgent).toBe("Node.js/18");
+    expect("RTCPeerConnection" in target).toBe(false);
+  });
 });
 
 describe("werift/polyfill builtin registers", () => {

@@ -10,6 +10,7 @@ import {
 import { RTCPeerConnection, RTCTrackEvent } from "../peerConnection";
 import { RTCDtlsTransport } from "../transport/dtls";
 import { RTCIceCandidate, RTCIceTransport } from "../transport/ice";
+import * as browserIdentity from "./browserIdentity";
 import {
   type ExistingMediaDevicesMode,
   shouldInstallMediaDevices,
@@ -38,6 +39,8 @@ export interface InstallPolyfillOptions {
   mediaRegister: MediaRegister[];
   existingMediaDevices?: ExistingMediaDevicesMode;
   target?: object;
+  /** navigator.userAgent に設定する値。指定時は既存値より優先する */
+  userAgent?: string;
 }
 
 export function installPolyfill(options: InstallPolyfillOptions): () => void {
@@ -50,6 +53,10 @@ export function installPolyfill(options: InstallPolyfillOptions): () => void {
   if (!Array.isArray(options.mediaRegister)) {
     throw new TypeError("mediaRegister must be an array");
   }
+
+  const explicitUserAgent = browserIdentity.assertUserAgentOption(
+    options.userAgent,
+  );
 
   const target = (options.target ?? globalThis) as Record<string, unknown>;
   const mediaAction = shouldInstallMediaDevices(
@@ -80,6 +87,9 @@ export function installPolyfill(options: InstallPolyfillOptions): () => void {
     if (mediaAction === "install") {
       installMediaDevices(target, mediaDevices);
     }
+
+    const navigatorObject = ensureNavigator(target);
+    browserIdentity.installUserAgent(navigatorObject, explicitUserAgent);
 
     if (target.window == null) {
       assign(target, "window", target);
@@ -132,20 +142,20 @@ function getExistingMediaDevices(target: Record<string, unknown>) {
   return (navigatorValue as { mediaDevices?: unknown }).mediaDevices;
 }
 
-function installMediaDevices(
-  target: Record<string, unknown>,
-  mediaDevices: MediaDevices,
-) {
+function ensureNavigator(target: Record<string, unknown>) {
   let navigatorValue = target.navigator;
   if (!navigatorValue || typeof navigatorValue !== "object") {
     navigatorValue = {};
     assign(target, "navigator", navigatorValue);
   }
-  assign(
-    navigatorValue as Record<string, unknown>,
-    "mediaDevices",
-    mediaDevices,
-  );
+  return navigatorValue as Record<string, unknown>;
+}
+
+function installMediaDevices(
+  target: Record<string, unknown>,
+  mediaDevices: MediaDevices,
+) {
+  assign(ensureNavigator(target), "mediaDevices", mediaDevices);
 }
 
 type Snapshot = Partial<Record<string, PropertyDescriptor | undefined>>;
@@ -174,6 +184,12 @@ function snapshotNavigator(target: Record<string, unknown>) {
     mediaDevicesDesc: navigatorObject
       ? descriptorOf(navigatorObject, "mediaDevices")
       : undefined,
+    hadOwnUserAgent: navigatorObject
+      ? hasOwn(navigatorObject, "userAgent")
+      : false,
+    userAgentDesc: navigatorObject
+      ? descriptorOf(navigatorObject, "userAgent")
+      : undefined,
   };
 }
 
@@ -182,6 +198,12 @@ function restoreNavigator(
   previous: ReturnType<typeof snapshotNavigator>,
 ) {
   if (previous.navigatorObject) {
+    restoreOwnProperty(
+      previous.navigatorObject,
+      "userAgent",
+      previous.hadOwnUserAgent,
+      previous.userAgentDesc,
+    );
     restoreOwnProperty(
       previous.navigatorObject,
       "mediaDevices",

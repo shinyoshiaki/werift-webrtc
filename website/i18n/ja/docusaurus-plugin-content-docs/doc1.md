@@ -16,6 +16,35 @@ npm install werift
 werift は DataChannel と MediaChannel に対応しています。
 コア API はコーデックや OS のカメラ取得を持ちません。ブラウザ向けライブラリを Node で動かす場合は `werift/polyfill` の `installPolyfill({ mediaRegister })` でグローバルと `navigator.mediaDevices.getUserMedia` を差し込み、ファイル / RTP / エンコード済みバイナリ / ユーザ定義 register からメディアを供給します。RTP を `MediaStreamTrack.writeRtp` へ直接渡す経路も従来どおり使えます。非標準の `getUserMedia({ path })` は削除されました。
 
+Node.js では polyfill のインストールだけで `mediasoup-client` に `handlerName` / `handlerFactory` を渡さず使えます。既存の User-Agent が未設定または `Node.js/<major>` のときだけ Chromium 111 互換値を補完し、非 Node の値は保持します。上書きしたい場合だけ `userAgent` オプションを渡します。uninstall でインストール前の descriptor に戻ります。「追加設定なし」は Handler 自動選択を指し、`mediaRegister` とシグナリングは引き続き必要です。
+
+```ts
+import { Device } from "mediasoup-client";
+import {
+  createCallbackRegister,
+  installPolyfill,
+} from "werift/polyfill";
+
+const uninstall = installPolyfill({
+  // 任意。省略時は Node で Chrome111 互換値が自動設定される。
+  // userAgent: "Mozilla/5.0 ... Chrome/120.0.0.0 Safari/537.36",
+  mediaRegister: [
+    createCallbackRegister({
+      mimeType: "audio/opus",
+      kinds: ["audio"],
+      async createTracks() {
+        return [createAudioTrack()];
+      },
+    }),
+  ],
+});
+
+const device = await Device.factory();
+await device.load({ routerRtpCapabilities });
+```
+
+明示 `userAgent` は実ブラウザの値も上書きし、Handler 判定を変えることがあります。`existingMediaDevices: "noop"` でも欠けている / Node の User-Agent は補完します。
+
 # ドキュメント
 
 ## RTCPeerConnection

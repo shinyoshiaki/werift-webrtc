@@ -27,6 +27,8 @@ export const DEFAULT_MAX_MESSAGE_SIZE = 65536;
 export class RTCSctpTransport {
   dtlsTransport!: RTCDtlsTransport;
   sctp!: SCTP;
+  /** Browser-compatible simultaneous DataChannel limit used by Chrome111 Handler. */
+  readonly maxChannels = 65535;
 
   readonly onDataChannel = new Event<[RTCDataChannel]>();
   readonly id = randomUUID().toString();

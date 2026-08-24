@@ -22,6 +22,7 @@ import {
   RtpRouter,
   TransceiverManager,
   type TransceiverOptions,
+  useH264,
   useOPUS,
   usePCMU,
   useVP8,
@@ -1387,7 +1388,7 @@ function generateDefaultPeerConfig(): PeerConfig {
   return {
     codecs: {
       audio: [useOPUS(), usePCMU()],
-      video: [useVP8()],
+      video: [useVP8(), useH264()],
     },
     headerExtensions: {
       audio: [],

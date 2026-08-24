@@ -90,7 +90,36 @@ The core media APIs are packet-oriented: `MediaStreamTrack` can receive and emit
 
 werift does not provide operating-system camera/microphone capture as part of the core PeerConnection API. Import `werift/polyfill` and call `installPolyfill({ mediaRegister })` to install browser WebRTC globals and `navigator.mediaDevices.getUserMedia` backed by MP4/WebM, RTP/RTCP, encoded-binary, or custom registers. The nonstandard `getUserMedia({ path })` helper has been removed.
 
-Node TypeScript projects should avoid DOM WebRTC lib types (or include `werift/polyfill`) so global constructors resolve to werift classes. `existingMediaDevices` defaults to `"overwrite"`; use `"throw"` or `"noop"` if you must not replace an existing `navigator.mediaDevices`.
+On Node.js, `installPolyfill({ mediaRegister })` also fills in a Chromium 111 compatible `navigator.userAgent` when the current value is missing or `Node.js/<major>`, so `mediasoup-client` can pick its Chrome111 Handler without `handlerName` / `handlerFactory`. Existing non-Node User-Agents are left unchanged unless you pass `userAgent` to overwrite them. Uninstall restores the previous descriptor. This is Node compatibility only; it does not claim that werift is a complete Chromium. Signaling, Router/Transport parameters, and `mediaRegister` remain application responsibilities.
+
+```ts
+import { Device } from "mediasoup-client";
+import {
+  createCallbackRegister,
+  installPolyfill,
+} from "werift/polyfill";
+
+const uninstall = installPolyfill({
+  // Optional. When omitted, Node gets a Chrome111-compatible value automatically.
+  // userAgent: "Mozilla/5.0 ... Chrome/120.0.0.0 Safari/537.36",
+  mediaRegister: [
+    createCallbackRegister({
+      mimeType: "audio/opus",
+      kinds: ["audio"],
+      async createTracks() {
+        return [createAudioTrack()];
+      },
+    }),
+  ],
+});
+
+const device = await Device.factory(); // handlerName / handlerFactory are not required
+await device.load({ routerRtpCapabilities });
+```
+
+Passing an explicit `userAgent` replaces even a real browser or sandbox value and can change Handler detection; uninstall still restores the pre-install descriptor.
+
+Node TypeScript projects should avoid DOM WebRTC lib types (or include `werift/polyfill`) so global constructors resolve to werift classes. `existingMediaDevices` defaults to `"overwrite"`; use `"throw"` or `"noop"` if you must not replace an existing `navigator.mediaDevices`. `existingMediaDevices: "noop"` still complements a missing/Node User-Agent.
 
 ```mermaid
 flowchart LR

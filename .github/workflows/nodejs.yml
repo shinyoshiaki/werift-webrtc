@@ -47,3 +47,50 @@ jobs:
           CI: true
         run: |
           npm run ci
+
+  mediasoup-interop:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [22.x]
+    steps:
+      - uses: actions/checkout@v4
+      - name: init submodules
+        run: |
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --recursive
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: mediasoup interop fixture
+        run: |
+          cd integration/werift-mediasoup-interop
+          npm ci
+          npm run type
+          npm test
+
+  mediasoup-interop:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22.x, 24.x]
+    steps:
+      - uses: actions/checkout@v4
+      - name: init submodules
+        run: |
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --recursive
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Install mediasoup build deps
+        run: sudo apt-get update && sudo apt-get install -y python3 python3-pip ninja-build build-essential
+      - name: mediasoup interop fixture
+        working-directory: integration/werift-mediasoup-interop
+        run: |
+          npm ci
+          npm run type
+          npm test
