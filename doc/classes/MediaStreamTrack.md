@@ -237,6 +237,18 @@ v13.6.0, v12.17.0
 
 `EventTarget.errorMonitor`
 
+## Accessors
+
+### readyState
+
+#### Get Signature
+
+> **get** **readyState**(): `"live"` \| `"ended"`
+
+##### Returns
+
+`"live"` \| `"ended"`
+
 ## Methods
 
 ### \[captureRejectionSymbol\]()?
