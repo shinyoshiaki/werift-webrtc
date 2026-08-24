@@ -375,23 +375,37 @@ describe("werift/polyfill installPolyfill", () => {
 });
 
 describe("werift/polyfill builtin registers", () => {
+  test("createMp4WebmRegister is synchronous and does not open files at install", () => {
+    const target: Record<string, any> = {};
+
+    // 実行: ドキュメント例どおり await せず、存在しない path を install する。
+    const uninstall = installPolyfill({
+      target,
+      mediaRegister: [
+        createMp4WebmRegister({ path: "/definitely/missing/clip.mp4" }),
+      ],
+    });
+
+    // 検証: インストールは同期で成功し、ファイル未検出は getUserMedia まで遅延する。
+    expect(typeof uninstall).toBe("function");
+    expect(target.RTCPeerConnection).toBe(RTCPeerConnection);
+    uninstall();
+  });
+
   test("mp4/webm path, binary, and stream emit RTP via getUserMedia", async () => {
     const webm = await createAvWebmBuffer();
     const mp4 = await createAvMp4Buffer();
     const temp = await createTempMediaFile(mp4, "mp4");
     try {
       // 実行: binary / path / stream の各ソースを polyfill GUM から再生する。
+      await withRegister(createMp4WebmRegister({ binary: webm }), async () => {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+        });
+        await waitForRtp(stream.getVideoTracks()[0] as MediaStreamTrack);
+      });
       await withRegister(
-        await createMp4WebmRegister({ binary: webm }),
-        async () => {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-          });
-          await waitForRtp(stream.getVideoTracks()[0] as MediaStreamTrack);
-        },
-      );
-      await withRegister(
-        await createMp4WebmRegister({ path: temp.path }),
+        createMp4WebmRegister({ path: temp.path }),
         async () => {
           const stream = await navigator.mediaDevices.getUserMedia({
             video: true,
@@ -402,7 +416,7 @@ describe("werift/polyfill builtin registers", () => {
       const passthrough = new PassThrough();
       passthrough.end(webm);
       await withRegister(
-        await createMp4WebmRegister({ stream: passthrough }),
+        createMp4WebmRegister({ stream: passthrough }),
         async () => {
           const stream = await navigator.mediaDevices.getUserMedia({
             video: true,
@@ -422,17 +436,17 @@ describe("werift/polyfill builtin registers", () => {
     try {
       // 実行: 音声専用コンテナを path / binary / stream で登録する。
       await assertAudioOnlyRegister(
-        await createMp4WebmRegister({ path: temp.path }),
+        createMp4WebmRegister({ path: temp.path }),
         "audio/mp4",
       );
       await assertAudioOnlyRegister(
-        await createMp4WebmRegister({ binary: webm }),
+        createMp4WebmRegister({ binary: webm }),
         "audio/webm",
       );
       const passthrough = new PassThrough();
       passthrough.end(webm);
       await assertAudioOnlyRegister(
-        await createMp4WebmRegister({ stream: passthrough }),
+        createMp4WebmRegister({ stream: passthrough }),
         "audio/webm",
       );
     } finally {

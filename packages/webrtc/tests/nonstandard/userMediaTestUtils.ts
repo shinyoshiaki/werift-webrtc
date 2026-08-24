@@ -426,9 +426,7 @@ export async function roundTripMediaAsset({
   let keepOutput = false;
 
   const uninstall = installPolyfill({
-    mediaRegister: [
-      await createMp4WebmRegister({ path: sourcePath, loop: true }),
-    ],
+    mediaRegister: [createMp4WebmRegister({ path: sourcePath, loop: true })],
   });
   try {
     exchangeIceCandidates(sender, receiver);

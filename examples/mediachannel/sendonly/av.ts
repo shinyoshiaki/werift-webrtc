@@ -37,7 +37,7 @@ server.on("connection", async (socket) => {
 
   installPolyfill({
     mediaRegister: [
-      await createMp4WebmRegister({
+      createMp4WebmRegister({
         path: "~/Downloads/test.webm",
         loop: true,
       }),
