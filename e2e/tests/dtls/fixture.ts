@@ -5,7 +5,8 @@
  *   - Playwright: `npx playwright --version` and the Chromium revision
  *     printed by `playwright.chromium.executablePath()`
  *   - This worktree pin: Playwright Chromium 140.0.7339.186 (build v1193)
- *   - System Chrome: `google-chrome --version` / CHROME_BIN
+ *   - Override only: `DTLS_CHROME_BIN` (system Chrome is not used; GHA's
+ *     preinstalled Google Chrome defaults to DTLS 1.3 and does not cap to 1.2)
  *
  * Field trials used here:
  *   DTLS 1.3 only: WebRTC-ForceDtls13/Only/

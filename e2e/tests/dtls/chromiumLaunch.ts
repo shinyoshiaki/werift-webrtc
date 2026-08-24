@@ -11,9 +11,13 @@
  * `Off/` is not recognized. GHA ubuntu-latest Google Chrome then keeps DTLS 1.3
  * as max, so `[V1_3, V1_2]` × intended-1.2 Chromium negotiates FEFC.
  *
- * Measured:
+ * Measured on Playwright Chromium 140 (build v1193):
  *   Disabled/ → transport.tlsVersion FEFD (DTLS 1.2)
  *   Only/     → transport.tlsVersion FEFC (DTLS 1.3)
+ *
+ * GHA ubuntu-latest Google Chrome still negotiates FEFC for 1.2 fallback, so
+ * DTLS e2e launches Playwright's pinned Chromium only. dtls12 also sets
+ * --disable-features=WebRTC-ForceDtls13 if a newer binary is used.
  */
 export type ChromiumDtlsMode = "dtls12" | "dtls13";
 
@@ -29,10 +33,17 @@ export const chromiumMediaArgs = [
   "--use-fake-device-for-media-stream",
   "--ignore-certificate-errors",
   "--allow-insecure-localhost",
-  "--disable-features=WebRtcHideLocalIpsWithMdns",
   "--force-webrtc-ip-handling-policy=default_public_interface_only",
 ];
 
 export function chromiumLaunchArgs(mode: ChromiumDtlsMode) {
-  return [...chromiumMediaArgs, ...chromiumFieldTrialArgs(mode)];
+  const disableFeatures = [
+    "WebRtcHideLocalIpsWithMdns",
+    ...(mode === "dtls12" ? ["WebRTC-ForceDtls13"] : []),
+  ].join(",");
+  return [
+    ...chromiumMediaArgs,
+    `--disable-features=${disableFeatures}`,
+    ...chromiumFieldTrialArgs(mode),
+  ];
 }

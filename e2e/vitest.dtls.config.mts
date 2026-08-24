@@ -14,20 +14,24 @@ try {
   playwrightChromium = undefined;
 }
 
-const chromiumExecutablePath = [
-  process.env.CHROME_BIN,
-  process.env.GOOGLE_CHROME_BIN,
-  playwrightChromium,
-  "/usr/bin/google-chrome",
-  "/usr/bin/chromium",
-  "/usr/bin/chromium-browser",
-].find((candidate) => candidate && existsSync(candidate));
+// Version assertions are Chromium-revision-specific. Never fall back to
+// GHA/system Google Chrome (ubuntu-latest preinstalls a newer Chrome whose
+// DTLS 1.3 default ignores WebRTC-ForceDtls13/Disabled).
+const override = process.env.DTLS_CHROME_BIN;
+const chromiumExecutablePath =
+  override && existsSync(override) ? override : playwrightChromium;
+
+if (!chromiumExecutablePath || !existsSync(chromiumExecutablePath)) {
+  throw new Error(
+    "DTLS e2e requires Playwright Chromium. From e2e/ run `npm run install:browsers`.",
+  );
+}
 
 const chromiumMode =
   process.env.DTLS_CHROMIUM_MODE === "dtls13" ? "dtls13" : "dtls12";
 
 console.info(
-  `[dtls e2e] mode=${chromiumMode} executable=${chromiumExecutablePath ?? "playwright-default"}`,
+  `[dtls e2e] mode=${chromiumMode} executable=${chromiumExecutablePath}`,
 );
 
 export default defineConfig({
