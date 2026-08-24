@@ -55,11 +55,7 @@ export function createMp4WebmRegister(
     groupId: options.groupId,
     label: options.label,
     async prepare() {
-      try {
-        await getPlayer();
-      } catch {
-        kinds.splice(0, kinds.length);
-      }
+      await getPlayer();
     },
     async createTracks(request: MediaGetUserMediaRequest) {
       const player = await getPlayer();
@@ -97,7 +93,6 @@ export function createMp4WebmRegister(
         applyInspectedMetadata(file, player);
         return player;
       } catch (error) {
-        kinds.splice(0, kinds.length);
         throw mapMediaIoError(error);
       }
     })();

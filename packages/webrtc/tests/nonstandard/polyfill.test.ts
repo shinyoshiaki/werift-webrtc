@@ -415,13 +415,26 @@ describe("werift/polyfill builtin registers", () => {
       await new Promise<void>((resolve) => setImmediate(resolve));
 
       // 検証: Node の ENOENT ではなく DOMException。uninstall 後に未処理 rejection はない。
-      expect(thrown).toBeInstanceOf(DOMException);
-      expect(["NotFoundError", "NotReadableError"]).toContain(
-        (thrown as DOMException).name,
-      );
+      expectDomException(thrown, "NotReadableError");
       expect(unhandled).toEqual([]);
     } finally {
       process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
+  test("unselected missing mp4 register does not fail getUserMedia", async () => {
+    const uninstall = installPolyfill({
+      mediaRegister: [
+        createMp4WebmRegister({ path: "/definitely/missing/clip.mp4" }),
+        createVideoCallbackRegister(),
+      ],
+    });
+    try {
+      // 実行: 壊れた path と利用可能な video register を共存させて GUM する。
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      expect(stream.getVideoTracks()).toHaveLength(1);
+    } finally {
+      uninstall();
     }
   });
 

@@ -1,3 +1,4 @@
+import { createWebRtcDomException } from "../errors";
 import { EventTarget } from "../helper";
 import { MediaStream, type MediaStreamTrack } from "../media/track";
 import type {
@@ -17,6 +18,7 @@ import {
 export class MediaDevices extends EventTarget {
   ondevicechange: ((this: MediaDevices, ev: Event) => unknown) | null = null;
   private readonly activeStops = new Map<MediaStreamTrack, () => void>();
+  private readonly failedRegisters = new Set<BoundMediaRegister>();
 
   constructor(private readonly registers: BoundMediaRegister[]) {
     super();
@@ -83,7 +85,7 @@ export class MediaDevices extends EventTarget {
         try {
           await register.prepare?.();
         } catch {
-          // 未選択 register の準備失敗で getUserMedia 全体を落とさない。
+          this.failedRegisters.add(register);
         }
       }),
     );
@@ -93,27 +95,52 @@ export class MediaDevices extends EventTarget {
     kind: MediaKind,
     constraints: boolean | MediaTrackConstraints,
   ) {
-    const selected = selectRegisterForKind(
-      kind,
-      constraints as boolean | PolyfillTrackConstraints,
-      this.registers,
+    const available = this.registers.filter(
+      (register) => !this.failedRegisters.has(register),
     );
-    const register = this.registers.find(
-      (candidate) => candidate.deviceId === selected.deviceId,
-    );
-    if (!register) {
-      throw new Error(`Selected ${kind} register was not found`);
+    try {
+      const selected = selectRegisterForKind(
+        kind,
+        constraints as boolean | PolyfillTrackConstraints,
+        available,
+      );
+      const register = this.registers.find(
+        (candidate) => candidate.deviceId === selected.deviceId,
+      );
+      if (!register) {
+        throw new Error(`Selected ${kind} register was not found`);
+      }
+      const normalized = normalizeTrackConstraints(constraints);
+      const tracks = await register.createTracks({
+        kind,
+        deviceId: register.deviceId,
+        constraints: normalized,
+      });
+      for (const track of tracks) {
+        this.watchTrack(track);
+      }
+      return tracks;
+    } catch (error) {
+      const failedForKind = this.registers.some(
+        (register) =>
+          this.failedRegisters.has(register) && register.kinds.includes(kind),
+      );
+      if (failedForKind) {
+        if (
+          error instanceof DOMException &&
+          error.name === "NotReadableError"
+        ) {
+          throw error;
+        }
+        throw createWebRtcDomException(
+          "NotReadableError",
+          error instanceof Error
+            ? error.message
+            : "Failed to read media source",
+        );
+      }
+      throw error;
     }
-    const normalized = normalizeTrackConstraints(constraints);
-    const tracks = await register.createTracks({
-      kind,
-      deviceId: register.deviceId,
-      constraints: normalized,
-    });
-    for (const track of tracks) {
-      this.watchTrack(track);
-    }
-    return tracks;
   }
 
   private watchTrack(track: MediaStreamTrack) {
