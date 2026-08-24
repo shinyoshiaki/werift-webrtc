@@ -41,34 +41,12 @@ jobs:
           npx playwright install chromium
           cd ../
       # - name: Setup tmate session
-      #   uses: mxschmitt/action-tmate@v3    
+      #   uses: mxschmitt/action-tmate@v3
       - name: test
         env:
           CI: true
         run: |
           npm run ci
-
-  mediasoup-interop:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [22.x]
-    steps:
-      - uses: actions/checkout@v4
-      - name: init submodules
-        run: |
-          git config --global url."https://github.com/".insteadOf git@github.com:
-          git submodule update --init --recursive
-      - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-      - name: mediasoup interop fixture
-        run: |
-          cd integration/werift-mediasoup-interop
-          npm ci
-          npm run type
-          npm test
 
   mediasoup-interop:
     runs-on: ubuntu-latest

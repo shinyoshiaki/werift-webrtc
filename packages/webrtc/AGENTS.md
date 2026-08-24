@@ -8,7 +8,7 @@ Instructions for coding agents working in `packages/webrtc`.
 
 * Applies to `src`, `tests`, `tools/wpt-runner`, and package-local docs.
 * This package is the main public WebRTC API (`RTCPeerConnection`, media, data channel).
-* Optional `werift/polyfill` (`src/polyfill`) installs browser globals and `getUserMedia` via `mediaRegister`; it is not re-exported from `src/index.ts`.
+* Optional `werift/polyfill` (`src/polyfill`) installs browser globals and `getUserMedia` via `mediaRegister`; it is not re-exported from `src/index.ts`. On Node it also complements a missing or `Node.js/<major>` `navigator.userAgent` so `mediasoup-client` can autodetect Chrome111 without `handlerName`.
 * Lower-level protocol packages (`ice`, `dtls`, `rtp`, `sctp`, `common`) are dependencies; prefer fixing protocol bugs in those packages when the root cause lives there.
 * Upstream WPT harness code lives under `tools/wpt-runner/` and must not leak stricter shims into default `src` behavior.
 
