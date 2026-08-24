@@ -125,7 +125,7 @@ await device.load({ routerRtpCapabilities });
 5. SCTP パラメーター付き send Transport の `transport.produceData()` が成功し、werift `RTCDataChannel` を保持する DataProducer を返す。
 6. Transport の close と polyfill の uninstall 後に open handle や未処理 rejection を残さない。
 
-実 mediasoup サーバへの ICE/DTLS 接続は既存の WebRTC 相互接続能力の範囲であり、この子タスクの必須 E2E には含めない。ここでは `mediasoup-client` の Chrome111 Handler が行う capability 抽出、SDP 操作、sender/receiver/DataChannel 操作を実際の werift クラスで通す。統合テスト中に不足 API が判明した場合は、mediasoup 専用ラッパではなく対応する werift クラスのブラウザ互換 API を根本修正する。
+上記の制御フロー試験は werift 本体で高速に実行する。一方、実 mediasoup worker への ICE/DTLS/SRTP/SCTP 接続と RTP/DataChannel の往復は、2.6 の独立プロジェクトで必須 E2E として実行する。統合テスト中に不足 API が判明した場合は、mediasoup 専用ラッパではなく対応する werift クラスのブラウザ互換 API を根本修正する。
 
 ### 2.5 テスト、依存関係、ドキュメント
 
@@ -138,6 +138,37 @@ await device.load({ routerRtpCapabilities });
 - `README.md`、`website/docs/doc1.md`、`website/i18n/ja/docusaurus-plugin-content-docs/doc1.md` に上記の最小例を追加し、「追加設定なし」が mediasoup Handler 選択を指し、シグナリングと `mediaRegister` は必要であることを明記する。
 - User-Agent 補完は Node 固有の互換処理であり、オプション省略時は実ブラウザの User-Agent を維持すること、明示 `userAgent` で上書きできること、uninstall で元に戻ることをドキュメントに記載する。
 
+### 2.6 独立 mediasoup 相互接続プロジェクト
+
+IDE CLI で独立プロジェクト `werift-mediasoup-interop` を作成し、公開 GitHub repository
+[`shinyoshiaki/werift-mediasoup-interop`](https://github.com/shinyoshiaki/werift-mediasoup-interop) として管理する。
+werift 本体には `integration/werift-mediasoup-interop` として Git submodule を追加する。
+
+- 独立 checkout と submodule checkout の両方をサポートする。`WERIFT_REPO_ROOT` を最優先し、submodule 配置時は親 repository、IDE の標準配置では sibling の `werift-webrtc` を探索する。
+- npm で公開済みの `werift` や本体の build output は使わず、解決した checkout の `packages/webrtc/src/polyfill/index.ts` を `tsx` で直接 import する。これにより開発中の変更を package publish/build 待ちなしで試験する。
+- 各 E2E の Arrange で開発中の `installPolyfill({ mediaRegister, userAgent? })` を実行し、`finally` で uninstall する。`mediasoup-client` には `handlerName` / `handlerFactory` を渡さない。
+- `mediasoup` と `mediasoup-client` は再現可能性のため exact version に固定する。native worker / esbuild の install script は確認した exact version のみ `allowScripts` で許可する。
+- fixture は Node 22 以上を対象とし、最低 Node 22 / 24 の CI matrix を持つ。Node 18 互換は werift 本体の pinned `mediasoup-client@3.16.4` 制御フロースモークで維持する。
+- 通常の PR 必須ジョブは pinned version で実行する。mediasoup / mediasoup-client 最新版との compatibility probe は定期ジョブとして追加し、失敗時に本体の必須 CI を即座に壊さず追跡 ticket を作れる出力を残す。
+
+実 mediasoup worker を用いる E2E matrix は少なくとも次を含める。
+
+| 領域 | 必須ケース |
+| --- | --- |
+| 起動・検出 | worker/router 起動、polyfill install、`detectDevice()`、引数なし `Device.factory()` / `load()`、uninstall 復元 |
+| capability | Opus、VP8、H264 の交渉、audio/video `canProduce()`、未対応 codec / 不正 parameter の拒否 |
+| transport | send/recv WebRtcTransport の ICE/DTLS 接続、ICE restart、接続状態遷移、server/client 双方起点の close と失敗伝播 |
+| audio | synthetic Opus RTP の produce/consume と sequence/timestamp/SSRC 検証、pause/resume、replaceTrack、producer/consumer close |
+| video | synthetic VP8/H264 RTP の produce/consume、simulcast、preferred layer、key-frame request、track replacement |
+| data | reliable/unreliable、ordered/unordered の DataProducer/DataConsumer、label/protocol、双方向 message、close |
+| 多重化 | 複数 transport / producer / consumer、audio+video+data 同時接続、独立した pause/close が他 stream を壊さないこと |
+| lifecycle | worker/transport/client の各終了順、失敗後の再作成、未処理 rejection・子 process・socket・timer の open handle が残らないこと |
+
+- カメラ、マイク、codec encoder/decoder の OS 依存試験は含めない。決定的な synthetic RTP source/sink を使い、実パケットが mediasoup Router を通って相手側の werift track へ届くことを header と payload marker で検証する。
+- 共有 Arrange は `test/helpers` に集約する。worker/router、WebRtcTransport、signaling callback、synthetic RTP、resource cleanup を別責務の helper に分け、ケース間で setup を複製しない。
+- 実 E2E は loopback UDP/TCP port を OS に割り当てさせ、固定 port の競合を避ける。Linux/macOS の差を吸収し、Native Windows は対象外とする。
+- submodule 更新を伴う werift 側 PR と、fixture repository 側 PR/commit の対応関係をチケットに記録する。CI は `git submodule update --init --recursive` 後に `npm ci`、`npm run type`、`npm test` を実行する。
+
 ## 3. 技術的な実装アプローチの調査結果
 
 ### 現行コードの状態
@@ -146,6 +177,9 @@ await device.load({ routerRtpCapabilities });
 - `RTCPeerConnection` は `addTransceiver`、`createOffer` / `createAnswer`、`setLocalDescription` / `setRemoteDescription`、`getConfiguration` / `setConfiguration`、EventTarget 互換 listener、sender/receiver stats、SCTP を既に持つ。
 - `RTCRtpSender` は `replaceTrack`、`getParameters`、`setParameters` を持ち、`MediaStreamTrack` は `readyState`、`enabled`、`stop`、`writeRtp` を持つ。Chrome111 Handler が基本送受信で利用する面は揃っている。
 - `MediaStream`、`RTCSessionDescription`、`RTCTrackEvent` など、親チケットで補われた互換面も mediasoup の SDP/track フローにそのまま利用できる。
+- IDE CLI で `/home/shin/code/werift-mediasoup-interop` に参照プロジェクトを作成済みで、公開 repository と submodule の初期 scaffold も作成済みである。
+- scaffold の source resolver から現在の ticket worktree にある `packages/webrtc/src/polyfill/index.ts` を直接 import し、`installPolyfill` / `createCallbackRegister` を build なしで取得できることを確認した。
+- `mediasoup@3.26.0` の native worker が Node 24 上で起動・終了できることを確認した。したがって実 E2E の次の調査点は worker 配布ではなく、Router/Transport signaling helper と synthetic RTP の実接続である。
 
 ### 再現結果
 
@@ -168,9 +202,10 @@ await device.load({ routerRtpCapabilities });
 2. User-Agent の descriptor snapshot、install/restore を小さな内部ヘルパとして実装する。
 3. `installPolyfill()` の navigator 構築後にヘルパを適用し、例外時の既存ロールバックへ統合する。
 4. Node UA、明示上書き、空 target、既存ブラウザ UA、`existingMediaDevices` 3 モード、uninstall、途中失敗の単体テストを追加する。
-5. ビルド済み polyfill と pinned `mediasoup-client` を使う外部統合スモークを追加する。
-6. 統合スモークで不足が出た WebRTC API だけを既存クラスへ追加し、mediasoup 固有分岐をコアへ持ち込まない。
-7. README と英日サイト文書を更新し、package test、type、import-test を実行する。
+5. werift 本体ではビルド済み polyfill と pinned `mediasoup-client` を使う外部統合スモークを追加する。
+6. 独立 fixture では werift TypeScript source を直接 import し、実 worker/router と send/recv transport の signaling helper を作る。
+7. audio、video、data、ICE restart、lifecycle の順に実 E2E matrix を拡張し、不足が出た WebRTC API だけを既存クラスへ追加する。mediasoup 固有分岐をコアへ持ち込まない。
+8. README と英日サイト文書を更新し、package test、type、import-test、submodule E2E を実行する。
 
 ## 4. 考慮すべき制約や注意点
 
@@ -185,7 +220,9 @@ await device.load({ routerRtpCapabilities });
 - `mediasoup-client` は本番依存にしない。追加するのはテスト用の固定バージョンのみとし、werift の配布サイズや利用者の依存グラフへ含めない。
 - リポジトリの通常 CI は Node 18、調査時点の `mediasoup-client@3.22.0` は Node 22+ を要求する。通常 CI fixture を `3.16.4` に固定する理由をコメントに残し、最新版へ更新するときは Node matrix とセットで見直す。
 - mediasoup の fake parameter オブジェクトは freeze されている版がある。Chrome111 Handler は DTLS role を更新するため、テストでは `structuredClone()` した値を Transport へ渡す。
-- 実 mediasoup server、codec encode/decode、OS カメラ/マイク capture は対象外。RTP 実データの供給は親チケットの register / `writeRtp` 契約を利用する。
+- 実 mediasoup worker/router/transport は独立 fixture の対象とする。対象外なのは外部ホストへの deploy、codec encode/decode、OS カメラ/マイク capture であり、RTP 実データの供給には親チケットの register / `writeRtp` 契約を利用する。
+- submodule は公開 repository の commit SHA に固定する。werift 側だけ、または fixture 側だけの変更で CI が再現不能にならないよう、依存する変更は fixture を先に publish してから gitlink を更新する。
+- `mediasoup` worker は native binary と UDP/TCP socket を使う。install script の許可を package 名だけで広く与えず exact version へ pin し、CI runner が loopback socket と child process を利用できることを前提条件にする。
 - テスト用 Transport は必ず close し、polyfill は `finally` で uninstall する。ICE、DTLS、SCTP、タイマーの open handle を残さない。
 - 公開 API や protocol behavior に不足が見つかった場合は、`packages/webrtc/AGENTS.md` に従い package-local type/test を先に実行し、失敗を握りつぶす互換 shim は追加しない。
 
@@ -214,3 +251,16 @@ await device.load({ routerRtpCapabilities });
 - [ ] `cd packages/webrtc && npm test` が成功する
 - [ ] `cd import-test && npm test` が成功する
 - [ ] `npm run wpt --workspace packages/webrtc` が成功し、User-Agent 追加で許可リスト WPT に回帰がない
+- [x] IDE に `werift-mediasoup-interop` プロジェクトが作成され、`werift-webrtc` が参照プロジェクトとして登録されている
+- [x] `shinyoshiaki/werift-mediasoup-interop` が公開 GitHub repository として作成され、初期 scaffold が `main` に push されている
+- [x] werift に `integration/werift-mediasoup-interop` submodule が追加され、公開 repository の commit SHA を参照している
+- [x] 独立 fixture が現在の werift TypeScript source から polyfill entrypoint を直接 import でき、`npm run type` と source-import test が成功する
+- [x] pinned `mediasoup@3.26.0` worker が Node 24 で起動・終了できる
+- [ ] 独立 fixture の各 E2E が開発中の `installPolyfill()` を実行し、`handlerName` / `handlerFactory` なしで実 mediasoup worker/router/transport と接続する
+- [ ] Opus、VP8、H264 の produce/consume で synthetic RTP が実 Router を往復し、sequence/timestamp/SSRC/payload marker を検証できる
+- [ ] simulcast/layer、pause/resume、replaceTrack、ICE restart、server/client 双方起点 close の E2E が成功する
+- [ ] reliable/unreliable、ordered/unordered DataChannel の双方向 E2E と close が成功する
+- [ ] audio+video+data の同時多重化および複数 transport/client の独立性を検証する E2E が成功する
+- [ ] 全 E2E 後に worker child process、socket、timer、未処理 rejection が残らず、Node process が自然終了する
+- [ ] fixture の Node 22 / 24 pinned-version CI と、最新版 compatibility 定期 probe が追加されている
+- [ ] werift CI が submodule を recursive checkout し、`integration/werift-mediasoup-interop` の `npm ci`、`npm run type`、`npm test` を実行する
