@@ -20,9 +20,7 @@
 
 ##### config
 
-###### debug?
-
-`Partial`\<\{ `disableRecvRetransmit`: `boolean`; `disableSendNack`: `boolean`; `inboundPacketLoss`: `number`; `outboundPacketLoss`: `number`; `receiverReportDelay`: `number`; \}\>
+[`DtlsTransportConfig`](../interfaces/DtlsTransportConfig.md)
 
 ##### iceTransport
 
@@ -64,11 +62,7 @@
 
 ### config
 
-> `readonly` **config**: `object`
-
-#### debug?
-
-> `optional` **debug**: `Partial`\<\{ `disableRecvRetransmit`: `boolean`; `disableSendNack`: `boolean`; `inboundPacketLoss`: `number`; `outboundPacketLoss`: `number`; `receiverReportDelay`: `number`; \}\>
+> `readonly` **config**: [`DtlsTransportConfig`](../interfaces/DtlsTransportConfig.md)
 
 ***
 
@@ -103,6 +97,12 @@
 ### id
 
 > **id**: `string`
+
+***
+
+### lastError?
+
+> `optional` **lastError**: `Error`
 
 ***
 

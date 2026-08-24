@@ -27,6 +27,7 @@ export default defineConfig({
     testTimeout: 20_000,
     // fileParallelism: false,
     retry: 1,
+    exclude: ["**/node_modules/**", "**/dist/**", "tests/dtls/**"],
     browser: {
       provider: "playwright",
       enabled: true,

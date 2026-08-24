@@ -104,7 +104,13 @@ function collectPlaywrightInstalls() {
 }
 
 function main() {
-  if (resolveSystemChrome()) {
+  // System Chrome is enough for most browser tests, but DTLS version
+  // tests need Playwright's pinned Chromium. Set FORCE_PLAYWRIGHT_BROWSERS=1
+  // to install it even when /usr/bin/google-chrome exists (GHA ubuntu-latest).
+  if (
+    resolveSystemChrome() &&
+    process.env.FORCE_PLAYWRIGHT_BROWSERS !== "1"
+  ) {
     process.exit(0);
   }
 

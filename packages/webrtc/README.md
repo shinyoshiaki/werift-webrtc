@@ -16,6 +16,38 @@ werift is designed so application code can use the familiar browser WebRTC model
 
 A small number of intentional or known edge-case differences remain for backward compatibility or unsupported legacy APIs. See [Browser API compatibility](../../docs/browser-api-compatibility.md) for those differences and the WPT strategy used to track exact browser behavior.
 
+## DTLS 1.3 opt-in
+
+Default `new RTCPeerConnection()` still uses DTLS 1.2 only. DTLS 1.3 is an explicit opt-in and is independent of SPED (this package does not enable SPED).
+
+On the ICE-selected path, DTLS 1.3 omits the HelloRetryRequest cookie exchange by default so the handshake does not pay an extra RTT. Set `dtls.helloRetryRequest: true` only when you want a cookie-bearing HRR. Group-only HRR for `key_share` correction is unrelated and may still be sent.
+
+```ts
+import { DtlsVersion, RTCPeerConnection } from "werift";
+
+// DTLS 1.3 only
+const dtls13 = new RTCPeerConnection({
+  dtls: { protocolVersions: [DtlsVersion.V1_3] },
+});
+
+// DTLS 1.3 preferred, DTLS 1.2 fallback
+const dual = new RTCPeerConnection({
+  dtls: {
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+  },
+});
+
+// Cookie HRR (adds 1 RTT; not the WebRTC default)
+const cookieHrr = new RTCPeerConnection({
+  dtls: {
+    protocolVersions: [DtlsVersion.V1_3],
+    helloRetryRequest: true,
+  },
+});
+```
+
+`getStats()` transport `tlsVersion` is `"DTLS 1.2"` or `"DTLS 1.3"`. Successful DTLS 1.3 reports `dtlsCipher` `"TLS_AES_128_GCM_SHA256"`.
+
 ## Development setup
 
 Initialize the pinned upstream WPT checkout before running the package-level WPT tooling:

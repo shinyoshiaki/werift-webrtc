@@ -10,6 +10,7 @@ import {
   type TlsConnectionOptions,
   debug,
 } from "./imports/common";
+import type { DtlsVersion } from "./imports/dtls";
 import type { CandidatePair, Message, Protocol } from "./imports/ice";
 import {
   type MediaStream,
@@ -890,23 +891,27 @@ export class RTCPeerConnection extends EventTarget {
     const res = await Promise.allSettled(
       this.dtlsTransports.map(async (dtlsTransport) => {
         const { iceTransport } = dtlsTransport;
-        if (iceTransport.state === "connected") {
-          return;
-        }
-        const checkDtlsConnected = () => dtlsTransport.state === "connected";
-
-        if (checkDtlsConnected()) {
+        // Gathering sets Connection.state to "completed" before any remote
+        // checks. Only "connected" means ICE has a nominated pair.
+        // ICE restart leaves DTLS connected while ICE returns to "new"/gather
+        // "completed"; skip ICE start only when ICE is already connected.
+        if (
+          iceTransport.state === "connected" &&
+          dtlsTransport.state === "connected"
+        ) {
           return;
         }
 
         this.secureManager.setConnectionState("connecting");
 
-        await iceTransport.start().catch((err) => {
-          log("iceTransport.start failed", err);
-          throw err;
-        });
+        if (iceTransport.state !== "connected") {
+          await iceTransport.start().catch((err) => {
+            log("iceTransport.start failed", err);
+            throw err;
+          });
+        }
 
-        if (checkDtlsConnected()) {
+        if (dtlsTransport.state === "connected") {
           return;
         }
 
@@ -1322,6 +1327,19 @@ export interface PeerConfig {
   iceFilterCandidatePair: ((pair: CandidatePair) => boolean) | undefined;
   dtls: Partial<{
     keys: DtlsKeys;
+    /**
+     * DTLS protocol versions in preference order.
+     * Unspecified / empty keeps DTLS 1.2 only. DTLS 1.3 requires explicit opt-in.
+     * Independent of SPED (this package does not enable SPED).
+     */
+    protocolVersions: readonly DtlsVersion[];
+    /**
+     * DTLS 1.3 HelloRetryRequest cookie exchange.
+     * Default false: ICE-authenticated path omits cookie HRR and saves 1 RTT.
+     * true: send a cookie-bearing HRR (mapped internally to addressValidation: "dtls-cookie").
+     * Group-only HRR for key_share correction is independent of this option.
+     */
+    helloRetryRequest?: boolean;
   }>;
   icePasswordPrefix: string | undefined;
   bundlePolicy: BundlePolicy;
@@ -1503,7 +1521,13 @@ function clonePeerConfiguration(config: PeerConfig) {
     iceAdditionalHostAddresses: config.iceAdditionalHostAddresses
       ? [...config.iceAdditionalHostAddresses]
       : undefined,
-    dtls: { ...config.dtls },
+    dtls: {
+      ...config.dtls,
+      protocolVersions: config.dtls.protocolVersions
+        ? [...config.dtls.protocolVersions]
+        : undefined,
+      helloRetryRequest: config.dtls.helloRetryRequest,
+    },
     certificates: [...config.certificates],
     debug: { ...config.debug },
   };

@@ -2,6 +2,7 @@ import { networkInterfaces } from "node:os";
 
 import {
   type DtlsKeys,
+  DtlsVersion,
   HashAlgorithm,
   type PeerConfig,
   SignatureAlgorithm,
@@ -72,6 +73,26 @@ export const peerConfig: Promise<Partial<PeerConfig>> = (async () => ({
   dtls: { keys: await DtlsKeysContext.get() },
   bundlePolicy: "max-bundle" as BundlePolicy,
 }))();
+
+export async function peerConfigWithDtls(options?: {
+  protocolVersions?: readonly string[];
+  helloRetryRequest?: boolean;
+}): Promise<Partial<PeerConfig>> {
+  const base = await peerConfig;
+  const protocolVersions = options?.protocolVersions?.map((version) =>
+    version === DtlsVersion.V1_3 || version === "1.3"
+      ? DtlsVersion.V1_3
+      : DtlsVersion.V1_2,
+  );
+  return {
+    ...base,
+    dtls: {
+      ...base.dtls,
+      protocolVersions,
+      helloRetryRequest: options?.helloRetryRequest,
+    },
+  };
+}
 
 export const iceLitePeerConfig: Promise<Partial<PeerConfig>> = (async () => {
   const iceLiteInterfaceAddress = getIceLiteInterfaceAddress();

@@ -34,7 +34,7 @@
 
 ### dtls
 
-> **dtls**: `Partial`\<\{ `keys`: [`DtlsKeys`](../type-aliases/DtlsKeys.md); \}\>
+> **dtls**: `Partial`\<\{ `helloRetryRequest`: `boolean`; `keys`: [`DtlsKeys`](../type-aliases/DtlsKeys.md); `protocolVersions`: readonly [`DtlsVersion`](../enumerations/DtlsVersion.md)[]; \}\>
 
 ***
 
