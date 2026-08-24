@@ -1,4 +1,4 @@
-import { Readable } from "stream";
+import type { Readable } from "stream";
 
 import { createWebRtcDomException } from "../../errors";
 import { createFileMediaPlayer } from "../../nonstandard/userMedia";
@@ -30,31 +30,33 @@ export type CreateMp4WebmRegisterOptions = Mp4WebmSource &
     loop?: boolean;
   };
 
-type ResolvedFile =
-  | { path: string }
-  | { buffer: Buffer }
-  | { stream: Readable | ReadableStream<Uint8Array> };
+type FilePlayer = Awaited<ReturnType<typeof createFileMediaPlayer>>;
 
 /**
- * Synchronous factory. Container I/O and player setup run in `createTracks`,
- * so `installPolyfill({ mediaRegister: [createMp4WebmRegister({ path })] })`
- * matches the ticket contract and does not fail before install.
+ * Synchronous factory. Container I/O and player setup run in `prepare` /
+ * `createTracks`, so install does not open files or consume live streams.
  */
 export function createMp4WebmRegister(
   options: CreateMp4WebmRegisterOptions,
 ): MediaRegister {
-  const snapshot = snapshotSource(options);
-  let playerPromise:
-    | Promise<Awaited<ReturnType<typeof createFileMediaPlayer>>>
-    | undefined;
+  let mimeType = initialMimeType(options);
+  const kinds: MediaKind[] = [...initialKinds(options)];
+  let playerPromise: Promise<FilePlayer> | undefined;
   let started = false;
 
-  return {
-    mimeType: mimeTypeFromContainer(snapshot.container, snapshot.kinds),
-    kinds: snapshot.kinds,
+  const register: MediaRegister = {
+    get mimeType() {
+      return mimeType;
+    },
+    get kinds() {
+      return kinds;
+    },
     deviceId: options.deviceId,
     groupId: options.groupId,
     label: options.label,
+    async prepare() {
+      await getPlayer();
+    },
     async createTracks(request: MediaGetUserMediaRequest) {
       const player = await getPlayer();
       const track = request.kind === "audio" ? player.audio : player.video;
@@ -75,77 +77,85 @@ export function createMp4WebmRegister(
       void playerPromise?.then((player) => player.stop());
     },
   };
+  return register;
 
   async function getPlayer() {
     playerPromise ??= (async () => {
-      const file = await resolveFile(snapshot);
-      return createFileMediaPlayer({
+      const file = await resolveFile(options);
+      const player = await createFileMediaPlayer({
         loop: options.loop,
         ...file,
       });
+      applyInspectedMetadata(file, player);
+      return player;
     })();
     return playerPromise;
   }
-}
 
-type SourceSnapshot = {
-  file: ResolvedFile;
-  container: "webm" | "mp4";
-  kinds: MediaKind[];
-};
-
-function snapshotSource(options: CreateMp4WebmRegisterOptions): SourceSnapshot {
-  if ("path" in options && options.path != undefined) {
-    const container = containerFromPath(options.path);
-    return {
-      file: { path: options.path },
-      container,
-      kinds: kindsFromPath(options.path),
-    };
-  }
-  if ("binary" in options && options.binary != undefined) {
-    const buffer = toBuffer(options.binary);
-    const container = isWebmContainer(buffer) ? "webm" : "mp4";
-    return {
-      file: { buffer },
-      container,
-      kinds: inspectKindsFromBuffer(buffer) ?? ["audio", "video"],
-    };
-  }
-  const captured = tryCaptureEndedStream(options.stream);
-  if (captured) {
-    const container = isWebmContainer(captured) ? "webm" : "mp4";
-    return {
-      file: { buffer: captured },
-      container,
-      kinds: inspectKindsFromBuffer(captured) ?? ["audio", "video"],
-    };
-  }
-  return {
-    file: { stream: options.stream },
-    container: "mp4",
-    kinds: ["audio", "video"],
-  };
-}
-
-async function resolveFile(snapshot: SourceSnapshot): Promise<ResolvedFile> {
-  if ("stream" in snapshot.file) {
-    const buffer = await readEntireStream(snapshot.file.stream);
-    return { buffer };
-  }
-  return snapshot.file;
-}
-
-function kindsFromPath(path: string): MediaKind[] {
-  const lower = path.toLowerCase();
-  if (
-    lower.endsWith(".m4a") ||
-    lower.endsWith(".weba") ||
-    lower.endsWith(".aac")
+  function applyInspectedMetadata(
+    file: { path: string } | { buffer: Buffer },
+    player: FilePlayer,
   ) {
-    return ["audio"];
+    kinds.splice(0, kinds.length, ...kindsFromPlayer(player));
+    const container = containerOf(
+      options,
+      "buffer" in file ? file.buffer : undefined,
+    );
+    mimeType = mimeTypeFromContainer(container, kinds);
+  }
+}
+
+function initialKinds(options: CreateMp4WebmRegisterOptions): MediaKind[] {
+  if ("binary" in options && options.binary != undefined) {
+    return (
+      inspectKindsFromBuffer(toBuffer(options.binary)) ?? ["audio", "video"]
+    );
   }
   return ["audio", "video"];
+}
+
+function initialMimeType(options: CreateMp4WebmRegisterOptions): string {
+  const kinds = initialKinds(options);
+  return mimeTypeFromContainer(containerOf(options), kinds);
+}
+
+function containerOf(
+  options: CreateMp4WebmRegisterOptions,
+  buffer?: Buffer,
+): "webm" | "mp4" {
+  if (buffer) {
+    return isWebmContainer(buffer) ? "webm" : "mp4";
+  }
+  if ("path" in options && options.path != undefined) {
+    return containerFromPath(options.path);
+  }
+  if ("binary" in options && options.binary != undefined) {
+    return isWebmContainer(toBuffer(options.binary)) ? "webm" : "mp4";
+  }
+  return "mp4";
+}
+
+async function resolveFile(
+  options: CreateMp4WebmRegisterOptions,
+): Promise<{ path: string } | { buffer: Buffer }> {
+  if ("path" in options && options.path != undefined) {
+    return { path: options.path };
+  }
+  if ("binary" in options && options.binary != undefined) {
+    return { buffer: toBuffer(options.binary) };
+  }
+  return { buffer: await readEntireStream(options.stream) };
+}
+
+function kindsFromPlayer(player: FilePlayer): MediaKind[] {
+  const next: MediaKind[] = [];
+  if (player.audio) {
+    next.push("audio");
+  }
+  if (player.video) {
+    next.push("video");
+  }
+  return next;
 }
 
 function containerFromPath(path: string): "webm" | "mp4" {
@@ -165,23 +175,6 @@ function mimeTypeFromContainer(
     return hasVideo ? "video/webm" : "audio/webm";
   }
   return hasVideo ? "video/mp4" : "audio/mp4";
-}
-
-function tryCaptureEndedStream(
-  stream: Readable | ReadableStream<Uint8Array>,
-): Buffer | undefined {
-  if (!(stream instanceof Readable)) {
-    return undefined;
-  }
-  const chunks: Buffer[] = [];
-  let chunk: Buffer | string | null;
-  while ((chunk = stream.read()) != null) {
-    chunks.push(toBuffer(chunk));
-  }
-  if (chunks.length === 0) {
-    return undefined;
-  }
-  return Buffer.concat(chunks);
 }
 
 function inspectKindsFromBuffer(buffer: Buffer): MediaKind[] | undefined {

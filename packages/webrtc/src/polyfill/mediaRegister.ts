@@ -33,6 +33,7 @@ export interface MediaRegister {
   readonly groupId?: string;
   readonly label?: string;
   createTracks(request: MediaGetUserMediaRequest): Promise<MediaStreamTrack[]>;
+  prepare?(): Promise<void>;
   stop?(): void;
 }
 

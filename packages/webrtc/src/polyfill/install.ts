@@ -108,11 +108,16 @@ function bindRegisters(registers: MediaRegister[]): BoundMediaRegister[] {
     }
     seen.add(deviceId);
     return {
-      mimeType: register.mimeType,
-      kinds: register.kinds,
+      get mimeType() {
+        return register.mimeType;
+      },
+      get kinds() {
+        return register.kinds;
+      },
       deviceId,
       groupId: register.groupId,
       label: register.label,
+      prepare: register.prepare?.bind(register),
       createTracks: (request) => register.createTracks(request),
       stop: register.stop?.bind(register),
     };

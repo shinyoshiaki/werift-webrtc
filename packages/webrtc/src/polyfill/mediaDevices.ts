@@ -27,6 +27,7 @@ export class MediaDevices extends EventTarget {
   }
 
   async enumerateDevices(): Promise<MediaDeviceInfoLike[]> {
+    await this.prepareRegisters();
     const devices: MediaDeviceInfoLike[] = [];
     for (const register of this.registers) {
       for (const kind of register.kinds) {
@@ -53,6 +54,7 @@ export class MediaDevices extends EventTarget {
     constraints: MediaStreamConstraints = {},
   ): Promise<MediaStream> => {
     assertRequestedMediaTypes(constraints);
+    await this.prepareRegisters();
     const tracks: MediaStreamTrack[] = [];
     if (constraints.audio) {
       tracks.push(...(await this.createKindTracks("audio", constraints.audio)));
@@ -73,6 +75,10 @@ export class MediaDevices extends EventTarget {
     for (const register of this.registers) {
       register.stop?.();
     }
+  }
+
+  private async prepareRegisters() {
+    await Promise.all(this.registers.map((register) => register.prepare?.()));
   }
 
   private async createKindTracks(

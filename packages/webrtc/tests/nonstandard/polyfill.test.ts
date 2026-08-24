@@ -432,25 +432,29 @@ describe("werift/polyfill builtin registers", () => {
   test("audio-only mp4/webm path, binary, and stream are not video devices", async () => {
     const webm = await createOpusWebmBuffer();
     const mp4 = await createOpusMp4Buffer();
-    const temp = await createTempMediaFile(mp4, "m4a");
+    const mp4Path = await createTempMediaFile(mp4, "mp4");
+    const webmPath = await createTempMediaFile(webm, "webm");
     try {
-      // 実行: 音声専用コンテナを path / binary / stream で登録する。
+      // 実行: 拡張子が video でも音声専用コンテナを path / binary / 未終了 stream で登録する。
       await assertAudioOnlyRegister(
-        createMp4WebmRegister({ path: temp.path }),
+        createMp4WebmRegister({ path: mp4Path.path }),
         "audio/mp4",
+      );
+      await assertAudioOnlyRegister(
+        createMp4WebmRegister({ path: webmPath.path }),
+        "audio/webm",
       );
       await assertAudioOnlyRegister(
         createMp4WebmRegister({ binary: webm }),
         "audio/webm",
       );
       const passthrough = new PassThrough();
+      const streamRegister = createMp4WebmRegister({ stream: passthrough });
       passthrough.end(webm);
-      await assertAudioOnlyRegister(
-        createMp4WebmRegister({ stream: passthrough }),
-        "audio/webm",
-      );
+      await assertAudioOnlyRegister(streamRegister, "audio/webm");
     } finally {
-      await temp.cleanup();
+      await mp4Path.cleanup();
+      await webmPath.cleanup();
     }
   }, 20_000);
 
@@ -556,8 +560,9 @@ async function assertAudioOnlyRegister(
   register: Parameters<typeof installPolyfill>[0]["mediaRegister"][number],
   mimeType: string,
 ) {
+  await register.prepare?.();
   expect(register.mimeType).toBe(mimeType);
-  expect(register.kinds).toEqual(["audio"]);
+  expect([...register.kinds]).toEqual(["audio"]);
   await withRegister(register, async () => {
     const devices = await navigator.mediaDevices.enumerateDevices();
     expect(devices.map((device) => device.kind)).toEqual(["audioinput"]);
