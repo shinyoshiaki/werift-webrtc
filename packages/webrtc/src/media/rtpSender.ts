@@ -151,6 +151,7 @@ export class RTCRtpSender {
   private rtpContinuityPending = false;
   private pendingTimestampStep = 1;
   private rtpCache: RtpPacket[] = [];
+  private pendingRtp: RtpPacket[] = [];
   codec?: RTCRtpCodecParameters;
   public dtlsTransport!: RTCDtlsTransport;
   private dtlsDisposer: (() => void)[] = [];
@@ -193,6 +194,7 @@ export class RTCRtpSender {
       this.dtlsTransport.onStateChange.subscribe((state) => {
         if (state === "connected") {
           this.onReady.execute();
+          void this.flushPendingRtp();
         }
       }).unSubscribe,
     ];
@@ -232,6 +234,31 @@ export class RTCRtpSender {
         );
       }
     });
+    void this.flushPendingRtp();
+  }
+
+  private canSendRtp() {
+    return this.dtlsTransport?.state === "connected" && !!this.codec;
+  }
+
+  private enqueuePendingRtp(rtp: Buffer | RtpPacket) {
+    const packet = Buffer.isBuffer(rtp)
+      ? RtpPacket.deSerialize(rtp)
+      : rtp.clone();
+    this.pendingRtp.push(packet);
+    if (this.pendingRtp.length > 256) {
+      this.pendingRtp.shift();
+    }
+  }
+
+  private async flushPendingRtp() {
+    if (!this.canSendRtp() || this.pendingRtp.length === 0) {
+      return;
+    }
+    const queued = this.pendingRtp.splice(0);
+    for (const packet of queued) {
+      await this.sendRtp(packet);
+    }
   }
 
   registerTrack(track: MediaStreamTrack) {
@@ -381,7 +408,8 @@ export class RTCRtpSender {
   }
 
   async sendRtp(rtp: Buffer | RtpPacket) {
-    if (this.dtlsTransport.state !== "connected" || !this.codec) {
+    if (!this.canSendRtp()) {
+      this.enqueuePendingRtp(rtp);
       return;
     }
 

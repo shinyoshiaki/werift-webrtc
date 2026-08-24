@@ -462,7 +462,7 @@ export async function roundTripMediaAsset({
     try {
       // 実行: polyfill getUserMedia で再生を開始した asset を対向 peer で録画する。
       await waitUntil(() => recording.videoPackets.length > 0, 10_000);
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
     } finally {
       audio.stop();
       video.stop();

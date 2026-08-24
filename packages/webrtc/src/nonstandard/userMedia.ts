@@ -20,15 +20,9 @@ import {
 } from "mediabunny";
 
 import { Event } from "../imports/common";
+import { useAV1X, useH264, useOPUS, useVP8, useVP9 } from "../media/codec";
 import type { RTCRtpCodecParameters } from "../media/parameters";
 import { MediaStreamTrack } from "../media/track";
-import {
-  useAV1X,
-  useH264,
-  useOPUS,
-  useVP8,
-  useVP9,
-} from "../media/codec";
 import { codecParametersFromString } from "../sdp";
 import {
   type SupportedSourceCodec,
@@ -147,8 +141,6 @@ class MediaPlayer {
       if (abortController.signal.aborted || this.stopped) {
         return;
       }
-
-      session.runners.forEach((runner) => runner.assertReady());
 
       const initialSourceChanged = this.hasStartedPlayback;
       this.hasStartedPlayback = true;
@@ -327,15 +319,6 @@ class TrackPlaybackRunner {
     }
   }
 
-  assertReady() {
-    const codec = this.requireNegotiatedCodec();
-    createPacketizer({
-      codec,
-      sourceCodec: this.props.sourceCodec,
-      decoderDescription: this.props.decoderDescription,
-    });
-  }
-
   private requireNegotiatedCodec() {
     const codec = this.props.track.codec;
     if (!codec) {
@@ -459,15 +442,30 @@ async function createPlaybackTrack(
       new MediaStreamTrack({
         kind,
         streamId,
-        codec: defaultCodecForSource(sourceCodec),
+        codec: codecParametersForSource(
+          sourceCodec,
+          decoderConfig && "description" in decoderConfig
+            ? (decoderConfig.description ?? null)
+            : null,
+        ),
       }),
   };
 }
 
-function defaultCodecForSource(sourceCodec: SupportedSourceCodec) {
+function codecParametersForSource(
+  sourceCodec: SupportedSourceCodec,
+  decoderDescription?: ArrayBuffer | ArrayBufferView | null,
+) {
   switch (sourceCodec) {
-    case "avc":
-      return useH264();
+    case "avc": {
+      const profileLevelId = getH264ProfileLevelId(decoderDescription);
+      if (!profileLevelId) {
+        return useH264();
+      }
+      return useH264({
+        parameters: `profile-level-id=${profileLevelId};packetization-mode=1;level-asymmetry-allowed=1`,
+      });
+    }
     case "vp8":
       return useVP8();
     case "vp9":

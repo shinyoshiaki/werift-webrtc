@@ -69,7 +69,7 @@ export function createMp4WebmRegister(
       bindTrackStop(track, () => player.stop());
       if (!started) {
         started = true;
-        void player.start();
+        void player.start().catch(() => undefined);
       }
       return [track];
     },
