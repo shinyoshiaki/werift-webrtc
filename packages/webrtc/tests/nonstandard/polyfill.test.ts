@@ -6,6 +6,7 @@ import { OverconstrainedError } from "../../src/errors";
 import { MediaStream, MediaStreamTrack } from "../../src/media/track";
 import { createFileMediaPlayer } from "../../src/nonstandard/userMedia";
 import {
+  createCallbackRegister,
   createEncodedBinaryRegister,
   createMp4WebmRegister,
   createRtpRtcpRegister,
@@ -171,6 +172,59 @@ describe("werift/polyfill installPolyfill", () => {
       }
       // 検証: getUserMedia から同じ OverconstrainedError が見える。
       expectOverconstrainedError(thrown, "width");
+    } finally {
+      uninstall();
+    }
+  });
+
+  test("generic createTracks errors become AbortError", async () => {
+    const uninstall = installTestPolyfill([
+      createVideoCallbackRegister({
+        async createTracks() {
+          throw new Error("boom");
+        },
+      }),
+    ]);
+    try {
+      let thrown: unknown;
+      try {
+        await navigator.mediaDevices.getUserMedia({ video: true });
+      } catch (error) {
+        thrown = error;
+      }
+      // 検証: ユーザ定義 register の一般 Error は AbortError になる。
+      expectDomException(thrown, "AbortError");
+      expect((thrown as DOMException).message).toMatch(/boom/);
+    } finally {
+      uninstall();
+    }
+  });
+
+  test("stops already created tracks if a later kind fails", async () => {
+    let audioTrack: MediaStreamTrack | undefined;
+    const uninstall = installTestPolyfill([
+      createCallbackRegister({
+        mimeType: "audio/opus",
+        kinds: ["audio"],
+        async createTracks() {
+          audioTrack = new MediaStreamTrack({ kind: "audio" });
+          return [audioTrack];
+        },
+      }),
+      createVideoCallbackRegister({
+        async createTracks() {
+          throw new Error("video failed");
+        },
+      }),
+    ]);
+    try {
+      await expect(
+        navigator.mediaDevices.getUserMedia({ audio: true, video: true }),
+      ).rejects.toSatisfy(
+        (error: unknown) =>
+          error instanceof DOMException && error.name === "AbortError",
+      );
+      expect(audioTrack?.stopped).toBe(true);
     } finally {
       uninstall();
     }

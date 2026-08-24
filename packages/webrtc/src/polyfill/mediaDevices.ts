@@ -1,4 +1,4 @@
-import { createWebRtcDomException } from "../errors";
+import { OverconstrainedError, createWebRtcDomException } from "../errors";
 import { EventTarget } from "../helper";
 import { MediaStream, type MediaStreamTrack } from "../media/track";
 import type {
@@ -58,13 +58,24 @@ export class MediaDevices extends EventTarget {
     assertRequestedMediaTypes(constraints);
     await this.prepareRegisters();
     const tracks: MediaStreamTrack[] = [];
-    if (constraints.audio) {
-      tracks.push(...(await this.createKindTracks("audio", constraints.audio)));
+    try {
+      if (constraints.audio) {
+        tracks.push(
+          ...(await this.createKindTracks("audio", constraints.audio)),
+        );
+      }
+      if (constraints.video) {
+        tracks.push(
+          ...(await this.createKindTracks("video", constraints.video)),
+        );
+      }
+      return new MediaStream(tracks);
+    } catch (error) {
+      for (const track of tracks) {
+        track.stop();
+      }
+      throw error;
     }
-    if (constraints.video) {
-      tracks.push(...(await this.createKindTracks("video", constraints.video)));
-    }
-    return new MediaStream(tracks);
   };
 
   getDisplayMedia = this.getUserMedia;
@@ -139,7 +150,7 @@ export class MediaDevices extends EventTarget {
             : "Failed to read media source",
         );
       }
-      throw error;
+      throw mapGetUserMediaError(error);
     }
   }
 
@@ -164,4 +175,17 @@ export interface MediaDeviceInfoLike {
     kind: string;
     label: string;
   };
+}
+
+function mapGetUserMediaError(error: unknown): never {
+  if (error instanceof OverconstrainedError || error instanceof TypeError) {
+    throw error;
+  }
+  if (error instanceof DOMException) {
+    throw error;
+  }
+  throw createWebRtcDomException(
+    "AbortError",
+    error instanceof Error ? error.message : "The operation was aborted",
+  );
 }
