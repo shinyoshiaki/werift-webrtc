@@ -75,7 +75,7 @@ For targeted work, prefer the narrowest package command first, for example:
 * Browser interop, examples, or signaling flow changes: run the relevant example and/or `npm run e2e` when feasible.
 * Test code changes: confirm shared Arrange utilities remain reusable and appropriately scoped, and review that Act / Assert comments are present at a useful Japanese granularity.
 * Infrastructure-backed E2E changes: run the targeted scenario with its required opt-in environment flag before finishing, so the real dependency path is exercised.
-* Mediasoup interop fixture changes: initialize submodules, then run `npm ci`, `npm run type`, and `npm test` in `integration/werift-mediasoup-interop`.
+* Mediasoup interop fixture changes: initialize submodules, then run `npm ci`, `npm run type`, and `npm test` in `integration/werift-mediasoup-interop`. Repeat `npm test` when changing polyfill/worker sharing or runner isolation.
 
 ## Maintenance
 
