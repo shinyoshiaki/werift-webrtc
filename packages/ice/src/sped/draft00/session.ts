@@ -67,7 +67,11 @@ export class SpedSession {
   }
 
   queueAck(crc: number): void {
-    this.l2.push(crc >>> 0);
+    const value = crc >>> 0;
+    if (this.l2.includes(value)) {
+      return;
+    }
+    this.l2.push(value);
   }
 
   /** CRCs to put on this Binding (head of L2, hard cap 4). */

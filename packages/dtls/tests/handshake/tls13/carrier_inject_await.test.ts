@@ -31,4 +31,25 @@ describe("awaitable carrier inject", () => {
     expect(released).toBe(true);
     carrier.close();
   });
+
+  test("invalidateInboundInjects は待ち中の inject handler を走らせない", async () => {
+    // Arrange
+    const carrier = new DirectHandshakeCarrier(dummyTransport());
+    let ran = false;
+    carrier.setInjectHandler(async () => {
+      ran = true;
+    });
+
+    // Act: inject が 1 tick 待つ間に inbound epoch を無効化する
+    const pending = carrier.inject(Buffer.from([22, 1, 2, 3]), [
+      "127.0.0.1",
+      1,
+    ]);
+    carrier.invalidateInboundInjects();
+    await pending;
+
+    // Assert
+    expect(ran).toBe(false);
+    carrier.close();
+  });
 });

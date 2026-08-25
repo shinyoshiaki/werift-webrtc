@@ -18,7 +18,7 @@ Constants live in `src/sped/draft00/constants.ts` only.
 Per ICE **generation**: `disabled | probing | active | fallback | complete`.
 
 - **L1**: un-ACKed current DTLS flight datagrams (defensive copies). Round-robin one datagram per Binding.
-- **L2**: pending CRC-32 values in receive order. A Binding advertises at most 4 (head of the queue) and then **consumes** those entries; remainder is carried to the next Binding.
+- **L2**: pending CRC-32 values in receive order, **deduplicated**. A Binding advertises at most 4 (head of the queue) and then **consumes** those entries; remainder is carried to the next Binding. Duplicate DATA still reaches DTLS inject (replay), but does not grow L2.
 - Handshake complete or ICE restart clears L1/L2 and resets round-robin / peerSupport.
 - Incoming authenticated Bindings and `inject` are dropped when `generation` does not match the live session (ICE restart must not apply a stale handshake).
 - Direct DTLS on `IceSpedTransport` is taken only from `Connection.onDatagram` when the context is authenticated, current-generation, and the source matches the pair 5-tuple. Public `onData(Buffer)` is unchanged.

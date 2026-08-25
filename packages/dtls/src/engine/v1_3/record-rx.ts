@@ -48,9 +48,12 @@ export function handleDatagram(
   const src = addr ?? this.peerFromTransport();
   const peer = peerKeyFromAddr(src);
   const peerAddr = this.addrToTuple(src);
-  const processed = this.rxChain.then(() =>
-    this.handleDatagramAsync(buf, peer, peerAddr),
-  );
+  const processed = this.rxChain.then(() => {
+    if (this.carrier.isStaleInboundInject?.()) {
+      return;
+    }
+    return this.handleDatagramAsync(buf, peer, peerAddr);
+  });
   this.rxChain = processed.catch((e) => {
     // ProtocolVersionError / authenticated handshake failures already call fail()
     // or rethrow after failAuthenticatedHandshake. Unauthenticated errors are
@@ -84,6 +87,7 @@ export async function handleDatagramAsync(
   peerAddr?: [string, number],
 ): Promise<void> {
   if (this.closed) return;
+  if (this.carrier.isStaleInboundInject?.()) return;
 
   // Epic 1 peer gate:
   // - datagram-address: once provisional/pin, only that 5-tuple may deliver
@@ -126,6 +130,8 @@ export async function processDatagramRecords(
   this: Dtls13Host,
   data: Buffer,
 ): Promise<void> {
+  if (this.closed) return;
+  if (this.carrier.isStaleInboundInject?.()) return;
   this.evictExpiredFragments();
   let offset = 0;
   while (offset < data.length) {

@@ -40,6 +40,14 @@ export interface DtlsHandshakeCarrier {
    */
   inject(bytes: Buffer, peer?: InjectPeerAddr): Promise<void>;
 
+  /**
+   * Drop in-flight / queued inbound injects (ICE restart). Optional; UDP
+   * carriers without SPED may omit it.
+   */
+  invalidateInboundInjects?(): void;
+  /** True when this async inject was started under a now-invalidated epoch. */
+  isStaleInboundInject?(): boolean;
+
   /** Wire inbound inject → association handleDatagram. */
   setInjectHandler(
     handler: (bytes: Buffer, peer?: InjectPeerAddr) => void | Promise<void>,

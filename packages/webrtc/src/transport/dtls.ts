@@ -324,6 +324,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         }
         await carrier.inject(bytes, peer ? [peer[0], peer[1]] : undefined);
       },
+      onSessionReset: () => {
+        carrier.invalidateInboundInjects?.();
+      },
       onFallbackFlight: async () => {
         carrier.setWireSendEnabled(true);
       },

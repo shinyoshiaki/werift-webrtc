@@ -19,6 +19,8 @@ export interface SpedHooks {
   inject: (bytes: Buffer, peer: Address, generation: number) => Promise<void>;
   onFallbackFlight: (packets: Buffer[]) => Promise<void>;
   onHandshakeComplete?: () => void;
+  /** ICE restart / new generation: drop in-flight handshake injects. */
+  onSessionReset?: () => void;
   setRetransmissionMode: (mode: SpedRetransmissionMode) => void;
   updateRtt: (rttMs: number) => void;
   setMtu: (mtu: number) => void;
@@ -156,6 +158,7 @@ export class SpedRuntime {
     this.fallbackStarted = false;
     this.pendingInjectGeneration = undefined;
     this.lastPath = undefined;
+    this.hooks.onSessionReset?.();
     this.hooks.setRetransmissionMode("external");
     this.hooks.setMtu(defaultSpedDtlsMtu());
   }

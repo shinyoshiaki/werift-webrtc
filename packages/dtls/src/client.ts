@@ -584,6 +584,7 @@ export class DtlsClient extends DtlsSocket {
     peer?: [string, number] | { address?: string; port?: number } | string,
   ): void | Promise<void> {
     if (this.dualPhase === "closed") return;
+    if (this.associationCarrier?.isStaleInboundInject?.()) return;
     // Parse peer first; do NOT write transport.rinfo until peer gate accepts
     // (otherwise spoofed inject redirects 1.2 Flight / app send via rinfo).
     let addr: Address | undefined;

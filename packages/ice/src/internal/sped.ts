@@ -38,6 +38,10 @@ export function attachSpedToConnection(
       if (connection.generation !== generation) {
         return;
       }
+      await Promise.resolve();
+      if (connection.generation !== generation) {
+        return;
+      }
       await hooks.inject(bytes, peer, generation);
     },
   });

@@ -168,4 +168,40 @@ describe("ICE Binding Request 認証境界", () => {
     expect(handle.session.peerSupport).toBe("unknown");
     expect(handle.session.generation).toBe(connection.generation);
   });
+
+  it("inject 待ち中の ICE restart は旧 handshake を DTLS に渡さない", async () => {
+    // Arrange
+    const injected: Buffer[] = [];
+    const connection = createTestConnection(true);
+    const handle = attachSpedToConnection(connection, {
+      inject: async (bytes) => {
+        injected.push(bytes);
+      },
+      onFallbackFlight: async () => {},
+      setRetransmissionMode: () => {},
+      updateRtt: () => {},
+      setMtu: () => {},
+    });
+    const protocol = new SpedProtocolMock();
+    const generation = connection.generation;
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request.setAttribute("USERNAME", "a:b").setAttribute("PRIORITY", 1);
+    request.appendRawAttribute(DTLS_IN_STUN_DATA, Buffer.from([22, 1, 2]));
+
+    // Act: inject が 1 tick 待つ間に restart する
+    const pending = handle.runtime.handleAuthenticatedStun(
+      request,
+      ["1.2.3.4", 9],
+      generation,
+      protocol,
+    );
+    void connection.restart();
+    const result = await pending;
+
+    // Assert: 旧 generation の inject は捨て、新 session は probing のまま
+    expect(injected).toHaveLength(0);
+    expect(result.fallback).toBe(false);
+    expect(handle.session.peerSupport).toBe("unknown");
+    expect(handle.session.l2Crcs).toHaveLength(0);
+  });
 });

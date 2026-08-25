@@ -155,11 +155,13 @@ describe("SPED draft00 session", () => {
     const earlier = session.receiveAuthenticated(mk(first));
     const dup = session.receiveAuthenticated(mk(second));
 
-    // Assert: SPED は並べ替えず inject し、DTLS 側で reorder / replay する
+    // Assert: SPED は並べ替えず inject し、DTLS 側で reorder / replay する。
+    // 同一 CRC は L2 に重ねない（ACK の反復蓄積を防ぐ）
     expect(later.inject?.equals(second)).toBe(true);
     expect(earlier.inject?.equals(first)).toBe(true);
     expect(dup.inject?.equals(second)).toBe(true);
-    expect(session.l2Crcs).toHaveLength(3);
+    expect(session.l2Crcs).toHaveLength(2);
+    expect(new Set(session.l2Crcs).size).toBe(2);
   });
 
   it("handshake complete で L1/L2 を clear する", () => {

@@ -125,6 +125,9 @@ export class DtlsServer extends DtlsSocket {
     peer?: [string, number] | { address?: string; port?: number } | string,
   ): void | Promise<void> {
     if (this.associationTornDown) return;
+    if (this.engine13?.getHandshakeCarrier()?.isStaleInboundInject?.()) {
+      return;
+    }
     let addr: Address | undefined;
     if (peer != null) {
       if (Array.isArray(peer)) {

@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import type { Transport } from "../imports/common";
 import type {
   CarrierEvents,
@@ -8,6 +10,8 @@ import type {
 } from "./types";
 
 const DEFAULT_MTU = 1200;
+
+const inboundInjectEpochAls = new AsyncLocalStorage<number>();
 
 /**
  * Direct datagram carrier wrapping existing Transport (UDP etc.).
@@ -27,6 +31,7 @@ export class DirectHandshakeCarrier implements DtlsHandshakeCarrier {
     peer?: InjectPeerAddr,
   ) => void | Promise<void>;
   private closed = false;
+  private inboundInjectEpoch = 0;
   private timers = new Set<ReturnType<typeof setTimeout>>();
   readonly events: CarrierEvents = {};
   /** When false, send() does not write the datagram (SPED embeds it in STUN). */
@@ -88,7 +93,26 @@ export class DirectHandshakeCarrier implements DtlsHandshakeCarrier {
 
   async inject(bytes: Buffer, peer?: InjectPeerAddr): Promise<void> {
     if (this.closed) return;
-    await this.injectHandler?.(Buffer.from(bytes), peer);
+    const epoch = this.inboundInjectEpoch;
+    await inboundInjectEpochAls.run(epoch, async () => {
+      await Promise.resolve();
+      if (this.closed || this.inboundInjectEpoch !== epoch) {
+        return;
+      }
+      await this.injectHandler?.(Buffer.from(bytes), peer);
+    });
+  }
+
+  invalidateInboundInjects(): void {
+    this.inboundInjectEpoch++;
+  }
+
+  isStaleInboundInject(): boolean {
+    const started = inboundInjectEpochAls.getStore();
+    if (started === undefined) {
+      return false;
+    }
+    return started !== this.inboundInjectEpoch;
   }
 
   getMtu(): number {
