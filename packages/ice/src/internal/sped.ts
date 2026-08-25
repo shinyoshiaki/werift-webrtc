@@ -6,6 +6,10 @@
 import type { Connection } from "../ice";
 import { SpedSession } from "../sped/draft00/session";
 import { type SpedHooks, SpedRuntime } from "../sped/runtime";
+import {
+  requestSpedCarryMaybeFlush,
+  setConnectionSpedRuntime,
+} from "./sped-bind";
 
 export type { SpedHooks } from "../sped/runtime";
 export { isSpedEligibleProtocol } from "../sped/runtime";
@@ -45,13 +49,13 @@ export function attachSpedToConnection(
       await hooks.inject(bytes, peer, generation);
     },
   });
-  connection.attachSpedRuntime(runtime);
+  setConnectionSpedRuntime(connection, runtime);
   return {
     session,
     runtime,
     onFlightCreated: (packets) => {
       session.replaceL1(packets);
-      void connection.flushSpedCarry();
+      requestSpedCarryMaybeFlush(connection);
     },
     onHandshakeComplete: () => runtime.completeHandshake(),
   };

@@ -55,6 +55,7 @@ import {
   normalizeFingerprintAlgorithm,
   normalizeFingerprintValue,
 } from "../utils";
+import { isDtlsTransportSped } from "./dtls-sped";
 import type { RTCIceTransport } from "./ice";
 import { IceSpedTransport } from "./sped";
 
@@ -64,11 +65,6 @@ export interface DtlsTransportConfig {
   debug?: DebugConfig;
   protocolVersions?: readonly DtlsVersion[];
   helloRetryRequest?: boolean;
-  /**
-   * Internal: PeerConfig.sped. Not a DtlsClient public option.
-   * @internal
-   */
-  sped?: boolean;
 }
 
 function formatDtlsVersion(socket?: DtlsSocket) {
@@ -236,11 +232,14 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
     this.setState("connecting");
 
-    const addressValidation = this.config.helloRetryRequest
-      ? "dtls-cookie"
-      : "ice-authenticated";
+    const sped = isDtlsTransportSped(this);
+    const addressValidation = sped
+      ? "ice-authenticated"
+      : this.config.helloRetryRequest
+        ? "dtls-cookie"
+        : "ice-authenticated";
 
-    if (this.config.sped) {
+    if (sped) {
       await this.startWithSped(addressValidation);
     } else {
       await this.startSerial(addressValidation);
@@ -317,6 +316,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     carrier.setWireSendEnabled(false);
     carrier.setRetransmissionMode("external");
 
+    let lastFlight: Buffer[] = [];
+    let handshakeDone = false;
     const handle = attachSpedToConnection(ice, {
       inject: async (bytes, peer, generation) => {
         if (ice.generation !== generation) {
@@ -326,11 +327,20 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       },
       onSessionReset: () => {
         carrier.invalidateInboundInjects?.();
+        if (this.state === "connected" || handshakeDone) {
+          handle.runtime.completeHandshake();
+          return;
+        }
+        carrier.setRetransmissionMode("external");
+        if (this.state === "connecting" && lastFlight.length > 0) {
+          handle.session.replaceL1(lastFlight);
+        }
       },
       onFallbackFlight: async () => {
         carrier.setWireSendEnabled(true);
       },
       onHandshakeComplete: () => {
+        handshakeDone = true;
         carrier.setWireSendEnabled(true);
         transport.markApplicationReady();
       },
@@ -341,7 +351,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     transport.setRuntime(handle.runtime);
 
     carrier.events.onFlightCreated = (_flightId, packets) => {
-      handle.onFlightCreated(packets.map((packet) => packet.bytes));
+      lastFlight = packets.map((packet) => Buffer.from(packet.bytes));
+      handle.onFlightCreated(lastFlight);
     };
 
     const common = {

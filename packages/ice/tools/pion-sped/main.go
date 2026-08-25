@@ -31,10 +31,12 @@ func main() {
 		fmt.Println("  AttrDtlsInStunAck = 0xC071 (DTLS-IN-STUN-ACKNOWLEDGEMENT)")
 	case "encode":
 		fs := flag.NewFlagSet("encode", flag.ExitOnError)
-		data := fs.String("data", "", "hex payload for DTLS-IN-STUN-DATA (empty string = empty attribute)")
+		data := fs.String("data", "", "hex payload for DTLS-IN-STUN-DATA (omit flag to skip DATA)")
 		ack := fs.String("ack", "", "comma-separated 8-hex-digit CRC32 values for DTLS-IN-STUN-ACK")
+		emptyAck := fs.Bool("empty-ack", false, "include a zero-length DTLS-IN-STUN-ACK")
+		integrityKey := fs.String("integrity-key", "", "short-term password for MESSAGE-INTEGRITY")
 		_ = fs.Parse(os.Args[2:])
-		if err := encode(*data, *ack); err != nil {
+		if err := encode(*data, *ack, *emptyAck, *integrityKey, fs); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
@@ -56,7 +58,7 @@ func main() {
 func usage() {
 	fmt.Fprint(os.Stderr, `Usage:
   pion-sped check
-  pion-sped encode [-data hex] [-ack crc32hex,crc32hex,...]
+  pion-sped encode [-data hex] [-ack crc32hex,crc32hex,...] [-empty-ack] [-integrity-key password]
   pion-sped decode <stun-message-hex>
   pion-sped version
 `)
@@ -79,17 +81,27 @@ func checkRoundTrip() error {
 	return nil
 }
 
-func encode(dataHex, ackCSV string) error {
+func encode(dataHex, ackCSV string, emptyAck bool, integrityKey string, fs *flag.FlagSet) error {
 	var attrs []stun.Setter
 	attrs = append(attrs, stun.TransactionID, stun.BindingRequest)
 
-	dataValue, err := hex.DecodeString(dataHex)
-	if err != nil {
-		return fmt.Errorf("data: %w", err)
+	dataProvided := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "data" {
+			dataProvided = true
+		}
+	})
+	if dataProvided {
+		dataValue, err := hex.DecodeString(dataHex)
+		if err != nil {
+			return fmt.Errorf("data: %w", err)
+		}
+		attrs = append(attrs, ice.DtlsInStunAttribute(dataValue))
 	}
-	attrs = append(attrs, ice.DtlsInStunAttribute(dataValue))
 
-	if ackCSV != "" {
+	if emptyAck {
+		attrs = append(attrs, ice.DtlsInStunAckAttribute(nil))
+	} else if ackCSV != "" {
 		parts := strings.Split(ackCSV, ",")
 		crcs := make([]uint32, 0, len(parts))
 		for _, part := range parts {
@@ -106,6 +118,11 @@ func encode(dataHex, ackCSV string) error {
 		if len(crcs) > 0 {
 			attrs = append(attrs, ice.DtlsInStunAckAttribute(crcs))
 		}
+	}
+
+	if integrityKey != "" {
+		attrs = append(attrs, stun.NewShortTermIntegrity(integrityKey))
+		attrs = append(attrs, stun.Fingerprint)
 	}
 
 	msg, err := stun.Build(attrs...)

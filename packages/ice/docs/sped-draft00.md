@@ -19,15 +19,16 @@ Per ICE **generation**: `disabled | probing | active | fallback | complete`.
 
 - **L1**: un-ACKed current DTLS flight datagrams (defensive copies). Round-robin one datagram per Binding.
 - **L2**: pending CRC-32 values in receive order, **deduplicated**. A Binding advertises at most 4 (head of the queue) and then **consumes** those entries; remainder is carried to the next Binding. Duplicate DATA still reaches DTLS inject (replay), but does not grow L2.
-- Handshake complete or ICE restart clears L1/L2 and resets round-robin / peerSupport.
-- Incoming authenticated Bindings and `inject` are dropped when `generation` does not match the live session (ICE restart must not apply a stale handshake).
+- Handshake complete or ICE restart clears L1/L2 and resets round-robin / peerSupport. Restart while DTLS is still `connecting` reseeds the current flight into the new generation L1; restart after DTLS `connected` marks SPED `complete` and returns the carrier to internal retransmission.
+- Incoming authenticated Bindings and `inject` are dropped when `generation` does not match the live session (ICE restart must not apply a stale handshake). In-flight connectivity-check transactions are abandoned, and `checkStart` ignores responses after a generation / checkList mismatch.
+- Extra L1 carry Bindings (`flushSpedCarry`) are Full-ICE only: ICE-Lite never originates Binding Requests, carry is suppressed while an incoming Binding is being answered, and a timed-out carry does not immediately re-arm.
 - Direct DTLS on `IceSpedTransport` is taken only from `Connection.onDatagram` when the context is authenticated, current-generation, and the source matches the pair 5-tuple. Authentication matches handshake send: nominated / SUCCEEDED / Binding Response received / **Binding Request received** (WAITING pair after an authenticated request). Public `onData(Buffer)` is unchanged.
 - Peer SPED support is decided on the first **current-generation authenticated** Binding: DATA present (including empty) → supported; missing → `fallback`.
 - This profile keeps embedding until DTLS handshake complete (does not switch to direct DTLS on nomination alone).
 
 ## Fallback
 
-Unsupported peer → send the **original** L1 bytes as direct DTLS on the authenticated 5-tuple (`sendHandshakeDatagram`). Do not rebuild ClientHello.
+Unsupported peer → send the **original** L1 bytes as direct DTLS on the authenticated 5-tuple. Do not rebuild ClientHello.
 
 ## Wire order
 

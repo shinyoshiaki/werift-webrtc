@@ -37,6 +37,24 @@ function stunAttributeTypes(bytes: Buffer): number[] {
   return types;
 }
 
+function firstNonEmptySpedData(stun: Buffer[]): Buffer | undefined {
+  for (const bytes of stun) {
+    let pos = 20;
+    while (pos + 4 <= bytes.length) {
+      const type = bytes.readUInt16BE(pos);
+      const length = bytes.readUInt16BE(pos + 2);
+      if (type === DTLS_IN_STUN_DATA && length > 0) {
+        return Buffer.from(bytes.subarray(pos + 4, pos + 4 + length));
+      }
+      pos += 4 + length + paddingLength(length);
+    }
+  }
+}
+
+function isStunBindingRequest(bytes: Buffer): boolean {
+  return bytes.length >= 2 && bytes.readUInt16BE(0) === 0x0001;
+}
+
 function spyConnectionWire(
   pc: RTCPeerConnection,
   stun: Buffer[],
@@ -44,6 +62,11 @@ function spyConnectionWire(
   options: {
     tcpFrames?: Buffer[];
     dropFirstNonEmptyData?: { remaining: number };
+    duplicateFirstNonEmptyData?: { remaining: number };
+    holdFirstNonEmptyData?: {
+      message?: Parameters<Protocol["sendStun"]>[0];
+      addr?: Parameters<Protocol["sendStun"]>[1];
+    };
   } = {},
 ) {
   const ice = pc.iceTransports[0]?.connection as unknown as {
@@ -62,25 +85,54 @@ function spyConnectionWire(
       }
       const types = stunAttributeTypes(copy);
       const dataIndex = types.indexOf(DTLS_IN_STUN_DATA);
-      if (
-        options.dropFirstNonEmptyData &&
-        options.dropFirstNonEmptyData.remaining > 0 &&
-        dataIndex >= 0 &&
-        message.messageClass === 0
-      ) {
+      let nonEmptyData = false;
+      if (dataIndex >= 0 && message.messageClass === 0) {
         let pos = 20;
         for (let i = 0; i < types.length; i++) {
           const type = copy.readUInt16BE(pos);
           const length = copy.readUInt16BE(pos + 2);
           if (type === DTLS_IN_STUN_DATA && length > 0) {
-            options.dropFirstNonEmptyData.remaining--;
-            return;
+            nonEmptyData = true;
+            break;
           }
           pos += 4 + length + paddingLength(length);
         }
       }
+      if (
+        options.dropFirstNonEmptyData &&
+        options.dropFirstNonEmptyData.remaining > 0 &&
+        nonEmptyData
+      ) {
+        options.dropFirstNonEmptyData.remaining--;
+        return;
+      }
+      if (
+        options.holdFirstNonEmptyData &&
+        !options.holdFirstNonEmptyData.message &&
+        nonEmptyData
+      ) {
+        options.holdFirstNonEmptyData.message = message;
+        options.holdFirstNonEmptyData.addr = addr;
+        return;
+      }
       stun.push(copy);
-      return sendStun(message, addr);
+      await sendStun(message, addr);
+      if (options.holdFirstNonEmptyData?.message && !nonEmptyData) {
+        const heldMessage = options.holdFirstNonEmptyData.message;
+        const heldAddr = options.holdFirstNonEmptyData.addr!;
+        options.holdFirstNonEmptyData.message = undefined;
+        stun.push(Buffer.from(heldMessage.bytes));
+        await sendStun(heldMessage, heldAddr);
+      }
+      if (
+        options.duplicateFirstNonEmptyData &&
+        options.duplicateFirstNonEmptyData.remaining > 0 &&
+        nonEmptyData
+      ) {
+        options.duplicateFirstNonEmptyData.remaining--;
+        stun.push(copy);
+        await sendStun(message, addr);
+      }
     };
     protocol.sendData = async (data, addr) => {
       const copy = Buffer.from(data);
@@ -102,6 +154,11 @@ async function openDataChannelWithWireSpy(
   spyOptions?: {
     tcpFrames?: Buffer[];
     dropFirstNonEmptyData?: { remaining: number };
+    duplicateFirstNonEmptyData?: { remaining: number };
+    holdFirstNonEmptyData?: {
+      message?: Parameters<Protocol["sendStun"]>[0];
+      addr?: Parameters<Protocol["sendStun"]>[1];
+    };
   },
 ): Promise<[RTCDataChannel, RTCDataChannel]> {
   const dc1 = pc1.createDataChannel("dc");
@@ -176,6 +233,24 @@ describe("RTCPeerConnection SPED opt-in", () => {
       unspecified.close();
       empty.close();
       v12.close();
+    }
+  });
+
+  test("sped: true と helloRetryRequest: true は connect() で reject する", async () => {
+    // Arrange
+    const pc = new RTCPeerConnection({
+      iceServers: [],
+      sped: true,
+      dtls: {
+        protocolVersions: [DtlsVersion.V1_3],
+        helloRetryRequest: true,
+      },
+    });
+    try {
+      // Act / Assert: SPED は ice-authenticated 固定。dtls-cookie と併用しない
+      await expect((pc as any).connect()).rejects.toThrow(/helloRetryRequest/);
+    } finally {
+      pc.close();
     }
   });
 
@@ -313,7 +388,13 @@ describe("RTCPeerConnection SPED opt-in", () => {
           stunAttributeTypes(bytes).includes(DTLS_IN_STUN_DATA),
         ),
       ).toBe(true);
+      const embedded = firstNonEmptySpedData(stun);
       expect(handshakeDtls.length).toBeGreaterThan(0);
+      if (embedded) {
+        expect(handshakeDtls.some((bytes) => bytes.equals(embedded))).toBe(
+          true,
+        );
+      }
     } finally {
       await pc1.close();
       await pc2.close();
@@ -410,4 +491,132 @@ describe("RTCPeerConnection SPED opt-in", () => {
       await pc2.close();
     }
   }, 40_000);
+
+  test("handshake 開始後の ICE restart でも datachannel が開く", async () => {
+    const stun: Buffer[] = [];
+    const handshakeDtls: Buffer[] = [];
+    const pc1 = new RTCPeerConnection(spedPeerConfig());
+    const pc2 = new RTCPeerConnection(spedPeerConfig());
+    try {
+      const dc1 = pc1.createDataChannel("dc");
+      let dc2!: RTCDataChannel;
+      const opened = Promise.all([
+        new Promise<void>((resolve, reject) => {
+          dc1.onopen = () => resolve();
+          dc1.onerror = ({ error }) => reject(error);
+        }),
+        new Promise<void>((resolve, reject) => {
+          pc2.ondatachannel = ({ channel }) => {
+            dc2 = channel;
+            channel.onopen = () => resolve();
+            channel.onerror = ({ error }) => reject(error);
+          };
+        }),
+      ]);
+      exchangeIceCandidates(pc1, pc2);
+      await pc1.setLocalDescription(await pc1.createOffer());
+      spyConnectionWire(pc1, stun, handshakeDtls);
+      await pc2.setRemoteDescription(pc1.localDescription!);
+      await pc2.setLocalDescription(await pc2.createAnswer());
+      spyConnectionWire(pc2, stun, handshakeDtls);
+      await pc1.setRemoteDescription(pc2.localDescription!);
+
+      // Act: DATA が見えたところで restart し、新 generation で完了させる
+      await new Promise((r) => setTimeout(r, 20));
+      await pc1.setLocalDescription(
+        await pc1.createOffer({ iceRestart: true }),
+      );
+      await pc2.setRemoteDescription(pc1.localDescription!);
+      await pc2.setLocalDescription(await pc2.createAnswer());
+      await pc1.setRemoteDescription(pc2.localDescription!);
+      await opened;
+      dc1.send("hs-restart");
+      expect(await awaitMessage(dc2)).toBe("hs-restart");
+    } finally {
+      await pc1.close();
+      await pc2.close();
+    }
+  }, 40_000);
+
+  test("Full × Lite で Lite は Binding Request を出さない", async () => {
+    const fullStun: Buffer[] = [];
+    const liteStun: Buffer[] = [];
+    const handshakeDtls: Buffer[] = [];
+    const full = new RTCPeerConnection(spedPeerConfig());
+    const lite = new RTCPeerConnection(spedPeerConfig({ iceLite: true }));
+    try {
+      const dc1 = full.createDataChannel("dc");
+      const bothOpen = Promise.all([
+        new Promise<void>((resolve, reject) => {
+          dc1.onopen = () => resolve();
+          dc1.onerror = ({ error }) => reject(error);
+        }),
+        new Promise<RTCDataChannel>((resolve, reject) => {
+          lite.ondatachannel = ({ channel }) => {
+            channel.onopen = () => resolve(channel);
+            channel.onerror = ({ error }) => reject(error);
+          };
+        }),
+      ]);
+      exchangeIceCandidates(full, lite);
+      await full.setLocalDescription(await full.createOffer());
+      spyConnectionWire(full, fullStun, handshakeDtls);
+      await lite.setRemoteDescription(full.localDescription!);
+      await lite.setLocalDescription(await lite.createAnswer());
+      spyConnectionWire(lite, liteStun, handshakeDtls);
+      await full.setRemoteDescription(lite.localDescription!);
+      const [, dc2] = await bothOpen;
+      dc1.send("lite-req");
+      expect(await awaitMessage(dc2)).toBe("lite-req");
+
+      // Assert: Lite は Response のみ。Request を能動送信しない
+      expect(liteStun.some(isStunBindingRequest)).toBe(false);
+      expect(fullStun.some(isStunBindingRequest)).toBe(true);
+    } finally {
+      await full.close();
+      await lite.close();
+    }
+  }, 30_000);
+
+  test("重複 DATA でも handshake が完了する", async () => {
+    const stun: Buffer[] = [];
+    const handshakeDtls: Buffer[] = [];
+    const pc1 = new RTCPeerConnection(spedPeerConfig());
+    const pc2 = new RTCPeerConnection(spedPeerConfig());
+    try {
+      const [dc1, dc2] = await openDataChannelWithWireSpy(
+        pc1,
+        pc2,
+        stun,
+        handshakeDtls,
+        { duplicateFirstNonEmptyData: { remaining: 1 } },
+      );
+      dc1.send("dup");
+      expect(await awaitMessage(dc2)).toBe("dup");
+    } finally {
+      await pc1.close();
+      await pc2.close();
+    }
+  }, 30_000);
+
+  test("順序入れ替え DATA でも handshake が完了する", async () => {
+    const stun: Buffer[] = [];
+    const handshakeDtls: Buffer[] = [];
+    const pc1 = new RTCPeerConnection(spedPeerConfig());
+    const pc2 = new RTCPeerConnection(spedPeerConfig());
+    try {
+      const [dc1, dc2] = await openDataChannelWithWireSpy(
+        pc1,
+        pc2,
+        stun,
+        handshakeDtls,
+        { holdFirstNonEmptyData: {} },
+      );
+      dc1.send("reorder");
+      expect(await awaitMessage(dc2)).toBe("reorder");
+    } finally {
+      await pc1.close();
+      await pc2.close();
+    }
+  }, 30_000);
 });

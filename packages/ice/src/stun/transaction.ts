@@ -234,6 +234,11 @@ export class Transaction {
     }
   };
 
+  /** Fail an in-flight wait so ICE restart does not apply a stale response. */
+  abandon() {
+    this.failWithTimeout();
+  }
+
   cancel() {
     this.ended = true;
     this.clearWait();

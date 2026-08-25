@@ -231,6 +231,12 @@ abstract class BaseTcpProtocol implements Protocol {
     return {} as AddressInfo;
   }
 
+  abandonTransactions() {
+    Object.values(this.transactions).forEach((transaction) => {
+      transaction.abandon();
+    });
+  }
+
   async close() {
     Object.values(this.transactions).forEach((transaction) => {
       transaction.cancel();

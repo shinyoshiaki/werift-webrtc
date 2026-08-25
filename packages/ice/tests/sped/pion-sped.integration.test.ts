@@ -11,8 +11,10 @@ import {
 import { classes, methods } from "../../src/stun/const";
 import { Message, parseMessage } from "../../src/stun/message";
 
-const defaultBin = join(process.cwd(), "tools/pion-sped/pion-sped");
-const bin = process.env.WERIFT_PION_SPED ?? defaultBin;
+const localBin = join(process.cwd(), "tools/pion-sped/pion-sped");
+const bin = existsSync(localBin)
+  ? localBin
+  : (process.env.WERIFT_PION_SPED ?? localBin);
 const describePion =
   existsSync(bin) || process.env.WERIFT_PION_SPED ? describe : describe.skip;
 
@@ -59,29 +61,30 @@ describePion("pion SPED wire codec (opt-in)", () => {
   });
 
   it("ACK 0/1/4 を双方向で一致させる", () => {
-    const cases: { crcs: number[]; ackFlag?: string }[] = [
-      { crcs: [] },
+    const cases: { crcs: number[]; ackFlag?: string; emptyAck?: boolean }[] = [
+      { crcs: [], emptyAck: true },
       { crcs: [0x11111111], ackFlag: "11111111" },
       { crcs: [1, 2, 3, 4], ackFlag: "00000001,00000002,00000003,00000004" },
     ];
-    for (const { crcs, ackFlag } of cases) {
+    for (const { crcs, ackFlag, emptyAck } of cases) {
       // Arrange: werift → pion
       const msg = new Message(methods.BINDING, classes.REQUEST);
       msg.appendRawAttribute(DTLS_IN_STUN_ACK, encodeSpedAck(crcs).value);
 
       // Act
       const fromWerift = pion(["decode", msg.bytes.toString("hex")]);
-      const fromPion = ackFlag
-        ? pion(["encode", "-ack", ackFlag])
-        : pion(["encode", "-data", ""]);
+      const fromPion = emptyAck
+        ? pion(["encode", "-empty-ack"])
+        : pion(["encode", "-ack", ackFlag!]);
       const parsed = parseMessage(Buffer.from(fromPion, "hex"));
 
       // Assert
+      expect(fromWerift).toMatch(/type=0xC071/i);
       if (crcs.length === 0) {
-        expect(fromWerift).toMatch(/type=0xC071/i);
         expect(fromWerift).toMatch(/len=0/);
+        expect(parsed!.getRawAttributeValue(DTLS_IN_STUN_ACK)?.length).toBe(0);
+        expect(parsed!.getRawAttributeValue(DTLS_IN_STUN_DATA)).toBeUndefined();
       } else {
-        expect(fromWerift).toMatch(/type=0xC071/i);
         const ack = parsed!.getRawAttributeValue(DTLS_IN_STUN_ACK);
         expect(ack?.length).toBe(crcs.length * 4);
         for (let i = 0; i < crcs.length; i++) {
@@ -89,5 +92,46 @@ describePion("pion SPED wire codec (opt-in)", () => {
         }
       }
     }
+  });
+
+  it("MESSAGE-INTEGRITY 境界を pion HMAC-SHA1 と相互検証する", () => {
+    // Arrange: DATA を MI より前に置き pion / werift 双方で HMAC
+    const password = "short-term-pass";
+    const msg = new Message(methods.BINDING, classes.REQUEST);
+    msg
+      .setAttribute("USERNAME", "a:b")
+      .appendRawAttribute(
+        DTLS_IN_STUN_DATA,
+        encodeSpedData(Buffer.from([22, 1])).value,
+      )
+      .addMessageIntegrity(Buffer.from(password))
+      .addFingerprint();
+
+    // Act
+    const decoded = pion(["decode", msg.bytes.toString("hex")]);
+    const fromPion = pion([
+      "encode",
+      "-data",
+      "1601",
+      "-integrity-key",
+      password,
+    ]);
+    const parsedOk = parseMessage(
+      Buffer.from(fromPion, "hex"),
+      Buffer.from(password),
+    );
+    const parsedBad = parseMessage(
+      Buffer.from(fromPion, "hex"),
+      Buffer.from("wrong-password"),
+    );
+
+    // Assert: MI が DATA の後。誤鍵では parse できない
+    expect(decoded).toMatch(/type=0xC070/i);
+    expect(decoded).toMatch(/type=0x0008/i);
+    expect(parsedOk).toBeDefined();
+    expect(
+      parsedOk!.getRawAttributeValue(DTLS_IN_STUN_DATA)?.toString("hex"),
+    ).toBe("1601");
+    expect(parsedBad).toBeUndefined();
   });
 });

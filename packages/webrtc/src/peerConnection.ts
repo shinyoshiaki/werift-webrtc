@@ -893,6 +893,11 @@ export class RTCPeerConnection extends EventTarget {
         "PeerConfig.sped requires DTLS 1.3 in dtls.protocolVersions",
       );
     }
+    if (this.config.sped && this.config.dtls.helloRetryRequest) {
+      throw new Error(
+        "PeerConfig.sped cannot be combined with dtls.helloRetryRequest",
+      );
+    }
 
     const res = await Promise.allSettled(
       this.dtlsTransports.map(async (dtlsTransport) => {

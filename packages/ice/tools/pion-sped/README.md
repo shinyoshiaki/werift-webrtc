@@ -9,7 +9,7 @@ The test runner uses `WERIFT_PION_SPED` if set, otherwise `./pion-sped` next to 
 ```sh
 pion-sped check
 pion-sped version
-pion-sped encode [-data hex] [-ack crc32hex,crc32hex,...]
+pion-sped encode [-data hex] [-ack crc32hex,...] [-empty-ack] [-integrity-key password]
 pion-sped decode <stun-message-hex>
 ```
 

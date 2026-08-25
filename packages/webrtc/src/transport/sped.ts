@@ -14,8 +14,9 @@ export class IceSpedTransport implements Transport {
   type = "ice-sped";
   private runtime?: SpedRuntime;
   /**
-   * True after the first DTLS handshake completes. ICE restart may put SPED
-   * back into probing, but application records must still use the nominated path.
+   * True after the first DTLS handshake completes. ICE restart after
+   * DTLS is connected marks SPED complete so application records stay
+   * on the nominated path.
    */
   private applicationReady = false;
 
@@ -76,12 +77,10 @@ export class IceSpedTransport implements Transport {
     }
     const path = this.runtime?.lastPath;
     if (path) {
-      await this.ice.sendHandshakeDatagram(
-        path.protocol,
-        path.addr,
-        data,
-        path.generation,
-      );
+      if (path.generation !== this.ice.generation) {
+        return;
+      }
+      await path.protocol.sendData(data, path.addr);
     }
   };
 

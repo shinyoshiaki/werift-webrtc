@@ -25,5 +25,6 @@ packages/dtls/tests/e2e/boringssl/.built-revision
 packages/dtls/third_party/
 artifacts/
 .sak
+packages/ice/tools/pion-sped/pion-sped
 packages/dtls/tools/boringssl-dtls13/dtls13_echo
 packages/dtls/report.*.json

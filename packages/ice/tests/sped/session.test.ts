@@ -178,4 +178,24 @@ describe("SPED draft00 session", () => {
     expect(session.l1Datagrams).toHaveLength(0);
     expect(session.l2Crcs).toHaveLength(0);
   });
+
+  it("multi-record L1 は Binding ごとに 1 datagram を round-robin する", () => {
+    // Arrange
+    const session = new SpedSession(0);
+    const a = Buffer.from([22, 1]);
+    const b = Buffer.from([22, 2, 2]);
+    session.replaceL1([a, b]);
+
+    const decorate = () => {
+      const request = new Message(methods.BINDING, classes.REQUEST);
+      request.setAttribute("USERNAME", "a:b").setAttribute("PRIORITY", 1);
+      expect(session.decorate(request)).toBe(true);
+      return request.getRawAttributeValue(DTLS_IN_STUN_DATA);
+    };
+
+    // Act / Assert: 各 Binding は 1 DTLS datagram。次の Binding で残り
+    expect(decorate()?.equals(a)).toBe(true);
+    expect(decorate()?.equals(b)).toBe(true);
+    expect(decorate()?.equals(a)).toBe(true);
+  });
 });

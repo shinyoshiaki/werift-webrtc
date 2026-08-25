@@ -11,6 +11,7 @@ import {
   RTCCertificate,
   RTCDtlsTransport,
 } from "./transport/dtls";
+import { markDtlsTransportSped } from "./transport/dtls-sped";
 import { IceCandidate, RTCIceGatherer, RTCIceTransport } from "./transport/ice";
 import type {
   IceGathererState,
@@ -181,12 +182,14 @@ export class SecureTransportManager {
         debug: this.config.debug,
         protocolVersions: this.config.dtls.protocolVersions,
         helloRetryRequest: this.config.dtls.helloRetryRequest,
-        sped: this.config.sped === true,
       },
       iceTransport,
       this.certificate,
       srtpProfiles,
     );
+    if (this.config.sped === true) {
+      markDtlsTransportSped(dtlsTransport);
+    }
 
     return dtlsTransport;
   }

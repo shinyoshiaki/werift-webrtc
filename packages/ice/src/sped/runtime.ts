@@ -158,9 +158,8 @@ export class SpedRuntime {
     this.fallbackStarted = false;
     this.pendingInjectGeneration = undefined;
     this.lastPath = undefined;
-    this.hooks.onSessionReset?.();
-    this.hooks.setRetransmissionMode("external");
     this.hooks.setMtu(defaultSpedDtlsMtu());
+    this.hooks.onSessionReset?.();
   }
 
   close(): void {
