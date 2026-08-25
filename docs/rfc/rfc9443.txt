@@ -152,7 +152,7 @@ Table of Contents
   |  destination port).  If the value does not match any known range,
   |  then the packet MUST be dropped and an alert MAY be logged.  This
   |  process is summarized in Figure 3.
-  |  
+  |
   |                   +----------------+
   |                   |        [0..3] -+--> forward to STUN
   |                   |                |
@@ -164,7 +164,7 @@ Table of Contents
   |                   |                |
   |                   |    [128..191] -+--> forward to RTP/RTCP
   |                   +----------------+
-  |  
+  |
   |  Figure 3: The DTLS-SRTP receiver's packet demultiplexing algorithm.
 
    END OLD TEXT
@@ -185,11 +185,11 @@ Table of Contents
   |  responding TURN server, then the packet is TURN channel; if the
   |  source IP address and port are not that of a responding TURN
   |  server, then the packet is QUIC.
-  |  
+  |
   |  If the value does not match any known range, then the packet MUST
   |  be dropped and an alert MAY be logged.  This process is summarized
   |  in Figure 3.
-  |  
+  |
   |                  +----------------+
   |                  |        [0..3] -+--> forward to STUN
   |                  |                |
@@ -207,9 +207,9 @@ Table of Contents
   |                  |                |
   |                  |    [192..255] -+--> forward to QUIC
   |                  +----------------+
-  |  
+  |
   |       Figure 3: The receiver's packet demultiplexing algorithm.
-  |  
+  |
   |  Note: Endpoints that wish to demultiplex QUIC MUST NOT send the
   |  grease_quic_bit transport parameter, as described in [RFC9287].
 

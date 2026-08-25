@@ -189,10 +189,10 @@ Advertised local SCTP max-message-size in SDP. Use 0 for unlimited.
 
 ### sped
 
-> **sped**: `boolean`
+> **sped?**: `boolean`
 
 Opt-in SPED (DTLS handshake embedded in ICE Binding).
-Default false: ICE completes, then DTLS starts (current serial path).
+Omit or false: ICE completes, then DTLS starts (current serial path).
 true: this PeerConnection only overlaps ICE checks with DTLS 1.3 handshake.
 
 ***

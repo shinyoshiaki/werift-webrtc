@@ -11,15 +11,71 @@ import {
 import { classes, methods } from "../../src/stun/const";
 import { Message, parseMessage } from "../../src/stun/message";
 
-const localBin = join(process.cwd(), "tools/pion-sped/pion-sped");
-const bin = process.env.WERIFT_PION_SPED ?? localBin;
-const describePion = existsSync(bin) ? describe : describe.skip;
+const toolDir = join(process.cwd(), "tools/pion-sped");
+const localBin = join(toolDir, "pion-sped");
+
+function pionSpedIsCompatible(path: string): boolean {
+  if (!existsSync(path)) {
+    return false;
+  }
+  try {
+    const version = execFileSync(path, ["version"], { encoding: "utf8" });
+    if (version.includes("verify") && version.includes("empty-ack")) {
+      return true;
+    }
+  } catch {
+    // fall through to usage probe
+  }
+  try {
+    execFileSync(path, [], { encoding: "utf8" });
+    return false;
+  } catch (error) {
+    const err = error as { stdout?: string; stderr?: string };
+    const text = `${err.stderr ?? ""}${err.stdout ?? ""}`;
+    return text.includes("verify") && text.includes("empty-ack");
+  }
+}
+
+function tryBuildLocalPionSped(): boolean {
+  try {
+    execFileSync("go", ["build", "-o", localBin, "."], {
+      cwd: toolDir,
+      stdio: "pipe",
+    });
+    return pionSpedIsCompatible(localBin);
+  } catch {
+    return false;
+  }
+}
+
+function resolvePionSpedBin(): string | undefined {
+  const override = process.env.WERIFT_PION_SPED;
+  if (override && pionSpedIsCompatible(override)) {
+    return override;
+  }
+  if (pionSpedIsCompatible(localBin) || tryBuildLocalPionSped()) {
+    return localBin;
+  }
+  return undefined;
+}
+
+const bin = resolvePionSpedBin();
+const describePion = bin ? describe : describe.skip;
 
 function pion(args: string[]) {
+  if (!bin) {
+    throw new Error("pion-sped binary is not available");
+  }
   return execFileSync(bin, args, { encoding: "utf8" }).trim();
 }
 
 describePion("pion SPED wire codec (opt-in)", () => {
+  it("解決した pion-sped は verify と empty-ack を持つ", () => {
+    // Assert: 古い WERIFT_PION_SPED は使わず互換バイナリだけを採用する
+    expect(bin).toBeDefined();
+    expect(pionSpedIsCompatible(bin!)).toBe(true);
+  });
+
   it("empty / non-empty DATA を pion が decode する", () => {
     // Arrange: werift が DATA を付けた Binding
     const empty = new Message(methods.BINDING, classes.REQUEST);

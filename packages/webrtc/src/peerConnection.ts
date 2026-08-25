@@ -888,12 +888,12 @@ export class RTCPeerConnection extends EventTarget {
   private async connect() {
     log("start connect");
 
-    if (this.config.sped && !peerConfigHasDtls13(this.config)) {
+    if (this.config.sped === true && !peerConfigHasDtls13(this.config)) {
       throw new Error(
         "PeerConfig.sped requires DTLS 1.3 in dtls.protocolVersions",
       );
     }
-    if (this.config.sped && this.config.dtls.helloRetryRequest) {
+    if (this.config.sped === true && this.config.dtls.helloRetryRequest) {
       throw new Error(
         "PeerConfig.sped cannot be combined with dtls.helloRetryRequest",
       );
@@ -915,7 +915,7 @@ export class RTCPeerConnection extends EventTarget {
 
         this.secureManager.setConnectionState("connecting");
 
-        if (this.config.sped) {
+        if (this.config.sped === true) {
           if (dtlsTransport.state === "connected") {
             if (iceTransport.state !== "connected") {
               await iceTransport.start();
@@ -1356,10 +1356,10 @@ export interface PeerConfig {
   iceFilterCandidatePair: ((pair: CandidatePair) => boolean) | undefined;
   /**
    * Opt-in SPED (DTLS handshake embedded in ICE Binding).
-   * Default false: ICE completes, then DTLS starts (current serial path).
+   * Omit or false: ICE completes, then DTLS starts (current serial path).
    * true: this PeerConnection only overlaps ICE checks with DTLS 1.3 handshake.
    */
-  sped: boolean;
+  sped?: boolean;
   dtls: Partial<{
     keys: DtlsKeys;
     /**
@@ -1444,7 +1444,7 @@ function peerConfigHasDtls13(config: PeerConfig): boolean {
   return versions.some((version) => version === "1.3");
 }
 
-function generateDefaultPeerConfig(): PeerConfig {
+function generateDefaultPeerConfig(): Required<PeerConfig> {
   return {
     codecs: {
       audio: [useOPUS(), usePCMU()],
@@ -1516,6 +1516,8 @@ function normalizePeerConfiguration(
       "iceCandidatePoolSize",
     );
   }
+
+  normalizedConfig.sped = input.sped === true;
 
   return normalizedConfig;
 }

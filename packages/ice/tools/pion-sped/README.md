@@ -2,7 +2,7 @@
 
 Opt-in codec interop against **pion/stun v3.1.7** and **pion/ice v4.4.1** `sped.go` (encode/decode/verify). Released Pion ICE agents do not send SPED; fallback against a real agent is `../pion-ice-agent`.
 
-The test runner uses `WERIFT_PION_SPED` when set, otherwise `./pion-sped` next to this README. The environment variable always wins even if a local binary exists. A compatible CLI is also provided at `/usr/local/bin/pion-sped` in some environments.
+The test runner prefers `WERIFT_PION_SPED` when that binary is compatible (usage includes `verify` and `-empty-ack`). An incompatible override, such as an older `/usr/local/bin/pion-sped`, is ignored. The runner then uses a compatible `./pion-sped`, building it with `go` when needed. Incompatible or missing binaries skip the suite so default `npm test` stays green.
 
 ## CLI
 

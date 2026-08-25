@@ -21,6 +21,7 @@ func main() {
 		fmt.Println("pion-sped")
 		fmt.Println("  AttrDtlsInStun    = 0xC070")
 		fmt.Println("  AttrDtlsInStunAck = 0xC071")
+		fmt.Println("  features = verify,empty-ack")
 	case "check":
 		if err := checkRoundTrip(); err != nil {
 			fmt.Fprintf(os.Stderr, "check failed: %v\n", err)

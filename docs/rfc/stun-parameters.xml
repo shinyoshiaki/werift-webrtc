@@ -99,8 +99,8 @@
     </record>
     <record date="2016-09-13">
       <value>0x100-0xFFF</value>
-      <description>Reserved (For DTLS-SRTP multiplexing collision avoidance, see 
-        <xref type="rfc" data="rfc7983"/>. 
+      <description>Reserved (For DTLS-SRTP multiplexing collision avoidance, see
+        <xref type="rfc" data="rfc7983"/>.
         Cannot be made available for assignment without IETF Review.)</description>
       <xref type="rfc" data="rfc7983"/>
     </record>
@@ -294,7 +294,7 @@
       <description>Reserved (was TIMER-VAL)</description>
       <xref type="rfc" data="rfc8656"/>
     </record>
-    <record updated="2019-08-02"> 
+    <record updated="2019-08-02">
       <value>0x0022</value>
       <description>RESERVATION-TOKEN</description>
       <xref type="rfc" data="rfc8656"/>
@@ -625,7 +625,7 @@
       <description>Address Family not Supported</description>
       <xref type="rfc" data="rfc8656"/>
     </record>
-    <record updated="2019-08-02"> 
+    <record updated="2019-08-02">
       <value>441</value>
       <description>Wrong Credentials</description>
       <xref type="rfc" data="rfc8656"/>
@@ -691,13 +691,13 @@
       <description>Unassigned</description>
     </record>
   </registry>
-  
+
   <registry id="turn-channel">
     <title>Traversal Using Relays around NAT (TURN) Channel Numbers</title>
     <xref type="rfc" data="rfc7983"/>
 	<xref type="rfc" data="rfc8656"/>
     <registration_rule>Standards Action</registration_rule>
-    <note>Values 0x0000 through 0x3FFF are not available for use, since they conflict 
+    <note>Values 0x0000 through 0x3FFF are not available for use, since they conflict
 with the STUN header.
     </note>
     <record updated="2019-08-02">
@@ -709,15 +709,15 @@ with the STUN header.
       <value>0x4000-0x4FFF</value>
       <description>Used by TURN</description>
       <xref type="rfc" data="rfc8656"/>
-    </record>    
+    </record>
     <record date="2016-09-13">
       <value>0x5000-0xFFFF</value>
-      <description>Reserved (For DTLS-SRTP multiplexing collision avoidance, see 
+      <description>Reserved (For DTLS-SRTP multiplexing collision avoidance, see
         <xref type="rfc" data="rfc7983"/>)</description>
       <xref type="rfc" data="rfc7983"/>
     </record>
   </registry>
-  
+
   <registry id="stun-security-features">
     <title>STUN Security Features</title>
     <xref type="rfc" data="rfc8489"/>
@@ -737,7 +737,7 @@ with the STUN header.
       <description>Unassigned</description>
     </record>
   </registry>
-  
+
   <registry id="stun-password-algorithm">
     <title>STUN Password Algorithms</title>
     <xref type="rfc" data="rfc8489"/>
@@ -770,7 +770,7 @@ with the STUN header.
       <description>Unassigned</description>
     </record>
   </registry>
-  
+
   <people>
     <person id="Dan_Wing">
       <name>Dan Wing</name>

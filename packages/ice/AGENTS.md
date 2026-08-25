@@ -40,7 +40,7 @@ Instructions for coding agents working in `packages/ice`.
 ## Validation
 
 * STUN / ICE logic: `npm run type` and `npm test`.
-* Opt-in Pion SPED codec: set `WERIFT_PION_SPED` to the wrapper binary (see `tools/pion-sped/README.md`).
+* Opt-in Pion SPED codec: set `WERIFT_PION_SPED` to a wrapper binary that supports `verify` and `-empty-ack` (see `tools/pion-sped/README.md`). Older CLIs are skipped rather than failing the suite.
 * Opt-in released Pion ICE agent fallback: build `tools/pion-ice-agent` and/or set `WERIFT_PION_ICE_AGENT` (see `tools/pion-ice-agent/README.md`). The webrtc integrate test auto-builds the agent when `go` is available.
 
 ## Maintenance
