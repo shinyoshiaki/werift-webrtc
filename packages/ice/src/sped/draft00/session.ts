@@ -70,9 +70,17 @@ export class SpedSession {
     this.l2.push(crc >>> 0);
   }
 
-  /** CRCs to put on this Binding (head of L2, hard cap 4). L2 is not popped. */
+  /** CRCs to put on this Binding (head of L2, hard cap 4). */
   peekAcksForBinding(): number[] {
     return this.l2.slice(0, 4);
+  }
+
+  /** Drop ACKs that were placed on a Binding; remainder stays for the next one. */
+  consumeAcks(count: number): void {
+    if (count <= 0) {
+      return;
+    }
+    this.l2.splice(0, count);
   }
 
   applyAckCrcs(crcs: readonly number[]): void {
@@ -164,6 +172,7 @@ export class SpedSession {
       DTLS_IN_STUN_DATA,
       encodeSpedData(dataValue).value,
     );
+    this.consumeAcks(acks.length);
     return true;
   }
 

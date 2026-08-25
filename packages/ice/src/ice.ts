@@ -453,7 +453,10 @@ export class Connection implements IceConnection {
 
     const generation = this.generation;
     let fallback = false;
-    if (this.spedRuntime?.shouldDecorate(protocol)) {
+    if (
+      this.spedRuntime?.shouldDecorate(protocol) &&
+      this.spedRuntime.isLiveGeneration(generation)
+    ) {
       const result = await this.spedRuntime.handleAuthenticatedStun(
         verified,
         addr,
@@ -1404,7 +1407,13 @@ export class Connection implements IceConnection {
     generation: number,
   ) {
     const runtime = this.spedRuntime;
-    if (!runtime?.shouldDecorate(protocol)) {
+    if (generation !== this.generation) {
+      return;
+    }
+    if (
+      !runtime?.shouldDecorate(protocol) ||
+      !runtime.isLiveGeneration(generation)
+    ) {
       return;
     }
     const result = await runtime.handleAuthenticatedStun(
@@ -1413,7 +1422,10 @@ export class Connection implements IceConnection {
       generation,
       protocol,
     );
-    if (generation !== this.generation) {
+    if (
+      generation !== this.generation ||
+      !runtime.isLiveGeneration(generation)
+    ) {
       return;
     }
     if (pair) {

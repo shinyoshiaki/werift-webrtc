@@ -318,8 +318,12 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     carrier.setRetransmissionMode("external");
 
     const handle = attachSpedToConnection(ice, {
-      inject: (bytes, peer) =>
-        carrier.inject(bytes, peer ? [peer[0], peer[1]] : undefined),
+      inject: async (bytes, peer, generation) => {
+        if (ice.generation !== generation) {
+          return;
+        }
+        await carrier.inject(bytes, peer ? [peer[0], peer[1]] : undefined);
+      },
       onFallbackFlight: async () => {
         carrier.setWireSendEnabled(true);
       },

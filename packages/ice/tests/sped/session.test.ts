@@ -49,7 +49,7 @@ describe("SPED draft00 session", () => {
     const types = stunAttributeTypes(request.bytes);
     const ack = request.getRawAttributeValue(DTLS_IN_STUN_ACK)!;
 
-    // Assert: ACK → DATA → MI → FP。L2 自体は 5 件残る
+    // Assert: ACK → DATA → MI → FP。載せた 4 CRC は消費し 5 件目は次回へ
     expect(types.indexOf(DTLS_IN_STUN_ACK)).toBeLessThan(
       types.indexOf(DTLS_IN_STUN_DATA),
     );
@@ -58,7 +58,16 @@ describe("SPED draft00 session", () => {
     );
     expect(types.at(-1)).toBe(0x8028);
     expect(ack.length).toBe(16);
-    expect(session.l2Crcs).toHaveLength(5);
+    expect(session.l2Crcs).toEqual([5]);
+
+    // Act: 繰り越し分を次 Binding に載せる
+    const next = new Message(methods.BINDING, classes.REQUEST);
+    next.setAttribute("USERNAME", "a:b").setAttribute("PRIORITY", 1);
+    expect(session.decorate(next)).toBe(true);
+
+    // Assert: L2 は空。ACK は残り 1 CRC
+    expect(session.l2Crcs).toHaveLength(0);
+    expect(next.getRawAttributeValue(DTLS_IN_STUN_ACK)?.length).toBe(4);
   });
 
   it("invalid demux は L2 に載せない", () => {

@@ -1,4 +1,5 @@
 import type { Connection } from "../../../ice/src";
+import { allowsAuthenticatedDtlsDelivery } from "../../../ice/src/internal/datagram";
 import type { SpedRuntime } from "../../../ice/src/sped/runtime";
 import type { Address, Transport } from "../imports/common";
 import { isDtls } from "../utils";
@@ -19,10 +20,14 @@ export class IceSpedTransport implements Transport {
   private applicationReady = false;
 
   constructor(private readonly ice: Connection) {
-    ice.onData.subscribe((buf) => {
-      if (isDtls(buf) && this.onData) {
-        this.onData(buf, this.remotePeer());
+    ice.onDatagram.subscribe((ctx) => {
+      if (!isDtls(ctx.bytes) || !this.onData) {
+        return;
       }
+      if (!allowsAuthenticatedDtlsDelivery(ctx, ice.generation)) {
+        return;
+      }
+      this.onData(ctx.bytes, ctx.source);
     });
   }
 

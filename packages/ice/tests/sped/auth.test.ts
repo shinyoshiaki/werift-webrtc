@@ -1,42 +1,18 @@
-import { type Address, Event } from "../../../common/src";
+import type { Address } from "../../../common/src";
 import { CandidatePair } from "../../src";
 import { Candidate } from "../../src/candidate";
-import { Connection } from "../../src/ice";
 import { attachSpedToConnection } from "../../src/internal/sped";
 import { DTLS_IN_STUN_DATA } from "../../src/sped/draft00/constants";
 import { classes, methods } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
-import type { Protocol } from "../../src/types/model";
 import { createTestConnection } from "../utils";
-
-class ProtocolMock implements Protocol {
-  type = "mock";
-  onRequestReceived: Event<[Message, any, Buffer]> = new Event();
-  onDataReceived: Event<[Buffer, any]> = new Event();
-  localCandidate = new Candidate(
-    "some-foundation",
-    1,
-    "udp",
-    1234,
-    "1.2.3.4",
-    1234,
-    "host",
-  );
-  sentMessage?: Message;
-  request = async () => null as any;
-  sendStun = async (message: Message) => {
-    this.sentMessage = message;
-  };
-  async connectionMade() {}
-  async sendData(_data: Buffer, _addr?: Address) {}
-  async close() {}
-}
+import { SpedProtocolMock } from "./helpers";
 
 describe("ICE Binding Request 認証境界", () => {
   it("誤 HMAC の Binding Request は drop する", async () => {
     // Arrange
     const connection = createTestConnection(true);
-    const protocol = new ProtocolMock();
+    const protocol = new SpedProtocolMock();
     (connection as any).ensureProtocol(protocol);
     const request = new Message(methods.BINDING, classes.REQUEST);
     request
@@ -69,7 +45,7 @@ describe("ICE Binding Request 認証境界", () => {
       setMtu: () => {},
     });
     await connection.restart();
-    const protocol = new ProtocolMock();
+    const protocol = new SpedProtocolMock();
     (connection as any).ensureProtocol(protocol);
     const request = new Message(methods.BINDING, classes.REQUEST);
     request
@@ -101,7 +77,7 @@ describe("ICE Binding Request 認証境界", () => {
       },
       setMtu: () => {},
     });
-    const protocol = new ProtocolMock() as any;
+    const protocol = new SpedProtocolMock() as any;
     const pair = new CandidatePair(
       protocol,
       new Candidate("f", 1, "udp", 1, "1.2.3.4", 1, "host"),
@@ -132,7 +108,7 @@ describe("ICE Binding Request 認証境界", () => {
       setMtu: () => {},
     });
     handle.session.replaceL1([hello]);
-    const protocol = new ProtocolMock();
+    const protocol = new SpedProtocolMock();
     protocol.sendData = async (data: Buffer, _addr?: Address) => {
       sentDirect.push(Buffer.from(data));
     };
@@ -155,5 +131,41 @@ describe("ICE Binding Request 認証境界", () => {
     expect(sentDirect).toHaveLength(1);
     expect(sentDirect[0]!.equals(hello)).toBe(true);
     expect(handle.session.state).toBe("fallback");
+  });
+
+  it("restart 後の旧 generation 応答は session 更新・inject 前に破棄する", async () => {
+    // Arrange
+    const injected: Buffer[] = [];
+    const connection = createTestConnection(true);
+    const handle = attachSpedToConnection(connection, {
+      inject: async (bytes) => {
+        injected.push(bytes);
+      },
+      onFallbackFlight: async () => {},
+      setRetransmissionMode: () => {},
+      updateRtt: () => {},
+      setMtu: () => {},
+    });
+    const protocol = new SpedProtocolMock();
+    const staleGeneration = connection.generation;
+    await connection.restart();
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request.setAttribute("USERNAME", "a:b").setAttribute("PRIORITY", 1);
+    request.appendRawAttribute(DTLS_IN_STUN_DATA, Buffer.from([22, 1, 2]));
+
+    // Act: 新 generation の runtime に旧 generation を渡す
+    const result = await handle.runtime.handleAuthenticatedStun(
+      request,
+      ["1.2.3.4", 9],
+      staleGeneration,
+      protocol,
+    );
+
+    // Assert: inject せず、新 session の L2 / peerSupport も汚さない
+    expect(injected).toHaveLength(0);
+    expect(result.fallback).toBe(false);
+    expect(handle.session.l2Crcs).toHaveLength(0);
+    expect(handle.session.peerSupport).toBe("unknown");
+    expect(handle.session.generation).toBe(connection.generation);
   });
 });

@@ -32,7 +32,15 @@ export function attachSpedToConnection(
   hooks: SpedHooks,
 ): SpedHandle {
   const session = new SpedSession(connection.generation);
-  const runtime = new SpedRuntime(session, hooks);
+  const runtime = new SpedRuntime(session, {
+    ...hooks,
+    inject: async (bytes, peer, generation) => {
+      if (connection.generation !== generation) {
+        return;
+      }
+      await hooks.inject(bytes, peer, generation);
+    },
+  });
   connection.attachSpedRuntime(runtime);
   return {
     session,

@@ -4,14 +4,19 @@ import type { Message } from "../stun/message";
 import { StunOverTurnProtocol } from "../turn/protocol";
 import type { Protocol } from "../types/model";
 
+import { encodeSpedAck } from "./draft00";
 import { SPED_OUTER_MTU } from "./draft00/constants";
-import { defaultSpedDtlsMtu } from "./draft00/mtu";
+import {
+  defaultSpedDtlsMtu,
+  maxPayloadFitting,
+  remainingDataValueBudget,
+} from "./draft00/mtu";
 import type { SpedSession } from "./draft00/session";
 
 export type SpedRetransmissionMode = "internal" | "external";
 
 export interface SpedHooks {
-  inject: (bytes: Buffer, peer: Address) => Promise<void>;
+  inject: (bytes: Buffer, peer: Address, generation: number) => Promise<void>;
   onFallbackFlight: (packets: Buffer[]) => Promise<void>;
   onHandshakeComplete?: () => void;
   setRetransmissionMode: (mode: SpedRetransmissionMode) => void;
@@ -60,7 +65,12 @@ export class SpedRuntime {
     if (!this.shouldDecorate(protocol)) {
       return true;
     }
+    this.syncMtuFromBinding(message);
     return this.session.decorate(message);
+  }
+
+  isLiveGeneration(generation: number): boolean {
+    return this.session.generation === generation;
   }
 
   syncRtt(pair: CandidatePair): void {
@@ -73,6 +83,16 @@ export class SpedRuntime {
   syncMtu(messageSkeletonLength?: number): void {
     const overhead = messageSkeletonLength ?? 0;
     const mtu = Math.max(1, SPED_OUTER_MTU - overhead);
+    this.hooks.setMtu(mtu);
+  }
+
+  /** DTLS datagram MTU from this Binding's current attributes (before SPED/MI/FP). */
+  syncMtuFromBinding(message: Message): void {
+    const ackValue = encodeSpedAck(this.session.peekAcksForBinding()).value;
+    const mtu = Math.max(
+      1,
+      maxPayloadFitting(remainingDataValueBudget(message, ackValue)),
+    );
     this.hooks.setMtu(mtu);
   }
 
@@ -90,13 +110,28 @@ export class SpedRuntime {
     generation: number,
     protocol?: Protocol,
   ): Promise<{ fallback: boolean; inject?: Buffer }> {
+    if (!this.isLiveGeneration(generation)) {
+      return { fallback: false };
+    }
     this.markInjectGeneration(generation);
     if (protocol) {
       this.lastPath = { protocol, addr, generation };
     }
     const result = this.session.receiveAuthenticated(message);
+    if (
+      !this.isLiveGeneration(generation) ||
+      !this.isInjectGenerationCurrent(generation)
+    ) {
+      return { fallback: false };
+    }
     if (result.inject) {
-      await this.hooks.inject(result.inject, addr);
+      await this.hooks.inject(result.inject, addr, generation);
+    }
+    if (
+      !this.isLiveGeneration(generation) ||
+      !this.isInjectGenerationCurrent(generation)
+    ) {
+      return { fallback: false };
     }
     return result;
   }

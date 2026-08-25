@@ -14,3 +14,24 @@ export interface IceDatagramContext {
   generation: number;
   authenticated: boolean;
 }
+
+/**
+ * Direct DTLS may be delivered only on an authenticated current-generation
+ * pair whose protocol and remote 5-tuple match the datagram source.
+ */
+export function allowsAuthenticatedDtlsDelivery(
+  ctx: IceDatagramContext,
+  currentGeneration: number,
+): boolean {
+  if (ctx.generation !== currentGeneration) {
+    return false;
+  }
+  if (!ctx.authenticated || !ctx.pair) {
+    return false;
+  }
+  if (ctx.protocol !== ctx.pair.protocol) {
+    return false;
+  }
+  const remote = ctx.pair.remoteAddr;
+  return ctx.source[0] === remote[0] && ctx.source[1] === remote[1];
+}
