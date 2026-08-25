@@ -63,6 +63,7 @@ describe("iceTransport", () => {
           .iceTransports[0] as RTCIceTransport;
         expect(ice.gatheringState).toBe("new");
         expect(ice.connection.turnServer).toBeUndefined();
+        expect(ice.connection.stunServer).toBeUndefined();
 
         // Act: WHIP Link ヘッダ相当の TURN を setConfiguration
         pc.setConfiguration({

@@ -17,8 +17,8 @@ export async function createDataChannelPair(
         id?: number | undefined;
       }>
     | undefined,
-  pc1 = new RTCPeerConnection(),
-  pc2 = new RTCPeerConnection(),
+  pc1 = new RTCPeerConnection({ iceServers: [] }),
+  pc2 = new RTCPeerConnection({ iceServers: [] }),
 ) {
   let pair: RTCDataChannel[] = [],
     bothOpen: Promise<void[]>;

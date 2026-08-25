@@ -7,14 +7,18 @@ import {
 import { MediaStreamTrack } from "../../src/media/track";
 import { createDataChannelPair } from "../utils";
 
+function createLocalPeerConnection() {
+  return new RTCPeerConnection({ iceServers: [] });
+}
+
 describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
   describe("Basic Functionality", () => {
     let pc1: RTCPeerConnection;
     let pc2: RTCPeerConnection;
 
     beforeEach(() => {
-      pc1 = new RTCPeerConnection();
-      pc2 = new RTCPeerConnection();
+      pc1 = createLocalPeerConnection();
+      pc2 = createLocalPeerConnection();
     });
 
     afterEach(async () => {
@@ -85,8 +89,8 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
     let pc2: RTCPeerConnection;
 
     beforeEach(() => {
-      pc1 = new RTCPeerConnection();
-      pc2 = new RTCPeerConnection();
+      pc1 = createLocalPeerConnection();
+      pc2 = createLocalPeerConnection();
     });
 
     afterEach(async () => {
@@ -348,8 +352,8 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
     let pc2: RTCPeerConnection;
 
     beforeEach(() => {
-      pc1 = new RTCPeerConnection();
-      pc2 = new RTCPeerConnection();
+      pc1 = createLocalPeerConnection();
+      pc2 = createLocalPeerConnection();
     });
 
     afterEach(async () => {
@@ -534,7 +538,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
     let pc1: RTCPeerConnection;
 
     beforeEach(() => {
-      pc1 = new RTCPeerConnection();
+      pc1 = createLocalPeerConnection();
     });
 
     afterEach(async () => {
@@ -583,7 +587,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
 
     // close 後の lifetime を固定し、transport state が closed に止まることを確認
     test("getStats() preserves report shape after close with closed transport states", async () => {
-      const remote = new RTCPeerConnection();
+      const remote = createLocalPeerConnection();
       await createDataChannelPair(undefined, pc1, remote);
       await pc1.close();
 
@@ -624,8 +628,8 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
     let pc2: RTCPeerConnection;
 
     beforeEach(() => {
-      pc1 = new RTCPeerConnection();
-      pc2 = new RTCPeerConnection();
+      pc1 = createLocalPeerConnection();
+      pc2 = createLocalPeerConnection();
     });
 
     afterEach(async () => {
@@ -722,7 +726,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
     let pc1: RTCPeerConnection;
 
     beforeEach(() => {
-      pc1 = new RTCPeerConnection();
+      pc1 = createLocalPeerConnection();
     });
 
     afterEach(async () => {

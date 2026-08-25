@@ -138,10 +138,19 @@ export class Connection implements IceConnection {
    * Derive Connection.stunServer / turnServer from this.options.
    * Shared by the constructor and setIceServers so both paths validate and
    * default identically.
+   *
+   * Raw ICE `new Connection()` omits `stunServer` and keeps the Google fallback.
+   * Explicit `stunServer: undefined` (empty `iceServers: []` from webrtc) means
+   * no STUN query, so gathering is not blocked on a 5s public-server timeout.
    */
   private applyStunTurnServersFromOptions() {
-    this.stunServer =
-      validateAddress(this.options.stunServer) ?? DEFAULT_STUN_SERVER;
+    if (this.options.stunServer !== undefined) {
+      this.stunServer = validateAddress(this.options.stunServer);
+    } else if (!Object.hasOwn(this.options, "stunServer")) {
+      this.stunServer = DEFAULT_STUN_SERVER;
+    } else {
+      this.stunServer = undefined;
+    }
     this.turnServer = validateAddress(this.options.turnServer);
   }
 

@@ -93,4 +93,24 @@ describe("Connection.setIceServers", () => {
       await connection.close();
     }
   });
+
+  test("stunServer 未指定は Google fallback、明示 undefined は STUN なし", async () => {
+    // Arrange / Act: オプション省略と明示クリアを並べて構築する。
+    const omitted = new Connection(true);
+    const cleared = new Connection(true, { stunServer: undefined });
+    try {
+      // 検証: raw ICE API は従来どおり fallback を使い、明示 undefined は query しない。
+      expect(omitted.stunServer).toEqual(["stun.l.google.com", 19302]);
+      expect(cleared.stunServer).toBeUndefined();
+
+      omitted.setIceServers({ stunServer: undefined });
+      expect(omitted.stunServer).toBeUndefined();
+
+      cleared.setIceServers({ stunServer: ["stun.example.com", 19302] });
+      expect(cleared.stunServer).toEqual(["stun.example.com", 19302]);
+    } finally {
+      await omitted.close();
+      await cleared.close();
+    }
+  });
 });
