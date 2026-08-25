@@ -35,14 +35,21 @@ export interface DtlsHandshakeCarrier {
 
   /**
    * Inject a received datagram into the DTLS engine (SPED / dual-engine reinject).
+   * Resolves when that datagram's RX processing has finished (not the whole chain).
    * Optional peer preserves source address for cookie address-validation binding.
    */
-  inject(bytes: Buffer, peer?: InjectPeerAddr): void;
+  inject(bytes: Buffer, peer?: InjectPeerAddr): Promise<void>;
 
   /** Wire inbound inject → association handleDatagram. */
   setInjectHandler(
-    handler: (bytes: Buffer, peer?: InjectPeerAddr) => void,
+    handler: (bytes: Buffer, peer?: InjectPeerAddr) => void | Promise<void>,
   ): void;
+
+  /**
+   * When false, {@link send} does not write handshake datagrams to the
+   * transport (SPED embeds them in ICE Binding instead).
+   */
+  setWireSendEnabled?(enabled: boolean): void;
 
   getMtu(): number;
   setMtu(mtu: number): void;

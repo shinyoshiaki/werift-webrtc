@@ -425,7 +425,7 @@ export class Dtls13ConnectionBase {
       });
     // Inject may carry peer from dual-engine reinject; fall back to transport.rinfo
     const self = this as this & {
-      handleDatagram: (data: Buffer, addr?: any) => void;
+      handleDatagram: (data: Buffer, addr?: any) => void | Promise<void>;
       scheduleRetransmit: () => void;
     };
     this.carrier.setInjectHandler((bytes, peer) =>
@@ -1055,10 +1055,10 @@ export class Dtls13ConnectionBase {
   injectDatagram(
     bytes: Buffer,
     peer?: [string, number] | { address?: string; port?: number } | string,
-  ): void {
+  ): Promise<void> | void {
     const self = this as this & {
-      handleDatagram: (data: Buffer, addr?: any) => void;
+      handleDatagram: (data: Buffer, addr?: any) => void | Promise<void>;
     };
-    self.handleDatagram(Buffer.from(bytes), peer);
+    return self.handleDatagram(Buffer.from(bytes), peer);
   }
 }

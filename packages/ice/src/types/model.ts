@@ -32,7 +32,7 @@ export interface TransactionRequestOptions {
 export interface Protocol {
   type: string;
   onRequestReceived: Event<[Message, Address, Buffer]>;
-  onDataReceived: Event<[Buffer]>;
+  onDataReceived: Event<[Buffer, Address?]>;
   request: (
     message: Message,
     addr: Address,

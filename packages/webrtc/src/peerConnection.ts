@@ -888,6 +888,12 @@ export class RTCPeerConnection extends EventTarget {
   private async connect() {
     log("start connect");
 
+    if (this.config.sped && !peerConfigHasDtls13(this.config)) {
+      throw new Error(
+        "PeerConfig.sped requires DTLS 1.3 in dtls.protocolVersions",
+      );
+    }
+
     const res = await Promise.allSettled(
       this.dtlsTransports.map(async (dtlsTransport) => {
         const { iceTransport } = dtlsTransport;
@@ -904,21 +910,39 @@ export class RTCPeerConnection extends EventTarget {
 
         this.secureManager.setConnectionState("connecting");
 
-        if (iceTransport.state !== "connected") {
-          await iceTransport.start().catch((err) => {
-            log("iceTransport.start failed", err);
+        if (this.config.sped) {
+          if (dtlsTransport.state === "connected") {
+            if (iceTransport.state !== "connected") {
+              await iceTransport.start();
+            }
+            return;
+          }
+          const dtlsPromise = dtlsTransport.start();
+          const icePromise =
+            iceTransport.state === "connected"
+              ? Promise.resolve()
+              : iceTransport.start();
+          await Promise.all([icePromise, dtlsPromise]).catch((err) => {
+            log("sped ice/dtls start failed", err);
+            throw err;
+          });
+        } else {
+          if (iceTransport.state !== "connected") {
+            await iceTransport.start().catch((err) => {
+              log("iceTransport.start failed", err);
+              throw err;
+            });
+          }
+
+          if (dtlsTransport.state === "connected") {
+            return;
+          }
+
+          await dtlsTransport.start().catch((err) => {
+            log("dtlsTransport.start failed", err);
             throw err;
           });
         }
-
-        if (dtlsTransport.state === "connected") {
-          return;
-        }
-
-        await dtlsTransport.start().catch((err) => {
-          log("dtlsTransport.start failed", err);
-          throw err;
-        });
 
         if (
           this.sctpTransport &&
@@ -1325,12 +1349,18 @@ export interface PeerConfig {
     | ((message: Message, addr: Address, protocol: Protocol) => boolean)
     | undefined;
   iceFilterCandidatePair: ((pair: CandidatePair) => boolean) | undefined;
+  /**
+   * Opt-in SPED (DTLS handshake embedded in ICE Binding).
+   * Default false: ICE completes, then DTLS starts (current serial path).
+   * true: this PeerConnection only overlaps ICE checks with DTLS 1.3 handshake.
+   */
+  sped: boolean;
   dtls: Partial<{
     keys: DtlsKeys;
     /**
      * DTLS protocol versions in preference order.
      * Unspecified / empty keeps DTLS 1.2 only. DTLS 1.3 requires explicit opt-in.
-     * Independent of SPED (this package does not enable SPED).
+     * Independent of {@link PeerConfig.sped} (SPED also requires DTLS 1.3 at connect()).
      */
     protocolVersions: readonly DtlsVersion[];
     /**
@@ -1401,6 +1431,14 @@ export type RTCPeerConnectionConfig = Partial<
 > &
   RTCPeerConnectionRTCConfiguration;
 
+function peerConfigHasDtls13(config: PeerConfig): boolean {
+  const versions = config.dtls.protocolVersions;
+  if (!versions || versions.length === 0) {
+    return false;
+  }
+  return versions.some((version) => version === "1.3");
+}
+
 function generateDefaultPeerConfig(): PeerConfig {
   return {
     codecs: {
@@ -1429,6 +1467,7 @@ function generateDefaultPeerConfig(): PeerConfig {
     icePasswordPrefix: undefined,
     iceUseLinkLocalAddress: undefined,
     dtls: {},
+    sped: false,
     bundlePolicy: "max-compat",
     rtcpMuxPolicy: "require",
     iceCandidatePoolSize: 0,

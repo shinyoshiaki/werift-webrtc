@@ -22,7 +22,7 @@ A small number of intentional or known edge-case differences remain for backward
 
 ## DTLS 1.3 opt-in
 
-Default `new RTCPeerConnection()` still uses DTLS 1.2 only. DTLS 1.3 is an explicit opt-in and is independent of SPED (this package does not enable SPED).
+Default `new RTCPeerConnection()` still uses DTLS 1.2 only. DTLS 1.3 is an explicit opt-in via `dtls.protocolVersions`. SPED (DTLS handshake in ICE Binding) is a separate opt-in via `sped: true` (default false) and requires DTLS 1.3 at `connect()`.
 
 On the ICE-selected path, DTLS 1.3 omits the HelloRetryRequest cookie exchange by default so the handshake does not pay an extra RTT. Set `dtls.helloRetryRequest: true` only when you want a cookie-bearing HRR. Group-only HRR for `key_share` correction is unrelated and may still be sent.
 
@@ -51,6 +51,17 @@ const cookieHrr = new RTCPeerConnection({
 ```
 
 `getStats()` transport `tlsVersion` is `"DTLS 1.2"` or `"DTLS 1.3"`. Successful DTLS 1.3 reports `dtlsCipher` `"TLS_AES_128_GCM_SHA256"`.
+
+## SPED opt-in
+
+`PeerConfig.sped` defaults to `false`: ICE completes, then DTLS starts. Set `sped: true` together with DTLS 1.3 so this PeerConnection embeds the DTLS 1.3 handshake in authenticated ICE Binding attributes (`0xC070` / `0xC071`). `connect()` throws if `sped` is true and `dtls.protocolVersions` does not include `"1.3"`.
+
+```ts
+const pc = new RTCPeerConnection({
+  sped: true,
+  dtls: { protocolVersions: [DtlsVersion.V1_3] },
+});
+```
 
 ## Development setup
 

@@ -1,6 +1,6 @@
 import { deepStrictEqual } from "assert";
 import { readFileSync } from "fs";
-import { Event } from "../../common/src";
+import { type Address, Event } from "../../common/src";
 import { NodeStunServer, NodeTurnServer } from "../../ice-server/src";
 import { Candidate } from "../src/candidate";
 import { Connection } from "../src/ice";
@@ -52,7 +52,7 @@ export class ConsentMockProtocol implements Protocol {
   type: string;
   localCandidate: Candidate;
   onRequestReceived = new Event<[Message, any, Buffer]>();
-  onDataReceived = new Event<[Buffer]>();
+  onDataReceived = new Event<[Buffer, Address?]>();
   sentMessages: Message[] = [];
   sendStunCount = 0;
   requestTimes: number[] = [];

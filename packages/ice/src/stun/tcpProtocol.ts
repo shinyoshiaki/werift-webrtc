@@ -65,7 +65,7 @@ abstract class BaseTcpProtocol implements Protocol {
   localIp?: string;
 
   readonly onRequestReceived = new Event<[Message, Address, Buffer]>();
-  readonly onDataReceived = new Event<[Buffer]>();
+  readonly onDataReceived = new Event<[Buffer, Address?]>();
 
   protected readonly sockets = new Map<string, SocketEntry>();
 
@@ -134,7 +134,7 @@ abstract class BaseTcpProtocol implements Protocol {
     try {
       const message = parseMessage(data);
       if (!message) {
-        this.onDataReceived.execute(data);
+        this.onDataReceived.execute(data, addr);
         return;
       }
 

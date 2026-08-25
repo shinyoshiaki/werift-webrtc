@@ -27,7 +27,7 @@ export class StunProtocol implements Protocol {
   localIp?: string;
 
   readonly onRequestReceived = new Event<[Message, Address, Buffer]>();
-  readonly onDataReceived = new Event<[Buffer]>();
+  readonly onDataReceived = new Event<[Buffer, Address?]>();
 
   constructor() {}
 
@@ -58,7 +58,7 @@ export class StunProtocol implements Protocol {
       const message = parseMessage(data);
       if (!message) {
         if (this.localCandidate) {
-          this.onDataReceived.execute(data);
+          this.onDataReceived.execute(data, addr);
         }
         return;
       }

@@ -39,24 +39,12 @@ describe("stun", () => {
       readMessage("binding_request_ice_controlled.bin").slice(0, -1),
       Buffer.from("z"),
     ]);
-    try {
-      parseMessage(data);
-    } catch (error) {
-      expect((error as Error).message).toBe(
-        "STUN message fingerprint does not match",
-      );
-    }
+    expect(parseMessage(data)).toBeUndefined();
   });
 
   test("test_binding_request_ice_controlled_bad_integrity", () => {
     const data = readMessage("binding_request_ice_controlled.bin");
-    try {
-      parseMessage(data, Buffer.from("bogus-key"));
-    } catch (error) {
-      expect((error as Error).message).toBe(
-        "STUN message integrity does not match",
-      );
-    }
+    expect(parseMessage(data, Buffer.from("bogus-key"))).toBeUndefined();
   });
 
   test("test_binding_request_ice_controlling", () => {
@@ -100,29 +88,20 @@ describe("stun", () => {
       readMessage("binding_response.bin"),
       Buffer.from("123"),
     ]);
-    try {
-      parseMessage(data);
-    } catch (error) {
-      expect((error as Error).message).toBe(
-        "STUN message length does not match",
-      );
-    }
+    expect(parseMessage(data)).toBeUndefined();
   });
 
   test("test_message_shorter_than_header", () => {
-    try {
-      parseMessage(Buffer.from("123"));
-    } catch (error) {
-      expect((error as Error).message).toBe(
-        "STUN message length is less than 20 bytes",
-      );
-    }
+    expect(parseMessage(Buffer.from("123"))).toBeUndefined();
   });
 
   test(
     "test_timeout",
     async () => {
-      const DummyProtocol: any = { sendStun: async () => {} };
+      const DummyProtocol: any = {
+        sendStun: async () => {},
+        sendData: async () => {},
+      };
       const request = new Message(methods.BINDING, classes.REQUEST);
       const transaction = new Transaction(
         request,
@@ -146,6 +125,9 @@ describe("stun", () => {
     const request = new Message(methods.BINDING, classes.REQUEST);
     const bytes = request.bytes;
     const message = parseMessage(bytes)!;
-    expect(request).toEqual(message);
+    expect(message.bytes).toEqual(bytes);
+    expect(message.messageMethod).toBe(request.messageMethod);
+    expect(message.messageClass).toBe(request.messageClass);
+    expect(message.transactionId).toEqual(request.transactionId);
   });
 });

@@ -1053,7 +1053,7 @@ Explicit peer for this reply. Required pre-cookie so a concurrent
 
 ### udpOnMessage()
 
-> `protected` **udpOnMessage**(`data`, `addr`?): `void`
+> `protected` **udpOnMessage**(`data`, `addr`?): `void` \| `Promise`\<`void`\>
 
 Association RX: 1.3 engine when active, else DTLS 1.2 record path.
 Terminal association drops all inbound (UDP and inject).
@@ -1070,7 +1070,7 @@ readonly \[`string`, `number`\]
 
 #### Returns
 
-`void`
+`void` \| `Promise`\<`void`\>
 
 #### Overrides
 

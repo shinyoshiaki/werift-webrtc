@@ -123,7 +123,7 @@ export class DtlsServer extends DtlsSocket {
   private serverAssociationInject(
     bytes: Buffer,
     peer?: [string, number] | { address?: string; port?: number } | string,
-  ): void {
+  ): void | Promise<void> {
     if (this.associationTornDown) return;
     let addr: Address | undefined;
     if (peer != null) {
@@ -138,7 +138,7 @@ export class DtlsServer extends DtlsSocket {
         addr = [peer.address, peer.port];
       }
     }
-    this.udpOnMessage(Buffer.from(bytes), addr);
+    return this.udpOnMessage(Buffer.from(bytes), addr);
   }
 
   /**
@@ -150,8 +150,7 @@ export class DtlsServer extends DtlsSocket {
     const eng = this.engine13;
     if (eng && !eng.isClosed()) {
       const peer = addr ? ([addr[0], addr[1]] as [string, number]) : undefined;
-      eng.injectDatagram(data, peer);
-      return;
+      return eng.injectDatagram(data, peer);
     }
     this.handleUdpDatagram(data, addr);
   };

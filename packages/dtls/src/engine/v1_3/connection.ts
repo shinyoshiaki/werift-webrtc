@@ -371,7 +371,7 @@ export class Dtls13Connection
     handler: (
       bytes: Buffer,
       peer?: [string, number] | { address?: string; port?: number } | string,
-    ) => void,
+    ) => void | Promise<void>,
   ): void {
     this.carrier.setInjectHandler(handler);
   }

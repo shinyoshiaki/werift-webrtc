@@ -22,10 +22,15 @@ export class DirectHandshakeCarrier implements DtlsHandshakeCarrier {
    */
   private rttMs: number | undefined = undefined;
   private mode: RetransmissionMode = "internal";
-  private injectHandler?: (bytes: Buffer, peer?: InjectPeerAddr) => void;
+  private injectHandler?: (
+    bytes: Buffer,
+    peer?: InjectPeerAddr,
+  ) => void | Promise<void>;
   private closed = false;
   private timers = new Set<ReturnType<typeof setTimeout>>();
   readonly events: CarrierEvents = {};
+  /** When false, send() does not write the datagram (SPED embeds it in STUN). */
+  private wireSendEnabled = true;
 
   constructor(
     private readonly transport: Transport,
@@ -43,8 +48,14 @@ export class DirectHandshakeCarrier implements DtlsHandshakeCarrier {
     }
   }
 
-  setInjectHandler(handler: (bytes: Buffer, peer?: InjectPeerAddr) => void) {
+  setInjectHandler(
+    handler: (bytes: Buffer, peer?: InjectPeerAddr) => void | Promise<void>,
+  ) {
     this.injectHandler = handler;
+  }
+
+  setWireSendEnabled(enabled: boolean) {
+    this.wireSendEnabled = enabled;
   }
 
   async send(
@@ -69,12 +80,15 @@ export class DirectHandshakeCarrier implements DtlsHandshakeCarrier {
       );
     }
     // Always pass explicit peer when known so UdpTransport.rinfo hijack cannot redirect
+    if (!this.wireSendEnabled) {
+      return;
+    }
     await this.transport.send(wireBytes, addr);
   }
 
-  inject(bytes: Buffer, peer?: InjectPeerAddr): void {
+  async inject(bytes: Buffer, peer?: InjectPeerAddr): Promise<void> {
     if (this.closed) return;
-    this.injectHandler?.(Buffer.from(bytes), peer);
+    await this.injectHandler?.(Buffer.from(bytes), peer);
   }
 
   getMtu(): number {

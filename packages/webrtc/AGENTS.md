@@ -21,6 +21,7 @@ Instructions for coding agents working in `packages/webrtc`.
 
 ## Don't
 
+* Do not export SPED internals or add `IceOptions.sped`; enablement is `PeerConfig.sped` only.
 * Do not run memleak as part of `npm test` / CI; use `npm run memleak` only.
 * Do not enable vitest `retry` for memleak (hides leak failures).
 * Do not silence leak detections; open a follow-up for root-cause fixes if a real leak is found.

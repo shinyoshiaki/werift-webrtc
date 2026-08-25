@@ -37,7 +37,7 @@ export interface Dtls13HostMethods {
   handleDatagram(
     data: Buffer,
     addr?: [string, number] | { address?: string; port?: number } | string,
-  ): void;
+  ): void | Promise<void>;
   handleDatagramAsync(
     data: Buffer,
     peerKey?: string,

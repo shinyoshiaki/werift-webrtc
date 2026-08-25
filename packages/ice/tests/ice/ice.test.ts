@@ -24,7 +24,7 @@ class ProtocolMock implements Protocol {
   responseAddr?: Address;
   responseMessage?: string;
   onRequestReceived: Event<[Message, Address, Buffer]> = new Event();
-  onDataReceived: Event<[Buffer]> = new Event();
+  onDataReceived: Event<[Buffer, Address?]> = new Event();
   localCandidate = new Candidate(
     "some-foundation",
     1,
@@ -206,14 +206,17 @@ describe("ice", () => {
 
     const request = new Message(methods.BINDING, classes.REQUEST);
     request
-      .setAttribute("USERNAME", "a:b")
+      .setAttribute("USERNAME", `${connection.localUsername}:remote-username`)
       .setAttribute("PRIORITY", 1234)
       .setAttribute("ICE-CONTROLLED", 2n);
+    request
+      .addMessageIntegrity(Buffer.from(connection.localPassword, "utf8"))
+      .addFingerprint();
 
     protocol.onRequestReceived.execute(
       request,
       ["2.3.4.5", 2345],
-      Buffer.alloc(0),
+      request.bytes,
     );
 
     expect(connection.iceControlling).toBe(false);
@@ -222,6 +225,36 @@ describe("ice", () => {
       487,
       "Role Conflict",
     ]);
+  });
+
+  test("unauthenticated Binding Request は role / filter に到達しない", async () => {
+    // Arrange
+    const connection = createTestConnection(false, { iceLite: true });
+    const protocol = new ProtocolMock();
+    let filterCalled = false;
+    connection.options.filterStunResponse = () => {
+      filterCalled = true;
+      return true;
+    };
+    (connection as any).ensureProtocol(protocol);
+
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request
+      .setAttribute("USERNAME", `${connection.localUsername}:remote`)
+      .setAttribute("PRIORITY", 1)
+      .setAttribute("ICE-CONTROLLED", 2n);
+
+    // Act: HMAC 無しの raw bytes
+    protocol.onRequestReceived.execute(
+      request,
+      ["2.3.4.5", 2345],
+      request.bytes,
+    );
+
+    // Assert: 未認証は drop。role も filter も動かない
+    expect(connection.iceControlling).toBe(false);
+    expect(protocol.sentMessage).toBeUndefined();
+    expect(filterCalled).toBe(false);
   });
 
   test("test_connect", async () => {

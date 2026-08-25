@@ -181,6 +181,7 @@ export class SecureTransportManager {
         debug: this.config.debug,
         protocolVersions: this.config.dtls.protocolVersions,
         helloRetryRequest: this.config.dtls.helloRetryRequest,
+        sped: this.config.sped === true,
       },
       iceTransport,
       this.certificate,

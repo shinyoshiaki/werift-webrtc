@@ -30,8 +30,11 @@ import {
   validateAddress,
   validateRemoteCandidate,
 } from "./iceBase";
+import type { IceDatagramContext } from "./internal/datagram";
+import { DTLS_IN_STUN_DATA } from "./sped/draft00/constants";
+import type { SpedRuntime } from "./sped/runtime";
 import { classes, methods } from "./stun/const";
-import { Message } from "./stun/message";
+import { Message, parseMessage } from "./stun/message";
 import { StunProtocol } from "./stun/protocol";
 import { TcpActiveProtocol, TcpPassiveProtocol } from "./stun/tcpProtocol";
 import { createStunOverTurnClient } from "./turn/protocol";
@@ -81,8 +84,15 @@ export class Connection implements IceConnection {
   private consentRequestAbort?: AbortController;
 
   readonly onData = new Event<[Buffer]>();
+  /** @internal Source/generation-aware datagram event. Public onData stays Buffer-only. */
+  readonly onDatagram = new Event<[IceDatagramContext]>();
   readonly stateChanged = new Event<[IceState]>();
   readonly onIceCandidate: Event<[Candidate]> = new Event();
+
+  /** @internal SPED controller; unset unless PeerConfig.sped (or tests) attach it. */
+  private spedRuntime?: SpedRuntime;
+  private spedCarryInFlight = false;
+  private spedCarryQueued = false;
 
   constructor(
     private _iceControlling: boolean,
@@ -207,6 +217,50 @@ export class Connection implements IceConnection {
 
     // Tear down consent timers/transactions; new credentials require a new session.
     this.stopConsentLifecycle();
+    this.spedCarryInFlight = false;
+    this.spedCarryQueued = false;
+    this.spedRuntime?.reset(this.generation);
+  }
+
+  /**
+   * @internal Attach a package-private SPED runtime (RTCPeerConnection / tests).
+   * Not part of {@link IceConnection}.
+   */
+  attachSpedRuntime(runtime: SpedRuntime) {
+    this.spedRuntime = runtime;
+  }
+
+  /** @internal DTLS handshake datagram on an authenticated current-generation pair. */
+  async sendHandshakeOnAuthenticatedPair(
+    pair: CandidatePair,
+    bytes: Buffer,
+    generation: number,
+  ) {
+    if (generation !== this.generation) {
+      return;
+    }
+    const authenticated =
+      pair.nominated ||
+      pair.state === CandidatePairState.SUCCEEDED ||
+      pair.responsesReceived > 0 ||
+      pair.requestsReceived > 0;
+    if (!authenticated) {
+      return;
+    }
+    await pair.protocol.sendData(bytes, pair.remoteAddr);
+  }
+
+  /** @internal Direct DTLS datagram on the authenticated STUN 5-tuple. */
+  async sendHandshakeDatagram(
+    protocol: Protocol,
+    addr: Address,
+    bytes: Buffer,
+    generation: number,
+  ) {
+    if (generation !== this.generation) {
+      return;
+    }
+    await protocol.sendData(bytes, addr);
   }
 
   resetNominatedPair() {
@@ -287,74 +341,28 @@ export class Connection implements IceConnection {
 
   private ensureProtocol(protocol: Protocol) {
     protocol.onRequestReceived.subscribe((msg, addr, data) => {
-      if (msg.messageMethod !== methods.BINDING) {
-        this.respondError(msg, addr, protocol, [400, "Bad Request"]);
-        return;
-      }
-
-      const txUsername = msg.getAttributeValue("USERNAME");
-      // 相手にとってのremoteは自分にとってのlocal
-      const { remoteUsername: localUsername } = decodeTxUsername(txUsername);
-      const localPassword =
-        this.userHistory[localUsername] ?? this.localPassword;
-
-      const { iceControlling } = this;
-
-      // 7.2.1.1.  Detecting and Repairing Role Conflicts
-      if (iceControlling && msg.attributesKeys.includes("ICE-CONTROLLING")) {
-        if (this.tieBreaker >= msg.getAttributeValue("ICE-CONTROLLING")) {
-          this.respondError(msg, addr, protocol, [487, "Role Conflict"]);
-          return;
-        } else {
-          this.switchRole(false);
-        }
-      } else if (
-        !iceControlling &&
-        msg.attributesKeys.includes("ICE-CONTROLLED")
-      ) {
-        if (
-          this.iceLite ||
-          this.tieBreaker < msg.getAttributeValue("ICE-CONTROLLED")
-        ) {
-          this.respondError(msg, addr, protocol, [487, "Role Conflict"]);
-          return;
-        } else {
-          this.switchRole(true);
-          return;
-        }
-      }
-
-      if (
-        this.options.filterStunResponse &&
-        !this.options.filterStunResponse(msg, addr, protocol)
-      ) {
-        return;
-      }
-
-      // # send binding response
-      const response = new Message(
-        methods.BINDING,
-        classes.RESPONSE,
-        msg.transactionId,
-      );
-
-      response
-        .setAttribute("XOR-MAPPED-ADDRESS", addr)
-        .addMessageIntegrity(Buffer.from(localPassword, "utf8"))
-        .addFingerprint();
-      protocol.sendStun(response, addr).catch((e) => {
-        log("sendStun error", e);
-      });
-
-      if (this.checkList.length === 0 && !this.earlyChecksDone) {
-        this.earlyChecks.push([msg, addr, protocol]);
-      } else {
-        this.checkIncoming(msg, addr, protocol);
-      }
+      void this.handleBindingRequest(protocol, msg, addr, data);
     });
-    protocol.onDataReceived.subscribe((data) => {
+    protocol.onDataReceived.subscribe((data, addr) => {
       try {
-        // Update statistics for the nominated pair
+        const pair = addr
+          ? this.findPairByAddr(protocol, addr)
+          : this.checkList.find((candidate) => candidate.protocol === protocol);
+        const authenticated = !!(
+          pair &&
+          (pair.nominated ||
+            pair.state === CandidatePairState.SUCCEEDED ||
+            pair.responsesReceived > 0)
+        );
+        this.onDatagram.execute({
+          bytes: data,
+          source: addr ?? pair?.remoteAddr ?? ["0.0.0.0", 0],
+          protocol,
+          pair,
+          generation: this.generation,
+          authenticated,
+        });
+
         const activePair = this.nominated;
         if (activePair && activePair.protocol === protocol) {
           activePair.packetsReceived++;
@@ -366,6 +374,129 @@ export class Connection implements IceConnection {
         log("dataReceived", error);
       }
     });
+  }
+
+  private async handleBindingRequest(
+    protocol: Protocol,
+    msg: Message,
+    addr: Address,
+    data: Buffer,
+  ) {
+    if (msg.messageMethod !== methods.BINDING) {
+      this.respondError(msg, addr, protocol, [400, "Bad Request"]);
+      return;
+    }
+
+    const txUsername = msg.getAttributeValue("USERNAME");
+    if (typeof txUsername !== "string" || !txUsername.includes(":")) {
+      return;
+    }
+    const { remoteUsername: localUsername } = decodeTxUsername(txUsername);
+    const localPassword = this.userHistory[localUsername] ?? this.localPassword;
+
+    const verified = parseMessage(data, Buffer.from(localPassword, "utf8"));
+    if (!verified) {
+      log("drop unauthenticated Binding Request");
+      return;
+    }
+
+    const isCurrentGeneration = localUsername === this.localUsername;
+
+    if (!isCurrentGeneration) {
+      const response = new Message(
+        methods.BINDING,
+        classes.RESPONSE,
+        verified.transactionId,
+      );
+      response
+        .setAttribute("XOR-MAPPED-ADDRESS", addr)
+        .addMessageIntegrity(Buffer.from(localPassword, "utf8"))
+        .addFingerprint();
+      protocol.sendStun(response, addr).catch((e) => {
+        log("sendStun error", e);
+      });
+      return;
+    }
+
+    const { iceControlling } = this;
+
+    // 7.2.1.1.  Detecting and Repairing Role Conflicts
+    if (iceControlling && verified.attributesKeys.includes("ICE-CONTROLLING")) {
+      if (this.tieBreaker >= verified.getAttributeValue("ICE-CONTROLLING")) {
+        this.respondError(verified, addr, protocol, [487, "Role Conflict"]);
+        return;
+      } else {
+        this.switchRole(false);
+      }
+    } else if (
+      !iceControlling &&
+      verified.attributesKeys.includes("ICE-CONTROLLED")
+    ) {
+      if (
+        this.iceLite ||
+        this.tieBreaker < verified.getAttributeValue("ICE-CONTROLLED")
+      ) {
+        this.respondError(verified, addr, protocol, [487, "Role Conflict"]);
+        return;
+      } else {
+        this.switchRole(true);
+        return;
+      }
+    }
+
+    if (
+      this.options.filterStunResponse &&
+      !this.options.filterStunResponse(verified, addr, protocol)
+    ) {
+      return;
+    }
+
+    const generation = this.generation;
+    let fallback = false;
+    if (this.spedRuntime?.shouldDecorate(protocol)) {
+      const result = await this.spedRuntime.handleAuthenticatedStun(
+        verified,
+        addr,
+        generation,
+        protocol,
+      );
+      if (generation !== this.generation) {
+        return;
+      }
+      fallback = result.fallback;
+    }
+
+    const response = new Message(
+      methods.BINDING,
+      classes.RESPONSE,
+      verified.transactionId,
+    );
+    response.setAttribute("XOR-MAPPED-ADDRESS", addr);
+    if (this.spedRuntime?.shouldDecorate(protocol)) {
+      if (!this.spedRuntime.decorateOutgoing(response, protocol)) {
+        return;
+      }
+    }
+    response
+      .addMessageIntegrity(Buffer.from(localPassword, "utf8"))
+      .addFingerprint();
+    protocol.sendStun(response, addr).catch((e) => {
+      log("sendStun error", e);
+    });
+
+    if (this.checkList.length === 0 && !this.earlyChecksDone) {
+      this.earlyChecks.push([verified, addr, protocol]);
+    } else {
+      this.checkIncoming(verified, addr, protocol);
+    }
+
+    if (fallback && this.spedRuntime && generation === this.generation) {
+      const packets = this.spedRuntime.beginFallback();
+      await this.spedRuntime.hooks.onFallbackFlight(packets);
+      for (const packet of packets) {
+        await this.sendHandshakeDatagram(protocol, addr, packet, generation);
+      }
+    }
   }
 
   private getCandidatePromises(addresses: string[], timeout = 5) {
@@ -941,6 +1072,9 @@ export class Connection implements IceConnection {
             iceControlling,
             localCandidate: nominated.localCandidate,
           });
+          if (!this.decorateSpedRequest(request, nominated.protocol)) {
+            continue;
+          }
 
           this.consentRequestAbort?.abort();
           const requestAbort = new AbortController();
@@ -970,7 +1104,7 @@ export class Connection implements IceConnection {
                 },
               },
             )
-            .then(() => {
+            .then(async ([response, addr]) => {
               // Accept only responses for the current pair / generation / session.
               // Address / MESSAGE-INTEGRITY / response class are enforced in Transaction + protocol.
               if (sessionId !== this.consentSessionId || canceled) {
@@ -1001,6 +1135,13 @@ export class Connection implements IceConnection {
               if (state === "disconnected") {
                 this.setState("connected");
               }
+              await this.consumeSpedStun(
+                response,
+                addr,
+                nominated.protocol,
+                nominated,
+                generation,
+              );
             })
             .catch((error) => {
               // Individual request loss is expected; keep monitoring (RFC 7675).
@@ -1054,6 +1195,10 @@ export class Connection implements IceConnection {
 
     this.lookup?.close?.();
     this.lookup = undefined;
+    this.spedCarryInFlight = false;
+    this.spedCarryQueued = false;
+    this.spedRuntime?.close();
+    this.spedRuntime = undefined;
   }
 
   private setState(state: IceState) {
@@ -1155,6 +1300,136 @@ export class Connection implements IceConnection {
         pair.protocol === protocol && pair.remoteCandidate === remoteCandidate,
     );
     return pair;
+  }
+
+  private findPairByAddr(protocol: Protocol, addr: Address) {
+    return this.checkList.find(
+      (pair) =>
+        pair.protocol === protocol &&
+        pair.remoteAddr[0] === addr[0] &&
+        pair.remoteAddr[1] === addr[1],
+    );
+  }
+
+  private decorateSpedRequest(request: Message, protocol: Protocol): boolean {
+    return this.spedRuntime?.decorateOutgoing(request, protocol) ?? true;
+  }
+
+  /**
+   * @internal Send a Binding carrying current L1 when ICE checks will not
+   * do so soon enough (e.g. Finished after aggressive nomination).
+   */
+  async flushSpedCarry() {
+    const runtime = this.spedRuntime;
+    if (!runtime?.session.embedding || !runtime.session.hasL1) {
+      return;
+    }
+    if (this.spedCarryInFlight) {
+      this.spedCarryQueued = true;
+      return;
+    }
+    if (!this.remoteUsername || !this.remotePassword) {
+      return;
+    }
+
+    const pair =
+      this.nominated ??
+      this.checkList.find(
+        (candidate) =>
+          candidate.state === CandidatePairState.SUCCEEDED ||
+          candidate.state === CandidatePairState.IN_PROGRESS,
+      );
+    const protocol = pair?.protocol ?? runtime.lastPath?.protocol;
+    const addr = pair?.remoteAddr ?? runtime.lastPath?.addr;
+    if (!protocol || !addr || !runtime.shouldDecorate(protocol)) {
+      return;
+    }
+
+    this.spedCarryInFlight = true;
+    const generation = this.generation;
+    let sentNonEmpty = false;
+    try {
+      const request = this.buildRequest({
+        nominate: false,
+        localUsername: this.localUsername,
+        remoteUsername: this.remoteUsername,
+        iceControlling: this.iceControlling,
+        localCandidate: protocol.localCandidate,
+      });
+      if (!runtime.decorateOutgoing(request, protocol)) {
+        return;
+      }
+      const data = request.getRawAttributeValue(DTLS_IN_STUN_DATA);
+      sentNonEmpty = !!data && data.length > 0;
+      const retransmissions =
+        protocol.localCandidate?.transport.toLowerCase() === "tcp" ? 0 : 2;
+      const [response, responseAddr] = await protocol.request(
+        request,
+        addr,
+        Buffer.from(this.remotePassword, "utf8"),
+        retransmissions,
+      );
+      if (generation !== this.generation) {
+        return;
+      }
+      await this.consumeSpedStun(
+        response,
+        responseAddr,
+        protocol,
+        pair,
+        generation,
+      );
+    } catch {
+      // Loss is acceptable; connectivity checks / consent retry L1.
+    } finally {
+      this.spedCarryInFlight = false;
+      if (this.spedCarryQueued) {
+        this.spedCarryQueued = false;
+        void this.flushSpedCarry();
+      } else if (
+        sentNonEmpty &&
+        runtime.session.embedding &&
+        runtime.session.hasL1
+      ) {
+        void this.flushSpedCarry();
+      }
+    }
+  }
+
+  private async consumeSpedStun(
+    message: Message,
+    addr: Address,
+    protocol: Protocol,
+    pair: CandidatePair | undefined,
+    generation: number,
+  ) {
+    const runtime = this.spedRuntime;
+    if (!runtime?.shouldDecorate(protocol)) {
+      return;
+    }
+    const result = await runtime.handleAuthenticatedStun(
+      message,
+      addr,
+      generation,
+      protocol,
+    );
+    if (generation !== this.generation) {
+      return;
+    }
+    if (pair) {
+      runtime.syncRtt(pair);
+    }
+    if (result.fallback && !runtime.fallbackStarted) {
+      const packets = runtime.beginFallback();
+      await runtime.hooks.onFallbackFlight(packets);
+      for (const packet of packets) {
+        if (pair) {
+          await this.sendHandshakeOnAuthenticatedPair(pair, packet, generation);
+        } else {
+          await this.sendHandshakeDatagram(protocol, addr, packet, generation);
+        }
+      }
+    }
   }
 
   private applyIceControlling(iceControlling: boolean) {
@@ -1294,6 +1569,12 @@ export class Connection implements IceConnection {
         iceControlling: this.iceControlling,
         localCandidate: pair.localCandidate,
       });
+      if (!this.decorateSpedRequest(request, pair.protocol)) {
+        pair.updateState(CandidatePairState.FAILED);
+        this.checkComplete(pair);
+        r();
+        return;
+      }
 
       // Record start time for RTT calculation
       const startTime = performance.now();
@@ -1331,6 +1612,13 @@ export class Connection implements IceConnection {
         });
         result.response = response;
         result.addr = addr;
+        await this.consumeSpedStun(
+          response,
+          addr,
+          pair.protocol,
+          pair,
+          generation,
+        );
       } catch (error: any) {
         const exc: TransactionError = error;
         // 7.1.3.1.  Failure Cases
@@ -1396,9 +1684,14 @@ export class Connection implements IceConnection {
           iceControlling: this.iceControlling,
           localCandidate: pair.localCandidate,
         });
+        if (!this.decorateSpedRequest(request, pair.protocol)) {
+          pair.updateState(CandidatePairState.FAILED);
+          this.checkComplete(pair);
+          return;
+        }
         try {
           pair.requestsSent++;
-          await pair.protocol.request(
+          const [nomResponse, nomAddr] = await pair.protocol.request(
             request,
             pair.remoteAddr,
             Buffer.from(this.remotePassword, "utf8"),
@@ -1410,6 +1703,13 @@ export class Connection implements IceConnection {
             },
           );
           pair.responsesReceived++;
+          await this.consumeSpedStun(
+            nomResponse,
+            nomAddr,
+            pair.protocol,
+            pair,
+            generation,
+          );
         } catch (error) {
           pair.updateState(CandidatePairState.FAILED);
           this.checkComplete(pair);

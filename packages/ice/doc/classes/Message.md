@@ -14,7 +14,7 @@
 
 ### new Message()
 
-> **new Message**(`messageMethod`, `messageClass`, `transactionId`, `attributes`, `rawAttributes`): [`Message`](Message.md)
+> **new Message**(`messageMethod`, `messageClass`, `transactionId`, `attributes`, `rawAttributes`, `wireAttributes`?): [`Message`](Message.md)
 
 #### Parameters
 
@@ -37,6 +37,10 @@
 ##### rawAttributes
 
 `RawAttribute`[] = `[]`
+
+##### wireAttributes?
+
+`WireAttribute`[]
 
 #### Returns
 
@@ -67,12 +71,6 @@
 ### messageMethod
 
 > **messageMethod**: [`methods`](../enumerations/methods.md)
-
-***
-
-### rawAttributes
-
-> **rawAttributes**: `RawAttribute`[] = `[]`
 
 ***
 
@@ -135,6 +133,35 @@
 ###### rawAttributes
 
 > **rawAttributes**: `object`[]
+
+***
+
+### rawAttributes
+
+#### Get Signature
+
+> **get** **rawAttributes**(): `RawAttribute`[]
+
+Unknown (not in ATTRIBUTES) attributes in wire order.
+Compatible view of the mixed wireAttributes list.
+
+##### Returns
+
+`RawAttribute`[]
+
+#### Set Signature
+
+> **set** **rawAttributes**(`value`): `void`
+
+##### Parameters
+
+###### value
+
+`RawAttribute`[]
+
+##### Returns
+
+`void`
 
 ***
 
@@ -216,7 +243,7 @@
 
 `void`
 
-#### Inherited from
+#### Overrides
 
 `AttributeRepository.clear`
 
@@ -256,6 +283,34 @@
 
 ***
 
+### getRawAttributeValue()
+
+> **getRawAttributeValue**(`type`): `undefined` \| `Buffer`\<`ArrayBufferLike`\>
+
+#### Parameters
+
+##### type
+
+`number`
+
+#### Returns
+
+`undefined` \| `Buffer`\<`ArrayBufferLike`\>
+
+***
+
+### getWireAttributes()
+
+> **getWireAttributes**(): `WireAttribute`[]
+
+Mixed known/raw attributes in the order they are serialized.
+
+#### Returns
+
+`WireAttribute`[]
+
+***
+
 ### messageIntegrity()
 
 > **messageIntegrity**(`key`): `Buffer`\<`ArrayBuffer`\>
@@ -290,7 +345,7 @@
 
 [`Message`](Message.md)
 
-#### Inherited from
+#### Overrides
 
 `AttributeRepository.setAttribute`
 

@@ -137,7 +137,25 @@ export async function sendHandshakeFlight(
   }
 
   // Separate copies for callback vs retransmit cache (Buffer contents are mutable)
-  const notifyPackets = datagrams.map((bytes, i) =>
+  // Epoch-0 ServerHello is sent via carrier.send outside this function. Direct
+  // UDP still transmits it there; SPED only sees onFlightCreated, so include SH
+  // in the notify list (coalesce with the first encrypted datagram when it fits).
+  const notifySources: Buffer[] = [];
+  if (this.pendingServerHello) {
+    const sh = Buffer.alloc(this.pendingServerHello.bytes.length);
+    this.pendingServerHello.bytes.copy(sh);
+    const first = datagrams[0];
+    if (first && sh.length + first.length <= mtu) {
+      notifySources.push(Buffer.concat([sh, first]));
+      notifySources.push(...datagrams.slice(1));
+    } else {
+      notifySources.push(sh);
+      notifySources.push(...datagrams);
+    }
+  } else {
+    notifySources.push(...datagrams);
+  }
+  const notifyPackets = notifySources.map((bytes, i) =>
     createHandshakeDatagram(bytes, flightId, i, retransmittable),
   );
   const cachePackets = datagrams.map((bytes, i) =>

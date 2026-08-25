@@ -582,7 +582,7 @@ export class DtlsClient extends DtlsSocket {
   private associationInject(
     bytes: Buffer,
     peer?: [string, number] | { address?: string; port?: number } | string,
-  ): void {
+  ): void | Promise<void> {
     if (this.dualPhase === "closed") return;
     // Parse peer first; do NOT write transport.rinfo until peer gate accepts
     // (otherwise spoofed inject redirects 1.2 Flight / app send via rinfo).
@@ -632,7 +632,7 @@ export class DtlsClient extends DtlsSocket {
       };
       t.rinfo = { address: addr[0], port: addr[1] };
     }
-    this.udpOnMessage(Buffer.from(bytes), addr);
+    return this.udpOnMessage(Buffer.from(bytes), addr);
   }
 
   /**
@@ -1409,8 +1409,7 @@ export class DtlsClient extends DtlsSocket {
     }
 
     if (this.engine13 && !this.engine13.isClosed()) {
-      this.engine13.injectDatagram(data, peerTuple);
-      return;
+      return this.engine13.injectDatagram(data, peerTuple);
     }
 
     if (

@@ -74,6 +74,9 @@ export class Transaction {
   private waitResolve?: () => void;
   private onAbort?: () => void;
 
+  /** First-send snapshot so STUN retransmits do not re-run SPED round-robin. */
+  private readonly requestBytes: Buffer;
+
   constructor(
     private request: Message,
     private addr: Address,
@@ -93,6 +96,12 @@ export class Transaction {
     this.signal = options.signal;
     this.expectedAddr = addr;
     this.integrityKey = options.integrityKey;
+    this.requestBytes = Buffer.from(request.bytes);
+    Object.defineProperty(request, "bytes", {
+      configurable: true,
+      enumerable: false,
+      get: () => this.requestBytes,
+    });
   }
 
   /**
@@ -231,6 +240,12 @@ export class Transaction {
     if (this.signal && this.onAbort) {
       this.signal.removeEventListener("abort", this.onAbort);
       this.onAbort = undefined;
+    }
+    // Restore Message.bytes so TURN 401 retries can re-sign the same object.
+    if (Object.prototype.hasOwnProperty.call(this.request, "bytes")) {
+      // Instance defineProperty must be removed; assignment would shadow the getter.
+      // biome-ignore lint/performance/noDelete: restore prototype Message.bytes getter
+      delete (this.request as { bytes?: Buffer }).bytes;
     }
   }
 }

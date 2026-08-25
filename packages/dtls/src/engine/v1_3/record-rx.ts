@@ -41,37 +41,39 @@ export function handleDatagram(
 
   data: Buffer,
   addr?: [string, number] | { address?: string; port?: number } | string,
-): void {
-  if (this.closed) return;
+): Promise<void> {
+  if (this.closed) return Promise.resolve();
   // Serialize RX so concurrent UDP datagrams cannot race key install / inbox
   const buf = Buffer.from(data);
   const src = addr ?? this.peerFromTransport();
   const peer = peerKeyFromAddr(src);
   const peerAddr = this.addrToTuple(src);
-  this.rxChain = this.rxChain
-    .then(() => this.handleDatagramAsync(buf, peer, peerAddr))
-    .catch((e) => {
-      // ProtocolVersionError / authenticated handshake failures already call fail()
-      // or rethrow after failAuthenticatedHandshake. Unauthenticated errors are
-      // discarded inside handleDatagramAsync and should not reach here often.
-      if (
-        e instanceof ProtocolVersionError ||
-        e instanceof DtlsVersionSelected ||
-        e instanceof DtlsProtocolError ||
-        (e instanceof Error && e.name === "ProtocolVersionError") ||
-        (e instanceof Error && e.name === "DtlsVersionSelected") ||
-        (e instanceof Error && e.name === "DtlsProtocolError") ||
-        (e instanceof Error && (e as any).dtlsAuthenticated === true)
-      ) {
-        try {
-          this.fail(e instanceof Error ? e : new Error(String(e)));
-        } catch {
-          this.onError.execute(e instanceof Error ? e : new Error(String(e)));
-        }
-        return;
+  const processed = this.rxChain.then(() =>
+    this.handleDatagramAsync(buf, peer, peerAddr),
+  );
+  this.rxChain = processed.catch((e) => {
+    // ProtocolVersionError / authenticated handshake failures already call fail()
+    // or rethrow after failAuthenticatedHandshake. Unauthenticated errors are
+    // discarded inside handleDatagramAsync and should not reach here often.
+    if (
+      e instanceof ProtocolVersionError ||
+      e instanceof DtlsVersionSelected ||
+      e instanceof DtlsProtocolError ||
+      (e instanceof Error && e.name === "ProtocolVersionError") ||
+      (e instanceof Error && e.name === "DtlsVersionSelected") ||
+      (e instanceof Error && e.name === "DtlsProtocolError") ||
+      (e instanceof Error && (e as any).dtlsAuthenticated === true)
+    ) {
+      try {
+        this.fail(e instanceof Error ? e : new Error(String(e)));
+      } catch {
+        this.onError.execute(e instanceof Error ? e : new Error(String(e)));
       }
-      log("handleDatagram chain: silent discard", e);
-    });
+      return;
+    }
+    log("handleDatagram chain: silent discard", e);
+  });
+  return this.rxChain;
 }
 
 export async function handleDatagramAsync(

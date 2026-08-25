@@ -1059,7 +1059,7 @@ Explicit peer for this reply. Required pre-cookie so a concurrent
 
 ### udpOnMessage()
 
-> `protected` **udpOnMessage**(`data`, `addr`?): `void`
+> `protected` **udpOnMessage**(`data`, `addr`?): `void` \| `Promise`\<`void`\>
 
 Association inbound dispatcher (UDP onData and carrier.inject).
 
@@ -1082,7 +1082,7 @@ readonly \[`string`, `number`\]
 
 #### Returns
 
-`void`
+`void` \| `Promise`\<`void`\>
 
 #### Overrides
 

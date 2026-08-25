@@ -40,7 +40,7 @@
 
 ### onDataReceived
 
-> **onDataReceived**: [`Event`](Event.md)\<\[`Buffer`\<`ArrayBufferLike`\>\]\>
+> **onDataReceived**: [`Event`](Event.md)\<\[`Buffer`\<`ArrayBufferLike`\>, readonly \[`string`, `number`\]?\]\>
 
 #### Implementation of
 

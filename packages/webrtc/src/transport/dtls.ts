@@ -4,6 +4,13 @@ import { randomUUID } from "crypto";
 import { setTimeout } from "timers/promises";
 import { type Address, Event, type Transport } from "../imports/common";
 
+import { DirectHandshakeCarrier } from "../../../dtls/src/carrier/direct";
+import {
+  createDtlsClientInternal,
+  createDtlsServerInternal,
+} from "../../../dtls/src/internal";
+import type { Connection } from "../../../ice/src";
+import { attachSpedToConnection } from "../../../ice/src/internal/sped";
 import { EventTarget as DomEventTarget } from "../helper";
 import {
   CipherContext,
@@ -49,6 +56,7 @@ import {
   normalizeFingerprintValue,
 } from "../utils";
 import type { RTCIceTransport } from "./ice";
+import { IceSpedTransport } from "./sped";
 
 const log = debug("werift:packages/webrtc/src/transport/dtls.ts");
 
@@ -56,6 +64,11 @@ export interface DtlsTransportConfig {
   debug?: DebugConfig;
   protocolVersions?: readonly DtlsVersion[];
   helloRetryRequest?: boolean;
+  /**
+   * Internal: PeerConfig.sped. Not a DtlsClient public option.
+   * @internal
+   */
+  sped?: boolean;
 }
 
 function formatDtlsVersion(socket?: DtlsSocket) {
@@ -227,66 +240,11 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       ? "dtls-cookie"
       : "ice-authenticated";
 
-    await new Promise<void>(async (r, f) => {
-      if (this.role === "server") {
-        this.dtls = new DtlsServer({
-          cert: this.localCertificate?.certPem,
-          key: this.localCertificate?.privateKey,
-          signatureHash: this.localCertificate?.signatureHash,
-          transport: createIceTransport(this.iceTransport.connection),
-          srtpProfiles: this.srtpProfiles,
-          extendedMasterSecret: true,
-          certificateRequest: true,
-          protocolVersions: this.config.protocolVersions,
-          // ICE selected pair is already peer-authenticated (no UDP 5-tuple).
-          peerIdentityMode: "authenticated-single-peer",
-          addressValidation,
-        });
-      } else {
-        this.dtls = new DtlsClient({
-          cert: this.localCertificate?.certPem,
-          key: this.localCertificate?.privateKey,
-          signatureHash: this.localCertificate?.signatureHash,
-          transport: createIceTransport(this.iceTransport.connection),
-          srtpProfiles: this.srtpProfiles,
-          extendedMasterSecret: true,
-          protocolVersions: this.config.protocolVersions,
-          peerIdentityMode: "authenticated-single-peer",
-          addressValidation,
-        });
-      }
-      this.dtls.onData.subscribe((buf) => {
-        if (
-          this.config.debug?.inboundPacketLoss &&
-          this.config.debug?.inboundPacketLoss / 100 < Math.random()
-        ) {
-          return;
-        }
-        this.dataReceiver(buf);
-      });
-      this.dtls.onClose.subscribe(() => {
-        if (this.state !== "failed") {
-          this.setState("closed");
-        }
-      });
-      this.dtls.onConnect.once(r);
-      this.dtls.onError.once((error) => {
-        this.lastError = error;
-        this.setState("failed");
-        log("dtls failed", error);
-        f(error);
-      });
-
-      if (this.dtls instanceof DtlsClient) {
-        await setTimeout(100);
-        this.dtls.connect().catch((error) => {
-          this.lastError = error;
-          this.setState("failed");
-          log("dtls connect failed", error);
-          f(error);
-        });
-      }
-    });
+    if (this.config.sped) {
+      await this.startWithSped(addressValidation);
+    } else {
+      await this.startSerial(addressValidation);
+    }
 
     try {
       this.verifyRemoteCertificateFingerprint();
@@ -304,6 +262,144 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     this.setState("connected");
 
     log("dtls connected");
+  }
+
+  private async startSerial(
+    addressValidation: "dtls-cookie" | "ice-authenticated",
+  ) {
+    await new Promise<void>(async (r, f) => {
+      if (this.role === "server") {
+        this.dtls = new DtlsServer({
+          cert: this.localCertificate?.certPem,
+          key: this.localCertificate?.privateKey,
+          signatureHash: this.localCertificate?.signatureHash,
+          transport: createIceTransport(this.iceTransport.connection),
+          srtpProfiles: this.srtpProfiles,
+          extendedMasterSecret: true,
+          certificateRequest: true,
+          protocolVersions: this.config.protocolVersions,
+          peerIdentityMode: "authenticated-single-peer",
+          addressValidation,
+        });
+      } else {
+        this.dtls = new DtlsClient({
+          cert: this.localCertificate?.certPem,
+          key: this.localCertificate?.privateKey,
+          signatureHash: this.localCertificate?.signatureHash,
+          transport: createIceTransport(this.iceTransport.connection),
+          srtpProfiles: this.srtpProfiles,
+          extendedMasterSecret: true,
+          protocolVersions: this.config.protocolVersions,
+          peerIdentityMode: "authenticated-single-peer",
+          addressValidation,
+        });
+      }
+      this.bindDtlsSocketEvents(r, f);
+
+      if (this.dtls instanceof DtlsClient) {
+        await setTimeout(100);
+        this.dtls.connect().catch((error) => {
+          this.lastError = error;
+          this.setState("failed");
+          log("dtls connect failed", error);
+          f(error);
+        });
+      }
+    });
+  }
+
+  private async startWithSped(
+    addressValidation: "dtls-cookie" | "ice-authenticated",
+  ) {
+    const ice = this.iceTransport.connection as Connection;
+    const transport = new IceSpedTransport(ice);
+    const carrier = new DirectHandshakeCarrier(transport);
+    carrier.setWireSendEnabled(false);
+    carrier.setRetransmissionMode("external");
+
+    const handle = attachSpedToConnection(ice, {
+      inject: (bytes, peer) =>
+        carrier.inject(bytes, peer ? [peer[0], peer[1]] : undefined),
+      onFallbackFlight: async () => {
+        carrier.setWireSendEnabled(true);
+      },
+      onHandshakeComplete: () => {
+        carrier.setWireSendEnabled(true);
+        transport.markApplicationReady();
+      },
+      setRetransmissionMode: (mode) => carrier.setRetransmissionMode(mode),
+      updateRtt: (rttMs) => carrier.updateRtt(rttMs),
+      setMtu: (mtu) => carrier.setMtu(mtu),
+    });
+    transport.setRuntime(handle.runtime);
+
+    carrier.events.onFlightCreated = (_flightId, packets) => {
+      handle.onFlightCreated(packets.map((packet) => packet.bytes));
+    };
+
+    const common = {
+      cert: this.localCertificate?.certPem,
+      key: this.localCertificate?.privateKey,
+      signatureHash: this.localCertificate?.signatureHash,
+      transport,
+      srtpProfiles: this.srtpProfiles,
+      extendedMasterSecret: true,
+      protocolVersions: this.config.protocolVersions,
+      peerIdentityMode: "authenticated-single-peer" as const,
+      addressValidation,
+      handshakeCarrier: carrier,
+    };
+
+    await new Promise<void>(async (r, f) => {
+      if (this.role === "server") {
+        this.dtls = createDtlsServerInternal({
+          ...common,
+          certificateRequest: true,
+        });
+      } else {
+        this.dtls = createDtlsClientInternal(common);
+      }
+      this.bindDtlsSocketEvents(r, f);
+      this.dtls.onConnect.once(() => {
+        handle.onHandshakeComplete();
+      });
+
+      if (this.dtls instanceof DtlsClient) {
+        this.dtls.connect().catch((error) => {
+          this.lastError = error;
+          this.setState("failed");
+          log("dtls connect failed", error);
+          f(error);
+        });
+      }
+    });
+  }
+
+  private bindDtlsSocketEvents(r: () => void, f: (error: Error) => void) {
+    if (!this.dtls) {
+      return;
+    }
+    this.dtls.onData.subscribe((buf) => {
+      if (
+        this.config.debug?.inboundPacketLoss &&
+        this.config.debug?.inboundPacketLoss / 100 < Math.random()
+      ) {
+        return;
+      }
+      this.dataReceiver(buf);
+    });
+    this.dtls.onClose.subscribe(() => {
+      if (this.state !== "failed") {
+        this.setState("closed");
+      }
+    });
+    this.dtls.onConnect.once(r);
+    this.dtls.onError.once((error) => {
+      this.lastError = error;
+      this.setState("failed");
+      log("dtls failed", error);
+      f(error);
+    });
   }
 
   private verifyRemoteCertificateFingerprint() {
