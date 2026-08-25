@@ -65,4 +65,39 @@ describe("IceSpedTransport datagram gate", () => {
     expect(received).toHaveLength(1);
     expect(received[0]!.equals(dtls)).toBe(true);
   });
+
+  it("WAITING でも requestsReceived がある認証済み pair の DTLS を渡す", () => {
+    // Arrange: nomination 前・Binding Response 未受信の TCP/UDP 共通経路
+    const ice = createIceStub(1);
+    const transport = new IceSpedTransport(ice);
+    const received: Buffer[] = [];
+    transport.onData = (buf) => {
+      received.push(buf);
+    };
+    const protocol = {
+      type: "tcp",
+      localCandidate: new Candidate("f", 1, "tcp", 1, "1.2.3.4", 1, "host"),
+    } as any;
+    const pair = new CandidatePair(
+      protocol,
+      new Candidate("r", 1, "tcp", 1, "9.9.9.9", 9, "host"),
+      true,
+    );
+    pair.requestsReceived = 1;
+    const dtls = Buffer.from([22, 9, 8, 7]);
+
+    // Act: ice.ts と同じ authenticated 条件を満たす datagram を流す
+    ice.onDatagram.execute({
+      bytes: dtls,
+      source: ["9.9.9.9", 9],
+      protocol,
+      pair,
+      generation: 1,
+      authenticated: true,
+    });
+
+    // Assert: pre-nomination の raw DTLS が IceSpedTransport に届く
+    expect(received).toHaveLength(1);
+    expect(received[0]!.equals(dtls)).toBe(true);
+  });
 });

@@ -30,7 +30,10 @@ import {
   validateAddress,
   validateRemoteCandidate,
 } from "./iceBase";
-import type { IceDatagramContext } from "./internal/datagram";
+import {
+  type IceDatagramContext,
+  isAuthenticatedHandshakePair,
+} from "./internal/datagram";
 import { DTLS_IN_STUN_DATA } from "./sped/draft00/constants";
 import type { SpedRuntime } from "./sped/runtime";
 import { classes, methods } from "./stun/const";
@@ -239,12 +242,7 @@ export class Connection implements IceConnection {
     if (generation !== this.generation) {
       return;
     }
-    const authenticated =
-      pair.nominated ||
-      pair.state === CandidatePairState.SUCCEEDED ||
-      pair.responsesReceived > 0 ||
-      pair.requestsReceived > 0;
-    if (!authenticated) {
+    if (!isAuthenticatedHandshakePair(pair)) {
       return;
     }
     await pair.protocol.sendData(bytes, pair.remoteAddr);
@@ -348,12 +346,7 @@ export class Connection implements IceConnection {
         const pair = addr
           ? this.findPairByAddr(protocol, addr)
           : this.checkList.find((candidate) => candidate.protocol === protocol);
-        const authenticated = !!(
-          pair &&
-          (pair.nominated ||
-            pair.state === CandidatePairState.SUCCEEDED ||
-            pair.responsesReceived > 0)
-        );
+        const authenticated = !!(pair && isAuthenticatedHandshakePair(pair));
         this.onDatagram.execute({
           bytes: data,
           source: addr ?? pair?.remoteAddr ?? ["0.0.0.0", 0],

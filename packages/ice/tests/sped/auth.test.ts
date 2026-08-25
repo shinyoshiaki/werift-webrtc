@@ -1,5 +1,5 @@
 import type { Address } from "../../../common/src";
-import { CandidatePair } from "../../src";
+import { CandidatePair, CandidatePairState } from "../../src";
 import { Candidate } from "../../src/candidate";
 import { attachSpedToConnection } from "../../src/internal/sped";
 import { DTLS_IN_STUN_DATA } from "../../src/sped/draft00/constants";
@@ -203,5 +203,47 @@ describe("ICE Binding Request 認証境界", () => {
     expect(result.fallback).toBe(false);
     expect(handle.session.peerSupport).toBe("unknown");
     expect(handle.session.l2Crcs).toHaveLength(0);
+  });
+
+  it("認証済み Binding Request 直後の WAITING pair は raw DTLS を通す", async () => {
+    // Arrange: checkList を空でない状態にして checkIncoming を走らせる
+    const connection = createTestConnection(true);
+    const protocol = new SpedProtocolMock();
+    (connection as any).ensureProtocol(protocol);
+    const dummy = new CandidatePair(
+      protocol,
+      new Candidate("d", 1, "udp", 1, "8.8.8.8", 1, "host"),
+      true,
+    );
+    dummy.updateState(CandidatePairState.WAITING);
+    connection.checkList.push(dummy);
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request
+      .setAttribute("USERNAME", `${connection.localUsername}:remote`)
+      .setAttribute("PRIORITY", 1)
+      .setAttribute("ICE-CONTROLLED", 1n)
+      .addMessageIntegrity(Buffer.from(connection.localPassword))
+      .addFingerprint();
+    const seen: boolean[] = [];
+    connection.onDatagram.subscribe((ctx) => {
+      seen.push(ctx.authenticated);
+    });
+
+    // Act: 認証済み request で pair を作り、triggered check 完了前の WAITING に戻して DTLS を流す
+    protocol.onRequestReceived.execute(request, ["1.2.3.4", 9], request.bytes);
+    await new Promise((r) => setTimeout(r, 30));
+    const pair = connection.checkList.find(
+      (item) => item.remoteAddr[0] === "1.2.3.4" && item.remoteAddr[1] === 9,
+    );
+    expect(pair).toBeDefined();
+    expect(pair!.requestsReceived).toBeGreaterThan(0);
+    pair!.updateState(CandidatePairState.WAITING);
+    pair!.responsesReceived = 0;
+    protocol.onDataReceived.execute(Buffer.from([22, 1, 2, 3]), ["1.2.3.4", 9]);
+
+    // Assert: Binding Request 受信だけで inbound DTLS を通す（送信経路と同じ）
+    expect(pair!.state).toBe(CandidatePairState.WAITING);
+    expect(pair!.responsesReceived).toBe(0);
+    expect(seen).toEqual([true]);
   });
 });

@@ -1,4 +1,4 @@
-import type { CandidatePair } from "../iceBase";
+import { type CandidatePair, CandidatePairState } from "../iceBase";
 import type { Address } from "../imports/common";
 import type { Protocol } from "../types/model";
 
@@ -13,6 +13,20 @@ export interface IceDatagramContext {
   pair?: CandidatePair;
   generation: number;
   authenticated: boolean;
+}
+
+/**
+ * Same 5-tuple auth used for handshake send and inbound direct DTLS.
+ * Binding Request receipt (`requestsReceived`) counts: the pair may still be
+ * WAITING with no Binding Response yet.
+ */
+export function isAuthenticatedHandshakePair(pair: CandidatePair): boolean {
+  return (
+    pair.nominated ||
+    pair.state === CandidatePairState.SUCCEEDED ||
+    pair.responsesReceived > 0 ||
+    pair.requestsReceived > 0
+  );
 }
 
 /**

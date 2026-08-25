@@ -1,8 +1,9 @@
-import { CandidatePair } from "../../src";
+import { CandidatePair, CandidatePairState } from "../../src";
 import { Candidate } from "../../src/candidate";
 import {
   type IceDatagramContext,
   allowsAuthenticatedDtlsDelivery,
+  isAuthenticatedHandshakePair,
 } from "../../src/internal/datagram";
 import { SpedProtocolMock } from "./helpers";
 
@@ -92,5 +93,23 @@ describe("allowsAuthenticatedDtlsDelivery", () => {
         1,
       ),
     ).toBe(false);
+  });
+});
+
+describe("isAuthenticatedHandshakePair", () => {
+  it("WAITING でも認証済み Binding Request 受信後は true", () => {
+    // Arrange
+    const protocol = new SpedProtocolMock();
+    const pair = new CandidatePair(
+      protocol,
+      new Candidate("f", 1, "udp", 1, "9.9.9.9", 9, "host"),
+      true,
+    );
+    pair.updateState(CandidatePairState.WAITING);
+
+    // Act / Assert: 送信経路と同じ。responsesReceived が 0 でも request 受信で通す
+    expect(isAuthenticatedHandshakePair(pair)).toBe(false);
+    pair.requestsReceived = 1;
+    expect(isAuthenticatedHandshakePair(pair)).toBe(true);
   });
 });
