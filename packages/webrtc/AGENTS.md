@@ -8,7 +8,7 @@ Instructions for coding agents working in `packages/webrtc`.
 
 * Applies to `src`, `tests`, `tools/wpt-runner`, and package-local docs.
 * This package is the main public WebRTC API (`RTCPeerConnection`, media, data channel).
-* Optional `werift/polyfill` (`src/polyfill`) installs browser globals and `getUserMedia` via `mediaRegister`; it is not re-exported from `src/index.ts`. On Node it also complements a missing or `Node.js/<major>` `navigator.userAgent` so `mediasoup-client` can autodetect Chrome111 without `handlerName`.
+* Optional `werift/polyfill` (`src/polyfill`) installs browser globals and `getUserMedia` via `mediaRegister`; it is not re-exported from `src/index.ts`. On Node it also complements a missing or `Node.js/<major>` `navigator.userAgent` so a browser Handler such as mediasoup-client Chrome111 can autodetect without `handlerName`. Verify that control flow with `cd ../../integration/werift-mediasoup-interop && npm run test:small`.
 * Lower-level protocol packages (`ice`, `dtls`, `rtp`, `sctp`, `common`) are dependencies; prefer fixing protocol bugs in those packages when the root cause lives there.
 * Upstream WPT harness code lives under `tools/wpt-runner/` and must not leak stricter shims into default `src` behavior.
 
@@ -42,6 +42,7 @@ Memleak details, env vars, and report interpretation: `tests/memleak/README.md`.
 ## Validation
 
 * Logic changes in `src`: `npm run type` and relevant `npm test` paths.
+* Polyfill User-Agent or mediasoup-client Handler autodetect: `cd ../../integration/werift-mediasoup-interop && npm run type && npm run test:small`.
 * Memleak harness changes: short smoke with reduced env (see `tests/memleak/README.md`), then optional full `npm run memleak`.
 * WPT runner / allowlist: `npm run wpt`.
 

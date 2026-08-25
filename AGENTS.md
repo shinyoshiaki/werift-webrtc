@@ -55,7 +55,7 @@ If a rule applies only to a specific package or subdirectory, put it in the near
 | type-check workspace         | `npm run type`        |
 | run allowlisted upstream WPT | `npm run wpt`         |
 | measure WPT coverage         | `npm run wpt:coverage` |
-| mediasoup source interop fixture | `cd integration/werift-mediasoup-interop && npm ci && npm test` |
+| mediasoup interop fixture (small / all) | `cd integration/werift-mediasoup-interop && npm ci && npm run type && npm run test:small` / `npm test` |
 | format code                  | `npm run format`      |
 | regenerate docs              | `npm run doc`         |
 | memory leak test (webrtc, local only) | `cd packages/webrtc && npm run memleak` |
@@ -75,7 +75,7 @@ For targeted work, prefer the narrowest package command first, for example:
 * Browser interop, examples, or signaling flow changes: run the relevant example and/or `npm run e2e` when feasible.
 * Test code changes: confirm shared Arrange utilities remain reusable and appropriately scoped, and review that Act / Assert comments are present at a useful Japanese granularity.
 * Infrastructure-backed E2E changes: run the targeted scenario with its required opt-in environment flag before finishing, so the real dependency path is exercised.
-* Mediasoup interop fixture changes: initialize submodules, then run `npm ci`, `npm run type`, and `npm test` in `integration/werift-mediasoup-interop`. Repeat `npm test` when changing polyfill/worker sharing or runner isolation.
+* Mediasoup interop fixture changes: initialize submodules, then run `npm ci`, `npm run type`, and `npm run test:small` in `integration/werift-mediasoup-interop`. Run `npm test` when changing worker, transport, RTP, or DataChannel interop. Repeat `npm test` when changing polyfill/worker sharing or runner isolation.
 
 ## Maintenance
 

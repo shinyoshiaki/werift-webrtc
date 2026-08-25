@@ -71,4 +71,5 @@ jobs:
         run: |
           npm ci
           npm run type
+          npm run test:small
           npm test

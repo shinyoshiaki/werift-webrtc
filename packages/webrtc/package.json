@@ -67,9 +67,6 @@
     "multicast-dns": "^7.2.5",
     "tweetnacl": "^1.0.3"
   },
-  "devDependencies": {
-    "mediasoup-client": "3.16.4"
-  },
   "engines": {
     "node": ">=16"
   },
