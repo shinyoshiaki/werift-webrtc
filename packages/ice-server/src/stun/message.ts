@@ -83,6 +83,20 @@ export function parseMessage(
     }
 
     const attribute = ATTRIBUTES_BY_TYPE[attrType];
+    // RFC 8489 §9: ignore every attribute after MESSAGE-INTEGRITY except
+    // MESSAGE-INTEGRITY-SHA256 and FINGERPRINT. Do not unpack ignored
+    // attributes; a malformed trailing attribute must not fail the message.
+    if (integrityKey && messageIntegrityVerified) {
+      const attrName = attribute?.[1];
+      if (
+        attrName !== "FINGERPRINT" &&
+        attrName !== "MESSAGE-INTEGRITY-SHA256"
+      ) {
+        pos = valueEnd + padLen;
+        continue;
+      }
+    }
+
     if (attribute) {
       const [, attrName, , attrUnpack] = attribute;
       let value: unknown;
@@ -94,27 +108,14 @@ export function parseMessage(
       } catch {
         return undefined;
       }
-      const isFingerprint = attrName === "FINGERPRINT";
-      const isMessageIntegrity =
-        attrName === "MESSAGE-INTEGRITY" ||
-        attrName === "MESSAGE-INTEGRITY-SHA256";
-      // RFC 8489: only FINGERPRINT may follow MESSAGE-INTEGRITY. Authenticated
-      // parse must not publish later attributes (including SPED DATA/ACK).
-      const publishKnown =
-        !integrityKey ||
-        !messageIntegrityVerified ||
-        isFingerprint ||
-        isMessageIntegrity;
-      if (publishKnown) {
-        attributeRepository.setAttribute(attrName as AttributeKey, value);
-        wireAttributes.push({
-          kind: "known",
-          name: attrName as AttributeKey,
-          value,
-        });
-      }
+      attributeRepository.setAttribute(attrName as AttributeKey, value);
+      wireAttributes.push({
+        kind: "known",
+        name: attrName as AttributeKey,
+        value,
+      });
 
-      if (isFingerprint) {
+      if (attrName === "FINGERPRINT") {
         const fingerprint = messageFingerprint(data.slice(0, pos));
         if (value !== fingerprint) {
           return undefined;
@@ -126,7 +127,7 @@ export function parseMessage(
         }
         messageIntegrityVerified = true;
       }
-    } else if (!(integrityKey && messageIntegrityVerified)) {
+    } else {
       wireAttributes.push({
         kind: "raw",
         type: attrType,

@@ -246,4 +246,43 @@ describe("STUN wire attribute order", () => {
     expect(parsed!.getRawAttributeValue(DTLS_IN_STUN_DATA)).toBeUndefined();
     expect(parsed!.getRawAttributeValue(DTLS_IN_STUN_ACK)).toBeUndefined();
   });
+
+  it("認証付き parse は MESSAGE-INTEGRITY 後の通常 MI を無視する", () => {
+    // Arrange: 検証済み MI の後ろに HMAC が合わない MI を置く
+    const request = buildSignedBindingWithoutSped(key, false);
+    const firstIntegrity = request.getAttributeValue("MESSAGE-INTEGRITY");
+    const tampered = appendFingerprint(
+      Buffer.concat([
+        request.bytes,
+        serializeRawAttribute(0x0008, Buffer.alloc(20, 0xff)),
+      ]),
+    );
+
+    // Act
+    const parsed = parseMessage(tampered, key);
+
+    // Assert: 2 つ目の MI を再検証せず、最初の HMAC だけを残す
+    expect(parsed).toBeDefined();
+    expect(parsed!.getAttributeValue("MESSAGE-INTEGRITY")).toEqual(
+      firstIntegrity,
+    );
+  });
+
+  it("認証付き parse は MESSAGE-INTEGRITY 後の malformed known で失敗しない", () => {
+    // Arrange: unpack が throw する XOR-MAPPED-ADDRESS を MI 後へ置く
+    const request = buildSignedBindingWithoutSped(key, false);
+    const tampered = appendFingerprint(
+      Buffer.concat([
+        request.bytes,
+        serializeRawAttribute(0x0020, Buffer.from([0x01])),
+      ]),
+    );
+
+    // Act
+    const parsed = parseMessage(tampered, key);
+
+    // Assert: 認証済みメッセージ全体を落とさず、malformed 属性は公開しない
+    expect(parsed).toBeDefined();
+    expect(parsed!.attributesKeys).not.toContain("XOR-MAPPED-ADDRESS");
+  });
 });
