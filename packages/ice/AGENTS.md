@@ -35,11 +35,13 @@ Instructions for coding agents working in `packages/ice`.
 | format package | `npm run format` |
 | pion TURN interop (opt-in) | `npm run test:pion-turn` |
 | pion SPED wire codec (opt-in) | `npm test -- pion-sped` |
+| pion ICE agent fallback (opt-in) | `npm test --workspace packages/webrtc -- sped-pion-ice` |
 
 ## Validation
 
 * STUN / ICE logic: `npm run type` and `npm test`.
 * Opt-in Pion SPED codec: set `WERIFT_PION_SPED` to the wrapper binary (see `tools/pion-sped/README.md`).
+* Opt-in released Pion ICE agent fallback: build `tools/pion-ice-agent` and/or set `WERIFT_PION_ICE_AGENT` (see `tools/pion-ice-agent/README.md`). The webrtc integrate test auto-builds the agent when `go` is available.
 
 ## Maintenance
 

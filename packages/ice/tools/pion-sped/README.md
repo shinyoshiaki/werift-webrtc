@@ -1,8 +1,8 @@
 # pion-sped wire wrapper
 
-Opt-in codec interop against **pion/stun v3.1.7** and **pion/ice v4.4.1** `sped.go` (encode/decode only; no agent SPED).
+Opt-in codec interop against **pion/stun v3.1.7** and **pion/ice v4.4.1** `sped.go` (encode/decode/verify). Released Pion ICE agents do not send SPED; fallback against a real agent is `../pion-ice-agent`.
 
-The test runner uses `WERIFT_PION_SPED` if set, otherwise `./pion-sped` next to this README. A compatible CLI is also provided at `/usr/local/bin/pion-sped` in some environments.
+The test runner uses `WERIFT_PION_SPED` when set, otherwise `./pion-sped` next to this README. The environment variable always wins even if a local binary exists. A compatible CLI is also provided at `/usr/local/bin/pion-sped` in some environments.
 
 ## CLI
 
@@ -11,6 +11,7 @@ pion-sped check
 pion-sped version
 pion-sped encode [-data hex] [-ack crc32hex,...] [-empty-ack] [-integrity-key password]
 pion-sped decode <stun-message-hex>
+pion-sped verify -integrity-key password <stun-message-hex>
 ```
 
 ## Build

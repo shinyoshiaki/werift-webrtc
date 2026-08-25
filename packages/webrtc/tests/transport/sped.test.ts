@@ -1,21 +1,19 @@
-import { Event } from "../../../common/src";
 import type { Connection } from "../../../ice/src";
 import { CandidatePair } from "../../../ice/src";
 import { Candidate } from "../../../ice/src/candidate";
-import type { IceDatagramContext } from "../../../ice/src/internal/datagram";
+import {
+  type IceDatagramContext,
+  connectionDatagramEvent,
+} from "../../../ice/src/internal/datagram";
 import { IceSpedTransport } from "../../src/transport/sped";
 
 function createIceStub(generation = 1) {
   const ice = {
     generation,
-    onDatagram: new Event<[IceDatagramContext]>(),
     nominated: undefined,
     send: async () => {},
   };
-  return ice as unknown as Connection & {
-    generation: number;
-    onDatagram: Event<[IceDatagramContext]>;
-  };
+  return ice as unknown as Connection;
 }
 
 describe("IceSpedTransport datagram gate", () => {
@@ -47,16 +45,17 @@ describe("IceSpedTransport datagram gate", () => {
     };
 
     // Act: 許可コンテキストのあと、不正 source / 未認証 / 非 DTLS を流す
-    ice.onDatagram.execute(allowed);
-    ice.onDatagram.execute({
+    const datagram = connectionDatagramEvent(ice);
+    datagram.execute(allowed);
+    datagram.execute({
       ...allowed,
       source: ["8.8.8.8", 9],
     });
-    ice.onDatagram.execute({
+    datagram.execute({
       ...allowed,
       authenticated: false,
     });
-    ice.onDatagram.execute({
+    datagram.execute({
       ...allowed,
       bytes: Buffer.from([0x00, 0x01]),
     });
@@ -87,7 +86,7 @@ describe("IceSpedTransport datagram gate", () => {
     const dtls = Buffer.from([22, 9, 8, 7]);
 
     // Act: ice.ts と同じ authenticated 条件を満たす datagram を流す
-    ice.onDatagram.execute({
+    connectionDatagramEvent(ice).execute({
       bytes: dtls,
       source: ["9.9.9.9", 9],
       protocol,

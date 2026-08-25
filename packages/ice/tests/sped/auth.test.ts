@@ -1,6 +1,7 @@
 import type { Address } from "../../../common/src";
 import { CandidatePair, CandidatePairState } from "../../src";
 import { Candidate } from "../../src/candidate";
+import { connectionDatagramEvent } from "../../src/internal/datagram";
 import { attachSpedToConnection } from "../../src/internal/sped";
 import { DTLS_IN_STUN_DATA } from "../../src/sped/draft00/constants";
 import { classes, methods } from "../../src/stun/const";
@@ -225,7 +226,7 @@ describe("ICE Binding Request 認証境界", () => {
       .addMessageIntegrity(Buffer.from(connection.localPassword))
       .addFingerprint();
     const seen: boolean[] = [];
-    connection.onDatagram.subscribe((ctx) => {
+    connectionDatagramEvent(connection).subscribe((ctx) => {
       seen.push(ctx.authenticated);
     });
 

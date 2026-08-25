@@ -2,6 +2,7 @@ import { CandidatePair, CandidatePairState } from "../../src";
 import { Candidate } from "../../src/candidate";
 import { TransactionTimeout } from "../../src/exceptions";
 import { attachSpedToConnection } from "../../src/internal/sped";
+import { DTLS_IN_STUN_DATA } from "../../src/sped/draft00/constants";
 import { classes, methods } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
 import { createTestConnection } from "../utils";
@@ -165,6 +166,88 @@ describe("ICE restart と SPED carry", () => {
 
     // Assert: timeout 1 回で止まり、L1 は consent / check に残す
     expect(requests).toBe(1);
+    expect(handle.session.hasL1).toBe(true);
+  });
+});
+
+describe("SPED abort", () => {
+  function hooks() {
+    const calls = { reset: 0, abort: 0 };
+    return {
+      calls,
+      hooks: {
+        inject: async () => {},
+        onFallbackFlight: async () => {},
+        onSessionReset: () => {
+          calls.reset++;
+        },
+        onSessionAbort: () => {
+          calls.abort++;
+        },
+        setRetransmissionMode: () => {},
+        updateRtt: () => {},
+        setMtu: () => {},
+      },
+    };
+  }
+
+  it("ICE failed は session を disabled にし decorate しない", async () => {
+    // Arrange
+    const connection = createTestConnection(true);
+    const { calls, hooks: spedHooks } = hooks();
+    const handle = attachSpedToConnection(connection, spedHooks);
+    handle.onFlightCreated([Buffer.from([22, 1, 2])]);
+    const protocol = new SpedProtocolMock();
+    (connection as any).ensureProtocol(protocol);
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request.setAttribute("USERNAME", "a:b").setAttribute("PRIORITY", 1);
+
+    // Act: failed は pending L1 を捨て embedding を止める
+    (connection as any).setState("failed");
+    expect(handle.runtime.decorateOutgoing(request, protocol)).toBe(true);
+
+    // Assert
+    expect(handle.session.state).toBe("disabled");
+    expect(handle.session.embedding).toBe(false);
+    expect(handle.session.hasL1).toBe(false);
+    expect(request.getRawAttributeValue(DTLS_IN_STUN_DATA)).toBeUndefined();
+    expect(calls.abort).toBe(1);
+    expect(calls.reset).toBe(0);
+  });
+
+  it("Connection.close は abort する", async () => {
+    // Arrange
+    const connection = createTestConnection(true);
+    const { calls, hooks: spedHooks } = hooks();
+    const handle = attachSpedToConnection(connection, spedHooks);
+    handle.onFlightCreated([Buffer.from([22, 4])]);
+
+    // Act
+    await connection.close();
+
+    // Assert
+    expect(handle.session.state).toBe("disabled");
+    expect(handle.session.embedding).toBe(false);
+    expect(handle.session.hasL1).toBe(false);
+    expect(calls.abort).toBeGreaterThanOrEqual(1);
+    expect(calls.reset).toBe(0);
+  });
+
+  it("abort 後の ICE restart は probing に戻る", async () => {
+    // Arrange
+    const connection = createTestConnection(true);
+    const handle = attachSpedToConnection(connection, hooks().hooks);
+    handle.onFlightCreated([Buffer.from([22, 4])]);
+    (connection as any).setState("failed");
+    expect(handle.session.embedding).toBe(false);
+
+    // Act
+    await connection.restart();
+    handle.session.replaceL1([Buffer.from([22, 5])]);
+
+    // Assert
+    expect(handle.session.state).toBe("probing");
+    expect(handle.session.embedding).toBe(true);
     expect(handle.session.hasL1).toBe(true);
   });
 });

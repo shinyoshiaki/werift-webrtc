@@ -12,11 +12,8 @@ import { classes, methods } from "../../src/stun/const";
 import { Message, parseMessage } from "../../src/stun/message";
 
 const localBin = join(process.cwd(), "tools/pion-sped/pion-sped");
-const bin = existsSync(localBin)
-  ? localBin
-  : (process.env.WERIFT_PION_SPED ?? localBin);
-const describePion =
-  existsSync(bin) || process.env.WERIFT_PION_SPED ? describe : describe.skip;
+const bin = process.env.WERIFT_PION_SPED ?? localBin;
+const describePion = existsSync(bin) ? describe : describe.skip;
 
 function pion(args: string[]) {
   return execFileSync(bin, args, { encoding: "utf8" }).trim();
@@ -107,8 +104,21 @@ describePion("pion SPED wire codec (opt-in)", () => {
       .addMessageIntegrity(Buffer.from(password))
       .addFingerprint();
 
-    // Act
-    const decoded = pion(["decode", msg.bytes.toString("hex")]);
+    // Act: pion は werift 署名を HMAC-SHA1 で検証し、werift は pion 署名を検証する
+    const verified = pion([
+      "verify",
+      "-integrity-key",
+      password,
+      msg.bytes.toString("hex"),
+    ]);
+    expect(() =>
+      pion([
+        "verify",
+        "-integrity-key",
+        "wrong-password",
+        msg.bytes.toString("hex"),
+      ]),
+    ).toThrow();
     const fromPion = pion([
       "encode",
       "-data",
@@ -125,9 +135,8 @@ describePion("pion SPED wire codec (opt-in)", () => {
       Buffer.from("wrong-password"),
     );
 
-    // Assert: MI が DATA の後。誤鍵では parse できない
-    expect(decoded).toMatch(/type=0xC070/i);
-    expect(decoded).toMatch(/type=0x0008/i);
+    // Assert: 両方向の正しい鍵だけが通り、誤鍵は失敗する
+    expect(verified).toMatch(/MESSAGE-INTEGRITY OK/);
     expect(parsedOk).toBeDefined();
     expect(
       parsedOk!.getRawAttributeValue(DTLS_IN_STUN_DATA)?.toString("hex"),

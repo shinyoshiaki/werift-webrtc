@@ -1,7 +1,19 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import type { Connection } from "../../../ice/src";
+import { getConnectionSpedRuntime } from "../../../ice/src/internal/sped-bind";
 import { paddingLength } from "../../../ice/src/stun/message";
 import { encodeTcpFrame } from "../../../ice/src/stun/tcpFrame";
 import type { Protocol } from "../../../ice/src/types/model";
-import { DtlsVersion, type RTCDataChannel, RTCPeerConnection } from "../../src";
+import {
+  DtlsVersion,
+  HashAlgorithm,
+  RTCCertificate,
+  type RTCDataChannel,
+  RTCPeerConnection,
+  SignatureAlgorithm,
+} from "../../src";
 import {
   awaitMessage,
   createDataChannelPair,
@@ -15,13 +27,66 @@ const MESSAGE_INTEGRITY = 0x0008;
 const FINGERPRINT = 0x8028;
 
 const spedPeerConfig = (
-  extra: { iceUseTcp?: boolean; iceLite?: boolean } = {},
+  extra: {
+    iceUseTcp?: boolean;
+    iceLite?: boolean;
+    iceAdditionalHostAddresses?: string[];
+    certificates?: RTCCertificate[];
+  } = {},
 ) => ({
   iceServers: [] as { urls: string }[],
   sped: true,
   dtls: { protocolVersions: [DtlsVersion.V1_3] as const },
   ...extra,
 });
+
+async function waitUntil(predicate: () => boolean, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) {
+      throw new Error("waitUntil timeout");
+    }
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
+function iceOf(pc: RTCPeerConnection) {
+  return pc.iceTransports[0]!.connection as Connection;
+}
+
+const hookedL1Sessions = new WeakSet<object>();
+
+function captureL1Flights(pc: RTCPeerConnection, flights: Buffer[][]) {
+  const hook = () => {
+    const ice = pc.iceTransports[0]?.connection as Connection | undefined;
+    if (!ice) {
+      return false;
+    }
+    const runtime = getConnectionSpedRuntime(ice);
+    if (!runtime || hookedL1Sessions.has(runtime.session)) {
+      return !!runtime;
+    }
+    hookedL1Sessions.add(runtime.session);
+    if (runtime.session.hasL1) {
+      flights.push(runtime.session.l1Datagrams);
+    }
+    const original = runtime.session.replaceL1.bind(runtime.session);
+    runtime.session.replaceL1 = (packets) => {
+      flights.push(packets.map((packet) => Buffer.from(packet)));
+      original(packets);
+    };
+    return true;
+  };
+  if (hook()) {
+    return () => {};
+  }
+  const id = setInterval(() => {
+    if (hook()) {
+      clearInterval(id);
+    }
+  }, 1);
+  return () => clearInterval(id);
+}
 
 function stunAttributeTypes(bytes: Buffer): number[] {
   const types: number[] = [];
@@ -55,27 +120,52 @@ function isStunBindingRequest(bytes: Buffer): boolean {
   return bytes.length >= 2 && bytes.readUInt16BE(0) === 0x0001;
 }
 
+type HoldFirstNonEmptyData = {
+  message?: Parameters<Protocol["sendStun"]>[0];
+  addr?: Parameters<Protocol["sendStun"]>[1];
+  /** When true, the held Binding is never released (stale restart DATA). */
+  discard?: boolean;
+};
+
+type WireSpyOptions = {
+  tcpFrames?: Buffer[];
+  dropFirstNonEmptyData?: { remaining: number };
+  duplicateFirstNonEmptyData?: { remaining: number };
+  holdFirstNonEmptyData?: HoldFirstNonEmptyData;
+};
+
+const spiedProtocols = new WeakSet<object>();
+const spiedIceSend = new WeakSet<object>();
+
 function spyConnectionWire(
   pc: RTCPeerConnection,
   stun: Buffer[],
   handshakeDtls: Buffer[],
-  options: {
-    tcpFrames?: Buffer[];
-    dropFirstNonEmptyData?: { remaining: number };
-    duplicateFirstNonEmptyData?: { remaining: number };
-    holdFirstNonEmptyData?: {
-      message?: Parameters<Protocol["sendStun"]>[0];
-      addr?: Parameters<Protocol["sendStun"]>[1];
-    };
-  } = {},
+  options: WireSpyOptions = {},
 ) {
   const ice = pc.iceTransports[0]?.connection as unknown as {
     protocols: Protocol[];
+    send: (data: Buffer) => Promise<void>;
   };
   if (!ice) {
-    return;
+    return false;
+  }
+  if (!spiedIceSend.has(ice)) {
+    spiedIceSend.add(ice);
+    const iceSend = ice.send.bind(ice);
+    ice.send = async (data: Buffer) => {
+      const copy = Buffer.from(data);
+      if (copy[0] === 22) {
+        handshakeDtls.push(copy);
+      }
+      return iceSend(copy);
+    };
   }
   for (const protocol of ice.protocols) {
+    if (spiedProtocols.has(protocol)) {
+      continue;
+    }
+    spiedProtocols.add(protocol);
     const sendStun = protocol.sendStun.bind(protocol);
     const sendData = protocol.sendData.bind(protocol);
     protocol.sendStun = async (message, addr) => {
@@ -86,7 +176,7 @@ function spyConnectionWire(
       const types = stunAttributeTypes(copy);
       const dataIndex = types.indexOf(DTLS_IN_STUN_DATA);
       let nonEmptyData = false;
-      if (dataIndex >= 0 && message.messageClass === 0) {
+      if (dataIndex >= 0) {
         let pos = 20;
         for (let i = 0; i < types.length; i++) {
           const type = copy.readUInt16BE(pos);
@@ -117,7 +207,11 @@ function spyConnectionWire(
       }
       stun.push(copy);
       await sendStun(message, addr);
-      if (options.holdFirstNonEmptyData?.message && !nonEmptyData) {
+      if (
+        options.holdFirstNonEmptyData?.message &&
+        !nonEmptyData &&
+        !options.holdFirstNonEmptyData.discard
+      ) {
         const heldMessage = options.holdFirstNonEmptyData.message;
         const heldAddr = options.holdFirstNonEmptyData.addr!;
         options.holdFirstNonEmptyData.message = undefined;
@@ -144,6 +238,24 @@ function spyConnectionWire(
       return sendData(copy, addr);
     };
   }
+  return ice.protocols.length > 0;
+}
+
+function spyWhenReady(
+  pc: RTCPeerConnection,
+  stun: Buffer[],
+  handshakeDtls: Buffer[],
+  options?: WireSpyOptions,
+) {
+  if (spyConnectionWire(pc, stun, handshakeDtls, options)) {
+    return () => {};
+  }
+  const id = setInterval(() => {
+    if (spyConnectionWire(pc, stun, handshakeDtls, options)) {
+      clearInterval(id);
+    }
+  }, 1);
+  return () => clearInterval(id);
 }
 
 async function openDataChannelWithWireSpy(
@@ -151,15 +263,7 @@ async function openDataChannelWithWireSpy(
   pc2: RTCPeerConnection,
   stun: Buffer[],
   handshakeDtls: Buffer[],
-  spyOptions?: {
-    tcpFrames?: Buffer[];
-    dropFirstNonEmptyData?: { remaining: number };
-    duplicateFirstNonEmptyData?: { remaining: number };
-    holdFirstNonEmptyData?: {
-      message?: Parameters<Protocol["sendStun"]>[0];
-      addr?: Parameters<Protocol["sendStun"]>[1];
-    };
-  },
+  spyOptions?: WireSpyOptions,
 ): Promise<[RTCDataChannel, RTCDataChannel]> {
   const dc1 = pc1.createDataChannel("dc");
   const bothOpen = Promise.all([
@@ -175,13 +279,15 @@ async function openDataChannelWithWireSpy(
     }),
   ]);
   exchangeIceCandidates(pc1, pc2);
+  const stopSpy1 = spyWhenReady(pc1, stun, handshakeDtls, spyOptions);
   await pc1.setLocalDescription(await pc1.createOffer());
-  spyConnectionWire(pc1, stun, handshakeDtls, spyOptions);
   await pc2.setRemoteDescription(pc1.localDescription!);
+  const stopSpy2 = spyWhenReady(pc2, stun, handshakeDtls, spyOptions);
   await pc2.setLocalDescription(await pc2.createAnswer());
-  spyConnectionWire(pc2, stun, handshakeDtls, spyOptions);
   await pc1.setRemoteDescription(pc2.localDescription!);
   const [, dc2] = await bothOpen;
+  stopSpy1();
+  stopSpy2();
   return [dc1, dc2];
 }
 
@@ -366,11 +472,13 @@ describe("RTCPeerConnection SPED opt-in", () => {
   test("non-SPED peer へ fallback して handshake が完了する", async () => {
     const stun: Buffer[] = [];
     const handshakeDtls: Buffer[] = [];
-    const pc1 = new RTCPeerConnection(spedPeerConfig());
-    const pc2 = new RTCPeerConnection({
+    const flights: Buffer[][] = [];
+    const pc1 = new RTCPeerConnection({
       iceServers: [],
       dtls: { protocolVersions: [DtlsVersion.V1_3] },
     });
+    const pc2 = new RTCPeerConnection(spedPeerConfig());
+    const stopCapture = captureL1Flights(pc2, flights);
     try {
       const [dc1, dc2] = await openDataChannelWithWireSpy(
         pc1,
@@ -382,20 +490,18 @@ describe("RTCPeerConnection SPED opt-in", () => {
       dc1.send("fallback");
       expect(await awaitMessage(dc2)).toBe("fallback");
 
-      // Assert: SPED probe のあと、生 DTLS handshake で fallback する
+      // Assert: SPED client の ClientHello が probe され、同一 bytes で raw fallback する
       expect(
         stun.some((bytes) =>
           stunAttributeTypes(bytes).includes(DTLS_IN_STUN_DATA),
         ),
       ).toBe(true);
-      const embedded = firstNonEmptySpedData(stun);
+      const embedded = firstNonEmptySpedData(stun) ?? flights[0]?.[0];
       expect(handshakeDtls.length).toBeGreaterThan(0);
-      if (embedded) {
-        expect(handshakeDtls.some((bytes) => bytes.equals(embedded))).toBe(
-          true,
-        );
-      }
+      expect(embedded).toBeDefined();
+      expect(handshakeDtls.some((bytes) => bytes.equals(embedded!))).toBe(true);
     } finally {
+      stopCapture();
       await pc1.close();
       await pc2.close();
     }
@@ -495,6 +601,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
   test("handshake 開始後の ICE restart でも datachannel が開く", async () => {
     const stun: Buffer[] = [];
     const handshakeDtls: Buffer[] = [];
+    const hold: HoldFirstNonEmptyData = { discard: true };
     const pc1 = new RTCPeerConnection(spedPeerConfig());
     const pc2 = new RTCPeerConnection(spedPeerConfig());
     try {
@@ -518,11 +625,14 @@ describe("RTCPeerConnection SPED opt-in", () => {
       spyConnectionWire(pc1, stun, handshakeDtls);
       await pc2.setRemoteDescription(pc1.localDescription!);
       await pc2.setLocalDescription(await pc2.createAnswer());
-      spyConnectionWire(pc2, stun, handshakeDtls);
+      spyConnectionWire(pc2, stun, handshakeDtls, {
+        holdFirstNonEmptyData: hold,
+      });
       await pc1.setRemoteDescription(pc2.localDescription!);
 
-      // Act: DATA が見えたところで restart し、新 generation で完了させる
-      await new Promise((r) => setTimeout(r, 20));
+      // Act: DTLS client の最初の非空 DATA を止めて handshake 途中であることを同期してから restart
+      await waitUntil(() => !!hold.message);
+      expect(hold.message).toBeDefined();
       await pc1.setLocalDescription(
         await pc1.createOffer({ iceRestart: true }),
       );
@@ -614,6 +724,120 @@ describe("RTCPeerConnection SPED opt-in", () => {
       );
       dc1.send("reorder");
       expect(await awaitMessage(dc2)).toBe("reorder");
+    } finally {
+      await pc1.close();
+      await pc2.close();
+    }
+  }, 30_000);
+
+  test("multi-candidate でも SPED handshake が完了する", async () => {
+    const extra = { iceAdditionalHostAddresses: ["127.0.0.2"] };
+    const pc1 = new RTCPeerConnection(spedPeerConfig(extra));
+    const pc2 = new RTCPeerConnection(spedPeerConfig(extra));
+    try {
+      const [dc1, dc2] = await createDataChannelPair({}, pc1, pc2);
+      // Assert: 追加ホストで候補が複数ある
+      expect(
+        pc1.iceTransports[0]!.connection.localCandidates.length,
+      ).toBeGreaterThan(1);
+      expect(
+        pc2.iceTransports[0]!.connection.localCandidates.length,
+      ).toBeGreaterThan(1);
+      dc1.send("multi-cand");
+      expect(await awaitMessage(dc2)).toBe("multi-cand");
+    } finally {
+      await pc1.close();
+      await pc2.close();
+    }
+  }, 30_000);
+
+  test("large certificate の multi-record flight が SPED 経由で完了する", async () => {
+    const largeCertPem = readFileSync(
+      join(__dirname, "../../../dtls/assets/large_cert.pem"),
+      "utf8",
+    );
+    const largeKeyPem = readFileSync(
+      join(__dirname, "../../../dtls/assets/large_key.pem"),
+      "utf8",
+    );
+    expect(Buffer.from(largeCertPem).length).toBeGreaterThan(2000);
+    const certificate = new RTCCertificate(largeKeyPem, largeCertPem, {
+      signature: SignatureAlgorithm.rsa_1,
+      hash: HashAlgorithm.sha256_4,
+    });
+    const stun: Buffer[] = [];
+    const handshakeDtls: Buffer[] = [];
+    const pc1 = new RTCPeerConnection(
+      spedPeerConfig({ certificates: [certificate] }),
+    );
+    const pc2 = new RTCPeerConnection(
+      spedPeerConfig({ certificates: [certificate] }),
+    );
+    try {
+      const [dc1, dc2] = await openDataChannelWithWireSpy(
+        pc1,
+        pc2,
+        stun,
+        handshakeDtls,
+      );
+      // Act / Assert: 大きな Certificate が複数 DATA に載り、再組立後に開く
+      const payloads = new Set<string>();
+      for (const bytes of stun) {
+        let pos = 20;
+        while (pos + 4 <= bytes.length) {
+          const type = bytes.readUInt16BE(pos);
+          const length = bytes.readUInt16BE(pos + 2);
+          if (type === DTLS_IN_STUN_DATA && length > 0) {
+            payloads.add(
+              bytes.subarray(pos + 4, pos + 4 + length).toString("hex"),
+            );
+          }
+          pos += 4 + length + paddingLength(length);
+        }
+      }
+      expect(payloads.size).toBeGreaterThan(1);
+      dc1.send("large-cert");
+      expect(await awaitMessage(dc2)).toBe("large-cert");
+    } finally {
+      await pc1.close();
+      await pc2.close();
+    }
+  }, 60_000);
+
+  test("DTLS error は ICE connected のまま SPED を disabled にする", async () => {
+    const stun: Buffer[] = [];
+    const handshakeDtls: Buffer[] = [];
+    const hold: HoldFirstNonEmptyData = { discard: true };
+    const pc1 = new RTCPeerConnection(spedPeerConfig());
+    const pc2 = new RTCPeerConnection(spedPeerConfig());
+    try {
+      pc1.createDataChannel("dc");
+      exchangeIceCandidates(pc1, pc2);
+      await pc1.setLocalDescription(await pc1.createOffer());
+      spyConnectionWire(pc1, stun, handshakeDtls);
+      await pc2.setRemoteDescription(pc1.localDescription!);
+      await pc2.setLocalDescription(await pc2.createAnswer());
+      spyConnectionWire(pc2, stun, handshakeDtls, {
+        holdFirstNonEmptyData: hold,
+      });
+      await pc1.setRemoteDescription(pc2.localDescription!);
+
+      // Act: handshake 途中で DTLS error を起こす
+      await waitUntil(() => !!hold.message);
+      const ice = iceOf(pc2);
+      const runtime = getConnectionSpedRuntime(ice);
+      expect(runtime).toBeDefined();
+      expect(runtime!.session.state).not.toBe("disabled");
+      pc2.dtlsTransports[0]!.dtls!.onError.execute(
+        new Error("sped-dtls-error"),
+      );
+      await waitUntil(() => runtime?.session.state === "disabled");
+
+      // Assert: ICE は failed でなく、SPED は埋め込みを止める
+      expect(ice.state === "failed" || ice.state === "closed").toBe(false);
+      expect(runtime?.session.state).toBe("disabled");
+      expect(runtime?.session.embedding).toBe(false);
+      expect(runtime?.session.hasL1).toBe(false);
     } finally {
       await pc1.close();
       await pc2.close();

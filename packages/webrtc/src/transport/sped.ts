@@ -1,5 +1,8 @@
 import type { Connection } from "../../../ice/src";
-import { allowsAuthenticatedDtlsDelivery } from "../../../ice/src/internal/datagram";
+import {
+  allowsAuthenticatedDtlsDelivery,
+  connectionDatagramEvent,
+} from "../../../ice/src/internal/datagram";
 import type { SpedRuntime } from "../../../ice/src/sped/runtime";
 import type { Address, Transport } from "../imports/common";
 import { isDtls } from "../utils";
@@ -21,7 +24,7 @@ export class IceSpedTransport implements Transport {
   private applicationReady = false;
 
   constructor(private readonly ice: Connection) {
-    ice.onDatagram.subscribe((ctx) => {
+    connectionDatagramEvent(ice).subscribe((ctx) => {
       if (!isDtls(ctx.bytes) || !this.onData) {
         return;
       }

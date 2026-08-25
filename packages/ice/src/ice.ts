@@ -31,7 +31,7 @@ import {
   validateRemoteCandidate,
 } from "./iceBase";
 import {
-  type IceDatagramContext,
+  connectionDatagramEvent,
   isAuthenticatedHandshakePair,
 } from "./internal/datagram";
 import {
@@ -91,8 +91,6 @@ export class Connection implements IceConnection {
   private consentRequestAbort?: AbortController;
 
   readonly onData = new Event<[Buffer]>();
-  /** @internal Source/generation-aware datagram event. Public onData stays Buffer-only. */
-  readonly onDatagram = new Event<[IceDatagramContext]>();
   readonly stateChanged = new Event<[IceState]>();
   readonly onIceCandidate: Event<[Candidate]> = new Event();
 
@@ -353,7 +351,7 @@ export class Connection implements IceConnection {
           ? this.findPairByAddr(protocol, addr)
           : this.checkList.find((candidate) => candidate.protocol === protocol);
         const authenticated = !!(pair && isAuthenticatedHandshakePair(pair));
-        this.onDatagram.execute({
+        connectionDatagramEvent(this).execute({
           bytes: data,
           source: addr ?? pair?.remoteAddr ?? ["0.0.0.0", 0],
           protocol,
@@ -1220,13 +1218,16 @@ export class Connection implements IceConnection {
     this.spedCarryEpoch++;
     this.spedCarryInFlight = false;
     this.spedCarryQueued = false;
-    this.spedRuntime?.close();
+    this.spedRuntime?.abort();
     this.spedRuntime = undefined;
   }
 
   private setState(state: IceState) {
     this.state = state;
     this.stateChanged.execute(state);
+    if (state === "failed" || state === "closed") {
+      this.spedRuntime?.abort();
+    }
   }
 
   async addRemoteCandidate(remoteCandidate: Candidate | undefined) {

@@ -179,6 +179,45 @@ describe("SPED draft00 session", () => {
     expect(session.l2Crcs).toHaveLength(0);
   });
 
+  it("abort は disabled にして embedding を止め、decorate / replaceL1 を無効化する", () => {
+    // Arrange
+    const session = new SpedSession(0);
+    session.replaceL1([Buffer.from([22, 1])]);
+    session.queueAck(1);
+
+    // Act
+    session.abort();
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request.setAttribute("USERNAME", "a:b").setAttribute("PRIORITY", 1);
+    session.replaceL1([Buffer.from([22, 9])]);
+    session.queueAck(2);
+    expect(session.decorate(request)).toBe(true);
+
+    // Assert: Binding に DATA/ACK を付けない
+    expect(session.state).toBe("disabled");
+    expect(session.embedding).toBe(false);
+    expect(session.hasL1).toBe(false);
+    expect(session.l2Crcs).toHaveLength(0);
+    expect(request.getRawAttributeValue(DTLS_IN_STUN_DATA)).toBeUndefined();
+    expect(request.getRawAttributeValue(DTLS_IN_STUN_ACK)).toBeUndefined();
+  });
+
+  it("abort 後の reset は probing に戻し L1 を載せられる", () => {
+    // Arrange
+    const session = new SpedSession(0);
+    session.abort();
+
+    // Act
+    session.reset(1);
+    session.replaceL1([Buffer.from([22, 3])]);
+
+    // Assert
+    expect(session.state).toBe("probing");
+    expect(session.embedding).toBe(true);
+    expect(session.generation).toBe(1);
+    expect(session.hasL1).toBe(true);
+  });
+
   it("multi-record L1 は Binding ごとに 1 datagram を round-robin する", () => {
     // Arrange
     const session = new SpedSession(0);

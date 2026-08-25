@@ -156,12 +156,6 @@ export class StunProtocol implements Protocol {
     }
   }
 
-  abandonTransactions() {
-    Object.values(this.transactions).forEach((transaction) => {
-      transaction.abandon();
-    });
-  }
-
   async close() {
     Object.values(this.transactions).forEach((transaction) => {
       transaction.cancel();

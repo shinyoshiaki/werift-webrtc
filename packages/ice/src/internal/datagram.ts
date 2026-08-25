@@ -1,6 +1,23 @@
 import { type CandidatePair, CandidatePairState } from "../iceBase";
-import type { Address } from "../imports/common";
+import { type Address, Event } from "../imports/common";
 import type { Protocol } from "../types/model";
+
+const datagramEvents = new WeakMap<object, Event<[IceDatagramContext]>>();
+
+/**
+ * Internal source/generation-aware datagram event.
+ * Not a Connection public member — PeerConfig.sped is the public enablement.
+ */
+export function connectionDatagramEvent(
+  connection: object,
+): Event<[IceDatagramContext]> {
+  let event = datagramEvents.get(connection);
+  if (!event) {
+    event = new Event();
+    datagramEvents.set(connection, event);
+  }
+  return event;
+}
 
 /**
  * Internal datagram routing context (not a Public ICE API).

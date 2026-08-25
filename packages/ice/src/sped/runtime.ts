@@ -21,6 +21,10 @@ export interface SpedHooks {
   onHandshakeComplete?: () => void;
   /** ICE restart / new generation: drop in-flight handshake injects. */
   onSessionReset?: () => void;
+  /**
+   * ICE failed / DTLS error / close: cancel carrier timers. Must not reseed L1.
+   */
+  onSessionAbort?: () => void;
   setRetransmissionMode: (mode: SpedRetransmissionMode) => void;
   updateRtt: (rttMs: number) => void;
   setMtu: (mtu: number) => void;
@@ -112,7 +116,7 @@ export class SpedRuntime {
     generation: number,
     protocol?: Protocol,
   ): Promise<{ fallback: boolean; inject?: Buffer }> {
-    if (!this.isLiveGeneration(generation)) {
+    if (!this.session.embedding || !this.isLiveGeneration(generation)) {
       return { fallback: false };
     }
     this.markInjectGeneration(generation);
@@ -139,7 +143,7 @@ export class SpedRuntime {
   }
 
   beginFallback(): Buffer[] {
-    if (this.fallbackStarted) {
+    if (this.fallbackStarted || this.session.state === "disabled") {
       return [];
     }
     this.fallbackStarted = true;
@@ -162,9 +166,25 @@ export class SpedRuntime {
     this.hooks.onSessionReset?.();
   }
 
-  close(): void {
-    this.session.clearL1();
+  /**
+   * Stop embedding and drop pending L1/L2 / injects / last path.
+   * ICE restart still uses {@link reset} to return to probing.
+   */
+  abort(): void {
+    if (this.session.state === "disabled") {
+      this.pendingInjectGeneration = undefined;
+      this.lastPath = undefined;
+      return;
+    }
+    this.session.abort();
+    this.fallbackStarted = true;
     this.pendingInjectGeneration = undefined;
+    this.lastPath = undefined;
     this.hooks.setRetransmissionMode("internal");
+    this.hooks.onSessionAbort?.();
+  }
+
+  close(): void {
+    this.abort();
   }
 }

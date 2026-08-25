@@ -52,7 +52,23 @@ export class SpedSession {
     return this.state === "probing" || this.state === "active";
   }
 
+  /**
+   * Terminal stop: ICE failed / DTLS error / connection close.
+   * ICE restart {@link reset} is required before probing again.
+   */
+  abort(): void {
+    this.l1 = [];
+    this.l2 = [];
+    this.roundRobinIndex = 0;
+    this.peerSupport = "unknown";
+    this.state = "disabled";
+    this.firstAuthenticatedSeen = false;
+  }
+
   replaceL1(packets: readonly Buffer[]): void {
+    if (this.state === "disabled") {
+      return;
+    }
     this.l1 = packets.map((packet) => {
       const copy = Buffer.alloc(packet.length);
       packet.copy(copy);
@@ -67,6 +83,9 @@ export class SpedSession {
   }
 
   queueAck(crc: number): void {
+    if (this.state === "disabled") {
+      return;
+    }
     const value = crc >>> 0;
     if (this.l2.includes(value)) {
       return;
@@ -120,6 +139,9 @@ export class SpedSession {
   }
 
   completeHandshake(): void {
+    if (this.state === "disabled") {
+      return;
+    }
     this.l1 = [];
     this.l2 = [];
     this.roundRobinIndex = 0;
@@ -162,6 +184,9 @@ export class SpedSession {
    * Returns false when even empty DATA would exceed the path MTU.
    */
   decorate(message: Message): boolean {
+    if (!this.embedding) {
+      return true;
+    }
     const acks = this.peekAcksForBinding();
     const ackValue = encodeSpedAck(acks).value;
     const budget = remainingDataValueBudget(message, ackValue);
@@ -184,6 +209,9 @@ export class SpedSession {
     inject?: Buffer;
     fallback: boolean;
   } {
+    if (this.state === "disabled") {
+      return { fallback: false };
+    }
     const dataValue = message.getRawAttributeValue(DTLS_IN_STUN_DATA);
     const ackValue = message.getRawAttributeValue(DTLS_IN_STUN_ACK);
     const state = this.noteAuthenticatedBindingHasData(dataValue !== undefined);

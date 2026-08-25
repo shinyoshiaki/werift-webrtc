@@ -11,6 +11,7 @@ import {
 } from "../../../dtls/src/internal";
 import type { Connection } from "../../../ice/src";
 import { attachSpedToConnection } from "../../../ice/src/internal/sped";
+import { getConnectionSpedRuntime } from "../../../ice/src/internal/sped-bind";
 import { EventTarget as DomEventTarget } from "../helper";
 import {
   CipherContext,
@@ -251,6 +252,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       this.lastError =
         error instanceof Error ? error : new Error(String(error));
       this.setState("failed");
+      this.abortSpedSession();
       this.dtls?.close();
       throw error;
     }
@@ -336,6 +338,10 @@ export class RTCDtlsTransport implements DtlsTransportStats {
           handle.session.replaceL1(lastFlight);
         }
       },
+      onSessionAbort: () => {
+        carrier.invalidateInboundInjects?.();
+        carrier.cancelAllTimers();
+      },
       onFallbackFlight: async () => {
         carrier.setWireSendEnabled(true);
       },
@@ -386,6 +392,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         this.dtls.connect().catch((error) => {
           this.lastError = error;
           this.setState("failed");
+          this.abortSpedSession();
           log("dtls connect failed", error);
           f(error);
         });
@@ -407,6 +414,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       this.dataReceiver(buf);
     });
     this.dtls.onClose.subscribe(() => {
+      if (this.state === "connecting") {
+        this.abortSpedSession();
+      }
       if (this.state !== "failed") {
         this.setState("closed");
       }
@@ -415,9 +425,15 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     this.dtls.onError.once((error) => {
       this.lastError = error;
       this.setState("failed");
+      this.abortSpedSession();
       log("dtls failed", error);
       f(error);
     });
+  }
+
+  private abortSpedSession() {
+    const ice = this.iceTransport.connection as Connection;
+    getConnectionSpedRuntime(ice)?.abort();
   }
 
   private verifyRemoteCertificateFingerprint() {

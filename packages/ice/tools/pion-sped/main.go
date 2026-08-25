@@ -49,6 +49,20 @@ func main() {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
+	case "verify":
+		fs := flag.NewFlagSet("verify", flag.ExitOnError)
+		integrityKey := fs.String("integrity-key", "", "short-term password for MESSAGE-INTEGRITY")
+		_ = fs.Parse(os.Args[2:])
+		args := fs.Args()
+		if *integrityKey == "" || len(args) < 1 {
+			usage()
+			os.Exit(2)
+		}
+		if err := verify(*integrityKey, args[0]); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("MESSAGE-INTEGRITY OK")
 	default:
 		usage()
 		os.Exit(2)
@@ -60,6 +74,7 @@ func usage() {
   pion-sped check
   pion-sped encode [-data hex] [-ack crc32hex,crc32hex,...] [-empty-ack] [-integrity-key password]
   pion-sped decode <stun-message-hex>
+  pion-sped verify -integrity-key password <stun-message-hex>
   pion-sped version
 `)
 }
@@ -150,4 +165,16 @@ func decode(messageHex string) error {
 			uint16(raw.Type), name, len(raw.Value), hex.EncodeToString(raw.Value))
 	}
 	return nil
+}
+
+func verify(integrityKey, messageHex string) error {
+	buf, err := hex.DecodeString(messageHex)
+	if err != nil {
+		return err
+	}
+	msg := &stun.Message{Raw: buf}
+	if err := msg.Decode(); err != nil {
+		return err
+	}
+	return stun.NewShortTermIntegrity(integrityKey).Check(msg)
 }
