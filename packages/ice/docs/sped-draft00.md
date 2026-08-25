@@ -33,7 +33,7 @@ Unsupported peer → send the **original** L1 bytes as direct DTLS on the authen
 
 ## Wire order
 
-ACK, then DATA, then HMAC-SHA1 `MESSAGE-INTEGRITY`, then `FINGERPRINT`. Unknown attributes keep parse order (see ice-server `Message` wire list).
+ACK, then DATA, then HMAC-SHA1 `MESSAGE-INTEGRITY`, then `FINGERPRINT`. Unknown attributes keep parse order (see ice-server `Message` wire list). Authenticated `parseMessage(data, key)` does not publish DATA/ACK that appear after `MESSAGE-INTEGRITY` (they are outside the HMAC).
 
 ## TURN / ICE2
 

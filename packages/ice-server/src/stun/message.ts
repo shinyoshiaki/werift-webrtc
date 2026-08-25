@@ -58,6 +58,8 @@ export function parseMessage(
   const wireAttributes: WireAttribute[] = [];
   // When integrityKey is provided, MESSAGE-INTEGRITY must be present and valid
   // (RFC 5389 short-term credentials / RFC 7675 authenticated consent responses).
+  // Attributes after MESSAGE-INTEGRITY are not HMAC-covered (FINGERPRINT may
+  // follow); SPED DATA/ACK in that region must not be published.
   let messageIntegrityVerified = false;
 
   for (let pos = HEADER_LENGTH; pos < data.length; ) {
@@ -92,36 +94,44 @@ export function parseMessage(
       } catch {
         return undefined;
       }
-      attributeRepository.setAttribute(attrName as AttributeKey, value);
-      wireAttributes.push({
-        kind: "known",
-        name: attrName as AttributeKey,
-        value,
-      });
+      const isFingerprint = attrName === "FINGERPRINT";
+      const isMessageIntegrity =
+        attrName === "MESSAGE-INTEGRITY" ||
+        attrName === "MESSAGE-INTEGRITY-SHA256";
+      // RFC 8489: only FINGERPRINT may follow MESSAGE-INTEGRITY. Authenticated
+      // parse must not publish later attributes (including SPED DATA/ACK).
+      const publishKnown =
+        !integrityKey ||
+        !messageIntegrityVerified ||
+        isFingerprint ||
+        isMessageIntegrity;
+      if (publishKnown) {
+        attributeRepository.setAttribute(attrName as AttributeKey, value);
+        wireAttributes.push({
+          kind: "known",
+          name: attrName as AttributeKey,
+          value,
+        });
+      }
 
-      if (attrName === "FINGERPRINT") {
+      if (isFingerprint) {
         const fingerprint = messageFingerprint(data.slice(0, pos));
-        if (
-          attributeRepository.getAttributeValue("FINGERPRINT") !== fingerprint
-        ) {
+        if (value !== fingerprint) {
           return undefined;
         }
       } else if (attrName === "MESSAGE-INTEGRITY" && integrityKey) {
         const integrity = messageIntegrity(data.slice(0, pos), integrityKey);
-        const expected =
-          attributeRepository.getAttributeValue("MESSAGE-INTEGRITY");
-        if (!integrity.equals(expected)) {
+        if (!Buffer.isBuffer(value) || !integrity.equals(value)) {
           return undefined;
         }
         messageIntegrityVerified = true;
       }
-    } else {
-      const raw: WireAttribute = {
+    } else if (!(integrityKey && messageIntegrityVerified)) {
+      wireAttributes.push({
         kind: "raw",
         type: attrType,
         value: Buffer.from(payload),
-      };
-      wireAttributes.push(raw);
+      });
     }
 
     pos = valueEnd + padLen;

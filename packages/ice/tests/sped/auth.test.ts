@@ -3,11 +3,69 @@ import { CandidatePair, CandidatePairState } from "../../src";
 import { Candidate } from "../../src/candidate";
 import { connectionDatagramEvent } from "../../src/internal/datagram";
 import { attachSpedToConnection } from "../../src/internal/sped";
-import { DTLS_IN_STUN_DATA } from "../../src/sped/draft00/constants";
+import {
+  DTLS_IN_STUN_ACK,
+  DTLS_IN_STUN_DATA,
+} from "../../src/sped/draft00/constants";
 import { classes, methods } from "../../src/stun/const";
-import { Message } from "../../src/stun/message";
+import { Message, parseMessage } from "../../src/stun/message";
 import { createTestConnection } from "../utils";
-import { SpedProtocolMock } from "./helpers";
+import {
+  SpedProtocolMock,
+  appendStunFingerprint,
+  rewriteStunMessageLength,
+  serializeStunRawAttribute,
+} from "./helpers";
+
+/** Shared Arrange: SPED connection that records inject / direct DTLS. */
+function arrangeSpedInjectProbe() {
+  const connection = createTestConnection(true);
+  const injected: Buffer[] = [];
+  const hello = Buffer.from([22, 1, 2, 3, 4]);
+  const forged = Buffer.from([22, 9, 8, 7]);
+  const handle = attachSpedToConnection(connection, {
+    inject: async (bytes) => {
+      injected.push(bytes);
+    },
+    onFallbackFlight: async () => {},
+    setRetransmissionMode: () => {},
+    updateRtt: () => {},
+    setMtu: () => {},
+  });
+  handle.session.replaceL1([hello]);
+  const protocol = new SpedProtocolMock();
+  const sentDirect: Buffer[] = [];
+  protocol.sendData = async (data: Buffer, _addr?: Address) => {
+    sentDirect.push(Buffer.from(data));
+  };
+  (connection as any).ensureProtocol(protocol);
+  return { connection, injected, forged, protocol, sentDirect };
+}
+
+function currentGenerationBinding(
+  connection: ReturnType<typeof createTestConnection>,
+  fingerprint: boolean,
+) {
+  const request = new Message(methods.BINDING, classes.REQUEST);
+  request
+    .setAttribute("USERNAME", `${connection.localUsername}:remote`)
+    .setAttribute("PRIORITY", 1)
+    .setAttribute("ICE-CONTROLLED", 1n)
+    .addMessageIntegrity(Buffer.from(connection.localPassword));
+  if (fingerprint) {
+    request.addFingerprint();
+  }
+  return request;
+}
+
+function forgedSpedAttributes(data: Buffer) {
+  const ack = Buffer.alloc(4);
+  ack.writeUInt32BE(0xdeadbeef, 0);
+  return Buffer.concat([
+    serializeStunRawAttribute(DTLS_IN_STUN_ACK, ack),
+    serializeStunRawAttribute(DTLS_IN_STUN_DATA, data),
+  ]);
+}
 
 describe("ICE Binding Request 認証境界", () => {
   it("誤 HMAC の Binding Request は drop する", async () => {
@@ -246,5 +304,57 @@ describe("ICE Binding Request 認証境界", () => {
     expect(pair!.state).toBe(CandidatePairState.WAITING);
     expect(pair!.responsesReceived).toBe(0);
     expect(seen).toEqual([true]);
+  });
+
+  it("MESSAGE-INTEGRITY 後の DATA/ACK は DTLS に inject されない", async () => {
+    // Arrange: HMAC 対象外へ DATA/ACK を挿し、FINGERPRINT だけ付け直す
+    const { connection, injected, forged, protocol, sentDirect } =
+      arrangeSpedInjectProbe();
+    const request = currentGenerationBinding(connection, false);
+    const tampered = appendStunFingerprint(
+      Buffer.concat([request.bytes, forgedSpedAttributes(forged)]),
+    );
+
+    // Act: 認証付き parse を通る wire を Binding Request として渡す
+    const verified = parseMessage(
+      tampered,
+      Buffer.from(connection.localPassword),
+    );
+    protocol.onRequestReceived.execute(request, ["1.2.3.4", 9], tampered);
+    await new Promise((r) => setTimeout(r, 30));
+
+    // Assert: DATA/ACK は属性に出ず、forged payload は inject されない
+    expect(verified).toBeDefined();
+    expect(verified!.getRawAttributeValue(DTLS_IN_STUN_DATA)).toBeUndefined();
+    expect(verified!.getRawAttributeValue(DTLS_IN_STUN_ACK)).toBeUndefined();
+    expect(injected).toHaveLength(0);
+    expect(injected.some((bytes) => bytes.equals(forged))).toBe(false);
+    expect(sentDirect.some((bytes) => bytes.equals(forged))).toBe(false);
+  });
+
+  it("FINGERPRINT 後の DATA/ACK は DTLS に inject されない", async () => {
+    // Arrange: 長さフィールドを更新して FP の後ろへ DATA/ACK を足す
+    const { connection, injected, forged, protocol, sentDirect } =
+      arrangeSpedInjectProbe();
+    const request = currentGenerationBinding(connection, true);
+    const tampered = rewriteStunMessageLength(
+      Buffer.concat([request.bytes, forgedSpedAttributes(forged)]),
+    );
+
+    // Act: 認証付き parse を通る wire を Binding Request として渡す
+    const verified = parseMessage(
+      tampered,
+      Buffer.from(connection.localPassword),
+    );
+    protocol.onRequestReceived.execute(request, ["1.2.3.4", 9], tampered);
+    await new Promise((r) => setTimeout(r, 30));
+
+    // Assert: DATA/ACK は属性に出ず、forged payload は inject されない
+    expect(verified).toBeDefined();
+    expect(verified!.getRawAttributeValue(DTLS_IN_STUN_DATA)).toBeUndefined();
+    expect(verified!.getRawAttributeValue(DTLS_IN_STUN_ACK)).toBeUndefined();
+    expect(injected).toHaveLength(0);
+    expect(injected.some((bytes) => bytes.equals(forged))).toBe(false);
+    expect(sentDirect.some((bytes) => bytes.equals(forged))).toBe(false);
   });
 });

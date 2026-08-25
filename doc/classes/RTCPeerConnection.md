@@ -1230,9 +1230,9 @@ Advertised local SCTP max-message-size in SDP. Use 0 for unlimited.
 
 > **rtcpMuxPolicy**: `"require"`
 
-##### sped
+##### sped?
 
-> **sped?**: `boolean`
+> `optional` **sped**: `boolean`
 
 Opt-in SPED (DTLS handshake embedded in ICE Binding).
 Omit or false: ICE completes, then DTLS starts (current serial path).

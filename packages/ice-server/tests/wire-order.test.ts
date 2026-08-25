@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import { crc32 } from "../../common/src";
-import { classes, methods } from "../src/stun/const";
+import {
+  FINGERPRINT_LENGTH,
+  FINGERPRINT_XOR,
+  HEADER_LENGTH,
+  classes,
+  methods,
+} from "../src/stun/const";
 import { Message, paddingLength, parseMessage } from "../src/stun/message";
 
 /** IANA META-DTLS-IN-STUN / META-DTLS-IN-STUN-ACKNOWLEDGEMENT (not registered in ATTRIBUTES). */
@@ -17,6 +23,47 @@ function attributeTypes(bytes: Buffer): number[] {
     pos += 4 + length + paddingLength(length);
   }
   return types;
+}
+
+function rewriteStunMessageLength(bytes: Buffer): Buffer {
+  const out = Buffer.from(bytes);
+  out.writeUInt16BE(out.length - HEADER_LENGTH, 2);
+  return out;
+}
+
+function serializeRawAttribute(type: number, value: Buffer): Buffer {
+  const padLen = paddingLength(value.length);
+  const header = Buffer.alloc(4);
+  header.writeUInt16BE(type, 0);
+  header.writeUInt16BE(value.length, 2);
+  return Buffer.concat([header, value, Buffer.alloc(padLen)]);
+}
+
+function appendFingerprint(prefix: Buffer): Buffer {
+  const checkData = Buffer.from(prefix);
+  checkData.writeUInt16BE(
+    prefix.length - HEADER_LENGTH + FINGERPRINT_LENGTH,
+    2,
+  );
+  const fingerprint = (crc32(checkData) ^ FINGERPRINT_XOR) >>> 0;
+  const value = Buffer.alloc(4);
+  value.writeUInt32BE(fingerprint, 0);
+  return rewriteStunMessageLength(
+    Buffer.concat([prefix, serializeRawAttribute(0x8028, value)]),
+  );
+}
+
+function buildSignedBindingWithoutSped(key: Buffer, fingerprint: boolean) {
+  const request = new Message(methods.BINDING, classes.REQUEST);
+  request
+    .setAttribute("USERNAME", "abcd:efgh")
+    .setAttribute("PRIORITY", 1853824767)
+    .setAttribute("ICE-CONTROLLING", 1n)
+    .addMessageIntegrity(key);
+  if (fingerprint) {
+    request.addFingerprint();
+  }
+  return request;
 }
 
 function buildSignedSpedBinding(dataValue: Buffer, key: Buffer) {
@@ -72,6 +119,14 @@ describe("STUN wire attribute order", () => {
     );
     expect(types.at(-1)).toBe(0x8028);
     expect(types.indexOf(0x0008)).toBe(types.length - 2);
+
+    const parsed = parseMessage(request.bytes, key);
+    expect(parsed).toBeDefined();
+    expect(
+      parsed!
+        .getRawAttributeValue(DTLS_IN_STUN_DATA)
+        ?.equals(Buffer.from([20, 1, 2, 3])),
+    ).toBe(true);
   });
 
   it("DATA value 改ざんで MESSAGE-INTEGRITY 検証が失敗する", () => {
@@ -144,5 +199,51 @@ describe("STUN wire attribute order", () => {
     // Assert: RFC 8489 FINGERPRINT の XOR 0x5354554e は付けない
     expect(crc ^ 0x5354554e).not.toBe(crc);
     expect(ack.readUInt32BE(0)).toBe(crc);
+  });
+
+  it("認証付き parse は MESSAGE-INTEGRITY 後の DATA/ACK を公開しない", () => {
+    // Arrange: HMAC 対象外へ DATA/ACK を挿し、FINGERPRINT だけ付け直す
+    const request = buildSignedBindingWithoutSped(key, false);
+    const data = Buffer.from([22, 9, 8, 7]);
+    const ack = Buffer.alloc(4);
+    ack.writeUInt32BE(0xdeadbeef, 0);
+    const tampered = appendFingerprint(
+      Buffer.concat([
+        request.bytes,
+        serializeRawAttribute(DTLS_IN_STUN_ACK, ack),
+        serializeRawAttribute(DTLS_IN_STUN_DATA, data),
+      ]),
+    );
+
+    // Act
+    const parsed = parseMessage(tampered, key);
+
+    // Assert: HMAC は通るが DATA/ACK は認証済み属性に出ない
+    expect(parsed).toBeDefined();
+    expect(parsed!.getRawAttributeValue(DTLS_IN_STUN_DATA)).toBeUndefined();
+    expect(parsed!.getRawAttributeValue(DTLS_IN_STUN_ACK)).toBeUndefined();
+  });
+
+  it("認証付き parse は FINGERPRINT 後の DATA/ACK を公開しない", () => {
+    // Arrange: 長さフィールドを更新して FP の後ろへ DATA/ACK を足す
+    const request = buildSignedBindingWithoutSped(key, true);
+    const data = Buffer.from([22, 9, 8, 7]);
+    const ack = Buffer.alloc(4);
+    ack.writeUInt32BE(0xdeadbeef, 0);
+    const tampered = rewriteStunMessageLength(
+      Buffer.concat([
+        request.bytes,
+        serializeRawAttribute(DTLS_IN_STUN_ACK, ack),
+        serializeRawAttribute(DTLS_IN_STUN_DATA, data),
+      ]),
+    );
+
+    // Act
+    const parsed = parseMessage(tampered, key);
+
+    // Assert: HMAC / FP は通るが DATA/ACK は認証済み属性に出ない
+    expect(parsed).toBeDefined();
+    expect(parsed!.getRawAttributeValue(DTLS_IN_STUN_DATA)).toBeUndefined();
+    expect(parsed!.getRawAttributeValue(DTLS_IN_STUN_ACK)).toBeUndefined();
   });
 });
