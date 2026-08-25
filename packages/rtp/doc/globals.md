@@ -80,7 +80,6 @@
 
 ## Variables
 
-- [debug](variables/debug.md)
 - [depacketizerCodecs](variables/depacketizerCodecs.md)
 - [ExtensionProfiles](variables/ExtensionProfiles.md)
 - [NalUnitType](variables/NalUnitType.md)
@@ -102,6 +101,7 @@
 - [crc32](functions/crc32.md)
 - [crc32c](functions/crc32c.md)
 - [createBufferWriter](functions/createBufferWriter.md)
+- [debug](functions/debug.md)
 - [dePacketizeRtpPackets](functions/dePacketizeRtpPackets.md)
 - [deserializeAbsSendTime](functions/deserializeAbsSendTime.md)
 - [deserializeAudioLevelIndication](functions/deserializeAudioLevelIndication.md)

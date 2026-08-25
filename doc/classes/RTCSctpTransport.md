@@ -56,6 +56,14 @@
 
 ***
 
+### maxChannels
+
+> `readonly` **maxChannels**: `65535` = `65535`
+
+Browser-compatible simultaneous DataChannel limit used by Chrome111 Handler.
+
+***
+
 ### maxMessageSize
 
 > **maxMessageSize**: `number` = `DEFAULT_MAX_MESSAGE_SIZE`

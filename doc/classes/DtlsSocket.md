@@ -143,6 +143,16 @@
 
 ***
 
+### closeNotify()
+
+> **closeNotify**(): `Promise`\<`void`\>
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
 ### exportKeyingMaterial()
 
 > **exportKeyingMaterial**(`label`, `length`): `Buffer`\<`ArrayBuffer`\>
