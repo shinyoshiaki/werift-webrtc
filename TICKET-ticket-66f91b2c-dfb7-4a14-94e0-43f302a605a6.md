@@ -1,3 +1,7 @@
+ide-cli スキルを確認し、親 ticket file の既存内容を保ったまま、子 ticket file にある追加・更新部分だけを統合します。
+
+子 ticket の実装結果（Playwright 相互接続、調査ログ、完了項目、submodule SHA）を、親 ticket の末尾に専用節として追加します。既存本文は変更しません。
+
 # mediasoup-client が追加設定なしで Node.js 上で動作するようにする
 
 ## 1. タスクの目的と背景
@@ -264,3 +268,41 @@ werift 本体には `integration/werift-mediasoup-interop` として Git submodu
 - [ ] 全 E2E 後に worker child process、socket、timer、未処理 rejection が残らず、Node process が自然終了する
 - [ ] fixture の Node 22 / 24 pinned-version CI と、最新版 compatibility 定期 probe が追加されている
 - [ ] werift CI が submodule を recursive checkout し、`integration/werift-mediasoup-interop` の `npm ci`、`npm run type`、`npm test` を実行する
+
+## 6. Playwright ブラウザ client と werift client の相互接続試験の追加結果
+
+### 6.1 実装内容
+
+- `integration/werift-mediasoup-interop/test/browser` に、Playwright Chromium（ネイティブ WebRTC）と werift polyfill client が同一 mediasoup Router を共有する試験を追加した。
+- ブラウザ側は `installPolyfill` を使用せず、`handlerName` / `handlerFactory` なしで `Device.factory()` / `load()` を実行する。Node 側は `installPolyfill({ mediaRegister })` と引数なし `Device.factory()` を使用する。
+- Playwright は exact version `1.55.1` の fixture 限定 devDependency とし、fake media、loopback ICE、必要時のみコンテナ用起動オプションを使用する。`test:browser` と `install:browsers` を追加し、通常の `npm test` は small + interop のまま維持した。
+- browser 用 Arrange helper は `test/browser/helpers` に集約し、worker/router、server transport、プロセス境界を越える connect/produce/producedata signaling、cleanup を再利用可能にした。
+- B1〜B8 として、Handler 自動検出、audio/video の双方向 RTP、DataChannel 双方向通信、同時接続、close/uninstall 後の lifecycle を検証する。ブラウザ生成 RTP は payload marker ではなく seq/ts/ssrc または inbound `packetsReceived` を必須検証とする。
+
+### 6.2 相互接続試験の調査ログ
+
+- Chromium はこの環境で `--no-sandbox` なしに起動できたため、コンテナ用 args は通常起動へ追加していない。
+- ブラウザ VP8 の最初の 2 パケットは同一フレームで timestamp が変わらなかったため、`waitForRtpHeaders` は seq と ts の双方が変化するまで待つよう修正した。werift 本体の変更は不要だった。
+- ブラウザの `DataProducer.close()` だけでは SFU 経由の werift `DataConsumer` が open のまま残ったため、server 側 DataProducer へ close を中継する signaling を追加した。
+- werift の dummy VP8 は Chrome がデコードできない場合があり、`HTMLVideoElement.play()` の完了待ちは行わず、ICE/DTLS 接続後の inbound `packetsReceived` を必須 Assert とした。Chrome 同士の映像再生は可能だった。
+- 本体 (`packages/webrtc` 等) に変更はなく、失敗は fixture の helper / 試験側で解消した。
+
+### 6.3 fixture の検証結果と対応 SHA
+
+- `cd integration/werift-mediasoup-interop && npm run type`、`npm run test:small`、`npm run test:interop`、`npm run install:browsers && npm run test:browser` が成功した。
+- Playwright 相互接続試験追加後の submodule は commit SHA `46a05a70c942f92b8f19611fb5dd005fc96d8bf0` に固定した。
+- 対応する公開 repository は [`shinyoshiaki/werift-mediasoup-interop`](https://github.com/shinyoshiaki/werift-mediasoup-interop) の ticket branch / [PR #1](https://github.com/shinyoshiaki/werift-mediasoup-interop/pull/1) であり、werift 本体のプロトコル修正は不要だった。
+
+### 6.4 追加された運用上の制約
+
+- ブラウザへ werift polyfill を注入しない。Chromium の実 User-Agent とネイティブ `RTCPeerConnection` を使用する。
+- `test:small` と `npm test` では worker / Chromium を起動せず、Chromium 必須試験は `test:browser` と CI の明示ステップで実行する。
+- fake device のみを使い、OS カメラ・マイク、Firefox、Native Windows、外部ホスト、映像画質評価は対象外とする。loopback の host candidate を使い STUN/TURN は追加しない。
+- browser/context と mediasoup transport、worker、polyfill uninstall を `finally` で確実に cleanup し、Chromium process、socket、timer、未処理 rejection を残さない。
+
+### 6.5 Playwright 相互接続の完了項目
+
+- [x] Playwright Chromium と werift client の同一 Router 接続、B1〜B8 の必須検証、失敗時の調査・修正を完了した
+- [x] fixture の `test:browser` / `install:browsers`、Node 22/24 CI、README / AGENTS.md を追加した
+- [x] fixture の type、small、interop、browser 試験を成功させた
+- [x] submodule SHA `46a05a70c942f92b8f19611fb5dd005fc96d8bf0` と werift 本体未変更の対応関係を記録した
