@@ -6,6 +6,7 @@ import {
 import { SpedSession } from "../../src/sped/draft00/session";
 import { classes, methods } from "../../src/stun/const";
 import { Message, paddingLength } from "../../src/stun/message";
+import { getRawAttributeValue } from "../../src/stun/rawAttributeValue";
 
 function stunAttributeTypes(bytes: Buffer): number[] {
   const types: number[] = [];
@@ -47,7 +48,7 @@ describe("SPED draft00 session", () => {
     expect(session.decorate(request)).toBe(true);
     request.addMessageIntegrity(Buffer.from("pw")).addFingerprint();
     const types = stunAttributeTypes(request.bytes);
-    const ack = request.getRawAttributeValue(DTLS_IN_STUN_ACK)!;
+    const ack = getRawAttributeValue(request, DTLS_IN_STUN_ACK)!;
 
     // Assert: ACK → DATA → MI → FP。載せた 4 CRC は消費し 5 件目は次回へ
     expect(types.indexOf(DTLS_IN_STUN_ACK)).toBeLessThan(
@@ -67,7 +68,7 @@ describe("SPED draft00 session", () => {
 
     // Assert: L2 は空。ACK は残り 1 CRC
     expect(session.l2Crcs).toHaveLength(0);
-    expect(next.getRawAttributeValue(DTLS_IN_STUN_ACK)?.length).toBe(4);
+    expect(getRawAttributeValue(next, DTLS_IN_STUN_ACK)?.length).toBe(4);
   });
 
   it("invalid demux は L2 に載せない", () => {
@@ -198,8 +199,8 @@ describe("SPED draft00 session", () => {
     expect(session.embedding).toBe(false);
     expect(session.hasL1).toBe(false);
     expect(session.l2Crcs).toHaveLength(0);
-    expect(request.getRawAttributeValue(DTLS_IN_STUN_DATA)).toBeUndefined();
-    expect(request.getRawAttributeValue(DTLS_IN_STUN_ACK)).toBeUndefined();
+    expect(getRawAttributeValue(request, DTLS_IN_STUN_DATA)).toBeUndefined();
+    expect(getRawAttributeValue(request, DTLS_IN_STUN_ACK)).toBeUndefined();
   });
 
   it("abort 後の reset は probing に戻し L1 を載せられる", () => {
@@ -229,7 +230,7 @@ describe("SPED draft00 session", () => {
       const request = new Message(methods.BINDING, classes.REQUEST);
       request.setAttribute("USERNAME", "a:b").setAttribute("PRIORITY", 1);
       expect(session.decorate(request)).toBe(true);
-      return request.getRawAttributeValue(DTLS_IN_STUN_DATA);
+      return getRawAttributeValue(request, DTLS_IN_STUN_DATA);
     };
 
     // Act / Assert: 各 Binding は 1 DTLS datagram。次の Binding で残り

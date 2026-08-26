@@ -24,6 +24,7 @@ Instructions for coding agents working in `packages/ice-server`.
 * Do not move package-specific browser interop tests into the repository-root `e2e` app.
 * Do not add catch-and-ignore handling around TURN authentication, allocation, permission, or relay errors.
 * Do not duplicate peer-connection setup across multiple Chrome E2E files when the shared helper can own it.
+* Do not export STUN wire-order internals (`WireAttribute`, `getRawAttributeValue`) from `src/index.ts`.
 
 ## Commands
 

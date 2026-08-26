@@ -21,6 +21,7 @@ import {
 } from "../../../dtls/src/internal";
 import { Candidate, Connection } from "../../../ice/src";
 import { attachSpedToConnection } from "../../../ice/src/internal/sped";
+import { getRawAttributeValue } from "../../../ice/src/stun/rawAttributeValue";
 import { IceSpedTransport } from "../../src/transport/sped";
 import { resolvePionIceAgentBin as resolvePionIceAgentBinFromInput } from "./resolve-pion-ice-agent-bin";
 
@@ -224,9 +225,7 @@ describePion("released Pion ICE agent SPED fallback", () => {
         const sendStun = protocol.sendStun.bind(protocol);
         const sendData = protocol.sendData.bind(protocol);
         protocol.sendStun = async (message: any, addr: Address) => {
-          const value = message.getRawAttributeValue?.(0xc070) as
-            | Buffer
-            | undefined;
+          const value = getRawAttributeValue(message, 0xc070);
           if (value && value.length > 0) {
             spedData.push(Buffer.from(value));
           }

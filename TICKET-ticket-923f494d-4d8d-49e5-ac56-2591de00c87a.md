@@ -806,8 +806,8 @@ npm run test:small
 Pion SPED wire（環境が揃ってから。未設定 skip に頼って完了としない）:
 
 ```bash
-# WERIFT_PION_SPED / ツール README に従う
-cd packages/ice && npm test -- pion-sped
+# WERIFT_PION_SPED または WERIFT_PION_SPED_AUTO_BUILD=1。ツール README に従う
+cd packages/ice && npm run test:pion-sped
 ```
 
 PR 前 regression:

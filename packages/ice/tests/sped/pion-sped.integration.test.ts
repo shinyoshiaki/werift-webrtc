@@ -10,6 +10,7 @@ import {
 } from "../../src/sped/draft00";
 import { classes, methods } from "../../src/stun/const";
 import { Message, parseMessage } from "../../src/stun/message";
+import { getRawAttributeValue } from "../../src/stun/rawAttributeValue";
 import { resolvePionSpedBin as resolvePionSpedBinFromInput } from "./resolve-pion-sped-bin";
 
 const toolDir = join(process.cwd(), "tools/pion-sped");
@@ -111,7 +112,7 @@ describePion("pion SPED wire codec (opt-in)", () => {
     // Assert
     expect(parsed).toBeDefined();
     expect(
-      parsed!.getRawAttributeValue(DTLS_IN_STUN_DATA)?.toString("hex"),
+      getRawAttributeValue(parsed!, DTLS_IN_STUN_DATA)?.toString("hex"),
     ).toBe("1601");
   });
 
@@ -137,10 +138,12 @@ describePion("pion SPED wire codec (opt-in)", () => {
       expect(fromWerift).toMatch(/type=0xC071/i);
       if (crcs.length === 0) {
         expect(fromWerift).toMatch(/len=0/);
-        expect(parsed!.getRawAttributeValue(DTLS_IN_STUN_ACK)?.length).toBe(0);
-        expect(parsed!.getRawAttributeValue(DTLS_IN_STUN_DATA)).toBeUndefined();
+        expect(getRawAttributeValue(parsed!, DTLS_IN_STUN_ACK)?.length).toBe(0);
+        expect(
+          getRawAttributeValue(parsed!, DTLS_IN_STUN_DATA),
+        ).toBeUndefined();
       } else {
-        const ack = parsed!.getRawAttributeValue(DTLS_IN_STUN_ACK);
+        const ack = getRawAttributeValue(parsed!, DTLS_IN_STUN_ACK);
         expect(ack?.length).toBe(crcs.length * 4);
         for (let i = 0; i < crcs.length; i++) {
           expect(ack!.readUInt32BE(i * 4)).toBe(crcs[i]);
@@ -197,7 +200,7 @@ describePion("pion SPED wire codec (opt-in)", () => {
     expect(verified).toMatch(/MESSAGE-INTEGRITY OK/);
     expect(parsedOk).toBeDefined();
     expect(
-      parsedOk!.getRawAttributeValue(DTLS_IN_STUN_DATA)?.toString("hex"),
+      getRawAttributeValue(parsedOk!, DTLS_IN_STUN_DATA)?.toString("hex"),
     ).toBe("1601");
     expect(parsedBad).toBeUndefined();
   });

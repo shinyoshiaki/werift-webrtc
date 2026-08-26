@@ -14,7 +14,7 @@
 
 ### new Message()
 
-> **new Message**(`messageMethod`, `messageClass`, `transactionId`, `attributes`, `rawAttributes`, `wireAttributes`?): [`Message`](Message.md)
+> **new Message**(`messageMethod`, `messageClass`, `transactionId`, `attributes`, `rawAttributes`): [`Message`](Message.md)
 
 #### Parameters
 
@@ -37,10 +37,6 @@
 ##### rawAttributes
 
 `RawAttribute`[] = `[]`
-
-##### wireAttributes?
-
-`WireAttribute`[]
 
 #### Returns
 
@@ -143,7 +139,7 @@
 > **get** **rawAttributes**(): `RawAttribute`[]
 
 Unknown (not in ATTRIBUTES) attributes in wire order.
-Compatible view of the mixed wireAttributes list.
+Compatible view of the mixed on-wire attribute list.
 
 ##### Returns
 
@@ -280,34 +276,6 @@ Compatible view of the mixed wireAttributes list.
 #### Inherited from
 
 `AttributeRepository.getAttributeValue`
-
-***
-
-### getRawAttributeValue()
-
-> **getRawAttributeValue**(`type`): `undefined` \| `Buffer`\<`ArrayBufferLike`\>
-
-#### Parameters
-
-##### type
-
-`number`
-
-#### Returns
-
-`undefined` \| `Buffer`\<`ArrayBufferLike`\>
-
-***
-
-### getWireAttributes()
-
-> **getWireAttributes**(): `WireAttribute`[]
-
-Mixed known/raw attributes in the order they are serialized.
-
-#### Returns
-
-`WireAttribute`[]
 
 ***
 

@@ -9,6 +9,7 @@ import {
   methods,
 } from "../src/stun/const";
 import { Message, paddingLength, parseMessage } from "../src/stun/message";
+import { getRawAttributeValue } from "../src/stun/rawAttributeValue";
 
 /** IANA META-DTLS-IN-STUN / META-DTLS-IN-STUN-ACKNOWLEDGEMENT (not registered in ATTRIBUTES). */
 const DTLS_IN_STUN_DATA = 0xc070;
@@ -98,7 +99,7 @@ describe("STUN wire attribute order", () => {
       attributeTypes(original.bytes),
     );
     expect(
-      parsed!.getRawAttributeValue(0x8001)?.equals(Buffer.from("xy")),
+      getRawAttributeValue(parsed!, 0x8001)?.equals(Buffer.from("xy")),
     ).toBe(true);
   });
 
@@ -123,9 +124,9 @@ describe("STUN wire attribute order", () => {
     const parsed = parseMessage(request.bytes, key);
     expect(parsed).toBeDefined();
     expect(
-      parsed!
-        .getRawAttributeValue(DTLS_IN_STUN_DATA)
-        ?.equals(Buffer.from([20, 1, 2, 3])),
+      getRawAttributeValue(parsed!, DTLS_IN_STUN_DATA)?.equals(
+        Buffer.from([20, 1, 2, 3]),
+      ),
     ).toBe(true);
   });
 
@@ -164,7 +165,7 @@ describe("STUN wire attribute order", () => {
 
       // Assert: Length は padding 前。padding は 0。再パースで value が一致
       expect(parsed).toBeDefined();
-      const recovered = parsed!.getRawAttributeValue(0xc070);
+      const recovered = getRawAttributeValue(parsed!, 0xc070);
       expect(recovered?.equals(value)).toBe(true);
       expect(bytes.length % 4).toBe(0);
       const headerLen = bytes.readUInt16BE(2);
@@ -220,8 +221,8 @@ describe("STUN wire attribute order", () => {
 
     // Assert: HMAC は通るが DATA/ACK は認証済み属性に出ない
     expect(parsed).toBeDefined();
-    expect(parsed!.getRawAttributeValue(DTLS_IN_STUN_DATA)).toBeUndefined();
-    expect(parsed!.getRawAttributeValue(DTLS_IN_STUN_ACK)).toBeUndefined();
+    expect(getRawAttributeValue(parsed!, DTLS_IN_STUN_DATA)).toBeUndefined();
+    expect(getRawAttributeValue(parsed!, DTLS_IN_STUN_ACK)).toBeUndefined();
   });
 
   it("認証付き parse は FINGERPRINT 後の DATA/ACK を公開しない", () => {
@@ -243,8 +244,8 @@ describe("STUN wire attribute order", () => {
 
     // Assert: HMAC / FP は通るが DATA/ACK は認証済み属性に出ない
     expect(parsed).toBeDefined();
-    expect(parsed!.getRawAttributeValue(DTLS_IN_STUN_DATA)).toBeUndefined();
-    expect(parsed!.getRawAttributeValue(DTLS_IN_STUN_ACK)).toBeUndefined();
+    expect(getRawAttributeValue(parsed!, DTLS_IN_STUN_DATA)).toBeUndefined();
+    expect(getRawAttributeValue(parsed!, DTLS_IN_STUN_ACK)).toBeUndefined();
   });
 
   it("認証付き parse は MESSAGE-INTEGRITY 後の通常 MI を無視する", () => {

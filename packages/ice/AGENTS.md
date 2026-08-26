@@ -22,6 +22,7 @@ Instructions for coding agents working in `packages/ice`.
 ## Don't
 
 * Do not add `IceOptions.sped` or export draft-00 types from the package barrel.
+* Do not export STUN wire-order internals (`WireAttribute`, `getRawAttributeValue`) from `src/index.ts`.
 * Do not register SPED attributes in ice-server `ATTRIBUTES`.
 * Do not implement TURN-path SPED (ChannelData / Data Indication embedding).
 * Do not attach `MESSAGE-INTEGRITY-SHA256` to SPED Bindings.

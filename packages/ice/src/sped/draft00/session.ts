@@ -1,4 +1,5 @@
 import type { Message } from "../../stun/message";
+import { getRawAttributeValue } from "../../stun/rawAttributeValue";
 
 import {
   decodeSpedAck,
@@ -212,8 +213,8 @@ export class SpedSession {
     if (this.state === "disabled") {
       return { fallback: false };
     }
-    const dataValue = message.getRawAttributeValue(DTLS_IN_STUN_DATA);
-    const ackValue = message.getRawAttributeValue(DTLS_IN_STUN_ACK);
+    const dataValue = getRawAttributeValue(message, DTLS_IN_STUN_DATA);
+    const ackValue = getRawAttributeValue(message, DTLS_IN_STUN_ACK);
     const state = this.noteAuthenticatedBindingHasData(dataValue !== undefined);
     if (ackValue) {
       const decoded = decodeSpedAck(ackValue);

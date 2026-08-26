@@ -5,6 +5,7 @@ import { attachSpedToConnection } from "../../src/internal/sped";
 import { DTLS_IN_STUN_DATA } from "../../src/sped/draft00/constants";
 import { classes, methods } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
+import { getRawAttributeValue } from "../../src/stun/rawAttributeValue";
 import { createTestConnection } from "../utils";
 import { SpedProtocolMock } from "./helpers";
 
@@ -210,7 +211,7 @@ describe("SPED abort", () => {
     expect(handle.session.state).toBe("disabled");
     expect(handle.session.embedding).toBe(false);
     expect(handle.session.hasL1).toBe(false);
-    expect(request.getRawAttributeValue(DTLS_IN_STUN_DATA)).toBeUndefined();
+    expect(getRawAttributeValue(request, DTLS_IN_STUN_DATA)).toBeUndefined();
     expect(calls.abort).toBe(1);
     expect(calls.reset).toBe(0);
   });

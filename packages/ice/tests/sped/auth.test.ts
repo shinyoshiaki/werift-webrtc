@@ -9,6 +9,7 @@ import {
 } from "../../src/sped/draft00/constants";
 import { classes, methods } from "../../src/stun/const";
 import { Message, parseMessage } from "../../src/stun/message";
+import { getRawAttributeValue } from "../../src/stun/rawAttributeValue";
 import { createTestConnection } from "../utils";
 import {
   SpedProtocolMock,
@@ -325,8 +326,8 @@ describe("ICE Binding Request 認証境界", () => {
 
     // Assert: DATA/ACK は属性に出ず、forged payload は inject されない
     expect(verified).toBeDefined();
-    expect(verified!.getRawAttributeValue(DTLS_IN_STUN_DATA)).toBeUndefined();
-    expect(verified!.getRawAttributeValue(DTLS_IN_STUN_ACK)).toBeUndefined();
+    expect(getRawAttributeValue(verified!, DTLS_IN_STUN_DATA)).toBeUndefined();
+    expect(getRawAttributeValue(verified!, DTLS_IN_STUN_ACK)).toBeUndefined();
     expect(injected).toHaveLength(0);
     expect(injected.some((bytes) => bytes.equals(forged))).toBe(false);
     expect(sentDirect.some((bytes) => bytes.equals(forged))).toBe(false);
@@ -351,8 +352,8 @@ describe("ICE Binding Request 認証境界", () => {
 
     // Assert: DATA/ACK は属性に出ず、forged payload は inject されない
     expect(verified).toBeDefined();
-    expect(verified!.getRawAttributeValue(DTLS_IN_STUN_DATA)).toBeUndefined();
-    expect(verified!.getRawAttributeValue(DTLS_IN_STUN_ACK)).toBeUndefined();
+    expect(getRawAttributeValue(verified!, DTLS_IN_STUN_DATA)).toBeUndefined();
+    expect(getRawAttributeValue(verified!, DTLS_IN_STUN_ACK)).toBeUndefined();
     expect(injected).toHaveLength(0);
     expect(injected.some((bytes) => bytes.equals(forged))).toBe(false);
     expect(sentDirect.some((bytes) => bytes.equals(forged))).toBe(false);

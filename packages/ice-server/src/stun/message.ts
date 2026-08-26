@@ -27,9 +27,9 @@ import {
  * One STUN attribute in on-wire order (known or comprehension-optional raw).
  * RFC 8489 HMAC covers attributes that precede MESSAGE-INTEGRITY, so unknown
  * optional attributes must sit in this list before integrity — not in a trailing dump.
- * @internal
+ * File-private: not part of the ice-server / ice public API.
  */
-export type WireAttribute =
+type WireAttribute =
   | {
       kind: "known";
       name: AttributeKey;
@@ -40,6 +40,25 @@ export type WireAttribute =
       type: number;
       value: Buffer;
     };
+
+const messageWireAttributes = new WeakMap<Message, WireAttribute[]>();
+
+function wireAttributesOf(message: Message): WireAttribute[] {
+  const existing = messageWireAttributes.get(message);
+  if (existing) {
+    return existing;
+  }
+  const created: WireAttribute[] = [];
+  messageWireAttributes.set(message, created);
+  return created;
+}
+
+function setMessageWireAttributes(
+  message: Message,
+  wireAttributes: WireAttribute[],
+) {
+  messageWireAttributes.set(message, wireAttributes.map(cloneWireAttribute));
+}
 
 export function parseMessage(
   data: Buffer,
@@ -143,48 +162,42 @@ export function parseMessage(
     return undefined;
   }
 
-  return new Message(
+  const message = new Message(
     messageType & 0x3eef,
     messageType & 0x0110,
     transactionId,
     attributeRepository.getAttributes(),
     rawAttributesFromWire(wireAttributes),
-    wireAttributes,
   );
+  setMessageWireAttributes(message, wireAttributes);
+  return message;
 }
 
 export class Message extends AttributeRepository {
-  private wireAttributes: WireAttribute[];
-
   constructor(
     public messageMethod: methods,
     public messageClass: classes,
     public transactionId: Buffer = randomBytes(12),
     attributes: AttributePair[] = [],
     rawAttributes: RawAttribute[] = [],
-    wireAttributes?: WireAttribute[],
   ) {
     super(attributes);
-    if (wireAttributes) {
-      this.wireAttributes = wireAttributes.map(cloneWireAttribute);
-    } else {
-      this.wireAttributes = [
-        ...attributes.map(
-          ([name, value]): WireAttribute => ({
-            kind: "known",
-            name,
-            value,
-          }),
-        ),
-        ...rawAttributes.map(
-          (attribute): WireAttribute => ({
-            kind: "raw",
-            type: attribute.type,
-            value: Buffer.from(attribute.value),
-          }),
-        ),
-      ];
-    }
+    setMessageWireAttributes(this, [
+      ...attributes.map(
+        ([name, value]): WireAttribute => ({
+          kind: "known",
+          name,
+          value,
+        }),
+      ),
+      ...rawAttributes.map(
+        (attribute): WireAttribute => ({
+          kind: "raw",
+          type: attribute.type,
+          value: Buffer.from(attribute.value),
+        }),
+      ),
+    ]);
   }
 
   toJSON() {
@@ -209,24 +222,19 @@ export class Message extends AttributeRepository {
 
   /**
    * Unknown (not in ATTRIBUTES) attributes in wire order.
-   * Compatible view of the mixed {@link wireAttributes} list.
+   * Compatible view of the mixed on-wire attribute list.
    */
   get rawAttributes(): RawAttribute[] {
-    return rawAttributesFromWire(this.wireAttributes);
+    return rawAttributesFromWire(wireAttributesOf(this));
   }
 
   set rawAttributes(value: RawAttribute[]) {
-    this.wireAttributes = this.wireAttributes.filter(
-      (attribute) => attribute.kind !== "raw",
-    );
+    const wire = wireAttributesOf(this);
+    const knownOnly = wire.filter((attribute) => attribute.kind !== "raw");
+    setMessageWireAttributes(this, knownOnly);
     for (const attribute of value) {
       this.appendRawAttribute(attribute.type, attribute.value);
     }
-  }
-
-  /** Mixed known/raw attributes in the order they are serialized. */
-  getWireAttributes(): WireAttribute[] {
-    return this.wireAttributes.map(cloneWireAttribute);
   }
 
   appendRawAttribute(type: number, value: Buffer) {
@@ -235,8 +243,9 @@ export class Message extends AttributeRepository {
       type,
       value: Buffer.from(value),
     };
-    const insertAt = integrityBoundaryIndex(this.wireAttributes);
-    this.wireAttributes.splice(insertAt, 0, raw);
+    const wire = wireAttributesOf(this);
+    const insertAt = integrityBoundaryIndex(wire);
+    wire.splice(insertAt, 0, raw);
     return this;
   }
 
@@ -244,27 +253,21 @@ export class Message extends AttributeRepository {
     return this.rawAttributes.map((attribute) => attribute.type);
   }
 
-  getRawAttributeValue(type: number): Buffer | undefined {
-    const attribute = this.wireAttributes.find(
-      (candidate) => candidate.kind === "raw" && candidate.type === type,
-    );
-    return attribute?.kind === "raw" ? attribute.value : undefined;
-  }
-
   override setAttribute(key: AttributeKey, value: any) {
-    const existing = this.wireAttributes.find(
+    const wire = wireAttributesOf(this);
+    const existing = wire.find(
       (attribute) => attribute.kind === "known" && attribute.name === key,
     );
     if (existing && existing.kind === "known") {
       existing.value = value;
     } else {
-      this.wireAttributes.push({ kind: "known", name: key, value });
+      wire.push({ kind: "known", name: key, value });
     }
     return super.setAttribute(key, value);
   }
 
   override clear() {
-    this.wireAttributes = [];
+    setMessageWireAttributes(this, []);
     super.clear();
   }
 
@@ -305,7 +308,7 @@ export class Message extends AttributeRepository {
   }
 
   private get serializedAttributes() {
-    return this.wireAttributes.map((attribute) => {
+    return wireAttributesOf(this).map((attribute) => {
       if (attribute.kind === "raw") {
         return { type: attribute.type, value: Buffer.from(attribute.value) };
       }

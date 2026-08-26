@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { Connection } from "../../../ice/src";
+import type { CandidatePair, Connection } from "../../../ice/src";
 import { SpedSession } from "../../../ice/src/internal/sped";
 import { getConnectionSpedRuntime } from "../../../ice/src/internal/sped-bind";
 import { paddingLength } from "../../../ice/src/stun/message";
@@ -33,6 +33,7 @@ const spedPeerConfig = (
     iceLite?: boolean;
     iceAdditionalHostAddresses?: string[];
     certificates?: RTCCertificate[];
+    iceFilterCandidatePair?: (pair: CandidatePair) => boolean;
   } = {},
 ) => ({
   iceServers: [] as { urls: string }[],
@@ -53,6 +54,20 @@ async function waitUntil(predicate: () => boolean, timeoutMs = 10_000) {
 
 function iceOf(pc: RTCPeerConnection) {
   return pc.iceTransports[0]!.connection as Connection;
+}
+
+function tcpOnlyCandidatePair(pair: CandidatePair) {
+  return (
+    pair.localCandidate.transport.toLowerCase() === "tcp" &&
+    pair.remoteCandidate.transport.toLowerCase() === "tcp"
+  );
+}
+
+function expectNominatedTcp(pc: RTCPeerConnection) {
+  const nominated = iceOf(pc).nominated;
+  expect(nominated).toBeDefined();
+  expect(nominated!.localCandidate.transport.toLowerCase()).toBe("tcp");
+  expect(nominated!.remoteCandidate.transport.toLowerCase()).toBe("tcp");
 }
 
 const hookedL1Sessions = new WeakSet<object>();
@@ -393,6 +408,47 @@ describe("RTCPeerConnection SPED opt-in", () => {
     }
   });
 
+  test("createDataChannel 後の iceServers 更新では sped が維持される", () => {
+    // Arrange: sped:true で transport を生成してから無関係な部分更新
+    const pc = new RTCPeerConnection({
+      iceServers: [],
+      sped: true,
+      dtls: { protocolVersions: [DtlsVersion.V1_3] },
+    });
+
+    try {
+      pc.createDataChannel("dc");
+
+      // Act: iceServers だけ更新する
+      pc.setConfiguration({ iceServers: [] });
+
+      // Assert: transport 生成後も sped は false に戻らない
+      expect(pc.getConfiguration().sped).toBe(true);
+    } finally {
+      pc.close();
+    }
+  });
+
+  test("createDataChannel 後の sped 有効化は reject する", () => {
+    // Arrange: 既存 non-SPED transport のあとで sped を後付けしない
+    const pc = new RTCPeerConnection({ iceServers: [] });
+
+    try {
+      pc.createDataChannel("dc");
+
+      // Act / Assert
+      expect(() =>
+        pc.setConfiguration({
+          sped: true,
+          dtls: { protocolVersions: [DtlsVersion.V1_3] },
+        }),
+      ).toThrow(/sped cannot be changed after a DTLS transport is created/);
+      expect(pc.getConfiguration().sped).toBe(false);
+    } finally {
+      pc.close();
+    }
+  });
+
   test("sped: true かつ DTLS 1.3 が無いと connect() 開始時に throw する", async () => {
     // Arrange: 未指定 / 空 / 1.2 のみ
     const unspecified = new RTCPeerConnection({ iceServers: [], sped: true });
@@ -515,8 +571,12 @@ describe("RTCPeerConnection SPED opt-in", () => {
     const stun: Buffer[] = [];
     const handshakeDtls: Buffer[] = [];
     const tcpFrames: Buffer[] = [];
-    const pc1 = new RTCPeerConnection(spedPeerConfig({ iceUseTcp: true }));
-    const pc2 = new RTCPeerConnection(spedPeerConfig({ iceUseTcp: true }));
+    const tcpSpedConfig = spedPeerConfig({
+      iceUseTcp: true,
+      iceFilterCandidatePair: tcpOnlyCandidatePair,
+    });
+    const pc1 = new RTCPeerConnection(tcpSpedConfig);
+    const pc2 = new RTCPeerConnection(tcpSpedConfig);
     try {
       const [dc1, dc2] = await openDataChannelWithWireSpy(
         pc1,
@@ -528,6 +588,10 @@ describe("RTCPeerConnection SPED opt-in", () => {
       // Act: TCP nominated 上で app data を送る
       dc1.send("tcp-sped");
       expect(await awaitMessage(dc2)).toBe("tcp-sped");
+
+      // Assert: nominated pair が TCP であり、UDP 高優先度で偽陽性にならない
+      expectNominatedTcp(pc1);
+      expectNominatedTcp(pc2);
 
       // Assert: RFC 4571 フレーム（2-byte length）の payload に DATA/ACK がある
       const framedSped = tcpFrames.filter((frame) => {

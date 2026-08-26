@@ -103,6 +103,7 @@ export class RTCPeerConnection extends EventTarget {
   private readonly sctpManager: SctpTransportManager;
   private readonly secureManager: SecureTransportManager;
   private isClosed = false;
+  private dtlsTransportCreated = false;
   private shouldNegotiationneeded = false;
   private lastCreatedAnswer?: RTCSessionDescription;
   private lastCreatedOffer?: RTCSessionDescription;
@@ -423,6 +424,37 @@ export class RTCPeerConnection extends EventTarget {
       throw new Error("iceCandidatePoolSize > 0 is not supported");
     }
 
+    if (this.dtlsTransportCreated) {
+      if (
+        "sped" in normalizedConfig &&
+        normalizedConfig.sped !== this.config.sped
+      ) {
+        throw new Error(
+          "sped cannot be changed after a DTLS transport is created",
+        );
+      }
+      if (
+        normalizedConfig.dtls &&
+        "protocolVersions" in normalizedConfig.dtls &&
+        dtlsProtocolVersionsKey(normalizedConfig.dtls.protocolVersions) !==
+          dtlsProtocolVersionsKey(this.config.dtls.protocolVersions)
+      ) {
+        throw new Error(
+          "dtls.protocolVersions cannot be changed after a DTLS transport is created",
+        );
+      }
+      if (
+        normalizedConfig.dtls &&
+        "helloRetryRequest" in normalizedConfig.dtls &&
+        Boolean(normalizedConfig.dtls.helloRetryRequest) !==
+          Boolean(this.config.dtls.helloRetryRequest)
+      ) {
+        throw new Error(
+          "dtls.helloRetryRequest cannot be changed after a DTLS transport is created",
+        );
+      }
+    }
+
     deepMerge(this.config, normalizedConfig as Partial<PeerConfig>);
 
     if (this.config.icePortRange) {
@@ -609,11 +641,13 @@ export class RTCPeerConnection extends EventTarget {
       (this.sdpManager.bundlePolicy !== "disable" && this.remoteIsBundled)
     ) {
       if (existingDtlsTransport) {
+        this.dtlsTransportCreated = true;
         return existingDtlsTransport;
       }
     }
 
     const dtlsTransport = this.secureManager.createTransport();
+    this.dtlsTransportCreated = true;
     dtlsTransport.onRtp.subscribe((rtp) => {
       this.router.routeRtp(rtp);
     });
@@ -1517,9 +1551,15 @@ function normalizePeerConfiguration(
     );
   }
 
-  normalizedConfig.sped = input.sped === true;
+  if ("sped" in input) {
+    normalizedConfig.sped = input.sped === true;
+  }
 
   return normalizedConfig;
+}
+
+function dtlsProtocolVersionsKey(versions: readonly DtlsVersion[] | undefined) {
+  return (versions ?? []).join(",");
 }
 
 function coerceUnsignedShort(value: unknown, name: string) {
