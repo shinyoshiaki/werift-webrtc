@@ -73,3 +73,5 @@ jobs:
           npm run type
           npm run test:small
           npm test
+          npm run install:browsers
+          npm run test:browser

@@ -162,7 +162,12 @@ CI:
 
 ### 3.4 実装中の調査ログ
 
-（実装開始時は空。失敗したらケース ID・例外・切り分け・修正箇所を追記する。）
+- 起動: この環境では Chromium は `--no-sandbox` なしで `chromium.launch({ headless: true })` が成功した。コンテナ用 args は未使用。
+- B4: 最初の 2 パケットが同一 VP8 フレームで timestamp が変わらず `assertRtpHeadersProgress` が失敗した。`waitForRtpHeaders` を seq と ts の両方が変わるまで待つように変更（Chrome 実エンコード向け）。werift 本体の変更は不要。
+- B6: ブラウザ `DataProducer.close()` だけでは SFU 経由の werift `DataConsumer` が `open` のまま残った。mediasoup は client/server が別 SCTP のため、ブラウザ close を Node の server `DataProducer.close()` に中継するシグナリング（既存 `wireProduceData` 相当）を足して close 伝播を確認した。
+- B5: ブラウザ `transport.consume()` 後に `HTMLVideoElement.play()` を await すると、werift dummy VP8 がデコードされない間ずっと pending になり、テストが 90s hang した。ICE=`completed` / DTLS=`connected` のあと SDP の setLocalDescription は完了していた。`play()` は fire-and-forget にし、必須 Assert は inbound `packetsReceived` のまま（仕様 2.4 どおり）。Chrome 同士の video consume は fake camera がデコードできるため hang しなかった。werift 本体の修正は不要。
+- 本体 (`packages/webrtc` 等) は未変更。Playwright は fixture の exact `devDependency` `1.55.1` のみ。
+- submodule SHA: fixture 側の commit / 公開 repository push 後に werift gitlink を更新する（この作業ツリー上の未コミット変更）。
 
 ## 4. 考慮すべき制約や注意点
 
@@ -181,22 +186,22 @@ CI:
 
 ## 5. 完了条件
 
-- [ ] `test/browser` に Playwright Chromium client と werift polyfill client が同一 mediasoup Router を共有する Arrange がある
-- [ ] ブラウザ側は `handlerName` / `handlerFactory` なしで `Device.factory()` が成功する
-- [ ] werift 側は `installPolyfill({ mediaRegister })` と引数なし `Device.factory()` で `detectDevice() === "Chrome111"` になる
-- [ ] B2: ブラウザ audio produce → werift consume で `onReceiveRtp` の seq/ts/ssrc 検証が通る
-- [ ] B4: ブラウザ VP8 produce → werift consume で同様の RTP ヘッダ検証が通る
-- [ ] B3/B5: werift produce → ブラウザ consume で inbound `packetsReceived` が増える
-- [ ] B6: DataChannel の双方向メッセージと close が通る
-- [ ] B7/B8: 同時接続の独立性と close / uninstall 後の open handle が残らない
-- [ ] 失敗したケースは本ファイル 3.4 に記録し、原因を werift 既存クラスまたは fixture helper として修正している（skip や無関係な timeout 延長だけではない）
-- [ ] 新規テストは Arrange / Act / Assert に分かれ、Act / Assert に日本語コメントがあり、ブラウザ用 Arrange は `test/browser/helpers` に集約されている
-- [ ] `package.json` の `test` は Chromium 無しの small+interop のまま、`test:browser` と `install:browsers` が追加されている
-- [ ] fixture CI と werift `mediasoup-interop` ジョブが Node 22/24 で `install:browsers` と `test:browser` を実行する
-- [ ] fixture `README.md` と `AGENTS.md` が `test:browser` と検証方針を説明している
-- [ ] `playwright` は fixture の exact devDependency に限定され、werift runtime 依存に入っていない
-- [ ] `cd integration/werift-mediasoup-interop && npm run type` が成功する
-- [ ] `cd integration/werift-mediasoup-interop && npm run test:small` が成功する
-- [ ] `cd integration/werift-mediasoup-interop && npm run test:interop` が成功する
-- [ ] `cd integration/werift-mediasoup-interop && npm run install:browsers && npm run test:browser` が成功する
+- [x] `test/browser` に Playwright Chromium client と werift polyfill client が同一 mediasoup Router を共有する Arrange がある
+- [x] ブラウザ側は `handlerName` / `handlerFactory` なしで `Device.factory()` が成功する
+- [x] werift 側は `installPolyfill({ mediaRegister })` と引数なし `Device.factory()` で `detectDevice() === "Chrome111"` になる
+- [x] B2: ブラウザ audio produce → werift consume で `onReceiveRtp` の seq/ts/ssrc 検証が通る
+- [x] B4: ブラウザ VP8 produce → werift consume で同様の RTP ヘッダ検証が通る
+- [x] B3/B5: werift produce → ブラウザ consume で inbound `packetsReceived` が増える
+- [x] B6: DataChannel の双方向メッセージと close が通る
+- [x] B7/B8: 同時接続の独立性と close / uninstall 後の open handle が残らない
+- [x] 失敗したケースは本ファイル 3.4 に記録し、原因を werift 既存クラスまたは fixture helper として修正している（skip や無関係な timeout 延長だけではない）
+- [x] 新規テストは Arrange / Act / Assert に分かれ、Act / Assert に日本語コメントがあり、ブラウザ用 Arrange は `test/browser/helpers` に集約されている
+- [x] `package.json` の `test` は Chromium 無しの small+interop のまま、`test:browser` と `install:browsers` が追加されている
+- [x] fixture CI と werift `mediasoup-interop` ジョブが Node 22/24 で `install:browsers` と `test:browser` を実行する
+- [x] fixture `README.md` と `AGENTS.md` が `test:browser` と検証方針を説明している
+- [x] `playwright` は fixture の exact devDependency に限定され、werift runtime 依存に入っていない
+- [x] `cd integration/werift-mediasoup-interop && npm run type` が成功する
+- [x] `cd integration/werift-mediasoup-interop && npm run test:small` が成功する
+- [x] `cd integration/werift-mediasoup-interop && npm run test:interop` が成功する
+- [x] `cd integration/werift-mediasoup-interop && npm run install:browsers && npm run test:browser` が成功する
 - [ ] ブラウザ試験追加に伴う submodule SHA と、必要なら werift 本体修正の対応関係がチケットに残っている
