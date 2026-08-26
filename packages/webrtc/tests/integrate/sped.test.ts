@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { Connection } from "../../../ice/src";
+import { SpedSession } from "../../../ice/src/internal/sped";
 import { getConnectionSpedRuntime } from "../../../ice/src/internal/sped-bind";
 import { paddingLength } from "../../../ice/src/stun/message";
 import { encodeTcpFrame } from "../../../ice/src/stun/tcpFrame";
@@ -90,6 +91,35 @@ function captureL1Flights(pc: RTCPeerConnection, flights: Buffer[][]) {
 }
 
 /**
+ * Swap L1[1] and L1[2] on the first 3+ datagram flight (keep ServerHello first).
+ * Prototype hook runs before ICE/DTLS attach so the first replaceL1 is swapped.
+ */
+function swapL1PostHello(flights: Buffer[][], swap: { done: boolean }) {
+  const original = SpedSession.prototype.replaceL1;
+  SpedSession.prototype.replaceL1 = function (
+    this: SpedSession,
+    packets: readonly Buffer[],
+  ) {
+    const copies = packets.map((packet) => Buffer.from(packet));
+    flights.push(copies);
+    if (copies.length > 2) {
+      swap.done = true;
+      original.call(this, [
+        copies[0]!,
+        copies[2]!,
+        copies[1]!,
+        ...copies.slice(3),
+      ]);
+      return;
+    }
+    original.call(this, packets);
+  };
+  return () => {
+    SpedSession.prototype.replaceL1 = original;
+  };
+}
+
+/**
  * Cap DTLS datagram MTU so a large certificate becomes a multi-datagram L1
  * flight. Wrapper survives syncMtuFromBinding overwriting the carrier MTU.
  */
@@ -120,21 +150,6 @@ function capSpedDtlsMtu(pc: RTCPeerConnection, maxMtu: number) {
     }
   }, 1);
   return () => clearInterval(id);
-}
-
-function latestMultiRecordFlight(
-  flights: Buffer[][] | undefined,
-): Buffer[] | undefined {
-  if (!flights) {
-    return undefined;
-  }
-  for (let i = flights.length - 1; i >= 0; i--) {
-    const flight = flights[i];
-    if (flight && flight.length > 2) {
-      return flight;
-    }
-  }
-  return undefined;
 }
 
 function stunAttributeTypes(bytes: Buffer): number[] {
@@ -178,16 +193,8 @@ function isStunBindingRequest(bytes: Buffer): boolean {
 type HoldFirstNonEmptyData = {
   message?: Parameters<Protocol["sendStun"]>[0];
   addr?: Parameters<Protocol["sendStun"]>[1];
-  /**
-   * When true, the first non-empty DATA Binding is never released
-   * (stale restart / DTLS-error DATA). Otherwise `l1Flights` must be set:
-   * hold L1[1] of the latest 3+ datagram flight (ServerHello is L1[0])
-   * and release after L1[2] so the wire order is C then B. Holding L1[0]
-   * would delay ServerHello past later fragments and stall DTLS.
-   */
+  /** When true, the first non-empty DATA Binding is never released. */
   discard?: boolean;
-  /** After one C→B swap, do not hold L1[1] again when round-robin wraps. */
-  swapped?: boolean;
 };
 
 type WireSpyOptions = {
@@ -195,8 +202,6 @@ type WireSpyOptions = {
   dropFirstNonEmptyData?: { remaining: number };
   duplicateFirstNonEmptyData?: { remaining: number };
   holdFirstNonEmptyData?: HoldFirstNonEmptyData;
-  /** When set, hold L1[1] of a 3+ datagram flight and release after L1[2]. */
-  l1Flights?: Buffer[][];
 };
 
 type OpenWireSpyOptions = WireSpyOptions & {
@@ -245,8 +250,6 @@ function spyConnectionWire(
       }
       const dataValue = firstNonEmptySpedData([copy]);
       const nonEmptyData = !!dataValue;
-      const flight = latestMultiRecordFlight(options.l1Flights);
-      const hold = options.holdFirstNonEmptyData;
       if (
         options.dropFirstNonEmptyData &&
         options.dropFirstNonEmptyData.remaining > 0 &&
@@ -256,41 +259,16 @@ function spyConnectionWire(
         return;
       }
       if (
-        hold &&
-        !hold.message &&
-        !hold.swapped &&
-        dataValue &&
-        (hold.discard || (flight && dataValue.equals(flight[1]!)))
+        options.holdFirstNonEmptyData &&
+        !options.holdFirstNonEmptyData.message &&
+        nonEmptyData
       ) {
-        hold.message = message;
-        hold.addr = addr;
-        return;
-      }
-      if (
-        hold?.message &&
-        !hold.discard &&
-        dataValue &&
-        flight?.[1] &&
-        dataValue.equals(flight[1])
-      ) {
+        options.holdFirstNonEmptyData.message = message;
+        options.holdFirstNonEmptyData.addr = addr;
         return;
       }
       stun.push(copy);
       await sendStun(message, addr);
-      if (
-        hold?.message &&
-        dataValue &&
-        flight?.[2] &&
-        dataValue.equals(flight[2]) &&
-        !hold.discard
-      ) {
-        const heldMessage = hold.message;
-        const heldAddr = hold.addr!;
-        hold.message = undefined;
-        hold.swapped = true;
-        stun.push(Buffer.from(heldMessage.bytes));
-        await sendStun(heldMessage, heldAddr);
-      }
       if (
         options.duplicateFirstNonEmptyData &&
         options.duplicateFirstNonEmptyData.remaining > 0 &&
@@ -826,14 +804,14 @@ describe("RTCPeerConnection SPED opt-in", () => {
     const stun: Buffer[] = [];
     const handshakeDtls: Buffer[] = [];
     const offererFlights: Buffer[][] = [];
-    const hold: HoldFirstNonEmptyData = {};
+    const swapPostHello = { done: false };
+    const stopSwap = swapL1PostHello(offererFlights, swapPostHello);
     const pc1 = new RTCPeerConnection(
       spedPeerConfig({ certificates: [certificate] }),
     );
     const pc2 = new RTCPeerConnection(
       spedPeerConfig({ certificates: [certificate] }),
     );
-    const stopCapture = captureL1Flights(pc1, offererFlights);
     const stopMtu1 = capSpedDtlsMtu(pc1, 400);
     const stopMtu2 = capSpedDtlsMtu(pc2, 400);
     try {
@@ -842,43 +820,35 @@ describe("RTCPeerConnection SPED opt-in", () => {
         pc2,
         stun,
         handshakeDtls,
-        {
-          offerer: {
-            holdFirstNonEmptyData: hold,
-            l1Flights: offererFlights,
-          },
-        },
       );
 
       // Act: large certificate を SPED 上で送り、アプリデータまで到達させる
       dc1.send("large-cert");
       expect(await awaitMessage(dc2)).toBe("large-cert");
 
-      // Assert: 同一 L1 flight が 3 datagram 以上。ServerHello の次の 2 つを C→B に並べ替える
-      expect(offererFlights.some((flight) => flight.length > 2)).toBe(true);
-      expect(offererFlights.some((flight) => flight.length > 1)).toBe(true);
+      // Assert: 同一 L1 flight が 3 datagram 以上。ServerHello の次の 2 つを C→B
+      expect(swapPostHello.done).toBe(true);
+      const multiRecordFlight = offererFlights.find(
+        (flight) => flight.length > 2,
+      );
+      expect(multiRecordFlight).toBeDefined();
       const spedPayloads = nonEmptySpedDataPayloads(stun);
-      const reorderedFlight = offererFlights.find((flight) => {
-        if (flight.length < 3) {
-          return false;
-        }
-        const indexB = spedPayloads.findIndex((payload) =>
-          payload.equals(flight[1]!),
-        );
-        const indexC = spedPayloads.findIndex((payload) =>
-          payload.equals(flight[2]!),
-        );
-        return indexC >= 0 && indexB > indexC;
-      });
-      expect(reorderedFlight).toBeDefined();
-      for (const packet of reorderedFlight!) {
+      for (const packet of multiRecordFlight!) {
         expect(spedPayloads.some((payload) => payload.equals(packet))).toBe(
           true,
         );
       }
+      const indexB = spedPayloads.findIndex((payload) =>
+        payload.equals(multiRecordFlight![1]!),
+      );
+      const indexC = spedPayloads.findIndex((payload) =>
+        payload.equals(multiRecordFlight![2]!),
+      );
+      expect(indexC).toBeGreaterThanOrEqual(0);
+      expect(indexB).toBeGreaterThan(indexC);
       expect(handshakeDtls).toHaveLength(0);
     } finally {
-      stopCapture();
+      stopSwap();
       stopMtu1();
       stopMtu2();
       await pc1.close();

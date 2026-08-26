@@ -2,7 +2,7 @@
 
 Opt-in codec interop against **pion/stun v3.1.7** and **pion/ice v4.4.1** `sped.go` (encode/decode/verify). Released Pion ICE agents do not send SPED; fallback against a real agent is `../pion-ice-agent`.
 
-Opt-in: set `WERIFT_PION_SPED` to a wrapper that supports `verify` and `-empty-ack`. A missing or incompatible path **fails the suite** (no skip, no fallback). Unset `WERIFT_PION_SPED` skips the suite so default `npm test` stays green. `WERIFT_PION_SPED_AUTO_BUILD=1` builds `./pion-sped` with `go` when the env path is unset.
+Opt-in: set `WERIFT_PION_SPED` to a wrapper that supports `verify` and `-empty-ack`. Unset skips so default `npm test` stays green. `npm run test:pion-sped` (sets `WERIFT_PION_SPED_REQUIRED=1`) **fails** on a missing or incompatible path (no skip / local fallback). `WERIFT_PION_SPED_AUTO_BUILD=1` builds `./pion-sped` with `go` when the env path is unset.
 
 ## CLI
 
@@ -27,7 +27,7 @@ go build -o pion-sped .
 ```sh
 export WERIFT_PION_SPED="$(pwd)/pion-sped"
 cd ../../
-npm test -- pion-sped
+npm run test:pion-sped
 ```
 
-Or `WERIFT_PION_SPED_AUTO_BUILD=1 npm test -- pion-sped`. Without either variable the suite is skipped. When a path is set, codec mismatches fail the test (no skip / catch-and-ignore).
+Or `WERIFT_PION_SPED_AUTO_BUILD=1 npm run test:pion-sped`. Without either variable the suite is skipped. `npm run test:pion-sped` with a broken `WERIFT_PION_SPED` path fails (no skip / catch-and-ignore / local fallback).

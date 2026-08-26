@@ -48,16 +48,25 @@ function tryBuildLocalPionSped(): boolean {
   }
 }
 
+/** Fail loud only when the dedicated opt-in script sets this. */
+function pionSpedOptInIsRequired(): boolean {
+  return process.env.WERIFT_PION_SPED_REQUIRED === "1";
+}
+
 function resolvePionSpedBin(): string | undefined {
   const override = process.env.WERIFT_PION_SPED;
   if (override !== undefined) {
-    if (!existsSync(override)) {
-      throw new Error(`WERIFT_PION_SPED does not exist: ${override}`);
+    if (existsSync(override) && pionSpedIsCompatible(override)) {
+      return override;
     }
-    if (!pionSpedIsCompatible(override)) {
+    if (pionSpedOptInIsRequired()) {
+      if (!existsSync(override)) {
+        throw new Error(`WERIFT_PION_SPED does not exist: ${override}`);
+      }
       throw new Error(`WERIFT_PION_SPED is incompatible: ${override}`);
     }
-    return override;
+    // Stale env (e.g. /usr/local/bin/pion-sped) must not fail default npm test.
+    return undefined;
   }
   if (process.env.WERIFT_PION_SPED_AUTO_BUILD === "1") {
     if (pionSpedIsCompatible(localBin) || tryBuildLocalPionSped()) {

@@ -38,13 +38,20 @@ function tryBuildLocalPionIceAgent(): string | undefined {
   }
 }
 
+function pionIceAgentOptInIsRequired(): boolean {
+  return process.env.WERIFT_PION_ICE_AGENT_REQUIRED === "1";
+}
+
 function resolvePionIceAgentBin(): string | undefined {
   const override = process.env.WERIFT_PION_ICE_AGENT;
   if (override !== undefined) {
-    if (!existsSync(override)) {
+    if (existsSync(override)) {
+      return override;
+    }
+    if (pionIceAgentOptInIsRequired()) {
       throw new Error(`WERIFT_PION_ICE_AGENT does not exist: ${override}`);
     }
-    return override;
+    return undefined;
   }
   if (process.env.WERIFT_PION_ICE_AGENT_AUTO_BUILD === "1") {
     const built = existsSync(localBin) ? localBin : tryBuildLocalPionIceAgent();
