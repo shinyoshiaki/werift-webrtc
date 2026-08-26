@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { DirectHandshakeCarrier } from "../../../dtls/src/carrier/direct";
 import type { CandidatePair, Connection } from "../../../ice/src";
 import { SpedSession } from "../../../ice/src/internal/sped";
 import { getConnectionSpedRuntime } from "../../../ice/src/internal/sped-bind";
@@ -34,6 +35,7 @@ const spedPeerConfig = (
     iceAdditionalHostAddresses?: string[];
     certificates?: RTCCertificate[];
     iceFilterCandidatePair?: (pair: CandidatePair) => boolean;
+    iceUseIpv6?: boolean;
   } = {},
 ) => ({
   iceServers: [] as { urls: string }[],
@@ -71,7 +73,6 @@ function expectNominatedTcp(pc: RTCPeerConnection) {
 }
 
 const hookedL1Sessions = new WeakSet<object>();
-const cappedMtuRuntimes = new WeakSet<object>();
 
 function captureL1Flights(pc: RTCPeerConnection, flights: Buffer[][]) {
   const hook = () => {
@@ -113,11 +114,9 @@ function longestFlight(flights: Buffer[][]): Buffer[] | undefined {
 }
 
 /**
- * Swap L1[1] and L1[2] on every 3+ datagram flight (keep ServerHello first).
- * Prototype hook runs before ICE/DTLS attach so the first replaceL1 is swapped.
- * Flights are recorded per session so offerer/answerer are not mixed.
+ * Record L1 flights per session. Prototype hook runs before ICE/DTLS attach.
  */
-function swapL1PostHello(swap: { done: boolean }) {
+function recordL1Flights() {
   const original = SpedSession.prototype.replaceL1;
   const flightsBySession = new WeakMap<SpedSession, Buffer[][]>();
   SpedSession.prototype.replaceL1 = function (
@@ -128,16 +127,6 @@ function swapL1PostHello(swap: { done: boolean }) {
     const flights = flightsBySession.get(this) ?? [];
     flights.push(copies);
     flightsBySession.set(this, flights);
-    if (copies.length > 2) {
-      swap.done = true;
-      original.call(this, [
-        copies[0]!,
-        copies[2]!,
-        copies[1]!,
-        ...copies.slice(3),
-      ]);
-      return;
-    }
     original.call(this, packets);
   };
   return {
@@ -149,36 +138,24 @@ function swapL1PostHello(swap: { done: boolean }) {
 }
 
 /**
- * Cap DTLS datagram MTU so a large certificate becomes a multi-datagram L1
- * flight. Wrapper survives syncMtuFromBinding overwriting the carrier MTU.
+ * Cap DTLS carrier MTU before the first flight so large certificates fragment
+ * into a multi-datagram L1. Must wrap the prototype before PeerConnection
+ * construction; polling after attach loses the first flight.
  */
-function capSpedDtlsMtu(pc: RTCPeerConnection, maxMtu: number) {
-  const hook = () => {
-    const ice = pc.iceTransports[0]?.connection as Connection | undefined;
-    if (!ice) {
-      return false;
-    }
-    const runtime = getConnectionSpedRuntime(ice);
-    if (!runtime) {
-      return false;
-    }
-    if (!cappedMtuRuntimes.has(runtime)) {
-      cappedMtuRuntimes.add(runtime);
-      const original = runtime.hooks.setMtu.bind(runtime.hooks);
-      runtime.hooks.setMtu = (mtu: number) => original(Math.min(mtu, maxMtu));
-    }
-    runtime.hooks.setMtu(maxMtu);
-    return true;
+function capHandshakeCarrierMtu(maxMtu: number) {
+  const proto = DirectHandshakeCarrier.prototype;
+  const originalGet = proto.getMtu;
+  const originalSet = proto.setMtu;
+  proto.getMtu = function (this: DirectHandshakeCarrier) {
+    return Math.min(originalGet.call(this), maxMtu);
   };
-  if (hook()) {
-    return () => {};
-  }
-  const id = setInterval(() => {
-    if (hook()) {
-      clearInterval(id);
-    }
-  }, 1);
-  return () => clearInterval(id);
+  proto.setMtu = function (this: DirectHandshakeCarrier, mtu: number) {
+    originalSet.call(this, Math.min(mtu, maxMtu));
+  };
+  return () => {
+    proto.getMtu = originalGet;
+    proto.setMtu = originalSet;
+  };
 }
 
 function stunAttributeTypes(bytes: Buffer): number[] {
@@ -226,11 +203,24 @@ type HoldFirstNonEmptyData = {
   discard?: boolean;
 };
 
+type HoldUntilLaterFlightPacket = {
+  flightOf: () => Buffer[] | undefined;
+  holdIndex: number;
+  releaseIndex: number;
+  held: {
+    message: Parameters<Protocol["sendStun"]>[0];
+    addr: Parameters<Protocol["sendStun"]>[1];
+    copy: Buffer;
+  }[];
+  released?: boolean;
+};
+
 type WireSpyOptions = {
   tcpFrames?: Buffer[];
   dropFirstNonEmptyData?: { remaining: number };
   duplicateFirstNonEmptyData?: { remaining: number };
   holdFirstNonEmptyData?: HoldFirstNonEmptyData;
+  holdUntilLaterFlightPacket?: HoldUntilLaterFlightPacket;
 };
 
 type OpenWireSpyOptions = WireSpyOptions & {
@@ -298,8 +288,35 @@ function spyConnectionWire(
         options.holdFirstNonEmptyData.addr = addr;
         return;
       }
+      const reorder = options.holdUntilLaterFlightPacket;
+      const flight = reorder?.flightOf();
+      if (
+        reorder &&
+        !reorder.released &&
+        dataValue &&
+        flight &&
+        flight.length > reorder.releaseIndex &&
+        dataValue.equals(flight[reorder.holdIndex]!)
+      ) {
+        reorder.held.push({ message, addr, copy });
+        return;
+      }
       stun.push(copy);
       await sendStun(message, addr);
+      if (
+        reorder &&
+        !reorder.released &&
+        dataValue &&
+        flight &&
+        dataValue.equals(flight[reorder.releaseIndex]!)
+      ) {
+        for (const held of reorder.held) {
+          stun.push(held.copy);
+          await sendStun(held.message, held.addr);
+        }
+        reorder.held.length = 0;
+        reorder.released = true;
+      }
       if (
         options.duplicateFirstNonEmptyData &&
         options.duplicateFirstNonEmptyData.remaining > 0 &&
@@ -894,35 +911,44 @@ describe("RTCPeerConnection SPED opt-in", () => {
     const stun: Buffer[] = [];
     const offererStun: Buffer[] = [];
     const handshakeDtls: Buffer[] = [];
-    const swapPostHello = { done: false };
-    const swapHook = swapL1PostHello(swapPostHello);
-    const pc1 = new RTCPeerConnection(
-      spedPeerConfig({ certificates: [certificate] }),
-    );
-    const pc2 = new RTCPeerConnection(
-      spedPeerConfig({ certificates: [certificate] }),
-    );
-    const stopMtu1 = capSpedDtlsMtu(pc1, 400);
-    const stopMtu2 = capSpedDtlsMtu(pc2, 400);
+    const restoreMtu = capHandshakeCarrierMtu(400);
+    const record = recordL1Flights();
+    const extra = {
+      certificates: [certificate],
+      iceUseIpv6: false,
+    };
+    const pc1 = new RTCPeerConnection(spedPeerConfig(extra));
+    const pc2 = new RTCPeerConnection(spedPeerConfig(extra));
+    const reorder: HoldUntilLaterFlightPacket = {
+      holdIndex: 1,
+      releaseIndex: 2,
+      held: [],
+      flightOf: () => {
+        const ice = pc1.iceTransports[0]?.connection as Connection | undefined;
+        if (!ice) {
+          return undefined;
+        }
+        const session = getConnectionSpedRuntime(ice)?.session;
+        return session ? longestFlight(record.flightsOf(session)) : undefined;
+      },
+    };
     try {
       const [dc1, dc2] = await openDataChannelWithWireSpy(
         pc1,
         pc2,
         stun,
         handshakeDtls,
-        { offererStun },
+        { offererStun, offerer: { holdUntilLaterFlightPacket: reorder } },
       );
 
       // Act: large certificate を SPED 上で送り、アプリデータまで到達させる
       dc1.send("large-cert");
       expect(await awaitMessage(dc2)).toBe("large-cert");
 
-      // Assert: offerer の最長 L1 が 3 datagram 以上。ServerHello の次を C→B で送る
-      expect(swapPostHello.done).toBe(true);
+      // Assert: offerer の最長 L1 が 3 datagram 以上。B を hold し C を先に送る
+      expect(reorder.released).toBe(true);
       const offererSession = getConnectionSpedRuntime(iceOf(pc1))!.session;
-      const multiRecordFlight = longestFlight(
-        swapHook.flightsOf(offererSession),
-      );
+      const multiRecordFlight = longestFlight(record.flightsOf(offererSession));
       expect(multiRecordFlight?.length).toBeGreaterThan(2);
       const spedPayloads = nonEmptySpedDataPayloads(offererStun);
       for (const packet of multiRecordFlight!) {
@@ -930,19 +956,24 @@ describe("RTCPeerConnection SPED opt-in", () => {
           true,
         );
       }
-      const indexB = spedPayloads.findIndex((payload) =>
-        payload.equals(multiRecordFlight![1]!),
+      const flightKeys = multiRecordFlight!.map((packet) =>
+        packet.toString("hex"),
       );
-      const indexC = spedPayloads.findIndex((payload) =>
-        payload.equals(multiRecordFlight![2]!),
-      );
-      expect(indexC).toBeGreaterThanOrEqual(0);
-      expect(indexB).toBeGreaterThan(indexC);
+      const firstSeenOrder: number[] = [];
+      for (const payload of spedPayloads) {
+        const index = flightKeys.indexOf(payload.toString("hex"));
+        if (index >= 0 && !firstSeenOrder.includes(index)) {
+          firstSeenOrder.push(index);
+        }
+      }
+      const posB = firstSeenOrder.indexOf(1);
+      const posC = firstSeenOrder.indexOf(2);
+      expect(posC).toBeGreaterThanOrEqual(0);
+      expect(posB).toBeGreaterThan(posC);
       expect(handshakeDtls).toHaveLength(0);
     } finally {
-      swapHook.stop();
-      stopMtu1();
-      stopMtu2();
+      record.stop();
+      restoreMtu();
       await pc1.close();
       await pc2.close();
     }
