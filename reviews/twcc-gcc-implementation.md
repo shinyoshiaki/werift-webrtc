@@ -78,6 +78,7 @@ TWCC / abs-send-time は hop-by-hop です。入力 RTP の古い TSN で上書�
 
 NACK/RTX も同じ `sendRtpInternal` を通り、**新しい TSN** が付きます。元パケットの TSN は再利用しません。
 
+<!-- review-bookmark id="bm_1a033eb0341-f4dd14d3" title="2.1 送信側: transport-wide sequence の付与" -->
 [packages/webrtc/src/media/rtpSender.ts:1215](review-file:packages/webrtc/src/media/rtpSender.ts:1215)
 
 ### 2.2 受信側: feedback 生成
