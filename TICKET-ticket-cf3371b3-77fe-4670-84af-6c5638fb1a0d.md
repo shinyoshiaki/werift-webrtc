@@ -167,7 +167,7 @@ CI:
 - B6: ブラウザ `DataProducer.close()` だけでは SFU 経由の werift `DataConsumer` が `open` のまま残った。mediasoup は client/server が別 SCTP のため、ブラウザ close を Node の server `DataProducer.close()` に中継するシグナリング（既存 `wireProduceData` 相当）を足して close 伝播を確認した。
 - B5: ブラウザ `transport.consume()` 後に `HTMLVideoElement.play()` を await すると、werift dummy VP8 がデコードされない間ずっと pending になり、テストが 90s hang した。ICE=`completed` / DTLS=`connected` のあと SDP の setLocalDescription は完了していた。`play()` は fire-and-forget にし、必須 Assert は inbound `packetsReceived` のまま（仕様 2.4 どおり）。Chrome 同士の video consume は fake camera がデコードできるため hang しなかった。werift 本体の修正は不要。
 - 本体 (`packages/webrtc` 等) は未変更。Playwright は fixture の exact `devDependency` `1.55.1` のみ。
-- submodule SHA: fixture 側の commit / 公開 repository push 後に werift gitlink を更新する（この作業ツリー上の未コミット変更）。
+- 確定 submodule SHA: `46a05a70c942f92b8f19611fb5dd005fc96d8bf0`（公開 repository [`shinyoshiaki/werift-mediasoup-interop`](https://github.com/shinyoshiaki/werift-mediasoup-interop) の `ticket/cf3371b3-77fe-4670-84af-6c5638fb1a0d` / [PR #1](https://github.com/shinyoshiaki/werift-mediasoup-interop/pull/1)）。werift 親 gitlink も同一 SHA。werift 本体のプロトコル実装は不要だったため変更していない。失敗はすべて fixture helper / 試験側の修正で解消した。
 
 ## 4. 考慮すべき制約や注意点
 
@@ -204,4 +204,4 @@ CI:
 - [x] `cd integration/werift-mediasoup-interop && npm run test:small` が成功する
 - [x] `cd integration/werift-mediasoup-interop && npm run test:interop` が成功する
 - [x] `cd integration/werift-mediasoup-interop && npm run install:browsers && npm run test:browser` が成功する
-- [ ] ブラウザ試験追加に伴う submodule SHA と、必要なら werift 本体修正の対応関係がチケットに残っている
+- [x] ブラウザ試験追加に伴う submodule SHA と、必要なら werift 本体修正の対応関係がチケットに残っている（SHA `46a05a70c942f92b8f19611fb5dd005fc96d8bf0`、werift 本体は未変更）
