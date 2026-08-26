@@ -139,7 +139,7 @@
 > **get** **rawAttributes**(): `RawAttribute`[]
 
 Unknown (not in ATTRIBUTES) attributes in wire order.
-Compatible view of the mixed on-wire attribute list.
+Live array: `push` / in-place edits are serialized (develop-compatible).
 
 ##### Returns
 
