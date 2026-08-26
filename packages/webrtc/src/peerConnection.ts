@@ -424,6 +424,19 @@ export class RTCPeerConnection extends EventTarget {
       throw new Error("iceCandidatePoolSize > 0 is not supported");
     }
 
+    // deepMerge is a shallow key replace; merge nested dtls onto the current
+    // object so a partial update cannot drop protocolVersions / helloRetryRequest.
+    const nextDtls =
+      normalizedConfig.dtls !== undefined
+        ? {
+            ...this.config.dtls,
+            ...normalizedConfig.dtls,
+          }
+        : this.config.dtls;
+    if (normalizedConfig.dtls !== undefined) {
+      normalizedConfig.dtls = nextDtls;
+    }
+
     if (this.dtlsTransportCreated) {
       if (
         "sped" in normalizedConfig &&
@@ -434,20 +447,16 @@ export class RTCPeerConnection extends EventTarget {
         );
       }
       if (
-        normalizedConfig.dtls &&
-        "protocolVersions" in normalizedConfig.dtls &&
-        dtlsProtocolVersionsKey(normalizedConfig.dtls.protocolVersions) !==
-          dtlsProtocolVersionsKey(this.config.dtls.protocolVersions)
+        dtlsProtocolVersionsKey(nextDtls.protocolVersions) !==
+        dtlsProtocolVersionsKey(this.config.dtls.protocolVersions)
       ) {
         throw new Error(
           "dtls.protocolVersions cannot be changed after a DTLS transport is created",
         );
       }
       if (
-        normalizedConfig.dtls &&
-        "helloRetryRequest" in normalizedConfig.dtls &&
-        Boolean(normalizedConfig.dtls.helloRetryRequest) !==
-          Boolean(this.config.dtls.helloRetryRequest)
+        Boolean(nextDtls.helloRetryRequest) !==
+        Boolean(this.config.dtls.helloRetryRequest)
       ) {
         throw new Error(
           "dtls.helloRetryRequest cannot be changed after a DTLS transport is created",

@@ -64,6 +64,8 @@ export interface DtlsHandshakeCarrier {
 
   updateRtt(rttMs: number): void;
   getRtt(): number;
+  /** Drop the last RTT sample (ICE restart / new generation). */
+  resetRtt(): void;
 
   setRetransmissionMode(mode: RetransmissionMode): void;
   getRetransmissionMode(): RetransmissionMode;

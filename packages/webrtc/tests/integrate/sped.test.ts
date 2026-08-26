@@ -446,6 +446,31 @@ describe("RTCPeerConnection SPED opt-in", () => {
     }
   });
 
+  test("createDataChannel 後の dtls 部分更新では protocolVersions が残る", async () => {
+    // Arrange: sped + DTLS 1.3 で transport を生成してから helloRetryRequest だけ更新
+    const pc1 = new RTCPeerConnection(spedPeerConfig());
+    const pc2 = new RTCPeerConnection(spedPeerConfig());
+
+    try {
+      pc1.createDataChannel("warmup");
+
+      // Act: nested dtls の一部だけを指定する
+      pc1.setConfiguration({ dtls: { helloRetryRequest: false } });
+
+      // Assert: protocolVersions が消えず、既存 transport と connect できる
+      expect(pc1.getConfiguration().dtls.protocolVersions).toEqual([
+        DtlsVersion.V1_3,
+      ]);
+      expect(pc1.getConfiguration().sped).toBe(true);
+      const [dc1, dc2] = await createDataChannelPair({}, pc1, pc2);
+      dc1.send("dtls-merge");
+      expect(await awaitMessage(dc2)).toBe("dtls-merge");
+    } finally {
+      await pc1.close();
+      await pc2.close();
+    }
+  }, 30_000);
+
   test("createDataChannel 後の sped 有効化は reject する", () => {
     // Arrange: 既存 non-SPED transport のあとで sped を後付けしない
     const pc = new RTCPeerConnection({ iceServers: [] });

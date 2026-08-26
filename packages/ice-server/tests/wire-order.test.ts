@@ -286,4 +286,35 @@ describe("STUN wire attribute order", () => {
     expect(parsed).toBeDefined();
     expect(parsed!.attributesKeys).not.toContain("XOR-MAPPED-ADDRESS");
   });
+
+  it("rawAttributes.push は serialize される", () => {
+    // Arrange
+    const payload = Buffer.from([20, 1, 2]);
+    const message = new Message(methods.BINDING, classes.REQUEST);
+    message.setAttribute("USERNAME", "a:b");
+
+    // Act: 公開配列への push が wire に載る（develop 互換）
+    message.rawAttributes.push({
+      type: DTLS_IN_STUN_DATA,
+      value: payload,
+    });
+
+    // Assert
+    expect(
+      getRawAttributeValue(message, DTLS_IN_STUN_DATA)?.equals(payload),
+    ).toBe(true);
+    expect(attributeTypes(message.bytes)).toContain(DTLS_IN_STUN_DATA);
+  });
+
+  it("getAttributes().push は getAttributeValue と serialize の両方に載る", () => {
+    // Arrange
+    const message = new Message(methods.BINDING, classes.REQUEST);
+
+    // Act: known 側の公開配列も authoritative のままにする
+    message.getAttributes().push(["USERNAME", "a:b"]);
+
+    // Assert: lookup と bytes が分離しない
+    expect(message.getAttributeValue("USERNAME")).toBe("a:b");
+    expect(attributeTypes(message.bytes)).toContain(0x0006);
+  });
 });

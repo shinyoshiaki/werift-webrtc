@@ -31,6 +31,7 @@ function arrangeSpedInjectProbe() {
     onFallbackFlight: async () => {},
     setRetransmissionMode: () => {},
     updateRtt: () => {},
+    resetRtt: () => {},
     setMtu: () => {},
   });
   handle.session.replaceL1([hello]);
@@ -102,6 +103,7 @@ describe("ICE Binding Request 認証境界", () => {
       onFallbackFlight: async () => {},
       setRetransmissionMode: () => {},
       updateRtt: () => {},
+      resetRtt: () => {},
       setMtu: () => {},
     });
     await connection.restart();
@@ -135,6 +137,7 @@ describe("ICE Binding Request 認証境界", () => {
       updateRtt: (ms) => {
         rttMs = ms;
       },
+      resetRtt: () => {},
       setMtu: () => {},
     });
     const protocol = new SpedProtocolMock() as any;
@@ -165,6 +168,7 @@ describe("ICE Binding Request 認証境界", () => {
       },
       setRetransmissionMode: () => {},
       updateRtt: () => {},
+      resetRtt: () => {},
       setMtu: () => {},
     });
     handle.session.replaceL1([hello]);
@@ -204,6 +208,7 @@ describe("ICE Binding Request 認証境界", () => {
       onFallbackFlight: async () => {},
       setRetransmissionMode: () => {},
       updateRtt: () => {},
+      resetRtt: () => {},
       setMtu: () => {},
     });
     const protocol = new SpedProtocolMock();
@@ -240,6 +245,7 @@ describe("ICE Binding Request 認証境界", () => {
       onFallbackFlight: async () => {},
       setRetransmissionMode: () => {},
       updateRtt: () => {},
+      resetRtt: () => {},
       setMtu: () => {},
     });
     const protocol = new SpedProtocolMock();

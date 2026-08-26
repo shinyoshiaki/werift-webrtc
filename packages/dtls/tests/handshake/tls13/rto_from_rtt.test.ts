@@ -243,4 +243,24 @@ describe("association RTO uses carrier RTT (RFC 9147 §5.8.2)", () => {
     client2.close();
     await clientTransport.close();
   });
+
+  test("resetRtt は sample を落とし、新しい RTT を受け付ける", () => {
+    // Arrange
+    const carrier = new DirectHandshakeCarrier({
+      send: async () => {},
+    } as any);
+    carrier.updateRtt(50);
+    expect(carrier.hasRttSample()).toBe(true);
+    expect(carrier.getRtt()).toBe(50);
+
+    // Act: ICE restart 相当
+    carrier.resetRtt();
+
+    // Assert: 旧 path の 50ms は使わず、新 sample で再設定できる
+    expect(carrier.hasRttSample()).toBe(false);
+    expect(carrier.getRtt()).toBe(0);
+    carrier.updateRtt(80);
+    expect(carrier.hasRttSample()).toBe(true);
+    expect(carrier.getRtt()).toBe(80);
+  });
 });

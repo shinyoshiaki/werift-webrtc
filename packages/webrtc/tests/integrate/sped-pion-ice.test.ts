@@ -269,6 +269,7 @@ describePion("released Pion ICE agent SPED fallback", () => {
         },
         setRetransmissionMode: (mode) => carrier.setRetransmissionMode(mode),
         updateRtt: (rttMs) => carrier.updateRtt(rttMs),
+        resetRtt: () => carrier.resetRtt(),
         setMtu: (mtu) => carrier.setMtu(mtu),
       });
       iceTransport.setRuntime(handle.runtime);

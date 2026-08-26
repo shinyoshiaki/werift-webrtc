@@ -60,6 +60,7 @@ describe("ICE restart と SPED carry", () => {
       },
       setRetransmissionMode: () => {},
       updateRtt: () => {},
+      resetRtt: () => {},
       setMtu: () => {},
     });
     handle.onFlightCreated(flight);
@@ -72,6 +73,47 @@ describe("ICE restart と SPED carry", () => {
     expect(handle.session.hasL1).toBe(true);
     expect(handle.session.l1Datagrams[0]!.equals(flight[0]!)).toBe(true);
     expect(handle.session.state).toBe("probing");
+  });
+
+  it("ICE restart は前 generation の RTT sample を捨てる", async () => {
+    // Arrange: generation 0 の path RTT を carrier 相当へ渡す
+    const connection = createTestConnection(true);
+    let rttMs: number | undefined;
+    const handle = attachSpedToConnection(connection, {
+      inject: async () => {},
+      onFallbackFlight: async () => {},
+      setRetransmissionMode: () => {},
+      updateRtt: (ms) => {
+        rttMs = ms;
+      },
+      resetRtt: () => {
+        rttMs = undefined;
+      },
+      setMtu: () => {},
+    });
+    const protocol = new SpedProtocolMock() as any;
+    const pair = new CandidatePair(
+      protocol,
+      new Candidate("f", 1, "udp", 1, "1.2.3.4", 1, "host"),
+      true,
+    );
+    pair.rtt = 0.05;
+    handle.runtime.syncRtt(pair);
+    expect(rttMs).toBe(50);
+
+    // Act
+    await connection.restart();
+
+    // Assert: 旧 path の 50ms は残らず、新 pair の sample で上書きできる
+    expect(rttMs).toBeUndefined();
+    const next = new CandidatePair(
+      protocol,
+      new Candidate("g", 1, "udp", 1, "1.2.3.5", 1, "host"),
+      true,
+    );
+    next.rtt = 0.08;
+    handle.runtime.syncRtt(next);
+    expect(rttMs).toBe(80);
   });
 
   it("handshake 完了後の reset は SPED を complete にする", async () => {
@@ -88,6 +130,7 @@ describe("ICE restart と SPED carry", () => {
         mode = next;
       },
       updateRtt: () => {},
+      resetRtt: () => {},
       setMtu: () => {},
     });
     handle.onFlightCreated([Buffer.from([22, 9])]);
@@ -121,6 +164,7 @@ describe("ICE restart と SPED carry", () => {
       onFallbackFlight: async () => {},
       setRetransmissionMode: () => {},
       updateRtt: () => {},
+      resetRtt: () => {},
       setMtu: () => {},
     });
 
@@ -158,6 +202,7 @@ describe("ICE restart と SPED carry", () => {
       onFallbackFlight: async () => {},
       setRetransmissionMode: () => {},
       updateRtt: () => {},
+      resetRtt: () => {},
       setMtu: () => {},
     });
 
@@ -187,6 +232,7 @@ describe("SPED abort", () => {
         },
         setRetransmissionMode: () => {},
         updateRtt: () => {},
+        resetRtt: () => {},
         setMtu: () => {},
       },
     };

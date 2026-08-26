@@ -352,6 +352,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       },
       setRetransmissionMode: (mode) => carrier.setRetransmissionMode(mode),
       updateRtt: (rttMs) => carrier.updateRtt(rttMs),
+      resetRtt: () => carrier.resetRtt(),
       setMtu: (mtu) => carrier.setMtu(mtu),
     });
     transport.setRuntime(handle.runtime);

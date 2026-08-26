@@ -32,6 +32,7 @@ describe("SPED MTU", () => {
       onFallbackFlight: async () => {},
       setRetransmissionMode: () => {},
       updateRtt: () => {},
+      resetRtt: () => {},
       setMtu: (mtu) => {
         mtus.push(mtu);
       },

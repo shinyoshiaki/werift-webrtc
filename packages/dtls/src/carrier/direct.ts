@@ -135,6 +135,11 @@ export class DirectHandshakeCarrier implements DtlsHandshakeCarrier {
     return this.rttMs ?? 0;
   }
 
+  /** Forget the ICE-path RTT so a new generation cannot reuse the old sample. */
+  resetRtt(): void {
+    this.rttMs = undefined;
+  }
+
   /** True after a positive updateRtt / constructor sample. */
   hasRttSample(): boolean {
     return this.rttMs != null && this.rttMs > 0;

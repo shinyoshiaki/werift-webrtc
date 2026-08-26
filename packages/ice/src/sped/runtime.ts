@@ -27,6 +27,8 @@ export interface SpedHooks {
   onSessionAbort?: () => void;
   setRetransmissionMode: (mode: SpedRetransmissionMode) => void;
   updateRtt: (rttMs: number) => void;
+  /** ICE restart: drop the previous generation's path RTT. */
+  resetRtt: () => void;
   setMtu: (mtu: number) => void;
 }
 
@@ -163,6 +165,7 @@ export class SpedRuntime {
     this.pendingInjectGeneration = undefined;
     this.lastPath = undefined;
     this.hooks.setMtu(defaultSpedDtlsMtu());
+    this.hooks.resetRtt();
     this.hooks.onSessionReset?.();
   }
 
