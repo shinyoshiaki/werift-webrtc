@@ -109,14 +109,23 @@ export function installPolyfill(options: InstallPolyfillOptions): () => void {
 }
 
 function bindRegisters(registers: MediaRegister[]): BoundMediaRegister[] {
-  const seen = new Set<string>();
+  const used = new Set<string>();
+  for (const register of registers) {
+    const explicitId = explicitDeviceId(register.deviceId);
+    if (explicitId == undefined) {
+      continue;
+    }
+    if (used.has(explicitId)) {
+      throw new Error(`Duplicate mediaRegister deviceId: ${explicitId}`);
+    }
+    used.add(explicitId);
+  }
+
   let sequence = 0;
   return registers.map((register) => {
-    const deviceId = register.deviceId ?? `werift-device-${++sequence}`;
-    if (seen.has(deviceId)) {
-      throw new Error(`Duplicate mediaRegister deviceId: ${deviceId}`);
-    }
-    seen.add(deviceId);
+    const deviceId =
+      explicitDeviceId(register.deviceId) ??
+      nextGeneratedDeviceId(used, () => ++sequence);
     return {
       get mimeType() {
         return register.mimeType;
@@ -132,6 +141,22 @@ function bindRegisters(registers: MediaRegister[]): BoundMediaRegister[] {
       stop: register.stop?.bind(register),
     };
   });
+}
+
+function explicitDeviceId(deviceId: string | undefined) {
+  if (deviceId == undefined || deviceId === "") {
+    return undefined;
+  }
+  return deviceId;
+}
+
+function nextGeneratedDeviceId(used: Set<string>, nextSequence: () => number) {
+  let deviceId: string;
+  do {
+    deviceId = `werift-device-${nextSequence()}`;
+  } while (used.has(deviceId));
+  used.add(deviceId);
+  return deviceId;
 }
 
 function getExistingMediaDevices(target: Record<string, unknown>) {

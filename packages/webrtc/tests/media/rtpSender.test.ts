@@ -8,6 +8,7 @@ import {
   RtpPacket,
   unwrapRtx,
 } from "../../src";
+import { RTCRtpCodecParameters } from "../../src/media/parameters";
 import { RTCRtpSender } from "../../src/media/rtpSender";
 import { RTCStatsReport } from "../../src/media/stats";
 import {
@@ -77,6 +78,62 @@ describe("media/rtpSender", () => {
       await setTimeout(10);
       sender.stop();
     }));
+
+  test("stop discards pending RTP and does not flush after DTLS connects", async () => {
+    const track = new MediaStreamTrack({ kind: "audio" });
+    const dtls = createDtlsTransport();
+    const sender = new RTCRtpSender(track);
+    sender.setDtlsTransport(dtls);
+    sender.prepareSend({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "audio/opus",
+          clockRate: 48000,
+          payloadType: 111,
+        }),
+      ],
+      headerExtensions: [],
+    });
+    const sendRtpSpy = vi.spyOn(dtls, "sendRtp");
+
+    // 実行: DTLS 未接続で RTP を積んだあと stop し、その後 connected にする。
+    await sender.sendRtp(createRtpPacket());
+    expect(pendingRtpQueue(sender)).toHaveLength(1);
+    sender.stop();
+    dtls.state = "connected";
+    dtls.onStateChange.execute("connected");
+    await sender.sendRtp(createRtpPacket());
+    await setTimeout(0);
+
+    // 検証: 停止後は待機 RTP が破棄され、enqueue / flush されない。
+    expect(pendingRtpQueue(sender)).toHaveLength(0);
+    expect(sendRtpSpy).not.toHaveBeenCalled();
+  });
+
+  test("replaceTrack(null) discards pending RTP", async () => {
+    const track = new MediaStreamTrack({ kind: "audio" });
+    const dtls = createDtlsTransport();
+    const sender = new RTCRtpSender(track);
+    sender.setDtlsTransport(dtls);
+    sender.prepareSend({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "audio/opus",
+          clockRate: 48000,
+          payloadType: 111,
+        }),
+      ],
+      headerExtensions: [],
+    });
+
+    // 実行: 未接続のまま RTP を積んで replaceTrack(null) する。
+    await sender.sendRtp(createRtpPacket());
+    expect(pendingRtpQueue(sender)).toHaveLength(1);
+    await sender.replaceTrack(null);
+
+    // 検証: 待機 RTP は破棄される。
+    expect(pendingRtpQueue(sender)).toHaveLength(0);
+  });
 
   test("getStats returns a report rooted at outbound stats", async () => {
     const track = new MediaStreamTrack({ kind: "audio", remote: true });
@@ -460,3 +517,7 @@ describe("media/rtpSender RTP continuity", () => {
     expect(header.timestamp).toBe((last.timestamp + 1) >>> 0);
   });
 });
+
+function pendingRtpQueue(sender: RTCRtpSender) {
+  return (sender as unknown as { pendingRtp: unknown[] }).pendingRtp;
+}

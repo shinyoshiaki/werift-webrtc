@@ -238,10 +238,19 @@ export class RTCRtpSender {
   }
 
   private canSendRtp() {
-    return this.dtlsTransport?.state === "connected" && !!this.codec;
+    return (
+      !this.stopped && this.dtlsTransport?.state === "connected" && !!this.codec
+    );
+  }
+
+  private discardPendingRtp() {
+    this.pendingRtp.length = 0;
   }
 
   private enqueuePendingRtp(rtp: Buffer | RtpPacket) {
+    if (this.stopped) {
+      return;
+    }
     const packet = Buffer.isBuffer(rtp)
       ? RtpPacket.deSerialize(rtp)
       : rtp.clone();
@@ -309,6 +318,7 @@ export class RTCRtpSender {
 
   async replaceTrack(track: MediaStreamTrack | null) {
     if (track === null) {
+      this.discardPendingRtp();
       if (this.disposeTrack) {
         this.disposeTrack();
       }
@@ -328,6 +338,7 @@ export class RTCRtpSender {
 
   stop() {
     this.stopped = true;
+    this.discardPendingRtp();
     this.rtcpRunning = false;
     this.rtcpCancel.abort();
     if (this.disposeTrack) {

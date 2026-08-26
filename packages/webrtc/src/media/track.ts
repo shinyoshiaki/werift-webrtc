@@ -75,6 +75,20 @@ export class MediaStreamTrack extends EventTarget {
       this.codec?.payloadType ?? packet.header.payloadType;
     this.onReceiveRtp.execute(packet);
   };
+
+  clone(): MediaStreamTrack {
+    return new MediaStreamTrack({
+      kind: this.kind,
+      remote: this.remote,
+      enabled: this.enabled,
+      muted: this.muted,
+      stopped: this.stopped,
+      codec: this.codec,
+      ssrc: this.ssrc,
+      rid: this.rid,
+      header: this.header,
+    });
+  }
 }
 
 export class MediaStream {
@@ -123,6 +137,10 @@ export class MediaStream {
   }
 
   clone() {
-    return new MediaStream(this.tracks.slice());
+    const cloned = new MediaStream();
+    for (const track of this.tracks) {
+      cloned.addTrack(track.clone());
+    }
+    return cloned;
   }
 }

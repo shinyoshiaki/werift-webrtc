@@ -132,11 +132,7 @@ export class MediaDevices extends EventTarget {
       }
       return tracks;
     } catch (error) {
-      const failedForKind = this.registers.some(
-        (register) =>
-          this.failedRegisters.has(register) && register.kinds.includes(kind),
-      );
-      if (failedForKind) {
+      if (this.shouldSurfacePrepareFailure(kind, available)) {
         if (
           error instanceof DOMException &&
           error.name === "NotReadableError"
@@ -152,6 +148,22 @@ export class MediaDevices extends EventTarget {
       }
       throw mapGetUserMediaError(error);
     }
+  }
+
+  private shouldSurfacePrepareFailure(
+    kind: MediaKind,
+    available: BoundMediaRegister[],
+  ) {
+    const availableForKind = available.some((register) =>
+      register.kinds.includes(kind),
+    );
+    if (availableForKind) {
+      return false;
+    }
+    return this.registers.some(
+      (register) =>
+        this.failedRegisters.has(register) && register.kinds.includes(kind),
+    );
   }
 
   private watchTrack(track: MediaStreamTrack) {

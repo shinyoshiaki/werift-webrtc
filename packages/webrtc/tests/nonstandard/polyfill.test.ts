@@ -86,6 +86,34 @@ describe("werift/polyfill installPolyfill", () => {
     ).toThrow(/Duplicate mediaRegister deviceId/);
   });
 
+  test("omitted deviceId skips explicitly reserved generated ids", async () => {
+    const uninstall = installTestPolyfill([
+      createVideoCallbackRegister({ deviceId: "werift-device-1" }),
+      createVideoCallbackRegister({
+        mimeType: "video/H264",
+        async createTracks() {
+          return [new MediaStreamTrack({ kind: "video", id: "auto-track" })];
+        },
+      }),
+    ]);
+    try {
+      // 実行: 明示 ID と省略 ID を共存させて列挙する。
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const autoStream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: "werift-device-2" } },
+      });
+
+      // 検証: 省略側は未使用の werift-device-2 になり、入力の重複としては拒否されない。
+      expect(devices.map((device) => device.deviceId)).toEqual([
+        "werift-device-1",
+        "werift-device-2",
+      ]);
+      expect(autoStream.getVideoTracks()[0].id).toBe("auto-track");
+    } finally {
+      uninstall();
+    }
+  });
+
   test("duplicate mimeType picks the first register unless deviceId is exact", async () => {
     const uninstall = installTestPolyfill([
       createVideoCallbackRegister({
@@ -408,20 +436,56 @@ describe("werift/polyfill installPolyfill", () => {
   });
 
   test("returned tracks expose writeRtp and MediaStream.clone", async () => {
-    const uninstall = installTestPolyfill([createVideoCallbackRegister()]);
+    const uninstall = installTestPolyfill([
+      createVideoCallbackRegister(),
+      createCallbackRegister({
+        mimeType: "audio/opus",
+        kinds: ["audio"],
+        async createTracks() {
+          return [new MediaStreamTrack({ kind: "audio" })];
+        },
+      }),
+    ]);
     try {
-      // 実行: GUM で得たストリームを clone する。
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      const [track] = stream.getVideoTracks();
+      // 実行: GUM で得たストリームと track を clone する。
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: true,
+      });
+      const [audio] = stream.getAudioTracks();
+      const [video] = stream.getVideoTracks();
       const cloned = stream.clone();
+      const audioClone = audio.clone();
+      const videoClone = video.clone();
 
-      // 検証: writeRtp が使え、clone は別インスタンスで同じトラックを持つ。
-      expect(track).toBeInstanceOf(MediaStreamTrack);
-      expect(typeof (track as MediaStreamTrack).writeRtp).toBe("function");
+      // 検証: writeRtp が使え、clone は別 ID で停止状態が独立する。
+      expect(video).toBeInstanceOf(MediaStreamTrack);
+      expect(typeof (video as MediaStreamTrack).writeRtp).toBe("function");
       expect(cloned).toBeInstanceOf(MediaStream);
       expect(cloned).not.toBe(stream);
       expect(cloned.id).not.toBe(stream.id);
-      expect(cloned.getTracks()).toEqual(stream.getTracks());
+      expect(cloned.getAudioTracks()[0].id).not.toBe(audio.id);
+      expect(cloned.getVideoTracks()[0].id).not.toBe(video.id);
+      expect(audioClone.id).not.toBe(audio.id);
+      expect(videoClone.id).not.toBe(video.id);
+
+      stream.getTracks().forEach((track) => track.stop());
+      expect(stream.active).toBe(false);
+      expect(audio.readyState).toBe("ended");
+      expect(video.readyState).toBe("ended");
+      expect(cloned.active).toBe(true);
+      expect(cloned.getAudioTracks()[0].readyState).toBe("live");
+      expect(cloned.getVideoTracks()[0].readyState).toBe("live");
+      expect(audioClone.readyState).toBe("live");
+      expect(videoClone.readyState).toBe("live");
+
+      cloned.getAudioTracks()[0].stop();
+      const endedClone = cloned.clone();
+      expect(endedClone.getAudioTracks()[0].readyState).toBe("ended");
+      expect(endedClone.getVideoTracks()[0].readyState).toBe("live");
+      expect(endedClone.getAudioTracks()[0].id).not.toBe(
+        cloned.getAudioTracks()[0].id,
+      );
     } finally {
       uninstall();
     }
@@ -682,6 +746,31 @@ describe("werift/polyfill builtin registers", () => {
       // 実行: 壊れた path と利用可能な video register を共存させて GUM する。
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       expect(stream.getVideoTracks()).toHaveLength(1);
+    } finally {
+      uninstall();
+    }
+  });
+
+  test("unrelated prepare failure does not convert OverconstrainedError", async () => {
+    const uninstall = installPolyfill({
+      mediaRegister: [
+        createMp4WebmRegister({ path: "/definitely/missing/clip.mp4" }),
+        createVideoCallbackRegister({ mimeType: "video/VP8" }),
+      ],
+    });
+    try {
+      // 実行: 壊れた MP4 と VP8 がある状態で存在しない H264 を必須指定する。
+      let thrown: unknown;
+      try {
+        await navigator.mediaDevices.getUserMedia({
+          video: { mimeType: { exact: "video/H264" } },
+        });
+      } catch (error) {
+        thrown = error;
+      }
+
+      // 検証: 選択失敗は NotReadableError に化けず OverconstrainedError のまま。
+      expectOverconstrainedError(thrown, "mimeType");
     } finally {
       uninstall();
     }
