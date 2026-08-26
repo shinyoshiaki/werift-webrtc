@@ -22,6 +22,7 @@ import {
 import { Candidate, Connection } from "../../../ice/src";
 import { attachSpedToConnection } from "../../../ice/src/internal/sped";
 import { IceSpedTransport } from "../../src/transport/sped";
+import { resolvePionIceAgentBin as resolvePionIceAgentBinFromInput } from "./resolve-pion-ice-agent-bin";
 
 const toolDir = join(__dirname, "../../../ice/tools/pion-ice-agent");
 const localBin = join(toolDir, "pion-ice-agent");
@@ -38,31 +39,15 @@ function tryBuildLocalPionIceAgent(): string | undefined {
   }
 }
 
-function pionIceAgentOptInIsRequired(): boolean {
-  return process.env.WERIFT_PION_ICE_AGENT_REQUIRED === "1";
-}
-
 function resolvePionIceAgentBin(): string | undefined {
-  const override = process.env.WERIFT_PION_ICE_AGENT;
-  if (override !== undefined) {
-    if (existsSync(override)) {
-      return override;
-    }
-    if (pionIceAgentOptInIsRequired()) {
-      throw new Error(`WERIFT_PION_ICE_AGENT does not exist: ${override}`);
-    }
-    return undefined;
-  }
-  if (process.env.WERIFT_PION_ICE_AGENT_AUTO_BUILD === "1") {
-    const built = existsSync(localBin) ? localBin : tryBuildLocalPionIceAgent();
-    if (!built) {
-      throw new Error(
-        "WERIFT_PION_ICE_AGENT_AUTO_BUILD=1 but local pion-ice-agent is missing",
-      );
-    }
-    return built;
-  }
-  return undefined;
+  return resolvePionIceAgentBinFromInput({
+    override: process.env.WERIFT_PION_ICE_AGENT,
+    required: process.env.WERIFT_PION_ICE_AGENT_REQUIRED === "1",
+    autoBuild: process.env.WERIFT_PION_ICE_AGENT_AUTO_BUILD === "1",
+    localBin,
+    exists: existsSync,
+    tryBuildLocal: tryBuildLocalPionIceAgent,
+  });
 }
 
 const bin = resolvePionIceAgentBin();

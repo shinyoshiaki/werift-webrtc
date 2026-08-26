@@ -33,6 +33,7 @@ Instructions for coding agents working in `packages/webrtc`.
 | test package | `npm test` |
 | type-check package | `npm run type` |
 | format package | `npm run format` |
+| pion ICE agent fallback (opt-in) | `npm run test:pion-ice-agent` |
 | memory leak test (Node 24+, local only) | `npm run memleak` |
 | allowlisted upstream WPT | `npm run wpt` |
 | WPT coverage | `npm run wpt:coverage` |
@@ -42,6 +43,7 @@ Memleak details, env vars, and report interpretation: `tests/memleak/README.md`.
 ## Validation
 
 * Logic changes in `src`: `npm run type` and relevant `npm test` paths.
+* Opt-in released Pion ICE agent fallback: `npm run test:pion-ice-agent` with `WERIFT_PION_ICE_AGENT` or `WERIFT_PION_ICE_AGENT_AUTO_BUILD=1`. Default `npm test` skips a missing path. The opt-in script fails if neither source is set.
 * Memleak harness changes: short smoke with reduced env (see `tests/memleak/README.md`), then optional full `npm run memleak`.
 * WPT runner / allowlist: `npm run wpt`.
 

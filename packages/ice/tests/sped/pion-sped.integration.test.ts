@@ -10,6 +10,7 @@ import {
 } from "../../src/sped/draft00";
 import { classes, methods } from "../../src/stun/const";
 import { Message, parseMessage } from "../../src/stun/message";
+import { resolvePionSpedBin as resolvePionSpedBinFromInput } from "./resolve-pion-sped-bin";
 
 const toolDir = join(process.cwd(), "tools/pion-sped");
 const localBin = join(toolDir, "pion-sped");
@@ -48,35 +49,16 @@ function tryBuildLocalPionSped(): boolean {
   }
 }
 
-/** Fail loud only when the dedicated opt-in script sets this. */
-function pionSpedOptInIsRequired(): boolean {
-  return process.env.WERIFT_PION_SPED_REQUIRED === "1";
-}
-
 function resolvePionSpedBin(): string | undefined {
-  const override = process.env.WERIFT_PION_SPED;
-  if (override !== undefined) {
-    if (existsSync(override) && pionSpedIsCompatible(override)) {
-      return override;
-    }
-    if (pionSpedOptInIsRequired()) {
-      if (!existsSync(override)) {
-        throw new Error(`WERIFT_PION_SPED does not exist: ${override}`);
-      }
-      throw new Error(`WERIFT_PION_SPED is incompatible: ${override}`);
-    }
-    // Stale env (e.g. /usr/local/bin/pion-sped) must not fail default npm test.
-    return undefined;
-  }
-  if (process.env.WERIFT_PION_SPED_AUTO_BUILD === "1") {
-    if (pionSpedIsCompatible(localBin) || tryBuildLocalPionSped()) {
-      return localBin;
-    }
-    throw new Error(
-      "WERIFT_PION_SPED_AUTO_BUILD=1 but local pion-sped is missing or incompatible",
-    );
-  }
-  return undefined;
+  return resolvePionSpedBinFromInput({
+    override: process.env.WERIFT_PION_SPED,
+    required: process.env.WERIFT_PION_SPED_REQUIRED === "1",
+    autoBuild: process.env.WERIFT_PION_SPED_AUTO_BUILD === "1",
+    localBin,
+    exists: existsSync,
+    isCompatible: pionSpedIsCompatible,
+    tryBuildLocal: tryBuildLocalPionSped,
+  });
 }
 
 const bin = resolvePionSpedBin();

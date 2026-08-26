@@ -35,13 +35,13 @@ Instructions for coding agents working in `packages/ice`.
 | format package | `npm run format` |
 | pion TURN interop (opt-in) | `npm run test:pion-turn` |
 | pion SPED wire codec (opt-in) | `npm run test:pion-sped` |
-| pion ICE agent fallback (opt-in) | `npm test --workspace packages/webrtc -- sped-pion-ice` |
+| pion ICE agent fallback (opt-in) | `npm run test:pion-ice-agent --workspace packages/webrtc` |
 
 ## Validation
 
 * STUN / ICE logic: `npm run type` and `npm test`.
-* Opt-in Pion SPED codec: `npm run test:pion-sped` with `WERIFT_PION_SPED` (see `tools/pion-sped/README.md`). Default `npm test` skips a missing/incompatible env path. The opt-in script fails on a bad path. `WERIFT_PION_SPED_AUTO_BUILD=1` builds the local wrapper.
-* Opt-in released Pion ICE agent fallback: set `WERIFT_PION_ICE_AGENT` (see `tools/pion-ice-agent/README.md`). Unset skips. Targeted `npm test --workspace packages/webrtc -- sped-pion-ice` with a missing path fails. `WERIFT_PION_ICE_AGENT_AUTO_BUILD=1` builds the local agent.
+* Opt-in Pion SPED codec: `npm run test:pion-sped` with `WERIFT_PION_SPED` or `WERIFT_PION_SPED_AUTO_BUILD=1` (see `tools/pion-sped/README.md`). Default `npm test` skips a missing/incompatible env path. The opt-in script fails if neither source is set, and on a bad path.
+* Opt-in released Pion ICE agent fallback: `npm run test:pion-ice-agent --workspace packages/webrtc` with `WERIFT_PION_ICE_AGENT` or `WERIFT_PION_ICE_AGENT_AUTO_BUILD=1` (see `tools/pion-ice-agent/README.md`). Default `npm test` skips a missing path. The opt-in script fails if neither source is set, and on a missing path.
 
 ## Maintenance
 

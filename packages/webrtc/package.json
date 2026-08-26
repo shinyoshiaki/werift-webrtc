@@ -43,6 +43,7 @@
     "format": "biome check --write src tests",
     "knip": "knip",
     "test": "vitest run ./tests",
+    "test:pion-ice-agent": "WERIFT_PION_ICE_AGENT_REQUIRED=1 vitest run ./tests/integrate/sped-pion-ice.test.ts",
     "memleak": "vitest run --config ./tests/memleak/memleak.vitest.config.mts",
     "type": "tsc --noEmit --project ./tsconfig.json",
     "unused": "organize-imports-cli src/**/*.ts",

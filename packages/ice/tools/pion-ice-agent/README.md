@@ -23,4 +23,4 @@ go build -o pion-ice-agent .
 - `datagram` `{data: hex}` both ways after ICE is up
 - stdin `close` to exit
 
-Opt-in: set `WERIFT_PION_ICE_AGENT` to the binary. Unset skips so default `npm test` stays green. A missing path **fails** when the suite is targeted (`npm test -- sped-pion-ice`) or `WERIFT_PION_ICE_AGENT_REQUIRED=1`. `WERIFT_PION_ICE_AGENT_AUTO_BUILD=1` builds `./pion-ice-agent` with `go` when the env path is unset.
+Opt-in: set `WERIFT_PION_ICE_AGENT` to the binary. Unset skips so default `npm test` stays green. `npm run test:pion-ice-agent` (from `packages/webrtc`, sets `WERIFT_PION_ICE_AGENT_REQUIRED=1`) **fails** unless `WERIFT_PION_ICE_AGENT` or `WERIFT_PION_ICE_AGENT_AUTO_BUILD=1` is set (no skip). A missing `WERIFT_PION_ICE_AGENT` path also fails that script. `WERIFT_PION_ICE_AGENT_AUTO_BUILD=1` builds `./pion-ice-agent` with `go` when the env path is unset.
