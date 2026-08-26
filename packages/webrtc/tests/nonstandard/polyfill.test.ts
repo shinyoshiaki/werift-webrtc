@@ -18,11 +18,13 @@ import {
   openPacketSource,
 } from "../../src/polyfill/sourceIo";
 import {
+  createHangingWebStream,
   createVideoCallbackRegister,
   expectDomException,
   expectOverconstrainedError,
   installTestPolyfill,
   waitForRtp,
+  waitUntil,
 } from "./polyfillTestUtils";
 import {
   createAvMp4Buffer,
@@ -994,6 +996,68 @@ test("packet stream errors become NotReadableError instead of unhandled rejectio
   } finally {
     stop();
   }
+});
+
+test("unfinished web stream is unlocked after track.stop and uninstall", async () => {
+  const liveStream = createHangingWebStream();
+  const uninstallLive = installPolyfill({
+    mediaRegister: [
+      createRtpRtcpRegister({ mimeType: "video/VP8", stream: liveStream }),
+    ],
+  });
+  try {
+    // 実行: 未終了 Web Stream の RTP register から GUM し、track.stop する。
+    const media = await navigator.mediaDevices.getUserMedia({ video: true });
+    expect(liveStream.locked).toBe(true);
+    media.getTracks()[0].stop();
+    await waitUntil(() => liveStream.locked === false);
+
+    // 検証: reader が cancel され、ストリーム lock が解放される。
+    expect(liveStream.locked).toBe(false);
+  } finally {
+    uninstallLive();
+  }
+
+  const uninstallStream = createHangingWebStream();
+  const uninstall = installPolyfill({
+    mediaRegister: [
+      createRtpRtcpRegister({
+        mimeType: "video/VP8",
+        stream: uninstallStream,
+      }),
+    ],
+  });
+  // 実行: 未終了ストリームのままアンインストールする。
+  await navigator.mediaDevices.getUserMedia({ video: true });
+  expect(uninstallStream.locked).toBe(true);
+  uninstall();
+  await waitUntil(() => uninstallStream.locked === false);
+
+  // 検証: アンインストール後も reader が残らない。
+  expect(uninstallStream.locked).toBe(false);
+});
+
+test("mp4/webm hanging stream read is aborted on uninstall", async () => {
+  const hanging = createHangingWebStream();
+  const uninstall = installPolyfill({
+    mediaRegister: [createMp4WebmRegister({ stream: hanging })],
+  });
+  // 実行: 終了しない Web Stream の全量読み込み中にアンインストールする。
+  const gum = navigator.mediaDevices.getUserMedia({ video: true }).then(
+    (stream) => stream,
+    (error) => error,
+  );
+  await waitUntil(() => hanging.locked === true);
+  uninstall();
+  await waitUntil(() => hanging.locked === false);
+  const result = await gum;
+
+  // 検証: readEntireStream が中断され、lock が解放される。
+  expect(hanging.locked).toBe(false);
+  expect(result).toBeInstanceOf(DOMException);
+  expect(["AbortError", "NotReadableError"]).toContain(
+    (result as DOMException).name,
+  );
 });
 
 function sendUdp(payload: Buffer, port: number) {

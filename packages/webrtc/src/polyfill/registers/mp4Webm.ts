@@ -43,6 +43,7 @@ export function createMp4WebmRegister(
   const kinds: MediaKind[] = [...initialKinds(options)];
   let playerPromise: Promise<FilePlayer> | undefined;
   let started = false;
+  const ioAbort = new AbortController();
 
   const register: MediaRegister = {
     get mimeType() {
@@ -74,6 +75,7 @@ export function createMp4WebmRegister(
       return [track];
     },
     stop() {
+      ioAbort.abort();
       void playerPromise?.then(
         (player) => player.stop(),
         () => undefined,
@@ -85,7 +87,7 @@ export function createMp4WebmRegister(
   async function getPlayer() {
     playerPromise ??= (async () => {
       try {
-        const file = await resolveFile(options);
+        const file = await resolveFile(options, ioAbort.signal);
         const player = await createFileMediaPlayer({
           loop: options.loop,
           ...file,
@@ -144,6 +146,7 @@ function containerOf(
 
 async function resolveFile(
   options: CreateMp4WebmRegisterOptions,
+  signal: AbortSignal,
 ): Promise<{ path: string } | { buffer: Buffer }> {
   if ("path" in options && options.path != undefined) {
     return { path: options.path };
@@ -151,7 +154,7 @@ async function resolveFile(
   if ("binary" in options && options.binary != undefined) {
     return { buffer: toBuffer(options.binary) };
   }
-  return { buffer: await readEntireStream(options.stream) };
+  return { buffer: await readEntireStream(options.stream, signal) };
 }
 
 function kindsFromPlayer(player: FilePlayer): MediaKind[] {

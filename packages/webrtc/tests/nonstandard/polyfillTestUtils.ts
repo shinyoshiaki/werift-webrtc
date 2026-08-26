@@ -34,6 +34,24 @@ export function expectOverconstrainedError(error: unknown, constraint: string) {
   expect((error as OverconstrainedError).constraint).toBe(constraint);
 }
 
+export async function waitUntil(predicate: () => boolean, timeoutMs = 1_000) {
+  const started = Date.now();
+  while (!predicate()) {
+    if (Date.now() - started >= timeoutMs) {
+      throw new Error("Timed out waiting for condition");
+    }
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+}
+
+export function createHangingWebStream() {
+  return new ReadableStream<Uint8Array>({
+    pull() {
+      // never enqueue or close; lock is held until cancel()
+    },
+  });
+}
+
 export async function waitForRtp(
   track: MediaStreamTrack,
   count = 1,

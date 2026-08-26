@@ -148,16 +148,35 @@ async function* iterateBytes(
   signal: AbortSignal,
 ): AsyncGenerator<Buffer> {
   if (stream instanceof Readable) {
-    for await (const chunk of stream) {
-      if (signal.aborted) {
-        return;
+    const onAbort = () => {
+      stream.destroy();
+    };
+    if (signal.aborted) {
+      return;
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+    try {
+      for await (const chunk of stream) {
+        if (signal.aborted) {
+          return;
+        }
+        yield toBuffer(chunk);
       }
-      yield toBuffer(chunk);
+    } finally {
+      signal.removeEventListener("abort", onAbort);
     }
     return;
   }
 
   const reader = stream.getReader();
+  const onAbort = () => {
+    void reader.cancel().catch(() => undefined);
+  };
+  if (signal.aborted) {
+    await reader.cancel().catch(() => undefined);
+    return;
+  }
+  signal.addEventListener("abort", onAbort, { once: true });
   try {
     for (;;) {
       if (signal.aborted) {
@@ -172,7 +191,12 @@ async function* iterateBytes(
       }
     }
   } finally {
-    reader.releaseLock();
+    signal.removeEventListener("abort", onAbort);
+    try {
+      reader.releaseLock();
+    } catch {
+      // cancel() already released the lock
+    }
   }
 }
 
@@ -184,30 +208,18 @@ export function encodeLengthPrefixed(packet: Buffer) {
 
 export async function readEntireStream(
   stream: Readable | ReadableStream<Uint8Array>,
+  signal: AbortSignal = new AbortController().signal,
 ) {
   const chunks: Buffer[] = [];
-  if (stream instanceof Readable) {
-    for await (const chunk of stream) {
-      chunks.push(toBuffer(chunk));
-    }
-    return Buffer.concat(chunks);
-  }
-
-  const reader = stream.getReader();
   try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-      if (value) {
-        chunks.push(
-          Buffer.from(value.buffer, value.byteOffset, value.byteLength),
-        );
-      }
+    for await (const chunk of iterateBytes(stream, signal)) {
+      chunks.push(chunk);
     }
-  } finally {
-    reader.releaseLock();
+  } catch (error) {
+    throw mapStreamError(error, signal);
+  }
+  if (signal.aborted) {
+    throw createWebRtcDomException("AbortError", "The operation was aborted");
   }
   return Buffer.concat(chunks);
 }

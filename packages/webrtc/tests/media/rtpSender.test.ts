@@ -61,6 +61,60 @@ describe("media/rtpSender", () => {
     expect(spy).toBeCalledTimes(2);
   });
 
+  test("replaceTrack without first RTP still continues sequence and timestamp", async () => {
+    const track1 = new MediaStreamTrack({ kind: "audio" });
+    const dtls = createDtlsTransport();
+    dtls.state = "connected";
+    const sender = new RTCRtpSender(track1);
+    sender.setDtlsTransport(dtls);
+    sender.prepareSend({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "audio/opus",
+          clockRate: 48000,
+          payloadType: 111,
+        }),
+      ],
+      headerExtensions: [],
+    });
+    const sent: Array<{ sequenceNumber: number; timestamp: number }> = [];
+    vi.spyOn(dtls, "sendRtp").mockImplementation(async (_payload, header) => {
+      sent.push({
+        sequenceNumber: header.sequenceNumber,
+        timestamp: header.timestamp,
+      });
+      return 0;
+    });
+
+    const first = createRtpPacket();
+    first.header.sequenceNumber = 5000;
+    first.header.timestamp = 900000;
+    await sender.sendRtp(first);
+
+    const track2 = new MediaStreamTrack({ kind: "audio" });
+    // 実行: 先頭 RTP がまだ無い track へ置換し、その後 seq/ts が小さいパケットを送る。
+    await Promise.race([
+      sender.replaceTrack(track2),
+      setTimeout(200).then(() => {
+        throw new Error("replaceTrack waited for the first RTP packet");
+      }),
+    ]);
+    expect(track2.header).toBeUndefined();
+
+    const second = createRtpPacket();
+    second.header.sequenceNumber = 1;
+    second.header.timestamp = 0;
+    track2.onReceiveRtp.execute(second);
+    await setTimeout(0);
+
+    // 検証: 置換は待たず完了し、送出 RTP は 1/0 へ巻き戻らない。
+    expect(sent).toHaveLength(2);
+    expect(sent[0]).toEqual({ sequenceNumber: 5000, timestamp: 900000 });
+    expect(sent[1]).not.toEqual({ sequenceNumber: 1, timestamp: 0 });
+    expect(sent[1].sequenceNumber).toBe(5000);
+    expect(sent[1].timestamp).toBe(900000);
+  });
+
   test("abort runRtcp", async () =>
     new Promise<void>(async (done) => {
       const dtls = createDtlsTransport();
