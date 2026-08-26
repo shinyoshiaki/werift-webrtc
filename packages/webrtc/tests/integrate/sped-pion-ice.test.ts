@@ -26,14 +26,7 @@ import { IceSpedTransport } from "../../src/transport/sped";
 const toolDir = join(__dirname, "../../../ice/tools/pion-ice-agent");
 const localBin = join(toolDir, "pion-ice-agent");
 
-function resolvePionIceAgentBin(): string | undefined {
-  const override = process.env.WERIFT_PION_ICE_AGENT;
-  if (override) {
-    return existsSync(override) ? override : undefined;
-  }
-  if (existsSync(localBin)) {
-    return localBin;
-  }
+function tryBuildLocalPionIceAgent(): string | undefined {
   try {
     execFileSync("go", ["build", "-o", localBin, "."], {
       cwd: toolDir,
@@ -43,6 +36,26 @@ function resolvePionIceAgentBin(): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function resolvePionIceAgentBin(): string | undefined {
+  const override = process.env.WERIFT_PION_ICE_AGENT;
+  if (override !== undefined) {
+    if (!existsSync(override)) {
+      throw new Error(`WERIFT_PION_ICE_AGENT does not exist: ${override}`);
+    }
+    return override;
+  }
+  if (process.env.WERIFT_PION_ICE_AGENT_AUTO_BUILD === "1") {
+    const built = existsSync(localBin) ? localBin : tryBuildLocalPionIceAgent();
+    if (!built) {
+      throw new Error(
+        "WERIFT_PION_ICE_AGENT_AUTO_BUILD=1 but local pion-ice-agent is missing",
+      );
+    }
+    return built;
+  }
+  return undefined;
 }
 
 const bin = resolvePionIceAgentBin();

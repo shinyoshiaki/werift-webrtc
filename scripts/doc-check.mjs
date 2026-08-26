@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
+import { existsSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,23 +8,23 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 execFileSync("npm", ["run", "doc"], { cwd: root, stdio: "inherit" });
 
-const diff = execFileSync("git", ["diff", "--", "doc"], {
+const docPaths = ["doc"];
+for (const name of readdirSync(join(root, "packages"))) {
+  const relative = join("packages", name, "doc");
+  if (existsSync(join(root, relative))) {
+    docPaths.push(relative);
+  }
+}
+
+const porcelain = execFileSync("git", ["status", "--porcelain", "--", ...docPaths], {
   cwd: root,
   encoding: "utf8",
 });
-const untracked = execFileSync(
-  "git",
-  ["ls-files", "--others", "--exclude-standard", "--", "doc"],
-  { cwd: root, encoding: "utf8" },
-);
 
-if (diff.length > 0 || untracked.length > 0) {
-  if (diff) {
-    process.stderr.write(diff);
-  }
-  if (untracked) {
-    process.stderr.write("untracked files under doc/:\n");
-    process.stderr.write(untracked);
-  }
+if (porcelain.trim().length > 0) {
+  process.stderr.write(
+    "Generated docs differ from the worktree (root doc/ and packages/*/doc):\n",
+  );
+  process.stderr.write(porcelain);
   process.exit(1);
 }

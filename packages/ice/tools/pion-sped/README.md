@@ -2,7 +2,7 @@
 
 Opt-in codec interop against **pion/stun v3.1.7** and **pion/ice v4.4.1** `sped.go` (encode/decode/verify). Released Pion ICE agents do not send SPED; fallback against a real agent is `../pion-ice-agent`.
 
-The test runner prefers `WERIFT_PION_SPED` when that binary is compatible (usage includes `verify` and `-empty-ack`). An incompatible override, such as an older `/usr/local/bin/pion-sped`, is ignored. The runner then uses a compatible `./pion-sped`, building it with `go` when needed. Incompatible or missing binaries skip the suite so default `npm test` stays green.
+Opt-in: set `WERIFT_PION_SPED` to a wrapper that supports `verify` and `-empty-ack`. A missing or incompatible path **fails the suite** (no skip, no fallback). Unset `WERIFT_PION_SPED` skips the suite so default `npm test` stays green. `WERIFT_PION_SPED_AUTO_BUILD=1` builds `./pion-sped` with `go` when the env path is unset.
 
 ## CLI
 
@@ -30,4 +30,4 @@ cd ../../
 npm test -- pion-sped
 ```
 
-Without a binary, the suite is skipped so default `npm test` stays green when the tool is absent. When a binary is present, codec mismatches fail the test (no skip / catch-and-ignore).
+Or `WERIFT_PION_SPED_AUTO_BUILD=1 npm test -- pion-sped`. Without either variable the suite is skipped. When a path is set, codec mismatches fail the test (no skip / catch-and-ignore).

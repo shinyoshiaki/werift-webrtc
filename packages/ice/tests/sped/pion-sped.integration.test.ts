@@ -50,11 +50,22 @@ function tryBuildLocalPionSped(): boolean {
 
 function resolvePionSpedBin(): string | undefined {
   const override = process.env.WERIFT_PION_SPED;
-  if (override && pionSpedIsCompatible(override)) {
+  if (override !== undefined) {
+    if (!existsSync(override)) {
+      throw new Error(`WERIFT_PION_SPED does not exist: ${override}`);
+    }
+    if (!pionSpedIsCompatible(override)) {
+      throw new Error(`WERIFT_PION_SPED is incompatible: ${override}`);
+    }
     return override;
   }
-  if (pionSpedIsCompatible(localBin) || tryBuildLocalPionSped()) {
-    return localBin;
+  if (process.env.WERIFT_PION_SPED_AUTO_BUILD === "1") {
+    if (pionSpedIsCompatible(localBin) || tryBuildLocalPionSped()) {
+      return localBin;
+    }
+    throw new Error(
+      "WERIFT_PION_SPED_AUTO_BUILD=1 but local pion-sped is missing or incompatible",
+    );
   }
   return undefined;
 }
@@ -70,8 +81,8 @@ function pion(args: string[]) {
 }
 
 describePion("pion SPED wire codec (opt-in)", () => {
-  it("解決した pion-sped は verify と empty-ack を持つ", () => {
-    // Assert: 古い WERIFT_PION_SPED は使わず互換バイナリだけを採用する
+  it("opt-in した pion-sped は verify と empty-ack を持つ", () => {
+    // Assert: 明示指定または AUTO_BUILD のバイナリだけを使う
     expect(bin).toBeDefined();
     expect(pionSpedIsCompatible(bin!)).toBe(true);
   });

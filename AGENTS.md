@@ -70,7 +70,7 @@ For targeted work, prefer the narrowest package command first, for example:
 
 ## Validation
 
-* Docs-only edits: no code validation required. Public API / Typedoc surface changes: run `npm run doc:check` so committed `doc/` matches sources (also part of `npm run ci`).
+* Docs-only edits: no code validation required. Public API / Typedoc surface changes: run `npm run doc:check` so committed `doc/` and `packages/*/doc` match sources (also part of `npm run ci`).
 * Single-package logic changes: run that package's relevant test and/or type-check command.
 * Cross-package, public API, or protocol changes: run `npm run type` and `npm run test:small`; use `npm run ci` when the change spans the full stack.
 * WPT runner, dummy media, or compatibility allowlist changes: run `npm run wpt --workspace packages/webrtc`; run `npm run wpt:coverage --workspace packages/webrtc` when coverage or baseline wiring changes.

@@ -23,4 +23,4 @@ go build -o pion-ice-agent .
 - `datagram` `{data: hex}` both ways after ICE is up
 - stdin `close` to exit
 
-Override the binary with `WERIFT_PION_ICE_AGENT`. Without a binary the interop test is skipped so default CI stays green.
+Opt-in: set `WERIFT_PION_ICE_AGENT` to the binary. A missing path **fails the suite** (no skip). Unset skips so default `npm test` stays green. `WERIFT_PION_ICE_AGENT_AUTO_BUILD=1` builds `./pion-ice-agent` with `go` when the env path is unset.

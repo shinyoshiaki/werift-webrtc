@@ -55,6 +55,7 @@ function iceOf(pc: RTCPeerConnection) {
 }
 
 const hookedL1Sessions = new WeakSet<object>();
+const cappedMtuRuntimes = new WeakSet<object>();
 
 function captureL1Flights(pc: RTCPeerConnection, flights: Buffer[][]) {
   const hook = () => {
@@ -88,6 +89,54 @@ function captureL1Flights(pc: RTCPeerConnection, flights: Buffer[][]) {
   return () => clearInterval(id);
 }
 
+/**
+ * Cap DTLS datagram MTU so a large certificate becomes a multi-datagram L1
+ * flight. Wrapper survives syncMtuFromBinding overwriting the carrier MTU.
+ */
+function capSpedDtlsMtu(pc: RTCPeerConnection, maxMtu: number) {
+  const hook = () => {
+    const ice = pc.iceTransports[0]?.connection as Connection | undefined;
+    if (!ice) {
+      return false;
+    }
+    const runtime = getConnectionSpedRuntime(ice);
+    if (!runtime) {
+      return false;
+    }
+    if (!cappedMtuRuntimes.has(runtime)) {
+      cappedMtuRuntimes.add(runtime);
+      const original = runtime.hooks.setMtu.bind(runtime.hooks);
+      runtime.hooks.setMtu = (mtu: number) => original(Math.min(mtu, maxMtu));
+    }
+    runtime.hooks.setMtu(maxMtu);
+    return true;
+  };
+  if (hook()) {
+    return () => {};
+  }
+  const id = setInterval(() => {
+    if (hook()) {
+      clearInterval(id);
+    }
+  }, 1);
+  return () => clearInterval(id);
+}
+
+function latestMultiRecordFlight(
+  flights: Buffer[][] | undefined,
+): Buffer[] | undefined {
+  if (!flights) {
+    return undefined;
+  }
+  for (let i = flights.length - 1; i >= 0; i--) {
+    const flight = flights[i];
+    if (flight && flight.length > 2) {
+      return flight;
+    }
+  }
+  return undefined;
+}
+
 function stunAttributeTypes(bytes: Buffer): number[] {
   const types: number[] = [];
   if (bytes.length < 20) {
@@ -103,17 +152,23 @@ function stunAttributeTypes(bytes: Buffer): number[] {
 }
 
 function firstNonEmptySpedData(stun: Buffer[]): Buffer | undefined {
+  return nonEmptySpedDataPayloads(stun)[0];
+}
+
+function nonEmptySpedDataPayloads(stun: Buffer[]): Buffer[] {
+  const payloads: Buffer[] = [];
   for (const bytes of stun) {
     let pos = 20;
     while (pos + 4 <= bytes.length) {
       const type = bytes.readUInt16BE(pos);
       const length = bytes.readUInt16BE(pos + 2);
       if (type === DTLS_IN_STUN_DATA && length > 0) {
-        return Buffer.from(bytes.subarray(pos + 4, pos + 4 + length));
+        payloads.push(Buffer.from(bytes.subarray(pos + 4, pos + 4 + length)));
       }
       pos += 4 + length + paddingLength(length);
     }
   }
+  return payloads;
 }
 
 function isStunBindingRequest(bytes: Buffer): boolean {
@@ -123,8 +178,16 @@ function isStunBindingRequest(bytes: Buffer): boolean {
 type HoldFirstNonEmptyData = {
   message?: Parameters<Protocol["sendStun"]>[0];
   addr?: Parameters<Protocol["sendStun"]>[1];
-  /** When true, the held Binding is never released (stale restart DATA). */
+  /**
+   * When true, the first non-empty DATA Binding is never released
+   * (stale restart / DTLS-error DATA). Otherwise `l1Flights` must be set:
+   * hold L1[1] of the latest 3+ datagram flight (ServerHello is L1[0])
+   * and release after L1[2] so the wire order is C then B. Holding L1[0]
+   * would delay ServerHello past later fragments and stall DTLS.
+   */
   discard?: boolean;
+  /** After one C→B swap, do not hold L1[1] again when round-robin wraps. */
+  swapped?: boolean;
 };
 
 type WireSpyOptions = {
@@ -132,6 +195,13 @@ type WireSpyOptions = {
   dropFirstNonEmptyData?: { remaining: number };
   duplicateFirstNonEmptyData?: { remaining: number };
   holdFirstNonEmptyData?: HoldFirstNonEmptyData;
+  /** When set, hold L1[1] of a 3+ datagram flight and release after L1[2]. */
+  l1Flights?: Buffer[][];
+};
+
+type OpenWireSpyOptions = WireSpyOptions & {
+  offerer?: WireSpyOptions;
+  answerer?: WireSpyOptions;
 };
 
 const spiedProtocols = new WeakSet<object>();
@@ -173,21 +243,10 @@ function spyConnectionWire(
       if (options.tcpFrames) {
         options.tcpFrames.push(encodeTcpFrame(copy));
       }
-      const types = stunAttributeTypes(copy);
-      const dataIndex = types.indexOf(DTLS_IN_STUN_DATA);
-      let nonEmptyData = false;
-      if (dataIndex >= 0) {
-        let pos = 20;
-        for (let i = 0; i < types.length; i++) {
-          const type = copy.readUInt16BE(pos);
-          const length = copy.readUInt16BE(pos + 2);
-          if (type === DTLS_IN_STUN_DATA && length > 0) {
-            nonEmptyData = true;
-            break;
-          }
-          pos += 4 + length + paddingLength(length);
-        }
-      }
+      const dataValue = firstNonEmptySpedData([copy]);
+      const nonEmptyData = !!dataValue;
+      const flight = latestMultiRecordFlight(options.l1Flights);
+      const hold = options.holdFirstNonEmptyData;
       if (
         options.dropFirstNonEmptyData &&
         options.dropFirstNonEmptyData.remaining > 0 &&
@@ -197,24 +256,38 @@ function spyConnectionWire(
         return;
       }
       if (
-        options.holdFirstNonEmptyData &&
-        !options.holdFirstNonEmptyData.message &&
-        nonEmptyData
+        hold &&
+        !hold.message &&
+        !hold.swapped &&
+        dataValue &&
+        (hold.discard || (flight && dataValue.equals(flight[1]!)))
       ) {
-        options.holdFirstNonEmptyData.message = message;
-        options.holdFirstNonEmptyData.addr = addr;
+        hold.message = message;
+        hold.addr = addr;
+        return;
+      }
+      if (
+        hold?.message &&
+        !hold.discard &&
+        dataValue &&
+        flight?.[1] &&
+        dataValue.equals(flight[1])
+      ) {
         return;
       }
       stun.push(copy);
       await sendStun(message, addr);
       if (
-        options.holdFirstNonEmptyData?.message &&
-        !nonEmptyData &&
-        !options.holdFirstNonEmptyData.discard
+        hold?.message &&
+        dataValue &&
+        flight?.[2] &&
+        dataValue.equals(flight[2]) &&
+        !hold.discard
       ) {
-        const heldMessage = options.holdFirstNonEmptyData.message;
-        const heldAddr = options.holdFirstNonEmptyData.addr!;
-        options.holdFirstNonEmptyData.message = undefined;
+        const heldMessage = hold.message;
+        const heldAddr = hold.addr!;
+        hold.message = undefined;
+        hold.swapped = true;
         stun.push(Buffer.from(heldMessage.bytes));
         await sendStun(heldMessage, heldAddr);
       }
@@ -263,7 +336,7 @@ async function openDataChannelWithWireSpy(
   pc2: RTCPeerConnection,
   stun: Buffer[],
   handshakeDtls: Buffer[],
-  spyOptions?: WireSpyOptions,
+  spyOptions?: OpenWireSpyOptions,
 ): Promise<[RTCDataChannel, RTCDataChannel]> {
   const dc1 = pc1.createDataChannel("dc");
   const bothOpen = Promise.all([
@@ -279,10 +352,16 @@ async function openDataChannelWithWireSpy(
     }),
   ]);
   exchangeIceCandidates(pc1, pc2);
-  const stopSpy1 = spyWhenReady(pc1, stun, handshakeDtls, spyOptions);
+  const stopSpy1 = spyWhenReady(pc1, stun, handshakeDtls, {
+    ...spyOptions,
+    ...spyOptions?.offerer,
+  });
   await pc1.setLocalDescription(await pc1.createOffer());
   await pc2.setRemoteDescription(pc1.localDescription!);
-  const stopSpy2 = spyWhenReady(pc2, stun, handshakeDtls, spyOptions);
+  const stopSpy2 = spyWhenReady(pc2, stun, handshakeDtls, {
+    ...spyOptions,
+    ...spyOptions?.answerer,
+  });
   await pc2.setLocalDescription(await pc2.createAnswer());
   await pc1.setRemoteDescription(pc2.localDescription!);
   const [, dc2] = await bothOpen;
@@ -709,27 +788,6 @@ describe("RTCPeerConnection SPED opt-in", () => {
     }
   }, 30_000);
 
-  test("順序入れ替え DATA でも handshake が完了する", async () => {
-    const stun: Buffer[] = [];
-    const handshakeDtls: Buffer[] = [];
-    const pc1 = new RTCPeerConnection(spedPeerConfig());
-    const pc2 = new RTCPeerConnection(spedPeerConfig());
-    try {
-      const [dc1, dc2] = await openDataChannelWithWireSpy(
-        pc1,
-        pc2,
-        stun,
-        handshakeDtls,
-        { holdFirstNonEmptyData: {} },
-      );
-      dc1.send("reorder");
-      expect(await awaitMessage(dc2)).toBe("reorder");
-    } finally {
-      await pc1.close();
-      await pc2.close();
-    }
-  }, 30_000);
-
   test("multi-candidate でも SPED handshake が完了する", async () => {
     const extra = { iceAdditionalHostAddresses: ["127.0.0.2"] };
     const pc1 = new RTCPeerConnection(spedPeerConfig(extra));
@@ -751,7 +809,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
     }
   }, 30_000);
 
-  test("large certificate の multi-record flight が SPED 経由で完了する", async () => {
+  test("large certificate の multi-record flight を B→A に並べ替えても handshake が完了する", async () => {
     const largeCertPem = readFileSync(
       join(__dirname, "../../../dtls/assets/large_cert.pem"),
       "utf8",
@@ -767,38 +825,62 @@ describe("RTCPeerConnection SPED opt-in", () => {
     });
     const stun: Buffer[] = [];
     const handshakeDtls: Buffer[] = [];
+    const offererFlights: Buffer[][] = [];
+    const hold: HoldFirstNonEmptyData = {};
     const pc1 = new RTCPeerConnection(
       spedPeerConfig({ certificates: [certificate] }),
     );
     const pc2 = new RTCPeerConnection(
       spedPeerConfig({ certificates: [certificate] }),
     );
+    const stopCapture = captureL1Flights(pc1, offererFlights);
+    const stopMtu1 = capSpedDtlsMtu(pc1, 400);
+    const stopMtu2 = capSpedDtlsMtu(pc2, 400);
     try {
       const [dc1, dc2] = await openDataChannelWithWireSpy(
         pc1,
         pc2,
         stun,
         handshakeDtls,
+        {
+          offerer: {
+            holdFirstNonEmptyData: hold,
+            l1Flights: offererFlights,
+          },
+        },
       );
-      // Act / Assert: 大きな Certificate が複数 DATA に載り、再組立後に開く
-      const payloads = new Set<string>();
-      for (const bytes of stun) {
-        let pos = 20;
-        while (pos + 4 <= bytes.length) {
-          const type = bytes.readUInt16BE(pos);
-          const length = bytes.readUInt16BE(pos + 2);
-          if (type === DTLS_IN_STUN_DATA && length > 0) {
-            payloads.add(
-              bytes.subarray(pos + 4, pos + 4 + length).toString("hex"),
-            );
-          }
-          pos += 4 + length + paddingLength(length);
-        }
-      }
-      expect(payloads.size).toBeGreaterThan(1);
+
+      // Act: large certificate を SPED 上で送り、アプリデータまで到達させる
       dc1.send("large-cert");
       expect(await awaitMessage(dc2)).toBe("large-cert");
+
+      // Assert: 同一 L1 flight が 3 datagram 以上。ServerHello の次の 2 つを C→B に並べ替える
+      expect(offererFlights.some((flight) => flight.length > 2)).toBe(true);
+      expect(offererFlights.some((flight) => flight.length > 1)).toBe(true);
+      const spedPayloads = nonEmptySpedDataPayloads(stun);
+      const reorderedFlight = offererFlights.find((flight) => {
+        if (flight.length < 3) {
+          return false;
+        }
+        const indexB = spedPayloads.findIndex((payload) =>
+          payload.equals(flight[1]!),
+        );
+        const indexC = spedPayloads.findIndex((payload) =>
+          payload.equals(flight[2]!),
+        );
+        return indexC >= 0 && indexB > indexC;
+      });
+      expect(reorderedFlight).toBeDefined();
+      for (const packet of reorderedFlight!) {
+        expect(spedPayloads.some((payload) => payload.equals(packet))).toBe(
+          true,
+        );
+      }
+      expect(handshakeDtls).toHaveLength(0);
     } finally {
+      stopCapture();
+      stopMtu1();
+      stopMtu2();
       await pc1.close();
       await pc2.close();
     }
