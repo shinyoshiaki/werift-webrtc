@@ -114,6 +114,7 @@ NACK/RTX も同じ `sendRtpInternal` を通り、**新しい TSN** が付きま�
 1. `rtpPacketSent` で sent history を保持（**10 秒の時間窓**。件数 2048 ではない）
 2. TWCC の受信済み＋タイミングありパケットを `CumulativeResult` に積む
 3. 経過 ≥ 100ms かつ ≥ 20 パケットで `min(sendBitrate, receiveBitrate)`
+<!-- review-bookmark id="bm_1a03e648ed0-c085a1a8" title="3.1 Legacy（既定）" -->
 4. 1 秒超の無更新で congestion counter / score を悪化（**legacy 固有**。共通 interface には載せない）
 
 [packages/webrtc/src/media/sender/estimators/legacyCumulativeBwe.ts:109](review-file:packages/webrtc/src/media/sender/estimators/legacyCumulativeBwe.ts:109)
