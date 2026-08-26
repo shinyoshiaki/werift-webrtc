@@ -335,7 +335,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         }
         carrier.setRetransmissionMode("external");
         if (this.state === "connecting" && lastFlight.length > 0) {
-          handle.session.replaceL1(lastFlight);
+          handle.onFlightCreated(lastFlight);
         }
       },
       onSessionAbort: () => {

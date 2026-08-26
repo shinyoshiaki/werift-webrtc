@@ -90,18 +90,29 @@ function captureL1Flights(pc: RTCPeerConnection, flights: Buffer[][]) {
   return () => clearInterval(id);
 }
 
+function longestFlight(flights: Buffer[][]): Buffer[] | undefined {
+  return flights.reduce(
+    (best, flight) => (flight.length > (best?.length ?? 0) ? flight : best),
+    undefined as Buffer[] | undefined,
+  );
+}
+
 /**
- * Swap L1[1] and L1[2] on the first 3+ datagram flight (keep ServerHello first).
+ * Swap L1[1] and L1[2] on every 3+ datagram flight (keep ServerHello first).
  * Prototype hook runs before ICE/DTLS attach so the first replaceL1 is swapped.
+ * Flights are recorded per session so offerer/answerer are not mixed.
  */
-function swapL1PostHello(flights: Buffer[][], swap: { done: boolean }) {
+function swapL1PostHello(swap: { done: boolean }) {
   const original = SpedSession.prototype.replaceL1;
+  const flightsBySession = new WeakMap<SpedSession, Buffer[][]>();
   SpedSession.prototype.replaceL1 = function (
     this: SpedSession,
     packets: readonly Buffer[],
   ) {
     const copies = packets.map((packet) => Buffer.from(packet));
+    const flights = flightsBySession.get(this) ?? [];
     flights.push(copies);
+    flightsBySession.set(this, flights);
     if (copies.length > 2) {
       swap.done = true;
       original.call(this, [
@@ -114,8 +125,11 @@ function swapL1PostHello(flights: Buffer[][], swap: { done: boolean }) {
     }
     original.call(this, packets);
   };
-  return () => {
-    SpedSession.prototype.replaceL1 = original;
+  return {
+    stop: () => {
+      SpedSession.prototype.replaceL1 = original;
+    },
+    flightsOf: (session: SpedSession) => flightsBySession.get(session) ?? [],
   };
 }
 
@@ -207,6 +221,8 @@ type WireSpyOptions = {
 type OpenWireSpyOptions = WireSpyOptions & {
   offerer?: WireSpyOptions;
   answerer?: WireSpyOptions;
+  offererStun?: Buffer[];
+  answererStun?: Buffer[];
 };
 
 const spiedProtocols = new WeakSet<object>();
@@ -330,16 +346,26 @@ async function openDataChannelWithWireSpy(
     }),
   ]);
   exchangeIceCandidates(pc1, pc2);
-  const stopSpy1 = spyWhenReady(pc1, stun, handshakeDtls, {
-    ...spyOptions,
-    ...spyOptions?.offerer,
-  });
+  const stopSpy1 = spyWhenReady(
+    pc1,
+    spyOptions?.offererStun ?? stun,
+    handshakeDtls,
+    {
+      ...spyOptions,
+      ...spyOptions?.offerer,
+    },
+  );
   await pc1.setLocalDescription(await pc1.createOffer());
   await pc2.setRemoteDescription(pc1.localDescription!);
-  const stopSpy2 = spyWhenReady(pc2, stun, handshakeDtls, {
-    ...spyOptions,
-    ...spyOptions?.answerer,
-  });
+  const stopSpy2 = spyWhenReady(
+    pc2,
+    spyOptions?.answererStun ?? stun,
+    handshakeDtls,
+    {
+      ...spyOptions,
+      ...spyOptions?.answerer,
+    },
+  );
   await pc2.setLocalDescription(await pc2.createAnswer());
   await pc1.setRemoteDescription(pc2.localDescription!);
   const [, dc2] = await bothOpen;
@@ -802,10 +828,10 @@ describe("RTCPeerConnection SPED opt-in", () => {
       hash: HashAlgorithm.sha256_4,
     });
     const stun: Buffer[] = [];
+    const offererStun: Buffer[] = [];
     const handshakeDtls: Buffer[] = [];
-    const offererFlights: Buffer[][] = [];
     const swapPostHello = { done: false };
-    const stopSwap = swapL1PostHello(offererFlights, swapPostHello);
+    const swapHook = swapL1PostHello(swapPostHello);
     const pc1 = new RTCPeerConnection(
       spedPeerConfig({ certificates: [certificate] }),
     );
@@ -820,19 +846,21 @@ describe("RTCPeerConnection SPED opt-in", () => {
         pc2,
         stun,
         handshakeDtls,
+        { offererStun },
       );
 
       // Act: large certificate を SPED 上で送り、アプリデータまで到達させる
       dc1.send("large-cert");
       expect(await awaitMessage(dc2)).toBe("large-cert");
 
-      // Assert: 同一 L1 flight が 3 datagram 以上。ServerHello の次の 2 つを C→B
+      // Assert: offerer の最長 L1 が 3 datagram 以上。ServerHello の次を C→B で送る
       expect(swapPostHello.done).toBe(true);
-      const multiRecordFlight = offererFlights.find(
-        (flight) => flight.length > 2,
+      const offererSession = getConnectionSpedRuntime(iceOf(pc1))!.session;
+      const multiRecordFlight = longestFlight(
+        swapHook.flightsOf(offererSession),
       );
-      expect(multiRecordFlight).toBeDefined();
-      const spedPayloads = nonEmptySpedDataPayloads(stun);
+      expect(multiRecordFlight?.length).toBeGreaterThan(2);
+      const spedPayloads = nonEmptySpedDataPayloads(offererStun);
       for (const packet of multiRecordFlight!) {
         expect(spedPayloads.some((payload) => payload.equals(packet))).toBe(
           true,
@@ -848,7 +876,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
       expect(indexB).toBeGreaterThan(indexC);
       expect(handshakeDtls).toHaveLength(0);
     } finally {
-      stopSwap();
+      swapHook.stop();
       stopMtu1();
       stopMtu2();
       await pc1.close();
