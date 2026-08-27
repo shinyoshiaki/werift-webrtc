@@ -119,6 +119,26 @@ describe("SPED draft00 session", () => {
     expect(session.fallbackFlightBytes()[0]!.equals(hello)).toBe(true);
   });
 
+  it("re-fragment で L1 を差し替えても fallback は最初の L1 bytes", () => {
+    // Arrange
+    const session = new SpedSession(0);
+    const original = Buffer.from([22, 1, 2, 3, 4]);
+    const refrag = Buffer.from([22, 1]);
+    session.replaceL1([original]);
+
+    // Act: MTU shrink 相当の L1 差し替え
+    session.replaceL1([refrag, Buffer.from([22, 9])]);
+
+    // Assert: 埋め込み用 L1 は新 datagram、fallback は immutable snapshot
+    expect(session.l1Datagrams[0]!.equals(refrag)).toBe(true);
+    expect(session.fallbackFlightBytes()).toHaveLength(1);
+    expect(session.fallbackFlightBytes()[0]!.equals(original)).toBe(true);
+
+    session.reset(1);
+    session.replaceL1([refrag]);
+    expect(session.fallbackFlightBytes()[0]!.equals(refrag)).toBe(true);
+  });
+
   it("一致 CRC のみ L1 から削除し、未知 CRC は ignore", () => {
     // Arrange
     const session = new SpedSession(0);

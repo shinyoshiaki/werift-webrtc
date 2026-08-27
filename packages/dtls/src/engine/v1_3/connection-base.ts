@@ -172,6 +172,17 @@ export class Dtls13ConnectionBase {
    * the flight is fully ACK'd (SH loss otherwise leaves client without keys).
    */
   pendingServerHello?: DtlsHandshakeDatagram;
+  /**
+   * Pre-chunk ServerHello handshake (epoch 0). SPED MTU shrink re-fragments
+   * this independently of pendingFlightSource (epoch 2 encrypted flight).
+   */
+  pendingServerHelloSource?: FragmentedHandshake;
+  /**
+   * Last epoch-0 ServerHello datagrams built for an MTU shrink. Reused when
+   * re-fragment is asked again at the same (or larger) MTU so L1 bytes stay
+   * stable after the first shrink.
+   */
+  pendingServerHelloNotify?: { mtu: number; datagrams: Buffer[] };
   cancelRetransmit: (() => void) | undefined;
   cancelEpochPrune: (() => void) | undefined;
   retransmitCount = 0;
@@ -826,6 +837,8 @@ export class Dtls13ConnectionBase {
     this.pendingFlightRecordBytes = [];
     this.pendingFlightSource = undefined;
     this.pendingServerHello = undefined;
+    this.pendingServerHelloSource = undefined;
+    this.pendingServerHelloNotify = undefined;
     this.pendingFlightReplyTo = undefined;
     this.retransmitCount = 0;
   }

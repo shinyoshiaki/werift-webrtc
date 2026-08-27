@@ -20,26 +20,102 @@ import {
 } from "./types";
 
 /**
- * SPED L1 / onFlightCreated datagrams: coalesce epoch-0 ServerHello with the
- * first encrypted datagram when the pair still fits `mtu`.
+ * SPED L1 / onFlightCreated datagrams: coalesce a single epoch-0 ServerHello
+ * datagram with the first encrypted datagram when the pair still fits `mtu`.
  */
 export function spedNotifySources(
-  serverHello: Buffer | undefined,
+  serverHello: Buffer | readonly Buffer[] | undefined,
   datagrams: readonly Buffer[],
   mtu: number,
 ): Buffer[] {
-  if (!serverHello) {
+  const hellos = !serverHello
+    ? []
+    : Buffer.isBuffer(serverHello)
+      ? [Buffer.from(serverHello)]
+      : serverHello.map((datagram) => Buffer.from(datagram));
+  if (hellos.length === 0) {
     return datagrams.map((datagram) => Buffer.from(datagram));
   }
-  const hello = Buffer.from(serverHello);
   const first = datagrams[0];
-  if (first && hello.length + first.length <= mtu) {
+  if (hellos.length === 1 && first && hellos[0]!.length + first.length <= mtu) {
     return [
-      Buffer.concat([hello, first]),
+      Buffer.concat([hellos[0]!, first]),
       ...datagrams.slice(1).map((datagram) => Buffer.from(datagram)),
     ];
   }
-  return [hello, ...datagrams.map((datagram) => Buffer.from(datagram))];
+  return [...hellos, ...datagrams.map((datagram) => Buffer.from(datagram))];
+}
+
+function packRecordsIntoDatagrams(
+  records: readonly Buffer[],
+  mtu: number,
+): Buffer[] {
+  const datagrams: Buffer[] = [];
+  let current: Buffer = Buffer.alloc(0);
+  for (const record of records) {
+    if (current.length + record.length > mtu && current.length > 0) {
+      datagrams.push(current);
+      current = Buffer.from(record);
+    } else {
+      current = current.length
+        ? Buffer.concat([current, record])
+        : Buffer.from(record);
+    }
+  }
+  if (current.length) {
+    datagrams.push(current);
+  }
+  return datagrams;
+}
+
+/**
+ * Epoch-0 ServerHello datagrams under `mtu`. Uses the original record when it
+ * still fits; otherwise re-chunks pendingServerHelloSource.
+ */
+export function fragmentPendingServerHello(
+  host: Dtls13Host,
+  mtu: number,
+): Buffer[] {
+  const current = host.pendingServerHello?.bytes;
+  if (current && current.length <= mtu) {
+    return [Buffer.from(current)];
+  }
+  const cached = host.pendingServerHelloNotify;
+  if (
+    cached &&
+    cached.mtu <= mtu &&
+    cached.datagrams.every((datagram) => datagram.length <= mtu)
+  ) {
+    return cached.datagrams.map((datagram) => Buffer.from(datagram));
+  }
+  const source = host.pendingServerHelloSource;
+  if (!source) {
+    return current ? [Buffer.from(current)] : [];
+  }
+  const maxFrag = mtu - 13 - 12;
+  if (maxFrag < 1) {
+    return current ? [Buffer.from(current)] : [];
+  }
+  const chunks =
+    source.fragment.length > maxFrag ? source.chunk(maxFrag) : [source];
+  const records: Buffer[] = [];
+  for (const chunk of chunks) {
+    const seq = host.recordSeqEpoch0++;
+    records.push(
+      serializePlaintextRecord(
+        ContentType.handshake,
+        0,
+        seq,
+        chunk.serialize(),
+      ),
+    );
+  }
+  const datagrams = packRecordsIntoDatagrams(records, mtu);
+  host.pendingServerHelloNotify = {
+    mtu,
+    datagrams: datagrams.map((datagram) => Buffer.from(datagram)),
+  };
+  return datagrams;
 }
 
 /**
@@ -164,7 +240,7 @@ export async function sendHandshakeFlight(
   // UDP still transmits it there; SPED only sees onFlightCreated, so include SH
   // in the notify list (coalesce with the first encrypted datagram when it fits).
   const notifySources = spedNotifySources(
-    this.pendingServerHello?.bytes,
+    fragmentPendingServerHello(this, mtu),
     datagrams,
     mtu,
   );
@@ -254,32 +330,29 @@ export async function sendHandshakeFlight(
  */
 export function refragmentPendingFlightIfNeeded(this: Dtls13Host): boolean {
   const src = this.pendingFlightSource;
-  if (!src) {
+  if (!src && !this.pendingServerHello && !this.pendingServerHelloSource) {
     return false;
   }
   const mtu = this.carrier.getMtu();
-  const recordsOversized =
-    this.pendingFlight.some((packet) => packet.bytes.length > mtu) ||
-    (this.pendingServerHello != null &&
-      this.pendingServerHello.bytes.length > mtu);
-  if (recordsOversized) {
+  const flightOversized = this.pendingFlight.some(
+    (packet) => packet.bytes.length > mtu,
+  );
+  if (flightOversized && src) {
     return rebuildPendingFlightFromSource(this, src, mtu);
   }
-  // Combined SH+first L1 can exceed MTU even when each half fits.
+  // Combined SH+first, or SH alone, can exceed MTU even when epoch-2
+  // datagrams still fit. Rebuild notify (and re-chunk SH from source).
   return publishSpedNotifyFlight(this, mtu);
 }
 
 function publishSpedNotifyFlight(host: Dtls13Host, mtu: number): boolean {
   const datagrams = host.pendingFlight.map((packet) => packet.bytes);
-  if (datagrams.length === 0 && !host.pendingServerHello) {
+  const serverHello = fragmentPendingServerHello(host, mtu);
+  if (datagrams.length === 0 && serverHello.length === 0) {
     return false;
   }
   host.flightId += 1;
-  const notifySources = spedNotifySources(
-    host.pendingServerHello?.bytes,
-    datagrams,
-    mtu,
-  );
+  const notifySources = spedNotifySources(serverHello, datagrams, mtu);
   const notifyPackets = notifySources.map((bytes, i) =>
     createHandshakeDatagram(bytes, host.flightId, i, true),
   );
@@ -350,7 +423,7 @@ function rebuildPendingFlightFromSource(
   host.flightId += 1;
   const flightId = host.flightId;
   const notifySources = spedNotifySources(
-    host.pendingServerHello?.bytes,
+    fragmentPendingServerHello(host, mtu),
     datagrams,
     mtu,
   );

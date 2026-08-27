@@ -27,6 +27,11 @@ export class SpedSession {
   generation: number;
   /** Un-ACKed current DTLS flight datagrams (defensive copies). */
   private l1: Buffer[] = [];
+  /**
+   * First L1 flight bytes. Fallback sends this snapshot even if later
+   * MTU shrink re-fragments `l1` for STUN embedding.
+   */
+  private originalFallbackFlight?: Buffer[];
   /** Pending CRC-32 values to advertise, receive order. May exceed 4. */
   private l2: number[] = [];
   private roundRobinIndex = 0;
@@ -59,6 +64,7 @@ export class SpedSession {
    */
   abort(): void {
     this.l1 = [];
+    this.originalFallbackFlight = undefined;
     this.l2 = [];
     this.roundRobinIndex = 0;
     this.peerSupport = "unknown";
@@ -75,6 +81,11 @@ export class SpedSession {
       packet.copy(copy);
       return copy;
     });
+    if (this.originalFallbackFlight == null && this.l1.length > 0) {
+      this.originalFallbackFlight = this.l1.map((packet) =>
+        Buffer.from(packet),
+      );
+    }
     this.roundRobinIndex = 0;
   }
 
@@ -144,6 +155,7 @@ export class SpedSession {
       return;
     }
     this.l1 = [];
+    this.originalFallbackFlight = undefined;
     this.l2 = [];
     this.roundRobinIndex = 0;
     this.state = "complete";
@@ -152,6 +164,7 @@ export class SpedSession {
   reset(generation: number): void {
     this.generation = generation;
     this.l1 = [];
+    this.originalFallbackFlight = undefined;
     this.l2 = [];
     this.roundRobinIndex = 0;
     this.peerSupport = "unknown";
@@ -161,7 +174,8 @@ export class SpedSession {
 
   /** Original L1 bytes for exact-same-flight fallback. */
   fallbackFlightBytes(): Buffer[] {
-    return this.l1.map((packet) => Buffer.from(packet));
+    const source = this.originalFallbackFlight ?? this.l1;
+    return source.map((packet) => Buffer.from(packet));
   }
 
   selectDataPayload(maxValueBytes: number): Buffer {

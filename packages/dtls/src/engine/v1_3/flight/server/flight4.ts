@@ -31,7 +31,7 @@ import { EncryptedExtensions } from "../../../../handshake/message/tls13/encrypt
 import { DtlsRandom } from "../../../../handshake/random";
 import type { SrtpProfile } from "../../../../imports/rtp";
 import { AlertDesc, ContentType } from "../../../../record/const";
-import type { FragmentedHandshake } from "../../../../record/message/fragment";
+import { FragmentedHandshake } from "../../../../record/message/fragment";
 import {
   createEpochProtection,
   serializePlaintextRecord,
@@ -631,6 +631,14 @@ export async function sendServerFlight(this: Dtls13Host): Promise<void> {
   // Keep SH for retransmit alongside the encrypted flight until ACK.
   const shFrag = sh.toFragment();
   shFrag.message_seq = sh.messageSeq!;
+  this.pendingServerHelloSource = new FragmentedHandshake(
+    shFrag.msg_type,
+    shFrag.length,
+    shFrag.message_seq,
+    shFrag.fragment_offset,
+    shFrag.fragment_length,
+    Buffer.from(shFrag.fragment),
+  );
   const shBytes = serializePlaintextRecord(
     ContentType.handshake,
     0,

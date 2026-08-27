@@ -170,6 +170,30 @@ function isCoalescedServerHelloAndFirst(packet: Buffer): boolean {
   return shEnd != null && packet.length > shEnd;
 }
 
+function countEpoch0ServerHelloRecords(packet: Buffer): number {
+  let pos = 0;
+  let count = 0;
+  while (pos + 13 <= packet.length) {
+    if (packet[pos] !== DTLS_HANDSHAKE) {
+      break;
+    }
+    const epoch = packet.readUInt16BE(pos + 3);
+    const recordLength = packet.readUInt16BE(pos + 11);
+    const end = pos + 13 + recordLength;
+    if (end > packet.length) {
+      break;
+    }
+    if (epoch === 0 && packet[pos + 13] === DTLS_SERVER_HELLO) {
+      count++;
+    }
+    pos = end;
+  }
+  return count;
+}
+
+/** Epoch-2 encrypted record needs 5+12+1+16+1; keep a small margin. */
+const MIN_REFRAGMENT_MTU = 40;
+
 function extraRawLenToCapDataPayload(
   message: Message,
   ackValue: Buffer,
@@ -224,6 +248,131 @@ function shrinkBindingSoCombinedServerHelloExceeds() {
             state.targetMtu = target;
             state.session = session;
           }
+        }
+      }
+    }
+    return original.call(this, message, protocol);
+  };
+  return {
+    state,
+    restore: () => {
+      SpedRuntime.prototype.decorateOutgoing = original;
+    },
+  };
+}
+
+function isCompleteUnfragmentedServerHello(packet: Buffer): boolean {
+  const shEnd = serverHelloPlaintextEnd(packet);
+  if (shEnd == null || shEnd < 25) {
+    return false;
+  }
+  const total = packet.readUIntBE(14, 3);
+  const fragmentOffset = packet.readUIntBE(19, 3);
+  const fragmentLength = packet.readUIntBE(22, 3);
+  return fragmentOffset === 0 && fragmentLength === total;
+}
+
+/**
+ * Shrink Binding DATA budget below ServerHello so SH itself is re-fragmented.
+ */
+function shrinkBindingSoServerHelloExceeds() {
+  const originalDecorate = SpedRuntime.prototype.decorateOutgoing;
+  const originalReplace = SpedSession.prototype.replaceL1;
+  const originalShouldDecorate = SpedRuntime.prototype.shouldDecorate;
+  const runtimes = new WeakMap<object, SpedRuntime>();
+  const shrunk = new WeakSet<object>();
+  const state: {
+    didPad: boolean;
+    serverHelloLength: number;
+    targetMtu: number;
+    session?: SpedSession;
+  } = { didPad: false, serverHelloLength: 0, targetMtu: 0 };
+
+  SpedRuntime.prototype.shouldDecorate = function (protocol) {
+    runtimes.set(this.session, this);
+    return originalShouldDecorate.call(this, protocol);
+  };
+
+  SpedSession.prototype.replaceL1 = function (packets) {
+    originalReplace.call(this, packets);
+    if (shrunk.has(this)) {
+      return;
+    }
+    const packet = this.l1Datagrams.find(isCompleteUnfragmentedServerHello);
+    if (!packet) {
+      return;
+    }
+    const shEnd = serverHelloPlaintextEnd(packet)!;
+    const target = shEnd - 1;
+    if (target < MIN_REFRAGMENT_MTU) {
+      return;
+    }
+    const runtime = runtimes.get(this);
+    if (!runtime) {
+      return;
+    }
+    shrunk.add(this);
+    state.serverHelloLength = shEnd;
+    state.targetMtu = target;
+    state.session = this;
+    runtime.hooks.setMtu(target);
+    runtime.hooks.refragmentPendingFlight?.();
+  };
+
+  SpedRuntime.prototype.decorateOutgoing = function (message, protocol) {
+    runtimes.set(this.session, this);
+    if (state.session === this.session && state.targetMtu > 0) {
+      const ackValue = encodeSpedAck(this.session.peekAcksForBinding()).value;
+      const extra = extraRawLenToCapDataPayload(
+        message,
+        ackValue,
+        state.targetMtu,
+      );
+      if (extra != null) {
+        message.appendRawAttribute(CUSTOM_RAW_ATTR, Buffer.alloc(extra));
+        state.didPad = true;
+      }
+    }
+    return originalDecorate.call(this, message, protocol);
+  };
+
+  return {
+    state,
+    restore: () => {
+      SpedRuntime.prototype.decorateOutgoing = originalDecorate;
+      SpedSession.prototype.replaceL1 = originalReplace;
+      SpedRuntime.prototype.shouldDecorate = originalShouldDecorate;
+    },
+  };
+}
+
+/**
+ * Shrink Binding DATA budget below the first current L1 packet (ClientHello).
+ */
+function shrinkBindingSoFirstL1Exceeds() {
+  const original = SpedRuntime.prototype.decorateOutgoing;
+  const padded = new WeakSet<object>();
+  const state: {
+    didPad: boolean;
+    originalFirst: Buffer | undefined;
+    targetMtu: number;
+    session?: SpedSession;
+  } = { didPad: false, originalFirst: undefined, targetMtu: 0 };
+  SpedRuntime.prototype.decorateOutgoing = function (message, protocol) {
+    const session = this.session;
+    if (session.hasL1 && !padded.has(session)) {
+      const first = session.l1Datagrams[0];
+      if (first && first.length - 1 >= MIN_REFRAGMENT_MTU) {
+        const target = first.length - 1;
+        const ackValue = encodeSpedAck(session.peekAcksForBinding()).value;
+        const extra = extraRawLenToCapDataPayload(message, ackValue, target);
+        if (extra != null) {
+          message.appendRawAttribute(CUSTOM_RAW_ATTR, Buffer.alloc(extra));
+          padded.add(session);
+          state.didPad = true;
+          state.originalFirst = Buffer.from(first);
+          state.targetMtu = target;
+          state.session = session;
         }
       }
     }
@@ -825,6 +974,48 @@ describe("RTCPeerConnection SPED opt-in", () => {
     }
   }, 30_000);
 
+  test("ServerHello 単体が custom attr で新 MTU を超えても handshake が完了する", async () => {
+    const stun: Buffer[] = [];
+    const handshakeDtls: Buffer[] = [];
+    const record = recordL1Flights();
+    const shrink = shrinkBindingSoServerHelloExceeds();
+    const pc1 = new RTCPeerConnection(spedPeerConfig());
+    const pc2 = new RTCPeerConnection(spedPeerConfig());
+    try {
+      const [dc1, dc2] = await openDataChannelWithWireSpy(
+        pc1,
+        pc2,
+        stun,
+        handshakeDtls,
+      );
+      // Act: SH 単体が新 MTU を超えるまで縮めたあと app data
+      dc1.send("sh-split");
+      expect(await awaitMessage(dc2)).toBe("sh-split");
+
+      // Assert: SH が複数 datagram に分かれ、全 L1 が新 MTU 以下
+      expect(shrink.state.didPad).toBe(true);
+      expect(shrink.state.session).toBeDefined();
+      const flights = record.flightsOf(shrink.state.session!);
+      const split = flights.find((flight) => {
+        const shRecords = flight.reduce(
+          (n, packet) => n + countEpoch0ServerHelloRecords(packet),
+          0,
+        );
+        return (
+          shRecords > 1 &&
+          flight.every((packet) => packet.length <= shrink.state.targetMtu)
+        );
+      });
+      expect(split).toBeDefined();
+      expect(handshakeDtls).toHaveLength(0);
+    } finally {
+      shrink.restore();
+      record.stop();
+      await pc1.close();
+      await pc2.close();
+    }
+  }, 60_000);
+
   test("werift ↔ werift で SPED + DTLS 1.3 + 双方向 app data", async () => {
     const pc1 = new RTCPeerConnection(spedPeerConfig());
     const pc2 = new RTCPeerConnection(spedPeerConfig());
@@ -951,6 +1142,43 @@ describe("RTCPeerConnection SPED opt-in", () => {
       expect(handshakeDtls.some((bytes) => bytes.equals(embedded!))).toBe(true);
     } finally {
       stopCapture();
+      await pc1.close();
+      await pc2.close();
+    }
+  }, 30_000);
+
+  test("MTU shrink 後の non-SPED fallback は最初の L1 bytes のまま", async () => {
+    const stun: Buffer[] = [];
+    const handshakeDtls: Buffer[] = [];
+    const record = recordL1Flights();
+    const shrink = shrinkBindingSoFirstL1Exceeds();
+    const pc1 = new RTCPeerConnection({
+      iceServers: [],
+      dtls: { protocolVersions: [DtlsVersion.V1_3] },
+    });
+    const pc2 = new RTCPeerConnection(spedPeerConfig());
+    try {
+      const [dc1, dc2] = await openDataChannelWithWireSpy(
+        pc1,
+        pc2,
+        stun,
+        handshakeDtls,
+      );
+      dc1.send("fallback-shrink");
+      expect(await awaitMessage(dc2)).toBe("fallback-shrink");
+
+      // Assert: custom attr で L1 を re-fragment しても fallback は最初の flight
+      expect(shrink.state.didPad).toBe(true);
+      expect(shrink.state.originalFirst).toBeDefined();
+      expect(shrink.state.session).toBeDefined();
+      const original =
+        record.flightsOf(shrink.state.session!)[0]?.[0] ??
+        shrink.state.originalFirst!;
+      expect(original.length).toBeGreaterThan(shrink.state.targetMtu);
+      expect(handshakeDtls.some((bytes) => bytes.equals(original))).toBe(true);
+    } finally {
+      shrink.restore();
+      record.stop();
       await pc1.close();
       await pc2.close();
     }
