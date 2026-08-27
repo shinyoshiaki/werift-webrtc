@@ -1,8 +1,11 @@
+import { spawnSync } from "child_process";
 import { createSocket } from "dgram";
+import path from "path";
 import { PassThrough } from "stream";
 
 import { RTCPeerConnection } from "../../src";
 import { OverconstrainedError } from "../../src/errors";
+import { RtcpRrPacket, RtpPacket } from "../../src/imports/rtp";
 import { MediaStream, MediaStreamTrack } from "../../src/media/track";
 import { createFileMediaPlayer } from "../../src/nonstandard/userMedia";
 import {
@@ -18,6 +21,8 @@ import {
   openPacketSource,
 } from "../../src/polyfill/sourceIo";
 import {
+  countProcessUdpSockets,
+  createHangingNodeStream,
   createHangingWebStream,
   createVideoCallbackRegister,
   expectDomException,
@@ -459,10 +464,46 @@ describe("werift/polyfill installPolyfill", () => {
       const cloned = stream.clone();
       const audioClone = audio.clone();
       const videoClone = video.clone();
+      const rtpClone = video.clone();
+      let originalRtp = 0;
+      let cloneRtp = 0;
+      let originalRtcp = 0;
+      let cloneRtcp = 0;
+      (video as MediaStreamTrack).onReceiveRtp.subscribe(() => {
+        originalRtp++;
+      });
+      rtpClone.onReceiveRtp.subscribe(() => {
+        cloneRtp++;
+      });
+      (video as MediaStreamTrack).onReceiveRtcp.subscribe(() => {
+        originalRtcp++;
+      });
+      rtpClone.onReceiveRtcp.subscribe(() => {
+        cloneRtcp++;
+      });
 
-      // 検証: writeRtp が使え、clone は別 ID で停止状態が独立する。
+      // 実行: 元 track に RTP/RTCP を入力する。
+      (video as MediaStreamTrack).writeRtp(
+        RtpPacket.deSerialize(createVp8Rtp()),
+      );
+      (video as MediaStreamTrack).onReceiveRtcp.execute(new RtcpRrPacket());
+
+      // 検証: writeRtp が使え、clone は別 ID で停止状態が独立し、元 source の RTP/RTCP を受ける。
       expect(video).toBeInstanceOf(MediaStreamTrack);
       expect(typeof (video as MediaStreamTrack).writeRtp).toBe("function");
+      expect(originalRtp).toBe(1);
+      expect(cloneRtp).toBe(1);
+      expect(originalRtcp).toBe(1);
+      expect(cloneRtcp).toBe(1);
+
+      rtpClone.stop();
+      (video as MediaStreamTrack).writeRtp(
+        RtpPacket.deSerialize(createVp8Rtp()),
+      );
+      expect(originalRtp).toBe(2);
+      expect(cloneRtp).toBe(1);
+      expect(rtpClone.readyState).toBe("ended");
+      expect(video.readyState).toBe("live");
       expect(cloned).toBeInstanceOf(MediaStream);
       expect(cloned).not.toBe(stream);
       expect(cloned.id).not.toBe(stream.id);
@@ -1059,6 +1100,110 @@ test("mp4/webm hanging stream read is aborted on uninstall", async () => {
     (result as DOMException).name,
   );
 });
+
+test("same rtp/encoded udp register can be acquired twice and all sockets close", async () => {
+  await assertUdpAcquisitionsReleased(() =>
+    createRtpRtcpRegister({ mimeType: "video/VP8", udp: { port: 0 } }),
+  );
+  await assertUdpAcquisitionsReleased(() =>
+    createEncodedBinaryRegister({ mimeType: "video/VP8", udp: { port: 0 } }),
+  );
+});
+
+test("in-flight getUserMedia is aborted by immediate uninstall", async () => {
+  const webStream = createHangingWebStream();
+  const nodeStream = createHangingNodeStream();
+  const uninstallWeb = installPolyfill({
+    mediaRegister: [
+      createRtpRtcpRegister({ mimeType: "video/VP8", stream: webStream }),
+    ],
+  });
+  // 実行: GUM 完了を待たずに即 uninstall する。
+  const webGum = navigator.mediaDevices.getUserMedia({ video: true });
+  uninstallWeb();
+  const webResult = await webGum.then(
+    (stream) => stream,
+    (error) => error,
+  );
+  await waitUntil(() => webStream.locked === false);
+
+  // 検証: 進行中の GUM は失敗し、Web Stream の lock が残らない。
+  expect(webStream.locked).toBe(false);
+  expect(webResult).toBeInstanceOf(DOMException);
+  expect((webResult as DOMException).name).toBe("AbortError");
+
+  const uninstallNode = installPolyfill({
+    mediaRegister: [
+      createRtpRtcpRegister({ mimeType: "video/VP8", stream: nodeStream }),
+    ],
+  });
+  const nodeGum = navigator.mediaDevices.getUserMedia({ video: true });
+  uninstallNode();
+  const nodeResult = await nodeGum.then(
+    (stream) => stream,
+    (error) => error,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // 検証: Node Stream も取得失敗し、未終了 reader を残さない。
+  expect(nodeResult).toBeInstanceOf(DOMException);
+  expect((nodeResult as DOMException).name).toBe("AbortError");
+  expect(nodeStream.readableFlowing).not.toBe(true);
+});
+
+test("public polyfill entry compiles with TypeScript DOM lib", () => {
+  const project = path.join(__dirname, "polyfillDomCompile");
+  const tsc = require.resolve("typescript/bin/tsc");
+  // 実行: lib.dom と skipLibCheck=false で公開 polyfill エントリをコンパイルする。
+  const result = spawnSync(
+    process.execPath,
+    [tsc, "-p", project, "--pretty", "false"],
+    {
+      encoding: "utf8",
+    },
+  );
+
+  // 検証: TS2403 / TS2687 / TS2717 を含む型エラーが出ない。
+  expect(result.status, result.stdout + result.stderr).toBe(0);
+});
+
+async function assertUdpAcquisitionsReleased(
+  createRegister: () => Parameters<
+    typeof installPolyfill
+  >[0]["mediaRegister"][number],
+) {
+  const before = countProcessUdpSockets();
+  const uninstall = installPolyfill({ mediaRegister: [createRegister()] });
+  let uninstalled = false;
+  const uninstallOnce = () => {
+    if (uninstalled) {
+      return;
+    }
+    uninstalled = true;
+    uninstall();
+  };
+  try {
+    // 実行: 同一 register を port 0 で2回取得し、片方の track を止めてから uninstall する。
+    const first = await navigator.mediaDevices.getUserMedia({ video: true });
+    const second = await navigator.mediaDevices.getUserMedia({ video: true });
+    await waitUntil(() => countProcessUdpSockets() === before + 2, 3_000);
+    const afterTwo = countProcessUdpSockets();
+    first.getTracks()[0].stop();
+    await waitUntil(() => countProcessUdpSockets() === afterTwo - 1, 3_000);
+    expect(first.getTracks()[0].readyState).toBe("ended");
+    expect(second.getTracks()[0].readyState).toBe("live");
+    uninstallOnce();
+    await waitUntil(() => countProcessUdpSockets() === before, 3_000);
+
+    // 検証: 2 socket が立ち、片方停止で1つ減り、uninstall で両方解放される。
+    expect(afterTwo).toBe(before + 2);
+    expect(countProcessUdpSockets()).toBe(before);
+    expect(first.getTracks()[0].readyState).toBe("ended");
+    expect(second.getTracks()[0].readyState).toBe("ended");
+  } finally {
+    uninstallOnce();
+  }
+}
 
 function sendUdp(payload: Buffer, port: number) {
   return new Promise<void>((resolve, reject) => {

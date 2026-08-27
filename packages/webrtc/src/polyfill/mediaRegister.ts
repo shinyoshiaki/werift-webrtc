@@ -24,6 +24,8 @@ export interface MediaGetUserMediaRequest {
   kind: MediaKind;
   deviceId: string;
   constraints: MediaTrackConstraints;
+  /** Uninstall / abort of the owning MediaDevices. Registers should stop in-flight I/O. */
+  signal?: AbortSignal;
 }
 
 export interface MediaRegister {

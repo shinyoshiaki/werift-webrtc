@@ -19,6 +19,8 @@ export class MediaDevices extends EventTarget {
   ondevicechange: ((this: MediaDevices, ev: Event) => unknown) | null = null;
   private readonly activeStops = new Map<MediaStreamTrack, () => void>();
   private readonly failedRegisters = new Set<BoundMediaRegister>();
+  private readonly disposeAbort = new AbortController();
+  private disposed = false;
 
   constructor(private readonly registers: BoundMediaRegister[]) {
     super();
@@ -29,7 +31,9 @@ export class MediaDevices extends EventTarget {
   }
 
   async enumerateDevices(): Promise<MediaDeviceInfoLike[]> {
+    this.throwIfDisposed();
     await this.prepareRegisters();
+    this.throwIfDisposed();
     const devices: MediaDeviceInfoLike[] = [];
     for (const register of this.registers) {
       for (const kind of register.kinds) {
@@ -55,8 +59,10 @@ export class MediaDevices extends EventTarget {
   getUserMedia = async (
     constraints: MediaStreamConstraints = {},
   ): Promise<MediaStream> => {
+    this.throwIfDisposed();
     assertRequestedMediaTypes(constraints);
     await this.prepareRegisters();
+    this.throwIfDisposed();
     const tracks: MediaStreamTrack[] = [];
     try {
       if (constraints.audio) {
@@ -64,15 +70,23 @@ export class MediaDevices extends EventTarget {
           ...(await this.createKindTracks("audio", constraints.audio)),
         );
       }
+      this.throwIfDisposed();
       if (constraints.video) {
         tracks.push(
           ...(await this.createKindTracks("video", constraints.video)),
         );
       }
+      this.throwIfDisposed();
+      for (const track of tracks) {
+        this.watchTrack(track);
+      }
       return new MediaStream(tracks);
     } catch (error) {
       for (const track of tracks) {
         track.stop();
+      }
+      if (this.disposed) {
+        throw abortedException();
       }
       throw error;
     }
@@ -81,6 +95,8 @@ export class MediaDevices extends EventTarget {
   getDisplayMedia = this.getUserMedia;
 
   cleanup() {
+    this.disposed = true;
+    this.disposeAbort.abort();
     for (const stop of this.activeStops.values()) {
       stop();
     }
@@ -91,11 +107,17 @@ export class MediaDevices extends EventTarget {
   }
 
   private async prepareRegisters() {
+    this.throwIfDisposed();
     await Promise.all(
       this.registers.map(async (register) => {
         try {
+          this.throwIfDisposed();
           await register.prepare?.();
-        } catch {
+          this.throwIfDisposed();
+        } catch (error) {
+          if (this.disposed || isAbortError(error)) {
+            throw abortedException();
+          }
           this.failedRegisters.add(register);
         }
       }),
@@ -106,6 +128,7 @@ export class MediaDevices extends EventTarget {
     kind: MediaKind,
     constraints: boolean | MediaTrackConstraints,
   ) {
+    this.throwIfDisposed();
     const available = this.registers.filter(
       (register) => !this.failedRegisters.has(register),
     );
@@ -126,12 +149,19 @@ export class MediaDevices extends EventTarget {
         kind,
         deviceId: register.deviceId,
         constraints: normalized,
+        signal: this.disposeAbort.signal,
       });
-      for (const track of tracks) {
-        this.watchTrack(track);
+      if (this.disposed) {
+        for (const track of tracks) {
+          track.stop();
+        }
+        throw abortedException();
       }
       return tracks;
     } catch (error) {
+      if (this.disposed || isAbortError(error)) {
+        throw abortedException();
+      }
       if (this.shouldSurfacePrepareFailure(kind, available)) {
         if (
           error instanceof DOMException &&
@@ -174,6 +204,12 @@ export class MediaDevices extends EventTarget {
     };
     this.activeStops.set(track, () => track.stop());
   }
+
+  private throwIfDisposed() {
+    if (this.disposed) {
+      throw abortedException();
+    }
+  }
 }
 
 export interface MediaDeviceInfoLike {
@@ -187,6 +223,17 @@ export interface MediaDeviceInfoLike {
     kind: string;
     label: string;
   };
+}
+
+function abortedException() {
+  return createWebRtcDomException("AbortError", "The operation was aborted");
+}
+
+function isAbortError(error: unknown) {
+  return (
+    (error instanceof DOMException && error.name === "AbortError") ||
+    (error instanceof Error && error.name === "AbortError")
+  );
 }
 
 function mapGetUserMediaError(error: unknown): never {

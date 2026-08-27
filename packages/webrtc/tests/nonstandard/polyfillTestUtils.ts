@@ -1,3 +1,6 @@
+import { readFileSync, readdirSync, readlinkSync } from "fs";
+import { PassThrough } from "stream";
+
 import { OverconstrainedError } from "../../src/errors";
 import { MediaStreamTrack } from "../../src/media/track";
 import {
@@ -50,6 +53,44 @@ export function createHangingWebStream() {
       // never enqueue or close; lock is held until cancel()
     },
   });
+}
+
+export function createHangingNodeStream() {
+  return new PassThrough();
+}
+
+export function countProcessUdpSockets(pid = process.pid) {
+  const tables = ["udp", "udp6"].flatMap((name) => {
+    try {
+      return readFileSync(`/proc/net/${name}`, "utf8").split("\n").slice(1);
+    } catch {
+      return [];
+    }
+  });
+  const inodes = new Set<string>();
+  for (const line of tables) {
+    const inode = line.trim().split(/\s+/)[9];
+    if (inode && inode !== "0") {
+      inodes.add(inode);
+    }
+  }
+  let count = 0;
+  try {
+    for (const fd of readdirSync(`/proc/${pid}/fd`)) {
+      try {
+        const target = readlinkSync(`/proc/${pid}/fd/${fd}`);
+        const match = /^socket:\[(\d+)\]$/.exec(target);
+        if (match && inodes.has(match[1])) {
+          count++;
+        }
+      } catch {
+        // fd disappeared
+      }
+    }
+  } catch {
+    return count;
+  }
+  return count;
 }
 
 export async function waitForRtp(

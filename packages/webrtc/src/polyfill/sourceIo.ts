@@ -29,35 +29,68 @@ export async function openPacketSource(
   source: UdpOrStreamSource,
   onPacket: (packet: Buffer) => void,
   onError?: (error: DOMException) => void,
+  signal?: AbortSignal,
 ): Promise<() => void> {
+  throwIfAborted(signal);
   if ("udp" in source && source.udp) {
-    return bindUdp(source.udp, onPacket, onError);
+    return bindUdp(source.udp, onPacket, onError, signal);
   }
-  return readLengthPrefixedStream(source.stream, onPacket, onError);
+  return readLengthPrefixedStream(source.stream, onPacket, onError, signal);
+}
+
+export function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) {
+    throw createWebRtcDomException("AbortError", "The operation was aborted");
+  }
 }
 
 async function bindUdp(
   udp: { port: number; address?: string },
   onPacket: (packet: Buffer) => void,
   onError?: (error: DOMException) => void,
+  signal?: AbortSignal,
 ) {
   const socket: Socket = createSocket("udp4");
   try {
     await new Promise<void>((resolve, reject) => {
-      const onError = (error: Error) => {
-        socket.off("listening", onListening);
+      const onBindError = (error: Error) => {
+        cleanup();
         reject(error);
       };
       const onListening = () => {
-        socket.off("error", onError);
+        cleanup();
         resolve();
       };
-      socket.once("error", onError);
+      const onAbort = () => {
+        cleanup();
+        socket.close();
+        reject(
+          createWebRtcDomException("AbortError", "The operation was aborted"),
+        );
+      };
+      const cleanup = () => {
+        socket.off("error", onBindError);
+        socket.off("listening", onListening);
+        signal?.removeEventListener("abort", onAbort);
+      };
+      if (signal?.aborted) {
+        onAbort();
+        return;
+      }
+      socket.once("error", onBindError);
       socket.once("listening", onListening);
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) {
+        onAbort();
+        return;
+      }
       socket.bind(udp.port, udp.address ?? "0.0.0.0");
     });
   } catch (error) {
     socket.close();
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw error;
+    }
     throw createWebRtcDomException(
       "NotReadableError",
       error instanceof Error ? error.message : "Failed to bind UDP socket",
@@ -75,26 +108,42 @@ async function bindUdp(
       ),
     );
   };
-  socket.on("message", onMessage);
-  socket.on("error", onSocketError);
-
-  return () => {
+  const stop = () => {
     socket.off("message", onMessage);
     socket.off("error", onSocketError);
+    signal?.removeEventListener("abort", stop);
     try {
       socket.close();
     } catch {
       // already closed
     }
   };
+  socket.on("message", onMessage);
+  socket.on("error", onSocketError);
+  signal?.addEventListener("abort", stop, { once: true });
+  if (signal?.aborted) {
+    stop();
+    throwIfAborted(signal);
+  }
+
+  return stop;
 }
 
 async function readLengthPrefixedStream(
   stream: Readable | ReadableStream<Uint8Array>,
   onPacket: (packet: Buffer) => void,
   onError?: (error: DOMException) => void,
+  signal?: AbortSignal,
 ) {
   const abort = new AbortController();
+  const onExternalAbort = () => abort.abort();
+  if (signal?.aborted) {
+    abort.abort();
+  } else {
+    signal?.addEventListener("abort", onExternalAbort, { once: true });
+  }
+  throwIfAborted(abort.signal);
+
   const run = (async () => {
     let pending = Buffer.alloc(0);
     for await (const chunk of iterateBytes(stream, abort.signal)) {
@@ -119,6 +168,7 @@ async function readLengthPrefixedStream(
   });
 
   return () => {
+    signal?.removeEventListener("abort", onExternalAbort);
     abort.abort();
     if (stream instanceof Readable) {
       stream.destroy();
@@ -168,15 +218,19 @@ async function* iterateBytes(
     return;
   }
 
+  if (signal.aborted) {
+    return;
+  }
   const reader = stream.getReader();
   const onAbort = () => {
     void reader.cancel().catch(() => undefined);
   };
+  signal.addEventListener("abort", onAbort, { once: true });
   if (signal.aborted) {
+    signal.removeEventListener("abort", onAbort);
     await reader.cancel().catch(() => undefined);
     return;
   }
-  signal.addEventListener("abort", onAbort, { once: true });
   try {
     for (;;) {
       if (signal.aborted) {

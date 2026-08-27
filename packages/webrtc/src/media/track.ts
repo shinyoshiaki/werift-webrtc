@@ -35,6 +35,7 @@ export class MediaStreamTrack extends EventTarget {
 
   stopped = false;
   muted = true;
+  private cloneRoot?: MediaStreamTrack;
 
   constructor(
     props: Partial<MediaStreamTrack> & Pick<MediaStreamTrack, "kind">,
@@ -77,7 +78,7 @@ export class MediaStreamTrack extends EventTarget {
   };
 
   clone(): MediaStreamTrack {
-    return new MediaStreamTrack({
+    const cloned = new MediaStreamTrack({
       kind: this.kind,
       remote: this.remote,
       enabled: this.enabled,
@@ -88,6 +89,34 @@ export class MediaStreamTrack extends EventTarget {
       rid: this.rid,
       header: this.header,
     });
+    const source = this.cloneRoot ?? this;
+    cloned.cloneRoot = source;
+    if (cloned.stopped) {
+      return cloned;
+    }
+    const { unSubscribe: unsubRtp } = source.onReceiveRtp.subscribe(
+      (packet, extensions) => {
+        if (cloned.stopped) {
+          return;
+        }
+        cloned.onReceiveRtp.execute(packet.clone(), extensions);
+      },
+    );
+    const { unSubscribe: unsubRtcp } = source.onReceiveRtcp.subscribe(
+      (packet) => {
+        if (cloned.stopped) {
+          return;
+        }
+        cloned.onReceiveRtcp.execute(packet);
+      },
+    );
+    const originalStop = cloned.stop;
+    cloned.stop = () => {
+      unsubRtp();
+      unsubRtcp();
+      originalStop.call(cloned);
+    };
+    return cloned;
   }
 }
 

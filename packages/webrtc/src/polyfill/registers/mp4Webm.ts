@@ -59,7 +59,7 @@ export function createMp4WebmRegister(
       await getPlayer();
     },
     async createTracks(request: MediaGetUserMediaRequest) {
-      const player = await getPlayer();
+      const player = await getPlayer(request.signal);
       const track = request.kind === "audio" ? player.audio : player.video;
       if (!track) {
         throw createWebRtcDomException(
@@ -84,7 +84,13 @@ export function createMp4WebmRegister(
   };
   return register;
 
-  async function getPlayer() {
+  async function getPlayer(signal?: AbortSignal) {
+    const onAbort = () => ioAbort.abort();
+    if (signal?.aborted) {
+      ioAbort.abort();
+    } else {
+      signal?.addEventListener("abort", onAbort, { once: true });
+    }
     playerPromise ??= (async () => {
       try {
         const file = await resolveFile(options, ioAbort.signal);
@@ -98,7 +104,11 @@ export function createMp4WebmRegister(
         throw mapMediaIoError(error);
       }
     })();
-    return playerPromise;
+    try {
+      return await playerPromise;
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
+    }
   }
 
   function applyInspectedMetadata(
