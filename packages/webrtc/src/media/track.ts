@@ -11,6 +11,55 @@ import {
 import type { Kind } from "../types/domain";
 import type { RTCRtpCodecParameters } from "./parameters";
 
+class TrackBroadcastSource {
+  private readonly tracks = new Set<MediaStreamTrack>();
+  private readonly upstreamStops = new Set<() => void>();
+
+  attach(track: MediaStreamTrack) {
+    this.tracks.add(track);
+  }
+
+  detach(track: MediaStreamTrack) {
+    this.tracks.delete(track);
+    if (this.tracks.size > 0) {
+      return;
+    }
+    for (const stop of [...this.upstreamStops]) {
+      stop();
+    }
+    this.upstreamStops.clear();
+  }
+
+  addUpstreamStop(stop: () => void) {
+    const once = () => {
+      this.upstreamStops.delete(once);
+      stop();
+    };
+    this.upstreamStops.add(once);
+  }
+
+  deliverRtp(packet: RtpPacket, extensions?: Extensions) {
+    const live = [...this.tracks].filter((track) => !track.stopped);
+    live.forEach((track, index) => {
+      track.applyIncomingRtp(index === 0 ? packet : packet.clone(), extensions);
+    });
+  }
+
+  deliverRtcp(packet: RtcpPacket) {
+    for (const track of this.tracks) {
+      if (!track.stopped) {
+        track.onReceiveRtcp.execute(packet);
+      }
+    }
+  }
+
+  stopAllTracks() {
+    for (const track of [...this.tracks]) {
+      track.stop();
+    }
+  }
+}
+
 export class MediaStreamTrack extends EventTarget {
   readonly uuid = randomUUID().toString();
   /**MediaStream ID*/
@@ -35,14 +84,22 @@ export class MediaStreamTrack extends EventTarget {
 
   stopped = false;
   muted = true;
-  private cloneRoot?: MediaStreamTrack;
+  private broadcastSource: TrackBroadcastSource;
 
   constructor(
-    props: Partial<MediaStreamTrack> & Pick<MediaStreamTrack, "kind">,
+    props: Partial<MediaStreamTrack> &
+      Pick<MediaStreamTrack, "kind"> & {
+        broadcastSource?: TrackBroadcastSource;
+      },
   ) {
     super();
+    const sharedSource = props.broadcastSource;
     Object.assign(this, props);
     this.id ??= this.uuid;
+    this.broadcastSource = sharedSource ?? new TrackBroadcastSource();
+    if (!this.stopped) {
+      this.broadcastSource.attach(this);
+    }
 
     this.onReceiveRtp.subscribe((rtp) => {
       this.muted = false;
@@ -57,28 +114,48 @@ export class MediaStreamTrack extends EventTarget {
   }
 
   stop = () => {
+    if (this.stopped) {
+      return;
+    }
     this.stopped = true;
     this.muted = true;
     this.onReceiveRtp.complete();
     this.emit("ended");
+    this.broadcastSource.detach(this);
   };
 
   writeRtp = (rtp: RtpPacket | Buffer) => {
     if (this.remote) {
       throw new Error("this is remoteTrack");
     }
-    if (this.stopped) {
-      return;
-    }
 
     const packet = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;
     packet.header.payloadType =
       this.codec?.payloadType ?? packet.header.payloadType;
-    this.onReceiveRtp.execute(packet);
+    this.broadcastSource.deliverRtp(packet);
   };
 
+  writeRtcp = (rtcp: RtcpPacket) => {
+    this.broadcastSource.deliverRtcp(rtcp);
+  };
+
+  applyIncomingRtp(packet: RtpPacket, extensions?: Extensions) {
+    if (this.stopped) {
+      return;
+    }
+    this.onReceiveRtp.execute(packet, extensions);
+  }
+
+  bindUpstreamStop(stop: () => void) {
+    this.broadcastSource.addUpstreamStop(stop);
+  }
+
+  stopMediaSource() {
+    this.broadcastSource.stopAllTracks();
+  }
+
   clone(): MediaStreamTrack {
-    const cloned = new MediaStreamTrack({
+    return new MediaStreamTrack({
       kind: this.kind,
       remote: this.remote,
       enabled: this.enabled,
@@ -88,35 +165,8 @@ export class MediaStreamTrack extends EventTarget {
       ssrc: this.ssrc,
       rid: this.rid,
       header: this.header,
+      broadcastSource: this.broadcastSource,
     });
-    const source = this.cloneRoot ?? this;
-    cloned.cloneRoot = source;
-    if (cloned.stopped) {
-      return cloned;
-    }
-    const { unSubscribe: unsubRtp } = source.onReceiveRtp.subscribe(
-      (packet, extensions) => {
-        if (cloned.stopped) {
-          return;
-        }
-        cloned.onReceiveRtp.execute(packet.clone(), extensions);
-      },
-    );
-    const { unSubscribe: unsubRtcp } = source.onReceiveRtcp.subscribe(
-      (packet) => {
-        if (cloned.stopped) {
-          return;
-        }
-        cloned.onReceiveRtcp.execute(packet);
-      },
-    );
-    const originalStop = cloned.stop;
-    cloned.stop = () => {
-      unsubRtp();
-      unsubRtcp();
-      originalStop.call(cloned);
-    };
-    return cloned;
   }
 }
 

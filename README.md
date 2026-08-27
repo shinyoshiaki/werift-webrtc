@@ -116,7 +116,7 @@ uninstall();
 
 Passing an explicit `userAgent` replaces even a real browser or sandbox value; uninstall still restores the pre-install descriptor.
 
-Node TypeScript projects can enable DOM lib types: `werift/polyfill` augments `MediaStreamTrack` with `writeRtp` / `onReceiveRtp` instead of replacing constructor globals, so it compiles with `lib.dom`. Import constructors from `werift` when you need werift-specific types without DOM. `existingMediaDevices` defaults to `"overwrite"`; use `"throw"` or `"noop"` if you must not replace an existing `navigator.mediaDevices`. `existingMediaDevices: "noop"` still complements a missing/Node User-Agent.
+Node TypeScript without DOM (`lib: ["esnext"]`) gets werift constructor globals from `werift/polyfill`. Projects that include `lib.dom` should import `werift/polyfill/dom` so DOM constructors are left intact while `MediaStreamTrack.writeRtp` is still merged. `existingMediaDevices` defaults to `"overwrite"`; use `"throw"` or `"noop"` if you must not replace an existing `navigator.mediaDevices`. `existingMediaDevices: "noop"` still complements a missing/Node User-Agent.
 
 ```mermaid
 flowchart LR

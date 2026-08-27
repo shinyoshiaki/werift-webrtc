@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, readlinkSync } from "fs";
+import { createSocket } from "dgram";
 import { PassThrough } from "stream";
 
 import { OverconstrainedError } from "../../src/errors";
@@ -8,6 +8,7 @@ import {
   createCallbackRegister,
   installPolyfill,
 } from "../../src/polyfill";
+import { setUdpSocketFactory } from "../../src/polyfill/sourceIo";
 
 export function installTestPolyfill(mediaRegister: MediaRegister[]) {
   return installPolyfill({ mediaRegister });
@@ -59,38 +60,31 @@ export function createHangingNodeStream() {
   return new PassThrough();
 }
 
-export function countProcessUdpSockets(pid = process.pid) {
-  const tables = ["udp", "udp6"].flatMap((name) => {
-    try {
-      return readFileSync(`/proc/net/${name}`, "utf8").split("\n").slice(1);
-    } catch {
-      return [];
-    }
+export async function withUdpSocketCounter<T>(
+  run: (sockets: { created: number; open: () => number }) => Promise<T>,
+): Promise<T> {
+  const sockets: Array<{ closed: boolean }> = [];
+  setUdpSocketFactory(() => {
+    const socket = createSocket("udp4");
+    const rec = { closed: false };
+    socket.once("close", () => {
+      rec.closed = true;
+    });
+    sockets.push(rec);
+    return socket;
   });
-  const inodes = new Set<string>();
-  for (const line of tables) {
-    const inode = line.trim().split(/\s+/)[9];
-    if (inode && inode !== "0") {
-      inodes.add(inode);
-    }
-  }
-  let count = 0;
   try {
-    for (const fd of readdirSync(`/proc/${pid}/fd`)) {
-      try {
-        const target = readlinkSync(`/proc/${pid}/fd/${fd}`);
-        const match = /^socket:\[(\d+)\]$/.exec(target);
-        if (match && inodes.has(match[1])) {
-          count++;
-        }
-      } catch {
-        // fd disappeared
-      }
-    }
-  } catch {
-    return count;
+    return await run({
+      get created() {
+        return sockets.length;
+      },
+      open() {
+        return sockets.filter((socket) => !socket.closed).length;
+      },
+    });
+  } finally {
+    setUdpSocketFactory();
   }
-  return count;
 }
 
 export async function waitForRtp(

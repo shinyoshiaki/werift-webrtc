@@ -26,6 +26,7 @@
     "tests"
   ],
   "exclude": [
-    "tests/nonstandard/polyfillDomCompile"
+    "tests/nonstandard/polyfillDomCompile",
+    "tests/nonstandard/polyfillNodeCompile"
   ]
 }

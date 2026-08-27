@@ -35,7 +35,7 @@ export async function openPacketSource(
   if ("udp" in source && source.udp) {
     return bindUdp(source.udp, onPacket, onError, signal);
   }
-  return readLengthPrefixedStream(source.stream, onPacket, onError, signal);
+  return openSharedStreamSource(source.stream, onPacket, onError, signal);
 }
 
 export function throwIfAborted(signal?: AbortSignal) {
@@ -44,13 +44,21 @@ export function throwIfAborted(signal?: AbortSignal) {
   }
 }
 
+export type UdpSocketFactory = () => Socket;
+
+let udpSocketFactory: UdpSocketFactory = () => createSocket("udp4");
+
+export function setUdpSocketFactory(factory?: UdpSocketFactory) {
+  udpSocketFactory = factory ?? (() => createSocket("udp4"));
+}
+
 async function bindUdp(
   udp: { port: number; address?: string },
   onPacket: (packet: Buffer) => void,
   onError?: (error: DOMException) => void,
   signal?: AbortSignal,
 ) {
-  const socket: Socket = createSocket("udp4");
+  const socket: Socket = udpSocketFactory();
   try {
     await new Promise<void>((resolve, reject) => {
       const onBindError = (error: Error) => {
@@ -129,32 +137,66 @@ async function bindUdp(
   return stop;
 }
 
-async function readLengthPrefixedStream(
+const streamHubs = new WeakMap<
+  Readable | ReadableStream<Uint8Array>,
+  StreamHub
+>();
+
+type StreamHub = {
+  subscribe(
+    onPacket: (packet: Buffer) => void,
+    onError?: (error: DOMException) => void,
+    signal?: AbortSignal,
+  ): () => void;
+};
+
+function openSharedStreamSource(
   stream: Readable | ReadableStream<Uint8Array>,
   onPacket: (packet: Buffer) => void,
   onError?: (error: DOMException) => void,
   signal?: AbortSignal,
 ) {
-  const abort = new AbortController();
-  const onExternalAbort = () => abort.abort();
-  if (signal?.aborted) {
-    abort.abort();
-  } else {
-    signal?.addEventListener("abort", onExternalAbort, { once: true });
+  throwIfAborted(signal);
+  let hub = streamHubs.get(stream);
+  if (!hub) {
+    hub = createStreamHub(stream);
+    streamHubs.set(stream, hub);
   }
-  throwIfAborted(abort.signal);
+  return hub.subscribe(onPacket, onError, signal);
+}
+
+function createStreamHub(
+  stream: Readable | ReadableStream<Uint8Array>,
+): StreamHub {
+  const listeners = new Set<(packet: Buffer) => void>();
+  const errorListeners = new Set<(error: DOMException) => void>();
+  const abort = new AbortController();
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  if (!(stream instanceof Readable)) {
+    try {
+      reader = stream.getReader();
+    } catch (error) {
+      throw createWebRtcDomException(
+        "NotReadableError",
+        error instanceof Error ? error.message : "Failed to lock media stream",
+      );
+    }
+  }
 
   const run = (async () => {
     let pending = Buffer.alloc(0);
-    for await (const chunk of iterateBytes(stream, abort.signal)) {
+    for await (const chunk of iterateBytes(stream, abort.signal, reader)) {
       pending = Buffer.concat([pending, chunk]);
       while (pending.length >= 4) {
         const size = pending.readUInt32BE(0);
         if (pending.length < 4 + size) {
           break;
         }
-        onPacket(Buffer.from(pending.subarray(4, 4 + size)));
+        const packet = Buffer.from(pending.subarray(4, 4 + size));
         pending = pending.subarray(4 + size);
+        for (const listener of [...listeners]) {
+          listener(packet);
+        }
       }
     }
   })();
@@ -164,15 +206,40 @@ async function readLengthPrefixedStream(
     if (mapped.name === "AbortError") {
       return;
     }
-    onError?.(mapped);
+    for (const onError of [...errorListeners]) {
+      onError(mapped);
+    }
   });
 
-  return () => {
-    signal?.removeEventListener("abort", onExternalAbort);
-    abort.abort();
-    if (stream instanceof Readable) {
-      stream.destroy();
-    }
+  return {
+    subscribe(onPacket, onError, signal) {
+      throwIfAborted(signal);
+      listeners.add(onPacket);
+      if (onError) {
+        errorListeners.add(onError);
+      }
+      const stop = () => {
+        listeners.delete(onPacket);
+        if (onError) {
+          errorListeners.delete(onError);
+        }
+        signal?.removeEventListener("abort", stop);
+        if (listeners.size > 0) {
+          return;
+        }
+        abort.abort();
+        if (stream instanceof Readable) {
+          stream.destroy();
+        }
+        streamHubs.delete(stream);
+      };
+      signal?.addEventListener("abort", stop, { once: true });
+      if (signal?.aborted) {
+        stop();
+        throwIfAborted(signal);
+      }
+      return stop;
+    },
   };
 }
 
@@ -196,6 +263,7 @@ function mapStreamError(error: unknown, signal: AbortSignal) {
 async function* iterateBytes(
   stream: Readable | ReadableStream<Uint8Array>,
   signal: AbortSignal,
+  reader?: ReadableStreamDefaultReader<Uint8Array>,
 ): AsyncGenerator<Buffer> {
   if (stream instanceof Readable) {
     const onAbort = () => {
@@ -219,16 +287,19 @@ async function* iterateBytes(
   }
 
   if (signal.aborted) {
+    if (reader) {
+      await reader.cancel().catch(() => undefined);
+    }
     return;
   }
-  const reader = stream.getReader();
+  const streamReader = reader ?? stream.getReader();
   const onAbort = () => {
-    void reader.cancel().catch(() => undefined);
+    void streamReader.cancel().catch(() => undefined);
   };
   signal.addEventListener("abort", onAbort, { once: true });
   if (signal.aborted) {
     signal.removeEventListener("abort", onAbort);
-    await reader.cancel().catch(() => undefined);
+    await streamReader.cancel().catch(() => undefined);
     return;
   }
   try {
@@ -236,7 +307,7 @@ async function* iterateBytes(
       if (signal.aborted) {
         return;
       }
-      const { done, value } = await reader.read();
+      const { done, value } = await streamReader.read();
       if (done) {
         return;
       }
@@ -247,7 +318,7 @@ async function* iterateBytes(
   } finally {
     signal.removeEventListener("abort", onAbort);
     try {
-      reader.releaseLock();
+      streamReader.releaseLock();
     } catch {
       // cancel() already released the lock
     }

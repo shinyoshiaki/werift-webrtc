@@ -58,7 +58,7 @@ export function createRtpRtcpRegister(
               if (isMuxedRtcp(packet)) {
                 try {
                   for (const rtcp of RtcpPacketConverter.deSerialize(packet)) {
-                    track.onReceiveRtcp.execute(rtcp);
+                    track.writeRtcp(rtcp);
                   }
                 } catch {
                   // drop unparsable RTCP
@@ -68,7 +68,7 @@ export function createRtpRtcpRegister(
               track.writeRtp(packet);
             },
             () => {
-              track.stop();
+              track.stopMediaSource();
             },
             signal,
           ),
@@ -140,7 +140,7 @@ export function createEncodedBinaryRegister(
               }
             },
             () => {
-              track.stop();
+              track.stopMediaSource();
             },
             signal,
           ),

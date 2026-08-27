@@ -4,7 +4,7 @@ import {
   createMp4WebmRegister,
   createRtpRtcpRegister,
   installPolyfill,
-} from "../../../src/polyfill";
+} from "../../../src/polyfill/dom";
 
 const uninstall = installPolyfill({
   mediaRegister: [
