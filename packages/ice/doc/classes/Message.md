@@ -139,7 +139,7 @@
 > **get** **rawAttributes**(): `RawAttribute`[]
 
 Unknown (not in ATTRIBUTES) attributes in wire order.
-Live array: `push` / in-place edits are serialized (develop-compatible).
+Live array: `push` / `reverse` / in-place edits are serialized.
 
 ##### Returns
 
@@ -239,7 +239,7 @@ Live array: `push` / in-place edits are serialized (develop-compatible).
 
 `void`
 
-#### Overrides
+#### Inherited from
 
 `AttributeRepository.clear`
 
