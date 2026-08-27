@@ -314,7 +314,11 @@
 
 > **replaceRTP**(`header`, `discontinuity`, `timestampStep`): `void`
 
-Schedule RTP continuity rewrite for the next packet that is actually sent. Offsets are frozen from that packet's pre-rewrite sequence number and timestamp. The `header` argument is kept for API compatibility and is not used to compute offsets.
+Schedule RTP continuity rewrite for the next packet that is actually sent.
+The header argument is kept for API compatibility and is not used to compute
+offsets. `discontinuity` does not change sequence or timestamp mapping.
+`timestampStep` (default 1) is the only way to choose the timestamp increment
+at the source-switch boundary.
 
 #### Parameters
 
@@ -322,19 +326,13 @@ Schedule RTP continuity rewrite for the next packet that is actually sent. Offse
 
 `Pick`\<[`RtpHeader`](RtpHeader.md), `"sequenceNumber"` \| `"timestamp"`\>
 
-Kept for API compatibility. Not used to compute continuity offsets.
-
 ##### discontinuity
 
 `boolean` = `false`
 
-Does not change sequence or timestamp mapping. The RTP cache is cleared on every `replaceRTP` call.
-
 ##### timestampStep
 
 `number` = `1`
-
-Timestamp increment applied at the first sent packet after the switch. Sequence always advances by exactly 1 (16-bit wrap). Default `1`.
 
 #### Returns
 
