@@ -82,6 +82,22 @@ const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");
 const RTP_HISTORY_SIZE = 128;
 const RTT_ALPHA = 0.85;
 
+function freezeRtpContinuityOffsets(
+  lastOutputSeq: number,
+  lastOutputTimestamp: number,
+  firstInputSeq: number,
+  firstInputTimestamp: number,
+  timestampStep: number,
+) {
+  return {
+    seqOffset: uint16Add(uint16Add(lastOutputSeq, 1), -firstInputSeq),
+    timestampOffset: uint32Add(
+      uint32Add(lastOutputTimestamp, timestampStep),
+      -firstInputTimestamp,
+    ),
+  };
+}
+
 export class RTCRtpSender {
   readonly type = "sender";
   readonly kind: Kind;
@@ -132,6 +148,8 @@ export class RTCRtpSender {
   private timestamp?: number;
   private timestampOffset = 0;
   private seqOffset = 0;
+  private rtpContinuityPending = false;
+  private pendingTimestampStep = 1;
   private rtpCache: RtpPacket[] = [];
   codec?: RTCRtpCodecParameters;
   public dtlsTransport!: RTCDtlsTransport;
@@ -225,19 +243,24 @@ export class RTCRtpSender {
 
     track.id = this.trackId;
 
-    const { unSubscribe } = track.onReceiveRtp.subscribe(async (rtp) => {
-      await this.sendRtp(rtp);
-    });
+    const { unSubscribe: unSubscribeRtp } = track.onReceiveRtp.subscribe(
+      async (rtp) => {
+        await this.sendRtp(rtp);
+      },
+    );
+    const { unSubscribe: unSubscribeSourceChanged } =
+      track.onSourceChanged.subscribe((header) => {
+        this.replaceRTP(header);
+      });
     this.track = track;
-    this.disposeTrack = unSubscribe;
+    this.disposeTrack = () => {
+      unSubscribeRtp();
+      unSubscribeSourceChanged();
+    };
 
     if (this.codec) {
       track.codec = this.codec;
     }
-
-    track.onSourceChanged.subscribe((header) => {
-      this.replaceRTP(header);
-    });
   }
 
   setStreams(streams: MediaStream[] = []) {
@@ -263,10 +286,7 @@ export class RTCRtpSender {
     if (track.stopped) throw new Error("track is ended");
 
     if (this.sequenceNumber != undefined) {
-      const header =
-        track.header || (await track.onReceiveRtp.asPromise())[0].header;
-
-      this.replaceRTP(header);
+      this.scheduleRtpContinuity();
     }
 
     this.registerTrack(track);
@@ -332,27 +352,32 @@ export class RTCRtpSender {
     } catch (error) {}
   }
 
+  /**
+   * Schedule RTP continuity rewrite for the next packet that is actually sent.
+   * The header argument is kept for API compatibility and is not used to compute
+   * offsets. `discontinuity` does not change sequence or timestamp mapping.
+   * `timestampStep` (default 1) is the only way to choose the timestamp increment
+   * at the source-switch boundary.
+   */
   replaceRTP(
-    {
-      sequenceNumber,
-      timestamp,
-    }: Pick<RtpHeader, "sequenceNumber" | "timestamp">,
+    header: Pick<RtpHeader, "sequenceNumber" | "timestamp">,
     discontinuity = false,
+    timestampStep = 1,
   ) {
-    if (this.sequenceNumber != undefined) {
-      this.seqOffset = uint16Add(this.sequenceNumber, -sequenceNumber);
-      if (discontinuity) {
-        this.seqOffset = uint16Add(this.seqOffset, 2);
-      }
-    }
-    if (this.timestamp != undefined) {
-      this.timestampOffset = uint32Add(this.timestamp, -timestamp);
-      if (discontinuity) {
-        this.timestampOffset = uint16Add(this.timestampOffset, 1);
-      }
-    }
+    this.scheduleRtpContinuity(timestampStep);
+    log(
+      "replaceRTP",
+      this.sequenceNumber,
+      header.sequenceNumber,
+      discontinuity,
+      timestampStep,
+    );
+  }
+
+  private scheduleRtpContinuity(timestampStep = 1) {
+    this.rtpContinuityPending = true;
+    this.pendingTimestampStep = timestampStep;
     this.rtpCache = [];
-    log("replaceRTP", this.sequenceNumber, sequenceNumber, this.seqOffset);
   }
 
   async sendRtp(rtp: Buffer | RtpPacket) {
@@ -363,6 +388,25 @@ export class RTCRtpSender {
     rtp = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;
 
     const { header, payload } = rtp;
+    const inputSequenceNumber = header.sequenceNumber;
+    const inputTimestamp = header.timestamp;
+
+    if (this.rtpContinuityPending) {
+      if (this.sequenceNumber != undefined && this.timestamp != undefined) {
+        const offsets = freezeRtpContinuityOffsets(
+          this.sequenceNumber,
+          this.timestamp,
+          inputSequenceNumber,
+          inputTimestamp,
+          this.pendingTimestampStep,
+        );
+        this.seqOffset = offsets.seqOffset;
+        this.timestampOffset = offsets.timestampOffset;
+      }
+      this.rtpContinuityPending = false;
+      this.pendingTimestampStep = 1;
+    }
+
     header.ssrc = this.ssrc;
     header.payloadType = this.codec.payloadType;
     header.timestamp = uint32Add(header.timestamp, this.timestampOffset);
