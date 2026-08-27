@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { Socket } from "node:net";
 import { join } from "node:path";
 
 import { DirectHandshakeCarrier } from "../../../dtls/src/carrier/direct";
@@ -6,7 +7,6 @@ import type { CandidatePair, Connection } from "../../../ice/src";
 import { SpedSession } from "../../../ice/src/internal/sped";
 import { getConnectionSpedRuntime } from "../../../ice/src/internal/sped-bind";
 import { paddingLength } from "../../../ice/src/stun/message";
-import { encodeTcpFrame } from "../../../ice/src/stun/tcpFrame";
 import type { Protocol } from "../../../ice/src/types/model";
 import {
   DtlsVersion,
@@ -16,6 +16,7 @@ import {
   RTCPeerConnection,
   SignatureAlgorithm,
 } from "../../src";
+import { isDtls } from "../../src/utils";
 import {
   awaitMessage,
   createDataChannelPair,
@@ -216,12 +217,53 @@ type HoldUntilLaterFlightPacket = {
 };
 
 type WireSpyOptions = {
-  tcpFrames?: Buffer[];
   dropFirstNonEmptyData?: { remaining: number };
   duplicateFirstNonEmptyData?: { remaining: number };
   holdFirstNonEmptyData?: HoldFirstNonEmptyData;
   holdUntilLaterFlightPacket?: HoldUntilLaterFlightPacket;
+  iceConnectedAt?: { t?: number };
+  dtlsFirstAt?: { t?: number };
 };
+
+const STUN_COOKIE = 0x2112a442;
+
+function isRfc4571StunFrame(buf: Buffer): boolean {
+  if (buf.length < 8) {
+    return false;
+  }
+  const declared = buf.readUInt16BE(0);
+  if (declared !== buf.length - 2) {
+    return false;
+  }
+  return buf.readUInt32BE(6) === STUN_COOKIE;
+}
+
+/** Capture bytes actually passed to net.Socket.write (RFC 4571 frames). */
+function spyTcpSocketWrites(frames: Buffer[]) {
+  const original = Socket.prototype.write;
+  Socket.prototype.write = function (this: Socket, ...args: unknown[]) {
+    const chunk = args[0];
+    if (chunk != null && typeof chunk !== "function") {
+      try {
+        const encoding = typeof args[1] === "string" ? args[1] : "utf8";
+        const buf = Buffer.isBuffer(chunk)
+          ? chunk
+          : typeof chunk === "string"
+            ? Buffer.from(chunk, encoding as BufferEncoding)
+            : Buffer.from(chunk as Uint8Array);
+        if (isRfc4571StunFrame(buf)) {
+          frames.push(Buffer.from(buf));
+        }
+      } catch {
+        // non-bufferable write args are not STUN frames
+      }
+    }
+    return original.apply(this, args as never);
+  };
+  return () => {
+    Socket.prototype.write = original;
+  };
+}
 
 type OpenWireSpyOptions = WireSpyOptions & {
   offerer?: WireSpyOptions;
@@ -233,6 +275,27 @@ type OpenWireSpyOptions = WireSpyOptions & {
 const spiedProtocols = new WeakSet<object>();
 const spiedIceSend = new WeakSet<object>();
 
+function noteRawDtls(
+  copy: Buffer,
+  ice: object,
+  handshakeDtls: Buffer[],
+  options: WireSpyOptions,
+) {
+  if (!isDtls(copy)) {
+    return;
+  }
+  if (options.dtlsFirstAt && options.dtlsFirstAt.t === undefined) {
+    options.dtlsFirstAt.t = performance.now();
+  }
+  const runtime = getConnectionSpedRuntime(ice as Connection);
+  const state = runtime?.session.state;
+  // probing/active: raw DTLS is a leak. fallback: expected direct send.
+  // complete: DTLS application records (20–63) are not handshake leaks.
+  if (state === "probing" || state === "active" || state === "fallback") {
+    handshakeDtls.push(copy);
+  }
+}
+
 function spyConnectionWire(
   pc: RTCPeerConnection,
   stun: Buffer[],
@@ -242,18 +305,28 @@ function spyConnectionWire(
   const ice = pc.iceTransports[0]?.connection as unknown as {
     protocols: Protocol[];
     send: (data: Buffer) => Promise<void>;
+    state?: string;
+    stateChanged?: { subscribe: (fn: (state: string) => void) => void };
   };
   if (!ice) {
     return false;
+  }
+  if (options.iceConnectedAt && ice.stateChanged) {
+    ice.stateChanged.subscribe((state) => {
+      if (state === "connected" && options.iceConnectedAt!.t === undefined) {
+        options.iceConnectedAt!.t = performance.now();
+      }
+    });
+    if (ice.state === "connected" && options.iceConnectedAt.t === undefined) {
+      options.iceConnectedAt.t = performance.now();
+    }
   }
   if (!spiedIceSend.has(ice)) {
     spiedIceSend.add(ice);
     const iceSend = ice.send.bind(ice);
     ice.send = async (data: Buffer) => {
       const copy = Buffer.from(data);
-      if (copy[0] === 22) {
-        handshakeDtls.push(copy);
-      }
+      noteRawDtls(copy, ice, handshakeDtls, options);
       return iceSend(copy);
     };
   }
@@ -266,9 +339,6 @@ function spyConnectionWire(
     const sendData = protocol.sendData.bind(protocol);
     protocol.sendStun = async (message, addr) => {
       const copy = Buffer.from(message.bytes);
-      if (options.tcpFrames) {
-        options.tcpFrames.push(encodeTcpFrame(copy));
-      }
       const dataValue = firstNonEmptySpedData([copy]);
       const nonEmptyData = !!dataValue;
       if (
@@ -329,9 +399,8 @@ function spyConnectionWire(
     };
     protocol.sendData = async (data, addr) => {
       const copy = Buffer.from(data);
-      if (copy[0] === 22) {
-        handshakeDtls.push(copy);
-      } else if (copy.length >= 20 && (copy[0] & 0xc0) === 0) {
+      noteRawDtls(copy, ice, handshakeDtls, options);
+      if (!isDtls(copy) && copy.length >= 20 && (copy[0] & 0xc0) === 0) {
         stun.push(copy);
       }
       return sendData(copy, addr);
@@ -573,6 +642,8 @@ describe("RTCPeerConnection SPED opt-in", () => {
   test("sped: false 同士は datachannel が開き Binding に SPED が付かない", async () => {
     const stun: Buffer[] = [];
     const handshakeDtls: Buffer[] = [];
+    const iceConnectedAt: { t?: number } = {};
+    const dtlsFirstAt: { t?: number } = {};
     const pc1 = new RTCPeerConnection({ iceServers: [] });
     const pc2 = new RTCPeerConnection({ iceServers: [] });
     try {
@@ -581,6 +652,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
         pc2,
         stun,
         handshakeDtls,
+        { iceConnectedAt, dtlsFirstAt },
       );
       dc1.send("hello");
       expect(await awaitMessage(dc2)).toBe("hello");
@@ -589,6 +661,10 @@ describe("RTCPeerConnection SPED opt-in", () => {
           stunAttributeTypes(bytes).includes(DTLS_IN_STUN_DATA),
         ),
       ).toBe(false);
+      // Assert: sped:false は ICE nomination のあとで DTLS first-flight
+      expect(iceConnectedAt.t).toBeDefined();
+      expect(dtlsFirstAt.t).toBeDefined();
+      expect(dtlsFirstAt.t!).toBeGreaterThan(iceConnectedAt.t!);
     } finally {
       await pc1.close();
       await pc2.close();
@@ -642,6 +718,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
     const stun: Buffer[] = [];
     const handshakeDtls: Buffer[] = [];
     const tcpFrames: Buffer[] = [];
+    const restoreTcp = spyTcpSocketWrites(tcpFrames);
     const tcpSpedConfig = spedPeerConfig({
       iceUseTcp: true,
       iceFilterCandidatePair: tcpOnlyCandidatePair,
@@ -654,7 +731,6 @@ describe("RTCPeerConnection SPED opt-in", () => {
         pc2,
         stun,
         handshakeDtls,
-        { tcpFrames },
       );
       // Act: TCP nominated 上で app data を送る
       dc1.send("tcp-sped");
@@ -682,6 +758,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
       }
       expect(handshakeDtls).toHaveLength(0);
     } finally {
+      restoreTcp();
       await pc1.close();
       await pc2.close();
     }

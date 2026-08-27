@@ -49,6 +49,7 @@ export function attachSpedToConnection(
       await hooks.inject(bytes, peer, generation);
     },
   });
+  runtime.syncPathMtuFromConnection(connection);
   setConnectionSpedRuntime(connection, runtime);
   return {
     session,

@@ -235,6 +235,113 @@ export async function sendHandshakeFlight(
 }
 
 /**
+ * SPED path MTU shrink: re-chunk pendingFlightSource under the current MTU
+ * and publish via onFlightCreated (L1 replace). Does not write the datagram
+ * to the transport — SPED carries the new L1 on the next Binding.
+ */
+export function refragmentPendingFlightIfNeeded(this: Dtls13Host): boolean {
+  const src = this.pendingFlightSource;
+  if (!src) {
+    return false;
+  }
+  const mtu = this.carrier.getMtu();
+  const oversized =
+    this.pendingFlight.some((packet) => packet.bytes.length > mtu) ||
+    (this.pendingServerHello != null &&
+      this.pendingServerHello.bytes.length > mtu);
+  if (!oversized) {
+    return false;
+  }
+
+  const epoch = src.epoch;
+  const maxFrag = epoch === 0 ? mtu - 13 - 12 : mtu - 5 - 12 - 1 - 16;
+  if (maxFrag < 1) {
+    return false;
+  }
+
+  const packets: Buffer[] = [];
+  const packetRecords: AckRecordNumber[] = [];
+  for (const fragment of src.fragments) {
+    const chunks =
+      fragment.fragment.length > maxFrag ? fragment.chunk(maxFrag) : [fragment];
+    for (const chunk of chunks) {
+      const hsBytes = chunk.serialize();
+      if (epoch === 0) {
+        const seq = this.recordSeqEpoch0++;
+        packetRecords.push({ epoch: 0, sequenceNumber: seq });
+        packets.push(
+          serializePlaintextRecord(ContentType.handshake, 0, seq, hsBytes),
+        );
+      } else {
+        const epochCtx = this.epochs.get(epoch);
+        if (!epochCtx?.writeKeys) {
+          return false;
+        }
+        const seq = epochCtx.writeSequence;
+        packetRecords.push({ epoch, sequenceNumber: seq });
+        packets.push(encryptRecord(hsBytes, ContentType.handshake, epochCtx));
+      }
+    }
+  }
+
+  const datagrams: Buffer[] = [];
+  const datagramRecordGroups: AckRecordNumber[][] = [];
+  let current: Buffer = Buffer.alloc(0);
+  let currentRecs: AckRecordNumber[] = [];
+  for (let i = 0; i < packets.length; i++) {
+    const packet = packets[i]!;
+    const recordNumber = packetRecords[i]!;
+    if (current.length + packet.length > mtu && current.length > 0) {
+      datagrams.push(current);
+      datagramRecordGroups.push(currentRecs);
+      current = Buffer.from(packet);
+      currentRecs = [recordNumber];
+    } else {
+      current = current.length
+        ? Buffer.concat([current, packet])
+        : Buffer.from(packet);
+      currentRecs.push(recordNumber);
+    }
+  }
+  if (current.length) {
+    datagrams.push(current);
+    datagramRecordGroups.push(currentRecs);
+  }
+
+  this.flightId += 1;
+  const flightId = this.flightId;
+  const notifySources: Buffer[] = [];
+  if (this.pendingServerHello) {
+    const serverHello = Buffer.alloc(this.pendingServerHello.bytes.length);
+    this.pendingServerHello.bytes.copy(serverHello);
+    const first = datagrams[0];
+    if (first && serverHello.length + first.length <= mtu) {
+      notifySources.push(Buffer.concat([serverHello, first]));
+      notifySources.push(...datagrams.slice(1));
+    } else {
+      notifySources.push(serverHello);
+      notifySources.push(...datagrams);
+    }
+  } else {
+    notifySources.push(...datagrams);
+  }
+  const notifyPackets = notifySources.map((bytes, i) =>
+    createHandshakeDatagram(bytes, flightId, i, true),
+  );
+  this.carrier.events.onFlightCreated?.(flightId, notifyPackets);
+
+  this.pendingFlight = datagrams.map((bytes, i) =>
+    createHandshakeDatagram(bytes, flightId, i, true),
+  );
+  this.pendingFlightRecordGroups = datagramRecordGroups.map((group) =>
+    group.map((record) => ({ ...record })),
+  );
+  this.pendingFlightRecords = packetRecords.map((record) => ({ ...record }));
+  this.pendingFlightRecordBytes = packets.map((packet) => Buffer.from(packet));
+  return true;
+}
+
+/**
  * Rebuild pendingFlight datagrams from still-pending individual record bytes.
  * After partial ACK, only un-ACK'd records are retransmitted (not whole mixed
  * datagrams that still contain ACK'd records).

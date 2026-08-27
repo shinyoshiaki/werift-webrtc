@@ -320,6 +320,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
     let lastFlight: Buffer[] = [];
     let handshakeDone = false;
+    let dtlsSocket: DtlsSocket | undefined;
     const handle = attachSpedToConnection(ice, {
       inject: async (bytes, peer, generation) => {
         if (ice.generation !== generation) {
@@ -354,6 +355,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       updateRtt: (rttMs) => carrier.updateRtt(rttMs),
       resetRtt: () => carrier.resetRtt(),
       setMtu: (mtu) => carrier.setMtu(mtu),
+      refragmentPendingFlight: () => {
+        dtlsSocket?.refragmentPendingFlightIfNeeded();
+      },
     });
     transport.setRuntime(handle.runtime);
 
@@ -384,6 +388,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       } else {
         this.dtls = createDtlsClientInternal(common);
       }
+      dtlsSocket = this.dtls;
       this.bindDtlsSocketEvents(r, f);
       this.dtls.onConnect.once(() => {
         handle.onHandshakeComplete();

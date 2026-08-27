@@ -21,6 +21,7 @@ import {
 } from "../../../dtls/src/internal";
 import { Candidate, Connection } from "../../../ice/src";
 import { attachSpedToConnection } from "../../../ice/src/internal/sped";
+import { isDtlsHandshakeDemux } from "../../../ice/src/sped/draft00";
 import { getRawAttributeValue } from "../../../ice/src/stun/rawAttributeValue";
 import { IceSpedTransport } from "../../src/transport/sped";
 import { resolvePionIceAgentBin as resolvePionIceAgentBinFromInput } from "./resolve-pion-ice-agent-bin";
@@ -233,7 +234,7 @@ describePion("released Pion ICE agent SPED fallback", () => {
         };
         protocol.sendData = async (data: Buffer, addr?: Address) => {
           const copy = Buffer.from(data);
-          if (copy[0] === 22) {
+          if (isDtlsHandshakeDemux(copy[0])) {
             handshakeDtls.push(copy);
           }
           return sendData(copy, addr);
@@ -271,6 +272,9 @@ describePion("released Pion ICE agent SPED fallback", () => {
         updateRtt: (rttMs) => carrier.updateRtt(rttMs),
         resetRtt: () => carrier.resetRtt(),
         setMtu: (mtu) => carrier.setMtu(mtu),
+        refragmentPendingFlight: () => {
+          client?.refragmentPendingFlightIfNeeded();
+        },
       });
       iceTransport.setRuntime(handle.runtime);
       carrier.events.onFlightCreated = (_flightId, packets) => {

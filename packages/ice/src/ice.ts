@@ -286,6 +286,7 @@ export class Connection implements IceConnection {
     this.remoteIsLite = iceLite;
     this.remoteUsername = usernameFragment;
     this.remotePassword = password;
+    this.spedRuntime?.syncPathMtuFromConnection(this);
   }
 
   // 4.1.1 Gathering Candidates

@@ -10,6 +10,7 @@ import {
   defaultSpedDtlsMtu,
   maxPayloadFitting,
   remainingDataValueBudget,
+  spedDtlsMtuForIceCredentials,
 } from "./draft00/mtu";
 import type { SpedSession } from "./draft00/session";
 
@@ -30,6 +31,11 @@ export interface SpedHooks {
   /** ICE restart: drop the previous generation's path RTT. */
   resetRtt: () => void;
   setMtu: (mtu: number) => void;
+  /**
+   * Path MTU shrank under an already-built flight (SPED is external RTO).
+   * Rebuild pending datagrams and replace L1.
+   */
+  refragmentPendingFlight?: () => void;
 }
 
 export function isSpedEligibleProtocol(protocol: Protocol): boolean {
@@ -56,13 +62,16 @@ export class SpedRuntime {
   fallbackStarted = false;
   lastPath?: { protocol: Protocol; addr: Address; generation: number };
   private pendingInjectGeneration?: number;
+  /** Last DTLS datagram MTU pushed to the carrier. */
+  private lastMtu: number;
 
   constructor(
     readonly session: SpedSession,
     readonly hooks: SpedHooks,
   ) {
     this.hooks.setRetransmissionMode("external");
-    this.hooks.setMtu(defaultSpedDtlsMtu());
+    this.lastMtu = defaultSpedDtlsMtu();
+    this.hooks.setMtu(this.lastMtu);
   }
 
   shouldDecorate(protocol: Protocol): boolean {
@@ -91,7 +100,26 @@ export class SpedRuntime {
   syncMtu(messageSkeletonLength?: number): void {
     const overhead = messageSkeletonLength ?? 0;
     const mtu = Math.max(1, SPED_OUTER_MTU - overhead);
-    this.hooks.setMtu(mtu);
+    this.applyMtu(mtu, { allowRaise: true });
+  }
+
+  /**
+   * Set DTLS MTU from actual ICE ufrags before the first flight
+   * (min of Request and Response Binding budgets).
+   */
+  syncPathMtuFromConnection(connection: {
+    localUsername: string;
+    remoteUsername: string;
+    options: { useIpv6: boolean };
+  }): void {
+    this.applyMtu(
+      spedDtlsMtuForIceCredentials({
+        localUsername: connection.localUsername,
+        remoteUsername: connection.remoteUsername,
+        useIpv6: connection.options.useIpv6,
+      }),
+      { allowRaise: true },
+    );
   }
 
   /** DTLS datagram MTU from this Binding's current attributes (before SPED/MI/FP). */
@@ -101,7 +129,23 @@ export class SpedRuntime {
       1,
       maxPayloadFitting(remainingDataValueBudget(message, ackValue)),
     );
+    // A spacious Response must not raise MTU above the Request-side path limit.
+    this.applyMtu(mtu, { allowRaise: false });
+  }
+
+  private applyMtu(mtu: number, options: { allowRaise: boolean }): void {
+    if (!options.allowRaise && mtu >= this.lastMtu) {
+      return;
+    }
+    if (mtu === this.lastMtu) {
+      return;
+    }
+    const shrink = mtu < this.lastMtu;
+    this.lastMtu = mtu;
     this.hooks.setMtu(mtu);
+    if (shrink) {
+      this.hooks.refragmentPendingFlight?.();
+    }
   }
 
   markInjectGeneration(generation: number): void {
@@ -164,7 +208,8 @@ export class SpedRuntime {
     this.fallbackStarted = false;
     this.pendingInjectGeneration = undefined;
     this.lastPath = undefined;
-    this.hooks.setMtu(defaultSpedDtlsMtu());
+    this.lastMtu = defaultSpedDtlsMtu();
+    this.hooks.setMtu(this.lastMtu);
     this.hooks.resetRtt();
     this.hooks.onSessionReset?.();
   }

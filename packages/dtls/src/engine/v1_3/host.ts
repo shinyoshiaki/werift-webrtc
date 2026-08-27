@@ -19,6 +19,8 @@ export interface Dtls13HostMethods {
     dest?: [string, number],
   ): Promise<void>;
   rebuildPendingFlightFromRecords(): void;
+  /** SPED: rebuild pending datagrams after path MTU shrinks (no wire send). */
+  refragmentPendingFlightIfNeeded(): boolean;
   consumeSendBudget(len: number, dest?: [string, number]): boolean;
   sendWithBudget(record: Buffer, dest?: [string, number]): Promise<boolean>;
   computeRetransmitRtoMs(): number;

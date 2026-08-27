@@ -18,7 +18,11 @@ export {
   estimatedStunSizeAfterSped,
   maxPayloadFitting,
   remainingDataValueBudget,
+  spedBindingRequestSkeleton,
+  spedBindingResponseSkeleton,
+  spedDtlsMtuForIceCredentials,
 } from "./mtu";
+export type { SpedMtuIceCredentials } from "./mtu";
 export type {
   SpedDecodedAck,
   SpedDecodedData,

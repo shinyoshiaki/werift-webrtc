@@ -65,6 +65,7 @@ export class Dtls13Connection
 
   sendHandshakeFlight = flightTx.sendHandshakeFlight;
   rebuildPendingFlightFromRecords = flightTx.rebuildPendingFlightFromRecords;
+  refragmentPendingFlightIfNeeded = flightTx.refragmentPendingFlightIfNeeded;
   consumeSendBudget = flightTx.consumeSendBudget;
   sendWithBudget = flightTx.sendWithBudget;
   computeRetransmitRtoMs = flightTx.computeRetransmitRtoMs;

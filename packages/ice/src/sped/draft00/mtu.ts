@@ -58,21 +58,85 @@ export function stunFitsPathMtu(
   return size <= outerLimit;
 }
 
+export type SpedMtuIceCredentials = {
+  localUsername: string;
+  remoteUsername: string;
+  /** Response XOR-MAPPED-ADDRESS uses IPv6 (larger) when true. */
+  useIpv6?: boolean;
+};
+
+function maxAckValue() {
+  return Buffer.alloc(SPED_ACK_MAX * 4);
+}
+
 /**
- * Conservative DTLS datagram MTU for SPED (RFC 8831 1200 minus Table 1
- * HMAC-SHA1 Binding overhead, including a 4-CRC ACK and USE-CANDIDATE).
+ * Controlling Binding Request with USE-CANDIDATE (larger of the two roles)
+ * and the actual ICE USERNAME (`remote:local`).
  */
-export function defaultSpedDtlsMtu(outerLimit = SPED_OUTER_MTU): number {
+export function spedBindingRequestSkeleton(
+  credentials: SpedMtuIceCredentials,
+): Message {
+  const local = credentials.localUsername || "yyyyyyyy";
+  const remote = credentials.remoteUsername || "xxxxxxxx";
   const skeleton = new Message(methods.BINDING, classes.REQUEST);
   skeleton
-    .setAttribute("USERNAME", "xxxxxxxx:yyyyyyyy")
+    .setAttribute("USERNAME", `${remote}:${local}`)
     .setAttribute("PRIORITY", 0x7fffffff)
     .setAttribute("ICE-CONTROLLING", 0xffffffffffffffffn)
     .setAttribute("USE-CANDIDATE", null);
-  const ackValue = Buffer.alloc(SPED_ACK_MAX * 4);
+  return skeleton;
+}
+
+/** Binding Response with XOR-MAPPED-ADDRESS (IPv6 when {@link SpedMtuIceCredentials.useIpv6}). */
+export function spedBindingResponseSkeleton(
+  credentials: SpedMtuIceCredentials,
+): Message {
+  const skeleton = new Message(methods.BINDING, classes.RESPONSE);
+  const mapped: [string, number] = credentials.useIpv6
+    ? ["2001:db8::1", 3478]
+    : ["192.0.2.1", 3478];
+  skeleton.setAttribute("XOR-MAPPED-ADDRESS", mapped);
+  return skeleton;
+}
+
+function dtlsMtuForSkeleton(
+  skeleton: Message,
+  outerLimit = SPED_OUTER_MTU,
+): number {
   return Math.max(
     1,
-    maxPayloadFitting(remainingDataValueBudget(skeleton, ackValue, outerLimit)),
+    maxPayloadFitting(
+      remainingDataValueBudget(skeleton, maxAckValue(), outerLimit),
+    ),
+  );
+}
+
+/**
+ * DTLS datagram MTU = min(Request budget, Response budget) with actual
+ * ICE ufrags, max ACK, and HMAC-SHA1 MI/FP reserved.
+ */
+export function spedDtlsMtuForIceCredentials(
+  credentials: SpedMtuIceCredentials,
+  outerLimit = SPED_OUTER_MTU,
+): number {
+  return Math.max(
+    1,
+    Math.min(
+      dtlsMtuForSkeleton(spedBindingRequestSkeleton(credentials), outerLimit),
+      dtlsMtuForSkeleton(spedBindingResponseSkeleton(credentials), outerLimit),
+    ),
+  );
+}
+
+/**
+ * Conservative DTLS datagram MTU for SPED (RFC 8831 1200 minus Table 1
+ * HMAC-SHA1 Binding overhead, including a 4-CRC ACK and USE-CANDIDATE).
+ * Prefer {@link spedDtlsMtuForIceCredentials} once ICE ufrags are known.
+ */
+export function defaultSpedDtlsMtu(outerLimit = SPED_OUTER_MTU): number {
+  return spedDtlsMtuForIceCredentials(
+    { localUsername: "yyyyyyyy", remoteUsername: "xxxxxxxx", useIpv6: true },
+    outerLimit,
   );
 }
 
