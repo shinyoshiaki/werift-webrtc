@@ -18,5 +18,6 @@ credential.env
 __screenshots__
 .env
 packages/webrtc/wpt/progress.state.json
+packages/webrtc/wpt/progress.md
 artifacts/
 .sak
