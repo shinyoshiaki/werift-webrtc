@@ -1,33 +1,44 @@
 import { setTimeout } from "timers/promises";
 
+import { vi } from "vitest";
 import {
   type DtlsTransportConfig,
   type DtlsVersion,
+  type Kind,
+  MediaStreamTrack,
   RTCDtlsTransport,
   RTCIceGatherer,
   RTCIceTransport,
   RTCPeerConnection,
   type RTCPeerConnectionConfig,
+  RTCRtpCodecParameters,
+  RTCRtpHeaderExtensionParameters,
   type RTCSessionDescription,
+  RTP_EXTENSION_URI,
   RtpHeader,
   RtpPacket,
+  codecParametersToString,
   defaultPeerConfig,
   isDtls,
 } from "../src";
-import { RtpRouter } from "../src/media/router";
+import { RTCRtpSender } from "../src/media/rtpSender";
 import { exchangeIceCandidates } from "./utils";
 
-export const createRtpPacket = () => {
+export const createRtpPacket = (
+  sequenceNumber = 0,
+  timestamp = 0,
+  payload: Buffer = Buffer.from([]),
+) => {
   const header = new RtpHeader({
-    sequenceNumber: 0,
-    timestamp: 0,
+    sequenceNumber,
+    timestamp,
     payloadType: 96,
     payloadOffset: 12,
     extension: true,
     marker: false,
     padding: false,
   });
-  const rtp = new RtpPacket(header, Buffer.from([]));
+  const rtp = new RtpPacket(header, payload);
   return rtp;
 };
 
@@ -38,6 +49,72 @@ export const createDtlsTransport = () => {
   );
   return dtls;
 };
+
+export function createAudioCodec(payloadType = 96) {
+  return new RTCRtpCodecParameters({
+    mimeType: "audio/opus",
+    clockRate: 48000,
+    payloadType,
+  });
+}
+
+export function createRtxCodec(payloadType = 97, apt = 96) {
+  return new RTCRtpCodecParameters({
+    mimeType: "audio/rtx",
+    clockRate: 48000,
+    payloadType,
+    parameters: codecParametersToString({ apt }),
+  });
+}
+
+export function createConnectedRtpSender(options?: {
+  kind?: Kind;
+  track?: MediaStreamTrack;
+  rtx?: boolean;
+  twcc?: boolean;
+  cname?: string;
+}) {
+  const kind = options?.kind ?? "audio";
+  const track = options?.track ?? new MediaStreamTrack({ kind, remote: true });
+  const dtls = createDtlsTransport();
+  dtls.state = "connected";
+  const sender = new RTCRtpSender(track);
+  sender.setDtlsTransport(dtls);
+
+  const codecs = [createAudioCodec()];
+  if (options?.rtx) {
+    codecs.push(createRtxCodec());
+  }
+  const headerExtensions = options?.twcc
+    ? [
+        new RTCRtpHeaderExtensionParameters({
+          id: 3,
+          uri: RTP_EXTENSION_URI.transportWideCC,
+        }),
+      ]
+    : [];
+
+  sender.prepareSend({
+    codecs,
+    headerExtensions,
+    rtcp: options?.cname ? { cname: options.cname, mux: false } : undefined,
+  });
+
+  const sendRtp = vi.spyOn(dtls, "sendRtp").mockResolvedValue(12);
+  const sendRtcp = vi
+    .spyOn(dtls, "sendRtcp")
+    .mockResolvedValue(undefined as never);
+
+  return { sender, track, dtls, sendRtp, sendRtcp };
+}
+
+export type ConnectedRtpSenderSetup = ReturnType<
+  typeof createConnectedRtpSender
+>;
+
+export function sentRtpHeaders(sendRtp: ConnectedRtpSenderSetup["sendRtp"]) {
+  return sendRtp.mock.calls.map(([, header]) => header);
+}
 
 export async function generateOffer() {
   const pc = new RTCPeerConnection();

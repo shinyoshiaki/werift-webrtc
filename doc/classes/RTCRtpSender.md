@@ -312,17 +312,27 @@
 
 ### replaceRTP()
 
-> **replaceRTP**(`__namedParameters`, `discontinuity`): `void`
+> **replaceRTP**(`header`, `discontinuity`, `timestampStep`): `void`
+
+Schedule RTP continuity rewrite for the next packet that is actually sent.
+The header argument is kept for API compatibility and is not used to compute
+offsets. `discontinuity` does not change sequence or timestamp mapping.
+`timestampStep` (default 1) is the only way to choose the timestamp increment
+at the source-switch boundary.
 
 #### Parameters
 
-##### \_\_namedParameters
+##### header
 
 `Pick`\<[`RtpHeader`](RtpHeader.md), `"sequenceNumber"` \| `"timestamp"`\>
 
 ##### discontinuity
 
 `boolean` = `false`
+
+##### timestampStep
+
+`number` = `1`
 
 #### Returns
 
