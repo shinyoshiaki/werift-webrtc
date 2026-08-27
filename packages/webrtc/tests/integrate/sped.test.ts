@@ -869,6 +869,115 @@ describe("RTCPeerConnection SPED opt-in", () => {
     }
   });
 
+  test("通常の offer/answer では sped:true かつ DTLS 1.3 無しは SPED を出さず failed になる", async () => {
+    const configs = [
+      { sped: true as const },
+      { sped: true as const, dtls: { protocolVersions: [] as const } },
+      {
+        sped: true as const,
+        dtls: { protocolVersions: [DtlsVersion.V1_2] as const },
+      },
+    ];
+
+    for (const extra of configs) {
+      // Arrange: Public API の offer/answer。private connect() は直接呼ばない
+      const stun: Buffer[] = [];
+      const handshakeDtls: Buffer[] = [];
+      const pc1 = new RTCPeerConnection({ iceServers: [], ...extra });
+      const pc2 = new RTCPeerConnection({ iceServers: [], ...extra });
+      try {
+        pc1.createDataChannel("dc");
+        exchangeIceCandidates(pc1, pc2);
+        const stopSpy1 = spyWhenReady(pc1, stun, handshakeDtls);
+        await pc1.setLocalDescription(await pc1.createOffer());
+        await pc2.setRemoteDescription(pc1.localDescription!);
+        const stopSpy2 = spyWhenReady(pc2, stun, handshakeDtls);
+        await pc2.setLocalDescription(await pc2.createAnswer());
+
+        // Act: remote answer 設定後に fire-and-forget の connect() が走る
+        await pc1.setRemoteDescription(pc2.localDescription!);
+        await waitUntil(
+          () =>
+            pc1.connectionState === "failed" ||
+            pc2.connectionState === "failed",
+          5_000,
+        );
+
+        // Assert: SPED 属性は wire に出ず、利用者は failed を観測できる
+        expect(
+          stun.some((bytes) =>
+            stunAttributeTypes(bytes).includes(DTLS_IN_STUN_DATA),
+          ),
+        ).toBe(false);
+        expect(
+          stun.some((bytes) =>
+            stunAttributeTypes(bytes).includes(DTLS_IN_STUN_ACK),
+          ),
+        ).toBe(false);
+        expect(
+          pc1.connectionState === "failed" || pc2.connectionState === "failed",
+        ).toBe(true);
+        stopSpy1();
+        stopSpy2();
+      } finally {
+        pc1.close();
+        pc2.close();
+      }
+    }
+  });
+
+  test("通常の offer/answer では sped + helloRetryRequest も SPED を出さず failed になる", async () => {
+    // Arrange
+    const stun: Buffer[] = [];
+    const handshakeDtls: Buffer[] = [];
+    const extra = {
+      sped: true as const,
+      dtls: {
+        protocolVersions: [DtlsVersion.V1_3] as const,
+        helloRetryRequest: true,
+      },
+    };
+    const pc1 = new RTCPeerConnection({ iceServers: [], ...extra });
+    const pc2 = new RTCPeerConnection({ iceServers: [], ...extra });
+    try {
+      pc1.createDataChannel("dc");
+      exchangeIceCandidates(pc1, pc2);
+      const stopSpy1 = spyWhenReady(pc1, stun, handshakeDtls);
+      await pc1.setLocalDescription(await pc1.createOffer());
+      await pc2.setRemoteDescription(pc1.localDescription!);
+      const stopSpy2 = spyWhenReady(pc2, stun, handshakeDtls);
+      await pc2.setLocalDescription(await pc2.createAnswer());
+
+      // Act: signaling 完了後に connect() が設定エラーで failed になる
+      await pc1.setRemoteDescription(pc2.localDescription!);
+      await waitUntil(
+        () =>
+          pc1.connectionState === "failed" || pc2.connectionState === "failed",
+        5_000,
+      );
+
+      // Assert: dtls-cookie 併用は Public API でも SPED を出さない
+      expect(
+        stun.some((bytes) =>
+          stunAttributeTypes(bytes).includes(DTLS_IN_STUN_DATA),
+        ),
+      ).toBe(false);
+      expect(
+        stun.some((bytes) =>
+          stunAttributeTypes(bytes).includes(DTLS_IN_STUN_ACK),
+        ),
+      ).toBe(false);
+      expect(
+        pc1.connectionState === "failed" || pc2.connectionState === "failed",
+      ).toBe(true);
+      stopSpy1();
+      stopSpy2();
+    } finally {
+      pc1.close();
+      pc2.close();
+    }
+  });
+
   test("sped: true と helloRetryRequest: true は connect() で reject する", async () => {
     // Arrange
     const pc = new RTCPeerConnection({

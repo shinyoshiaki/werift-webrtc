@@ -255,20 +255,36 @@ export class Connection implements IceConnection {
     if (!isAuthenticatedHandshakePair(pair)) {
       return;
     }
+    this.spedRuntime?.pinHandshakePath(pair);
     await pair.protocol.sendData(bytes, pair.remoteAddr);
   }
 
-  /** Direct DTLS datagram on the authenticated STUN 5-tuple. */
-  private async sendHandshakeDatagram(
+  /**
+   * Direct fallback only on a current-generation authenticated CandidatePair.
+   * No pair (e.g. earlyChecks) means no wire send.
+   */
+  private async maybeSendSpedFallback(
     protocol: Protocol,
     addr: Address,
-    bytes: Buffer,
     generation: number,
   ) {
-    if (generation !== this.generation) {
+    const runtime = this.spedRuntime;
+    if (!runtime || generation !== this.generation) {
       return;
     }
-    await protocol.sendData(bytes, addr);
+    if (runtime.fallbackStarted || runtime.session.state !== "fallback") {
+      return;
+    }
+    const pair = this.findPairByAddr(protocol, addr);
+    if (!pair || !isAuthenticatedHandshakePair(pair)) {
+      return;
+    }
+    runtime.pinHandshakePath(pair);
+    const packets = runtime.beginFallback();
+    await runtime.hooks.onFallbackFlight(packets);
+    for (const packet of packets) {
+      await this.sendHandshakeOnAuthenticatedPair(pair, packet, generation);
+    }
   }
 
   resetNominatedPair() {
@@ -480,12 +496,11 @@ export class Connection implements IceConnection {
     }
 
     const generation = this.generation;
-    let fallback = false;
     if (
       this.spedRuntime?.shouldDecorate(protocol) &&
       this.spedRuntime.isLiveGeneration(generation)
     ) {
-      const result = await this.spedRuntime.handleAuthenticatedStun(
+      await this.spedRuntime.handleAuthenticatedStun(
         verified,
         addr,
         generation,
@@ -494,7 +509,6 @@ export class Connection implements IceConnection {
       if (generation !== this.generation) {
         return;
       }
-      fallback = result.fallback;
     }
 
     const response = new Message(
@@ -521,12 +535,12 @@ export class Connection implements IceConnection {
       this.checkIncoming(verified, addr, protocol);
     }
 
-    if (fallback && this.spedRuntime && generation === this.generation) {
-      const packets = this.spedRuntime.beginFallback();
-      await this.spedRuntime.hooks.onFallbackFlight(packets);
-      for (const packet of packets) {
-        await this.sendHandshakeDatagram(protocol, addr, packet, generation);
+    if (this.spedRuntime && generation === this.generation) {
+      const pair = this.findPairByAddr(protocol, addr);
+      if (pair) {
+        this.spedRuntime.pinHandshakePath(pair);
       }
+      await this.maybeSendSpedFallback(protocol, addr, generation);
     }
   }
 
@@ -808,6 +822,8 @@ export class Connection implements IceConnection {
     // # handle early checks
     for (const earlyCheck of this.earlyChecks) {
       this.checkIncoming(...earlyCheck);
+      const [, addr, protocol] = earlyCheck;
+      await this.maybeSendSpedFallback(protocol, addr, this.generation);
     }
     this.earlyChecks = [];
     this.earlyChecksDone = true;
@@ -1435,9 +1451,12 @@ export class Connection implements IceConnection {
         (candidate) =>
           candidate.state === CandidatePairState.SUCCEEDED ||
           candidate.state === CandidatePairState.IN_PROGRESS,
-      );
-    const protocol = pair?.protocol ?? runtime.lastPath?.protocol;
-    const addr = pair?.remoteAddr ?? runtime.lastPath?.addr;
+      ) ??
+      (runtime.lastPath && isAuthenticatedHandshakePair(runtime.lastPath)
+        ? runtime.lastPath
+        : undefined);
+    const protocol = pair?.protocol;
+    const addr = pair?.remoteAddr;
     if (!protocol || !addr || !runtime.shouldDecorate(protocol)) {
       return;
     }
@@ -1533,22 +1552,13 @@ export class Connection implements IceConnection {
     }
     if (pair) {
       runtime.syncRtt(pair);
+      runtime.pinHandshakePath(pair);
     }
     if (result.inject) {
       this.spedSolicitPeerCarry = true;
       this.maybeFlushSpedCarry();
     }
-    if (result.fallback && !runtime.fallbackStarted) {
-      const packets = runtime.beginFallback();
-      await runtime.hooks.onFallbackFlight(packets);
-      for (const packet of packets) {
-        if (pair) {
-          await this.sendHandshakeOnAuthenticatedPair(pair, packet, generation);
-        } else {
-          await this.sendHandshakeDatagram(protocol, addr, packet, generation);
-        }
-      }
-    }
+    await this.maybeSendSpedFallback(protocol, addr, generation);
   }
 
   private applyIceControlling(iceControlling: boolean) {

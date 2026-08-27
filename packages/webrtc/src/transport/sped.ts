@@ -1,7 +1,8 @@
-import type { Connection } from "../../../ice/src";
+import type { CandidatePair, Connection } from "../../../ice/src";
 import {
   allowsAuthenticatedDtlsDelivery,
   connectionDatagramEvent,
+  isAuthenticatedHandshakePair,
 } from "../../../ice/src/internal/datagram";
 import type { SpedRuntime } from "../../../ice/src/sped/runtime";
 import type { Address, Transport } from "../imports/common";
@@ -9,7 +10,7 @@ import { isDtls } from "../utils";
 
 /**
  * ICE Transport for SPED: handshake send is suppressed while embedding,
- * then uses the authenticated 5-tuple (pre-nomination) or nominated send.
+ * then uses the authenticated CandidatePair (pre-nomination) or nominated send.
  */
 export class IceSpedTransport implements Transport {
   closed = false;
@@ -70,7 +71,7 @@ export class IceSpedTransport implements Transport {
     }
   }
 
-  readonly send = async (data: Buffer, _addr?: Address) => {
+  readonly send = async (data: Buffer, addr?: Address) => {
     if (this.runtime?.session.embedding && !this.applicationReady) {
       return;
     }
@@ -78,17 +79,56 @@ export class IceSpedTransport implements Transport {
       await this.ice.send(data);
       return;
     }
-    const path = this.runtime?.lastPath;
-    if (path) {
-      if (path.generation !== this.ice.generation) {
-        return;
-      }
-      await path.protocol.sendData(data, path.addr);
+    const pair = this.resolveAuthenticatedSendPair(addr);
+    if (!pair) {
+      return;
     }
+    this.runtime?.pinHandshakePath(pair);
+    await pair.protocol.sendData(data, pair.remoteAddr);
   };
 
   async close() {
     this.closed = true;
+  }
+
+  /**
+   * Match the carrier dest to an authenticated current-generation pair.
+   * A pinned lastPath must not be abandoned for a later candidate.
+   */
+  private resolveAuthenticatedSendPair(
+    addr?: Address,
+  ): CandidatePair | undefined {
+    const pinned = this.runtime?.lastPath;
+    if (pinned && this.isCurrentAuthenticatedPair(pinned)) {
+      if (!addr) {
+        return pinned;
+      }
+      if (
+        pinned.remoteAddr[0] === addr[0] &&
+        pinned.remoteAddr[1] === addr[1]
+      ) {
+        return pinned;
+      }
+      return undefined;
+    }
+    if (!addr) {
+      return undefined;
+    }
+    const list = this.ice.checkList ?? [];
+    return list.find(
+      (pair) =>
+        pair.remoteAddr[0] === addr[0] &&
+        pair.remoteAddr[1] === addr[1] &&
+        this.isCurrentAuthenticatedPair(pair),
+    );
+  }
+
+  private isCurrentAuthenticatedPair(pair: CandidatePair): boolean {
+    const list = this.ice.checkList ?? [];
+    if (!list.includes(pair) && this.ice.nominated !== pair) {
+      return false;
+    }
+    return isAuthenticatedHandshakePair(pair);
   }
 
   private remotePeer(): Address {
@@ -98,7 +138,7 @@ export class IceSpedTransport implements Transport {
     }
     const path = this.runtime?.lastPath;
     if (path) {
-      return path.addr;
+      return path.remoteAddr;
     }
     return ["0.0.0.0", 0];
   }

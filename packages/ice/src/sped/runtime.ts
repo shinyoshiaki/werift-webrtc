@@ -1,5 +1,6 @@
 import type { CandidatePair } from "../iceBase";
 import type { Address } from "../imports/common";
+import { isAuthenticatedHandshakePair } from "../internal/datagram";
 import type { Message } from "../stun/message";
 import { StunOverTurnProtocol } from "../turn/protocol";
 import type { Protocol } from "../types/model";
@@ -60,7 +61,12 @@ export function isSpedEligibleProtocol(protocol: Protocol): boolean {
  */
 export class SpedRuntime {
   fallbackStarted = false;
-  lastPath?: { protocol: Protocol; addr: Address; generation: number };
+  /**
+   * Authenticated current-generation pair used for pre-nomination handshake
+   * send. Pinned on first use so a later Binding cannot move DTLS to another
+   * candidate (multi-candidate contamination).
+   */
+  lastPath?: CandidatePair;
   private pendingInjectGeneration?: number;
   /** Last DTLS datagram MTU pushed to the carrier. */
   private lastMtu: number;
@@ -88,6 +94,19 @@ export class SpedRuntime {
 
   isLiveGeneration(generation: number): boolean {
     return this.session.generation === generation;
+  }
+
+  /**
+   * Remember the first authenticated handshake pair for this generation.
+   * Later candidates must not replace it.
+   */
+  pinHandshakePath(pair: CandidatePair): void {
+    if (!isAuthenticatedHandshakePair(pair)) {
+      return;
+    }
+    if (!this.lastPath) {
+      this.lastPath = pair;
+    }
   }
 
   syncRtt(pair: CandidatePair): void {
@@ -160,15 +179,12 @@ export class SpedRuntime {
     message: Message,
     addr: Address,
     generation: number,
-    protocol?: Protocol,
+    _protocol?: Protocol,
   ): Promise<{ fallback: boolean; inject?: Buffer }> {
     if (!this.session.embedding || !this.isLiveGeneration(generation)) {
       return { fallback: false };
     }
     this.markInjectGeneration(generation);
-    if (protocol) {
-      this.lastPath = { protocol, addr, generation };
-    }
     const result = this.session.receiveAuthenticated(message);
     if (
       !this.isLiveGeneration(generation) ||
