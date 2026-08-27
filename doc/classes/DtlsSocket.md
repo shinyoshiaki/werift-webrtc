@@ -704,6 +704,19 @@ Dual client also sets dualPhase → closed here.
 
 ***
 
+### refragmentPendingFlightIfNeeded()
+
+> **refragmentPendingFlightIfNeeded**(): `boolean`
+
+Rebuild pending handshake datagrams under the current carrier MTU.
+Used when SPED shrinks path MTU while retransmission mode is external.
+
+#### Returns
+
+`boolean`
+
+***
+
 ### renegotiation()
 
 > **renegotiation**(): `void`
