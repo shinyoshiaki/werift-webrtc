@@ -317,4 +317,54 @@ describe("STUN wire attribute order", () => {
     expect(message.getAttributeValue("USERNAME")).toBe("a:b");
     expect(attributeTypes(message.bytes)).toContain(0x0006);
   });
+
+  it("rawAttributes.reverse は wire order に反映される", () => {
+    // Arrange
+    const message = new Message(methods.BINDING, classes.REQUEST);
+    message.setAttribute("USERNAME", "a:b");
+    message.appendRawAttribute(DTLS_IN_STUN_DATA, Buffer.from("aa"));
+    message.appendRawAttribute(DTLS_IN_STUN_ACK, Buffer.from("bb"));
+
+    // Act
+    message.rawAttributes.reverse();
+
+    // Assert: 公開配列の順が serialize に載る
+    expect(attributeTypes(message.bytes)).toEqual([
+      0x0006,
+      DTLS_IN_STUN_ACK,
+      DTLS_IN_STUN_DATA,
+    ]);
+  });
+
+  it("getAttributes().reverse は wire order に反映される", () => {
+    // Arrange
+    const message = new Message(methods.BINDING, classes.REQUEST);
+    message.setAttribute("USERNAME", "a:b");
+    message.setAttribute("PRIORITY", 1);
+
+    // Act
+    message.getAttributes().reverse();
+
+    // Assert
+    expect(attributeTypes(message.bytes)).toEqual([0x0024, 0x0006]);
+  });
+
+  it("clear は known だけ消し rawAttributes は残す", () => {
+    // Arrange
+    const payload = Buffer.from([20, 1, 2]);
+    const message = new Message(methods.BINDING, classes.REQUEST);
+    message.setAttribute("USERNAME", "a:b");
+    message.appendRawAttribute(DTLS_IN_STUN_DATA, payload);
+
+    // Act: AttributeRepository.clear は known のみ
+    message.clear();
+
+    // Assert
+    expect(message.getAttributeValue("USERNAME")).toBeUndefined();
+    expect(message.rawAttributes).toHaveLength(1);
+    expect(
+      getRawAttributeValue(message, DTLS_IN_STUN_DATA)?.equals(payload),
+    ).toBe(true);
+    expect(attributeTypes(message.bytes)).toEqual([DTLS_IN_STUN_DATA]);
+  });
 });

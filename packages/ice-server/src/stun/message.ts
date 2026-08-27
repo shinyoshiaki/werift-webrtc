@@ -253,7 +253,7 @@ export class Message extends AttributeRepository {
 
   /**
    * Unknown (not in ATTRIBUTES) attributes in wire order.
-   * Live array: `push` / in-place edits are serialized (develop-compatible).
+   * Live array: `push` / `reverse` / in-place edits are serialized.
    */
   get rawAttributes(): RawAttribute[] {
     return rawAttributeListOf(this);
@@ -297,12 +297,6 @@ export class Message extends AttributeRepository {
       wire.push({ kind: "known", name: key, value });
     }
     return super.setAttribute(key, value);
-  }
-
-  override clear() {
-    setRawAttributeList(this, []);
-    setMessageWireAttributes(this, []);
-    super.clear();
   }
 
   get bytes() {
@@ -357,60 +351,45 @@ export class Message extends AttributeRepository {
   }
 
   /**
-   * Public `attributes` / `rawAttributes` arrays are the membership source;
-   * wire order is preserved for entries that still exist in those arrays.
+   * Public arrays are membership and order within each kind. Mixed known/raw
+   * slots from parse / appendRawAttribute stay; `reverse` fills those slots
+   * in public-array order. `clear()` only empties known attributes.
    */
   private reconcileWireFromPublicArrays() {
     const wire = wireAttributesOf(this);
-    const rawList = rawAttributeListOf(this);
-    const remainingKnown = new Map<AttributeKey, unknown>();
-    for (const [name, value] of this.attributes) {
-      if (!remainingKnown.has(name)) {
-        remainingKnown.set(name, value);
-      }
-    }
-
-    const kept: WireAttribute[] = [];
-    const consumedRaw = new Set<RawAttribute>();
-    for (const attribute of wire) {
-      if (attribute.kind === "known") {
-        if (!remainingKnown.has(attribute.name)) {
-          continue;
-        }
-        attribute.value = remainingKnown.get(attribute.name);
-        remainingKnown.delete(attribute.name);
-        kept.push(attribute);
-        continue;
-      }
-      const match = rawList.find(
-        (raw) =>
-          !consumedRaw.has(raw) &&
-          raw.type === attribute.type &&
-          raw.value === attribute.value,
-      );
-      if (!match) {
-        continue;
-      }
-      consumedRaw.add(match);
-      kept.push(attribute);
-    }
-
-    for (const [name, value] of remainingKnown) {
-      kept.splice(integrityBoundaryIndex(kept), 0, {
+    const knownQueue: WireAttribute[] = this.attributes.map(
+      ([name, value]) => ({
         kind: "known",
         name,
         value,
-      });
-    }
-    for (const raw of rawList) {
-      if (consumedRaw.has(raw)) {
+      }),
+    );
+    const rawQueue: WireAttribute[] = rawAttributeListOf(this).map((raw) => ({
+      kind: "raw",
+      type: raw.type,
+      value: raw.value,
+    }));
+
+    const kept: WireAttribute[] = [];
+    for (const attribute of wire) {
+      if (attribute.kind === "known") {
+        const next = knownQueue.shift();
+        if (next) {
+          kept.push(next);
+        }
         continue;
       }
-      kept.splice(integrityBoundaryIndex(kept), 0, {
-        kind: "raw",
-        type: raw.type,
-        value: raw.value,
-      });
+      const next = rawQueue.shift();
+      if (next) {
+        kept.push(next);
+      }
+    }
+
+    for (const extra of knownQueue) {
+      kept.splice(integrityBoundaryIndex(kept), 0, extra);
+    }
+    for (const extra of rawQueue) {
+      kept.splice(integrityBoundaryIndex(kept), 0, extra);
     }
 
     setMessageWireAttributes(this, kept);

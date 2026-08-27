@@ -471,6 +471,35 @@ describe("RTCPeerConnection SPED opt-in", () => {
     }
   }, 30_000);
 
+  test("setConfiguration の dtls.protocolVersions: undefined は既存値を残す", () => {
+    // Arrange
+    const pc = new RTCPeerConnection(spedPeerConfig());
+
+    try {
+      // Act: deepMerge と同じく undefined は「未指定」
+      pc.setConfiguration({
+        dtls: { protocolVersions: undefined },
+      });
+
+      // Assert: transport 作成前でも 1.3 が消えない
+      expect(pc.getConfiguration().dtls.protocolVersions).toEqual([
+        DtlsVersion.V1_3,
+      ]);
+
+      pc.createDataChannel("dc");
+      expect(() =>
+        pc.setConfiguration({
+          dtls: { protocolVersions: undefined },
+        }),
+      ).not.toThrow();
+      expect(pc.getConfiguration().dtls.protocolVersions).toEqual([
+        DtlsVersion.V1_3,
+      ]);
+    } finally {
+      pc.close();
+    }
+  });
+
   test("createDataChannel 後の sped 有効化は reject する", () => {
     // Arrange: 既存 non-SPED transport のあとで sped を後付けしない
     const pc = new RTCPeerConnection({ iceServers: [] });

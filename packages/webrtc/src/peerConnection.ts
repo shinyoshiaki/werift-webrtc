@@ -424,16 +424,11 @@ export class RTCPeerConnection extends EventTarget {
       throw new Error("iceCandidatePoolSize > 0 is not supported");
     }
 
-    // deepMerge is a shallow key replace; merge nested dtls onto the current
-    // object so a partial update cannot drop protocolVersions / helloRetryRequest.
-    const nextDtls =
-      normalizedConfig.dtls !== undefined
-        ? {
-            ...this.config.dtls,
-            ...normalizedConfig.dtls,
-          }
-        : this.config.dtls;
+    // deepMerge skips undefined source values. Nested dtls must use the same
+    // contract so `{ protocolVersions: undefined }` cannot drop DTLS 1.3.
+    const nextDtls = { ...this.config.dtls };
     if (normalizedConfig.dtls !== undefined) {
+      deepMerge(nextDtls, normalizedConfig.dtls);
       normalizedConfig.dtls = nextDtls;
     }
 
