@@ -23,7 +23,7 @@ export class SpedProtocolMock implements Protocol {
     "host",
   );
   sentMessage?: Message;
-  request = async () => null as any;
+  request: Protocol["request"] = async () => null as any;
   sendStun = async (message: Message) => {
     this.sentMessage = message;
   };

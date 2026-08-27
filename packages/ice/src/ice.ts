@@ -103,6 +103,11 @@ export class Connection implements IceConnection {
   }
   private spedCarryInFlight = false;
   private spedCarryQueued = false;
+  /**
+   * After receiving SPED DATA, send one more Binding even without local L1
+   * so ICE-Lite (Responses only) can put the next L1 datagram on the reply.
+   */
+  private spedSolicitPeerCarry = false;
   private spedCarryEpoch = 0;
   private spedIncomingStunDepth = 0;
 
@@ -234,6 +239,7 @@ export class Connection implements IceConnection {
     this.stopConsentLifecycle();
     this.spedCarryInFlight = false;
     this.spedCarryQueued = false;
+    this.spedSolicitPeerCarry = false;
     this.spedRuntime?.reset(this.generation);
   }
 
@@ -428,6 +434,10 @@ export class Connection implements IceConnection {
       );
     } finally {
       this.spedIncomingStunDepth--;
+      if (this.spedIncomingStunDepth === 0 && this.spedCarryQueued) {
+        this.spedCarryQueued = false;
+        void this.flushSpedCarry();
+      }
     }
   }
 
@@ -1219,6 +1229,7 @@ export class Connection implements IceConnection {
     this.spedCarryEpoch++;
     this.spedCarryInFlight = false;
     this.spedCarryQueued = false;
+    this.spedSolicitPeerCarry = false;
     this.spedRuntime?.abort();
     this.spedRuntime = undefined;
   }
@@ -1376,6 +1387,7 @@ export class Connection implements IceConnection {
       return;
     }
     if (this.spedIncomingStunDepth > 0) {
+      this.spedCarryQueued = true;
       return;
     }
     if (this.isTerminalIceState()) {
@@ -1402,16 +1414,20 @@ export class Connection implements IceConnection {
       return;
     }
     const runtime = this.spedRuntime;
-    if (!runtime?.session.embedding || !runtime.session.hasL1) {
+    if (!runtime?.session.embedding) {
       return;
     }
     if (this.spedCarryInFlight) {
       this.spedCarryQueued = true;
       return;
     }
+    if (!runtime.session.hasL1 && !this.spedSolicitPeerCarry) {
+      return;
+    }
     if (!this.remoteUsername || !this.remotePassword) {
       return;
     }
+    this.spedSolicitPeerCarry = false;
 
     const pair =
       this.nominated ??
@@ -1517,6 +1533,10 @@ export class Connection implements IceConnection {
     }
     if (pair) {
       runtime.syncRtt(pair);
+    }
+    if (result.inject) {
+      this.spedSolicitPeerCarry = true;
+      this.maybeFlushSpedCarry();
     }
     if (result.fallback && !runtime.fallbackStarted) {
       const packets = runtime.beginFallback();

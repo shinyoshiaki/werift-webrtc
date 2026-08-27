@@ -2,7 +2,11 @@ import { CandidatePair, CandidatePairState } from "../../src";
 import { Candidate } from "../../src/candidate";
 import { TransactionTimeout } from "../../src/exceptions";
 import { attachSpedToConnection } from "../../src/internal/sped";
-import { DTLS_IN_STUN_DATA } from "../../src/sped/draft00/constants";
+import { encodeSpedAck, spedDataCrc32 } from "../../src/sped/draft00";
+import {
+  DTLS_IN_STUN_ACK,
+  DTLS_IN_STUN_DATA,
+} from "../../src/sped/draft00/constants";
 import { classes, methods } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
 import { getRawAttributeValue } from "../../src/stun/rawAttributeValue";
@@ -213,6 +217,123 @@ describe("ICE restart と SPED carry", () => {
     // Assert: timeout 1 回で止まり、L1 は consent / check に残す
     expect(requests).toBe(1);
     expect(handle.session.hasL1).toBe(true);
+  });
+
+  it("inbound Binding 中に L1 が増えても処理後に carry する", async () => {
+    // Arrange: 認証済み Request の inject で server flight 相当の L1 を載せる
+    const connection = createTestConnection(true);
+    connection.remoteUsername = "remote";
+    connection.remotePassword = "remotepw";
+    const protocol = new SpedProtocolMock();
+    const requests: Message[] = [];
+    protocol.request = async (message: Message) => {
+      requests.push(message);
+      const response = new Message(methods.BINDING, classes.RESPONSE);
+      const data = getRawAttributeValue(message, DTLS_IN_STUN_DATA);
+      if (data && data.length > 0) {
+        response.appendRawAttribute(
+          DTLS_IN_STUN_ACK,
+          encodeSpedAck([spedDataCrc32(data)]).value,
+        );
+      }
+      return [response, ["9.9.9.9", 9]];
+    };
+    (connection as any).ensureProtocol(protocol);
+    const pair = new CandidatePair(
+      protocol,
+      new Candidate("r", 1, "udp", 1, "9.9.9.9", 9, "host"),
+      true,
+    );
+    pair.updateState(CandidatePairState.SUCCEEDED);
+    connection.checkList.push(pair);
+    (connection as any).nominated = pair;
+    const handle = attachSpedToConnection(connection, {
+      inject: async () => {
+        handle.onFlightCreated([
+          Buffer.from([22, 1, 2, 3]),
+          Buffer.from([22, 4, 5, 6]),
+        ]);
+      },
+      onFallbackFlight: async () => {},
+      setRetransmissionMode: () => {},
+      updateRtt: () => {},
+      resetRtt: () => {},
+      setMtu: () => {},
+    });
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request
+      .setAttribute("USERNAME", `${connection.localUsername}:remote`)
+      .setAttribute("PRIORITY", 1)
+      .setAttribute("ICE-CONTROLLED", 1n)
+      .appendRawAttribute(DTLS_IN_STUN_DATA, Buffer.from([22, 9, 8, 7]))
+      .addMessageIntegrity(Buffer.from(connection.localPassword))
+      .addFingerprint();
+
+    // Act: 受信処理中の flush はキューし、抜けたあと残 L1 を Binding で送る
+    await (connection as any).handleBindingRequest(
+      protocol,
+      request,
+      ["9.9.9.9", 9],
+      request.bytes,
+    );
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Assert: inbound 中に捨てず、Response 後に残 L1 を Binding で送る
+    expect(protocol.sentMessage).toBeDefined();
+    expect(requests.length).toBeGreaterThan(0);
+    expect(
+      requests.some((message) => {
+        const data = getRawAttributeValue(message, DTLS_IN_STUN_DATA);
+        return data != null && data.length > 0;
+      }),
+    ).toBe(true);
+  });
+
+  it("受信 DATA のあとローカル L1 が空でも peer 用 Binding を 1 本出す", async () => {
+    // Arrange: Full 側は CH を送り済みで L1 が空。Lite の残り L1 を引き出す
+    const connection = createTestConnection(true);
+    connection.remoteUsername = "remote";
+    connection.remotePassword = "remotepw";
+    const protocol = new SpedProtocolMock();
+    const requests: Message[] = [];
+    protocol.request = async (message: Message) => {
+      requests.push(message);
+      return [new Message(methods.BINDING, classes.RESPONSE), ["9.9.9.9", 9]];
+    };
+    (connection as any).ensureProtocol(protocol);
+    const pair = new CandidatePair(
+      protocol,
+      new Candidate("r", 1, "udp", 1, "9.9.9.9", 9, "host"),
+      true,
+    );
+    pair.updateState(CandidatePairState.SUCCEEDED);
+    connection.checkList.push(pair);
+    (connection as any).nominated = pair;
+    const handle = attachSpedToConnection(connection, {
+      inject: async () => {},
+      onFallbackFlight: async () => {},
+      setRetransmissionMode: () => {},
+      updateRtt: () => {},
+      resetRtt: () => {},
+      setMtu: () => {},
+    });
+    handle.session.noteAuthenticatedBindingHasData(true);
+    const response = new Message(methods.BINDING, classes.RESPONSE);
+    response.appendRawAttribute(DTLS_IN_STUN_DATA, Buffer.from([22, 1, 2, 3]));
+
+    // Act: 空 L1 でも DATA 受信をきっかけに Binding を 1 本送る
+    await (connection as any).consumeSpedStun(
+      response,
+      ["9.9.9.9", 9],
+      protocol,
+      pair,
+      connection.generation,
+    );
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Assert: Lite が次の L1 を Response に載せられる
+    expect(requests).toHaveLength(1);
+    expect(handle.session.hasL1).toBe(false);
   });
 });
 
