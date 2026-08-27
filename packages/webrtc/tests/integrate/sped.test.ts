@@ -4,9 +4,14 @@ import { join } from "node:path";
 
 import { DirectHandshakeCarrier } from "../../../dtls/src/carrier/direct";
 import type { CandidatePair, Connection } from "../../../ice/src";
-import { SpedSession } from "../../../ice/src/internal/sped";
+import { SpedSession, encodeSpedAck } from "../../../ice/src/internal/sped";
 import { getConnectionSpedRuntime } from "../../../ice/src/internal/sped-bind";
-import { paddingLength } from "../../../ice/src/stun/message";
+import {
+  maxPayloadFitting,
+  remainingDataValueBudget,
+} from "../../../ice/src/sped/draft00/mtu";
+import { SpedRuntime } from "../../../ice/src/sped/runtime";
+import { type Message, paddingLength } from "../../../ice/src/stun/message";
 import type { Protocol } from "../../../ice/src/types/model";
 import {
   DtlsVersion,
@@ -135,6 +140,100 @@ function recordL1Flights() {
       SpedSession.prototype.replaceL1 = original;
     },
     flightsOf: (session: SpedSession) => flightsBySession.get(session) ?? [],
+  };
+}
+
+const DTLS_HANDSHAKE = 22;
+const DTLS_SERVER_HELLO = 2;
+const CUSTOM_RAW_ATTR = 0xc001;
+
+function serverHelloPlaintextEnd(packet: Buffer): number | undefined {
+  if (packet.length < 13) {
+    return undefined;
+  }
+  if (packet[0] !== DTLS_HANDSHAKE) {
+    return undefined;
+  }
+  if (packet.readUInt16BE(3) !== 0) {
+    return undefined;
+  }
+  const recordLength = packet.readUInt16BE(11);
+  const end = 13 + recordLength;
+  if (end > packet.length || packet[13] !== DTLS_SERVER_HELLO) {
+    return undefined;
+  }
+  return end;
+}
+
+function isCoalescedServerHelloAndFirst(packet: Buffer): boolean {
+  const shEnd = serverHelloPlaintextEnd(packet);
+  return shEnd != null && packet.length > shEnd;
+}
+
+function extraRawLenToCapDataPayload(
+  message: Message,
+  ackValue: Buffer,
+  targetMax: number,
+): number | undefined {
+  const current = maxPayloadFitting(
+    remainingDataValueBudget(message, ackValue),
+  );
+  if (current <= targetMax) {
+    return undefined;
+  }
+  for (let valueLen = 0; valueLen <= 1200; valueLen++) {
+    const overhead = 4 + valueLen + paddingLength(valueLen);
+    const next = maxPayloadFitting(
+      remainingDataValueBudget(message, ackValue) - overhead,
+    );
+    if (next <= targetMax) {
+      return valueLen;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * After the server L1 is the coalesced SH+first datagram, shrink the next
+ * Binding's DATA budget to combined-1 so only that combined packet is oversized.
+ */
+function shrinkBindingSoCombinedServerHelloExceeds() {
+  const original = SpedRuntime.prototype.decorateOutgoing;
+  const padded = new WeakSet<object>();
+  const state: {
+    didPad: boolean;
+    combinedLength: number;
+    targetMtu: number;
+    session?: SpedSession;
+  } = { didPad: false, combinedLength: 0, targetMtu: 0 };
+  SpedRuntime.prototype.decorateOutgoing = function (message, protocol) {
+    const session = this.session;
+    if (session.hasL1 && !padded.has(session)) {
+      const combined = session.l1Datagrams.find(isCoalescedServerHelloAndFirst);
+      if (combined) {
+        const shEnd = serverHelloPlaintextEnd(combined)!;
+        const target = combined.length - 1;
+        if (shEnd <= target && combined.length - shEnd <= target) {
+          const ackValue = encodeSpedAck(session.peekAcksForBinding()).value;
+          const extra = extraRawLenToCapDataPayload(message, ackValue, target);
+          if (extra != null) {
+            message.appendRawAttribute(CUSTOM_RAW_ATTR, Buffer.alloc(extra));
+            padded.add(session);
+            state.didPad = true;
+            state.combinedLength = combined.length;
+            state.targetMtu = target;
+            state.session = session;
+          }
+        }
+      }
+    }
+    return original.call(this, message, protocol);
+  };
+  return {
+    state,
+    restore: () => {
+      SpedRuntime.prototype.decorateOutgoing = original;
+    },
   };
 }
 
@@ -642,8 +741,14 @@ describe("RTCPeerConnection SPED opt-in", () => {
   test("sped: false 同士は datachannel が開き Binding に SPED が付かない", async () => {
     const stun: Buffer[] = [];
     const handshakeDtls: Buffer[] = [];
-    const iceConnectedAt: { t?: number } = {};
-    const dtlsFirstAt: { t?: number } = {};
+    const offerer = {
+      iceConnectedAt: {} as { t?: number },
+      dtlsFirstAt: {} as { t?: number },
+    };
+    const answerer = {
+      iceConnectedAt: {} as { t?: number },
+      dtlsFirstAt: {} as { t?: number },
+    };
     const pc1 = new RTCPeerConnection({ iceServers: [] });
     const pc2 = new RTCPeerConnection({ iceServers: [] });
     try {
@@ -652,7 +757,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
         pc2,
         stun,
         handshakeDtls,
-        { iceConnectedAt, dtlsFirstAt },
+        { offerer, answerer },
       );
       dc1.send("hello");
       expect(await awaitMessage(dc2)).toBe("hello");
@@ -661,15 +766,64 @@ describe("RTCPeerConnection SPED opt-in", () => {
           stunAttributeTypes(bytes).includes(DTLS_IN_STUN_DATA),
         ),
       ).toBe(false);
-      // Assert: sped:false は ICE nomination のあとで DTLS first-flight
-      expect(iceConnectedAt.t).toBeDefined();
-      expect(dtlsFirstAt.t).toBeDefined();
-      expect(dtlsFirstAt.t!).toBeGreaterThan(iceConnectedAt.t!);
+      // Assert: 各 peer で ICE connected のあと DTLS first-flight
+      expect(offerer.iceConnectedAt.t).toBeDefined();
+      expect(offerer.dtlsFirstAt.t).toBeDefined();
+      expect(offerer.dtlsFirstAt.t!).toBeGreaterThan(offerer.iceConnectedAt.t!);
+      expect(answerer.iceConnectedAt.t).toBeDefined();
+      expect(answerer.dtlsFirstAt.t).toBeDefined();
+      expect(answerer.dtlsFirstAt.t!).toBeGreaterThan(
+        answerer.iceConnectedAt.t!,
+      );
     } finally {
       await pc1.close();
       await pc2.close();
     }
   }, 20_000);
+
+  test("SH+first 結合 L1 だけが custom attr で新 MTU を超えても handshake が完了する", async () => {
+    const stun: Buffer[] = [];
+    const handshakeDtls: Buffer[] = [];
+    const record = recordL1Flights();
+    const shrink = shrinkBindingSoCombinedServerHelloExceeds();
+    const pc1 = new RTCPeerConnection(spedPeerConfig());
+    const pc2 = new RTCPeerConnection(spedPeerConfig());
+    try {
+      const [dc1, dc2] = await openDataChannelWithWireSpy(
+        pc1,
+        pc2,
+        stun,
+        handshakeDtls,
+      );
+      // Act: custom raw で結合 datagram だけ oversized にしたあと app data
+      dc1.send("sh-first");
+      expect(await awaitMessage(dc2)).toBe("sh-first");
+
+      // Assert: 実際に SH+first 結合を縮めており、再構築 L1 は新 MTU 以下
+      expect(shrink.state.didPad).toBe(true);
+      expect(shrink.state.session).toBeDefined();
+      const flights = record.flightsOf(shrink.state.session!);
+      expect(
+        flights.some((flight) => isCoalescedServerHelloAndFirst(flight[0]!)),
+      ).toBe(true);
+      const split = flights.find((flight) => {
+        const first = flight[0];
+        return (
+          first != null &&
+          serverHelloPlaintextEnd(first) === first.length &&
+          first.length <= shrink.state.targetMtu &&
+          flight.length > 1
+        );
+      });
+      expect(split).toBeDefined();
+      expect(handshakeDtls).toHaveLength(0);
+    } finally {
+      shrink.restore();
+      record.stop();
+      await pc1.close();
+      await pc2.close();
+    }
+  }, 30_000);
 
   test("werift ↔ werift で SPED + DTLS 1.3 + 双方向 app data", async () => {
     const pc1 = new RTCPeerConnection(spedPeerConfig());

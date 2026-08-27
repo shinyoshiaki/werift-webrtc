@@ -18,6 +18,7 @@ import { DirectHandshakeCarrier } from "../../../dtls/src/carrier/direct";
 import {
   createDtlsClientInternal,
   createDtlsServerInternal,
+  refragmentPendingFlightIfNeeded,
 } from "../../../dtls/src/internal";
 import { Candidate, Connection } from "../../../ice/src";
 import { attachSpedToConnection } from "../../../ice/src/internal/sped";
@@ -273,7 +274,9 @@ describePion("released Pion ICE agent SPED fallback", () => {
         resetRtt: () => carrier.resetRtt(),
         setMtu: (mtu) => carrier.setMtu(mtu),
         refragmentPendingFlight: () => {
-          client?.refragmentPendingFlightIfNeeded();
+          if (client) {
+            refragmentPendingFlightIfNeeded(client);
+          }
         },
       });
       iceTransport.setRuntime(handle.runtime);

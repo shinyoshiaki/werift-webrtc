@@ -5,7 +5,7 @@
  */
 import { DtlsClient, type DualAssociationPhase } from "./client";
 import { DtlsServer } from "./server";
-import type { DtlsInternalOptions, Options } from "./socket";
+import type { DtlsInternalOptions, DtlsSocket, Options } from "./socket";
 
 /**
  * @internal Create a DtlsClient with internal-only options (e.g. handshakeCarrier).
@@ -39,3 +39,16 @@ export function dualAssociationPhaseOf(
 
 // Re-export type for tests without promoting it through package root.
 export type { DtlsInternalOptions, DualAssociationPhase };
+
+/**
+ * @internal Rebuild pending handshake datagrams after SPED path MTU shrinks.
+ * Not part of the DtlsClient / DtlsServer public API.
+ */
+export function refragmentPendingFlightIfNeeded(socket: DtlsSocket): boolean {
+  const engine = (
+    socket as unknown as {
+      engine13?: { refragmentPendingFlightIfNeeded(): boolean };
+    }
+  ).engine13;
+  return engine?.refragmentPendingFlightIfNeeded() ?? false;
+}

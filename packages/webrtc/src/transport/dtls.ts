@@ -8,6 +8,7 @@ import { DirectHandshakeCarrier } from "../../../dtls/src/carrier/direct";
 import {
   createDtlsClientInternal,
   createDtlsServerInternal,
+  refragmentPendingFlightIfNeeded,
 } from "../../../dtls/src/internal";
 import type { Connection } from "../../../ice/src";
 import { attachSpedToConnection } from "../../../ice/src/internal/sped";
@@ -356,7 +357,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       resetRtt: () => carrier.resetRtt(),
       setMtu: (mtu) => carrier.setMtu(mtu),
       refragmentPendingFlight: () => {
-        dtlsSocket?.refragmentPendingFlightIfNeeded();
+        if (dtlsSocket) {
+          refragmentPendingFlightIfNeeded(dtlsSocket);
+        }
       },
     });
     transport.setRuntime(handle.runtime);

@@ -20,6 +20,29 @@ import {
 } from "./types";
 
 /**
+ * SPED L1 / onFlightCreated datagrams: coalesce epoch-0 ServerHello with the
+ * first encrypted datagram when the pair still fits `mtu`.
+ */
+export function spedNotifySources(
+  serverHello: Buffer | undefined,
+  datagrams: readonly Buffer[],
+  mtu: number,
+): Buffer[] {
+  if (!serverHello) {
+    return datagrams.map((datagram) => Buffer.from(datagram));
+  }
+  const hello = Buffer.from(serverHello);
+  const first = datagrams[0];
+  if (first && hello.length + first.length <= mtu) {
+    return [
+      Buffer.concat([hello, first]),
+      ...datagrams.slice(1).map((datagram) => Buffer.from(datagram)),
+    ];
+  }
+  return [hello, ...datagrams.map((datagram) => Buffer.from(datagram))];
+}
+
+/**
  * Flight transmit path: serialize handshake fragments → records → datagrams,
  * retransmit, anti-amplification budget, and ACK emission.
  * Aligns with outbound arrows in index.ts Figure 3.
@@ -140,21 +163,11 @@ export async function sendHandshakeFlight(
   // Epoch-0 ServerHello is sent via carrier.send outside this function. Direct
   // UDP still transmits it there; SPED only sees onFlightCreated, so include SH
   // in the notify list (coalesce with the first encrypted datagram when it fits).
-  const notifySources: Buffer[] = [];
-  if (this.pendingServerHello) {
-    const sh = Buffer.alloc(this.pendingServerHello.bytes.length);
-    this.pendingServerHello.bytes.copy(sh);
-    const first = datagrams[0];
-    if (first && sh.length + first.length <= mtu) {
-      notifySources.push(Buffer.concat([sh, first]));
-      notifySources.push(...datagrams.slice(1));
-    } else {
-      notifySources.push(sh);
-      notifySources.push(...datagrams);
-    }
-  } else {
-    notifySources.push(...datagrams);
-  }
+  const notifySources = spedNotifySources(
+    this.pendingServerHello?.bytes,
+    datagrams,
+    mtu,
+  );
   const notifyPackets = notifySources.map((bytes, i) =>
     createHandshakeDatagram(bytes, flightId, i, retransmittable),
   );
@@ -245,14 +258,40 @@ export function refragmentPendingFlightIfNeeded(this: Dtls13Host): boolean {
     return false;
   }
   const mtu = this.carrier.getMtu();
-  const oversized =
+  const recordsOversized =
     this.pendingFlight.some((packet) => packet.bytes.length > mtu) ||
     (this.pendingServerHello != null &&
       this.pendingServerHello.bytes.length > mtu);
-  if (!oversized) {
+  if (recordsOversized) {
+    return rebuildPendingFlightFromSource(this, src, mtu);
+  }
+  // Combined SH+first L1 can exceed MTU even when each half fits.
+  return publishSpedNotifyFlight(this, mtu);
+}
+
+function publishSpedNotifyFlight(host: Dtls13Host, mtu: number): boolean {
+  const datagrams = host.pendingFlight.map((packet) => packet.bytes);
+  if (datagrams.length === 0 && !host.pendingServerHello) {
     return false;
   }
+  host.flightId += 1;
+  const notifySources = spedNotifySources(
+    host.pendingServerHello?.bytes,
+    datagrams,
+    mtu,
+  );
+  const notifyPackets = notifySources.map((bytes, i) =>
+    createHandshakeDatagram(bytes, host.flightId, i, true),
+  );
+  host.carrier.events.onFlightCreated?.(host.flightId, notifyPackets);
+  return true;
+}
 
+function rebuildPendingFlightFromSource(
+  host: Dtls13Host,
+  src: NonNullable<Dtls13Host["pendingFlightSource"]>,
+  mtu: number,
+): boolean {
   const epoch = src.epoch;
   const maxFrag = epoch === 0 ? mtu - 13 - 12 : mtu - 5 - 12 - 1 - 16;
   if (maxFrag < 1) {
@@ -267,13 +306,13 @@ export function refragmentPendingFlightIfNeeded(this: Dtls13Host): boolean {
     for (const chunk of chunks) {
       const hsBytes = chunk.serialize();
       if (epoch === 0) {
-        const seq = this.recordSeqEpoch0++;
+        const seq = host.recordSeqEpoch0++;
         packetRecords.push({ epoch: 0, sequenceNumber: seq });
         packets.push(
           serializePlaintextRecord(ContentType.handshake, 0, seq, hsBytes),
         );
       } else {
-        const epochCtx = this.epochs.get(epoch);
+        const epochCtx = host.epochs.get(epoch);
         if (!epochCtx?.writeKeys) {
           return false;
         }
@@ -308,36 +347,26 @@ export function refragmentPendingFlightIfNeeded(this: Dtls13Host): boolean {
     datagramRecordGroups.push(currentRecs);
   }
 
-  this.flightId += 1;
-  const flightId = this.flightId;
-  const notifySources: Buffer[] = [];
-  if (this.pendingServerHello) {
-    const serverHello = Buffer.alloc(this.pendingServerHello.bytes.length);
-    this.pendingServerHello.bytes.copy(serverHello);
-    const first = datagrams[0];
-    if (first && serverHello.length + first.length <= mtu) {
-      notifySources.push(Buffer.concat([serverHello, first]));
-      notifySources.push(...datagrams.slice(1));
-    } else {
-      notifySources.push(serverHello);
-      notifySources.push(...datagrams);
-    }
-  } else {
-    notifySources.push(...datagrams);
-  }
+  host.flightId += 1;
+  const flightId = host.flightId;
+  const notifySources = spedNotifySources(
+    host.pendingServerHello?.bytes,
+    datagrams,
+    mtu,
+  );
   const notifyPackets = notifySources.map((bytes, i) =>
     createHandshakeDatagram(bytes, flightId, i, true),
   );
-  this.carrier.events.onFlightCreated?.(flightId, notifyPackets);
+  host.carrier.events.onFlightCreated?.(flightId, notifyPackets);
 
-  this.pendingFlight = datagrams.map((bytes, i) =>
+  host.pendingFlight = datagrams.map((bytes, i) =>
     createHandshakeDatagram(bytes, flightId, i, true),
   );
-  this.pendingFlightRecordGroups = datagramRecordGroups.map((group) =>
+  host.pendingFlightRecordGroups = datagramRecordGroups.map((group) =>
     group.map((record) => ({ ...record })),
   );
-  this.pendingFlightRecords = packetRecords.map((record) => ({ ...record }));
-  this.pendingFlightRecordBytes = packets.map((packet) => Buffer.from(packet));
+  host.pendingFlightRecords = packetRecords.map((record) => ({ ...record }));
+  host.pendingFlightRecordBytes = packets.map((packet) => Buffer.from(packet));
   return true;
 }
 

@@ -109,14 +109,6 @@ export class DtlsSocket {
     return !!this.engine13;
   }
 
-  /**
-   * Rebuild pending handshake datagrams under the current carrier MTU.
-   * Used when SPED shrinks path MTU while retransmission mode is external.
-   */
-  refragmentPendingFlightIfNeeded(): boolean {
-    return this.engine13?.refragmentPendingFlightIfNeeded() ?? false;
-  }
-
   renegotiation() {
     // Terminal association must not re-init flight/cipher state (invariant:
     // reconnect / renegotiation on a closed association is prohibited).
