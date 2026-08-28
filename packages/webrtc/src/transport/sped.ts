@@ -10,7 +10,8 @@ import { isDtls } from "../utils";
 
 /**
  * ICE Transport for SPED: handshake send is suppressed while embedding,
- * then uses the authenticated CandidatePair (pre-nomination) or nominated send.
+ * then uses the authenticated CandidatePair (pre-nomination handshake only).
+ * After DTLS is up, application records always use Connection.send().
  */
 export class IceSpedTransport implements Transport {
   closed = false;
@@ -72,7 +73,11 @@ export class IceSpedTransport implements Transport {
   }
 
   readonly send = async (data: Buffer, addr?: Address) => {
-    if (this.runtime?.session.embedding && !this.applicationReady) {
+    if (this.applicationReady) {
+      await this.ice.send(data);
+      return;
+    }
+    if (this.runtime?.session.embedding) {
       return;
     }
     if (this.ice.nominated) {

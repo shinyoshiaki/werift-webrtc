@@ -10,13 +10,17 @@ import { SpedRuntime } from "../../../ice/src/sped/runtime";
 import { IceSpedTransport } from "../../src/transport/sped";
 
 function createIceStub(generation = 1, checkList: CandidatePair[] = []) {
+  const sent: Buffer[] = [];
   const ice = {
     generation,
     nominated: undefined as CandidatePair | undefined,
     checkList,
-    send: async () => {},
+    send: async (data: Buffer) => {
+      sent.push(Buffer.from(data));
+    },
+    sent,
   };
-  return ice as unknown as Connection;
+  return ice as unknown as Connection & { sent: Buffer[] };
 }
 
 function dummySpedHooks() {
@@ -186,5 +190,28 @@ describe("IceSpedTransport pre-nomination send", () => {
     // Assert: lastPath も動かさず wire に出さない
     expect(a.sent).toHaveLength(0);
     expect(runtime.lastPath).toBe(pairA);
+  });
+
+  it("handshake 完了後の ICE restart 中は nominated 無しでも protocol.sendData へ直接送らない", async () => {
+    // Arrange: DataChannel 接続済み相当。restart で nominated が消え、新 generation の認証済み pair だけある
+    const a = mockProtocol("1.2.3.4", 1000);
+    const pair = authenticatedPair(a.protocol, "10.0.0.1", 1111);
+    const ice = createIceStub(2, [pair]);
+    ice.nominated = undefined;
+    const session = new SpedSession(2, "complete");
+    const runtime = new SpedRuntime(session, dummySpedHooks());
+    runtime.pinHandshakePath(pair);
+    const transport = new IceSpedTransport(ice);
+    transport.setRuntime(runtime);
+    transport.markApplicationReady();
+    const app = Buffer.from([23, 1, 2, 3, 4]);
+
+    // Act: nominated がまだ無い window で application data を送る
+    await transport.send(app, pair.remoteAddr);
+
+    // Assert: Connection.send へ任せ、pair.protocol.sendData には落とさない
+    expect(a.sent).toHaveLength(0);
+    expect(ice.sent).toHaveLength(1);
+    expect(ice.sent[0]!.equals(app)).toBe(true);
   });
 });
