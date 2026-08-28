@@ -33,6 +33,10 @@ export class IceSpedTransport implements Transport {
       if (!allowsAuthenticatedDtlsDelivery(ctx, ice.generation)) {
         return;
       }
+      // Handshake complete: application DTLS only on the selected pair.
+      if (this.applicationReady && ctx.pair !== ice.nominated) {
+        return;
+      }
       this.onData(ctx.bytes, ctx.source);
     });
   }

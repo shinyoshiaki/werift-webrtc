@@ -143,6 +143,40 @@ describe("IceSpedTransport datagram gate", () => {
     expect(received).toHaveLength(1);
     expect(received[0]!.equals(dtls)).toBe(true);
   });
+
+  it("handshake 完了後は nominated 以外の authenticated pair から application DTLS を渡さない", () => {
+    // Arrange: restart 中。新 generation の pair は認証済みだが未 nomination
+    const ice = createIceStub(2);
+    const transport = new IceSpedTransport(ice);
+    const received: Buffer[] = [];
+    transport.onData = (buf) => {
+      received.push(buf);
+    };
+    transport.markApplicationReady();
+    const protocol = {
+      type: "udp",
+      localCandidate: new Candidate("f", 1, "udp", 1, "1.2.3.4", 1, "host"),
+    } as any;
+    const pair = authenticatedPair(protocol, "9.9.9.9", 9);
+    const app = Buffer.from([23, 1, 2, 3]);
+    const ctx: IceDatagramContext = {
+      bytes: app,
+      source: ["9.9.9.9", 9],
+      protocol,
+      pair,
+      generation: 2,
+      authenticated: true,
+    };
+
+    // Act: 未 nomination のあと、同じ pair を selected にして再送する
+    connectionDatagramEvent(ice).execute(ctx);
+    ice.nominated = pair;
+    connectionDatagramEvent(ice).execute(ctx);
+
+    // Assert: nominated になるまで application record は届かない
+    expect(received).toHaveLength(1);
+    expect(received[0]!.equals(app)).toBe(true);
+  });
 });
 
 describe("IceSpedTransport pre-nomination send", () => {
