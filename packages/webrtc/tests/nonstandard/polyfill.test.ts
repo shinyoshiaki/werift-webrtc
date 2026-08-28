@@ -496,6 +496,19 @@ describe("werift/polyfill installPolyfill", () => {
       expect(originalRtcp).toBe(1);
       expect(cloneRtcp).toBe(1);
 
+      let cloneSourceChanged = 0;
+      videoClone.onSourceChanged.subscribe(() => {
+        cloneSourceChanged++;
+      });
+      // 実行: 元 track の sourceChanged を共有 source 経由で通知する。
+      (video as MediaStreamTrack).notifySourceChanged({
+        sequenceNumber: 1,
+        timestamp: 0,
+      });
+
+      // 検証: clone も sourceChanged を受け取る。
+      expect(cloneSourceChanged).toBe(1);
+
       rtpClone.stop();
       (video as MediaStreamTrack).writeRtp(
         RtpPacket.deSerialize(createVp8Rtp()),

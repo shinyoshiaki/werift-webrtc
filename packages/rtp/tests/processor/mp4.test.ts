@@ -201,6 +201,37 @@ describe("packages/rtp/tests/processor/mp4.test.ts", () => {
       outputs.filter((output) => "data" in output && output.type !== "init"),
     ).not.toHaveLength(0);
   });
+
+  it("normalizes negative audio timestamps before finalize", async () => {
+    const tracks: Track[] = [
+      {
+        kind: "audio",
+        codec: "opus",
+        clockRate: 48_000,
+        trackNumber: 1,
+      },
+    ];
+
+    const outputs = await collectMp4Outputs(tracks, async (mp4) => {
+      // Act: 負の開始時刻を含む Opus フレームを投入し、finalize する。
+      for (const frame of [
+        createFrame(Buffer.from([0xf8, 0xff, 0xfe, 0x01]), true, -200),
+        createFrame(Buffer.from([0xf8, 0xff, 0xfe, 0x02]), true, -180),
+        createFrame(Buffer.from([0xf8, 0xff, 0xfe, 0x03]), true, -160),
+      ]) {
+        mp4.inputAudio({ frame });
+      }
+      mp4.inputAudio({ eol: true });
+    });
+
+    // Assert: 負 timestamp でも例外なくメディア断片と EOL が届く。
+    expect(
+      outputs.filter((output) => "eol" in output && output.eol),
+    ).toHaveLength(1);
+    expect(
+      outputs.filter((output) => "data" in output && output.type !== "init"),
+    ).not.toHaveLength(0);
+  });
 });
 
 function createAudioFrames() {

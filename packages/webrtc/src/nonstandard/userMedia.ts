@@ -303,7 +303,7 @@ class TrackPlaybackRunner {
         }
 
         if (sourceChanged && !sourceChangeNotified) {
-          this.props.track.onSourceChanged.execute(packets[0].header);
+          this.props.track.notifySourceChanged(packets[0].header);
           sourceChangeNotified = true;
         }
 

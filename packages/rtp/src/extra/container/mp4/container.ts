@@ -67,6 +67,7 @@ export class Mp4Container {
   #startPromise?: Promise<void>;
   #stopPromise?: Promise<void>;
   #stopped = false;
+  #timestampOrigin: Partial<Record<TrackKind, number>> = {};
   #videoFrame?: (EncodedChunk & { track: TrackKind }) | undefined;
   #videoMeta?: VideoChunkMetadata;
   #videoSource?: EncodedVideoPacketSource;
@@ -373,10 +374,17 @@ export class Mp4Container {
     const data = new Uint8Array(frame.byteLength);
     frame.copyTo(data.buffer);
 
+    if (this.#timestampOrigin[frame.track] == undefined) {
+      this.#timestampOrigin[frame.track] = Math.min(0, frame.timestamp);
+    }
+    const timestamp = Math.max(
+      0,
+      frame.timestamp - this.#timestampOrigin[frame.track]!,
+    );
     const packet = new EncodedPacket(
       data,
       frame.type,
-      frame.timestamp / 1_000_000,
+      timestamp / 1_000_000,
       duration / 1_000_000,
     );
 
@@ -394,12 +402,7 @@ export class Mp4Container {
       await this.#videoSource.add(packet, this.#videoMeta);
     }
 
-    this.#rememberFragmentPacket(
-      frame.track,
-      frame.type,
-      frame.timestamp,
-      duration,
-    );
+    this.#rememberFragmentPacket(frame.track, frame.type, timestamp, duration);
   }
 
   #rememberFragmentPacket(

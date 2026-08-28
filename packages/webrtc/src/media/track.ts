@@ -53,6 +53,16 @@ class TrackBroadcastSource {
     }
   }
 
+  deliverSourceChanged(
+    header: Pick<RtpHeader, "sequenceNumber" | "timestamp">,
+  ) {
+    for (const track of this.tracks) {
+      if (!track.stopped) {
+        track.onSourceChanged.execute(header);
+      }
+    }
+  }
+
   stopAllTracks() {
     for (const track of [...this.tracks]) {
       track.stop();
@@ -138,6 +148,10 @@ export class MediaStreamTrack extends EventTarget {
   writeRtcp = (rtcp: RtcpPacket) => {
     this.broadcastSource.deliverRtcp(rtcp);
   };
+
+  notifySourceChanged(header: Pick<RtpHeader, "sequenceNumber" | "timestamp">) {
+    this.broadcastSource.deliverSourceChanged(header);
+  }
 
   applyIncomingRtp(packet: RtpPacket, extensions?: Extensions) {
     if (this.stopped) {
