@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>動画が途切れない理由 — GCC を絵で見る</title>
+  <style>
+    :root {
+      --paper: #f3eee4;
+      --ink: #1b1714;
+      --muted: #5c534c;
+      --line: #d9cfc2;
+      --terracotta: #c45c26;
+      --teal: #2b6a6a;
+      --leaf: #3d6b4f;
+      --rose: #b42318;
+      --cream: #fffaf3;
+      --shadow: 0 18px 40px rgba(27, 23, 20, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: "Hiragino Mincho ProN", "Yu Mincho", "Source Han Serif", Georgia, serif;
+      color: var(--ink);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, #fff8ee, transparent 55%),
+        radial-gradient(900px 500px at 100% 0%, #e7efe8, transparent 50%),
+        var(--paper);
+      line-height: 1.75;
+    }
+
+    .sans {
+      font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+    }
+
+    header.hero {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 64px 24px 24px;
+    }
+
+    .kicker {
+      display: inline-block;
+      letter-spacing: 0.18em;
+      font-size: 12px;
+      color: var(--teal);
+      text-transform: uppercase;
+      font-family: "Hiragino Sans", sans-serif;
+    }
+
+    h1 {
+      font-size: clamp(32px, 5vw, 56px);
+      font-weight: 600;
+      line-height: 1.2;
+      margin: 12px 0 16px;
+    }
+
+    .lead {
+      font-size: 20px;
+      max-width: 40rem;
+      color: var(--muted);
+    }
+
+    nav.toc {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 28px;
+    }
+
+    nav.toc a {
+      font-family: "Hiragino Sans", sans-serif;
+      font-size: 13px;
+      color: var(--ink);
+      text-decoration: none;
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      background: var(--cream);
+      border-radius: 999px;
+    }
+
+    nav.toc a:hover { border-color: var(--terracotta); }
+
+    section {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 48px 24px;
+    }
+
+    h2 {
+      font-size: clamp(26px, 3vw, 36px);
+      margin: 0 0 12px;
+    }
+
+    h3 { font-size: 20px; margin: 28px 0 8px; }
+
+    p.note { color: var(--muted); max-width: 46rem; }
+
+    .card {
+      background: var(--cream);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+    }
+
+    /* --- analogy row --- */
+    .analogy {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 28px;
+      align-items: center;
+    }
+
+    .pipe-art {
+      position: relative;
+      height: 280px;
+      overflow: hidden;
+    }
+
+    .road {
+      position: absolute;
+      left: 24px;
+      right: 24px;
+      top: 50%;
+      height: 54px;
+      transform: translateY(-50%);
+      background: linear-gradient(#3a3330, #2a2421);
+      border-radius: 27px;
+    }
+
+    .road::after {
+      content: "";
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      top: 50%;
+      border-top: 2px dashed #f0d9a8;
+    }
+
+    .car {
+      position: absolute;
+      top: 50%;
+      width: 34px;
+      height: 20px;
+      margin-top: -10px;
+      border-radius: 6px 10px 6px 6px;
+      background: var(--terracotta);
+      animation: drive 4.8s linear infinite;
+    }
+
+    .car.b { background: var(--teal); animation-delay: -1.6s; }
+    .car.c { background: var(--leaf); animation-delay: -3.2s; }
+
+    @keyframes drive {
+      0% { left: 28px; opacity: 0; }
+      8% { opacity: 1; }
+      92% { opacity: 1; }
+      100% { left: calc(100% - 62px); opacity: 0; }
+    }
+
+    .narrow {
+      position: absolute;
+      left: 46%;
+      top: 50%;
+      width: 70px;
+      height: 28px;
+      margin-top: -14px;
+      background: #1b1714;
+      border-radius: 14px;
+      box-shadow: 0 0 0 8px rgba(196, 92, 38, 0.18);
+    }
+
+    .caption {
+      font-family: "Hiragino Sans", sans-serif;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    /* --- playground --- */
+    .play {
+      padding: 20px;
+    }
+
+    .stage {
+      position: relative;
+      height: 340px;
+      border-radius: 16px;
+      background:
+        linear-gradient(180deg, #efe7d8 0%, #e7dcc8 100%);
+      overflow: hidden;
+    }
+
+    .node {
+      position: absolute;
+      top: 48px;
+      width: 150px;
+      text-align: center;
+      font-family: "Hiragino Sans", sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .node.send { left: 24px; }
+    .node.recv { right: 24px; }
+
+    .avatar {
+      width: 72px;
+      height: 72px;
+      margin: 0 auto 8px;
+      border-radius: 18px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-size: 28px;
+    }
+
+    .send .avatar { background: var(--terracotta); }
+    .recv .avatar { background: var(--teal); }
+
+    .lane {
+      position: absolute;
+      left: 180px;
+      right: 180px;
+      top: 78px;
+      height: 16px;
+      background: #cbbca6;
+      border-radius: 999px;
+      overflow: visible;
+    }
+
+    .bottleneck {
+      position: absolute;
+      left: 42%;
+      width: 16%;
+      top: -10px;
+      height: 36px;
+      background: #8a7a66;
+      border-radius: 10px;
+      transition: width 0.6s ease, left 0.6s ease, background 0.6s ease;
+    }
+
+    .pkt {
+      position: absolute;
+      top: 70px;
+      width: 18px;
+      height: 18px;
+      border-radius: 5px;
+      background: var(--terracotta);
+      box-shadow: 0 2px 0 rgba(0,0,0,.15);
+      transform: translateX(0);
+      z-index: 2;
+    }
+
+    .pkt.lost {
+      background: var(--rose);
+      animation: drop 0.7s ease forwards;
+    }
+
+    .pkt.ack {
+      background: var(--leaf);
+      top: 118px;
+    }
+
+    @keyframes drop {
+      to { transform: translate(40px, 90px) rotate(40deg); opacity: 0; }
+    }
+
+    .queue {
+      position: absolute;
+      left: 40%;
+      top: 108px;
+      display: flex;
+      gap: 4px;
+      min-height: 18px;
+    }
+
+    .queue i {
+      width: 12px;
+      height: 12px;
+      background: var(--terracotta);
+      border-radius: 3px;
+      opacity: 0.85;
+      animation: bob 1.2s ease-in-out infinite;
+    }
+
+    .queue i:nth-child(2) { animation-delay: 0.15s; }
+    .queue i:nth-child(3) { animation-delay: 0.3s; }
+
+    @keyframes bob {
+      50% { transform: translateY(-4px); }
+    }
+
+    .meter-wrap {
+      position: absolute;
+      left: 24px;
+      right: 24px;
+      bottom: 18px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+      align-items: end;
+      font-family: "Hiragino Sans", sans-serif;
+    }
+
+    .meter {
+      height: 14px;
+      background: #ddd4c6;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .meter > span {
+      display: block;
+      height: 100%;
+      width: 40%;
+      background: linear-gradient(90deg, var(--leaf), var(--teal));
+      border-radius: inherit;
+      transition: width 0.8s ease;
+    }
+
+    .bps {
+      font-variant-numeric: tabular-nums;
+      font-size: 28px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .bps small {
+      display: block;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .status {
+      position: absolute;
+      top: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: "Hiragino Sans", sans-serif;
+      font-size: 14px;
+      background: rgba(255,250,243,0.92);
+      padding: 6px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 16px 4px 4px;
+    }
+
+    button.chip {
+      font-family: "Hiragino Sans", sans-serif;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      border-radius: 999px;
+      padding: 10px 14px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    button.chip.active {
+      background: var(--ink);
+      color: var(--cream);
+      border-color: var(--ink);
+    }
+
+    button.chip:focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
+
+    .legend {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      font-family: "Hiragino Sans", sans-serif;
+      font-size: 12px;
+      color: var(--muted);
+      padding: 4px 8px 8px;
+    }
+
+    .swatch {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      margin-right: 4px;
+      vertical-align: middle;
+    }
+
+    /* --- three sensors --- */
+    .grid3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+
+    .sensor {
+      padding: 20px;
+      min-height: 220px;
+    }
+
+    .sensor .icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-family: "Hiragino Sans", sans-serif;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+
+    .delay .icon { background: var(--terracotta); }
+    .loss .icon { background: var(--rose); }
+    .probe .icon { background: var(--teal); }
+
+    .mini-svg { width: 100%; height: 72px; margin: 8px 0 12px; }
+
+    /* --- clocks --- */
+    .clocks {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+
+    .clock {
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .pulse {
+      position: absolute;
+      right: 16px;
+      top: 16px;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--leaf);
+    }
+
+    .pulse::after {
+      content: "";
+      position: absolute;
+      inset: -6px;
+      border-radius: 50%;
+      border: 2px solid var(--leaf);
+      animation: ping 1.8s ease-out infinite;
+    }
+
+    .clock:nth-child(2) .pulse { animation: ping 2.4s ease-out infinite; }
+    .clock:nth-child(2) .pulse::after { animation-duration: 2.4s; }
+    .clock:nth-child(3) .pulse { background: var(--teal); }
+    .clock:nth-child(3) .pulse::after { border-color: var(--teal); animation-duration: 1.2s; }
+
+    @keyframes ping {
+      to { transform: scale(1.8); opacity: 0; }
+    }
+
+    ol.plain {
+      padding-left: 1.2em;
+      font-family: "Hiragino Sans", sans-serif;
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    /* --- app output --- */
+    .app-out {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 20px;
+      align-items: center;
+    }
+
+    .event-log {
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 13px;
+      background: #1b1714;
+      color: #f3eee4;
+      border-radius: 16px;
+      padding: 18px;
+      min-height: 180px;
+    }
+
+    .event-log .line { opacity: 0; animation: fadein 0.5s ease forwards; }
+    .event-log .line:nth-child(1) { animation-delay: 0.2s; }
+    .event-log .line:nth-child(2) { animation-delay: 1.1s; }
+    .event-log .line:nth-child(3) { animation-delay: 2.0s; }
+    .event-log .line:nth-child(4) { animation-delay: 2.9s; }
+    .dim { color: #9a9086; }
+
+    @keyframes fadein { to { opacity: 1; } }
+
+    .code {
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: 13px;
+      background: #fff;
+      border: 1px solid var(--line);
+      padding: 16px;
+      border-radius: 12px;
+      overflow-x: auto;
+    }
+
+    footer {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 24px 24px 80px;
+      color: var(--muted);
+      font-family: "Hiragino Sans", sans-serif;
+      font-size: 13px;
+    }
+
+    @media (max-width: 860px) {
+      .analogy, .grid3, .clocks, .app-out { grid-template-columns: 1fr; }
+      .lane, .node.recv { display: none; }
+      .stage { height: 260px; }
+      .node.send { left: 50%; transform: translateX(-50%); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation: none !important;
+        transition: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="kicker sans">werift · Google Congestion Control</div>
+    <h1>動画が途切れないように、<br />送り方をその場で変える仕組み</h1>
+    <p class="lead">
+      GCC（Google Congestion Control）は、むずかしい数式の名前です。やっていることはシンプルで、
+      <strong>「道が混んできたら、少しゆっくり送る」</strong>です。
+    </p>
+    <nav class="toc">
+      <a href="#analogy">たとえ話</a>
+      <a href="#play">動かして見る</a>
+      <a href="#sensors">3つの観察</a>
+      <a href="#clocks">3本の時計</a>
+      <a href="#app">アプリが見るもの</a>
+    </nav>
+  </header>
+
+  <section id="analogy">
+    <h2>高速道路で荷物を運ぶ話</h2>
+    <p class="note">
+      ビデオ通話は、小さな荷物（パケット）を連続で相手に届けています。道（ネットワーク）の幅は毎回ちがいます。
+      速く送りすぎると料金所の手前で車が並び、遅れて届きます。もっと押し込むと、車が落ちて消えます。
+    </p>
+    <div class="analogy">
+      <div class="card pipe-art" aria-hidden="true">
+        <div class="road"></div>
+        <div class="narrow"></div>
+        <div class="car"></div>
+        <div class="car b"></div>
+        <div class="car c"></div>
+      </div>
+      <div>
+        <h3>GCC の仕事は「運転手」ではなく「交通整理」</h3>
+        <p>
+          荷物そのものを作るのはカメラやエンコーダです。GCC は
+          <em>今この道に、秒間どれだけ流してよいか</em>（ビットレート）を提案します。
+          アプリはその数字に合わせて、画質や送り量を落とします。
+        </p>
+        <p class="caption">
+          狭い区間が「ボトルネック」。車が並ぶ＝遅延、落ちる＝ロス、わざと少し速く走ってみる＝probe（試し打ち）です。
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section id="play">
+    <h2>道の混み方を変えてみる</h2>
+    <p class="note">
+      下のボタンを押すと、送り手 → 細い道 → 受け手、の流れが変わります。
+      緑のバーは「今送ってよい速さ」のイメージです。本物の GCC も、同じ観察からこの数字を動かします。
+    </p>
+    <div class="card play">
+      <div class="stage" id="stage">
+        <div class="status" id="status">道は空いています。気持ちよく送れます。</div>
+        <div class="node send">
+          <div class="avatar">送</div>
+          送り手
+        </div>
+        <div class="lane">
+          <div class="bottleneck" id="neck"></div>
+        </div>
+        <div class="queue" id="queue" hidden></div>
+        <div class="node recv">
+          <div class="avatar">受</div>
+          受け手
+        </div>
+        <div class="meter-wrap">
+          <div>
+            <div class="caption sans" style="margin-bottom:6px">おすすめの送り速度</div>
+            <div class="meter"><span id="bar"></span></div>
+          </div>
+          <div class="bps"><small>AVAILABLE BITRATE</small><span id="bps">700</span> kbps</div>
+        </div>
+      </div>
+      <div class="controls sans">
+        <button class="chip active" data-scene="clear" type="button">道が空いている</button>
+        <button class="chip" data-scene="delay" type="button">料金所が混む（遅延）</button>
+        <button class="chip" data-scene="loss" type="button">車が落ちる（ロス）</button>
+        <button class="chip" data-scene="probe" type="button">試し打ち（probe）</button>
+      </div>
+      <div class="legend">
+        <span><i class="swatch" style="background:var(--terracotta)"></i>送る荷物</span>
+        <span><i class="swatch" style="background:var(--leaf)"></i>届いたよ、という返事（TWCC）</span>
+        <span><i class="swatch" style="background:var(--rose)"></i>途中で消えた荷物</span>
+      </div>
+    </div>
+  </section>
+
+  <section id="sensors">
+    <h2>観察は3種類だけ</h2>
+    <p class="note">GCC は魔法ではありません。返事のカード（TWCC）を見て、次の3つを読みます。</p>
+    <div class="grid3">
+      <article class="card sensor delay">
+        <div class="icon">遅</div>
+        <h3>遅延 — 並び始めていないか</h3>
+        <svg class="mini-svg" viewBox="0 0 200 72" aria-hidden="true">
+          <polyline points="8,56 40,52 70,48 100,28 130,18 160,16 192,14" fill="none" stroke="#c45c26" stroke-width="3" />
+          <circle r="4" fill="#c45c26">
+            <animateMotion dur="2.8s" repeatCount="indefinite" path="M8,56 L192,14" />
+          </circle>
+        </svg>
+        <p class="caption">届くまでの待ちが右肩上がりなら「送りすぎ」。少し減速します（overuse）。</p>
+      </article>
+      <article class="card sensor loss">
+        <div class="icon">失</div>
+        <h3>ロス — 消えた荷物はないか</h3>
+        <svg class="mini-svg" viewBox="0 0 200 72" aria-hidden="true">
+          <rect x="20" y="28" width="14" height="14" fill="#c45c26">
+            <animate attributeName="y" values="28;48;28" dur="1.6s" repeatCount="indefinite" />
+            <animate attributeName="opacity" values="1;0;1" dur="1.6s" repeatCount="indefinite" />
+          </rect>
+          <rect x="92" y="28" width="14" height="14" fill="#2b6a6a" />
+          <rect x="164" y="28" width="14" height="14" fill="#3d6b4f" />
+        </svg>
+        <p class="caption">何度も届かない報告が続くと、天井を下げます。あとから届いたら「実は届いていた」と直せます。</p>
+      </article>
+      <article class="card sensor probe">
+        <div class="icon">試</div>
+        <h3>試し打ち — もっと速くてよいか</h3>
+        <svg class="mini-svg" viewBox="0 0 200 72" aria-hidden="true">
+          <g>
+            <rect width="10" height="10" fill="#2b6a6a" y="30">
+              <animate attributeName="x" values="10;170;10" dur="2s" repeatCount="indefinite" />
+            </rect>
+            <rect width="10" height="10" fill="#2b6a6a" y="30">
+              <animate attributeName="x" values="24;184;24" dur="2s" begin="0.12s" repeatCount="indefinite" />
+            </rect>
+            <rect width="10" height="10" fill="#2b6a6a" y="30">
+              <animate attributeName="x" values="38;198;38" dur="2s" begin="0.24s" repeatCount="indefinite" />
+            </rect>
+          </g>
+        </svg>
+        <p class="caption">最初は 3倍・6倍の短いバーストで道を探ります。返事がよければ、おすすめ速度を上げます。</p>
+      </article>
+    </div>
+  </section>
+
+  <section id="clocks">
+    <h2>時計は3本。混ぜない</h2>
+    <p class="note">
+      「送るたびに計算する」わけではありません。役割を分けると、あわてて数字が暴れません。
+    </p>
+    <div class="clocks">
+      <article class="card clock">
+        <span class="pulse" aria-hidden="true"></span>
+        <h3>① 送ったとき</h3>
+        <p>荷物に番号を付けて「何時に出したか」をメモするだけ。この瞬間には速度を変えません。</p>
+        <ol class="plain">
+          <li>番号（TWCC seq）を貼る</li>
+          <li>サイズと時刻を控える</li>
+        </ol>
+      </article>
+      <article class="card clock">
+        <span class="pulse" aria-hidden="true"></span>
+        <h3>② 返事が来たとき</h3>
+        <p>受け手が「届いた／届いていない」をまとめて返します。ここで遅延・ロス・試し打ちの結果を見ます。</p>
+        <ol class="plain">
+          <li>遅延の傾きを見る</li>
+          <li>必要なら試し打ちの結果を載せる</li>
+          <li>そのあとロスで天井を掛ける</li>
+        </ol>
+      </article>
+      <article class="card clock">
+        <span class="pulse" aria-hidden="true"></span>
+        <h3>③ 25ミリ秒ごと</h3>
+        <p>返事がしばらく来なくても、待ちすぎていないか点検します。動画が止まっている間の安全装置です。</p>
+        <ol class="plain">
+          <li>待ち時間が長すぎたら速度を 0.8 倍</li>
+          <li>試し打ちの予定を進める</li>
+        </ol>
+      </article>
+    </div>
+  </section>
+
+  <section id="app">
+    <h2>アプリが知る必要があるのは、一つの数字</h2>
+    <div class="app-out">
+      <div>
+        <p>
+          overuse や probe といった内部状態は、エンコーダには渡しません。
+          変わるのは <strong>「次はこれくらいの速さで送ってよい」</strong> という bps だけです。
+          同じ値の繰り返しは通知しません。うるさい切替を防ぐためです。
+        </p>
+        <pre class="code">sender.setBandwidthEstimator(new GccBandwidthEstimator());
+
+sender.onAvailableBitrate.subscribe((bps) => {
+  // 画質やレイヤを、この bps に合わせる
+});</pre>
+      </div>
+      <div class="event-log" aria-label="通知のイメージ">
+        <div class="line dim"># TWCC の返事が溜まる</div>
+        <div class="line">onAvailableBitrate → 300_000</div>
+        <div class="line dim"># 道が狭まった</div>
+        <div class="line">onAvailableBitrate → 167_000</div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    werift の GCC は、Chrome と同じ考え方（遅延・ロス・試し打ち）を TypeScript で動かしています。
+    数式や関数名まで追う資料は <code>reviews/gcc-mechanism.md</code> にあります。
+    このページはブラウザでそのまま開けます。外部サービスは使いません。
+  </footer>
+
+  <script>
+    const scenes = {
+      clear: {
+        status: "道は空いています。気持ちよく送れます。",
+        kbps: 700,
+        neck: { left: "42%", width: "16%", bg: "#8a7a66" },
+        queue: 0,
+        drop: false,
+        burst: false,
+      },
+      delay: {
+        status: "料金所の手前で車が並んでいます。遅れて届くので、速度を下げます。",
+        kbps: 180,
+        neck: { left: "38%", width: "28%", bg: "#5c4a3a" },
+        queue: 5,
+        drop: false,
+        burst: false,
+      },
+      loss: {
+        status: "道から荷物が落ちています。もっと控えめに送ります。",
+        kbps: 120,
+        neck: { left: "40%", width: "34%", bg: "#7a2e28" },
+        queue: 2,
+        drop: true,
+        burst: false,
+      },
+      probe: {
+        status: "短いバーストで『もっと速くてよいか』を試しています。",
+        kbps: 450,
+        neck: { left: "44%", width: "18%", bg: "#2b6a6a" },
+        queue: 0,
+        drop: false,
+        burst: true,
+      },
+    };
+
+    const stage = document.getElementById("stage");
+    const neck = document.getElementById("neck");
+    const queue = document.getElementById("queue");
+    const bar = document.getElementById("bar");
+    const bps = document.getElementById("bps");
+    const status = document.getElementById("status");
+    let timer = null;
+    let current = "clear";
+
+    function clearPackets() {
+      stage.querySelectorAll(".pkt").forEach((el) => el.remove());
+    }
+
+    function renderQueue(n) {
+      queue.hidden = n === 0;
+      queue.innerHTML = "";
+      for (let i = 0; i < n; i++) queue.appendChild(document.createElement("i"));
+    }
+
+    function spawnPacket(opts) {
+      const el = document.createElement("div");
+      el.className = "pkt" + (opts.ack ? " ack" : "");
+      el.style.left = opts.ack ? "calc(100% - 200px)" : "190px";
+      stage.appendChild(el);
+      const start = performance.now();
+      const dur = opts.slow ? 2200 : opts.burst ? 700 : 1400;
+      const from = opts.ack ? stage.clientWidth - 200 : 190;
+      const to = opts.ack ? 190 : stage.clientWidth - 200;
+      const dropAt = opts.drop ? 0.55 : 2;
+
+      function tick(now) {
+        const t = Math.min(1, (now - start) / dur);
+        const x = from + (to - from) * t;
+        el.style.left = x + "px";
+        if (!opts.ack && opts.drop && t > dropAt && !el.classList.contains("lost")) {
+          el.classList.add("lost");
+          return;
+        }
+        if (t < 1 && !el.classList.contains("lost")) requestAnimationFrame(tick);
+        else if (t >= 1) el.remove();
+      }
+      requestAnimationFrame(tick);
+    }
+
+    function loop() {
+      const s = scenes[current];
+      spawnPacket({ slow: current === "delay", drop: s.drop, burst: s.burst });
+      if (!s.drop) {
+        setTimeout(() => spawnPacket({ ack: true }), s.burst ? 400 : 900);
+      }
+      if (s.burst) {
+        setTimeout(() => spawnPacket({ burst: true }), 90);
+        setTimeout(() => spawnPacket({ burst: true }), 180);
+      }
+    }
+
+    function apply(name) {
+      current = name;
+      const s = scenes[name];
+      status.textContent = s.status;
+      bps.textContent = String(s.kbps);
+      bar.style.width = Math.round((s.kbps / 800) * 100) + "%";
+      neck.style.left = s.neck.left;
+      neck.style.width = s.neck.width;
+      neck.style.background = s.neck.bg;
+      renderQueue(s.queue);
+      document.querySelectorAll("button.chip").forEach((b) => {
+        b.classList.toggle("active", b.dataset.scene === name);
+      });
+      clearPackets();
+      if (timer) clearInterval(timer);
+      loop();
+      timer = setInterval(loop, name === "probe" ? 1600 : 1300);
+    }
+
+    document.querySelectorAll("button.chip").forEach((btn) => {
+      btn.addEventListener("click", () => apply(btn.dataset.scene));
+    });
+
+    apply("clear");
+  </script>
+</body>
+</html>
