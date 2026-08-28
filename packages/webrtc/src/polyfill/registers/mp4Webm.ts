@@ -1,6 +1,7 @@
 import type { Readable } from "stream";
 
 import { createWebRtcDomException } from "../../errors";
+import type { MediaStreamTrack } from "../../media/track";
 import { createFileMediaPlayer } from "../../nonstandard/userMedia";
 import type {
   MediaGetUserMediaRequest,
@@ -14,7 +15,7 @@ import {
   readEntireStream,
   toBuffer,
 } from "../sourceIo";
-import { bindTrackStop } from "../trackStop";
+import { bindOwnTrackStop } from "../trackStop";
 
 type Mp4WebmSource =
   | { path: string; binary?: never; stream?: never }
@@ -42,7 +43,9 @@ export function createMp4WebmRegister(
   let mimeType = initialMimeType(options);
   const kinds: MediaKind[] = [...initialKinds(options)];
   let playerPromise: Promise<FilePlayer> | undefined;
+  let resolvedFile: { path: string } | { buffer: Buffer } | undefined;
   let started = false;
+  const liveTracks = new Set<MediaStreamTrack>();
   const ioAbort = new AbortController();
 
   const register: MediaRegister = {
@@ -60,14 +63,21 @@ export function createMp4WebmRegister(
     },
     async createTracks(request: MediaGetUserMediaRequest) {
       const player = await getPlayer(request.signal);
-      const track = request.kind === "audio" ? player.audio : player.video;
-      if (!track) {
+      const source = request.kind === "audio" ? player.audio : player.video;
+      if (!source) {
         throw createWebRtcDomException(
           "NotFoundError",
           `mp4/webm source has no ${request.kind} track`,
         );
       }
-      bindTrackStop(track, () => player.stop());
+      const track = source.clone();
+      liveTracks.add(track);
+      bindOwnTrackStop(track, () => {
+        liveTracks.delete(track);
+        if (liveTracks.size === 0) {
+          releasePlayer();
+        }
+      });
       if (!started) {
         started = true;
         void player.start().catch(() => undefined);
@@ -76,13 +86,24 @@ export function createMp4WebmRegister(
     },
     stop() {
       ioAbort.abort();
-      void playerPromise?.then(
-        (player) => player.stop(),
-        () => undefined,
-      );
+      for (const track of [...liveTracks]) {
+        track.stop();
+      }
+      liveTracks.clear();
+      releasePlayer();
     },
   };
   return register;
+
+  function releasePlayer() {
+    started = false;
+    const pending = playerPromise;
+    playerPromise = undefined;
+    void pending?.then(
+      (player) => player.stop(),
+      () => undefined,
+    );
+  }
 
   async function getPlayer(signal?: AbortSignal) {
     const onAbort = () => ioAbort.abort();
@@ -93,14 +114,15 @@ export function createMp4WebmRegister(
     }
     playerPromise ??= (async () => {
       try {
-        const file = await resolveFile(options, ioAbort.signal);
+        resolvedFile ??= await resolveFile(options, ioAbort.signal);
         const player = await createFileMediaPlayer({
           loop: options.loop,
-          ...file,
+          ...resolvedFile,
         });
-        applyInspectedMetadata(file, player);
+        applyInspectedMetadata(resolvedFile, player);
         return player;
       } catch (error) {
+        playerPromise = undefined;
         throw mapMediaIoError(error);
       }
     })();

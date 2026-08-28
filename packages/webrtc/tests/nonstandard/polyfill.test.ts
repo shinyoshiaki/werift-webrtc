@@ -868,6 +868,49 @@ describe("werift/polyfill builtin registers", () => {
     }
   }, 20_000);
 
+  test("same mp4/webm register can be acquired twice with independent tracks", async () => {
+    const webm = await createAvWebmBuffer();
+    await withRegister(
+      createMp4WebmRegister({ binary: webm, loop: true }),
+      async () => {
+        // 実行: 同一 MP4/WebM register を2回 getUserMedia する。
+        const first = await navigator.mediaDevices.getUserMedia({
+          video: true,
+        });
+        const second = await navigator.mediaDevices.getUserMedia({
+          video: true,
+        });
+        const firstTrack = first.getVideoTracks()[0] as MediaStreamTrack;
+        const secondTrack = second.getVideoTracks()[0] as MediaStreamTrack;
+
+        // 検証: 別インスタンスになり、片方を止めても他方は live のまま RTP を受ける。
+        expect(firstTrack).not.toBe(secondTrack);
+        expect(firstTrack.id).not.toBe(secondTrack.id);
+        await waitForRtp(secondTrack);
+        firstTrack.stop();
+        expect(firstTrack.readyState).toBe("ended");
+        expect(secondTrack.readyState).toBe("live");
+        await waitForRtp(secondTrack);
+
+        // 実行: 停止済み取得の後でも再取得する。
+        const third = await navigator.mediaDevices.getUserMedia({
+          video: true,
+        });
+        const thirdTrack = third.getVideoTracks()[0] as MediaStreamTrack;
+        expect(thirdTrack).not.toBe(secondTrack);
+        expect(thirdTrack.readyState).toBe("live");
+        await waitForRtp(thirdTrack);
+
+        secondTrack.stop();
+        thirdTrack.stop();
+        const fourth = await navigator.mediaDevices.getUserMedia({
+          video: true,
+        });
+        await waitForRtp(fourth.getVideoTracks()[0] as MediaStreamTrack);
+      },
+    );
+  }, 20_000);
+
   test("audio-only mp4/webm path, binary, and stream are not video devices", async () => {
     const webm = await createOpusWebmBuffer();
     const mp4 = await createOpusMp4Buffer();
