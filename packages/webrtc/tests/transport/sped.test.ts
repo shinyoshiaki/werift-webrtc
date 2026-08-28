@@ -51,9 +51,10 @@ function authenticatedPair(
   host: string,
   port: number,
 ): CandidatePair {
+  const transport = protocol.localCandidate?.transport ?? "udp";
   const pair = new CandidatePair(
     protocol,
-    new Candidate("r", 1, "udp", 1, host, port, "host"),
+    new Candidate("r", 1, transport, 1, host, port, "host"),
     true,
   );
   pair.requestsReceived = 1;
@@ -174,6 +175,102 @@ describe("IceSpedTransport datagram gate", () => {
     connectionDatagramEvent(ice).execute(ctx);
 
     // Assert: nominated になるまで application record は届かない
+    expect(received).toHaveLength(1);
+    expect(received[0]!.equals(app)).toBe(true);
+  });
+
+  it("handshake 完了後の UDP は nominated と異なる authenticated pair から application DTLS を渡さない", () => {
+    // Arrange: nominated は pair A。B は認証済みだが別 candidate
+    const ice = createIceStub(1);
+    const transport = new IceSpedTransport(ice);
+    const received: Buffer[] = [];
+    transport.onData = (buf) => {
+      received.push(buf);
+    };
+    transport.markApplicationReady();
+    const protocolA = {
+      type: "udp",
+      localCandidate: new Candidate("f", 1, "udp", 1, "1.2.3.4", 1, "host"),
+    } as any;
+    const protocolB = {
+      type: "udp",
+      localCandidate: new Candidate("g", 1, "udp", 1, "1.2.3.4", 2, "host"),
+    } as any;
+    const pairA = authenticatedPair(protocolA, "10.0.0.1", 1111);
+    const pairB = authenticatedPair(protocolB, "10.0.0.2", 2222);
+    ice.nominated = pairA;
+    const app = Buffer.from([23, 9, 8, 7]);
+    const ctx: IceDatagramContext = {
+      bytes: app,
+      source: ["10.0.0.2", 2222],
+      protocol: protocolB,
+      pair: pairB,
+      generation: 1,
+      authenticated: true,
+    };
+
+    // Act: nominated ではない UDP pair から application record を流す
+    connectionDatagramEvent(ice).execute(ctx);
+
+    // Assert: UDP の別 candidate は nomination 後も届かない
+    expect(received).toHaveLength(0);
+  });
+
+  it("handshake 完了後の TCP ICE は nominated の対向 passive pair からも application DTLS を渡す", () => {
+    // Arrange: 送信は local active (nominated)、受信は local passive
+    const ice = createIceStub(1);
+    const transport = new IceSpedTransport(ice);
+    const received: Buffer[] = [];
+    transport.onData = (buf) => {
+      received.push(buf);
+    };
+    transport.markApplicationReady();
+    const activeProtocol = {
+      type: "tcp",
+      localCandidate: new Candidate(
+        "f",
+        1,
+        "tcp",
+        1,
+        "1.2.3.4",
+        1,
+        "host",
+        undefined,
+        undefined,
+        "active",
+      ),
+    } as any;
+    const passiveProtocol = {
+      type: "tcp",
+      localCandidate: new Candidate(
+        "g",
+        1,
+        "tcp",
+        1,
+        "1.2.3.4",
+        2,
+        "host",
+        undefined,
+        undefined,
+        "passive",
+      ),
+    } as any;
+    ice.nominated = authenticatedPair(activeProtocol, "9.9.9.9", 9);
+    const passivePair = authenticatedPair(passiveProtocol, "8.8.8.8", 8);
+    const app = Buffer.from([23, 4, 5, 6]);
+    const ctx: IceDatagramContext = {
+      bytes: app,
+      source: ["8.8.8.8", 8],
+      protocol: passiveProtocol,
+      pair: passivePair,
+      generation: 1,
+      authenticated: true,
+    };
+
+    // Act: nominated ではない TCP passive pair から application record を流す
+    connectionDatagramEvent(ice).execute(ctx);
+
+    // Assert: TCP の対向ソケットは nomination 後も届く
     expect(received).toHaveLength(1);
     expect(received[0]!.equals(app)).toBe(true);
   });
