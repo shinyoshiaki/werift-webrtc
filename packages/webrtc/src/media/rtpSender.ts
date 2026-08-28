@@ -100,6 +100,22 @@ const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");
 const RTP_HISTORY_SIZE = 128;
 const RTT_ALPHA = 0.85;
 
+function freezeRtpContinuityOffsets(
+  lastOutputSeq: number,
+  lastOutputTimestamp: number,
+  firstInputSeq: number,
+  firstInputTimestamp: number,
+  timestampStep: number,
+) {
+  return {
+    seqOffset: uint16Add(uint16Add(lastOutputSeq, 1), -firstInputSeq),
+    timestampOffset: uint32Add(
+      uint32Add(lastOutputTimestamp, timestampStep),
+      -firstInputTimestamp,
+    ),
+  };
+}
+
 export class RTCRtpSender {
   readonly type = "sender";
   readonly kind: Kind;
@@ -231,11 +247,18 @@ export class RTCRtpSender {
    * and only remaps when that candidate was already used (e.g. by padding).
    */
   private highWaterWireSeq?: number;
-  /** Recently allocated wire sequences (collision detection for reorder + padding). */
+  /** Recently allocated wire sequences (padding must not reuse media or padding). */
   private usedWireSeqs = new Set<number>();
+  /**
+   * Wire sequences allocated to probe padding. Media reuses its own preferred
+   * seq on source duplicates; it only remaps when this set owns the candidate.
+   */
+  private paddingWireSeqs = new Set<number>();
   private timestamp?: number;
   private timestampOffset = 0;
   private seqOffset = 0;
+  private rtpContinuityPending = false;
+  private pendingTimestampStep = 1;
   private rtpCache: RtpPacket[] = [];
   codec?: RTCRtpCodecParameters;
   public dtlsTransport!: RTCDtlsTransport;
@@ -464,7 +487,7 @@ export class RTCRtpSender {
 
     track.id = this.trackId;
 
-    const { unSubscribe } = track.onReceiveRtp.subscribe(
+    const { unSubscribe: unSubscribeRtp } = track.onReceiveRtp.subscribe(
       async (rtp, _extensions, info) => {
         if (info?.type === "padding") {
           return;
@@ -472,16 +495,19 @@ export class RTCRtpSender {
         await this.sendRtp(rtp);
       },
     );
+    const { unSubscribe: unSubscribeSourceChanged } =
+      track.onSourceChanged.subscribe((header) => {
+        this.replaceRTP(header);
+      });
     this.track = track;
-    this.disposeTrack = unSubscribe;
+    this.disposeTrack = () => {
+      unSubscribeRtp();
+      unSubscribeSourceChanged();
+    };
 
     if (this.codec) {
       track.codec = this.codec;
     }
-
-    track.onSourceChanged.subscribe((header) => {
-      this.replaceRTP(header);
-    });
   }
 
   setStreams(streams: MediaStream[] = []) {
@@ -507,10 +533,7 @@ export class RTCRtpSender {
     if (track.stopped) throw new Error("track is ended");
 
     if (this.sequenceNumber != undefined) {
-      const header =
-        track.header || (await track.onReceiveRtp.asPromise())[0].header;
-
-      this.replaceRTP(header);
+      this.scheduleRtpContinuity();
     }
 
     this.registerTrack(track);
@@ -591,36 +614,45 @@ export class RTCRtpSender {
     } catch (error) {}
   }
 
+  /**
+   * Schedule RTP continuity rewrite for the next packet that is actually sent.
+   * The header argument is kept for API compatibility and is not used to compute
+   * offsets. `discontinuity` does not change sequence or timestamp mapping.
+   * `timestampStep` (default 1) is the only way to choose the timestamp increment
+   * at the source-switch boundary.
+   */
   replaceRTP(
-    {
-      sequenceNumber,
-      timestamp,
-    }: Pick<RtpHeader, "sequenceNumber" | "timestamp">,
+    header: Pick<RtpHeader, "sequenceNumber" | "timestamp">,
     discontinuity = false,
+    timestampStep = 1,
   ) {
-    if (this.sequenceNumber != undefined) {
-      this.seqOffset = uint16Add(this.sequenceNumber, -sequenceNumber);
-      if (discontinuity) {
-        this.seqOffset = uint16Add(this.seqOffset, 2);
-      }
-    }
-    if (this.timestamp != undefined) {
-      this.timestampOffset = uint32Add(this.timestamp, -timestamp);
-      if (discontinuity) {
-        this.timestampOffset = uint16Add(this.timestampOffset, 1);
-      }
-    }
+    this.scheduleRtpContinuity(timestampStep);
+    log(
+      "replaceRTP",
+      this.sequenceNumber,
+      header.sequenceNumber,
+      discontinuity,
+      timestampStep,
+    );
+  }
+
+  private scheduleRtpContinuity(timestampStep = 1) {
+    this.rtpContinuityPending = true;
+    this.pendingTimestampStep = timestampStep;
     this.rtpCache = [];
     // New source mapping — clear allocation bookkeeping so prior padding
     // ranges cannot collide with the replaced stream.
     this.usedWireSeqs.clear();
+    this.paddingWireSeqs.clear();
     this.highWaterWireSeq = undefined;
-    log("replaceRTP", this.sequenceNumber, sequenceNumber, this.seqOffset);
   }
 
-  private markWireSeqUsed(wire: number) {
+  private markWireSeqUsed(wire: number, isPadding = false) {
     const seq = wire & 0xffff;
     this.usedWireSeqs.add(seq);
+    if (isPadding) {
+      this.paddingWireSeqs.add(seq);
+    }
     if (
       this.highWaterWireSeq === undefined ||
       uint16Gt(seq, this.highWaterWireSeq)
@@ -634,19 +666,20 @@ export class RTCRtpSender {
         const dist = uint16Add(h, -s);
         if (dist > 4096 && dist < 0x8000) {
           this.usedWireSeqs.delete(s);
+          this.paddingWireSeqs.delete(s);
         }
       }
     }
   }
 
   /**
-   * Media: prefer `sourceSeq + seqOffset` so source gaps/reorders stay visible.
-   * On collision with an already-sent wire seq (e.g. probe padding), remap to
-   * high-water + 1 and permanently bump {@link seqOffset}.
+   * Media: prefer `sourceSeq + seqOffset` so source gaps/reorders/duplicates
+   * stay visible. Remap only when probe padding already owns that wire seq;
+   * then bump {@link seqOffset} from high-water + 1.
    */
   private allocateMediaSequence(sourceSeq: number): number {
     const preferred = uint16Add(sourceSeq & 0xffff, this.seqOffset);
-    if (!this.usedWireSeqs.has(preferred)) {
+    if (!this.paddingWireSeqs.has(preferred)) {
       this.markWireSeqUsed(preferred);
       return preferred;
     }
@@ -673,7 +706,7 @@ export class RTCRtpSender {
     while (this.usedWireSeqs.has(wire)) {
       wire = uint16Add(wire, 1);
     }
-    this.markWireSeqUsed(wire);
+    this.markWireSeqUsed(wire, true);
     return wire;
   }
 
@@ -894,6 +927,28 @@ export class RTCRtpSender {
     }
 
     if (!opts.isRetransmission) {
+      const inputSequenceNumber = header.sequenceNumber;
+      const inputTimestamp = header.timestamp;
+
+      // Freeze source-switch offsets on the next media packet actually sent.
+      // Probe padding is internally generated and must not become the freeze
+      // reference; it still allocates via allocatePaddingSequence.
+      if (this.rtpContinuityPending && !opts.isProbePadding) {
+        if (this.sequenceNumber != undefined && this.timestamp != undefined) {
+          const offsets = freezeRtpContinuityOffsets(
+            this.sequenceNumber,
+            this.timestamp,
+            inputSequenceNumber,
+            inputTimestamp,
+            this.pendingTimestampStep,
+          );
+          this.seqOffset = offsets.seqOffset;
+          this.timestampOffset = offsets.timestampOffset;
+        }
+        this.rtpContinuityPending = false;
+        this.pendingTimestampStep = 1;
+      }
+
       header.ssrc = this.ssrc;
       header.payloadType = this.codec.payloadType;
       header.timestamp = uint32Add(header.timestamp, this.timestampOffset);
