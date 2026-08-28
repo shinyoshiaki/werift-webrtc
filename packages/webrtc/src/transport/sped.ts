@@ -30,10 +30,14 @@ export class IceSpedTransport implements Transport {
       if (!isDtls(ctx.bytes) || !this.onData) {
         return;
       }
-      if (!allowsAuthenticatedDtlsDelivery(ctx, ice.generation)) {
+      if (this.applicationReady) {
+        if (ctx.pair !== ice.nominated) {
+          return;
+        }
+        this.onData(ctx.bytes, ctx.source);
         return;
       }
-      if (this.applicationReady && !this.allowsApplicationDtls(ctx.pair)) {
+      if (!allowsAuthenticatedDtlsDelivery(ctx, ice.generation)) {
         return;
       }
       this.onData(ctx.bytes, ctx.source);
@@ -46,26 +50,6 @@ export class IceSpedTransport implements Transport {
 
   markApplicationReady() {
     this.applicationReady = true;
-  }
-
-  /**
-   * After DTLS is up, application records follow the selected ICE path.
-   * Restart with no nominated pair is blocked. TCP ICE sends on the local
-   * active (nominated) socket and receives on the local passive socket.
-   */
-  private allowsApplicationDtls(pair?: CandidatePair): boolean {
-    const nominated = this.ice.nominated;
-    if (!nominated || !pair) {
-      return false;
-    }
-    if (pair === nominated) {
-      return true;
-    }
-    return (
-      pair.component === nominated.component &&
-      pair.localCandidate.transport.toLowerCase() === "tcp" &&
-      nominated.localCandidate.transport.toLowerCase() === "tcp"
-    );
   }
 
   onData: (buf: Buffer, addr?: Address) => void = () => {};

@@ -370,9 +370,7 @@ export class Connection implements IceConnection {
     });
     protocol.onDataReceived.subscribe((data, addr) => {
       try {
-        const pair = addr
-          ? this.findPairByAddr(protocol, addr)
-          : this.checkList.find((candidate) => candidate.protocol === protocol);
+        const pair = this.resolveDatagramPair(protocol, addr);
         const authenticated = !!(pair && isAuthenticatedHandshakePair(pair));
         connectionDatagramEvent(this).execute({
           bytes: data,
@@ -1363,6 +1361,24 @@ export class Connection implements IceConnection {
     );
   }
 
+  /**
+   * Application / handshake datagrams on the selected protocol belong to the
+   * nominated pair. TCP ICE uses one bidirectional socket; do not treat a
+   * second local active/passive pair as the receive path.
+   */
+  private resolveDatagramPair(
+    protocol: Protocol,
+    addr?: Address,
+  ): CandidatePair | undefined {
+    if (this.nominated?.protocol === protocol) {
+      return this.nominated;
+    }
+    if (addr) {
+      return this.findPairByAddr(protocol, addr);
+    }
+    return this.checkList.find((candidate) => candidate.protocol === protocol);
+  }
+
   private decorateSpedRequest(request: Message, protocol: Protocol): boolean {
     return this.spedRuntime?.decorateOutgoing(request, protocol) ?? true;
   }
@@ -1697,7 +1713,16 @@ export class Connection implements IceConnection {
         return true;
       };
 
-      const nominate = this.iceControlling && !this.remoteIsLite;
+      // Aggressive nomination on TCP local-passive would USE-CANDIDATE the
+      // reverse connection; controlled would then nominate local-active and
+      // send/receive would sit on different sockets.
+      const nominate =
+        this.iceControlling &&
+        !this.remoteIsLite &&
+        !(
+          pair.localCandidate.transport.toLowerCase() === "tcp" &&
+          pair.localCandidate.tcptype === "passive"
+        );
       const request = this.buildRequest({
         nominate,
         localUsername,

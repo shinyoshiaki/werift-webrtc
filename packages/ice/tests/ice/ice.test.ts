@@ -371,6 +371,7 @@ describe("ice", () => {
       expect(b.nominated?.localCandidate.transport).toBe("tcp");
       expect(b.nominated?.remoteCandidate.transport).toBe("tcp");
       expect(b.nominated?.protocol.type).toBe("tcp");
+      expect(b.nominated?.localCandidate.tcptype).toBe("passive");
       expect(
         b.remoteCandidates.some(
           (candidate) =>

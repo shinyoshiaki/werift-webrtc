@@ -334,8 +334,21 @@ export class TcpPassiveProtocol extends BaseTcpProtocol {
 
   override async close() {
     await super.close();
-    await new Promise<void>((resolve) => {
-      this.server.close(() => resolve());
+    await this.stopListening();
+  }
+
+  private async stopListening() {
+    if (!this.server.listening) {
+      return;
+    }
+    await new Promise<void>((resolve, reject) => {
+      this.server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
     });
   }
 }

@@ -46,6 +46,28 @@ function mockProtocol(host: string, port: number) {
   return { protocol: protocol as any, sent };
 }
 
+function tcpProtocol(
+  host: string,
+  port: number,
+  tcptype: "active" | "passive",
+) {
+  return {
+    type: "tcp",
+    localCandidate: new Candidate(
+      tcptype,
+      1,
+      "tcp",
+      1,
+      host,
+      port,
+      "host",
+      undefined,
+      undefined,
+      tcptype,
+    ),
+  } as any;
+}
+
 function authenticatedPair(
   protocol: any,
   host: string,
@@ -216,8 +238,8 @@ describe("IceSpedTransport datagram gate", () => {
     expect(received).toHaveLength(0);
   });
 
-  it("handshake 完了後の TCP ICE は nominated の対向 passive pair からも application DTLS を渡す", () => {
-    // Arrange: 送信は local active (nominated)、受信は local passive
+  it("handshake 完了後の TCP ICE は nominated local-active pair の application DTLS を渡す", () => {
+    // Arrange
     const ice = createIceStub(1);
     const transport = new IceSpedTransport(ice);
     const received: Buffer[] = [];
@@ -225,54 +247,82 @@ describe("IceSpedTransport datagram gate", () => {
       received.push(buf);
     };
     transport.markApplicationReady();
-    const activeProtocol = {
-      type: "tcp",
-      localCandidate: new Candidate(
-        "f",
-        1,
-        "tcp",
-        1,
-        "1.2.3.4",
-        1,
-        "host",
-        undefined,
-        undefined,
-        "active",
-      ),
-    } as any;
-    const passiveProtocol = {
-      type: "tcp",
-      localCandidate: new Candidate(
-        "g",
-        1,
-        "tcp",
-        1,
-        "1.2.3.4",
-        2,
-        "host",
-        undefined,
-        undefined,
-        "passive",
-      ),
-    } as any;
-    ice.nominated = authenticatedPair(activeProtocol, "9.9.9.9", 9);
-    const passivePair = authenticatedPair(passiveProtocol, "8.8.8.8", 8);
+    const protocol = tcpProtocol("1.2.3.4", 1, "active");
+    const pair = authenticatedPair(protocol, "9.9.9.9", 9);
+    ice.nominated = pair;
+    const app = Buffer.from([23, 1, 2, 3]);
+
+    // Act: 選択された local-active TCP pair から application record を流す
+    connectionDatagramEvent(ice).execute({
+      bytes: app,
+      source: ["9.9.9.9", 9],
+      protocol,
+      pair,
+      generation: 1,
+      authenticated: true,
+    });
+
+    // Assert: nominated TCP なら tcptype に依らず届く
+    expect(received).toHaveLength(1);
+    expect(received[0]!.equals(app)).toBe(true);
+  });
+
+  it("handshake 完了後の TCP ICE は nominated local-passive pair の application DTLS を渡す", () => {
+    // Arrange
+    const ice = createIceStub(1);
+    const transport = new IceSpedTransport(ice);
+    const received: Buffer[] = [];
+    transport.onData = (buf) => {
+      received.push(buf);
+    };
+    transport.markApplicationReady();
+    const protocol = tcpProtocol("1.2.3.4", 2, "passive");
+    const pair = authenticatedPair(protocol, "9.9.9.9", 9);
+    ice.nominated = pair;
     const app = Buffer.from([23, 4, 5, 6]);
-    const ctx: IceDatagramContext = {
+
+    // Act: 選択された local-passive TCP pair から application record を流す
+    connectionDatagramEvent(ice).execute({
+      bytes: app,
+      source: ["9.9.9.9", 9],
+      protocol,
+      pair,
+      generation: 1,
+      authenticated: true,
+    });
+
+    // Assert: nominated な local-passive も双方向なので届く
+    expect(received).toHaveLength(1);
+    expect(received[0]!.equals(app)).toBe(true);
+  });
+
+  it("handshake 完了後の TCP ICE は nominated 以外の authenticated pair から application DTLS を渡さない", () => {
+    // Arrange: nominated は local-active。incoming は別 5-tuple の local-passive
+    const ice = createIceStub(1);
+    const transport = new IceSpedTransport(ice);
+    const received: Buffer[] = [];
+    transport.onData = (buf) => {
+      received.push(buf);
+    };
+    transport.markApplicationReady();
+    const activeProtocol = tcpProtocol("1.2.3.4", 1, "active");
+    const passiveProtocol = tcpProtocol("1.2.3.4", 2, "passive");
+    ice.nominated = authenticatedPair(activeProtocol, "9.9.9.9", 9);
+    const otherPair = authenticatedPair(passiveProtocol, "8.8.8.8", 8);
+    const app = Buffer.from([23, 7, 8, 9]);
+
+    // Act: 同じ component の別 TCP pair から application record を流す
+    connectionDatagramEvent(ice).execute({
       bytes: app,
       source: ["8.8.8.8", 8],
       protocol: passiveProtocol,
-      pair: passivePair,
+      pair: otherPair,
       generation: 1,
       authenticated: true,
-    };
+    });
 
-    // Act: nominated ではない TCP passive pair から application record を流す
-    connectionDatagramEvent(ice).execute(ctx);
-
-    // Assert: TCP の対向ソケットは nomination 後も届く
-    expect(received).toHaveLength(1);
-    expect(received[0]!.equals(app)).toBe(true);
+    // Assert: nominated と一致しない TCP pair は落とす
+    expect(received).toHaveLength(0);
   });
 });
 
