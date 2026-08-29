@@ -1,4 +1,5 @@
 import { type Address, Event, crc32 } from "../../../common/src";
+import { CandidatePair } from "../../src";
 import { Candidate } from "../../src/candidate";
 import {
   FINGERPRINT_LENGTH,
@@ -30,6 +31,60 @@ export class SpedProtocolMock implements Protocol {
   async connectionMade() {}
   async sendData(_data: Buffer, _addr?: Address) {}
   async close() {}
+}
+
+/** Shared Arrange: host/srflx/relay remote pair on a local protocol. */
+export function spedPair(
+  protocol: Protocol,
+  remoteType: string,
+  remoteHost = "9.9.9.9",
+  remotePort = 9,
+) {
+  return new CandidatePair(
+    protocol,
+    new Candidate("remote", 1, "udp", 1, remoteHost, remotePort, remoteType),
+    true,
+  );
+}
+
+/** Shared Arrange: host TCP ICE pair (active or passive). */
+export function tcpSpedPair(options: {
+  localType: "active" | "passive";
+  remoteType: "active" | "passive";
+  localHost?: string;
+  localPort?: number;
+  remoteHost?: string;
+  remotePort?: number;
+}) {
+  const protocol = new SpedProtocolMock();
+  protocol.localCandidate = new Candidate(
+    `tcp-${options.localType}`,
+    1,
+    "tcp",
+    20,
+    options.localHost ?? "192.0.2.1",
+    options.localPort ?? (options.localType === "active" ? 9 : 5000),
+    "host",
+    undefined,
+    undefined,
+    options.localType,
+  );
+  return new CandidatePair(
+    protocol,
+    new Candidate(
+      `tcp-remote-${options.remoteType}`,
+      1,
+      "tcp",
+      1,
+      options.remoteHost ?? "192.0.2.2",
+      options.remotePort ?? (options.remoteType === "passive" ? 5000 : 40000),
+      "host",
+      undefined,
+      undefined,
+      options.remoteType,
+    ),
+    true,
+  );
 }
 
 /** Shared Arrange: comprehension-optional STUN attribute on the wire. */

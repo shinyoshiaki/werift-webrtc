@@ -1,6 +1,5 @@
 import type { CandidatePair } from "../iceBase";
 import type { Address } from "../imports/common";
-import { isAuthenticatedHandshakePair } from "../internal/datagram";
 import type { Message } from "../stun/message";
 import { StunOverTurnProtocol } from "../turn/protocol";
 import type { Protocol } from "../types/model";
@@ -39,8 +38,48 @@ export interface SpedHooks {
   refragmentPendingFlight?: () => void;
 }
 
+export function sameCandidatePair(a: CandidatePair, b: CandidatePair): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (
+    a.protocol === b.protocol &&
+    a.remoteAddr[0] === b.remoteAddr[0] &&
+    a.remoteAddr[1] === b.remoteAddr[1]
+  ) {
+    return true;
+  }
+  // ICE-TCP active/passive are distinct CandidatePairs (and TCP connections)
+  // toward the same host. Pinning one must not drop the other or both sides
+  // can lock onto opposite connections and never exchange SPED DATA.
+  return isSameIceTcpSpedPath(a, b);
+}
+
+function isSameIceTcpSpedPath(a: CandidatePair, b: CandidatePair): boolean {
+  if (a.component !== b.component) {
+    return false;
+  }
+  const aLocal = a.localCandidate;
+  const bLocal = b.localCandidate;
+  if (
+    aLocal.transport.toLowerCase() !== "tcp" ||
+    bLocal.transport.toLowerCase() !== "tcp" ||
+    a.remoteCandidate.transport.toLowerCase() !== "tcp" ||
+    b.remoteCandidate.transport.toLowerCase() !== "tcp"
+  ) {
+    return false;
+  }
+  return (
+    aLocal.host === bLocal.host &&
+    a.remoteCandidate.host === b.remoteCandidate.host
+  );
+}
+
 export function isSpedEligibleProtocol(protocol: Protocol): boolean {
   if (protocol.type === StunOverTurnProtocol.type || protocol.type === "turn") {
+    return false;
+  }
+  if (protocol instanceof StunOverTurnProtocol) {
     return false;
   }
   const local = protocol.localCandidate;
@@ -54,6 +93,16 @@ export function isSpedEligibleProtocol(protocol: Protocol): boolean {
   return (
     transport === "udp" && (local.type === "host" || local.type === "srflx")
   );
+}
+
+export function isSpedEligiblePair(pair: CandidatePair): boolean {
+  if (pair.localCandidate.type === "relay") {
+    return false;
+  }
+  if (pair.remoteCandidate.type === "relay") {
+    return false;
+  }
+  return isSpedEligibleProtocol(pair.protocol);
 }
 
 /**
@@ -80,12 +129,18 @@ export class SpedRuntime {
     this.hooks.setMtu(this.lastMtu);
   }
 
-  shouldDecorate(protocol: Protocol): boolean {
-    return this.session.embedding && isSpedEligibleProtocol(protocol);
+  shouldDecorate(pair: CandidatePair): boolean {
+    if (!this.session.embedding || !isSpedEligiblePair(pair)) {
+      return false;
+    }
+    if (this.lastPath && !sameCandidatePair(this.lastPath, pair)) {
+      return false;
+    }
+    return true;
   }
 
-  decorateOutgoing(message: Message, protocol: Protocol): boolean {
-    if (!this.shouldDecorate(protocol)) {
+  decorateOutgoing(message: Message, pair: CandidatePair): boolean {
+    if (!this.shouldDecorate(pair)) {
       return true;
     }
     this.syncMtuFromBinding(message);
@@ -101,15 +156,15 @@ export class SpedRuntime {
    * Later candidates must not replace it.
    */
   pinHandshakePath(pair: CandidatePair): void {
-    if (!isAuthenticatedHandshakePair(pair)) {
-      return;
-    }
     if (!this.lastPath) {
       this.lastPath = pair;
     }
   }
 
   syncRtt(pair: CandidatePair): void {
+    if (this.lastPath && !sameCandidatePair(this.lastPath, pair)) {
+      return;
+    }
     if (pair.rtt == null || !(pair.rtt > 0)) {
       return;
     }
@@ -179,11 +234,15 @@ export class SpedRuntime {
     message: Message,
     addr: Address,
     generation: number,
-    _protocol?: Protocol,
+    pair?: CandidatePair,
   ): Promise<{ fallback: boolean; inject?: Buffer }> {
     if (!this.session.embedding || !this.isLiveGeneration(generation)) {
       return { fallback: false };
     }
+    if (!pair || !this.shouldDecorate(pair)) {
+      return { fallback: false };
+    }
+    this.pinHandshakePath(pair);
     this.markInjectGeneration(generation);
     const result = this.session.receiveAuthenticated(message);
     if (

@@ -39,7 +39,7 @@ import {
   registerSpedCarryMaybeFlush,
   setConnectionSpedRuntime,
 } from "./internal/sped-bind";
-import type { SpedRuntime } from "./sped/runtime";
+import { type SpedRuntime, sameCandidatePair } from "./sped/runtime";
 import { RETRY_MAX, RETRY_RTO, classes, methods } from "./stun/const";
 import { Message, parseMessage } from "./stun/message";
 import { StunProtocol } from "./stun/protocol";
@@ -311,8 +311,11 @@ export class Connection implements IceConnection {
     if (runtime.fallbackStarted || runtime.session.state !== "fallback") {
       return;
     }
-    const pair = this.findPairByAddr(protocol, addr);
+    const pair = runtime.lastPath ?? this.findPairByAddr(protocol, addr);
     if (!pair || !isAuthenticatedHandshakePair(pair)) {
+      return;
+    }
+    if (runtime.lastPath && !sameCandidatePair(runtime.lastPath, pair)) {
       return;
     }
     runtime.pinHandshakePath(pair);
@@ -530,15 +533,23 @@ export class Connection implements IceConnection {
     }
 
     const generation = this.generation;
+    const deferIncoming = this.checkList.length === 0 && !this.earlyChecksDone;
+    let pair = this.findPairByAddr(protocol, addr);
+    if (!pair && !deferIncoming) {
+      pair = this.ensureIncomingPair(verified, addr, protocol);
+    }
+
     if (
-      this.spedRuntime?.shouldDecorate(protocol) &&
+      this.spedRuntime &&
+      pair &&
+      this.spedRuntime.shouldDecorate(pair) &&
       this.spedRuntime.isLiveGeneration(generation)
     ) {
       await this.spedRuntime.handleAuthenticatedStun(
         verified,
         addr,
         generation,
-        protocol,
+        pair,
       );
       if (generation !== this.generation) {
         return;
@@ -551,8 +562,8 @@ export class Connection implements IceConnection {
       verified.transactionId,
     );
     response.setAttribute("XOR-MAPPED-ADDRESS", addr);
-    if (this.spedRuntime?.shouldDecorate(protocol)) {
-      if (!this.spedRuntime.decorateOutgoing(response, protocol)) {
+    if (this.spedRuntime && pair && this.spedRuntime.shouldDecorate(pair)) {
+      if (!this.spedRuntime.decorateOutgoing(response, pair)) {
         return;
       }
     }
@@ -570,9 +581,9 @@ export class Connection implements IceConnection {
     }
 
     if (this.spedRuntime && generation === this.generation) {
-      const pair = this.findPairByAddr(protocol, addr);
-      if (pair) {
-        this.spedRuntime.pinHandshakePath(pair);
+      const resolved = pair ?? this.findPairByAddr(protocol, addr);
+      if (resolved && this.spedRuntime.shouldDecorate(resolved)) {
+        this.spedRuntime.pinHandshakePath(resolved);
       }
       await this.maybeSendSpedFallback(protocol, addr, generation);
     }
@@ -1167,7 +1178,7 @@ export class Connection implements IceConnection {
             iceControlling,
             localCandidate: nominated.localCandidate,
           });
-          if (!this.decorateSpedRequest(request, nominated.protocol)) {
+          if (!this.decorateSpedRequest(request, nominated)) {
             continue;
           }
 
@@ -1540,8 +1551,8 @@ export class Connection implements IceConnection {
     fallback.handle = this.checkStart(fallback);
   }
 
-  private decorateSpedRequest(request: Message, protocol: Protocol): boolean {
-    return this.spedRuntime?.decorateOutgoing(request, protocol) ?? true;
+  private decorateSpedRequest(request: Message, pair: CandidatePair): boolean {
+    return this.spedRuntime?.decorateOutgoing(request, pair) ?? true;
   }
 
   private isStaleConnectivityCheck(
@@ -1622,19 +1633,10 @@ export class Connection implements IceConnection {
     }
     this.spedSolicitPeerCarry = false;
 
-    const pair =
-      this.nominated ??
-      this.checkList.find(
-        (candidate) =>
-          candidate.state === CandidatePairState.SUCCEEDED ||
-          candidate.state === CandidatePairState.IN_PROGRESS,
-      ) ??
-      (runtime.lastPath && isAuthenticatedHandshakePair(runtime.lastPath)
-        ? runtime.lastPath
-        : undefined);
+    const pair = this.selectSpedCarryPair(runtime);
     const protocol = pair?.protocol;
     const addr = pair?.remoteAddr;
-    if (!protocol || !addr || !runtime.shouldDecorate(protocol)) {
+    if (!pair || !protocol || !addr || !runtime.shouldDecorate(pair)) {
       return;
     }
 
@@ -1648,9 +1650,9 @@ export class Connection implements IceConnection {
         localUsername: this.localUsername,
         remoteUsername: this.remoteUsername,
         iceControlling: this.iceControlling,
-        localCandidate: protocol.localCandidate,
+        localCandidate: pair.localCandidate,
       });
-      if (!runtime.decorateOutgoing(request, protocol)) {
+      if (!runtime.decorateOutgoing(request, pair)) {
         return;
       }
       const retransmissions =
@@ -1698,6 +1700,38 @@ export class Connection implements IceConnection {
     }
   }
 
+  private selectSpedCarryPair(runtime: SpedRuntime): CandidatePair | undefined {
+    const ordered: CandidatePair[] = [];
+    if (runtime.lastPath) {
+      ordered.push(runtime.lastPath);
+    }
+    if (this.nominated) {
+      ordered.push(this.nominated);
+    }
+    for (const candidate of this.checkList) {
+      if (
+        candidate.state === CandidatePairState.SUCCEEDED ||
+        candidate.state === CandidatePairState.IN_PROGRESS
+      ) {
+        ordered.push(candidate);
+      }
+    }
+    const onPath = ordered.filter((candidate) =>
+      runtime.shouldDecorate(candidate),
+    );
+    if (onPath.length === 0) {
+      return undefined;
+    }
+    if (runtime.lastPath) {
+      // ICE-TCP: originate on local-active when the pin is the passive pair.
+      return (
+        onPath.find((candidate) => !isTcpLocalPassivePair(candidate)) ??
+        onPath[0]
+      );
+    }
+    return onPath[0];
+  }
+
   private async consumeSpedStun(
     message: Message,
     addr: Address,
@@ -1710,7 +1744,8 @@ export class Connection implements IceConnection {
       return;
     }
     if (
-      !runtime?.shouldDecorate(protocol) ||
+      !pair ||
+      !runtime?.shouldDecorate(pair) ||
       !runtime.isLiveGeneration(generation)
     ) {
       return;
@@ -1719,7 +1754,7 @@ export class Connection implements IceConnection {
       message,
       addr,
       generation,
-      protocol,
+      pair,
     );
     if (
       generation !== this.generation ||
@@ -1891,7 +1926,7 @@ export class Connection implements IceConnection {
         iceControlling: this.iceControlling,
         localCandidate: pair.localCandidate,
       });
-      if (!this.decorateSpedRequest(request, pair.protocol)) {
+      if (!this.decorateSpedRequest(request, pair)) {
         if (stopIfStale()) {
           return;
         }
@@ -2026,7 +2061,7 @@ export class Connection implements IceConnection {
           iceControlling: this.iceControlling,
           localCandidate: pair.localCandidate,
         });
-        if (!this.decorateSpedRequest(request, pair.protocol)) {
+        if (!this.decorateSpedRequest(request, pair)) {
           if (stopIfStale()) {
             return;
           }
@@ -2088,17 +2123,14 @@ export class Connection implements IceConnection {
     this.incomingTcpPairWait?.settle(true);
   }
 
-  // 7.2.  STUN Server Procedures
-  // 7.2.1.3、7.2.1.4、および7.2.1.5
-  checkIncoming(message: Message, addr: Address, protocol: Protocol) {
-    // """
-    // Handle a successful incoming check.
-    // """
-
+  private ensureIncomingPair(
+    message: Message,
+    addr: Address,
+    protocol: Protocol,
+  ): CandidatePair {
     const txUsername = message.getAttributeValue("USERNAME");
     const { remoteUsername: localUsername } = decodeTxUsername(txUsername);
 
-    // find remote candidate
     let remoteCandidate: Candidate | undefined;
     const [host, port] = addr;
     for (const c of this.remoteCandidates) {
@@ -2108,7 +2140,6 @@ export class Connection implements IceConnection {
       }
     }
     if (!remoteCandidate) {
-      // 7.2.1.3.  Learning Peer Reflexive Candidates
       remoteCandidate = new Candidate(
         randomString(10),
         1,
@@ -2128,17 +2159,27 @@ export class Connection implements IceConnection {
       this._remoteCandidates.push(remoteCandidate);
     }
 
-    // find pair
     let pair = this.findPair(protocol, remoteCandidate);
     if (!pair) {
       pair = new CandidatePair(protocol, remoteCandidate, this.iceControlling);
       pair.updateState(CandidatePairState.WAITING);
       this.addPair(pair);
     }
+    pair.localCandidate.ufrag = localUsername;
+    return pair;
+  }
+
+  // 7.2.  STUN Server Procedures
+  // 7.2.1.3、7.2.1.4、および7.2.1.5
+  checkIncoming(message: Message, addr: Address, protocol: Protocol) {
+    // """
+    // Handle a successful incoming check.
+    // """
+
+    const pair = this.ensureIncomingPair(message, addr, protocol);
     pair.noteIncomingRequest(message.transactionIdHex);
     pair.requestsReceived++;
     pair.responsesSent++;
-    pair.localCandidate.ufrag = localUsername;
 
     log("Triggered Checks", message.toJSON(), pair.toJSON(), {
       localUsername: this.localUsername,

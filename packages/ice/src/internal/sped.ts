@@ -12,7 +12,11 @@ import {
 } from "./sped-bind";
 
 export type { SpedHooks } from "../sped/runtime";
-export { isSpedEligibleProtocol } from "../sped/runtime";
+export {
+  isSpedEligiblePair,
+  isSpedEligibleProtocol,
+  sameCandidatePair,
+} from "../sped/runtime";
 export { SpedSession } from "../sped/draft00/session";
 export {
   DTLS_IN_STUN_ACK,

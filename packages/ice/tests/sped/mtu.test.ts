@@ -12,7 +12,7 @@ import { SpedSession } from "../../src/sped/draft00/session";
 import { SpedRuntime } from "../../src/sped/runtime";
 import { classes, methods } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
-import { SpedProtocolMock } from "./helpers";
+import { SpedProtocolMock, spedPair } from "./helpers";
 
 describe("SPED MTU", () => {
   it("defaultSpedDtlsMtu は 1200 から STUN overhead を引く", () => {
@@ -123,6 +123,7 @@ describe("SPED MTU", () => {
     });
     const pathMtu = mtus.at(-1)!;
     const protocol = new SpedProtocolMock();
+    const pair = spedPair(protocol, "host");
     const message = new Message(methods.BINDING, classes.REQUEST);
     message.setAttribute("USERNAME", "a:b").setAttribute("PRIORITY", 1);
     message.appendRawAttribute(0xc001, Buffer.alloc(200));
@@ -133,7 +134,7 @@ describe("SPED MTU", () => {
     );
 
     // Act
-    const ok = runtime.decorateOutgoing(message, protocol);
+    const ok = runtime.decorateOutgoing(message, pair);
 
     // Assert: この Binding の残予算まで下げ、oversized L1 を差し替える
     expect(bindingMtu).toBeLessThan(pathMtu);

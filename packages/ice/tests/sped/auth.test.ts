@@ -16,6 +16,7 @@ import {
   appendStunFingerprint,
   rewriteStunMessageLength,
   serializeStunRawAttribute,
+  spedPair,
 } from "./helpers";
 
 /** Shared Arrange: SPED connection that records inject / direct DTLS. */
@@ -198,12 +199,13 @@ describe("ICE Binding Request 認証境界", () => {
     protocol.onRequestReceived.execute(request, ["1.2.3.4", 9], request.bytes);
     await new Promise((r) => setTimeout(r, 30));
 
-    // Assert: STUN 応答は返すが raw DTLS は送らない
+    // Assert: STUN 応答は返すが pair が無いので capability も raw DTLS も動かない
     expect(protocol.sentMessage?.messageClass).toBe(classes.RESPONSE);
     expect(connection.checkList).toHaveLength(0);
     expect(fallback).toHaveLength(0);
     expect(sentDirect).toHaveLength(0);
-    expect(handle.session.state).toBe("fallback");
+    expect(handle.session.state).toBe("probing");
+    expect(handle.session.peerSupport).toBe("unknown");
     expect(handle.runtime.fallbackStarted).toBe(false);
     expect(handle.runtime.lastPath).toBeUndefined();
   });
@@ -366,6 +368,7 @@ describe("ICE Binding Request 認証境界", () => {
       setMtu: () => {},
     });
     const protocol = new SpedProtocolMock();
+    const pair = spedPair(protocol, "host");
     const staleGeneration = connection.generation;
     await connection.restart();
     const request = new Message(methods.BINDING, classes.REQUEST);
@@ -377,7 +380,7 @@ describe("ICE Binding Request 認証境界", () => {
       request,
       ["1.2.3.4", 9],
       staleGeneration,
-      protocol,
+      pair,
     );
 
     // Assert: inject せず、新 session の L2 / peerSupport も汚さない
@@ -403,6 +406,7 @@ describe("ICE Binding Request 認証境界", () => {
       setMtu: () => {},
     });
     const protocol = new SpedProtocolMock();
+    const pair = spedPair(protocol, "host");
     const generation = connection.generation;
     const request = new Message(methods.BINDING, classes.REQUEST);
     request.setAttribute("USERNAME", "a:b").setAttribute("PRIORITY", 1);
@@ -413,7 +417,7 @@ describe("ICE Binding Request 認証境界", () => {
       request,
       ["1.2.3.4", 9],
       generation,
-      protocol,
+      pair,
     );
     void connection.restart();
     const result = await pending;

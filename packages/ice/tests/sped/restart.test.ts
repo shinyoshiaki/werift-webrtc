@@ -11,7 +11,7 @@ import { classes, methods } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
 import { getRawAttributeValue } from "../../src/stun/rawAttributeValue";
 import { createTestConnection } from "../utils";
-import { SpedProtocolMock } from "./helpers";
+import { SpedProtocolMock, spedPair } from "./helpers";
 
 describe("ICE restart と SPED carry", () => {
   it("await 後の旧 generation 応答は pair / role / nomination を更新しない", async () => {
@@ -367,12 +367,13 @@ describe("SPED abort", () => {
     handle.onFlightCreated([Buffer.from([22, 1, 2])]);
     const protocol = new SpedProtocolMock();
     (connection as any).ensureProtocol(protocol);
+    const pair = spedPair(protocol, "host");
     const request = new Message(methods.BINDING, classes.REQUEST);
     request.setAttribute("USERNAME", "a:b").setAttribute("PRIORITY", 1);
 
     // Act: failed は pending L1 を捨て embedding を止める
     (connection as any).setState("failed");
-    expect(handle.runtime.decorateOutgoing(request, protocol)).toBe(true);
+    expect(handle.runtime.decorateOutgoing(request, pair)).toBe(true);
 
     // Assert
     expect(handle.session.state).toBe("disabled");
