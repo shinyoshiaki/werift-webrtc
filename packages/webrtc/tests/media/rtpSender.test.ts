@@ -4,6 +4,7 @@ import { vi } from "vitest";
 import {
   GenericNack,
   MediaStreamTrack,
+  RTCPeerConnection,
   RtcpTransportLayerFeedback,
   RtpPacket,
   unwrapRtx,
@@ -160,7 +161,7 @@ describe("media/rtpSender", () => {
   test("stop discards pending RTP and does not flush after DTLS connects", async () => {
     const track = new MediaStreamTrack({ kind: "audio" });
     const dtls = createDtlsTransport();
-    const sender = new RTCRtpSender(track);
+    const sender = new RTCRtpSender(track, { pendingRtp: true });
     sender.setDtlsTransport(dtls);
     sender.prepareSend({
       codecs: [
@@ -192,7 +193,7 @@ describe("media/rtpSender", () => {
   test("replaceTrack(null) discards pending RTP", async () => {
     const track = new MediaStreamTrack({ kind: "audio" });
     const dtls = createDtlsTransport();
-    const sender = new RTCRtpSender(track);
+    const sender = new RTCRtpSender(track, { pendingRtp: true });
     sender.setDtlsTransport(dtls);
     sender.prepareSend({
       codecs: [
@@ -288,7 +289,7 @@ describe("media/rtpSender", () => {
   test("pending RTP flush keeps later packets in arrival order", async () => {
     const track = new MediaStreamTrack({ kind: "audio" });
     const dtls = createDtlsTransport();
-    const sender = new RTCRtpSender(track);
+    const sender = new RTCRtpSender(track, { pendingRtp: true });
     sender.setDtlsTransport(dtls);
     sender.prepareSend({
       codecs: [
@@ -413,10 +414,12 @@ describe("media/rtpSender", () => {
   });
 
   test("pending queue overflow resolves the dropped sendRtp promise", async () => {
-    const { sender } = arrangeDisconnectedSender();
-    const pendingLimit = 256;
+    const pendingLimit = 3;
+    const { sender } = arrangeDisconnectedSender({
+      pendingRtp: { maxLength: pendingLimit },
+    });
 
-    // 実行: 上限を超える RTP を未接続キューへ積む。
+    // 実行: 指定した maxLength を超える RTP を未接続キューへ積む。
     const first = sender.sendRtp(createRtpPacket(0, 0));
     const firstState = watchPromise(first);
     for (let index = 1; index < pendingLimit; index++) {
@@ -437,6 +440,58 @@ describe("media/rtpSender", () => {
     sender.stop();
     await overflow;
     expect(overflowState.status).toBe("resolved");
+  });
+
+  test("pending RTP is disabled by default and drops packets before DTLS connects", async () => {
+    const track = new MediaStreamTrack({ kind: "audio" });
+    const dtls = createDtlsTransport();
+    const sender = new RTCRtpSender(track);
+    sender.setDtlsTransport(dtls);
+    sender.prepareSend({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "audio/opus",
+          clockRate: 48000,
+          payloadType: 111,
+        }),
+      ],
+      headerExtensions: [],
+    });
+    const sendRtpSpy = vi.spyOn(dtls, "sendRtp");
+
+    // 実行: オプション未指定のまま未接続で sendRtp し、その後 connected にする。
+    await sender.sendRtp(createRtpPacket());
+    expect(pendingRtpQueue(sender)).toHaveLength(0);
+    dtls.state = "connected";
+    dtls.onStateChange.execute("connected");
+    await setTimeout(0);
+
+    // 検証: 既定ではキューに積まれず、接続後もフラッシュされない。
+    expect(pendingRtpQueue(sender)).toHaveLength(0);
+    expect(sendRtpSpy).not.toHaveBeenCalled();
+    sender.stop();
+  });
+
+  test("RTCPeerConnection pendingRtp option is applied to senders", async () => {
+    const pendingLimit = 2;
+    const pc = new RTCPeerConnection({
+      pendingRtp: { maxLength: pendingLimit },
+    });
+    const track = new MediaStreamTrack({ kind: "audio" });
+    const sender = pc.addTrack(track);
+
+    // 実行: PC から作った sender に未接続 RTP を上限まで積み、さらに 1 件溢す。
+    const first = sender.sendRtp(createRtpPacket(0, 0));
+    void sender.sendRtp(createRtpPacket(1, 1));
+    expect(pendingRtpQueue(sender)).toHaveLength(pendingLimit);
+    const overflow = sender.sendRtp(createRtpPacket(2, 2));
+    const overflowState = watchPromise(overflow);
+
+    // 検証: PeerConfig の maxLength が sender に渡り、溢れた最古は resolve する。
+    await first;
+    expect(pendingRtpQueue(sender)).toHaveLength(pendingLimit);
+    expect(overflowState.status).toBe("pending");
+    pc.close();
   });
 
   test("getStats returns a report rooted at outbound stats", async () => {
@@ -474,10 +529,15 @@ function pendingRtpQueue(sender: RTCRtpSender) {
   return (sender as unknown as { pendingRtp: unknown[] }).pendingRtp;
 }
 
-function arrangeDisconnectedSender() {
+function arrangeDisconnectedSender(
+  options: ConstructorParameters<typeof RTCRtpSender>[1] = {},
+) {
   const track = new MediaStreamTrack({ kind: "audio" });
   const dtls = createDtlsTransport();
-  const sender = new RTCRtpSender(track);
+  const sender = new RTCRtpSender(track, {
+    pendingRtp: true,
+    ...options,
+  });
   sender.setDtlsTransport(dtls);
   sender.prepareSend({
     codecs: [

@@ -80,14 +80,44 @@ import type { MediaStream, MediaStreamTrack } from "./track";
 const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");
 
 const RTP_HISTORY_SIZE = 128;
-const PENDING_RTP_LIMIT = 256;
+const DEFAULT_PENDING_RTP_MAX_LENGTH = 256;
 const RTT_ALPHA = 0.85;
+
+export type PendingRtpOptions = {
+  /** Queue RTP until DTLS is connected and a codec is set. Default true when this object is passed. */
+  enabled?: boolean;
+  /** Max queued packets when enabled. Oldest packets are dropped. Default 256. */
+  maxLength?: number;
+};
+
+export type RTCRtpSenderOptions = {
+  /** Pending RTP cache. Disabled by default. Pass `true` or `{ maxLength }` to enable. */
+  pendingRtp?: boolean | PendingRtpOptions;
+};
 
 type PendingRtpItem = {
   packet: RtpPacket;
   resolve: () => void;
   reject: (error: unknown) => void;
 };
+
+function resolvePendingRtpOptions(
+  pendingRtp: RTCRtpSenderOptions["pendingRtp"],
+): { enabled: boolean; maxLength: number } {
+  if (pendingRtp === true) {
+    return { enabled: true, maxLength: DEFAULT_PENDING_RTP_MAX_LENGTH };
+  }
+  if (pendingRtp == undefined || pendingRtp === false) {
+    return { enabled: false, maxLength: DEFAULT_PENDING_RTP_MAX_LENGTH };
+  }
+  const maxLength =
+    typeof pendingRtp.maxLength === "number" &&
+    Number.isFinite(pendingRtp.maxLength) &&
+    pendingRtp.maxLength >= 1
+      ? Math.floor(pendingRtp.maxLength)
+      : DEFAULT_PENDING_RTP_MAX_LENGTH;
+  return { enabled: pendingRtp.enabled ?? true, maxLength };
+}
 
 function freezeRtpContinuityOffsets(
   lastOutputSeq: number,
@@ -160,6 +190,8 @@ export class RTCRtpSender {
   private rtpCache: RtpPacket[] = [];
   private pendingRtp: PendingRtpItem[] = [];
   private drainingPendingRtp = false;
+  private readonly pendingRtpEnabled: boolean;
+  private readonly pendingRtpMaxLength: number;
   codec?: RTCRtpCodecParameters;
   public dtlsTransport!: RTCDtlsTransport;
   private dtlsDisposer: (() => void)[] = [];
@@ -170,7 +202,13 @@ export class RTCRtpSender {
   rtcpRunning = false;
   private rtcpCancel = new AbortController();
 
-  constructor(public trackOrKind: Kind | MediaStreamTrack) {
+  constructor(
+    public trackOrKind: Kind | MediaStreamTrack,
+    options: RTCRtpSenderOptions = {},
+  ) {
+    const pendingRtp = resolvePendingRtpOptions(options.pendingRtp);
+    this.pendingRtpEnabled = pendingRtp.enabled;
+    this.pendingRtpMaxLength = pendingRtp.maxLength;
     this.kind =
       typeof this.trackOrKind === "string"
         ? this.trackOrKind
@@ -275,7 +313,7 @@ export class RTCRtpSender {
       ? RtpPacket.deSerialize(rtp)
       : rtp.clone();
     this.pendingRtp.push({ packet, resolve, reject });
-    while (this.pendingRtp.length > PENDING_RTP_LIMIT) {
+    while (this.pendingRtp.length > this.pendingRtpMaxLength) {
       const dropped = this.pendingRtp.shift();
       if (dropped) {
         this.settlePendingRtp(dropped);
@@ -284,11 +322,12 @@ export class RTCRtpSender {
   }
 
   /**
-   * Send queued RTP once DTLS is connected and a codec is set. `writeRtp` /
-   * `sendRtp` may run before ICE/DTLS completes; dropping those packets would
-   * lose the start of a polyfill media source. `drainingPendingRtp` blocks
-   * re-entry while `dispatchRtp` is awaited; packets enqueued during that
-   * wait are drained by the recursive call after the flag is cleared.
+   * Send queued RTP once DTLS is connected and a codec is set. Used only when
+   * pending RTP is enabled: `writeRtp` / `sendRtp` may run before ICE/DTLS
+   * completes; dropping those packets would lose the start of a media source.
+   * `drainingPendingRtp` blocks re-entry while `dispatchRtp` is awaited;
+   * packets enqueued during that wait are drained by the recursive call after
+   * the flag is cleared.
    */
   private async drainPendingRtp() {
     if (this.drainingPendingRtp) {
@@ -446,8 +485,12 @@ export class RTCRtpSender {
   }
 
   /**
-   * Queue an RTP packet for sending. The returned promise settles for this
-   * packet only:
+   * Send an RTP packet. Pending RTP is disabled by default: the packet is
+   * written immediately if DTLS is connected and a codec is set, otherwise
+   * dropped.
+   *
+   * When pending RTP is enabled, the packet is queued until it can be sent.
+   * The returned promise then settles for this packet only:
    * - resolve: DTLS send completed, or the packet was dropped by `stop()`,
    *   `replaceTrack(null)`, or pending-queue overflow
    * - reject: DTLS send threw while writing this packet
@@ -457,6 +500,13 @@ export class RTCRtpSender {
    */
   async sendRtp(rtp: Buffer | RtpPacket) {
     if (this.stopped) {
+      return;
+    }
+    if (!this.pendingRtpEnabled) {
+      if (!this.canSendRtp()) {
+        return;
+      }
+      await this.dispatchRtp(rtp);
       return;
     }
     await new Promise<void>((resolve, reject) => {

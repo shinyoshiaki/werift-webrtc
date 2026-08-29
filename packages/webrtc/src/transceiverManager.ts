@@ -90,7 +90,9 @@ export class TransceiverManager {
 
     const direction = options.direction || "sendrecv";
 
-    const sender = new RTCRtpSender(trackOrKind);
+    const sender = new RTCRtpSender(trackOrKind, {
+      pendingRtp: this.config.pendingRtp,
+    });
     const receiver = new RTCRtpReceiver(this.config, kind, sender.ssrc);
     const newTransceiver = new RTCRtpTransceiver(
       kind,

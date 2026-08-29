@@ -18,6 +18,7 @@ import {
   type RTCRtpHeaderExtensionParameters,
   type RTCRtpReceiver,
   type RTCRtpSender,
+  type RTCRtpSenderOptions,
   type RTCRtpTransceiver,
   RtpRouter,
   TransceiverManager,
@@ -1308,6 +1309,11 @@ export interface PeerConfig {
   midSuffix: boolean;
   /** Advertised local SCTP max-message-size in SDP. Use 0 for unlimited. */
   maxMessageSize: number;
+  /**
+   * Queue outbound RTP on each sender until DTLS is connected.
+   * Disabled by default. Pass `true` or `{ enabled: true, maxLength }` to buffer.
+   */
+  pendingRtp: NonNullable<RTCRtpSenderOptions["pendingRtp"]>;
 }
 
 export const findCodecByMimeType = (
@@ -1466,6 +1472,7 @@ function generateDefaultPeerConfig(): PeerConfig {
     midSuffix: false,
     forceTurnTCP: false,
     maxMessageSize: DEFAULT_MAX_MESSAGE_SIZE,
+    pendingRtp: false,
   };
 }
 export const defaultPeerConfig: PeerConfig = generateDefaultPeerConfig();
@@ -1553,6 +1560,10 @@ function clonePeerConfiguration(config: PeerConfig) {
     dtls: { ...config.dtls },
     certificates: [...config.certificates],
     debug: { ...config.debug },
+    pendingRtp:
+      typeof config.pendingRtp === "object" && config.pendingRtp != undefined
+        ? { ...config.pendingRtp }
+        : config.pendingRtp,
   };
 }
 
