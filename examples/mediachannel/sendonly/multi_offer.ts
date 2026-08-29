@@ -1,8 +1,5 @@
 import { Server } from "ws";
-import {
-  RTCPeerConnection,
-  RTCRtpCodecParameters,
-} from "../../../packages/webrtc/src";
+import { RTCPeerConnection } from "../../../packages/webrtc/src";
 import {
   createRtpRtcpRegister,
   installPolyfill,
@@ -39,18 +36,7 @@ void (async () => {
   const source2 = stream2.getVideoTracks()[0];
 
   server.on("connection", async (socket) => {
-    const pc = new RTCPeerConnection({
-      codecs: {
-        audio: [],
-        video: [
-          new RTCRtpCodecParameters({
-            mimeType: "video/VP8",
-            clockRate: 90000,
-            payloadType: 96,
-          }),
-        ],
-      },
-    });
+    const pc = new RTCPeerConnection();
     pc.iceConnectionStateChange.subscribe((v) =>
       console.log("pc.iceConnectionStateChange", v),
     );

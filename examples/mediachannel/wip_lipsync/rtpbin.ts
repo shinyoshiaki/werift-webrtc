@@ -4,7 +4,6 @@ import { setTimeout } from "timers/promises";
 import { Server } from "ws";
 import {
   RTCPeerConnection,
-  RTCRtpCodecParameters,
   RtcpSrPacket,
   randomPorts,
 } from "../../../packages/webrtc/src";
@@ -16,21 +15,7 @@ import {
 console.log("start", __dirname);
 
 new Server({ port: 8887 }).on("connection", async (socket) => {
-  const pc = new RTCPeerConnection({
-    codecs: {
-      video: [
-        new RTCRtpCodecParameters({
-          mimeType: "video/VP8",
-          clockRate: 90000,
-          rtcpFeedback: [
-            { type: "nack" },
-            { type: "nack", parameter: "pli" },
-            { type: "goog-remb" },
-          ],
-        }),
-      ],
-    },
-  });
+  const pc = new RTCPeerConnection();
 
   installPolyfill({
     mediaRegister: [
@@ -68,21 +53,7 @@ new Server({ port: 8887 }).on("connection", async (socket) => {
 });
 
 new Server({ port: 8888 }).on("connection", async (socket) => {
-  const pc = new RTCPeerConnection({
-    codecs: {
-      video: [
-        new RTCRtpCodecParameters({
-          mimeType: "video/VP8",
-          clockRate: 90000,
-          rtcpFeedback: [
-            { type: "nack" },
-            { type: "nack", parameter: "pli" },
-            { type: "goog-remb" },
-          ],
-        }),
-      ],
-    },
-  });
+  const pc = new RTCPeerConnection();
 
   const audioPt = 111;
   const videoPt = 125;

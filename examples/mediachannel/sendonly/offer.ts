@@ -1,10 +1,6 @@
 import { spawn } from "child_process";
 import { Server } from "ws";
-import {
-  RTCPeerConnection,
-  RTCRtpCodecParameters,
-  randomPort,
-} from "../../../packages/webrtc/src";
+import { RTCPeerConnection, randomPort } from "../../../packages/webrtc/src";
 import {
   createRtpRtcpRegister,
   installPolyfill,
@@ -14,18 +10,7 @@ const server = new Server({ port: 8888 });
 console.log("start");
 
 server.on("connection", async (socket) => {
-  const pc = new RTCPeerConnection({
-    codecs: {
-      audio: [],
-      video: [
-        new RTCRtpCodecParameters({
-          mimeType: "video/VP8",
-          clockRate: 90000,
-          payloadType: 96,
-        }),
-      ],
-    },
-  });
+  const pc = new RTCPeerConnection();
 
   const port = await randomPort();
   installPolyfill({

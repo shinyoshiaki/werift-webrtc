@@ -1,8 +1,5 @@
 import { Server } from "ws";
-import {
-  RTCPeerConnection,
-  RTCRtpCodecParameters,
-} from "../../../packages/webrtc/src";
+import { RTCPeerConnection } from "../../../packages/webrtc/src";
 import {
   createMp4WebmRegister,
   installPolyfill,
@@ -12,28 +9,7 @@ const server = new Server({ port: 8881 });
 console.log("start");
 
 server.on("connection", async (socket) => {
-  const pc = new RTCPeerConnection({
-    codecs: {
-      video: [
-        new RTCRtpCodecParameters({
-          mimeType: "video/VP8",
-          clockRate: 90000,
-          rtcpFeedback: [
-            { type: "nack" },
-            { type: "nack", parameter: "pli" },
-            { type: "goog-remb" },
-          ],
-        }),
-      ],
-      audio: [
-        new RTCRtpCodecParameters({
-          mimeType: "audio/opus",
-          clockRate: 48000,
-          channels: 2,
-        }),
-      ],
-    },
-  });
+  const pc = new RTCPeerConnection();
 
   installPolyfill({
     mediaRegister: [
