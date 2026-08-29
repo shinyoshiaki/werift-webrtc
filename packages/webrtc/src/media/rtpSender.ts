@@ -152,6 +152,7 @@ export class RTCRtpSender {
   private pendingTimestampStep = 1;
   private rtpCache: RtpPacket[] = [];
   private pendingRtp: RtpPacket[] = [];
+  private drainingPendingRtp = false;
   codec?: RTCRtpCodecParameters;
   public dtlsTransport!: RTCDtlsTransport;
   private dtlsDisposer: (() => void)[] = [];
@@ -194,7 +195,7 @@ export class RTCRtpSender {
       this.dtlsTransport.onStateChange.subscribe((state) => {
         if (state === "connected") {
           this.onReady.execute();
-          void this.flushPendingRtp();
+          void this.drainPendingRtp();
         }
       }).unSubscribe,
     ];
@@ -234,7 +235,7 @@ export class RTCRtpSender {
         );
       }
     });
-    void this.flushPendingRtp();
+    void this.drainPendingRtp();
   }
 
   private canSendRtp() {
@@ -260,13 +261,21 @@ export class RTCRtpSender {
     }
   }
 
-  private async flushPendingRtp() {
-    if (!this.canSendRtp() || this.pendingRtp.length === 0) {
+  private async drainPendingRtp() {
+    if (this.drainingPendingRtp) {
       return;
     }
-    const queued = this.pendingRtp.splice(0);
-    for (const packet of queued) {
-      await this.sendRtp(packet);
+    this.drainingPendingRtp = true;
+    try {
+      while (this.pendingRtp.length > 0 && this.canSendRtp()) {
+        const packet = this.pendingRtp.shift()!;
+        await this.dispatchRtp(packet);
+      }
+    } finally {
+      this.drainingPendingRtp = false;
+    }
+    if (this.pendingRtp.length > 0 && this.canSendRtp()) {
+      await this.drainPendingRtp();
     }
   }
 
@@ -427,18 +436,21 @@ export class RTCRtpSender {
   }
 
   async sendRtp(rtp: Buffer | RtpPacket) {
+    this.enqueuePendingRtp(rtp);
+    await this.drainPendingRtp();
+  }
+
+  private async dispatchRtp(rtp: Buffer | RtpPacket) {
     if (!this.canSendRtp()) {
-      this.enqueuePendingRtp(rtp);
       return;
     }
 
     const codec = this.codec;
     if (!codec) {
-      this.enqueuePendingRtp(rtp);
       return;
     }
 
-    rtp = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;
+    rtp = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp.clone();
 
     const { header, payload } = rtp;
     const inputSequenceNumber = header.sequenceNumber;

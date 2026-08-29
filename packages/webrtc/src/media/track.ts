@@ -40,9 +40,9 @@ class TrackBroadcastSource {
 
   deliverRtp(packet: RtpPacket, extensions?: Extensions) {
     const live = [...this.tracks].filter((track) => !track.stopped);
-    live.forEach((track, index) => {
-      track.applyIncomingRtp(index === 0 ? packet : packet.clone(), extensions);
-    });
+    for (const track of live) {
+      track.applyIncomingRtp(packet.clone(), extensions);
+    }
   }
 
   deliverRtcp(packet: RtcpPacket) {
@@ -139,7 +139,9 @@ export class MediaStreamTrack extends EventTarget {
       throw new Error("this is remoteTrack");
     }
 
-    const packet = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;
+    const packet = Buffer.isBuffer(rtp)
+      ? RtpPacket.deSerialize(rtp)
+      : rtp.clone();
     packet.header.payloadType =
       this.codec?.payloadType ?? packet.header.payloadType;
     this.broadcastSource.deliverRtp(packet);

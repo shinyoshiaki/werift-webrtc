@@ -213,6 +213,119 @@ describe("media/rtpSender", () => {
     expect(pendingRtpQueue(sender)).toHaveLength(0);
   });
 
+  test("cloned tracks keep independent RTP headers across senders", async () => {
+    const source = new MediaStreamTrack({ kind: "audio" });
+    const clone = source.clone();
+    const original = createConnectedRtpSender({ track: source });
+    const cloned = createConnectedRtpSender({ track: clone });
+
+    const packet = createRtpPacket(10, 90000);
+    packet.header.ssrc = 7;
+    packet.header.payloadType = 8;
+
+    // 実行: 元 track へ書き込み、2 つの sender へ fan-out する。
+    source.writeRtp(packet);
+    await waitForSent(original.sendRtp, 1);
+    await waitForSent(cloned.sendRtp, 1);
+
+    // 検証: 入力パケットは汚染されず、各 sender は独自の SSRC / seq / ts を出す。
+    expect(packet.header.ssrc).toBe(7);
+    expect(packet.header.payloadType).toBe(8);
+    expect(packet.header.sequenceNumber).toBe(10);
+    expect(packet.header.timestamp).toBe(90000);
+
+    const [headerA] = sentRtpHeaders(original.sendRtp);
+    const [headerB] = sentRtpHeaders(cloned.sendRtp);
+    expect(headerA.ssrc).toBe(original.sender.ssrc);
+    expect(headerB.ssrc).toBe(cloned.sender.ssrc);
+    expect(headerA.ssrc).not.toBe(headerB.ssrc);
+    expect(headerA.ssrc).not.toBe(7);
+    expect(headerB.ssrc).not.toBe(7);
+    expect(headerA.sequenceNumber).toBe(10);
+    expect(headerB.sequenceNumber).toBe(10);
+    expect(headerA.timestamp).toBe(90000);
+    expect(headerB.timestamp).toBe(90000);
+
+    original.sendRtp.mockClear();
+    cloned.sendRtp.mockClear();
+
+    // 実行: 片側 sender だけ追加パケットを送る。
+    await original.sender.sendRtp(createRtpPacket(11, 90040));
+
+    // 検証: もう一方の sender のタイムラインは動かない。
+    expect(original.sendRtp).toHaveBeenCalledTimes(1);
+    expect(cloned.sendRtp).not.toHaveBeenCalled();
+    expect(sentRtpHeaders(original.sendRtp)[0].ssrc).toBe(original.sender.ssrc);
+    expect(sentRtpHeaders(original.sendRtp)[0].sequenceNumber).toBe(11);
+
+    original.sender.stop();
+    cloned.sender.stop();
+  });
+
+  test("RTP fan-out copies packets before the first subscriber mutates them", () => {
+    const source = new MediaStreamTrack({ kind: "audio" });
+    const clone = source.clone();
+    const seen: number[] = [];
+    source.onReceiveRtp.subscribe((rtp) => {
+      rtp.header.ssrc = 42;
+    });
+    clone.onReceiveRtp.subscribe((rtp) => {
+      seen.push(rtp.header.ssrc);
+    });
+
+    // 実行: 先頭購読者が SSRC を書き換える。
+    const packet = createRtpPacket();
+    packet.header.ssrc = 7;
+    source.writeRtp(packet);
+
+    // 検証: clone は元の SSRC を受け取り、入力パケットも汚染されない。
+    expect(seen).toEqual([7]);
+    expect(packet.header.ssrc).toBe(7);
+  });
+
+  test("pending RTP flush keeps later packets in arrival order", async () => {
+    const track = new MediaStreamTrack({ kind: "audio" });
+    const dtls = createDtlsTransport();
+    const sender = new RTCRtpSender(track);
+    sender.setDtlsTransport(dtls);
+    sender.prepareSend({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "audio/opus",
+          clockRate: 48000,
+          payloadType: 111,
+        }),
+      ],
+      headerExtensions: [],
+    });
+
+    const firstSend = deferred();
+    const sent: number[] = [];
+    let calls = 0;
+    vi.spyOn(dtls, "sendRtp").mockImplementation(async (_payload, header) => {
+      sent.push(header.sequenceNumber);
+      calls += 1;
+      if (calls === 1) {
+        await firstSend.promise;
+      }
+      return 0;
+    });
+
+    // 実行: 未接続で [1,2] を積み、接続直後の flush 中に 3 を送る。
+    await sender.sendRtp(createRtpPacket(1, 1000));
+    await sender.sendRtp(createRtpPacket(2, 2000));
+    dtls.state = "connected";
+    dtls.onStateChange.execute("connected");
+    const late = sender.sendRtp(createRtpPacket(3, 3000));
+    firstSend.resolve();
+    await late;
+    await waitUntil(() => sent.length === 3);
+
+    // 検証: 接続前後の入力 [1,2,3] が同順で送出される。
+    expect(sent).toEqual([1, 2, 3]);
+    sender.stop();
+  });
+
   test("getStats returns a report rooted at outbound stats", async () => {
     const track = new MediaStreamTrack({ kind: "audio", remote: true });
     const dtls = createDtlsTransport();
@@ -243,6 +356,35 @@ describe("media/rtpSender", () => {
     ).toBe(false);
   });
 });
+
+function pendingRtpQueue(sender: RTCRtpSender) {
+  return (sender as unknown as { pendingRtp: unknown[] }).pendingRtp;
+}
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+async function waitUntil(predicate: () => boolean, timeoutMs = 1_000) {
+  const started = Date.now();
+  while (!predicate()) {
+    if (Date.now() - started >= timeoutMs) {
+      throw new Error("Timed out waiting for condition");
+    }
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+}
+
+async function waitForSent(
+  sendRtp: ReturnType<typeof createConnectedRtpSender>["sendRtp"],
+  count: number,
+) {
+  await waitUntil(() => sendRtp.mock.calls.length >= count);
+}
 
 describe("media/rtpSender RTP continuity", () => {
   const started: RTCRtpSender[] = [];
@@ -595,7 +737,3 @@ describe("media/rtpSender RTP continuity", () => {
     expect(header.timestamp).toBe((last.timestamp + 1) >>> 0);
   });
 });
-
-function pendingRtpQueue(sender: RTCRtpSender) {
-  return (sender as unknown as { pendingRtp: unknown[] }).pendingRtp;
-}
