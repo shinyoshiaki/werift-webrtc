@@ -109,10 +109,10 @@ describePion("pion SPED wire codec (opt-in)", () => {
 
     // Assert: pion/ice DtlsInStunAttribute.GetFrom が codepoint と value を読む
     expect(decodedEmpty).toMatch(/type=0xC070/i);
-    expect(decodedEmpty).toMatch(/DtlsInStunAttribute\.GetFrom value= len=0/);
+    expect(decodedEmpty).toContain("DtlsInStunAttribute.GetFrom value= len=0");
     expect(decodedHello).toMatch(/type=0xC070/i);
-    expect(decodedHello).toMatch(
-      /DtlsInStunAttribute\.GetFrom value=16fefd0001 len=5/i,
+    expect(decodedHello).toContain(
+      "DtlsInStunAttribute.GetFrom value=16fefd0001 len=5",
     );
   });
 
@@ -158,8 +158,8 @@ describePion("pion SPED wire codec (opt-in)", () => {
       // Assert: pion/ice ACK GetFrom と werift decodeSpedAck が同じ CRC 列になる
       expect(fromWerift).toMatch(/type=0xC071/i);
       if (crcs.length === 0) {
-        expect(fromWerift).toMatch(
-          /DtlsInStunAckAttribute\.GetFrom crcs= count=0/,
+        expect(fromWerift).toContain(
+          "DtlsInStunAckAttribute.GetFrom crcs= count=0",
         );
         expect(
           decodeSpedAck(getRawAttributeValue(parsed!, DTLS_IN_STUN_ACK)!),
@@ -172,11 +172,8 @@ describePion("pion SPED wire codec (opt-in)", () => {
         const crcHex = crcs
           .map((crc) => crc.toString(16).padStart(8, "0"))
           .join(",");
-        expect(fromWerift).toMatch(
-          new RegExp(
-            `DtlsInStunAckAttribute\\.GetFrom crcs=${crcHex} count=${crcs.length}`,
-            "i",
-          ),
+        expect(fromWerift).toContain(
+          `DtlsInStunAckAttribute.GetFrom crcs=${crcHex} count=${crcs.length}`,
         );
         expect(decodeSpedAck(ack)).toEqual({ kind: "crcs", crcs });
       }
