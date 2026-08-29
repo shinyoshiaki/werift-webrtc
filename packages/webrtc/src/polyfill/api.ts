@@ -16,7 +16,10 @@ export {
   createDummyRegister,
 } from "./registers/callback";
 export { createMp4WebmRegister } from "./registers/mp4Webm";
-export type { CreateMp4WebmRegisterOptions } from "./registers/mp4Webm";
+export type {
+  CreateMp4WebmRegisterOptions,
+  Mp4WebmCodecHint,
+} from "./registers/mp4Webm";
 export {
   createEncodedBinaryRegister,
   createRtpRtcpRegister,

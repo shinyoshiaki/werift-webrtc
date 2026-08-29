@@ -12,6 +12,7 @@ import type {
 } from "../mediaRegister";
 import {
   codecFromMimeType,
+  defaultClockRateForMimeType,
   kindFromMimeType,
   rtpCodecFromMimeType,
   sourceCodecFromMimeType,
@@ -96,7 +97,8 @@ export function createEncodedBinaryRegister(
   const kind = kindFromMimeType(options.mimeType);
   const sourceCodec = sourceCodecFromMimeType(options.mimeType);
   const codec = codecFromMimeType(options);
-  const clockRate = options.clockRate ?? (kind === "audio" ? 48_000 : 90_000);
+  const clockRate =
+    options.clockRate ?? defaultClockRateForMimeType(options.mimeType);
   const sessions = createSessionBag();
 
   return {

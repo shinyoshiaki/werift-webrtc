@@ -1,6 +1,7 @@
 import type { Readable } from "stream";
 
-import { createWebRtcDomException } from "../../errors";
+import { OverconstrainedError, createWebRtcDomException } from "../../errors";
+import { RTCRtpCodecParameters } from "../../media/parameters";
 import type { MediaStreamTrack } from "../../media/track";
 import { createFileMediaPlayer } from "../../nonstandard/userMedia";
 import type {
@@ -9,6 +10,10 @@ import type {
   MediaRegister,
   MediaRegisterCommonOptions,
 } from "../mediaRegister";
+import {
+  type RtpCodecFromMimeTypeOptions,
+  rtpCodecFromMimeType,
+} from "../rtpCodec";
 import {
   type BinaryLike,
   isWebmContainer,
@@ -26,9 +31,22 @@ type Mp4WebmSource =
       stream: Readable | ReadableStream<Uint8Array>;
     };
 
+export type Mp4WebmCodecHint =
+  | string
+  | RtpCodecFromMimeTypeOptions
+  | RTCRtpCodecParameters;
+
 export type CreateMp4WebmRegisterOptions = Mp4WebmSource &
   MediaRegisterCommonOptions & {
     loop?: boolean;
+    /**
+     * RTP codecs advertised on acquired tracks.
+     * Omitted kinds are filled from the container via mediabunny.
+     */
+    codecs?: {
+      audio?: Mp4WebmCodecHint;
+      video?: Mp4WebmCodecHint;
+    };
   };
 
 type FilePlayer = Awaited<ReturnType<typeof createFileMediaPlayer>>;
@@ -71,6 +89,12 @@ export function createMp4WebmRegister(
         );
       }
       const track = source.clone();
+      applyInspectedOrExplicitCodec(
+        source,
+        track,
+        request.kind,
+        options.codecs?.[request.kind],
+      );
       liveTracks.add(track);
       bindOwnTrackStop(track, () => {
         liveTracks.delete(track);
@@ -270,4 +294,47 @@ function mapMediaIoError(error: unknown) {
     "NotReadableError",
     error instanceof Error ? error.message : "Failed to read media source",
   );
+}
+
+function applyInspectedOrExplicitCodec(
+  source: MediaStreamTrack,
+  track: MediaStreamTrack,
+  kind: MediaKind,
+  hint: Mp4WebmCodecHint | undefined,
+) {
+  const inspected = source.codec;
+  if (hint == undefined) {
+    if (inspected == undefined) {
+      throw createWebRtcDomException(
+        "NotReadableError",
+        `mp4/webm source has no RTP codec for ${kind}`,
+      );
+    }
+    track.codec = inspected;
+    return;
+  }
+  const explicit = resolveMp4WebmCodecHint(hint);
+  if (
+    inspected &&
+    inspected.mimeType.toLowerCase() !== explicit.mimeType.toLowerCase()
+  ) {
+    throw new OverconstrainedError(
+      "mimeType",
+      `explicit ${kind} codec ${explicit.mimeType} does not match inspected ${inspected.mimeType}`,
+    );
+  }
+  source.codec = explicit;
+  track.codec = explicit;
+}
+
+function resolveMp4WebmCodecHint(
+  hint: Mp4WebmCodecHint,
+): RTCRtpCodecParameters {
+  if (typeof hint === "string") {
+    return rtpCodecFromMimeType({ mimeType: hint });
+  }
+  if (hint instanceof RTCRtpCodecParameters) {
+    return hint;
+  }
+  return rtpCodecFromMimeType(hint);
 }

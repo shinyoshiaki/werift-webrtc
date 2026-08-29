@@ -902,6 +902,96 @@ describe("werift/polyfill builtin registers", () => {
     }
   }, 20_000);
 
+  test("mp4/webm は mediabunny で検出したコーデックを PC codecs なしで offer する", async () => {
+    const webm = await createAvWebmBuffer();
+    const mp4 = await createAvMp4Buffer();
+    await withRegister(createMp4WebmRegister({ binary: webm }), async () => {
+      // 実行: 明示 codecs なしで VP8 WebM を GUM し、デフォルト PC で offer する。
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: true,
+      });
+      const video = stream.getVideoTracks()[0] as MediaStreamTrack;
+      const audio = stream.getAudioTracks()[0] as MediaStreamTrack;
+      const pc = new RTCPeerConnection();
+      try {
+        pc.addTransceiver(audio, { direction: "sendonly" });
+        pc.addTransceiver(video, { direction: "sendonly" });
+        const offer = await pc.createOffer();
+
+        // 検証: mediabunny が見た VP8 / Opus が track と SDP に載る。
+        expect(video.codec?.mimeType.toLowerCase()).toContain("vp8");
+        expect(video.codec?.clockRate).toBe(90_000);
+        expect(audio.codec?.mimeType.toLowerCase()).toContain("opus");
+        expect(offer.sdp).toMatch(/VP8\/90000/i);
+        expect(offer.sdp).toMatch(/opus\/48000/i);
+      } finally {
+        await pc.close();
+      }
+    });
+
+    await withRegister(createMp4WebmRegister({ binary: mp4 }), async () => {
+      // 実行: 明示 codecs なしで H264 MP4 を GUM し、デフォルト PC で offer する。
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const video = stream.getVideoTracks()[0] as MediaStreamTrack;
+      const pc = new RTCPeerConnection();
+      try {
+        pc.addTransceiver(video, { direction: "sendonly" });
+        const offer = await pc.createOffer();
+
+        // 検証: H264 ファイルでも PC に codecs を渡さず SDP に載る。
+        expect(video.codec?.mimeType.toLowerCase()).toContain("h264");
+        expect(video.codec?.clockRate).toBe(90_000);
+        expect(offer.sdp).toMatch(/H264\/90000/i);
+      } finally {
+        await pc.close();
+      }
+    });
+  }, 20_000);
+
+  test("mp4/webm codecs オプションは検査結果と一致するときだけ上書きできる", async () => {
+    const webm = await createAvWebmBuffer();
+    await withRegister(
+      createMp4WebmRegister({
+        binary: webm,
+        codecs: { video: "video/VP8", audio: { mimeType: "audio/opus" } },
+      }),
+      async () => {
+        // 実行: ファイルと一致する明示 codecs で GUM する。
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: true,
+        });
+        const video = stream.getVideoTracks()[0] as MediaStreamTrack;
+        const audio = stream.getAudioTracks()[0] as MediaStreamTrack;
+
+        // 検証: 明示 mimeType が track.codec になる。
+        expect(video.codec?.mimeType.toLowerCase()).toContain("vp8");
+        expect(audio.codec?.mimeType.toLowerCase()).toContain("opus");
+      },
+    );
+
+    const uninstall = installTestPolyfill([
+      createMp4WebmRegister({
+        binary: webm,
+        codecs: { video: "video/H264" },
+      }),
+    ]);
+    try {
+      let thrown: unknown;
+      try {
+        // 実行: VP8 WebM に H264 を明示する。
+        await navigator.mediaDevices.getUserMedia({ video: true });
+      } catch (error) {
+        thrown = error;
+      }
+      // 検証: 検査結果と不一致なら OverconstrainedError になる。
+      expectOverconstrainedError(thrown, "mimeType");
+    } finally {
+      uninstall();
+    }
+  }, 20_000);
+
   test("same mp4/webm register can be acquired twice with independent tracks", async () => {
     const webm = await createAvWebmBuffer();
     await withRegister(
@@ -1025,6 +1115,38 @@ describe("werift/polyfill builtin registers", () => {
         expect(track.codec?.mimeType.toLowerCase()).toBe("audio/pcmu");
         expect(track.codec?.payloadType).toBe(0);
         expect(track.codec?.clockRate).toBe(8000);
+      },
+    );
+  });
+
+  test("rtp/rtcp clockRate 省略時はコーデックごとの WebRTC 規定値", async () => {
+    const videoStream = new PassThrough();
+    await withRegister(
+      createRtpRtcpRegister({ mimeType: "video/VP8", stream: videoStream }),
+      async () => {
+        // 実行: clockRate なしの VP8 RTP register から GUM する。
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+        });
+        const track = stream.getVideoTracks()[0] as MediaStreamTrack;
+
+        // 検証: 映像は 90 kHz。
+        expect(track.codec?.clockRate).toBe(90_000);
+      },
+    );
+
+    const opusStream = new PassThrough();
+    await withRegister(
+      createRtpRtcpRegister({ mimeType: "audio/opus", stream: opusStream }),
+      async () => {
+        // 実行: clockRate なしの Opus RTP register から GUM する。
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
+        const track = stream.getAudioTracks()[0] as MediaStreamTrack;
+
+        // 検証: Opus は 48 kHz。
+        expect(track.codec?.clockRate).toBe(48_000);
       },
     );
   });

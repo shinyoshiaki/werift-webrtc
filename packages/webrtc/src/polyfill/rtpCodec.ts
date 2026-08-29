@@ -23,22 +23,35 @@ export function kindFromMimeType(mimeType: string): MediaKind {
   return mimeType.toLowerCase().startsWith("audio/") ? "audio" : "video";
 }
 
+/** WebRTC RTP clockRate when the register omits `clockRate` (RFC 3551 / 7587 / video 90 kHz). */
+export function defaultClockRateForMimeType(mimeType: string): number {
+  const normalized = mimeType.toLowerCase();
+  if (normalized.includes("opus")) {
+    return 48_000;
+  }
+  if (normalized.startsWith("audio/")) {
+    return 8_000;
+  }
+  return 90_000;
+}
+
 export function rtpCodecFromMimeType(
   options: RtpCodecFromMimeTypeOptions,
 ): RTCRtpCodecParameters {
   const extra = extraCodecFields(options);
+  const clockRate =
+    extra.clockRate ?? defaultClockRateForMimeType(options.mimeType);
+  const withClockRate = { ...extra, clockRate };
   const normalized = options.mimeType.toLowerCase();
   if (normalized.includes("pcmu")) {
-    return usePCMU(extra);
+    return usePCMU(withClockRate);
   }
   try {
-    return codecFromMimeType(options);
+    return codecFromMimeType({ ...options, clockRate });
   } catch {
-    const kind = kindFromMimeType(options.mimeType);
     return new RTCRtpCodecParameters({
       mimeType: options.mimeType,
-      clockRate: extra.clockRate ?? (kind === "audio" ? 8_000 : 90_000),
-      ...extra,
+      ...withClockRate,
     });
   }
 }
@@ -70,6 +83,7 @@ export function codecFromMimeType(
 ): RTCRtpCodecParameters {
   const sourceCodec = sourceCodecFromMimeType(options.mimeType);
   const extra = extraCodecFields(options);
+  extra.clockRate ??= defaultClockRateForMimeType(options.mimeType);
   switch (sourceCodec) {
     case "avc":
       return useH264(extra);
