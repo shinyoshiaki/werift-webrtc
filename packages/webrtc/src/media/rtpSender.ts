@@ -152,7 +152,6 @@ export class RTCRtpSender {
   private pendingTimestampStep = 1;
   private rtpCache: RtpPacket[] = [];
   private pendingRtp: RtpPacket[] = [];
-  private pendingReplaceRtp = false;
   codec?: RTCRtpCodecParameters;
   public dtlsTransport!: RTCDtlsTransport;
   private dtlsDisposer: (() => void)[] = [];
@@ -319,7 +318,7 @@ export class RTCRtpSender {
 
   async replaceTrack(track: MediaStreamTrack | null) {
     if (track === null) {
-      this.pendingReplaceRtp = false;
+      this.rtpContinuityPending = false;
       this.discardPendingRtp();
       if (this.disposeTrack) {
         this.disposeTrack();
@@ -340,7 +339,7 @@ export class RTCRtpSender {
 
   stop() {
     this.stopped = true;
-    this.pendingReplaceRtp = false;
+    this.rtpContinuityPending = false;
     this.discardPendingRtp();
     this.rtcpRunning = false;
     this.rtcpCancel.abort();
@@ -440,11 +439,6 @@ export class RTCRtpSender {
     }
 
     rtp = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;
-
-    if (this.pendingReplaceRtp) {
-      this.pendingReplaceRtp = false;
-      this.replaceRTP(rtp.header, true);
-    }
 
     const { header, payload } = rtp;
     const inputSequenceNumber = header.sequenceNumber;

@@ -107,11 +107,11 @@ describe("media/rtpSender", () => {
     track2.onReceiveRtp.execute(second);
     await setTimeout(0);
 
-    // 検証: 置換は待たず完了し、送出 RTP は最後の seq/ts を再利用せず継続する。
+    // 検証: 置換は待たず完了し、送出 RTP は直前の seq+1 / timestamp+1 で継続する。
     expect(sent).toHaveLength(2);
     expect(sent[0]).toEqual({ sequenceNumber: 5000, timestamp: 900000 });
     expect(sent[1]).not.toEqual({ sequenceNumber: 1, timestamp: 0 });
-    expect(sent[1].sequenceNumber).toBe(5002);
+    expect(sent[1].sequenceNumber).toBe(5001);
     expect(sent[1].timestamp).toBe(900001);
   });
 
