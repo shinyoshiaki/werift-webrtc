@@ -134,10 +134,10 @@ export function createEncodedBinaryRegister(
                   (rtpTimestamp + Math.round(elapsedSeconds * clockRate)) >>> 0;
               }
               lastReceivedAt = now;
-              // EncodedPacket requires a duration; packetizers use only
-              // `data`. RTP timestamps come from AU arrival intervals above,
-              // not this value, so it is not the source fps (there is no
-              // container here).
+              // EncodedPacket requires a non-negative duration. Packetizers
+              // read only data/type, and RTP timestamps come from AU arrival
+              // intervals above, so this dummy value does not affect sent
+              // packets.
               const encoded = new EncodedPacket(
                 new Uint8Array(accessUnit),
                 "key",
