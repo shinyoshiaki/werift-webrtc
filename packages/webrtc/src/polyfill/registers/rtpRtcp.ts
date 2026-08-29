@@ -3,8 +3,15 @@ import type { Readable } from "stream";
 import { EncodedPacket } from "mediabunny";
 
 import { RtcpPacketConverter, isRtcp } from "../../imports/rtp";
-import { useAV1X, useH264, useOPUS, useVP8, useVP9 } from "../../media/codec";
-import type { RTCRtpCodecParameters } from "../../media/parameters";
+import {
+  useAV1X,
+  useH264,
+  useOPUS,
+  usePCMU,
+  useVP8,
+  useVP9,
+} from "../../media/codec";
+import { RTCRtpCodecParameters } from "../../media/parameters";
 import { MediaStreamTrack } from "../../media/track";
 import {
   type SupportedSourceCodec,
@@ -35,7 +42,7 @@ export function createRtpRtcpRegister(
   options: CreateRtpRtcpRegisterOptions,
 ): MediaRegister {
   const kind = kindFromMimeType(options.mimeType);
-  const codec = codecFromMimeType(options);
+  const codec = rtpCodecFromMimeType(options);
   const sessions = createSessionBag();
 
   return {
@@ -71,6 +78,9 @@ export function createRtpRtcpRegister(
               track.stopMediaSource();
             },
             signal,
+            () => {
+              track.stopMediaSource();
+            },
           ),
       );
     },
@@ -143,6 +153,9 @@ export function createEncodedBinaryRegister(
               track.stopMediaSource();
             },
             signal,
+            () => {
+              track.stopMediaSource();
+            },
           ),
       );
     },
@@ -207,6 +220,38 @@ function isMuxedRtcp(packet: Buffer) {
 
 function kindFromMimeType(mimeType: string): MediaKind {
   return mimeType.toLowerCase().startsWith("audio/") ? "audio" : "video";
+}
+
+function rtpCodecFromMimeType(options: {
+  mimeType: string;
+  clockRate?: number;
+  channels?: number;
+  payloadType?: number;
+}): RTCRtpCodecParameters {
+  const extra: Partial<RTCRtpCodecParameters> = {
+    ...(options.clockRate != undefined ? { clockRate: options.clockRate } : {}),
+    ...(options.channels != undefined ? { channels: options.channels } : {}),
+    ...(options.payloadType != undefined
+      ? { payloadType: options.payloadType }
+      : {}),
+  };
+  const normalized = options.mimeType.toLowerCase();
+  if (normalized.includes("pcmu")) {
+    return usePCMU(extra);
+  }
+  try {
+    return codecFromMimeType(options);
+  } catch {
+    const kind = kindFromMimeType(options.mimeType);
+    return new RTCRtpCodecParameters({
+      mimeType: options.mimeType,
+      clockRate: extra.clockRate ?? (kind === "audio" ? 8_000 : 90_000),
+      ...(extra.channels != undefined ? { channels: extra.channels } : {}),
+      ...(extra.payloadType != undefined
+        ? { payloadType: extra.payloadType }
+        : {}),
+    });
+  }
 }
 
 function sourceCodecFromMimeType(mimeType: string): SupportedSourceCodec {

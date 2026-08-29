@@ -985,6 +985,78 @@ describe("werift/polyfill builtin registers", () => {
     );
   });
 
+  test("rtp/rtcp register accepts audio/PCMU", async () => {
+    const passthrough = new PassThrough();
+    await withRegister(
+      createRtpRtcpRegister({ mimeType: "audio/PCMU", stream: passthrough }),
+      async () => {
+        // 実行: PCMU の RTP register から getUserMedia し、長さ付きパケットを流す。
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
+        const track = stream.getAudioTracks()[0] as MediaStreamTrack;
+        const wait = waitForRtp(track);
+        passthrough.end(encodeLengthPrefixed(createPcmuRtp()));
+        await wait;
+
+        // 検証: 固定ペイロードの PCMU を登録でき、音声トラックへ RTP が届く。
+        expect(stream.getAudioTracks()).toHaveLength(1);
+        expect(track.codec?.mimeType.toLowerCase()).toBe("audio/pcmu");
+        expect(track.codec?.payloadType).toBe(0);
+        expect(track.codec?.clockRate).toBe(8000);
+      },
+    );
+  });
+
+  test("rtp and encoded binary stream EOF ends the acquired track", async () => {
+    const rtpStream = new PassThrough();
+    await withRegister(
+      createRtpRtcpRegister({ mimeType: "video/VP8", stream: rtpStream }),
+      async () => {
+        // 実行: 有限の長さ付き RTP ストリームを終了させる。
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+        });
+        const track = stream.getVideoTracks()[0] as MediaStreamTrack;
+        expect(track.readyState).toBe("live");
+        const wait = waitForRtp(track);
+        rtpStream.end(encodeLengthPrefixed(createVp8Rtp()));
+        await wait;
+        await waitUntil(() => track.readyState === "ended");
+
+        // 検証: 自然 EOF でソースが止まり、track が ended になる。
+        expect(track.readyState).toBe("ended");
+      },
+    );
+
+    const encodedStream = new PassThrough();
+    await withRegister(
+      createEncodedBinaryRegister({
+        mimeType: "video/VP8",
+        stream: encodedStream,
+      }),
+      async () => {
+        // 実行: 有限のエンコード済みバイナリストリームを終了させる。
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+        });
+        const track = stream.getVideoTracks()[0] as MediaStreamTrack;
+        expect(track.readyState).toBe("live");
+        const wait = waitForRtp(track);
+        encodedStream.end(
+          encodeLengthPrefixed(
+            Buffer.from([0x10, 0x00, 0x00, 0x00, 0x9d, 0x01, 0x2a]),
+          ),
+        );
+        await wait;
+        await waitUntil(() => track.readyState === "ended");
+
+        // 検証: encoded-binary も自然 EOF で track が ended になる。
+        expect(track.readyState).toBe("ended");
+      },
+    );
+  });
+
   test("encoded binary udp and web stream emit RTP", async () => {
     const au = Buffer.from([0x10, 0x00, 0x00, 0x00, 0x9d, 0x01, 0x2a]);
     const port = 42000 + Math.floor(Math.random() * 1000);
@@ -1080,6 +1152,12 @@ function createVp8Rtp() {
   return Buffer.from([
     0x80, 96, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x10,
     0x00, 0x00, 0x00,
+  ]);
+}
+
+function createPcmuRtp() {
+  return Buffer.from([
+    0x80, 0, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xff,
   ]);
 }
 

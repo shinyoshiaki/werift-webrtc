@@ -107,12 +107,36 @@ describe("media/rtpSender", () => {
     track2.onReceiveRtp.execute(second);
     await setTimeout(0);
 
-    // 検証: 置換は待たず完了し、送出 RTP は 1/0 へ巻き戻らない。
+    // 検証: 置換は待たず完了し、送出 RTP は最後の seq/ts を再利用せず継続する。
     expect(sent).toHaveLength(2);
     expect(sent[0]).toEqual({ sequenceNumber: 5000, timestamp: 900000 });
     expect(sent[1]).not.toEqual({ sequenceNumber: 1, timestamp: 0 });
-    expect(sent[1].sequenceNumber).toBe(5000);
-    expect(sent[1].timestamp).toBe(900000);
+    expect(sent[1].sequenceNumber).toBe(5002);
+    expect(sent[1].timestamp).toBe(900001);
+  });
+
+  test("replaceTrack unsubscribes previous track onSourceChanged", async () => {
+    const track1 = new MediaStreamTrack({ kind: "audio", remote: true });
+    const dtls = createDtlsTransport();
+    const sender = new RTCRtpSender(track1);
+    sender.setDtlsTransport(dtls);
+
+    const track2 = new MediaStreamTrack({ kind: "audio", remote: true });
+    await sender.replaceTrack(track2);
+    const spy = vi.spyOn(sender, "replaceRTP");
+
+    // 実行: 置換前の track で sourceChanged を発火する。
+    track1.onSourceChanged.execute({ sequenceNumber: 9, timestamp: 99 });
+
+    // 検証: 旧 track の通知は sender に届かない。
+    expect(spy).not.toHaveBeenCalled();
+
+    // 実行: 置換後の track で sourceChanged を発火する。
+    track2.onSourceChanged.execute({ sequenceNumber: 10, timestamp: 100 });
+
+    // 検証: 新 track の通知だけが replaceRTP に届く。
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith({ sequenceNumber: 10, timestamp: 100 });
   });
 
   test("abort runRtcp", async () =>

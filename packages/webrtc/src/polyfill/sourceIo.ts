@@ -30,12 +30,19 @@ export async function openPacketSource(
   onPacket: (packet: Buffer) => void,
   onError?: (error: DOMException) => void,
   signal?: AbortSignal,
+  onClose?: () => void,
 ): Promise<() => void> {
   throwIfAborted(signal);
   if ("udp" in source && source.udp) {
     return bindUdp(source.udp, onPacket, onError, signal);
   }
-  return openSharedStreamSource(source.stream, onPacket, onError, signal);
+  return openSharedStreamSource(
+    source.stream,
+    onPacket,
+    onError,
+    signal,
+    onClose,
+  );
 }
 
 export function throwIfAborted(signal?: AbortSignal) {
@@ -147,6 +154,7 @@ type StreamHub = {
     onPacket: (packet: Buffer) => void,
     onError?: (error: DOMException) => void,
     signal?: AbortSignal,
+    onClose?: () => void,
   ): () => void;
 };
 
@@ -155,6 +163,7 @@ function openSharedStreamSource(
   onPacket: (packet: Buffer) => void,
   onError?: (error: DOMException) => void,
   signal?: AbortSignal,
+  onClose?: () => void,
 ) {
   throwIfAborted(signal);
   let hub = streamHubs.get(stream);
@@ -162,7 +171,7 @@ function openSharedStreamSource(
     hub = createStreamHub(stream);
     streamHubs.set(stream, hub);
   }
-  return hub.subscribe(onPacket, onError, signal);
+  return hub.subscribe(onPacket, onError, signal, onClose);
 }
 
 function createStreamHub(
@@ -170,6 +179,7 @@ function createStreamHub(
 ): StreamHub {
   const listeners = new Set<(packet: Buffer) => void>();
   const errorListeners = new Set<(error: DOMException) => void>();
+  const closeListeners = new Set<() => void>();
   const abort = new AbortController();
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   if (!(stream instanceof Readable)) {
@@ -201,27 +211,40 @@ function createStreamHub(
     }
   })();
 
-  run.catch((error) => {
-    const mapped = mapStreamError(error, abort.signal);
-    if (mapped.name === "AbortError") {
-      return;
-    }
-    for (const onError of [...errorListeners]) {
-      onError(mapped);
-    }
-  });
+  run.then(
+    () => {
+      for (const onClose of [...closeListeners]) {
+        onClose();
+      }
+    },
+    (error) => {
+      const mapped = mapStreamError(error, abort.signal);
+      if (mapped.name === "AbortError") {
+        return;
+      }
+      for (const onError of [...errorListeners]) {
+        onError(mapped);
+      }
+    },
+  );
 
   return {
-    subscribe(onPacket, onError, signal) {
+    subscribe(onPacket, onError, signal, onClose) {
       throwIfAborted(signal);
       listeners.add(onPacket);
       if (onError) {
         errorListeners.add(onError);
       }
+      if (onClose) {
+        closeListeners.add(onClose);
+      }
       const stop = () => {
         listeners.delete(onPacket);
         if (onError) {
           errorListeners.delete(onError);
+        }
+        if (onClose) {
+          closeListeners.delete(onClose);
         }
         signal?.removeEventListener("abort", stop);
         if (listeners.size > 0) {

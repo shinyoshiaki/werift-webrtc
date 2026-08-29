@@ -443,7 +443,7 @@ export class RTCRtpSender {
 
     if (this.pendingReplaceRtp) {
       this.pendingReplaceRtp = false;
-      this.replaceRTP(rtp.header);
+      this.replaceRTP(rtp.header, true);
     }
 
     const { header, payload } = rtp;
