@@ -57,7 +57,8 @@ function seedDummyPair(
   );
   dummy.updateState(CandidatePairState.WAITING);
   connection.checkList.push(dummy);
-  (connection as { earlyChecksDone: boolean }).earlyChecksDone = true;
+  (connection as unknown as { earlyChecksDone: boolean }).earlyChecksDone =
+    true;
   return dummy;
 }
 
@@ -478,14 +479,7 @@ describe("ICE Binding Request 認証境界", () => {
     const connection = createTestConnection(true);
     const protocol = new SpedProtocolMock();
     (connection as any).ensureProtocol(protocol);
-    const dummy = new CandidatePair(
-      protocol,
-      new Candidate("d", 1, "udp", 1, "8.8.8.8", 1, "host"),
-      true,
-    );
-    dummy.updateState(CandidatePairState.WAITING);
-    connection.checkList.push(dummy);
-    (connection as { earlyChecksDone: boolean }).earlyChecksDone = true;
+    seedDummyPair(connection, protocol);
     const request = new Message(methods.BINDING, classes.REQUEST);
     request
       .setAttribute("USERNAME", `${connection.localUsername}:remote`)
