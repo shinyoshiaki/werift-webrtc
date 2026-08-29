@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -21,7 +22,7 @@ func main() {
 		fmt.Println("pion-sped")
 		fmt.Println("  AttrDtlsInStun    = 0xC070")
 		fmt.Println("  AttrDtlsInStunAck = 0xC071")
-		fmt.Println("  features = verify,empty-ack")
+		fmt.Println("  features = verify,empty-ack,sped-getfrom")
 	case "check":
 		if err := checkRoundTrip(); err != nil {
 			fmt.Fprintf(os.Stderr, "check failed: %v\n", err)
@@ -77,11 +78,17 @@ func usage() {
   pion-sped decode <stun-message-hex>
   pion-sped verify -integrity-key password <stun-message-hex>
   pion-sped version
+  decode uses pion/ice sped.go GetFrom (sped-getfrom)
 `)
 }
 
 func checkRoundTrip() error {
-	msg, err := stun.Build(stun.TransactionID, stun.BindingRequest, ice.DtlsInStunAttribute(nil))
+	msg, err := stun.Build(
+		stun.TransactionID,
+		stun.BindingRequest,
+		ice.DtlsInStunAttribute(nil),
+		ice.DtlsInStunAckAttribute(nil),
+	)
 	if err != nil {
 		return err
 	}
@@ -91,7 +98,11 @@ func checkRoundTrip() error {
 	}
 	var data ice.DtlsInStunAttribute
 	if err := data.GetFrom(parsed); err != nil {
-		return err
+		return fmt.Errorf("DtlsInStunAttribute.GetFrom: %w", err)
+	}
+	var ack ice.DtlsInStunAckAttribute
+	if err := ack.GetFrom(parsed); err != nil {
+		return fmt.Errorf("DtlsInStunAckAttribute.GetFrom: %w", err)
 	}
 	fmt.Printf("  round-trip stun bytes = %d\n", len(msg.Raw))
 	return nil
@@ -164,6 +175,33 @@ func decode(messageHex string) error {
 		name := raw.Type.String()
 		fmt.Printf("  attr type=0x%04X name=%s len=%d value=%s\n",
 			uint16(raw.Type), name, len(raw.Value), hex.EncodeToString(raw.Value))
+	}
+	return decodeSpedGetFrom(msg)
+}
+
+func decodeSpedGetFrom(msg *stun.Message) error {
+	var data ice.DtlsInStunAttribute
+	if err := data.GetFrom(msg); err != nil {
+		if !errors.Is(err, stun.ErrAttributeNotFound) {
+			return fmt.Errorf("DtlsInStunAttribute.GetFrom: %w", err)
+		}
+	} else {
+		fmt.Printf("  DtlsInStunAttribute.GetFrom value=%s len=%d\n",
+			hex.EncodeToString(data), len(data))
+	}
+
+	var ack ice.DtlsInStunAckAttribute
+	if err := ack.GetFrom(msg); err != nil {
+		if !errors.Is(err, stun.ErrAttributeNotFound) {
+			return fmt.Errorf("DtlsInStunAckAttribute.GetFrom: %w", err)
+		}
+	} else {
+		parts := make([]string, len(ack))
+		for i, crc := range ack {
+			parts[i] = fmt.Sprintf("%08x", crc)
+		}
+		fmt.Printf("  DtlsInStunAckAttribute.GetFrom crcs=%s count=%d\n",
+			strings.Join(parts, ","), len(ack))
 	}
 	return nil
 }

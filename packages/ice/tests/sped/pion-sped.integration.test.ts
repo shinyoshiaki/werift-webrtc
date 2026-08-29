@@ -5,6 +5,8 @@ import { join } from "node:path";
 import {
   DTLS_IN_STUN_ACK,
   DTLS_IN_STUN_DATA,
+  decodeSpedAck,
+  decodeSpedData,
   encodeSpedAck,
   encodeSpedData,
 } from "../../src/sped/draft00";
@@ -22,7 +24,11 @@ function pionSpedIsCompatible(path: string): boolean {
   }
   try {
     const version = execFileSync(path, ["version"], { encoding: "utf8" });
-    if (version.includes("verify") && version.includes("empty-ack")) {
+    if (
+      version.includes("verify") &&
+      version.includes("empty-ack") &&
+      version.includes("sped-getfrom")
+    ) {
       return true;
     }
   } catch {
@@ -34,7 +40,11 @@ function pionSpedIsCompatible(path: string): boolean {
   } catch (error) {
     const err = error as { stdout?: string; stderr?: string };
     const text = `${err.stderr ?? ""}${err.stdout ?? ""}`;
-    return text.includes("verify") && text.includes("empty-ack");
+    return (
+      text.includes("verify") &&
+      text.includes("empty-ack") &&
+      text.includes("sped-getfrom")
+    );
   }
 }
 
@@ -73,7 +83,7 @@ function pion(args: string[]) {
 }
 
 describePion("pion SPED wire codec (opt-in)", () => {
-  it("opt-in した pion-sped は verify と empty-ack を持つ", () => {
+  it("opt-in した pion-sped は verify / empty-ack / sped-getfrom を持つ", () => {
     // Assert: 明示指定または AUTO_BUILD のバイナリだけを使う
     expect(bin).toBeDefined();
     expect(pionSpedIsCompatible(bin!)).toBe(true);
@@ -97,23 +107,34 @@ describePion("pion SPED wire codec (opt-in)", () => {
     const decodedEmpty = pion(["decode", empty.bytes.toString("hex")]);
     const decodedHello = pion(["decode", withHello.bytes.toString("hex")]);
 
-    // Assert: codepoint と value。失敗を握りつぶさない
+    // Assert: pion/ice DtlsInStunAttribute.GetFrom が codepoint と value を読む
     expect(decodedEmpty).toMatch(/type=0xC070/i);
-    expect(decodedEmpty).toMatch(/len=0/);
+    expect(decodedEmpty).toMatch(/DtlsInStunAttribute\.GetFrom value= len=0/);
     expect(decodedHello).toMatch(/type=0xC070/i);
-    expect(decodedHello).toMatch(/value=16fefd0001/i);
+    expect(decodedHello).toMatch(
+      /DtlsInStunAttribute\.GetFrom value=16fefd0001 len=5/i,
+    );
   });
 
   it("pion が encode した DATA を werift が parse する", () => {
     // Arrange / Act
+    const emptyHex = pion(["encode", "-data", ""]);
     const hex = pion(["encode", "-data", "1601"]);
+    const parsedEmpty = parseMessage(Buffer.from(emptyHex, "hex"));
     const parsed = parseMessage(Buffer.from(hex, "hex"));
 
-    // Assert
+    // Assert: pion/ice AddTo の値を decodeSpedData まで通す
+    expect(parsedEmpty).toBeDefined();
+    expect(
+      decodeSpedData(getRawAttributeValue(parsedEmpty!, DTLS_IN_STUN_DATA)!),
+    ).toEqual({ kind: "empty" });
     expect(parsed).toBeDefined();
     expect(
-      getRawAttributeValue(parsed!, DTLS_IN_STUN_DATA)?.toString("hex"),
-    ).toBe("1601");
+      decodeSpedData(getRawAttributeValue(parsed!, DTLS_IN_STUN_DATA)!),
+    ).toEqual({
+      kind: "datagram",
+      bytes: Buffer.from("1601", "hex"),
+    });
   });
 
   it("ACK 0/1/4 を双方向で一致させる", () => {
@@ -134,20 +155,30 @@ describePion("pion SPED wire codec (opt-in)", () => {
         : pion(["encode", "-ack", ackFlag!]);
       const parsed = parseMessage(Buffer.from(fromPion, "hex"));
 
-      // Assert
+      // Assert: pion/ice ACK GetFrom と werift decodeSpedAck が同じ CRC 列になる
       expect(fromWerift).toMatch(/type=0xC071/i);
       if (crcs.length === 0) {
-        expect(fromWerift).toMatch(/len=0/);
-        expect(getRawAttributeValue(parsed!, DTLS_IN_STUN_ACK)?.length).toBe(0);
+        expect(fromWerift).toMatch(
+          /DtlsInStunAckAttribute\.GetFrom crcs= count=0/,
+        );
+        expect(
+          decodeSpedAck(getRawAttributeValue(parsed!, DTLS_IN_STUN_ACK)!),
+        ).toEqual({ kind: "crcs", crcs: [] });
         expect(
           getRawAttributeValue(parsed!, DTLS_IN_STUN_DATA),
         ).toBeUndefined();
       } else {
-        const ack = getRawAttributeValue(parsed!, DTLS_IN_STUN_ACK);
-        expect(ack?.length).toBe(crcs.length * 4);
-        for (let i = 0; i < crcs.length; i++) {
-          expect(ack!.readUInt32BE(i * 4)).toBe(crcs[i]);
-        }
+        const ack = getRawAttributeValue(parsed!, DTLS_IN_STUN_ACK)!;
+        const crcHex = crcs
+          .map((crc) => crc.toString(16).padStart(8, "0"))
+          .join(",");
+        expect(fromWerift).toMatch(
+          new RegExp(
+            `DtlsInStunAckAttribute\\.GetFrom crcs=${crcHex} count=${crcs.length}`,
+            "i",
+          ),
+        );
+        expect(decodeSpedAck(ack)).toEqual({ kind: "crcs", crcs });
       }
     }
   });
@@ -200,8 +231,11 @@ describePion("pion SPED wire codec (opt-in)", () => {
     expect(verified).toMatch(/MESSAGE-INTEGRITY OK/);
     expect(parsedOk).toBeDefined();
     expect(
-      getRawAttributeValue(parsedOk!, DTLS_IN_STUN_DATA)?.toString("hex"),
-    ).toBe("1601");
+      decodeSpedData(getRawAttributeValue(parsedOk!, DTLS_IN_STUN_DATA)!),
+    ).toEqual({
+      kind: "datagram",
+      bytes: Buffer.from("1601", "hex"),
+    });
     expect(parsedBad).toBeUndefined();
   });
 });
