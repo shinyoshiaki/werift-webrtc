@@ -74,6 +74,7 @@ For targeted work, prefer the narrowest package command first, for example:
 * Browser interop, examples, or signaling flow changes: run the relevant example and/or `npm run e2e` when feasible.
 * Test code changes: confirm shared Arrange utilities remain reusable and appropriately scoped, and review that Act / Assert comments are present at a useful Japanese granularity.
 * Infrastructure-backed E2E changes: run the targeted scenario with its required opt-in environment flag before finishing, so the real dependency path is exercised.
+* Changes under `integration/werift-mediasoup-interop`: follow that directory's `AGENTS.md`.
 
 ## Maintenance
 

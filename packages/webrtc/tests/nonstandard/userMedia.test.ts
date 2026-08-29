@@ -9,7 +9,7 @@ import {
   useVP8,
   useVP9,
 } from "../../src";
-import { getUserMedia } from "../../src/nonstandard";
+import { createFileMediaPlayer } from "../../src/nonstandard/userMedia";
 import * as packetizerModule from "../../src/nonstandard/userMedia/packetizer";
 import {
   collectFrames,
@@ -27,9 +27,9 @@ import {
 } from "./userMediaTestUtils";
 
 describe("nonstandard/userMedia file playback", () => {
-  test("getUserMedia({ buffer, loop: true }) packetizes WebM VP8/Opus and emits sourceChanged on loop", async () => {
+  test("createFileMediaPlayer({ buffer, loop: true }) packetizes WebM VP8/Opus and emits sourceChanged on loop", async () => {
     const mediaBuffer = await createAvWebmBuffer();
-    const media = await getUserMedia({
+    const media = await createFileMediaPlayer({
       buffer: mediaBuffer,
       loop: true,
     });
@@ -81,12 +81,12 @@ describe("nonstandard/userMedia file playback", () => {
     );
   });
 
-  test("getUserMedia({ path }) packetizes MP4 H264/Opus in-process", async () => {
+  test("createFileMediaPlayer({ path }) packetizes MP4 H264/Opus in-process", async () => {
     const mediaBuffer = await createAvMp4Buffer();
     const tempFile = await createTempMediaFile(mediaBuffer, "mp4");
 
     try {
-      const media = await getUserMedia({
+      const media = await createFileMediaPlayer({
         path: tempFile.path,
       });
       media.audio!.codec = useOPUS();
@@ -134,9 +134,9 @@ describe("nonstandard/userMedia file playback", () => {
     }
   }, 15_000);
 
-  test("getUserMedia({ stream }) accepts Readable input", async () => {
+  test("createFileMediaPlayer({ stream }) accepts Readable input", async () => {
     const mediaBuffer = await createAvWebmBuffer();
-    const media = await getUserMedia({
+    const media = await createFileMediaPlayer({
       stream: Readable.from([mediaBuffer]),
     });
 
@@ -163,9 +163,9 @@ describe("nonstandard/userMedia file playback", () => {
     );
   });
 
-  test("getUserMedia({ stream }) can start again after natural EOF", async () => {
+  test("createFileMediaPlayer({ stream }) can start again after natural EOF", async () => {
     const mediaBuffer = await createAvWebmBuffer();
-    const media = await getUserMedia({
+    const media = await createFileMediaPlayer({
       stream: Readable.from([mediaBuffer]),
     });
 
@@ -210,9 +210,9 @@ describe("nonstandard/userMedia file playback", () => {
     ).toBe(true);
   });
 
-  test("getUserMedia({ buffer }) packetizes WebM VP9/Opus in-process", async () => {
+  test("createFileMediaPlayer({ buffer }) packetizes WebM VP9/Opus in-process", async () => {
     const mediaBuffer = await createVp9OpusWebmBuffer();
-    const media = await getUserMedia({
+    const media = await createFileMediaPlayer({
       buffer: mediaBuffer,
     });
 
@@ -240,9 +240,9 @@ describe("nonstandard/userMedia file playback", () => {
     );
   });
 
-  test("getUserMedia({ buffer }) packetizes WebM AV1/Opus in-process", async () => {
+  test("createFileMediaPlayer({ buffer }) packetizes WebM AV1/Opus in-process", async () => {
     const mediaBuffer = await createAv1OpusWebmBuffer();
-    const media = await getUserMedia({
+    const media = await createFileMediaPlayer({
       buffer: mediaBuffer,
     });
 
@@ -272,7 +272,7 @@ describe("nonstandard/userMedia file playback", () => {
 
   test("throws when negotiated codec does not match the source codec", async () => {
     const mediaBuffer = await createAvWebmBuffer();
-    const media = await getUserMedia({
+    const media = await createFileMediaPlayer({
       buffer: mediaBuffer,
     });
 
@@ -292,7 +292,7 @@ describe("nonstandard/userMedia file playback", () => {
     const mediaBuffer = await createAvWebmBuffer();
 
     // 実行: 旧 API の width/height を file playback に渡して source を作成する。
-    const mediaPromise = getUserMedia({
+    const mediaPromise = createFileMediaPlayer({
       buffer: mediaBuffer,
       width: 640,
       height: 360,
@@ -300,13 +300,13 @@ describe("nonstandard/userMedia file playback", () => {
 
     // 検証: width/height は無視されず、移行案内付きの明示エラーになる。
     await expect(mediaPromise).rejects.toThrow(
-      "getUserMedia({ width, height }) is no longer supported for file playback.",
+      "File playback no longer accepts { width, height }",
     );
   });
 
   test("throws when negotiated H264 packetization-mode does not match the source", async () => {
     const mediaBuffer = await createAvMp4Buffer();
-    const media = await getUserMedia({
+    const media = await createFileMediaPlayer({
       buffer: mediaBuffer,
     });
 
@@ -327,7 +327,7 @@ describe("nonstandard/userMedia file playback", () => {
 
   test("throws when negotiated H264 profile-level-id does not match the source", async () => {
     const mediaBuffer = await createAvMp4Buffer();
-    const media = await getUserMedia({
+    const media = await createFileMediaPlayer({
       buffer: mediaBuffer,
     });
 
@@ -348,7 +348,7 @@ describe("nonstandard/userMedia file playback", () => {
 
   test("throws when negotiated Opus channels do not match the source", async () => {
     const mediaBuffer = await createAvWebmBuffer();
-    const media = await getUserMedia({
+    const media = await createFileMediaPlayer({
       buffer: mediaBuffer,
     });
 
@@ -366,7 +366,7 @@ describe("nonstandard/userMedia file playback", () => {
 
   test("can start again after natural EOF when loop is disabled", async () => {
     const mediaBuffer = await createAvMp4Buffer();
-    const media = await getUserMedia({
+    const media = await createFileMediaPlayer({
       buffer: mediaBuffer,
     });
 
@@ -422,7 +422,7 @@ describe("nonstandard/userMedia file playback", () => {
 
   test("stop is terminal and releases the playback session", async () => {
     const mediaBuffer = await createAvWebmBuffer();
-    const media = await getUserMedia({
+    const media = await createFileMediaPlayer({
       buffer: mediaBuffer,
       loop: true,
     });
@@ -445,7 +445,7 @@ describe("nonstandard/userMedia file playback", () => {
 
   test("emits runtime playback errors through onError and releases the session", async () => {
     const mediaBuffer = await createAvWebmBuffer();
-    const media = await getUserMedia({
+    const media = await createFileMediaPlayer({
       buffer: mediaBuffer,
     });
 
@@ -488,7 +488,7 @@ describe("nonstandard/userMedia file playback", () => {
 
   test("does not emit errors when start and stop are called back-to-back", async () => {
     const mediaBuffer = await createAvWebmBuffer();
-    const media = await getUserMedia({
+    const media = await createFileMediaPlayer({
       buffer: mediaBuffer,
     });
 

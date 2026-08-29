@@ -14,7 +14,36 @@ npm install werift
 # Design Philosophy
 
 Werift supports DataChannel and MediaChannel.
-Werift does not implement media-related features such as codecs, so APIs like getUserMedia cannot be used. Therefore, to send media from werift, you need to directly input RTP packets into the provided API. Similarly, when receiving media, you can directly receive RTP packets.
+Werift does not implement codecs or OS device capture in the core API. For Node drop-in browser libraries, import `werift/polyfill` and call `installPolyfill({ mediaRegister })` so `navigator.mediaDevices.getUserMedia` is served by registered file/RTP/encoded/custom sources. You can still inject RTP directly via `MediaStreamTrack.writeRtp`. The old nonstandard `getUserMedia({ path })` API was removed. TypeScript without DOM uses `werift/polyfill` for constructor globals; with `lib.dom`, import `werift/polyfill/dom`.
+
+On Node.js, omitting `handlerName` / `handlerFactory` for `mediasoup-client` works after polyfill install: a Chromium 111 compatible `navigator.userAgent` is set when the current value is missing or `Node.js/<major>`. Non-Node User-Agents are kept unless you pass `userAgent` to overwrite them. Uninstall restores the previous descriptor. “No extra setup” means Handler autodetect only; you still provide `mediaRegister` and mediasoup signaling.
+
+```ts
+import { Device } from "mediasoup-client";
+import {
+  createCallbackRegister,
+  installPolyfill,
+} from "werift/polyfill";
+
+const uninstall = installPolyfill({
+  // Optional. When omitted, Node gets a Chrome111-compatible value automatically.
+  // userAgent: "Mozilla/5.0 ... Chrome/120.0.0.0 Safari/537.36",
+  mediaRegister: [
+    createCallbackRegister({
+      mimeType: "audio/opus",
+      kinds: ["audio"],
+      async createTracks() {
+        return [createAudioTrack()];
+      },
+    }),
+  ],
+});
+
+const device = await Device.factory();
+await device.load({ routerRtpCapabilities });
+```
+
+An explicit `userAgent` replaces even a real browser value and can change Handler detection. `existingMediaDevices: "noop"` still complements a missing/Node User-Agent.
 
 # Documentation
 

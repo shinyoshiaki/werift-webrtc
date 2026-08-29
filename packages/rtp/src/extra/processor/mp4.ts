@@ -82,7 +82,7 @@ export class MP4Base implements AVProcessor<Mp4Input> {
           !this.tracks.some((track) => track.kind === "audio") ||
           this.audioStopped
         ) {
-          void this.stop();
+          void this.stop().catch(() => undefined);
         }
       }
       return;
@@ -148,7 +148,7 @@ export class MP4Base implements AVProcessor<Mp4Input> {
           !this.tracks.some((track) => track.kind === "video") ||
           this.videoStopped
         ) {
-          void this.stop();
+          void this.stop().catch(() => undefined);
         }
       }
       return;
@@ -187,7 +187,11 @@ export class MP4Base implements AVProcessor<Mp4Input> {
     }
 
     this.stopped = true;
-    await this.container.stop();
+    try {
+      await this.container.stop();
+    } catch {
+      // Timestamp / muxer errors must not leak as unhandled rejections.
+    }
     await this.output({ eol: true });
     await this.onStopped.execute();
   }

@@ -8,6 +8,7 @@ import {
   RtpPacket,
   unwrapRtx,
 } from "../../src";
+import { RTCRtpCodecParameters } from "../../src/media/parameters";
 import { RTCRtpSender } from "../../src/media/rtpSender";
 import { RTCStatsReport } from "../../src/media/stats";
 import {
@@ -60,6 +61,84 @@ describe("media/rtpSender", () => {
     expect(spy).toBeCalledTimes(2);
   });
 
+  test("replaceTrack without first RTP still continues sequence and timestamp", async () => {
+    const track1 = new MediaStreamTrack({ kind: "audio" });
+    const dtls = createDtlsTransport();
+    dtls.state = "connected";
+    const sender = new RTCRtpSender(track1);
+    sender.setDtlsTransport(dtls);
+    sender.prepareSend({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "audio/opus",
+          clockRate: 48000,
+          payloadType: 111,
+        }),
+      ],
+      headerExtensions: [],
+    });
+    const sent: Array<{ sequenceNumber: number; timestamp: number }> = [];
+    vi.spyOn(dtls, "sendRtp").mockImplementation(async (_payload, header) => {
+      sent.push({
+        sequenceNumber: header.sequenceNumber,
+        timestamp: header.timestamp,
+      });
+      return 0;
+    });
+
+    const first = createRtpPacket();
+    first.header.sequenceNumber = 5000;
+    first.header.timestamp = 900000;
+    await sender.sendRtp(first);
+
+    const track2 = new MediaStreamTrack({ kind: "audio" });
+    // 実行: 先頭 RTP がまだ無い track へ置換し、その後 seq/ts が小さいパケットを送る。
+    await Promise.race([
+      sender.replaceTrack(track2),
+      setTimeout(200).then(() => {
+        throw new Error("replaceTrack waited for the first RTP packet");
+      }),
+    ]);
+    expect(track2.header).toBeUndefined();
+
+    const second = createRtpPacket();
+    second.header.sequenceNumber = 1;
+    second.header.timestamp = 0;
+    track2.onReceiveRtp.execute(second);
+    await setTimeout(0);
+
+    // 検証: 置換は待たず完了し、送出 RTP は直前の seq+1 / timestamp+1 で継続する。
+    expect(sent).toHaveLength(2);
+    expect(sent[0]).toEqual({ sequenceNumber: 5000, timestamp: 900000 });
+    expect(sent[1]).not.toEqual({ sequenceNumber: 1, timestamp: 0 });
+    expect(sent[1].sequenceNumber).toBe(5001);
+    expect(sent[1].timestamp).toBe(900001);
+  });
+
+  test("replaceTrack unsubscribes previous track onSourceChanged", async () => {
+    const track1 = new MediaStreamTrack({ kind: "audio", remote: true });
+    const dtls = createDtlsTransport();
+    const sender = new RTCRtpSender(track1);
+    sender.setDtlsTransport(dtls);
+
+    const track2 = new MediaStreamTrack({ kind: "audio", remote: true });
+    await sender.replaceTrack(track2);
+    const spy = vi.spyOn(sender, "replaceRTP");
+
+    // 実行: 置換前の track で sourceChanged を発火する。
+    track1.onSourceChanged.execute({ sequenceNumber: 9, timestamp: 99 });
+
+    // 検証: 旧 track の通知は sender に届かない。
+    expect(spy).not.toHaveBeenCalled();
+
+    // 実行: 置換後の track で sourceChanged を発火する。
+    track2.onSourceChanged.execute({ sequenceNumber: 10, timestamp: 100 });
+
+    // 検証: 新 track の通知だけが replaceRTP に届く。
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith({ sequenceNumber: 10, timestamp: 100 });
+  });
+
   test("abort runRtcp", async () =>
     new Promise<void>(async (done) => {
       const dtls = createDtlsTransport();
@@ -77,6 +156,288 @@ describe("media/rtpSender", () => {
       await setTimeout(10);
       sender.stop();
     }));
+
+  test("stop discards pending RTP and does not flush after DTLS connects", async () => {
+    const track = new MediaStreamTrack({ kind: "audio" });
+    const dtls = createDtlsTransport();
+    const sender = new RTCRtpSender(track);
+    sender.setDtlsTransport(dtls);
+    sender.prepareSend({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "audio/opus",
+          clockRate: 48000,
+          payloadType: 111,
+        }),
+      ],
+      headerExtensions: [],
+    });
+    const sendRtpSpy = vi.spyOn(dtls, "sendRtp");
+
+    // 実行: DTLS 未接続で RTP を積んだあと stop し、その後 connected にする。
+    const queued = sender.sendRtp(createRtpPacket());
+    expect(pendingRtpQueue(sender)).toHaveLength(1);
+    sender.stop();
+    await queued;
+    dtls.state = "connected";
+    dtls.onStateChange.execute("connected");
+    await sender.sendRtp(createRtpPacket());
+    await setTimeout(0);
+
+    // 検証: 停止後は待機 RTP が破棄され、enqueue / flush されない。
+    expect(pendingRtpQueue(sender)).toHaveLength(0);
+    expect(sendRtpSpy).not.toHaveBeenCalled();
+  });
+
+  test("replaceTrack(null) discards pending RTP", async () => {
+    const track = new MediaStreamTrack({ kind: "audio" });
+    const dtls = createDtlsTransport();
+    const sender = new RTCRtpSender(track);
+    sender.setDtlsTransport(dtls);
+    sender.prepareSend({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "audio/opus",
+          clockRate: 48000,
+          payloadType: 111,
+        }),
+      ],
+      headerExtensions: [],
+    });
+
+    // 実行: 未接続のまま RTP を積んで replaceTrack(null) する。
+    const queued = sender.sendRtp(createRtpPacket());
+    expect(pendingRtpQueue(sender)).toHaveLength(1);
+    await sender.replaceTrack(null);
+    await queued;
+
+    // 検証: 待機 RTP は破棄される。
+    expect(pendingRtpQueue(sender)).toHaveLength(0);
+  });
+
+  test("cloned tracks keep independent RTP headers across senders", async () => {
+    const source = new MediaStreamTrack({ kind: "audio" });
+    const clone = source.clone();
+    const original = createConnectedRtpSender({ track: source });
+    const cloned = createConnectedRtpSender({ track: clone });
+
+    const packet = createRtpPacket(10, 90000);
+    packet.header.ssrc = 7;
+    packet.header.payloadType = 8;
+
+    // 実行: 元 track へ書き込み、2 つの sender へ fan-out する。
+    source.writeRtp(packet);
+    await waitForSent(original.sendRtp, 1);
+    await waitForSent(cloned.sendRtp, 1);
+
+    // 検証: 入力パケットは汚染されず、各 sender は独自の SSRC / seq / ts を出す。
+    expect(packet.header.ssrc).toBe(7);
+    expect(packet.header.payloadType).toBe(8);
+    expect(packet.header.sequenceNumber).toBe(10);
+    expect(packet.header.timestamp).toBe(90000);
+
+    const [headerA] = sentRtpHeaders(original.sendRtp);
+    const [headerB] = sentRtpHeaders(cloned.sendRtp);
+    expect(headerA.ssrc).toBe(original.sender.ssrc);
+    expect(headerB.ssrc).toBe(cloned.sender.ssrc);
+    expect(headerA.ssrc).not.toBe(headerB.ssrc);
+    expect(headerA.ssrc).not.toBe(7);
+    expect(headerB.ssrc).not.toBe(7);
+    expect(headerA.sequenceNumber).toBe(10);
+    expect(headerB.sequenceNumber).toBe(10);
+    expect(headerA.timestamp).toBe(90000);
+    expect(headerB.timestamp).toBe(90000);
+
+    original.sendRtp.mockClear();
+    cloned.sendRtp.mockClear();
+
+    // 実行: 片側 sender だけ追加パケットを送る。
+    await original.sender.sendRtp(createRtpPacket(11, 90040));
+
+    // 検証: もう一方の sender のタイムラインは動かない。
+    expect(original.sendRtp).toHaveBeenCalledTimes(1);
+    expect(cloned.sendRtp).not.toHaveBeenCalled();
+    expect(sentRtpHeaders(original.sendRtp)[0].ssrc).toBe(original.sender.ssrc);
+    expect(sentRtpHeaders(original.sendRtp)[0].sequenceNumber).toBe(11);
+
+    original.sender.stop();
+    cloned.sender.stop();
+  });
+
+  test("RTP fan-out copies packets before the first subscriber mutates them", () => {
+    const source = new MediaStreamTrack({ kind: "audio" });
+    const clone = source.clone();
+    const seen: number[] = [];
+    source.onReceiveRtp.subscribe((rtp) => {
+      rtp.header.ssrc = 42;
+    });
+    clone.onReceiveRtp.subscribe((rtp) => {
+      seen.push(rtp.header.ssrc);
+    });
+
+    // 実行: 先頭購読者が SSRC を書き換える。
+    const packet = createRtpPacket();
+    packet.header.ssrc = 7;
+    source.writeRtp(packet);
+
+    // 検証: clone は元の SSRC を受け取り、入力パケットも汚染されない。
+    expect(seen).toEqual([7]);
+    expect(packet.header.ssrc).toBe(7);
+  });
+
+  test("pending RTP flush keeps later packets in arrival order", async () => {
+    const track = new MediaStreamTrack({ kind: "audio" });
+    const dtls = createDtlsTransport();
+    const sender = new RTCRtpSender(track);
+    sender.setDtlsTransport(dtls);
+    sender.prepareSend({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "audio/opus",
+          clockRate: 48000,
+          payloadType: 111,
+        }),
+      ],
+      headerExtensions: [],
+    });
+
+    const firstSend = deferred();
+    const sent: number[] = [];
+    let calls = 0;
+    vi.spyOn(dtls, "sendRtp").mockImplementation(async (_payload, header) => {
+      sent.push(header.sequenceNumber);
+      calls += 1;
+      if (calls === 1) {
+        await firstSend.promise;
+      }
+      return 0;
+    });
+
+    // 実行: 未接続で [1,2] を積み、接続直後の flush 中に 3 を送る。
+    void sender.sendRtp(createRtpPacket(1, 1000));
+    void sender.sendRtp(createRtpPacket(2, 2000));
+    dtls.state = "connected";
+    dtls.onStateChange.execute("connected");
+    const late = sender.sendRtp(createRtpPacket(3, 3000));
+    const lateState = watchPromise(late);
+    await waitUntil(() => sent.length === 1);
+
+    // 検証: 1件目の DTLS 送信中は 3 件目の Promise が未解決のまま。
+    expect(sent).toEqual([1]);
+    expect(lateState.status).toBe("pending");
+
+    firstSend.resolve();
+    await late;
+    await waitUntil(() => sent.length === 3);
+
+    // 検証: 接続前後の入力 [1,2,3] が同順で送出される。
+    expect(sent).toEqual([1, 2, 3]);
+    expect(lateState.status).toBe("resolved");
+    sender.stop();
+  });
+
+  test("later sendRtp waits for its own DTLS write while an earlier send is delayed", async () => {
+    const { sender, dtls } = arrangeDisconnectedSender();
+    dtls.state = "connected";
+
+    const firstSend = deferred();
+    const sent: number[] = [];
+    vi.spyOn(dtls, "sendRtp").mockImplementation(async (_payload, header) => {
+      sent.push(header.sequenceNumber);
+      if (sent.length === 1) {
+        await firstSend.promise;
+      }
+      return 0;
+    });
+
+    // 実行: 1件目の DTLS 送信を保留したまま 2件目を呼ぶ。
+    const first = sender.sendRtp(createRtpPacket(1, 1000));
+    const second = sender.sendRtp(createRtpPacket(2, 2000));
+    const firstState = watchPromise(first);
+    const secondState = watchPromise(second);
+    await waitUntil(() => sent.length === 1);
+
+    // 検証: 送信履歴が [1] の時点では 2件目は未解決。
+    expect(sent).toEqual([1]);
+    expect(firstState.status).toBe("pending");
+    expect(secondState.status).toBe("pending");
+
+    firstSend.resolve();
+    await first;
+    await second;
+
+    // 検証: 1件目完了後に 2件目も送信され、両方 resolve する。
+    expect(sent).toEqual([1, 2]);
+    expect(firstState.status).toBe("resolved");
+    expect(secondState.status).toBe("resolved");
+    sender.stop();
+  });
+
+  test("DTLS failure rejects only the sendRtp that wrote that packet", async () => {
+    const { sender, dtls } = arrangeDisconnectedSender();
+    dtls.state = "connected";
+
+    let calls = 0;
+    vi.spyOn(dtls, "sendRtp").mockImplementation(async () => {
+      calls += 1;
+      if (calls === 2) {
+        throw new Error("dtls send failed");
+      }
+      return 0;
+    });
+
+    // 実行: 2件目だけ DTLS 送信を失敗させる。
+    const first = sender.sendRtp(createRtpPacket(1, 1000));
+    const second = sender.sendRtp(createRtpPacket(2, 2000));
+
+    // 検証: 1件目は resolve、2件目は reject される。
+    await expect(first).resolves.toBeUndefined();
+    await expect(second).rejects.toThrow("dtls send failed");
+    sender.stop();
+  });
+
+  test("stop resolves queued sendRtp promises without leaving them pending", async () => {
+    const { sender } = arrangeDisconnectedSender();
+
+    // 実行: 未接続のまま積んだ RTP を stop で破棄する。
+    const queued = sender.sendRtp(createRtpPacket(1, 1000));
+    const queuedState = watchPromise(queued);
+    expect(pendingRtpQueue(sender)).toHaveLength(1);
+    expect(queuedState.status).toBe("pending");
+    sender.stop();
+    await queued;
+
+    // 検証: 破棄後は Promise が resolve し、キューが空。
+    expect(queuedState.status).toBe("resolved");
+    expect(pendingRtpQueue(sender)).toHaveLength(0);
+  });
+
+  test("pending queue overflow resolves the dropped sendRtp promise", async () => {
+    const { sender } = arrangeDisconnectedSender();
+    const pendingLimit = 256;
+
+    // 実行: 上限を超える RTP を未接続キューへ積む。
+    const first = sender.sendRtp(createRtpPacket(0, 0));
+    const firstState = watchPromise(first);
+    for (let index = 1; index < pendingLimit; index++) {
+      void sender.sendRtp(createRtpPacket(index, index));
+    }
+    expect(pendingRtpQueue(sender)).toHaveLength(pendingLimit);
+    expect(firstState.status).toBe("pending");
+    const overflow = sender.sendRtp(
+      createRtpPacket(pendingLimit, pendingLimit),
+    );
+    const overflowState = watchPromise(overflow);
+
+    // 検証: 最古の Promise は破棄で resolve し、新しいパケットは待機したまま。
+    await first;
+    expect(firstState.status).toBe("resolved");
+    expect(overflowState.status).toBe("pending");
+    expect(pendingRtpQueue(sender)).toHaveLength(pendingLimit);
+    sender.stop();
+    await overflow;
+    expect(overflowState.status).toBe("resolved");
+  });
 
   test("getStats returns a report rooted at outbound stats", async () => {
     const track = new MediaStreamTrack({ kind: "audio", remote: true });
@@ -108,6 +469,70 @@ describe("media/rtpSender", () => {
     ).toBe(false);
   });
 });
+
+function pendingRtpQueue(sender: RTCRtpSender) {
+  return (sender as unknown as { pendingRtp: unknown[] }).pendingRtp;
+}
+
+function arrangeDisconnectedSender() {
+  const track = new MediaStreamTrack({ kind: "audio" });
+  const dtls = createDtlsTransport();
+  const sender = new RTCRtpSender(track);
+  sender.setDtlsTransport(dtls);
+  sender.prepareSend({
+    codecs: [
+      new RTCRtpCodecParameters({
+        mimeType: "audio/opus",
+        clockRate: 48000,
+        payloadType: 111,
+      }),
+    ],
+    headerExtensions: [],
+  });
+  return { track, dtls, sender };
+}
+
+function watchPromise(promise: Promise<unknown>) {
+  const state: {
+    status: "pending" | "resolved" | "rejected";
+    error?: unknown;
+  } = { status: "pending" };
+  void promise.then(
+    () => {
+      state.status = "resolved";
+    },
+    (error) => {
+      state.status = "rejected";
+      state.error = error;
+    },
+  );
+  return state;
+}
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+async function waitUntil(predicate: () => boolean, timeoutMs = 1_000) {
+  const started = Date.now();
+  while (!predicate()) {
+    if (Date.now() - started >= timeoutMs) {
+      throw new Error("Timed out waiting for condition");
+    }
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+}
+
+async function waitForSent(
+  sendRtp: ReturnType<typeof createConnectedRtpSender>["sendRtp"],
+  count: number,
+) {
+  await waitUntil(() => sendRtp.mock.calls.length >= count);
+}
 
 describe("media/rtpSender RTP continuity", () => {
   const started: RTCRtpSender[] = [];

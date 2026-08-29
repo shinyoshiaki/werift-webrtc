@@ -80,7 +80,14 @@ import type { MediaStream, MediaStreamTrack } from "./track";
 const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");
 
 const RTP_HISTORY_SIZE = 128;
+const PENDING_RTP_LIMIT = 256;
 const RTT_ALPHA = 0.85;
+
+type PendingRtpItem = {
+  packet: RtpPacket;
+  resolve: () => void;
+  reject: (error: unknown) => void;
+};
 
 function freezeRtpContinuityOffsets(
   lastOutputSeq: number,
@@ -151,6 +158,8 @@ export class RTCRtpSender {
   private rtpContinuityPending = false;
   private pendingTimestampStep = 1;
   private rtpCache: RtpPacket[] = [];
+  private pendingRtp: PendingRtpItem[] = [];
+  private drainingPendingRtp = false;
   codec?: RTCRtpCodecParameters;
   public dtlsTransport!: RTCDtlsTransport;
   private dtlsDisposer: (() => void)[] = [];
@@ -193,6 +202,7 @@ export class RTCRtpSender {
       this.dtlsTransport.onStateChange.subscribe((state) => {
         if (state === "connected") {
           this.onReady.execute();
+          void this.drainPendingRtp();
         }
       }).unSubscribe,
     ];
@@ -210,7 +220,7 @@ export class RTCRtpSender {
     this.cname = params.rtcp?.cname;
     this.mid = params.muxId;
     this.headerExtensions = params.headerExtensions;
-    this.rtpStreamId = params.rtpStreamId;
+    this.rtpStreamId = params.rtpStreamId ?? this.rtpStreamId;
     this.repairedRtpStreamId = params.repairedRtpStreamId;
 
     this.codec = params.codecs[0];
@@ -232,6 +242,72 @@ export class RTCRtpSender {
         );
       }
     });
+    void this.drainPendingRtp();
+  }
+
+  private canSendRtp() {
+    return (
+      !this.stopped && this.dtlsTransport?.state === "connected" && !!this.codec
+    );
+  }
+
+  private settlePendingRtp(item: PendingRtpItem, error?: unknown) {
+    if (error == undefined) {
+      item.resolve();
+      return;
+    }
+    item.reject(error);
+  }
+
+  private discardPendingRtp() {
+    const dropped = this.pendingRtp.splice(0);
+    for (const item of dropped) {
+      this.settlePendingRtp(item);
+    }
+  }
+
+  private enqueuePendingRtp(
+    rtp: Buffer | RtpPacket,
+    resolve: () => void,
+    reject: (error: unknown) => void,
+  ) {
+    const packet = Buffer.isBuffer(rtp)
+      ? RtpPacket.deSerialize(rtp)
+      : rtp.clone();
+    this.pendingRtp.push({ packet, resolve, reject });
+    while (this.pendingRtp.length > PENDING_RTP_LIMIT) {
+      const dropped = this.pendingRtp.shift();
+      if (dropped) {
+        this.settlePendingRtp(dropped);
+      }
+    }
+  }
+
+  private async drainPendingRtp() {
+    if (this.drainingPendingRtp) {
+      return;
+    }
+    this.drainingPendingRtp = true;
+    try {
+      while (this.pendingRtp.length > 0 && this.canSendRtp()) {
+        const item = this.pendingRtp.shift()!;
+        if (!this.canSendRtp()) {
+          this.settlePendingRtp(item);
+          continue;
+        }
+        try {
+          await this.dispatchRtp(item.packet);
+          this.settlePendingRtp(item);
+        } catch (error) {
+          this.settlePendingRtp(item, error);
+        }
+      }
+    } finally {
+      this.drainingPendingRtp = false;
+    }
+    if (this.pendingRtp.length > 0 && this.canSendRtp()) {
+      await this.drainPendingRtp();
+    }
   }
 
   registerTrack(track: MediaStreamTrack) {
@@ -272,10 +348,18 @@ export class RTCRtpSender {
       encodings.length > 0
         ? encodings.map((encoding) => ({ ...encoding }))
         : [{}];
+    const rid = this.sendEncodings.find(
+      (encoding) => typeof encoding.rid === "string",
+    )?.rid;
+    if (typeof rid === "string") {
+      this.rtpStreamId = rid;
+    }
   }
 
   async replaceTrack(track: MediaStreamTrack | null) {
     if (track === null) {
+      this.rtpContinuityPending = false;
+      this.discardPendingRtp();
       if (this.disposeTrack) {
         this.disposeTrack();
       }
@@ -295,6 +379,8 @@ export class RTCRtpSender {
 
   stop() {
     this.stopped = true;
+    this.rtpContinuityPending = false;
+    this.discardPendingRtp();
     this.rtcpRunning = false;
     this.rtcpCancel.abort();
     if (this.disposeTrack) {
@@ -353,6 +439,26 @@ export class RTCRtpSender {
   }
 
   /**
+   * Queue an RTP packet for sending. The returned promise settles for this
+   * packet only:
+   * - resolve: DTLS send completed, or the packet was dropped by `stop()`,
+   *   `replaceTrack(null)`, or pending-queue overflow
+   * - reject: DTLS send threw while writing this packet
+   *
+   * Later `sendRtp()` calls stay pending until their own packet is sent or
+   * dropped, even if a drain is already in progress.
+   */
+  async sendRtp(rtp: Buffer | RtpPacket) {
+    if (this.stopped) {
+      return;
+    }
+    await new Promise<void>((resolve, reject) => {
+      this.enqueuePendingRtp(rtp, resolve, reject);
+      void this.drainPendingRtp();
+    });
+  }
+
+  /**
    * Schedule RTP continuity rewrite for the next packet that is actually sent.
    * The header argument is kept for API compatibility and is not used to compute
    * offsets. `discontinuity` does not change sequence or timestamp mapping.
@@ -380,12 +486,17 @@ export class RTCRtpSender {
     this.rtpCache = [];
   }
 
-  async sendRtp(rtp: Buffer | RtpPacket) {
-    if (this.dtlsTransport.state !== "connected" || !this.codec) {
+  private async dispatchRtp(rtp: Buffer | RtpPacket) {
+    if (!this.canSendRtp()) {
       return;
     }
 
-    rtp = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;
+    const codec = this.codec;
+    if (!codec) {
+      return;
+    }
+
+    rtp = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp.clone();
 
     const { header, payload } = rtp;
     const inputSequenceNumber = header.sequenceNumber;
@@ -408,7 +519,7 @@ export class RTCRtpSender {
     }
 
     header.ssrc = this.ssrc;
-    header.payloadType = this.codec.payloadType;
+    header.payloadType = codec.payloadType;
     header.timestamp = uint32Add(header.timestamp, this.timestampOffset);
     header.sequenceNumber = uint16Add(header.sequenceNumber, this.seqOffset);
     this.timestamp = header.timestamp;
