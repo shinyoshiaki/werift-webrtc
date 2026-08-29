@@ -20,7 +20,11 @@ import {
   type TransceiverOptions,
 } from "./media";
 import type { RTCStats } from "./media/stats";
-import { type PeerConfig, findCodecByMimeType } from "./peerConnection";
+import {
+  type PeerConfig,
+  adoptSenderTrackCodec,
+  findCodecByMimeType,
+} from "./peerConnection";
 import { type MediaDescription, codecParametersFromString } from "./sdp";
 import type { RTCDtlsTransport } from "./transport/dtls";
 import type { Kind } from "./types/domain";
@@ -220,6 +224,7 @@ export class TransceiverManager {
   }
 
   assignTransceiverCodecs(transceiver: RTCRtpTransceiver): void {
+    adoptSenderTrackCodec(this.config, transceiver.sender.track);
     const codecs = (
       this.config.codecs[transceiver.kind] as RTCRtpCodecParameters[]
     ).filter((codecCandidate) => {
@@ -303,6 +308,8 @@ export class TransceiverManager {
       transceiver.mid = remoteMedia.rtp.muxId ?? null;
     }
     transceiver.mLineIndex = mLineIndex;
+
+    adoptSenderTrackCodec(this.config, transceiver.sender.track);
 
     // # negotiate codecs
     transceiver.codecs = remoteMedia.rtp.codecs.filter((remoteCodec) => {

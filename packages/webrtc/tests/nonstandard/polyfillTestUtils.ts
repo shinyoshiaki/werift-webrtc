@@ -27,6 +27,29 @@ export function createVideoCallbackRegister(
   });
 }
 
+export function createH264CallbackRegister(
+  overrides: Partial<Parameters<typeof createCallbackRegister>[0]> = {},
+): MediaRegister {
+  return createCallbackRegister({
+    mimeType: "video/H264",
+    kinds: ["video"],
+    async createTracks() {
+      return [new MediaStreamTrack({ kind: "video" })];
+    },
+    ...overrides,
+  });
+}
+
+export async function arrangePolyfillVideoTrack(register: MediaRegister) {
+  const uninstall = installTestPolyfill([register]);
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  return {
+    uninstall,
+    stream,
+    track: stream.getVideoTracks()[0] as MediaStreamTrack,
+  };
+}
+
 export function expectDomException(error: unknown, name: string) {
   expect(error).toBeInstanceOf(DOMException);
   expect((error as DOMException).name).toBe(name);

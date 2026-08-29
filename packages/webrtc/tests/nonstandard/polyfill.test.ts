@@ -21,6 +21,8 @@ import {
   openPacketSource,
 } from "../../src/polyfill/sourceIo";
 import {
+  arrangePolyfillVideoTrack,
+  createH264CallbackRegister,
   createHangingNodeStream,
   createHangingWebStream,
   createVideoCallbackRegister,
@@ -440,6 +442,25 @@ describe("werift/polyfill installPolyfill", () => {
     expect(target.RTCSessionDescription).toBe("locked");
     expect("navigator" in target).toBe(false);
     expect("window" in target).toBe(false);
+  });
+
+  test("callback register の mimeType は PC codecs なしで offer に載る", async () => {
+    const arranged = await arrangePolyfillVideoTrack(
+      createH264CallbackRegister(),
+    );
+    const pc = new RTCPeerConnection();
+    try {
+      // Act: デフォルト codecs の PeerConnection に H264 track を載せて offer する。
+      pc.addTransceiver(arranged.track, { direction: "sendonly" });
+      const offer = await pc.createOffer();
+
+      // Assert: register の H264 が track.codec と SDP の両方に出る。
+      expect(arranged.track.codec?.mimeType.toLowerCase()).toContain("h264");
+      expect(offer.sdp).toMatch(/a=rtpmap:\d+ H264\/90000/i);
+    } finally {
+      await pc.close();
+      arranged.uninstall();
+    }
   });
 
   test("returned tracks expose writeRtp and MediaStream.clone", async () => {

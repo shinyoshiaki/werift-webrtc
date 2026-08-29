@@ -3,26 +3,19 @@ import type { Readable } from "stream";
 import { EncodedPacket } from "mediabunny";
 
 import { RtcpPacketConverter, isRtcp } from "../../imports/rtp";
-import {
-  useAV1X,
-  useH264,
-  useOPUS,
-  usePCMU,
-  useVP8,
-  useVP9,
-} from "../../media/codec";
-import { RTCRtpCodecParameters } from "../../media/parameters";
 import { MediaStreamTrack } from "../../media/track";
-import {
-  type SupportedSourceCodec,
-  createPacketizer,
-} from "../../nonstandard/userMedia/packetizer";
+import { createPacketizer } from "../../nonstandard/userMedia/packetizer";
 import type {
   MediaGetUserMediaRequest,
-  MediaKind,
   MediaRegister,
   MediaRegisterCommonOptions,
 } from "../mediaRegister";
+import {
+  codecFromMimeType,
+  kindFromMimeType,
+  rtpCodecFromMimeType,
+  sourceCodecFromMimeType,
+} from "../rtpCodec";
 import {
   type UdpOrStreamSource,
   openPacketSource,
@@ -216,90 +209,6 @@ function isMuxedRtcp(packet: Buffer) {
   }
   const payloadType = packet[1] & 0x7f;
   return payloadType >= 64 && payloadType <= 95;
-}
-
-function kindFromMimeType(mimeType: string): MediaKind {
-  return mimeType.toLowerCase().startsWith("audio/") ? "audio" : "video";
-}
-
-function rtpCodecFromMimeType(options: {
-  mimeType: string;
-  clockRate?: number;
-  channels?: number;
-  payloadType?: number;
-}): RTCRtpCodecParameters {
-  const extra: Partial<RTCRtpCodecParameters> = {
-    ...(options.clockRate != undefined ? { clockRate: options.clockRate } : {}),
-    ...(options.channels != undefined ? { channels: options.channels } : {}),
-    ...(options.payloadType != undefined
-      ? { payloadType: options.payloadType }
-      : {}),
-  };
-  const normalized = options.mimeType.toLowerCase();
-  if (normalized.includes("pcmu")) {
-    return usePCMU(extra);
-  }
-  try {
-    return codecFromMimeType(options);
-  } catch {
-    const kind = kindFromMimeType(options.mimeType);
-    return new RTCRtpCodecParameters({
-      mimeType: options.mimeType,
-      clockRate: extra.clockRate ?? (kind === "audio" ? 8_000 : 90_000),
-      ...(extra.channels != undefined ? { channels: extra.channels } : {}),
-      ...(extra.payloadType != undefined
-        ? { payloadType: extra.payloadType }
-        : {}),
-    });
-  }
-}
-
-function sourceCodecFromMimeType(mimeType: string): SupportedSourceCodec {
-  const normalized = mimeType.toLowerCase();
-  if (normalized.includes("h264") || normalized.includes("avc")) {
-    return "avc";
-  }
-  if (normalized.includes("vp8")) {
-    return "vp8";
-  }
-  if (normalized.includes("vp9")) {
-    return "vp9";
-  }
-  if (normalized.includes("av1")) {
-    return "av1";
-  }
-  if (normalized.includes("opus")) {
-    return "opus";
-  }
-  throw new Error(`Unsupported encoded binary mimeType: ${mimeType}`);
-}
-
-function codecFromMimeType(options: {
-  mimeType: string;
-  clockRate?: number;
-  channels?: number;
-  payloadType?: number;
-}): RTCRtpCodecParameters {
-  const sourceCodec = sourceCodecFromMimeType(options.mimeType);
-  const extra: Partial<RTCRtpCodecParameters> = {
-    ...(options.clockRate != undefined ? { clockRate: options.clockRate } : {}),
-    ...(options.channels != undefined ? { channels: options.channels } : {}),
-    ...(options.payloadType != undefined
-      ? { payloadType: options.payloadType }
-      : {}),
-  };
-  switch (sourceCodec) {
-    case "avc":
-      return useH264(extra);
-    case "vp8":
-      return useVP8(extra);
-    case "vp9":
-      return useVP9(extra);
-    case "av1":
-      return useAV1X(extra);
-    case "opus":
-      return useOPUS(extra);
-  }
 }
 
 export type { Readable };

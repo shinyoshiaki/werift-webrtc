@@ -1,3 +1,4 @@
+import type { RTCRtpCodecParameters } from "../../media/parameters";
 import type { MediaStreamTrack } from "../../media/track";
 import {
   createDummyAudioTrack,
@@ -9,11 +10,17 @@ import type {
   MediaRegister,
   MediaRegisterCommonOptions,
 } from "../mediaRegister";
+import { kindFromMimeType, rtpCodecFromMimeType } from "../rtpCodec";
 import { bindTrackStop } from "../trackStop";
 
 export type CreateCallbackRegisterOptions = MediaRegisterCommonOptions & {
   mimeType: string;
   kinds: readonly MediaKind[];
+  clockRate?: number;
+  channels?: number;
+  payloadType?: number;
+  parameters?: string;
+  rtcpFeedback?: RTCRtpCodecParameters["rtcpFeedback"];
   createTracks: (
     request: MediaGetUserMediaRequest,
   ) => Promise<MediaStreamTrack[]>;
@@ -23,13 +30,23 @@ export type CreateCallbackRegisterOptions = MediaRegisterCommonOptions & {
 export function createCallbackRegister(
   options: CreateCallbackRegisterOptions,
 ): MediaRegister {
+  const registerKind = kindFromMimeType(options.mimeType);
+  const codec = rtpCodecFromMimeType(options);
   return {
     mimeType: options.mimeType,
     kinds: options.kinds,
     deviceId: options.deviceId,
     groupId: options.groupId,
     label: options.label,
-    createTracks: options.createTracks,
+    async createTracks(request) {
+      const tracks = await options.createTracks(request);
+      for (const track of tracks) {
+        if (track.codec == undefined && track.kind === registerKind) {
+          track.codec = codec;
+        }
+      }
+      return tracks;
+    },
     stop: options.stop,
   };
 }

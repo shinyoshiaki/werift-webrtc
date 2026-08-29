@@ -1,10 +1,6 @@
 import { RingApi } from "ring-client-api";
 import { Server } from "ws";
-import {
-  MediaStreamTrack,
-  RTCPeerConnection,
-  RTCRtpCodecParameters,
-} from "../../packages/webrtc/src";
+import { MediaStreamTrack, RTCPeerConnection } from "../../packages/webrtc/src";
 import {
   createCallbackRegister,
   installPolyfill,
@@ -51,23 +47,7 @@ const example = async () => {
   console.log(new Date().toISOString(), "session start");
 
   server.on("connection", async (socket) => {
-    const sender = new RTCPeerConnection({
-      codecs: {
-        video: [
-          new RTCRtpCodecParameters({
-            mimeType: "video/H264",
-            clockRate: 90000,
-            rtcpFeedback: [
-              { type: "transport-cc" },
-              { type: "ccm", parameter: "fir" },
-              { type: "nack" },
-              { type: "nack", parameter: "pli" },
-              { type: "goog-remb" },
-            ],
-          }),
-        ],
-      },
-    });
+    const sender = new RTCPeerConnection();
     if (track) {
       sender.addTransceiver(track, { direction: "sendonly" });
     }
