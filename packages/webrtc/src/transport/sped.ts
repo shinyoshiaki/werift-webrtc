@@ -30,14 +30,10 @@ export class IceSpedTransport implements Transport {
       if (!isDtls(ctx.bytes) || !this.onData) {
         return;
       }
-      if (this.applicationReady) {
-        if (ctx.pair !== ice.nominated) {
-          return;
-        }
-        this.onData(ctx.bytes, ctx.source);
+      if (!allowsAuthenticatedDtlsDelivery(ctx, ice.generation)) {
         return;
       }
-      if (!allowsAuthenticatedDtlsDelivery(ctx, ice.generation)) {
+      if (this.applicationReady && ctx.pair !== ice.nominated) {
         return;
       }
       this.onData(ctx.bytes, ctx.source);

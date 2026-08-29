@@ -201,6 +201,66 @@ describe("IceSpedTransport datagram gate", () => {
     expect(received[0]!.equals(app)).toBe(true);
   });
 
+  it("handshake 完了後の ICE restart 中は pair も nominated も無い raw DTLS を渡さない", () => {
+    // Arrange: nomination 前の restart window。未認証で pair も無い
+    const ice = createIceStub(2);
+    const transport = new IceSpedTransport(ice);
+    const received: Buffer[] = [];
+    transport.onData = (buf) => {
+      received.push(buf);
+    };
+    transport.markApplicationReady();
+    const protocol = {
+      type: "udp",
+      localCandidate: new Candidate("f", 1, "udp", 1, "1.2.3.4", 1, "host"),
+    } as any;
+    const app = Buffer.from([23, 9, 9, 9]);
+
+    // Act: undefined === undefined では通さない
+    connectionDatagramEvent(ice).execute({
+      bytes: app,
+      source: ["8.8.8.8", 8],
+      protocol,
+      pair: undefined,
+      generation: 2,
+      authenticated: false,
+    });
+
+    // Assert: source/auth gate が nominated 比較より先に落とす
+    expect(received).toHaveLength(0);
+  });
+
+  it("handshake 完了後は nominated pair でも source が remoteAddr と違う DTLS を渡さない", () => {
+    // Arrange: pair object は nominated だが 5-tuple が違う
+    const ice = createIceStub(1);
+    const transport = new IceSpedTransport(ice);
+    const received: Buffer[] = [];
+    transport.onData = (buf) => {
+      received.push(buf);
+    };
+    transport.markApplicationReady();
+    const protocol = {
+      type: "udp",
+      localCandidate: new Candidate("f", 1, "udp", 1, "1.2.3.4", 1, "host"),
+    } as any;
+    const pair = authenticatedPair(protocol, "10.0.0.1", 1111);
+    ice.nominated = pair;
+    const app = Buffer.from([23, 8, 7, 6]);
+
+    // Act: 同じ pair 参照のまま別 source から application record を流す
+    connectionDatagramEvent(ice).execute({
+      bytes: app,
+      source: ["10.0.0.2", 2222],
+      protocol,
+      pair,
+      generation: 1,
+      authenticated: true,
+    });
+
+    // Assert: protocol 一致だけでは nominated 扱いにしない
+    expect(received).toHaveLength(0);
+  });
+
   it("handshake 完了後の UDP は nominated と異なる authenticated pair から application DTLS を渡さない", () => {
     // Arrange: nominated は pair A。B は認証済みだが別 candidate
     const ice = createIceStub(1);

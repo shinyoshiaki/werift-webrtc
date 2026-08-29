@@ -50,6 +50,13 @@ import { getHostAddresses } from "./utils";
 
 const log = debug("werift-ice : packages/ice/src/ice.ts : log");
 
+function isTcpLocalPassivePair(pair: CandidatePair): boolean {
+  return (
+    pair.localCandidate.transport.toLowerCase() === "tcp" &&
+    pair.localCandidate.tcptype === "passive"
+  );
+}
+
 /** Fallback STUN server when none is configured (constructor / setIceServers). */
 const DEFAULT_STUN_SERVER: Address = ["stun.l.google.com", 19302];
 
@@ -1362,19 +1369,25 @@ export class Connection implements IceConnection {
   }
 
   /**
-   * Application / handshake datagrams on the selected protocol belong to the
-   * nominated pair. TCP ICE uses one bidirectional socket; do not treat a
-   * second local active/passive pair as the receive path.
+   * Datagrams map to a pair by protocol and remote 5-tuple.
+   * Nominated is preferred only when the source matches that pair.
    */
   private resolveDatagramPair(
     protocol: Protocol,
     addr?: Address,
   ): CandidatePair | undefined {
+    if (addr) {
+      if (
+        this.nominated?.protocol === protocol &&
+        this.nominated.remoteAddr[0] === addr[0] &&
+        this.nominated.remoteAddr[1] === addr[1]
+      ) {
+        return this.nominated;
+      }
+      return this.findPairByAddr(protocol, addr);
+    }
     if (this.nominated?.protocol === protocol) {
       return this.nominated;
-    }
-    if (addr) {
-      return this.findPairByAddr(protocol, addr);
     }
     return this.checkList.find((candidate) => candidate.protocol === protocol);
   }
@@ -1713,16 +1726,12 @@ export class Connection implements IceConnection {
         return true;
       };
 
-      // Aggressive nomination on TCP local-passive would USE-CANDIDATE the
-      // reverse connection; controlled would then nominate local-active and
-      // send/receive would sit on different sockets.
+      // Aggressive / regular nomination on TCP local-passive would
+      // USE-CANDIDATE the reverse connection.
       const nominate =
         this.iceControlling &&
         !this.remoteIsLite &&
-        !(
-          pair.localCandidate.transport.toLowerCase() === "tcp" &&
-          pair.localCandidate.tcptype === "passive"
-        );
+        !isTcpLocalPassivePair(pair);
       const request = this.buildRequest({
         nominate,
         localUsername,
@@ -1851,7 +1860,11 @@ export class Connection implements IceConnection {
       if (nominate || pair.remoteNominated) {
         // # nominated by agressive nomination or the remote party
         pair.nominated = true;
-      } else if (this.iceControlling && !this.nominating) {
+      } else if (
+        this.iceControlling &&
+        !this.nominating &&
+        !isTcpLocalPassivePair(pair)
+      ) {
         // # perform regular nomination
         this.nominating = true;
         const request = this.buildRequest({

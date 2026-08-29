@@ -91,6 +91,42 @@ async function assertConnectWithStunServer(stunServer: Address) {
   }
 }
 
+async function gatherAndExchangeTcpOnly(a: Connection, b: Connection) {
+  await a.gatherCandidates();
+  b.remoteCandidates = a.localCandidates.filter(
+    (candidate) => candidate.transport === "tcp",
+  );
+  b.remoteUsername = a.localUsername;
+  b.remotePassword = a.localPassword;
+  await b.gatherCandidates();
+  a.remoteCandidates = b.localCandidates.filter(
+    (candidate) => candidate.transport === "tcp",
+  );
+  a.remoteUsername = b.localUsername;
+  a.remotePassword = b.localPassword;
+}
+
+function delayTcpActiveRequests(connection: Connection, delayMs: number) {
+  for (const protocol of (connection as any).protocols as Protocol[]) {
+    if (protocol.localCandidate?.tcptype !== "active") {
+      continue;
+    }
+    const original = protocol.request.bind(protocol);
+    protocol.request = (async (...args: Parameters<Protocol["request"]>) => {
+      await setTimeout(delayMs);
+      return original(...args);
+    }) as Protocol["request"];
+  }
+}
+
+function expectComplementaryTcpNomination(a: Connection, b: Connection) {
+  expect(a.nominated?.localCandidate.tcptype).toBe("active");
+  expect(a.nominated?.remoteCandidate.tcptype).toBe("passive");
+  expect(b.nominated?.localCandidate.tcptype).toBe("passive");
+  expect(b.nominated?.localCandidate.host).toBe(a.nominated?.remoteAddr[0]);
+  expect(b.nominated?.localCandidate.port).toBe(a.nominated?.remoteAddr[1]);
+}
+
 describe("ice", () => {
   test("test_peer_reflexive", async () => {
     const connection = createTestConnection(true);
@@ -418,6 +454,44 @@ describe("ice", () => {
           0,
         ),
       ).toBeGreaterThan(0);
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  });
+
+  test("test_connect_tcp_passive_check_completes_before_active", async () => {
+    const a = createTestConnection(true, {
+      useTcp: true,
+      useIpv6: false,
+      stunServer: undefined,
+    });
+    const b = createTestConnection(false, {
+      useTcp: true,
+      useIpv6: false,
+      stunServer: undefined,
+    });
+
+    try {
+      // Arrange: controlling の local-active check を遅らせ、reverse path が先に成功する
+      await gatherAndExchangeTcpOnly(a, b);
+      delayTcpActiveRequests(a, 80);
+      await Promise.all([
+        a.addRemoteCandidate(undefined),
+        b.addRemoteCandidate(undefined),
+      ]);
+
+      // Act
+      await Promise.all([a.connect(), b.connect()]);
+
+      // Assert: 応答順が逆転しても同一 TCP connection の対を選ぶ
+      expectComplementaryTcpNomination(a, b);
+      await a.send(Buffer.from("howdee over tcp"));
+      const [data] = await b.onData.asPromise();
+      await b.send(Buffer.from("gotcha over tcp"));
+      const [echo] = await a.onData.asPromise();
+      expect(data.toString()).toBe("howdee over tcp");
+      expect(echo.toString()).toBe("gotcha over tcp");
     } finally {
       await a.close();
       await b.close();
