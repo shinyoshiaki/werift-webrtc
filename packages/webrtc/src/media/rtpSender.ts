@@ -80,7 +80,14 @@ import type { MediaStream, MediaStreamTrack } from "./track";
 const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");
 
 const RTP_HISTORY_SIZE = 128;
+const PENDING_RTP_LIMIT = 256;
 const RTT_ALPHA = 0.85;
+
+type PendingRtpItem = {
+  packet: RtpPacket;
+  resolve: () => void;
+  reject: (error: unknown) => void;
+};
 
 function freezeRtpContinuityOffsets(
   lastOutputSeq: number,
@@ -151,7 +158,7 @@ export class RTCRtpSender {
   private rtpContinuityPending = false;
   private pendingTimestampStep = 1;
   private rtpCache: RtpPacket[] = [];
-  private pendingRtp: RtpPacket[] = [];
+  private pendingRtp: PendingRtpItem[] = [];
   private drainingPendingRtp = false;
   codec?: RTCRtpCodecParameters;
   public dtlsTransport!: RTCDtlsTransport;
@@ -244,20 +251,35 @@ export class RTCRtpSender {
     );
   }
 
-  private discardPendingRtp() {
-    this.pendingRtp.length = 0;
-  }
-
-  private enqueuePendingRtp(rtp: Buffer | RtpPacket) {
-    if (this.stopped) {
+  private settlePendingRtp(item: PendingRtpItem, error?: unknown) {
+    if (error == undefined) {
+      item.resolve();
       return;
     }
+    item.reject(error);
+  }
+
+  private discardPendingRtp() {
+    const dropped = this.pendingRtp.splice(0);
+    for (const item of dropped) {
+      this.settlePendingRtp(item);
+    }
+  }
+
+  private enqueuePendingRtp(
+    rtp: Buffer | RtpPacket,
+    resolve: () => void,
+    reject: (error: unknown) => void,
+  ) {
     const packet = Buffer.isBuffer(rtp)
       ? RtpPacket.deSerialize(rtp)
       : rtp.clone();
-    this.pendingRtp.push(packet);
-    if (this.pendingRtp.length > 256) {
-      this.pendingRtp.shift();
+    this.pendingRtp.push({ packet, resolve, reject });
+    while (this.pendingRtp.length > PENDING_RTP_LIMIT) {
+      const dropped = this.pendingRtp.shift();
+      if (dropped) {
+        this.settlePendingRtp(dropped);
+      }
     }
   }
 
@@ -268,8 +290,17 @@ export class RTCRtpSender {
     this.drainingPendingRtp = true;
     try {
       while (this.pendingRtp.length > 0 && this.canSendRtp()) {
-        const packet = this.pendingRtp.shift()!;
-        await this.dispatchRtp(packet);
+        const item = this.pendingRtp.shift()!;
+        if (!this.canSendRtp()) {
+          this.settlePendingRtp(item);
+          continue;
+        }
+        try {
+          await this.dispatchRtp(item.packet);
+          this.settlePendingRtp(item);
+        } catch (error) {
+          this.settlePendingRtp(item, error);
+        }
       }
     } finally {
       this.drainingPendingRtp = false;
@@ -408,6 +439,26 @@ export class RTCRtpSender {
   }
 
   /**
+   * Queue an RTP packet for sending. The returned promise settles for this
+   * packet only:
+   * - resolve: DTLS send completed, or the packet was dropped by `stop()`,
+   *   `replaceTrack(null)`, or pending-queue overflow
+   * - reject: DTLS send threw while writing this packet
+   *
+   * Later `sendRtp()` calls stay pending until their own packet is sent or
+   * dropped, even if a drain is already in progress.
+   */
+  async sendRtp(rtp: Buffer | RtpPacket) {
+    if (this.stopped) {
+      return;
+    }
+    await new Promise<void>((resolve, reject) => {
+      this.enqueuePendingRtp(rtp, resolve, reject);
+      void this.drainPendingRtp();
+    });
+  }
+
+  /**
    * Schedule RTP continuity rewrite for the next packet that is actually sent.
    * The header argument is kept for API compatibility and is not used to compute
    * offsets. `discontinuity` does not change sequence or timestamp mapping.
@@ -433,11 +484,6 @@ export class RTCRtpSender {
     this.rtpContinuityPending = true;
     this.pendingTimestampStep = timestampStep;
     this.rtpCache = [];
-  }
-
-  async sendRtp(rtp: Buffer | RtpPacket) {
-    this.enqueuePendingRtp(rtp);
-    await this.drainPendingRtp();
   }
 
   private async dispatchRtp(rtp: Buffer | RtpPacket) {

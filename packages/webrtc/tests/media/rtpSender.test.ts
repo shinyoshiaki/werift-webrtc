@@ -175,9 +175,10 @@ describe("media/rtpSender", () => {
     const sendRtpSpy = vi.spyOn(dtls, "sendRtp");
 
     // 実行: DTLS 未接続で RTP を積んだあと stop し、その後 connected にする。
-    await sender.sendRtp(createRtpPacket());
+    const queued = sender.sendRtp(createRtpPacket());
     expect(pendingRtpQueue(sender)).toHaveLength(1);
     sender.stop();
+    await queued;
     dtls.state = "connected";
     dtls.onStateChange.execute("connected");
     await sender.sendRtp(createRtpPacket());
@@ -205,9 +206,10 @@ describe("media/rtpSender", () => {
     });
 
     // 実行: 未接続のまま RTP を積んで replaceTrack(null) する。
-    await sender.sendRtp(createRtpPacket());
+    const queued = sender.sendRtp(createRtpPacket());
     expect(pendingRtpQueue(sender)).toHaveLength(1);
     await sender.replaceTrack(null);
+    await queued;
 
     // 検証: 待機 RTP は破棄される。
     expect(pendingRtpQueue(sender)).toHaveLength(0);
@@ -312,18 +314,129 @@ describe("media/rtpSender", () => {
     });
 
     // 実行: 未接続で [1,2] を積み、接続直後の flush 中に 3 を送る。
-    await sender.sendRtp(createRtpPacket(1, 1000));
-    await sender.sendRtp(createRtpPacket(2, 2000));
+    void sender.sendRtp(createRtpPacket(1, 1000));
+    void sender.sendRtp(createRtpPacket(2, 2000));
     dtls.state = "connected";
     dtls.onStateChange.execute("connected");
     const late = sender.sendRtp(createRtpPacket(3, 3000));
+    const lateState = watchPromise(late);
+    await waitUntil(() => sent.length === 1);
+
+    // 検証: 1件目の DTLS 送信中は 3 件目の Promise が未解決のまま。
+    expect(sent).toEqual([1]);
+    expect(lateState.status).toBe("pending");
+
     firstSend.resolve();
     await late;
     await waitUntil(() => sent.length === 3);
 
     // 検証: 接続前後の入力 [1,2,3] が同順で送出される。
     expect(sent).toEqual([1, 2, 3]);
+    expect(lateState.status).toBe("resolved");
     sender.stop();
+  });
+
+  test("later sendRtp waits for its own DTLS write while an earlier send is delayed", async () => {
+    const { sender, dtls } = arrangeDisconnectedSender();
+    dtls.state = "connected";
+
+    const firstSend = deferred();
+    const sent: number[] = [];
+    vi.spyOn(dtls, "sendRtp").mockImplementation(async (_payload, header) => {
+      sent.push(header.sequenceNumber);
+      if (sent.length === 1) {
+        await firstSend.promise;
+      }
+      return 0;
+    });
+
+    // 実行: 1件目の DTLS 送信を保留したまま 2件目を呼ぶ。
+    const first = sender.sendRtp(createRtpPacket(1, 1000));
+    const second = sender.sendRtp(createRtpPacket(2, 2000));
+    const firstState = watchPromise(first);
+    const secondState = watchPromise(second);
+    await waitUntil(() => sent.length === 1);
+
+    // 検証: 送信履歴が [1] の時点では 2件目は未解決。
+    expect(sent).toEqual([1]);
+    expect(firstState.status).toBe("pending");
+    expect(secondState.status).toBe("pending");
+
+    firstSend.resolve();
+    await first;
+    await second;
+
+    // 検証: 1件目完了後に 2件目も送信され、両方 resolve する。
+    expect(sent).toEqual([1, 2]);
+    expect(firstState.status).toBe("resolved");
+    expect(secondState.status).toBe("resolved");
+    sender.stop();
+  });
+
+  test("DTLS failure rejects only the sendRtp that wrote that packet", async () => {
+    const { sender, dtls } = arrangeDisconnectedSender();
+    dtls.state = "connected";
+
+    let calls = 0;
+    vi.spyOn(dtls, "sendRtp").mockImplementation(async () => {
+      calls += 1;
+      if (calls === 2) {
+        throw new Error("dtls send failed");
+      }
+      return 0;
+    });
+
+    // 実行: 2件目だけ DTLS 送信を失敗させる。
+    const first = sender.sendRtp(createRtpPacket(1, 1000));
+    const second = sender.sendRtp(createRtpPacket(2, 2000));
+
+    // 検証: 1件目は resolve、2件目は reject される。
+    await expect(first).resolves.toBeUndefined();
+    await expect(second).rejects.toThrow("dtls send failed");
+    sender.stop();
+  });
+
+  test("stop resolves queued sendRtp promises without leaving them pending", async () => {
+    const { sender } = arrangeDisconnectedSender();
+
+    // 実行: 未接続のまま積んだ RTP を stop で破棄する。
+    const queued = sender.sendRtp(createRtpPacket(1, 1000));
+    const queuedState = watchPromise(queued);
+    expect(pendingRtpQueue(sender)).toHaveLength(1);
+    expect(queuedState.status).toBe("pending");
+    sender.stop();
+    await queued;
+
+    // 検証: 破棄後は Promise が resolve し、キューが空。
+    expect(queuedState.status).toBe("resolved");
+    expect(pendingRtpQueue(sender)).toHaveLength(0);
+  });
+
+  test("pending queue overflow resolves the dropped sendRtp promise", async () => {
+    const { sender } = arrangeDisconnectedSender();
+    const pendingLimit = 256;
+
+    // 実行: 上限を超える RTP を未接続キューへ積む。
+    const first = sender.sendRtp(createRtpPacket(0, 0));
+    const firstState = watchPromise(first);
+    for (let index = 1; index < pendingLimit; index++) {
+      void sender.sendRtp(createRtpPacket(index, index));
+    }
+    expect(pendingRtpQueue(sender)).toHaveLength(pendingLimit);
+    expect(firstState.status).toBe("pending");
+    const overflow = sender.sendRtp(
+      createRtpPacket(pendingLimit, pendingLimit),
+    );
+    const overflowState = watchPromise(overflow);
+
+    // 検証: 最古の Promise は破棄で resolve し、新しいパケットは待機したまま。
+    await first;
+    expect(firstState.status).toBe("resolved");
+    expect(overflowState.status).toBe("pending");
+    expect(pendingRtpQueue(sender)).toHaveLength(pendingLimit);
+    sender.stop();
+    await overflow;
+    expect(overflowState.status).toBe("resolved");
   });
 
   test("getStats returns a report rooted at outbound stats", async () => {
@@ -359,6 +472,41 @@ describe("media/rtpSender", () => {
 
 function pendingRtpQueue(sender: RTCRtpSender) {
   return (sender as unknown as { pendingRtp: unknown[] }).pendingRtp;
+}
+
+function arrangeDisconnectedSender() {
+  const track = new MediaStreamTrack({ kind: "audio" });
+  const dtls = createDtlsTransport();
+  const sender = new RTCRtpSender(track);
+  sender.setDtlsTransport(dtls);
+  sender.prepareSend({
+    codecs: [
+      new RTCRtpCodecParameters({
+        mimeType: "audio/opus",
+        clockRate: 48000,
+        payloadType: 111,
+      }),
+    ],
+    headerExtensions: [],
+  });
+  return { track, dtls, sender };
+}
+
+function watchPromise(promise: Promise<unknown>) {
+  const state: {
+    status: "pending" | "resolved" | "rejected";
+    error?: unknown;
+  } = { status: "pending" };
+  void promise.then(
+    () => {
+      state.status = "resolved";
+    },
+    (error) => {
+      state.status = "rejected";
+      state.error = error;
+    },
+  );
+  return state;
 }
 
 function deferred() {
