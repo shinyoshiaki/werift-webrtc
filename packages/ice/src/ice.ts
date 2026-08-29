@@ -40,7 +40,7 @@ import {
   setConnectionSpedRuntime,
 } from "./internal/sped-bind";
 import type { SpedRuntime } from "./sped/runtime";
-import { classes, methods } from "./stun/const";
+import { RETRY_MAX, RETRY_RTO, classes, methods } from "./stun/const";
 import { Message, parseMessage } from "./stun/message";
 import { StunProtocol } from "./stun/protocol";
 import { TcpActiveProtocol, TcpPassiveProtocol } from "./stun/tcpProtocol";
@@ -62,6 +62,26 @@ function isTcpLocalPassivePair(pair: CandidatePair): boolean {
     pair.localCandidate.transport.toLowerCase() === "tcp" &&
     pair.localCandidate.tcptype === "passive"
   );
+}
+
+function isTcpActiveCandidate(candidate: {
+  transport: string;
+  tcptype?: string;
+}): boolean {
+  return (
+    candidate.transport.toLowerCase() === "tcp" &&
+    candidate.tcptype === "active"
+  );
+}
+
+/**
+ * One STUN connectivity-check transaction: initial send plus RETRY_MAX
+ * retransmissions with doubling RTO. Used as the inbound TCP pair wait so
+ * ICE does not hang on a passive listener after known pairs are exhausted.
+ */
+function stunTransactionLifetimeMs() {
+  const tries = 1 + RETRY_MAX;
+  return RETRY_RTO * (2 ** tries - 1);
 }
 
 /** Fallback STUN server when none is configured (constructor / setIceServers). */
@@ -92,6 +112,7 @@ export class Connection implements IceConnection {
   private nominating = false;
   private checkListDone = false;
   private checkListState = new PQueue<number>();
+  private incomingTcpPairWait?: { settle: (learned: boolean) => void };
   private earlyChecks: [Message, Address, Protocol][] = [];
   private earlyChecksDone = false;
   private localCandidatesStart = false;
@@ -235,6 +256,7 @@ export class Connection implements IceConnection {
     this.nominating = false;
     this.checkList = [];
     this.checkListDone = false;
+    this.cancelIncomingTcpPairWait();
     this.checkListState = new PQueue<number>();
     this.earlyChecks = [];
     this.earlyChecksDone = false;
@@ -870,12 +892,23 @@ export class Connection implements IceConnection {
 
     // # wait for completion
     let res: number = ICE_FAILED;
-    while (
-      (this.checkList.length > 0 || this.canLearnIncomingTcpPair()) &&
-      res === ICE_FAILED
-    ) {
-      res = await this.checkListState.get();
-      log("checkListState", res);
+    while (res === ICE_FAILED && this.state !== "closed") {
+      if (this.nominated || this.checkListDone) {
+        res = ICE_COMPLETED;
+        break;
+      }
+      if (this.hasOutstandingChecks() || this.isWaitingForRemoteNomination()) {
+        res = await this.checkListState.get();
+        log("checkListState", res);
+        continue;
+      }
+      if (!this.canLearnIncomingTcpPair()) {
+        break;
+      }
+      const learned = await this.waitForIncomingTcpPair();
+      if (!learned) {
+        break;
+      }
     }
 
     // # cancel remaining checks
@@ -883,7 +916,7 @@ export class Connection implements IceConnection {
       check.handle?.resolve?.();
     }
 
-    if (res !== ICE_COMPLETED) {
+    if (res !== ICE_COMPLETED && !this.nominated) {
       throw new Error("ICE negotiation failed");
     }
 
@@ -1232,6 +1265,7 @@ export class Connection implements IceConnection {
     // """
 
     this.setState("closed");
+    this.cancelIncomingTcpPairWait();
 
     // # stop consent freshness tests
     this.stopConsentLifecycle();
@@ -1402,15 +1436,65 @@ export class Connection implements IceConnection {
     return this.checkList.find((candidate) => candidate.protocol === protocol);
   }
 
+  private hasOutstandingChecks(): boolean {
+    return this.checkList.some(
+      (pair) =>
+        pair.state === CandidatePairState.WAITING ||
+        pair.state === CandidatePairState.FROZEN ||
+        pair.state === CandidatePairState.IN_PROGRESS,
+    );
+  }
+
+  private isWaitingForRemoteNomination(): boolean {
+    return (
+      !this.iceControlling &&
+      this.checkList.some((pair) => pair.state === CandidatePairState.SUCCEEDED)
+    );
+  }
+
   private canLearnIncomingTcpPair(): boolean {
     if (this.checkListDone || this.nominated || this.state === "closed") {
       return false;
     }
-    return this.protocols.some(
+    if (this.hasOutstandingChecks()) {
+      return false;
+    }
+    const hasLocalPassive = this.protocols.some(
       (protocol) =>
         protocol.localCandidate?.transport.toLowerCase() === "tcp" &&
         protocol.localCandidate.tcptype === "passive",
     );
+    if (!hasLocalPassive) {
+      return false;
+    }
+    return this.remoteCandidates.some((candidate) =>
+      isTcpActiveCandidate(candidate),
+    );
+  }
+
+  private waitForIncomingTcpPair(): Promise<boolean> {
+    if (this.state === "closed") {
+      return Promise.resolve(false);
+    }
+    return new Promise((resolve) => {
+      const settle = (learned: boolean) => {
+        if (this.incomingTcpPairWait?.settle !== settle) {
+          return;
+        }
+        this.incomingTcpPairWait = undefined;
+        clearTimeout(timer);
+        resolve(learned);
+      };
+      const timer = setTimeout(
+        () => settle(false),
+        stunTransactionLifetimeMs(),
+      );
+      this.incomingTcpPairWait = { settle };
+    });
+  }
+
+  private cancelIncomingTcpPairWait() {
+    this.incomingTcpPairWait?.settle(false);
   }
 
   private hasViableTcpActivePair(component: number): boolean {
@@ -2001,6 +2085,7 @@ export class Connection implements IceConnection {
   private addPair(pair: CandidatePair) {
     this.checkList.push(pair);
     this.sortCheckList();
+    this.incomingTcpPairWait?.settle(true);
   }
 
   // 7.2.  STUN Server Procedures

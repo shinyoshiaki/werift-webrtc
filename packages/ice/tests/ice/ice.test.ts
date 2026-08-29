@@ -546,6 +546,34 @@ describe("ice", () => {
     }
   });
 
+  test("test_connect_tcp_passive_listener_fails_without_incoming", async () => {
+    const connection = createTestConnection(true, {
+      useTcp: true,
+      tcpPassive: true,
+      useIpv6: false,
+      stunServer: undefined,
+    });
+
+    try {
+      // Arrange: local passive listener あり、remote は active TCP だが incoming check は来ない
+      await connection.gatherCandidates();
+      connection.remoteUsername = "foo";
+      connection.remotePassword = "bar";
+      connection.remoteCandidates = [
+        Candidate.fromSdp(
+          "6815297761 1 tcp 659136 192.0.2.1 9 typ host tcptype active generation 0",
+        ),
+      ];
+
+      // Act / Assert: known checks が尽きたあと、有限の inbound TCP 待ちで ICE_FAILED になる
+      await expect(connection.connect()).rejects.toThrow(
+        "ICE negotiation failed",
+      );
+    } finally {
+      await connection.close();
+    }
+  }, 15_000);
+
   // test("test_connect_two_components", async () => {
   //   const a = new Connection(true, { components: 2 });
   //   const b = new Connection(false, { components: 2 });
