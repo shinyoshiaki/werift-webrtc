@@ -39,39 +39,11 @@ export interface SpedHooks {
 }
 
 export function sameCandidatePair(a: CandidatePair, b: CandidatePair): boolean {
-  if (a === b) {
-    return true;
-  }
-  if (
-    a.protocol === b.protocol &&
-    a.remoteAddr[0] === b.remoteAddr[0] &&
-    a.remoteAddr[1] === b.remoteAddr[1]
-  ) {
-    return true;
-  }
-  // ICE-TCP active/passive are distinct CandidatePairs (and TCP connections)
-  // toward the same host. Pinning one must not drop the other or both sides
-  // can lock onto opposite connections and never exchange SPED DATA.
-  return isSameIceTcpSpedPath(a, b);
-}
-
-function isSameIceTcpSpedPath(a: CandidatePair, b: CandidatePair): boolean {
-  if (a.component !== b.component) {
-    return false;
-  }
-  const aLocal = a.localCandidate;
-  const bLocal = b.localCandidate;
-  if (
-    aLocal.transport.toLowerCase() !== "tcp" ||
-    bLocal.transport.toLowerCase() !== "tcp" ||
-    a.remoteCandidate.transport.toLowerCase() !== "tcp" ||
-    b.remoteCandidate.transport.toLowerCase() !== "tcp"
-  ) {
-    return false;
-  }
   return (
-    aLocal.host === bLocal.host &&
-    a.remoteCandidate.host === b.remoteCandidate.host
+    a === b ||
+    (a.protocol === b.protocol &&
+      a.remoteAddr[0] === b.remoteAddr[0] &&
+      a.remoteAddr[1] === b.remoteAddr[1])
   );
 }
 
@@ -111,9 +83,8 @@ export function isSpedEligiblePair(pair: CandidatePair): boolean {
 export class SpedRuntime {
   fallbackStarted = false;
   /**
-   * Authenticated current-generation pair used for pre-nomination handshake
-   * send. Pinned on first use so a later Binding cannot move DTLS to another
-   * candidate (multi-candidate contamination).
+   * Pair that received the first non-empty DTLS DATA (or carried direct
+   * fallback). Empty capability ads must not pin.
    */
   lastPath?: CandidatePair;
   private pendingInjectGeneration?: number;
@@ -152,7 +123,7 @@ export class SpedRuntime {
   }
 
   /**
-   * Remember the first authenticated handshake pair for this generation.
+   * Remember the association pair for this generation.
    * Later candidates must not replace it.
    */
   pinHandshakePath(pair: CandidatePair): void {
@@ -242,9 +213,11 @@ export class SpedRuntime {
     if (!pair || !this.shouldDecorate(pair)) {
       return { fallback: false };
     }
-    this.pinHandshakePath(pair);
     this.markInjectGeneration(generation);
     const result = this.session.receiveAuthenticated(message);
+    if (result.inject) {
+      this.pinHandshakePath(pair);
+    }
     if (
       !this.isLiveGeneration(generation) ||
       !this.isInjectGenerationCurrent(generation)

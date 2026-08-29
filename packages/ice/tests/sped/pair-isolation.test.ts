@@ -217,64 +217,98 @@ describe("SPED pair eligibility と lastPath isolation", () => {
     expect(isSpedEligiblePair(relayHost)).toBe(false);
   });
 
-  it("ICE-TCP active/passive の同一ホスト経路は pin 後も SPED を通す", async () => {
+  it("empty DATA だけでは lastPath を pin しない", async () => {
     // Arrange
     const { handle, injected } = arrangeSpedRuntime();
     const generation = handle.session.generation;
+    const pairA = spedPair(new SpedProtocolMock(), "host", "1.2.3.4", 9);
+    const pairB = spedPair(new SpedProtocolMock(), "host", "9.9.9.9", 99);
+    const empty = new Message(methods.BINDING, classes.RESPONSE);
+    empty.appendRawAttribute(DTLS_IN_STUN_DATA, Buffer.alloc(0));
+    const hello = Buffer.from([22, 0xfe, 0xfd, 0x00]);
+
+    // Act: capability 広告のあと、別 pair の非空 DATA で association する
+    await handle.runtime.handleAuthenticatedStun(
+      empty,
+      pairA.remoteAddr,
+      generation,
+      pairA,
+    );
+    expect(handle.runtime.lastPath).toBeUndefined();
+    expect(handle.session.peerSupport).toBe("supported");
+
+    const resultB = await handle.runtime.handleAuthenticatedStun(
+      bindingWithData(hello),
+      pairB.remoteAddr,
+      generation,
+      pairB,
+    );
+
+    // Assert: pin は非空 DATA の pair B
+    expect(resultB.inject?.equals(hello)).toBe(true);
+    expect(injected).toHaveLength(1);
+    expect(handle.runtime.lastPath).toBe(pairB);
+  });
+
+  it("同一 IP でも別 TCP protocol/port は pin 後に混入しない", async () => {
+    // Arrange
+    const { handle, injected } = arrangeSpedRuntime();
+    const generation = handle.session.generation;
+    let rttMs = 0;
+    handle.runtime.hooks.updateRtt = (ms) => {
+      rttMs = ms;
+    };
     const active = tcpSpedPair({
       localType: "active",
       remoteType: "passive",
+      localHost: "192.0.2.1",
+      remoteHost: "192.0.2.2",
+      remotePort: 5000,
     });
     const passive = tcpSpedPair({
       localType: "passive",
       remoteType: "active",
+      localHost: "192.0.2.1",
+      remoteHost: "192.0.2.2",
+      remotePort: 40000,
     });
-    const otherHost = tcpSpedPair({
-      localType: "active",
-      remoteType: "passive",
-      remoteHost: "198.51.100.9",
-    });
-    const dataActive = Buffer.from([22, 0xa1]);
-    const dataPassive = Buffer.from([22, 0xb2]);
-    const dataOther = Buffer.from([22, 0xc3]);
+    passive.rtt = 0.04;
+    const dataA = Buffer.from([22, 0xa1]);
+    const dataB = Buffer.from([22, 0xb2]);
+    handle.session.replaceL1([Buffer.from([22, 1])]);
 
-    // Act: active を pin したあと、同一ホストの passive と別ホストの DATA を入れる
+    // Act: A を pin したあと、同じ IP の別 TCP pair から DATA / RTT を入れる
     await handle.runtime.handleAuthenticatedStun(
-      bindingWithData(dataActive),
+      bindingWithData(dataA),
       active.remoteAddr,
       generation,
       active,
     );
-    const resultPassive = await handle.runtime.handleAuthenticatedStun(
-      bindingWithData(dataPassive),
+    const afterA = handle.session.l2Crcs.slice();
+    const resultB = await handle.runtime.handleAuthenticatedStun(
+      bindingWithData(dataB),
       passive.remoteAddr,
       generation,
       passive,
     );
-    const resultOther = await handle.runtime.handleAuthenticatedStun(
-      bindingWithData(dataOther),
-      otherHost.remoteAddr,
-      generation,
-      otherHost,
-    );
+    handle.runtime.syncRtt(passive);
 
-    // Assert: ICE-TCP dual は同一 path。別 remote.host は混入しない
-    expect(sameCandidatePair(active, passive)).toBe(true);
-    expect(sameCandidatePair(active, otherHost)).toBe(false);
+    const onB = new Message(methods.BINDING, classes.REQUEST);
+    handle.runtime.decorateOutgoing(onB, passive);
+
+    // Assert: 別 5-tuple は inject / decorate / RTT しない
+    expect(sameCandidatePair(active, passive)).toBe(false);
     expect(isSpedEligiblePair(active)).toBe(true);
-    expect(resultPassive.inject?.equals(dataPassive)).toBe(true);
-    expect(resultOther.inject).toBeUndefined();
+    expect(isSpedEligiblePair(passive)).toBe(true);
+    expect(resultB.inject).toBeUndefined();
     expect(injected.map((bytes) => bytes.toString("hex"))).toEqual([
-      dataActive.toString("hex"),
-      dataPassive.toString("hex"),
+      dataA.toString("hex"),
     ]);
-
-    const onPassive = new Message(methods.BINDING, classes.REQUEST);
-    const onOther = new Message(methods.BINDING, classes.REQUEST);
-    handle.runtime.decorateOutgoing(onPassive, passive);
-    handle.runtime.decorateOutgoing(onOther, otherHost);
-    expect(getRawAttributeValue(onPassive, DTLS_IN_STUN_ACK)).toBeDefined();
-    expect(getRawAttributeValue(onOther, DTLS_IN_STUN_DATA)).toBeUndefined();
-    expect(getRawAttributeValue(onOther, DTLS_IN_STUN_ACK)).toBeUndefined();
+    expect(handle.runtime.lastPath).toBe(active);
+    expect(handle.session.l2Crcs).toEqual(afterA);
+    expect(handle.session.l2Crcs).not.toContain(spedDataCrc32(dataB));
+    expect(getRawAttributeValue(onB, DTLS_IN_STUN_DATA)).toBeUndefined();
+    expect(getRawAttributeValue(onB, DTLS_IN_STUN_ACK)).toBeUndefined();
+    expect(rttMs).toBe(0);
   });
 });

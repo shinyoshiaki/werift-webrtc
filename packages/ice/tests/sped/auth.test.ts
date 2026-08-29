@@ -57,6 +57,7 @@ function seedDummyPair(
   );
   dummy.updateState(CandidatePairState.WAITING);
   connection.checkList.push(dummy);
+  (connection as { earlyChecksDone: boolean }).earlyChecksDone = true;
   return dummy;
 }
 
@@ -171,8 +172,8 @@ describe("ICE Binding Request 認証境界", () => {
     expect(rttMs).toBe(50);
   });
 
-  it("pair 未生成の current-generation Binding は direct fallback しない", async () => {
-    // Arrange: checkList が空なので pair ができない
+  it("early Binding でも pair を作り DATA 無しなら fallback するが raw DTLS はまだ出さない", async () => {
+    // Arrange: connect() 前なので triggered check は遅延する
     const connection = createTestConnection(true);
     const hello = Buffer.from([22, 9, 8, 7, 6]);
     const fallback: Buffer[] = [];
@@ -195,19 +196,62 @@ describe("ICE Binding Request 認証境界", () => {
     (connection as any).ensureProtocol(protocol);
     const request = currentGenerationBinding(connection, true);
 
-    // Act: DATA の無い Binding を pair 無しで認証する
+    // Act: DATA の無い Binding を connect() 前に認証する
     protocol.onRequestReceived.execute(request, ["1.2.3.4", 9], request.bytes);
     await new Promise((r) => setTimeout(r, 30));
 
-    // Assert: STUN 応答は返すが pair が無いので capability も raw DTLS も動かない
+    // Assert: pair は作るが triggered check 前なので raw DTLS は出さない
     expect(protocol.sentMessage?.messageClass).toBe(classes.RESPONSE);
-    expect(connection.checkList).toHaveLength(0);
+    expect(connection.checkList.length).toBeGreaterThan(0);
     expect(fallback).toHaveLength(0);
     expect(sentDirect).toHaveLength(0);
-    expect(handle.session.state).toBe("probing");
-    expect(handle.session.peerSupport).toBe("unknown");
+    expect(handle.session.state).toBe("fallback");
+    expect(handle.session.peerSupport).toBe("unsupported");
     expect(handle.runtime.fallbackStarted).toBe(false);
     expect(handle.runtime.lastPath).toBeUndefined();
+  });
+
+  it("early Binding の Response に C070 を付け、相手を fallback させない", async () => {
+    // Arrange: checkList 空、Request には peer の DATA がある
+    const connection = createTestConnection(true);
+    const hello = Buffer.from([22, 0xfe, 0xfd, 0x00, 0x01]);
+    const injected: Buffer[] = [];
+    const handle = attachSpedToConnection(connection, {
+      inject: async (bytes) => {
+        injected.push(Buffer.from(bytes));
+      },
+      onFallbackFlight: async () => {},
+      setRetransmissionMode: () => {},
+      updateRtt: () => {},
+      resetRtt: () => {},
+      setMtu: () => {},
+    });
+    handle.session.replaceL1([hello]);
+    const protocol = new SpedProtocolMock();
+    (connection as any).ensureProtocol(protocol);
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request
+      .setAttribute("USERNAME", `${connection.localUsername}:remote`)
+      .setAttribute("PRIORITY", 1)
+      .setAttribute("ICE-CONTROLLED", 1n)
+      .appendRawAttribute(DTLS_IN_STUN_DATA, hello)
+      .addMessageIntegrity(Buffer.from(connection.localPassword))
+      .addFingerprint();
+
+    // Act
+    protocol.onRequestReceived.execute(request, ["1.2.3.4", 9], request.bytes);
+    await new Promise((r) => setTimeout(r, 30));
+
+    // Assert: connect() 前でも Response に DATA があり、supported のまま
+    expect(connection.checkList.length).toBeGreaterThan(0);
+    expect((connection as any).earlyChecksDone).toBe(false);
+    const response = protocol.sentMessage;
+    expect(response?.messageClass).toBe(classes.RESPONSE);
+    expect(getRawAttributeValue(response!, DTLS_IN_STUN_DATA)).toBeDefined();
+    expect(injected).toHaveLength(1);
+    expect(handle.session.peerSupport).toBe("supported");
+    expect(handle.session.state).toBe("active");
+    expect(handle.session.state).not.toBe("fallback");
   });
 
   it("認証済み pair がある DATA 無し Binding は exact same L1 で fallback する", async () => {
@@ -441,6 +485,7 @@ describe("ICE Binding Request 認証境界", () => {
     );
     dummy.updateState(CandidatePairState.WAITING);
     connection.checkList.push(dummy);
+    (connection as { earlyChecksDone: boolean }).earlyChecksDone = true;
     const request = new Message(methods.BINDING, classes.REQUEST);
     request
       .setAttribute("USERNAME", `${connection.localUsername}:remote`)

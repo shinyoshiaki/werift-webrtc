@@ -533,9 +533,9 @@ export class Connection implements IceConnection {
     }
 
     const generation = this.generation;
-    const deferIncoming = this.checkList.length === 0 && !this.earlyChecksDone;
+    const deferIncoming = !this.earlyChecksDone;
     let pair = this.findPairByAddr(protocol, addr);
-    if (!pair && !deferIncoming) {
+    if (!pair) {
       pair = this.ensureIncomingPair(verified, addr, protocol);
     }
 
@@ -574,17 +574,13 @@ export class Connection implements IceConnection {
       log("sendStun error", e);
     });
 
-    if (this.checkList.length === 0 && !this.earlyChecksDone) {
+    if (deferIncoming) {
       this.earlyChecks.push([verified, addr, protocol]);
     } else {
       this.checkIncoming(verified, addr, protocol);
     }
 
     if (this.spedRuntime && generation === this.generation) {
-      const resolved = pair ?? this.findPairByAddr(protocol, addr);
-      if (resolved && this.spedRuntime.shouldDecorate(resolved)) {
-        this.spedRuntime.pinHandshakePath(resolved);
-      }
       await this.maybeSendSpedFallback(protocol, addr, generation);
     }
   }
@@ -1701,10 +1697,10 @@ export class Connection implements IceConnection {
   }
 
   private selectSpedCarryPair(runtime: SpedRuntime): CandidatePair | undefined {
-    const ordered: CandidatePair[] = [];
-    if (runtime.lastPath) {
-      ordered.push(runtime.lastPath);
+    if (runtime.lastPath && runtime.shouldDecorate(runtime.lastPath)) {
+      return runtime.lastPath;
     }
+    const ordered: CandidatePair[] = [];
     if (this.nominated) {
       ordered.push(this.nominated);
     }
@@ -1716,20 +1712,7 @@ export class Connection implements IceConnection {
         ordered.push(candidate);
       }
     }
-    const onPath = ordered.filter((candidate) =>
-      runtime.shouldDecorate(candidate),
-    );
-    if (onPath.length === 0) {
-      return undefined;
-    }
-    if (runtime.lastPath) {
-      // ICE-TCP: originate on local-active when the pin is the passive pair.
-      return (
-        onPath.find((candidate) => !isTcpLocalPassivePair(candidate)) ??
-        onPath[0]
-      );
-    }
-    return onPath[0];
+    return ordered.find((candidate) => runtime.shouldDecorate(candidate));
   }
 
   private async consumeSpedStun(
@@ -1764,7 +1747,6 @@ export class Connection implements IceConnection {
     }
     if (pair) {
       runtime.syncRtt(pair);
-      runtime.pinHandshakePath(pair);
     }
     if (result.inject) {
       this.spedSolicitPeerCarry = true;

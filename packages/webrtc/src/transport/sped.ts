@@ -4,10 +4,7 @@ import {
   connectionDatagramEvent,
   isAuthenticatedHandshakePair,
 } from "../../../ice/src/internal/datagram";
-import {
-  type SpedRuntime,
-  sameCandidatePair,
-} from "../../../ice/src/sped/runtime";
+import type { SpedRuntime } from "../../../ice/src/sped/runtime";
 import type { Address, Transport } from "../imports/common";
 import { isDtls } from "../utils";
 
@@ -109,7 +106,6 @@ export class IceSpedTransport implements Transport {
   private resolveAuthenticatedSendPair(
     addr?: Address,
   ): CandidatePair | undefined {
-    const list = this.ice.checkList ?? [];
     const pinned = this.runtime?.lastPath;
     if (pinned && this.isCurrentAuthenticatedPair(pinned)) {
       if (!addr) {
@@ -121,19 +117,12 @@ export class IceSpedTransport implements Transport {
       ) {
         return pinned;
       }
-      const related = list.find(
-        (pair) =>
-          pair.remoteAddr[0] === addr[0] && pair.remoteAddr[1] === addr[1],
-      );
-      // ICE-TCP dual: dest 5-tuple may be the other role; keep lastPath.
-      if (related && sameCandidatePair(pinned, related)) {
-        return pinned;
-      }
       return undefined;
     }
     if (!addr) {
       return undefined;
     }
+    const list = this.ice.checkList ?? [];
     return list.find(
       (pair) =>
         pair.remoteAddr[0] === addr[0] &&
