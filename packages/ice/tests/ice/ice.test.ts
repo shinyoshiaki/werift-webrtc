@@ -498,6 +498,54 @@ describe("ice", () => {
     }
   });
 
+  test("test_connect_tcp_controlling_passive_only_path", async () => {
+    const a = createTestConnection(true, {
+      useTcp: true,
+      tcpPassive: true,
+      useIpv6: false,
+      stunServer: undefined,
+    });
+    const b = createTestConnection(false, {
+      useTcp: true,
+      tcpPassive: false,
+      useIpv6: false,
+      stunServer: undefined,
+    });
+
+    try {
+      // Arrange: B は listener 無し。成立するのは A local-passive × B local-active だけ
+      await gatherAndExchangeTcpOnly(a, b);
+      expect(
+        a.localCandidates.some((candidate) => candidate.tcptype === "passive"),
+      ).toBe(true);
+      expect(
+        b.localCandidates.some((candidate) => candidate.tcptype === "passive"),
+      ).toBe(false);
+      await Promise.all([
+        a.addRemoteCandidate(undefined),
+        b.addRemoteCandidate(undefined),
+      ]);
+
+      // Act
+      await Promise.all([a.connect(), b.connect()]);
+
+      // Assert: controlling は local-passive を nominate でき、同一 TCP connection で双方向に届く
+      expect(a.nominated?.localCandidate.tcptype).toBe("passive");
+      expect(b.nominated?.localCandidate.tcptype).toBe("active");
+      expect(b.nominated?.remoteAddr[0]).toBe(a.nominated?.localCandidate.host);
+      expect(b.nominated?.remoteAddr[1]).toBe(a.nominated?.localCandidate.port);
+      await a.send(Buffer.from("howdee over tcp"));
+      const [data] = await b.onData.asPromise();
+      await b.send(Buffer.from("gotcha over tcp"));
+      const [echo] = await a.onData.asPromise();
+      expect(data.toString()).toBe("howdee over tcp");
+      expect(echo.toString()).toBe("gotcha over tcp");
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  });
+
   // test("test_connect_two_components", async () => {
   //   const a = new Connection(true, { components: 2 });
   //   const b = new Connection(false, { components: 2 });

@@ -50,6 +50,13 @@ import { getHostAddresses } from "./utils";
 
 const log = debug("werift-ice : packages/ice/src/ice.ts : log");
 
+function isTcpLocalActivePair(pair: CandidatePair): boolean {
+  return (
+    pair.localCandidate.transport.toLowerCase() === "tcp" &&
+    pair.localCandidate.tcptype === "active"
+  );
+}
+
 function isTcpLocalPassivePair(pair: CandidatePair): boolean {
   return (
     pair.localCandidate.transport.toLowerCase() === "tcp" &&
@@ -863,7 +870,10 @@ export class Connection implements IceConnection {
 
     // # wait for completion
     let res: number = ICE_FAILED;
-    while (this.checkList.length > 0 && res === ICE_FAILED) {
+    while (
+      (this.checkList.length > 0 || this.canLearnIncomingTcpPair()) &&
+      res === ICE_FAILED
+    ) {
       res = await this.checkListState.get();
       log("checkListState", res);
     }
@@ -1392,6 +1402,60 @@ export class Connection implements IceConnection {
     return this.checkList.find((candidate) => candidate.protocol === protocol);
   }
 
+  private canLearnIncomingTcpPair(): boolean {
+    if (this.checkListDone || this.nominated || this.state === "closed") {
+      return false;
+    }
+    return this.protocols.some(
+      (protocol) =>
+        protocol.localCandidate?.transport.toLowerCase() === "tcp" &&
+        protocol.localCandidate.tcptype === "passive",
+    );
+  }
+
+  private hasViableTcpActivePair(component: number): boolean {
+    return this.checkList.some(
+      (candidate) =>
+        candidate.component === component &&
+        isTcpLocalActivePair(candidate) &&
+        candidate.state !== CandidatePairState.FAILED,
+    );
+  }
+
+  /**
+   * One TCP nomination per component. Prefer local-active while it can still
+   * succeed; fall back to local-passive when no active pair remains.
+   */
+  private canSendTcpNomination(pair: CandidatePair): boolean {
+    if (pair.localCandidate.transport.toLowerCase() !== "tcp") {
+      return true;
+    }
+    if (isTcpLocalPassivePair(pair)) {
+      return !this.hasViableTcpActivePair(pair.component);
+    }
+    return true;
+  }
+
+  private maybeNominateTcpFallback(component: number) {
+    if (!this.iceControlling || this.nominated) {
+      return;
+    }
+    if (this.hasViableTcpActivePair(component)) {
+      return;
+    }
+    const fallback = this.checkList.find(
+      (candidate) =>
+        candidate.component === component &&
+        candidate.state === CandidatePairState.SUCCEEDED &&
+        isTcpLocalPassivePair(candidate),
+    );
+    if (!fallback) {
+      return;
+    }
+    this.nominating = false;
+    fallback.handle = this.checkStart(fallback);
+  }
+
   private decorateSpedRequest(request: Message, protocol: Protocol): boolean {
     return this.spedRuntime?.decorateOutgoing(request, protocol) ?? true;
   }
@@ -1681,6 +1745,10 @@ export class Connection implements IceConnection {
       }
     }
 
+    if (pair.state === CandidatePairState.FAILED) {
+      this.maybeNominateTcpFallback(pair.component);
+    }
+
     {
       const list = [CandidatePairState.SUCCEEDED, CandidatePairState.FAILED];
       if (this.checkList.find(({ state }) => !list.includes(state))) {
@@ -1726,12 +1794,12 @@ export class Connection implements IceConnection {
         return true;
       };
 
-      // Aggressive / regular nomination on TCP local-passive would
-      // USE-CANDIDATE the reverse connection.
+      // TCP: prefer local-active, but nominate local-passive when no active
+      // pair can still succeed (send-only peer, or active already failed).
       const nominate =
         this.iceControlling &&
         !this.remoteIsLite &&
-        !isTcpLocalPassivePair(pair);
+        this.canSendTcpNomination(pair);
       const request = this.buildRequest({
         nominate,
         localUsername,
@@ -1863,7 +1931,7 @@ export class Connection implements IceConnection {
       } else if (
         this.iceControlling &&
         !this.nominating &&
-        !isTcpLocalPassivePair(pair)
+        this.canSendTcpNomination(pair)
       ) {
         // # perform regular nomination
         this.nominating = true;
