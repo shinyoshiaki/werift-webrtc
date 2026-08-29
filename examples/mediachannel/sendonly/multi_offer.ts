@@ -1,52 +1,73 @@
-import { createSocket } from "dgram";
 import { Server } from "ws";
 import {
-  MediaStreamTrack,
   RTCPeerConnection,
   RTCRtpCodecParameters,
 } from "../../../packages/webrtc/src";
+import {
+  createRtpRtcpRegister,
+  installPolyfill,
+} from "../../../packages/webrtc/src/polyfill";
+
+installPolyfill({
+  mediaRegister: [
+    createRtpRtcpRegister({
+      mimeType: "video/VP8",
+      udp: { port: 5000 },
+      payloadType: 96,
+      deviceId: "video-1",
+    }),
+    createRtpRtcpRegister({
+      mimeType: "video/VP8",
+      udp: { port: 5001 },
+      payloadType: 96,
+      deviceId: "video-2",
+    }),
+  ],
+});
 
 const server = new Server({ port: 8888 });
 console.log("start");
-const udp1 = createSocket("udp4");
-udp1.bind(5000);
-const udp2 = createSocket("udp4");
-udp2.bind(5001);
 
-server.on("connection", async (socket) => {
-  const pc = new RTCPeerConnection({
-    codecs: {
-      audio: [],
-      video: [
-        new RTCRtpCodecParameters({
-          mimeType: "video/VP8",
-          clockRate: 90000,
-          payloadType: 96,
-        }),
-      ],
-    },
+void (async () => {
+  const stream1 = await navigator.mediaDevices.getUserMedia({
+    video: { deviceId: { exact: "video-1" } },
   });
-  pc.iceConnectionStateChange.subscribe((v) =>
-    console.log("pc.iceConnectionStateChange", v),
-  );
-  const track1 = new MediaStreamTrack({ kind: "video" });
-  pc.addTransceiver(track1, { direction: "sendonly" });
-  const track2 = new MediaStreamTrack({ kind: "video" });
-  pc.addTransceiver(track2, { direction: "sendonly" });
+  const stream2 = await navigator.mediaDevices.getUserMedia({
+    video: { deviceId: { exact: "video-2" } },
+  });
+  const source1 = stream1.getVideoTracks()[0];
+  const source2 = stream2.getVideoTracks()[0];
 
-  await pc.setLocalDescription(await pc.createOffer());
-  const sdp = JSON.stringify(pc.localDescription);
-  socket.send(sdp);
+  server.on("connection", async (socket) => {
+    const pc = new RTCPeerConnection({
+      codecs: {
+        audio: [],
+        video: [
+          new RTCRtpCodecParameters({
+            mimeType: "video/VP8",
+            clockRate: 90000,
+            payloadType: 96,
+          }),
+        ],
+      },
+    });
+    pc.iceConnectionStateChange.subscribe((v) =>
+      console.log("pc.iceConnectionStateChange", v),
+    );
 
-  socket.on("message", (data: any) => {
-    pc.setRemoteDescription(JSON.parse(data));
-  });
+    if (source1) {
+      pc.addTransceiver(source1.clone(), { direction: "sendonly" });
+    }
+    if (source2) {
+      pc.addTransceiver(source2.clone(), { direction: "sendonly" });
+    }
 
-  await pc.connectionStateChange.watch((state) => state === "connected");
-  udp1.on("message", (data) => {
-    track1.writeRtp(data);
+    await pc.setLocalDescription(await pc.createOffer());
+    const sdp = JSON.stringify(pc.localDescription);
+    socket.send(sdp);
+
+    socket.on("message", (data: any) => {
+      pc.setRemoteDescription(JSON.parse(data));
+    });
   });
-  udp2.on("message", (data) => {
-    track2.writeRtp(data);
-  });
-});
+})();

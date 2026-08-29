@@ -4,9 +4,25 @@ import cors from "cors";
 import express from "express";
 import * as yargs from "yargs";
 import { MediaStreamTrack, RTCPeerConnection } from "../../packages/webrtc/src";
+import {
+  createCallbackRegister,
+  installPolyfill,
+} from "../../packages/webrtc/src/polyfill";
 
 const udp = createSocket("udp4");
 udp.bind(5000);
+
+installPolyfill({
+  mediaRegister: [
+    createCallbackRegister({
+      mimeType: "video/VP8",
+      kinds: ["video"],
+      async createTracks() {
+        return [new MediaStreamTrack({ kind: "video" })];
+      },
+    }),
+  ],
+});
 
 (async () => {
   const args = await yargs
@@ -34,7 +50,9 @@ udp.bind(5000);
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
 
-    const senderTrack = new MediaStreamTrack({ kind: "video" });
+    const media = await navigator.mediaDevices.getUserMedia({ video: true });
+    const senderTrack =
+      media.getVideoTracks()[0] as unknown as MediaStreamTrack;
     const senderTransceiver = sender.addTransceiver(senderTrack);
     senderTransceiver.onTrack.once((track) => {
       track.onReceiveRtp.subscribe((rtp) => {

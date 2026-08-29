@@ -5,6 +5,10 @@ import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
 } from "../../packages/webrtc/src";
+import {
+  createCallbackRegister,
+  installPolyfill,
+} from "../../packages/webrtc/src/polyfill";
 import { CustomPeerConnection } from "./peer";
 
 const example = async () => {
@@ -21,11 +25,24 @@ const example = async () => {
     return;
   }
 
-  const track = new MediaStreamTrack({ kind: "video" });
   const ring = new CustomPeerConnection();
-  ring.onVideoRtp.subscribe((rtp) => {
-    track.writeRtp(rtp);
+  installPolyfill({
+    mediaRegister: [
+      createCallbackRegister({
+        mimeType: "video/H264",
+        kinds: ["video"],
+        async createTracks() {
+          const track = new MediaStreamTrack({ kind: "video" });
+          ring.onVideoRtp.subscribe((rtp) => {
+            track.writeRtp(rtp);
+          });
+          return [track];
+        },
+      }),
+    ],
   });
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  const track = stream.getVideoTracks()[0];
   await camera.startLiveCall({
     createPeerConnection: () => ring,
   });
@@ -51,7 +68,9 @@ const example = async () => {
         ],
       },
     });
-    sender.addTransceiver(track, { direction: "sendonly" });
+    if (track) {
+      sender.addTransceiver(track, { direction: "sendonly" });
+    }
 
     await sender.setLocalDescription(await sender.createOffer());
     const sdp = JSON.stringify(sender.localDescription);

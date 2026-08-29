@@ -14,7 +14,7 @@ npm install werift
 # 設計思想
 
 werift は DataChannel と MediaChannel に対応しています。
-コア API はコーデックや OS のカメラ取得を持ちません。ブラウザ向けライブラリを Node で動かす場合は `werift/polyfill` の `installPolyfill({ mediaRegister })` でグローバルと `navigator.mediaDevices.getUserMedia` を差し込み、ファイル / RTP / エンコード済みバイナリ / ユーザ定義 register からメディアを供給します。RTP を `MediaStreamTrack.writeRtp` へ直接渡す経路も従来どおり使えます。非標準の `getUserMedia({ path })` は削除されました。DOM なしの TypeScript は `werift/polyfill` がコンストラクタグローバルを型付けし、`lib.dom` を使う場合は `werift/polyfill/dom` を import します。
+コア API はコーデックや OS のカメラ取得を持ちません。ブラウザ向けライブラリを Node で動かす場合は `werift/polyfill` の `installPolyfill({ mediaRegister })` でグローバルと `navigator.mediaDevices.getUserMedia` を差し込み、ファイル / RTP / エンコード済みバイナリ / ユーザ定義 register からメディアを供給します。sendonly のサンプルは GStreamer/FFmpeg の RTP を `createRtpRtcpRegister` 経由で取り込み、アプリケーションコードから `MediaStreamTrack.writeRtp` を呼びません。ユーザ定義 register から `writeRtp` で直接渡す経路も従来どおり使えます。非標準の `getUserMedia({ path })` は削除されました。DOM なしの TypeScript は `werift/polyfill` がコンストラクタグローバルを型付けし、`lib.dom` を使う場合は `werift/polyfill/dom` を import します。
 
 Node.js では polyfill のインストールだけで `mediasoup-client` に `handlerName` / `handlerFactory` を渡さず使えます。既存の User-Agent が未設定または `Node.js/<major>` のときだけ Chromium 111 互換値を補完し、非 Node の値は保持します。上書きしたい場合だけ `userAgent` オプションを渡します。uninstall でインストール前の descriptor に戻ります。「追加設定なし」は Handler 自動選択を指し、`mediaRegister` とシグナリングは引き続き必要です。
 

@@ -14,7 +14,7 @@ npm install werift
 # Design Philosophy
 
 Werift supports DataChannel and MediaChannel.
-Werift does not implement codecs or OS device capture in the core API. For Node drop-in browser libraries, import `werift/polyfill` and call `installPolyfill({ mediaRegister })` so `navigator.mediaDevices.getUserMedia` is served by registered file/RTP/encoded/custom sources. You can still inject RTP directly via `MediaStreamTrack.writeRtp`. The old nonstandard `getUserMedia({ path })` API was removed. TypeScript without DOM uses `werift/polyfill` for constructor globals; with `lib.dom`, import `werift/polyfill/dom`.
+Werift does not implement codecs or OS device capture in the core API. For Node drop-in browser libraries, import `werift/polyfill` and call `installPolyfill({ mediaRegister })` so `navigator.mediaDevices.getUserMedia` is served by registered file/RTP/encoded/custom sources. Send-only examples ingest GStreamer/FFmpeg RTP through `createRtpRtcpRegister` rather than calling `MediaStreamTrack.writeRtp` in application code. You can still inject RTP directly via `writeRtp` from a user-defined register. The old nonstandard `getUserMedia({ path })` API was removed. TypeScript without DOM uses `werift/polyfill` for constructor globals; with `lib.dom`, import `werift/polyfill/dom`.
 
 On Node.js, omitting `handlerName` / `handlerFactory` for `mediasoup-client` works after polyfill install: a Chromium 111 compatible `navigator.userAgent` is set when the current value is missing or `Node.js/<major>`. Non-Node User-Agents are kept unless you pass `userAgent` to overwrite them. Uninstall restores the previous descriptor. “No extra setup” means Handler autodetect only; you still provide `mediaRegister` and mediasoup signaling.
 

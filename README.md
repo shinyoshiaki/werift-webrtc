@@ -231,10 +231,10 @@ The [`examples`](./examples) directory contains runnable examples for high-level
 | Example | What it demonstrates |
 | --- | --- |
 | [`examples/datachannel`](./examples/datachannel) | DataChannel offer/answer and messaging |
-| [`examples/mediachannel`](./examples/mediachannel) | Sending and receiving WebRTC media |
+| [`examples/mediachannel`](./examples/mediachannel) | Sending and receiving WebRTC media (`installPolyfill` + `getUserMedia` for RTP ingest) |
 | [`examples/save_to_disk`](./examples/save_to_disk) | Recording encoded WebRTC media |
 | [`examples/turn-loopback`](./examples/turn-loopback) | HTTPS + TURN/TLS multiplexed loopback and Chromium E2E |
-| [`examples/interop`](./examples/interop) | Interoperability-oriented peers and relay examples |
+| [`examples/interop`](./examples/interop) | Interoperability-oriented peers and relay examples (`installPolyfill` for RTP ingest) |
 | [`examples/getStats`](./examples/getStats) | `getStats()` example code |
 | [`packages/rtp/src/extra/processor`](./packages/rtp/src/extra/processor) | Jitter buffering, RED, DTX, NACK, lip sync, and RTP processing utilities |
 
