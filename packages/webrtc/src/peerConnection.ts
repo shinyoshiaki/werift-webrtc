@@ -1234,8 +1234,12 @@ export class RTCPeerConnection extends EventTarget {
 
     this.transceiverManager.close();
 
-    await this.secureManager.close();
+    // SCTP ABORT は DTLS/ICE が生きている間に送る（close は abrupt であり SHUTDOWN ではない）
     await this.sctpManager.close();
+    // UdpTransport.send は既知アドレスでは callback を待たない。ICE ソケットを
+    // 同じ tick で閉じると queued な AbortChunk が落ちるので、1 tick 譲る。
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await this.secureManager.close();
 
     // 公開 Event を完了させ、購読者・クロージャが PeerConnection を保持し続けないようにする
     this.completePeerEvents();
