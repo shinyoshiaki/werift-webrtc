@@ -6,10 +6,10 @@ describe("trickle", () => {
     async () =>
       new Promise<void>(async (done) => {
         const pcOffer = new RTCPeerConnection({
-          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+          iceServers: [],
         });
         const pcAnswer = new RTCPeerConnection({
-          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+          iceServers: [],
         });
         pcAnswer.onDataChannel.subscribe((dc) => {
           dc.onMessage.subscribe((data) => {
@@ -57,10 +57,10 @@ describe("trickle", () => {
     async () =>
       new Promise<void>(async (done) => {
         const pcOffer = new RTCPeerConnection({
-          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+          iceServers: [],
         });
         const pcAnswer = new RTCPeerConnection({
-          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+          iceServers: [],
         });
         pcAnswer.onDataChannel.subscribe((dc) => {
           dc.onMessage.subscribe((data) => {

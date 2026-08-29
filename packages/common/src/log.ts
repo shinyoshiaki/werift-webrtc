@@ -1,4 +1,4 @@
-import Debug from "debug";
+import createDebug from "debug";
 
 export class WeriftError extends Error {
   message!: string;
@@ -18,4 +18,4 @@ export class WeriftError extends Error {
   }
 }
 
-export const debug = Debug.debug;
+export const debug = createDebug;

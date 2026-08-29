@@ -8,6 +8,7 @@ import type { SctpTransportManager } from "./sctpManager";
 import type { BundlePolicy, MediaDescription, SessionDescription } from "./sdp";
 import {
   type DtlsKeys,
+  type DtlsState,
   RTCCertificate,
   RTCDtlsTransport,
 } from "./transport/dtls";
@@ -182,6 +183,9 @@ export class SecureTransportManager {
       this.certificate,
       srtpProfiles,
     );
+    dtlsTransport.onStateChange.subscribe((state) => {
+      this.updateConnectionStateFromDtls(state);
+    });
 
     return dtlsTransport;
   }
@@ -514,6 +518,19 @@ export class SecureTransportManager {
       newState === "disconnected" &&
       this.connectionState === "connected"
     ) {
+      this.setConnectionState("disconnected");
+    }
+  }
+
+  private updateConnectionStateFromDtls(state: DtlsState) {
+    if (this.connectionState === "closed") {
+      return;
+    }
+    if (state === "failed") {
+      this.setConnectionState("failed");
+      return;
+    }
+    if (state === "closed") {
       this.setConnectionState("disconnected");
     }
   }

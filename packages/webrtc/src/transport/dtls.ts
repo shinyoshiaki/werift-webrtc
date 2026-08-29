@@ -502,8 +502,14 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   async stop() {
+    try {
+      await this.dtls?.closeNotify();
+      // close_notify が UDP に載る前に ICE 5-tuple を閉じない。
+      await setTimeout(20);
+    } catch (error) {
+      log("dtls close_notify failed", error);
+    }
     this.setState("closed", false);
-    // todo impl send alert
     await this.iceTransport.stop();
   }
 
@@ -703,6 +709,14 @@ class IceTransport implements Transport {
   }
 
   type: string = "ice";
+
+  sendClosing = async (data: Buffer) => {
+    const pair = this.ice.nominated;
+    if (!pair || this.ice.state === "closed" || this.ice.state === "failed") {
+      return;
+    }
+    await pair.protocol.sendData(data, pair.remoteAddr);
+  };
 
   readonly send = (data: Buffer) => {
     return this.ice.send(data);

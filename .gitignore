@@ -21,3 +21,4 @@ packages/webrtc/wpt/progress.state.json
 packages/webrtc/wpt/progress.md
 artifacts/
 .sak
+report.2*.json

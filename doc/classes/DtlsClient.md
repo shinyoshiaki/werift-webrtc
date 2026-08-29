@@ -202,6 +202,20 @@
 
 ***
 
+### closeNotify()
+
+> **closeNotify**(): `Promise`\<`void`\>
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`closeNotify`](DtlsSocket.md#closenotify)
+
+***
+
 ### connect()
 
 > **connect**(): `Promise`\<`void`\>

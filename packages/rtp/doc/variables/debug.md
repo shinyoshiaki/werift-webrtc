@@ -6,4 +6,4 @@
 
 # Variable: debug
 
-> `const` **debug**: `any` = `Debug.debug`
+> `const` **debug**: `any` = `createDebug`
