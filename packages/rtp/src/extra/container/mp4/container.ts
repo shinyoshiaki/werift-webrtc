@@ -67,6 +67,7 @@ export class Mp4Container {
   #startPromise?: Promise<void>;
   #stopPromise?: Promise<void>;
   #stopped = false;
+  // EncodedChunk timestamps may be negative; EncodedPacket requires >= 0.
   #timestampOrigin: Partial<Record<TrackKind, number>> = {};
   #videoFrame?: (EncodedChunk & { track: TrackKind }) | undefined;
   #videoMeta?: VideoChunkMetadata;
@@ -374,6 +375,8 @@ export class Mp4Container {
     const data = new Uint8Array(frame.byteLength);
     frame.copyTo(data.buffer);
 
+    // Shift only a negative timeline so the first sample is 0. A positive
+    // first timestamp keeps origin 0 and is left unchanged.
     if (this.#timestampOrigin[frame.track] == undefined) {
       this.#timestampOrigin[frame.track] = Math.min(0, frame.timestamp);
     }

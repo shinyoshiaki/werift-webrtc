@@ -283,6 +283,13 @@ export class RTCRtpSender {
     }
   }
 
+  /**
+   * Send queued RTP once DTLS is connected and a codec is set. `writeRtp` /
+   * `sendRtp` may run before ICE/DTLS completes; dropping those packets would
+   * lose the start of a polyfill media source. `drainingPendingRtp` blocks
+   * re-entry while `dispatchRtp` is awaited; packets enqueued during that
+   * wait are drained by the recursive call after the flag is cleared.
+   */
   private async drainPendingRtp() {
     if (this.drainingPendingRtp) {
       return;
