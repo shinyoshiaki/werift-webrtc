@@ -320,6 +320,76 @@ describe("SPED pair eligibility と lastPath isolation", () => {
     expect(rttMs).toBe(0);
   });
 
+  it("C070 無し UDP prflx は EOC かつ authenticated まで capability を保留する", async () => {
+    // Arrange
+    const { handle } = arrangeSpedRuntime();
+    const generation = handle.session.generation;
+    const prflx = spedPair(new SpedProtocolMock(), "prflx", "192.0.2.10", 1000);
+    const empty = new Message(methods.BINDING, classes.RESPONSE);
+
+    // Act: missing C070 を先に処理する
+    await handle.runtime.handleAuthenticatedStun(
+      empty,
+      prflx.remoteAddr,
+      generation,
+      prflx,
+    );
+
+    // Assert: 保留中。EOC なし / 未認証では確定しない
+    expect(handle.session.peerSupport).toBe("unknown");
+    handle.runtime.settleUnconfirmedPair(prflx, {
+      endOfCandidates: false,
+      authenticated: true,
+    });
+    expect(handle.session.peerSupport).toBe("unknown");
+    handle.runtime.settleUnconfirmedPair(prflx, {
+      endOfCandidates: true,
+      authenticated: false,
+    });
+    expect(handle.session.peerSupport).toBe("unknown");
+
+    // Act: EOC かつ authenticated な lasting prflx
+    handle.runtime.settleUnconfirmedPair(prflx, {
+      endOfCandidates: true,
+      authenticated: true,
+    });
+
+    // Assert: missing C070 を unsupported として確定する
+    expect(handle.session.peerSupport).toBe("unsupported");
+    expect(handle.session.state).toBe("fallback");
+  });
+
+  it("association 未確定時は relay / unconfirmed prflx の RTT を carrier に入れない", () => {
+    // Arrange
+    let rttMs = 0;
+    const { handle } = arrangeSpedRuntime();
+    handle.runtime.hooks.updateRtt = (ms) => {
+      rttMs = ms;
+    };
+    const relay = spedPair(new SpedProtocolMock(), "relay", "203.0.113.1", 3478);
+    relay.rtt = 0.3;
+    const prflx = spedPair(new SpedProtocolMock(), "prflx", "192.0.2.10", 1000);
+    prflx.rtt = 0.2;
+    const host = spedPair(new SpedProtocolMock(), "host", "192.0.2.9", 9);
+    host.rtt = 0.05;
+
+    // Act: lastPath 未確定のまま relay / prflx を同期する
+    handle.runtime.syncRtt(relay);
+    handle.runtime.syncRtt(prflx);
+
+    // Assert: SPED 対象外の RTT は捨てる
+    expect(rttMs).toBe(0);
+
+    // Act: eligible host と、pin 後の prflx だけ採用する
+    handle.runtime.syncRtt(host);
+    expect(rttMs).toBe(50);
+    handle.runtime.pinHandshakePath(prflx);
+    handle.runtime.syncRtt(prflx);
+
+    // Assert: association に pin された prflx の RTT だけ入る
+    expect(rttMs).toBe(200);
+  });
+
   it("trickle 前の relay アドレス prflx は capability を確定せず、relay 追加後も対象外", async () => {
     // Arrange: remote candidate 未登録
     const { connection, handle } = arrangeSpedRuntime();
@@ -360,6 +430,111 @@ describe("SPED pair eligibility と lastPath isolation", () => {
     // Assert: 既存 pair の type が relay になり、引き続き対象外
     expect(prflxPair!.remoteCandidate.type).toBe("relay");
     expect(isSpedEligiblePair(prflxPair!)).toBe(false);
+    expect(handle.session.peerSupport).toBe("unknown");
+    expect(handle.session.state).toBe("probing");
+  });
+
+  it("C070 無し UDP prflx のあと同アドレス host が来たら unsupported に確定する", async () => {
+    // Arrange: remote candidate 未登録
+    const { connection, handle } = arrangeSpedRuntime();
+    const hello = Buffer.from([22, 0xfe, 0xfd, 0x00, 0x01]);
+    const sentDirect: Buffer[] = [];
+    handle.session.replaceL1([hello]);
+    const protocol = new SpedProtocolMock();
+    protocol.sendData = async (data: Buffer) => {
+      sentDirect.push(Buffer.from(data));
+    };
+    (connection as any).ensureProtocol(protocol);
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request
+      .setAttribute("USERNAME", `${connection.localUsername}:remote`)
+      .setAttribute("PRIORITY", 1)
+      .setAttribute("ICE-CONTROLLED", 1n)
+      .addMessageIntegrity(Buffer.from(connection.localPassword))
+      .addFingerprint();
+
+    protocol.onRequestReceived.execute(
+      request,
+      ["203.0.113.1", 3478],
+      request.bytes,
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    const prflxPair = connection.checkList[0]!;
+    prflxPair.nominated = true;
+
+    // Act: 同アドレスを host として trickle する
+    await connection.addRemoteCandidate(
+      new Candidate("host", 1, "udp", 1000, "203.0.113.1", 3478, "host"),
+    );
+
+    // Assert: 確定した eligible pair の missing C070 は unsupported。元の L1 を直送する
+    expect(prflxPair.remoteCandidate.type).toBe("host");
+    expect(isSpedEligiblePair(prflxPair)).toBe(true);
+    expect(handle.session.peerSupport).toBe("unsupported");
+    expect(handle.session.state).toBe("fallback");
+    expect(sentDirect).toHaveLength(1);
+    expect(sentDirect[0]!.equals(hello)).toBe(true);
+  });
+
+  it("adoptExistingPrflx 後は他 protocol とも pair し checklist を再 sort する", async () => {
+    // Arrange: 2 つの local UDP protocol。incoming は A だけで prflx を学習
+    const { connection } = arrangeSpedRuntime();
+    const protocolA = new SpedProtocolMock();
+    protocolA.localCandidate = new Candidate(
+      "a",
+      1,
+      "udp",
+      20,
+      "192.0.2.1",
+      1234,
+      "host",
+    );
+    const protocolB = new SpedProtocolMock();
+    protocolB.localCandidate = new Candidate(
+      "b",
+      1,
+      "udp",
+      10,
+      "192.0.2.2",
+      1235,
+      "host",
+    );
+    (connection as any).ensureProtocol(protocolA);
+    (connection as any).ensureProtocol(protocolB);
+    (connection as any).protocols.push(protocolA, protocolB);
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request
+      .setAttribute("USERNAME", `${connection.localUsername}:remote`)
+      .setAttribute("PRIORITY", 1)
+      .setAttribute("ICE-CONTROLLED", 1n)
+      .addMessageIntegrity(Buffer.from(connection.localPassword))
+      .addFingerprint();
+
+    protocolA.onRequestReceived.execute(
+      request,
+      ["198.51.100.1", 5000],
+      request.bytes,
+    );
+    await new Promise((r) => setTimeout(r, 30));
+
+    // Assert: trickle 前は A-R のみ
+    expect(connection.checkList).toHaveLength(1);
+    expect(connection.checkList[0]!.protocol).toBe(protocolA);
+    expect(connection.checkList[0]!.remoteCandidate.type).toBe("prflx");
+
+    // Act: 同アドレスを高 priority の host として trickle する
+    await connection.addRemoteCandidate(
+      new Candidate("host", 1, "udp", 1_000_000, "198.51.100.1", 5000, "host"),
+    );
+
+    // Assert: B-R も形成され、priority 更新後に sort されている
+    const pairB = connection.checkList.find(
+      (pair) => pair.protocol === protocolB,
+    );
+    expect(pairB).toBeDefined();
+    expect(pairB!.remoteCandidate.type).toBe("host");
+    expect(pairB!.remoteCandidate.priority).toBe(1_000_000);
+    expect(connection.checkList[0]!.remoteCandidate.priority).toBe(1_000_000);
   });
 
   it("UDP prflx に非空 DATA で pin したあとその pair の outgoing は L1 を載せる", async () => {
@@ -460,5 +635,63 @@ describe("SPED pair eligibility と lastPath isolation", () => {
     expect(second.inject?.equals(hello)).toBe(true);
     expect(client.injected).toHaveLength(1);
     expect(client.handle.runtime.lastPath).toBe(clientA);
+  });
+
+  it("SPED × non-SPED の lasting UDP prflx は EOC 後に fallback する", async () => {
+    // Arrange: A は SPED、B は non-SPED。A には B の candidate を渡さない
+    const a = createTestConnection(true);
+    const b = createTestConnection(false);
+    const hello = Buffer.from([22, 0xfe, 0xfd, 0x00, 0x01]);
+    const sentDirect: Buffer[] = [];
+    const handle = attachSpedToConnection(a, {
+      inject: async () => {},
+      onFallbackFlight: async () => {},
+      setRetransmissionMode: () => {},
+      updateRtt: () => {},
+      resetRtt: () => {},
+      setMtu: () => {},
+    });
+    handle.session.replaceL1([hello]);
+
+    try {
+      await a.gatherCandidates();
+      await b.gatherCandidates();
+      a.remoteUsername = b.localUsername;
+      a.remotePassword = b.localPassword;
+      b.remoteUsername = a.localUsername;
+      b.remotePassword = a.localPassword;
+      for (const protocol of (a as any).protocols as Array<{
+        sendData: (data: Buffer, addr?: [string, number]) => Promise<void>;
+      }>) {
+        const sendData = protocol.sendData.bind(protocol);
+        protocol.sendData = async (data, addr) => {
+          sentDirect.push(Buffer.from(data));
+          return sendData(data, addr);
+        };
+      }
+      for (const candidate of a.localCandidates) {
+        await b.addRemoteCandidate(candidate);
+      }
+      await b.addRemoteCandidate(undefined);
+
+      // Act: B の Binding で A が prflx を学習し、ICE が nominated する
+      await Promise.all([a.connect(), b.connect()]);
+
+      // Assert: matching host は来ておらず prflx のまま
+      expect(a.nominated?.remoteCandidate.type).toBe("prflx");
+      expect(handle.session.peerSupport).toBe("unknown");
+      expect(handle.session.state).toBe("probing");
+
+      // Act: end-of-candidates。同アドレス candidate は来ない
+      await a.addRemoteCandidate(undefined);
+
+      // Assert: lasting prflx を unsupported として fallback。元の L1 を直送する
+      expect(handle.session.peerSupport).toBe("unsupported");
+      expect(handle.session.state).toBe("fallback");
+      expect(sentDirect.some((bytes) => bytes.equals(hello))).toBe(true);
+    } finally {
+      await a.close();
+      await b.close();
+    }
   });
 });

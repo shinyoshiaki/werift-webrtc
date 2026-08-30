@@ -1256,6 +1256,73 @@ describe("RTCPeerConnection SPED opt-in", () => {
     }
   }, 30_000);
 
+  test("UDP prflx のままの non-SPED peer は EOC 後に fallback して handshake が完了する", async () => {
+    const stun: Buffer[] = [];
+    const handshakeDtls: Buffer[] = [];
+    const flights: Buffer[][] = [];
+    const pc1 = new RTCPeerConnection({
+      iceServers: [],
+      dtls: { protocolVersions: [DtlsVersion.V1_3] },
+    });
+    const pc2 = new RTCPeerConnection(spedPeerConfig());
+    const stopCapture = captureL1Flights(pc2, flights);
+    try {
+      const dc1 = pc1.createDataChannel("dc");
+      const bothOpen = Promise.all([
+        new Promise<void>((resolve, reject) => {
+          dc1.onopen = () => resolve();
+          dc1.onerror = ({ error }) => reject(error);
+        }),
+        new Promise<RTCDataChannel>((resolve, reject) => {
+          pc2.ondatachannel = ({ channel }) => {
+            channel.onopen = () => resolve(channel);
+            channel.onerror = ({ error }) => reject(error);
+          };
+        }),
+      ]);
+      // Act: non-SPED の host candidate は trickle せず、unknown UDP source を prflx にする
+      pc2.onIceCandidate.subscribe((candidate) => {
+        if (candidate && pc1.signalingState !== "closed") {
+          void pc1.addIceCandidate(candidate);
+        }
+      });
+      const stopSpy1 = spyWhenReady(pc1, stun, handshakeDtls);
+      await pc1.setLocalDescription(await pc1.createOffer());
+      const strippedOffer = {
+        type: pc1.localDescription!.type,
+        sdp: pc1
+          .localDescription!.sdp.replace(/^a=candidate:.*\r?\n/gm, "")
+          .replace(/^a=end-of-candidates\r?\n/gm, ""),
+      };
+      await pc2.setRemoteDescription(strippedOffer);
+      await pc2.addIceCandidate(null);
+      const stopSpy2 = spyWhenReady(pc2, stun, handshakeDtls);
+      await pc2.setLocalDescription(await pc2.createAnswer());
+      await pc1.setRemoteDescription(pc2.localDescription!);
+      const [, dc2] = await bothOpen;
+      stopSpy1();
+      stopSpy2();
+
+      dc1.send("prflx-fallback");
+      expect(await awaitMessage(dc2)).toBe("prflx-fallback");
+
+      // Assert: lasting prflx は unsupported。元の L1 を direct DTLS として送り handshake 完了
+      const ice = iceOf(pc2);
+      const runtime = getConnectionSpedRuntime(ice);
+      expect(ice.nominated?.remoteCandidate.type).toBe("prflx");
+      expect(runtime?.session.peerSupport).toBe("unsupported");
+      expect(runtime?.session.state).toBe("complete");
+      const embedded = firstNonEmptySpedData(stun) ?? flights[0]?.[0];
+      expect(handshakeDtls.length).toBeGreaterThan(0);
+      expect(embedded).toBeDefined();
+      expect(handshakeDtls.some((bytes) => bytes.equals(embedded!))).toBe(true);
+    } finally {
+      stopCapture();
+      await pc1.close();
+      await pc2.close();
+    }
+  }, 30_000);
+
   test("MTU shrink 後の non-SPED fallback は最初の L1 bytes のまま", async () => {
     const stun: Buffer[] = [];
     const handshakeDtls: Buffer[] = [];

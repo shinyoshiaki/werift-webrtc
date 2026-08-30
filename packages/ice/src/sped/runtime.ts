@@ -95,6 +95,10 @@ function isUnconfirmedUdpPrflx(pair: CandidatePair): boolean {
   );
 }
 
+function unconfirmedPairKey(pair: CandidatePair): string {
+  return `${pair.remoteAddr[0]}:${pair.remoteAddr[1]}:${pair.localCandidate.transport.toLowerCase()}`;
+}
+
 type SpedBindingRole = "full" | "capability" | "none";
 
 /**
@@ -107,6 +111,13 @@ export class SpedRuntime {
    * fallback). Empty capability ads must not pin.
    */
   lastPath?: CandidatePair;
+  /**
+   * UDP prflx 5-tuples that saw a current-generation authenticated Binding
+   * without C070. Capability stays unknown until trickle proves host/srflx
+   * (unsupported) / relay (ineligible) or end-of-candidates settles the
+   * pair as a lasting peer-reflexive path.
+   */
+  private pendingUnconfirmedMissingData = new Set<string>();
   private pendingInjectGeneration?: number;
   /** Last DTLS datagram MTU pushed to the carrier. */
   private lastMtu: number;
@@ -199,9 +210,50 @@ export class SpedRuntime {
     }
   }
 
+  /**
+   * Resolve a previously pending C070-less UDP prflx Binding.
+   * host/srflx trickle → unsupported; relay → drop pending; lasting prflx
+   * after end-of-candidates + authenticated/SUCCEEDED/nominated → unsupported.
+   */
+  settleUnconfirmedPair(
+    pair: CandidatePair,
+    options: { endOfCandidates: boolean; authenticated: boolean },
+  ): void {
+    if (!this.session.embedding || this.session.peerSupport !== "unknown") {
+      return;
+    }
+    const key = unconfirmedPairKey(pair);
+    if (!this.pendingUnconfirmedMissingData.has(key)) {
+      return;
+    }
+    if (pair.remoteCandidate.type === "relay") {
+      this.pendingUnconfirmedMissingData.delete(key);
+      return;
+    }
+    if (isSpedEligiblePair(pair)) {
+      this.pendingUnconfirmedMissingData.delete(key);
+      this.session.noteAuthenticatedBindingHasData(false);
+      return;
+    }
+    if (
+      options.endOfCandidates &&
+      options.authenticated &&
+      isUnconfirmedUdpPrflx(pair)
+    ) {
+      this.pendingUnconfirmedMissingData.delete(key);
+      this.session.noteAuthenticatedBindingHasData(false);
+    }
+  }
+
   syncRtt(pair: CandidatePair): void {
     const association = this.associationPath();
-    if (association && !sameCandidatePair(association, pair)) {
+    if (association) {
+      if (!sameCandidatePair(association, pair)) {
+        return;
+      }
+    } else if (!isSpedEligiblePair(pair)) {
+      // Relay / TURN / unconfirmed UDP prflx must not seed the carrier
+      // before the association is pinned.
       return;
     }
     if (pair.rtt == null || !(pair.rtt > 0)) {
@@ -289,8 +341,10 @@ export class SpedRuntime {
       }
       const dataValue = getRawAttributeValue(message, DTLS_IN_STUN_DATA);
       if (dataValue === undefined) {
+        this.pendingUnconfirmedMissingData.add(unconfirmedPairKey(pair));
         return { fallback: false };
       }
+      this.pendingUnconfirmedMissingData.delete(unconfirmedPairKey(pair));
       if (decodeSpedData(dataValue).kind !== "datagram") {
         this.session.receiveCapabilityAdvertisement(message);
         return { fallback: false };
@@ -348,6 +402,7 @@ export class SpedRuntime {
     this.fallbackStarted = false;
     this.pendingInjectGeneration = undefined;
     this.lastPath = undefined;
+    this.pendingUnconfirmedMissingData.clear();
     this.lastMtu = defaultSpedDtlsMtu();
     this.hooks.setMtu(this.lastMtu);
     this.hooks.resetRtt();
@@ -362,12 +417,14 @@ export class SpedRuntime {
     if (this.session.state === "disabled") {
       this.pendingInjectGeneration = undefined;
       this.lastPath = undefined;
+      this.pendingUnconfirmedMissingData.clear();
       return;
     }
     this.session.abort();
     this.fallbackStarted = true;
     this.pendingInjectGeneration = undefined;
     this.lastPath = undefined;
+    this.pendingUnconfirmedMissingData.clear();
     this.hooks.setRetransmissionMode("internal");
     this.hooks.onSessionAbort?.();
   }

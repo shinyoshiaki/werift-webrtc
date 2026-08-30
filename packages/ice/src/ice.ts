@@ -326,6 +326,44 @@ export class Connection implements IceConnection {
     }
   }
 
+  /**
+   * UDP prflx with a pending C070-less Binding: lock unsupported once
+   * trickle proves host/srflx, or end-of-candidates leaves a lasting prflx.
+   */
+  private settleSpedUnconfirmed(pair?: CandidatePair) {
+    const runtime = this.spedRuntime;
+    if (!runtime || runtime.session.peerSupport !== "unknown") {
+      return;
+    }
+    const pairs = pair ? [pair] : this.checkList;
+    for (const candidate of pairs) {
+      runtime.settleUnconfirmedPair(candidate, {
+        endOfCandidates: this.remoteCandidatesEnd,
+        authenticated: isAuthenticatedHandshakePair(candidate),
+      });
+    }
+  }
+
+  private async flushSpedUnconfirmedFallback() {
+    const runtime = this.spedRuntime;
+    if (!runtime || runtime.session.state !== "fallback") {
+      return;
+    }
+    const pair =
+      this.nominated ??
+      this.checkList.find((candidate) =>
+        isAuthenticatedHandshakePair(candidate),
+      );
+    if (!pair) {
+      return;
+    }
+    await this.maybeSendSpedFallback(
+      pair.protocol,
+      pair.remoteAddr,
+      this.generation,
+    );
+  }
+
   resetNominatedPair() {
     log("resetNominatedPair");
     this.nominated = undefined;
@@ -580,6 +618,7 @@ export class Connection implements IceConnection {
     }
 
     if (this.spedRuntime && generation === this.generation) {
+      this.settleSpedUnconfirmed(pair);
       await this.maybeSendSpedFallback(protocol, addr, generation);
     }
   }
@@ -863,6 +902,7 @@ export class Connection implements IceConnection {
     for (const earlyCheck of this.earlyChecks) {
       this.checkIncoming(...earlyCheck);
       const [, addr, protocol] = earlyCheck;
+      this.settleSpedUnconfirmed();
       await this.maybeSendSpedFallback(protocol, addr, this.generation);
     }
     this.earlyChecks = [];
@@ -1324,6 +1364,8 @@ export class Connection implements IceConnection {
 
     if (!remoteCandidate) {
       this.remoteCandidatesEnd = true;
+      this.settleSpedUnconfirmed();
+      await this.flushSpedUnconfirmedFallback();
       return;
     }
 
@@ -1346,7 +1388,12 @@ export class Connection implements IceConnection {
     }
 
     log("addRemoteCandidate", remoteCandidate);
-    if (this.adoptExistingPrflx(remoteCandidate)) {
+    const adopted = this.adoptExistingPrflx(remoteCandidate);
+    if (adopted) {
+      this.pairRemoteCandidate(adopted);
+      this.sortCheckList();
+      this.settleSpedUnconfirmed();
+      await this.flushSpedUnconfirmedFallback();
       return;
     }
     this._remoteCandidates.push(remoteCandidate);
@@ -1359,7 +1406,7 @@ export class Connection implements IceConnection {
    * Trickle may signal host/srflx/relay after the address was learned as
    * prflx. Reuse that Candidate so SPED eligibility follows the signaled type.
    */
-  private adoptExistingPrflx(signaled: Candidate): boolean {
+  private adoptExistingPrflx(signaled: Candidate): Candidate | undefined {
     const existing = this._remoteCandidates.find(
       (candidate) =>
         candidate.type === "prflx" &&
@@ -1368,7 +1415,7 @@ export class Connection implements IceConnection {
         candidate.transport.toLowerCase() === signaled.transport.toLowerCase(),
     );
     if (!existing) {
-      return false;
+      return undefined;
     }
     existing.type = signaled.type;
     existing.foundation = signaled.foundation;
@@ -1376,7 +1423,7 @@ export class Connection implements IceConnection {
     existing.relatedAddress = signaled.relatedAddress;
     existing.relatedPort = signaled.relatedPort;
     existing.tcptype = signaled.tcptype;
-    return true;
+    return existing;
   }
 
   send = async (data: Buffer) => {
@@ -1774,6 +1821,7 @@ export class Connection implements IceConnection {
       this.spedSolicitPeerCarry = true;
       this.maybeFlushSpedCarry();
     }
+    this.settleSpedUnconfirmed(pair);
     await this.maybeSendSpedFallback(protocol, addr, generation);
   }
 
@@ -1798,6 +1846,8 @@ export class Connection implements IceConnection {
   private checkComplete(pair: CandidatePair) {
     pair.handle = undefined;
     if (pair.state === CandidatePairState.SUCCEEDED) {
+      this.settleSpedUnconfirmed(pair);
+      void this.flushSpedUnconfirmedFallback();
       // Updating the Nominated Flag
 
       // https://www.rfc-editor.org/rfc/rfc8445#section-7.3.1.5,
