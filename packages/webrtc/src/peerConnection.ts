@@ -107,6 +107,8 @@ export class RTCPeerConnection extends EventTarget {
   private shouldNegotiationneeded = false;
   private lastCreatedAnswer?: RTCSessionDescription;
   private lastCreatedOffer?: RTCSessionDescription;
+  /** Incremented on each connect() so a superseded ICE-restart attempt cannot mark failed. */
+  private connectEpoch = 0;
   private readonly pendingRemoteCandidates: Array<
     RTCIceCandidate | RTCIceCandidateInit | null
   > = [];
@@ -937,6 +939,7 @@ export class RTCPeerConnection extends EventTarget {
       );
     }
 
+    const epoch = ++this.connectEpoch;
     const res = await Promise.allSettled(
       this.dtlsTransports.map(async (dtlsTransport) => {
         const { iceTransport } = dtlsTransport;
@@ -995,6 +998,10 @@ export class RTCPeerConnection extends EventTarget {
         }
       }),
     );
+
+    if (epoch !== this.connectEpoch) {
+      return;
+    }
 
     if (res.find((r) => r.status === "rejected")) {
       this.secureManager.setConnectionState("failed");
@@ -1397,6 +1404,10 @@ export interface PeerConfig {
    * Opt-in SPED (DTLS handshake embedded in ICE Binding).
    * Omit or false: ICE completes, then DTLS starts (current serial path).
    * true: this PeerConnection only overlaps ICE checks with DTLS 1.3 handshake.
+   * Requires explicit DTLS 1.3 in `dtls.protocolVersions`
+   * (`dtls.protocolVersions` defaults to empty / DTLS 1.2 only).
+   * Cannot be combined with `dtls.helloRetryRequest: true`
+   * (SPED uses ICE-authenticated address validation, not a DTLS cookie).
    */
   sped?: boolean;
   dtls: Partial<{
@@ -1412,6 +1423,7 @@ export interface PeerConfig {
      * Default false: ICE-authenticated path omits cookie HRR and saves 1 RTT.
      * true: send a cookie-bearing HRR (mapped internally to addressValidation: "dtls-cookie").
      * Group-only HRR for key_share correction is independent of this option.
+     * Cannot be combined with {@link PeerConfig.sped} `true`.
      */
     helloRetryRequest?: boolean;
   }>;

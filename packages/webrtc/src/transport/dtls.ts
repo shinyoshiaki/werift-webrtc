@@ -131,6 +131,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   srtp!: SrtpSession;
   srtcp!: SrtcpSession;
   lastError?: Error;
+  private startPromise?: Promise<void>;
 
   readonly onStateChange = new Event<[DtlsState]>();
   readonly onRtcp = new Event<[RtcpPacket]>();
@@ -214,6 +215,19 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   async start() {
+    if (this.state === "connected") {
+      return;
+    }
+    if (this.state === "closed") {
+      throw new Error("RTCDtlsTransport is closed");
+    }
+    if (this.state === "failed") {
+      throw this.lastError ?? new Error("dtls failed");
+    }
+    if (this.startPromise) {
+      await this.startPromise;
+      return;
+    }
     if (this.state !== "new") {
       throw new Error("state must be new");
     }
@@ -233,7 +247,11 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     }
 
     this.setState("connecting");
+    this.startPromise = this.completeHandshake();
+    await this.startPromise;
+  }
 
+  private async completeHandshake() {
     const sped = isDtlsTransportSped(this);
     const addressValidation = sped
       ? "ice-authenticated"

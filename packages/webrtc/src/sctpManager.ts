@@ -19,6 +19,7 @@ export class SctpTransportManager {
   dataChannelsOpened = 0;
   dataChannelsClosed = 0;
   private dataChannels: RTCDataChannel[] = [];
+  private connectPromise?: Promise<void>;
 
   readonly onDataChannel = new Event<[RTCDataChannel]>();
 
@@ -108,10 +109,16 @@ export class SctpTransportManager {
     if (!this.sctpTransport || !this.sctpRemotePort) {
       return;
     }
-
-    await this.sctpTransport.start(this.sctpRemotePort);
-    await this.sctpTransport.sctp.stateChanged.connected.asPromise();
-    log("sctp connected");
+    if (this.connectPromise) {
+      await this.connectPromise;
+      return;
+    }
+    this.connectPromise = (async () => {
+      await this.sctpTransport!.start(this.sctpRemotePort!);
+      await this.sctpTransport!.sctp.stateChanged.connected.asPromise();
+      log("sctp connected");
+    })();
+    await this.connectPromise;
   }
 
   setRemoteSCTP(remoteMedia: MediaDescription, mLineIndex: number) {

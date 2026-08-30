@@ -240,13 +240,21 @@ export class RTCIceTransport {
     }
     this.waitStart = new Event();
 
+    const iceRestartsAtStart = this.iceRestarts;
     this.setState("checking");
 
     try {
       await this.connection.connect();
     } catch (error) {
+      if (this.iceRestarts !== iceRestartsAtStart) {
+        throw error;
+      }
       this.setState("failed");
       throw error;
+    }
+
+    if (this.iceRestarts !== iceRestartsAtStart) {
+      return;
     }
 
     this.waitStart.execute();

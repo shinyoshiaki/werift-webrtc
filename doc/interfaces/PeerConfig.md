@@ -194,6 +194,10 @@ Advertised local SCTP max-message-size in SDP. Use 0 for unlimited.
 Opt-in SPED (DTLS handshake embedded in ICE Binding).
 Omit or false: ICE completes, then DTLS starts (current serial path).
 true: this PeerConnection only overlaps ICE checks with DTLS 1.3 handshake.
+Requires explicit DTLS 1.3 in `dtls.protocolVersions`
+(`dtls.protocolVersions` defaults to empty / DTLS 1.2 only).
+Cannot be combined with `dtls.helloRetryRequest: true`
+(SPED uses ICE-authenticated address validation, not a DTLS cookie).
 
 ***
 

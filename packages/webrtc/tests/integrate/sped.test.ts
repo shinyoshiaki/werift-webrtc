@@ -1524,6 +1524,12 @@ describe("RTCPeerConnection SPED opt-in", () => {
     const hold: HoldFirstNonEmptyData = { discard: true };
     const pc1 = new RTCPeerConnection(spedPeerConfig());
     const pc2 = new RTCPeerConnection(spedPeerConfig());
+    const connectionStates: string[] = [];
+    const recordState = (state: string) => {
+      connectionStates.push(state);
+    };
+    pc1.connectionStateChange.subscribe(recordState);
+    pc2.connectionStateChange.subscribe(recordState);
     try {
       const dc1 = pc1.createDataChannel("dc");
       let dc2!: RTCDataChannel;
@@ -1562,6 +1568,9 @@ describe("RTCPeerConnection SPED opt-in", () => {
       await opened;
       dc1.send("hs-restart");
       expect(await awaitMessage(dc2)).toBe("hs-restart");
+
+      // Assert: in-flight DTLS start の再入で偽の failed を出さない
+      expect(connectionStates).not.toContain("failed");
     } finally {
       await pc1.close();
       await pc2.close();

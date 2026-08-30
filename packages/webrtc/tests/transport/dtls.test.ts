@@ -231,6 +231,29 @@ describe("RTCDtlsTransportTest", () => {
       await Promise.allSettled([session1.stop(), session2.stop()]);
     }
   });
+
+  test("connecting 中の start() は既存 handshake に join する", async () => {
+    // Arrange
+    const [session1, session2] = await createDtlsSessions();
+    session1.setRemoteParams(session2.localParameters);
+    session2.setRemoteParams(session1.localParameters);
+
+    try {
+      // Act: 片側を connecting にしてから start を重ねる
+      const first = session1.start();
+      await waitForDtlsState(session1, "connecting");
+      const second = session1.start();
+      await Promise.all([first, second, session2.start()]);
+
+      // Assert: 二重 start でも connected。再入で throw しない
+      expect(session1.state).toBe("connected");
+      expect(session2.state).toBe("connected");
+      await session1.start();
+      expect(session1.state).toBe("connected");
+    } finally {
+      await Promise.allSettled([session1.stop(), session2.stop()]);
+    }
+  });
 });
 
 class DummyDataReceiver {
