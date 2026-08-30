@@ -138,6 +138,9 @@ export class SctpTransportManager {
   async close() {
     if (this.sctpTransport) {
       await this.sctpTransport.stop();
+      // UdpTransport.send は既知アドレスでは callback を待たない。呼び出し側が
+      // 直後に ICE ソケットを閉じると queued な AbortChunk が落ちるので、1 tick 譲る。
+      await new Promise<void>((resolve) => setImmediate(resolve));
     }
 
     this.onDataChannel.allUnsubscribe();
