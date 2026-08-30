@@ -52,7 +52,7 @@ function seedDummyPair(
 ) {
   const dummy = new CandidatePair(
     protocol,
-    new Candidate("d", 1, "udp", 1, "8.8.8.8", 1, "host"),
+    new Candidate("d", 1, "udp", 1, "1.2.3.4", 9, "host"),
     true,
   );
   dummy.updateState(CandidatePairState.WAITING);
@@ -173,8 +173,8 @@ describe("ICE Binding Request 認証境界", () => {
     expect(rttMs).toBe(50);
   });
 
-  it("early Binding でも pair を作り DATA 無しなら fallback するが raw DTLS はまだ出さない", async () => {
-    // Arrange: connect() 前なので triggered check は遅延する
+  it("early Binding の UDP prflx は DATA 無しでも fallback しない", async () => {
+    // Arrange: remote candidate 未登録なので source は prflx になる
     const connection = createTestConnection(true);
     const hello = Buffer.from([22, 9, 8, 7, 6]);
     const fallback: Buffer[] = [];
@@ -197,17 +197,25 @@ describe("ICE Binding Request 認証境界", () => {
     (connection as any).ensureProtocol(protocol);
     const request = currentGenerationBinding(connection, true);
 
-    // Act: DATA の無い Binding を connect() 前に認証する
-    protocol.onRequestReceived.execute(request, ["1.2.3.4", 9], request.bytes);
+    // Act: relay 相当アドレスから C070 無し Binding が先着する
+    protocol.onRequestReceived.execute(
+      request,
+      ["203.0.113.1", 3478],
+      request.bytes,
+    );
     await new Promise((r) => setTimeout(r, 30));
 
-    // Assert: pair は作るが triggered check 前なので raw DTLS は出さない
+    // Assert: prflx pair は作るが capability は確定しない
     expect(protocol.sentMessage?.messageClass).toBe(classes.RESPONSE);
     expect(connection.checkList.length).toBeGreaterThan(0);
+    expect(connection.checkList[0]!.remoteCandidate.type).toBe("prflx");
+    expect(getRawAttributeValue(protocol.sentMessage!, DTLS_IN_STUN_DATA)).toBe(
+      undefined,
+    );
     expect(fallback).toHaveLength(0);
     expect(sentDirect).toHaveLength(0);
-    expect(handle.session.state).toBe("fallback");
-    expect(handle.session.peerSupport).toBe("unsupported");
+    expect(handle.session.state).toBe("probing");
+    expect(handle.session.peerSupport).toBe("unknown");
     expect(handle.runtime.fallbackStarted).toBe(false);
     expect(handle.runtime.lastPath).toBeUndefined();
   });
@@ -321,6 +329,9 @@ describe("ICE Binding Request 認証境界", () => {
       sentDirect.push(Buffer.from(data));
     };
     (connection as any).ensureProtocol(protocol);
+    seedDummyPair(connection, protocol);
+    (connection as unknown as { earlyChecksDone: boolean }).earlyChecksDone =
+      false;
     const request = currentGenerationBinding(connection, true);
 
     // Act: pair 無し Binding のあと checkIncoming 相当で pair を作り再送機会を与える

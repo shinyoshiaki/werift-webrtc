@@ -102,6 +102,26 @@ describe("SPED draft00 session", () => {
     expect(session.state).toBe("active");
   });
 
+  it("capability advertisement は空 DATA だけで ACK を付けない", () => {
+    // Arrange
+    const session = new SpedSession(0);
+    session.replaceL1([Buffer.from([22, 1, 2, 3])]);
+    session.queueAck(0x11111111);
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request.setAttribute("USERNAME", "a:b").setAttribute("PRIORITY", 1);
+
+    // Act
+    expect(session.decorateCapabilityAdvertisement(request)).toBe(true);
+
+    // Assert: L1 / L2 は動かさず C070 空のみ
+    expect(getRawAttributeValue(request, DTLS_IN_STUN_DATA)?.length).toBe(0);
+    expect(getRawAttributeValue(request, DTLS_IN_STUN_ACK)).toBeUndefined();
+    expect(session.l1Datagrams[0]!.equals(Buffer.from([22, 1, 2, 3]))).toBe(
+      true,
+    );
+    expect(session.l2Crcs).toEqual([0x11111111]);
+  });
+
   it("DATA 無しの最初の authenticated Binding は fallback", () => {
     // Arrange
     const session = new SpedSession(0);

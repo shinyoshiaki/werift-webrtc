@@ -185,7 +185,7 @@ describe("SPED pair eligibility と lastPath isolation", () => {
     expect(getRawAttributeValue(onA, DTLS_IN_STUN_DATA)?.equals(hello)).toBe(
       true,
     );
-    expect(getRawAttributeValue(onB, DTLS_IN_STUN_DATA)).toBeUndefined();
+    expect(getRawAttributeValue(onB, DTLS_IN_STUN_DATA)?.length).toBe(0);
     expect(getRawAttributeValue(onB, DTLS_IN_STUN_ACK)).toBeUndefined();
     expect(handle.runtime.lastPath).toBe(pairA);
   });
@@ -215,6 +215,14 @@ describe("SPED pair eligibility と lastPath isolation", () => {
     expect(isSpedEligiblePair(hostHost)).toBe(true);
     expect(isSpedEligiblePair(hostRelay)).toBe(false);
     expect(isSpedEligiblePair(relayHost)).toBe(false);
+    const hostPrflx = spedPair(protocol, "prflx");
+    expect(isSpedEligiblePair(hostPrflx)).toBe(false);
+    const tcpPrflx = tcpSpedPair({
+      localType: "passive",
+      remoteType: "active",
+    });
+    tcpPrflx.remoteCandidate.type = "prflx";
+    expect(isSpedEligiblePair(tcpPrflx)).toBe(true);
   });
 
   it("empty DATA だけでは lastPath を pin しない", async () => {
@@ -296,7 +304,7 @@ describe("SPED pair eligibility と lastPath isolation", () => {
     const onB = new Message(methods.BINDING, classes.REQUEST);
     handle.runtime.decorateOutgoing(onB, passive);
 
-    // Assert: 別 5-tuple は inject / decorate / RTT しない
+    // Assert: 別 5-tuple は inject / L1 / ACK / RTT しない。空 C070 だけ載せる
     expect(sameCandidatePair(active, passive)).toBe(false);
     expect(isSpedEligiblePair(active)).toBe(true);
     expect(isSpedEligiblePair(passive)).toBe(true);
@@ -307,8 +315,117 @@ describe("SPED pair eligibility と lastPath isolation", () => {
     expect(handle.runtime.lastPath).toBe(active);
     expect(handle.session.l2Crcs).toEqual(afterA);
     expect(handle.session.l2Crcs).not.toContain(spedDataCrc32(dataB));
-    expect(getRawAttributeValue(onB, DTLS_IN_STUN_DATA)).toBeUndefined();
+    expect(getRawAttributeValue(onB, DTLS_IN_STUN_DATA)?.length).toBe(0);
     expect(getRawAttributeValue(onB, DTLS_IN_STUN_ACK)).toBeUndefined();
     expect(rttMs).toBe(0);
+  });
+
+  it("trickle 前の relay アドレス prflx は capability を確定せず、relay 追加後も対象外", async () => {
+    // Arrange: remote candidate 未登録
+    const { connection, handle } = arrangeSpedRuntime();
+    const protocol = new SpedProtocolMock();
+    (connection as any).ensureProtocol(protocol);
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request
+      .setAttribute("USERNAME", `${connection.localUsername}:remote`)
+      .setAttribute("PRIORITY", 1)
+      .setAttribute("ICE-CONTROLLED", 1n)
+      .addMessageIntegrity(Buffer.from(connection.localPassword))
+      .addFingerprint();
+
+    // Act: C070 無し Binding が先着して prflx を学習する
+    protocol.onRequestReceived.execute(
+      request,
+      ["203.0.113.1", 3478],
+      request.bytes,
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    const prflxPair = connection.checkList.find(
+      (pair) =>
+        pair.remoteAddr[0] === "203.0.113.1" && pair.remoteAddr[1] === 3478,
+    );
+
+    // Assert: prflx は作るが capability は unknown のまま
+    expect(prflxPair).toBeDefined();
+    expect(prflxPair!.remoteCandidate.type).toBe("prflx");
+    expect(handle.session.peerSupport).toBe("unknown");
+    expect(handle.session.state).toBe("probing");
+    expect(isSpedEligiblePair(prflxPair!)).toBe(false);
+
+    // Act: 同アドレスを relay として trickle する
+    await connection.addRemoteCandidate(
+      new Candidate("relay", 1, "udp", 1, "203.0.113.1", 3478, "relay"),
+    );
+
+    // Assert: 既存 pair の type が relay になり、引き続き対象外
+    expect(prflxPair!.remoteCandidate.type).toBe("relay");
+    expect(isSpedEligiblePair(prflxPair!)).toBe(false);
+  });
+
+  it("pin 後の別 pair Response は空 C070 のみで、reorder しても fallback しない", async () => {
+    // Arrange
+    const server = arrangeSpedRuntime();
+    const client = arrangeSpedRuntime();
+    const hello = Buffer.from([22, 0xfe, 0xfd, 0x00, 0x01]);
+    server.handle.session.replaceL1([hello]);
+    const pairA = spedPair(new SpedProtocolMock(), "host", "192.0.2.10", 1000);
+    const pairB = spedPair(new SpedProtocolMock(), "host", "192.0.2.11", 1001);
+    const clientA = spedPair(
+      new SpedProtocolMock(),
+      "host",
+      "192.0.2.10",
+      1000,
+    );
+    const clientB = spedPair(
+      new SpedProtocolMock(),
+      "host",
+      "192.0.2.11",
+      1001,
+    );
+
+    // Act: server は A の非空 DATA で pin したあと B の Response を作る
+    await server.handle.runtime.handleAuthenticatedStun(
+      bindingWithData(hello),
+      pairA.remoteAddr,
+      server.handle.session.generation,
+      pairA,
+    );
+    const responseB = new Message(methods.BINDING, classes.RESPONSE);
+    responseB.setAttribute("XOR-MAPPED-ADDRESS", pairB.remoteAddr);
+    server.handle.runtime.decorateOutgoing(responseB, pairB);
+    const responseA = new Message(methods.BINDING, classes.RESPONSE);
+    responseA.setAttribute("XOR-MAPPED-ADDRESS", pairA.remoteAddr);
+    server.handle.runtime.decorateOutgoing(responseA, pairA);
+
+    // Assert: B は C070 空。A の L1 は載せない
+    const dataB = getRawAttributeValue(responseB, DTLS_IN_STUN_DATA);
+    expect(dataB).toBeDefined();
+    expect(dataB!.length).toBe(0);
+    expect(getRawAttributeValue(responseB, DTLS_IN_STUN_ACK)).toBeUndefined();
+    expect(
+      getRawAttributeValue(responseA, DTLS_IN_STUN_DATA)?.equals(hello),
+    ).toBe(true);
+
+    // Act: client は B を A より先に処理する
+    const first = await client.handle.runtime.handleAuthenticatedStun(
+      responseB,
+      clientB.remoteAddr,
+      client.handle.session.generation,
+      clientB,
+    );
+    const second = await client.handle.runtime.handleAuthenticatedStun(
+      responseA,
+      clientA.remoteAddr,
+      client.handle.session.generation,
+      clientA,
+    );
+
+    // Assert: reorder しても supported。A で inject する
+    expect(first.fallback).toBe(false);
+    expect(client.handle.session.peerSupport).toBe("supported");
+    expect(client.handle.session.state).not.toBe("fallback");
+    expect(second.inject?.equals(hello)).toBe(true);
+    expect(client.injected).toHaveLength(1);
+    expect(client.handle.runtime.lastPath).toBe(clientA);
   });
 });

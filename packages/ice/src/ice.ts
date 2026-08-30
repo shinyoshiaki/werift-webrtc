@@ -542,7 +542,6 @@ export class Connection implements IceConnection {
     if (
       this.spedRuntime &&
       pair &&
-      this.spedRuntime.shouldDecorate(pair) &&
       this.spedRuntime.isLiveGeneration(generation)
     ) {
       await this.spedRuntime.handleAuthenticatedStun(
@@ -562,7 +561,7 @@ export class Connection implements IceConnection {
       verified.transactionId,
     );
     response.setAttribute("XOR-MAPPED-ADDRESS", addr);
-    if (this.spedRuntime && pair && this.spedRuntime.shouldDecorate(pair)) {
+    if (this.spedRuntime && pair) {
       if (!this.spedRuntime.decorateOutgoing(response, pair)) {
         return;
       }
@@ -1347,10 +1346,37 @@ export class Connection implements IceConnection {
     }
 
     log("addRemoteCandidate", remoteCandidate);
+    if (this.adoptExistingPrflx(remoteCandidate)) {
+      return;
+    }
     this._remoteCandidates.push(remoteCandidate);
 
     this.pairRemoteCandidate(remoteCandidate);
     this.sortCheckList();
+  }
+
+  /**
+   * Trickle may signal host/srflx/relay after the address was learned as
+   * prflx. Reuse that Candidate so SPED eligibility follows the signaled type.
+   */
+  private adoptExistingPrflx(signaled: Candidate): boolean {
+    const existing = this._remoteCandidates.find(
+      (candidate) =>
+        candidate.type === "prflx" &&
+        candidate.host === signaled.host &&
+        candidate.port === signaled.port &&
+        candidate.transport.toLowerCase() === signaled.transport.toLowerCase(),
+    );
+    if (!existing) {
+      return false;
+    }
+    existing.type = signaled.type;
+    existing.foundation = signaled.foundation;
+    existing.priority = signaled.priority;
+    existing.relatedAddress = signaled.relatedAddress;
+    existing.relatedPort = signaled.relatedPort;
+    existing.tcptype = signaled.tcptype;
+    return true;
   }
 
   send = async (data: Buffer) => {
@@ -1726,11 +1752,7 @@ export class Connection implements IceConnection {
     if (generation !== this.generation) {
       return;
     }
-    if (
-      !pair ||
-      !runtime?.shouldDecorate(pair) ||
-      !runtime.isLiveGeneration(generation)
-    ) {
+    if (!pair || !runtime || !runtime.isLiveGeneration(generation)) {
       return;
     }
     const result = await runtime.handleAuthenticatedStun(

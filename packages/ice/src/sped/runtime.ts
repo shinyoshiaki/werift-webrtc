@@ -1,11 +1,12 @@
 import type { CandidatePair } from "../iceBase";
 import type { Address } from "../imports/common";
 import type { Message } from "../stun/message";
+import { getRawAttributeValue } from "../stun/rawAttributeValue";
 import { StunOverTurnProtocol } from "../turn/protocol";
 import type { Protocol } from "../types/model";
 
-import { encodeSpedAck } from "./draft00";
-import { SPED_OUTER_MTU } from "./draft00/constants";
+import { decodeSpedData, encodeSpedAck } from "./draft00";
+import { DTLS_IN_STUN_DATA, SPED_OUTER_MTU } from "./draft00/constants";
 import {
   defaultSpedDtlsMtu,
   maxPayloadFitting,
@@ -74,8 +75,27 @@ export function isSpedEligiblePair(pair: CandidatePair): boolean {
   if (pair.remoteCandidate.type === "relay") {
     return false;
   }
-  return isSpedEligibleProtocol(pair.protocol);
+  if (!isSpedEligibleProtocol(pair.protocol)) {
+    return false;
+  }
+  const transport = pair.localCandidate.transport.toLowerCase();
+  const remoteType = pair.remoteCandidate.type;
+  if (transport === "tcp") {
+    return remoteType === "host" || remoteType === "prflx";
+  }
+  return remoteType === "host" || remoteType === "srflx";
 }
+
+/** UDP prflx is unconfirmed: it may later prove to be relay (trickle). */
+function isUnconfirmedUdpPrflx(pair: CandidatePair): boolean {
+  return (
+    isSpedEligibleProtocol(pair.protocol) &&
+    pair.localCandidate.transport.toLowerCase() === "udp" &&
+    pair.remoteCandidate.type === "prflx"
+  );
+}
+
+type SpedBindingRole = "full" | "capability" | "none";
 
 /**
  * ICE-facing SPED controller. Package-private; not exported from `src/index.ts`.
@@ -101,18 +121,44 @@ export class SpedRuntime {
   }
 
   shouldDecorate(pair: CandidatePair): boolean {
-    if (!this.session.embedding || !isSpedEligiblePair(pair)) {
-      return false;
+    return this.bindingRole(pair, "out") === "full";
+  }
+
+  /**
+   * full: L1 DATA + ACK on the association path.
+   * capability: empty C070 only (other eligible pairs after pin, or
+   *   UDP prflx after the peer already advertised DATA).
+   * none: relay / TURN / unconfirmed UDP prflx without evidence.
+   */
+  private bindingRole(
+    pair: CandidatePair,
+    direction: "in" | "out",
+  ): SpedBindingRole {
+    if (!this.session.embedding) {
+      return "none";
     }
-    if (this.lastPath && !sameCandidatePair(this.lastPath, pair)) {
-      return false;
+    if (isSpedEligiblePair(pair)) {
+      if (this.lastPath && !sameCandidatePair(this.lastPath, pair)) {
+        return "capability";
+      }
+      return "full";
     }
-    return true;
+    if (isUnconfirmedUdpPrflx(pair)) {
+      if (direction === "in") {
+        return "capability";
+      }
+      return this.session.peerSupport === "supported" ? "capability" : "none";
+    }
+    return "none";
   }
 
   decorateOutgoing(message: Message, pair: CandidatePair): boolean {
-    if (!this.shouldDecorate(pair)) {
+    const role = this.bindingRole(pair, "out");
+    if (role === "none") {
       return true;
+    }
+    if (role === "capability") {
+      return this.session.decorateCapabilityAdvertisement(message);
     }
     this.syncMtuFromBinding(message);
     return this.session.decorate(message);
@@ -210,8 +256,31 @@ export class SpedRuntime {
     if (!this.session.embedding || !this.isLiveGeneration(generation)) {
       return { fallback: false };
     }
-    if (!pair || !this.shouldDecorate(pair)) {
+    if (!pair) {
       return { fallback: false };
+    }
+    if (isUnconfirmedUdpPrflx(pair)) {
+      if (this.lastPath && !sameCandidatePair(this.lastPath, pair)) {
+        this.session.receiveCapabilityAdvertisement(message);
+        return { fallback: false };
+      }
+      const dataValue = getRawAttributeValue(message, DTLS_IN_STUN_DATA);
+      if (dataValue === undefined) {
+        return { fallback: false };
+      }
+      if (decodeSpedData(dataValue).kind !== "datagram") {
+        this.session.receiveCapabilityAdvertisement(message);
+        return { fallback: false };
+      }
+    } else {
+      const role = this.bindingRole(pair, "in");
+      if (role === "none") {
+        return { fallback: false };
+      }
+      if (role === "capability") {
+        this.session.receiveCapabilityAdvertisement(message);
+        return { fallback: false };
+      }
     }
     this.markInjectGeneration(generation);
     const result = this.session.receiveAuthenticated(message);

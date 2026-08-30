@@ -220,6 +220,37 @@ export class SpedSession {
     return true;
   }
 
+  /**
+   * Empty C070 only: advertise SPED support without moving L1 / L2 / ACK
+   * onto a non-association pair.
+   */
+  decorateCapabilityAdvertisement(message: Message): boolean {
+    if (!this.embedding) {
+      return true;
+    }
+    const empty = Buffer.alloc(0);
+    const size = estimatedStunSizeAfterSped(message, empty, empty);
+    if (!stunFitsPathMtu(size)) {
+      return false;
+    }
+    message.appendRawAttribute(DTLS_IN_STUN_DATA, encodeSpedData(empty).value);
+    return true;
+  }
+
+  /**
+   * DATA present → supported. Missing DATA does not lock unsupported
+   * (unconfirmed prflx / non-association pair).
+   */
+  receiveCapabilityAdvertisement(message: Message): void {
+    if (this.state === "disabled") {
+      return;
+    }
+    const dataValue = getRawAttributeValue(message, DTLS_IN_STUN_DATA);
+    if (dataValue !== undefined) {
+      this.noteAuthenticatedBindingHasData(true);
+    }
+  }
+
   receiveAuthenticated(message: Message): {
     inject?: Buffer;
     fallback: boolean;
