@@ -213,11 +213,15 @@ export class SpedRuntime {
   /**
    * Resolve a previously pending C070-less UDP prflx Binding.
    * host/srflx trickle → unsupported; relay → drop pending; lasting prflx
-   * after end-of-candidates + authenticated/SUCCEEDED/nominated → unsupported.
+   * after end-of-candidates or nomination → unsupported.
    */
   settleUnconfirmedPair(
     pair: CandidatePair,
-    options: { endOfCandidates: boolean; authenticated: boolean },
+    options: {
+      endOfCandidates: boolean;
+      authenticated: boolean;
+      nominated: boolean;
+    },
   ): void {
     if (!this.session.embedding || this.session.peerSupport !== "unknown") {
       return;
@@ -236,9 +240,9 @@ export class SpedRuntime {
       return;
     }
     if (
-      options.endOfCandidates &&
       options.authenticated &&
-      isUnconfirmedUdpPrflx(pair)
+      isUnconfirmedUdpPrflx(pair) &&
+      (options.endOfCandidates || options.nominated)
     ) {
       this.pendingUnconfirmedMissingData.delete(key);
       this.session.noteAuthenticatedBindingHasData(false);

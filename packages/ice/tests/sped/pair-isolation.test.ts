@@ -335,26 +335,55 @@ describe("SPED pair eligibility と lastPath isolation", () => {
       prflx,
     );
 
-    // Assert: 保留中。EOC なし / 未認証では確定しない
+    // Assert: 保留中。EOC なし / 未認証 / 未 nominated では確定しない
     expect(handle.session.peerSupport).toBe("unknown");
     handle.runtime.settleUnconfirmedPair(prflx, {
       endOfCandidates: false,
       authenticated: true,
+      nominated: false,
     });
     expect(handle.session.peerSupport).toBe("unknown");
     handle.runtime.settleUnconfirmedPair(prflx, {
       endOfCandidates: true,
       authenticated: false,
+      nominated: false,
     });
     expect(handle.session.peerSupport).toBe("unknown");
 
-    // Act: EOC かつ authenticated な lasting prflx
+    // Act: EOC なしでも nominated な lasting prflx
     handle.runtime.settleUnconfirmedPair(prflx, {
-      endOfCandidates: true,
+      endOfCandidates: false,
       authenticated: true,
+      nominated: true,
     });
 
     // Assert: missing C070 を unsupported として確定する
+    expect(handle.session.peerSupport).toBe("unsupported");
+    expect(handle.session.state).toBe("fallback");
+  });
+
+  it("C070 無し UDP prflx は EOC だけでも capability を確定する", async () => {
+    // Arrange
+    const { handle } = arrangeSpedRuntime();
+    const generation = handle.session.generation;
+    const prflx = spedPair(new SpedProtocolMock(), "prflx", "192.0.2.11", 1001);
+    const empty = new Message(methods.BINDING, classes.RESPONSE);
+
+    await handle.runtime.handleAuthenticatedStun(
+      empty,
+      prflx.remoteAddr,
+      generation,
+      prflx,
+    );
+
+    // Act: nominated 前でも EOC なら lasting prflx とみなす
+    handle.runtime.settleUnconfirmedPair(prflx, {
+      endOfCandidates: true,
+      authenticated: true,
+      nominated: false,
+    });
+
+    // Assert
     expect(handle.session.peerSupport).toBe("unsupported");
     expect(handle.session.state).toBe("fallback");
   });
@@ -681,16 +710,11 @@ describe("SPED pair eligibility と lastPath isolation", () => {
 
       // Act: B の Binding で A が prflx を学習し、ICE が nominated する
       await Promise.all([a.connect(), b.connect()]);
+      await new Promise((r) => setTimeout(r, 30));
 
-      // Assert: matching host は来ておらず prflx のまま
+      // Assert: EOC 未到着でも nomination で lasting prflx を fallback する
+      expect(a.remoteCandidatesEnd).toBe(false);
       expect(a.nominated?.remoteCandidate.type).toBe("prflx");
-      expect(handle.session.peerSupport).toBe("unknown");
-      expect(handle.session.state).toBe("probing");
-
-      // Act: end-of-candidates。同アドレス candidate は来ない
-      await a.addRemoteCandidate(undefined);
-
-      // Assert: lasting prflx を unsupported として fallback。元の L1 を直送する
       expect(handle.session.peerSupport).toBe("unsupported");
       expect(handle.session.state).toBe("fallback");
       expect(sentDirect.some((bytes) => bytes.equals(hello))).toBe(true);

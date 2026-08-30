@@ -328,7 +328,10 @@ export class Connection implements IceConnection {
 
   /**
    * UDP prflx with a pending C070-less Binding: lock unsupported once
-   * trickle proves host/srflx, or end-of-candidates leaves a lasting prflx.
+   * trickle proves host/srflx, or end-of-candidates / nomination leaves a
+   * lasting prflx. Nomination is enough: RFC 8838 allows ICE to complete
+   * before end-of-candidates, and a nominated pair must not gain new
+   * trickle candidates.
    */
   private settleSpedUnconfirmed(pair?: CandidatePair) {
     const runtime = this.spedRuntime;
@@ -340,6 +343,7 @@ export class Connection implements IceConnection {
       runtime.settleUnconfirmedPair(candidate, {
         endOfCandidates: this.remoteCandidatesEnd,
         authenticated: isAuthenticatedHandshakePair(candidate),
+        nominated: candidate.nominated || this.nominated === candidate,
       });
     }
   }

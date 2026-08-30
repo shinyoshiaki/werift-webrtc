@@ -267,6 +267,59 @@ describe("ICE Binding Request 認証境界", () => {
     expect(sentDirect[0]!.equals(hello)).toBe(true);
   });
 
+  it("nominated UDP prflx は EOC 前でも missing C070 を fallback する", async () => {
+    // Arrange: remote candidate 未登録、C070 無し Binding で prflx を学習
+    const connection = createTestConnection(true);
+    const hello = Buffer.from([22, 9, 8, 7, 6]);
+    const sentDirect: Buffer[] = [];
+    const handle = attachSpedToConnection(connection, {
+      inject: async () => {},
+      onFallbackFlight: async () => {},
+      setRetransmissionMode: () => {},
+      updateRtt: () => {},
+      resetRtt: () => {},
+      setMtu: () => {},
+    });
+    handle.session.replaceL1([hello]);
+    const protocol = new SpedProtocolMock();
+    protocol.sendData = async (data: Buffer, _addr?: Address) => {
+      sentDirect.push(Buffer.from(data));
+    };
+    (connection as any).ensureProtocol(protocol);
+    const request = currentGenerationBinding(connection, true);
+
+    protocol.onRequestReceived.execute(
+      request,
+      ["203.0.113.1", 3478],
+      request.bytes,
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    const prflxPair = connection.checkList[0]!;
+
+    // Assert: nomination 前は pending
+    expect(connection.remoteCandidatesEnd).toBe(false);
+    expect(handle.session.peerSupport).toBe("unknown");
+    expect(handle.session.state).toBe("probing");
+
+    // Act: EOC なしで prflx を nominated し、同じ source から再 Binding する
+    prflxPair.updateState(CandidatePairState.SUCCEEDED);
+    prflxPair.nominated = true;
+    connection.nominated = prflxPair;
+    protocol.onRequestReceived.execute(
+      request,
+      ["203.0.113.1", 3478],
+      request.bytes,
+    );
+    await new Promise((r) => setTimeout(r, 30));
+
+    // Assert: nomination で lasting prflx として fallback。元の L1 を直送する
+    expect(connection.remoteCandidatesEnd).toBe(false);
+    expect(handle.session.peerSupport).toBe("unsupported");
+    expect(handle.session.state).toBe("fallback");
+    expect(sentDirect).toHaveLength(1);
+    expect(sentDirect[0]!.equals(hello)).toBe(true);
+  });
+
   it("early Binding の Response に C070 を付け、相手を fallback させない", async () => {
     // Arrange: checkList 空、Request には peer の DATA がある
     const connection = createTestConnection(true);
