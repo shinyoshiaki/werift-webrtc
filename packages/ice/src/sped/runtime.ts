@@ -235,7 +235,7 @@ export class SpedRuntime {
       this.pendingUnconfirmedMissingData.delete(key);
       return false;
     }
-    if (isSpedEligiblePair(pair)) {
+    if (isSpedEligiblePair(pair) && options.authenticated) {
       this.pendingUnconfirmedMissingData.delete(key);
       this.session.noteAuthenticatedBindingHasData(false);
       return true;

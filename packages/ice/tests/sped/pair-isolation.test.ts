@@ -388,6 +388,41 @@ describe("SPED pair eligibility と lastPath isolation", () => {
     expect(handle.session.state).toBe("fallback");
   });
 
+  it("host 昇格でも未認証 pair では missing C070 を確定しない", async () => {
+    // Arrange: C070 無し Binding のあと type だけ host にする
+    const { handle } = arrangeSpedRuntime();
+    const generation = handle.session.generation;
+    const pair = spedPair(new SpedProtocolMock(), "prflx", "192.0.2.12", 1002);
+    await handle.runtime.handleAuthenticatedStun(
+      new Message(methods.BINDING, classes.RESPONSE),
+      pair.remoteAddr,
+      generation,
+      pair,
+    );
+    pair.remoteCandidate.type = "host";
+
+    // Act: eligible だが authenticated=false のまま settle する
+    const locked = handle.runtime.settleUnconfirmedPair(pair, {
+      endOfCandidates: false,
+      authenticated: false,
+      nominated: false,
+    });
+
+    // Assert: pending は残し、認証済み pair を待つ
+    expect(locked).toBe(false);
+    expect(handle.session.peerSupport).toBe("unknown");
+
+    // Act: 同じ pair が authenticated になってから確定する
+    expect(
+      handle.runtime.settleUnconfirmedPair(pair, {
+        endOfCandidates: false,
+        authenticated: true,
+        nominated: false,
+      }),
+    ).toBe(true);
+    expect(handle.session.peerSupport).toBe("unsupported");
+  });
+
   it("association 未確定時は relay / unconfirmed prflx の RTT を carrier に入れない", () => {
     // Arrange
     let rttMs = 0;
@@ -569,6 +604,82 @@ describe("SPED pair eligibility と lastPath isolation", () => {
     expect(pairB!.remoteCandidate.type).toBe("host");
     expect(pairB!.remoteCandidate.priority).toBe(1_000_000);
     expect(connection.checkList[0]!.remoteCandidate.priority).toBe(1_000_000);
+  });
+
+  it("prflx→host 昇格の fallback は未認証の高 priority pair ではなく認証済み pair へ送る", async () => {
+    // Arrange: A は低 priority で C070 無し Binding を受信。B は高 priority の未認証 local
+    const { connection, handle } = arrangeSpedRuntime();
+    const hello = Buffer.from([22, 0xfe, 0xfd, 0x00, 0x01]);
+    handle.session.replaceL1([hello]);
+    const sent: { data: Buffer; protocol: SpedProtocolMock }[] = [];
+    const protocolA = new SpedProtocolMock();
+    protocolA.localCandidate = new Candidate(
+      "a",
+      1,
+      "udp",
+      10,
+      "192.0.2.1",
+      1234,
+      "host",
+    );
+    const protocolB = new SpedProtocolMock();
+    protocolB.localCandidate = new Candidate(
+      "b",
+      1,
+      "udp",
+      100,
+      "192.0.2.2",
+      1235,
+      "host",
+    );
+    const recordSend = (protocol: SpedProtocolMock) => {
+      protocol.sendData = async (data: Buffer) => {
+        sent.push({ data: Buffer.from(data), protocol });
+      };
+    };
+    recordSend(protocolA);
+    recordSend(protocolB);
+    (connection as any).ensureProtocol(protocolA);
+    (connection as any).ensureProtocol(protocolB);
+    (connection as any).protocols.push(protocolA, protocolB);
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request
+      .setAttribute("USERNAME", `${connection.localUsername}:remote`)
+      .setAttribute("PRIORITY", 1)
+      .setAttribute("ICE-CONTROLLED", 1n)
+      .addMessageIntegrity(Buffer.from(connection.localPassword))
+      .addFingerprint();
+
+    protocolA.onRequestReceived.execute(
+      request,
+      ["198.51.100.1", 5000],
+      request.bytes,
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    const pairA = connection.checkList.find(
+      (pair) => pair.protocol === protocolA,
+    )!;
+    pairA.requestsReceived = 1;
+
+    // Act: 同アドレスを host として trickle する。sort 後は B-R が先頭
+    await connection.addRemoteCandidate(
+      new Candidate("host", 1, "udp", 1, "198.51.100.1", 5000, "host"),
+    );
+    const pairB = connection.checkList.find(
+      (pair) => pair.protocol === protocolB,
+    );
+
+    // Assert: 未認証の B-R ではなく、Binding を受けた A-R へ original L1 を直送する
+    expect(pairB).toBeDefined();
+    expect(connection.checkList[0]).toBe(pairB);
+    expect(pairB!.requestsReceived).toBe(0);
+    expect(handle.session.peerSupport).toBe("unsupported");
+    expect(handle.session.state).toBe("fallback");
+    expect(handle.runtime.fallbackStarted).toBe(true);
+    expect(handle.runtime.lastPath).toBe(pairA);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.protocol).toBe(protocolA);
+    expect(sent[0]!.data.equals(hello)).toBe(true);
   });
 
   it("UDP prflx に非空 DATA で pin したあとその pair の outgoing は L1 を載せる", async () => {
