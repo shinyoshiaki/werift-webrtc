@@ -508,6 +508,194 @@
       overflow-x: auto;
     }
 
+    .flow {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: stretch;
+      padding: 16px;
+    }
+
+    .flow-step {
+      flex: 1 1 110px;
+      min-width: 110px;
+      padding: 12px 10px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: #fff;
+      font-family: "Hiragino Sans", sans-serif;
+      font-size: 13px;
+      transition: background 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
+    }
+
+    .flow-step strong { display: block; font-size: 15px; margin-bottom: 4px; }
+    .flow-step.is-on {
+      background: #1b1714;
+      color: var(--cream);
+      border-color: #1b1714;
+      transform: translateY(-3px);
+    }
+
+    .flow-arrow {
+      align-self: center;
+      color: var(--muted);
+      font-family: "Hiragino Sans", sans-serif;
+      font-size: 18px;
+    }
+
+    .flow-caption {
+      padding: 0 16px 16px;
+      font-family: "Hiragino Sans", sans-serif;
+      font-size: 14px;
+      min-height: 3.2em;
+      color: var(--muted);
+    }
+
+    .split2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .formula {
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: 13px;
+      background: #1b1714;
+      color: #f3eee4;
+      padding: 14px 16px;
+      border-radius: 12px;
+      margin: 8px 0 0;
+    }
+
+    .formula em { color: #e8b089; font-style: normal; }
+
+    table.plain {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: "Hiragino Sans", sans-serif;
+      font-size: 13px;
+      background: var(--cream);
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+    }
+
+    table.plain th, table.plain td {
+      text-align: left;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+
+    table.plain th { background: #efe7d8; font-weight: 600; }
+    table.plain tr:last-child td { border-bottom: 0; }
+
+    .usage {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    .usage article {
+      padding: 16px;
+      border-top: 4px solid var(--line);
+    }
+
+    .usage .over { border-top-color: var(--rose); }
+    .usage .under { border-top-color: var(--terracotta); }
+    .usage .ok { border-top-color: var(--leaf); }
+
+    .slope-box {
+      position: relative;
+      height: 180px;
+      margin: 8px 0 0;
+      background:
+        linear-gradient(#eadfce 1px, transparent 1px) 0 0 / 100% 30px,
+        linear-gradient(90deg, #eadfce 1px, transparent 1px) 0 0 / 36px 100%,
+        #fffaf3;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+    }
+
+    .slope-line {
+      position: absolute;
+      left: 8%;
+      right: 8%;
+      height: 3px;
+      background: var(--terracotta);
+      transform-origin: left center;
+      top: 78%;
+      animation: steepen 4s ease-in-out infinite;
+    }
+
+    @keyframes steepen {
+      0%, 15% { transform: rotate(-8deg); }
+      50% { transform: rotate(-38deg); }
+      85%, 100% { transform: rotate(-8deg); }
+    }
+
+    .slope-label {
+      position: absolute;
+      right: 12px;
+      top: 10px;
+      font-family: "Hiragino Sans", sans-serif;
+      font-size: 12px;
+      background: rgba(255,250,243,.9);
+      padding: 4px 8px;
+      border-radius: 999px;
+    }
+
+    .states {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 12px 0;
+    }
+
+    .states span {
+      font-family: "Hiragino Sans", sans-serif;
+      font-size: 12px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: #efe7d8;
+    }
+
+    .probe-track {
+      position: relative;
+      height: 64px;
+      margin: 12px 0;
+      background: #efe7d8;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .probe-fill {
+      position: absolute;
+      inset: 8px auto 8px 8px;
+      width: 22%;
+      background: var(--teal);
+      border-radius: 8px;
+      animation: fillprobe 3.2s ease-in-out infinite;
+    }
+
+    @keyframes fillprobe {
+      0% { width: 8%; }
+      55% { width: 92%; }
+      100% { width: 8%; }
+    }
+
+    .probe-mark {
+      position: absolute;
+      top: 6px;
+      font-size: 11px;
+      font-family: "Hiragino Sans", sans-serif;
+      color: var(--muted);
+    }
+
+    .probe-mark.a { left: 10%; }
+    .probe-mark.b { right: 12%; }
+
     footer {
       max-width: 1080px;
       margin: 0 auto;
@@ -518,10 +706,11 @@
     }
 
     @media (max-width: 860px) {
-      .analogy, .grid3, .clocks, .app-out { grid-template-columns: 1fr; }
+      .analogy, .grid3, .clocks, .app-out, .split2, .usage { grid-template-columns: 1fr; }
       .lane, .node.recv { display: none; }
       .stage { height: 260px; }
       .node.send { left: 50%; transform: translateX(-50%); }
+      .flow-arrow { display: none; }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -545,6 +734,11 @@
       <a href="#play">動かして見る</a>
       <a href="#sensors">3つの観察</a>
       <a href="#clocks">3本の時計</a>
+      <a href="#pipeline">返事の処理順</a>
+      <a href="#delay-path">遅延の中身</a>
+      <a href="#loss-path">ロスの中身</a>
+      <a href="#probe-path">試し打ちの中身</a>
+      <a href="#rtt">2つの待ち時間</a>
       <a href="#app">アプリが見るもの</a>
     </nav>
   </header>
@@ -706,6 +900,164 @@
     </div>
   </section>
 
+  <section id="pipeline">
+    <h2>返事が来てから、数字が決まるまで</h2>
+    <p class="note">
+      本計算は「送ったとき」ではなく、<strong>受け手からの返事（TWCC）が届いたとき</strong>です。
+      順番を守ります。試し打ちの結果を先に確定してからロスで天井を掛ける。逆だと、消えた荷物を無視して速度を上げてしまいます。
+    </p>
+    <div class="card play">
+      <div class="flow" id="flow">
+        <div class="flow-step" data-i="0"><strong>1. 照合</strong>番号で「いつ出した荷物か」を探す</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step" data-i="1"><strong>2. ロス</strong>番号順に、届いた／届いていないを数える</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step" data-i="2"><strong>3. 遅延</strong>届いた時刻順に、待ちの傾きを見る</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step" data-i="3"><strong>4. AIMD</strong>傾きに合わせて速度を増減。試し打ち成功なら載せる</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step" data-i="4"><strong>5. 天井</strong>ロス側が準備できていれば、より低い方を採用</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step" data-i="5"><strong>6. 通知</strong>前回と違う bps だけアプリへ</div>
+      </div>
+      <p class="flow-caption" id="flowText"></p>
+      <div class="controls">
+        <button class="chip" type="button" id="flowPlay">再生</button>
+        <button class="chip" type="button" id="flowNext">次の手順</button>
+      </div>
+    </div>
+    <p class="caption" style="margin-top:12px">
+      届いていない報告は「今回は見えなかった」です。あとから届いたら取り消せます。番号が履歴に無い返事は、捨てます（差し替え直後など）。
+    </p>
+  </section>
+
+  <section id="delay-path">
+    <h2>遅延経路 — 「並び始めていないか」を傾きで見る</h2>
+    <p class="note">
+      1個1個の遅れではなく、<strong>荷物の群れと群れのあいだ</strong>で「送った間隔」と「届いた間隔」を比べます。
+      届く間隔の方がだんだん長くなると、料金所の列が伸びています。
+    </p>
+    <div class="split2">
+      <div class="card" style="padding:20px">
+        <h3>群れにまとめる（InterArrival）</h3>
+        <p class="caption">送り時刻が 5ms 以内の荷物は、同じ群れです。群れが閉じたら、前の群れとの差を出します。</p>
+        <div class="formula">send差 = 群れAの最後 − 群れBの最後<br />recv差 = 届いた時刻の差</div>
+        <p class="caption" style="margin-top:10px">順番が入れ替わった報告は無視します。3回続くと計測をやり直します。</p>
+      </div>
+      <div class="card" style="padding:20px">
+        <h3>傾きを読む（Trendline）</h3>
+        <p class="caption">直近 20 群れが揃ってから直線を引きます。点が右肩上がり＝ overuse です。</p>
+        <div class="slope-box" aria-hidden="true">
+          <div class="slope-line"></div>
+          <div class="slope-label">傾きが急 → 送りすぎ</div>
+        </div>
+      </div>
+    </div>
+    <h3>3つの判定</h3>
+    <div class="usage">
+      <article class="card over">
+        <h3>overuse</h3>
+        <p class="caption">列が伸びている。速度を下げます。このときは試し打ちの「もっと速く」は採用しません。</p>
+      </article>
+      <article class="card under">
+        <h3>underuse</h3>
+        <p class="caption">列が解けている最中。新しい試し打ちは出しません。空になったと早合点しないためです。</p>
+      </article>
+      <article class="card ok">
+        <h3>normal</h3>
+        <p class="caption">傾きが落ち着いている。underuse からここに戻った瞬間だけ、回復の試し打ちを検討します。</p>
+      </article>
+    </div>
+    <h3>速度の増減（AIMD）</h3>
+    <p class="note">判定をビットレートに翻訳します。werift は Chrome と同じ式です。</p>
+    <div class="split2">
+      <div class="card" style="padding:20px">
+        <h3>減らすとき</h3>
+        <div class="formula">次の速度 = 実際に届いた速さ × <em>0.85</em><br />5 kbps より大きければ、さらに <em>−5 kbps</em></div>
+        <p class="caption" style="margin-top:10px">例: 400 kbps 届いていたら 335 kbps。少し余裕を残して列を溶かします。</p>
+      </div>
+      <div class="card" style="padding:20px">
+        <h3>増やすとき</h3>
+        <div class="formula">上限 ≈ 届いた速さ × <em>1.5</em> + 10 kbps<br />掛け算で増やすか、RTT に応じた足し算</div>
+        <p class="caption" style="margin-top:10px">AIMD の待ち時間（RTT）は、TWCC ではなく受信レポートの生の値です。平滑化しません。</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="loss-path">
+    <h2>ロス経路 — 消えた量で天井を掛ける</h2>
+    <p class="note">
+      遅延だけで足りないことがあります。列が見えなくても、荷物が落ちていれば道は満杯です。
+      ロス側は観察を溜めてから動き出します。準備前の数字は採用しません。
+    </p>
+    <div class="states sans">
+      <span>increasing 上げてよい</span>
+      <span>increase_using_padding 空き埋めの余白を送る</span>
+      <span>decreasing 下げる / 一時キープ</span>
+      <span>delay_based 遅延側に任せる</span>
+    </div>
+    <div class="card" style="padding:20px">
+      <h3>最終値は「低い方」</h3>
+      <div class="formula">おすすめ速度 = min( 遅延側の上限 , ロス側の提案 )</div>
+      <p class="caption" style="margin-top:10px">
+        「届いていない」は仮の印です。あとから届いたら取り消します。同じ番号が何度も「未到達」でも、ロスの観察には数えます。
+      </p>
+    </div>
+  </section>
+
+  <section id="probe-path">
+    <h2>試し打ち — 短く、速く、数えながら</h2>
+    <p class="note">
+      最初はいまの推定の <strong>3倍と6倍</strong> を短い固まりで送ります。固まりが「必要なバイト数かつパケット数」に達したら送り終わりです。
+      返事が 80% 来ただけでは送りを止めません。送り切ってから結果を待ちます。
+    </p>
+    <div class="card" style="padding:20px">
+      <div class="probe-track" aria-hidden="true">
+        <div class="probe-fill"></div>
+        <span class="probe-mark a">送り始め</span>
+        <span class="probe-mark b">minBytes かつ minPackets</span>
+      </div>
+      <div class="formula">次に送ってよい時刻 = 開始時刻 + (送ったバイト × 8 × 1000) / 目標bps</div>
+      <p class="caption" style="margin-top:10px">
+        最初の間隔は 20ms、そのあとは 2ms。予定より 10ms 以上遅れた固まりは捨てます。
+        まだ送っていない待ち行列だけ、5秒で期限切れです。
+      </p>
+    </div>
+    <h3>いつ出してよいか</h3>
+    <table class="plain">
+      <thead>
+        <tr><th>いまの様子</th><th>新しい試し打ち</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>遅延が overuse / underuse</td><td>出さない（列の観察を優先）</td></tr>
+        <tr><td>行き帰りの待ちが 3秒超</td><td>出さない。1秒ごとに速度を 0.8 倍</td></tr>
+        <tr><td>ロスで下げている / 余白送信中</td><td>出さない</td></tr>
+        <tr><td>ロスで上げている最中</td><td>出してよい（上限は推定の 1.5 倍）</td></tr>
+        <tr><td>遅延側が主で、normal</td><td>出してよい</td></tr>
+        <tr><td>underuse から normal に戻った</td><td>回復用の試し打ちを検討</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="rtt">
+    <h2>待ち時間は2種類。混ぜない</h2>
+    <p class="note">どちらも「遅さ」ですが、使い道が違います。片方の数字をもう片方に流し込むと、減速のタイミングが狂います。</p>
+    <div class="split2">
+      <div class="card" style="padding:20px">
+        <h3>TWCC の行き帰り（backoff 用）</h3>
+        <p class="caption">返事が届くまでの時間から、受け手側で待たされた分を引きます。残ったのが道そのものの遅さです。</p>
+        <div class="formula">CorrectedRtt = 返事が途絶えた時間 + 道の遅さ</div>
+        <p class="caption" style="margin-top:10px">3秒を超えたら、25ms 点検のたびに（最短1秒おき）目標を 0.8 倍。床は 5 kbps。</p>
+      </div>
+      <div class="card" style="padding:20px">
+        <h3>受信レポートの生 RTT（AIMD 用）</h3>
+        <p class="caption">SR を出してから RR が返るまでの生の値です。統計用にならした値は AIMD に渡しません。</p>
+        <div class="formula">raw = 今 − 最後の SR − DLSR</div>
+        <p class="caption" style="margin-top:10px">次に減速してよいかの間隔は、この RTT を 10〜200ms に収めて使います。省略時は 200ms。</p>
+      </div>
+    </div>
+  </section>
+
   <section id="app">
     <h2>アプリが知る必要があるのは、一つの数字</h2>
     <div class="app-out">
@@ -732,7 +1084,7 @@ sender.onAvailableBitrate.subscribe((bps) => {
 
   <footer>
     werift の GCC は、Chrome と同じ考え方（遅延・ロス・試し打ち）を TypeScript で動かしています。
-    数式や関数名まで追う資料は <code>reviews/gcc-mechanism.md</code> にあります。
+    関数名まで追う資料は <code>reviews/gcc-mechanism.md</code> にあります。
     このページはブラウザでそのまま開けます。外部サービスは使いません。
   </footer>
 
@@ -852,6 +1204,36 @@ sender.onAvailableBitrate.subscribe((bps) => {
     });
 
     apply("clear");
+
+    const flowTexts = [
+      "番号（transport-wide sequence）で、送り履歴と返事を突き合わせます。履歴に無い番号は捨てます。",
+      "番号の順でロスを数えます。「届いていない」は仮の印。あとから届いたら取り消せます。",
+      "届いた時刻の順で遅延を見ます。5ms の群れにまとめ、群れ間の傾きを Trendline が読みます。",
+      "overuse なら減速。そうでなく試し打ちが成功していればその速度を載せます。上昇方向の独自キャップはありません。",
+      "ロス側が準備できていれば、遅延側とロス側の低い方。高 RTT なら先に 0.8 倍して、ロスで落としすぎません。",
+      "値が変わったときだけ onAvailableBitrate。同じ数字の連打はしません。",
+    ];
+    const flowSteps = [...document.querySelectorAll("#flow .flow-step")];
+    const flowText = document.getElementById("flowText");
+    let flowI = 0;
+    let flowTimer = null;
+
+    function showFlow(i) {
+      flowI = (i + flowSteps.length) % flowSteps.length;
+      flowSteps.forEach((el, idx) => el.classList.toggle("is-on", idx === flowI));
+      flowText.textContent = flowTexts[flowI];
+    }
+
+    document.getElementById("flowNext").addEventListener("click", () => {
+      if (flowTimer) { clearInterval(flowTimer); flowTimer = null; }
+      showFlow(flowI + 1);
+    });
+    document.getElementById("flowPlay").addEventListener("click", () => {
+      if (flowTimer) { clearInterval(flowTimer); flowTimer = null; showFlow(flowI); return; }
+      showFlow(0);
+      flowTimer = setInterval(() => showFlow(flowI + 1), 2200);
+    });
+    showFlow(0);
   </script>
 </body>
 </html>
