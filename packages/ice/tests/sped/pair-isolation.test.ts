@@ -366,7 +366,12 @@ describe("SPED pair eligibility と lastPath isolation", () => {
     handle.runtime.hooks.updateRtt = (ms) => {
       rttMs = ms;
     };
-    const relay = spedPair(new SpedProtocolMock(), "relay", "203.0.113.1", 3478);
+    const relay = spedPair(
+      new SpedProtocolMock(),
+      "relay",
+      "203.0.113.1",
+      3478,
+    );
     relay.rtt = 0.3;
     const prflx = spedPair(new SpedProtocolMock(), "prflx", "192.0.2.10", 1000);
     prflx.rtt = 0.2;
