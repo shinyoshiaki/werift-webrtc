@@ -332,28 +332,43 @@ export class Connection implements IceConnection {
    * lasting prflx. Nomination is enough: RFC 8838 allows ICE to complete
    * before end-of-candidates, and a nominated pair must not gain new
    * trickle candidates.
+   * @returns the pair that locked unsupported, if any.
    */
-  private settleSpedUnconfirmed(pair?: CandidatePair) {
+  private settleSpedUnconfirmed(
+    pair?: CandidatePair,
+  ): CandidatePair | undefined {
     const runtime = this.spedRuntime;
     if (!runtime || runtime.session.peerSupport !== "unknown") {
-      return;
+      return undefined;
     }
     const pairs = pair ? [pair] : this.checkList;
+    let locked: CandidatePair | undefined;
     for (const candidate of pairs) {
-      runtime.settleUnconfirmedPair(candidate, {
-        endOfCandidates: this.remoteCandidatesEnd,
-        authenticated: isAuthenticatedHandshakePair(candidate),
-        nominated: candidate.nominated || this.nominated === candidate,
-      });
+      if (
+        runtime.settleUnconfirmedPair(candidate, {
+          endOfCandidates: this.remoteCandidatesEnd,
+          authenticated: isAuthenticatedHandshakePair(candidate),
+          nominated: candidate.nominated || this.nominated === candidate,
+        })
+      ) {
+        locked = candidate;
+      }
     }
+    return locked;
   }
 
-  private async flushSpedUnconfirmedFallback() {
+  /**
+   * Send the original L1 snapshot on the pair that locked fallback.
+   * Prefer `preferredPair` so nomination settlement cannot race
+   * `this.nominated` and land on an earlier authenticated checklist entry.
+   */
+  private async flushSpedUnconfirmedFallback(preferredPair?: CandidatePair) {
     const runtime = this.spedRuntime;
     if (!runtime || runtime.session.state !== "fallback") {
       return;
     }
     const pair =
+      preferredPair ??
       this.nominated ??
       this.checkList.find((candidate) =>
         isAuthenticatedHandshakePair(candidate),
@@ -906,7 +921,7 @@ export class Connection implements IceConnection {
     for (const earlyCheck of this.earlyChecks) {
       this.checkIncoming(...earlyCheck);
       const [, addr, protocol] = earlyCheck;
-      this.settleSpedUnconfirmed();
+      this.settleSpedUnconfirmed(this.findPairByAddr(protocol, addr));
       await this.maybeSendSpedFallback(protocol, addr, this.generation);
     }
     this.earlyChecks = [];
@@ -1368,8 +1383,8 @@ export class Connection implements IceConnection {
 
     if (!remoteCandidate) {
       this.remoteCandidatesEnd = true;
-      this.settleSpedUnconfirmed();
-      await this.flushSpedUnconfirmedFallback();
+      const settled = this.settleSpedUnconfirmed();
+      await this.flushSpedUnconfirmedFallback(settled);
       return;
     }
 
@@ -1396,8 +1411,8 @@ export class Connection implements IceConnection {
     if (adopted) {
       this.pairRemoteCandidate(adopted);
       this.sortCheckList();
-      this.settleSpedUnconfirmed();
-      await this.flushSpedUnconfirmedFallback();
+      const settled = this.settleSpedUnconfirmed();
+      await this.flushSpedUnconfirmedFallback(settled);
       return;
     }
     this._remoteCandidates.push(remoteCandidate);
@@ -1850,8 +1865,8 @@ export class Connection implements IceConnection {
   private checkComplete(pair: CandidatePair) {
     pair.handle = undefined;
     if (pair.state === CandidatePairState.SUCCEEDED) {
-      this.settleSpedUnconfirmed(pair);
-      void this.flushSpedUnconfirmedFallback();
+      const settled = this.settleSpedUnconfirmed(pair);
+      void this.flushSpedUnconfirmedFallback(settled ?? pair);
       // Updating the Nominated Flag
 
       // https://www.rfc-editor.org/rfc/rfc8445#section-7.3.1.5,

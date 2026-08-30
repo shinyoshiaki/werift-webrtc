@@ -320,6 +320,62 @@ describe("ICE Binding Request 認証境界", () => {
     expect(sentDirect[0]!.equals(hello)).toBe(true);
   });
 
+  it("nomination fallback は checklist 先頭ではなく nominated pair へ送る", async () => {
+    // Arrange: A は authenticated host、B は pending missing-C070 prflx。checklist は A, B
+    const connection = createTestConnection(true);
+    const hello = Buffer.from([22, 9, 8, 7, 6]);
+    const sent: { data: Buffer; addr?: Address }[] = [];
+    const handle = attachSpedToConnection(connection, {
+      inject: async () => {},
+      onFallbackFlight: async () => {},
+      setRetransmissionMode: () => {},
+      updateRtt: () => {},
+      resetRtt: () => {},
+      setMtu: () => {},
+    });
+    handle.session.replaceL1([hello]);
+    const protocolA = new SpedProtocolMock();
+    const protocolB = new SpedProtocolMock();
+    const recordSend = (protocol: SpedProtocolMock) => {
+      protocol.sendData = async (data: Buffer, addr?: Address) => {
+        sent.push({ data: Buffer.from(data), addr });
+      };
+    };
+    recordSend(protocolA);
+    recordSend(protocolB);
+    const pairA = spedPair(protocolA, "host", "192.0.2.1", 1000);
+    pairA.updateState(CandidatePairState.SUCCEEDED);
+    pairA.requestsReceived = 1;
+    const pairB = spedPair(protocolB, "prflx", "192.0.2.2", 2000);
+    await handle.runtime.handleAuthenticatedStun(
+      new Message(methods.BINDING, classes.RESPONSE),
+      pairB.remoteAddr,
+      handle.session.generation,
+      pairB,
+    );
+    pairB.updateState(CandidatePairState.SUCCEEDED);
+    pairB.nominated = true;
+    pairB.requestsReceived = 1;
+    connection.checkList = [pairA, pairB];
+
+    // Assert: this.nominated 未設定、find(authenticated) なら A が先
+    expect(connection.nominated).toBeUndefined();
+    expect(handle.session.peerSupport).toBe("unknown");
+    expect(handle.runtime.lastPath).toBeUndefined();
+
+    // Act: remote が B を nominate。checkComplete 時点では this.nominated 未設定
+    (connection as any).checkComplete(pairB);
+    await new Promise((r) => setTimeout(r, 30));
+
+    // Assert: fallback は B へ送り lastPath も B。A には送らない
+    expect(handle.session.peerSupport).toBe("unsupported");
+    expect(handle.session.state).toBe("fallback");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.data.equals(hello)).toBe(true);
+    expect(sent[0]!.addr).toEqual(["192.0.2.2", 2000]);
+    expect(handle.runtime.lastPath).toBe(pairB);
+  });
+
   it("early Binding の Response に C070 を付け、相手を fallback させない", async () => {
     // Arrange: checkList 空、Request には peer の DATA がある
     const connection = createTestConnection(true);

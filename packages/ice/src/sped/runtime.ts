@@ -214,6 +214,7 @@ export class SpedRuntime {
    * Resolve a previously pending C070-less UDP prflx Binding.
    * host/srflx trickle → unsupported; relay → drop pending; lasting prflx
    * after end-of-candidates or nomination → unsupported.
+   * @returns true when this call locked peerSupport to unsupported.
    */
   settleUnconfirmedPair(
     pair: CandidatePair,
@@ -222,22 +223,22 @@ export class SpedRuntime {
       authenticated: boolean;
       nominated: boolean;
     },
-  ): void {
+  ): boolean {
     if (!this.session.embedding || this.session.peerSupport !== "unknown") {
-      return;
+      return false;
     }
     const key = unconfirmedPairKey(pair);
     if (!this.pendingUnconfirmedMissingData.has(key)) {
-      return;
+      return false;
     }
     if (pair.remoteCandidate.type === "relay") {
       this.pendingUnconfirmedMissingData.delete(key);
-      return;
+      return false;
     }
     if (isSpedEligiblePair(pair)) {
       this.pendingUnconfirmedMissingData.delete(key);
       this.session.noteAuthenticatedBindingHasData(false);
-      return;
+      return true;
     }
     if (
       options.authenticated &&
@@ -246,7 +247,9 @@ export class SpedRuntime {
     ) {
       this.pendingUnconfirmedMissingData.delete(key);
       this.session.noteAuthenticatedBindingHasData(false);
+      return true;
     }
+    return false;
   }
 
   syncRtt(pair: CandidatePair): void {
