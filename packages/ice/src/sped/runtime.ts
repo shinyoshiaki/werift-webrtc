@@ -129,6 +129,9 @@ export class SpedRuntime {
    * capability: empty C070 only (other eligible pairs after pin, or
    *   UDP prflx after the peer already advertised DATA).
    * none: relay / TURN / unconfirmed UDP prflx without evidence.
+   *
+   * A UDP prflx that already received non-empty DATA is the association
+   * path until signaling upgrades it (host/srflx) or marks it relay.
    */
   private bindingRole(
     pair: CandidatePair,
@@ -137,11 +140,12 @@ export class SpedRuntime {
     if (!this.session.embedding) {
       return "none";
     }
-    if (isSpedEligiblePair(pair)) {
-      if (this.lastPath && !sameCandidatePair(this.lastPath, pair)) {
-        return "capability";
-      }
+    const association = this.associationPath();
+    if (association && sameCandidatePair(association, pair)) {
       return "full";
+    }
+    if (isSpedEligiblePair(pair)) {
+      return association ? "capability" : "full";
     }
     if (isUnconfirmedUdpPrflx(pair)) {
       if (direction === "in") {
@@ -150,6 +154,23 @@ export class SpedRuntime {
       return this.session.peerSupport === "supported" ? "capability" : "none";
     }
     return "none";
+  }
+
+  /**
+   * Drop lastPath when trickle proves the pinned address is relay.
+   */
+  private associationPath(): CandidatePair | undefined {
+    if (!this.lastPath) {
+      return undefined;
+    }
+    if (
+      isSpedEligiblePair(this.lastPath) ||
+      isUnconfirmedUdpPrflx(this.lastPath)
+    ) {
+      return this.lastPath;
+    }
+    this.lastPath = undefined;
+    return undefined;
   }
 
   decorateOutgoing(message: Message, pair: CandidatePair): boolean {
@@ -179,7 +200,8 @@ export class SpedRuntime {
   }
 
   syncRtt(pair: CandidatePair): void {
-    if (this.lastPath && !sameCandidatePair(this.lastPath, pair)) {
+    const association = this.associationPath();
+    if (association && !sameCandidatePair(association, pair)) {
       return;
     }
     if (pair.rtt == null || !(pair.rtt > 0)) {
@@ -260,7 +282,8 @@ export class SpedRuntime {
       return { fallback: false };
     }
     if (isUnconfirmedUdpPrflx(pair)) {
-      if (this.lastPath && !sameCandidatePair(this.lastPath, pair)) {
+      const association = this.associationPath();
+      if (association && !sameCandidatePair(association, pair)) {
         this.session.receiveCapabilityAdvertisement(message);
         return { fallback: false };
       }

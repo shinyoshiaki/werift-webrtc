@@ -362,6 +362,39 @@ describe("SPED pair eligibility と lastPath isolation", () => {
     expect(isSpedEligiblePair(prflxPair!)).toBe(false);
   });
 
+  it("UDP prflx に非空 DATA で pin したあとその pair の outgoing は L1 を載せる", async () => {
+    // Arrange: trickle 前の prflx と、別ホストの eligible pair
+    const { handle, injected } = arrangeSpedRuntime();
+    const generation = handle.session.generation;
+    const hello = Buffer.from([22, 0xfe, 0xfd, 0x00, 0x01]);
+    const serverHello = Buffer.from([22, 0xfe, 0xfd, 0x00, 0x02]);
+    const prflx = spedPair(new SpedProtocolMock(), "prflx", "192.0.2.10", 1000);
+    const hostB = spedPair(new SpedProtocolMock(), "host", "192.0.2.11", 1001);
+
+    // Act: prflx の ClientHello を inject したあと ServerHello を L1 にする
+    await handle.runtime.handleAuthenticatedStun(
+      bindingWithData(hello),
+      prflx.remoteAddr,
+      generation,
+      prflx,
+    );
+    handle.session.replaceL1([serverHello]);
+    const onPrflx = new Message(methods.BINDING, classes.RESPONSE);
+    handle.runtime.decorateOutgoing(onPrflx, prflx);
+    const onHost = new Message(methods.BINDING, classes.RESPONSE);
+    handle.runtime.decorateOutgoing(onHost, hostB);
+
+    // Assert: pin 済み prflx だけが association。別 host は空 C070
+    expect(isSpedEligiblePair(prflx)).toBe(false);
+    expect(handle.runtime.lastPath).toBe(prflx);
+    expect(handle.runtime.shouldDecorate(prflx)).toBe(true);
+    expect(injected).toHaveLength(1);
+    expect(
+      getRawAttributeValue(onPrflx, DTLS_IN_STUN_DATA)?.equals(serverHello),
+    ).toBe(true);
+    expect(getRawAttributeValue(onHost, DTLS_IN_STUN_DATA)?.length).toBe(0);
+  });
+
   it("pin 後の別 pair Response は空 C070 のみで、reorder しても fallback しない", async () => {
     // Arrange
     const server = arrangeSpedRuntime();
