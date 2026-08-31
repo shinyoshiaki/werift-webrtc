@@ -96,6 +96,9 @@ sec
 
 > **onDataReceived**: [`Event`](Event.md)\<\[`Buffer`\<`ArrayBufferLike`\>, readonly \[`string`, `number`\]?\]\>
 
+Non-STUN datagrams on this protocol. The optional source address is
+required to route handshake DTLS to the matching CandidatePair.
+
 #### Implementation of
 
 [`Protocol`](../interfaces/Protocol.md).[`onDataReceived`](../interfaces/Protocol.md#ondatareceived)

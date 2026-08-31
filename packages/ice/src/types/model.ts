@@ -32,6 +32,10 @@ export interface TransactionRequestOptions {
 export interface Protocol {
   type: string;
   onRequestReceived: Event<[Message, Address, Buffer]>;
+  /**
+   * Non-STUN datagrams on this protocol. The optional source address is
+   * required to route handshake DTLS to the matching CandidatePair.
+   */
   onDataReceived: Event<[Buffer, Address?]>;
   request: (
     message: Message,

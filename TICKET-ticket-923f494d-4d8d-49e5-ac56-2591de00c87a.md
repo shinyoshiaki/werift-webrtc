@@ -83,7 +83,8 @@ Epic 4 は early application data / SNAP / SPED stats / `writeReady` など WARP
 | `Connection.ensureProtocol`（`ice.ts` 約 288–354 行） | unauthenticated `msg` で role conflict、`filterStunResponse`、response 送信、`checkIncoming` まで進む。第 3 引数の raw `data` は未使用 | 二段階 parse。SPED DATA は認証後にだけ DTLS inject。response 組み立ては `await inject` の後 |
 | `protocol.request()` | integrityKey があるとき **内部で** `addMessageIntegrity` → `addFingerprint` | SPED decoration は必ずこの直前。MI/FP 追加後に DATA を足すと認証範囲外になる |
 | `Transaction.retry` | 同じ `Message` を毎回 `sendStun`（`message.bytes` 再計算） | 同一 transaction の再送は **同じ serialized bytes**。L1 round-robin を再送ごとにやり直さない |
-| `Connection.onData` / `Protocol.onDataReceived` | `Event<[Buffer]>`。source / protocol / pair / generation / authenticated が落ちる | 内部 `IceDatagramContext` を追加。Public `onData(Buffer)` は維持 |
+| `Connection.onData` | `Event<[Buffer]>`。source / protocol / pair / generation / authenticated が落ちる | 内部 `IceDatagramContext` を追加。Public `onData(Buffer)` は維持 |
+| `Protocol.onDataReceived` | warp は `Event<[Buffer]>`。source address が落ち、pair への datagram routing ができない | **`Event<[Buffer, Address?]>`** に変更する（source-aware datagram）。Public `Connection.onData` の `Event<[Buffer]>` は維持 |
 | `Connection.send` | nominated + consent freshness が無いと送らない | application data の意味は変えない。handshake 専用の authenticated-pair send を内部追加 |
 | `packages/ice/src/sped/` | 存在しない | `draft00/` に codec / session / MTU を内部モジュールとして追加。`src/index.ts` から export しない。有効化は ICE 公開 API ではなく PC から内部接続する |
 | `DtlsHandshakeCarrier.inject` | `void`。`handleDatagram` は `rxChain` に enqueue するだけ | inject 完了を await できるようにし、同じ Binding Response に server flight を載せる |
@@ -425,6 +426,7 @@ interface IceDatagramContext {
 ```
 
 Public `Connection.onData: Event<[Buffer]>` は維持し、internal から互換発火する。
+`Protocol.onDataReceived` は source-aware routing のため **`Event<[Buffer, Address?]>`** とする（warp の `Event<[Buffer]>` からの意図的な変更）。
 
 direct DTLS handshake を route してよい条件:
 
@@ -478,6 +480,8 @@ MTU（draft §3.3.3 Table 1 + RFC 8831 の典型 1200）:
 L1/L2 clear, roundRobinIndex = 0, peerSupport = unknown, state = probing
 RTT/MTU/path clear, carrier mode reset
 pending direct fallback / pending inject generation invalidation
+未完了 handshake: carrier.setWireSendEnabled(false) を L1 reseed の前に戻す
+（fallback で true にしたまま probing 再開すると raw DTLS が判定前に漏れる）
 ```
 
 async は captured generation を持ち、不一致なら return。close / DTLS error / handshake complete / ICE failed / fallback でも timer と pending を破棄。

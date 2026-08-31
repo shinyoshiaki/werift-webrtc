@@ -353,6 +353,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
           handle.runtime.completeHandshake();
           return;
         }
+        // New ICE generation starts SPED probing again.
+        carrier.setWireSendEnabled(false);
         carrier.setRetransmissionMode("external");
         if (this.state === "connecting" && lastFlight.length > 0) {
           handle.onFlightCreated(lastFlight);

@@ -120,6 +120,34 @@ function longestFlight(flights: Buffer[][]): Buffer[] | undefined {
 }
 
 /**
+ * Record DirectHandshakeCarrier.send attempts that would hit the wire
+ * (`wireSendEnabled === true`). Used to assert ICE restart restores suppression
+ * even when IceSpedTransport.embedding would also drop the datagram.
+ */
+function spyCarrierEnabledSends(
+  shouldRecord: () => boolean,
+  recorded: Buffer[],
+) {
+  const originalSend = DirectHandshakeCarrier.prototype.send;
+  const originalSet = DirectHandshakeCarrier.prototype.setWireSendEnabled;
+  const enabled = new WeakMap<object, boolean>();
+  DirectHandshakeCarrier.prototype.setWireSendEnabled = function (value) {
+    enabled.set(this, value);
+    return originalSet.call(this, value);
+  };
+  DirectHandshakeCarrier.prototype.send = async function (packet, addr) {
+    if (shouldRecord() && enabled.get(this)) {
+      recorded.push(Buffer.from(packet.bytes));
+    }
+    return originalSend.call(this, packet, addr);
+  };
+  return () => {
+    DirectHandshakeCarrier.prototype.send = originalSend;
+    DirectHandshakeCarrier.prototype.setWireSendEnabled = originalSet;
+  };
+}
+
+/**
  * Record L1 flights per session. Prototype hook runs before ICE/DTLS attach.
  */
 function recordL1Flights() {
@@ -412,7 +440,7 @@ function stunAttributeTypes(bytes: Buffer): number[] {
   if (bytes.length < 20) {
     return types;
   }
-  for (let pos = 20; pos + 4 <= bytes.length; ) {
+  for (let pos = 20; pos + 4 <= bytes.length;) {
     const type = bytes.readUInt16BE(pos);
     const length = bytes.readUInt16BE(pos + 2);
     types.push(type);
@@ -471,6 +499,9 @@ type WireSpyOptions = {
   holdUntilLaterFlightPacket?: HoldUntilLaterFlightPacket;
   iceConnectedAt?: { t?: number };
   dtlsFirstAt?: { t?: number };
+  /** Drop raw DTLS on the wire while still recording it (keep handshake incomplete). */
+  holdRawHandshake?: { drop: boolean };
+  onRawDtls?: (bytes: Buffer, state: string | undefined) => void;
 };
 
 const STUN_COOKIE = 0x2112a442;
@@ -537,6 +568,7 @@ function noteRawDtls(
   }
   const runtime = getConnectionSpedRuntime(ice as Connection);
   const state = runtime?.session.state;
+  options.onRawDtls?.(copy, state);
   // probing/active: raw DTLS is a leak. fallback: expected direct send.
   // complete: DTLS application records (20–63) are not handshake leaks.
   if (state === "probing" || state === "active" || state === "fallback") {
@@ -575,6 +607,9 @@ function spyConnectionWire(
     ice.send = async (data: Buffer) => {
       const copy = Buffer.from(data);
       noteRawDtls(copy, ice, handshakeDtls, options);
+      if (options.holdRawHandshake?.drop && isDtls(copy)) {
+        return;
+      }
       return iceSend(copy);
     };
   }
@@ -648,6 +683,9 @@ function spyConnectionWire(
     protocol.sendData = async (data, addr) => {
       const copy = Buffer.from(data);
       noteRawDtls(copy, ice, handshakeDtls, options);
+      if (options.holdRawHandshake?.drop && isDtls(copy)) {
+        return;
+      }
       if (!isDtls(copy) && copy.length >= 20 && (copy[0] & 0xc0) === 0) {
         stun.push(copy);
       }
@@ -1255,6 +1293,127 @@ describe("RTCPeerConnection SPED opt-in", () => {
       await pc2.close();
     }
   }, 30_000);
+
+  test("fallback 中の ICE restart では probing 再開後に raw DTLS を出さない", async () => {
+    const stun: Buffer[] = [];
+    const handshakeDtls: Buffer[] = [];
+    const probingRaw: Buffer[] = [];
+    const probingCarrierSends: Buffer[] = [];
+    const flights: Buffer[][] = [];
+    const holdRawHandshake = { drop: true };
+    let captureProbingLeaks = false;
+    const pc1 = new RTCPeerConnection({
+      iceServers: [],
+      dtls: { protocolVersions: [DtlsVersion.V1_3] },
+    });
+    const pc2 = new RTCPeerConnection(spedPeerConfig());
+    const stopCapture = captureL1Flights(pc2, flights);
+    const restoreCarrier = spyCarrierEnabledSends(() => {
+      if (!captureProbingLeaks) {
+        return false;
+      }
+      const runtime = getConnectionSpedRuntime(iceOf(pc2));
+      return (
+        runtime?.session.state === "probing" ||
+        runtime?.session.state === "active"
+      );
+    }, probingCarrierSends);
+    try {
+      const dc1 = pc1.createDataChannel("dc");
+      let dc2!: RTCDataChannel;
+      const opened = Promise.all([
+        new Promise<void>((resolve, reject) => {
+          dc1.onopen = () => resolve();
+          dc1.onerror = ({ error }) => reject(error);
+        }),
+        new Promise<void>((resolve, reject) => {
+          pc2.ondatachannel = ({ channel }) => {
+            dc2 = channel;
+            channel.onopen = () => resolve();
+            channel.onerror = ({ error }) => reject(error);
+          };
+        }),
+      ]);
+      exchangeIceCandidates(pc1, pc2);
+      await pc1.setLocalDescription(await pc1.createOffer());
+      spyWhenReady(pc1, stun, handshakeDtls);
+      await pc2.setRemoteDescription(pc1.localDescription!);
+      await pc2.setLocalDescription(await pc2.createAnswer());
+      spyWhenReady(pc2, stun, handshakeDtls, {
+        holdRawHandshake,
+        onRawDtls: (bytes, state) => {
+          if (!captureProbingLeaks) {
+            return;
+          }
+          if (state === "probing" || state === "active") {
+            probingRaw.push(bytes);
+          }
+        },
+      });
+      await pc1.setRemoteDescription(pc2.localDescription!);
+
+      // Act: non-SPED 判定後の fallback を同期し、handshake 未完了のまま ICE restart する
+      await waitUntil(() => {
+        const runtime = getConnectionSpedRuntime(iceOf(pc2));
+        return (
+          runtime?.fallbackStarted === true &&
+          runtime.session.state === "fallback" &&
+          handshakeDtls.length > 0
+        );
+      });
+      const originalFlight = longestFlight(flights) ?? flights[0];
+      const originalPacket = firstNonEmptySpedData(stun) ?? originalFlight?.[0];
+      expect(originalPacket).toBeDefined();
+      expect(handshakeDtls.some((bytes) => bytes.equals(originalPacket!))).toBe(
+        true,
+      );
+
+      const generation = iceOf(pc2).generation;
+      const dtlsAtRestart = handshakeDtls.length;
+      captureProbingLeaks = true;
+      await pc1.setLocalDescription(
+        await pc1.createOffer({ iceRestart: true }),
+      );
+      await pc2.setRemoteDescription(pc1.localDescription!);
+      await pc2.setLocalDescription(await pc2.createAnswer());
+      await pc1.setRemoteDescription(pc2.localDescription!);
+
+      await waitUntil(() => iceOf(pc2).generation > generation);
+      holdRawHandshake.drop = false;
+      spyWhenReady(pc1, stun, handshakeDtls);
+      spyWhenReady(pc2, stun, handshakeDtls, { holdRawHandshake });
+
+      await waitUntil(() => {
+        const ice = iceOf(pc2);
+        const runtime = getConnectionSpedRuntime(ice);
+        return (
+          ice.generation > generation &&
+          (runtime?.session.state === "fallback" ||
+            runtime?.session.state === "complete")
+        );
+      });
+      captureProbingLeaks = false;
+
+      // Assert: 新 generation の authenticated Binding までは raw DTLS 0。判定後だけ同一 L1 を direct fallback
+      expect(probingRaw).toHaveLength(0);
+      expect(probingCarrierSends).toHaveLength(0);
+      const afterFallback = handshakeDtls.slice(dtlsAtRestart);
+      expect(afterFallback.length).toBeGreaterThan(0);
+      expect(afterFallback.some((bytes) => bytes.equals(originalPacket!))).toBe(
+        true,
+      );
+
+      await opened;
+      dc1.send("fallback-restart");
+      expect(await awaitMessage(dc2)).toBe("fallback-restart");
+    } finally {
+      captureProbingLeaks = false;
+      restoreCarrier();
+      stopCapture();
+      await pc1.close();
+      await pc2.close();
+    }
+  }, 40_000);
 
   test("UDP prflx のままの non-SPED peer は EOC 後に fallback して handshake が完了する", async () => {
     const stun: Buffer[] = [];
