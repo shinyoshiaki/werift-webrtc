@@ -544,11 +544,243 @@
     }
 
     .flow-caption {
-      padding: 0 16px 16px;
+      padding: 0 16px 8px;
       font-family: "Hiragino Sans", sans-serif;
       font-size: 14px;
-      min-height: 3.2em;
+      min-height: 2.4em;
       color: var(--muted);
+    }
+
+    .flow-step { cursor: pointer; }
+
+    .step-board {
+      padding: 8px 16px 16px;
+    }
+
+    .step-explain {
+      display: none;
+      grid-template-columns: 0.9fr 1.1fr;
+      gap: 18px;
+      align-items: center;
+      padding: 8px 0 4px;
+    }
+
+    .step-explain.is-on { display: grid; }
+
+    .step-explain h3 { margin: 0 0 8px; }
+
+    .viz {
+      position: relative;
+      height: 220px;
+      border-radius: 16px;
+      background:
+        linear-gradient(180deg, #f7f1e6, #efe7d8);
+      border: 1px solid var(--line);
+      overflow: hidden;
+    }
+
+    .viz .tag {
+      position: absolute;
+      left: 10px;
+      top: 8px;
+      font-family: "Hiragino Sans", sans-serif;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      z-index: 2;
+    }
+
+    .viz .lab {
+      position: absolute;
+      font-family: "Hiragino Sans", sans-serif;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .box {
+      position: absolute;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      font-family: "Hiragino Sans", sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    /* 1. match */
+    .hist { background: #3a3330; }
+    .rep { background: var(--teal); }
+    .viz-match .h1 { left: 28px; top: 48px; }
+    .viz-match .h2 { left: 28px; top: 92px; }
+    .viz-match .h3 { left: 28px; top: 136px; }
+    .viz-match .h4 { left: 28px; top: 180px; }
+    .viz-match .r1 { left: 78%; top: 92px; animation: flyin 2.4s ease-in-out infinite; }
+    .viz-match .r2 { left: 78%; top: 136px; animation: flyin 2.4s 0.15s ease-in-out infinite; }
+    .viz-match .r3 { left: 78%; top: 48px; background: var(--rose); animation: reject 2.4s 0.3s ease-in-out infinite; }
+    .viz-match .link {
+      position: absolute;
+      left: 68px;
+      height: 2px;
+      background: var(--leaf);
+      transform-origin: left center;
+      animation: draw 2.4s ease-in-out infinite;
+    }
+    .viz-match .l1 { top: 109px; width: 52%; }
+    .viz-match .l2 { top: 153px; width: 52%; animation-delay: 0.15s; }
+
+    @keyframes flyin {
+      0%, 12% { transform: translateX(40px); opacity: 0; }
+      35%, 70% { transform: translateX(-118px); opacity: 1; }
+      100% { transform: translateX(-118px); opacity: 1; }
+    }
+    @keyframes reject {
+      0%, 20% { transform: translateX(40px); opacity: 0; }
+      40% { transform: translateX(-40px); opacity: 1; }
+      70% { transform: translate(20px, 50px) rotate(18deg); opacity: 0; }
+      100% { opacity: 0; }
+    }
+    @keyframes draw {
+      0%, 28% { transform: scaleX(0); opacity: 0; }
+      45%, 75% { transform: scaleX(1); opacity: 1; }
+      100% { transform: scaleX(1); opacity: 0.35; }
+    }
+
+    /* 2. loss */
+    .viz-loss .row { position: absolute; left: 18px; right: 18px; top: 88px; display: flex; justify-content: space-between; }
+    .viz-loss .p {
+      width: 40px; height: 40px; border-radius: 10px;
+      display: grid; place-items: center; color: #fff;
+      font-family: "Hiragino Sans", sans-serif; font-weight: 700; font-size: 13px;
+      background: var(--leaf);
+    }
+    .viz-loss .miss {
+      background: transparent;
+      border: 2px dashed var(--rose);
+      color: var(--rose);
+      animation: misspulse 3s ease-in-out infinite;
+    }
+    .viz-loss .late {
+      position: absolute; left: 44%; top: 28px; width: 28px; height: 28px;
+      border-radius: 7px; background: var(--terracotta);
+      animation: latefix 3s ease-in-out infinite;
+    }
+    .viz-loss .bubble {
+      position: absolute; left: 50%; top: 168px; transform: translateX(-50%);
+      font-family: "Hiragino Sans", sans-serif; font-size: 12px;
+      background: #fff; border: 1px solid var(--line); padding: 4px 10px; border-radius: 999px;
+      animation: bubble 3s ease-in-out infinite;
+    }
+    @keyframes misspulse {
+      0%, 45% { background: transparent; color: var(--rose); border-style: dashed; }
+      70%, 100% { background: var(--leaf); color: #fff; border-color: var(--leaf); border-style: solid; }
+    }
+    @keyframes latefix {
+      0%, 40% { top: 18px; opacity: 0; }
+      55% { top: 94px; opacity: 1; }
+      70%, 100% { top: 94px; opacity: 0; }
+    }
+    @keyframes bubble {
+      0%, 45% { content: none; opacity: 0; }
+      55% { opacity: 1; }
+      100% { opacity: 1; }
+    }
+
+    /* 3. delay */
+    .viz-delay svg { width: 100%; height: 100%; }
+    .viz-delay .dot { fill: var(--terracotta); }
+    .viz-delay .trend { fill: none; stroke: var(--terracotta); stroke-width: 3; stroke-dasharray: 220; stroke-dashoffset: 220; animation: strokein 3.2s ease-in-out infinite; }
+    .viz-delay .d1 { animation: pop 3.2s 0.1s ease-in-out infinite; }
+    .viz-delay .d2 { animation: pop 3.2s 0.4s ease-in-out infinite; }
+    .viz-delay .d3 { animation: pop 3.2s 0.7s ease-in-out infinite; }
+    .viz-delay .d4 { animation: pop 3.2s 1.0s ease-in-out infinite; }
+    .viz-delay .d5 { animation: pop 3.2s 1.3s ease-in-out infinite; }
+    @keyframes pop {
+      0%, 8% { opacity: 0; r: 0; }
+      20%, 80% { opacity: 1; }
+      100% { opacity: 0.4; }
+    }
+    @keyframes strokein {
+      0%, 30% { stroke-dashoffset: 220; }
+      70%, 85% { stroke-dashoffset: 0; }
+      100% { stroke-dashoffset: 0; opacity: 0.5; }
+    }
+
+    /* 4. AIMD */
+    .viz-aimd .col { position: absolute; top: 44px; width: 42%; text-align: center; font-family: "Hiragino Sans", sans-serif; font-size: 12px; }
+    .viz-aimd .left { left: 6%; }
+    .viz-aimd .right { right: 6%; }
+    .viz-aimd .bar-track { height: 120px; width: 36px; margin: 8px auto 0; background: #ddd4c6; border-radius: 8px; position: relative; overflow: hidden; }
+    .viz-aimd .fill { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 8px; }
+    .viz-aimd .down { background: var(--rose); height: 78%; animation: shrink 2.8s ease-in-out infinite; }
+    .viz-aimd .up { background: var(--teal); height: 36%; animation: jump 2.8s ease-in-out infinite; }
+    @keyframes shrink {
+      0%, 20% { height: 78%; }
+      55%, 80% { height: 48%; }
+      100% { height: 78%; }
+    }
+    @keyframes jump {
+      0%, 25% { height: 36%; }
+      50%, 80% { height: 88%; }
+      100% { height: 36%; }
+    }
+
+    /* 5. ceiling */
+    .viz-ceil .bars { position: absolute; inset: 48px 16px 40px; display: flex; align-items: flex-end; justify-content: space-around; }
+    .viz-ceil .v { width: 42px; border-radius: 8px 8px 0 0; position: relative; }
+    .viz-ceil .delayb { height: 78%; background: var(--terracotta); animation: growd 3s ease-in-out infinite; }
+    .viz-ceil .lossb { height: 48%; background: var(--rose); animation: growl 3s ease-in-out infinite; }
+    .viz-ceil .pick { height: 48%; background: var(--leaf); animation: pick 3s ease-in-out infinite; }
+    .viz-ceil .nm { position: absolute; bottom: -22px; left: 50%; transform: translateX(-50%); font-family: "Hiragino Sans", sans-serif; font-size: 11px; white-space: nowrap; }
+    .viz-ceil .min-label {
+      position: absolute; top: 10px; right: 12px;
+      font-family: "Hiragino Sans", sans-serif; font-size: 12px; font-weight: 700;
+      animation: blink 3s ease-in-out infinite;
+    }
+    @keyframes growd { 0%,15% { height: 20%; } 40%,100% { height: 78%; } }
+    @keyframes growl { 0%,15% { height: 20%; } 40%,100% { height: 48%; } }
+    @keyframes pick { 0%,45% { height: 8%; opacity: 0.3; } 70%,100% { height: 48%; opacity: 1; } }
+    @keyframes blink { 0%,45% { opacity: 0; } 70%,100% { opacity: 1; } }
+
+    /* 6. notify */
+    .viz-note .phone {
+      position: absolute; left: 24px; top: 50px; width: 120px; height: 140px;
+      border-radius: 16px; background: #1b1714; color: #f3eee4;
+      font-family: ui-monospace, Menlo, monospace; font-size: 11px; padding: 12px;
+    }
+    .viz-note .app {
+      position: absolute; right: 24px; top: 70px; width: 110px; height: 90px;
+      border-radius: 16px; background: var(--teal); color: #fff;
+      display: grid; place-items: center; text-align: center;
+      font-family: "Hiragino Sans", sans-serif; font-size: 13px; font-weight: 700;
+    }
+    .viz-note .bolt {
+      position: absolute; left: 46%; top: 100px; width: 40px; height: 4px; background: var(--leaf);
+      transform-origin: left center; animation: notify 3.4s ease-in-out infinite;
+    }
+    .viz-note .same { opacity: 0.45; }
+    .viz-note .chg { animation: flash 3.4s ease-in-out infinite; }
+    .viz-note .badge {
+      position: absolute; right: 18px; top: 42px;
+      background: var(--leaf); color: #fff; font-family: "Hiragino Sans", sans-serif;
+      font-size: 11px; padding: 3px 8px; border-radius: 999px;
+      animation: flash 3.4s ease-in-out infinite;
+    }
+    @keyframes notify {
+      0%, 40% { transform: scaleX(0); opacity: 0; }
+      55%, 80% { transform: scaleX(1); opacity: 1; }
+      100% { transform: scaleX(1); opacity: 0; }
+    }
+    @keyframes flash {
+      0%, 40% { opacity: 0.2; }
+      55%, 85% { opacity: 1; }
+      100% { opacity: 0.2; }
+    }
+
+    .viz.run * {
+      animation-play-state: running;
     }
 
     .split2 {
@@ -706,7 +938,7 @@
     }
 
     @media (max-width: 860px) {
-      .analogy, .grid3, .clocks, .app-out, .split2, .usage { grid-template-columns: 1fr; }
+      .analogy, .grid3, .clocks, .app-out, .split2, .usage, .step-explain.is-on { grid-template-columns: 1fr; }
       .lane, .node.recv { display: none; }
       .stage { height: 260px; }
       .node.send { left: 50%; transform: translateX(-50%); }
@@ -921,8 +1153,109 @@
         <div class="flow-step" data-i="5"><strong>6. 通知</strong>前回と違う bps だけアプリへ</div>
       </div>
       <p class="flow-caption" id="flowText"></p>
+      <div class="step-board">
+        <article class="step-explain" data-step="0">
+          <div>
+            <h3>1. 照合 — 番号で送り履歴を探す</h3>
+            <p class="caption">返事のカードには「何番の荷物か」だけが書いてあります。送り手が控えた番号と突き合わせます。履歴に無い番号（差し替え直後など）は捨てます。ここで初めて、サイズと送り時刻が遅延・ロスの計算に使えます。</p>
+          </div>
+          <div class="viz viz-match" aria-hidden="true">
+            <span class="tag">送り履歴 ← 返事</span>
+            <span class="lab" style="left:28px;top:28px">履歴</span>
+            <span class="lab" style="right:18px;top:28px">TWCC</span>
+            <div class="box hist h1">10</div>
+            <div class="box hist h2">11</div>
+            <div class="box hist h3">12</div>
+            <div class="box hist h4">13</div>
+            <div class="link l1"></div>
+            <div class="link l2"></div>
+            <div class="box rep r1">11</div>
+            <div class="box rep r2">12</div>
+            <div class="box rep r3">99</div>
+          </div>
+        </article>
+        <article class="step-explain" data-step="1">
+          <div>
+            <h3>2. ロス — 番号の順で数える</h3>
+            <p class="caption">穴（届いていない）は仮の印です。あとから同じ番号が「届いた」と来たら取り消します。何度「未到達」と言われても、ロス側の観察には数えます。遅延の計算とは順が違います。</p>
+          </div>
+          <div class="viz viz-loss" aria-hidden="true">
+            <span class="tag">番号順 10 → 14</span>
+            <div class="late"></div>
+            <div class="row">
+              <div class="p">10</div>
+              <div class="p">11</div>
+              <div class="p miss">12</div>
+              <div class="p">13</div>
+              <div class="p">14</div>
+            </div>
+            <div class="bubble">12 が遅れて到着 → 仮のロスを取り消し</div>
+          </div>
+        </article>
+        <article class="step-explain" data-step="2">
+          <div>
+            <h3>3. 遅延 — 届いた時刻の順で傾きを見る</h3>
+            <p class="caption">送り時刻が近い荷物を 5ms の群れにまとめ、「送った間隔」と「届いた間隔」を比べます。点が右肩上がりなら列が伸びています（overuse）。ロス集計とは順が逆です。</p>
+          </div>
+          <div class="viz viz-delay" aria-hidden="true">
+            <span class="tag">横＝時間　縦＝待ちの積み上がり</span>
+            <svg viewBox="0 0 320 220" preserveAspectRatio="none">
+              <text x="14" y="200" fill="#5c534c" font-size="11" font-family="Hiragino Sans, sans-serif">送った差</text>
+              <path class="trend" d="M30 170 L80 155 L130 128 L190 88 L260 48" />
+              <circle class="dot d1" cx="30" cy="170" r="6" />
+              <circle class="dot d2" cx="80" cy="155" r="6" />
+              <circle class="dot d3" cx="130" cy="128" r="6" />
+              <circle class="dot d4" cx="190" cy="88" r="6" />
+              <circle class="dot d5" cx="260" cy="48" r="6" />
+            </svg>
+          </div>
+        </article>
+        <article class="step-explain" data-step="3">
+          <div>
+            <h3>4. AIMD — 傾きを速度に翻訳する</h3>
+            <p class="caption">overuse なら届いた速さ ×0.85（5kbps 超ならさらに −5kbps）。overuse でなく試し打ちが成功していれば、その速度をそのまま載せます。上げ方向の独自キャップはありません。このあとロスが天井を掛けます。</p>
+          </div>
+          <div class="viz viz-aimd" aria-hidden="true">
+            <span class="tag">左＝減速　右＝試し打ち成功</span>
+            <div class="col left">overuse<br /><div class="bar-track"><div class="fill down"></div></div>400 → 335</div>
+            <div class="col right">probe<br /><div class="bar-track"><div class="fill up"></div></div>300 → 高めに載せる</div>
+          </div>
+        </article>
+        <article class="step-explain" data-step="4">
+          <div>
+            <h3>5. 天井 — 低い方を採用する</h3>
+            <p class="caption">遅延側の上限と、ロス側の提案を並べ、小さい方をおすすめ速度にします。ロス側の準備ができるまでは採用しません。行き帰りの待ちが 3秒超なら、先に ×0.8 してロスで落としすぎません。</p>
+          </div>
+          <div class="viz viz-ceil" aria-hidden="true">
+            <span class="tag">min(遅延, ロス)</span>
+            <div class="min-label">← 低い方を採用</div>
+            <div class="bars">
+              <div class="v delayb"><span class="nm">遅延</span></div>
+              <div class="v lossb"><span class="nm">ロス</span></div>
+              <div class="v pick"><span class="nm">おすすめ</span></div>
+            </div>
+          </div>
+        </article>
+        <article class="step-explain" data-step="5">
+          <div>
+            <h3>6. 通知 — 変わったときだけアプリへ</h3>
+            <p class="caption">同じ bps をもう一度計算してもイベントは出しません。エンコーダの切替がうるさいのを防ぐためです。アプリが購読するのはこの数字だけです。</p>
+          </div>
+          <div class="viz viz-note" aria-hidden="true">
+            <span class="tag">変化したときだけ飛ぶ</span>
+            <div class="phone">
+              300_000 <span class="same">（同じ→沈黙）</span><br /><br />
+              <span class="chg">167_000</span>
+            </div>
+            <div class="bolt"></div>
+            <div class="badge">通知</div>
+            <div class="app">アプリ<br />画質を合わせる</div>
+          </div>
+        </article>
+      </div>
       <div class="controls">
         <button class="chip" type="button" id="flowPlay">再生</button>
+        <button class="chip" type="button" id="flowPrev">前の手順</button>
         <button class="chip" type="button" id="flowNext">次の手順</button>
       </div>
     </div>
@@ -1190,7 +1523,7 @@ sender.onAvailableBitrate.subscribe((bps) => {
       neck.style.width = s.neck.width;
       neck.style.background = s.neck.bg;
       renderQueue(s.queue);
-      document.querySelectorAll("button.chip").forEach((b) => {
+      document.querySelectorAll("button.chip[data-scene]").forEach((b) => {
         b.classList.toggle("active", b.dataset.scene === name);
       });
       clearPackets();
@@ -1199,7 +1532,7 @@ sender.onAvailableBitrate.subscribe((bps) => {
       timer = setInterval(loop, name === "probe" ? 1600 : 1300);
     }
 
-    document.querySelectorAll("button.chip").forEach((btn) => {
+    document.querySelectorAll("button.chip[data-scene]").forEach((btn) => {
       btn.addEventListener("click", () => apply(btn.dataset.scene));
     });
 
@@ -1218,20 +1551,45 @@ sender.onAvailableBitrate.subscribe((bps) => {
     let flowI = 0;
     let flowTimer = null;
 
+    const flowExplains = [...document.querySelectorAll(".step-explain")];
+
+    function restartViz(el) {
+      const viz = el.querySelector(".viz");
+      if (!viz) return;
+      const clone = viz.cloneNode(true);
+      viz.replaceWith(clone);
+    }
+
     function showFlow(i) {
       flowI = (i + flowSteps.length) % flowSteps.length;
       flowSteps.forEach((el, idx) => el.classList.toggle("is-on", idx === flowI));
+      flowExplains.forEach((el, idx) => {
+        const on = idx === flowI;
+        el.classList.toggle("is-on", on);
+        if (on) restartViz(el);
+      });
       flowText.textContent = flowTexts[flowI];
     }
+
+    flowSteps.forEach((el, idx) => {
+      el.addEventListener("click", () => {
+        if (flowTimer) { clearInterval(flowTimer); flowTimer = null; }
+        showFlow(idx);
+      });
+    });
 
     document.getElementById("flowNext").addEventListener("click", () => {
       if (flowTimer) { clearInterval(flowTimer); flowTimer = null; }
       showFlow(flowI + 1);
     });
+    document.getElementById("flowPrev").addEventListener("click", () => {
+      if (flowTimer) { clearInterval(flowTimer); flowTimer = null; }
+      showFlow(flowI - 1);
+    });
     document.getElementById("flowPlay").addEventListener("click", () => {
       if (flowTimer) { clearInterval(flowTimer); flowTimer = null; showFlow(flowI); return; }
       showFlow(0);
-      flowTimer = setInterval(() => showFlow(flowI + 1), 2200);
+      flowTimer = setInterval(() => showFlow(flowI + 1), 3400);
     });
     showFlow(0);
   </script>
