@@ -467,10 +467,15 @@ export class Connection implements IceConnection {
     protocol.onDataReceived.subscribe((data, addr) => {
       try {
         const pair = this.resolveDatagramPair(protocol, addr);
-        const authenticated = !!(pair && isAuthenticatedHandshakePair(pair));
+        const authenticated =
+          addr !== undefined &&
+          pair !== undefined &&
+          isAuthenticatedHandshakePair(pair);
         connectionDatagramEvent(this).execute({
           bytes: data,
-          source: addr ?? pair?.remoteAddr ?? ["0.0.0.0", 0],
+          // Never copy pair.remoteAddr into source: a missing addr must not
+          // look like an authenticated 5-tuple match.
+          source: addr ?? ["0.0.0.0", 0],
           protocol,
           pair,
           generation: this.generation,

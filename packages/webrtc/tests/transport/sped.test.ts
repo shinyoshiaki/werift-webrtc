@@ -1,4 +1,4 @@
-import type { Connection } from "../../../ice/src";
+import { Connection } from "../../../ice/src";
 import { CandidatePair } from "../../../ice/src";
 import { Candidate } from "../../../ice/src/candidate";
 import {
@@ -7,6 +7,8 @@ import {
 } from "../../../ice/src/internal/datagram";
 import { SpedSession } from "../../../ice/src/internal/sped";
 import { SpedRuntime } from "../../../ice/src/sped/runtime";
+import type { Protocol } from "../../../ice/src/types/model";
+import { Event } from "../../src/imports/common";
 import { IceSpedTransport } from "../../src/transport/sped";
 
 function createIceStub(generation = 1, checkList: CandidatePair[] = []) {
@@ -83,6 +85,20 @@ function authenticatedPair(
   return pair;
 }
 
+function protocolWithEvents(host: string, port: number): Protocol {
+  return {
+    type: "udp",
+    onRequestReceived: new Event(),
+    onDataReceived: new Event(),
+    localCandidate: new Candidate("f", 1, "udp", 1, host, port, "host"),
+    request: async () => null as never,
+    sendStun: async () => {},
+    sendData: async () => {},
+    connectionMade: async () => {},
+    close: async () => {},
+  };
+}
+
 describe("IceSpedTransport datagram gate", () => {
   it("認証済み current-generation pair の DTLS だけ onData に渡す", () => {
     // Arrange
@@ -128,6 +144,33 @@ describe("IceSpedTransport datagram gate", () => {
     });
 
     // Assert: 条件を満たす DTLS 1 件だけ届く
+    expect(received).toHaveLength(1);
+    expect(received[0]!.equals(dtls)).toBe(true);
+  });
+
+  it("source 無しの onDataReceived は認証済み nominated pair でも DTLS に渡さない", () => {
+    // Arrange: public Protocol が source を省略して発火する
+    const ice = new Connection(true);
+    const transport = new IceSpedTransport(ice);
+    const received: Buffer[] = [];
+    transport.onData = (buf) => {
+      received.push(buf);
+    };
+    const protocol = protocolWithEvents("1.2.3.4", 1);
+    (
+      ice as unknown as { ensureProtocol: (protocol: Protocol) => void }
+    ).ensureProtocol(protocol);
+    const pair = authenticatedPair(protocol, "9.9.9.9", 9);
+    pair.nominated = true;
+    ice.checkList.push(pair);
+    ice.nominated = pair;
+    const dtls = Buffer.from([22, 1, 2, 3]);
+
+    // Act: source 無しのあと、同じ bytes を pair の remote 5-tuple 付きで流す
+    protocol.onDataReceived.execute(dtls);
+    protocol.onDataReceived.execute(dtls, pair.remoteAddr);
+
+    // Assert: source が無い datagram は DTLS に入れず、明示 source だけ通す
     expect(received).toHaveLength(1);
     expect(received[0]!.equals(dtls)).toBe(true);
   });

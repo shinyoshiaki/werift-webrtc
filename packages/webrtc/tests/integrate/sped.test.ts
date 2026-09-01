@@ -127,12 +127,14 @@ function longestFlight(flights: Buffer[][]): Buffer[] | undefined {
 function spyCarrierEnabledSends(
   shouldRecord: () => boolean,
   recorded: Buffer[],
+  enabledLog: boolean[] = [],
 ) {
   const originalSend = DirectHandshakeCarrier.prototype.send;
   const originalSet = DirectHandshakeCarrier.prototype.setWireSendEnabled;
   const enabled = new WeakMap<object, boolean>();
   DirectHandshakeCarrier.prototype.setWireSendEnabled = function (value) {
     enabled.set(this, value);
+    enabledLog.push(value);
     return originalSet.call(this, value);
   };
   DirectHandshakeCarrier.prototype.send = async function (packet, addr) {
@@ -440,7 +442,7 @@ function stunAttributeTypes(bytes: Buffer): number[] {
   if (bytes.length < 20) {
     return types;
   }
-  for (let pos = 20; pos + 4 <= bytes.length; ) {
+  for (let pos = 20; pos + 4 <= bytes.length;) {
     const type = bytes.readUInt16BE(pos);
     const length = bytes.readUInt16BE(pos + 2);
     types.push(type);
@@ -1299,6 +1301,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
     const handshakeDtls: Buffer[] = [];
     const probingRaw: Buffer[] = [];
     const probingCarrierSends: Buffer[] = [];
+    const wireEnabledLog: boolean[] = [];
     const flights: Buffer[][] = [];
     const holdRawHandshake = { drop: true };
     let captureProbingLeaks = false;
@@ -1308,16 +1311,20 @@ describe("RTCPeerConnection SPED opt-in", () => {
     });
     const pc2 = new RTCPeerConnection(spedPeerConfig());
     const stopCapture = captureL1Flights(pc2, flights);
-    const restoreCarrier = spyCarrierEnabledSends(() => {
-      if (!captureProbingLeaks) {
-        return false;
-      }
-      const runtime = getConnectionSpedRuntime(iceOf(pc2));
-      return (
-        runtime?.session.state === "probing" ||
-        runtime?.session.state === "active"
-      );
-    }, probingCarrierSends);
+    const restoreCarrier = spyCarrierEnabledSends(
+      () => {
+        if (!captureProbingLeaks) {
+          return false;
+        }
+        const runtime = getConnectionSpedRuntime(iceOf(pc2));
+        return (
+          runtime?.session.state === "probing" ||
+          runtime?.session.state === "active"
+        );
+      },
+      probingCarrierSends,
+      wireEnabledLog,
+    );
     try {
       const dc1 = pc1.createDataChannel("dc");
       let dc2!: RTCDataChannel;
@@ -1379,6 +1386,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
       await pc1.setRemoteDescription(pc2.localDescription!);
 
       await waitUntil(() => iceOf(pc2).generation > generation);
+      expect(wireEnabledLog.at(-1)).toBe(false);
       holdRawHandshake.drop = false;
       spyWhenReady(pc1, stun, handshakeDtls);
       spyWhenReady(pc2, stun, handshakeDtls, { holdRawHandshake });
