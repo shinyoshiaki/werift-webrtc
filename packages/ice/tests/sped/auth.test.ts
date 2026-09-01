@@ -862,8 +862,9 @@ describe("ICE Binding Request 認証境界", () => {
     });
     expect(bindingCacheSize(connection)).toBeGreaterThan(0);
 
-    // Act: complete 後に consent 相当の新規 transaction を連続で受ける
+    // Act: handshake 完了でキャッシュを即クリアし、consent Binding でも増えないこと
     handle.onHandshakeComplete();
+    expect(bindingCacheSize(connection)).toBe(0);
     await sendDistinctBindings(connection, protocol, 8);
 
     // Assert: embedding 終了後は件数 0 のまま

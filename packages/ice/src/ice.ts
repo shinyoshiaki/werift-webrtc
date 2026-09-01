@@ -755,6 +755,15 @@ export class Connection implements IceConnection {
     this.spedBindingCache.set(txHex, bytes, stunTransactionLifetimeMs());
   }
 
+  /**
+   * @internal
+   * Handshake complete: drop Binding Response replay entries immediately
+   * instead of waiting for the next Binding or TTL.
+   */
+  forgetSpedBindingResponseCache(): void {
+    this.spedBindingCache.clearEntries();
+  }
+
   private getCandidatePromises(addresses: string[], timeout = 5) {
     const candidatePromises: Promise<unknown>[] = [];
     const { stunServer, turnServer } = this;

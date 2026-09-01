@@ -45,6 +45,10 @@ export function attachSpedToConnection(
   const session = new SpedSession(connection.generation);
   const runtime = new SpedRuntime(session, {
     ...hooks,
+    onHandshakeComplete: () => {
+      connection.forgetSpedBindingResponseCache();
+      hooks.onHandshakeComplete?.();
+    },
     inject: async (bytes, peer, generation) => {
       runtime.markCarrierInject();
       try {
