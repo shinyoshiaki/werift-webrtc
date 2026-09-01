@@ -15,9 +15,16 @@ import { SignatureAlgorithms } from "../../src/handshake/extensions/signatureAlg
 import { SupportedVersions } from "../../src/handshake/extensions/supportedVersions";
 import { UseSRTP } from "../../src/handshake/extensions/useSrtp";
 import { ClientHello } from "../../src/handshake/message/client/hello";
+import { ServerHello } from "../../src/handshake/message/server/hello";
+import { DtlsRandom } from "../../src/handshake/random";
 import { ContentType } from "../../src/record/const";
 import { FragmentedHandshake } from "../../src/record/message/fragment";
-import { DTLS_1_2_VERSION, DTLS_1_3_VERSION } from "../../src/version";
+import { serializePlaintextRecord } from "../../src/record/v1_3/record";
+import {
+  DTLS_1_2_VERSION,
+  DTLS_1_3_VERSION,
+  WireVersion,
+} from "../../src/version";
 import { certPem, keyPem } from "../fixture";
 
 function collectClientHellos(datagram: Buffer): ClientHello[] {
@@ -173,3 +180,81 @@ test("e2e/dual: CH-A and HVR-cookie ClientHello extension sets on the wire", asy
   await clientTransport.close();
   await serverTransport.close();
 }, 20_000);
+
+function dtls12ServerHelloWithoutSupportedVersions(): Buffer {
+  const sh = new ServerHello(
+    WireVersion.DTLS_1_2,
+    new DtlsRandom(),
+    Buffer.alloc(0),
+    CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199,
+    0,
+    [],
+  );
+  sh.messageSeq = 0;
+  const frag = sh.toFragment();
+  frag.message_seq = 0;
+  return serializePlaintextRecord(
+    ContentType.handshake,
+    0,
+    0,
+    frag.serialize(),
+  );
+}
+
+test("e2e/dual: cookie-less 1.2 ServerHello park retransmits CH-A without EMS", async () => {
+  // Arrange: Chrome ICE 相当。HVR を出さず、SV 無しの 1.2 SH だけ返す
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+  const sig = {
+    hash: HashAlgorithm.sha256_4,
+    signature: SignatureAlgorithm.rsa_1,
+  };
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+    extendedMasterSecret: true,
+    srtpProfiles: [ProtectionProfileAeadAes128Gcm],
+  });
+
+  const hellos: ClientHello[] = [];
+  let replied = false;
+  serverTransport.onData = (buf, addr) => {
+    hellos.push(...collectClientHellos(Buffer.from(buf)));
+    if (replied) return;
+    if (collectClientHellos(Buffer.from(buf)).length === 0) return;
+    replied = true;
+    void serverTransport.send(
+      dtls12ServerHelloWithoutSupportedVersions(),
+      addr,
+    );
+  };
+
+  // Act: CH-A のあとに 1.2 SH を注入し、cookie 無しの再送 CH を待つ
+  void client.connect().catch(() => {});
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const cookieLess = hellos.filter((ch) => ch.cookie.length === 0);
+    if (replied && cookieLess.length >= 2) break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+
+  const cookieLess = hellos.filter((ch) => ch.cookie.length === 0);
+  const chA = cookieLess[0];
+  const chResend = cookieLess[1];
+
+  // Assert: SH-only park の再送は CH-A と同じ拡張集合（EMS を足さない）
+  expect(chA).toBeDefined();
+  expect(chResend).toBeDefined();
+  expect(extTypes(chA!).has(ExtendedMasterSecret.type)).toBe(false);
+  expect(extTypes(chResend!).has(ExtendedMasterSecret.type)).toBe(false);
+  expect(extTypes(chResend!).has(RenegotiationIndication.type)).toBe(false);
+  expect([...extTypes(chResend!)].sort()).toEqual([...extTypes(chA!)].sort());
+
+  client.close();
+  await clientTransport.close();
+  await serverTransport.close();
+}, 10_000);

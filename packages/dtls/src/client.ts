@@ -746,14 +746,17 @@ export class DtlsClient extends DtlsSocket {
     // Build cookie CH from original dualResume without mutating 1.3 resume material.
     const hello = ClientHello.deSerialize(this.dualResume.clientHelloBody);
     hello.cookie = legacyCookie ? Buffer.from(legacyCookie) : Buffer.from([]);
-    // Merge 1.2-only extensions (EMS, renegotiation_info, …) that the 1.3
-    // engine CH-A does not carry. Keep CH-A's 1.3 extensions / cipher suites /
-    // random / key_share so a 1.3 server can still select 1.3 after HVR.
-    const have = new Set(hello.extensions.map((e) => e.type));
-    for (const ext of this.extensions) {
-      if (!have.has(ext.type)) {
-        hello.extensions.push(ext);
-        have.add(ext.type);
+    // HVR cookie path: merge 1.2-only extensions (EMS, renegotiation_info)
+    // that CH-A omitted. Cookie-less SH-only park (Chrome ICE skips HVR)
+    // must retransmit CH-A bit-identically — the server already answered
+    // that hello, and a mutated CH desyncs the 1.2 transcript.
+    if (legacyCookie && legacyCookie.length > 0) {
+      const have = new Set(hello.extensions.map((e) => e.type));
+      for (const ext of this.extensions) {
+        if (!have.has(ext.type)) {
+          hello.extensions.push(ext);
+          have.add(ext.type);
+        }
       }
     }
     // Clear messageSeq so Flight1 re-assigns seq 0 for this transmission

@@ -101,6 +101,8 @@ export { ProtocolVersionError } from "./version";
  *   Post-handshake (after connected):
  *     either side may send {KeyUpdate}; peer replies with ACK
  *     before the sender uses the new application write keys.
+ *     servers may send {NewSessionTicket}; client ACKs and discards
+ *     (no PSK / resumption).
  *
  *            Figure 3. Message Flights for Full Handshake (DTLS 1.3)
  *
@@ -109,7 +111,7 @@ export { ProtocolVersionError } from "./version";
  *   Flight 2   HelloRetryRequest* → flight/server/flight2.ts (sendHelloRetryRequest)
  *   Flight 4   ServerHello+{…} → flight/server/flight4.ts + flight/client/flight4.ts
  *   Flight 5   client {Finished} → flight/client/flight5.ts / flight/server/flight5.ts
- *   Post-HS    KeyUpdate / ACK → flight/post-hs.ts + flight-tx.ts + record-rx.ts
+ *   Post-HS    KeyUpdate / NewSessionTicket / ACK → flight/post-hs.ts + flight-tx.ts + record-rx.ts
  *   Wire I/O   records/flights → record-rx.ts (in) / flight-tx.ts (out)
  *   Host       Dtls13Connection extends Dtls13ConnectionBase once;
  *              flight/record modules are functions (this: Dtls13Host)
