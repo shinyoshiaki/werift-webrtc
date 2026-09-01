@@ -1,6 +1,7 @@
 import { HandshakeType } from "../../../../handshake/const";
 import { Finished } from "../../../../handshake/message/finished";
 import { AlertDesc } from "../../../../record/const";
+import { DtlsProtocolError } from "../../../../version";
 import type { Dtls13Host } from "../../host";
 import { log } from "../../types";
 
@@ -10,8 +11,15 @@ import { log } from "../../types";
 export async function onClientFinished(
   this: Dtls13Host,
   body: Buffer,
-  _epoch: number,
+  epoch: number,
 ): Promise<void> {
+  // RFC 9147: handshake traffic keys are epoch 2 (epoch 1 reserved, app is 3+)
+  if (epoch !== 2) {
+    throw new DtlsProtocolError(
+      `unexpected_message: client Finished on epoch ${epoch} (expected 2)`,
+      AlertDesc.UnexpectedMessage,
+    );
+  }
   const fin = Finished.deSerialize(body);
   if (this.expectClientCertificate) {
     if (!this.clientCertificateReceived) {

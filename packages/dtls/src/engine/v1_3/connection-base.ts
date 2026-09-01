@@ -41,6 +41,7 @@ import {
   MAX_RETAINED_APP_EPOCHS,
   PRE_COOKIE_ATTEMPT_TTL_MS,
   type PeerIdentityMode,
+  type ReceivedHandshake,
   type Role,
   associationHasPeerAuth,
   log,
@@ -214,8 +215,8 @@ export class Dtls13ConnectionBase {
     }
   >();
   fragmentBufferBytes = 0;
-  /** Out-of-order complete handshake messages (by message_seq). */
-  handshakeInbox = new Map<number, FragmentedHandshake>();
+  /** Out-of-order complete handshake messages (by message_seq), with record epoch. */
+  handshakeInbox = new Map<number, ReceivedHandshake>();
   nextReceiveSeq = 0;
   /**
    * Handshake records of the *current remote inbound flight* awaiting ACK

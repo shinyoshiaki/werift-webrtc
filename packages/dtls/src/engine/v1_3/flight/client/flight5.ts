@@ -6,8 +6,10 @@ import { HandshakeType } from "../../../../handshake/const";
 import { Finished } from "../../../../handshake/message/finished";
 import { Certificate13 } from "../../../../handshake/message/tls13/certificate";
 import { CertificateVerify13 } from "../../../../handshake/message/tls13/certificateVerify";
+import { AlertDesc } from "../../../../record/const";
 import type { FragmentedHandshake } from "../../../../record/message/fragment";
 import { createEpochProtection } from "../../../../record/v1_3/record";
+import { DtlsProtocolError } from "../../../../version";
 import type { Dtls13Host } from "../../host";
 import { log } from "../../types";
 
@@ -17,8 +19,15 @@ import { log } from "../../types";
 export async function onServerFinished(
   this: Dtls13Host,
   body: Buffer,
-  _epoch: number,
+  epoch: number,
 ): Promise<void> {
+  // RFC 9147: handshake traffic keys are epoch 2 (epoch 1 reserved, app is 3+)
+  if (epoch !== 2) {
+    throw new DtlsProtocolError(
+      `unexpected_message: server Finished on epoch ${epoch} (expected 2)`,
+      AlertDesc.UnexpectedMessage,
+    );
+  }
   const fin = Finished.deSerialize(body);
   const expected = this.keySchedule.verifyData(
     this.serverHsTraffic!,

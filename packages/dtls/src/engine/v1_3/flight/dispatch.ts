@@ -14,7 +14,7 @@ import { log } from "../types";
 
 /**
  * Handshake message handlers ordered like index.ts Figure 3 flights:
- *   Flight 1/3 ClientHello → Flight 2 HRR* → Flight 4 server → Flight 5 client → post-HS KeyUpdate
+ *   Flight 1/3 ClientHello → Flight 2 HRR* → Flight 4 server → Flight 5 client → post-HS KeyUpdate / NewSessionTicket
  */
 /**
  * RFC 8446 full-handshake order. Returns false if the type is not expected
@@ -26,6 +26,9 @@ export function isExpectedHandshakeType(
 ): boolean {
   if (msgType === HandshakeType.key_update_24) {
     return this.hsPhase === "connected";
+  }
+  if (msgType === HandshakeType.new_session_ticket_4) {
+    return this.role === "client" && this.hsPhase === "connected";
   }
   if (this.role === "client") {
     switch (this.hsPhase) {
@@ -48,7 +51,7 @@ export function isExpectedHandshakeType(
       case "wait_finished":
         return msgType === HandshakeType.finished_20;
       case "connected":
-        return false; // only KeyUpdate (handled above)
+        return false; // KeyUpdate / NewSessionTicket handled above
       default:
         return false;
     }
@@ -161,6 +164,9 @@ export async function dispatchHandshake(
       break;
     case HandshakeType.key_update_24:
       this.onKeyUpdate(body);
+      break;
+    case HandshakeType.new_session_ticket_4:
+      this.onNewSessionTicket(body);
       break;
     default:
       log("ignored handshake type", hs.msg_type);

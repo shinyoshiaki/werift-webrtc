@@ -67,11 +67,14 @@ export const MAX_ACK_RECORD_NUMBERS_INBOUND = 32;
 export class DtlsAck {
   constructor(public recordNumbers: AckRecordNumber[]) {}
 
-  static deSerialize(buf: Buffer): DtlsAck {
+  static deSerialize(buf: Buffer, options?: { strict?: boolean }): DtlsAck {
     if (buf.length < 2) throw new Error("ACK: truncated length");
     const listLen = buf.readUInt16BE(0);
     if (buf.length < 2 + listLen) throw new Error("ACK: truncated body");
     if (listLen % 16 !== 0) throw new Error("ACK: invalid list length");
+    if (options?.strict && buf.length !== 2 + listLen) {
+      throw new Error("ACK: trailing bytes");
+    }
     const total = listLen / 16;
     // Wire may advertise up to ~4095 entries; cap local allocation/processing
     // (ticket security bound). Extra entries are ignored, not a hard wire error.

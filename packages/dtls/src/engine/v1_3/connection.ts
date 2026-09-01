@@ -116,6 +116,7 @@ export class Dtls13Connection
   onCertificateVerify = certificate.onCertificateVerify;
   onFinished = finished.onFinished;
   onKeyUpdate = postHs.onKeyUpdate;
+  onNewSessionTicket = postHs.onNewSessionTicket;
   keyUpdate = postHs.keyUpdate;
   nextAppEpoch = postHs.nextAppEpoch;
 

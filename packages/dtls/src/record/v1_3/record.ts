@@ -86,14 +86,25 @@ export function createEpochProtection(epoch: number): EpochProtection {
   };
 }
 
+/** Options for DTLS 1.3 unified header layout (receive tests / MAY send). */
+export type EncryptRecordOptions = {
+  /** Default true (L=1). L=0 omits the length field; AAD matches that header. */
+  lengthPresent?: boolean;
+  /** Default true (16-bit sequence). */
+  seq16?: boolean;
+};
+
 /**
  * Encrypt content into a DTLS 1.3 unified ciphertext record.
  * Applies RFC 9147 record number encryption on the sequence field.
+ * Default layout is L=1 (explicit length). `options.lengthPresent: false`
+ * produces a legal L=0 record for tests; production TX stays L=1.
  */
 export function encryptRecord(
   content: Buffer,
   contentType: number,
   epochState: EpochProtection,
+  options?: EncryptRecordOptions,
 ): Buffer {
   if (!epochState.writeKeys) {
     throw new Error(`no write keys for epoch ${epochState.epoch}`);
@@ -118,6 +129,7 @@ export function encryptRecord(
     epochState.epoch,
     seq,
     ciphertextLength,
+    options,
   );
   const nonce = buildNonce(epochState.writeKeys.iv, epochState.epoch, seq);
   const encrypted = encryptAes128Gcm(
@@ -186,20 +198,31 @@ export function decryptRecord(
       `ciphertext record truncated: need header ${headerLen}, have ${data.length}`,
     );
   }
-  if (!lengthPresent) {
-    throw new Error(
-      "DTLS 1.3 records without length are not supported for receive",
+  // RFC 9147 §4.1: L=0 omits the length field; this record consumes the rest
+  // of the datagram (MUST be last). L=1 uses the 16-bit length field.
+  let ciphertextLength: number;
+  let total: number;
+  if (lengthPresent) {
+    ciphertextLength = data.readUInt16BE(1 + seqLen);
+    total = headerLen + ciphertextLength;
+  } else {
+    ciphertextLength = data.length - headerLen;
+    total = data.length;
+  }
+  // Inner plaintext is at least content type (1) + AEAD tag (16)
+  const minCiphertext = 17;
+  if (ciphertextLength < minCiphertext) {
+    throw new DtlsDecodeError(
+      `ciphertext record truncated: L=${lengthPresent ? 1 : 0} ciphertext ${ciphertextLength} below ${minCiphertext}`,
     );
   }
-  const length = data.readUInt16BE(1 + seqLen);
   // RFC 8446 §5.2: ciphertext length MUST NOT exceed 2^14 + 256
-  if (length > DTLS13_MAX_CIPHERTEXT_LENGTH) {
+  if (ciphertextLength > DTLS13_MAX_CIPHERTEXT_LENGTH) {
     throw new DtlsRecordOverflowError(
-      `record_overflow: ciphertext length ${length} exceeds ${DTLS13_MAX_CIPHERTEXT_LENGTH}`,
+      `record_overflow: ciphertext length ${ciphertextLength} exceeds ${DTLS13_MAX_CIPHERTEXT_LENGTH}`,
     );
   }
-  const total = headerLen + length;
-  if (data.length < total) {
+  if (lengthPresent && data.length < total) {
     throw new DtlsDecodeError(
       `ciphertext record truncated: need ${total}, have ${data.length}`,
     );

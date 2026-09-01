@@ -1,8 +1,9 @@
 import { KeyUpdate } from "../../../handshake/message/tls13/keyUpdate";
+import { NewSessionTicket } from "../../../handshake/message/tls13/newSessionTicket";
 import { createEpochProtection } from "../../../record/v1_3/record";
 import type { Dtls13Host } from "../host";
 
-/** Post-handshake KeyUpdate + ACK gating (both roles). */
+/** Post-handshake KeyUpdate + NewSessionTicket + ACK gating (both roles). */
 export function onKeyUpdate(this: Dtls13Host, body: Buffer) {
   const ku = KeyUpdate.deSerialize(body);
   // Peer sent KeyUpdate under their old write keys (= our current read epoch).
@@ -37,6 +38,16 @@ export function onKeyUpdate(this: Dtls13Host, body: Buffer) {
   if (ku.requestUpdate) {
     this.keyUpdateResponseAfterAck = true;
   }
+}
+
+/**
+ * RFC 8446 §4.6.1 / RFC 9147 Figure 10: client receives NewSessionTicket
+ * after connected, ACKs the record, and discards the ticket (no resumption).
+ */
+export function onNewSessionTicket(this: Dtls13Host, body: Buffer) {
+  NewSessionTicket.deSerialize(body);
+  // Ticket is not stored (PSK / 0-RTT / resumption are out of scope).
+  this.ackAfterCurrentRecord = true;
 }
 
 /** Next application epoch after KeyUpdate (skip reserved epoch 1). */

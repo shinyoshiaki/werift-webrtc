@@ -100,6 +100,7 @@ export interface Dtls13HostMethods {
   onServerFinished(body: Buffer, epoch: number): Promise<void>;
   onClientFinished(body: Buffer, epoch: number): Promise<void>;
   onKeyUpdate(body: Buffer): void;
+  onNewSessionTicket(body: Buffer): void;
   keyUpdate(requestUpdate?: boolean): Promise<void>;
   nextAppEpoch(current: number): number;
   sendHelloRetryRequest(

@@ -603,7 +603,9 @@ export function handleAck(
   receivedEpoch: number,
 ) {
   try {
-    const ack = DtlsAck.deSerialize(content);
+    const ack = DtlsAck.deSerialize(content, {
+      strict: receivedEpoch >= 2,
+    });
     log("received ACK", ack.recordNumbers.length, "on epoch", receivedEpoch);
     if (this.pendingFlightRecords.length === 0 && !this.pendingServerHello) {
       return;
@@ -692,6 +694,12 @@ export function handleAck(
       );
     }
   } catch (e) {
+    if (receivedEpoch >= 2) {
+      throw new DtlsProtocolError(
+        "decode_error: malformed ACK",
+        AlertDesc.DecodeError,
+      );
+    }
     log("bad ACK", e);
   }
 }
@@ -800,7 +808,7 @@ export async function enqueueHandshake(
     return;
   }
   if (seq > this.nextReceiveSeq) {
-    this.handshakeInbox.set(seq, hs);
+    this.handshakeInbox.set(seq, { handshake: hs, epoch });
     // Bound inbox size
     if (this.handshakeInbox.size > 32) {
       throw new Error(
@@ -812,11 +820,11 @@ export async function enqueueHandshake(
   // seq === nextReceiveSeq
   await this.dispatchHandshake(hs, epoch);
   this.nextReceiveSeq += 1;
-  // Drain consecutive queued messages
+  // Drain consecutive queued messages using the epoch captured at enqueue
   while (this.handshakeInbox.has(this.nextReceiveSeq)) {
-    const next = this.handshakeInbox.get(this.nextReceiveSeq)!;
+    const queued = this.handshakeInbox.get(this.nextReceiveSeq)!;
     this.handshakeInbox.delete(this.nextReceiveSeq);
-    await this.dispatchHandshake(next, epoch);
+    await this.dispatchHandshake(queued.handshake, queued.epoch);
     this.nextReceiveSeq += 1;
   }
 }

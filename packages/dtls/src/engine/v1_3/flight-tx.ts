@@ -714,45 +714,68 @@ export async function sendAck(
       ? a.epoch - b.epoch
       : a.sequenceNumber - b.sequenceNumber,
   );
-  const numbers = sorted.slice(0, maxN);
-  // Keep remainder for a subsequent ACK (do not drop unacked records)
-  this.receivedRecordNumbers = sorted.slice(maxN);
-  const ack = new DtlsAck(numbers);
-  const body = ack.serialize();
-
-  // Prefer encrypted ACK on current write epoch (handshake or app)
-  // After protected keys exist, never fall back to epoch-0 plaintext ACK
+  const mtu = this.carrier.getMtu();
   const ep =
     this.epochs.get(this.writeEpoch) ||
     this.epochs.get(2) ||
     this.epochs.get(3);
-  let record: Buffer;
-  if (ep?.writeKeys) {
-    record = encryptRecord(body, ContentType.ack, ep);
-  } else if (this.writeEpoch < 2 && !this.connected) {
-    // Epoch 0 plaintext ACK only before handshake traffic keys exist
-    const seq = this.recordSeqEpoch0++;
-    record = serializePlaintextRecord(ContentType.ack, 0, seq, body);
-  } else {
-    // No usable write keys — put numbers back
-    this.receivedRecordNumbers = [...numbers, ...this.receivedRecordNumbers];
+  const canEncrypt = !!ep?.writeKeys;
+  const canPlaintext = this.writeEpoch < 2 && !this.connected;
+  if (!canEncrypt && !canPlaintext) {
+    // No usable write keys — leave numbers in place
+    this.receivedRecordNumbers = sorted;
     return;
   }
-  if (record.length > this.carrier.getMtu()) {
-    // Should not happen if maxAckRecordsForMtu is correct; drop one and retry
-    log("ACK exceeds MTU; reducing record list", record.length);
-    this.receivedRecordNumbers = [...numbers, ...this.receivedRecordNumbers];
-    if (numbers.length > 1) {
-      this.receivedRecordNumbers = this.receivedRecordNumbers.slice(1);
-      await this.sendAck(opts);
+
+  const minN = allowEmpty ? 0 : 1;
+  let n = Math.min(maxN, sorted.length);
+  const overhead = canEncrypt ? ACK_ENCRYPTED_OVERHEAD : ACK_PLAINTEXT_OVERHEAD;
+  // Estimate first so the common path encrypts once (sequence gaps are legal)
+  while (n > minN && overhead + ACK_RECORD_NUMBER_BYTES * n > mtu) {
+    n--;
+  }
+
+  // Snapshot out of the queue so concurrent notes during send are preserved
+  this.receivedRecordNumbers = [];
+
+  const restoreAll = () => {
+    this.receivedRecordNumbers = [...sorted, ...this.receivedRecordNumbers];
+  };
+
+  for (; n >= minN; n--) {
+    const candidate = sorted.slice(0, n);
+    const ack = new DtlsAck(candidate);
+    const body = ack.serialize();
+    let record: Buffer;
+    if (canEncrypt) {
+      record = encryptRecord(body, ContentType.ack, ep!);
+    } else {
+      const seq = this.recordSeqEpoch0++;
+      record = serializePlaintextRecord(ContentType.ack, 0, seq, body);
     }
+    if (record.length > mtu) {
+      if (n > minN) {
+        log("ACK exceeds MTU; reducing record list", record.length);
+        continue;
+      }
+      // Even a single (or empty) ACK cannot fit — keep all numbers for later
+      restoreAll();
+      return;
+    }
+    const ok = await this.sendWithBudget(record);
+    if (!ok) {
+      restoreAll();
+      return;
+    }
+    // Only the RecordNumbers that were actually sent leave the queue
+    this.receivedRecordNumbers = [
+      ...sorted.slice(n),
+      ...this.receivedRecordNumbers,
+    ];
     return;
   }
-  const ok = await this.sendWithBudget(record);
-  if (!ok) {
-    // Budget exhausted: put numbers back so a later ACK can retry
-    this.receivedRecordNumbers = [...numbers, ...this.receivedRecordNumbers];
-  }
+
+  restoreAll();
 }
 
 /** Explicit empty ACK path (RFC 9147 §7: prompts peer retransmit). */

@@ -8,6 +8,7 @@ import type { Transport } from "../../imports/common";
 import { debug } from "../../imports/common";
 import type { SrtpProfile } from "../../imports/rtp";
 import type { AddressValidationMode, PeerIdentityMode } from "../../peer";
+import type { FragmentedHandshake } from "../../record/message/fragment";
 import type { DtlsVersion } from "../../version";
 
 /** Anti-amplification: server may send at most 3× received before address validated. */
@@ -179,6 +180,16 @@ export interface Dtls13Options {
   offeredProtocolVersions?: readonly DtlsVersion[];
 }
 export type Role = "client" | "server";
+
+/**
+ * Out-of-order complete handshake message queued by message_seq.
+ * Epoch is the record epoch at enqueue time (RFC 9147: drain must not
+ * reuse the currently-parsed record's epoch).
+ */
+export interface ReceivedHandshake {
+  handshake: FragmentedHandshake;
+  epoch: number;
+}
 
 /** HelloRetryRequest special random (RFC 8446). */
 export const HRR_RANDOM = Buffer.from(
