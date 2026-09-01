@@ -29,6 +29,8 @@
     "e2e": "cd e2e && npm i && npm run ci:silent",
     "e2e:verbose": "cd e2e && npm run ci",
     "example": "tsx watch examples/ice/restart/offer.ts",
+    "examples:e2e": "npm i --prefix examples && cd examples/e2e && npm i && npm run ci:silent",
+    "examples:e2e:install": "cd examples/e2e && npm i && npm run install:browsers",
     "format": "npm run format --workspaces --if-present && run-s format:examples format:e2e",
     "format:e2e": "cd e2e && cp ../biome.json ./ && npm run format",
     "format:examples": "cd examples && cp ../biome.json ./ && npm run format",

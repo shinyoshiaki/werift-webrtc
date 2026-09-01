@@ -22,7 +22,7 @@ server.on("connection", async (socket) => {
   ].join(" ! ");
   console.log(args);
 
-  spawn("gst-launch-1.0", args.split(" "));
+  spawn(`gst-launch-1.0 ${args}`, { shell: true });
 
   const pc = new RTCPeerConnection({
     codecs: {

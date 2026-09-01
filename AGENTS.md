@@ -52,6 +52,8 @@ If a rule applies only to a specific package or subdirectory, put it in the near
 | run full suite including E2E | `npm run test`        |
 | run E2E only                 | `npm run e2e`         |
 | run verbose E2E              | `npm run e2e:verbose` |
+| run examples smoke (Chromium + gst/ffmpeg) | `npm run examples:e2e` |
+| install examples e2e Chromium | `npm run examples:e2e:install` |
 | type-check workspace         | `npm run type`        |
 | run allowlisted upstream WPT | `npm run wpt`         |
 | measure WPT coverage         | `npm run wpt:coverage` |
@@ -71,7 +73,7 @@ For targeted work, prefer the narrowest package command first, for example:
 * Single-package logic changes: run that package's relevant test and/or type-check command.
 * Cross-package, public API, or protocol changes: run `npm run type` and `npm run test:small`; use `npm run ci` when the change spans the full stack.
 * WPT runner, dummy media, or compatibility allowlist changes: run `npm run wpt --workspace packages/webrtc`; run `npm run wpt:coverage --workspace packages/webrtc` when coverage or baseline wiring changes.
-* Browser interop, examples, or signaling flow changes: run the relevant example and/or `npm run e2e` when feasible.
+* Browser interop, examples, or signaling flow changes: run the relevant example and/or `npm run e2e` when feasible. If the change is a root `examples/` demo in the `examples/e2e` catalog, also run `npm run examples:e2e`.
 * Test code changes: confirm shared Arrange utilities remain reusable and appropriately scoped, and review that Act / Assert comments are present at a useful Japanese granularity.
 * Infrastructure-backed E2E changes: run the targeted scenario with its required opt-in environment flag before finishing, so the real dependency path is exercised.
 * Changes under `integration/werift-mediasoup-interop`: follow that directory's `AGENTS.md`.

@@ -34,7 +34,7 @@ const App: FC = () => {
     };
 
     const stream = await getVideoStream(await file.arrayBuffer());
-    const [track] = stream.getTracks();
+    const [track] = stream.getVideoTracks();
     peer.addTrack(track);
 
     await peer.setRemoteDescription(offer);

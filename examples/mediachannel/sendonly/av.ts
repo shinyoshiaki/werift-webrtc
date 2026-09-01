@@ -14,7 +14,7 @@ server.on("connection", async (socket) => {
   installPolyfill({
     mediaRegister: [
       createMp4WebmRegister({
-        path: "~/Downloads/test.webm",
+        path: process.env.WERIFT_EXAMPLE_MEDIA_PATH ?? "~/Downloads/test.webm",
         loop: true,
       }),
     ],
