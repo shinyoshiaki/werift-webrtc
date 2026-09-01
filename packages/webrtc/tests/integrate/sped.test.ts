@@ -442,7 +442,7 @@ function stunAttributeTypes(bytes: Buffer): number[] {
   if (bytes.length < 20) {
     return types;
   }
-  for (let pos = 20; pos + 4 <= bytes.length;) {
+  for (let pos = 20; pos + 4 <= bytes.length; ) {
     const type = bytes.readUInt16BE(pos);
     const length = bytes.readUInt16BE(pos + 2);
     types.push(type);
