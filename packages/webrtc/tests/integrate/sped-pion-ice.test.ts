@@ -281,8 +281,12 @@ describePion("released Pion ICE agent SPED fallback", () => {
       });
       iceTransport.setRuntime(handle.runtime);
       carrier.events.onFlightCreated = (_flightId, packets) => {
+        if (handle.runtime.isStaleCarrierFlight()) {
+          return;
+        }
         handle.onFlightCreated(
           packets.map((packet) => Buffer.from(packet.bytes)),
+          { fromCarrier: true },
         );
       };
 

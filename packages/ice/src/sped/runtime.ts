@@ -105,6 +105,8 @@ type SpedBindingRole = "full" | "capability" | "none";
  * ICE-facing SPED controller. Package-private; not exported from `src/index.ts`.
  */
 export class SpedRuntime {
+  private sessionEpoch = 0;
+  private carrierInjectEpoch?: number;
   fallbackStarted = false;
   /**
    * Pair that received the first non-empty DTLS DATA (or carried direct
@@ -405,6 +407,7 @@ export class SpedRuntime {
   }
 
   reset(generation: number): void {
+    this.sessionEpoch++;
     this.session.reset(generation);
     this.fallbackStarted = false;
     this.pendingInjectGeneration = undefined;
@@ -421,6 +424,7 @@ export class SpedRuntime {
    * ICE restart still uses {@link reset} to return to probing.
    */
   abort(): void {
+    this.sessionEpoch++;
     if (this.session.state === "disabled") {
       this.pendingInjectGeneration = undefined;
       this.lastPath = undefined;
@@ -434,6 +438,25 @@ export class SpedRuntime {
     this.pendingUnconfirmedMissingData.clear();
     this.hooks.setRetransmissionMode("internal");
     this.hooks.onSessionAbort?.();
+  }
+
+  markCarrierInject(): void {
+    this.carrierInjectEpoch = this.sessionEpoch;
+  }
+
+  clearCarrierInject(): void {
+    this.carrierInjectEpoch = undefined;
+  }
+
+  /**
+   * True while a DTLS inject started before the latest reset/abort is still
+   * running. Carrier onFlightCreated must not replace the new generation L1.
+   */
+  isStaleCarrierFlight(): boolean {
+    return (
+      this.carrierInjectEpoch !== undefined &&
+      this.carrierInjectEpoch !== this.sessionEpoch
+    );
   }
 
   close(): void {

@@ -834,4 +834,41 @@ describe("SPED pair eligibility と lastPath isolation", () => {
       await b.close();
     }
   });
+
+  it("fallback 開始後の別 pair は lastPath を動かさず再 fallback しない", async () => {
+    // Arrange: pair A で missing DATA fallback。B は後から認証される
+    const { connection, handle } = arrangeSpedRuntime();
+    const hello = Buffer.from([22, 0xfe, 0xfd, 0x00, 0x01]);
+    handle.session.replaceL1([hello]);
+    const protocolA = new SpedProtocolMock();
+    const protocolB = new SpedProtocolMock();
+    const pairA = spedPair(protocolA, "host", "1.2.3.4", 9);
+    const pairB = spedPair(protocolB, "host", "5.6.7.8", 8);
+    pairA.requestsReceived = 1;
+    pairB.requestsReceived = 1;
+    connection.checkList.push(pairA, pairB);
+    const missing = new Message(methods.BINDING, classes.REQUEST);
+    missing.setAttribute("USERNAME", "a:b").setAttribute("PRIORITY", 1);
+
+    // Act: A で fallback したあと、B の DATA 無し Binding を処理する
+    await handle.runtime.handleAuthenticatedStun(
+      missing,
+      pairA.remoteAddr,
+      connection.generation,
+      pairA,
+    );
+    handle.runtime.pinHandshakePath(pairA);
+    handle.runtime.beginFallback();
+    await handle.runtime.handleAuthenticatedStun(
+      missing,
+      pairB.remoteAddr,
+      connection.generation,
+      pairB,
+    );
+
+    // Assert: association は A のまま。B は capability だけで fallback し直さない
+    expect(handle.runtime.fallbackStarted).toBe(true);
+    expect(handle.runtime.lastPath).toBe(pairA);
+    expect(handle.session.state).toBe("fallback");
+  });
 });

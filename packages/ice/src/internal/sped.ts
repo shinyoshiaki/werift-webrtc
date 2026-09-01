@@ -31,7 +31,10 @@ export {
 export interface SpedHandle {
   session: SpedSession;
   runtime: SpedRuntime;
-  onFlightCreated: (packets: readonly Buffer[]) => void;
+  onFlightCreated: (
+    packets: readonly Buffer[],
+    options?: { fromCarrier?: boolean },
+  ) => void;
   onHandshakeComplete: () => void;
 }
 
@@ -43,14 +46,19 @@ export function attachSpedToConnection(
   const runtime = new SpedRuntime(session, {
     ...hooks,
     inject: async (bytes, peer, generation) => {
-      if (connection.generation !== generation) {
-        return;
+      runtime.markCarrierInject();
+      try {
+        if (connection.generation !== generation) {
+          return;
+        }
+        await Promise.resolve();
+        if (connection.generation !== generation) {
+          return;
+        }
+        await hooks.inject(bytes, peer, generation);
+      } finally {
+        runtime.clearCarrierInject();
       }
-      await Promise.resolve();
-      if (connection.generation !== generation) {
-        return;
-      }
-      await hooks.inject(bytes, peer, generation);
     },
   });
   runtime.syncPathMtuFromConnection(connection);
@@ -58,7 +66,10 @@ export function attachSpedToConnection(
   return {
     session,
     runtime,
-    onFlightCreated: (packets) => {
+    onFlightCreated: (packets, options) => {
+      if (options?.fromCarrier && runtime.isStaleCarrierFlight()) {
+        return;
+      }
       session.replaceL1(packets);
       requestSpedCarryMaybeFlush(connection);
     },

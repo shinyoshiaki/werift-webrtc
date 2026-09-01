@@ -1208,6 +1208,21 @@ describe("RTCPeerConnection SPED opt-in", () => {
     }
   }, 30_000);
 
+  test("Lite × Full で Lite が offerer でも SPED handshake と双方向 app data", async () => {
+    const lite = new RTCPeerConnection(spedPeerConfig({ iceLite: true }));
+    const full = new RTCPeerConnection(spedPeerConfig());
+    try {
+      const [dc1, dc2] = await createDataChannelPair({}, lite, full);
+      dc1.send("lite-offerer");
+      expect(await awaitMessage(dc2)).toBe("lite-offerer");
+      dc2.send("full-answerer");
+      expect(await awaitMessage(dc1)).toBe("full-answerer");
+    } finally {
+      await lite.close();
+      await full.close();
+    }
+  }, 30_000);
+
   test("TCP ICE 上で SPED handshake と双方向 app data", async () => {
     const stun: Buffer[] = [];
     const handshakeDtls: Buffer[] = [];
@@ -1229,6 +1244,8 @@ describe("RTCPeerConnection SPED opt-in", () => {
       // Act: TCP nominated 上で app data を送る
       dc1.send("tcp-sped");
       expect(await awaitMessage(dc2)).toBe("tcp-sped");
+      dc2.send("tcp-sped-back");
+      expect(await awaitMessage(dc1)).toBe("tcp-sped-back");
 
       // Assert: nominated pair が TCP であり、UDP 高優先度で偽陽性にならない
       expectNominatedTcp(pc1);
@@ -1253,6 +1270,32 @@ describe("RTCPeerConnection SPED opt-in", () => {
       expect(handshakeDtls).toHaveLength(0);
     } finally {
       restoreTcp();
+      await pc1.close();
+      await pc2.close();
+    }
+  }, 30_000);
+
+  test("DTLS 1.3 と 1.2 の dual-version SPED で handshake が完了する", async () => {
+    const dual = {
+      iceServers: [] as { urls: string }[],
+      sped: true,
+      dtls: {
+        protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2] as const,
+      },
+    };
+    const pc1 = new RTCPeerConnection(dual);
+    const pc2 = new RTCPeerConnection(dual);
+    try {
+      expect(pc1.getConfiguration().dtls.protocolVersions).toEqual([
+        DtlsVersion.V1_3,
+        DtlsVersion.V1_2,
+      ]);
+      const [dc1, dc2] = await createDataChannelPair({}, pc1, pc2);
+      dc1.send("dual");
+      expect(await awaitMessage(dc2)).toBe("dual");
+      dc2.send("dual-back");
+      expect(await awaitMessage(dc1)).toBe("dual-back");
+    } finally {
       await pc1.close();
       await pc2.close();
     }

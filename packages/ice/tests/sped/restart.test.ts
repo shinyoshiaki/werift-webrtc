@@ -11,7 +11,7 @@ import { classes, methods } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
 import { getRawAttributeValue } from "../../src/stun/rawAttributeValue";
 import { createTestConnection } from "../utils";
-import { SpedProtocolMock, spedPair } from "./helpers";
+import { SpedProtocolMock, spedPair, tcpSpedPair } from "./helpers";
 
 describe("ICE restart と SPED carry", () => {
   it("await 後の旧 generation 応答は pair / role / nomination を更新しない", async () => {
@@ -77,6 +77,55 @@ describe("ICE restart と SPED carry", () => {
     expect(handle.session.hasL1).toBe(true);
     expect(handle.session.l1Datagrams[0]!.equals(flight[0]!)).toBe(true);
     expect(handle.session.state).toBe("probing");
+  });
+
+  it("inject 実行中の restart は carrier flight を新 L1 に載せない", async () => {
+    // Arrange: inject が DTLS 処理相当で止まっているあいだに restart する
+    let release!: () => void;
+    const connection = createTestConnection(true);
+    const original = Buffer.from([22, 1, 1, 1]);
+    const stale = Buffer.from([22, 9, 9, 9]);
+    const handle = attachSpedToConnection(connection, {
+      inject: () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+      onFallbackFlight: async () => {},
+      onSessionReset: () => {
+        handle.onFlightCreated([original]);
+      },
+      setRetransmissionMode: () => {},
+      updateRtt: () => {},
+      resetRtt: () => {},
+      setMtu: () => {},
+    });
+    handle.onFlightCreated([original]);
+    const protocol = new SpedProtocolMock();
+    const pair = spedPair(protocol, "host");
+    const generation = connection.generation;
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request.setAttribute("USERNAME", "a:b").setAttribute("PRIORITY", 1);
+    request.appendRawAttribute(DTLS_IN_STUN_DATA, original);
+
+    // Act: inject 待ちのまま restart し、古い ServerHello 相当を carrier から載せる
+    const pending = handle.runtime.handleAuthenticatedStun(
+      request,
+      ["9.9.9.9", 9],
+      generation,
+      pair,
+    );
+    await new Promise((r) => setTimeout(r, 10));
+    await connection.restart();
+    handle.onFlightCreated([stale], { fromCarrier: true });
+    release();
+    await pending;
+
+    // Assert: 新 generation の L1 は reseed した original のまま
+    expect(handle.session.generation).toBe(connection.generation);
+    expect(handle.session.l1Datagrams[0]!.equals(original)).toBe(true);
+    expect(
+      handle.session.l1Datagrams.some((packet) => packet.equals(stale)),
+    ).toBe(false);
   });
 
   it("ICE restart は前 generation の RTT sample を捨てる", async () => {
@@ -418,5 +467,50 @@ describe("SPED abort", () => {
     expect(handle.session.state).toBe("probing");
     expect(handle.session.embedding).toBe(true);
     expect(handle.session.hasL1).toBe(true);
+  });
+
+  it("connect 失敗は Connection を failed にし SPED を abort する", async () => {
+    // Arrange: gather 済みだが pair が無く ICE が成立しない
+    const connection = createTestConnection(true);
+    const { calls, hooks: spedHooks } = hooks();
+    const handle = attachSpedToConnection(connection, spedHooks);
+    handle.onFlightCreated([Buffer.from([22, 1])]);
+    connection.localCandidatesEnd = true;
+    connection.remoteCandidates = [];
+    connection.remoteUsername = "foo";
+    connection.remotePassword = "bar";
+
+    // Act
+    await expect(connection.connect()).rejects.toThrow(
+      "ICE negotiation failed",
+    );
+
+    // Assert: Connection 自身が failed になり carrier/session を abort する
+    expect(connection.state).toBe("failed");
+    expect(handle.session.state).toBe("disabled");
+    expect(handle.session.embedding).toBe(false);
+    expect(calls.abort).toBeGreaterThanOrEqual(1);
+  }, 15_000);
+
+  it("TCP connectivity check は接続確立を含む responseTimeout を使う", async () => {
+    // Arrange: TCP は再送せず、50ms UDP RTO では connect が間に合わない
+    const connection = createTestConnection(true);
+    connection.remoteUsername = "remote";
+    connection.remotePassword = "remotepw";
+    const pair = tcpSpedPair({ localType: "active", remoteType: "passive" });
+    let captured: { retransmissions?: number; responseTimeout?: number } = {};
+    pair.protocol.request = async (_msg, _addr, _key, options) => {
+      if (options && typeof options === "object") {
+        captured = options;
+      }
+      throw new TransactionTimeout();
+    };
+
+    // Act
+    await connection.checkStart(pair).awaitable;
+
+    // Assert
+    expect(captured.retransmissions).toBe(0);
+    expect(captured.responseTimeout).toBeGreaterThan(50);
   });
 });

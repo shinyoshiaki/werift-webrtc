@@ -2,7 +2,10 @@ import type { Address } from "../../../common/src";
 import { CandidatePair, CandidatePairState } from "../../src";
 import { Candidate } from "../../src/candidate";
 import { connectionDatagramEvent } from "../../src/internal/datagram";
-import { attachSpedToConnection } from "../../src/internal/sped";
+import {
+  attachSpedToConnection,
+  decodeSpedData,
+} from "../../src/internal/sped";
 import {
   DTLS_IN_STUN_ACK,
   DTLS_IN_STUN_DATA,
@@ -639,6 +642,68 @@ describe("ICE Binding Request 認証境界", () => {
     expect(result.fallback).toBe(false);
     expect(handle.session.peerSupport).toBe("unknown");
     expect(handle.session.l2Crcs).toHaveLength(0);
+  });
+
+  it("同じ transaction id の Binding 再送は SPED Response bytes を変えない", async () => {
+    // Arrange: L1 が 2 datagram。round-robin すると再送で中身が変わる
+    const connection = createTestConnection(true);
+    const first = Buffer.from([22, 1, 1, 1]);
+    const second = Buffer.from([22, 2, 2, 2]);
+    const sent: Buffer[] = [];
+    attachSpedToConnection(connection, {
+      inject: async () => {},
+      onFallbackFlight: async () => {},
+      setRetransmissionMode: () => {},
+      updateRtt: () => {},
+      resetRtt: () => {},
+      setMtu: () => {},
+    }).session.replaceL1([first, second]);
+    const protocol = new SpedProtocolMock();
+    protocol.sendStun = async (message) => {
+      protocol.sentMessage = message;
+      sent.push(Buffer.from(message.bytes));
+    };
+    (connection as any).ensureProtocol(protocol);
+    seedDummyPair(connection, protocol);
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request
+      .setAttribute("USERNAME", `${connection.localUsername}:remote`)
+      .setAttribute("PRIORITY", 1)
+      .setAttribute("ICE-CONTROLLED", 1n)
+      .appendRawAttribute(DTLS_IN_STUN_DATA, Buffer.alloc(0))
+      .addMessageIntegrity(Buffer.from(connection.localPassword))
+      .addFingerprint();
+
+    // Act: 同一 Request を再送したあと、新しい transaction を 1 本送る
+    protocol.onRequestReceived.execute(request, ["1.2.3.4", 9], request.bytes);
+    await new Promise((r) => setTimeout(r, 30));
+    protocol.onRequestReceived.execute(request, ["1.2.3.4", 9], request.bytes);
+    await new Promise((r) => setTimeout(r, 30));
+    const next = new Message(methods.BINDING, classes.REQUEST);
+    next
+      .setAttribute("USERNAME", `${connection.localUsername}:remote`)
+      .setAttribute("PRIORITY", 1)
+      .setAttribute("ICE-CONTROLLED", 1n)
+      .appendRawAttribute(DTLS_IN_STUN_DATA, Buffer.alloc(0))
+      .addMessageIntegrity(Buffer.from(connection.localPassword))
+      .addFingerprint();
+    protocol.onRequestReceived.execute(next, ["1.2.3.4", 9], next.bytes);
+    await new Promise((r) => setTimeout(r, 30));
+
+    // Assert: 再送は完全一致（round-robin を進めない）
+    const responses = sent.filter((bytes) => {
+      const message = parseMessage(bytes);
+      return message?.messageClass === classes.RESPONSE;
+    });
+    expect(responses.length).toBeGreaterThanOrEqual(2);
+    expect(responses[0]!.equals(responses[1]!)).toBe(true);
+    const data0 = decodeSpedData(
+      getRawAttributeValue(parseMessage(responses[0]!)!, DTLS_IN_STUN_DATA)!,
+    );
+    expect(data0.kind).toBe("datagram");
+    if (data0.kind === "datagram") {
+      expect(data0.bytes.equals(first)).toBe(true);
+    }
   });
 
   it("認証済み Binding Request 直後の WAITING pair は raw DTLS を通す", async () => {

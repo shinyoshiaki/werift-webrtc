@@ -19,7 +19,7 @@ import {
   DtlsClient,
   DtlsServer,
   type DtlsSocket,
-  type DtlsVersion,
+  DtlsVersion,
   HashAlgorithm,
   NamedCurveAlgorithm,
   SignatureAlgorithm,
@@ -62,6 +62,12 @@ import type { RTCIceTransport } from "./ice";
 import { IceSpedTransport } from "./sped";
 
 const log = debug("werift:packages/webrtc/src/transport/dtls.ts");
+
+function spedHandshakeProtocolVersions(
+  versions: readonly DtlsVersion[] | undefined,
+): DtlsVersion[] {
+  return (versions ?? []).filter((version) => version === DtlsVersion.V1_3);
+}
 
 export interface DtlsTransportConfig {
   debug?: DebugConfig;
@@ -385,8 +391,11 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     transport.setRuntime(handle.runtime);
 
     carrier.events.onFlightCreated = (_flightId, packets) => {
+      if (handle.runtime.isStaleCarrierFlight()) {
+        return;
+      }
       lastFlight = packets.map((packet) => Buffer.from(packet.bytes));
-      handle.onFlightCreated(lastFlight);
+      handle.onFlightCreated(lastFlight, { fromCarrier: true });
     };
 
     const common = {
@@ -396,7 +405,11 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       transport,
       srtpProfiles: this.srtpProfiles,
       extendedMasterSecret: true,
-      protocolVersions: this.config.protocolVersions,
+      // SPED is DTLS 1.3 only. Dual [1.3,1.2] would park a 1.2 HVR probe
+      // and leave the server without an engine13 inject handler.
+      protocolVersions: spedHandshakeProtocolVersions(
+        this.config.protocolVersions,
+      ),
       peerIdentityMode: "authenticated-single-peer" as const,
       addressValidation,
       handshakeCarrier: carrier,

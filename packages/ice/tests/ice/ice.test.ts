@@ -831,22 +831,26 @@ describe("ice", () => {
       }
     }));
 
-  test("test_connect_no_remote_candidates", async () =>
-    new Promise<void>(async (done) => {
-      const conn = createTestConnection(true);
+  test(
+    "test_connect_no_remote_candidates",
+    async () =>
+      new Promise<void>(async (done) => {
+        const conn = createTestConnection(true);
 
-      await conn.gatherCandidates();
-      conn.remoteCandidates = [];
-      conn.remoteUsername = "foo";
-      conn.remotePassword = "bar";
-      try {
-        await conn.connect();
-      } catch (error: any) {
-        expect(error.message).toBe("ICE negotiation failed");
-        await conn.close();
-        done();
-      }
-    }));
+        await conn.gatherCandidates();
+        conn.remoteCandidates = [];
+        conn.remoteUsername = "foo";
+        conn.remotePassword = "bar";
+        try {
+          await conn.connect();
+        } catch (error: any) {
+          expect(error.message).toBe("ICE negotiation failed");
+          await conn.close();
+          done();
+        }
+      }),
+    15_000,
+  );
 
   test("test_connect_no_remote_credentials", async () =>
     new Promise<void>(async (done) => {

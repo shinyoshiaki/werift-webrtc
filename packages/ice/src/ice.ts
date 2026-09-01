@@ -45,7 +45,7 @@ import { Message, parseMessage } from "./stun/message";
 import { StunProtocol } from "./stun/protocol";
 import { TcpActiveProtocol, TcpPassiveProtocol } from "./stun/tcpProtocol";
 import { createStunOverTurnClient } from "./turn/protocol";
-import type { Protocol } from "./types/model";
+import type { Protocol, TransactionRequestOptions } from "./types/model";
 import { getHostAddresses } from "./utils";
 
 const log = debug("werift-ice : packages/ice/src/ice.ts : log");
@@ -76,12 +76,25 @@ function isTcpActiveCandidate(candidate: {
 
 /**
  * One STUN connectivity-check transaction: initial send plus RETRY_MAX
- * retransmissions with doubling RTO. Used as the inbound TCP pair wait so
- * ICE does not hang on a passive listener after known pairs are exhausted.
+ * retransmissions with doubling RTO. Used as the inbound pair wait so ICE
+ * does not hang after known pairs are exhausted (UDP prflx Binding or TCP
+ * passive listener).
  */
 function stunTransactionLifetimeMs() {
   const tries = 1 + RETRY_MAX;
   return RETRY_RTO * (2 ** tries - 1);
+}
+
+/**
+ * TCP ICE checks send once (retransmissions: 0). Wait for TCP handshake plus
+ * a STUN reply; the 50ms UDP RTO is too short for connect().
+ */
+function tcpCheckResponseTimeoutMs(rttSeconds?: number): number {
+  const rttMs =
+    rttSeconds !== undefined && Number.isFinite(rttSeconds) && rttSeconds > 0
+      ? Math.round(rttSeconds * 1000)
+      : 0;
+  return Math.max(stunTransactionLifetimeMs(), 1000 + rttMs);
 }
 
 /** Fallback STUN server when none is configured (constructor / setIceServers). */
@@ -112,7 +125,7 @@ export class Connection implements IceConnection {
   private nominating = false;
   private checkListDone = false;
   private checkListState = new PQueue<number>();
-  private incomingTcpPairWait?: { settle: (learned: boolean) => void };
+  private incomingPairWait?: { settle: (learned: boolean) => void };
   private earlyChecks: [Message, Address, Protocol][] = [];
   private earlyChecksDone = false;
   private localCandidatesStart = false;
@@ -145,6 +158,9 @@ export class Connection implements IceConnection {
   private spedSolicitPeerCarry = false;
   private spedCarryEpoch = 0;
   private spedIncomingStunDepth = 0;
+  /** Exact SPED Binding Response bytes keyed by STUN transaction id. */
+  private spedBindingResponseByTx = new Map<string, Buffer>();
+  private spedBindingInFlight = new Set<string>();
 
   constructor(
     private _iceControlling: boolean,
@@ -256,7 +272,7 @@ export class Connection implements IceConnection {
     this.nominating = false;
     this.checkList = [];
     this.checkListDone = false;
-    this.cancelIncomingTcpPairWait();
+    this.cancelIncomingPairWait();
     this.checkListState = new PQueue<number>();
     this.earlyChecks = [];
     this.earlyChecksDone = false;
@@ -276,6 +292,8 @@ export class Connection implements IceConnection {
     this.spedCarryInFlight = false;
     this.spedCarryQueued = false;
     this.spedSolicitPeerCarry = false;
+    this.spedBindingResponseByTx.clear();
+    this.spedBindingInFlight.clear();
     this.spedRuntime?.reset(this.generation);
   }
 
@@ -601,49 +619,120 @@ export class Connection implements IceConnection {
       pair = this.ensureIncomingPair(verified, addr, protocol);
     }
 
-    if (
-      this.spedRuntime &&
-      pair &&
-      this.spedRuntime.isLiveGeneration(generation)
-    ) {
-      await this.spedRuntime.handleAuthenticatedStun(
-        verified,
-        addr,
-        generation,
-        pair,
+    const txHex = verified.transactionIdHex;
+    const replayCached = async (bytes: Buffer) => {
+      if (
+        this.spedRuntime &&
+        pair &&
+        this.spedRuntime.isLiveGeneration(generation)
+      ) {
+        await this.spedRuntime.handleAuthenticatedStun(
+          verified,
+          addr,
+          generation,
+          pair,
+        );
+      }
+      const replay = new Message(
+        methods.BINDING,
+        classes.RESPONSE,
+        verified.transactionId,
       );
-      if (generation !== this.generation) {
-        return;
+      Object.defineProperty(replay, "bytes", {
+        configurable: true,
+        enumerable: false,
+        get: () => bytes,
+      });
+      protocol.sendStun(replay, addr).catch((e) => {
+        log("sendStun error", e);
+      });
+      if (deferIncoming) {
+        this.earlyChecks.push([verified, addr, protocol]);
+      } else {
+        this.checkIncoming(verified, addr, protocol);
       }
-    }
-
-    const response = new Message(
-      methods.BINDING,
-      classes.RESPONSE,
-      verified.transactionId,
-    );
-    response.setAttribute("XOR-MAPPED-ADDRESS", addr);
-    if (this.spedRuntime && pair) {
-      if (!this.spedRuntime.decorateOutgoing(response, pair)) {
-        return;
+      if (this.spedRuntime && generation === this.generation) {
+        this.settleSpedUnconfirmed(pair);
+        await this.maybeSendSpedFallback(protocol, addr, generation);
       }
-    }
-    response
-      .addMessageIntegrity(Buffer.from(localPassword, "utf8"))
-      .addFingerprint();
-    protocol.sendStun(response, addr).catch((e) => {
-      log("sendStun error", e);
-    });
+    };
 
-    if (deferIncoming) {
-      this.earlyChecks.push([verified, addr, protocol]);
-    } else {
-      this.checkIncoming(verified, addr, protocol);
+    const cachedResponse = this.spedBindingResponseByTx.get(txHex);
+    if (cachedResponse) {
+      await replayCached(cachedResponse);
+      return;
     }
 
-    if (this.spedRuntime && generation === this.generation) {
-      this.settleSpedUnconfirmed(pair);
-      await this.maybeSendSpedFallback(protocol, addr, generation);
+    if (this.spedBindingInFlight.has(txHex)) {
+      while (
+        this.generation === generation &&
+        this.spedBindingInFlight.has(txHex) &&
+        !this.spedBindingResponseByTx.has(txHex)
+      ) {
+        await Promise.resolve();
+      }
+      const ready = this.spedBindingResponseByTx.get(txHex);
+      if (ready) {
+        await replayCached(ready);
+      }
+      return;
+    }
+
+    this.spedBindingInFlight.add(txHex);
+    try {
+      if (
+        this.spedRuntime &&
+        pair &&
+        this.spedRuntime.isLiveGeneration(generation)
+      ) {
+        await this.spedRuntime.handleAuthenticatedStun(
+          verified,
+          addr,
+          generation,
+          pair,
+        );
+        if (generation !== this.generation) {
+          return;
+        }
+        const raced = this.spedBindingResponseByTx.get(txHex);
+        if (raced) {
+          await replayCached(raced);
+          return;
+        }
+      }
+
+      const response = new Message(
+        methods.BINDING,
+        classes.RESPONSE,
+        verified.transactionId,
+      );
+      response.setAttribute("XOR-MAPPED-ADDRESS", addr);
+      if (this.spedRuntime && pair) {
+        if (!this.spedRuntime.decorateOutgoing(response, pair)) {
+          return;
+        }
+      }
+      response
+        .addMessageIntegrity(Buffer.from(localPassword, "utf8"))
+        .addFingerprint();
+      const wire = Buffer.from(response.bytes);
+      this.spedBindingResponseByTx.set(txHex, wire);
+      protocol.sendStun(response, addr).catch((e) => {
+        log("sendStun error", e);
+      });
+
+      if (deferIncoming) {
+        this.earlyChecks.push([verified, addr, protocol]);
+      } else {
+        this.checkIncoming(verified, addr, protocol);
+      }
+
+      if (this.spedRuntime && generation === this.generation) {
+        this.settleSpedUnconfirmed(pair);
+        await this.maybeSendSpedFallback(protocol, addr, generation);
+      }
+    } finally {
+      this.spedBindingInFlight.delete(txHex);
     }
   }
 
@@ -944,6 +1033,9 @@ export class Connection implements IceConnection {
         }
 
         if (res !== ICE_COMPLETED && !this.nominated) {
+          if (this.state !== "closed") {
+            this.setState("failed");
+          }
           throw new Error("ICE negotiation failed");
         }
       }
@@ -972,10 +1064,10 @@ export class Connection implements IceConnection {
         log("checkListState", res);
         continue;
       }
-      if (!this.canLearnIncomingTcpPair()) {
+      if (!this.canLearnIncomingPair()) {
         break;
       }
-      const learned = await this.waitForIncomingTcpPair();
+      const learned = await this.waitForIncomingPair();
       if (!learned) {
         break;
       }
@@ -987,6 +1079,9 @@ export class Connection implements IceConnection {
     }
 
     if (res !== ICE_COMPLETED && !this.nominated) {
+      if (this.state !== "closed") {
+        this.setState("failed");
+      }
       throw new Error("ICE negotiation failed");
     }
 
@@ -1335,7 +1430,7 @@ export class Connection implements IceConnection {
     // """
 
     this.setState("closed");
-    this.cancelIncomingTcpPairWait();
+    this.cancelIncomingPairWait();
 
     // # stop consent freshness tests
     this.stopConsentLifecycle();
@@ -1365,6 +1460,8 @@ export class Connection implements IceConnection {
     this.spedCarryInFlight = false;
     this.spedCarryQueued = false;
     this.spedSolicitPeerCarry = false;
+    this.spedBindingResponseByTx.clear();
+    this.spedBindingInFlight.clear();
     this.spedRuntime?.abort();
     this.spedRuntime = undefined;
   }
@@ -1556,12 +1653,22 @@ export class Connection implements IceConnection {
     );
   }
 
-  private canLearnIncomingTcpPair(): boolean {
+  private canLearnIncomingPair(): boolean {
     if (this.checkListDone || this.nominated || this.state === "closed") {
       return false;
     }
     if (this.hasOutstandingChecks()) {
       return false;
+    }
+    const hasLocalUdpReceiver = this.protocols.some((protocol) => {
+      const local = protocol.localCandidate;
+      if (!local || local.transport.toLowerCase() !== "udp") {
+        return false;
+      }
+      return local.type === "host" || local.type === "srflx";
+    });
+    if (hasLocalUdpReceiver) {
+      return true;
     }
     const hasLocalPassive = this.protocols.some(
       (protocol) =>
@@ -1576,16 +1683,16 @@ export class Connection implements IceConnection {
     );
   }
 
-  private waitForIncomingTcpPair(): Promise<boolean> {
+  private waitForIncomingPair(): Promise<boolean> {
     if (this.state === "closed") {
       return Promise.resolve(false);
     }
     return new Promise((resolve) => {
       const settle = (learned: boolean) => {
-        if (this.incomingTcpPairWait?.settle !== settle) {
+        if (this.incomingPairWait?.settle !== settle) {
           return;
         }
-        this.incomingTcpPairWait = undefined;
+        this.incomingPairWait = undefined;
         clearTimeout(timer);
         resolve(learned);
       };
@@ -1593,12 +1700,12 @@ export class Connection implements IceConnection {
         () => settle(false),
         stunTransactionLifetimeMs(),
       );
-      this.incomingTcpPairWait = { settle };
+      this.incomingPairWait = { settle };
     });
   }
 
-  private cancelIncomingTcpPairWait() {
-    this.incomingTcpPairWait?.settle(false);
+  private cancelIncomingPairWait() {
+    this.incomingPairWait?.settle(false);
   }
 
   private hasViableTcpActivePair(component: number): boolean {
@@ -1646,6 +1753,19 @@ export class Connection implements IceConnection {
 
   private decorateSpedRequest(request: Message, pair: CandidatePair): boolean {
     return this.spedRuntime?.decorateOutgoing(request, pair) ?? true;
+  }
+
+  private stunCheckTransactionOptions(
+    pair: CandidatePair,
+    udpRetransmissions: number,
+    onRequestSent?: (attempt: number) => void,
+  ): TransactionRequestOptions {
+    const tcp = pair.localCandidate.transport.toLowerCase() === "tcp";
+    return {
+      retransmissions: tcp ? 0 : udpRetransmissions,
+      responseTimeout: tcp ? tcpCheckResponseTimeoutMs(pair.rtt) : undefined,
+      onRequestSent,
+    };
   }
 
   private isStaleConnectivityCheck(
@@ -1754,7 +1874,7 @@ export class Connection implements IceConnection {
         request,
         addr,
         Buffer.from(this.remotePassword, "utf8"),
-        retransmissions,
+        this.stunCheckTransactionOptions(pair, retransmissions),
       );
       if (
         generation !== this.generation ||
@@ -2023,12 +2143,11 @@ export class Connection implements IceConnection {
           request,
           pair.remoteAddr,
           Buffer.from(remotePassword, "utf8"),
-          pair.localCandidate.transport.toLowerCase() === "tcp" ? 0 : 4,
-          (attempt) => {
+          this.stunCheckTransactionOptions(pair, 4, (attempt) => {
             if (attempt > 0) {
               pair.retransmissionsSent++;
             }
-          },
+          }),
         );
         if (stopIfStale()) {
           return;
@@ -2154,12 +2273,11 @@ export class Connection implements IceConnection {
             request,
             pair.remoteAddr,
             Buffer.from(this.remotePassword, "utf8"),
-            pair.localCandidate.transport.toLowerCase() === "tcp" ? 0 : 4,
-            (attempt) => {
+            this.stunCheckTransactionOptions(pair, 4, (attempt) => {
               if (attempt > 0) {
                 pair.retransmissionsSent++;
               }
-            },
+            }),
           );
           if (stopIfStale()) {
             return;
@@ -2198,7 +2316,7 @@ export class Connection implements IceConnection {
   private addPair(pair: CandidatePair) {
     this.checkList.push(pair);
     this.sortCheckList();
-    this.incomingTcpPairWait?.settle(true);
+    this.incomingPairWait?.settle(true);
   }
 
   private ensureIncomingPair(
