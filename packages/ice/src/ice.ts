@@ -39,6 +39,7 @@ import {
   registerSpedCarryMaybeFlush,
   setConnectionSpedRuntime,
 } from "./internal/sped-bind";
+import { SpedBindingResponseCache } from "./internal/sped-binding-cache";
 import { type SpedRuntime, sameCandidatePair } from "./sped/runtime";
 import { RETRY_MAX, RETRY_RTO, classes, methods } from "./stun/const";
 import { Message, parseMessage } from "./stun/message";
@@ -158,9 +159,11 @@ export class Connection implements IceConnection {
   private spedSolicitPeerCarry = false;
   private spedCarryEpoch = 0;
   private spedIncomingStunDepth = 0;
-  /** Exact SPED Binding Response bytes keyed by STUN transaction id. */
-  private spedBindingResponseByTx = new Map<string, Buffer>();
-  private spedBindingInFlight = new Set<string>();
+  /**
+   * Exact SPED Binding Response bytes keyed by STUN transaction id.
+   * Handshake only: TTL = STUN transaction lifetime, LRU-capped.
+   */
+  private spedBindingCache = new SpedBindingResponseCache();
 
   constructor(
     private _iceControlling: boolean,
@@ -292,8 +295,7 @@ export class Connection implements IceConnection {
     this.spedCarryInFlight = false;
     this.spedCarryQueued = false;
     this.spedSolicitPeerCarry = false;
-    this.spedBindingResponseByTx.clear();
-    this.spedBindingInFlight.clear();
+    this.spedBindingCache.clear();
     this.spedRuntime?.reset(this.generation);
   }
 
@@ -657,28 +659,23 @@ export class Connection implements IceConnection {
       }
     };
 
-    const cachedResponse = this.spedBindingResponseByTx.get(txHex);
+    const cachedResponse = this.cachedSpedBindingResponse(txHex);
     if (cachedResponse) {
       await replayCached(cachedResponse);
       return;
     }
 
-    if (this.spedBindingInFlight.has(txHex)) {
-      while (
-        this.generation === generation &&
-        this.spedBindingInFlight.has(txHex) &&
-        !this.spedBindingResponseByTx.has(txHex)
-      ) {
-        await Promise.resolve();
-      }
-      const ready = this.spedBindingResponseByTx.get(txHex);
-      if (ready) {
+    const inFlight = this.spedBindingCache.getInFlight(txHex);
+    if (inFlight) {
+      const ready = await inFlight;
+      if (ready && this.generation === generation) {
         await replayCached(ready);
       }
       return;
     }
 
-    this.spedBindingInFlight.add(txHex);
+    const { finish } = this.spedBindingCache.begin(txHex);
+    let result: Buffer | undefined;
     try {
       if (
         this.spedRuntime &&
@@ -694,8 +691,9 @@ export class Connection implements IceConnection {
         if (generation !== this.generation) {
           return;
         }
-        const raced = this.spedBindingResponseByTx.get(txHex);
+        const raced = this.cachedSpedBindingResponse(txHex);
         if (raced) {
+          result = raced;
           await replayCached(raced);
           return;
         }
@@ -716,7 +714,8 @@ export class Connection implements IceConnection {
         .addMessageIntegrity(Buffer.from(localPassword, "utf8"))
         .addFingerprint();
       const wire = Buffer.from(response.bytes);
-      this.spedBindingResponseByTx.set(txHex, wire);
+      this.storeSpedBindingResponse(txHex, wire);
+      result = wire;
       protocol.sendStun(response, addr).catch((e) => {
         log("sendStun error", e);
       });
@@ -732,8 +731,37 @@ export class Connection implements IceConnection {
         await this.maybeSendSpedFallback(protocol, addr, generation);
       }
     } finally {
-      this.spedBindingInFlight.delete(txHex);
+      finish(result);
     }
+  }
+
+  private shouldCacheSpedBindingResponse(): boolean {
+    return this.spedRuntime?.session.embedding === true;
+  }
+
+  private cachedSpedBindingResponse(txHex: string): Buffer | undefined {
+    if (!this.shouldCacheSpedBindingResponse()) {
+      this.spedBindingCache.clearEntries();
+      return undefined;
+    }
+    return this.spedBindingCache.get(txHex);
+  }
+
+  private storeSpedBindingResponse(txHex: string, bytes: Buffer): void {
+    if (!this.shouldCacheSpedBindingResponse()) {
+      this.spedBindingCache.clearEntries();
+      return;
+    }
+    this.spedBindingCache.set(txHex, bytes, stunTransactionLifetimeMs());
+  }
+
+  /**
+   * @internal
+   * Handshake complete: drop Binding Response replay entries immediately
+   * instead of waiting for the next Binding or TTL.
+   */
+  forgetSpedBindingResponseCache(): void {
+    this.spedBindingCache.clearEntries();
   }
 
   private getCandidatePromises(addresses: string[], timeout = 5) {
@@ -1460,8 +1488,7 @@ export class Connection implements IceConnection {
     this.spedCarryInFlight = false;
     this.spedCarryQueued = false;
     this.spedSolicitPeerCarry = false;
-    this.spedBindingResponseByTx.clear();
-    this.spedBindingInFlight.clear();
+    this.spedBindingCache.clear();
     this.spedRuntime?.abort();
     this.spedRuntime = undefined;
   }

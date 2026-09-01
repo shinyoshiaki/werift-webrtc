@@ -65,6 +65,47 @@ function seedDummyPair(
   return dummy;
 }
 
+function spedNopHooks() {
+  return {
+    inject: async () => {},
+    onFallbackFlight: async () => {},
+    setRetransmissionMode: () => {},
+    updateRtt: () => {},
+    resetRtt: () => {},
+    setMtu: () => {},
+  };
+}
+
+function bindingCacheSize(
+  connection: ReturnType<typeof createTestConnection>,
+): number {
+  return (connection as unknown as { spedBindingCache: { size: number } })
+    .spedBindingCache.size;
+}
+
+async function sendDistinctBindings(
+  connection: ReturnType<typeof createTestConnection>,
+  protocol: SpedProtocolMock,
+  count: number,
+  options: { emptySpedData?: boolean } = {},
+) {
+  for (let i = 0; i < count; i++) {
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request
+      .setAttribute("USERNAME", `${connection.localUsername}:remote`)
+      .setAttribute("PRIORITY", 1)
+      .setAttribute("ICE-CONTROLLED", 1n);
+    if (options.emptySpedData) {
+      request.appendRawAttribute(DTLS_IN_STUN_DATA, Buffer.alloc(0));
+    }
+    request
+      .addMessageIntegrity(Buffer.from(connection.localPassword))
+      .addFingerprint();
+    protocol.onRequestReceived.execute(request, ["1.2.3.4", 9], request.bytes);
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
+
 function currentGenerationBinding(
   connection: ReturnType<typeof createTestConnection>,
   fingerprint: boolean,
@@ -792,5 +833,42 @@ describe("ICE Binding Request 認証境界", () => {
     expect(injected).toHaveLength(0);
     expect(injected.some((bytes) => bytes.equals(forged))).toBe(false);
     expect(sentDirect.some((bytes) => bytes.equals(forged))).toBe(false);
+  });
+
+  it("SPED 無しの consent Binding は response cache を増やさない", async () => {
+    // Arrange: SPED 未装着。consent 相当の新規 transaction を連続で受ける
+    const connection = createTestConnection(true);
+    const protocol = new SpedProtocolMock();
+    (connection as any).ensureProtocol(protocol);
+    seedDummyPair(connection, protocol);
+
+    // Act
+    await sendDistinctBindings(connection, protocol, 8);
+
+    // Assert: handshake 用キャッシュは作られない
+    expect(bindingCacheSize(connection)).toBe(0);
+  });
+
+  it("handshake 完了後の consent Binding は cache を増やさない", async () => {
+    // Arrange: probing 中に数本キャッシュしたあと handshake 完了
+    const connection = createTestConnection(true);
+    const handle = attachSpedToConnection(connection, spedNopHooks());
+    handle.session.replaceL1([Buffer.from([22, 1])]);
+    const protocol = new SpedProtocolMock();
+    (connection as any).ensureProtocol(protocol);
+    seedDummyPair(connection, protocol);
+    await sendDistinctBindings(connection, protocol, 3, {
+      emptySpedData: true,
+    });
+    expect(bindingCacheSize(connection)).toBeGreaterThan(0);
+
+    // Act: handshake 完了でキャッシュを即クリアし、consent Binding でも増えないこと
+    handle.onHandshakeComplete();
+    expect(bindingCacheSize(connection)).toBe(0);
+    await sendDistinctBindings(connection, protocol, 8);
+
+    // Assert: embedding 終了後は件数 0 のまま
+    expect(handle.session.embedding).toBe(false);
+    expect(bindingCacheSize(connection)).toBe(0);
   });
 });
