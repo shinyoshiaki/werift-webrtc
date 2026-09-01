@@ -7,11 +7,13 @@ This is not the protocol suite in `/e2e`, and it does not copy `examples/turn-lo
 
 | Script | What it does |
 | --- | --- |
-| `npm run ci:silent` | Install Chromium if needed, vendor Babel/React CDN files, run tests |
+| `npm run ci:silent` | Install Chromium if needed, verify committed vendor files, run tests |
 | `npm run type` | Type-check the harness |
 | `npm run chrome` | Vitest only (assumes browsers and vendor already present) |
 
 From the repository root: `npm run examples:e2e`.
+
+Vendor JavaScript (React 16/18, Babel 5 / standalone, regenerator, axios) is committed under `vendor/`. `ensure-vendor.js` does not download from a CDN when `CI=true`; missing files fail the run.
 
 ## Requirements
 

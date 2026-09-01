@@ -48,11 +48,10 @@ const vendorRoutes: Array<{ pattern: RegExp; file: string }> = [
 
 let sharedBrowser: Browser | undefined;
 
-function maybeNoSandboxArgs() {
-  if (existsSync("/.dockerenv") || process.env.CI) {
-    return ["--no-sandbox", "--disable-setuid-sandbox"];
-  }
-  return [];
+const noSandboxArgs = ["--no-sandbox", "--disable-setuid-sandbox"];
+
+function isSandboxLaunchError(error: unknown) {
+  return /sandbox/i.test(String(error));
 }
 
 export async function getBrowser() {
@@ -60,22 +59,16 @@ export async function getBrowser() {
     try {
       sharedBrowser = await chromium.launch({
         ...chromiumLaunchOptions,
-        args: [...chromiumLaunchArgs, ...maybeNoSandboxArgs()],
+        args: [...chromiumLaunchArgs],
       });
     } catch (error) {
-      const message = String(error);
-      if (message.includes("sandbox")) {
-        sharedBrowser = await chromium.launch({
-          ...chromiumLaunchOptions,
-          args: [
-            ...chromiumLaunchArgs,
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-          ],
-        });
-      } else {
+      if (!isSandboxLaunchError(error)) {
         throw error;
       }
+      sharedBrowser = await chromium.launch({
+        ...chromiumLaunchOptions,
+        args: [...chromiumLaunchArgs, ...noSandboxArgs],
+      });
     }
   }
   return sharedBrowser;
@@ -102,8 +95,9 @@ export async function openExamplePage(url: string, signalingPort: number) {
       }
       const filePath = path.join(vendorDir, mapped.file);
       if (!existsSync(filePath)) {
-        await route.abort();
-        return;
+        throw new Error(
+          `committed vendor file missing: ${mapped.file} (CI must not fetch CDN)`,
+        );
       }
       await route.fulfill({
         path: filePath,

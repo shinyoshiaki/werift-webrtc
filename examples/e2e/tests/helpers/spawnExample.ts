@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -14,7 +14,7 @@ export type SpawnedProcess = {
   waitForExit: () => Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
 };
 
-function hasExited(child: ChildProcess) {
+export function hasExited(child: ChildProcess) {
   return child.exitCode !== null || child.signalCode !== null;
 }
 
@@ -241,26 +241,167 @@ export async function stopProcessTree(child?: ChildProcess) {
   await waitForExit(child, STOP_TIMEOUT_MS);
 }
 
+const MEDIA_COMM = new Set(["gst-launch-1.0", "ffmpeg"]);
+
+function readProcComm(pid: number) {
+  try {
+    return readFileSync(`/proc/${pid}/comm`, "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+export function isMediaBinaryPid(pid: number) {
+  const comm = readProcComm(pid);
+  return MEDIA_COMM.has(comm) || comm.startsWith("gst-launch");
+}
+
+export function isPidAlive(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function pgrep(args: string[]) {
+  const listed = spawn("pgrep", args, { stdio: ["ignore", "pipe", "ignore"] });
+  return new Promise<string>((resolve) => {
+    let text = "";
+    listed.stdout?.on("data", (chunk) => {
+      text += chunk.toString();
+    });
+    listed.on("close", () => resolve(text));
+  });
+}
+
+function parsePids(output: string) {
+  const pids = new Set<number>();
+  for (const line of output.split("\n")) {
+    const pid = Number(line.trim());
+    if (Number.isInteger(pid) && pid > 0) {
+      pids.add(pid);
+    }
+  }
+  return pids;
+}
+
+export async function listProcessGroupPids(pgid: number) {
+  return parsePids(await pgrep(["-g", String(pgid)]));
+}
+
 export async function listMediaPids() {
   const names = ["gst-launch-1.0", "ffmpeg"];
   const pids = new Set<number>();
   for (const name of names) {
-    const listed = spawn("pgrep", ["-x", name], { stdio: ["ignore", "pipe", "ignore"] });
-    const output = await new Promise<string>((resolve) => {
-      let text = "";
-      listed.stdout?.on("data", (chunk) => {
-        text += chunk.toString();
-      });
-      listed.on("close", () => resolve(text));
-    });
-    for (const line of output.split("\n")) {
-      const pid = Number(line.trim());
-      if (Number.isInteger(pid) && pid > 0) {
-        pids.add(pid);
-      }
+    for (const pid of parsePids(await pgrep(["-x", name]))) {
+      pids.add(pid);
     }
   }
   return pids;
+}
+
+export async function listMediaPidsForProcesses(processes: SpawnedProcess[]) {
+  const pids = new Set<number>();
+  for (const spawned of processes) {
+    const pid = spawned.child.pid;
+    if (pid == null) {
+      continue;
+    }
+    for (const candidate of await listProcessGroupPids(pid)) {
+      if (isMediaBinaryPid(candidate)) {
+        pids.add(candidate);
+      }
+    }
+    if (isMediaBinaryPid(pid)) {
+      pids.add(pid);
+    }
+  }
+  return pids;
+}
+
+export async function waitForMediaPids(
+  processes: SpawnedProcess[],
+  options: { timeoutMs?: number; before?: Set<number> } = {},
+) {
+  const timeoutMs = options.timeoutMs ?? 25_000;
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const pids = await listMediaPidsForProcesses(processes);
+    if (options.before) {
+      for (const pid of await listMediaPids()) {
+        if (!options.before.has(pid)) {
+          pids.add(pid);
+        }
+      }
+    }
+    if (pids.size > 0) {
+      await delay(400);
+      await assertMediaPidsAlive(pids);
+      return pids;
+    }
+    for (const spawned of processes) {
+      if (hasExited(spawned.child) && spawned.child.exitCode) {
+        throw new Error(
+          `example exited before gst/ffmpeg started: ${spawned.logs.slice(-2_000)}`,
+        );
+      }
+    }
+    await delay(150);
+  }
+  throw new Error("gst-launch-1.0 / ffmpeg did not start");
+}
+
+export async function assertMediaPidsAlive(pids: Iterable<number>) {
+  const missing: number[] = [];
+  for (const pid of pids) {
+    if (!isPidAlive(pid)) {
+      missing.push(pid);
+    }
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      `ffmpeg/GStreamer child exited immediately (pids ${missing.join(", ")})`,
+    );
+  }
+}
+
+export function watchUnexpectedExit(
+  spawned: SpawnedProcess,
+  options: { allowExit?: boolean } = {},
+) {
+  let unexpected: Error | undefined;
+  const fail = (code: number | null, signal: NodeJS.Signals | null) => {
+    if (options.allowExit) {
+      return;
+    }
+    unexpected = new Error(
+      `example process exited unexpectedly (code=${code} signal=${signal})\n${spawned.logs.slice(-2_000)}`,
+    );
+  };
+  if (hasExited(spawned.child)) {
+    fail(spawned.child.exitCode, spawned.child.signalCode);
+  } else {
+    spawned.child.once("exit", (code, signal) => fail(code, signal));
+  }
+  return {
+    throwIfExited() {
+      if (unexpected) {
+        throw unexpected;
+      }
+    },
+  };
+}
+
+const FATAL_LOG = /Error: baseTime not exist|UnhandledPromiseRejection|unhandledRejection/;
+
+export function assertNoFatalLogs(spawned: SpawnedProcess) {
+  if (FATAL_LOG.test(spawned.logs)) {
+    throw new Error(
+      `example logged a fatal error:\n${spawned.logs.slice(-2_000)}`,
+    );
+  }
 }
 
 export async function killPids(pids: Iterable<number>) {

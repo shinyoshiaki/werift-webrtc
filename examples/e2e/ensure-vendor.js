@@ -54,6 +54,11 @@ async function main() {
     if (existsSync(dest)) {
       continue;
     }
+    if (process.env.CI) {
+      throw new Error(
+        `vendor file missing in CI; commit examples/e2e/vendor/${file.name} instead of downloading from CDN`,
+      );
+    }
     console.log(`download vendor ${file.name}`);
     await download(file.url, dest);
   }

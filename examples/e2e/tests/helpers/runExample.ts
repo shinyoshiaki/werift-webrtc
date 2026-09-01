@@ -20,6 +20,8 @@ import {
   startViteServer,
 } from "./serveClient.js";
 import {
+  assertMediaPidsAlive,
+  assertNoFatalLogs,
   commandExists,
   getAvailablePort,
   listMediaPids,
@@ -27,8 +29,10 @@ import {
   spawnVideotestsrc,
   type SpawnedProcess,
   waitForLog,
+  waitForMediaPids,
   waitForPortFree,
   waitForPortOpen,
+  watchUnexpectedExit,
 } from "./spawnExample.js";
 import {
   waitDataChannelClosed,
@@ -49,7 +53,16 @@ export type ExampleSession = {
   processes: SpawnedProcess[];
   workDir: string;
   udpListener?: { packets: number };
+  mediaPids: Set<number>;
 };
+
+function needsMediaChild(entry: CatalogEntry) {
+  return Boolean(entry.binary || entry.extraGstPorts?.length);
+}
+
+function expectsProcessExit(entry: CatalogEntry) {
+  return entry.kind === "process-exit" || entry.expectExit != null;
+}
 
 function skipMissingBinary(entry: CatalogEntry, ctx?: TaskContext) {
   if (!entry.binary) {
@@ -180,7 +193,28 @@ export async function withExample(
       processes: handles.processes,
       workDir,
       udpListener,
+      mediaPids: new Set(),
     };
+
+    const exitGuards = expectsProcessExit(entry)
+      ? []
+      : handles.processes.map((spawned) => watchUnexpectedExit(spawned));
+    const throwIfCrashed = () => {
+      for (const guard of exitGuards) {
+        guard.throwIfExited();
+      }
+      for (const spawned of handles.processes) {
+        assertNoFatalLogs(spawned);
+      }
+    };
+
+    if (needsMediaChild(entry)) {
+      session.mediaPids = await waitForMediaPids(handles.processes, {
+        before: handles.mediaPidsBefore,
+      });
+      await assertMediaPidsAlive(session.mediaPids);
+    }
+    throwIfCrashed();
 
     if (
       entry.kind === "process-exit" ||
@@ -188,10 +222,12 @@ export async function withExample(
     ) {
       const exiting = client ?? primary;
       await waitSpawnedExit(exiting, entry.expectExit ?? 0);
+      throwIfCrashed();
       return;
     }
 
     await act(session);
+    throwIfCrashed();
   } finally {
     await cleanupExample(handles);
   }
@@ -214,6 +250,9 @@ export async function assertCatalogEntry(
       break;
     }
     case "media-inbound": {
+      if (session.mediaPids.size > 0) {
+        await assertMediaPidsAlive(session.mediaPids);
+      }
       if (!page) throw new Error("page required");
       try {
         // Act: ICE 接続と受信 RTP を待つ（画質や video.play 完了は必須にしない）
@@ -248,19 +287,24 @@ export async function assertCatalogEntry(
     case "media-record": {
       if (page) {
         try {
+          // Act: ICE 接続を待つ。失敗は成功扱いにしない
           await waitPeerConnected(page);
-        } catch {
+        } catch (error) {
           if (entry.skipIfNoAv1) {
             console.warn(`skip ${entry.id}: AV1 did not connect`);
             ctx?.skip();
             return;
           }
+          throw error;
         }
       }
       if (primary) {
-        await waitForLog(primary, "stop", (entry.recordWaitMs ?? 15_000) + 10_000).catch(
-          () => undefined,
-        );
+        // Assert: デモが stop まで進み、途中で例外終了していない
+        await waitForLog(primary, "stop", (entry.recordWaitMs ?? 15_000) + 10_000);
+        assertNoFatalLogs(primary);
+      }
+      if (session.mediaPids.size > 0) {
+        await assertMediaPidsAlive(session.mediaPids);
       }
       if (entry.outputGlob) {
         try {
@@ -304,11 +348,13 @@ export async function assertCatalogEntry(
       break;
     }
     case "node-gst": {
+      if (session.mediaPids.size > 0) {
+        await assertMediaPidsAlive(session.mediaPids);
+      }
       if (entry.outputGlob) {
         if (primary) {
-          await waitForLog(primary, "stop", (entry.recordWaitMs ?? 8_000) + 5_000).catch(
-            () => undefined,
-          );
+          await waitForLog(primary, "stop", (entry.recordWaitMs ?? 8_000) + 5_000);
+          assertNoFatalLogs(primary);
         }
         await waitNonEmptyOutput(
           session.workDir,
