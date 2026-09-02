@@ -3,6 +3,9 @@
 # Consumed by Dockerfile.sysbox-base: COPY packages/dtls/tools/boringssl-dtls13 ...
 set -euo pipefail
 
+# Nested clone must not inherit a parent work tree (SAK wrapper injects GIT_DIR).
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY || true
+
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 PIN_FILE="${ROOT}/BORINGSSL_REVISION"
 PIN="${WERIFT_BORINGSSL_REVISION:-}"

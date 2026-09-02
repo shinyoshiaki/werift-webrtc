@@ -31,11 +31,12 @@ Instructions for coding agents working in `packages/dtls`.
 | format package | `npm run format` |
 | package CI | `npm run ci` |
 | BoringSSL DTLS 1.3 interop | `npm run test:boringssl` |
+| BoringSSL interop in Docker | `npm run test:boringssl:docker` |
 
 ## Validation
 
 * Logic changes in `src`: `npm run type` and `npm test`.
-* DTLS 1.3 interop: `npm run test:boringssl` when handshake/record/crypto paths change and the harness is available.
+* DTLS 1.3 interop: `npm run test:boringssl` when handshake/record/crypto paths change and the harness is available. When host git cannot clone BoringSSL (wrapper / insteadOf), use `npm run test:boringssl:docker`.
 
 ## Maintenance
 

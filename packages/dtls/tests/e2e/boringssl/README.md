@@ -26,6 +26,27 @@ export WERIFT_BORINGSSL_DTLS_ECHO=/path/to/dtls13_echo
 export WERIFT_BORINGSSL_BSSL=/path/to/bssl                   # optional
 ```
 
+## Docker (recommended when host git is wrapped)
+
+Clone, pin checkout, `dtls13_echo` build, and interop tests all run **inside**
+the image with stock git. The host git wrapper is not used.
+
+From `packages/dtls`:
+
+```bash
+npm run test:boringssl:docker
+```
+
+Or from the repository root:
+
+```bash
+docker build -f packages/dtls/tests/e2e/boringssl/Dockerfile -t werift-dtls-boringssl-e2e .
+docker run --rm werift-dtls-boringssl-e2e
+```
+
+Do not bind-mount `/workspace` into this container for the clone step. The
+Dockerfile copies sources and clones BoringSSL under `/opt/boringssl`.
+
 ## Reproducible pin build (recommended / CI)
 
 From `packages/dtls/tests/e2e/boringssl`:
@@ -37,7 +58,8 @@ From `packages/dtls/tests/e2e/boringssl`:
 ```
 
 This is the path used by GitHub Actions job `dtls13-boringssl`. It does **not**
-depend on preinstalled `/usr/local` libraries.
+depend on preinstalled `/usr/local` libraries. On hosts where `git clone` of
+BoringSSL is blocked, use the Docker path above instead.
 
 ## Manual BoringSSL build (optional)
 

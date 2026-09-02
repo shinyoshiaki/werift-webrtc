@@ -6,3 +6,12 @@ dist
 coverage
 playwright-report
 test-results
+third_party
+**/third_party
+packages/dtls/third_party
+packages/*/lib
+packages/*/doc
+doc
+e2e
+.sak
+.sak-context

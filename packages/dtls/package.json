@@ -26,6 +26,7 @@
     "server": "DEBUG=werift* ts-node-dev --files --project tsconfig.json examples/server.ts",
     "test": "vitest run ./tests",
     "test:boringssl": "WERIFT_REQUIRE_BORINGSSL=1 vitest run ./tests/e2e/boringssl",
+    "test:boringssl:docker": "bash ./tests/e2e/boringssl/run-docker.sh",
     "type": "tsc --noEmit -p .",
     "unused": "organize-imports-cli src/**/*.ts",
     "upgrade-interactive": "npx npm-check-updates -i"
