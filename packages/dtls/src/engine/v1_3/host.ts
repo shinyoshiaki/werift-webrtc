@@ -27,7 +27,7 @@ export interface Dtls13HostMethods {
   scheduleRetransmit(): void;
   doRetransmit(): Promise<void>;
   maxAckRecordsForMtu(): number;
-  sendAck(opts?: { allowEmpty?: boolean }): Promise<void>;
+  sendAck(opts?: { allowEmpty?: boolean }): Promise<number>;
   sendEmptyAck(): Promise<void>;
   sendFatalAlert(description: number, dest?: [string, number]): Promise<void>;
   alertDescForHandshakeError(err: Error): number;

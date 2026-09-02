@@ -698,14 +698,17 @@ export function maxAckRecordsForMtu(this: Dtls13Host): number {
  * Empty record_numbers is allowed and prompts peer retransmission.
  * Prefers encrypted epoch (writeEpoch / 2 / 3); falls back to epoch-0 plaintext.
  * Count is clamped by dynamic MTU. Always budget-checked (no anti-amp bypass).
+ *
+ * @returns number of RecordNumbers included in the ACK that was actually sent.
+ *          0 means no datagram went out (empty queue, no keys, or cannot fit MTU).
  */
 export async function sendAck(
   this: Dtls13Host,
   opts?: { allowEmpty?: boolean },
-): Promise<void> {
+): Promise<number> {
   const allowEmpty = opts?.allowEmpty === true;
   if (this.receivedRecordNumbers.length === 0 && !allowEmpty) {
-    return;
+    return 0;
   }
   const maxN = this.maxAckRecordsForMtu();
   // Prefer oldest unacked first so large flights drain front-to-back
@@ -724,7 +727,7 @@ export async function sendAck(
   if (!canEncrypt && !canPlaintext) {
     // No usable write keys — leave numbers in place
     this.receivedRecordNumbers = sorted;
-    return;
+    return 0;
   }
 
   const minN = allowEmpty ? 0 : 1;
@@ -760,22 +763,23 @@ export async function sendAck(
       }
       // Even a single (or empty) ACK cannot fit — keep all numbers for later
       restoreAll();
-      return;
+      return 0;
     }
     const ok = await this.sendWithBudget(record);
     if (!ok) {
       restoreAll();
-      return;
+      return 0;
     }
     // Only the RecordNumbers that were actually sent leave the queue
     this.receivedRecordNumbers = [
       ...sorted.slice(n),
       ...this.receivedRecordNumbers,
     ];
-    return;
+    return n;
   }
 
   restoreAll();
+  return 0;
 }
 
 /** Explicit empty ACK path (RFC 9147 §7: prompts peer retransmit). */

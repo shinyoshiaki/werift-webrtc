@@ -321,9 +321,13 @@ export async function finishHandshakeRecordAck(
   }
   if (this.ackAfterCurrentRecord) {
     this.ackAfterCurrentRecord = false;
-    // Drain all pending ACK numbers (may need multiple MTU-sized ACKs)
+    // Drain pending ACK numbers across MTU-sized datagrams. Stop when a
+    // send makes no progress (e.g. even one RecordNumber cannot fit).
     while (this.receivedRecordNumbers.length > 0) {
-      await this.sendAck();
+      const sent = await this.sendAck();
+      if (sent === 0) {
+        break;
+      }
     }
     // RFC 9147: response KeyUpdate is not an implicit ACK of peer KeyUpdate.
     // If our own KeyUpdate is still un-ACKed, defer the response until after

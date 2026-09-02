@@ -158,3 +158,45 @@ describe("sendAck MTU shrink does not drop unsent RecordNumbers", () => {
     await transport.close();
   });
 });
+
+describe("finishHandshakeRecordAck drain stops when sendAck cannot progress", () => {
+  test("tiny MTU with ackAfterCurrentRecord returns and keeps the queue", async () => {
+    // Arrange: epoch 2、キューあり、MTU が 1 件の ACK にも足りない
+    const { transport, client } = await arrangeClientEngine();
+    const ep = createEpochProtection(2);
+    ep.writeKeys = {
+      key: Buffer.alloc(16, 1),
+      iv: Buffer.alloc(12, 2),
+      snKey: Buffer.alloc(16, 3),
+    };
+    client.installEpoch(2, ep);
+    client.writeEpoch = 2;
+    client.receivedRecordNumbers = [
+      { epoch: 2, sequenceNumber: 0 },
+      { epoch: 2, sequenceNumber: 1 },
+    ];
+    client.maxAckRecordsForMtu = () => 3;
+    client.carrier.getMtu = () => 8;
+    const sent: Buffer[] = [];
+    client.sendWithBudget = async (record: Buffer) => {
+      sent.push(record);
+      return true;
+    };
+    client.ackAfterCurrentRecord = true;
+
+    // Act: Finished/NST と同じ ack-after-record 経路
+    await client.finishHandshakeRecordAck(2, 2);
+
+    // Assert: ループが終わり、未送信 RecordNumber は残る（今回分含む）
+    expect(client.ackAfterCurrentRecord).toBe(false);
+    expect(sent).toHaveLength(0);
+    expect(client.receivedRecordNumbers).toEqual([
+      { epoch: 2, sequenceNumber: 0 },
+      { epoch: 2, sequenceNumber: 1 },
+      { epoch: 2, sequenceNumber: 2 },
+    ]);
+
+    client.close();
+    await transport.close();
+  }, 2_000);
+});
