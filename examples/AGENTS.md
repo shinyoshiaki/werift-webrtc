@@ -15,7 +15,7 @@ Instructions for coding agents working in `examples/`.
 
 1. Keep `examples/e2e/tests/helpers/catalog.ts` and this guide's catalog tables in sync.
 2. Smoke tests must spawn the catalog's Node `.ts` file and open the catalog's HTML (or Vite root). Do not reimplement the demo in `/e2e` handlers.
-3. Keep Arrange helpers in `examples/e2e/tests/helpers/`. Add Japanese comments in Act / Assert.
+3. Keep Arrange helpers in `examples/e2e/tests/helpers/`. Write Act / Assert (with Japanese comments) in each `*.test.ts` by kind; do not dispatch them through a shared switch.
 4. Keep Babel/React vendor scripts in `examples/e2e/vendor/` (committed). Tests route CDN URLs to those files and must not require unpkg/cdnjs at runtime.
 5. Skip gst/ffmpeg cases locally when the binary is missing; fail in `CI=true`.
 6. Update `examples/e2e/README.md` when harness scripts change.

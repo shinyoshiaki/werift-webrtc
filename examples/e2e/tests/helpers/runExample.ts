@@ -34,18 +34,7 @@ import {
   waitForPortOpen,
   watchUnexpectedExit,
 } from "./spawnExample.js";
-import {
-  waitDataChannelClosed,
-  waitDataChannelRoundtrip,
-  waitInboundRtp,
-  waitNonEmptyOutput,
-  waitPeerClosed,
-  waitPeerConnected,
-  waitSpawnedExit,
-  waitUdpPackets,
-  waitWeriftRtp,
-  listenUdp,
-} from "./waitPeer.js";
+import { listenUdp } from "./waitPeer.js";
 
 export type ExampleSession = {
   entry: CatalogEntry;
@@ -215,156 +204,9 @@ export async function withExample(
       await assertMediaPidsAlive(session.mediaPids);
     }
     throwIfCrashed();
-
-    if (
-      entry.kind === "process-exit" ||
-      (entry.kind === "node-gst" && entry.expectExit != null)
-    ) {
-      const exiting = client ?? primary;
-      await waitSpawnedExit(exiting, entry.expectExit ?? 0);
-      throwIfCrashed();
-      return;
-    }
-
     await act(session);
     throwIfCrashed();
   } finally {
     await cleanupExample(handles);
-  }
-}
-
-export async function assertCatalogEntry(
-  entry: CatalogEntry,
-  session: ExampleSession,
-  ctx?: TaskContext,
-) {
-  const page = session.page;
-  const primary = session.processes[0];
-
-  switch (entry.kind) {
-    case "datachannel": {
-      if (!page) throw new Error("page required");
-      // Act: HTML がマウント直後にシグナリングし DataChannel を開くのを待つ
-      // Assert: readyState=open のあと ping/pong が少なくとも 1 往復している
-      await waitDataChannelRoundtrip(page, 25_000, () => primary?.logs ?? "");
-      break;
-    }
-    case "media-inbound": {
-      if (session.mediaPids.size > 0) {
-        await assertMediaPidsAlive(session.mediaPids);
-      }
-      if (!page) throw new Error("page required");
-      try {
-        // Act: ICE 接続と受信 RTP を待つ（画質や video.play 完了は必須にしない）
-        await waitPeerConnected(page, 25_000, () => primary?.logs ?? "");
-      } catch (error) {
-        if (entry.skipIfNoAv1) {
-          console.warn(`skip ${entry.id}: AV1 did not connect`);
-          ctx?.skip();
-          return;
-        }
-        throw error;
-      }
-      if (entry.inbound === "werift") {
-        if (session.udpListener) {
-          await waitUdpPackets(session.udpListener);
-        } else if (entry.outputGlob) {
-          await waitNonEmptyOutput(
-            session.workDir,
-            entry.outputGlob,
-            20_000,
-          );
-        } else {
-          // Assert: werift 側が RTP を受けた（codec の keyframe ログなど）
-          await waitWeriftRtp(() => primary?.logs ?? "");
-        }
-      } else {
-        // Assert: connectionState が connected かつ inbound-rtp の packetsReceived > 0
-        await waitInboundRtp(page);
-      }
-      break;
-    }
-    case "media-record": {
-      if (page) {
-        try {
-          // Act: ICE 接続を待つ。失敗は成功扱いにしない
-          await waitPeerConnected(page);
-        } catch (error) {
-          if (entry.skipIfNoAv1) {
-            console.warn(`skip ${entry.id}: AV1 did not connect`);
-            ctx?.skip();
-            return;
-          }
-          throw error;
-        }
-      }
-      if (primary) {
-        // Assert: デモが stop まで進み、途中で例外終了していない
-        await waitForLog(primary, "stop", (entry.recordWaitMs ?? 15_000) + 10_000);
-        assertNoFatalLogs(primary);
-      }
-      if (session.mediaPids.size > 0) {
-        await assertMediaPidsAlive(session.mediaPids);
-      }
-      if (entry.outputGlob) {
-        try {
-          // Assert: 録画ファイルが空でないこと
-          await waitNonEmptyOutput(
-            session.workDir,
-            entry.outputGlob,
-            10_000,
-          );
-        } catch (error) {
-          if (entry.skipIfNoAv1) {
-            console.warn(`skip ${entry.id}: AV1 recording was empty`);
-            ctx?.skip();
-            return;
-          }
-          throw error;
-        }
-      }
-      break;
-    }
-    case "close-dc": {
-      if (!page) throw new Error("page required");
-      // Act: デモが DC を閉じるまで待つ
-      await waitDataChannelClosed(page, 25_000, () => primary?.logs ?? "");
-      break;
-    }
-    case "close-pc": {
-      if (!page) throw new Error("page required");
-      // Act: デモが PeerConnection を閉じるまで待つ
-      await waitPeerClosed(page, 25_000, () => primary?.logs ?? "");
-      break;
-    }
-    case "ice-restart": {
-      if (!page) throw new Error("page required");
-      // Act: 初回接続のあと restart ボタンを押し、再接続を待つ
-      await waitPeerConnected(page, 25_000, () => primary?.logs ?? "");
-      await waitInboundRtp(page);
-      await clickNamedButton(page, "restart");
-      // Assert: restart 後も connected に戻る
-      await waitPeerConnected(page, 25_000, () => primary?.logs ?? "");
-      break;
-    }
-    case "node-gst": {
-      if (session.mediaPids.size > 0) {
-        await assertMediaPidsAlive(session.mediaPids);
-      }
-      if (entry.outputGlob) {
-        if (primary) {
-          await waitForLog(primary, "stop", (entry.recordWaitMs ?? 8_000) + 5_000);
-          assertNoFatalLogs(primary);
-        }
-        await waitNonEmptyOutput(
-          session.workDir,
-          entry.outputGlob,
-          10_000,
-        );
-      }
-      break;
-    }
-    default:
-      break;
   }
 }
