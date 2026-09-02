@@ -22,6 +22,7 @@ export type CatalogEntry = {
   client: ClientKind;
   kind: ExampleKind;
   binary?: BinaryNeed;
+  /** gst/ffmpeg を spawn するポート。binary がなくても生存 Assert 対象になる */
   extraGstPorts?: number[];
   click?: string;
   fileInput?: "webm" | "mp4";
@@ -293,6 +294,24 @@ export const catalog: CatalogEntry[] = [
     kind: "media-inbound",
   },
   {
+    id: "simulcast-multiple",
+    group: "browser",
+    node: ["mediachannel/simulcast/multiple.ts"],
+    html: "mediachannel/simulcast/multiple.html",
+    port: 8888,
+    client: "babel",
+    kind: "media-inbound",
+  },
+  {
+    id: "simulcast-multiple-answer",
+    group: "browser",
+    node: ["mediachannel/simulcast/multiple_answer.ts"],
+    html: "mediachannel/simulcast/multiple_answer.html",
+    port: 8888,
+    client: "babel",
+    kind: "media-inbound",
+  },
+  {
     id: "simulcast-abr",
     group: "browser",
     node: ["mediachannel/simulcast/abr.ts"],
@@ -555,6 +574,7 @@ export const catalog: CatalogEntry[] = [
     extraGstPorts: [5000, 5001],
   },
   {
+    // フィクスチャ webm 再生。gst/ffmpeg 子プロセスは無いので binary は付けない（生存 Assert 対象外）。
     id: "sendonly-av",
     group: "ffmpeg-gstreamer",
     node: ["mediachannel/sendonly/av.ts"],
