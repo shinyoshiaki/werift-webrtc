@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GCC と legacy — 同じ返事、ちがう頭脳</title>
+  <style>
+    :root {
+      --paper: #f3eee4;
+      --ink: #1b1714;
+      --muted: #5c534c;
+      --line: #d9cfc2;
+      --terracotta: #c45c26;
+      --teal: #2b6a6a;
+      --leaf: #3d6b4f;
+      --rose: #b42318;
+      --cream: #fffaf3;
+      --shadow: 0 18px 40px rgba(27, 23, 20, 0.08);
+      --legacy: #7a5c2e;
+      --gcc: #2b6a6a;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: "Hiragino Mincho ProN", "Yu Mincho", "Source Han Serif", Georgia, serif;
+      color: var(--ink);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, #fff8ee, transparent 55%),
+        radial-gradient(900px 500px at 100% 0%, #e7efe8, transparent 50%),
+        var(--paper);
+      line-height: 1.75;
+    }
+    .sans { font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif; }
+    header.hero, section, footer { max-width: 1080px; margin: 0 auto; }
+    header.hero { padding: 64px 24px 24px; }
+    section { padding: 48px 24px; }
+    footer {
+      padding: 24px 24px 80px;
+      color: var(--muted);
+      font-family: "Hiragino Sans", sans-serif;
+      font-size: 13px;
+    }
+    .kicker {
+      display: inline-block; letter-spacing: 0.18em; font-size: 12px;
+      color: var(--teal); text-transform: uppercase; font-family: "Hiragino Sans", sans-serif;
+    }
+    h1 { font-size: clamp(32px, 5vw, 56px); font-weight: 600; line-height: 1.2; margin: 12px 0 16px; }
+    h2 { font-size: clamp(26px, 3vw, 36px); margin: 0 0 12px; }
+    h3 { font-size: 20px; margin: 28px 0 8px; }
+    .lead { font-size: 20px; max-width: 42rem; color: var(--muted); }
+    p.note { color: var(--muted); max-width: 46rem; }
+    .caption { font-family: "Hiragino Sans", sans-serif; font-size: 13px; color: var(--muted); }
+    nav.toc { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+    nav.toc a {
+      font-family: "Hiragino Sans", sans-serif; font-size: 13px; color: var(--ink);
+      text-decoration: none; padding: 8px 12px; border: 1px solid var(--line);
+      background: var(--cream); border-radius: 999px;
+    }
+    nav.toc a:hover { border-color: var(--terracotta); }
+    .card {
+      background: var(--cream); border: 1px solid var(--line);
+      border-radius: 20px; box-shadow: var(--shadow);
+    }
+    .split2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .play { padding: 20px; }
+    button.chip {
+      font-family: "Hiragino Sans", sans-serif; border: 1px solid var(--line);
+      background: #fff; color: var(--ink); border-radius: 999px;
+      padding: 10px 14px; cursor: pointer; font-size: 14px;
+    }
+    button.chip.active { background: var(--ink); color: var(--cream); border-color: var(--ink); }
+    button.chip:focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; padding: 16px 4px 4px; }
+    .formula {
+      font-family: ui-monospace, Menlo, monospace; font-size: 13px;
+      background: #1b1714; color: #f3eee4; padding: 14px 16px; border-radius: 12px; margin: 8px 0 0;
+    }
+    .formula em { color: #e8b089; font-style: normal; }
+    table.plain {
+      width: 100%; border-collapse: collapse; font-family: "Hiragino Sans", sans-serif;
+      font-size: 13px; background: var(--cream); border-radius: 16px; overflow: hidden;
+      border: 1px solid var(--line);
+    }
+    table.plain th, table.plain td {
+      text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top;
+    }
+    table.plain th { background: #efe7d8; font-weight: 600; }
+    table.plain tr:last-child td { border-bottom: 0; }
+    .code {
+      font-family: ui-monospace, Menlo, monospace; font-size: 13px; background: #fff;
+      border: 1px solid var(--line); padding: 16px; border-radius: 12px; overflow-x: auto;
+    }
+    .pill {
+      display: inline-block; font-family: "Hiragino Sans", sans-serif; font-size: 11px;
+      letter-spacing: 0.06em; padding: 3px 8px; border-radius: 999px; color: #fff;
+    }
+    .pill.l { background: var(--legacy); }
+    .pill.g { background: var(--gcc); }
+
+    .versus { padding: 20px; }
+    .versus h3 { margin-top: 0; }
+    .versus.legacy { border-top: 5px solid var(--legacy); }
+    .versus.gcc { border-top: 5px solid var(--gcc); }
+
+    .stage {
+      position: relative; height: 360px; border-radius: 16px;
+      background: linear-gradient(180deg, #efe7d8 0%, #e7dcc8 100%); overflow: hidden;
+    }
+    .status {
+      position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+      font-family: "Hiragino Sans", sans-serif; font-size: 14px;
+      background: rgba(255,250,243,0.92); padding: 6px 14px; border-radius: 999px;
+      border: 1px solid var(--line); max-width: 90%; text-align: center;
+    }
+    .node { position: absolute; top: 56px; width: 120px; text-align: center;
+      font-family: "Hiragino Sans", sans-serif; font-size: 13px; font-weight: 600; }
+    .node.send { left: 16px; }
+    .node.recv { right: 16px; }
+    .avatar {
+      width: 64px; height: 64px; margin: 0 auto 8px; border-radius: 16px;
+      display: grid; place-items: center; color: #fff; font-size: 24px;
+    }
+    .send .avatar { background: var(--terracotta); }
+    .recv .avatar { background: var(--teal); }
+    .lane {
+      position: absolute; left: 150px; right: 150px; top: 82px; height: 14px;
+      background: #cbbca6; border-radius: 999px;
+    }
+    .bottleneck {
+      position: absolute; left: 42%; width: 16%; top: -10px; height: 34px;
+      background: #8a7a66; border-radius: 10px;
+      transition: width 0.6s ease, left 0.6s ease, background 0.6s ease;
+    }
+    .pkt {
+      position: absolute; top: 74px; width: 16px; height: 16px; border-radius: 4px;
+      background: var(--terracotta); z-index: 2;
+    }
+    .pkt.lost { background: var(--rose); animation: drop 0.7s ease forwards; }
+    .pkt.ack { background: var(--leaf); top: 118px; }
+    @keyframes drop { to { transform: translate(40px, 80px) rotate(40deg); opacity: 0; } }
+    .dual-meters {
+      position: absolute; left: 16px; right: 16px; bottom: 14px;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+      font-family: "Hiragino Sans", sans-serif;
+    }
+    .meter { height: 12px; background: #ddd4c6; border-radius: 999px; overflow: hidden; margin-top: 4px; }
+    .meter > span { display: block; height: 100%; width: 40%; border-radius: inherit; transition: width 0.8s ease; }
+    .meter.l > span { background: var(--legacy); }
+    .meter.g > span { background: var(--gcc); }
+    .bps { font-variant-numeric: tabular-nums; font-size: 22px; font-weight: 700; line-height: 1.1; }
+    .bps small { display: block; font-size: 11px; letter-spacing: 0.08em; color: var(--muted); font-weight: 500; }
+
+    .flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; padding: 16px; }
+    .flow-step {
+      flex: 1 1 120px; min-width: 110px; padding: 12px 10px; border-radius: 14px;
+      border: 1px solid var(--line); background: #fff; cursor: pointer;
+      font-family: "Hiragino Sans", sans-serif; font-size: 13px;
+      transition: background 0.25s ease, color 0.25s ease, transform 0.25s ease;
+    }
+    .flow-step strong { display: block; font-size: 15px; margin-bottom: 4px; }
+    .flow-step.is-on { background: var(--ink); color: var(--cream); border-color: var(--ink); transform: translateY(-3px); }
+    .flow-arrow { align-self: center; color: var(--muted); font-size: 18px; }
+    .flow-caption { padding: 0 16px 8px; font-family: "Hiragino Sans", sans-serif; font-size: 14px; min-height: 2.6em; color: var(--muted); }
+    .step-explain { display: none; grid-template-columns: 0.9fr 1.1fr; gap: 18px; align-items: center; padding: 8px 16px 12px; }
+    .step-explain.is-on { display: grid; }
+    .step-explain h3 { margin: 0 0 8px; }
+    .viz {
+      position: relative; height: 220px; border-radius: 16px;
+      background: linear-gradient(180deg, #f7f1e6, #efe7d8); border: 1px solid var(--line); overflow: hidden;
+    }
+    .viz .tag {
+      position: absolute; left: 10px; top: 8px; z-index: 2;
+      font-family: "Hiragino Sans", sans-serif; font-size: 11px; color: var(--muted);
+    }
+    .pair {
+      position: absolute; inset: 36px 12px 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+    }
+    .pane {
+      border-radius: 12px; background: rgba(255,250,243,0.7); padding: 10px;
+      font-family: "Hiragino Sans", sans-serif; font-size: 12px; position: relative; overflow: hidden;
+    }
+    .pane.l { outline: 2px solid rgba(122,92,46,0.35); }
+    .pane.g { outline: 2px solid rgba(43,106,106,0.35); }
+    .rowp { display: flex; justify-content: space-between; margin-top: 28px; }
+    .bit {
+      width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center;
+      color: #fff; font-weight: 700; font-size: 11px; background: var(--leaf);
+    }
+    .bit.hole { background: transparent; border: 2px dashed var(--rose); color: var(--rose); }
+    .bit.skip { opacity: 0.25; }
+    .cursor {
+      position: absolute; width: 32px; height: 32px; border: 2px solid var(--ink); border-radius: 8px;
+      pointer-events: none;
+    }
+    .viz-skip .cur-l { left: 18px; top: 78px; animation: scanL 3s linear infinite; }
+    .viz-skip .cur-g { left: calc(50% + 18px); top: 78px; animation: scanG 3s linear infinite; }
+    @keyframes scanL {
+      0% { left: 22px; }
+      20% { left: 22px; }
+      40% { left: 58px; }
+      55% { left: 94px; }
+      75% { left: 130px; }
+      100% { left: 166px; }
+    }
+    @keyframes scanG {
+      0% { left: calc(50% + 22px); }
+      20% { left: calc(50% + 22px); }
+      40% { left: calc(50% + 58px); }
+      55% { left: calc(50% + 94px); }
+      75% { left: calc(50% + 130px); }
+      100% { left: calc(50% + 166px); }
+    }
+    .slope {
+      position: absolute; left: 10%; right: 10%; height: 3px; background: var(--terracotta);
+      top: 70%; transform-origin: left center; animation: steep 3.2s ease-in-out infinite;
+    }
+    @keyframes steep { 0%,20% { transform: rotate(-6deg); } 55% { transform: rotate(-36deg); } 100% { transform: rotate(-6deg); } }
+    .flat {
+      position: absolute; left: 10%; right: 10%; height: 3px; background: var(--legacy);
+      top: 58%;
+    }
+    .bar-col { text-align: center; }
+    .track { width: 28px; height: 110px; margin: 6px auto 0; background: #ddd4c6; border-radius: 7px; position: relative; overflow: hidden; }
+    .fill { position: absolute; left: 0; right: 0; bottom: 0; }
+    .fill.l { background: var(--legacy); height: 70%; }
+    .fill.g { background: var(--gcc); height: 70%; animation: gdrop 3s ease-in-out infinite; }
+    @keyframes gdrop { 0%,25% { height: 78%; } 60%,100% { height: 32%; } }
+    .burst {
+      position: absolute; width: 10px; height: 10px; background: var(--gcc); border-radius: 2px;
+      animation: burst 2s linear infinite;
+    }
+    @keyframes burst { 0% { left: 8%; opacity: 0; } 15% { opacity: 1; } 100% { left: 88%; opacity: 0; } }
+    .clock-face { display: grid; place-items: center; height: 100%; font-family: "Hiragino Sans", sans-serif; }
+    .tick {
+      width: 72px; height: 72px; border-radius: 50%; border: 4px solid var(--gcc);
+      animation: spin 2s linear infinite;
+      border-top-color: transparent;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .one-shot { width: 72px; height: 72px; border-radius: 50%; border: 4px solid var(--legacy); }
+
+    @media (max-width: 860px) {
+      .split2, .dual-meters, .step-explain.is-on, .pair { grid-template-columns: 1fr; }
+      .lane, .node.recv { display: none; }
+      .stage { height: 300px; }
+      .flow-arrow { display: none; }
+      .viz-skip .cur-g, .viz-skip .cur-l { display: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="kicker">werift · BandwidthEstimator</div>
+    <h1>同じ返事を見ても、<br />legacy と GCC は別の答えを出す</h1>
+    <p class="lead">
+      入力はどちらも TWCC です。既定の <strong>legacy</strong> は「届いた荷物の速さの小さい方」をそのまま採用します。
+      <strong>GCC</strong> は列の伸び・穴・試し打ちまで見て、次に送ってよい速さを決めます。
+    </p>
+    <nav class="toc">
+      <a href="#shared">共通契約</a>
+      <a href="#play">同じ道で比べる</a>
+      <a href="#pipeline">返事の処理順</a>
+      <a href="#loss">穴を数えるか</a>
+      <a href="#delay">傾きを見るか</a>
+      <a href="#probe">試し打ちと pacing</a>
+      <a href="#events">イベント</a>
+      <a href="#pick">どちらを使うか</a>
+    </nav>
+  </header>
+
+  <section id="shared">
+    <h2>共通しているところ</h2>
+    <p class="note">差し替えできるように、表向きの約束は同じです。アプリはアルゴリズム名を知らなくてよい、というのが設計です。</p>
+    <div class="split2">
+      <div class="card versus" style="padding:20px">
+        <h3>どちらも同じ入口・出口</h3>
+        <div class="formula">rtpPacketSent(SentInfo)<br />receiveTWCC(TransportWideCC)<br />onAvailableBitrate → <em>bps（変化時のみ）</em></div>
+        <p class="caption" style="margin-top:10px">TWCC が交渉されていなければ、どちらも動きません。差し替えは <code>setBandwidthEstimator</code> だけです。</p>
+      </div>
+      <div class="card versus" style="padding:20px">
+        <h3>既定は legacy</h3>
+        <pre class="code">// 最初から入っている
+new SenderBandwidthEstimator()
+
+// 明示的に GCC へ
+sender.setBandwidthEstimator(new GccBandwidthEstimator());</pre>
+        <p class="caption">既存アプリは何もしなくても従来どおりです。</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="play">
+    <h2>同じ道を流したときの、二つのおすすめ速度</h2>
+    <p class="note">
+      下はたとえです。legacy は<strong>届いた荷物だけ</strong>から速さを出します。穴や列の伸びは見ません。
+      だから「混んでいるのに数字が高い」ことが起きます。GCC はそこで減速します。
+    </p>
+    <div class="card play">
+      <div class="stage" id="stage">
+        <div class="status" id="status">道は空いています。両方とも速く送ってよい、と判断します。</div>
+        <div class="node send"><div class="avatar">送</div>送り手</div>
+        <div class="lane"><div class="bottleneck" id="neck"></div></div>
+        <div class="node recv"><div class="avatar">受</div>受け手</div>
+        <div class="dual-meters">
+          <div>
+            <div class="bps"><small>LEGACY · min(send, recv)</small><span id="bpsL">700</span> kbps</div>
+            <div class="meter l"><span id="barL"></span></div>
+          </div>
+          <div>
+            <div class="bps"><small>GCC · delay / loss / probe</small><span id="bpsG">700</span> kbps</div>
+            <div class="meter g"><span id="barG"></span></div>
+          </div>
+        </div>
+      </div>
+      <div class="controls">
+        <button class="chip active" data-scene="clear" type="button">道が空いている</button>
+        <button class="chip" data-scene="delay" type="button">列が伸びる（穴は無い）</button>
+        <button class="chip" data-scene="loss" type="button">荷物が落ちる</button>
+        <button class="chip" data-scene="probe" type="button">立ち上がり・試し打ち</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="pipeline">
+    <h2>返事が来てから、数字が決まるまで</h2>
+    <p class="note">GCC 解説と同じ問いです。legacy はこのうち半分しかやりません。手順を押すと、両側の動きが並びます。</p>
+    <div class="card play">
+      <div class="flow" id="flow">
+        <div class="flow-step" data-i="0"><strong>1. 照合</strong>番号で送り履歴を探す</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step" data-i="1"><strong>2. 穴</strong>届いていない荷物</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step" data-i="2"><strong>3. 遅れ</strong>列が伸びているか</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step" data-i="3"><strong>4. 速さ</strong>bps の出し方</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step" data-i="4"><strong>5. 試し打ち</strong>もっと速くてよいか</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step" data-i="5"><strong>6. 通知</strong>アプリへ渡すもの</div>
+      </div>
+      <p class="flow-caption" id="flowText"></p>
+      <div id="board"></div>
+      <div class="controls">
+        <button class="chip" type="button" id="flowPlay">再生</button>
+        <button class="chip" type="button" id="flowPrev">前の手順</button>
+        <button class="chip" type="button" id="flowNext">次の手順</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="loss">
+    <h2>穴を数えるか、通り過ぎるか</h2>
+    <div class="split2">
+      <article class="card versus legacy" style="padding:20px">
+        <span class="pill l">LEGACY</span>
+        <h3>届いた行だけを積む</h3>
+        <p class="caption"><code>if (!result.received) continue;</code> なので、穴は統計に入りません。届いた荷物が速く見えれば、道が欠けていても数字は下がりません。</p>
+        <div class="formula">受信済み かつ 時刻あり<br />→ サイズと時刻を累積</div>
+      </article>
+      <article class="card versus gcc" style="padding:20px">
+        <span class="pill g">GCC</span>
+        <h3>番号順で穴も数える</h3>
+        <p class="caption">未到達は仮の印です。あとから届いたら取り消します。同じ番号が何度「未到達」でもロス観察には数えます。遅延計算とは順が違います（遅延は届いた時刻順）。</p>
+        <div class="formula">seq 順で soft loss<br />recv 時刻順で delay / probe</div>
+      </article>
+    </div>
+  </section>
+
+  <section id="delay">
+    <h2>傾きを見るか、平均の速さだけか</h2>
+    <div class="split2">
+      <article class="card versus legacy" style="padding:20px">
+        <span class="pill l">LEGACY</span>
+        <h3>窓の最初と最後から割り算</h3>
+        <div class="formula">send = 合計バイト / 送り時刻の幅<br />recv = 合計バイト / 届き時刻の幅<br />bps = <em>min(send, recv)</em></div>
+        <p class="caption" style="margin-top:10px">条件は「経過 ≥ 100ms かつ 20 パケット」。1秒超たまらないと congestion カウンタが増えます。勾配は見ません。</p>
+      </article>
+      <article class="card versus gcc" style="padding:20px">
+        <span class="pill g">GCC</span>
+        <h3>群れの間隔の傾き → AIMD</h3>
+        <div class="formula">overuse: 届いた速さ × 0.85、必要なら −5kbps<br />試し打ち成功: その値を delay に載せる<br />最後に min(delay, loss)</div>
+        <p class="caption" style="margin-top:10px">列が伸びていれば、平均速さがまだ高くても減速します。underuse 中は新しい試し打ちを出しません。</p>
+      </article>
+    </div>
+  </section>
+
+  <section id="probe">
+    <h2>試し打ちと pacing は GCC だけ</h2>
+    <p class="note">legacy はアプリが渡した速さのまま出します。送信ホットパスで推定も probe も回しません。GCC は capability が付いているときだけ、sender が待ちと余白パケットを足します。</p>
+    <table class="plain">
+      <thead>
+        <tr><th></th><th>legacy</th><th>GCC</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>送信時</td><td>履歴に残すだけ（16-bit キー、10秒で捨てる）</td><td>履歴（unwrap、最大60秒）＋ ALR ＋ probe の send-fill。推定はしない</td></tr>
+        <tr><td>25ms タイマ</td><td>無し</td><td><code>process()</code> で RTT backoff と probe 進行</td></tr>
+        <tr><td>メディア pacing</td><td>無し</td><td>初回 TWCC 前 2.5×、以降 1.1× の token-bucket</td></tr>
+        <tr><td>probe padding</td><td>無し</td><td>3×/6× の短い固まり。送信前に cluster id を予約</td></tr>
+        <tr><td>RTT</td><td>使わない</td><td>TWCC は backoff、RTCP RR の生値は AIMD。混ぜない</td></tr>
+        <tr><td>下限</td><td>無し（0 のままもあり得る）</td><td>5 kbps。開始はだいたい 300 kbps</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="events">
+    <h2>アプリが見るイベントも、同じではない</h2>
+    <div class="split2">
+      <article class="card versus legacy" style="padding:20px">
+        <span class="pill l">LEGACY 固有</span>
+        <h3>混雑スコアがある</h3>
+        <p class="caption">共通 interface には載せません。具象をキャストしたときだけ使えます。</p>
+        <div class="formula">onAvailableBitrate(bps)<br />onCongestion(boolean)<br />onCongestionScore(1〜10)</div>
+      </article>
+      <article class="card versus gcc" style="padding:20px">
+        <span class="pill g">GCC 固有</span>
+        <h3>overuse と probe 設定</h3>
+        <p class="caption">アプリの本線は sender の <code>onAvailableBitrate</code> だけです。残りは GCC インスタンス、または sender の probe ブリッジです。</p>
+        <div class="formula">onAvailableBitrate(bps)<br />onOveruseDetected(usage)<br />onProbeClusterConfig(...)</div>
+      </article>
+    </div>
+    <p class="caption" style="margin-top:14px">
+      16-bit の番号の扱いも違います。legacy はワイヤーの 16-bit をそのままキーにするので、一周すると上書きします。GCC は unwrap して世代を分けます。
+    </p>
+  </section>
+
+  <section id="pick">
+    <h2>どちらを使うか</h2>
+    <table class="plain">
+      <thead>
+        <tr><th>向いている状況</th><th>選ぶもの</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>これまでどおり動かしたい。追加の pacing は要らない</td><td>何もしない（legacy）</td></tr>
+        <tr><td>ボトルネックで画質を落とし、空きが出たら探したい。Chrome に寄せたい</td><td><code>new GccBandwidthEstimator()</code></td></tr>
+        <tr><td>混雑スコアで UI を出している</td><td>legacy の具象を購読。GCC に替えるならスコアは無くなる</td></tr>
+      </tbody>
+    </table>
+    <pre class="code" style="margin-top:16px">sender.onAvailableBitrate.subscribe((bps) => {
+  // どちらに差し替えても、この購読は残る
+});
+sender.setBandwidthEstimator(new GccBandwidthEstimator());</pre>
+  </section>
+
+  <footer>
+    GCC 側の手順ごとの動く図は <a href="./gcc-explainer.html">gcc-explainer.html</a> にあります。
+    関数名まで追う資料は <code>reviews/gcc-mechanism.md</code> です。
+    このページはブラウザでそのまま開けます。
+  </footer>
+
+  <script>
+    const scenes = {
+      clear: {
+        status: "道は空いています。両方とも速く送ってよい、と判断します。",
+        l: 700, g: 700,
+        neck: { left: "42%", width: "16%", bg: "#8a7a66" },
+        drop: false, burst: false, slow: false,
+      },
+      delay: {
+        status: "列は伸びているが穴は無い。GCC は傾きを見て減速。legacy は届いた速さのまま高め。",
+        l: 620, g: 180,
+        neck: { left: "38%", width: "28%", bg: "#5c4a3a" },
+        drop: false, burst: false, slow: true,
+      },
+      loss: {
+        status: "穴が開いている。legacy は届いた行だけ見るので数字が落ちにくい。GCC はロスで天井を下げる。",
+        l: 540, g: 120,
+        neck: { left: "40%", width: "34%", bg: "#7a2e28" },
+        drop: true, burst: false, slow: false,
+      },
+      probe: {
+        status: "立ち上がり。GCC だけ短いバーストで道を探る。legacy に試し打ちは無い。",
+        l: 300, g: 450,
+        neck: { left: "44%", width: "18%", bg: "#2b6a6a" },
+        drop: false, burst: true, slow: false,
+      },
+    };
+
+    const stage = document.getElementById("stage");
+    const neck = document.getElementById("neck");
+    const status = document.getElementById("status");
+    const bpsL = document.getElementById("bpsL");
+    const bpsG = document.getElementById("bpsG");
+    const barL = document.getElementById("barL");
+    const barG = document.getElementById("barG");
+    let timer = null;
+    let current = "clear";
+
+    function spawnPacket(opts) {
+      const el = document.createElement("div");
+      el.className = "pkt" + (opts.ack ? " ack" : "");
+      stage.appendChild(el);
+      const start = performance.now();
+      const dur = opts.slow ? 2200 : opts.burst ? 700 : 1400;
+      const from = opts.ack ? stage.clientWidth - 180 : 170;
+      const to = opts.ack ? 170 : stage.clientWidth - 180;
+      function tick(now) {
+        const t = Math.min(1, (now - start) / dur);
+        el.style.left = from + (to - from) * t + "px";
+        if (!opts.ack && opts.drop && t > 0.55 && !el.classList.contains("lost")) {
+          el.classList.add("lost");
+          return;
+        }
+        if (t < 1 && !el.classList.contains("lost")) requestAnimationFrame(tick);
+        else if (t >= 1) el.remove();
+      }
+      requestAnimationFrame(tick);
+    }
+
+    function loop() {
+      const s = scenes[current];
+      spawnPacket({ slow: s.slow, drop: s.drop, burst: s.burst });
+      if (!s.drop) setTimeout(() => spawnPacket({ ack: true }), s.burst ? 400 : 900);
+      if (s.burst) {
+        setTimeout(() => spawnPacket({ burst: true }), 90);
+        setTimeout(() => spawnPacket({ burst: true }), 180);
+      }
+    }
+
+    function apply(name) {
+      current = name;
+      const s = scenes[name];
+      status.textContent = s.status;
+      bpsL.textContent = String(s.l);
+      bpsG.textContent = String(s.g);
+      barL.style.width = Math.round((s.l / 800) * 100) + "%";
+      barG.style.width = Math.round((s.g / 800) * 100) + "%";
+      neck.style.left = s.neck.left;
+      neck.style.width = s.neck.width;
+      neck.style.background = s.neck.bg;
+      document.querySelectorAll("button.chip[data-scene]").forEach((b) => {
+        b.classList.toggle("active", b.dataset.scene === name);
+      });
+      stage.querySelectorAll(".pkt").forEach((el) => el.remove());
+      if (timer) clearInterval(timer);
+      loop();
+      timer = setInterval(loop, name === "probe" ? 1600 : 1300);
+    }
+
+    document.querySelectorAll("button.chip[data-scene]").forEach((btn) => {
+      btn.addEventListener("click", () => apply(btn.dataset.scene));
+    });
+    apply("clear");
+
+    const steps = [
+      {
+        title: "1. 照合 — 番号で送り履歴を探す",
+        text: "ここまでは似ています。返事の番号で、いつ出した荷物かを思い出します。legacy は 16-bit のまま。GCC は一周をまたいで世代を分けます。履歴に無い番号はどちらも捨てます。",
+        html: `
+          <div class="viz">
+            <span class="tag">左 legacy（16-bit）　右 GCC（unwrap）</span>
+            <div class="pair">
+              <div class="pane l"><span class="pill l">LEGACY</span>
+                <div style="margin-top:36px;font-weight:700">キー = seq & 0xffff</div>
+                <div class="caption">65535 の次は 0 で上書き</div>
+              </div>
+              <div class="pane g"><span class="pill g">GCC</span>
+                <div style="margin-top:36px;font-weight:700">キー = unwrap(seq)</div>
+                <div class="caption">古い世代は残る</div>
+              </div>
+            </div>
+          </div>`,
+      },
+      {
+        title: "2. 穴 — 届いていない荷物",
+        text: "いちばん効く差です。legacy のカーソルは緑だけを撫でて通ります。GCC は赤い穴も止まり、ロスに数えます。",
+        html: `
+          <div class="viz viz-skip">
+            <span class="tag">同じ返事 10–14。12 が未到達</span>
+            <div class="pair">
+              <div class="pane l"><span class="pill l">LEGACY</span>
+                <div class="rowp">
+                  <div class="bit">10</div><div class="bit">11</div>
+                  <div class="bit hole skip">12</div>
+                  <div class="bit">13</div><div class="bit">14</div>
+                </div>
+              </div>
+              <div class="pane g"><span class="pill g">GCC</span>
+                <div class="rowp">
+                  <div class="bit">10</div><div class="bit">11</div>
+                  <div class="bit hole">12</div>
+                  <div class="bit">13</div><div class="bit">14</div>
+                </div>
+              </div>
+            </div>
+            <div class="cursor cur-l"></div>
+            <div class="cursor cur-g"></div>
+          </div>`,
+      },
+      {
+        title: "3. 遅れ — 列が伸びているか",
+        text: "穴が無くても列は伸びます。legacy は傾きを持たないので、届いた平均速さが高ければ数字は高いままです。GCC は点が右肩上がりなら overuse と判定します。",
+        html: `
+          <div class="viz">
+            <span class="tag">同じ遅延サンプル</span>
+            <div class="pair">
+              <div class="pane l"><span class="pill l">LEGACY</span>
+                <div class="flat"></div>
+                <div class="caption" style="position:absolute;bottom:10px;left:10px">平均の割り算だけ。傾き無し</div>
+              </div>
+              <div class="pane g"><span class="pill g">GCC</span>
+                <div class="slope"></div>
+                <div class="caption" style="position:absolute;bottom:10px;left:10px">傾きが急 → overuse</div>
+              </div>
+            </div>
+          </div>`,
+      },
+      {
+        title: "4. 速さ — bps の出し方",
+        text: "legacy は min(send, recv)。GCC は AIMD のあとにロスで天井。列が伸びると GCC の棒だけ縮みます。",
+        html: `
+          <div class="viz">
+            <span class="tag">列が伸びたあと</span>
+            <div class="pair">
+              <div class="pane l bar-col"><span class="pill l">LEGACY</span>
+                <div class="track"><div class="fill l"></div></div>
+                min(send, recv)
+              </div>
+              <div class="pane g bar-col"><span class="pill g">GCC</span>
+                <div class="track"><div class="fill g"></div></div>
+                delay を下げてから min(loss)
+              </div>
+            </div>
+          </div>`,
+      },
+      {
+        title: "5. 試し打ち — もっと速くてよいか",
+        text: "legacy に probe も padding も 25ms process もありません。GCC だけ、短いバーストで道を探ります。",
+        html: `
+          <div class="viz">
+            <span class="tag">立ち上がり</span>
+            <div class="pair">
+              <div class="pane l"><span class="pill l">LEGACY</span>
+                <div class="clock-face"><div class="one-shot"></div></div>
+                <div class="caption" style="text-align:center">タイマもバーストも無し</div>
+              </div>
+              <div class="pane g"><span class="pill g">GCC</span>
+                <div class="burst" style="top:70px"></div>
+                <div class="burst" style="top:90px;animation-delay:.12s"></div>
+                <div class="burst" style="top:110px;animation-delay:.24s"></div>
+                <div class="tick" style="position:absolute;right:16px;bottom:16px"></div>
+              </div>
+            </div>
+          </div>`,
+      },
+      {
+        title: "6. 通知 — アプリへ渡すもの",
+        text: "bps の変化通知は共通です。legacy だけ混雑フラグと 1–10 のスコアがあります。GCC は overuse と probe 設定が固有です。差し替え後も sender.onAvailableBitrate は残ります。",
+        html: `
+          <div class="viz">
+            <span class="tag">共通は bps だけ</span>
+            <div class="pair">
+              <div class="pane l"><span class="pill l">LEGACY</span>
+                <div style="margin-top:24px;line-height:1.9">bps<br />congestion<br />score 1–10</div>
+              </div>
+              <div class="pane g"><span class="pill g">GCC</span>
+                <div style="margin-top:24px;line-height:1.9">bps<br />overuse / underuse<br />probe cluster</div>
+              </div>
+            </div>
+          </div>`,
+      },
+    ];
+
+    const board = document.getElementById("board");
+    board.innerHTML = steps.map((s, i) => `
+      <article class="step-explain" data-step="${i}">
+        <div><h3>${s.title}</h3><p class="caption">${s.text}</p></div>
+        ${s.html}
+      </article>`).join("");
+
+    const flowTexts = steps.map((s) => s.text);
+    const flowSteps = [...document.querySelectorAll("#flow .flow-step")];
+    const flowExplains = [...document.querySelectorAll(".step-explain")];
+    const flowText = document.getElementById("flowText");
+    let flowI = 0;
+    let flowTimer = null;
+
+    function restartViz(el) {
+      const viz = el.querySelector(".viz");
+      if (!viz) return;
+      viz.replaceWith(viz.cloneNode(true));
+    }
+    function showFlow(i) {
+      flowI = (i + flowSteps.length) % flowSteps.length;
+      flowSteps.forEach((el, idx) => el.classList.toggle("is-on", idx === flowI));
+      flowExplains.forEach((el, idx) => {
+        const on = idx === flowI;
+        el.classList.toggle("is-on", on);
+        if (on) restartViz(el);
+      });
+      flowText.textContent = flowTexts[flowI];
+    }
+    flowSteps.forEach((el, idx) => {
+      el.addEventListener("click", () => {
+        if (flowTimer) { clearInterval(flowTimer); flowTimer = null; }
+        showFlow(idx);
+      });
+    });
+    document.getElementById("flowNext").addEventListener("click", () => {
+      if (flowTimer) { clearInterval(flowTimer); flowTimer = null; }
+      showFlow(flowI + 1);
+    });
+    document.getElementById("flowPrev").addEventListener("click", () => {
+      if (flowTimer) { clearInterval(flowTimer); flowTimer = null; }
+      showFlow(flowI - 1);
+    });
+    document.getElementById("flowPlay").addEventListener("click", () => {
+      if (flowTimer) { clearInterval(flowTimer); flowTimer = null; showFlow(flowI); return; }
+      showFlow(0);
+      flowTimer = setInterval(() => showFlow(flowI + 1), 3600);
+    });
+    showFlow(0);
+  </script>
+</body>
+</html>
