@@ -184,6 +184,7 @@
 - [Kind](type-aliases/Kind.md)
 - [MediaDirection](type-aliases/MediaDirection.md)
 - [NamedCurveAlgorithms](type-aliases/NamedCurveAlgorithms.md)
+- [PendingRtpOptions](type-aliases/PendingRtpOptions.md)
 - [RequireAtLeastOne](type-aliases/RequireAtLeastOne.md)
 - [RTCBundlePolicy](type-aliases/RTCBundlePolicy.md)
 - [RTCDataChannelState](type-aliases/RTCDataChannelState.md)
@@ -199,6 +200,7 @@
 - [RTCPFB](type-aliases/RTCPFB.md)
 - [RtcpPacket](type-aliases/RtcpPacket.md)
 - [RTCRtcpMuxPolicy](type-aliases/RTCRtcpMuxPolicy.md)
+- [RTCRtpSenderOptions](type-aliases/RTCRtpSenderOptions.md)
 - [RTCRtpSendParameters](type-aliases/RTCRtpSendParameters.md)
 - [RTCSdpType](type-aliases/RTCSdpType.md)
 - [RTCSignalingState](type-aliases/RTCSignalingState.md)
@@ -271,6 +273,7 @@
 ## Functions
 
 - [addSDPHeader](functions/addSDPHeader.md)
+- [adoptSenderTrackCodec](functions/adoptSenderTrackCodec.md)
 - [andDirection](functions/andDirection.md)
 - [buffer2ArrayBuffer](functions/buffer2ArrayBuffer.md)
 - [bufferArrayXor](functions/bufferArrayXor.md)

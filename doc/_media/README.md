@@ -88,7 +88,35 @@ A small number of intentional or known edge-case differences remain for backward
 
 The core media APIs are packet-oriented: `MediaStreamTrack` can receive and emit RTP, so applications can connect WebRTC directly to an RTP router, recorder, transcoder, media pipeline, or test harness.
 
-werift does not provide operating-system camera/microphone capture as part of the core PeerConnection API. The optional [`werift/nonstandard`](./packages/webrtc/src/nonstandard) surface adds server-oriented helpers such as MP4/WebM file playback, configurable/dummy media-device sources, RTP utilities, and recording.
+werift does not provide operating-system camera/microphone capture as part of the core PeerConnection API. Import `werift/polyfill` and call `installPolyfill({ mediaRegister })` to install browser WebRTC globals and `navigator.mediaDevices.getUserMedia` backed by MP4/WebM, RTP/RTCP, encoded-binary, or custom registers. The nonstandard `getUserMedia({ path })` helper has been removed.
+
+On Node.js, `installPolyfill({ mediaRegister })` also fills in a Chromium-compatible `navigator.userAgent` when the current value is missing or `Node.js/<major>`. Existing non-Node User-Agents are left unchanged unless you pass `userAgent` to overwrite them. Uninstall restores the previous descriptor. This is Node compatibility only; it does not claim that werift is a complete Chromium. `mediaRegister` remains an application responsibility.
+
+```ts
+import {
+  createCallbackRegister,
+  installPolyfill,
+} from "werift/polyfill";
+
+const uninstall = installPolyfill({
+  mediaRegister: [
+    createCallbackRegister({
+      mimeType: "audio/opus",
+      kinds: ["audio"],
+      async createTracks() {
+        return [createAudioTrack()];
+      },
+    }),
+  ],
+});
+
+const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+uninstall();
+```
+
+Passing an explicit `userAgent` replaces even a real browser or sandbox value; uninstall still restores the pre-install descriptor.
+
+Node TypeScript without DOM (`lib: ["esnext"]`) gets werift constructor globals from `werift/polyfill`. Projects that include `lib.dom` should import `werift/polyfill/dom` so DOM constructors are left intact while `MediaStreamTrack.writeRtp` is still merged. `existingMediaDevices` defaults to `"overwrite"`; use `"throw"` or `"noop"` if you must not replace an existing `navigator.mediaDevices`. `existingMediaDevices: "noop"` still complements a missing/Node User-Agent.
 
 ```mermaid
 flowchart LR
@@ -203,10 +231,10 @@ The [`examples`](./examples) directory contains runnable examples for high-level
 | Example | What it demonstrates |
 | --- | --- |
 | [`examples/datachannel`](./examples/datachannel) | DataChannel offer/answer and messaging |
-| [`examples/mediachannel`](./examples/mediachannel) | Sending and receiving WebRTC media |
+| [`examples/mediachannel`](./examples/mediachannel) | Sending and receiving WebRTC media (`installPolyfill` + `getUserMedia` for RTP ingest) |
 | [`examples/save_to_disk`](./examples/save_to_disk) | Recording encoded WebRTC media |
 | [`examples/turn-loopback`](./examples/turn-loopback) | HTTPS + TURN/TLS multiplexed loopback and Chromium E2E |
-| [`examples/interop`](./examples/interop) | Interoperability-oriented peers and relay examples |
+| [`examples/interop`](./examples/interop) | Interoperability-oriented peers and relay examples (`installPolyfill` for RTP ingest) |
 | [`examples/getStats`](./examples/getStats) | `getStats()` example code |
 | [`packages/rtp/src/extra/processor`](./packages/rtp/src/extra/processor) | Jitter buffering, RED, DTX, NACK, lip sync, and RTP processing utilities |
 
