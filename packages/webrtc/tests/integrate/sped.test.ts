@@ -17,9 +17,9 @@ import {
   DtlsVersion,
   HashAlgorithm,
   RTCCertificate,
-  RtcpRrPacket,
   type RTCDataChannel,
   RTCPeerConnection,
+  RtcpRrPacket,
   RtpHeader,
   SignatureAlgorithm,
 } from "../../src";
@@ -848,9 +848,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
       // Act: final SDP 適用を待たず、DTLS server の epoch-3 write key が
       // 入った直後に SCTP INIT と protected RTP/RTCP を送る。
       const applyAnswer = pc1.setRemoteDescription(pc2.localDescription!);
-      await waitUntil(
-        () => pc1.dtlsTransports[0]?.role === "server",
-      );
+      await waitUntil(() => pc1.dtlsTransports[0]?.role === "server");
       const server = pc1.dtlsTransports[0]!;
       const client = pc2.dtlsTransports[0]!;
       await server.waitForWriteReady();
@@ -1959,10 +1957,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
       // Act: 旧 ufrag で認証された世代 N の Binding を、世代 N+1 の
       // signaling 適用後に遅延到着させる。
       const staleIce = iceOf(pc2) as unknown as { protocols: Protocol[] };
-      await staleIce.protocols[0]!.sendStun(
-        hold.message!,
-        hold.addr!,
-      );
+      await staleIce.protocols[0]!.sendStun(hold.message!, hold.addr!);
       await opened;
       dc1.send("hs-restart");
       expect(await awaitMessage(dc2)).toBe("hs-restart");

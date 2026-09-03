@@ -1,6 +1,8 @@
 import { Certificate } from "@fidm/x509";
 import { setTimeout } from "timers/promises";
 
+import type { Connection } from "../../../ice/src";
+import { connectionDatagramEvent } from "../../../ice/src/internal/datagram";
 import {
   DtlsVersion,
   ProtectionProfileAes128CmHmacSha1_80,
@@ -337,9 +339,9 @@ describe("RTCDtlsTransportTest", () => {
       ).mediaBuffer;
 
       try {
-        // Act: 上限を一件超える pre-auth media を central demux へ投入する。
+        // Act: 上限を一件超える pre-auth media を世代検証付き demux へ投入する。
         for (let i = 0; i < 257; i++) {
-          session.iceTransport.connection.onData.execute(protectedLikeRtp);
+          injectAuthenticatedMedia(session, protectedLikeRtp);
         }
         const beforeAbort = mediaBuffer.snapshot();
 
@@ -360,6 +362,139 @@ describe("RTCDtlsTransportTest", () => {
       }
     },
   );
+
+  test("未認証・旧世代の pre-auth media は buffer せず破棄する", async () => {
+    // Arrange: fingerprint 未認証の transport に SRTP key だけを導入する。
+    const session = await createPreAuthSrtpSession("buffer");
+    const protectedLikeRtp = new RtpPacket(
+      new RtpHeader({ ssrc: 11, payloadType: 96 }),
+      Buffer.from("encrypted-like"),
+    ).serialize();
+    const mediaBuffer = (
+      session as unknown as {
+        mediaBuffer: { snapshot(): { bufferedPackets: number } };
+      }
+    ).mediaBuffer;
+
+    try {
+      // Act: 未認証 pair・不一致 source・旧世代の media を投入する。
+      injectMediaWith(session, protectedLikeRtp, { authenticated: false });
+      const pair = requireAuthenticatedPair(session);
+      const ice = session.iceTransport.connection as unknown as Connection;
+      connectionDatagramEvent(ice as object).execute({
+        bytes: protectedLikeRtp,
+        source: ["8.8.8.8", 9],
+        protocol: pair.protocol,
+        pair,
+        generation: ice.generation,
+        authenticated: true,
+      });
+      connectionDatagramEvent(ice as object).execute({
+        bytes: protectedLikeRtp,
+        source: pair.remoteAddr,
+        protocol: pair.protocol,
+        pair,
+        generation: ice.generation + 99,
+        authenticated: true,
+      });
+
+      // Assert: いずれも buffer されず、上位へも届かない。
+      expect(mediaBuffer.snapshot().bufferedPackets).toBe(0);
+    } finally {
+      await session.stop();
+    }
+  });
+
+  test("media drain 中の close は残りを配送せず closed のままにする", async () => {
+    // Arrange: SRTP 付きで接続済みの pair を作り、受信側の read を一時停止する。
+    const profile = ProtectionProfileAes128CmHmacSha1_80;
+    const [sender, receiver] = await createDtlsSessions(
+      {
+        ...defaultPeerConfig,
+        protocolVersions: [DtlsVersion.V1_3],
+        warp: { allowEarlyServerData: false, earlyMediaPolicy: "buffer" },
+      },
+      [profile],
+    );
+    sender.setRemoteParams(receiver.localParameters);
+    receiver.setRemoteParams(sender.localParameters);
+    await Promise.all([sender.start(), receiver.start()]);
+    const internals = receiver as unknown as {
+      srtpReadReady: boolean;
+      currentAttempt: { id: number; iceGeneration: number };
+      drainMediaBuffer(attempt: { id: number; iceGeneration: number }): void;
+      mediaBuffer: { snapshot(): { bufferedPackets: number } };
+    };
+    internals.srtpReadReady = false;
+
+    try {
+      // Act: 実 SRTP 3 件を buffer させる。
+      for (let seq = 1; seq <= 3; seq++) {
+        expect(
+          await sender.sendRtp(
+            Buffer.from(`payload-${seq}`),
+            new RtpHeader({ sequenceNumber: seq, ssrc: 13, payloadType: 96 }),
+          ),
+        ).toBeGreaterThan(0);
+      }
+      const deadline = Date.now() + 5_000;
+      while (internals.mediaBuffer.snapshot().bufferedPackets < 3) {
+        if (Date.now() > deadline) throw new Error("media が buffer されない");
+        await setTimeout(20);
+      }
+
+      // Act: 先頭の onRtp で close してから drain する。
+      let received = 0;
+      receiver.onRtp.subscribe(() => {
+        received++;
+        if (received === 1) void receiver.stop();
+      });
+      internals.srtpReadReady = true;
+      internals.drainMediaBuffer(internals.currentAttempt);
+      await setTimeout(20);
+
+      // Assert: 残りは配送されず、connected へ戻らない。
+      expect(received).toBe(1);
+      expect(receiver.state).toBe("closed");
+      expect(internals.mediaBuffer.snapshot().bufferedPackets).toBe(0);
+    } finally {
+      await Promise.allSettled([sender.stop(), receiver.stop()]);
+    }
+  });
+
+  test("application gate は deliver 中の close で残りを破棄する", async () => {
+    // Arrange: 未認証の transport に application data 3 件を buffer する。
+    const [session] = await createDtlsSessions();
+    const gate = (
+      session as unknown as {
+        applicationGate: {
+          receive(data: Buffer): void;
+          authenticate(shouldContinue?: () => boolean): void;
+        };
+      }
+    ).applicationGate;
+    const received: string[] = [];
+    session.dataReceiver = (buf: Buffer) => {
+      received.push(buf.toString());
+      // Act: 先頭の配送 callback 内で transport を close する。
+      if (received.length === 1) void session.stop();
+    };
+    gate.receive(Buffer.from("first"));
+    gate.receive(Buffer.from("second"));
+    gate.receive(Buffer.from("third"));
+
+    try {
+      // Act: drain を開始する。
+      gate.authenticate();
+      await setTimeout(20);
+
+      // Assert: 残りは配送されず、connected へ戻らない。
+      expect(received).toEqual(["first"]);
+      expect(session.state).toBe("closed");
+    } finally {
+      await session.stop();
+    }
+  });
 
   test("dtls_start_ignores_unsupported_fingerprint_algorithm_when_supported_match_exists", async () => {
     const [session1, session2] = await createDtlsSessions();
@@ -493,4 +628,36 @@ async function createPreAuthSrtpSession(earlyMediaPolicy: "drop" | "buffer") {
   } as unknown as NonNullable<typeof session.dtls>;
   session.startSrtp();
   return session;
+}
+
+function requireAuthenticatedPair(session: RTCDtlsTransport) {
+  const ice = session.iceTransport.connection as unknown as Connection;
+  const pair = ice.nominated;
+  if (!pair) throw new Error("nominated pair が無い");
+  return pair;
+}
+
+function injectMediaWith(
+  session: RTCDtlsTransport,
+  bytes: Buffer,
+  override: {
+    authenticated?: boolean;
+    source?: [string, number];
+    generation?: number;
+  } = {},
+) {
+  const ice = session.iceTransport.connection as unknown as Connection;
+  const pair = requireAuthenticatedPair(session);
+  connectionDatagramEvent(ice as object).execute({
+    bytes,
+    source: override.source ?? pair.remoteAddr,
+    protocol: pair.protocol,
+    pair,
+    generation: override.generation ?? ice.generation,
+    authenticated: override.authenticated ?? true,
+  });
+}
+
+function injectAuthenticatedMedia(session: RTCDtlsTransport, bytes: Buffer) {
+  injectMediaWith(session, bytes);
 }

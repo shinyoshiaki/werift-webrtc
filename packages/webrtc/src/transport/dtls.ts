@@ -102,10 +102,23 @@ class InboundApplicationGate {
     else this.buffer.push(data);
   }
 
-  authenticate(): void {
+  authenticate(shouldContinue?: () => boolean): void {
     if (this.aborted || this.authenticated) return;
     this.authenticated = true;
-    for (const data of this.buffer.drain()) this.deliver(data);
+    for (const data of this.buffer.drain()) {
+      // close/restart が deliver callback 内で発生したら残りを破棄する。
+      if (this.aborted) return;
+      if (shouldContinue && !shouldContinue()) {
+        this.abort();
+        return;
+      }
+      this.deliver(data);
+      if (this.aborted) return;
+      if (shouldContinue && !shouldContinue()) {
+        this.abort();
+        return;
+      }
+    }
   }
 
   abort(): void {
@@ -373,16 +386,36 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
   /** @internal Rebind an in-flight direct handshake to the new ICE generation. */
   handleIceRestart(): void {
-    if (this.state !== "connecting" || !this.currentAttempt) return;
+    this.syncAttemptToIceGeneration();
+  }
+
+  /**
+   * answerer 側の ICE restart は DTLS への明示通知なしに generation だけが
+   * 進む。offerer の明示 restart と datagram 受信時・handshake 待機中の
+   * drift 検出を同じ処理にまとめ、旧 attempt の継続を無効化する。
+   */
+  private syncAttemptToIceGeneration(): void {
+    if (!this.currentAttempt) return;
     if (isDtlsTransportSped(this)) return;
 
     const generation = (this.iceTransport.connection as Connection).generation;
+    if (generation === this.currentAttempt.iceGeneration) return;
+    if (this.state === "connected") {
+      // 認証済み association は維持し、新 generation へ attempt を付け替える。
+      this.beginAttempt(generation);
+      return;
+    }
+    if (this.state !== "connecting") return;
+
     // A restart never mutates an in-flight attempt.  Continuations captured
     // by the previous generation must fail the identity check below.
     this.beginAttempt(generation);
     this.applicationGate.resetPending();
     this.mediaBuffer.reset();
     this.dtls?.clearEarlyDataBuffer();
+    this.readiness.writeReady = false;
+    this.srtpWriteReady = false;
+    this.srtpReadReady = false;
     this.handshakeStartedAt = Date.now();
     this.peerAuthenticatedAt = undefined;
   }
@@ -442,6 +475,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     // its carrier generation.  Wait again as the newly-issued attempt rather
     // than allowing an old continuation to authenticate or drain queues.
     while (true) {
+      // answerer 側の restart では generation drift をここで吸収し、旧 attempt
+      // での無限待機を防ぐ (SPED は runtime 側が所有するため対象外)。
+      this.syncAttemptToIceGeneration();
       if (!this.isCurrentAttempt(attempt)) {
         const current = this.currentAttempt;
         if (!current) return;
@@ -467,14 +503,22 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     }
 
     if (!this.isCurrentAttempt(attempt)) return;
+    if (this.state !== "connecting") return;
     this.readiness.peerAuthenticated = true;
     this.peerAuthenticatedAt = Date.now();
     if (this.srtpProfiles.length > 0) {
       this.installSrtpKeys();
       this.updateSrtpPermissions();
       this.drainMediaBuffer(attempt);
+      // drain 中の close/restart では認証確定へ進まない。
+      if (!this.isCurrentAttempt(attempt) || this.state !== "connecting")
+        return;
     }
-    this.applicationGate.authenticate();
+    this.applicationGate.authenticate(
+      () => this.isCurrentAttempt(attempt) && this.state === "connecting",
+    );
+    // deliver callback 内の close/restart 後は connected へ戻さない。
+    if (!this.isCurrentAttempt(attempt) || this.state !== "connecting") return;
     this.setState("connected");
     this.onPeerAuthenticated.execute();
 
@@ -493,6 +537,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   private isCurrentAttempt(attempt: TransportAttempt): boolean {
+    if (this.state === "closed" || this.state === "failed") return false;
     return (
       this.currentAttempt?.id === attempt.id &&
       this.currentAttempt.iceGeneration === attempt.iceGeneration &&
@@ -870,7 +915,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     if (this.mediaListenerStarted) return;
     this.mediaListenerStarted = true;
     this.srtpStarted = true;
-    this.iceTransport.connection.onData.subscribe((data) => {
+    const ice = this.iceTransport.connection as Connection;
+    connectionDatagramEvent(ice).subscribe((ctx) => {
       if (
         this.config.debug?.inboundPacketLoss &&
         this.config.debug?.inboundPacketLoss / 100 < Math.random()
@@ -878,6 +924,17 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         return;
       }
 
+      // 旧 generation・close 後・未認証 pair の media は配送も buffer もしない。
+      if (this.isTerminated()) return;
+      this.syncConnectedAttempt();
+      const current = this.currentAttempt;
+      if (ctx.generation !== ice.generation) return;
+      if (!ctx.authenticated || !ctx.pair) return;
+      if (ctx.protocol !== ctx.pair.protocol) return;
+      const remote = ctx.pair.remoteAddr;
+      if (ctx.source[0] !== remote[0] || ctx.source[1] !== remote[1]) return;
+
+      const data = ctx.bytes;
       if (!isMedia(data)) return;
 
       // Track received data statistics
@@ -885,10 +942,17 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       this.packetsReceived++;
 
       if (!this.srtpReadReady) {
+        // handshake 開始前 (attempt 未発行) の pre-auth media は現世代に
+        // 限り buffer し、配送は認証後の drain に委ねる。
+        if (current && !this.isCurrentAttempt(current)) return;
+        if (current && ctx.generation !== current.iceGeneration) return;
         this.mediaBuffer.push(data);
         return;
       }
 
+      // 配送は現 attempt のみに限定し、close/restart 後の旧 queue は扱わない。
+      if (!current || !this.isCurrentAttempt(current)) return;
+      if (ctx.generation !== current.iceGeneration) return;
       this.handleMediaPacket(data);
     });
   }
@@ -947,8 +1011,31 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
   private drainMediaBuffer(attempt: TransportAttempt) {
     for (const data of this.mediaBuffer.drain()) {
+      // 各要素配送前と配送後に attempt/state を再検証し、close/restart で中断する。
       if (!this.isCurrentAttempt(attempt) || !this.srtpReadReady) return;
+      if (this.isTerminated()) return;
       this.handleMediaPacket(data);
+      if (!this.isCurrentAttempt(attempt)) return;
+      if (this.isTerminated()) return;
+      if (!this.srtpReadReady) return;
+    }
+  }
+
+  private isTerminated(): boolean {
+    const state: DtlsState = this.state;
+    return state === "closed" || state === "failed";
+  }
+
+  /**
+   * answerer 側の ICE restart は DTLS への明示通知なしに generation だけが
+   * 進む。認証済み association は維持し、新 generation へ attempt を付け替える。
+   */
+  private syncConnectedAttempt(): void {
+    if (this.state !== "connected" || !this.currentAttempt) return;
+    if (isDtlsTransportSped(this)) return;
+    const generation = (this.iceTransport.connection as Connection).generation;
+    if (generation !== this.currentAttempt.iceGeneration) {
+      this.beginAttempt(generation);
     }
   }
 
@@ -1053,6 +1140,10 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   async stop() {
+    // 旧 attempt の callback・drain が再開しないよう先に無効化する。
+    this.currentAttempt = undefined;
+    this.srtpReadReady = false;
+    this.srtpWriteReady = false;
     this.setState("closed", false);
     this.applicationGate.abort();
     this.mediaBuffer.clear(true);
