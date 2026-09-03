@@ -88,11 +88,12 @@ export class IceSpedTransport implements Transport {
       return;
     }
     if (this.applicationWriteReady) {
-      if (this.ice.nominated) {
-        await this.ice.send(data);
-        return;
-      }
-      const pair = this.resolveAuthenticatedSendPair(addr);
+      const nominated = this.ice.nominated;
+      const pair =
+        this.resolveAuthenticatedSendPair(addr) ??
+        (nominated && this.isCurrentAuthenticatedPair(nominated)
+          ? nominated
+          : undefined);
       if (!pair) return;
       this.runtime?.pinHandshakePath(pair);
       await pair.protocol.sendData(data, pair.remoteAddr);

@@ -452,6 +452,31 @@ describe("IceSpedTransport pre-nomination send", () => {
     expect(a.sent[0]!.addr).toEqual(pair.remoteAddr);
   });
 
+  it("writeReady uses nominated pair directly before ICE consent permits Connection.send", async () => {
+    // Arrange: nomination 済みだが consent 前の full ICE window を再現する。
+    const a = mockProtocol("1.2.3.4", 1000);
+    const pair = authenticatedPair(a.protocol, "10.0.0.1", 1111);
+    pair.nominated = true;
+    const ice = createIceStub(1, [pair]);
+    ice.nominated = pair;
+    const session = new SpedSession(1, "active");
+    const runtime = new SpedRuntime(session, dummySpedHooks());
+    runtime.pinHandshakePath(pair);
+    const transport = new IceSpedTransport(ice);
+    transport.setRuntime(runtime);
+    transport.markApplicationWriteReady();
+    const earlyMedia = Buffer.from([23, 5, 6, 7]);
+
+    // Act: server writeReady 直後の protected media を送る。
+    await transport.send(earlyMedia);
+
+    // Assert: consent gate のある Connection.send ではなく認証済み pair を使う。
+    expect(ice.sent).toHaveLength(0);
+    expect(a.sent).toHaveLength(1);
+    expect(a.sent[0]!.data.equals(earlyMedia)).toBe(true);
+    expect(a.sent[0]!.addr).toEqual(pair.remoteAddr);
+  });
+
   it("pair A で association したあとの retransmit は candidate B に漏れない", async () => {
     // Arrange: 認証済み pair A/B。DTLS は A で開始
     const a = mockProtocol("1.2.3.4", 1000);
