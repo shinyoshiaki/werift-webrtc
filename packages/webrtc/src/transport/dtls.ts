@@ -282,10 +282,10 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   setRemoteParams(remoteParameters: RTCDtlsParameters) {
-    const fingerprints = deduplicateFingerprints([
-      ...(this.remoteParameters?.fingerprints ?? []),
-      ...remoteParameters.fingerprints,
-    ]);
+    // A new remote SDP supersedes the previous authentication assertion.
+    // Keep alternatives advertised by this SDP, but never let an old
+    // fingerprint remain valid across an ICE restart / re-negotiation.
+    const fingerprints = deduplicateFingerprints(remoteParameters.fingerprints);
     const role =
       remoteParameters.role === "auto" && this.remoteParameters?.role
         ? this.remoteParameters.role
