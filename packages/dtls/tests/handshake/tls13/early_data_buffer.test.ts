@@ -1,3 +1,4 @@
+import { vi } from "vitest";
 import { EarlyDataBuffer } from "../../../src/engine/v1_3/early-data-buffer";
 
 describe("EarlyDataBuffer", () => {
@@ -34,5 +35,31 @@ describe("EarlyDataBuffer", () => {
       droppedPackets: 2,
       droppedBytes: 8,
     });
+  });
+
+  test("abort cleanup prevents the retention timer from mutating state", () => {
+    // Arrange: retention timer を制御できる clock で pre-auth packet を保持する。
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const buffer = new EarlyDataBuffer(256, 256 * 1024, 2_000);
+    buffer.push(Buffer.from("pending"));
+
+    try {
+      // Act: fingerprint failure/close と同じ順序で queue と timer を破棄する。
+      buffer.clear(true);
+      buffer.dispose();
+      const afterAbort = buffer.snapshot();
+      vi.advanceTimersByTime(2_001);
+
+      // Assert: lifecycle 終了後の timer callback は統計を再更新しない。
+      expect(buffer.snapshot()).toEqual(afterAbort);
+      expect(afterAbort).toMatchObject({
+        bufferedPackets: 0,
+        droppedPackets: 1,
+        droppedBytes: 7,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
