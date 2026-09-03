@@ -974,28 +974,34 @@ export class RTCPeerConnection extends EventTarget {
           const dtlsPromise = dtlsTransport.start();
           const ownsSctp =
             this.sctpTransport?.dtlsTransport.id === dtlsTransport.id;
+          const earlyWritePromise =
+            this.config.warp.allowEarlyServerData &&
+            dtlsTransport.role === "server"
+              ? dtlsTransport.waitForWriteReady()
+              : Promise.resolve();
           const earlySctpPromise =
             ownsSctp && this.config.warp.allowEarlyServerData
               ? dtlsTransport.role === "server"
-                ? dtlsTransport
-                    .waitForWriteReady()
-                    .then(() =>
-                      dtlsTransport.isEarlyServerWriteAllowed()
-                        ? this.sctpManager.connectSctp()
-                        : undefined,
-                    )
+                ? earlyWritePromise.then(() =>
+                    dtlsTransport.isEarlyServerWriteAllowed()
+                      ? this.sctpManager.connectSctp()
+                      : undefined,
+                  )
                 : this.sctpManager.connectSctp()
               : Promise.resolve();
           const icePromise =
             iceTransport.state === "connected"
               ? Promise.resolve()
               : iceTransport.start();
-          await Promise.all([icePromise, dtlsPromise, earlySctpPromise]).catch(
-            (err) => {
-              log("sped ice/dtls start failed", err);
-              throw err;
-            },
-          );
+          await Promise.all([
+            icePromise,
+            dtlsPromise,
+            earlyWritePromise,
+            earlySctpPromise,
+          ]).catch((err) => {
+            log("sped ice/dtls start failed", err);
+            throw err;
+          });
         } else {
           if (iceTransport.state !== "connected") {
             await iceTransport.start().catch((err) => {

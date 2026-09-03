@@ -968,7 +968,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       this.bytesSent += enc.length;
       this.packetsSent++;
 
-      await this.iceTransport.connection.send(enc).catch(() => {});
+      await this.sendProtectedMedia(enc);
       return enc.length;
     } catch (error) {
       log("failed to send", error);
@@ -993,7 +993,15 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     this.bytesSent += enc.length;
     this.packetsSent++;
 
-    await this.iceTransport.connection.send(enc).catch(() => {});
+    await this.sendProtectedMedia(enc);
+  }
+
+  private async sendProtectedMedia(data: Buffer) {
+    if (this.spedTransport) {
+      await this.spedTransport.send(data).catch(() => {});
+      return;
+    }
+    await this.iceTransport.connection.send(data).catch(() => {});
   }
 
   /**
