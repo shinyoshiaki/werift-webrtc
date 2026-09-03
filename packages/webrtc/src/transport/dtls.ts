@@ -12,6 +12,10 @@ import {
   refragmentPendingFlightIfNeeded,
 } from "../../../dtls/src/internal";
 import type { Connection } from "../../../ice/src";
+import {
+  allowsAuthenticatedDtlsDelivery,
+  connectionDatagramEvent,
+} from "../../../ice/src/internal/datagram";
 import { attachSpedToConnection } from "../../../ice/src/internal/sped";
 import { getConnectionSpedRuntime } from "../../../ice/src/internal/sped-bind";
 import { EventTarget as DomEventTarget } from "../helper";
@@ -1264,10 +1268,13 @@ class IceTransport implements Transport {
    */
   readonly peerAuthenticated = true;
   constructor(private ice: IceConnection) {
-    ice.onData.subscribe((buf) => {
-      if (isDtls(buf)) {
+    connectionDatagramEvent(ice).subscribe((ctx) => {
+      if (
+        isDtls(ctx.bytes) &&
+        allowsAuthenticatedDtlsDelivery(ctx, (ice as Connection).generation)
+      ) {
         if (this.onData) {
-          this.onData(buf, this.remotePeer());
+          this.onData(ctx.bytes, ctx.source);
         }
       }
     });
