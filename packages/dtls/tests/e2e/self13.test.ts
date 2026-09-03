@@ -1145,6 +1145,15 @@ test("e2e/self13 dual [1.3,1.2] server upgrades for 1.3-only client", async () =
     protocolVersions: [DtlsVersion.V1_3],
     // client also uses default; cookie only enforced server-side
   });
+  let serverWriteReadyBeforeConnect = false;
+
+  // Act: engine 未選択の時点から dual server の write readiness を待つ。
+  const serverWriteReady = server.waitForWriteReady().then(() => {
+    // Assert: 1.3 選択後は legacy onConnect ではなく 1.3 latch で解決する。
+    expect(server.isDtls13).toBe(true);
+    expect(server.connected).toBe(false);
+    serverWriteReadyBeforeConnect = true;
+  });
 
   // Act / Assert: dual server が 1.3 に昇格し、default cookie 経路で接続
   await new Promise<void>(async (resolve, reject) => {
@@ -1159,6 +1168,7 @@ test("e2e/self13 dual [1.3,1.2] server upgrades for 1.3-only client", async () =
     });
     server.onData.subscribe((d) => {
       expect(d.toString()).toBe("dual-up");
+      expect(serverWriteReadyBeforeConnect).toBe(true);
       clearTimeout(timer);
       client.close();
       server.close();
@@ -1173,6 +1183,7 @@ test("e2e/self13 dual [1.3,1.2] server upgrades for 1.3-only client", async () =
       reject(e);
     });
     await client.connect();
+    await serverWriteReady;
   });
 }, 20_000);
 

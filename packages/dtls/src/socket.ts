@@ -83,6 +83,8 @@ export class DtlsSocket {
    * candidates cannot surface stale onConnect / onError / onClose.
    */
   private engine13Bridge = new EventDisposer();
+  /** Wakes readiness waiters when a dual-stack association selects 1.3. */
+  private readonly onEngine13Selected = new Event<[]>();
   /** Negotiated / configured protocol versions (priority order). */
   readonly protocolVersions: DtlsVersion[];
 
@@ -127,24 +129,24 @@ export class DtlsSocket {
 
   /** @internal */
   async waitForWriteReady(): Promise<void> {
-    if (!this.engine13) return this.waitForLegacyReadiness();
-    await this.engine13.waitForWriteReady();
+    await this.waitForSelectedReadiness((engine) => engine.waitForWriteReady());
+    if (!this.engine13) return;
     const profile = this.engine13.srtpProfile;
     if (profile !== undefined) this.srtp.srtpProfile = profile;
   }
 
   /** @internal */
   waitForPeerHandshakeAuthenticated(): Promise<void> {
-    return this.engine13
-      ? this.engine13.waitForPeerHandshakeAuthenticated()
-      : this.waitForLegacyReadiness();
+    return this.waitForSelectedReadiness((engine) =>
+      engine.waitForPeerHandshakeAuthenticated(),
+    );
   }
 
   /** @internal */
   waitForHandshakeComplete(): Promise<void> {
-    return this.engine13
-      ? this.engine13.waitForHandshakeComplete()
-      : this.waitForLegacyReadiness();
+    return this.waitForSelectedReadiness((engine) =>
+      engine.waitForHandshakeComplete(),
+    );
   }
 
   /** @internal Drop DTLS 1.3 pre-authentication application records. */
@@ -178,6 +180,65 @@ export class DtlsSocket {
         closed.unSubscribe();
       };
       if (this.connected) {
+        cleanup();
+        resolve();
+      }
+    });
+  }
+
+  /**
+   * Wait for the readiness milestone owned by the selected protocol engine.
+   * A dual-stack server has no 1.3 engine until ClientHello is classified, so
+   * choosing the legacy latch at call time would accidentally turn 0.5-RTT
+   * readiness into a full-handshake wait.
+   */
+  private waitForSelectedReadiness(
+    wait13: (engine: Dtls13Connection) => Promise<void>,
+  ): Promise<void> {
+    if (this.engine13) return wait13(this.engine13);
+    if (!this.protocolVersions.includes(DtlsVersion.V1_3)) {
+      return this.waitForLegacyReadiness();
+    }
+    if (this.associationTornDown) {
+      return Promise.reject(
+        new Error("DTLS association closed before readiness"),
+      );
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      const selected13 = this.onEngine13Selected.subscribe(() => {
+        const engine = this.engine13;
+        if (!engine) return;
+        cleanup();
+        void wait13(engine).then(resolve, reject);
+      });
+      const connected12 = this.onConnect.subscribe(() => {
+        // A 1.3 engine also emits onConnect, but its selection notification is
+        // synchronous and removes this legacy fallback subscription first.
+        if (this.engine13) return;
+        cleanup();
+        resolve();
+      });
+      const failed = this.onError.subscribe((error) => {
+        cleanup();
+        reject(error);
+      });
+      const closed = this.onClose.subscribe(() => {
+        cleanup();
+        reject(new Error("DTLS association closed before readiness"));
+      });
+      const cleanup = () => {
+        selected13.unSubscribe();
+        connected12.unSubscribe();
+        failed.unSubscribe();
+        closed.unSubscribe();
+      };
+
+      // Close the subscribe-before-state-check race.
+      if (this.engine13) {
+        cleanup();
+        void wait13(this.engine13).then(resolve, reject);
+      } else if (this.connected) {
         cleanup();
         resolve();
       }
@@ -1050,6 +1111,7 @@ export class DtlsSocket {
         this.onEngine13PeerOrLocalClose();
       })
       .disposer(this.engine13Bridge);
+    this.onEngine13Selected.execute();
   }
 
   /**

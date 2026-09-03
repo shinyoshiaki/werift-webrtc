@@ -3,9 +3,13 @@ import { setTimeout } from "timers/promises";
 
 import {
   DtlsVersion,
+  ProtectionProfileAes128CmHmacSha1_80,
   RTCDtlsFingerprint,
   RTCDtlsParameters,
   RTCDtlsTransport,
+  RtcpRrPacket,
+  RtpHeader,
+  RtpPacket,
   defaultPeerConfig,
   fingerprint,
 } from "../../src";
@@ -219,6 +223,144 @@ describe("RTCDtlsTransportTest", () => {
     }
   });
 
+  test("startSrtp does not grant media permission before fingerprint authentication", async () => {
+    // Arrange: key exporter だけを利用可能にし、WebRTC peer 認証は未完了に保つ。
+    const [session] = await createDtlsSessions(
+      {
+        ...defaultPeerConfig,
+        warp: { allowEarlyServerData: false, earlyMediaPolicy: "buffer" },
+      },
+      [ProtectionProfileAes128CmHmacSha1_80],
+    );
+    const key = Buffer.alloc(16, 1);
+    const salt = Buffer.alloc(14, 2);
+    session.dtls = {
+      srtp: { srtpProfile: ProtectionProfileAes128CmHmacSha1_80 },
+      extractSessionKeys: () => ({
+        localKey: key,
+        localSalt: salt,
+        remoteKey: key,
+        remoteSalt: salt,
+      }),
+    } as unknown as NonNullable<typeof session.dtls>;
+
+    try {
+      // Act: legacy public helper を認証前に呼び、RTP/RTCP 送信を試みる。
+      session.startSrtp();
+      const rtpBytes = await session.sendRtp(
+        Buffer.from("pre-auth"),
+        new RtpHeader({ ssrc: 1, payloadType: 96 }),
+      );
+      const rtcpBytes = await session.sendRtcp([
+        new RtcpRrPacket({ ssrc: 1, reports: [] }),
+      ]);
+
+      // Assert: key install と permission は分離され、送信は一件も許可されない。
+      expect(rtpBytes).toBe(0);
+      expect(rtcpBytes).toBe(0);
+    } finally {
+      await session.stop();
+    }
+  });
+
+  test("fingerprint mismatch releases neither buffered RTP nor RTCP", async () => {
+    // Arrange: early media を暗号化状態で buffer し、受信側 fingerprint を壊す。
+    const profile = ProtectionProfileAes128CmHmacSha1_80;
+    const [server, client] = await createDtlsSessions(
+      {
+        ...defaultPeerConfig,
+        protocolVersions: [DtlsVersion.V1_3],
+        warp: { allowEarlyServerData: true, earlyMediaPolicy: "buffer" },
+      },
+      [profile],
+    );
+    let receivedRtp = 0;
+    let receivedRtcp = 0;
+    client.onRtp.subscribe(() => receivedRtp++);
+    client.onRtcp.subscribe(() => receivedRtcp++);
+    const expected = server.localParameters.fingerprints[0];
+    server.setRemoteParams(client.localParameters);
+    client.setRemoteParams(
+      new RTCDtlsParameters(
+        [
+          new RTCDtlsFingerprint(
+            expected.algorithm,
+            mutateFingerprint(expected.value),
+          ),
+        ],
+        server.localParameters.role,
+      ),
+    );
+
+    try {
+      // Act: server write-ready 直後に protected RTP/RTCP を送る。
+      void server.start().catch(() => undefined);
+      void client.start().catch(() => undefined);
+      await server.waitForWriteReady();
+      expect(
+        await server.sendRtp(
+          Buffer.from("must-not-leak"),
+          new RtpHeader({ ssrc: 7, payloadType: 96 }),
+        ),
+      ).toBeGreaterThan(0);
+      await server.sendRtcp([new RtcpRrPacket({ ssrc: 7, reports: [] })]);
+      await waitForDtlsState(client, "failed");
+
+      // Assert: fingerprint mismatch の abort 後も上位イベントはゼロのまま。
+      await setTimeout(20);
+      expect(receivedRtp).toBe(0);
+      expect(receivedRtcp).toBe(0);
+      expect(client.state).toBe("failed");
+    } finally {
+      await Promise.allSettled([server.stop(), client.stop()]);
+    }
+  });
+
+  test.each(["drop", "buffer"] as const)(
+    "pre-auth early media policy=%s enforces bounds and abort cleanup",
+    async (earlyMediaPolicy) => {
+      // Arrange: fingerprint 未認証の transport に SRTP key だけを導入する。
+      const session = await createPreAuthSrtpSession(earlyMediaPolicy);
+      const protectedLikeRtp = new RtpPacket(
+        new RtpHeader({ ssrc: 9, payloadType: 96 }),
+        Buffer.from("encrypted-like"),
+      ).serialize();
+      const mediaBuffer = (
+        session as unknown as {
+          mediaBuffer: {
+            snapshot(): {
+              bufferedPackets: number;
+              droppedPackets: number;
+            };
+          };
+        }
+      ).mediaBuffer;
+
+      try {
+        // Act: 上限を一件超える pre-auth media を central demux へ投入する。
+        for (let i = 0; i < 257; i++) {
+          session.iceTransport.connection.onData.execute(protectedLikeRtp);
+        }
+        const beforeAbort = mediaBuffer.snapshot();
+
+        // Assert: drop は全破棄、buffer は古い256件を維持して最新を drop する。
+        expect(beforeAbort).toMatchObject(
+          earlyMediaPolicy === "buffer"
+            ? { bufferedPackets: 256, droppedPackets: 1 }
+            : { bufferedPackets: 0, droppedPackets: 257 },
+        );
+
+        // Act: transport close により保留 media を破棄する。
+        await session.stop();
+
+        // Assert: close 後に認証前 packet は残らない。
+        expect(mediaBuffer.snapshot().bufferedPackets).toBe(0);
+      } finally {
+        await session.stop();
+      }
+    },
+  );
+
   test("dtls_start_ignores_unsupported_fingerprint_algorithm_when_supported_match_exists", async () => {
     const [session1, session2] = await createDtlsSessions();
     const expectedFingerprint = session2.localParameters.fingerprints[0];
@@ -303,12 +445,23 @@ class DummyDataReceiver {
 
 async function createDtlsSessions(
   config: ConstructorParameters<typeof RTCDtlsTransport>[0] = defaultPeerConfig,
+  srtpProfiles: ConstructorParameters<typeof RTCDtlsTransport>[3] = [],
 ) {
   const [transport1, transport2] = await iceTransportPair();
   await RTCDtlsTransport.SetupCertificate();
 
-  const session1 = new RTCDtlsTransport(config, transport1);
-  const session2 = new RTCDtlsTransport(config, transport2);
+  const session1 = new RTCDtlsTransport(
+    config,
+    transport1,
+    undefined,
+    srtpProfiles,
+  );
+  const session2 = new RTCDtlsTransport(
+    config,
+    transport2,
+    undefined,
+    srtpProfiles,
+  );
 
   return [session1, session2] as const;
 }
@@ -317,4 +470,27 @@ function mutateFingerprint(value: string) {
   const normalized = value.replace(/[^0-9a-f]/gi, "").toUpperCase();
   const flipped = `${normalized[0] === "A" ? "B" : "A"}${normalized.slice(1)}`;
   return flipped.match(/.{2}/g)!.join(":");
+}
+
+async function createPreAuthSrtpSession(earlyMediaPolicy: "drop" | "buffer") {
+  const [session] = await createDtlsSessions(
+    {
+      ...defaultPeerConfig,
+      warp: { allowEarlyServerData: false, earlyMediaPolicy },
+    },
+    [ProtectionProfileAes128CmHmacSha1_80],
+  );
+  const key = Buffer.alloc(16, 1);
+  const salt = Buffer.alloc(14, 2);
+  session.dtls = {
+    srtp: { srtpProfile: ProtectionProfileAes128CmHmacSha1_80 },
+    extractSessionKeys: () => ({
+      localKey: key,
+      localSalt: salt,
+      remoteKey: key,
+      remoteSalt: salt,
+    }),
+  } as unknown as NonNullable<typeof session.dtls>;
+  session.startSrtp();
+  return session;
 }

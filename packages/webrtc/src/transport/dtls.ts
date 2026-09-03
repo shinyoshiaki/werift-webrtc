@@ -442,8 +442,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     this.peerAuthenticatedAt = Date.now();
     if (this.srtpProfiles.length > 0) {
       this.installSrtpKeys();
-      this.srtpReadReady = true;
-      this.srtpWriteReady = true;
+      this.updateSrtpPermissions();
       this.drainMediaBuffer(attempt);
     }
     this.applicationGate.authenticate();
@@ -483,8 +482,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       this.dtls?.isDtls13
     ) {
       if (this.srtpProfiles.length > 0) this.installSrtpKeys();
-      this.srtpWriteReady = this.srtpKeysInstalled;
     }
+    this.updateSrtpPermissions();
     this.onWriteReady.execute();
   }
 
@@ -813,8 +812,16 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   startSrtp() {
     this.bindMediaListener();
     this.installSrtpKeys();
-    this.srtpReadReady = true;
-    this.srtpWriteReady = true;
+    this.updateSrtpPermissions();
+  }
+
+  /** Key availability never grants media access by itself. */
+  private updateSrtpPermissions() {
+    this.srtpReadReady =
+      this.srtpKeysInstalled && this.readiness.peerAuthenticated;
+    this.srtpWriteReady =
+      this.srtpKeysInstalled &&
+      (this.readiness.peerAuthenticated || this.isEarlyServerWriteAllowed());
   }
 
   private bindMediaListener() {
