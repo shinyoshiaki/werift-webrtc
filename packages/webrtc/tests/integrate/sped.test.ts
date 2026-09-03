@@ -17,8 +17,10 @@ import {
   DtlsVersion,
   HashAlgorithm,
   RTCCertificate,
+  RtcpRrPacket,
   type RTCDataChannel,
   RTCPeerConnection,
+  RtpHeader,
   SignatureAlgorithm,
 } from "../../src";
 import { isDtls } from "../../src/utils";
@@ -26,6 +28,8 @@ import {
   awaitMessage,
   createDataChannelPair,
   exchangeIceCandidates,
+  mutateSdpFingerprint,
+  waitForDtlsState,
   waitForIceNominated,
 } from "../utils";
 
@@ -817,6 +821,114 @@ describe("RTCPeerConnection SPED opt-in", () => {
       await pc2.close();
     }
   });
+
+  test("WARP early server traffic is held by the real PeerConnection authentication boundary", async () => {
+    // Arrange: offerer (ICE controlling / DTLS server) と answerer を実際に
+    // negotiation し、answer SDP の適用中に server write-ready を観測する。
+    const config = spedPeerConfig({
+      warp: { allowEarlyServerData: true, earlyMediaPolicy: "buffer" },
+    });
+    const pc1 = new RTCPeerConnection(config);
+    const pc2 = new RTCPeerConnection(config);
+    let receivedRtp = 0;
+    let receivedRtcp = 0;
+    let receivedDataChannel = 0;
+    try {
+      const dc1 = pc1.createDataChannel("early");
+      pc2.ondatachannel = () => {
+        receivedDataChannel++;
+      };
+      exchangeIceCandidates(pc1, pc2);
+      await pc1.setLocalDescription(await pc1.createOffer());
+      await pc2.setRemoteDescription(pc1.localDescription!);
+      pc2.dtlsTransports[0]!.onRtp.subscribe(() => receivedRtp++);
+      pc2.dtlsTransports[0]!.onRtcp.subscribe(() => receivedRtcp++);
+      await pc2.setLocalDescription(await pc2.createAnswer());
+
+      // Act: final SDP 適用を待たず、DTLS server の epoch-3 write key が
+      // 入った直後に SCTP INIT と protected RTP/RTCP を送る。
+      const applyAnswer = pc1.setRemoteDescription(pc2.localDescription!);
+      await waitUntil(
+        () => pc1.dtlsTransports[0]?.role === "server",
+      );
+      const server = pc1.dtlsTransports[0]!;
+      const client = pc2.dtlsTransports[0]!;
+      await server.waitForWriteReady();
+      expect(server.state).toBe("connecting");
+      expect(client.state).toBe("connecting");
+      expect(
+        await server.sendRtp(
+          Buffer.from("early-rtp"),
+          new RtpHeader({ ssrc: 0x101, payloadType: 96 }),
+        ),
+      ).toBeGreaterThan(0);
+      await server.sendRtcp([new RtcpRrPacket({ ssrc: 0x101, reports: [] })]);
+
+      // Assert: fingerprint 認証の完了前には実 PC の DataChannel / RTP /
+      // RTCP callback を一件も公開しない。
+      expect(receivedDataChannel).toBe(0);
+      expect(receivedRtp).toBe(0);
+      expect(receivedRtcp).toBe(0);
+      await applyAnswer;
+      await waitUntil(() => dc1.readyState === "open");
+      await waitUntil(() => receivedDataChannel === 1);
+      await waitUntil(() => receivedRtp === 1 && receivedRtcp === 1);
+    } finally {
+      await Promise.allSettled([pc1.close(), pc2.close()]);
+    }
+  }, 30_000);
+
+  test("WARP fingerprint mismatch releases no real PeerConnection SCTP, RTP, or RTCP", async () => {
+    // Arrange: answerer に渡す offer の fingerprint だけを改ざんする。
+    // server 側は正規の client fingerprint を持つため early outbound まで進む。
+    const config = spedPeerConfig({
+      warp: { allowEarlyServerData: true, earlyMediaPolicy: "buffer" },
+    });
+    const pc1 = new RTCPeerConnection(config);
+    const pc2 = new RTCPeerConnection(config);
+    let receivedRtp = 0;
+    let receivedRtcp = 0;
+    let receivedDataChannel = 0;
+    try {
+      pc1.createDataChannel("mismatch");
+      pc2.ondatachannel = () => {
+        receivedDataChannel++;
+      };
+      exchangeIceCandidates(pc1, pc2);
+      await pc1.setLocalDescription(await pc1.createOffer());
+      await pc2.setRemoteDescription({
+        type: "offer",
+        sdp: mutateSdpFingerprint(pc1.localDescription!.sdp),
+      });
+      pc2.dtlsTransports[0]!.onRtp.subscribe(() => receivedRtp++);
+      pc2.dtlsTransports[0]!.onRtcp.subscribe(() => receivedRtcp++);
+      await pc2.setLocalDescription(await pc2.createAnswer());
+
+      // Act: server write-ready 中に protected media と SCTP INIT を client
+      // へ流す。client は fingerprint 検証で失敗する。
+      const applyAnswer = pc1.setRemoteDescription(pc2.localDescription!);
+      await waitUntil(() => pc1.dtlsTransports[0]?.role === "server");
+      const server = pc1.dtlsTransports[0]!;
+      await server.waitForWriteReady();
+      expect(
+        await server.sendRtp(
+          Buffer.from("must-not-leak"),
+          new RtpHeader({ ssrc: 0x102, payloadType: 96 }),
+        ),
+      ).toBeGreaterThan(0);
+      await server.sendRtcp([new RtcpRrPacket({ ssrc: 0x102, reports: [] })]);
+      await waitForDtlsState(pc2.dtlsTransports[0]!, "failed");
+      await applyAnswer.catch(() => undefined);
+
+      // Assert: DataChannel/RTP/RTCP は transport unit test だけでなく、
+      // 実 PeerConnection の公開 callback でも一件も配送されない。
+      expect(receivedDataChannel).toBe(0);
+      expect(receivedRtp).toBe(0);
+      expect(receivedRtcp).toBe(0);
+    } finally {
+      await Promise.allSettled([pc1.close(), pc2.close()]);
+    }
+  }, 30_000);
 
   test("createDataChannel 後の iceServers 更新では sped が維持される", () => {
     // Arrange: sped:true で transport を生成してから無関係な部分更新
@@ -1843,6 +1955,14 @@ describe("RTCPeerConnection SPED opt-in", () => {
       await pc2.setRemoteDescription(pc1.localDescription!);
       await pc2.setLocalDescription(await pc2.createAnswer());
       await pc1.setRemoteDescription(pc2.localDescription!);
+
+      // Act: 旧 ufrag で認証された世代 N の Binding を、世代 N+1 の
+      // signaling 適用後に遅延到着させる。
+      const staleIce = iceOf(pc2) as unknown as { protocols: Protocol[] };
+      await staleIce.protocols[0]!.sendStun(
+        hold.message!,
+        hold.addr!,
+      );
       await opened;
       dc1.send("hs-restart");
       expect(await awaitMessage(dc2)).toBe("hs-restart");

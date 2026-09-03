@@ -81,8 +81,8 @@ interface WebRtcDtlsReadiness {
 }
 
 interface TransportAttempt {
-  id: number;
-  iceGeneration: number;
+  readonly id: number;
+  readonly iceGeneration: number;
 }
 
 class InboundApplicationGate {
@@ -373,7 +373,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     if (isDtlsTransportSped(this)) return;
 
     const generation = (this.iceTransport.connection as Connection).generation;
-    this.currentAttempt.iceGeneration = generation;
+    // A restart never mutates an in-flight attempt.  Continuations captured
+    // by the previous generation must fail the identity check below.
+    this.beginAttempt(generation);
     this.applicationGate.resetPending();
     this.mediaBuffer.reset();
     this.dtls?.clearEarlyDataBuffer();
@@ -415,11 +417,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   private async completeHandshake() {
-    const attempt = {
-      id: ++this.attemptCounter,
-      iceGeneration: (this.iceTransport.connection as Connection).generation,
-    };
-    this.currentAttempt = attempt;
+    let attempt = this.beginAttempt(
+      (this.iceTransport.connection as Connection).generation,
+    );
     this.handshakeStartedAt = Date.now();
     const sped = isDtlsTransportSped(this);
     const addressValidation = sped
@@ -434,8 +434,18 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       await this.startSerial(addressValidation);
     }
 
-    if (!this.isCurrentAttempt(attempt)) return;
-    await this.dtls?.waitForPeerHandshakeAuthenticated();
+    // An ICE restart can retain the cryptographic association while changing
+    // its carrier generation.  Wait again as the newly-issued attempt rather
+    // than allowing an old continuation to authenticate or drain queues.
+    while (true) {
+      if (!this.isCurrentAttempt(attempt)) {
+        const current = this.currentAttempt;
+        if (!current) return;
+        attempt = current;
+      }
+      await this.dtls?.waitForPeerHandshakeAuthenticated();
+      if (this.isCurrentAttempt(attempt)) break;
+    }
     if (this.dtls?.readiness.writeReady) this.markWriteReady();
 
     try {
@@ -485,6 +495,15 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       (this.iceTransport.connection as Connection).generation ===
         attempt.iceGeneration
     );
+  }
+
+  private beginAttempt(iceGeneration: number): TransportAttempt {
+    const attempt: TransportAttempt = {
+      id: ++this.attemptCounter,
+      iceGeneration,
+    };
+    this.currentAttempt = attempt;
+    return attempt;
   }
 
   private markWriteReady(): void {
@@ -575,7 +594,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         if (this.state === "connecting" && this.currentAttempt) {
           // The cryptographic association continues, but every subsequent
           // continuation is now owned by the new authenticated ICE generation.
-          this.currentAttempt.iceGeneration = ice.generation;
+          // Invalidate every closure that captured the prior ICE generation.
+          // The owning completeHandshake loop adopts this new immutable token.
+          this.beginAttempt(ice.generation);
           this.earlyModeDisabled = false;
           this.readiness.writeReady = false;
           this.srtpWriteReady = false;
