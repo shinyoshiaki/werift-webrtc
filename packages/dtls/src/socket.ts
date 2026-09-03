@@ -83,6 +83,8 @@ export class DtlsSocket {
    * candidates cannot surface stale onConnect / onError / onClose.
    */
   private engine13Bridge = new EventDisposer();
+  /** Opaque carrier generation provider for the DTLS 1.3 RX queue. */
+  private rxGenerationProvider?: () => number | undefined;
   /** Wakes readiness waiters when a dual-stack association selects 1.3. */
   private readonly onEngine13Selected = new Event<[]>();
   /** Negotiated / configured protocol versions (priority order). */
@@ -152,6 +154,17 @@ export class DtlsSocket {
   /** @internal Drop DTLS 1.3 pre-authentication application records. */
   clearEarlyDataBuffer(): void {
     this.engine13?.clearEarlyAppData();
+  }
+
+  /**
+   * @internal Opaque carrier generation provider for the DTLS 1.3 RX queue
+   * (e.g. ICE generation, owned by the WebRTC layer). Queued datagrams whose
+   * accept-time `rxGeneration` differs at execution time are dropped, closing
+   * the ICE-restart RX race. Unset = no check.
+   */
+  setExpectedRxGeneration(provider?: () => number | undefined): void {
+    this.rxGenerationProvider = provider;
+    if (this.engine13) this.engine13.expectedRxGeneration = provider;
   }
 
   private waitForLegacyReadiness(): Promise<void> {
@@ -1062,6 +1075,9 @@ export class DtlsSocket {
     // Replace any prior bridge so only the current candidate is public.
     this.unbridgeEngine13();
     this.engine13 = engine;
+    if (this.rxGenerationProvider) {
+      engine.expectedRxGeneration = this.rxGenerationProvider;
+    }
     engine.onConnect
       .subscribe(() => {
         // Terminal mid-handshake: do not flip connected back to true / re-fire.

@@ -32,7 +32,7 @@
 
 ### onData()
 
-> **onData**: (`data`, `addr`) => `void`
+> **onData**: (`data`, `addr`, `meta`?) => `void`
 
 #### Parameters
 
@@ -43,6 +43,10 @@
 ##### addr
 
 readonly \[`string`, `number`\]
+
+##### meta?
+
+[`DatagramRxMeta`](DatagramRxMeta.md)
 
 #### Returns
 

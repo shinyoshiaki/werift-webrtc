@@ -496,6 +496,156 @@ describe("RTCDtlsTransportTest", () => {
     }
   });
 
+  test("drain 中の restart は terminal abort せず新 attempt 用に gate を開き直す", async () => {
+    // Arrange: 未認証の transport に application data 2 件を buffer する。
+    const [session] = await createDtlsSessions();
+    const gate = (
+      session as unknown as {
+        applicationGate: {
+          receive(data: Buffer): void;
+          authenticate(
+            shouldContinue?: () => boolean,
+            isTerminal?: () => boolean,
+          ): void;
+          restartForNewAttempt(): void;
+          snapshot(): { bufferedPackets: number };
+        };
+      }
+    ).applicationGate;
+    const received: string[] = [];
+    session.dataReceiver = (buf: Buffer) => {
+      received.push(buf.toString());
+    };
+    gate.receive(Buffer.from("a1"));
+    gate.receive(Buffer.from("a2"));
+
+    try {
+      // Act: 先頭配送直後に restart 相当の再初期化が入り、guard が drift を検出する。
+      let restarted = false;
+      gate.authenticate(
+        () => {
+          if (received.length === 1 && !restarted) {
+            restarted = true;
+            // syncAttemptToIceGeneration の connecting 分岐と同等の再初期化。
+            gate.restartForNewAttempt();
+            return false;
+          }
+          return !restarted;
+        },
+        () => false,
+      );
+
+      // Assert: 旧 drain 残余は terminal abort されず、gate は新世代用に空く。
+      expect(received).toEqual(["a1"]);
+      gate.receive(Buffer.from("b1"));
+      expect(gate.snapshot().bufferedPackets).toBe(1);
+
+      // Act: 新 attempt の認証として drain し直す。
+      gate.authenticate(
+        () => true,
+        () => false,
+      );
+
+      // Assert: 新世代 data が復旧し、旧残余は混入しない。
+      expect(received).toEqual(["a1", "b1"]);
+    } finally {
+      await session.stop();
+    }
+  });
+
+  test("connecting 中の generation drift は gate を再初期化して attempt を付け替える", async () => {
+    // Arrange: handshake 開始前の attempt を connecting 状態で発行する。
+    const [session] = await createDtlsSessions();
+    const internals = session as unknown as {
+      beginAttempt(generation: number): { id: number; iceGeneration: number };
+      syncAttemptToIceGeneration(): void;
+      currentAttempt?: { id: number; iceGeneration: number };
+      applicationGate: {
+        receive(data: Buffer): void;
+        authenticate(shouldContinue?: () => boolean): void;
+        snapshot(): { bufferedPackets: number };
+      };
+    };
+    session.state = "connecting";
+    const ice = session.iceTransport.connection as unknown as {
+      generation: number;
+    };
+    internals.beginAttempt(ice.generation);
+    const received: string[] = [];
+    session.dataReceiver = (buf: Buffer) => {
+      received.push(buf.toString());
+    };
+    internals.applicationGate.receive(Buffer.from("stale-buffered"));
+
+    try {
+      // Act: answerer 側 restart 相当の generation drift を吸収する。
+      ice.generation += 1;
+      internals.syncAttemptToIceGeneration();
+
+      // Assert: attempt が新世代へ付け替わり、旧 buffer は破棄される。
+      expect(internals.currentAttempt?.iceGeneration).toBe(ice.generation);
+      expect(internals.applicationGate.snapshot().bufferedPackets).toBe(0);
+
+      // Act: 新世代の pre-auth data を受けて認証する。
+      internals.applicationGate.receive(Buffer.from("fresh"));
+      internals.applicationGate.authenticate(() => true);
+
+      // Assert: 新世代 data だけが配送される。
+      expect(received).toEqual(["fresh"]);
+    } finally {
+      await session.stop();
+    }
+  });
+
+  test("connected 遷移 callback 内の restart では旧 attempt の認証通知を発火しない", async () => {
+    // Arrange: 相互認証する DTLS pair を用意する。
+    const [session1, session2] = await createDtlsSessions();
+    session1.setRemoteParams(session2.localParameters);
+    session2.setRemoteParams(session1.localParameters);
+    let peerAuthenticatedFires = 0;
+    (
+      session1 as unknown as {
+        onPeerAuthenticated: { subscribe(cb: () => void): void };
+      }
+    ).onPeerAuthenticated.subscribe(() => {
+      peerAuthenticatedFires++;
+    });
+
+    try {
+      // Act: connected 遷移 callback 内で generation を進めて restart させる。
+      const onStateChange = new Promise<void>((resolve) => {
+        const check = () => {
+          if (session1.state === "connected") resolve();
+        };
+        const poll = setInterval(() => {
+          check();
+          if (session1.state === "connected" || session1.state === "failed") {
+            clearInterval(poll);
+          }
+        }, 10);
+      });
+      session1.onStateChange.subscribe((next) => {
+        if (next === "connected") {
+          // 世代を進めてから明示 restart し、旧 attempt を陳腐化させる。
+          const ice = session1.iceTransport.connection as unknown as {
+            generation: number;
+          };
+          ice.generation += 1;
+          session1.handleIceRestart();
+        }
+      });
+      await Promise.all([session1.start(), session2.start()]);
+      await onStateChange;
+      await setTimeout(50);
+
+      // Assert: 旧 attempt の onPeerAuthenticated は発火しない。
+      expect(peerAuthenticatedFires).toBe(0);
+      expect(session1.state).toBe("connected");
+    } finally {
+      await Promise.allSettled([session1.stop(), session2.stop()]);
+    }
+  });
+
   test("dtls_start_ignores_unsupported_fingerprint_algorithm_when_supported_match_exists", async () => {
     const [session1, session2] = await createDtlsSessions();
     const expectedFingerprint = session2.localParameters.fingerprints[0];

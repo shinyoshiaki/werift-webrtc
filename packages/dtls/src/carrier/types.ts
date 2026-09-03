@@ -37,8 +37,14 @@ export interface DtlsHandshakeCarrier {
    * Inject a received datagram into the DTLS engine (SPED / dual-engine reinject).
    * Resolves when that datagram's RX processing has finished (not the whole chain).
    * Optional peer preserves source address for cookie address-validation binding.
+   * Optional `rxGeneration` is an opaque carrier generation token threaded to
+   * the engine RX queue for ICE-restart staleness checks.
    */
-  inject(bytes: Buffer, peer?: InjectPeerAddr): Promise<void>;
+  inject(
+    bytes: Buffer,
+    peer?: InjectPeerAddr,
+    opts?: { rxGeneration?: number },
+  ): Promise<void>;
 
   /**
    * Drop in-flight / queued inbound injects (ICE restart). Optional; UDP
@@ -50,7 +56,11 @@ export interface DtlsHandshakeCarrier {
 
   /** Wire inbound inject → association handleDatagram. */
   setInjectHandler(
-    handler: (bytes: Buffer, peer?: InjectPeerAddr) => void | Promise<void>,
+    handler: (
+      bytes: Buffer,
+      peer?: InjectPeerAddr,
+      opts?: { rxGeneration?: number },
+    ) => void | Promise<void>,
   ): void;
 
   /**

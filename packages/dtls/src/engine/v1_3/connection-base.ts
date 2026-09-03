@@ -392,6 +392,13 @@ export class Dtls13ConnectionBase {
   };
   /** Serialize datagram handling to avoid races on keys / message_seq inbox. */
   rxChain: Promise<void> = Promise.resolve();
+  /**
+   * Opaque carrier generation provider (e.g. ICE generation, set by the
+   * WebRTC layer). When set, `handleDatagram` drops queued datagrams whose
+   * accept-time `rxGeneration` no longer matches at queue-execution time,
+   * closing the ICE-restart RX race. Unset = no check (generic engine use).
+   */
+  expectedRxGeneration?: () => number | undefined;
 
   constructor(
     readonly options: Dtls13Options,
@@ -460,14 +467,22 @@ export class Dtls13ConnectionBase {
       });
     // Inject may carry peer from dual-engine reinject; fall back to transport.rinfo
     const self = this as this & {
-      handleDatagram: (data: Buffer, addr?: any) => void | Promise<void>;
+      handleDatagram: (
+        data: Buffer,
+        addr?: any,
+        rxGeneration?: number,
+      ) => void | Promise<void>;
       scheduleRetransmit: () => void;
     };
-    this.carrier.setInjectHandler((bytes, peer) =>
-      self.handleDatagram(bytes, peer),
+    this.carrier.setInjectHandler((bytes, peer, opts) =>
+      self.handleDatagram(bytes, peer, opts?.rxGeneration),
     );
-    options.transport.onData = (data, addr) =>
-      self.handleDatagram(data, addr as [string, number] | undefined);
+    options.transport.onData = (data, addr, meta) =>
+      self.handleDatagram(
+        data,
+        addr as [string, number] | undefined,
+        meta?.rxGeneration,
+      );
     // external → internal: resume retransmission timer for pending flight
     this.carrier.events.onRetransmissionModeChange = (mode) => {
       if (mode === "external") {

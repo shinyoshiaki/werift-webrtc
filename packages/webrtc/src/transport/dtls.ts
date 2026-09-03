@@ -2,7 +2,12 @@ import { Certificate, PrivateKey } from "@fidm/x509";
 
 import { randomUUID } from "crypto";
 import { setTimeout } from "timers/promises";
-import { type Address, Event, type Transport } from "../imports/common";
+import {
+  type Address,
+  type DatagramRxMeta,
+  Event,
+  type Transport,
+} from "../imports/common";
 
 import { DirectHandshakeCarrier } from "../../../dtls/src/carrier/direct";
 import {
@@ -92,9 +97,14 @@ interface TransportAttempt {
 class InboundApplicationGate {
   private authenticated = false;
   private aborted = false;
-  readonly buffer = new EarlyDataBuffer(256, 256 * 1024, 2_000);
+  private buffer = new EarlyDataBuffer(256, 256 * 1024, 2_000);
 
   constructor(private readonly deliver: (data: Buffer) => void) {}
+
+  /** Read-only snapshot source for stats; instance may rotate on restart. */
+  snapshot() {
+    return this.buffer.snapshot();
+  }
 
   receive(data: Buffer): void {
     if (this.aborted) return;
@@ -102,20 +112,28 @@ class InboundApplicationGate {
     else this.buffer.push(data);
   }
 
-  authenticate(shouldContinue?: () => boolean): void {
+  authenticate(
+    shouldContinue?: () => boolean,
+    isTerminal?: () => boolean,
+  ): void {
     if (this.aborted || this.authenticated) return;
+    if (shouldContinue && !shouldContinue()) {
+      // restart による drift では新 attempt 用に gate を残し、terminal 時のみ廃棄する。
+      if (isTerminal?.()) this.abort();
+      return;
+    }
     this.authenticated = true;
     for (const data of this.buffer.drain()) {
       // close/restart が deliver callback 内で発生したら残りを破棄する。
       if (this.aborted) return;
       if (shouldContinue && !shouldContinue()) {
-        this.abort();
+        if (isTerminal?.()) this.abort();
         return;
       }
       this.deliver(data);
       if (this.aborted) return;
       if (shouldContinue && !shouldContinue()) {
-        this.abort();
+        if (isTerminal?.()) this.abort();
         return;
       }
     }
@@ -125,6 +143,18 @@ class InboundApplicationGate {
     this.aborted = true;
     this.buffer.clear(true);
     this.buffer.dispose();
+  }
+
+  /**
+   * ICE restart 後の新 attempt 用に gate を再初期化する。旧 drain の残余は
+   * 呼び出し側が破棄済みとし、buffer と認証状態だけを新世代用に開き直す。
+   * fingerprint mismatch 等の terminal abort とは別扱いである。
+   */
+  restartForNewAttempt(): void {
+    this.authenticated = false;
+    this.aborted = false;
+    // dispose 済みの buffer は復活できないため新世代用に作り直す。
+    this.buffer = new EarlyDataBuffer(256, 256 * 1024, 2_000);
   }
 
   clearPending(): void {
@@ -410,7 +440,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     // A restart never mutates an in-flight attempt.  Continuations captured
     // by the previous generation must fail the identity check below.
     this.beginAttempt(generation);
-    this.applicationGate.resetPending();
+    // 新 attempt 用に gate を開き直す (旧 drain 残余は呼び出し側が破棄する)。
+    this.applicationGate.restartForNewAttempt();
     this.mediaBuffer.reset();
     this.dtls?.clearEarlyDataBuffer();
     this.readiness.writeReady = false;
@@ -516,10 +547,13 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     }
     this.applicationGate.authenticate(
       () => this.isCurrentAttempt(attempt) && this.state === "connecting",
+      () => this.isTerminated(),
     );
     // deliver callback 内の close/restart 後は connected へ戻さない。
     if (!this.isCurrentAttempt(attempt) || this.state !== "connecting") return;
     this.setState("connected");
+    // state callback 内の restart/close で attempt が変わり得るため、通知直前に再検証する。
+    if (!this.isCurrentAttempt(attempt) || this.isTerminated()) return;
     this.onPeerAuthenticated.execute();
 
     void this.dtls?.waitForHandshakeComplete().then(
@@ -633,11 +667,12 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         if (ice.generation !== generation) {
           return;
         }
-        await carrier.inject(bytes, peer ? [peer[0], peer[1]] : undefined);
+        await carrier.inject(bytes, peer ? [peer[0], peer[1]] : undefined, {
+          rxGeneration: generation,
+        });
       },
       onSessionReset: () => {
         carrier.invalidateInboundInjects?.();
-        this.applicationGate.resetPending();
         this.mediaBuffer.reset();
         dtlsSocket?.clearEarlyDataBuffer();
         if (this.state === "connecting" && this.currentAttempt) {
@@ -646,11 +681,15 @@ export class RTCDtlsTransport implements DtlsTransportStats {
           // Invalidate every closure that captured the prior ICE generation.
           // The owning completeHandshake loop adopts this new immutable token.
           this.beginAttempt(ice.generation);
+          // 新 attempt 用に gate を開き直す (旧 drain 残余は呼び出し側が破棄する)。
+          this.applicationGate.restartForNewAttempt();
           this.earlyModeDisabled = false;
           this.readiness.writeReady = false;
           this.srtpWriteReady = false;
           this.handshakeStartedAt = Date.now();
           this.peerAuthenticatedAt = undefined;
+        } else {
+          this.applicationGate.resetPending();
         }
         if (this.state === "connected" || handshakeDone) {
           if (dtlsSocket?.isDtls13) handle.runtime.completeHandshake();
@@ -760,6 +799,10 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     if (!this.dtls) {
       return;
     }
+    // engine RX queue の stale 実行を世代で遮断する (ICE restart race)。
+    this.dtls.setExpectedRxGeneration(
+      () => (this.iceTransport.connection as Connection).generation,
+    );
     this.dtls.onData.subscribe((buf) => {
       if (
         this.config.debug?.inboundPacketLoss &&
@@ -767,6 +810,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       ) {
         return;
       }
+      // restart 後に engine queue から遅延配送された旧世代 data は gate に入れない。
+      if (!this.isFreshApplicationReceive()) return;
       this.applicationGate.receive(buf);
     });
     this.dtls.onClose.subscribe(() => {
@@ -792,6 +837,25 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   private abortSpedSession() {
     const ice = this.iceTransport.connection as Connection;
     getConnectionSpedRuntime(ice)?.abort();
+  }
+
+  /**
+   * engine から届いた application data を gate へ入れてよいか判定する。
+   * connecting 中の旧 attempt 由来や close/failed 後の遅延配送を遮断する。
+   * connected 中の answerer restart はここで attempt を付け替えて継続する。
+   */
+  private isFreshApplicationReceive(): boolean {
+    if (this.isTerminated()) return false;
+    const ice = this.iceTransport.connection as Connection;
+    if (this.state === "connected") {
+      this.syncConnectedAttempt();
+      const synced = this.currentAttempt;
+      if (!synced) return false;
+      return ice.generation === synced.iceGeneration;
+    }
+    const current = this.currentAttempt;
+    if (!current) return true;
+    return ice.generation === current.iceGeneration;
   }
 
   private abortPreAuthBuffers() {
@@ -1029,10 +1093,10 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   /**
    * answerer 側の ICE restart は DTLS への明示通知なしに generation だけが
    * 進む。認証済み association は維持し、新 generation へ attempt を付け替える。
+   * queue 破棄を伴わないため SPED でも共通に扱える。
    */
   private syncConnectedAttempt(): void {
     if (this.state !== "connected" || !this.currentAttempt) return;
-    if (isDtlsTransportSped(this)) return;
     const generation = (this.iceTransport.connection as Connection).generation;
     if (generation !== this.currentAttempt.iceGeneration) {
       this.beginAttempt(generation);
@@ -1158,7 +1222,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     const transportId = generateStatsId("transport", this.id);
 
     // Transport stats
-    const appQueue = this.applicationGate.buffer.snapshot();
+    const appQueue = this.applicationGate.snapshot();
     const mediaQueue = this.mediaBuffer.snapshot();
     const spedDiagnostics = getConnectionSpedRuntime(
       this.iceTransport.connection as Connection,
@@ -1365,12 +1429,14 @@ class IceTransport implements Transport {
         allowsAuthenticatedDtlsDelivery(ctx, (ice as Connection).generation)
       ) {
         if (this.onData) {
-          this.onData(ctx.bytes, ctx.source);
+          // 世代トークンを engine RX queue まで運び、restart 後の stale 実行を防ぐ。
+          this.onData(ctx.bytes, ctx.source, { rxGeneration: ctx.generation });
         }
       }
     });
   }
-  onData: (buf: Buffer, addr?: Address) => void = () => {};
+  onData: (buf: Buffer, addr?: Address, meta?: DatagramRxMeta) => void =
+    () => {};
 
   /**
    * DTLS 1.3 cookie HRR / anti-amp keys the peer from the RX 5-tuple.

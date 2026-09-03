@@ -119,6 +119,7 @@
 
 - [CandidatePairStats](interfaces/CandidatePairStats.md)
 - [DataChannelStats](interfaces/DataChannelStats.md)
+- [DatagramRxMeta](interfaces/DatagramRxMeta.md)
 - [DtlsTransportConfig](interfaces/DtlsTransportConfig.md)
 - [DtlsTransportStats](interfaces/DtlsTransportStats.md)
 - [Extensions](interfaces/Extensions.md)

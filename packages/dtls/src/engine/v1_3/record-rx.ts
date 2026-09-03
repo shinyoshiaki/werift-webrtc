@@ -41,6 +41,7 @@ export function handleDatagram(
 
   data: Buffer,
   addr?: [string, number] | { address?: string; port?: number } | string,
+  rxGeneration?: number,
 ): Promise<void> {
   if (this.closed) return Promise.resolve();
   // Serialize RX so concurrent UDP datagrams cannot race key install / inbox
@@ -48,9 +49,18 @@ export function handleDatagram(
   const src = addr ?? this.peerFromTransport();
   const peer = peerKeyFromAddr(src);
   const peerAddr = this.addrToTuple(src);
+  const acceptedGeneration = rxGeneration;
   const processed = this.rxChain.then(() => {
     if (this.carrier.isStaleInboundInject?.()) {
       return;
+    }
+    // ICE restart race: a datagram accepted before the restart must not act
+    // on the post-restart association (state, fatal, app-data delivery).
+    if (acceptedGeneration !== undefined) {
+      const expected = this.expectedRxGeneration?.();
+      if (expected !== undefined && acceptedGeneration !== expected) {
+        return;
+      }
     }
     return this.handleDatagramAsync(buf, peer, peerAddr);
   });

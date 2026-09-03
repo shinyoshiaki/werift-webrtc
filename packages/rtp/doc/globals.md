@@ -61,6 +61,7 @@
 
 ## Interfaces
 
+- [DatagramRxMeta](interfaces/DatagramRxMeta.md)
 - [Extensions](interfaces/Extensions.md)
 - [Transport](interfaces/Transport.md)
 - [videoOrientationPayload](interfaces/videoOrientationPayload.md)

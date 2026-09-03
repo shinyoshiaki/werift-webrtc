@@ -5,7 +5,7 @@ import {
   isAuthenticatedHandshakePair,
 } from "../../../ice/src/internal/datagram";
 import type { SpedRuntime } from "../../../ice/src/sped/runtime";
-import type { Address, Transport } from "../imports/common";
+import type { Address, DatagramRxMeta, Transport } from "../imports/common";
 import { isDtls } from "../utils";
 
 /**
@@ -38,7 +38,8 @@ export class IceSpedTransport implements Transport {
       if (this.applicationReady && ctx.pair !== ice.nominated) {
         return;
       }
-      this.onData(ctx.bytes, ctx.source);
+      // 世代トークンを engine RX queue まで運び、restart 後の stale 実行を防ぐ。
+      this.onData(ctx.bytes, ctx.source, { rxGeneration: ctx.generation });
     });
   }
 
@@ -55,7 +56,8 @@ export class IceSpedTransport implements Transport {
     this.applicationWriteReady = true;
   }
 
-  onData: (buf: Buffer, addr?: Address) => void = () => {};
+  onData: (buf: Buffer, addr?: Address, meta?: DatagramRxMeta) => void =
+    () => {};
 
   /**
    * Writable so DtlsClient.associationInject can pin the authenticated STUN
