@@ -24,6 +24,8 @@ export class IceSpedTransport implements Transport {
    * on the nominated path.
    */
   private applicationReady = false;
+  /** DTLS 1.3 application write key exists; peer auth may still be pending. */
+  private applicationWriteReady = false;
 
   constructor(private readonly ice: Connection) {
     connectionDatagramEvent(ice).subscribe((ctx) => {
@@ -46,6 +48,11 @@ export class IceSpedTransport implements Transport {
 
   markApplicationReady() {
     this.applicationReady = true;
+    this.applicationWriteReady = true;
+  }
+
+  markApplicationWriteReady() {
+    this.applicationWriteReady = true;
   }
 
   onData: (buf: Buffer, addr?: Address) => void = () => {};
@@ -78,6 +85,17 @@ export class IceSpedTransport implements Transport {
   readonly send = async (data: Buffer, addr?: Address) => {
     if (this.applicationReady) {
       await this.ice.send(data);
+      return;
+    }
+    if (this.applicationWriteReady) {
+      if (this.ice.nominated) {
+        await this.ice.send(data);
+        return;
+      }
+      const pair = this.resolveAuthenticatedSendPair(addr);
+      if (!pair) return;
+      this.runtime?.pinHandshakePath(pair);
+      await pair.protocol.sendData(data, pair.remoteAddr);
       return;
     }
     if (this.runtime?.session.embedding) {

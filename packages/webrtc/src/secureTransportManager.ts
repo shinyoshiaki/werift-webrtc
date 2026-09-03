@@ -408,6 +408,9 @@ export class SecureTransportManager {
     for (const transport of this.iceTransports) {
       transport.restart();
     }
+    for (const transport of this.dtlsTransports) {
+      transport.handleIceRestart();
+    }
     // restart() resets each gatherer to "new"; refresh the aggregate cache
     // even if a gatherer failed to emit onGatheringStateChange.
     this.updateIceGatheringState();

@@ -202,6 +202,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   private peerAuthenticatedAt?: number;
   private earlyServerSendUsed = false;
   private earlyModeDisabled = false;
+  private spedTransport?: IceSpedTransport;
 
   readonly onStateChange = new Event<[DtlsState]>();
   readonly onRtcp = new Event<[RtcpPacket]>();
@@ -366,6 +367,20 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     );
   }
 
+  /** @internal Rebind an in-flight direct handshake to the new ICE generation. */
+  handleIceRestart(): void {
+    if (this.state !== "connecting" || !this.currentAttempt) return;
+    if (isDtlsTransportSped(this)) return;
+
+    const generation = (this.iceTransport.connection as Connection).generation;
+    this.currentAttempt.iceGeneration = generation;
+    this.applicationGate.resetPending();
+    this.mediaBuffer.reset();
+    this.dtls?.clearEarlyDataBuffer();
+    this.handshakeStartedAt = Date.now();
+    this.peerAuthenticatedAt = undefined;
+  }
+
   private waitForWebRtcMilestone(
     reached: () => boolean,
     event: Event<[]>,
@@ -475,6 +490,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   private markWriteReady(): void {
     if (this.readiness.writeReady) return;
     this.readiness.writeReady = true;
+    this.spedTransport?.markApplicationWriteReady();
     if (
       this.role === "server" &&
       this.config.warp?.allowEarlyServerData === true &&
@@ -536,6 +552,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   ) {
     const ice = this.iceTransport.connection as Connection;
     const transport = new IceSpedTransport(ice);
+    this.spedTransport = transport;
     const carrier = new DirectHandshakeCarrier(transport);
     carrier.setWireSendEnabled(false);
     carrier.setRetransmissionMode("external");

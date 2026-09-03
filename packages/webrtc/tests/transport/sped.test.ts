@@ -430,6 +430,28 @@ describe("IceSpedTransport datagram gate", () => {
 });
 
 describe("IceSpedTransport pre-nomination send", () => {
+  it("writeReady application data bypasses SPED embedding on the authenticated pair", async () => {
+    // Arrange: SPED active 中で nomination 前の認証済み pair を用意する。
+    const a = mockProtocol("1.2.3.4", 1000);
+    const pair = authenticatedPair(a.protocol, "10.0.0.1", 1111);
+    const ice = createIceStub(1, [pair]);
+    const session = new SpedSession(1, "active");
+    const runtime = new SpedRuntime(session, dummySpedHooks());
+    runtime.pinHandshakePath(pair);
+    const transport = new IceSpedTransport(ice);
+    transport.setRuntime(runtime);
+    const app = Buffer.from([23, 1, 2, 3, 4]);
+
+    // Act: server Finished 後と同じ writeReady permission で application record を送る。
+    transport.markApplicationWriteReady();
+    await transport.send(app, pair.remoteAddr);
+
+    // Assert: handshake embedding 中でも protected application data は wire へ出る。
+    expect(a.sent).toHaveLength(1);
+    expect(a.sent[0]!.data.equals(app)).toBe(true);
+    expect(a.sent[0]!.addr).toEqual(pair.remoteAddr);
+  });
+
   it("pair A で association したあとの retransmit は candidate B に漏れない", async () => {
     // Arrange: 認証済み pair A/B。DTLS は A で開始
     const a = mockProtocol("1.2.3.4", 1000);
