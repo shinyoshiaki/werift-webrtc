@@ -329,6 +329,13 @@ export async function finishHandshakeRecordAck(
         break;
       }
     }
+    if (
+      this.role === "server" &&
+      this.peerFinishedReceived &&
+      this.receivedRecordNumbers.length === 0
+    ) {
+      this.markHandshakeComplete();
+    }
     // RFC 9147: response KeyUpdate is not an implicit ACK of peer KeyUpdate.
     // If our own KeyUpdate is still un-ACKed, defer the response until after
     // handleAck → applyPendingKeyUpdateWrite (crossed update_requested).
@@ -476,11 +483,7 @@ export async function onCiphertextRecordAsync(
       if (!this.connected) {
         // UDP reorder: epoch-3 app data before markConnected.
         // Bound buffer to prevent pre-Finished memory DoS (RFC 9147: buffer or discard).
-        if (
-          this.earlyAppData.length >= this.maxEarlyAppDataRecords ||
-          this.earlyAppDataBytes + rec.content.length >
-            this.maxEarlyAppDataBytes
-        ) {
+        if (!this.bufferEarlyAppData(rec.content)) {
           log(
             "drop early app data: buffer limit",
             this.earlyAppData.length,
@@ -488,8 +491,6 @@ export async function onCiphertextRecordAsync(
           );
           return false;
         }
-        this.earlyAppData.push(rec.content);
-        this.earlyAppDataBytes += rec.content.length;
         return false;
       }
       this.onData.execute(rec.content);
@@ -688,6 +689,9 @@ export function handleAck(
     // Fully ACK'd (local outbound flight). Do not clear receivedRecordNumbers —
     // that tracks remote inbound records still needing ACK emission.
     this.clearPendingFlight();
+    if (this.role === "client" && this.localFinishedSent) {
+      this.markHandshakeComplete();
+    }
     // RFC 9147 §8: only after KeyUpdate is ACK'd may we send with new keys
     this.applyPendingKeyUpdateWrite();
     // Crossed update_requested: send deferred response now that own KU is ACK'd

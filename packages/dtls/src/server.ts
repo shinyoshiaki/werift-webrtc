@@ -58,6 +58,14 @@ export class DtlsServer extends DtlsSocket {
     // dispatches to 1.3 only after selectVersion chooses V1_3.
     if (only13) {
       this.startEngine13();
+    } else if (dual) {
+      // Before version selection there is no 1.3 engine to own carrier.inject.
+      // Route the embedded ClientHello through the association dispatcher;
+      // selecting 1.3 will create the engine and rebind this same carrier.
+      const carrier = (this.options as DtlsInternalOptions).handshakeCarrier;
+      carrier?.setInjectHandler((bytes, peer) =>
+        this.serverAssociationInject(bytes, peer),
+      );
     }
 
     log(this.dtls.sessionId, "start server", {

@@ -938,6 +938,14 @@ export class RTCPeerConnection extends EventTarget {
         "PeerConfig.sped cannot be combined with dtls.helloRetryRequest",
       );
     }
+    if (
+      this.config.warp.allowEarlyServerData === true &&
+      (this.config.sped !== true || !peerConfigHasDtls13(this.config))
+    ) {
+      throw new Error(
+        "warp.allowEarlyServerData requires PeerConfig.sped and DTLS 1.3",
+      );
+    }
 
     const epoch = ++this.connectEpoch;
     const res = await Promise.allSettled(
@@ -964,14 +972,30 @@ export class RTCPeerConnection extends EventTarget {
             return;
           }
           const dtlsPromise = dtlsTransport.start();
+          const ownsSctp =
+            this.sctpTransport?.dtlsTransport.id === dtlsTransport.id;
+          const earlySctpPromise =
+            ownsSctp && this.config.warp.allowEarlyServerData
+              ? dtlsTransport.role === "server"
+                ? dtlsTransport
+                    .waitForWriteReady()
+                    .then(() =>
+                      dtlsTransport.isEarlyServerWriteAllowed()
+                        ? this.sctpManager.connectSctp()
+                        : undefined,
+                    )
+                : this.sctpManager.connectSctp()
+              : Promise.resolve();
           const icePromise =
             iceTransport.state === "connected"
               ? Promise.resolve()
               : iceTransport.start();
-          await Promise.all([icePromise, dtlsPromise]).catch((err) => {
-            log("sped ice/dtls start failed", err);
-            throw err;
-          });
+          await Promise.all([icePromise, dtlsPromise, earlySctpPromise]).catch(
+            (err) => {
+              log("sped ice/dtls start failed", err);
+              throw err;
+            },
+          );
         } else {
           if (iceTransport.state !== "connected") {
             await iceTransport.start().catch((err) => {
@@ -1410,6 +1434,11 @@ export interface PeerConfig {
    * (SPED uses ICE-authenticated address validation, not a DTLS cookie).
    */
   sped?: boolean;
+  /** Experimental WARP traffic policy. Early outbound remains opt-in. */
+  warp?: {
+    allowEarlyServerData?: boolean;
+    earlyMediaPolicy?: "drop" | "buffer";
+  };
   dtls: Partial<{
     keys: DtlsKeys;
     /**
@@ -1524,6 +1553,10 @@ function generateDefaultPeerConfig(): Required<PeerConfig> {
     iceUseLinkLocalAddress: undefined,
     dtls: {},
     sped: false,
+    warp: {
+      allowEarlyServerData: false,
+      earlyMediaPolicy: "drop",
+    },
     bundlePolicy: "max-compat",
     rtcpMuxPolicy: "require",
     iceCandidatePoolSize: 0,
@@ -1570,6 +1603,22 @@ function normalizePeerConfiguration(
 
   if ("sped" in input) {
     normalizedConfig.sped = input.sped === true;
+  }
+
+  if ("warp" in input) {
+    if (
+      input.warp?.earlyMediaPolicy !== undefined &&
+      input.warp.earlyMediaPolicy !== "drop" &&
+      input.warp.earlyMediaPolicy !== "buffer"
+    ) {
+      throw createWebRtcTypeError(
+        'warp.earlyMediaPolicy must be "drop" or "buffer"',
+      );
+    }
+    normalizedConfig.warp = {
+      allowEarlyServerData: input.warp?.allowEarlyServerData === true,
+      earlyMediaPolicy: input.warp?.earlyMediaPolicy ?? "drop",
+    };
   }
 
   return normalizedConfig;
@@ -1631,6 +1680,7 @@ function clonePeerConfiguration(config: PeerConfig) {
         : undefined,
       helloRetryRequest: config.dtls.helloRetryRequest,
     },
+    warp: config.warp ? { ...config.warp } : undefined,
     certificates: [...config.certificates],
     debug: { ...config.debug },
   };

@@ -45,6 +45,7 @@ export async function onClientFinished(
   }
   this.transcript.add(HandshakeType.finished_20, body);
   this.peerFinishedReceived = true;
+  this.markPeerHandshakeAuthenticated();
 
   // Ensure app read keys present (also installed after server Finished)
   const ep3 = this.epochs.get(3)!;

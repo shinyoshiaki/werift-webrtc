@@ -613,6 +613,7 @@ export async function doRetransmit(this: Dtls13Host): Promise<void> {
     }
   }
   this.retransmitCount++;
+  this.totalRetransmitCount++;
   if (this.retransmitCount > this.maxRetransmit) {
     this.fail(new Error("DTLS 1.3 handshake retransmission exhausted"));
     return;

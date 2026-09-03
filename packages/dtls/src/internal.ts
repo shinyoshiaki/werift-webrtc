@@ -6,6 +6,9 @@
 import { DtlsClient, type DualAssociationPhase } from "./client";
 import { DtlsServer } from "./server";
 import type { DtlsInternalOptions, DtlsSocket, Options } from "./socket";
+export { EarlyDataBuffer } from "./engine/v1_3/early-data-buffer";
+export type { EarlyDataBufferStats } from "./engine/v1_3/early-data-buffer";
+export type { DtlsReadiness } from "./engine/v1_3/types";
 
 /**
  * @internal Create a DtlsClient with internal-only options (e.g. handshakeCarrier).

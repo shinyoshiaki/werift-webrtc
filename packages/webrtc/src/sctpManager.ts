@@ -113,12 +113,18 @@ export class SctpTransportManager {
       await this.connectPromise;
       return;
     }
-    this.connectPromise = (async () => {
+    const attempt = (async () => {
       await this.sctpTransport!.start(this.sctpRemotePort!);
       await this.sctpTransport!.sctp.stateChanged.connected.asPromise();
       log("sctp connected");
     })();
-    await this.connectPromise;
+    this.connectPromise = attempt;
+    try {
+      await attempt;
+    } catch (error) {
+      if (this.connectPromise === attempt) this.connectPromise = undefined;
+      throw error;
+    }
   }
 
   setRemoteSCTP(remoteMedia: MediaDescription, mLineIndex: number) {

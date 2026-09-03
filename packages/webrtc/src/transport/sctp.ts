@@ -102,7 +102,7 @@ export class RTCSctpTransport {
   }
 
   private get isServer() {
-    return this.dtlsTransport.iceTransport.role !== "controlling";
+    return this.dtlsTransport.role === "server";
   }
 
   channelByLabel(label: string) {
@@ -370,11 +370,13 @@ export class RTCSctpTransport {
 
   async start(remotePort: number) {
     if (this.isServer) {
-      this.dataChannelId = 0;
-    } else {
       this.dataChannelId = 1;
+    } else {
+      this.dataChannelId = 0;
     }
-    this.sctp.isServer = this.isServer;
+    // SCTP's `isServer` flag means passive COOKIE-WAIT peer. WARP assigns the
+    // active INIT sender to the DTLS server, independently of the ICE role.
+    this.sctp.isServer = !this.isServer;
 
     await this.sctp.start(remotePort);
   }

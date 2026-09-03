@@ -30,10 +30,13 @@ import {
   normalizeProtocolVersions,
   supportsVersion,
 } from "../../version";
+import { EarlyDataBuffer } from "./early-data-buffer";
 import { HandshakeTranscript } from "./transcript";
 import {
   type AddressValidationMode,
   type Dtls13Options,
+  type DtlsReadiness,
+  EARLY_APP_DATA_RETENTION_MS,
   EPOCH_KEY_TTL_MS,
   EPOCH_PRUNE_INTERVAL_MS,
   MAX_ACCEPTED_HS_RECORDS,
@@ -84,6 +87,14 @@ export class Dtls13ConnectionBase {
    * disable Public API synchronously so send() cannot race the notify path.
    */
   readonly onClosing = new Event();
+  readonly onWriteReady = new Event<[]>();
+  readonly onPeerHandshakeAuthenticated = new Event<[]>();
+  readonly onHandshakeComplete = new Event<[]>();
+  readonly readiness: DtlsReadiness = {
+    writeReady: false,
+    peerHandshakeAuthenticated: false,
+    handshakeComplete: false,
+  };
 
   connected = false;
   /**
@@ -187,6 +198,8 @@ export class Dtls13ConnectionBase {
   cancelRetransmit: (() => void) | undefined;
   cancelEpochPrune: (() => void) | undefined;
   retransmitCount = 0;
+  /** Association-lifetime count; unlike retransmitCount this never resets. */
+  totalRetransmitCount = 0;
   readonly maxRetransmit = 10;
   closed = false;
   /**
@@ -351,8 +364,13 @@ export class Dtls13ConnectionBase {
    * Epoch-3 app data received before markConnected (UDP reorder window).
    * Bounded by {@link maxEarlyAppDataRecords} / {@link maxEarlyAppDataBytes}.
    */
-  earlyAppData: Buffer[] = [];
-  earlyAppDataBytes = 0;
+  private readonly earlyAppDataBuffer: EarlyDataBuffer;
+  get earlyAppData(): readonly Buffer[] {
+    return this.earlyAppDataBuffer.packets;
+  }
+  get earlyAppDataBytes(): number {
+    return this.earlyAppDataBuffer.bytes;
+  }
   /** Resolved early-app-data record cap (Options or DataChannel default). */
   readonly maxEarlyAppDataRecords: number;
   /** Resolved early-app-data byte cap (Options or DataChannel default). */
@@ -425,6 +443,11 @@ export class Dtls13ConnectionBase {
     );
     this.maxEarlyAppDataBytes = resolveMaxEarlyAppDataBytes(
       options.maxEarlyAppDataBytes,
+    );
+    this.earlyAppDataBuffer = new EarlyDataBuffer(
+      this.maxEarlyAppDataRecords,
+      this.maxEarlyAppDataBytes,
+      EARLY_APP_DATA_RETENTION_MS,
     );
     this.hsPhase =
       this.role === "client" ? "wait_server_hello" : "wait_client_hello";
@@ -951,16 +974,95 @@ export class Dtls13ConnectionBase {
     this.carrier.events.onHandshakeComplete?.();
     this.onConnect.execute();
     // Flush app data that arrived early due to reorder
-    for (const buf of this.earlyAppData) {
+    for (const buf of this.earlyAppDataBuffer.drain()) {
       this.onData.execute(buf);
     }
-    this.earlyAppData = [];
-    this.earlyAppDataBytes = 0;
   }
 
   clearEarlyAppData() {
-    this.earlyAppData = [];
-    this.earlyAppDataBytes = 0;
+    this.earlyAppDataBuffer.clear(true);
+  }
+
+  bufferEarlyAppData(data: Buffer): boolean {
+    return this.earlyAppDataBuffer.push(data);
+  }
+
+  markWriteReady(): void {
+    if (this.readiness.writeReady || this.closed || this.closing) return;
+    this.readiness.writeReady = true;
+    this.onWriteReady.execute();
+  }
+
+  markPeerHandshakeAuthenticated(): void {
+    if (
+      this.readiness.peerHandshakeAuthenticated ||
+      this.closed ||
+      this.closing
+    )
+      return;
+    this.readiness.peerHandshakeAuthenticated = true;
+    this.onPeerHandshakeAuthenticated.execute();
+  }
+
+  markHandshakeComplete(): void {
+    if (this.readiness.handshakeComplete || this.closed || this.closing) return;
+    this.readiness.handshakeComplete = true;
+    this.onHandshakeComplete.execute();
+  }
+
+  waitForWriteReady(): Promise<void> {
+    return this.waitForMilestone("writeReady", this.onWriteReady);
+  }
+
+  waitForPeerHandshakeAuthenticated(): Promise<void> {
+    return this.waitForMilestone(
+      "peerHandshakeAuthenticated",
+      this.onPeerHandshakeAuthenticated,
+    );
+  }
+
+  waitForHandshakeComplete(): Promise<void> {
+    return this.waitForMilestone("handshakeComplete", this.onHandshakeComplete);
+  }
+
+  private waitForMilestone(
+    milestone: keyof DtlsReadiness,
+    event: Event<[]>,
+  ): Promise<void> {
+    if (this.readiness[milestone]) return Promise.resolve();
+    if (this.closed || this.closing) {
+      return Promise.reject(
+        new Error("DTLS association closed before readiness"),
+      );
+    }
+    return new Promise<void>((resolve, reject) => {
+      const ready = event.subscribe(() => {
+        cleanup();
+        resolve();
+      });
+      const closing = this.onClosing.subscribe(() => {
+        cleanup();
+        reject(new Error("DTLS association closed before readiness"));
+      });
+      const failed = this.onError.subscribe((error) => {
+        cleanup();
+        reject(error);
+      });
+      const closed = this.onClose.subscribe(() => {
+        cleanup();
+        reject(new Error("DTLS association closed before readiness"));
+      });
+      const cleanup = () => {
+        ready.unSubscribe();
+        closing.unSubscribe();
+        failed.unSubscribe();
+        closed.unSubscribe();
+      };
+      if (this.readiness[milestone]) {
+        cleanup();
+        resolve();
+      }
+    });
   }
 
   /**

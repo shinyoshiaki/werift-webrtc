@@ -6,6 +6,7 @@ import { type Address, Event, type Transport } from "../imports/common";
 
 import { DirectHandshakeCarrier } from "../../../dtls/src/carrier/direct";
 import {
+  EarlyDataBuffer,
   createDtlsClientInternal,
   createDtlsServerInternal,
   refragmentPendingFlightIfNeeded,
@@ -19,7 +20,7 @@ import {
   DtlsClient,
   DtlsServer,
   type DtlsSocket,
-  DtlsVersion,
+  type DtlsVersion,
   HashAlgorithm,
   NamedCurveAlgorithm,
   SignatureAlgorithm,
@@ -63,16 +64,59 @@ import { IceSpedTransport } from "./sped";
 
 const log = debug("werift:packages/webrtc/src/transport/dtls.ts");
 
-function spedHandshakeProtocolVersions(
-  versions: readonly DtlsVersion[] | undefined,
-): DtlsVersion[] {
-  return (versions ?? []).filter((version) => version === DtlsVersion.V1_3);
-}
-
 export interface DtlsTransportConfig {
   debug?: DebugConfig;
   protocolVersions?: readonly DtlsVersion[];
   helloRetryRequest?: boolean;
+  warp?: {
+    allowEarlyServerData?: boolean;
+    earlyMediaPolicy?: "drop" | "buffer";
+  };
+}
+
+interface WebRtcDtlsReadiness {
+  writeReady: boolean;
+  peerAuthenticated: boolean;
+  handshakeComplete: boolean;
+}
+
+interface TransportAttempt {
+  id: number;
+  iceGeneration: number;
+}
+
+class InboundApplicationGate {
+  private authenticated = false;
+  private aborted = false;
+  readonly buffer = new EarlyDataBuffer(256, 256 * 1024, 2_000);
+
+  constructor(private readonly deliver: (data: Buffer) => void) {}
+
+  receive(data: Buffer): void {
+    if (this.aborted) return;
+    if (this.authenticated) this.deliver(data);
+    else this.buffer.push(data);
+  }
+
+  authenticate(): void {
+    if (this.aborted || this.authenticated) return;
+    this.authenticated = true;
+    for (const data of this.buffer.drain()) this.deliver(data);
+  }
+
+  abort(): void {
+    this.aborted = true;
+    this.buffer.clear(true);
+    this.buffer.dispose();
+  }
+
+  clearPending(): void {
+    if (!this.authenticated && !this.aborted) this.buffer.clear(true);
+  }
+
+  resetPending(): void {
+    if (!this.authenticated && !this.aborted) this.buffer.reset();
+  }
 }
 
 function formatDtlsVersion(socket?: DtlsSocket) {
@@ -138,6 +182,26 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   srtcp!: SrtcpSession;
   lastError?: Error;
   private startPromise?: Promise<void>;
+  private readiness: WebRtcDtlsReadiness = {
+    writeReady: false,
+    peerAuthenticated: false,
+    handshakeComplete: false,
+  };
+  private readonly onWriteReady = new Event<[]>();
+  private readonly onPeerAuthenticated = new Event<[]>();
+  private readonly onHandshakeComplete = new Event<[]>();
+  private readonly applicationGate: InboundApplicationGate;
+  private readonly mediaBuffer: EarlyDataBuffer;
+  private srtpKeysInstalled = false;
+  private srtpWriteReady = false;
+  private srtpReadReady = false;
+  private mediaListenerStarted = false;
+  private attemptCounter = 0;
+  private currentAttempt?: TransportAttempt;
+  private handshakeStartedAt?: number;
+  private peerAuthenticatedAt?: number;
+  private earlyServerSendUsed = false;
+  private earlyModeDisabled = false;
 
   readonly onStateChange = new Event<[DtlsState]>();
   readonly onRtcp = new Event<[RtcpPacket]>();
@@ -156,6 +220,14 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     private readonly srtpProfiles: SrtpProfile[] = [],
   ) {
     this.localCertificate ??= RTCDtlsTransport.localCertificate;
+    this.applicationGate = new InboundApplicationGate((data) =>
+      this.dataReceiver(data),
+    );
+    this.mediaBuffer = new EarlyDataBuffer(
+      this.config.warp?.earlyMediaPolicy === "buffer" ? 256 : 0,
+      this.config.warp?.earlyMediaPolicy === "buffer" ? 256 * 1024 : 0,
+      2_000,
+    );
   }
 
   addEventListener = (
@@ -253,11 +325,87 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     }
 
     this.setState("connecting");
+    this.bindMediaListener();
     this.startPromise = this.completeHandshake();
     await this.startPromise;
   }
 
+  /** @internal */
+  async waitForWriteReady(): Promise<void> {
+    if (this.readiness.writeReady) return;
+    if (!this.dtls) await Promise.resolve();
+    if (!this.dtls) throw new Error("DTLS handshake has not started");
+    await this.dtls.waitForWriteReady();
+    this.markWriteReady();
+  }
+
+  /** @internal */
+  isEarlyServerWriteAllowed(): boolean {
+    return (
+      this.role === "server" &&
+      this.config.warp?.allowEarlyServerData === true &&
+      !this.earlyModeDisabled &&
+      this.readiness.writeReady &&
+      this.dtls?.isDtls13 === true
+    );
+  }
+
+  /** @internal */
+  waitForPeerAuthenticated(): Promise<void> {
+    return this.waitForWebRtcMilestone(
+      () => this.readiness.peerAuthenticated,
+      this.onPeerAuthenticated,
+    );
+  }
+
+  /** @internal */
+  waitForHandshakeComplete(): Promise<void> {
+    return this.waitForWebRtcMilestone(
+      () => this.readiness.handshakeComplete,
+      this.onHandshakeComplete,
+    );
+  }
+
+  private waitForWebRtcMilestone(
+    reached: () => boolean,
+    event: Event<[]>,
+  ): Promise<void> {
+    if (reached()) return Promise.resolve();
+    if (this.state === "failed" || this.state === "closed") {
+      return Promise.reject(
+        this.lastError ?? new Error("DTLS transport closed before readiness"),
+      );
+    }
+    return new Promise<void>((resolve, reject) => {
+      const ready = event.subscribe(() => {
+        cleanup();
+        resolve();
+      });
+      const state = this.onStateChange.subscribe((next) => {
+        if (next !== "failed" && next !== "closed") return;
+        cleanup();
+        reject(
+          this.lastError ?? new Error("DTLS transport closed before readiness"),
+        );
+      });
+      const cleanup = () => {
+        ready.unSubscribe();
+        state.unSubscribe();
+      };
+      if (reached()) {
+        cleanup();
+        resolve();
+      }
+    });
+  }
+
   private async completeHandshake() {
+    const attempt = {
+      id: ++this.attemptCounter,
+      iceGeneration: (this.iceTransport.connection as Connection).generation,
+    };
+    this.currentAttempt = attempt;
+    this.handshakeStartedAt = Date.now();
     const sped = isDtlsTransportSped(this);
     const addressValidation = sped
       ? "ice-authenticated"
@@ -271,23 +419,73 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       await this.startSerial(addressValidation);
     }
 
+    if (!this.isCurrentAttempt(attempt)) return;
+    await this.dtls?.waitForPeerHandshakeAuthenticated();
+    if (this.dtls?.readiness.writeReady) this.markWriteReady();
+
     try {
       this.verifyRemoteCertificateFingerprint();
     } catch (error) {
       this.lastError =
         error instanceof Error ? error : new Error(String(error));
       this.setState("failed");
+      this.applicationGate.abort();
+      this.mediaBuffer.clear(true);
+      this.mediaBuffer.dispose();
       this.abortSpedSession();
       this.dtls?.close();
       throw error;
     }
 
+    if (!this.isCurrentAttempt(attempt)) return;
+    this.readiness.peerAuthenticated = true;
+    this.peerAuthenticatedAt = Date.now();
     if (this.srtpProfiles.length > 0) {
-      this.startSrtp();
+      this.installSrtpKeys();
+      this.srtpReadReady = true;
+      this.srtpWriteReady = true;
+      this.drainMediaBuffer(attempt);
     }
+    this.applicationGate.authenticate();
     this.setState("connected");
+    this.onPeerAuthenticated.execute();
+
+    void this.dtls?.waitForHandshakeComplete().then(
+      () => {
+        if (!this.isCurrentAttempt(attempt)) return;
+        this.readiness.handshakeComplete = true;
+        this.onHandshakeComplete.execute();
+      },
+      () => {
+        // Terminal state is surfaced by the DTLS socket state bridge.
+      },
+    );
 
     log("dtls connected");
+  }
+
+  private isCurrentAttempt(attempt: TransportAttempt): boolean {
+    return (
+      this.currentAttempt?.id === attempt.id &&
+      this.currentAttempt.iceGeneration === attempt.iceGeneration &&
+      (this.iceTransport.connection as Connection).generation ===
+        attempt.iceGeneration
+    );
+  }
+
+  private markWriteReady(): void {
+    if (this.readiness.writeReady) return;
+    this.readiness.writeReady = true;
+    if (
+      this.role === "server" &&
+      this.config.warp?.allowEarlyServerData === true &&
+      !this.earlyModeDisabled &&
+      this.dtls?.isDtls13
+    ) {
+      if (this.srtpProfiles.length > 0) this.installSrtpKeys();
+      this.srtpWriteReady = this.srtpKeysInstalled;
+    }
+    this.onWriteReady.execute();
   }
 
   private async startSerial(
@@ -355,8 +553,22 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       },
       onSessionReset: () => {
         carrier.invalidateInboundInjects?.();
+        this.applicationGate.resetPending();
+        this.mediaBuffer.reset();
+        dtlsSocket?.clearEarlyDataBuffer();
+        if (this.state === "connecting" && this.currentAttempt) {
+          // The cryptographic association continues, but every subsequent
+          // continuation is now owned by the new authenticated ICE generation.
+          this.currentAttempt.iceGeneration = ice.generation;
+          this.earlyModeDisabled = false;
+          this.readiness.writeReady = false;
+          this.srtpWriteReady = false;
+          this.handshakeStartedAt = Date.now();
+          this.peerAuthenticatedAt = undefined;
+        }
         if (this.state === "connected" || handshakeDone) {
-          handle.runtime.completeHandshake();
+          if (dtlsSocket?.isDtls13) handle.runtime.completeHandshake();
+          else handle.runtime.commitDirectFallback();
           return;
         }
         // New ICE generation starts SPED probing again.
@@ -364,13 +576,23 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         carrier.setRetransmissionMode("external");
         if (this.state === "connecting" && lastFlight.length > 0) {
           handle.onFlightCreated(lastFlight);
+          if (dtlsSocket?.readiness.writeReady) this.markWriteReady();
         }
       },
       onSessionAbort: () => {
+        this.earlyModeDisabled = true;
+        this.applicationGate.clearPending();
+        this.mediaBuffer.clear(true);
+        dtlsSocket?.clearEarlyDataBuffer();
         carrier.invalidateInboundInjects?.();
         carrier.cancelAllTimers();
       },
       onFallbackFlight: async () => {
+        this.earlyModeDisabled = true;
+        this.srtpWriteReady = false;
+        this.applicationGate.clearPending();
+        this.mediaBuffer.clear(true);
+        dtlsSocket?.clearEarlyDataBuffer();
         carrier.setWireSendEnabled(true);
       },
       onHandshakeComplete: () => {
@@ -405,11 +627,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       transport,
       srtpProfiles: this.srtpProfiles,
       extendedMasterSecret: true,
-      // SPED is DTLS 1.3 only. Dual [1.3,1.2] would park a 1.2 HVR probe
-      // and leave the server without an engine13 inject handler.
-      protocolVersions: spedHandshakeProtocolVersions(
-        this.config.protocolVersions,
-      ),
+      // The association owns version selection. SPED carries the 1.3
+      // candidate while a negotiated 1.2 candidate commits to direct DTLS.
+      protocolVersions: this.config.protocolVersions,
       peerIdentityMode: "authenticated-single-peer" as const,
       addressValidation,
       handshakeCarrier: carrier,
@@ -427,7 +647,15 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       dtlsSocket = this.dtls;
       this.bindDtlsSocketEvents(r, f);
       this.dtls.onConnect.once(() => {
-        handle.onHandshakeComplete();
+        if (this.dtls?.isDtls13) {
+          handle.onHandshakeComplete();
+        } else {
+          handshakeDone = true;
+          this.earlyModeDisabled = true;
+          carrier.setWireSendEnabled(true);
+          handle.runtime.commitDirectFallback();
+          transport.markApplicationReady();
+        }
       });
 
       if (this.dtls instanceof DtlsClient) {
@@ -453,11 +681,12 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       ) {
         return;
       }
-      this.dataReceiver(buf);
+      this.applicationGate.receive(buf);
     });
     this.dtls.onClose.subscribe(() => {
       if (this.state === "connecting") {
         this.abortSpedSession();
+        this.abortPreAuthBuffers();
       }
       if (this.state !== "failed") {
         this.setState("closed");
@@ -468,6 +697,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       this.lastError = error;
       this.setState("failed");
       this.abortSpedSession();
+      this.abortPreAuthBuffers();
       log("dtls failed", error);
       f(error);
     });
@@ -476,6 +706,13 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   private abortSpedSession() {
     const ice = this.iceTransport.connection as Connection;
     getConnectionSpedRuntime(ice)?.abort();
+  }
+
+  private abortPreAuthBuffers() {
+    if (this.readiness.peerAuthenticated) return;
+    this.applicationGate.abort();
+    this.mediaBuffer.clear(true);
+    this.mediaBuffer.dispose();
   }
 
   private verifyRemoteCertificateFingerprint() {
@@ -543,6 +780,11 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   updateSrtpSession() {
+    this.installSrtpKeys();
+  }
+
+  private installSrtpKeys() {
+    if (this.srtpKeysInstalled) return;
     if (!this.dtls) throw new Error();
 
     const profile = this.dtls.srtp.srtpProfile;
@@ -565,14 +807,20 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     };
     this.srtp = new SrtpSession(config);
     this.srtcp = new SrtcpSession(config);
+    this.srtpKeysInstalled = true;
   }
 
   startSrtp() {
-    if (this.srtpStarted) return;
+    this.bindMediaListener();
+    this.installSrtpKeys();
+    this.srtpReadReady = true;
+    this.srtpWriteReady = true;
+  }
+
+  private bindMediaListener() {
+    if (this.mediaListenerStarted) return;
+    this.mediaListenerStarted = true;
     this.srtpStarted = true;
-
-    this.updateSrtpSession();
-
     this.iceTransport.connection.onData.subscribe((data) => {
       if (
         this.config.debug?.inboundPacketLoss &&
@@ -587,56 +835,72 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       this.bytesReceived += data.length;
       this.packetsReceived++;
 
-      if (isRtcp(data)) {
-        let dec: Buffer;
-        try {
-          dec = this.srtcp.decrypt(data);
-        } catch (error) {
-          if (error instanceof SrtpAuthenticationError) {
-            log("dropping invalid SRTCP packet", error);
-            return;
-          }
-          throw error;
-        }
-        let rtcpPackets;
-        try {
-          rtcpPackets = RtcpPacketConverter.deSerialize(dec);
-        } catch (error) {
-          log("dropping malformed SRTCP packet", error);
+      if (!this.srtpReadReady) {
+        this.mediaBuffer.push(data);
+        return;
+      }
+
+      this.handleMediaPacket(data);
+    });
+  }
+
+  private handleMediaPacket(data: Buffer) {
+    if (isRtcp(data)) {
+      let dec: Buffer;
+      try {
+        dec = this.srtcp.decrypt(data);
+      } catch (error) {
+        if (error instanceof SrtpAuthenticationError) {
+          log("dropping invalid SRTCP packet", error);
           return;
         }
-        for (const rtcp of rtcpPackets) {
-          try {
-            this.onRtcp.execute(rtcp);
-          } catch (error) {
-            log("RTCP error", error);
-          }
-        }
-      } else {
-        let dec: Buffer;
+        throw error;
+      }
+      let rtcpPackets;
+      try {
+        rtcpPackets = RtcpPacketConverter.deSerialize(dec);
+      } catch (error) {
+        log("dropping malformed SRTCP packet", error);
+        return;
+      }
+      for (const rtcp of rtcpPackets) {
         try {
-          dec = this.srtp.decrypt(data);
+          this.onRtcp.execute(rtcp);
         } catch (error) {
-          if (error instanceof SrtpAuthenticationError) {
-            log("dropping invalid SRTP packet", error);
-            return;
-          }
-          throw error;
-        }
-        let rtp;
-        try {
-          rtp = RtpPacket.deSerialize(dec);
-        } catch (error) {
-          log("dropping malformed SRTP packet", error);
-          return;
-        }
-        try {
-          this.onRtp.execute(rtp);
-        } catch (error) {
-          log("RTP error", error);
+          log("RTCP error", error);
         }
       }
-    });
+    } else {
+      let dec: Buffer;
+      try {
+        dec = this.srtp.decrypt(data);
+      } catch (error) {
+        if (error instanceof SrtpAuthenticationError) {
+          log("dropping invalid SRTP packet", error);
+          return;
+        }
+        throw error;
+      }
+      let rtp;
+      try {
+        rtp = RtpPacket.deSerialize(dec);
+      } catch (error) {
+        log("dropping malformed SRTP packet", error);
+        return;
+      }
+      try {
+        this.onRtp.execute(rtp);
+      } catch (error) {
+        log("RTP error", error);
+      }
+    }
+  }
+
+  private drainMediaBuffer(attempt: TransportAttempt) {
+    for (const data of this.mediaBuffer.drain()) {
+      if (!this.isCurrentAttempt(attempt) || !this.srtpReadReady) return;
+      this.handleMediaPacket(data);
+    }
   }
 
   readonly sendData = async (data: Buffer) => {
@@ -650,11 +914,23 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     if (!this.dtls) {
       throw new Error("dtls not established");
     }
+    if (!this.readiness.peerAuthenticated) {
+      const earlyAllowed =
+        this.role === "server" &&
+        this.config.warp?.allowEarlyServerData === true &&
+        !this.earlyModeDisabled &&
+        this.readiness.writeReady &&
+        this.dtls.isDtls13;
+      if (!earlyAllowed) throw new Error("DTLS peer is not authenticated");
+      this.earlyServerSendUsed = true;
+    }
     await this.dtls.send(data);
   };
 
   async sendRtp(payload: Buffer, header: RtpHeader): Promise<number> {
     try {
+      if (!this.srtpWriteReady) return 0;
+      if (!this.readiness.peerAuthenticated) this.earlyServerSendUsed = true;
       const enc = this.srtp.encrypt(payload, header);
 
       if (
@@ -677,6 +953,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   async sendRtcp(packets: RtcpPacket[]) {
+    if (!this.srtpWriteReady) return 0;
+    if (!this.readiness.peerAuthenticated) this.earlyServerSendUsed = true;
     const payload = Buffer.concat(packets.map((packet) => packet.serialize()));
     const enc = this.srtcp.encrypt(payload);
 
@@ -719,6 +997,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
   async stop() {
     this.setState("closed", false);
+    this.applicationGate.abort();
+    this.mediaBuffer.clear(true);
+    this.mediaBuffer.dispose();
     // todo impl send alert
     await this.iceTransport.stop();
   }
@@ -729,6 +1010,11 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     const transportId = generateStatsId("transport", this.id);
 
     // Transport stats
+    const appQueue = this.applicationGate.buffer.snapshot();
+    const mediaQueue = this.mediaBuffer.snapshot();
+    const spedDiagnostics = getConnectionSpedRuntime(
+      this.iceTransport.connection as Connection,
+    )?.diagnosticsSnapshot();
     const transportStats: RTCTransportStats = {
       type: "transport",
       id: transportId,
@@ -762,6 +1048,23 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       dtlsCipher: formatDtlsCipher(this.dtls),
       srtpCipher: formatSrtpCipher(this.dtls?.srtp.srtpProfile),
       iceRestarts: this.iceTransport.iceRestarts,
+      warpSpedState: spedDiagnostics?.state ?? "disabled",
+      warpCarrier: spedDiagnostics?.carrier ?? "direct",
+      warpHandshakeRttMs:
+        this.handshakeStartedAt !== undefined &&
+        this.peerAuthenticatedAt !== undefined
+          ? this.peerAuthenticatedAt - this.handshakeStartedAt
+          : undefined,
+      warpDtlsRetransmissions: this.dtls?.totalRetransmitCount ?? 0,
+      warpSpedRetransmissions: spedDiagnostics?.retransmissions ?? 0,
+      warpEarlyBufferedPackets:
+        appQueue.bufferedPackets + mediaQueue.bufferedPackets,
+      warpEarlyBufferedBytes: appQueue.bufferedBytes + mediaQueue.bufferedBytes,
+      warpEarlyDroppedPackets:
+        appQueue.droppedPackets + mediaQueue.droppedPackets,
+      warpEarlyDroppedBytes: appQueue.droppedBytes + mediaQueue.droppedBytes,
+      warpEarlyServerSendUsed: this.earlyServerSendUsed,
+      iceGeneration: (this.iceTransport.connection as Connection).generation,
     };
     stats.push(transportStats);
 

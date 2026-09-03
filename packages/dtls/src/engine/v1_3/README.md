@@ -26,6 +26,7 @@ Version-neutral helpers used by both DTLS 1.2 and 1.3:
 | `types.ts` | Options, constants, HRR random | shared |
 | `host.ts` | `Dtls13Host` (`this` for flight/record functions) | shared |
 | `transcript.ts` | Handshake transcript hash | all flights |
+| `early-data-buffer.ts` | 256 record / 256 KiB / 2 second ordered pre-auth buffer | shared |
 | `connection-base.ts` | Session state, epochs, `fail` / lifecycle | stack foundation |
 | `flight-tx.ts` | Outbound records, retransmit, anti-amp, ACK send | all `-------->` arrows |
 | `record-rx.ts` | Inbound datagrams, reassembly, allowlist, ACK/alert RX | all `<--------` arrows |
@@ -35,6 +36,13 @@ Version-neutral helpers used by both DTLS 1.2 and 1.3:
 | `connection.ts` | Public API; extends Base once; assigns flight/record functions | application edge |
 
 `Dtls13Connection extends Dtls13ConnectionBase` is the only class inheritance. Flight and record modules export functions with `this: Dtls13Host`.
+
+Cryptographic readiness is monotonic and split into `writeReady`,
+`peerHandshakeAuthenticated`, and `handshakeComplete`. The first means local
+application keys and the local Finished flight are on the carrier; the second
+means the peer certificate/CV/Finished checks succeeded; the last means final
+flight loss recovery completed. SDP fingerprint authentication remains a
+WebRTC-layer concern.
 
 ## Flight → handler map
 

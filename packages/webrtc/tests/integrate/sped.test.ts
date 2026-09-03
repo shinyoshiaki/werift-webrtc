@@ -42,6 +42,10 @@ const spedPeerConfig = (
     certificates?: RTCCertificate[];
     iceFilterCandidatePair?: (pair: CandidatePair) => boolean;
     iceUseIpv6?: boolean;
+    warp?: {
+      allowEarlyServerData?: boolean;
+      earlyMediaPolicy?: "drop" | "buffer";
+    };
   } = {},
 ) => ({
   iceServers: [] as { urls: string }[],
@@ -782,6 +786,38 @@ describe("RTCPeerConnection SPED opt-in", () => {
     }
   });
 
+  test("WARP early server opt-in でも DataChannel と diagnostics が成立する", async () => {
+    // Arrange: 双方で明示的に DTLS 1.3/SPED/early server を有効化する。
+    const config = spedPeerConfig({
+      warp: { allowEarlyServerData: true, earlyMediaPolicy: "buffer" },
+    });
+    const pc1 = new RTCPeerConnection(config);
+    const pc2 = new RTCPeerConnection(config);
+
+    try {
+      // Act: early write readiness を利用できる接続で DataChannel を開く。
+      const [dc1, dc2] = await createDataChannelPair({}, pc1, pc2);
+      dc1.send("early-server");
+      const received = await awaitMessage(dc2);
+      const stats = await pc1.getStats();
+      const transport = [...stats.values()].find(
+        (stat) => stat.type === "transport",
+      );
+
+      // Assert: fingerprint 認証後に配送され、WARP snapshot が公開される。
+      expect(received).toBe("early-server");
+      expect(transport).toMatchObject({
+        warpSpedState: "active",
+        warpCarrier: "sped",
+        iceGeneration: expect.any(Number),
+      });
+      expect(pc1.getConfiguration().warp).not.toBe(config.warp);
+    } finally {
+      await pc1.close();
+      await pc2.close();
+    }
+  });
+
   test("createDataChannel 後の iceServers 更新では sped が維持される", () => {
     // Arrange: sped:true で transport を生成してから無関係な部分更新
     const pc = new RTCPeerConnection({
@@ -1334,6 +1370,38 @@ describe("RTCPeerConnection SPED opt-in", () => {
       expect(handshakeDtls.some((bytes) => bytes.equals(embedded!))).toBe(true);
     } finally {
       stopCapture();
+      await pc1.close();
+      await pc2.close();
+    }
+  }, 30_000);
+
+  test("SPED dual stack から non-SPED DTLS 1.2 へ direct fallback する", async () => {
+    // Arrange: 一方だけを SPED dual-stack、相手を DTLS 1.2 only にする。
+    const pc1 = new RTCPeerConnection({
+      iceServers: [],
+      dtls: { protocolVersions: [DtlsVersion.V1_2] },
+    });
+    const pc2 = new RTCPeerConnection({
+      ...spedPeerConfig(),
+      dtls: {
+        protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+      },
+    });
+
+    try {
+      // Act: association-level version selectionを経て DataChannel を開く。
+      const [dc1, dc2] = await createDataChannelPair({}, pc1, pc2);
+      dc1.send("dtls12-fallback");
+      const received = await awaitMessage(dc2);
+
+      // Assert: SPED を停止し、双方が DTLS 1.2 で通信する。
+      expect(received).toBe("dtls12-fallback");
+      expect(pc1.dtlsTransports[0]?.dtls?.isDtls13).toBe(false);
+      expect(pc2.dtlsTransports[0]?.dtls?.isDtls13).toBe(false);
+      expect(
+        getConnectionSpedRuntime(iceOf(pc2))?.diagnosticsSnapshot(),
+      ).toMatchObject({ state: "fallback", carrier: "direct" });
+    } finally {
       await pc1.close();
       await pc2.close();
     }

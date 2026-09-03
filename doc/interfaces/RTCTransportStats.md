@@ -42,6 +42,12 @@
 
 ***
 
+### iceGeneration?
+
+> `optional` **iceGeneration**: `number`
+
+***
+
 ### iceLocalUsernameFragment?
 
 > `optional` **iceLocalUsernameFragment**: `string`
@@ -147,3 +153,63 @@
 #### Overrides
 
 [`RTCStats`](RTCStats.md).[`type`](RTCStats.md#type)
+
+***
+
+### warpCarrier?
+
+> `optional` **warpCarrier**: `"direct"` \| `"sped"`
+
+***
+
+### warpDtlsRetransmissions?
+
+> `optional` **warpDtlsRetransmissions**: `number`
+
+***
+
+### warpEarlyBufferedBytes?
+
+> `optional` **warpEarlyBufferedBytes**: `number`
+
+***
+
+### warpEarlyBufferedPackets?
+
+> `optional` **warpEarlyBufferedPackets**: `number`
+
+***
+
+### warpEarlyDroppedBytes?
+
+> `optional` **warpEarlyDroppedBytes**: `number`
+
+***
+
+### warpEarlyDroppedPackets?
+
+> `optional` **warpEarlyDroppedPackets**: `number`
+
+***
+
+### warpEarlyServerSendUsed?
+
+> `optional` **warpEarlyServerSendUsed**: `boolean`
+
+***
+
+### warpHandshakeRttMs?
+
+> `optional` **warpHandshakeRttMs**: `number`
+
+***
+
+### warpSpedRetransmissions?
+
+> `optional` **warpSpedRetransmissions**: `number`
+
+***
+
+### warpSpedState?
+
+> `optional` **warpSpedState**: `"probing"` \| `"active"` \| `"disabled"` \| `"fallback"`

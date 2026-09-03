@@ -36,6 +36,8 @@ export class SpedSession {
   private l2: number[] = [];
   private roundRobinIndex = 0;
   private firstAuthenticatedSeen = false;
+  private sentDataCrcs = new Set<number>();
+  private totalRetransmitCount = 0;
 
   constructor(generation: number, state: SpedState = "probing") {
     this.generation = generation;
@@ -56,6 +58,10 @@ export class SpedSession {
 
   get embedding(): boolean {
     return this.state === "probing" || this.state === "active";
+  }
+
+  get retransmissions(): number {
+    return this.totalRetransmitCount;
   }
 
   /**
@@ -161,6 +167,15 @@ export class SpedSession {
     this.state = "complete";
   }
 
+  /** Association selected a direct (for example DTLS 1.2) carrier. */
+  commitDirectFallback(): void {
+    this.l1 = [];
+    this.originalFallbackFlight = undefined;
+    this.l2 = [];
+    this.roundRobinIndex = 0;
+    this.state = "fallback";
+  }
+
   reset(generation: number): void {
     this.generation = generation;
     this.l1 = [];
@@ -210,6 +225,11 @@ export class SpedSession {
     const size = estimatedStunSizeAfterSped(message, ackValue, dataValue);
     if (!stunFitsPathMtu(size)) {
       return false;
+    }
+    if (dataValue.length > 0) {
+      const crc = spedDataCrc32(dataValue);
+      if (this.sentDataCrcs.has(crc)) this.totalRetransmitCount++;
+      else this.sentDataCrcs.add(crc);
     }
     message.appendRawAttribute(DTLS_IN_STUN_ACK, ackValue);
     message.appendRawAttribute(

@@ -1250,6 +1250,10 @@ Cannot be combined with `dtls.helloRetryRequest: true`
 
 > **turnTransport**: `undefined` \| `"tcp"` \| `"tls"` \| `"udp"`
 
+##### warp
+
+> **warp**: `undefined` \| \{ `allowEarlyServerData`: `boolean`; `earlyMediaPolicy`: `"buffer"` \| `"drop"`; \}
+
 ***
 
 ### getMaxListeners()

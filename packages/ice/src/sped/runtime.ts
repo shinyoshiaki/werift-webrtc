@@ -16,6 +16,12 @@ import {
 import type { SpedSession } from "./draft00/session";
 
 export type SpedRetransmissionMode = "internal" | "external";
+export interface SpedDiagnosticsSnapshot {
+  state: "disabled" | "probing" | "active" | "fallback";
+  carrier: "direct" | "sped";
+  retransmissions: number;
+  generation: number;
+}
 
 export interface SpedHooks {
   inject: (bytes: Buffer, peer: Address, generation: number) => Promise<void>;
@@ -131,6 +137,27 @@ export class SpedRuntime {
     this.hooks.setRetransmissionMode("external");
     this.lastMtu = defaultSpedDtlsMtu();
     this.hooks.setMtu(this.lastMtu);
+  }
+
+  diagnosticsSnapshot(): SpedDiagnosticsSnapshot {
+    const state =
+      this.session.state === "complete" ? "active" : this.session.state;
+    const publicState =
+      state === "disabled" ||
+      state === "probing" ||
+      state === "active" ||
+      state === "fallback"
+        ? state
+        : "disabled";
+    return {
+      state: publicState,
+      carrier:
+        publicState === "probing" || publicState === "active"
+          ? "sped"
+          : "direct",
+      retransmissions: this.session.retransmissions,
+      generation: this.session.generation,
+    };
   }
 
   shouldDecorate(pair: CandidatePair): boolean {
@@ -404,6 +431,12 @@ export class SpedRuntime {
     this.session.completeHandshake();
     this.hooks.setRetransmissionMode("internal");
     this.hooks.onHandshakeComplete?.();
+  }
+
+  commitDirectFallback(): void {
+    this.fallbackStarted = true;
+    this.session.commitDirectFallback();
+    this.hooks.setRetransmissionMode("internal");
   }
 
   reset(generation: number): void {

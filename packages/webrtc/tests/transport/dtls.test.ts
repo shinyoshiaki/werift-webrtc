@@ -181,6 +181,44 @@ describe("RTCDtlsTransportTest", () => {
     }
   });
 
+  test("fingerprint mismatch does not release early DTLS application data", async () => {
+    // Arrange: DTLS server の early write を許可し、client 側 fingerprint を壊す。
+    const [server, client] = await createDtlsSessions({
+      protocolVersions: [DtlsVersion.V1_3],
+      warp: { allowEarlyServerData: true },
+    });
+    const received = new DummyDataReceiver();
+    client.dataReceiver = received.handleData;
+    const expected = server.localParameters.fingerprints[0];
+    server.setRemoteParams(client.localParameters);
+    client.setRemoteParams(
+      new RTCDtlsParameters(
+        [
+          new RTCDtlsFingerprint(
+            expected.algorithm,
+            mutateFingerprint(expected.value),
+          ),
+        ],
+        server.localParameters.role,
+      ),
+    );
+
+    try {
+      // Act: server Finished 後、client の SDP fingerprint 検証前に送信する。
+      void server.start().catch(() => undefined);
+      void client.start().catch(() => undefined);
+      await server.waitForWriteReady();
+      await server.sendData(Buffer.from("must-not-leak"));
+      await waitForDtlsState(client, "failed");
+
+      // Assert: DTLS record は gate で破棄され、SCTP 側へ一件も届かない。
+      expect(client.state).toBe("failed");
+      expect(received.data).toHaveLength(0);
+    } finally {
+      await Promise.allSettled([server.stop(), client.stop()]);
+    }
+  });
+
   test("dtls_start_ignores_unsupported_fingerprint_algorithm_when_supported_match_exists", async () => {
     const [session1, session2] = await createDtlsSessions();
     const expectedFingerprint = session2.localParameters.fingerprints[0];

@@ -17,6 +17,7 @@ import { DtlsContext } from "./context/dtls";
 import { SrtpContext } from "./context/srtp";
 import { TransportContext } from "./context/transport";
 import type { Dtls13Connection } from "./engine/v1_3/connection";
+import type { DtlsReadiness } from "./engine/v1_3/types";
 import { peerKeyFromAddr } from "./handshake/extensions/cookie";
 import { EllipticCurves } from "./handshake/extensions/ellipticCurves";
 import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecret";
@@ -107,6 +108,80 @@ export class DtlsSocket {
   /** True when this socket is operating on the DTLS 1.3 engine. */
   get isDtls13(): boolean {
     return !!this.engine13;
+  }
+
+  /** @internal Cryptographic readiness; SDP authentication is deliberately absent. */
+  get readiness(): DtlsReadiness {
+    if (this.engine13) return { ...this.engine13.readiness };
+    return {
+      writeReady: this.connected,
+      peerHandshakeAuthenticated: this.connected,
+      handshakeComplete: this.connected,
+    };
+  }
+
+  /** @internal Association-lifetime DTLS 1.3 retransmissions. */
+  get totalRetransmitCount(): number {
+    return this.engine13?.totalRetransmitCount ?? 0;
+  }
+
+  /** @internal */
+  async waitForWriteReady(): Promise<void> {
+    if (!this.engine13) return this.waitForLegacyReadiness();
+    await this.engine13.waitForWriteReady();
+    const profile = this.engine13.srtpProfile;
+    if (profile !== undefined) this.srtp.srtpProfile = profile;
+  }
+
+  /** @internal */
+  waitForPeerHandshakeAuthenticated(): Promise<void> {
+    return this.engine13
+      ? this.engine13.waitForPeerHandshakeAuthenticated()
+      : this.waitForLegacyReadiness();
+  }
+
+  /** @internal */
+  waitForHandshakeComplete(): Promise<void> {
+    return this.engine13
+      ? this.engine13.waitForHandshakeComplete()
+      : this.waitForLegacyReadiness();
+  }
+
+  /** @internal Drop DTLS 1.3 pre-authentication application records. */
+  clearEarlyDataBuffer(): void {
+    this.engine13?.clearEarlyAppData();
+  }
+
+  private waitForLegacyReadiness(): Promise<void> {
+    if (this.connected) return Promise.resolve();
+    if (this.associationTornDown) {
+      return Promise.reject(
+        new Error("DTLS association closed before readiness"),
+      );
+    }
+    return new Promise<void>((resolve, reject) => {
+      const connected = this.onConnect.subscribe(() => {
+        cleanup();
+        resolve();
+      });
+      const failed = this.onError.subscribe((error) => {
+        cleanup();
+        reject(error);
+      });
+      const closed = this.onClose.subscribe(() => {
+        cleanup();
+        reject(new Error("DTLS association closed before readiness"));
+      });
+      const cleanup = () => {
+        connected.unSubscribe();
+        failed.unSubscribe();
+        closed.unSubscribe();
+      };
+      if (this.connected) {
+        cleanup();
+        resolve();
+      }
+    });
   }
 
   renegotiation() {

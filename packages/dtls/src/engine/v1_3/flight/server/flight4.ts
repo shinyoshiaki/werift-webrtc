@@ -662,6 +662,7 @@ export async function sendServerFlight(this: Dtls13Host): Promise<void> {
   this.serverFlightComplete = true;
   // Server can send early app data on epoch 3 after its Finished (WARP); optional
   this.writeEpoch = 3;
+  this.markWriteReady();
   this.hsPhase = this.expectClientCertificate
     ? "wait_client_cert"
     : "wait_client_finished";

@@ -210,3 +210,19 @@ Cannot be combined with `dtls.helloRetryRequest: true`
 ### turnTransport
 
 > **turnTransport**: `undefined` \| `"tcp"` \| `"tls"` \| `"udp"`
+
+***
+
+### warp?
+
+> `optional` **warp**: `object`
+
+Experimental WARP traffic policy. Early outbound remains opt-in.
+
+#### allowEarlyServerData?
+
+> `optional` **allowEarlyServerData**: `boolean`
+
+#### earlyMediaPolicy?
+
+> `optional` **earlyMediaPolicy**: `"buffer"` \| `"drop"`
