@@ -290,7 +290,7 @@ readonly \[`string`, `number`\]
 
 ### requestWithRetry()
 
-> **requestWithRetry**(`request`, `addr`): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
+> **requestWithRetry**(`request`, `addr`, `signal`?): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
 
 #### Parameters
 
@@ -301,6 +301,10 @@ readonly \[`string`, `number`\]
 ##### addr
 
 readonly \[`string`, `number`\]
+
+##### signal?
+
+`AbortSignal`
 
 #### Returns
 
