@@ -256,6 +256,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   private earlyServerSendUsed = false;
   private earlyModeDisabled = false;
   private spedTransport?: IceSpedTransport;
+  private iceDatagramSubscription?: { unSubscribe(): void };
 
   readonly onStateChange = new Event<[DtlsState]>();
   readonly onRtcp = new Event<[RtcpPacket]>();
@@ -285,7 +286,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     // start() までの到着も落とさないよう、ICE datagram 購読は生成直後に開始
     // する。認証前の到着は gate / mediaBuffer 側で保持し、上位へは出さない。
     const ice = this.iceTransport.connection as Connection;
-    connectionDatagramEvent(ice).subscribe((ctx) => this.onIceDatagram(ctx));
+    this.iceDatagramSubscription = connectionDatagramEvent(ice).subscribe(
+      (ctx) => this.onIceDatagram(ctx),
+    );
   }
 
   addEventListener = (
@@ -1245,6 +1248,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   async stop() {
     // 旧 attempt の callback・drain が再開しないよう先に無効化する。
     this.currentAttempt = undefined;
+    this.iceDatagramSubscription?.unSubscribe();
+    this.iceDatagramSubscription = undefined;
     this.srtpReadReady = false;
     this.srtpWriteReady = false;
     this.setState("closed", false);
@@ -1463,23 +1468,28 @@ const selectPreferredFingerprintAlgorithm = (
 
 class IceTransport implements Transport {
   closed: boolean = false;
+  private readonly datagramSubscription: { unSubscribe(): void };
   /**
    * ICE selected-pair path is already authenticated — DTLS 1.2 must not treat
    * AEAD-protected alerts as "pre-auth" merely because UDP pin is unavailable.
    */
   readonly peerAuthenticated = true;
   constructor(private ice: IceConnection) {
-    connectionDatagramEvent(ice).subscribe((ctx) => {
-      if (
-        isDtls(ctx.bytes) &&
-        allowsAuthenticatedDtlsDelivery(ctx, (ice as Connection).generation)
-      ) {
-        if (this.onData) {
-          // 世代トークンを engine RX queue まで運び、restart 後の stale 実行を防ぐ。
-          this.onData(ctx.bytes, ctx.source, { rxGeneration: ctx.generation });
+    this.datagramSubscription = connectionDatagramEvent(ice).subscribe(
+      (ctx) => {
+        if (
+          isDtls(ctx.bytes) &&
+          allowsAuthenticatedDtlsDelivery(ctx, (ice as Connection).generation)
+        ) {
+          if (this.onData) {
+            // 世代トークンを engine RX queue まで運び、restart 後の stale 実行を防ぐ。
+            this.onData(ctx.bytes, ctx.source, {
+              rxGeneration: ctx.generation,
+            });
+          }
         }
-      }
-    });
+      },
+    );
   }
   onData: (buf: Buffer, addr?: Address, meta?: DatagramRxMeta) => void =
     () => {};
@@ -1507,6 +1517,7 @@ class IceTransport implements Transport {
 
   async close() {
     this.closed = true;
+    this.datagramSubscription.unSubscribe();
     this.ice.close();
   }
 

@@ -603,6 +603,36 @@ describe("RTCDtlsTransportTest", () => {
     }
   });
 
+  test("stop は ICE datagram listener を解放する", async () => {
+    // Arrange: transport 構築時に購読した callback を spy へ差し替える。
+    const [session] = await createDtlsSessions();
+    const ice = session.iceTransport.connection as unknown as Connection;
+    const pair = requireAuthenticatedPair(session);
+    const onIceDatagram = vi.fn();
+    (
+      session as unknown as {
+        onIceDatagram(ctx: unknown): void;
+      }
+    ).onIceDatagram = onIceDatagram;
+    const datagram = connectionDatagramEvent(ice as object);
+    const ctx = {
+      bytes: Buffer.from([0]),
+      source: pair.remoteAddr,
+      protocol: pair.protocol,
+      pair,
+      generation: ice.generation,
+      authenticated: true,
+    };
+
+    // Act: close 前に一度通知し、その後 transport を停止して再通知する。
+    datagram.execute(ctx);
+    await session.stop();
+    datagram.execute(ctx);
+
+    // Assert: stop 後の通知は破棄済み transport callback へ到達しない。
+    expect(onIceDatagram).toHaveBeenCalledTimes(1);
+  });
+
   test("connecting 中の generation drift は gate を再初期化して attempt を付け替える", async () => {
     // Arrange: handshake 開始前の attempt を connecting 状態で発行する。
     const [session] = await createDtlsSessions();
