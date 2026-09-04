@@ -2,7 +2,7 @@ import { decode, types } from "@shinyoshiaki/binary-data";
 
 import { setTimeout } from "timers/promises";
 import { Event, EventDisposer, debug } from "./imports/common";
-import type { Address, Transport } from "./imports/common";
+import type { Address, DatagramRxMeta, Transport } from "./imports/common";
 
 import {
   NamedCurveAlgorithmList,
@@ -71,6 +71,7 @@ export class DtlsSocket {
   onHandleHandshakes!: (
     assembled: FragmentedHandshake[],
     peer?: Address,
+    meta?: DatagramRxMeta,
   ) => Promise<void>;
 
   private bufferFragmentedHandshakes: FragmentedHandshake[] = [];
@@ -298,8 +299,12 @@ export class DtlsSocket {
     this.setupExtensions();
   }
 
-  protected udpOnMessage = (data: Buffer, addr?: Address) => {
-    this.handleUdpDatagram(data, addr);
+  protected udpOnMessage = (
+    data: Buffer,
+    addr?: Address,
+    meta?: DatagramRxMeta,
+  ) => {
+    this.handleUdpDatagram(data, addr, meta);
   };
 
   /** Normalize host so 0.0.0.0 / :: match loopback pin keys used by Flight. */
@@ -422,7 +427,11 @@ export class DtlsSocket {
    * spoofed UDP / carrier inject cannot deliver app data or force terminal
    * via unauthenticated alerts.
    */
-  protected handleUdpDatagram(data: Buffer, addr?: Address): void {
+  protected handleUdpDatagram(
+    data: Buffer,
+    addr?: Address,
+    meta?: DatagramRxMeta,
+  ): void {
     // Terminal association: drop all RX (no onData / handshake resume after fatal).
     if (this.associationTornDown) return;
 
@@ -492,23 +501,25 @@ export class DtlsSocket {
 
                 // Pass the datagram source so async Flight2 / protocol alerts
                 // do not depend on mutable UdpTransport.rinfo after await.
-                this.onHandleHandshakes(assembled, peer).catch((error) => {
-                  err(this.dtls.sessionId, "onHandleHandshakes error", error);
-                  const e =
-                    error instanceof Error ? error : new Error(String(error));
-                  // Pre-cookie / unpinned: drop per-source only — never tear down
-                  // the listening association (unauthenticated DoS).
-                  if (!this.hasAssociationPeerAuth()) {
-                    log(
-                      this.dtls.sessionId,
-                      "DTLS 1.2: drop pre-auth handshake error (no association fatal)",
-                      e.message,
-                    );
-                    return;
-                  }
-                  // Post-pin: handshake failure is association-fatal.
-                  this.reportLegacy12Fatal(e);
-                });
+                this.onHandleHandshakes(assembled, peer, meta).catch(
+                  (error) => {
+                    err(this.dtls.sessionId, "onHandleHandshakes error", error);
+                    const e =
+                      error instanceof Error ? error : new Error(String(error));
+                    // Pre-cookie / unpinned: drop per-source only — never tear down
+                    // the listening association (unauthenticated DoS).
+                    if (!this.hasAssociationPeerAuth()) {
+                      log(
+                        this.dtls.sessionId,
+                        "DTLS 1.2: drop pre-auth handshake error (no association fatal)",
+                        e.message,
+                      );
+                      return;
+                    }
+                    // Post-pin: handshake failure is association-fatal.
+                    this.reportLegacy12Fatal(e);
+                  },
+                );
               }
               break;
             case ContentType.applicationData:

@@ -1,5 +1,6 @@
 import { Certificate } from "@fidm/x509";
 import { setTimeout } from "timers/promises";
+import { vi } from "vitest";
 
 import type { Connection } from "../../../ice/src";
 import { connectionDatagramEvent } from "../../../ice/src/internal/datagram";
@@ -549,6 +550,55 @@ describe("RTCDtlsTransportTest", () => {
       // Assert: 新世代 data が復旧し、旧残余は混入しない。
       expect(received).toEqual(["a1", "b1"]);
     } finally {
+      await session.stop();
+    }
+  });
+
+  test("application gate restart は旧 queue と retention timer を即時破棄する", async () => {
+    // Arrange: transport の gate から旧 buffer を取得し、fake clock 上で timer を起動する。
+    const [session] = await createDtlsSessions();
+    const gate = (
+      session as unknown as {
+        applicationGate: {
+          receive(data: Buffer): void;
+          restartForNewAttempt(): void;
+          buffer: {
+            snapshot(): {
+              bufferedPackets: number;
+              droppedPackets: number;
+            };
+          };
+        };
+      }
+    ).applicationGate;
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    gate.receive(Buffer.from("old-attempt"));
+    const oldBuffer = gate.buffer;
+    const timersBeforeRestart = vi.getTimerCount();
+
+    try {
+      // Act: ICE generation 切り替えと同じ gate restart を実行する。
+      gate.restartForNewAttempt();
+
+      // Assert: 旧 record は drop 計上され、その retention timer は残らない。
+      expect(timersBeforeRestart).toBeGreaterThan(0);
+      expect(oldBuffer.snapshot()).toMatchObject({
+        bufferedPackets: 0,
+        droppedPackets: 1,
+      });
+      expect(vi.getTimerCount()).toBe(timersBeforeRestart - 1);
+
+      // Act: 旧 retention 期限を越える。
+      vi.advanceTimersByTime(2_001);
+
+      // Assert: dispose 済み旧 buffer の統計は callback で再更新されない。
+      expect(oldBuffer.snapshot()).toMatchObject({
+        bufferedPackets: 0,
+        droppedPackets: 1,
+      });
+    } finally {
+      vi.useRealTimers();
       await session.stop();
     }
   });

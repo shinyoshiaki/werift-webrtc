@@ -152,6 +152,11 @@ class InboundApplicationGate {
    * fingerprint mismatch 等の terminal abort とは別扱いである。
    */
   restartForNewAttempt(): void {
+    // A generation change owns the old queue's complete lifecycle.  Dispose it
+    // before replacing the instance so its retention timer cannot survive the
+    // restart and mutate detached state two seconds later.
+    this.buffer.clear(true);
+    this.buffer.dispose();
     this.authenticated = false;
     this.aborted = false;
     // dispose 済みの buffer は復活できないため新世代用に作り直す。

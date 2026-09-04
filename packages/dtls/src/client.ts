@@ -26,7 +26,7 @@ import { ClientHello } from "./handshake/message/client/hello";
 import { ServerHello } from "./handshake/message/server/hello";
 import { ServerHelloVerifyRequest } from "./handshake/message/server/helloVerifyRequest";
 import { DtlsRandom } from "./handshake/random";
-import type { Address } from "./imports/common";
+import type { Address, DatagramRxMeta } from "./imports/common";
 import { debug } from "./imports/common";
 import { AlertDesc, ContentType } from "./record/const";
 import type { FragmentedHandshake } from "./record/message/fragment";
@@ -565,8 +565,8 @@ export class DtlsClient extends DtlsSocket {
     }
     const carrier = this.associationCarrier;
     if (carrier && !carrier.isClosed()) {
-      carrier.setInjectHandler((bytes, peer) =>
-        this.associationInject(bytes, peer),
+      carrier.setInjectHandler((bytes, peer, opts) =>
+        this.associationInject(bytes, peer, opts),
       );
     }
   }
@@ -582,6 +582,7 @@ export class DtlsClient extends DtlsSocket {
   private associationInject(
     bytes: Buffer,
     peer?: [string, number] | { address?: string; port?: number } | string,
+    opts?: { rxGeneration?: number },
   ): void | Promise<void> {
     if (this.dualPhase === "closed") return;
     if (this.associationCarrier?.isStaleInboundInject?.()) return;
@@ -633,7 +634,7 @@ export class DtlsClient extends DtlsSocket {
       };
       t.rinfo = { address: addr[0], port: addr[1] };
     }
-    return this.udpOnMessage(Buffer.from(bytes), addr);
+    return this.udpOnMessage(Buffer.from(bytes), addr, opts);
   }
 
   /**
@@ -1047,7 +1048,10 @@ export class DtlsClient extends DtlsSocket {
    * CH-A engine (keeps transcript continuity); else prime a fresh engine from
    * dualResume and reinject the datagram.
    */
-  private resumeDtls13FromDualPath(datagram: Buffer): void {
+  private resumeDtls13FromDualPath(
+    datagram: Buffer,
+    rxGeneration?: number,
+  ): void {
     if (this.dualPhase === "closed" || this.dualPhase === "committed12") {
       // Late 1.3 after close or 1.2 commit must not reverse the association.
       return;
@@ -1092,7 +1096,7 @@ export class DtlsClient extends DtlsSocket {
       this.engine13 = parked;
       // Association keeps UDP + carrier.inject; engine RX only via injectDatagram.
       this.bindAssociationInbound(parked);
-      parked.injectDatagram(datagram, rinfo);
+      parked.injectDatagram(datagram, rinfo, rxGeneration);
       return;
     }
 
@@ -1130,7 +1134,7 @@ export class DtlsClient extends DtlsSocket {
     // Constructor stole transport.onData / inject — reclaim for association.
     this.bindAssociationInbound(engine);
     // Full datagram reinject so coalesced epoch-2 records are not lost
-    engine.injectDatagram(datagram, rinfo);
+    engine.injectDatagram(datagram, rinfo, rxGeneration);
   }
 
   async connect() {
@@ -1179,6 +1183,7 @@ export class DtlsClient extends DtlsSocket {
   private handleHandshakes = async (
     assembled: FragmentedHandshake[],
     _peer?: Address,
+    meta?: DatagramRxMeta,
   ) => {
     if (this.engine13) return;
     if (this.dualPhase === "closed") return;
@@ -1251,7 +1256,7 @@ export class DtlsClient extends DtlsSocket {
                   0,
                   fragBytes,
                 );
-                this.resumeDtls13FromDualPath(pkt);
+                this.resumeDtls13FromDualPath(pkt, meta?.rxGeneration);
                 return;
               }
               // kind === "dtls12": DOWNGRD check then commit
@@ -1384,7 +1389,11 @@ export class DtlsClient extends DtlsSocket {
    * - probing + epoch-0 illegal_parameter only: suppress (legacy_cookie vs 1.3)
    * - else: DTLS 1.2 record path (committed12 / dual cookie / pure 1.2)
    */
-  protected udpOnMessage = (data: Buffer, addr?: Address) => {
+  protected udpOnMessage = (
+    data: Buffer,
+    addr?: Address,
+    meta?: DatagramRxMeta,
+  ) => {
     // Terminal: dualPhase closed *or* associationTornDown mid peer-close reply.
     if (this.dualPhase === "closed" || this.associationTornDown) {
       return;
@@ -1423,7 +1432,7 @@ export class DtlsClient extends DtlsSocket {
     }
 
     if (this.engine13 && !this.engine13.isClosed()) {
-      return this.engine13.injectDatagram(data, peerTuple);
+      return this.engine13.injectDatagram(data, peerTuple, meta?.rxGeneration);
     }
 
     if (
@@ -1431,7 +1440,7 @@ export class DtlsClient extends DtlsSocket {
       !this.engine13 &&
       this.datagramSelectsDtls13(data)
     ) {
-      this.resumeDtls13FromDualPath(data);
+      this.resumeDtls13FromDualPath(data, meta?.rxGeneration);
       return;
     }
     if (
@@ -1446,7 +1455,7 @@ export class DtlsClient extends DtlsSocket {
     }
     // After commit12, late 1.3 SH must not reverse version (resume guards too).
     // Pass peer so base 1.2 RX pin gate applies (UDP + carrier.inject parity).
-    this.handleUdpDatagram(data, peerAddr);
+    this.handleUdpDatagram(data, peerAddr, meta);
   };
 
   /**

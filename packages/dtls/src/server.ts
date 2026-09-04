@@ -11,7 +11,7 @@ import {
 } from "./handshake/extensions/cookie";
 import { SupportedVersions } from "./handshake/extensions/supportedVersions";
 import { ClientHello } from "./handshake/message/client/hello";
-import type { Address } from "./imports/common";
+import type { Address, DatagramRxMeta } from "./imports/common";
 import { debug } from "./imports/common";
 import { AlertDesc, ContentType } from "./record/const";
 import type { FragmentedHandshake } from "./record/message/fragment";
@@ -63,8 +63,8 @@ export class DtlsServer extends DtlsSocket {
       // Route the embedded ClientHello through the association dispatcher;
       // selecting 1.3 will create the engine and rebind this same carrier.
       const carrier = (this.options as DtlsInternalOptions).handshakeCarrier;
-      carrier?.setInjectHandler((bytes, peer) =>
-        this.serverAssociationInject(bytes, peer),
+      carrier?.setInjectHandler((bytes, peer, opts) =>
+        this.serverAssociationInject(bytes, peer, opts),
       );
     }
 
@@ -118,8 +118,8 @@ export class DtlsServer extends DtlsSocket {
     this.transport.socket.onData = this.udpOnMessage;
     const carrier = engine.getHandshakeCarrier();
     if (carrier && !carrier.isClosed()) {
-      carrier.setInjectHandler((bytes, peer) =>
-        this.serverAssociationInject(bytes, peer),
+      carrier.setInjectHandler((bytes, peer, opts) =>
+        this.serverAssociationInject(bytes, peer, opts),
       );
     }
   }
@@ -131,6 +131,7 @@ export class DtlsServer extends DtlsSocket {
   private serverAssociationInject(
     bytes: Buffer,
     peer?: [string, number] | { address?: string; port?: number } | string,
+    opts?: { rxGeneration?: number },
   ): void | Promise<void> {
     if (this.associationTornDown) return;
     if (this.engine13?.getHandshakeCarrier()?.isStaleInboundInject?.()) {
@@ -149,21 +150,25 @@ export class DtlsServer extends DtlsSocket {
         addr = [peer.address, peer.port];
       }
     }
-    return this.udpOnMessage(Buffer.from(bytes), addr);
+    return this.udpOnMessage(Buffer.from(bytes), addr, opts);
   }
 
   /**
    * Association RX: 1.3 engine when active, else DTLS 1.2 record path.
    * Terminal association drops all inbound (UDP and inject).
    */
-  protected udpOnMessage = (data: Buffer, addr?: Address) => {
+  protected udpOnMessage = (
+    data: Buffer,
+    addr?: Address,
+    meta?: DatagramRxMeta,
+  ) => {
     if (this.associationTornDown) return;
     const eng = this.engine13;
     if (eng && !eng.isClosed()) {
       const peer = addr ? ([addr[0], addr[1]] as [string, number]) : undefined;
-      return eng.injectDatagram(data, peer);
+      return eng.injectDatagram(data, peer, meta?.rxGeneration);
     }
-    this.handleUdpDatagram(data, addr);
+    this.handleUdpDatagram(data, addr, meta);
   };
 
   /**
@@ -201,6 +206,7 @@ export class DtlsServer extends DtlsSocket {
   private handleHandshakes = async (
     assembled: FragmentedHandshake[],
     peer?: Address,
+    meta?: DatagramRxMeta,
   ) => {
     if (this.engine13) return;
 
@@ -266,7 +272,7 @@ export class DtlsServer extends DtlsSocket {
                   0,
                   fragBytes,
                 );
-                eng.injectDatagram(pkt, peerAddr);
+                eng.injectDatagram(pkt, peerAddr, meta?.rxGeneration);
               }
               log("association selected DTLS 1.3, reinjected ClientHello", {
                 peer: peerAddr,

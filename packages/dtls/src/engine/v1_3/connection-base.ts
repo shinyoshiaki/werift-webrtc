@@ -1186,10 +1186,15 @@ export class Dtls13ConnectionBase {
   injectDatagram(
     bytes: Buffer,
     peer?: [string, number] | { address?: string; port?: number } | string,
+    rxGeneration?: number,
   ): Promise<void> | void {
     const self = this as this & {
-      handleDatagram: (data: Buffer, addr?: any) => void | Promise<void>;
+      handleDatagram: (
+        data: Buffer,
+        addr?: any,
+        rxGeneration?: number,
+      ) => void | Promise<void>;
     };
-    return self.handleDatagram(Buffer.from(bytes), peer);
+    return self.handleDatagram(Buffer.from(bytes), peer, rxGeneration);
   }
 }
