@@ -30,6 +30,7 @@ Instructions for coding agents working in `packages/webrtc`.
 
 | Task | Command |
 | --- | --- |
+| build package | `npm run build` |
 | test package | `npm test` |
 | type-check package | `npm run type` |
 | format package | `npm run format` |

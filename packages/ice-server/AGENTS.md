@@ -18,6 +18,7 @@ Instructions for coding agents working in `packages/ice-server`.
 4. Add Japanese comments in Chrome E2E Act / Assert phases when the operation order or expectation is not obvious at a glance.
 5. Update the package README or harness docs when package scripts or browser validation entrypoints change.
 6. Keep `chrome-e2e` browser bootstrap helpers aligned with `vitest.config.mts` so tests can use either a bundled Playwright Chromium or an explicit system Chrome path. Browsers are installed once from the repository root; this package should only reuse that shared install.
+7. Keep the Chrome harness dependency bootstrap cache-friendly and non-auditing so package tests do not spend the CI timeout on repeated registry audits.
 
 ## Don't
 

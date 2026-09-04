@@ -16,7 +16,7 @@
   "files": ["lib"],
   "scripts": {
     "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
-    "chrome-e2e": "cd chrome-e2e && npm i && npm run ci:silent",
+    "chrome-e2e": "cd chrome-e2e && npm install --prefer-offline --no-audit --no-fund --no-update-notifier && npm run ci:silent",
     "deploy": "npm run build && npm publish",
     "format": "biome check --write src tests",
     "test": "vitest run --config ./vitest.config.mts && npm run chrome-e2e",
