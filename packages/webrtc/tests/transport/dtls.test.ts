@@ -697,6 +697,61 @@ describe("RTCDtlsTransportTest", () => {
     }
   });
 
+  test("接続後の同一 fingerprint 差し替えは認証状態を維持する", async () => {
+    // Arrange: 接続済み pair を用意する。
+    const [session1, session2] = await dtlsTransportPair();
+    const receiver = new DummyDataReceiver();
+    session1.dataReceiver = receiver.handleData;
+
+    try {
+      // Act: 同一 fingerprint で remote SDP を適用し直す (ICE restart 相当)。
+      session1.setRemoteParams(session2.localParameters);
+      session2.setRemoteParams(session1.localParameters);
+      session2.sendData(Buffer.from("after-same-fp"));
+      await setTimeout(100);
+
+      // Assert: connected のまま送受信が継続する。
+      expect(session1.state).toBe("connected");
+      expect(session2.state).toBe("connected");
+      expect(receiver.data).toEqual([Buffer.from("after-same-fp")]);
+    } finally {
+      await Promise.allSettled([session1.stop(), session2.stop()]);
+    }
+  });
+
+  test("接続後の fingerprint 不一致差し替えは旧認証を残さず失敗させる", async () => {
+    // Arrange: 接続済み pair を用意する。
+    const [session1, session2] = await dtlsTransportPair();
+    const receiver = new DummyDataReceiver();
+    session1.dataReceiver = receiver.handleData;
+    const expected = session2.localParameters.fingerprints[0];
+
+    try {
+      // Act: 改ざん fingerprint で remote SDP を適用し直す。
+      session1.setRemoteParams(
+        new RTCDtlsParameters(
+          [
+            new RTCDtlsFingerprint(
+              expected.algorithm,
+              mutateFingerprint(expected.value),
+            ),
+          ],
+          session2.localParameters.role,
+        ),
+      );
+
+      // Assert: transport は失敗し、以後の一件も配送・送信しない。
+      expect(session1.state).toBe("failed");
+      expect(session1.lastError?.message).toMatch(/fingerprint/i);
+      await session2.sendData(Buffer.from("must-not-leak"));
+      await setTimeout(100);
+      expect(receiver.data).toHaveLength(0);
+      await expect(session1.sendData(Buffer.from("x"))).rejects.toThrow();
+    } finally {
+      await Promise.allSettled([session1.stop(), session2.stop()]);
+    }
+  });
+
   test("connecting 中の start() は既存 handshake に join する", async () => {
     // Arrange
     const [session1, session2] = await createDtlsSessions();

@@ -309,4 +309,43 @@ describe("SPED draft00 session", () => {
     // Assert: 真の再送は A の1件のみ。C の初送を再送計上しない。
     expect(session.retransmissions).toBe(1);
   });
+
+  it("受信 ACK 経路の部分 ACK でも残存 flight の再送計数がずれない", () => {
+    // Arrange: L1 [A, B, C] を用意する。
+    const session = new SpedSession(0);
+    const a = Buffer.from([22, 1]);
+    const b = Buffer.from([22, 2]);
+    const c = Buffer.from([22, 3]);
+    session.replaceL1([a, b, c]);
+    const decorateData = () => {
+      const request = new Message(methods.BINDING, classes.REQUEST);
+      request.setAttribute("USERNAME", "a:b").setAttribute("PRIORITY", 1);
+      expect(session.decorate(request)).toBe(true);
+      return getRawAttributeValue(request, DTLS_IN_STUN_DATA);
+    };
+    const ackFor = (packet: Buffer) => {
+      const message = new Message(methods.BINDING, classes.REQUEST);
+      message.appendRawAttribute(DTLS_IN_STUN_DATA, Buffer.alloc(0));
+      const ack = Buffer.alloc(8);
+      ack.writeUInt32BE(spedDataCrc32(packet), 0);
+      ack.writeUInt32BE(0xdeadbeef, 4);
+      message.appendRawAttribute(DTLS_IN_STUN_ACK, ack);
+      return message;
+    };
+
+    // Act: A、B を送信後に B の ACK を実際の受信経路で処理する。
+    expect(decorateData()?.equals(a)).toBe(true);
+    expect(decorateData()?.equals(b)).toBe(true);
+    session.receiveAuthenticated(ackFor(b));
+
+    // Assert: B が抜けて [A, C] が残る。
+    expect(session.l1Datagrams.map((packet) => packet[1])).toEqual([1, 3]);
+
+    // Act: 残りを送り切る。
+    expect(decorateData()?.equals(a)).toBe(true);
+    expect(decorateData()?.equals(c)).toBe(true);
+
+    // Assert: A の再送1件のみ計上し、C の初送は再送にしない。
+    expect(session.retransmissions).toBe(1);
+  });
 });

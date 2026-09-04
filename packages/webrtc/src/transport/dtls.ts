@@ -18,6 +18,7 @@ import {
 } from "../../../dtls/src/internal";
 import type { Connection } from "../../../ice/src";
 import {
+  type IceDatagramContext,
   allowsAuthenticatedDtlsDelivery,
   connectionDatagramEvent,
 } from "../../../ice/src/internal/datagram";
@@ -276,6 +277,10 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       this.config.warp?.earlyMediaPolicy === "buffer" ? 256 * 1024 : 0,
       2_000,
     );
+    // start() までの到着も落とさないよう、ICE datagram 購読は生成直後に開始
+    // する。認証前の到着は gate / mediaBuffer 側で保持し、上位へは出さない。
+    const ice = this.iceTransport.connection as Connection;
+    connectionDatagramEvent(ice).subscribe((ctx) => this.onIceDatagram(ctx));
   }
 
   addEventListener = (
@@ -338,6 +343,34 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         ? this.remoteParameters.role
         : remoteParameters.role;
     this.remoteParameters = new RTCDtlsParameters(fingerprints, role);
+    // 接続済み transport に新 fingerprint が来たら現 association の証明書で
+    // 再検証する。不一致は旧 SDP に基づく認証状態の残留を許さず失敗させる。
+    if (this.readiness.peerAuthenticated && !this.isTerminated()) {
+      try {
+        this.verifyRemoteCertificateFingerprint();
+      } catch (error) {
+        this.lastError =
+          error instanceof Error ? error : new Error(String(error));
+        this.failAuthenticatedTransport();
+      }
+    }
+  }
+
+  /**
+   * 認証済み association の事後失敗処理。fingerprint 不一致の再検証など、
+   * handshake 完了後に認証が崩れた場合に状態・gate・queue を確実に落とす。
+   */
+  private failAuthenticatedTransport(): void {
+    this.readiness.peerAuthenticated = false;
+    this.peerAuthenticatedAt = undefined;
+    this.srtpReadReady = false;
+    this.srtpWriteReady = false;
+    this.setState("failed");
+    this.applicationGate.abort();
+    this.mediaBuffer.clear(true);
+    this.mediaBuffer.dispose();
+    this.abortSpedSession();
+    this.dtls?.close();
   }
 
   async start() {
@@ -524,12 +557,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     } catch (error) {
       this.lastError =
         error instanceof Error ? error : new Error(String(error));
-      this.setState("failed");
-      this.applicationGate.abort();
-      this.mediaBuffer.clear(true);
-      this.mediaBuffer.dispose();
-      this.abortSpedSession();
-      this.dtls?.close();
+      this.failAuthenticatedTransport();
       throw error;
     }
 
@@ -979,46 +1007,52 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     if (this.mediaListenerStarted) return;
     this.mediaListenerStarted = true;
     this.srtpStarted = true;
+  }
+
+  /**
+   * ICE datagram 受信層の media 処理。購読は constructor 時に開始済みのため、
+   * DTLS `start()` 前に届いた early RTP/RTCP もここで保持する。認証前の到着
+   * は encrypted のまま buffer/drop し、復号・配送は fingerprint 認証後だけ。
+   */
+  private onIceDatagram(ctx: IceDatagramContext): void {
+    if (
+      this.config.debug?.inboundPacketLoss &&
+      this.config.debug?.inboundPacketLoss / 100 < Math.random()
+    ) {
+      return;
+    }
+
+    // 旧 generation・close 後・未認証 pair の media は配送も buffer もしない。
+    if (this.isTerminated()) return;
+    this.syncConnectedAttempt();
     const ice = this.iceTransport.connection as Connection;
-    connectionDatagramEvent(ice).subscribe((ctx) => {
-      if (
-        this.config.debug?.inboundPacketLoss &&
-        this.config.debug?.inboundPacketLoss / 100 < Math.random()
-      ) {
-        return;
-      }
+    const current = this.currentAttempt;
+    if (ctx.generation !== ice.generation) return;
+    if (!ctx.authenticated || !ctx.pair) return;
+    if (ctx.protocol !== ctx.pair.protocol) return;
+    const remote = ctx.pair.remoteAddr;
+    if (ctx.source[0] !== remote[0] || ctx.source[1] !== remote[1]) return;
 
-      // 旧 generation・close 後・未認証 pair の media は配送も buffer もしない。
-      if (this.isTerminated()) return;
-      this.syncConnectedAttempt();
-      const current = this.currentAttempt;
-      if (ctx.generation !== ice.generation) return;
-      if (!ctx.authenticated || !ctx.pair) return;
-      if (ctx.protocol !== ctx.pair.protocol) return;
-      const remote = ctx.pair.remoteAddr;
-      if (ctx.source[0] !== remote[0] || ctx.source[1] !== remote[1]) return;
+    const data = ctx.bytes;
+    if (!isMedia(data)) return;
 
-      const data = ctx.bytes;
-      if (!isMedia(data)) return;
+    // Track received data statistics
+    this.bytesReceived += data.length;
+    this.packetsReceived++;
 
-      // Track received data statistics
-      this.bytesReceived += data.length;
-      this.packetsReceived++;
+    if (!this.srtpReadReady) {
+      // handshake 開始前 (attempt 未発行) の pre-auth media は現世代に
+      // 限り buffer し、配送は認証後の drain に委ねる。
+      if (current && !this.isCurrentAttempt(current)) return;
+      if (current && ctx.generation !== current.iceGeneration) return;
+      this.mediaBuffer.push(data);
+      return;
+    }
 
-      if (!this.srtpReadReady) {
-        // handshake 開始前 (attempt 未発行) の pre-auth media は現世代に
-        // 限り buffer し、配送は認証後の drain に委ねる。
-        if (current && !this.isCurrentAttempt(current)) return;
-        if (current && ctx.generation !== current.iceGeneration) return;
-        this.mediaBuffer.push(data);
-        return;
-      }
-
-      // 配送は現 attempt のみに限定し、close/restart 後の旧 queue は扱わない。
-      if (!current || !this.isCurrentAttempt(current)) return;
-      if (ctx.generation !== current.iceGeneration) return;
-      this.handleMediaPacket(data);
-    });
+    // 配送は現 attempt のみに限定し、close/restart 後の旧 queue は扱わない。
+    if (!current || !this.isCurrentAttempt(current)) return;
+    if (ctx.generation !== current.iceGeneration) return;
+    this.handleMediaPacket(data);
   }
 
   private handleMediaPacket(data: Buffer) {
