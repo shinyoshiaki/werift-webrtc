@@ -31,3 +31,8 @@ Tests run serially because most demos bind `8888` or `8878`.
 AV1 cases accept Chromium's standard `video/AV1` capability as well as the
 legacy `video/AV1X` name used by older werift examples. Recording cases wait
 for each catalog entry's actual stop interval before asserting the output.
+
+The GStreamer recording cases retain the child process and assert its exit
+status and error output. `red-record-gst` also requires a positive received
+RTP count, and `save-gstreamer` / `red-record-gst` validate their WebM output
+with `ffprobe` after checking that it is non-empty.
