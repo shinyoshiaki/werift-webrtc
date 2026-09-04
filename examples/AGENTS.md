@@ -10,6 +10,7 @@ Instructions for coding agents working in `examples/`.
 * Runtime target: Linux, macOS, and other Unix-like environments only. Native Windows is not supported.
 * `examples/turn-loopback` has its own guide and chrome-e2e; do not copy that suite into `examples/e2e`.
 * `packages/*/examples` are out of scope for this harness.
+* `examples/untested/` contains root examples intentionally excluded from this harness; keep their relative layout under that directory.
 
 ## Do
 
@@ -94,19 +95,7 @@ ffmpeg / GStreamer:
 
 | Path | Reason |
 | --- | --- |
-| `datachannel/heroku-*`, `ice/trickle/heroku-*`, `mediachannel/sendrecv/heroku-*` | 外部 Heroku socket.io |
-| `datachannel/manual.ts` | 手動 SDP |
-| `datachannel/local.ts` | ブラウザなし（werift 同士） |
-| `benchmark/` | ベンチマーク。ブラウザなし |
-| `getStats/demo.ts` | Node 同士の API デモ |
-| `google-nest/` | googleapis + `credential.env` |
-| `ring/` | `ring-client-api` |
-| `ice/turn/trickle_offer.ts` | TURN URL/資格情報が空 |
-| `dash/` | DASH 再生クライアントと別 HTTP |
-| `playground/` | 実験用 |
-| `save_to_disk/dump.ts` | ローカル RTP dump 再生 |
-| `save_to_disk/encrypt/` | EME |
-| `save_to_disk/react-client/` | 追加フロント構成 |
+| `untested/` | E2E対象外の既存サンプル（外部サービス、手動SDP、TURN、ベンチマーク、実験用など）を集約 |
 | `packages/*/examples` | 範囲外 |
 | `examples/turn-loopback` | 既存 chrome-e2e |
 

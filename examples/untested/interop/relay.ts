@@ -1,0 +1,91 @@
+import { createSocket } from "dgram";
+import axios from "axios";
+import cors from "cors";
+import express from "express";
+import * as yargs from "yargs";
+import { MediaStreamTrack, RTCPeerConnection } from "../../../packages/webrtc/src";
+import {
+  createCallbackRegister,
+  installPolyfill,
+} from "../../../packages/webrtc/src/polyfill";
+
+const udp = createSocket("udp4");
+udp.bind(5000);
+
+installPolyfill({
+  mediaRegister: [
+    createCallbackRegister({
+      mimeType: "video/VP8",
+      kinds: ["video"],
+      async createTracks() {
+        return [new MediaStreamTrack({ kind: "video" })];
+      },
+    }),
+  ],
+});
+
+(async () => {
+  const args = await yargs
+    .option("host", {
+      description: "Host for HTTP server (default: 0.0.0.0)",
+      default: "0.0.0.0",
+    })
+    .option("port", {
+      description: "Port for HTTP server (default: 8080)",
+      default: 8081,
+    })
+    .help().argv;
+
+  const app = express();
+  app.use(express.json());
+  app.use(cors());
+  app.listen(args.port, args.host);
+  app.post("/offer", async (req, res) => {
+    const offer = req.body;
+
+    const receiver = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    });
+    const sender = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    });
+
+    const media = await navigator.mediaDevices.getUserMedia({ video: true });
+    const senderTrack =
+      media.getVideoTracks()[0] as unknown as MediaStreamTrack;
+    const senderTransceiver = sender.addTransceiver(senderTrack);
+    senderTransceiver.onTrack.once((track) => {
+      track.onReceiveRtp.subscribe((rtp) => {
+        console.log("receive", rtp.header);
+        udp.send(rtp.serialize(), 4002, "127.0.0.1");
+      });
+    });
+
+    receiver.onRemoteTransceiverAdded.subscribe(async (transceiver) => {
+      const [track] = await transceiver.onTrack.asPromise();
+      transceiver.sender.replaceTrack(track);
+
+      sender.connectionStateChange
+        .watch((state) => state === "connected")
+        .then(() => {
+          track.onReceiveRtp.subscribe((rtp) => {
+            rtp.header.payloadType = senderTransceiver.codecs[0].payloadType;
+            senderTrack.writeRtp(rtp);
+          });
+        });
+    });
+
+    await receiver.setRemoteDescription(offer);
+    const answer = await receiver.setLocalDescription(
+      await receiver.createAnswer(),
+    );
+    res.send(answer);
+
+    await sender.setLocalDescription(await sender.createOffer());
+    const { data } = await axios.post(
+      "http://localhost:8080" + "/offer",
+      sender.localDescription,
+    );
+    sender.setRemoteDescription(data);
+  });
+})();

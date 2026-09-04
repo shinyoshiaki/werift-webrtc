@@ -686,21 +686,7 @@ export const catalog: CatalogEntry[] = [
 ];
 
 export const excluded: ExcludedExample[] = [
-  { path: "datachannel/heroku-*", reason: "外部 Heroku socket.io" },
-  { path: "ice/trickle/heroku-*", reason: "外部 Heroku socket.io" },
-  { path: "mediachannel/sendrecv/heroku-*", reason: "外部 Heroku socket.io" },
-  { path: "datachannel/manual.ts", reason: "手動 SDP" },
-  { path: "datachannel/local.ts", reason: "ブラウザなし（werift 同士）" },
-  { path: "benchmark/", reason: "ベンチマーク。ブラウザなし" },
-  { path: "getStats/demo.ts", reason: "Node 同士の API デモ" },
-  { path: "google-nest/", reason: "googleapis + credential.env" },
-  { path: "ring/", reason: "ring-client-api" },
-  { path: "ice/turn/trickle_offer.ts", reason: "TURN URL/資格情報が空。外部 TURN 必須" },
-  { path: "dash/", reason: "DASH 再生クライアントと別 HTTP が必要" },
-  { path: "playground/", reason: "実験用" },
-  { path: "save_to_disk/dump.ts", reason: "ローカル RTP dump 再生。ブラウザも gst もなし" },
-  { path: "save_to_disk/encrypt/", reason: "EME" },
-  { path: "save_to_disk/react-client/", reason: "追加フロント構成" },
+  { path: "untested/", reason: "E2E対象外の既存サンプルを集約" },
   { path: "packages/*/examples", reason: "本チケット範囲外" },
   { path: "examples/turn-loopback", reason: "既存 chrome-e2e でカバー" },
 ];

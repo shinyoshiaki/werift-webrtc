@@ -234,8 +234,9 @@ The [`examples`](./examples) directory contains runnable examples for high-level
 | [`examples/mediachannel`](./examples/mediachannel) | Sending and receiving WebRTC media (`installPolyfill` + `getUserMedia` for RTP ingest) |
 | [`examples/save_to_disk`](./examples/save_to_disk) | Recording encoded WebRTC media |
 | [`examples/turn-loopback`](./examples/turn-loopback) | HTTPS + TURN/TLS multiplexed loopback and Chromium E2E |
-| [`examples/interop`](./examples/interop) | Interoperability-oriented peers and relay examples (`installPolyfill` for RTP ingest) |
-| [`examples/getStats`](./examples/getStats) | `getStats()` example code |
+| [`examples/interop`](./examples/interop) | Local interoperability peers (`installPolyfill` for RTP ingest) |
+| [`examples/untested/getStats`](./examples/untested/getStats) | `getStats()` example code |
+| [`examples/untested`](./examples/untested) | Root examples intentionally excluded from the examples E2E catalog |
 | [`packages/rtp/src/extra/processor`](./packages/rtp/src/extra/processor) | Jitter buffering, RED, DTX, NACK, lip sync, and RTP processing utilities |
 
 ## Live demos

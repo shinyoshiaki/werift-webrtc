@@ -28,6 +28,9 @@ Missing `ffmpeg` / `gst-launch-1.0` skips those cases locally. `CI=true` fails i
 
 Tests run serially because most demos bind `8888` or `8878`.
 
+Examples not included in this smoke catalog are kept under `../untested/` while
+the paths exercised by the catalog remain in their original directories.
+
 AV1 cases accept Chromium's standard `video/AV1` capability as well as the
 legacy `video/AV1X` name used by older werift examples. Recording cases wait
 for each catalog entry's actual stop interval before asserting the output.
