@@ -233,8 +233,11 @@ export async function clickNamedButton(page: Page, name: string) {
 
 export async function supportsAv1(page: Page) {
   return page.evaluate(async () => {
-    const caps = RTCRtpSender.getCapabilities?.("video");
-    return Boolean(
+    const capabilities = [
+      RTCRtpSender.getCapabilities?.("video"),
+      RTCRtpReceiver.getCapabilities?.("video"),
+    ];
+    return capabilities.some((caps) =>
       caps?.codecs.some((codec) => /^video\/av1x?$/i.test(codec.mimeType)),
     );
   });
