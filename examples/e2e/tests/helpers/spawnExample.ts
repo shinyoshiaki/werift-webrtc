@@ -386,6 +386,10 @@ export function watchUnexpectedExit(
     spawned.child.once("exit", (code, signal) => fail(code, signal));
   }
   return {
+    allowExit() {
+      options.allowExit = true;
+      unexpected = undefined;
+    },
     throwIfExited() {
       if (unexpected) {
         throw unexpected;
@@ -395,6 +399,29 @@ export function watchUnexpectedExit(
 }
 
 const FATAL_LOG = /Error: baseTime not exist|UnhandledPromiseRejection|unhandledRejection/;
+
+export function assertGstreamerHealthy(
+  spawned: SpawnedProcess,
+  options: { requireExit?: boolean } = {},
+) {
+  const lines = spawned.logs.split("\n");
+  const failures = lines.filter(
+    (line) =>
+      /gst (?:error|unexpected exit):/i.test(line) ||
+      (/gst stderr:/i.test(line) && /error|critical|failed/i.test(line)) ||
+      /gst exit code=(?!0(?:\s|$)|null(?:\s|$))/i.test(line),
+  );
+  if (failures.length > 0) {
+    throw new Error(
+      `GStreamer reported a failure:\n${failures.join("\n")}`,
+    );
+  }
+  if (options.requireExit && !lines.some((line) => /gst exit code=/i.test(line))) {
+    throw new Error(
+      `GStreamer exit status was not reported:\n${spawned.logs.slice(-2_000)}`,
+    );
+  }
+}
 
 export function assertNoFatalLogs(spawned: SpawnedProcess) {
   if (FATAL_LOG.test(spawned.logs)) {

@@ -1,5 +1,6 @@
+import { spawn } from "node:child_process";
 import { createSocket } from "node:dgram";
-import { readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import type { Page } from "playwright";
 import { expect } from "vitest";
@@ -221,18 +222,90 @@ export async function waitNonEmptyOutput(
   glob: string,
   timeoutMs = 30_000,
 ) {
+  let output: string | undefined;
   await waitUntil(() => {
     if (!existsDir(directory)) {
       return false;
     }
-    return listOutputFiles(directory, glob).some((file) => {
+    output = listOutputFiles(directory, glob).find((file) => {
       try {
         return statSync(file).size > 0;
       } catch {
         return false;
       }
     });
+    return output != null;
   }, timeoutMs, `no non-empty output matching ${glob} in ${directory}`);
+  return output;
+}
+
+function commandExists(command: string) {
+  return (process.env.PATH ?? "")
+    .split(path.delimiter)
+    .some((directory) => existsSync(path.join(directory, command)));
+}
+
+async function runCommand(command: string, args: string[]) {
+  const child = spawn(command, args, {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout?.on("data", (chunk) => {
+    stdout += chunk.toString();
+  });
+  child.stderr?.on("data", (chunk) => {
+    stderr += chunk.toString();
+  });
+  return new Promise<{ code: number | null; stdout: string; stderr: string }>(
+    (resolve, reject) => {
+      child.once("error", reject);
+      child.once("exit", (code) => resolve({ code, stdout, stderr }));
+    },
+  );
+}
+
+export async function assertValidMediaContainer(
+  directory: string,
+  glob: string,
+  expected: "webm" | "mp4",
+  timeoutMs = 30_000,
+) {
+  const output = await waitNonEmptyOutput(directory, glob, timeoutMs);
+  if (!output) {
+    throw new Error(`non-empty output disappeared: ${output}`);
+  }
+  if (!commandExists("ffprobe")) {
+    if (process.env.CI) {
+      throw new Error("ffprobe is not on PATH (required in CI)");
+    }
+    console.warn("skip media container validation: ffprobe is not on PATH");
+    return;
+  }
+
+  const result = await runCommand("ffprobe", [
+    "-v",
+    "error",
+    "-show_entries",
+    "format=format_name",
+    "-of",
+    "default=noprint_wrappers=1:nokey=1",
+    output,
+  ]);
+  if (result.code !== 0) {
+    throw new Error(
+      `ffprobe rejected ${output}: ${result.stderr || result.stdout}`,
+    );
+  }
+  const formats = result.stdout.trim().toLowerCase().split(",");
+  const valid = expected === "webm"
+    ? formats.includes("webm") || formats.includes("matroska")
+    : formats.includes("mp4") || formats.includes("mov");
+  if (!valid) {
+    throw new Error(
+      `unexpected ${expected} container for ${output}: ${result.stdout.trim()}`,
+    );
+  }
 }
 
 function existsDir(directory: string) {

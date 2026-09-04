@@ -39,6 +39,12 @@ export type CatalogEntry = {
   outputGlob?: string;
   /** Seconds to wait after connect before asserting a recording file */
   recordWaitMs?: number;
+  /** Validate the resulting container with ffprobe. */
+  outputContainer?: "webm" | "mp4";
+  /** Stop a long-running example after its output has been observed. */
+  stopAfterOutput?: boolean;
+  /** Log marker proving RTP reached the recording pipeline. */
+  rtpLog?: string | RegExp;
 };
 
 export type ExcludedExample = {
@@ -613,6 +619,8 @@ export const catalog: CatalogEntry[] = [
     expectExit: 0,
     outputGlob: "opus.webm",
     recordWaitMs: 7_000,
+    outputContainer: "webm",
+    rtpLog: /received RTP packets=[1-9]\d*/,
   },
   {
     id: "save-gstreamer",
@@ -624,6 +632,8 @@ export const catalog: CatalogEntry[] = [
     kind: "media-inbound",
     binary: "gst",
     outputGlob: "capture.webm",
+    outputContainer: "webm",
+    stopAfterOutput: true,
   },
   {
     id: "save-gst-recoder",

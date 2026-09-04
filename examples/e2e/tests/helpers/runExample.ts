@@ -28,6 +28,7 @@ import {
   spawnExampleTsx,
   spawnVideotestsrc,
   type SpawnedProcess,
+  stopProcessTree,
   waitForLog,
   waitForMediaPids,
   waitForPortFree,
@@ -43,6 +44,7 @@ export type ExampleSession = {
   workDir: string;
   udpListener?: { packets: number };
   mediaPids: Set<number>;
+  stop: () => Promise<void>;
 };
 
 function needsMediaChild(entry: CatalogEntry) {
@@ -176,6 +178,9 @@ export async function withExample(
       }
     }
 
+    const exitGuards = expectsProcessExit(entry)
+      ? []
+      : handles.processes.map((spawned) => watchUnexpectedExit(spawned));
     const session: ExampleSession = {
       entry,
       page,
@@ -183,11 +188,11 @@ export async function withExample(
       workDir,
       udpListener,
       mediaPids: new Set(),
+      stop: async () => {
+        exitGuards[0]?.allowExit();
+        await stopProcessTree(handles.processes[0]?.child);
+      },
     };
-
-    const exitGuards = expectsProcessExit(entry)
-      ? []
-      : handles.processes.map((spawned) => watchUnexpectedExit(spawned));
     const throwIfCrashed = () => {
       for (const guard of exitGuards) {
         guard.throwIfExited();

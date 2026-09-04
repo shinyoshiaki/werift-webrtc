@@ -7,6 +7,7 @@ import { expect, test } from "vitest";
 
 import {
   assertMediaPidsAlive,
+  assertGstreamerHealthy,
   assertNoFatalLogs,
   commandExists,
   spawnLogged,
@@ -79,6 +80,28 @@ test("fatal example log fails the session", () => {
     });
     // Assert: 未処理の fatal ログを成功扱いにしない
     expect(() => assertNoFatalLogs(spawned)).toThrow(/fatal error/);
+  } finally {
+    void stopProcessTree(spawned.child);
+  }
+});
+
+test("GStreamer stderr and non-zero exit fail the health assertion", () => {
+  const spawned = spawnLogged(
+    process.execPath,
+    ["-e", "setTimeout(() => {}, 30_000)"],
+    { cwd: os.tmpdir() },
+  );
+  try {
+    Object.defineProperty(spawned, "logs", {
+      get() {
+        return "gst stderr: ERROR: mux failed\ngst exit code=1 signal=null\n";
+      },
+    });
+    // Act: GStreamer の stderr と終了コードを検証する
+    // Assert: mux 失敗を成功扱いしない
+    expect(() => assertGstreamerHealthy(spawned, { requireExit: true })).toThrow(
+      /GStreamer reported a failure/,
+    );
   } finally {
     void stopProcessTree(spawned.child);
   }

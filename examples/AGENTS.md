@@ -81,8 +81,8 @@ ffmpeg / GStreamer:
 | `mediachannel/sendonly/multi_offer.ts` | `multi_answer.html` | harness が videotestsrc を 5000/5001 に spawn |
 | `mediachannel/sendonly/av.ts` | `av.html` | フィクスチャ webm（`WERIFT_EXAMPLE_MEDIA_PATH`）。gst/ffmpeg 子プロセスなし。`binary` 未設定は意図的 |
 | `mediachannel/red/send.ts` | `send.html` | gst opus |
-| `mediachannel/red/record/gst.ts` | Vite `record/index.html` | gst RTP受信 + `opus.webm` 非空 + 正常終了 |
-| `save_to_disk/gstreamer.ts` | `answer.html` | gst mux + `capture.webm` 非空 |
+| `mediachannel/red/record/gst.ts` | Vite `record/index.html` | gst RTP受信件数 + `opus.webm` のWebM検証 + gst/Node正常終了 |
+| `save_to_disk/gstreamer.ts` | `answer.html` | gst mux + `capture.webm` のWebM検証 + gst終了状態 |
 | `save_to_disk/gst/recoder.ts` | Vite `gst/index.html` | gst |
 | `save_to_disk/packetloss/gst.ts` | Vite `packetloss/index.html` | gst |
 | `save_to_disk/rtp.ts` | ブラウザなし | gst audiotestsrc。polyfill RTP register |

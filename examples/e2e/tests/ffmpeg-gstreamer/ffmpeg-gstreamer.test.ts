@@ -5,11 +5,13 @@ import { closeSharedBrowser } from "../helpers/openPage.js";
 import { withExample } from "../helpers/runExample.js";
 import {
   assertMediaPidsAlive,
+  assertGstreamerHealthy,
   assertNoFatalLogs,
   waitForLog,
 } from "../helpers/spawnExample.js";
 import {
   waitInboundRtp,
+  assertValidMediaContainer,
   waitNonEmptyOutput,
   waitPeerConnected,
   waitSpawnedExit,
@@ -48,6 +50,26 @@ for (const entry of entries.filter((item) => item.kind === "media-inbound")) {
         if (entry.outputGlob) {
           // Assert: GStreamer/録画経路が実際に出力したファイルが空でない
           await waitNonEmptyOutput(session.workDir, entry.outputGlob, 20_000);
+          if (session.mediaPids.size > 0) {
+            // Assert: 出力確認時点でも gst/ffmpeg が異常終了していない
+            await assertMediaPidsAlive(session.mediaPids);
+          }
+          if (entry.stopAfterOutput) {
+            if (!session.processes[0]) throw new Error("example process required");
+            // Act: 出力確認後に常駐する example をテストから正常停止する
+            await session.stop();
+            // Assert: Node example が正常終了し、GStreamer の状態を報告する
+            await waitSpawnedExit(session.processes[0], 0);
+            assertGstreamerHealthy(session.processes[0], { requireExit: true });
+          }
+          if (entry.outputContainer) {
+            // Assert: 非空ファイルが期待するコンテナとして読める
+            await assertValidMediaContainer(
+              session.workDir,
+              entry.outputGlob,
+              entry.outputContainer,
+            );
+          }
         }
       },
       ctx,
@@ -112,6 +134,21 @@ for (const entry of entries.filter((item) => item.kind === "process-exit")) {
         if (entry.outputGlob) {
           // Assert: GStreamer が生成した録画ファイルが空でない
           await waitNonEmptyOutput(session.workDir, entry.outputGlob, 10_000);
+          if (entry.rtpLog) {
+            // Assert: werift から録画用 gst へ実RTPが到達している
+            await waitForLog(session.processes[0], entry.rtpLog, 5_000);
+          }
+          assertGstreamerHealthy(session.processes[0], {
+            requireExit: true,
+          });
+          if (entry.outputContainer) {
+            // Assert: opus.webm が WebM コンテナとして読める
+            await assertValidMediaContainer(
+              session.workDir,
+              entry.outputGlob,
+              entry.outputContainer,
+            );
+          }
         }
       },
       ctx,
