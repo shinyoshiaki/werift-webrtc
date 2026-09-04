@@ -624,12 +624,13 @@ describe("RTCDtlsTransportTest", () => {
       authenticated: true,
     };
 
-    // Act: close 前に一度通知し、その後 transport を停止して再通知する。
+    // Act: close 前に一度通知し、その後 transport を二重停止して再通知する。
     datagram.execute(ctx);
+    await session.stop();
     await session.stop();
     datagram.execute(ctx);
 
-    // Assert: stop 後の通知は破棄済み transport callback へ到達しない。
+    // Assert: idempotent な stop 後の通知は破棄済み callback へ到達しない。
     expect(onIceDatagram).toHaveBeenCalledTimes(1);
   });
 
