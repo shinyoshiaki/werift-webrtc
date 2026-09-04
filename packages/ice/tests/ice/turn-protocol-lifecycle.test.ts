@@ -1,5 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+const debugState = vi.hoisted(() => {
+  const log = vi.fn();
+  const debug = vi.fn(() => log);
+  return { debug, log };
+});
+
+vi.mock("debug", () => ({
+  default: { debug: debugState.debug },
+}));
+
 vi.mock("timers/promises", () => ({
   setTimeout: (
     delay: number,
@@ -71,6 +81,7 @@ describe("TurnProtocol refresh lifecycle", () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    debugState.log.mockClear();
   });
 
   afterEach(async () => {
@@ -121,6 +132,10 @@ describe("TurnProtocol refresh lifecycle", () => {
       sentMethods.filter((method) => method === methods.REFRESH),
     ).toHaveLength(1);
     expect(vi.getTimerCount()).toBe(0);
+    expect(debugState.log).not.toHaveBeenCalledWith(
+      "refresh error",
+      expect.anything(),
+    );
   });
 
   test("response の LIFETIME を次回 refresh delay に採用する", async () => {
@@ -161,33 +176,50 @@ describe("TurnProtocol refresh lifecycle", () => {
     expect(requestWithRetry).toHaveBeenCalledTimes(2);
   });
 
-  test("nonce retry の両 request に同じ AbortSignal を渡す", async () => {
-    // Arrange: 初回 request は 401、nonce 付き retry は成功するようにする
-    const { turn } = createTurnLifecycleHarness();
-    turns.push(turn);
-    const unauthorized = new Message(methods.REFRESH, classes.ERROR)
-      .setAttribute("ERROR-CODE", [401, "Unauthorized"])
-      .setAttribute("REALM", "test.local")
-      .setAttribute("NONCE", Buffer.from("nonce"));
-    const request = new Message(methods.REFRESH, classes.REQUEST);
-    const signal = new AbortController().signal;
-    const requestSpy = vi
-      .spyOn(turn, "request")
-      .mockRejectedValueOnce(new TransactionFailed(unauthorized, turn.server))
-      .mockResolvedValueOnce([refreshResponse(600), turn.server]);
+  test.each([
+    {
+      errorCode: 401,
+      reason: "Unauthorized",
+      initialRealm: undefined,
+      responseRealm: "test.local",
+    },
+    {
+      errorCode: 438,
+      reason: "Stale Nonce",
+      initialRealm: "test.local",
+      responseRealm: "test.local",
+    },
+  ])(
+    "$errorCode nonce retry の両 request に同じ AbortSignal を渡す",
+    async ({ errorCode, reason, initialRealm, responseRealm }) => {
+      // Arrange: 401/438 challenge と nonce 付き retry が成功する protocol を作る
+      const { turn } = createTurnLifecycleHarness();
+      turns.push(turn);
+      turn.realm = initialRealm;
+      const challenge = new Message(methods.REFRESH, classes.ERROR)
+        .setAttribute("ERROR-CODE", [errorCode, reason])
+        .setAttribute("REALM", responseRealm)
+        .setAttribute("NONCE", Buffer.from("nonce"));
+      const request = new Message(methods.REFRESH, classes.REQUEST);
+      const signal = new AbortController().signal;
+      const requestSpy = vi
+        .spyOn(turn, "request")
+        .mockRejectedValueOnce(new TransactionFailed(challenge, turn.server))
+        .mockResolvedValueOnce([refreshResponse(600), turn.server]);
 
-    // Act: authentication challenge を処理して同じ request を再試行する
-    await turn.requestWithRetry(request, turn.server, signal);
+      // Act: authentication challenge を処理して同じ request を再試行する
+      await turn.requestWithRetry(request, turn.server, signal);
 
-    // Assert: 初回と nonce retry の options に同一 signal が伝播する
-    expect(requestSpy).toHaveBeenCalledTimes(2);
-    const firstOptions = requestSpy.mock.calls[0]?.[3] as
-      | TransactionRequestOptions
-      | undefined;
-    const retryOptions = requestSpy.mock.calls[1]?.[3] as
-      | TransactionRequestOptions
-      | undefined;
-    expect(firstOptions?.signal).toBe(signal);
-    expect(retryOptions?.signal).toBe(signal);
-  });
+      // Assert: 初回と nonce retry の options に同一 signal が伝播する
+      expect(requestSpy).toHaveBeenCalledTimes(2);
+      const firstOptions = requestSpy.mock.calls[0]?.[3] as
+        | TransactionRequestOptions
+        | undefined;
+      const retryOptions = requestSpy.mock.calls[1]?.[3] as
+        | TransactionRequestOptions
+        | undefined;
+      expect(firstOptions?.signal).toBe(signal);
+      expect(retryOptions?.signal).toBe(signal);
+    },
+  );
 });
