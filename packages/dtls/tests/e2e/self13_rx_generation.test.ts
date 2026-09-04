@@ -15,7 +15,7 @@ test("e2e/self13 RX 世代不一致の datagram は queue 実行時に破棄さ�
   // Arrange: 1.3-only の client/server を用意し、client 初回 flight を採取する。
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
-  clientTransport.rinfo = ["127.0.0.1", 9];
+  clientTransport.rinfo = { address: "127.0.0.1", port: 9 };
   const server = new DtlsServer({
     transport: serverTransport,
     ...dtls13Options,
