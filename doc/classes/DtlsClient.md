@@ -156,7 +156,7 @@ When set, DTLS 1.3 engine owns the transport and crypto state.
 
 ### onHandleHandshakes()
 
-> **onHandleHandshakes**: (`assembled`, `peer`?) => `Promise`\<`void`\>
+> **onHandleHandshakes**: (`assembled`, `peer`?, `meta`?) => `Promise`\<`void`\>
 
 Assembled handshake handler. `peer` is the source of the datagram that
 produced these messages (explicit UDP/inject addr) — async handlers must
@@ -171,6 +171,10 @@ reply to this address rather than reading mutable transport.rinfo.
 ##### peer?
 
 readonly \[`string`, `number`\]
+
+##### meta?
+
+[`DatagramRxMeta`](../interfaces/DatagramRxMeta.md)
 
 #### Returns
 
@@ -632,7 +636,7 @@ transport.send never settles (~250ms budget, parity with 1.3).
 
 ### handleUdpDatagram()
 
-> `protected` **handleUdpDatagram**(`data`, `addr`?): `void`
+> `protected` **handleUdpDatagram**(`data`, `addr`?, `meta`?): `void`
 
 Process one UDP datagram on the DTLS 1.2 record path.
 Subclasses (dual client) may intercept before calling this.
@@ -650,6 +654,10 @@ via unauthenticated alerts.
 ##### addr?
 
 readonly \[`string`, `number`\]
+
+##### meta?
+
+[`DatagramRxMeta`](../interfaces/DatagramRxMeta.md)
 
 #### Returns
 
@@ -1059,7 +1067,7 @@ Explicit peer for this reply. Required pre-cookie so a concurrent
 
 ### udpOnMessage()
 
-> `protected` **udpOnMessage**(`data`, `addr`?): `void` \| `Promise`\<`void`\>
+> `protected` **udpOnMessage**(`data`, `addr`?, `meta`?): `void` \| `Promise`\<`void`\>
 
 Association inbound dispatcher (UDP onData and carrier.inject).
 
@@ -1079,6 +1087,10 @@ Association inbound dispatcher (UDP onData and carrier.inject).
 ##### addr?
 
 readonly \[`string`, `number`\]
+
+##### meta?
+
+[`DatagramRxMeta`](../interfaces/DatagramRxMeta.md)
 
 #### Returns
 
