@@ -235,7 +235,7 @@ export async function supportsAv1(page: Page) {
   return page.evaluate(async () => {
     const caps = RTCRtpSender.getCapabilities?.("video");
     return Boolean(
-      caps?.codecs.some((codec) => /av1x/i.test(codec.mimeType)),
+      caps?.codecs.some((codec) => /^video\/av1x?$/i.test(codec.mimeType)),
     );
   });
 }

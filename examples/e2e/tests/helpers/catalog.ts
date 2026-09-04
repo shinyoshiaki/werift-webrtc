@@ -29,6 +29,8 @@ export type CatalogEntry = {
   skipIfNoAv1?: boolean;
   /** Where media is asserted. recvonly/codec demos send browser→werift. */
   inbound?: "browser" | "werift";
+  /** Server log markers for each werift-side inbound simulcast track. */
+  weriftRtpLogs?: string[];
   /** UDP port the example forwards RTP to; harness binds and counts packets */
   rtpForwardPort?: number;
   env?: Record<string, string>;
@@ -301,6 +303,8 @@ export const catalog: CatalogEntry[] = [
     port: 8888,
     client: "babel",
     kind: "media-inbound",
+    inbound: "werift",
+    weriftRtpLogs: ["trackA.onReceiveRtp", "trackB.onReceiveRtp"],
   },
   {
     id: "simulcast-multiple-answer",
@@ -310,6 +314,8 @@ export const catalog: CatalogEntry[] = [
     port: 8888,
     client: "babel",
     kind: "media-inbound",
+    inbound: "werift",
+    weriftRtpLogs: ["track.onReceiveRtp A", "track.onReceiveRtp B"],
   },
   {
     id: "simulcast-abr",
@@ -440,7 +446,7 @@ export const catalog: CatalogEntry[] = [
     client: "babel",
     kind: "media-record",
     outputGlob: "*.webm",
-    recordWaitMs: 6_000,
+    recordWaitMs: 20_000,
   },
   {
     id: "save-opus",
@@ -507,7 +513,7 @@ export const catalog: CatalogEntry[] = [
     client: "babel",
     kind: "media-record",
     outputGlob: "output-*.mp4",
-    recordWaitMs: 11_000,
+    recordWaitMs: 60_000,
   },
   {
     id: "save-dtx",
@@ -605,6 +611,8 @@ export const catalog: CatalogEntry[] = [
     binary: "gst",
     fileInput: "webm",
     expectExit: 0,
+    outputGlob: "opus.webm",
+    recordWaitMs: 7_000,
   },
   {
     id: "save-gstreamer",

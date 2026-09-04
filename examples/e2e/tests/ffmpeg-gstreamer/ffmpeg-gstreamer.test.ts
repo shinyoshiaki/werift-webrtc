@@ -38,19 +38,16 @@ for (const entry of entries.filter((item) => item.kind === "media-inbound")) {
         if (entry.inbound === "werift") {
           if (session.udpListener) {
             await waitUdpPackets(session.udpListener);
-          } else if (entry.outputGlob) {
-            // Assert: 録画/mux 出力が空でない
-            await waitNonEmptyOutput(
-              session.workDir,
-              entry.outputGlob,
-              20_000,
-            );
-          } else {
+          } else if (!entry.outputGlob) {
             await waitWeriftRtp(logs);
           }
         } else {
           // Assert: inbound-rtp の packetsReceived > 0
           await waitInboundRtp(session.page);
+        }
+        if (entry.outputGlob) {
+          // Assert: GStreamer/録画経路が実際に出力したファイルが空でない
+          await waitNonEmptyOutput(session.workDir, entry.outputGlob, 20_000);
         }
       },
       ctx,
@@ -95,12 +92,27 @@ for (const entry of entries.filter((item) => item.kind === "process-exit")) {
     await withExample(
       entry,
       async (session) => {
+        if (entry.outputGlob && session.page) {
+          const logs = () => session.processes[0]?.logs ?? "";
+          // Act: ブラウザとの接続を成立させ、録画入力を流す
+          await waitPeerConnected(session.page, 25_000, logs);
+        }
+        if (session.mediaPids.size > 0) {
+          // Assert: 録画用の gst/ffmpeg が接続後も生存している
+          await assertMediaPidsAlive(session.mediaPids);
+        }
         // Act: gst 経路のデモが自ら終了するのを待つ
         // Assert: 終了コード 0
         await waitSpawnedExit(
           session.processes[0],
           entry.expectExit ?? 0,
+          entry.recordWaitMs != null ? entry.recordWaitMs + 25_000 : 40_000,
         );
+        assertNoFatalLogs(session.processes[0]);
+        if (entry.outputGlob) {
+          // Assert: GStreamer が生成した録画ファイルが空でない
+          await waitNonEmptyOutput(session.workDir, entry.outputGlob, 10_000);
+        }
       },
       ctx,
     );

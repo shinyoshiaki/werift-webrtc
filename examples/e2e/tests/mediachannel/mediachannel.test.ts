@@ -3,6 +3,7 @@ import { afterAll } from "vitest";
 import { catalogByGroup } from "../helpers/catalog.js";
 import { closeSharedBrowser } from "../helpers/openPage.js";
 import { withExample } from "../helpers/runExample.js";
+import { waitForLog } from "../helpers/spawnExample.js";
 import {
   waitInboundRtp,
   waitPeerConnected,
@@ -38,7 +39,31 @@ for (const entry of entries.filter((item) => item.kind === "process-exit")) {
   });
 }
 
-for (const entry of entries.filter((item) => item.kind === "media-inbound")) {
+for (const entry of entries.filter((item) => item.weriftRtpLogs)) {
+  test(entry.id, async (ctx) => {
+    await withExample(
+      entry,
+      async (session) => {
+        if (!session.page) throw new Error("page required");
+        const primary = session.processes[0];
+        if (!primary) throw new Error("example process required");
+        const logs = () => primary.logs;
+
+        // Act: 2本の simulcast トラックを送信して接続を成立させる
+        await waitPeerConnected(session.page, 25_000, logs);
+        for (const marker of entry.weriftRtpLogs ?? []) {
+          // Assert: werift 側で各トラックの RTP を個別に受信する
+          await waitForLog(primary, marker, 25_000);
+        }
+      },
+      ctx,
+    );
+  });
+}
+
+for (const entry of entries.filter(
+  (item) => item.kind === "media-inbound" && !item.weriftRtpLogs,
+)) {
   test(entry.id, async (ctx) => {
     await withExample(
       entry,

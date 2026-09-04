@@ -49,8 +49,8 @@ server.on("connection", async (socket) => {
   const transceiverB = pc.addTransceiver("video", {
     direction: "recvonly",
     simulcast: [
-      { rid: "high", direction: "recv" },
-      { rid: "low", direction: "recv" },
+      { rid: "high2", direction: "recv" },
+      { rid: "low2", direction: "recv" },
     ],
   });
 

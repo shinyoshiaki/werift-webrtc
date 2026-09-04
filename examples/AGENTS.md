@@ -62,7 +62,7 @@ werift + browser (no extra cloud):
 | `mediachannel/pubsub/offer.ts` | `pubsub/answer.html` | publish / subscribe |
 | `mediachannel/sdp/{offer,offer_offer}.ts` | 対応 HTML | SDP 経路 |
 | `mediachannel/rtx/{offer,simulcast_offer}.ts` | 対応 HTML | RTX / simulcast+RTX |
-| `mediachannel/simulcast/{offer,answer,select,abr,twcc,multiple,multiple_answer}.ts` | 同ディレクトリ HTML | rid 受信。offer/answer/select が代表。multiple は同一ヘルパ |
+| `mediachannel/simulcast/{offer,answer,select,abr,twcc,multiple,multiple_answer}.ts` | 同ディレクトリ HTML | rid 受信。offer/answer/select が代表。multiple 2件は werift 側の track A/B を双方確認 |
 | `mediachannel/twcc/{offer,multitrack}.ts` | 対応 HTML | TWCC |
 | `mediachannel/red/{sendrecv,recv}.ts` | 対応 HTML | RED |
 | `mediachannel/codec/{vp8,vp9,h264,av1}.ts` | Vite `codec/index.html` | AV1 は Chrome 未対応なら skip |
@@ -81,8 +81,8 @@ ffmpeg / GStreamer:
 | `mediachannel/sendonly/multi_offer.ts` | `multi_answer.html` | harness が videotestsrc を 5000/5001 に spawn |
 | `mediachannel/sendonly/av.ts` | `av.html` | フィクスチャ webm（`WERIFT_EXAMPLE_MEDIA_PATH`）。gst/ffmpeg 子プロセスなし。`binary` 未設定は意図的 |
 | `mediachannel/red/send.ts` | `send.html` | gst opus |
-| `mediachannel/red/record/gst.ts` | Vite `record/index.html` | gst |
-| `save_to_disk/gstreamer.ts` | `answer.html` | gst mux |
+| `mediachannel/red/record/gst.ts` | Vite `record/index.html` | gst RTP受信 + `opus.webm` 非空 + 正常終了 |
+| `save_to_disk/gstreamer.ts` | `answer.html` | gst mux + `capture.webm` 非空 |
 | `save_to_disk/gst/recoder.ts` | Vite `gst/index.html` | gst |
 | `save_to_disk/packetloss/gst.ts` | Vite `packetloss/index.html` | gst |
 | `save_to_disk/rtp.ts` | ブラウザなし | gst audiotestsrc。polyfill RTP register |

@@ -22,7 +22,7 @@ server.on("connection", async (socket) => {
     codecs: {
       video: [
         new RTCRtpCodecParameters({
-          mimeType: "video/AV1X",
+          mimeType: "video/AV1",
           clockRate: 90000,
           rtcpFeedback: [
             { type: "nack" },

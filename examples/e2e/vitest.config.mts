@@ -4,8 +4,8 @@ export default defineConfig({
   test: {
     globals: true,
     include: ["tests/**/*.test.ts"],
-    testTimeout: 60_000,
-    hookTimeout: 60_000,
+    testTimeout: 120_000,
+    hookTimeout: 120_000,
     fileParallelism: false,
     maxWorkers: 1,
     retry: 1,
