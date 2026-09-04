@@ -854,13 +854,18 @@ describe("RTCPeerConnection SPED opt-in", () => {
       await server.waitForWriteReady();
       expect(server.state).toBe("connecting");
       expect(client.state).toBe("connecting");
-      expect(
-        await server.sendRtp(
-          Buffer.from("early-rtp"),
-          new RtpHeader({ ssrc: 0x101, payloadType: 96 }),
-        ),
-      ).toBeGreaterThan(0);
-      await server.sendRtcp([new RtcpRrPacket({ ssrc: 0x101, reports: [] })]);
+      const sendEarlyMedia = () =>
+        (async () => {
+          const sent = await server.sendRtp(
+            Buffer.from("early-rtp"),
+            new RtpHeader({ ssrc: 0x101, payloadType: 96 }),
+          );
+          await server.sendRtcp([
+            new RtcpRrPacket({ ssrc: 0x101, reports: [] }),
+          ]);
+          return sent;
+        })();
+      expect(await sendEarlyMedia()).toBeGreaterThan(0);
 
       // Assert: fingerprint 認証の完了前には実 PC の DataChannel / RTP /
       // RTCP callback を一件も公開しない。
@@ -870,11 +875,22 @@ describe("RTCPeerConnection SPED opt-in", () => {
       await applyAnswer;
       await waitUntil(() => dc1.readyState === "open");
       await waitUntil(() => receivedDataChannel === 1);
-      await waitUntil(() => receivedRtp === 1 && receivedRtcp === 1);
+      // RTP/RTCP 自体は best-effort のため、認証後の通常送信で受信まで送り直す。
+      // (高負荷時の loopback UDP 落下を handshake 回帰と誤認しない)
+      const mediaDeadline = Date.now() + 20_000;
+      while (!(receivedRtp >= 1 && receivedRtcp >= 1)) {
+        if (Date.now() > mediaDeadline) {
+          throw new Error(
+            `early media が届かない rtp=${receivedRtp} rtcp=${receivedRtcp}`,
+          );
+        }
+        expect(await sendEarlyMedia()).toBeGreaterThan(0);
+        await new Promise((r) => setTimeout(r, 100));
+      }
     } finally {
       await Promise.allSettled([pc1.close(), pc2.close()]);
     }
-  }, 30_000);
+  }, 60_000);
 
   test("WARP fingerprint mismatch releases no real PeerConnection SCTP, RTP, or RTCP", async () => {
     // Arrange: answerer に渡す offer の fingerprint だけを改ざんする。

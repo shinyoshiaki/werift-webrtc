@@ -752,6 +752,51 @@ describe("RTCDtlsTransportTest", () => {
     }
   });
 
+  test("stop は DTLS engine を close し early queue と carrier を破棄する", async () => {
+    // Arrange: 1.3 handshake 中の pair を用意し、engine 生成を待つ。
+    const [server, client] = await createDtlsSessions({
+      protocolVersions: [DtlsVersion.V1_3],
+    });
+    server.setRemoteParams(client.localParameters);
+    client.setRemoteParams(server.localParameters);
+    const serverStart = server.start().catch(() => undefined);
+    const clientStart = client.start().catch(() => undefined);
+    const deadline = Date.now() + 5_000;
+    const engineOf = (session: RTCDtlsTransport) =>
+      (
+        session as unknown as {
+          dtls?: {
+            engine13?: {
+              closed: boolean;
+              earlyAppDataBuffer: { snapshot(): { bufferedPackets: number } };
+              getHandshakeCarrier(): { isClosed(): boolean } | undefined;
+            };
+          };
+        }
+      ).dtls?.engine13;
+    while (!engineOf(client)) {
+      if (Date.now() > deadline) throw new Error("1.3 engine が生成されない");
+      await setTimeout(20);
+    }
+    // stop() で socket が engine 参照を外すため、参照は事前に保持する。
+    const engine = engineOf(client)!;
+
+    try {
+      // Act: handshake 完了を待たず client を停止する。
+      await client.stop();
+
+      // Assert: engine は閉じ、early queue と carrier が残らない。
+      expect(engine.closed).toBe(true);
+      expect(engine.earlyAppDataBuffer.snapshot().bufferedPackets).toBe(0);
+      expect(engine.getHandshakeCarrier()?.isClosed()).toBe(true);
+      expect(client.state).toBe("closed");
+    } finally {
+      // start promise 群は catch 付きで放置し、stop の完了だけ待つ。
+      // (未確定 handshake の settlement を待つと終わらない場合がある)
+      await server.stop().catch(() => undefined);
+    }
+  });
+
   test("connecting 中の start() は既存 handshake に join する", async () => {
     // Arrange
     const [session1, session2] = await createDtlsSessions();

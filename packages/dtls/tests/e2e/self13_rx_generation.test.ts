@@ -64,9 +64,7 @@ test("e2e/self13 RX 世代不一致の datagram は queue 実行時に破棄さ�
 
     // Assert: server は一切応答せず、handshake は開始前相のまま。
     expect(sentByServer).toHaveLength(0);
-    expect(
-      (engine as { hsPhase?: string }).hsPhase,
-    ).toBe("wait_client_hello");
+    expect((engine as { hsPhase?: string }).hsPhase).toBe("wait_client_hello");
 
     // Act: 現世代 (7) の同一 flight は正常に処理される。
     await (

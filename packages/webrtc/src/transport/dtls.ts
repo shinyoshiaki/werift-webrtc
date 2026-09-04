@@ -1246,6 +1246,13 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     this.applicationGate.abort();
     this.mediaBuffer.clear(true);
     this.mediaBuffer.dispose();
+    // DTLS engine の early queue・pending flight・再送 timer を確実に破棄し、
+    // close 後の遅延実行を残さない。失敗しても ICE 停止は継続する。
+    try {
+      this.dtls?.close();
+    } catch (error) {
+      log("dtls close failed", error);
+    }
     // todo impl send alert
     await this.iceTransport.stop();
   }
