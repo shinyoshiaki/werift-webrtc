@@ -27,3 +27,7 @@ Vendor JavaScript (React 16/18, Babel 5 / standalone, regenerator, axios) is com
 Missing `ffmpeg` / `gst-launch-1.0` skips those cases locally. `CI=true` fails instead of skipping.
 
 Tests run serially because most demos bind `8888` or `8878`.
+
+AV1 cases accept Chromium's standard `video/AV1` capability as well as the
+legacy `video/AV1X` name used by older werift examples. Recording cases wait
+for each catalog entry's actual stop interval before asserting the output.
