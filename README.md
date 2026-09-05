@@ -38,7 +38,7 @@ Use the browser-compatible `RTCPeerConnection` API when you want to build quickl
 npm install werift
 ```
 
-The published `werift` package declares Node.js 22 or newer in its package metadata. GitHub Actions validates Node.js 24.
+The published `werift` package and its core protocol workspace packages declare Node.js 22 or newer in their package metadata. GitHub Actions validates Node.js 24.
 
 ## Quick start
 
@@ -299,7 +299,7 @@ If you are contributing to werift itself, initialize the pinned upstream Web Pla
 git submodule update --init --recursive
 ```
 
-The repository-level package metadata declares Node.js 22 or newer. GitHub Actions validates Node.js 24, which is also required by the opt-in memory-leak harness.
+The repository-level and core protocol package metadata declare Node.js 22 or newer. GitHub Actions validates Node.js 24, which is also required by the opt-in memory-leak harness.
 
 ## Roadmap
 
