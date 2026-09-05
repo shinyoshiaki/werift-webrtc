@@ -693,6 +693,14 @@ describe("RTCDtlsTransportTest", () => {
     ).onPeerAuthenticated.subscribe(() => {
       peerAuthenticatedFires++;
     });
+    let handshakeCompleteFires = 0;
+    (
+      session1 as unknown as {
+        onHandshakeComplete: { subscribe(cb: () => void): void };
+      }
+    ).onHandshakeComplete.subscribe(() => {
+      handshakeCompleteFires++;
+    });
     const peerAuthenticatedWait = session1.waitForPeerAuthenticated().then(
       () => {
         peerAuthenticatedOutcome = "resolved";
@@ -747,6 +755,7 @@ describe("RTCDtlsTransportTest", () => {
       // Assert: 旧 attempt の通知は発火せず、登録済み waiter は新 attempt
       // の latch から解決される。
       expect(peerAuthenticatedFires).toBe(0);
+      expect(handshakeCompleteFires).toBe(1);
       expect(peerAuthenticatedOutcome).toBe("resolved");
       expect(handshakeCompleteOutcome).toBe("resolved");
       expect(session1.dtls?.readiness.handshakeComplete).toBe(true);
