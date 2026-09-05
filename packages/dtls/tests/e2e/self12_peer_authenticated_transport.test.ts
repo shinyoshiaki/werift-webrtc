@@ -535,6 +535,18 @@ test("e2e/peerAuth: dual [1.3,1.2] client → 1.2-only server completes", async 
     protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
   });
 
+  // Arrange: version selection 前に association-level readiness waiter を登録する。
+  const readinessOutcomes = [
+    client.waitForWriteReady(),
+    client.waitForPeerHandshakeAuthenticated(),
+    client.waitForHandshakeComplete(),
+  ].map((wait) =>
+    wait.then(
+      () => "ready",
+      (error) => `error:${error instanceof Error ? error.name : String(error)}`,
+    ),
+  );
+
   // Act: dual client falls back to 1.2 on addressless peer-auth path
   await new Promise<void>((resolve, reject) => {
     const t = setTimeout(
@@ -567,6 +579,19 @@ test("e2e/peerAuth: dual [1.3,1.2] client → 1.2-only server completes", async 
     });
     void client.connect();
   });
+
+  // Assert: 内部の 1.3→1.2 切り替えをエラーにせず、選択後の 1.2 readiness へ引き継ぐ。
+  await expect(
+    Promise.race([
+      Promise.all(readinessOutcomes),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("readiness fallback timeout")),
+          5_000,
+        ),
+      ),
+    ]),
+  ).resolves.toEqual(["ready", "ready", "ready"]);
 
   // Assert: 1.2 association (not 1.3 engine)
   expect(client.connected).toBe(true);

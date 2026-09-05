@@ -33,6 +33,7 @@ import { parsePacket, parsePlainText } from "./record/receive";
 import type { Extension } from "./typings/domain";
 import {
   DtlsVersion,
+  DtlsVersionSelected,
   ProtocolVersionError,
   normalizeProtocolVersions,
 } from "./version";
@@ -209,7 +210,6 @@ export class DtlsSocket {
   private waitForSelectedReadiness(
     wait13: (engine: Dtls13Connection) => Promise<void>,
   ): Promise<void> {
-    if (this.engine13) return wait13(this.engine13);
     if (!this.protocolVersions.includes(DtlsVersion.V1_3)) {
       return this.waitForLegacyReadiness();
     }
@@ -220,43 +220,119 @@ export class DtlsSocket {
     }
 
     return new Promise<void>((resolve, reject) => {
-      const selected13 = this.onEngine13Selected.subscribe(() => {
-        const engine = this.engine13;
-        if (!engine) return;
-        cleanup();
-        void wait13(engine).then(resolve, reject);
-      });
-      const connected12 = this.onConnect.subscribe(() => {
-        // A 1.3 engine also emits onConnect, but its selection notification is
-        // synchronous and removes this legacy fallback subscription first.
-        if (this.engine13) return;
+      const disposer = new EventDisposer();
+      let settled = false;
+      let attachedEngine: Dtls13Connection | undefined;
+      let waitGeneration = 0;
+
+      const cleanup = () => {
+        disposer.dispose();
+        attachedEngine = undefined;
+        waitGeneration++;
+      };
+      const resolveReady = () => {
+        if (settled) return;
+        settled = true;
         cleanup();
         resolve();
-      });
-      const failed = this.onError.subscribe((error) => {
+      };
+      const rejectReady = (error: unknown) => {
+        if (settled) return;
+        settled = true;
         cleanup();
-        reject(error);
-      });
-      const closed = this.onClose.subscribe(() => {
-        cleanup();
-        reject(new Error("DTLS association closed before readiness"));
-      });
-      const cleanup = () => {
-        selected13.unSubscribe();
-        connected12.unSubscribe();
-        failed.unSubscribe();
-        closed.unSubscribe();
+        reject(error instanceof Error ? error : new Error(String(error)));
       };
 
-      // Close the subscribe-before-state-check race.
-      if (this.engine13) {
-        cleanup();
-        void wait13(this.engine13).then(resolve, reject);
-      } else if (this.connected) {
-        cleanup();
-        resolve();
-      }
+      const attachCurrentEngine = () => {
+        const engine = this.engine13;
+        if (settled || !engine || attachedEngine === engine) return;
+        attachedEngine = engine;
+        const generation = ++waitGeneration;
+        void wait13(engine).then(
+          () => {
+            // A candidate that was parked/released for DTLS 1.2 is not the
+            // association's selected readiness source.  Wait for the legacy
+            // onConnect edge instead of resolving from a stale candidate.
+            if (
+              settled ||
+              generation !== waitGeneration ||
+              this.engine13 !== engine
+            ) {
+              return;
+            }
+            resolveReady();
+          },
+          (error) => {
+            if (settled || generation !== waitGeneration) return;
+            attachedEngine = undefined;
+            if (this.isSoftVersionSelectionError(error)) {
+              // DtlsVersionSelected is an internal dual-stack transition, not
+              // a readiness failure.  The association now owns the waiter and
+              // will resolve it from the committed 1.2 onConnect (or attach a
+              // newly selected 1.3 engine).
+              return;
+            }
+            rejectReady(error);
+          },
+        );
+      };
+      const observeCurrentAssociation = () => {
+        if (settled) return;
+        if (this.engine13) {
+          attachCurrentEngine();
+        } else if (this.connected) {
+          resolveReady();
+        }
+      };
+
+      this.onEngine13Selected
+        .subscribe(observeCurrentAssociation)
+        .disposer(disposer);
+      this.onConnect
+        .subscribe(() => {
+          // DTLS 1.3 onConnect is not handshakeComplete for the three
+          // readiness milestones; the engine waiter remains authoritative.
+          if (!this.engine13) resolveReady();
+        })
+        .disposer(disposer);
+      this.onError
+        .subscribe((error) => {
+          // The dual client normally filters this transition before it reaches
+          // the public socket event. Keep the association waiter tolerant if a
+          // subclass exposes it during the handoff.
+          if (this.isSoftVersionSelectionError(error)) {
+            observeCurrentAssociation();
+            return;
+          }
+          rejectReady(error);
+        })
+        .disposer(disposer);
+      this.onClose
+        .subscribe(() => {
+          rejectReady(new Error("DTLS association closed before readiness"));
+        })
+        .disposer(disposer);
+
+      // Close the subscribe-before-state-check race, including a 1.3 engine
+      // constructed before this waiter was registered.
+      observeCurrentAssociation();
     });
+  }
+
+  /** A dual 1.3 probe uses this rejection to transition to the 1.2 owner. */
+  private isSoftVersionSelectionError(error: unknown): boolean {
+    if (!this.protocolVersions.includes(DtlsVersion.V1_2)) return false;
+    const candidate = error as {
+      name?: unknown;
+      code?: unknown;
+      version?: unknown;
+    };
+    return (
+      (error instanceof DtlsVersionSelected ||
+        candidate.name === "DtlsVersionSelected" ||
+        candidate.code === "version_selected") &&
+      candidate.version === DtlsVersion.V1_2
+    );
   }
 
   renegotiation() {
