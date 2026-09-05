@@ -38,7 +38,7 @@ Use the browser-compatible `RTCPeerConnection` API when you want to build quickl
 npm install werift
 ```
 
-The published `werift` package and its core protocol workspace packages (`common`, `ice`, `ice-server`, `dtls`, `rtp`, and `sctp`) declare Node.js 22 or newer in their package metadata. GitHub Actions validates Node.js 24.
+The published `werift` package and its core protocol workspace packages (`common`, `ice`, `ice-server`, `dtls`, `rtp`, and `sctp`) declare Node.js 22 or newer in their package metadata. These lower-level packages are published independently, so the same floor is declared in each package rather than only at the workspace root. GitHub Actions validates Node.js 24.
 
 ## Quick start
 
