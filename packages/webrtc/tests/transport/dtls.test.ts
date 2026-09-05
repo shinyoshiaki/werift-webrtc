@@ -727,6 +727,85 @@ describe("RTCDtlsTransportTest", () => {
     }
   });
 
+  test("保留 application data の配送中 restart は新 attempt で start を完了する", async () => {
+    // Arrange: server の early application data を許可した実 DTLS 1.3 pair を用意する。
+    const [server, client] = await createDtlsSessions({
+      ...defaultPeerConfig,
+      protocolVersions: [DtlsVersion.V1_3],
+      warp: { allowEarlyServerData: true },
+    });
+    server.setRemoteParams(client.localParameters);
+    client.setRemoteParams(server.localParameters);
+    const received: string[] = [];
+    let callbackState: string | undefined;
+    let restarted = false;
+    let releasePeerAuthentication!: () => void;
+    const peerAuthenticationHold = new Promise<void>((resolve) => {
+      releasePeerAuthentication = resolve;
+    });
+    client.dataReceiver = (data) => {
+      received.push(data.toString());
+      if (restarted) return;
+      restarted = true;
+      // Act: 保留データの最初の配送 callback 内で ICE generation を進める。
+      callbackState = client.state;
+      const ice = client.iceTransport.connection as unknown as {
+        generation: number;
+      };
+      ice.generation++;
+      client.handleIceRestart();
+    };
+
+    try {
+      // Arrange: client の DTLS readiness 後段だけを一時停止し、実 wire の
+      // early application data が WebRTC gate に保留される窓を作る。
+      const clientStart = client.start();
+      const dtlsDeadline = Date.now() + 5_000;
+      while (!client.dtls) {
+        if (Date.now() > dtlsDeadline)
+          throw new Error("client DTLS が生成されない");
+        await setTimeout(10);
+      }
+      const waitForPeerAuthentication =
+        client.dtls.waitForPeerHandshakeAuthenticated.bind(client.dtls);
+      client.dtls.waitForPeerHandshakeAuthenticated = async () => {
+        await waitForPeerAuthentication();
+        await peerAuthenticationHold;
+      };
+
+      // Act: server が write-ready になった直後、client の fingerprint 認証前に送信する。
+      const serverStart = server.start();
+      await server.waitForWriteReady();
+      await server.sendData(Buffer.from("held-before-auth"));
+
+      const gate = (
+        client as unknown as {
+          applicationGate: { snapshot(): { bufferedPackets: number } };
+        }
+      ).applicationGate;
+      const bufferDeadline = Date.now() + 5_000;
+      while (gate.snapshot().bufferedPackets === 0) {
+        if (Date.now() > bufferDeadline) {
+          throw new Error("early application data が gate に保留されない");
+        }
+        await setTimeout(10);
+      }
+      releasePeerAuthentication();
+      await Promise.all([serverStart, clientStart]);
+
+      // Assert: callback は connecting 中に一度だけ実行され、新 attempt で接続が完了する。
+      expect(callbackState).toBe("connecting");
+      expect(received).toEqual(["held-before-auth"]);
+      expect(client.state).toBe("connected");
+
+      // Assert: 完了済み startPromise の再利用で connecting に取り残されない。
+      await client.start();
+      expect(client.state).toBe("connected");
+    } finally {
+      await Promise.allSettled([server.stop(), client.stop()]);
+    }
+  });
+
   test("dtls_start_ignores_unsupported_fingerprint_algorithm_when_supported_match_exists", async () => {
     const [session1, session2] = await createDtlsSessions();
     const expectedFingerprint = session2.localParameters.fingerprints[0];

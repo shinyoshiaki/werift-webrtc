@@ -574,66 +574,74 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     }
 
     // An ICE restart can retain the cryptographic association while changing
-    // its carrier generation.  Wait again as the newly-issued attempt rather
-    // than allowing an old continuation to authenticate or drain queues.
+    // its carrier generation.  Every authentication/drain phase is therefore
+    // owned by an immutable attempt.  If a callback restarts the ICE
+    // generation, abandon only the old phase and run the phase again for the
+    // new attempt before allowing start() to resolve.
     while (true) {
       // answerer 側の restart では generation drift をここで吸収し、旧 attempt
       // での無限待機を防ぐ (SPED は runtime 側が所有するため対象外)。
       this.syncAttemptToIceGeneration();
       if (!this.isCurrentAttempt(attempt)) {
+        if (this.isTerminated()) return;
         const current = this.currentAttempt;
         if (!current) return;
         attempt = current;
+        continue;
       }
       await this.dtls?.waitForPeerHandshakeAuthenticated();
-      if (this.isCurrentAttempt(attempt)) break;
+      if (!this.isCurrentAttempt(attempt)) continue;
+      if (this.dtls?.readiness.writeReady) this.markWriteReady();
+
+      try {
+        this.verifyRemoteCertificateFingerprint();
+      } catch (error) {
+        this.lastError =
+          error instanceof Error ? error : new Error(String(error));
+        this.failAuthenticatedTransport();
+        throw error;
+      }
+
+      if (!this.isCurrentAttempt(attempt)) continue;
+      if (this.state !== "connecting") return;
+      this.readiness.peerAuthenticated = true;
+      this.peerAuthenticatedAt = Date.now();
+      if (this.srtpProfiles.length > 0) {
+        this.installSrtpKeys();
+        this.updateSrtpPermissions();
+        this.drainMediaBuffer(attempt);
+        // drain 中の close/restart では認証確定へ進まず、新 attempt で
+        // readiness と保留データの処理をやり直す。
+        if (!this.isCurrentAttempt(attempt)) continue;
+        if (this.state !== "connecting") return;
+      }
+      this.applicationGate.authenticate(
+        () => this.isCurrentAttempt(attempt) && this.state === "connecting",
+        () => this.isTerminated(),
+      );
+      // deliver callback 内の restart は start() を成功扱いにせず、次の
+      // attempt が同じ association の認証完了処理を引き継ぐ。
+      if (!this.isCurrentAttempt(attempt)) continue;
+      if (this.state !== "connecting") return;
+      this.setState("connected");
+      // state callback 内の restart/close で attempt が変わり得るため、通知直前に再検証する。
+      if (!this.isCurrentAttempt(attempt) || this.isTerminated()) return;
+      this.onPeerAuthenticated.execute();
+
+      void this.dtls?.waitForHandshakeComplete().then(
+        () => {
+          if (!this.isCurrentAttempt(attempt)) return;
+          this.readiness.handshakeComplete = true;
+          this.onHandshakeComplete.execute();
+        },
+        () => {
+          // Terminal state is surfaced by the DTLS socket state bridge.
+        },
+      );
+
+      log("dtls connected");
+      return;
     }
-    if (this.dtls?.readiness.writeReady) this.markWriteReady();
-
-    try {
-      this.verifyRemoteCertificateFingerprint();
-    } catch (error) {
-      this.lastError =
-        error instanceof Error ? error : new Error(String(error));
-      this.failAuthenticatedTransport();
-      throw error;
-    }
-
-    if (!this.isCurrentAttempt(attempt)) return;
-    if (this.state !== "connecting") return;
-    this.readiness.peerAuthenticated = true;
-    this.peerAuthenticatedAt = Date.now();
-    if (this.srtpProfiles.length > 0) {
-      this.installSrtpKeys();
-      this.updateSrtpPermissions();
-      this.drainMediaBuffer(attempt);
-      // drain 中の close/restart では認証確定へ進まない。
-      if (!this.isCurrentAttempt(attempt) || this.state !== "connecting")
-        return;
-    }
-    this.applicationGate.authenticate(
-      () => this.isCurrentAttempt(attempt) && this.state === "connecting",
-      () => this.isTerminated(),
-    );
-    // deliver callback 内の close/restart 後は connected へ戻さない。
-    if (!this.isCurrentAttempt(attempt) || this.state !== "connecting") return;
-    this.setState("connected");
-    // state callback 内の restart/close で attempt が変わり得るため、通知直前に再検証する。
-    if (!this.isCurrentAttempt(attempt) || this.isTerminated()) return;
-    this.onPeerAuthenticated.execute();
-
-    void this.dtls?.waitForHandshakeComplete().then(
-      () => {
-        if (!this.isCurrentAttempt(attempt)) return;
-        this.readiness.handshakeComplete = true;
-        this.onHandshakeComplete.execute();
-      },
-      () => {
-        // Terminal state is surfaced by the DTLS socket state bridge.
-      },
-    );
-
-    log("dtls connected");
   }
 
   private isCurrentAttempt(attempt: TransportAttempt): boolean {

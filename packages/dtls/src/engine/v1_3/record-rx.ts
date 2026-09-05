@@ -32,6 +32,15 @@ import {
   log,
 } from "./types";
 
+function isStaleRxGeneration(
+  host: Dtls13Host,
+  acceptedGeneration?: number,
+): boolean {
+  if (acceptedGeneration === undefined) return false;
+  const expected = host.expectedRxGeneration?.();
+  return expected !== undefined && acceptedGeneration !== expected;
+}
+
 /**
  * Record receive path: UDP datagrams → records → handshake reassembly → dispatch.
  * Inbound arrows in index.ts Figure 3; AEAD failures silent-drop, auth failures fatal.
@@ -56,13 +65,8 @@ export function handleDatagram(
     }
     // ICE restart race: a datagram accepted before the restart must not act
     // on the post-restart association (state, fatal, app-data delivery).
-    if (acceptedGeneration !== undefined) {
-      const expected = this.expectedRxGeneration?.();
-      if (expected !== undefined && acceptedGeneration !== expected) {
-        return;
-      }
-    }
-    return this.handleDatagramAsync(buf, peer, peerAddr);
+    if (isStaleRxGeneration(this, acceptedGeneration)) return;
+    return this.handleDatagramAsync(buf, peer, peerAddr, acceptedGeneration);
   });
   this.rxChain = processed.catch((e) => {
     // ProtocolVersionError / authenticated handshake failures already call fail()
@@ -95,9 +99,11 @@ export async function handleDatagramAsync(
   data: Buffer,
   peerKey?: string,
   peerAddr?: [string, number],
+  rxGeneration?: number,
 ): Promise<void> {
   if (this.closed) return;
   if (this.carrier.isStaleInboundInject?.()) return;
+  if (isStaleRxGeneration(this, rxGeneration)) return;
 
   // Epic 1 peer gate:
   // - datagram-address: once provisional/pin, only that 5-tuple may deliver
@@ -126,7 +132,7 @@ export async function handleDatagramAsync(
   }
 
   try {
-    await this.processDatagramRecords(data);
+    await this.processDatagramRecords(data, rxGeneration);
   } finally {
     this.currentPeerKey = undefined;
     this.currentPeerAddr = undefined;
@@ -139,13 +145,18 @@ export async function handleDatagramAsync(
 export async function processDatagramRecords(
   this: Dtls13Host,
   data: Buffer,
+  rxGeneration?: number,
 ): Promise<void> {
   if (this.closed) return;
   if (this.carrier.isStaleInboundInject?.()) return;
+  if (isStaleRxGeneration(this, rxGeneration)) return;
   this.evictExpiredFragments();
   let offset = 0;
   while (offset < data.length) {
     if (this.closed) return;
+    // 同一 UDP datagram 内でも先行 record の callback が ICE restart を
+    // 起こし得るため、次の record を parse/dispatch する直前に再確認する。
+    if (isStaleRxGeneration(this, rxGeneration)) return;
     let rec;
     try {
       rec = parseNextRecord(data.subarray(offset), (low) =>
@@ -190,13 +201,21 @@ export async function processDatagramRecords(
       // continuation, so Finished would be missing from the ACK.
       if (rec.kind === "plaintext") {
         const accepted = await this.onPlaintextRecordAsync(rec);
+        // record callback / application delivery の途中で restart した場合、
+        // 同一 datagram に残る旧世代 record を新 association へ渡さない。
+        if (isStaleRxGeneration(this, rxGeneration)) return;
         if (accepted && rec.contentType === ContentType.handshake) {
           await this.finishHandshakeRecordAck(rec.epoch, rec.sequenceNumber);
+          if (isStaleRxGeneration(this, rxGeneration)) return;
         }
       } else {
         const accepted = await this.onCiphertextRecordAsync(rec);
+        // AEAD 後の onData / handshake callback が await 中に restart した
+        // 場合も、後続処理を世代境界で打ち切る。
+        if (isStaleRxGeneration(this, rxGeneration)) return;
         if (accepted && rec.contentType === ContentType.handshake) {
           await this.finishHandshakeRecordAck(rec.epoch, rec.sequenceNumber);
+          if (isStaleRxGeneration(this, rxGeneration)) return;
         }
       }
     } catch (e) {

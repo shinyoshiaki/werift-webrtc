@@ -45,8 +45,9 @@ export interface Dtls13HostMethods {
     data: Buffer,
     peerKey?: string,
     peerAddr?: [string, number],
+    rxGeneration?: number,
   ): Promise<void>;
-  processDatagramRecords(data: Buffer): Promise<void>;
+  processDatagramRecords(data: Buffer, rxGeneration?: number): Promise<void>;
   finishHandshakeRecordAck(
     epoch: number,
     sequenceNumber: number,
