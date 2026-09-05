@@ -38,7 +38,7 @@ Use the browser-compatible `RTCPeerConnection` API when you want to build quickl
 npm install werift
 ```
 
-The published `werift` package currently declares Node.js 16 or newer in its package metadata.
+The published `werift` package declares Node.js 22 or newer in its package metadata. GitHub Actions validates Node.js 24.
 
 ## Quick start
 
