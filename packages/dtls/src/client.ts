@@ -1096,6 +1096,9 @@ export class DtlsClient extends DtlsSocket {
       this.engine13 = parked;
       // Association keeps UDP + carrier.inject; engine RX only via injectDatagram.
       this.bindAssociationInbound(parked);
+      // Wake association-level readiness waiters after the parked candidate is
+      // active again and before the triggering datagram is reprocessed.
+      this.notifyEngine13Selected();
       parked.injectDatagram(datagram, rinfo, rxGeneration);
       return;
     }

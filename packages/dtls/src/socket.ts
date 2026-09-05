@@ -1214,6 +1214,17 @@ export class DtlsSocket {
         this.onEngine13PeerOrLocalClose();
       })
       .disposer(this.engine13Bridge);
+    this.notifyEngine13Selected();
+  }
+
+  /**
+   * Notify association-level readiness waiters that DTLS 1.3 is active.
+   *
+   * A dual-stack client can resume a parked candidate without rebuilding its
+   * event bridge, so that path must share the same selection notification as a
+   * freshly created engine.
+   */
+  protected notifyEngine13Selected(): void {
     this.onEngine13Selected.execute();
   }
 

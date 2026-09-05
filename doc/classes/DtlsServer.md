@@ -781,6 +781,26 @@ readonly \[`string`, `number`\]
 
 ***
 
+### notifyEngine13Selected()
+
+> `protected` **notifyEngine13Selected**(): `void`
+
+Notify association-level readiness waiters that DTLS 1.3 is active.
+
+A dual-stack client can resume a parked candidate without rebuilding its
+event bridge, so that path must share the same selection notification as a
+freshly created engine.
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`notifyEngine13Selected`](DtlsSocket.md#notifyengine13selected)
+
+***
+
 ### onEngine13PeerOrLocalClose()
 
 > `protected` **onEngine13PeerOrLocalClose**(): `void`
