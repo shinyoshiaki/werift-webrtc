@@ -211,151 +211,147 @@ test.each(["transport.onData", "carrier.inject"] as const)(
   20_000,
 );
 
-test(
-  "e2e/self13 は Finished 受信中の restart 後も ACK と handshakeComplete を維持する",
-  async () => {
-    // Arrange: 実 UDP の両端に受信世代メタデータを付与し、server の
-    // connected 通知内で ICE restart 相当の世代変更を注入する。
-    const serverTransport = await UdpTransport.init("udp4");
-    const clientTransport = await UdpTransport.init("udp4");
-    clientTransport.rinfo = serverTransport.address;
-    const server = new DtlsServer({
-      transport: serverTransport,
-      ...dtls13Options,
-    });
-    const client = new DtlsClient({
-      transport: clientTransport,
-      ...dtls13Options,
-    });
-    let serverGeneration = 0;
-    let clientGeneration = 0;
-    let dropNextServerDatagram = false;
-    let droppedFinishedAck = false;
-    const originalServerOnData = serverTransport.onData as (
-      data: Buffer,
-      addr: [string, number],
-      meta?: { rxGeneration?: number },
-    ) => void;
-    const originalClientOnData = clientTransport.onData as (
-      data: Buffer,
-      addr: [string, number],
-      meta?: { rxGeneration?: number },
-    ) => void;
-    const originalServerSend = serverTransport.send.bind(serverTransport);
-    serverTransport.send = (async (data, addr) => {
-      if (dropNextServerDatagram) {
-        // Act: 最初の Finished ACK だけを落とし、再受信時の replay ACK
-        // が受理記録を使って返ることを検証できるようにする。
-        dropNextServerDatagram = false;
-        droppedFinishedAck = true;
-        return;
-      }
-      return originalServerSend(data, addr);
-    }) as typeof serverTransport.send;
-    serverTransport.onData = ((
-      data: Buffer,
-      addr: [string, number],
-      meta?: { rxGeneration?: number },
-    ) =>
-      originalServerOnData(data, addr, {
-        ...meta,
-        rxGeneration: serverGeneration,
-      })) as typeof serverTransport.onData;
-    clientTransport.onData = ((
-      data: Buffer,
-      addr: [string, number],
-      meta?: { rxGeneration?: number },
-    ) =>
-      originalClientOnData(data, addr, {
-        ...meta,
-        rxGeneration: clientGeneration,
-      })) as typeof clientTransport.onData;
-    server.setExpectedRxGeneration(() => serverGeneration);
-    client.setExpectedRxGeneration(() => clientGeneration);
-
-    let restartInjected = false;
-    server.onConnect.subscribe(() => {
-      if (restartInjected) return;
-      // Act: Finished 検証 callback の途中で ICE restart が起きた状態を作る。
-      restartInjected = true;
-      serverGeneration += 1;
-      dropNextServerDatagram = true;
-    });
-
-    const serverEngine = (
-      server as unknown as {
-        engine13?: {
-          readiness: { handshakeComplete: boolean };
-          retransmitCount: number;
-          totalRetransmitCount: number;
-          getPendingFlightSize(): number;
-          getPendingFlightRecordCount(): number;
-        };
-      }
-    ).engine13;
-    const clientEngine = (
-      client as unknown as {
-        engine13?: {
-          readiness: { handshakeComplete: boolean };
-          retransmitCount: number;
-          totalRetransmitCount: number;
-          getPendingFlightSize(): number;
-          getPendingFlightRecordCount(): number;
-        };
-      }
-    ).engine13;
-    if (!serverEngine || !clientEngine) {
-      throw new Error("1.3 engine が無い");
+test("e2e/self13 は Finished 受信中の restart 後も ACK と handshakeComplete を維持する", async () => {
+  // Arrange: 実 UDP の両端に受信世代メタデータを付与し、server の
+  // connected 通知内で ICE restart 相当の世代変更を注入する。
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+  const server = new DtlsServer({
+    transport: serverTransport,
+    ...dtls13Options,
+  });
+  const client = new DtlsClient({
+    transport: clientTransport,
+    ...dtls13Options,
+  });
+  let serverGeneration = 0;
+  const clientGeneration = 0;
+  let dropNextServerDatagram = false;
+  let droppedFinishedAck = false;
+  const originalServerOnData = serverTransport.onData as (
+    data: Buffer,
+    addr: [string, number],
+    meta?: { rxGeneration?: number },
+  ) => void;
+  const originalClientOnData = clientTransport.onData as (
+    data: Buffer,
+    addr: [string, number],
+    meta?: { rxGeneration?: number },
+  ) => void;
+  const originalServerSend = serverTransport.send.bind(serverTransport);
+  serverTransport.send = (async (data, addr) => {
+    if (dropNextServerDatagram) {
+      // Act: 最初の Finished ACK だけを落とし、再受信時の replay ACK
+      // が受理記録を使って返ることを検証できるようにする。
+      dropNextServerDatagram = false;
+      droppedFinishedAck = true;
+      return;
     }
+    return originalServerSend(data, addr);
+  }) as typeof serverTransport.send;
+  serverTransport.onData = ((
+    data: Buffer,
+    addr: [string, number],
+    meta?: { rxGeneration?: number },
+  ) =>
+    originalServerOnData(data, addr, {
+      ...meta,
+      rxGeneration: serverGeneration,
+    })) as typeof serverTransport.onData;
+  clientTransport.onData = ((
+    data: Buffer,
+    addr: [string, number],
+    meta?: { rxGeneration?: number },
+  ) =>
+    originalClientOnData(data, addr, {
+      ...meta,
+      rxGeneration: clientGeneration,
+    })) as typeof clientTransport.onData;
+  server.setExpectedRxGeneration(() => serverGeneration);
+  client.setExpectedRxGeneration(() => clientGeneration);
 
-    const failure = new Promise<never>((_, reject) => {
-      server.onError.once(reject);
-      client.onError.once(reject);
-    });
-    const connectFailure = client.connect().then(
-      () => new Promise<never>(() => undefined),
-      (error) => Promise.reject(error),
+  let restartInjected = false;
+  server.onConnect.subscribe(() => {
+    if (restartInjected) return;
+    // Act: Finished 検証 callback の途中で ICE restart が起きた状態を作る。
+    restartInjected = true;
+    serverGeneration += 1;
+    dropNextServerDatagram = true;
+  });
+
+  const serverEngine = (
+    server as unknown as {
+      engine13?: {
+        readiness: { handshakeComplete: boolean };
+        retransmitCount: number;
+        totalRetransmitCount: number;
+        getPendingFlightSize(): number;
+        getPendingFlightRecordCount(): number;
+      };
+    }
+  ).engine13;
+  const clientEngine = (
+    client as unknown as {
+      engine13?: {
+        readiness: { handshakeComplete: boolean };
+        retransmitCount: number;
+        totalRetransmitCount: number;
+        getPendingFlightSize(): number;
+        getPendingFlightRecordCount(): number;
+      };
+    }
+  ).engine13;
+  if (!serverEngine || !clientEngine) {
+    throw new Error("1.3 engine が無い");
+  }
+
+  const failure = new Promise<never>((_, reject) => {
+    server.onError.once(reject);
+    client.onError.once(reject);
+  });
+  const connectFailure = client.connect().then(
+    () => new Promise<never>(() => undefined),
+    (error) => Promise.reject(error),
+  );
+  const completion = Promise.all([
+    server.waitForHandshakeComplete(),
+    client.waitForHandshakeComplete(),
+  ]);
+  let timeoutHandle: ReturnType<typeof globalThis.setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutHandle = globalThis.setTimeout(
+      () => reject(new Error("Finished ACK restart recovery timeout")),
+      5_000,
     );
-    const completion = Promise.all([
-      server.waitForHandshakeComplete(),
-      client.waitForHandshakeComplete(),
-    ]);
-    let timeoutHandle: ReturnType<typeof globalThis.setTimeout> | undefined;
-    const timeout = new Promise<never>((_, reject) => {
-      timeoutHandle = globalThis.setTimeout(
-        () => reject(new Error("Finished ACK restart recovery timeout")),
-        5_000,
-      );
-    });
+  });
 
-    try {
-      // Act: 両端の handshakeComplete と Finished ACK の完了を待つ。
-      await Promise.race([completion, connectFailure, failure, timeout]);
+  try {
+    // Act: 両端の handshakeComplete と Finished ACK の完了を待つ。
+    await Promise.race([completion, connectFailure, failure, timeout]);
 
-      // Assert: 世代変更後も両端が完了し、再送 flight が残らない。
-      expect(restartInjected).toBe(true);
-      expect(droppedFinishedAck).toBe(true);
-      expect(serverEngine.readiness.handshakeComplete).toBe(true);
-      expect(clientEngine.readiness.handshakeComplete).toBe(true);
-      expect(server.readiness.handshakeComplete).toBe(true);
-      expect(client.readiness.handshakeComplete).toBe(true);
-      expect(serverEngine.getPendingFlightSize()).toBe(0);
-      expect(serverEngine.getPendingFlightRecordCount()).toBe(0);
-      expect(clientEngine.getPendingFlightSize()).toBe(0);
-      expect(clientEngine.getPendingFlightRecordCount()).toBe(0);
-      expect(clientEngine.totalRetransmitCount).toBeGreaterThan(0);
+    // Assert: 世代変更後も両端が完了し、再送 flight が残らない。
+    expect(restartInjected).toBe(true);
+    expect(droppedFinishedAck).toBe(true);
+    expect(serverEngine.readiness.handshakeComplete).toBe(true);
+    expect(clientEngine.readiness.handshakeComplete).toBe(true);
+    expect(server.readiness.handshakeComplete).toBe(true);
+    expect(client.readiness.handshakeComplete).toBe(true);
+    expect(serverEngine.getPendingFlightSize()).toBe(0);
+    expect(serverEngine.getPendingFlightRecordCount()).toBe(0);
+    expect(clientEngine.getPendingFlightSize()).toBe(0);
+    expect(clientEngine.getPendingFlightRecordCount()).toBe(0);
+    expect(clientEngine.totalRetransmitCount).toBeGreaterThan(0);
 
-      const serverRetransmitCount = serverEngine.totalRetransmitCount;
-      const clientRetransmitCount = clientEngine.totalRetransmitCount;
-      await setTimeout(100);
-      expect(serverEngine.totalRetransmitCount).toBe(serverRetransmitCount);
-      expect(clientEngine.totalRetransmitCount).toBe(clientRetransmitCount);
-    } finally {
-      if (timeoutHandle !== undefined) globalThis.clearTimeout(timeoutHandle);
-      server.setExpectedRxGeneration(undefined);
-      client.setExpectedRxGeneration(undefined);
-      await Promise.allSettled([client.close(), server.close()]);
-    }
-  },
-  20_000,
-);
+    const serverRetransmitCount = serverEngine.totalRetransmitCount;
+    const clientRetransmitCount = clientEngine.totalRetransmitCount;
+    await setTimeout(100);
+    expect(serverEngine.totalRetransmitCount).toBe(serverRetransmitCount);
+    expect(clientEngine.totalRetransmitCount).toBe(clientRetransmitCount);
+  } finally {
+    if (timeoutHandle !== undefined) globalThis.clearTimeout(timeoutHandle);
+    server.setExpectedRxGeneration(undefined);
+    client.setExpectedRxGeneration(undefined);
+    await Promise.allSettled([client.close(), server.close()]);
+  }
+}, 20_000);
