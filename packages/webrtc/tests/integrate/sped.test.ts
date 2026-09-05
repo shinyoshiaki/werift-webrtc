@@ -832,6 +832,10 @@ describe("RTCPeerConnection SPED opt-in", () => {
     const pc2 = new RTCPeerConnection(config);
     let receivedRtp = 0;
     let receivedRtcp = 0;
+    const earlyRtpPayload = Buffer.from("early-rtp-buffered-unique");
+    const earlyRtcpSsrc = 0x10203040;
+    let receivedEarlyRtp = false;
+    let receivedEarlyRtcp = false;
     let receivedDataChannel = 0;
     try {
       const dc1 = pc1.createDataChannel("early");
@@ -841,8 +845,16 @@ describe("RTCPeerConnection SPED opt-in", () => {
       exchangeIceCandidates(pc1, pc2);
       await pc1.setLocalDescription(await pc1.createOffer());
       await pc2.setRemoteDescription(pc1.localDescription!);
-      pc2.dtlsTransports[0]!.onRtp.subscribe(() => receivedRtp++);
-      pc2.dtlsTransports[0]!.onRtcp.subscribe(() => receivedRtcp++);
+      pc2.dtlsTransports[0]!.onRtp.subscribe((rtp) => {
+        receivedRtp++;
+        if (rtp.payload.equals(earlyRtpPayload)) receivedEarlyRtp = true;
+      });
+      pc2.dtlsTransports[0]!.onRtcp.subscribe((rtcp) => {
+        receivedRtcp++;
+        if ("ssrc" in rtcp && rtcp.ssrc === earlyRtcpSsrc) {
+          receivedEarlyRtcp = true;
+        }
+      });
       await pc2.setLocalDescription(await pc2.createAnswer());
 
       // Act: final SDP 適用を待たず、DTLS server の epoch-3 write key が
@@ -854,18 +866,28 @@ describe("RTCPeerConnection SPED opt-in", () => {
       await server.waitForWriteReady();
       expect(server.state).toBe("connecting");
       expect(client.state).toBe("connecting");
-      const sendEarlyMedia = () =>
-        (async () => {
-          const sent = await server.sendRtp(
-            Buffer.from("early-rtp"),
-            new RtpHeader({ ssrc: 0x101, payloadType: 96 }),
-          );
-          await server.sendRtcp([
-            new RtcpRrPacket({ ssrc: 0x101, reports: [] }),
-          ]);
-          return sent;
-        })();
-      expect(await sendEarlyMedia()).toBeGreaterThan(0);
+      // 認証前に同じ識別可能な RTP/RTCP を複数件だけ送る。以後の再送は行わず、
+      // 認証後に届いた payload/SSRC がこの pre-auth packet そのものであることを検証する。
+      const sentEarlyRtp = await Promise.all(
+        [0, 1, 2].map((index) =>
+          server.sendRtp(
+            earlyRtpPayload,
+            new RtpHeader({
+              sequenceNumber: 700 + index,
+              ssrc: 0x101,
+              payloadType: 96,
+            }),
+          ),
+        ),
+      );
+      await Promise.all(
+        [0, 1, 2].map(() =>
+          server.sendRtcp([
+            new RtcpRrPacket({ ssrc: earlyRtcpSsrc, reports: [] }),
+          ]),
+        ),
+      );
+      expect(sentEarlyRtp.every((sent) => sent > 0)).toBe(true);
 
       // Assert: fingerprint 認証の完了前には実 PC の DataChannel / RTP /
       // RTCP callback を一件も公開しない。
@@ -875,18 +897,13 @@ describe("RTCPeerConnection SPED opt-in", () => {
       await applyAnswer;
       await waitUntil(() => dc1.readyState === "open");
       await waitUntil(() => receivedDataChannel === 1);
-      // RTP/RTCP 自体は best-effort のため、認証後の通常送信で受信まで送り直す。
-      // (高負荷時の loopback UDP 落下を handshake 回帰と誤認しない)
-      const mediaDeadline = Date.now() + 20_000;
-      while (!(receivedRtp >= 1 && receivedRtcp >= 1)) {
-        if (Date.now() > mediaDeadline) {
-          throw new Error(
-            `early media が届かない rtp=${receivedRtp} rtcp=${receivedRtcp}`,
-          );
-        }
-        expect(await sendEarlyMedia()).toBeGreaterThan(0);
-        await new Promise((r) => setTimeout(r, 100));
-      }
+      await waitUntil(() => receivedEarlyRtp && receivedEarlyRtcp, 20_000);
+
+      // Assert: 認証後の通常送信ではなく、認証前に保留された media 自体が drain された。
+      expect(receivedEarlyRtp).toBe(true);
+      expect(receivedEarlyRtcp).toBe(true);
+      expect(receivedRtp).toBeGreaterThan(0);
+      expect(receivedRtcp).toBeGreaterThan(0);
     } finally {
       await Promise.allSettled([pc1.close(), pc2.close()]);
     }

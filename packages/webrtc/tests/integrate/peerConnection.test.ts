@@ -2,6 +2,7 @@ import { setTimeout } from "timers/promises";
 import { vi } from "vitest";
 
 import { HashAlgorithm } from "../../../dtls/src/cipher/const";
+import { SCTP_STATE } from "../../../sctp/src";
 import {
   MediaStream,
   MediaStreamTrack,
@@ -170,6 +171,42 @@ describe("peerConnection", () => {
 
     await Promise.allSettled([caller.close(), callee.close()]);
   });
+
+  test("post-connect fingerprint failure propagates to PeerConnection, SCTP, and DataChannel", async () => {
+    // Arrange: 実際の PeerConnection で DataChannel を接続済みにする。
+    const caller = new RTCPeerConnection({});
+    const callee = new RTCPeerConnection({});
+    const channel = caller.createDataChannel("chat");
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription(caller.localDescription!);
+      await callee.setLocalDescription(await callee.createAnswer());
+      await caller.setRemoteDescription(callee.localDescription!);
+      await assertDataChannelOpen(channel);
+      expect(channel.readyState).toBe("open");
+
+      // Act: 再ネゴシエーションの remote offer に不一致 fingerprint を適用する。
+      const renegotiationOffer = await callee.createOffer();
+      await callee.setLocalDescription(renegotiationOffer);
+      await caller.setRemoteDescription({
+        type: "offer",
+        sdp: tamperFingerprints(callee.localDescription!.sdp),
+      });
+      // 認証失敗イベントが欠落すると無期限に待たず、このテストを失敗させる。
+      if (caller.connectionState !== "failed") {
+        await caller.connectionStateChange.asPromise(5_000);
+      }
+
+      // Assert: 認証失敗を上位状態へ伝播し、SCTP と DataChannel を閉じる。
+      expect(caller.dtlsTransports[0].state).toBe("failed");
+      expect(caller.connectionState).toBe("failed");
+      expect(caller.sctp?.sctp.associationState).toBe(SCTP_STATE.CLOSED);
+      expect(channel.readyState).toBe("closed");
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  }, 30_000);
 
   test("constructor applies WebIDL-style validation for configuration dictionaries", () => {
     const certificateValues = [null, undefined];

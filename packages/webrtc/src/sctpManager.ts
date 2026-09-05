@@ -117,10 +117,20 @@ export class SctpTransportManager {
     const transport = this.sctpTransport;
     const association = transport.prepareForStart();
     const outcome = this.waitForSctpOutcome(association);
+    // Attach a fulfillment handler before starting SCTP.  INIT failure can
+    // synchronously transition the association to CLOSED, so awaiting only
+    // transport.start() would leave outcome.promise rejected and unhandled.
+    const outcomeResult = outcome.promise.then(
+      () => ({ ok: true as const }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
     const attempt = (async () => {
       try {
         await transport.start(this.sctpRemotePort!);
-        await outcome.promise;
+        const result = await outcomeResult;
+        if (result.ok === false) {
+          throw result.error;
+        }
         log("sctp connected");
       } finally {
         outcome.dispose();

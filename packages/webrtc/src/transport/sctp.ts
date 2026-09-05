@@ -105,8 +105,14 @@ export class RTCSctpTransport {
           this.dataChannels = {};
         }),
         this.dtlsTransport.onStateChange.subscribe((state) => {
-          if (state === "closed") {
+          if (state === "failed" || state === "closed") {
+            // DTLS failure is terminal for this SCTP association.  Do not
+            // preserve queued DCEP/data for a retry after authentication has
+            // failed, and close every channel immediately.
+            this.stopping = true;
+            this.dataChannelQueue = [];
             association.setState(SCTP_STATE.CLOSED);
+            this.disposeSctpListeners();
           }
         }),
       ].map((e) => e.unSubscribe),

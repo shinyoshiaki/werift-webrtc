@@ -40,6 +40,7 @@ export class SecureTransportManager {
   private config: PeerConfig;
   private transceiverManager: TransceiverManager;
   private sctpManager: SctpTransportManager;
+  private dtlsStateDisposers: (() => void)[] = [];
 
   constructor({
     config,
@@ -191,6 +192,16 @@ export class SecureTransportManager {
     if (this.config.sped === true) {
       markDtlsTransportSped(dtlsTransport);
     }
+
+    // A fingerprint re-validation failure happens after the initial
+    // connection has already been reported.  Bridge that terminal DTLS state
+    // to PeerConnection.connectionState instead of leaving it "connected".
+    const stateSubscription = dtlsTransport.onStateChange.subscribe((state) => {
+      if (state === "failed" && this.connectionState !== "closed") {
+        this.setConnectionState("failed");
+      }
+    });
+    this.dtlsStateDisposers.push(stateSubscription.unSubscribe);
 
     return dtlsTransport;
   }
@@ -582,6 +593,9 @@ export class SecureTransportManager {
 
   async close() {
     this.setConnectionState("closed");
+
+    this.dtlsStateDisposers.forEach((dispose) => dispose());
+    this.dtlsStateDisposers = [];
 
     await Promise.allSettled([...this.dtlsTransports.map((t) => t.stop())]);
 
