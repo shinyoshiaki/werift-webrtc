@@ -636,7 +636,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       // state callback 内の restart/close で attempt が変わり得るため、通知直前に再検証する。
       if (!this.isCurrentAttempt(attempt)) {
         if (this.isTerminated()) return;
-        // connected association の restart は beginConnectedAttempt() が
+        // connected association の restart は rebindConnectedAttempt() が
         // readiness waiter と DTLS 完了待機を新 attempt へ引き継いだ。
         if (this.currentAttempt) {
           this.bindHandshakeCompletion(this.currentAttempt);

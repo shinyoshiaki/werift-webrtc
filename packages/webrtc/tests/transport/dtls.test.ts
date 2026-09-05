@@ -749,6 +749,7 @@ describe("RTCDtlsTransportTest", () => {
       expect(peerAuthenticatedFires).toBe(0);
       expect(peerAuthenticatedOutcome).toBe("resolved");
       expect(handshakeCompleteOutcome).toBe("resolved");
+      expect(session1.dtls?.readiness.handshakeComplete).toBe(true);
       expect(session1.state).toBe("connected");
     } finally {
       await Promise.allSettled([session1.stop(), session2.stop()]);
@@ -838,6 +839,8 @@ describe("RTCDtlsTransportTest", () => {
 
       // Assert: 現世代の実 ACK で下位 DTLS が完了し、上位 waiter も解決する。
       expect(client.dtls?.readiness.handshakeComplete).toBe(true);
+      expect(server.dtls?.readiness.handshakeComplete).toBe(true);
+      expect(server.state).toBe("connected");
       expect(client.state).toBe("connected");
       expect(handshakeCompleteOutcome).toBe("resolved");
     } finally {
