@@ -244,6 +244,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   private readonly onWriteReady = new Event<[]>();
   private readonly onPeerAuthenticated = new Event<[]>();
   private readonly onHandshakeComplete = new Event<[]>();
+  /** Wakes readiness waiters when a connected association adopts a new attempt. */
+  private readonly onAttemptChanged = new Event<[]>();
   private readonly applicationGate: InboundApplicationGate;
   private mediaBuffer: EarlyDataBuffer;
   private srtpKeysInstalled = false;
@@ -254,6 +256,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   private currentAttempt?: TransportAttempt;
   private handshakeStartedAt?: number;
   private peerAuthenticatedAt?: number;
+  private handshakeWaitAttemptId?: number;
   private earlyServerSendUsed = false;
   private earlyModeDisabled = false;
   private spedTransport?: IceSpedTransport;
@@ -503,7 +506,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     if (generation === this.currentAttempt.iceGeneration) return;
     if (this.state === "connected") {
       // 認証済み association は維持し、新 generation へ attempt を付け替える。
-      this.beginAttempt(generation);
+      this.rebindConnectedAttempt(this.beginAttempt(generation));
       return;
     }
     if (this.state !== "connecting") return;
@@ -537,6 +540,11 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         cleanup();
         resolve();
       });
+      const attempt = this.onAttemptChanged.subscribe(() => {
+        if (!reached()) return;
+        cleanup();
+        resolve();
+      });
       const state = this.onStateChange.subscribe((next) => {
         if (next !== "failed" && next !== "closed") return;
         cleanup();
@@ -546,6 +554,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       });
       const cleanup = () => {
         ready.unSubscribe();
+        attempt.unSubscribe();
         state.unSubscribe();
       };
       if (reached()) {
@@ -625,19 +634,19 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       if (this.state !== "connecting") return;
       this.setState("connected");
       // state callback 内の restart/close で attempt が変わり得るため、通知直前に再検証する。
-      if (!this.isCurrentAttempt(attempt) || this.isTerminated()) return;
+      if (!this.isCurrentAttempt(attempt)) {
+        if (this.isTerminated()) return;
+        // connected association の restart は beginConnectedAttempt() が
+        // readiness waiter と DTLS 完了待機を新 attempt へ引き継いだ。
+        if (this.currentAttempt) {
+          this.bindHandshakeCompletion(this.currentAttempt);
+          return;
+        }
+        continue;
+      }
+      if (this.isTerminated()) return;
       this.onPeerAuthenticated.execute();
-
-      void this.dtls?.waitForHandshakeComplete().then(
-        () => {
-          if (!this.isCurrentAttempt(attempt)) return;
-          this.readiness.handshakeComplete = true;
-          this.onHandshakeComplete.execute();
-        },
-        () => {
-          // Terminal state is surfaced by the DTLS socket state bridge.
-        },
-      );
+      this.bindHandshakeCompletion(attempt);
 
       log("dtls connected");
       return;
@@ -661,6 +670,47 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     };
     this.currentAttempt = attempt;
     return attempt;
+  }
+
+  /**
+   * Keep a connected association's readiness waiters attached after ICE
+   * restart. The cryptographic association remains valid, so the readiness
+   * latch is preserved; only callbacks that captured the old attempt need a
+   * new identity-bound continuation.
+   */
+  private rebindConnectedAttempt(attempt: TransportAttempt): void {
+    if (!this.isCurrentAttempt(attempt) || this.isTerminated()) return;
+    this.bindHandshakeCompletion(attempt);
+    // Do not re-fire onPeerAuthenticated/onHandshakeComplete here: those are
+    // one-shot notifications. Re-evaluate only waiters registered before the
+    // restart, which otherwise have no event edge after their attempt drifted.
+    this.onAttemptChanged.execute();
+  }
+
+  /** Attach the lower DTLS completion latch to the current transport attempt. */
+  private bindHandshakeCompletion(attempt: TransportAttempt): void {
+    if (this.readiness.handshakeComplete) return;
+    const dtls = this.dtls;
+    if (!dtls || this.handshakeWaitAttemptId === attempt.id) return;
+    this.handshakeWaitAttemptId = attempt.id;
+
+    if (dtls.readiness.handshakeComplete) {
+      this.markHandshakeComplete(attempt);
+      return;
+    }
+    void dtls.waitForHandshakeComplete().then(
+      () => this.markHandshakeComplete(attempt),
+      () => {
+        // Terminal state is surfaced by the DTLS socket state bridge.
+      },
+    );
+  }
+
+  private markHandshakeComplete(attempt: TransportAttempt): void {
+    if (!this.isCurrentAttempt(attempt) || this.isTerminated()) return;
+    if (this.readiness.handshakeComplete) return;
+    this.readiness.handshakeComplete = true;
+    this.onHandshakeComplete.execute();
   }
 
   private markWriteReady(): void {
@@ -749,6 +799,15 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         carrier.invalidateInboundInjects?.();
         this.mediaBuffer.reset();
         dtlsSocket?.clearEarlyDataBuffer();
+        if (
+          this.state === "connected" &&
+          this.currentAttempt &&
+          this.currentAttempt.iceGeneration !== ice.generation
+        ) {
+          // SPED owns the generation reset callback; connected associations
+          // still need to rebind upper readiness waiters to the new attempt.
+          this.rebindConnectedAttempt(this.beginAttempt(ice.generation));
+        }
         if (this.state === "connecting" && this.currentAttempt) {
           // The cryptographic association continues, but every subsequent
           // continuation is now owned by the new authenticated ICE generation.
@@ -1179,7 +1238,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     if (this.state !== "connected" || !this.currentAttempt) return;
     const generation = (this.iceTransport.connection as Connection).generation;
     if (generation !== this.currentAttempt.iceGeneration) {
-      this.beginAttempt(generation);
+      this.rebindConnectedAttempt(this.beginAttempt(generation));
     }
   }
 

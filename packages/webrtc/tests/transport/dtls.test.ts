@@ -684,6 +684,8 @@ describe("RTCDtlsTransportTest", () => {
     session1.setRemoteParams(session2.localParameters);
     session2.setRemoteParams(session1.localParameters);
     let peerAuthenticatedFires = 0;
+    let peerAuthenticatedOutcome = "pending";
+    let handshakeCompleteOutcome = "pending";
     (
       session1 as unknown as {
         onPeerAuthenticated: { subscribe(cb: () => void): void };
@@ -691,6 +693,22 @@ describe("RTCDtlsTransportTest", () => {
     ).onPeerAuthenticated.subscribe(() => {
       peerAuthenticatedFires++;
     });
+    const peerAuthenticatedWait = session1.waitForPeerAuthenticated().then(
+      () => {
+        peerAuthenticatedOutcome = "resolved";
+      },
+      () => {
+        peerAuthenticatedOutcome = "rejected";
+      },
+    );
+    const handshakeCompleteWait = session1.waitForHandshakeComplete().then(
+      () => {
+        handshakeCompleteOutcome = "resolved";
+      },
+      () => {
+        handshakeCompleteOutcome = "rejected";
+      },
+    );
 
     try {
       // Act: connected 遷移 callback 内で generation を進めて restart させる。
@@ -716,16 +734,117 @@ describe("RTCDtlsTransportTest", () => {
         }
       });
       await Promise.all([session1.start(), session2.start()]);
+      // Act: 旧 attempt の通知ではなく、restart 後の readiness handoff を待つ。
+      await Promise.race([
+        Promise.all([peerAuthenticatedWait, handshakeCompleteWait]),
+        setTimeout(2_000).then(() => {
+          throw new Error("readiness waiter handoff timeout");
+        }),
+      ]);
       await onStateChange;
       await setTimeout(50);
 
-      // Assert: 旧 attempt の onPeerAuthenticated は発火しない。
+      // Assert: 旧 attempt の通知は発火せず、登録済み waiter は新 attempt
+      // の latch から解決される。
       expect(peerAuthenticatedFires).toBe(0);
+      expect(peerAuthenticatedOutcome).toBe("resolved");
+      expect(handshakeCompleteOutcome).toBe("resolved");
       expect(session1.state).toBe("connected");
     } finally {
       await Promise.allSettled([session1.stop(), session2.stop()]);
     }
   });
+
+  test("DTLS 1.3 final ACK 後の restart は上位 handshakeComplete waiter を引き継ぐ", async () => {
+    // Arrange: 最終 ACK だけを保留できる実 DTLS 1.3 association を用意する。
+    const [server, client] = await createDtlsSessions({
+      protocolVersions: [DtlsVersion.V1_3],
+    });
+    server.setRemoteParams(client.localParameters);
+    client.setRemoteParams(server.localParameters);
+    const serverIce = server.iceTransport.connection as unknown as {
+      send: (data: Buffer) => Promise<void>;
+    };
+    const originalSend = serverIce.send.bind(serverIce);
+    const held: Buffer[] = [];
+    let holding = true;
+    serverIce.send = async (data: Buffer) => {
+      if (holding && server.dtls?.readiness.peerHandshakeAuthenticated) {
+        held.push(Buffer.from(data));
+        return;
+      }
+      return originalSend(data);
+    };
+    let handshakeCompleteOutcome = "pending";
+    const handshakeCompleteWait = client.waitForHandshakeComplete().then(
+      () => {
+        handshakeCompleteOutcome = "resolved";
+      },
+      () => {
+        handshakeCompleteOutcome = "rejected";
+      },
+    );
+
+    try {
+      // Act: fingerprint 認証後、client final-flight の ACK 待ちで両 ICE を restart する。
+      await Promise.all([server.start(), client.start()]);
+      await setTimeout(10);
+      expect(held.length).toBeGreaterThan(0);
+      expect(client.dtls?.readiness.handshakeComplete).toBe(false);
+
+      for (const session of [server, client]) {
+        session.iceTransport.restart();
+        session.handleIceRestart();
+      }
+      const serverTransport = server.iceTransport;
+      const clientTransport = client.iceTransport;
+      type IceGathererView = {
+        gather(): Promise<void>;
+        localParameters: Parameters<typeof serverTransport.setRemoteParams>[0];
+        localCandidates: Array<
+          Parameters<typeof serverTransport.addRemoteCandidate>[0]
+        >;
+      };
+      const serverGather = (
+        serverTransport as unknown as { iceGather: IceGathererView }
+      ).iceGather;
+      const clientGather = (
+        clientTransport as unknown as { iceGather: IceGathererView }
+      ).iceGather;
+      await Promise.all([serverGather.gather(), clientGather.gather()]);
+      serverTransport.setRemoteParams(clientGather.localParameters);
+      clientTransport.setRemoteParams(serverGather.localParameters);
+      clientGather.localCandidates.forEach((candidate) =>
+        serverTransport.addRemoteCandidate(candidate),
+      );
+      serverGather.localCandidates.forEach((candidate) =>
+        clientTransport.addRemoteCandidate(candidate),
+      );
+      await Promise.all([serverTransport.start(), clientTransport.start()]);
+      holding = false;
+      await originalSend(held[0]!);
+      await Promise.race([
+        client.dtls!.waitForHandshakeComplete(),
+        setTimeout(2_000).then(() => {
+          throw new Error("lower DTLS ACK timeout");
+        }),
+      ]);
+      await Promise.race([
+        handshakeCompleteWait,
+        setTimeout(2_000).then(() => {
+          throw new Error("upper handshakeComplete waiter timeout");
+        }),
+      ]);
+
+      // Assert: 現世代の実 ACK で下位 DTLS が完了し、上位 waiter も解決する。
+      expect(client.dtls?.readiness.handshakeComplete).toBe(true);
+      expect(client.state).toBe("connected");
+      expect(handshakeCompleteOutcome).toBe("resolved");
+    } finally {
+      holding = false;
+      await Promise.allSettled([server.stop(), client.stop()]);
+    }
+  }, 10_000);
 
   test("保留 application data の配送中 restart は新 attempt で start を完了する", async () => {
     // Arrange: server の early application data を許可した実 DTLS 1.3 pair を用意する。
