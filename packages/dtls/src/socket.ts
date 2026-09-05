@@ -17,6 +17,7 @@ import { DtlsContext } from "./context/dtls";
 import { SrtpContext } from "./context/srtp";
 import { TransportContext } from "./context/transport";
 import type { Dtls13Connection } from "./engine/v1_3/connection";
+import type { EarlyDataBufferStats } from "./engine/v1_3/early-data-buffer";
 import type { DtlsReadiness } from "./engine/v1_3/types";
 import { peerKeyFromAddr } from "./handshake/extensions/cookie";
 import { EllipticCurves } from "./handshake/extensions/ellipticCurves";
@@ -129,6 +130,18 @@ export class DtlsSocket {
   /** @internal Association-lifetime DTLS 1.3 retransmissions. */
   get totalRetransmitCount(): number {
     return this.engine13?.totalRetransmitCount ?? 0;
+  }
+
+  /** @internal Read-only snapshot of the active DTLS 1.3 early-data queue. */
+  get earlyDataStats(): EarlyDataBufferStats {
+    return (
+      this.engine13?.earlyDataStats ?? {
+        bufferedPackets: 0,
+        bufferedBytes: 0,
+        droppedPackets: 0,
+        droppedBytes: 0,
+      }
+    );
   }
 
   /** @internal */

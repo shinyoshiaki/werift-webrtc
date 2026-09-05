@@ -45,6 +45,7 @@ import {
 } from "./version";
 
 import type { DtlsHandshakeCarrier } from "./carrier/types";
+import type { EarlyDataBufferStats } from "./engine/v1_3/early-data-buffer";
 
 const log = debug("werift-dtls : packages/dtls/src/client.ts : log");
 
@@ -82,6 +83,19 @@ export class DtlsClient extends DtlsSocket {
    */
   get dualAssociationPhase(): DualAssociationPhase {
     return this.dualPhase;
+  }
+
+  /** @internal Include a parked 1.3 candidate while dual version probing. */
+  override get earlyDataStats(): EarlyDataBufferStats {
+    return (
+      this.engine13?.earlyDataStats ??
+      this.parkedEngine13?.earlyDataStats ?? {
+        bufferedPackets: 0,
+        bufferedBytes: 0,
+        droppedPackets: 0,
+        droppedBytes: 0,
+      }
+    );
   }
 
   /**

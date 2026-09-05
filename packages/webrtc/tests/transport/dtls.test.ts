@@ -16,6 +16,7 @@ import {
   defaultPeerConfig,
   fingerprint,
 } from "../../src";
+import type { RTCTransportStats } from "../../src/media/stats";
 import { dtlsTransportPair } from "../fixture";
 import { iceTransportPair } from "../fixture";
 import { waitForDtlsState } from "../utils";
@@ -155,6 +156,80 @@ describe("RTCDtlsTransportTest", () => {
       await Promise.allSettled([session1.stop(), session2.stop()]);
     }
   });
+
+  test("DTLS internal early data is included in WARP stats until expiry", async () => {
+    // Arrange: client の最終 flight を継続的に落とし、server が未接続のまま
+    // application data を DTLS 内部 queue に保持する構成を作る。
+    const [server, client] = await createUnstartedDtlsSessions({
+      protocolVersions: [DtlsVersion.V1_3],
+    });
+    const clientIce = client.iceTransport.connection as Connection & {
+      send: (data: Buffer) => Promise<void>;
+    };
+    const originalClientSend = clientIce.send.bind(clientIce);
+    let clientDatagrams = 0;
+    let allowNextClientDatagram = false;
+    clientIce.send = async (data: Buffer) => {
+      clientDatagrams++;
+      // ClientHello だけは通し、final flight の再送は server の handshake
+      // 完了を防ぐため継続的に落とす。
+      if (clientDatagrams === 1) {
+        return originalClientSend(data);
+      }
+      if (!allowNextClientDatagram) return;
+      allowNextClientDatagram = false;
+      return originalClientSend(data);
+    };
+
+    void server.start().catch(() => undefined);
+    const payload = Buffer.alloc(27, 0x5a);
+
+    try {
+      // Act: client 側の fingerprint 認証完了後、次の1 packetだけ送る。
+      await client.start();
+      expect(clientDatagrams).toBeGreaterThanOrEqual(2);
+      allowNextClientDatagram = true;
+      await client.sendData(payload);
+
+      // Assert: Finished 未到着の server 内部 queue が公開 transport stats に
+      // packet 数と byte 数として反映されることを確認する。
+      const bufferedDeadline = Date.now() + 5_000;
+      let bufferedStats: RTCTransportStats | undefined;
+      while (Date.now() < bufferedDeadline) {
+        const stats = await server.getStats();
+        bufferedStats = stats.find(
+          (stat): stat is RTCTransportStats => stat.type === "transport",
+        );
+        if (
+          bufferedStats?.warpEarlyBufferedPackets === 1 &&
+          bufferedStats.warpEarlyBufferedBytes === payload.length
+        ) {
+          break;
+        }
+        await setTimeout(20);
+      }
+      expect(bufferedStats).toMatchObject({
+        warpEarlyBufferedPackets: 1,
+        warpEarlyBufferedBytes: payload.length,
+      });
+
+      // Act: retention timer を満了させ、保留 packet を全破棄する。
+      await setTimeout(2_100);
+
+      // Assert: timeout による DTLS 内部 queue の drop も diagnostics に残る。
+      const expiredStats = (await server.getStats()).find(
+        (stat): stat is RTCTransportStats => stat.type === "transport",
+      );
+      expect(expiredStats).toMatchObject({
+        warpEarlyBufferedPackets: 0,
+        warpEarlyBufferedBytes: 0,
+        warpEarlyDroppedPackets: 1,
+        warpEarlyDroppedBytes: payload.length,
+      });
+    } finally {
+      await Promise.allSettled([client.stop(), server.stop()]);
+    }
+  }, 15_000);
 
   test("dtls_start_fails_for_mismatched_fingerprint_dtls13", async () => {
     const [session1, session2] = await createDtlsSessions({
@@ -1138,6 +1213,20 @@ async function createDtlsSessions(
     undefined,
     srtpProfiles,
   );
+
+  return [session1, session2] as const;
+}
+
+async function createUnstartedDtlsSessions(
+  config: ConstructorParameters<typeof RTCDtlsTransport>[0] = defaultPeerConfig,
+) {
+  const [transport1, transport2] = await iceTransportPair();
+  await RTCDtlsTransport.SetupCertificate();
+
+  const session1 = new RTCDtlsTransport(config, transport1);
+  const session2 = new RTCDtlsTransport(config, transport2);
+  session1.setRemoteParams(session2.localParameters);
+  session2.setRemoteParams(session1.localParameters);
 
   return [session1, session2] as const;
 }

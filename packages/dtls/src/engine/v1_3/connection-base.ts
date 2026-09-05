@@ -30,7 +30,10 @@ import {
   normalizeProtocolVersions,
   supportsVersion,
 } from "../../version";
-import { EarlyDataBuffer } from "./early-data-buffer";
+import {
+  EarlyDataBuffer,
+  type EarlyDataBufferStats,
+} from "./early-data-buffer";
 import { HandshakeTranscript } from "./transcript";
 import {
   type AddressValidationMode,
@@ -370,6 +373,10 @@ export class Dtls13ConnectionBase {
   }
   get earlyAppDataBytes(): number {
     return this.earlyAppDataBuffer.bytes;
+  }
+  /** @internal Snapshot of the DTLS-owned pre-connect application queue. */
+  get earlyDataStats(): EarlyDataBufferStats {
+    return this.earlyAppDataBuffer.snapshot();
   }
   /** Resolved early-app-data record cap (Options or DataChannel default). */
   readonly maxEarlyAppDataRecords: number;

@@ -1372,6 +1372,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     // Transport stats
     const appQueue = this.applicationGate.snapshot();
     const mediaQueue = this.mediaBuffer.snapshot();
+    const dtlsQueue = this.dtls?.earlyDataStats;
     const spedDiagnostics = getConnectionSpedRuntime(
       this.iceTransport.connection as Connection,
     )?.diagnosticsSnapshot();
@@ -1418,11 +1419,21 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       warpDtlsRetransmissions: this.dtls?.totalRetransmitCount ?? 0,
       warpSpedRetransmissions: spedDiagnostics?.retransmissions ?? 0,
       warpEarlyBufferedPackets:
-        appQueue.bufferedPackets + mediaQueue.bufferedPackets,
-      warpEarlyBufferedBytes: appQueue.bufferedBytes + mediaQueue.bufferedBytes,
+        appQueue.bufferedPackets +
+        mediaQueue.bufferedPackets +
+        (dtlsQueue?.bufferedPackets ?? 0),
+      warpEarlyBufferedBytes:
+        appQueue.bufferedBytes +
+        mediaQueue.bufferedBytes +
+        (dtlsQueue?.bufferedBytes ?? 0),
       warpEarlyDroppedPackets:
-        appQueue.droppedPackets + mediaQueue.droppedPackets,
-      warpEarlyDroppedBytes: appQueue.droppedBytes + mediaQueue.droppedBytes,
+        appQueue.droppedPackets +
+        mediaQueue.droppedPackets +
+        (dtlsQueue?.droppedPackets ?? 0),
+      warpEarlyDroppedBytes:
+        appQueue.droppedBytes +
+        mediaQueue.droppedBytes +
+        (dtlsQueue?.droppedBytes ?? 0),
       warpEarlyServerSendUsed: this.earlyServerSendUsed,
       iceGeneration: (this.iceTransport.connection as Connection).generation,
     };
