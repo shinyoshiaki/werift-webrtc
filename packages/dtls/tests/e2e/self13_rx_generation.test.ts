@@ -201,6 +201,7 @@ test.each(["transport.onData", "carrier.inject"] as const)(
 
       // Assert: 先頭だけが配送され、後続の旧世代 record は同じ datagram
       // の中にあっても新世代へ漏れない。
+      await setTimeout(0);
       expect(delivered).toEqual(["fresh-first"]);
     } finally {
       server.setExpectedRxGeneration(undefined);
