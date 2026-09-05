@@ -299,7 +299,7 @@ If you are contributing to werift itself, initialize the pinned upstream Web Pla
 git submodule update --init --recursive
 ```
 
-The repository-level package metadata declares Node.js 18 or newer. The opt-in memory-leak harness requires Node.js 24 or newer.
+The repository-level package metadata declares Node.js 22 or newer. GitHub Actions validates Node.js 24, which is also required by the opt-in memory-leak harness.
 
 ## Roadmap
 

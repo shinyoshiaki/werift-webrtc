@@ -65,7 +65,7 @@
   },
   "packageManager": "npm@11.1.0",
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "readme": "README.md"
 }

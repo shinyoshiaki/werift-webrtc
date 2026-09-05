@@ -1,6 +1,4 @@
-import { spawnSync } from "child_process";
 import { createSocket } from "dgram";
-import path from "path";
 import { PassThrough } from "stream";
 
 import { RTCPeerConnection } from "../../src";
@@ -22,6 +20,7 @@ import {
 } from "../../src/polyfill/sourceIo";
 import {
   arrangePolyfillVideoTrack,
+  compilePolyfillFixture,
   createH264CallbackRegister,
   createHangingNodeStream,
   createHangingWebStream,
@@ -1441,36 +1440,20 @@ test("in-flight getUserMedia is aborted by immediate uninstall", async () => {
 });
 
 test("public polyfill entry compiles with TypeScript DOM lib", () => {
-  const project = path.join(__dirname, "polyfillDomCompile");
-  const tsc = require.resolve("typescript/bin/tsc");
   // 実行: lib.dom と skipLibCheck=false で polyfill/dom エントリをコンパイルする。
-  const result = spawnSync(
-    process.execPath,
-    [tsc, "-p", project, "--pretty", "false"],
-    {
-      encoding: "utf8",
-    },
-  );
+  const result = compilePolyfillFixture("polyfillDomCompile");
 
   // 検証: TS2403 / TS2687 / TS2717 を含む型エラーが出ない。
   expect(result.status, result.stdout + result.stderr).toBe(0);
-});
+}, 30_000);
 
 test("public polyfill entry compiles without DOM lib", () => {
-  const project = path.join(__dirname, "polyfillNodeCompile");
-  const tsc = require.resolve("typescript/bin/tsc");
   // 実行: lib.esnext のみで werift/polyfill のグローバル型をコンパイルする。
-  const result = spawnSync(
-    process.execPath,
-    [tsc, "-p", project, "--pretty", "false"],
-    {
-      encoding: "utf8",
-    },
-  );
+  const result = compilePolyfillFixture("polyfillNodeCompile");
 
   // 検証: RTCPeerConnection / navigator / MediaStream が解決する。
   expect(result.status, result.stdout + result.stderr).toBe(0);
-});
+}, 30_000);
 
 test("same rtp/encoded web stream register can be acquired twice", async () => {
   await assertStreamAcquisitionsLive((stream) =>

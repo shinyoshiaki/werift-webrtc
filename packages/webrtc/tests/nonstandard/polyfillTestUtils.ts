@@ -1,4 +1,6 @@
+import { spawnSync } from "child_process";
 import { createSocket } from "dgram";
+import path from "path";
 import { PassThrough } from "stream";
 
 import { OverconstrainedError } from "../../src/errors";
@@ -9,6 +11,31 @@ import {
   installPolyfill,
 } from "../../src/polyfill";
 import { setUdpSocketFactory } from "../../src/polyfill/sourceIo";
+
+const TYPESCRIPT_COMPILE_TIMEOUT_MS = 20_000;
+
+export function compilePolyfillFixture(fixtureName: string) {
+  const project = path.join(__dirname, fixtureName);
+  const tsc = require.resolve("typescript/bin/tsc");
+  const result = spawnSync(
+    process.execPath,
+    [tsc, "-p", project, "--pretty", "false"],
+    {
+      encoding: "utf8",
+      timeout: TYPESCRIPT_COMPILE_TIMEOUT_MS,
+    },
+  );
+
+  if (result.error) {
+    const reason =
+      (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT"
+        ? `TypeScript compiler timed out after ${TYPESCRIPT_COMPILE_TIMEOUT_MS}ms`
+        : `TypeScript compiler failed to start: ${result.error.message}`;
+    throw new Error(reason, { cause: result.error });
+  }
+
+  return result;
+}
 
 export function installTestPolyfill(mediaRegister: MediaRegister[]) {
   return installPolyfill({ mediaRegister });

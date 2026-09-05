@@ -19,7 +19,7 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [18.x]
+        node-version: [24.x]
 
     steps:
       - uses: actions/checkout@v4
@@ -58,7 +58,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [22.x, 24.x]
+        node-version: [24.x]
     steps:
       - uses: actions/checkout@v4
       - name: init submodules
@@ -71,12 +71,14 @@ jobs:
           node-version: ${{ matrix.node-version }}
       - name: Install mediasoup build deps
         run: sudo apt-get update && sudo apt-get install -y python3 python3-pip ninja-build build-essential
+      - name: Install werift workspace dependencies
+        run: npm ci
       - name: mediasoup interop fixture
         working-directory: integration/werift-mediasoup-interop
         run: |
           npm ci
           npm run type
           npm run test:small
-          npm test
+          npm run test:interop
           npm run install:browsers
           npm run test:browser
