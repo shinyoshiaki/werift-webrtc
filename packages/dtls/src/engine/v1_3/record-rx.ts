@@ -191,6 +191,9 @@ export async function processDatagramRecords(
       return;
     }
     if (!rec) break;
+    // epoch candidate の解決中に restart が起きた場合も、parse 済みの
+    // record を旧 datagram の世代のまま dispatch しない。
+    if (isStaleRxGeneration(this, rxGeneration)) return;
     offset += rec.consumed;
     try {
       // Order is critical (RFC 9147 §7):
