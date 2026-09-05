@@ -204,22 +204,26 @@ export async function processDatagramRecords(
       // continuation, so Finished would be missing from the ACK.
       if (rec.kind === "plaintext") {
         const accepted = await this.onPlaintextRecordAsync(rec);
+        if (accepted && rec.contentType === ContentType.handshake) {
+          // Finished の callback が ICE restart を起こしても、検証済み
+          // handshake record の受理記録と ACK は先に確定させる。ここを
+          // 世代チェックより後にすると、再送が replay 扱いになり、ACK
+          // を返せないまま handshakeComplete に到達できない。
+          await this.finishHandshakeRecordAck(rec.epoch, rec.sequenceNumber);
+        }
         // record callback / application delivery の途中で restart した場合、
         // 同一 datagram に残る旧世代 record を新 association へ渡さない。
         if (isStaleRxGeneration(this, rxGeneration)) return;
-        if (accepted && rec.contentType === ContentType.handshake) {
-          await this.finishHandshakeRecordAck(rec.epoch, rec.sequenceNumber);
-          if (isStaleRxGeneration(this, rxGeneration)) return;
-        }
       } else {
         const accepted = await this.onCiphertextRecordAsync(rec);
-        // AEAD 後の onData / handshake callback が await 中に restart した
-        // 場合も、後続処理を世代境界で打ち切る。
-        if (isStaleRxGeneration(this, rxGeneration)) return;
         if (accepted && rec.contentType === ContentType.handshake) {
+          // Finished の検証後に世代が変わっても、受理記録を残して ACK
+          // を処理する。以降の record は世代チェックで配送しない。
           await this.finishHandshakeRecordAck(rec.epoch, rec.sequenceNumber);
-          if (isStaleRxGeneration(this, rxGeneration)) return;
         }
+        // AEAD 後の onData / handshake callback が await 中に restart した
+        // 場合も、同一 datagram の後続 record を世代境界で打ち切る。
+        if (isStaleRxGeneration(this, rxGeneration)) return;
       }
     } catch (e) {
       // Protocol version / dual selection / negotiation failures surface
