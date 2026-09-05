@@ -1,3 +1,4 @@
+import type { SCTP } from "../../sctp/src";
 import { createWebRtcTypeError } from "./errors";
 import { Event, debug } from "./imports/common";
 
@@ -113,10 +114,17 @@ export class SctpTransportManager {
       await this.connectPromise;
       return;
     }
+    const transport = this.sctpTransport;
+    const association = transport.prepareForStart();
+    const outcome = this.waitForSctpOutcome(association);
     const attempt = (async () => {
-      await this.sctpTransport!.start(this.sctpRemotePort!);
-      await this.sctpTransport!.sctp.stateChanged.connected.asPromise();
-      log("sctp connected");
+      try {
+        await transport.start(this.sctpRemotePort!);
+        await outcome.promise;
+        log("sctp connected");
+      } finally {
+        outcome.dispose();
+      }
     })();
     this.connectPromise = attempt;
     try {
@@ -125,6 +133,48 @@ export class SctpTransportManager {
       if (this.connectPromise === attempt) this.connectPromise = undefined;
       throw error;
     }
+  }
+
+  private waitForSctpOutcome(sctp: SCTP) {
+    let settled = false;
+    let unSubscribeConnected = () => {};
+    let unSubscribeClosed = () => {};
+    const dispose = () => {
+      unSubscribeConnected();
+      unSubscribeClosed();
+      unSubscribeConnected = () => {};
+      unSubscribeClosed = () => {};
+    };
+
+    const promise = new Promise<void>((resolve, reject) => {
+      const complete = (callback: () => void) => {
+        if (settled) return;
+        settled = true;
+        dispose();
+        callback();
+      };
+
+      unSubscribeConnected = sctp.stateChanged.connected.subscribe(() =>
+        complete(resolve),
+      ).unSubscribe;
+      unSubscribeClosed = sctp.stateChanged.closed.subscribe(() =>
+        complete(() =>
+          reject(new Error("SCTP association closed before connecting")),
+        ),
+      ).unSubscribe;
+
+      // The association may already have transitioned before the listeners
+      // were installed (notably after a synchronous INIT failure).
+      if (sctp.state === "connected") {
+        complete(resolve);
+      } else if (sctp.state === "closed") {
+        complete(() =>
+          reject(new Error("SCTP association closed before connecting")),
+        );
+      }
+    });
+
+    return { promise, dispose };
   }
 
   setRemoteSCTP(remoteMedia: MediaDescription, mLineIndex: number) {

@@ -21,7 +21,7 @@ describe("sctp", () => {
       createUdpTransport(createSocket("udp4"), {
         port,
         address: "127.0.0.1",
-      })
+      }),
     );
 
     client._inboundStreamsMax = 2048;
@@ -110,6 +110,50 @@ describe("sctp timers and ack policy", () => {
     expect(spy).toHaveBeenCalledWith(expect.any(Function), 5000);
     (sctp as any).timer3Cancel();
     spy.mockRestore();
+  });
+
+  test("INIT transport failure closes and rejects the association", async () => {
+    // Arrange: INIT を送信する transport が失敗する。
+    const transport: Transport = {
+      send: vi.fn(async () => {
+        throw new Error("transport unavailable");
+      }),
+      close: vi.fn(),
+    };
+    const sctp = SCTP.client(transport, 5000);
+    sctp.setRemotePort(5001);
+
+    // Act: association start を実行する。
+    await expect(sctp.start(5001)).rejects.toThrow("transport unavailable");
+
+    // Assert: INIT failure が CLOSED 通知まで到達する。
+    expect(sctp.state).toBe("closed");
+    expect(sctp.associationState).toBe(SCTP_STATE.CLOSED);
+  });
+
+  test("T1 timeout publishes closed instead of leaving the waiter pending", async () => {
+    // Arrange: 応答を返さない transport と短い RTO を用意する。
+    vi.useFakeTimers();
+    const transport: Transport = {
+      send: vi.fn(async () => {}),
+      close: vi.fn(),
+    };
+    const sctp = SCTP.client(transport, 5000);
+    sctp.setRemotePort(5001);
+    (sctp as any).rto = 0.001;
+    const closed = sctp.stateChanged.closed.asPromise();
+
+    try {
+      // Act: INIT を送信し、T1 再送上限を超えるまで時間を進める。
+      await sctp.start(5001);
+      await vi.advanceTimersByTimeAsync(20);
+
+      // Assert: close event が発火し、接続待ちが終端状態になる。
+      await expect(closed).resolves.toEqual([]);
+      expect(sctp.state).toBe("closed");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("peer rwnd is derived from latest advertised rwnd and flight size", async () => {

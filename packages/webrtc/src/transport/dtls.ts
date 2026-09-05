@@ -217,6 +217,7 @@ export interface DtlsTransportStats {
 }
 
 export class RTCDtlsTransport implements DtlsTransportStats {
+  readonly config: DtlsTransportConfig;
   id = randomUUID().toString();
   state: DtlsState = "new";
   role: DtlsRole = "auto";
@@ -244,7 +245,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   private readonly onPeerAuthenticated = new Event<[]>();
   private readonly onHandshakeComplete = new Event<[]>();
   private readonly applicationGate: InboundApplicationGate;
-  private readonly mediaBuffer: EarlyDataBuffer;
+  private mediaBuffer: EarlyDataBuffer;
   private srtpKeysInstalled = false;
   private srtpWriteReady = false;
   private srtpReadReady = false;
@@ -269,11 +270,17 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   private remoteParameters?: RTCDtlsParameters;
 
   constructor(
-    readonly config: DtlsTransportConfig,
+    config: DtlsTransportConfig,
     readonly iceTransport: RTCIceTransport,
     public localCertificate?: RTCCertificate,
     private readonly srtpProfiles: SrtpProfile[] = [],
   ) {
+    // Keep the transport-local policy independent from the caller's mutable
+    // PeerConfig object. setConfiguration() updates this copy explicitly.
+    this.config = {
+      ...config,
+      warp: config.warp ? { ...config.warp } : undefined,
+    };
     this.localCertificate ??= RTCDtlsTransport.localCertificate;
     this.applicationGate = new InboundApplicationGate((data) =>
       this.dataReceiver(data),
@@ -289,6 +296,29 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     this.iceDatagramSubscription = connectionDatagramEvent(ice).subscribe(
       (ctx) => this.onIceDatagram(ctx),
     );
+  }
+
+  /** @internal Update the live WARP policy without leaving a stale snapshot. */
+  updateWarpConfig(warp: DtlsTransportConfig["warp"]): void {
+    const nextWarp = {
+      allowEarlyServerData: warp?.allowEarlyServerData === true,
+      earlyMediaPolicy: warp?.earlyMediaPolicy ?? "drop",
+    } as const;
+    const previousPolicy = this.config.warp?.earlyMediaPolicy ?? "drop";
+
+    this.config.warp = nextWarp;
+    if (previousPolicy !== nextWarp.earlyMediaPolicy) {
+      // A policy change invalidates protected media accumulated under the old
+      // policy. Dispose the old retention timer before replacing the queue.
+      this.mediaBuffer.clear(true);
+      this.mediaBuffer.dispose();
+      this.mediaBuffer = new EarlyDataBuffer(
+        nextWarp.earlyMediaPolicy === "buffer" ? 256 : 0,
+        nextWarp.earlyMediaPolicy === "buffer" ? 256 * 1024 : 0,
+        2_000,
+      );
+    }
+    this.updateSrtpPermissions();
   }
 
   addEventListener = (

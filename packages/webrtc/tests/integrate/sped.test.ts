@@ -965,6 +965,41 @@ describe("RTCPeerConnection SPED opt-in", () => {
     }
   });
 
+  test("setConfiguration の live WARP 更新を既存 DTLS transport に反映する", async () => {
+    // Arrange: transport 作成時は early send と pre-auth media buffer を有効化する。
+    const pc = new RTCPeerConnection(
+      spedPeerConfig({
+        warp: { allowEarlyServerData: true, earlyMediaPolicy: "buffer" },
+      }),
+    );
+
+    try {
+      pc.createDataChannel("warp-policy");
+      const transport = pc.dtlsTransports[0]!;
+      expect(transport.config.warp).toEqual({
+        allowEarlyServerData: true,
+        earlyMediaPolicy: "buffer",
+      });
+
+      // Act: 公開設定を early send 無効 / media drop へ切り替える。
+      pc.setConfiguration({
+        warp: { allowEarlyServerData: false, earlyMediaPolicy: "drop" },
+      });
+
+      // Assert: 公開設定と既存 transport の許可・queue policy が一致する。
+      expect(pc.getConfiguration().warp).toEqual({
+        allowEarlyServerData: false,
+        earlyMediaPolicy: "drop",
+      });
+      expect(transport.config.warp).toEqual({
+        allowEarlyServerData: false,
+        earlyMediaPolicy: "drop",
+      });
+    } finally {
+      await pc.close();
+    }
+  });
+
   test("createDataChannel 後の dtls 部分更新では protocolVersions が残る", async () => {
     // Arrange: sped + DTLS 1.3 で transport を生成してから helloRetryRequest だけ更新
     const pc1 = new RTCPeerConnection(spedPeerConfig());

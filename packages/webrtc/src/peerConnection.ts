@@ -463,6 +463,19 @@ export class RTCPeerConnection extends EventTarget {
 
     deepMerge(this.config, normalizedConfig as Partial<PeerConfig>);
 
+    // DTLS transports keep a defensive copy of the WARP policy.  Re-apply a
+    // live configuration change so the public PeerConfig and every existing
+    // transport agree about early send and media buffering permissions.
+    if (
+      isReconfiguration &&
+      normalizedConfig.warp !== undefined &&
+      this.secureManager
+    ) {
+      for (const dtlsTransport of this.secureManager.dtlsTransports) {
+        dtlsTransport.updateWarpConfig(this.config.warp);
+      }
+    }
+
     if (this.config.icePortRange) {
       const [min, max] = this.config.icePortRange;
       if (min === max) throw new Error("should not be same value");

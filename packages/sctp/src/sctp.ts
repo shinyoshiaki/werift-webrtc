@@ -104,6 +104,7 @@ export class SCTP {
   isServer = true;
   private isStopping = false;
   private isClosed = false;
+  private wasEstablished = false;
 
   private hmacKey = randomBytes(16);
   private localPartialReliability = true;
@@ -205,6 +206,11 @@ export class SCTP {
       return Math.min(this._inboundStreamsCount, this._outboundStreamsCount);
     }
     return undefined;
+  }
+
+  /** @internal True when this association reached ESTABLISHED before it closed. */
+  get hadEstablished() {
+    return this.wasEstablished;
   }
 
   static client(transport: Transport, port = 5000) {
@@ -1361,7 +1367,11 @@ export class SCTP {
       this.timer1Start(init);
       this.setState(SCTP_STATE.COOKIE_WAIT);
     } catch (error: any) {
-      log("send init failed", error.message);
+      // INIT failure is a failed association attempt, not a successful start.
+      // Surface it to the owner and publish CLOSED so waiters cannot remain
+      // pending until an unrelated timeout.
+      this.setState(SCTP_STATE.CLOSED);
+      throw error;
     }
   }
 
@@ -1396,6 +1406,7 @@ export class SCTP {
       this.associationState = state;
     }
     if (state === SCTP_STATE.ESTABLISHED) {
+      this.wasEstablished = true;
       this.isStopping = false;
       this.isClosed = false;
       this.setConnectionState("connected");
