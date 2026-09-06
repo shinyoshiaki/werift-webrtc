@@ -11,6 +11,16 @@ import type { EpochProtection } from "../../record/v1_3/record";
 import type { Extension } from "../../typings/domain";
 import type { Dtls13ConnectionBase } from "./connection-base";
 
+/** True when an async receive continuation belongs to an obsolete carrier generation. */
+export function isStaleRxGeneration(
+  host: Pick<Dtls13ConnectionBase, "expectedRxGeneration">,
+  acceptedGeneration?: number,
+): boolean {
+  if (acceptedGeneration === undefined) return false;
+  const expected = host.expectedRxGeneration?.();
+  return expected !== undefined && acceptedGeneration !== expected;
+}
+
 export interface Dtls13HostMethods {
   sendHandshakeFlight(
     fragments: FragmentedHandshake[],
@@ -31,7 +41,10 @@ export interface Dtls13HostMethods {
   sendEmptyAck(): Promise<void>;
   sendFatalAlert(description: number, dest?: [string, number]): Promise<void>;
   alertDescForHandshakeError(err: Error): number;
-  failAuthenticatedHandshake(err: Error): Promise<void>;
+  failAuthenticatedHandshake(
+    err: Error,
+    acceptedGeneration?: number,
+  ): Promise<void>;
   sendProtocolVersionAlert(dest?: [string, number]): Promise<void>;
   noteHandshakeRecordForAck(epoch: number, sequenceNumber: number): boolean;
   noteReplayForAck(epoch: number, sequenceNumber: number): boolean;
@@ -51,28 +64,40 @@ export interface Dtls13HostMethods {
   finishHandshakeRecordAck(
     epoch: number,
     sequenceNumber: number,
+    acceptedGeneration?: number,
   ): Promise<void>;
   hasProtectedWriteKeys(): boolean;
-  handleAck(content: Buffer, receivedEpoch: number): void;
+  handleAck(
+    content: Buffer,
+    receivedEpoch: number,
+    acceptedGeneration?: number,
+  ): void;
   processHandshakeBytes(raw: Buffer, epoch: number): Promise<boolean>;
   enqueueHandshake(hs: FragmentedHandshake, epoch: number): Promise<void>;
   resolveEpochCandidates(low: number): EpochProtection[];
-  onPlaintextRecordAsync(rec: {
-    contentType: number;
-    epoch: number;
-    sequenceNumber: number;
-    fragment: Buffer;
-  }): Promise<boolean>;
-  onCiphertextRecordAsync(rec: {
-    contentType: number;
-    epoch: number;
-    sequenceNumber: number;
-    content: Buffer;
-  }): Promise<boolean>;
+  onPlaintextRecordAsync(
+    rec: {
+      contentType: number;
+      epoch: number;
+      sequenceNumber: number;
+      fragment: Buffer;
+    },
+    acceptedGeneration?: number,
+  ): Promise<boolean>;
+  onCiphertextRecordAsync(
+    rec: {
+      contentType: number;
+      epoch: number;
+      sequenceNumber: number;
+      content: Buffer;
+    },
+    acceptedGeneration?: number,
+  ): Promise<boolean>;
   handleAlert(
     fragment: Buffer,
     receivedEpoch: number,
     sequenceNumber?: number,
+    acceptedGeneration?: number,
   ): void;
   isAllowedHandshake(msgType: number, epoch: number): boolean;
   evictExpiredFragments(): void;

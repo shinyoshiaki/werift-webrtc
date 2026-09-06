@@ -21,7 +21,7 @@ import {
   DtlsVersionSelected,
   ProtocolVersionError,
 } from "../../version";
-import type { Dtls13Host } from "./host";
+import { type Dtls13Host, isStaleRxGeneration } from "./host";
 import {
   FRAGMENT_TTL_MS,
   MAX_ACK_RECORD_NUMBERS,
@@ -31,15 +31,6 @@ import {
   MAX_HS_MESSAGE_BYTES,
   log,
 } from "./types";
-
-function isStaleRxGeneration(
-  host: Dtls13Host,
-  acceptedGeneration?: number,
-): boolean {
-  if (acceptedGeneration === undefined) return false;
-  const expected = host.expectedRxGeneration?.();
-  return expected !== undefined && acceptedGeneration !== expected;
-}
 
 /**
  * Record receive path: UDP datagrams → records → handshake reassembly → dispatch.
@@ -69,6 +60,13 @@ export function handleDatagram(
     return this.handleDatagramAsync(buf, peer, peerAddr, acceptedGeneration);
   });
   this.rxChain = processed.catch((e) => {
+    // The receive operation may reject after ICE restart.  Its error belongs
+    // to the accepted generation, so never fail the current association from
+    // an obsolete queued continuation.
+    if (isStaleRxGeneration(this, acceptedGeneration)) {
+      log("drop stale DTLS 1.3 RX chain error", e);
+      return;
+    }
     // ProtocolVersionError / authenticated handshake failures already call fail()
     // or rethrow after failAuthenticatedHandshake. Unauthenticated errors are
     // discarded inside handleDatagramAsync and should not reach here often.
@@ -203,29 +201,43 @@ export async function processDatagramRecords(
       // queueMicrotask cannot be used for (3): microtasks run before this
       // continuation, so Finished would be missing from the ACK.
       if (rec.kind === "plaintext") {
-        const accepted = await this.onPlaintextRecordAsync(rec);
+        const accepted = await this.onPlaintextRecordAsync(rec, rxGeneration);
         if (accepted && rec.contentType === ContentType.handshake) {
           // Finished の callback が ICE restart を起こしても、検証済み
           // handshake record の受理記録と ACK は先に確定させる。ここを
           // 世代チェックより後にすると、再送が replay 扱いになり、ACK
           // を返せないまま handshakeComplete に到達できない。
-          await this.finishHandshakeRecordAck(rec.epoch, rec.sequenceNumber);
+          await this.finishHandshakeRecordAck(
+            rec.epoch,
+            rec.sequenceNumber,
+            rxGeneration,
+          );
         }
         // record callback / application delivery の途中で restart した場合、
         // 同一 datagram に残る旧世代 record を新 association へ渡さない。
         if (isStaleRxGeneration(this, rxGeneration)) return;
       } else {
-        const accepted = await this.onCiphertextRecordAsync(rec);
+        const accepted = await this.onCiphertextRecordAsync(rec, rxGeneration);
         if (accepted && rec.contentType === ContentType.handshake) {
           // Finished の検証後に世代が変わっても、受理記録を残して ACK
           // を処理する。以降の record は世代チェックで配送しない。
-          await this.finishHandshakeRecordAck(rec.epoch, rec.sequenceNumber);
+          await this.finishHandshakeRecordAck(
+            rec.epoch,
+            rec.sequenceNumber,
+            rxGeneration,
+          );
         }
         // AEAD 後の onData / handshake callback が await 中に restart した
         // 場合も、同一 datagram の後続 record を世代境界で打ち切る。
         if (isStaleRxGeneration(this, rxGeneration)) return;
       }
     } catch (e) {
+      // A rejected async callback from an old generation must not become a
+      // fatal error for the current association.
+      if (isStaleRxGeneration(this, rxGeneration)) {
+        log("drop stale DTLS 1.3 record error", e);
+        return;
+      }
       // Protocol version / dual selection / negotiation failures surface
       if (
         e instanceof ProtocolVersionError ||
@@ -275,6 +287,7 @@ export async function processDatagramRecords(
         }
         await this.failAuthenticatedHandshake(
           e instanceof Error ? e : new Error(String(e)),
+          rxGeneration,
         );
         return;
       }
@@ -284,6 +297,7 @@ export async function processDatagramRecords(
       if (rec.kind === "ciphertext") {
         await this.failAuthenticatedHandshake(
           e instanceof Error ? e : new Error(String(e)),
+          rxGeneration,
         );
         return;
       }
@@ -304,6 +318,7 @@ export async function processDatagramRecords(
         }
         await this.failAuthenticatedHandshake(
           e instanceof DtlsProtocolError ? e : new DtlsProtocolError(e.message),
+          rxGeneration,
         );
         return;
       }
@@ -346,6 +361,7 @@ export async function finishHandshakeRecordAck(
 
   epoch: number,
   sequenceNumber: number,
+  acceptedGeneration?: number,
 ): Promise<void> {
   const needIntermediate = this.noteHandshakeRecordForAck(
     epoch,
@@ -384,7 +400,9 @@ export async function finishHandshakeRecordAck(
         try {
           await this.keyUpdate(false);
         } catch (e) {
-          this.fail(e instanceof Error ? e : new Error(String(e)));
+          if (!isStaleRxGeneration(this, acceptedGeneration)) {
+            this.fail(e instanceof Error ? e : new Error(String(e)));
+          }
         }
       }
     }
@@ -411,6 +429,7 @@ export async function onPlaintextRecordAsync(
     sequenceNumber: number;
     fragment: Buffer;
   },
+  acceptedGeneration?: number,
 ): Promise<boolean> {
   // Only epoch 0 plaintext is valid for DTLS 1.3 handshake bootstrap
   if (rec.epoch !== 0) {
@@ -448,7 +467,7 @@ export async function onPlaintextRecordAsync(
       );
       return false;
     }
-    this.handleAlert(rec.fragment, 0, rec.sequenceNumber);
+    this.handleAlert(rec.fragment, 0, rec.sequenceNumber, acceptedGeneration);
     return false;
   }
   if (rec.contentType === ContentType.ack) {
@@ -458,7 +477,7 @@ export async function onPlaintextRecordAsync(
       log("drop epoch-0 ACK from unassociated peer");
       return false;
     }
-    this.handleAck(rec.fragment, 0);
+    this.handleAck(rec.fragment, 0, acceptedGeneration);
     return false;
   }
   if (rec.contentType === ContentType.handshake) {
@@ -488,6 +507,7 @@ export async function onCiphertextRecordAsync(
     sequenceNumber: number;
     content: Buffer;
   },
+  acceptedGeneration?: number,
 ): Promise<boolean> {
   switch (rec.contentType) {
     case ContentType.handshake:
@@ -532,7 +552,7 @@ export async function onCiphertextRecordAsync(
       this.onData.execute(rec.content);
       return false;
     case ContentType.ack:
-      this.handleAck(rec.content, rec.epoch);
+      this.handleAck(rec.content, rec.epoch, acceptedGeneration);
       return false;
     case ContentType.alert:
       // RFC 8446: zero-length Alert after deprotection → unexpected_message
@@ -566,6 +586,7 @@ export function handleAlert(
   fragment: Buffer,
   receivedEpoch: number,
   sequenceNumber = 0,
+  acceptedGeneration?: number,
 ) {
   // Epoch-0: only reached when onPlaintextRecord verified associated peer
   // and pre-protected-keys. Epoch>0: AEAD-authenticated.
@@ -575,7 +596,9 @@ export function handleAlert(
       log("drop truncated epoch-0 alert");
       return;
     }
-    this.fail(new Error("decode_error: truncated alert"));
+    if (!isStaleRxGeneration(this, acceptedGeneration)) {
+      this.fail(new Error("decode_error: truncated alert"));
+    }
     return;
   }
   let alert: Alert;
@@ -586,7 +609,9 @@ export function handleAlert(
       log("drop malformed epoch-0 alert");
       return;
     }
-    this.fail(new Error("decode_error: malformed alert"));
+    if (!isStaleRxGeneration(this, acceptedGeneration)) {
+      this.fail(new Error("decode_error: malformed alert"));
+    }
     return;
   }
   log(
@@ -616,20 +641,24 @@ export function handleAlert(
   }
 
   if (alert.description === AlertDesc.ProtocolVersion) {
-    this.fail(
-      new ProtocolVersionError(
-        "peer rejected protocol version (alert protocol_version)",
-      ),
-    );
+    if (!isStaleRxGeneration(this, acceptedGeneration)) {
+      this.fail(
+        new ProtocolVersionError(
+          "peer rejected protocol version (alert protocol_version)",
+        ),
+      );
+    }
     return;
   }
 
   // TLS 1.3: error alerts are fatal regardless of AlertLevel
-  this.fail(
-    new Error(
-      `fatal alert ${alert.description} (${AlertDesc[alert.description] ?? "unknown"})`,
-    ),
-  );
+  if (!isStaleRxGeneration(this, acceptedGeneration)) {
+    this.fail(
+      new Error(
+        `fatal alert ${alert.description} (${AlertDesc[alert.description] ?? "unknown"})`,
+      ),
+    );
+  }
 }
 
 /**
@@ -642,6 +671,7 @@ export function handleAck(
   this: Dtls13Host,
   content: Buffer,
   receivedEpoch: number,
+  acceptedGeneration?: number,
 ) {
   try {
     const ack = DtlsAck.deSerialize(content, {
@@ -733,9 +763,11 @@ export function handleAck(
     // Crossed update_requested: send deferred response now that own KU is ACK'd
     if (this.deferredKeyUpdateResponse && !this.pendingKeyUpdateWrite) {
       this.deferredKeyUpdateResponse = false;
-      void this.keyUpdate(false).catch((e) =>
-        this.fail(e instanceof Error ? e : new Error(String(e))),
-      );
+      void this.keyUpdate(false).catch((e) => {
+        if (!isStaleRxGeneration(this, acceptedGeneration)) {
+          this.fail(e instanceof Error ? e : new Error(String(e)));
+        }
+      });
     }
   } catch (e) {
     if (receivedEpoch >= 2) {

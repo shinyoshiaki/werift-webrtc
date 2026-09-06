@@ -9,7 +9,7 @@ import {
 } from "../../record/v1_3/record";
 import { computeDtlsRtoMs } from "../../retransmission";
 import { ProtocolVersionError } from "../../version";
-import type { Dtls13Host } from "./host";
+import { type Dtls13Host, isStaleRxGeneration } from "./host";
 import {
   ACK_ENCRYPTED_OVERHEAD,
   ACK_PLAINTEXT_OVERHEAD,
@@ -851,10 +851,13 @@ export function alertDescForHandshakeError(
 export async function failAuthenticatedHandshake(
   this: Dtls13Host,
   err: Error,
+  acceptedGeneration?: number,
 ): Promise<void> {
+  if (isStaleRxGeneration(this, acceptedGeneration)) return;
   (err as Error & { dtlsAuthenticated?: boolean }).dtlsAuthenticated = true;
   const desc = this.alertDescForHandshakeError(err);
   await this.sendFatalAlert(desc);
+  if (isStaleRxGeneration(this, acceptedGeneration)) return;
   this.fail(err);
 }
 

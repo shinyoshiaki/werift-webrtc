@@ -355,3 +355,187 @@ test("e2e/self13 は Finished 受信中の restart 後も ACK と handshakeCompl
     await Promise.allSettled([client.close(), server.close()]);
   }
 }, 20_000);
+
+type GenerationAware13Pair = {
+  server: DtlsServer;
+  client: DtlsClient;
+  serverTransport: UdpTransport;
+  clientTransport: UdpTransport;
+  generations: { server: number; client: number };
+};
+
+async function createGenerationAware13Pair(): Promise<GenerationAware13Pair> {
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+  const server = new DtlsServer({
+    transport: serverTransport,
+    ...dtls13Options,
+  });
+  const client = new DtlsClient({
+    transport: clientTransport,
+    ...dtls13Options,
+  });
+  const generations = { server: 0, client: 0 };
+  const originalServerOnData = serverTransport.onData as (
+    data: Buffer,
+    addr: [string, number],
+    meta?: { rxGeneration?: number },
+  ) => void;
+  const originalClientOnData = clientTransport.onData as (
+    data: Buffer,
+    addr: [string, number],
+    meta?: { rxGeneration?: number },
+  ) => void;
+  serverTransport.onData = ((data, addr) =>
+    originalServerOnData(data, addr, {
+      rxGeneration: generations.server,
+    })) as typeof serverTransport.onData;
+  clientTransport.onData = ((data, addr) =>
+    originalClientOnData(data, addr, {
+      rxGeneration: generations.client,
+    })) as typeof clientTransport.onData;
+  server.setExpectedRxGeneration(() => generations.server);
+  client.setExpectedRxGeneration(() => generations.client);
+  return {
+    server,
+    client,
+    serverTransport,
+    clientTransport,
+    generations,
+  };
+}
+
+type AckCapableEngine = {
+  sendAck: (opts?: { allowEmpty?: boolean }) => Promise<number>;
+  closed: boolean;
+};
+
+async function connectGenerationAware13Pair(pair: GenerationAware13Pair) {
+  const connected = Promise.all([
+    new Promise<void>((resolve) => pair.server.onConnect.once(resolve)),
+    new Promise<void>((resolve) => pair.client.onConnect.once(resolve)),
+  ]);
+  const failure = new Promise<never>((_, reject) => {
+    pair.server.onError.once(reject);
+    pair.client.onError.once(reject);
+  });
+  // Act: start the real DTLS 1.3 association through UDP RX metadata wrappers.
+  void pair.client.connect().catch(() => undefined);
+  await Promise.race([connected, failure]);
+}
+
+test("e2e/self13 は旧世代の KeyUpdate ACK 送信 reject で association を壊さない", async () => {
+  // Arrange: 接続済みの DTLS 1.3 pair と、server ACK の遅延・reject gate を用意する。
+  const pair = await createGenerationAware13Pair();
+  const serverErrors: Error[] = [];
+  const errorSubscription = pair.server.onError.subscribe((error) => {
+    serverErrors.push(error);
+  });
+  const serverEngine = (
+    pair.server as unknown as { engine13?: AckCapableEngine }
+  ).engine13;
+  const clientEngine = (
+    pair.client as unknown as {
+      engine13?: { keyUpdate(requestUpdate?: boolean): Promise<void> };
+    }
+  ).engine13;
+  if (!serverEngine || !clientEngine) {
+    throw new Error("1.3 engine が無い");
+  }
+  try {
+    await connectGenerationAware13Pair(pair);
+    const originalSendAck = serverEngine.sendAck.bind(serverEngine);
+    let ackEntered!: () => void;
+    const ackEnteredPromise = new Promise<void>((resolve) => {
+      ackEntered = resolve;
+    });
+    let releaseAck!: () => void;
+    const ackRelease = new Promise<void>((resolve) => {
+      releaseAck = resolve;
+    });
+    let rejectNextAck = true;
+    serverEngine.sendAck = async (opts) => {
+      if (rejectNextAck) {
+        rejectNextAck = false;
+        ackEntered();
+        await ackRelease;
+        throw new Error("stale KeyUpdate ACK send failure");
+      }
+      return originalSendAck(opts);
+    };
+
+    // Act: KeyUpdate ACK の送信待ち中に ICE restart 相当の世代変更を起こし、
+    // 旧世代の送信失敗を発生させる。
+    void clientEngine.keyUpdate(true).catch(() => undefined);
+    await ackEnteredPromise;
+    pair.generations.server = 1;
+    releaseAck();
+    await setTimeout(20);
+
+    // Assert: 旧世代の reject は onError / teardown に伝播しない。
+    expect(serverErrors).toHaveLength(0);
+    expect(pair.server.connected).toBe(true);
+    expect(serverEngine.closed).toBe(false);
+  } finally {
+    errorSubscription.unSubscribe();
+    pair.server.setExpectedRxGeneration(undefined);
+    pair.client.setExpectedRxGeneration(undefined);
+    await Promise.allSettled([pair.client.close(), pair.server.close()]);
+  }
+}, 20_000);
+
+test("e2e/self13 は現世代の KeyUpdate ACK 送信 reject を fatal にする", async () => {
+  // Arrange: 旧世代変更なしの接続済み pair と、現世代 ACK reject gate を用意する。
+  const pair = await createGenerationAware13Pair();
+  const serverErrors: Error[] = [];
+  const errorSubscription = pair.server.onError.subscribe((error) => {
+    serverErrors.push(error);
+  });
+  const serverEngine = (
+    pair.server as unknown as { engine13?: AckCapableEngine }
+  ).engine13;
+  const clientEngine = (
+    pair.client as unknown as {
+      engine13?: { keyUpdate(requestUpdate?: boolean): Promise<void> };
+    }
+  ).engine13;
+  if (!serverEngine || !clientEngine) {
+    throw new Error("1.3 engine が無い");
+  }
+  const fatal = new Promise<void>((resolve) => {
+    pair.server.onError.once(() => resolve());
+  });
+
+  try {
+    await connectGenerationAware13Pair(pair);
+    const originalSendAck = serverEngine.sendAck.bind(serverEngine);
+    let rejectNextAck = true;
+    serverEngine.sendAck = async (opts) => {
+      if (rejectNextAck) {
+        rejectNextAck = false;
+        throw new Error("current KeyUpdate ACK send failure");
+      }
+      return originalSendAck(opts);
+    };
+
+    // Act: current-generation KeyUpdate ACK を reject し、通常の fatal 経路を通す。
+    void clientEngine.keyUpdate(true).catch(() => undefined);
+    await Promise.race([
+      fatal,
+      setTimeout(5_000).then(() => {
+        throw new Error("current-generation KeyUpdate fatal timeout");
+      }),
+    ]);
+
+    // Assert: 現世代の認証済み失敗は引き続き onError / teardown になる。
+    expect(serverErrors).toHaveLength(1);
+    expect(pair.server.connected).toBe(false);
+    expect(serverEngine.closed).toBe(true);
+  } finally {
+    errorSubscription.unSubscribe();
+    pair.server.setExpectedRxGeneration(undefined);
+    pair.client.setExpectedRxGeneration(undefined);
+    await Promise.allSettled([pair.client.close(), pair.server.close()]);
+  }
+}, 20_000);
