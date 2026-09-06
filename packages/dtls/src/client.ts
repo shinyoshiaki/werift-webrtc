@@ -686,6 +686,7 @@ export class DtlsClient extends DtlsSocket {
       return;
     }
     log("dual association: commit DTLS 1.2");
+    this.invalidateLegacy12HandshakeOwnership();
     this.dualPhase = "committed12";
     this.dualResume = undefined;
     // Soft-dispose parked 1.3 (stops RTO via closed + flightId-scoped
@@ -1094,6 +1095,7 @@ export class DtlsClient extends DtlsSocket {
     // Stop 1.2 Flight1 retransmit by advancing flight only — never set fatalError
     // for a successful version commit (would surface as delayed public onError).
     this.abortLegacy12Flight();
+    this.invalidateLegacy12HandshakeOwnership();
     this.dualPhase = "committed13";
     // Invalidate in-flight 1.2 handleHandshakes / Flight5 after version commit.
     this.associationGen++;

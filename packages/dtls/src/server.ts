@@ -80,6 +80,7 @@ export class DtlsServer extends DtlsSocket {
     if (!this.options.cert || !this.options.key) {
       throw new Error("DTLS 1.3 requires cert and key options");
     }
+    this.invalidateLegacy12HandshakeOwnership();
     const engine = new Dtls13Connection(
       {
         transport: this.options.transport,

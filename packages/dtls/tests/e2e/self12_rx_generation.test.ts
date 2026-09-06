@@ -49,6 +49,7 @@ function addressOf(transport: UdpTransport): [string, number] {
 async function createPair(
   serverVersions: readonly DtlsVersion[],
   serverGeneration: { value: number },
+  clientGeneration: { value: number } = { value: 0 },
 ) {
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
@@ -77,7 +78,14 @@ async function createPair(
       rxGeneration: serverGeneration.value,
     });
   }) as typeof serverTransport.onData;
+  const originalClientOnData = clientTransport.onData as RxHandler;
+  clientTransport.onData = ((data, addr) => {
+    originalClientOnData(data, addr, {
+      rxGeneration: clientGeneration.value,
+    });
+  }) as typeof clientTransport.onData;
   server.setExpectedRxGeneration(() => serverGeneration.value);
+  client.setExpectedRxGeneration(() => clientGeneration.value);
 
   return {
     client,
@@ -86,6 +94,99 @@ async function createPair(
     serverTransport,
     originalServerOnData,
   };
+}
+
+type HandshakeWait = (condition: () => boolean) => Promise<void>;
+
+async function assertStaleRejectDoesNotTearDown(
+  serverVersions: readonly DtlsVersion[],
+  side: "client" | "server",
+) {
+  // Arrange: DTLS 1.2-only / dual fallback pair with generation-aware RX on
+  // both endpoints, so the rejected handler carries an immutable old token.
+  const serverGeneration = { value: 0 };
+  const clientGeneration = { value: 0 };
+  const { client, clientTransport, server, serverTransport } = await createPair(
+    serverVersions,
+    serverGeneration,
+    clientGeneration,
+  );
+  const target = side === "client" ? client : server;
+  const generation = side === "client" ? clientGeneration : serverGeneration;
+  const originalWaitForReady = (
+    target as unknown as { waitForReady: HandshakeWait }
+  ).waitForReady;
+  let waitStarted!: () => void;
+  const waitStartedPromise = new Promise<void>((resolve) => {
+    waitStarted = resolve;
+  });
+  let releaseReject!: () => void;
+  const rejectRelease = new Promise<void>((resolve) => {
+    releaseReject = resolve;
+  });
+  let rejectNext = true;
+  (target as unknown as { waitForReady: HandshakeWait }).waitForReady = async (
+    condition,
+  ) => {
+    if (rejectNext) {
+      rejectNext = false;
+      waitStarted();
+      await rejectRelease;
+      throw new Error("stale waitForReady rejection");
+    }
+    return originalWaitForReady(condition);
+  };
+  const errors: Error[] = [];
+  const errorSubscription = target.onError.subscribe((error) => {
+    errors.push(error);
+  });
+  const connected = Promise.all([
+    new Promise<void>((resolve) => client.onConnect.once(resolve)),
+    new Promise<void>((resolve) => server.onConnect.once(resolve)),
+  ]);
+
+  try {
+    // Act: start the real handshake and wait until the selected endpoint is
+    // suspended inside its generation-0 asynchronous readiness wait.
+    void client.connect().catch(() => undefined);
+    await waitStartedPromise;
+
+    // Act: restart ICE before the old wait rejects, then release the stale
+    // continuation.  The old handler must be ignored by the socket catch.
+    generation.value = 1;
+    releaseReject();
+    await setTimeout(0);
+
+    // Assert: stale rejection did not emit onError or tear down the association.
+    expect(errors).toHaveLength(0);
+    expect(
+      (target as unknown as { associationTornDown: boolean })
+        .associationTornDown,
+    ).toBe(false);
+
+    // Act: let the peer retransmit into generation 1 and complete the same
+    // association through the current handler.
+    await Promise.race([
+      connected,
+      setTimeout(15_000).then(() => {
+        throw new Error(`${side} current-generation retry timeout`);
+      }),
+    ]);
+
+    // Assert: both endpoints reach connected without a fatal lifecycle edge.
+    expect(client.connected).toBe(true);
+    expect(server.connected).toBe(true);
+    expect(errors).toHaveLength(0);
+  } finally {
+    errorSubscription.unSubscribe();
+    server.setExpectedRxGeneration(undefined);
+    client.setExpectedRxGeneration(undefined);
+    await Promise.allSettled([client.close(), server.close()]);
+    await Promise.allSettled([
+      clientTransport.close(),
+      serverTransport.close(),
+    ]);
+  }
 }
 
 test.each(cases)(
@@ -229,6 +330,22 @@ test.each(cases)(
         serverTransport.close(),
       ]);
     }
+  },
+  25_000,
+);
+
+test.each(cases)(
+  "e2e/self12 $name client は旧世代の waitForReady reject で teardown しない",
+  async ({ serverVersions }) => {
+    await assertStaleRejectDoesNotTearDown(serverVersions, "client");
+  },
+  25_000,
+);
+
+test.each(cases)(
+  "e2e/self12 $name server は旧世代の waitForReady reject で teardown しない",
+  async ({ serverVersions }) => {
+    await assertStaleRejectDoesNotTearDown(serverVersions, "server");
   },
   25_000,
 );

@@ -88,6 +88,8 @@ export class DtlsSocket {
   private engine13Bridge = new EventDisposer();
   /** Opaque carrier generation provider for the DTLS 1.3 RX queue. */
   private rxGenerationProvider?: () => number | undefined;
+  /** Ownership epoch for asynchronous DTLS 1.2 handshake handlers. */
+  private legacy12HandshakeOwnership = 0;
   /** Wakes readiness waiters when a dual-stack association selects 1.3. */
   private readonly onEngine13Selected = new Event<[]>();
   /** Negotiated / configured protocol versions (priority order). */
@@ -382,6 +384,7 @@ export class DtlsSocket {
       return;
     }
     log("renegotiation", this.sessionType);
+    this.invalidateLegacy12HandshakeOwnership();
     this.connected = false;
     // Cancel retransmit timers on the *old* context before abandoning it.
     // Otherwise Flight.transmit sleeps keep firing against a detached DtlsContext
@@ -513,6 +516,39 @@ export class DtlsSocket {
     });
   }
 
+  /**
+   * Check ownership before an asynchronous legacy handshake rejection is
+   * allowed to change association state.
+   *
+   * The receive path validates these conditions before starting the async
+   * handler, but a later rejection resumes outside that synchronous boundary.
+   * A DTLS 1.2 handler from an old ICE generation, a released dual candidate,
+   * or a changed peer pin must be discarded instead of failing the current
+   * association.
+   */
+  protected ownsLegacy12Handshake(
+    ownership: number,
+    rxGeneration: number | undefined,
+    peer?: Address,
+  ): boolean {
+    return (
+      ownership === this.legacy12HandshakeOwnership &&
+      !this.associationTornDown &&
+      !this.engine13 &&
+      this.isCurrentRxGeneration(rxGeneration) &&
+      this.matchesPinnedPeer(peer)
+    );
+  }
+
+  /**
+   * Invalidate legacy handshake callbacks that no longer own the association.
+   * Used by dual-version selection and renegotiation before replacing the
+   * lower-level state while keeping the public socket alive.
+   */
+  protected invalidateLegacy12HandshakeOwnership(): void {
+    this.legacy12HandshakeOwnership++;
+  }
+
   /** Restore transport.rinfo to pin so spoof sources do not stick for later TX fallbacks. */
   protected restorePinnedRinfo(): void {
     const pin = this.transport.pinnedPeer;
@@ -613,11 +649,30 @@ export class DtlsSocket {
 
                 // Pass the datagram source so async Flight2 / protocol alerts
                 // do not depend on mutable UdpTransport.rinfo after await.
+                const ownership = this.legacy12HandshakeOwnership;
                 this.onHandleHandshakes(assembled, peer, meta).catch(
                   (error) => {
                     err(this.dtls.sessionId, "onHandleHandshakes error", error);
                     const e =
                       error instanceof Error ? error : new Error(String(error));
+                    // Reject resumes after the async handshake boundary.  The
+                    // datagram may belong to an old ICE generation or to a
+                    // released dual-stack candidate; neither may tear down a
+                    // current association.
+                    if (
+                      !this.ownsLegacy12Handshake(
+                        ownership,
+                        meta?.rxGeneration,
+                        peer,
+                      )
+                    ) {
+                      log(
+                        this.dtls.sessionId,
+                        "DTLS 1.2: drop stale async handshake error",
+                        e.message,
+                      );
+                      return;
+                    }
                     // Pre-cookie / unpinned: drop per-source only — never tear down
                     // the listening association (unauthenticated DoS).
                     if (!this.hasAssociationPeerAuth()) {

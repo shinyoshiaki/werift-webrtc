@@ -542,6 +542,20 @@ but either is sufficient for association-lifecycle alert decisions.
 
 ***
 
+### invalidateLegacy12HandshakeOwnership()
+
+> `protected` **invalidateLegacy12HandshakeOwnership**(): `void`
+
+Invalidate legacy handshake callbacks that no longer own the association.
+Used by dual-version selection and renegotiation before replacing the
+lower-level state while keeping the public socket alive.
+
+#### Returns
+
+`void`
+
+***
+
 ### isAuthenticatedLegacy12Record()
 
 > `protected` **isAuthenticatedLegacy12Record**(`epoch`): `boolean`
@@ -685,6 +699,39 @@ Dual client overrides for phase/carrier/transport ownership.
 #### Returns
 
 `void`
+
+***
+
+### ownsLegacy12Handshake()
+
+> `protected` **ownsLegacy12Handshake**(`ownership`, `rxGeneration`, `peer`?): `boolean`
+
+Check ownership before an asynchronous legacy handshake rejection is
+allowed to change association state.
+
+The receive path validates these conditions before starting the async
+handler, but a later rejection resumes outside that synchronous boundary.
+A DTLS 1.2 handler from an old ICE generation, a released dual candidate,
+or a changed peer pin must be discarded instead of failing the current
+association.
+
+#### Parameters
+
+##### ownership
+
+`number`
+
+##### rxGeneration
+
+`undefined` | `number`
+
+##### peer?
+
+readonly \[`string`, `number`\]
+
+#### Returns
+
+`boolean`
 
 ***
 
