@@ -3,716 +3,579 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>GCC と legacy — 同じ返事、ちがう頭脳</title>
+  <title>GCC と legacy — 同じ TWCC から帯域をどう決めるか</title>
   <style>
     :root {
-      --paper: #f3eee4;
-      --ink: #1b1714;
-      --muted: #5c534c;
-      --line: #d9cfc2;
-      --terracotta: #c45c26;
-      --teal: #2b6a6a;
-      --leaf: #3d6b4f;
-      --rose: #b42318;
-      --cream: #fffaf3;
-      --shadow: 0 18px 40px rgba(27, 23, 20, 0.08);
-      --legacy: #7a5c2e;
-      --gcc: #2b6a6a;
+      --paper: #f3eee4; --cream: #fffaf3; --ink: #211d18; --muted: #62594e;
+      --line: #d6cbbb; --legacy: #795625; --gcc: #236566; --wait: #bb551c;
+      --loss: #b32622; --receive: #3b704d;
     }
     * { box-sizing: border-box; }
-    html { scroll-behavior: smooth; }
-    body {
-      margin: 0;
-      font-family: "Hiragino Mincho ProN", "Yu Mincho", "Source Han Serif", Georgia, serif;
-      color: var(--ink);
-      background:
-        radial-gradient(1200px 600px at 10% -10%, #fff8ee, transparent 55%),
-        radial-gradient(900px 500px at 100% 0%, #e7efe8, transparent 50%),
-        var(--paper);
-      line-height: 1.75;
-    }
-    .sans { font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif; }
-    header.hero, section, footer { max-width: 1080px; margin: 0 auto; }
-    header.hero { padding: 64px 24px 24px; }
-    section { padding: 48px 24px; }
-    footer {
-      padding: 24px 24px 80px;
-      color: var(--muted);
-      font-family: "Hiragino Sans", sans-serif;
-      font-size: 13px;
-    }
-    .kicker {
-      display: inline-block; letter-spacing: 0.18em; font-size: 12px;
-      color: var(--teal); text-transform: uppercase; font-family: "Hiragino Sans", sans-serif;
-    }
-    h1 { font-size: clamp(32px, 5vw, 56px); font-weight: 600; line-height: 1.2; margin: 12px 0 16px; }
-    h2 { font-size: clamp(26px, 3vw, 36px); margin: 0 0 12px; }
-    h3 { font-size: 20px; margin: 28px 0 8px; }
-    .lead { font-size: 20px; max-width: 42rem; color: var(--muted); }
-    p.note { color: var(--muted); max-width: 46rem; }
-    .caption { font-family: "Hiragino Sans", sans-serif; font-size: 13px; color: var(--muted); }
-    nav.toc { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
-    nav.toc a {
-      font-family: "Hiragino Sans", sans-serif; font-size: 13px; color: var(--ink);
-      text-decoration: none; padding: 8px 12px; border: 1px solid var(--line);
-      background: var(--cream); border-radius: 999px;
-    }
-    nav.toc a:hover { border-color: var(--terracotta); }
-    .card {
-      background: var(--cream); border: 1px solid var(--line);
-      border-radius: 20px; box-shadow: var(--shadow);
-    }
-    .split2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-    .play { padding: 20px; }
-    button.chip {
-      font-family: "Hiragino Sans", sans-serif; border: 1px solid var(--line);
-      background: #fff; color: var(--ink); border-radius: 999px;
-      padding: 10px 14px; cursor: pointer; font-size: 14px;
-    }
-    button.chip.active { background: var(--ink); color: var(--cream); border-color: var(--ink); }
-    button.chip:focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
-    .controls { display: flex; flex-wrap: wrap; gap: 8px; padding: 16px 4px 4px; }
-    .formula {
-      font-family: ui-monospace, Menlo, monospace; font-size: 13px;
-      background: #1b1714; color: #f3eee4; padding: 14px 16px; border-radius: 12px; margin: 8px 0 0;
-    }
-    .formula em { color: #e8b089; font-style: normal; }
-    table.plain {
-      width: 100%; border-collapse: collapse; font-family: "Hiragino Sans", sans-serif;
-      font-size: 13px; background: var(--cream); border-radius: 16px; overflow: hidden;
-      border: 1px solid var(--line);
-    }
-    table.plain th, table.plain td {
-      text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top;
-    }
-    table.plain th { background: #efe7d8; font-weight: 600; }
-    table.plain tr:last-child td { border-bottom: 0; }
-    .code {
-      font-family: ui-monospace, Menlo, monospace; font-size: 13px; background: #fff;
-      border: 1px solid var(--line); padding: 16px; border-radius: 12px; overflow-x: auto;
-    }
-    .pill {
-      display: inline-block; font-family: "Hiragino Sans", sans-serif; font-size: 11px;
-      letter-spacing: 0.06em; padding: 3px 8px; border-radius: 999px; color: #fff;
-    }
-    .pill.l { background: var(--legacy); }
-    .pill.g { background: var(--gcc); }
-
-    .versus { padding: 20px; }
-    .versus h3 { margin-top: 0; }
-    .versus.legacy { border-top: 5px solid var(--legacy); }
-    .versus.gcc { border-top: 5px solid var(--gcc); }
-
-    .stage {
-      position: relative; height: 360px; border-radius: 16px;
-      background: linear-gradient(180deg, #efe7d8 0%, #e7dcc8 100%); overflow: hidden;
-    }
-    .status {
-      position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
-      font-family: "Hiragino Sans", sans-serif; font-size: 14px;
-      background: rgba(255,250,243,0.92); padding: 6px 14px; border-radius: 999px;
-      border: 1px solid var(--line); max-width: 90%; text-align: center;
-    }
-    .node { position: absolute; top: 56px; width: 120px; text-align: center;
-      font-family: "Hiragino Sans", sans-serif; font-size: 13px; font-weight: 600; }
-    .node.send { left: 16px; }
-    .node.recv { right: 16px; }
-    .avatar {
-      width: 64px; height: 64px; margin: 0 auto 8px; border-radius: 16px;
-      display: grid; place-items: center; color: #fff; font-size: 24px;
-    }
-    .send .avatar { background: var(--terracotta); }
-    .recv .avatar { background: var(--teal); }
-    .lane {
-      position: absolute; left: 150px; right: 150px; top: 82px; height: 14px;
-      background: #cbbca6; border-radius: 999px;
-    }
-    .bottleneck {
-      position: absolute; left: 42%; width: 16%; top: -10px; height: 34px;
-      background: #8a7a66; border-radius: 10px;
-      transition: width 0.6s ease, left 0.6s ease, background 0.6s ease;
-    }
-    .pkt {
-      position: absolute; top: 74px; width: 16px; height: 16px; border-radius: 4px;
-      background: var(--terracotta); z-index: 2;
-    }
-    .pkt.lost { background: var(--rose); animation: drop 0.7s ease forwards; }
-    .pkt.ack { background: var(--leaf); top: 118px; }
-    @keyframes drop { to { transform: translate(40px, 80px) rotate(40deg); opacity: 0; } }
-    .dual-meters {
-      position: absolute; left: 16px; right: 16px; bottom: 14px;
-      display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
-      font-family: "Hiragino Sans", sans-serif;
-    }
-    .meter { height: 12px; background: #ddd4c6; border-radius: 999px; overflow: hidden; margin-top: 4px; }
-    .meter > span { display: block; height: 100%; width: 40%; border-radius: inherit; transition: width 0.8s ease; }
-    .meter.l > span { background: var(--legacy); }
-    .meter.g > span { background: var(--gcc); }
-    .bps { font-variant-numeric: tabular-nums; font-size: 22px; font-weight: 700; line-height: 1.1; }
-    .bps small { display: block; font-size: 11px; letter-spacing: 0.08em; color: var(--muted); font-weight: 500; }
-
-    .flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; padding: 16px; }
-    .flow-step {
-      flex: 1 1 120px; min-width: 110px; padding: 12px 10px; border-radius: 14px;
-      border: 1px solid var(--line); background: #fff; cursor: pointer;
-      font-family: "Hiragino Sans", sans-serif; font-size: 13px;
-      transition: background 0.25s ease, color 0.25s ease, transform 0.25s ease;
-    }
-    .flow-step strong { display: block; font-size: 15px; margin-bottom: 4px; }
-    .flow-step.is-on { background: var(--ink); color: var(--cream); border-color: var(--ink); transform: translateY(-3px); }
-    .flow-arrow { align-self: center; color: var(--muted); font-size: 18px; }
-    .flow-caption { padding: 0 16px 8px; font-family: "Hiragino Sans", sans-serif; font-size: 14px; min-height: 2.6em; color: var(--muted); }
-    .step-explain { display: none; grid-template-columns: 0.9fr 1.1fr; gap: 18px; align-items: center; padding: 8px 16px 12px; }
-    .step-explain.is-on { display: grid; }
-    .step-explain h3 { margin: 0 0 8px; }
-    .viz {
-      position: relative; height: 220px; border-radius: 16px;
-      background: linear-gradient(180deg, #f7f1e6, #efe7d8); border: 1px solid var(--line); overflow: hidden;
-    }
-    .viz .tag {
-      position: absolute; left: 10px; top: 8px; z-index: 2;
-      font-family: "Hiragino Sans", sans-serif; font-size: 11px; color: var(--muted);
-    }
-    .pair {
-      position: absolute; inset: 36px 12px 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
-    }
-    .pane {
-      border-radius: 12px; background: rgba(255,250,243,0.7); padding: 10px;
-      font-family: "Hiragino Sans", sans-serif; font-size: 12px; position: relative; overflow: hidden;
-    }
-    .pane.l { outline: 2px solid rgba(122,92,46,0.35); }
-    .pane.g { outline: 2px solid rgba(43,106,106,0.35); }
-    .rowp { display: flex; justify-content: space-between; margin-top: 28px; }
-    .bit {
-      width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center;
-      color: #fff; font-weight: 700; font-size: 11px; background: var(--leaf);
-    }
-    .bit.hole { background: transparent; border: 2px dashed var(--rose); color: var(--rose); }
-    .bit.skip { opacity: 0.25; }
-    .cursor {
-      position: absolute; width: 32px; height: 32px; border: 2px solid var(--ink); border-radius: 8px;
-      pointer-events: none;
-    }
-    .viz-skip .cur-l { left: 18px; top: 78px; animation: scanL 3s linear infinite; }
-    .viz-skip .cur-g { left: calc(50% + 18px); top: 78px; animation: scanG 3s linear infinite; }
-    @keyframes scanL {
-      0% { left: 22px; }
-      20% { left: 22px; }
-      40% { left: 58px; }
-      55% { left: 94px; }
-      75% { left: 130px; }
-      100% { left: 166px; }
-    }
-    @keyframes scanG {
-      0% { left: calc(50% + 22px); }
-      20% { left: calc(50% + 22px); }
-      40% { left: calc(50% + 58px); }
-      55% { left: calc(50% + 94px); }
-      75% { left: calc(50% + 130px); }
-      100% { left: calc(50% + 166px); }
-    }
-    .slope {
-      position: absolute; left: 10%; right: 10%; height: 3px; background: var(--terracotta);
-      top: 70%; transform-origin: left center; animation: steep 3.2s ease-in-out infinite;
-    }
-    @keyframes steep { 0%,20% { transform: rotate(-6deg); } 55% { transform: rotate(-36deg); } 100% { transform: rotate(-6deg); } }
-    .flat {
-      position: absolute; left: 10%; right: 10%; height: 3px; background: var(--legacy);
-      top: 58%;
-    }
-    .bar-col { text-align: center; }
-    .track { width: 28px; height: 110px; margin: 6px auto 0; background: #ddd4c6; border-radius: 7px; position: relative; overflow: hidden; }
-    .fill { position: absolute; left: 0; right: 0; bottom: 0; }
-    .fill.l { background: var(--legacy); height: 70%; }
-    .fill.g { background: var(--gcc); height: 70%; animation: gdrop 3s ease-in-out infinite; }
-    @keyframes gdrop { 0%,25% { height: 78%; } 60%,100% { height: 32%; } }
-    .burst {
-      position: absolute; width: 10px; height: 10px; background: var(--gcc); border-radius: 2px;
-      animation: burst 2s linear infinite;
-    }
-    @keyframes burst { 0% { left: 8%; opacity: 0; } 15% { opacity: 1; } 100% { left: 88%; opacity: 0; } }
-    .clock-face { display: grid; place-items: center; height: 100%; font-family: "Hiragino Sans", sans-serif; }
-    .tick {
-      width: 72px; height: 72px; border-radius: 50%; border: 4px solid var(--gcc);
-      animation: spin 2s linear infinite;
-      border-top-color: transparent;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .one-shot { width: 72px; height: 72px; border-radius: 50%; border: 4px solid var(--legacy); }
-
-    @media (max-width: 860px) {
-      .split2, .dual-meters, .step-explain.is-on, .pair { grid-template-columns: 1fr; }
-      .lane, .node.recv { display: none; }
-      .stage { height: 300px; }
-      .flow-arrow { display: none; }
-      .viz-skip .cur-g, .viz-skip .cur-l { display: none; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.8 "Hiragino Sans", "Noto Sans JP", sans-serif; }
+    header, main, footer { max-width: 1120px; margin: auto; padding: 32px 24px; }
+    header { padding-top: 64px; }
+    section { margin-bottom: 64px; scroll-margin-top: 20px; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { font-size: clamp(30px, 4.5vw, 49px); line-height: 1.4; letter-spacing: -.025em; }
+    h2 { font-size: clamp(24px, 3vw, 31px); line-height: 1.5; margin-bottom: 16px; }
+    h3 { font-size: 19px; line-height: 1.6; margin-bottom: 10px; }
+    a { color: var(--gcc); text-underline-offset: 3px; }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: default; opacity: .5; }
+    :focus-visible { outline: 3px solid var(--gcc); outline-offset: 4px; }
+    [hidden] { display: none !important; }
+    .eyebrow { color: var(--gcc); font-size: 12px; letter-spacing: .15em; margin-bottom: 16px; }
+    .lead { max-width: 900px; color: var(--muted); font-size: 18px; }
+    .note, figcaption, footer { color: var(--muted); font-size: 13px; }
+    .note { margin: 10px 0 0; }
+    nav, .controls, .scenario-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+    nav { margin-top: 24px; }
+    nav a, .chip { border: 1px solid var(--line); border-radius: 24px; background: var(--cream); padding: 8px 14px; color: var(--ink); font-size: 14px; text-decoration: none; }
+    .chip[aria-pressed="true"] { color: var(--cream); background: var(--ink); border-color: var(--ink); }
+    .card { border: 1px solid var(--line); border-radius: 18px; background: var(--cream); padding: 24px; }
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .split > *, .card, section { min-width: 0; }
+    .legacy { border-top: 4px solid var(--legacy); }
+    .gcc { border-top: 4px solid var(--gcc); }
+    .badge { display: inline-block; border-radius: 5px; padding: 2px 8px; background: var(--gcc); color: white; font-size: 11px; letter-spacing: .06em; margin-bottom: 10px; }
+    .badge.l { background: var(--legacy); }
+    .callout { border-left: 4px solid var(--wait); padding: 12px 18px; background: #f5e6d7; margin: 18px 0; }
+    .formula, pre { border: 1px solid var(--line); border-radius: 10px; background: #f4eee4; padding: 14px; font: 13px/1.9 ui-monospace, Menlo, monospace; overflow-x: auto; }
+    .formula strong { color: var(--gcc); }
+    .table-scroll, .diagram-scroll { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { background: #eee6d9; }
+    caption { text-align: left; margin-bottom: 8px; color: var(--muted); }
+    code, .number { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    .scenario-buttons { margin-bottom: 12px; }
+    .scenario-summary { margin: 12px 0 16px; font-size: 14px; }
+    .phase-buttons { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin: 20px 0; }
+    .phase-buttons button { border: 1px solid var(--line); background: white; border-radius: 8px; padding: 10px 4px; font-size: 12px; color: var(--muted); }
+    .phase-buttons button[aria-current="step"] { background: var(--gcc); color: white; border-color: var(--gcc); }
+    .controls { align-items: center; margin: 12px 0; }
+    .controls output { font-size: 13px; color: var(--muted); margin-left: auto; }
+    .seek { width: 100%; accent-color: var(--gcc); }
+    .step-copy { min-height: 120px; margin: 24px 0 12px; }
+    .step-copy p { font-size: 14px; margin: 0; }
+    .player-panel { border-top: 1px solid var(--line); padding-top: 16px; min-height: 440px; }
+    figure { margin: 0; }
+    svg { display: block; width: 100%; height: auto; font-family: "Hiragino Sans", "Noto Sans JP", sans-serif; }
+    .network-svg { min-width: 740px; }
+    .chart-svg { min-width: 390px; }
+    svg text { fill: var(--ink); font-size: 13px; }
+    svg .minor { fill: var(--muted); font-size: 11px; }
+    svg .white { fill: white; font-size: 11px; }
+    svg .axis { stroke: var(--line); stroke-width: 1; }
+    .legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 12px; color: var(--muted); margin: 8px 0; }
+    .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; background: var(--color); margin-right: 6px; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 16px 0; }
+    .stats div { padding: 10px; background: #eee7da; border-radius: 8px; font-size: 12px; }
+    .stats strong { display: block; font-size: 23px; }
+    .result { font-size: 30px; line-height: 1.4; margin: 12px 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .result small { font-size: 13px; font-weight: 400; }
+    .bar { height: 14px; background: #e6dece; border-radius: 4px; overflow: hidden; }
+    .bar span { display: block; height: 100%; background: var(--gcc); }
+    .legacy .bar span { background: var(--legacy); }
+    .substep { border-left: 3px solid var(--line); padding: 8px 12px; margin: 8px 0; font-size: 14px; }
+    .substep.active { border-color: var(--gcc); background: #e4eeea; }
+    .compact-flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 16px 0; }
+    .compact-flow button { text-align: left; padding: 12px; border-radius: 8px; border: 1px solid var(--line); background: white; font-size: 13px; color: var(--ink); }
+    .compact-flow button[aria-pressed="true"] { border-color: var(--gcc); background: #e3ede8; }
+    .packet-list { display: flex; gap: 10px; margin: 18px 0; flex-wrap: wrap; }
+    .packet-label { padding: 10px; background: var(--receive); color: white; border-radius: 6px; text-align: center; font-size: 13px; }
+    .packet-label.missing { border: 2px dashed var(--loss); color: var(--loss); background: transparent; padding: 8px; }
+    .mini-detail { min-height: 135px; }
+    .timeline { border-left: 3px solid var(--line); padding-left: 20px; }
+    .timeline p { font-size: 14px; }
+    .scroll-hint { display: none; }
+    details { margin-top: 18px; }
+    summary { cursor: pointer; color: var(--gcc); }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+    @media (max-width: 760px) {
+      header, main, footer { padding: 24px 16px; }
+      .card { padding: 16px; }
+      .split { grid-template-columns: 1fr; }
+      .phase-buttons { grid-template-columns: repeat(4, 1fr); }
+      .stats, .compact-flow { grid-template-columns: 1fr 1fr; }
+      .player-panel { min-height: 0; }
+      .step-copy { min-height: 0; }
+      .result { font-size: 27px; }
+      .scroll-hint { display: block; }
     }
     @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after { animation: none !important; transition: none !important; }
+      *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
     }
   </style>
 </head>
 <body>
-  <header class="hero">
-    <div class="kicker">werift · BandwidthEstimator</div>
-    <h1>同じ返事を見ても、<br />legacy と GCC は別の答えを出す</h1>
-    <p class="lead">
-      入力はどちらも TWCC です。既定の <strong>legacy</strong> は「届いた荷物の速さの小さい方」をそのまま採用します。
-      <strong>GCC</strong> は列の伸び・穴・試し打ちまで見て、次に送ってよい速さを決めます。
-    </p>
-    <nav class="toc">
-      <a href="#shared">共通契約</a>
-      <a href="#play">同じ道で比べる</a>
-      <a href="#pipeline">返事の処理順</a>
-      <a href="#loss">穴を数えるか</a>
-      <a href="#delay">傾きを見るか</a>
-      <a href="#probe">試し打ちと pacing</a>
-      <a href="#events">イベント</a>
-      <a href="#pick">どちらを使うか</a>
+  <header>
+    <p class="eyebrow">WERIFT / TWCC / SENDER BANDWIDTH ESTIMATION</p>
+    <h1>同じ TWCC から、<br />帯域をどう決めるか</h1>
+    <p class="lead">legacy は、受信が確認できたパケットのサイズと送受信時刻から平均速度を計算します。GCC は、それに加えて<strong>受信間隔が送信間隔より長い状態が続くか</strong>を調べ、待ち時間の増加を検出すると送信目標を下げます。</p>
+    <p class="lead">違いは「ロスが出るまで待つか」だけではありません。<strong>受信済みデータの平均速度を出す処理</strong>と、<strong>増え続ける待ち時間を解消するために目標を下げる処理</strong>を、同じ入力で比べます。</p>
+    <nav aria-label="目次">
+      <a href="#play">数値で追うアニメーション</a><a href="#pipeline">実装の処理順</a>
+      <a href="#loss">未受信とロス</a><a href="#probe">probe と pacing</a>
+      <a href="#events">帯域変更イベント</a><a href="#sources">根拠と再現方法</a>
     </nav>
   </header>
+  <main>
+    <section id="play">
+      <h2>ロスがなくても、待ち時間は増える</h2>
+      <p>1,200 byte のパケットを 12 ms ごとに送ると、送信レートは 800 kbps です。600 kbps の区間では 1 個を通すのに 16 ms かかるため、次のパケットが 4 ms 早く来て待たされます。バッファに収まる間は、<strong>全パケットが届いていても待ち行列が増えます。</strong></p>
+      <div class="callout">legacy も受信間隔が広がれば推定値は下がります。GCC の違いは、遅延増加を検出した後、到達スループットより低い目標を選んで待ち行列を減らそうとする点です。GCC が常に低い値になるわけではありません。</div>
+      <div class="card" id="comparison">
+        <div class="scenario-buttons" role="group" aria-label="比較する通信条件">
+          <button class="chip" type="button" data-scene="queue" aria-pressed="true">待ち行列が増える</button>
+          <button class="chip" type="button" data-scene="steady" aria-pressed="false">間隔が変わらない</button>
+          <button class="chip" type="button" data-scene="fixed" aria-pressed="false">固定の遅延だけ大きい</button>
+        </div>
+        <p class="scenario-summary" id="scenario-summary"></p>
+        <p class="note">推定器に与える合成入力の例です。40 個を送った後の TWCC 1 通を両方式に入力します。GCC の内部開始目標は比較用に 800 kbps、probe は発生させず、RTT 制限・追加のロス制限がかからない条件です。実際の通話のフィードバック周期や送信適応を再現するベンチマークではありません。</p>
+        <div class="phase-buttons" id="phases" role="group" aria-label="処理の手順">
+          <button type="button" data-phase="0">1. 送信</button><button type="button" data-phase="1">2. 待機と受信</button>
+          <button type="button" data-phase="2">3. TWCC</button><button type="button" data-phase="3">4. legacy</button>
+          <button type="button" data-phase="4">5. GCC</button><button type="button" data-phase="5">6. 通知</button>
+          <button type="button" data-phase="6">7. 送信量の調整</button>
+        </div>
+        <div class="controls">
+          <button class="chip" type="button" id="play-toggle" aria-pressed="false">再生</button>
+          <button class="chip" type="button" id="restart">先頭へ</button>
+          <button class="chip" type="button" id="previous">前の手順</button>
+          <button class="chip" type="button" id="next">次の手順</button>
+          <output id="position-label" for="position"></output>
+        </div>
+        <label class="sr-only" for="position">アニメーションの再生位置</label>
+        <input class="seek" type="range" id="position" min="0" max="699" value="0" step="1" />
+        <p class="note" id="motion-note">各手順のボタンで途中へ移動できます。スライダーを動かすと一時停止します。図の時間は説明用に遅く再生しています。</p>
+        <div class="step-copy" aria-live="polite" aria-atomic="true">
+          <h3 id="step-title"></h3><p id="step-detail"></p>
+        </div>
 
-  <section id="shared">
-    <h2>共通しているところ</h2>
-    <p class="note">差し替えできるように、表向きの約束は同じです。アプリはアルゴリズム名を知らなくてよい、というのが設計です。</p>
-    <div class="split2">
-      <div class="card versus" style="padding:20px">
-        <h3>どちらも同じ入口・出口</h3>
-        <div class="formula">rtpPacketSent(SentInfo)<br />receiveTWCC(TransportWideCC)<br />onAvailableBitrate → <em>bps（変化時のみ）</em></div>
-        <p class="caption" style="margin-top:10px">TWCC が交渉されていなければ、どちらも動きません。差し替えは <code>setBandwidthEstimator</code> だけです。</p>
-      </div>
-      <div class="card versus" style="padding:20px">
-        <h3>既定は legacy</h3>
-        <pre class="code">// 最初から入っている
-new SenderBandwidthEstimator()
-
-// 明示的に GCC へ
-sender.setBandwidthEstimator(new GccBandwidthEstimator());</pre>
-        <p class="caption">既存アプリは何もしなくても従来どおりです。</p>
-      </div>
-    </div>
-  </section>
-
-  <section id="play">
-    <h2>同じ道を流したときの、二つのおすすめ速度</h2>
-    <p class="note">
-      下はたとえです。legacy は<strong>届いた荷物だけ</strong>から速さを出します。穴や列の伸びは見ません。
-      だから「混んでいるのに数字が高い」ことが起きます。GCC はそこで減速します。
-    </p>
-    <div class="card play">
-      <div class="stage" id="stage">
-        <div class="status" id="status">道は空いています。両方とも速く送ってよい、と判断します。</div>
-        <div class="node send"><div class="avatar">送</div>送り手</div>
-        <div class="lane"><div class="bottleneck" id="neck"></div></div>
-        <div class="node recv"><div class="avatar">受</div>受け手</div>
-        <div class="dual-meters">
-          <div>
-            <div class="bps"><small>LEGACY · min(send, recv)</small><span id="bpsL">700</span> kbps</div>
-            <div class="meter l"><span id="barL"></span></div>
+        <div class="player-panel" id="network-panel">
+          <figure>
+            <div class="diagram-scroll"><svg class="network-svg" id="network" viewBox="0 0 960 275" role="img" aria-labelledby="network-title network-desc"></svg></div>
+            <figcaption id="network-caption"></figcaption>
+          </figure>
+          <div class="legend"><span style="--color:var(--wait)">バッファで待機</span><span style="--color:var(--gcc)">区間を通過中</span><span style="--color:var(--receive)">伝搬中 → 受信側の個数に加算</span></div>
+          <p class="note scroll-hint">図と表は横にスクロールできます。</p>
+          <div class="stats" id="network-stats"></div>
+          <div class="table-scroll">
+            <table>
+              <caption>入力データの抜粋（図示用の共通原点からの ms）。各パケットは 1,200 byte。</caption>
+              <thead><tr><th scope="col">TWCC 番号</th><th scope="col">送信 S</th><th scope="col">待機時間</th><th scope="col">受信 R</th><th scope="col">R − S</th><th scope="col">受信状態</th></tr></thead>
+              <tbody id="packet-table"></tbody>
+            </table>
           </div>
-          <div>
-            <div class="bps"><small>GCC · delay / loss / probe</small><span id="bpsG">700</span> kbps</div>
-            <div class="meter g"><span id="barG"></span></div>
+          <p class="note">入口までの伝搬は 0 ms とし、区間通過後に固定の伝搬遅延を足しています。実装は送受信の時計を同期させず、それぞれの時計内の差分 ΔS・ΔR を使います。R − S はモデル内の説明用です。</p>
+        </div>
+
+        <div class="player-panel" id="legacy-panel" hidden>
+          <div class="split">
+            <article class="card legacy">
+              <span class="badge l">LEGACY / 受信済みの平均</span><h3>同じバイト数を、二つの時刻幅で割る</h3>
+              <div id="legacy-calculation"></div>
+              <p class="result" id="legacy-result"></p>
+              <p class="note">送信レート側も「受信が確認できたパケット」だけが分子・時刻幅の対象です。全送信パケットの平均とは限りません。</p>
+            </article>
+            <article>
+              <h3>なぜ受信速度と完全には一致しないか</h3>
+              <p>この実装は 40 個分のバイト数を、最初と最後の間の 39 間隔で割ります。一定間隔でも、実際の定常レートに対し 40 / 39 倍の値になります。</p>
+              <p id="legacy-conclusion"></p>
+              <div class="formula">B = 受信済みパケットの合計 byte<br />send = B × 8 × 1000 / (S最大 − S最小)<br />recv = B × 8 × 1000 / (R最大 − R最小)<br />availableBitrate = min(send, recv)</div>
+              <p class="note">計算の目安は 100 ms 以上の経過と 20 パケット以上の蓄積。receiveTWCC 冒頭で 1 秒超の古い累積は破棄されます。遅延の傾きや「平均速度から一定割合を引く」処理はありません。</p>
+            </article>
           </div>
         </div>
+
+        <div class="player-panel" id="gcc-panel" hidden>
+          <div class="split">
+            <figure>
+              <h3>① 累積・平滑化した遅延の傾き</h3>
+              <div class="diagram-scroll"><svg class="chart-svg" id="delay-chart" viewBox="0 0 470 250" role="img" aria-labelledby="delay-title delay-desc"></svg></div>
+              <p class="note">縦軸は群間の間隔差 ΔR − ΔS の累積です。待機時間の絶対値ではありません。橙線は直近 20 点の平滑値に当てはめた回帰直線です。</p>
+              <h3 style="margin-top:22px">② 傾きをスコアに変換して判定</h3>
+              <div class="diagram-scroll"><svg class="chart-svg" id="trend-chart" viewBox="0 0 470 300" role="img" aria-labelledby="trend-title trend-desc"></svg></div>
+              <figcaption>現在の TrendlineEstimator から採取した判定用スコアと適応閾値。横軸はフィードバック内の受信時刻です。パケットが届く場面を再生し直しているのではなく、届いた TWCC を送信側で処理しています。</figcaption>
+              <p class="note scroll-hint">グラフは横にスクロールできます。</p>
+              <p class="formula" id="detector-readout"></p>
+            </figure>
+            <article class="card gcc">
+              <span class="badge">GCC / 遅延増加から目標を制御</span><h3>間隔の差 → 平滑化 → 傾き → 判定</h3>
+              <div id="gcc-calculation"></div>
+              <p id="gcc-conclusion"></p>
+              <div class="formula" id="delay-calculation"></div>
+              <p class="note">GCC の到達スループット推定も、送信側・受信側の両方を使います。既定の RobustThroughputEstimator は窓の端の 1 パケットを除いて計算し、極端な受信間隔にも補正をかけます。等間隔のこの例では 600 kbps（待機あり）、800 kbps（待機なし）です。</p>
+              <p class="note">実際は送信時刻でグループ化し、完了した群同士の間隔を使います。この例は送信間隔が 12 ms なので 1 個ずつ別の群です。次の群が必要なため、40 個から得られる間隔差は 38 個です。</p>
+            </article>
+          </div>
+          <p class="callout">右肩上がりの点が一つ出ただけでは減速しません。履歴 20 個で回帰し、正の判定用スコアが適応閾値を超え、継続時間・回数・傾きの条件を満たすと overuse になります。減速の実行には AIMD の更新間隔条件もあります。</p>
+        </div>
+
+        <div class="player-panel" id="event-panel" hidden>
+          <div class="split">
+            <article class="card legacy"><span class="badge l">LEGACY</span><h3>累積の min(send, recv)</h3><p class="result" id="event-legacy"></p><div class="bar"><span id="bar-legacy"></span></div><p class="formula" id="event-legacy-log"></p></article>
+            <article class="card gcc"><span class="badge">GCC</span><h3>遅延制御後の送信目標</h3><p class="result" id="event-gcc"></p><div class="bar"><span id="bar-gcc"></span></div><p class="formula" id="event-gcc-log"></p></article>
+          </div>
+          <p class="note">棒の共通スケールは 0〜1,000 kbps。数値は現在の推定器に同じ入力を与えた出力で、回線容量そのものを測った値ではありません。初回観測前の公開値は、この例では両方とも 0 bps です。</p>
+          <div class="callout">両方とも <code>onAvailableBitrate</code> は <strong>bps が変わったときだけ</strong>発火します。同じ値の再計算では通知しません。アプリは <code>sender.onAvailableBitrate</code> を購読し、エンコーダやメディア生成量に反映します。</div>
+        </div>
+
+        <div class="player-panel" id="adapt-panel" hidden>
+          <figure><div class="diagram-scroll"><svg class="chart-svg" id="queue-chart" viewBox="0 0 800 300" role="img" aria-labelledby="queue-title queue-desc"></svg></div><figcaption id="adapt-caption"></figcaption></figure>
+          <p class="note scroll-hint">グラフは横にスクロールできます。</p>
+          <div class="split" style="margin-top:20px"><p class="formula" id="adapt-legacy"></p><p class="formula" id="adapt-gcc"></p></div>
+          <p class="note">ここだけ「アプリが通知値に送信量を合わせ、その値を 2 秒間保つ」という別の連続流モデルです。両方とも 12,000 byte の待ち行列から始めます。40 パケットの図の続きでも、実際の推定器の継続シミュレーションでもありません。後続 TWCC による再推定や probe は省いています。</p>
+        </div>
       </div>
-      <div class="controls">
-        <button class="chip active" data-scene="clear" type="button">道が空いている</button>
-        <button class="chip" data-scene="delay" type="button">列が伸びる（穴は無い）</button>
-        <button class="chip" data-scene="loss" type="button">荷物が落ちる</button>
-        <button class="chip" data-scene="probe" type="button">立ち上がり・試し打ち</button>
+      <noscript><p class="callout">アニメーションには JavaScript が必要です。600 kbps の例では ΔS = 12 ms、ΔR = 16 ms、待機が 1 個ごとに 4 ms 増えます。40 個の同じ観測から legacy は 615,384 bps、GCC は overuse を検出して 505,000 bps を通知します。以下の処理順・イベントの説明はそのまま読めます。</p></noscript>
+    </section>
+
+    <section id="pipeline">
+      <h2>実装は、この順にフィードバックを処理する</h2>
+      <p>上のプレイヤーは比較のため legacy と GCC を順に見せました。実際の <code>RTCRtpSender</code> では選択した一方だけが動きます。TWCC は番号と受信状態・受信時刻の情報を返し、帯域を決めるのは送信側です。<a href="https://datatracker.ietf.org/doc/html/draft-holmer-rmcat-transport-wide-cc-extensions-01#section-3">TWCC draft §3</a></p>
+      <div class="split">
+        <article class="card legacy"><span class="badge l">LEGACY</span><div class="timeline">
+          <p><strong>① 番号で照合</strong><br />送信履歴にあり、受信済みで時刻を持つ行を取り出す。</p>
+          <p><strong>② サイズと時刻を累積</strong><br />合計 byte と送受信時刻の最小・最大を更新する。</p>
+          <p><strong>③ 平均速度を計算</strong><br />サンプルが揃ったら min(send, recv) を採用し、累積をリセットする。</p>
+          <p><strong>④ 値が変われば通知</strong><br />帯域イベントのほかに、legacy 固有の混雑カウンタの更新もある。</p>
+        </div></article>
+        <article class="card gcc"><span class="badge">GCC</span><div class="timeline">
+          <p><strong>① 番号順に照合・ロス用の記録を作成</strong><br />受信確認済みの重複を除き、未受信は後着で訂正できる状態にする。</p>
+          <p><strong>② 受信時刻順で入力</strong><br />到達スループット、probe の受信結果、群間の遅延変化を更新する。</p>
+          <p><strong>③ delay / probe → loss → 最終目標</strong><br />overuse なら AIMD の減速経路。有効な probe 結果があり overuse でなければ delay 推定へ反映。その後 LossBasedBwe を更新し、利用可能なら採用する。RTT 制限や上下限も適用する。</p>
+          <p><strong>④ 変更を通知し、次の probe 条件を更新</strong><br />TWCC 処理中の通知は delay 結果の更新時。全未受信などで更新されない場合も、25 ms の process 経路で目標を公開できる。</p>
+        </div></article>
       </div>
-    </div>
-  </section>
+      <p class="note">単純な <code>min(delay, loss)</code> は loss 推定が利用可能な通常経路の説明です。開始直後・RTT 制限時・受信時刻のないフィードバックまで、常にこの一式で決まるわけではありません。</p>
+      <details><summary>時刻・番号・タイマの補足</summary>
+        <div class="table-scroll"><table><thead><tr><th>項目</th><th>legacy</th><th>GCC</th></tr></thead><tbody>
+          <tr><td>送信履歴</td><td>16-bit 番号をキーにする。送信時に 10 秒超の古い履歴を掃除。同じキーが残っていれば一周後に上書き。</td><td>番号を unwrap し、最大 60 秒の履歴を持つ。送信時・process 時に掃除。</td></tr>
+          <tr><td>送信時</td><td>送信履歴を記録。</td><td>履歴、アプリが送信量を制限している状態（ALR）、probe 送信量などを更新。ここで帯域を再推定しない。</td></tr>
+          <tr><td>25 ms process</td><td>なし。</td><td>RTT backoff、probe の進行、目標の公開。新しい遅延サンプルを作る処理ではない。</td></tr>
+          <tr><td>RTT</td><td>帯域計算には使わない。</td><td>TWCC 由来の補正 RTT は backoff に、RTCP RR 由来の生 RTT は AIMD の減速間隔などに使う。</td></tr>
+        </tbody></table></div>
+      </details>
+    </section>
 
-  <section id="pipeline">
-    <h2>返事が来てから、数字が決まるまで</h2>
-    <p class="note">GCC 解説と同じ問いです。legacy はこのうち半分しかやりません。手順を押すと、両側の動きが並びます。</p>
-    <div class="card play">
-      <div class="flow" id="flow">
-        <div class="flow-step" data-i="0"><strong>1. 照合</strong>番号で送り履歴を探す</div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step" data-i="1"><strong>2. 穴</strong>届いていない荷物</div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step" data-i="2"><strong>3. 遅れ</strong>列が伸びているか</div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step" data-i="3"><strong>4. 速さ</strong>bps の出し方</div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step" data-i="4"><strong>5. 試し打ち</strong>もっと速くてよいか</div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step" data-i="5"><strong>6. 通知</strong>アプリへ渡すもの</div>
+    <section id="loss">
+      <h2>「未受信」は、その報告時点の状態</h2>
+      <p>番号 10〜14 のうち 12 だけ未受信と報告された例です。経路で破棄された可能性も、まだ到着していない可能性もあります。<strong>一つの未受信報告だけで、GCC が一定割合減速するわけではありません。</strong></p>
+      <div class="card">
+        <div class="compact-flow" id="loss-steps" role="group" aria-label="未受信報告の処理">
+          <button type="button" data-loss="0" aria-pressed="true">1. TWCC で未受信</button><button type="button" data-loss="1" aria-pressed="false">2. 両方式で処理</button>
+          <button type="button" data-loss="2" aria-pressed="false">3. 同じ未受信の再報告</button><button type="button" data-loss="3" aria-pressed="false">4. 後から受信報告</button>
+        </div>
+        <div class="packet-list" aria-label="TWCC 受信状態"><span class="packet-label">10<br />受信済み</span><span class="packet-label">11<br />受信済み</span><span class="packet-label missing" id="loss-packet">12<br />未受信</span><span class="packet-label">13<br />受信済み</span><span class="packet-label">14<br />受信済み</span></div>
+        <div class="split mini-detail" aria-live="polite" aria-atomic="true"><div><span class="badge l">LEGACY</span><p id="loss-legacy"></p></div><div><span class="badge">GCC</span><p id="loss-gcc"></p></div></div>
+        <p class="note">操作で状態を進める模式図です。5 個の報告から帯域値が出るという意味ではありません。GCC の loss 経路は byte ベースの観測を蓄積し、既定では送信時刻幅 250 ms 以上の観測が最低 3 個必要です。後着によるロス取消しは未確定の観測内だけで、確定済みの過去の観測は書き換えません。</p>
       </div>
-      <p class="flow-caption" id="flowText"></p>
-      <div id="board"></div>
-      <div class="controls">
-        <button class="chip" type="button" id="flowPlay">再生</button>
-        <button class="chip" type="button" id="flowPrev">前の手順</button>
-        <button class="chip" type="button" id="flowNext">次の手順</button>
+      <p class="callout">legacy はロス率を明示的にモデル化しません。ただし、受信済みの合計 byte が減ったり時刻幅が広がったりすれば推定値は下がり得ます。「未受信を飛ばすから帯域が下がらない」という説明は正しくありません。</p>
+    </section>
+
+    <section id="probe">
+      <h2>probe は測定のための送信。pacing は送信時刻の調整</h2>
+      <p>GCC は短いパケット群（probe cluster）を決めたレートで送り、TWCC の受信結果から帯域の候補を得ます。<strong>probe の設定値は、使えると確認できた帯域ではありません。</strong>pacing はパケットを送る間隔を調整します。画質やエンコーダの生成量を自動で変える機能とは別です。</p>
+      <div class="card">
+        <div class="compact-flow" id="probe-steps" role="group" aria-label="probe の処理順">
+          <button type="button" data-probe="0" aria-pressed="true">1. クラスタを設定</button><button type="button" data-probe="1" aria-pressed="false">2. 送信量を満たす</button>
+          <button type="button" data-probe="2" aria-pressed="false">3. TWCC で測定</button><button type="button" data-probe="3" aria-pressed="false">4. delay / loss に統合</button>
+        </div>
+        <figure><div class="diagram-scroll"><svg class="network-svg" id="probe-diagram" viewBox="0 0 940 160" role="img" aria-labelledby="probe-title probe-desc"></svg></div><figcaption>時間軸の長さは模式的です。A → B の送信進行と、後から返る TWCC による推定は別の処理です。</figcaption></figure>
+        <p class="mini-detail" id="probe-detail" aria-live="polite"></p>
       </div>
-    </div>
-  </section>
+      <div class="table-scroll" style="margin-top:20px"><table><thead><tr><th>項目</th><th>legacy</th><th>GCC の現在の実装</th></tr></thead><tbody>
+        <tr><td>初期 probe</td><td>なし。</td><td>既定の内部開始値 300 kbps に対し 3 倍 / 6 倍のクラスタを要求（上限等の条件あり）。FIFO で一つずつ送信。</td></tr>
+        <tr><td>probe のパケット</td><td>なし。</td><td>メディアに加え、不足分を RTP padding で補う。送信前に cluster id を予約し、送信後に実サイズを記録。</td></tr>
+        <tr><td>通常メディアの pacing</td><td>BWE による token bucket はなし。</td><td>目標の 2.5 倍（初回有効 TWCC 前）、1.1 倍（以降）。probe 中はそのレートまで引き上げる。エンコーダの目標値ではない。</td></tr>
+        <tr><td>開始値・公開値</td><td>サンプルが揃うまで 0 bps。</td><td>内部開始値は既定 300 kbps。公開値も最初から 300 kbps になるわけではない。通常は有効 TWCC 後に公開し、RTT backoff の安全動作はそれより前に通知し得る。</td></tr>
+      </tbody></table></div>
+      <p class="note">GCC には追加・回復・任意設定の ALR probe 等の経路もあります。この図は初期クラスタの流れです。werift の送信器は軽量な token bucket と padding 注入を使っており、libwebrtc の PacedSender 全体と同一ではありません。</p>
+    </section>
 
-  <section id="loss">
-    <h2>穴を数えるか、通り過ぎるか</h2>
-    <div class="split2">
-      <article class="card versus legacy" style="padding:20px">
-        <span class="pill l">LEGACY</span>
-        <h3>届いた行だけを積む</h3>
-        <p class="caption"><code>if (!result.received) continue;</code> なので、穴は統計に入りません。届いた荷物が速く見えれば、道が欠けていても数字は下がりません。</p>
-        <div class="formula">受信済み かつ 時刻あり<br />→ サイズと時刻を累積</div>
-      </article>
-      <article class="card versus gcc" style="padding:20px">
-        <span class="pill g">GCC</span>
-        <h3>番号順で穴も数える</h3>
-        <p class="caption">未到達は仮の印です。あとから届いたら取り消します。同じ番号が何度「未到達」でもロス観察には数えます。遅延計算とは順が違います（遅延は届いた時刻順）。</p>
-        <div class="formula">seq 順で soft loss<br />recv 時刻順で delay / probe</div>
-      </article>
-    </div>
-  </section>
-
-  <section id="delay">
-    <h2>傾きを見るか、平均の速さだけか</h2>
-    <div class="split2">
-      <article class="card versus legacy" style="padding:20px">
-        <span class="pill l">LEGACY</span>
-        <h3>窓の最初と最後から割り算</h3>
-        <div class="formula">send = 合計バイト / 送り時刻の幅<br />recv = 合計バイト / 届き時刻の幅<br />bps = <em>min(send, recv)</em></div>
-        <p class="caption" style="margin-top:10px">条件は「経過 ≥ 100ms かつ 20 パケット」。1秒超たまらないと congestion カウンタが増えます。勾配は見ません。</p>
-      </article>
-      <article class="card versus gcc" style="padding:20px">
-        <span class="pill g">GCC</span>
-        <h3>群れの間隔の傾き → AIMD</h3>
-        <div class="formula">overuse: 届いた速さ × 0.85、必要なら −5kbps<br />試し打ち成功: その値を delay に載せる<br />最後に min(delay, loss)</div>
-        <p class="caption" style="margin-top:10px">列が伸びていれば、平均速さがまだ高くても減速します。underuse 中は新しい試し打ちを出しません。</p>
-      </article>
-    </div>
-  </section>
-
-  <section id="probe">
-    <h2>試し打ちと pacing は GCC だけ</h2>
-    <p class="note">legacy はアプリが渡した速さのまま出します。送信ホットパスで推定も probe も回しません。GCC は capability が付いているときだけ、sender が待ちと余白パケットを足します。</p>
-    <table class="plain">
-      <thead>
-        <tr><th></th><th>legacy</th><th>GCC</th></tr>
-      </thead>
-      <tbody>
-        <tr><td>送信時</td><td>履歴に残すだけ（16-bit キー、10秒で捨てる）</td><td>履歴（unwrap、最大60秒）＋ ALR ＋ probe の send-fill。推定はしない</td></tr>
-        <tr><td>25ms タイマ</td><td>無し</td><td><code>process()</code> で RTT backoff と probe 進行</td></tr>
-        <tr><td>メディア pacing</td><td>無し</td><td>初回 TWCC 前 2.5×、以降 1.1× の token-bucket</td></tr>
-        <tr><td>probe padding</td><td>無し</td><td>3×/6× の短い固まり。送信前に cluster id を予約</td></tr>
-        <tr><td>RTT</td><td>使わない</td><td>TWCC は backoff、RTCP RR の生値は AIMD。混ぜない</td></tr>
-        <tr><td>下限</td><td>無し（0 のままもあり得る）</td><td>5 kbps。開始はだいたい 300 kbps</td></tr>
-      </tbody>
-    </table>
-  </section>
-
-  <section id="events">
-    <h2>アプリが見るイベントも、同じではない</h2>
-    <div class="split2">
-      <article class="card versus legacy" style="padding:20px">
-        <span class="pill l">LEGACY 固有</span>
-        <h3>混雑スコアがある</h3>
-        <p class="caption">共通 interface には載せません。具象をキャストしたときだけ使えます。</p>
-        <div class="formula">onAvailableBitrate(bps)<br />onCongestion(boolean)<br />onCongestionScore(1〜10)</div>
-      </article>
-      <article class="card versus gcc" style="padding:20px">
-        <span class="pill g">GCC 固有</span>
-        <h3>overuse と probe 設定</h3>
-        <p class="caption">アプリの本線は sender の <code>onAvailableBitrate</code> だけです。残りは GCC インスタンス、または sender の probe ブリッジです。</p>
-        <div class="formula">onAvailableBitrate(bps)<br />onOveruseDetected(usage)<br />onProbeClusterConfig(...)</div>
-      </article>
-    </div>
-    <p class="caption" style="margin-top:14px">
-      16-bit の番号の扱いも違います。legacy はワイヤーの 16-bit をそのままキーにするので、一周すると上書きします。GCC は unwrap して世代を分けます。
-    </p>
-  </section>
-
-  <section id="pick">
-    <h2>どちらを使うか</h2>
-    <table class="plain">
-      <thead>
-        <tr><th>向いている状況</th><th>選ぶもの</th></tr>
-      </thead>
-      <tbody>
-        <tr><td>これまでどおり動かしたい。追加の pacing は要らない</td><td>何もしない（legacy）</td></tr>
-        <tr><td>ボトルネックで画質を落とし、空きが出たら探したい。Chrome に寄せたい</td><td><code>new GccBandwidthEstimator()</code></td></tr>
-        <tr><td>混雑スコアで UI を出している</td><td>legacy の具象を購読。GCC に替えるならスコアは無くなる</td></tr>
-      </tbody>
-    </table>
-    <pre class="code" style="margin-top:16px">sender.onAvailableBitrate.subscribe((bps) => {
-  // どちらに差し替えても、この購読は残る
+    <section id="events">
+      <h2>帯域の変化は、共通のイベントで受け取る</h2>
+      <p><code>RTCRtpSender.onAvailableBitrate</code> の引数は、新しい推定送信可能帯域の <strong>整数 bps（bits per second）</strong>です。kbps への換算は表示側で行います。値が変わったときだけ通知し、毎パケット・毎 TWCC・毎タイマで必ず発火するものではありません。</p>
+      <pre><code>sender.onAvailableBitrate.subscribe((bps) =&gt; {
+  // 例: 505000 は 505 kbps。アプリのエンコーダや生成量に反映する。
+  // この購読は推定器を差し替えた後も有効。
 });
-sender.setBandwidthEstimator(new GccBandwidthEstimator());</pre>
-  </section>
+sender.setBandwidthEstimator(new GccBandwidthEstimator());</code></pre>
+      <div class="split">
+        <article class="card"><h3>共通の入口と出口</h3><div class="formula">rtpPacketSent(SentInfo)<br />receiveTWCC(TransportWideCC)<br />availableBitrate<br />onAvailableBitrate → bps（値の変更時）</div><p class="note">既定は SenderBandwidthEstimator（legacy）。差し替えは setBandwidthEstimator を使います。通常の RTP/TWCC 観測と probe 送信・pacing は TWCC 拡張の交渉が前提です。</p></article>
+        <article class="card"><h3>差し替え時は推定を引き継がない</h3><p>旧推定器を dispose / reset し、注入する推定器も reset します。sender の共通イベント購読は残ります。リセットで公開値が 0 に戻ること自体は、帯域変更通知を発火しません。</p><p class="note">legacy 固有: onCongestion / onCongestionScore（1〜10）。GCC 固有: onOveruseDetected / onProbeClusterConfig。これらは共通 interface の帯域イベントとは別です。</p></article>
+      </div>
+      <p class="callout">推定器は通知する帯域を決めます。実際にエンコーダの目標を下げたり、メディアの生成量を減らしたりする処理はアプリ側に必要です。pacing だけで生成量を減らせるわけではありません。</p>
+    </section>
 
-  <footer>
-    GCC 側の手順ごとの動く図は <a href="./gcc-explainer.html">gcc-explainer.html</a> にあります。
-    関数名まで追う資料は <code>reviews/gcc-mechanism.md</code> です。
-    このページはブラウザでそのまま開けます。
-  </footer>
-
+    <section id="sources">
+      <h2>実装との対応と再現方法</h2>
+      <p>アニメーションの送受信時刻・待機量は一つのキューモデルから生成し、同じ履歴と TWCC の展開結果を現在の二つの推定器に入力しています。グラフのスコアと閾値も現在の TrendlineEstimator の出力です。HTML は単独で開け、外部ライブラリや通信を必要としません。</p>
+      <div class="table-scroll"><table><thead><tr><th>説明</th><th>対応する実装</th></tr></thead><tbody>
+        <tr><td>legacy の入力条件・計算</td><td><a href="../packages/webrtc/src/media/sender/estimators/legacyCumulativeBwe.ts">legacyCumulativeBwe.ts</a> / <a href="../packages/webrtc/src/media/sender/cumulativeResult.ts">cumulativeResult.ts</a></td></tr>
+        <tr><td>群間の間隔差・傾き・AIMD</td><td><a href="../packages/webrtc/src/media/sender/estimators/gcc/interArrivalDelta.ts">interArrivalDelta.ts</a> / <a href="../packages/webrtc/src/media/sender/estimators/gcc/trendlineEstimator.ts">trendlineEstimator.ts</a> / <a href="../packages/webrtc/src/media/sender/estimators/gcc/aimdRateControl.ts">aimdRateControl.ts</a></td></tr>
+        <tr><td>到達スループット・loss・probe</td><td><a href="../packages/webrtc/src/media/sender/estimators/gcc/acknowledgedBitrateEstimator.ts">acknowledgedBitrateEstimator.ts</a> / <a href="../packages/webrtc/src/media/sender/estimators/gcc/lossBasedBwe.ts">lossBasedBwe.ts</a> / <a href="../packages/webrtc/src/media/sender/estimators/gcc/probeController.ts">probeController.ts</a></td></tr>
+        <tr><td>統合・イベント・差し替え</td><td><a href="../packages/webrtc/src/media/sender/estimators/gcc/gccBwe.ts">gccBwe.ts</a> / <a href="../packages/webrtc/src/media/sender/bandwidthEstimator.ts">bandwidthEstimator.ts</a> / <a href="../packages/webrtc/src/media/rtpSender.ts">rtpSender.ts</a></td></tr>
+      </tbody></table></div>
+      <details><summary>数値を現在のコードで再検証する</summary><p><a href="./gcc-vs-legacy.trace.ts">gcc-vs-legacy.trace.ts</a> が HTML 内のデータと現在の実装の出力を照合します。リポジトリのルートで実行してください。</p><pre><code>node_modules/.bin/tsx reviews/gcc-vs-legacy.trace.ts
+# 実装の変更後、埋め込みデータを更新する場合:
+node_modules/.bin/tsx reviews/gcc-vs-legacy.trace.ts --write</code></pre><p class="note">フィードバックはパース後の入力として与えます。wire シリアライズやネットワーク・pacer・エンコーダを含む E2E 検証ではありません。</p></details>
+    </section>
+  </main>
+  <footer>このページは、このリポジトリの GCC と legacy の実装を比較する資料です。GCC 一般やブラウザの全実装が、どの条件でも同じ数値を返すという意味ではありません。</footer>
+  <script id="estimator-data" type="application/json">
+{"packetBytes":1200,"sendIntervalMs":12,"packetCount":40,"initialTargetBps":800000,"scenarios":{"steady":{"serviceMs":12,"propagationMs":40,"feedbackMs":560,"packets":[{"seq":1,"sendMs":0,"startMs":0,"exitMs":12,"recvMs":52,"waitMs":0},{"seq":2,"sendMs":12,"startMs":12,"exitMs":24,"recvMs":64,"waitMs":0},{"seq":3,"sendMs":24,"startMs":24,"exitMs":36,"recvMs":76,"waitMs":0},{"seq":4,"sendMs":36,"startMs":36,"exitMs":48,"recvMs":88,"waitMs":0},{"seq":5,"sendMs":48,"startMs":48,"exitMs":60,"recvMs":100,"waitMs":0},{"seq":6,"sendMs":60,"startMs":60,"exitMs":72,"recvMs":112,"waitMs":0},{"seq":7,"sendMs":72,"startMs":72,"exitMs":84,"recvMs":124,"waitMs":0},{"seq":8,"sendMs":84,"startMs":84,"exitMs":96,"recvMs":136,"waitMs":0},{"seq":9,"sendMs":96,"startMs":96,"exitMs":108,"recvMs":148,"waitMs":0},{"seq":10,"sendMs":108,"startMs":108,"exitMs":120,"recvMs":160,"waitMs":0},{"seq":11,"sendMs":120,"startMs":120,"exitMs":132,"recvMs":172,"waitMs":0},{"seq":12,"sendMs":132,"startMs":132,"exitMs":144,"recvMs":184,"waitMs":0},{"seq":13,"sendMs":144,"startMs":144,"exitMs":156,"recvMs":196,"waitMs":0},{"seq":14,"sendMs":156,"startMs":156,"exitMs":168,"recvMs":208,"waitMs":0},{"seq":15,"sendMs":168,"startMs":168,"exitMs":180,"recvMs":220,"waitMs":0},{"seq":16,"sendMs":180,"startMs":180,"exitMs":192,"recvMs":232,"waitMs":0},{"seq":17,"sendMs":192,"startMs":192,"exitMs":204,"recvMs":244,"waitMs":0},{"seq":18,"sendMs":204,"startMs":204,"exitMs":216,"recvMs":256,"waitMs":0},{"seq":19,"sendMs":216,"startMs":216,"exitMs":228,"recvMs":268,"waitMs":0},{"seq":20,"sendMs":228,"startMs":228,"exitMs":240,"recvMs":280,"waitMs":0},{"seq":21,"sendMs":240,"startMs":240,"exitMs":252,"recvMs":292,"waitMs":0},{"seq":22,"sendMs":252,"startMs":252,"exitMs":264,"recvMs":304,"waitMs":0},{"seq":23,"sendMs":264,"startMs":264,"exitMs":276,"recvMs":316,"waitMs":0},{"seq":24,"sendMs":276,"startMs":276,"exitMs":288,"recvMs":328,"waitMs":0},{"seq":25,"sendMs":288,"startMs":288,"exitMs":300,"recvMs":340,"waitMs":0},{"seq":26,"sendMs":300,"startMs":300,"exitMs":312,"recvMs":352,"waitMs":0},{"seq":27,"sendMs":312,"startMs":312,"exitMs":324,"recvMs":364,"waitMs":0},{"seq":28,"sendMs":324,"startMs":324,"exitMs":336,"recvMs":376,"waitMs":0},{"seq":29,"sendMs":336,"startMs":336,"exitMs":348,"recvMs":388,"waitMs":0},{"seq":30,"sendMs":348,"startMs":348,"exitMs":360,"recvMs":400,"waitMs":0},{"seq":31,"sendMs":360,"startMs":360,"exitMs":372,"recvMs":412,"waitMs":0},{"seq":32,"sendMs":372,"startMs":372,"exitMs":384,"recvMs":424,"waitMs":0},{"seq":33,"sendMs":384,"startMs":384,"exitMs":396,"recvMs":436,"waitMs":0},{"seq":34,"sendMs":396,"startMs":396,"exitMs":408,"recvMs":448,"waitMs":0},{"seq":35,"sendMs":408,"startMs":408,"exitMs":420,"recvMs":460,"waitMs":0},{"seq":36,"sendMs":420,"startMs":420,"exitMs":432,"recvMs":472,"waitMs":0},{"seq":37,"sendMs":432,"startMs":432,"exitMs":444,"recvMs":484,"waitMs":0},{"seq":38,"sendMs":444,"startMs":444,"exitMs":456,"recvMs":496,"waitMs":0},{"seq":39,"sendMs":456,"startMs":456,"exitMs":468,"recvMs":508,"waitMs":0},{"seq":40,"sendMs":468,"startMs":468,"exitMs":480,"recvMs":520,"waitMs":0}],"trace":[{"seq":1,"deltas":0,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":12.5,"state":"normal"},{"seq":2,"deltas":0,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":12.5,"state":"normal"},{"seq":3,"deltas":1,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":12.5,"state":"normal"},{"seq":4,"deltas":2,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":12.5,"state":"normal"},{"seq":5,"deltas":3,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6.65,"state":"normal"},{"seq":6,"deltas":4,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":7,"deltas":5,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":8,"deltas":6,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":9,"deltas":7,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":10,"deltas":8,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":11,"deltas":9,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":12,"deltas":10,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":13,"deltas":11,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":14,"deltas":12,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":15,"deltas":13,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":16,"deltas":14,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":17,"deltas":15,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":18,"deltas":16,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":19,"deltas":17,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":20,"deltas":18,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":21,"deltas":19,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":22,"deltas":20,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":23,"deltas":21,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":24,"deltas":22,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":25,"deltas":23,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":26,"deltas":24,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":27,"deltas":25,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":28,"deltas":26,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":29,"deltas":27,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":30,"deltas":28,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":31,"deltas":29,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":32,"deltas":30,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":33,"deltas":31,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":34,"deltas":32,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":35,"deltas":33,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":36,"deltas":34,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":37,"deltas":35,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":38,"deltas":36,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":39,"deltas":37,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":40,"deltas":38,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"}],"sendSpanMs":468,"recvSpanMs":468,"legacyBps":820512,"gccBps":801000,"events":{"legacy":[820512],"gcc":[801000]},"usage":"normal"},"queue":{"serviceMs":16,"propagationMs":40,"feedbackMs":720,"packets":[{"seq":1,"sendMs":0,"startMs":0,"exitMs":16,"recvMs":56,"waitMs":0},{"seq":2,"sendMs":12,"startMs":16,"exitMs":32,"recvMs":72,"waitMs":4},{"seq":3,"sendMs":24,"startMs":32,"exitMs":48,"recvMs":88,"waitMs":8},{"seq":4,"sendMs":36,"startMs":48,"exitMs":64,"recvMs":104,"waitMs":12},{"seq":5,"sendMs":48,"startMs":64,"exitMs":80,"recvMs":120,"waitMs":16},{"seq":6,"sendMs":60,"startMs":80,"exitMs":96,"recvMs":136,"waitMs":20},{"seq":7,"sendMs":72,"startMs":96,"exitMs":112,"recvMs":152,"waitMs":24},{"seq":8,"sendMs":84,"startMs":112,"exitMs":128,"recvMs":168,"waitMs":28},{"seq":9,"sendMs":96,"startMs":128,"exitMs":144,"recvMs":184,"waitMs":32},{"seq":10,"sendMs":108,"startMs":144,"exitMs":160,"recvMs":200,"waitMs":36},{"seq":11,"sendMs":120,"startMs":160,"exitMs":176,"recvMs":216,"waitMs":40},{"seq":12,"sendMs":132,"startMs":176,"exitMs":192,"recvMs":232,"waitMs":44},{"seq":13,"sendMs":144,"startMs":192,"exitMs":208,"recvMs":248,"waitMs":48},{"seq":14,"sendMs":156,"startMs":208,"exitMs":224,"recvMs":264,"waitMs":52},{"seq":15,"sendMs":168,"startMs":224,"exitMs":240,"recvMs":280,"waitMs":56},{"seq":16,"sendMs":180,"startMs":240,"exitMs":256,"recvMs":296,"waitMs":60},{"seq":17,"sendMs":192,"startMs":256,"exitMs":272,"recvMs":312,"waitMs":64},{"seq":18,"sendMs":204,"startMs":272,"exitMs":288,"recvMs":328,"waitMs":68},{"seq":19,"sendMs":216,"startMs":288,"exitMs":304,"recvMs":344,"waitMs":72},{"seq":20,"sendMs":228,"startMs":304,"exitMs":320,"recvMs":360,"waitMs":76},{"seq":21,"sendMs":240,"startMs":320,"exitMs":336,"recvMs":376,"waitMs":80},{"seq":22,"sendMs":252,"startMs":336,"exitMs":352,"recvMs":392,"waitMs":84},{"seq":23,"sendMs":264,"startMs":352,"exitMs":368,"recvMs":408,"waitMs":88},{"seq":24,"sendMs":276,"startMs":368,"exitMs":384,"recvMs":424,"waitMs":92},{"seq":25,"sendMs":288,"startMs":384,"exitMs":400,"recvMs":440,"waitMs":96},{"seq":26,"sendMs":300,"startMs":400,"exitMs":416,"recvMs":456,"waitMs":100},{"seq":27,"sendMs":312,"startMs":416,"exitMs":432,"recvMs":472,"waitMs":104},{"seq":28,"sendMs":324,"startMs":432,"exitMs":448,"recvMs":488,"waitMs":108},{"seq":29,"sendMs":336,"startMs":448,"exitMs":464,"recvMs":504,"waitMs":112},{"seq":30,"sendMs":348,"startMs":464,"exitMs":480,"recvMs":520,"waitMs":116},{"seq":31,"sendMs":360,"startMs":480,"exitMs":496,"recvMs":536,"waitMs":120},{"seq":32,"sendMs":372,"startMs":496,"exitMs":512,"recvMs":552,"waitMs":124},{"seq":33,"sendMs":384,"startMs":512,"exitMs":528,"recvMs":568,"waitMs":128},{"seq":34,"sendMs":396,"startMs":528,"exitMs":544,"recvMs":584,"waitMs":132},{"seq":35,"sendMs":408,"startMs":544,"exitMs":560,"recvMs":600,"waitMs":136},{"seq":36,"sendMs":420,"startMs":560,"exitMs":576,"recvMs":616,"waitMs":140},{"seq":37,"sendMs":432,"startMs":576,"exitMs":592,"recvMs":632,"waitMs":144},{"seq":38,"sendMs":444,"startMs":592,"exitMs":608,"recvMs":648,"waitMs":148},{"seq":39,"sendMs":456,"startMs":608,"exitMs":624,"recvMs":664,"waitMs":152},{"seq":40,"sendMs":468,"startMs":624,"exitMs":640,"recvMs":680,"waitMs":156}],"trace":[{"seq":1,"deltas":0,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":12.5,"state":"normal"},{"seq":2,"deltas":0,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":12.5,"state":"normal"},{"seq":3,"deltas":1,"accumulatedDelayMs":4,"smoothedDelayMs":0.3999999999999999,"slope":0,"trend":0,"threshold":12.5,"state":"normal"},{"seq":4,"deltas":2,"accumulatedDelayMs":8,"smoothedDelayMs":1.1599999999999997,"slope":0,"trend":0,"threshold":12.5,"state":"normal"},{"seq":5,"deltas":3,"accumulatedDelayMs":12,"smoothedDelayMs":2.2439999999999998,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":6,"deltas":4,"accumulatedDelayMs":16,"smoothedDelayMs":3.6195999999999997,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":7,"deltas":5,"accumulatedDelayMs":20,"smoothedDelayMs":5.257639999999999,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":8,"deltas":6,"accumulatedDelayMs":24,"smoothedDelayMs":7.131875999999999,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":9,"deltas":7,"accumulatedDelayMs":28,"smoothedDelayMs":9.2186884,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":10,"deltas":8,"accumulatedDelayMs":32,"smoothedDelayMs":11.496819559999999,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":11,"deltas":9,"accumulatedDelayMs":36,"smoothedDelayMs":13.947137603999998,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":12,"deltas":10,"accumulatedDelayMs":40,"smoothedDelayMs":16.552423843599996,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":13,"deltas":11,"accumulatedDelayMs":44,"smoothedDelayMs":19.297181459239994,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":14,"deltas":12,"accumulatedDelayMs":48,"smoothedDelayMs":22.16746331331599,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":15,"deltas":13,"accumulatedDelayMs":52,"smoothedDelayMs":25.15071698198439,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":16,"deltas":14,"accumulatedDelayMs":56,"smoothedDelayMs":28.23564528378595,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":17,"deltas":15,"accumulatedDelayMs":60,"smoothedDelayMs":31.412080755407352,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":18,"deltas":16,"accumulatedDelayMs":64,"smoothedDelayMs":34.67087267986662,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":19,"deltas":17,"accumulatedDelayMs":68,"smoothedDelayMs":38.00378541187996,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":20,"deltas":18,"accumulatedDelayMs":72,"smoothedDelayMs":41.40340687069196,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":21,"deltas":19,"accumulatedDelayMs":76,"smoothedDelayMs":44.86306618362276,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":22,"deltas":20,"accumulatedDelayMs":80,"smoothedDelayMs":48.376759565260485,"slope":0.16258258423841945,"trend":13.006606739073556,"threshold":6.975319658079039,"state":"normal"},{"seq":23,"deltas":21,"accumulatedDelayMs":84,"smoothedDelayMs":51.939083608734435,"slope":0.17132432581457752,"trend":14.391243368424512,"threshold":8.007616238559129,"state":"overuse"},{"seq":24,"deltas":22,"accumulatedDelayMs":88,"smoothedDelayMs":55.54517524786099,"slope":0.17919189323311974,"trend":15.768886604514536,"threshold":9.087985073500121,"state":"overuse"},{"seq":25,"deltas":23,"accumulatedDelayMs":92,"smoothedDelayMs":59.190657723074885,"slope":0.18627270390980777,"trend":17.137088759702316,"threshold":10.208420306619466,"state":"overuse"},{"seq":26,"deltas":24,"accumulatedDelayMs":96,"smoothedDelayMs":62.871591950767396,"slope":0.192645433518827,"trend":18.49396161780739,"threshold":11.361767657136825,"state":"overuse"},{"seq":27,"deltas":25,"accumulatedDelayMs":100,"smoothedDelayMs":66.58443275569066,"slope":0.1983808901669443,"trend":19.83808901669443,"threshold":12.541671590387244,"state":"overuse"},{"seq":28,"deltas":26,"accumulatedDelayMs":104,"smoothedDelayMs":70.32598948012159,"slope":0.20354280115024992,"trend":21.16845131962599,"threshold":13.742519328697277,"state":"overuse"},{"seq":29,"deltas":27,"accumulatedDelayMs":108,"smoothedDelayMs":74.09339053210942,"slope":0.20818852103522484,"trend":22.48436027180428,"threshold":14.959383587977772,"state":"overuse"},{"seq":30,"deltas":28,"accumulatedDelayMs":112,"smoothedDelayMs":77.88405147889848,"slope":0.21236966893170242,"trend":23.78540292035067,"threshold":16.18796547904408,"state":"overuse"},{"seq":31,"deltas":29,"accumulatedDelayMs":116,"smoothedDelayMs":81.69564633100863,"slope":0.21613270203853213,"trend":25.071393436469727,"threshold":17.424538650717732,"state":"overuse"},{"seq":32,"deltas":30,"accumulatedDelayMs":120,"smoothedDelayMs":85.52608169790777,"slope":0.2195194318346789,"trend":26.34233182016147,"threshold":18.6658954599043,"state":"overuse"},{"seq":33,"deltas":31,"accumulatedDelayMs":124,"smoothedDelayMs":89.37347352811699,"slope":0.22256748865121104,"trend":27.59836859275017,"threshold":19.909295719996443,"state":"overuse"},{"seq":34,"deltas":32,"accumulatedDelayMs":128,"smoothedDelayMs":93.23612617530529,"slope":0.22531073978608995,"trend":28.839774692619514,"threshold":21.152418392985574,"state":"overuse"},{"seq":35,"deltas":33,"accumulatedDelayMs":132,"smoothedDelayMs":97.11251355777476,"slope":0.22777966580748096,"trend":30.066915886587488,"threshold":22.39331644409496,"state":"overuse"},{"seq":36,"deltas":34,"accumulatedDelayMs":136,"smoothedDelayMs":101.00126220199728,"slope":0.23000169922673278,"trend":31.280231094835656,"threshold":23.630374963478065,"state":"overuse"},{"seq":37,"deltas":35,"accumulatedDelayMs":140,"smoothedDelayMs":104.90113598179755,"slope":0.23200152930405948,"trend":32.480214102568326,"threshold":24.86227257163943,"state":"overuse"},{"seq":38,"deltas":36,"accumulatedDelayMs":144,"smoothedDelayMs":108.8110223836178,"slope":0.23380137637365359,"trend":33.667398197806115,"threshold":26.087946058801833,"state":"overuse"},{"seq":39,"deltas":37,"accumulatedDelayMs":148,"smoothedDelayMs":112.72992014525602,"slope":0.23542123873628826,"trend":34.842343332970664,"threshold":27.306558159366134,"state":"overuse"},{"seq":40,"deltas":38,"accumulatedDelayMs":152,"smoothedDelayMs":116.65692813073042,"slope":0.23687911486265942,"trend":36.00562545912423,"threshold":28.51746832749246,"state":"overuse"}],"sendSpanMs":468,"recvSpanMs":624,"legacyBps":615384,"gccBps":505000,"events":{"legacy":[615384],"gcc":[505000]},"usage":"overuse"},"fixed":{"serviceMs":12,"propagationMs":160,"feedbackMs":680,"packets":[{"seq":1,"sendMs":0,"startMs":0,"exitMs":12,"recvMs":172,"waitMs":0},{"seq":2,"sendMs":12,"startMs":12,"exitMs":24,"recvMs":184,"waitMs":0},{"seq":3,"sendMs":24,"startMs":24,"exitMs":36,"recvMs":196,"waitMs":0},{"seq":4,"sendMs":36,"startMs":36,"exitMs":48,"recvMs":208,"waitMs":0},{"seq":5,"sendMs":48,"startMs":48,"exitMs":60,"recvMs":220,"waitMs":0},{"seq":6,"sendMs":60,"startMs":60,"exitMs":72,"recvMs":232,"waitMs":0},{"seq":7,"sendMs":72,"startMs":72,"exitMs":84,"recvMs":244,"waitMs":0},{"seq":8,"sendMs":84,"startMs":84,"exitMs":96,"recvMs":256,"waitMs":0},{"seq":9,"sendMs":96,"startMs":96,"exitMs":108,"recvMs":268,"waitMs":0},{"seq":10,"sendMs":108,"startMs":108,"exitMs":120,"recvMs":280,"waitMs":0},{"seq":11,"sendMs":120,"startMs":120,"exitMs":132,"recvMs":292,"waitMs":0},{"seq":12,"sendMs":132,"startMs":132,"exitMs":144,"recvMs":304,"waitMs":0},{"seq":13,"sendMs":144,"startMs":144,"exitMs":156,"recvMs":316,"waitMs":0},{"seq":14,"sendMs":156,"startMs":156,"exitMs":168,"recvMs":328,"waitMs":0},{"seq":15,"sendMs":168,"startMs":168,"exitMs":180,"recvMs":340,"waitMs":0},{"seq":16,"sendMs":180,"startMs":180,"exitMs":192,"recvMs":352,"waitMs":0},{"seq":17,"sendMs":192,"startMs":192,"exitMs":204,"recvMs":364,"waitMs":0},{"seq":18,"sendMs":204,"startMs":204,"exitMs":216,"recvMs":376,"waitMs":0},{"seq":19,"sendMs":216,"startMs":216,"exitMs":228,"recvMs":388,"waitMs":0},{"seq":20,"sendMs":228,"startMs":228,"exitMs":240,"recvMs":400,"waitMs":0},{"seq":21,"sendMs":240,"startMs":240,"exitMs":252,"recvMs":412,"waitMs":0},{"seq":22,"sendMs":252,"startMs":252,"exitMs":264,"recvMs":424,"waitMs":0},{"seq":23,"sendMs":264,"startMs":264,"exitMs":276,"recvMs":436,"waitMs":0},{"seq":24,"sendMs":276,"startMs":276,"exitMs":288,"recvMs":448,"waitMs":0},{"seq":25,"sendMs":288,"startMs":288,"exitMs":300,"recvMs":460,"waitMs":0},{"seq":26,"sendMs":300,"startMs":300,"exitMs":312,"recvMs":472,"waitMs":0},{"seq":27,"sendMs":312,"startMs":312,"exitMs":324,"recvMs":484,"waitMs":0},{"seq":28,"sendMs":324,"startMs":324,"exitMs":336,"recvMs":496,"waitMs":0},{"seq":29,"sendMs":336,"startMs":336,"exitMs":348,"recvMs":508,"waitMs":0},{"seq":30,"sendMs":348,"startMs":348,"exitMs":360,"recvMs":520,"waitMs":0},{"seq":31,"sendMs":360,"startMs":360,"exitMs":372,"recvMs":532,"waitMs":0},{"seq":32,"sendMs":372,"startMs":372,"exitMs":384,"recvMs":544,"waitMs":0},{"seq":33,"sendMs":384,"startMs":384,"exitMs":396,"recvMs":556,"waitMs":0},{"seq":34,"sendMs":396,"startMs":396,"exitMs":408,"recvMs":568,"waitMs":0},{"seq":35,"sendMs":408,"startMs":408,"exitMs":420,"recvMs":580,"waitMs":0},{"seq":36,"sendMs":420,"startMs":420,"exitMs":432,"recvMs":592,"waitMs":0},{"seq":37,"sendMs":432,"startMs":432,"exitMs":444,"recvMs":604,"waitMs":0},{"seq":38,"sendMs":444,"startMs":444,"exitMs":456,"recvMs":616,"waitMs":0},{"seq":39,"sendMs":456,"startMs":456,"exitMs":468,"recvMs":628,"waitMs":0},{"seq":40,"sendMs":468,"startMs":468,"exitMs":480,"recvMs":640,"waitMs":0}],"trace":[{"seq":1,"deltas":0,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":12.5,"state":"normal"},{"seq":2,"deltas":0,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":12.5,"state":"normal"},{"seq":3,"deltas":1,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":12.5,"state":"normal"},{"seq":4,"deltas":2,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":12.5,"state":"normal"},{"seq":5,"deltas":3,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6.65,"state":"normal"},{"seq":6,"deltas":4,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":7,"deltas":5,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":8,"deltas":6,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":9,"deltas":7,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":10,"deltas":8,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":11,"deltas":9,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":12,"deltas":10,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":13,"deltas":11,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":14,"deltas":12,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":15,"deltas":13,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":16,"deltas":14,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":17,"deltas":15,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":18,"deltas":16,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":19,"deltas":17,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":20,"deltas":18,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":21,"deltas":19,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":22,"deltas":20,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":23,"deltas":21,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":24,"deltas":22,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":25,"deltas":23,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":26,"deltas":24,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":27,"deltas":25,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":28,"deltas":26,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":29,"deltas":27,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":30,"deltas":28,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":31,"deltas":29,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":32,"deltas":30,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":33,"deltas":31,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":34,"deltas":32,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":35,"deltas":33,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":36,"deltas":34,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":37,"deltas":35,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":38,"deltas":36,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":39,"deltas":37,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":40,"deltas":38,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"}],"sendSpanMs":468,"recvSpanMs":468,"legacyBps":820512,"gccBps":801000,"events":{"legacy":[820512],"gcc":[801000]},"usage":"normal"}}}
+  </script>
   <script>
-    const scenes = {
-      clear: {
-        status: "道は空いています。両方とも速く送ってよい、と判断します。",
-        l: 700, g: 700,
-        neck: { left: "42%", width: "16%", bg: "#8a7a66" },
-        drop: false, burst: false, slow: false,
-      },
-      delay: {
-        status: "列は伸びているが穴は無い。GCC は傾きを見て減速。legacy は届いた速さのまま高め。",
-        l: 620, g: 180,
-        neck: { left: "38%", width: "28%", bg: "#5c4a3a" },
-        drop: false, burst: false, slow: true,
-      },
-      loss: {
-        status: "穴が開いている。legacy は届いた行だけ見るので数字が落ちにくい。GCC はロスで天井を下げる。",
-        l: 540, g: 120,
-        neck: { left: "40%", width: "34%", bg: "#7a2e28" },
-        drop: true, burst: false, slow: false,
-      },
-      probe: {
-        status: "立ち上がり。GCC だけ短いバーストで道を探る。legacy に試し打ちは無い。",
-        l: 300, g: 450,
-        neck: { left: "44%", width: "18%", bg: "#2b6a6a" },
-        drop: false, burst: true, slow: false,
-      },
+    "use strict";
+    const data = JSON.parse(document.getElementById("estimator-data").textContent);
+    const byId = (id) => document.getElementById(id);
+    const fmt = (n, digits = 0) => n.toLocaleString("ja-JP", { maximumFractionDigits: digits });
+    const kbps = (bps) => fmt(bps / 1000, 3);
+    const phaseNames = ["送信履歴を記録する", "区間に入りきらないパケットは待つ", "受信結果を TWCC にまとめて返す", "legacy は受信済みの平均速度を計算する", "GCC は間隔の差から遅延増加を検出する", "新しい推定帯域を bps で通知する", "アプリが送信量を下げると、待ち行列が減る"];
+    const descriptions = {
+      queue: "送信 800 kbps / 区間の容量 600 kbps / 固定伝搬 40 ms。ΔS = 12 ms、ΔR = 16 ms、待機は 1 個ごとに 4 ms 増加。全 40 個を受信。",
+      steady: "送信 800 kbps / 区間の容量 800 kbps / 固定伝搬 40 ms。ΔS = ΔR = 12 ms。各パケットの待機は 0 ms。全 40 個を受信。",
+      fixed: "送信 800 kbps / 区間の容量 800 kbps / 固定伝搬 160 ms。伝搬は長くても ΔS = ΔR = 12 ms、待機は 0 ms。全 40 個を受信。",
     };
+    const panels = ["network-panel", "network-panel", "network-panel", "legacy-panel", "gcc-panel", "event-panel", "adapt-panel"];
+    const motion = matchMedia("(prefers-reduced-motion: reduce)");
+    let scene = "queue", position = 0, playing = false, frame = 0, lastTime = null, lastCopy = "";
+    const scenario = () => data.scenarios[scene];
+    const fraction = () => Math.min(1, (position % 100) / 99);
 
-    const stage = document.getElementById("stage");
-    const neck = document.getElementById("neck");
-    const status = document.getElementById("status");
-    const bpsL = document.getElementById("bpsL");
-    const bpsG = document.getElementById("bpsG");
-    const barL = document.getElementById("barL");
-    const barG = document.getElementById("barG");
-    let timer = null;
-    let current = "clear";
-
-    function spawnPacket(opts) {
-      const el = document.createElement("div");
-      el.className = "pkt" + (opts.ack ? " ack" : "");
-      stage.appendChild(el);
-      const start = performance.now();
-      const dur = opts.slow ? 2200 : opts.burst ? 700 : 1400;
-      const from = opts.ack ? stage.clientWidth - 180 : 170;
-      const to = opts.ack ? 170 : stage.clientWidth - 180;
-      function tick(now) {
-        const t = Math.min(1, (now - start) / dur);
-        el.style.left = from + (to - from) * t + "px";
-        if (!opts.ack && opts.drop && t > 0.55 && !el.classList.contains("lost")) {
-          el.classList.add("lost");
-          return;
-        }
-        if (t < 1 && !el.classList.contains("lost")) requestAnimationFrame(tick);
-        else if (t >= 1) el.remove();
+    function stepDescription(phase, s) {
+      const delta = s.serviceMs - data.sendIntervalMs;
+      return [
+        "番号 1〜40、各 1,200 byte を 12 ms 間隔で送ります。送信側は番号・サイズ・送信時刻を履歴に記録します。この時点では、まだ受信結果も新しい帯域推定値もありません。",
+        delta > 0 ? "送信間隔 12 ms に対して区間の処理時間は 16 ms。番号 2 は 4 ms、3 は 8 ms、40 は 156 ms 待ちます。通過後の伝搬時間はどれも 40 ms です。全パケットを一様に遅くするのではなく、待つ時間が順に長くなります。" : "区間の処理時間と送信間隔は同じ 12 ms。次のパケットが来るときには前の通過が終わるので、待ち行列は増えません。固定伝搬が長くても、パケットの受信間隔は 12 ms のままです。",
+        "この例では全 40 個を受信してから、番号と受信状態・時刻情報を一つの TWCC にして返します。受信側から帯域の数値が返るわけではありません。送信側で履歴と照合します。",
+        "受信が確認できて時刻を持つ 40 個の合計は 48,000 byte。最初と最後の送信時刻幅・受信時刻幅でそれぞれ割り、小さい方を採用します。",
+        "受信時刻順に処理し、送信時刻で作った群の ΔR − ΔS を累積・平滑化します。履歴 20 個で回帰した傾きをスコアに変換し、適応閾値と継続条件で判定します。グラフはこの処理を 1 パケットずつ展開しています。",
+        "比較用に二つの実装の出力を並べています。実際の sender は選択した一方を使用します。値が前回と変わったときだけ sender.onAvailableBitrate(bps) に通知し、購読したアプリが受け取ります。",
+        "通知を受けたアプリが生成量を調整して初めて、継続的に送り込む量が変わります。次の図は値を 2 秒間固定した連続流の計算例です。入力が区間の容量より小さいと、溜まっていたデータが減ります。",
+      ][phase];
+    }
+    function text(x, y, value, cls = "", extra = "") { return `<text x="${x}" y="${y}" class="${cls}" ${extra}>${value}</text>`; }
+    function line(x1, y1, x2, y2, color, extra = "") { return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" ${extra}/>`; }
+    function packet(x, y, seq, color) { return `<rect x="${x - 13}" y="${y - 13}" width="26" height="26" rx="5" fill="${color}"/>${text(x, y + 4, seq, "white", 'text-anchor="middle"')}`; }
+    function renderNetwork(s, phase, p) {
+      const end = s.packets.at(-1).recvMs;
+      const time = phase === 0 ? 0 : phase === 1 ? p * end : end + p * (s.feedbackMs - end);
+      const sent = s.packets.filter((v) => v.sendMs <= time);
+      const waiting = s.packets.filter((v) => v.sendMs <= time && time < v.startMs);
+      const crossing = s.packets.filter((v) => v.startMs <= time && time < v.exitMs);
+      const received = s.packets.filter((v) => v.recvMs <= time);
+      const flying = s.packets.filter((v) => v.exitMs <= time && time < v.recvMs);
+      const parts = [
+        '<title id="network-title">送信・バッファ待機・区間通過・受信のシーケンス</title>',
+        `<desc id="network-desc">送信済み ${sent.length} 個、待機 ${waiting.length} 個、受信済み ${received.length} 個。処理時間 ${s.serviceMs} ms、固定伝搬 ${s.propagationMs} ms。</desc>`,
+        text(20, 24, `図の時刻 ${fmt(time)} ms`),
+        text(150, 65, "送信履歴", "", 'text-anchor="middle"'),
+        text(370, 65, `バッファ待機：${waiting.length} 個`, "", 'text-anchor="middle"'),
+        text(556, 65, `区間：1 個 / ${s.serviceMs} ms`, "", 'text-anchor="middle"'),
+        text(737, 65, `固定伝搬 ${s.propagationMs} ms`, "", 'text-anchor="middle"'),
+        text(901, 65, "受信側", "", 'text-anchor="middle"'),
+        '<rect x="18" y="82" width="240" height="115" rx="10" fill="#eee6d9"/>',
+        '<rect x="285" y="82" width="175" height="115" rx="10" fill="#f5e6d7"/>',
+        '<rect x="482" y="82" width="144" height="115" rx="10" fill="#d9e7e3"/>',
+        line(639, 135, 840, 135, "#a6b8ac", 'stroke-width="3" stroke-dasharray="6 5"'),
+        text(272, 146, "→", "", 'text-anchor="middle"'),
+        text(472, 146, "→", "", 'text-anchor="middle"'),
+        '<rect x="850" y="82" width="96" height="115" rx="10" fill="#d9e7d8"/>',
+        text(898, 155, `${received.length} / 40`, "", 'text-anchor="middle"'),
+      ];
+      sent.slice(-12).forEach((v, i) => parts.push(packet(45 + (i % 6) * 36, 112 + Math.floor(i / 6) * 42, v.seq, "#795625")));
+      waiting.slice(0, 12).forEach((v, i) => parts.push(packet(312 + (i % 4) * 39, 109 + Math.floor(i / 4) * 31, v.seq, "#bb551c")));
+      crossing.forEach((v) => parts.push(packet(500 + (time - v.startMs) / s.serviceMs * 106, 128, v.seq, "#236566")));
+      flying.forEach((v) => parts.push(packet(652 + (time - v.exitMs) / s.propagationMs * 176, 106 + (v.seq % 3) * 28, v.seq, "#3b704d")));
+      parts.push(text(150, 220, "番号と送信時刻を記録（直近 12 個）", "minor", 'text-anchor="middle"'));
+      parts.push(text(372, 220, "まだ届いていない ≠ 破棄された", "minor", 'text-anchor="middle"'));
+      if (phase === 2) {
+        parts.push(line(899, 250, 130, 250, "#236566", 'stroke-width="2"'));
+        parts.push('<path d="M 143 242 L 130 250 L 143 258" fill="none" stroke="#236566" stroke-width="2"/>');
+        const x = 860 - p * 680;
+        parts.push(`<rect x="${x - 62}" y="236" width="124" height="28" rx="6" fill="#236566"/>${text(x, 255, "TWCC：40 個分", "white", 'text-anchor="middle"')}`);
       }
-      requestAnimationFrame(tick);
+      byId("network").innerHTML = parts.join("");
+      byId("network-caption").textContent = phase === 2 ? "TWCC は受信情報をまとめて戻す RTCP フィードバックです。この矢印は 1 パケットにつき 1 ACK を返す動きを表していません。" : "パケットは番号順に、待機 → 区間通過 → 固定時間の伝搬 → 受信へ進みます。待機数は送受信時刻から計算しています。";
+      byId("network-stats").innerHTML = [["送信済み", sent.length], ["バッファで待機", waiting.length], ["通過・伝搬中", crossing.length + flying.length], ["受信済み", received.length]].map(([label, n]) => `<div>${label}<strong>${n} 個</strong></div>`).join("");
+      byId("packet-table").innerHTML = [0, 1, 2, 3, 39].map((i) => {
+        const v = s.packets[i];
+        return `<tr><th scope="row">${v.seq}</th><td>${v.sendMs}</td><td>${v.waitMs} ms</td><td>${v.recvMs}</td><td>${v.recvMs - v.sendMs} ms</td><td>${time >= v.recvMs ? "受信済み" : time >= v.sendMs ? "送信済み・受信前" : "送信前"}</td></tr>`;
+      }).join("");
     }
-
-    function loop() {
-      const s = scenes[current];
-      spawnPacket({ slow: s.slow, drop: s.drop, burst: s.burst });
-      if (!s.drop) setTimeout(() => spawnPacket({ ack: true }), s.burst ? 400 : 900);
-      if (s.burst) {
-        setTimeout(() => spawnPacket({ burst: true }), 90);
-        setTimeout(() => spawnPacket({ burst: true }), 180);
+    function renderLegacy(s, p) {
+      const totalBits = data.packetCount * data.packetBytes * 8;
+      const rows = [`B = 40 × 1,200 = 48,000 byte`, `send = 384,000 bit / ${s.sendSpanMs} ms × 1000<br />= ${kbps(Math.floor(totalBits * 1000 / s.sendSpanMs))} kbps`, `recv = 384,000 bit / ${s.recvSpanMs} ms × 1000<br />= ${kbps(Math.floor(totalBits * 1000 / s.recvSpanMs))} kbps`];
+      byId("legacy-calculation").innerHTML = rows.map((r, i) => `<div class="substep ${i === Math.min(2, Math.floor(p * 3)) ? "active" : ""}">${r}</div>`).join("");
+      byId("legacy-result").innerHTML = `${kbps(s.legacyBps)} <small>kbps</small>`;
+      byId("legacy-conclusion").textContent = scene === "queue" ? "間隔が変わらない比較ケースの 820.512 kbps から、このケースでは 615.384 kbps になります。legacy も下がっています。ただし、遅延の増加を検出して待ち行列を減らすための余裕を引いた値ではありません。" : "待ち時間が増えていないケースでは 820.512 kbps です。固定伝搬が 40 ms でも 160 ms でも、最初と最後の間隔は同じなので結果も同じです。";
+    }
+    function renderTrend(s, p) {
+      const count = Math.max(1, Math.min(40, Math.floor(p * 40) + 1));
+      const trace = s.trace.slice(0, count), last = trace.at(-1);
+      const yMax = Math.ceil(Math.max(...Object.values(data.scenarios).flatMap((v) => v.trace.map((t) => Math.max(t.trend, t.threshold)))) / 5) * 5 + 5;
+      const x = (i) => 52 + (s.packets[i].recvMs - s.packets[0].recvMs) / s.recvSpanMs * 380;
+      const y = (v) => 238 - v / yMax * 186;
+      const path = (key) => trace.map((t, i) => `${i ? "L" : "M"}${x(i).toFixed(2)},${y(t[key]).toFixed(2)}`).join(" ");
+      const parts = ['<title id="trend-title">GCC の判定スコアと適応閾値</title>', `<desc id="trend-desc">${count} 個処理済み。間隔差 ${last.deltas} 個、状態 ${last.state}。</desc>`, text(16, 20, "判定用スコア（平滑化した累積遅延の傾きから計算）")];
+      for (let v = 0; v <= yMax; v += 5) { parts.push(line(52, y(v), 432, y(v), "#ded5c7"), text(42, y(v) + 4, v, "minor", 'text-anchor="end"')); }
+      [0, 13, 26, 39].forEach((i) => parts.push(text(x(i), 258, s.packets[i].recvMs, "minor", 'text-anchor="middle"')));
+      parts.push(text(230, 280, "TWCC の受信時刻 R（ms）", "minor", 'text-anchor="middle"'));
+      parts.push(`<path d="${path("threshold")}" fill="none" stroke="#bb551c" stroke-width="2" stroke-dasharray="6 4"/>`);
+      parts.push(`<path d="${path("trend")}" fill="none" stroke="#236566" stroke-width="3"/>`);
+      parts.push(`<circle cx="${x(count - 1)}" cy="${y(last.trend)}" r="4" fill="#236566"/>`);
+      parts.push(text(65, 43, "実線：スコア", "minor"), text(200, 43, "破線：適応閾値", "minor"));
+      byId("trend-chart").innerHTML = parts.join("");
+      byId("detector-readout").textContent = `処理 ${count}/40 個 → 間隔差 ${last.deltas} 個 → ${last.state} / スコア ${fmt(last.trend, 2)} / 閾値 ${fmt(last.threshold, 2)}`;
+      const firstOveruse = s.trace.find((t) => t.state === "overuse");
+      const delta = s.serviceMs - data.sendIntervalMs;
+      const detection = last.deltas < 20 ? `履歴 ${last.deltas} / 20 個：回帰用のサンプルを収集中` : last.state === "overuse" ? `${firstOveruse.seq} 個目の処理で overuse → 現在も overuse` : firstOveruse ? "閾値を超えたが、overuse の継続条件を確認中" : "スコア 0 → normal";
+      byId("gcc-calculation").innerHTML = `<div class="substep">ΔR − ΔS = ${s.serviceMs} − 12 = ${delta} ms</div><div class="substep">累積・平滑化 → 履歴 20 個で回帰<br />判定スコア = min(間隔差数, 60) × 傾き × 4</div><div class="substep active">${detection}</div>`;
+      byId("gcc-conclusion").innerHTML = count < 40 ? `現在 ${count} / 40 個を処理済みです。帯域目標は、この TWCC の全行を処理してから更新します。スライダーを進めると、残りの入力と判定を追えます。` : scene === "queue" ? "到達スループットは 600 kbps。今回の AIMD は <strong>600 × 0.85 − 5 = 505 kbps</strong> を選びます。現在値より下がり、下限等にも当たらないため、この値が最終目標になります。" : `間隔差が 0 なので、この条件では遅延による減速はありません。AIMD の normal 経路で内部開始目標 800 kbps から ${kbps(s.gccBps)} kbps になります。固定遅延が大きいことだけで overuse にはなりません。`;
+      byId("delay-calculation").innerHTML = scene === "queue" ? "群間差：+4, +4, +4, … ms<br />累積：4, 8, 12, … ms<br />平滑化：0.9 × 前回 + 0.1 × 累積<br />→ 0.4, 1.16, 2.244, … ms" : "群間差：0, 0, 0, … ms<br />累積：0, 0, 0, … ms<br />平滑化：0.9 × 前回 + 0.1 × 累積<br />→ 0, 0, 0, … ms";
+      const delayY = (v) => 190 - v / 160 * 138;
+      const delays = trace.map((v, i) => ({ ...v, i })).filter((v) => v.deltas > 0);
+      const delayParts = ['<title id="delay-title">累積した群間差と平滑化した値、直近20点の回帰直線</title>', `<desc id="delay-desc">間隔差 ${delta} ms、累積 ${fmt(last.accumulatedDelayMs, 2)} ms、平滑値 ${fmt(last.smoothedDelayMs, 2)} ms。</desc>`, text(16, 20, "累積した間隔差（ms）")];
+      [0, 40, 80, 120, 160].forEach((v) => delayParts.push(line(52, delayY(v), 432, delayY(v), "#ded5c7"), text(42, delayY(v) + 4, v, "minor", 'text-anchor="end"')));
+      [0, 13, 26, 39].forEach((i) => delayParts.push(text(x(i), 210, s.packets[i].recvMs, "minor", 'text-anchor="middle"')));
+      for (const [key, color, dash] of [["accumulatedDelayMs", "#795625", "6 4"], ["smoothedDelayMs", "#236566", ""]]) {
+        const points = delays.map((v, i) => `${i ? "L" : "M"}${x(v.i)},${delayY(v[key])}`).join(" ");
+        delayParts.push(`<path d="${points}" fill="none" stroke="${color}" stroke-width="2" stroke-dasharray="${dash}"/>`);
+      }
+      if (delays.length >= 20) {
+        const window = delays.slice(-20);
+        const meanR = window.reduce((sum, v) => sum + s.packets[v.i].recvMs, 0) / 20;
+        const meanD = window.reduce((sum, v) => sum + v.smoothedDelayMs, 0) / 20;
+        const fit = (i) => meanD + last.slope * (s.packets[i].recvMs - meanR);
+        delayParts.push(line(x(window[0].i), delayY(fit(window[0].i)), x(count - 1), delayY(fit(count - 1)), "#bb551c", 'stroke-width="3"'));
+      }
+      delayParts.push(text(55, 42, "破線：累積", "minor"), text(185, 42, "実線：平滑", "minor"), text(315, 42, "橙：回帰", "minor"), text(230, 233, "TWCC の受信時刻 R（ms）", "minor", 'text-anchor="middle"'));
+      byId("delay-chart").innerHTML = delayParts.join("");
+    }
+    function renderEvents(s) {
+      for (const name of ["legacy", "gcc"]) {
+        const bps = s[name + "Bps"];
+        byId("event-" + name).innerHTML = `${kbps(bps)} <small>kbps</small>`;
+        byId("bar-" + name).style.width = bps / 10000 + "%";
+        byId("event-" + name + "-log").textContent = `公開値 0 → ${fmt(bps)} bps\nonAvailableBitrate(${bps})`;
+        byId("event-" + name + "-log").style.whiteSpace = "pre-wrap";
       }
     }
-
-    function apply(name) {
-      current = name;
-      const s = scenes[name];
-      status.textContent = s.status;
-      bpsL.textContent = String(s.l);
-      bpsG.textContent = String(s.g);
-      barL.style.width = Math.round((s.l / 800) * 100) + "%";
-      barG.style.width = Math.round((s.g / 800) * 100) + "%";
-      neck.style.left = s.neck.left;
-      neck.style.width = s.neck.width;
-      neck.style.background = s.neck.bg;
-      document.querySelectorAll("button.chip[data-scene]").forEach((b) => {
-        b.classList.toggle("active", b.dataset.scene === name);
-      });
-      stage.querySelectorAll(".pkt").forEach((el) => el.remove());
-      if (timer) clearInterval(timer);
-      loop();
-      timer = setInterval(loop, name === "probe" ? 1600 : 1300);
+    function renderAdapt(s, p) {
+      const capacity = data.packetBytes * 8 * 1000 / s.serviceMs;
+      const t = p * 2;
+      const queue = (rate, sec) => Math.max(0, 12000 + (rate - capacity) / 8 * sec);
+      const x = (sec) => 65 + sec / 2 * 675, y = (bytes) => 238 - bytes / 20000 * 184;
+      const parts = ['<title id="queue-title">通知値に送信量を合わせた場合の待ち行列</title>', `<desc id="queue-desc">初期 12000 byte。${fmt(t, 2)} 秒後、legacy ${fmt(queue(s.legacyBps, t))} byte、GCC ${fmt(queue(s.gccBps, t))} byte。</desc>`, text(15, 22, "バッファで待機している量（byte）")];
+      [0, 5000, 10000, 15000, 20000].forEach((v) => parts.push(line(65, y(v), 740, y(v), "#ded5c7"), text(55, y(v) + 4, fmt(v), "minor", 'text-anchor="end"')));
+      [0, .5, 1, 1.5, 2].forEach((sec) => parts.push(text(x(sec), 258, sec, "minor", 'text-anchor="middle"')));
+      parts.push(text(400, 284, "送信量の調整からの時間（秒）", "minor", 'text-anchor="middle"'));
+      for (const [name, color] of [["legacy", "#795625"], ["gcc", "#236566"]]) {
+        const rate = s[name + "Bps"];
+        const points = Array.from({ length: 101 }, (_, i) => { const sec = i / 100 * t; return `${i ? "L" : "M"}${x(sec)},${y(queue(rate, sec))}`; }).join(" ");
+        parts.push(`<path d="${points}" fill="none" stroke="${color}" stroke-width="3" ${name === "legacy" ? 'stroke-dasharray="8 4"' : ""}/>`);
+        parts.push(`<circle cx="${x(t)}" cy="${y(queue(rate, t))}" r="4" fill="${color}"/>`);
+      }
+      parts.push(text(360, 44, "破線：legacy", "minor"), text(535, 44, "実線：GCC", "minor"));
+      byId("queue-chart").innerHTML = parts.join("");
+      byId("adapt-caption").textContent = scene === "queue" ? "GCC の目標 505 kbps は容量 600 kbps より低いので、差の 95 kbps ぶん待機量を減らせます。この仮定なら約 1.01 秒で空になります。legacy の今回の値は容量近くで、待機量は減りません。" : "今回の 1 回の出力を固定すると、両方式とも容量 800 kbps を少し上回り、待機量は減りません。normal は混雑が永久に起こらない保証ではなく、実際は後続の TWCC で制御を続けます。";
+      byId("adapt-legacy").textContent = `legacy: 入力 ${kbps(s.legacyBps)} − 出力 ${kbps(capacity)} kbps\n${fmt(t, 2)} 秒後：${fmt(queue(s.legacyBps, t))} byte`;
+      byId("adapt-gcc").textContent = `GCC: 入力 ${kbps(s.gccBps)} − 出力 ${kbps(capacity)} kbps\n${fmt(t, 2)} 秒後：${fmt(queue(s.gccBps, t))} byte`;
+      byId("adapt-legacy").style.whiteSpace = byId("adapt-gcc").style.whiteSpace = "pre-wrap";
     }
-
-    document.querySelectorAll("button.chip[data-scene]").forEach((btn) => {
-      btn.addEventListener("click", () => apply(btn.dataset.scene));
+    function render() {
+      const s = scenario(), phase = Math.floor(position / 100), p = fraction();
+      byId("position").value = Math.round(position);
+      byId("position").setAttribute("aria-valuetext", `手順 ${phase + 1}: ${phaseNames[phase]}`);
+      byId("position-label").textContent = `${phase + 1} / 7 · ${Math.round(p * 100)}%`;
+      byId("previous").disabled = phase === 0;
+      byId("next").disabled = phase === 6;
+      if (lastCopy !== scene + phase) {
+        byId("scenario-summary").textContent = descriptions[scene];
+        byId("step-title").textContent = `${phase + 1}. ${phase === 6 && scene !== "queue" ? "この一回の推定値では待ち行列が減らない" : phaseNames[phase]}`;
+        byId("step-detail").textContent = stepDescription(phase, s);
+        document.querySelectorAll("[data-phase]").forEach((b) => { if (Number(b.dataset.phase) === phase) b.setAttribute("aria-current", "step"); else b.removeAttribute("aria-current"); });
+        new Set(panels).forEach((id) => { byId(id).hidden = id !== panels[phase]; });
+        lastCopy = scene + phase;
+      }
+      if (phase <= 2) renderNetwork(s, phase, p);
+      else if (phase === 3) renderLegacy(s, p);
+      else if (phase === 4) renderTrend(s, p);
+      else if (phase === 5) renderEvents(s);
+      else renderAdapt(s, p);
+    }
+    function pause() {
+      playing = false; cancelAnimationFrame(frame); lastTime = null;
+      byId("play-toggle").textContent = "再生"; byId("play-toggle").setAttribute("aria-pressed", "false");
+    }
+    function tick(now) {
+      if (!playing) return;
+      if (lastTime !== null) position = Math.min(699, position + Math.min(now - lastTime, 100) / 60);
+      lastTime = now; render();
+      if (position >= 699) pause(); else frame = requestAnimationFrame(tick);
+    }
+    function seek(value) { pause(); position = Math.min(699, Math.max(0, value)); render(); }
+    // Manual navigation shows a useful paused frame; replay can start at zero.
+    function goToPhase(i) { seek(i * 100 + (i === 1 ? 60 : i === 4 || i === 6 ? 99 : 0)); }
+    byId("play-toggle").addEventListener("click", () => {
+      if (playing) { pause(); return; }
+      if (motion.matches) return;
+      if (position >= 699) position = 0;
+      playing = true; lastTime = null;
+      byId("play-toggle").textContent = "一時停止"; byId("play-toggle").setAttribute("aria-pressed", "true");
+      frame = requestAnimationFrame(tick);
     });
-    apply("clear");
+    byId("restart").addEventListener("click", () => seek(0));
+    byId("previous").addEventListener("click", () => goToPhase(Math.max(0, Math.floor(position / 100) - 1)));
+    byId("next").addEventListener("click", () => goToPhase(Math.min(6, Math.floor(position / 100) + 1)));
+    byId("position").addEventListener("input", (e) => seek(Number(e.target.value)));
+    document.querySelectorAll("[data-phase]").forEach((b) => b.addEventListener("click", () => goToPhase(Number(b.dataset.phase))));
+    document.querySelectorAll("[data-scene]").forEach((b) => b.addEventListener("click", () => {
+      pause(); scene = b.dataset.scene;
+      document.querySelectorAll("[data-scene]").forEach((button) => button.setAttribute("aria-pressed", String(button === b)));
+      render();
+    }));
+    function applyMotionPreference() { pause(); byId("play-toggle").disabled = motion.matches; byId("motion-note").textContent = motion.matches ? "動きを減らす設定に合わせ、自動再生は無効です。手順ボタンとスライダーですべての図・結果を確認できます。" : "各手順のボタンで途中へ移動できます。スライダーを動かすと一時停止します。図の時間は説明用に遅く再生しています。"; }
+    motion.addEventListener("change", applyMotionPreference);
+    document.addEventListener("visibilitychange", () => { if (document.hidden) pause(); });
 
-    const steps = [
-      {
-        title: "1. 照合 — 番号で送り履歴を探す",
-        text: "ここまでは似ています。返事の番号で、いつ出した荷物かを思い出します。legacy は 16-bit のまま。GCC は一周をまたいで世代を分けます。履歴に無い番号はどちらも捨てます。",
-        html: `
-          <div class="viz">
-            <span class="tag">左 legacy（16-bit）　右 GCC（unwrap）</span>
-            <div class="pair">
-              <div class="pane l"><span class="pill l">LEGACY</span>
-                <div style="margin-top:36px;font-weight:700">キー = seq & 0xffff</div>
-                <div class="caption">65535 の次は 0 で上書き</div>
-              </div>
-              <div class="pane g"><span class="pill g">GCC</span>
-                <div style="margin-top:36px;font-weight:700">キー = unwrap(seq)</div>
-                <div class="caption">古い世代は残る</div>
-              </div>
-            </div>
-          </div>`,
-      },
-      {
-        title: "2. 穴 — 届いていない荷物",
-        text: "いちばん効く差です。legacy のカーソルは緑だけを撫でて通ります。GCC は赤い穴も止まり、ロスに数えます。",
-        html: `
-          <div class="viz viz-skip">
-            <span class="tag">同じ返事 10–14。12 が未到達</span>
-            <div class="pair">
-              <div class="pane l"><span class="pill l">LEGACY</span>
-                <div class="rowp">
-                  <div class="bit">10</div><div class="bit">11</div>
-                  <div class="bit hole skip">12</div>
-                  <div class="bit">13</div><div class="bit">14</div>
-                </div>
-              </div>
-              <div class="pane g"><span class="pill g">GCC</span>
-                <div class="rowp">
-                  <div class="bit">10</div><div class="bit">11</div>
-                  <div class="bit hole">12</div>
-                  <div class="bit">13</div><div class="bit">14</div>
-                </div>
-              </div>
-            </div>
-            <div class="cursor cur-l"></div>
-            <div class="cursor cur-g"></div>
-          </div>`,
-      },
-      {
-        title: "3. 遅れ — 列が伸びているか",
-        text: "穴が無くても列は伸びます。legacy は傾きを持たないので、届いた平均速さが高ければ数字は高いままです。GCC は点が右肩上がりなら overuse と判定します。",
-        html: `
-          <div class="viz">
-            <span class="tag">同じ遅延サンプル</span>
-            <div class="pair">
-              <div class="pane l"><span class="pill l">LEGACY</span>
-                <div class="flat"></div>
-                <div class="caption" style="position:absolute;bottom:10px;left:10px">平均の割り算だけ。傾き無し</div>
-              </div>
-              <div class="pane g"><span class="pill g">GCC</span>
-                <div class="slope"></div>
-                <div class="caption" style="position:absolute;bottom:10px;left:10px">傾きが急 → overuse</div>
-              </div>
-            </div>
-          </div>`,
-      },
-      {
-        title: "4. 速さ — bps の出し方",
-        text: "legacy は min(send, recv)。GCC は AIMD のあとにロスで天井。列が伸びると GCC の棒だけ縮みます。",
-        html: `
-          <div class="viz">
-            <span class="tag">列が伸びたあと</span>
-            <div class="pair">
-              <div class="pane l bar-col"><span class="pill l">LEGACY</span>
-                <div class="track"><div class="fill l"></div></div>
-                min(send, recv)
-              </div>
-              <div class="pane g bar-col"><span class="pill g">GCC</span>
-                <div class="track"><div class="fill g"></div></div>
-                delay を下げてから min(loss)
-              </div>
-            </div>
-          </div>`,
-      },
-      {
-        title: "5. 試し打ち — もっと速くてよいか",
-        text: "legacy に probe も padding も 25ms process もありません。GCC だけ、短いバーストで道を探ります。",
-        html: `
-          <div class="viz">
-            <span class="tag">立ち上がり</span>
-            <div class="pair">
-              <div class="pane l"><span class="pill l">LEGACY</span>
-                <div class="clock-face"><div class="one-shot"></div></div>
-                <div class="caption" style="text-align:center">タイマもバーストも無し</div>
-              </div>
-              <div class="pane g"><span class="pill g">GCC</span>
-                <div class="burst" style="top:70px"></div>
-                <div class="burst" style="top:90px;animation-delay:.12s"></div>
-                <div class="burst" style="top:110px;animation-delay:.24s"></div>
-                <div class="tick" style="position:absolute;right:16px;bottom:16px"></div>
-              </div>
-            </div>
-          </div>`,
-      },
-      {
-        title: "6. 通知 — アプリへ渡すもの",
-        text: "bps の変化通知は共通です。legacy だけ混雑フラグと 1–10 のスコアがあります。GCC は overuse と probe 設定が固有です。差し替え後も sender.onAvailableBitrate は残ります。",
-        html: `
-          <div class="viz">
-            <span class="tag">共通は bps だけ</span>
-            <div class="pair">
-              <div class="pane l"><span class="pill l">LEGACY</span>
-                <div style="margin-top:24px;line-height:1.9">bps<br />congestion<br />score 1–10</div>
-              </div>
-              <div class="pane g"><span class="pill g">GCC</span>
-                <div style="margin-top:24px;line-height:1.9">bps<br />overuse / underuse<br />probe cluster</div>
-              </div>
-            </div>
-          </div>`,
-      },
+    const lossCopy = [
+      ["TWCC の受信済み行を送信履歴と照合します。12 は未受信なので、サイズ・時刻の累積対象にしません。", "12 はこの報告時点では未受信です。送信履歴にある番号を soft loss として記録し、後着の受信報告を受け付けられるようにします。"],
+      ["10・11・13・14 の byte と送受信時刻幅を使います。12 の分だけ分子が小さくなるため、平均速度も下がり得ます。", "12 の送信サイズをロス観測に含めます。受信済み行は受信時刻順で delay / 到達スループット / probe に入力します。ロス観測の順番とは別です。"],
+      ["同じ「12 が未受信」の行は再びスキップします。明示的なロス率や、未受信回数に応じた減速係数はありません。", "12 の未受信報告は LossBasedBwe に再び渡します。観測のパケット数・byte は加算されますが、ロスの記録は番号で管理します。受信確認済みの行の重複は GCC 側で除外します。"],
+      ["後の TWCC に 12 の受信時刻が載り、送信履歴が残っていれば、受信済みパケットとして累積に加えます。", "12 を受信済みに確定します。同じ番号のロスがまだ未確定の観測にあれば取り消します。すでに確定した過去の観測までは訂正しません。"],
     ];
-
-    const board = document.getElementById("board");
-    board.innerHTML = steps.map((s, i) => `
-      <article class="step-explain" data-step="${i}">
-        <div><h3>${s.title}</h3><p class="caption">${s.text}</p></div>
-        ${s.html}
-      </article>`).join("");
-
-    const flowTexts = steps.map((s) => s.text);
-    const flowSteps = [...document.querySelectorAll("#flow .flow-step")];
-    const flowExplains = [...document.querySelectorAll(".step-explain")];
-    const flowText = document.getElementById("flowText");
-    let flowI = 0;
-    let flowTimer = null;
-
-    function restartViz(el) {
-      const viz = el.querySelector(".viz");
-      if (!viz) return;
-      viz.replaceWith(viz.cloneNode(true));
+    function renderLoss(index) {
+      document.querySelectorAll("[data-loss]").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.loss) === index)));
+      byId("loss-packet").classList.toggle("missing", index !== 3);
+      byId("loss-packet").innerHTML = index === 3 ? "12<br />後から受信" : "12<br />未受信";
+      byId("loss-legacy").textContent = lossCopy[index][0]; byId("loss-gcc").textContent = lossCopy[index][1];
     }
-    function showFlow(i) {
-      flowI = (i + flowSteps.length) % flowSteps.length;
-      flowSteps.forEach((el, idx) => el.classList.toggle("is-on", idx === flowI));
-      flowExplains.forEach((el, idx) => {
-        const on = idx === flowI;
-        el.classList.toggle("is-on", on);
-        if (on) restartViz(el);
-      });
-      flowText.textContent = flowTexts[flowI];
+    document.querySelectorAll("[data-loss]").forEach((b) => b.addEventListener("click", () => renderLoss(Number(b.dataset.loss))));
+    const probeCopy = [
+      "例: 内部開始目標 300 kbps に対し A = 900 kbps、B = 1,800 kbps を要求します（上限に当たらない場合）。送信可能なネットワークになると開始します。この段階で 1,800 kbps を利用可能帯域として通知するわけではありません。",
+      "A を pacing して送信し、必要な byte 数とパケット数の両方を満たしたら B へ進みます。メディアだけで不足する場合は padding を補います。進行条件は送った量です。80% の ACK を得たから送信を打ち切る、という処理ではありません。",
+      "TWCC を送信履歴・cluster id と照合し、送受信の byte と時刻幅から候補を計算します。受信数・byte の 80% 条件や時間幅・送受信レート比なども検証します。A の送信完了や B の開始と、A の測定結果が届く時刻は一致しません。",
+      "overuse 中は probe 結果を採用せず AIMD の減速経路を使います。それ以外で有効な probe 結果があれば delay 推定へ反映し、その後 loss・RTT・上下限を適用します。最終値が変われば帯域イベントを通知します。混雑は新しい probe の開始も制限します。",
+    ];
+    function renderProbe(index) {
+      document.querySelectorAll("[data-probe]").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.probe) === index)));
+      const parts = ['<title id="probe-title">probe 設定、A と B の送信、TWCC、最終目標の順序</title>', `<desc id="probe-desc">手順 ${index + 1}。${probeCopy[index]}</desc>`, text(10, 40, "送信側"), text(10, 112, "受信側"), line(88, 36, 920, 36, "#b4a995"), line(88, 108, 920, 108, "#b4a995")];
+      const items = [[110, "設定 A / B", 0], [285, "A を送信", 1], [450, "B を送信", 1], [795, "統合・通知", 3]];
+      items.forEach(([x, label, at]) => parts.push(`<rect x="${x}" y="18" width="115" height="34" rx="6" fill="${index >= at ? "#236566" : "#d6cbbb"}"/>${text(x + 57, 40, label, index >= at ? "white" : "minor", 'text-anchor="middle"')}`));
+      parts.push(line(340, 55, 398, 104, index >= 1 ? "#236566" : "#d6cbbb", 'stroke-width="2"'), `<path d="M 387 103 L 398 104 L 395 93" fill="none" stroke="${index >= 1 ? "#236566" : "#d6cbbb"}"/>`, text(365, 80, "RTP A", "minor"));
+      parts.push(line(505, 55, 562, 104, index >= 1 ? "#236566" : "#d6cbbb", 'stroke-width="2"'), `<path d="M 551 103 L 562 104 L 559 93" fill="none" stroke="${index >= 1 ? "#236566" : "#d6cbbb"}"/>`, text(532, 80, "RTP B", "minor"));
+      parts.push(line(630, 104, 738, 40, index >= 2 ? "#bb551c" : "#d6cbbb", 'stroke-width="2"'), `<path d="M 726 41 L 738 40 L 733 52" fill="none" stroke="${index >= 2 ? "#bb551c" : "#d6cbbb"}"/>`, text(672, 127, "TWCC の受信結果", "minor"));
+      parts.push(text(275, 145, "A → B は送信量の充足で進む", "minor"), text(650, 145, "結果の評価は後から", "minor"));
+      byId("probe-diagram").innerHTML = parts.join(""); byId("probe-detail").textContent = probeCopy[index];
     }
-    flowSteps.forEach((el, idx) => {
-      el.addEventListener("click", () => {
-        if (flowTimer) { clearInterval(flowTimer); flowTimer = null; }
-        showFlow(idx);
-      });
-    });
-    document.getElementById("flowNext").addEventListener("click", () => {
-      if (flowTimer) { clearInterval(flowTimer); flowTimer = null; }
-      showFlow(flowI + 1);
-    });
-    document.getElementById("flowPrev").addEventListener("click", () => {
-      if (flowTimer) { clearInterval(flowTimer); flowTimer = null; }
-      showFlow(flowI - 1);
-    });
-    document.getElementById("flowPlay").addEventListener("click", () => {
-      if (flowTimer) { clearInterval(flowTimer); flowTimer = null; showFlow(flowI); return; }
-      showFlow(0);
-      flowTimer = setInterval(() => showFlow(flowI + 1), 3600);
-    });
-    showFlow(0);
+    document.querySelectorAll("[data-probe]").forEach((b) => b.addEventListener("click", () => renderProbe(Number(b.dataset.probe))));
+    applyMotionPreference(); render(); renderLoss(0); renderProbe(0);
   </script>
 </body>
 </html>
