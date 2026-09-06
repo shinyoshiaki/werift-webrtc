@@ -729,6 +729,34 @@ Driven by [peerIdentityMode](DtlsSocket.md#peeridentitymode) (public Options) wh
 
 ***
 
+### isCurrentRxGeneration()
+
+> `protected` **isCurrentRxGeneration**(`rxGeneration`?): `boolean`
+
+Check the carrier generation at every DTLS 1.2 receive boundary.
+
+DTLS 1.3 performs this check again when its record queue resumes.  The
+legacy path has asynchronous Flight handlers instead, so the association
+must reject an old datagram both before parsing and after each await.  An
+unset provider means this socket is being used by the standalone UDP API,
+where no carrier generation exists and the check is intentionally disabled.
+
+#### Parameters
+
+##### rxGeneration?
+
+`number`
+
+#### Returns
+
+`boolean`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`isCurrentRxGeneration`](DtlsSocket.md#iscurrentrxgeneration)
+
+***
+
 ### keyUpdate()
 
 > **keyUpdate**(`requestUpdate`): `Promise`\<`void`\>
