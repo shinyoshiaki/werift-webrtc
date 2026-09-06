@@ -182,6 +182,21 @@ export class DtlsSocket {
     if (this.engine13) this.engine13.expectedRxGeneration = provider;
   }
 
+  /**
+   * Check the carrier generation at every DTLS 1.2 receive boundary.
+   *
+   * DTLS 1.3 performs this check again when its record queue resumes.  The
+   * legacy path has asynchronous Flight handlers instead, so the association
+   * must reject an old datagram both before parsing and after each await.  An
+   * unset provider means this socket is being used by the standalone UDP API,
+   * where no carrier generation exists and the check is intentionally disabled.
+   */
+  protected isCurrentRxGeneration(rxGeneration?: number): boolean {
+    const expected = this.rxGenerationProvider?.();
+    if (expected === undefined) return true;
+    return rxGeneration !== undefined && rxGeneration === expected;
+  }
+
   private waitForLegacyReadiness(): Promise<void> {
     if (this.connected) return Promise.resolve();
     if (this.associationTornDown) {
@@ -523,6 +538,10 @@ export class DtlsSocket {
   ): void {
     // Terminal association: drop all RX (no onData / handshake resume after fatal).
     if (this.associationTornDown) return;
+    // ICE restart can occur after the datagram has been accepted by the
+    // transport but before this handler starts.  Reject that stale generation
+    // before parse/decrypt so it cannot advance a DTLS 1.2 association.
+    if (!this.isCurrentRxGeneration(meta?.rxGeneration)) return;
 
     const peer = this.resolveInboundPeer(addr);
     // Association peer pin owns RX as well as TX once set (cookie / connect).
@@ -554,10 +573,14 @@ export class DtlsSocket {
       try {
         // Re-check: async fatal during multi-record datagram must stop mid-loop.
         if (this.associationTornDown) return;
+        // A synchronous callback for an earlier record may restart ICE.  The
+        // remainder of this datagram belongs to the old generation too.
+        if (!this.isCurrentRxGeneration(meta?.rxGeneration)) return;
         const recordEpoch = packet.recordLayerHeader.epoch;
         const messages = parsePlainText(this.dtls, this.cipher)(packet);
         for (const message of messages) {
           if (this.associationTornDown) return;
+          if (!this.isCurrentRxGeneration(meta?.rxGeneration)) return;
           switch (message.type) {
             case ContentType.handshake:
               {
@@ -625,6 +648,9 @@ export class DtlsSocket {
                   break;
                 }
                 this.onData.execute(message.data as Buffer);
+                // onData is synchronous and may trigger ICE restart.  Do not
+                // continue processing another record from the old datagram.
+                if (!this.isCurrentRxGeneration(meta?.rxGeneration)) return;
               }
               break;
             case ContentType.alert:

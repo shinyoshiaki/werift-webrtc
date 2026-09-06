@@ -507,12 +507,12 @@ export class DtlsClient extends DtlsSocket {
    * True when a captured associationGen still owns the DTLS 1.2 handshake path.
    * False after hard-close or commit to 1.3 (1.2 Flight5 must not resume).
    */
-  private isLegacy12PathActive(gen: number): boolean {
+  private isLegacy12PathActive(gen: number, rxGeneration?: number): boolean {
     if (gen !== this.associationGen) return false;
     if (this.dualPhase === "closed") return false;
     if (this.dualPhase === "committed13") return false;
     if (this.engine13) return false;
-    return true;
+    return this.isCurrentRxGeneration(rxGeneration);
   }
 
   /**
@@ -1206,6 +1206,8 @@ export class DtlsClient extends DtlsSocket {
     if (this.dualPhase === "closed") return;
     // Capture generation so awaits cannot resume after close / commit13.
     const gen = this.associationGen;
+    const rxGeneration = meta?.rxGeneration;
+    const isActive = () => this.isLegacy12PathActive(gen, rxGeneration);
 
     log(
       this.dtls.sessionId,
@@ -1214,7 +1216,7 @@ export class DtlsClient extends DtlsSocket {
     );
 
     for (const handshake of assembled) {
-      if (!this.isLegacy12PathActive(gen)) return;
+      if (!isActive()) return;
       switch (handshake.msg_type) {
         case HandshakeType.hello_verify_request_3:
           {
@@ -1222,7 +1224,7 @@ export class DtlsClient extends DtlsSocket {
               handshake.fragment,
             );
             await new Flight3(this.transport, this.dtls).exec(verifyReq);
-            if (!this.isLegacy12PathActive(gen)) return;
+            if (!isActive()) return;
             // Do not overwrite dualResume with the cookie-bearing CH2 body.
             // dualResume is the original dual CH-A used if a 1.3 SH/HRR for
             // that first CH still arrives (spoofed HVR race). Pure 1.2 peers
@@ -1232,7 +1234,7 @@ export class DtlsClient extends DtlsSocket {
         case HandshakeType.server_hello_2:
           {
             if (this.connected) return;
-            if (!this.isLegacy12PathActive(gen)) return;
+            if (!isActive()) return;
             const only13 =
               this.protocolVersions.length === 1 &&
               this.protocolVersions[0] === DtlsVersion.V1_3;
@@ -1287,9 +1289,9 @@ export class DtlsClient extends DtlsSocket {
                 );
                 return;
               }
-              if (!this.isLegacy12PathActive(gen)) return;
+              if (!isActive()) return;
               this.commitDualTo12();
-              if (!this.isLegacy12PathActive(gen)) return;
+              if (!isActive()) return;
               // Same as pure 1.2: do not replace Flight5 on duplicate SH.
               if (this.flight5 || this.dtls.flight >= 5 || this.connected) {
                 this.flight5?.handleHandshake(handshake);
@@ -1330,7 +1332,7 @@ export class DtlsClient extends DtlsSocket {
               }
             }
 
-            if (!this.isLegacy12PathActive(gen)) return;
+            if (!isActive()) return;
             // Duplicate ServerHello (Flight4 retransmit) must not replace an
             // existing Flight5 mid-handshake or re-apply crypto (ECDHE).
             if (this.flight5 || this.dtls.flight >= 5 || this.connected) {
@@ -1352,14 +1354,14 @@ export class DtlsClient extends DtlsSocket {
           {
             await this.waitForReady(() => !!this.flight5);
             // 解放済み candidate に触れないよう await 後に再検証
-            if (!this.isLegacy12PathActive(gen)) return;
+            if (!isActive()) return;
             this.flight5?.handleHandshake(handshake);
           }
           break;
         case HandshakeType.server_hello_done_14:
           {
             await this.waitForReady(() => !!this.flight5);
-            if (!this.isLegacy12PathActive(gen)) return;
+            if (!isActive()) return;
             this.flight5?.handleHandshake(handshake);
 
             const targets = [
@@ -1371,14 +1373,14 @@ export class DtlsClient extends DtlsSocket {
               this.dtls.checkHandshakesExist(targets),
             );
             // close / commit13 後は Flight5.exec も onConnect も行わない
-            if (!this.isLegacy12PathActive(gen)) return;
+            if (!isActive()) return;
             await this.flight5?.exec();
-            if (!this.isLegacy12PathActive(gen)) return;
+            if (!isActive()) return;
           }
           break;
         case HandshakeType.finished_20:
           {
-            if (!this.isLegacy12PathActive(gen)) return;
+            if (!isActive()) return;
             if (this.connected) return;
             this.dtls.flight = 7;
             this.connected = true;

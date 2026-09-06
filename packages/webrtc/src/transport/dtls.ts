@@ -457,18 +457,40 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     if (this.readiness.writeReady) return;
     if (!this.dtls) await Promise.resolve();
     if (!this.dtls) throw new Error("DTLS handshake has not started");
+    const attempt = this.currentAttempt;
     await this.dtls.waitForWriteReady();
-    this.markWriteReady();
+    // The lower socket can finish an old carrier generation after ICE restart.
+    // That completion may never re-grant upper-layer permission: only the
+    // current attempt's handshake path may call markWriteReady().
+    if (attempt && this.isCurrentAttempt(attempt)) {
+      this.markWriteReady(attempt);
+      return;
+    }
+    if (this.readiness.writeReady) return;
+    await this.waitForCurrentWriteReady();
   }
 
   /** @internal */
   isEarlyServerWriteAllowed(): boolean {
+    return this.isEarlyServerOutboundReady();
+  }
+
+  /**
+   * Single permission boundary for server 0.5-RTT application/media output.
+   * Public RTCDtlsTransport instances are deliberately not WARP transports;
+   * the marker is installed only by SecureTransportManager for PeerConfig.sped.
+   */
+  private isEarlyServerOutboundReady(): boolean {
+    const attempt = this.currentAttempt;
     return (
+      isDtlsTransportSped(this) &&
       this.role === "server" &&
       this.config.warp?.allowEarlyServerData === true &&
       !this.earlyModeDisabled &&
       this.readiness.writeReady &&
-      this.dtls?.isDtls13 === true
+      this.dtls?.isDtls13 === true &&
+      attempt !== undefined &&
+      this.isCurrentAttempt(attempt)
     );
   }
 
@@ -564,6 +586,46 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     });
   }
 
+  /** Wait for the current attempt's upper write-ready edge after a drift. */
+  private waitForCurrentWriteReady(): Promise<void> {
+    if (this.readiness.writeReady) return Promise.resolve();
+    if (this.state === "failed" || this.state === "closed") {
+      return Promise.reject(
+        this.lastError ??
+          new Error("DTLS transport closed before write readiness"),
+      );
+    }
+    return new Promise<void>((resolve, reject) => {
+      const ready = this.onWriteReady.subscribe(() => {
+        if (!this.readiness.writeReady) return;
+        cleanup();
+        resolve();
+      });
+      const attempt = this.onAttemptChanged.subscribe(() => {
+        if (!this.readiness.writeReady) return;
+        cleanup();
+        resolve();
+      });
+      const state = this.onStateChange.subscribe((next) => {
+        if (next !== "failed" && next !== "closed") return;
+        cleanup();
+        reject(
+          this.lastError ??
+            new Error("DTLS transport closed before write readiness"),
+        );
+      });
+      const cleanup = () => {
+        ready.unSubscribe();
+        attempt.unSubscribe();
+        state.unSubscribe();
+      };
+      if (this.readiness.writeReady) {
+        cleanup();
+        resolve();
+      }
+    });
+  }
+
   private async completeHandshake() {
     let attempt = this.beginAttempt(
       (this.iceTransport.connection as Connection).generation,
@@ -600,7 +662,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       }
       await this.dtls?.waitForPeerHandshakeAuthenticated();
       if (!this.isCurrentAttempt(attempt)) continue;
-      if (this.dtls?.readiness.writeReady) this.markWriteReady();
+      if (this.dtls?.readiness.writeReady) this.markWriteReady(attempt);
 
       try {
         this.verifyRemoteCertificateFingerprint();
@@ -669,6 +731,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       iceGeneration,
     };
     this.currentAttempt = attempt;
+    this.onAttemptChanged.execute();
     return attempt;
   }
 
@@ -684,7 +747,6 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     // Do not re-fire onPeerAuthenticated/onHandshakeComplete here: those are
     // one-shot notifications. Re-evaluate only waiters registered before the
     // restart, which otherwise have no event edge after their attempt drifted.
-    this.onAttemptChanged.execute();
   }
 
   /** Attach the lower DTLS completion latch to the current transport attempt. */
@@ -713,16 +775,13 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     this.onHandshakeComplete.execute();
   }
 
-  private markWriteReady(): void {
+  private markWriteReady(attempt?: TransportAttempt): void {
+    const current = attempt ?? this.currentAttempt;
+    if (!current || !this.isCurrentAttempt(current)) return;
     if (this.readiness.writeReady) return;
     this.readiness.writeReady = true;
     this.spedTransport?.markApplicationWriteReady();
-    if (
-      this.role === "server" &&
-      this.config.warp?.allowEarlyServerData === true &&
-      !this.earlyModeDisabled &&
-      this.dtls?.isDtls13
-    ) {
+    if (this.isEarlyServerOutboundReady()) {
       if (this.srtpProfiles.length > 0) this.installSrtpKeys();
     }
     this.updateSrtpPermissions();
@@ -834,7 +893,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         carrier.setRetransmissionMode("external");
         if (this.state === "connecting" && lastFlight.length > 0) {
           handle.onFlightCreated(lastFlight);
-          if (dtlsSocket?.readiness.writeReady) this.markWriteReady();
+          if (dtlsSocket?.readiness.writeReady) {
+            this.markWriteReady(this.currentAttempt);
+          }
         }
       },
       onSessionAbort: () => {
@@ -1254,13 +1315,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       throw new Error("dtls not established");
     }
     if (!this.readiness.peerAuthenticated) {
-      const earlyAllowed =
-        this.role === "server" &&
-        this.config.warp?.allowEarlyServerData === true &&
-        !this.earlyModeDisabled &&
-        this.readiness.writeReady &&
-        this.dtls.isDtls13;
-      if (!earlyAllowed) throw new Error("DTLS peer is not authenticated");
+      if (!this.isEarlyServerOutboundReady()) {
+        throw new Error("DTLS peer is not authenticated");
+      }
       this.earlyServerSendUsed = true;
     }
     await this.dtls.send(data);

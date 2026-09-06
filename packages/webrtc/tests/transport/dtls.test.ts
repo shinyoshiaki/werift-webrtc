@@ -263,8 +263,8 @@ describe("RTCDtlsTransportTest", () => {
     }
   });
 
-  test("fingerprint mismatch does not release early DTLS application data", async () => {
-    // Arrange: DTLS server の early write を許可し、client 側 fingerprint を壊す。
+  test("非SPEDの公開 transport は early DTLS application data を送信しない", async () => {
+    // Arrange: 公開 RTCDtlsTransport に early policy を指定しても、SPED marker は付けない。
     const [server, client] = await createDtlsSessions({
       protocolVersions: [DtlsVersion.V1_3],
       warp: { allowEarlyServerData: true },
@@ -286,14 +286,16 @@ describe("RTCDtlsTransportTest", () => {
     );
 
     try {
-      // Act: server Finished 後、client の SDP fingerprint 検証前に送信する。
+      // Act: server が write-ready になっても、非SPED transport から pre-auth 送信を試みる。
       void server.start().catch(() => undefined);
       void client.start().catch(() => undefined);
       await server.waitForWriteReady();
-      await server.sendData(Buffer.from("must-not-leak"));
+      await expect(
+        server.sendData(Buffer.from("must-not-leak")),
+      ).rejects.toThrow(/authenticated/i);
       await waitForDtlsState(client, "failed");
 
-      // Assert: DTLS record は gate で破棄され、SCTP 側へ一件も届かない。
+      // Assert: 公開 transport の設定だけでは early outbound permission を得られない。
       expect(client.state).toBe("failed");
       expect(received.data).toHaveLength(0);
     } finally {
@@ -341,8 +343,8 @@ describe("RTCDtlsTransportTest", () => {
     }
   });
 
-  test("fingerprint mismatch releases neither buffered RTP nor RTCP", async () => {
-    // Arrange: early media を暗号化状態で buffer し、受信側 fingerprint を壊す。
+  test("非SPEDの公開 transport は pre-auth RTP/RTCP を送信しない", async () => {
+    // Arrange: early media policy を指定しても、受信側 fingerprint を壊した非SPED transport を使う。
     const profile = ProtectionProfileAes128CmHmacSha1_80;
     const [server, client] = await createDtlsSessions(
       {
@@ -371,7 +373,7 @@ describe("RTCDtlsTransportTest", () => {
     );
 
     try {
-      // Act: server write-ready 直後に protected RTP/RTCP を送る。
+      // Act: server write-ready 直後に pre-auth protected RTP/RTCP を送る。
       void server.start().catch(() => undefined);
       void client.start().catch(() => undefined);
       await server.waitForWriteReady();
@@ -380,11 +382,13 @@ describe("RTCDtlsTransportTest", () => {
           Buffer.from("must-not-leak"),
           new RtpHeader({ ssrc: 7, payloadType: 96 }),
         ),
-      ).toBeGreaterThan(0);
-      await server.sendRtcp([new RtcpRrPacket({ ssrc: 7, reports: [] })]);
+      ).toBe(0);
+      expect(
+        await server.sendRtcp([new RtcpRrPacket({ ssrc: 7, reports: [] })]),
+      ).toBe(0);
       await waitForDtlsState(client, "failed");
 
-      // Assert: fingerprint mismatch の abort 後も上位イベントはゼロのまま。
+      // Assert: 非SPED transport の early media は送信されず、上位イベントもゼロのまま。
       await setTimeout(20);
       expect(receivedRtp).toBe(0);
       expect(receivedRtcp).toBe(0);
@@ -933,82 +937,61 @@ describe("RTCDtlsTransportTest", () => {
     }
   }, 10_000);
 
-  test("保留 application data の配送中 restart は新 attempt で start を完了する", async () => {
-    // Arrange: server の early application data を許可した実 DTLS 1.3 pair を用意する。
-    const [server, client] = await createDtlsSessions({
+  test("restart 前の writeReady waiter は新 attempt に許可を再付与しない", async () => {
+    // Arrange: lower DTLS の write-ready 完了を制御できる transport を用意する。
+    const [transport] = await createDtlsSessions({
       ...defaultPeerConfig,
       protocolVersions: [DtlsVersion.V1_3],
-      warp: { allowEarlyServerData: true },
     });
-    server.setRemoteParams(client.localParameters);
-    client.setRemoteParams(server.localParameters);
-    const received: string[] = [];
-    let callbackState: string | undefined;
-    let restarted = false;
-    let releasePeerAuthentication!: () => void;
-    const peerAuthenticationHold = new Promise<void>((resolve) => {
-      releasePeerAuthentication = resolve;
-    });
-    client.dataReceiver = (data) => {
-      received.push(data.toString());
-      if (restarted) return;
-      restarted = true;
-      // Act: 保留データの最初の配送 callback 内で ICE generation を進める。
-      callbackState = client.state;
-      const ice = client.iceTransport.connection as unknown as {
-        generation: number;
+    const internals = transport as unknown as {
+      state: string;
+      dtls: {
+        isDtls13: boolean;
+        close(): void;
+        waitForWriteReady(): Promise<void>;
       };
-      ice.generation++;
-      client.handleIceRestart();
+      currentAttempt?: { id: number; iceGeneration: number };
+      beginAttempt(generation: number): unknown;
+      readiness: { writeReady: boolean };
+      onWriteReady: { execute(): void };
+    };
+    let resolveWriteReady!: () => void;
+    const writeReady = new Promise<void>((resolve) => {
+      resolveWriteReady = resolve;
+    });
+    internals.dtls = {
+      isDtls13: true,
+      close: () => {},
+      waitForWriteReady: () => writeReady,
+    };
+    const connection = transport.iceTransport.connection as unknown as {
+      generation: number;
     };
 
     try {
-      // Arrange: client の DTLS readiness 後段だけを一時停止し、実 wire の
-      // early application data が WebRTC gate に保留される窓を作る。
-      const clientStart = client.start();
-      const dtlsDeadline = Date.now() + 5_000;
-      while (!client.dtls) {
-        if (Date.now() > dtlsDeadline)
-          throw new Error("client DTLS が生成されない");
-        await setTimeout(10);
-      }
-      const waitForPeerAuthentication =
-        client.dtls.waitForPeerHandshakeAuthenticated.bind(client.dtls);
-      client.dtls.waitForPeerHandshakeAuthenticated = async () => {
-        await waitForPeerAuthentication();
-        await peerAuthenticationHold;
-      };
+      internals.state = "connecting";
+      internals.beginAttempt(connection.generation);
+      const oldWaiter = transport.waitForWriteReady();
 
-      // Act: server が write-ready になった直後、client の fingerprint 認証前に送信する。
-      const serverStart = server.start();
-      await server.waitForWriteReady();
-      await server.sendData(Buffer.from("held-before-auth"));
+      // Act: lower DTLS の完了前に ICE generation を進めて新 attempt を開始する。
+      connection.generation++;
+      internals.beginAttempt(connection.generation);
+      resolveWriteReady();
+      await Promise.resolve();
+      await Promise.resolve();
 
-      const gate = (
-        client as unknown as {
-          applicationGate: { snapshot(): { bufferedPackets: number } };
-        }
-      ).applicationGate;
-      const bufferDeadline = Date.now() + 5_000;
-      while (gate.snapshot().bufferedPackets === 0) {
-        if (Date.now() > bufferDeadline) {
-          throw new Error("early application data が gate に保留されない");
-        }
-        await setTimeout(10);
-      }
-      releasePeerAuthentication();
-      await Promise.all([serverStart, clientStart]);
+      // Assert: 旧 waiter の完了では新 attempt の permission を再付与しない。
+      expect(internals.readiness.writeReady).toBe(false);
 
-      // Assert: callback は connecting 中に一度だけ実行され、新 attempt で接続が完了する。
-      expect(callbackState).toBe("connecting");
-      expect(received).toEqual(["held-before-auth"]);
-      expect(client.state).toBe("connected");
+      // Act: 新 attempt の上位 readiness edge を発火して旧 waiter を解放する。
+      internals.readiness.writeReady = true;
+      internals.onWriteReady.execute();
+      await oldWaiter;
 
-      // Assert: 完了済み startPromise の再利用で connecting に取り残されない。
-      await client.start();
-      expect(client.state).toBe("connected");
+      // Assert: write-ready は新 attempt による明示通知後だけ有効になる。
+      expect(internals.readiness.writeReady).toBe(true);
     } finally {
-      await Promise.allSettled([server.stop(), client.stop()]);
+      await transport.stop();
     }
   });
 
