@@ -1336,11 +1336,11 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         return enc.length;
       }
 
-      // Track statistics
+      await this.sendProtectedMedia(enc);
+      // 実際の wire 送信が成功した後だけ統計を更新する。SPED の early
+      // path は authenticated pair 待ちで reject することがある。
       this.bytesSent += enc.length;
       this.packetsSent++;
-
-      await this.sendProtectedMedia(enc);
       return enc.length;
     } catch (error) {
       log("failed to send", error);
@@ -1361,19 +1361,24 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       return enc.length;
     }
 
-    // Track statistics
-    this.bytesSent += enc.length;
-    this.packetsSent++;
-
-    await this.sendProtectedMedia(enc);
+    try {
+      await this.sendProtectedMedia(enc);
+      // 実際の wire 送信が成功した後だけ統計を更新する。
+      this.bytesSent += enc.length;
+      this.packetsSent++;
+      return;
+    } catch (error) {
+      log("failed to send RTCP", error);
+      return 0;
+    }
   }
 
   private async sendProtectedMedia(data: Buffer) {
     if (this.spedTransport) {
-      await this.spedTransport.send(data).catch(() => {});
+      await this.spedTransport.send(data);
       return;
     }
-    await this.iceTransport.connection.send(data).catch(() => {});
+    await this.iceTransport.connection.send(data);
   }
 
   /**

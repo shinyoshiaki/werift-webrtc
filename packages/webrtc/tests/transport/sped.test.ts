@@ -452,6 +452,46 @@ describe("IceSpedTransport pre-nomination send", () => {
     expect(a.sent[0]!.addr).toEqual(pair.remoteAddr);
   });
 
+  it("writeReady の未認証 pair への application data は認証後に wire へ送る", async () => {
+    // Arrange: pair は checklist に存在するが、Binding 認証と nomination を遅延させる。
+    const a = mockProtocol("1.2.3.4", 1000);
+    const pair = new CandidatePair(
+      a.protocol,
+      new Candidate("r", 1, "udp", 1, "10.0.0.1", 1111, "host"),
+      true,
+    );
+    const ice = createIceStub(1, [pair]);
+    const transport = new IceSpedTransport(ice);
+    const app = Buffer.from([23, 7, 6, 5]);
+    transport.markApplicationWriteReady();
+
+    try {
+      // Act: pair 未認証の間に送信を開始し、wire へはまだ出ないことを確認する。
+      const pendingSend = transport.send(app, pair.remoteAddr);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(a.sent).toHaveLength(0);
+
+      // Act: nomination 前のまま Binding 認証だけを成立させ、datagram event で drain する。
+      pair.requestsReceived = 1;
+      connectionDatagramEvent(ice).execute({
+        bytes: Buffer.from([0, 1]),
+        source: pair.remoteAddr,
+        protocol: a.protocol,
+        pair,
+        generation: ice.generation,
+        authenticated: true,
+      });
+      await pendingSend;
+
+      // Assert: send() は成功扱いのまま捨てず、認証済み pair の wire へ一度だけ届く。
+      expect(a.sent).toHaveLength(1);
+      expect(a.sent[0]!.data.equals(app)).toBe(true);
+      expect(a.sent[0]!.addr).toEqual(pair.remoteAddr);
+    } finally {
+      await transport.close();
+    }
+  });
+
   it("writeReady uses nominated pair directly before ICE consent permits Connection.send", async () => {
     // Arrange: nomination 済みだが consent 前の full ICE window を再現する。
     const a = mockProtocol("1.2.3.4", 1000);

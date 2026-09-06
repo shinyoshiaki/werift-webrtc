@@ -8,6 +8,19 @@ import type { SpedRuntime } from "../../../ice/src/sped/runtime";
 import type { Address, DatagramRxMeta, Transport } from "../imports/common";
 import { isDtls } from "../utils";
 
+const EARLY_SEND_MAX_PACKETS = 256;
+const EARLY_SEND_MAX_BYTES = 256 * 1024;
+const EARLY_SEND_RETENTION_MS = 2_000;
+const EARLY_SEND_RETRY_MS = 10;
+
+type PendingEarlySend = {
+  data: Buffer;
+  addr?: Address;
+  generation: number;
+  resolve: () => void;
+  reject: (error: Error) => void;
+};
+
 /**
  * ICE Transport for SPED: handshake send is suppressed while embedding,
  * then uses the authenticated CandidatePair (pre-nomination handshake only).
@@ -18,6 +31,13 @@ export class IceSpedTransport implements Transport {
   readonly peerAuthenticated = true;
   type = "ice-sped";
   private runtime?: SpedRuntime;
+  private readonly datagramSubscription: { unSubscribe(): void };
+  private readonly stateSubscription?: { unSubscribe(): void };
+  private pendingEarlySends: PendingEarlySend[] = [];
+  private pendingEarlySendBytes = 0;
+  private earlySendExpiryTimer?: ReturnType<typeof setTimeout>;
+  private earlySendRetryTimer?: ReturnType<typeof setTimeout>;
+  private earlySendFlushInProgress = false;
   /**
    * True after the first DTLS handshake completes. ICE restart after
    * DTLS is connected marks SPED complete so application records stay
@@ -28,32 +48,63 @@ export class IceSpedTransport implements Transport {
   private applicationWriteReady = false;
 
   constructor(private readonly ice: Connection) {
-    connectionDatagramEvent(ice).subscribe((ctx) => {
-      if (!isDtls(ctx.bytes) || !this.onData) {
+    this.datagramSubscription = connectionDatagramEvent(ice).subscribe(
+      (ctx) => {
+        if (
+          ctx.generation === ice.generation &&
+          ctx.pair &&
+          ctx.authenticated &&
+          isAuthenticatedHandshakePair(ctx.pair)
+        ) {
+          // Binding/Data の受信で pair が認証済みになった場合、保留中の
+          // early application record を同じ世代の wire path へ送る。
+          this.flushPendingEarlySends();
+        }
+        if (!isDtls(ctx.bytes) || !this.onData) {
+          return;
+        }
+        if (!allowsAuthenticatedDtlsDelivery(ctx, ice.generation)) {
+          return;
+        }
+        if (this.applicationReady && ctx.pair !== ice.nominated) {
+          return;
+        }
+        // 世代トークンを engine RX queue まで運び、restart 後の stale 実行を防ぐ。
+        this.onData(ctx.bytes, ctx.source, { rxGeneration: ctx.generation });
+      },
+    );
+    const stateChanged = (
+      ice as unknown as {
+        stateChanged?: {
+          subscribe(execute: (state: string) => void): { unSubscribe(): void };
+        };
+      }
+    ).stateChanged;
+    this.stateSubscription = stateChanged?.subscribe((state) => {
+      if (state === "failed" || state === "closed") {
+        this.rejectPendingEarlySends(
+          new Error(`ICE ${state} before SPED application path was ready`),
+        );
         return;
       }
-      if (!allowsAuthenticatedDtlsDelivery(ctx, ice.generation)) {
-        return;
-      }
-      if (this.applicationReady && ctx.pair !== ice.nominated) {
-        return;
-      }
-      // 世代トークンを engine RX queue まで運び、restart 後の stale 実行を防ぐ。
-      this.onData(ctx.bytes, ctx.source, { rxGeneration: ctx.generation });
+      this.flushPendingEarlySends();
     });
   }
 
   setRuntime(runtime: SpedRuntime) {
     this.runtime = runtime;
+    this.flushPendingEarlySends();
   }
 
   markApplicationReady() {
     this.applicationReady = true;
     this.applicationWriteReady = true;
+    this.flushPendingEarlySends();
   }
 
   markApplicationWriteReady() {
     this.applicationWriteReady = true;
+    this.flushPendingEarlySends();
   }
 
   onData: (buf: Buffer, addr?: Address, meta?: DatagramRxMeta) => void =
@@ -96,7 +147,10 @@ export class IceSpedTransport implements Transport {
         (nominated && this.isCurrentAuthenticatedPair(nominated)
           ? nominated
           : undefined);
-      if (!pair) return;
+      if (!pair) {
+        await this.enqueueEarlySend(data, addr);
+        return;
+      }
       this.runtime?.pinHandshakePath(pair);
       await pair.protocol.sendData(data, pair.remoteAddr);
       return;
@@ -118,6 +172,137 @@ export class IceSpedTransport implements Transport {
 
   async close() {
     this.closed = true;
+    this.datagramSubscription.unSubscribe();
+    this.stateSubscription?.unSubscribe();
+    this.rejectPendingEarlySends(new Error("SPED transport is closed"));
+  }
+
+  private async enqueueEarlySend(data: Buffer, addr?: Address) {
+    if (this.closed) {
+      throw new Error("SPED transport is closed");
+    }
+    if (
+      this.pendingEarlySends.length >= EARLY_SEND_MAX_PACKETS ||
+      this.pendingEarlySendBytes + data.length > EARLY_SEND_MAX_BYTES
+    ) {
+      throw new Error("SPED early application send queue is full");
+    }
+
+    const pending = new Promise<void>((resolve, reject) => {
+      this.pendingEarlySends.push({
+        data: Buffer.from(data),
+        addr,
+        generation: this.ice.generation,
+        resolve,
+        reject: (error) => reject(error),
+      });
+      this.pendingEarlySendBytes += data.length;
+    });
+    this.scheduleEarlySendExpiry();
+    this.scheduleEarlySendRetry();
+    return pending;
+  }
+
+  private scheduleEarlySendExpiry() {
+    if (this.earlySendExpiryTimer || this.pendingEarlySends.length === 0) {
+      return;
+    }
+    this.earlySendExpiryTimer = setTimeout(() => {
+      this.earlySendExpiryTimer = undefined;
+      this.rejectPendingEarlySends(
+        new Error(
+          "SPED early application send timed out waiting for an authenticated candidate pair",
+        ),
+      );
+    }, EARLY_SEND_RETENTION_MS);
+  }
+
+  private scheduleEarlySendRetry() {
+    if (
+      this.closed ||
+      this.earlySendRetryTimer ||
+      this.pendingEarlySends.length === 0
+    ) {
+      return;
+    }
+    this.earlySendRetryTimer = setTimeout(() => {
+      this.earlySendRetryTimer = undefined;
+      this.flushPendingEarlySends();
+    }, EARLY_SEND_RETRY_MS);
+  }
+
+  private clearEarlySendTimers() {
+    if (this.earlySendExpiryTimer) {
+      clearTimeout(this.earlySendExpiryTimer);
+      this.earlySendExpiryTimer = undefined;
+    }
+    if (this.earlySendRetryTimer) {
+      clearTimeout(this.earlySendRetryTimer);
+      this.earlySendRetryTimer = undefined;
+    }
+  }
+
+  private rejectPendingEarlySends(error: Error) {
+    const pending = this.pendingEarlySends;
+    this.pendingEarlySends = [];
+    this.pendingEarlySendBytes = 0;
+    this.clearEarlySendTimers();
+    for (const item of pending) {
+      item.reject(error);
+    }
+  }
+
+  private flushPendingEarlySends() {
+    if (
+      this.closed ||
+      this.earlySendFlushInProgress ||
+      this.pendingEarlySends.length === 0
+    ) {
+      return;
+    }
+    this.earlySendFlushInProgress = true;
+    void (async () => {
+      while (!this.closed && this.pendingEarlySends.length > 0) {
+        const item = this.pendingEarlySends[0]!;
+        if (item.generation !== this.ice.generation) {
+          this.pendingEarlySends.shift();
+          this.pendingEarlySendBytes -= item.data.length;
+          item.reject(new Error("SPED early application send became stale"));
+          continue;
+        }
+
+        const pair = this.applicationReady
+          ? undefined
+          : this.resolveAuthenticatedSendPair(item.addr);
+        if (!this.applicationReady && !pair) {
+          this.scheduleEarlySendRetry();
+          return;
+        }
+
+        this.pendingEarlySends.shift();
+        this.pendingEarlySendBytes -= item.data.length;
+        try {
+          if (this.applicationReady) {
+            await this.ice.send(item.data);
+          } else {
+            this.runtime?.pinHandshakePath(pair!);
+            await pair!.protocol.sendData(item.data, pair!.remoteAddr);
+          }
+          item.resolve();
+        } catch (error) {
+          item.reject(
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        }
+      }
+    })().finally(() => {
+      this.earlySendFlushInProgress = false;
+      if (this.pendingEarlySends.length === 0) {
+        this.clearEarlySendTimers();
+      } else {
+        this.scheduleEarlySendRetry();
+      }
+    });
   }
 
   /**
@@ -140,8 +325,20 @@ export class IceSpedTransport implements Transport {
       }
       return undefined;
     }
-    if (!addr) {
+    // An existing association pin is an ownership boundary.  Wait for that
+    // same pair to become authenticated instead of switching an early record
+    // to an unrelated candidate merely because it became available first.
+    if (pinned && !addr) {
       return undefined;
+    }
+    if (!addr) {
+      const nominated = this.ice.nominated;
+      if (nominated && this.isCurrentAuthenticatedPair(nominated)) {
+        return nominated;
+      }
+      return (this.ice.checkList ?? []).find((pair) =>
+        this.isCurrentAuthenticatedPair(pair),
+      );
     }
     const list = this.ice.checkList ?? [];
     return list.find(

@@ -23,6 +23,7 @@ import {
   RtpHeader,
   SignatureAlgorithm,
 } from "../../src";
+import type { RTCTransportStats } from "../../src/media/stats";
 import { isDtls } from "../../src/utils";
 import {
   awaitMessage,
@@ -866,6 +867,12 @@ describe("RTCPeerConnection SPED opt-in", () => {
       await server.waitForWriteReady();
       expect(server.state).toBe("connecting");
       expect(client.state).toBe("connecting");
+      const statsBefore = (await server.getStats()).find(
+        (stat): stat is RTCTransportStats => stat.type === "transport",
+      );
+      if (!statsBefore) {
+        throw new Error("server transport stats が無い");
+      }
       // 認証前に同じ識別可能な RTP/RTCP を複数件だけ送る。以後の再送は行わず、
       // 認証後に届いた payload/SSRC がこの pre-auth packet そのものであることを検証する。
       const sentEarlyRtp = await Promise.all(
@@ -888,6 +895,16 @@ describe("RTCPeerConnection SPED opt-in", () => {
         ),
       );
       expect(sentEarlyRtp.every((sent) => sent > 0)).toBe(true);
+      const statsAfter = (await server.getStats()).find(
+        (stat): stat is RTCTransportStats => stat.type === "transport",
+      );
+      if (!statsAfter) {
+        throw new Error("server transport stats が無い");
+      }
+      // Assert: 保留中の送信は wire 到達後だけ transport stats に加算される。
+      expect(statsBefore.packetsSent).toBeDefined();
+      expect(statsAfter.packetsSent).toBeDefined();
+      expect(statsAfter.packetsSent! - statsBefore.packetsSent!).toBe(6);
 
       // Assert: fingerprint 認証の完了前には実 PC の DataChannel / RTP /
       // RTCP callback を一件も公開しない。
