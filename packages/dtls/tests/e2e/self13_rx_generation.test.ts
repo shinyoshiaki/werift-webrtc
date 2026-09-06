@@ -2,7 +2,7 @@ import { setTimeout } from "timers/promises";
 
 import { UdpTransport } from "../../../common/src";
 import { DtlsClient, DtlsServer, DtlsVersion } from "../../src";
-import { ContentType } from "../../src/record/const";
+import { AlertDesc, ContentType } from "../../src/record/const";
 import { encryptRecord } from "../../src/record/v1_3/record";
 import { certPem, keyPem } from "../fixture";
 
@@ -231,12 +231,12 @@ test("e2e/self13 は Finished 受信中の restart 後も ACK と handshakeCompl
   let droppedFinishedAck = false;
   const originalServerOnData = serverTransport.onData as (
     data: Buffer,
-    addr: [string, number],
+    addr: readonly [string, number],
     meta?: { rxGeneration?: number },
   ) => void;
   const originalClientOnData = clientTransport.onData as (
     data: Buffer,
-    addr: [string, number],
+    addr: readonly [string, number],
     meta?: { rxGeneration?: number },
   ) => void;
   const originalServerSend = serverTransport.send.bind(serverTransport);
@@ -379,12 +379,12 @@ async function createGenerationAware13Pair(): Promise<GenerationAware13Pair> {
   const generations = { server: 0, client: 0 };
   const originalServerOnData = serverTransport.onData as (
     data: Buffer,
-    addr: [string, number],
+    addr: readonly [string, number],
     meta?: { rxGeneration?: number },
   ) => void;
   const originalClientOnData = clientTransport.onData as (
     data: Buffer,
-    addr: [string, number],
+    addr: readonly [string, number],
     meta?: { rxGeneration?: number },
   ) => void;
   serverTransport.onData = ((data, addr) =>
@@ -409,6 +409,26 @@ async function createGenerationAware13Pair(): Promise<GenerationAware13Pair> {
 type AckCapableEngine = {
   sendAck: (opts?: { allowEmpty?: boolean }) => Promise<number>;
   closed: boolean;
+};
+
+type AlertCapableEngine = {
+  closed: boolean;
+  close: () => void;
+  sendFatalAlert: (description: number) => Promise<void>;
+  handleAlert: (
+    fragment: Buffer,
+    receivedEpoch: number,
+    sequenceNumber?: number,
+    acceptedGeneration?: number,
+  ) => void;
+  getPeerAddr: () => [string, number] | undefined;
+  getHandshakeCarrier: () => {
+    inject(
+      data: Buffer,
+      peer?: [string, number],
+      opts?: { rxGeneration?: number },
+    ): Promise<void>;
+  };
 };
 
 async function connectGenerationAware13Pair(pair: GenerationAware13Pair) {
@@ -539,3 +559,91 @@ test("e2e/self13 は現世代の KeyUpdate ACK 送信 reject を fatal にする
     await Promise.allSettled([pair.client.close(), pair.server.close()]);
   }
 }, 20_000);
+
+test.each(["close_notify", "fatal"] as const)(
+  "e2e/self13 は旧世代の暗号化 %s を現 association に適用しない",
+  async (alertKind) => {
+    // Arrange: 接続済み pair と、server から暗号化 Alert を採取する送信口を用意する。
+    const pair = await createGenerationAware13Pair();
+    const clientErrors: Error[] = [];
+    const errorSubscription = pair.client.onError.subscribe((error) => {
+      clientErrors.push(error);
+    });
+    const serverEngine = (
+      pair.server as unknown as { engine13?: AlertCapableEngine }
+    ).engine13;
+    const clientEngine = (
+      pair.client as unknown as { engine13?: AlertCapableEngine }
+    ).engine13;
+    if (!serverEngine || !clientEngine) {
+      throw new Error("1.3 engine が無い");
+    }
+    const captured: Buffer[] = [];
+    const originalSend = pair.serverTransport.send;
+    const originalSendAndWait = pair.serverTransport.sendAndWait;
+    try {
+      await connectGenerationAware13Pair(pair);
+      pair.serverTransport.send = async (data) => {
+        captured.push(Buffer.from(data));
+      };
+      pair.serverTransport.sendAndWait = async (data) => {
+        captured.push(Buffer.from(data));
+      };
+
+      // Act: server の暗号化 Alert を実際の DTLS engine から生成する。
+      if (alertKind === "close_notify") {
+        serverEngine.close();
+      } else {
+        await serverEngine.sendFatalAlert(AlertDesc.InternalError);
+      }
+      const deadline = Date.now() + 2_000;
+      while (captured.length === 0) {
+        if (Date.now() >= deadline) {
+          throw new Error(`${alertKind} が採取できない`);
+        }
+        await setTimeout(10);
+      }
+
+      const peer = clientEngine.getPeerAddr();
+      if (!peer) throw new Error("client peer address が無い");
+      const originalHandleAlert = clientEngine.handleAlert.bind(clientEngine);
+      let alertAccepted = false;
+      clientEngine.handleAlert = (
+        fragment,
+        receivedEpoch,
+        sequenceNumber,
+        acceptedGeneration,
+      ) => {
+        // 暗号化 record の検証後、Alert callback 実行直前に restart を注入する。
+        alertAccepted = true;
+        pair.generations.client = 1;
+        return originalHandleAlert(
+          fragment,
+          receivedEpoch,
+          sequenceNumber,
+          acceptedGeneration,
+        );
+      };
+      await clientEngine.getHandshakeCarrier().inject(captured[0]!, peer, {
+        rxGeneration: 0,
+      });
+      await setTimeout(20);
+
+      // Assert: 旧世代の close_notify/fatal Alert は状態変更・onError を起こさない。
+      expect(alertAccepted).toBe(true);
+      expect(clientErrors).toHaveLength(0);
+      expect(pair.client.connected).toBe(true);
+      expect(clientEngine.closed).toBe(false);
+    } finally {
+      pair.serverTransport.send = originalSend;
+      if (originalSendAndWait) {
+        pair.serverTransport.sendAndWait = originalSendAndWait;
+      }
+      errorSubscription.unSubscribe();
+      pair.server.setExpectedRxGeneration(undefined);
+      pair.client.setExpectedRxGeneration(undefined);
+      await Promise.allSettled([pair.client.close(), pair.server.close()]);
+    }
+  },
+  20_000,
+);

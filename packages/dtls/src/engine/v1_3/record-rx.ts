@@ -562,7 +562,12 @@ export async function onCiphertextRecordAsync(
           AlertDesc.UnexpectedMessage,
         );
       }
-      this.handleAlert(rec.content, rec.epoch, rec.sequenceNumber);
+      this.handleAlert(
+        rec.content,
+        rec.epoch,
+        rec.sequenceNumber,
+        acceptedGeneration,
+      );
       return false;
     default:
       // AEAD-authenticated unknown type is fatal (not silent ignore)
@@ -623,6 +628,14 @@ export function handleAlert(
     "seq",
     sequenceNumber,
   );
+
+  // Decryption authenticates the record, but not its ICE generation.  A
+  // close_notify/fatal Alert accepted before restart must not close or fail
+  // the association that owns the newer generation.
+  if (isStaleRxGeneration(this, acceptedGeneration)) {
+    log("drop stale authenticated alert", acceptedGeneration);
+    return;
+  }
 
   if (alert.description === AlertDesc.CloseNotify) {
     // RFC 9147: record epoch/seq boundary for reordered app data; then align
