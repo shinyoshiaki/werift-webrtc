@@ -17,12 +17,24 @@ function createIceStub(generation = 1, checkList: CandidatePair[] = []) {
     generation,
     nominated: undefined as CandidatePair | undefined,
     checkList,
+    state: "connected" as string,
+    applicationDataReady: false,
+    stateChanged: new Event<[string]>(),
+    canSendApplicationData: () =>
+      ice.applicationDataReady && ice.nominated !== undefined,
     send: async (data: Buffer) => {
+      if (!ice.canSendApplicationData()) {
+        return;
+      }
       sent.push(Buffer.from(data));
     },
     sent,
   };
-  return ice as unknown as Connection & { sent: Buffer[] };
+  return ice as unknown as Connection & {
+    sent: Buffer[];
+    applicationDataReady: boolean;
+    stateChanged: Event<[string]>;
+  };
 }
 
 function dummySpedHooks() {
@@ -563,8 +575,8 @@ describe("IceSpedTransport pre-nomination send", () => {
     expect(runtime.lastPath).toBe(pairA);
   });
 
-  it("handshake 完了後の ICE restart 中は nominated 無しでも protocol.sendData へ直接送らない", async () => {
-    // Arrange: DataChannel 接続済み相当。restart で nominated が消え、新 generation の認証済み pair だけある
+  it("handshake 完了後は nomination/consent 前の application data を wire へ送らない", async () => {
+    // Arrange: DTLS 完了済みだが、ICE restart 直後で selected pair と consent が無い
     const a = mockProtocol("1.2.3.4", 1000);
     const pair = authenticatedPair(a.protocol, "10.0.0.1", 1111);
     const ice = createIceStub(2, [pair]);
@@ -577,12 +589,57 @@ describe("IceSpedTransport pre-nomination send", () => {
     transport.markApplicationReady();
     const app = Buffer.from([23, 1, 2, 3, 4]);
 
-    // Act: nominated がまだ無い window で application data を送る
+    // Act: nominated がまだ無い window で application data を保留する
     await transport.send(app, pair.remoteAddr);
+    await new Promise((resolve) => setTimeout(resolve, 20));
 
-    // Assert: Connection.send へ任せ、pair.protocol.sendData には落とさない
+    // Assert: Connection.send の no-op 成功を wire 送信と誤認しない
     expect(a.sent).toHaveLength(0);
+
+    // Act: nomination と consent を成立させ、Connection の readiness 通知を発火する
+    ice.nominated = pair;
+    ice.applicationDataReady = true;
+    ice.stateChanged.execute("connected");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // Assert: 実際に送信可能になった後だけ wire へ一度届く
     expect(ice.sent).toHaveLength(1);
     expect(ice.sent[0]!.equals(app)).toBe(true);
+  });
+
+  it("実 Connection.send の no-op 成功を nomination 後の wire 送信まで保留する", async () => {
+    // Arrange: 実 Connection を使い、DTLS 完了後・ICE nomination 前の状態を作る。
+    const ice = new Connection(true, { iceLite: true });
+    const a = mockProtocol("1.2.3.4", 1000);
+    const pair = authenticatedPair(a.protocol, "10.0.0.1", 1111);
+    ice.checkList.push(pair);
+    const transport = new IceSpedTransport(ice);
+    transport.markApplicationReady();
+    const app = Buffer.from([23, 4, 3, 2, 1]);
+
+    try {
+      // Act: nomination 前の Connection.send が no-op になる期間に送信を要求する。
+      let completed = false;
+      const pendingSend = transport.sendAndWait(app).then(() => {
+        completed = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      // Assert: wire 到達を待つ Promise は未完了で、wire にもまだ出ない。
+      expect(completed).toBe(false);
+      expect(a.sent).toHaveLength(0);
+
+      // Act: 実 Connection の selected pair を確定し、待機 queue を再開する。
+      ice.nominated = pair;
+      ice.state = "connected";
+      ice.stateChanged.execute("connected");
+      await pendingSend;
+
+      // Assert: 実 Connection.send が送信可能になった後だけ wire に届く。
+      expect(a.sent).toHaveLength(1);
+      expect(a.sent[0]!.data.equals(app)).toBe(true);
+    } finally {
+      await transport.close();
+    }
   });
 });

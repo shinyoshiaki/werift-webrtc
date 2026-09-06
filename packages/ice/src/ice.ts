@@ -1211,8 +1211,15 @@ export class Connection implements IceConnection {
     );
   }
 
-  private canSendApplicationData(): boolean {
-    if (!this.nominated) {
+  /**
+   * @internal
+   * Return whether application data can be delivered on the selected pair.
+   * This is kept separate from {@link send} so transports that buffer data
+   * can distinguish an unavailable path from a successful no-op.
+   */
+  canSendApplicationData(): boolean {
+    const activePair = this.applicationDataPair();
+    if (!activePair) {
       return false;
     }
     if (this.state === "closed" || this.state === "failed") {
@@ -1222,7 +1229,22 @@ export class Connection implements IceConnection {
     if (this.iceLite) {
       return true;
     }
-    return this.consentFresh;
+    // A valid USE-CANDIDATE Binding is the initial consent for a controlled
+    // peer even before its local check transitions out of IN_PROGRESS.
+    return this.consentFresh || activePair.remoteNominated;
+  }
+
+  private applicationDataPair(): CandidatePair | undefined {
+    if (this.nominated) {
+      return this.nominated;
+    }
+    return this.checkList.find(
+      (pair) =>
+        isAuthenticatedHandshakePair(pair) &&
+        (pair.nominated ||
+          pair.remoteNominated ||
+          (this.iceLite && pair.state === CandidatePairState.SUCCEEDED)),
+    );
   }
 
   private abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
@@ -1579,7 +1601,10 @@ export class Connection implements IceConnection {
     if (!this.canSendApplicationData()) {
       return;
     }
-    const activePair = this.nominated!;
+    const activePair = this.applicationDataPair();
+    if (!activePair) {
+      return;
+    }
     await activePair.protocol.sendData(data, activePair.remoteAddr);
 
     // Update statistics

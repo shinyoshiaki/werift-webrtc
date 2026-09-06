@@ -926,6 +926,85 @@ describe("RTCPeerConnection SPED opt-in", () => {
     }
   }, 60_000);
 
+  test("SPED application-ready media waits for a real selected ICE path", async () => {
+    // Arrange: 実 PeerConnection で DTLS/SRTP まで接続し、送信側を server にする。
+    const config = spedPeerConfig({
+      warp: { allowEarlyServerData: true, earlyMediaPolicy: "buffer" },
+    });
+    const pc1 = new RTCPeerConnection(config);
+    const pc2 = new RTCPeerConnection(config);
+    let receivedRtp = 0;
+    let receivedRtcp = 0;
+    let ice: Connection | undefined;
+    let pair: CandidatePair | undefined;
+    try {
+      await createDataChannelPair({}, pc1, pc2);
+      const server = pc1.dtlsTransports[0]!;
+      const client = pc2.dtlsTransports[0]!;
+      client.onRtp.subscribe(() => receivedRtp++);
+      client.onRtcp.subscribe(() => receivedRtcp++);
+      ice = iceOf(pc1);
+      pair = ice.nominated;
+      if (!pair) {
+        throw new Error("server の nominated pair が無い");
+      }
+      const statsBefore = (await server.getStats()).find(
+        (stat): stat is RTCTransportStats => stat.type === "transport",
+      );
+      if (!statsBefore) {
+        throw new Error("server transport stats が無い");
+      }
+
+      // Act: 認証済み pair を一時的に未 nomination にし、early media を保留する。
+      pair.nominated = false;
+      ice.nominated = undefined;
+      let rtpSettled = false;
+      const rtpSend = server
+        .sendRtp(
+          Buffer.from("queued-before-nomination"),
+          new RtpHeader({ ssrc: 0x20304050, payloadType: 96 }),
+        )
+        .then((bytes) => {
+          rtpSettled = true;
+          return bytes;
+        });
+      const rtcpSend = server.sendRtcp([
+        new RtcpRrPacket({ ssrc: 0x20304050, reports: [] }),
+      ]);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      // Assert: Connection.send の no-op 成功を wire/statistics と誤認しない。
+      expect(rtpSettled).toBe(false);
+      expect(receivedRtp).toBe(0);
+      expect(receivedRtcp).toBe(0);
+      const stalledStats = (await server.getStats()).find(
+        (stat): stat is RTCTransportStats => stat.type === "transport",
+      );
+      expect(stalledStats?.packetsSent).toBe(statsBefore.packetsSent);
+
+      // Act: selected pair を復元し、実際の ICE path の再開通知を発火する。
+      pair.nominated = true;
+      ice.nominated = pair;
+      ice.stateChanged.execute(ice.state);
+      expect(await rtpSend).toBeGreaterThan(0);
+      await rtcpSend;
+      await waitUntil(() => receivedRtp === 1 && receivedRtcp === 1);
+
+      // Assert: wire 到達後だけ RTP/RTCP の送信統計が増える。
+      const statsAfter = (await server.getStats()).find(
+        (stat): stat is RTCTransportStats => stat.type === "transport",
+      );
+      expect(statsAfter?.packetsSent).toBe(statsBefore.packetsSent! + 2);
+    } finally {
+      // Assert: テスト中断時も selected pair を戻して close を妨げない。
+      if (ice && pair) {
+        pair.nominated = true;
+        ice.nominated = pair;
+      }
+      await Promise.allSettled([pc1.close(), pc2.close()]);
+    }
+  }, 30_000);
+
   test("WARP fingerprint mismatch releases no real PeerConnection SCTP, RTP, or RTCP", async () => {
     // Arrange: answerer に渡す offer の fingerprint だけを改ざんする。
     // server 側は正規の client fingerprint を持つため early outbound まで進む。

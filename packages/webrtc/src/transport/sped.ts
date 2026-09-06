@@ -5,8 +5,15 @@ import {
   isAuthenticatedHandshakePair,
 } from "../../../ice/src/internal/datagram";
 import type { SpedRuntime } from "../../../ice/src/sped/runtime";
-import type { Address, DatagramRxMeta, Transport } from "../imports/common";
+import {
+  type Address,
+  type DatagramRxMeta,
+  type Transport,
+  debug,
+} from "../imports/common";
 import { isDtls } from "../utils";
+
+const log = debug("werift:packages/webrtc/src/transport/sped.ts");
 
 const EARLY_SEND_MAX_PACKETS = 256;
 const EARLY_SEND_MAX_BYTES = 256 * 1024;
@@ -17,6 +24,7 @@ type PendingEarlySend = {
   data: Buffer;
   addr?: Address;
   generation: number;
+  expiresAt?: number;
   resolve: () => void;
   reject: (error: Error) => void;
 };
@@ -137,6 +145,16 @@ export class IceSpedTransport implements Transport {
 
   readonly send = async (data: Buffer, addr?: Address) => {
     if (this.applicationReady) {
+      if (!this.ice.canSendApplicationData()) {
+        // DTLS/SCTP の送信元は ICE nomination と同じ受信処理から再開する
+        // ことがあるため、ここで await すると nomination 自体を止めてしまう。
+        // wire 送信は path が利用可能になった後に flush し、呼び出し元には
+        // 受理済みとして直ちに返す。
+        void this.enqueueEarlySend(data, addr, null).catch((error) => {
+          log("failed to queue application data", error);
+        });
+        return;
+      }
       await this.ice.send(data);
       return;
     }
@@ -170,6 +188,23 @@ export class IceSpedTransport implements Transport {
     await pair.protocol.sendData(data, pair.remoteAddr);
   };
 
+  /**
+   * Wait for an application/media record to reach the wire. Generic DTLS
+   * sends must remain non-blocking while ICE is still nominating because the
+   * nomination check can be completed by the same inbound DTLS/STUN turn.
+   */
+  readonly sendAndWait = async (data: Buffer, addr?: Address) => {
+    if (this.applicationReady) {
+      if (!this.ice.canSendApplicationData()) {
+        await this.enqueueEarlySend(data, addr, null);
+        return;
+      }
+      await this.ice.send(data);
+      return;
+    }
+    await this.send(data, addr);
+  };
+
   async close() {
     this.closed = true;
     this.datagramSubscription.unSubscribe();
@@ -177,7 +212,11 @@ export class IceSpedTransport implements Transport {
     this.rejectPendingEarlySends(new Error("SPED transport is closed"));
   }
 
-  private async enqueueEarlySend(data: Buffer, addr?: Address) {
+  private async enqueueEarlySend(
+    data: Buffer,
+    addr?: Address,
+    retentionMs: number | null = EARLY_SEND_RETENTION_MS,
+  ) {
     if (this.closed) {
       throw new Error("SPED transport is closed");
     }
@@ -193,6 +232,7 @@ export class IceSpedTransport implements Transport {
         data: Buffer.from(data),
         addr,
         generation: this.ice.generation,
+        expiresAt: retentionMs === null ? undefined : Date.now() + retentionMs,
         resolve,
         reject: (error) => reject(error),
       });
@@ -207,14 +247,38 @@ export class IceSpedTransport implements Transport {
     if (this.earlySendExpiryTimer || this.pendingEarlySends.length === 0) {
       return;
     }
-    this.earlySendExpiryTimer = setTimeout(() => {
-      this.earlySendExpiryTimer = undefined;
-      this.rejectPendingEarlySends(
-        new Error(
-          "SPED early application send timed out waiting for an authenticated candidate pair",
-        ),
-      );
-    }, EARLY_SEND_RETENTION_MS);
+    const expiresAt = this.pendingEarlySends.reduce<number | undefined>(
+      (earliest, item) =>
+        item.expiresAt === undefined
+          ? earliest
+          : earliest === undefined
+            ? item.expiresAt
+            : Math.min(earliest, item.expiresAt),
+      undefined,
+    );
+    if (expiresAt === undefined) {
+      return;
+    }
+    this.earlySendExpiryTimer = setTimeout(
+      () => {
+        this.earlySendExpiryTimer = undefined;
+        if (
+          this.pendingEarlySends.some(
+            (item) =>
+              item.expiresAt !== undefined && item.expiresAt <= Date.now(),
+          )
+        ) {
+          this.rejectPendingEarlySends(
+            new Error(
+              "SPED early application send timed out waiting for an authenticated candidate pair",
+            ),
+          );
+        } else {
+          this.scheduleEarlySendExpiry();
+        }
+      },
+      Math.max(0, expiresAt - Date.now()),
+    );
   }
 
   private scheduleEarlySendRetry() {
@@ -274,13 +338,15 @@ export class IceSpedTransport implements Transport {
         const pair = this.applicationReady
           ? undefined
           : this.resolveAuthenticatedSendPair(item.addr);
+        if (this.applicationReady && !this.ice.canSendApplicationData()) {
+          this.scheduleEarlySendRetry();
+          return;
+        }
         if (!this.applicationReady && !pair) {
           this.scheduleEarlySendRetry();
           return;
         }
 
-        this.pendingEarlySends.shift();
-        this.pendingEarlySendBytes -= item.data.length;
         try {
           if (this.applicationReady) {
             await this.ice.send(item.data);
@@ -288,8 +354,19 @@ export class IceSpedTransport implements Transport {
             this.runtime?.pinHandshakePath(pair!);
             await pair!.protocol.sendData(item.data, pair!.remoteAddr);
           }
+          if (this.pendingEarlySends[0] !== item) {
+            // close() / restart が待機項目を先に破棄した場合は、解決を再発火しない。
+            return;
+          }
+          this.pendingEarlySends.shift();
+          this.pendingEarlySendBytes -= item.data.length;
           item.resolve();
         } catch (error) {
+          if (this.pendingEarlySends[0] !== item) {
+            return;
+          }
+          this.pendingEarlySends.shift();
+          this.pendingEarlySendBytes -= item.data.length;
           item.reject(
             error instanceof Error ? error : new Error(String(error)),
           );

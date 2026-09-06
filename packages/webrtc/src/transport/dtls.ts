@@ -1375,7 +1375,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
   private async sendProtectedMedia(data: Buffer) {
     if (this.spedTransport) {
-      await this.spedTransport.send(data);
+      // メディア統計は実 wire 送信後に更新するため、nomination/consent
+      // 前はキューが実際に flush されるまで待機する。
+      await this.spedTransport.sendAndWait(data);
       return;
     }
     await this.iceTransport.connection.send(data);
