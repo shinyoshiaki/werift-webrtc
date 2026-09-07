@@ -114,6 +114,8 @@ export class SpedRuntime {
   private sessionEpoch = 0;
   private carrierInjectEpoch?: number;
   fallbackStarted = false;
+  /** True once the shared DTLS association selected the direct carrier. */
+  private directCarrierSelected = false;
   /**
    * Pair that received the first non-empty DTLS DATA (or carried direct
    * fallback). Empty capability ads must not pin.
@@ -145,7 +147,8 @@ export class SpedRuntime {
     // of turning the terminal `complete` session state back into `active/sped`.
     const directFallback =
       this.session.state !== "disabled" &&
-      (this.fallbackStarted ||
+      (this.directCarrierSelected ||
+        this.fallbackStarted ||
         this.session.state === "fallback" ||
         this.session.peerSupport === "unsupported");
     const state =
@@ -443,21 +446,41 @@ export class SpedRuntime {
   }
 
   completeHandshake(): void {
+    this.directCarrierSelected = false;
     this.session.completeHandshake();
     this.hooks.setRetransmissionMode("internal");
     this.hooks.onHandshakeComplete?.();
   }
 
   commitDirectFallback(): void {
+    this.directCarrierSelected = true;
     this.fallbackStarted = true;
     this.session.commitDirectFallback();
     this.hooks.setRetransmissionMode("internal");
   }
 
+  isDirectCarrierSelected(): boolean {
+    return this.directCarrierSelected;
+  }
+
   reset(generation: number): void {
+    const preserveDirectCarrier = this.directCarrierSelected;
+    const preserveCompleteState =
+      preserveDirectCarrier && this.session.state === "complete";
     this.sessionEpoch++;
     this.session.reset(generation);
     this.fallbackStarted = false;
+    this.directCarrierSelected = preserveDirectCarrier;
+    if (preserveDirectCarrier) {
+      // A completed direct fallback must remain direct across an ICE restart.
+      // DTLS 1.3 keeps the association's complete state while DTLS 1.2 uses
+      // the legacy fallback state.
+      if (preserveCompleteState) {
+        this.session.completeHandshake();
+      } else {
+        this.session.commitDirectFallback();
+      }
+    }
     this.pendingInjectGeneration = undefined;
     this.lastPath = undefined;
     this.pendingUnconfirmedMissingData.clear();
@@ -467,6 +490,14 @@ export class SpedRuntime {
     this.hooks.onSessionReset?.();
   }
 
+  completeDirectFallback(): void {
+    this.directCarrierSelected = true;
+    this.fallbackStarted = true;
+    this.session.completeHandshake();
+    this.hooks.setRetransmissionMode("internal");
+    this.hooks.onHandshakeComplete?.();
+  }
+
   /**
    * Stop embedding and drop pending L1/L2 / injects / last path.
    * ICE restart still uses {@link reset} to return to probing.
@@ -474,6 +505,7 @@ export class SpedRuntime {
   abort(): void {
     this.sessionEpoch++;
     if (this.session.state === "disabled") {
+      this.directCarrierSelected = false;
       this.pendingInjectGeneration = undefined;
       this.lastPath = undefined;
       this.pendingUnconfirmedMissingData.clear();
@@ -481,6 +513,7 @@ export class SpedRuntime {
     }
     this.session.abort();
     this.fallbackStarted = true;
+    this.directCarrierSelected = false;
     this.pendingInjectGeneration = undefined;
     this.lastPath = undefined;
     this.pendingUnconfirmedMissingData.clear();

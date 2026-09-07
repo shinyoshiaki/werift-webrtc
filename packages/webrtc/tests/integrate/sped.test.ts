@@ -1665,6 +1665,47 @@ describe("RTCPeerConnection SPED opt-in", () => {
     }
   }, 30_000);
 
+  test("DTLS 1.3 direct fallback の ICE restart 後も diagnostics は direct を示す", async () => {
+    // Arrange: SPED 側と非 SPED の DTLS 1.3 peer を接続する。
+    const pc1 = new RTCPeerConnection({
+      iceServers: [],
+      dtls: { protocolVersions: [DtlsVersion.V1_3] },
+    });
+    const pc2 = new RTCPeerConnection(spedPeerConfig());
+
+    try {
+      // Act: direct fallback を完了させ、ICE credentials を再生成する。
+      const [dc1, dc2] = await createDataChannelPair({}, pc1, pc2);
+      await pc1.setLocalDescription(
+        await pc1.createOffer({ iceRestart: true }),
+      );
+      await pc2.setRemoteDescription(pc1.localDescription!);
+      await pc2.setLocalDescription(await pc2.createAnswer());
+      await pc1.setRemoteDescription(pc2.localDescription!);
+      await Promise.all([waitForIceNominated(pc1), waitForIceNominated(pc2)]);
+      dc1.send("direct-fallback-restart");
+
+      // Assert: DTLS 1.3 の再接続後も direct fallback の状態を公開する。
+      expect(await awaitMessage(dc2)).toBe("direct-fallback-restart");
+      const runtime = getConnectionSpedRuntime(iceOf(pc2));
+      expect(runtime?.isDirectCarrierSelected()).toBe(true);
+      expect(runtime?.diagnosticsSnapshot()).toMatchObject({
+        state: "fallback",
+        carrier: "direct",
+      });
+      const stats = [...(await pc2.getStats()).values()].find(
+        (stat): stat is RTCTransportStats => stat.type === "transport",
+      );
+      expect(stats).toMatchObject({
+        warpSpedState: "fallback",
+        warpCarrier: "direct",
+      });
+    } finally {
+      await pc1.close();
+      await pc2.close();
+    }
+  }, 40_000);
+
   test("SPED dual stack から non-SPED DTLS 1.2 へ direct fallback する", async () => {
     // Arrange: 一方だけを SPED dual-stack、相手を DTLS 1.2 only にする。
     const pc1 = new RTCPeerConnection({

@@ -196,7 +196,10 @@ export class IceSpedTransport implements Transport {
   readonly sendAndWait = async (data: Buffer, addr?: Address) => {
     if (this.applicationReady) {
       if (!this.ice.canSendApplicationData()) {
-        await this.enqueueEarlySend(data, addr, null);
+        // Media callers wait for an actual wire send. Unlike generic DTLS
+        // sends, that wait must have a bounded lifetime when ICE loses its
+        // path while its public state is still connected.
+        await this.enqueueEarlySend(data, addr);
         return;
       }
       await this.ice.send(data);

@@ -884,8 +884,17 @@ export class RTCDtlsTransport implements DtlsTransportStats {
           this.applicationGate.resetPending();
         }
         if (this.state === "connected" || handshakeDone) {
-          if (dtlsSocket?.isDtls13) handle.runtime.completeHandshake();
-          else handle.runtime.commitDirectFallback();
+          if (handle.runtime.isDirectCarrierSelected()) {
+            if (dtlsSocket?.isDtls13) {
+              handle.runtime.completeDirectFallback();
+            } else {
+              handle.runtime.commitDirectFallback();
+            }
+          } else if (dtlsSocket?.isDtls13) {
+            handle.runtime.completeHandshake();
+          } else {
+            handle.runtime.commitDirectFallback();
+          }
           return;
         }
         // New ICE generation starts SPED probing again.
@@ -966,8 +975,18 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       dtlsSocket = this.dtls;
       this.bindDtlsSocketEvents(r, f);
       this.dtls.onConnect.once(() => {
-        if (this.dtls?.isDtls13) {
+        const directFallback =
+          handle.runtime.fallbackStarted ||
+          handle.runtime.session.state === "fallback" ||
+          handle.runtime.session.peerSupport === "unsupported";
+        if (this.dtls?.isDtls13 && !directFallback) {
           handle.onHandshakeComplete();
+        } else if (this.dtls?.isDtls13) {
+          handshakeDone = true;
+          this.earlyModeDisabled = true;
+          carrier.setWireSendEnabled(true);
+          handle.runtime.completeDirectFallback();
+          transport.markApplicationReady();
         } else {
           handshakeDone = true;
           this.earlyModeDisabled = true;

@@ -1,3 +1,4 @@
+import { vi } from "vitest";
 import { Connection } from "../../../ice/src";
 import { CandidatePair } from "../../../ice/src";
 import { Candidate } from "../../../ice/src/candidate";
@@ -667,6 +668,44 @@ describe("IceSpedTransport pre-nomination send", () => {
       ).toBeUndefined();
     } finally {
       await transport.close();
+    }
+  });
+
+  it("ICE の送信経路喪失中に application media の待機を期限切れにする", async () => {
+    // Arrange: ICE は connected のままだが、nomination/consent が失われた状態にする。
+    vi.useFakeTimers();
+    const ice = createIceStub(1);
+    const transport = new IceSpedTransport(ice);
+    transport.markApplicationReady();
+
+    try {
+      // Act: wire 到達を待つ media を要求し、期限前の未完了を確認する。
+      let settled = false;
+      const outcome = transport.sendAndWait(Buffer.from([23, 4, 5, 6])).then(
+        () => {
+          settled = true;
+          return "resolved" as const;
+        },
+        (error) => {
+          settled = true;
+          return error;
+        },
+      );
+      await vi.advanceTimersByTimeAsync(1_999);
+      expect(settled).toBe(false);
+
+      // Assert: 経路が復旧しない場合も期限内に reject し、queue/timer を残さない。
+      await vi.advanceTimersByTimeAsync(1);
+      const result = await outcome;
+      expect(result).toBeInstanceOf(Error);
+      expect((result as Error).message).toMatch(/timed out/);
+      expect(
+        (transport as unknown as { pendingEarlySends: unknown[] })
+          .pendingEarlySends,
+      ).toHaveLength(0);
+    } finally {
+      await transport.close();
+      vi.useRealTimers();
     }
   });
 });
