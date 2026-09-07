@@ -1035,6 +1035,13 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       if (this.state !== "failed") {
         this.setState("closed");
       }
+      // onClose may be the only terminal edge observed by the start wrapper
+      // (notably when stop() closes a handshake before onConnect).  Reject it
+      // so every caller awaiting the shared startPromise is released.
+      f(
+        this.lastError ??
+          new Error("DTLS transport closed before start completed"),
+      );
     });
     this.dtls.onConnect.once(r);
     this.dtls.onError.once((error) => {

@@ -1108,8 +1108,10 @@ describe("RTCDtlsTransportTest", () => {
     });
     server.setRemoteParams(client.localParameters);
     client.setRemoteParams(server.localParameters);
-    const serverStart = server.start().catch(() => undefined);
-    const clientStart = client.start().catch(() => undefined);
+    const serverStart = server.start();
+    void serverStart.catch(() => undefined);
+    const clientStart = client.start();
+    void clientStart.catch(() => undefined);
     const deadline = Date.now() + 5_000;
     const engineOf = (session: RTCDtlsTransport) =>
       (
@@ -1130,6 +1132,13 @@ describe("RTCDtlsTransportTest", () => {
     // stop() で socket が engine 参照を外すため、参照は事前に保持する。
     const engine = engineOf(client)!;
 
+    const secondClientStart = client.start();
+    void secondClientStart.catch(() => undefined);
+    const peerAuthenticatedWait = client.waitForPeerAuthenticated();
+    void peerAuthenticatedWait.catch(() => undefined);
+    const handshakeCompleteWait = client.waitForHandshakeComplete();
+    void handshakeCompleteWait.catch(() => undefined);
+
     try {
       // Act: handshake 完了を待たず client を停止する。
       await client.stop();
@@ -1139,10 +1148,12 @@ describe("RTCDtlsTransportTest", () => {
       expect(engine.earlyAppDataBuffer.snapshot().bufferedPackets).toBe(0);
       expect(engine.getHandshakeCarrier()?.isClosed()).toBe(true);
       expect(client.state).toBe("closed");
+      await expect(clientStart).rejects.toThrow(/closed|completed/);
+      await expect(secondClientStart).rejects.toThrow(/closed|completed/);
+      await expect(peerAuthenticatedWait).rejects.toThrow(/closed|readiness/);
+      await expect(handshakeCompleteWait).rejects.toThrow(/closed|readiness/);
     } finally {
-      // start promise 群は catch 付きで放置し、stop の完了だけ待つ。
-      // (未確定 handshake の settlement を待つと終わらない場合がある)
-      await server.stop().catch(() => undefined);
+      await Promise.allSettled([serverStart, server.stop()]);
     }
   });
 
