@@ -979,6 +979,77 @@ describe("RTCPeerConnection SPED opt-in", () => {
     }
   }, 40_000);
 
+  test("ICE restart 後は abort 済みの SRTP permission を復元する", async () => {
+    // Arrange: 実 PeerConnection の DTLS 1.3/SPED association を接続する。
+    const pc1 = new RTCPeerConnection(spedPeerConfig());
+    const pc2 = new RTCPeerConnection(spedPeerConfig());
+    let pc1Rtp = 0;
+    let pc1Rtcp = 0;
+    let pc2Rtp = 0;
+    let pc2Rtcp = 0;
+    try {
+      await createDataChannelPair({}, pc1, pc2);
+      const pc1Dtls = pc1.dtlsTransports[0]!;
+      const pc2Dtls = pc2.dtlsTransports[0]!;
+      pc1Dtls.onRtp.subscribe(() => pc1Rtp++);
+      pc1Dtls.onRtcp.subscribe(() => pc1Rtcp++);
+      pc2Dtls.onRtp.subscribe(() => pc2Rtp++);
+      pc2Dtls.onRtcp.subscribe(() => pc2Rtcp++);
+
+      // Act: consent 失効相当の ICE failed を双方へ通知する。
+      const pc1Ice = iceOf(pc1);
+      const pc2Ice = iceOf(pc2);
+      (pc1Ice as unknown as { setState: (state: "failed") => void }).setState(
+        "failed",
+      );
+      (pc2Ice as unknown as { setState: (state: "failed") => void }).setState(
+        "failed",
+      );
+      expect(
+        (pc1Dtls as unknown as { srtpWriteReady: boolean }).srtpWriteReady,
+      ).toBe(false);
+      expect(
+        (pc2Dtls as unknown as { srtpWriteReady: boolean }).srtpWriteReady,
+      ).toBe(false);
+
+      // Act: 新しい ICE generation を negotiation して selected pair を復旧する。
+      await pc1.setLocalDescription(
+        await pc1.createOffer({ iceRestart: true }),
+      );
+      await pc2.setRemoteDescription(pc1.localDescription!);
+      await pc2.setLocalDescription(await pc2.createAnswer());
+      await pc1.setRemoteDescription(pc2.localDescription!);
+      await Promise.all([waitForIceNominated(pc1), waitForIceNominated(pc2)]);
+
+      // Assert: 認証済み association の SRTP permission が新世代で再評価される。
+      expect(
+        (pc1Dtls as unknown as { srtpWriteReady: boolean }).srtpWriteReady,
+      ).toBe(true);
+      expect(
+        (pc2Dtls as unknown as { srtpWriteReady: boolean }).srtpWriteReady,
+      ).toBe(true);
+
+      // Act: 双方向の RTP/RTCP を送信する。
+      await pc1Dtls.sendRtp(
+        Buffer.from("restart-pc1-rtp"),
+        new RtpHeader({ ssrc: 0x501, payloadType: 96 }),
+      );
+      await pc1Dtls.sendRtcp([new RtcpRrPacket({ ssrc: 0x501, reports: [] })]);
+      await pc2Dtls.sendRtp(
+        Buffer.from("restart-pc2-rtp"),
+        new RtpHeader({ ssrc: 0x502, payloadType: 96 }),
+      );
+      await pc2Dtls.sendRtcp([new RtcpRrPacket({ ssrc: 0x502, reports: [] })]);
+
+      // Assert: restart 後の wire 配送と受信 callback が双方向に復旧する。
+      await waitUntil(
+        () => pc1Rtp > 0 && pc1Rtcp > 0 && pc2Rtp > 0 && pc2Rtcp > 0,
+      );
+    } finally {
+      await Promise.allSettled([pc1.close(), pc2.close()]);
+    }
+  }, 40_000);
+
   test("SPED application-ready media waits for a real selected ICE path", async () => {
     // Arrange: 実 PeerConnection で DTLS/SRTP まで接続し、送信側を server にする。
     const config = spedPeerConfig({

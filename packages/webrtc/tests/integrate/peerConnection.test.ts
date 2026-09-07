@@ -208,6 +208,33 @@ describe("peerConnection", () => {
     }
   }, 30_000);
 
+  test("SCTP start failure 後の PeerConnection close は DataChannel を閉じる", async () => {
+    // Arrange: negotiated channel を作成し、SCTP association を開始前の状態にする。
+    const peer = new RTCPeerConnection({});
+    const channel = peer.createDataChannel("negotiated", {
+      negotiated: true,
+      id: 0,
+    });
+    let closeEvents = 0;
+    channel.onclose = () => closeEvents++;
+
+    try {
+      await peer.setLocalDescription(await peer.createOffer());
+      const association = peer.sctp!.sctp;
+
+      // Act: INIT 失敗後に下位 SCTP が CLOSED になった状態で PC を閉じる。
+      association.setState(SCTP_STATE.CLOSED);
+      expect(channel.readyState).toBe("connecting");
+      await peer.close();
+
+      // Assert: SCTP の購読解除後でも保持中 channel を明示的に閉じる。
+      expect(channel.readyState).toBe("closed");
+      expect(closeEvents).toBe(1);
+    } finally {
+      await peer.close();
+    }
+  });
+
   test("constructor applies WebIDL-style validation for configuration dictionaries", () => {
     const certificateValues = [null, undefined];
 

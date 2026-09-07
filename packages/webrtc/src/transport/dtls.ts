@@ -743,6 +743,11 @@ export class RTCDtlsTransport implements DtlsTransportStats {
    */
   private rebindConnectedAttempt(attempt: TransportAttempt): void {
     if (!this.isCurrentAttempt(attempt) || this.isTerminated()) return;
+    // SPED abort invalidates both SRTP permissions.  A connected association
+    // remains cryptographically authenticated across ICE restart, so the new
+    // attempt must explicitly re-evaluate those permissions after the path is
+    // rebound instead of leaving media permanently disabled.
+    this.updateSrtpPermissions();
     this.bindHandshakeCompletion(attempt);
     // Do not re-fire onPeerAuthenticated/onHandshakeComplete here: those are
     // one-shot notifications. Re-evaluate only waiters registered before the

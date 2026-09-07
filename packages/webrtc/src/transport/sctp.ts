@@ -99,10 +99,7 @@ export class RTCSctpTransport {
           // retry. Once an association was established (or the transport is
           // explicitly stopping), closing the SCTP association closes them.
           if (!association.hadEstablished && !this.stopping) return;
-          Object.values(this.dataChannels).forEach((dc) =>
-            dc.setReadyState("closed"),
-          );
-          this.dataChannels = {};
+          this.closeDataChannels();
         }),
         this.dtlsTransport.onStateChange.subscribe((state) => {
           if (state === "failed" || state === "closed") {
@@ -356,6 +353,22 @@ export class RTCSctpTransport {
     this.dataChannelQueue = [];
   }
 
+  /** Close retained channels even when SCTP removed its state listeners. */
+  private closeDataChannels() {
+    const channels = new Set<RTCDataChannel>([
+      ...Object.values(this.dataChannels),
+      ...this.dataChannelQueue.map(([channel]) => channel),
+    ]);
+    this.dataChannelQueue = [];
+    this.dataChannels = {};
+
+    for (const channel of channels) {
+      if (channel.readyState !== "closed") {
+        channel.setReadyState("closed");
+      }
+    }
+  }
+
   private assertSendableMessageSize(size: number) {
     if (this.remoteMaxMessageSize !== 0 && size > this.remoteMaxMessageSize) {
       throw new Error(
@@ -419,7 +432,15 @@ export class RTCSctpTransport {
   async stop() {
     this.stopping = true;
     this.dtlsTransport.dataReceiver = () => {};
-    await this.sctp.stop();
+    // SCTP removes its own state listeners when it reaches CLOSED.  Explicit
+    // PeerConnection shutdown must therefore close retained channels without
+    // relying on a later stateChanged.closed callback.
+    this.closeDataChannels();
+    try {
+      await this.sctp.stop();
+    } finally {
+      this.disposeSctpListeners();
+    }
   }
 
   dataChannelClose(channel: RTCDataChannel) {
