@@ -1128,6 +1128,8 @@ export class RTCPeerConnection extends EventTarget {
       return;
     }
     let bundleTransport: RTCDtlsTransport | undefined;
+    const bundleGroup = this.sdpManager.remoteIsBundled;
+    const bundleTag = bundleGroup?.items[0];
 
     // # apply description
 
@@ -1138,8 +1140,28 @@ export class RTCPeerConnection extends EventTarget {
       transceiver.kind === media.kind &&
       [null, media.rtp.muxId].includes(transceiver.mid);
 
-    let transports = remoteSdp.media.map((remoteMedia, i) => {
+    // Process the BUNDLE-tagged m-line first even when the SDP lists another
+    // bundled section earlier.  The tag owns the ICE/DTLS parameters for the
+    // shared transport; non-tag sections must not overwrite them.
+    const remoteMediaEntries = remoteSdp.media.map((remoteMedia, i) => ({
+      remoteMedia,
+      index: i,
+    }));
+    if (bundleTag) {
+      const bundleTagIndex = remoteMediaEntries.findIndex(
+        ({ remoteMedia }) => remoteMedia.rtp.muxId === bundleTag,
+      );
+      if (bundleTagIndex > 0) {
+        const [tagEntry] = remoteMediaEntries.splice(bundleTagIndex, 1);
+        remoteMediaEntries.unshift(tagEntry);
+      }
+    }
+
+    let transports = remoteMediaEntries.map(({ remoteMedia, index: i }) => {
       let dtlsTransport: RTCDtlsTransport;
+      const isBundleMember =
+        bundleGroup?.items.includes(remoteMedia.rtp.muxId ?? "") ?? false;
+      const isBundleTag = isBundleMember && remoteMedia.rtp.muxId === bundleTag;
 
       if (["audio", "video"].includes(remoteMedia.kind)) {
         let transceiver = this.transceiverManager
@@ -1163,10 +1185,10 @@ export class RTCPeerConnection extends EventTarget {
           }
         }
 
-        if (this.sdpManager.remoteIsBundled) {
-          if (!bundleTransport) {
+        if (isBundleMember) {
+          if (isBundleTag) {
             bundleTransport = transceiver.dtlsTransport;
-          } else {
+          } else if (bundleTransport) {
             transceiver.setDtlsTransport(bundleTransport);
           }
         }
@@ -1186,10 +1208,10 @@ export class RTCPeerConnection extends EventTarget {
           sctpTransport.mid = remoteMedia.rtp.muxId;
         }
 
-        if (this.sdpManager.remoteIsBundled) {
-          if (!bundleTransport) {
+        if (isBundleMember) {
+          if (isBundleTag) {
             bundleTransport = sctpTransport.dtlsTransport;
-          } else {
+          } else if (bundleTransport) {
             sctpTransport.setDtlsTransport(bundleTransport);
           }
         }
@@ -1213,7 +1235,12 @@ export class RTCPeerConnection extends EventTarget {
           iceTransport.connection.iceControlling = true;
         }
       }
-      if (remoteMedia.dtlsParams) {
+      // For a BUNDLE transport, only the group's tag supplies DTLS
+      // parameters.  Applying later sections would replace the tag's
+      // fingerprint and make a valid certificate fail authentication.
+      const shouldApplyDtlsParams =
+        !isBundleMember || isBundleTag || bundleTag === undefined;
+      if (remoteMedia.dtlsParams && shouldApplyDtlsParams) {
         dtlsTransport.setRemoteParams(remoteMedia.dtlsParams);
       }
 
@@ -1225,7 +1252,11 @@ export class RTCPeerConnection extends EventTarget {
       }
 
       // # set DTLS role
-      if (remoteSdp.type === "answer" && remoteMedia.dtlsParams?.role) {
+      if (
+        remoteSdp.type === "answer" &&
+        remoteMedia.dtlsParams?.role &&
+        shouldApplyDtlsParams
+      ) {
         dtlsTransport.role =
           remoteMedia.dtlsParams.role === "client" ? "server" : "client";
       }

@@ -8,6 +8,7 @@ import {
   DtlsVersion,
   MediaStream,
   MediaStreamTrack,
+  RTCCertificate,
   type RTCDataChannel,
   RTCPeerConnection,
   RTCTrackEvent,
@@ -346,6 +347,94 @@ describe("peerConnection", () => {
       }
     }
   }, 60_000);
+
+  test("BUNDLE tag の fingerprint が後続 media section で上書きされない", async () => {
+    // Arrange: BUNDLE の tag 以外の m-line だけ別証明書になる offer を用意する。
+    const alternateKeys = await createSelfSignedCertificate({
+      signature: SignatureAlgorithm.ecdsa_3,
+      hash: HashAlgorithm.sha256_4,
+    });
+    const alternateCertificate = new RTCCertificate(
+      alternateKeys.keyPem,
+      alternateKeys.certPem,
+      alternateKeys.signatureHash,
+    );
+    const cases = [
+      ["DTLS 1.2", {}],
+      ["direct DTLS 1.3", { dtls: { protocolVersions: [DtlsVersion.V1_3] } }],
+      [
+        "SPED DTLS 1.3",
+        { sped: true, dtls: { protocolVersions: [DtlsVersion.V1_3] } },
+      ],
+    ] as const;
+
+    for (const [label, extraConfig] of cases) {
+      const caller = new RTCPeerConnection({
+        iceServers: [],
+        bundlePolicy: "max-compat",
+        ...extraConfig,
+      });
+      const callee = new RTCPeerConnection({
+        iceServers: [],
+        ...extraConfig,
+      });
+      caller.addTransceiver("audio");
+      caller.addTransceiver("video");
+      const originalTransports = [...caller.dtlsTransports];
+      let receivedAudio: string | undefined;
+
+      try {
+        await caller.setLocalDescription(await caller.createOffer());
+
+        // Act: BUNDLE tag の audio は元の fingerprint、video は別値にする。
+        caller.dtlsTransports[1]!.localCertificate = alternateCertificate;
+        const fingerprint = alternateCertificate.getFingerprints()[0]!;
+        const sections = caller.localDescription!.sdp.split(/(?=^m=)/m);
+        sections[2] = sections[2]!.replace(
+          /^a=fingerprint:.*$/gm,
+          `a=fingerprint:${fingerprint.algorithm} ${fingerprint.value}`,
+        );
+        const modifiedOffer = {
+          type: "offer" as const,
+          sdp: sections.join(""),
+        };
+        await callee.setRemoteDescription(modifiedOffer);
+        callee.dtlsTransports[0]!.onRtp.subscribe((packet) => {
+          receivedAudio = packet.payload.toString();
+        });
+        await callee.setLocalDescription(await callee.createAnswer());
+        await caller.setRemoteDescription(callee.localDescription!);
+
+        // Act: 両端の BUNDLE transport が認証済みになるまで待って audio を送る。
+        const deadline = Date.now() + 10_000;
+        while (
+          (caller.connectionState !== "connected" ||
+            callee.connectionState !== "connected") &&
+          Date.now() < deadline
+        ) {
+          await setTimeout(10);
+        }
+        await caller.dtlsTransports[0]!.sendRtp(
+          Buffer.from("bundled-audio"),
+          new RtpHeader({ ssrc: 0x713, sequenceNumber: 1, payloadType: 96 }),
+        );
+        while (receivedAudio === undefined && Date.now() < deadline) {
+          await setTimeout(10);
+        }
+
+        // Assert: tag の証明書で認証され、後続 video の fingerprint で失敗しない。
+        expect(caller.connectionState, label).toBe("connected");
+        expect(callee.connectionState, label).toBe("connected");
+        expect(callee.dtlsTransports[0]!.state, label).toBe("connected");
+        expect(receivedAudio, label).toBe("bundled-audio");
+      } finally {
+        await Promise.allSettled([caller.close(), callee.close()]);
+        await Promise.allSettled(
+          originalTransports.map((transport) => transport.stop()),
+        );
+      }
+    }
+  }, 90_000);
 
   test("SCTP start failure 後の PeerConnection close は DataChannel を閉じる", async () => {
     // Arrange: negotiated channel を作成し、SCTP association を開始前の状態にする。

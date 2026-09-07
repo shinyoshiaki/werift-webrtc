@@ -1004,6 +1004,64 @@ describe("RTCPeerConnection SPED opt-in", () => {
     }
   }, 60_000);
 
+  test("write-ready 後に有効化した early SRTP が RTP/RTCP を送信する", async () => {
+    // Arrange: early outbound を無効にした SPED media-only 接続を用意する。
+    const config = spedPeerConfig({
+      warp: { allowEarlyServerData: false, earlyMediaPolicy: "buffer" },
+    });
+    const server = new RTCPeerConnection(config);
+    const client = new RTCPeerConnection(config);
+    let receivedRtp = 0;
+    let receivedRtcp = 0;
+    const payload = Buffer.from("live-enabled-early-rtp");
+    try {
+      server.addTransceiver("audio");
+      exchangeIceCandidates(server, client);
+      await server.setLocalDescription(await server.createOffer());
+      await client.setRemoteDescription(server.localDescription!);
+      client.dtlsTransports[0]!.onRtp.subscribe((packet) => {
+        if (packet.payload.equals(payload)) receivedRtp++;
+      });
+      client.dtlsTransports[0]!.onRtcp.subscribe(() => receivedRtcp++);
+      await client.setLocalDescription(await client.createAnswer());
+      await server.setRemoteDescription(client.localDescription!);
+
+      const serverDtls = server.dtlsTransports[0]!;
+      await serverDtls.waitForWriteReady();
+      expect(serverDtls.isEarlyServerWriteAllowed()).toBe(false);
+      expect(
+        (serverDtls as unknown as { srtpKeysInstalled: boolean })
+          .srtpKeysInstalled,
+      ).toBe(false);
+
+      // Act: write-ready 通知後に公開設定で early outbound を有効化する。
+      server.setConfiguration({
+        warp: { allowEarlyServerData: true, earlyMediaPolicy: "buffer" },
+      });
+      const sentRtp = await serverDtls.sendRtp(
+        payload,
+        new RtpHeader({ ssrc: 0x719, sequenceNumber: 1, payloadType: 96 }),
+      );
+      const sentRtcp = await serverDtls.sendRtcp([
+        new RtcpRrPacket({ ssrc: 0x719, reports: [] }),
+      ]);
+
+      // Assert: 設定変更で鍵が導入され、RTP/RTCP が実際に wire へ届く。
+      expect(serverDtls.isEarlyServerWriteAllowed()).toBe(true);
+      expect(
+        (serverDtls as unknown as { srtpKeysInstalled: boolean })
+          .srtpKeysInstalled,
+      ).toBe(true);
+      expect(sentRtp).toBeGreaterThan(0);
+      expect(sentRtcp).not.toBe(0);
+      await waitUntil(() => receivedRtp === 1 && receivedRtcp === 1);
+      expect(receivedRtp).toBe(1);
+      expect(receivedRtcp).toBe(1);
+    } finally {
+      await Promise.allSettled([server.close(), client.close()]);
+    }
+  }, 40_000);
+
   test("ICE abort 後は early SRTP の RTP/RTCP を wire へ送らない", async () => {
     // Arrange: 実 PeerConnection で server write-ready まで進める。
     const config = spedPeerConfig({

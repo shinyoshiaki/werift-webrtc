@@ -324,6 +324,10 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         2_000,
       );
     }
+    // A live policy change can happen after DTLS 1.3 write-ready.  Re-run the
+    // same key-install edge used by markWriteReady so enabling early outbound
+    // cannot leave permissions true while SRTP remains unavailable.
+    this.ensureEarlySrtpKeys();
     this.updateSrtpPermissions();
   }
 
@@ -795,11 +799,15 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     if (this.readiness.writeReady) return;
     this.readiness.writeReady = true;
     this.spedTransport?.markApplicationWriteReady();
-    if (this.isEarlyServerOutboundReady()) {
-      if (this.srtpProfiles.length > 0) this.installSrtpKeys();
-    }
+    this.ensureEarlySrtpKeys();
     this.updateSrtpPermissions();
     this.onWriteReady.execute();
+  }
+
+  private ensureEarlySrtpKeys(): void {
+    if (this.srtpProfiles.length > 0 && this.isEarlyServerOutboundReady()) {
+      this.installSrtpKeys();
+    }
   }
 
   private async startSerial(
