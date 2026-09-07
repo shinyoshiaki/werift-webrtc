@@ -107,7 +107,10 @@ export class RTCSctpTransport {
             // preserve queued DCEP/data for a retry after authentication has
             // failed, and close every channel immediately.
             this.stopping = true;
-            this.dataChannelQueue = [];
+            // Close queued pre-establishment channels before SCTP removes its
+            // state listeners; otherwise their DCEP entries are lost without
+            // a DataChannel close event.
+            this.closeDataChannels();
             association.setState(SCTP_STATE.CLOSED);
             this.disposeSctpListeners();
           }

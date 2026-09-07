@@ -142,6 +142,8 @@ describe("peerConnection", () => {
     const caller = new RTCPeerConnection({});
     const callee = new RTCPeerConnection({});
     const channel = caller.createDataChannel("chat");
+    let closeEvents = 0;
+    channel.onclose = () => closeEvents++;
     let remoteChannelOpened = false;
 
     callee.onDataChannel.subscribe((remoteChannel) => {
@@ -167,6 +169,8 @@ describe("peerConnection", () => {
 
     expect(caller.connectionState).toBe("failed");
     expect(channel.readyState).not.toBe("open");
+    expect(channel.readyState).toBe("closed");
+    expect(closeEvents).toBe(1);
     expect(remoteChannelOpened).toBeFalsy();
 
     await Promise.allSettled([caller.close(), callee.close()]);
