@@ -59,6 +59,7 @@ test("e2e/dual: stale generation の ServerHello は DTLS 1.3 を commit しな�
     // Assert: version、association generation、terminal state は変化しない。
     expect((client as any).dualPhase).toBe("probing");
     expect((client as any).associationGen).toBe(associationGeneration);
+    expect((client as any).engine13).toBeUndefined();
     expect(client.connected).toBe(false);
     expect((client as any).associationTornDown).toBe(false);
   } finally {
