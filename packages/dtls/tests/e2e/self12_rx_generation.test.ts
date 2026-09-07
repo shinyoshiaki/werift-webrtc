@@ -3,8 +3,15 @@ import { setTimeout } from "timers/promises";
 import { expect, test } from "vitest";
 
 import { UdpTransport } from "../../../common/src";
+import { ProtectionProfileAeadAes128Gcm } from "../../../rtp/src/srtp/const";
 import { DtlsClient, DtlsServer, DtlsVersion } from "../../src";
 import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
+import { HandshakeType } from "../../src/handshake/const";
+import { UseSRTP } from "../../src/handshake/extensions/useSrtp";
+import { ServerHello } from "../../src/handshake/message/server/hello";
+import { ContentType } from "../../src/record/const";
+import { FragmentedHandshake } from "../../src/record/message/fragment";
+import { DtlsPlaintext } from "../../src/record/message/plaintext";
 import { certPem, keyPem } from "../fixture";
 
 type RxHandler = (
@@ -94,6 +101,45 @@ async function createPair(
     serverTransport,
     originalServerOnData,
   };
+}
+
+function corruptServerHelloUseSrtp(data: Buffer): Buffer | undefined {
+  try {
+    const record = DtlsPlaintext.deSerialize(data);
+    if (record.recordLayerHeader.contentType !== ContentType.handshake) {
+      return undefined;
+    }
+    const handshake = FragmentedHandshake.deSerialize(record.fragment);
+    if (
+      handshake.msg_type !== HandshakeType.server_hello_2 ||
+      handshake.fragment_length !== handshake.length
+    ) {
+      return undefined;
+    }
+    const serverHello = ServerHello.deSerialize(handshake.fragment);
+    const useSrtp = serverHello.extensions.find(
+      (extension) => extension.type === UseSRTP.type,
+    );
+    if (!useSrtp) return undefined;
+
+    // Arrange: keep the ServerHello framing valid but make use_srtp parsing fail.
+    useSrtp.data = Buffer.from([0x00]);
+    const malformedBody = serverHello.serialize();
+    const malformedHandshake = new FragmentedHandshake(
+      handshake.msg_type,
+      malformedBody.length,
+      handshake.message_seq,
+      0,
+      malformedBody.length,
+      malformedBody,
+    );
+    return new DtlsPlaintext(
+      record.recordLayerHeader,
+      malformedHandshake.serialize(),
+    ).serialize();
+  } catch {
+    return undefined;
+  }
 }
 
 type HandshakeWait = (condition: () => boolean) => Promise<void>;
@@ -259,6 +305,70 @@ test.each(cases)(
   },
   25_000,
 );
+
+test("e2e/self12 dual client は commit12 後の use_srtp 解析失敗を stale として捨てない", async () => {
+  // Arrange: dual client と DTLS 1.2 server の実 UDP 接続を用意する。
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+  const originalSend = serverTransport.send.bind(serverTransport);
+  let malformed = false;
+  serverTransport.send = async (data, addr) => {
+    const corrupted = !malformed
+      ? corruptServerHelloUseSrtp(Buffer.from(data))
+      : undefined;
+    if (corrupted) {
+      malformed = true;
+      await originalSend(corrupted, addr);
+      return;
+    }
+    await originalSend(data, addr);
+  };
+
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash,
+    addressValidation: "none",
+    protocolVersions: [DtlsVersion.V1_2],
+    srtpProfiles: [ProtectionProfileAeadAes128Gcm],
+  });
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash,
+    addressValidation: "none",
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+    srtpProfiles: [ProtectionProfileAeadAes128Gcm],
+  });
+  const errors: Error[] = [];
+  const errorSubscription = client.onError.subscribe((error) => {
+    errors.push(error);
+  });
+
+  try {
+    // Act: commit12 の直後に malformed use_srtp を解析させる。
+    await client.connect().catch(() => undefined);
+    await waitUntil(() => malformed, "malformed ServerHello が送信されない");
+
+    // Assert: 現在の dual handler の失敗として通知し、接続を破棄する。
+    await waitUntil(() => errors.length > 0, "解析失敗が通知されない");
+    expect(errors[0]!.message).toMatch(/use_srtp|truncated|MKI/i);
+    expect(
+      (client as unknown as { associationTornDown: boolean })
+        .associationTornDown,
+    ).toBe(true);
+  } finally {
+    errorSubscription.unSubscribe();
+    await Promise.allSettled([client.close(), server.close()]);
+    await Promise.allSettled([
+      clientTransport.close(),
+      serverTransport.close(),
+    ]);
+  }
+}, 25_000);
 
 test.each(cases)(
   "e2e/self12 $name は waitForReady 中の restart 後に stale continuation を実行しない",

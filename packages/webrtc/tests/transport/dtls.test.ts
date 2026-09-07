@@ -613,6 +613,41 @@ describe("RTCDtlsTransportTest", () => {
     }
   });
 
+  test("複合 SRTCP の通知中に close すると後続 packet を配送しない", async () => {
+    // Arrange: 1つの SRTCP datagram に複数 packet を含める実接続を用意する。
+    const profile = ProtectionProfileAes128CmHmacSha1_80;
+    const [sender, receiver] = await createDtlsSessions(
+      {
+        ...defaultPeerConfig,
+        protocolVersions: [DtlsVersion.V1_3],
+      },
+      [profile],
+    );
+    sender.setRemoteParams(receiver.localParameters);
+    receiver.setRemoteParams(sender.localParameters);
+    await Promise.all([sender.start(), receiver.start()]);
+    let received = 0;
+    receiver.onRtcp.subscribe(() => {
+      received++;
+      if (received === 1) void receiver.stop();
+    });
+
+    try {
+      // Act: 複合 SRTCP を送信し、先頭 callback 内で transport を停止する。
+      await sender.sendRtcp([
+        new RtcpRrPacket({ ssrc: 0x101, reports: [] }),
+        new RtcpRrPacket({ ssrc: 0x202, reports: [] }),
+      ]);
+      await setTimeout(20);
+
+      // Assert: stop 後は同じ datagram の後続 RTCP も配送されない。
+      expect(received).toBe(1);
+      expect(receiver.state).toBe("closed");
+    } finally {
+      await Promise.allSettled([sender.stop(), receiver.stop()]);
+    }
+  });
+
   test("application gate は deliver 中の close で残りを破棄する", async () => {
     // Arrange: 未認証の transport に application data 3 件を buffer する。
     const [session] = await createDtlsSessions();

@@ -243,6 +243,89 @@ describe("peerConnection", () => {
     }
   });
 
+  test("media-only handshake 中の close 後は connect の失敗で closed を上書きしない", async () => {
+    // Arrange: SCTP を持たない media-only の offer/answer を用意する。
+    const caller = new RTCPeerConnection({});
+    const callee = new RTCPeerConnection({});
+    caller.addTransceiver("audio");
+    await caller.setLocalDescription(await caller.createOffer());
+    await callee.setRemoteDescription(caller.localDescription!);
+    await callee.setLocalDescription(await callee.createAnswer());
+
+    const dtls = caller.dtlsTransports[0]!;
+    const originalIceStart = dtls.iceTransport.start;
+    const originalDtlsStart = dtls.start;
+    let startEntered!: () => void;
+    const startEnteredPromise = new Promise<void>((resolve) => {
+      startEntered = resolve;
+    });
+    let rejectStart!: (error: Error) => void;
+    const startFailure = new Promise<never>((_, reject) => {
+      rejectStart = reject;
+    });
+    dtls.iceTransport.start = async () => {};
+    dtls.start = async () => {
+      startEntered();
+      return startFailure;
+    };
+
+    try {
+      // Act: answer適用で connect() を開始し、DTLS start の reject を保留する。
+      await caller.setRemoteDescription(callee.localDescription!);
+      await startEnteredPromise;
+
+      // Act: 下位待機を閉じた後に失敗させる。
+      await caller.close();
+      rejectStart(new Error("handshake aborted by close"));
+      await setTimeout(0);
+
+      // Assert: connect の失敗処理は close 済み PC を failed へ戻さない。
+      expect(caller.connectionState).toBe("closed");
+    } finally {
+      dtls.iceTransport.start = originalIceStart;
+      dtls.start = originalDtlsStart;
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
+  test("ICE/DTLS connected 後の再接続でも SCTP retry に到達する", async () => {
+    // Arrange: 実 DataChannel を確立し、ICE/DTLS/SCTP が一度成功した状態を作る。
+    const caller = new RTCPeerConnection({});
+    const callee = new RTCPeerConnection({});
+    const [channel] = await createDataChannelPair({}, caller, callee);
+    const manager = (
+      caller as unknown as {
+        sctpManager: { connectSctp(): Promise<void> };
+      }
+    ).sctpManager;
+    const originalConnectSctp = manager.connectSctp.bind(manager);
+    let attempts = 0;
+    manager.connectSctp = async () => {
+      attempts++;
+      if (attempts === 1) {
+        throw new Error("simulated SCTP INIT failure");
+      }
+      await originalConnectSctp();
+    };
+
+    try {
+      // Act: 接続済みの早期 return からも SCTP の初回 retry を実行する。
+      await (caller as unknown as { connect(): Promise<void> }).connect();
+      expect(caller.connectionState).toBe("failed");
+
+      // Act: 再ネゴシエーション相当の connect() を再度実行する。
+      await (caller as unknown as { connect(): Promise<void> }).connect();
+
+      // Assert: manager の二回目の開始へ到達し、PCだけ connected にはしない。
+      expect(attempts).toBe(2);
+      expect(caller.connectionState).toBe("connected");
+      expect(channel.readyState).toBe("open");
+    } finally {
+      manager.connectSctp = originalConnectSctp;
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
   test("constructor applies WebIDL-style validation for configuration dictionaries", () => {
     const certificateValues = [null, undefined];
 

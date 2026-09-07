@@ -941,6 +941,8 @@ export class RTCPeerConnection extends EventTarget {
   private async connect() {
     log("start connect");
 
+    if (this.isClosed) return;
+
     if (this.config.sped === true && !peerConfigHasDtls13(this.config)) {
       throw new Error(
         "PeerConfig.sped requires DTLS 1.3 in dtls.protocolVersions",
@@ -964,6 +966,8 @@ export class RTCPeerConnection extends EventTarget {
     const res = await Promise.allSettled(
       this.dtlsTransports.map(async (dtlsTransport) => {
         const { iceTransport } = dtlsTransport;
+        const ownsSctp =
+          this.sctpTransport?.dtlsTransport.id === dtlsTransport.id;
         // Gathering sets Connection.state to "completed" before any remote
         // checks. Only "connected" means ICE has a nominated pair.
         // ICE restart leaves DTLS connected while ICE returns to "new"/gather
@@ -972,6 +976,9 @@ export class RTCPeerConnection extends EventTarget {
           iceTransport.state === "connected" &&
           dtlsTransport.state === "connected"
         ) {
+          if (ownsSctp) {
+            await this.sctpManager.connectSctp();
+          }
           return;
         }
 
@@ -982,11 +989,12 @@ export class RTCPeerConnection extends EventTarget {
             if (iceTransport.state !== "connected") {
               await iceTransport.start();
             }
+            if (ownsSctp) {
+              await this.sctpManager.connectSctp();
+            }
             return;
           }
           const dtlsPromise = dtlsTransport.start();
-          const ownsSctp =
-            this.sctpTransport?.dtlsTransport.id === dtlsTransport.id;
           // The DTLS client is the passive SCTP endpoint.  Arm it before
           // authentication so an early server INIT cannot establish SCTP
           // before RTCSctpTransport has assigned its stream-id parity.
@@ -1032,6 +1040,9 @@ export class RTCPeerConnection extends EventTarget {
           }
 
           if (dtlsTransport.state === "connected") {
+            if (ownsSctp) {
+              await this.sctpManager.connectSctp();
+            }
             return;
           }
 
@@ -1050,7 +1061,7 @@ export class RTCPeerConnection extends EventTarget {
       }),
     );
 
-    if (epoch !== this.connectEpoch) {
+    if (this.isClosed || epoch !== this.connectEpoch) {
       return;
     }
 
@@ -1359,6 +1370,9 @@ export class RTCPeerConnection extends EventTarget {
     if (this.isClosed) return;
 
     this.isClosed = true;
+    // Invalidate every in-flight connect() continuation before lower layers
+    // reject their pending waits.  A close must remain the terminal state.
+    this.connectEpoch++;
     this.pendingRemoteCandidates.length = 0;
     this.setSignalingState("closed");
 

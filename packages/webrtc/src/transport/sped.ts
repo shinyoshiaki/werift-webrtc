@@ -25,6 +25,8 @@ type PendingEarlySend = {
   addr?: Address;
   generation: number;
   expiresAt?: number;
+  early: boolean;
+  application: boolean;
   resolve: () => void;
   reject: (error: Error) => void;
 };
@@ -46,6 +48,8 @@ export class IceSpedTransport implements Transport {
   private earlySendExpiryTimer?: ReturnType<typeof setTimeout>;
   private earlySendRetryTimer?: ReturnType<typeof setTimeout>;
   private earlySendFlushInProgress = false;
+  /** Policy gate for application records queued before DTLS authentication. */
+  private earlyApplicationSendEnabled = true;
   /**
    * True after the first DTLS handshake completes. ICE restart after
    * DTLS is connected marks SPED complete so application records stay
@@ -115,6 +119,24 @@ export class IceSpedTransport implements Transport {
     this.flushPendingEarlySends();
   }
 
+  /**
+   * Revoke only queued early application/media records. DTLS handshake and
+   * alert records remain in the queue because they are control traffic needed
+   * to complete or tear down the association.
+   */
+  setEarlyApplicationSendEnabled(enabled: boolean): void {
+    if (this.earlyApplicationSendEnabled === enabled) return;
+    this.earlyApplicationSendEnabled = enabled;
+    if (!enabled) {
+      this.rejectPendingEarlySends(
+        new Error("SPED early application send permission revoked"),
+        (item) => item.early && item.application,
+      );
+      return;
+    }
+    this.flushPendingEarlySends();
+  }
+
   onData: (buf: Buffer, addr?: Address, meta?: DatagramRxMeta) => void =
     () => {};
 
@@ -144,6 +166,20 @@ export class IceSpedTransport implements Transport {
   }
 
   readonly send = async (data: Buffer, addr?: Address) => {
+    await this.sendInternal(data, addr, isDtlsApplicationData(data), false);
+  };
+
+  /** Explicit application marker for encrypted DTLS 1.3 records. */
+  readonly sendApplication = async (data: Buffer, addr?: Address) => {
+    await this.sendInternal(data, addr, true, false);
+  };
+
+  private async sendInternal(
+    data: Buffer,
+    addr: Address | undefined,
+    application: boolean,
+    waitForWire: boolean,
+  ) {
     this.assertIceSendable();
     if (this.applicationReady) {
       if (!this.ice.canSendApplicationData()) {
@@ -151,15 +187,26 @@ export class IceSpedTransport implements Transport {
         // ことがあるため、ここで await すると nomination 自体を止めてしまう。
         // wire 送信は path が利用可能になった後に flush し、呼び出し元には
         // 受理済みとして直ちに返す。ただし経路喪失時に無期限保持しない。
-        void this.enqueueEarlySend(data, addr).catch((error) => {
-          log("failed to queue application data", error);
+        const pending = this.enqueueEarlySend(data, addr, {
+          early: false,
+          application,
         });
+        if (waitForWire) {
+          await pending;
+        } else {
+          void pending.catch((error) => {
+            log("failed to queue application data", error);
+          });
+        }
         return;
       }
       await this.ice.send(data);
       return;
     }
     if (this.applicationWriteReady) {
+      if (application && !this.earlyApplicationSendEnabled) {
+        throw new Error("SPED early application send permission revoked");
+      }
       const nominated = this.ice.nominated;
       const pair =
         this.resolveAuthenticatedSendPair(addr) ??
@@ -167,7 +214,10 @@ export class IceSpedTransport implements Transport {
           ? nominated
           : undefined);
       if (!pair) {
-        await this.enqueueEarlySend(data, addr);
+        await this.enqueueEarlySend(data, addr, {
+          early: true,
+          application,
+        });
         return;
       }
       this.runtime?.pinHandshakePath(pair);
@@ -187,7 +237,7 @@ export class IceSpedTransport implements Transport {
     }
     this.runtime?.pinHandshakePath(pair);
     await pair.protocol.sendData(data, pair.remoteAddr);
-  };
+  }
 
   /**
    * Wait for an application/media record to reach the wire. Generic DTLS
@@ -195,19 +245,9 @@ export class IceSpedTransport implements Transport {
    * nomination check can be completed by the same inbound DTLS/STUN turn.
    */
   readonly sendAndWait = async (data: Buffer, addr?: Address) => {
-    this.assertIceSendable();
-    if (this.applicationReady) {
-      if (!this.ice.canSendApplicationData()) {
-        // Media callers wait for an actual wire send. Unlike generic DTLS
-        // sends, that wait must have a bounded lifetime when ICE loses its
-        // path while its public state is still connected.
-        await this.enqueueEarlySend(data, addr);
-        return;
-      }
-      await this.ice.send(data);
-      return;
-    }
-    await this.send(data, addr);
+    // sendAndWait is used by SRTP/SRTCP and therefore always represents
+    // application/media traffic, even though its bytes are not a DTLS record.
+    await this.sendInternal(data, addr, true, true);
   };
 
   async close() {
@@ -220,6 +260,10 @@ export class IceSpedTransport implements Transport {
   private async enqueueEarlySend(
     data: Buffer,
     addr?: Address,
+    options: { early: boolean; application: boolean } = {
+      early: true,
+      application: true,
+    },
     retentionMs = EARLY_SEND_RETENTION_MS,
   ) {
     if (this.closed) {
@@ -229,6 +273,13 @@ export class IceSpedTransport implements Transport {
       throw new Error(
         `ICE ${this.ice.state} before SPED application path was ready`,
       );
+    }
+    if (
+      options.early &&
+      options.application &&
+      !this.earlyApplicationSendEnabled
+    ) {
+      throw new Error("SPED early application send permission revoked");
     }
     if (
       this.pendingEarlySends.length >= EARLY_SEND_MAX_PACKETS ||
@@ -243,6 +294,8 @@ export class IceSpedTransport implements Transport {
         addr,
         generation: this.ice.generation,
         expiresAt: Date.now() + retentionMs,
+        early: options.early,
+        application: options.application,
         resolve,
         reject: (error) => reject(error),
       });
@@ -322,13 +375,28 @@ export class IceSpedTransport implements Transport {
     }
   }
 
-  private rejectPendingEarlySends(error: Error) {
-    const pending = this.pendingEarlySends;
-    this.pendingEarlySends = [];
-    this.pendingEarlySendBytes = 0;
-    this.clearEarlySendTimers();
-    for (const item of pending) {
-      item.reject(error);
+  private rejectPendingEarlySends(
+    error: Error,
+    shouldReject: (item: PendingEarlySend) => boolean = () => true,
+  ) {
+    const retained: PendingEarlySend[] = [];
+    for (const item of this.pendingEarlySends) {
+      if (shouldReject(item)) {
+        item.reject(error);
+      } else {
+        retained.push(item);
+      }
+    }
+    this.pendingEarlySends = retained;
+    this.pendingEarlySendBytes = retained.reduce(
+      (bytes, item) => bytes + item.data.length,
+      0,
+    );
+    if (retained.length === 0) {
+      this.clearEarlySendTimers();
+    } else if (!this.earlySendFlushInProgress) {
+      this.scheduleEarlySendExpiry();
+      this.scheduleEarlySendRetry();
     }
   }
 
@@ -352,6 +420,25 @@ export class IceSpedTransport implements Transport {
           return;
         }
         const item = this.pendingEarlySends[0]!;
+        if (item.expiresAt !== undefined && item.expiresAt <= Date.now()) {
+          // Timer execution can be delayed by a busy event loop.  Expiration
+          // is a send-time invariant, not merely a timer-side statistic.
+          this.rejectPendingEarlySends(
+            new Error("SPED early application send timed out"),
+          );
+          return;
+        }
+        if (
+          item.early &&
+          item.application &&
+          !this.earlyApplicationSendEnabled
+        ) {
+          this.rejectPendingEarlySends(
+            new Error("SPED early application send permission revoked"),
+            (candidate) => candidate.early && candidate.application,
+          );
+          continue;
+        }
         if (item.generation !== this.ice.generation) {
           this.pendingEarlySends.shift();
           this.pendingEarlySendBytes -= item.data.length;
@@ -369,6 +456,26 @@ export class IceSpedTransport implements Transport {
         if (!this.applicationReady && !pair) {
           this.scheduleEarlySendRetry();
           return;
+        }
+
+        // Re-check immediately before the wire call after pair resolution;
+        // policy and retention may have changed while resolving the path.
+        if (item.expiresAt !== undefined && item.expiresAt <= Date.now()) {
+          this.rejectPendingEarlySends(
+            new Error("SPED early application send timed out"),
+          );
+          return;
+        }
+        if (
+          item.early &&
+          item.application &&
+          !this.earlyApplicationSendEnabled
+        ) {
+          this.rejectPendingEarlySends(
+            new Error("SPED early application send permission revoked"),
+            (candidate) => candidate.early && candidate.application,
+          );
+          continue;
         }
 
         try {
@@ -469,4 +576,10 @@ export class IceSpedTransport implements Transport {
     }
     return ["0.0.0.0", 0];
   }
+}
+
+function isDtlsApplicationData(data: Buffer): boolean {
+  // DTLS record ContentType.application_data.  Raw SRTP/SRTCP is classified
+  // explicitly by sendAndWait(), so handshake/control records are preserved.
+  return data[0] === 23;
 }

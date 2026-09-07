@@ -686,7 +686,12 @@ export class DtlsClient extends DtlsSocket {
       return;
     }
     log("dual association: commit DTLS 1.2");
-    this.invalidateLegacy12HandshakeOwnership();
+    // The current legacy handler is the owner that selected DTLS 1.2.  Keep
+    // its ownership token valid so a later parse/validation error (for example
+    // malformed use_srtp) is reported as a current-association failure rather
+    // than being mistaken for a stale callback.  Ownership is invalidated
+    // only when the 1.2 candidate is actually abandoned (close/renegotiation
+    // or commit to DTLS 1.3).
     this.dualPhase = "committed12";
     this.dualResume = undefined;
     // Soft-dispose parked 1.3 (stops RTO via closed + flightId-scoped

@@ -13,7 +13,7 @@ import { HandshakeType } from "../../handshake/const";
 import { peerKeyFromAddr } from "../../handshake/extensions/cookie";
 import { ClientHello } from "../../handshake/message/client/hello";
 import { DtlsRandom } from "../../handshake/random";
-import { flushTransportSend } from "../../imports/common";
+import { type Transport, flushTransportSend } from "../../imports/common";
 import { normalizePeerTuple } from "../../peer";
 import { AlertDesc, ContentType } from "../../record/const";
 import {
@@ -158,7 +158,17 @@ export class Dtls13Connection
     const ep = this.epochs.get(this.writeEpoch);
     if (!ep?.writeKeys) throw new Error("no application write keys");
     const record = encryptRecord(buf, ContentType.applicationData, ep);
-    await this.options.transport.send(record, this.getSendAddr());
+    const transport = this.options.transport as Transport & {
+      sendApplication?: (
+        data: Buffer,
+        addr?: [string, number],
+      ) => Promise<void>;
+    };
+    if (transport.sendApplication) {
+      await transport.sendApplication(record, this.getSendAddr());
+    } else {
+      await transport.send(record, this.getSendAddr());
+    }
   }
 
   exportKeyingMaterial(label: string, length: number): Buffer {

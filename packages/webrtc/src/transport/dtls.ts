@@ -310,6 +310,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     const previousPolicy = this.config.warp?.earlyMediaPolicy ?? "drop";
 
     this.config.warp = nextWarp;
+    this.spedTransport?.setEarlyApplicationSendEnabled(
+      nextWarp.allowEarlyServerData,
+    );
     if (previousPolicy !== nextWarp.earlyMediaPolicy) {
       // A policy change invalidates protected media accumulated under the old
       // policy. Dispose the old retention timer before replacing the queue.
@@ -849,6 +852,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     const ice = this.iceTransport.connection as Connection;
     const transport = new IceSpedTransport(ice);
     this.spedTransport = transport;
+    transport.setEarlyApplicationSendEnabled(
+      this.config.warp?.allowEarlyServerData === true,
+    );
     const carrier = new DirectHandshakeCarrier(transport);
     carrier.setWireSendEnabled(false);
     carrier.setRetransmissionMode("external");
@@ -868,6 +874,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       onSessionReset: () => {
         carrier.invalidateInboundInjects?.();
         this.mediaBuffer.reset();
+        transport.setEarlyApplicationSendEnabled(
+          this.config.warp?.allowEarlyServerData === true,
+        );
         dtlsSocket?.clearEarlyDataBuffer();
         if (
           this.state === "connected" &&
@@ -920,6 +929,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       },
       onSessionAbort: () => {
         this.earlyModeDisabled = true;
+        transport.setEarlyApplicationSendEnabled(false);
         // ICE/SPED abort invalidates early SRTP permission immediately.  The
         // DTLS association may still be connecting, so peer authentication is
         // not sufficient to reconstruct this permission until a new attempt.
@@ -933,6 +943,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       },
       onFallbackFlight: async () => {
         this.earlyModeDisabled = true;
+        transport.setEarlyApplicationSendEnabled(false);
         this.srtpWriteReady = false;
         this.applicationGate.clearPending();
         this.mediaBuffer.clear(true);
@@ -1276,10 +1287,11 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     // 配送は現 attempt のみに限定し、close/restart 後の旧 queue は扱わない。
     if (!current || !this.isCurrentAttempt(current)) return;
     if (ctx.generation !== current.iceGeneration) return;
-    this.handleMediaPacket(data);
+    this.handleMediaPacket(data, current);
   }
 
-  private handleMediaPacket(data: Buffer) {
+  private handleMediaPacket(data: Buffer, attempt: TransportAttempt) {
+    if (!this.canDeliverMedia(attempt)) return;
     if (isRtcp(data)) {
       let dec: Buffer;
       try {
@@ -1299,6 +1311,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         return;
       }
       for (const rtcp of rtcpPackets) {
+        // 1つの SRTCP datagram に複数 packet が含まれる場合も、先頭の
+        // callback 内の close/restart/fingerprint failure を直ちに反映する。
+        if (!this.canDeliverMedia(attempt)) return;
         try {
           this.onRtcp.execute(rtcp);
         } catch (error) {
@@ -1323,6 +1338,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         log("dropping malformed SRTP packet", error);
         return;
       }
+      if (!this.canDeliverMedia(attempt)) return;
       try {
         this.onRtp.execute(rtp);
       } catch (error) {
@@ -1336,11 +1352,19 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       // 各要素配送前と配送後に attempt/state を再検証し、close/restart で中断する。
       if (!this.isCurrentAttempt(attempt) || !this.srtpReadReady) return;
       if (this.isTerminated()) return;
-      this.handleMediaPacket(data);
+      this.handleMediaPacket(data, attempt);
       if (!this.isCurrentAttempt(attempt)) return;
       if (this.isTerminated()) return;
       if (!this.srtpReadReady) return;
     }
+  }
+
+  private canDeliverMedia(attempt: TransportAttempt): boolean {
+    return (
+      this.srtpReadReady &&
+      !this.isTerminated() &&
+      this.isCurrentAttempt(attempt)
+    );
   }
 
   private isTerminated(): boolean {

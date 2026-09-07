@@ -735,6 +735,114 @@ describe("IceSpedTransport pre-nomination send", () => {
     }
   });
 
+  it("flush 前に retention が切れた application data は timer 未実行でも送らない", async () => {
+    // Arrange: application-ready だが経路のない transport と、期限待ちの送信を用意する。
+    vi.useFakeTimers();
+    const ice = createIceStub(1);
+    const transport = new IceSpedTransport(ice);
+    transport.markApplicationReady();
+    const staleApplication = Buffer.from([23, 0xaa, 0xbb]);
+
+    try {
+      // Act: Connection.send が no-op になる経路で queue を作る。
+      await transport.send(staleApplication);
+      await Promise.resolve();
+      const pending = (
+        transport as unknown as {
+          pendingEarlySends: { expiresAt?: number }[];
+          flushPendingEarlySends(): void;
+        }
+      ).pendingEarlySends;
+      expect(pending).toHaveLength(1);
+      const expiresAt = pending[0]!.expiresAt!;
+
+      // Act: expiry timer は実行せず、時計だけを期限後へ進めて先に flush する。
+      vi.setSystemTime(expiresAt + 1);
+      const pair = authenticatedPair(
+        mockProtocol("1.2.3.4", 1000).protocol,
+        "10.0.0.1",
+        1111,
+      );
+      ice.nominated = pair;
+      ice.applicationDataReady = true;
+      (
+        transport as unknown as { flushPendingEarlySends(): void }
+      ).flushPendingEarlySends();
+      await Promise.resolve();
+
+      // Assert: flush 側の期限検証で失敗し、期限切れ packet は wire へ出ない。
+      expect(
+        (transport as unknown as { pendingEarlySends: unknown[] })
+          .pendingEarlySends,
+      ).toHaveLength(0);
+      expect(ice.sent).toHaveLength(0);
+    } finally {
+      await transport.close();
+      vi.useRealTimers();
+    }
+  });
+
+  it("early application policy を取り消しても DTLS control queue は保持する", async () => {
+    // Arrange: writeReady 後だが認証済み pair がまだ無い transport に control/application を積む。
+    const a = mockProtocol("1.2.3.4", 1000);
+    const pair = new CandidatePair(
+      a.protocol,
+      new Candidate("r", 1, "udp", 1, "10.0.0.1", 1111, "host"),
+      true,
+    );
+    const ice = createIceStub(1, [pair]);
+    const transport = new IceSpedTransport(ice);
+    transport.markApplicationWriteReady();
+    const control = Buffer.from([22, 1, 2, 3]);
+    // DTLS 1.3 application records do not expose ContentType in byte 0.
+    const application = Buffer.from([1, 4, 5, 6]);
+
+    try {
+      // Act: DTLS control と early application の送信を同じ pending queue へ登録する。
+      const controlSend = transport.send(control, pair.remoteAddr);
+      const applicationSend = transport.sendApplication(
+        application,
+        pair.remoteAddr,
+      );
+      await Promise.resolve();
+
+      // Act: 設定変更で early application だけを取り消す。
+      transport.setEarlyApplicationSendEnabled(false);
+      await expect(applicationSend).rejects.toThrow(/permission revoked/);
+      expect(
+        (transport as unknown as { pendingEarlySends: unknown[] })
+          .pendingEarlySends,
+      ).toHaveLength(1);
+
+      // Act: pair 認証を成立させ、残った control record を flush する。
+      pair.requestsReceived = 1;
+      pair.updateState(CandidatePairState.SUCCEEDED);
+      connectionDatagramEvent(ice).execute({
+        bytes: Buffer.from([0, 1]),
+        source: pair.remoteAddr,
+        protocol: a.protocol,
+        pair,
+        generation: ice.generation,
+        authenticated: true,
+      });
+      await controlSend;
+
+      // Assert: control だけが wire に出て、取り消した application は出ない。
+      expect(a.sent).toHaveLength(1);
+      expect(a.sent[0]!.data.equals(control)).toBe(true);
+
+      // Act: policy 無効後に認証済み pair へ直接 early application を送る。
+      await expect(
+        transport.sendApplication(application, pair.remoteAddr),
+      ).rejects.toThrow(/permission revoked/);
+
+      // Assert: 直接送信経路も取り消し済み policy を迂回しない。
+      expect(a.sent).toHaveLength(1);
+    } finally {
+      await transport.close();
+    }
+  });
+
   it("application data の期限切れ後は経路復旧しても古いデータを送らない", async () => {
     // Arrange: application-ready だが、ICE の送信経路だけを一時的に失わせる。
     vi.useFakeTimers();

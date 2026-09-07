@@ -19,6 +19,20 @@ export class TransportContext {
     return this.socket.send(buf, addr ?? this.pinnedPeer);
   };
 
+  /**
+   * Application-data send path.  SPED transports use this marker because a
+   * DTLS 1.3 application record has an encrypted inner content type and
+   * cannot be classified from its wire header alone.
+   */
+  readonly sendApplication = (buf: Buffer, addr?: Address) => {
+    const applicationTransport = this.socket as Transport & {
+      sendApplication?: (data: Buffer, address?: Address) => Promise<void>;
+    };
+    return applicationTransport.sendApplication
+      ? applicationTransport.sendApplication(buf, addr ?? this.pinnedPeer)
+      : this.send(buf, addr);
+  };
+
   /** Flush path for close_notify (does not change hot-path {@link send}). */
   readonly sendAndWait = (buf: Buffer, addr?: Address) => {
     return flushTransportSend(this.socket, buf, addr ?? this.pinnedPeer);
