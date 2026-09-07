@@ -1239,8 +1239,13 @@ export class RTCPeerConnection extends EventTarget {
       }
 
       const iceTransport = dtlsTransport.iceTransport;
+      // BUNDLE transport の ICE/DTLS parameters は tag m-line が所有する。
+      // 非 tag section の credentials や candidate を共有 transport へ適用すると、
+      // 認証対象と実際の送信先が section の処理順で上書きされてしまう。
+      const shouldApplyBundleTransportParams =
+        !isBundleMember || isBundleTag || bundleTag === undefined;
 
-      if (remoteMedia.iceParams) {
+      if (remoteMedia.iceParams && shouldApplyBundleTransportParams) {
         const renomination = !!this.sdpManager.inactiveRemoteMedia;
         iceTransport.setRemoteParams(remoteMedia.iceParams, renomination);
 
@@ -1253,16 +1258,19 @@ export class RTCPeerConnection extends EventTarget {
       // For a BUNDLE transport, only the group's tag supplies DTLS
       // parameters.  Applying later sections would replace the tag's
       // fingerprint and make a valid certificate fail authentication.
-      const shouldApplyDtlsParams =
-        !isBundleMember || isBundleTag || bundleTag === undefined;
-      if (remoteMedia.dtlsParams && shouldApplyDtlsParams) {
+      if (remoteMedia.dtlsParams && shouldApplyBundleTransportParams) {
         dtlsTransport.setRemoteParams(remoteMedia.dtlsParams);
       }
 
       // # add ICE candidates
-      remoteMedia.iceCandidates.forEach(iceTransport.addRemoteCandidate);
+      if (shouldApplyBundleTransportParams) {
+        remoteMedia.iceCandidates.forEach(iceTransport.addRemoteCandidate);
+      }
 
-      if (remoteMedia.iceCandidatesComplete) {
+      if (
+        remoteMedia.iceCandidatesComplete &&
+        shouldApplyBundleTransportParams
+      ) {
         iceTransport.addRemoteCandidate(undefined);
       }
 
@@ -1270,7 +1278,7 @@ export class RTCPeerConnection extends EventTarget {
       if (
         remoteSdp.type === "answer" &&
         remoteMedia.dtlsParams?.role &&
-        shouldApplyDtlsParams
+        shouldApplyBundleTransportParams
       ) {
         dtlsTransport.role =
           remoteMedia.dtlsParams.role === "client" ? "server" : "client";

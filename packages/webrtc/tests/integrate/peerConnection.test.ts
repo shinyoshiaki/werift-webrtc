@@ -348,8 +348,8 @@ describe("peerConnection", () => {
     }
   }, 60_000);
 
-  test("BUNDLE tag の fingerprint が後続 media section で上書きされない", async () => {
-    // Arrange: BUNDLE の tag 以外の m-line だけ別証明書になる offer を用意する。
+  test("BUNDLE tag の DTLS/ICE parameters が後続 media section で上書きされない", async () => {
+    // Arrange: BUNDLE の tag 以外の m-line だけ別証明書・ICE parameters になる offer を用意する。
     const alternateKeys = await createSelfSignedCertificate({
       signature: SignatureAlgorithm.ecdsa_3,
       hash: HashAlgorithm.sha256_4,
@@ -386,19 +386,46 @@ describe("peerConnection", () => {
       try {
         await caller.setLocalDescription(await caller.createOffer());
 
-        // Act: BUNDLE tag の audio は元の fingerprint、video は別値にする。
+        // Act: BUNDLE tag の audio の値を保存し、video だけ異なる値へ書き換える。
         caller.dtlsTransports[1]!.localCertificate = alternateCertificate;
         const fingerprint = alternateCertificate.getFingerprints()[0]!;
         const sections = caller.localDescription!.sdp.split(/(?=^m=)/m);
-        sections[2] = sections[2]!.replace(
-          /^a=fingerprint:.*$/gm,
-          `a=fingerprint:${fingerprint.algorithm} ${fingerprint.value}`,
-        );
+        const tagSection = sections[1]!;
+        const tagUfragMatch = tagSection.match(/^a=ice-ufrag:([^\r\n]+)$/m);
+        const tagPasswordMatch = tagSection.match(/^a=ice-pwd:([^\r\n]+)$/m);
+        const tagCandidates = [
+          ...tagSection.matchAll(/^a=candidate:([^\r\n]+)$/gm),
+        ].map((match) => match[1]!);
+        expect(tagUfragMatch).not.toBeNull();
+        expect(tagPasswordMatch).not.toBeNull();
+        expect(tagCandidates.length).toBeGreaterThan(0);
+
+        const nonTagCandidate = "a=candidate:9999 1 udp 1 192.0.2.1 9 typ host";
+        sections[2] = sections[2]!
+          .replace(
+            /^a=fingerprint:.*$/gm,
+            `a=fingerprint:${fingerprint.algorithm} ${fingerprint.value}`,
+          )
+          .replace(/^a=ice-ufrag:.*$/gm, "a=ice-ufrag:NonTagUfrag1234")
+          .replace(
+            /^a=ice-pwd:.*$/gm,
+            "a=ice-pwd:NonTagPassword01234567890123456789",
+          )
+          .replace(/^a=candidate:.*$/gm, nonTagCandidate);
         const modifiedOffer = {
           type: "offer" as const,
           sdp: sections.join(""),
         };
         await callee.setRemoteDescription(modifiedOffer);
+
+        // Assert: 非 tag の credentials/candidate が共有 transport に混入していない。
+        const calleeIce = callee.dtlsTransports[0]!.iceTransport.connection;
+        expect(calleeIce.remoteUsername).toBe(tagUfragMatch![1]);
+        expect(calleeIce.remotePassword).toBe(tagPasswordMatch![1]);
+        expect(
+          calleeIce.remoteCandidates.map((candidate) => candidate.toSdp()),
+        ).toEqual(tagCandidates);
+
         callee.dtlsTransports[0]!.onRtp.subscribe((packet) => {
           receivedAudio = packet.payload.toString();
         });
@@ -422,7 +449,7 @@ describe("peerConnection", () => {
           await setTimeout(10);
         }
 
-        // Assert: tag の証明書で認証され、後続 video の fingerprint で失敗しない。
+        // Assert: tag の DTLS/ICE 値で認証・接続され、後続 video の値で失敗しない。
         expect(caller.connectionState, label).toBe("connected");
         expect(callee.connectionState, label).toBe("connected");
         expect(callee.dtlsTransports[0]!.state, label).toBe("connected");
