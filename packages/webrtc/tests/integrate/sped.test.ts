@@ -1632,6 +1632,22 @@ describe("RTCPeerConnection SPED opt-in", () => {
       dc1.send("fallback");
       expect(await awaitMessage(dc2)).toBe("fallback");
 
+      // Assert: non-SPED peer との DTLS 1.3 direct fallback を diagnostics に残す。
+      const runtime = getConnectionSpedRuntime(iceOf(pc2));
+      expect(runtime?.fallbackStarted).toBe(true);
+      expect(runtime?.session.peerSupport).toBe("unsupported");
+      expect(runtime?.diagnosticsSnapshot()).toMatchObject({
+        state: "fallback",
+        carrier: "direct",
+      });
+      const stats = [...(await pc2.getStats()).values()].find(
+        (stat): stat is RTCTransportStats => stat.type === "transport",
+      );
+      expect(stats).toMatchObject({
+        warpSpedState: "fallback",
+        warpCarrier: "direct",
+      });
+
       // Assert: SPED client の ClientHello が probe され、同一 bytes で raw fallback する
       expect(
         stun.some((bytes) =>

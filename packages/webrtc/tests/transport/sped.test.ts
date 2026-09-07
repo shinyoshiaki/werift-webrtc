@@ -642,4 +642,31 @@ describe("IceSpedTransport pre-nomination send", () => {
       await transport.close();
     }
   });
+
+  it("ICE failed 後に application media の期限なし queue を作らない", async () => {
+    // Arrange: application-ready だが、ICE はすでに terminal state にする。
+    const ice = createIceStub(1);
+    const transport = new IceSpedTransport(ice);
+    transport.markApplicationReady();
+    ice.state = "failed";
+    ice.stateChanged.execute("failed");
+
+    try {
+      // Act: failed 通知後と同じ状態で wire 到達待ちの media を送る。
+      const send = transport.sendAndWait(Buffer.from([23, 1, 2, 3]));
+
+      // Assert: 待機を残さず、呼び出し元へ失敗を返す。
+      await expect(send).rejects.toThrow(/ICE failed/);
+      expect(
+        (transport as unknown as { pendingEarlySends: unknown[] })
+          .pendingEarlySends,
+      ).toHaveLength(0);
+      expect(
+        (transport as unknown as { earlySendRetryTimer?: unknown })
+          .earlySendRetryTimer,
+      ).toBeUndefined();
+    } finally {
+      await transport.close();
+    }
+  });
 });

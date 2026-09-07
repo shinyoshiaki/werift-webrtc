@@ -220,6 +220,11 @@ export class IceSpedTransport implements Transport {
     if (this.closed) {
       throw new Error("SPED transport is closed");
     }
+    if (this.ice.state === "failed" || this.ice.state === "closed") {
+      throw new Error(
+        `ICE ${this.ice.state} before SPED application path was ready`,
+      );
+    }
     if (
       this.pendingEarlySends.length >= EARLY_SEND_MAX_PACKETS ||
       this.pendingEarlySendBytes + data.length > EARLY_SEND_MAX_BYTES
@@ -327,6 +332,14 @@ export class IceSpedTransport implements Transport {
     this.earlySendFlushInProgress = true;
     void (async () => {
       while (!this.closed && this.pendingEarlySends.length > 0) {
+        if (this.ice.state === "failed" || this.ice.state === "closed") {
+          this.rejectPendingEarlySends(
+            new Error(
+              `ICE ${this.ice.state} before SPED application path was ready`,
+            ),
+          );
+          return;
+        }
         const item = this.pendingEarlySends[0]!;
         if (item.generation !== this.ice.generation) {
           this.pendingEarlySends.shift();

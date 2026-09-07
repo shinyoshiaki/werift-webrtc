@@ -140,8 +140,22 @@ export class SpedRuntime {
   }
 
   diagnosticsSnapshot(): SpedDiagnosticsSnapshot {
+    // A direct DTLS fallback may finish the shared association after SPED has
+    // already been abandoned. Keep the selected carrier authoritative instead
+    // of turning the terminal `complete` session state back into `active/sped`.
+    const directFallback =
+      this.session.state !== "disabled" &&
+      (this.fallbackStarted ||
+        this.session.state === "fallback" ||
+        this.session.peerSupport === "unsupported");
     const state =
-      this.session.state === "complete" ? "active" : this.session.state;
+      this.session.state === "disabled"
+        ? "disabled"
+        : directFallback
+          ? "fallback"
+          : this.session.state === "complete"
+            ? "active"
+            : this.session.state;
     const publicState =
       state === "disabled" ||
       state === "probing" ||
@@ -152,7 +166,8 @@ export class SpedRuntime {
     return {
       state: publicState,
       carrier:
-        publicState === "probing" || publicState === "active"
+        !directFallback &&
+        (publicState === "probing" || publicState === "active")
           ? "sped"
           : "direct",
       retransmissions: this.session.retransmissions,
