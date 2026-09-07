@@ -521,7 +521,13 @@ export class RTCDtlsTransport implements DtlsTransportStats {
    * drift 検出を同じ処理にまとめ、旧 attempt の継続を無効化する。
    */
   private syncAttemptToIceGeneration(): void {
-    if (!this.currentAttempt) return;
+    // start() 前にも authenticated media は mediaBuffer に到着し得る。
+    // attempt 未発行のまま ICE restart された場合も、旧世代の queue と
+    // retention timer を新世代へ持ち越さない。
+    if (!this.currentAttempt) {
+      this.resetMediaBufferForNewAttempt();
+      return;
+    }
     if (isDtlsTransportSped(this)) return;
 
     const generation = (this.iceTransport.connection as Connection).generation;
@@ -538,7 +544,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     this.beginAttempt(generation);
     // 新 attempt 用に gate を開き直す (旧 drain 残余は呼び出し側が破棄する)。
     this.applicationGate.restartForNewAttempt();
-    this.mediaBuffer.reset();
+    this.resetMediaBufferForNewAttempt();
     this.dtls?.clearEarlyDataBuffer();
     this.readiness.writeReady = false;
     this.srtpWriteReady = false;
@@ -1093,6 +1099,22 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     this.applicationGate.abort();
     this.mediaBuffer.clear(true);
     this.mediaBuffer.dispose();
+  }
+
+  /**
+   * ICE generation をまたぐ media queue の所有権を切り替える。
+   * clear() だけでは旧 buffer を再利用でき、dispose() だけでは drop
+   * 計上を失うため、旧 queue を明示的に破棄してから新しい buffer を作る。
+   */
+  private resetMediaBufferForNewAttempt(): void {
+    this.mediaBuffer.clear(true);
+    this.mediaBuffer.dispose();
+    const buffering = this.config.warp?.earlyMediaPolicy === "buffer";
+    this.mediaBuffer = new EarlyDataBuffer(
+      buffering ? 256 : 0,
+      buffering ? 256 * 1024 : 0,
+      2_000,
+    );
   }
 
   private verifyRemoteCertificateFingerprint() {

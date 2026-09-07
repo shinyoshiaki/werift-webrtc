@@ -485,6 +485,77 @@ describe("RTCDtlsTransportTest", () => {
     }
   });
 
+  test("start 前の media buffer は ICE restart で queue と timer を破棄する", async () => {
+    // Arrange: DTLS start 前に認証済み pair から media を buffer できる transport を用意する。
+    const session = await createPreAuthSrtpSession("buffer");
+    const protectedLikeRtp = new RtpPacket(
+      new RtpHeader({ ssrc: 12, payloadType: 96 }),
+      Buffer.from("encrypted-like"),
+    ).serialize();
+    const internals = session as unknown as {
+      mediaBuffer: {
+        push(data: Buffer): boolean;
+        snapshot(): {
+          bufferedPackets: number;
+          bufferedBytes: number;
+          droppedPackets: number;
+        };
+      };
+      handleIceRestart(): void;
+    };
+    const ice = session.iceTransport.connection as unknown as {
+      generation: number;
+    };
+
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    try {
+      // Act: 旧世代の packet を実際の ICE datagram demux 経由で保留する。
+      injectAuthenticatedMedia(session, protectedLikeRtp);
+      const oldBuffer = internals.mediaBuffer;
+      const oldBeforeRestart = oldBuffer.snapshot();
+      const timersBeforeRestart = vi.getTimerCount();
+      expect(oldBeforeRestart.bufferedPackets).toBe(1);
+      expect(oldBeforeRestart.bufferedBytes).toBe(protectedLikeRtp.length);
+      expect(timersBeforeRestart).toBeGreaterThan(0);
+
+      // Act: attempt 未発行のまま ICE generation を進めて restart を通知する。
+      ice.generation++;
+      session.handleIceRestart();
+      const newBuffer = internals.mediaBuffer;
+
+      // Assert: 旧 queue と timer は破棄され、新 buffer は空である。
+      expect(newBuffer).not.toBe(oldBuffer);
+      expect(newBuffer.snapshot()).toMatchObject({
+        bufferedPackets: 0,
+        bufferedBytes: 0,
+      });
+      expect(oldBuffer.snapshot()).toMatchObject({
+        bufferedPackets: 0,
+        droppedPackets: 1,
+      });
+      expect(vi.getTimerCount()).toBe(timersBeforeRestart - 1);
+
+      // Act: 新世代の packet を新 buffer に保留し、旧 timer の期限を越える。
+      newBuffer.push(Buffer.from("fresh-generation"));
+      expect(newBuffer.snapshot().bufferedPackets).toBe(1);
+      vi.advanceTimersByTime(2_001);
+
+      // Assert: 新世代の retention は独立して期限切れになり、旧 buffer は再実行されない。
+      expect(newBuffer.snapshot()).toMatchObject({
+        bufferedPackets: 0,
+        droppedPackets: 1,
+      });
+      expect(oldBuffer.snapshot()).toMatchObject({
+        bufferedPackets: 0,
+        droppedPackets: 1,
+      });
+    } finally {
+      vi.useRealTimers();
+      await session.stop();
+    }
+  });
+
   test("media drain 中の close は残りを配送せず closed のままにする", async () => {
     // Arrange: SRTP 付きで接続済みの pair を作り、受信側の read を一時停止する。
     const profile = ProtectionProfileAes128CmHmacSha1_80;
