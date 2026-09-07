@@ -796,14 +796,19 @@ describe("IceSpedTransport pre-nomination send", () => {
     const transport = new IceSpedTransport(ice);
     transport.markApplicationWriteReady();
     const control = Buffer.from([22, 1, 2, 3]);
+    const directControl = Buffer.from([20, 9, 8, 7]);
     // DTLS 1.3 application records do not expose ContentType in byte 0.
     const application = Buffer.from([1, 4, 5, 6]);
 
     try {
-      // Act: DTLS control と early application の送信を同じ pending queue へ登録する。
+      // Act: 共通 flush と直接の sendAndWait を control として pending queue へ登録する。
       const controlSend = flushTransportSend(
         transport,
         control,
+        pair.remoteAddr,
+      );
+      const directControlSend = transport.sendAndWait(
+        directControl,
         pair.remoteAddr,
       );
       const applicationSend = transport.sendApplication(
@@ -818,7 +823,7 @@ describe("IceSpedTransport pre-nomination send", () => {
       expect(
         (transport as unknown as { pendingEarlySends: unknown[] })
           .pendingEarlySends,
-      ).toHaveLength(1);
+      ).toHaveLength(2);
 
       // Act: pair 認証を成立させ、残った control record を flush する。
       pair.requestsReceived = 1;
@@ -831,11 +836,12 @@ describe("IceSpedTransport pre-nomination send", () => {
         generation: ice.generation,
         authenticated: true,
       });
-      await controlSend;
+      await Promise.all([controlSend, directControlSend]);
 
-      // Assert: control だけが wire に出て、取り消した application は出ない。
-      expect(a.sent).toHaveLength(1);
+      // Assert: 2種類の control だけが wire に出て、取り消した application は出ない。
+      expect(a.sent).toHaveLength(2);
       expect(a.sent[0]!.data.equals(control)).toBe(true);
+      expect(a.sent[1]!.data.equals(directControl)).toBe(true);
 
       // Act: policy 無効後に認証済み pair へ直接 early application を送る。
       await expect(
@@ -843,7 +849,7 @@ describe("IceSpedTransport pre-nomination send", () => {
       ).rejects.toThrow(/permission revoked/);
 
       // Assert: 直接送信経路も取り消し済み policy を迂回しない。
-      expect(a.sent).toHaveLength(1);
+      expect(a.sent).toHaveLength(2);
     } finally {
       await transport.close();
     }
