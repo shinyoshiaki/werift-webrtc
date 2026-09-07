@@ -29,6 +29,7 @@ import {
   awaitMessage,
   createDataChannelPair,
   exchangeIceCandidates,
+  exchangeOfferAnswer,
   mutateSdpFingerprint,
   waitForDtlsState,
   waitForIceNominated,
@@ -833,17 +834,50 @@ describe("RTCPeerConnection SPED opt-in", () => {
     const client = new RTCPeerConnection(spedPeerConfig());
 
     try {
-      // Act: server が送る INIT を client の認証完了より前に受けても、
-      // passive SCTP の stream-id parity が初期化済みの状態で接続する。
-      const [serverChannel, clientChannel] = await createDataChannelPair(
-        {},
-        server,
-        client,
-      );
-      serverChannel.send("server-only-early");
+      // Arrange: 両側でまだ stream ID が割り当てられていない local channel
+      // を作り、server の early INIT と client の passive start を競合させる。
+      const serverChannel = server.createDataChannel("server-local");
+      const clientChannel = client.createDataChannel("client-local");
+      expect(serverChannel.id).toBeUndefined();
+      expect(clientChannel.id).toBeUndefined();
 
-      // Assert: 未処理 TypeError を起こさず DataChannel が実配送される。
-      expect(await awaitMessage(clientChannel)).toBe("server-only-early");
+      const serverRemotePromise = new Promise<RTCDataChannel>((resolve) => {
+        server.ondatachannel = ({ channel }) => resolve(channel);
+      });
+      const clientRemotePromise = new Promise<RTCDataChannel>((resolve) => {
+        client.ondatachannel = ({ channel }) => resolve(channel);
+      });
+      const waitForOpen = (channel: RTCDataChannel) => {
+        if (channel.readyState === "open") return Promise.resolve();
+        return new Promise<void>((resolve, reject) => {
+          channel.onopen = resolve;
+          channel.onerror = ({ error }) => reject(error);
+        });
+      };
+
+      // Act: server が送る INIT を client の認証完了より前に受けても、
+      // passive SCTP の stream-id parity を初期化済みの状態で接続する。
+      exchangeIceCandidates(server, client);
+      await exchangeOfferAnswer(server, client);
+      const [serverRemote, clientRemote] = await Promise.all([
+        serverRemotePromise,
+        clientRemotePromise,
+      ]);
+      await Promise.all([
+        waitForOpen(serverChannel),
+        waitForOpen(clientChannel),
+        waitForOpen(serverRemote),
+        waitForOpen(clientRemote),
+      ]);
+      const serverMessage = awaitMessage(clientRemote);
+      const clientMessage = awaitMessage(serverRemote);
+      serverChannel.send("server-only-early");
+      clientChannel.send("client-local");
+
+      // Assert: 未処理 TypeError を起こさず、双方の未割り当て channel が
+      // 実配送される。
+      expect(await serverMessage).toBe("server-only-early");
+      expect(await clientMessage).toBe("client-local");
       expect(serverChannel.readyState).toBe("open");
       expect(clientChannel.readyState).toBe("open");
     } finally {
