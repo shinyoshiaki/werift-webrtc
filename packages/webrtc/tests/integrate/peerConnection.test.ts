@@ -468,6 +468,106 @@ describe("peerConnection", () => {
     }
   }, 90_000);
 
+  test("setRemoteDescription は close 後に signalingState を再開しない", async () => {
+    const cases = [
+      ["transport replacement なし", false],
+      ["BUNDLE transport replacement あり", true],
+    ] as const;
+
+    for (const [label, withBundleReplacement] of cases) {
+      // Arrange: remote transceiver 通知から SRD の await 中に close する構成を作る。
+      const caller = new RTCPeerConnection({
+        iceServers: [],
+        ...(withBundleReplacement
+          ? { bundlePolicy: "max-compat" as const }
+          : {}),
+      });
+      const callee = new RTCPeerConnection({ iceServers: [] });
+      caller.addTransceiver("audio");
+      if (withBundleReplacement) {
+        caller.addTransceiver("video");
+      }
+      await caller.setLocalDescription(await caller.createOffer());
+
+      let closePromise: Promise<void> | undefined;
+      callee.onRemoteTransceiverAdded.subscribe(() => {
+        if (closePromise) return;
+        closePromise = new Promise<void>((resolve) => {
+          queueMicrotask(() => {
+            void callee.close().finally(resolve);
+          });
+        });
+      });
+
+      try {
+        // Act: SRD の transceiver 通知後、追加された stopTransport 待機へ入る。
+        await callee.setRemoteDescription(caller.localDescription!);
+        expect(closePromise, label).toBeDefined();
+        await closePromise;
+
+        // Assert: close 済みの PeerConnection は両方の公開状態を終端に保つ。
+        expect(callee.connectionState, label).toBe("closed");
+        expect(callee.signalingState, label).toBe("closed");
+      } finally {
+        await Promise.allSettled([caller.close(), callee.close()]);
+      }
+    }
+  });
+
+  test("BUNDLE tag の順序変更で同種 transceiver の割り当てを入れ替えない", async () => {
+    // Arrange: 未割り当ての video transceiver と、逆順の BUNDLE tag を持つ offer を用意する。
+    const caller = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "max-compat",
+    });
+    const callee = new RTCPeerConnection({ iceServers: [] });
+    const callerCamera = new MediaStreamTrack({ kind: "video" });
+    const callerScreen = new MediaStreamTrack({ kind: "video" });
+    const calleeCamera = new MediaStreamTrack({ kind: "video" });
+    const calleeScreen = new MediaStreamTrack({ kind: "video" });
+    caller.addTransceiver(callerCamera);
+    caller.addTransceiver(callerScreen);
+    const cameraSender = callee.addTrack(calleeCamera);
+    const screenSender = callee.addTrack(calleeScreen);
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      const originalSdp = caller.localDescription!.sdp;
+      const bundleMatch = originalSdp.match(/^a=group:BUNDLE ([^\r\n]+)$/m);
+      expect(bundleMatch).not.toBeNull();
+      const reversedBundle = bundleMatch![1]!
+        .trim()
+        .split(" ")
+        .reverse()
+        .join(" ");
+      const modifiedOffer = {
+        type: "offer" as const,
+        sdp: originalSdp.replace(
+          bundleMatch![0],
+          `a=group:BUNDLE ${reversedBundle}`,
+        ),
+      };
+      const offerMids = [
+        ...modifiedOffer.sdp.matchAll(/^a=mid:([^\r\n]+)$/gm),
+      ].map((match) => match[1]!);
+
+      // Act: m-line 順を維持したまま、逆順 tag の offer を適用する。
+      await callee.setRemoteDescription(modifiedOffer);
+      const transceivers = callee.getTransceivers();
+
+      // Assert: sender の track と remote m-line の MID 対応は SDP 順のままになる。
+      expect(transceivers).toHaveLength(2);
+      expect(transceivers[0]!.sender).toBe(cameraSender);
+      expect(transceivers[0]!.sender.track).toBe(calleeCamera);
+      expect(transceivers[0]!.mid).toBe(offerMids[0]);
+      expect(transceivers[1]!.sender).toBe(screenSender);
+      expect(transceivers[1]!.sender.track).toBe(calleeScreen);
+      expect(transceivers[1]!.mid).toBe(offerMids[1]);
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
   test("SCTP start failure 後の PeerConnection close は DataChannel を閉じる", async () => {
     // Arrange: negotiated channel を作成し、SCTP association を開始前の状態にする。
     const peer = new RTCPeerConnection({});

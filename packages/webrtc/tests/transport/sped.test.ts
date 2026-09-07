@@ -12,7 +12,7 @@ import {
 import { SpedSession } from "../../../ice/src/internal/sped";
 import { SpedRuntime } from "../../../ice/src/sped/runtime";
 import type { Protocol } from "../../../ice/src/types/model";
-import { Event } from "../../src/imports/common";
+import { Event, flushTransportSend } from "../../src/imports/common";
 import { IceSpedTransport } from "../../src/transport/sped";
 
 function createIceStub(generation = 1, checkList: CandidatePair[] = []) {
@@ -647,7 +647,7 @@ describe("IceSpedTransport pre-nomination send", () => {
     try {
       // Act: nomination 前の Connection.send が no-op になる期間に送信を要求する。
       let completed = false;
-      const pendingSend = transport.sendAndWait(app).then(() => {
+      const pendingSend = transport.sendMediaAndWait(app).then(() => {
         completed = true;
       });
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -680,7 +680,7 @@ describe("IceSpedTransport pre-nomination send", () => {
 
     try {
       // Act: failed 通知後と同じ状態で wire 到達待ちの media を送る。
-      const send = transport.sendAndWait(Buffer.from([23, 1, 2, 3]));
+      const send = transport.sendMediaAndWait(Buffer.from([23, 1, 2, 3]));
 
       // Assert: 待機を残さず、呼び出し元へ失敗を返す。
       await expect(send).rejects.toThrow(/ICE failed/);
@@ -707,16 +707,18 @@ describe("IceSpedTransport pre-nomination send", () => {
     try {
       // Act: wire 到達を待つ media を要求し、期限前の未完了を確認する。
       let settled = false;
-      const outcome = transport.sendAndWait(Buffer.from([23, 4, 5, 6])).then(
-        () => {
-          settled = true;
-          return "resolved" as const;
-        },
-        (error) => {
-          settled = true;
-          return error;
-        },
-      );
+      const outcome = transport
+        .sendMediaAndWait(Buffer.from([23, 4, 5, 6]))
+        .then(
+          () => {
+            settled = true;
+            return "resolved" as const;
+          },
+          (error) => {
+            settled = true;
+            return error;
+          },
+        );
       await vi.advanceTimersByTimeAsync(1_999);
       expect(settled).toBe(false);
 
@@ -799,7 +801,11 @@ describe("IceSpedTransport pre-nomination send", () => {
 
     try {
       // Act: DTLS control と early application の送信を同じ pending queue へ登録する。
-      const controlSend = transport.send(control, pair.remoteAddr);
+      const controlSend = flushTransportSend(
+        transport,
+        control,
+        pair.remoteAddr,
+      );
       const applicationSend = transport.sendApplication(
         application,
         pair.remoteAddr,

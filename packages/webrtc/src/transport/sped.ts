@@ -242,14 +242,13 @@ export class IceSpedTransport implements Transport {
     await pair.protocol.sendData(data, pair.remoteAddr);
   }
 
-  /**
-   * Wait for an application/media record to reach the wire. Generic DTLS
-   * sends must remain non-blocking while ICE is still nominating because the
-   * nomination check can be completed by the same inbound DTLS/STUN turn.
-   */
+  /** Flush a DTLS control record, including close_notify. */
   readonly sendAndWait = async (data: Buffer, addr?: Address) => {
-    // sendAndWait is used by SRTP/SRTCP and therefore always represents
-    // application/media traffic, even though its bytes are not a DTLS record.
+    await this.sendInternal(data, addr, false, true);
+  };
+
+  /** Wait for an SRTP/SRTCP datagram to reach the wire. */
+  readonly sendMediaAndWait = async (data: Buffer, addr?: Address) => {
     await this.sendInternal(data, addr, true, true);
   };
 
@@ -583,6 +582,6 @@ export class IceSpedTransport implements Transport {
 
 function isDtlsApplicationData(data: Buffer): boolean {
   // DTLS record ContentType.application_data.  Raw SRTP/SRTCP is classified
-  // explicitly by sendAndWait(), so handshake/control records are preserved.
+  // explicitly by sendMediaAndWait(), so handshake/control records are preserved.
   return data[0] === 23;
 }

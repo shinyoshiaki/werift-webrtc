@@ -54,7 +54,6 @@ import type {
   RTCIceCandidate,
   RTCIceCandidateInit,
   RTCIceConnectionState,
-  RTCIceTransport,
 } from "./transport/ice";
 import {
   DEFAULT_MAX_MESSAGE_SIZE,
@@ -1137,6 +1136,10 @@ export class RTCPeerConnection extends EventTarget {
     const bundleGroup = this.sdpManager.remoteIsBundled;
     const bundleTag = bundleGroup?.items[0];
     const replacedBundleTransports = new Set<RTCDtlsTransport>();
+    const pendingBundleRebindings: Array<{
+      previousTransport: RTCDtlsTransport;
+      rebind: (transport: RTCDtlsTransport) => void;
+    }> = [];
 
     // # apply description
 
@@ -1147,24 +1150,15 @@ export class RTCPeerConnection extends EventTarget {
       transceiver.kind === media.kind &&
       [null, media.rtp.muxId].includes(transceiver.mid);
 
-    // Process the BUNDLE-tagged m-line first even when the SDP lists another
-    // bundled section earlier.  The tag owns the ICE/DTLS parameters for the
-    // shared transport; non-tag sections must not overwrite them.
     const remoteMediaEntries = remoteSdp.media.map((remoteMedia, i) => ({
       remoteMedia,
       index: i,
     }));
-    if (bundleTag) {
-      const bundleTagIndex = remoteMediaEntries.findIndex(
-        ({ remoteMedia }) => remoteMedia.rtp.muxId === bundleTag,
-      );
-      if (bundleTagIndex > 0) {
-        const [tagEntry] = remoteMediaEntries.splice(bundleTagIndex, 1);
-        remoteMediaEntries.unshift(tagEntry);
-      }
-    }
 
-    let transports = remoteMediaEntries.map(({ remoteMedia, index: i }) => {
+    // Keep the SDP m-line order for transceiver/SCTP matching.  The BUNDLE tag
+    // transport is selected during this pass, and sections encountered before
+    // the tag are rebound after all media have been assigned.
+    remoteMediaEntries.forEach(({ remoteMedia, index: i }) => {
       let dtlsTransport: RTCDtlsTransport;
       const isBundleMember =
         bundleGroup?.items.includes(remoteMedia.rtp.muxId ?? "") ?? false;
@@ -1201,6 +1195,14 @@ export class RTCPeerConnection extends EventTarget {
             if (previousTransport !== bundleTransport) {
               replacedBundleTransports.add(previousTransport);
             }
+          } else {
+            const previousTransport = transceiver.dtlsTransport;
+            const mappedTransceiver = transceiver;
+            pendingBundleRebindings.push({
+              previousTransport,
+              rebind: (transport) =>
+                mappedTransceiver.setDtlsTransport(transport),
+            });
           }
         }
 
@@ -1228,6 +1230,14 @@ export class RTCPeerConnection extends EventTarget {
             if (previousTransport !== bundleTransport) {
               replacedBundleTransports.add(previousTransport);
             }
+          } else {
+            const previousTransport = sctpTransport.dtlsTransport;
+            const mappedSctpTransport = sctpTransport;
+            pendingBundleRebindings.push({
+              previousTransport,
+              rebind: (transport) =>
+                mappedSctpTransport.setDtlsTransport(transport),
+            });
           }
         }
 
@@ -1283,11 +1293,16 @@ export class RTCPeerConnection extends EventTarget {
         dtlsTransport.role =
           remoteMedia.dtlsParams.role === "client" ? "server" : "client";
       }
-      return iceTransport;
-    }) as RTCIceTransport[];
+    });
 
-    // filter out inactive transports
-    transports = transports.filter((iceTransport) => !!iceTransport);
+    if (bundleTransport) {
+      for (const pending of pendingBundleRebindings) {
+        pending.rebind(bundleTransport);
+        if (pending.previousTransport !== bundleTransport) {
+          replacedBundleTransports.add(pending.previousTransport);
+        }
+      }
+    }
 
     // A max-compat offer creates one DTLS transport per m-line before the
     // remote BUNDLE group is applied.  Once a non-tag section is rebound to
@@ -1301,6 +1316,9 @@ export class RTCPeerConnection extends EventTarget {
         .filter((transport) => !activeDtlsTransports.has(transport))
         .map((transport) => this.secureManager.stopTransport(transport)),
     );
+    if (this.isClosed) {
+      return;
+    }
 
     const removedTransceivers = this.transceiverManager
       .getTransceivers()
@@ -1328,6 +1346,9 @@ export class RTCPeerConnection extends EventTarget {
     }
 
     await this.flushPendingRemoteCandidates();
+    if (this.isClosed) {
+      return;
+    }
 
     // connect transports
     if (remoteSdp.type === "answer") {
@@ -1401,6 +1422,9 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private setSignalingState(state: RTCSignalingState) {
+    if (this.isClosed && state !== "closed") {
+      return;
+    }
     if (this.signalingState === state) {
       return;
     }

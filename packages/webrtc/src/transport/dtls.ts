@@ -1467,7 +1467,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     if (this.spedTransport) {
       // メディア統計は実 wire 送信後に更新するため、nomination/consent
       // 前はキューが実際に flush されるまで待機する。
-      await this.spedTransport.sendAndWait(data);
+      await this.spedTransport.sendMediaAndWait(data);
       return;
     }
     // Connection.send() intentionally keeps its compatibility no-op contract
