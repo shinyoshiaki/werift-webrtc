@@ -644,7 +644,7 @@ describe("IceSpedTransport pre-nomination send", () => {
     }
   });
 
-  it("ICE failed 後に application media の期限なし queue を作らない", async () => {
+  it("ICE failed 後に application media queue を作らない", async () => {
     // Arrange: application-ready だが、ICE はすでに terminal state にする。
     const ice = createIceStub(1);
     const transport = new IceSpedTransport(ice);
@@ -703,6 +703,65 @@ describe("IceSpedTransport pre-nomination send", () => {
         (transport as unknown as { pendingEarlySends: unknown[] })
           .pendingEarlySends,
       ).toHaveLength(0);
+    } finally {
+      await transport.close();
+      vi.useRealTimers();
+    }
+  });
+
+  it("application data の期限切れ後は経路復旧しても古いデータを送らない", async () => {
+    // Arrange: application-ready だが、ICE の送信経路だけを一時的に失わせる。
+    vi.useFakeTimers();
+    const ice = createIceStub(1);
+    const transport = new IceSpedTransport(ice);
+    transport.markApplicationReady();
+    const staleApplication = Buffer.from([23, 8, 7, 6]);
+
+    try {
+      // Act: 通常の application send を受理し、期限付き queue に入れる。
+      await transport.send(staleApplication);
+      await Promise.resolve();
+      const pending = (
+        transport as unknown as {
+          pendingEarlySends: { expiresAt?: number }[];
+        }
+      ).pendingEarlySends;
+      expect(pending).toHaveLength(1);
+      expect(pending[0]!.expiresAt).toEqual(expect.any(Number));
+
+      // Act: 経路が復旧しないまま retention を経過させる。
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      // Assert: 期限切れで queue/timer を破棄する。
+      expect(
+        (
+          transport as unknown as {
+            pendingEarlySends: unknown[];
+          }
+        ).pendingEarlySends,
+      ).toHaveLength(0);
+      expect(
+        (
+          transport as unknown as {
+            earlySendExpiryTimer?: unknown;
+            earlySendRetryTimer?: unknown;
+          }
+        ).earlySendExpiryTimer,
+      ).toBeUndefined();
+
+      // Act: その後に nomination/consent を成立させ、保留データを flush する。
+      const pair = authenticatedPair(
+        mockProtocol("1.2.3.4", 1000).protocol,
+        "10.0.0.1",
+        1111,
+      );
+      ice.nominated = pair;
+      ice.applicationDataReady = true;
+      ice.stateChanged.execute("connected");
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Assert: 復旧後も期限切れした古い application data は wire に出ない。
+      expect(ice.sent).toHaveLength(0);
     } finally {
       await transport.close();
       vi.useRealTimers();

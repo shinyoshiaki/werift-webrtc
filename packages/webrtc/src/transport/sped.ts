@@ -149,8 +149,8 @@ export class IceSpedTransport implements Transport {
         // DTLS/SCTP の送信元は ICE nomination と同じ受信処理から再開する
         // ことがあるため、ここで await すると nomination 自体を止めてしまう。
         // wire 送信は path が利用可能になった後に flush し、呼び出し元には
-        // 受理済みとして直ちに返す。
-        void this.enqueueEarlySend(data, addr, null).catch((error) => {
+        // 受理済みとして直ちに返す。ただし経路喪失時に無期限保持しない。
+        void this.enqueueEarlySend(data, addr).catch((error) => {
           log("failed to queue application data", error);
         });
         return;
@@ -218,7 +218,7 @@ export class IceSpedTransport implements Transport {
   private async enqueueEarlySend(
     data: Buffer,
     addr?: Address,
-    retentionMs: number | null = EARLY_SEND_RETENTION_MS,
+    retentionMs = EARLY_SEND_RETENTION_MS,
   ) {
     if (this.closed) {
       throw new Error("SPED transport is closed");
@@ -240,7 +240,7 @@ export class IceSpedTransport implements Transport {
         data: Buffer.from(data),
         addr,
         generation: this.ice.generation,
-        expiresAt: retentionMs === null ? undefined : Date.now() + retentionMs,
+        expiresAt: Date.now() + retentionMs,
         resolve,
         reject: (error) => reject(error),
       });
