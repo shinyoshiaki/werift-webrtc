@@ -844,6 +844,8 @@ describe("RTCPeerConnection SPED opt-in", () => {
 
       // Assert: 未処理 TypeError を起こさず DataChannel が実配送される。
       expect(await awaitMessage(clientChannel)).toBe("server-only-early");
+      expect(serverChannel.readyState).toBe("open");
+      expect(clientChannel.readyState).toBe("open");
     } finally {
       await server.close();
       await client.close();
