@@ -25,6 +25,9 @@ type PendingEarlySend = {
   addr?: Address;
   generation: number;
   expiresAt?: number;
+  // `early` means the record was accepted before DTLS peer authentication;
+  // application records queued after authentication still wait for ICE path
+  // readiness but are not subject to the early-server policy revoke.
   early: boolean;
   application: boolean;
   resolve: () => void;
