@@ -1416,6 +1416,12 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       await this.spedTransport.sendAndWait(data);
       return;
     }
+    // Connection.send() intentionally keeps its compatibility no-op contract
+    // when ICE consent is unavailable. Media must not turn that no-op into a
+    // successful SRTP send or a misleading transport statistic.
+    if (!this.iceTransport.connection.canSendApplicationData()) {
+      throw new Error("ICE application path is not ready");
+    }
     await this.iceTransport.connection.send(data);
   }
 

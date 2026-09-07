@@ -1229,21 +1229,24 @@ export class Connection implements IceConnection {
     if (this.iceLite) {
       return true;
     }
-    // A valid USE-CANDIDATE Binding is the initial consent for a controlled
-    // peer even before its local check transitions out of IN_PROGRESS.
-    return this.consentFresh || activePair.remoteNominated;
+    // Full ICE requires consent from a successful Binding response. A remote
+    // USE-CANDIDATE only records nomination; it does not prove that this peer
+    // can receive application data on the pair.
+    return this.consentFresh;
   }
 
   private applicationDataPair(): CandidatePair | undefined {
-    if (this.nominated) {
+    if (
+      this.nominated &&
+      this.nominated.state === CandidatePairState.SUCCEEDED
+    ) {
       return this.nominated;
     }
     return this.checkList.find(
       (pair) =>
+        pair.state === CandidatePairState.SUCCEEDED &&
         isAuthenticatedHandshakePair(pair) &&
-        (pair.nominated ||
-          pair.remoteNominated ||
-          (this.iceLite && pair.state === CandidatePairState.SUCCEEDED)),
+        (pair.nominated || (this.iceLite && pair.remoteNominated)),
     );
   }
 

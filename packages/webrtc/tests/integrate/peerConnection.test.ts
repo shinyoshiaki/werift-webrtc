@@ -2,6 +2,7 @@ import { setTimeout } from "timers/promises";
 import { vi } from "vitest";
 
 import { HashAlgorithm } from "../../../dtls/src/cipher/const";
+import { CandidatePairState, type Connection } from "../../../ice/src";
 import { SCTP_STATE } from "../../../sctp/src";
 import {
   MediaStream,
@@ -9,9 +10,12 @@ import {
   type RTCDataChannel,
   RTCPeerConnection,
   RTCTrackEvent,
+  RtcpRrPacket,
+  RtpHeader,
   createSelfSignedCertificate,
 } from "../../src";
 import { SignatureAlgorithm } from "../../src/const";
+import { createDataChannelPair } from "../utils";
 
 describe("peerConnection", () => {
   test("test_connect_datachannel_modern_sdp", async () =>
@@ -801,6 +805,103 @@ a=ssrc:1001 cname:some
       await pc2.close();
     }
   });
+
+  test("ICE restart 中は remote nomination だけの pair から RTP/RTCP を送らない", async () => {
+    // Arrange: 非 SPED・DTLS 1.2 の実 PeerConnection と DTLS/SRTP を接続する。
+    const caller = new RTCPeerConnection({});
+    const callee = new RTCPeerConnection({});
+    let receivedRtp = 0;
+    let receivedRtcp = 0;
+
+    try {
+      await createDataChannelPair(undefined, caller, callee);
+      const sender = callee.dtlsTransports[0]!;
+      const receiver = caller.dtlsTransports[0]!;
+      receiver.onRtp.subscribe(() => receivedRtp++);
+      receiver.onRtcp.subscribe(() => receivedRtcp++);
+
+      const controlledIce = callee.dtlsTransports[0]!.iceTransport
+        .connection as Connection;
+      const generationBeforeRestart = controlledIce.generation;
+
+      // Act: ICE restart を実行し、新 generation の候補交換を開始する。
+      await caller.setLocalDescription(
+        await caller.createOffer({ iceRestart: true }),
+      );
+      await callee.setRemoteDescription(caller.localDescription!);
+      await callee.setLocalDescription(await callee.createAnswer());
+      await caller.setRemoteDescription(callee.localDescription!);
+
+      const deadline = Date.now() + 5_000;
+      while (
+        (controlledIce.generation <= generationBeforeRestart ||
+          controlledIce.checkList.length === 0) &&
+        Date.now() < deadline
+      ) {
+        await setTimeout(10);
+      }
+      expect(controlledIce.generation).toBeGreaterThan(generationBeforeRestart);
+      const pair = controlledIce.checkList[0];
+      expect(pair).toBeDefined();
+
+      // Act: USE-CANDIDATE は届いたが、成功応答はまだ無い状態を再現する。
+      pair!.handle?.resolve?.();
+      controlledIce.checkList = [pair!];
+      pair!.remoteNominated = true;
+      pair!.nominated = false;
+      pair!.responsesReceived = 0;
+      pair!.updateState(CandidatePairState.IN_PROGRESS);
+      controlledIce.nominated = undefined;
+      controlledIce.state = "connected";
+      (controlledIce as any).consentFresh = false;
+      const packetsSentBefore = sender.packetsSent;
+      const bytesSentBefore = sender.bytesSent;
+
+      const blockedRtp = await sender.sendRtp(
+        Buffer.from("before-consent"),
+        new RtpHeader({ ssrc: 0x7101, payloadType: 96 }),
+      );
+      const blockedRtcp = await sender.sendRtcp([
+        new RtcpRrPacket({ ssrc: 0x7101, reports: [] }),
+      ]);
+      await setTimeout(50);
+
+      // Assert: nomination通知だけでは wire、RTP/RTCP callback、統計を進めない。
+      expect(blockedRtp).toBe(0);
+      expect(blockedRtcp).toBe(0);
+      expect(receivedRtp).toBe(0);
+      expect(receivedRtcp).toBe(0);
+      expect(sender.packetsSent).toBe(packetsSentBefore);
+      expect(sender.bytesSent).toBe(bytesSentBefore);
+
+      // Act: 対応する成功応答と consent を成立させてから再送する。
+      pair!.updateState(CandidatePairState.SUCCEEDED);
+      pair!.nominated = true;
+      controlledIce.nominated = pair;
+      (controlledIce as any).consentFresh = true;
+      const allowedRtp = await sender.sendRtp(
+        Buffer.from("after-consent"),
+        new RtpHeader({ ssrc: 0x7102, payloadType: 96 }),
+      );
+      await sender.sendRtcp([new RtcpRrPacket({ ssrc: 0x7102, reports: [] })]);
+
+      // Assert: successful check response 後だけ実際の peer へ配送される。
+      expect(allowedRtp).toBeGreaterThan(0);
+      expect(sender.packetsSent).toBe(packetsSentBefore + 2);
+      expect(sender.bytesSent).toBeGreaterThan(bytesSentBefore);
+      const deliveryDeadline = Date.now() + 5_000;
+      while (
+        (receivedRtp === 0 || receivedRtcp === 0) &&
+        Date.now() < deliveryDeadline
+      ) {
+        await setTimeout(10);
+      }
+      expect(receivedRtp).toBe(1);
+      expect(receivedRtcp).toBe(1);
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  }, 20_000);
 });
 
 describe("initial config", () => {

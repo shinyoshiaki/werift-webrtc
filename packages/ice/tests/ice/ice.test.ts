@@ -1133,6 +1133,64 @@ describe("ice", () => {
     await full.close();
     await lite.close();
   });
+
+  test("USE-CANDIDATE 到着後も Binding Response 前は application data を送らない", async () => {
+    // Arrange: controlled 側の triggered check を応答待ちにしておく。
+    const connection = createTestConnection(false);
+    connection.remoteUsername = "remote";
+    connection.remotePassword = "remote-password";
+    const protocol = new ProtocolMock();
+    const remoteCandidate = new Candidate(
+      "remote-foundation",
+      1,
+      "udp",
+      1,
+      "2.3.4.5",
+      2345,
+      "host",
+    );
+    const remoteAddr: Address = ["2.3.4.5", 2345];
+    connection.remoteCandidates = [remoteCandidate];
+    const pair = new CandidatePair(protocol, remoteCandidate, false);
+    pair.updateState(CandidatePairState.WAITING);
+    connection.checkList.push(pair);
+    connection.state = "connected";
+    let release!: (value: [Message, Address]) => void;
+    protocol.request = async () =>
+      new Promise((resolve) => {
+        release = resolve;
+      });
+    const sendData = vi.spyOn(protocol, "sendData");
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request
+      .setAttribute("USERNAME", `${connection.localUsername}:remote`)
+      .setAttribute("USE-CANDIDATE", null)
+      .setAttribute("PRIORITY", 1);
+
+    // Act: nomination request を受けるが、対応する成功応答は保留する。
+    connection.checkIncoming(request, remoteAddr, protocol);
+    await Promise.resolve();
+    await connection.send(Buffer.from("before-response"));
+
+    // Assert: pair は IN_PROGRESS のままで、application data は wire に出ない。
+    expect(pair.remoteNominated).toBe(true);
+    expect(pair.state).toBe(CandidatePairState.IN_PROGRESS);
+    expect(pair.responsesReceived).toBe(0);
+    expect(connection.canSendApplicationData()).toBe(false);
+    expect(sendData).not.toHaveBeenCalled();
+
+    // Act: 成功応答を解放して pair を確立する。
+    release([
+      new Message(methods.BINDING, classes.RESPONSE, request.transactionId),
+      remoteAddr,
+    ]);
+    await pair.handle?.awaitable;
+
+    // Assert: successful response 後は nomination/consent が成立する。
+    expect(pair.state).toBe(CandidatePairState.SUCCEEDED);
+    expect(pair.nominated).toBe(true);
+    await connection.close();
+  });
 });
 
 describe("sortCandidatePairs", () => {

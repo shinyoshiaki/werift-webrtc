@@ -1,6 +1,9 @@
 import { vi } from "vitest";
-import { Connection } from "../../../ice/src";
-import { CandidatePair } from "../../../ice/src";
+import {
+  CandidatePair,
+  CandidatePairState,
+  Connection,
+} from "../../../ice/src";
 import { Candidate } from "../../../ice/src/candidate";
 import {
   type IceDatagramContext,
@@ -95,6 +98,7 @@ function authenticatedPair(
     true,
   );
   pair.requestsReceived = 1;
+  pair.updateState(CandidatePairState.SUCCEEDED);
   return pair;
 }
 
