@@ -144,6 +144,7 @@ export class IceSpedTransport implements Transport {
   }
 
   readonly send = async (data: Buffer, addr?: Address) => {
+    this.assertIceSendable();
     if (this.applicationReady) {
       if (!this.ice.canSendApplicationData()) {
         // DTLS/SCTP の送信元は ICE nomination と同じ受信処理から再開する
@@ -194,6 +195,7 @@ export class IceSpedTransport implements Transport {
    * nomination check can be completed by the same inbound DTLS/STUN turn.
    */
   readonly sendAndWait = async (data: Buffer, addr?: Address) => {
+    this.assertIceSendable();
     if (this.applicationReady) {
       if (!this.ice.canSendApplicationData()) {
         // Media callers wait for an actual wire send. Unlike generic DTLS
@@ -249,6 +251,12 @@ export class IceSpedTransport implements Transport {
     this.scheduleEarlySendExpiry();
     this.scheduleEarlySendRetry();
     return pending;
+  }
+
+  private assertIceSendable() {
+    if (this.ice.state === "failed" || this.ice.state === "closed") {
+      throw new Error(`ICE ${this.ice.state} cannot send SPED data`);
+    }
   }
 
   private scheduleEarlySendExpiry() {

@@ -926,6 +926,59 @@ describe("RTCPeerConnection SPED opt-in", () => {
     }
   }, 60_000);
 
+  test("ICE abort 後は early SRTP の RTP/RTCP を wire へ送らない", async () => {
+    // Arrange: 実 PeerConnection で server write-ready まで進める。
+    const config = spedPeerConfig({
+      warp: { allowEarlyServerData: true, earlyMediaPolicy: "buffer" },
+    });
+    const pc1 = new RTCPeerConnection(config);
+    const pc2 = new RTCPeerConnection(config);
+    let receivedRtp = 0;
+    let receivedRtcp = 0;
+    try {
+      pc1.createDataChannel("consent-abort");
+      exchangeIceCandidates(pc1, pc2);
+      await pc1.setLocalDescription(await pc1.createOffer());
+      await pc2.setRemoteDescription(pc1.localDescription!);
+      pc2.dtlsTransports[0]!.onRtp.subscribe(() => receivedRtp++);
+      pc2.dtlsTransports[0]!.onRtcp.subscribe(() => receivedRtcp++);
+      await pc2.setLocalDescription(await pc2.createAnswer());
+      const applyAnswer = pc1.setRemoteDescription(pc2.localDescription!);
+      await waitUntil(() => pc1.dtlsTransports[0]?.role === "server");
+      const server = pc1.dtlsTransports[0]!;
+      const serverIce = iceOf(pc1);
+      await server.waitForWriteReady();
+      expect(
+        (server as unknown as { srtpWriteReady: boolean }).srtpWriteReady,
+      ).toBe(true);
+
+      // Act: consent 失効相当の ICE failed 通知で SPED を abort する。
+      (
+        serverIce as unknown as { setState: (state: "failed") => void }
+      ).setState("failed");
+
+      // Assert: abort は early SRTP permission も取り消す。
+      expect(
+        (server as unknown as { srtpWriteReady: boolean }).srtpWriteReady,
+      ).toBe(false);
+      expect(
+        await server.sendRtp(
+          Buffer.from("after-consent-expiry"),
+          new RtpHeader({ ssrc: 0x404, payloadType: 96 }),
+        ),
+      ).toBe(0);
+      expect(
+        await server.sendRtcp([new RtcpRrPacket({ ssrc: 0x404, reports: [] })]),
+      ).toBe(0);
+      await applyAnswer.catch(() => undefined);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(receivedRtp).toBe(0);
+      expect(receivedRtcp).toBe(0);
+    } finally {
+      await Promise.allSettled([pc1.close(), pc2.close()]);
+    }
+  }, 40_000);
+
   test("SPED application-ready media waits for a real selected ICE path", async () => {
     // Arrange: 実 PeerConnection で DTLS/SRTP まで接続し、送信側を server にする。
     const config = spedPeerConfig({

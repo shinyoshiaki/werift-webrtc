@@ -909,6 +909,11 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       },
       onSessionAbort: () => {
         this.earlyModeDisabled = true;
+        // ICE/SPED abort invalidates early SRTP permission immediately.  The
+        // DTLS association may still be connecting, so peer authentication is
+        // not sufficient to reconstruct this permission until a new attempt.
+        this.srtpWriteReady = false;
+        this.srtpReadReady = false;
         this.applicationGate.clearPending();
         this.mediaBuffer.clear(true);
         dtlsSocket?.clearEarlyDataBuffer();

@@ -530,6 +530,28 @@ describe("IceSpedTransport pre-nomination send", () => {
     expect(a.sent[0]!.addr).toEqual(pair.remoteAddr);
   });
 
+  it("ICE failed 後は writeReady の direct pair 送信を拒否する", async () => {
+    // Arrange: writeReady と認証済み pair があっても ICE を terminal にする。
+    const a = mockProtocol("1.2.3.4", 1000);
+    const pair = authenticatedPair(a.protocol, "10.0.0.1", 1111);
+    const ice = createIceStub(1, [pair]);
+    const transport = new IceSpedTransport(ice);
+    transport.markApplicationWriteReady();
+    ice.state = "failed";
+    ice.stateChanged.execute("failed");
+
+    try {
+      // Act: 失効した consent 経路へ direct early application data を送る。
+      const send = transport.send(Buffer.from([23, 9, 8, 7]), pair.remoteAddr);
+
+      // Assert: failed 経路は pair が残っていても wire へ到達させない。
+      await expect(send).rejects.toThrow(/ICE failed/);
+      expect(a.sent).toHaveLength(0);
+    } finally {
+      await transport.close();
+    }
+  });
+
   it("pair A で association したあとの retransmit は candidate B に漏れない", async () => {
     // Arrange: 認証済み pair A/B。DTLS は A で開始
     const a = mockProtocol("1.2.3.4", 1000);
