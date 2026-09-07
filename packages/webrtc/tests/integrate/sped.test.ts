@@ -1354,12 +1354,25 @@ describe("RTCPeerConnection SPED opt-in", () => {
         earlyMediaPolicy: "buffer",
       });
 
-      // Act: 公開設定を early send 無効 / media drop へ切り替える。
+      // Act: policy だけを変更し、allowEarlyServerData は保持する。
       pc.setConfiguration({
-        warp: { allowEarlyServerData: false, earlyMediaPolicy: "drop" },
+        warp: { earlyMediaPolicy: "drop" },
       });
 
-      // Assert: 公開設定と既存 transport の許可・queue policy が一致する。
+      // Assert: 部分更新でも未指定の early permission は保持される。
+      expect(pc.getConfiguration().warp).toEqual({
+        allowEarlyServerData: true,
+        earlyMediaPolicy: "drop",
+      });
+      expect(transport.config.warp).toEqual({
+        allowEarlyServerData: true,
+        earlyMediaPolicy: "drop",
+      });
+
+      // Act: allowEarlyServerData だけを変更し、media policy は保持する。
+      pc.setConfiguration({ warp: { allowEarlyServerData: false } });
+
+      // Assert: 公開設定と既存 transport の両方が部分更新後に一致する。
       expect(pc.getConfiguration().warp).toEqual({
         allowEarlyServerData: false,
         earlyMediaPolicy: "drop",

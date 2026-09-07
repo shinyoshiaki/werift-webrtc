@@ -433,6 +433,12 @@ export class RTCPeerConnection extends EventTarget {
       deepMerge(nextDtls, normalizedConfig.dtls);
       normalizedConfig.dtls = nextDtls;
     }
+    if (normalizedConfig.warp !== undefined) {
+      normalizedConfig.warp = {
+        ...this.config.warp,
+        ...normalizedConfig.warp,
+      };
+    }
 
     if (this.dtlsTransportCreated) {
       if (
@@ -1130,6 +1136,7 @@ export class RTCPeerConnection extends EventTarget {
     let bundleTransport: RTCDtlsTransport | undefined;
     const bundleGroup = this.sdpManager.remoteIsBundled;
     const bundleTag = bundleGroup?.items[0];
+    const replacedBundleTransports = new Set<RTCDtlsTransport>();
 
     // # apply description
 
@@ -1189,7 +1196,11 @@ export class RTCPeerConnection extends EventTarget {
           if (isBundleTag) {
             bundleTransport = transceiver.dtlsTransport;
           } else if (bundleTransport) {
+            const previousTransport = transceiver.dtlsTransport;
             transceiver.setDtlsTransport(bundleTransport);
+            if (previousTransport !== bundleTransport) {
+              replacedBundleTransports.add(previousTransport);
+            }
           }
         }
 
@@ -1212,7 +1223,11 @@ export class RTCPeerConnection extends EventTarget {
           if (isBundleTag) {
             bundleTransport = sctpTransport.dtlsTransport;
           } else if (bundleTransport) {
+            const previousTransport = sctpTransport.dtlsTransport;
             sctpTransport.setDtlsTransport(bundleTransport);
+            if (previousTransport !== bundleTransport) {
+              replacedBundleTransports.add(previousTransport);
+            }
           }
         }
 
@@ -1265,6 +1280,19 @@ export class RTCPeerConnection extends EventTarget {
 
     // filter out inactive transports
     transports = transports.filter((iceTransport) => !!iceTransport);
+
+    // A max-compat offer creates one DTLS transport per m-line before the
+    // remote BUNDLE group is applied.  Once a non-tag section is rebound to
+    // the tag transport, the old transport is no longer visible through the
+    // transceiver manager, so stop it explicitly to release its ICE listener,
+    // timers, and early-data buffers.  Keep any transport still referenced by
+    // another active section.
+    const activeDtlsTransports = new Set(this.dtlsTransports);
+    await Promise.allSettled(
+      [...replacedBundleTransports]
+        .filter((transport) => !activeDtlsTransports.has(transport))
+        .map((transport) => this.secureManager.stopTransport(transport)),
+    );
 
     const removedTransceivers = this.transceiverManager
       .getTransceivers()
@@ -1707,10 +1735,14 @@ function normalizePeerConfiguration(
         'warp.earlyMediaPolicy must be "drop" or "buffer"',
       );
     }
-    normalizedConfig.warp = {
-      allowEarlyServerData: input.warp?.allowEarlyServerData === true,
-      earlyMediaPolicy: input.warp?.earlyMediaPolicy ?? "drop",
-    };
+    normalizedConfig.warp = {};
+    if (input.warp?.allowEarlyServerData !== undefined) {
+      normalizedConfig.warp.allowEarlyServerData =
+        input.warp.allowEarlyServerData === true;
+    }
+    if (input.warp?.earlyMediaPolicy !== undefined) {
+      normalizedConfig.warp.earlyMediaPolicy = input.warp.earlyMediaPolicy;
+    }
   }
 
   return normalizedConfig;

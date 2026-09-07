@@ -40,7 +40,7 @@ export class SecureTransportManager {
   private config: PeerConfig;
   private transceiverManager: TransceiverManager;
   private sctpManager: SctpTransportManager;
-  private dtlsStateDisposers: (() => void)[] = [];
+  private dtlsStateDisposers = new Map<RTCDtlsTransport, () => void>();
 
   constructor({
     config,
@@ -201,7 +201,7 @@ export class SecureTransportManager {
         this.setConnectionState("failed");
       }
     });
-    this.dtlsStateDisposers.push(stateSubscription.unSubscribe);
+    this.dtlsStateDisposers.set(dtlsTransport, stateSubscription.unSubscribe);
 
     return dtlsTransport;
   }
@@ -591,11 +591,23 @@ export class SecureTransportManager {
     }
   }
 
+  /** Stop a transport that was replaced while applying a BUNDLE description. */
+  async stopTransport(dtlsTransport: RTCDtlsTransport) {
+    const dispose = this.dtlsStateDisposers.get(dtlsTransport);
+    if (dispose) {
+      dispose();
+      this.dtlsStateDisposers.delete(dtlsTransport);
+    }
+    await dtlsTransport.stop();
+  }
+
   async close() {
     this.setConnectionState("closed");
 
-    this.dtlsStateDisposers.forEach((dispose) => dispose());
-    this.dtlsStateDisposers = [];
+    for (const dispose of this.dtlsStateDisposers.values()) {
+      dispose();
+    }
+    this.dtlsStateDisposers.clear();
 
     await Promise.allSettled([...this.dtlsTransports.map((t) => t.stop())]);
 

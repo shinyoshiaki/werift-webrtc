@@ -427,6 +427,11 @@ describe("peerConnection", () => {
         expect(callee.connectionState, label).toBe("connected");
         expect(callee.dtlsTransports[0]!.state, label).toBe("connected");
         expect(receivedAudio, label).toBe("bundled-audio");
+        expect(caller.dtlsTransports, label).not.toContain(
+          originalTransports[1],
+        );
+        expect(originalTransports[1]!.state, label).toBe("closed");
+        expect(originalTransports[1]!.iceTransport.state, label).toBe("closed");
       } finally {
         await Promise.allSettled([caller.close(), callee.close()]);
         await Promise.allSettled(
