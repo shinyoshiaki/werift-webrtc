@@ -832,6 +832,15 @@ describe("RTCPeerConnection SPED opt-in", () => {
       }),
     );
     const client = new RTCPeerConnection(spedPeerConfig());
+    const unexpectedProcessErrors: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown) => {
+      unexpectedProcessErrors.push(reason);
+    };
+    const onUncaughtException = (error: Error) => {
+      unexpectedProcessErrors.push(error);
+    };
+    process.on("unhandledRejection", onUnhandledRejection);
+    process.on("uncaughtException", onUncaughtException);
 
     try {
       // Arrange: 両側でまだ stream ID が割り当てられていない local channel
@@ -880,7 +889,13 @@ describe("RTCPeerConnection SPED opt-in", () => {
       expect(await clientMessage).toBe("client-local");
       expect(serverChannel.readyState).toBe("open");
       expect(clientChannel.readyState).toBe("open");
+      // 旧実装の未処理 stream-id TypeError を process event で明示的に
+      // 失敗扱いにする。Vitest の終了コードだけには依存しない。
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(unexpectedProcessErrors).toEqual([]);
     } finally {
+      process.off("unhandledRejection", onUnhandledRejection);
+      process.off("uncaughtException", onUncaughtException);
       await server.close();
       await client.close();
     }
