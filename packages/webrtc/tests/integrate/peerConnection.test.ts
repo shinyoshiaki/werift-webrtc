@@ -216,6 +216,58 @@ describe("peerConnection", () => {
     }
   }, 30_000);
 
+  test("media-only の古い connect は fingerprint failure 後に connected を上書きしない", async () => {
+    // Arrange: media-only の実接続を用意し、初回 connect の完了直前を保持する。
+    const caller = new RTCPeerConnection({});
+    const callee = new RTCPeerConnection({});
+    caller.addTransceiver("audio");
+    await caller.setLocalDescription(await caller.createOffer());
+    await callee.setRemoteDescription(caller.localDescription!);
+    await callee.setLocalDescription(await callee.createAnswer());
+
+    const dtls = caller.dtlsTransports[0]!;
+    const originalStart = dtls.start;
+    let startEntered!: () => void;
+    const startEnteredPromise = new Promise<void>((resolve) => {
+      startEntered = resolve;
+    });
+    let releaseStart!: () => void;
+    const startGate = new Promise<void>((resolve) => {
+      releaseStart = resolve;
+    });
+    dtls.start = async () => {
+      await originalStart.call(dtls);
+      startEntered();
+      await startGate;
+    };
+
+    try {
+      // Act: DTLS は connected まで進めるが、古い connect() の最終判定を止める。
+      await caller.setRemoteDescription(callee.localDescription!);
+      await startEnteredPromise;
+      expect(dtls.state).toBe("connected");
+
+      // Act: 保留中の connect() より先に、不一致 fingerprint の offer を適用する。
+      const renegotiationOffer = await callee.createOffer();
+      await callee.setLocalDescription(renegotiationOffer);
+      await caller.setRemoteDescription({
+        type: "offer",
+        sdp: tamperFingerprints(callee.localDescription!.sdp),
+      });
+      expect(dtls.state).toBe("failed");
+
+      // Act: 古い connect() を再開する。
+      releaseStart();
+      await setTimeout(0);
+
+      // Assert: 古い Promise の成功結果で failed を connected に戻さない。
+      expect(caller.connectionState).toBe("failed");
+    } finally {
+      dtls.start = originalStart;
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  }, 30_000);
+
   test("SCTP start failure 後の PeerConnection close は DataChannel を閉じる", async () => {
     // Arrange: negotiated channel を作成し、SCTP association を開始前の状態にする。
     const peer = new RTCPeerConnection({});

@@ -1065,7 +1065,23 @@ export class RTCPeerConnection extends EventTarget {
       return;
     }
 
-    if (res.find((r) => r.status === "rejected")) {
+    const transportStates = this.dtlsTransports.map(
+      (dtlsTransport) => dtlsTransport.state,
+    );
+    const transportFailed = transportStates.some((state) => state === "failed");
+    const transportNotConnected = transportStates.some(
+      (state) => state !== "connected",
+    );
+
+    // A transport can fail asynchronously while an older connect() is still
+    // settling (for example, a re-negotiation can reject a new fingerprint).
+    // Promise fulfillment alone is not enough to publish PeerConnection
+    // success; the current transport state remains the authentication boundary.
+    if (
+      res.find((r) => r.status === "rejected") ||
+      transportFailed ||
+      transportNotConnected
+    ) {
       this.secureManager.setConnectionState("failed");
     } else {
       this.secureManager.setConnectionState("connected");
