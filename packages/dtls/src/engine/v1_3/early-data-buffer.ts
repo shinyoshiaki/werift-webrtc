@@ -50,6 +50,26 @@ export class EarlyDataBuffer {
     return result;
   }
 
+  /**
+   * Remove one oldest entry while retaining the rest of the queue.
+   *
+   * A generation check can run between two application callbacks.  Taking
+   * records one at a time lets the caller discard the remaining entries and
+   * account them as dropped when that check fails.
+   */
+  takeOne(now = Date.now()): Buffer | undefined {
+    this.expire(now);
+    const entry = this.entries.shift();
+    if (!entry) {
+      this.clearEntries();
+      return undefined;
+    }
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = undefined;
+    this.armTimer();
+    return entry.data;
+  }
+
   clear(countAsDropped = false): void {
     if (countAsDropped) {
       this.droppedPackets += this.entries.length;

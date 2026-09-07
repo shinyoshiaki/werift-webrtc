@@ -994,11 +994,20 @@ export class Dtls13ConnectionBase {
       this.carrier.cancelAllTimers();
     }
     this.carrier.events.onHandshakeComplete?.();
+    const drainGeneration = this.expectedRxGeneration?.();
+    const drainIsCurrent = () =>
+      drainGeneration === undefined ||
+      this.expectedRxGeneration?.() === drainGeneration;
     this.onConnect.execute();
-    // Flush app data that arrived early due to reorder
-    for (const buf of this.earlyAppDataBuffer.drain()) {
+    // Flush app data that arrived early due to reorder.  Take one record at a
+    // time so an ICE restart from one callback prevents the remainder of the
+    // old-generation queue from reaching the application.
+    while (drainIsCurrent()) {
+      const buf = this.earlyAppDataBuffer.takeOne();
+      if (!buf) break;
       this.onData.execute(buf);
     }
+    if (!drainIsCurrent()) this.clearEarlyAppData();
   }
 
   clearEarlyAppData() {

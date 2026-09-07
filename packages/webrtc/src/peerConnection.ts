@@ -987,6 +987,13 @@ export class RTCPeerConnection extends EventTarget {
           const dtlsPromise = dtlsTransport.start();
           const ownsSctp =
             this.sctpTransport?.dtlsTransport.id === dtlsTransport.id;
+          // The DTLS client is the passive SCTP endpoint.  Arm it before
+          // authentication so an early server INIT cannot establish SCTP
+          // before RTCSctpTransport has assigned its stream-id parity.
+          const passiveSctpPromise =
+            ownsSctp && dtlsTransport.role === "client"
+              ? this.sctpManager.connectSctp()
+              : Promise.resolve();
           const earlyWritePromise =
             this.config.warp.allowEarlyServerData &&
             dtlsTransport.role === "server"
@@ -1009,6 +1016,7 @@ export class RTCPeerConnection extends EventTarget {
           await Promise.all([
             icePromise,
             dtlsPromise,
+            passiveSctpPromise,
             earlyWritePromise,
             earlySctpPromise,
           ]).catch((err) => {

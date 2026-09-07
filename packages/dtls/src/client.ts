@@ -1071,6 +1071,14 @@ export class DtlsClient extends DtlsSocket {
       // Late 1.3 after close or 1.2 commit must not reverse the association.
       return;
     }
+    // A ServerHello accepted by the old ICE carrier must not select a DTLS
+    // version for the new carrier generation.  This dispatcher path commits
+    // synchronously, so it needs the same receive-generation check as the
+    // asynchronous legacy handshake path.
+    if (!this.isCurrentRxGeneration(rxGeneration)) {
+      log("dual association: drop stale ServerHello generation");
+      return;
+    }
 
     const rinfo = (
       this.options.transport as {
@@ -1094,6 +1102,10 @@ export class DtlsClient extends DtlsSocket {
 
     // Stop 1.2 Flight1 retransmit by advancing flight only — never set fatalError
     // for a successful version commit (would surface as delayed public onError).
+    if (!this.isCurrentRxGeneration(rxGeneration)) {
+      log("dual association: ServerHello generation changed before commit");
+      return;
+    }
     this.abortLegacy12Flight();
     this.invalidateLegacy12HandshakeOwnership();
     this.dualPhase = "committed13";
@@ -1417,6 +1429,13 @@ export class DtlsClient extends DtlsSocket {
   ) => {
     // Terminal: dualPhase closed *or* associationTornDown mid peer-close reply.
     if (this.dualPhase === "closed" || this.associationTornDown) {
+      return;
+    }
+    // Version selection below is synchronous and bypasses the legacy
+    // handleDatagram generation checks.  Reject stale ICE datagrams before a
+    // probing ServerHello can commit the association to DTLS 1.3.
+    if (!this.isCurrentRxGeneration(meta?.rxGeneration)) {
+      log("dual association: drop stale RX generation before version select");
       return;
     }
     // Prefer explicit addr (UDP / inject); fall back to last rinfo.

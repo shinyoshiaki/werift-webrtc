@@ -203,6 +203,31 @@ test.each(["transport.onData", "carrier.inject"] as const)(
       // の中にあっても新世代へ漏れない。
       await setTimeout(0);
       expect(delivered).toEqual(["fresh-first"]);
+
+      // Arrange: 認証前 queue に 2 件を積み、drain 中に世代が変わる状態を作る。
+      const serverEngine = (
+        server as unknown as {
+          engine13?: {
+            bufferEarlyAppData(data: Buffer): boolean;
+            markConnected(): void;
+          };
+        }
+      ).engine13;
+      if (!serverEngine) throw new Error("server 1.3 engine が無い");
+      delivered.length = 0;
+      expectedGeneration = 7;
+      expect(serverEngine.bufferEarlyAppData(Buffer.from("queued-first"))).toBe(
+        true,
+      );
+      expect(
+        serverEngine.bufferEarlyAppData(Buffer.from("queued-second")),
+      ).toBe(true);
+
+      // Act: 先頭 callback 内で restart 相当の世代更新を行い、queue を drain する。
+      serverEngine.markConnected();
+
+      // Assert: 先頭だけが届き、旧世代の残りは配送されない。
+      expect(delivered).toEqual(["queued-first"]);
     } finally {
       server.setExpectedRxGeneration(undefined);
       await Promise.allSettled([client.close(), server.close()]);

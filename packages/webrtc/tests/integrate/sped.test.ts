@@ -823,6 +823,33 @@ describe("RTCPeerConnection SPED opt-in", () => {
     }
   });
 
+  test("server 側だけ early opt-in でも passive SCTP を先に arm する", async () => {
+    // Arrange: DTLS server だけが early outbound を許可し、client は通常設定にする。
+    const server = new RTCPeerConnection(
+      spedPeerConfig({
+        warp: { allowEarlyServerData: true, earlyMediaPolicy: "buffer" },
+      }),
+    );
+    const client = new RTCPeerConnection(spedPeerConfig());
+
+    try {
+      // Act: server が送る INIT を client の認証完了より前に受けても、
+      // passive SCTP の stream-id parity が初期化済みの状態で接続する。
+      const [serverChannel, clientChannel] = await createDataChannelPair(
+        {},
+        server,
+        client,
+      );
+      serverChannel.send("server-only-early");
+
+      // Assert: 未処理 TypeError を起こさず DataChannel が実配送される。
+      expect(await awaitMessage(clientChannel)).toBe("server-only-early");
+    } finally {
+      await server.close();
+      await client.close();
+    }
+  }, 30_000);
+
   test("WARP early server traffic is held by the real PeerConnection authentication boundary", async () => {
     // Arrange: offerer (ICE controlling / DTLS server) と answerer を実際に
     // negotiation し、answer SDP の適用中に server write-ready を観測する。
