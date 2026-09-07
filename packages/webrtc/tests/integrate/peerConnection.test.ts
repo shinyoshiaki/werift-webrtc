@@ -5,6 +5,7 @@ import { HashAlgorithm } from "../../../dtls/src/cipher/const";
 import { CandidatePairState, type Connection } from "../../../ice/src";
 import { SCTP_STATE } from "../../../sctp/src";
 import {
+  DtlsVersion,
   MediaStream,
   MediaStreamTrack,
   type RTCDataChannel,
@@ -267,6 +268,84 @@ describe("peerConnection", () => {
       await Promise.allSettled([caller.close(), callee.close()]);
     }
   }, 30_000);
+
+  test("接続中に追加した未交渉 transport は接続判定へ混入しない", async () => {
+    // Arrange: bundle を無効にした DTLS 1.2、direct DTLS 1.3、SPED DTLS 1.3 の接続を用意する。
+    const cases = [
+      ["DTLS 1.2", {}],
+      ["direct DTLS 1.3", { dtls: { protocolVersions: [DtlsVersion.V1_3] } }],
+      [
+        "SPED DTLS 1.3",
+        { sped: true, dtls: { protocolVersions: [DtlsVersion.V1_3] } },
+      ],
+    ] as const;
+
+    for (const [label, extraConfig] of cases) {
+      const caller = new RTCPeerConnection({
+        iceServers: [],
+        bundlePolicy: "disable",
+        ...extraConfig,
+      });
+      const callee = new RTCPeerConnection({
+        iceServers: [],
+        bundlePolicy: "disable",
+        ...extraConfig,
+      });
+      caller.addTransceiver("audio");
+      const initialTransport = caller.dtlsTransports[0]!;
+      let addedVideo = false;
+      const receivedPayloads: string[] = [];
+
+      caller.onconnectionstatechange = () => {
+        if (caller.connectionState === "connecting" && !addedVideo) {
+          addedVideo = true;
+          // Act: 初回接続の通知中に、次の SDP 交渉用 transport を追加する。
+          caller.addTransceiver("video");
+        }
+      };
+
+      try {
+        // Act: 音声だけを含む初回 offer/answer を適用して接続を開始する。
+        await caller.setLocalDescription(await caller.createOffer());
+        await callee.setRemoteDescription(caller.localDescription!);
+        callee.dtlsTransports[0]!.onRtp.subscribe((packet) => {
+          receivedPayloads.push(packet.payload.toString());
+        });
+        await callee.setLocalDescription(await callee.createAnswer());
+        await caller.setRemoteDescription(callee.localDescription!);
+
+        // Act: 対象 transport の接続完了を待ち、既存 media の送信を行う。
+        const deadline = Date.now() + 5_000;
+        while (
+          (initialTransport.state !== "connected" ||
+            caller.connectionState !== "connected") &&
+          Date.now() < deadline
+        ) {
+          await setTimeout(10);
+        }
+        await initialTransport.sendRtp(
+          Buffer.from("existing-audio-is-live"),
+          new RtpHeader({
+            ssrc: 3456,
+            payloadType: 96,
+            sequenceNumber: 1,
+          }),
+        );
+        while (receivedPayloads.length === 0 && Date.now() < deadline) {
+          await setTimeout(10);
+        }
+
+        // Assert: 新規 transport は未交渉のままでも、既存接続の成功を失敗にしない。
+        expect(initialTransport.state, label).toBe("connected");
+        expect(caller.connectionState, label).toBe("connected");
+        expect(caller.dtlsTransports).toHaveLength(2);
+        expect(caller.dtlsTransports[1]?.state).toBe("new");
+        expect(receivedPayloads).toContain("existing-audio-is-live");
+      } finally {
+        await Promise.allSettled([caller.close(), callee.close()]);
+      }
+    }
+  }, 60_000);
 
   test("SCTP start failure 後の PeerConnection close は DataChannel を閉じる", async () => {
     // Arrange: negotiated channel を作成し、SCTP association を開始前の状態にする。

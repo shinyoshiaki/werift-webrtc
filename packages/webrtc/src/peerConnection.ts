@@ -962,9 +962,13 @@ export class RTCPeerConnection extends EventTarget {
       );
     }
 
+    // The transport set for this connect attempt must remain stable.  A
+    // connection-state callback may add a transceiver while the attempt is
+    // settling; its new, unnegotiated transport belongs to a later offer.
+    const connectTransports = [...this.dtlsTransports];
     const epoch = ++this.connectEpoch;
     const res = await Promise.allSettled(
-      this.dtlsTransports.map(async (dtlsTransport) => {
+      connectTransports.map(async (dtlsTransport) => {
         const { iceTransport } = dtlsTransport;
         const ownsSctp =
           this.sctpTransport?.dtlsTransport.id === dtlsTransport.id;
@@ -1065,7 +1069,7 @@ export class RTCPeerConnection extends EventTarget {
       return;
     }
 
-    const transportStates = this.dtlsTransports.map(
+    const transportStates = connectTransports.map(
       (dtlsTransport) => dtlsTransport.state,
     );
     const transportFailed = transportStates.some((state) => state === "failed");
