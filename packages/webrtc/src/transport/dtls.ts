@@ -99,12 +99,19 @@ class InboundApplicationGate {
   private authenticated = false;
   private aborted = false;
   private buffer = new EarlyDataBuffer(256, 256 * 1024, 2_000);
+  private retiredDroppedPackets = 0;
+  private retiredDroppedBytes = 0;
 
   constructor(private readonly deliver: (data: Buffer) => void) {}
 
   /** Read-only snapshot source for stats; instance may rotate on restart. */
   snapshot() {
-    return this.buffer.snapshot();
+    const current = this.buffer.snapshot();
+    return {
+      ...current,
+      droppedPackets: current.droppedPackets + this.retiredDroppedPackets,
+      droppedBytes: current.droppedBytes + this.retiredDroppedBytes,
+    };
   }
 
   receive(data: Buffer): void {
@@ -124,17 +131,28 @@ class InboundApplicationGate {
       return;
     }
     this.authenticated = true;
-    for (const data of this.buffer.drain()) {
+    const buffer = this.buffer;
+    while (true) {
       // close/restart が deliver callback 内で発生したら残りを破棄する。
-      if (this.aborted) return;
-      if (shouldContinue && !shouldContinue()) {
-        if (isTerminal?.()) this.abort();
+      if (this.aborted) {
+        buffer.clear(true);
         return;
       }
-      this.deliver(data);
-      if (this.aborted) return;
       if (shouldContinue && !shouldContinue()) {
         if (isTerminal?.()) this.abort();
+        else buffer.clear(true);
+        return;
+      }
+      const data = buffer.takeOne();
+      if (!data) return;
+      this.deliver(data);
+      if (this.aborted) {
+        buffer.clear(true);
+        return;
+      }
+      if (shouldContinue && !shouldContinue()) {
+        if (isTerminal?.()) this.abort();
+        else buffer.clear(true);
         return;
       }
     }
@@ -156,6 +174,7 @@ class InboundApplicationGate {
     // before replacing the instance so its retention timer cannot survive the
     // restart and mutate detached state two seconds later.
     this.buffer.clear(true);
+    this.retainDroppedStats();
     this.buffer.dispose();
     this.authenticated = false;
     this.aborted = false;
@@ -168,7 +187,13 @@ class InboundApplicationGate {
   }
 
   resetPending(): void {
-    if (!this.authenticated && !this.aborted) this.buffer.reset();
+    if (!this.authenticated && !this.aborted) this.buffer.clear(true);
+  }
+
+  private retainDroppedStats(): void {
+    const stats = this.buffer.snapshot();
+    this.retiredDroppedPackets += stats.droppedPackets;
+    this.retiredDroppedBytes += stats.droppedBytes;
   }
 }
 
@@ -179,7 +204,8 @@ function formatDtlsVersion(socket?: DtlsSocket) {
   if (socket.isDtls13) {
     return "DTLS 1.3";
   }
-  const version = socket.dtls.version;
+  const version = socket.dtls?.version;
+  if (!version) return;
   if (version.major === 0xfe && version.minor === 0xfd) {
     return "DTLS 1.2";
   }
@@ -195,7 +221,7 @@ function formatDtlsCipher(socket?: DtlsSocket) {
   if (socket.isDtls13) {
     return "TLS_AES_128_GCM_SHA256";
   }
-  return socket.cipher.cipher?.name;
+  return socket.cipher?.cipher?.name;
 }
 
 function formatSrtpCipher(profile?: number) {
@@ -248,6 +274,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   private readonly onAttemptChanged = new Event<[]>();
   private readonly applicationGate: InboundApplicationGate;
   private mediaBuffer: EarlyDataBuffer;
+  private retiredMediaDroppedPackets = 0;
+  private retiredMediaDroppedBytes = 0;
   private srtpKeysInstalled = false;
   private srtpWriteReady = false;
   private srtpReadReady = false;
@@ -316,13 +344,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     if (previousPolicy !== nextWarp.earlyMediaPolicy) {
       // A policy change invalidates protected media accumulated under the old
       // policy. Dispose the old retention timer before replacing the queue.
-      this.mediaBuffer.clear(true);
-      this.mediaBuffer.dispose();
-      this.mediaBuffer = new EarlyDataBuffer(
-        nextWarp.earlyMediaPolicy === "buffer" ? 256 : 0,
-        nextWarp.earlyMediaPolicy === "buffer" ? 256 * 1024 : 0,
-        2_000,
-      );
+      this.replaceMediaBuffer();
     }
     // A live policy change can happen after DTLS 1.3 write-ready.  Re-run the
     // same key-install edge used by markWriteReady so enabling early outbound
@@ -881,7 +903,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       },
       onSessionReset: () => {
         carrier.invalidateInboundInjects?.();
-        this.mediaBuffer.reset();
+        this.resetMediaBufferForNewAttempt();
         transport.setEarlyApplicationSendEnabled(
           this.config.warp?.allowEarlyServerData === true,
         );
@@ -1127,6 +1149,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
    */
   private resetMediaBufferForNewAttempt(): void {
     this.mediaBuffer.clear(true);
+    this.retainMediaDroppedStats();
     this.mediaBuffer.dispose();
     const buffering = this.config.warp?.earlyMediaPolicy === "buffer";
     this.mediaBuffer = new EarlyDataBuffer(
@@ -1134,6 +1157,25 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       buffering ? 256 * 1024 : 0,
       2_000,
     );
+  }
+
+  private replaceMediaBuffer(): void {
+    this.resetMediaBufferForNewAttempt();
+  }
+
+  private retainMediaDroppedStats(): void {
+    const stats = this.mediaBuffer.snapshot();
+    this.retiredMediaDroppedPackets += stats.droppedPackets;
+    this.retiredMediaDroppedBytes += stats.droppedBytes;
+  }
+
+  private mediaBufferStats() {
+    const current = this.mediaBuffer.snapshot();
+    return {
+      ...current,
+      droppedPackets: current.droppedPackets + this.retiredMediaDroppedPackets,
+      droppedBytes: current.droppedBytes + this.retiredMediaDroppedBytes,
+    };
   }
 
   private verifyRemoteCertificateFingerprint() {
@@ -1356,14 +1398,28 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   private drainMediaBuffer(attempt: TransportAttempt) {
-    for (const data of this.mediaBuffer.drain()) {
+    const buffer = this.mediaBuffer;
+    while (true) {
       // 各要素配送前と配送後に attempt/state を再検証し、close/restart で中断する。
-      if (!this.isCurrentAttempt(attempt) || !this.srtpReadReady) return;
-      if (this.isTerminated()) return;
+      if (
+        !this.isCurrentAttempt(attempt) ||
+        !this.srtpReadReady ||
+        this.isTerminated()
+      ) {
+        buffer.clear(true);
+        return;
+      }
+      const data = buffer.takeOne();
+      if (!data) return;
       this.handleMediaPacket(data, attempt);
-      if (!this.isCurrentAttempt(attempt)) return;
-      if (this.isTerminated()) return;
-      if (!this.srtpReadReady) return;
+      if (
+        !this.isCurrentAttempt(attempt) ||
+        this.isTerminated() ||
+        !this.srtpReadReady
+      ) {
+        buffer.clear(true);
+        return;
+      }
     }
   }
 
@@ -1531,7 +1587,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
     // Transport stats
     const appQueue = this.applicationGate.snapshot();
-    const mediaQueue = this.mediaBuffer.snapshot();
+    const mediaQueue = this.mediaBufferStats();
     const dtlsQueue = this.dtls?.earlyDataStats;
     const spedDiagnostics = getConnectionSpedRuntime(
       this.iceTransport.connection as Connection,

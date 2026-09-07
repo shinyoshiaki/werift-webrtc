@@ -535,6 +535,13 @@ describe("RTCDtlsTransportTest", () => {
         droppedPackets: 1,
       });
       expect(vi.getTimerCount()).toBe(timersBeforeRestart - 1);
+      const restartStats = (await session.getStats()).find(
+        (stat): stat is RTCTransportStats => stat.type === "transport",
+      );
+      expect(restartStats).toMatchObject({
+        warpEarlyDroppedPackets: 1,
+        warpEarlyDroppedBytes: protectedLikeRtp.length,
+      });
 
       // Act: 新世代の packet を新 buffer に保留し、旧 timer の期限を越える。
       newBuffer.push(Buffer.from("fresh-generation"));
@@ -608,6 +615,82 @@ describe("RTCDtlsTransportTest", () => {
       expect(received).toBe(1);
       expect(receiver.state).toBe("closed");
       expect(internals.mediaBuffer.snapshot().bufferedPackets).toBe(0);
+      const closeStats = (await receiver.getStats()).find(
+        (stat): stat is RTCTransportStats => stat.type === "transport",
+      );
+      expect(closeStats).toMatchObject({
+        warpEarlyDroppedPackets: 2,
+        warpEarlyDroppedBytes: expect.any(Number),
+      });
+    } finally {
+      await Promise.allSettled([sender.stop(), receiver.stop()]);
+    }
+  });
+
+  test("media drain 中の ICE restart は残りを drop 統計へ計上する", async () => {
+    // Arrange: SRTP 付きで接続済みの pair に early media を3件保留する。
+    const profile = ProtectionProfileAes128CmHmacSha1_80;
+    const [sender, receiver] = await createDtlsSessions(
+      {
+        ...defaultPeerConfig,
+        protocolVersions: [DtlsVersion.V1_3],
+        warp: { allowEarlyServerData: false, earlyMediaPolicy: "buffer" },
+      },
+      [profile],
+    );
+    sender.setRemoteParams(receiver.localParameters);
+    receiver.setRemoteParams(sender.localParameters);
+    await Promise.all([sender.start(), receiver.start()]);
+    const internals = receiver as unknown as {
+      srtpReadReady: boolean;
+      currentAttempt: { id: number; iceGeneration: number };
+      drainMediaBuffer(attempt: { id: number; iceGeneration: number }): void;
+      mediaBuffer: { snapshot(): { bufferedPackets: number } };
+    };
+    internals.srtpReadReady = false;
+    const ice = receiver.iceTransport.connection as unknown as {
+      generation: number;
+    };
+
+    try {
+      // Act: 実 SRTP 3件を認証前 media queue に保留する。
+      for (let seq = 1; seq <= 3; seq++) {
+        expect(
+          await sender.sendRtp(
+            Buffer.from(`restart-payload-${seq}`),
+            new RtpHeader({ sequenceNumber: seq, ssrc: 14, payloadType: 96 }),
+          ),
+        ).toBeGreaterThan(0);
+      }
+      const deadline = Date.now() + 5_000;
+      while (internals.mediaBuffer.snapshot().bufferedPackets < 3) {
+        if (Date.now() > deadline) throw new Error("media が buffer されない");
+        await setTimeout(20);
+      }
+
+      // Act: 先頭 callback で ICE generation を進め、同じ drain を中断する。
+      let received = 0;
+      receiver.onRtp.subscribe(() => {
+        received++;
+        if (received === 1) {
+          ice.generation++;
+          receiver.handleIceRestart();
+        }
+      });
+      internals.srtpReadReady = true;
+      internals.drainMediaBuffer(internals.currentAttempt);
+
+      // Assert: 旧 attempt の残りは配送されず、公開 drop 統計へ計上される。
+      expect(received).toBe(1);
+      expect(receiver.state).toBe("connected");
+      expect(internals.mediaBuffer.snapshot().bufferedPackets).toBe(0);
+      const restartStats = (await receiver.getStats()).find(
+        (stat): stat is RTCTransportStats => stat.type === "transport",
+      );
+      expect(restartStats).toMatchObject({
+        warpEarlyDroppedPackets: 2,
+        warpEarlyDroppedBytes: expect.any(Number),
+      });
     } finally {
       await Promise.allSettled([sender.stop(), receiver.stop()]);
     }
@@ -773,6 +856,13 @@ describe("RTCDtlsTransportTest", () => {
         droppedPackets: 1,
       });
       expect(vi.getTimerCount()).toBe(timersBeforeRestart - 1);
+      const restartStats = (await session.getStats()).find(
+        (stat): stat is RTCTransportStats => stat.type === "transport",
+      );
+      expect(restartStats).toMatchObject({
+        warpEarlyDroppedPackets: 1,
+        warpEarlyDroppedBytes: Buffer.byteLength("old-attempt"),
+      });
 
       // Act: 旧 retention 期限を越える。
       vi.advanceTimersByTime(2_001);
