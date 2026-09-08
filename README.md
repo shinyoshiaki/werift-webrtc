@@ -88,7 +88,7 @@ A small number of intentional or known edge-case differences remain for backward
 
 The core media APIs are packet-oriented: `MediaStreamTrack` can receive and emit RTP, so applications can connect WebRTC directly to an RTP router, recorder, transcoder, media pipeline, or test harness.
 
-werift does not provide operating-system camera/microphone capture as part of the core PeerConnection API. Applications that need browser-style globals and register-backed `navigator.mediaDevices.getUserMedia()` can opt into [`werift/polyfill`](./docs/polyfill/README.md). The guide covers installation, cleanup, media registers, constraints, and TypeScript entrypoints. The nonstandard `getUserMedia({ path })` helper has been removed.
+werift does not provide operating-system camera/microphone capture as part of the core PeerConnection API. Applications that need browser-style globals and register-backed `navigator.mediaDevices.getUserMedia()` can opt into [`werift/polyfill`](./docs/polyfill/README.md). The guide covers installation, cleanup, media registers, constraints, and TypeScript entrypoints.
 
 ```mermaid
 flowchart LR

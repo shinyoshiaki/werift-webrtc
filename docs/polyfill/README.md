@@ -11,10 +11,7 @@ pipeline needs.
 
 ## Start here
 
-- [Install, target, and cleanup](./installation.md)
-- [Media registers and input formats](./media-registers.md)
-- [Constraints and device selection](./constraints.md)
-- [TypeScript entrypoints and compatibility](./typescript.md)
+- [Polyfill usage guide](./guide.md)
 
 ## Minimal example
 
