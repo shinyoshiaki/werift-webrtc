@@ -42,10 +42,18 @@ RTCPeerConnection
 - DTLS 1.2
 - DTLS 1.3 → 1.2 fallback
 - Chromium の通常 WebRTC DTLS 1.3
-- TURN
+- WARP を無効にした通常の TURN relay 経路
 - ICE restart
 
 を regression させない。
+
+## 0.1 TURN relay のスコープ境界
+
+**TURN relay 使用時の WARP は Epic 4 のスコープ外**とする。
+
+relay candidate pair 上での SPED 搬送、WARP 接続成立、early traffic、direct DTLS carrier fallback の新規実装および相互接続検証は、いずれも完了条件に含めない。すでに存在する TURN relay 向け WARP/SPED 関連実装を削除する必要はない。
+
+Epic 4 で TURN について求めるのは、`sped: false` の通常の WebRTC TURN relay 経路を回帰させないことだけである。
 
 ---
 
@@ -2102,21 +2110,19 @@ ICE generation increment
 
 ---
 
-# 46. TURN
+# 46. TURN（通常経路の非回帰のみ）
 
-TURN path では SPED embedding が利用できない/しないケースもあるため、
+TURN relay 使用時の WARP は Epic 4 のスコープ外とする。したがって、relay pair 上の SPED embedding、WARP 接続、early traffic、direct DTLS carrier fallback は、新規実装・相互接続検証・完了判定の対象にしない。既存の関連実装は削除しなくてよい。
+
+TURN に関する必須確認は、次の通常経路を回帰させないことに限定する。
 
 ```text
-WARP enabled
+sped=false
 ↓
 relay pair selected
 ↓
-direct DTLS carrier fallback
+ordinary DTLS/SRTP/SCTP
 ```
-
-が成立すること。
-
-early traffic は DTLS readiness に基づく機能なので、carrier が direct に fallback しても protocol safety は維持される。
 
 ---
 
@@ -2136,9 +2142,9 @@ Epic 3 の Pion harness を流用する。
 - ICE restart
 - old generation rejection
 - direct path
-- TURN path
 
 Epic 4 では単なる attribute codec ではなく、WebRTC transport orchestration まで確認する。
+TURN relay 上の WARP/SPED orchestration はこの相互接続要件に含めない。
 
 ---
 
@@ -2408,6 +2414,7 @@ dtls={}
 | early server does not set connected | readiness separation |
 | WARP-disabled unchanged | serial branch維持 |
 | ICE restart isolation | attempt + generation guard |
+| ordinary TURN regression | `sped: false` の既存 relay 経路を維持 |
 
 ---
 

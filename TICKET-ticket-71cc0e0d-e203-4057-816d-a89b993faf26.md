@@ -6,6 +6,12 @@
 - 前提: Epic 1（DTLS 1.3 endpoint）、Epic 2（WebRTC DTLS 1.3）、Epic 3（ICE/SPED carrier）は実装済み
 - 主対象: `packages/dtls`、`packages/webrtc`、必要最小限の `packages/ice`
 
+### スコープ境界
+
+- **TURN relay 使用時の WARP は本タスクのスコープ外**とする。relay candidate pair 上での SPED 搬送・WARP 接続成立・early traffic・direct DTLS carrier fallback の新規実装および相互接続検証は、いずれも完了条件に含めない。
+- すでに存在する TURN relay 向け WARP/SPED 関連実装を削除する必要はない。
+- 本タスクで TURN について求めるのは、`sped: false` の通常の WebRTC TURN relay 経路を回帰させないことだけである。
+
 ## 1. タスクの目的と背景
 
 ### 目的
@@ -198,7 +204,7 @@ DtlsSocket [V1_3, V1_2]
 - 1.2 commit 時に SPED L1/L2、carrier timer、early queue、early send permission を破棄する。
 - Epic 3 の direct fallback invariant を維持し、最初に生成した ClientHello flight の同じ `Buffer` を re-serialize せず direct transport へ送る。
 - 1.2 engine 自体へ SPED/readiness/early data の意味を持ち込まない。
-- TURN relay pair では SPED embedding を新規実装せず、direct DTLS carrier fallback で接続する。
+- TURN relay 使用時の WARP は対象外とし、relay pair 上の SPED embedding、WARP 接続、early traffic、direct DTLS carrier fallback の成立を要求しない。既存実装は削除しなくてよい。
 
 ### 2.8 ICE restart と非同期 callback を試行単位で隔離する
 
@@ -288,10 +294,10 @@ DTLS 1.3 engine では `Dtls13Connection extends Dtls13ConnectionBase` の一段
 - `sped: false`、`dtls: {}` の既定経路は ICE → DTLS → SCTP の直列、DTLS 1.2 only のまま変えない。
 - DTLS role、ICE controlling/controlled、offerer/answerer は独立した軸として扱う。`offerer === DTLS client` を仮定しない。
 - `setup:active`（offerer=DTLS server）と `setup:passive`（offerer=DTLS client）をともに扱う。
-- Chromium の通常 DTLS 1.3、OpenSSL DTLS 1.2、TURN、既存 WebRTC convenience behavior を回帰させない。
+- Chromium の通常 DTLS 1.3、OpenSSL DTLS 1.2、`sped: false` の通常の TURN relay 経路、既存 WebRTC convenience behavior を回帰させない。
 - WPT 固有の厳格化が必要な場合は `packages/webrtc/tools/wpt-runner` 内に閉じ、通常 API へ漏らさない。
 - SPED internals、carrier、L1/L2、wire codepoint を public barrel から export しない。`IceOptions.sped` も追加しない。
-- TURN ChannelData/Data Indication への SPED embedding は対象外。SNAP、PSK 0-RTT、CID、PQ KEX も対象外。
+- TURN relay 使用時の WARP 全般は対象外。これには TURN ChannelData/Data Indication への SPED embedding、relay pair 上の WARP 接続、early traffic、direct DTLS carrier fallback の実装・検証を含む。既存実装の削除は不要。SNAP、PSK 0-RTT、CID、PQ KEX も対象外。
 
 ### 外部 interoperability の前提
 
@@ -327,7 +333,7 @@ DTLS 1.3 engine では `Dtls13Connection extends Dtls13ConnectionBase` の一段
 - [ ] SPED 非対応または DTLS 1.2-only peer に対し、同一 serialized ClientHello flight で direct DTLS 1.2 fallback できる。
 - [ ] handshake 中の ICE restart で旧 generation の injected packet、queue、readiness callback が無視される。
 - [ ] 認証完了後の ICE restart で既存 DTLS/SCTP が利用可能なまま、新 selected candidate pair と generation に更新される。
-- [ ] TURN relay では SPED embedding なしの direct DTLS fallback が成立する。
+- TURN relay 使用時の WARP は完了条件に含めない。既存実装は残してよく、`sped: false` の通常の TURN relay 経路の非回帰のみを検証対象とする。
 
 ### 検証コマンド
 
