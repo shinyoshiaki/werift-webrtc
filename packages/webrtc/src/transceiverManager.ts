@@ -32,6 +32,21 @@ import { reverseDirection } from "./utils";
 
 const log = debug("werift:packages/webrtc/src/media/rtpTransceiverManager.ts");
 
+function simulcastFromSendEncodings(
+  encodings: RTCRtpEncodingParameters[] | undefined,
+): TransceiverOptions["simulcast"] | undefined {
+  if (!encodings || encodings.length < 2) {
+    return undefined;
+  }
+  const rids = encodings
+    .map((encoding) => encoding.rid)
+    .filter((rid): rid is string => typeof rid === "string" && rid.length > 0);
+  if (rids.length < 2) {
+    return undefined;
+  }
+  return rids.map((rid) => ({ rid, direction: "send" as const }));
+}
+
 export class TransceiverManager {
   private readonly transceivers: RTCRtpTransceiver[] = [];
 
@@ -101,7 +116,11 @@ export class TransceiverManager {
       sender,
       direction,
     );
-    newTransceiver.options = options;
+    newTransceiver.options = {
+      ...options,
+      simulcast:
+        options.simulcast ?? simulcastFromSendEncodings(options.sendEncodings),
+    };
     newTransceiver.sender.setStreams(options.streams ?? []);
     newTransceiver.sender.setSendEncodings(
       (

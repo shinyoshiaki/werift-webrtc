@@ -166,6 +166,10 @@ export async function withExample(
       if (entry.id === "interop-browser") {
         await page.locator("#signalingUrl").fill("http://127.0.0.1:8080/offer");
       }
+      if (entry.id === "pubsub") {
+        // Act: 初期 offer/answer が終わるまで publish しない
+        await waitForLog(primary, "answer");
+      }
       if (entry.click) {
         await clickNamedButton(page, entry.click);
       }

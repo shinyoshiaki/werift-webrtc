@@ -44,7 +44,7 @@ RTP / encoded binary の Stream 入力は 4 byte big-endian の長さプレフ�
 - sendonly・RTP 取り込み等の examples とファイル再生テストを、`installPolyfill` + register + `getUserMedia` に移行します。README、日英サイトドキュメント、生成 API ドキュメント、changelog も更新します。
 - `examples/e2e` に Vitest + Playwright Chromium の smoke test を追加します。DataChannel、ICE、メディア送受信、録画、ffmpeg / GStreamer を使うサンプルを検証し、対象外のサンプルを `examples/untested` に移動します。
 - examples のブラウザ用依存を `examples/e2e/vendor` に同梱し、CI 実行中の CDN ダウンロードを不要にします。プロセス終了と録画出力の検証も追加します。
-- `integration/werift-mediasoup-interop` を submodule として追加します。現在の参照 SHA は `8083987ff1a5aa207361202401a55cc2fb5a34ec` です。実 mediasoup worker と werift、さらにネイティブ WebRTC を使う Chromium の間で、Handler 自動検出、音声・映像の双方向 RTP、DataChannel、同時接続、終了処理を検証します。
+- `integration/werift-mediasoup-interop` を submodule として追加します。現在の参照 SHA は `93dfacaaf845775e275aeab826f00ac064b966a8` です。実 mediasoup worker と werift、さらにネイティブ WebRTC を使う Chromium の間で、Handler 自動検出、音声・映像の双方向 RTP、DataChannel、同時接続、終了処理を検証します。
 - WPT sandbox のグローバル注入と dummy media を公開 polyfill に統一します。WPT 固有の strict PeerConnection ラッパは runner 内に置き、linked worktree で WPT の作業ディレクトリが空になる場合の checkout 復旧も追加します。
 - GitHub Actions の実行環境を Node.js 24 に統一し、既存 CI に examples E2E と mediasoup 相互接続ジョブを追加します。
 
