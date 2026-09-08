@@ -82,41 +82,13 @@ See [`examples/datachannel`](./examples/datachannel) for runnable variants.
 
 werift exposes a browser-compatible WebRTC API for normal application code, including PeerConnection negotiation, tracks/transceivers, DataChannels, standard events, ICE configuration, and `getStats()`.
 
-A small number of intentional or known edge-case differences remain for backward compatibility or unsupported legacy APIs. They are documented separately in [Browser API compatibility](./docs/browser-api-compatibility.md), together with the WPT strategy used to track exact browser behavior.
+A small number of intentional or known edge-case differences remain for backward compatibility or unsupported legacy APIs. They are documented separately in [Browser API compatibility](../../docs/browser-api-compatibility.md), together with the WPT strategy used to track exact browser behavior.
 
 ## A WebRTC stack that stays programmable
 
 The core media APIs are packet-oriented: `MediaStreamTrack` can receive and emit RTP, so applications can connect WebRTC directly to an RTP router, recorder, transcoder, media pipeline, or test harness.
 
-werift does not provide operating-system camera/microphone capture as part of the core PeerConnection API. Import `werift/polyfill` and call `installPolyfill({ mediaRegister })` to install browser WebRTC globals and `navigator.mediaDevices.getUserMedia` backed by MP4/WebM, RTP/RTCP, encoded-binary, or custom registers. The nonstandard `getUserMedia({ path })` helper has been removed.
-
-On Node.js, `installPolyfill({ mediaRegister })` also fills in a Chromium-compatible `navigator.userAgent` when the current value is missing or `Node.js/<major>`. Existing non-Node User-Agents are left unchanged unless you pass `userAgent` to overwrite them. Uninstall restores the previous descriptor. This is Node compatibility only; it does not claim that werift is a complete Chromium. `mediaRegister` remains an application responsibility.
-
-```ts
-import {
-  createCallbackRegister,
-  installPolyfill,
-} from "werift/polyfill";
-
-const uninstall = installPolyfill({
-  mediaRegister: [
-    createCallbackRegister({
-      mimeType: "audio/opus",
-      kinds: ["audio"],
-      async createTracks() {
-        return [createAudioTrack()];
-      },
-    }),
-  ],
-});
-
-const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-uninstall();
-```
-
-Passing an explicit `userAgent` replaces even a real browser or sandbox value; uninstall still restores the pre-install descriptor.
-
-Node TypeScript without DOM (`lib: ["esnext"]`) gets werift constructor globals from `werift/polyfill`. Projects that include `lib.dom` should import `werift/polyfill/dom` so DOM constructors are left intact while `MediaStreamTrack.writeRtp` is still merged. `existingMediaDevices` defaults to `"overwrite"`; use `"throw"` or `"noop"` if you must not replace an existing `navigator.mediaDevices`. `existingMediaDevices: "noop"` still complements a missing/Node User-Agent.
+werift does not provide operating-system camera/microphone capture as part of the core PeerConnection API. Applications that need browser-style globals and register-backed `navigator.mediaDevices.getUserMedia()` can opt into the [polyfill guide](../../docs/polyfill/README.md). The guide covers installation, cleanup, media registers, constraints, and TypeScript entrypoints. The nonstandard `getUserMedia({ path })` helper has been removed.
 
 ```mermaid
 flowchart LR
@@ -286,8 +258,9 @@ Because the implementation is TypeScript, protocol behavior can be traced direct
 
 - [Documentation website](https://shinyoshiaki.github.io/werift-webrtc/website/build/)
 - [API reference](https://shinyoshiaki.github.io/werift-webrtc/website/build/docs/api)
+- [Polyfill guide](../../docs/polyfill/README.md)
 - [Examples](./examples)
-- [Browser API compatibility differences](./docs/browser-api-compatibility.md)
+- [Browser API compatibility differences](../../docs/browser-api-compatibility.md)
 
 Documentation coverage is still evolving. The examples and source remain useful references for developers working at protocol level.
 

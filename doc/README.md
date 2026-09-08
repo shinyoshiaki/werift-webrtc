@@ -46,7 +46,8 @@ WPT_UPDATE_COVERAGE_BASELINE=1 npm run wpt:coverage --workspace packages/webrtc
 
 - [Website](https://shinyoshiaki.github.io/werift-webrtc/website/build/)
 - [API Reference](https://shinyoshiaki.github.io/werift-webrtc/website/build/docs/api)
-- [Examples](../../examples)
+- [Examples](../examples)
+- [Polyfill guide](../docs/polyfill/README.md)
 - [Browser API compatibility differences](_media/browser-api-compatibility.md)
 
 ## Demos
