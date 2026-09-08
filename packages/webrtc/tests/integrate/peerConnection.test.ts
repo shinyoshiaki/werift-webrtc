@@ -590,6 +590,7 @@ describe("peerConnection", () => {
       let tagFeedback = 0;
       let staleFeedback = 0;
       const staleTransport = originalCalleeTransports[0]!;
+      expect(staleTransport.state).toBe("closed");
       const originalTagSendRtcp = expectedBundleTransport.sendRtcp;
       const originalStaleSendRtcp = staleTransport.sendRtcp;
       expectedBundleTransport.sendRtcp = async () => {
