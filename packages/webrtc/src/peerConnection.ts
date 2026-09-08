@@ -14,10 +14,11 @@ import type { CandidatePair, Message, Protocol } from "./imports/ice";
 import {
   type MediaStream,
   type MediaStreamTrack,
-  type RTCRtpCodecParameters,
+  RTCRtpCodecParameters,
   type RTCRtpHeaderExtensionParameters,
   type RTCRtpReceiver,
   type RTCRtpSender,
+  type RTCRtpSenderOptions,
   type RTCRtpTransceiver,
   RtpRouter,
   TransceiverManager,
@@ -442,32 +443,7 @@ export class RTCPeerConnection extends EventTarget {
         this.config.maxMessageSize;
     }
 
-    for (const [i, codecParams] of enumerate([
-      ...(this.config.codecs.audio || []),
-      ...(this.config.codecs.video || []),
-    ])) {
-      if (codecParams.payloadType != undefined) {
-        continue;
-      }
-
-      codecParams.payloadType = 96 + i;
-      switch (codecParams.name.toLowerCase()) {
-        case "rtx":
-          {
-            codecParams.parameters = `apt=${codecParams.payloadType - 1}`;
-          }
-          break;
-        case "red":
-          {
-            if (codecParams.contentType === "audio") {
-              const redundant = codecParams.payloadType + 1;
-              codecParams.parameters = `${redundant}/${redundant}`;
-              codecParams.payloadType = 63;
-            }
-          }
-          break;
-      }
-    }
+    assignDynamicPayloadTypes(this.config);
 
     [
       ...(this.config.headerExtensions.audio || []),
@@ -1333,6 +1309,11 @@ export interface PeerConfig {
   midSuffix: boolean;
   /** Advertised local SCTP max-message-size in SDP. Use 0 for unlimited. */
   maxMessageSize: number;
+  /**
+   * Queue outbound RTP on each sender until DTLS is connected.
+   * Disabled by default. Pass `true` or `{ enabled: true, maxLength }` to buffer.
+   */
+  pendingRtp: NonNullable<RTCRtpSenderOptions["pendingRtp"]>;
 }
 
 export const findCodecByMimeType = (
@@ -1345,6 +1326,77 @@ export const findCodecByMimeType = (
   )
     ? target
     : undefined;
+
+export function adoptSenderTrackCodec(
+  config: PeerConfig,
+  track: MediaStreamTrack | undefined | null,
+) {
+  const codec = track?.codec;
+  if (!codec || (track.kind !== "audio" && track.kind !== "video")) {
+    return;
+  }
+  const kind = track.kind;
+  const list = [...(config.codecs[kind] ?? [])];
+  const mime = codec.mimeType.toLowerCase();
+  const index = list.findIndex(
+    (candidate) => candidate.mimeType.toLowerCase() === mime,
+  );
+  if (index === 0) {
+    assignDynamicPayloadTypes(config);
+    return;
+  }
+  if (index > 0) {
+    const [existing] = list.splice(index, 1);
+    list.unshift(existing);
+  } else {
+    list.unshift(cloneCodecParameters(codec));
+  }
+  config.codecs[kind] = list;
+  assignDynamicPayloadTypes(config);
+}
+
+function assignDynamicPayloadTypes(config: PeerConfig) {
+  for (const [i, codecParams] of enumerate([
+    ...(config.codecs.audio || []),
+    ...(config.codecs.video || []),
+  ])) {
+    if (codecParams.payloadType != undefined) {
+      continue;
+    }
+
+    codecParams.payloadType = 96 + i;
+    switch (codecParams.name.toLowerCase()) {
+      case "rtx":
+        {
+          codecParams.parameters = `apt=${codecParams.payloadType - 1}`;
+        }
+        break;
+      case "red":
+        {
+          if (codecParams.contentType === "audio") {
+            const redundant = codecParams.payloadType + 1;
+            codecParams.parameters = `${redundant}/${redundant}`;
+            codecParams.payloadType = 63;
+          }
+        }
+        break;
+    }
+  }
+}
+
+function cloneCodecParameters(codec: RTCRtpCodecParameters) {
+  return new RTCRtpCodecParameters({
+    mimeType: codec.mimeType,
+    clockRate: codec.clockRate,
+    ...(codec.channels != undefined ? { channels: codec.channels } : {}),
+    ...(codec.payloadType != undefined
+      ? { payloadType: codec.payloadType }
+      : {}),
+    rtcpFeedback: [...codec.rtcpFeedback],
+    ...(codec.parameters != undefined ? { parameters: codec.parameters } : {}),
+    direction: codec.direction,
+  });
+}
 
 export type RTCIceServer = {
   urls: string | string[];
@@ -1420,6 +1472,7 @@ function generateDefaultPeerConfig(): PeerConfig {
     midSuffix: false,
     forceTurnTCP: false,
     maxMessageSize: DEFAULT_MAX_MESSAGE_SIZE,
+    pendingRtp: false,
   };
 }
 export const defaultPeerConfig: PeerConfig = generateDefaultPeerConfig();
@@ -1507,6 +1560,10 @@ function clonePeerConfiguration(config: PeerConfig) {
     dtls: { ...config.dtls },
     certificates: [...config.certificates],
     debug: { ...config.debug },
+    pendingRtp:
+      typeof config.pendingRtp === "object" && config.pendingRtp != undefined
+        ? { ...config.pendingRtp }
+        : config.pendingRtp,
   };
 }
 

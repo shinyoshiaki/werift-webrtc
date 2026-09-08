@@ -1,3 +1,6 @@
 [submodule "third_party/wpt"]
 	path = third_party/wpt
 	url = git@github.com:web-platform-tests/wpt.git
+[submodule "integration/werift-mediasoup-interop"]
+	path = integration/werift-mediasoup-interop
+	url = git@github.com:shinyoshiaki/werift-mediasoup-interop.git

@@ -38,7 +38,7 @@
     "tweetnacl": "^1.0.3"
   },
   "engines": {
-    "node": ">=16"
+    "node": ">=22"
   },
   "readme": "README.md"
 }

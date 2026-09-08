@@ -10,13 +10,17 @@
 
 ### new RTCRtpSender()
 
-> **new RTCRtpSender**(`trackOrKind`): [`RTCRtpSender`](RTCRtpSender.md)
+> **new RTCRtpSender**(`trackOrKind`, `options`): [`RTCRtpSender`](RTCRtpSender.md)
 
 #### Parameters
 
 ##### trackOrKind
 
 [`Kind`](../type-aliases/Kind.md) | [`MediaStreamTrack`](MediaStreamTrack.md)
+
+##### options
+
+[`RTCRtpSenderOptions`](../type-aliases/RTCRtpSenderOptions.md) = `{}`
 
 #### Returns
 
@@ -369,6 +373,19 @@ at the source-switch boundary.
 ### sendRtp()
 
 > **sendRtp**(`rtp`): `Promise`\<`void`\>
+
+Send an RTP packet. Pending RTP is disabled by default: the packet is
+written immediately if DTLS is connected and a codec is set, otherwise
+dropped.
+
+When pending RTP is enabled, the packet is queued until it can be sent.
+The returned promise then settles for this packet only:
+- resolve: DTLS send completed, or the packet was dropped by `stop()`,
+  `replaceTrack(null)`, or pending-queue overflow
+- reject: DTLS send threw while writing this packet
+
+Later `sendRtp()` calls stay pending until their own packet is sent or
+dropped, even if a drain is already in progress.
 
 #### Parameters
 

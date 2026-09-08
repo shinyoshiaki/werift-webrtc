@@ -1218,6 +1218,16 @@ Advertised local SCTP max-message-size in SDP. Use 0 for unlimited.
 
 > **midSuffix**: `boolean`
 
+##### pendingRtp
+
+> **pendingRtp**: `boolean` \| \{ `enabled`: `boolean`; `maxLength`: `number`; \}
+
+###### Type declaration
+
+`boolean`
+
+\{ `enabled`: `boolean`; `maxLength`: `number`; \}
+
 ##### rtcpMuxPolicy
 
 > **rtcpMuxPolicy**: `"require"`

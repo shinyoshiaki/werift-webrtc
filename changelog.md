@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### ⚠️ Breaking changes
+
+- **Removed `getUserMedia({ path | buffer | stream })` from `werift/nonstandard`.** File playback now goes through `werift/polyfill`: `installPolyfill({ mediaRegister: [createMp4WebmRegister({ path })] })` then `navigator.mediaDevices.getUserMedia({ audio: true, video: true })`.
+
+### 🚀 Features
+
+- **`werift/polyfill`**: Opt-in installer that puts werift WebRTC constructors on `globalThis` (or a `target` sandbox) and implements `navigator.mediaDevices.getUserMedia` via `mediaRegister` (MP4/WebM, RTP/RTCP, encoded binary, or `createCallbackRegister`).
+
 ## v0.24.4
 
 ### 🐛 Bug Fixes

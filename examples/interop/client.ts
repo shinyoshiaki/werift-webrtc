@@ -1,14 +1,12 @@
 import { exec } from "child_process";
-import { createSocket } from "dgram";
 import got from "got";
 import { setTimeout } from "timers/promises";
 import * as yargs from "yargs";
+import { RTCPeerConnection, randomPort } from "../../packages/webrtc/src";
 import {
-  MediaStreamTrack,
-  RTCPeerConnection,
-  RtpPacket,
-  randomPort,
-} from "../../packages/webrtc/src";
+  createRtpRtcpRegister,
+  installPolyfill,
+} from "../../packages/webrtc/src/polyfill";
 
 const TestType = { PeerConnection: 0, DataChannelEcho: 1 };
 
@@ -31,14 +29,31 @@ new Promise<void>(async (done, failed) => {
   setTimeout(60_000).then(failed);
 
   const port = await randomPort("udp4");
-  const udp = createSocket("udp4");
-  udp.bind(port);
-
   const pc = new RTCPeerConnection({
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   });
-  const senderTrack = new MediaStreamTrack({ kind: "video" });
-  const transceiver = pc.addTransceiver(senderTrack);
+
+  if (testType === TestType.PeerConnection) {
+    installPolyfill({
+      mediaRegister: [
+        createRtpRtcpRegister({
+          mimeType: "video/VP8",
+          udp: { port },
+        }),
+      ],
+    });
+  } else {
+    installPolyfill({ mediaRegister: [] });
+  }
+
+  const media =
+    testType === TestType.PeerConnection
+      ? await navigator.mediaDevices.getUserMedia({ video: true })
+      : undefined;
+  const senderTrack = media?.getVideoTracks()[0];
+  const transceiver = senderTrack
+    ? pc.addTransceiver(senderTrack)
+    : pc.addTransceiver("video");
   transceiver.onTrack.once((track) => {
     track.onReceiveRtp.subscribe((rtp) => {
       console.log("Received echoed back rtp", rtp.header);
@@ -85,13 +100,6 @@ new Promise<void>(async (done, failed) => {
       done();
       return;
     }
-
-    const payloadType = transceiver.getPayloadType("vp8");
-    udp.on("message", (data) => {
-      const rtp = RtpPacket.deSerialize(data);
-      rtp.header.payloadType = payloadType;
-      senderTrack.writeRtp(rtp);
-    });
 
     exec(
       `gst-launch-1.0 videotestsrc ! video/x-raw,width=640,height=480,format=I420 ! vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1 ! rtpvp8pay ! udpsink host=127.0.0.1 port=${port}`,

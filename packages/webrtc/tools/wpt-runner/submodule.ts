@@ -1,7 +1,7 @@
 import { spawnSync } from "child_process";
-import { access } from "fs/promises";
 import { readFileSync } from "fs";
-import { resolve } from "path";
+import { isAbsolute, resolve } from "path";
+import { access } from "fs/promises";
 
 export async function ensureWptCheckout(
   repoRoot: string,
@@ -9,24 +9,62 @@ export async function ensureWptCheckout(
   dependencies: {
     hasWptWebrtcDirectory?: (root: string) => Promise<boolean>;
     updateSubmodule?: (root: string) => void;
+    forceCheckoutSubmodule?: (root: string, wptRoot: string) => void;
     cloneCheckout?: (root: string, wptRoot: string) => void;
   } = {},
 ) {
   const hasWptWebrtcDirectory =
     dependencies.hasWptWebrtcDirectory ?? defaultHasWptWebrtcDirectory;
-  const updateSubmodule = dependencies.updateSubmodule ?? defaultUpdateSubmodule;
+  const updateSubmodule =
+    dependencies.updateSubmodule ?? defaultUpdateSubmodule;
+  const forceCheckoutSubmodule =
+    dependencies.forceCheckoutSubmodule ?? defaultForceCheckoutSubmodule;
   const cloneCheckout = dependencies.cloneCheckout ?? defaultCloneCheckout;
 
   if (await hasWptWebrtcDirectory(wptRoot)) {
     return false;
   }
 
-  console.error("[wpt] third_party/wpt is missing, initializing the submodule checkout");
+  console.error(
+    "[wpt] third_party/wpt is missing, initializing the submodule checkout",
+  );
   try {
     updateSubmodule(repoRoot);
-  } catch (error) {
-    console.error("[wpt] submodule initialization failed, falling back to git clone");
+  } catch {
+    console.error("[wpt] submodule initialization failed");
+  }
+
+  if (await hasWptWebrtcDirectory(wptRoot)) {
+    return true;
+  }
+
+  // `git submodule update` can exit 0 in linked worktrees while the working
+  // tree stays empty because HEAD already matches the recorded gitlink.
+  console.error("[wpt] submodule working tree is empty, forcing checkout");
+  try {
+    forceCheckoutSubmodule(repoRoot, wptRoot);
+  } catch {
+    console.error(
+      "[wpt] forced submodule checkout failed, falling back to git clone",
+    );
+    try {
+      cloneCheckout(repoRoot, wptRoot);
+    } catch {
+      // Combined failure is reported after the last existence check.
+    }
+  }
+
+  if (await hasWptWebrtcDirectory(wptRoot)) {
+    return true;
+  }
+
+  console.error(
+    "[wpt] checkout still missing after force, falling back to git clone",
+  );
+  try {
     cloneCheckout(repoRoot, wptRoot);
+  } catch {
+    // Combined failure is reported below.
   }
 
   if (await hasWptWebrtcDirectory(wptRoot)) {
@@ -50,9 +88,37 @@ async function defaultHasWptWebrtcDirectory(wptRoot: string) {
   }
 }
 
+function gitSpawnEnv() {
+  const {
+    GIT_DIR: _gitDir,
+    GIT_COMMON_DIR: _gitCommonDir,
+    ...env
+  } = process.env;
+  return env;
+}
+
+function runGit(args: string[], repoRoot: string) {
+  const result = spawnSync("git", args, {
+    cwd: repoRoot,
+    stdio: "inherit",
+    env: gitSpawnEnv(),
+  });
+
+  if (result.error) {
+    throw result.error;
+  }
+
+  if (result.status !== 0) {
+    throw new Error(
+      `git ${args.join(" ")} exited with status ${result.status ?? "unknown"}`,
+    );
+  }
+
+  return result;
+}
+
 function defaultUpdateSubmodule(repoRoot: string) {
-  const result = spawnSync(
-    "git",
+  runGit(
     [
       "-c",
       "url.https://github.com/.insteadOf=git@github.com:",
@@ -60,43 +126,54 @@ function defaultUpdateSubmodule(repoRoot: string) {
       "update",
       "--init",
       "--recursive",
+      "--force",
+      "--checkout",
       "--depth",
       "1",
       "third_party/wpt",
     ],
+    repoRoot,
+  );
+}
+
+function defaultForceCheckoutSubmodule(repoRoot: string, wptRoot: string) {
+  const gitDir = resolveSubmoduleGitDir(repoRoot, wptRoot);
+  runGit(
+    ["--git-dir", gitDir, "--work-tree", wptRoot, "checkout", "-f", "HEAD"],
+    repoRoot,
+  );
+}
+
+function resolveSubmoduleGitDir(repoRoot: string, wptRoot: string) {
+  const result = spawnSync(
+    "git",
+    ["rev-parse", "--git-path", "modules/third_party/wpt"],
     {
       cwd: repoRoot,
-      stdio: "inherit",
+      encoding: "utf8",
+      env: gitSpawnEnv(),
     },
   );
 
-  if (result.error) {
-    throw result.error;
+  if (result.status === 0) {
+    const raw = result.stdout.trim();
+    if (raw) {
+      return isAbsolute(raw) ? raw : resolve(repoRoot, raw);
+    }
   }
 
-  if (result.status !== 0) {
-    throw new Error(`git submodule update exited with status ${result.status ?? "unknown"}`);
+  const gitfile = readFileSync(resolve(wptRoot, ".git"), "utf8").trim();
+  const match = gitfile.match(/^gitdir:\s*(.+)$/m);
+  if (!match?.[1]) {
+    throw new Error(`unable to resolve third_party/wpt gitdir from ${wptRoot}`);
   }
+  const gitdir = match[1].trim();
+  return isAbsolute(gitdir) ? gitdir : resolve(wptRoot, gitdir);
 }
 
 function defaultCloneCheckout(repoRoot: string, wptRoot: string) {
   const cloneUrl = resolveWptCloneUrl(repoRoot);
-  const result = spawnSync(
-    "git",
-    ["clone", "--depth", "1", cloneUrl, wptRoot],
-    {
-      cwd: repoRoot,
-      stdio: "inherit",
-    },
-  );
-
-  if (result.error) {
-    throw result.error;
-  }
-
-  if (result.status !== 0) {
-    throw new Error(`git clone exited with status ${result.status ?? "unknown"}`);
-  }
+  runGit(["clone", "--depth", "1", cloneUrl, wptRoot], repoRoot);
 }
 
 function resolveWptCloneUrl(repoRoot: string) {

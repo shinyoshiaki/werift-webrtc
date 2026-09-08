@@ -7,7 +7,9 @@ console.log("start");
 server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({});
   pc.onIceCandidate.subscribe((candidate) => {
-    socket.send(JSON.stringify(candidate));
+    if (candidate) {
+      socket.send(JSON.stringify(candidate));
+    }
   });
 
   const transceiver = pc.addTransceiver("video");
@@ -15,7 +17,7 @@ server.on("connection", async (socket) => {
     transceiver.sender.replaceTrack(track),
   );
 
-  pc.setLocalDescription(await pc.createOffer());
+  await pc.setLocalDescription(await pc.createOffer());
   const sdp = JSON.stringify(pc.localDescription);
   socket.send(sdp);
 

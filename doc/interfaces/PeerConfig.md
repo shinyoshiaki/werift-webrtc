@@ -181,6 +181,15 @@ Advertised local SCTP max-message-size in SDP. Use 0 for unlimited.
 
 ***
 
+### pendingRtp
+
+> **pendingRtp**: `NonNullable`\<`undefined` \| `boolean` \| [`PendingRtpOptions`](../type-aliases/PendingRtpOptions.md)\>
+
+Queue outbound RTP on each sender until DTLS is connected.
+Disabled by default. Pass `true` or `{ enabled: true, maxLength }` to buffer.
+
+***
+
 ### rtcpMuxPolicy
 
 > **rtcpMuxPolicy**: `"require"`

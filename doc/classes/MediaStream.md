@@ -34,6 +34,18 @@
 
 > **tracks**: [`MediaStreamTrack`](MediaStreamTrack.md)[] = `[]`
 
+## Accessors
+
+### active
+
+#### Get Signature
+
+> **get** **active**(): `boolean`
+
+##### Returns
+
+`boolean`
+
 ## Methods
 
 ### addTrack()
@@ -52,6 +64,16 @@
 
 ***
 
+### clone()
+
+> **clone**(): [`MediaStream`](MediaStream.md)
+
+#### Returns
+
+[`MediaStream`](MediaStream.md)
+
+***
+
 ### getAudioTracks()
 
 > **getAudioTracks**(): [`MediaStreamTrack`](MediaStreamTrack.md)[]
@@ -59,6 +81,22 @@
 #### Returns
 
 [`MediaStreamTrack`](MediaStreamTrack.md)[]
+
+***
+
+### getTrackById()
+
+> **getTrackById**(`id`): `undefined` \| [`MediaStreamTrack`](MediaStreamTrack.md)
+
+#### Parameters
+
+##### id
+
+`string`
+
+#### Returns
+
+`undefined` \| [`MediaStreamTrack`](MediaStreamTrack.md)
 
 ***
 

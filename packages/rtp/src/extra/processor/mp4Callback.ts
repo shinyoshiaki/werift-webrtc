@@ -38,10 +38,12 @@ export class MP4Callback extends MP4Base {
   };
 
   destroy = () => {
-    void this.stop().finally(() => {
-      this.cb = undefined;
-      this.queue.cancel();
-    });
+    void this.stop()
+      .catch(() => undefined)
+      .finally(() => {
+        this.cb = undefined;
+        this.queue.cancel();
+      });
   };
 
   static saveToFileSystem = (path: string) => {
