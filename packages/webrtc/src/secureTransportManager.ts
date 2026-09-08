@@ -210,19 +210,27 @@ export class SecureTransportManager {
     candidate,
     media,
     remoteIsBundled,
+    candidateSdpMid,
+    candidateSdpMLineIndex,
     transceiver,
     sctpTransport,
     bundlePolicy,
   }: {
     candidate: IceCandidate;
     media?: MediaDescription;
-    remoteIsBundled: boolean;
+    /** @deprecated Prefer the explicit candidate routing fields. */
+    remoteIsBundled?: boolean;
+    candidateSdpMid?: string;
+    candidateSdpMLineIndex?: number;
     transceiver?: RTCRtpTransceiver;
     sctpTransport?: RTCSctpTransport;
     bundlePolicy?: BundlePolicy;
   }) {
     // Assign sdpMid and sdpMLineIndex
-    if (bundlePolicy === "max-bundle" || remoteIsBundled) {
+    if (candidateSdpMid !== undefined || candidateSdpMLineIndex !== undefined) {
+      candidate.sdpMid = candidateSdpMid;
+      candidate.sdpMLineIndex = candidateSdpMLineIndex;
+    } else if (bundlePolicy === "max-bundle" || remoteIsBundled) {
       candidate.sdpMLineIndex = 0;
       if (media) {
         candidate.sdpMid = media.rtp.muxId;
@@ -562,21 +570,18 @@ export class SecureTransportManager {
     }
   }
 
-  async gatherCandidates(remoteIsBundled: boolean) {
-    const connected = this.iceTransports.find(
-      (transport) =>
-        transport.state === "connected" || transport.state === "completed",
+  async gatherCandidates() {
+    // A remote BUNDLE group does not imply that every local m-section uses
+    // the same ICE transport. Gather each allocated transport so a partial
+    // BUNDLE answer still advertises independent candidates for group-outside
+    // sections.
+    const results = await Promise.allSettled(
+      this.iceTransports.map((iceTransport) => iceTransport.gather()),
     );
-    if (remoteIsBundled && connected) {
-      // no need to gather ice candidates on an existing bundled connection
-      log("skipping ICE gathering for bundled connection");
-    } else {
-      await Promise.allSettled(
-        this.iceTransports.map((iceTransport) => iceTransport.gather()),
-      ).catch((e) => {
-        // エラーハンドリングを追加 (例: ログ出力)
-        log("gatherCandidates failed", e);
-      });
+    for (const result of results) {
+      if (result.status === "rejected") {
+        log("gatherCandidates failed", result.reason);
+      }
     }
   }
 

@@ -34,6 +34,11 @@ export class ReceiverTWCC {
     this.runTWCC();
   }
 
+  /** Keep feedback on the receiver's current transport after BUNDLE rebind. */
+  setDtlsTransport(dtlsTransport: RTCDtlsTransport): void {
+    this.dtlsTransport = dtlsTransport;
+  }
+
   handleTWCC(transportSequenceNumber: number) {
     this.extensionInfo[transportSequenceNumber] = {
       tsn: transportSequenceNumber,

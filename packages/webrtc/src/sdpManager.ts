@@ -332,7 +332,14 @@ export class SDPManager {
         .map((m) => m.rtp.muxId)
         .filter((v) => v) as string[];
       if (mids.length) {
-        const bundle = new GroupDescription("BUNDLE", mids);
+        const establishedBundle = this.getEstablishedBundleGroup();
+        const bundleMids = establishedBundle
+          ? [
+              ...establishedBundle.items.filter((mid) => mids.includes(mid)),
+              ...mids.filter((mid) => !establishedBundle.items.includes(mid)),
+            ]
+          : mids;
+        const bundle = new GroupDescription("BUNDLE", bundleMids);
         description.group.push(bundle);
       }
     }
@@ -516,6 +523,77 @@ export class SDPManager {
     this.seenMid.add(mid);
   }
 
+  /**
+   * Return the BUNDLE group from the description currently being applied.
+   * Membership is intentionally kept separate from tag selection: during an
+   * initial offer/answer exchange every m-section still owns its own ICE/DTLS
+   * properties until the answer selects the group.
+   * @internal
+   */
+  getRemoteBundleGroup() {
+    const remoteSdp = this._remoteDescription;
+    if (!remoteSdp || this.bundlePolicy === "disable") return undefined;
+    return remoteSdp.group.find((group) => group.semantic === "BUNDLE");
+  }
+
+  /** @internal */
+  getLocalBundleGroup() {
+    const localSdp = this._localDescription;
+    if (!localSdp || this.bundlePolicy === "disable") return undefined;
+    return localSdp.group.find((group) => group.semantic === "BUNDLE");
+  }
+
+  /**
+   * Return the negotiated BUNDLE membership, with the selected tag first.
+   * The answer's group is authoritative for the accepted membership and tag:
+   * an initial answer may promote a later offered MID when the suggested tag
+   * was rejected.
+   * @internal
+   */
+  getEstablishedBundleGroup() {
+    if (this.bundlePolicy === "disable") return undefined;
+
+    const local = this.currentLocalDescription;
+    const remote = this.currentRemoteDescription;
+    if (!local || !remote) return undefined;
+
+    const offerGroup = (
+      local.type === "offer"
+        ? local
+        : remote.type === "offer"
+          ? remote
+          : undefined
+    )?.group.find((group) => group.semantic === "BUNDLE");
+    const answerGroup = (
+      local.type === "answer"
+        ? local
+        : remote.type === "answer"
+          ? remote
+          : undefined
+    )?.group.find((group) => group.semantic === "BUNDLE");
+    if (!offerGroup || !answerGroup) return undefined;
+
+    const items = answerGroup.items.filter((mid) =>
+      offerGroup.items.includes(mid),
+    );
+    if (items.length === 0) return undefined;
+    return new GroupDescription("BUNDLE", items);
+  }
+
+  /**
+   * BUNDLE is established only after both current descriptions contain a
+   * common group. Pending offers/answers must not make the next candidate
+   * route look established prematurely.
+   * @internal
+   */
+  isBundleEstablished(): boolean {
+    return !!this.getEstablishedBundleGroup();
+  }
+
+  private getEstablishedBundleTag(): string | undefined {
+    return this.getEstablishedBundleGroup()?.items[0];
+  }
+
   get remoteIsBundled() {
     return this.getRemoteBundleInfo()?.group;
   }
@@ -526,13 +604,13 @@ export class SDPManager {
    * the offerer's preference order becomes the tag.
    * @internal
    */
-  getRemoteBundleInfo(eligibleMids?: ReadonlySet<string>) {
+  getRemoteBundleInfo(
+    eligibleMids?: ReadonlySet<string>,
+    options: { initial?: boolean } = {},
+  ) {
     const remoteSdp = this._remoteDescription;
-    if (!remoteSdp) return undefined;
-    const group = remoteSdp.group.find(
-      (g) => g.semantic === "BUNDLE" && this.bundlePolicy !== "disable",
-    );
-    if (!group) return undefined;
+    const group = this.getRemoteBundleGroup();
+    if (!remoteSdp || !group) return undefined;
 
     const items = group.items.filter((mid) => {
       const media = remoteSdp.media.find(
@@ -540,10 +618,17 @@ export class SDPManager {
       );
       return media?.port !== 0 && (eligibleMids?.has(mid) ?? true);
     });
-    const tag = items[0];
-    if (!tag) return undefined;
 
-    return { group, items, tag };
+    // The first BUNDLE negotiation may promote the next accepted m-section to
+    // tag. Once a group is established, its offerer-selected tag is stable;
+    // silently promoting another m-section would make the transport and the
+    // answer disagree about which credentials own the association.
+    const initial = options.initial ?? !this.isBundleEstablished();
+    const tag = initial ? items[0] : this.getEstablishedBundleTag();
+    if (!tag || !items.includes(tag)) return undefined;
+
+    const orderedItems = [tag, ...items.filter((mid) => mid !== tag)];
+    return { group, items: orderedItems, tag };
   }
 
   /**

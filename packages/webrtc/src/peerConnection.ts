@@ -54,6 +54,7 @@ import type {
   RTCIceCandidate,
   RTCIceCandidateInit,
   RTCIceConnectionState,
+  RTCIceTransport,
 } from "./transport/ice";
 import {
   DEFAULT_MAX_MESSAGE_SIZE,
@@ -61,7 +62,7 @@ import {
 } from "./transport/sctp";
 import type { ConnectionState, Kind, RTCSignalingState } from "./types/domain";
 import type { Callback, CallbackWithValue } from "./types/util";
-import { andDirection, deepMerge } from "./utils";
+import { andDirection, deepMerge, reverseDirection } from "./utils";
 
 const log = debug("werift:packages/webrtc/src/peerConnection.ts");
 
@@ -111,6 +112,15 @@ export class RTCPeerConnection extends EventTarget {
   private readonly pendingRemoteCandidates: Array<
     RTCIceCandidate | RTCIceCandidateInit | null
   > = [];
+  /**
+   * Initial BUNDLE candidates are routed only after the offerer's selected tag
+   * is known. Keep the selected provisional tag tied to the exact pending SDP
+   * so a later negotiation cannot reuse it for stale candidates.
+   */
+  private pendingInitialBundleRouting?: {
+    remoteDescription: SessionDescription;
+    tag: string;
+  };
 
   readonly iceGatheringStateChange = new Event<[IceGathererState]>();
   readonly iceConnectionStateChange = new Event<[RTCIceConnectionState]>();
@@ -652,21 +662,31 @@ export class RTCPeerConnection extends EventTarget {
     }
   }
 
-  private findOrCreateTransport() {
+  private findOrCreateTransport(mid?: string) {
     const existingDtlsTransport = this.dtlsTransports.find(
       (transport) => transport.state !== "closed",
     );
-    const existing = existingDtlsTransport?.iceTransport;
 
-    // Gather ICE candidates for only one track. If the remote endpoint is not bundle-aware, negotiate only one media track.
-    // https://w3c.github.io/webrtc-pc/#rtcbundlepolicy-enum
-    if (
-      this.sdpManager.bundlePolicy === "max-bundle" ||
-      (this.sdpManager.bundlePolicy !== "disable" && this.remoteIsBundled)
-    ) {
+    // `max-bundle` is a local allocation policy. A remote BUNDLE group is not
+    // a PeerConnection-wide boolean: group-outside m-sections still need their
+    // own transport. Existing remote members are resolved by MID when a caller
+    // explicitly supplies one; SRD performs the same mapping for a new offer.
+    if (this.sdpManager.bundlePolicy === "max-bundle") {
       if (existingDtlsTransport) {
         this.dtlsTransportCreated = true;
         return existingDtlsTransport;
+      }
+    }
+
+    if (mid && this.sdpManager.isBundleEstablished()) {
+      const group = this.sdpManager.getEstablishedBundleGroup();
+      if (group?.items.includes(mid)) {
+        const tag = group.items[0];
+        const tagTransport = tag ? this.getDtlsTransportForMid(tag) : undefined;
+        if (tagTransport && tagTransport.state !== "closed") {
+          this.dtlsTransportCreated = true;
+          return tagTransport;
+        }
       }
     }
 
@@ -707,11 +727,14 @@ export class RTCPeerConnection extends EventTarget {
         return;
       }
 
+      const candidateTarget = this.resolveLocalCandidateTarget(iceTransport);
+
       this.secureManager.handleNewIceCandidate({
         candidate,
         bundlePolicy: this.sdpManager.bundlePolicy,
-        remoteIsBundled: !!this.sdpManager.remoteIsBundled,
-        media: this._localDescription.media[0],
+        media: candidateTarget?.media,
+        candidateSdpMid: candidateTarget?.media.rtp.muxId ?? undefined,
+        candidateSdpMLineIndex: candidateTarget?.index,
         transceiver: this.transceiverManager
           .getTransceivers()
           .find((t) => t?.dtlsTransport?.iceTransport.id === iceTransport.id),
@@ -723,6 +746,78 @@ export class RTCPeerConnection extends EventTarget {
     });
 
     return dtlsTransport;
+  }
+
+  private getDtlsTransportForMid(mid: string) {
+    const transceiver = this.transceiverManager
+      .getTransceivers()
+      .find((candidate) => candidate.mid === mid);
+    if (transceiver) return transceiver.dtlsTransport;
+    if (this.sctpTransport?.mid === mid) {
+      return this.sctpTransport.dtlsTransport;
+    }
+    return undefined;
+  }
+
+  private resolveLocalCandidateTarget(
+    iceTransport: RTCIceTransport,
+  ): { media: MediaDescription; index: number } | undefined {
+    const description = this._localDescription;
+    if (!description) return undefined;
+
+    const matches = description.media
+      .map((media, index) => ({ media, index }))
+      .filter(
+        ({ media, index }) =>
+          this.getDtlsTransportForMedia(media, index)?.iceTransport.id ===
+          iceTransport.id,
+      );
+    if (matches.length === 0) return undefined;
+
+    const bundleGroup =
+      this.sdpManager.getEstablishedBundleGroup() ??
+      (this.sdpManager.bundlePolicy === "max-bundle"
+        ? this.sdpManager.getLocalBundleGroup()
+        : undefined);
+    const bundleTag = bundleGroup?.items[0];
+    const bundleMembers = matches.filter(({ media }) =>
+      bundleGroup?.items.includes(media.rtp.muxId ?? ""),
+    );
+    const routeToTag =
+      !!bundleTag &&
+      bundleMembers.length > 0 &&
+      (description.type !== "offer" ||
+        this.sdpManager.isBundleEstablished() ||
+        this.sdpManager.bundlePolicy === "max-bundle");
+    if (routeToTag) {
+      return (
+        description.media
+          .map((media, index) => ({ media, index }))
+          .find(({ media }) => media.rtp.muxId === bundleTag) ?? matches[0]
+      );
+    }
+    return matches[0];
+  }
+
+  private getDtlsTransportForMedia(media: MediaDescription, index: number) {
+    if (media.kind === "application") {
+      if (
+        this.sctpTransport &&
+        (this.sctpTransport.mid === media.rtp.muxId ||
+          this.sctpTransport.mLineIndex === index)
+      ) {
+        return this.sctpTransport.dtlsTransport;
+      }
+      return undefined;
+    }
+
+    const transceiver = this.transceiverManager
+      .getTransceivers()
+      .find(
+        (candidate) =>
+          candidate.mid === media.rtp.muxId || candidate.mLineIndex === index,
+      );
+    return transceiver?.dtlsTransport;
   }
 
   async setLocalDescription(sessionDescription: {
@@ -745,6 +840,7 @@ export class RTCPeerConnection extends EventTarget {
 
     if (sessionDescription?.type === "rollback") {
       this.sdpManager.rollbackLocalDescription(this.signalingState);
+      this.pendingInitialBundleRouting = undefined;
       this.setSignalingState("stable");
       if (this.shouldNegotiationneeded) {
         this.needNegotiation();
@@ -850,6 +946,11 @@ export class RTCPeerConnection extends EventTarget {
       this.transceiverManager.getTransceivers(),
       this.sctpTransport,
     );
+    if (description.type === "answer") {
+      // The local answer has selected the BUNDLE tag. Subsequent
+      // trickled candidates now follow the established MID mapping.
+      this.pendingInitialBundleRouting = undefined;
+    }
 
     await this.gatherCandidates().catch((e) => {
       log("gatherCandidates failed", e);
@@ -878,9 +979,7 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private async gatherCandidates() {
-    await this.secureManager.gatherCandidates(
-      !!this.sdpManager.remoteIsBundled,
-    );
+    await this.secureManager.gatherCandidates();
   }
 
   async addIceCandidate(
@@ -904,13 +1003,10 @@ export class RTCPeerConnection extends EventTarget {
     if (!sdp) {
       return;
     }
-    const isInitialBundleNegotiation =
-      ["have-remote-offer", "have-local-pranswer"].includes(
-        this.signalingState,
-      ) && !this.sdpManager.currentLocalDescription;
-    const initialBundleTag = isInitialBundleNegotiation
-      ? this.sdpManager.getRemoteBundleInfo()?.tag
-      : undefined;
+    const initialBundleTag =
+      this.pendingInitialBundleRouting?.remoteDescription === sdp
+        ? this.pendingInitialBundleRouting.tag
+        : undefined;
     const appliedCandidate = await this.secureManager.addIceCandidate(
       sdp,
       candidateMessage,
@@ -1130,11 +1226,13 @@ export class RTCPeerConnection extends EventTarget {
     }
 
     // # parse and validate description
+    const wasBundleEstablished = this.sdpManager.isBundleEstablished();
     const remoteSdp = this.sdpManager.setRemoteDescription(
       sessionDescription,
       this.signalingState,
     );
     if (!remoteSdp) {
+      this.pendingInitialBundleRouting = undefined;
       this.setSignalingState("stable");
       if (this.shouldNegotiationneeded) {
         this.needNegotiation();
@@ -1143,9 +1241,9 @@ export class RTCPeerConnection extends EventTarget {
       return;
     }
     let bundleTransport: RTCDtlsTransport | undefined;
-    const bundleInfo = this.sdpManager.getRemoteBundleInfo();
-    const bundleGroup = bundleInfo?.group;
-    const bundleTag = bundleInfo?.tag;
+    const bundleGroup = this.sdpManager.getRemoteBundleGroup();
+    const initialBundleNegotiation = !!bundleGroup && !wasBundleEstablished;
+    let bundleTag: string | undefined;
     const replacedBundleTransports = new Set<RTCDtlsTransport>();
     const pendingBundleRebindings: Array<{
       previousTransport: RTCDtlsTransport;
@@ -1155,6 +1253,8 @@ export class RTCPeerConnection extends EventTarget {
       remoteMedia: MediaDescription;
       isBundleMember: boolean;
       isBundleTag: boolean;
+      transceiver?: RTCRtpTransceiver;
+      rebind?: (transport: RTCDtlsTransport) => void;
       getDtlsTransport: () => RTCDtlsTransport;
       applyRemote: () => void;
     }> = [];
@@ -1173,13 +1273,13 @@ export class RTCPeerConnection extends EventTarget {
       index: i,
     }));
 
-    // First pass: keep SDP m-line order while assigning transceivers/SCTP, then
-    // select and rebind the final BUNDLE transport. setRemoteRTP() emits track
-    // events and creates ReceiverTWCC, so no media setup may run in this pass.
+    // First pass: allocate every m-line independently while preserving SDP
+    // order. A remote BUNDLE group is only a MID mapping at this point; using a
+    // PeerConnection-wide boolean here would incorrectly allocate group-outside
+    // sections on the shared transport.
     remoteMediaEntries.forEach(({ remoteMedia, index: i }) => {
-      const isBundleMember =
+      const offeredBundleMember =
         bundleGroup?.items.includes(remoteMedia.rtp.muxId ?? "") ?? false;
-      const isBundleTag = isBundleMember && remoteMedia.rtp.muxId === bundleTag;
 
       if (["audio", "video"].includes(remoteMedia.kind)) {
         let transceiver = this.transceiverManager
@@ -1206,32 +1306,24 @@ export class RTCPeerConnection extends EventTarget {
           transceiver.mid = remoteMedia.rtp.muxId ?? null;
         }
         transceiver.mLineIndex = i;
-
-        if (isBundleMember) {
-          if (isBundleTag) {
-            bundleTransport = transceiver.dtlsTransport;
-          } else if (bundleTransport) {
-            const previousTransport = transceiver.dtlsTransport;
-            transceiver.setDtlsTransport(bundleTransport);
-            if (previousTransport !== bundleTransport) {
-              replacedBundleTransports.add(previousTransport);
-            }
-          } else {
-            const previousTransport = transceiver.dtlsTransport;
-            const mappedTransceiver = transceiver;
-            pendingBundleRebindings.push({
-              previousTransport,
-              rebind: (transport) =>
-                mappedTransceiver.setDtlsTransport(transport),
-            });
-          }
+        // setRemoteRTP() normally assigns this field for an offer. Set it
+        // during the first pass as well so createAnswer() can determine which
+        // m-lines are locally acceptable before the final BUNDLE tag is
+        // committed. An answer updates currentDirection instead; overwriting
+        // offerDirection here would corrupt the next renegotiation.
+        if (remoteSdp.type === "offer") {
+          transceiver.offerDirection = reverseDirection(
+            remoteMedia.direction ?? "inactive",
+          );
         }
 
         const mappedTransceiver = transceiver;
         remoteMediaBindings.push({
           remoteMedia,
-          isBundleMember,
-          isBundleTag,
+          isBundleMember: offeredBundleMember,
+          isBundleTag: false,
+          transceiver: mappedTransceiver,
+          rebind: (transport) => mappedTransceiver.setDtlsTransport(transport),
           getDtlsTransport: () => mappedTransceiver.dtlsTransport,
           applyRemote: () =>
             this.transceiverManager.setRemoteRTP(
@@ -1247,32 +1339,15 @@ export class RTCPeerConnection extends EventTarget {
           sctpTransport = this.createSctpTransport();
           sctpTransport.mid = remoteMedia.rtp.muxId;
         }
-
-        if (isBundleMember) {
-          if (isBundleTag) {
-            bundleTransport = sctpTransport.dtlsTransport;
-          } else if (bundleTransport) {
-            const previousTransport = sctpTransport.dtlsTransport;
-            sctpTransport.setDtlsTransport(bundleTransport);
-            if (previousTransport !== bundleTransport) {
-              replacedBundleTransports.add(previousTransport);
-            }
-          } else {
-            const previousTransport = sctpTransport.dtlsTransport;
-            const mappedSctpTransport = sctpTransport;
-            pendingBundleRebindings.push({
-              previousTransport,
-              rebind: (transport) =>
-                mappedSctpTransport.setDtlsTransport(transport),
-            });
-          }
-        }
+        sctpTransport.mLineIndex = i;
 
         const mappedSctpTransport = sctpTransport;
         remoteMediaBindings.push({
           remoteMedia,
-          isBundleMember,
-          isBundleTag,
+          isBundleMember: offeredBundleMember,
+          isBundleTag: false,
+          rebind: (transport) =>
+            mappedSctpTransport.setDtlsTransport(transport),
           getDtlsTransport: () => mappedSctpTransport.dtlsTransport,
           applyRemote: () => this.sctpManager.setRemoteSCTP(remoteMedia, i),
         });
@@ -1280,6 +1355,61 @@ export class RTCPeerConnection extends EventTarget {
         throw new Error("invalid media kind");
       }
     });
+
+    // Select the tag using the local answer policy. For the initial BUNDLE
+    // negotiation this permits the next accepted MID to become the tag even
+    // when the first offered m-section is rejected. For an established group,
+    // SDPManager preserves the existing offerer-selected tag instead.
+    const eligibleBundleMids = new Set(
+      remoteMediaBindings
+        .filter(({ remoteMedia, transceiver }) => {
+          if (!remoteMedia.rtp.muxId || remoteMedia.port === 0) return false;
+          if (!transceiver) return true;
+          if (transceiver.stopping || transceiver.stopped) return false;
+          return (
+            andDirection(
+              transceiver.direction,
+              reverseDirection(remoteMedia.direction ?? "inactive"),
+            ) !== "inactive"
+          );
+        })
+        .map(({ remoteMedia }) => remoteMedia.rtp.muxId!)
+        .filter((mid) => bundleGroup?.items.includes(mid)),
+    );
+    const bundleInfo = this.sdpManager.getRemoteBundleInfo(eligibleBundleMids, {
+      initial: initialBundleNegotiation,
+    });
+    bundleTag = bundleInfo?.tag;
+    const acceptedBundleMids = new Set(bundleInfo?.items ?? []);
+    this.pendingInitialBundleRouting =
+      remoteSdp.type !== "answer" && initialBundleNegotiation && bundleTag
+        ? { remoteDescription: remoteSdp, tag: bundleTag }
+        : undefined;
+
+    // Rebind only the accepted BUNDLE membership. The tag may appear after a
+    // non-tag m-line in SDP, so keep those rebindings until the tag transport
+    // has been discovered.
+    for (const binding of remoteMediaBindings) {
+      const mid = binding.remoteMedia.rtp.muxId;
+      binding.isBundleMember = !!mid && acceptedBundleMids.has(mid);
+      binding.isBundleTag = binding.isBundleMember && mid === bundleTag;
+      if (!binding.isBundleMember) continue;
+
+      const currentTransport = binding.getDtlsTransport();
+      if (binding.isBundleTag) {
+        bundleTransport = currentTransport;
+      } else if (bundleTransport) {
+        if (currentTransport !== bundleTransport) {
+          binding.rebind?.(bundleTransport);
+          replacedBundleTransports.add(currentTransport);
+        }
+      } else {
+        pendingBundleRebindings.push({
+          previousTransport: currentTransport,
+          rebind: (transport) => binding.rebind?.(transport),
+        });
+      }
+    }
 
     if (bundleTransport) {
       for (const pending of pendingBundleRebindings) {
@@ -1290,78 +1420,84 @@ export class RTCPeerConnection extends EventTarget {
       }
     }
 
+    const cleanupReplacedBundleTransports = async () => {
+      // The second pass may throw after rebind (for example on codec
+      // negotiation failure). Cleanup must still release replaced transports.
+      const activeDtlsTransports = new Set(this.dtlsTransports);
+      await Promise.allSettled(
+        [...replacedBundleTransports]
+          .filter((transport) => !activeDtlsTransports.has(transport))
+          .map((transport) => this.secureManager.stopTransport(transport)),
+      );
+    };
+
     // Second pass: every receiver/sender now references its final transport.
     // Track callbacks and ReceiverTWCC therefore observe and retain the BUNDLE
     // tag transport even when the tag appeared after a same-kind m-line.
-    for (const binding of remoteMediaBindings) {
-      const {
-        remoteMedia,
-        isBundleMember,
-        isBundleTag,
-        getDtlsTransport,
-        applyRemote,
-      } = binding;
-      const dtlsTransport = getDtlsTransport();
-      applyRemote();
-      const iceTransport = dtlsTransport.iceTransport;
-      // BUNDLE transport の ICE/DTLS parameters は tag m-line が所有する。
-      // 非 tag section の credentials や candidate を共有 transport へ適用すると、
-      // 認証対象と実際の送信先が section の処理順で上書きされてしまう。
-      const shouldApplyBundleTransportParams =
-        !isBundleMember || isBundleTag || bundleTag === undefined;
+    try {
+      for (const binding of remoteMediaBindings) {
+        const {
+          remoteMedia,
+          isBundleMember,
+          isBundleTag,
+          getDtlsTransport,
+          applyRemote,
+        } = binding;
+        const dtlsTransport = getDtlsTransport();
+        applyRemote();
+        const iceTransport = dtlsTransport.iceTransport;
+        // BUNDLE transport の ICE/DTLS parameters は tag m-line が所有する。
+        // 非 tag section の credentials や candidate を共有 transport へ適用すると、
+        // 認証対象と実際の送信先が section の処理順で上書きされてしまう。
+        const shouldApplyBundleTransportParams =
+          !isBundleMember || isBundleTag || bundleTag === undefined;
 
-      if (remoteMedia.iceParams && shouldApplyBundleTransportParams) {
-        const renomination = !!this.sdpManager.inactiveRemoteMedia;
-        iceTransport.setRemoteParams(remoteMedia.iceParams, renomination);
+        if (remoteMedia.iceParams && shouldApplyBundleTransportParams) {
+          const renomination = !!this.sdpManager.inactiveRemoteMedia;
+          iceTransport.setRemoteParams(remoteMedia.iceParams, renomination);
 
-        // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
-        // RFC 8445 S6.1.1
-        if (remoteMedia.iceParams.iceLite && !iceTransport.connection.iceLite) {
-          iceTransport.connection.iceControlling = true;
+          // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
+          // RFC 8445 S6.1.1
+          if (
+            remoteMedia.iceParams.iceLite &&
+            !iceTransport.connection.iceLite
+          ) {
+            iceTransport.connection.iceControlling = true;
+          }
+        }
+        // For a BUNDLE transport, only the group's tag supplies DTLS
+        // parameters.  Applying later sections would replace the tag's
+        // fingerprint and make a valid certificate fail authentication.
+        if (remoteMedia.dtlsParams && shouldApplyBundleTransportParams) {
+          dtlsTransport.setRemoteParams(remoteMedia.dtlsParams);
+        }
+
+        // # add ICE candidates
+        if (shouldApplyBundleTransportParams) {
+          remoteMedia.iceCandidates.forEach(iceTransport.addRemoteCandidate);
+        }
+
+        if (
+          remoteMedia.iceCandidatesComplete &&
+          shouldApplyBundleTransportParams
+        ) {
+          iceTransport.addRemoteCandidate(undefined);
+        }
+
+        // # set DTLS role
+        if (
+          remoteSdp.type === "answer" &&
+          remoteMedia.dtlsParams?.role &&
+          shouldApplyBundleTransportParams
+        ) {
+          dtlsTransport.role =
+            remoteMedia.dtlsParams.role === "client" ? "server" : "client";
         }
       }
-      // For a BUNDLE transport, only the group's tag supplies DTLS
-      // parameters.  Applying later sections would replace the tag's
-      // fingerprint and make a valid certificate fail authentication.
-      if (remoteMedia.dtlsParams && shouldApplyBundleTransportParams) {
-        dtlsTransport.setRemoteParams(remoteMedia.dtlsParams);
-      }
-
-      // # add ICE candidates
-      if (shouldApplyBundleTransportParams) {
-        remoteMedia.iceCandidates.forEach(iceTransport.addRemoteCandidate);
-      }
-
-      if (
-        remoteMedia.iceCandidatesComplete &&
-        shouldApplyBundleTransportParams
-      ) {
-        iceTransport.addRemoteCandidate(undefined);
-      }
-
-      // # set DTLS role
-      if (
-        remoteSdp.type === "answer" &&
-        remoteMedia.dtlsParams?.role &&
-        shouldApplyBundleTransportParams
-      ) {
-        dtlsTransport.role =
-          remoteMedia.dtlsParams.role === "client" ? "server" : "client";
-      }
+    } finally {
+      await cleanupReplacedBundleTransports();
     }
 
-    // A max-compat offer creates one DTLS transport per m-line before the
-    // remote BUNDLE group is applied.  Once a non-tag section is rebound to
-    // the tag transport, the old transport is no longer visible through the
-    // transceiver manager, so stop it explicitly to release its ICE listener,
-    // timers, and early-data buffers.  Keep any transport still referenced by
-    // another active section.
-    const activeDtlsTransports = new Set(this.dtlsTransports);
-    await Promise.allSettled(
-      [...replacedBundleTransports]
-        .filter((transport) => !activeDtlsTransports.has(transport))
-        .map((transport) => this.secureManager.stopTransport(transport)),
-    );
     if (this.isClosed) {
       return;
     }

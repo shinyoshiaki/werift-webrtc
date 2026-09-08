@@ -13,6 +13,7 @@ import {
 import { SpedRuntime } from "../../../ice/src/sped/runtime";
 import { type Message, paddingLength } from "../../../ice/src/stun/message";
 import type { Protocol } from "../../../ice/src/types/model";
+import { SCTP_STATE } from "../../../sctp/src";
 import {
   DtlsVersion,
   HashAlgorithm,
@@ -912,6 +913,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
     const channel = server.createDataChannel("early-retry");
     const initialAssociation = server.sctp!.sctp;
     let restoreSendData = () => {};
+    let restoreDataReceiver = () => {};
 
     try {
       exchangeIceCandidates(server, client);
@@ -919,18 +921,35 @@ describe("RTCPeerConnection SPED opt-in", () => {
       await client.setRemoteDescription(server.localDescription!);
       await client.setLocalDescription(await client.createAnswer());
       const serverDtls = server.dtlsTransports[0]!;
+      const originalDataReceiver = serverDtls.dataReceiver;
+      const heldInboundData: Buffer[] = [];
+      let holdInboundData = true;
+      serverDtls.dataReceiver = (data) => {
+        if (holdInboundData) {
+          heldInboundData.push(data);
+          return;
+        }
+        originalDataReceiver(data);
+      };
+      restoreDataReceiver = () => {
+        serverDtls.dataReceiver = originalDataReceiver;
+      };
       const mutableDtls = serverDtls as unknown as {
         sendData: (data: Buffer) => Promise<void>;
       };
       const originalSendData = mutableDtls.sendData;
-      let earlyInitRejected = false;
+      let earlyInitSent = false;
+      let earlyInitWireResolve!: () => void;
+      const earlyInitWire = new Promise<void>((resolve) => {
+        earlyInitWireResolve = resolve;
+      });
       mutableDtls.sendData = async (data) => {
-        if (!earlyInitRejected && serverDtls.isEarlyServerWriteAllowed()) {
-          // Act: early INIT送信直前にlive policyをrevokeして初回associationを閉じる。
-          earlyInitRejected = true;
-          server.setConfiguration({
-            warp: { allowEarlyServerData: false },
-          });
+        if (!earlyInitSent && serverDtls.isEarlyServerWriteAllowed()) {
+          // Act: INITをwireへ通してから、後続のINIT_ACKだけを一時保留する。
+          earlyInitSent = true;
+          await originalSendData(data);
+          earlyInitWireResolve();
+          return;
         }
         await originalSendData(data);
       };
@@ -938,8 +957,26 @@ describe("RTCPeerConnection SPED opt-in", () => {
         mutableDtls.sendData = originalSendData;
       };
 
-      // Act: answerを適用し、認証後の通常SCTP retryとDataChannel openを待つ。
+      // Act: answerを適用し、early INITがwireへ出るまで待つ。
       await server.setRemoteDescription(client.localDescription!);
+      await earlyInitWire;
+      await waitUntil(
+        () => initialAssociation.associationState === SCTP_STATE.COOKIE_WAIT,
+      );
+
+      const revokeAt = Date.now();
+      server.setConfiguration({
+        warp: { allowEarlyServerData: false },
+      });
+      await waitUntil(
+        () => initialAssociation.associationState === SCTP_STATE.CLOSED,
+      );
+
+      // Act: 保留していたINIT_ACKを解放し、認証後の通常SCTP retryへ進める。
+      holdInboundData = false;
+      heldInboundData.forEach(originalDataReceiver);
+
+      // Act: answerを適用し、認証後の通常SCTP retryとDataChannel openを待つ。
       await waitUntil(
         () =>
           server.connectionState === "connected" &&
@@ -948,13 +985,15 @@ describe("RTCPeerConnection SPED opt-in", () => {
       );
 
       // Assert: early失敗をterminalにせず、新しいassociationで接続する。
-      expect(earlyInitRejected).toBe(true);
+      expect(earlyInitSent).toBe(true);
+      expect(Date.now() - revokeAt).toBeLessThan(1_000);
       expect(server.sctp!.sctp).not.toBe(initialAssociation);
       expect(server.connectionState).toBe("connected");
       expect(client.connectionState).toBe("connected");
       expect(channel.readyState).toBe("open");
     } finally {
       restoreSendData();
+      restoreDataReceiver();
       await Promise.allSettled([server.close(), client.close()]);
     }
   }, 30_000);

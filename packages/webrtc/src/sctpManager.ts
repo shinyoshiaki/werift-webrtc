@@ -20,7 +20,11 @@ export class SctpTransportManager {
   dataChannelsOpened = 0;
   dataChannelsClosed = 0;
   private dataChannels: RTCDataChannel[] = [];
-  private connectPromise?: Promise<void>;
+  /** A fulfilled promise belongs to one concrete SCTP association only. */
+  private connectAttempt?: {
+    association: SCTP;
+    promise: Promise<void>;
+  };
 
   readonly onDataChannel = new Event<[RTCDataChannel]>();
 
@@ -110,12 +114,13 @@ export class SctpTransportManager {
     if (!this.sctpTransport || !this.sctpRemotePort) {
       return;
     }
-    if (this.connectPromise) {
-      await this.connectPromise;
-      return;
-    }
     const transport = this.sctpTransport;
     const association = transport.prepareForStart();
+    const previousAttempt = this.connectAttempt;
+    if (previousAttempt?.association === association) {
+      await previousAttempt.promise;
+      return;
+    }
     const outcome = this.waitForSctpOutcome(association);
     // Attach a fulfillment handler before starting SCTP.  INIT failure can
     // synchronously transition the association to CLOSED, so awaiting only
@@ -136,11 +141,14 @@ export class SctpTransportManager {
         outcome.dispose();
       }
     })();
-    this.connectPromise = attempt;
+    const currentAttempt = { association, promise: attempt };
+    this.connectAttempt = currentAttempt;
     try {
       await attempt;
     } catch (error) {
-      if (this.connectPromise === attempt) this.connectPromise = undefined;
+      if (this.connectAttempt === currentAttempt) {
+        this.connectAttempt = undefined;
+      }
       throw error;
     }
   }
@@ -169,7 +177,10 @@ export class SctpTransportManager {
       ).unSubscribe;
       unSubscribeClosed = sctp.stateChanged.closed.subscribe(() =>
         complete(() =>
-          reject(new Error("SCTP association closed before connecting")),
+          reject(
+            sctp.startCancellationError ??
+              new Error("SCTP association closed before connecting"),
+          ),
         ),
       ).unSubscribe;
 
@@ -179,7 +190,10 @@ export class SctpTransportManager {
         complete(resolve);
       } else if (sctp.state === "closed") {
         complete(() =>
-          reject(new Error("SCTP association closed before connecting")),
+          reject(
+            sctp.startCancellationError ??
+              new Error("SCTP association closed before connecting"),
+          ),
         );
       }
     });

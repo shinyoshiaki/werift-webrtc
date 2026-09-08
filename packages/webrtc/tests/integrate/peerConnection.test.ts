@@ -635,7 +635,7 @@ describe("peerConnection", () => {
     }
   });
 
-  test("answer は remote offer の BUNDLE tag と membership を維持する", async () => {
+  test("partial BUNDLE は group外 m-line を独立 transport に割り当てる", async () => {
     // Arrange: applicationをgroup外に置き、第2 mediaをtagにしたpartial BUNDLE offerを作る。
     const caller = new RTCPeerConnection({
       iceServers: [],
@@ -662,14 +662,281 @@ describe("peerConnection", () => {
         ),
       };
 
-      // Act: partial/reverse BUNDLE offerを適用してanswerを生成する。
+      // Act: partial/reverse BUNDLE offerを適用してtransport graphを構築する。
       await callee.setRemoteDescription(modifiedOffer);
+
+      // Assert: audio/videoだけがtag transportを共有し、applicationは独立する。
+      const [audioTransceiver, videoTransceiver] = callee.getTransceivers();
+      expect(callee.dtlsTransports).toHaveLength(2);
+      expect(audioTransceiver?.dtlsTransport).toBe(
+        videoTransceiver?.dtlsTransport,
+      );
+      expect(callee.sctp?.dtlsTransport).not.toBe(
+        audioTransceiver?.dtlsTransport,
+      );
+      expect(
+        callee.sctp?.dtlsTransport.iceTransport.connection.remoteUsername,
+      ).toBe(
+        modifiedOffer.sdp
+          .split(/(?=^m=)/m)
+          .find((section) => section.startsWith("m=application"))
+          ?.match(/^a=ice-ufrag:([^\r\n]+)$/m)?.[1],
+      );
+
       const answer = await callee.createAnswer();
 
       // Assert: answerはtagを並べ替えず、group外MIDも勝手に追加しない。
       expect(answer.sdp.match(/^a=group:BUNDLE ([^\r\n]+)$/m)?.[1]).toBe(
         offeredBundle,
       );
+
+      // Act: partial BUNDLE answerを双方へ適用し、独立transportも接続する。
+      await callee.setLocalDescription(answer);
+      await caller.setRemoteDescription(callee.localDescription!);
+      await Promise.all([
+        waitForConnectionState(caller, "connected"),
+        waitForConnectionState(callee, "connected"),
+      ]);
+
+      // Assert: SDP上だけでなく、BUNDLE transportとapplication transportが
+      // それぞれICE/DTLS接続済みになる。
+      expect(caller.connectionState).toBe("connected");
+      expect(callee.connectionState).toBe("connected");
+      expect(callee.sctp?.dtlsTransport.state).toBe("connected");
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
+  test("initial BUNDLE は拒否されたtagから受理MIDへfallbackし、credentialsを一致させる", async () => {
+    // Arrange: 先頭 audio は answer 側の direction で拒否し、videoだけ受理する。
+    const caller = new RTCPeerConnection({ iceServers: [] });
+    const callee = new RTCPeerConnection({ iceServers: [] });
+    caller.addTransceiver("audio", { direction: "recvonly" });
+    caller.addTransceiver("video");
+    callee.addTransceiver("audio", { direction: "recvonly" });
+    callee.addTransceiver("video");
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      const offer = caller.localDescription!;
+      const offerSections = offer.sdp.split(/(?=^m=)/m);
+      const audioSection = offerSections.find((section) =>
+        section.startsWith("m=audio"),
+      )!;
+      const videoSection = offerSections.find((section) =>
+        section.startsWith("m=video"),
+      )!;
+      const audioMid = audioSection.match(/^a=mid:([^\r\n]+)$/m)![1]!;
+      const videoMid = videoSection.match(/^a=mid:([^\r\n]+)$/m)![1]!;
+      const audioUfrag = audioSection.match(/^a=ice-ufrag:([^\r\n]+)$/m)![1]!;
+      const videoUfrag = videoSection.match(/^a=ice-ufrag:([^\r\n]+)$/m)![1]!;
+
+      // Act: initial BUNDLE offerを適用し、受理可能性を見てtagを選択する。
+      await callee.setRemoteDescription(offer);
+
+      // Assert: fallback tagのvideoだけが共有transportを所有し、各remote
+      // credentialsは誤った先頭tagで上書きされない。
+      const [audioTransceiver, videoTransceiver] = callee.getTransceivers();
+      expect(audioTransceiver?.dtlsTransport).not.toBe(
+        videoTransceiver?.dtlsTransport,
+      );
+      expect(
+        audioTransceiver?.dtlsTransport.iceTransport.connection.remoteUsername,
+      ).toBe(audioUfrag);
+      expect(
+        videoTransceiver?.dtlsTransport.iceTransport.connection.remoteUsername,
+      ).toBe(videoUfrag);
+
+      const answer = await callee.createAnswer();
+
+      // Assert: answer groupは受理されたvideo MIDを先頭tagにし、audioを含めない。
+      expect(answer.sdp).toMatch(
+        new RegExp(`^a=group:BUNDLE ${videoMid}$`, "m"),
+      );
+      const answerAudio = answer.sdp
+        .split(/(?=^m=)/m)
+        .find((section) => section.startsWith("m=audio"));
+      expect(answerAudio).toMatch(/^m=audio 0 /);
+      expect(answer.sdp).toContain(`a=mid:${audioMid}`);
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
+  test("subsequent BUNDLE rebind は既存 ReceiverTWCC と SCTP association を更新する", async () => {
+    // Arrange: 最初は BUNDLE なしで video と DataChannel を接続する。
+    const codecs = {
+      video: [useVP8({ payloadType: 96, rtcpFeedback: [useTWCC()] })],
+    };
+    const caller = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "max-compat",
+      codecs,
+    });
+    const callee = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "max-compat",
+      codecs,
+    });
+    caller.addTransceiver("video");
+    const channel = caller.createDataChannel("rebind");
+    const remoteChannelPromise = new Promise<RTCDataChannel>((resolve) => {
+      callee.ondatachannel = ({ channel: remoteChannel }) =>
+        resolve(remoteChannel);
+    });
+
+    try {
+      const generatedOffer = await caller.createOffer();
+      const initialOfferSdp = generatedOffer.sdp.replace(
+        /^a=group:BUNDLE [^\r\n]+\r?\n/m,
+        "",
+      );
+      // The test intentionally supplies a valid no-BUNDLE first offer so the
+      // second negotiation is the first BUNDLE negotiation for this session.
+      (caller as unknown as { lastCreatedOffer?: unknown }).lastCreatedOffer =
+        undefined;
+      await caller.setLocalDescription({
+        type: "offer",
+        sdp: initialOfferSdp,
+      });
+      await callee.setRemoteDescription(caller.localDescription!);
+      await callee.setLocalDescription(await callee.createAnswer());
+      await caller.setRemoteDescription(callee.localDescription!);
+      await Promise.all([
+        waitForConnectionState(caller, "connected"),
+        waitForConnectionState(callee, "connected"),
+        assertDataChannelOpen(channel),
+      ]);
+      const remoteChannel = await remoteChannelPromise;
+      await assertDataChannelOpen(remoteChannel);
+
+      const calleeVideoTransport = callee.getTransceivers()[0]!.dtlsTransport;
+      const calleeSctpTransport = callee.sctp!;
+      const oldCalleeAppTransport = calleeSctpTransport.dtlsTransport;
+      const oldCalleeAssociation = calleeSctpTransport.sctp;
+      const receiverTwcc = (
+        callee.getReceivers()[0] as unknown as {
+          receiverTWCC?: { handleTWCC(sequenceNumber: number): void };
+        }
+      ).receiverTWCC;
+      expect(receiverTwcc).toBeDefined();
+      expect(calleeVideoTransport).not.toBe(calleeSctpTransport.dtlsTransport);
+
+      // Act: 次の offer で初めて BUNDLE を成立させ、applicationをvideoへrebindする。
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription(caller.localDescription!);
+
+      // Assert: rebind直後からSCTP2を保持し、SCTP1の停止を開始する。
+      const newCalleeAssociation = calleeSctpTransport.sctp;
+      expect(newCalleeAssociation).not.toBe(oldCalleeAssociation);
+      expect(calleeSctpTransport.dtlsTransport).toBe(calleeVideoTransport);
+      await waitForSctpClosed(oldCalleeAssociation);
+
+      let tagFeedback = 0;
+      let staleFeedback = 0;
+      const originalSendRtcp = calleeVideoTransport.sendRtcp;
+      const originalStaleSendRtcp = oldCalleeAppTransport.sendRtcp;
+      calleeVideoTransport.sendRtcp = async () => {
+        tagFeedback++;
+        return undefined;
+      };
+      oldCalleeAppTransport.sendRtcp = async () => {
+        staleFeedback++;
+        return undefined;
+      };
+      try {
+        // Act: rebind後のReceiverTWCCからfeedbackを生成する。
+        for (let sequenceNumber = 0; sequenceNumber < 11; sequenceNumber++) {
+          receiverTwcc!.handleTWCC(sequenceNumber);
+        }
+        await setTimeout(0);
+
+        // Assert: feedbackは新しいtag transportへだけ送る。
+        expect(tagFeedback).toBe(1);
+        expect(staleFeedback).toBe(0);
+      } finally {
+        calleeVideoTransport.sendRtcp = originalSendRtcp;
+        oldCalleeAppTransport.sendRtcp = originalStaleSendRtcp;
+      }
+
+      const answer = await callee.createAnswer();
+      await callee.setLocalDescription(answer);
+      await caller.setRemoteDescription(callee.localDescription!);
+      const newCallerAssociation = caller.sctp!.sctp;
+      await Promise.all([
+        waitForSctpConnected(newCalleeAssociation),
+        waitForSctpConnected(newCallerAssociation),
+      ]);
+
+      // Act: associationを張り直した後も同じDataChannelで送信する。
+      const received = remoteChannel.onMessage.asPromise(5_000);
+      channel.send("after-rebind");
+
+      // Assert: DataChannel registry/IDを保持したまま再送受信できる。
+      expect((await received)[0].toString()).toBe("after-rebind");
+      expect(channel.readyState).toBe("open");
+      expect(remoteChannel.readyState).toBe("open");
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  }, 30_000);
+
+  test("BUNDLE second passの失敗時もrebind済み旧transportをcleanupする", async () => {
+    // Arrange: 後段のtag m-lineだけcodec不一致にし、先行m-lineのrebind後に
+    // second passが失敗するofferを作る。
+    const caller = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "max-compat",
+    });
+    const callee = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "max-compat",
+    });
+    caller.addTransceiver("video");
+    caller.addTransceiver("video");
+    callee.addTransceiver("video");
+    callee.addTransceiver("video");
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      const sections = caller.localDescription!.sdp.split(/(?=^m=)/m);
+      const mediaSections = sections.filter((section) =>
+        section.startsWith("m=video"),
+      );
+      expect(mediaSections).toHaveLength(2);
+      const tagMid = mediaSections[1]!.match(/^a=mid:([^\r\n]+)$/m)![1]!;
+      const nonTagMid = mediaSections[0]!.match(/^a=mid:([^\r\n]+)$/m)![1]!;
+      const invalidTagSection = mediaSections[1]!.replace(
+        /^(a=rtpmap:\d+ )VP8(\/[^\r\n]+)$/gm,
+        "$1VP9$2",
+      );
+      expect(invalidTagSection).not.toBe(mediaSections[1]);
+      const modifiedSdp = sections
+        .map((section) =>
+          section === mediaSections[0]
+            ? section
+            : section === mediaSections[1]
+              ? invalidTagSection
+              : section,
+        )
+        .join("")
+        .replace(
+          /^a=group:BUNDLE [^\r\n]+$/m,
+          `a=group:BUNDLE ${tagMid} ${nonTagMid}`,
+        );
+      const oldNonTagTransport = callee.getTransceivers()[0]!.dtlsTransport;
+
+      // Act: first passのrebind後、tag sectionのcodec検証でSRDを失敗させる。
+      await expect(
+        callee.setRemoteDescription({ type: "offer", sdp: modifiedSdp }),
+      ).rejects.toThrow("negotiate codecs failed");
+
+      // Assert: 失敗しても旧transportのICE socketとDTLS状態を解放する。
+      expect(oldNonTagTransport.state).toBe("closed");
+      expect(oldNonTagTransport.iceTransport.state).toBe("closed");
+      expect(callee.dtlsTransports).not.toContain(oldNonTagTransport);
+      expect(callee.dtlsTransports).toHaveLength(1);
     } finally {
       await Promise.allSettled([caller.close(), callee.close()]);
     }
@@ -1739,6 +2006,24 @@ async function assertDataChannelOpen(dc: RTCDataChannel) {
       }
     });
   });
+}
+
+async function waitForSctpConnected(association: {
+  associationState: SCTP_STATE;
+  stateChanged: {
+    connected: { asPromise(timeLimit?: number): Promise<unknown> };
+  };
+}) {
+  if (association.associationState === SCTP_STATE.ESTABLISHED) return;
+  await association.stateChanged.connected.asPromise(5_000);
+}
+
+async function waitForSctpClosed(association: {
+  associationState: SCTP_STATE;
+  stateChanged: { closed: { asPromise(timeLimit?: number): Promise<unknown> } };
+}) {
+  if (association.associationState === SCTP_STATE.CLOSED) return;
+  await association.stateChanged.closed.asPromise(5_000);
 }
 
 function removeMaxMessageSize(sdp: string) {

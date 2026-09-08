@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { Event, debug } from "../imports/common";
 
 import { SCTP, SCTP_STATE, type Transport } from "../../../sctp/src";
+import { SCTPStartCancelledError } from "../../../sctp/src/sctp";
 import {
   DATA_CHANNEL_ACK,
   DATA_CHANNEL_OPEN,
@@ -56,7 +57,18 @@ export class RTCSctpTransport {
       return;
     }
 
+    const previousAssociation = this.sctp;
     this.disposeSctpListeners();
+
+    // Rebinding creates a new SCTP association. Stop the old one explicitly so
+    // its retransmission timers and DTLS receive callback cannot outlive the
+    // transport graph. The channel registry/queue intentionally remains on
+    // RTCSctpTransport so existing DataChannels can use the fresh association.
+    if (previousAssociation) {
+      void previousAssociation.stop().catch((error) => {
+        log("old SCTP association stop failed", error);
+      });
+    }
 
     this.dtlsTransport = dtlsTransport;
     this.stopping = false;
@@ -101,6 +113,28 @@ export class RTCSctpTransport {
           if (!association.hadEstablished && !this.stopping) return;
           this.closeDataChannels();
         }),
+        ...(() => {
+          // A pre-established early association cannot make progress after
+          // permission is revoked. Cancel it immediately instead of waiting
+          // for SCTP T1 retransmissions to expire; authenticated retry will
+          // create a fresh association through SctpTransportManager.
+          const cancelStart = () => {
+            if (
+              this.sctp === association &&
+              association.associationState !== SCTP_STATE.ESTABLISHED
+            ) {
+              association.cancelStart(new SCTPStartCancelledError());
+            }
+          };
+          return [
+            this.dtlsTransport.onEarlyApplicationSendRevoked?.subscribe(
+              cancelStart,
+            ),
+            this.dtlsTransport.onEarlyApplicationAttemptCancelled?.subscribe(
+              cancelStart,
+            ),
+          ].flatMap((subscription) => (subscription ? [subscription] : []));
+        })(),
         this.dtlsTransport.onStateChange.subscribe((state) => {
           if (state === "failed" || state === "closed") {
             // DTLS failure is terminal for this SCTP association.  Do not

@@ -112,6 +112,7 @@ export class RTCRtpReceiver {
 
   setDtlsTransport(dtls: RTCDtlsTransport) {
     this.dtlsTransport = dtls;
+    this.receiverTWCC?.setDtlsTransport(dtls);
   }
 
   // todo fix

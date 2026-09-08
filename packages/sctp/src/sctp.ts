@@ -75,6 +75,16 @@ const SCTP_HEARTBEAT_INTERVAL = 30;
 
 const RECONFIG_MAX_STREAMS = 135;
 
+/** A pre-established association was deliberately abandoned by its owner. */
+export class SCTPStartCancelledError extends Error {
+  readonly code = "SCTP_START_CANCELLED" as const;
+
+  constructor(message = "SCTP association start cancelled") {
+    super(message);
+    this.name = "SCTPStartCancelledError";
+  }
+}
+
 // # parameters
 const SCTP_STATE_COOKIE = 0x0007;
 const SCTP_SUPPORTED_CHUNK_EXT = 0x8008; //32778
@@ -105,6 +115,7 @@ export class SCTP {
   private isStopping = false;
   private isClosed = false;
   private wasEstablished = false;
+  private _startCancellationError?: Error;
 
   private hmacKey = randomBytes(16);
   private localPartialReliability = true;
@@ -211,6 +222,11 @@ export class SCTP {
   /** @internal True when this association reached ESTABLISHED before it closed. */
   get hadEstablished() {
     return this.wasEstablished;
+  }
+
+  /** @internal Error supplied when a pre-established start was cancelled. */
+  get startCancellationError() {
+    return this._startCancellationError;
   }
 
   static client(transport: Transport, port = 5000) {
@@ -363,9 +379,15 @@ export class SCTP {
           ]);
           ack.params.push([SCTP_STATE_COOKIE, cookie]);
           log("send initAck", ack);
-          await this.sendChunk(ack).catch((err: Error) => {
+          try {
+            await this.sendChunk(ack);
+          } catch (error) {
+            const err =
+              error instanceof Error ? error : new Error(String(error));
             log("send initAck failed", err.message);
-          });
+            this.cancelStart(err);
+            return;
+          }
         }
         break;
       case InitAckChunk.type:
@@ -397,10 +419,17 @@ export class SCTP {
               break;
             }
           }
-          await this.sendChunk(echo).catch((err: Error) => {
+          try {
+            await this.sendChunk(echo);
+          } catch (error) {
+            const err =
+              error instanceof Error ? error : new Error(String(error));
             log("send echo failed", err.message);
-          });
+            this.cancelStart(err);
+            return;
+          }
 
+          if (this.isStopped) return;
           this.timer1Start(echo);
           this.setState(SCTP_STATE.COOKIE_ECHOED);
         }
@@ -474,9 +503,15 @@ export class SCTP {
             return;
           }
           const ack = new CookieAckChunk();
-          await this.sendChunk(ack).catch((err: Error) => {
+          try {
+            await this.sendChunk(ack);
+          } catch (error) {
+            const err =
+              error instanceof Error ? error : new Error(String(error));
             log("send cookieAck failed", err.message);
-          });
+            this.cancelStart(err);
+            return;
+          }
           this.setState(SCTP_STATE.ESTABLISHED);
         }
         break;
@@ -1074,8 +1109,10 @@ export class SCTP {
     } else {
       setImmediate(() => {
         if (this.isStopped) return;
-        this.sendChunk(this.timer1Chunk!).catch((err: Error) => {
+        this.sendChunk(this.timer1Chunk!).catch((error) => {
+          const err = error instanceof Error ? error : new Error(String(error));
           log("send timer1 chunk failed", err.message);
+          this.cancelStart(err);
         });
       });
       if (this.isStopped) return;
@@ -1362,6 +1399,7 @@ export class SCTP {
 
     try {
       await this.sendChunk(init);
+      if (this.isStopped) return;
 
       // # start T1 timer and enter COOKIE-WAIT state
       this.timer1Start(init);
@@ -1454,6 +1492,20 @@ export class SCTP {
     clearTimeout(this.timerReconfigHandle);
     clearTimeout(this.timerHeartbeatHandle);
     clearTimeout(this.sackTimeout);
+  }
+
+  /**
+   * Abort a pre-established association without waiting for T1. This is used
+   * by early WebRTC paths when their permission or carrier generation is
+   * revoked; an authenticated retry can then allocate a new SCTP instance.
+   */
+  cancelStart(error: Error = new SCTPStartCancelledError()): boolean {
+    if (this.associationState === SCTP_STATE.ESTABLISHED) return false;
+    this._startCancellationError = error;
+    this.isStopping = true;
+    this.transport.onData = undefined;
+    this.setState(SCTP_STATE.CLOSED);
+    return true;
   }
 
   async abort() {

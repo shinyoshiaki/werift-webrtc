@@ -270,6 +270,10 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   private readonly onWriteReady = new Event<[]>();
   private readonly onPeerAuthenticated = new Event<[]>();
   private readonly onHandshakeComplete = new Event<[]>();
+  /** @internal Notifies SCTP that its pre-authenticated early start was revoked. */
+  readonly onEarlyApplicationSendRevoked = new Event<[]>();
+  /** @internal Cancels pre-established associations owned by an old attempt. */
+  readonly onEarlyApplicationAttemptCancelled = new Event<[]>();
   /** Wakes readiness waiters when a connected association adopts a new attempt. */
   private readonly onAttemptChanged = new Event<[]>();
   private readonly applicationGate: InboundApplicationGate;
@@ -331,6 +335,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
   /** @internal Update the live WARP policy without leaving a stale snapshot. */
   updateWarpConfig(warp: DtlsTransportConfig["warp"]): void {
+    const previousAllowEarlyServerData =
+      this.config.warp?.allowEarlyServerData === true;
     const nextWarp = {
       allowEarlyServerData: warp?.allowEarlyServerData === true,
       earlyMediaPolicy: warp?.earlyMediaPolicy ?? "drop",
@@ -341,6 +347,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     this.spedTransport?.setEarlyApplicationSendEnabled(
       nextWarp.allowEarlyServerData,
     );
+    if (previousAllowEarlyServerData && !nextWarp.allowEarlyServerData) {
+      this.onEarlyApplicationSendRevoked.execute();
+    }
     if (previousPolicy !== nextWarp.earlyMediaPolicy) {
       // A policy change invalidates protected media accumulated under the old
       // policy. Dispose the old retention timer before replacing the queue.
@@ -563,6 +572,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     if (generation === this.currentAttempt.iceGeneration) return;
     if (this.state === "connected") {
       // 認証済み association は維持し、新 generation へ attempt を付け替える。
+      this.onEarlyApplicationAttemptCancelled.execute();
       this.rebindConnectedAttempt(this.beginAttempt(generation));
       return;
     }
@@ -570,6 +580,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
     // A restart never mutates an in-flight attempt.  Continuations captured
     // by the previous generation must fail the identity check below.
+    this.onEarlyApplicationAttemptCancelled.execute();
     this.beginAttempt(generation);
     // 新 attempt 用に gate を開き直す (旧 drain 残余は呼び出し側が破棄する)。
     this.applicationGate.restartForNewAttempt();
@@ -903,6 +914,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       },
       onSessionReset: () => {
         carrier.invalidateInboundInjects?.();
+        this.onEarlyApplicationAttemptCancelled.execute();
         this.resetMediaBufferForNewAttempt();
         transport.setEarlyApplicationSendEnabled(
           this.config.warp?.allowEarlyServerData === true,
@@ -958,6 +970,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         }
       },
       onSessionAbort: () => {
+        this.onEarlyApplicationAttemptCancelled.execute();
         this.earlyModeDisabled = true;
         transport.setEarlyApplicationSendEnabled(false);
         // ICE/SPED abort invalidates early SRTP permission immediately.  The
@@ -972,6 +985,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         carrier.cancelAllTimers();
       },
       onFallbackFlight: async () => {
+        this.onEarlyApplicationAttemptCancelled.execute();
         this.earlyModeDisabled = true;
         transport.setEarlyApplicationSendEnabled(false);
         this.srtpWriteReady = false;
