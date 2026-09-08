@@ -3,6 +3,7 @@ export {
   LegacyCumulativeBandwidthEstimator,
   SenderBandwidthEstimator,
 } from "./legacyCumulativeBwe";
+export { DisabledBandwidthEstimator } from "./disabledBwe";
 export {
   GCC_KNOWN_DIFFERENCES,
   GccBandwidthEstimator,

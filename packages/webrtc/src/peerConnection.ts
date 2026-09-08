@@ -26,6 +26,7 @@ import {
   usePCMU,
   useVP8,
 } from "./media";
+import type { BandwidthEstimatorOption } from "./media/sender/createBandwidthEstimator";
 import {
   type RTCPeerConnectionStats,
   type RTCStats,
@@ -1344,6 +1345,19 @@ export interface PeerConfig {
    * events (the application must skip or rewrite them).
    */
   filterProbePaddingOnReceiveRtp: boolean;
+  /**
+   * Send-side {@link BandwidthEstimator} used for each new {@link RTCRtpSender}.
+   *
+   * - `"legacy"` (default): {@link SenderBandwidthEstimator}
+   * - `"gcc"`: {@link GccBandwidthEstimator}
+   * - `false` / `"none"`: {@link DisabledBandwidthEstimator} (no TWCC BWE)
+   * - factory `() => BandwidthEstimator`: called once per sender
+   *
+   * Changing this via {@link RTCPeerConnection.setConfiguration} applies only
+   * to senders created afterwards. Per-sender swap remains
+   * {@link RTCRtpSender.setBandwidthEstimator}.
+   */
+  bandwidthEstimator: BandwidthEstimatorOption;
 }
 
 export const findCodecByMimeType = (
@@ -1432,6 +1446,7 @@ function generateDefaultPeerConfig(): PeerConfig {
     forceTurnTCP: false,
     maxMessageSize: DEFAULT_MAX_MESSAGE_SIZE,
     filterProbePaddingOnReceiveRtp: true,
+    bandwidthEstimator: "legacy",
   };
 }
 export const defaultPeerConfig: PeerConfig = generateDefaultPeerConfig();

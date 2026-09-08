@@ -36,6 +36,8 @@ server.on("connection", async (socket) => {
     headerExtensions: { video: [useAbsSendTime(), useTransportWideCC()] },
   });
   const sender = new RTCPeerConnection({
+    // Default BWE is "legacy". Use "gcc", false/"none" to disable, or a factory.
+    // bandwidthEstimator: "gcc",
     codecs: {
       video: [
         new RTCRtpCodecParameters({
@@ -61,7 +63,8 @@ server.on("connection", async (socket) => {
   });
   // Prefer rtpSender.onAvailableBitrate (bps, change-only; survives estimator swap).
   // onCongestion is legacy SenderBandwidthEstimator-only (default BWE).
-  // GCC: rtpSender.setBandwidthEstimator(new GccBandwidthEstimator()).
+  // Connection-wide GCC: new RTCPeerConnection({ bandwidthEstimator: "gcc" }).
+  // Per-sender: rtpSender.setBandwidthEstimator(new GccBandwidthEstimator()).
   const rtpSender = senderTransceiver.sender;
   rtpSender.onAvailableBitrate.subscribe((bps) =>
     console.log("availableBitrate", bps),

@@ -19,6 +19,7 @@ import {
   Sendrecv,
   type TransceiverOptions,
 } from "./media";
+import { createBandwidthEstimator } from "./media/sender/createBandwidthEstimator";
 import type { RTCStats } from "./media/stats";
 import { type PeerConfig, findCodecByMimeType } from "./peerConnection";
 import { type MediaDescription, codecParametersFromString } from "./sdp";
@@ -86,7 +87,11 @@ export class TransceiverManager {
 
     const direction = options.direction || "sendrecv";
 
-    const sender = new RTCRtpSender(trackOrKind);
+    const sender = new RTCRtpSender(trackOrKind, {
+      bandwidthEstimator: createBandwidthEstimator(
+        this.config.bandwidthEstimator,
+      ),
+    });
     const receiver = new RTCRtpReceiver(this.config, kind, sender.ssrc);
     const newTransceiver = new RTCRtpTransceiver(
       kind,

@@ -6,6 +6,7 @@ import {
   AimdRateControl,
   AlrDetector,
   type BandwidthEstimator,
+  DisabledBandwidthEstimator,
   GccBandwidthEstimator,
   InterArrivalDelta,
   LinkCapacityEstimator,
@@ -34,6 +35,7 @@ import {
   appendRfc3550Padding,
   getBandwidthLimitedCause,
   hasTwccReceiveTiming,
+  isBandwidthEstimatorProcessor,
   isNetworkAvailabilityConsumer,
   isProbeInitiationAllowed,
   isProbePacingController,
@@ -271,53 +273,46 @@ async function prepareConnectedSender(estimator?: BandwidthEstimator) {
 }
 
 describe("media/sender bandwidth estimator", () => {
-  describe("interface separation", () => {
-    test("共通 BandwidthEstimator に probe API は含まれない", () => {
+  describe("interface: GCC hooks on BandwidthEstimator, legacy/disabled are no-op", () => {
+    test("probe / RTT / process は共通 interface にあり、legacy と disabled は no-op", () => {
       // Arrange
       const legacy: BandwidthEstimator = new SenderBandwidthEstimator();
+      const disabled: BandwidthEstimator = new DisabledBandwidthEstimator();
       const gcc = new GccBandwidthEstimator();
 
-      // Assert: probe は type guard 経由
+      // Assert: 共通型から呼べる
+      for (const e of [legacy, disabled]) {
+        expect(e.shouldTagProbePacket()).toBe(false);
+        expect(e.getPacingBitrateBps()).toBe(0);
+        expect(e.reserveOutgoingProbe(0)).toBeUndefined();
+        expect(e.pendingProbePaddingPackets()).toBe(0);
+        expect(e.getPaddingBitrateBps()).toBe(0);
+        expect(e.pendingLossPaddingPackets()).toBe(0);
+        expect(e.processIntervalMs).toBe(0);
+        expect(e.probePaddingPacketBytes).toBe(0);
+        expect(e.probePaddingMaxBurst).toBe(0);
+        e.setRoundTripTime(42);
+        e.setNetworkAvailable(true);
+        e.process(0);
+        expect(e.availableBitrate).toBe(0);
+      }
+
+      // Act / Assert: type guard は実効的な GCC のみ true
       expect(isProbePacingController(legacy)).toBe(false);
+      expect(isProbePacingController(disabled)).toBe(false);
       expect(isProbePacingController(gcc)).toBe(true);
-      const probe: ProbePacingController = gcc;
-      expect(probe.getPacingBitrateBps()).toBeGreaterThan(0);
-    });
-
-    test("共通 BandwidthEstimator に setRoundTripTime は含まれない（capability 分離）", () => {
-      // Arrange
-      const legacy: BandwidthEstimator = new SenderBandwidthEstimator();
-      const gcc = new GccBandwidthEstimator();
-
-      // Assert: type-level — common に RTT 入力が無い
-      type Forbidden = "setRoundTripTime";
-      type Intersection = Extract<keyof BandwidthEstimator, Forbidden>;
-      type AssertNoRtt = [Intersection] extends [never] ? true : false;
-      const noRttOnCommon: AssertNoRtt = true;
-      expect(noRttOnCommon).toBe(true);
-
-      // runtime: RoundTripTimeConsumer は GCC のみ
       expect(isRoundTripTimeConsumer(legacy)).toBe(false);
       expect(isRoundTripTimeConsumer(gcc)).toBe(true);
-      gcc.setRoundTripTime(42);
-      expect((gcc as any).aimd.rtt).toBe(42);
-    });
-
-    test("共通 BandwidthEstimator に setNetworkAvailable は含まれない（capability 分離）", () => {
-      // Arrange
-      const legacy: BandwidthEstimator = new SenderBandwidthEstimator();
-      const gcc = new GccBandwidthEstimator();
-
-      // Assert: type-level — common に availability 入力が無い
-      type Forbidden = "setNetworkAvailable";
-      type Intersection = Extract<keyof BandwidthEstimator, Forbidden>;
-      type AssertNoNet = [Intersection] extends [never] ? true : false;
-      const noNetOnCommon: AssertNoNet = true;
-      expect(noNetOnCommon).toBe(true);
-
-      // runtime: NetworkAvailabilityConsumer は GCC のみ
       expect(isNetworkAvailabilityConsumer(legacy)).toBe(false);
       expect(isNetworkAvailabilityConsumer(gcc)).toBe(true);
+      expect(isBandwidthEstimatorProcessor(legacy)).toBe(false);
+      expect(isBandwidthEstimatorProcessor(gcc)).toBe(true);
+      const probe: ProbePacingController = gcc;
+      expect(probe.getPacingBitrateBps()).toBeGreaterThan(0);
+      expect(gcc.processIntervalMs).toBe(kGoogCcProcessIntervalMs);
+      expect(gcc.probePaddingPacketBytes).toBe(kProbePaddingPacketBytes);
+      gcc.setRoundTripTime(42);
+      expect((gcc as any).aimd.rtt).toBe(42);
     });
 
     test("共通 BandwidthEstimator に congestion API は含まれない（compile-time）", () => {

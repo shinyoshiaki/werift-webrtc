@@ -68,18 +68,10 @@ import type {
   RTCRtpHeaderExtensionParameters,
   RTCRtpSendParameters,
 } from "./parameters";
-import type { BandwidthEstimator } from "./sender/bandwidthEstimator";
-import {
-  isBandwidthEstimatorProcessor,
-  isNetworkAvailabilityConsumer,
-  isProbePacingController,
-  isRoundTripTimeConsumer,
+import type {
+  BandwidthEstimator,
+  ProbeClusterConfig,
 } from "./sender/bandwidthEstimator";
-import {
-  kGoogCcProcessIntervalMs,
-  kProbePaddingMaxBurst,
-  kProbePaddingPacketBytes,
-} from "./sender/estimators/gcc/constants";
 import { SenderBandwidthEstimator, type SentInfo } from "./sender/senderBWE";
 import {
   type RTCCodecStats,
@@ -116,6 +108,15 @@ function freezeRtpContinuityOffsets(
   };
 }
 
+export type RTCRtpSenderOptions = {
+  /**
+   * Initial send-side bandwidth estimator. When omitted, the default is
+   * {@link SenderBandwidthEstimator}. {@link RTCPeerConnection} passes the
+   * instance created from {@link PeerConfig.bandwidthEstimator}.
+   */
+  bandwidthEstimator?: BandwidthEstimator;
+};
+
 export class RTCRtpSender {
   readonly type = "sender";
   readonly kind: Kind;
@@ -130,7 +131,7 @@ export class RTCRtpSender {
    * Active send-side bandwidth estimator (TWCC-driven).
    * Mutable only via {@link setBandwidthEstimator} (not a public field write).
    */
-  private _senderBWE: BandwidthEstimator = new SenderBandwidthEstimator();
+  private _senderBWE: BandwidthEstimator;
 
   /**
    * Active send-side bandwidth estimator (TWCC-driven).
@@ -156,19 +157,10 @@ export class RTCRtpSender {
   private bweAvailableBitrateUnsub?: () => void;
 
   /**
-   * GCC probe cluster configs (target bps / min packets). Bridged when the
-   * active estimator is {@link GccBandwidthEstimator}.
+   * Probe cluster configs (target bps / min packets). Bridged from the active
+   * {@link BandwidthEstimator}; GCC fires this, legacy / disabled never do.
    */
-  readonly onProbeClusterConfig = new Event<
-    [
-      {
-        id: number;
-        targetBps: number;
-        minPackets: number;
-        minDurationMs: number;
-      },
-    ]
-  >();
+  readonly onProbeClusterConfig = new Event<[ProbeClusterConfig]>();
   private bweProbeUnsub?: () => void;
 
   /**
@@ -200,9 +192,8 @@ export class RTCRtpSender {
    */
   private bweGeneration = 0;
   /**
-   * pin GoogCc ProcessInterval timer (25ms). Started only when the active
-   * estimator implements {@link BandwidthEstimatorProcessor}. Cleared on
-   * stop / swap to a non-processor / dispose.
+   * Sender-clock process timer. Interval comes from
+   * {@link BandwidthEstimator.processIntervalMs} (0 = do not start).
    */
   private bweProcessTimer?: ReturnType<typeof setInterval>;
 
@@ -270,15 +261,21 @@ export class RTCRtpSender {
   rtcpRunning = false;
   private rtcpCancel = new AbortController();
 
-  constructor(public trackOrKind: Kind | MediaStreamTrack) {
+  constructor(
+    public trackOrKind: Kind | MediaStreamTrack,
+    options?: RTCRtpSenderOptions,
+  ) {
     this.kind =
       typeof this.trackOrKind === "string"
         ? this.trackOrKind
         : this.trackOrKind.kind;
+    this._senderBWE =
+      options?.bandwidthEstimator ?? new SenderBandwidthEstimator();
     if (typeof trackOrKind !== "string") {
       this.registerTrack(trackOrKind);
     }
     this.bindBandwidthEstimatorEvents(this._senderBWE);
+    this.syncBweProcessTimer();
   }
 
   get transport() {
@@ -364,31 +361,29 @@ export class RTCRtpSender {
   /**
    * pin `OnNetworkAvailability` — initial probes wait until DTLS can send.
    * Also syncs when swapping onto an already-connected sender.
+   * Legacy / disabled no-op `setNetworkAvailable`.
    */
   private syncNetworkAvailability(): void {
-    if (!isNetworkAvailabilityConsumer(this._senderBWE)) return;
     this._senderBWE.setNetworkAvailable(
       this.dtlsTransport?.state === "connected",
     );
   }
 
   /**
-   * pin `GoogCcNetworkControllerFactory::GetProcessInterval` (25ms).
-   * Advances RTT backoff / ProbeController::Process on the sender clock even
-   * when RTP/TWCC events are idle. Does not start for legacy estimators.
+   * pin `GoogCcNetworkControllerFactory::GetProcessInterval`.
+   * Interval is {@link BandwidthEstimator.processIntervalMs} (0 = skip).
    */
   private syncBweProcessTimer(): void {
     this.stopBweProcessTimer();
     if (this.stopped) return;
-    if (!isBandwidthEstimatorProcessor(this._senderBWE)) return;
+    const intervalMs = this._senderBWE.processIntervalMs;
+    if (!(intervalMs > 0)) return;
     const timer = setInterval(() => {
       if (this.stopped) return;
-      if (isBandwidthEstimatorProcessor(this._senderBWE)) {
-        this._senderBWE.process(milliTime());
-      }
+      this._senderBWE.process(milliTime());
       // pin GetPacingRates padding_rate while kIncreaseUsingPadding.
       void this.maybeInjectLossPadding();
-    }, kGoogCcProcessIntervalMs);
+    }, intervalMs);
     timer.unref?.();
     this.bweProcessTimer = timer;
   }
@@ -407,39 +402,22 @@ export class RTCRtpSender {
     }).unSubscribe;
 
     this.bweProbeUnsub?.();
-    this.bweProbeUnsub = undefined;
-    const maybeGcc = impl as BandwidthEstimator & {
-      onProbeClusterConfig?: Event<
-        [
-          {
-            id: number;
-            targetBps: number;
-            minPackets: number;
-            minDurationMs: number;
-          },
-        ]
-      >;
-    };
-    if (maybeGcc.onProbeClusterConfig) {
-      this.bweProbeUnsub = maybeGcc.onProbeClusterConfig.subscribe((cfg) => {
-        this.onProbeClusterConfig.execute(cfg);
-        // pin BitrateProber: no prepaid token-bucket credit. Probe packets
-        // wait on next_probe_time = started_at + sent_bytes / send_bitrate.
-        void this.maybeInjectProbePadding();
-      }).unSubscribe;
-    }
+    this.bweProbeUnsub = impl.onProbeClusterConfig.subscribe((cfg) => {
+      this.onProbeClusterConfig.execute(cfg);
+      // pin BitrateProber: no prepaid token-bucket credit. Probe packets
+      // wait on next_probe_time = started_at + sent_bytes / send_bitrate.
+      void this.maybeInjectProbePadding();
+    }).unSubscribe;
   }
 
   /**
    * Effective send pacing rate (bps): estimator estimate, raised to the active
-   * probe target while probing. 0 when unknown.
+   * probe target while probing. 0 when unknown. Legacy returns 0 from
+   * {@link BandwidthEstimator.getPacingBitrateBps} so media is unpaced.
    */
   get pacingBitrateBps(): number {
-    const e = this._senderBWE;
-    if (isProbePacingController(e)) {
-      return e.getPacingBitrateBps();
-    }
-    return e.availableBitrate;
+    const paced = this._senderBWE.getPacingBitrateBps();
+    return paced > 0 ? paced : this._senderBWE.availableBitrate;
   }
 
   get redDistance() {
@@ -749,7 +727,9 @@ export class RTCRtpSender {
     // generation bumps and we stop — never call dispose()'d controllers.
     const generation = this.bweGeneration;
     const e = this._senderBWE;
-    if (!isProbePacingController(e)) {
+    const packetBytes = e.probePaddingPacketBytes;
+    const maxBurst = e.probePaddingMaxBurst;
+    if (!(packetBytes > 0) || !(maxBurst > 0)) {
       return 0;
     }
     this.probePaddingInFlight = true;
@@ -762,29 +742,12 @@ export class RTCRtpSender {
           // stop() / setBandwidthEstimator cancelled this injection.
           break;
         }
-        const pending = e.pendingProbePaddingPackets(kProbePaddingPacketBytes);
+        const pending = e.pendingProbePaddingPackets(packetBytes);
         if (pending <= 0) break;
-        const n = Math.min(pending, kProbePaddingMaxBurst);
+        const n = Math.min(pending, maxBurst);
         for (let i = 0; i < n; i++) {
           if (this.stopped || generation !== this.bweGeneration) break;
-          // Sequence is allocated by sendRtpInternal (unified outbound counter).
-          const pad = new RtpPacket(
-            new RtpHeader({
-              sequenceNumber: 0,
-              timestamp: this.timestamp ?? 0,
-              payloadType: this.codec.payloadType,
-              ssrc: this.ssrc,
-              extension: true,
-              extensions: [],
-              marker: false,
-              // RFC 3550 padding: P bit + trailing padding size byte.
-              padding: true,
-              paddingSize: kProbePaddingPacketBytes,
-              payloadOffset: 12,
-            }),
-            Buffer.alloc(0),
-          );
-          await this.sendRtpInternal(pad, {
+          await this.sendRtpInternal(this.createPaddingRtpPacket(packetBytes), {
             injectProbePadding: false,
             forceProbeTag: true,
             isProbePadding: true,
@@ -814,37 +777,21 @@ export class RTCRtpSender {
     if (this.probePaddingInFlight) return 0;
     const generation = this.bweGeneration;
     const e = this._senderBWE;
-    if (
-      !isProbePacingController(e) ||
-      typeof e.pendingLossPaddingPackets !== "function"
-    ) {
+    const packetBytes = e.probePaddingPacketBytes;
+    const maxBurst = e.probePaddingMaxBurst;
+    if (!(packetBytes > 0) || !(maxBurst > 0)) {
       return 0;
     }
     if (e.shouldTagProbePacket()) return 0;
     this.probePaddingInFlight = true;
     let totalSent = 0;
     try {
-      const pending = e.pendingLossPaddingPackets(kProbePaddingPacketBytes);
+      const pending = e.pendingLossPaddingPackets(packetBytes);
       if (pending <= 0) return 0;
-      const n = Math.min(pending, kProbePaddingMaxBurst);
+      const n = Math.min(pending, maxBurst);
       for (let i = 0; i < n; i++) {
         if (this.stopped || generation !== this.bweGeneration) break;
-        const pad = new RtpPacket(
-          new RtpHeader({
-            sequenceNumber: 0,
-            timestamp: this.timestamp ?? 0,
-            payloadType: this.codec.payloadType,
-            ssrc: this.ssrc,
-            extension: true,
-            extensions: [],
-            marker: false,
-            padding: true,
-            paddingSize: kProbePaddingPacketBytes,
-            payloadOffset: 12,
-          }),
-          Buffer.alloc(0),
-        );
-        await this.sendRtpInternal(pad, {
+        await this.sendRtpInternal(this.createPaddingRtpPacket(packetBytes), {
           injectProbePadding: false,
           forceProbeTag: false,
           isProbePadding: true,
@@ -856,6 +803,24 @@ export class RTCRtpSender {
     } finally {
       this.probePaddingInFlight = false;
     }
+  }
+
+  private createPaddingRtpPacket(paddingSize: number): RtpPacket {
+    return new RtpPacket(
+      new RtpHeader({
+        sequenceNumber: 0,
+        timestamp: this.timestamp ?? 0,
+        payloadType: this.codec!.payloadType,
+        ssrc: this.ssrc,
+        extension: true,
+        extensions: [],
+        marker: false,
+        padding: true,
+        paddingSize,
+        payloadOffset: 12,
+      }),
+      Buffer.alloc(0),
+    );
   }
 
   private async sendRtpInternal(
@@ -896,10 +861,8 @@ export class RTCRtpSender {
     // concurrent completion cannot re-attribute this packet to the next cluster.
     let reservedClusterId: number | undefined;
     const wantsProbe =
-      opts.forceProbeTag === true ||
-      (isProbePacingController(estimatorAtStart) &&
-        estimatorAtStart.shouldTagProbePacket());
-    if (twccOn && wantsProbe && isProbePacingController(estimatorAtStart)) {
+      opts.forceProbeTag === true || estimatorAtStart.shouldTagProbePacket();
+    if (twccOn && wantsProbe) {
       const reservation = estimatorAtStart.reserveOutgoingProbe(milliTime());
       if (reservation) {
         reservedClusterId = reservation.clusterId;
@@ -918,7 +881,7 @@ export class RTCRtpSender {
     } else if (
       this.mediaPacingEnabled &&
       twccOn &&
-      isProbePacingController(estimatorAtStart)
+      estimatorAtStart.getPacingBitrateBps() > 0
     ) {
       // Media / RTX: token-bucket at GetPacingRates (×2.5 / ×1.1).
       if (!(await this.awaitPacingBudget(payloadLen))) {
@@ -1221,10 +1184,8 @@ export class RTCRtpSender {
                   this.roundTripTimeMeasurements++;
                   // pin OnRoundTripTimeUpdate: only **unsmoothed** RTT goes to
                   // AIMD (smoothed updates are discarded in GoogCc).
-                  if (
-                    rawRttSeconds > 0 &&
-                    isRoundTripTimeConsumer(this._senderBWE)
-                  ) {
+                  // Legacy / disabled no-op setRoundTripTime.
+                  if (rawRttSeconds > 0) {
                     this._senderBWE.setRoundTripTime(rawRttSeconds * 1000);
                   }
                   // Stats / getStats keep an EWMA separately.

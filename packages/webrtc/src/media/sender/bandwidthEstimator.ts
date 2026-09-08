@@ -1,4 +1,4 @@
-import type { Event } from "../../imports/common";
+import { Event } from "../../imports/common";
 import type { TransportWideCC } from "../../imports/rtp";
 
 /**
@@ -31,12 +31,43 @@ export interface SentInfo {
 }
 
 /**
+ * Probe cluster the sender should temporarily aim for (padding / encoder ramp).
+ * GCC fires {@link BandwidthEstimator.onProbeClusterConfig} with this payload;
+ * legacy / disabled estimators never emit it.
+ */
+export interface ProbeClusterConfig {
+  id: number;
+  /** Target bitrate the pacer / sender should temporarily aim for (bps). */
+  targetBps: number;
+  minPackets: number;
+  minDurationMs: number;
+  /** Minimum bytes expected for the cluster (for receive-ratio checks). */
+  minBytes: number;
+  /**
+   * pin `ProbeClusterConfig.min_probe_delta` (ms). Used for
+   * RecommendedMinProbeSize and stored on the BitrateProber cluster.
+   */
+  minProbeDeltaMs: number;
+  /** pin `requested_at` — queue age for the 5s queued-cluster timeout. */
+  requestedAtMs: number;
+}
+
+/** Reservation taken **before** the async send (pin `CurrentCluster`). */
+export interface ProbeReservation {
+  clusterId: number;
+  /** Next allowed send time (MinusInfinity → send immediately). */
+  nextSendTimeMs: number;
+}
+
+/**
  * Common contract for send-side bandwidth estimators driven by TWCC feedback.
  *
- * Limited to TWCC I/O + recommended bitrate (`rtpPacketSent` / `receiveTWCC` /
- * `availableBitrate` / `onAvailableBitrate`). Algorithm-specific inputs such as
- * probe pacing or RTCP RTT live on separate capability interfaces so the shared
- * surface stays thin.
+ * TWCC I/O and recommended bitrate (`rtpPacketSent` / `receiveTWCC` /
+ * `availableBitrate` / `onAvailableBitrate`) are required. GCC also needs
+ * probe / pacing / RTT / process-interval hooks; those live on this same
+ * interface so {@link RTCRtpSender} does not import GCC. Legacy and disabled
+ * estimators implement them as no-ops (`processIntervalMs === 0`, padding
+ * sizes 0, methods return false / 0 / undefined).
  */
 export interface BandwidthEstimator {
   /**
@@ -50,6 +81,11 @@ export interface BandwidthEstimator {
    * Unit is always bits per second (bps). Change-only (not every recompute).
    */
   readonly onAvailableBitrate: Event<[number]>;
+
+  /**
+   * Fires when a probe cluster is activated. Legacy / disabled never fire.
+   */
+  readonly onProbeClusterConfig: Event<[ProbeClusterConfig]>;
 
   /** Record an outgoing RTP packet for later matching against TWCC feedback. */
   rtpPacketSent(info: SentInfo): void;
@@ -65,15 +101,24 @@ export interface BandwidthEstimator {
    * {@link RTCRtpSender} rebinds its stable `onAvailableBitrate` bridge after dispose.
    */
   dispose?(): void;
-}
 
-/**
- * Optional probe / pacing control surface used by {@link RTCRtpSender}.
- *
- * Not part of the common {@link BandwidthEstimator} contract — only estimators
- * that implement probing (e.g. GCC) need this. Use {@link isProbePacingController}.
- */
-export interface ProbePacingController {
+  /**
+   * Sender-clock process interval in milliseconds (pin GoogCc 25ms).
+   * `0` — do not run a process timer (legacy / disabled).
+   */
+  readonly processIntervalMs: number;
+
+  /**
+   * RTP padding size used when the sender injects probe / loss padding.
+   * `0` — do not inject padding (legacy / disabled).
+   */
+  readonly probePaddingPacketBytes: number;
+
+  /**
+   * Max padding packets per inner send burst. `0` when padding is disabled.
+   */
+  readonly probePaddingMaxBurst: number;
+
   /** Tag the next outgoing packet as a probe (`SentInfo.isProbation`). */
   shouldTagProbePacket(): boolean;
 
@@ -81,6 +126,7 @@ export interface ProbePacingController {
    * Pacing target (bps) for the send engine.
    * pin GetPacingRates: estimate × 2.5 before first TWCC, × 1.1 after,
    * raised to the active probe target while probing.
+   * `0` — do not token-bucket pace (legacy / disabled).
    */
   getPacingBitrateBps(): number;
 
@@ -88,9 +134,7 @@ export interface ProbePacingController {
    * pin `BitrateProber::CurrentCluster` — reserve the active probe cluster
    * **before** the packet is sent (not at send-complete callback).
    */
-  reserveOutgoingProbe(
-    nowMs: number,
-  ): { clusterId: number; nextSendTimeMs: number } | undefined;
+  reserveOutgoingProbe(nowMs: number): ProbeReservation | undefined;
 
   /**
    * Number of padding packets the sender should inject to fill the active
@@ -102,77 +146,23 @@ export interface ProbePacingController {
    * pin `GetPacingRates` padding_rate while loss-limited
    * `kIncreaseUsingPadding`. 0 when not in that state.
    */
-  getPaddingBitrateBps?(): number;
+  getPaddingBitrateBps(): number;
 
   /**
    * Padding packets to send to approach {@link getPaddingBitrateBps} when
    * media is sparse. Not probe/probation packets.
    */
-  pendingLossPaddingPackets?(packetBytes?: number): number;
-}
+  pendingLossPaddingPackets(packetBytes?: number): number;
 
-/** Type guard for estimators that drive probe padding / pacing. */
-export function isProbePacingController(
-  e: BandwidthEstimator,
-): e is BandwidthEstimator & ProbePacingController {
-  const c = e as BandwidthEstimator & Partial<ProbePacingController>;
-  return (
-    typeof c.shouldTagProbePacket === "function" &&
-    typeof c.getPacingBitrateBps === "function" &&
-    typeof c.pendingProbePaddingPackets === "function" &&
-    typeof c.reserveOutgoingProbe === "function"
-  );
-}
-
-/**
- * Optional RTCP / network RTT consumer (pin OnRoundTripTimeUpdate).
- *
- * Not part of the common {@link BandwidthEstimator} contract. Pin discards
- * **smoothed** RTT updates and feeds **raw** RTT into AIMD — callers must pass
- * the per-report raw sample, not a stats-smoothed value.
- */
-export interface RoundTripTimeConsumer {
   /**
    * Raw round-trip time in **milliseconds** (not TWCC propagation RTT).
    * Pin GoogCc ignores smoothed RTT and only applies unsmoothed updates.
    */
   setRoundTripTime(rttMs: number): void;
-}
 
-/** Type guard for estimators that consume RTCP RTT (e.g. GCC AIMD). */
-export function isRoundTripTimeConsumer(
-  e: BandwidthEstimator,
-): e is BandwidthEstimator & RoundTripTimeConsumer {
-  const c = e as BandwidthEstimator & Partial<RoundTripTimeConsumer>;
-  return typeof c.setRoundTripTime === "function";
-}
-
-/**
- * Optional pin `OnNetworkAvailability` consumer.
- *
- * Not part of the common {@link BandwidthEstimator} contract. Initial
- * exponential probing must not start until the transport can actually send.
- */
-export interface NetworkAvailabilityConsumer {
   /** True when ICE/DTLS (or equivalent) can emit RTP. */
   setNetworkAvailable(available: boolean): void;
-}
 
-export function isNetworkAvailabilityConsumer(
-  e: BandwidthEstimator,
-): e is BandwidthEstimator & NetworkAvailabilityConsumer {
-  const c = e as BandwidthEstimator & Partial<NetworkAvailabilityConsumer>;
-  return typeof c.setNetworkAvailable === "function";
-}
-
-/**
- * Optional periodic process surface (pin GoogCc `OnProcessInterval`).
- *
- * Not part of the common {@link BandwidthEstimator} contract. Callers (e.g.
- * {@link RTCRtpSender} RTCP loop) advance sender-clock work such as RTT-based
- * target backoff while media may be idle.
- */
-export interface BandwidthEstimatorProcessor {
   /**
    * Advance sender-clock estimator state at `nowMs` (milliseconds).
    * Does not count as a sent packet — CorrectedRtt timeout only grows on
@@ -181,12 +171,112 @@ export interface BandwidthEstimatorProcessor {
   process(nowMs: number): void;
 }
 
-/** Type guard for estimators that expose pin ProcessInterval-style process. */
+/**
+ * GCC-oriented probe / pacing subset of {@link BandwidthEstimator}.
+ * Legacy implements these as no-ops; use {@link isProbePacingController} to
+ * detect an estimator that actually injects probe padding.
+ */
+export type ProbePacingController = Pick<
+  BandwidthEstimator,
+  | "shouldTagProbePacket"
+  | "getPacingBitrateBps"
+  | "reserveOutgoingProbe"
+  | "pendingProbePaddingPackets"
+  | "getPaddingBitrateBps"
+  | "pendingLossPaddingPackets"
+>;
+
+/**
+ * True when the estimator actually drives probe padding (non-zero padding size).
+ * Legacy / disabled no-ops return false.
+ */
+export function isProbePacingController(
+  e: BandwidthEstimator,
+): e is BandwidthEstimator & ProbePacingController {
+  return e.probePaddingPacketBytes > 0;
+}
+
+/** RTCP / network RTT consumer (pin OnRoundTripTimeUpdate). */
+export type RoundTripTimeConsumer = Pick<
+  BandwidthEstimator,
+  "setRoundTripTime"
+>;
+
+/**
+ * True when the estimator consumes RTCP RTT for AIMD (non-zero process interval).
+ * Legacy / disabled `setRoundTripTime` is a no-op.
+ */
+export function isRoundTripTimeConsumer(
+  e: BandwidthEstimator,
+): e is BandwidthEstimator & RoundTripTimeConsumer {
+  return e.processIntervalMs > 0;
+}
+
+/** pin `OnNetworkAvailability` consumer. */
+export type NetworkAvailabilityConsumer = Pick<
+  BandwidthEstimator,
+  "setNetworkAvailable"
+>;
+
+export function isNetworkAvailabilityConsumer(
+  e: BandwidthEstimator,
+): e is BandwidthEstimator & NetworkAvailabilityConsumer {
+  return e.processIntervalMs > 0;
+}
+
+/** pin GoogCc `OnProcessInterval` surface. */
+export type BandwidthEstimatorProcessor = Pick<BandwidthEstimator, "process">;
+
+/** True when the sender should run a process timer (`processIntervalMs > 0`). */
 export function isBandwidthEstimatorProcessor(
   e: BandwidthEstimator,
 ): e is BandwidthEstimator & BandwidthEstimatorProcessor {
-  const c = e as BandwidthEstimator & Partial<BandwidthEstimatorProcessor>;
-  return typeof c.process === "function";
+  return e.processIntervalMs > 0;
+}
+
+/**
+ * Shared no-op implementations of GCC send-path hooks.
+ * {@link SenderBandwidthEstimator} and {@link DisabledBandwidthEstimator} extend this.
+ */
+export abstract class BandwidthEstimatorNoopHooks {
+  readonly processIntervalMs = 0;
+  readonly probePaddingPacketBytes = 0;
+  readonly probePaddingMaxBurst = 0;
+  readonly onProbeClusterConfig = new Event<[ProbeClusterConfig]>();
+
+  shouldTagProbePacket(): boolean {
+    return false;
+  }
+
+  getPacingBitrateBps(): number {
+    return 0;
+  }
+
+  reserveOutgoingProbe(_nowMs: number): ProbeReservation | undefined {
+    return undefined;
+  }
+
+  pendingProbePaddingPackets(_packetBytes?: number): number {
+    return 0;
+  }
+
+  getPaddingBitrateBps(): number {
+    return 0;
+  }
+
+  pendingLossPaddingPackets(_packetBytes?: number): number {
+    return 0;
+  }
+
+  setRoundTripTime(_rttMs: number): void {}
+
+  setNetworkAvailable(_available: boolean): void {}
+
+  process(_nowMs: number): void {}
+
+  protected disposeNoopHooks(): void {
+    this.onProbeClusterConfig.allUnsubscribe();
+  }
 }
 
 /**

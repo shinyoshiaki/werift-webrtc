@@ -1,0 +1,926 @@
+
+{
+  "header": {
+    "reportVersion": 5,
+    "event": "Exception",
+    "trigger": "Exception",
+    "filename": "report.20260908.184048.703227.0.001.json",
+    "dumpEventTime": "2026-09-08T18:40:48Z",
+    "dumpEventTimeStamp": "1788860448221",
+    "processId": 703227,
+    "threadId": 0,
+    "cwd": "/home/shin/code/werift-webrtc.worktree/c724daf9-5f79-4e30-bd50-7b27c8951844/packages/webrtc",
+    "commandLine": [
+      "node",
+      ".sak-context/link/cli/src/index.ts",
+      "ticket",
+      "update",
+      "--ticket-id",
+      "c724daf9-5f79-4e30-bd50-7b27c8951844",
+      "--description",
+      ""
+    ],
+    "nodejsVersion": "v24.5.0",
+    "glibcVersionRuntime": "2.43",
+    "glibcVersionCompiler": "2.28",
+    "wordSize": 64,
+    "arch": "x64",
+    "platform": "linux",
+    "componentVersions": {
+      "acorn": "8.15.0",
+      "ada": "3.2.6",
+      "amaro": "1.1.1",
+      "ares": "1.34.5",
+      "brotli": "1.1.0",
+      "cjs_module_lexer": "2.1.0",
+      "cldr": "47.0",
+      "icu": "77.1",
+      "llhttp": "9.3.0",
+      "modules": "137",
+      "napi": "10",
+      "nbytes": "0.1.1",
+      "ncrypto": "0.0.1",
+      "nghttp2": "1.66.0",
+      "node": "24.5.0",
+      "openssl": "3.5.1",
+      "simdjson": "3.13.0",
+      "simdutf": "6.4.0",
+      "sqlite": "3.50.3",
+      "tz": "2025b",
+      "undici": "7.12.0",
+      "unicode": "16.0",
+      "uv": "1.51.0",
+      "uvwasi": "0.0.21",
+      "v8": "13.6.233.10-node.21",
+      "zlib": "1.3.1-470d3a2",
+      "zstd": "1.5.7"
+    },
+    "release": {
+      "name": "node",
+      "headersUrl": "https://nodejs.org/download/release/v24.5.0/node-v24.5.0-headers.tar.gz",
+      "sourceUrl": "https://nodejs.org/download/release/v24.5.0/node-v24.5.0.tar.gz"
+    },
+    "osName": "Linux",
+    "osRelease": "7.0.0-29-generic",
+    "osVersion": "#29-Ubuntu SMP PREEMPT_DYNAMIC Fri Jul 17 20:52:35 UTC 2026",
+    "osMachine": "x86_64",
+    "cpus": [
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 4833,
+        "user": 165691900,
+        "nice": 49980,
+        "sys": 202194530,
+        "idle": 1222423900,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 4833,
+        "user": 133525350,
+        "nice": 14290,
+        "sys": 128080050,
+        "idle": 1337093550,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 4833,
+        "user": 168759690,
+        "nice": 36640,
+        "sys": 208336600,
+        "idle": 1213825860,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 4833,
+        "user": 112055960,
+        "nice": 4760,
+        "sys": 94288890,
+        "idle": 1398881540,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 4833,
+        "user": 117986830,
+        "nice": 6100,
+        "sys": 98071370,
+        "idle": 1386820100,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 4833,
+        "user": 100422190,
+        "nice": 2000,
+        "sys": 79657990,
+        "idle": 1427959520,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 4833,
+        "user": 92009570,
+        "nice": 1160,
+        "sys": 75535830,
+        "idle": 1443158080,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 4832,
+        "user": 84549950,
+        "nice": 1150,
+        "sys": 74272850,
+        "idle": 1454291370,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 4833,
+        "user": 144675480,
+        "nice": 52880,
+        "sys": 164169160,
+        "idle": 1294954590,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 4833,
+        "user": 112394230,
+        "nice": 14100,
+        "sys": 89808600,
+        "idle": 1406992800,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 4833,
+        "user": 160861870,
+        "nice": 70920,
+        "sys": 197540840,
+        "idle": 1241331070,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 4833,
+        "user": 101539970,
+        "nice": 4990,
+        "sys": 77611550,
+        "idle": 1431572270,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 4833,
+        "user": 106553250,
+        "nice": 7970,
+        "sys": 80033320,
+        "idle": 1423486660,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 4833,
+        "user": 95068700,
+        "nice": 1900,
+        "sys": 72199740,
+        "idle": 1444405400,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 4833,
+        "user": 90598820,
+        "nice": 1420,
+        "sys": 73261860,
+        "idle": 1447701870,
+        "irq": 0
+      },
+      {
+        "model": "AMD Ryzen 7 9700X 8-Core Processor",
+        "speed": 4832,
+        "user": 85442940,
+        "nice": 510,
+        "sys": 74553700,
+        "idle": 1453759890,
+        "irq": 0
+      }
+    ],
+    "networkInterfaces": [
+      {
+        "name": "lo",
+        "internal": true,
+        "mac": "00:00:00:00:00:00",
+        "address": "127.0.0.1",
+        "netmask": "255.0.0.0",
+        "family": "IPv4"
+      },
+      {
+        "name": "enp9s0",
+        "internal": false,
+        "mac": "00:e0:97:26:ff:25",
+        "address": "192.168.0.100",
+        "netmask": "255.255.255.0",
+        "family": "IPv4"
+      },
+      {
+        "name": "tailscale0",
+        "internal": false,
+        "mac": "00:00:00:00:00:00",
+        "address": "100.124.146.41",
+        "netmask": "255.255.255.255",
+        "family": "IPv4"
+      },
+      {
+        "name": "wlxe0d36229f787",
+        "internal": false,
+        "mac": "e0:d3:62:29:f7:87",
+        "address": "192.168.0.190",
+        "netmask": "255.255.255.0",
+        "family": "IPv4"
+      },
+      {
+        "name": "docker0",
+        "internal": false,
+        "mac": "3a:bf:88:30:10:01",
+        "address": "172.20.0.1",
+        "netmask": "255.255.0.0",
+        "family": "IPv4"
+      },
+      {
+        "name": "lo",
+        "internal": true,
+        "mac": "00:00:00:00:00:00",
+        "address": "::1",
+        "netmask": "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+        "family": "IPv6",
+        "scopeid": 0
+      },
+      {
+        "name": "enp9s0",
+        "internal": false,
+        "mac": "00:e0:97:26:ff:25",
+        "address": "2404:7a80:a740:ba00:bb04:2616:cd3c:3af",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 0
+      },
+      {
+        "name": "enp9s0",
+        "internal": false,
+        "mac": "00:e0:97:26:ff:25",
+        "address": "2404:7a80:a740:ba00:1db6:4639:9999:f60e",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 0
+      },
+      {
+        "name": "enp9s0",
+        "internal": false,
+        "mac": "00:e0:97:26:ff:25",
+        "address": "2404:7a80:a740:ba00:a3f4:5f7e:a3b7:9d1f",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 0
+      },
+      {
+        "name": "enp9s0",
+        "internal": false,
+        "mac": "00:e0:97:26:ff:25",
+        "address": "fe80::b9f0:9a3a:b26f:117b",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 2
+      },
+      {
+        "name": "tailscale0",
+        "internal": false,
+        "mac": "00:00:00:00:00:00",
+        "address": "fd7a:115c:a1e0::1b01:9229",
+        "netmask": "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+        "family": "IPv6",
+        "scopeid": 0
+      },
+      {
+        "name": "tailscale0",
+        "internal": false,
+        "mac": "00:00:00:00:00:00",
+        "address": "fe80::d1bd:dbe2:cc1c:edad",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 3
+      },
+      {
+        "name": "wlxe0d36229f787",
+        "internal": false,
+        "mac": "e0:d3:62:29:f7:87",
+        "address": "2404:7a80:a740:ba00:3dc8:640f:1d8f:7e8a",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 0
+      },
+      {
+        "name": "wlxe0d36229f787",
+        "internal": false,
+        "mac": "e0:d3:62:29:f7:87",
+        "address": "2404:7a80:a740:ba00:f4a5:9b0:37b3:6917",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 0
+      },
+      {
+        "name": "wlxe0d36229f787",
+        "internal": false,
+        "mac": "e0:d3:62:29:f7:87",
+        "address": "2404:7a80:a740:ba00:f303:6e9c:939f:df3c",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 0
+      },
+      {
+        "name": "wlxe0d36229f787",
+        "internal": false,
+        "mac": "e0:d3:62:29:f7:87",
+        "address": "fe80::be83:f55c:d9c7:f577",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 4
+      },
+      {
+        "name": "docker0",
+        "internal": false,
+        "mac": "3a:bf:88:30:10:01",
+        "address": "fe80::38bf:88ff:fe30:1001",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 7
+      },
+      {
+        "name": "veth99f401a",
+        "internal": false,
+        "mac": "82:3d:cd:49:62:7a",
+        "address": "fe80::803d:cdff:fe49:627a",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 22
+      },
+      {
+        "name": "veth1723d4b",
+        "internal": false,
+        "mac": "ba:fc:12:09:62:0e",
+        "address": "fe80::b8fc:12ff:fe09:620e",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 70
+      },
+      {
+        "name": "veth64f79f0",
+        "internal": false,
+        "mac": "7e:1f:c4:de:b7:c5",
+        "address": "fe80::7c1f:c4ff:fede:b7c5",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 71
+      },
+      {
+        "name": "veth71aa557",
+        "internal": false,
+        "mac": "b6:52:36:2a:ab:9a",
+        "address": "fe80::b452:36ff:fe2a:ab9a",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 106
+      },
+      {
+        "name": "veth26fc356",
+        "internal": false,
+        "mac": "8e:35:3e:54:90:79",
+        "address": "fe80::8c35:3eff:fe54:9079",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 108
+      },
+      {
+        "name": "veth98ebd1a",
+        "internal": false,
+        "mac": "76:f5:7c:77:dc:46",
+        "address": "fe80::74f5:7cff:fe77:dc46",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 159
+      },
+      {
+        "name": "vethc26e8bb",
+        "internal": false,
+        "mac": "8e:b8:5c:8d:6c:05",
+        "address": "fe80::8cb8:5cff:fe8d:6c05",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 239
+      },
+      {
+        "name": "veth878554a",
+        "internal": false,
+        "mac": "da:f8:f8:34:b8:53",
+        "address": "fe80::d8f8:f8ff:fe34:b853",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 271
+      },
+      {
+        "name": "vethc1c4668",
+        "internal": false,
+        "mac": "32:77:7e:6c:61:41",
+        "address": "fe80::3077:7eff:fe6c:6141",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 273
+      },
+      {
+        "name": "veth0e1340b",
+        "internal": false,
+        "mac": "5a:e2:b3:8f:da:fe",
+        "address": "fe80::58e2:b3ff:fe8f:dafe",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 298
+      },
+      {
+        "name": "vetha552ae8",
+        "internal": false,
+        "mac": "12:b2:f7:20:c4:07",
+        "address": "fe80::10b2:f7ff:fe20:c407",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 301
+      },
+      {
+        "name": "veth45965da",
+        "internal": false,
+        "mac": "62:a2:c1:0c:01:3d",
+        "address": "fe80::60a2:c1ff:fe0c:13d",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 490
+      },
+      {
+        "name": "vethe2b6426",
+        "internal": false,
+        "mac": "12:18:c1:b0:4c:f1",
+        "address": "fe80::1018:c1ff:feb0:4cf1",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 491
+      },
+      {
+        "name": "vethe526aa6",
+        "internal": false,
+        "mac": "da:f1:eb:94:86:c3",
+        "address": "fe80::d8f1:ebff:fe94:86c3",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 551
+      }
+    ],
+    "host": "shin-ONDA-B650PLUS-ITX-W"
+  },
+  "javascriptStack": {
+    "message": "Error: Cannot find module '/home/shin/code/werift-webrtc.worktree/c724daf9-5f79-4e30-bd50-7b27c8951844/packages/webrtc/.sak-context/link/cli/src/index.ts'",
+    "stack": [
+      "at Module._resolveFilename (node:internal/modules/cjs/loader:1410:15)",
+      "at defaultResolveImpl (node:internal/modules/cjs/loader:1051:19)",
+      "at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1056:22)",
+      "at Module._load (node:internal/modules/cjs/loader:1219:37)",
+      "at TracingChannel.traceSync (node:diagnostics_channel:322:14)",
+      "at wrapModuleLoad (node:internal/modules/cjs/loader:238:24)",
+      "at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)"
+    ],
+    "errorProperties": {
+      "code": "MODULE_NOT_FOUND",
+      "requireStack": ""
+    }
+  },
+  "javascriptHeap": {
+    "totalMemory": 5820416,
+    "executableMemory": 262144,
+    "totalCommittedMemory": 5779456,
+    "availableMemory": 12982378184,
+    "totalGlobalHandlesMemory": 8192,
+    "usedGlobalHandlesMemory": 2208,
+    "usedMemory": 4229632,
+    "memoryLimit": 12985565184,
+    "mallocedMemory": 163928,
+    "externalMemory": 1493815,
+    "peakMallocedMemory": 328224,
+    "nativeContextCount": 1,
+    "detachedContextCount": 0,
+    "doesZapGarbage": 0,
+    "heapSpaces": {
+      "read_only_space": {
+        "memorySize": 0,
+        "committedMemory": 0,
+        "capacity": 0,
+        "used": 0,
+        "available": 0
+      },
+      "new_space": {
+        "memorySize": 1048576,
+        "committedMemory": 532480,
+        "capacity": 1048512,
+        "used": 406800,
+        "available": 641712
+      },
+      "old_space": {
+        "memorySize": 2912256,
+        "committedMemory": 3145728,
+        "capacity": 2911648,
+        "used": 2664848,
+        "available": 246800
+      },
+      "code_space": {
+        "memorySize": 262144,
+        "committedMemory": 262144,
+        "capacity": 262112,
+        "used": 12096,
+        "available": 250016
+      },
+      "shared_space": {
+        "memorySize": 0,
+        "committedMemory": 0,
+        "capacity": 0,
+        "used": 0,
+        "available": 0
+      },
+      "trusted_space": {
+        "memorySize": 1331200,
+        "committedMemory": 1572864,
+        "capacity": 1330104,
+        "used": 883728,
+        "available": 446376
+      },
+      "shared_trusted_space": {
+        "memorySize": 0,
+        "committedMemory": 0,
+        "capacity": 0,
+        "used": 0,
+        "available": 0
+      },
+      "new_large_object_space": {
+        "memorySize": 0,
+        "committedMemory": 0,
+        "capacity": 1048512,
+        "used": 0,
+        "available": 1048512
+      },
+      "large_object_space": {
+        "memorySize": 266240,
+        "committedMemory": 266240,
+        "capacity": 262160,
+        "used": 262160,
+        "available": 0
+      },
+      "code_large_object_space": {
+        "memorySize": 0,
+        "committedMemory": 0,
+        "capacity": 0,
+        "used": 0,
+        "available": 0
+      },
+      "shared_large_object_space": {
+        "memorySize": 0,
+        "committedMemory": 0,
+        "capacity": 0,
+        "used": 0,
+        "available": 0
+      },
+      "shared_trusted_large_object_space": {
+        "memorySize": 0,
+        "committedMemory": 0,
+        "capacity": 0,
+        "used": 0,
+        "available": 0
+      },
+      "trusted_large_object_space": {
+        "memorySize": 0,
+        "committedMemory": 0,
+        "capacity": 0,
+        "used": 0,
+        "available": 0
+      }
+    }
+  },
+  "nativeStack": [
+    {
+      "pc": "0x0000000001184ffb",
+      "symbol": "node::TriggerNodeReport(v8::Isolate*, node::Environment*, char const*, char const*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, v8::Local<v8::Value>) [node]"
+    },
+    {
+      "pc": "0x0000000001185807",
+      "symbol": "node::TriggerNodeReport(node::Environment*, char const*, char const*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, v8::Local<v8::Value>) [node]"
+    },
+    {
+      "pc": "0x00000000010bacf5",
+      "symbol": " [node]"
+    },
+    {
+      "pc": "0x00000000010bc6db",
+      "symbol": "node::errors::TriggerUncaughtException(v8::Isolate*, v8::Local<v8::Value>, v8::Local<v8::Message>, bool) [node]"
+    },
+    {
+      "pc": "0x00000000015671db",
+      "symbol": "v8::internal::MessageHandler::ReportMessageNoExceptions(v8::internal::Isolate*, v8::internal::MessageLocation const*, v8::internal::DirectHandle<v8::internal::Object>, v8::Local<v8::Value>) [node]"
+    },
+    {
+      "pc": "0x00000000015673a3",
+      "symbol": "v8::internal::MessageHandler::ReportMessage(v8::internal::Isolate*, v8::internal::MessageLocation const*, v8::internal::DirectHandle<v8::internal::JSMessageObject>) [node]"
+    },
+    {
+      "pc": "0x000000000154c7b9",
+      "symbol": "v8::internal::Isolate::ReportPendingMessages(bool) [node]"
+    },
+    {
+      "pc": "0x0000000001530a1c",
+      "symbol": " [node]"
+    },
+    {
+      "pc": "0x00000000015319af",
+      "symbol": "v8::internal::Execution::Call(v8::internal::Isolate*, v8::internal::DirectHandle<v8::internal::Object>, v8::internal::DirectHandle<v8::internal::Object>, v8::base::Vector<v8::internal::DirectHandle<v8::internal::Object> const>) [node]"
+    },
+    {
+      "pc": "0x000000000139e7c7",
+      "symbol": "v8::Function::Call(v8::Isolate*, v8::Local<v8::Context>, v8::Local<v8::Value>, int, v8::Local<v8::Value>*) [node]"
+    },
+    {
+      "pc": "0x00000000010833d3",
+      "symbol": "node::builtins::BuiltinLoader::CompileAndCall(v8::Local<v8::Context>, char const*, node::Realm*) [node]"
+    },
+    {
+      "pc": "0x0000000001175ea3",
+      "symbol": "node::Realm::ExecuteBootstrapper(char const*) [node]"
+    },
+    {
+      "pc": "0x000000000104f4e0",
+      "symbol": " [node]"
+    },
+    {
+      "pc": "0x0000000001055ac6",
+      "symbol": "node::StartExecution(node::Environment*, std::function<v8::MaybeLocal<v8::Value> (node::StartExecutionCallbackInfo const&)>) [node]"
+    },
+    {
+      "pc": "0x0000000000f8fd64",
+      "symbol": "node::LoadEnvironment(node::Environment*, std::function<v8::MaybeLocal<v8::Value> (node::StartExecutionCallbackInfo const&)>, std::function<void (node::Environment*, v8::Local<v8::Value>, v8::Local<v8::Value>)>) [node]"
+    },
+    {
+      "pc": "0x00000000011185c4",
+      "symbol": "node::NodeMainInstance::Run() [node]"
+    },
+    {
+      "pc": "0x0000000001058612",
+      "symbol": "node::Start(int, char**) [node]"
+    },
+    {
+      "pc": "0x000079c432a2a601",
+      "symbol": " [/usr/lib/x86_64-linux-gnu/libc.so.6]"
+    },
+    {
+      "pc": "0x000079c432a2a718",
+      "symbol": "__libc_start_main [/usr/lib/x86_64-linux-gnu/libc.so.6]"
+    },
+    {
+      "pc": "0x0000000000f870be",
+      "symbol": "_start [node]"
+    }
+  ],
+  "resourceUsage": {
+    "free_memory": 42349895680,
+    "total_memory": 63821303808,
+    "rss": 52813824,
+    "constrained_memory": 18446744073709551615,
+    "available_memory": 42349895680,
+    "userCpuSeconds": 0.028824,
+    "kernelCpuSeconds": 0.007686,
+    "cpuConsumptionPercent": 3.651,
+    "userCpuConsumptionPercent": 2.8824,
+    "kernelCpuConsumptionPercent": 0.7686,
+    "maxRss": 52813824,
+    "pageFaults": {
+      "IORequired": 5,
+      "IONotRequired": 2899
+    },
+    "fsActivity": {
+      "reads": 840,
+      "writes": 40
+    }
+  },
+  "uvthreadResourceUsage": {
+    "userCpuSeconds": 0.028295,
+    "kernelCpuSeconds": 0.007545,
+    "cpuConsumptionPercent": 3.584,
+    "userCpuConsumptionPercent": 2.8295,
+    "kernelCpuConsumptionPercent": 0.7545,
+    "fsActivity": {
+      "reads": 840,
+      "writes": 40
+    }
+  },
+  "libuv": [
+    {
+      "type": "async",
+      "is_active": true,
+      "is_referenced": false,
+      "address": "0x000000001ea2db10"
+    },
+    {
+      "type": "async",
+      "is_active": true,
+      "is_referenced": false,
+      "address": "0x0000000006e3fa40"
+    },
+    {
+      "type": "timer",
+      "is_active": false,
+      "is_referenced": false,
+      "address": "0x000000001eb05a68",
+      "repeat": 0,
+      "firesInMsFromNow": -1625070278,
+      "expired": true
+    },
+    {
+      "type": "check",
+      "is_active": true,
+      "is_referenced": false,
+      "address": "0x000000001eb05b00"
+    },
+    {
+      "type": "idle",
+      "is_active": false,
+      "is_referenced": true,
+      "address": "0x000000001eb05b78"
+    },
+    {
+      "type": "prepare",
+      "is_active": true,
+      "is_referenced": false,
+      "address": "0x000000001eb05bf0"
+    },
+    {
+      "type": "check",
+      "is_active": true,
+      "is_referenced": false,
+      "address": "0x000000001eb05c68"
+    },
+    {
+      "type": "async",
+      "is_active": true,
+      "is_referenced": false,
+      "address": "0x000000001eb05ce0"
+    },
+    {
+      "type": "pipe",
+      "is_active": false,
+      "is_referenced": true,
+      "address": "0x000000001eb0fc28",
+      "localEndpoint": null,
+      "remoteEndpoint": null,
+      "sendBufferSize": 131072,
+      "recvBufferSize": 131072,
+      "fd": 2,
+      "stdio": "stderr",
+      "writeQueueSize": 0,
+      "readable": true,
+      "writable": true
+    },
+    {
+      "type": "loop",
+      "is_active": false,
+      "address": "0x0000000006e51a60",
+      "loopIdleTimeSeconds": 0
+    }
+  ],
+  "workers": [
+  ],
+  "environmentVariables": {
+    "SHELL": "/bin/bash",
+    "npm_command": "run-script",
+    "__CURSOR_SANDBOX_ENV_RESTORE": "builtin unset CURSOR_CONVERSATION_ID CURSOR_REQUEST_ID CURSOR_AGENT_STORE_FILES_DIR CURSOR_AGENT_STORE_SHARED_PATHS 2>/dev/null || true; builtin export CURSOR_CONVERSATION_ID='316cf3da-f8ff-4af7-bcfa-c618170790e6'; builtin export CURSOR_REQUEST_ID='0aad5dd5-4530-4ef8-aa96-b5c96afd6f50'",
+    "AGENT_TRANSCRIPTS": "/home/shin/.cursor/projects/home-shin-code-werift-webrtc-worktree-c724daf9-5f79-4e30-bd50-7b27c8951844/agent-transcripts",
+    "ZELLIJ_SESSION_NAME": "oblong-iguanadon",
+    "COREPACK_ENABLE_DOWNLOAD_PROMPT": "1",
+    "_ZO_DOCTOR": "0",
+    "CURSOR_INVOKED_AS": "cursor-agent",
+    "NODE": "/home/shin/n/bin/node",
+    "NODE_OPTIONS": "--max-old-space-size=12192 --heapsnapshot-near-heap-limit=3 --diagnostic-dir=/home/shin/code/sak-worker/packages/server/data/diagnostics --report-on-fatalerror --report-uncaught-exception",
+    "PWD": "/home/shin/code/werift-webrtc.worktree/c724daf9-5f79-4e30-bd50-7b27c8951844/packages/webrtc",
+    "LOGNAME": "shin",
+    "ZELLIJ_PANE_ID": "0",
+    "CLIENT_DIST_DIR": "/home/shin/code/sak-worker/packages/client/dist",
+    "XDG_SESSION_TYPE": "tty",
+    "PORT": "9451",
+    "HOME": "/home/shin",
+    "COREPACK_ROOT": "/home/shin/n/lib/node_modules/corepack",
+    "LANG": "ja_JP.UTF-8",
+    "LS_COLORS": "rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=00:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.avif=01;35:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:*~=00;90:*#=00;90:*.bak=00;90:*.old=00;90:*.orig=00;90:*.part=00;90:*.rej=00;90:*.swp=00;90:*.tmp=00;90:*.dpkg-dist=00;90:*.dpkg-old=00;90:*.ucf-dist=00;90:*.ucf-new=00;90:*.ucf-old=00;90:*.rpmnew=00;90:*.rpmorig=00;90:*.rpmsave=00;90:",
+    "npm_package_version": "1.0.0",
+    "IDE_SERVER_DIAGNOSTIC_DIR": "/home/shin/code/sak-worker/packages/server/data/diagnostics",
+    "CURSOR_CONVERSATION_ID": "316cf3da-f8ff-4af7-bcfa-c618170790e6",
+    "CURSOR_RIPGREP_PATH": "/home/shin/.local/share/cursor-agent/versions/2026.09.02-c22c1a3/rg",
+    "N_PREFIX": "/home/shin/n",
+    "FORCE_COLOR": "0",
+    "pnpm_config_verify_deps_before_run": "false",
+    "SSH_CONNECTION": "100.72.193.54 59211 100.124.146.41 22",
+    "INIT_CWD": "/home/shin/code/sak-worker/packages/server",
+    "NODE_COMPILE_CACHE": "/home/shin/.cache/cursor-compile-cache",
+    "npm_lifecycle_script": "node ./scripts/with-server-node-options.mjs tsx src/index.ts",
+    "CURSOR_AGENT": "1",
+    "CURSOR_REQUEST_ID": "0aad5dd5-4530-4ef8-aa96-b5c96afd6f50",
+    "LESSCLOSE": "/usr/bin/lesspipe %s %s",
+    "XDG_SESSION_CLASS": "user",
+    "ANDROID_HOME": "/home/shin/Android/Sdk",
+    "TERM": "dumb",
+    "npm_package_name": "@ide-project/server",
+    "LESSOPEN": "| /usr/bin/lesspipe %s",
+    "USER": "shin",
+    "npm_lifecycle_event": "start",
+    "SHLVL": "4",
+    "ANDROID_SDK_ROOT": "/home/shin/Android/Sdk",
+    "XDG_SESSION_ID": "3",
+    "GITHUB_COPILOT_API_KEY": "test",
+    "npm_config_user_agent": "pnpm/11.21.0 npm/? node/v24.18.0 linux x64",
+    "NO_COLOR": "1",
+    "PNPM_SCRIPT_SRC_DIR": "/home/shin/code/sak-worker/packages/server",
+    "npm_execpath": "/home/shin/.cache/node/corepack/v1/pnpm/11.21.0/bin/pnpm.mjs",
+    "LC_CTYPE": "ja_JP.UTF-8",
+    "XDG_RUNTIME_DIR": "/run/user/1000",
+    "SSH_CLIENT": "100.72.193.54 59211 22",
+    "NODE_PATH": "/home/shin/code/sak-worker/node_modules/.pnpm/tsx@4.23.11/node_modules/tsx/node_modules:/home/shin/code/sak-worker/node_modules/.pnpm/tsx@4.23.11/node_modules:/home/shin/code/sak-worker/node_modules/.pnpm/node_modules",
+    "DEBUGINFOD_URLS": "https://debuginfod.ubuntu.com ",
+    "IM_CONFIG_ENTRY": "profile",
+    "npm_package_json": "/home/shin/code/sak-worker/packages/server/package.json",
+    "GLOBAL_AGENT_ENVIRONMENT_VARIABLE_NAMESPACE": "",
+    "XDG_DATA_DIRS": "/usr/share/gnome:/usr/local/share:/usr/share:/var/lib/snapd/desktop",
+    "PATH": "/home/shin/.local/bin:/home/shin/bin:/home/shin/.local/bin:/home/shin/.grok/bin:/var/sak/host-home/.kimi-code/bin:/home/shin/.local/bin:/home/shin/.kimi-code/bin:/home/shin/.opencode/bin:/home/shin/.local/share/cursor-agent/versions/2026.09.02-c22c1a3:/home/shin/code/sak-worker/packages/server/node_modules/.bin:/home/shin/.cache/node/corepack/v1/pnpm/11.21.0/dist/node-gyp-bin:/home/shin/code/sak-worker/node_modules/.bin:/home/shin/code/sak-worker/node_modules/.bin:/home/shin/.cache/node/corepack/v1/pnpm/11.21.0/dist/node-gyp-bin:/home/shin/code/sak-worker/node_modules/.bin:/home/shin/.local/bin:/home/shin/bin:/home/shin/.local/bin:/home/shin/.grok/bin:/var/sak/host-home/.kimi-code/bin:/home/shin/.local/bin:/home/shin/.kimi-code/bin:/home/shin/.opencode/bin:/home/shin/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/home/shin/n/bin:/home/shin/.pulumi/bin:/home/shin/Android/Sdk/platform-tools:/home/shin/Android/Sdk/emulator:/home/shin/Android/Sdk/cmdline-tools/latest/bin:/home/shin/.pulumi/bin:/home/shin/Android/Sdk/platform-tools:/home/shin/Android/Sdk/emulator:/home/shin/Android/Sdk/cmdline-tools/latest/bin",
+    "npm_config_node_gyp": "/home/shin/.cache/node/corepack/v1/pnpm/11.21.0/dist/node_modules/node-gyp/bin/node-gyp.js",
+    "ZELLIJ": "0",
+    "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus",
+    "MAIL": "/var/mail/shin",
+    "SSH_TTY": "/dev/pts/0",
+    "npm_node_execpath": "/home/shin/n/bin/node",
+    "_": "/home/shin/.local/share/cursor-agent/versions/2026.09.02-c22c1a3/node"
+  },
+  "userLimits": {
+    "core_file_size_blocks": {
+      "soft": 0,
+      "hard": "unlimited"
+    },
+    "data_seg_size_bytes": {
+      "soft": "unlimited",
+      "hard": "unlimited"
+    },
+    "file_size_blocks": {
+      "soft": "unlimited",
+      "hard": "unlimited"
+    },
+    "max_locked_memory_bytes": {
+      "soft": 8388608,
+      "hard": 8388608
+    },
+    "max_memory_size_bytes": {
+      "soft": "unlimited",
+      "hard": "unlimited"
+    },
+    "open_files": {
+      "soft": 65535,
+      "hard": 65535
+    },
+    "stack_size_bytes": {
+      "soft": 8388608,
+      "hard": "unlimited"
+    },
+    "cpu_time_seconds": {
+      "soft": "unlimited",
+      "hard": "unlimited"
+    },
+    "max_user_processes": {
+      "soft": 243092,
+      "hard": 243092
+    },
+    "virtual_memory_bytes": {
+      "soft": "unlimited",
+      "hard": "unlimited"
+    }
+  },
+  "sharedObjects": [
+    "linux-vdso.so.1",
+    "/usr/lib/x86_64-linux-gnu/libdl.so.2",
+    "/usr/lib/x86_64-linux-gnu/libstdc++.so.6",
+    "/usr/lib/x86_64-linux-gnu/libm.so.6",
+    "/usr/lib/x86_64-linux-gnu/libgcc_s.so.1",
+    "/usr/lib/x86_64-linux-gnu/libpthread.so.0",
+    "/usr/lib/x86_64-linux-gnu/libc.so.6",
+    "/lib64/ld-linux-x86-64.so.2"
+  ]
+}

@@ -27,9 +27,11 @@ import {
   kDefaultPaceMultiplier,
   kDefaultPaceMultiplierWithSendSideBwe,
   kDefaultStartBitrateBps,
+  kGoogCcProcessIntervalMs,
   kMaxBitrateBps,
   kMinBitrateBps,
   kProbeDropThroughputFraction,
+  kProbePaddingMaxBurst,
   kProbePaddingPacketBytes,
   kRttBasedBackOffBandwidthFloorBps,
   kRttBasedBackOffDropFraction,
@@ -67,8 +69,8 @@ type DelayBasedBweResult = {
 };
 
 /**
- * Optional GCC constructor settings. Probe / RTT inputs stay off the thin
- * {@link BandwidthEstimator} interface (capability + constructor, not common I/O).
+ * Optional GCC constructor settings. Probe / RTT / process hooks are on
+ * {@link BandwidthEstimator}; this type is constructor-only (clock, ALR).
  */
 export type GccBandwidthEstimatorOptions = {
   /**
@@ -105,6 +107,10 @@ export class GccBandwidthEstimator
 {
   /** @internal */
   _availableBitrate = 0;
+
+  readonly processIntervalMs = kGoogCcProcessIntervalMs;
+  readonly probePaddingPacketBytes = kProbePaddingPacketBytes;
+  readonly probePaddingMaxBurst = kProbePaddingMaxBurst;
 
   readonly onAvailableBitrate = new Event<[number]>();
   readonly onOveruseDetected = new Event<[BandwidthUsage]>();

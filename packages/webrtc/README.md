@@ -51,14 +51,14 @@ WPT_UPDATE_COVERAGE_BASELINE=1 npm run wpt:coverage --workspace packages/webrtc
 
 | API | Role |
 | --- | --- |
-| `RTCRtpSender.senderBWE` | **Getter** for active `BandwidthEstimator` (default: legacy). Replace only via setter. |
-| `RTCRtpSender.setBandwidthEstimator(impl)` | Swap algorithm instance (e.g. `new GccBandwidthEstimator()`) |
+| `new RTCPeerConnection({ bandwidthEstimator })` | Per-sender default: `"legacy"` (default), `"gcc"`, `false` / `"none"` (disabled), or `() => BandwidthEstimator` |
+| `RTCRtpSender.senderBWE` | **Getter** for active `BandwidthEstimator`. Replace only via setter. |
+| `RTCRtpSender.setBandwidthEstimator(impl)` | Swap algorithm instance on one sender (e.g. `new GccBandwidthEstimator()`) |
 | **`sender.onAvailableBitrate`** | **bps**; fires only when the recommended bitrate **changes**. Survives estimator swap — prefer this for apps. |
-| `sender.pacingBitrateBps` | Effective send rate including active GCC probe target (`ProbePacingController`) |
-| `sender.onProbeClusterConfig` | GCC probe cluster targets for pacing / encoder ramp |
-| `isProbePacingController(e)` | Type guard for probe/pacing hooks (not on common interface) |
-| `isRoundTripTimeConsumer(e)` | Type guard for raw RTCP RTT → AIMD (GCC only; not on common interface) |
-| `isBandwidthEstimatorProcessor(e)` | Type guard for pin ProcessInterval-style `process(nowMs)` (GCC RTT backoff) |
+| `sender.pacingBitrateBps` | Effective send rate including active GCC probe target. Legacy / disabled do not pace. |
+| `sender.onProbeClusterConfig` | Probe cluster targets (GCC fires; legacy / disabled never do) |
+
+GCC send-path hooks (`process`, `setRoundTripTime`, probe padding, pacing) live on `BandwidthEstimator`. Legacy and `DisabledBandwidthEstimator` implement them as no-ops so `RTCRtpSender` does not import GCC.
 
 ```ts
 import {
@@ -66,14 +66,21 @@ import {
   type SenderBandwidthEstimator,
 } from "werift";
 
+// Connection-wide default (each RTCRtpSender gets its own instance):
+const pc = new RTCPeerConnection({
+  bandwidthEstimator: "gcc",
+  // bandwidthEstimator: false, // disable send-side BWE
+  // bandwidthEstimator: () => new GccBandwidthEstimator(800_000),
+});
+
 // Recommended: sender-level event (survives setBandwidthEstimator).
 sender.onAvailableBitrate.subscribe((bps) => {
   // drive encoder / simulcast layer selection (bps, change-only)
 });
 
-// Optional: switch to Google Congestion Control (trendline + loss + probe).
+// Optional: switch one sender to Google Congestion Control.
 sender.setBandwidthEstimator(new GccBandwidthEstimator());
-// During probes (GCC / ProbePacingController only — legacy is unpaced):
+// During probes (GCC only — legacy / disabled are unpaced):
 // - sender.pacingBitrateBps is raised to the probe target
 // - RTCRtpSender paces with a token-bucket and injects RTP padding when media
 //   alone cannot fill the probe cluster (see maybeInjectProbePadding)

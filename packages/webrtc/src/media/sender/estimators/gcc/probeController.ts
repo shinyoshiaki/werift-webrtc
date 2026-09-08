@@ -1,3 +1,7 @@
+import type {
+  ProbeClusterConfig,
+  ProbeReservation,
+} from "../../bandwidthEstimator";
 import {
   type BandwidthLimitedCause,
   isProbeInitiationAllowed,
@@ -50,29 +54,7 @@ import { TransportWideSeqUnwrapper } from "./sequenceNumber";
  */
 export type ProbeState = "init" | "waiting_for_result" | "complete";
 
-export interface ProbeClusterConfig {
-  id: number;
-  /** Target bitrate the pacer / sender should temporarily aim for (bps). */
-  targetBps: number;
-  minPackets: number;
-  minDurationMs: number;
-  /** Minimum bytes expected for the cluster (for receive-ratio checks). */
-  minBytes: number;
-  /**
-   * pin `ProbeClusterConfig.min_probe_delta` (ms). Used for
-   * RecommendedMinProbeSize and stored on the BitrateProber cluster.
-   */
-  minProbeDeltaMs: number;
-  /** pin `requested_at` — queue age for the 5s queued-cluster timeout. */
-  requestedAtMs: number;
-}
-
-/** Reservation taken **before** the async send (pin `CurrentCluster`). */
-export interface ProbeReservation {
-  clusterId: number;
-  /** Next allowed send time (MinusInfinity → send immediately). */
-  nextSendTimeMs: number;
-}
+export type { ProbeClusterConfig, ProbeReservation };
 
 /**
  * Per-cluster stats for libwebrtc ProbeBitrateEstimator-style validation.

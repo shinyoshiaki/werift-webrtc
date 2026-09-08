@@ -2,7 +2,10 @@ import { Event } from "../../../imports/common";
 import { Int, type TransportWideCC } from "../../../imports/rtp";
 import { milliTime } from "../../../utils";
 import type { BandwidthEstimator, SentInfo } from "../bandwidthEstimator";
-import { setAvailableBitrateIfChanged } from "../bandwidthEstimator";
+import {
+  BandwidthEstimatorNoopHooks,
+  setAvailableBitrateIfChanged,
+} from "../bandwidthEstimator";
 import { CumulativeResult } from "../cumulativeResult";
 import { hasTwccReceiveTiming } from "./twccReceiveTiming";
 
@@ -20,11 +23,16 @@ const kLegacySentInfoMaxAgeMs = 10_000;
  *
  * This is the **default** send-side BWE used by {@link RTCRtpSender}.
  * Implements {@link BandwidthEstimator}; congestion-related events are **legacy-only**
- * and are not part of the shared interface.
+ * and are not part of the shared interface. GCC send-path hooks (probe, pacing,
+ * RTT, process interval) are no-ops so {@link RTCRtpSender} can call them
+ * unconditionally.
  *
  * @see CumulativeResult
  */
-export class SenderBandwidthEstimator implements BandwidthEstimator {
+export class SenderBandwidthEstimator
+  extends BandwidthEstimatorNoopHooks
+  implements BandwidthEstimator
+{
   congestion = false;
 
   /**
@@ -67,8 +75,6 @@ export class SenderBandwidthEstimator implements BandwidthEstimator {
   set availableBitrate(v: number) {
     setAvailableBitrateIfChanged(this, v);
   }
-
-  constructor() {}
 
   receiveTWCC(feedback: TransportWideCC) {
     const nowMs = milliTime();
@@ -162,6 +168,7 @@ export class SenderBandwidthEstimator implements BandwidthEstimator {
     this.onAvailableBitrate.allUnsubscribe();
     this.onCongestion.allUnsubscribe();
     this.onCongestionScore.allUnsubscribe();
+    this.disposeNoopHooks();
     this.reset();
   }
 }

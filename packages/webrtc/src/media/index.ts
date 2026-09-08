@@ -13,17 +13,26 @@ export type {
   BandwidthEstimator,
   BandwidthEstimatorProcessor,
   NetworkAvailabilityConsumer,
+  ProbeClusterConfig,
   ProbePacingController,
+  ProbeReservation,
   RoundTripTimeConsumer,
   SentInfo,
 } from "./sender/bandwidthEstimator";
 export {
+  BandwidthEstimatorNoopHooks,
   isBandwidthEstimatorProcessor,
   isNetworkAvailabilityConsumer,
   isProbePacingController,
   isRoundTripTimeConsumer,
   setAvailableBitrateIfChanged,
 } from "./sender/bandwidthEstimator";
+export { createBandwidthEstimator } from "./sender/createBandwidthEstimator";
+export type {
+  BandwidthEstimatorOption,
+  BandwidthEstimatorPreset,
+} from "./sender/createBandwidthEstimator";
+export { DisabledBandwidthEstimator } from "./sender/estimators/disabledBwe";
 export {
   LegacyCumulativeBandwidthEstimator,
   SenderBandwidthEstimator,
@@ -95,7 +104,5 @@ export type {
   GccClock,
   LossBasedResult,
   LossBasedState,
-  ProbeClusterConfig,
-  ProbeReservation,
   ProbeState,
 } from "./sender/estimators/gcc";

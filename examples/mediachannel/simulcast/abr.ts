@@ -72,9 +72,9 @@ server.on("connection", async (socket) => {
     }, 1000);
   });
   // Default BWE is legacy cumulative (SenderBandwidthEstimator).
-  // To use GCC instead:
-  //   import { GccBandwidthEstimator } from "werift";
-  //   senderTransceiver.sender.setBandwidthEstimator(new GccBandwidthEstimator());
+  // Connection-wide GCC: new RTCPeerConnection({ bandwidthEstimator: "gcc" })
+  //   or disable with bandwidthEstimator: false.
+  // Per-sender: senderTransceiver.sender.setBandwidthEstimator(new GccBandwidthEstimator()).
   // Prefer rtpSender.onAvailableBitrate (survives estimator swap); unit is bps, change-only.
   const rtpSender = senderTransceiver.sender;
   rtpSender.onAvailableBitrate.subscribe((bitrate) => console.log({ bitrate }));
