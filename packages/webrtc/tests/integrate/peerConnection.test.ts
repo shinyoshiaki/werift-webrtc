@@ -15,6 +15,8 @@ import {
   RtcpRrPacket,
   RtpHeader,
   createSelfSignedCertificate,
+  useTWCC,
+  useVP8,
 } from "../../src";
 import { SignatureAlgorithm } from "../../src/const";
 import { createDataChannelPair } from "../utils";
@@ -516,11 +518,15 @@ describe("peerConnection", () => {
 
   test("BUNDLE tag の順序変更で同種 transceiver の割り当てを入れ替えない", async () => {
     // Arrange: 未割り当ての video transceiver と、逆順の BUNDLE tag を持つ offer を用意する。
+    const codecs = {
+      video: [useVP8({ payloadType: 96, rtcpFeedback: [useTWCC()] })],
+    };
     const caller = new RTCPeerConnection({
       iceServers: [],
       bundlePolicy: "max-compat",
+      codecs,
     });
-    const callee = new RTCPeerConnection({ iceServers: [] });
+    const callee = new RTCPeerConnection({ iceServers: [], codecs });
     const callerCamera = new MediaStreamTrack({ kind: "video" });
     const callerScreen = new MediaStreamTrack({ kind: "video" });
     const calleeCamera = new MediaStreamTrack({ kind: "video" });
@@ -529,6 +535,12 @@ describe("peerConnection", () => {
     caller.addTransceiver(callerScreen);
     const cameraSender = callee.addTrack(calleeCamera);
     const screenSender = callee.addTrack(calleeScreen);
+    const originalCalleeTransports = [...callee.dtlsTransports];
+    const expectedBundleTransport = originalCalleeTransports[1]!;
+    const trackEventTransports: unknown[] = [];
+    callee.ontrack = ({ receiver }) => {
+      trackEventTransports.push(receiver.transport);
+    };
 
     try {
       await caller.setLocalDescription(await caller.createOffer());
@@ -563,6 +575,100 @@ describe("peerConnection", () => {
       expect(transceivers[1]!.sender).toBe(screenSender);
       expect(transceivers[1]!.sender.track).toBe(calleeScreen);
       expect(transceivers[1]!.mid).toBe(offerMids[1]);
+
+      // Assert: ontrack と TWCC は遅延 rebind 前の停止済み transport を保持しない。
+      expect(trackEventTransports).toEqual([
+        expectedBundleTransport,
+        expectedBundleTransport,
+      ]);
+      const receiverTwcc = (
+        transceivers[0]!.receiver as unknown as {
+          receiverTWCC?: { handleTWCC(sequenceNumber: number): void };
+        }
+      ).receiverTWCC;
+      expect(receiverTwcc).toBeDefined();
+      let tagFeedback = 0;
+      let staleFeedback = 0;
+      const staleTransport = originalCalleeTransports[0]!;
+      const originalTagSendRtcp = expectedBundleTransport.sendRtcp;
+      const originalStaleSendRtcp = staleTransport.sendRtcp;
+      expectedBundleTransport.sendRtcp = async () => {
+        tagFeedback++;
+        return undefined;
+      };
+      staleTransport.sendRtcp = async () => {
+        staleFeedback++;
+        return undefined;
+      };
+      try {
+        // Act: feedback thresholdを越えるtransport-wide sequenceを受信する。
+        for (let sequenceNumber = 0; sequenceNumber < 11; sequenceNumber++) {
+          receiverTwcc!.handleTWCC(sequenceNumber);
+        }
+        await setTimeout(0);
+
+        // Assert: TWCC feedbackも最終BUNDLE tag transportだけを使う。
+        expect(tagFeedback).toBe(1);
+        expect(staleFeedback).toBe(0);
+      } finally {
+        expectedBundleTransport.sendRtcp = originalTagSendRtcp;
+        staleTransport.sendRtcp = originalStaleSendRtcp;
+      }
+
+      // Act: answer生成から両端の接続完了までreverse tagを維持する。
+      const answer = await callee.createAnswer();
+      const answerBundle = answer.sdp.match(/^a=group:BUNDLE ([^\r\n]+)$/m);
+      expect(answerBundle?.[1]).toBe(reversedBundle);
+      await callee.setLocalDescription(answer);
+      await caller.setRemoteDescription(callee.localDescription!);
+      await Promise.all([
+        waitForConnectionState(caller, "connected"),
+        waitForConnectionState(callee, "connected"),
+      ]);
+
+      // Assert: reverse tagのoffer/answer negotiationが接続まで成立する。
+      expect(caller.connectionState).toBe("connected");
+      expect(callee.connectionState).toBe("connected");
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
+  test("answer は remote offer の BUNDLE tag と membership を維持する", async () => {
+    // Arrange: applicationをgroup外に置き、第2 mediaをtagにしたpartial BUNDLE offerを作る。
+    const caller = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "max-compat",
+    });
+    const callee = new RTCPeerConnection({ iceServers: [] });
+    caller.addTransceiver("audio");
+    caller.addTransceiver("video");
+    caller.createDataChannel("outside-bundle");
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      const offerSdp = caller.localDescription!.sdp;
+      const mids = [...offerSdp.matchAll(/^a=mid:([^\r\n]+)$/gm)].map(
+        (match) => match[1]!,
+      );
+      expect(mids).toHaveLength(3);
+      const offeredBundle = `${mids[1]} ${mids[0]}`;
+      const modifiedOffer = {
+        type: "offer" as const,
+        sdp: offerSdp.replace(
+          /^a=group:BUNDLE [^\r\n]+$/m,
+          `a=group:BUNDLE ${offeredBundle}`,
+        ),
+      };
+
+      // Act: partial/reverse BUNDLE offerを適用してanswerを生成する。
+      await callee.setRemoteDescription(modifiedOffer);
+      const answer = await callee.createAnswer();
+
+      // Assert: answerはtagを並べ替えず、group外MIDも勝手に追加しない。
+      expect(answer.sdp.match(/^a=group:BUNDLE ([^\r\n]+)$/m)?.[1]).toBe(
+        offeredBundle,
+      );
     } finally {
       await Promise.allSettled([caller.close(), callee.close()]);
     }
@@ -905,7 +1011,7 @@ a=ssrc:1001 cname:some
     try {
       await pc.setRemoteDescription({
         type: "offer",
-        sdp: addIceCandidateWptSdp,
+        sdp: addIceCandidateUnbundledSdp,
       });
 
       // Act: video m-section を指す candidate を追加する。
@@ -943,7 +1049,7 @@ a=ssrc:1001 cname:some
     try {
       await pc.setRemoteDescription({
         type: "offer",
-        sdp: addIceCandidateWptSdp,
+        sdp: addIceCandidateUnbundledSdp,
       });
 
       // Act: 第2 m-section の generation にだけ end-of-candidates を適用する。
@@ -1034,6 +1140,60 @@ a=ssrc:1001 cname:some
       ).toBeTruthy();
     } finally {
       await pc.close();
+    }
+  });
+
+  test("initial BUNDLE answer 前は non-tag の Trickle ICE candidate を共有 transport に適用しない", async () => {
+    const timings = ["SRD前", "SRD後"] as const;
+
+    for (const timing of timings) {
+      // Arrange: tag=a1、non-tag=v1でICE credentialが異なるinitial offerを用意する。
+      const pc = new RTCPeerConnection();
+      const nonTagCandidate = {
+        candidate: addIceCandidateLine2,
+        sdpMid: addIceCandidateSdpMid2,
+        sdpMLineIndex: addIceCandidateSdpMLineIndex2,
+        usernameFragment: addIceCandidateUsernameFragment2,
+      };
+
+      try {
+        if (timing === "SRD前") {
+          // Act: remote descriptionより先にnon-tag candidateを保留する。
+          await pc.addIceCandidate(nonTagCandidate);
+        }
+        await pc.setRemoteDescription({
+          type: "offer",
+          sdp: addIceCandidateWptSdp,
+        });
+        if (timing === "SRD後") {
+          // Act: remote offer適用後、answer前にnon-tag candidateを投入する。
+          await pc.addIceCandidate(nonTagCandidate);
+        }
+
+        // Assert: 保留経路・直接経路のどちらもtag transportを汚染しない。
+        expect(pc.remoteDescription!.sdp).not.toContain(
+          `a=${addIceCandidateLine2}`,
+        );
+        expect(
+          pc.iceTransports[0]!.connection.remoteCandidates,
+          timing,
+        ).toEqual([]);
+
+        // Act: answerでBUNDLEが成立した後はbundled MIDのcandidateを共有する。
+        await pc.setLocalDescription(await pc.createAnswer());
+        await pc.addIceCandidate({
+          candidate: addIceCandidateLine2,
+          sdpMid: addIceCandidateSdpMid2,
+          sdpMLineIndex: addIceCandidateSdpMLineIndex2,
+        });
+
+        // Assert: 成立後のTrickle ICEはRFCどおり共有transportへ適用される。
+        expect(pc.iceTransports[0]!.connection.remoteCandidates).toHaveLength(
+          1,
+        );
+      } finally {
+        await pc.close();
+      }
     }
   });
 
@@ -1514,6 +1674,10 @@ a=rtcp:10103 IN IP4 203.0.113.100
 a=rtcp-mux
 a=rtcp-rsize
 `;
+const addIceCandidateUnbundledSdp = addIceCandidateWptSdp.replace(
+  /^a=group:BUNDLE.*\n/m,
+  "",
+);
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

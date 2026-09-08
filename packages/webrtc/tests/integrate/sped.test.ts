@@ -901,6 +901,64 @@ describe("RTCPeerConnection SPED opt-in", () => {
     }
   }, 30_000);
 
+  test("early SCTP INIT のpermission revoke後に認証済みassociationで再試行する", async () => {
+    // Arrange: DTLS serverだけearly SCTPを許可した実PeerConnectionを用意する。
+    const server = new RTCPeerConnection(
+      spedPeerConfig({
+        warp: { allowEarlyServerData: true, earlyMediaPolicy: "buffer" },
+      }),
+    );
+    const client = new RTCPeerConnection(spedPeerConfig());
+    const channel = server.createDataChannel("early-retry");
+    const initialAssociation = server.sctp!.sctp;
+    let restoreSendData = () => {};
+
+    try {
+      exchangeIceCandidates(server, client);
+      await server.setLocalDescription(await server.createOffer());
+      await client.setRemoteDescription(server.localDescription!);
+      await client.setLocalDescription(await client.createAnswer());
+      const serverDtls = server.dtlsTransports[0]!;
+      const mutableDtls = serverDtls as unknown as {
+        sendData: (data: Buffer) => Promise<void>;
+      };
+      const originalSendData = mutableDtls.sendData;
+      let earlyInitRejected = false;
+      mutableDtls.sendData = async (data) => {
+        if (!earlyInitRejected && serverDtls.isEarlyServerWriteAllowed()) {
+          // Act: early INIT送信直前にlive policyをrevokeして初回associationを閉じる。
+          earlyInitRejected = true;
+          server.setConfiguration({
+            warp: { allowEarlyServerData: false },
+          });
+        }
+        await originalSendData(data);
+      };
+      restoreSendData = () => {
+        mutableDtls.sendData = originalSendData;
+      };
+
+      // Act: answerを適用し、認証後の通常SCTP retryとDataChannel openを待つ。
+      await server.setRemoteDescription(client.localDescription!);
+      await waitUntil(
+        () =>
+          server.connectionState === "connected" &&
+          client.connectionState === "connected" &&
+          channel.readyState === "open",
+      );
+
+      // Assert: early失敗をterminalにせず、新しいassociationで接続する。
+      expect(earlyInitRejected).toBe(true);
+      expect(server.sctp!.sctp).not.toBe(initialAssociation);
+      expect(server.connectionState).toBe("connected");
+      expect(client.connectionState).toBe("connected");
+      expect(channel.readyState).toBe("open");
+    } finally {
+      restoreSendData();
+      await Promise.allSettled([server.close(), client.close()]);
+    }
+  }, 30_000);
+
   test("WARP early server traffic is held by the real PeerConnection authentication boundary", async () => {
     // Arrange: offerer (ICE controlling / DTLS server) と answerer を実際に
     // negotiation し、answer SDP の適用中に server write-ready を観測する。

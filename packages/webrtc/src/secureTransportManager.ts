@@ -253,6 +253,7 @@ export class SecureTransportManager {
   async addIceCandidate(
     sdp: SessionDescription,
     candidateMessage: RTCIceCandidate | RTCIceCandidateInit | null,
+    initialBundleTag?: string,
   ) {
     const candidateText = candidateMessage?.candidate;
     const sdpMid = candidateMessage?.sdpMid;
@@ -260,13 +261,33 @@ export class SecureTransportManager {
     const usernameFragment = candidateMessage?.usernameFragment;
     const isEndOfCandidates =
       candidateMessage == null || candidateText == null || candidateText === "";
-    const mediaIndices = this.resolveCandidateMediaIndices({
+    const resolvedMediaIndices = this.resolveCandidateMediaIndices({
       sdp,
       isEndOfCandidates,
       sdpMid,
       sdpMLineIndex,
       usernameFragment,
     });
+    const bundleGroup = initialBundleTag
+      ? sdp.group.find(
+          (group) =>
+            group.semantic === "BUNDLE" &&
+            group.items.includes(initialBundleTag),
+        )
+      : undefined;
+    const mediaIndices = bundleGroup
+      ? resolvedMediaIndices.filter((index) => {
+          const mid = sdp.media[index]?.rtp.muxId;
+          return (
+            !mid || !bundleGroup.items.includes(mid) || mid === initialBundleTag
+          );
+        })
+      : resolvedMediaIndices;
+
+    // Before the initial answer commits BUNDLE, a non-tag m-section still has
+    // independent ICE properties. Do not route its trickled candidate through
+    // the already rebound shared transport.
+    if (mediaIndices.length === 0) return;
 
     if (isEndOfCandidates) {
       const candidateTarget = mediaIndices

@@ -904,9 +904,17 @@ export class RTCPeerConnection extends EventTarget {
     if (!sdp) {
       return;
     }
+    const isInitialBundleNegotiation =
+      ["have-remote-offer", "have-local-pranswer"].includes(
+        this.signalingState,
+      ) && !this.sdpManager.currentLocalDescription;
+    const initialBundleTag = isInitialBundleNegotiation
+      ? this.sdpManager.getRemoteBundleInfo()?.tag
+      : undefined;
     const appliedCandidate = await this.secureManager.addIceCandidate(
       sdp,
       candidateMessage,
+      initialBundleTag,
     );
     const remoteDescription = this.sdpManager._remoteDescription;
     if (!remoteDescription || !appliedCandidate) {
@@ -1007,39 +1015,41 @@ export class RTCPeerConnection extends EventTarget {
           // The DTLS client is the passive SCTP endpoint.  Arm it before
           // authentication so an early server INIT cannot establish SCTP
           // before RTCSctpTransport has assigned its stream-id parity.
-          const passiveSctpPromise =
-            ownsSctp && dtlsTransport.role === "client"
-              ? this.sctpManager.connectSctp()
-              : Promise.resolve();
           const earlyWritePromise =
             this.config.warp.allowEarlyServerData &&
             dtlsTransport.role === "server"
               ? dtlsTransport.waitForWriteReady()
               : Promise.resolve();
-          const earlySctpPromise =
-            ownsSctp && this.config.warp.allowEarlyServerData
-              ? dtlsTransport.role === "server"
+          const earlySctpPromise = (
+            ownsSctp && dtlsTransport.role === "client"
+              ? this.sctpManager.connectSctp()
+              : ownsSctp && this.config.warp.allowEarlyServerData
                 ? earlyWritePromise.then(() =>
                     dtlsTransport.isEarlyServerWriteAllowed()
                       ? this.sctpManager.connectSctp()
                       : undefined,
                   )
-                : this.sctpManager.connectSctp()
-              : Promise.resolve();
+                : Promise.resolve()
+          ).catch((error) => {
+            // Early SCTP is an optimization. Policy revocation, generation
+            // changes, or a temporarily unavailable candidate path may close
+            // this fresh association; SctpTransportManager clears its cached
+            // promise so the authenticated path below can create and retry a
+            // new association.
+            log(
+              "early SCTP start cancelled; retry after authentication",
+              error,
+            );
+          });
           const icePromise =
             iceTransport.state === "connected"
               ? Promise.resolve()
               : iceTransport.start();
-          await Promise.all([
-            icePromise,
-            dtlsPromise,
-            passiveSctpPromise,
-            earlyWritePromise,
-            earlySctpPromise,
-          ]).catch((err) => {
+          await Promise.all([icePromise, dtlsPromise]).catch((err) => {
             log("sped ice/dtls start failed", err);
             throw err;
           });
+          await earlySctpPromise;
         } else {
           if (iceTransport.state !== "connected") {
             await iceTransport.start().catch((err) => {
@@ -1133,12 +1143,20 @@ export class RTCPeerConnection extends EventTarget {
       return;
     }
     let bundleTransport: RTCDtlsTransport | undefined;
-    const bundleGroup = this.sdpManager.remoteIsBundled;
-    const bundleTag = bundleGroup?.items[0];
+    const bundleInfo = this.sdpManager.getRemoteBundleInfo();
+    const bundleGroup = bundleInfo?.group;
+    const bundleTag = bundleInfo?.tag;
     const replacedBundleTransports = new Set<RTCDtlsTransport>();
     const pendingBundleRebindings: Array<{
       previousTransport: RTCDtlsTransport;
       rebind: (transport: RTCDtlsTransport) => void;
+    }> = [];
+    const remoteMediaBindings: Array<{
+      remoteMedia: MediaDescription;
+      isBundleMember: boolean;
+      isBundleTag: boolean;
+      getDtlsTransport: () => RTCDtlsTransport;
+      applyRemote: () => void;
     }> = [];
 
     // # apply description
@@ -1155,11 +1173,10 @@ export class RTCPeerConnection extends EventTarget {
       index: i,
     }));
 
-    // Keep the SDP m-line order for transceiver/SCTP matching.  The BUNDLE tag
-    // transport is selected during this pass, and sections encountered before
-    // the tag are rebound after all media have been assigned.
+    // First pass: keep SDP m-line order while assigning transceivers/SCTP, then
+    // select and rebind the final BUNDLE transport. setRemoteRTP() emits track
+    // events and creates ReceiverTWCC, so no media setup may run in this pass.
     remoteMediaEntries.forEach(({ remoteMedia, index: i }) => {
-      let dtlsTransport: RTCDtlsTransport;
       const isBundleMember =
         bundleGroup?.items.includes(remoteMedia.rtp.muxId ?? "") ?? false;
       const isBundleTag = isBundleMember && remoteMedia.rtp.muxId === bundleTag;
@@ -1185,6 +1202,10 @@ export class RTCPeerConnection extends EventTarget {
             return;
           }
         }
+        if (!transceiver.mid) {
+          transceiver.mid = remoteMedia.rtp.muxId ?? null;
+        }
+        transceiver.mLineIndex = i;
 
         if (isBundleMember) {
           if (isBundleTag) {
@@ -1206,14 +1227,20 @@ export class RTCPeerConnection extends EventTarget {
           }
         }
 
-        dtlsTransport = transceiver.dtlsTransport;
-
-        this.transceiverManager.setRemoteRTP(
-          transceiver,
+        const mappedTransceiver = transceiver;
+        remoteMediaBindings.push({
           remoteMedia,
-          remoteSdp.type,
-          i,
-        );
+          isBundleMember,
+          isBundleTag,
+          getDtlsTransport: () => mappedTransceiver.dtlsTransport,
+          applyRemote: () =>
+            this.transceiverManager.setRemoteRTP(
+              mappedTransceiver,
+              remoteMedia,
+              remoteSdp.type,
+              i,
+            ),
+        });
       } else if (remoteMedia.kind === "application") {
         let sctpTransport = this.sctpTransport;
         if (!sctpTransport) {
@@ -1241,13 +1268,41 @@ export class RTCPeerConnection extends EventTarget {
           }
         }
 
-        dtlsTransport = sctpTransport.dtlsTransport;
-
-        this.sctpManager.setRemoteSCTP(remoteMedia, i);
+        const mappedSctpTransport = sctpTransport;
+        remoteMediaBindings.push({
+          remoteMedia,
+          isBundleMember,
+          isBundleTag,
+          getDtlsTransport: () => mappedSctpTransport.dtlsTransport,
+          applyRemote: () => this.sctpManager.setRemoteSCTP(remoteMedia, i),
+        });
       } else {
         throw new Error("invalid media kind");
       }
+    });
 
+    if (bundleTransport) {
+      for (const pending of pendingBundleRebindings) {
+        pending.rebind(bundleTransport);
+        if (pending.previousTransport !== bundleTransport) {
+          replacedBundleTransports.add(pending.previousTransport);
+        }
+      }
+    }
+
+    // Second pass: every receiver/sender now references its final transport.
+    // Track callbacks and ReceiverTWCC therefore observe and retain the BUNDLE
+    // tag transport even when the tag appeared after a same-kind m-line.
+    for (const binding of remoteMediaBindings) {
+      const {
+        remoteMedia,
+        isBundleMember,
+        isBundleTag,
+        getDtlsTransport,
+        applyRemote,
+      } = binding;
+      const dtlsTransport = getDtlsTransport();
+      applyRemote();
       const iceTransport = dtlsTransport.iceTransport;
       // BUNDLE transport の ICE/DTLS parameters は tag m-line が所有する。
       // 非 tag section の credentials や candidate を共有 transport へ適用すると、
@@ -1292,15 +1347,6 @@ export class RTCPeerConnection extends EventTarget {
       ) {
         dtlsTransport.role =
           remoteMedia.dtlsParams.role === "client" ? "server" : "client";
-      }
-    });
-
-    if (bundleTransport) {
-      for (const pending of pendingBundleRebindings) {
-        pending.rebind(bundleTransport);
-        if (pending.previousTransport !== bundleTransport) {
-          replacedBundleTransports.add(pending.previousTransport);
-        }
       }
     }
 

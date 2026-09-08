@@ -420,13 +420,20 @@ export class SDPManager {
     }
 
     if (this.bundlePolicy !== "disable") {
-      const bundle = new GroupDescription("BUNDLE", []);
-      for (const media of description.media) {
-        if (media.rtp.muxId) {
-          bundle.items.push(media.rtp.muxId!);
-        }
+      const acceptedMids = new Set(
+        description.media
+          .filter((media) => media.port !== 0)
+          .map((media) => media.rtp.muxId)
+          .filter((mid): mid is string => !!mid),
+      );
+      const remoteBundle = this.getRemoteBundleInfo(acceptedMids);
+      if (remoteBundle) {
+        // An answer accepts only the mids offered in the remote BUNDLE group
+        // and preserves the offerer's selected tag as the first item.
+        description.group.push(
+          new GroupDescription("BUNDLE", remoteBundle.items),
+        );
       }
-      description.group.push(bundle);
     }
 
     return description;
@@ -510,14 +517,33 @@ export class SDPManager {
   }
 
   get remoteIsBundled() {
+    return this.getRemoteBundleInfo()?.group;
+  }
+
+  /**
+   * Resolve the offerer's BUNDLE group and its first usable tag in one place.
+   * Rejected m-sections cannot own the bundled transport, so the next item in
+   * the offerer's preference order becomes the tag.
+   * @internal
+   */
+  getRemoteBundleInfo(eligibleMids?: ReadonlySet<string>) {
     const remoteSdp = this._remoteDescription;
-    if (!remoteSdp) {
-      return undefined;
-    }
-    const bundle = remoteSdp.group.find(
+    if (!remoteSdp) return undefined;
+    const group = remoteSdp.group.find(
       (g) => g.semantic === "BUNDLE" && this.bundlePolicy !== "disable",
     );
-    return bundle;
+    if (!group) return undefined;
+
+    const items = group.items.filter((mid) => {
+      const media = remoteSdp.media.find(
+        (candidate) => candidate.rtp.muxId === mid,
+      );
+      return media?.port !== 0 && (eligibleMids?.has(mid) ?? true);
+    });
+    const tag = items[0];
+    if (!tag) return undefined;
+
+    return { group, items, tag };
   }
 
   /**
