@@ -1,3 +1,5 @@
+チケット統合作業として、指定された `ide-cli` の手順を確認し、親子 ticket file の実内容を照合します。
+
 ## 概要
 
 ブラウザ向け WebRTC ライブラリを Node.js 上で利用できるよう、`werift/polyfill` を追加します。`installPolyfill({ mediaRegister })` で WebRTC グローバルと `navigator.mediaDevices` をインストールし、登録したファイル・RTP・エンコード済みメディア・カスタムソースをブラウザ形式の `getUserMedia(constraints)` から取得できるようにします。
