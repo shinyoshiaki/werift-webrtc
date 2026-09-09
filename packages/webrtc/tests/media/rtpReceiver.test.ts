@@ -400,8 +400,100 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
     );
     receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 12 }), {});
 
-    // Assert: padding を飛ばした分だけ uint16Add で seq を詰める
+    // Assert: padding を飛ばした分だけ seq を詰める
     expect(seqs).toEqual([10, 11]);
+  });
+
+  test("late padding does not duplicate later media sequence numbers", () => {
+    // Arrange
+    const { receiver, track } = createVideoReceiver();
+    const seqs: number[] = [];
+    track.onReceiveRtp.subscribe((rtp) => {
+      seqs.push(rtp.header.sequenceNumber);
+    });
+
+    // Act: media 10 → media 12 → 遅延 padding 11 → media 13
+    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 10 }), {});
+    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 12 }), {});
+    receiver.handleRtpBySsrc(
+      createPaddingOnlyRtpPacket({ sequenceNumber: 11 }),
+      {},
+    );
+    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 13 }), {});
+
+    // Assert: 遅延 padding は既に届けた 12 の写像を変えない
+    expect(seqs).toEqual([10, 12, 13]);
+  });
+
+  test("duplicate padding seq is counted once when compacting", () => {
+    // Arrange
+    const { receiver, track } = createVideoReceiver();
+    const seqs: number[] = [];
+    track.onReceiveRtp.subscribe((rtp) => {
+      seqs.push(rtp.header.sequenceNumber);
+    });
+
+    // Act: 同じ padding seq を2回受けてから media
+    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 10 }), {});
+    receiver.handleRtpBySsrc(
+      createPaddingOnlyRtpPacket({ sequenceNumber: 11 }),
+      {},
+    );
+    receiver.handleRtpBySsrc(
+      createPaddingOnlyRtpPacket({ sequenceNumber: 11 }),
+      {},
+    );
+    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 12 }), {});
+
+    // Assert: 重複 padding で2つ分詰めない
+    expect(seqs).toEqual([10, 11]);
+  });
+
+  test("compacts sequence numbers across 16-bit wrap", () => {
+    // Arrange
+    const { receiver, track } = createVideoReceiver();
+    const seqs: number[] = [];
+    track.onReceiveRtp.subscribe((rtp) => {
+      seqs.push(rtp.header.sequenceNumber);
+    });
+
+    // Act: wrap 直前の media → padding → wrap 後 media
+    receiver.handleRtpBySsrc(
+      createMediaRtpPacket({ sequenceNumber: 65534 }),
+      {},
+    );
+    receiver.handleRtpBySsrc(
+      createPaddingOnlyRtpPacket({ sequenceNumber: 65535 }),
+      {},
+    );
+    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 0 }), {});
+
+    // Assert: extended seq 上で padding 1つ分だけ詰める
+    expect(seqs).toEqual([65534, 65535]);
+  });
+
+  test("late padding across wrap does not duplicate", () => {
+    // Arrange
+    const { receiver, track } = createVideoReceiver();
+    const seqs: number[] = [];
+    track.onReceiveRtp.subscribe((rtp) => {
+      seqs.push(rtp.header.sequenceNumber);
+    });
+
+    // Act: 65534 → 0 → 遅延 padding 65535 → 1
+    receiver.handleRtpBySsrc(
+      createMediaRtpPacket({ sequenceNumber: 65534 }),
+      {},
+    );
+    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 0 }), {});
+    receiver.handleRtpBySsrc(
+      createPaddingOnlyRtpPacket({ sequenceNumber: 65535 }),
+      {},
+    );
+    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 1 }), {});
+
+    // Assert: wrap をまたいだ遅延 padding でも seq は一意
+    expect(seqs).toEqual([65534, 0, 1]);
   });
 
   test("media packets are delivered as type media", () => {

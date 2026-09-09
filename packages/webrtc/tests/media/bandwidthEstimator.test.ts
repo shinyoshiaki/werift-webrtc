@@ -5267,6 +5267,8 @@ describe("media/sender bandwidth estimator", () => {
       );
       expect(newSpy).toHaveBeenCalled();
       expect(newSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
+      // 旧世代の in-flight 完了バイトを priorUnackedBytes に混ぜない
+      expect(newSpy.mock.calls[0][0].priorUnackedBytes).toBe(0);
       // 旧への post-swap 配送はない（dispose 後に呼ばれても世代 discard）
       // oldSpy は差し替え前の同期経路で 0 回、または in-flight 完了時も discard
       const oldCallsAfterSwap = oldSpy.mock.calls.length;

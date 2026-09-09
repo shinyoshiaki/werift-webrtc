@@ -1207,6 +1207,8 @@ export class RTCRtpSender {
       };
       estimatorAtStart.rtpPacketSent(sentInfo);
     } else if (twccOn && sendGeneration === this.bweGeneration) {
+      // Same generation but no wideSeq (should be rare). Do not fold
+      // previous-generation bytes into the next estimator.
       this.pendingUntrackedBytes += size;
     }
 

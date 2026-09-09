@@ -21,13 +21,32 @@ import {
 } from "./media";
 import { createBandwidthEstimator } from "./media/sender/createBandwidthEstimator";
 import type { RTCStats } from "./media/stats";
-import { type PeerConfig, findCodecByMimeType } from "./peerConnection";
+import {
+  type PeerConfig,
+  adoptSenderTrackCodec,
+  findCodecByMimeType,
+} from "./peerConnection";
 import { type MediaDescription, codecParametersFromString } from "./sdp";
 import type { RTCDtlsTransport } from "./transport/dtls";
 import type { Kind } from "./types/domain";
 import { reverseDirection } from "./utils";
 
 const log = debug("werift:packages/webrtc/src/media/rtpTransceiverManager.ts");
+
+function simulcastFromSendEncodings(
+  encodings: RTCRtpEncodingParameters[] | undefined,
+): TransceiverOptions["simulcast"] | undefined {
+  if (!encodings || encodings.length < 2) {
+    return undefined;
+  }
+  const rids = encodings
+    .map((encoding) => encoding.rid)
+    .filter((rid): rid is string => typeof rid === "string" && rid.length > 0);
+  if (rids.length < 2) {
+    return undefined;
+  }
+  return rids.map((rid) => ({ rid, direction: "send" as const }));
+}
 
 export class TransceiverManager {
   private readonly transceivers: RTCRtpTransceiver[] = [];
@@ -101,7 +120,11 @@ export class TransceiverManager {
       sender,
       direction,
     );
-    newTransceiver.options = options;
+    newTransceiver.options = {
+      ...options,
+      simulcast:
+        options.simulcast ?? simulcastFromSendEncodings(options.sendEncodings),
+    };
     newTransceiver.sender.setStreams(options.streams ?? []);
     newTransceiver.sender.setSendEncodings(
       (
@@ -226,6 +249,7 @@ export class TransceiverManager {
   }
 
   assignTransceiverCodecs(transceiver: RTCRtpTransceiver): void {
+    adoptSenderTrackCodec(this.config, transceiver.sender.track);
     const codecs = (
       this.config.codecs[transceiver.kind] as RTCRtpCodecParameters[]
     ).filter((codecCandidate) => {
@@ -309,6 +333,8 @@ export class TransceiverManager {
       transceiver.mid = remoteMedia.rtp.muxId ?? null;
     }
     transceiver.mLineIndex = mLineIndex;
+
+    adoptSenderTrackCodec(this.config, transceiver.sender.track);
 
     // # negotiate codecs
     transceiver.codecs = remoteMedia.rtp.codecs.filter((remoteCodec) => {

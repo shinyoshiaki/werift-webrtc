@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { setTimeout } from "timers/promises";
-import { Event, int, uint16Add } from "../imports/common";
+import { Event, int } from "../imports/common";
 
 import {
   type Extensions,
@@ -98,8 +98,14 @@ export class RTCRtpReceiver {
   private remoteOctetCountBySsrc: { [ssrc: number]: number } = {};
   private nackCountBySsrc: { [ssrc: number]: number } = {};
   private pliCountBySsrc: { [ssrc: number]: number } = {};
-  /** Padding-only packets skipped from onReceiveRtp, counted per SSRC. */
-  private skippedProbePaddingBySsrc: { [ssrc: number]: number } = {};
+  /**
+   * Per-SSRC compaction of {@link MediaStreamTrack.onReceiveRtp} sequence
+   * numbers when probe padding is filtered. Uses extended sequence numbers so
+   * late padding cannot rewrite packets already delivered past that seq.
+   */
+  private probePaddingCompactBySsrc: {
+    [ssrc: number]: ProbePaddingCompactState;
+  } = {};
 
   constructor(
     readonly config: PeerConfig,
@@ -527,8 +533,10 @@ export class RTCRtpReceiver {
   /**
    * Deliver a packet on {@link MediaStreamTrack.onReceiveRtp}.
    * When {@link PeerConfig.filterProbePaddingOnReceiveRtp} is true (default),
-   * padding-only probes are omitted and later sequence numbers are compacted
-   * with {@link uint16Add} so subscribers do not see holes.
+   * padding-only probes are omitted and media sequence numbers are compacted
+   * by on-time padding strictly before that packet in extended seq space.
+   * Late padding (arriving after media with a higher original seq) is ignored
+   * so already-delivered mappings are not rewritten.
    */
   private emitReceiveRtp(
     track: MediaStreamTrack,
@@ -537,26 +545,103 @@ export class RTCRtpReceiver {
     info: RtpReceiveInfo,
   ) {
     if (this.config.filterProbePaddingOnReceiveRtp !== false) {
-      const ssrc = packet.header.ssrc;
-      if (info.type === RtpReceivePacketType.padding) {
-        this.skippedProbePaddingBySsrc[ssrc] = uint16Add(
-          this.skippedProbePaddingBySsrc[ssrc] ?? 0,
-          1,
-        );
+      const compacted = this.compactProbePaddingSequence(packet, info);
+      if (!compacted) {
         return;
       }
-      const skipped = this.skippedProbePaddingBySsrc[ssrc] ?? 0;
-      const delivered = packet.clone();
-      if (skipped) {
-        delivered.header.sequenceNumber = uint16Add(
-          delivered.header.sequenceNumber,
-          -skipped,
-        );
-      }
-      track.onReceiveRtp.execute(delivered, extensions, info);
+      track.onReceiveRtp.execute(compacted, extensions, info);
       return;
     }
 
     track.onReceiveRtp.execute(packet.clone(), extensions, info);
   }
+
+  /**
+   * Filter padding and compact media seq using extended sequence position.
+   * Returns undefined when the packet is skipped padding.
+   */
+  private compactProbePaddingSequence(
+    packet: RtpPacket,
+    info: RtpReceiveInfo,
+  ): RtpPacket | undefined {
+    const ssrc = packet.header.ssrc;
+    let state = this.probePaddingCompactBySsrc[ssrc];
+    if (!state) {
+      state = {
+        onTimePaddingExt: new Set<number>(),
+        prunedOnTimeCount: 0,
+      };
+      this.probePaddingCompactBySsrc[ssrc] = state;
+    }
+
+    const ext = extendRtpSequence(packet.header.sequenceNumber, state.lastExt);
+    state.lastExt = ext;
+
+    if (info.type === RtpReceivePacketType.padding) {
+      const late =
+        state.maxDeliveredMediaExt !== undefined &&
+        ext <= state.maxDeliveredMediaExt;
+      if (!late) {
+        state.onTimePaddingExt.add(ext);
+      }
+      this.pruneProbePaddingCompact(state);
+      return undefined;
+    }
+
+    let skip = state.prunedOnTimeCount;
+    for (const paddingExt of state.onTimePaddingExt) {
+      if (paddingExt < ext) {
+        skip++;
+      }
+    }
+
+    const delivered = packet.clone();
+    delivered.header.sequenceNumber = (ext - skip) & 0xffff;
+    state.maxDeliveredMediaExt =
+      state.maxDeliveredMediaExt === undefined
+        ? ext
+        : Math.max(state.maxDeliveredMediaExt, ext);
+    this.pruneProbePaddingCompact(state);
+    return delivered;
+  }
+
+  private pruneProbePaddingCompact(state: ProbePaddingCompactState) {
+    if (state.lastExt === undefined) {
+      return;
+    }
+    const horizon = state.lastExt - 0x10000;
+    if (horizon <= 0) {
+      return;
+    }
+    for (const paddingExt of state.onTimePaddingExt) {
+      if (paddingExt < horizon) {
+        state.onTimePaddingExt.delete(paddingExt);
+        state.prunedOnTimeCount++;
+      }
+    }
+  }
+}
+
+type ProbePaddingCompactState = {
+  lastExt?: number;
+  maxDeliveredMediaExt?: number;
+  onTimePaddingExt: Set<number>;
+  prunedOnTimeCount: number;
+};
+
+/** RFC 3550-style 16-bit sequence extension from the previous packet. */
+function extendRtpSequence(seq: number, lastExt: number | undefined): number {
+  const seq16 = seq & 0xffff;
+  if (lastExt === undefined) {
+    return seq16;
+  }
+  const lastSeq = lastExt & 0xffff;
+  let roc = (lastExt - lastSeq) / 0x10000;
+  const delta = seq16 - lastSeq;
+  if (delta < -0x8000) {
+    roc += 1;
+  } else if (delta > 0x8000) {
+    roc -= 1;
+  }
+  return roc * 0x10000 + seq16;
 }
