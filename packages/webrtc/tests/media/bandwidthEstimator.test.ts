@@ -5325,6 +5325,49 @@ describe("media/sender bandwidth estimator", () => {
       void sentSpy;
     });
 
+    test("差し替え中に発火した新 GCC probe は旧 padding in-flight を跨いで送信される", async () => {
+      // Arrange: 旧 GCC の padding 送信を DTLS で止め、その間に新 GCC へ差し替える
+      const oldGcc = new GccBandwidthEstimator(1_000_000);
+      const { sender, dtls } = await prepareConnectedSender(oldGcc);
+      startGccProbing(oldGcc);
+
+      let releaseFirst!: () => void;
+      const holdFirst = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      let firstHeld = false;
+      const originalSendRtp = dtls.sendRtp.bind(dtls);
+      dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
+        if (!firstHeld) {
+          firstHeld = true;
+          await holdFirst;
+        }
+        return originalSendRtp(payload, header);
+      }) as typeof dtls.sendRtp;
+
+      const oldPadPromise = sender.maybeInjectProbePadding();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const newGcc = new GccBandwidthEstimator(1_000_000);
+      const newSent = vi.spyOn(newGcc, "rtpPacketSent");
+      sender.setBandwidthEstimator(newGcc);
+
+      // Act: 切替後に新 estimator の probe cluster を発火させる
+      startGccProbing(newGcc);
+      releaseFirst();
+      await oldPadPromise;
+      for (let i = 0; i < 50 && newSent.mock.calls.length === 0; i++) {
+        await new Promise((r) => setTimeout(r, 5));
+      }
+
+      // Assert: 新 GCC に probation 送信が届く（旧 in-flight ロックで破棄されない）
+      const probation = newSent.mock.calls.filter(
+        ([info]) => info?.isProbation === true,
+      );
+      expect(probation.length).toBeGreaterThan(0);
+    });
+
     test("recovery probe は 0.85×pre-drop の単発で ALR probe 間隔を守る", () => {
       // Arrange: 700k → 150k の large drop + ALR
       const probe = createProbeController();

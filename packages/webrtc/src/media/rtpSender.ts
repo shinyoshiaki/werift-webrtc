@@ -215,8 +215,12 @@ export class RTCRtpSender {
    * attached to the next tracked packet as `priorUnackedBytes`.
    */
   private pendingUntrackedBytes = 0;
-  /** Prevent re-entrant probe padding injection (async race). */
-  private probePaddingInFlight = false;
+  /**
+   * Generation that currently owns the probe/loss padding drain, or `undefined`.
+   * Same-generation re-entry is skipped; a newer {@link bweGeneration} may start
+   * a drain while an older loop is still unwinding.
+   */
+  private probePaddingFlightGeneration: number | undefined;
   /**
    * Bumped on every {@link setBandwidthEstimator} (including same-instance reset).
    * In-flight `sendRtpInternal` / `maybeInjectProbePadding` capture the generation
@@ -380,6 +384,7 @@ export class RTCRtpSender {
       this.resetBweSendTransientState();
       this.syncNetworkAvailability();
       this.syncBweProcessTimer();
+      void this.maybeInjectProbePadding();
       return;
     }
     this.bweAvailableBitrateUnsub?.();
@@ -398,6 +403,9 @@ export class RTCRtpSender {
     this.resetBweSendTransientState();
     this.syncNetworkAvailability();
     this.syncBweProcessTimer();
+    // New generation may have missed onProbeClusterConfig while the previous
+    // drain still held the same-generation re-entry lock.
+    void this.maybeInjectProbePadding();
   }
 
   /** Drop pacing leftover and unacked bytes that belonged to the previous BWE generation. */
@@ -856,19 +864,19 @@ export class RTCRtpSender {
     if (!this.isTransportCcNegotiated()) {
       return 0;
     }
-    if (this.probePaddingInFlight) {
-      return 0;
-    }
     // Capture estimator + generation for the whole async drain. On swap,
     // generation bumps and we stop — never call dispose()'d controllers.
     const generation = this.bweGeneration;
+    if (this.probePaddingFlightGeneration === generation) {
+      return 0;
+    }
     const e = this._senderBWE;
     const packetBytes = e.probePaddingPacketBytes;
     const maxBurst = e.probePaddingMaxBurst;
     if (!(packetBytes > 0) || !(maxBurst > 0)) {
       return 0;
     }
-    this.probePaddingInFlight = true;
+    this.probePaddingFlightGeneration = generation;
     let totalSent = 0;
     try {
       // Drain the full probe cluster across multiple bursts if needed.
@@ -894,7 +902,9 @@ export class RTCRtpSender {
       }
       return totalSent;
     } finally {
-      this.probePaddingInFlight = false;
+      if (this.probePaddingFlightGeneration === generation) {
+        this.probePaddingFlightGeneration = undefined;
+      }
     }
   }
 
@@ -910,8 +920,8 @@ export class RTCRtpSender {
     if (!this.isTransportCcNegotiated()) {
       return 0;
     }
-    if (this.probePaddingInFlight) return 0;
     const generation = this.bweGeneration;
+    if (this.probePaddingFlightGeneration === generation) return 0;
     const e = this._senderBWE;
     const packetBytes = e.probePaddingPacketBytes;
     const maxBurst = e.probePaddingMaxBurst;
@@ -919,7 +929,7 @@ export class RTCRtpSender {
       return 0;
     }
     if (e.shouldTagProbePacket()) return 0;
-    this.probePaddingInFlight = true;
+    this.probePaddingFlightGeneration = generation;
     let totalSent = 0;
     try {
       const pending = e.pendingLossPaddingPackets(packetBytes);
@@ -937,7 +947,9 @@ export class RTCRtpSender {
       }
       return totalSent;
     } finally {
-      this.probePaddingInFlight = false;
+      if (this.probePaddingFlightGeneration === generation) {
+        this.probePaddingFlightGeneration = undefined;
+      }
     }
   }
 
