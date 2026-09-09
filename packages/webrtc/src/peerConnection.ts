@@ -1917,7 +1917,10 @@ export class RTCPeerConnection extends EventTarget {
           binding.targetTransport = localTarget;
         } else if (
           mid &&
+          binding.remoteMedia.port !== 0 &&
+          binding.remoteMedia.direction !== "inactive" &&
           !binding.isBundleMember &&
+          (bundleGroup === undefined || bundleTag !== undefined) &&
           (previousBundleMids.has(mid) ||
             (bundleGroup !== undefined &&
               !wasBundleEstablished &&
