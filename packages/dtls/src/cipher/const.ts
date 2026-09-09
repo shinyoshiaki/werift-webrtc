@@ -18,6 +18,8 @@ export type SignatureHash = {
 export const CipherSuite = {
   TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195: 0xc02b, //49195,
   TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199: 0xc02f, //49199
+  TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256_52393: 0xcca9, //52393
+  TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256_52392: 0xcca8, //52392
 } as const;
 export type CipherSuites = (typeof CipherSuite)[keyof typeof CipherSuite];
 export const CipherSuiteList: CipherSuites[] = Object.values(CipherSuite);
