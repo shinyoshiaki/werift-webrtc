@@ -54,7 +54,7 @@ const transform = new TransformStream<DepacketizerInput, DepacketizerOutput>({
       const frame: NonNullable<DepacketizerOutput["frame"]> = {
         data: input.rtp.payload,
         isKeyframe: input.rtp.header.marker,
-        time: input.time,
+        time: input.time ?? Date.now(),
       };
       output.enqueue({ frame });
     } else {

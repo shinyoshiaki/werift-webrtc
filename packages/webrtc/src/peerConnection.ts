@@ -18,6 +18,7 @@ import {
   type RTCRtpHeaderExtensionParameters,
   type RTCRtpReceiver,
   type RTCRtpSender,
+  type RTCRtpSenderOptions,
   type RTCRtpTransceiver,
   RtpRouter,
   TransceiverManager,
@@ -1337,9 +1338,10 @@ export interface PeerConfig {
   /**
    * When true (default), padding-only GCC probe RTP is not delivered on
    * {@link MediaStreamTrack.onReceiveRtp}. Later media / retransmission
-   * packets have sequence numbers compacted with `uint16Add` so subscribers
-   * do not see holes. TWCC, NACK, and packet/octet stats still observe the
-   * original packets.
+   * packets have sequence numbers compacted (extended seq, on-time padding
+   * only) so subscribers do not see holes. Late padding does not rewrite
+   * already-delivered mappings. TWCC, NACK, and packet/octet stats still
+   * observe the original packets.
    *
    * Set false to receive original sequence numbers and `{ type: "padding" }`
    * events (the application must skip or rewrite them).
@@ -1358,6 +1360,11 @@ export interface PeerConfig {
    * {@link RTCRtpSender.setBandwidthEstimator}.
    */
   bandwidthEstimator: BandwidthEstimatorOption;
+  /**
+   * Queue outbound RTP on each sender until DTLS is connected.
+   * Disabled by default. Pass `true` or `{ enabled: true, maxLength }` to buffer.
+   */
+  pendingRtp: NonNullable<RTCRtpSenderOptions["pendingRtp"]>;
 }
 
 export const findCodecByMimeType = (
@@ -1447,6 +1454,7 @@ function generateDefaultPeerConfig(): PeerConfig {
     maxMessageSize: DEFAULT_MAX_MESSAGE_SIZE,
     filterProbePaddingOnReceiveRtp: true,
     bandwidthEstimator: "legacy",
+    pendingRtp: false,
   };
 }
 export const defaultPeerConfig: PeerConfig = generateDefaultPeerConfig();

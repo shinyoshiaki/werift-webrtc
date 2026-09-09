@@ -214,6 +214,7 @@
 - [LossBasedState](type-aliases/LossBasedState.md)
 - [MediaDirection](type-aliases/MediaDirection.md)
 - [NamedCurveAlgorithms](type-aliases/NamedCurveAlgorithms.md)
+- [PendingRtpOptions](type-aliases/PendingRtpOptions.md)
 - [ProbeState](type-aliases/ProbeState.md)
 - [RequireAtLeastOne](type-aliases/RequireAtLeastOne.md)
 - [RTCBundlePolicy](type-aliases/RTCBundlePolicy.md)

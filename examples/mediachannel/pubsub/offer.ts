@@ -25,14 +25,26 @@ server.on("connection", async (socket) => {
   send("offer", { sdp: pc.localDescription });
 
   const tracks: { [mid: string]: MediaStreamTrack } = {};
+  let resolveAnswer: (() => void) | undefined;
+  let answerSettled = Promise.resolve();
 
-  socket.on("message", async (data: any) => {
+  const expectAnswer = () => {
+    answerSettled = new Promise<void>((resolve) => {
+      resolveAnswer = resolve;
+    });
+  };
+  expectAnswer();
+
+  const waitForAnswer = () => answerSettled;
+
+  const handleMessage = async (data: any) => {
     const { type, payload } = JSON.parse(data);
     console.log(type);
 
     switch (type) {
       case "publish":
         {
+          await waitForAnswer();
           const transceiver = pc.addTransceiver("video", {
             direction: "recvonly",
           });
@@ -46,27 +58,32 @@ server.on("connection", async (socket) => {
           });
 
           await pc.setLocalDescription(await pc.createOffer());
+          expectAnswer();
           send("offer", { sdp: pc.localDescription });
           send("onPublish", { media: transceiver.mid });
         }
         break;
       case "unpublish":
         {
+          await waitForAnswer();
           const { media } = payload;
           const transceiver = pc.getTransceivers().find((t) => t.mid === media);
           pc.removeTrack(transceiver.sender);
           await pc.setLocalDescription(await pc.createOffer());
+          expectAnswer();
           send("offer", { sdp: pc.localDescription });
           send("onUnPublish", { media });
         }
         break;
       case "subscribe":
         {
+          await waitForAnswer();
           const { media } = payload;
           const transceiver = pc.addTransceiver("video", {
             direction: "sendonly",
           });
           await pc.setLocalDescription(await pc.createOffer());
+          expectAnswer();
 
           send("offer", { sdp: pc.localDescription });
           send("onSubscribe", { media, mid: transceiver.mid });
@@ -77,20 +94,39 @@ server.on("connection", async (socket) => {
         break;
       case "unsubscribe":
         {
+          await waitForAnswer();
           const { mid } = payload;
           const transceiver = pc.getTransceivers().find((t) => t.mid === mid);
           pc.removeTrack(transceiver.sender);
           await pc.setLocalDescription(await pc.createOffer());
+          expectAnswer();
 
           send("offer", { sdp: pc.localDescription });
         }
         break;
       case "answer":
         {
+          if (
+            pc.signalingState !== "have-local-offer" &&
+            pc.signalingState !== "have-remote-pranswer"
+          ) {
+            break;
+          }
           const { sdp } = payload;
           await pc.setRemoteDescription(sdp);
+          resolveAnswer?.();
+          resolveAnswer = undefined;
         }
         break;
     }
+  };
+
+  let chain = Promise.resolve();
+  socket.on("message", (data: any) => {
+    chain = chain
+      .then(() => handleMessage(data))
+      .catch((error) => {
+        console.error(error);
+      });
   });
 });

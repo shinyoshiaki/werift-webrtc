@@ -23,6 +23,9 @@ packages/webrtc/wpt/progress.md
 artifacts/
 e2e/.playwright-browsers/
 .sak
+report.2*.json
+report.*.json
+**/report.*.json
 
 # Python
 __pycache__/

@@ -14,21 +14,21 @@ console.log("start");
     const port = await randomPort();
 
     const args = [
-      `udpsrc port=${port} caps = "application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)VP8, payload=(int)97"`,
+      `udpsrc port=${port} caps="application/x-rtp,media=(string)video,clock-rate=(int)90000,encoding-name=(string)VP8"`,
       "rtpvp8depay",
       "webmmux",
       `filesink location=./${Math.random().toString().slice(2)}.webm`,
     ].join(" ! ");
     console.log(args);
 
-    const process = spawn("gst-launch-1.0", args.split(" "));
-    process.on("message", (data) => console.log("msg", data.toString()));
+    const gst = spawn(`gst-launch-1.0 -e ${args}`, { shell: true });
+    gst.on("error", (error) => console.log("gst error", error));
 
     const udp = createSocket("udp4");
 
     pc.ontrack = ({ track }) => {
       track.onReceiveRtp.subscribe(async (rtp) => {
-        udp.send(rtp.serialize(), port);
+        udp.send(rtp.serialize(), port, "127.0.0.1");
       });
     };
     pc.addTransceiver("video", { direction: "recvonly" });

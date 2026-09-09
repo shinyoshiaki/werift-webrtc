@@ -90,6 +90,7 @@ import type { MediaStream, MediaStreamTrack } from "./track";
 const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");
 
 const RTP_HISTORY_SIZE = 128;
+const DEFAULT_PENDING_RTP_MAX_LENGTH = 256;
 const RTT_ALPHA = 0.85;
 
 function freezeRtpContinuityOffsets(
@@ -108,6 +109,13 @@ function freezeRtpContinuityOffsets(
   };
 }
 
+export type PendingRtpOptions = {
+  /** Queue RTP until DTLS is connected and a codec is set. Default true when this object is passed. */
+  enabled?: boolean;
+  /** Max queued packets when enabled. Oldest packets are dropped. Default 256. */
+  maxLength?: number;
+};
+
 export type RTCRtpSenderOptions = {
   /**
    * Initial send-side bandwidth estimator. When omitted, the default is
@@ -115,7 +123,33 @@ export type RTCRtpSenderOptions = {
    * instance created from {@link PeerConfig.bandwidthEstimator}.
    */
   bandwidthEstimator?: BandwidthEstimator;
+  /** Pending RTP cache. Disabled by default. Pass `true` or `{ maxLength }` to enable. */
+  pendingRtp?: boolean | PendingRtpOptions;
 };
+
+type PendingRtpItem = {
+  packet: RtpPacket;
+  resolve: () => void;
+  reject: (error: unknown) => void;
+};
+
+function resolvePendingRtpOptions(
+  pendingRtp: RTCRtpSenderOptions["pendingRtp"],
+): { enabled: boolean; maxLength: number } {
+  if (pendingRtp === true) {
+    return { enabled: true, maxLength: DEFAULT_PENDING_RTP_MAX_LENGTH };
+  }
+  if (pendingRtp == undefined || pendingRtp === false) {
+    return { enabled: false, maxLength: DEFAULT_PENDING_RTP_MAX_LENGTH };
+  }
+  const maxLength =
+    typeof pendingRtp.maxLength === "number" &&
+    Number.isFinite(pendingRtp.maxLength) &&
+    pendingRtp.maxLength >= 1
+      ? Math.floor(pendingRtp.maxLength)
+      : DEFAULT_PENDING_RTP_MAX_LENGTH;
+  return { enabled: pendingRtp.enabled ?? true, maxLength };
+}
 
 export class RTCRtpSender {
   readonly type = "sender";
@@ -251,6 +285,10 @@ export class RTCRtpSender {
   private rtpContinuityPending = false;
   private pendingTimestampStep = 1;
   private rtpCache: RtpPacket[] = [];
+  private pendingRtp: PendingRtpItem[] = [];
+  private drainingPendingRtp = false;
+  private readonly pendingRtpEnabled: boolean;
+  private readonly pendingRtpMaxLength: number;
   codec?: RTCRtpCodecParameters;
   public dtlsTransport!: RTCDtlsTransport;
   private dtlsDisposer: (() => void)[] = [];
@@ -265,6 +303,9 @@ export class RTCRtpSender {
     public trackOrKind: Kind | MediaStreamTrack,
     options?: RTCRtpSenderOptions,
   ) {
+    const pendingRtp = resolvePendingRtpOptions(options?.pendingRtp);
+    this.pendingRtpEnabled = pendingRtp.enabled;
+    this.pendingRtpMaxLength = pendingRtp.maxLength;
     this.kind =
       typeof this.trackOrKind === "string"
         ? this.trackOrKind
@@ -301,6 +342,7 @@ export class RTCRtpSender {
         this.syncNetworkAvailability();
         if (state === "connected") {
           this.onReady.execute();
+          void this.drainPendingRtp();
         }
       }).unSubscribe,
     ];
@@ -317,7 +359,9 @@ export class RTCRtpSender {
    * 1. Bumps {@link bweGeneration} so in-flight sends discard `rtpPacketSent`
    *    delivery and in-flight {@link maybeInjectProbePadding} loops exit
    *    (cancelled — no packets to disposed / previous estimator).
-   * 2. Stops delivering `rtpPacketSent` / `receiveTWCC` to the previous instance.
+   * 2. Clears {@link pendingUntrackedBytes} so the next estimator's first
+   *    `SentInfo.priorUnackedBytes` is 0.
+   * 3. Stops delivering `rtpPacketSent` / `receiveTWCC` to the previous instance.
    * 3. Unbinds the stable {@link onAvailableBitrate} bridge, then `dispose()`/`reset()` the old instance.
    * 4. **Always** `reset()` the injected `impl` so a previously used instance
    *    starts clean (no implicit state merge), then rebinds the bridge.
@@ -333,8 +377,7 @@ export class RTCRtpSender {
     if (prev === impl) {
       // Same instance: still reset so callers get a clean estimator state.
       impl.reset?.();
-      this.paceBudgetBytes = 0;
-      this.lastPaceMs = 0;
+      this.resetBweSendTransientState();
       this.syncNetworkAvailability();
       this.syncBweProcessTimer();
       return;
@@ -352,10 +395,16 @@ export class RTCRtpSender {
     impl.reset?.();
     this._senderBWE = impl;
     this.bindBandwidthEstimatorEvents(impl);
-    this.paceBudgetBytes = 0;
-    this.lastPaceMs = 0;
+    this.resetBweSendTransientState();
     this.syncNetworkAvailability();
     this.syncBweProcessTimer();
+  }
+
+  /** Drop pacing leftover and unacked bytes that belonged to the previous BWE generation. */
+  private resetBweSendTransientState(): void {
+    this.paceBudgetBytes = 0;
+    this.lastPaceMs = 0;
+    this.pendingUntrackedBytes = 0;
   }
 
   /**
@@ -454,6 +503,76 @@ export class RTCRtpSender {
         );
       }
     });
+    void this.drainPendingRtp();
+  }
+
+  private canSendRtp() {
+    return (
+      !this.stopped && this.dtlsTransport?.state === "connected" && !!this.codec
+    );
+  }
+
+  private settlePendingRtp(item: PendingRtpItem, error?: unknown) {
+    if (error == undefined) {
+      item.resolve();
+      return;
+    }
+    item.reject(error);
+  }
+
+  private discardPendingRtp() {
+    const dropped = this.pendingRtp.splice(0);
+    for (const item of dropped) {
+      this.settlePendingRtp(item);
+    }
+  }
+
+  private enqueuePendingRtp(
+    rtp: Buffer | RtpPacket,
+    resolve: () => void,
+    reject: (error: unknown) => void,
+  ) {
+    const packet = Buffer.isBuffer(rtp)
+      ? RtpPacket.deSerialize(rtp)
+      : rtp.clone();
+    this.pendingRtp.push({ packet, resolve, reject });
+    while (this.pendingRtp.length > this.pendingRtpMaxLength) {
+      const dropped = this.pendingRtp.shift();
+      if (dropped) {
+        this.settlePendingRtp(dropped);
+      }
+    }
+  }
+
+  /**
+   * Send queued RTP once DTLS is connected and a codec is set.
+   * Drain uses {@link sendRtpInternal} so GCC pacing / TWCC stay on the send path.
+   */
+  private async drainPendingRtp() {
+    if (this.drainingPendingRtp) {
+      return;
+    }
+    this.drainingPendingRtp = true;
+    try {
+      while (this.pendingRtp.length > 0 && this.canSendRtp()) {
+        const item = this.pendingRtp.shift()!;
+        if (!this.canSendRtp()) {
+          this.settlePendingRtp(item);
+          continue;
+        }
+        try {
+          await this.sendRtpInternal(item.packet, { injectProbePadding: true });
+          this.settlePendingRtp(item);
+        } catch (error) {
+          this.settlePendingRtp(item, error);
+        }
+      }
+    } finally {
+      this.drainingPendingRtp = false;
+    }
+    if (this.pendingRtp.length > 0 && this.canSendRtp()) {
+      await this.drainPendingRtp();
+    }
   }
 
   registerTrack(track: MediaStreamTrack) {
@@ -501,6 +620,8 @@ export class RTCRtpSender {
 
   async replaceTrack(track: MediaStreamTrack | null) {
     if (track === null) {
+      this.rtpContinuityPending = false;
+      this.discardPendingRtp();
       if (this.disposeTrack) {
         this.disposeTrack();
       }
@@ -520,6 +641,8 @@ export class RTCRtpSender {
 
   stop() {
     this.stopped = true;
+    this.rtpContinuityPending = false;
+    this.discardPendingRtp();
     // Invalidate in-flight sendRtp / maybeInjectProbePadding before dispose
     // so they cannot emit padding or revive a disposed estimator.
     this.bweGeneration++;
@@ -689,7 +812,20 @@ export class RTCRtpSender {
   }
 
   async sendRtp(rtp: Buffer | RtpPacket) {
-    await this.sendRtpInternal(rtp, { injectProbePadding: true });
+    if (this.stopped) {
+      return;
+    }
+    if (!this.pendingRtpEnabled) {
+      if (!this.canSendRtp()) {
+        return;
+      }
+      await this.sendRtpInternal(rtp, { injectProbePadding: true });
+      return;
+    }
+    await new Promise<void>((resolve, reject) => {
+      this.enqueuePendingRtp(rtp, resolve, reject);
+      void this.drainPendingRtp();
+    });
   }
 
   /**
@@ -1070,7 +1206,7 @@ export class RTCRtpSender {
         isRetransmission: opts.isRetransmission === true,
       };
       estimatorAtStart.rtpPacketSent(sentInfo);
-    } else if (twccOn) {
+    } else if (twccOn && sendGeneration === this.bweGeneration) {
       this.pendingUntrackedBytes += size;
     }
 

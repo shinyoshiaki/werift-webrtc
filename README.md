@@ -38,7 +38,7 @@ Use the browser-compatible `RTCPeerConnection` API when you want to build quickl
 npm install werift
 ```
 
-The published `werift` package currently declares Node.js 16 or newer in its package metadata.
+The published `werift` package currently declares Node.js 22 or newer in its package metadata.
 
 ## Quick start
 
@@ -88,7 +88,7 @@ A small number of intentional or known edge-case differences remain for backward
 
 The core media APIs are packet-oriented: `MediaStreamTrack` can receive and emit RTP, so applications can connect WebRTC directly to an RTP router, recorder, transcoder, media pipeline, or test harness.
 
-werift does not provide operating-system camera/microphone capture as part of the core PeerConnection API. The optional [`werift/nonstandard`](./packages/webrtc/src/nonstandard) surface adds server-oriented helpers such as MP4/WebM file playback, configurable/dummy media-device sources, RTP utilities, and recording.
+werift does not provide operating-system camera/microphone capture as part of the core PeerConnection API. Applications that need browser-style globals and register-backed `navigator.mediaDevices.getUserMedia()` can opt into [`werift/polyfill`](./docs/polyfill/README.md). The guide covers installation, cleanup, media registers, constraints, and TypeScript entrypoints.
 
 ```mermaid
 flowchart LR
@@ -203,11 +203,12 @@ The [`examples`](./examples) directory contains runnable examples for high-level
 | Example | What it demonstrates |
 | --- | --- |
 | [`examples/datachannel`](./examples/datachannel) | DataChannel offer/answer and messaging |
-| [`examples/mediachannel`](./examples/mediachannel) | Sending and receiving WebRTC media |
+| [`examples/mediachannel`](./examples/mediachannel) | Sending and receiving WebRTC media (`installPolyfill` + `getUserMedia` for RTP ingest) |
 | [`examples/save_to_disk`](./examples/save_to_disk) | Recording encoded WebRTC media |
 | [`examples/turn-loopback`](./examples/turn-loopback) | HTTPS + TURN/TLS multiplexed loopback and Chromium E2E |
-| [`examples/interop`](./examples/interop) | Interoperability-oriented peers and relay examples |
-| [`examples/getStats`](./examples/getStats) | `getStats()` example code |
+| [`examples/interop`](./examples/interop) | Local interoperability peers (`installPolyfill` for RTP ingest) |
+| [`examples/untested/getStats`](./examples/untested/getStats) | `getStats()` example code |
+| [`examples/untested`](./examples/untested) | Root examples intentionally excluded from the examples E2E catalog |
 | [`packages/rtp/src/extra/processor`](./packages/rtp/src/extra/processor) | Jitter buffering, RED, DTX, NACK, lip sync, and RTP processing utilities |
 
 ## Live demos
@@ -257,6 +258,7 @@ Because the implementation is TypeScript, protocol behavior can be traced direct
 
 - [Documentation website](https://shinyoshiaki.github.io/werift-webrtc/website/build/)
 - [API reference](https://shinyoshiaki.github.io/werift-webrtc/website/build/docs/api)
+- [Polyfill guide](./docs/polyfill/README.md)
 - [Examples](./examples)
 - [Browser API compatibility differences](./docs/browser-api-compatibility.md)
 
@@ -270,7 +272,7 @@ If you are contributing to werift itself, initialize the pinned upstream Web Pla
 git submodule update --init --recursive
 ```
 
-The repository-level package metadata declares Node.js 18 or newer. The opt-in memory-leak harness requires Node.js 24 or newer.
+The repository-level and core protocol package metadata declare Node.js 22 or newer. GitHub Actions validates Node.js 24, which is also required by the opt-in memory-leak harness.
 
 ## Roadmap
 

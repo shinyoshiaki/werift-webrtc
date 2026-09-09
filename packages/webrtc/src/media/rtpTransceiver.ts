@@ -186,6 +186,8 @@ type SimulcastDirection = "send" | "recv";
 
 export interface RTCRtpEncodingParameters {
   active?: boolean;
+  rid?: string;
+  maxBitrate?: number;
 }
 
 export interface TransceiverOptions {

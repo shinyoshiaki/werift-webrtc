@@ -36,5 +36,8 @@
   },
   "devDependencies": {
     "@types/multicast-dns": "^7.2.4"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

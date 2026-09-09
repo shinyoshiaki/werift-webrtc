@@ -19,7 +19,7 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [18.x]
+        node-version: [24.x]
 
     steps:
       - uses: actions/checkout@v4
@@ -34,16 +34,51 @@ jobs:
       - name: prepare
         run: |
           sudo apt-get update
-          sudo apt-get -y install libavdevice-dev libavfilter-dev libopus-dev libvpx-dev pkg-config libsrtp2-dev libasound2-dev libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-tools gstreamer1.0-x gstreamer1.0-alsa gstreamer1.0-pulseaudio
+          sudo apt-get -y install libavdevice-dev libavfilter-dev libopus-dev libvpx-dev pkg-config libsrtp2-dev libasound2-dev libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-tools gstreamer1.0-x gstreamer1.0-alsa gstreamer1.0-pulseaudio ffmpeg
           npm i
           cd e2e
           npm i
           npx playwright install chromium
           cd ../
       # - name: Setup tmate session
-      #   uses: mxschmitt/action-tmate@v3    
+      #   uses: mxschmitt/action-tmate@v3
       - name: test
         env:
           CI: true
         run: |
           npm run ci
+      - name: examples e2e
+        env:
+          CI: true
+        run: |
+          npm run examples:e2e
+
+  mediasoup-interop:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [24.x]
+    steps:
+      - uses: actions/checkout@v4
+      - name: init submodules
+        run: |
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --recursive
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Install mediasoup build deps
+        run: sudo apt-get update && sudo apt-get install -y python3 python3-pip ninja-build build-essential
+      - name: Install werift workspace dependencies
+        run: npm ci
+      - name: mediasoup interop fixture
+        working-directory: integration/werift-mediasoup-interop
+        run: |
+          npm ci
+          npm run type
+          npm run test:small
+          npm run test:interop
+          npm run install:browsers
+          npm run test:browser

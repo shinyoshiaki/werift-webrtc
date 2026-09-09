@@ -327,25 +327,43 @@ export class TurnProtocol implements Protocol {
 
   private refresh = (exp: number) => {
     this.refreshHandle = cancelable<void>(async (_, __, onCancel) => {
-      let run = true;
+      const abort = new AbortController();
       onCancel.once(() => {
-        run = false;
+        abort.abort();
       });
 
-      while (run) {
+      while (!abort.signal.aborted) {
         // refresh before expire
         const delay = (5 / 6) * exp * 1000;
         log("refresh delay", delay, { exp });
-        await setTimeout(delay);
+        try {
+          await setTimeout(delay, undefined, { signal: abort.signal });
+        } catch (error) {
+          if (abort.signal.aborted) {
+            return;
+          }
+          throw error;
+        }
+
+        if (abort.signal.aborted) {
+          return;
+        }
 
         const request = new Message(methods.REFRESH, classes.REQUEST);
         request.setAttribute("LIFETIME", exp);
 
         try {
-          const [message] = await this.requestWithRetry(request, this.server);
+          const [message] = await this.requestWithRetry(
+            request,
+            this.server,
+            abort.signal,
+          );
           exp = message.getAttributeValue("LIFETIME");
           log("refresh", { exp });
         } catch (error) {
+          if (abort.signal.aborted) {
+            return;
+          }
           log("refresh error", error);
         }
       }
@@ -395,10 +413,13 @@ export class TurnProtocol implements Protocol {
   async requestWithRetry(
     request: Message,
     addr: Address,
+    signal?: AbortSignal,
   ): Promise<[Message, Address]> {
     let message: Message, address: Address;
     try {
-      [message, address] = await this.request(request, addr);
+      [message, address] = await this.request(request, addr, undefined, {
+        signal,
+      });
     } catch (error) {
       if (error instanceof TransactionFailed == false) {
         log("requestWithRetry error", error);
@@ -429,7 +450,12 @@ export class TurnProtocol implements Protocol {
         );
 
         request.transactionId = randomTransactionId();
-        [message, address] = await this.request(request, this.server);
+        [message, address] = await this.request(
+          request,
+          this.server,
+          undefined,
+          { signal },
+        );
       } else {
         throw error;
       }

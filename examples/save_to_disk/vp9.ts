@@ -31,6 +31,13 @@ server.on("connection", async (socket) => {
           ],
         }),
       ],
+      audio: [
+        new RTCRtpCodecParameters({
+          mimeType: "audio/opus",
+          clockRate: 48000,
+          channels: 2,
+        }),
+      ],
     },
   });
 

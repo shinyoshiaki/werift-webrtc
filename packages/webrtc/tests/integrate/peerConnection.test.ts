@@ -549,6 +549,29 @@ a=ssrc:1001 cname:some
     }
   });
 
+  test("addTransceiver sendEncodings with rid appear as simulcast in the offer", async () => {
+    const pc = new RTCPeerConnection();
+
+    try {
+      // Arrange: rid 付き sendEncodings で送信 transceiver を作る。
+      pc.addTransceiver("video", {
+        direction: "sendonly",
+        sendEncodings: [{ rid: "r0" }, { rid: "r1" }, { rid: "r2" }],
+      });
+
+      // Act: offer を生成する。
+      const offer = await pc.createOffer();
+
+      // Assert: Chrome と同様に a=rid / a=simulcast が SDP に出る。
+      expect(offer.sdp).toContain("a=rid:r0 send");
+      expect(offer.sdp).toContain("a=rid:r1 send");
+      expect(offer.sdp).toContain("a=rid:r2 send");
+      expect(offer.sdp).toMatch(/a=simulcast:send r0;r1;r2/);
+    } finally {
+      await pc.close();
+    }
+  });
+
   test.skip("portRange", async () => {
     const peer = new RTCPeerConnection({ icePortRange: [44444, 44455] });
     peer.createDataChannel("test");

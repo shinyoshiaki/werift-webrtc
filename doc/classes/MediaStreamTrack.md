@@ -20,7 +20,7 @@
 
 ##### props
 
-`Partial`\<[`MediaStreamTrack`](MediaStreamTrack.md)\> & `Pick`\<[`MediaStreamTrack`](MediaStreamTrack.md), `"kind"`\>
+`Partial`\<[`MediaStreamTrack`](MediaStreamTrack.md)\> & `Pick`\<[`MediaStreamTrack`](MediaStreamTrack.md), `"kind"`\> & `object`
 
 #### Returns
 
@@ -252,6 +252,18 @@ v13.6.0, v12.17.0
 
 `EventTarget.errorMonitor`
 
+## Accessors
+
+### readyState
+
+#### Get Signature
+
+> **get** **readyState**(): `"live"` \| `"ended"`
+
+##### Returns
+
+`"live"` \| `"ended"`
+
 ## Methods
 
 ### \[captureRejectionSymbol\]()?
@@ -345,6 +357,52 @@ v0.1.26
 #### Inherited from
 
 `EventTarget.addListener`
+
+***
+
+### applyIncomingRtp()
+
+> **applyIncomingRtp**(`packet`, `extensions`?): `void`
+
+#### Parameters
+
+##### packet
+
+[`RtpPacket`](RtpPacket.md)
+
+##### extensions?
+
+[`Extensions`](../interfaces/Extensions.md)
+
+#### Returns
+
+`void`
+
+***
+
+### bindUpstreamStop()
+
+> **bindUpstreamStop**(`stop`): `void`
+
+#### Parameters
+
+##### stop
+
+() => `void`
+
+#### Returns
+
+`void`
+
+***
+
+### clone()
+
+> **clone**(): [`MediaStreamTrack`](MediaStreamTrack.md)
+
+#### Returns
+
+[`MediaStreamTrack`](MediaStreamTrack.md)
 
 ***
 
@@ -565,6 +623,22 @@ v0.1.26
 #### Inherited from
 
 `EventTarget.listeners`
+
+***
+
+### notifySourceChanged()
+
+> **notifySourceChanged**(`header`): `void`
+
+#### Parameters
+
+##### header
+
+`Pick`\<[`RtpHeader`](RtpHeader.md), `"sequenceNumber"` \| `"timestamp"`\>
+
+#### Returns
+
+`void`
 
 ***
 
@@ -1080,6 +1154,32 @@ v0.3.5
 ### stop()
 
 > **stop**(): `void`
+
+#### Returns
+
+`void`
+
+***
+
+### stopMediaSource()
+
+> **stopMediaSource**(): `void`
+
+#### Returns
+
+`void`
+
+***
+
+### writeRtcp()
+
+> **writeRtcp**(`rtcp`): `void`
+
+#### Parameters
+
+##### rtcp
+
+[`RtcpPacket`](../type-aliases/RtcpPacket.md)
 
 #### Returns
 

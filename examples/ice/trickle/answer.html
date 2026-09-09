@@ -33,9 +33,12 @@
             await new Promise((r) => (socket.onopen = r));
             console.log("open websocket");
 
-            const offer = await new Promise(
-              (r) => (socket.onmessage = (ev) => r(JSON.parse(ev.data)))
-            );
+            const offer = await new Promise((r) => {
+              socket.onmessage = (ev) => {
+                const msg = JSON.parse(ev.data);
+                if (msg && msg.sdp) r(msg);
+              };
+            });
             console.log("offer", offer.sdp);
 
             const peer = (rtc = new RTCPeerConnection({
@@ -68,7 +71,7 @@
             socket.onmessage = (ev) => {
               const msg = JSON.parse(ev.data);
               console.warn("candidate", msg);
-              if (msg.candidate) {
+              if (msg && msg.candidate) {
                 peer.addIceCandidate(msg);
               }
             };

@@ -91,6 +91,7 @@ export class TransceiverManager {
       bandwidthEstimator: createBandwidthEstimator(
         this.config.bandwidthEstimator,
       ),
+      pendingRtp: this.config.pendingRtp,
     });
     const receiver = new RTCRtpReceiver(this.config, kind, sender.ssrc);
     const newTransceiver = new RTCRtpTransceiver(

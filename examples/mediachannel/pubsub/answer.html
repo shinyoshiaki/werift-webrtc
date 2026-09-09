@@ -27,10 +27,84 @@
       });
       const socket = new WebSocket("ws://localhost:8888");
       let trackBuffer;
+      let negotiated = false;
+      const negotiatedWaiters = [];
+      let offerQueue = Promise.resolve();
+      const ui = {
+        setPublished: () => {},
+        setStreams: () => {},
+        setMediaByMid: () => {},
+        mediaByMid: {},
+      };
 
       const send = (type, payload) => {
         console.log("send", type, payload);
         socket.send(JSON.stringify({ type, payload }));
+      };
+
+      const waitNegotiated = () => {
+        if (negotiated) {
+          return Promise.resolve();
+        }
+        return new Promise((resolve) => negotiatedWaiters.push(resolve));
+      };
+
+      const markNegotiated = () => {
+        if (negotiated) {
+          return;
+        }
+        negotiated = true;
+        negotiatedWaiters.splice(0).forEach((resolve) => resolve());
+      };
+
+      socket.onmessage = (ev) => {
+        offerQueue = offerQueue.then(async () => {
+          const { type, payload } = JSON.parse(ev.data);
+          console.log(type, payload);
+          switch (type) {
+            case "offer":
+              {
+                const { sdp } = payload;
+                await peer.setRemoteDescription(sdp);
+
+                // dummy
+                peer.getTransceivers()[0].direction = "recvonly";
+
+                if (trackBuffer) {
+                  const transceiver = peer.getTransceivers().slice(-1)[0];
+                  transceiver.sender.replaceTrack(trackBuffer);
+                  transceiver.direction = "sendonly";
+                  trackBuffer = undefined;
+                }
+
+                await peer.setLocalDescription(await peer.createAnswer());
+                send("answer", { sdp: peer.localDescription });
+                markNegotiated();
+              }
+              break;
+            case "onPublish":
+              {
+                const { media } = payload;
+                ui.setPublished((prev) => [...prev, media]);
+              }
+              break;
+            case "onUnPublish":
+              {
+                const { media } = payload;
+                ui.setPublished((prev) => prev.filter((v) => v !== media));
+                ui.setStreams((prev) =>
+                  prev.filter((v) => ui.mediaByMid[v.mid] !== media)
+                );
+              }
+              break;
+            case "onSubscribe":
+              {
+                const { media, mid } = payload;
+                ui.setMediaByMid((prev) => ({ ...prev, [mid]: media }));
+              }
+              break;
+          }
+        });
       };
 
       const App = () => {
@@ -38,55 +112,10 @@
         const [streams, setStreams] = React.useState([]);
         const [published, setPublished] = React.useState([]);
         const [mediaByMid, setMediaByMid] = React.useState({});
-
-        React.useEffect(() => {
-          socket.onmessage = async (ev) => {
-            const { type, payload } = JSON.parse(ev.data);
-            console.log(type, payload);
-            switch (type) {
-              case "offer":
-                {
-                  const { sdp } = payload;
-                  await peer.setRemoteDescription(sdp);
-
-                  // dummy
-                  peer.getTransceivers()[0].direction = "recvonly";
-
-                  if (trackBuffer) {
-                    const transceiver = peer.getTransceivers().slice(-1)[0];
-                    transceiver.sender.replaceTrack(trackBuffer);
-                    transceiver.direction = "sendonly";
-                    trackBuffer = undefined;
-                  }
-
-                  await peer.setLocalDescription(await peer.createAnswer());
-                  send("answer", { sdp: peer.localDescription });
-                }
-                break;
-              case "onPublish":
-                {
-                  const { media } = payload;
-                  setPublished((prev) => [...prev, media]);
-                }
-                break;
-              case "onUnPublish":
-                {
-                  const { media } = payload;
-                  setPublished((prev) => prev.filter((v) => v !== media));
-                  setStreams((prev) =>
-                    prev.filter((v) => mediaByMid[v.mid] !== media)
-                  );
-                }
-                break;
-              case "onSubscribe":
-                {
-                  const { media, mid } = payload;
-                  setMediaByMid((prev) => ({ ...prev, [mid]: media }));
-                }
-                break;
-            }
-          };
-        }, [mediaByMid]);
+        ui.setPublished = setPublished;
+        ui.setStreams = setStreams;
+        ui.setMediaByMid = setMediaByMid;
+        ui.mediaByMid = mediaByMid;
 
         React.useEffect(() => {
           peer.ontrack = (ev) => {
@@ -107,6 +136,7 @@
         }, [streams]);
 
         const publish = async () => {
+          await waitNegotiated();
           const track = (
             await navigator.mediaDevices.getUserMedia({
               video: true,
