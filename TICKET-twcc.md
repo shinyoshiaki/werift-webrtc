@@ -1,12 +1,208 @@
-ide-cli スキルを確認し、指定された親・子 ticket file の内容を照合して、子チケット側の追加・更新だけを親へ統合します。
-
 # TWCC 帯域推定アルゴリズムの抽象化と選択可能化（現状実装 + GCC）
 
-[更新済みの親 ticket file](</var/sak/host-home/code/werift-webrtc.worktree/c724daf9-5f79-4e30-bd50-7b27c8951844/TICKET-ticket-c724daf9-5f79-4e30-bd50-7b27c8951844.md>)
+## 1. タスクの目的と背景
 
-## 追加要件（PeerConnection オプションと GCC フックの共通化）
+### 目的
 
-### RTCPeerConnection コンストラクタで BandwidthEstimator を指定・無効化できる
+- TWCC（Transport-Wide Congestion Control）フィードバックを入力とする **送信側帯域推定（BWE）** を、単一ハードコード実装から **差し替え可能なアルゴリズム層** に分離する。
+- 初期の選択肢として次の 2 つを提供する。
+  1. **現行アルゴリズム**（`SenderBandwidthEstimator` + `CumulativeResult` ベースの推定）
+  2. **GCC（Google Congestion Control）**（[draft-ietf-rmcat-gcc](https://datatracker.ietf.org/doc/html/draft-ietf-rmcat-gcc-02) および **libwebrtc 相当の実装挙動に可能な限り最大互換** な delay-based / loss-based / probe 推定）
+- TWCC 由来の **推定送信可能帯域（available / target bitrate）が変動したとき、イベントで帯域幅を通知する契約** を公開 API・ドキュメント上で明確化する。
+
+### 背景（プロトコルと実装の役割分担）
+
+[draft-holmer-rmcat-transport-wide-cc-extensions-01](https://datatracker.ietf.org/doc/html/draft-holmer-rmcat-transport-wide-cc-extensions-01) は **フィードバック機構**（transport-wide sequence number と RTCP feedback）を定義する。帯域推定アルゴリズム自体は規定せず、送受信側の観測結果を sender 側アルゴリズムに渡すことが目的である。ドラフト導入部でも GCC / NADA / SCReAM などを send-side で実装できる設計意図が明示されている。
+
+したがって本タスクのスコープは次の切り分けになる。
+
+| 層 | 責務 | 本タスクでの扱い |
+| --- | --- | --- |
+| TWCC プロトコル（RTP 拡張 + RTCP FB） | 送受信時刻・到達/未到達の観測 | **既存実装を維持**（アルゴリズム差し替えの入力源） |
+| 帯域推定アルゴリズム | 観測から送信可能帯域・輻輳状態を推定 | **抽象化し選択可能にする（本タスクの中心）** |
+| アプリ / エンコーダ連携 | 推定帯域の購読とビットレート制御 | イベント契約の明確化・既存 example の追随 |
+
+### 現状コードベースの整理
+
+| 領域 | 主なパス | 現状 |
+| --- | --- | --- |
+| TWCC RTCP / packetResults | `packages/rtp/src/rtcp/rtpfb/twcc.ts` | `TransportWideCC` の serialize/deserialize、`packetResults` で受信時刻復元 |
+| TWCC header extension | `packages/rtp/src/rtp/headerExtension.ts`、`packages/webrtc/src/media/extension/rtpExtension.ts` | `useTransportWideCC()` / `serializeTransportWideCC` |
+| Receiver 側 feedback 生成 | `packages/webrtc/src/media/receiver/receiverTwcc.ts` | 到着時刻記録、100ms 周期 or 10 パケット超で feedback 送信 |
+| Sender 側 BWE（現行） | `packages/webrtc/src/media/sender/senderBWE.ts`、`cumulativeResult.ts` | TWCC 受信後に累積統計から bitrate 推定。mediasoup 由来コメントあり |
+| 配線 | `packages/webrtc/src/media/rtpSender.ts` | `readonly senderBWE = new SenderBandwidthEstimator()` で **固定生成**。`rtpPacketSent` / `receiveTWCC` を呼ぶ |
+| 利用例 | `examples/mediachannel/simulcast/abr.ts`、`examples/mediachannel/twcc/offer.ts` | `onAvailableBitrate` / `onCongestion` / `onCongestionScore` を購読 |
+| 単体テスト | `packages/webrtc/tests/**` | **BWE 自体のテストは未整備**（TWCC パケットの serialize テストは `packages/rtp/tests/rtcp/rtpfb/twcc.test.ts` に存在） |
+| REMB | `rtpSender` で `receiverEstimatedMaxBitrate` を保持 | TWCC BWE とは別経路。本タスクの主対象外だが、将来の統合余地あり |
+
+#### 現行推定ロジックの要点（`SenderBandwidthEstimator`）
+
+1. `rtpPacketSent(SentInfo)` で transport-wide seq / size / 送信時刻を保持。
+2. `receiveTWCC(TransportWideCC)` で `packetResults` のうち受信済みパケットを `CumulativeResult` に積む。
+3. 条件（累積窓の経過 ≥ 100ms かつパケット数 ≥ 20）を満たすと  
+   `availableBitrate = min(sendBitrate, receiveBitrate)` を設定。
+4. 1 秒超の無更新っぽい窓では congestion counter / score を悪化させるヒューリスティック。
+5. イベント:
+   - `onAvailableBitrate: Event<[number]>` … setter 経由で発火（単位は bps 相当の整数）
+   - `onCongestion: Event<[boolean]>`
+   - `onCongestionScore: Event<[number]>`（1〜10、大きいほど悪い）
+
+#### 問題点
+
+- 推定アルゴリズムが `SenderBandwidthEstimator` に密結合しており、**別アルゴリズム（GCC 等）へ差し替えられない**。
+- `RTCRtpSender` が常に現行 estimator を new しており、**選択手段がない**。
+- `onAvailableBitrate` は存在するが、
+  - 値が不変でも setter 経由で毎回 fire する、
+  - 公開ドキュメント上「推定送信可能帯域の変動通知」であることの説明が薄い、
+  - 単位・タイミング・必須/任意 API がチケット/README レベルで明確でない。
+- GCC のような delay-based（遅延勾配）+ loss-based の標準的制御を選べない。
+
+---
+
+## 2. 実装すべき具体的な機能・変更内容
+
+### 2.1 帯域推定アルゴリズムの抽象化
+
+- 送信側 BWE の **共通インターフェース** を定義する（名称は実装時に既存命名へ合わせてよい。例: `BandwidthEstimator` / `SenderSideBwe`）。
+- **共通 interface の契約は「推奨変更先帯域幅」の通知に限定する**（決定済み）。輻輳スコアや overuse/underuse など、アルゴリズム固有の意味を持つシグナルは **共通 interface に載せない**。
+
+| 種別 | 内容 |
+| --- | --- |
+| 入力 | `rtpPacketSent(info: SentInfo)` — 送信サイズ・transport-wide seq・送信時刻 |
+| 入力 | `receiveTWCC(feedback: TransportWideCC)` — TWCC feedback の処理 |
+| 状態 | `availableBitrate: number`（推定・推奨送信可能帯域。単位 **bps** を明記） |
+| イベント（共通・必須） | **`onAvailableBitrate`** — 推奨変更先帯域幅が **変化したとき** に通知（後述 2.3） |
+| ライフサイクル | 必要なら `reset()` / dispose 相当（トランスポート再接続時・差し替え時） |
+
+#### アルゴリズム固有イベント（共通 interface 外）
+
+- **現行（legacy）**: 既存の `onCongestion` / `onCongestionScore` は **legacy 実装固有** として維持する。共通 interface の必須メンバにはしない。
+- **GCC**: delay-based の overuse / underuse / normal、loss-based の状態、probe 状態などは **GCC 実装固有イベント**（例: `onOveruseDetected`、内部 state 公開、または GCC 専用型への downcast / 具象クラス購読）として分離する。
+- アプリが固有イベントを使う場合は、差し替えた具象インスタンス（または type guard）経由で購読する。共通経路は `onAvailableBitrate` のみを前提に書けるようにする。
+
+- **TWCC プロトコル処理**（header extension 付与、`ReceiverTWCC` による feedback 生成、RTCP ルーティング）は現状のまま維持し、**アルゴリズム層だけを差し替える**。
+- `SentInfo` / `TransportWideCC` / `Event` など既存型を再利用し、不要な破壊的変更を避ける。
+
+### 2.2 アルゴリズム実装の提供
+
+#### (A) 現行アルゴリズム（デフォルト・決定済み）
+
+- 現行 `SenderBandwidthEstimator` + `CumulativeResult` を **共通 interface 実装**としてリファクタする。`RTCRtpSender` の初期値としてもこれを使う。
+- 振る舞い互換を優先（閾値: 100ms / 20 packets、`min(send, recv)`）。
+- `onCongestion` / `onCongestionScore` は **legacy 具象の固有イベント**として維持（共通 interface には含めない）。
+- 名称例: `LegacyCumulativeBandwidthEstimator` / `CumulativeMinBitrateEstimator` / 既存名の維持 + interface 適合。
+
+#### (B) GCC（最大互換を目標）
+
+- [draft-ietf-rmcat-gcc](https://datatracker.ietf.org/doc/html/draft-ietf-rmcat-gcc-02) を一次仕様とし、加えて **libwebrtc の send-side BWE / GCC 実装（現行の delay-based / loss-based / probe 周辺）を参照実装**として、**可能な限り最大の互換性**を目指す。
+- 「簡略 GCC で十分」とはしない。設計・定数・状態遷移・更新式は draft と libwebrtc の双方を突き合わせ、乖離がある場合は **理由をコメントまたは docs に記録**したうえで、実運用で使われる libwebrtc 側の挙動を優先する。
+- 本チケットで含める構成目標（必須）:
+  - **Delay-based controller**: inter-arrival / delay gradient（Kalman filter 等、libwebrtc 相当のフィルタと overuse detector）、overuse / underuse / normal 判定、AIMD rate control。
+  - **Loss-based controller**: TWCC 上の未到達（loss）率に基づく目標ビットレート更新（libwebrtc 現行の loss-based 方針に寄せる）。
+  - **最終推定**: delay-based と loss-based の結果を合成（通常は **min** 等、参照実装と同じ結合規則）。
+  - **Bandwidth probing**: 初期立ち上がり・回復時に probe で探索できること（probe bitrate controller / probe controller 相当。TWCC の sent 情報と feedback を入力に使える範囲で実装）。
+  - **状態・定数の忠実さ**: 窓長、閾値、増加/減少係数、初期 bitrate、clamp 範囲などを可能な限り参照実装に合わせ、マジックナンバーを散在させず名前付き定数に集約する。
+- 参照実装の取り扱い:
+  - 公式 draft + Chromium / libwebrtc の該当モジュール（例: `modules/congestion_controller` / `goog_cc` 周辺）を調査ソースとする。
+  - pure TypeScript へ移植する（C++ バインディングやネイティブ addon は追加しない）。
+  - 言語差・時刻分解能差で 1 bit 単位の完全一致が困難な箇所は、**アルゴリズム構造・更新規則・定性的応答の一致**を優先し、既知の数値差はテスト許容誤差またはドキュメントで明示する。
+- 依存は pure TypeScript（Node）に収め、ネイティブモジュールを追加しない。
+
+### 2.3 推定帯域変動時のイベント通知の明確化
+
+**共通契約として固定する内容（推奨変更先帯域幅のみ）:**
+
+1. TWCC を用いた送信側推定により **推奨変更先帯域幅（bps）が更新されたとき**、共通 interface の `onAvailableBitrate` で購読者へ通知する。これがアルゴリズム横断の **唯一の必須出力イベント**。
+2. 通知ペイロードは少なくとも **`number`（bps）**。必要なら将来 `{ bitrateBps, algorithm, reason }` 拡張を検討するが、初期は既存 `[number]` 互換を優先。
+3. **「変動した際」** の意味をコード上でも明確化:
+   - 推奨: 前回通知値と **異なる場合のみ** `execute` する（ノイズ購読・不要な ABR 切替を防ぐ）。
+   - 初回の有効推定が出たときも通知する。
+4. ドキュメント / JSDoc / example で次を明記:
+   - 単位は bps
+   - TWCC が negotiate され、十分な sample が溜まるまで 0 または未更新の可能性がある
+   - アプリの帯域追従は本イベントを購読すれば足りる（既存 `abr.ts` の bitrate ログが参照）。score / congestion は legacy 固有
+5. congestion / overuse 等は本節の共通契約に **含めない**（§2.1 の固有イベント方針）。
+
+### 2.4 アルゴリズム選択 API（決定済み）
+
+**採用方式: インスタンス差し替え setter。デフォルトは現行アルゴリズム。**
+
+| 項目 | 方針 |
+| --- | --- |
+| デフォルト | `RTCRtpSender` 生成時は **現行（legacy）** の estimator を保持。既存利用はそのまま動く |
+| 差し替え | `setBandwidthEstimator(impl: BandwidthEstimator)` で **既存 sender** に任意インスタンスを注入 |
+| 読み取り | 既存の `senderBWE`（または interface 型の getter）で現在の実装を参照。`readonly` 固定 new はやめ、差し替え可能にする |
+| 初期選択（後続要件） | `PeerConfig.bandwidthEstimator` で **新規 sender** の初期実装を `"legacy"` / `"gcc"` / `false` / `"none"` / factory から指定できる。必須オプションではない |
+
+差し替え時の振る舞い（実装で明確化）:
+
+1. 旧インスタンスへの `rtpPacketSent` / `receiveTWCC` 配送を停止する。
+2. 可能なら旧インスタンスの `reset` / 購読解放を行い、リークを防ぐ。
+3. 新インスタンスはクリーンな状態から推定を開始する（旧状態の暗黙マージはしない。必要なら利用者が自分で状態を作って渡す）。
+4. 共通で購読すべきは `onAvailableBitrate`。legacy の `onCongestion*` や GCC 固有イベントは **差し替え後の具象** に付け直す必要があることを docs / JSDoc に書く。
+
+補助として、利用者が `new GccBandwidthEstimator()` や現行クラスを new しやすいよう **具象クラスを public export** する（列挙ファクトリは任意。setter が正式な選択 API）。
+
+### 2.5 配線・互換
+
+- `rtpSender.ts` の `receiveTWCC` / `rtpPacketSent` 呼び出しは **現在保持している interface 実装** 経由に変更。
+- 初期値: `senderBWE = new SenderBandwidthEstimator()`（現行）。`setBandwidthEstimator` で差し替え可能。
+- property 名 `senderBWE` は維持を推奨（破壊的変更回避）。型は共通 interface。legacy 固有イベントは具象型として利用側で扱う。
+- examples:
+  - `examples/mediachannel/simulcast/abr.ts` … `onAvailableBitrate` は共通契約として継続。`onCongestionScore` は legacy 具象前提であることを維持 or コメントで明記。GCC 切替例を足す場合は setter + 具象 new を示す。
+  - `examples/mediachannel/twcc/offer.ts` … congestion 購読は legacy 固有イベントとして継続確認。
+
+### 2.6 テスト
+
+- Arrange / Act / Assert に従い、共有 fixture は可能な限りユーティリティ化。
+- 推奨ケース:
+  1. 現行アルゴリズム: 合成 TWCC + SentInfo から `availableBitrate` が期待範囲になる。
+  2. 現行アルゴリズム: 帯域が変わったときだけ `onAvailableBitrate` が発火する（2.3 の契約）。
+  3. GCC: loss 増加で推定が下がる / delay gradient 悪化（overuse）で推定が下がる / underuse で回復方向に動く。
+  4. GCC: probe により初期または低 bitrate 状態から探索的に推定が上がる（参照実装の probe 意図に沿う）。
+  5. GCC: 可能なら参照実装の公開テストベクトル、または自前で固定した決定的入力に対する **期待 bitrate 系列**（許容誤差付き）で回帰する。
+  6. 選択 API: `setBandwidthEstimator` で GCC（または別実装）に差し替え後、以降の TWCC / sent が新実装に渡り、`onAvailableBitrate` が新実装から発火する。
+  7. 共通 interface に congestion 系イベントが **含まれない** こと、legacy / GCC 固有イベントが具象側に残ることを型またはテストで確認する。
+- Act / Assert には日本語コメントを適切な粒度で付与（リポジトリ規約）。
+
+### 2.7 ドキュメント
+
+- 公開 API の JSDoc（`onAvailableBitrate` の単位 bps、変化時のみ、`setBandwidthEstimator` の使い方、固有イベントは具象側である旨）。
+- 必要なら `packages/webrtc/README.md` または example に短い節を追加（TWCC negotiate + 帯域購読 + setter で GCC 差し替え）。
+- ルート / package `AGENTS.md` は本変更で scripts やパッケージ境界が変わらない限り必須更新ではない。公開 API の説明が README に既にある場合は追随。
+
+### 2.8 ピア間帯域シミュレーションテスト（追加要件・CI 対象外）
+
+2 つの **werift peer** 同士を、仮想的な上限帯域を持つリンク経由で接続し、輻輳時の **ロス / 遅延** が TWCC 経由で GCC に届き、推定送信帯域が下がり、アプリが送信レートを追従すると輻輳が緩和されることを検証する。
+
+| 項目 | 方針 |
+| --- | --- |
+| 配置 | 既存 `packages/webrtc/tests/**` とは **別ディレクトリ**（`packages/webrtc/simulations/`） |
+| 実行 | `cd packages/webrtc && npm run test:sim`（明示実行のみ） |
+| CI | **対象外**。`npm test` / ルート `npm run ci` には含めない |
+| 構成 | 仮想ボトルネック（帯域上限・遅延・キュー溢れロス）+ TWCC 交渉 + `GccBandwidthEstimator` 差し替え |
+| 検証観点 | (1) 容量超過送信でドロップ発生と `onAvailableBitrate` 低下 (2) 推定帯域への追従後に追加ドロップが減少 (3) 容量内低レートではほぼロスしない |
+
+実装上の前提修正（必要に応じて）:
+
+- TWCC RTCP（`TransportWideCC.serialize`）は RFC 3550 の **32-bit アラインメント（必要時 P ビット + パディング）** を満たすこと。未パディングだと SRTCP 復号 / deSerialize が失敗し peer 間で `onAvailableBitrate` が更新されない。
+
+### 2.9 werift ↔ Chrome 帯域シミュレーション（追加要件・CI 対象外）
+
+**Chrome（ブラウザ）と werift（Node）** の間でも、§2.8 と同様に仮想上限帯域下で TWCC + GCC が動作し、送信帯域の低下と輻輳緩和が確認できること。
+
+| 項目 | 方針 |
+| --- | --- |
+| 配置 | `e2e/simulations/`（通常 e2e の `e2e/tests/` とは分離） |
+| 実行 | `cd e2e && npm run test:sim`（明示実行のみ。要ブラウザ / `npm run build`） |
+| CI | **対象外**。`e2e` の `ci` / `ci:silent` / `chrome:prod` は `./tests` のみ |
+| ネットワーク sim | **werift 側**で実施（ICE `connection.send` に BottleneckLink を装着）。Chrome 側に tc/netem 等は要求しない |
+| 構成 | Chrome recvonly + transport-cc 交渉 / werift sendonly + `GccBandwidthEstimator` + 合成 RTP |
+| 検証観点 | (1) 容量超過で werift 送信ドロップと `onAvailableBitrate` 低下 (2) 推定追従後の追加ドロップ減少 (3) Chrome `getStats` で RTP 受信を確認 |
+
+### 2.10 PeerConnection オプションと GCC フックの共通化（追加要件）
+
+#### RTCPeerConnection コンストラクタで BandwidthEstimator を指定・無効化できる
 
 `PeerConfig.bandwidthEstimator`（`RTCPeerConnection` コンストラクタ / `setConfiguration`）で、新規 `RTCRtpSender` が使う送信側 BWE を決める。
 
@@ -20,7 +216,7 @@ ide-cli スキルを確認し、指定された親・子 ticket file の内容�
 - `setConfiguration` で変えた場合は、**その後に作られる sender だけ**に効く。既存 sender は `RTCRtpSender.setBandwidthEstimator` で差し替える。
 - 1 sender への直接注入は従来どおり `setBandwidthEstimator`、および `new RTCRtpSender(kind, { bandwidthEstimator })`。
 
-### rtpSender から GCC 固有実装を外し、BandwidthEstimator に GCC 必要要素を載せる
+#### rtpSender から GCC 固有実装を外し、BandwidthEstimator に GCC 必要要素を載せる
 
 `RTCRtpSender` は GCC 定数・型ガード・`GccBandwidthEstimator` の duck typing に依存しない。probe / pacing / RTT / process interval / padding サイズはすべて `BandwidthEstimator` 上のメソッド・プロパティ。
 
@@ -29,10 +225,211 @@ ide-cli スキルを確認し、指定された親・子 ticket file の内容�
 
 RTP パケット生成・DTLS 送信・token-bucket 待ちは sender に残す（ワイヤー層）。アルゴリズム判断（何バイトの padding が要るか、pace レート、process 間隔）だけ estimator 側。
 
-### 完了条件（この追加分）
+#### 完了条件（この追加分）
 
 - [x] `new RTCPeerConnection({ bandwidthEstimator: "gcc" | "legacy" | false | factory })` で各 sender の estimator が選ばれる
 - [x] `false` / `"none"` で BWE が無効（推定 0、pacing / probe padding なし）
 - [x] `rtpSender.ts` が `estimators/gcc/constants` や GCC 型ガードを import しない
 - [x] Legacy は GCC フックを no-op 実装し、既存の unpaced 送信を維持する
 - [x] 推定帯域の変化は従来どおり `sender.onAvailableBitrate` で **bps・変化時のみ**通知する
+
+---
+
+## 3. 技術的な実装アプローチ（調査結果の要約）
+
+### 3.1 データフロー（現状・変更後とも同一の骨格）
+
+```
+[Sender] RTP + transport-wide seq (RTCDtlsTransport.transportSequenceNumber)
+    → 相手 Receiver が ReceiverTWCC で到着時刻記録
+    → RTCP TransportWideCC (FMT=15) を返送
+    → RTCRtpSender.handleRtcpPacket
+    → BandwidthEstimator.receiveTWCC(feedback)
+    → availableBitrate 更新 → onAvailableBitrate
+```
+
+送信時:
+
+```
+RTCRtpSender.sendRtp
+  → DTLS/SRTP 送信
+  → BandwidthEstimator.rtpPacketSent({ wideSeq, size, sendingAtMs, sentAtMs })
+```
+
+### 3.2 抽象化の配置案
+
+```
+packages/webrtc/src/media/sender/
+  bandwidthEstimator.ts      # 共通 interface（入力 + availableBitrate + onAvailableBitrate のみ）
+  cumulativeResult.ts        # 現行用（維持）
+  estimators/
+    legacyCumulativeBwe.ts   # 現行ロジック + onCongestion / onCongestionScore（固有）
+    gccBwe.ts                # GCC + overuse 等の固有イベント
+  # 既存 senderBWE.ts は legacy 実装 / re-export / 互換 alias でも可
+```
+
+- `RTCRtpSender.setBandwidthEstimator(impl)` は **既存 sender** の差し替え API。新規 sender の初期実装は `PeerConfig.bandwidthEstimator`（後続要件 §2.10）でも選べる。
+- `packages/rtp` はプロトコル層のまま（アルゴリズムは webrtc 側）。
+- 低レイヤに推定を落とす必要はない（`AGENTS.md` の「manager 的オーケストレーションは webrtc」方針に合致）。
+
+### 3.3 現行アルゴリズムの再利用
+
+- `CumulativeResult` は send/receive interval から bitrate を出す単純統計。現行 estimator のコアなので **legacy 実装内に閉じる**。
+- GCC は遅延勾配・ロス率を使うため `CumulativeResult` に依存しない別内部状態を持つ。
+
+### 3.4 GCC 実装の要点（最大互換）
+
+- **入力**: 各パケットの `sendingAtMs` / size / wideSeq と TWCC の `receivedAtMs`・到達/未到達。必要なら feedback 欠損の扱いも参照実装に合わせる。
+- **Delay-based**:
+  - inter-arrival / delay gradient を推定（Kalman filter 等の libwebrtc 相当）。
+  - overuse detector で underuse / overuse / normal。
+  - AIMD rate controller で上限 bitrate を更新。
+- **Loss-based**: 直近窓の loss fraction と参照実装の更新規則に従い target を調整。
+- **Probe**: 短時間の高レート探索と結果の取り込み（probe controller 相当）。probation / probe 用パケットをどう送るかは、既存 `SentInfo.isProbation` や sender 配線の拡張要否を実装時に判断し、必要なら最小限の送信側フックを追加する。
+- **結合**: delay / loss（および probe 結果）から最終 `targetBitrateBps` を決定し、`availableBitrate` に載せて変動時にイベント。
+- **移植方針**:
+  1. draft で全体像を固定。
+  2. libwebrtc `goog_cc`（または同等モジュール）のコンポーネント境界に合わせて TypeScript モジュール分割。
+  3. 定数・状態機械・更新式を可能な限り 1:1 に写す。
+  4. 差分は意図的なものだけ残し、理由を記録。
+- 簡略版へのフォールバックで完了としない。到達困難な差分のみ「既知の非互換」として明示する。
+
+### 3.5 イベント実装パターン
+
+- 既存 `Event`（`packages/common`）を継続利用。
+- **共通**: `onAvailableBitrate` のみ。setter で常時 fire している現状を改める場合:
+
+```ts
+set availableBitrate(v: number) {
+  if (v === this._availableBitrate) return;
+  this._availableBitrate = v;
+  this.onAvailableBitrate.execute(v);
+}
+```
+
+- **固有**:
+  - legacy: `onCongestion` / `onCongestionScore` を具象クラスに残す（`abr.ts` / `twcc/offer.ts` の既存購読を壊さない）。
+  - GCC: overuse / underuse / loss 状態などは具象クラスのイベントまたは読み取り専用 state として公開し、共通 interface には載せない。
+- 破壊的に「毎回 fire」に依存する利用者がいないか example / リポジトリ内を確認済み: 主に `abr.ts` の `console.log` と score ベース切替。**値変化時のみ**でも問題になりにくい。
+
+### 3.6 選択のデフォルトと差し替え
+
+- デフォルトは **現行（legacy）インスタンス**。GCC への silent なデフォルト変更はしない。
+- 利用者が `setBandwidthEstimator(new GccBandwidthEstimator())` のように明示差し替えする。
+- 新規 sender は `new RTCPeerConnection({ bandwidthEstimator: "gcc" })` 等でも初期実装を選べる（§2.10）。
+- 差し替え後の安定購読は `sender.onAvailableBitrate`（sender ブリッジ）。固有シグナルは具象に再購読。
+
+---
+
+## 4. 考慮すべき制約・注意点
+
+1. **プロトコルとアルゴリズムの混同を避ける**  
+   TWCC draft は feedback 形式のみ。GCC は別 draft。Receiver 側 `ReceiverTWCC` を GCC 用に作り替える必要はない（dumb receiver のまま）。
+
+2. **後方互換**  
+   - デフォルトは現行 estimator のまま。推定結果・`onCongestion` / `onCongestionScore`（legacy 具象）を維持し、ABR example の閾値（例: congestionScore ≥ 5）を壊さない。  
+   - `senderBWE` プロパティ名と `onAvailableBitrate` は維持。  
+   - `setBandwidthEstimator` 追加は非破壊。constructor 必須オプションは増やさない。
+
+3. **単位と時刻**  
+   - bitrate は **bps**（現行 `CumulativeResult` も `* 8 * 1000`）。  
+   - 送信時刻は `milliTime()`、TWCC 受信時刻は feedback 内 delta から ms 復元。GCC 実装時もタイムベースの一貫性に注意。
+
+4. **transport-wide の粒度**  
+   - sequence は `RTCDtlsTransport.transportSequenceNumber` で **transport 共有**。BWE は sender インスタンスごとだが観測は transport 全体。複数 sender がある場合の estimator 配置（sender ごと vs transport ごと）を意識し、少なくとも現状と同じ sender 単位を維持する。
+
+5. **REMB との関係**  
+   - 現状 REMB は `receiverEstimatedMaxBitrate` 保持のみで BWE に未統合。本タスクでは必須統合しない。GCC loss-based が REMB を取る設計もあるが、TWCC パスを主とし、REMB 統合は optional / 後続。
+
+6. **GCC の完成度（最大互換を目標）**  
+   - **可能な限り libwebrtc / draft-ietf-rmcat-gcc との最大互換**を目指す。delay-based・loss-based・probe・結合規則・主要定数まで含める。
+   - 「動く簡略版」で完了としない。数値の bit 完全一致が難しい箇所は許容誤差と既知差分の文書化で扱い、**アルゴリズム構造と制御応答の互換**を落とさない。
+   - pure TypeScript 制約の範囲で、参照実装に無い独自ヒューリスティックの追加は避ける。
+
+7. **パフォーマンス**  
+   - `sentInfos` の掃除は現行どおり wideSeq 未満削除。GCC でも履歴窓を有限に保つ。
+
+8. **テスト規約**  
+   - Arrange の共通化、Act/Assert の日本語コメント。失敗を握りつぶさない。
+
+9. **Windows 非対応**  
+   - ランタイムは Unix 系。追加前提にしない。
+
+10. **公開 API 変更時**  
+    - ドキュメント / example を同時更新。不要な README カタログ肥大化は避ける。
+
+11. **共通 interface を帯域通知に薄く保つ**  
+    - congestion / overuse / score を共通化するとアルゴリズム間で意味がずれ、誤用しやすい。共通は `onAvailableBitrate` のみ。固有は具象側。
+
+---
+
+## 5. 完了条件
+
+以下をすべて満たしたとき完了とする。
+
+### 機能
+
+- [ ] 帯域推定が **インターフェース（または同等の抽象）** として定義され、TWCC 入出力と **`availableBitrate` / `onAvailableBitrate` のみ** が共通契約になっている（congestion 系は共通に含めない）。
+- [ ] **現行アルゴリズム**が abstract の一実装として動き、**デフォルト**で従来と実用上同等の推定を保つ。legacy 固有の `onCongestion` / `onCongestionScore` も具象側で維持する。
+- [ ] **GCC アルゴリズム**が abstract の一実装として提供され、TWCC feedback から **delay-based / loss-based / probe** を用いて推定帯域を更新する。GCC 固有状態は具象イベント / state として分離する。
+- [ ] GCC 実装が draft-ietf-rmcat-gcc および **libwebrtc 参照実装に可能な限り最大互換**である（主要コンポーネント・更新規則・定数。既知差分は文書化）。
+- [ ] 推定送信可能帯域が **変動したとき** `onAvailableBitrate`（共通契約）で **bps** が通知されることが、実装と JSDoc/ドキュメントで明確である（値不変時の不要通知を避ける実装が望ましい）。
+- [ ] **`setBandwidthEstimator`（インスタンス差し替え）** が提供され、デフォルトは現行実装、ドキュメントまたは example で差し替え方が分かる。
+- [x] `PeerConfig.bandwidthEstimator` で新規 sender の estimator を `"legacy"` / `"gcc"` / 無効化 / factory から選べる（§2.10）。
+- [x] `rtpSender.ts` が GCC 定数・型ガードを import せず、GCC 必要フックは `BandwidthEstimator` 上（legacy / disabled は no-op）。
+
+### 品質
+
+- [ ] 現行 / GCC それぞれについて、合成入力による単体テストが追加されている（`onAvailableBitrate` 発火条件を含む）。
+- [ ] `setBandwidthEstimator` 差し替え後に新実装へ入力が渡り、共通イベントが新実装から発火することをテストする。
+- [ ] GCC について、overuse / loss / probe を含む制御応答テストがあり、可能なら決定的入力に対する期待 bitrate 系列（許容誤差付き）で回帰できる。
+- [ ] libwebrtc / draft との意図的差分一覧（無ければ「既知差分なし」）が docs または実装コメントで辿れる。
+- [ ] `packages/webrtc` の type-check および関連テストが通る（例: `cd packages/webrtc && npm run type` / 追加テスト実行。必要に応じて `npm run test:small`）。
+- [ ] 既存 example（特に `simulcast/abr.ts`、`twcc/offer.ts`）がコンパイル・利用パターンとして破綻しない（legacy 固有イベント購読を含む）。
+- [ ] 破壊的変更がある場合は CHANGELOG または README に移行手順を記載。ない場合はデフォルト互換を確認済みであること。
+
+### 非ゴール（本チケットでは必須としない）
+
+- NADA / SCReAM 等の第三アルゴリズム実装。
+- C++ libwebrtc のランタイムリンクや、Chrome 全体と bit 単位で同一の実行結果保証（言語・時刻源差による微小差は許容。ただし最大互換は必須目標）。
+- エンコーダへの自動 bitrate 強制（アプリ側が `onAvailableBitrate` を購読して制御するのを基本とする）。
+- REMB のみに依存するレガシー経路の全面置き換え（GCC が REMB を参照実装どおり取り込む場合は可。必須の別経路統合ではない）。
+- Receiver 側 feedback 生成アルゴリズムの刷新（周期・バッチ条件の最適化は、互換に必要な範囲を除き別タスク可）。
+
+---
+
+## 参考リンク・主要ファイル
+
+| 種別 | 参照 |
+| --- | --- |
+| TWCC draft | https://datatracker.ietf.org/doc/html/draft-holmer-rmcat-transport-wide-cc-extensions-01 |
+| GCC draft | https://datatracker.ietf.org/doc/html/draft-ietf-rmcat-gcc-02 |
+| libwebrtc 参照 | Chromium / libwebrtc の `goog_cc` / congestion_controller 周辺（実装時に該当パスを確定） |
+| 現行 BWE | `packages/webrtc/src/media/sender/senderBWE.ts` |
+| 累積統計 | `packages/webrtc/src/media/sender/cumulativeResult.ts` |
+| Sender 配線 | `packages/webrtc/src/media/rtpSender.ts` |
+| Receiver TWCC | `packages/webrtc/src/media/receiver/receiverTwcc.ts` |
+| TWCC RTCP | `packages/rtp/src/rtcp/rtpfb/twcc.ts` |
+| 利用例 | `examples/mediachannel/simulcast/abr.ts` |
+
+---
+
+## 実装時の推奨作業順
+
+1. 共通 interface を **入力 + `availableBitrate` + `onAvailableBitrate` のみ** で定義。現行実装を適合（`onCongestion*` は具象に残す）し、帯域イベント「変化時のみ」とテスト。
+2. `RTCRtpSender` に `setBandwidthEstimator` を追加。デフォルトは現行インスタンスのまま。差し替え時の配送切替テスト。
+3. libwebrtc / draft を調査し、GCC をコンポーネント分割（delay / loss / probe / 結合）で TypeScript 移植。固有イベントは GCC 具象側。定数・状態機械を可能な限り 1:1 に寄せる。
+4. 決定的入力・制御応答テスト + 既知差分の記録。
+5. JSDoc / example 更新（setter 差し替え例、共通 vs 固有イベントの説明）、`packages/webrtc` の type とテストで検証。
+
+---
+
+## 決定事項（詳細化で確定）
+
+| 項目 | 決定 |
+| --- | --- |
+| アルゴリズム選択 API | **`setBandwidthEstimator`** で既存 sender を差し替え。デフォルトは **現行（legacy）**。後続要件で **`PeerConfig.bandwidthEstimator`** による新規 sender の初期指定・無効化も追加 |
+| 共通 interface のイベント | **推奨変更先帯域幅（`onAvailableBitrate`）のみ** |
+| congestion / overuse 等 | **アルゴリズム固有イベントとして分離**（legacy の `onCongestion*` は具象維持、GCC は固有 state/event） |
+| ピア間シミュレーション | **`packages/webrtc/simulations/`** で仮想帯域制限 + GCC/TWCC を検証。**CI 対象外**（`npm run test:sim`） |
+| Chrome シミュレーション | **`e2e/simulations/`** で werift↔Chrome。ネットワーク制限は **werift 側 ICE**。**CI 対象外**（`cd e2e && npm run test:sim`） |
