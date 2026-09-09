@@ -234,6 +234,38 @@ export class RTCRtpSender {
     });
   }
 
+  /** @internal Snapshot mutable negotiation state for SDP transactions. */
+  captureNegotiationState() {
+    return {
+      cname: this.cname,
+      mid: this.mid,
+      rtpStreamId: this.rtpStreamId,
+      repairedRtpStreamId: this.repairedRtpStreamId,
+      rtxPayloadType: this.rtxPayloadType,
+      redRedundantPayloadType: this.redRedundantPayloadType,
+      headerExtensions: this.headerExtensions,
+      codec: this.codec,
+      trackCodec: this.track?.codec,
+    };
+  }
+
+  /** @internal Restore a previously captured SDP negotiation state. */
+  restoreNegotiationState(
+    state: ReturnType<RTCRtpSender["captureNegotiationState"]>,
+  ) {
+    this.cname = state.cname;
+    this.mid = state.mid;
+    this.rtpStreamId = state.rtpStreamId;
+    this.repairedRtpStreamId = state.repairedRtpStreamId;
+    this.rtxPayloadType = state.rtxPayloadType;
+    this.redRedundantPayloadType = state.redRedundantPayloadType;
+    this.headerExtensions = state.headerExtensions;
+    this.codec = state.codec;
+    if (this.track) {
+      this.track.codec = state.trackCodec;
+    }
+  }
+
   registerTrack(track: MediaStreamTrack) {
     if (track.stopped) throw new Error("track is ended");
 

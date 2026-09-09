@@ -78,7 +78,7 @@
 
 ### addTransceiver()
 
-> **addTransceiver**(`trackOrKind`, `dtlsTransport`?, `options`?): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+> **addTransceiver**(`trackOrKind`, `dtlsTransport`?, `options`?, `notify`?): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
 
 #### Parameters
 
@@ -93,6 +93,10 @@
 ##### options?
 
 `Partial`\<[`TransceiverOptions`](../interfaces/TransceiverOptions.md)\> = `{}`
+
+##### notify?
+
+`boolean` = `true`
 
 #### Returns
 
@@ -296,7 +300,7 @@
 
 ### setRemoteRTP()
 
-> **setRemoteRTP**(`transceiver`, `remoteMedia`, `type`, `mLineIndex`): `void`
+> **setRemoteRTP**(`transceiver`, `remoteMedia`, `type`, `mLineIndex`, `options`): `void`
 
 #### Parameters
 
@@ -315,6 +319,16 @@
 ##### mLineIndex
 
 `number`
+
+##### options
+
+###### emitTrack?
+
+`boolean`
+
+###### setupTWCC?
+
+`boolean`
 
 #### Returns
 

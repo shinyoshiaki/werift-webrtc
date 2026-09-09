@@ -140,10 +140,6 @@ export class SecureTransportManager {
   }
 
   createTransport() {
-    const existing = this.iceTransports.find(
-      (transport) => transport.state !== "closed",
-    );
-
     const iceGatherer = new RTCIceGatherer({
       ...this.resolveIceServerOptions(),
       iceLite: this.config.iceLite,
@@ -162,11 +158,6 @@ export class SecureTransportManager {
       turnTlsOptions: this.config.turnTlsOptions,
       useLinkLocalAddress: this.config.iceUseLinkLocalAddress,
     });
-
-    if (existing) {
-      iceGatherer.connection.localUsername = existing.connection.localUsername;
-      iceGatherer.connection.localPassword = existing.connection.localPassword;
-    }
 
     iceGatherer.onGatheringStateChange.subscribe(() => {
       this.updateIceGatheringState();
@@ -459,11 +450,17 @@ export class SecureTransportManager {
   setLocalRole({
     type,
     role,
+    extraDtlsTransports = [],
   }: {
     type: "offer" | "answer";
     role: "auto" | "client" | "server" | undefined;
+    extraDtlsTransports?: RTCDtlsTransport[];
   }) {
-    for (const dtlsTransport of this.dtlsTransports) {
+    const transports = [...this.dtlsTransports, ...extraDtlsTransports].filter(
+      (transport, index, all) =>
+        all.findIndex((candidate) => candidate.id === transport.id) === index,
+    );
+    for (const dtlsTransport of transports) {
       const iceTransport = dtlsTransport.iceTransport;
       if (iceTransport.connection.iceLite) {
         iceTransport.connection.iceControlling = false;
@@ -570,13 +567,23 @@ export class SecureTransportManager {
     }
   }
 
-  async gatherCandidates() {
+  async gatherCandidates(
+    extraDtlsTransports: RTCDtlsTransport[] = [],
+    includeCurrent = true,
+  ) {
     // A remote BUNDLE group does not imply that every local m-section uses
     // the same ICE transport. Gather each allocated transport so a partial
     // BUNDLE answer still advertises independent candidates for group-outside
     // sections.
+    const transports = [
+      ...(includeCurrent ? this.dtlsTransports : []),
+      ...extraDtlsTransports,
+    ].filter(
+      (transport, index, all) =>
+        all.findIndex((candidate) => candidate.id === transport.id) === index,
+    );
     const results = await Promise.allSettled(
-      this.iceTransports.map((iceTransport) => iceTransport.gather()),
+      transports.map((dtlsTransport) => dtlsTransport.iceTransport.gather()),
     );
     for (const result of results) {
       if (result.status === "rejected") {

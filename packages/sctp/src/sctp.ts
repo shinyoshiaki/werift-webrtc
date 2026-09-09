@@ -1503,9 +1503,29 @@ export class SCTP {
     if (this.associationState === SCTP_STATE.ESTABLISHED) return false;
     this._startCancellationError = error;
     this.isStopping = true;
-    this.transport.onData = undefined;
+    // Keep the carrier's receive slot callable.  A WebRTC DTLS transport can
+    // still release fingerprint-gated application data after this association
+    // is cancelled; assigning undefined here would make that delivery throw
+    // before the authenticated retry installs its new SCTP handler.  The old
+    // handler is harmless because handleData() drops packets while stopped.
     this.setState(SCTP_STATE.CLOSED);
     return true;
+  }
+
+  /**
+   * Detach this association while migrating its owner to another transport.
+   * Unlike stop(), migration must not send SCTP ABORT: the peer still owns the
+   * same WebRTC DataChannels and will receive the replacement association.
+   */
+  detachForMigration(): boolean {
+    if (this.associationState === SCTP_STATE.ESTABLISHED) {
+      this.isStopping = true;
+      this.transport.onData = () => {};
+      this.setState(SCTP_STATE.CLOSED);
+      return true;
+    }
+
+    return this.cancelStart();
   }
 
   async abort() {

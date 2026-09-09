@@ -318,7 +318,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     };
     this.localCertificate ??= RTCDtlsTransport.localCertificate;
     this.applicationGate = new InboundApplicationGate((data) =>
-      this.dataReceiver(data),
+      this.dataReceiver?.(data),
     );
     this.mediaBuffer = new EarlyDataBuffer(
       this.config.warp?.earlyMediaPolicy === "buffer" ? 256 : 0,
@@ -432,6 +432,26 @@ export class RTCDtlsTransport implements DtlsTransportStats {
           error instanceof Error ? error : new Error(String(error));
         this.failAuthenticatedTransport();
       }
+    }
+  }
+
+  /** @internal
+   * Validate a pending SDP fingerprint without replacing the current
+   * authentication assertion.  A connected transport may inspect a remote
+   * offer before its BUNDLE migration is committed; rollback must not leave
+   * that offer's parameters installed on the current graph.
+   */
+  validateRemoteFingerprint(remoteParameters: RTCDtlsParameters): void {
+    if (!this.readiness.peerAuthenticated || !this.dtls?.remoteCertificate) {
+      return;
+    }
+
+    const previousParameters = this.remoteParameters;
+    this.remoteParameters = remoteParameters;
+    try {
+      this.verifyRemoteCertificateFingerprint();
+    } finally {
+      this.remoteParameters = previousParameters;
     }
   }
 

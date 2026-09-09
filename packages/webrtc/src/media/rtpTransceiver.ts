@@ -91,6 +91,46 @@ export class RTCRtpTransceiver {
     this.sender.setDtlsTransport(dtls);
   }
 
+  /** @internal Snapshot mutable negotiation state for SDP transactions. */
+  captureNegotiationState() {
+    return {
+      mid: this.mid,
+      mLineIndex: this.mLineIndex,
+      dtlsTransport: this.dtlsTransport,
+      usedForSender: this.usedForSender,
+      direction: this._direction,
+      currentDirection: this._currentDirection,
+      offerDirection: this.offerDirection,
+      codecs: this.codecs,
+      headerExtensions: this.headerExtensions,
+      stopping: this.stopping,
+      stopped: this.stopped,
+      sender: this.sender.captureNegotiationState(),
+      receiver: this.receiver.captureNegotiationState(),
+    };
+  }
+
+  /** @internal Restore a previously captured SDP negotiation state. */
+  restoreNegotiationState(
+    state: ReturnType<RTCRtpTransceiver["captureNegotiationState"]>,
+  ) {
+    this.mid = state.mid;
+    this.mLineIndex = state.mLineIndex;
+    if (this.dtlsTransport !== state.dtlsTransport && state.dtlsTransport) {
+      this.setDtlsTransport(state.dtlsTransport);
+    }
+    this.usedForSender = state.usedForSender;
+    this._direction = state.direction;
+    this._currentDirection = state.currentDirection;
+    this.offerDirection = state.offerDirection;
+    this.codecs = state.codecs;
+    this.headerExtensions = state.headerExtensions;
+    this.stopping = state.stopping;
+    this.stopped = state.stopped;
+    this.sender.restoreNegotiationState(state.sender);
+    this.receiver.restoreNegotiationState(state.receiver);
+  }
+
   get msid() {
     return this.msids[0];
   }

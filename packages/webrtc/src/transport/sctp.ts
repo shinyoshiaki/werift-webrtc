@@ -60,14 +60,12 @@ export class RTCSctpTransport {
     const previousAssociation = this.sctp;
     this.disposeSctpListeners();
 
-    // Rebinding creates a new SCTP association. Stop the old one explicitly so
-    // its retransmission timers and DTLS receive callback cannot outlive the
-    // transport graph. The channel registry/queue intentionally remains on
-    // RTCSctpTransport so existing DataChannels can use the fresh association.
+    // Rebinding creates a new SCTP association. Detach the old one without
+    // sending ABORT: migration must not make the peer close the DataChannels
+    // that are being carried over to the replacement association. The channel
+    // registry/queue intentionally remains on RTCSctpTransport.
     if (previousAssociation) {
-      void previousAssociation.stop().catch((error) => {
-        log("old SCTP association stop failed", error);
-      });
+      previousAssociation.detachForMigration();
     }
 
     this.dtlsTransport = dtlsTransport;

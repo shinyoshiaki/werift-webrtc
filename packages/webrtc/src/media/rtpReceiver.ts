@@ -31,6 +31,7 @@ import { ReceiverTWCC } from "./receiver/receiverTwcc";
 import { StreamStatistics } from "./receiver/statistics";
 
 import { codecParametersFromString } from "../sdp";
+import type { MediaDescription } from "../sdp";
 import { usePLI, useTWCC } from "./extension/rtcpFeedback";
 import {
   type RTCCodecStats,
@@ -43,7 +44,7 @@ import {
   generateStatsId,
   getStatsTimestamp,
 } from "./stats";
-import { MediaStreamTrack } from "./track";
+import { MediaStream, MediaStreamTrack } from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/rtpReceiver.ts");
 
@@ -147,6 +148,55 @@ export class RTCRtpReceiver {
     });
   }
 
+  /** @internal Snapshot mutable negotiation state for SDP transactions. */
+  captureNegotiationState() {
+    return {
+      codecs: { ...this.codecs },
+      ssrcByRtx: { ...this.ssrcByRtx },
+      tracks: [...this.tracks],
+      trackBySSRC: { ...this.trackBySSRC },
+      trackByRID: { ...this.trackByRID },
+      sdesMid: this.sdesMid,
+      latestRid: this.latestRid,
+      latestRepairedRid: this.latestRepairedRid,
+      receiverTWCC: this.receiverTWCC,
+      stopped: this.stopped,
+      remoteStreamId: this.remoteStreamId,
+      remoteStreamIds: [...this.remoteStreamIds],
+      remoteTrackId: this.remoteTrackId,
+    };
+  }
+
+  /** @internal Restore a previously captured SDP negotiation state. */
+  restoreNegotiationState(
+    state: ReturnType<RTCRtpReceiver["captureNegotiationState"]>,
+  ) {
+    Object.keys(this.codecs).forEach((key) => delete this.codecs[Number(key)]);
+    Object.assign(this.codecs, state.codecs);
+    Object.keys(this.ssrcByRtx).forEach(
+      (key) => delete this.ssrcByRtx[Number(key)],
+    );
+    Object.assign(this.ssrcByRtx, state.ssrcByRtx);
+    this.tracks.splice(0, this.tracks.length, ...state.tracks);
+    Object.keys(this.trackBySSRC).forEach(
+      (key) => delete this.trackBySSRC[key],
+    );
+    Object.assign(this.trackBySSRC, state.trackBySSRC);
+    Object.keys(this.trackByRID).forEach((key) => delete this.trackByRID[key]);
+    Object.assign(this.trackByRID, state.trackByRID);
+    this.sdesMid = state.sdesMid;
+    this.latestRid = state.latestRid;
+    this.latestRepairedRid = state.latestRepairedRid;
+    if (this.receiverTWCC && this.receiverTWCC !== state.receiverTWCC) {
+      this.receiverTWCC.twccRunning = false;
+    }
+    this.receiverTWCC = state.receiverTWCC;
+    this.stopped = state.stopped;
+    this.remoteStreamId = state.remoteStreamId;
+    this.remoteStreamIds = [...state.remoteStreamIds];
+    this.remoteTrackId = state.remoteTrackId;
+  }
+
   /**
    * setup TWCC if supported
    */
@@ -158,6 +208,33 @@ export class RTCRtpReceiver {
         mediaSourceSsrc,
       );
     }
+  }
+
+  /** @internal Emit a deferred remote track event after graph commit. */
+  emitTrack(remoteMedia: MediaDescription) {
+    if (
+      remoteMedia.port === 0 ||
+      !["sendonly", "sendrecv"].includes(remoteMedia.direction ?? "inactive")
+    ) {
+      return;
+    }
+
+    const remoteStreamIds = [
+      ...new Set(remoteMedia.msids.map((msid) => msid.split(" ")[0])),
+    ];
+    this.remoteStreamId = remoteStreamIds[0];
+    this.remoteStreamIds = remoteStreamIds;
+    this.remoteTrackId = remoteMedia.msids[0]?.split(" ")[1];
+    return {
+      track: this.track,
+      streams: remoteStreamIds.map(
+        (id) =>
+          new MediaStream({
+            id,
+            tracks: [this.track],
+          }),
+      ),
+    };
   }
 
   addTrack(track: MediaStreamTrack) {

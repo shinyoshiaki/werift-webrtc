@@ -72,6 +72,7 @@ export class SDPManager {
   createMediaDescriptionForTransceiver(
     transceiver: RTCRtpTransceiver,
     direction: MediaDirection,
+    dtlsTransport = transceiver.dtlsTransport,
   ): MediaDescription {
     const media = new MediaDescription(
       transceiver.kind,
@@ -114,14 +115,17 @@ export class SDPManager {
       ];
     }
 
-    this.addTransportDescription(media, transceiver.dtlsTransport);
+    this.addTransportDescription(media, dtlsTransport);
     return media;
   }
 
   /**
    * MediaDescriptionをSCTP用に作成
    */
-  createMediaDescriptionForSctp(sctp: RTCSctpTransport): MediaDescription {
+  createMediaDescriptionForSctp(
+    sctp: RTCSctpTransport,
+    dtlsTransport = sctp.dtlsTransport,
+  ): MediaDescription {
     const media = new MediaDescription(
       "application",
       DISCARD_PORT,
@@ -132,7 +136,7 @@ export class SDPManager {
     media.rtp.muxId = sctp.mid;
     media.sctpCapabilities = sctp.getCapabilities();
 
-    this.addTransportDescription(media, sctp.dtlsTransport);
+    this.addTransportDescription(media, dtlsTransport);
     return media;
   }
 
@@ -142,6 +146,7 @@ export class SDPManager {
   addTransportDescription(
     media: MediaDescription,
     dtlsTransport: RTCDtlsTransport,
+    replaceDtls = false,
   ): void {
     const iceTransport = dtlsTransport.iceTransport;
 
@@ -158,12 +163,12 @@ export class SDPManager {
       media.msids = [];
     }
 
-    if (!media.dtlsParams) {
+    // A transport projection replaces the complete ICE/DTLS ownership of the
+    // m-section.  Keeping an already populated fingerprint here would make a
+    // newly bundled m-line advertise the tag's ICE credentials but its old
+    // transport's certificate.
+    if (replaceDtls || !media.dtlsParams) {
       media.dtlsParams = dtlsTransport.localParameters;
-      if (!media.dtlsParams.fingerprints) {
-        media.dtlsParams.fingerprints =
-          dtlsTransport.localParameters.fingerprints;
-      }
     }
   }
 
@@ -341,6 +346,26 @@ export class SDPManager {
           : mids;
         const bundle = new GroupDescription("BUNDLE", bundleMids);
         description.group.push(bundle);
+
+        // A subsequent local offer may add new m-lines to an established
+        // group before the answerer has accepted the migration.  Its SDP must
+        // nevertheless advertise the established tag's ICE/DTLS properties;
+        // the actual transceivers remain on their current transports until the
+        // answer commits the pending graph.
+        if (establishedBundle) {
+          const tagTransport = this.getTransportForMid(
+            bundleMids[0],
+            transceivers,
+            sctpTransport,
+          );
+          if (tagTransport) {
+            description.media.forEach((media) => {
+              if (media.rtp.muxId && bundleMids.includes(media.rtp.muxId)) {
+                this.addTransportDescription(media, tagTransport, true);
+              }
+            });
+          }
+        }
       }
     }
 
@@ -354,11 +379,13 @@ export class SDPManager {
     transceivers,
     sctpTransport,
     signalingState,
+    dtlsTransportByMid,
   }: {
     transceivers: RTCRtpTransceiver[];
     sctpTransport: RTCSctpTransport | undefined;
 
     signalingState: string;
+    dtlsTransportByMid?: ReadonlyMap<string, RTCDtlsTransport>;
   }): SessionDescription {
     if (
       !["have-remote-offer", "have-local-pranswer"].includes(signalingState)
@@ -385,18 +412,25 @@ export class SDPManager {
             `Transceiver with mid=${remoteMedia.rtp.muxId} not found`,
           );
         }
+        dtlsTransport =
+          dtlsTransportByMid?.get(remoteMedia.rtp.muxId ?? "") ??
+          transceiver.dtlsTransport;
         media = this.createMediaDescriptionForTransceiver(
           transceiver,
           andDirection(transceiver.direction, transceiver.offerDirection),
+          dtlsTransport,
         );
-        dtlsTransport = transceiver.dtlsTransport;
       } else if (remoteMedia.kind === "application") {
         if (!sctpTransport || !sctpTransport.mid) {
           throw new Error("sctpTransport not found");
         }
-        media = this.createMediaDescriptionForSctp(sctpTransport);
-
-        dtlsTransport = sctpTransport.dtlsTransport;
+        dtlsTransport =
+          dtlsTransportByMid?.get(remoteMedia.rtp.muxId ?? "") ??
+          sctpTransport.dtlsTransport;
+        media = this.createMediaDescriptionForSctp(
+          sctpTransport,
+          dtlsTransport,
+        );
       } else {
         throw new Error("invalid kind");
       }
@@ -446,18 +480,52 @@ export class SDPManager {
     return description;
   }
 
-  setLocalDescription(description: SessionDescription) {
+  setLocalDescription(description: SessionDescription, commit = true) {
     if (description.type === "offer" || description.type === "pranswer") {
       this.pendingLocalDescription = description;
       return;
     }
 
-    this.currentLocalDescription = description;
+    this.pendingLocalDescription = description;
+    if (!commit) {
+      return;
+    }
+
+    this.commitPendingDescriptions();
+  }
+
+  /** Commit staged SDP only after the corresponding transport graph succeeds. */
+  commitPendingDescriptions() {
+    if (this.pendingLocalDescription) {
+      this.currentLocalDescription = this.pendingLocalDescription;
+    }
     if (this.pendingRemoteDescription) {
       this.currentRemoteDescription = this.pendingRemoteDescription;
     }
     this.pendingLocalDescription = undefined;
     this.pendingRemoteDescription = undefined;
+  }
+
+  /** Discard only a remote offer/answer that failed before graph commit. */
+  discardPendingRemoteDescription() {
+    this.pendingRemoteDescription = undefined;
+  }
+
+  /** Discard a local answer that failed before the SDP transaction committed. */
+  discardPendingLocalDescription() {
+    this.pendingLocalDescription = undefined;
+  }
+
+  private getTransportForMid(
+    mid: string | undefined,
+    transceivers: RTCRtpTransceiver[],
+    sctpTransport?: RTCSctpTransport,
+  ) {
+    if (!mid) return undefined;
+    const transceiver = transceivers.find((candidate) => candidate.mid === mid);
+    if (transceiver) return transceiver.dtlsTransport;
+    if (sctpTransport?.mid === mid) return sctpTransport.dtlsTransport;
+    return undefined;
   }
 
   setRemoteDescription(
@@ -477,7 +545,6 @@ export class SDPManager {
           "Cannot rollback remote description in signaling state",
         );
       }
-      this.pendingLocalDescription = undefined;
       this.pendingRemoteDescription = undefined;
       return;
     }
@@ -497,12 +564,9 @@ export class SDPManager {
     if (remoteSdp.type === "offer" || remoteSdp.type === "pranswer") {
       this.pendingRemoteDescription = remoteSdp;
     } else {
-      if (this.pendingLocalDescription) {
-        this.currentLocalDescription = this.pendingLocalDescription;
-      }
-      this.currentRemoteDescription = remoteSdp;
-      this.pendingRemoteDescription = undefined;
-      this.pendingLocalDescription = undefined;
+      // The answer is visible as pending until RTP/ICE/DTLS/SCTP validation
+      // and any transport migration have completed in RTCPeerConnection.
+      this.pendingRemoteDescription = remoteSdp;
     }
 
     return remoteSdp;
@@ -590,10 +654,6 @@ export class SDPManager {
     return !!this.getEstablishedBundleGroup();
   }
 
-  private getEstablishedBundleTag(): string | undefined {
-    return this.getEstablishedBundleGroup()?.items[0];
-  }
-
   get remoteIsBundled() {
     return this.getRemoteBundleInfo()?.group;
   }
@@ -604,10 +664,7 @@ export class SDPManager {
    * the offerer's preference order becomes the tag.
    * @internal
    */
-  getRemoteBundleInfo(
-    eligibleMids?: ReadonlySet<string>,
-    options: { initial?: boolean } = {},
-  ) {
+  getRemoteBundleInfo(eligibleMids?: ReadonlySet<string>) {
     const remoteSdp = this._remoteDescription;
     const group = this.getRemoteBundleGroup();
     if (!remoteSdp || !group) return undefined;
@@ -619,12 +676,10 @@ export class SDPManager {
       return media?.port !== 0 && (eligibleMids?.has(mid) ?? true);
     });
 
-    // The first BUNDLE negotiation may promote the next accepted m-section to
-    // tag. Once a group is established, its offerer-selected tag is stable;
-    // silently promoting another m-section would make the transport and the
-    // answer disagree about which credentials own the association.
-    const initial = options.initial ?? !this.isBundleEstablished();
-    const tag = initial ? items[0] : this.getEstablishedBundleTag();
+    // For every remote offer, the offerer's first usable MID is the proposed
+    // tag.  A subsequent offer is allowed to select a different tag; keeping
+    // the old local tag here would discard the new tag's ICE/DTLS restart.
+    const tag = items[0];
     if (!tag || !items.includes(tag)) return undefined;
 
     const orderedItems = [tag, ...items.filter((mid) => mid !== tag)];
@@ -638,6 +693,10 @@ export class SDPManager {
     description: SessionDescription,
     transceivers: RTCRtpTransceiver[],
     sctpTransport?: { dtlsTransport: RTCDtlsTransport; mid?: string },
+    options: {
+      commit?: boolean;
+      dtlsTransportByMid?: ReadonlyMap<string, RTCDtlsTransport>;
+    } = {},
   ) {
     const transceiverByMLineIndex = new Map(
       transceivers.map((transceiver) => [transceiver?.mLineIndex, transceiver]),
@@ -648,20 +707,35 @@ export class SDPManager {
     description.media
       .filter((m) => ["audio", "video"].includes(m.kind))
       .forEach((m, i) => {
-        const transceiver = transceiverByMLineIndex.get(i) ?? transceivers[i];
+        const mediaIndex = description.media.indexOf(m);
+        const transceiver =
+          transceiverByMLineIndex.get(mediaIndex) ?? transceivers[i];
         const dtlsTransport =
-          transceiver?.dtlsTransport ?? fallbackDtlsTransport;
+          options.dtlsTransportByMid?.get(m.rtp.muxId ?? "") ??
+          transceiver?.dtlsTransport ??
+          fallbackDtlsTransport;
         if (!dtlsTransport) {
-          throw new Error(`dtls transport not found for media index ${i}`);
+          throw new Error(
+            `dtls transport not found for media index ${mediaIndex}`,
+          );
         }
-        this.addTransportDescription(m, dtlsTransport);
+        this.addTransportDescription(
+          m,
+          dtlsTransport,
+          options.dtlsTransportByMid?.has(m.rtp.muxId ?? "") ?? false,
+        );
       });
     const sctpMedia = description.media.find((m) => m.kind === "application");
     if (sctpTransport && sctpMedia) {
-      this.addTransportDescription(sctpMedia, sctpTransport.dtlsTransport);
+      this.addTransportDescription(
+        sctpMedia,
+        options.dtlsTransportByMid?.get(sctpMedia.rtp.muxId ?? "") ??
+          sctpTransport.dtlsTransport,
+        options.dtlsTransportByMid?.has(sctpMedia.rtp.muxId ?? "") ?? false,
+      );
     }
 
-    this.setLocalDescription(description);
+    this.setLocalDescription(description, options.commit ?? true);
   }
 }
 

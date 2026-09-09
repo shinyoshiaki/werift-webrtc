@@ -44,6 +44,15 @@ export class SctpTransportManager {
     return sctp;
   }
 
+  /** @internal Restore the SCTP owner after a rejected SDP transaction. */
+  restoreSctpTransport(
+    sctpTransport: RTCSctpTransport | undefined,
+    sctpRemotePort?: number,
+  ) {
+    this.sctpTransport = sctpTransport;
+    this.sctpRemotePort = sctpRemotePort;
+  }
+
   createDataChannel(
     label: string,
     options: Partial<{

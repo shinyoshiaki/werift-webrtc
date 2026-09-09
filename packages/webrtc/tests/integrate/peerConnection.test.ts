@@ -14,6 +14,7 @@ import {
   RTCTrackEvent,
   RtcpRrPacket,
   RtpHeader,
+  RtpPacket,
   createSelfSignedCertificate,
   useTWCC,
   useVP8,
@@ -682,6 +683,11 @@ describe("peerConnection", () => {
           .find((section) => section.startsWith("m=application"))
           ?.match(/^a=ice-ufrag:([^\r\n]+)$/m)?.[1],
       );
+      expect(
+        callee.sctp?.dtlsTransport.iceTransport.connection.localUsername,
+      ).not.toBe(
+        audioTransceiver?.dtlsTransport.iceTransport.connection.localUsername,
+      );
 
       const answer = await callee.createAnswer();
 
@@ -703,6 +709,50 @@ describe("peerConnection", () => {
       expect(caller.connectionState).toBe("connected");
       expect(callee.connectionState).toBe("connected");
       expect(callee.sctp?.dtlsTransport.state).toBe("connected");
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
+  test("partial BUNDLE は事前割り当て済みtag transportからgroup外SCTPを分離する", async () => {
+    // Arrange: answererのmax-bundleで先に全m-lineを同じtransportへ置く。
+    const caller = new RTCPeerConnection({ iceServers: [] });
+    const callee = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "max-bundle",
+    });
+    caller.addTransceiver("audio");
+    caller.addTransceiver("video");
+    caller.createDataChannel("outside-bundle");
+    callee.createDataChannel("preallocated");
+    callee.addTransceiver("audio");
+    callee.addTransceiver("video");
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      const offerSdp = caller.localDescription!.sdp;
+      const mids = [...offerSdp.matchAll(/^a=mid:([^\r\n]+)$/gm)].map(
+        (match) => match[1]!,
+      );
+      const modifiedOffer = {
+        type: "offer" as const,
+        sdp: offerSdp.replace(
+          /^a=group:BUNDLE [^\r\n]+$/m,
+          `a=group:BUNDLE ${mids[1]} ${mids[0]}`,
+        ),
+      };
+
+      // Act: group外applicationを、既存の共有transportを持つanswererへ適用する。
+      await callee.setRemoteDescription(modifiedOffer);
+
+      // Assert: 既存transportを再利用せず、application専用transportを確保する。
+      const [audioTransceiver, videoTransceiver] = callee.getTransceivers();
+      expect(audioTransceiver?.dtlsTransport).toBe(
+        videoTransceiver?.dtlsTransport,
+      );
+      expect(callee.sctp?.dtlsTransport).not.toBe(
+        audioTransceiver?.dtlsTransport,
+      );
     } finally {
       await Promise.allSettled([caller.close(), callee.close()]);
     }
@@ -763,6 +813,408 @@ describe("peerConnection", () => {
       await Promise.allSettled([caller.close(), callee.close()]);
     }
   });
+
+  test("確立済みBUNDLEはremote offererのtag変更とICE restartを受け入れる", async () => {
+    // Arrange: 2つのm-lineをBUNDLEで接続し、後続offerのtag候補を用意する。
+    const caller = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "max-compat",
+    });
+    const callee = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "max-compat",
+    });
+    caller.addTransceiver("audio");
+    caller.addTransceiver("video");
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription(caller.localDescription!);
+      await callee.setLocalDescription(await callee.createAnswer());
+      await caller.setRemoteDescription(callee.localDescription!);
+      await Promise.all([
+        waitForConnectionState(caller, "connected"),
+        waitForConnectionState(callee, "connected"),
+      ]);
+
+      const establishedTransport = callee.dtlsTransports[0]!;
+      const offer = await caller.createOffer({ iceRestart: true });
+      await caller.setLocalDescription(offer);
+      const sections = caller.localDescription!.sdp.split(/(?=^m=)/m);
+      const mids = sections
+        .filter((section) => section.startsWith("m="))
+        .map((section) => section.match(/^a=mid:([^\r\n]+)$/m)![1]!);
+      expect(mids).toHaveLength(2);
+      const reversedBundle = `${mids[1]} ${mids[0]}`;
+      const invalidOldTagFingerprint =
+        "a=fingerprint:sha-256 00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00";
+      const modifiedOfferSdp = sections
+        .map((section) =>
+          section.match(/^a=mid:([^\r\n]+)$/m)?.[1] === mids[0]
+            ? section.replace(
+                /^a=fingerprint:[^\r\n]+$/m,
+                invalidOldTagFingerprint,
+              )
+            : section,
+        )
+        .join("")
+        .replace(
+          /^a=group:BUNDLE [^\r\n]+$/m,
+          `a=group:BUNDLE ${reversedBundle}`,
+        );
+
+      // Act: remote offerの先頭MIDを変更し、old tagのfingerprintだけを無効化する。
+      await callee.setRemoteDescription({
+        type: "offer",
+        sdp: modifiedOfferSdp,
+      });
+
+      // Assert: offererの新tagだけを認証対象にして、既存transportを保つ。
+      expect(callee.dtlsTransports[0]).toBe(establishedTransport);
+      expect(establishedTransport.state).not.toBe("failed");
+      const answer = await callee.createAnswer();
+      expect(answer.sdp).toMatch(
+        new RegExp(`^a=group:BUNDLE ${reversedBundle}$`, "m"),
+      );
+
+      // Act: reverse-tag answerを適用し、ICE restartを完了させる。
+      await callee.setLocalDescription(answer);
+      await caller.setRemoteDescription(callee.localDescription!);
+      await Promise.all([
+        waitForConnectionState(caller, "connected"),
+        waitForConnectionState(callee, "connected"),
+      ]);
+
+      // Assert: remote tag変更後も双方の接続状態を維持する。
+      expect(caller.connectionState).toBe("connected");
+      expect(callee.connectionState).toBe("connected");
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  }, 30_000);
+
+  test("確立済みBUNDLEから外したm-lineは独立transportへsplitする", async () => {
+    // Arrange: 2つのvideo m-lineをBUNDLEで接続する。
+    const caller = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "max-compat",
+    });
+    const callee = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "max-compat",
+    });
+    caller.addTransceiver("video");
+    caller.addTransceiver("video");
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription(caller.localDescription!);
+      await callee.setLocalDescription(await callee.createAnswer());
+      await caller.setRemoteDescription(callee.localDescription!);
+      await Promise.all([
+        waitForConnectionState(caller, "connected"),
+        waitForConnectionState(callee, "connected"),
+      ]);
+      expect(caller.getTransceivers()[0]!.dtlsTransport).toBe(
+        caller.getTransceivers()[1]!.dtlsTransport,
+      );
+
+      const offer = await caller.createOffer();
+      const mids = [...offer.sdp.matchAll(/^a=mid:([^\r\n]+)$/gm)].map(
+        (match) => match[1]!,
+      );
+      const splitOfferSdp = offer.sdp.replace(
+        /^a=group:BUNDLE [^\r\n]+$/m,
+        `a=group:BUNDLE ${mids[0]}`,
+      );
+      (caller as unknown as { lastCreatedOffer?: unknown }).lastCreatedOffer =
+        undefined;
+
+      const currentCalleeTransport = callee.getTransceivers()[1]!.dtlsTransport;
+
+      // Act: local pending offerではまだcurrent transportをrebindしない。
+      await caller.setLocalDescription({
+        type: "offer",
+        sdp: splitOfferSdp,
+      });
+      await callee.setRemoteDescription(caller.localDescription!);
+
+      // Assert: answer前のcurrent graphは共有transportのまま維持する。
+      expect(callee.getTransceivers()[1]!.dtlsTransport).toBe(
+        currentCalleeTransport,
+      );
+
+      // Act: answerをcommitして、group外videoを独立transportへ移行する。
+      const answer = await callee.createAnswer();
+      expect(answer.sdp).toMatch(
+        new RegExp(`^a=group:BUNDLE ${mids[0]}$`, "m"),
+      );
+      await callee.setLocalDescription(answer);
+      await caller.setRemoteDescription(callee.localDescription!);
+      await Promise.all([
+        waitForConnectionState(caller, "connected"),
+        waitForConnectionState(callee, "connected"),
+      ]);
+
+      // Assert: audio相当のtag m-lineとsplit m-lineが別々に接続される。
+      const [callerTag, callerSplit] = caller.getTransceivers();
+      const [calleeTag, calleeSplit] = callee.getTransceivers();
+      expect(callerTag!.dtlsTransport).not.toBe(callerSplit!.dtlsTransport);
+      expect(calleeTag!.dtlsTransport).not.toBe(calleeSplit!.dtlsTransport);
+      expect(callerSplit!.dtlsTransport.state).toBe("connected");
+      expect(calleeSplit!.dtlsTransport.state).toBe("connected");
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  }, 30_000);
+
+  test("local subsequent offerで追加したm-lineを確立済みBUNDLEへstageする", async () => {
+    // Arrange: 1つのvideo m-lineをBUNDLEで接続し、後からvideoを追加する。
+    const caller = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "max-compat",
+    });
+    const callee = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "max-compat",
+    });
+    caller.addTransceiver("video");
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription(caller.localDescription!);
+      await callee.setLocalDescription(await callee.createAnswer());
+      await caller.setRemoteDescription(callee.localDescription!);
+      await Promise.all([
+        waitForConnectionState(caller, "connected"),
+        waitForConnectionState(callee, "connected"),
+      ]);
+
+      const establishedCallerTransport =
+        caller.getTransceivers()[0]!.dtlsTransport;
+      const newTransceiver = caller.addTransceiver("video");
+      const offer = await caller.createOffer();
+      const offerSections = offer.sdp.split(/(?=^m=)/m);
+      const offerMids = [...offer.sdp.matchAll(/^a=mid:([^\r\n]+)$/gm)].map(
+        (match) => match[1]!,
+      );
+      expect(offerMids).toHaveLength(2);
+      const bundleItems = offer.sdp.match(/^a=group:BUNDLE ([^\r\n]+)$/m)?.[1];
+      expect(bundleItems).toBe(`${offerMids[0]} ${offerMids[1]}`);
+      const tagSection = offerSections.find((section) =>
+        section.includes(`a=mid:${offerMids[0]}`),
+      )!;
+      const addedSection = offerSections.find((section) =>
+        section.includes(`a=mid:${offerMids[1]}`),
+      )!;
+      expect(addedSection.match(/^a=ice-ufrag:([^\r\n]+)$/m)?.[1]).toBe(
+        tagSection.match(/^a=ice-ufrag:([^\r\n]+)$/m)?.[1],
+      );
+      expect(addedSection.match(/^a=fingerprint:([^\r\n]+)$/m)?.[1]).toBe(
+        tagSection.match(/^a=fingerprint:([^\r\n]+)$/m)?.[1],
+      );
+
+      // Act: local offerを適用するが、answer前は新transceiverを旧transportへbindしない。
+      await caller.setLocalDescription(offer);
+      expect(newTransceiver.dtlsTransport).not.toBe(establishedCallerTransport);
+      await callee.setRemoteDescription(caller.localDescription!);
+
+      // Assert: remote側もpending中はcurrent graphを維持する。
+      expect(callee.getTransceivers()).toHaveLength(2);
+      expect(callee.getTransceivers()[1]!.dtlsTransport).not.toBe(
+        callee.getTransceivers()[0]!.dtlsTransport,
+      );
+
+      // Act: answer commit時に新m-lineを確立済みtagへ追加する。
+      const answer = await callee.createAnswer();
+      expect(answer.sdp).toMatch(
+        new RegExp(`^a=group:BUNDLE ${offerMids[0]} ${offerMids[1]}$`, "m"),
+      );
+      await callee.setLocalDescription(answer);
+      await caller.setRemoteDescription(callee.localDescription!);
+      await Promise.all([
+        waitForConnectionState(caller, "connected"),
+        waitForConnectionState(callee, "connected"),
+      ]);
+
+      // Assert: answer後は追加m-lineもtag transportを共有して接続する。
+      expect(newTransceiver.dtlsTransport).toBe(establishedCallerTransport);
+      expect(callee.getTransceivers()[1]!.dtlsTransport).toBe(
+        callee.getTransceivers()[0]!.dtlsTransport,
+      );
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  }, 30_000);
+
+  test("pending remote BUNDLE offerのrollbackはcurrent RTP/DataChannelを維持する", async () => {
+    // Arrange: unbundledで接続済みのRTP/DataChannelと現在のtransport graphを用意する。
+    const { caller, callee, channel, remoteChannel, track, remoteTrack } =
+      await createConnectedUnbundledPair();
+
+    try {
+      const currentRemoteSdp = callee.currentRemoteDescription!.sdp;
+      const currentVideoTransport = callee.getTransceivers()[0]!.dtlsTransport;
+      const currentApplicationTransport = callee.sctp!.dtlsTransport;
+      const currentAssociation = callee.sctp!.sctp;
+
+      // Act: BUNDLE renegotiation offerをpending状態まで適用する。
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription(caller.localDescription!);
+
+      // Assert: answer前はcurrent SDP/transport/associationを変更しない。
+      expect(callee.signalingState).toBe("have-remote-offer");
+      expect(callee.currentRemoteDescription!.sdp).toBe(currentRemoteSdp);
+      expect(callee.getTransceivers()[0]!.dtlsTransport).toBe(
+        currentVideoTransport,
+      );
+      expect(callee.sctp!.dtlsTransport).toBe(currentApplicationTransport);
+      expect(callee.sctp!.sctp).toBe(currentAssociation);
+      expect(currentApplicationTransport.state).toBe("connected");
+      expect(currentAssociation.associationState).toBe(SCTP_STATE.ESTABLISHED);
+
+      // Act: remote rollbackを適用してpending planを破棄する。
+      await callee.setRemoteDescription({ type: "rollback" });
+
+      // Assert: rollback後もcurrent graphと公開SDPは元のまま維持される。
+      expect(callee.signalingState).toBe("stable");
+      expect(callee.currentRemoteDescription!.sdp).toBe(currentRemoteSdp);
+      expect(callee.getTransceivers()[0]!.dtlsTransport).toBe(
+        currentVideoTransport,
+      );
+      expect(callee.sctp!.dtlsTransport).toBe(currentApplicationTransport);
+      expect(callee.sctp!.sctp).toBe(currentAssociation);
+
+      // Act: rollback後に旧DataChannelと旧RTP transportで通信する。
+      const receivedMessage = remoteChannel.onMessage.asPromise(5_000);
+      channel.send("rollback-live");
+      const receivedRtpPromise = remoteTrack.onReceiveRtp.asPromise(5_000);
+      track.writeRtp(
+        new RtpPacket(
+          new RtpHeader({ sequenceNumber: 10 }),
+          Buffer.from("rollback-rtp"),
+        ).serialize(),
+      );
+
+      // Assert: rollbackは既存のDataChannel/RTP通信を中断しない。
+      expect((await receivedMessage)[0].toString()).toBe("rollback-live");
+      const [receivedRtp] = await receivedRtpPromise;
+      expect(receivedRtp.payload).toEqual(Buffer.from("rollback-rtp"));
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  }, 30_000);
+
+  test("接続済みsessionへのcodec-invalid remote offerはcurrent graphを変更しない", async () => {
+    // Arrange: 接続済みの旧SDP/transportと通信相手を用意する。
+    const { caller, callee, channel, remoteChannel, track, remoteTrack } =
+      await createConnectedUnbundledPair();
+
+    try {
+      const currentRemoteSdp = callee.currentRemoteDescription!.sdp;
+      const currentTransports = [...callee.dtlsTransports];
+
+      // Act: 新しいofferをlocal pendingにして、remote側だけcodecを壊す。
+      const offer = await caller.createOffer();
+      await caller.setLocalDescription(offer);
+      const invalidOffer = {
+        type: "offer" as const,
+        sdp: caller.localDescription!.sdp.replace(/VP8/g, "VP9"),
+      };
+      await expect(callee.setRemoteDescription(invalidOffer)).rejects.toThrow(
+        "negotiate codecs failed",
+      );
+
+      // Assert: SRD rejectionでcurrent SDP/transportを破壊しない。
+      expect(callee.currentRemoteDescription!.sdp).toBe(currentRemoteSdp);
+      expect(callee.dtlsTransports).toEqual(currentTransports);
+      expect(
+        currentTransports.every((transport) => transport.state === "connected"),
+      ).toBe(true);
+      expect(callee.connectionState).toBe("connected");
+
+      // Act: rejectされたofferの後も旧DataChannel/RTPで通信する。
+      const receivedMessage = remoteChannel.onMessage.asPromise(5_000);
+      channel.send("invalid-offer-live");
+      const receivedRtpPromise = remoteTrack.onReceiveRtp.asPromise(5_000);
+      track.writeRtp(
+        new RtpPacket(
+          new RtpHeader({ sequenceNumber: 11 }),
+          Buffer.from("invalid-offer-rtp"),
+        ).serialize(),
+      );
+
+      // Assert: rejected offerは既存の通信を中断しない。
+      expect((await receivedMessage)[0].toString()).toBe("invalid-offer-live");
+      const [receivedRtp] = await receivedRtpPromise;
+      expect(receivedRtp.payload).toEqual(Buffer.from("invalid-offer-rtp"));
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  }, 30_000);
+
+  test("codec-invalid remote answerはcurrent SDPとtransportを変更しない", async () => {
+    // Arrange: 接続済みsessionと、次のlocal offerを用意する。
+    const { caller, callee } = await createConnectedUnbundledPair();
+
+    try {
+      const currentRemoteSdp = caller.currentRemoteDescription!.sdp;
+      const currentTransports = [...caller.dtlsTransports];
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription(caller.localDescription!);
+      const answer = await callee.createAnswer();
+      const invalidAnswer = {
+        type: "answer" as const,
+        sdp: answer.sdp.replace(/VP8/g, "VP9"),
+      };
+
+      // Act: codec不一致のremote answerを適用して失敗させる。
+      await expect(caller.setRemoteDescription(invalidAnswer)).rejects.toThrow(
+        "negotiate codecs failed",
+      );
+
+      // Assert: answer rejection後もcurrent SDP/transportと接続状態を保つ。
+      expect(caller.currentRemoteDescription!.sdp).toBe(currentRemoteSdp);
+      expect(caller.dtlsTransports).toEqual(currentTransports);
+      expect(
+        currentTransports.every((transport) => transport.state === "connected"),
+      ).toBe(true);
+      expect(caller.connectionState).toBe("connected");
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  }, 30_000);
+
+  test("fingerprint-invalid remote answerはcurrent SDPとtransportを変更しない", async () => {
+    // Arrange: 接続済みsessionと、次のlocal offerを用意する。
+    const { caller, callee } = await createConnectedUnbundledPair();
+
+    try {
+      const currentRemoteSdp = caller.currentRemoteDescription!.sdp;
+      const currentTransports = [...caller.dtlsTransports];
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription(caller.localDescription!);
+      const answer = await callee.createAnswer();
+
+      // Act: 認証済みtransportと一致しないremote answerを適用する。
+      await expect(
+        caller.setRemoteDescription({
+          type: "answer",
+          sdp: tamperFingerprints(answer.sdp),
+        }),
+      ).rejects.toThrow();
+
+      // Assert: fingerprint検証失敗でもcurrent graphを維持する。
+      expect(caller.currentRemoteDescription!.sdp).toBe(currentRemoteSdp);
+      expect(caller.dtlsTransports).toEqual(currentTransports);
+      expect(
+        currentTransports.every((transport) => transport.state === "connected"),
+      ).toBe(true);
+      expect(caller.connectionState).toBe("connected");
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  }, 30_000);
 
   test("subsequent BUNDLE rebind は既存 ReceiverTWCC と SCTP association を更新する", async () => {
     // Arrange: 最初は BUNDLE なしで video と DataChannel を接続する。
@@ -827,11 +1279,24 @@ describe("peerConnection", () => {
       await caller.setLocalDescription(await caller.createOffer());
       await callee.setRemoteDescription(caller.localDescription!);
 
-      // Assert: rebind直後からSCTP2を保持し、SCTP1の停止を開始する。
+      // Assert: pending offer中はcurrent graphとSCTP1を変更しない。
+      expect(calleeSctpTransport.sctp).toBe(oldCalleeAssociation);
+      expect(calleeSctpTransport.dtlsTransport).toBe(oldCalleeAppTransport);
+      expect(oldCalleeAppTransport.state).not.toBe("closed");
+
+      // Act: answerを適用してから、BUNDLE migrationをcommitする。
+      const answer = await callee.createAnswer();
+      const oldAssociationAbort = vi.spyOn(oldCalleeAssociation, "abort");
+      await callee.setLocalDescription(answer);
+
+      // Assert: commit後だけSCTP2へ切り替え、旧transportを停止する。
       const newCalleeAssociation = calleeSctpTransport.sctp;
       expect(newCalleeAssociation).not.toBe(oldCalleeAssociation);
       expect(calleeSctpTransport.dtlsTransport).toBe(calleeVideoTransport);
+      expect(oldAssociationAbort).not.toHaveBeenCalled();
+      oldAssociationAbort.mockRestore();
       await waitForSctpClosed(oldCalleeAssociation);
+      expect(oldCalleeAppTransport.state).toBe("closed");
 
       let tagFeedback = 0;
       let staleFeedback = 0;
@@ -860,8 +1325,6 @@ describe("peerConnection", () => {
         oldCalleeAppTransport.sendRtcp = originalStaleSendRtcp;
       }
 
-      const answer = await callee.createAnswer();
-      await callee.setLocalDescription(answer);
       await caller.setRemoteDescription(callee.localDescription!);
       const newCallerAssociation = caller.sctp!.sctp;
       await Promise.all([
@@ -882,9 +1345,9 @@ describe("peerConnection", () => {
     }
   }, 30_000);
 
-  test("BUNDLE second passの失敗時もrebind済み旧transportをcleanupする", async () => {
-    // Arrange: 後段のtag m-lineだけcodec不一致にし、先行m-lineのrebind後に
-    // second passが失敗するofferを作る。
+  test("BUNDLE second passの失敗時はcurrent transportを変更しない", async () => {
+    // Arrange: 後段のtag m-lineだけcodec不一致にし、second passが失敗する
+    // offerを作る。
     const caller = new RTCPeerConnection({
       iceServers: [],
       bundlePolicy: "max-compat",
@@ -927,16 +1390,16 @@ describe("peerConnection", () => {
         );
       const oldNonTagTransport = callee.getTransceivers()[0]!.dtlsTransport;
 
-      // Act: first passのrebind後、tag sectionのcodec検証でSRDを失敗させる。
+      // Act: tag sectionのcodec検証でSRDを失敗させる。
       await expect(
         callee.setRemoteDescription({ type: "offer", sdp: modifiedSdp }),
       ).rejects.toThrow("negotiate codecs failed");
 
-      // Assert: 失敗しても旧transportのICE socketとDTLS状態を解放する。
-      expect(oldNonTagTransport.state).toBe("closed");
-      expect(oldNonTagTransport.iceTransport.state).toBe("closed");
-      expect(callee.dtlsTransports).not.toContain(oldNonTagTransport);
-      expect(callee.dtlsTransports).toHaveLength(1);
+      // Assert: SRD失敗時は既存のtransport graphを維持する。
+      expect(oldNonTagTransport.state).toBe("new");
+      expect(oldNonTagTransport.iceTransport.state).toBe("new");
+      expect(callee.dtlsTransports).toContain(oldNonTagTransport);
+      expect(callee.dtlsTransports).toHaveLength(2);
     } finally {
       await Promise.allSettled([caller.close(), callee.close()]);
     }
@@ -2037,6 +2500,63 @@ function replaceMaxMessageSize(sdp: string, size: number) {
   return sdp.replace(/a=max-message-size:\d+/, `a=max-message-size:${size}`);
 }
 
+async function createConnectedUnbundledPair() {
+  const caller = new RTCPeerConnection({
+    iceServers: [],
+    bundlePolicy: "max-compat",
+  });
+  const callee = new RTCPeerConnection({
+    iceServers: [],
+    bundlePolicy: "max-compat",
+  });
+  const track = new MediaStreamTrack({ kind: "video" });
+  caller.addTransceiver(track, { direction: "sendonly" });
+  const channel = caller.createDataChannel("transactional");
+  const remoteChannelPromise = new Promise<RTCDataChannel>((resolve) => {
+    callee.ondatachannel = ({ channel: remoteChannel }) =>
+      resolve(remoteChannel);
+  });
+  const remoteTrackPromise = new Promise<MediaStreamTrack>((resolve) => {
+    callee.onRemoteTransceiverAdded.subscribe((transceiver) => {
+      transceiver.onTrack.subscribe(resolve);
+    });
+  });
+
+  try {
+    const initialOffer = await caller.createOffer();
+    const initialOfferSdp = initialOffer.sdp
+      .split(/\r\n|\n/)
+      .filter((line) => !line.startsWith("a=group:BUNDLE"))
+      .join("\r\n");
+    (caller as unknown as { lastCreatedOffer?: unknown }).lastCreatedOffer =
+      undefined;
+    await caller.setLocalDescription({
+      type: "offer",
+      sdp: initialOfferSdp,
+    });
+    await callee.setRemoteDescription(caller.localDescription!);
+    await callee.setLocalDescription(await callee.createAnswer());
+    await caller.setRemoteDescription(callee.localDescription!);
+    await Promise.all([
+      waitForConnectionState(caller, "connected"),
+      waitForConnectionState(callee, "connected"),
+      assertDataChannelOpen(channel),
+    ]);
+
+    return {
+      caller,
+      callee,
+      channel,
+      remoteChannel: await remoteChannelPromise,
+      track,
+      remoteTrack: await remoteTrackPromise,
+    };
+  } catch (error) {
+    await Promise.allSettled([caller.close(), callee.close()]);
+    throw error;
+  }
+}
+
 async function prepareDataChannelWithRemoteAnswer(
   mutateAnswerSdp: (sdp: string) => string,
 ) {
@@ -2074,10 +2594,18 @@ async function waitForConnectionState(
     return;
   }
 
-  return new Promise<void>((resolve) => {
-    pc.connectionStateChange.subscribe((state) => {
+  return new Promise<void>((resolve, reject) => {
+    const subscription = pc.connectionStateChange.subscribe((state) => {
       if (state === expected) {
+        subscription.unSubscribe();
         resolve();
+      } else if (state === "failed" || state === "closed") {
+        subscription.unSubscribe();
+        reject(
+          new Error(
+            `Expected connection state ${expected}, got terminal state ${state}`,
+          ),
+        );
       }
     });
   });

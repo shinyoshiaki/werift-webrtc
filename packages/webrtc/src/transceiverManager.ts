@@ -76,10 +76,16 @@ export class TransceiverManager {
     this.transceivers[index] = t;
   }
 
+  /** @internal Restore the transceiver list after a rejected SDP transaction. */
+  restoreTransceivers(transceivers: RTCRtpTransceiver[]): void {
+    this.transceivers.splice(0, this.transceivers.length, ...transceivers);
+  }
+
   addTransceiver(
     trackOrKind: Kind | MediaStreamTrack,
     dtlsTransport?: RTCDtlsTransport,
     options: Partial<TransceiverOptions> = {},
+    notify = true,
   ): RTCRtpTransceiver {
     const kind =
       typeof trackOrKind === "string" ? trackOrKind : trackOrKind.kind;
@@ -119,7 +125,9 @@ export class TransceiverManager {
     } else {
       this.pushTransceiver(newTransceiver);
     }
-    this.onTransceiverAdded.execute(newTransceiver);
+    if (notify) {
+      this.onTransceiverAdded.execute(newTransceiver);
+    }
 
     return newTransceiver;
   }
@@ -298,6 +306,7 @@ export class TransceiverManager {
     remoteMedia: MediaDescription,
     type: "offer" | "answer" | "pranswer",
     mLineIndex: number,
+    options: { emitTrack?: boolean; setupTWCC?: boolean } = {},
   ): void {
     if (!transceiver.mid) {
       transceiver.mid = remoteMedia.rtp.muxId ?? null;
@@ -373,22 +382,38 @@ export class TransceiverManager {
       transceiver.receiver.remoteStreamIds = remoteStreamIds;
       transceiver.receiver.remoteTrackId = remoteTrackId;
 
-      this.onTrack.execute({
-        track: transceiver.receiver.track,
-        transceiver,
-        streams: remoteStreamIds.map(
-          (id) =>
-            new MediaStream({
-              id,
-              tracks: [transceiver.receiver.track],
-            }),
-        ),
-      });
+      if (options.emitTrack !== false) {
+        this.onTrack.execute({
+          track: transceiver.receiver.track,
+          transceiver,
+          streams: remoteStreamIds.map(
+            (id) =>
+              new MediaStream({
+                id,
+                tracks: [transceiver.receiver.track],
+              }),
+          ),
+        });
+      }
     }
 
-    if (remoteMedia.ssrc[0]?.ssrc) {
+    if (options.setupTWCC !== false && remoteMedia.ssrc[0]?.ssrc) {
       transceiver.receiver.setupTWCC(remoteMedia.ssrc[0].ssrc);
     }
+  }
+
+  /** @internal Deliver a track event after a staged remote graph commits. */
+  emitRemoteTrack(
+    transceiver: RTCRtpTransceiver,
+    remoteMedia: MediaDescription,
+  ): void {
+    const event = transceiver.receiver.emitTrack(remoteMedia);
+    if (!event) return;
+    this.onTrack.execute({
+      track: event.track,
+      transceiver,
+      streams: event.streams,
+    });
   }
 
   collectStats(timestamp: number): RTCStats[] {

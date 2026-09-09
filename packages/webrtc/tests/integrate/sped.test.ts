@@ -974,7 +974,12 @@ describe("RTCPeerConnection SPED opt-in", () => {
 
       // Act: 保留していたINIT_ACKを解放し、認証後の通常SCTP retryへ進める。
       holdInboundData = false;
-      heldInboundData.forEach(originalDataReceiver);
+      const receiverAfterCancel = serverDtls.dataReceiver;
+
+      // Assert: cancelStart() はDTLSの共有dispatch slotをundefinedにしない。
+      // fingerprint gateのdrainがcancel後に到着してもTypeErrorにならない。
+      expect(receiverAfterCancel).toBeTypeOf("function");
+      heldInboundData.forEach(receiverAfterCancel);
 
       // Act: answerを適用し、認証後の通常SCTP retryとDataChannel openを待つ。
       await waitUntil(

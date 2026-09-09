@@ -126,7 +126,7 @@
 
 ### addTransportDescription()
 
-> **addTransportDescription**(`media`, `dtlsTransport`): `void`
+> **addTransportDescription**(`media`, `dtlsTransport`, `replaceDtls`): `void`
 
 トランスポートの情報をMediaDescriptionに追加
 
@@ -139,6 +139,10 @@
 ##### dtlsTransport
 
 [`RTCDtlsTransport`](RTCDtlsTransport.md)
+
+##### replaceDtls
+
+`boolean` = `false`
 
 #### Returns
 
@@ -173,6 +177,10 @@
 #### Parameters
 
 ##### \_\_namedParameters
+
+###### dtlsTransportByMid?
+
+`ReadonlyMap`\<`string`, [`RTCDtlsTransport`](RTCDtlsTransport.md)\>
 
 ###### sctpTransport
 
@@ -214,9 +222,21 @@
 
 ***
 
+### commitPendingDescriptions()
+
+> **commitPendingDescriptions**(): `void`
+
+Commit staged SDP only after the corresponding transport graph succeeds.
+
+#### Returns
+
+`void`
+
+***
+
 ### createMediaDescriptionForSctp()
 
-> **createMediaDescriptionForSctp**(`sctp`): [`MediaDescription`](MediaDescription.md)
+> **createMediaDescriptionForSctp**(`sctp`, `dtlsTransport`): [`MediaDescription`](MediaDescription.md)
 
 MediaDescriptionをSCTP用に作成
 
@@ -226,6 +246,10 @@ MediaDescriptionをSCTP用に作成
 
 [`RTCSctpTransport`](RTCSctpTransport.md)
 
+##### dtlsTransport
+
+[`RTCDtlsTransport`](RTCDtlsTransport.md) = `sctp.dtlsTransport`
+
 #### Returns
 
 [`MediaDescription`](MediaDescription.md)
@@ -234,7 +258,7 @@ MediaDescriptionをSCTP用に作成
 
 ### createMediaDescriptionForTransceiver()
 
-> **createMediaDescriptionForTransceiver**(`transceiver`, `direction`): [`MediaDescription`](MediaDescription.md)
+> **createMediaDescriptionForTransceiver**(`transceiver`, `direction`, `dtlsTransport`): [`MediaDescription`](MediaDescription.md)
 
 MediaDescriptionをトランシーバー用に作成
 
@@ -248,9 +272,37 @@ MediaDescriptionをトランシーバー用に作成
 
 `"inactive"` | `"sendonly"` | `"recvonly"` | `"sendrecv"`
 
+##### dtlsTransport
+
+[`RTCDtlsTransport`](RTCDtlsTransport.md) = `transceiver.dtlsTransport`
+
 #### Returns
 
 [`MediaDescription`](MediaDescription.md)
+
+***
+
+### discardPendingLocalDescription()
+
+> **discardPendingLocalDescription**(): `void`
+
+Discard a local answer that failed before the SDP transaction committed.
+
+#### Returns
+
+`void`
+
+***
+
+### discardPendingRemoteDescription()
+
+> **discardPendingRemoteDescription**(): `void`
+
+Discard only a remote offer/answer that failed before graph commit.
+
+#### Returns
+
+`void`
 
 ***
 
@@ -318,7 +370,7 @@ MediaDescriptionをトランシーバー用に作成
 
 ### setLocal()
 
-> **setLocal**(`description`, `transceivers`, `sctpTransport`?): `void`
+> **setLocal**(`description`, `transceivers`, `sctpTransport`?, `options`?): `void`
 
 ローカルセッション記述を設定し、トランスポート情報を追加する
 
@@ -342,6 +394,16 @@ MediaDescriptionをトランシーバー用に作成
 
 `string`
 
+##### options?
+
+###### commit?
+
+`boolean`
+
+###### dtlsTransportByMid?
+
+`ReadonlyMap`\<`string`, [`RTCDtlsTransport`](RTCDtlsTransport.md)\>
+
 #### Returns
 
 `void`
@@ -350,13 +412,17 @@ MediaDescriptionをトランシーバー用に作成
 
 ### setLocalDescription()
 
-> **setLocalDescription**(`description`): `void`
+> **setLocalDescription**(`description`, `commit`): `void`
 
 #### Parameters
 
 ##### description
 
 [`SessionDescription`](SessionDescription.md)
+
+##### commit
+
+`boolean` = `true`
 
 #### Returns
 

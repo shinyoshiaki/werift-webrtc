@@ -34,7 +34,7 @@
 
 #### Index Signature
 
-\[`rid`: `string`\]: [`RTCRtpSender`](RTCRtpSender.md) \| [`RTCRtpReceiver`](RTCRtpReceiver.md)
+\[`rid`: `string`\]: [`RTCRtpReceiver`](RTCRtpReceiver.md) \| [`RTCRtpSender`](RTCRtpSender.md)
 
 ***
 
@@ -44,7 +44,7 @@
 
 #### Index Signature
 
-\[`ssrc`: `number`\]: [`RTCRtpSender`](RTCRtpSender.md) \| [`RTCRtpReceiver`](RTCRtpReceiver.md)
+\[`ssrc`: `number`\]: [`RTCRtpReceiver`](RTCRtpReceiver.md) \| [`RTCRtpSender`](RTCRtpSender.md)
 
 ## Methods
 
