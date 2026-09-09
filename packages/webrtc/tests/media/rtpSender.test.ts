@@ -500,6 +500,39 @@ describe("media/rtpSender", () => {
     pc.close();
   });
 
+  test("getConfiguration pendingRtp snapshot does not change sender queue limit", async () => {
+    // Arrange: オブジェクト指定の pendingRtp で PC を作る
+    const pendingLimit = 2;
+    const pc = new RTCPeerConnection({
+      pendingRtp: { maxLength: pendingLimit },
+    });
+    const snapshot = pc.getConfiguration();
+
+    // Act: 公開スナップショットの maxLength だけ書き換える
+    expect(typeof snapshot.pendingRtp).toBe("object");
+    if (typeof snapshot.pendingRtp === "object" && snapshot.pendingRtp) {
+      snapshot.pendingRtp.maxLength = 99;
+    }
+
+    // Assert: 内部設定は元の上限のまま。後から作る sender も 2 件で溢れる
+    const reread = pc.getConfiguration().pendingRtp;
+    expect(typeof reread).toBe("object");
+    expect(
+      typeof reread === "object" && reread ? reread.maxLength : undefined,
+    ).toBe(pendingLimit);
+    const track = new MediaStreamTrack({ kind: "audio" });
+    const sender = pc.addTrack(track);
+    const first = sender.sendRtp(createRtpPacket(0, 0));
+    void sender.sendRtp(createRtpPacket(1, 1));
+    expect(pendingRtpQueue(sender)).toHaveLength(pendingLimit);
+    const overflow = sender.sendRtp(createRtpPacket(2, 2));
+    const overflowState = watchPromise(overflow);
+    await first;
+    expect(pendingRtpQueue(sender)).toHaveLength(pendingLimit);
+    expect(overflowState.status).toBe("pending");
+    pc.close();
+  });
+
   test("getStats returns a report rooted at outbound stats", async () => {
     const track = new MediaStreamTrack({ kind: "audio", remote: true });
     const dtls = createDtlsTransport();

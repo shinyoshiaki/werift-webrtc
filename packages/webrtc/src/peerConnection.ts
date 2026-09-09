@@ -1613,6 +1613,10 @@ function clonePeerConfiguration(config: PeerConfig) {
     dtls: { ...config.dtls },
     certificates: [...config.certificates],
     debug: { ...config.debug },
+    pendingRtp:
+      typeof config.pendingRtp === "object" && config.pendingRtp != undefined
+        ? { ...config.pendingRtp }
+        : config.pendingRtp,
   };
 }
 
