@@ -1018,6 +1018,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
     let receivedEarlyRtp = false;
     let receivedEarlyRtcp = false;
     let receivedDataChannel = 0;
+    let releaseClientAuth: (() => void) | undefined;
     try {
       const dc1 = pc1.createDataChannel("early");
       pc2.ondatachannel = () => {
@@ -1036,15 +1037,56 @@ describe("RTCPeerConnection SPED opt-in", () => {
           receivedEarlyRtcp = true;
         }
       });
+
+      // Client の fingerprint 完了を write-ready 観測後まで遅らせる。
+      // DTLS 1.3 では server Finished 到着と同時に client が認証完了し得る。
+      const client = pc2.dtlsTransports[0]!;
+      const holdClientAuth = new Promise<void>((resolve) => {
+        releaseClientAuth = resolve;
+      });
+      const originalClientStart = client.start.bind(client);
+      client.start = async () => {
+        const started = originalClientStart();
+        await waitUntil(
+          () =>
+            !!(
+              client as unknown as {
+                dtls?: {
+                  waitForPeerHandshakeAuthenticated: () => Promise<void>;
+                };
+              }
+            ).dtls,
+        );
+        const dtls = (
+          client as unknown as {
+            dtls: {
+              waitForPeerHandshakeAuthenticated: () => Promise<void>;
+            };
+          }
+        ).dtls;
+        const originalWait = dtls.waitForPeerHandshakeAuthenticated.bind(dtls);
+        dtls.waitForPeerHandshakeAuthenticated = async () => {
+          await originalWait();
+          await holdClientAuth;
+        };
+        return started;
+      };
+
       await pc2.setLocalDescription(await pc2.createAnswer());
 
       // Act: final SDP 適用を待たず、DTLS server の epoch-3 write key が
       // 入った直後に SCTP INIT と protected RTP/RTCP を送る。
-      const applyAnswer = pc1.setRemoteDescription(pc2.localDescription!);
-      await waitUntil(() => pc1.dtlsTransports[0]?.role === "server");
       const server = pc1.dtlsTransports[0]!;
-      const client = pc2.dtlsTransports[0]!;
-      await server.waitForWriteReady();
+      const originalServerStart = server.start.bind(server);
+      let writeReady: Promise<void> | undefined;
+      server.start = async () => {
+        const started = originalServerStart();
+        writeReady = server.waitForWriteReady();
+        return started;
+      };
+      const applyAnswer = pc1.setRemoteDescription(pc2.localDescription!);
+      await waitUntil(() => writeReady !== undefined);
+      await writeReady;
       expect(server.state).toBe("connecting");
       expect(client.state).toBe("connecting");
       const statsBefore = (await server.getStats()).find(
@@ -1091,6 +1133,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
       expect(receivedDataChannel).toBe(0);
       expect(receivedRtp).toBe(0);
       expect(receivedRtcp).toBe(0);
+      releaseClientAuth();
       await applyAnswer;
       await waitUntil(() => dc1.readyState === "open");
       await waitUntil(() => receivedDataChannel === 1);
@@ -1102,6 +1145,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
       expect(receivedRtp).toBeGreaterThan(0);
       expect(receivedRtcp).toBeGreaterThan(0);
     } finally {
+      releaseClientAuth?.();
       await Promise.allSettled([pc1.close(), pc2.close()]);
     }
   }, 60_000);

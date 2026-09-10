@@ -116,6 +116,10 @@ export class SDPManager {
     }
 
     this.addTransportDescription(media, dtlsTransport);
+    if (transceiver.stopped || transceiver.stopping) {
+      media.port = 0;
+      media.msids = [];
+    }
     return media;
   }
 
@@ -157,11 +161,6 @@ export class SDPManager {
 
     media.host = DISCARD_HOST;
     media.port = DISCARD_PORT;
-
-    if (media.direction === "inactive") {
-      media.port = 0;
-      media.msids = [];
-    }
 
     // A transport projection replaces the complete ICE/DTLS ownership of the
     // m-section.  Keeping an already populated fingerprint here would make a
@@ -420,6 +419,10 @@ export class SDPManager {
           andDirection(transceiver.direction, transceiver.offerDirection),
           dtlsTransport,
         );
+        if (remoteMedia.port === 0) {
+          media.port = 0;
+          media.msids = [];
+        }
       } else if (remoteMedia.kind === "application") {
         if (!sctpTransport || !sctpTransport.mid) {
           throw new Error("sctpTransport not found");
@@ -696,6 +699,7 @@ export class SDPManager {
     options: {
       commit?: boolean;
       dtlsTransportByMid?: ReadonlyMap<string, RTCDtlsTransport>;
+      replaceDtls?: boolean;
     } = {},
   ) {
     const transceiverByMLineIndex = new Map(
@@ -722,7 +726,8 @@ export class SDPManager {
         this.addTransportDescription(
           m,
           dtlsTransport,
-          options.dtlsTransportByMid?.has(m.rtp.muxId ?? "") ?? false,
+          (options.replaceDtls ?? true) &&
+            (options.dtlsTransportByMid?.has(m.rtp.muxId ?? "") ?? false),
         );
       });
     const sctpMedia = description.media.find((m) => m.kind === "application");
@@ -731,7 +736,8 @@ export class SDPManager {
         sctpMedia,
         options.dtlsTransportByMid?.get(sctpMedia.rtp.muxId ?? "") ??
           sctpTransport.dtlsTransport,
-        options.dtlsTransportByMid?.has(sctpMedia.rtp.muxId ?? "") ?? false,
+        (options.replaceDtls ?? true) &&
+          (options.dtlsTransportByMid?.has(sctpMedia.rtp.muxId ?? "") ?? false),
       );
     }
 

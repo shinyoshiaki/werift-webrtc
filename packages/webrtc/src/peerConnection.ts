@@ -110,6 +110,7 @@ type PendingRemoteOfferPlan = {
   createdTransports: Set<RTCDtlsTransport>;
   pendingTransceiverNotifications: RTCRtpTransceiver[];
   snapshot: PeerGraphSnapshot;
+  bundleEstablished: boolean;
   committed: boolean;
 };
 
@@ -129,8 +130,10 @@ type PendingLocalOfferPlan = {
  *   `addIceCandidate(null)`, and `RTCConfiguration` round-trip behavior are
  *   implemented here and covered by `tests/wpt/peerConnectionApiCompatibility.test.ts`.
  * - `addIceCandidate()` also validates `sdpMid` / `sdpMLineIndex` /
- *   `usernameFragment` against the applied remote description and appends
- *   candidates or end-of-candidates markers to the corresponding m-section.
+ *   `usernameFragment` against the applied remote description (including a
+ *   pending remote offer) and appends candidates or end-of-candidates
+ *   markers to the corresponding m-section.  Parsed candidates are staged
+ *   until the matching answer commits them onto the live ICE agent.
  *   The public API keeps werift's historical pre-SRD buffering behavior, while
  *   the WPT runner wraps the class to exercise strict spec rejection.
  * - `bundlePolicy: "balanced"` is accepted for input compatibility but is
@@ -785,6 +788,7 @@ export class RTCPeerConnection extends EventTarget {
               !this.pendingRemoteOfferPlan.committed
                 ? this.pendingRemoteOfferPlan.transportByMid
                 : undefined),
+            replaceDtls: this._localDescription!.type !== "answer",
           },
         );
         this.onIceCandidate.execute(undefined);
@@ -936,8 +940,17 @@ export class RTCPeerConnection extends EventTarget {
     const currentTransceivers = this.transceiverManager
       .getTransceivers()
       .slice();
+    const keptNewTransceivers = currentTransceivers.filter(
+      (transceiver) =>
+        !snapshot.transceivers.includes(transceiver) &&
+        transceiver.reusedByAddTrack,
+    );
     currentTransceivers
-      .filter((transceiver) => !snapshot.transceivers.includes(transceiver))
+      .filter(
+        (transceiver) =>
+          !snapshot.transceivers.includes(transceiver) &&
+          !transceiver.reusedByAddTrack,
+      )
       .forEach((transceiver) => transceiver.forceStop());
 
     const currentSctpTransport = this.sctpManager.sctpTransport;
@@ -950,7 +963,10 @@ export class RTCPeerConnection extends EventTarget {
       });
     }
 
-    this.transceiverManager.restoreTransceivers(snapshot.transceivers);
+    this.transceiverManager.restoreTransceivers([
+      ...snapshot.transceivers,
+      ...keptNewTransceivers,
+    ]);
     for (const [transceiver, state] of snapshot.transceiverStates) {
       transceiver.restoreNegotiationState(state);
     }
@@ -958,6 +974,9 @@ export class RTCPeerConnection extends EventTarget {
     this.router.ssrcTable = { ...snapshot.routerSsrcTable };
     this.router.ridTable = { ...snapshot.routerRidTable };
     this.router.extIdUriMap = { ...snapshot.routerExtIdUriMap };
+    for (const transceiver of keptNewTransceivers) {
+      this.router.registerRtpSender(transceiver.sender);
+    }
 
     if (snapshot.sctpTransport) {
       if (
@@ -1015,6 +1034,83 @@ export class RTCPeerConnection extends EventTarget {
     await this.stopPendingTransports(transports);
   }
 
+  private applyRemoteTransportParameters(
+    plan: Pick<PendingRemoteOfferPlan, "bindings" | "bundleEstablished">,
+    remoteSdp: SessionDescription,
+    bundleTag?: string,
+    includeCandidates = true,
+  ) {
+    for (const binding of plan.bindings) {
+      const { remoteMedia, isBundleMember, isBundleTag, targetTransport } =
+        binding;
+      const shouldApplyTransportParams =
+        !isBundleMember || isBundleTag || bundleTag === undefined;
+      const shouldApplyIceCandidates =
+        shouldApplyTransportParams ||
+        (isBundleMember && plan.bundleEstablished);
+      if (!shouldApplyTransportParams && !shouldApplyIceCandidates) continue;
+
+      const iceTransport = targetTransport.iceTransport;
+      if (shouldApplyTransportParams && remoteMedia.iceParams) {
+        const renomination = !!this.sdpManager.inactiveRemoteMedia;
+        iceTransport.setRemoteParams(remoteMedia.iceParams, renomination);
+        this.applyIceLiteRole(iceTransport, remoteMedia.iceParams.iceLite);
+      }
+      if (shouldApplyTransportParams && remoteMedia.dtlsParams) {
+        targetTransport.setRemoteParams(remoteMedia.dtlsParams);
+      }
+      if (shouldApplyIceCandidates && includeCandidates) {
+        remoteMedia.iceCandidates.forEach(iceTransport.addRemoteCandidate);
+        if (remoteMedia.iceCandidatesComplete) {
+          iceTransport.addRemoteCandidate(undefined);
+        }
+      }
+      if (
+        shouldApplyTransportParams &&
+        remoteSdp.type === "answer" &&
+        remoteMedia.dtlsParams?.role
+      ) {
+        targetTransport.role =
+          remoteMedia.dtlsParams.role === "client" ? "server" : "client";
+      }
+    }
+  }
+
+  /**
+   * RFC 8445 S6.1.1: a full ICE agent that sees a lite peer becomes
+   * controlling.  Used both when remote parameters are committed and when an
+   * initial remote offer is still pending, so application-visible ICE role
+   * matches the offer before the answer commits ufrag/password.
+   */
+  private applyIceLiteRole(
+    iceTransport: RTCIceTransport,
+    remoteIsLite: boolean,
+  ) {
+    if (remoteIsLite) {
+      iceTransport.connection.remoteIsLite = true;
+      if (!iceTransport.connection.iceLite) {
+        iceTransport.connection.iceControlling = true;
+      }
+    }
+  }
+
+  private applyInitialRemoteIceLiteHints(
+    plan: Pick<PendingRemoteOfferPlan, "bindings">,
+    bundleTag?: string,
+  ) {
+    for (const binding of plan.bindings) {
+      const { remoteMedia, isBundleMember, isBundleTag, targetTransport } =
+        binding;
+      const shouldApplyTransportParams =
+        !isBundleMember || isBundleTag || bundleTag === undefined;
+      if (!shouldApplyTransportParams || !remoteMedia.iceParams) continue;
+      this.applyIceLiteRole(
+        targetTransport.iceTransport,
+        remoteMedia.iceParams.iceLite,
+      );
+    }
+  }
+
   private async commitRemoteTransportPlan(
     plan: Pick<
       PendingRemoteOfferPlan,
@@ -1022,41 +1118,16 @@ export class RTCPeerConnection extends EventTarget {
       | "replacedTransports"
       | "createdTransports"
       | "pendingTransceiverNotifications"
+      | "bundleEstablished"
     >,
     remoteSdp: SessionDescription,
     bundleTag?: string,
   ) {
     // Validate/apply ICE and DTLS properties to the proposed owner before any
-    // rebind.  A non-tag BUNDLE section never writes into the shared owner.
-    for (const binding of plan.bindings) {
-      const { remoteMedia, isBundleMember, isBundleTag, targetTransport } =
-        binding;
-      const shouldApplyTransportParams =
-        !isBundleMember || isBundleTag || bundleTag === undefined;
-      if (!shouldApplyTransportParams) continue;
-
-      const iceTransport = targetTransport.iceTransport;
-      if (remoteMedia.iceParams) {
-        const renomination = !!this.sdpManager.inactiveRemoteMedia;
-        iceTransport.setRemoteParams(remoteMedia.iceParams, renomination);
-
-        // One agent full, one lite: the full agent takes the controlling role.
-        if (remoteMedia.iceParams.iceLite && !iceTransport.connection.iceLite) {
-          iceTransport.connection.iceControlling = true;
-        }
-      }
-      if (remoteMedia.dtlsParams) {
-        targetTransport.setRemoteParams(remoteMedia.dtlsParams);
-      }
-      remoteMedia.iceCandidates.forEach(iceTransport.addRemoteCandidate);
-      if (remoteMedia.iceCandidatesComplete) {
-        iceTransport.addRemoteCandidate(undefined);
-      }
-      if (remoteSdp.type === "answer" && remoteMedia.dtlsParams?.role) {
-        targetTransport.role =
-          remoteMedia.dtlsParams.role === "client" ? "server" : "client";
-      }
-    }
+    // rebind.  A non-tag BUNDLE section never writes IDENTICAL/TRANSPORT
+    // properties into the shared owner.  Once a group is established, trickle
+    // candidates for any remaining member still belong to that shared ICE.
+    this.applyRemoteTransportParameters(plan, remoteSdp, bundleTag);
 
     // The graph mutation is deliberately after all media validation and
     // transport parameter writes.  This is the commit point for a pending
@@ -1074,6 +1145,9 @@ export class RTCPeerConnection extends EventTarget {
 
     for (const binding of plan.bindings) {
       if (!binding.transceiver) continue;
+      if (remoteSdp.type === "offer") {
+        this.transceiverManager.applyLocalSendParameters(binding.transceiver);
+      }
       if (binding.remoteMedia.ssrc[0]?.ssrc) {
         binding.transceiver.receiver.setupTWCC(
           binding.remoteMedia.ssrc[0].ssrc,
@@ -1168,6 +1242,64 @@ export class RTCPeerConnection extends EventTarget {
       createdTransports,
       snapshot,
     };
+  }
+
+  /**
+   * Recalculate BUNDLE membership/tag from the actual local answer.  Application
+   * direction changes after SRD can reject or keep m-sections, so the SRD-time
+   * plan is only a candidate graph until this point.
+   */
+  private finalizeRemoteBundlePlanFromAnswer(
+    plan: PendingRemoteOfferPlan,
+    answer: SessionDescription,
+  ) {
+    const answerGroup = answer.group.find(
+      (group) => group.semantic === "BUNDLE",
+    );
+    const acceptedMids = new Set(
+      answer.media
+        .filter((media) => media.port !== 0 && media.rtp.muxId)
+        .map((media) => media.rtp.muxId!),
+    );
+    const bundleItems = (answerGroup?.items ?? []).filter((mid) =>
+      acceptedMids.has(mid),
+    );
+    const bundleTag = bundleItems[0];
+    const tagBinding = plan.bindings.find(
+      (binding) => binding.remoteMedia.rtp.muxId === bundleTag,
+    );
+    const tagTransport =
+      tagBinding?.targetTransport ?? tagBinding?.currentTransport;
+
+    for (const binding of plan.bindings) {
+      const mid = binding.remoteMedia.rtp.muxId;
+      binding.isBundleMember = !!mid && bundleItems.includes(mid);
+      binding.isBundleTag = binding.isBundleMember && mid === bundleTag;
+
+      if (binding.isBundleMember && tagTransport) {
+        binding.targetTransport = tagTransport;
+      } else if (
+        mid &&
+        acceptedMids.has(mid) &&
+        !binding.isBundleMember &&
+        tagTransport &&
+        binding.targetTransport.id === tagTransport.id
+      ) {
+        binding.targetTransport = this.createIndependentTransport();
+        plan.createdTransports.add(binding.targetTransport);
+      }
+
+      if (mid) {
+        plan.transportByMid.set(mid, binding.targetTransport);
+      }
+    }
+
+    plan.replacedTransports.clear();
+    for (const binding of plan.bindings) {
+      if (binding.currentTransport !== binding.targetTransport) {
+        plan.replacedTransports.add(binding.currentTransport);
+      }
+    }
   }
 
   async setLocalDescription(sessionDescription: {
@@ -1326,23 +1458,52 @@ export class RTCPeerConnection extends EventTarget {
           : undefined,
       });
     } else {
-      // The remote plan is committed before an answer is projected, so the
-      // transceivers/SCTP object already expose their final target transport.
-      // Do not force-replace a caller-supplied answer's DTLS fingerprint here;
-      // preserving it keeps fingerprint validation in setRemoteDescription
-      // meaningful for intentionally malformed SDP.
-      localTransportByMid = undefined;
+      // Project the pending remote plan's target transports into the answer
+      // without rebinding live transceivers yet.  The caller-supplied answer
+      // SDP is still parsed above; addTransportDescription only fills ICE/DTLS
+      // ownership from the planned graph.
+      const pendingRemotePlan =
+        this.pendingRemoteOfferPlan && !this.pendingRemoteOfferPlan.committed
+          ? this.pendingRemoteOfferPlan
+          : undefined;
+      if (pendingRemotePlan) {
+        this.finalizeRemoteBundlePlanFromAnswer(pendingRemotePlan, description);
+        localTransportByMid = pendingRemotePlan.transportByMid;
+      }
     }
 
     const pendingRemotePlanForAnswer =
       description.type === "answer" ? this.pendingRemoteOfferPlan : undefined;
     try {
-      // An answer is the commit point for a staged remote offer.  Apply the
-      // pending remote ICE/DTLS plan before projecting the local answer so an
-      // ICE restart can reset its gatherer and the answer can advertise the
-      // resulting local credentials/candidates.  A pending offer itself still
-      // never mutates the current graph: this branch is reached only after the
-      // application has supplied its answer.
+      // Failure-prone local projection and gathering stay before any live
+      // ICE/DTLS/SCTP mutation.  ICE restart gathering happens after the
+      // commit point, once remote parameters have been applied.
+      this.sdpManager.setLocal(
+        description,
+        this.transceiverManager.getTransceivers(),
+        this.sctpTransport,
+        {
+          commit: description.type !== "answer",
+          dtlsTransportByMid: localTransportByMid,
+          replaceDtls: description.type !== "answer",
+        },
+      );
+
+      await this.gatherCandidates().catch((e) => {
+        log("gatherCandidates failed", e);
+      });
+
+      this.sdpManager.setLocal(
+        description,
+        this.transceiverManager.getTransceivers(),
+        this.sctpTransport,
+        {
+          commit: description.type !== "answer",
+          dtlsTransportByMid: localTransportByMid,
+          replaceDtls: description.type !== "answer",
+        },
+      );
+
       if (pendingRemotePlanForAnswer && !pendingRemotePlanForAnswer.committed) {
         await this.commitRemoteTransportPlan(
           pendingRemotePlanForAnswer,
@@ -1352,46 +1513,32 @@ export class RTCPeerConnection extends EventTarget {
           )?.remoteMedia.rtp.muxId,
         );
         pendingRemotePlanForAnswer.committed = true;
+        this.secureManager.setLocalRole({
+          type: "answer",
+          role,
+          extraDtlsTransports: [
+            ...pendingRemotePlanForAnswer.createdTransports,
+          ],
+        });
+        await this.gatherCandidates().catch((e) => {
+          log("gatherCandidates failed", e);
+        });
+        this.sdpManager.setLocal(
+          description,
+          this.transceiverManager.getTransceivers(),
+          this.sctpTransport,
+          {
+            commit: false,
+            dtlsTransportByMid: localTransportByMid,
+            replaceDtls: false,
+          },
+        );
       }
 
-      // for trickle ice
-      this.sdpManager.setLocal(
-        description,
-        this.transceiverManager.getTransceivers(),
-        this.sctpTransport,
-        {
-          commit: description.type !== "answer",
-          dtlsTransportByMid: localTransportByMid,
-        },
-      );
-
-      await this.gatherCandidates().catch((e) => {
-        log("gatherCandidates failed", e);
-      });
-
-      // Gathering may finish after the first SDP transport projection. Refresh
-      // the pending description so completed gatherers emit
-      // `a=end-of-candidates` before the description is exposed or committed.
-      this.sdpManager.setLocal(
-        description,
-        this.transceiverManager.getTransceivers(),
-        this.sctpTransport,
-        {
-          commit: description.type !== "answer",
-          dtlsTransportByMid: localTransportByMid,
-        },
-      );
-
       if (description.type === "answer") {
-        // Flush candidates while both SDP and transport changes are still in
-        // the transaction.  A malformed buffered candidate must be able to
-        // reject the answer without leaving a committed current graph behind.
         await this.flushPendingRemoteCandidates();
         this.sdpManager.commitPendingDescriptions();
         if (pendingRemotePlanForAnswer) {
-          // Retire replaced transports only after SDP and candidate routing
-          // have committed.  If any preceding step fails, the old current
-          // transport is still available for transaction rollback.
           await this.stopReplacedTransports(
             pendingRemotePlanForAnswer.replacedTransports,
           );
@@ -1462,15 +1609,31 @@ export class RTCPeerConnection extends EventTarget {
       throw createWebRtcDomException("InvalidStateError", "is closed");
     }
 
-    if (
-      !this.remoteDescription ||
-      !this.sdpManager._remoteDescription ||
-      (this.pendingRemoteOfferPlan && !this.pendingRemoteOfferPlan.committed)
-    ) {
+    if (!this.remoteDescription || !this.sdpManager._remoteDescription) {
       this.pendingRemoteCandidates.push(candidateMessage);
       return;
     }
+    if (this.pendingRemoteOfferPlan && !this.pendingRemoteOfferPlan.committed) {
+      await this.stageRemoteIceCandidate(candidateMessage);
+      return;
+    }
     await this.applyRemoteIceCandidate(candidateMessage);
+  }
+
+  private async stageRemoteIceCandidate(
+    candidateMessage: RTCIceCandidate | RTCIceCandidateInit | null,
+  ) {
+    const sdp = this.sdpManager._remoteDescription;
+    if (!sdp) {
+      return;
+    }
+    const appliedCandidate = await this.secureManager.addIceCandidate(
+      sdp,
+      candidateMessage,
+      undefined,
+      true,
+    );
+    this.recordAppliedRemoteIceCandidate(sdp, appliedCandidate);
   }
 
   private async applyRemoteIceCandidate(
@@ -1489,7 +1652,18 @@ export class RTCPeerConnection extends EventTarget {
       candidateMessage,
       initialBundleTag,
     );
-    const remoteDescription = this.sdpManager._remoteDescription;
+    this.recordAppliedRemoteIceCandidate(
+      this.sdpManager._remoteDescription,
+      appliedCandidate,
+    );
+  }
+
+  private recordAppliedRemoteIceCandidate(
+    remoteDescription: SessionDescription | undefined,
+    appliedCandidate:
+      | Awaited<ReturnType<SecureTransportManager["addIceCandidate"]>>
+      | undefined,
+  ) {
     if (!remoteDescription || !appliedCandidate) {
       return;
     }
@@ -1520,7 +1694,14 @@ export class RTCPeerConnection extends EventTarget {
       this.sdpManager._remoteDescription
     ) {
       const candidate = this.pendingRemoteCandidates.shift();
-      await this.applyRemoteIceCandidate(candidate ?? null);
+      if (
+        this.pendingRemoteOfferPlan &&
+        !this.pendingRemoteOfferPlan.committed
+      ) {
+        await this.stageRemoteIceCandidate(candidate ?? null);
+      } else {
+        await this.applyRemoteIceCandidate(candidate ?? null);
+      }
     }
   }
 
@@ -1731,8 +1912,6 @@ export class RTCPeerConnection extends EventTarget {
       this.sdpManager.currentLocalDescription ||
       this.sdpManager.currentRemoteDescription
     );
-    const deferRemoteOfferGraph =
-      sessionDescription.type === "offer" && hasCurrentNegotiatedSession;
     const graphSnapshot = this.capturePeerGraph();
     const createdTransports = new Set<RTCDtlsTransport>();
     let remoteSdp: SessionDescription | undefined;
@@ -1748,7 +1927,6 @@ export class RTCPeerConnection extends EventTarget {
       }
 
       const bundleGroup = this.sdpManager.getRemoteBundleGroup();
-      const initialBundleNegotiation = !!bundleGroup && !wasBundleEstablished;
       const remoteMediaBindings: RemoteMediaBinding[] = [];
 
       const matchTransceiverWithMedia = (
@@ -1778,14 +1956,12 @@ export class RTCPeerConnection extends EventTarget {
               remoteMedia.kind,
               dtlsTransport,
               { direction: "recvonly" },
-              !deferRemoteOfferGraph,
             );
             transceiver.mid = remoteMedia.rtp.muxId ?? null;
-            if (!deferRemoteOfferGraph) {
-              this.secureManager.updateIceConnectionState();
-              this.needNegotiation();
-              this.onRemoteTransceiverAdded.execute(transceiver);
-            }
+            transceiver.createdByRemoteDescription = true;
+            this.secureManager.updateIceConnectionState();
+            this.needNegotiation();
+            this.onRemoteTransceiverAdded.execute(transceiver);
           } else if (
             transceiver.direction === "inactive" &&
             transceiver.stopping
@@ -1818,19 +1994,17 @@ export class RTCPeerConnection extends EventTarget {
             targetTransport: mappedTransceiver.dtlsTransport,
             rebind: (transport) =>
               mappedTransceiver.setDtlsTransport(transport),
-            shouldEmitTrack:
-              mappedTransceiver.receiver.tracks.length === 0 &&
-              remoteMedia.port !== 0 &&
-              ["sendonly", "sendrecv"].includes(
-                remoteMedia.direction ?? "inactive",
-              ),
+            shouldEmitTrack: false,
             applyRemote: () =>
               this.transceiverManager.setRemoteRTP(
                 mappedTransceiver,
                 remoteMedia,
                 remoteSdp!.type,
                 i,
-                { emitTrack: false, setupTWCC: false },
+                {
+                  emitTrack: mappedTransceiver.receiver.tracks.length === 0,
+                  setupTWCC: !hasCurrentNegotiatedSession,
+                },
               ),
           });
         } else if (remoteMedia.kind === "application") {
@@ -1861,6 +2035,7 @@ export class RTCPeerConnection extends EventTarget {
               if (!remoteMedia.sctpPort) {
                 throw new Error("sctpRemotePort not exist");
               }
+              this.sctpManager.setRemoteSCTP(remoteMedia, i);
             },
           });
         } else {
@@ -1872,14 +2047,8 @@ export class RTCPeerConnection extends EventTarget {
         remoteMediaBindings
           .filter(({ remoteMedia, transceiver }) => {
             if (!remoteMedia.rtp.muxId || remoteMedia.port === 0) return false;
-            if (!transceiver) return true;
-            if (transceiver.stopping || transceiver.stopped) return false;
-            return (
-              andDirection(
-                transceiver.direction,
-                reverseDirection(remoteMedia.direction ?? "inactive"),
-              ) !== "inactive"
-            );
+            if (transceiver?.stopping || transceiver?.stopped) return false;
+            return true;
           })
           .map(({ remoteMedia }) => remoteMedia.rtp.muxId!)
           .filter((mid) => bundleGroup?.items.includes(mid)),
@@ -1918,7 +2087,6 @@ export class RTCPeerConnection extends EventTarget {
         } else if (
           mid &&
           binding.remoteMedia.port !== 0 &&
-          binding.remoteMedia.direction !== "inactive" &&
           !binding.isBundleMember &&
           (bundleGroup === undefined || bundleTag !== undefined) &&
           (previousBundleMids.has(mid) ||
@@ -1995,15 +2163,7 @@ export class RTCPeerConnection extends EventTarget {
           );
         }
       });
-      const pendingTransceiverNotifications = deferRemoteOfferGraph
-        ? remoteMediaBindings
-            .map((binding) => binding.transceiver)
-            .filter(
-              (transceiver): transceiver is RTCRtpTransceiver =>
-                !!transceiver &&
-                !graphSnapshot.transceivers.includes(transceiver),
-            )
-        : [];
+      const pendingTransceiverNotifications: RTCRtpTransceiver[] = [];
       const plan: PendingRemoteOfferPlan = {
         remoteDescription: remoteSdp,
         bindings: remoteMediaBindings,
@@ -2012,6 +2172,7 @@ export class RTCPeerConnection extends EventTarget {
         createdTransports,
         pendingTransceiverNotifications,
         snapshot: graphSnapshot,
+        bundleEstablished: wasBundleEstablished,
         committed: false,
       };
 
@@ -2039,23 +2200,26 @@ export class RTCPeerConnection extends EventTarget {
         }
       }
 
-      // Second pass validates codecs/SDP-facing receiver state.  It cannot
-      // alter the current transport ownership or send a track/TWCC callback.
+      // Second pass validates codecs and surfaces receiver/track state.  A
+      // first negotiation may provisionally rebind to the planned BUNDLE
+      // transport so ontrack sees the shared owner; ICE/DTLS parameters still
+      // wait for the local answer.  A current session is never rebound here.
+      if (remoteSdp.type === "offer" && !hasCurrentNegotiatedSession) {
+        for (const binding of remoteMediaBindings) {
+          if (binding.currentTransport !== binding.targetTransport) {
+            binding.rebind?.(binding.targetTransport);
+          }
+        }
+        // Do not install ICE ufrag/password or DTLS fingerprints on a live
+        // transport while the answer is still pending.  Lite STUN and DTLS
+        // would otherwise start before SLD, racing SPED and the fingerprint
+        // gate.  Only the ice-lite role hint is application-visible here.
+        this.applyInitialRemoteIceLiteHints(plan, bundleTag);
+      }
       remoteMediaBindings.forEach((binding) => binding.applyRemote());
 
       if (remoteSdp.type === "offer") {
         this.pendingRemoteOfferPlan = plan;
-        if (!deferRemoteOfferGraph) {
-          await this.commitRemoteTransportPlan(plan, remoteSdp, bundleTag);
-          plan.committed = true;
-          await this.stopReplacedTransports(plan.replacedTransports);
-          if (initialBundleNegotiation && bundleTag) {
-            this.pendingInitialBundleRouting = {
-              remoteDescription: remoteSdp,
-              tag: bundleTag,
-            };
-          }
-        }
         this.setSignalingState("have-remote-offer");
       } else {
         await this.commitRemoteTransportPlan(plan, remoteSdp, bundleTag);
@@ -2093,11 +2257,10 @@ export class RTCPeerConnection extends EventTarget {
         return;
       }
 
-      // Candidates buffered before an initial offer are safe to route after
-      // its staged graph has been committed.  Subsequent offers intentionally
-      // retain their candidates until the answer commits the plan; answers
-      // already flushed them inside the transaction above.
-      if (remoteSdp.type === "offer" && !deferRemoteOfferGraph) {
+      // Candidates buffered before a remote offer are validated against that
+      // pending description and staged.  They reach the live ICE agent only
+      // when the matching answer commits the transport plan.
+      if (remoteSdp.type === "offer") {
         await this.flushPendingRemoteCandidates();
       }
       if (this.isClosed) {
@@ -2254,6 +2417,10 @@ export class RTCPeerConnection extends EventTarget {
     // reject their pending waits.  A close must remain the terminal state.
     this.connectEpoch++;
     this.pendingRemoteCandidates.length = 0;
+    this.pendingRemoteOfferPlan = undefined;
+    this.pendingLocalOfferPlan = undefined;
+    this.pendingLocalTransportByMid = undefined;
+    this.pendingInitialBundleRouting = undefined;
     this.setSignalingState("closed");
 
     this.transceiverManager.close();

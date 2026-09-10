@@ -253,6 +253,7 @@ export class SecureTransportManager {
     sdp: SessionDescription,
     candidateMessage: RTCIceCandidate | RTCIceCandidateInit | null,
     initialBundleTag?: string,
+    stageOnly = false,
   ) {
     const candidateText = candidateMessage?.candidate;
     const sdpMid = candidateMessage?.sdpMid;
@@ -267,13 +268,14 @@ export class SecureTransportManager {
       sdpMLineIndex,
       usernameFragment,
     });
-    const bundleGroup = initialBundleTag
-      ? sdp.group.find(
-          (group) =>
-            group.semantic === "BUNDLE" &&
-            group.items.includes(initialBundleTag),
-        )
-      : undefined;
+    const bundleGroup =
+      !stageOnly && initialBundleTag
+        ? sdp.group.find(
+            (group) =>
+              group.semantic === "BUNDLE" &&
+              group.items.includes(initialBundleTag),
+          )
+        : undefined;
     const mediaIndices = bundleGroup
       ? resolvedMediaIndices.filter((index) => {
           const mid = sdp.media[index]?.rtp.muxId;
@@ -289,6 +291,12 @@ export class SecureTransportManager {
     if (mediaIndices.length === 0) return;
 
     if (isEndOfCandidates) {
+      if (stageOnly) {
+        return {
+          kind: "end-of-candidates" as const,
+          mediaIndices,
+        };
+      }
       const candidateTarget = mediaIndices
         .map((index) => this.getTransportByMLineIndex(sdp, index))
         .filter(
@@ -330,6 +338,14 @@ export class SecureTransportManager {
     }
     candidate.sdpMid = targetMedia.rtp.muxId ?? undefined;
     candidate.sdpMLineIndex = targetMediaIndex;
+
+    if (stageOnly) {
+      return {
+        kind: "candidate" as const,
+        candidate,
+        mediaIndices: [targetMediaIndex],
+      };
+    }
 
     const iceTransport = this.getTransportByMLineIndex(sdp, targetMediaIndex);
 
@@ -619,7 +635,9 @@ export class SecureTransportManager {
       this.certificate = await RTCDtlsTransport.SetupCertificate();
     }
 
-    for (const dtlsTransport of this.dtlsTransports) {
+    // Staged/pending BUNDLE transports are not always in the live transceiver
+    // graph yet, but they still advertise fingerprints in the next SDP.
+    for (const dtlsTransport of this.dtlsStateDisposers.keys()) {
       dtlsTransport.localCertificate = this.certificate;
     }
   }
@@ -637,12 +655,13 @@ export class SecureTransportManager {
   async close() {
     this.setConnectionState("closed");
 
+    const createdTransports = [...this.dtlsStateDisposers.keys()];
     for (const dispose of this.dtlsStateDisposers.values()) {
       dispose();
     }
     this.dtlsStateDisposers.clear();
 
-    await Promise.allSettled([...this.dtlsTransports.map((t) => t.stop())]);
+    await Promise.allSettled(createdTransports.map((t) => t.stop()));
 
     this.iceGatheringStateChange.allUnsubscribe();
     this.iceConnectionStateChange.allUnsubscribe();

@@ -157,6 +157,7 @@ export class TransceiverManager {
         ...emptyTrackSenderTransceiver.options,
         streams,
       };
+      emptyTrackSenderTransceiver.reusedByAddTrack = true;
       return emptyTrackSenderTransceiver;
     }
 
@@ -183,6 +184,7 @@ export class TransceiverManager {
           notSendTransceiver.setDirection("sendonly");
           break;
       }
+      notSendTransceiver.reusedByAddTrack = true;
       return notSendTransceiver;
     } else {
       const transceiver = this.addTransceiver(track, undefined, {
@@ -356,7 +358,12 @@ export class TransceiverManager {
       transceiver.offerDirection = direction;
     }
     const localParams = this.getLocalRtpParams(transceiver);
-    transceiver.sender.prepareSend(localParams);
+    // A remote offer updates receiver/pending codecs only.  Current sender
+    // payload types stay on the last stable answer until this description is
+    // answered, or until a remote answer is applied.
+    if (["answer", "pranswer"].includes(type)) {
+      transceiver.sender.prepareSend(localParams);
+    }
 
     if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
       const remotePrams = this.getRemoteRtpParams(remoteMedia, transceiver);
@@ -400,6 +407,12 @@ export class TransceiverManager {
     if (options.setupTWCC !== false && remoteMedia.ssrc[0]?.ssrc) {
       transceiver.receiver.setupTWCC(remoteMedia.ssrc[0].ssrc);
     }
+  }
+
+  /** @internal Commit the current transceiver codecs onto the live sender. */
+  applyLocalSendParameters(transceiver: RTCRtpTransceiver): void {
+    if (transceiver.mid == undefined) return;
+    transceiver.sender.prepareSend(this.getLocalRtpParams(transceiver));
   }
 
   /** @internal Deliver a track event after a staged remote graph commits. */

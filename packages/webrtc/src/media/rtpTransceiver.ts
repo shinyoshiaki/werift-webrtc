@@ -39,6 +39,10 @@ export class RTCRtpTransceiver {
   options: Partial<TransceiverOptions> = {};
   stopping = false;
   stopped = false;
+  /** Set when this transceiver was created while applying a remote description. */
+  createdByRemoteDescription = false;
+  /** Set when addTrack() attached a local track after that remote creation. */
+  reusedByAddTrack = false;
 
   constructor(
     public readonly kind: Kind,
@@ -120,12 +124,12 @@ export class RTCRtpTransceiver {
       this.setDtlsTransport(state.dtlsTransport);
     }
     this.usedForSender = state.usedForSender;
-    this._direction = state.direction;
+    // Application-owned slots (direction / stop()) survive rollback.  Only
+    // JSEP last-stable fields are restored here.
     this._currentDirection = state.currentDirection;
     this.offerDirection = state.offerDirection;
     this.codecs = state.codecs;
     this.headerExtensions = state.headerExtensions;
-    this.stopping = state.stopping;
     this.stopped = state.stopped;
     this.sender.restoreNegotiationState(state.sender);
     this.receiver.restoreNegotiationState(state.receiver);
