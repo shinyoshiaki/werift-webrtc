@@ -75,6 +75,7 @@ type PeerGraphSnapshot = {
   routerSsrcTable: typeof RtpRouter.prototype.ssrcTable;
   routerRidTable: typeof RtpRouter.prototype.ridTable;
   routerExtIdUriMap: typeof RtpRouter.prototype.extIdUriMap;
+  routerPreviousExtIdUriMap: typeof RtpRouter.prototype.previousExtIdUriMap;
   sctpTransport?: RTCSctpTransport;
   sctpDtlsTransport?: RTCDtlsTransport;
   sctpRemotePort?: number;
@@ -99,7 +100,14 @@ type RemoteMediaBinding = {
   targetTransport: RTCDtlsTransport;
   rebind?: (transport: RTCDtlsTransport) => void;
   shouldEmitTrack: boolean;
+  requiresNewDtlsAssociation?: boolean;
   applyRemote: () => void;
+};
+
+type PendingSctpParams = {
+  remotePort: number;
+  remoteMaxMessageSize?: number;
+  mLineIndex: number;
 };
 
 type PendingRemoteOfferPlan = {
@@ -112,6 +120,8 @@ type PendingRemoteOfferPlan = {
   snapshot: PeerGraphSnapshot;
   bundleEstablished: boolean;
   committed: boolean;
+  pendingSctp?: PendingSctpParams;
+  deferReceiveParameters: boolean;
 };
 
 type PendingLocalOfferPlan = {
@@ -379,6 +389,9 @@ export class RTCPeerConnection extends EventTarget {
   }
   get extIdUriMap() {
     return this.router.extIdUriMap;
+  }
+  get previousExtIdUriMap() {
+    return this.router.previousExtIdUriMap;
   }
   get iceGeneration() {
     return this.iceTransports[0].connection.generation;
@@ -922,6 +935,7 @@ export class RTCPeerConnection extends EventTarget {
       routerSsrcTable: { ...this.router.ssrcTable },
       routerRidTable: { ...this.router.ridTable },
       routerExtIdUriMap: { ...this.router.extIdUriMap },
+      routerPreviousExtIdUriMap: { ...this.router.previousExtIdUriMap },
       sctpTransport: this.sctpTransport,
       sctpDtlsTransport: this.sctpTransport?.dtlsTransport,
       sctpRemotePort: this.sctpManager.sctpRemotePort,
@@ -974,7 +988,12 @@ export class RTCPeerConnection extends EventTarget {
     this.router.ssrcTable = { ...snapshot.routerSsrcTable };
     this.router.ridTable = { ...snapshot.routerRidTable };
     this.router.extIdUriMap = { ...snapshot.routerExtIdUriMap };
+    this.router.previousExtIdUriMap = { ...snapshot.routerPreviousExtIdUriMap };
     for (const transceiver of keptNewTransceivers) {
+      // RFC 9429 §5.7: keep the addTrack()-reused transceiver, but drop the
+      // rolled-back remote offer's MID / m-section association.
+      transceiver.mid = null;
+      transceiver.mLineIndex = undefined;
       this.router.registerRtpSender(transceiver.sender);
     }
 
@@ -1041,6 +1060,7 @@ export class RTCPeerConnection extends EventTarget {
     includeCandidates = true,
   ) {
     for (const binding of plan.bindings) {
+      if (binding.requiresNewDtlsAssociation) continue;
       const { remoteMedia, isBundleMember, isBundleTag, targetTransport } =
         binding;
       const shouldApplyTransportParams =
@@ -1119,6 +1139,8 @@ export class RTCPeerConnection extends EventTarget {
       | "createdTransports"
       | "pendingTransceiverNotifications"
       | "bundleEstablished"
+      | "pendingSctp"
+      | "deferReceiveParameters"
     >,
     remoteSdp: SessionDescription,
     bundleTag?: string,
@@ -1133,6 +1155,7 @@ export class RTCPeerConnection extends EventTarget {
     // transport parameter writes.  This is the commit point for a pending
     // remote offer and for a remote answer.
     for (const binding of plan.bindings) {
+      if (binding.requiresNewDtlsAssociation) continue;
       if (binding.currentTransport !== binding.targetTransport) {
         binding.rebind?.(binding.targetTransport);
       }
@@ -1145,8 +1168,15 @@ export class RTCPeerConnection extends EventTarget {
 
     for (const binding of plan.bindings) {
       if (!binding.transceiver) continue;
+      if (binding.requiresNewDtlsAssociation) continue;
       if (remoteSdp.type === "offer") {
         this.transceiverManager.applyLocalSendParameters(binding.transceiver);
+        if (plan.deferReceiveParameters) {
+          this.transceiverManager.applyRemoteReceiveParameters(
+            binding.transceiver,
+            binding.remoteMedia,
+          );
+        }
       }
       if (binding.remoteMedia.ssrc[0]?.ssrc) {
         binding.transceiver.receiver.setupTWCC(
@@ -1164,10 +1194,14 @@ export class RTCPeerConnection extends EventTarget {
     const sctpBinding = plan.bindings.find(
       (binding) => binding.sctpTransport !== undefined,
     );
-    if (sctpBinding?.sctpTransport) {
+    if (
+      sctpBinding?.sctpTransport &&
+      !sctpBinding.requiresNewDtlsAssociation &&
+      plan.pendingSctp
+    ) {
       this.sctpManager.setRemoteSCTP(
         sctpBinding.remoteMedia,
-        sctpBinding.index,
+        plan.pendingSctp.mLineIndex,
       );
     }
   }
@@ -1273,6 +1307,17 @@ export class RTCPeerConnection extends EventTarget {
 
     for (const binding of plan.bindings) {
       const mid = binding.remoteMedia.rtp.muxId;
+      if (binding.requiresNewDtlsAssociation) {
+        // RFC 8842: declining a new DTLS association rejects the m-line and
+        // keeps the current association/transport ownership.
+        binding.targetTransport = binding.currentTransport;
+        binding.isBundleMember = false;
+        binding.isBundleTag = false;
+        if (mid) {
+          plan.transportByMid.set(mid, binding.currentTransport);
+        }
+        continue;
+      }
       binding.isBundleMember = !!mid && bundleItems.includes(mid);
       binding.isBundleTag = binding.isBundleMember && mid === bundleTag;
 
@@ -1541,6 +1586,9 @@ export class RTCPeerConnection extends EventTarget {
         if (pendingRemotePlanForAnswer) {
           await this.stopReplacedTransports(
             pendingRemotePlanForAnswer.replacedTransports,
+          );
+          await this.stopPendingTransports(
+            pendingRemotePlanForAnswer.createdTransports,
           );
         }
         this.pendingRemoteOfferPlan = undefined;
@@ -2004,6 +2052,8 @@ export class RTCPeerConnection extends EventTarget {
                 {
                   emitTrack: mappedTransceiver.receiver.tracks.length === 0,
                   setupTWCC: !hasCurrentNegotiatedSession,
+                  applyReceive:
+                    remoteSdp!.type !== "offer" || !hasCurrentNegotiatedSession,
                 },
               ),
           });
@@ -2015,9 +2065,13 @@ export class RTCPeerConnection extends EventTarget {
                 ? this.createIndependentTransport()
                 : undefined;
             sctpTransport = this.createSctpTransport(dtlsTransport);
+          }
+          if (!sctpTransport.mid) {
             sctpTransport.mid = remoteMedia.rtp.muxId;
           }
-          sctpTransport.mLineIndex = i;
+          if (sctpTransport.mLineIndex === undefined) {
+            sctpTransport.mLineIndex = i;
+          }
 
           const mappedSctpTransport = sctpTransport;
           remoteMediaBindings.push({
@@ -2031,12 +2085,7 @@ export class RTCPeerConnection extends EventTarget {
             rebind: (transport) =>
               mappedSctpTransport.setDtlsTransport(transport),
             shouldEmitTrack: false,
-            applyRemote: () => {
-              if (!remoteMedia.sctpPort) {
-                throw new Error("sctpRemotePort not exist");
-              }
-              this.sctpManager.setRemoteSCTP(remoteMedia, i);
-            },
+            applyRemote: () => this.sctpManager.validateRemoteSctp(remoteMedia),
           });
         } else {
           throw new Error("invalid media kind");
@@ -2102,12 +2151,11 @@ export class RTCPeerConnection extends EventTarget {
         }
       }
 
-      // A connected transport must reject a changed remote fingerprint even
-      // while a BUNDLE offer is pending.  This is an authentication failure,
-      // not a graph migration: validate without installing valid pending
-      // parameters, and let the existing terminal failure path handle a
-      // mismatch.  Valid offers remain fully transactional until answer.
+      // RFC 8842: a changed fingerprint set on a connected transport proposes
+      // a new DTLS association.  Do not fail the current association at SRD;
+      // the answer rejects those m-lines until association replacement exists.
       if (remoteSdp.type === "offer") {
+        const transportsNeedingNewAssociation = new Set<RTCDtlsTransport>();
         for (const binding of remoteMediaBindings) {
           const shouldApplyTransportParams =
             !binding.isBundleMember ||
@@ -2120,14 +2168,17 @@ export class RTCPeerConnection extends EventTarget {
           ) {
             continue;
           }
-          try {
-            binding.targetTransport.validateRemoteFingerprint(
+          if (
+            binding.targetTransport.proposesNewDtlsAssociation(
               binding.remoteMedia.dtlsParams,
-            );
-          } catch {
-            binding.targetTransport.setRemoteParams(
-              binding.remoteMedia.dtlsParams,
-            );
+            )
+          ) {
+            transportsNeedingNewAssociation.add(binding.targetTransport);
+          }
+        }
+        for (const binding of remoteMediaBindings) {
+          if (transportsNeedingNewAssociation.has(binding.targetTransport)) {
+            binding.requiresNewDtlsAssociation = true;
           }
         }
       }
@@ -2164,6 +2215,9 @@ export class RTCPeerConnection extends EventTarget {
         }
       });
       const pendingTransceiverNotifications: RTCRtpTransceiver[] = [];
+      const sctpBinding = remoteMediaBindings.find(
+        (binding) => binding.sctpTransport !== undefined,
+      );
       const plan: PendingRemoteOfferPlan = {
         remoteDescription: remoteSdp,
         bindings: remoteMediaBindings,
@@ -2174,13 +2228,22 @@ export class RTCPeerConnection extends EventTarget {
         snapshot: graphSnapshot,
         bundleEstablished: wasBundleEstablished,
         committed: false,
+        deferReceiveParameters: hasCurrentNegotiatedSession,
+        pendingSctp:
+          sctpBinding?.remoteMedia.sctpPort != undefined
+            ? {
+                remotePort: sctpBinding.remoteMedia.sctpPort,
+                remoteMaxMessageSize:
+                  sctpBinding.remoteMedia.sctpCapabilities?.maxMessageSize,
+                mLineIndex: sctpBinding.index,
+              }
+            : undefined,
       };
 
       // A remote answer must be completely authenticated before any current
-      // transport receives its new SDP parameters.  In contrast to an offer
-      // fingerprint failure (which is a terminal authentication failure for
-      // the active session), a rejected answer can still roll back to the
-      // pending local offer and keep the current session alive.
+      // transport receives its new SDP parameters.  A mismatched answer is
+      // rejected without mutating the live association; the pending local
+      // offer can still roll back.
       if (remoteSdp.type === "answer") {
         for (const binding of remoteMediaBindings) {
           const shouldApplyTransportParams =
@@ -2333,11 +2396,18 @@ export class RTCPeerConnection extends EventTarget {
 
     await this.secureManager.ensureCerts();
 
+    const rejectedMids = new Set(
+      this.pendingRemoteOfferPlan?.bindings
+        .filter((binding) => binding.requiresNewDtlsAssociation)
+        .map((binding) => binding.remoteMedia.rtp.muxId)
+        .filter((mid): mid is string => !!mid) ?? [],
+    );
     const description = this.sdpManager.buildAnswerSdp({
       transceivers: this.transceiverManager.getTransceivers(),
       sctpTransport: this.sctpTransport,
       signalingState: this.signalingState,
       dtlsTransportByMid: this.pendingRemoteOfferPlan?.transportByMid,
+      rejectedMids,
     });
     const createdAnswer = description.toJSON();
     this.lastCreatedAnswer = createdAnswer;

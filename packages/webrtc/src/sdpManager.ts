@@ -379,12 +379,14 @@ export class SDPManager {
     sctpTransport,
     signalingState,
     dtlsTransportByMid,
+    rejectedMids,
   }: {
     transceivers: RTCRtpTransceiver[];
     sctpTransport: RTCSctpTransport | undefined;
 
     signalingState: string;
     dtlsTransportByMid?: ReadonlyMap<string, RTCDtlsTransport>;
+    rejectedMids?: ReadonlySet<string>;
   }): SessionDescription {
     if (
       !["have-remote-offer", "have-local-pranswer"].includes(signalingState)
@@ -436,6 +438,12 @@ export class SDPManager {
         );
       } else {
         throw new Error("invalid kind");
+      }
+
+      const mid = media.rtp.muxId;
+      if (rejectedMids && mid && rejectedMids.has(mid)) {
+        media.port = 0;
+        media.msids = [];
       }
 
       // # determine DTLS role, or preserve the currently configured role

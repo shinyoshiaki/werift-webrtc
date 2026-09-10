@@ -456,6 +456,43 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   /**
+   * RFC 8842: a changed fingerprint set on an authenticated transport proposes
+   * a new DTLS association.  It is not an attack on the current certificate.
+   */
+  proposesNewDtlsAssociation(remoteParameters: RTCDtlsParameters): boolean {
+    if (!this.readiness.peerAuthenticated || !this.dtls?.remoteCertificate) {
+      return false;
+    }
+    if (this.fingerprintSetDiffers(remoteParameters)) {
+      return true;
+    }
+    try {
+      this.validateRemoteFingerprint(remoteParameters);
+      return false;
+    } catch {
+      return true;
+    }
+  }
+
+  private fingerprintSetDiffers(remoteParameters: RTCDtlsParameters): boolean {
+    const current = this.remoteParameters?.fingerprints ?? [];
+    if (current.length === 0) {
+      return false;
+    }
+    const currentKeys = fingerprintSetKeys(current);
+    const offeredKeys = fingerprintSetKeys(remoteParameters.fingerprints);
+    if (currentKeys.size !== offeredKeys.size) {
+      return true;
+    }
+    for (const key of currentKeys) {
+      if (!offeredKeys.has(key)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * 認証済み association の事後失敗処理。fingerprint 不一致の再検証など、
    * handshake 完了後に認証が崩れた場合に状態・gate・queue を確実に落とす。
    */
@@ -1802,6 +1839,18 @@ const deduplicateFingerprints = (fingerprints: RTCDtlsFingerprint[]) => {
     seen.add(key);
     return true;
   });
+};
+
+const fingerprintSetKeys = (fingerprints: RTCDtlsFingerprint[]) => {
+  return new Set(
+    deduplicateFingerprints(fingerprints).map(
+      ({ algorithm, value }) =>
+        `${
+          normalizeFingerprintAlgorithm(algorithm) ??
+          algorithm.trim().toLowerCase()
+        }:${normalizeFingerprintValue(value)}`,
+    ),
+  );
 };
 
 const preferredFingerprintAlgorithms = [
