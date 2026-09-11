@@ -37,6 +37,8 @@ export class RTCSctpTransport {
   bundled = false;
   dataChannels: { [key: number]: RTCDataChannel } = {};
   remoteMaxMessageSize = DEFAULT_MAX_MESSAGE_SIZE;
+  /** @internal True after RFC 8841 a=sctp-port:0 closed the association. */
+  associationClosedBySdp = false;
 
   private dataChannelQueue: [RTCDataChannel, number, Buffer][] = [];
   private dataChannelId?: number;
@@ -70,6 +72,7 @@ export class RTCSctpTransport {
 
     this.dtlsTransport = dtlsTransport;
     this.stopping = false;
+    this.associationClosedBySdp = false;
     this.createSctpAssociation();
   }
 
@@ -398,8 +401,11 @@ export class RTCSctpTransport {
     this.dataChannels = {};
 
     for (const channel of channels) {
-      if (channel.readyState !== "closed") {
+      if (channel.readyState === "closed") continue;
+      try {
         channel.setReadyState("closed");
+      } catch (error) {
+        log("datachannel close callback failed", error);
       }
     }
   }
@@ -453,6 +459,7 @@ export class RTCSctpTransport {
   /**
    * RFC 8841: a new sctp-port closes the current association and starts a
    * fresh one on the same DTLS carrier, using a new local port.
+   * @internal
    */
   async replaceAssociation(localPort: number) {
     const previous = this.sctp;
@@ -460,6 +467,7 @@ export class RTCSctpTransport {
     this.closeDataChannels();
     this.port = localPort;
     this.stopping = false;
+    this.associationClosedBySdp = false;
     try {
       await previous.stop();
     } catch (error) {
@@ -468,9 +476,13 @@ export class RTCSctpTransport {
     this.createSctpAssociation();
   }
 
-  /** Close the SCTP association while leaving the DTLS transport in place. */
+  /**
+   * Close the SCTP association while leaving the DTLS transport in place.
+   * RFC 8841 §10.5: a later nonzero sctp-port may reopen a fresh association.
+   * @internal
+   */
   async closeAssociation() {
-    this.stopping = true;
+    this.associationClosedBySdp = true;
     this.disposeSctpListeners();
     this.closeDataChannels();
     try {

@@ -75,7 +75,7 @@ type PeerGraphSnapshot = {
   >;
   routerSsrcTable: typeof RtpRouter.prototype.ssrcTable;
   routerRidTable: typeof RtpRouter.prototype.ridTable;
-  routerExtIdUriMap: typeof RtpRouter.prototype.extIdUriMap;
+  routerExtIdUriMaps: { [transportId: string]: { [id: number]: string } };
   sctpTransport?: RTCSctpTransport;
   sctpDtlsTransport?: RTCDtlsTransport;
   sctpRemotePort?: number;
@@ -101,6 +101,7 @@ type RemoteMediaBinding = {
   rebind?: (transport: RTCDtlsTransport) => void;
   shouldEmitTrack: boolean;
   requiresNewDtlsAssociation?: boolean;
+  rejectTransport?: boolean;
   applyRemote: () => void;
 };
 
@@ -617,6 +618,10 @@ export class RTCPeerConnection extends EventTarget {
 
     [
       ...(this.config.headerExtensions.audio || []),
+    ].forEach((v, i) => {
+      v.id = 1 + i;
+    });
+    [
       ...(this.config.headerExtensions.video || []),
     ].forEach((v, i) => {
       v.id = 1 + i;
@@ -775,7 +780,7 @@ export class RTCPeerConnection extends EventTarget {
     const dtlsTransport = this.secureManager.createTransport();
     this.dtlsTransportCreated = true;
     dtlsTransport.onRtp.subscribe((rtp) => {
-      this.router.routeRtp(rtp);
+      this.router.routeRtp(rtp, dtlsTransport.id);
     });
     dtlsTransport.onRtcp.subscribe((rtcp) => {
       this.router.routeRtcp(rtcp);
@@ -936,7 +941,7 @@ export class RTCPeerConnection extends EventTarget {
       ),
       routerSsrcTable: { ...this.router.ssrcTable },
       routerRidTable: { ...this.router.ridTable },
-      routerExtIdUriMap: { ...this.router.extIdUriMap },
+      routerExtIdUriMaps: this.router.snapshotExtIdUriMaps(),
       sctpTransport: this.sctpTransport,
       sctpDtlsTransport: this.sctpTransport?.dtlsTransport,
       sctpRemotePort: this.sctpManager.sctpRemotePort,
@@ -988,7 +993,7 @@ export class RTCPeerConnection extends EventTarget {
 
     this.router.ssrcTable = { ...snapshot.routerSsrcTable };
     this.router.ridTable = { ...snapshot.routerRidTable };
-    this.router.extIdUriMap = { ...snapshot.routerExtIdUriMap };
+    this.router.restoreExtIdUriMaps(snapshot.routerExtIdUriMaps);
     for (const transceiver of keptNewTransceivers) {
       // RFC 9429 §5.7: keep the addTrack()-reused transceiver, but drop the
       // rolled-back remote offer's MID / m-section association.
@@ -1210,7 +1215,9 @@ export class RTCPeerConnection extends EventTarget {
   ) {
     const retiredTransports = new Set<RTCDtlsTransport>();
     for (const binding of plan.bindings) {
-      if (!binding.requiresNewDtlsAssociation) continue;
+      if (!binding.requiresNewDtlsAssociation && !binding.rejectTransport) {
+        continue;
+      }
       if (binding.transceiver) {
         this.router.unregisterRtpReceiver(binding.transceiver.receiver);
         binding.transceiver.stop();
@@ -1251,16 +1258,16 @@ export class RTCPeerConnection extends EventTarget {
     mLineIndex: number,
     advertisedLocalPort?: number,
   ): PendingSctpParams | undefined {
-    if (remoteMedia.sctpPort == undefined) {
+    if (remoteMedia.sctpPort == undefined && remoteMedia.port !== 0) {
       return undefined;
     }
 
     const currentRemote = this.sctpManager.sctpRemotePort;
     const currentLocal = this.sctpTransport?.port ?? 5000;
-    const remotePort = remoteMedia.sctpPort;
-    if (remotePort === 0) {
+    const remotePort = remoteMedia.sctpPort ?? 0;
+    if (remoteMedia.port === 0 || remotePort === 0) {
       return {
-        remotePort: 0,
+        remotePort,
         remoteMaxMessageSize: remoteMedia.sctpCapabilities?.maxMessageSize,
         mLineIndex,
         localPort: currentLocal,
@@ -1269,6 +1276,7 @@ export class RTCPeerConnection extends EventTarget {
       };
     }
 
+    const closedBySdp = this.sctpTransport?.associationClosedBySdp === true;
     const localPort =
       advertisedLocalPort != undefined && advertisedLocalPort !== currentLocal
         ? advertisedLocalPort
@@ -1276,6 +1284,7 @@ export class RTCPeerConnection extends EventTarget {
           ? SctpTransportManager.nextLocalPort(currentLocal)
           : currentLocal;
     const replaceAssociation =
+      closedBySdp ||
       (currentRemote != undefined && remotePort !== currentRemote) ||
       localPort !== currentLocal;
 
@@ -1898,7 +1907,10 @@ export class RTCPeerConnection extends EventTarget {
     // The transport set for this connect attempt must remain stable.  A
     // connection-state callback may add a transceiver while the attempt is
     // settling; its new, unnegotiated transport belongs to a later offer.
-    const connectTransports = [...this.dtlsTransports];
+    const connectTransports = this.dtlsTransports.filter(
+      (dtlsTransport) =>
+        dtlsTransport.state !== "closed" && dtlsTransport.state !== "failed",
+    );
     const epoch = ++this.connectEpoch;
     const res = await Promise.allSettled(
       connectTransports.map(async (dtlsTransport) => {
@@ -2009,7 +2021,7 @@ export class RTCPeerConnection extends EventTarget {
     );
     const transportFailed = transportStates.some((state) => state === "failed");
     const transportNotConnected = transportStates.some(
-      (state) => state !== "connected",
+      (state) => state !== "connected" && state !== "closed",
     );
 
     // A transport can fail asynchronously while an older connect() is still
@@ -2162,6 +2174,7 @@ export class RTCPeerConnection extends EventTarget {
             rebind: (transport) =>
               mappedTransceiver.setDtlsTransport(transport),
             shouldEmitTrack: false,
+            rejectTransport: remoteMedia.port === 0,
             applyRemote: () =>
               this.transceiverManager.setRemoteRTP(
                 mappedTransceiver,
@@ -2204,7 +2217,12 @@ export class RTCPeerConnection extends EventTarget {
             rebind: (transport) =>
               mappedSctpTransport.setDtlsTransport(transport),
             shouldEmitTrack: false,
-            applyRemote: () => this.sctpManager.validateRemoteSctp(remoteMedia),
+            rejectTransport: remoteMedia.port === 0,
+            applyRemote: () => {
+              if (remoteMedia.port !== 0) {
+                this.sctpManager.validateRemoteSctp(remoteMedia);
+              }
+            },
           });
         } else {
           throw new Error("invalid media kind");
@@ -2270,35 +2288,48 @@ export class RTCPeerConnection extends EventTarget {
         }
       }
 
-      // RFC 8842: compare last-stable remote SDP with the pending offer.
+      // RFC 8842: compare last-stable remote SDP with the pending description.
       // Runtime DTLS state is not the source of truth; a connecting
       // association can still be asked to yield to a new fingerprint/tls-id.
-      if (remoteSdp.type === "offer") {
-        const currentRemote = this.sdpManager.currentRemoteDescription;
-        const transportsNeedingNewAssociation = new Set<RTCDtlsTransport>();
-        for (const binding of remoteMediaBindings) {
-          const shouldApplyTransportParams =
-            !binding.isBundleMember ||
-            binding.isBundleTag ||
-            bundleTag === undefined;
-          if (!shouldApplyTransportParams || !binding.remoteMedia.dtlsParams) {
-            continue;
-          }
-          const currentMedia =
-            currentRemote?.media.find(
-              (media) =>
-                !!media.rtp.muxId &&
-                media.rtp.muxId === binding.remoteMedia.rtp.muxId,
-            ) ?? currentRemote?.media[binding.index];
-          if (
-            dtlsParametersIndicateNewAssociation(
-              currentMedia?.dtlsParams,
-              binding.remoteMedia.dtlsParams,
-            )
-          ) {
-            transportsNeedingNewAssociation.add(binding.targetTransport);
-          }
+      // Offers decline unimplemented replacement by rejecting the m-line.
+      // Answers that request a new association are rejected before live
+      // transport role/fingerprint mutation.
+      const currentRemote = this.sdpManager.currentRemoteDescription;
+      const transportsNeedingNewAssociation = new Set<RTCDtlsTransport>();
+      for (const binding of remoteMediaBindings) {
+        const shouldApplyTransportParams =
+          !binding.isBundleMember ||
+          binding.isBundleTag ||
+          bundleTag === undefined;
+        if (
+          !shouldApplyTransportParams ||
+          !binding.remoteMedia.dtlsParams ||
+          binding.remoteMedia.port === 0
+        ) {
+          continue;
         }
+        const currentMedia =
+          currentRemote?.media.find(
+            (media) =>
+              !!media.rtp.muxId &&
+              media.rtp.muxId === binding.remoteMedia.rtp.muxId,
+          ) ?? currentRemote?.media[binding.index];
+        if (
+          dtlsParametersIndicateNewAssociation(
+            currentMedia?.dtlsParams,
+            binding.remoteMedia.dtlsParams,
+          )
+        ) {
+          if (remoteSdp.type === "answer") {
+            throw createWebRtcDomException(
+              "NotSupportedError",
+              "DTLS association replacement is not implemented",
+            );
+          }
+          transportsNeedingNewAssociation.add(binding.targetTransport);
+        }
+      }
+      if (remoteSdp.type === "offer") {
         for (const binding of remoteMediaBindings) {
           if (transportsNeedingNewAssociation.has(binding.targetTransport)) {
             binding.requiresNewDtlsAssociation = true;
@@ -2522,7 +2553,10 @@ export class RTCPeerConnection extends EventTarget {
 
     const rejectedMids = new Set(
       this.pendingRemoteOfferPlan?.bindings
-        .filter((binding) => binding.requiresNewDtlsAssociation)
+        .filter(
+          (binding) =>
+            binding.requiresNewDtlsAssociation || binding.rejectTransport,
+        )
         .map((binding) => binding.remoteMedia.rtp.muxId)
         .filter((mid): mid is string => !!mid) ?? [],
     );

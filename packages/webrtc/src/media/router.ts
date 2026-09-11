@@ -25,9 +25,36 @@ const log = debug("werift:packages/webrtc/src/media/router.ts");
 export class RtpRouter {
   ssrcTable: { [ssrc: number]: RTCRtpReceiver | RTCRtpSender } = {};
   ridTable: { [rid: string]: RTCRtpReceiver | RTCRtpSender } = {};
-  extIdUriMap: { [id: number]: string } = {};
+  private extIdUriMaps: { [transportId: string]: { [id: number]: string } } =
+    {};
 
   constructor() {}
+
+  /** Merged view for single-session callers; per-transport maps are authoritative. */
+  get extIdUriMap() {
+    const maps = Object.values(this.extIdUriMaps);
+    if (maps.length === 0) {
+      return {};
+    }
+    if (maps.length === 1) {
+      return maps[0]!;
+    }
+    return Object.assign({}, ...maps);
+  }
+
+  snapshotExtIdUriMaps() {
+    return Object.fromEntries(
+      Object.entries(this.extIdUriMaps).map(([id, map]) => [id, { ...map }]),
+    );
+  }
+
+  restoreExtIdUriMaps(maps: {
+    [transportId: string]: { [id: number]: string };
+  }) {
+    this.extIdUriMaps = Object.fromEntries(
+      Object.entries(maps).map(([id, map]) => [id, { ...map }]),
+    );
+  }
 
   registerRtpSender(sender: RTCRtpSender) {
     this.ssrcTable[sender.ssrc] = sender;
@@ -59,23 +86,45 @@ export class RtpRouter {
         }
       });
 
-    this.installHeaderExtensions(params.headerExtensions);
+    this.installHeaderExtensions(
+      this.sessionIdFor(transceiver),
+      params.headerExtensions,
+    );
   }
 
-  private installHeaderExtensions(
+  /** @internal */
+  assertExtmapIdsNotRemapped(
+    sessionId: string,
     headerExtensions: Array<{ id: number; uri: string }>,
   ) {
+    const currentMap = this.extIdUriMaps[sessionId] ?? {};
     for (const extension of headerExtensions) {
-      const current = this.extIdUriMap[extension.id];
+      const current = currentMap[extension.id];
       if (current && current !== extension.uri) {
         throw new Error(
           `extmap id ${extension.id} remapped from ${current} to ${extension.uri}`,
         );
       }
-      this.extIdUriMap[extension.id] = extension.uri;
     }
   }
 
+  private installHeaderExtensions(
+    sessionId: string,
+    headerExtensions: Array<{ id: number; uri: string }>,
+  ) {
+    const currentMap = (this.extIdUriMaps[sessionId] ??= {});
+    for (const extension of headerExtensions) {
+      const current = currentMap[extension.id];
+      if (current && current !== extension.uri) {
+        throw new Error(
+          `extmap id ${extension.id} remapped from ${current} to ${extension.uri}`,
+        );
+      }
+      currentMap[extension.id] = extension.uri;
+    }
+  }
+
+  /** @internal */
   unregisterRtpReceiver(receiver: RTCRtpReceiver) {
     for (const ssrc of Object.keys(this.ssrcTable)) {
       if (this.ssrcTable[Number(ssrc)] === receiver) {
@@ -103,10 +152,10 @@ export class RtpRouter {
     this.ridTable[param.rid] = transceiver.receiver;
   }
 
-  routeRtp = (packet: RtpPacket) => {
+  routeRtp = (packet: RtpPacket, transportId?: string) => {
     const extensions: Extensions = rtpHeaderExtensionsParser(
       packet.header.extensions,
-      this.extIdUriMap,
+      (transportId && this.extIdUriMaps[transportId]) || this.extIdUriMap,
     );
 
     let rtpReceiver: RTCRtpReceiver | undefined = this.ssrcTable[
@@ -211,4 +260,8 @@ export class RtpRouter {
       .filter((v) => v) // todo simulcast
       .forEach((recipient) => recipient.handleRtcpPacket(packet));
   };
+
+  private sessionIdFor(transceiver: RTCRtpTransceiver) {
+    return transceiver.dtlsTransport?.id ?? "";
+  }
 }
