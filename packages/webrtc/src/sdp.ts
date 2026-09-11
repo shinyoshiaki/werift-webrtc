@@ -213,6 +213,11 @@ export class SessionDescription {
             case "setup":
               currentMedia.dtlsParams!.role = DTLS_SETUP_ROLE[value];
               break;
+            case "tls-id":
+              if (currentMedia.dtlsParams) {
+                currentMedia.dtlsParams.tlsId = value;
+              }
+              break;
             case "recvonly":
             case "sendonly":
             case "sendrecv":
@@ -479,6 +484,9 @@ export class MediaDescription {
         );
       });
       lines.push(`a=setup:${DTLS_ROLE_SETUP[this.dtlsParams.role]}`);
+      if (this.dtlsParams.tlsId) {
+        lines.push(`a=tls-id:${this.dtlsParams.tlsId}`);
+      }
     }
 
     if (this.direction) {
@@ -526,7 +534,7 @@ export class MediaDescription {
       const v = this.sctpMap[Number(k)];
       lines.push(`a=sctpmap:${k} ${v}`);
     });
-    if (this.sctpPort) {
+    if (this.sctpPort != undefined) {
       lines.push(`a=sctp-port:${this.sctpPort}`);
     }
     if (this.sctpCapabilities) {

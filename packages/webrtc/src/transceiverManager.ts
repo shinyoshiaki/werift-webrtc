@@ -351,6 +351,7 @@ export class TransceiverManager {
     if (transceiver.codecs.length === 0) {
       throw new Error("negotiate codecs failed.");
     }
+    this.assertExtmapIdsNotRemapped(remoteMedia.rtp.headerExtensions);
     transceiver.headerExtensions = remoteMedia.rtp.headerExtensions.filter(
       (extension) =>
         (
@@ -432,6 +433,19 @@ export class TransceiverManager {
 
     transceiver.receiver.prepareReceive(remotePrams);
     this.router.registerRtpReceiverBySsrc(transceiver, remotePrams);
+  }
+
+  private assertExtmapIdsNotRemapped(
+    headerExtensions: Array<{ id: number; uri: string }>,
+  ) {
+    for (const extension of headerExtensions) {
+      const current = this.router.extIdUriMap[extension.id];
+      if (current && current !== extension.uri) {
+        throw new Error(
+          `extmap id ${extension.id} remapped from ${current} to ${extension.uri}`,
+        );
+      }
+    }
   }
 
   /** @internal Deliver a track event after a staged remote graph commits. */

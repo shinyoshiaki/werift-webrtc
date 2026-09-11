@@ -239,6 +239,9 @@ export class RTCRtpReceiver {
 
   addTrack(track: MediaStreamTrack) {
     const exist = this.tracks.find((t) => {
+      if (t === track) {
+        return true;
+      }
       if (t.rid) {
         return t.rid === track.rid;
       }
@@ -257,6 +260,32 @@ export class RTCRtpReceiver {
       this.trackByRID[track.rid] = track;
     }
     return true;
+  }
+
+  /** Bind an SSRC onto the stable receiver track instead of creating a new one. */
+  bindRemoteSsrc(ssrc: number, codec?: RTCRtpCodecParameters) {
+    const track = this.track;
+    if (!this.tracks.includes(track)) {
+      this.tracks.push(track);
+    }
+    track.ssrc = track.ssrc ?? ssrc;
+    if (codec) {
+      track.codec = codec;
+    }
+    this.trackBySSRC[ssrc] = track;
+  }
+
+  /** Bind a RID onto the stable receiver track. */
+  bindRemoteRid(rid: string, codec?: RTCRtpCodecParameters) {
+    const track = this.track;
+    if (!this.tracks.includes(track)) {
+      this.tracks.push(track);
+    }
+    track.rid = track.rid ?? rid;
+    if (codec) {
+      track.codec = codec;
+    }
+    this.trackByRID[rid] = track;
   }
 
   stop() {
@@ -504,6 +533,9 @@ export class RTCRtpReceiver {
 
   handleRtpByRid = (packet: RtpPacket, rid: string, extensions: Extensions) => {
     const track = this.trackByRID[rid];
+    if (!track) {
+      return;
+    }
     if (!this.trackBySSRC[packet.header.ssrc]) {
       this.trackBySSRC[packet.header.ssrc] = track;
     }

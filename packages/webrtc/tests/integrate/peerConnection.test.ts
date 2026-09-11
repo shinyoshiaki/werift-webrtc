@@ -221,19 +221,37 @@ describe("peerConnection", () => {
       expect(caller.sctp?.sctp.associationState).toBe(SCTP_STATE.ESTABLISHED);
       expect(channel.readyState).toBe("open");
 
+      // Assert: subsequent offerはassociation reuseでも setup:actpass を出す。
+      expect(renegotiationOffer.sdp).toMatch(/a=setup:actpass/);
+
       // Act: answererは新associationを受け入れず、対応m-lineをrejectする。
       const answer = await caller.createAnswer();
       expect(answer.sdp).toMatch(/m=application 0 /);
+      expect(answer.sdp).toMatch(/a=sctp-port:0/);
 
-      // Act: 旧DataChannelで通信し、rollbackしても現行associationを維持する。
+      // Act: 旧DataChannelで通信し、reject answerを非zeroで受理しようとするとSLDを拒否する。
       const receivedMessage = remoteChannel.onMessage.asPromise(5_000);
       channel.send("fingerprint-pending");
       expect((await receivedMessage)[0].toString()).toBe("fingerprint-pending");
 
-      await caller.setRemoteDescription({ type: "rollback" });
-      expect(caller.signalingState).toBe("stable");
+      const acceptedAnswer = {
+        type: "answer" as const,
+        sdp: answer.sdp.replace(/m=application 0 /, "m=application 9 "),
+      };
+      await expect(caller.setLocalDescription(acceptedAnswer)).rejects.toThrow(
+        "DTLS association replacement is not implemented",
+      );
       expect(caller.dtlsTransports[0].state).toBe("connected");
       expect(channel.readyState).toBe("open");
+
+      // Act: reject answerをcommitし、runtimeのSCTP/DTLSを停止する。
+      await caller.setLocalDescription(answer);
+
+      // Assert: SDP上のrejectが現行transportへ反映される。
+      expect(caller.signalingState).toBe("stable");
+      expect(channel.readyState).toBe("closed");
+      expect(caller.sctp?.sctp.associationState).toBe(SCTP_STATE.CLOSED);
+      expect(caller.dtlsTransports[0].state).toBe("closed");
     } finally {
       await Promise.allSettled([caller.close(), callee.close()]);
     }
@@ -1377,6 +1395,83 @@ describe("peerConnection", () => {
       const receivedMessage = remoteChannel.onMessage.asPromise(5_000);
       channel.send("sctp-port-pending");
       expect((await receivedMessage)[0].toString()).toBe("sctp-port-pending");
+
+      // Act: pending offerをrollbackし、両endpointが新local portを広告するO/Aを完了する。
+      await callee.setRemoteDescription({ type: "rollback" });
+      await caller.setLocalDescription({ type: "rollback" });
+      const oldCalleeAssociation = callee.sctp!.sctp;
+      const oldCallerAssociation = caller.sctp!.sctp;
+      await setLocalOfferWithSctpPort(caller, 6000);
+      await callee.setRemoteDescription(caller.localDescription!);
+      const answer = await callee.createAnswer();
+      expect(answer.sdp).toMatch(/a=sctp-port:5001/);
+      await callee.setLocalDescription(answer);
+      await caller.setRemoteDescription(callee.localDescription!);
+
+      // Assert: 旧associationは閉じ、新しいidentityでESTABLISHEDになりlocal portも変わる。
+      await Promise.all([
+        waitForSctpClosed(oldCalleeAssociation),
+        waitForSctpClosed(oldCallerAssociation),
+      ]);
+      expect(callee.sctp!.sctp).not.toBe(oldCalleeAssociation);
+      expect(caller.sctp!.sctp).not.toBe(oldCallerAssociation);
+      await Promise.all([
+        waitForSctpConnected(callee.sctp!.sctp),
+        waitForSctpConnected(caller.sctp!.sctp),
+      ]);
+      expect(caller.sctp!.port).toBe(6000);
+      expect(callee.sctp!.port).toBe(5001);
+      expect(callee.sctpRemotePort).toBe(6000);
+      expect(caller.sctpRemotePort).toBe(5001);
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  }, 30_000);
+
+  test("a=sctp-port:0 のofferはSCTP associationだけを閉じDTLSを維持する", async () => {
+    // Arrange: 接続済みDataChannelとDTLSを記録する。
+    const { caller, callee, channel, remoteChannel, track, remoteTrack } =
+      await createConnectedUnbundledPair();
+
+    try {
+      const applicationDtls = callee.sctp!.dtlsTransport;
+      expect(applicationDtls.state).toBe("connected");
+
+      // Act: subsequent offerの a=sctp-port だけ 0 にしてSRDする。
+      await setLocalOfferWithSctpPort(caller, 0);
+      await callee.setRemoteDescription(caller.localDescription!);
+
+      // Assert: answer前は現行associationが生きており、旧DCで通信できる。
+      expect(callee.sctpRemotePort).toBe(5000);
+      const receivedMessage = remoteChannel.onMessage.asPromise(5_000);
+      channel.send("sctp-port-zero-pending");
+      expect((await receivedMessage)[0].toString()).toBe(
+        "sctp-port-zero-pending",
+      );
+
+      // Act: a=sctp-port:0 のanswerをcommitする。
+      const answer = await callee.createAnswer();
+      expect(answer.sdp).toMatch(/m=application 9 /);
+      expect(answer.sdp).toMatch(/a=sctp-port:0/);
+      await callee.setLocalDescription(answer);
+      await caller.setRemoteDescription(callee.localDescription!);
+
+      // Assert: SCTP/DataChannelは閉じ、DTLSと既存RTPは維持される。
+      expect(callee.sctpRemotePort).toBeUndefined();
+      expect(callee.sctp!.sctp.associationState).toBe(SCTP_STATE.CLOSED);
+      expect(caller.sctp!.sctp.associationState).toBe(SCTP_STATE.CLOSED);
+      expect(channel.readyState).toBe("closed");
+      expect(applicationDtls.state).toBe("connected");
+      expect(callee.sctp!.dtlsTransport.state).toBe("connected");
+      const receivedRtpPromise = remoteTrack.onReceiveRtp.asPromise(5_000);
+      track.writeRtp(
+        new RtpPacket(
+          new RtpHeader({ sequenceNumber: 40 }),
+          Buffer.from("sctp-zero-rtp"),
+        ).serialize(),
+      );
+      const [receivedRtp] = await receivedRtpPromise;
+      expect(receivedRtp.payload).toEqual(Buffer.from("sctp-zero-rtp"));
     } finally {
       await Promise.allSettled([caller.close(), callee.close()]);
     }
@@ -1441,27 +1536,19 @@ describe("peerConnection", () => {
       // Act: remote subsequent offerで現行MIDのextmap IDをTWCCへ付け替える。
       const offer = await caller.createOffer();
       await caller.setLocalDescription(offer);
-      await callee.setRemoteDescription({
-        type: "offer",
-        sdp: caller.localDescription!.sdp.replace(
-          new RegExp(`a=extmap:${midId} ${RTP_EXTENSION_URI.sdesMid}`),
-          `a=extmap:${midId} ${RTP_EXTENSION_URI.transportWideCC}`,
-        ),
-      });
+      await expect(
+        callee.setRemoteDescription({
+          type: "offer",
+          sdp: caller.localDescription!.sdp.replace(
+            new RegExp(`a=extmap:${midId} ${RTP_EXTENSION_URI.sdesMid}`),
+            `a=extmap:${midId} ${RTP_EXTENSION_URI.transportWideCC}`,
+          ),
+        }),
+      ).rejects.toThrow(/extmap id .* remapped/);
 
-      // Assert: answer前は現行RX mappingがMIDのまま。
+      // Assert: RFC 8285のID remapはSRDで拒否し、現行RX mappingを維持する。
+      expect(callee.signalingState).toBe("stable");
       expect(callee.extIdUriMap[midId]).toBe(RTP_EXTENSION_URI.sdesMid);
-      injectMid();
-      expect(receiver.sdesMid).toBe(mid);
-
-      // Act: local answerをcommitする。
-      await callee.setLocalDescription(await callee.createAnswer());
-
-      // Assert: 新mappingはTWCC、旧MIDはprevious mapでin-flight packetを解釈できる。
-      expect(callee.extIdUriMap[midId]).toBe(RTP_EXTENSION_URI.transportWideCC);
-      expect(callee.previousExtIdUriMap[midId]).toBe(RTP_EXTENSION_URI.sdesMid);
-
-      receiver.sdesMid = undefined;
       injectMid();
       expect(receiver.sdesMid).toBe(mid);
     } finally {
@@ -1471,11 +1558,30 @@ describe("peerConnection", () => {
 
   test("subsequent remote offerのontrackはlocal answerより前に発火する", async () => {
     // Arrange: video 1本で接続したあと、追加のremote video offerを作る。
-    const { caller, callee } = await createConnectedUnbundledPair();
-    const extraTrack = new MediaStreamTrack({ kind: "video" });
-    caller.addTransceiver(extraTrack, { direction: "sendonly" });
+    const caller = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "max-bundle",
+    });
+    const callee = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "max-bundle",
+    });
+    const firstTrack = new MediaStreamTrack({ kind: "video" });
+    caller.addTransceiver(firstTrack, { direction: "sendonly" });
+    callee.addTransceiver("video", { direction: "recvonly" });
 
     try {
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription(caller.localDescription!);
+      await callee.setLocalDescription(await callee.createAnswer());
+      await caller.setRemoteDescription(callee.localDescription!);
+      await Promise.all([
+        waitForConnectionState(caller, "connected"),
+        waitForConnectionState(callee, "connected"),
+      ]);
+
+      const extraTrack = new MediaStreamTrack({ kind: "video" });
+      caller.addTransceiver(extraTrack, { direction: "sendonly" });
       const onTrack = new Promise<RTCTrackEvent>((resolve) => {
         callee.addEventListener("track", resolve, { once: true });
       });
@@ -1485,8 +1591,25 @@ describe("peerConnection", () => {
       await callee.setRemoteDescription(caller.localDescription!);
 
       // Assert: answer前に新しいtrackがsurfaceされる。
-      await expect(onTrack).resolves.toBeInstanceOf(RTCTrackEvent);
+      const event = await onTrack;
+      expect(event).toBeInstanceOf(RTCTrackEvent);
       expect(callee.signalingState).toBe("have-remote-offer");
+
+      // Act: local answerをcommitし、captureしたtrackへRTPを送る。
+      await callee.setLocalDescription(await callee.createAnswer());
+      await caller.setRemoteDescription(callee.localDescription!);
+      const receivedRtpPromise = event.track.onReceiveRtp.asPromise(5_000);
+      extraTrack.writeRtp(
+        new RtpPacket(
+          new RtpHeader({ sequenceNumber: 31, payloadType: 96 }),
+          Buffer.from("ontrack-rtp"),
+        ).serialize(),
+      );
+
+      // Assert: event.track は receiver.track と同一で、RTPもそのobjectへ届く。
+      const [receivedRtp] = await receivedRtpPromise;
+      expect(receivedRtp.payload).toEqual(Buffer.from("ontrack-rtp"));
+      expect(event.track).toBe(event.receiver.track);
     } finally {
       await Promise.allSettled([caller.close(), callee.close()]);
     }
@@ -3085,6 +3208,21 @@ function removeMaxMessageSize(sdp: string) {
 
 function replaceMaxMessageSize(sdp: string, size: number) {
   return sdp.replace(/a=max-message-size:\d+/, `a=max-message-size:${size}`);
+}
+
+async function setLocalOfferWithSctpPort(pc: RTCPeerConnection, port: number) {
+  const offer = await pc.createOffer();
+  (pc as unknown as { lastCreatedOffer?: unknown }).lastCreatedOffer =
+    undefined;
+  const sdp = offer.sdp
+    .split(/\r\n|\n/)
+    .filter((line) => !line.startsWith("a=group:BUNDLE"))
+    .join("\r\n")
+    .replace(/a=sctp-port:\d+/g, `a=sctp-port:${port}`);
+  await pc.setLocalDescription({
+    type: "offer",
+    sdp,
+  });
 }
 
 async function createConnectedUnbundledPair() {

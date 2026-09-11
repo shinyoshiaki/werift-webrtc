@@ -212,9 +212,57 @@ export class SctpTransportManager {
 
   /** Validate remote application media without mutating the live association. */
   validateRemoteSctp(remoteMedia: MediaDescription) {
-    if (!remoteMedia.sctpPort) {
+    if (remoteMedia.sctpPort == undefined) {
       throw new Error("sctpRemotePort not exist");
     }
+  }
+
+  static nextLocalPort(currentPort: number | undefined): number {
+    const current = currentPort && currentPort > 0 ? currentPort : 5000;
+    const next = current >= 65535 ? 5000 : current + 1;
+    return next === 0 ? 5001 : next;
+  }
+
+  async applyAssociationUpdate(params: {
+    remotePort: number;
+    localPort: number;
+    mLineIndex: number;
+    remoteMaxMessageSize?: number;
+    replaceAssociation: boolean;
+    closeAssociation: boolean;
+  }) {
+    if (!this.sctpTransport) {
+      return;
+    }
+
+    this.sctpTransport.mLineIndex = params.mLineIndex;
+    this.sctpTransport.setRemoteMaxMessageSize(params.remoteMaxMessageSize);
+
+    if (params.closeAssociation) {
+      this.sctpRemotePort = undefined;
+      this.connectAttempt = undefined;
+      await this.sctpTransport.closeAssociation();
+      return;
+    }
+
+    if (params.replaceAssociation) {
+      this.connectAttempt = undefined;
+      await this.sctpTransport.replaceAssociation(params.localPort);
+      this.sctpRemotePort = params.remotePort;
+      this.sctpTransport.setRemotePort(params.remotePort);
+      return;
+    }
+
+    this.setRemoteSCTPPort(params.remotePort, params.mLineIndex);
+  }
+
+  private setRemoteSCTPPort(remotePort: number, mLineIndex: number) {
+    if (!this.sctpTransport) {
+      return;
+    }
+    this.sctpRemotePort = remotePort;
+    this.sctpTransport.setRemotePort(remotePort);
+    this.sctpTransport.mLineIndex = mLineIndex;
   }
 
   setRemoteSCTP(remoteMedia: MediaDescription, mLineIndex: number) {
@@ -223,14 +271,14 @@ export class SctpTransportManager {
     }
 
     this.validateRemoteSctp(remoteMedia);
+    if (!remoteMedia.sctpPort) {
+      throw new Error("sctpRemotePort not exist");
+    }
 
-    // # configure sctp
     this.sctpTransport.setRemoteMaxMessageSize(
       remoteMedia.sctpCapabilities?.maxMessageSize,
     );
-    this.sctpRemotePort = remoteMedia.sctpPort;
-    this.sctpTransport.setRemotePort(this.sctpRemotePort!);
-    this.sctpTransport.mLineIndex = mLineIndex;
+    this.setRemoteSCTPPort(remoteMedia.sctpPort, mLineIndex);
     if (!this.sctpTransport.mid) {
       this.sctpTransport.mid = remoteMedia.rtp.muxId;
     }

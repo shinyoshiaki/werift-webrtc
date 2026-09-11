@@ -129,6 +129,7 @@ export class SDPManager {
   createMediaDescriptionForSctp(
     sctp: RTCSctpTransport,
     dtlsTransport = sctp.dtlsTransport,
+    sctpPort = sctp.port,
   ): MediaDescription {
     const media = new MediaDescription(
       "application",
@@ -136,7 +137,7 @@ export class SDPManager {
       "UDP/DTLS/SCTP",
       ["webrtc-datachannel"],
     );
-    media.sctpPort = sctp.port;
+    media.sctpPort = sctpPort;
     media.rtp.muxId = sctp.mid;
     media.sctpCapabilities = sctp.getCapabilities();
 
@@ -368,6 +369,13 @@ export class SDPManager {
       }
     }
 
+    // RFC 8842 §5.5: association reuse still advertises setup:actpass.
+    for (const media of description.media) {
+      if (media.dtlsParams) {
+        media.dtlsParams.role = "auto";
+      }
+    }
+
     return description;
   }
 
@@ -380,6 +388,7 @@ export class SDPManager {
     signalingState,
     dtlsTransportByMid,
     rejectedMids,
+    sctpPort,
   }: {
     transceivers: RTCRtpTransceiver[];
     sctpTransport: RTCSctpTransport | undefined;
@@ -387,6 +396,7 @@ export class SDPManager {
     signalingState: string;
     dtlsTransportByMid?: ReadonlyMap<string, RTCDtlsTransport>;
     rejectedMids?: ReadonlySet<string>;
+    sctpPort?: number;
   }): SessionDescription {
     if (
       !["have-remote-offer", "have-local-pranswer"].includes(signalingState)
@@ -435,6 +445,7 @@ export class SDPManager {
         media = this.createMediaDescriptionForSctp(
           sctpTransport,
           dtlsTransport,
+          sctpPort,
         );
       } else {
         throw new Error("invalid kind");
@@ -444,6 +455,9 @@ export class SDPManager {
       if (rejectedMids && mid && rejectedMids.has(mid)) {
         media.port = 0;
         media.msids = [];
+        if (media.kind === "application") {
+          media.sctpPort = 0;
+        }
       }
 
       // # determine DTLS role, or preserve the currently configured role
@@ -747,6 +761,17 @@ export class SDPManager {
         (options.replaceDtls ?? true) &&
           (options.dtlsTransportByMid?.has(sctpMedia.rtp.muxId ?? "") ?? false),
       );
+    }
+
+    // RFC 8842 §5.5: subsequent offers reuse the association with setup:actpass.
+    // setLocal copies live localParameters (fixed role) for ICE/fingerprint
+    // refresh, so restore actpass after that projection.
+    if (description.type === "offer") {
+      for (const media of description.media) {
+        if (media.dtlsParams) {
+          media.dtlsParams.role = "auto";
+        }
+      }
     }
 
     this.setLocalDescription(description, options.commit ?? true);

@@ -1838,10 +1838,43 @@ export class RTCDtlsFingerprint {
 }
 
 export class RTCDtlsParameters {
+  /** @internal RFC 8842 tls-id. */
+  tlsId?: string;
+
   constructor(
     public fingerprints: RTCDtlsFingerprint[] = [],
     public role: "auto" | "client" | "server",
   ) {}
+}
+
+/**
+ * RFC 8842: fingerprint / tls-id / concrete setup-role changes request a new association.
+ * @internal
+ */
+export function dtlsParametersIndicateNewAssociation(
+  current: RTCDtlsParameters | undefined,
+  pending: RTCDtlsParameters | undefined,
+): boolean {
+  if (!current || !pending) {
+    return false;
+  }
+  const currentKeys = fingerprintSetKeys(current.fingerprints);
+  const pendingKeys = fingerprintSetKeys(pending.fingerprints);
+  if (currentKeys.size !== pendingKeys.size) {
+    return true;
+  }
+  for (const key of currentKeys) {
+    if (!pendingKeys.has(key)) {
+      return true;
+    }
+  }
+  if ((current.tlsId || pending.tlsId) && current.tlsId !== pending.tlsId) {
+    return true;
+  }
+  if (pending.role !== "auto" && current.role !== pending.role) {
+    return true;
+  }
+  return false;
 }
 
 const deduplicateFingerprints = (fingerprints: RTCDtlsFingerprint[]) => {
