@@ -469,6 +469,50 @@ describe("IceSpedTransport pre-nomination send", () => {
     expect(a.sent[0]!.addr).toEqual(pair.remoteAddr);
   });
 
+  it("hybrid direct-ready 中の handshake record は固定 pair へ raw 送信する", async () => {
+    // Arrange: embedding 中でも handshake-only direct を許可する。
+    const a = mockProtocol("1.2.3.4", 1000);
+    const pair = authenticatedPair(a.protocol, "10.0.0.1", 1111);
+    const ice = createIceStub(1, [pair]);
+    ice.generation = 1;
+    const session = new SpedSession(1, "active");
+    const runtime = new SpedRuntime(session, dummySpedHooks());
+    const transport = new IceSpedTransport(ice);
+    transport.setRuntime(runtime);
+    const hello = Buffer.from([22, 1, 2, 3]);
+
+    // Act: 通知された pair へ type 22 を送る
+    transport.enableHandshakeDirect(pair, 1);
+    await transport.send(hello, pair.remoteAddr);
+
+    // Assert: session.embedding でも handshake control は固定 pair の sendData に出る
+    expect(session.embedding).toBe(true);
+    expect(a.sent).toHaveLength(1);
+    expect(a.sent[0]!.data.equals(hello)).toBe(true);
+    expect(a.sent[0]!.addr).toEqual(pair.remoteAddr);
+  });
+
+  it("hybrid direct-ready でも sendApplication は fingerprint gate を迂回しない", async () => {
+    // Arrange: handshake direct は開いているが application writeReady は未設定。
+    const a = mockProtocol("1.2.3.4", 1000);
+    const pair = authenticatedPair(a.protocol, "10.0.0.1", 1111);
+    const ice = createIceStub(1, [pair]);
+    ice.generation = 1;
+    const session = new SpedSession(1, "active");
+    const runtime = new SpedRuntime(session, dummySpedHooks());
+    const transport = new IceSpedTransport(ice);
+    transport.setRuntime(runtime);
+    const app = Buffer.from([23, 9, 8, 7]);
+
+    // Act: application record を handshake permission だけで送ろうとする
+    transport.enableHandshakeDirect(pair, 1);
+    await transport.sendApplication(app, pair.remoteAddr);
+
+    // Assert: embedding 中の app/media は Direct handshake path を使わない
+    expect(session.embedding).toBe(true);
+    expect(a.sent).toHaveLength(0);
+  });
+
   it("writeReady の未認証 pair への application data は認証後に wire へ送る", async () => {
     // Arrange: pair は checklist に存在するが、Binding 認証と nomination を遅延させる。
     const a = mockProtocol("1.2.3.4", 1000);

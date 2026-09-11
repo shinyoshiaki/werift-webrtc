@@ -980,6 +980,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
           return;
         }
         // New ICE generation starts SPED probing again.
+        transport.disableHandshakeDirect();
         carrier.setWireSendEnabled(false);
         carrier.setRetransmissionMode("external");
         if (this.state === "connecting" && lastFlight.length > 0) {
@@ -993,6 +994,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         this.onEarlyApplicationAttemptCancelled.execute();
         this.earlyModeDisabled = true;
         transport.setEarlyApplicationSendEnabled(false);
+        transport.disableHandshakeDirect();
         // ICE/SPED abort invalidates early SRTP permission immediately.  The
         // DTLS association may still be connecting, so peer authentication is
         // not sufficient to reconstruct this permission until a new attempt.
@@ -1018,6 +1020,21 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         handshakeDone = true;
         carrier.setWireSendEnabled(true);
         transport.markApplicationReady();
+      },
+      onDirectHandshakeReady: (readiness) => {
+        if (readiness.generation !== ice.generation) {
+          return;
+        }
+        if (!readiness.ready || !readiness.pair) {
+          transport.disableHandshakeDirect();
+          if (this.state === "connecting" && !handshakeDone) {
+            carrier.setWireSendEnabled(false);
+            carrier.setRetransmissionMode("external");
+          }
+          return;
+        }
+        transport.enableHandshakeDirect(readiness.pair, readiness.generation);
+        carrier.setWireSendEnabled(true);
       },
       setRetransmissionMode: (mode) => carrier.setRetransmissionMode(mode),
       updateRtt: (rttMs) => carrier.updateRtt(rttMs),

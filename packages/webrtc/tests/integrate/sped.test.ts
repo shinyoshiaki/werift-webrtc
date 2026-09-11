@@ -486,6 +486,134 @@ function isStunBindingRequest(bytes: Buffer): boolean {
   return bytes.length >= 2 && bytes.readUInt16BE(0) === 0x0001;
 }
 
+function isStunUseCandidate(bytes: Buffer): boolean {
+  return stunAttributeTypes(bytes).includes(0x0025);
+}
+
+async function interceptDirectReadyDtls(
+  copy: Buffer,
+  ice: object,
+  options: WireSpyOptions,
+  send: () => Promise<void>,
+): Promise<boolean> {
+  if (!isDtls(copy)) {
+    return false;
+  }
+  const runtime = getConnectionSpedRuntime(ice as Connection);
+  if (!runtime?.isHandshakeDirectReady()) {
+    return false;
+  }
+  if (
+    options.dropFirstDirectReadyDtls &&
+    options.dropFirstDirectReadyDtls.remaining > 0
+  ) {
+    options.dropFirstDirectReadyDtls.remaining--;
+    return true;
+  }
+  if (options.delayDirectReadyDtls?.hold) {
+    options.delayDirectReadyDtls.queued.push(send);
+    return true;
+  }
+  return false;
+}
+
+async function flushDelayedDirectReadyDtls(delay: DelayDirectReadyDtls) {
+  delay.hold = false;
+  const queued = delay.queued.splice(0);
+  for (const send of queued) {
+    await send();
+  }
+}
+
+async function flushHeldReorder(
+  reorder: HoldUntilLaterFlightPacket,
+  stun: Buffer[],
+  sendStun: Protocol["sendStun"],
+) {
+  for (const held of reorder.held) {
+    stun.push(held.copy);
+    await sendStun(held.message, held.addr);
+    recordFlightWireOrder(reorder, firstNonEmptySpedData([held.copy]));
+  }
+  reorder.held.length = 0;
+  for (const held of reorder.heldRaw) {
+    await held.send();
+    recordFlightWireOrder(reorder, held.copy);
+  }
+  reorder.heldRaw.length = 0;
+  reorder.released = true;
+}
+
+function recordFlightWireOrder(
+  reorder: HoldUntilLaterFlightPacket,
+  payload: Buffer | undefined,
+) {
+  if (!payload) {
+    return;
+  }
+  const flight = reorder.flightOf();
+  if (!flight) {
+    return;
+  }
+  const index = flight.findIndex((packet) => packet.equals(payload));
+  if (index >= 0 && !reorder.wireOrder.includes(index)) {
+    reorder.wireOrder.push(index);
+  }
+}
+
+function deferSessionL1(pc: RTCPeerConnection, mode: "all" | "after-first") {
+  const queued: Buffer[][] = [];
+  let firstApplied = false;
+  let original: ((packets: readonly Buffer[]) => void) | undefined;
+  let deferring = true;
+  const hook = () => {
+    const ice = pc.iceTransports[0]?.connection as Connection | undefined;
+    if (!ice) {
+      return false;
+    }
+    const runtime = getConnectionSpedRuntime(ice);
+    if (!runtime) {
+      return false;
+    }
+    original = runtime.session.replaceL1.bind(runtime.session);
+    runtime.session.replaceL1 = (packets) => {
+      if (!deferring || (mode === "after-first" && !firstApplied)) {
+        firstApplied = true;
+        original!(packets);
+        return;
+      }
+      queued.push(packets.map((packet) => Buffer.from(packet)));
+    };
+    return true;
+  };
+  if (!hook()) {
+    const id = setInterval(() => {
+      if (hook()) {
+        clearInterval(id);
+      }
+    }, 1);
+    return {
+      release: () => {
+        deferring = false;
+        clearInterval(id);
+        for (const packets of queued) {
+          original?.(packets);
+        }
+        queued.length = 0;
+      },
+    };
+  }
+  return {
+    release: () => {
+      deferring = false;
+      for (const packets of queued) {
+        original?.(packets);
+      }
+      queued.length = 0;
+    },
+  };
+}
+
 type HoldFirstNonEmptyData = {
   message?: Parameters<Protocol["sendStun"]>[0];
   addr?: Parameters<Protocol["sendStun"]>[1];
@@ -502,6 +630,9 @@ type HoldUntilLaterFlightPacket = {
     addr: Parameters<Protocol["sendStun"]>[1];
     copy: Buffer;
   }[];
+  heldRaw: Array<{ send: () => Promise<void>; copy: Buffer }>;
+  /** First-seen order of flight datagrams that actually reached the wire. */
+  wireOrder: number[];
   released?: boolean;
 };
 
@@ -515,6 +646,12 @@ type WireSpyOptions = {
   /** Drop raw DTLS on the wire while still recording it (keep handshake incomplete). */
   holdRawHandshake?: { drop: boolean };
   onRawDtls?: (bytes: Buffer, state: string | undefined) => void;
+  /** Hybrid path: raw DTLS after direct-ready (not counted as a pre-valid-pair leak). */
+  afterDirectReadyDtls?: Buffer[];
+  /** Drop the first post-ready raw DTLS once so RFC 9147 RTO must recover. */
+  dropFirstDirectReadyDtls?: { remaining: number };
+  /** Queue post-ready raw DTLS until the test flushes (deterministic Binding-then-flight). */
+  delayDirectReadyDtls?: DelayDirectReadyDtls;
 };
 
 const STUN_COOKIE = 0x2112a442;
@@ -557,11 +694,17 @@ function spyTcpSocketWrites(frames: Buffer[]) {
   };
 }
 
+type DelayDirectReadyDtls = {
+  hold: boolean;
+  queued: Array<() => Promise<void>>;
+};
+
 type OpenWireSpyOptions = WireSpyOptions & {
   offerer?: WireSpyOptions;
   answerer?: WireSpyOptions;
   offererStun?: Buffer[];
   answererStun?: Buffer[];
+  answererDtlsRole?: "client" | "server";
 };
 
 const spiedProtocols = new WeakSet<object>();
@@ -582,10 +725,19 @@ function noteRawDtls(
   const runtime = getConnectionSpedRuntime(ice as Connection);
   const state = runtime?.session.state;
   options.onRawDtls?.(copy, state);
-  // probing/active: raw DTLS is a leak. fallback: expected direct send.
-  // complete: DTLS application records (20–63) are not handshake leaks.
-  if (state === "probing" || state === "active" || state === "fallback") {
+  // probing/active before hybrid direct-ready: raw DTLS is a leak.
+  // after direct-ready: expected handshake send on the authenticated pair.
+  // fallback: expected direct send. complete: application records are not leaks.
+  if (state === "fallback") {
     handshakeDtls.push(copy);
+    return;
+  }
+  if (state === "probing" || state === "active") {
+    if (runtime?.isHandshakeDirectReady()) {
+      options.afterDirectReadyDtls?.push(copy);
+    } else {
+      handshakeDtls.push(copy);
+    }
   }
 }
 
@@ -621,6 +773,11 @@ function spyConnectionWire(
       const copy = Buffer.from(data);
       noteRawDtls(copy, ice, handshakeDtls, options);
       if (options.holdRawHandshake?.drop && isDtls(copy)) {
+        return;
+      }
+      if (
+        await interceptDirectReadyDtls(copy, ice, options, () => iceSend(copy))
+      ) {
         return;
       }
       return iceSend(copy);
@@ -669,6 +826,9 @@ function spyConnectionWire(
       }
       stun.push(copy);
       await sendStun(message, addr);
+      if (reorder && dataValue) {
+        recordFlightWireOrder(reorder, dataValue);
+      }
       if (
         reorder &&
         !reorder.released &&
@@ -676,12 +836,7 @@ function spyConnectionWire(
         flight &&
         dataValue.equals(flight[reorder.releaseIndex]!)
       ) {
-        for (const held of reorder.held) {
-          stun.push(held.copy);
-          await sendStun(held.message, held.addr);
-        }
-        reorder.held.length = 0;
-        reorder.released = true;
+        await flushHeldReorder(reorder, stun, sendStun);
       }
       if (
         options.duplicateFirstNonEmptyData &&
@@ -695,14 +850,52 @@ function spyConnectionWire(
     };
     protocol.sendData = async (data, addr) => {
       const copy = Buffer.from(data);
+      const reorder = options.holdUntilLaterFlightPacket;
+      const flight = reorder?.flightOf();
+      if (
+        reorder &&
+        !reorder.released &&
+        isDtls(copy) &&
+        flight &&
+        flight.length > reorder.releaseIndex &&
+        copy.equals(flight[reorder.holdIndex]!)
+      ) {
+        reorder.heldRaw.push({
+          copy,
+          send: async () => {
+            noteRawDtls(copy, ice, handshakeDtls, options);
+            await sendData(copy, addr);
+          },
+        });
+        return;
+      }
       noteRawDtls(copy, ice, handshakeDtls, options);
       if (options.holdRawHandshake?.drop && isDtls(copy)) {
+        return;
+      }
+      if (
+        await interceptDirectReadyDtls(copy, ice, options, () =>
+          sendData(copy, addr),
+        )
+      ) {
         return;
       }
       if (!isDtls(copy) && copy.length >= 20 && (copy[0] & 0xc0) === 0) {
         stun.push(copy);
       }
-      return sendData(copy, addr);
+      await sendData(copy, addr);
+      if (reorder && isDtls(copy)) {
+        recordFlightWireOrder(reorder, copy);
+      }
+      if (
+        reorder &&
+        !reorder.released &&
+        isDtls(copy) &&
+        flight &&
+        copy.equals(flight[reorder.releaseIndex]!)
+      ) {
+        await flushHeldReorder(reorder, stun, sendStun);
+      }
     };
   }
   return ice.protocols.length > 0;
@@ -757,6 +950,9 @@ async function openDataChannelWithWireSpy(
   );
   await pc1.setLocalDescription(await pc1.createOffer());
   await pc2.setRemoteDescription(pc1.localDescription!);
+  if (spyOptions?.answererDtlsRole) {
+    pc2.dtlsTransports[0]!.role = spyOptions.answererDtlsRole;
+  }
   const stopSpy2 = spyWhenReady(
     pc2,
     spyOptions?.answererStun ?? stun,
@@ -815,7 +1011,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
       expect(received).toBe("early-server");
       expect(transport).toMatchObject({
         warpSpedState: "active",
-        warpCarrier: "sped",
+        warpCarrier: "direct",
         iceGeneration: expect.any(Number),
       });
       expect(pc1.getConfiguration().warp).not.toBe(config.warp);
@@ -1133,7 +1329,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
       expect(receivedDataChannel).toBe(0);
       expect(receivedRtp).toBe(0);
       expect(receivedRtcp).toBe(0);
-      releaseClientAuth();
+      releaseClientAuth?.();
       await applyAnswer;
       await waitUntil(() => dc1.readyState === "open");
       await waitUntil(() => receivedDataChannel === 1);
@@ -1922,20 +2118,115 @@ describe("RTCPeerConnection SPED opt-in", () => {
     }
   }, 30_000);
 
-  test("Full × Lite で SPED handshake と双方向 app data", async () => {
-    const full = new RTCPeerConnection(spedPeerConfig());
-    const lite = new RTCPeerConnection(spedPeerConfig({ iceLite: true }));
-    try {
-      const [dc1, dc2] = await createDataChannelPair({}, full, lite);
-      dc1.send("lite");
-      expect(await awaitMessage(dc2)).toBe("lite");
-      dc2.send("full");
-      expect(await awaitMessage(dc1)).toBe("full");
-    } finally {
-      await full.close();
-      await lite.close();
+  async function expectFullLiteHybridPath(
+    full: RTCPeerConnection,
+    lite: RTCPeerConnection,
+    dc1: RTCDataChannel,
+    dc2: RTCDataChannel,
+    options: {
+      handshakeDtls: Buffer[];
+      afterDirectReadyDtls: Buffer[];
+      fullStun: Buffer[];
+      liteStun: Buffer[];
+      bindingRequestsAtIceConnected: number;
+    },
+  ) {
+    // Assert: Full は controlling、Lite は controlled で Request を出さない
+    expect(iceOf(full).iceControlling).toBe(true);
+    expect(iceOf(lite).iceControlling).toBe(false);
+    expect(iceOf(lite).iceLite).toBe(true);
+    expect(iceOf(lite).nominated?.requestsSent ?? 0).toBe(0);
+    expect(options.liteStun.some(isStunBindingRequest)).toBe(false);
+    expect(options.fullStun.some(isStunBindingRequest)).toBe(true);
+
+    // Assert: valid pair 前の raw DTLS は 0。ready 後は authenticated pair 上の direct
+    expect(options.handshakeDtls).toHaveLength(0);
+    expect(options.afterDirectReadyDtls.length).toBeGreaterThan(0);
+    expect(
+      options.fullStun
+        .filter(isStunBindingRequest)
+        .slice(options.bindingRequestsAtIceConnected)
+        .filter((bytes) => !isStunUseCandidate(bytes)),
+    ).toHaveLength(0);
+
+    for (const pc of [full, lite]) {
+      const runtime = getConnectionSpedRuntime(iceOf(pc));
+      expect(runtime?.fallbackStarted).toBe(false);
+      expect(runtime?.diagnosticsSnapshot()).toMatchObject({
+        state: "active",
+        carrier: "direct",
+      });
+      const stats = [...(await pc.getStats()).values()].find(
+        (stat): stat is RTCTransportStats => stat.type === "transport",
+      );
+      expect(stats).toMatchObject({
+        warpSpedState: "active",
+        warpCarrier: "direct",
+      });
     }
-  }, 30_000);
+
+    // Act: text / binary を両方向に順序どおり送る
+    dc1.send("text-a");
+    dc1.send(Buffer.from([1, 2, 3]));
+    expect(await awaitMessage(dc2)).toBe("text-a");
+    expect(await awaitMessage(dc2)).toEqual(Buffer.from([1, 2, 3]));
+    dc2.send("text-b");
+    dc2.send(Buffer.from([4, 5]));
+    expect(await awaitMessage(dc1)).toBe("text-b");
+    expect(await awaitMessage(dc1)).toEqual(Buffer.from([4, 5]));
+  }
+
+  for (const variant of [
+    {
+      name: "setup:active（Lite=DTLS client）",
+      answererDtlsRole: undefined as "server" | undefined,
+    },
+    {
+      name: "setup:passive（Full=DTLS client）",
+      answererDtlsRole: "server" as const,
+    },
+  ]) {
+    test(`Full × Lite ${variant.name} で SPED handshake と双方向 app data`, async () => {
+      const handshakeDtls: Buffer[] = [];
+      const afterDirectReadyDtls: Buffer[] = [];
+      const fullStun: Buffer[] = [];
+      const liteStun: Buffer[] = [];
+      const full = new RTCPeerConnection(spedPeerConfig());
+      const lite = new RTCPeerConnection(spedPeerConfig({ iceLite: true }));
+      try {
+        const [dc1, dc2] = await openDataChannelWithWireSpy(
+          full,
+          lite,
+          fullStun,
+          handshakeDtls,
+          {
+            offererStun: fullStun,
+            answererStun: liteStun,
+            afterDirectReadyDtls,
+            answererDtlsRole: variant.answererDtlsRole,
+          },
+        );
+
+        // Act: ICE nominated 後に SPED 専用の非 nomination Request が増えていないことを見る
+        await Promise.all([
+          waitForIceNominated(full),
+          waitForIceNominated(lite),
+        ]);
+        const bindingRequestsAtIceConnected =
+          fullStun.filter(isStunBindingRequest).length;
+        await expectFullLiteHybridPath(full, lite, dc1, dc2, {
+          handshakeDtls,
+          afterDirectReadyDtls,
+          fullStun,
+          liteStun,
+          bindingRequestsAtIceConnected,
+        });
+      } finally {
+        await full.close();
+        await lite.close();
+      }
+    }, 30_000);
+  }
 
   test("Lite × Full で Lite が offerer でも SPED handshake と双方向 app data", async () => {
     const lite = new RTCPeerConnection(spedPeerConfig({ iceLite: true }));
@@ -1949,6 +2240,115 @@ describe("RTCPeerConnection SPED opt-in", () => {
     } finally {
       await lite.close();
       await full.close();
+    }
+  }, 30_000);
+
+  test("Full × Lite は最後の通常 Binding 後の flight でも handshake が完了する", async () => {
+    const handshakeDtls: Buffer[] = [];
+    const afterDirectReadyDtls: Buffer[] = [];
+    const fullStun: Buffer[] = [];
+    const liteStun: Buffer[] = [];
+    const delay: DelayDirectReadyDtls = { hold: true, queued: [] };
+    const full = new RTCPeerConnection(spedPeerConfig());
+    const lite = new RTCPeerConnection(spedPeerConfig({ iceLite: true }));
+    const deferFull = deferSessionL1(full, "all");
+    const deferLite = deferSessionL1(lite, "after-first");
+    try {
+      const dc1 = full.createDataChannel("dc");
+      const opened = Promise.all([
+        new Promise<void>((resolve, reject) => {
+          dc1.onopen = () => resolve();
+          dc1.onerror = ({ error }) => reject(error);
+        }),
+        new Promise<RTCDataChannel>((resolve, reject) => {
+          lite.ondatachannel = ({ channel }) => {
+            channel.onopen = () => resolve(channel);
+            channel.onerror = ({ error }) => reject(error);
+          };
+        }),
+      ]);
+      exchangeIceCandidates(full, lite);
+      await full.setLocalDescription(await full.createOffer());
+      spyWhenReady(full, fullStun, handshakeDtls, {
+        afterDirectReadyDtls,
+        delayDirectReadyDtls: delay,
+      });
+      await lite.setRemoteDescription(full.localDescription!);
+      spyWhenReady(lite, liteStun, handshakeDtls, {
+        afterDirectReadyDtls,
+        delayDirectReadyDtls: delay,
+      });
+      await lite.setLocalDescription(await lite.createAnswer());
+      await full.setRemoteDescription(lite.localDescription!);
+
+      // Act: 最後の通常 Binding / nomination が終わってから次 flight を解放する
+      await Promise.all([waitForIceNominated(full), waitForIceNominated(lite)]);
+      await waitUntil(() => delay.queued.length > 0);
+      expect(full.dtlsTransports[0]!.state).toBe("connecting");
+      expect(lite.dtlsTransports[0]!.state).toBe("connecting");
+      expect(liteStun.some(isStunBindingRequest)).toBe(false);
+      const bindingRequestsAtIceConnected =
+        fullStun.filter(isStunBindingRequest).length;
+      deferFull.release();
+      deferLite.release();
+      await flushDelayedDirectReadyDtls(delay);
+      const [, dc2] = await opened;
+
+      // Assert: 追加 Binding なしで DTLS と DataChannel が成立する
+      await expectFullLiteHybridPath(full, lite, dc1, dc2, {
+        handshakeDtls,
+        afterDirectReadyDtls,
+        fullStun,
+        liteStun,
+        bindingRequestsAtIceConnected,
+      });
+    } finally {
+      delay.hold = false;
+      deferFull.release();
+      deferLite.release();
+      await full.close();
+      await lite.close();
+    }
+  }, 30_000);
+
+  test("Full × Lite は direct-ready 後の 1 回損失を内部 RTO で回復する", async () => {
+    const handshakeDtls: Buffer[] = [];
+    const afterDirectReadyDtls: Buffer[] = [];
+    const fullStun: Buffer[] = [];
+    const liteStun: Buffer[] = [];
+    const dropFirstDirectReadyDtls = { remaining: 1 };
+    const full = new RTCPeerConnection(spedPeerConfig());
+    const lite = new RTCPeerConnection(spedPeerConfig({ iceLite: true }));
+    const deferFull = deferSessionL1(full, "all");
+    try {
+      const [dc1, dc2] = await openDataChannelWithWireSpy(
+        full,
+        lite,
+        fullStun,
+        handshakeDtls,
+        {
+          offererStun: fullStun,
+          answererStun: liteStun,
+          afterDirectReadyDtls,
+          dropFirstDirectReadyDtls,
+        },
+      );
+
+      // Assert: 最初の raw DTLS を 1 回落としても RFC 9147 の timer で完了する
+      expect(dropFirstDirectReadyDtls.remaining).toBe(0);
+      expect(afterDirectReadyDtls.length).toBeGreaterThan(0);
+      await expectFullLiteHybridPath(full, lite, dc1, dc2, {
+        handshakeDtls,
+        afterDirectReadyDtls,
+        fullStun,
+        liteStun,
+        bindingRequestsAtIceConnected:
+          fullStun.filter(isStunBindingRequest).length,
+      });
+    } finally {
+      deferFull.release();
+      await full.close();
+      await lite.close();
     }
   }, 30_000);
 
@@ -2468,7 +2868,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
         handshakeDtls,
         { dropFirstNonEmptyData: { remaining: 1 } },
       );
-      // Act / Assert: 損失後も round-robin / extra Binding で完了する
+      // Act / Assert: 損失後も round-robin / 内部 RTO で完了する
       dc1.send("loss");
       expect(await awaitMessage(dc2)).toBe("loss");
     } finally {
@@ -2709,6 +3109,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
     const stun: Buffer[] = [];
     const offererStun: Buffer[] = [];
     const handshakeDtls: Buffer[] = [];
+    const afterDirectReadyDtls: Buffer[] = [];
     const restoreMtu = capHandshakeCarrierMtu(400);
     const record = recordL1Flights();
     const extra = {
@@ -2721,6 +3122,8 @@ describe("RTCPeerConnection SPED opt-in", () => {
       holdIndex: 1,
       releaseIndex: 2,
       held: [],
+      heldRaw: [],
+      wireOrder: [],
       flightOf: () => {
         const ice = pc1.iceTransports[0]?.connection as Connection | undefined;
         if (!ice) {
@@ -2736,7 +3139,11 @@ describe("RTCPeerConnection SPED opt-in", () => {
         pc2,
         stun,
         handshakeDtls,
-        { offererStun, offerer: { holdUntilLaterFlightPacket: reorder } },
+        {
+          offererStun,
+          offerer: { holdUntilLaterFlightPacket: reorder },
+          afterDirectReadyDtls,
+        },
       );
 
       // Act: large certificate を SPED 上で送り、アプリデータまで到達させる
@@ -2748,24 +3155,8 @@ describe("RTCPeerConnection SPED opt-in", () => {
       const offererSession = getConnectionSpedRuntime(iceOf(pc1))!.session;
       const multiRecordFlight = longestFlight(record.flightsOf(offererSession));
       expect(multiRecordFlight?.length).toBeGreaterThan(2);
-      const spedPayloads = nonEmptySpedDataPayloads(offererStun);
-      for (const packet of multiRecordFlight!) {
-        expect(spedPayloads.some((payload) => payload.equals(packet))).toBe(
-          true,
-        );
-      }
-      const flightKeys = multiRecordFlight!.map((packet) =>
-        packet.toString("hex"),
-      );
-      const firstSeenOrder: number[] = [];
-      for (const payload of spedPayloads) {
-        const index = flightKeys.indexOf(payload.toString("hex"));
-        if (index >= 0 && !firstSeenOrder.includes(index)) {
-          firstSeenOrder.push(index);
-        }
-      }
-      const posB = firstSeenOrder.indexOf(1);
-      const posC = firstSeenOrder.indexOf(2);
+      const posB = reorder.wireOrder.indexOf(1);
+      const posC = reorder.wireOrder.indexOf(2);
       expect(posC).toBeGreaterThanOrEqual(0);
       expect(posB).toBeGreaterThan(posC);
       expect(handshakeDtls).toHaveLength(0);

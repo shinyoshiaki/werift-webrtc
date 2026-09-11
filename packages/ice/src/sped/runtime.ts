@@ -1,5 +1,6 @@
 import type { CandidatePair } from "../iceBase";
 import type { Address } from "../imports/common";
+import { isAuthenticatedHandshakePair } from "../internal/datagram";
 import type { Message } from "../stun/message";
 import { getRawAttributeValue } from "../stun/rawAttributeValue";
 import { StunOverTurnProtocol } from "../turn/protocol";
@@ -23,6 +24,16 @@ export interface SpedDiagnosticsSnapshot {
   generation: number;
 }
 
+/**
+ * Generation-bound handshake-only direct send. Independent of non-SPED
+ * `fallback` / `directCarrierSelected`.
+ */
+export interface SpedDirectHandshakeReadiness {
+  generation: number;
+  pair?: CandidatePair;
+  ready: boolean;
+}
+
 export interface SpedHooks {
   inject: (bytes: Buffer, peer: Address, generation: number) => Promise<void>;
   onFallbackFlight: (packets: Buffer[]) => Promise<void>;
@@ -33,6 +44,11 @@ export interface SpedHooks {
    * ICE failed / DTLS error / close: cancel carrier timers. Must not reseed L1.
    */
   onSessionAbort?: () => void;
+  /**
+   * Hybrid SPED: authenticated pair may carry raw DTLS handshake.
+   * Not a public ICE API.
+   */
+  onDirectHandshakeReady?: (readiness: SpedDirectHandshakeReadiness) => void;
   setRetransmissionMode: (mode: SpedRetransmissionMode) => void;
   updateRtt: (rttMs: number) => void;
   /** ICE restart: drop the previous generation's path RTT. */
@@ -117,6 +133,13 @@ export class SpedRuntime {
   /** True once the shared DTLS association selected the direct carrier. */
   private directCarrierSelected = false;
   /**
+   * SPED-capable hybrid path: raw DTLS handshake on an authenticated pair.
+   * Distinct from {@link fallbackStarted} / {@link directCarrierSelected}.
+   */
+  private handshakeDirectReady = false;
+  private handshakeDirectPair?: CandidatePair;
+  private handshakeDirectGeneration?: number;
+  /**
    * Pair that received the first non-empty DTLS DATA (or carried direct
    * fallback). Empty capability ads must not pin.
    */
@@ -151,6 +174,10 @@ export class SpedRuntime {
         this.fallbackStarted ||
         this.session.state === "fallback" ||
         this.session.peerSupport === "unsupported");
+    const hybridDirect =
+      this.isHandshakeDirectReady() &&
+      !directFallback &&
+      this.session.peerSupport !== "unsupported";
     const state =
       this.session.state === "disabled"
         ? "disabled"
@@ -169,13 +196,88 @@ export class SpedRuntime {
     return {
       state: publicState,
       carrier:
-        !directFallback &&
-        (publicState === "probing" || publicState === "active")
-          ? "sped"
-          : "direct",
+        hybridDirect ||
+        directFallback ||
+        !(publicState === "probing" || publicState === "active")
+          ? "direct"
+          : "sped",
       retransmissions: this.session.retransmissions,
       generation: this.session.generation,
     };
+  }
+
+  isHandshakeDirectReady(): boolean {
+    return (
+      this.handshakeDirectReady &&
+      this.handshakeDirectGeneration === this.session.generation
+    );
+  }
+
+  /**
+   * Enable handshake-only raw DTLS on an authenticated current-generation pair.
+   * Idempotent per generation; does not enter `fallback`.
+   */
+  tryMarkDirectHandshakeReady(
+    pair: CandidatePair,
+    generation: number,
+  ): boolean {
+    if (
+      this.session.state === "disabled" ||
+      this.session.state === "fallback"
+    ) {
+      return false;
+    }
+    if (!this.isLiveGeneration(generation)) {
+      return false;
+    }
+    if (this.isHandshakeDirectReady()) {
+      return true;
+    }
+    if (!this.canMarkDirectHandshakePair(pair)) {
+      return false;
+    }
+    const association = this.associationPath();
+    if (association && !sameCandidatePair(association, pair)) {
+      return false;
+    }
+    this.pinHandshakePath(pair);
+    this.handshakeDirectReady = true;
+    this.handshakeDirectPair = pair;
+    this.handshakeDirectGeneration = generation;
+    this.hooks.setRetransmissionMode("internal");
+    this.hooks.onDirectHandshakeReady?.({
+      generation,
+      pair,
+      ready: true,
+    });
+    return true;
+  }
+
+  private canMarkDirectHandshakePair(pair: CandidatePair): boolean {
+    if (
+      pair.localCandidate.type === "relay" ||
+      pair.remoteCandidate.type === "relay"
+    ) {
+      return false;
+    }
+    if (!isSpedEligibleProtocol(pair.protocol)) {
+      return false;
+    }
+    return isAuthenticatedHandshakePair(pair);
+  }
+
+  private clearHandshakeDirectReadiness(notify: boolean): void {
+    const generation = this.session.generation;
+    const wasReady = this.handshakeDirectReady;
+    this.handshakeDirectReady = false;
+    this.handshakeDirectPair = undefined;
+    this.handshakeDirectGeneration = undefined;
+    if (notify && wasReady) {
+      this.hooks.onDirectHandshakeReady?.({
+        generation,
+        ready: false,
+      });
+    }
   }
 
   shouldDecorate(pair: CandidatePair): boolean {
@@ -465,12 +567,25 @@ export class SpedRuntime {
 
   reset(generation: number): void {
     const preserveDirectCarrier = this.directCarrierSelected;
+    const preserveHybridComplete =
+      this.handshakeDirectReady &&
+      this.session.state === "complete" &&
+      !this.fallbackStarted &&
+      this.session.peerSupport !== "unsupported";
     const preserveCompleteState =
-      preserveDirectCarrier && this.session.state === "complete";
+      (preserveDirectCarrier || preserveHybridComplete) &&
+      this.session.state === "complete";
+    const notifyClearHandshake =
+      this.handshakeDirectReady && !preserveHybridComplete;
     this.sessionEpoch++;
     this.session.reset(generation);
     this.fallbackStarted = false;
     this.directCarrierSelected = preserveDirectCarrier;
+    this.clearHandshakeDirectReadiness(false);
+    if (preserveHybridComplete) {
+      this.handshakeDirectReady = true;
+      this.handshakeDirectGeneration = generation;
+    }
     if (preserveDirectCarrier) {
       // A completed direct fallback must remain direct across an ICE restart.
       // DTLS 1.3 keeps the association's complete state while DTLS 1.2 uses
@@ -480,6 +595,10 @@ export class SpedRuntime {
       } else {
         this.session.commitDirectFallback();
       }
+    } else if (preserveHybridComplete) {
+      this.session.completeHandshake();
+    } else {
+      this.hooks.setRetransmissionMode("external");
     }
     this.pendingInjectGeneration = undefined;
     this.lastPath = undefined;
@@ -488,6 +607,12 @@ export class SpedRuntime {
     this.hooks.setMtu(this.lastMtu);
     this.hooks.resetRtt();
     this.hooks.onSessionReset?.();
+    if (notifyClearHandshake) {
+      this.hooks.onDirectHandshakeReady?.({
+        generation,
+        ready: false,
+      });
+    }
   }
 
   completeDirectFallback(): void {
@@ -504,11 +629,19 @@ export class SpedRuntime {
    */
   abort(): void {
     this.sessionEpoch++;
+    const notifyClearHandshake = this.handshakeDirectReady;
+    this.clearHandshakeDirectReadiness(false);
     if (this.session.state === "disabled") {
       this.directCarrierSelected = false;
       this.pendingInjectGeneration = undefined;
       this.lastPath = undefined;
       this.pendingUnconfirmedMissingData.clear();
+      if (notifyClearHandshake) {
+        this.hooks.onDirectHandshakeReady?.({
+          generation: this.session.generation,
+          ready: false,
+        });
+      }
       return;
     }
     this.session.abort();
@@ -519,6 +652,12 @@ export class SpedRuntime {
     this.pendingUnconfirmedMissingData.clear();
     this.hooks.setRetransmissionMode("internal");
     this.hooks.onSessionAbort?.();
+    if (notifyClearHandshake) {
+      this.hooks.onDirectHandshakeReady?.({
+        generation: this.session.generation,
+        ready: false,
+      });
+    }
   }
 
   markCarrierInject(): void {

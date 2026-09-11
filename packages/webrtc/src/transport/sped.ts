@@ -61,6 +61,13 @@ export class IceSpedTransport implements Transport {
   private applicationReady = false;
   /** DTLS 1.3 application write key exists; peer auth may still be pending. */
   private applicationWriteReady = false;
+  /**
+   * Hybrid SPED: handshake control records may use this pinned pair even
+   * while session.embedding is true. Application/media still use the
+   * fingerprint and consent gates.
+   */
+  private handshakeDirectPair?: CandidatePair;
+  private handshakeDirectGeneration?: number;
 
   constructor(private readonly ice: Connection) {
     this.datagramSubscription = connectionDatagramEvent(ice).subscribe(
@@ -109,6 +116,35 @@ export class IceSpedTransport implements Transport {
   setRuntime(runtime: SpedRuntime) {
     this.runtime = runtime;
     this.flushPendingEarlySends();
+  }
+
+  /**
+   * Allow handshake control records on this authenticated pair.
+   * Idempotent for the same generation; does not enable early application data.
+   */
+  enableHandshakeDirect(pair: CandidatePair, generation: number): void {
+    if (
+      this.handshakeDirectPair &&
+      this.handshakeDirectGeneration === generation
+    ) {
+      return;
+    }
+    this.handshakeDirectPair = pair;
+    this.handshakeDirectGeneration = generation;
+  }
+
+  disableHandshakeDirect(): void {
+    this.handshakeDirectPair = undefined;
+    this.handshakeDirectGeneration = undefined;
+  }
+
+  private canSendHandshakeDirect(): boolean {
+    const pair = this.handshakeDirectPair;
+    return (
+      pair !== undefined &&
+      this.handshakeDirectGeneration === this.ice.generation &&
+      this.isCurrentAuthenticatedPair(pair)
+    );
   }
 
   markApplicationReady() {
@@ -169,12 +205,18 @@ export class IceSpedTransport implements Transport {
   }
 
   readonly send = async (data: Buffer, addr?: Address) => {
-    await this.sendInternal(data, addr, isDtlsApplicationData(data), false);
+    await this.sendInternal(
+      data,
+      addr,
+      isDtlsApplicationData(data),
+      false,
+      true,
+    );
   };
 
   /** Explicit application marker for encrypted DTLS 1.3 records. */
   readonly sendApplication = async (data: Buffer, addr?: Address) => {
-    await this.sendInternal(data, addr, true, false);
+    await this.sendInternal(data, addr, true, false, false);
   };
 
   private async sendInternal(
@@ -182,6 +224,7 @@ export class IceSpedTransport implements Transport {
     addr: Address | undefined,
     application: boolean,
     waitForWire: boolean,
+    handshakeControl: boolean,
   ) {
     this.assertIceSendable();
     if (this.applicationReady) {
@@ -204,6 +247,12 @@ export class IceSpedTransport implements Transport {
         return;
       }
       await this.ice.send(data);
+      return;
+    }
+    if (handshakeControl && this.canSendHandshakeDirect()) {
+      const pair = this.handshakeDirectPair!;
+      this.runtime?.pinHandshakePath(pair);
+      await pair.protocol.sendData(data, pair.remoteAddr);
       return;
     }
     if (this.applicationWriteReady) {
@@ -244,16 +293,17 @@ export class IceSpedTransport implements Transport {
 
   /** Flush a DTLS control record, including close_notify. */
   readonly sendAndWait = async (data: Buffer, addr?: Address) => {
-    await this.sendInternal(data, addr, false, true);
+    await this.sendInternal(data, addr, false, true, true);
   };
 
   /** Wait for an SRTP/SRTCP datagram to reach the wire. */
   readonly sendMediaAndWait = async (data: Buffer, addr?: Address) => {
-    await this.sendInternal(data, addr, true, true);
+    await this.sendInternal(data, addr, true, true, false);
   };
 
   async close() {
     this.closed = true;
+    this.disableHandshakeDirect();
     this.datagramSubscription.unSubscribe();
     this.stateSubscription?.unSubscribe();
     this.rejectPendingEarlySends(new Error("SPED transport is closed"));

@@ -6,12 +6,9 @@
 import type { Connection } from "../ice";
 import { SpedSession } from "../sped/draft00/session";
 import { type SpedHooks, SpedRuntime } from "../sped/runtime";
-import {
-  requestSpedCarryMaybeFlush,
-  setConnectionSpedRuntime,
-} from "./sped-bind";
+import { setConnectionSpedRuntime } from "./sped-bind";
 
-export type { SpedHooks } from "../sped/runtime";
+export type { SpedDirectHandshakeReadiness, SpedHooks } from "../sped/runtime";
 export {
   isSpedEligiblePair,
   isSpedEligibleProtocol,
@@ -75,7 +72,6 @@ export function attachSpedToConnection(
         return;
       }
       session.replaceL1(packets);
-      requestSpedCarryMaybeFlush(connection);
     },
     onHandshakeComplete: () => runtime.completeHandshake(),
   };
