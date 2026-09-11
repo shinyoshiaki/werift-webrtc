@@ -12,12 +12,14 @@ import {
   type RTCDataChannel,
   RTCPeerConnection,
   RTCTrackEvent,
+  RTP_EXTENSION_URI,
   RtcpRrPacket,
   RtpHeader,
   RtpPacket,
   createSelfSignedCertificate,
   useSdesMid,
   useTWCC,
+  useTransportWideCC,
   useVP8,
 } from "../../src";
 import { SignatureAlgorithm } from "../../src/const";
@@ -186,11 +188,14 @@ describe("peerConnection", () => {
     await Promise.allSettled([caller.close(), callee.close()]);
   });
 
-  test("post-connect fingerprint failure propagates to PeerConnection, SCTP, and DataChannel", async () => {
+  test("post-connect fingerprint変更のremote offerはcurrent DTLS associationを維持する", async () => {
     // Arrange: 実際の PeerConnection で DataChannel を接続済みにする。
     const caller = new RTCPeerConnection({});
     const callee = new RTCPeerConnection({});
     const channel = caller.createDataChannel("chat");
+    const remoteChannelPromise = new Promise<RTCDataChannel>((resolve) => {
+      callee.onDataChannel.subscribe((remoteChannel) => resolve(remoteChannel));
+    });
 
     try {
       await caller.setLocalDescription(await caller.createOffer());
@@ -198,31 +203,43 @@ describe("peerConnection", () => {
       await callee.setLocalDescription(await callee.createAnswer());
       await caller.setRemoteDescription(callee.localDescription!);
       await assertDataChannelOpen(channel);
+      const remoteChannel = await remoteChannelPromise;
+      await assertDataChannelOpen(remoteChannel);
       expect(channel.readyState).toBe("open");
 
-      // Act: 再ネゴシエーションの remote offer に不一致 fingerprint を適用する。
+      // Act: 再ネゴシエーションの remote offer に新しい fingerprint set を適用する。
       const renegotiationOffer = await callee.createOffer();
       await callee.setLocalDescription(renegotiationOffer);
       await caller.setRemoteDescription({
         type: "offer",
         sdp: tamperFingerprints(callee.localDescription!.sdp),
       });
-      // 認証失敗イベントが欠落すると無期限に待たず、このテストを失敗させる。
-      if (caller.connectionState !== "failed") {
-        await caller.connectionStateChange.asPromise(5_000);
-      }
 
-      // Assert: 認証失敗を上位状態へ伝播し、SCTP と DataChannel を閉じる。
-      expect(caller.dtlsTransports[0].state).toBe("failed");
-      expect(caller.connectionState).toBe("failed");
-      expect(caller.sctp?.sctp.associationState).toBe(SCTP_STATE.CLOSED);
-      expect(channel.readyState).toBe("closed");
+      // Assert: RFC 8842 の新association提案であり、現行associationはSRD時点で落とさない。
+      expect(caller.dtlsTransports[0].state).toBe("connected");
+      expect(caller.connectionState).toBe("connected");
+      expect(caller.sctp?.sctp.associationState).toBe(SCTP_STATE.ESTABLISHED);
+      expect(channel.readyState).toBe("open");
+
+      // Act: answererは新associationを受け入れず、対応m-lineをrejectする。
+      const answer = await caller.createAnswer();
+      expect(answer.sdp).toMatch(/m=application 0 /);
+
+      // Act: 旧DataChannelで通信し、rollbackしても現行associationを維持する。
+      const receivedMessage = remoteChannel.onMessage.asPromise(5_000);
+      channel.send("fingerprint-pending");
+      expect((await receivedMessage)[0].toString()).toBe("fingerprint-pending");
+
+      await caller.setRemoteDescription({ type: "rollback" });
+      expect(caller.signalingState).toBe("stable");
+      expect(caller.dtlsTransports[0].state).toBe("connected");
+      expect(channel.readyState).toBe("open");
     } finally {
       await Promise.allSettled([caller.close(), callee.close()]);
     }
   }, 30_000);
 
-  test("media-only の古い connect は fingerprint failure 後に connected を上書きしない", async () => {
+  test("media-only の古い connect は fingerprint変更のremote offerでfailedにしない", async () => {
     // Arrange: media-only の実接続を用意し、初回 connect の完了直前を保持する。
     const caller = new RTCPeerConnection({});
     const callee = new RTCPeerConnection({});
@@ -260,14 +277,15 @@ describe("peerConnection", () => {
         type: "offer",
         sdp: tamperFingerprints(callee.localDescription!.sdp),
       });
-      expect(dtls.state).toBe("failed");
+      expect(dtls.state).toBe("connected");
 
       // Act: 古い connect() を再開する。
       releaseStart();
       await setTimeout(0);
 
-      // Assert: 古い Promise の成功結果で failed を connected に戻さない。
-      expect(caller.connectionState).toBe("failed");
+      // Assert: fingerprint変更は現行associationをfailedにせず、古いconnect完了後も維持する。
+      expect(dtls.state).toBe("connected");
+      expect(caller.connectionState).not.toBe("failed");
     } finally {
       dtls.start = originalStart;
       await Promise.allSettled([caller.close(), callee.close()]);
@@ -1334,6 +1352,123 @@ describe("peerConnection", () => {
     }
   }, 30_000);
 
+  test("remote re-offerのsctp-port変更はanswer前に現行associationを書き換えない", async () => {
+    // Arrange: 接続済みDataChannelと現行remotePortを記録する。
+    const { caller, callee, channel, remoteChannel } =
+      await createConnectedUnbundledPair();
+
+    try {
+      const currentRemotePort = callee.sctpRemotePort;
+      expect(currentRemotePort).toBe(5000);
+
+      // Act: subsequent offerの a=sctp-port だけ 6000 に変えてSRDする。
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription({
+        type: "offer",
+        sdp: caller.localDescription!.sdp.replace(
+          /a=sctp-port:\d+/g,
+          "a=sctp-port:6000",
+        ),
+      });
+
+      // Assert: answer前は現行associationのremotePortが変わらず、旧DCが通信できる。
+      expect(callee.signalingState).toBe("have-remote-offer");
+      expect(callee.sctpRemotePort).toBe(currentRemotePort);
+      const receivedMessage = remoteChannel.onMessage.asPromise(5_000);
+      channel.send("sctp-port-pending");
+      expect((await receivedMessage)[0].toString()).toBe("sctp-port-pending");
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  }, 30_000);
+
+  test("remote offerのinbound extmap衝突はanswer前に現行RX mappingを上書きしない", async () => {
+    // Arrange: MID(id=1) と TWCC を交渉したvideoを接続する。
+    const codecs = { video: [useVP8({ payloadType: 96 })] };
+    const headerExtensions = {
+      video: [useSdesMid(), useTransportWideCC()],
+    };
+    const caller = new RTCPeerConnection({
+      iceServers: [],
+      codecs,
+      headerExtensions,
+    });
+    const callee = new RTCPeerConnection({
+      iceServers: [],
+      codecs,
+      headerExtensions,
+    });
+    const callerTrack = new MediaStreamTrack({ kind: "video" });
+    caller.addTransceiver(callerTrack, { direction: "sendonly" });
+    callee.addTransceiver("video", { direction: "recvonly" });
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription(caller.localDescription!);
+      await callee.setLocalDescription(await callee.createAnswer());
+      await caller.setRemoteDescription(callee.localDescription!);
+      await Promise.all([
+        waitForConnectionState(caller, "connected"),
+        waitForConnectionState(callee, "connected"),
+      ]);
+
+      const midId = Number(
+        Object.entries(callee.extIdUriMap).find(
+          ([, uri]) => uri === RTP_EXTENSION_URI.sdesMid,
+        )?.[0],
+      );
+      expect(midId).toBeGreaterThan(0);
+      const receiver = callee.getTransceivers()[0]!.receiver;
+      const ssrc = caller.getTransceivers()[0]!.sender.ssrc;
+      const mid = caller.getTransceivers()[0]!.mid!;
+      const router = (
+        callee as unknown as {
+          router: { routeRtp: (packet: RtpPacket) => void };
+        }
+      ).router;
+      const injectMid = () =>
+        router.routeRtp(
+          new RtpPacket(
+            new RtpHeader({
+              ssrc,
+              payloadType: 96,
+              extensions: [{ id: midId, payload: Buffer.from(mid) }],
+            }),
+            Buffer.from("ext-rx"),
+          ),
+        );
+
+      // Act: remote subsequent offerで現行MIDのextmap IDをTWCCへ付け替える。
+      const offer = await caller.createOffer();
+      await caller.setLocalDescription(offer);
+      await callee.setRemoteDescription({
+        type: "offer",
+        sdp: caller.localDescription!.sdp.replace(
+          new RegExp(`a=extmap:${midId} ${RTP_EXTENSION_URI.sdesMid}`),
+          `a=extmap:${midId} ${RTP_EXTENSION_URI.transportWideCC}`,
+        ),
+      });
+
+      // Assert: answer前は現行RX mappingがMIDのまま。
+      expect(callee.extIdUriMap[midId]).toBe(RTP_EXTENSION_URI.sdesMid);
+      injectMid();
+      expect(receiver.sdesMid).toBe(mid);
+
+      // Act: local answerをcommitする。
+      await callee.setLocalDescription(await callee.createAnswer());
+
+      // Assert: 新mappingはTWCC、旧MIDはprevious mapでin-flight packetを解釈できる。
+      expect(callee.extIdUriMap[midId]).toBe(RTP_EXTENSION_URI.transportWideCC);
+      expect(callee.previousExtIdUriMap[midId]).toBe(RTP_EXTENSION_URI.sdesMid);
+
+      receiver.sdesMid = undefined;
+      injectMid();
+      expect(receiver.sdesMid).toBe(mid);
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  }, 30_000);
+
   test("subsequent remote offerのontrackはlocal answerより前に発火する", async () => {
     // Arrange: video 1本で接続したあと、追加のremote video offerを作る。
     const { caller, callee } = await createConnectedUnbundledPair();
@@ -1376,8 +1511,19 @@ describe("peerConnection", () => {
 
       // Assert: addTrack済みtransceiverとapplicationのdirection変更は残る。
       expect(callee.getTransceivers()).toHaveLength(1);
-      expect(callee.getTransceivers()[0]!.sender.track).toBe(localTrack);
-      expect(callee.getTransceivers()[0]!.direction).toBe("sendrecv");
+      const kept = callee.getTransceivers()[0]!;
+      expect(kept.sender.track).toBe(localTrack);
+      expect(kept.direction).toBe("sendrecv");
+      expect(kept.mid).toBeNull();
+      expect(kept.mLineIndex).toBeUndefined();
+
+      // Act: rollback後のcreateOfferで、残したtrack用m-lineを再生成する。
+      const offer = await callee.createOffer();
+
+      // Assert: added trackのm-lineがMID付きで生成される。
+      expect(offer.sdp).toMatch(/m=video /);
+      expect(kept.mid).not.toBeNull();
+      expect(kept.mLineIndex).toBeDefined();
     } finally {
       await Promise.allSettled([caller.close(), callee.close()]);
     }
@@ -2426,10 +2572,11 @@ a=ssrc:1001 cname:some
       expect(caller.localDescription!.sdp).toContain("a=max-message-size:1234");
 
       await callee.setRemoteDescription(caller.localDescription!);
-      expect(callee.sctpTransport!.remoteMaxMessageSize).toBe(1234);
+      // remoteMaxMessageSize は現行associationをanswer commitまで変えない。
 
       await callee.setLocalDescription(await callee.createAnswer());
       expect(callee.localDescription!.sdp).toContain("a=max-message-size:0");
+      expect(callee.sctpTransport!.remoteMaxMessageSize).toBe(1234);
 
       await caller.setRemoteDescription(callee.localDescription!);
       expect(caller.sctpTransport!.remoteMaxMessageSize).toBe(0);

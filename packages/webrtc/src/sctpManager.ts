@@ -210,21 +210,26 @@ export class SctpTransportManager {
     return { promise, dispose };
   }
 
+  /** Validate remote application media without mutating the live association. */
+  validateRemoteSctp(remoteMedia: MediaDescription) {
+    if (!remoteMedia.sctpPort) {
+      throw new Error("sctpRemotePort not exist");
+    }
+  }
+
   setRemoteSCTP(remoteMedia: MediaDescription, mLineIndex: number) {
     if (!this.sctpTransport) {
       return;
     }
+
+    this.validateRemoteSctp(remoteMedia);
 
     // # configure sctp
     this.sctpTransport.setRemoteMaxMessageSize(
       remoteMedia.sctpCapabilities?.maxMessageSize,
     );
     this.sctpRemotePort = remoteMedia.sctpPort;
-    if (!this.sctpRemotePort) {
-      throw new Error("sctpRemotePort not exist");
-    }
-
-    this.sctpTransport.setRemotePort(this.sctpRemotePort);
+    this.sctpTransport.setRemotePort(this.sctpRemotePort!);
     this.sctpTransport.mLineIndex = mLineIndex;
     if (!this.sctpTransport.mid) {
       this.sctpTransport.mid = remoteMedia.rtp.muxId;

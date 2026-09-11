@@ -308,7 +308,11 @@ export class TransceiverManager {
     remoteMedia: MediaDescription,
     type: "offer" | "answer" | "pranswer",
     mLineIndex: number,
-    options: { emitTrack?: boolean; setupTWCC?: boolean } = {},
+    options: {
+      emitTrack?: boolean;
+      setupTWCC?: boolean;
+      applyReceive?: boolean;
+    } = {},
   ): void {
     if (!transceiver.mid) {
       transceiver.mid = remoteMedia.rtp.muxId ?? null;
@@ -365,17 +369,8 @@ export class TransceiverManager {
       transceiver.sender.prepareSend(localParams);
     }
 
-    if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
-      const remotePrams = this.getRemoteRtpParams(remoteMedia, transceiver);
-
-      // register simulcast receiver
-      for (const param of remoteMedia.simulcastParameters) {
-        this.router.registerRtpReceiverByRid(transceiver, param, remotePrams);
-      }
-
-      transceiver.receiver.prepareReceive(remotePrams);
-      // register ssrc receiver
-      this.router.registerRtpReceiverBySsrc(transceiver, remotePrams);
+    if (options.applyReceive !== false) {
+      this.applyRemoteReceiveParameters(transceiver, remoteMedia);
     }
     if (
       remoteMedia.port !== 0 &&
@@ -413,6 +408,24 @@ export class TransceiverManager {
   applyLocalSendParameters(transceiver: RTCRtpTransceiver): void {
     if (transceiver.mid == undefined) return;
     transceiver.sender.prepareSend(this.getLocalRtpParams(transceiver));
+  }
+
+  /** @internal Install remote receive codecs/extmap onto the live router. */
+  applyRemoteReceiveParameters(
+    transceiver: RTCRtpTransceiver,
+    remoteMedia: MediaDescription,
+  ): void {
+    if (!["recvonly", "sendrecv"].includes(transceiver.direction)) {
+      return;
+    }
+    const remotePrams = this.getRemoteRtpParams(remoteMedia, transceiver);
+
+    for (const param of remoteMedia.simulcastParameters) {
+      this.router.registerRtpReceiverByRid(transceiver, param, remotePrams);
+    }
+
+    transceiver.receiver.prepareReceive(remotePrams);
+    this.router.registerRtpReceiverBySsrc(transceiver, remotePrams);
   }
 
   /** @internal Deliver a track event after a staged remote graph commits. */

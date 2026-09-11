@@ -27,6 +27,8 @@ export class RtpRouter {
   ssrcTable: { [ssrc: number]: RTCRtpReceiver | RTCRtpSender } = {};
   ridTable: { [rid: string]: RTCRtpReceiver | RTCRtpSender } = {};
   extIdUriMap: { [id: number]: string } = {};
+  /** Previous negotiated RX extmap, kept so in-flight old-format packets still decode. */
+  previousExtIdUriMap: { [id: number]: string } = {};
 
   constructor() {}
 
@@ -63,9 +65,19 @@ export class RtpRouter {
         }
       });
 
-    params.headerExtensions.forEach((extension) => {
+    this.installHeaderExtensions(params.headerExtensions);
+  }
+
+  private installHeaderExtensions(
+    headerExtensions: Array<{ id: number; uri: string }>,
+  ) {
+    for (const extension of headerExtensions) {
+      const current = this.extIdUriMap[extension.id];
+      if (current && current !== extension.uri) {
+        this.previousExtIdUriMap[extension.id] = current;
+      }
       this.extIdUriMap[extension.id] = extension.uri;
-    });
+    }
   }
 
   registerRtpReceiverByRid(
@@ -90,10 +102,21 @@ export class RtpRouter {
   }
 
   routeRtp = (packet: RtpPacket) => {
-    const extensions: Extensions = rtpHeaderExtensionsParser(
-      packet.header.extensions,
-      this.extIdUriMap,
-    );
+    const parseExtensions = (map: { [id: number]: string }): Extensions => {
+      try {
+        return rtpHeaderExtensionsParser(packet.header.extensions, map);
+      } catch {
+        return {};
+      }
+    };
+    const currentExtensions = parseExtensions(this.extIdUriMap);
+    const previousExtensions =
+      Object.keys(this.previousExtIdUriMap).length > 0
+        ? parseExtensions(this.previousExtIdUriMap)
+        : undefined;
+    const extensions: Extensions = previousExtensions
+      ? { ...previousExtensions, ...currentExtensions }
+      : currentExtensions;
 
     let rtpReceiver: RTCRtpReceiver | undefined = this.ssrcTable[
       packet.header.ssrc
