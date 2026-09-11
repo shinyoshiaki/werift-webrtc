@@ -29,10 +29,11 @@ export class mediachannel_simulcast_answer {
             low: this.pc.addTransceiver("video", { direction: "sendonly" }),
           };
           transceiver.onTrack.subscribe((track) => {
-            const sender = multiCast[track.rid as keyof typeof multiCast];
-            if (sender) {
-              sender.sender.replaceTrack(track);
-            }
+            // Simulcast encodings share one receiver track. Fan the same
+            // track out to the high/low senders so Chrome still gets two
+            // inbound transceivers.
+            multiCast.high.sender.replaceTrack(track);
+            multiCast.low.sender.replaceTrack(track);
           });
           await this.pc.setLocalDescription(await this.pc.createOffer());
           accept(this.pc.localDescription);
@@ -77,10 +78,11 @@ export class mediachannel_simulcast_offer {
             low: this.pc.addTransceiver("video", { direction: "sendonly" }),
           };
           transceiver.onTrack.subscribe((track) => {
-            const sender = multiCast[track.rid as keyof typeof multiCast];
-            if (sender) {
-              sender.sender.replaceTrack(track);
-            }
+            // Simulcast encodings share one receiver track. Fan the same
+            // track out to the high/low senders so Chrome still gets two
+            // inbound transceivers.
+            multiCast.high.sender.replaceTrack(track);
+            multiCast.low.sender.replaceTrack(track);
           });
           await this.pc.setRemoteDescription(payload);
           await this.pc.setLocalDescription(await this.pc.createAnswer());
