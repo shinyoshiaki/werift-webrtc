@@ -28,6 +28,18 @@
 
 ***
 
+### previousExtIdUriMap
+
+> **previousExtIdUriMap**: `object` = `{}`
+
+Previous negotiated RX extmap, kept so in-flight old-format packets still decode.
+
+#### Index Signature
+
+\[`id`: `number`\]: `string`
+
+***
+
 ### ridTable
 
 > **ridTable**: `object` = `{}`

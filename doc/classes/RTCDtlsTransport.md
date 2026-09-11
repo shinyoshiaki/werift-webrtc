@@ -276,6 +276,25 @@
 
 ***
 
+### proposesNewDtlsAssociation()
+
+> **proposesNewDtlsAssociation**(`remoteParameters`): `boolean`
+
+RFC 8842: a changed fingerprint set on an authenticated transport proposes
+a new DTLS association.  It is not an attack on the current certificate.
+
+#### Parameters
+
+##### remoteParameters
+
+[`RTCDtlsParameters`](RTCDtlsParameters.md)
+
+#### Returns
+
+`boolean`
+
+***
+
 ### removeEventListener()
 
 > **removeEventListener**(`type`, `listener`): `void`

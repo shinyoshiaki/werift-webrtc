@@ -48,6 +48,14 @@ RFC 8829 4.2.4.  direction the transceiver was initialized with
 
 ***
 
+### createdByRemoteDescription
+
+> **createdByRemoteDescription**: `boolean` = `false`
+
+Set when this transceiver was created while applying a remote description.
+
+***
+
 ### headerExtensions
 
 > **headerExtensions**: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[] = `[]`
@@ -99,6 +107,14 @@ RFC 8829 4.2.4.  direction the transceiver was initialized with
 ### receiver
 
 > **receiver**: [`RTCRtpReceiver`](RTCRtpReceiver.md)
+
+***
+
+### reusedByAddTrack
+
+> **reusedByAddTrack**: `boolean` = `false`
+
+Set when addTrack() attached a local track after that remote creation.
 
 ***
 

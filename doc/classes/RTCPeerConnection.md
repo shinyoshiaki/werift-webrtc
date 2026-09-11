@@ -13,8 +13,10 @@ reviewable diff does not depend on external PR text.
   `addIceCandidate(null)`, and `RTCConfiguration` round-trip behavior are
   implemented here and covered by `tests/wpt/peerConnectionApiCompatibility.test.ts`.
 - `addIceCandidate()` also validates `sdpMid` / `sdpMLineIndex` /
-  `usernameFragment` against the applied remote description and appends
-  candidates or end-of-candidates markers to the corresponding m-section.
+  `usernameFragment` against the applied remote description (including a
+  pending remote offer) and appends candidates or end-of-candidates
+  markers to the corresponding m-section.  Parsed candidates are staged
+  until the matching answer commits them onto the live ICE agent.
   The public API keeps werift's historical pre-SRD buffering behavior, while
   the WPT runner wraps the class to exercise strict spec rejection.
 - `bundlePolicy: "balanced"` is accepted for input compatibility but is
@@ -654,6 +656,18 @@ v13.6.0, v12.17.0
 ##### Returns
 
 `null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+
+***
+
+### previousExtIdUriMap
+
+#### Get Signature
+
+> **get** **previousExtIdUriMap**(): `object`
+
+##### Returns
+
+`object`
 
 ***
 

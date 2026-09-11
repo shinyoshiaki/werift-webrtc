@@ -322,6 +322,10 @@
 
 ##### options
 
+###### applyReceive?
+
+`boolean`
+
 ###### emitTrack?
 
 `boolean`

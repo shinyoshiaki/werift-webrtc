@@ -182,6 +182,10 @@
 
 `ReadonlyMap`\<`string`, [`RTCDtlsTransport`](RTCDtlsTransport.md)\>
 
+###### rejectedMids?
+
+`ReadonlySet`\<`string`\>
+
 ###### sctpTransport
 
 `undefined` \| [`RTCSctpTransport`](RTCSctpTransport.md)
@@ -403,6 +407,10 @@ Discard only a remote offer/answer that failed before graph commit.
 ###### dtlsTransportByMid?
 
 `ReadonlyMap`\<`string`, [`RTCDtlsTransport`](RTCDtlsTransport.md)\>
+
+###### replaceDtls?
+
+`boolean`
 
 #### Returns
 
