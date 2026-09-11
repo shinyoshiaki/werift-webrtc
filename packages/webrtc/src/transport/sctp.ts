@@ -450,6 +450,36 @@ export class RTCSctpTransport {
     this.sctp.setRemotePort(port);
   }
 
+  /**
+   * RFC 8841: a new sctp-port closes the current association and starts a
+   * fresh one on the same DTLS carrier, using a new local port.
+   */
+  async replaceAssociation(localPort: number) {
+    const previous = this.sctp;
+    this.disposeSctpListeners();
+    this.closeDataChannels();
+    this.port = localPort;
+    this.stopping = false;
+    try {
+      await previous.stop();
+    } catch (error) {
+      log("replaceAssociation stop previous failed", error);
+    }
+    this.createSctpAssociation();
+  }
+
+  /** Close the SCTP association while leaving the DTLS transport in place. */
+  async closeAssociation() {
+    this.stopping = true;
+    this.disposeSctpListeners();
+    this.closeDataChannels();
+    try {
+      await this.sctp.stop();
+    } catch (error) {
+      log("closeAssociation stop failed", error);
+    }
+  }
+
   async start(remotePort: number) {
     this.prepareForStart();
     if (this.isServer) {

@@ -19,7 +19,6 @@ import type {
 import { RTCRtpReceiver } from "./rtpReceiver";
 import type { RTCRtpSender } from "./rtpSender";
 import type { RTCRtpTransceiver } from "./rtpTransceiver";
-import { MediaStreamTrack } from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/router.ts");
 
@@ -27,8 +26,6 @@ export class RtpRouter {
   ssrcTable: { [ssrc: number]: RTCRtpReceiver | RTCRtpSender } = {};
   ridTable: { [rid: string]: RTCRtpReceiver | RTCRtpSender } = {};
   extIdUriMap: { [id: number]: string } = {};
-  /** Previous negotiated RX extmap, kept so in-flight old-format packets still decode. */
-  previousExtIdUriMap: { [id: number]: string } = {};
 
   constructor() {}
 
@@ -51,17 +48,14 @@ export class RtpRouter {
       .filter((e) => e.ssrc != undefined) // todo fix
       .forEach((encode, i) => {
         this.registerRtpReceiver(transceiver.receiver, encode.ssrc);
-        transceiver.addTrack(
-          new MediaStreamTrack({
-            ssrc: encode.ssrc,
-            kind: transceiver.kind,
-            id: transceiver.sender.trackId,
-            remote: true,
-            codec: params.codecs[i],
-          }),
-        );
+        transceiver.addTrack(transceiver.receiver.track);
+        transceiver.receiver.bindRemoteSsrc(encode.ssrc, params.codecs[i]);
         if (encode.rtx) {
           this.registerRtpReceiver(transceiver.receiver, encode.rtx.ssrc);
+          transceiver.receiver.bindRemoteSsrc(
+            encode.rtx.ssrc,
+            params.codecs[i],
+          );
         }
       });
 
@@ -74,9 +68,24 @@ export class RtpRouter {
     for (const extension of headerExtensions) {
       const current = this.extIdUriMap[extension.id];
       if (current && current !== extension.uri) {
-        this.previousExtIdUriMap[extension.id] = current;
+        throw new Error(
+          `extmap id ${extension.id} remapped from ${current} to ${extension.uri}`,
+        );
       }
       this.extIdUriMap[extension.id] = extension.uri;
+    }
+  }
+
+  unregisterRtpReceiver(receiver: RTCRtpReceiver) {
+    for (const ssrc of Object.keys(this.ssrcTable)) {
+      if (this.ssrcTable[Number(ssrc)] === receiver) {
+        delete this.ssrcTable[Number(ssrc)];
+      }
+    }
+    for (const rid of Object.keys(this.ridTable)) {
+      if (this.ridTable[rid] === receiver) {
+        delete this.ridTable[rid];
+      }
     }
   }
 
@@ -89,34 +98,16 @@ export class RtpRouter {
     const [codec] = params.codecs;
 
     log("registerRtpReceiverByRid", param);
-    transceiver.addTrack(
-      new MediaStreamTrack({
-        rid: param.rid,
-        kind: transceiver.kind,
-        id: transceiver.sender.trackId,
-        remote: true,
-        codec,
-      }),
-    );
+    transceiver.addTrack(transceiver.receiver.track);
+    transceiver.receiver.bindRemoteRid(param.rid, codec);
     this.ridTable[param.rid] = transceiver.receiver;
   }
 
   routeRtp = (packet: RtpPacket) => {
-    const parseExtensions = (map: { [id: number]: string }): Extensions => {
-      try {
-        return rtpHeaderExtensionsParser(packet.header.extensions, map);
-      } catch {
-        return {};
-      }
-    };
-    const currentExtensions = parseExtensions(this.extIdUriMap);
-    const previousExtensions =
-      Object.keys(this.previousExtIdUriMap).length > 0
-        ? parseExtensions(this.previousExtIdUriMap)
-        : undefined;
-    const extensions: Extensions = previousExtensions
-      ? { ...previousExtensions, ...currentExtensions }
-      : currentExtensions;
+    const extensions: Extensions = rtpHeaderExtensionsParser(
+      packet.header.extensions,
+      this.extIdUriMap,
+    );
 
     let rtpReceiver: RTCRtpReceiver | undefined = this.ssrcTable[
       packet.header.ssrc
@@ -124,7 +115,11 @@ export class RtpRouter {
 
     const rid = extensions[RTP_EXTENSION_URI.sdesRTPStreamID];
     if (typeof rid === "string") {
-      rtpReceiver = this.ridTable[rid] as RTCRtpReceiver;
+      rtpReceiver = this.ridTable[rid] as RTCRtpReceiver | undefined;
+      if (!rtpReceiver) {
+        log("unknown rid", rid);
+        return;
+      }
       rtpReceiver.latestRid = rid;
       rtpReceiver.handleRtpByRid(packet, rid, extensions);
     } else if (rtpReceiver) {

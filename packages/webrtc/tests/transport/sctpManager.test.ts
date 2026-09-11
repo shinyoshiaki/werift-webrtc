@@ -65,4 +65,11 @@ describe("SctpTransportManager", () => {
     transport.sctp.setState(SCTP_STATE.CLOSED);
     await second;
   });
+
+  test("nextLocalPort wraps and skips 0", () => {
+    // Assert: 次portは現行+1で、65535の次は5000へ戻る。
+    expect(SctpTransportManager.nextLocalPort(5000)).toBe(5001);
+    expect(SctpTransportManager.nextLocalPort(65535)).toBe(5000);
+    expect(SctpTransportManager.nextLocalPort(undefined)).toBe(5001);
+  });
 });
