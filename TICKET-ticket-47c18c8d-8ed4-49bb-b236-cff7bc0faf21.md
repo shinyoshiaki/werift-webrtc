@@ -11,7 +11,7 @@
 - 実メディアが要らない場合でも、呼び出し側は中身のある register（例: `createDummyRegister()`）を明示する必要がある。
 - `createDummyRegister()` は VP8 / ダミー音声の **定期 RTP を生成する** テスト用ソースであり、「トラックオブジェクトだけ欲しい」用途とは違う。
 
-本タスクの「レジスター無指定」は **オプション自体の省略ではなく、空配列 `mediaRegister: []`** を指す。空配列でも `getUserMedia` でメディアデバイス取得ができるようにし、その場合は **ダミー RTP も codec 付与もないプレーンな空 `MediaStreamTrack`** を返す。ブラウザライブラリが `getUserMedia` → `addTrack` するだけでトランシーバを立てたい、あとから `writeRtp` したい、recvonly に近いローカルトラックが欲しい、といった用途を、ダミーメディアなしで満たす。
+本タスクの「レジスター無指定」は **オプション自体の省略ではなく、空配列 `mediaRegister: []`** を指す。空配列でも `getUserMedia` でメディアデバイス取得ができるようにし、その場合は **ダミー RTP も codec 付与もないプレーンな空 `MediaStreamTrack`** を返す。同じ挙動を **明示的に指定できる公開レジスター**（`createEmptyRegister()`）も追加する。他のソースと並べて登録したり、空配列に頼らず意図をコードに残したりできるようにする。ブラウザライブラリが `getUserMedia` → `addTrack` するだけでトランシーバを立てたい、あとから `writeRtp` したい、recvonly に近いローカルトラックが欲しい、といった用途を、ダミーメディアなしで満たす。
 
 codec は空トラックへ載せない。SDP 交渉は PeerConnection の既定 codec に任せる。
 
@@ -26,7 +26,7 @@ codec は空トラックへ載せない。SDP 交渉は PeerConnection の既定
 - キー欠如・`undefined` は現行どおり `TypeError: mediaRegister is required`。
 - 非配列（オブジェクトなど）は現行どおり `TypeError: mediaRegister must be an array`。
 
-空配列 `installPolyfill({ mediaRegister: [] })` では `navigator.mediaDevices` が入り、`getUserMedia({ audio: true })` / `{ video: true }` / 両方で解決する。明示した register がある場合の選択・エラーは変えない。
+空配列 `installPolyfill({ mediaRegister: [] })` では `navigator.mediaDevices` が入り、`getUserMedia({ audio: true })` / `{ video: true }` / 両方で解決する。同じ空トラック供給を明示するときは `installPolyfill({ mediaRegister: [createEmptyRegister()] })` を使う。他の明示 register（MP4 / RTP / dummy 等）がある場合の選択・エラーは変えない。
 
 ### 2.2 空配列時のトラック
 
@@ -45,29 +45,32 @@ codec は空トラックへ載せない。SDP 交渉は PeerConnection の既定
 
 `getDisplayMedia` は現行どおり `getUserMedia` のエイリアスなので、空配列時も同じ空トラック経路になる。
 
-### 2.3 空配列の意味（確定）
+### 2.3 空配列と明示レジスター（確定）
 
-`mediaRegister: []` は **プレーン空トラックを供給する**。
+`mediaRegister: []` は **プレーン空トラックを供給する**。同じ供給を公開 factory で明示できる。
 
 - グローバル（`RTCPeerConnection` 等）は入る（現行どおり）
 - `getUserMedia({ video: true })` などは空トラック付き `MediaStream` を返す（現行の `NotFoundError` から変更）
+- `createEmptyRegister()` のトラック特性は空配列デフォルトと同一（§2.2）
 - オプション省略 / `undefined` は従来どおり TypeError（変更しない）
 
 ### 2.4 実装の置き場所
 
-組み込み register を 1 つ用意し、空配列のときだけ `bindRegisters` に渡す。
+組み込みの空トラック register を 1 つ実装し、**公開 factory として出し、空配列時のデフォルトにも使う**。
 
 - 新規: `packages/webrtc/src/polyfill/registers/empty.ts`（名前は既存 `callback.ts` / dummy に合わせてよい）
 - `kinds: ["audio", "video"]` の単一 register（`createDummyRegister` と同じ列挙モデル。同一 `deviceId` で `audioinput` + `videoinput`）
 - `createTracks` は `request.kind` に応じたプレーン `MediaStreamTrack` を返すだけ。**codec を触らない**
 - `mimeType` は `MediaRegister` 契約上必須。選択・列挙用のプレースホルダでよい（例: dummy と同様 `video/VP8`）。トラックへ codec をコピーしない
 - `createCallbackRegister` は kind 一致時に codec を付けるため、空トラック工場の実装に使わない
+- 既存の `createDummyRegister` と同様、`MediaRegisterCommonOptions`（`deviceId` / `groupId` / `label`）を受け取る
 
-公開 factory（推奨）:
+公開 factory（必須）:
 
 - `createEmptyRegister(options?: MediaRegisterCommonOptions): MediaRegister`
-- `packages/webrtc/src/polyfill/api.ts` から re-export
-- 空配列時のデフォルトは内部でこの factory を使う。テストや「明示的に空トラックだけ登録したい」用途にも使える
+- `packages/webrtc/src/polyfill/api.ts` から `createDummyRegister` と並べて re-export（`werift/polyfill` および `werift/polyfill/dom`）
+- 空配列時のデフォルトは内部でこの factory を呼ぶ。呼び出し側は `mediaRegister: [createEmptyRegister()]` で同じ挙動を明示できる
+- 他 register と混在してよい。選択は既存の `selectRegisterForKind`（deviceId / mimeType 等）に従う。空トラック側だけを使いたいときは `deviceId` を指定する
 
 `install.ts` の変更方針（必須チェックは残す）:
 
@@ -106,8 +109,11 @@ const registers =
   - `enumerateDevices()` に audioinput / videoinput が出る
   - track は `MediaStreamTrack`、`readyState === "live"`、`muted === true`、`codec == undefined`
   - 一定時間待っても `onReceiveRtp` が発火しない（dummy との回帰防止）
+- `createEmptyRegister()` を明示したとき、空配列時と同じプレーン空トラックになる（audio / video / 両方、`codec == undefined`、RTP なし）
+- `createEmptyRegister({ deviceId, label })` が `enumerateDevices()` と `deviceId.exact` に反映される
+- 他 register と混在したとき、既存の選択規則で空トラック側も選べる
 - 明示 `createDummyRegister` やファイル / RTP register の挙動は変えない
-- `polyfillNodeCompile/consumer.ts` は現行どおり `installPolyfill({ mediaRegister: [] })` でよい（オプション省略は型エラーのまま）
+- `polyfillNodeCompile/consumer.ts` は現行どおり `installPolyfill({ mediaRegister: [] })` でよい。`polyfillDomCompile/consumer.ts` に `createEmptyRegister` の import を足して型が通ることを確認する（オプション省略は型エラーのまま）
 
 Act / Assert には日本語コメントを付ける（`packages/webrtc/AGENTS.md`）。
 
@@ -117,11 +123,11 @@ Act / Assert には日本語コメントを付ける（`packages/webrtc/AGENTS.m
 
 | ファイル | 内容 |
 | --- | --- |
-| `docs/polyfill/README.md` | `mediaRegister` は必須のまま。空配列は NotFound ではなくプレーン空トラック、と書き換える |
-| `docs/polyfill/guide.md` | オプション表で `mediaRegister` は必須のまま。空配列の意味を更新。factory 表に空トラック register を追加。dummy との差（RTP 有無 / codec 未設定・PC 既定 codec）を一文で書く |
-| `website/docs/doc1.md` / `website/i18n/ja/.../doc1.md` | 空配列でも GUM できること。オプション省略は不可 |
+| `docs/polyfill/README.md` | `mediaRegister` は必須のまま。空配列は NotFound ではなくプレーン空トラック、と書き換える。明示 `createEmptyRegister()` の最小例を足す |
+| `docs/polyfill/guide.md` | オプション表で `mediaRegister` は必須のまま。空配列の意味を更新。factory 表に `createEmptyRegister()` を追加し、空配列デフォルトと同一であること、dummy との差（RTP 有無 / codec 未設定・PC 既定 codec）を書く |
+| `website/docs/doc1.md` / `website/i18n/ja/.../doc1.md` | 空配列でも GUM できること、明示 factory があること。オプション省略は不可 |
 | `packages/webrtc/AGENTS.md` | polyfill の 1 行説明に空配列時の空トラックを足す |
-| `changelog.md` Unreleased Features | 破壊的ではない追加として記載。空配列の GUM が NotFound から成功に変わる点に触れる |
+| `changelog.md` Unreleased Features | 破壊的ではない追加として記載。空配列の GUM が NotFound から成功に変わる点と、`createEmptyRegister()` の追加に触れる |
 
 WPT runner（`createDummyRegister()` 明示）は変更しない。
 
@@ -138,14 +144,17 @@ WPT runner（`createDummyRegister()` 明示）は変更しない。
 
 テスト用 `createVideoCallbackRegister` は既に `new MediaStreamTrack({ kind: "video" })` を返すが、`createCallbackRegister` が mimeType から `track.codec` を埋める。空デフォルトは **その codec 付与もしない**。codec 未設定トラックを `addTrack` した場合、送信側は既存の `rtpSender` が PeerConnection の codec リストから後で載せる（`packages/webrtc/src/media/rtpSender.ts`）。SDP 交渉は PC 既定 codec で成立する。
 
-`existingMediaDevices: "noop"` で既存 `getUserMedia` があるときは、現行どおり werift の `mediaDevices` を入れない。空配列デフォルト register もそのときは使われない。
+`existingMediaDevices: "noop"` で既存 `getUserMedia` があるときは、現行どおり werift の `mediaDevices` を入れない。空配列デフォルト / 明示 `createEmptyRegister` もそのときは使われない。
+
+公開面では `createEmptyRegister` を `createDummyRegister` と同じく `api.ts` から出す。空配列分岐は `install.ts` で `[createEmptyRegister()]` に置換し、トラック生成ロジックは factory 側に一箇所だけ置く。
 
 ## 4. 制約・注意点
 
 - **`mediaRegister` 必須は維持。** 省略・`undefined` を許可しない。
 - **dummy をデフォルトにしない。** 定期 RTP は CPU・テストフレーク・意図しない送信の原因になる。
 - **codec は未設定。** mimeType プレースホルダをトラックへコピーしない。SDP は PC 既定 codec。
-- **空配列の GUM 成功は既存ドキュメント / テストの契約変更。** README・guide・`polyfill.test.ts` を同時更新する。明示 register がある場合の NotFound（該当 kind なし）は残す。
+- **空配列の GUM 成功は既存ドキュメント / テストの契約変更。** README・guide・`polyfill.test.ts` を同時更新する。`createEmptyRegister` 以外の明示 register だけがあり、該当 kind が無い場合の NotFound は残す。
+- **空配列と `createEmptyRegister()` は同じトラック特性。** 実装を二重化せず、空配列は factory 呼び出しに寄せる。
 - **WPT / 明示 register を壊さない。** runner は `createDummyRegister()` を明示している。
 - **仕様の TypeError を緩めない。** `audio`/`video` どちらも無い制約は失敗のまま。
 - **uninstall。** 空トラックも `MediaDevices.cleanup` / `track.stop` の既存経路に乗せる。追加 I/O は無いので `stop()` は no-op でよい。
@@ -157,10 +166,11 @@ WPT runner（`createDummyRegister()` 明示）は変更しない。
 
 - `mediaRegister` 省略 / `undefined` / 非配列は従来どおり TypeError。
 - `mediaRegister: []` で `installPolyfill` が成功し、`getUserMedia` が要求 kind のプレーン空 `MediaStreamTrack` を返す。
+- `createEmptyRegister()` が `werift/polyfill`（および `/dom`）から公開され、明示指定時も空配列と同じプレーン空トラックを返す。
 - そのトラックは dummy RTP を出さず、`codec` 未設定である。SDP は PC 既定 codec に任せる。
 - 空制約 `{}` は従来どおり TypeError。
 - 明示した MP4 / RTP / callback / dummy register の選択・エラー・クリーンアップは回帰しない。
-- 上記ドキュメントと changelog が「必須のまま / 空配列は空トラック」を説明している。
+- 上記ドキュメントと changelog が「必須のまま / 空配列は空トラック / `createEmptyRegister()` で明示」を説明している。
 - 検証: `packages/webrtc` で対象テスト（少なくとも `tests/nonstandard/polyfill.test.ts`）と `npm run type`。polyfill に閉じる変更ならワークスペース全体の `ci` は必須ではない。
 
 ## 主な参照
@@ -181,3 +191,4 @@ WPT runner（`createDummyRegister()` 明示）は変更しない。
 1. `InstallPolyfillOptions.mediaRegister` は必須のまま。省略・`undefined` は TypeError。
 2. `mediaRegister: []` はプレーン空トラックを供給する（NotFoundError にしない）。
 3. 空トラックの `codec` は未設定。SDP は PC 既定 codec に任せる。
+4. 同じ挙動を明示する公開 factory `createEmptyRegister()` を追加する。空配列デフォルトはこの factory を使う。
