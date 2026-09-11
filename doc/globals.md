@@ -169,6 +169,7 @@
 ## Type Aliases
 
 - [Address](type-aliases/Address.md)
+- [AddTransceiverExtra](type-aliases/AddTransceiverExtra.md)
 - [AudioLevelIndicationPayload](type-aliases/AudioLevelIndicationPayload.md)
 - [BundlePolicy](type-aliases/BundlePolicy.md)
 - [CipherSuites](type-aliases/CipherSuites.md)

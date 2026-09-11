@@ -78,33 +78,55 @@
 
 ### addTransceiver()
 
-> **addTransceiver**(`trackOrKind`, `dtlsTransport`?, `options`?, `extra`?): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+#### Call Signature
 
-#### Parameters
+> **addTransceiver**(`trackOrKind`, `dtlsTransport`?, `options`?, `notify`?): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
 
-##### trackOrKind
+##### Parameters
+
+###### trackOrKind
 
 [`Kind`](../type-aliases/Kind.md) | [`MediaStreamTrack`](MediaStreamTrack.md)
 
-##### dtlsTransport?
+###### dtlsTransport?
 
 [`RTCDtlsTransport`](RTCDtlsTransport.md)
 
-##### options?
+###### options?
 
-`Partial`\<[`TransceiverOptions`](../interfaces/TransceiverOptions.md)\> = `{}`
-
-##### extra?
+`Partial`\<[`TransceiverOptions`](../interfaces/TransceiverOptions.md)\>
 
 ###### notify?
 
 `boolean`
 
-###### reuseInactiveMLine?
+##### Returns
 
-`boolean`
+[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
 
-#### Returns
+#### Call Signature
+
+> **addTransceiver**(`trackOrKind`, `dtlsTransport`?, `options`?, `extra`?): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+
+##### Parameters
+
+###### trackOrKind
+
+[`Kind`](../type-aliases/Kind.md) | [`MediaStreamTrack`](MediaStreamTrack.md)
+
+###### dtlsTransport?
+
+[`RTCDtlsTransport`](RTCDtlsTransport.md)
+
+###### options?
+
+`Partial`\<[`TransceiverOptions`](../interfaces/TransceiverOptions.md)\>
+
+###### extra?
+
+[`AddTransceiverExtra`](../type-aliases/AddTransceiverExtra.md)
+
+##### Returns
 
 [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
 

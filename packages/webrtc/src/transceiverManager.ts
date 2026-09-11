@@ -28,6 +28,24 @@ import { reverseDirection } from "./utils";
 
 const log = debug("werift:packages/webrtc/src/media/rtpTransceiverManager.ts");
 
+export type AddTransceiverExtra = {
+  notify?: boolean;
+  reuseInactiveMLine?: boolean;
+};
+
+function resolveAddTransceiverExtra(extra: boolean | AddTransceiverExtra): {
+  notify: boolean;
+  reuseInactiveMLine: boolean;
+} {
+  if (typeof extra === "boolean") {
+    return { notify: extra, reuseInactiveMLine: true };
+  }
+  return {
+    notify: extra.notify ?? true,
+    reuseInactiveMLine: extra.reuseInactiveMLine ?? true,
+  };
+}
+
 export class TransceiverManager {
   private readonly transceivers: RTCRtpTransceiver[] = [];
 
@@ -84,8 +102,20 @@ export class TransceiverManager {
   addTransceiver(
     trackOrKind: Kind | MediaStreamTrack,
     dtlsTransport?: RTCDtlsTransport,
+    options?: Partial<TransceiverOptions>,
+    notify?: boolean,
+  ): RTCRtpTransceiver;
+  addTransceiver(
+    trackOrKind: Kind | MediaStreamTrack,
+    dtlsTransport?: RTCDtlsTransport,
+    options?: Partial<TransceiverOptions>,
+    extra?: AddTransceiverExtra,
+  ): RTCRtpTransceiver;
+  addTransceiver(
+    trackOrKind: Kind | MediaStreamTrack,
+    dtlsTransport?: RTCDtlsTransport,
     options: Partial<TransceiverOptions> = {},
-    extra: { notify?: boolean; reuseInactiveMLine?: boolean } = {},
+    extra: boolean | AddTransceiverExtra = {},
   ): RTCRtpTransceiver {
     const kind =
       typeof trackOrKind === "string" ? trackOrKind : trackOrKind.kind;
@@ -110,8 +140,7 @@ export class TransceiverManager {
     );
     this.router.registerRtpSender(newTransceiver.sender);
 
-    const notify = extra.notify ?? true;
-    const reuseInactiveMLine = extra.reuseInactiveMLine ?? true;
+    const { notify, reuseInactiveMLine } = resolveAddTransceiverExtra(extra);
     // Local addTransceiver may recycle an inactive m-line. Applying a remote
     // offer must not steal a transceiver that still belongs to another mid.
     const inactiveTransceiverIndex = reuseInactiveMLine
