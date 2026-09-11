@@ -261,6 +261,50 @@ seconds
 
 ***
 
+### bindRemoteRid()
+
+> **bindRemoteRid**(`rid`, `codec`?): `void`
+
+Bind a RID onto the stable receiver track.
+
+#### Parameters
+
+##### rid
+
+`string`
+
+##### codec?
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+#### Returns
+
+`void`
+
+***
+
+### bindRemoteSsrc()
+
+> **bindRemoteSsrc**(`ssrc`, `codec`?): `void`
+
+Bind an SSRC onto the stable receiver track instead of creating a new one.
+
+#### Parameters
+
+##### ssrc
+
+`number`
+
+##### codec?
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+#### Returns
+
+`void`
+
+***
+
 ### collectStats()
 
 > **collectStats**(`timestamp`): [`RTCStats`](../interfaces/RTCStats.md)[]

@@ -126,6 +126,18 @@
 
 ***
 
+### closeAssociation()
+
+> **closeAssociation**(): `Promise`\<`void`\>
+
+Close the SCTP association while leaving the DTLS transport in place.
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
 ### dataChannelAddNegotiated()
 
 > **dataChannelAddNegotiated**(`channel`): `void`
@@ -201,6 +213,25 @@
 #### Returns
 
 [`RTCSctpCapabilities`](RTCSctpCapabilities.md)
+
+***
+
+### replaceAssociation()
+
+> **replaceAssociation**(`localPort`): `Promise`\<`void`\>
+
+RFC 8841: a new sctp-port closes the current association and starts a
+fresh one on the same DTLS carrier, using a new local port.
+
+#### Parameters
+
+##### localPort
+
+`number`
+
+#### Returns
+
+`Promise`\<`void`\>
 
 ***
 

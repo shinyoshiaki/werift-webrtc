@@ -659,18 +659,6 @@ v13.6.0, v12.17.0
 
 ***
 
-### previousExtIdUriMap
-
-#### Get Signature
-
-> **get** **previousExtIdUriMap**(): `object`
-
-##### Returns
-
-`object`
-
-***
-
 ### remoteDescription
 
 #### Get Signature

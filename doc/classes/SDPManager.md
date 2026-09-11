@@ -186,6 +186,10 @@
 
 `ReadonlySet`\<`string`\>
 
+###### sctpPort?
+
+`number`
+
 ###### sctpTransport
 
 `undefined` \| [`RTCSctpTransport`](RTCSctpTransport.md)
@@ -240,7 +244,7 @@ Commit staged SDP only after the corresponding transport graph succeeds.
 
 ### createMediaDescriptionForSctp()
 
-> **createMediaDescriptionForSctp**(`sctp`, `dtlsTransport`): [`MediaDescription`](MediaDescription.md)
+> **createMediaDescriptionForSctp**(`sctp`, `dtlsTransport`, `sctpPort`): [`MediaDescription`](MediaDescription.md)
 
 MediaDescriptionをSCTP用に作成
 
@@ -253,6 +257,10 @@ MediaDescriptionをSCTP用に作成
 ##### dtlsTransport
 
 [`RTCDtlsTransport`](RTCDtlsTransport.md) = `sctp.dtlsTransport`
+
+##### sctpPort
+
+`number` = `sctp.port`
 
 #### Returns
 

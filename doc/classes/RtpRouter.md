@@ -28,18 +28,6 @@
 
 ***
 
-### previousExtIdUriMap
-
-> **previousExtIdUriMap**: `object` = `{}`
-
-Previous negotiated RX extmap, kept so in-flight old-format packets still decode.
-
-#### Index Signature
-
-\[`id`: `number`\]: `string`
-
-***
-
 ### ridTable
 
 > **ridTable**: `object` = `{}`
@@ -145,6 +133,22 @@ Previous negotiated RX extmap, kept so in-flight old-format packets still decode
 ##### packet
 
 [`RtpPacket`](RtpPacket.md)
+
+#### Returns
+
+`void`
+
+***
+
+### unregisterRtpReceiver()
+
+> **unregisterRtpReceiver**(`receiver`): `void`
+
+#### Parameters
+
+##### receiver
+
+[`RTCRtpReceiver`](RTCRtpReceiver.md)
 
 #### Returns
 
