@@ -1539,6 +1539,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
     let receivedRtcp = 0;
     let ice: Connection | undefined;
     let pair: CandidatePair | undefined;
+    let originalCanSend: (() => boolean) | undefined;
     try {
       await createDataChannelPair({}, pc1, pc2);
       const server = pc1.dtlsTransports[0]!;
@@ -1560,6 +1561,8 @@ describe("RTCPeerConnection SPED opt-in", () => {
       // Act: 認証済み pair を一時的に未 nomination にし、early media を保留する。
       pair.nominated = false;
       ice.nominated = undefined;
+      originalCanSend = ice.canSendApplicationData.bind(ice);
+      ice.canSendApplicationData = () => false;
       let rtpSettled = false;
       const rtpSend = server
         .sendRtp(
@@ -1585,6 +1588,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
       expect(stalledStats?.packetsSent).toBe(statsBefore.packetsSent);
 
       // Act: selected pair を復元し、実際の ICE path の再開通知を発火する。
+      ice.canSendApplicationData = originalCanSend!;
       pair.nominated = true;
       ice.nominated = pair;
       ice.stateChanged.execute(ice.state);
@@ -1602,6 +1606,9 @@ describe("RTCPeerConnection SPED opt-in", () => {
       if (ice && pair) {
         pair.nominated = true;
         ice.nominated = pair;
+        if (originalCanSend) {
+          ice.canSendApplicationData = originalCanSend;
+        }
       }
       await Promise.allSettled([pc1.close(), pc2.close()]);
     }

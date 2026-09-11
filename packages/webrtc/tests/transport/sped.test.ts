@@ -321,6 +321,121 @@ describe("IceSpedTransport datagram gate", () => {
     expect(received).toHaveLength(0);
   });
 
+  it("handshake 完了後は同一 remote 5-tuple の別 pair object から application DTLS を渡す", () => {
+    // Arrange: 複数 local host protocol が同じ remote に対して別 CandidatePair になる
+    const ice = createIceStub(1);
+    const transport = new IceSpedTransport(ice);
+    const received: Buffer[] = [];
+    transport.onData = (buf) => {
+      received.push(buf);
+    };
+    transport.markApplicationReady();
+    const protocolA = {
+      type: "udp",
+      localCandidate: new Candidate("f", 1, "udp", 1, "1.2.3.4", 1, "host"),
+    } as any;
+    const protocolB = {
+      type: "udp",
+      localCandidate: new Candidate("g", 1, "udp", 1, "1.2.3.4", 2, "host"),
+    } as any;
+    const pairA = authenticatedPair(protocolA, "10.0.0.1", 1111);
+    const pairB = authenticatedPair(protocolB, "10.0.0.1", 1111);
+    ice.nominated = pairA;
+    const app = Buffer.from([23, 4, 5, 6]);
+
+    // Act: nominated とは別 object だが remote 5-tuple は同じ datagram を流す
+    connectionDatagramEvent(ice).execute({
+      bytes: app,
+      source: ["10.0.0.1", 1111],
+      protocol: protocolB,
+      pair: pairB,
+      generation: 1,
+      authenticated: true,
+    });
+
+    // Assert: object identity ではなく selected path の 5-tuple で届ける
+    expect(received).toHaveLength(1);
+    expect(received[0]!.equals(app)).toBe(true);
+  });
+
+  it("handshake 完了後は ice.nominated 以外の nominated pair から application DTLS を渡す", () => {
+    // Arrange: 複数 host で dual nomination。ice.nominated と別 pair も nominated
+    const ice = createIceStub(1);
+    const transport = new IceSpedTransport(ice);
+    const received: Buffer[] = [];
+    transport.onData = (buf) => {
+      received.push(buf);
+    };
+    transport.markApplicationReady();
+    const protocolA = {
+      type: "udp",
+      localCandidate: new Candidate("f", 1, "udp", 1, "1.2.3.4", 1, "host"),
+    } as any;
+    const protocolB = {
+      type: "udp",
+      localCandidate: new Candidate("g", 1, "udp", 1, "1.2.3.4", 2, "host"),
+    } as any;
+    const pairA = authenticatedPair(protocolA, "10.0.0.1", 1111);
+    const pairB = authenticatedPair(protocolB, "10.0.0.1", 2222);
+    pairA.nominated = true;
+    pairB.nominated = true;
+    ice.nominated = pairA;
+    const app = Buffer.from([23, 7, 8, 9]);
+
+    // Act: ice.nominated ではないが nominated な pair から application record を流す
+    connectionDatagramEvent(ice).execute({
+      bytes: app,
+      source: ["10.0.0.1", 2222],
+      protocol: protocolB,
+      pair: pairB,
+      generation: 1,
+      authenticated: true,
+    });
+
+    // Assert: dual nomination の SCTP INIT を object identity で落とさない
+    expect(received).toHaveLength(1);
+    expect(received[0]!.equals(app)).toBe(true);
+  });
+
+  it("handshake 完了後は lastPath の remote 5-tuple から application DTLS を渡す", () => {
+    // Arrange: handshake は pairB。ICE は別 pair を ice.nominated にした
+    const ice = createIceStub(1);
+    const transport = new IceSpedTransport(ice);
+    const received: Buffer[] = [];
+    transport.onData = (buf) => {
+      received.push(buf);
+    };
+    transport.markApplicationReady();
+    const { protocol: protocolA } = mockProtocol("1.2.3.4", 1);
+    const { protocol: protocolB } = mockProtocol("1.2.3.4", 2);
+    const pairA = authenticatedPair(protocolA, "10.0.0.1", 1111);
+    const pairB = authenticatedPair(protocolB, "10.0.0.1", 2222);
+    pairA.nominated = true;
+    ice.nominated = pairA;
+    ice.checkList.push(pairA, pairB);
+    const runtime = new SpedRuntime(
+      new SpedSession(1, "complete"),
+      dummySpedHooks(),
+    );
+    runtime.pinHandshakePath(pairB);
+    transport.setRuntime(runtime);
+    const app = Buffer.from([23, 1, 1, 1]);
+
+    // Act: handshake 5-tuple から application record を流す
+    connectionDatagramEvent(ice).execute({
+      bytes: app,
+      source: ["10.0.0.1", 2222],
+      protocol: protocolB,
+      pair: pairB,
+      generation: 1,
+      authenticated: true,
+    });
+
+    // Assert: DTLS association の path は ice.nominated 以外でも届く
+    expect(received).toHaveLength(1);
+    expect(received[0]!.equals(app)).toBe(true);
+  });
+
   it("handshake 完了後の UDP は nominated と異なる authenticated pair から application DTLS を渡さない", () => {
     // Arrange: nominated は pair A。B は認証済みだが別 candidate
     const ice = createIceStub(1);

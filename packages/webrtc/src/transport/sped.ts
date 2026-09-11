@@ -1,5 +1,6 @@
 import type { CandidatePair, Connection } from "../../../ice/src";
 import {
+  type IceDatagramContext,
   allowsAuthenticatedDtlsDelivery,
   connectionDatagramEvent,
   isAuthenticatedHandshakePair,
@@ -88,7 +89,10 @@ export class IceSpedTransport implements Transport {
         if (!allowsAuthenticatedDtlsDelivery(ctx, ice.generation)) {
           return;
         }
-        if (this.applicationReady && ctx.pair !== ice.nominated) {
+        if (
+          this.applicationReady &&
+          !isSelectedApplicationPath(ctx, ice, this.runtime?.lastPath)
+        ) {
           return;
         }
         // 世代トークンを engine RX queue まで運び、restart 後の stale 実行を防ぐ。
@@ -628,6 +632,36 @@ export class IceSpedTransport implements Transport {
     }
     return ["0.0.0.0", 0];
   }
+}
+
+function isSelectedApplicationPath(
+  ctx: IceDatagramContext,
+  ice: Connection,
+  lastPath?: CandidatePair,
+): boolean {
+  // Dual nomination / multiple host protocols can leave more than one
+  // SUCCEEDED nominated pair. DTLS/SCTP is one association: deliver on any
+  // ICE-selected path, not only ice.nominated's object identity.
+  if (ctx.pair?.nominated || ctx.pair?.remoteNominated) {
+    return true;
+  }
+  const nominated = ice.nominated;
+  if (!nominated) {
+    return false;
+  }
+  if (ctx.pair === nominated) {
+    return true;
+  }
+  if (addressesEqual(ctx.source, nominated.remoteAddr)) {
+    return true;
+  }
+  // Handshake may have pinned a valid pair that ICE later replaced as
+  // ice.nominated. Application records on that 5-tuple still belong to DTLS.
+  return !!lastPath && addressesEqual(ctx.source, lastPath.remoteAddr);
+}
+
+function addressesEqual(a: Address, b: Address): boolean {
+  return a[0] === b[0] && a[1] === b[1];
 }
 
 function isDtlsApplicationData(data: Buffer): boolean {
