@@ -23,7 +23,7 @@ import {
   useVP8,
 } from "../../src";
 import { SignatureAlgorithm } from "../../src/const";
-import { createDataChannelPair } from "../utils";
+import { createDataChannelPair, exchangeOfferAnswer } from "../utils";
 
 describe("peerConnection", () => {
   test("test_connect_datachannel_modern_sdp", async () =>
@@ -1577,6 +1577,61 @@ describe("peerConnection", () => {
       await Promise.allSettled([caller.close(), callee.close()]);
     }
   }, 30_000);
+
+  test("inactive m-line を残した subsequent offer でも新しい mid の answer を作れる", async () => {
+    // Arrange: Chrome の addTransceiver と同様、送信済み m-line を inactive にしたあと
+    // 別 mid を追加する。answerer が inactive transceiver を盗むと createAnswer が落ちる。
+    const caller = new RTCPeerConnection({ iceServers: [] });
+    const callee = new RTCPeerConnection({ iceServers: [] });
+    const first = new MediaStreamTrack({ kind: "video" });
+    const second = new MediaStreamTrack({ kind: "video" });
+    const third = new MediaStreamTrack({ kind: "video" });
+    caller.addTransceiver(first, { direction: "sendonly" });
+    const secondTransceiver = caller.addTransceiver(second, {
+      direction: "sendonly",
+    });
+    caller.addTransceiver(third, { direction: "sendonly" });
+
+    try {
+      await exchangeOfferAnswer(caller, callee);
+      caller.removeTrack(secondTransceiver.sender);
+      await exchangeOfferAnswer(caller, callee);
+      const inactiveMid = secondTransceiver.mid;
+      expect(inactiveMid).toBeTruthy();
+      expect(
+        callee.getTransceivers().find((t) => t.mid === inactiveMid)
+          ?.currentDirection,
+      ).toBe("inactive");
+
+      caller.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
+        direction: "sendonly",
+      });
+
+      // Act: inactive m-line を残したまま新しい m-line を含む offer を answer する。
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription(caller.localDescription!);
+      const answer = await callee.createAnswer();
+      await callee.setLocalDescription(answer);
+      await caller.setRemoteDescription(answer);
+
+      // Assert: 旧 mid は inactive のまま残り、新しい m-line 用の transceiver が増える。
+      const offerMids = [
+        ...caller.localDescription!.sdp.matchAll(/^a=mid:([^\r\n]+)$/gm),
+      ].map((match) => match[1]!);
+      expect(offerMids).toHaveLength(4);
+      expect(callee.getTransceivers()).toHaveLength(4);
+      expect(
+        callee.getTransceivers().map((transceiver) => transceiver.mid),
+      ).toEqual(offerMids);
+      expect(
+        callee.getTransceivers().find((t) => t.mid === inactiveMid)
+          ?.currentDirection,
+      ).toBe("inactive");
+      expect(answer.sdp.match(/^m=/gm)).toHaveLength(4);
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
 
   test("closeはpending local planのstaged transportを停止する", async () => {
     // Arrange: BUNDLE接続後にsplit offerで独立transportをstageする。

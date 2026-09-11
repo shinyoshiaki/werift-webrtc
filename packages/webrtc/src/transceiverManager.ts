@@ -85,7 +85,7 @@ export class TransceiverManager {
     trackOrKind: Kind | MediaStreamTrack,
     dtlsTransport?: RTCDtlsTransport,
     options: Partial<TransceiverOptions> = {},
-    notify = true,
+    extra: { notify?: boolean; reuseInactiveMLine?: boolean } = {},
   ): RTCRtpTransceiver {
     const kind =
       typeof trackOrKind === "string" ? trackOrKind : trackOrKind.kind;
@@ -110,13 +110,19 @@ export class TransceiverManager {
     );
     this.router.registerRtpSender(newTransceiver.sender);
 
-    // reuse inactive
-    const inactiveTransceiverIndex = this.transceivers.findIndex(
-      (t) => t.currentDirection === "inactive" && !t.usedForSender,
-    );
-    const inactiveTransceiver = this.transceivers.find(
-      (t) => t.currentDirection === "inactive" && !t.usedForSender,
-    );
+    const notify = extra.notify ?? true;
+    const reuseInactiveMLine = extra.reuseInactiveMLine ?? true;
+    // Local addTransceiver may recycle an inactive m-line. Applying a remote
+    // offer must not steal a transceiver that still belongs to another mid.
+    const inactiveTransceiverIndex = reuseInactiveMLine
+      ? this.transceivers.findIndex(
+          (t) => t.currentDirection === "inactive" && !t.usedForSender,
+        )
+      : -1;
+    const inactiveTransceiver =
+      inactiveTransceiverIndex > -1
+        ? this.transceivers[inactiveTransceiverIndex]
+        : undefined;
     if (inactiveTransceiverIndex > -1 && inactiveTransceiver) {
       this.replaceTransceiver(newTransceiver, inactiveTransceiverIndex);
       newTransceiver.mLineIndex = inactiveTransceiver.mLineIndex;

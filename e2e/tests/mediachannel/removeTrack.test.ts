@@ -224,7 +224,7 @@ describe("mediachannel_removeTrack", () => {
         await pc.setRemoteDescription(answer);
       }
 
-      pc.addTransceiver(video, { direction: "sendonly" });
+      const replaced = pc.addTransceiver(video, { direction: "sendonly" });
       {
         await pc.setLocalDescription(await pc.createOffer());
         const answer = await peer.request(mediachannel_offer_replace_second, {
@@ -233,10 +233,11 @@ describe("mediachannel_removeTrack", () => {
         });
         await pc.setRemoteDescription(answer);
       }
-      // Assert: replace 後の m-line でも RTP を受信できる。
+      // Assert: Chrome は inactive m-line を recycle しないので、追加した
+      // sendonly transceiver の mid で RTP を受信できる。
       await peer.request(mediachannel_offer_replace_second, {
         type: "check",
-        payload: { index: 1 },
+        payload: { mid: replaced.mid },
       });
     } finally {
       pc.close();

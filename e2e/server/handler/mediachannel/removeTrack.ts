@@ -133,13 +133,17 @@ class mediachannel_removetrack_offer_base {
         break;
       case "check":
         {
-          const { index } = payload as { index: number };
+          const { index, mid } = payload as { index?: number; mid?: string };
 
           const transceiver = this.pc
             .getTransceivers()
-            .find((t) => t.mLineIndex === index);
+            .find((t) =>
+              mid != null ? t.mid === mid : t.mLineIndex === index,
+            );
           if (!transceiver) {
-            throw new Error(`no transceiver for mLineIndex=${index}`);
+            throw new Error(
+              `no transceiver for ${mid != null ? `mid=${mid}` : `mLineIndex=${index}`}`,
+            );
           }
           const track = transceiver.receiver.track;
           // CI load can delay first RTP beyond 2s; keep bounded so peer.request fails fast.
@@ -147,7 +151,7 @@ class mediachannel_removetrack_offer_base {
             await track.onReceiveRtp.asPromise(10_000);
           } catch (error) {
             throw new Error(
-              `RTP not received for mLineIndex=${index} within 10s: ${String(error)}`,
+              `RTP not received for ${mid != null ? `mid=${mid}` : `mLineIndex=${index}`} within 10s: ${String(error)}`,
             );
           }
           accept({});

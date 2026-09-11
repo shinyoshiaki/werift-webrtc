@@ -2004,6 +2004,7 @@ export class RTCPeerConnection extends EventTarget {
               remoteMedia.kind,
               dtlsTransport,
               { direction: "recvonly" },
+              { reuseInactiveMLine: false },
             );
             transceiver.mid = remoteMedia.rtp.muxId ?? null;
             transceiver.createdByRemoteDescription = true;
