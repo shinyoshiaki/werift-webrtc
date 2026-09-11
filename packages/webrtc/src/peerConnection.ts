@@ -35,7 +35,10 @@ import {
   generateStatsId,
   getStatsTimestamp,
 } from "./media/stats";
-import { SctpTransportManager } from "./sctpManager";
+import {
+  type DormantSctpApplication,
+  SctpTransportManager,
+} from "./sctpManager";
 import {
   type BundlePolicy,
   type MediaDescription,
@@ -73,15 +76,14 @@ type PeerGraphSnapshot = {
     RTCRtpTransceiver,
     ReturnType<RTCRtpTransceiver["captureNegotiationState"]>
   >;
-  routerSsrcTable: typeof RtpRouter.prototype.ssrcTable;
-  routerRidTable: typeof RtpRouter.prototype.ridTable;
-  routerExtIdUriMaps: { [transportId: string]: { [id: number]: string } };
+  routerRtpSessions: ReturnType<RtpRouter["snapshotRtpSessions"]>;
   sctpTransport?: RTCSctpTransport;
   sctpDtlsTransport?: RTCDtlsTransport;
   sctpRemotePort?: number;
   sctpMid?: string;
   sctpMLineIndex?: number;
   sctpRemoteMaxMessageSize?: number;
+  sctpDormantApplication?: DormantSctpApplication;
   currentLocalDescription?: SessionDescription;
   currentRemoteDescription?: SessionDescription;
   pendingLocalDescription?: SessionDescription;
@@ -616,14 +618,10 @@ export class RTCPeerConnection extends EventTarget {
       }
     }
 
-    [
-      ...(this.config.headerExtensions.audio || []),
-    ].forEach((v, i) => {
+    [...(this.config.headerExtensions.audio || [])].forEach((v, i) => {
       v.id = 1 + i;
     });
-    [
-      ...(this.config.headerExtensions.video || []),
-    ].forEach((v, i) => {
+    [...(this.config.headerExtensions.video || [])].forEach((v, i) => {
       v.id = 1 + i;
     });
 
@@ -668,6 +666,7 @@ export class RTCPeerConnection extends EventTarget {
     const description = this.sdpManager.buildOfferSdp(
       this.transceiverManager.getTransceivers(),
       this.sctpTransport,
+      this.sctpManager.dormantApplication,
     );
     const createdOffer = description.toJSON();
     this.lastCreatedOffer = createdOffer;
@@ -675,10 +674,25 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private createSctpTransport(dtlsTransport?: RTCDtlsTransport) {
+    const dormant = this.sctpManager.takeDormantApplication();
     const sctp = this.sctpManager.createSctpTransport(
       this.config.maxMessageSize,
     );
-    sctp.setDtlsTransport(dtlsTransport ?? this.findOrCreateTransport());
+    if (dormant?.mid) {
+      sctp.mid = dormant.mid;
+    }
+    if (dormant?.mLineIndex !== undefined) {
+      sctp.mLineIndex = dormant.mLineIndex;
+    }
+    const dormantCarrier =
+      dormant &&
+      dormant.dtlsTransport.state !== "closed" &&
+      dormant.dtlsTransport.state !== "failed"
+        ? dormant.dtlsTransport
+        : undefined;
+    sctp.setDtlsTransport(
+      dtlsTransport ?? dormantCarrier ?? this.findOrCreateTransport(),
+    );
     return sctp;
   }
 
@@ -783,7 +797,7 @@ export class RTCPeerConnection extends EventTarget {
       this.router.routeRtp(rtp, dtlsTransport.id);
     });
     dtlsTransport.onRtcp.subscribe((rtcp) => {
-      this.router.routeRtcp(rtcp);
+      this.router.routeRtcp(rtcp, dtlsTransport.id);
     });
     const iceTransport = dtlsTransport.iceTransport;
 
@@ -853,6 +867,9 @@ export class RTCPeerConnection extends EventTarget {
     if (this.sctpTransport?.mid === mid) {
       return this.sctpTransport.dtlsTransport;
     }
+    if (this.sctpManager.dormantApplication?.mid === mid) {
+      return this.sctpManager.dormantApplication.dtlsTransport;
+    }
     return undefined;
   }
 
@@ -917,6 +934,13 @@ export class RTCPeerConnection extends EventTarget {
       ) {
         return this.sctpTransport.dtlsTransport;
       }
+      const dormant = this.sctpManager.dormantApplication;
+      if (
+        dormant &&
+        (dormant.mid === media.rtp.muxId || dormant.mLineIndex === index)
+      ) {
+        return dormant.dtlsTransport;
+      }
       return undefined;
     }
 
@@ -939,15 +963,16 @@ export class RTCPeerConnection extends EventTarget {
           transceiver.captureNegotiationState(),
         ]),
       ),
-      routerSsrcTable: { ...this.router.ssrcTable },
-      routerRidTable: { ...this.router.ridTable },
-      routerExtIdUriMaps: this.router.snapshotExtIdUriMaps(),
+      routerRtpSessions: this.router.snapshotRtpSessions(),
       sctpTransport: this.sctpTransport,
       sctpDtlsTransport: this.sctpTransport?.dtlsTransport,
       sctpRemotePort: this.sctpManager.sctpRemotePort,
       sctpMid: this.sctpTransport?.mid,
       sctpMLineIndex: this.sctpTransport?.mLineIndex,
       sctpRemoteMaxMessageSize: this.sctpTransport?.remoteMaxMessageSize,
+      sctpDormantApplication: this.sctpManager.dormantApplication
+        ? { ...this.sctpManager.dormantApplication }
+        : undefined,
       currentLocalDescription: this.sdpManager.currentLocalDescription,
       currentRemoteDescription: this.sdpManager.currentRemoteDescription,
       pendingLocalDescription: this.sdpManager.pendingLocalDescription,
@@ -991,9 +1016,7 @@ export class RTCPeerConnection extends EventTarget {
       transceiver.restoreNegotiationState(state);
     }
 
-    this.router.ssrcTable = { ...snapshot.routerSsrcTable };
-    this.router.ridTable = { ...snapshot.routerRidTable };
-    this.router.restoreExtIdUriMaps(snapshot.routerExtIdUriMaps);
+    this.router.restoreRtpSessions(snapshot.routerRtpSessions);
     for (const transceiver of keptNewTransceivers) {
       // RFC 9429 §5.7: keep the addTrack()-reused transceiver, but drop the
       // rolled-back remote offer's MID / m-section association.
@@ -1027,6 +1050,7 @@ export class RTCPeerConnection extends EventTarget {
     this.sctpManager.restoreSctpTransport(
       snapshot.sctpTransport,
       snapshot.sctpRemotePort,
+      snapshot.sctpDormantApplication,
     );
     this.sdpManager.currentLocalDescription = snapshot.currentLocalDescription;
     this.sdpManager.currentRemoteDescription =
@@ -1176,12 +1200,12 @@ export class RTCPeerConnection extends EventTarget {
       if (binding.requiresNewDtlsAssociation) continue;
       if (remoteSdp.type === "offer") {
         this.transceiverManager.applyLocalSendParameters(binding.transceiver);
-        if (plan.deferReceiveParameters) {
-          this.transceiverManager.applyRemoteReceiveParameters(
-            binding.transceiver,
-            binding.remoteMedia,
-          );
-        }
+      }
+      if (plan.deferReceiveParameters) {
+        this.transceiverManager.applyRemoteReceiveParameters(
+          binding.transceiver,
+          binding.remoteMedia,
+        );
       }
       if (binding.remoteMedia.ssrc[0]?.ssrc) {
         binding.transceiver.receiver.setupTWCC(
@@ -1237,6 +1261,13 @@ export class RTCPeerConnection extends EventTarget {
     }
 
     for (const transport of retiredTransports) {
+      const retiredRejectedSctp = plan.bindings.some(
+        (binding) =>
+          !!binding.sctpTransport &&
+          (binding.requiresNewDtlsAssociation || binding.rejectTransport) &&
+          (binding.currentTransport === transport ||
+            binding.targetTransport === transport),
+      );
       const stillUsed =
         this.transceiverManager
           .getTransceivers()
@@ -1246,7 +1277,9 @@ export class RTCPeerConnection extends EventTarget {
           ) ||
         (this.sctpTransport != undefined &&
           this.sctpManager.sctpRemotePort != undefined &&
-          this.sctpTransport.dtlsTransport === transport);
+          this.sctpTransport.dtlsTransport === transport) ||
+        (!retiredRejectedSctp &&
+          this.sctpManager.dormantApplication?.dtlsTransport === transport);
       if (!stillUsed) {
         await this.secureManager.stopTransport(transport);
       }
@@ -1314,6 +1347,19 @@ export class RTCPeerConnection extends EventTarget {
           "DTLS association replacement is not implemented",
         );
       }
+    }
+  }
+
+  private assertRemoteExtmapsForTargetTransports(
+    bindings: RemoteMediaBinding[],
+  ) {
+    for (const binding of bindings) {
+      if (!binding.transceiver || binding.remoteMedia.port === 0) continue;
+      if (binding.requiresNewDtlsAssociation) continue;
+      this.router.assertExtmapIdsNotRemapped(
+        binding.targetTransport.id,
+        binding.remoteMedia.rtp.headerExtensions,
+      );
     }
   }
 
@@ -2184,8 +2230,7 @@ export class RTCPeerConnection extends EventTarget {
                 {
                   emitTrack: mappedTransceiver.receiver.tracks.length === 0,
                   setupTWCC: !hasCurrentNegotiatedSession,
-                  applyReceive:
-                    remoteSdp!.type !== "offer" || !hasCurrentNegotiatedSession,
+                  applyReceive: !hasCurrentNegotiatedSession,
                 },
               ),
           });
@@ -2318,15 +2363,21 @@ export class RTCPeerConnection extends EventTarget {
           dtlsParametersIndicateNewAssociation(
             currentMedia?.dtlsParams,
             binding.remoteMedia.dtlsParams,
+            binding.targetTransport.role,
           )
         ) {
-          if (remoteSdp.type === "answer") {
+          if (
+            remoteSdp.type === "answer" &&
+            binding.targetTransport.state === "connected"
+          ) {
             throw createWebRtcDomException(
               "NotSupportedError",
               "DTLS association replacement is not implemented",
             );
           }
-          transportsNeedingNewAssociation.add(binding.targetTransport);
+          if (remoteSdp.type === "offer") {
+            transportsNeedingNewAssociation.add(binding.targetTransport);
+          }
         }
       }
       if (remoteSdp.type === "offer") {
@@ -2343,7 +2394,9 @@ export class RTCPeerConnection extends EventTarget {
           .concat(
             graphSnapshot.sctpTransport
               ? [graphSnapshot.sctpTransport.dtlsTransport]
-              : [],
+              : graphSnapshot.sctpDormantApplication
+                ? [graphSnapshot.sctpDormantApplication.dtlsTransport]
+                : [],
           ),
       );
       this.dtlsTransports.forEach((transport) => {
@@ -2372,6 +2425,11 @@ export class RTCPeerConnection extends EventTarget {
       const sctpBinding = remoteMediaBindings.find(
         (binding) => binding.sctpTransport !== undefined,
       );
+      // RFC 8285 uniqueness is per RTP session (DTLS/BUNDLE target), not the
+      // current transceiver transport.  Validate the staged graph before any
+      // ICE/DTLS mutation so a BUNDLE join remap cannot half-commit.
+      this.assertRemoteExtmapsForTargetTransports(remoteMediaBindings);
+
       const plan: PendingRemoteOfferPlan = {
         remoteDescription: remoteSdp,
         bindings: remoteMediaBindings,

@@ -1853,12 +1853,28 @@ export class RTCDtlsParameters {
 }
 
 /**
+ * RFC 8842: a remote answer's setup role is compared against the already
+ * negotiated peer role, not against a previous offer's setup:actpass.
+ * @internal
+ */
+export function expectedRemoteDtlsRole(
+  localRole: DtlsRole,
+): Exclude<DtlsRole, "auto"> | undefined {
+  if (localRole === "server") return "client";
+  if (localRole === "client") return "server";
+  return undefined;
+}
+
+/**
  * RFC 8842: fingerprint / tls-id / concrete setup-role changes request a new association.
+ * Setup role is compared against the previously negotiated peer role derived
+ * from the local DTLS role, not against a previous offer's setup:actpass.
  * @internal
  */
 export function dtlsParametersIndicateNewAssociation(
   current: RTCDtlsParameters | undefined,
   pending: RTCDtlsParameters | undefined,
+  localRole?: DtlsRole,
 ): boolean {
   if (!current || !pending) {
     return false;
@@ -1873,10 +1889,18 @@ export function dtlsParametersIndicateNewAssociation(
       return true;
     }
   }
-  if ((current.tlsId || pending.tlsId) && current.tlsId !== pending.tlsId) {
+  if (current.tlsId && pending.tlsId && current.tlsId !== pending.tlsId) {
     return true;
   }
-  if (pending.role !== "auto" && current.role !== pending.role) {
+  const previousRemoteRole =
+    localRole === undefined
+      ? current.role
+      : (expectedRemoteDtlsRole(localRole) ?? "auto");
+  if (
+    pending.role !== "auto" &&
+    previousRemoteRole !== "auto" &&
+    previousRemoteRole !== pending.role
+  ) {
     return true;
   }
   return false;

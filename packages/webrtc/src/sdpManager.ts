@@ -3,6 +3,7 @@ import { createWebRtcDomException } from "./errors";
 import type { RTCRtpTransceiver } from "./media";
 import { RTCRtpSimulcastParameters } from "./media/parameters";
 import type { MediaDirection } from "./media/rtpTransceiver";
+import type { DormantSctpApplication } from "./sctpManager";
 import {
   type BundlePolicy,
   GroupDescription,
@@ -12,7 +13,7 @@ import {
   addSDPHeader,
 } from "./sdp";
 import type { RTCDtlsTransport } from "./transport/dtls";
-import type { RTCSctpTransport } from "./transport/sctp";
+import { DEFAULT_MAX_MESSAGE_SIZE, RTCSctpTransport } from "./transport/sctp";
 import { andDirection } from "./utils";
 
 export class SDPManager {
@@ -145,6 +146,48 @@ export class SDPManager {
     return media;
   }
 
+  private createMediaDescriptionForClosedSctp(
+    dormant: DormantSctpApplication,
+    mLineIndex: number,
+  ): MediaDescription {
+    const media = new MediaDescription(
+      "application",
+      DISCARD_PORT,
+      "UDP/DTLS/SCTP",
+      ["webrtc-datachannel"],
+    );
+    media.sctpPort = 0;
+    media.rtp.muxId = dormant.mid;
+    media.sctpCapabilities = RTCSctpTransport.getCapabilities(
+      DEFAULT_MAX_MESSAGE_SIZE,
+    );
+    this.addTransportDescription(media, dormant.dtlsTransport);
+    dormant.mLineIndex = mLineIndex;
+    return media;
+  }
+
+  /**
+   * RFC 8842: tls-id mux category is IDENTICAL; only the BUNDLE tag carries it.
+   */
+  private applyBundleTlsId(description: SessionDescription) {
+    const bundle = description.group.find(
+      (group) => group.semantic === "BUNDLE",
+    );
+    const tag = bundle?.items[0];
+    if (!bundle || !tag) {
+      return;
+    }
+    for (const media of description.media) {
+      const mid = media.rtp.muxId;
+      if (!media.dtlsParams || !mid || !bundle.items.includes(mid)) {
+        continue;
+      }
+      if (mid !== tag) {
+        media.dtlsParams.tlsId = undefined;
+      }
+    }
+  }
+
   /**
    * トランスポートの情報をMediaDescriptionに追加
    */
@@ -169,6 +212,8 @@ export class SDPManager {
     // transport's certificate.
     if (replaceDtls || !media.dtlsParams) {
       media.dtlsParams = dtlsTransport.localParameters;
+    } else if (media.dtlsParams) {
+      media.dtlsParams.tlsId = dtlsTransport.localParameters.tlsId;
     }
   }
 
@@ -263,6 +308,7 @@ export class SDPManager {
   buildOfferSdp(
     transceivers: RTCRtpTransceiver[],
     sctpTransport: RTCSctpTransport | undefined,
+    dormantApplication?: DormantSctpApplication,
   ): SessionDescription {
     const description = new SessionDescription();
     addSDPHeader("offer", description);
@@ -276,13 +322,18 @@ export class SDPManager {
         return;
       }
       if (m.kind === "application") {
-        if (!sctpTransport) {
+        if (sctpTransport) {
+          sctpTransport.mLineIndex = i;
+          description.media.push(
+            this.createMediaDescriptionForSctp(sctpTransport),
+          );
+        } else if (dormantApplication) {
+          description.media.push(
+            this.createMediaDescriptionForClosedSctp(dormantApplication, i),
+          );
+        } else {
           throw new Error("sctpTransport not found");
         }
-        sctpTransport.mLineIndex = i;
-        description.media.push(
-          this.createMediaDescriptionForSctp(sctpTransport),
-        );
       } else {
         const transceiver = transceivers.find((t) => t.mid === mid);
         if (!transceiver) {
@@ -357,6 +408,7 @@ export class SDPManager {
             bundleMids[0],
             transceivers,
             sctpTransport,
+            dormantApplication,
           );
           if (tagTransport) {
             description.media.forEach((media) => {
@@ -375,6 +427,7 @@ export class SDPManager {
         media.dtlsParams.role = "auto";
       }
     }
+    this.applyBundleTlsId(description);
 
     return description;
   }
@@ -507,6 +560,7 @@ export class SDPManager {
       }
     }
 
+    this.applyBundleTlsId(description);
     return description;
   }
 
@@ -550,11 +604,14 @@ export class SDPManager {
     mid: string | undefined,
     transceivers: RTCRtpTransceiver[],
     sctpTransport?: RTCSctpTransport,
+    dormantApplication?: DormantSctpApplication,
   ) {
     if (!mid) return undefined;
     const transceiver = transceivers.find((candidate) => candidate.mid === mid);
     if (transceiver) return transceiver.dtlsTransport;
     if (sctpTransport?.mid === mid) return sctpTransport.dtlsTransport;
+    if (dormantApplication?.mid === mid)
+      return dormantApplication.dtlsTransport;
     return undefined;
   }
 
@@ -778,6 +835,7 @@ export class SDPManager {
         }
       }
     }
+    this.applyBundleTlsId(description);
 
     this.setLocalDescription(description, options.commit ?? true);
   }

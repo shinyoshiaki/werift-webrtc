@@ -10,13 +10,23 @@ import {
   getStatsTimestamp,
 } from "./media/stats";
 import type { MediaDescription } from "./sdp";
+import type { RTCDtlsTransport } from "./transport/dtls";
 import { RTCSctpTransport } from "./transport/sctp";
 
 const log = debug("werift:packages/webrtc/src/transport/sctpManager.ts");
 
+/** @internal Application m-line ownership kept after SDP closed the association. */
+export type DormantSctpApplication = {
+  dtlsTransport: RTCDtlsTransport;
+  mid?: string;
+  mLineIndex?: number;
+};
+
 export class SctpTransportManager {
   sctpTransport?: RTCSctpTransport;
   sctpRemotePort?: number;
+  /** @internal DTLS/MID retained after a=sctp-port:0 until a new SCTP object is created. */
+  dormantApplication?: DormantSctpApplication;
   dataChannelsOpened = 0;
   dataChannelsClosed = 0;
   private dataChannels: RTCDataChannel[] = [];
@@ -48,9 +58,20 @@ export class SctpTransportManager {
   restoreSctpTransport(
     sctpTransport: RTCSctpTransport | undefined,
     sctpRemotePort?: number,
+    dormantApplication?: DormantSctpApplication,
   ) {
     this.sctpTransport = sctpTransport;
     this.sctpRemotePort = sctpRemotePort;
+    this.dormantApplication = dormantApplication
+      ? { ...dormantApplication }
+      : undefined;
+  }
+
+  /** @internal Consume closed-association DTLS/MID ownership for a new SCTP object. */
+  takeDormantApplication() {
+    const dormant = this.dormantApplication;
+    this.dormantApplication = undefined;
+    return dormant;
   }
 
   createDataChannel(
@@ -242,6 +263,12 @@ export class SctpTransportManager {
       this.sctpRemotePort = undefined;
       this.connectAttempt = undefined;
       await this.sctpTransport.closeAssociation();
+      this.dormantApplication = {
+        dtlsTransport: this.sctpTransport.dtlsTransport,
+        mid: this.sctpTransport.mid,
+        mLineIndex: this.sctpTransport.mLineIndex,
+      };
+      this.sctpTransport = undefined;
       return;
     }
 

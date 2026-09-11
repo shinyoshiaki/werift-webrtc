@@ -73,6 +73,7 @@ export class SecureTransportManager {
         .filter((t) => !t.stopped)
         .map((t) => t?.dtlsTransport),
       this.sctpManager.sctpTransport?.dtlsTransport,
+      this.sctpManager.dormantApplication?.dtlsTransport,
     ].filter((t) => t != undefined);
 
     return transports.reduce((acc: RTCDtlsTransport[], cur) => {

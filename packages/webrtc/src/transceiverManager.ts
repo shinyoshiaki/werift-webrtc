@@ -380,10 +380,6 @@ export class TransceiverManager {
     if (transceiver.codecs.length === 0) {
       throw new Error("negotiate codecs failed.");
     }
-    this.router.assertExtmapIdsNotRemapped(
-      transceiver.dtlsTransport?.id ?? "",
-      remoteMedia.rtp.headerExtensions,
-    );
     transceiver.headerExtensions = remoteMedia.rtp.headerExtensions.filter(
       (extension) =>
         (
