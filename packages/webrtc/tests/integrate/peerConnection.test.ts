@@ -257,6 +257,73 @@ describe("peerConnection", () => {
     }
   }, 30_000);
 
+  test("unbundledで片方のfingerprint変更をrejectしてもaccepted RTPとconnectionStateを維持する", async () => {
+    // Arrange: unbundled の audio/video を別DTLSで接続する。
+    const caller = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "disable",
+    });
+    const callee = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "disable",
+    });
+    const audioTrack = new MediaStreamTrack({ kind: "audio" });
+    const videoTrack = new MediaStreamTrack({ kind: "video" });
+    caller.addTransceiver(audioTrack, { direction: "sendonly" });
+    caller.addTransceiver(videoTrack, { direction: "sendonly" });
+    callee.addTransceiver("audio", { direction: "recvonly" });
+    callee.addTransceiver("video", { direction: "recvonly" });
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription(caller.localDescription!);
+      await callee.setLocalDescription(await callee.createAnswer());
+      await caller.setRemoteDescription(callee.localDescription!);
+      await Promise.all([
+        waitForConnectionState(caller, "connected"),
+        waitForConnectionState(callee, "connected"),
+      ]);
+
+      const audioTransport = callee
+        .getTransceivers()
+        .find((transceiver) => transceiver.kind === "audio")!.dtlsTransport;
+      const videoTransport = callee
+        .getTransceivers()
+        .find((transceiver) => transceiver.kind === "video")!.dtlsTransport;
+      expect(audioTransport.id).not.toBe(videoTransport.id);
+      const remoteAudio = callee
+        .getTransceivers()
+        .find((transceiver) => transceiver.kind === "audio")!.receiver.track;
+
+      // Act: video m-lineだけfingerprintを変えたsubsequent offerをSRDしてreject answerする。
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription({
+        type: "offer",
+        sdp: tamperFingerprintForKind(caller.localDescription!.sdp, "video"),
+      });
+      const answer = await callee.createAnswer();
+      expect(answer.sdp).toMatch(/^m=video 0 /m);
+      expect(answer.sdp).toMatch(/^m=audio 9 /m);
+      await callee.setLocalDescription(answer);
+
+      // Assert: rejected DTLSだけ閉じ、accepted RTPとPC接続は続く。
+      expect(videoTransport.state).toBe("closed");
+      expect(audioTransport.state).toBe("connected");
+      expect(callee.connectionState).toBe("connected");
+      const receivedRtpPromise = remoteAudio.onReceiveRtp.asPromise(5_000);
+      audioTrack.writeRtp(
+        new RtpPacket(
+          new RtpHeader({ sequenceNumber: 41, payloadType: 96 }),
+          Buffer.from("audio-kept"),
+        ).serialize(),
+      );
+      const [receivedRtp] = await receivedRtpPromise;
+      expect(receivedRtp.payload).toEqual(Buffer.from("audio-kept"));
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  }, 30_000);
+
   test("media-only の古い connect は fingerprint変更のremote offerでfailedにしない", async () => {
     // Arrange: media-only の実接続を用意し、初回 connect の完了直前を保持する。
     const caller = new RTCPeerConnection({});

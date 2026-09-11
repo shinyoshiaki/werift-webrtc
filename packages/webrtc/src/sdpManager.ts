@@ -447,6 +447,11 @@ export class SDPManager {
           dtlsTransport,
           sctpPort,
         );
+        if (remoteMedia.port === 0) {
+          media.port = 0;
+          media.msids = [];
+          media.sctpPort = 0;
+        }
       } else {
         throw new Error("invalid kind");
       }

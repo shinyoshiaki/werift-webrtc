@@ -262,7 +262,9 @@ export class RTCRtpReceiver {
     return true;
   }
 
-  /** Bind an SSRC onto the stable receiver track instead of creating a new one. */
+  /** Bind an SSRC onto the stable receiver track instead of creating a new one.
+   * @internal
+   */
   bindRemoteSsrc(ssrc: number, codec?: RTCRtpCodecParameters) {
     const track = this.track;
     if (!this.tracks.includes(track)) {
@@ -275,7 +277,9 @@ export class RTCRtpReceiver {
     this.trackBySSRC[ssrc] = track;
   }
 
-  /** Bind a RID onto the stable receiver track. */
+  /** Bind a RID onto the stable receiver track.
+   * @internal
+   */
   bindRemoteRid(rid: string, codec?: RTCRtpCodecParameters) {
     const track = this.track;
     if (!this.tracks.includes(track)) {

@@ -303,6 +303,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   static localCertificate?: RTCCertificate;
   static localCertificatePromise?: Promise<RTCCertificate>;
   private remoteParameters?: RTCDtlsParameters;
+  /** RFC 8842 association-local tls-id advertised in SDP. */
+  private localTlsId = randomUUID();
 
   constructor(
     config: DtlsTransportConfig,
@@ -377,10 +379,12 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   dispatchEvent = (event: globalThis.Event) => this.events.dispatchEvent(event);
 
   get localParameters() {
-    return new RTCDtlsParameters(
+    const parameters = new RTCDtlsParameters(
       this.localCertificate ? this.localCertificate.getFingerprints() : [],
       this.role,
     );
+    parameters.tlsId = this.localTlsId;
+    return parameters;
   }
 
   static async SetupCertificate() {
@@ -422,6 +426,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         ? this.remoteParameters.role
         : remoteParameters.role;
     this.remoteParameters = new RTCDtlsParameters(fingerprints, role);
+    this.remoteParameters.tlsId = remoteParameters.tlsId;
     // 接続済み transport に新 fingerprint が来たら現 association の証明書で
     // 再検証する。不一致は旧 SDP に基づく認証状態の残留を許さず失敗させる。
     if (this.readiness.peerAuthenticated && !this.isTerminated()) {

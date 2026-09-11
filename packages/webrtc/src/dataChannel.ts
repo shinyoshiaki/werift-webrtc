@@ -113,21 +113,33 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
   setReadyState(state: DCState) {
     if (state !== this.readyState) {
       this.readyState = state;
-      this.stateChange.execute(state);
-      this.stateChanged.execute(state);
+      try {
+        this.stateChange.execute(state);
+      } catch (error) {
+        log("datachannel stateChange callback failed", error);
+      }
+      try {
+        this.stateChanged.execute(state);
+      } catch (error) {
+        log("datachannel stateChanged callback failed", error);
+      }
 
-      switch (state) {
-        case "open":
-          if (this.onopen) this.onopen();
-          this.emit("open");
-          break;
-        case "closed":
-          if (this.onclose) this.onclose();
-          this.emit("close");
-          break;
-        case "closing":
-          if (this.onclosing) this.onclosing();
-          break;
+      try {
+        switch (state) {
+          case "open":
+            if (this.onopen) this.onopen();
+            this.emit("open");
+            break;
+          case "closed":
+            if (this.onclose) this.onclose();
+            this.emit("close");
+            break;
+          case "closing":
+            if (this.onclosing) this.onclosing();
+            break;
+        }
+      } catch (error) {
+        log("datachannel readyState callback failed", error);
       }
       log("change state", state);
     }
