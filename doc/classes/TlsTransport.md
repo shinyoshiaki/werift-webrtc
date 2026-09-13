@@ -138,7 +138,7 @@ readonly \[`string`, `number`\]
 
 ### init()
 
-> `static` **init**(`addr`, `options`): `Promise`\<[`TlsTransport`](TlsTransport.md)\>
+> `static` **init**(`addr`, `options`, `streamOptions`): `Promise`\<[`TlsTransport`](TlsTransport.md)\>
 
 #### Parameters
 
@@ -149,6 +149,10 @@ readonly \[`string`, `number`\]
 ##### options
 
 [`TlsConnectionOptions`](../type-aliases/TlsConnectionOptions.md) = `{}`
+
+##### streamOptions
+
+[`StreamTransportOptions`](../interfaces/StreamTransportOptions.md) = `{}`
 
 #### Returns
 

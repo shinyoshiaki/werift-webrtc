@@ -1,5 +1,6 @@
 import { deepStrictEqual } from "assert";
 import { readFileSync } from "fs";
+import * as net from "node:net";
 import { Event } from "../../common/src";
 import { NodeStunServer, NodeTurnServer } from "../../ice-server/src";
 import { Candidate } from "../src/candidate";
@@ -10,6 +11,29 @@ import type { Protocol, TransactionRequestOptions } from "../src/types/model";
 
 export const TURN_TEST_USERNAME = "turn-user";
 export const TURN_TEST_PASSWORD = "turn-password";
+
+/** Arrange helper: accepts TCP but never completes a TLS handshake. */
+export async function createHangingTlsServer() {
+  const sockets = new Set<net.Socket>();
+  const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
+    socket.resume();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as net.AddressInfo;
+
+  return {
+    address: [address.address, address.port] as [string, number],
+    sockets,
+    close: async () => {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    },
+  };
+}
 
 export type ConsentOutcome = "success" | "timeout";
 

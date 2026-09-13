@@ -153,6 +153,7 @@
 - [RTCStats](interfaces/RTCStats.md)
 - [RTCTransportStats](interfaces/RTCTransportStats.md)
 - [RTCVideoSourceStats](interfaces/RTCVideoSourceStats.md)
+- [StreamTransportOptions](interfaces/StreamTransportOptions.md)
 - [TransactionRequestOptions](interfaces/TransactionRequestOptions.md)
 - [TransceiverOptions](interfaces/TransceiverOptions.md)
 - [Transport](interfaces/Transport.md)

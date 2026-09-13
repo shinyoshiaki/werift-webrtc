@@ -26,6 +26,12 @@ readonly \[`string`, `number`\]
 
 ### \_\_namedParameters
 
+#### connectTimeoutMs?
+
+`number`
+
+Maximum time to wait for TCP/TLS connection establishment, in milliseconds.
+
 #### interfaceAddresses?
 
 `InterfaceAddresses`

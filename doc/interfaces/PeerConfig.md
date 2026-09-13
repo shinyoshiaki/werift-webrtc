@@ -141,6 +141,15 @@ Gather passive (listening) TCP host candidates. Defaults to true.
 
 ***
 
+### iceTurnConnectTimeout
+
+> **iceTurnConnectTimeout**: `undefined` \| `number`
+
+Seconds to wait for a TURN TCP/TLS connection to be established.
+Defaults to 8 when undefined.
+
+***
+
 ### iceUseIpv4
 
 > **iceUseIpv4**: `boolean`

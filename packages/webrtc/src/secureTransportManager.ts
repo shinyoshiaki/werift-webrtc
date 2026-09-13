@@ -157,6 +157,7 @@ export class SecureTransportManager {
       useTcp: this.config.iceUseTcp,
       tcpPassive: this.config.iceTcpPassive,
       stunGatherTimeout: this.config.iceStunGatherTimeout,
+      turnConnectTimeout: this.config.iceTurnConnectTimeout,
       turnTlsOptions: this.config.turnTlsOptions,
       useLinkLocalAddress: this.config.iceUseLinkLocalAddress,
     });

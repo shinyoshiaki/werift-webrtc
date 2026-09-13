@@ -652,6 +652,8 @@ export interface TurnClientOptions {
   tlsOptions?: TlsConnectionOptions;
   portRange?: [number, number];
   interfaceAddresses?: InterfaceAddresses;
+  /** Maximum time to wait for TCP/TLS connection establishment, in milliseconds. */
+  connectTimeoutMs?: number;
 }
 
 export async function createTurnClient(
@@ -663,6 +665,7 @@ export async function createTurnClient(
     ssl,
     tlsOptions,
     transport: transportType,
+    connectTimeoutMs,
   }: TurnClientOptions = {},
 ) {
   lifetime ??= DEFAULT_ALLOCATION_LIFETIME;
@@ -672,8 +675,8 @@ export async function createTurnClient(
     transportType === "udp"
       ? await UdpTransport.init("udp4", { portRange, interfaceAddresses })
       : transportType === "tcp"
-        ? await TcpTransport.init(address)
-        : await TlsTransport.init(address, tlsOptions);
+        ? await TcpTransport.init(address, { connectTimeoutMs })
+        : await TlsTransport.init(address, tlsOptions, { connectTimeoutMs });
 
   const turn = new TurnProtocol(
     address,
@@ -701,6 +704,7 @@ export async function createStunOverTurnClient(
     lifetime,
     portRange,
     interfaceAddresses,
+    connectTimeoutMs,
     ssl,
     tlsOptions,
     transport: transportType,
@@ -711,6 +715,8 @@ export async function createStunOverTurnClient(
     tlsOptions?: TlsConnectionOptions;
     portRange?: [number, number];
     interfaceAddresses?: InterfaceAddresses;
+    /** Maximum time to wait for TCP/TLS connection establishment, in milliseconds. */
+    connectTimeoutMs?: number;
   } = {},
 ) {
   const turn = await createTurnClient(
@@ -726,6 +732,7 @@ export async function createStunOverTurnClient(
       ssl,
       tlsOptions,
       transport: transportType,
+      connectTimeoutMs,
     },
   );
   const turnTransport = new StunOverTurnProtocol(turn);

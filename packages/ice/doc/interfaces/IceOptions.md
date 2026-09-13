@@ -114,6 +114,15 @@ active TCP candidates.
 
 ***
 
+### turnConnectTimeout?
+
+> `optional` **turnConnectTimeout**: `number`
+
+Seconds to wait for a TURN TCP/TLS connection to be established.
+Defaults to 8.
+
+***
+
 ### turnPassword?
 
 > `optional` **turnPassword**: `string`

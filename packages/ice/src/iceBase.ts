@@ -248,6 +248,11 @@ export interface IceOptions {
    * networks can lower it.
    */
   stunGatherTimeout?: number;
+  /**
+   * Seconds to wait for a TURN TCP/TLS connection to be established.
+   * Defaults to 8.
+   */
+  turnConnectTimeout?: number;
   stunServer?: Address;
   turnServer?: Address;
   turnUsername?: string;
