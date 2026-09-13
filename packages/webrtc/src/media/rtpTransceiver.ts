@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { Event } from "../imports/common";
+import { Event, debug } from "../imports/common";
 
 import type { RTCDtlsTransport } from "..";
 import { SenderDirections } from "../const";
@@ -18,6 +18,8 @@ import {
   getStatsTimestamp,
 } from "./stats";
 import type { MediaStream, MediaStreamTrack } from "./track";
+
+const log = debug("werift:packages/webrtc/src/media/rtpTransceiver.ts");
 
 export class RTCRtpTransceiver {
   readonly id = randomUUID().toString();
@@ -148,7 +150,11 @@ export class RTCRtpTransceiver {
   addTrack(track: MediaStreamTrack) {
     const res = this.receiver.addTrack(track);
     if (res) {
-      this.onTrack.execute(track, this);
+      try {
+        this.onTrack.execute(track, this);
+      } catch (error) {
+        log("transceiver onTrack listener failed", error);
+      }
     }
   }
 

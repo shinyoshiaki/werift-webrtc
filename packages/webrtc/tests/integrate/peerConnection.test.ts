@@ -2130,8 +2130,84 @@ describe("peerConnection", () => {
       });
       const answer = await callee.createAnswer();
 
+      // Act: 実際のシグナリング経路どおり setLocalDescription まで進める。
+      await callee.setLocalDescription(answer);
+
       // Assert: RFC 8842 §5.3 によりanswerへtls-idを足さない。
       expect(answer.sdp).not.toMatch(/a=tls-id:/);
+      expect(callee.localDescription!.sdp).not.toMatch(/a=tls-id:/);
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
+  test("BUNDLE内の同じextmap URIでもattributesが違えばSRDをacceptする", async () => {
+    // Arrange: 同一BUNDLE sessionへ同じURI・別configurationのextmapを載せる。
+    const caller = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "max-bundle",
+      headerExtensions: {
+        audio: [useSdesMid()],
+        video: [useSdesMid()],
+      },
+    });
+    const callee = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "max-bundle",
+      headerExtensions: {
+        audio: [useSdesMid()],
+        video: [useSdesMid()],
+      },
+    });
+    caller.addTransceiver("audio", { direction: "sendonly" });
+    caller.addTransceiver("video", { direction: "sendonly" });
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      const offerSdp = caller.localDescription!.sdp.replace(
+        /(m=video[\s\S]*?)(a=extmap:\d+ [^\r\n]+)/,
+        `$1$2\r\na=extmap:7 ${RTP_EXTENSION_URI.sdesMid} config-b`,
+      );
+      expect(offerSdp).toContain(
+        `a=extmap:7 ${RTP_EXTENSION_URI.sdesMid} config-b`,
+      );
+
+      // Act: attributes差のある正当なBUNDLE offerをSRDする。
+      await callee.setRemoteDescription({ type: "offer", sdp: offerSdp });
+
+      // Assert: URIだけが同じでもconfigurationが違えばrejectしない。
+      expect(callee.signalingState).toBe("have-remote-offer");
+      expect(callee.getTransceivers()).toHaveLength(2);
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
+  test("ontrack listenerの例外はSRD/SLDをrollbackしない", async () => {
+    // Arrange: application callbackがthrowするcalleeを用意する。
+    const caller = new RTCPeerConnection({ iceServers: [] });
+    const callee = new RTCPeerConnection({ iceServers: [] });
+    callee.ontrack = () => {
+      throw new Error("app error");
+    };
+    callee.onRemoteTransceiverAdded.subscribe(() => {
+      throw new Error("app error");
+    });
+    caller.addTransceiver("audio", { direction: "sendonly" });
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+
+      // Act: throwするlistenerがあってもremote offerとlocal answerをcommitする。
+      await callee.setRemoteDescription(caller.localDescription!);
+      expect(callee.signalingState).toBe("have-remote-offer");
+      expect(callee.getTransceivers()).toHaveLength(1);
+      await callee.setLocalDescription(await callee.createAnswer());
+
+      // Assert: SDP transactionは成功したままgraphが残る。
+      expect(callee.signalingState).toBe("stable");
+      expect(callee.localDescription?.type).toBe("answer");
+      expect(callee.getTransceivers()).toHaveLength(1);
     } finally {
       await Promise.allSettled([caller.close(), callee.close()]);
     }

@@ -155,16 +155,8 @@ export class SessionDescription {
               break;
             case "extmap":
               {
-                // eslint-disable-next-line prefer-const
-                let [extId, extUri] = value.split(" ");
-                if (extId.includes("/")) {
-                  [extId] = extId.split("/");
-                }
                 currentMedia.rtp.headerExtensions.push(
-                  new RTCRtpHeaderExtensionParameters({
-                    id: Number.parseInt(extId),
-                    uri: extUri,
-                  }),
+                  parseExtmapAttribute(value),
                 );
               }
               break;
@@ -543,7 +535,7 @@ export class MediaDescription {
 
     // rtp extension
     this.rtp.headerExtensions.forEach((extension) =>
-      lines.push(`a=extmap:${extension.id} ${extension.uri}`),
+      lines.push(serializeExtmapAttribute(extension)),
     );
 
     // simulcast
@@ -635,6 +627,30 @@ function groupLines(sdp: string): [string[], string[][]] {
   });
 
   return [session, media];
+}
+
+function parseExtmapAttribute(value: string): RTCRtpHeaderExtensionParameters {
+  const tokens = value.trim().split(/\s+/);
+  const mapEntry = tokens[0] ?? "";
+  const slash = mapEntry.indexOf("/");
+  const extId = slash === -1 ? mapEntry : mapEntry.slice(0, slash);
+  const direction = slash === -1 ? undefined : mapEntry.slice(slash + 1);
+  const uri = tokens[1] ?? "";
+  const attributes = tokens.slice(2).join(" ").trim() || undefined;
+  return new RTCRtpHeaderExtensionParameters({
+    id: Number.parseInt(extId, 10),
+    uri,
+    ...(direction ? { direction } : {}),
+    ...(attributes ? { attributes } : {}),
+  });
+}
+
+function serializeExtmapAttribute(
+  extension: RTCRtpHeaderExtensionParameters,
+): string {
+  const direction = extension.direction ? `/${extension.direction}` : "";
+  const attributes = extension.attributes ? ` ${extension.attributes}` : "";
+  return `a=extmap:${extension.id}${direction} ${extension.uri}${attributes}`;
 }
 
 function parseAttr(line: string): [string, string] {

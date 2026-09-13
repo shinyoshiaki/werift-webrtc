@@ -316,11 +316,13 @@ export class RTCPeerConnection extends EventTarget {
           transceiver,
           receiver: transceiver.receiver,
         });
-        this.onTrack.execute(track);
-        this.emit("track", event);
-        if (this.ontrack) {
-          this.ontrack(event);
-        }
+        this.dispatchApplicationNotification("track", () => {
+          this.onTrack.execute(track);
+          this.emit("track", event);
+          if (this.ontrack) {
+            this.ontrack(event);
+          }
+        });
       },
     );
     this.transceiverManager.onNegotiationNeeded.subscribe(() =>
@@ -1191,12 +1193,24 @@ export class RTCPeerConnection extends EventTarget {
     }
   }
 
+  private dispatchApplicationNotification(label: string, notify: () => void) {
+    try {
+      notify();
+    } catch (error) {
+      log(`${label} listener failed`, error);
+    }
+  }
+
   private surfaceStagedRemoteTransceivers(
     plan: Pick<PendingRemoteOfferPlan, "pendingTransceiverNotifications">,
   ) {
     for (const transceiver of plan.pendingTransceiverNotifications) {
-      this.transceiverManager.onTransceiverAdded.execute(transceiver);
-      this.onRemoteTransceiverAdded.execute(transceiver);
+      this.dispatchApplicationNotification("transceiver", () => {
+        this.transceiverManager.onTransceiverAdded.execute(transceiver);
+      });
+      this.dispatchApplicationNotification("remote transceiver", () => {
+        this.onRemoteTransceiverAdded.execute(transceiver);
+      });
     }
     plan.pendingTransceiverNotifications.length = 0;
   }
@@ -1206,10 +1220,12 @@ export class RTCPeerConnection extends EventTarget {
   ) {
     for (const binding of plan.bindings) {
       if (!binding.transceiver || !binding.shouldEmitTrack) continue;
-      this.transceiverManager.emitRemoteTrack(
-        binding.transceiver,
-        binding.remoteMedia,
-      );
+      this.dispatchApplicationNotification("track", () => {
+        this.transceiverManager.emitRemoteTrack(
+          binding.transceiver!,
+          binding.remoteMedia,
+        );
+      });
       binding.shouldEmitTrack = false;
     }
   }

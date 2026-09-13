@@ -49,6 +49,17 @@ export class RTCRtpCodecParameters {
 export class RTCRtpHeaderExtensionParameters {
   id!: number;
   uri!: string;
+  /**
+   * RFC 8285 extmap extensionattributes. Direction is stored separately
+   * and is not part of the configuration identity.
+   * @internal
+   */
+  attributes?: string;
+  /**
+   * RFC 8285 extmap direction (`sendonly` / `recvonly` / `sendrecv` / `inactive`).
+   * @internal
+   */
+  direction?: string;
 
   constructor(
     props: Partial<RTCRtpHeaderExtensionParameters> &

@@ -882,6 +882,9 @@ export class SDPManager {
       }
     }
     this.applyBundleTlsId(description);
+    if (description.type === "answer") {
+      this.stripAnswerTlsIdIfUnadvertised(description);
+    }
 
     this.setLocalDescription(description, options.commit ?? true);
   }

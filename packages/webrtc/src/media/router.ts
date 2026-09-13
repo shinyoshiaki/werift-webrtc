@@ -26,7 +26,14 @@ type RtpSessionTables = {
   ssrcTable: { [ssrc: number]: RTCRtpReceiver | RTCRtpSender };
   ridTable: { [rid: string]: RTCRtpReceiver | RTCRtpSender };
   extIdUriMap: { [id: number]: string };
+  extIdAttributesMap: { [id: number]: string };
 };
+
+type ExtmapDescriptor = { id: number; uri: string; attributes?: string };
+
+function extmapConfigurationKey(extension: ExtmapDescriptor): string {
+  return `${extension.uri}\n${(extension.attributes ?? "").trim()}`;
+}
 
 export class RtpRouter {
   private sessions: { [transportId: string]: RtpSessionTables } = {};
@@ -54,6 +61,7 @@ export class RtpRouter {
           ssrcTable: { ...session.ssrcTable },
           ridTable: { ...session.ridTable },
           extIdUriMap: { ...session.extIdUriMap },
+          extIdAttributesMap: { ...session.extIdAttributesMap },
         },
       ]),
     );
@@ -67,6 +75,7 @@ export class RtpRouter {
           ssrcTable: { ...session.ssrcTable },
           ridTable: { ...session.ridTable },
           extIdUriMap: { ...session.extIdUriMap },
+          extIdAttributesMap: { ...(session.extIdAttributesMap ?? {}) },
         },
       ]),
     );
@@ -178,7 +187,7 @@ export class RtpRouter {
   /** @internal */
   assertExtmapIdsNotRemapped(
     sessionId: string,
-    headerExtensions: Array<{ id: number; uri: string }>,
+    headerExtensions: ExtmapDescriptor[],
   ) {
     this.assertPendingExtmapsForSession(sessionId, [headerExtensions]);
   }
@@ -186,36 +195,44 @@ export class RtpRouter {
   /**
    * Seed the live RTP-session map, then merge every pending m-line that will
    * share that session.  RFC 8285 uniqueness is per RTP session: the same id
-   * must not map to two URIs, and the same URI must not use two ids.
+   * must not map to two configurations, and the same URI+extensionattributes
+   * must not use two ids.  Direction is not part of the configuration key.
    * @internal
    */
   assertPendingExtmapsForSession(
     sessionId: string,
-    pendingExtensions: Array<Array<{ id: number; uri: string }>>,
+    pendingExtensions: ExtmapDescriptor[][],
   ) {
-    const idToUri: { [id: number]: string } = {
-      ...this.session(sessionId).extIdUriMap,
-    };
-    const uriToId: { [uri: string]: number } = {};
-    for (const [id, uri] of Object.entries(idToUri)) {
-      uriToId[uri] = Number(id);
+    const session = this.session(sessionId);
+    const idToConfig: { [id: number]: string } = {};
+    const configToId: { [config: string]: number } = {};
+    for (const [id, uri] of Object.entries(session.extIdUriMap)) {
+      const numericId = Number(id);
+      const key = extmapConfigurationKey({
+        id: numericId,
+        uri,
+        attributes: session.extIdAttributesMap[numericId],
+      });
+      idToConfig[numericId] = key;
+      configToId[key] = numericId;
     }
     for (const headerExtensions of pendingExtensions) {
       for (const extension of headerExtensions) {
-        const currentUri = idToUri[extension.id];
-        if (currentUri && currentUri !== extension.uri) {
+        const key = extmapConfigurationKey(extension);
+        const currentConfig = idToConfig[extension.id];
+        if (currentConfig && currentConfig !== key) {
           throw new Error(
-            `extmap id ${extension.id} remapped from ${currentUri} to ${extension.uri}`,
+            `extmap id ${extension.id} remapped from ${currentConfig} to ${key}`,
           );
         }
-        const currentId = uriToId[extension.uri];
+        const currentId = configToId[key];
         if (currentId != undefined && currentId !== extension.id) {
           throw new Error(
             `extmap uri ${extension.uri} remapped from id ${currentId} to ${extension.id}`,
           );
         }
-        idToUri[extension.id] = extension.uri;
-        uriToId[extension.uri] = extension.id;
+        idToConfig[extension.id] = key;
+        configToId[key] = extension.id;
       }
     }
   }
@@ -223,11 +240,14 @@ export class RtpRouter {
   /** Commit-time install must not throw; remap is rejected in preflight. */
   private installHeaderExtensions(
     sessionId: string,
-    headerExtensions: Array<{ id: number; uri: string }>,
+    headerExtensions: ExtmapDescriptor[],
   ) {
-    const currentMap = this.session(sessionId).extIdUriMap;
+    const session = this.session(sessionId);
     for (const extension of headerExtensions) {
-      currentMap[extension.id] = extension.uri;
+      session.extIdUriMap[extension.id] = extension.uri;
+      session.extIdAttributesMap[extension.id] = (
+        extension.attributes ?? ""
+      ).trim();
     }
   }
 
@@ -376,6 +396,7 @@ export class RtpRouter {
       ssrcTable: {},
       ridTable: {},
       extIdUriMap: {},
+      extIdAttributesMap: {},
     });
   }
 

@@ -183,5 +183,13 @@ describe("media/router", () => {
         [{ id: 2, uri: RTP_EXTENSION_URI.sdesMid }],
       ]),
     ).toThrow(/extmap uri .* remapped from id 1 to 2/);
+
+    // Assert: 同じURIでもextensionattributesが違えば別IDを許可する。
+    expect(() =>
+      router.assertPendingExtmapsForSession(sessionId, [
+        [{ id: 1, uri: RTP_EXTENSION_URI.sdesMid, attributes: "config-a" }],
+        [{ id: 2, uri: RTP_EXTENSION_URI.sdesMid, attributes: "config-b" }],
+      ]),
+    ).not.toThrow();
   });
 });

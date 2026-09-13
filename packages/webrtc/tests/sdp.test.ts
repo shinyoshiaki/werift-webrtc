@@ -18,6 +18,39 @@ describe("sdp", () => {
     ]);
   });
 
+  test("extmapはdirectionとextensionattributesを保持する", () => {
+    const sdp = [
+      "v=0",
+      "o=- 0 0 IN IP4 0.0.0.0",
+      "s=-",
+      "t=0 0",
+      "m=audio 9 UDP/TLS/RTP/SAVPF 111",
+      "a=extmap:1/sendonly urn:ietf:params:rtp-hdrext:sdes:mid",
+      "a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid config-b",
+      "",
+    ].join("\r\n");
+
+    const parsed = SessionDescription.parse(sdp);
+    expect(parsed.media[0]!.rtp.headerExtensions).toEqual([
+      expect.objectContaining({
+        id: 1,
+        uri: "urn:ietf:params:rtp-hdrext:sdes:mid",
+        direction: "sendonly",
+      }),
+      expect.objectContaining({
+        id: 2,
+        uri: "urn:ietf:params:rtp-hdrext:sdes:mid",
+        attributes: "config-b",
+      }),
+    ]);
+    expect(parsed.string).toContain(
+      "a=extmap:1/sendonly urn:ietf:params:rtp-hdrext:sdes:mid",
+    );
+    expect(parsed.string).toContain(
+      "a=extmap:2 urn:ietf:params:rtp-hdrext:sdes:mid config-b",
+    );
+  });
+
   describe("codecParametersFromString", () => {
     test("h264 parameters", () => {
       const params = codecParametersFromString(
