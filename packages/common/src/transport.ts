@@ -29,6 +29,13 @@ export type TlsConnectionOptions = Omit<
   "host" | "port" | "socket"
 >;
 
+export interface StreamTransportOptions {
+  /** Maximum time to wait for TCP/TLS connection establishment, in milliseconds. */
+  connectTimeoutMs?: number;
+}
+
+const DEFAULT_CONNECT_TIMEOUT_MS = 8000;
+
 export class UdpTransport implements Transport {
   readonly type = "udp";
   readonly socket: Socket;
@@ -141,16 +148,24 @@ export class TcpTransport implements Transport {
   readonly type = "tcp" as const;
   private readonly stream: StreamTransport;
 
-  private constructor(addr: Address) {
-    this.stream = new StreamTransport("tcp", () =>
-      connect({ port: addr[1], host: addr[0] }),
+  private constructor(addr: Address, options: StreamTransportOptions = {}) {
+    this.stream = new StreamTransport(
+      "tcp",
+      () => connect({ port: addr[1], host: addr[0] }),
+      undefined,
+      options.connectTimeoutMs,
     );
   }
 
-  static async init(addr: Address) {
-    const transport = new TcpTransport(addr);
-    await transport.init();
-    return transport;
+  static async init(addr: Address, options: StreamTransportOptions = {}) {
+    const transport = new TcpTransport(addr, options);
+    try {
+      await transport.init();
+      return transport;
+    } catch (error) {
+      await transport.close();
+      throw error;
+    }
   }
 
   private async init() {
@@ -186,20 +201,37 @@ export class TlsTransport implements Transport {
   readonly type = "tls" as const;
   private readonly stream: StreamTransport;
 
-  private constructor(addr: Address, options: TlsConnectionOptions = {}) {
-    this.stream = new StreamTransport("tls", () =>
-      tls.connect({
-        ...options,
-        host: addr[0],
-        port: addr[1],
-      }),
+  private constructor(
+    addr: Address,
+    options: TlsConnectionOptions = {},
+    streamOptions: StreamTransportOptions = {},
+  ) {
+    this.stream = new StreamTransport(
+      "tls",
+      () =>
+        tls.connect({
+          ...options,
+          host: addr[0],
+          port: addr[1],
+        }),
+      undefined,
+      streamOptions.connectTimeoutMs,
     );
   }
 
-  static async init(addr: Address, options: TlsConnectionOptions = {}) {
-    const transport = new TlsTransport(addr, options);
-    await transport.init();
-    return transport;
+  static async init(
+    addr: Address,
+    options: TlsConnectionOptions = {},
+    streamOptions: StreamTransportOptions = {},
+  ) {
+    const transport = new TlsTransport(addr, options, streamOptions);
+    try {
+      await transport.init();
+      return transport;
+    } catch (error) {
+      await transport.close();
+      throw error;
+    }
   }
 
   private async init() {
@@ -237,6 +269,7 @@ class StreamTransport implements Transport {
   private client!: StreamSocket;
   onData: (data: Buffer, addr: Address) => void = () => {};
   closed = false;
+  private rejectConnecting?: (error: Error) => void;
 
   constructor(
     type: StreamTransportType,
@@ -244,6 +277,7 @@ class StreamTransport implements Transport {
     private connectEvent: StreamConnectEvent = type === "tls"
       ? "secureConnect"
       : "connect",
+    private connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MS,
   ) {
     this.type = type;
     this.connect();
@@ -259,15 +293,35 @@ class StreamTransport implements Transport {
     }
     const client = this.createClient();
     this.client = client;
-    this.connecting = new Promise((r, f) => {
-      const onConnect = () => {
+    this.connecting = new Promise((resolve, reject) => {
+      let settled = false;
+      const settle = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        client.off(this.connectEvent, onConnect);
         client.off("error", onConnectError);
-        r();
+        this.rejectConnecting = undefined;
+        error ? reject(error) : resolve();
+      };
+      const onConnect = () => {
+        settle();
       };
       const onConnectError = (error: Error) => {
-        client.off(this.connectEvent, onConnect);
-        f(error);
+        this.closed = true;
+        settle(error);
+        client.destroy();
       };
+      const timer = setTimeout(() => {
+        this.closed = true;
+        settle(
+          new Error(
+            `${this.type} connect timed out after ${this.connectTimeoutMs}ms`,
+          ),
+        );
+        client.destroy();
+      }, this.connectTimeoutMs);
+      this.rejectConnecting = (error) => settle(error);
       client.once(this.connectEvent, onConnect);
       client.once("error", onConnectError);
     });
@@ -278,9 +332,6 @@ class StreamTransport implements Transport {
         this.client.remotePort!,
       ] as Address;
       this.onData(data, addr);
-    });
-    client.on("end", () => {
-      this.connect();
     });
     client.on("error", (error) => {
       log(`${this.type} transport error`, error);
@@ -311,6 +362,7 @@ class StreamTransport implements Transport {
 
   close = async () => {
     this.closed = true;
+    this.rejectConnecting?.(new Error(`${this.type} transport closed`));
     this.client?.destroy();
   };
 }
