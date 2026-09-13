@@ -35,7 +35,15 @@ export class Event<T extends any[]> {
     }
 
     for (const item of this.event.stack) {
-      item.execute(...args);
+      try {
+        item.execute(...args);
+      } catch (error) {
+        if (item.error) {
+          item.error(error);
+        } else {
+          this.onerror(error);
+        }
+      }
     }
 
     (async () => {

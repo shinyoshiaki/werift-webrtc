@@ -12,6 +12,11 @@ import {
   debug,
   rtpHeaderExtensionsParser,
 } from "../imports/rtp";
+import {
+  type ExtmapDescriptor,
+  extmapConfigurationKey,
+  isExtmapNegotiationId,
+} from "./extmap";
 import type {
   RTCRtpReceiveParameters,
   RTCRtpSimulcastParameters,
@@ -28,12 +33,6 @@ type RtpSessionTables = {
   extIdUriMap: { [id: number]: string };
   extIdAttributesMap: { [id: number]: string };
 };
-
-type ExtmapDescriptor = { id: number; uri: string; attributes?: string };
-
-function extmapConfigurationKey(extension: ExtmapDescriptor): string {
-  return `${extension.uri}\n${(extension.attributes ?? "").trim()}`;
-}
 
 export class RtpRouter {
   private sessions: { [transportId: string]: RtpSessionTables } = {};
@@ -158,12 +157,32 @@ export class RtpRouter {
     transceiver: RTCRtpTransceiver,
     params: RTCRtpReceiveParameters,
   ) {
-    log("registerRtpReceiverBySsrc", params);
+    this.replaceReceiverBindings(transceiver, params);
+  }
+
+  /**
+   * Replace a receiver's RID/SSRC bindings atomically so simulcast RIDs are
+   * not wiped by a later SSRC registration.
+   * @internal
+   */
+  replaceReceiverBindings(
+    transceiver: RTCRtpTransceiver,
+    params: RTCRtpReceiveParameters,
+    rids: RTCRtpSimulcastParameters[] = [],
+  ) {
+    log("replaceReceiverBindings", { params, rids });
     const sessionId = this.sessionIdFor(transceiver);
     this.unregisterEndpoint(transceiver.receiver);
 
+    const [codec] = params.codecs;
+    for (const param of rids) {
+      transceiver.addTrack(transceiver.receiver.track);
+      transceiver.receiver.bindRemoteRid(param.rid, codec);
+      this.session(sessionId).ridTable[param.rid] = transceiver.receiver;
+    }
+
     params.encodings
-      .filter((e) => e.ssrc != undefined) // todo fix
+      .filter((e) => e.ssrc != undefined)
       .forEach((encode, i) => {
         this.registerRtpReceiver(transceiver.receiver, encode.ssrc, sessionId);
         transceiver.addTrack(transceiver.receiver.track);
@@ -218,6 +237,7 @@ export class RtpRouter {
     }
     for (const headerExtensions of pendingExtensions) {
       for (const extension of headerExtensions) {
+        if (isExtmapNegotiationId(extension.id)) continue;
         const key = extmapConfigurationKey(extension);
         const currentConfig = idToConfig[extension.id];
         if (currentConfig && currentConfig !== key) {
@@ -244,6 +264,7 @@ export class RtpRouter {
   ) {
     const session = this.session(sessionId);
     for (const extension of headerExtensions) {
+      if (isExtmapNegotiationId(extension.id)) continue;
       session.extIdUriMap[extension.id] = extension.uri;
       session.extIdAttributesMap[extension.id] = (
         extension.attributes ?? ""
@@ -261,15 +282,7 @@ export class RtpRouter {
     param: RTCRtpSimulcastParameters,
     params: RTCRtpReceiveParameters,
   ) {
-    // サイマルキャスト利用時のRTXをサポートしていないのでcodecs/encodingsは常に一つ
-    const [codec] = params.codecs;
-
-    log("registerRtpReceiverByRid", param);
-    this.unregisterEndpoint(transceiver.receiver);
-    transceiver.addTrack(transceiver.receiver.track);
-    transceiver.receiver.bindRemoteRid(param.rid, codec);
-    this.session(this.sessionIdFor(transceiver)).ridTable[param.rid] =
-      transceiver.receiver;
+    this.replaceReceiverBindings(transceiver, params, [param]);
   }
 
   routeRtp = (packet: RtpPacket, transportId?: string) => {

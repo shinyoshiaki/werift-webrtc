@@ -11,6 +11,7 @@ import {
 import {
   RTCRtpCodecParameters,
   RTCRtpCodingParameters,
+  RTCRtpSimulcastParameters,
 } from "../../src/media/parameters";
 import { RtpRouter } from "../../src/media/router";
 import { RTCRtpReceiver } from "../../src/media/rtpReceiver";
@@ -192,4 +193,61 @@ describe("media/router", () => {
       ]),
     ).not.toThrow();
   });
+
+  test("2 RIDを登録したあとSSRC登録しても両RIDでrouteRtpできる", () =>
+    new Promise<void>((done) => {
+      // Arrange: high/low の simulcast RID と SSRC を同じ receiver へ載せる。
+      const router = new RtpRouter();
+      const dtls = createDtlsTransport();
+      const receiver = new RTCRtpReceiver(defaultPeerConfig, "video", 0);
+      const transceiver = new RTCRtpTransceiver(
+        "video",
+        dtls,
+        receiver,
+        new RTCRtpSender("video"),
+        "recvonly",
+      );
+      const track = new MediaStreamTrack({ kind: "video" });
+      transceiver.addTrack(track);
+      const codec = new RTCRtpCodecParameters({
+        clockRate: 90000,
+        mimeType: "Video/VP8",
+        payloadType: 96,
+      });
+      const params = {
+        encodings: [new RTCRtpCodingParameters({ ssrc: 111, payloadType: 96 })],
+        codecs: [codec],
+        headerExtensions: [{ id: 1, uri: RTP_EXTENSION_URI.sdesRTPStreamID }],
+      };
+      receiver.prepareReceive(params);
+      router.replaceReceiverBindings(transceiver, params, [
+        new RTCRtpSimulcastParameters({ rid: "high", direction: "recv" }),
+        new RTCRtpSimulcastParameters({ rid: "low", direction: "recv" }),
+      ]);
+
+      const received: string[] = [];
+      track.onReceiveRtp.subscribe((rtp) => {
+        received.push(rtp.payload.toString());
+        if (received.length === 2) {
+          expect(received).toEqual(["high-pkt", "low-pkt"]);
+          done();
+        }
+      });
+
+      // Act: RID extension付きの high / low packet を同じ session へ流す。
+      for (const rid of ["high", "low"] as const) {
+        router.routeRtp(
+          new RtpPacket(
+            new RtpHeader({
+              ssrc: rid === "high" ? 111 : 222,
+              payloadType: 96,
+              extension: true,
+              extensions: [{ id: 1, payload: Buffer.from(rid) }],
+            }),
+            Buffer.from(`${rid}-pkt`),
+          ),
+          dtls.id,
+        );
+      }
+    }));
 });

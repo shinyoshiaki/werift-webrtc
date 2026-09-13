@@ -23,6 +23,9 @@ import {
   RtpRouter,
   TransceiverManager,
   type TransceiverOptions,
+  createExtmapNegotiationState,
+  negotiateRemoteHeaderExtensions,
+  seedExtmapUsedIds,
   useOPUS,
   usePCMU,
   useVP8,
@@ -104,6 +107,7 @@ type RemoteMediaBinding = {
   shouldEmitTrack: boolean;
   requiresNewDtlsAssociation?: boolean;
   rejectTransport?: boolean;
+  negotiatedHeaderExtensions?: RTCRtpHeaderExtensionParameters[];
   applyRemote: () => void;
 };
 
@@ -318,7 +322,11 @@ export class RTCPeerConnection extends EventTarget {
         });
         this.dispatchApplicationNotification("track", () => {
           this.onTrack.execute(track);
+        });
+        this.dispatchApplicationNotification("track event", () => {
           this.emit("track", event);
+        });
+        this.dispatchApplicationNotification("ontrack", () => {
           if (this.ontrack) {
             this.ontrack(event);
           }
@@ -1175,10 +1183,13 @@ export class RTCPeerConnection extends EventTarget {
     // candidates for any remaining member still belong to that shared ICE.
     this.applyRemoteTransportParameters(plan, remoteSdp, bundleTag);
 
-    // Pointer rebind is still rollbackable via the peer-graph snapshot.  SCTP
-    // association replacement, DataChannel close, and forceStop stay out.
+    // Pointer rebind is still rollbackable via the peer-graph snapshot.  An
+    // established SCTP association is not a pointer: setDtlsTransport()
+    // detaches the live association.  That migration waits for the
+    // irreversible commit point.
     for (const binding of plan.bindings) {
       if (binding.requiresNewDtlsAssociation) continue;
+      if (this.shouldDeferSctpRebind(binding)) continue;
       if (binding.currentTransport !== binding.targetTransport) {
         binding.rebind?.(binding.targetTransport);
       }
@@ -1191,6 +1202,10 @@ export class RTCPeerConnection extends EventTarget {
         this.transceiverManager.applyLocalSendParameters(binding.transceiver);
       }
     }
+  }
+
+  private shouldDeferSctpRebind(binding: RemoteMediaBinding) {
+    return !!binding.sctpTransport?.sctp.hadEstablished;
   }
 
   private dispatchApplicationNotification(label: string, notify: () => void) {
@@ -1254,12 +1269,13 @@ export class RTCPeerConnection extends EventTarget {
     const sctpBinding = plan.bindings.find(
       (binding) => binding.sctpTransport !== undefined,
     );
-    if (
-      sctpBinding?.sctpTransport &&
-      !sctpBinding.requiresNewDtlsAssociation &&
-      plan.pendingSctp
-    ) {
-      await this.sctpManager.applyAssociationUpdate(plan.pendingSctp);
+    if (sctpBinding?.sctpTransport && !sctpBinding.requiresNewDtlsAssociation) {
+      if (sctpBinding.currentTransport !== sctpBinding.targetTransport) {
+        sctpBinding.sctpTransport.setDtlsTransport(sctpBinding.targetTransport);
+      }
+      if (plan.pendingSctp) {
+        await this.sctpManager.applyAssociationUpdate(plan.pendingSctp);
+      }
     }
 
     await this.retireRejectedBindings(plan);
@@ -1395,21 +1411,60 @@ export class RTCPeerConnection extends EventTarget {
   private assertRemoteExtmapsForTargetTransports(
     bindings: RemoteMediaBinding[],
   ) {
-    const pendingByTransport = new Map<
-      string,
-      Array<Array<{ id: number; uri: string }>>
-    >();
-    for (const binding of bindings) {
-      if (!binding.transceiver || binding.remoteMedia.port === 0) continue;
-      if (binding.requiresNewDtlsAssociation) continue;
+    const rtpBindings = bindings.filter(
+      (binding) =>
+        !!binding.transceiver &&
+        binding.remoteMedia.port !== 0 &&
+        !binding.requiresNewDtlsAssociation,
+    );
+    const bySession = new Map<string, RemoteMediaBinding[]>();
+    for (const binding of rtpBindings) {
       const sessionId = binding.targetTransport.id;
-      const pending = pendingByTransport.get(sessionId) ?? [];
-      pending.push(binding.remoteMedia.rtp.headerExtensions);
-      pendingByTransport.set(sessionId, pending);
+      const group = bySession.get(sessionId) ?? [];
+      group.push(binding);
+      bySession.set(sessionId, group);
     }
-    for (const [sessionId, pending] of pendingByTransport) {
-      this.router.assertPendingExtmapsForSession(sessionId, pending);
+
+    for (const [sessionId, sessionBindings] of bySession) {
+      const liveIds = Object.keys(
+        this.router.snapshotExtIdUriMaps()[sessionId] ?? {},
+      ).map(Number);
+      const state = createExtmapNegotiationState(liveIds);
+      for (const binding of sessionBindings) {
+        const supported = this.supportedHeaderExtensionUris(
+          binding.remoteMedia.kind,
+        );
+        seedExtmapUsedIds(
+          state,
+          binding.remoteMedia.rtp.headerExtensions,
+          supported,
+        );
+      }
+      for (const binding of sessionBindings) {
+        const supported = this.supportedHeaderExtensionUris(
+          binding.remoteMedia.kind,
+        );
+        binding.negotiatedHeaderExtensions = negotiateRemoteHeaderExtensions(
+          binding.remoteMedia.rtp.headerExtensions,
+          supported,
+          state,
+        );
+      }
+      this.router.assertPendingExtmapsForSession(
+        sessionId,
+        sessionBindings.map(
+          (binding) => binding.negotiatedHeaderExtensions ?? [],
+        ),
+      );
     }
+  }
+
+  private supportedHeaderExtensionUris(kind: string) {
+    return new Set(
+      (this.config.headerExtensions[kind as "audio" | "video"] ?? []).map(
+        (extension) => extension.uri,
+      ),
+    );
   }
 
   private async discardPendingRemoteOfferPlan() {
@@ -2275,7 +2330,7 @@ export class RTCPeerConnection extends EventTarget {
           }
 
           const mappedTransceiver = transceiver;
-          remoteMediaBindings.push({
+          const binding: RemoteMediaBinding = {
             remoteMedia,
             index: i,
             isBundleMember: offeredBundleMember,
@@ -2300,9 +2355,11 @@ export class RTCPeerConnection extends EventTarget {
                   emitTrack: false,
                   setupTWCC: false,
                   applyReceive: false,
+                  headerExtensions: binding.negotiatedHeaderExtensions,
                 },
               ),
-          });
+          };
+          remoteMediaBindings.push(binding);
         } else if (remoteMedia.kind === "application") {
           let sctpTransport = this.sctpTransport;
           if (!sctpTransport) {
@@ -2552,6 +2609,7 @@ export class RTCPeerConnection extends EventTarget {
       // wait for the local answer.  A current session is never rebound here.
       if (remoteSdp.type === "offer" && !hasCurrentNegotiatedSession) {
         for (const binding of remoteMediaBindings) {
+          if (this.shouldDeferSctpRebind(binding)) continue;
           if (binding.currentTransport !== binding.targetTransport) {
             binding.rebind?.(binding.targetTransport);
           }

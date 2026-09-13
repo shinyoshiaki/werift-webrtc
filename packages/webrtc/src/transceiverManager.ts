@@ -6,6 +6,7 @@ import {
   type MediaStreamTrack,
   type RTCRtpCodecParameters,
   RTCRtpCodingParameters,
+  RTCRtpHeaderExtensionParameters,
   type RTCRtpEncodingParameters,
   type RTCRtpParameters,
   type RTCRtpReceiveParameters,
@@ -19,6 +20,7 @@ import {
   Sendrecv,
   type TransceiverOptions,
 } from "./media";
+import { cloneHeaderExtension, reverseExtmapDirection } from "./media/extmap";
 import type { RTCStats } from "./media/stats";
 import { type PeerConfig, findCodecByMimeType } from "./peerConnection";
 import { type MediaDescription, codecParametersFromString } from "./sdp";
@@ -361,6 +363,7 @@ export class TransceiverManager {
       emitTrack?: boolean;
       setupTWCC?: boolean;
       applyReceive?: boolean;
+      headerExtensions?: RTCRtpHeaderExtensionParameters[];
     } = {},
   ): void {
     if (!transceiver.mid) {
@@ -394,13 +397,20 @@ export class TransceiverManager {
     if (transceiver.codecs.length === 0) {
       throw new Error("negotiate codecs failed.");
     }
-    transceiver.headerExtensions = remoteMedia.rtp.headerExtensions.filter(
-      (extension) =>
+    const remoteHeaderExtensions =
+      options.headerExtensions ?? remoteMedia.rtp.headerExtensions;
+    transceiver.headerExtensions = remoteHeaderExtensions
+      .filter((extension) =>
         (
           this.config.headerExtensions[remoteMedia.kind as "audio" | "video"] ||
           []
         ).find((v) => v.uri === extension.uri),
-    );
+      )
+      .map((extension) =>
+        cloneHeaderExtension(extension, {
+          direction: reverseExtmapDirection(extension.direction),
+        }),
+      );
 
     // # configure direction
     const mediaDirection = remoteMedia.direction ?? "inactive";
@@ -468,13 +478,12 @@ export class TransceiverManager {
       return;
     }
     const remotePrams = this.getRemoteRtpParams(remoteMedia, transceiver);
-
-    for (const param of remoteMedia.simulcastParameters) {
-      this.router.registerRtpReceiverByRid(transceiver, param, remotePrams);
-    }
-
     transceiver.receiver.prepareReceive(remotePrams);
-    this.router.registerRtpReceiverBySsrc(transceiver, remotePrams);
+    this.router.replaceReceiverBindings(
+      transceiver,
+      remotePrams,
+      remoteMedia.simulcastParameters,
+    );
   }
 
   /** @internal Deliver a track event after a staged remote graph commits. */

@@ -1341,17 +1341,17 @@ describe("peerConnection", () => {
         }
       ).sdpManager;
       const originalSetLocal = sdpManager.setLocal.bind(sdpManager);
-      let injected = false;
+      let setLocalCalls = 0;
       sdpManager.setLocal = (...args: unknown[]) => {
-        if (!injected) {
-          injected = true;
+        setLocalCalls += 1;
+        if (setLocalCalls >= 3) {
           throw new Error("injected setLocal failure");
         }
         return originalSetLocal(...args);
       };
 
       try {
-        // Act: answer commit直前のlocal projectionを失敗させる。
+        // Act: graph apply後のlocal projectionを失敗させる。
         await expect(
           callee.setLocalDescription(await callee.createAnswer()),
         ).rejects.toThrow("injected setLocal failure");
@@ -2183,12 +2183,19 @@ describe("peerConnection", () => {
     }
   });
 
-  test("ontrack listenerの例外はSRD/SLDをrollbackしない", async () => {
-    // Arrange: application callbackがthrowするcalleeを用意する。
+  test("ontrack listenerの例外は別surfaceも止めずSRD/SLDをrollbackしない", async () => {
+    // Arrange: 先頭のtrack subscriberだけがthrowするcalleeを用意する。
     const caller = new RTCPeerConnection({ iceServers: [] });
     const callee = new RTCPeerConnection({ iceServers: [] });
-    callee.ontrack = () => {
+    const surfaces: string[] = [];
+    callee.onTrack.subscribe(() => {
       throw new Error("app error");
+    });
+    callee.on("track", () => {
+      surfaces.push("emitter");
+    });
+    callee.ontrack = () => {
+      surfaces.push("ontrack");
     };
     callee.onRemoteTransceiverAdded.subscribe(() => {
       throw new Error("app error");
@@ -2204,10 +2211,132 @@ describe("peerConnection", () => {
       expect(callee.getTransceivers()).toHaveLength(1);
       await callee.setLocalDescription(await callee.createAnswer());
 
-      // Assert: SDP transactionは成功したままgraphが残る。
+      // Assert: SDP transactionは成功し、後続のtrack surfaceも発火する。
       expect(callee.signalingState).toBe("stable");
       expect(callee.localDescription?.type).toBe("answer");
       expect(callee.getTransceivers()).toHaveLength(1);
+      expect(surfaces).toEqual(["emitter", "ontrack"]);
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
+  test("answerのextmap directionはremote sendonlyをrecvonlyへ反転する", async () => {
+    // Arrange: remote offerのextmapだけsendonlyにする。
+    const headerExtensions = { video: [useSdesMid()] };
+    const caller = new RTCPeerConnection({ iceServers: [], headerExtensions });
+    const callee = new RTCPeerConnection({ iceServers: [], headerExtensions });
+    caller.addTransceiver("video", { direction: "sendonly" });
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      const offerSdp = caller.localDescription!.sdp.replace(
+        new RegExp(`a=extmap:(\\d+) ${RTP_EXTENSION_URI.sdesMid}`),
+        `a=extmap:$1/sendonly ${RTP_EXTENSION_URI.sdesMid}`,
+      );
+
+      // Act: sendonly extmapのofferからanswerを作る。
+      await callee.setRemoteDescription({ type: "offer", sdp: offerSdp });
+      await callee.setLocalDescription(await callee.createAnswer());
+
+      // Assert: media directionと矛盾しないrecvonlyで返す。
+      expect(callee.localDescription!.sdp).toMatch(
+        new RegExp(`a=extmap:\\d+/recvonly ${RTP_EXTENSION_URI.sdesMid}`),
+      );
+      expect(callee.localDescription!.sdp).not.toMatch(
+        /a=extmap:\d+\/sendonly /,
+      );
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
+  test("partial BUNDLEのgroup外m-lineはtagのtls-idを継承しない", async () => {
+    // Arrange: BUNDLE内にはtls-idがあり、group外applicationのofferには無い。
+    const caller = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "max-compat",
+    });
+    const callee = new RTCPeerConnection({ iceServers: [] });
+    caller.addTransceiver("audio", { direction: "sendonly" });
+    caller.addTransceiver("video", { direction: "sendonly" });
+    caller.createDataChannel("outside");
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      const mids = [
+        ...caller.localDescription!.sdp.matchAll(/^a=mid:(\S+)/gm),
+      ].map((match) => match[1]!);
+      expect(mids).toHaveLength(3);
+      const partial = caller.localDescription!.sdp.replace(
+        /a=group:BUNDLE [^\r\n]+/,
+        `a=group:BUNDLE ${mids[0]} ${mids[1]}`,
+      );
+      const sections = sdpMediaSections(partial);
+      const stripped = sections
+        .map((section) =>
+          section.startsWith("m=application")
+            ? section.replace(/^a=tls-id:[^\r\n]+[\r\n]*/gm, "")
+            : section,
+        )
+        .join("");
+      expect(stripped).toMatch(/a=tls-id:/);
+      expect(
+        sdpMediaSections(stripped).find((section) =>
+          section.startsWith("m=application"),
+        ),
+      ).not.toMatch(/a=tls-id:/);
+
+      // Act: partial BUNDLE offerをanswerまで進める。
+      await callee.setRemoteDescription({ type: "offer", sdp: stripped });
+      await callee.setLocalDescription(await callee.createAnswer());
+      const answerSections = sdpMediaSections(callee.localDescription!.sdp);
+      const answerApp = answerSections.find((section) =>
+        section.startsWith("m=application"),
+      );
+      const answerTag = answerSections.find((section) =>
+        section.includes(`a=mid:${mids[0]}`),
+      );
+
+      // Assert: BUNDLE tagはtls-idを出せるが、group外には挿入しない。
+      expect(answerTag).toMatch(/a=tls-id:/);
+      expect(answerApp).not.toMatch(/a=tls-id:/);
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
+  test("extmap negotiation ID 4096のalternativesは通常IDへremapしてanswerする", async () => {
+    // Arrange: 同じ4096 IDで互いに排他な2 URIをofferする。
+    const headerExtensions = {
+      video: [useSdesMid(), useTransportWideCC()],
+    };
+    const caller = new RTCPeerConnection({ iceServers: [], headerExtensions });
+    const callee = new RTCPeerConnection({ iceServers: [], headerExtensions });
+    caller.addTransceiver("video", { direction: "sendonly" });
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      const offerSdp = caller
+        .localDescription!.sdp.replace(/^a=extmap:[^\r\n]+[\r\n]*/gm, "")
+        .replace(
+          /(m=video[^\r\n]+)/,
+          `$1\r\na=extmap:4096 ${RTP_EXTENSION_URI.sdesMid}\r\na=extmap:4096 ${RTP_EXTENSION_URI.transportWideCC}`,
+        );
+
+      // Act: negotiation rangeのofferをSRDしてanswerする。
+      await callee.setRemoteDescription({ type: "offer", sdp: offerSdp });
+      await callee.setLocalDescription(await callee.createAnswer());
+      const answer = callee.localDescription!.sdp;
+
+      // Assert: 4096はlive IDにせず、alternativeは1つだけ残す。
+      expect(answer).not.toMatch(/a=extmap:4096 /);
+      expect(answer).toMatch(
+        new RegExp(`a=extmap:[1-9]\\d* ${RTP_EXTENSION_URI.sdesMid}`),
+      );
+      expect(answer).not.toMatch(
+        new RegExp(`a=extmap:\\d+ ${RTP_EXTENSION_URI.transportWideCC}`),
+      );
     } finally {
       await Promise.allSettled([caller.close(), callee.close()]);
     }

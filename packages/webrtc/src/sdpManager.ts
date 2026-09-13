@@ -194,7 +194,8 @@ export class SDPManager {
 
   /**
    * RFC 8842 §5.3: if the offer has no tls-id, the answerer MUST NOT insert
-   * one.  BUNDLE tls-id is IDENTICAL, so the effective tag decides.
+   * one.  BUNDLE tls-id is IDENTICAL for multiplexed members (the tag
+   * decides).  Unbundled m-lines are separate DTLS associations.
    */
   private stripAnswerTlsIdIfUnadvertised(description: SessionDescription) {
     const remote = this._remoteDescription;
@@ -207,27 +208,29 @@ export class SDPManager {
     const answerBundle = description.group.find(
       (group) => group.semantic === "BUNDLE",
     );
-    if (remoteBundle && answerBundle) {
-      const tag = answerBundle.items[0] ?? remoteBundle.items[0];
-      const remoteTag =
-        remote.media.find((media) => media.rtp.muxId === tag) ??
-        remote.media.find((media) => media.rtp.muxId === remoteBundle.items[0]);
-      if (remoteTag?.dtlsParams?.tlsId) {
-        return;
-      }
-      for (const media of description.media) {
-        if (media.dtlsParams) {
-          media.dtlsParams.tlsId = undefined;
-        }
-      }
-      return;
-    }
+    const bundleMids = new Set(
+      answerBundle?.items ?? remoteBundle?.items ?? [],
+    );
+    const tag = answerBundle?.items[0] ?? remoteBundle?.items[0];
+    const remoteTag = tag
+      ? remote.media.find((media) => media.rtp.muxId === tag)
+      : undefined;
+    const bundleAdvertisesTlsId = !!remoteTag?.dtlsParams?.tlsId;
 
     description.media.forEach((media, index) => {
+      if (!media.dtlsParams) return;
+      const mid = media.rtp.muxId;
+      const isBundleMember = !!mid && bundleMids.has(mid);
+      if (isBundleMember) {
+        if (!bundleAdvertisesTlsId) {
+          media.dtlsParams.tlsId = undefined;
+        }
+        return;
+      }
       const remoteMedia =
-        remote.media.find((section) => section.rtp.muxId === media.rtp.muxId) ??
+        remote.media.find((section) => section.rtp.muxId === mid) ??
         remote.media[index];
-      if (!remoteMedia?.dtlsParams?.tlsId && media.dtlsParams) {
+      if (!remoteMedia?.dtlsParams?.tlsId) {
         media.dtlsParams.tlsId = undefined;
       }
     });
