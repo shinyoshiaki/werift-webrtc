@@ -31,7 +31,11 @@ export class SDPManager {
     cname,
     midSuffix,
     bundlePolicy,
-  }: { cname: string; midSuffix?: boolean; bundlePolicy?: BundlePolicy }) {
+  }: {
+    cname: string;
+    midSuffix?: boolean;
+    bundlePolicy?: BundlePolicy;
+  }) {
     this.cname = cname;
     this.midSuffix = midSuffix ?? false;
     this.bundlePolicy = bundlePolicy;
@@ -189,6 +193,47 @@ export class SDPManager {
   }
 
   /**
+   * RFC 8842 §5.3: if the offer has no tls-id, the answerer MUST NOT insert
+   * one.  BUNDLE tls-id is IDENTICAL, so the effective tag decides.
+   */
+  private stripAnswerTlsIdIfUnadvertised(description: SessionDescription) {
+    const remote = this._remoteDescription;
+    if (!remote) {
+      return;
+    }
+    const remoteBundle = remote.group.find(
+      (group) => group.semantic === "BUNDLE",
+    );
+    const answerBundle = description.group.find(
+      (group) => group.semantic === "BUNDLE",
+    );
+    if (remoteBundle && answerBundle) {
+      const tag = answerBundle.items[0] ?? remoteBundle.items[0];
+      const remoteTag =
+        remote.media.find((media) => media.rtp.muxId === tag) ??
+        remote.media.find((media) => media.rtp.muxId === remoteBundle.items[0]);
+      if (remoteTag?.dtlsParams?.tlsId) {
+        return;
+      }
+      for (const media of description.media) {
+        if (media.dtlsParams) {
+          media.dtlsParams.tlsId = undefined;
+        }
+      }
+      return;
+    }
+
+    description.media.forEach((media, index) => {
+      const remoteMedia =
+        remote.media.find((section) => section.rtp.muxId === media.rtp.muxId) ??
+        remote.media[index];
+      if (!remoteMedia?.dtlsParams?.tlsId && media.dtlsParams) {
+        media.dtlsParams.tlsId = undefined;
+      }
+    });
+  }
+
+  /**
    * トランスポートの情報をMediaDescriptionに追加
    */
   addTransportDescription(
@@ -222,7 +267,7 @@ export class SDPManager {
    */
   allocateMid(type: "dc" | "av" | "" = ""): string {
     let mid = "";
-    for (let i = 0; ; ) {
+    for (let i = 0; ;) {
       // rfc9143.html#name-security-considerations
       // SHOULD be 3 bytes or fewer to allow them to efficiently fit into the MID RTP header extension
       mid = (i++).toString() + type;
@@ -561,6 +606,7 @@ export class SDPManager {
     }
 
     this.applyBundleTlsId(description);
+    this.stripAnswerTlsIdIfUnadvertised(description);
     return description;
   }
 

@@ -167,6 +167,20 @@ export class TransceiverManager {
     return newTransceiver;
   }
 
+  /**
+   * Rebind a transceiver onto a BUNDLE (or split) DTLS transport and keep the
+   * sender/receiver in that transport's RTP session tables.
+   * @internal
+   */
+  rebindTransport(
+    transceiver: RTCRtpTransceiver,
+    dtlsTransport: RTCDtlsTransport,
+  ): void {
+    transceiver.setDtlsTransport(dtlsTransport);
+    this.router.moveEndpointToTransport(transceiver.sender, dtlsTransport.id);
+    this.router.moveEndpointToTransport(transceiver.receiver, dtlsTransport.id);
+  }
+
   addTrack(
     track: MediaStreamTrack,
     streams: MediaStream[] = [],

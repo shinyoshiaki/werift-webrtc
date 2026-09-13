@@ -59,9 +59,7 @@ export class RtpRouter {
     );
   }
 
-  restoreRtpSessions(sessions: {
-    [transportId: string]: RtpSessionTables;
-  }) {
+  restoreRtpSessions(sessions: { [transportId: string]: RtpSessionTables }) {
     this.sessions = Object.fromEntries(
       Object.entries(sessions).map(([id, session]) => [
         id,
@@ -100,6 +98,42 @@ export class RtpRouter {
     this.unregisterEndpoint(sender);
     this.session(this.sessionIdForSender(sender)).ssrcTable[sender.ssrc] =
       sender;
+  }
+
+  /**
+   * Move an already registered sender/receiver into another RTP session.
+   * BUNDLE rebind must not leave the endpoint in the previous transport table.
+   * @internal
+   */
+  moveEndpointToTransport(
+    endpoint: RTCRtpReceiver | RTCRtpSender,
+    transportId: string,
+  ) {
+    const ssrcs: number[] = [];
+    const rids: string[] = [];
+    for (const session of Object.values(this.sessions)) {
+      for (const [ssrc, mapped] of Object.entries(session.ssrcTable)) {
+        if (mapped === endpoint) {
+          ssrcs.push(Number(ssrc));
+        }
+      }
+      for (const [rid, mapped] of Object.entries(session.ridTable)) {
+        if (mapped === endpoint) {
+          rids.push(rid);
+        }
+      }
+    }
+    this.unregisterEndpoint(endpoint);
+    const session = this.session(transportId);
+    for (const ssrc of ssrcs) {
+      session.ssrcTable[ssrc] = endpoint;
+    }
+    for (const rid of rids) {
+      session.ridTable[rid] = endpoint;
+    }
+    if (ssrcs.length === 0 && endpoint.type === "sender") {
+      session.ssrcTable[(endpoint as RTCRtpSender).ssrc] = endpoint;
+    }
   }
 
   private registerRtpReceiver(
@@ -146,17 +180,47 @@ export class RtpRouter {
     sessionId: string,
     headerExtensions: Array<{ id: number; uri: string }>,
   ) {
-    const currentMap = this.session(sessionId).extIdUriMap;
-    for (const extension of headerExtensions) {
-      const current = currentMap[extension.id];
-      if (current && current !== extension.uri) {
-        throw new Error(
-          `extmap id ${extension.id} remapped from ${current} to ${extension.uri}`,
-        );
+    this.assertPendingExtmapsForSession(sessionId, [headerExtensions]);
+  }
+
+  /**
+   * Seed the live RTP-session map, then merge every pending m-line that will
+   * share that session.  RFC 8285 uniqueness is per RTP session: the same id
+   * must not map to two URIs, and the same URI must not use two ids.
+   * @internal
+   */
+  assertPendingExtmapsForSession(
+    sessionId: string,
+    pendingExtensions: Array<Array<{ id: number; uri: string }>>,
+  ) {
+    const idToUri: { [id: number]: string } = {
+      ...this.session(sessionId).extIdUriMap,
+    };
+    const uriToId: { [uri: string]: number } = {};
+    for (const [id, uri] of Object.entries(idToUri)) {
+      uriToId[uri] = Number(id);
+    }
+    for (const headerExtensions of pendingExtensions) {
+      for (const extension of headerExtensions) {
+        const currentUri = idToUri[extension.id];
+        if (currentUri && currentUri !== extension.uri) {
+          throw new Error(
+            `extmap id ${extension.id} remapped from ${currentUri} to ${extension.uri}`,
+          );
+        }
+        const currentId = uriToId[extension.uri];
+        if (currentId != undefined && currentId !== extension.id) {
+          throw new Error(
+            `extmap uri ${extension.uri} remapped from id ${currentId} to ${extension.id}`,
+          );
+        }
+        idToUri[extension.id] = extension.uri;
+        uriToId[extension.uri] = extension.id;
       }
     }
   }
 
+  /** Commit-time install must not throw; remap is rejected in preflight. */
   private installHeaderExtensions(
     sessionId: string,
     headerExtensions: Array<{ id: number; uri: string }>,
@@ -249,8 +313,9 @@ export class RtpRouter {
   };
 
   routeRtcp = (packet: RtcpPacket, transportId?: string) => {
-    const ssrcTable =
-      (transportId && this.sessions[transportId]?.ssrcTable) || this.ssrcTable;
+    const ssrcTable = transportId
+      ? (this.sessions[transportId]?.ssrcTable ?? {})
+      : this.ssrcTable;
     const recipients: (RTCRtpReceiver | RTCRtpSender)[] = [];
 
     switch (packet.type) {

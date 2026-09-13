@@ -6,22 +6,30 @@ import { CandidatePairState, type Connection } from "../../../ice/src";
 import { SCTP_STATE } from "../../../sctp/src";
 import {
   DtlsVersion,
+  GenericNack,
   MediaStream,
   MediaStreamTrack,
+  PictureLossIndication,
   RTCCertificate,
   type RTCDataChannel,
   RTCPeerConnection,
+  RTCRtpSender,
   RTCTrackEvent,
   RTP_EXTENSION_URI,
+  RtcpPayloadSpecificFeedback,
+  RtcpReceiverInfo,
   RtcpRrPacket,
+  RtcpTransportLayerFeedback,
   RtpHeader,
   RtpPacket,
+  TransportWideCC,
   createSelfSignedCertificate,
   useSdesMid,
   useTWCC,
   useTransportWideCC,
   useVP8,
 } from "../../src";
+import { RtpRouter } from "../../src/media/router";
 import { SignatureAlgorithm } from "../../src/const";
 import { createDataChannelPair, exchangeOfferAnswer } from "../utils";
 
@@ -1974,16 +1982,28 @@ describe("peerConnection", () => {
       await callee.setLocalDescription(await callee.createAnswer());
       await caller.setRemoteDescription(callee.localDescription!);
 
-      // Act: subsequent offerでBUNDLEを外し、videoのextmap:1をTWCCへ付け替える。
+      // Act: subsequent offerでBUNDLEを外し、video sessionでは id=1 をTWCCだけにする。
       const splitOffer = await caller.createOffer();
       (caller as unknown as { lastCreatedOffer?: unknown }).lastCreatedOffer =
         undefined;
-      const splitSdp = stripBundleGroup(splitOffer.sdp).replace(
-        new RegExp(
-          `(m=video[\\s\\S]*?)a=extmap:1 ${RTP_EXTENSION_URI.sdesMid}`,
-        ),
-        `$1a=extmap:1 ${RTP_EXTENSION_URI.transportWideCC}`,
-      );
+      const splitSdp = sdpMediaSections(stripBundleGroup(splitOffer.sdp))
+        .map((section) => {
+          if (!section.startsWith("m=video")) {
+            return section;
+          }
+          return section
+            .replace(
+              `a=extmap:1 ${RTP_EXTENSION_URI.sdesMid}`,
+              `a=extmap:1 ${RTP_EXTENSION_URI.transportWideCC}`,
+            )
+            .replace(
+              new RegExp(
+                `a=extmap:2 ${RTP_EXTENSION_URI.transportWideCC}\\r?\\n`,
+              ),
+              "",
+            );
+        })
+        .join("");
       await caller.setLocalDescription({ type: "offer", sdp: splitSdp });
       await callee.setRemoteDescription(caller.localDescription!);
 
@@ -2052,6 +2072,311 @@ describe("peerConnection", () => {
       await Promise.allSettled([caller.close(), callee.close()]);
     }
   }, 30_000);
+
+  test("失敗したsetRemoteDescriptionはtrack/transceiver eventを発火しない", async () => {
+    // Arrange: 先頭m-lineは有効、後続videoだけ未知codecにしてSRDを失敗させる。
+    const caller = new RTCPeerConnection({ iceServers: [] });
+    const callee = new RTCPeerConnection({ iceServers: [] });
+    caller.addTransceiver(new MediaStreamTrack({ kind: "audio" }), {
+      direction: "sendonly",
+    });
+    caller.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
+      direction: "sendonly",
+    });
+    const onTrack = vi.fn();
+    const added: unknown[] = [];
+    callee.ontrack = onTrack;
+    callee.onRemoteTransceiverAdded.subscribe((transceiver) => {
+      added.push(transceiver);
+    });
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      const invalidOffer = caller.localDescription!.sdp.replace(/VP8/g, "H264");
+
+      // Act: 後続m-lineのcodec交渉を失敗させる。
+      await expect(
+        callee.setRemoteDescription({ type: "offer", sdp: invalidOffer }),
+      ).rejects.toThrow("negotiate codecs failed");
+
+      // Assert: 先行m-lineのeventもrollback不能なので出してはいけない。
+      expect(onTrack).not.toHaveBeenCalled();
+      expect(added).toHaveLength(0);
+      expect(callee.getTransceivers()).toHaveLength(0);
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
+  test("offerにtls-idが無いanswerへa=tls-idを挿入しない", async () => {
+    // Arrange: weriftのlocal offerからtls-idを除去してlegacy peerを模倣する。
+    const caller = new RTCPeerConnection({ iceServers: [] });
+    const callee = new RTCPeerConnection({ iceServers: [] });
+    caller.addTransceiver("audio", { direction: "sendonly" });
+    caller.addTransceiver("video", { direction: "sendonly" });
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      expect(caller.localDescription!.sdp).toMatch(/a=tls-id:/);
+      const offerWithoutTlsId = caller.localDescription!.sdp.replace(
+        /^a=tls-id:[^\r\n]+[\r\n]*/gm,
+        "",
+      );
+
+      // Act: tls-id非対応offerに対するanswerを作る。
+      await callee.setRemoteDescription({
+        type: "offer",
+        sdp: offerWithoutTlsId,
+      });
+      const answer = await callee.createAnswer();
+
+      // Assert: RFC 8842 §5.3 によりanswerへtls-idを足さない。
+      expect(answer.sdp).not.toMatch(/a=tls-id:/);
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
+  test("初回BUNDLE後のnon-tag senderは共有transportのRR/NACK/PLI/TWCCを受ける", async () => {
+    // Arrange: max-compatの2本の送信transceiverを初回BUNDLEする。
+    const caller = new RTCPeerConnection({ iceServers: [] });
+    const callee = new RTCPeerConnection({ iceServers: [] });
+    caller.addTransceiver(new MediaStreamTrack({ kind: "audio" }), {
+      direction: "sendonly",
+    });
+    caller.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
+      direction: "sendonly",
+    });
+    callee.addTransceiver("audio", { direction: "recvonly" });
+    callee.addTransceiver("video", { direction: "recvonly" });
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription(caller.localDescription!);
+      await callee.setLocalDescription(await callee.createAnswer());
+      await caller.setRemoteDescription(callee.localDescription!);
+      await Promise.all([
+        waitForConnectionState(caller, "connected"),
+        waitForConnectionState(callee, "connected"),
+      ]);
+      const tagMid = caller
+        .localDescription!.sdp.match(/a=group:BUNDLE ([^\r\n]+)/)![1]!
+        .split(" ")[0]!;
+      const nonTagSender = caller
+        .getTransceivers()
+        .find((transceiver) => transceiver.mid !== tagMid)!.sender;
+      const sharedId = nonTagSender.dtlsTransport.id;
+      expect(
+        caller
+          .getTransceivers()
+          .every((transceiver) => transceiver.dtlsTransport.id === sharedId),
+      ).toBe(true);
+
+      // Act: 共有transportへnon-tag SSRC宛のfeedbackを流す。
+      const received = await collectSenderFeedback(caller, nonTagSender);
+
+      // Assert: 旧独立sessionではなく共有sessionから届く。
+      expect(received.rr).toBe(true);
+      expect(received.nack).toBe(true);
+      expect(received.pli).toBe(true);
+      expect(received.twcc).toBe(true);
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  }, 30_000);
+
+  test("unbundledからBUNDLE joinしたnon-tag senderも共有transportのfeedbackを受ける", async () => {
+    // Arrange: まずBUNDLE無しで2本の送信を接続する。
+    const caller = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "max-compat",
+    });
+    const callee = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "max-compat",
+    });
+    caller.addTransceiver(new MediaStreamTrack({ kind: "audio" }), {
+      direction: "sendonly",
+    });
+    caller.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
+      direction: "sendonly",
+    });
+    callee.addTransceiver("audio", { direction: "recvonly" });
+    callee.addTransceiver("video", { direction: "recvonly" });
+
+    try {
+      const initialOffer = await caller.createOffer();
+      (caller as unknown as { lastCreatedOffer?: unknown }).lastCreatedOffer =
+        undefined;
+      await caller.setLocalDescription({
+        type: "offer",
+        sdp: stripBundleGroup(initialOffer.sdp),
+      });
+      await callee.setRemoteDescription(caller.localDescription!);
+      await callee.setLocalDescription(await callee.createAnswer());
+      await caller.setRemoteDescription(callee.localDescription!);
+      await Promise.all([
+        waitForConnectionState(caller, "connected"),
+        waitForConnectionState(callee, "connected"),
+      ]);
+      const firstTransports = new Set(
+        caller
+          .getTransceivers()
+          .map((transceiver) => transceiver.dtlsTransport.id),
+      );
+      expect(firstTransports.size).toBe(2);
+
+      // Act: subsequent offerでBUNDLEへjoinする。
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription(caller.localDescription!);
+      await callee.setLocalDescription(await callee.createAnswer());
+      await caller.setRemoteDescription(callee.localDescription!);
+      const tagMid = caller
+        .localDescription!.sdp.match(/a=group:BUNDLE ([^\r\n]+)/)![1]!
+        .split(" ")[0]!;
+      const nonTagSender = caller
+        .getTransceivers()
+        .find((transceiver) => transceiver.mid !== tagMid)!.sender;
+      const sharedId = caller.getTransceivers()[0]!.dtlsTransport.id;
+      expect(
+        caller
+          .getTransceivers()
+          .every((transceiver) => transceiver.dtlsTransport.id === sharedId),
+      ).toBe(true);
+
+      const received = await collectSenderFeedback(caller, nonTagSender);
+
+      // Assert: join後の共有transportからnon-tag senderへ届く。
+      expect(received.rr).toBe(true);
+      expect(received.nack).toBe(true);
+      expect(received.pli).toBe(true);
+      expect(received.twcc).toBe(true);
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  }, 30_000);
+
+  test("queued invalid ICEとreject answerでもlocal senderは止まらない", async () => {
+    // Arrange: 初回local offerのあと、remote answer前に不正candidateをqueueする。
+    const caller = new RTCPeerConnection({ iceServers: [] });
+    const callee = new RTCPeerConnection({ iceServers: [] });
+    const audio = caller.addTransceiver(
+      new MediaStreamTrack({ kind: "audio" }),
+      { direction: "sendonly" },
+    );
+    const channel = caller.createDataChannel("queued-ice");
+    callee.addTransceiver("audio", { direction: "recvonly" });
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      await caller.addIceCandidate({
+        sdpMid: "does-not-exist",
+        candidate: addIceCandidateLine1,
+      });
+      await callee.setRemoteDescription(caller.localDescription!);
+      const answer = await callee.createAnswer();
+      const rejectedAudio = answer.sdp.replace(/^m=audio \d+/m, "m=audio 0");
+
+      // Act: reject m-lineを含むanswerを、queue済み不正candidateと一緒に適用する。
+      await expect(
+        caller.setRemoteDescription({ type: "answer", sdp: rejectedAudio }),
+      ).rejects.toThrow();
+
+      // Assert: SRD失敗後もlocal sender/DataChannelは破棄されない。
+      expect(audio.stopped).toBe(false);
+      expect(audio.sender.stopped).toBe(false);
+      expect(channel.readyState).not.toBe("closed");
+      expect(caller.signalingState).toBe("have-local-offer");
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
+  test("connecting中のremote answer fingerprint変更もNotSupportedErrorにする", async () => {
+    // Arrange: 初回answer適用でDTLS startをhandshake前に止める。
+    const caller = new RTCPeerConnection({ iceServers: [] });
+    const callee = new RTCPeerConnection({ iceServers: [] });
+    caller.createDataChannel("connecting-dtls");
+    let releaseStart: (() => void) | undefined;
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription(caller.localDescription!);
+      await callee.setLocalDescription(await callee.createAnswer());
+      const dtls = caller.dtlsTransports[0]!;
+      const originalStart = dtls.start.bind(dtls);
+      let startEntered!: () => void;
+      const startEnteredPromise = new Promise<void>((resolve) => {
+        startEntered = resolve;
+      });
+      const startGate = new Promise<void>((resolve) => {
+        releaseStart = resolve;
+      });
+      dtls.start = async () => {
+        startEntered();
+        await startGate;
+        return originalStart();
+      };
+
+      await caller.setRemoteDescription(callee.localDescription!);
+      await startEnteredPromise;
+      expect(dtls.state).not.toBe("connected");
+
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription(caller.localDescription!);
+      const answer = await callee.createAnswer();
+
+      // Act: まだconnectingの既存associationへ新しいfingerprintのanswerを渡す。
+      await expect(
+        caller.setRemoteDescription({
+          type: "answer",
+          sdp: tamperFingerprints(answer.sdp),
+        }),
+      ).rejects.toThrow("DTLS association replacement is not implemented");
+
+      // Assert: 未実装のreplacementを拒否し、現行associationはfailedにしない。
+      expect(dtls.state).not.toBe("failed");
+      expect(caller.signalingState).toBe("have-local-offer");
+    } finally {
+      releaseStart?.();
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  }, 30_000);
+
+  test("初回BUNDLEのpending-to-pending extmap衝突はSRDでrejectする", async () => {
+    // Arrange: live mapが空のまま、同じBUNDLE sessionへ衝突するextmapを載せる。
+    const headerExtensions = {
+      audio: [useSdesMid()],
+      video: [useTransportWideCC()],
+    };
+    const caller = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "max-bundle",
+      headerExtensions,
+    });
+    const callee = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "max-bundle",
+      headerExtensions,
+    });
+    caller.addTransceiver("audio", { direction: "sendonly" });
+    caller.addTransceiver("video", { direction: "sendonly" });
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+
+      // Act: 同一idの別URIを同じtargetへ同時に載せるofferをSRDする。
+      await expect(
+        callee.setRemoteDescription(caller.localDescription!),
+      ).rejects.toThrow(/extmap id .* remapped/);
+
+      // Assert: 失敗したofferはcurrent graphを作らない。
+      expect(callee.signalingState).toBe("stable");
+      expect(callee.getTransceivers()).toHaveLength(0);
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
 
   test("rollbackはaddTrackで再利用したremote transceiverを削除しない", async () => {
     // Arrange: remote offerで作ったtransceiverへaddTrackする。
@@ -3804,6 +4129,82 @@ function sdpMediaSections(sdp: string) {
 
 function countTlsIdLines(sdp: string) {
   return [...sdp.matchAll(/^a=tls-id:/gm)].length;
+}
+
+function getPeerRouter(pc: RTCPeerConnection) {
+  return (pc as unknown as { router: RtpRouter }).router;
+}
+
+async function collectSenderFeedback(
+  pc: RTCPeerConnection,
+  sender: RTCRtpSender,
+) {
+  const received = { rr: false, nack: false, pli: false, twcc: false };
+  sender.onRtcp.subscribe((packet) => {
+    if (packet.type === RtcpRrPacket.type) received.rr = true;
+    if (packet.type === RtcpTransportLayerFeedback.type) {
+      const feedback = (packet as RtcpTransportLayerFeedback).feedback;
+      if (feedback.count === TransportWideCC.count) received.twcc = true;
+    }
+  });
+  sender.onGenericNack.subscribe(() => {
+    received.nack = true;
+  });
+  sender.onPictureLossIndication.subscribe(() => {
+    received.pli = true;
+  });
+  const router = getPeerRouter(pc);
+  const transportId = sender.dtlsTransport.id;
+  router.routeRtcp(
+    new RtcpRrPacket({
+      ssrc: 1,
+      reports: [
+        new RtcpReceiverInfo({
+          ssrc: sender.ssrc,
+          fractionLost: 0,
+          packetsLost: 1,
+          highestSequence: 1,
+          jitter: 0,
+          lsr: 0,
+          dlsr: 0,
+        }),
+      ],
+    }),
+    transportId,
+  );
+  router.routeRtcp(
+    new RtcpTransportLayerFeedback({
+      feedback: new GenericNack({
+        senderSsrc: 1,
+        mediaSourceSsrc: sender.ssrc,
+        lost: [1],
+      }),
+    }),
+    transportId,
+  );
+  router.routeRtcp(
+    new RtcpPayloadSpecificFeedback({
+      feedback: new PictureLossIndication({
+        senderSsrc: 2,
+        mediaSsrc: sender.ssrc,
+      }),
+    }),
+    transportId,
+  );
+  router.routeRtcp(
+    new RtcpTransportLayerFeedback({
+      feedback: new TransportWideCC({
+        senderSsrc: 1,
+        mediaSourceSsrc: sender.ssrc,
+        baseSequenceNumber: 0,
+        packetStatusCount: 0,
+        referenceTime: 0,
+        fbPktCount: 0,
+      }),
+    }),
+    transportId,
+  );
+  return received;
 }
 
 function mutateFingerprint(value: string) {

@@ -1,4 +1,11 @@
-import type { RTCRtpTransceiver } from "../../src";
+import {
+  defaultPeerConfig,
+  type PeerConfig,
+  type RTCRtpTransceiver,
+  TransceiverManager,
+} from "../../src";
+import { RtpRouter } from "../../src/media/router";
+import { createDtlsTransport } from "../fixture";
 import { createTransceiverManager } from "./transceiverManagerArrange";
 
 describe("media/transceiverManager", () => {
@@ -69,5 +76,34 @@ describe("media/transceiverManager", () => {
     expect(created).not.toBe(inactive);
     expect(created.mid).toBeNull();
     expect(inactive.mid).toBe("0");
+  });
+
+  test("rebindTransportはsenderを新しいRTP sessionへ移す", () => {
+    // Arrange: 独立transportに登録したsenderを用意する。
+    const router = new RtpRouter();
+    const manager = new TransceiverManager(
+      "test-cname",
+      defaultPeerConfig as Required<PeerConfig>,
+      router,
+    );
+    const source = createDtlsTransport();
+    const target = createDtlsTransport();
+    const transceiver = manager.addTransceiver("video", source);
+    const sender = transceiver.sender;
+    expect(
+      router.snapshotRtpSessions()[source.id]?.ssrcTable[sender.ssrc],
+    ).toBe(sender);
+
+    // Act: BUNDLE 相当の transport 差し替えを行う。
+    manager.rebindTransport(transceiver, target);
+
+    // Assert: 旧sessionから外れ、共有transportのssrcTableへ載る。
+    expect(transceiver.dtlsTransport).toBe(target);
+    expect(
+      router.snapshotRtpSessions()[source.id]?.ssrcTable[sender.ssrc],
+    ).toBeUndefined();
+    expect(
+      router.snapshotRtpSessions()[target.id]?.ssrcTable[sender.ssrc],
+    ).toBe(sender);
   });
 });

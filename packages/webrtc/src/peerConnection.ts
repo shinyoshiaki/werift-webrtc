@@ -228,7 +228,9 @@ export class RTCPeerConnection extends EventTarget {
     return this.eventHandlers.onicecandidate ?? null;
   }
 
-  set onicecandidate(value: CallbackWithValue<RTCPeerConnectionIceEvent> | null) {
+  set onicecandidate(
+    value: CallbackWithValue<RTCPeerConnectionIceEvent> | null,
+  ) {
     this.eventHandlers.onicecandidate = value ?? undefined;
   }
 
@@ -1160,17 +1162,8 @@ export class RTCPeerConnection extends EventTarget {
     }
   }
 
-  private async commitRemoteTransportPlan(
-    plan: Pick<
-      PendingRemoteOfferPlan,
-      | "bindings"
-      | "replacedTransports"
-      | "createdTransports"
-      | "pendingTransceiverNotifications"
-      | "bundleEstablished"
-      | "pendingSctp"
-      | "deferReceiveParameters"
-    >,
+  private applyRemoteTransportGraph(
+    plan: Pick<PendingRemoteOfferPlan, "bindings" | "bundleEstablished">,
     remoteSdp: SessionDescription,
     bundleTag?: string,
   ) {
@@ -1180,19 +1173,13 @@ export class RTCPeerConnection extends EventTarget {
     // candidates for any remaining member still belong to that shared ICE.
     this.applyRemoteTransportParameters(plan, remoteSdp, bundleTag);
 
-    // The graph mutation is deliberately after all media validation and
-    // transport parameter writes.  This is the commit point for a pending
-    // remote offer and for a remote answer.
+    // Pointer rebind is still rollbackable via the peer-graph snapshot.  SCTP
+    // association replacement, DataChannel close, and forceStop stay out.
     for (const binding of plan.bindings) {
       if (binding.requiresNewDtlsAssociation) continue;
       if (binding.currentTransport !== binding.targetTransport) {
         binding.rebind?.(binding.targetTransport);
       }
-    }
-
-    for (const transceiver of plan.pendingTransceiverNotifications) {
-      this.transceiverManager.onTransceiverAdded.execute(transceiver);
-      this.onRemoteTransceiverAdded.execute(transceiver);
     }
 
     for (const binding of plan.bindings) {
@@ -1201,25 +1188,53 @@ export class RTCPeerConnection extends EventTarget {
       if (remoteSdp.type === "offer") {
         this.transceiverManager.applyLocalSendParameters(binding.transceiver);
       }
-      if (plan.deferReceiveParameters) {
-        this.transceiverManager.applyRemoteReceiveParameters(
-          binding.transceiver,
-          binding.remoteMedia,
-        );
-      }
+    }
+  }
+
+  private surfaceStagedRemoteTransceivers(
+    plan: Pick<PendingRemoteOfferPlan, "pendingTransceiverNotifications">,
+  ) {
+    for (const transceiver of plan.pendingTransceiverNotifications) {
+      this.transceiverManager.onTransceiverAdded.execute(transceiver);
+      this.onRemoteTransceiverAdded.execute(transceiver);
+    }
+    plan.pendingTransceiverNotifications.length = 0;
+  }
+
+  private surfaceStagedRemoteTracks(
+    plan: Pick<PendingRemoteOfferPlan, "bindings">,
+  ) {
+    for (const binding of plan.bindings) {
+      if (!binding.transceiver || !binding.shouldEmitTrack) continue;
+      this.transceiverManager.emitRemoteTrack(
+        binding.transceiver,
+        binding.remoteMedia,
+      );
+      binding.shouldEmitTrack = false;
+    }
+  }
+
+  private applyStagedRemoteReceive(
+    plan: Pick<PendingRemoteOfferPlan, "bindings">,
+  ) {
+    for (const binding of plan.bindings) {
+      if (!binding.transceiver) continue;
+      if (binding.requiresNewDtlsAssociation) continue;
+      this.transceiverManager.applyRemoteReceiveParameters(
+        binding.transceiver,
+        binding.remoteMedia,
+      );
       if (binding.remoteMedia.ssrc[0]?.ssrc) {
         binding.transceiver.receiver.setupTWCC(
           binding.remoteMedia.ssrc[0].ssrc,
         );
       }
-      if (binding.shouldEmitTrack) {
-        this.transceiverManager.emitRemoteTrack(
-          binding.transceiver,
-          binding.remoteMedia,
-        );
-      }
     }
+  }
 
+  private async commitIrreversibleRemoteTransportPlan(
+    plan: Pick<PendingRemoteOfferPlan, "bindings" | "pendingSctp">,
+  ) {
     const sctpBinding = plan.bindings.find(
       (binding) => binding.sctpTransport !== undefined,
     );
@@ -1232,6 +1247,17 @@ export class RTCPeerConnection extends EventTarget {
     }
 
     await this.retireRejectedBindings(plan);
+  }
+
+  private async validatePendingRemoteCandidates(sdp: SessionDescription) {
+    for (const candidate of this.pendingRemoteCandidates) {
+      await this.secureManager.addIceCandidate(
+        sdp,
+        candidate ?? null,
+        undefined,
+        true,
+      );
+    }
   }
 
   private async retireRejectedBindings(
@@ -1353,13 +1379,20 @@ export class RTCPeerConnection extends EventTarget {
   private assertRemoteExtmapsForTargetTransports(
     bindings: RemoteMediaBinding[],
   ) {
+    const pendingByTransport = new Map<
+      string,
+      Array<Array<{ id: number; uri: string }>>
+    >();
     for (const binding of bindings) {
       if (!binding.transceiver || binding.remoteMedia.port === 0) continue;
       if (binding.requiresNewDtlsAssociation) continue;
-      this.router.assertExtmapIdsNotRemapped(
-        binding.targetTransport.id,
-        binding.remoteMedia.rtp.headerExtensions,
-      );
+      const sessionId = binding.targetTransport.id;
+      const pending = pendingByTransport.get(sessionId) ?? [];
+      pending.push(binding.remoteMedia.rtp.headerExtensions);
+      pendingByTransport.set(sessionId, pending);
+    }
+    for (const [sessionId, pending] of pendingByTransport) {
+      this.router.assertPendingExtmapsForSession(sessionId, pending);
     }
   }
 
@@ -1722,12 +1755,16 @@ export class RTCPeerConnection extends EventTarget {
       );
 
       if (pendingRemotePlanForAnswer && !pendingRemotePlanForAnswer.committed) {
-        await this.commitRemoteTransportPlan(
+        const answerBundleTag = pendingRemotePlanForAnswer.bindings.find(
+          (binding) => binding.isBundleTag,
+        )?.remoteMedia.rtp.muxId;
+        await this.validatePendingRemoteCandidates(
+          pendingRemotePlanForAnswer.remoteDescription,
+        );
+        this.applyRemoteTransportGraph(
           pendingRemotePlanForAnswer,
           pendingRemotePlanForAnswer.remoteDescription,
-          pendingRemotePlanForAnswer.bindings.find(
-            (binding) => binding.isBundleTag,
-          )?.remoteMedia.rtp.muxId,
+          answerBundleTag,
         );
         pendingRemotePlanForAnswer.committed = true;
         this.secureManager.setLocalRole({
@@ -1750,10 +1787,21 @@ export class RTCPeerConnection extends EventTarget {
             replaceDtls: false,
           },
         );
+        await this.flushPendingRemoteCandidates();
+        this.surfaceStagedRemoteTransceivers(pendingRemotePlanForAnswer);
+        if (pendingRemotePlanForAnswer.deferReceiveParameters) {
+          this.applyStagedRemoteReceive(pendingRemotePlanForAnswer);
+        }
+        this.surfaceStagedRemoteTracks(pendingRemotePlanForAnswer);
+        await this.commitIrreversibleRemoteTransportPlan(
+          pendingRemotePlanForAnswer,
+        );
       }
 
       if (description.type === "answer") {
-        await this.flushPendingRemoteCandidates();
+        if (!pendingRemotePlanForAnswer) {
+          await this.flushPendingRemoteCandidates();
+        }
         this.sdpManager.commitPendingDescriptions();
         if (pendingRemotePlanForAnswer) {
           await this.stopReplacedTransports(
@@ -2149,9 +2197,11 @@ export class RTCPeerConnection extends EventTarget {
       if (!remoteSdp) {
         return;
       }
+      await this.validatePendingRemoteCandidates(remoteSdp);
 
       const bundleGroup = this.sdpManager.getRemoteBundleGroup();
       const remoteMediaBindings: RemoteMediaBinding[] = [];
+      const createdRemoteTransceivers: RTCRtpTransceiver[] = [];
 
       const matchTransceiverWithMedia = (
         transceiver: RTCRtpTransceiver,
@@ -2180,13 +2230,13 @@ export class RTCPeerConnection extends EventTarget {
               remoteMedia.kind,
               dtlsTransport,
               { direction: "recvonly" },
-              { reuseInactiveMLine: false },
+              { notify: false, reuseInactiveMLine: false },
             );
             transceiver.mid = remoteMedia.rtp.muxId ?? null;
             transceiver.createdByRemoteDescription = true;
             this.secureManager.updateIceConnectionState();
             this.needNegotiation();
-            this.onRemoteTransceiverAdded.execute(transceiver);
+            createdRemoteTransceivers.push(transceiver);
           } else if (
             transceiver.direction === "inactive" &&
             transceiver.stopping
@@ -2218,8 +2268,11 @@ export class RTCPeerConnection extends EventTarget {
             currentTransport: mappedTransceiver.dtlsTransport,
             targetTransport: mappedTransceiver.dtlsTransport,
             rebind: (transport) =>
-              mappedTransceiver.setDtlsTransport(transport),
-            shouldEmitTrack: false,
+              this.transceiverManager.rebindTransport(
+                mappedTransceiver,
+                transport,
+              ),
+            shouldEmitTrack: mappedTransceiver.receiver.tracks.length === 0,
             rejectTransport: remoteMedia.port === 0,
             applyRemote: () =>
               this.transceiverManager.setRemoteRTP(
@@ -2228,9 +2281,9 @@ export class RTCPeerConnection extends EventTarget {
                 remoteSdp!.type,
                 i,
                 {
-                  emitTrack: mappedTransceiver.receiver.tracks.length === 0,
-                  setupTWCC: !hasCurrentNegotiatedSession,
-                  applyReceive: !hasCurrentNegotiatedSession,
+                  emitTrack: false,
+                  setupTWCC: false,
+                  applyReceive: false,
                 },
               ),
           });
@@ -2333,12 +2386,25 @@ export class RTCPeerConnection extends EventTarget {
         }
       }
 
+      const previousTransports = new Set<RTCDtlsTransport>(
+        graphSnapshot.transceivers
+          .map((transceiver) => transceiver.dtlsTransport)
+          .concat(
+            graphSnapshot.sctpTransport
+              ? [graphSnapshot.sctpTransport.dtlsTransport]
+              : graphSnapshot.sctpDormantApplication
+                ? [graphSnapshot.sctpDormantApplication.dtlsTransport]
+                : [],
+          ),
+      );
+
       // RFC 8842: compare last-stable remote SDP with the pending description.
       // Runtime DTLS state is not the source of truth; a connecting
       // association can still be asked to yield to a new fingerprint/tls-id.
       // Offers decline unimplemented replacement by rejecting the m-line.
-      // Answers that request a new association are rejected before live
-      // transport role/fingerprint mutation.
+      // Answers that request a new association on an already owned transport
+      // are rejected before live transport role/fingerprint mutation.  Fresh
+      // BUNDLE-split transports are not last-stable associations.
       const currentRemote = this.sdpManager.currentRemoteDescription;
       const transportsNeedingNewAssociation = new Set<RTCDtlsTransport>();
       for (const binding of remoteMediaBindings) {
@@ -2366,10 +2432,10 @@ export class RTCPeerConnection extends EventTarget {
             binding.targetTransport.role,
           )
         ) {
-          if (
-            remoteSdp.type === "answer" &&
-            binding.targetTransport.state === "connected"
-          ) {
+          const reusesExistingAssociation = previousTransports.has(
+            binding.targetTransport,
+          );
+          if (remoteSdp.type === "answer" && reusesExistingAssociation) {
             throw createWebRtcDomException(
               "NotSupportedError",
               "DTLS association replacement is not implemented",
@@ -2388,17 +2454,6 @@ export class RTCPeerConnection extends EventTarget {
         }
       }
 
-      const previousTransports = new Set<RTCDtlsTransport>(
-        graphSnapshot.transceivers
-          .map((transceiver) => transceiver.dtlsTransport)
-          .concat(
-            graphSnapshot.sctpTransport
-              ? [graphSnapshot.sctpTransport.dtlsTransport]
-              : graphSnapshot.sctpDormantApplication
-                ? [graphSnapshot.sctpDormantApplication.dtlsTransport]
-                : [],
-          ),
-      );
       this.dtlsTransports.forEach((transport) => {
         if (!previousTransports.has(transport)) {
           createdTransports.add(transport);
@@ -2421,7 +2476,7 @@ export class RTCPeerConnection extends EventTarget {
           );
         }
       });
-      const pendingTransceiverNotifications: RTCRtpTransceiver[] = [];
+      const pendingTransceiverNotifications = createdRemoteTransceivers;
       const sctpBinding = remoteMediaBindings.find(
         (binding) => binding.sctpTransport !== undefined,
       );
@@ -2464,7 +2519,7 @@ export class RTCPeerConnection extends EventTarget {
             bundleTag === undefined;
           if (
             !shouldApplyTransportParams ||
-            binding.targetTransport.state !== "connected" ||
+            !previousTransports.has(binding.targetTransport) ||
             !binding.remoteMedia.dtlsParams
           ) {
             continue;
@@ -2496,11 +2551,21 @@ export class RTCPeerConnection extends EventTarget {
       if (remoteSdp.type === "offer") {
         this.pendingRemoteOfferPlan = plan;
         this.setSignalingState("have-remote-offer");
+        this.surfaceStagedRemoteTransceivers(plan);
+        if (!plan.deferReceiveParameters) {
+          this.applyStagedRemoteReceive(plan);
+        }
+        this.surfaceStagedRemoteTracks(plan);
       } else {
-        await this.commitRemoteTransportPlan(plan, remoteSdp, bundleTag);
-        // Apply pre-SRD candidates before publishing the answer/current SDP so
-        // a candidate parse or transport error remains rollbackable.
+        this.applyRemoteTransportGraph(plan, remoteSdp, bundleTag);
+        plan.committed = true;
+        // Apply pre-SRD candidates before irreversible retirement so a
+        // candidate parse or transport error remains rollbackable.
         await this.flushPendingRemoteCandidates();
+        this.surfaceStagedRemoteTransceivers(plan);
+        this.applyStagedRemoteReceive(plan);
+        this.surfaceStagedRemoteTracks(plan);
+        await this.commitIrreversibleRemoteTransportPlan(plan);
         this.sdpManager.commitPendingDescriptions();
         await this.stopReplacedTransports(plan.replacedTransports);
         this.pendingRemoteOfferPlan = undefined;
@@ -2598,7 +2663,7 @@ export class RTCPeerConnection extends EventTarget {
     const transceiver = this.transceiverManager.addTrack(track, streams);
     if (!transceiver.dtlsTransport) {
       const dtlsTransport = this.findOrCreateTransport();
-      transceiver.setDtlsTransport(dtlsTransport);
+      this.transceiverManager.rebindTransport(transceiver, dtlsTransport);
     }
     this.needNegotiation();
     return transceiver.sender;
@@ -2872,8 +2937,7 @@ export interface RTCConfiguration {
   certificates?: RTCCertificate[];
 }
 
-export interface RTCLocalSessionDescriptionInit
-  extends RTCSessionDescriptionInit {
+export interface RTCLocalSessionDescriptionInit extends RTCSessionDescriptionInit {
   type?: Exclude<RTCSessionDescriptionInit["type"], "rollback"> | "rollback";
 }
 
