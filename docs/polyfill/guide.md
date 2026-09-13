@@ -24,7 +24,7 @@ fails.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `mediaRegister` | yes | An array of media registers. An empty array is valid. |
+| `mediaRegister` | yes | An array of media registers. An empty array uses the built-in plain empty-track register. |
 | `target` | no | Object receiving the globals. Defaults to `globalThis`. |
 | `existingMediaDevices` | no | How an existing `navigator.mediaDevices` is handled. Defaults to `"overwrite"`. |
 | `userAgent` | no | A non-empty string to install as `navigator.userAgent`. |
@@ -147,11 +147,18 @@ in the form `werift-device-N`. Explicit duplicate IDs are rejected.
 
 | Factory | Source | Notes |
 | --- | --- | --- |
+| `createEmptyRegister()` | Plain empty audio/video tracks | Identical to the empty-array default: no generated RTP and no track codec; PeerConnection defaults drive codec negotiation. |
 | `createMp4WebmRegister()` | MP4/WebM file, bytes, or stream | Plays a container source and creates audio/video tracks found in it. Supports `loop` and per-kind codec hints. |
 | `createRtpRtcpRegister()` | RTP/RTCP over UDP or a Node/Web stream | Delivers RTP and muxed RTCP directly to the track. `mimeType` is required. |
 | `createEncodedBinaryRegister()` | Encoded access units over UDP or a Node/Web stream | Packetizes VP8, VP9, H.264/AVC, AV1, or Opus into RTP. |
 | `createCallbackRegister()` | Application-defined source | Passes the selected kind, device ID, normalized constraints, and abort signal to `createTracks()`. |
 | `createDummyRegister()` | Generated test media | Convenient audio/video source for tests and smoke examples. |
+
+`mediaRegister` itself remains required. Use `mediaRegister: []` for the
+implicit empty register, or `[createEmptyRegister()]` to document that intent
+or select it by `deviceId` alongside other registers. Unlike
+`createDummyRegister()`, empty tracks do not generate RTP and leave `codec`
+unset so PeerConnection defaults determine negotiation.
 
 All factories accept the common `deviceId`, `groupId`, and `label` options.
 

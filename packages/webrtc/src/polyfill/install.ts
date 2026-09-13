@@ -17,6 +17,7 @@ import {
 } from "./existingMediaDevices";
 import { MediaDevices } from "./mediaDevices";
 import type { BoundMediaRegister, MediaRegister } from "./mediaRegister";
+import { createEmptyRegister } from "./registers/empty";
 import { PolyfillRTCSessionDescription } from "./rtcSessionDescription";
 
 const INSTALLED_KEYS = [
@@ -63,7 +64,11 @@ export function installPolyfill(options: InstallPolyfillOptions): () => void {
     getExistingMediaDevices(target),
     options.existingMediaDevices ?? "overwrite",
   );
-  const boundRegisters = bindRegisters(options.mediaRegister);
+  const registers =
+    options.mediaRegister.length === 0
+      ? [createEmptyRegister()]
+      : options.mediaRegister;
+  const boundRegisters = bindRegisters(registers);
   const previous = snapshot(target, INSTALLED_KEYS);
   previous.window = descriptorOf(target, "window");
   const previousNavigator = snapshotNavigator(target);

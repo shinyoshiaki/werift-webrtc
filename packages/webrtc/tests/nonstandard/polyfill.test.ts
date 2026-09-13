@@ -8,6 +8,7 @@ import { MediaStream, MediaStreamTrack } from "../../src/media/track";
 import { createFileMediaPlayer } from "../../src/nonstandard/userMedia";
 import {
   createCallbackRegister,
+  createEmptyRegister,
   createEncodedBinaryRegister,
   createMp4WebmRegister,
   createRtpRtcpRegister,
@@ -28,6 +29,7 @@ import {
   expectDomException,
   expectOverconstrainedError,
   installTestPolyfill,
+  receivesRtpWithin,
   waitForRtp,
   waitUntil,
   withUdpSocketCounter,
@@ -54,31 +56,117 @@ describe("werift/polyfill installPolyfill", () => {
     );
   });
 
-  test("empty mediaRegister allows PeerConnection but getUserMedia fails with NotFoundError / TypeError", async () => {
+  test("empty mediaRegister provides plain empty audio and video tracks", async () => {
     const uninstall = installTestPolyfill([]);
     try {
-      // 実行: 空配列でインストールし、PC と不正な GUM を試す。
+      // 実行: 空配列でインストールし、PC、デバイス列挙、各種 GUM を試す。
       const pc = new globalThis.RTCPeerConnection();
       const channel = pc.createDataChannel("polyfill");
+      const devices = await navigator.mediaDevices.enumerateDevices();
       let emptyError: unknown;
       try {
         await navigator.mediaDevices.getUserMedia({});
       } catch (error) {
         emptyError = error;
       }
-      let notFound: unknown;
-      try {
-        await navigator.mediaDevices.getUserMedia({ video: true });
-      } catch (error) {
-        notFound = error;
-      }
+      const videoStream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+      });
+      const audioStream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+      });
+      const avStream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: true,
+      });
+      const videoTrack = videoStream.getVideoTracks()[0] as MediaStreamTrack;
 
-      // 検証: DataChannel は使え、空制約は TypeError、video 要求は NotFoundError。
+      // 検証: 空制約だけは失敗し、要求した kind のプレーンな live track が返る。
       expect(pc).toBeInstanceOf(RTCPeerConnection);
       expect(channel).toBeDefined();
       expect(emptyError).toBeInstanceOf(TypeError);
-      expectDomException(notFound, "NotFoundError");
+      expect(devices.map((device) => device.kind)).toEqual([
+        "audioinput",
+        "videoinput",
+      ]);
+      expect(videoTrack).toBeInstanceOf(MediaStreamTrack);
+      expect(videoTrack).toMatchObject({
+        kind: "video",
+        readyState: "live",
+        muted: true,
+        codec: undefined,
+      });
+      expect(audioStream.getAudioTracks()[0]).toMatchObject({
+        kind: "audio",
+        codec: undefined,
+      });
+      expect(avStream.getAudioTracks()).toHaveLength(1);
+      expect(avStream.getVideoTracks()).toHaveLength(1);
+      expect(await receivesRtpWithin(videoTrack)).toBe(false);
       await pc.close();
+    } finally {
+      uninstall();
+    }
+  });
+
+  test("createEmptyRegister exposes selectable plain empty tracks", async () => {
+    const uninstall = installTestPolyfill([
+      createVideoCallbackRegister({ deviceId: "video-source" }),
+      createEmptyRegister({ deviceId: "empty", label: "silent source" }),
+    ]);
+    try {
+      // 実行: 明示した空 register を列挙し、deviceId で audio/video を取得する。
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { deviceId: { exact: "empty" } },
+        video: { deviceId: { exact: "empty" } },
+      });
+      const audioStream = await navigator.mediaDevices.getUserMedia({
+        audio: { deviceId: { exact: "empty" } },
+      });
+      const videoStream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: "empty" } },
+      });
+      const [audioTrack] = stream.getAudioTracks() as MediaStreamTrack[];
+      const [videoTrack] = stream.getVideoTracks() as MediaStreamTrack[];
+
+      // 検証: 列挙情報と選択規則を保ち、codec も RTP もない空 track を返す。
+      expect(devices).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            deviceId: "empty",
+            kind: "audioinput",
+            label: "silent source",
+          }),
+          expect.objectContaining({
+            deviceId: "empty",
+            kind: "videoinput",
+            label: "silent source",
+          }),
+        ]),
+      );
+      expect(audioTrack).toMatchObject({
+        kind: "audio",
+        readyState: "live",
+        muted: true,
+        codec: undefined,
+      });
+      expect(videoTrack).toMatchObject({
+        kind: "video",
+        readyState: "live",
+        muted: true,
+        codec: undefined,
+      });
+      expect(audioStream.getAudioTracks()).toHaveLength(1);
+      expect(audioStream.getVideoTracks()).toHaveLength(0);
+      expect(videoStream.getAudioTracks()).toHaveLength(0);
+      expect(videoStream.getVideoTracks()).toHaveLength(1);
+      expect(
+        await Promise.all([
+          receivesRtpWithin(audioTrack),
+          receivesRtpWithin(videoTrack),
+        ]),
+      ).toEqual([false, false]);
     } finally {
       uninstall();
     }

@@ -1,5 +1,6 @@
 import {
   createCallbackRegister,
+  createEmptyRegister,
   createEncodedBinaryRegister,
   createMp4WebmRegister,
   createRtpRtcpRegister,
@@ -8,6 +9,7 @@ import {
 
 const uninstall = installPolyfill({
   mediaRegister: [
+    createEmptyRegister(),
     createCallbackRegister({
       mimeType: "video/VP8",
       kinds: ["video"],

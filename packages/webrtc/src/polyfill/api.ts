@@ -15,6 +15,7 @@ export {
   createCallbackRegister,
   createDummyRegister,
 } from "./registers/callback";
+export { createEmptyRegister } from "./registers/empty";
 export { createMp4WebmRegister } from "./registers/mp4Webm";
 export type {
   CreateMp4WebmRegisterOptions,

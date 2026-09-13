@@ -8,6 +8,7 @@
 
 ### 🚀 Features
 
+- **Empty media tracks for `werift/polyfill`**: `mediaRegister: []` now lets `getUserMedia()` return plain audio/video tracks instead of `NotFoundError`, and the new `createEmptyRegister()` exposes the same no-RTP, codec-unset behavior explicitly.
 - **`werift/polyfill`**: Opt-in installer that puts werift WebRTC constructors on `globalThis` (or a `target` sandbox) and implements `navigator.mediaDevices.getUserMedia` via `mediaRegister` (MP4/WebM, RTP/RTCP, encoded binary, or `createCallbackRegister`).
 
 ## v0.24.4

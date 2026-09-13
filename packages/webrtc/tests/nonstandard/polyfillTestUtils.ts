@@ -158,3 +158,20 @@ export async function waitForRtp(
     });
   });
 }
+
+export async function receivesRtpWithin(
+  track: MediaStreamTrack,
+  timeoutMs = 100,
+) {
+  return new Promise<boolean>((resolve) => {
+    const { unSubscribe } = track.onReceiveRtp.subscribe(() => {
+      clearTimeout(timer);
+      unSubscribe();
+      resolve(true);
+    });
+    const timer = setTimeout(() => {
+      unSubscribe();
+      resolve(false);
+    }, timeoutMs);
+  });
+}
