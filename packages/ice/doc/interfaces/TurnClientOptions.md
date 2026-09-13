@@ -8,6 +8,14 @@
 
 ## Properties
 
+### connectTimeoutMs?
+
+> `optional` **connectTimeoutMs**: `number`
+
+Maximum time to wait for TCP/TLS connection establishment, in milliseconds.
+
+***
+
 ### interfaceAddresses?
 
 > `optional` **interfaceAddresses**: `InterfaceAddresses`
