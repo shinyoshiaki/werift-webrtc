@@ -138,13 +138,17 @@ readonly \[`string`, `number`\]
 
 ### init()
 
-> `static` **init**(`addr`): `Promise`\<[`TcpTransport`](TcpTransport.md)\>
+> `static` **init**(`addr`, `options`): `Promise`\<[`TcpTransport`](TcpTransport.md)\>
 
 #### Parameters
 
 ##### addr
 
 readonly \[`string`, `number`\]
+
+##### options
+
+[`StreamTransportOptions`](../interfaces/StreamTransportOptions.md) = `{}`
 
 #### Returns
 
