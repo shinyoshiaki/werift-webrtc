@@ -62,6 +62,7 @@
 ## Interfaces
 
 - [Extensions](interfaces/Extensions.md)
+- [StreamTransportOptions](interfaces/StreamTransportOptions.md)
 - [Transport](interfaces/Transport.md)
 - [videoOrientationPayload](interfaces/videoOrientationPayload.md)
 

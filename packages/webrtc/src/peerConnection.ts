@@ -1311,6 +1311,11 @@ export interface PeerConfig {
    * Defaults to 5 when undefined.
    */
   iceStunGatherTimeout: number | undefined;
+  /**
+   * Seconds to wait for a TURN TCP/TLS connection to be established.
+   * Defaults to 8 when undefined.
+   */
+  iceTurnConnectTimeout: number | undefined;
   turnTransport: "udp" | "tcp" | "tls" | undefined;
   turnTlsOptions: TlsConnectionOptions | undefined;
   /** @deprecated Prefer turn URL transport parameters or turnTransport. */
@@ -1508,6 +1513,7 @@ function generateDefaultPeerConfig(): PeerConfig {
     iceUseTcp: false,
     iceTcpPassive: true,
     iceStunGatherTimeout: undefined,
+    iceTurnConnectTimeout: undefined,
     turnTransport: undefined,
     turnTlsOptions: undefined,
     iceFilterStunResponse: undefined,

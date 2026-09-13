@@ -561,6 +561,7 @@ export class Connection implements IceConnection {
             interfaceAddresses: this.options.interfaceAddresses,
             transport: turnTransport,
             tlsOptions: this.options.turnTlsOptions,
+            connectTimeoutMs: (this.options.turnConnectTimeout ?? 8) * 1000,
           },
         ).catch(async (e) => {
           if (turnTransport === "udp") {
@@ -574,6 +575,7 @@ export class Connection implements IceConnection {
                 portRange: this.options.portRange,
                 interfaceAddresses: this.options.interfaceAddresses,
                 transport: "tcp",
+                connectTimeoutMs: (this.options.turnConnectTimeout ?? 8) * 1000,
               },
             );
           } else {
