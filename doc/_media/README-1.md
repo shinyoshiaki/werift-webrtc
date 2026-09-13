@@ -38,7 +38,6 @@ try {
 ```
 
 `mediaRegister` is required even when no media source is needed. Passing an
-<<<<<<< HEAD
 empty array installs a built-in empty register, so `getUserMedia()` returns a
 plain live, muted track with no codec or generated RTP. The same intent can be
 made explicit with `mediaRegister: [createEmptyRegister()]`.
@@ -54,11 +53,6 @@ const stream = await navigator.mediaDevices.getUserMedia({
   video: true,
 });
 ```
-=======
-empty array is useful for code that only needs the installed WebRTC globals;
-`getUserMedia()` then fails with `NotFoundError` because no source is
-available.
->>>>>>> develop
 
 The import does not mutate globals by itself. Call `installPolyfill()` when the
 application is ready to install the adapter, and call the returned function
