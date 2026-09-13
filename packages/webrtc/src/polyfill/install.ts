@@ -135,6 +135,9 @@ function bindRegisters(registers: MediaRegister[]): BoundMediaRegister[] {
       get mimeType() {
         return register.mimeType;
       },
+      get mimeTypeByKind() {
+        return register.mimeTypeByKind;
+      },
       get kinds() {
         return register.kinds;
       },

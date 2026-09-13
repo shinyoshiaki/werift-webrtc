@@ -172,6 +172,54 @@ describe("werift/polyfill installPolyfill", () => {
     }
   });
 
+  test("empty register mimeType placeholders follow the requested kind", async () => {
+    const register = createEmptyRegister();
+    const uninstall = installTestPolyfill([register]);
+    try {
+      // 実行: kind ごとのプレースホルダと、不一致な exact mimeType を確認する。
+      const audioStream = await navigator.mediaDevices.getUserMedia({
+        audio: { mimeType: { exact: "audio/opus" } } as any,
+      });
+      const videoStream = await navigator.mediaDevices.getUserMedia({
+        video: { mimeType: { exact: "video/VP8" } } as any,
+      });
+      let audioMismatch: unknown;
+      try {
+        await navigator.mediaDevices.getUserMedia({
+          audio: { mimeType: { exact: "video/VP8" } } as any,
+        });
+      } catch (error) {
+        audioMismatch = error;
+      }
+      let videoMismatch: unknown;
+      try {
+        await navigator.mediaDevices.getUserMedia({
+          video: { mimeType: { exact: "audio/opus" } } as any,
+        });
+      } catch (error) {
+        videoMismatch = error;
+      }
+
+      // 検証: 選択用 mimeType は kind に合わせ、track.codec には載せない。
+      expect(register.mimeTypeByKind).toEqual({
+        audio: "audio/opus",
+        video: "video/VP8",
+      });
+      expect(audioStream.getAudioTracks()[0]).toMatchObject({
+        kind: "audio",
+        codec: undefined,
+      });
+      expect(videoStream.getVideoTracks()[0]).toMatchObject({
+        kind: "video",
+        codec: undefined,
+      });
+      expectOverconstrainedError(audioMismatch, "mimeType");
+      expectOverconstrainedError(videoMismatch, "mimeType");
+    } finally {
+      uninstall();
+    }
+  });
+
   test("rejects duplicate deviceIds", () => {
     // 実行: 同じ deviceId を 2 件登録する。
     expect(() =>

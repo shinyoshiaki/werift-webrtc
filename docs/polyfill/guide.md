@@ -120,6 +120,9 @@ import type { MediaStreamTrack } from "werift";
 
 interface MediaRegister {
   readonly mimeType: string;
+  readonly mimeTypeByKind?: Partial<
+    Readonly<Record<"audio" | "video", string>>
+  >;
   readonly kinds: readonly ("audio" | "video")[];
   readonly deviceId?: string;
   readonly groupId?: string;
@@ -147,7 +150,7 @@ in the form `werift-device-N`. Explicit duplicate IDs are rejected.
 
 | Factory | Source | Notes |
 | --- | --- | --- |
-| `createEmptyRegister()` | Plain empty audio/video tracks | Identical to the empty-array default: no generated RTP and no track codec; PeerConnection defaults drive codec negotiation. |
+| `createEmptyRegister()` | Plain empty audio/video tracks | Identical to the empty-array default: no generated RTP and no track codec; PeerConnection defaults drive codec negotiation. Selection placeholders are `audio/opus` for audio and `video/VP8` for video; they are not copied onto the track. |
 | `createMp4WebmRegister()` | MP4/WebM file, bytes, or stream | Plays a container source and creates audio/video tracks found in it. Supports `loop` and per-kind codec hints. |
 | `createRtpRtcpRegister()` | RTP/RTCP over UDP or a Node/Web stream | Delivers RTP and muxed RTCP directly to the track. `mimeType` is required. |
 | `createEncodedBinaryRegister()` | Encoded access units over UDP or a Node/Web stream | Packetizes VP8, VP9, H.264/AVC, AV1, or Opus into RTP. |
@@ -338,7 +341,9 @@ The following fields are used to select a register:
 Basic `exact` values filter candidates. Basic `ideal` values influence the
 fitness distance, while `advanced` entries narrow the candidates only when an
 entry still leaves at least one match. If multiple candidates have the same
-fitness distance, registration order wins.
+fitness distance, registration order wins. Dual-kind registers may advertise
+`mimeTypeByKind`; selection then compares the placeholder for the requested
+kind instead of the single `mimeType` string.
 
 `getSupportedConstraints()` reports the three selection fields above. Other
 constraint keys are not used by the built-in selector.
