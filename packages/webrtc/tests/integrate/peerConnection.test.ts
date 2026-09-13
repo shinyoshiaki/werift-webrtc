@@ -2193,6 +2193,7 @@ describe("peerConnection", () => {
     });
     callee.on("track", () => {
       surfaces.push("emitter");
+      throw new Error("emitter error");
     });
     callee.ontrack = () => {
       surfaces.push("ontrack");
@@ -2337,6 +2338,96 @@ describe("peerConnection", () => {
       expect(answer).not.toMatch(
         new RegExp(`a=extmap:\\d+ ${RTP_EXTENSION_URI.transportWideCC}`),
       );
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
+  test("remote answerに残った4096はoffererがusable IDへremapしない", async () => {
+    // Arrange: offererは通常ID、answerだけ4096のsupport indicationにする。
+    const headerExtensions = { video: [useSdesMid()] };
+    const caller = new RTCPeerConnection({ iceServers: [], headerExtensions });
+    const callee = new RTCPeerConnection({ iceServers: [], headerExtensions });
+    caller.addTransceiver("video", { direction: "sendonly" });
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription(caller.localDescription!);
+      const answer = await callee.createAnswer();
+      const answerWithNegotiationId = answer.sdp.replace(
+        new RegExp(`a=extmap:\\d+ ${RTP_EXTENSION_URI.sdesMid}`),
+        `a=extmap:4096 ${RTP_EXTENSION_URI.sdesMid}`,
+      );
+
+      // Act: 4096のままのanswerをoffererへ適用する。
+      await caller.setRemoteDescription({
+        type: "answer",
+        sdp: answerWithNegotiationId,
+      });
+
+      // Assert: live mapping/senderにはnegotiation IDをusable IDへ落とさない。
+      const map = getPeerRouter(caller).extIdUriMap;
+      expect(Object.values(map)).not.toContain(RTP_EXTENSION_URI.sdesMid);
+      expect(
+        caller
+          .getTransceivers()[0]!
+          .headerExtensions.filter(
+            (extension) => extension.uri === RTP_EXTENSION_URI.sdesMid,
+          ),
+      ).toEqual([]);
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
+  test("BUNDLE拒否のanswerはm-lineごとにtls-id有無を判定する", async () => {
+    // Arrange: offerはBUNDLEだがanswererはbundlePolicy disable。
+    const caller = new RTCPeerConnection({ iceServers: [] });
+    const callee = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "disable",
+    });
+    caller.addTransceiver("audio", { direction: "sendonly" });
+    caller.addTransceiver("video", { direction: "sendonly" });
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      const mids = [
+        ...caller.localDescription!.sdp.matchAll(/^a=mid:(\S+)/gm),
+      ].map((match) => match[1]!);
+      expect(mids).toHaveLength(2);
+      const sections = sdpMediaSections(caller.localDescription!.sdp);
+      const offer = sections
+        .map((section) =>
+          section.includes(`a=mid:${mids[1]}`)
+            ? section.replace(/^a=tls-id:[^\r\n]+[\r\n]*/gm, "")
+            : section,
+        )
+        .join("");
+      expect(
+        sdpMediaSections(offer).find((section) =>
+          section.includes(`a=mid:${mids[0]}`),
+        ),
+      ).toMatch(/a=tls-id:/);
+      expect(
+        sdpMediaSections(offer).find((section) =>
+          section.includes(`a=mid:${mids[1]}`),
+        ),
+      ).not.toMatch(/a=tls-id:/);
+
+      // Act: BUNDLEを拒否するanswerをSLDする。
+      await callee.setRemoteDescription({ type: "offer", sdp: offer });
+      await callee.setLocalDescription(await callee.createAnswer());
+      expect(callee.localDescription!.sdp).not.toMatch(/a=group:BUNDLE/);
+      const answerSections = sdpMediaSections(callee.localDescription!.sdp);
+
+      // Assert: tls-id無しのremote associationへはanswerも挿入しない。
+      expect(
+        answerSections.find((section) => section.includes(`a=mid:${mids[0]}`)),
+      ).toMatch(/a=tls-id:/);
+      expect(
+        answerSections.find((section) => section.includes(`a=mid:${mids[1]}`)),
+      ).not.toMatch(/a=tls-id:/);
     } finally {
       await Promise.allSettled([caller.close(), callee.close()]);
     }

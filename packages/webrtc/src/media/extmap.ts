@@ -42,7 +42,7 @@ export function cloneHeaderExtension(
 
 export type ExtmapNegotiationState = {
   usedIds: Set<number>;
-  chosenByNegotiationId: Map<number, RTCRtpHeaderExtensionParameters>;
+  chosenByNegotiationId: Map<number, { id: number; key: string }>;
 };
 
 export function createExtmapNegotiationState(
@@ -88,30 +88,44 @@ export function negotiateRemoteHeaderExtensions(
 
     const chosen = state.chosenByNegotiationId.get(extension.id);
     if (chosen) {
-      if (
-        extmapConfigurationKey(chosen) === extmapConfigurationKey(extension)
-      ) {
-        negotiated.push(chosen);
+      if (chosen.key === extmapConfigurationKey(extension)) {
+        negotiated.push(cloneHeaderExtension(extension, { id: chosen.id }));
       }
       continue;
     }
 
     const id = allocateUsableExtmapId(state.usedIds);
     state.usedIds.add(id);
-    const remapped = cloneHeaderExtension(extension, { id });
-    state.chosenByNegotiationId.set(extension.id, remapped);
-    negotiated.push(remapped);
+    state.chosenByNegotiationId.set(extension.id, {
+      id,
+      key: extmapConfigurationKey(extension),
+    });
+    negotiated.push(cloneHeaderExtension(extension, { id }));
   }
   return negotiated;
+}
+
+/**
+ * Remote answers must not remap 4096–4351; only valid-range IDs are live.
+ */
+export function selectAnswerHeaderExtensions(
+  remote: ExtmapDescriptor[],
+  supportedUris: ReadonlySet<string>,
+): RTCRtpHeaderExtensionParameters[] {
+  return remote
+    .filter(
+      (extension) =>
+        supportedUris.has(extension.uri) &&
+        !isExtmapNegotiationId(extension.id),
+    )
+    .map((extension) => cloneHeaderExtension(extension));
 }
 
 export function seedExtmapUsedIds(
   state: ExtmapNegotiationState,
   extensions: ExtmapDescriptor[],
-  supportedUris: ReadonlySet<string>,
 ) {
   for (const extension of extensions) {
-    if (!supportedUris.has(extension.uri)) continue;
     if (!isExtmapNegotiationId(extension.id)) {
       state.usedIds.add(extension.id);
     }

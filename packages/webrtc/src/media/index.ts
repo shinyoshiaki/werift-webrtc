@@ -1,5 +1,4 @@
 export * from "./codec";
-export * from "./extmap";
 export * from "./extension/rtcpFeedback";
 export * from "./extension/rtpExtension";
 export * from "./parameters";

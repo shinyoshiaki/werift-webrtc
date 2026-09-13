@@ -202,16 +202,11 @@ export class SDPManager {
     if (!remote) {
       return;
     }
-    const remoteBundle = remote.group.find(
-      (group) => group.semantic === "BUNDLE",
-    );
     const answerBundle = description.group.find(
       (group) => group.semantic === "BUNDLE",
     );
-    const bundleMids = new Set(
-      answerBundle?.items ?? remoteBundle?.items ?? [],
-    );
-    const tag = answerBundle?.items[0] ?? remoteBundle?.items[0];
+    const bundleMids = new Set(answerBundle?.items ?? []);
+    const tag = answerBundle?.items[0];
     const remoteTag = tag
       ? remote.media.find((media) => media.rtp.muxId === tag)
       : undefined;

@@ -23,9 +23,6 @@ import {
   RtpRouter,
   TransceiverManager,
   type TransceiverOptions,
-  createExtmapNegotiationState,
-  negotiateRemoteHeaderExtensions,
-  seedExtmapUsedIds,
   useOPUS,
   usePCMU,
   useVP8,
@@ -38,6 +35,12 @@ import {
   generateStatsId,
   getStatsTimestamp,
 } from "./media/stats";
+import {
+  createExtmapNegotiationState,
+  negotiateRemoteHeaderExtensions,
+  seedExtmapUsedIds,
+  selectAnswerHeaderExtensions,
+} from "./media/extmap";
 import {
   type DormantSctpApplication,
   SctpTransportManager,
@@ -1410,6 +1413,7 @@ export class RTCPeerConnection extends EventTarget {
 
   private assertRemoteExtmapsForTargetTransports(
     bindings: RemoteMediaBinding[],
+    remoteType: SessionDescription["type"],
   ) {
     const rtpBindings = bindings.filter(
       (binding) =>
@@ -1426,29 +1430,28 @@ export class RTCPeerConnection extends EventTarget {
     }
 
     for (const [sessionId, sessionBindings] of bySession) {
-      const liveIds = Object.keys(
-        this.router.snapshotExtIdUriMaps()[sessionId] ?? {},
-      ).map(Number);
-      const state = createExtmapNegotiationState(liveIds);
-      for (const binding of sessionBindings) {
-        const supported = this.supportedHeaderExtensionUris(
-          binding.remoteMedia.kind,
-        );
-        seedExtmapUsedIds(
-          state,
-          binding.remoteMedia.rtp.headerExtensions,
-          supported,
-        );
-      }
-      for (const binding of sessionBindings) {
-        const supported = this.supportedHeaderExtensionUris(
-          binding.remoteMedia.kind,
-        );
-        binding.negotiatedHeaderExtensions = negotiateRemoteHeaderExtensions(
-          binding.remoteMedia.rtp.headerExtensions,
-          supported,
-          state,
-        );
+      if (remoteType === "offer") {
+        const liveIds = Object.keys(
+          this.router.snapshotExtIdUriMaps()[sessionId] ?? {},
+        ).map(Number);
+        const state = createExtmapNegotiationState(liveIds);
+        for (const binding of sessionBindings) {
+          seedExtmapUsedIds(state, binding.remoteMedia.rtp.headerExtensions);
+        }
+        for (const binding of sessionBindings) {
+          binding.negotiatedHeaderExtensions = negotiateRemoteHeaderExtensions(
+            binding.remoteMedia.rtp.headerExtensions,
+            this.supportedHeaderExtensionUris(binding.remoteMedia.kind),
+            state,
+          );
+        }
+      } else {
+        for (const binding of sessionBindings) {
+          binding.negotiatedHeaderExtensions = selectAnswerHeaderExtensions(
+            binding.remoteMedia.rtp.headerExtensions,
+            this.supportedHeaderExtensionUris(binding.remoteMedia.kind),
+          );
+        }
       }
       this.router.assertPendingExtmapsForSession(
         sessionId,
@@ -2556,7 +2559,10 @@ export class RTCPeerConnection extends EventTarget {
       // RFC 8285 uniqueness is per RTP session (DTLS/BUNDLE target), not the
       // current transceiver transport.  Validate the staged graph before any
       // ICE/DTLS mutation so a BUNDLE join remap cannot half-commit.
-      this.assertRemoteExtmapsForTargetTransports(remoteMediaBindings);
+      this.assertRemoteExtmapsForTargetTransports(
+        remoteMediaBindings,
+        remoteSdp.type,
+      );
 
       const plan: PendingRemoteOfferPlan = {
         remoteDescription: remoteSdp,
