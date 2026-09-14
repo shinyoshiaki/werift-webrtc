@@ -51,6 +51,22 @@ describe("sdp", () => {
     );
   });
 
+  test("未知のextmap directionはparse時に拒否する", () => {
+    const sdp = [
+      "v=0",
+      "o=- 0 0 IN IP4 0.0.0.0",
+      "s=-",
+      "t=0 0",
+      "m=audio 9 UDP/TLS/RTP/SAVPF 111",
+      "a=extmap:1/foobar urn:ietf:params:rtp-hdrext:sdes:mid",
+      "",
+    ].join("\r\n");
+
+    expect(() => SessionDescription.parse(sdp)).toThrow(
+      /invalid extmap direction foobar/,
+    );
+  });
+
   describe("codecParametersFromString", () => {
     test("h264 parameters", () => {
       const params = codecParametersFromString(

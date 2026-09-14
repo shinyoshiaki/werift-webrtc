@@ -28,6 +28,18 @@ import {
   useVP8,
 } from "./media";
 import {
+  type ExtmapDescriptor,
+  assertExtmapCompatibleWithMedia,
+  assignLocalExtmapIds,
+  cloneHeaderExtension,
+  createExtmapNegotiationState,
+  createLocalExtmapAllocator,
+  extmapMediaDirection,
+  negotiateRemoteHeaderExtensions,
+  seedExtmapUsedIds,
+  selectAnswerHeaderExtensions,
+} from "./media/extmap";
+import {
   type RTCPeerConnectionStats,
   type RTCStats,
   type RTCStatsReport,
@@ -35,12 +47,6 @@ import {
   generateStatsId,
   getStatsTimestamp,
 } from "./media/stats";
-import {
-  createExtmapNegotiationState,
-  negotiateRemoteHeaderExtensions,
-  seedExtmapUsedIds,
-  selectAnswerHeaderExtensions,
-} from "./media/extmap";
 import {
   type DormantSctpApplication,
   SctpTransportManager,
@@ -633,13 +639,6 @@ export class RTCPeerConnection extends EventTarget {
       }
     }
 
-    [...(this.config.headerExtensions.audio || [])].forEach((v, i) => {
-      v.id = 1 + i;
-    });
-    [...(this.config.headerExtensions.video || [])].forEach((v, i) => {
-      v.id = 1 + i;
-    });
-
     // Propagate ICE server changes only to transports still in gathering
     // state "new". JSEP (RFC 8829 §4.1.18): STUN/TURN changes affect the next
     // gathering phase; once gathering has started or finished, nothing is
@@ -668,18 +667,21 @@ export class RTCPeerConnection extends EventTarget {
 
     await this.secureManager.ensureCerts();
 
-    for (const transceiver of this.transceiverManager.getTransceivers()) {
+    const transceivers = this.transceiverManager.getTransceivers();
+    for (const transceiver of transceivers) {
       if (transceiver.codecs.length === 0) {
         this.transceiverManager.assignTransceiverCodecs(transceiver);
       }
       if (transceiver.headerExtensions.length === 0) {
-        transceiver.headerExtensions =
-          this.config.headerExtensions[transceiver.kind] ?? [];
+        transceiver.headerExtensions = (
+          this.config.headerExtensions[transceiver.kind] ?? []
+        ).map((extension) => cloneHeaderExtension(extension));
       }
     }
+    this.assignLocalHeaderExtensionIds(transceivers);
 
     const description = this.sdpManager.buildOfferSdp(
-      this.transceiverManager.getTransceivers(),
+      transceivers,
       this.sctpTransport,
       this.sctpManager.dormantApplication,
     );
@@ -1411,6 +1413,62 @@ export class RTCPeerConnection extends EventTarget {
     }
   }
 
+  private assignLocalHeaderExtensionIds(transceivers: RTCRtpTransceiver[]) {
+    const rtpTransceivers = transceivers.filter(
+      (transceiver) =>
+        transceiver.kind === "audio" || transceiver.kind === "video",
+    );
+    if (this.config.bundlePolicy === "disable") {
+      for (const transceiver of rtpTransceivers) {
+        this.applyLocalExtmapIds(
+          [transceiver],
+          this.liveExtmapsForTransport(transceiver.dtlsTransport.id),
+        );
+      }
+      return;
+    }
+
+    const seed: ExtmapDescriptor[] = [];
+    const tag = this.sdpManager.getEstablishedBundleGroup()?.items[0];
+    if (tag) {
+      const transport = this.getDtlsTransportForMid(tag);
+      if (transport) {
+        seed.push(...this.liveExtmapsForTransport(transport.id));
+      }
+    }
+    for (const transceiver of rtpTransceivers) {
+      seed.push(...transceiver.headerExtensions);
+    }
+    this.applyLocalExtmapIds(rtpTransceivers, seed);
+  }
+
+  private applyLocalExtmapIds(
+    transceivers: RTCRtpTransceiver[],
+    seed: ExtmapDescriptor[],
+  ) {
+    const allocator = createLocalExtmapAllocator(seed);
+    for (const transceiver of transceivers) {
+      transceiver.headerExtensions = assignLocalExtmapIds(
+        transceiver.headerExtensions,
+        allocator,
+      );
+    }
+  }
+
+  private liveExtmapsForTransport(transportId: string): ExtmapDescriptor[] {
+    const session = this.router.snapshotRtpSessions()[transportId];
+    if (!session) return [];
+    return Object.entries(session.extIdUriMap).map(([id, uri]) => {
+      const numericId = Number(id);
+      const attributes = session.extIdAttributesMap[numericId];
+      return {
+        id: numericId,
+        uri,
+        ...(attributes ? { attributes } : {}),
+      };
+    });
+  }
+
   private assertRemoteExtmapsForTargetTransports(
     bindings: RemoteMediaBinding[],
     remoteType: SessionDescription["type"],
@@ -1429,7 +1487,28 @@ export class RTCPeerConnection extends EventTarget {
       bySession.set(sessionId, group);
     }
 
+    const localOffer =
+      this.sdpManager.pendingLocalDescription ??
+      this.sdpManager.currentLocalDescription;
+
     for (const [sessionId, sessionBindings] of bySession) {
+      for (const binding of sessionBindings) {
+        const mediaDirection = extmapMediaDirection(
+          binding.remoteMedia.direction,
+        );
+        for (const extension of binding.remoteMedia.rtp.headerExtensions) {
+          assertExtmapCompatibleWithMedia(extension, mediaDirection);
+        }
+      }
+
+      // RFC 8285 ID-space is per RTP session, including unsupported URIs.
+      this.router.assertPendingExtmapsForSession(
+        sessionId,
+        sessionBindings.map(
+          (binding) => binding.remoteMedia.rtp.headerExtensions,
+        ),
+      );
+
       if (remoteType === "offer") {
         const liveIds = Object.keys(
           this.router.snapshotExtIdUriMaps()[sessionId] ?? {},
@@ -1447,9 +1526,19 @@ export class RTCPeerConnection extends EventTarget {
         }
       } else {
         for (const binding of sessionBindings) {
+          const offeredMedia =
+            localOffer?.media.find(
+              (media) => media.rtp.muxId === binding.remoteMedia.rtp.muxId,
+            ) ?? localOffer?.media[binding.index];
+          if (!offeredMedia) {
+            throw new Error("answer m-line has no pending local offer");
+          }
           binding.negotiatedHeaderExtensions = selectAnswerHeaderExtensions(
             binding.remoteMedia.rtp.headerExtensions,
+            offeredMedia.rtp.headerExtensions,
             this.supportedHeaderExtensionUris(binding.remoteMedia.kind),
+            extmapMediaDirection(binding.remoteMedia.direction),
+            extmapMediaDirection(offeredMedia.direction),
           );
         }
       }

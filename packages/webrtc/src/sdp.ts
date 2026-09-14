@@ -9,6 +9,7 @@ import {
 } from "./const";
 import { divide } from "./helper";
 import { Candidate } from "./imports/ice";
+import { isExtmapDirection } from "./media/extmap";
 import {
   RTCRtcpFeedback,
   RTCRtpCodecParameters,
@@ -635,6 +636,9 @@ function parseExtmapAttribute(value: string): RTCRtpHeaderExtensionParameters {
   const slash = mapEntry.indexOf("/");
   const extId = slash === -1 ? mapEntry : mapEntry.slice(0, slash);
   const direction = slash === -1 ? undefined : mapEntry.slice(slash + 1);
+  if (direction && !isExtmapDirection(direction)) {
+    throw new Error(`invalid extmap direction ${direction}`);
+  }
   const uri = tokens[1] ?? "";
   const attributes = tokens.slice(2).join(" ").trim() || undefined;
   return new RTCRtpHeaderExtensionParameters({
