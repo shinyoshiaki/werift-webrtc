@@ -1274,13 +1274,25 @@ export class RTCPeerConnection extends EventTarget {
     const sctpBinding = plan.bindings.find(
       (binding) => binding.sctpTransport !== undefined,
     );
-    if (sctpBinding?.sctpTransport && !sctpBinding.requiresNewDtlsAssociation) {
-      if (sctpBinding.currentTransport !== sctpBinding.targetTransport) {
-        sctpBinding.sctpTransport.setDtlsTransport(sctpBinding.targetTransport);
+    let irreversible = false;
+    try {
+      if (
+        sctpBinding?.sctpTransport &&
+        !sctpBinding.requiresNewDtlsAssociation
+      ) {
+        if (sctpBinding.currentTransport !== sctpBinding.targetTransport) {
+          sctpBinding.sctpTransport.setDtlsTransport(
+            sctpBinding.targetTransport,
+          );
+          irreversible = true;
+        }
+        if (plan.pendingSctp) {
+          await this.sctpManager.applyAssociationUpdate(plan.pendingSctp);
+        }
       }
-      if (plan.pendingSctp) {
-        await this.sctpManager.applyAssociationUpdate(plan.pendingSctp);
-      }
+    } catch (error) {
+      if (!irreversible) throw error;
+      log("irreversible SCTP commit failed", error);
     }
 
     await this.retireRejectedBindings(plan);
@@ -1306,23 +1318,32 @@ export class RTCPeerConnection extends EventTarget {
         continue;
       }
       if (binding.transceiver) {
-        this.router.unregisterRtpReceiver(binding.transceiver.receiver);
-        binding.transceiver.stop();
-        binding.transceiver.forceStop();
+        try {
+          this.router.unregisterRtpReceiver(binding.transceiver.receiver);
+          binding.transceiver.stop();
+          binding.transceiver.forceStop();
+        } catch (error) {
+          log("rejected transceiver retirement failed", error);
+        }
       }
       if (binding.sctpTransport) {
-        await this.sctpManager.applyAssociationUpdate({
-          remotePort: 0,
-          localPort: binding.sctpTransport.port,
-          mLineIndex: binding.index,
-          replaceAssociation: false,
-          closeAssociation: true,
-        });
+        try {
+          await this.sctpManager.applyAssociationUpdate({
+            remotePort: 0,
+            localPort: binding.sctpTransport.port,
+            mLineIndex: binding.index,
+            replaceAssociation: false,
+            closeAssociation: true,
+          });
+        } catch (error) {
+          log("rejected SCTP retirement failed", error);
+        }
       }
       retiredTransports.add(binding.currentTransport);
       retiredTransports.add(binding.targetTransport);
     }
 
+    const retiredStops: Promise<unknown>[] = [];
     for (const transport of retiredTransports) {
       const retiredRejectedSctp = plan.bindings.some(
         (binding) =>
@@ -1344,7 +1365,13 @@ export class RTCPeerConnection extends EventTarget {
         (!retiredRejectedSctp &&
           this.sctpManager.dormantApplication?.dtlsTransport === transport);
       if (!stillUsed) {
-        await this.secureManager.stopTransport(transport);
+        retiredStops.push(this.secureManager.stopTransport(transport));
+      }
+    }
+    const stopped = await Promise.allSettled(retiredStops);
+    for (const result of stopped) {
+      if (result.status === "rejected") {
+        log("stopTransport after irreversible commit failed", result.reason);
       }
     }
   }
@@ -1435,9 +1462,6 @@ export class RTCPeerConnection extends EventTarget {
       if (transport) {
         seed.push(...this.liveExtmapsForTransport(transport.id));
       }
-    }
-    for (const transceiver of rtpTransceivers) {
-      seed.push(...transceiver.headerExtensions);
     }
     this.applyLocalExtmapIds(rtpTransceivers, seed);
   }

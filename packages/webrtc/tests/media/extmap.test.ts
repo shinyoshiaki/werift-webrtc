@@ -5,6 +5,8 @@ import {
   createExtmapNegotiationState,
   createLocalExtmapAllocator,
   negotiateRemoteHeaderExtensions,
+  projectExtmapDirectionForMedia,
+  projectHeaderExtensionsForMedia,
   reverseExtmapDirection,
   seedExtmapUsedIds,
   selectAnswerHeaderExtensions,
@@ -93,14 +95,25 @@ describe("extmap negotiation", () => {
     expect(video[0]!.direction).toBe("recvonly");
   });
 
-  test("remote answerの4096はusable IDへremapしない", () => {
+  test("remote answerの4096はofferにあればusable IDへremapしない", () => {
     const supported = new Set([RTP_EXTENSION_URI.sdesMid]);
     const selected = selectAnswerHeaderExtensions(
       [{ id: 4096, uri: RTP_EXTENSION_URI.sdesMid }],
-      [{ id: 1, uri: RTP_EXTENSION_URI.sdesMid }],
+      [{ id: 4096, uri: RTP_EXTENSION_URI.sdesMid }],
       supported,
     );
     expect(selected).toEqual([]);
+  });
+
+  test("remote answerの4096がofferに無いと拒否する", () => {
+    const supported = new Set([RTP_EXTENSION_URI.sdesMid]);
+    expect(() =>
+      selectAnswerHeaderExtensions(
+        [{ id: 4096, uri: RTP_EXTENSION_URI.sdesMid }],
+        [{ id: 1, uri: RTP_EXTENSION_URI.sdesMid }],
+        supported,
+      ),
+    ).toThrow(/was not offered/);
   });
 
   test("同じsessionではURI+attributesでIDを共有しdirectionは無視する", () => {
@@ -171,5 +184,55 @@ describe("extmap negotiation", () => {
         "recvonly",
       ),
     ).toThrow(/contradicts media direction/);
+  });
+
+  test("BUNDLE統合時はstable IDをremapせず衝突したextensionを外す", () => {
+    const allocator = createLocalExtmapAllocator();
+    const audio = assignLocalExtmapIds(
+      [{ id: 1, uri: RTP_EXTENSION_URI.sdesMid }],
+      allocator,
+    );
+    const video = assignLocalExtmapIds(
+      [{ id: 1, uri: RTP_EXTENSION_URI.transportWideCC }],
+      allocator,
+    );
+
+    expect(audio).toEqual([
+      expect.objectContaining({ id: 1, uri: RTP_EXTENSION_URI.sdesMid }),
+    ]);
+    expect(video).toEqual([]);
+  });
+
+  test("inactive mediaの省略extmapはsendrecvとして扱い明示sendrecvも許可する", () => {
+    expect(() =>
+      assertExtmapCompatibleWithMedia(
+        { id: 1, uri: RTP_EXTENSION_URI.sdesMid },
+        "inactive",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertExtmapCompatibleWithMedia(
+        { id: 1, uri: RTP_EXTENSION_URI.sdesMid, direction: "sendrecv" },
+        "inactive",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertExtmapCompatibleWithMedia(
+        { id: 1, uri: RTP_EXTENSION_URI.sdesMid, direction: "inactive" },
+        "inactive",
+      ),
+    ).not.toThrow();
+  });
+
+  test("sendrecv extmapはrecvonly m-lineへ絞り込んでqualifierを省略する", () => {
+    expect(
+      projectExtmapDirectionForMedia("sendrecv", "recvonly"),
+    ).toBeUndefined();
+    expect(
+      projectHeaderExtensionsForMedia(
+        [{ id: 1, uri: RTP_EXTENSION_URI.sdesMid, direction: "sendrecv" }],
+        "recvonly",
+      )[0]!.direction,
+    ).toBeUndefined();
   });
 });

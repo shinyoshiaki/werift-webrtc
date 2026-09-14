@@ -2,6 +2,7 @@ import { DISCARD_HOST, DISCARD_PORT } from "./const";
 import { createWebRtcDomException } from "./errors";
 import type { RTCRtpTransceiver } from "./media";
 import { RTCRtpSimulcastParameters } from "./media/parameters";
+import { projectHeaderExtensionsForMedia } from "./media/extmap";
 import type { MediaDirection } from "./media/rtpTransceiver";
 import type { DormantSctpApplication } from "./sctpManager";
 import {
@@ -89,7 +90,10 @@ export class SDPManager {
     media.msids = transceiver.msids;
     media.rtp = {
       codecs: transceiver.codecs,
-      headerExtensions: transceiver.headerExtensions,
+      headerExtensions: projectHeaderExtensionsForMedia(
+        transceiver.headerExtensions,
+        direction,
+      ),
       muxId: transceiver.mid ?? undefined,
     };
     media.rtcpHost = "0.0.0.0";
