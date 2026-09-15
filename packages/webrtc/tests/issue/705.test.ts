@@ -1,4 +1,10 @@
-import { RTCPeerConnection, RTCRtpCodecParameters } from "../../src";
+import {
+  MediaStreamTrack,
+  RTCPeerConnection,
+  RTCRtpCodecParameters,
+  useH264,
+  useOPUS,
+} from "../../src";
 import {
   createAudioOnlyPeerConnection,
   createOfferWithKinds,
@@ -389,6 +395,50 @@ describe("https://github.com/shinyoshiaki/werift-webrtc/issues/705", () => {
       expect(localCandidate.sdpMLineIndex).toBe(
         parsedOffer.media.findIndex((media) => media.rtp.muxId === audioMid),
       );
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("reject 済み transceiver は addTrack で再利用せず新しい m-line を足す", async () => {
+    const offerer = new RTCPeerConnection({
+      iceServers: [],
+      codecs: { audio: [useOPUS()], video: [useH264()] },
+    });
+    offerer.addTransceiver("video", { direction: "sendonly" });
+    offerer.addTransceiver("audio", { direction: "sendonly" });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+
+    try {
+      // Act: 非対応 video を reject したあと、addTrack で新しい video を追加して offer する。
+      await answerer.setRemoteDescription(await offerer.createOffer());
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      const rejectedVideo = answerer
+        .getTransceivers()
+        .find((transceiver) => transceiver.kind === "video");
+      expect(rejectedVideo?.rejected).toBe(true);
+
+      const sender = answerer.addTrack(new MediaStreamTrack({ kind: "video" }));
+      const nextOffer = parseSdp((await answerer.createOffer()).sdp);
+      const acceptedVideo = nextOffer.media.filter(
+        (media) => media.kind === "video" && media.port !== 0,
+      );
+
+      // Assert: 既存 reject m-line は維持し、新しい accepted video m-line が追加される。
+      expect(sender).not.toBe(rejectedVideo?.sender);
+      expect(rejectedVideo?.rejected).toBe(true);
+      expect(rejectedVideo?.sender.track).toBeFalsy();
+      expect(answerer.getTransceivers()).toHaveLength(3);
+      expect(
+        nextOffer.media.filter((media) => media.kind === "video"),
+      ).toHaveLength(2);
+      expect(nextOffer.media[0]?.kind).toBe("video");
+      expect(nextOffer.media[0]?.port).toBe(0);
+      expect(acceptedVideo).toHaveLength(1);
+      expect(getBundleItems(nextOffer)).not.toContain(
+        nextOffer.media[0]?.rtp.muxId,
+      );
+      expect(getBundleItems(nextOffer)).toContain(acceptedVideo[0]?.rtp.muxId);
     } finally {
       await Promise.all([offerer.close(), answerer.close()]);
     }

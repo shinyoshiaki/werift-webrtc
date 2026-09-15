@@ -162,6 +162,7 @@ export class TransceiverManager {
 
     const emptyTrackSenderTransceiver = this.transceivers.find(
       (t) =>
+        !t.rejected &&
         t.sender.track == undefined &&
         t.kind === track.kind &&
         SenderDirections.includes(t.direction) === true,
@@ -179,6 +180,7 @@ export class TransceiverManager {
 
     const notSendTransceiver = this.transceivers.find(
       (t) =>
+        !t.rejected &&
         t.sender.track == undefined &&
         t.kind === track.kind &&
         SenderDirections.includes(t.direction) === false &&
