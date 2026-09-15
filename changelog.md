@@ -5,6 +5,13 @@
 ### ⚠️ Breaking changes
 
 - **Removed `getUserMedia({ path | buffer | stream })` from `werift/nonstandard`.** File playback now goes through `werift/polyfill`: `installPolyfill({ mediaRegister: [createMp4WebmRegister({ path })] })` then `navigator.mediaDevices.getUserMedia({ audio: true, video: true })`.
+- **`sender.senderBWE` TypeScript type is `BandwidthEstimator`.** Legacy `onCongestion` / `onCongestionScore` still exist at runtime on the default estimator, and a one-release compatibility surface keeps those names on GCC/disabled as no-op Events so `sender.senderBWE.onCongestion.subscribe(...)` compiles. Prefer `sender.senderBWE as SenderBandwidthEstimator` or `isSenderBandwidthEstimator`. The names are not part of the shared `BandwidthEstimator` contract and may be removed from non-legacy estimators in a future major.
+
+### 🐛 Bug Fixes
+
+- **TWCC is transport-wide on BUNDLE.** `ReceiverTWCC` is shared per DTLS transport, and incoming TWCC RTCP is fanned out to every `RTCRtpSender` on that transport (each estimator still matches only its own `SentInfo`).
+- **`filterProbePaddingOnReceiveRtp` defaults to `false`.** Default `onReceiveRtp` keeps wire sequence numbers and delivers padding-only packets as `{ type: "padding" }`. Opt in to compaction with `true`.
+- **GCC send path:** outgoing RTP is serialized (reservation → pacing → sequence → DTLS write); `sendingAtMs` is sampled before ICE enqueue (not after send completion); the token-bucket pacer uses the constructed packet size (after TWCC/RED/padding).
 
 ### 🚀 Features
 

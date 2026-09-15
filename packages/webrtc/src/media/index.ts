@@ -12,6 +12,7 @@ export * from "./track";
 export type {
   BandwidthEstimator,
   BandwidthEstimatorProcessor,
+  LegacyCongestionCompatibility,
   NetworkAvailabilityConsumer,
   ProbeClusterConfig,
   ProbePacingController,
@@ -36,6 +37,7 @@ export { DisabledBandwidthEstimator } from "./sender/estimators/disabledBwe";
 export {
   LegacyCumulativeBandwidthEstimator,
   SenderBandwidthEstimator,
+  isSenderBandwidthEstimator,
 } from "./sender/estimators/legacyCumulativeBwe";
 export {
   AlrDetector,

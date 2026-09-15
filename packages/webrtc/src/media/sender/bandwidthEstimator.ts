@@ -235,6 +235,25 @@ export function isBandwidthEstimatorProcessor(
 }
 
 /**
+ * Legacy congestion events kept on every estimator instance so
+ * `sender.senderBWE.onCongestion` still type-checks after the BWE abstraction.
+ * Only SenderBandwidthEstimator fires them; GCC / disabled are no-ops.
+ *
+ * Not part of {@link BandwidthEstimator}. Prefer a `SenderBandwidthEstimator`
+ * assertion for new code. This surface may be removed in a future major.
+ */
+export type LegacyCongestionCompatibility = {
+  /** @deprecated Legacy-only. No-op on GCC / disabled. */
+  readonly onCongestion: Event<[boolean]>;
+  /** @deprecated Legacy-only. No-op on GCC / disabled. */
+  readonly onCongestionScore: Event<[number]>;
+  /** @deprecated Legacy-only. Always false on GCC / disabled. */
+  congestion: boolean;
+  /** @deprecated Legacy-only. Always 1 on GCC / disabled. */
+  congestionScore: number;
+};
+
+/**
  * Shared no-op implementations of GCC send-path hooks.
  * {@link SenderBandwidthEstimator} and {@link DisabledBandwidthEstimator} extend this.
  */
@@ -243,6 +262,17 @@ export abstract class BandwidthEstimatorNoopHooks {
   readonly probePaddingPacketBytes = 0;
   readonly probePaddingMaxBurst = 0;
   readonly onProbeClusterConfig = new Event<[ProbeClusterConfig]>();
+  /** @deprecated No-op except on {@link SenderBandwidthEstimator}. */
+  readonly onCongestion = new Event<[boolean]>();
+  /** @deprecated No-op except on {@link SenderBandwidthEstimator}. */
+  readonly onCongestionScore = new Event<[number]>();
+  /** @deprecated Always false except on {@link SenderBandwidthEstimator}. */
+  congestion = false;
+  protected _compatCongestionScore = 1;
+  /** @deprecated Always 1 except on {@link SenderBandwidthEstimator}. */
+  get congestionScore() {
+    return this._compatCongestionScore;
+  }
 
   shouldTagProbePacket(): boolean {
     return false;
@@ -276,6 +306,8 @@ export abstract class BandwidthEstimatorNoopHooks {
 
   protected disposeNoopHooks(): void {
     this.onProbeClusterConfig.allUnsubscribe();
+    this.onCongestion.allUnsubscribe();
+    this.onCongestionScore.allUnsubscribe();
   }
 }
 

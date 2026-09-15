@@ -41,6 +41,7 @@ import {
   isProbePacingController,
   isRoundTripTimeConsumer,
   isRttAboveLimit,
+  isSenderBandwidthEstimator,
   kAlrProbeScale,
   kAlrProbingIntervalMs,
   kBeta,
@@ -353,6 +354,23 @@ describe("media/sender bandwidth estimator", () => {
           "senderBWE",
         )?.set,
       ).toBeUndefined();
+    });
+
+    test("senderBWE.onCongestion は TypeScript 互換のため全 estimator に存在する", () => {
+      // Arrange
+      const sender = new RTCRtpSender("audio");
+
+      // Assert: 既定 legacy では具象イベントに到達できる
+      expect(isSenderBandwidthEstimator(sender.senderBWE)).toBe(true);
+      expect(typeof sender.senderBWE.onCongestion.subscribe).toBe("function");
+
+      // Act
+      sender.setBandwidthEstimator(new GccBandwidthEstimator());
+
+      // Assert: GCC でも同名の no-op Event があり、既存の参照が compile error にならない
+      expect(isSenderBandwidthEstimator(sender.senderBWE)).toBe(false);
+      expect(typeof sender.senderBWE.onCongestion.subscribe).toBe("function");
+      expect(sender.senderBWE.congestionScore).toBe(1);
     });
   });
 
@@ -1665,22 +1683,22 @@ describe("media/sender bandwidth estimator", () => {
       }
     });
 
-    test("並行 sendRtp でも SentInfo.wideSeq が重複しない", async () => {
+    test("並行 sendRtp は FIFO 直列化され SentInfo.wideSeq が重複しない", async () => {
       // Arrange: 遅延する transport で 2 件を並行送信
-      // 旧実装は await 後に共有カウンタを読み直し [2,2] になっていた
       const gcc = new GccBandwidthEstimator(100_000);
-      // 初期 probe を止めて isProbation 注入を避ける
-      startGccProbing(gcc);
+      const { sender, dtls } = await prepareConnectedSender(gcc);
+      // setBandwidthEstimator の reset 後に complete へ。初期 probe の
+      // onProbeClusterConfig が media と DTLS を重ねないようにする。
       (gcc as any).probe.abort(0);
       (gcc as any).probe.state = "complete";
       (gcc as any).probingConfigured = true;
-
-      const { sender, dtls } = await prepareConnectedSender(gcc);
-      const gates: Array<() => void> = [];
+      let inFlight = 0;
+      let maxInFlight = 0;
       dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
-        await new Promise<void>((resolve) => {
-          gates.push(resolve);
-        });
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise<void>((resolve) => setTimeout(resolve, 15));
+        inFlight--;
         return payload.length + header.serializeSize;
       }) as typeof dtls.sendRtp;
 
@@ -1707,22 +1725,157 @@ describe("media/sender bandwidth estimator", () => {
           Buffer.alloc(80),
         );
 
-      // Act: 2 件を並行起動 → 両方 await 中に両 gate を解放
+      // Act
       const p1 = sender.sendRtp(mk(1));
       const p2 = sender.sendRtp(mk(2));
-      // 両方が sendRtp に入るまで待つ
-      for (let i = 0; i < 50 && gates.length < 2; i++) {
-        await new Promise((r) => setTimeout(r, 1));
-      }
-      expect(gates.length).toBe(2);
-      for (const release of gates) {
-        release();
-      }
       await Promise.all([p1, p2]);
 
-      // Assert: wire TWCC は 1,2 — estimator 入力も [1,2]（重複なし）
+      // Assert: DTLS write は同時に 1 本。TWCC seq は 1,2
+      expect(maxInFlight).toBe(1);
       expect(wideSeqs).toEqual([1, 2]);
-      expect(new Set(wideSeqs).size).toBe(2);
+    });
+
+    test("probe 中の並行 sendRtp でも DTLS write は同時に 1 本", async () => {
+      // Arrange: 初期 probe を残したまま 2 media を並行投入
+      const gcc = new GccBandwidthEstimator(100_000);
+      const { sender, dtls } = await prepareConnectedSender(gcc);
+      startGccProbing(gcc);
+      // media の probe tag / cluster event は残し、padding 連打で
+      // テストが 15ms×N に膨らむのを避ける
+      vi.spyOn(gcc, "pendingProbePaddingPackets").mockReturnValue(0);
+
+      let inFlight = 0;
+      let maxInFlight = 0;
+      dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise<void>((resolve) => setTimeout(resolve, 15));
+        inFlight--;
+        return payload.length + header.serializeSize;
+      }) as typeof dtls.sendRtp;
+
+      const mk = (seq: number) =>
+        new RtpPacket(
+          new RtpHeader({
+            sequenceNumber: seq,
+            timestamp: seq * 1000,
+            payloadType: 96,
+            ssrc: 1,
+            extension: true,
+            extensions: [],
+            marker: false,
+            padding: false,
+            payloadOffset: 12,
+          }),
+          Buffer.alloc(80),
+        );
+
+      // Act
+      await Promise.all([sender.sendRtp(mk(1)), sender.sendRtp(mk(2))]);
+
+      // Assert: probe padding が挟まっても DTLS は直列
+      expect(maxInFlight).toBe(1);
+    });
+
+    test("sendingAtMs は DTLS send 完了後ではなく送信開始前の時刻である", async () => {
+      // Arrange
+      const gcc = new GccBandwidthEstimator(100_000);
+      const { sender, dtls } = await prepareConnectedSender(gcc);
+      (gcc as any).probe.abort(0);
+      (gcc as any).probe.state = "complete";
+      (gcc as any).probingConfigured = true;
+      dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
+        await new Promise<void>((resolve) => setTimeout(resolve, 25));
+        return payload.length + header.serializeSize;
+      }) as typeof dtls.sendRtp;
+      const sent: SentInfo[] = [];
+      const orig = gcc.rtpPacketSent.bind(gcc);
+      gcc.rtpPacketSent = (info: SentInfo) => {
+        sent.push(info);
+        orig(info);
+      };
+
+      // Act
+      await sender.sendRtp(
+        new RtpPacket(
+          new RtpHeader({
+            sequenceNumber: 1,
+            timestamp: 1000,
+            payloadType: 96,
+            ssrc: 1,
+            extension: true,
+            extensions: [],
+            marker: false,
+            padding: false,
+            payloadOffset: 12,
+          }),
+          Buffer.alloc(80),
+        ),
+      );
+
+      // Assert: ICE wait は sentAtMs に入り、sendingAtMs には入らない
+      expect(sent).toHaveLength(1);
+      expect(sent[0].sentAtMs - sent[0].sendingAtMs).toBeGreaterThanOrEqual(15);
+    });
+
+    test("pacer は RED 構築後のパケットサイズを使う", async () => {
+      // Arrange
+      const gcc = new GccBandwidthEstimator(100_000);
+      const { sender } = await prepareConnectedSender(gcc);
+      (gcc as any).probe.abort(0);
+      (gcc as any).probe.state = "complete";
+      (gcc as any).probingConfigured = true;
+      sender.prepareSend({
+        codecs: [
+          new RTCRtpCodecParameters({
+            mimeType: "audio/red",
+            clockRate: 48000,
+            payloadType: 63,
+            parameters: "111/111",
+          }),
+          new RTCRtpCodecParameters({
+            mimeType: "audio/opus",
+            clockRate: 48000,
+            payloadType: 111,
+          }),
+        ],
+        headerExtensions: [
+          new RTCRtpHeaderExtensionParameters({
+            id: 3,
+            uri: RTP_EXTENSION_URI.transportWideCC,
+          }),
+        ],
+        muxId: "0",
+        rtcp: { cname: "test", mux: true },
+      });
+      const paced: number[] = [];
+      const orig = (sender as any).awaitPacingBudget.bind(sender);
+      (sender as any).awaitPacingBudget = async (n: number) => {
+        paced.push(n);
+        return orig(n);
+      };
+
+      // Act: 小さな payload を RED 経路で送る
+      await sender.sendRtp(
+        new RtpPacket(
+          new RtpHeader({
+            sequenceNumber: 1,
+            timestamp: 1000,
+            payloadType: 111,
+            ssrc: 1,
+            extension: true,
+            extensions: [],
+            marker: false,
+            padding: false,
+            payloadOffset: 12,
+          }),
+          Buffer.alloc(20),
+        ),
+      );
+
+      // Assert: 生 payload 20+header より大きい（RED + TWCC extension）
+      expect(paced.length).toBeGreaterThan(0);
+      expect(paced[0]).toBeGreaterThan(20 + 12);
     });
   });
 

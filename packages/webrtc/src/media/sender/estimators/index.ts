@@ -2,6 +2,7 @@ export type { BandwidthEstimator, SentInfo } from "../bandwidthEstimator";
 export {
   LegacyCumulativeBandwidthEstimator,
   SenderBandwidthEstimator,
+  isSenderBandwidthEstimator,
 } from "./legacyCumulativeBwe";
 export { DisabledBandwidthEstimator } from "./disabledBwe";
 export {

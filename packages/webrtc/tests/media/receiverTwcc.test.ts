@@ -5,7 +5,10 @@ import {
   type RtcpTransportLayerFeedback,
   type TransportWideCC,
 } from "../../src";
-import { ReceiverTWCC } from "../../src/media/receiver/receiverTwcc";
+import {
+  ReceiverTWCC,
+  acquireTransportReceiverTWCC,
+} from "../../src/media/receiver/receiverTwcc";
 
 describe("ReceiverTWCC", () => {
   function makeReceiver() {
@@ -253,5 +256,40 @@ describe("ReceiverTWCC", () => {
     // 15*64 = 960ms base; first arrival ~1000ms → ~40ms delta
     expect(results[0].receivedAtMs).toBeGreaterThanOrEqual(960);
     expect(results[0].receivedAtMs).toBeLessThan(1010);
+  });
+
+  test("同一 DTLS の interleaved TSN は PacketNotReceived にしない", async () => {
+    // Arrange: BUNDLE audio/video が TSN を交互に使う
+    const dtls = {
+      sendRtcp: vi.fn(async (_packets: unknown[]) => {}),
+    };
+    const audio = acquireTransportReceiverTWCC(dtls as any, 1, 100);
+    const video = acquireTransportReceiverTWCC(dtls as any, 2, 200);
+    audio.twccRunning = false;
+
+    // Act: audio=100,102 / video=101 — 受信側は transport 全体を見る
+    audio.handleTWCC(100);
+    video.handleTWCC(101);
+    audio.handleTWCC(102);
+    (audio as any).sendTWCC();
+
+    // Assert: 共有インスタンス。101 は video のパケットであり loss ではない
+    expect(audio).toBe(video);
+    expect(dtls.sendRtcp).toHaveBeenCalledTimes(1);
+    const packets = (dtls.sendRtcp as any).mock.calls[0][0] as {
+      serialize: () => Buffer;
+    }[];
+    const wire = packets[0].serialize();
+    const [rtpfb] = RtcpPacketConverter.deSerialize(wire) as [
+      RtcpTransportLayerFeedback,
+    ];
+    const twcc = rtpfb.feedback as TransportWideCC;
+    expect(
+      twcc.packetResults.map((r) => [r.sequenceNumber, r.received]),
+    ).toEqual([
+      [100, true],
+      [101, true],
+      [102, true],
+    ]);
   });
 });

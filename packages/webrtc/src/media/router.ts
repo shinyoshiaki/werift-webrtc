@@ -9,9 +9,11 @@ import {
   RtcpSrPacket,
   RtcpTransportLayerFeedback,
   type RtpPacket,
+  TransportWideCC,
   debug,
   rtpHeaderExtensionsParser,
 } from "../imports/rtp";
+import type { RTCDtlsTransport } from "../transport/dtls";
 import type {
   RTCRtpReceiveParameters,
   RTCRtpSimulcastParameters,
@@ -138,7 +140,7 @@ export class RtpRouter {
     }
   };
 
-  routeRtcp = (packet: RtcpPacket) => {
+  routeRtcp = (packet: RtcpPacket, dtlsTransport?: RTCDtlsTransport) => {
     const recipients: (RTCRtpReceiver | RTCRtpSender)[] = [];
 
     switch (packet.type) {
@@ -165,7 +167,11 @@ export class RtpRouter {
       case RtcpTransportLayerFeedback.type:
         {
           const rtpfb = packet as RtcpTransportLayerFeedback;
-          if (rtpfb.feedback) {
+          if (rtpfb.feedback?.count === TransportWideCC.count) {
+            recipients.push(
+              ...this.twccFeedbackRecipients(rtpfb, dtlsTransport),
+            );
+          } else if (rtpfb.feedback) {
             recipients.push(this.ssrcTable[rtpfb.feedback.mediaSourceSsrc]);
           }
         }
@@ -193,4 +199,44 @@ export class RtpRouter {
       .filter((v) => v) // todo simulcast
       .forEach((recipient) => recipient.handleRtcpPacket(packet));
   };
+
+  /**
+   * TWCC `media_ssrc` is the latest RTP SSRC, not the owner of the TSN range.
+   * Fan-out the whole feedback to every sender on the same DTLS transport;
+   * each estimator ignores sequences it did not send.
+   */
+  private twccFeedbackRecipients(
+    rtpfb: RtcpTransportLayerFeedback,
+    incomingTransport?: RTCDtlsTransport,
+  ): (RTCRtpReceiver | RTCRtpSender)[] {
+    const seed = this.ssrcTable[rtpfb.feedback.mediaSourceSsrc];
+    const transport =
+      incomingTransport ??
+      (seed && "dtlsTransport" in seed ? seed.dtlsTransport : undefined);
+    const senders = this.sendersOnTransport(transport);
+    if (senders.length > 0) {
+      return senders;
+    }
+    return seed ? [seed] : [];
+  }
+
+  private sendersOnTransport(transport?: RTCDtlsTransport): RTCRtpSender[] {
+    const seen = new Set<RTCRtpSender>();
+    const out: RTCRtpSender[] = [];
+    for (const recipient of Object.values(this.ssrcTable)) {
+      if (!recipient || recipient.type !== "sender") {
+        continue;
+      }
+      const sender = recipient as RTCRtpSender;
+      if (transport && sender.dtlsTransport !== transport) {
+        continue;
+      }
+      if (seen.has(sender)) {
+        continue;
+      }
+      seen.add(sender);
+      out.push(sender);
+    }
+    return out;
+  }
 }

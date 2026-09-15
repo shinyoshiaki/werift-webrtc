@@ -45,12 +45,21 @@ import type { DebugConfig } from "../peerConnection";
 import {
   fingerprint,
   isDtls,
+  milliTime,
   normalizeFingerprintAlgorithm,
   normalizeFingerprintValue,
 } from "../utils";
 import type { RTCIceTransport } from "./ice";
 
 const log = debug("werift:packages/webrtc/src/transport/dtls.ts");
+
+/** Result of encrypting and enqueueing one RTP packet on ICE. */
+export type DtlsSendRtpResult = {
+  /** On-wire SRTP size in bytes. */
+  size: number;
+  /** Local clock immediately before ICE/UDP enqueue (RFC 8888 send time). */
+  sendingAtMs: number;
+};
 
 function formatDtlsVersion(version?: {
   major: number;
@@ -449,7 +458,10 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     await this.dtls.send(data);
   };
 
-  async sendRtp(payload: Buffer, header: RtpHeader): Promise<number> {
+  async sendRtp(
+    payload: Buffer,
+    header: RtpHeader,
+  ): Promise<number | DtlsSendRtpResult> {
     try {
       const enc = this.srtp.encrypt(payload, header);
 
@@ -457,18 +469,19 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         this.config.debug?.outboundPacketLoss &&
         this.config.debug?.outboundPacketLoss / 100 < Math.random()
       ) {
-        return enc.length;
+        return { size: enc.length, sendingAtMs: milliTime() };
       }
 
       // Track statistics
       this.bytesSent += enc.length;
       this.packetsSent++;
 
+      const sendingAtMs = milliTime();
       await this.iceTransport.connection.send(enc).catch(() => {});
-      return enc.length;
+      return { size: enc.length, sendingAtMs };
     } catch (error) {
       log("failed to send", error);
-      return 0;
+      return { size: 0, sendingAtMs: milliTime() };
     }
   }
 

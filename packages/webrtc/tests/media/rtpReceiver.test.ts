@@ -29,6 +29,11 @@ import {
   getReceiverNack,
 } from "./rtpReceiverTestUtils";
 
+const omitProbePaddingConfig = {
+  ...defaultPeerConfig,
+  filterProbePaddingOnReceiveRtp: true,
+};
+
 const deliverProbePaddingConfig = {
   ...defaultPeerConfig,
   filterProbePaddingOnReceiveRtp: false,
@@ -323,9 +328,11 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
     expect(remoteOutbound.reportsSent).toBe(1);
   });
 
-  test("padding-only is omitted from onReceiveRtp by default", () => {
+  test("padding-only is omitted from onReceiveRtp when filter is enabled", () => {
     // Arrange
-    const { receiver, track } = createVideoReceiver();
+    const { receiver, track } = createVideoReceiver({
+      peerConfig: omitProbePaddingConfig,
+    });
     const received: { payloadLen: number; type?: string }[] = [];
     track.onReceiveRtp.subscribe((rtp, _ext, info) => {
       received.push({ payloadLen: rtp.payload.length, type: info?.type });
@@ -339,6 +346,30 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
 
     // Assert: 既定では外部イベントに padding を出さない
     expect(received).toEqual([]);
+  });
+
+  test("default delivers padding-only with original sequence numbers", () => {
+    // Arrange: filterProbePaddingOnReceiveRtp の既定は false
+    const { receiver, track } = createVideoReceiver();
+    const received: { seq: number; type?: string }[] = [];
+    track.onReceiveRtp.subscribe((rtp, _ext, info) => {
+      received.push({ seq: rtp.header.sequenceNumber, type: info?.type });
+    });
+
+    // Act
+    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 10 }), {});
+    receiver.handleRtpBySsrc(
+      createPaddingOnlyRtpPacket({ sequenceNumber: 11 }),
+      {},
+    );
+    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 12 }), {});
+
+    // Assert: wire の seq と type padding がそのまま届く
+    expect(received).toEqual([
+      { seq: 10, type: "media" },
+      { seq: 11, type: "padding" },
+      { seq: 12, type: "media" },
+    ]);
   });
 
   test("filterProbePaddingOnReceiveRtp false delivers type padding", () => {
@@ -383,9 +414,11 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
     expect(seqs).toEqual([10, 11, 12]);
   });
 
-  test("default compacts sequence numbers after skipped probe padding", () => {
+  test("filter enabled compacts sequence numbers after skipped probe padding", () => {
     // Arrange
-    const { receiver, track } = createVideoReceiver();
+    const { receiver, track } = createVideoReceiver({
+      peerConfig: omitProbePaddingConfig,
+    });
     const seqs: number[] = [];
     track.onReceiveRtp.subscribe((rtp, _ext, info) => {
       seqs.push(rtp.header.sequenceNumber);
@@ -406,7 +439,9 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
 
   test("late padding does not duplicate later media sequence numbers", () => {
     // Arrange
-    const { receiver, track } = createVideoReceiver();
+    const { receiver, track } = createVideoReceiver({
+      peerConfig: omitProbePaddingConfig,
+    });
     const seqs: number[] = [];
     track.onReceiveRtp.subscribe((rtp) => {
       seqs.push(rtp.header.sequenceNumber);
@@ -427,7 +462,9 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
 
   test("duplicate padding seq is counted once when compacting", () => {
     // Arrange
-    const { receiver, track } = createVideoReceiver();
+    const { receiver, track } = createVideoReceiver({
+      peerConfig: omitProbePaddingConfig,
+    });
     const seqs: number[] = [];
     track.onReceiveRtp.subscribe((rtp) => {
       seqs.push(rtp.header.sequenceNumber);
@@ -451,7 +488,9 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
 
   test("compacts sequence numbers across 16-bit wrap", () => {
     // Arrange
-    const { receiver, track } = createVideoReceiver();
+    const { receiver, track } = createVideoReceiver({
+      peerConfig: omitProbePaddingConfig,
+    });
     const seqs: number[] = [];
     track.onReceiveRtp.subscribe((rtp) => {
       seqs.push(rtp.header.sequenceNumber);
@@ -474,7 +513,9 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
 
   test("late padding across wrap does not duplicate", () => {
     // Arrange
-    const { receiver, track } = createVideoReceiver();
+    const { receiver, track } = createVideoReceiver({
+      peerConfig: omitProbePaddingConfig,
+    });
     const seqs: number[] = [];
     track.onReceiveRtp.subscribe((rtp) => {
       seqs.push(rtp.header.sequenceNumber);
@@ -647,10 +688,10 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
     const parsed = RtpPacket.deSerialize(buf);
     receiver.handleRtpBySsrc(parsed, {});
 
-    // Assert: 正規形は空 payload。既定では外部イベントに出さない
+    // Assert: 正規形は空 payload。既定では type padding として届く
     expect(parsed.payload.length).toBe(0);
     expect(parsed.header.paddingSize).toBe(kProbePaddingPacketBytes);
-    expect(infoType).toBeUndefined();
+    expect(infoType).toBe("padding");
     expect(track.muted).toBe(true);
   });
 
@@ -679,7 +720,38 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
       {},
     );
 
+    // Assert: 既定では padding も届き、RTX は retransmission
+    expect(types).toEqual(["padding", "retransmission"]);
+  });
+
+  test("BUNDLE の複数 receiver は同一 DTLS の ReceiverTWCC を共有する", () => {
+    // Arrange
+    const dtls = createDtlsTransport();
+    const codec = new RTCRtpCodecParameters({
+      mimeType: "video/vp8",
+      clockRate: 90000,
+      payloadType: 96,
+      rtcpFeedback: [{ type: "transport-cc" }],
+    });
+    const audio = new RTCRtpReceiver(defaultPeerConfig, "audio", 1);
+    const video = new RTCRtpReceiver(defaultPeerConfig, "video", 2);
+    audio.setDtlsTransport(dtls);
+    video.setDtlsTransport(dtls);
+    const params = {
+      codecs: [codec],
+      encodings: [],
+      headerExtensions: [],
+    };
+    audio.prepareReceive(params);
+    video.prepareReceive(params);
+
+    // Act
+    audio.setupTWCC(100);
+    video.setupTWCC(200);
+
     // Assert
-    expect(types).toEqual(["retransmission"]);
+    expect(audio.receiverTWCC).toBeDefined();
+    expect(audio.receiverTWCC).toBe(video.receiverTWCC);
+    audio.receiverTWCC!.twccRunning = false;
   });
 });

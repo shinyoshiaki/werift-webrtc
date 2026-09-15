@@ -619,7 +619,7 @@ export class RTCPeerConnection extends EventTarget {
       this.router.routeRtp(rtp);
     });
     dtlsTransport.onRtcp.subscribe((rtcp) => {
-      this.router.routeRtcp(rtcp);
+      this.router.routeRtcp(rtcp, dtlsTransport);
     });
     const iceTransport = dtlsTransport.iceTransport;
 
@@ -1341,15 +1341,14 @@ export interface PeerConfig {
   /** Advertised local SCTP max-message-size in SDP. Use 0 for unlimited. */
   maxMessageSize: number;
   /**
-   * When true (default), padding-only GCC probe RTP is not delivered on
-   * {@link MediaStreamTrack.onReceiveRtp}. Later media / retransmission
-   * packets have sequence numbers compacted (extended seq, on-time padding
-   * only) so subscribers do not see holes. Late padding does not rewrite
-   * already-delivered mappings. TWCC, NACK, and packet/octet stats still
-   * observe the original packets.
+   * When true, padding-only RTP is omitted from {@link MediaStreamTrack.onReceiveRtp}
+   * and later media sequence numbers are compacted (extended seq, on-time padding
+   * only). Late padding does not rewrite already-delivered mappings. TWCC, NACK,
+   * and packet/octet stats still observe the original packets.
    *
-   * Set false to receive original sequence numbers and `{ type: "padding" }`
-   * events (the application must skip or rewrite them).
+   * **Default false**: `onReceiveRtp` delivers the wire packet (including padding
+   * `{ type: "padding" }`) so sequence numbers match the network. Enable only
+   * when a consumer needs a GCC/SFU-style media-only stream.
    */
   filterProbePaddingOnReceiveRtp: boolean;
   /**
@@ -1529,7 +1528,7 @@ function generateDefaultPeerConfig(): PeerConfig {
     midSuffix: false,
     forceTurnTCP: false,
     maxMessageSize: DEFAULT_MAX_MESSAGE_SIZE,
-    filterProbePaddingOnReceiveRtp: true,
+    filterProbePaddingOnReceiveRtp: false,
     bandwidthEstimator: "legacy",
     pendingRtp: false,
   };

@@ -8,4 +8,5 @@ export type { BandwidthEstimator, SentInfo } from "./bandwidthEstimator";
 export {
   LegacyCumulativeBandwidthEstimator,
   SenderBandwidthEstimator,
+  isSenderBandwidthEstimator,
 } from "./estimators/legacyCumulativeBwe";

@@ -71,6 +71,7 @@ import type {
 } from "./parameters";
 import type {
   BandwidthEstimator,
+  LegacyCongestionCompatibility,
   ProbeClusterConfig,
 } from "./sender/bandwidthEstimator";
 import { SenderBandwidthEstimator, type SentInfo } from "./sender/senderBWE";
@@ -152,6 +153,23 @@ function resolvePendingRtpOptions(
   return { enabled: pendingRtp.enabled ?? true, maxLength };
 }
 
+/**
+ * Production {@link RTCDtlsTransport.sendRtp} returns `{ size, sendingAtMs }`.
+ * Tests often stub a bare byte-count; treat that as size with the caller clock.
+ */
+function readDtlsSendRtpResult(
+  sent: number | { size: number; sendingAtMs: number },
+  fallbackSendingAtMs: number,
+): { size: number; sendingAtMs: number } {
+  if (typeof sent === "number") {
+    return { size: sent, sendingAtMs: fallbackSendingAtMs };
+  }
+  return {
+    size: sent.size,
+    sendingAtMs: sent.sendingAtMs,
+  };
+}
+
 export class RTCRtpSender {
   readonly type = "sender";
   readonly kind: Kind;
@@ -176,9 +194,17 @@ export class RTCRtpSender {
    *
    * Prefer {@link onAvailableBitrate} on this sender for bitrate notifications that
    * survive estimator swaps. Algorithm-specific events remain on concrete instances.
+   *
+   * **TypeScript compatibility:** {@link LegacyCongestionCompatibility} fields
+   * (`onCongestion` / `onCongestionScore`) are present on every estimator so
+   * existing `sender.senderBWE.onCongestion.subscribe(...)` still type-checks.
+   * They fire only on {@link SenderBandwidthEstimator}; GCC / disabled are no-ops.
+   * Prefer `sender.senderBWE as SenderBandwidthEstimator` (or
+   * {@link isSenderBandwidthEstimator}) for legacy-only APIs.
    */
-  get senderBWE(): BandwidthEstimator {
-    return this._senderBWE;
+  get senderBWE(): BandwidthEstimator & LegacyCongestionCompatibility {
+    return this._senderBWE as BandwidthEstimator &
+      LegacyCongestionCompatibility;
   }
 
   /**
@@ -216,6 +242,21 @@ export class RTCRtpSender {
    * attached to the next tracked packet as `priorUnackedBytes`.
    */
   private pendingUntrackedBytes = 0;
+  /**
+   * FIFO for reservation → pacing wait → sequence allocation → DTLS write.
+   * Idle calls start synchronously so Event.execute() tests observe the send.
+   * Probe padding may call {@link sendRtpInternal} on this stack only after
+   * the current packet's DTLS write ({@link nestOutgoingPadding}); timer /
+   * cluster events always enqueue so they cannot share a DTLS write.
+   */
+  private outgoingRunning = false;
+  private outgoingQueue: Array<() => void> = [];
+  /**
+   * Set only around post-DTLS {@link maybeInjectProbePadding} so padding can
+   * drain on the same FIFO task without deadlock. Must stay false during
+   * probe/pacing wait, or a cluster event would send in parallel.
+   */
+  private nestOutgoingPadding = false;
   /**
    * Generation that currently owns the probe/loss padding drain, or `undefined`.
    * Same-generation re-entry is skipped; a newer {@link bweGeneration} may start
@@ -570,7 +611,9 @@ export class RTCRtpSender {
           continue;
         }
         try {
-          await this.sendRtpInternal(item.packet, { injectProbePadding: true });
+          await this.enqueueOutgoing(() =>
+            this.sendRtpInternal(item.packet, { injectProbePadding: true }),
+          );
           this.settlePendingRtp(item);
         } catch (error) {
           this.settlePendingRtp(item, error);
@@ -848,6 +891,34 @@ export class RTCRtpSender {
     return wire;
   }
 
+  /**
+   * Serialize reservation → pacing → sequence allocation → DTLS write.
+   * Idle calls start the task in this turn so Event.execute() observers
+   * see the DTLS write. Concurrent callers wait on {@link outgoingQueue}.
+   */
+  private enqueueOutgoing<T>(task: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const start = () => {
+        const done = Promise.resolve(task());
+        done.then(resolve, reject).finally(() => {
+          const next = this.outgoingQueue.shift();
+          if (next) {
+            next();
+            return;
+          }
+          this.outgoingRunning = false;
+        });
+      };
+
+      if (this.outgoingRunning) {
+        this.outgoingQueue.push(start);
+        return;
+      }
+      this.outgoingRunning = true;
+      start();
+    });
+  }
+
   async sendRtp(rtp: Buffer | RtpPacket) {
     if (this.stopped) {
       return;
@@ -856,7 +927,9 @@ export class RTCRtpSender {
       if (!this.canSendRtp()) {
         return;
       }
-      await this.sendRtpInternal(rtp, { injectProbePadding: true });
+      await this.enqueueOutgoing(() =>
+        this.sendRtpInternal(rtp, { injectProbePadding: true }),
+      );
       return;
     }
     await new Promise<void>((resolve, reject) => {
@@ -885,6 +958,13 @@ export class RTCRtpSender {
   }
 
   async maybeInjectProbePadding(): Promise<number> {
+    if (this.nestOutgoingPadding) {
+      return this.drainProbePadding();
+    }
+    return this.enqueueOutgoing(() => this.drainProbePadding());
+  }
+
+  private async drainProbePadding(): Promise<number> {
     if (this.stopped) return 0;
     if (this.dtlsTransport?.state !== "connected" || !this.codec) {
       return 0;
@@ -942,6 +1022,10 @@ export class RTCRtpSender {
    * Regular RTP padding (not probe/probation). Probe padding takes priority.
    */
   async maybeInjectLossPadding(): Promise<number> {
+    return this.enqueueOutgoing(() => this.drainLossPadding());
+  }
+
+  private async drainLossPadding(): Promise<number> {
     if (this.stopped) return 0;
     if (this.dtlsTransport?.state !== "connected" || !this.codec) {
       return 0;
@@ -1030,8 +1114,6 @@ export class RTCRtpSender {
     const sendGeneration = this.bweGeneration;
     const estimatorAtStart = this._senderBWE;
 
-    const padBytes = header.padding ? header.paddingSize : 0;
-    const payloadLen = payload.length + padBytes + (header.serializeSize || 12);
     const twccOn = this.isTransportCcNegotiated();
 
     // pin CurrentCluster: reserve probe id **before** the async send so a
@@ -1053,15 +1135,6 @@ export class RTCRtpSender {
         }
       } else if (opts.forceProbeTag) {
         // Cluster already filled / discarded — do not emit untagged padding.
-        return;
-      }
-    } else if (
-      this.mediaPacingEnabled &&
-      twccOn &&
-      estimatorAtStart.getPacingBitrateBps() > 0
-    ) {
-      // Media / RTX: token-bucket at GetPacingRates (×2.5 / ×1.1).
-      if (!(await this.awaitPacingBudget(payloadLen))) {
         return;
       }
     }
@@ -1231,9 +1304,29 @@ export class RTCRtpSender {
       this.octetCount += payloadOctetsForSr;
     }
 
-    // size is actual on-wire SRTP length returned by the transport (includes
-    // real padding bytes when present). Do not invent size from paddingSize.
-    const size = await this.dtlsTransport.sendRtp(rtpPayload, header);
+    // Pace against the constructed packet (extensions + RED + RFC padding).
+    // Probe packets already waited on next_probe_time.
+    const constructedBytes = header.serializeSize + rtpPayload.length;
+    if (
+      reservedClusterId === undefined &&
+      this.mediaPacingEnabled &&
+      twccOn &&
+      estimatorAtStart.getPacingBitrateBps() > 0
+    ) {
+      if (!(await this.awaitPacingBudget(constructedBytes))) {
+        return;
+      }
+    }
+
+    // sendingAtMs is the last local clock sample before the transport write
+    // (RFC 8888). ICE/TURN backpressure must not land in send_delta.
+    const sendingAtMs = milliTime();
+    const sent = await this.dtlsTransport.sendRtp(rtpPayload, header);
+    const { size, sendingAtMs: enqueueAtMs } = readDtlsSendRtpResult(
+      sent,
+      sendingAtMs,
+    );
+    const sentAtMs = milliTime();
 
     this.runRtcp();
     // BWE / TWCC only when transport-cc is negotiated — otherwise wideSeq would
@@ -1245,14 +1338,13 @@ export class RTCRtpSender {
       packetWideSeq !== undefined &&
       sendGeneration === this.bweGeneration
     ) {
-      const millitime = milliTime();
       const priorUnacked = this.pendingUntrackedBytes;
       this.pendingUntrackedBytes = 0;
       const sentInfo: SentInfo = {
         wideSeq: packetWideSeq,
         size,
-        sendingAtMs: millitime,
-        sentAtMs: millitime,
+        sendingAtMs: enqueueAtMs,
+        sentAtMs,
         isProbation: reservedClusterId !== undefined,
         probeClusterId: reservedClusterId,
         priorUnackedBytes: priorUnacked,
@@ -1270,7 +1362,12 @@ export class RTCRtpSender {
       twccOn &&
       sendGeneration === this.bweGeneration
     ) {
-      await this.maybeInjectProbePadding();
+      this.nestOutgoingPadding = true;
+      try {
+        await this.maybeInjectProbePadding();
+      } finally {
+        this.nestOutgoingPadding = false;
+      }
     }
   }
 
@@ -1427,12 +1524,15 @@ export class RTCRtpSender {
                         1,
                       );
                     }
+                    const retransmission = packet;
                     // Route through sendRtpInternal: new TWCC seq, pacing,
                     // BWE SentInfo. Do not reuse the original transport-wide seq.
-                    await this.sendRtpInternal(packet, {
-                      injectProbePadding: false,
-                      isRetransmission: true,
-                    });
+                    await this.enqueueOutgoing(() =>
+                      this.sendRtpInternal(retransmission, {
+                        injectProbePadding: false,
+                        isRetransmission: true,
+                      }),
+                    );
                   }
                 });
                 this.onGenericNack.execute(feedback);

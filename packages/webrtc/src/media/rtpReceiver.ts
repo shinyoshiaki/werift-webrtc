@@ -28,7 +28,11 @@ import type {
   RTCRtpReceiveParameters,
 } from "./parameters";
 import { NackHandler } from "./receiver/nack";
-import { ReceiverTWCC } from "./receiver/receiverTwcc";
+import {
+  type ReceiverTWCC,
+  acquireTransportReceiverTWCC,
+  releaseTransportReceiverTWCC,
+} from "./receiver/receiverTwcc";
 import { StreamStatistics } from "./receiver/statistics";
 
 import { codecParametersFromString } from "../sdp";
@@ -160,16 +164,23 @@ export class RTCRtpReceiver {
   }
 
   /**
-   * setup TWCC if supported
+   * Attach this receiver to the DTLS-transport-scoped TWCC generator.
+   * BUNDLE audio/video share one {@link ReceiverTWCC} so interleaved
+   * transport-wide sequences are not reported as loss.
    */
   setupTWCC(mediaSourceSsrc: number) {
-    if (this.twccEnabled && !this.receiverTWCC) {
-      this.receiverTWCC = new ReceiverTWCC(
+    if (!this.twccEnabled || !this.dtlsTransport) {
+      return;
+    }
+    if (!this.receiverTWCC) {
+      this.receiverTWCC = acquireTransportReceiverTWCC(
         this.dtlsTransport,
         this.rtcpSsrc,
         mediaSourceSsrc,
       );
+      return;
     }
+    this.receiverTWCC.setMediaSourceSsrc(mediaSourceSsrc);
   }
 
   addTrack(track: MediaStreamTrack) {
@@ -199,7 +210,10 @@ export class RTCRtpReceiver {
     this.rtcpRunning = false;
     this.rtcpCancel.abort();
 
-    if (this.receiverTWCC) this.receiverTWCC.twccRunning = false;
+    if (this.receiverTWCC && this.dtlsTransport) {
+      releaseTransportReceiverTWCC(this.dtlsTransport, this.receiverTWCC);
+    }
+    this.receiverTWCC = undefined;
     this.nack.close();
   }
 
@@ -466,16 +480,18 @@ export class RTCRtpReceiver {
       new StreamStatistics(codec.clockRate);
     this.remoteStreams[packet.header.ssrc].add(packet);
 
+    if (!this.receiverTWCC && this.twccEnabled) {
+      this.setupTWCC(packet.header.ssrc);
+    }
     if (this.receiverTWCC) {
       const transportSequenceNumber = extensions[
         RTP_EXTENSION_URI.transportWideCC
       ] as TransportWideCCPayload;
 
       if (transportSequenceNumber !== undefined) {
+        this.receiverTWCC.setMediaSourceSsrc?.(packet.header.ssrc);
         this.receiverTWCC.handleTWCC(transportSequenceNumber);
       }
-    } else if (this.twccEnabled) {
-      this.setupTWCC(packet.header.ssrc);
     }
 
     const paddingOnly = isPaddingOnlyRtpPacket(packet);
@@ -532,11 +548,12 @@ export class RTCRtpReceiver {
 
   /**
    * Deliver a packet on {@link MediaStreamTrack.onReceiveRtp}.
-   * When {@link PeerConfig.filterProbePaddingOnReceiveRtp} is true (default),
+   * When {@link PeerConfig.filterProbePaddingOnReceiveRtp} is true (opt-in),
    * padding-only probes are omitted and media sequence numbers are compacted
    * by on-time padding strictly before that packet in extended seq space.
    * Late padding (arriving after media with a higher original seq) is ignored
    * so already-delivered mappings are not rewritten.
+   * Default is false so `onReceiveRtp` matches the wire sequence.
    */
   private emitReceiveRtp(
     track: MediaStreamTrack,
@@ -544,7 +561,7 @@ export class RTCRtpReceiver {
     extensions: Extensions,
     info: RtpReceiveInfo,
   ) {
-    if (this.config.filterProbePaddingOnReceiveRtp !== false) {
+    if (this.config.filterProbePaddingOnReceiveRtp === true) {
       const compacted = this.compactProbePaddingSequence(packet, info);
       if (!compacted) {
         return;

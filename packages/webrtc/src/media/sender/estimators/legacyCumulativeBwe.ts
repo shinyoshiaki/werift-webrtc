@@ -175,3 +175,10 @@ export class SenderBandwidthEstimator
 
 /** Alias emphasizing the cumulative min-bitrate nature of the legacy algorithm. */
 export { SenderBandwidthEstimator as LegacyCumulativeBandwidthEstimator };
+
+/** True when the estimator is the legacy cumulative implementation. */
+export function isSenderBandwidthEstimator(
+  e: BandwidthEstimator,
+): e is SenderBandwidthEstimator {
+  return e instanceof SenderBandwidthEstimator;
+}

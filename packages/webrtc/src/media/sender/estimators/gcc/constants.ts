@@ -433,6 +433,6 @@ export const GCC_KNOWN_DIFFERENCES = [
   "TWCC 24-bit reference_time is unwrapped across feedbacks in GccBandwidthEstimator (continuous ms timeline); packetResults alone still report raw wrap-relative times; ReceiverTWCC late-reorder history is ~500ms (time-based) with a sequence safety bound",
   "Floating-point / wall-clock differences may cause sub-bps numerical drift vs C++ (not bit-identical to libwebrtc public test vectors)",
   "InterArrivalDelta: reordered-reset / arrival−system offset (>=3000ms) ported; production passes feedback_time as system_time",
-  "Transport-wide sequence is shared on the DTLS transport while BWE instances are per RTCRtpSender (ticket constraint; multi-sender asymmetry is intentional)",
+  "Transport-wide sequence, ReceiverTWCC, and TWCC RTCP fan-out are per DTLS transport; BWE instances remain per RTCRtpSender (each estimator matches only its own SentInfo). Transport-level GCC/pacer allocation is a non-goal",
   "OveruseDetector class is unused at runtime (TrendlineEstimator::Detect owns hypothesis); BandwidthUsage type is shared",
 ] as const;

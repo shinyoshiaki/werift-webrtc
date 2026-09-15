@@ -34,8 +34,66 @@ const RUN_LENGTH_MAX = 8191;
 
 type ExtensionInfo = { tsn: number; timestamp: bigint };
 
+type SharedReceiverTWCC = {
+  instance: ReceiverTWCC;
+  refs: number;
+};
+
+/**
+ * One {@link ReceiverTWCC} per DTLS transport. BUNDLE multiplexes audio/video
+ * onto a shared transport-wide sequence; per-receiver generators would treat
+ * the other stream's TSNs as PacketNotReceived.
+ */
+const receiverTwccByTransport = new WeakMap<
+  RTCDtlsTransport,
+  SharedReceiverTWCC
+>();
+
+/**
+ * Return the transport-scoped TWCC generator, creating it on first use.
+ * Each acquire must be matched by {@link releaseTransportReceiverTWCC}.
+ */
+export function acquireTransportReceiverTWCC(
+  dtlsTransport: RTCDtlsTransport,
+  rtcpSsrc: number,
+  mediaSourceSsrc: number,
+): ReceiverTWCC {
+  const existing = receiverTwccByTransport.get(dtlsTransport);
+  if (existing) {
+    existing.refs++;
+    existing.instance.setMediaSourceSsrc(mediaSourceSsrc);
+    return existing.instance;
+  }
+  const instance = new ReceiverTWCC(dtlsTransport, rtcpSsrc, mediaSourceSsrc);
+  receiverTwccByTransport.set(dtlsTransport, { instance, refs: 1 });
+  return instance;
+}
+
+/**
+ * Drop one holder of the transport-scoped generator. The periodic loop stops
+ * when the last receiver on that DTLS transport releases.
+ */
+export function releaseTransportReceiverTWCC(
+  dtlsTransport: RTCDtlsTransport,
+  instance: ReceiverTWCC,
+): void {
+  const entry = receiverTwccByTransport.get(dtlsTransport);
+  if (!entry || entry.instance !== instance) {
+    return;
+  }
+  entry.refs--;
+  if (entry.refs > 0) {
+    return;
+  }
+  instance.twccRunning = false;
+  receiverTwccByTransport.delete(dtlsTransport);
+}
+
 /**
  * Receiver-side TWCC feedback generator.
+ *
+ * One instance is shared per DTLS transport (see {@link acquireTransportReceiverTWCC})
+ * so BUNDLE streams share a single transport-wide feedback window.
  *
  * Feedback triggers: every 100ms (periodic) or when >10 packets are buffered.
  * Status chunks cover the full transport-sequence span (including gaps as
@@ -71,6 +129,14 @@ export class ReceiverTWCC {
     private mediaSourceSsrc: number,
   ) {
     this.runTWCC();
+  }
+
+  /**
+   * libwebrtc RemoteEstimatorProxy puts the latest RTP SSRC into
+   * `media_ssrc`; it does not mean that SSRC owns the TSN range.
+   */
+  setMediaSourceSsrc(mediaSourceSsrc: number) {
+    this.mediaSourceSsrc = mediaSourceSsrc;
   }
 
   handleTWCC(transportSequenceNumber: number) {

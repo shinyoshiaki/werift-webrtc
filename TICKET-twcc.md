@@ -336,7 +336,9 @@ set availableBitrate(v: number) {
    - 送信時刻は `milliTime()`、TWCC 受信時刻は feedback 内 delta から ms 復元。GCC 実装時もタイムベースの一貫性に注意。
 
 4. **transport-wide の粒度**  
-   - sequence は `RTCDtlsTransport.transportSequenceNumber` で **transport 共有**。BWE は sender インスタンスごとだが観測は transport 全体。複数 sender がある場合の estimator 配置（sender ごと vs transport ごと）を意識し、少なくとも現状と同じ sender 単位を維持する。
+   - sequence は `RTCDtlsTransport.transportSequenceNumber` で **transport 共有**。
+   - **ReceiverTWCC と TWCC RTCP 配送は DTLS transport 単位**（BUNDLE の audio/video を一つの feedback window で扱う。receiver ごとだと他 stream の TSN が PacketNotReceived になる）。
+   - BWE インスタンスは **sender ごと**。受信した TWCC は同一 DTLS transport の全 sender に fan-out し、各 estimator は自分の `SentInfo` のみ処理する。transport 単位の GCC/pacer 統合は非ゴール。
 
 5. **REMB との関係**  
    - 現状 REMB は `receiverEstimatedMaxBitrate` 保持のみで BWE に未統合。本タスクでは必須統合しない。GCC loss-based が REMB を取る設計もあるが、TWCC パスを主とし、REMB 統合は optional / 後続。

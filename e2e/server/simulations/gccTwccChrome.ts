@@ -109,12 +109,13 @@ export class sim_gcc_twcc_chrome {
     dtls.sendRtp = async (payload, header) => {
       this.mediaRtpAttempts++;
       try {
-        const n = await orig(payload, header);
+        const sent = await orig(payload, header);
+        const n = typeof sent === "number" ? sent : sent.size;
         if (n > 0) {
           this.mediaRtpSentOk++;
           this.mediaRtpBytes += n;
         }
-        return n;
+        return sent;
       } catch (error) {
         this.lastSendRtpError = String(error);
         throw error;

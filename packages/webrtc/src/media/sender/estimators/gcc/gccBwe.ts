@@ -115,6 +115,20 @@ export class GccBandwidthEstimator
   readonly onAvailableBitrate = new Event<[number]>();
   readonly onOveruseDetected = new Event<[BandwidthUsage]>();
   readonly onProbeClusterConfig = new Event<[ProbeClusterConfig]>();
+  /**
+   * @deprecated No-op compatibility with SenderBandwidthEstimator.
+   * Never fires.
+   */
+  readonly onCongestion = new Event<[boolean]>();
+  /**
+   * @deprecated No-op compatibility with SenderBandwidthEstimator.
+   * Never fires.
+   */
+  readonly onCongestionScore = new Event<[number]>();
+  /** @deprecated Always false on GCC. */
+  congestion = false;
+  /** @deprecated Always 1 on GCC. */
+  readonly congestionScore = 1;
 
   private readonly trendline = new TrendlineEstimator();
   private readonly aimd = new AimdRateControl();
@@ -1267,6 +1281,8 @@ export class GccBandwidthEstimator
     this.onAvailableBitrate.allUnsubscribe();
     this.onOveruseDetected.allUnsubscribe();
     this.onProbeClusterConfig.allUnsubscribe();
+    this.onCongestion.allUnsubscribe();
+    this.onCongestionScore.allUnsubscribe();
     this.reset();
     this.disposed = true;
   }

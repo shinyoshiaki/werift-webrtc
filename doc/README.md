@@ -92,11 +92,12 @@ legacy.onCongestionScore.subscribe((score) => { /* … */ });
 ```
 
 Until TWCC is negotiated and enough samples arrive, `availableBitrate` may stay `0`.
-The receiver omits padding-only probes from `MediaStreamTrack.onReceiveRtp` by default (`filterProbePaddingOnReceiveRtp`, sequence numbers compacted). Set it to `false` to receive `{ type: "padding" }` with the original sequence.
+`MediaStreamTrack.onReceiveRtp` delivers wire packets by default, including padding-only RTP as `{ type: "padding" }`. Set `filterProbePaddingOnReceiveRtp: true` only when a consumer needs GCC/SFU-style media-only sequence compaction.
 
 **Scope notes (ticket constraints / known differences):**
 
-- Transport-wide sequence numbers are allocated on the shared DTLS transport; each `RTCRtpSender` still has its **own** `BandwidthEstimator`. With multiple senders, feedback covers the whole transport while estimates remain per-sender (intentional; transport-level BWE / REMB are non-goals here).
+- Transport-wide sequence numbers, `ReceiverTWCC`, and TWCC RTCP delivery are **per DTLS transport**. Each `RTCRtpSender` still has its own `BandwidthEstimator`; feedback is fanned out and each estimator matches only its own `SentInfo`. Transport-level GCC/pacer allocation is a non-goal.
+- `sender.senderBWE.onCongestion` / `onCongestionScore` remain a **one-release TypeScript compatibility surface**. They fire only on `SenderBandwidthEstimator`; GCC/disabled expose no-op Events. Prefer `sender.senderBWE as SenderBandwidthEstimator` or `isSenderBandwidthEstimator`.
 - GCC is structure-compatible with libwebrtc goog_cc, not bit-identical. See `GccBandwidthEstimator.knownDifferences` / `GCC_KNOWN_DIFFERENCES` for intentional gaps (no REMB, lightweight pacer, float/clock drift, etc.).
 - Bottleneck simulations are **CI-excluded**: `cd packages/webrtc && npm run test:sim`, and `cd e2e && npm run test:sim` (Chrome). Run them before merging GCC/TWCC changes.
 
