@@ -72,12 +72,19 @@ export class SDPManager {
   createMediaDescriptionForTransceiver(
     transceiver: RTCRtpTransceiver,
     direction: MediaDirection,
+    fallbackFmt: MediaDescription["fmt"] = [],
   ): MediaDescription {
+    const fmt =
+      transceiver.codecs.length > 0
+        ? transceiver.codecs.map((c) => c.payloadType)
+        : fallbackFmt.length > 0
+          ? fallbackFmt
+          : [0];
     const media = new MediaDescription(
       transceiver.kind,
-      9,
+      transceiver.rejected ? 0 : DISCARD_PORT,
       "UDP/TLS/RTP/SAVPF",
-      transceiver.codecs.map((c) => c.payloadType),
+      fmt,
     );
     media.direction = direction;
     media.msids = transceiver.msids;
@@ -114,7 +121,9 @@ export class SDPManager {
       ];
     }
 
-    this.addTransportDescription(media, transceiver.dtlsTransport);
+    this.addTransportDescription(media, transceiver.dtlsTransport, {
+      rejected: transceiver.rejected,
+    });
     return media;
   }
 
@@ -142,6 +151,7 @@ export class SDPManager {
   addTransportDescription(
     media: MediaDescription,
     dtlsTransport: RTCDtlsTransport,
+    options: { rejected?: boolean } = {},
   ): void {
     const iceTransport = dtlsTransport.iceTransport;
 
@@ -151,10 +161,11 @@ export class SDPManager {
     media.iceOptions = "trickle";
 
     media.host = DISCARD_HOST;
-    media.port = DISCARD_PORT;
+    const rejectPort =
+      options.rejected || media.direction === "inactive" || media.port === 0;
+    media.port = rejectPort ? 0 : DISCARD_PORT;
 
     if (media.direction === "inactive") {
-      media.port = 0;
       media.msids = [];
     }
 
@@ -381,7 +392,19 @@ export class SDPManager {
         media = this.createMediaDescriptionForTransceiver(
           transceiver,
           andDirection(transceiver.direction, transceiver.offerDirection),
+          remoteMedia.fmt,
         );
+        if (transceiver.rejected) {
+          if (remoteMedia.fmt.length > 0) {
+            media.fmt = remoteMedia.fmt;
+          }
+          if (
+            media.rtp.codecs.length === 0 &&
+            remoteMedia.rtp.codecs.length > 0
+          ) {
+            media.rtp.codecs = remoteMedia.rtp.codecs;
+          }
+        }
         dtlsTransport = transceiver.dtlsTransport;
       } else if (remoteMedia.kind === "application") {
         if (!sctpTransport || !sctpTransport.mid) {
@@ -420,13 +443,13 @@ export class SDPManager {
     }
 
     if (this.bundlePolicy !== "disable") {
-      const bundle = new GroupDescription("BUNDLE", []);
-      for (const media of description.media) {
-        if (media.rtp.muxId) {
-          bundle.items.push(media.rtp.muxId!);
-        }
+      const mids = description.media
+        .filter((media) => media.port !== 0)
+        .map((media) => media.rtp.muxId)
+        .filter((mid): mid is string => !!mid);
+      if (mids.length > 0) {
+        description.group.push(new GroupDescription("BUNDLE", mids));
       }
-      description.group.push(bundle);
     }
 
     return description;
@@ -520,6 +543,37 @@ export class SDPManager {
     return bundle;
   }
 
+  getBundleTaggedMedia(description?: SessionDescription): {
+    media?: MediaDescription;
+    sdpMLineIndex: number;
+  } {
+    const target = description ?? this._localDescription;
+    if (!target?.media.length) {
+      return { sdpMLineIndex: 0 };
+    }
+
+    const bundle = target.group.find((g) => g.semantic === "BUNDLE");
+    const tag = bundle?.items[0];
+    if (tag) {
+      const sdpMLineIndex = target.media.findIndex(
+        (media) => media.rtp.muxId === tag,
+      );
+      if (sdpMLineIndex >= 0) {
+        return { media: target.media[sdpMLineIndex], sdpMLineIndex };
+      }
+    }
+
+    const acceptedIndex = target.media.findIndex((media) => media.port !== 0);
+    if (acceptedIndex >= 0) {
+      return {
+        media: target.media[acceptedIndex],
+        sdpMLineIndex: acceptedIndex,
+      };
+    }
+
+    return { media: target.media[0], sdpMLineIndex: 0 };
+  }
+
   /**
    * ローカルセッション記述を設定し、トランスポート情報を追加する
    */
@@ -537,13 +591,18 @@ export class SDPManager {
     description.media
       .filter((m) => ["audio", "video"].includes(m.kind))
       .forEach((m, i) => {
-        const transceiver = transceiverByMLineIndex.get(i) ?? transceivers[i];
+        const transceiver =
+          transceivers.find((t) => t.mid != null && t.mid === m.rtp.muxId) ??
+          transceiverByMLineIndex.get(i) ??
+          transceivers[i];
         const dtlsTransport =
           transceiver?.dtlsTransport ?? fallbackDtlsTransport;
         if (!dtlsTransport) {
           throw new Error(`dtls transport not found for media index ${i}`);
         }
-        this.addTransportDescription(m, dtlsTransport);
+        this.addTransportDescription(m, dtlsTransport, {
+          rejected: transceiver?.rejected,
+        });
       });
     const sctpMedia = description.media.find((m) => m.kind === "application");
     if (sctpTransport && sctpMedia) {

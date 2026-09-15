@@ -10,6 +10,10 @@
 
 - **`werift/polyfill`**: Opt-in installer that puts werift WebRTC constructors on `globalThis` (or a `target` sandbox) and implements `navigator.mediaDevices.getUserMedia` via `mediaRegister` (MP4/WebM, RTP/RTCP, encoded binary, or `createCallbackRegister`).
 
+### 🐛 Bug Fixes
+
+- **Reject unsupported RTP m-lines in the generated answer instead of throwing** (#705): `setRemoteDescription` no longer throws `negotiate codecs failed` when an offered audio/video m-line has no codec in common with `PeerConfig.codecs`. The offer is applied, the m-line is answered with port `0` (same MID / order / type and a valid format token), rejected sections skip the media pipeline, and BUNDLE tags are reselected per RFC 8843.
+
 ## v0.24.4
 
 ### 🐛 Bug Fixes

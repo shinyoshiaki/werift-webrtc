@@ -39,6 +39,12 @@ export class RTCRtpTransceiver {
   options: Partial<TransceiverOptions> = {};
   stopping = false;
   stopped = false;
+  /**
+   * True when this m-line cannot be accepted (no common codec).
+   * Distinct from `direction === "inactive"`; rejected sections are answered
+   * with port 0 without changing the negotiated direction.
+   */
+  rejected = false;
 
   constructor(
     public readonly kind: Kind,

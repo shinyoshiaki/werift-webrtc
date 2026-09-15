@@ -190,6 +190,7 @@ export class SecureTransportManager {
   handleNewIceCandidate({
     candidate,
     media,
+    sdpMLineIndex,
     remoteIsBundled,
     transceiver,
     sctpTransport,
@@ -197,6 +198,7 @@ export class SecureTransportManager {
   }: {
     candidate: IceCandidate;
     media?: MediaDescription;
+    sdpMLineIndex?: number;
     remoteIsBundled: boolean;
     transceiver?: RTCRtpTransceiver;
     sctpTransport?: RTCSctpTransport;
@@ -204,7 +206,7 @@ export class SecureTransportManager {
   }) {
     // Assign sdpMid and sdpMLineIndex
     if (bundlePolicy === "max-bundle" || remoteIsBundled) {
-      candidate.sdpMLineIndex = 0;
+      candidate.sdpMLineIndex = sdpMLineIndex ?? 0;
       if (media) {
         candidate.sdpMid = media.rtp.muxId;
       }

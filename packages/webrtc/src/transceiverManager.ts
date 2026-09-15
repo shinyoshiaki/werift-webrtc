@@ -355,16 +355,7 @@ export class TransceiverManager {
     });
 
     log("negotiated codecs", transceiver.codecs);
-    if (transceiver.codecs.length === 0) {
-      throw new Error("negotiate codecs failed.");
-    }
-    transceiver.headerExtensions = remoteMedia.rtp.headerExtensions.filter(
-      (extension) =>
-        (
-          this.config.headerExtensions[remoteMedia.kind as "audio" | "video"] ||
-          []
-        ).find((v) => v.uri === extension.uri),
-    );
+    transceiver.rejected = transceiver.codecs.length === 0;
 
     // # configure direction
     const mediaDirection = remoteMedia.direction ?? "inactive";
@@ -374,6 +365,19 @@ export class TransceiverManager {
     } else {
       transceiver.offerDirection = direction;
     }
+
+    if (transceiver.rejected) {
+      return;
+    }
+
+    transceiver.headerExtensions = remoteMedia.rtp.headerExtensions.filter(
+      (extension) =>
+        (
+          this.config.headerExtensions[remoteMedia.kind as "audio" | "video"] ||
+          []
+        ).find((v) => v.uri === extension.uri),
+    );
+
     const localParams = this.getLocalRtpParams(transceiver);
     transceiver.sender.prepareSend(localParams);
 

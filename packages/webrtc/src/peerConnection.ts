@@ -624,11 +624,15 @@ export class RTCPeerConnection extends EventTarget {
         return;
       }
 
+      const tagged = this.sdpManager.getBundleTaggedMedia(
+        this._localDescription,
+      );
       this.secureManager.handleNewIceCandidate({
         candidate,
         bundlePolicy: this.sdpManager.bundlePolicy,
         remoteIsBundled: !!this.sdpManager.remoteIsBundled,
-        media: this._localDescription.media[0],
+        media: tagged.media,
+        sdpMLineIndex: tagged.sdpMLineIndex,
         transceiver: this.transceiverManager
           .getTransceivers()
           .find((t) => t?.dtlsTransport?.iceTransport.id === iceTransport.id),
