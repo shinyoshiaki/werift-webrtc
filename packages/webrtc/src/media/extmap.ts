@@ -26,6 +26,11 @@ export function isExtmapNegotiationId(id: number): boolean {
   return id >= EXTMAP_NEGOTIATION_ID_MIN && id <= EXTMAP_NEGOTIATION_ID_MAX;
 }
 
+/** RFC 8285 one- and two-byte RTP header extension IDs (1–255). */
+export function isExtmapLiveId(id: number): boolean {
+  return Number.isInteger(id) && id >= 1 && id <= EXTMAP_TWO_BYTE_ID_MAX;
+}
+
 export function isExtmapDirection(value: string): value is ExtmapDirection {
   return (EXTMAP_DIRECTIONS as readonly string[]).includes(value);
 }
@@ -96,18 +101,61 @@ export function projectExtmapDirectionForMedia(
   return projected === inherited ? undefined : projected;
 }
 
+/**
+ * Answer projection must honor the offered effective direction. Inactive
+ * media inherits sendrecv when the qualifier is omitted, so a recvonly or
+ * sendonly offer cannot be answered with an omitted qualifier.
+ */
+export function projectExtmapDirectionForAnswer(
+  stored: string | undefined,
+  mediaDirection: ExtmapDirection,
+  offeredEffective: ExtmapDirection,
+): ExtmapDirection | undefined {
+  const inherited = inheritedExtmapDirection(mediaDirection);
+  const localFromOffer = reverseExtmapDirection(offeredEffective);
+  const storedEffective =
+    stored && isExtmapDirection(stored)
+      ? stored
+      : localFromOffer && isExtmapDirection(localFromOffer)
+        ? localFromOffer
+        : inherited;
+
+  let projected: ExtmapDirection;
+  if (mediaDirection === "inactive") {
+    projected =
+      offeredEffective === "sendrecv" && storedEffective !== "inactive"
+        ? "sendrecv"
+        : "inactive";
+  } else {
+    projected = intersectExtmapDirection(storedEffective, mediaDirection);
+  }
+
+  if (!isValidAnswerExtmapDirection(offeredEffective, projected)) {
+    projected = "inactive";
+  }
+
+  return projected === inherited ? undefined : projected;
+}
+
 export function projectHeaderExtensionsForMedia(
   extensions: ExtmapDescriptor[],
   mediaDirection: ExtmapDirection,
+  offeredEffectiveByKey?: ReadonlyMap<string, ExtmapDirection>,
 ): RTCRtpHeaderExtensionParameters[] {
-  return extensions.map((extension) =>
-    cloneHeaderExtension(extension, {
-      direction: projectExtmapDirectionForMedia(
-        extension.direction,
-        mediaDirection,
-      ),
-    }),
-  );
+  return extensions.map((extension) => {
+    const offeredEffective = offeredEffectiveByKey?.get(
+      extmapConfigurationKey(extension),
+    );
+    const direction =
+      offeredEffective != undefined
+        ? projectExtmapDirectionForAnswer(
+            extension.direction,
+            mediaDirection,
+            offeredEffective,
+          )
+        : projectExtmapDirectionForMedia(extension.direction, mediaDirection);
+    return cloneHeaderExtension(extension, { direction });
+  });
 }
 
 export function cloneHeaderExtension(
@@ -202,7 +250,7 @@ export type LocalExtmapAllocator = {
 };
 
 function hasStableExtmapId(id: number) {
-  return Number.isInteger(id) && id >= 1 && !isExtmapNegotiationId(id);
+  return isExtmapLiveId(id);
 }
 
 /**
@@ -342,13 +390,18 @@ export function selectAnswerHeaderExtensions(
 ): RTCRtpHeaderExtensionParameters[] {
   const offeredByConfig = new Map(
     offered
-      .filter((extension) => !isExtmapNegotiationId(extension.id))
+      .filter((extension) => isExtmapLiveId(extension.id))
       .map((extension) => [extmapConfigurationKey(extension), extension]),
   );
   const offeredNegotiation = new Map(
     offered
       .filter((extension) => isExtmapNegotiationId(extension.id))
       .map((extension) => [extmapNegotiationKey(extension), extension]),
+  );
+  const offeredNegotiationByConfig = new Map(
+    offered
+      .filter((extension) => isExtmapNegotiationId(extension.id))
+      .map((extension) => [extmapConfigurationKey(extension), extension]),
   );
   const selected: RTCRtpHeaderExtensionParameters[] = [];
   for (const extension of remote) {
@@ -358,15 +411,21 @@ export function selectAnswerHeaderExtensions(
       }
       continue;
     }
-    const offeredExtension = offeredByConfig.get(
-      extmapConfigurationKey(extension),
-    );
+    const key = extmapConfigurationKey(extension);
+    const offeredLive = offeredByConfig.get(key);
+    const offeredNegotiated = offeredNegotiationByConfig.get(key);
+    const offeredExtension = offeredLive ?? offeredNegotiated;
     if (!offeredExtension) {
       throw new Error(`answer extmap ${extension.uri} was not offered`);
     }
-    if (offeredExtension.id !== extension.id) {
+    if (offeredLive && offeredLive.id !== extension.id) {
       throw new Error(
-        `answer remapped extmap ${extension.uri} from id ${offeredExtension.id} to ${extension.id}`,
+        `answer remapped extmap ${extension.uri} from id ${offeredLive.id} to ${extension.id}`,
+      );
+    }
+    if (!offeredLive && offeredNegotiated && !isExtmapLiveId(extension.id)) {
+      throw new Error(
+        `answer remapped extmap ${extension.uri} from id ${offeredNegotiated.id} to ${extension.id}`,
       );
     }
     const offeredEffective = effectiveExtmapDirection(

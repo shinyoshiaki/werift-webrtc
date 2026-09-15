@@ -1,8 +1,16 @@
 import { DISCARD_HOST, DISCARD_PORT } from "./const";
 import { createWebRtcDomException } from "./errors";
 import type { RTCRtpTransceiver } from "./media";
-import { RTCRtpSimulcastParameters } from "./media/parameters";
-import { projectHeaderExtensionsForMedia } from "./media/extmap";
+import {
+  effectiveExtmapDirection,
+  extmapConfigurationKey,
+  extmapMediaDirection,
+  projectHeaderExtensionsForMedia,
+} from "./media/extmap";
+import {
+  type RTCRtpHeaderExtensionParameters,
+  RTCRtpSimulcastParameters,
+} from "./media/parameters";
 import type { MediaDirection } from "./media/rtpTransceiver";
 import type { DormantSctpApplication } from "./sctpManager";
 import {
@@ -79,6 +87,11 @@ export class SDPManager {
     transceiver: RTCRtpTransceiver,
     direction: MediaDirection,
     dtlsTransport = transceiver.dtlsTransport,
+    options: {
+      headerExtensions?: RTCRtpHeaderExtensionParameters[];
+      offeredHeaderExtensions?: RTCRtpHeaderExtensionParameters[];
+      offeredMediaDirection?: string;
+    } = {},
   ): MediaDescription {
     const media = new MediaDescription(
       transceiver.kind,
@@ -88,11 +101,23 @@ export class SDPManager {
     );
     media.direction = direction;
     media.msids = transceiver.msids;
+    const offeredMediaDirection = extmapMediaDirection(
+      options.offeredMediaDirection,
+    );
+    const offeredEffectiveByKey = options.offeredHeaderExtensions
+      ? new Map(
+          options.offeredHeaderExtensions.map((extension) => [
+            extmapConfigurationKey(extension),
+            effectiveExtmapDirection(extension, offeredMediaDirection),
+          ]),
+        )
+      : undefined;
     media.rtp = {
       codecs: transceiver.codecs,
       headerExtensions: projectHeaderExtensionsForMedia(
-        transceiver.headerExtensions,
-        direction,
+        options.headerExtensions ?? transceiver.headerExtensions,
+        extmapMediaDirection(direction),
+        offeredEffectiveByKey,
       ),
       muxId: transceiver.mid ?? undefined,
     };
@@ -356,6 +381,10 @@ export class SDPManager {
     transceivers: RTCRtpTransceiver[],
     sctpTransport: RTCSctpTransport | undefined,
     dormantApplication?: DormantSctpApplication,
+    headerExtensionsByTransceiver?: ReadonlyMap<
+      RTCRtpTransceiver,
+      RTCRtpHeaderExtensionParameters[]
+    >,
   ): SessionDescription {
     const description = new SessionDescription();
     addSDPHeader("offer", description);
@@ -395,6 +424,11 @@ export class SDPManager {
           this.createMediaDescriptionForTransceiver(
             transceiver,
             transceiver.direction,
+            transceiver.dtlsTransport,
+            {
+              headerExtensions:
+                headerExtensionsByTransceiver?.get(transceiver),
+            },
           ),
         );
       }
@@ -410,6 +444,10 @@ export class SDPManager {
       const mediaDescription = this.createMediaDescriptionForTransceiver(
         transceiver,
         transceiver.direction,
+        transceiver.dtlsTransport,
+        {
+          headerExtensions: headerExtensionsByTransceiver?.get(transceiver),
+        },
       );
       if (transceiver.mLineIndex === undefined) {
         transceiver.mLineIndex = description.media.length;
@@ -530,6 +568,10 @@ export class SDPManager {
           transceiver,
           andDirection(transceiver.direction, transceiver.offerDirection),
           dtlsTransport,
+          {
+            offeredHeaderExtensions: remoteMedia.rtp.headerExtensions,
+            offeredMediaDirection: remoteMedia.direction,
+          },
         );
         if (remoteMedia.port === 0) {
           media.port = 0;

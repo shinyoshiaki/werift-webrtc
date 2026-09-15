@@ -41,6 +41,7 @@ export class SecureTransportManager {
   private transceiverManager: TransceiverManager;
   private sctpManager: SctpTransportManager;
   private dtlsStateDisposers = new Map<RTCDtlsTransport, () => void>();
+  private failedCleanupTransports = new Set<RTCDtlsTransport>();
 
   constructor({
     config,
@@ -653,17 +654,29 @@ export class SecureTransportManager {
       dispose();
       this.dtlsStateDisposers.delete(dtlsTransport);
     }
-    await dtlsTransport.stop();
+    try {
+      await dtlsTransport.stop();
+      this.failedCleanupTransports.delete(dtlsTransport);
+    } catch (error) {
+      this.failedCleanupTransports.add(dtlsTransport);
+      throw error;
+    }
   }
 
   async close() {
     this.setConnectionState("closed");
 
-    const createdTransports = [...this.dtlsStateDisposers.keys()];
+    const createdTransports = [
+      ...new Set([
+        ...this.dtlsStateDisposers.keys(),
+        ...this.failedCleanupTransports,
+      ]),
+    ];
     for (const dispose of this.dtlsStateDisposers.values()) {
       dispose();
     }
     this.dtlsStateDisposers.clear();
+    this.failedCleanupTransports.clear();
 
     await Promise.allSettled(createdTransports.map((t) => t.stop()));
 

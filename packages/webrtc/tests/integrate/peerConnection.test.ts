@@ -1424,6 +1424,43 @@ describe("peerConnection", () => {
     }
   }, 30_000);
 
+  test("stopTransport失敗のtransportはcloseで再stopする", async () => {
+    // Arrange: transceiverのDTLS stopだけ1回失敗させる。
+    const pc = new RTCPeerConnection({ iceServers: [] });
+    const transport = pc.addTransceiver("audio").dtlsTransport;
+    const originalStop = transport.stop.bind(transport);
+    let stopCalls = 0;
+    transport.stop = async () => {
+      stopCalls += 1;
+      if (stopCalls === 1) {
+        throw new Error("injected dtls stop failure");
+      }
+      return originalStop();
+    };
+
+    try {
+      const secureManager = (
+        pc as unknown as {
+          secureManager: {
+            stopTransport: (dtls: typeof transport) => Promise<void>;
+          };
+        }
+      ).secureManager;
+
+      // Act: 1回目のstopは失敗し、closeが同じtransportを再stopする。
+      await expect(secureManager.stopTransport(transport)).rejects.toThrow(
+        /injected dtls stop failure/,
+      );
+      await pc.close();
+
+      // Assert: disposer解除後でもfailed cleanupから再試行できる。
+      expect(stopCalls).toBeGreaterThanOrEqual(2);
+    } finally {
+      transport.stop = originalStop;
+      await pc.close().catch(() => undefined);
+    }
+  });
+
   test("remote offerのpayload type変更はanswer commitまで送信PTを変えない", async () => {
     // Arrange: 双方sendrecvのVP8/PT96で接続する。
     const codecs = { video: [useVP8({ payloadType: 96 })] };
@@ -1894,6 +1931,63 @@ describe("peerConnection", () => {
         videoExt.find((ext) => ext.uri === RTP_EXTENSION_URI.transportWideCC)
           ?.id,
       ).not.toBe(2);
+      expect(caller.signalingState).toBe("stable");
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  }, 30_000);
+
+  test("捨てたBUNDLE createOfferのあともstable extmap IDをremapしない", async () => {
+    // Arrange: disable→max-compatのunbundled接続を成立させる。
+    const headerExtensions = {
+      audio: [useSdesMid()],
+      video: [useTransportWideCC()],
+    };
+    const caller = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "disable",
+      headerExtensions,
+    });
+    const callee = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "max-compat",
+      headerExtensions,
+    });
+    caller.addTransceiver("audio", { direction: "sendonly" });
+    caller.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
+      direction: "sendonly",
+    });
+    callee.addTransceiver("audio", { direction: "recvonly" });
+    callee.addTransceiver("video", { direction: "recvonly" });
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription(caller.localDescription!);
+      await callee.setLocalDescription(await callee.createAnswer());
+      await caller.setRemoteDescription(callee.localDescription!);
+
+      // Act: 1回目のBUNDLE offerを捨て、2回目をSLDして相手がSRDする。
+      await callee.createOffer();
+      await callee.setLocalDescription(await callee.createOffer());
+      const videoExt = extmapsInMedia(callee.localDescription!.sdp, "video");
+      await caller.setRemoteDescription(callee.localDescription!);
+      await caller.setLocalDescription(await caller.createAnswer());
+
+      // Assert: 捨てたofferでTWCCがid=2として復活せず、disable側はSRDできる。
+      expect(callee.localDescription!.sdp).toMatch(/a=group:BUNDLE /);
+      expect(
+        videoExt.find((ext) => ext.uri === RTP_EXTENSION_URI.transportWideCC)
+          ?.id,
+      ).not.toBe(2);
+      expect(
+        callee
+          .getTransceivers()
+          .find((transceiver) => transceiver.kind === "video")
+          ?.headerExtensions.find(
+            (extension) =>
+              extension.uri === RTP_EXTENSION_URI.transportWideCC,
+          )?.id,
+      ).toBe(1);
       expect(caller.signalingState).toBe("stable");
     } finally {
       await Promise.allSettled([caller.close(), callee.close()]);
@@ -2608,6 +2702,40 @@ describe("peerConnection", () => {
     }
   });
 
+  test("4096 offerをvalid-rangeへremapしたanswerはoffererが受理する", async () => {
+    // Arrange: caller-supplied local offerで4096のnegotiation IDを出す。
+    const headerExtensions = { video: [useSdesMid()] };
+    const caller = new RTCPeerConnection({ iceServers: [], headerExtensions });
+    const callee = new RTCPeerConnection({ iceServers: [], headerExtensions });
+    caller.addTransceiver("video", { direction: "sendonly" });
+
+    try {
+      const offer = await caller.createOffer();
+      const offer4096 = offer.sdp.replace(
+        new RegExp(`a=extmap:\\d+ ${RTP_EXTENSION_URI.sdesMid}`),
+        `a=extmap:4096 ${RTP_EXTENSION_URI.sdesMid}`,
+      );
+      (
+        caller as unknown as { lastCreatedOffer?: unknown }
+      ).lastCreatedOffer = undefined;
+      await caller.setLocalDescription({ type: "offer", sdp: offer4096 });
+      await callee.setRemoteDescription(caller.localDescription!);
+      await callee.setLocalDescription(await callee.createAnswer());
+
+      // Act: answererが選んだvalid-range IDをoffererへ返す。
+      await caller.setRemoteDescription(callee.localDescription!);
+
+      // Assert: RFC 8285の4096→1-255 remapをself-interopできる。
+      expect(callee.localDescription!.sdp).not.toMatch(/a=extmap:4096 /);
+      expect(callee.localDescription!.sdp).toMatch(
+        new RegExp(`a=extmap:[1-9]\\d* ${RTP_EXTENSION_URI.sdesMid}`),
+      );
+      expect(caller.signalingState).toBe("stable");
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
   test("BUNDLE拒否のanswerはm-lineごとにtls-id有無を判定する", async () => {
     // Arrange: offerはBUNDLEだがanswererはbundlePolicy disable。
     const caller = new RTCPeerConnection({ iceServers: [] });
@@ -3041,6 +3169,36 @@ describe("peerConnection", () => {
       )!;
       expect(audio).toMatch(/^a=recvonly$/m);
       expect(audio).not.toMatch(/a=extmap:\d+\/sendrecv /);
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
+  test("recvonly offerの省略extmapはinactive answerでもcallerがSRDできる", async () => {
+    // Arrange: recvonly offer + qualifier省略のextmapは実効recvonly。
+    const headerExtensions = { audio: [useSdesMid()] };
+    const caller = new RTCPeerConnection({ iceServers: [], headerExtensions });
+    const callee = new RTCPeerConnection({ iceServers: [], headerExtensions });
+    caller.addTransceiver("audio", { direction: "recvonly" });
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription(caller.localDescription!);
+
+      // Act: 新規remote transceiverのrecvonlyがinactive answerになる。
+      const answer = await callee.createAnswer();
+      await callee.setLocalDescription(answer);
+      const audio = sdpMediaSections(callee.localDescription!.sdp).find(
+        (section) => section.startsWith("m=audio"),
+      )!;
+
+      // Assert: omitted qualifierのsendrecv継承にせず、caller自身がanswerを受理する。
+      expect(audio).toMatch(/^a=inactive$/m);
+      expect(audio).toMatch(
+        new RegExp(`a=extmap:\\d+/inactive ${RTP_EXTENSION_URI.sdesMid}`),
+      );
+      await caller.setRemoteDescription(callee.localDescription!);
+      expect(caller.signalingState).toBe("stable");
     } finally {
       await Promise.allSettled([caller.close(), callee.close()]);
     }

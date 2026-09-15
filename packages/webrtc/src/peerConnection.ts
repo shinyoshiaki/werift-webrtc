@@ -672,18 +672,15 @@ export class RTCPeerConnection extends EventTarget {
       if (transceiver.codecs.length === 0) {
         this.transceiverManager.assignTransceiverCodecs(transceiver);
       }
-      if (transceiver.headerExtensions.length === 0) {
-        transceiver.headerExtensions = (
-          this.config.headerExtensions[transceiver.kind] ?? []
-        ).map((extension) => cloneHeaderExtension(extension));
-      }
     }
-    this.assignLocalHeaderExtensionIds(transceivers);
+    const headerExtensionsByTransceiver =
+      this.projectLocalOfferHeaderExtensions(transceivers);
 
     const description = this.sdpManager.buildOfferSdp(
       transceivers,
       this.sctpTransport,
       this.sctpManager.dormantApplication,
+      headerExtensionsByTransceiver,
     );
     const createdOffer = description.toJSON();
     this.lastCreatedOffer = createdOffer;
@@ -1440,19 +1437,37 @@ export class RTCPeerConnection extends EventTarget {
     }
   }
 
-  private assignLocalHeaderExtensionIds(transceivers: RTCRtpTransceiver[]) {
+  private projectLocalOfferHeaderExtensions(
+    transceivers: RTCRtpTransceiver[],
+  ): Map<RTCRtpTransceiver, RTCRtpHeaderExtensionParameters[]> {
     const rtpTransceivers = transceivers.filter(
       (transceiver) =>
         transceiver.kind === "audio" || transceiver.kind === "video",
     );
+    const assigned = new Map<
+      RTCRtpTransceiver,
+      RTCRtpHeaderExtensionParameters[]
+    >();
+    const sourceExtensions = (transceiver: RTCRtpTransceiver) =>
+      transceiver.headerExtensions.length > 0
+        ? transceiver.headerExtensions
+        : (this.config.headerExtensions[transceiver.kind] ?? []).map(
+            (extension) => cloneHeaderExtension(extension),
+          );
+
     if (this.config.bundlePolicy === "disable") {
       for (const transceiver of rtpTransceivers) {
-        this.applyLocalExtmapIds(
-          [transceiver],
-          this.liveExtmapsForTransport(transceiver.dtlsTransport.id),
+        assigned.set(
+          transceiver,
+          assignLocalExtmapIds(
+            sourceExtensions(transceiver),
+            createLocalExtmapAllocator(
+              this.liveExtmapsForTransport(transceiver.dtlsTransport.id),
+            ),
+          ),
         );
       }
-      return;
+      return assigned;
     }
 
     const seed: ExtmapDescriptor[] = [];
@@ -1463,20 +1478,14 @@ export class RTCPeerConnection extends EventTarget {
         seed.push(...this.liveExtmapsForTransport(transport.id));
       }
     }
-    this.applyLocalExtmapIds(rtpTransceivers, seed);
-  }
-
-  private applyLocalExtmapIds(
-    transceivers: RTCRtpTransceiver[],
-    seed: ExtmapDescriptor[],
-  ) {
     const allocator = createLocalExtmapAllocator(seed);
-    for (const transceiver of transceivers) {
-      transceiver.headerExtensions = assignLocalExtmapIds(
-        transceiver.headerExtensions,
-        allocator,
+    for (const transceiver of rtpTransceivers) {
+      assigned.set(
+        transceiver,
+        assignLocalExtmapIds(sourceExtensions(transceiver), allocator),
       );
     }
+    return assigned;
   }
 
   private liveExtmapsForTransport(transportId: string): ExtmapDescriptor[] {
