@@ -195,12 +195,13 @@ function attachWebSocketServer() {
     const transport = accept();
     const peer = await room.createPeer(Math.random().toString(), transport);
 
-    peer.on("request", async (request, accept) => {
+    peer.on("request", async (request, accept, reject) => {
       const { type, payload } = request.data;
       try {
         await tests[request.method].exec(type, payload, accept, peer);
       } catch (error) {
         console.log(error);
+        reject(500, error instanceof Error ? error.message : String(error));
       }
     });
   });

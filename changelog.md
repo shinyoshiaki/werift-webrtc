@@ -12,7 +12,7 @@
 
 ### 🐛 Bug Fixes
 
-- **Reject unsupported RTP m-lines in the generated answer instead of throwing** (#705): `setRemoteDescription` no longer throws `negotiate codecs failed` when an offered audio/video m-line has no codec in common with `PeerConfig.codecs`. The offer is applied, the m-line is answered with port `0` (same MID / order / type and a valid format token), rejected sections skip the media pipeline, and BUNDLE tags are reselected per RFC 8843.
+- **Reject unsupported RTP m-lines in the generated answer instead of throwing** (#705): `setRemoteDescription` no longer throws `negotiate codecs failed` when an offered audio/video m-line has no codec in common with `PeerConfig.codecs`. The offer is applied, the m-line is answered with port `0` (same MID / order / type and a valid format token), rejected sections skip the media pipeline, and BUNDLE tags are reselected per RFC 8843. After `removeTrack`, a new m-line is demultiplexed by MID when the packet SSRC is not yet in the routing table so Chrome can keep sending on the added transceiver.
 
 ## v0.24.4
 

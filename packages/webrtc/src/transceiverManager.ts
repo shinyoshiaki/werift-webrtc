@@ -1,6 +1,7 @@
 import { ReceiverDirection, SenderDirections } from "./const";
 import { createWebRtcDomException } from "./errors";
 import { Event, debug } from "./imports/common";
+import { RTP_EXTENSION_URI } from "./imports/rtp";
 import {
   MediaStream,
   type MediaStreamTrack,
@@ -379,12 +380,14 @@ export class TransceiverManager {
       return;
     }
 
+    const localHeaderExtensions =
+      this.config.headerExtensions[remoteMedia.kind as "audio" | "video"] || [];
     transceiver.headerExtensions = remoteMedia.rtp.headerExtensions.filter(
       (extension) =>
-        (
-          this.config.headerExtensions[remoteMedia.kind as "audio" | "video"] ||
-          []
-        ).find((v) => v.uri === extension.uri),
+        localHeaderExtensions.some((local) => local.uri === extension.uri) ||
+        extension.uri === RTP_EXTENSION_URI.sdesMid ||
+        extension.uri === RTP_EXTENSION_URI.sdesRTPStreamID ||
+        extension.uri === RTP_EXTENSION_URI.repairedRtpStreamId,
     );
 
     const localParams = this.getLocalRtpParams(transceiver);

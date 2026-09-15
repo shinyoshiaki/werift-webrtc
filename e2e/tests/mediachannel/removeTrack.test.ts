@@ -142,110 +142,104 @@ describe("mediachannel_removeTrack", () => {
         done();
       }));
   }
-  it(
-    mediachannel_offer_replace_second,
-    async () =>
-      new Promise<void>(async (done) => {
-        if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
-        await sleep(100);
+  it(mediachannel_offer_replace_second, async () => {
+    if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
+    await sleep(100);
 
-        await peer.request(mediachannel_offer_replace_second, {
-          type: "init",
-        });
+    await peer.request(mediachannel_offer_replace_second, {
+      type: "init",
+    });
 
-        const pc = new RTCPeerConnection({
-          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-        });
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    });
 
-        pc.onicecandidate = ({ candidate }) => {
-          peer
-            .request(mediachannel_offer_replace_second, {
-              type: "candidate",
-              payload: candidate,
-            })
-            .catch(() => {});
-        };
+    try {
+      pc.onicecandidate = ({ candidate }) => {
+        peer
+          .request(mediachannel_offer_replace_second, {
+            type: "candidate",
+            payload: candidate,
+          })
+          .catch(() => {});
+      };
 
-        const [video] = (
-          await navigator.mediaDevices.getUserMedia({ video: true })
-        ).getTracks();
+      const [video] = (
+        await navigator.mediaDevices.getUserMedia({ video: true })
+      ).getTracks();
 
-        // add first
-        pc.addTransceiver(video, { direction: "sendonly" });
+      // add first
+      pc.addTransceiver(video, { direction: "sendonly" });
+      await pc.setLocalDescription(await pc.createOffer());
+      const answer = await peer.request(mediachannel_offer_replace_second, {
+        type: "offer",
+        payload: pc.localDescription,
+      });
+      await pc.setRemoteDescription(answer);
+
+      await peer.request(mediachannel_offer_replace_second, {
+        type: "check",
+        payload: { index: 0 },
+      });
+
+      // add second
+      const second = pc.addTransceiver(video, { direction: "sendonly" });
+      {
         await pc.setLocalDescription(await pc.createOffer());
         const answer = await peer.request(mediachannel_offer_replace_second, {
           type: "offer",
           payload: pc.localDescription,
         });
         await pc.setRemoteDescription(answer);
+      }
+      await peer.request(mediachannel_offer_replace_second, {
+        type: "check",
+        payload: { index: 1 },
+      });
 
-        await peer.request(mediachannel_offer_replace_second, {
-          type: "check",
-          payload: { index: 0 },
+      // add third
+      pc.addTransceiver(video, { direction: "sendonly" });
+      {
+        await pc.setLocalDescription(await pc.createOffer());
+        const answer = await peer.request(mediachannel_offer_replace_second, {
+          type: "offer",
+          payload: pc.localDescription,
+        });
+        await pc.setRemoteDescription(answer);
+      }
+      await peer.request(mediachannel_offer_replace_second, {
+        type: "check",
+        payload: { index: 2 },
+      });
+
+      // remove second
+      pc.removeTrack(second.sender);
+      {
+        await pc.setLocalDescription(await pc.createOffer());
+        const answer = await peer.request(mediachannel_offer_replace_second, {
+          type: "offer",
+          payload: pc.localDescription,
         });
 
-        // add second
-        const second = pc.addTransceiver(video, { direction: "sendonly" });
-        {
-          await pc.setLocalDescription(await pc.createOffer());
-          const answer = await peer.request(mediachannel_offer_replace_second, {
-            type: "offer",
-            payload: pc.localDescription,
-          });
-          await pc.setRemoteDescription(answer);
-        }
-        await peer.request(mediachannel_offer_replace_second, {
-          type: "check",
-          payload: { index: 1 },
+        await pc.setRemoteDescription(answer);
+      }
+
+      // addTransceiver は inactive 枠を recycle せず新しい m-line を足す
+      pc.addTransceiver(video, { direction: "sendonly" });
+      {
+        await pc.setLocalDescription(await pc.createOffer());
+        const answer = await peer.request(mediachannel_offer_replace_second, {
+          type: "offer",
+          payload: pc.localDescription,
         });
-
-        // add third
-        pc.addTransceiver(video, { direction: "sendonly" });
-        {
-          await pc.setLocalDescription(await pc.createOffer());
-          const answer = await peer.request(mediachannel_offer_replace_second, {
-            type: "offer",
-            payload: pc.localDescription,
-          });
-          await pc.setRemoteDescription(answer);
-        }
-        await peer.request(mediachannel_offer_replace_second, {
-          type: "check",
-          payload: { index: 2 },
-        });
-
-        // remove second
-        pc.removeTrack(second.sender);
-        {
-          await pc.setLocalDescription(await pc.createOffer());
-          const answer = await peer.request(mediachannel_offer_replace_second, {
-            type: "offer",
-            payload: pc.localDescription,
-          });
-
-          await pc.setRemoteDescription(answer).catch((e) => {
-            throw e;
-          });
-        }
-
-        // replace second
-        pc.addTransceiver(video, { direction: "sendonly" });
-        {
-          await pc.setLocalDescription(await pc.createOffer());
-          const answer = await peer.request(mediachannel_offer_replace_second, {
-            type: "offer",
-            payload: pc.localDescription,
-          });
-          await pc.setRemoteDescription(answer);
-        }
-        await peer.request(mediachannel_offer_replace_second, {
-          type: "check",
-          payload: { index: 1 },
-        });
-
-        pc.close();
-        done();
-      }),
-    6000 * 1000,
-  );
+        await pc.setRemoteDescription(answer);
+      }
+      await peer.request(mediachannel_offer_replace_second, {
+        type: "check",
+        payload: { index: 3 },
+      });
+    } finally {
+      pc.close();
+    }
+  }, 60_000);
 });

@@ -1,9 +1,14 @@
 import {
+  type MediaStreamTrack,
   type RTCIceCandidate,
   RTCPeerConnection,
   type RTCPeerConnectionConfig,
+  type RTCRtpTransceiver,
+  RtpHeader,
+  RtpPacket,
   SessionDescription,
   useOPUS,
+  useSdesMid,
 } from "../../src";
 
 export type MediaKind = "audio" | "video";
@@ -187,4 +192,38 @@ export function waitForIceCandidate(
       resolve(candidate);
     });
   });
+}
+
+export function createBundledPeerConnection(
+  config: RTCPeerConnectionConfig = {},
+) {
+  return new RTCPeerConnection({
+    iceServers: [],
+    bundlePolicy: "max-bundle",
+    headerExtensions: { video: [useSdesMid()], audio: [useSdesMid()] },
+    ...config,
+  });
+}
+
+export async function waitForConnection(pc: RTCPeerConnection) {
+  if (pc.connectionState === "connected") {
+    return;
+  }
+  await pc.connectionStateChange.watch((state) => state === "connected");
+}
+
+export function sendTestRtp(track: MediaStreamTrack, payload: string) {
+  track.writeRtp(
+    new RtpPacket(new RtpHeader(), Buffer.from(payload)).serialize(),
+  );
+}
+
+export async function waitForRtp(
+  transceiver: RTCRtpTransceiver | undefined,
+  timeoutMs = 3000,
+) {
+  if (!transceiver) {
+    throw new Error("transceiver not found");
+  }
+  return transceiver.receiver.track.onReceiveRtp.asPromise(timeoutMs);
 }

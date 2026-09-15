@@ -26,6 +26,7 @@ const log = debug("werift:packages/webrtc/src/media/router.ts");
 export class RtpRouter {
   ssrcTable: { [ssrc: number]: RTCRtpReceiver | RTCRtpSender } = {};
   ridTable: { [rid: string]: RTCRtpReceiver | RTCRtpSender } = {};
+  midTable: { [mid: string]: RTCRtpReceiver } = {};
   extIdUriMap: { [id: number]: string } = {};
 
   constructor() {}
@@ -45,9 +46,18 @@ export class RtpRouter {
   ) {
     log("registerRtpReceiverBySsrc", params);
 
-    params.encodings
-      .filter((e) => e.ssrc != undefined) // todo fix
-      .forEach((encode, i) => {
+    const encodings = params.encodings.filter((e) => e.ssrc != undefined);
+    if (encodings.length === 0) {
+      transceiver.addTrack(
+        new MediaStreamTrack({
+          kind: transceiver.kind,
+          id: transceiver.sender.trackId,
+          remote: true,
+          codec: params.codecs[0],
+        }),
+      );
+    } else {
+      encodings.forEach((encode, i) => {
         this.registerRtpReceiver(transceiver.receiver, encode.ssrc);
         transceiver.addTrack(
           new MediaStreamTrack({
@@ -62,10 +72,20 @@ export class RtpRouter {
           this.registerRtpReceiver(transceiver.receiver, encode.rtx.ssrc);
         }
       });
+    }
 
+    this.registerRtpReceiverByMid(transceiver);
     params.headerExtensions.forEach((extension) => {
       this.extIdUriMap[extension.id] = extension.uri;
     });
+  }
+
+  registerRtpReceiverByMid(transceiver: RTCRtpTransceiver) {
+    const mid = transceiver.mid;
+    if (!mid) {
+      return;
+    }
+    this.midTable[mid] = transceiver.receiver;
   }
 
   unregisterRtpReceiver(transceiver: RTCRtpTransceiver) {
@@ -77,6 +97,11 @@ export class RtpRouter {
     for (const [rid, endpoint] of Object.entries(this.ridTable)) {
       if (endpoint === transceiver.receiver) {
         delete this.ridTable[rid];
+      }
+    }
+    for (const [mid, endpoint] of Object.entries(this.midTable)) {
+      if (endpoint === transceiver.receiver) {
+        delete this.midTable[mid];
       }
     }
   }
@@ -100,6 +125,10 @@ export class RtpRouter {
       }),
     );
     this.ridTable[param.rid] = transceiver.receiver;
+    this.registerRtpReceiverByMid(transceiver);
+    params.headerExtensions.forEach((extension) => {
+      this.extIdUriMap[extension.id] = extension.uri;
+    });
   }
 
   routeRtp = (packet: RtpPacket) => {
@@ -113,11 +142,17 @@ export class RtpRouter {
     ] as RTCRtpReceiver;
 
     const rid = extensions[RTP_EXTENSION_URI.sdesRTPStreamID];
+    const sdesMid = extensions[RTP_EXTENSION_URI.sdesMid];
     if (typeof rid === "string") {
       rtpReceiver = this.ridTable[rid] as RTCRtpReceiver;
       rtpReceiver.latestRid = rid;
       rtpReceiver.handleRtpByRid(packet, rid, extensions);
     } else if (rtpReceiver) {
+      rtpReceiver.handleRtpBySsrc(packet, extensions);
+    } else if (typeof sdesMid === "string" && this.midTable[sdesMid]) {
+      rtpReceiver = this.midTable[sdesMid];
+      log("register receiver by mid", sdesMid, packet.header.ssrc);
+      this.registerRtpReceiver(rtpReceiver, packet.header.ssrc);
       rtpReceiver.handleRtpBySsrc(packet, extensions);
     } else {
       // simulcast after send receiver report
@@ -138,7 +173,6 @@ export class RtpRouter {
       return;
     }
 
-    const sdesMid = extensions[RTP_EXTENSION_URI.sdesMid];
     if (typeof sdesMid === "string") {
       rtpReceiver.sdesMid = sdesMid;
     }

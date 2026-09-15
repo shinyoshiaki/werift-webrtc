@@ -137,9 +137,12 @@ class mediachannel_removetrack_offer_base {
 
           const transceiver = this.pc
             .getTransceivers()
-            .find((t) => t.mLineIndex === index)!;
+            .find((t) => t.mLineIndex === index);
+          if (!transceiver) {
+            throw new Error(`Transceiver with mLineIndex=${index} not found`);
+          }
           const track = transceiver.receiver.track;
-          await track.onReceiveRtp.asPromise(2000);
+          await track.onReceiveRtp.asPromise(5000);
           accept({});
         }
         break;

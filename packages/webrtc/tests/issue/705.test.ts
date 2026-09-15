@@ -7,6 +7,7 @@ import {
 } from "../../src";
 import {
   createAudioOnlyPeerConnection,
+  createBundledPeerConnection,
   createOfferWithKinds,
   findMedia,
   getBundleItems,
@@ -19,8 +20,11 @@ import {
   replaceMediaPortByMid,
   replaceMediaProfile,
   rewriteBundleGroup,
+  sendTestRtp,
+  waitForConnection,
   waitForIceCandidate,
   waitForIceGatheringComplete,
+  waitForRtp,
 } from "./705.helpers";
 
 describe("https://github.com/shinyoshiaki/werift-webrtc/issues/705", () => {
@@ -644,6 +648,47 @@ describe("https://github.com/shinyoshiaki/werift-webrtc/issues/705", () => {
           (media) => media.kind === "video" && media.port !== 0,
         ),
       ).toHaveLength(1);
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("removeTrack 後に足した新規 m-line でも RTP を受け取れる", async () => {
+    const offerer = createBundledPeerConnection();
+    const answerer = createBundledPeerConnection();
+    const tracks = [0, 1, 2].map(() => new MediaStreamTrack({ kind: "video" }));
+
+    try {
+      // Arrange: sendonly video を 3 本交渉して接続する。
+      offerer.addTransceiver(tracks[0], { direction: "sendonly" });
+      await negotiateOfferAnswer(offerer, answerer);
+      const second = offerer.addTransceiver(tracks[1], {
+        direction: "sendonly",
+      });
+      await negotiateOfferAnswer(offerer, answerer);
+      offerer.addTransceiver(tracks[2], { direction: "sendonly" });
+      await negotiateOfferAnswer(offerer, answerer);
+      await Promise.all([
+        waitForConnection(offerer),
+        waitForConnection(answerer),
+      ]);
+
+      // Act: 2 本目を removeTrack したあと、recycle せず 4 本目を足して再交渉する。
+      offerer.removeTrack(second.sender);
+      await negotiateOfferAnswer(offerer, answerer);
+      const fourthTrack = new MediaStreamTrack({ kind: "video" });
+      offerer.addTransceiver(fourthTrack, { direction: "sendonly" });
+      await negotiateOfferAnswer(offerer, answerer);
+      const fourth = answerer
+        .getTransceivers()
+        .find((transceiver) => transceiver.mLineIndex === 3);
+      const received = waitForRtp(fourth);
+      sendTestRtp(fourthTrack, "fourth");
+
+      // Assert: 新規 m-line は reject されず、RTP を受け取れる。
+      await expect(received).resolves.toBeDefined();
+      expect(fourth?.rejected).toBe(false);
+      expect(parseSdp(offerer.localDescription?.sdp).media).toHaveLength(4);
     } finally {
       await Promise.all([offerer.close(), answerer.close()]);
     }

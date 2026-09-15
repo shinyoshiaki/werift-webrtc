@@ -449,7 +449,13 @@ export class RTCRtpReceiver {
   }
 
   handleRtpBySsrc = (packet: RtpPacket, extensions: Extensions) => {
-    const track = this.trackBySSRC[packet.header.ssrc];
+    const track =
+      this.trackBySSRC[packet.header.ssrc] ??
+      this.tracks[0] ??
+      this.defaultTrack;
+    if (!this.trackBySSRC[packet.header.ssrc]) {
+      this.trackBySSRC[packet.header.ssrc] = track;
+    }
 
     this.handleRTP(packet, extensions, track);
   };
