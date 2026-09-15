@@ -131,10 +131,12 @@ export class TransceiverManager {
 
     // reuse inactive
     const inactiveTransceiverIndex = this.transceivers.findIndex(
-      (t) => t.currentDirection === "inactive" && !t.usedForSender,
+      (t) =>
+        t.currentDirection === "inactive" && !t.usedForSender && !t.rejected,
     );
     const inactiveTransceiver = this.transceivers.find(
-      (t) => t.currentDirection === "inactive" && !t.usedForSender,
+      (t) =>
+        t.currentDirection === "inactive" && !t.usedForSender && !t.rejected,
     );
     if (inactiveTransceiverIndex > -1 && inactiveTransceiver) {
       this.replaceTransceiver(newTransceiver, inactiveTransceiverIndex);

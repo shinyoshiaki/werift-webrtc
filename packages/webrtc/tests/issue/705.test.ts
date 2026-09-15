@@ -443,4 +443,40 @@ describe("https://github.com/shinyoshiaki/werift-webrtc/issues/705", () => {
       await Promise.all([offerer.close(), answerer.close()]);
     }
   });
+
+  test("inactive かつ reject 済み transceiver も addTrack で再利用しない", async () => {
+    const offerer = new RTCPeerConnection({
+      iceServers: [],
+      codecs: { audio: [useOPUS()], video: [useH264()] },
+    });
+    offerer.addTransceiver("video", { direction: "inactive" });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+
+    try {
+      // Act: inactive かつ非対応 codec の video を reject したあと addTrack する。
+      await answerer.setRemoteDescription(await offerer.createOffer());
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      const rejectedVideo = answerer.getTransceivers()[0];
+      expect(rejectedVideo.rejected).toBe(true);
+      expect(rejectedVideo.currentDirection).toBe("inactive");
+
+      answerer.addTrack(new MediaStreamTrack({ kind: "video" }));
+      const nextOffer = parseSdp((await answerer.createOffer()).sdp);
+
+      // Assert: inactive reject 枠は置換せず、新しい accepted video m-line が追加される。
+      expect(rejectedVideo.rejected).toBe(true);
+      expect(answerer.getTransceivers()).toHaveLength(2);
+      expect(
+        nextOffer.media.filter((media) => media.kind === "video"),
+      ).toHaveLength(2);
+      expect(nextOffer.media[0]?.port).toBe(0);
+      expect(
+        nextOffer.media.filter(
+          (media) => media.kind === "video" && media.port !== 0,
+        ),
+      ).toHaveLength(1);
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
 });

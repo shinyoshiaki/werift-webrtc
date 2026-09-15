@@ -105,8 +105,15 @@ export class NackHandler {
 
   close() {
     this.closed = true;
+    this.reset();
+  }
+
+  reset() {
     clearInterval(this.nackLoop);
+    this.nackLoop = undefined;
     this._lost = {};
+    this.newEstSeqNum = 0;
+    this.mediaSourceSsrc = undefined;
   }
 
   private updateRetryCount() {

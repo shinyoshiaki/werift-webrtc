@@ -155,6 +155,7 @@ export class RTCRtpReceiver {
     this.rtcpRunning = false;
     this.rtcpCancel.abort();
     this.rtcpCancel = new AbortController();
+    this.nack.reset();
     if (this.receiverTWCC) {
       this.receiverTWCC.twccRunning = false;
       this.receiverTWCC = undefined;
