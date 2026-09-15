@@ -48,6 +48,28 @@ export function findMedia(description: SessionDescription, kind: MediaKind) {
   return description.media.find((media) => media.kind === kind);
 }
 
+export function replaceMLinePort(
+  sdp: string | undefined,
+  kind: MediaKind,
+  port: number,
+) {
+  if (!sdp) {
+    throw new Error("sdp is empty");
+  }
+  return sdp.replace(new RegExp(`m=${kind} \\d+`), `m=${kind} ${port}`);
+}
+
+export function replaceMediaProfile(
+  sdp: string | undefined,
+  from: string,
+  to: string,
+) {
+  if (!sdp) {
+    throw new Error("sdp is empty");
+  }
+  return sdp.replaceAll(from, to);
+}
+
 export function hostIceCandidateInit(sdpMid: string, sdpMLineIndex: number) {
   return {
     candidate: "candidate:1 1 udp 2113929471 203.0.113.100 10100 typ host",

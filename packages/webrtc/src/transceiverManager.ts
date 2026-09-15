@@ -355,7 +355,8 @@ export class TransceiverManager {
     });
 
     log("negotiated codecs", transceiver.codecs);
-    transceiver.rejected = transceiver.codecs.length === 0;
+    transceiver.rejected =
+      transceiver.codecs.length === 0 || remoteMedia.port === 0;
 
     // # configure direction
     const mediaDirection = remoteMedia.direction ?? "inactive";
@@ -367,6 +368,7 @@ export class TransceiverManager {
     }
 
     if (transceiver.rejected) {
+      this.clearRejectedRtpPipeline(transceiver);
       return;
     }
 
@@ -421,6 +423,13 @@ export class TransceiverManager {
     if (remoteMedia.ssrc[0]?.ssrc) {
       transceiver.receiver.setupTWCC(remoteMedia.ssrc[0].ssrc);
     }
+  }
+
+  private clearRejectedRtpPipeline(transceiver: RTCRtpTransceiver) {
+    this.router.unregisterRtpReceiver(transceiver);
+    transceiver.sender.clearSend();
+    transceiver.receiver.clearReceive();
+    transceiver.headerExtensions = [];
   }
 
   collectStats(timestamp: number): RTCStats[] {

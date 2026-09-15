@@ -135,6 +135,29 @@ export class RTCRtpReceiver {
     );
   }
 
+  clearReceive() {
+    for (const payloadType of Object.keys(this.codecs)) {
+      delete this.codecs[Number(payloadType)];
+    }
+    for (const ssrc of Object.keys(this.ssrcByRtx)) {
+      delete this.ssrcByRtx[Number(ssrc)];
+    }
+    this.tracks.length = 0;
+    for (const ssrc of Object.keys(this.trackBySSRC)) {
+      delete this.trackBySSRC[ssrc];
+    }
+    for (const rid of Object.keys(this.trackByRID)) {
+      delete this.trackByRID[rid];
+    }
+    if (this.receiverTWCC) {
+      this.receiverTWCC.twccRunning = false;
+      this.receiverTWCC = undefined;
+    }
+    this.remoteStreamId = undefined;
+    this.remoteStreamIds = [];
+    this.remoteTrackId = undefined;
+  }
+
   prepareReceive(params: RTCRtpReceiveParameters) {
     params.codecs.forEach((c) => {
       this.codecs[c.payloadType] = c;

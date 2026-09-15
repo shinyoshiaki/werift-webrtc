@@ -68,6 +68,19 @@ export class RtpRouter {
     });
   }
 
+  unregisterRtpReceiver(transceiver: RTCRtpTransceiver) {
+    for (const [ssrc, endpoint] of Object.entries(this.ssrcTable)) {
+      if (endpoint === transceiver.receiver) {
+        delete this.ssrcTable[Number(ssrc)];
+      }
+    }
+    for (const [rid, endpoint] of Object.entries(this.ridTable)) {
+      if (endpoint === transceiver.receiver) {
+        delete this.ridTable[rid];
+      }
+    }
+  }
+
   registerRtpReceiverByRid(
     transceiver: RTCRtpTransceiver,
     param: RTCRtpSimulcastParameters,

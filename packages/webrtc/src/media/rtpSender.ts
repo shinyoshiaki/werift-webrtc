@@ -254,6 +254,16 @@ export class RTCRtpSender {
     this.redEncoder.distance = n;
   }
 
+  clearSend() {
+    this.codec = undefined;
+    this.rtxPayloadType = undefined;
+    this.redRedundantPayloadType = undefined;
+    this.headerExtensions = [];
+    if (this.track) {
+      this.track.codec = undefined;
+    }
+  }
+
   prepareSend(params: RTCRtpSendParameters) {
     this.cname = params.rtcp?.cname;
     this.mid = params.muxId;

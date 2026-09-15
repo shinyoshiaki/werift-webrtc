@@ -1,4 +1,4 @@
-import { RTCPeerConnection } from "../../src";
+import { RTCPeerConnection, RTCRtpCodecParameters } from "../../src";
 import {
   createAudioOnlyPeerConnection,
   createOfferWithKinds,
@@ -6,6 +6,8 @@ import {
   getBundleItems,
   hostIceCandidateInit,
   parseSdp,
+  replaceMLinePort,
+  replaceMediaProfile,
   waitForIceCandidate,
 } from "./705.helpers";
 
@@ -140,7 +142,7 @@ describe("https://github.com/shinyoshiaki/werift-webrtc/issues/705", () => {
     answerer.ontrack = onTrack;
     const rejectedOffer = {
       ...offer,
-      sdp: offer.sdp?.replace(/m=video \d+/, "m=video 0"),
+      sdp: replaceMLinePort(offer.sdp, "video", 0),
     };
 
     try {
@@ -213,6 +215,112 @@ describe("https://github.com/shinyoshiaki/werift-webrtc/issues/705", () => {
       // Assert: 受け入れ m-line が無いので a=group:BUNDLE は出さない。
       expect(parsedAnswer.media[0]?.port).toBe(0);
       expect(getBundleItems(parsedAnswer)).toBeUndefined();
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("remote が port 0 でも共通 codec があれば answer で再受諾しない", async () => {
+    const { pc: offerer, offer } = await createOfferWithKinds(["audio"]);
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    const onTrack = vi.fn();
+    answerer.ontrack = onTrack;
+    const rejectedOffer = {
+      ...offer,
+      sdp: replaceMLinePort(offer.sdp, "audio", 0),
+    };
+
+    try {
+      // Act: opus 対応 PC に、既に port 0 の audio offer を適用して answer を作る。
+      await expect(
+        answerer.setRemoteDescription(rejectedOffer),
+      ).resolves.toBeUndefined();
+      const parsedAnswer = parseSdp((await answerer.createAnswer()).sdp);
+      const audioTransceiver = answerer.getTransceivers()[0];
+
+      // Assert: 共通 codec があっても reject を維持し、pipeline / ontrack は組まない。
+      expect(audioTransceiver.rejected).toBe(true);
+      expect(parsedAnswer.media[0]?.port).toBe(0);
+      expect(parsedAnswer.media[0]?.fmt.length).toBeGreaterThan(0);
+      expect(onTrack).not.toHaveBeenCalled();
+      expect(audioTransceiver.sender.codec).toBeUndefined();
+      expect(audioTransceiver.receiver.tracks).toHaveLength(0);
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("再交渉で非対応 codec になったら既存 pipeline を解除する", async () => {
+    const { pc: offerer, offer } = await createOfferWithKinds(["audio"]);
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    const unsupportedOfferer = new RTCPeerConnection({
+      iceServers: [],
+      codecs: {
+        audio: [
+          new RTCRtpCodecParameters({
+            mimeType: "audio/G722",
+            clockRate: 8000,
+            payloadType: 9,
+          }),
+        ],
+      },
+    });
+    unsupportedOfferer.addTransceiver("audio", { direction: "sendonly" });
+
+    try {
+      // Act: 一度 opus で交渉したあと、同一 m-line に非対応 codec の offer を再適用する。
+      await answerer.setRemoteDescription(offer);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      const transceiver = answerer.getTransceivers()[0];
+      expect(transceiver.rejected).toBe(false);
+      expect(transceiver.sender.codec).toBeDefined();
+      expect(transceiver.receiver.tracks.length).toBeGreaterThan(0);
+
+      const unsupportedOffer = await unsupportedOfferer.createOffer();
+      await expect(
+        answerer.setRemoteDescription(unsupportedOffer),
+      ).resolves.toBeUndefined();
+      const parsedAnswer = parseSdp((await answerer.createAnswer()).sdp);
+
+      // Assert: rejected になり、sender codec / receiver track / TWCC は残らない。
+      expect(transceiver.rejected).toBe(true);
+      expect(transceiver.sender.codec).toBeUndefined();
+      expect(transceiver.receiver.tracks).toHaveLength(0);
+      expect(transceiver.receiver.receiverTWCC).toBeUndefined();
+      expect(parsedAnswer.media[0]?.port).toBe(0);
+      expect(parsedAnswer.media[0]?.fmt.length).toBeGreaterThan(0);
+    } finally {
+      await Promise.all([
+        offerer.close(),
+        answerer.close(),
+        unsupportedOfferer.close(),
+      ]);
+    }
+  });
+
+  test("answer の media proto は offer の profile を引き継ぐ", async () => {
+    const { pc: offerer, offer } = await createOfferWithKinds([
+      "video",
+      "audio",
+    ]);
+    const answerer = createAudioOnlyPeerConnection();
+    const rewrittenOffer = {
+      ...offer,
+      sdp: replaceMediaProfile(offer.sdp, "UDP/TLS/RTP/SAVPF", "RTP/SAVPF"),
+    };
+
+    try {
+      // Act: proto が RTP/SAVPF の offer を SRD し、非対応 video と対応 audio の answer を作る。
+      await answerer.setRemoteDescription(rewrittenOffer);
+      const parsedOffer = parseSdp(rewrittenOffer.sdp);
+      const parsedAnswer = parseSdp((await answerer.createAnswer()).sdp);
+
+      // Assert: reject / 受け入れの両方で offer と同じ proto が残る。
+      expect(findMedia(parsedOffer, "video")?.profile).toBe("RTP/SAVPF");
+      expect(findMedia(parsedAnswer, "video")?.profile).toBe("RTP/SAVPF");
+      expect(findMedia(parsedAnswer, "audio")?.profile).toBe("RTP/SAVPF");
+      expect(findMedia(parsedAnswer, "video")?.port).toBe(0);
+      expect(findMedia(parsedAnswer, "audio")?.port).not.toBe(0);
     } finally {
       await Promise.all([offerer.close(), answerer.close()]);
     }

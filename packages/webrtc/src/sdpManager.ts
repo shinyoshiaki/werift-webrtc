@@ -73,6 +73,7 @@ export class SDPManager {
     transceiver: RTCRtpTransceiver,
     direction: MediaDirection,
     fallbackFmt: MediaDescription["fmt"] = [],
+    profile = "UDP/TLS/RTP/SAVPF",
   ): MediaDescription {
     const fmt =
       transceiver.codecs.length > 0
@@ -83,7 +84,7 @@ export class SDPManager {
     const media = new MediaDescription(
       transceiver.kind,
       transceiver.rejected ? 0 : DISCARD_PORT,
-      "UDP/TLS/RTP/SAVPF",
+      profile,
       fmt,
     );
     media.direction = direction;
@@ -393,6 +394,7 @@ export class SDPManager {
           transceiver,
           andDirection(transceiver.direction, transceiver.offerDirection),
           remoteMedia.fmt,
+          remoteMedia.profile || "UDP/TLS/RTP/SAVPF",
         );
         if (transceiver.rejected) {
           if (remoteMedia.fmt.length > 0) {
