@@ -86,6 +86,13 @@
     .packet-list { display: flex; gap: 10px; margin: 18px 0; flex-wrap: wrap; }
     .packet-label { padding: 10px; background: var(--receive); color: white; border-radius: 6px; text-align: center; font-size: 13px; }
     .packet-label.missing { border: 2px dashed var(--loss); color: var(--loss); background: transparent; padding: 8px; }
+    .packet-label.soft { border: 2px dashed var(--wait); color: var(--wait); background: transparent; padding: 8px; }
+    .soft-maps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 16px 0; }
+    .soft-maps article { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: white; font-size: 13px; min-width: 0; }
+    .soft-maps article.active { border-color: var(--gcc); background: #e3ede8; }
+    .soft-maps .value { font-size: 15px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    .ratio-box { margin: 4px 0 0; padding: 12px; background: #eee7da; border-radius: 8px; font-size: 13px; }
+    .ratio-box strong { display: block; font-size: 23px; font-variant-numeric: tabular-nums; }
     .mini-detail { min-height: 135px; }
     .timeline { border-left: 3px solid var(--line); padding-left: 20px; }
     .timeline p { font-size: 14px; }
@@ -99,6 +106,7 @@
       .split { grid-template-columns: 1fr; }
       .phase-buttons { grid-template-columns: repeat(4, 1fr); }
       .stats, .compact-flow { grid-template-columns: 1fr 1fr; }
+      .soft-maps { grid-template-columns: 1fr; }
       .player-panel { min-height: 0; }
       .step-copy { min-height: 0; }
       .result { font-size: 27px; }
@@ -117,8 +125,9 @@
     <p class="lead">違いは「ロスが出るまで待つか」だけではありません。<strong>受信済みデータの平均速度を出す処理</strong>と、<strong>増え続ける待ち時間を解消するために目標を下げる処理</strong>を、同じ入力で比べます。</p>
     <nav aria-label="目次">
       <a href="#play">数値で追うアニメーション</a><a href="#pipeline">実装の処理順</a>
-      <a href="#loss">未受信とロス</a><a href="#probe">probe と pacing</a>
-      <a href="#events">帯域変更イベント</a><a href="#sources">根拠と再現方法</a>
+      <a href="#loss">未受信とロス</a><a href="#soft-loss">GCC の soft loss</a>
+      <a href="#probe">probe と pacing</a><a href="#events">帯域変更イベント</a>
+      <a href="#sources">根拠と再現方法</a>
     </nav>
   </header>
   <main>
@@ -271,9 +280,50 @@
         </div>
         <div class="packet-list" aria-label="TWCC 受信状態"><span class="packet-label">10<br />受信済み</span><span class="packet-label">11<br />受信済み</span><span class="packet-label missing" id="loss-packet">12<br />未受信</span><span class="packet-label">13<br />受信済み</span><span class="packet-label">14<br />受信済み</span></div>
         <div class="split mini-detail" aria-live="polite" aria-atomic="true"><div><span class="badge l">LEGACY</span><p id="loss-legacy"></p></div><div><span class="badge">GCC</span><p id="loss-gcc"></p></div></div>
-        <p class="note">操作で状態を進める模式図です。5 個の報告から帯域値が出るという意味ではありません。GCC の loss 経路は byte ベースの観測を蓄積し、既定では送信時刻幅 250 ms 以上の観測が最低 3 個必要です。後着によるロス取消しは未確定の観測内だけで、確定済みの過去の観測は書き換えません。</p>
+        <p class="note">操作で状態を進める模式図です。5 個の報告から帯域値が出るという意味ではありません。GCC の loss 経路は byte ベースの観測を蓄積し、既定では送信時刻幅 250 ms 以上の観測が最低 3 個必要です。後着によるロス取消しは未確定の観測内だけで、確定済みの過去の観測は書き換えません。訂正可能な未受信の扱いが <a href="#soft-loss">soft loss</a> です。</p>
       </div>
       <p class="callout">legacy はロス率を明示的にモデル化しません。ただし、受信済みの合計 byte が減ったり時刻幅が広がったりすれば推定値は下がり得ます。「未受信を飛ばすから帯域が下がらない」という説明は正しくありません。</p>
+    </section>
+
+    <section id="soft-loss">
+      <h2>GCC の soft loss：未受信を「確定ロス」にしない</h2>
+      <p>TWCC の <code>PacketNotReceived</code> は、「この報告の対象範囲では、まだ届いていない」という意味です。経路で破棄された可能性も、フィードバックを作ったあとに届く可能性もあります。GCC は未受信番号を永久確定せず、後の受信報告で取り消せる状態として記録します。この訂正可能な未受信が <strong>soft loss</strong> です。</p>
+      <p>1 件の未受信で一定割合減速する処理ではありません。LossBased が最終目標を動かすのは、既定では送信時刻幅 250 ms 以上の観測が最低 3 個揃ってからです。その前は delay 推定を返します。</p>
+      <div class="card">
+        <div class="scenario-buttons" role="group" aria-label="後着と観測確定のどちらが先か">
+          <button class="chip" type="button" data-soft-scene="before" aria-pressed="true">確定前に後着する</button>
+          <button class="chip" type="button" data-soft-scene="after" aria-pressed="false">観測が先に確定する</button>
+        </div>
+        <p class="scenario-summary" id="soft-summary"></p>
+        <div class="compact-flow" id="soft-steps" role="group" aria-label="soft loss の処理順"></div>
+        <figure>
+          <div class="diagram-scroll"><svg class="network-svg" id="soft-diagram" viewBox="0 0 940 210" role="img" aria-labelledby="soft-title soft-desc"></svg></div>
+          <figcaption id="soft-caption"></figcaption>
+        </figure>
+        <div class="legend"><span style="--color:var(--receive)">受信済み</span><span style="--color:var(--wait)">soft loss（訂正可能）</span><span style="--color:var(--loss)">観測確定後のロス</span><span style="--color:#d6cbbb">未照合</span></div>
+        <p class="note scroll-hint">図は横にスクロールできます。</p>
+        <div class="soft-maps">
+          <article id="map-finalized"><span class="badge">受信確定</span><strong>finalizedSeqs</strong><p class="value" id="map-finalized-value"></p><p class="note">受信報告だけが入ります。未受信は入れません。</p></article>
+          <article id="map-soft"><span class="badge">SOFT LOSS</span><strong>softLostSeqs</strong><p class="value" id="map-soft-value"></p><p class="note">未受信だが、後着の受信報告を受け付けます。</p></article>
+          <article id="map-partial"><span class="badge">LOSSBASED 未確定</span><strong>partial.lostPackets</strong><p class="value" id="map-partial-value"></p><p class="note">送信時刻幅が 250 ms 未満なら、まだ観測として確定しません。</p></article>
+        </div>
+        <div class="ratio-box" id="soft-ratio"></div>
+        <p class="mini-detail" id="soft-detail" aria-live="polite"></p>
+      </div>
+      <div class="table-scroll" style="margin-top:20px"><table>
+        <caption>番号 12（1,200 byte）が報告されたときの実装の分岐</caption>
+        <thead><tr><th>入力</th><th>GCC の処理</th></tr></thead>
+        <tbody>
+          <tr><td>送信履歴にない番号</td><td>ロスにも受信にもしない。未知のフィードバックは捨てる。</td></tr>
+          <tr><td>すでに受信確定した番号</td><td>重複・重なり合う TWCC を無視する。</td></tr>
+          <tr><td>PacketNotReceived</td><td><code>softLostSeqs</code> に追加する。<code>finalizedSeqs</code> には入れない。LossBased の lost map に seq → size を載せる。遅延・到達スループット・probe には入れない（受信時刻がない）。</td></tr>
+          <tr><td>同じ未受信の再報告</td><td>LossBased へ再び渡す。<code>numPackets</code> と <code>size</code> は加算する。lost map は初回の size を保つ（lost_size は増えない）。</td></tr>
+          <tr><td>受信報告（観測の確定前）</td><td>受信確定し、soft loss を外す。lost map からその番号を消す。未確定観測のロスだけが取り消される。</td></tr>
+          <tr><td>受信報告（観測の確定後）</td><td>新しい未確定観測の受信として数える。すでに commit した observation のロス数・lostSize は書き換えない。</td></tr>
+        </tbody>
+      </table></div>
+      <div class="callout">ロス用の照合は番号順、遅延・到達スループット・probe は受信時刻順です。soft loss の番号は遅延経路に入らないので、「未受信なのに傾き計算へ混ぜる」ことはありません。</div>
+      <p class="note">図の byte ロス率は、いま未確定の観測（または直前に確定した 1 観測）の <code>lostSize / size</code> です。最終帯域は delay / AIMD / probe / 観測 3 個の準備条件と合成されます。この比率そのものが <code>onAvailableBitrate</code> ではありません。</p>
     </section>
 
     <section id="probe">
@@ -318,6 +368,7 @@ sender.setBandwidthEstimator(new GccBandwidthEstimator());</code></pre>
         <tr><td>legacy の入力条件・計算</td><td><a href="../packages/webrtc/src/media/sender/estimators/legacyCumulativeBwe.ts">legacyCumulativeBwe.ts</a> / <a href="../packages/webrtc/src/media/sender/cumulativeResult.ts">cumulativeResult.ts</a></td></tr>
         <tr><td>群間の間隔差・傾き・AIMD</td><td><a href="../packages/webrtc/src/media/sender/estimators/gcc/interArrivalDelta.ts">interArrivalDelta.ts</a> / <a href="../packages/webrtc/src/media/sender/estimators/gcc/trendlineEstimator.ts">trendlineEstimator.ts</a> / <a href="../packages/webrtc/src/media/sender/estimators/gcc/aimdRateControl.ts">aimdRateControl.ts</a></td></tr>
         <tr><td>到達スループット・loss・probe</td><td><a href="../packages/webrtc/src/media/sender/estimators/gcc/acknowledgedBitrateEstimator.ts">acknowledgedBitrateEstimator.ts</a> / <a href="../packages/webrtc/src/media/sender/estimators/gcc/lossBasedBwe.ts">lossBasedBwe.ts</a> / <a href="../packages/webrtc/src/media/sender/estimators/gcc/probeController.ts">probeController.ts</a></td></tr>
+        <tr><td>soft loss（未受信の訂正可能な記録）</td><td><a href="../packages/webrtc/src/media/sender/estimators/gcc/gccBwe.ts">gccBwe.ts</a> の <code>softLostSeqs</code> / <code>finalizedSeqs</code>。LossBased の <code>partial.lostPackets</code>（commit 前だけ unmark）</td></tr>
         <tr><td>統合・イベント・差し替え</td><td><a href="../packages/webrtc/src/media/sender/estimators/gcc/gccBwe.ts">gccBwe.ts</a> / <a href="../packages/webrtc/src/media/sender/bandwidthEstimator.ts">bandwidthEstimator.ts</a> / <a href="../packages/webrtc/src/media/rtpSender.ts">rtpSender.ts</a></td></tr>
       </tbody></table></div>
       <details><summary>数値を現在のコードで再検証する</summary><p><a href="./gcc-vs-legacy.trace.ts">gcc-vs-legacy.trace.ts</a> が HTML 内のデータと現在の実装の出力を照合します。リポジトリのルートで実行してください。</p><pre><code>node_modules/.bin/tsx reviews/gcc-vs-legacy.trace.ts
@@ -545,7 +596,7 @@ node_modules/.bin/tsx reviews/gcc-vs-legacy.trace.ts --write</code></pre><p clas
     document.addEventListener("visibilitychange", () => { if (document.hidden) pause(); });
 
     const lossCopy = [
-      ["TWCC の受信済み行を送信履歴と照合します。12 は未受信なので、サイズ・時刻の累積対象にしません。", "12 はこの報告時点では未受信です。送信履歴にある番号を soft loss として記録し、後着の受信報告を受け付けられるようにします。"],
+      ["TWCC の受信済み行を送信履歴と照合します。12 は未受信なので、サイズ・時刻の累積対象にしません。", "12 はこの報告時点では未受信です。履歴にある 12 だけを soft loss として記録し、後着の受信報告を受け付けられるようにします。受信済みの 10・11・13・14 は受信確定です。"],
       ["10・11・13・14 の byte と送受信時刻幅を使います。12 の分だけ分子が小さくなるため、平均速度も下がり得ます。", "12 の送信サイズをロス観測に含めます。受信済み行は受信時刻順で delay / 到達スループット / probe に入力します。ロス観測の順番とは別です。"],
       ["同じ「12 が未受信」の行は再びスキップします。明示的なロス率や、未受信回数に応じた減速係数はありません。", "12 の未受信報告は LossBasedBwe に再び渡します。観測のパケット数・byte は加算されますが、ロスの記録は番号で管理します。受信確認済みの行の重複は GCC 側で除外します。"],
       ["後の TWCC に 12 の受信時刻が載り、送信履歴が残っていれば、受信済みパケットとして累積に加えます。", "12 を受信済みに確定します。同じ番号のロスがまだ未確定の観測にあれば取り消します。すでに確定した過去の観測までは訂正しません。"],
@@ -575,7 +626,163 @@ node_modules/.bin/tsx reviews/gcc-vs-legacy.trace.ts --write</code></pre><p clas
       byId("probe-diagram").innerHTML = parts.join(""); byId("probe-detail").textContent = probeCopy[index];
     }
     document.querySelectorAll("[data-probe]").forEach((b) => b.addEventListener("click", () => renderProbe(Number(b.dataset.probe))));
-    applyMotionPreference(); render(); renderLoss(0); renderProbe(0);
+
+    const softSummaries = {
+      before: "番号 10〜14 を各 1,200 byte で送る例です。送信時刻幅は 80 ms（250 ms 未満）なので、最初の TWCC では観測が確定しません。12 だけ未受信と報告されたあと、同じ未受信の再報告、確定前の後着受信の順です。",
+      after: "同じ 10〜14、各 1,200 byte です。こちらは送信時刻幅 300 ms なので、最初の未受信報告で観測が確定します。その後に 12 の受信報告が来ても、確定済み observation のロスは残り、新しい未確定観測の受信として数えます。",
+    };
+    const softStepLabels = {
+      before: ["1. TWCC で未受信", "2. 3 つの記録に載せる", "3. 同じ未受信の再報告", "4. 確定前の後着で解除"],
+      after: ["1. TWCC で未受信", "2. 3 つの記録に載せる", "3. 250 ms で観測確定", "4. 確定後の後着は残る"],
+    };
+    const softCopy = {
+      before: [
+        "受信側は番号の穴を PacketNotReceived として返します。12 が破棄されたとは限りません。フィードバックを作ったあとに届くこともあります。この報告単体では帯域イベントは出ません。",
+        "送信履歴にある番号だけ照合します。10・11・13・14 は受信確定（finalizedSeqs）。12 は softLostSeqs に入れ、LossBased の lost map に 12 → 1,200 byte を載せます。未受信は finalized に入れません。受信時刻がないので遅延経路には入りません。",
+        "12 はまだ受信確定していないので、同じ未受信を LossBased へ再び渡します。numPackets と size は加算されますが、lost map は初回の 1,200 byte のままです。受信確定済みの 10・11・13・14 は重複として無視します。",
+        "12 の受信時刻が載った TWCC が、観測の確定前に届きます。finalizedSeqs に移し、softLostSeqs と lost map から消します。未確定観測のロスは 0 になります。受信時刻があれば、この後着は遅延経路にも入ります。",
+      ],
+      after: [
+        "受信側は番号の穴を PacketNotReceived として返します。12 が破棄されたとは限りません。ただしこの分岐では、報告に含まれる送信時刻幅がすでに 300 ms あります。",
+        "照合自体は左の分岐と同じです。10・11・13・14 を受信確定し、12 を soft loss として記録します。実装ではこの照合の直後に、送信時刻幅を見て commit するかを決めます。図では記録と確定を分けています。",
+        "同じ receiveTWCC の後半で、送信時刻幅 300 ms ≥ 250 ms のため partial を observation として commit します。確定内容は 5 パケット・6,000 byte・ロス 1 個・lostSize 1,200 byte です。commit すると lost map は空に戻ります。12 は送信側の softLostSeqs には残ります。",
+        "後から 12 の受信報告が来ても、確定済み observation のロス数と lostSize は変わりません。12 は新しい partial の受信として加算されます。受信時刻があれば遅延・到達スループット・probe にはこの後着を入力します。ただし、すでに確定したロス統計は戻りません。",
+      ],
+    };
+    const softCaptions = {
+      before: [
+        "TWCC は番号と受信状態を返します。未受信は、この報告時点の穴です。",
+        "送信側は履歴と照合し、受信と soft loss を分けて記録します。",
+        "同じ未受信の再報告は回数・byte を増やしますが、ロス byte は二重に数えません。",
+        "確定前の後着は、未確定観測のロスだけを取り消します。",
+      ],
+      after: [
+        "TWCC は番号と受信状態を返します。未受信は、この報告時点の穴です。",
+        "送信側は履歴と照合し、受信と soft loss を分けて記録します。",
+        "送信時刻幅が 250 ms 以上になると、その時点の lost map で観測を確定します。",
+        "確定後の後着は新しい観測の受信であり、過去の確定ロスは残り続けます。",
+      ],
+    };
+    let softScene = "before", softStep = 0;
+
+    function chipFill(kind) {
+      if (kind === "recv") return "#3b704d";
+      if (kind === "soft") return "#bb551c";
+      if (kind === "committed") return "#b32622";
+      if (kind === "pending") return "#d6cbbb";
+      return "#795625";
+    }
+    function chipText(kind) {
+      return kind === "recv" || kind === "sent" ? "white" : kind === "pending" ? "minor" : "white";
+    }
+    function renderSoftLoss(index = softStep) {
+      softStep = index;
+      const scene = softScene;
+      const labels = softStepLabels[scene];
+      const stepsEl = byId("soft-steps");
+      if (stepsEl.childElementCount !== 4) {
+        stepsEl.innerHTML = labels.map((label, i) => `<button type="button" data-soft="${i}" aria-pressed="${i === index}">${label}</button>`).join("");
+        stepsEl.querySelectorAll("[data-soft]").forEach((b) => b.addEventListener("click", () => renderSoftLoss(Number(b.dataset.soft))));
+      } else {
+        stepsEl.querySelectorAll("[data-soft]").forEach((b, i) => {
+          b.textContent = labels[i];
+          b.setAttribute("aria-pressed", String(i === index));
+        });
+      }
+      document.querySelectorAll("[data-soft-scene]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.softScene === scene)));
+      byId("soft-summary").textContent = softSummaries[scene];
+      byId("soft-detail").textContent = softCopy[scene][index];
+      byId("soft-caption").textContent = softCaptions[scene][index];
+
+      const kinds = { 10: "sent", 11: "sent", 12: "sent", 13: "sent", 14: "sent" };
+      let report = { 10: "pending", 11: "pending", 12: "pending", 13: "pending", 14: "pending" };
+      let finalized = "（空）";
+      let softLost = "（空）";
+      let partialLost = "（空）";
+      let packets = 0, size = 0, lostSize = 0, committed = false, latePartial = "";
+      let active = [false, false, false];
+      if (index >= 0) {
+        report = { 10: "recv", 11: "recv", 12: "soft", 13: "recv", 14: "recv" };
+      }
+      if (index === 1) {
+        finalized = "10, 11, 13, 14";
+        softLost = "12";
+        partialLost = "12 → 1,200 byte";
+        packets = 5; size = 6000; lostSize = 1200;
+        active = [true, true, true];
+      } else if (scene === "before" && index === 2) {
+        report[12] = "soft";
+        finalized = "10, 11, 13, 14";
+        softLost = "12";
+        partialLost = "12 → 1,200 byte（size は増えても lost は据え置き）";
+        packets = 6; size = 7200; lostSize = 1200;
+        active = [false, true, true];
+      } else if (scene === "before" && index === 3) {
+        report[12] = "recv";
+        finalized = "10, 11, 12, 13, 14";
+        softLost = "（空）";
+        partialLost = "（空）";
+        packets = 7; size = 8400; lostSize = 0;
+        active = [true, true, true];
+      } else if (scene === "after" && index === 2) {
+        report[12] = "committed";
+        finalized = "10, 11, 13, 14";
+        softLost = "12（送信側の訂正待ち）";
+        partialLost = "commit 済みのため空。observation: ロス 1 / 1,200 byte";
+        packets = 5; size = 6000; lostSize = 1200; committed = true;
+        active = [false, true, true];
+      } else if (scene === "after" && index === 3) {
+        report[12] = "recv";
+        finalized = "10, 11, 12, 13, 14";
+        softLost = "（空）";
+        partialLost = "（空）";
+        packets = 5; size = 6000; lostSize = 1200; committed = true;
+        latePartial = "新しい partial: 受信 1 個・1,200 byte・ロス 0";
+        active = [true, true, false];
+      }
+
+      const seqs = [10, 11, 12, 13, 14];
+      const parts = [
+        '<title id="soft-title">TWCC の未受信報告と GCC の soft loss 記録</title>',
+        `<desc id="soft-desc">${softCopy[scene][index]}</desc>`,
+        text(20, 28, "送信履歴"),
+        text(20, 108, "TWCC 報告"),
+      ];
+      seqs.forEach((seq, i) => {
+        const x = 160 + i * 150;
+        const sendKind = kinds[seq];
+        const repKind = report[seq];
+        parts.push(`<rect x="${x}" y="8" width="120" height="36" rx="6" fill="${chipFill(sendKind)}"/>${text(x + 60, 31, String(seq), chipText(sendKind), 'text-anchor="middle"')}`);
+        parts.push(line(x + 60, 44, x + 60, 82, index === 0 && seq === 12 ? "#bb551c" : "#b4a995", 'stroke-width="2"'));
+        parts.push(`<rect x="${x}" y="88" width="120" height="36" rx="6" fill="${chipFill(repKind)}" ${repKind === "soft" || repKind === "committed" ? 'stroke="#211d18" stroke-dasharray="5 4" stroke-width="1.5"' : ""}/>`);
+        const label = repKind === "recv" ? `${seq} 受信` : repKind === "soft" ? `${seq} 未受信` : repKind === "committed" ? `${seq} 確定ロス` : `${seq}`;
+        parts.push(text(x + 60, 111, label, chipText(repKind), 'text-anchor="middle"'));
+      });
+      const arrowY = 160;
+      parts.push(line(220, arrowY, 720, arrowY, index === 0 ? "#d6cbbb" : "#236566", 'stroke-width="2"'));
+      parts.push(`<path d="M 708 152 L 720 160 L 708 168" fill="none" stroke="${index === 0 ? "#d6cbbb" : "#236566"}" stroke-width="2"/>`);
+      parts.push(text(470, 186, index === 0 ? "送信側で履歴と照合する前" : scene === "after" && index >= 2 ? "LossBased の観測へ（番号順）" : "送信側の 3 つの記録へ（番号順）", "minor", 'text-anchor="middle"'));
+      byId("soft-diagram").innerHTML = parts.join("");
+
+      byId("map-finalized-value").textContent = finalized;
+      byId("map-soft-value").textContent = softLost;
+      byId("map-partial-value").textContent = partialLost;
+      byId("map-finalized").classList.toggle("active", active[0]);
+      byId("map-soft").classList.toggle("active", active[1]);
+      byId("map-partial").classList.toggle("active", active[2]);
+
+      const ratio = size > 0 ? lostSize / size : 0;
+      const ratioLabel = committed ? "確定した観測の byte ロス率" : "未確定観測の byte ロス率";
+      const extra = latePartial ? `<p class="note" style="margin:8px 0 0">${latePartial}</p>` : "";
+      byId("soft-ratio").innerHTML = index === 0
+        ? `<strong>—</strong>${ratioLabel}は、照合後に計算します。`
+        : `<strong>${fmt(ratio * 100, 1)}%</strong>${ratioLabel} = ${fmt(lostSize)} / ${fmt(size)} byte${packets ? `（見かけのパケット数 ${packets}）` : ""}${extra}`;
+    }
+    document.querySelectorAll("[data-soft-scene]").forEach((b) => b.addEventListener("click", () => {
+      softScene = b.dataset.softScene;
+      renderSoftLoss(0);
+    }));
+    applyMotionPreference(); render(); renderLoss(0); renderProbe(0); renderSoftLoss(0);
   </script>
 </body>
 </html>
