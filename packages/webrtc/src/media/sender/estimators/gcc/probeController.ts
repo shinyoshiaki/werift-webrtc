@@ -44,7 +44,6 @@ import {
   kProbeUncertainty,
   kSendTimeHistoryWindowMs,
 } from "./constants";
-import { TransportWideSeqUnwrapper } from "./sequenceNumber";
 
 /**
  * libwebrtc ProbeController-aligned states:
@@ -158,12 +157,14 @@ export class ProbeController {
   private maxBitrateBps = kMaxBitrateBps;
   /** pin `network_available_` — starts false until OnNetworkAvailability. */
   private networkAvailable = false;
-  /** Unwrapped transport-wide seq → cluster id for probation packets. */
+  /**
+   * Transport-wide seq → cluster id for probation packets.
+   * Keys are the already-resolved extended seqs {@link GccBandwidthEstimator}
+   * passes (opaque; do not unwrap again).
+   */
   private seqToCluster = new Map<number, number>();
-  /** Unwrapped transport-wide seq → send-time / size for ACKed-only rate math. */
+  /** Same extended-seq keys as {@link seqToCluster} → send-time / size. */
   private seqToSendInfo = new Map<number, { sendMs: number; size: number }>();
-  /** Same unwrap rules as GccBandwidthEstimator (extended seq after wrap). */
-  private readonly seqUnwrapper = new TransportWideSeqUnwrapper();
   /** pin `enable_periodic_alr_probing_`. */
   private periodicAlrProbing = false;
   /** pin `alr_start_time_`. */
@@ -221,7 +222,6 @@ export class ProbeController {
     this.maxBitrateBps = kDefaultMaxProbingBitrateBps;
     this.seqToCluster.clear();
     this.seqToSendInfo.clear();
-    this.seqUnwrapper.reset();
     // Keep periodicAlrProbing, networkAvailable, alrStartMs, NSE interval.
     this.alrEndMs = undefined;
     this.lastProbeInitiatedMs = 0;
@@ -717,9 +717,11 @@ export class ProbeController {
       return { clusterId: 0, activated: [] };
     }
 
-    const seq = this.seqUnwrapper.unwrap(wideSeq);
-    this.seqToCluster.set(seq, cluster.config.id);
-    this.seqToSendInfo.set(seq, { sendMs, size: sizeBytes });
+    // Opaque key: gcc already unwraps. Re-unwrapping here diverges after
+    // media packets (which do not advance this map) — e.g. stored -25536
+    // vs ACK lookup 40000, so the probe estimate never lands.
+    this.seqToCluster.set(wideSeq, cluster.config.id);
+    this.seqToSendInfo.set(wideSeq, { sendMs, size: sizeBytes });
 
     const isActivePacing = this.pacing === cluster;
     if (isActivePacing && this.sendFillComplete(cluster)) {
@@ -886,7 +888,6 @@ export class ProbeController {
     this.queue = [];
     this.seqToCluster.clear();
     this.seqToSendInfo.clear();
-    this.seqUnwrapper.reset();
     // Any abort ends further-probe eligibility for this session (same as
     // UpdateState(kProbingComplete) clearing min_bitrate_to_probe_further_).
     this.minBitrateToProbeFurther = Number.POSITIVE_INFINITY;

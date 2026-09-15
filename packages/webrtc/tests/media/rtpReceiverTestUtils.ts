@@ -23,6 +23,7 @@ export function createVideoReceiver(
     red?: boolean;
     payloadType?: number;
     ssrc?: number;
+    rtxSsrc?: number;
     kind?: "audio" | "video";
     peerConfig?: PeerConfig;
   } = {},
@@ -30,6 +31,7 @@ export function createVideoReceiver(
   const kind = options.kind ?? "video";
   const payloadType = options.payloadType ?? 96;
   const ssrc = options.ssrc ?? defaultVideoSsrc;
+  const rtxSsrc = options.rtxSsrc ?? defaultRtxSsrc;
   const dtls = createDtlsTransport();
   const receiver = new RTCRtpReceiver(
     options.peerConfig ?? defaultPeerConfig,
@@ -54,7 +56,7 @@ export function createVideoReceiver(
     new RTCRtpCodingParameters({
       ssrc,
       payloadType,
-      rtx: options.rtx ? { ssrc: defaultRtxSsrc } : undefined,
+      rtx: options.rtx ? { ssrc: rtxSsrc } : undefined,
     }),
   ];
 
@@ -69,7 +71,7 @@ export function createVideoReceiver(
     );
     encodings.push(
       new RTCRtpCodingParameters({
-        ssrc: defaultRtxSsrc,
+        ssrc: rtxSsrc,
         payloadType: 97,
       }),
     );

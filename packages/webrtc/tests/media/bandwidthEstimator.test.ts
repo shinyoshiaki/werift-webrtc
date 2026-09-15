@@ -2354,21 +2354,99 @@ describe("media/sender bandwidth estimator", () => {
       const all = sentPackets.map((p) => p.header.sequenceNumber);
       expect(new Set(all).size).toBe(all.length);
 
-      // rtpCache も既送 packet と衝突しない
+      // rtpCache は media のみ。padding seq では上書きしない
       const cache = (sender as any).rtpCache as Array<
         { header: { sequenceNumber: number } } | undefined
       >;
       const history = 128;
-      for (const seq of all) {
+      const mediaSeqs = sentPackets
+        .filter((p) => !p.header.padding)
+        .map((p) => p.header.sequenceNumber);
+      for (const seq of mediaSeqs) {
         const slot = cache[seq % history];
         expect(slot).toBeDefined();
         expect(slot!.header.sequenceNumber).toBe(seq);
       }
+      for (const seq of padSeqs) {
+        const slot = cache[seq % history];
+        expect(slot?.header.sequenceNumber).not.toBe(seq);
+      }
 
-      const mediaSeqs = sentPackets
-        .filter((p) => !p.header.padding)
-        .map((p) => p.header.sequenceNumber);
       expect(mediaSeqs).toEqual([10, 12, 11]);
+    });
+
+    test("padding 挿入後の遅着 media が既送信 media の連番を再利用しない", async () => {
+      // Arrange: レビュー再現。10 → padding → 11 → 遅着 9 で旧実装は
+      // offset 再計算後に late 9 が wire 10 を再利用し rtpCache を上書きした。
+      const { sender, sentPackets } = await prepareConnectedSender();
+
+      const sendMedia = async (
+        seq: number,
+        payload = Buffer.alloc(40, seq),
+      ) => {
+        await (sender as any).sendRtpInternal(
+          new RtpPacket(
+            new RtpHeader({
+              sequenceNumber: seq,
+              timestamp: seq * 100,
+              payloadType: 96,
+              ssrc: 1,
+              extension: true,
+              extensions: [],
+              marker: false,
+              padding: false,
+              payloadOffset: 12,
+            }),
+            payload,
+          ),
+          { injectProbePadding: false },
+        );
+      };
+      const sendPad = async () => {
+        await (sender as any).sendRtpInternal(
+          new RtpPacket(
+            new RtpHeader({
+              sequenceNumber: 0,
+              timestamp: 0,
+              payloadType: 96,
+              ssrc: 1,
+              extension: true,
+              extensions: [],
+              marker: false,
+              padding: true,
+              paddingSize: kProbePaddingPacketBytes,
+              payloadOffset: 12,
+            }),
+            Buffer.alloc(0),
+          ),
+          { injectProbePadding: false, isProbePadding: true },
+        );
+      };
+
+      // Act: media 10 → padding → media 11 → 遅着 media 9
+      await sendMedia(10, Buffer.from([10]));
+      await sendPad();
+      await sendMedia(11, Buffer.from([11]));
+      await sendMedia(9, Buffer.from([9]));
+
+      // Assert: 全 wire seq が一意。遅着 9 は source 相対の穴を使う
+      const all = sentPackets.map((p) => p.header.sequenceNumber);
+      expect(new Set(all).size).toBe(all.length);
+      const media = sentPackets.filter((p) => !p.header.padding);
+      expect(media.map((p) => p.header.sequenceNumber)).toEqual([10, 12, 9]);
+      expect(media[0]!.payload[0]).toBe(10);
+      expect(media[2]!.payload[0]).toBe(9);
+
+      const cache = (sender as any).rtpCache as Array<
+        { header: { sequenceNumber: number }; payload: Buffer } | undefined
+      >;
+      const history = 128;
+      const cached10 = cache[10 % history];
+      expect(cached10?.header.sequenceNumber).toBe(10);
+      expect(cached10?.payload[0]).toBe(10);
+      const cached9 = cache[9 % history];
+      expect(cached9?.header.sequenceNumber).toBe(9);
+      expect(cached9?.payload[0]).toBe(9);
     });
 
     test("media → padding → media で sequence 衝突せず source 相対は維持", async () => {
@@ -7531,6 +7609,43 @@ describe("media/sender bandwidth estimator", () => {
       expect(probe.probeState).toBe("waiting_for_result");
       expect(probe.process(1_001)).toEqual([]);
       expect(probe.probeState).toBe("complete");
+    });
+
+    test("通常パケットを挟んだ probe seq は送信と ACK で同じキー", () => {
+      // Arrange: 初期 probe のあと media が TWCC 連番だけ進み、次 probe が 40000。
+      // 旧実装は ProbeController が 16bit unwrap し直して保存キーが -25536 になり、
+      // gcc が渡す拡張連番 40000 では照合できず 2 Mbps 推定が出なかった。
+      const probe = createProbeController();
+      probe.setBitrates(10_000, 666_667, 1e9, 0);
+      expect(probe.currentProbeTargetBps).toBeGreaterThan(1_900_000);
+
+      const size = 1_000;
+      probe.onProbePacketSent(size, 0, 1);
+      const n = 5;
+      const seq0 = 40_000;
+      for (let i = 0; i < n; i++) {
+        probe.onProbePacketSent(size, 1_000 + i * 2, seq0 + i);
+      }
+
+      // Assert: 保存キーは渡した拡張連番そのもの
+      expect((probe as any).seqToCluster.get(seq0)).toBeDefined();
+      expect((probe as any).seqToCluster.has(-25536)).toBe(false);
+
+      // Act: ギャップ後の 40000 番台だけ ACK（3x cluster、2 Mbps 目標）
+      for (let i = 0; i < 4; i++) {
+        probe.onAckedPacket(
+          size,
+          1_100 + i * 2,
+          true,
+          seq0 + i,
+          1_200,
+          1_000 + i * 2,
+        );
+      }
+
+      // Assert: 照合できれば Mbps 級の推定が出る（旧実装は undefined）
+      const estimate = probe.takePendingEstimateBps();
+      expect(estimate).toBeGreaterThan(1_000_000);
     });
 
     test("probe ACK は TWCC seq wrap 後も同一 cluster に載る", () => {

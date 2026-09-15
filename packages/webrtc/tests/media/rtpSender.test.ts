@@ -1,6 +1,6 @@
 import { setTimeout } from "timers/promises";
 
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   GccBandwidthEstimator,
   GenericNack,
@@ -11,6 +11,9 @@ import {
   RtcpTransportLayerFeedback,
   RtpHeader,
   RtpPacket,
+  codecParametersToString,
+  dePacketizeRtpPackets,
+  kProbePaddingPacketBytes,
   serializeTransportWideCC,
   unwrapRtx,
 } from "../../src";
@@ -24,6 +27,7 @@ import {
   createRtpPacket,
   sentRtpHeaders,
 } from "../fixture";
+import { createVideoReceiver } from "./rtpReceiverTestUtils";
 
 describe("media/rtpSender", () => {
   test("stop track", () => {
@@ -939,6 +943,146 @@ describe("media/rtpSender RTP continuity", () => {
     expect(recovered.header.sequenceNumber).toBe(afterSeq);
   });
 
+  test("失われた padding の NACK は RTX せず、受信側 VP8 に空 payload を流さない", async () => {
+    // Arrange: VP8 + NACK/RTX。Chrome sim は NACK 無効なのでここが回帰口。
+    const dtls = createDtlsTransport();
+    dtls.state = "connected";
+    const sender = new RTCRtpSender("video");
+    sender.setDtlsTransport(dtls);
+    sender.prepareSend({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "video/VP8",
+          clockRate: 90000,
+          payloadType: 96,
+        }),
+        new RTCRtpCodecParameters({
+          mimeType: "video/rtx",
+          clockRate: 90000,
+          payloadType: 97,
+          parameters: codecParametersToString({ apt: 96 }),
+        }),
+      ],
+      headerExtensions: [],
+    });
+    const sent: { payload: Buffer; header: RtpHeader }[] = [];
+    const sendRtp = vi
+      .spyOn(dtls, "sendRtp")
+      .mockImplementation(async (payload: Buffer, header: RtpHeader) => {
+        sent.push({
+          payload: Buffer.from(payload),
+          header: new RtpHeader({
+            ...header,
+            extensions: [...header.extensions],
+          }),
+        });
+        return payload.length + header.serializeSize;
+      });
+    started.push(sender);
+
+    const { receiver, track } = createVideoReceiver({
+      nack: true,
+      rtx: true,
+      ssrc: sender.ssrc,
+      rtxSsrc: sender.rtxSsrc,
+    });
+    const received: { packet: RtpPacket; type?: string }[] = [];
+    track.onReceiveRtp.subscribe((rtp, _ext, info) => {
+      received.push({ packet: rtp, type: info?.type });
+    });
+
+    const vp8 = Buffer.from([0x10, 0x01, 0x02, 0x03]);
+    await sender.sendRtp(
+      new RtpPacket(
+        new RtpHeader({
+          sequenceNumber: 10,
+          timestamp: 90000,
+          payloadType: 96,
+          payloadOffset: 12,
+        }),
+        vp8,
+      ),
+    );
+    const mediaWire = sent[0]!;
+    const mediaSeq = mediaWire.header.sequenceNumber;
+
+    await (sender as any).sendRtpInternal(
+      new RtpPacket(
+        new RtpHeader({
+          sequenceNumber: 0,
+          timestamp: 0,
+          payloadType: 96,
+          marker: false,
+          padding: true,
+          paddingSize: kProbePaddingPacketBytes,
+          payloadOffset: 12,
+        }),
+        Buffer.alloc(0),
+      ),
+      { injectProbePadding: false, isProbePadding: true },
+    );
+    const padSeq = sent[1]!.header.sequenceNumber;
+    expect(sent[1]!.header.padding).toBe(true);
+
+    // Act: media は届け、padding は損失したことにして NACK する
+    receiver.handleRtpBySsrc(
+      new RtpPacket(
+        new RtpHeader({
+          ...mediaWire.header,
+          ssrc: sender.ssrc,
+          padding: false,
+        }),
+        vp8,
+      ),
+      {},
+    );
+    sendRtp.mockClear();
+    sent.length = 0;
+    sender.handleRtcpPacket(
+      new RtcpTransportLayerFeedback({
+        feedback: new GenericNack({
+          lost: [padSeq],
+          senderSsrc: 1,
+          mediaSourceSsrc: sender.ssrc,
+        }),
+      }),
+    );
+    await setTimeout(0);
+
+    // Assert: padding は RTX 対象外
+    expect(sendRtp).not.toHaveBeenCalled();
+
+    // Act: 万一 RTX が出ても受信→VP8 に空 payload を流さない
+    for (const pkt of sent) {
+      receiver.handleRtpBySsrc(new RtpPacket(pkt.header, pkt.payload), {});
+    }
+
+    // Assert: 受信した media/retransmission は VP8 としてパースできる
+    expect(received.some((r) => r.type === "retransmission")).toBe(false);
+    for (const r of received) {
+      if (r.type === "padding") continue;
+      expect(() => dePacketizeRtpPackets("VP8", [r.packet])).not.toThrow();
+      expect(r.packet.payload.length).toBeGreaterThan(0);
+    }
+    expect(
+      received.some((r) => r.packet.header.sequenceNumber === mediaSeq),
+    ).toBe(true);
+
+    // Act: media の NACK は従来どおり RTX する
+    sender.handleRtcpPacket(
+      new RtcpTransportLayerFeedback({
+        feedback: new GenericNack({
+          lost: [mediaSeq],
+          senderSsrc: 1,
+          mediaSourceSsrc: sender.ssrc,
+        }),
+      }),
+    );
+    await setTimeout(0);
+    expect(sendRtp).toHaveBeenCalled();
+    expect(sentRtpHeaders(sendRtp)[0]!.payloadType).toBe(97);
+  });
+
   test("RTCP SR の rtpTimestamp は書き換え後値で、TWCC はメディア seq と独立に進む", async () => {
     const { sender, dtls, sendRtp } = arrangeSender({
       twcc: true,
@@ -983,6 +1127,48 @@ describe("media/rtpSender RTP continuity", () => {
     expect(header.sequenceNumber).toBe((last.sequenceNumber + 1) & 0xffff);
     expect(header.timestamp).toBe((last.timestamp + 1) >>> 0);
   });
+
+  test("ソース切替後の padding は timestampOffset を重ねて適用しない", async () => {
+    const { sender, sendRtp } = arrangeSender();
+
+    // Arrange: 切替後の先頭 media timestamp が 1001 になる状態
+    await sender.sendRtp(createRtpPacket(1, 1000));
+    sender.replaceRTP({ sequenceNumber: 0, timestamp: 0 });
+    await sender.sendRtp(createRtpPacket(0, 0));
+    const mediaTs = sentRtpHeaders(sendRtp).at(-1)!.timestamp;
+    expect(mediaTs).toBe(1001);
+    sendRtp.mockClear();
+
+    const sendPad = async () => {
+      await (sender as any).sendRtpInternal(
+        new RtpPacket(
+          new RtpHeader({
+            sequenceNumber: 0,
+            timestamp: 0,
+            payloadType: 96,
+            ssrc: sender.ssrc,
+            marker: false,
+            padding: true,
+            paddingSize: kProbePaddingPacketBytes,
+            payloadOffset: 12,
+          }),
+          Buffer.alloc(0),
+        ),
+        { injectProbePadding: false, isProbePadding: true },
+      );
+    };
+
+    // Act: 切替後に padding を 2 つ送る
+    await sendPad();
+    await sendPad();
+
+    // Assert: 補正済み timestamp を再加算しない（旧実装は 2002, 3003）
+    const pads = sentRtpHeaders(sendRtp);
+    expect(pads).toHaveLength(2);
+    expect(pads[0]!.timestamp).toBe(mediaTs);
+    expect(pads[1]!.timestamp).toBe(mediaTs);
+  });
+
   test("registerTrack does not relay padding-only packets", () => {
     // Arrange: SFU 的に受信 track を sender へつなぐ
     const track = new MediaStreamTrack({ kind: "video", remote: true });

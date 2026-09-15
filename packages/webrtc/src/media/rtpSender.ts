@@ -53,6 +53,7 @@ import {
   SourceDescriptionItem,
   TransportWideCC,
   debug,
+  isPaddingOnlyRtpPacket,
   serializeAbsSendTime,
   serializeRepairedRtpStreamId,
   serializeSdesMid,
@@ -782,16 +783,42 @@ export class RTCRtpSender {
   }
 
   /**
+   * True when `seq` is strictly behind {@link highWaterWireSeq} in 16-bit
+   * wrap space (a reorder hole), not equal or ahead.
+   */
+  private isWireSeqBehindHighWater(seq: number): boolean {
+    if (this.highWaterWireSeq === undefined) return false;
+    const dist = uint16Add(this.highWaterWireSeq, -(seq & 0xffff));
+    return dist > 0 && dist < 0x8000;
+  }
+
+  /**
    * Media: prefer `sourceSeq + seqOffset` so source gaps/reorders/duplicates
-   * stay visible. Remap only when probe padding already owns that wire seq;
-   * then bump {@link seqOffset} from high-water + 1.
+   * stay visible. Never reuse a wire seq already given to a different packet
+   * (padding or earlier media). After a padding-driven offset bump, a late
+   * reorder still occupies its original source seq when that hole is free.
    */
   private allocateMediaSequence(sourceSeq: number): number {
-    const preferred = uint16Add(sourceSeq & 0xffff, this.seqOffset);
-    if (!this.paddingWireSeqs.has(preferred)) {
+    const src = sourceSeq & 0xffff;
+    const preferred = uint16Add(src, this.seqOffset);
+    if (!this.usedWireSeqs.has(preferred)) {
       this.markWireSeqUsed(preferred);
       return preferred;
     }
+
+    const behind = this.isWireSeqBehindHighWater(preferred);
+    if (behind) {
+      // Offset bump mapped this late packet onto an already-sent seq.
+      // Keep the source-relative hole when it is still free (10→pad→11→late 9).
+      if (!this.usedWireSeqs.has(src)) {
+        this.markWireSeqUsed(src);
+        return src;
+      }
+    } else if (!this.paddingWireSeqs.has(preferred)) {
+      // Same source seq sent again: reuse so NACK still finds that packet.
+      return preferred;
+    }
+
     let wire =
       this.highWaterWireSeq === undefined
         ? uint16Add(preferred, 1)
@@ -799,7 +826,9 @@ export class RTCRtpSender {
     while (this.usedWireSeqs.has(wire)) {
       wire = uint16Add(wire, 1);
     }
-    this.seqOffset = uint16Add(wire, -(sourceSeq & 0xffff));
+    if (!behind) {
+      this.seqOffset = uint16Add(wire, -src);
+    }
     this.markWireSeqUsed(wire);
     return wire;
   }
@@ -1062,7 +1091,15 @@ export class RTCRtpSender {
 
       header.ssrc = this.ssrc;
       header.payloadType = this.codec.payloadType;
-      header.timestamp = uint32Add(header.timestamp, this.timestampOffset);
+      // Probe/loss padding is created in the output timestamp domain
+      // ({@link createPaddingRtpPacket} copies {@link timestamp}). Applying
+      // {@link timestampOffset} again after a source switch stacks the
+      // correction (1001 → 2002 → 3003).
+      if (opts.isProbePadding) {
+        header.timestamp = this.timestamp ?? header.timestamp;
+      } else {
+        header.timestamp = uint32Add(header.timestamp, this.timestampOffset);
+      }
       if (opts.absoluteSequenceNumber !== undefined) {
         const abs = opts.absoluteSequenceNumber & 0xffff;
         header.sequenceNumber = abs;
@@ -1155,7 +1192,11 @@ export class RTCRtpSender {
     } else {
       this.headerBytesSent += header.serializeSize;
       this.packetCount = uint32Add(this.packetCount, 1);
-      this.rtpCache[header.sequenceNumber % RTP_HISTORY_SIZE] = rtp;
+      // Padding-only packets are not RTX/NACK media. Caching them would
+      // wrapRtx without the P-bit and deliver empty "retransmission" payloads.
+      if (!opts.isProbePadding && !isPaddingOnlyRtpPacket(rtp)) {
+        this.rtpCache[header.sequenceNumber % RTP_HISTORY_SIZE] = rtp;
+      }
     }
 
     let rtpPayload = payload;
@@ -1368,6 +1409,9 @@ export class RTCRtpSender {
                   let packet: RtpPacket | undefined =
                     this.rtpCache[seqNum % RTP_HISTORY_SIZE];
                   if (packet && packet.header.sequenceNumber !== seqNum) {
+                    packet = undefined;
+                  }
+                  if (packet && isPaddingOnlyRtpPacket(packet)) {
                     packet = undefined;
                   }
                   if (packet) {
