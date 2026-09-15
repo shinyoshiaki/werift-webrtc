@@ -162,8 +162,7 @@ export class SDPManager {
     media.iceOptions = "trickle";
 
     media.host = DISCARD_HOST;
-    const rejectPort =
-      options.rejected || media.direction === "inactive" || media.port === 0;
+    const rejectPort = options.rejected || media.port === 0;
     media.port = rejectPort ? 0 : DISCARD_PORT;
 
     if (media.direction === "inactive") {

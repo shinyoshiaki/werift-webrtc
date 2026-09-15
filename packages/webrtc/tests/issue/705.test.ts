@@ -275,6 +275,8 @@ describe("https://github.com/shinyoshiaki/werift-webrtc/issues/705", () => {
       expect(transceiver.rejected).toBe(false);
       expect(transceiver.sender.codec).toBeDefined();
       expect(transceiver.receiver.tracks.length).toBeGreaterThan(0);
+      const existingTrack = transceiver.receiver.tracks[0];
+      expect(existingTrack.readyState).toBe("live");
 
       const unsupportedOffer = await unsupportedOfferer.createOffer();
       await expect(
@@ -282,10 +284,12 @@ describe("https://github.com/shinyoshiaki/werift-webrtc/issues/705", () => {
       ).resolves.toBeUndefined();
       const parsedAnswer = parseSdp((await answerer.createAnswer()).sdp);
 
-      // Assert: rejected になり、sender codec / receiver track / TWCC は残らない。
+      // Assert: rejected になり、sender codec / 既存 track / RTCP は残らない。
       expect(transceiver.rejected).toBe(true);
       expect(transceiver.sender.codec).toBeUndefined();
       expect(transceiver.receiver.tracks).toHaveLength(0);
+      expect(existingTrack.readyState).toBe("ended");
+      expect(transceiver.receiver.rtcpRunning).toBe(false);
       expect(transceiver.receiver.receiverTWCC).toBeUndefined();
       expect(parsedAnswer.media[0]?.port).toBe(0);
       expect(parsedAnswer.media[0]?.fmt.length).toBeGreaterThan(0);
@@ -321,6 +325,35 @@ describe("https://github.com/shinyoshiaki/werift-webrtc/issues/705", () => {
       expect(findMedia(parsedAnswer, "audio")?.profile).toBe("RTP/SAVPF");
       expect(findMedia(parsedAnswer, "video")?.port).toBe(0);
       expect(findMedia(parsedAnswer, "audio")?.port).not.toBe(0);
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("inactive だが受け入れ可能な m-line は port 0 にしない", async () => {
+    const { pc: offerer, offer } = await createOfferWithKinds(["audio"]);
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    const inactiveOffer = {
+      ...offer,
+      sdp: offer.sdp?.replace("a=sendonly", "a=inactive"),
+    };
+
+    try {
+      // Act: 共通 codec のある inactive audio offer を SRD し answer を作る。
+      await expect(
+        answerer.setRemoteDescription(inactiveOffer),
+      ).resolves.toBeUndefined();
+      const parsedOffer = parseSdp(inactiveOffer.sdp);
+      const parsedAnswer = parseSdp((await answerer.createAnswer()).sdp);
+      const transceiver = answerer.getTransceivers()[0];
+      const offerMid = parsedOffer.media[0]?.rtp.muxId;
+
+      // Assert: inactive は direction 交渉であり reject ではないので port 0 / BUNDLE 除外にしない。
+      expect(parsedOffer.media[0]?.port).not.toBe(0);
+      expect(transceiver.rejected).toBe(false);
+      expect(parsedAnswer.media[0]?.direction).toBe("inactive");
+      expect(parsedAnswer.media[0]?.port).not.toBe(0);
+      expect(getBundleItems(parsedAnswer)).toEqual([offerMid]);
     } finally {
       await Promise.all([offerer.close(), answerer.close()]);
     }

@@ -136,6 +136,9 @@ export class RTCRtpReceiver {
   }
 
   clearReceive() {
+    for (const track of [...this.tracks]) {
+      track.stop();
+    }
     for (const payloadType of Object.keys(this.codecs)) {
       delete this.codecs[Number(payloadType)];
     }
@@ -149,6 +152,9 @@ export class RTCRtpReceiver {
     for (const rid of Object.keys(this.trackByRID)) {
       delete this.trackByRID[rid];
     }
+    this.rtcpRunning = false;
+    this.rtcpCancel.abort();
+    this.rtcpCancel = new AbortController();
     if (this.receiverTWCC) {
       this.receiverTWCC.twccRunning = false;
       this.receiverTWCC = undefined;

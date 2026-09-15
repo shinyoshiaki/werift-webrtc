@@ -255,10 +255,14 @@ export class RTCRtpSender {
   }
 
   clearSend() {
+    this.discardPendingRtp();
     this.codec = undefined;
     this.rtxPayloadType = undefined;
     this.redRedundantPayloadType = undefined;
     this.headerExtensions = [];
+    this.rtcpRunning = false;
+    this.rtcpCancel.abort();
+    this.rtcpCancel = new AbortController();
     if (this.track) {
       this.track.codec = undefined;
     }
