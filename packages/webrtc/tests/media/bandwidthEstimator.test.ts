@@ -249,6 +249,7 @@ async function prepareConnectedSender(estimator?: BandwidthEstimator) {
     return size;
   }) as typeof dtls.sendRtp;
   dtls.transportSequenceNumber = 0;
+  dtls.transportSequenceNumberExtended = 0;
   sender.setDtlsTransport(dtls);
   if (estimator) {
     sender.setBandwidthEstimator(estimator);
@@ -1777,6 +1778,257 @@ describe("media/sender bandwidth estimator", () => {
       expect(maxInFlight).toBe(1);
     });
 
+    test("長時間休止した sender の TSN ジャンプは feedback と match する", async () => {
+      // Arrange: sender A が 100 を送ったあと、transport が 40100 まで進む
+      const gcc = new GccBandwidthEstimator(100_000);
+      gcc.rtpPacketSent(sent(100, 120, 1_000));
+      gcc.rtpPacketSent(sent(40101, 120, 2_000));
+
+      // Act: 16bit feedback 40101
+      gcc.receiveTWCC(
+        makeTwccFeedback([
+          new PacketResult({
+            sequenceNumber: 40101,
+            received: true,
+            receivedAtMs: 2_010,
+          }),
+        ]),
+      );
+
+      // Assert: wrap-back せず 40101 が finalize される
+      expect((gcc as any).finalizedSeqs.has(40101)).toBe(true);
+      expect((gcc as any).finalizedSeqs.has(100)).toBe(false);
+    });
+
+    test("BUNDLE で pacing 中の TSN は wire send 順と一致する", async () => {
+      // Arrange: video が pacer で止まり、audio が先に送る
+      const gccVideo = new GccBandwidthEstimator(100_000);
+      const gccAudio = new GccBandwidthEstimator(100_000);
+      const { sender: video, dtls } = await prepareConnectedSender(gccVideo);
+      startGccProbing(gccVideo);
+      startGccProbing(gccAudio);
+      (gccVideo as any).probe.abort(0);
+      (gccVideo as any).probe.state = "complete";
+      (gccAudio as any).probe.abort(0);
+      (gccAudio as any).probe.state = "complete";
+      vi.spyOn(gccVideo, "getPacingBitrateBps").mockReturnValue(1_000_000);
+      vi.spyOn(gccAudio, "getPacingBitrateBps").mockReturnValue(1_000_000);
+      const audio = new RTCRtpSender("audio");
+      audio.setDtlsTransport(dtls);
+      audio.setBandwidthEstimator(gccAudio);
+      audio.prepareSend({
+        codecs: [
+          new RTCRtpCodecParameters({
+            mimeType: "audio/opus",
+            clockRate: 48000,
+            payloadType: 111,
+          }),
+        ],
+        headerExtensions: [
+          new RTCRtpHeaderExtensionParameters({
+            id: 3,
+            uri: RTP_EXTENSION_URI.transportWideCC,
+          }),
+        ],
+        muxId: "1",
+        rtcp: { cname: "test", mux: true },
+      });
+
+      let releaseVideo!: () => void;
+      const holdVideo = new Promise<void>((resolve) => {
+        releaseVideo = resolve;
+      });
+      const origPace = (video as any).awaitPacingBudget.bind(video);
+      (video as any).awaitPacingBudget = async (n: number) => {
+        await holdVideo;
+        return origPace(n);
+      };
+
+      const wireTsns: number[] = [];
+      dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
+        const twcc = header.extensions.find((ext) => ext.id === 3);
+        wireTsns.push(twcc ? twcc.payload.readUInt16BE(0) : -1);
+        return payload.length + header.serializeSize;
+      }) as typeof dtls.sendRtp;
+
+      const mk = (seq: number, pt: number) =>
+        new RtpPacket(
+          new RtpHeader({
+            sequenceNumber: seq,
+            timestamp: seq * 1000,
+            payloadType: pt,
+            ssrc: 1,
+            extension: true,
+            extensions: [],
+            marker: false,
+            padding: false,
+            payloadOffset: 12,
+          }),
+          Buffer.alloc(80),
+        );
+
+      // Act: video が pacing 待ちのあいだに audio を送る
+      const videoSend = video.sendRtp(mk(1, 96));
+      await Promise.resolve();
+      await Promise.resolve();
+      await audio.sendRtp(mk(1, 111));
+      releaseVideo();
+      await videoSend;
+
+      // Assert: 先に出た audio が TSN 1、後着 video が 2（確保→待ちの逆転ではない）
+      expect(wireTsns).toEqual([1, 2]);
+    });
+
+    test("pacing 中の stop は packetCount / NACK cache を commit しない", async () => {
+      // Arrange
+      const gcc = new GccBandwidthEstimator(100_000);
+      const { sender, dtls } = await prepareConnectedSender(gcc);
+      (gcc as any).probe.abort(0);
+      (gcc as any).probe.state = "complete";
+      vi.spyOn(gcc, "getPacingBitrateBps").mockReturnValue(1_000_000);
+      const sendSpy = dtls.sendRtp as ReturnType<typeof vi.fn>;
+      sendSpy.mockClear();
+      const countBefore = (sender as any).packetCount;
+      const cacheBefore = (sender as any).rtpCache.filter(Boolean).length;
+      (sender as any).awaitPacingBudget = async () => {
+        sender.stop();
+        return false;
+      };
+
+      // Act
+      await sender.sendRtp(
+        new RtpPacket(
+          new RtpHeader({
+            sequenceNumber: 1,
+            timestamp: 1000,
+            payloadType: 96,
+            ssrc: 1,
+            extension: true,
+            extensions: [],
+            marker: false,
+            padding: false,
+            payloadOffset: 12,
+          }),
+          Buffer.alloc(80),
+        ),
+      );
+
+      // Assert
+      expect((sender as any).packetCount).toBe(countBefore);
+      expect((sender as any).rtpCache.filter(Boolean)).toHaveLength(
+        cacheBefore,
+      );
+      expect(sendSpy).not.toHaveBeenCalled();
+    });
+
+    test("outgoing FIFO 超過時は古い video を落とす", async () => {
+      // Arrange: DTLS を遅くし、キュー上限を超える
+      const gcc = new GccBandwidthEstimator(100_000);
+      const { sender, dtls } = await prepareConnectedSender(gcc);
+      (gcc as any).probe.abort(0);
+      (gcc as any).probe.state = "complete";
+      let release!: () => void;
+      const hold = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let first = true;
+      dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
+        if (first) {
+          first = false;
+          await hold;
+        }
+        return payload.length + header.serializeSize;
+      }) as typeof dtls.sendRtp;
+
+      const mk = (seq: number) =>
+        new RtpPacket(
+          new RtpHeader({
+            sequenceNumber: seq,
+            timestamp: seq * 1000,
+            payloadType: 96,
+            ssrc: 1,
+            extension: true,
+            extensions: [],
+            marker: false,
+            padding: false,
+            payloadOffset: 12,
+          }),
+          Buffer.alloc(80),
+        );
+
+      // Act: 1 本 in-flight + 60 キュー
+      const pending = [sender.sendRtp(mk(1))];
+      await Promise.resolve();
+      for (let i = 2; i <= 61; i++) {
+        pending.push(sender.sendRtp(mk(i)));
+      }
+      release();
+      await Promise.all(pending);
+
+      // Assert: 上限 48 + 実行中 1 を超えて送らない
+      expect(
+        (dtls.sendRtp as ReturnType<typeof vi.fn>).mock.calls.length,
+      ).toBeLessThanOrEqual(49);
+      expect(
+        (dtls.sendRtp as ReturnType<typeof vi.fn>).mock.calls.length,
+      ).toBeGreaterThan(1);
+    });
+
+    test("probe padding は待ち media に譲る", async () => {
+      // Arrange: 初回 media の DTLS を止め、その間に次 media を積む
+      const gcc = new GccBandwidthEstimator(1_000_000);
+      const { sender, dtls } = await prepareConnectedSender(gcc);
+      startGccProbing(gcc);
+      let releaseFirst!: () => void;
+      const holdFirst = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      let firstHeld = false;
+      const order: string[] = [];
+      dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
+        order.push(header.padding ? "pad" : "media");
+        if (!firstHeld) {
+          firstHeld = true;
+          await holdFirst;
+        }
+        return payload.length + header.serializeSize;
+      }) as typeof dtls.sendRtp;
+
+      const mk = (seq: number) =>
+        new RtpPacket(
+          new RtpHeader({
+            sequenceNumber: seq,
+            timestamp: seq * 1000,
+            payloadType: 96,
+            ssrc: 1,
+            extension: true,
+            extensions: [],
+            marker: false,
+            padding: false,
+            payloadOffset: 12,
+          }),
+          Buffer.alloc(80),
+        );
+
+      // Act
+      const first = sender.sendRtp(mk(1));
+      await Promise.resolve();
+      await Promise.resolve();
+      const second = sender.sendRtp(mk(2));
+      releaseFirst();
+      await Promise.all([first, second]);
+
+      // Assert: 2 本目の media は padding 連打の後ろに埋まらない
+      const mediaIdx = order
+        .map((kind, i) => (kind === "media" ? i : -1))
+        .filter((i) => i >= 0);
+      expect(mediaIdx.length).toBeGreaterThanOrEqual(2);
+      const padsBeforeSecond = order
+        .slice(0, mediaIdx[1])
+        .filter((kind) => kind === "pad").length;
+      expect(padsBeforeSecond).toBeLessThanOrEqual(1);
+    });
+
     test("sendingAtMs は DTLS send 完了後ではなく送信開始前の時刻である", async () => {
       // Arrange
       const gcc = new GccBandwidthEstimator(100_000);
@@ -2168,6 +2420,19 @@ describe("media/sender bandwidth estimator", () => {
       expect(u2.unwrap(65535)).toBe(65535);
       expect(u2.unwrap(0)).toBe(65536);
       expect(u2.unwrap(1)).toBe(65537);
+    });
+
+    test("advanceSent は半周を超えるギャップを wrap-back しない", () => {
+      // Arrange
+      const u = new TransportWideSeqUnwrapper();
+      u.advanceSent(100);
+
+      // Act: 他 sender が 40000 パケット進めたあとの再開
+      const next = u.advanceSent(40101);
+
+      // Assert
+      expect(next).toBe(40101);
+      expect(u.peek(40101)).toBe(40101);
     });
 
     test("sortPacketResultsByWideSeq", () => {

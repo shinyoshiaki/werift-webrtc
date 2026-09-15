@@ -48,8 +48,8 @@ import type { ProbeClusterConfig, ProbeState } from "./probeController";
 import { ProbeController } from "./probeController";
 import { RttBasedBackoff, computeFeedbackRttStats } from "./rttBasedBackoff";
 import {
-  TWCC_SEQ_MOD,
   TransportWideSeqUnwrapper,
+  lookupUnwrappedSentSeq,
   sortPacketResultsByWideSeq,
 } from "./sequenceNumber";
 import { TrendlineEstimator } from "./trendlineEstimator";
@@ -567,7 +567,7 @@ export class GccBandwidthEstimator
     this.ackedBitrate.setAlr(this.alr.inAlr);
     this.aimd.setInApplicationLimitedRegion(this.alr.inAlr);
     this.pruneSentInfos(info.sendingAtMs);
-    const seq = this.seqUnwrapper.unwrap(info.wideSeq);
+    const seq = this.seqUnwrapper.advanceSent(info.wideSeq);
     this.sentInfos.set(seq, info);
     // Re-sending the same extended seq (true retransmit of that generation)
     // clears prior finalize. A wrap creates a *new* key and leaves the old
@@ -1416,27 +1416,19 @@ export class GccBandwidthEstimator
   /**
    * Map a 16-bit TWCC feedback sequence onto the unwrapped sentInfos key.
    *
-   * Prefers the newest generation that is still open (not finalized):
-   * - received: newest not-yet-finalized (new packet first; late old after
-   *   the new generation is finalized)
-   * - not-received: same binding; repeated PacketNotReceived is forwarded to
-   *   LossBasedBwe (does not walk to an older packet)
-   *
-   * Walks at most a few wrap generations — the 60s send-time window cannot
-   * hold more at realistic packet rates.
+   * Uses this estimator's latest **sent** extended TSN as the generation
+   * origin so a long-idle sender does not treat a large forward jump as
+   * wrap-back. Prefers the newest generation that is still open.
    */
   private resolveFeedbackSeq(
     seq16: number,
-    received: boolean,
+    _received: boolean,
   ): number | undefined {
-    const latest = this.seqUnwrapper.peek(seq16);
-    let key = latest;
-    for (let gen = 0; gen < 8 && key >= 0; gen++, key -= TWCC_SEQ_MOD) {
-      if (!this.sentInfos.has(key)) continue;
-      if (this.finalizedSeqs.has(key)) continue;
-      return key;
-    }
-    return undefined;
+    return lookupUnwrappedSentSeq(
+      seq16,
+      this.seqUnwrapper.last,
+      (key) => this.sentInfos.has(key) && !this.finalizedSeqs.has(key),
+    );
   }
 
   private pushInterArrival(

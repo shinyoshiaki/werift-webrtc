@@ -6,6 +6,10 @@ import type { TransportWideCC } from "../../imports/rtp";
  * Transport-wide sequence numbers come from the shared DTLS transport clock.
  */
 export interface SentInfo {
+  /**
+   * Transport-wide sequence: monotonic extended value from
+   * {@link RTCDtlsTransport.transportSequenceNumberExtended} (wire is low 16 bits).
+   */
   wideSeq: number;
   /** Packet size in bytes (on-wire after SRTP when measured by the sender). */
   size: number;

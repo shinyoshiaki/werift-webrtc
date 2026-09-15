@@ -97,6 +97,7 @@ export {
   kStartPhaseLossReportMinPackets,
   kTrendlineWindowSize,
   sortPacketResultsByWideSeq,
+  lookupUnwrappedSentSeq,
 } from "./sender/estimators/gcc";
 export type {
   AckedPacketSample,

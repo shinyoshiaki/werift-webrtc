@@ -100,6 +100,13 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   state: DtlsState = "new";
   role: DtlsRole = "auto";
   srtpStarted = false;
+  /**
+   * Monotonic transport-wide sequence allocated at ICE enqueue time.
+   * Never wraps in JS Number. {@link transportSequenceNumber} is the wire
+   * 16-bit view (`extended & 0xffff`).
+   */
+  transportSequenceNumberExtended = 0;
+  /** Wire 16-bit TWCC sequence (low bits of {@link transportSequenceNumberExtended}). */
   transportSequenceNumber = 0;
 
   // Statistics tracking
@@ -458,10 +465,43 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     await this.dtls.send(data);
   };
 
-  async sendRtp(
+  /**
+   * Allocate the next transport-wide sequence at send time.
+   * Call immediately before DTLS/ICE enqueue so BUNDLE senders cannot
+   * reserve a TSN then wait in a per-sender pacer.
+   */
+  allocateTransportWideSequence(): { wire: number; extended: number } {
+    const wireNow = this.transportSequenceNumber & 0xffff;
+    if ((this.transportSequenceNumberExtended & 0xffff) !== wireNow) {
+      const gen = Math.floor(this.transportSequenceNumberExtended / 0x10000);
+      this.transportSequenceNumberExtended = gen * 0x10000 + wireNow;
+    }
+    this.transportSequenceNumberExtended += 1;
+    this.transportSequenceNumber =
+      this.transportSequenceNumberExtended & 0xffff;
+    return {
+      wire: this.transportSequenceNumber,
+      extended: this.transportSequenceNumberExtended,
+    };
+  }
+
+  /**
+   * Encrypt RTP and enqueue on ICE. Returns on-wire size.
+   * Send-time metadata: {@link sendRtpWithMeta}.
+   */
+  async sendRtp(payload: Buffer, header: RtpHeader): Promise<number> {
+    const { size } = await this.sendRtpWithMeta(payload, header);
+    return size;
+  }
+
+  /**
+   * Encrypt RTP and enqueue on ICE, capturing the clock immediately before
+   * the ICE write (RFC 8888). Prefer {@link sendRtp} unless send time is needed.
+   */
+  async sendRtpWithMeta(
     payload: Buffer,
     header: RtpHeader,
-  ): Promise<number | DtlsSendRtpResult> {
+  ): Promise<DtlsSendRtpResult> {
     try {
       const enc = this.srtp.encrypt(payload, header);
 

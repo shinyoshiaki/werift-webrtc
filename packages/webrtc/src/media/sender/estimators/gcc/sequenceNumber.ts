@@ -36,6 +36,33 @@ export class TransportWideSeqUnwrapper {
   }
 
   /**
+   * Map a **send-time** TSN onto a monotonic key.
+   *
+   * Wire TSN only increases. A jump larger than half the 16-bit space is a
+   * gap (other BUNDLE senders while this one was idle), not wrap-back.
+   * {@link peek} still uses the half-modulus rule for 16-bit feedback.
+   */
+  advanceSent(seq: number): number {
+    if (!Number.isFinite(seq)) return this.lastUnwrapped ?? 0;
+    const raw = Math.trunc(seq);
+    if (this.lastUnwrapped === undefined) {
+      this.lastUnwrapped = raw > 0xffff ? raw : raw & 0xffff;
+      return this.lastUnwrapped;
+    }
+    if (raw > 0xffff) {
+      this.lastUnwrapped = Math.max(this.lastUnwrapped, raw);
+      return raw;
+    }
+    const seq16 = raw & 0xffff;
+    const last16 = this.lastUnwrapped & 0xffff;
+    let forward = seq16 - last16;
+    if (forward < 0) forward += TWCC_SEQ_MOD;
+    if (forward === 0) return this.lastUnwrapped;
+    this.lastUnwrapped = this.lastUnwrapped + forward;
+    return this.lastUnwrapped;
+  }
+
+  /**
    * Same mapping as {@link unwrap} without updating the origin.
    * Used when matching TWCC 16-bit feedback against already-sent history.
    */
@@ -112,4 +139,25 @@ export function sortPacketResultsByWideSeq<
  */
 export function isOlderTransportWideSeq(seq: number, ref: number): boolean {
   return compareTransportWideSeq(seq, ref) < 0;
+}
+
+/**
+ * Map a 16-bit TWCC feedback sequence onto an unwrapped sentInfos key.
+ * Tries the newest generation first (latest send on this estimator).
+ */
+export function lookupUnwrappedSentSeq(
+  seq16: number,
+  latestExtended: number | undefined,
+  isCandidate: (key: number) => boolean,
+): number | undefined {
+  const s = seq16 & 0xffff;
+  if (latestExtended === undefined) {
+    return isCandidate(s) ? s : undefined;
+  }
+  const maxGen = Math.floor(latestExtended / TWCC_SEQ_MOD);
+  for (let gen = maxGen; gen >= 0 && maxGen - gen < 8; gen--) {
+    const key = gen * TWCC_SEQ_MOD + s;
+    if (isCandidate(key)) return key;
+  }
+  return undefined;
 }

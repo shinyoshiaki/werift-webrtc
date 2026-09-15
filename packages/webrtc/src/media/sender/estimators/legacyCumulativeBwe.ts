@@ -7,6 +7,7 @@ import {
   setAvailableBitrateIfChanged,
 } from "../bandwidthEstimator";
 import { CumulativeResult } from "../cumulativeResult";
+import { lookupUnwrappedSentSeq } from "./gcc/sequenceNumber";
 import { hasTwccReceiveTiming } from "./twccReceiveTiming";
 
 const COUNTER_MAX = 20;
@@ -56,6 +57,7 @@ export class SenderBandwidthEstimator
   private congestionCounter = 0;
   private cumulativeResult = new CumulativeResult();
   private sentInfos: { [key: number]: SentInfo } = {};
+  private latestWideSeq: number | undefined;
   private _congestionScore = 1;
 
   /** 1–10; larger means worse congestion (legacy-specific). */
@@ -99,7 +101,12 @@ export class SenderBandwidthEstimator
     for (const result of feedback.packetResults) {
       if (!result.received) continue;
 
-      const wideSeq = result.sequenceNumber;
+      const wideSeq = lookupUnwrappedSentSeq(
+        result.sequenceNumber,
+        this.latestWideSeq,
+        (key) => this.sentInfos[key] != undefined,
+      );
+      if (wideSeq === undefined) continue;
       const info = this.sentInfos[wideSeq];
       if (!info) continue;
       // Timing sample: not WithoutDelta; receivedAtMs===0 is valid (not falsy).
@@ -144,7 +151,7 @@ export class SenderBandwidthEstimator
   }
 
   rtpPacketSent(sentInfo: SentInfo) {
-    const latest = sentInfo.wideSeq & 0xffff;
+    const seq = sentInfo.wideSeq;
     const nowMs = sentInfo.sendingAtMs;
     for (const key of Object.keys(this.sentInfos)) {
       const info = this.sentInfos[Number(key)];
@@ -152,7 +159,10 @@ export class SenderBandwidthEstimator
         delete this.sentInfos[Number(key)];
       }
     }
-    this.sentInfos[latest] = sentInfo;
+    this.sentInfos[seq] = sentInfo;
+    if (this.latestWideSeq === undefined || seq > this.latestWideSeq) {
+      this.latestWideSeq = seq;
+    }
   }
 
   reset() {
@@ -162,6 +172,7 @@ export class SenderBandwidthEstimator
     this._availableBitrate = 0;
     this.cumulativeResult.reset();
     this.sentInfos = {};
+    this.latestWideSeq = undefined;
   }
 
   dispose() {

@@ -59,7 +59,7 @@ WPT_UPDATE_COVERAGE_BASELINE=1 npm run wpt:coverage --workspace packages/webrtc
 | `sender.pacingBitrateBps` | Effective send rate including active GCC probe target. Legacy / disabled do not pace. |
 | `sender.onProbeClusterConfig` | Probe cluster targets (GCC fires; legacy / disabled never do) |
 
-GCC send-path hooks (`process`, `setRoundTripTime`, probe padding, pacing) live on `BandwidthEstimator`. Legacy and `DisabledBandwidthEstimator` implement them as no-ops so `RTCRtpSender` does not import GCC.
+GCC send-path hooks (`process`, `setRoundTripTime`, probe padding, pacing) live on `BandwidthEstimator`. Legacy and `DisabledBandwidthEstimator` implement them as no-ops so `RTCRtpSender` does not import GCC. Transport-wide sequence is a monotonic counter on `RTCDtlsTransport` (`transportSequenceNumber` is the 16-bit wire view). `RTCDtlsTransport.sendRtp` still returns `Promise<number>`; use `sendRtpWithMeta` for ICE-enqueue time. The per-sender send FIFO is bounded (stale video drop / audio latency cap); probe padding yields to queued media.
 
 ```ts
 import {

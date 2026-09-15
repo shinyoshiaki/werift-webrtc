@@ -11,7 +11,7 @@
 
 - **TWCC is transport-wide on BUNDLE.** `ReceiverTWCC` is shared per DTLS transport, and incoming TWCC RTCP is fanned out to every `RTCRtpSender` on that transport (each estimator still matches only its own `SentInfo`).
 - **`filterProbePaddingOnReceiveRtp` defaults to `false`.** Default `onReceiveRtp` keeps wire sequence numbers and delivers padding-only packets as `{ type: "padding" }`. Opt in to compaction with `true`.
-- **GCC send path:** outgoing RTP is serialized (reservation → pacing → sequence → DTLS write); `sendingAtMs` is sampled before ICE enqueue (not after send completion); the token-bucket pacer uses the constructed packet size (after TWCC/RED/padding).
+- **GCC send path:** outgoing RTP is serialized (reservation → pacing → TSN allocate → DTLS write); `sendingAtMs` is sampled before ICE enqueue via `sendRtpWithMeta` (`sendRtp` remains `Promise<number>`); the token-bucket pacer uses the constructed packet size (after TWCC/RED/padding). The per-sender FIFO is bounded (drop stale video / bound audio latency). Probe padding yields to queued media.
 
 ### 🚀 Features
 

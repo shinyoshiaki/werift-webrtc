@@ -61,7 +61,7 @@ import {
   serializeTransportWideCC,
   wrapRtx,
 } from "../imports/rtp";
-import type { RTCDtlsTransport } from "../transport/dtls";
+import { RTCDtlsTransport } from "../transport/dtls";
 import type { Kind } from "../types/domain";
 import { compactNtp, milliTime, ntpTime, timestampSeconds } from "../utils";
 import type {
@@ -94,6 +94,23 @@ const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");
 const RTP_HISTORY_SIZE = 128;
 const DEFAULT_PENDING_RTP_MAX_LENGTH = 256;
 const RTT_ALPHA = 0.85;
+/** Per-sender send FIFO caps. Video drops stale frames; audio is looser on count. */
+const kOutgoingQueueMaxPacketsVideo = 48;
+const kOutgoingQueueMaxPacketsAudio = 250;
+const kOutgoingQueueMaxBytesVideo = 512 * 1024;
+const kOutgoingQueueMaxBytesAudio = 64 * 1024;
+const kOutgoingQueueMaxDurationMsVideo = 500;
+const kOutgoingQueueMaxDurationMsAudio = 200;
+
+type OutgoingKind = "media" | "rtx" | "padding";
+
+type OutgoingQueued = {
+  kind: OutgoingKind;
+  bytes: number;
+  enqueuedAtMs: number;
+  start: () => void;
+  drop: () => void;
+};
 
 function freezeRtpContinuityOffsets(
   lastOutputSeq: number,
@@ -154,20 +171,57 @@ function resolvePendingRtpOptions(
 }
 
 /**
- * Production {@link RTCDtlsTransport.sendRtp} returns `{ size, sendingAtMs }`.
- * Tests often stub a bare byte-count; treat that as size with the caller clock.
+ * Production uses {@link RTCDtlsTransport.sendRtpWithMeta} for ICE-enqueue time.
+ * Tests that stub {@link RTCDtlsTransport.sendRtp} keep a number (or object) return.
  */
-function readDtlsSendRtpResult(
-  sent: number | { size: number; sendingAtMs: number },
+async function sendDtlsRtp(
+  dtls: RTCDtlsTransport,
+  payload: Buffer,
+  header: RtpHeader,
   fallbackSendingAtMs: number,
-): { size: number; sendingAtMs: number } {
-  if (typeof sent === "number") {
-    return { size: sent, sendingAtMs: fallbackSendingAtMs };
+): Promise<{ size: number; sendingAtMs: number }> {
+  const mocked = dtls.sendRtp !== RTCDtlsTransport.prototype.sendRtp;
+  if (!mocked) {
+    return dtls.sendRtpWithMeta(payload, header);
+  }
+  const sent: unknown = await dtls.sendRtp(payload, header);
+  if (
+    typeof sent === "object" &&
+    sent !== null &&
+    "size" in sent &&
+    typeof (sent as { size: unknown }).size === "number"
+  ) {
+    const meta = sent as { size: number; sendingAtMs?: number };
+    return {
+      size: meta.size,
+      sendingAtMs: meta.sendingAtMs ?? fallbackSendingAtMs,
+    };
   }
   return {
-    size: sent.size,
-    sendingAtMs: sent.sendingAtMs,
+    size: typeof sent === "number" ? sent : 0,
+    sendingAtMs: fallbackSendingAtMs,
   };
+}
+
+function estimateOutgoingBytes(rtp: Buffer | RtpPacket): number {
+  if (Buffer.isBuffer(rtp)) return rtp.length;
+  return rtp.header.serializeSize + rtp.payload.length;
+}
+
+function estimateRedPayloadLength(
+  encoder: RedEncoder,
+  block: Buffer,
+  timestamp: number,
+  blockPT: number,
+): number {
+  const clone = new RedEncoder(encoder.distance);
+  clone.cacheSize = encoder.cacheSize;
+  const src = encoder as unknown as {
+    cache: { block: Buffer; timestamp: number; blockPT: number }[];
+  };
+  (clone as unknown as { cache: typeof src.cache }).cache = [...src.cache];
+  clone.push({ block, timestamp, blockPT });
+  return clone.build().serialize().length;
 }
 
 export class RTCRtpSender {
@@ -250,7 +304,7 @@ export class RTCRtpSender {
    * cluster events always enqueue so they cannot share a DTLS write.
    */
   private outgoingRunning = false;
-  private outgoingQueue: Array<() => void> = [];
+  private outgoingQueue: OutgoingQueued[] = [];
   /**
    * Set only around post-DTLS {@link maybeInjectProbePadding} so padding can
    * drain on the same FIFO task without deadlock. Must stay false during
@@ -611,8 +665,10 @@ export class RTCRtpSender {
           continue;
         }
         try {
-          await this.enqueueOutgoing(() =>
-            this.sendRtpInternal(item.packet, { injectProbePadding: true }),
+          await this.enqueueOutgoing(
+            () =>
+              this.sendRtpInternal(item.packet, { injectProbePadding: true }),
+            { kind: "media", bytes: estimateOutgoingBytes(item.packet) },
           );
           this.settlePendingRtp(item);
         } catch (error) {
@@ -896,27 +952,94 @@ export class RTCRtpSender {
    * Idle calls start the task in this turn so Event.execute() observers
    * see the DTLS write. Concurrent callers wait on {@link outgoingQueue}.
    */
-  private enqueueOutgoing<T>(task: () => Promise<T>): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
+  private enqueueOutgoing<T>(
+    task: () => Promise<T>,
+    meta: { kind: OutgoingKind; bytes: number },
+  ): Promise<T | undefined> {
+    return new Promise<T | undefined>((resolve, reject) => {
+      let settled = false;
+      const settleOk = (value: T | undefined) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+      const settleErr = (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        reject(error);
+      };
       const start = () => {
         const done = Promise.resolve(task());
-        done.then(resolve, reject).finally(() => {
+        done.then(settleOk, settleErr).finally(() => {
           const next = this.outgoingQueue.shift();
           if (next) {
-            next();
+            next.start();
             return;
           }
           this.outgoingRunning = false;
         });
       };
-
+      const item: OutgoingQueued = {
+        kind: meta.kind,
+        bytes: meta.bytes,
+        enqueuedAtMs: milliTime(),
+        start,
+        drop: () => settleOk(undefined),
+      };
       if (this.outgoingRunning) {
-        this.outgoingQueue.push(start);
+        this.outgoingQueue.push(item);
+        this.trimOutgoingQueue();
         return;
       }
       this.outgoingRunning = true;
       start();
     });
+  }
+
+  private outgoingQueueLimits() {
+    if (this.kind === "audio") {
+      return {
+        maxPackets: kOutgoingQueueMaxPacketsAudio,
+        maxBytes: kOutgoingQueueMaxBytesAudio,
+        maxDurationMs: kOutgoingQueueMaxDurationMsAudio,
+      };
+    }
+    return {
+      maxPackets: kOutgoingQueueMaxPacketsVideo,
+      maxBytes: kOutgoingQueueMaxBytesVideo,
+      maxDurationMs: kOutgoingQueueMaxDurationMsVideo,
+    };
+  }
+
+  private trimOutgoingQueue() {
+    const { maxPackets, maxBytes, maxDurationMs } = this.outgoingQueueLimits();
+    const now = milliTime();
+    const queueBytes = () =>
+      this.outgoingQueue.reduce((sum, queued) => sum + queued.bytes, 0);
+    const overLimit = () => {
+      if (this.outgoingQueue.length === 0) return false;
+      const oldest = this.outgoingQueue[0];
+      const stale = now - oldest.enqueuedAtMs > maxDurationMs;
+      return (
+        stale ||
+        this.outgoingQueue.length > maxPackets ||
+        queueBytes() > maxBytes
+      );
+    };
+    while (overLimit()) {
+      const paddingIdx = this.outgoingQueue.findIndex(
+        (queued) => queued.kind === "padding",
+      );
+      const idx = paddingIdx >= 0 ? paddingIdx : 0;
+      const [dropped] = this.outgoingQueue.splice(idx, 1);
+      dropped.drop();
+    }
+  }
+
+  private hasQueuedRealtimeMedia(): boolean {
+    return this.outgoingQueue.some(
+      (queued) => queued.kind === "media" || queued.kind === "rtx",
+    );
   }
 
   async sendRtp(rtp: Buffer | RtpPacket) {
@@ -927,8 +1050,9 @@ export class RTCRtpSender {
       if (!this.canSendRtp()) {
         return;
       }
-      await this.enqueueOutgoing(() =>
-        this.sendRtpInternal(rtp, { injectProbePadding: true }),
+      await this.enqueueOutgoing(
+        () => this.sendRtpInternal(rtp, { injectProbePadding: true }),
+        { kind: "media", bytes: estimateOutgoingBytes(rtp) },
       );
       return;
     }
@@ -961,7 +1085,12 @@ export class RTCRtpSender {
     if (this.nestOutgoingPadding) {
       return this.drainProbePadding();
     }
-    return this.enqueueOutgoing(() => this.drainProbePadding());
+    return (
+      (await this.enqueueOutgoing(() => this.drainProbePadding(), {
+        kind: "padding",
+        bytes: this._senderBWE.probePaddingPacketBytes,
+      })) ?? 0
+    );
   }
 
   private async drainProbePadding(): Promise<number> {
@@ -997,9 +1126,11 @@ export class RTCRtpSender {
         }
         const pending = e.pendingProbePaddingPackets(packetBytes);
         if (pending <= 0) break;
+        if (this.hasQueuedRealtimeMedia()) break;
         const n = Math.min(pending, maxBurst);
         for (let i = 0; i < n; i++) {
           if (this.stopped || generation !== this.bweGeneration) break;
+          if (this.hasQueuedRealtimeMedia()) break;
           await this.sendRtpInternal(this.createPaddingRtpPacket(packetBytes), {
             injectProbePadding: false,
             forceProbeTag: true,
@@ -1007,6 +1138,7 @@ export class RTCRtpSender {
           });
           if (this.stopped || generation !== this.bweGeneration) break;
           totalSent++;
+          if (this.hasQueuedRealtimeMedia()) break;
         }
       }
       return totalSent;
@@ -1022,7 +1154,12 @@ export class RTCRtpSender {
    * Regular RTP padding (not probe/probation). Probe padding takes priority.
    */
   async maybeInjectLossPadding(): Promise<number> {
-    return this.enqueueOutgoing(() => this.drainLossPadding());
+    return (
+      (await this.enqueueOutgoing(() => this.drainLossPadding(), {
+        kind: "padding",
+        bytes: this._senderBWE.probePaddingPacketBytes,
+      })) ?? 0
+    );
   }
 
   private async drainLossPadding(): Promise<number> {
@@ -1050,6 +1187,7 @@ export class RTCRtpSender {
       const n = Math.min(pending, maxBurst);
       for (let i = 0; i < n; i++) {
         if (this.stopped || generation !== this.bweGeneration) break;
+        if (this.hasQueuedRealtimeMedia()) break;
         await this.sendRtpInternal(this.createPaddingRtpPacket(packetBytes), {
           injectProbePadding: false,
           forceProbeTag: false,
@@ -1139,61 +1277,18 @@ export class RTCRtpSender {
       }
     }
 
+    const inputSequenceNumber = header.sequenceNumber;
+    const inputTimestamp = header.timestamp;
+
     if (!opts.isRetransmission) {
-      const inputSequenceNumber = header.sequenceNumber;
-      const inputTimestamp = header.timestamp;
-
-      // Freeze source-switch offsets on the next media packet actually sent.
-      // Probe padding is internally generated and must not become the freeze
-      // reference; it still allocates via allocatePaddingSequence.
-      if (this.rtpContinuityPending && !opts.isProbePadding) {
-        if (this.sequenceNumber != undefined && this.timestamp != undefined) {
-          const offsets = freezeRtpContinuityOffsets(
-            this.sequenceNumber,
-            this.timestamp,
-            inputSequenceNumber,
-            inputTimestamp,
-            this.pendingTimestampStep,
-          );
-          this.seqOffset = offsets.seqOffset;
-          this.timestampOffset = offsets.timestampOffset;
-        }
-        this.rtpContinuityPending = false;
-        this.pendingTimestampStep = 1;
-      }
-
       header.ssrc = this.ssrc;
       header.payloadType = this.codec.payloadType;
-      // Probe/loss padding is created in the output timestamp domain
-      // ({@link createPaddingRtpPacket} copies {@link timestamp}). Applying
-      // {@link timestampOffset} again after a source switch stacks the
-      // correction (1001 → 2002 → 3003).
       if (opts.isProbePadding) {
         header.timestamp = this.timestamp ?? header.timestamp;
       } else {
-        header.timestamp = uint32Add(header.timestamp, this.timestampOffset);
+        header.timestamp = uint32Add(inputTimestamp, this.timestampOffset);
       }
-      if (opts.absoluteSequenceNumber !== undefined) {
-        const abs = opts.absoluteSequenceNumber & 0xffff;
-        header.sequenceNumber = abs;
-        this.markWireSeqUsed(abs);
-      } else if (opts.isProbePadding) {
-        header.sequenceNumber = this.allocatePaddingSequence();
-      } else {
-        header.sequenceNumber = this.allocateMediaSequence(
-          header.sequenceNumber,
-        );
-      }
-      this.timestamp = header.timestamp;
-      this.sequenceNumber = header.sequenceNumber;
     }
-
-    const ntpTimestamp = ntpTime();
-
-    // Capture this packet's transport-wide sequence when the extension is
-    // written — not after await sendRtp. Concurrent sends share the counter;
-    // reading it post-await races and duplicates wideSeq in SentInfo.
-    let packetWideSeq: number | undefined;
 
     const originalHeaderExtensions = [...header.extensions];
     header.extensions = this.headerExtensions
@@ -1205,37 +1300,26 @@ export class RTCRtpSender {
                 return serializeSdesMid(this.mid);
               }
               return;
-            // todo : sender simulcast unsupported now
             case RTP_EXTENSION_URI.sdesRTPStreamID:
               if (this.rtpStreamId) {
                 return serializeSdesRTPStreamID(this.rtpStreamId);
               }
               return;
-            // todo : sender simulcast unsupported now
             case RTP_EXTENSION_URI.repairedRtpStreamId:
               if (this.repairedRtpStreamId) {
                 return serializeRepairedRtpStreamId(this.repairedRtpStreamId);
               }
               return;
-            case RTP_EXTENSION_URI.transportWideCC: {
-              this.dtlsTransport.transportSequenceNumber = uint16Add(
-                this.dtlsTransport.transportSequenceNumber,
-                1,
-              );
-              packetWideSeq = this.dtlsTransport.transportSequenceNumber;
-              return serializeTransportWideCC(packetWideSeq);
-            }
+            case RTP_EXTENSION_URI.transportWideCC:
+              return serializeTransportWideCC(0);
             case RTP_EXTENSION_URI.absSendTime:
-              return serializeAbsSendTime(ntpTimestamp);
+              return serializeAbsSendTime(0n);
           }
         })();
 
         if (extPayload) return { id: extension.id, payload: extPayload };
       })
       .filter((v) => v) as Extension[];
-    // Hop-by-hop extensions (TWCC / abs-send-time) are regenerated above.
-    // Never copy the inbound payload — relay would otherwise overwrite the
-    // new TSN and desync BWE SentInfo from the wire.
     const hopByHopIds = new Set(
       this.headerExtensions
         .filter(
@@ -1256,57 +1340,22 @@ export class RTCRtpSender {
     }
     header.extensions = header.extensions.sort((a, b) => a.id - b.id);
 
-    this.ntpTimestamp = ntpTimestamp;
-    this.rtpTimestamp = header.timestamp;
-    if (opts.isRetransmission) {
-      this.retransmittedPacketsSent++;
-      this.retransmittedBytesSent += payload.length;
-      this.headerBytesSent += header.serializeSize;
-    } else {
-      this.headerBytesSent += header.serializeSize;
-      this.packetCount = uint32Add(this.packetCount, 1);
-      // Padding-only packets are not RTX/NACK media. Caching them would
-      // wrapRtx without the P-bit and deliver empty "retransmission" payloads.
-      if (!opts.isProbePadding && !isPaddingOnlyRtpPacket(rtp)) {
-        this.rtpCache[header.sequenceNumber % RTP_HISTORY_SIZE] = rtp;
-      }
-    }
-
-    let rtpPayload = payload;
-
-    if (
-      this.redRedundantPayloadType &&
+    const useRed =
+      !!this.redRedundantPayloadType &&
       !opts.isProbePadding &&
-      !opts.isRetransmission
-    ) {
-      this.redEncoder.push({
-        block: rtpPayload,
-        timestamp: header.timestamp,
-        blockPT: this.redRedundantPayloadType,
-      });
-      const red = this.redEncoder.build();
-      rtpPayload = red.serialize();
-    }
-
-    // RFC 3550 Sender Report "sender's octet count" counts payload octets only
-    // (excludes RTP header and padding). Capture length before RFC padding.
-    const payloadOctetsForSr = rtpPayload.length;
-
-    // RFC 3550 §5.1: if P=1, the payload ends with padding octets and the last
-    // octet is the padding length (including itself). SRTP encrypts this region
-    // as-is, so padding must be in the buffer passed to sendRtp — not only in
-    // header.paddingSize metadata.
-    if (header.padding && header.paddingSize > 0) {
-      rtpPayload = appendRfc3550Padding(rtpPayload, header.paddingSize);
-    }
-
-    if (!opts.isRetransmission) {
-      this.octetCount += payloadOctetsForSr;
-    }
-
-    // Pace against the constructed packet (extensions + RED + RFC padding).
-    // Probe packets already waited on next_probe_time.
-    const constructedBytes = header.serializeSize + rtpPayload.length;
+      !opts.isRetransmission;
+    const estimatedPayloadLen = useRed
+      ? estimateRedPayloadLength(
+          this.redEncoder,
+          payload,
+          header.timestamp,
+          this.redRedundantPayloadType!,
+        )
+      : payload.length;
+    const rfcPaddingLen =
+      header.padding && header.paddingSize > 0 ? header.paddingSize : 0;
+    const constructedBytes =
+      header.serializeSize + estimatedPayloadLen + rfcPaddingLen;
     if (
       reservedClusterId === undefined &&
       this.mediaPacingEnabled &&
@@ -1318,12 +1367,94 @@ export class RTCRtpSender {
       }
     }
 
-    // sendingAtMs is the last local clock sample before the transport write
-    // (RFC 8888). ICE/TURN backpressure must not land in send_delta.
+    if (this.stopped || sendGeneration !== this.bweGeneration) {
+      return;
+    }
+
+    if (!opts.isRetransmission) {
+      if (this.rtpContinuityPending && !opts.isProbePadding) {
+        if (this.sequenceNumber != undefined && this.timestamp != undefined) {
+          const offsets = freezeRtpContinuityOffsets(
+            this.sequenceNumber,
+            this.timestamp,
+            inputSequenceNumber,
+            inputTimestamp,
+            this.pendingTimestampStep,
+          );
+          this.seqOffset = offsets.seqOffset;
+          this.timestampOffset = offsets.timestampOffset;
+        }
+        this.rtpContinuityPending = false;
+        this.pendingTimestampStep = 1;
+      }
+
+      if (opts.isProbePadding) {
+        header.timestamp = this.timestamp ?? inputTimestamp;
+      } else {
+        header.timestamp = uint32Add(inputTimestamp, this.timestampOffset);
+      }
+      if (opts.absoluteSequenceNumber !== undefined) {
+        const abs = opts.absoluteSequenceNumber & 0xffff;
+        header.sequenceNumber = abs;
+        this.markWireSeqUsed(abs);
+      } else if (opts.isProbePadding) {
+        header.sequenceNumber = this.allocatePaddingSequence();
+      } else {
+        header.sequenceNumber = this.allocateMediaSequence(inputSequenceNumber);
+      }
+      this.timestamp = header.timestamp;
+      this.sequenceNumber = header.sequenceNumber;
+    }
+
+    let rtpPayload = payload;
+    if (useRed) {
+      this.redEncoder.push({
+        block: rtpPayload,
+        timestamp: header.timestamp,
+        blockPT: this.redRedundantPayloadType!,
+      });
+      rtpPayload = this.redEncoder.build().serialize();
+    }
+    const payloadOctetsForSr = rtpPayload.length;
+    if (header.padding && header.paddingSize > 0) {
+      rtpPayload = appendRfc3550Padding(rtpPayload, header.paddingSize);
+    }
+
+    let packetWideSeq: number | undefined;
+    const ntpTimestamp = ntpTime();
+    for (const ext of header.extensions) {
+      const negotiated = this.headerExtensions.find((e) => e.id === ext.id);
+      if (!negotiated) continue;
+      if (negotiated.uri === RTP_EXTENSION_URI.transportWideCC && twccOn) {
+        const allocated = this.dtlsTransport.allocateTransportWideSequence();
+        packetWideSeq = allocated.extended;
+        ext.payload = serializeTransportWideCC(allocated.wire);
+      }
+      if (negotiated.uri === RTP_EXTENSION_URI.absSendTime) {
+        ext.payload = serializeAbsSendTime(ntpTimestamp);
+      }
+    }
+
+    this.ntpTimestamp = ntpTimestamp;
+    this.rtpTimestamp = header.timestamp;
+    if (opts.isRetransmission) {
+      this.retransmittedPacketsSent++;
+      this.retransmittedBytesSent += payload.length;
+      this.headerBytesSent += header.serializeSize;
+    } else {
+      this.headerBytesSent += header.serializeSize;
+      this.packetCount = uint32Add(this.packetCount, 1);
+      if (!opts.isProbePadding && !isPaddingOnlyRtpPacket(rtp)) {
+        this.rtpCache[header.sequenceNumber % RTP_HISTORY_SIZE] = rtp;
+      }
+      this.octetCount += payloadOctetsForSr;
+    }
+
     const sendingAtMs = milliTime();
-    const sent = await this.dtlsTransport.sendRtp(rtpPayload, header);
-    const { size, sendingAtMs: enqueueAtMs } = readDtlsSendRtpResult(
-      sent,
+    const { size, sendingAtMs: enqueueAtMs } = await sendDtlsRtp(
+      this.dtlsTransport,
+      rtpPayload,
+      header,
       sendingAtMs,
     );
     const sentAtMs = milliTime();
@@ -1527,11 +1658,16 @@ export class RTCRtpSender {
                     const retransmission = packet;
                     // Route through sendRtpInternal: new TWCC seq, pacing,
                     // BWE SentInfo. Do not reuse the original transport-wide seq.
-                    await this.enqueueOutgoing(() =>
-                      this.sendRtpInternal(retransmission, {
-                        injectProbePadding: false,
-                        isRetransmission: true,
-                      }),
+                    await this.enqueueOutgoing(
+                      () =>
+                        this.sendRtpInternal(retransmission, {
+                          injectProbePadding: false,
+                          isRetransmission: true,
+                        }),
+                      {
+                        kind: "rtx",
+                        bytes: estimateOutgoingBytes(retransmission),
+                      },
                     );
                   }
                 });
