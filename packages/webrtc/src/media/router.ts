@@ -15,6 +15,7 @@ import {
 import {
   type ExtmapDescriptor,
   extmapConfigurationKey,
+  isExtmapLiveId,
   isExtmapNegotiationId,
 } from "./extmap";
 import type {
@@ -238,6 +239,11 @@ export class RtpRouter {
     for (const headerExtensions of pendingExtensions) {
       for (const extension of headerExtensions) {
         if (isExtmapNegotiationId(extension.id)) continue;
+        if (!isExtmapLiveId(extension.id)) {
+          throw new Error(
+            `extmap id ${extension.id} is outside RFC 8285 range`,
+          );
+        }
         const key = extmapConfigurationKey(extension);
         const currentConfig = idToConfig[extension.id];
         if (currentConfig && currentConfig !== key) {
@@ -264,7 +270,7 @@ export class RtpRouter {
   ) {
     const session = this.session(sessionId);
     for (const extension of headerExtensions) {
-      if (isExtmapNegotiationId(extension.id)) continue;
+      if (!isExtmapLiveId(extension.id)) continue;
       session.extIdUriMap[extension.id] = extension.uri;
       session.extIdAttributesMap[extension.id] = (
         extension.attributes ?? ""

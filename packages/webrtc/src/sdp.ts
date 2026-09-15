@@ -9,7 +9,7 @@ import {
 } from "./const";
 import { divide } from "./helper";
 import { Candidate } from "./imports/ice";
-import { isExtmapDirection } from "./media/extmap";
+import { isExtmapDirection, parseExtmapId } from "./media/extmap";
 import {
   RTCRtcpFeedback,
   RTCRtpCodecParameters,
@@ -642,7 +642,7 @@ function parseExtmapAttribute(value: string): RTCRtpHeaderExtensionParameters {
   const uri = tokens[1] ?? "";
   const attributes = tokens.slice(2).join(" ").trim() || undefined;
   return new RTCRtpHeaderExtensionParameters({
-    id: Number.parseInt(extId, 10),
+    id: parseExtmapId(extId),
     uri,
     ...(direction ? { direction } : {}),
     ...(attributes ? { attributes } : {}),

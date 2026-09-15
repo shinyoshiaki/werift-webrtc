@@ -51,6 +51,29 @@ describe("sdp", () => {
     );
   });
 
+  test("RFC 8285 range外のextmap IDはparse時に拒否する", () => {
+    const sdpFor = (id: string) =>
+      [
+        "v=0",
+        "o=- 0 0 IN IP4 0.0.0.0",
+        "s=-",
+        "t=0 0",
+        "m=audio 9 UDP/TLS/RTP/SAVPF 111",
+        `a=extmap:${id} urn:ietf:params:rtp-hdrext:sdes:mid`,
+        "",
+      ].join("\r\n");
+
+    expect(() => SessionDescription.parse(sdpFor("300"))).toThrow(
+      /outside RFC 8285 range/,
+    );
+    expect(() => SessionDescription.parse(sdpFor("abc"))).toThrow(
+      /invalid extmap id abc/,
+    );
+    expect(() => SessionDescription.parse(sdpFor("256"))).toThrow(
+      /outside RFC 8285 range/,
+    );
+  });
+
   test("未知のextmap directionはparse時に拒否する", () => {
     const sdp = [
       "v=0",

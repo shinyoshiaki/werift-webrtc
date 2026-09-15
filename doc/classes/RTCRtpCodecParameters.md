@@ -38,7 +38,7 @@
 
 ### direction
 
-> **direction**: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"` \| `"all"` = `"all"`
+> **direction**: `"sendonly"` \| `"recvonly"` \| `"sendrecv"` \| `"inactive"` \| `"all"` = `"all"`
 
 ***
 

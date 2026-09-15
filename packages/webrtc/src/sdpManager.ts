@@ -385,6 +385,7 @@ export class SDPManager {
       RTCRtpTransceiver,
       RTCRtpHeaderExtensionParameters[]
     >,
+    excludeFromBundle?: ReadonlySet<RTCRtpTransceiver>,
   ): SessionDescription {
     const description = new SessionDescription();
     addSDPHeader("offer", description);
@@ -472,14 +473,22 @@ export class SDPManager {
       const mids = description.media
         .map((m) => m.rtp.muxId)
         .filter((v) => v) as string[];
-      if (mids.length) {
+      const excludedMids = new Set(
+        [...(excludeFromBundle ?? [])]
+          .map((transceiver) => transceiver.mid)
+          .filter((mid): mid is string => !!mid),
+      );
+      const joinableMids = mids.filter((mid) => !excludedMids.has(mid));
+      if (joinableMids.length) {
         const establishedBundle = this.getEstablishedBundleGroup();
         const bundleMids = establishedBundle
           ? [
               ...establishedBundle.items.filter((mid) => mids.includes(mid)),
-              ...mids.filter((mid) => !establishedBundle.items.includes(mid)),
+              ...joinableMids.filter(
+                (mid) => !establishedBundle.items.includes(mid),
+              ),
             ]
-          : mids;
+          : joinableMids;
         const bundle = new GroupDescription("BUNDLE", bundleMids);
         description.group.push(bundle);
 

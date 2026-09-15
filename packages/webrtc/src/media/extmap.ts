@@ -1,3 +1,4 @@
+import { RTP_EXTENSION_URI } from "../imports/rtp";
 import { RTCRtpHeaderExtensionParameters } from "./parameters";
 
 /** RFC 8285 reserved SDP offer/answer negotiation IDs. */
@@ -29,6 +30,34 @@ export function isExtmapNegotiationId(id: number): boolean {
 /** RFC 8285 one- and two-byte RTP header extension IDs (1–255). */
 export function isExtmapLiveId(id: number): boolean {
   return Number.isInteger(id) && id >= 1 && id <= EXTMAP_TWO_BYTE_ID_MAX;
+}
+
+/** Live (1–255) or RFC 8285 negotiation (4096–4351). Appbits 256 is rejected. */
+export function assertExtmapSignalingId(id: number) {
+  if (!Number.isInteger(id) || id < 1) {
+    throw new Error(`invalid extmap id ${id}`);
+  }
+  if (isExtmapLiveId(id) || isExtmapNegotiationId(id)) {
+    return;
+  }
+  throw new Error(`extmap id ${id} is outside RFC 8285 range`);
+}
+
+export function parseExtmapId(extId: string): number {
+  if (!/^[0-9]+$/.test(extId)) {
+    throw new Error(`invalid extmap id ${extId}`);
+  }
+  const id = Number(extId);
+  assertExtmapSignalingId(id);
+  return id;
+}
+
+export function headerExtensionsIncludeMid(
+  extensions: ExtmapDescriptor[],
+): boolean {
+  return extensions.some(
+    (extension) => extension.uri === RTP_EXTENSION_URI.sdesMid,
+  );
 }
 
 export function isExtmapDirection(value: string): value is ExtmapDirection {
@@ -224,12 +253,12 @@ export function createExtmapNegotiationState(
   usedIds: Iterable<number> = [],
 ): ExtmapNegotiationState {
   return {
-    usedIds: new Set([...usedIds].filter((id) => !isExtmapNegotiationId(id))),
+    usedIds: new Set([...usedIds].filter((id) => isExtmapLiveId(id))),
     chosenByNegotiationId: new Map(),
   };
 }
 
-function allocateUsableExtmapId(usedIds: Set<number>): number {
+function tryAllocateUsableExtmapId(usedIds: Set<number>): number | undefined {
   for (let id = 1; id <= EXTMAP_ONE_BYTE_ID_MAX; id++) {
     if (!usedIds.has(id)) return id;
   }
@@ -240,7 +269,15 @@ function allocateUsableExtmapId(usedIds: Set<number>): number {
   ) {
     if (!usedIds.has(id)) return id;
   }
-  throw new Error("no free RTP header extension id");
+  return undefined;
+}
+
+function allocateUsableExtmapId(usedIds: Set<number>): number {
+  const id = tryAllocateUsableExtmapId(usedIds);
+  if (id == undefined) {
+    throw new Error("no free RTP header extension id");
+  }
+  return id;
 }
 
 export type LocalExtmapAllocator = {
@@ -353,6 +390,9 @@ export function negotiateRemoteHeaderExtensions(
   for (const extension of remote) {
     if (!supportedUris.has(extension.uri)) continue;
     if (!isExtmapNegotiationId(extension.id)) {
+      if (!isExtmapLiveId(extension.id)) {
+        throw new Error(`extmap id ${extension.id} is outside RFC 8285 range`);
+      }
       state.usedIds.add(extension.id);
       negotiated.push(cloneHeaderExtension(extension));
       continue;
@@ -366,7 +406,15 @@ export function negotiateRemoteHeaderExtensions(
       continue;
     }
 
-    const id = allocateUsableExtmapId(state.usedIds);
+    const id = tryAllocateUsableExtmapId(state.usedIds);
+    if (id == undefined) {
+      state.chosenByNegotiationId.set(extension.id, {
+        id: extension.id,
+        key: extmapConfigurationKey(extension),
+      });
+      negotiated.push(cloneHeaderExtension(extension));
+      continue;
+    }
     state.usedIds.add(id);
     state.chosenByNegotiationId.set(extension.id, {
       id,
@@ -404,6 +452,7 @@ export function selectAnswerHeaderExtensions(
       .map((extension) => [extmapConfigurationKey(extension), extension]),
   );
   const selected: RTCRtpHeaderExtensionParameters[] = [];
+  const chosenNegotiationIds = new Set<number>();
   for (const extension of remote) {
     if (isExtmapNegotiationId(extension.id)) {
       if (!offeredNegotiation.has(extmapNegotiationKey(extension))) {
@@ -427,6 +476,14 @@ export function selectAnswerHeaderExtensions(
       throw new Error(
         `answer remapped extmap ${extension.uri} from id ${offeredNegotiated.id} to ${extension.id}`,
       );
+    }
+    if (!offeredLive && offeredNegotiated) {
+      if (chosenNegotiationIds.has(offeredNegotiated.id)) {
+        throw new Error(
+          `answer selected multiple alternatives for extmap id ${offeredNegotiated.id}`,
+        );
+      }
+      chosenNegotiationIds.add(offeredNegotiated.id);
     }
     const offeredEffective = effectiveExtmapDirection(
       offeredExtension,
@@ -457,7 +514,7 @@ export function seedExtmapUsedIds(
   extensions: ExtmapDescriptor[],
 ) {
   for (const extension of extensions) {
-    if (!isExtmapNegotiationId(extension.id)) {
+    if (isExtmapLiveId(extension.id)) {
       state.usedIds.add(extension.id);
     }
   }

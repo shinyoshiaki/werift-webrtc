@@ -16,35 +16,43 @@
 
 [`RtpRouter`](RtpRouter.md)
 
-## Properties
+## Accessors
 
 ### extIdUriMap
 
-> **extIdUriMap**: `object` = `{}`
+#### Get Signature
 
-#### Index Signature
+> **get** **extIdUriMap**(): `object`
 
-\[`id`: `number`\]: `string`
+Merged view for single-session callers; per-transport maps are authoritative.
+
+##### Returns
+
+`object`
 
 ***
 
 ### ridTable
 
-> **ridTable**: `object` = `{}`
+#### Get Signature
 
-#### Index Signature
+> **get** **ridTable**(): `object`
 
-\[`rid`: `string`\]: [`RTCRtpReceiver`](RTCRtpReceiver.md) \| [`RTCRtpSender`](RTCRtpSender.md)
+##### Returns
+
+`object`
 
 ***
 
 ### ssrcTable
 
-> **ssrcTable**: `object` = `{}`
+#### Get Signature
 
-#### Index Signature
+> **get** **ssrcTable**(): `object`
 
-\[`ssrc`: `number`\]: [`RTCRtpReceiver`](RTCRtpReceiver.md) \| [`RTCRtpSender`](RTCRtpSender.md)
+##### Returns
+
+`object`
 
 ## Methods
 
@@ -108,15 +116,47 @@
 
 ***
 
+### restoreExtIdUriMaps()
+
+> **restoreExtIdUriMaps**(`maps`): `void`
+
+#### Parameters
+
+##### maps
+
+#### Returns
+
+`void`
+
+***
+
+### restoreRtpSessions()
+
+> **restoreRtpSessions**(`sessions`): `void`
+
+#### Parameters
+
+##### sessions
+
+#### Returns
+
+`void`
+
+***
+
 ### routeRtcp()
 
-> **routeRtcp**(`packet`): `void`
+> **routeRtcp**(`packet`, `transportId`?): `void`
 
 #### Parameters
 
 ##### packet
 
 [`RtcpPacket`](../type-aliases/RtcpPacket.md)
+
+##### transportId?
+
+`string`
 
 #### Returns
 
@@ -126,7 +166,7 @@
 
 ### routeRtp()
 
-> **routeRtp**(`packet`): `void`
+> **routeRtp**(`packet`, `transportId`?): `void`
 
 #### Parameters
 
@@ -134,22 +174,30 @@
 
 [`RtpPacket`](RtpPacket.md)
 
+##### transportId?
+
+`string`
+
 #### Returns
 
 `void`
 
 ***
 
-### unregisterRtpReceiver()
+### snapshotExtIdUriMaps()
 
-> **unregisterRtpReceiver**(`receiver`): `void`
-
-#### Parameters
-
-##### receiver
-
-[`RTCRtpReceiver`](RTCRtpReceiver.md)
+> **snapshotExtIdUriMaps**(): `object`
 
 #### Returns
 
-`void`
+`object`
+
+***
+
+### snapshotRtpSessions()
+
+> **snapshotRtpSessions**(): `object`
+
+#### Returns
+
+`object`

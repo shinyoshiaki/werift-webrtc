@@ -358,6 +358,10 @@
 
 `boolean`
 
+###### headerExtensions?
+
+[`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]
+
 ###### setupTWCC?
 
 `boolean`

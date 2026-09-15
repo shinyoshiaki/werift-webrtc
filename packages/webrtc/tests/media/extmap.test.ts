@@ -190,6 +190,52 @@ describe("extmap negotiation", () => {
     ]);
   });
 
+  test("同じ4096 IDから複数alternativeを選んだanswerは拒否する", () => {
+    const supported = new Set([
+      RTP_EXTENSION_URI.sdesMid,
+      RTP_EXTENSION_URI.transportWideCC,
+    ]);
+    expect(() =>
+      selectAnswerHeaderExtensions(
+        [
+          { id: 1, uri: RTP_EXTENSION_URI.sdesMid },
+          { id: 2, uri: RTP_EXTENSION_URI.transportWideCC },
+        ],
+        [
+          { id: 4096, uri: RTP_EXTENSION_URI.sdesMid },
+          { id: 4096, uri: RTP_EXTENSION_URI.transportWideCC },
+        ],
+        supported,
+      ),
+    ).toThrow(/multiple alternatives/);
+  });
+
+  test("usable IDが埋まっていても4096 candidateでoffer全体を失敗させない", () => {
+    const supported = new Set([RTP_EXTENSION_URI.sdesMid]);
+    const occupied = Array.from({ length: 255 }, (_, index) => ({
+      id: index + 1,
+      uri: `urn:example:occupied:${index + 1}`,
+    }));
+    const state = createExtmapNegotiationState();
+    seedExtmapUsedIds(state, occupied);
+
+    const negotiated = negotiateRemoteHeaderExtensions(
+      [
+        ...occupied,
+        { id: 4096, uri: RTP_EXTENSION_URI.sdesMid },
+      ],
+      supported,
+      state,
+    );
+
+    expect(negotiated).toEqual([
+      expect.objectContaining({
+        id: 4096,
+        uri: RTP_EXTENSION_URI.sdesMid,
+      }),
+    ]);
+  });
+
   test("recvonly mediaにsendonly extmapは矛盾する", () => {
     expect(() =>
       assertExtmapCompatibleWithMedia(

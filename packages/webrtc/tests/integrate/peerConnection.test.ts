@@ -1994,6 +1994,114 @@ describe("peerConnection", () => {
     }
   }, 30_000);
 
+  test("BUNDLE拒否answerの後の再offerでもstable extmap IDをremapしない", async () => {
+    // Arrange: disable→max-compatのunbundled接続を成立させる。
+    const headerExtensions = {
+      audio: [useSdesMid()],
+      video: [useTransportWideCC()],
+    };
+    const caller = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "disable",
+      headerExtensions,
+    });
+    const callee = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "max-compat",
+      headerExtensions,
+    });
+    caller.addTransceiver("audio", { direction: "sendonly" });
+    caller.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
+      direction: "sendonly",
+    });
+    callee.addTransceiver("audio", { direction: "recvonly" });
+    callee.addTransceiver("video", { direction: "recvonly" });
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription(caller.localDescription!);
+      await callee.setLocalDescription(await callee.createAnswer());
+      await caller.setRemoteDescription(callee.localDescription!);
+
+      await callee.setLocalDescription(await callee.createOffer());
+      await caller.setRemoteDescription(callee.localDescription!);
+      await caller.setLocalDescription(await caller.createAnswer());
+      expect(caller.localDescription!.sdp).not.toMatch(/a=group:BUNDLE /);
+
+      // Act: BUNDLE拒否answerをSRDしたあと、もう一度BUNDLE offerする。
+      await callee.setRemoteDescription(caller.localDescription!);
+      await callee.setLocalDescription(await callee.createOffer());
+      const videoExt = extmapsInMedia(callee.localDescription!.sdp, "video");
+      await caller.setRemoteDescription(callee.localDescription!);
+      await caller.setLocalDescription(await caller.createAnswer());
+
+      // Assert: historical TWCC=id1をid2へ付け替えず、disable側は再SRDできる。
+      expect(callee.localDescription!.sdp).toMatch(/a=group:BUNDLE /);
+      expect(
+        videoExt.find((ext) => ext.uri === RTP_EXTENSION_URI.transportWideCC)
+          ?.id,
+      ).not.toBe(2);
+      expect(caller.signalingState).toBe("stable");
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  }, 30_000);
+
+  test("MIDが落ちるm-lineはBUNDLE提案から外してstable IDを維持する", async () => {
+    // Arrange: unbundledなら合法な交差ID空間を別sessionで確立する。
+    const headerExtensions = {
+      audio: [useTransportWideCC(), useSdesMid()],
+      video: [useSdesMid(), useTransportWideCC()],
+    };
+    const caller = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "disable",
+      headerExtensions,
+    });
+    const callee = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "max-compat",
+      headerExtensions,
+    });
+    caller.addTransceiver("audio", { direction: "sendonly" });
+    caller.addTransceiver("video", { direction: "sendonly" });
+    callee.addTransceiver("audio", { direction: "recvonly" });
+    callee.addTransceiver("video", { direction: "recvonly" });
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription(caller.localDescription!);
+      await callee.setLocalDescription(await callee.createAnswer());
+      await caller.setRemoteDescription(callee.localDescription!);
+      const audioMid = caller.localDescription!.sdp.match(
+        /m=audio[\s\S]*?a=mid:(\S+)/,
+      )![1]!;
+      const videoMid = caller.localDescription!.sdp.match(
+        /m=video[\s\S]*?a=mid:(\S+)/,
+      )![1]!;
+
+      // Act: max-compatがBUNDLEを提案する。
+      await callee.setLocalDescription(await callee.createOffer());
+      const bundleMids =
+        callee.localDescription!.sdp
+          .match(/a=group:BUNDLE ([^\r\n]+)/)?.[1]
+          ?.split(" ") ?? [];
+      const videoExt = extmapsInMedia(callee.localDescription!.sdp, "video");
+      await caller.setRemoteDescription(callee.localDescription!);
+      await caller.setLocalDescription(await caller.createAnswer());
+
+      // Assert: videoはMIDを残したままBUNDLEから外れ、disable側はSRDできる。
+      expect(bundleMids).toContain(audioMid);
+      expect(bundleMids).not.toContain(videoMid);
+      expect(
+        videoExt.find((ext) => ext.uri === RTP_EXTENSION_URI.sdesMid),
+      ).toEqual(expect.objectContaining({ id: 1 }));
+      expect(caller.signalingState).toBe("stable");
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  }, 30_000);
+
   test("BUNDLE offerはaudioとvideoで異なる先頭extmapに別IDを割り当てる", async () => {
     // Arrange: audio-level と MID を同じBUNDLEへ載せる。
     const headerExtensions = {
@@ -3030,6 +3138,58 @@ describe("peerConnection", () => {
       // Assert: 失敗したofferはcurrent graphを作らない。
       expect(callee.signalingState).toBe("stable");
       expect(callee.getTransceivers()).toHaveLength(0);
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
+  test("remote offerのextmap:300はSRDでrejectする", async () => {
+    // Arrange: valid-range外の300をlive IDとして載せたofferを作る。
+    const headerExtensions = { audio: [useSdesMid()] };
+    const caller = new RTCPeerConnection({ iceServers: [], headerExtensions });
+    const callee = new RTCPeerConnection({ iceServers: [], headerExtensions });
+    caller.addTransceiver("audio", { direction: "sendonly" });
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      const invalid = caller.localDescription!.sdp.replace(
+        /a=extmap:\d+ /,
+        "a=extmap:300 ",
+      );
+
+      // Act: RFC 8285のusable range外IDをSRDする。
+      await expect(
+        callee.setRemoteDescription({ type: "offer", sdp: invalid }),
+      ).rejects.toThrow(/outside RFC 8285 range/);
+
+      // Assert: parser/preflightで拒否しsignalingを進めない。
+      expect(callee.signalingState).toBe("stable");
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
+  test("remote offerのextmap:abcはSRDでrejectする", async () => {
+    // Arrange: 非整数のextmap IDを載せたofferを作る。
+    const headerExtensions = { audio: [useSdesMid()] };
+    const caller = new RTCPeerConnection({ iceServers: [], headerExtensions });
+    const callee = new RTCPeerConnection({ iceServers: [], headerExtensions });
+    caller.addTransceiver("audio", { direction: "sendonly" });
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      const invalid = caller.localDescription!.sdp.replace(
+        /a=extmap:\d+ /,
+        "a=extmap:abc ",
+      );
+
+      // Act: NaNになるextmap IDをSRDする。
+      await expect(
+        callee.setRemoteDescription({ type: "offer", sdp: invalid }),
+      ).rejects.toThrow(/invalid extmap id abc/);
+
+      // Assert: 非整数IDはparserで拒否する。
+      expect(callee.signalingState).toBe("stable");
     } finally {
       await Promise.allSettled([caller.close(), callee.close()]);
     }

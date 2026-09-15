@@ -34,7 +34,7 @@
 
 RFC 8829 4.2.4.  direction the transceiver was initialized with
 
-`"inactive"` | `"sendonly"` | `"recvonly"` | `"sendrecv"`
+`"sendonly"` | `"recvonly"` | `"sendrecv"` | `"inactive"`
 
 #### Returns
 
@@ -88,7 +88,7 @@ Set when this transceiver was created while applying a remote description.
 
 ### offerDirection
 
-> **offerDirection**: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
+> **offerDirection**: `"sendonly"` \| `"recvonly"` \| `"sendrecv"` \| `"inactive"`
 
 ***
 
@@ -188,13 +188,13 @@ RFC 8829 4.2.5. last negotiated direction
 
 #### Get Signature
 
-> **get** **direction**(): `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
+> **get** **direction**(): `"sendonly"` \| `"recvonly"` \| `"sendrecv"` \| `"inactive"`
 
 RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 
 ##### Returns
 
-`"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
+`"sendonly"` \| `"recvonly"` \| `"sendrecv"` \| `"inactive"`
 
 #### Set Signature
 
@@ -204,7 +204,7 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 
 ###### direction
 
-`"inactive"` | `"sendonly"` | `"recvonly"` | `"sendrecv"`
+`"sendonly"` | `"recvonly"` | `"sendrecv"` | `"inactive"`
 
 ##### Returns
 
@@ -340,7 +340,7 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 
 ##### direction
 
-`"inactive"` | `"sendonly"` | `"recvonly"` | `"sendrecv"`
+`"sendonly"` | `"recvonly"` | `"sendrecv"` | `"inactive"`
 
 #### Returns
 

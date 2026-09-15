@@ -210,7 +210,7 @@
 
 ### buildOfferSdp()
 
-> **buildOfferSdp**(`transceivers`, `sctpTransport`): [`SessionDescription`](SessionDescription.md)
+> **buildOfferSdp**(`transceivers`, `sctpTransport`, `dormantApplication`?, `headerExtensionsByTransceiver`?, `excludeFromBundle`?): [`SessionDescription`](SessionDescription.md)
 
 オファーSDPを構築
 
@@ -223,6 +223,18 @@
 ##### sctpTransport
 
 `undefined` | [`RTCSctpTransport`](RTCSctpTransport.md)
+
+##### dormantApplication?
+
+`DormantSctpApplication`
+
+##### headerExtensionsByTransceiver?
+
+`ReadonlyMap`\<[`RTCRtpTransceiver`](RTCRtpTransceiver.md), [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]\>
+
+##### excludeFromBundle?
+
+`ReadonlySet`\<[`RTCRtpTransceiver`](RTCRtpTransceiver.md)\>
 
 #### Returns
 
@@ -270,7 +282,7 @@ MediaDescriptionをSCTP用に作成
 
 ### createMediaDescriptionForTransceiver()
 
-> **createMediaDescriptionForTransceiver**(`transceiver`, `direction`, `dtlsTransport`): [`MediaDescription`](MediaDescription.md)
+> **createMediaDescriptionForTransceiver**(`transceiver`, `direction`, `dtlsTransport`, `options`): [`MediaDescription`](MediaDescription.md)
 
 MediaDescriptionをトランシーバー用に作成
 
@@ -282,11 +294,25 @@ MediaDescriptionをトランシーバー用に作成
 
 ##### direction
 
-`"inactive"` | `"sendonly"` | `"recvonly"` | `"sendrecv"`
+`"sendonly"` | `"recvonly"` | `"sendrecv"` | `"inactive"`
 
 ##### dtlsTransport
 
 [`RTCDtlsTransport`](RTCDtlsTransport.md) = `transceiver.dtlsTransport`
+
+##### options
+
+###### headerExtensions?
+
+[`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]
+
+###### offeredHeaderExtensions?
+
+[`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]
+
+###### offeredMediaDirection?
+
+`string`
 
 #### Returns
 

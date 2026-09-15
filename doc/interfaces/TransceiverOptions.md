@@ -10,7 +10,7 @@
 
 ### direction
 
-> **direction**: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
+> **direction**: `"sendonly"` \| `"recvonly"` \| `"sendrecv"` \| `"inactive"`
 
 ***
 

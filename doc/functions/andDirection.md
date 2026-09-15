@@ -6,18 +6,18 @@
 
 # Function: andDirection()
 
-> **andDirection**(`a`, `b`): `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
+> **andDirection**(`a`, `b`): `"sendonly"` \| `"recvonly"` \| `"sendrecv"` \| `"inactive"`
 
 ## Parameters
 
 ### a
 
-`"inactive"` | `"sendonly"` | `"recvonly"` | `"sendrecv"`
+`"sendonly"` | `"recvonly"` | `"sendrecv"` | `"inactive"`
 
 ### b
 
-`"inactive"` | `"sendonly"` | `"recvonly"` | `"sendrecv"`
+`"sendonly"` | `"recvonly"` | `"sendrecv"` | `"inactive"`
 
 ## Returns
 
-`"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
+`"sendonly"` \| `"recvonly"` \| `"sendrecv"` \| `"inactive"`

@@ -6,14 +6,14 @@
 
 # Function: reverseDirection()
 
-> **reverseDirection**(`dir`): `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
+> **reverseDirection**(`dir`): `"sendonly"` \| `"recvonly"` \| `"sendrecv"` \| `"inactive"`
 
 ## Parameters
 
 ### dir
 
-`"inactive"` | `"sendonly"` | `"recvonly"` | `"sendrecv"`
+`"sendonly"` | `"recvonly"` | `"sendrecv"` | `"inactive"`
 
 ## Returns
 
-`"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
+`"sendonly"` \| `"recvonly"` \| `"sendrecv"` \| `"inactive"`
