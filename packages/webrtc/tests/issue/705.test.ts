@@ -9,6 +9,7 @@ import {
   replaceMLinePort,
   replaceMediaProfile,
   waitForIceCandidate,
+  waitForIceGatheringComplete,
 } from "./705.helpers";
 
 describe("https://github.com/shinyoshiaki/werift-webrtc/issues/705", () => {
@@ -354,6 +355,40 @@ describe("https://github.com/shinyoshiaki/werift-webrtc/issues/705", () => {
       expect(parsedAnswer.media[0]?.direction).toBe("inactive");
       expect(parsedAnswer.media[0]?.port).not.toBe(0);
       expect(getBundleItems(parsedAnswer)).toEqual([offerMid]);
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("reject 後の次回 offer は BUNDLE から port 0 を外し tag を付け替える", async () => {
+    const { pc: offerer, offer } = await createOfferWithKinds([
+      "video",
+      "audio",
+    ]);
+    const answerer = createAudioOnlyPeerConnection();
+
+    try {
+      // Act: video を reject したあと、answerer 側で再交渉 offer を作り ICE を待つ。
+      await answerer.setRemoteDescription(offer);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await waitForIceGatheringComplete(answerer);
+      const candidatePromise = waitForIceCandidate(answerer);
+      const nextOffer = await answerer.createOffer({ iceRestart: true });
+      await answerer.setLocalDescription(nextOffer);
+      const parsedOffer = parseSdp(nextOffer.sdp);
+      const videoMid = findMedia(parsedOffer, "video")?.rtp.muxId;
+      const audioMid = findMedia(parsedOffer, "audio")?.rtp.muxId;
+      const localCandidate = await candidatePromise;
+
+      // Assert: 次回 offer でも reject 済み video は BUNDLE に入らず、trickle は audio tag を使う。
+      expect(findMedia(parsedOffer, "video")?.port).toBe(0);
+      expect(findMedia(parsedOffer, "audio")?.port).not.toBe(0);
+      expect(getBundleItems(parsedOffer)).toEqual([audioMid]);
+      expect(getBundleItems(parsedOffer)).not.toContain(videoMid);
+      expect(localCandidate.sdpMid).toBe(audioMid);
+      expect(localCandidate.sdpMLineIndex).toBe(
+        parsedOffer.media.findIndex((media) => media.rtp.muxId === audioMid),
+      );
     } finally {
       await Promise.all([offerer.close(), answerer.close()]);
     }

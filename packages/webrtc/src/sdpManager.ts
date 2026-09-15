@@ -338,15 +338,7 @@ export class SDPManager {
       description.media.push(this.createMediaDescriptionForSctp(sctpTransport));
     }
 
-    if (this.bundlePolicy !== "disable") {
-      const mids = description.media
-        .map((m) => m.rtp.muxId)
-        .filter((v) => v) as string[];
-      if (mids.length) {
-        const bundle = new GroupDescription("BUNDLE", mids);
-        description.group.push(bundle);
-      }
-    }
+    this.appendBundleGroup(description);
 
     return description;
   }
@@ -443,15 +435,7 @@ export class SDPManager {
       description.media.push(media);
     }
 
-    if (this.bundlePolicy !== "disable") {
-      const mids = description.media
-        .filter((media) => media.port !== 0)
-        .map((media) => media.rtp.muxId)
-        .filter((mid): mid is string => !!mid);
-      if (mids.length > 0) {
-        description.group.push(new GroupDescription("BUNDLE", mids));
-      }
-    }
+    this.appendBundleGroup(description);
 
     return description;
   }
@@ -531,6 +515,19 @@ export class SDPManager {
 
   registerMid(mid: string): void {
     this.seenMid.add(mid);
+  }
+
+  private appendBundleGroup(description: SessionDescription) {
+    if (this.bundlePolicy === "disable") {
+      return;
+    }
+    const mids = description.media
+      .filter((media) => media.port !== 0)
+      .map((media) => media.rtp.muxId)
+      .filter((mid): mid is string => !!mid);
+    if (mids.length > 0) {
+      description.group.push(new GroupDescription("BUNDLE", mids));
+    }
   }
 
   get remoteIsBundled() {

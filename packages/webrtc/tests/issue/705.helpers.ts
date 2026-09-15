@@ -78,6 +78,20 @@ export function hostIceCandidateInit(sdpMid: string, sdpMLineIndex: number) {
   };
 }
 
+export function waitForIceGatheringComplete(pc: RTCPeerConnection) {
+  if (pc.iceGatheringState === "complete") {
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    const { unSubscribe } = pc.iceGatheringStateChange.subscribe((state) => {
+      if (state === "complete") {
+        unSubscribe();
+        resolve();
+      }
+    });
+  });
+}
+
 export function waitForIceCandidate(
   pc: RTCPeerConnection,
   timeoutMs = 5000,
