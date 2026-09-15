@@ -99,6 +99,7 @@ export class TransceiverManager {
     trackOrKind: Kind | MediaStreamTrack,
     dtlsTransport?: RTCDtlsTransport,
     options: Partial<TransceiverOptions> = {},
+    claimedMids?: ReadonlySet<string>,
   ): RTCRtpTransceiver {
     const kind =
       typeof trackOrKind === "string" ? trackOrKind : trackOrKind.kind;
@@ -129,15 +130,17 @@ export class TransceiverManager {
     );
     this.router.registerRtpSender(newTransceiver.sender);
 
-    // reuse inactive
-    const inactiveTransceiverIndex = this.transceivers.findIndex(
-      (t) =>
-        t.currentDirection === "inactive" && !t.usedForSender && !t.rejected,
-    );
-    const inactiveTransceiver = this.transceivers.find(
-      (t) =>
-        t.currentDirection === "inactive" && !t.usedForSender && !t.rejected,
-    );
+    // Reuse inactive slots only for local addTrack/addTransceiver.
+    // Remote offers pass claimedMids: never replace an already-associated
+    // transceiver, or a recycled Chrome m-line can steal another section's mid
+    // and createAnswer then throws "Transceiver with mid=X not found".
+    const reuseInactive = (t: RTCRtpTransceiver) =>
+      claimedMids == null &&
+      t.currentDirection === "inactive" &&
+      !t.usedForSender &&
+      !t.rejected;
+    const inactiveTransceiverIndex = this.transceivers.findIndex(reuseInactive);
+    const inactiveTransceiver = this.transceivers.find(reuseInactive);
     if (inactiveTransceiverIndex > -1 && inactiveTransceiver) {
       this.replaceTransceiver(newTransceiver, inactiveTransceiverIndex);
       newTransceiver.mLineIndex = inactiveTransceiver.mLineIndex;

@@ -162,6 +162,9 @@ export class SDPManager {
     media.iceOptions = "trickle";
 
     media.host = DISCARD_HOST;
+    // Codec / remote-port reject is distinct from direction=inactive.
+    // Inactive sections keep a non-zero port and stay in BUNDLE so a browser
+    // removeTrack renegotiation does not recycle the m-line out from under us.
     const rejectPort = options.rejected || media.port === 0;
     media.port = rejectPort ? 0 : DISCARD_PORT;
 
@@ -373,9 +376,14 @@ export class SDPManager {
       let media: MediaDescription;
 
       if (["audio", "video"].includes(remoteMedia.kind)) {
-        const transceiver = transceivers.find(
-          (t) => t.mid === remoteMedia.rtp.muxId,
-        );
+        const mediaIndex = description.media.length;
+        const transceiver =
+          transceivers.find((t) => t.mid === remoteMedia.rtp.muxId) ??
+          transceivers.find(
+            (t) =>
+              t.mLineIndex === mediaIndex &&
+              (t.mid == null || t.mid === remoteMedia.rtp.muxId),
+          );
         if (!transceiver) {
           throw new Error(
             `Transceiver with mid=${remoteMedia.rtp.muxId} not found`,

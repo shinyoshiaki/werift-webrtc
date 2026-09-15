@@ -11,9 +11,14 @@ import {
   findMedia,
   getBundleItems,
   hostIceCandidateInit,
+  negotiateOfferAnswer,
   parseSdp,
   replaceMLinePort,
+  replaceMediaDirection,
+  replaceMediaMid,
+  replaceMediaPortByMid,
   replaceMediaProfile,
+  rewriteBundleGroup,
   waitForIceCandidate,
   waitForIceGatheringComplete,
 } from "./705.helpers";
@@ -337,7 +342,7 @@ describe("https://github.com/shinyoshiaki/werift-webrtc/issues/705", () => {
     }
   });
 
-  test("inactive だが受け入れ可能な m-line は port 0 にしない", async () => {
+  test("inactive な m-line は codec reject と別状態として扱う", async () => {
     const { pc: offerer, offer } = await createOfferWithKinds(["audio"]);
     const answerer = new RTCPeerConnection({ iceServers: [] });
     const inactiveOffer = {
@@ -350,17 +355,181 @@ describe("https://github.com/shinyoshiaki/werift-webrtc/issues/705", () => {
       await expect(
         answerer.setRemoteDescription(inactiveOffer),
       ).resolves.toBeUndefined();
-      const parsedOffer = parseSdp(inactiveOffer.sdp);
-      const parsedAnswer = parseSdp((await answerer.createAnswer()).sdp);
       const transceiver = answerer.getTransceivers()[0];
-      const offerMid = parsedOffer.media[0]?.rtp.muxId;
+      const parsedAnswer = parseSdp((await answerer.createAnswer()).sdp);
 
-      // Assert: inactive は direction 交渉であり reject ではないので port 0 / BUNDLE 除外にしない。
-      expect(parsedOffer.media[0]?.port).not.toBe(0);
+      // Assert: inactive は direction 交渉であり codec reject フラグは立てず pipeline も拒否しない。
       expect(transceiver.rejected).toBe(false);
+      expect(transceiver.offerDirection).toBe("inactive");
+      expect(transceiver.sender.codec).toBeDefined();
+      expect(transceiver.receiver.tracks.length).toBeGreaterThan(0);
+      // Assert: inactive は direction 交渉なので port 0 / BUNDLE 除外にしない。
       expect(parsedAnswer.media[0]?.direction).toBe("inactive");
       expect(parsedAnswer.media[0]?.port).not.toBe(0);
-      expect(getBundleItems(parsedAnswer)).toEqual([offerMid]);
+      expect(getBundleItems(parsedAnswer)).toContain(
+        parsedAnswer.media[0]?.rtp.muxId,
+      );
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("inactive な m-line が offer に残っていても新規 m-line 用に transceiver を奪わない", async () => {
+    const { pc: offerer, offer } = await createOfferWithKinds([
+      "video",
+      "video",
+    ]);
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+
+    try {
+      // Arrange: sendonly の 2 m-line を交渉したあと、mid=1 を inactive にした offer を適用する。
+      await answerer.setRemoteDescription(offer);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await answerer.setRemoteDescription({
+        ...offer,
+        sdp: replaceMediaDirection(offer.sdp, "1", "inactive"),
+      });
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      const inactiveTransceiver = answerer
+        .getTransceivers()
+        .find((transceiver) => transceiver.mid === "1");
+      expect(inactiveTransceiver?.currentDirection).toBe("inactive");
+
+      // Act: mid=1 を inactive のまま残し、新しい mid=2 を追加した offer を適用する。
+      const { pc: threeOfferer, offer: threeOffer } =
+        await createOfferWithKinds(["video", "video", "video"]);
+      await expect(
+        answerer.setRemoteDescription({
+          ...threeOffer,
+          sdp: replaceMediaDirection(threeOffer.sdp, "1", "inactive"),
+        }),
+      ).resolves.toBeUndefined();
+      const answer = await answerer.createAnswer();
+      await threeOfferer.close();
+
+      // Assert: mid=1 の transceiver は置換されず、新規 mid=2 用が別に足されて answer が成立する。
+      expect(answerer.getTransceivers().find((t) => t.mid === "1")).toBe(
+        inactiveTransceiver,
+      );
+      expect(
+        answerer.getTransceivers().find((t) => t.mid === "2"),
+      ).toBeDefined();
+      expect(parseSdp(answer.sdp).media).toHaveLength(3);
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("removeTrack 後の再交渉でも既存 mid の answer を組み立てられる", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    const track = new MediaStreamTrack({ kind: "video" });
+
+    try {
+      // Arrange: sendonly video を 3 本交渉し、2 本目だけ removeTrack する。
+      offerer.addTransceiver(track, { direction: "sendonly" });
+      await negotiateOfferAnswer(offerer, answerer);
+
+      const second = offerer.addTransceiver(track, { direction: "sendonly" });
+      await negotiateOfferAnswer(offerer, answerer);
+
+      offerer.addTransceiver(track, { direction: "sendonly" });
+      await negotiateOfferAnswer(offerer, answerer);
+
+      offerer.removeTrack(second.sender);
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      const removeAnswer = parseSdp((await answerer.createAnswer()).sdp);
+      const removed = removeAnswer.media[1];
+
+      // Assert: removeTrack の inactive は reject せず、BUNDLE にも残る。
+      expect(removed?.direction).toBe("inactive");
+      expect(removed?.port).not.toBe(0);
+      expect(getBundleItems(removeAnswer)).toContain(removed?.rtp.muxId);
+      expect(
+        answerer.getTransceivers().find((t) => t.mid === "1")?.rejected,
+      ).toBe(false);
+
+      // Act: 2 本目を差し替える新規 transceiver を足して再交渉する。
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      offerer.addTransceiver(track, { direction: "sendonly" });
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await expect(
+        answerer.setRemoteDescription(offerer.localDescription!),
+      ).resolves.toBeUndefined();
+      const replaceAnswer = await answerer.createAnswer();
+
+      // Assert: 既存 mid=1 を失わず answer を生成できる。
+      expect(
+        parseSdp(replaceAnswer.sdp).media.map((media) => media.rtp.muxId),
+      ).toEqual(
+        parseSdp(offerer.localDescription?.sdp).media.map(
+          (media) => media.rtp.muxId,
+        ),
+      );
+      expect(
+        answerer
+          .getTransceivers()
+          .find((transceiver) => transceiver.mid === "1"),
+      ).toBeDefined();
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("recycle で mid が付け替わっても元の mid が offer に残れば answer できる", async () => {
+    const { pc: offerer, offer } = await createOfferWithKinds([
+      "video",
+      "video",
+      "video",
+    ]);
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+
+    try {
+      // Arrange: 3 m-line を交渉したあと mid=1 を inactive にする。
+      await answerer.setRemoteDescription(offer);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await answerer.setRemoteDescription({
+        ...offer,
+        sdp: replaceMediaDirection(offer.sdp, "1", "inactive"),
+      });
+      await answerer.setLocalDescription(await answerer.createAnswer());
+
+      // Act: Chrome の recycle を模し、旧 mid=1 を port 0 で残しつつ
+      // 同じ位置に mid=3 の新規 section を挿入した offer を適用する。
+      const sections = offer.sdp?.split(/\r\n(?=m=)/) ?? [];
+      const placeholder = replaceMediaPortByMid(
+        replaceMediaDirection(sections[2], "1", "inactive"),
+        "1",
+        0,
+      );
+      const recycledSection = replaceMediaMid(sections[2], "1", "3");
+      const recycledSdp = rewriteBundleGroup(
+        [
+          sections[0],
+          sections[1],
+          placeholder,
+          recycledSection,
+          sections[3],
+        ].join("\r\n"),
+        ["0", "1", "3", "2"],
+      );
+      const recycledOffer = { type: "offer" as const, sdp: recycledSdp };
+      await expect(
+        answerer.setRemoteDescription(recycledOffer),
+      ).resolves.toBeUndefined();
+      const answer = await answerer.createAnswer();
+
+      // Assert: mid=1 の transceiver は残し、新しい mid=3 用も足して answer する。
+      expect(
+        answerer.getTransceivers().map((transceiver) => transceiver.mid),
+      ).toEqual(expect.arrayContaining(["0", "1", "2", "3"]));
+      expect(
+        parseSdp(answer.sdp).media.map((media) => media.rtp.muxId),
+      ).toEqual(
+        parseSdp(recycledOffer.sdp).media.map((media) => media.rtp.muxId),
+      );
     } finally {
       await Promise.all([offerer.close(), answerer.close()]);
     }

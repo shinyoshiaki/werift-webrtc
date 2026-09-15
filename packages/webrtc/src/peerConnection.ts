@@ -957,6 +957,14 @@ export class RTCPeerConnection extends EventTarget {
       transceiver.kind === media.kind &&
       [null, media.rtp.muxId].includes(transceiver.mid);
 
+    // MIDs that this offer/answer still binds to media sections. A transceiver
+    // using one of them must not be recycled for a different m-line.
+    const claimedMids = new Set(
+      remoteSdp.media
+        .map((media) => media.rtp.muxId)
+        .filter((mid): mid is string => !!mid),
+    );
+
     let transports = remoteSdp.media.map((remoteMedia, i) => {
       let dtlsTransport: RTCDtlsTransport;
 
@@ -966,9 +974,10 @@ export class RTCPeerConnection extends EventTarget {
           .find((t) => matchTransceiverWithMedia(t, remoteMedia));
         if (!transceiver) {
           // create remote transceiver
-          transceiver = this.addTransceiver(remoteMedia.kind, {
-            direction: "recvonly",
-          });
+          transceiver = this.addRemoteTransceiver(
+            remoteMedia.kind,
+            claimedMids,
+          );
           transceiver.mid = remoteMedia.rtp.muxId ?? null;
           this.onRemoteTransceiverAdded.execute(transceiver);
         } else {
@@ -1106,6 +1115,21 @@ export class RTCPeerConnection extends EventTarget {
       trackOrKind,
       dtlsTransport,
       options,
+    );
+
+    this.secureManager.updateIceConnectionState();
+    this.needNegotiation();
+
+    return transceiver;
+  }
+
+  private addRemoteTransceiver(kind: Kind, claimedMids: ReadonlySet<string>) {
+    const dtlsTransport = this.findOrCreateTransport();
+    const transceiver = this.transceiverManager.addTransceiver(
+      kind,
+      dtlsTransport,
+      { direction: "recvonly" },
+      claimedMids,
     );
 
     this.secureManager.updateIceConnectionState();
