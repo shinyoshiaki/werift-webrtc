@@ -102,6 +102,16 @@ RFC 8829 4.2.4.  direction the transceiver was initialized with
 
 ***
 
+### rejected
+
+> **rejected**: `boolean` = `false`
+
+True when this m-line cannot be accepted (no common codec).
+Distinct from `direction === "inactive"`; rejected sections are answered
+with port 0 without changing the negotiated direction.
+
+***
+
 ### sender
 
 > **sender**: [`RTCRtpSender`](RTCRtpSender.md)

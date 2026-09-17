@@ -261,6 +261,16 @@ seconds
 
 ***
 
+### clearReceive()
+
+> **clearReceive**(): `void`
+
+#### Returns
+
+`void`
+
+***
+
 ### collectStats()
 
 > **collectStats**(`timestamp`): [`RTCStats`](../interfaces/RTCStats.md)[]

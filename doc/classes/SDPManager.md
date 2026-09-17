@@ -126,7 +126,7 @@
 
 ### addTransportDescription()
 
-> **addTransportDescription**(`media`, `dtlsTransport`): `void`
+> **addTransportDescription**(`media`, `dtlsTransport`, `options`): `void`
 
 トランスポートの情報をMediaDescriptionに追加
 
@@ -139,6 +139,12 @@
 ##### dtlsTransport
 
 [`RTCDtlsTransport`](RTCDtlsTransport.md)
+
+##### options
+
+###### rejected?
+
+`boolean`
 
 #### Returns
 
@@ -234,7 +240,7 @@ MediaDescriptionをSCTP用に作成
 
 ### createMediaDescriptionForTransceiver()
 
-> **createMediaDescriptionForTransceiver**(`transceiver`, `direction`): [`MediaDescription`](MediaDescription.md)
+> **createMediaDescriptionForTransceiver**(`transceiver`, `direction`, `fallbackFmt`, `profile`): [`MediaDescription`](MediaDescription.md)
 
 MediaDescriptionをトランシーバー用に作成
 
@@ -248,9 +254,41 @@ MediaDescriptionをトランシーバー用に作成
 
 `"inactive"` | `"sendonly"` | `"recvonly"` | `"sendrecv"`
 
+##### fallbackFmt
+
+`number`[] | `string`[]
+
+##### profile
+
+`string` = `"UDP/TLS/RTP/SAVPF"`
+
 #### Returns
 
 [`MediaDescription`](MediaDescription.md)
+
+***
+
+### getBundleTaggedMedia()
+
+> **getBundleTaggedMedia**(`description`?): `object`
+
+#### Parameters
+
+##### description?
+
+[`SessionDescription`](SessionDescription.md)
+
+#### Returns
+
+`object`
+
+##### media?
+
+> `optional` **media**: [`MediaDescription`](MediaDescription.md)
+
+##### sdpMLineIndex
+
+> **sdpMLineIndex**: `number`
 
 ***
 

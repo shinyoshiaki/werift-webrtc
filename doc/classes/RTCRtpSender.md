@@ -212,6 +212,16 @@
 
 ## Methods
 
+### clearSend()
+
+> **clearSend**(): `void`
+
+#### Returns
+
+`void`
+
+***
+
 ### collectStats()
 
 > **collectStats**(`timestamp`): [`RTCStats`](../interfaces/RTCStats.md)[]

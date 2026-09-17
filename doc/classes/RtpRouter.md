@@ -28,6 +28,16 @@
 
 ***
 
+### midTable
+
+> **midTable**: `object` = `{}`
+
+#### Index Signature
+
+\[`mid`: `string`\]: [`RTCRtpReceiver`](RTCRtpReceiver.md)
+
+***
+
 ### ridTable
 
 > **ridTable**: `object` = `{}`
@@ -47,6 +57,22 @@
 \[`ssrc`: `number`\]: [`RTCRtpSender`](RTCRtpSender.md) \| [`RTCRtpReceiver`](RTCRtpReceiver.md)
 
 ## Methods
+
+### registerRtpReceiverByMid()
+
+> **registerRtpReceiverByMid**(`transceiver`): `void`
+
+#### Parameters
+
+##### transceiver
+
+[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+
+#### Returns
+
+`void`
+
+***
 
 ### registerRtpReceiverByRid()
 
@@ -133,6 +159,22 @@
 ##### packet
 
 [`RtpPacket`](RtpPacket.md)
+
+#### Returns
+
+`void`
+
+***
+
+### unregisterRtpReceiver()
+
+> **unregisterRtpReceiver**(`transceiver`): `void`
+
+#### Parameters
+
+##### transceiver
+
+[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
 
 #### Returns
 
