@@ -23,6 +23,14 @@ import { MediaStreamTrack } from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/router.ts");
 
+function normalizeSdesItem(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.replace(/\0+$/g, "");
+  return normalized.length > 0 ? normalized : undefined;
+}
+
 export class RtpRouter {
   ssrcTable: { [ssrc: number]: RTCRtpReceiver | RTCRtpSender } = {};
   ridTable: { [rid: string]: RTCRtpReceiver | RTCRtpSender } = {};
@@ -141,9 +149,13 @@ export class RtpRouter {
       packet.header.ssrc
     ] as RTCRtpReceiver;
 
-    const rid = extensions[RTP_EXTENSION_URI.sdesRTPStreamID];
-    const sdesMid = extensions[RTP_EXTENSION_URI.sdesMid];
-    if (typeof rid === "string") {
+    const rid = normalizeSdesItem(
+      extensions[RTP_EXTENSION_URI.sdesRTPStreamID],
+    );
+    const sdesMid = normalizeSdesItem(extensions[RTP_EXTENSION_URI.sdesMid]);
+    // Chrome may negotiate rtp-stream-id and send RID even for a single
+    // encoding. Unknown RID must not win over SSRC/MID or the packet is dropped.
+    if (typeof rid === "string" && this.ridTable[rid]) {
       rtpReceiver = this.ridTable[rid] as RTCRtpReceiver;
       rtpReceiver.latestRid = rid;
       rtpReceiver.handleRtpByRid(packet, rid, extensions);
@@ -177,9 +189,9 @@ export class RtpRouter {
       rtpReceiver.sdesMid = sdesMid;
     }
 
-    const repairedRid = extensions[
-      RTP_EXTENSION_URI.repairedRtpStreamId
-    ] as string;
+    const repairedRid = normalizeSdesItem(
+      extensions[RTP_EXTENSION_URI.repairedRtpStreamId],
+    );
     if (typeof repairedRid === "string") {
       rtpReceiver.latestRepairedRid = repairedRid;
     }

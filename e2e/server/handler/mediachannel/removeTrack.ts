@@ -155,6 +155,7 @@ class mediachannel_removetrack_offer_base {
       case "done":
         {
           await this.pc.close();
+          accept({});
         }
         break;
     }

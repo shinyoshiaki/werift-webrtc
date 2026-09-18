@@ -60,7 +60,7 @@ async function main() {
 
   const child = spawn(
     npmCommand(),
-    ["exec", "run-p", serverScript, "chrome:prod"],
+    ["exec", "run-p", "--race", serverScript, "chrome:prod"],
     {
       cwd: __dirname,
       env,
