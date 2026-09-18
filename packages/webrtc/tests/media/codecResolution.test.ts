@@ -6,6 +6,7 @@ import {
   RtpHeader,
   RtpPacket,
   useH264,
+  useTWCC,
   useVP8,
 } from "../../src";
 
@@ -313,6 +314,42 @@ describe("codec resolution", () => {
 
     // Assert: 残った codec は受信される。
     expect(onRtp).toHaveBeenCalledTimes(1);
+    await offerer.close();
+    await answerer.close();
+  });
+
+  test("answer resync resets receiver TWCC when preferred codec lacks transport-cc", async () => {
+    const vp8WithTWCC = () => useVP8({ rtcpFeedback: [useTWCC()] });
+    const offerer = new RTCPeerConnection({
+      codecs: { video: [vp8WithTWCC(), useH264()] },
+    });
+    offerer.addTrack(videoTrack());
+
+    // Arrange: offer 側が VP8(TWCC)/H264 で offer を作成する。
+    const offer = await offerer.createOffer();
+
+    const answerer = new RTCPeerConnection({
+      codecs: { video: [vp8WithTWCC(), useH264()] },
+    });
+    // Arrange: answerer も local track を持つ (sendrecv)。
+    answerer.addTrack(videoTrack());
+    await answerer.setRemoteDescription(offer);
+    const answererTransceiver = answerer.getTransceivers()[0];
+
+    // Arrange: 初期交渉では TWCC が開始している。
+    expect(answererTransceiver.receiver.receiverTWCC).toBeDefined();
+
+    // Act: transport-cc を持たない H264 のみに絞って answer を作成する。
+    answererTransceiver.setCodecPreferences([useH264()]);
+    const answer = await answerer.createAnswer();
+
+    // Assert: answer SDP と sender が H264 に更新され、TWCC 状態は破棄される。
+    expect(answer.sdp.toLowerCase()).toContain("h264/90000");
+    expect(answer.sdp.toLowerCase()).not.toContain("vp8/90000");
+    expect(
+      answererTransceiver.sender.codec?.mimeType.toLowerCase(),
+    ).toBe("video/h264");
+    expect(answererTransceiver.receiver.receiverTWCC).toBeUndefined();
     await offerer.close();
     await answerer.close();
   });

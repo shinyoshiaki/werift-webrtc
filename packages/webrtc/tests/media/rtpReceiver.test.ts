@@ -13,6 +13,7 @@ import {
   RtpPacket,
   codecParametersToString,
   defaultPeerConfig,
+  useTWCC,
 } from "../../src";
 import { RTCRtpReceiver } from "../../src/media/rtpReceiver";
 import { createDtlsTransport } from "../fixture";
@@ -198,6 +199,79 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
 
     // Assert: 新しい codec は受信される。
     expect(received).toHaveLength(1);
+    receiver.stop();
+  });
+
+  test("resyncCodecs resets TWCC state for new codec and SSRC", () => {
+    const dtls = createDtlsTransport();
+    const receiver = new RTCRtpReceiver(defaultPeerConfig, "video", 1234);
+    receiver.setDtlsTransport(dtls);
+
+    const track = new MediaStreamTrack({ kind: "video" });
+    track.ssrc = 111;
+
+    // Arrange: transport-cc ありの codec で受信準備し TWCC を開始する。
+    receiver.addTrack(track);
+    receiver.prepareReceive({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "video/vp8",
+          clockRate: 90000,
+          payloadType: 96,
+          rtcpFeedback: [useTWCC()],
+        }),
+      ],
+      encodings: [
+        new RTCRtpCodingParameters({ ssrc: 111, payloadType: 96 }),
+      ],
+      headerExtensions: [],
+    });
+    receiver.setupTWCC(111);
+    receiver.receiverTWCC!.handleTWCC(1);
+
+    // Act: transport-cc なしの codec と新しい SSRC に再同期する。
+    receiver.resyncCodecs(
+      {
+        codecs: [
+          new RTCRtpCodecParameters({
+            mimeType: "video/h264",
+            clockRate: 90000,
+            payloadType: 98,
+          }),
+        ],
+        encodings: [
+          new RTCRtpCodingParameters({ ssrc: 222, payloadType: 98 }),
+        ],
+        headerExtensions: [],
+      },
+      222,
+    );
+
+    // Assert: 古い TWCC 状態は破棄され、transport-cc が無いため再生成されない。
+    expect(receiver.receiverTWCC).toBeUndefined();
+
+    // Act: transport-cc ありの codec とさらに新しい SSRC に再同期する。
+    receiver.resyncCodecs(
+      {
+        codecs: [
+          new RTCRtpCodecParameters({
+            mimeType: "video/vp8",
+            clockRate: 90000,
+            payloadType: 96,
+            rtcpFeedback: [useTWCC()],
+          }),
+        ],
+        encodings: [
+          new RTCRtpCodingParameters({ ssrc: 333, payloadType: 96 }),
+        ],
+        headerExtensions: [],
+      },
+      333,
+    );
+
+    // Assert: TWCC が新しい状態で再生成される (古い蓄積は引き継がない)。
+    expect(receiver.receiverTWCC).toBeDefined();
+    expect(Object.keys(receiver.receiverTWCC!.extensionInfo)).toHaveLength(0);
     receiver.stop();
   });
 

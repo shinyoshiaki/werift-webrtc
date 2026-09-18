@@ -393,12 +393,11 @@ export class TransceiverManager {
       for (const param of remoteMedia.simulcastParameters) {
         this.router.registerRtpReceiverByRid(transceiver, param, remoteParams);
       }
-      transceiver.receiver.resyncCodecs(remoteParams);
+      transceiver.receiver.resyncCodecs(
+        remoteParams,
+        remoteMedia.ssrc[0]?.ssrc,
+      );
       this.router.registerRtpReceiverBySsrc(transceiver, remoteParams);
-    }
-
-    if (remoteMedia.ssrc[0]?.ssrc) {
-      transceiver.receiver.setupTWCC(remoteMedia.ssrc[0].ssrc);
     }
   }
 
@@ -491,7 +490,10 @@ export class TransceiverManager {
         this.router.registerRtpReceiverByRid(transceiver, param, remotePrams);
       }
 
-      transceiver.receiver.resyncCodecs(remotePrams);
+      transceiver.receiver.resyncCodecs(
+        remotePrams,
+        remoteMedia.ssrc[0]?.ssrc,
+      );
       // register ssrc receiver
       this.router.registerRtpReceiverBySsrc(transceiver, remotePrams);
     }
@@ -518,10 +520,6 @@ export class TransceiverManager {
             }),
         ),
       });
-    }
-
-    if (remoteMedia.ssrc[0]?.ssrc) {
-      transceiver.receiver.setupTWCC(remoteMedia.ssrc[0].ssrc);
     }
   }
 
