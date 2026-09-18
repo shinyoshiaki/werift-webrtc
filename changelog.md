@@ -4,10 +4,12 @@
 
 ### ⚠️ Breaking changes
 
+- **Fixed encoded sources no longer expand PeerConnection codecs implicitly.** Their codec is now a hard constraint and incompatible `addTrack()` / `addTransceiver()` calls throw `NotSupportedError`. The public `adoptSenderTrackCodec` helper was removed.
 - **Removed `getUserMedia({ path | buffer | stream })` from `werift/nonstandard`.** File playback now goes through `werift/polyfill`: `installPolyfill({ mediaRegister: [createMp4WebmRegister({ path })] })` then `navigator.mediaDevices.getUserMedia({ audio: true, video: true })`.
 
 ### 🚀 Features
 
+- **Polyfill codec integration**: `installPolyfill()` accepts `peerConnectionConfig`, and `RTCRtpTransceiver.setCodecPreferences()` now filters and orders codecs independently from fixed-source constraints.
 - **Empty media tracks for `werift/polyfill`**: `mediaRegister: []` now lets `getUserMedia()` return plain audio/video tracks instead of `NotFoundError`, and the new `createEmptyRegister()` exposes the same no-RTP, codec-unset behavior explicitly.
 - **`werift/polyfill`**: Opt-in installer that puts werift WebRTC constructors on `globalThis` (or a `target` sandbox) and implements `navigator.mediaDevices.getUserMedia` via `mediaRegister` (MP4/WebM, RTP/RTCP, encoded binary, or `createCallbackRegister`).
 

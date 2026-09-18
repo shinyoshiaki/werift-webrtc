@@ -128,6 +128,18 @@ should not be reused because it has been used for sending before.
 
 ## Accessors
 
+### codecPreferences
+
+#### Get Signature
+
+> **get** **codecPreferences**(): `undefined` \| readonly [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+
+##### Returns
+
+`undefined` \| readonly [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+
+***
+
 ### codecs
 
 #### Get Signature
@@ -297,6 +309,22 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 #### Returns
 
 `undefined` \| `number`
+
+***
+
+### setCodecPreferences()
+
+> **setCodecPreferences**(`codecs`): `void`
+
+#### Parameters
+
+##### codecs
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+
+#### Returns
+
+`void`
 
 ***
 

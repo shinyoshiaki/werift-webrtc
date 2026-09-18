@@ -75,7 +75,11 @@ import {
   generateStatsId,
   getStatsTimestamp,
 } from "./stats";
-import type { MediaStream, MediaStreamTrack } from "./track";
+import {
+  type MediaStream,
+  type MediaStreamTrack,
+  captureTrackSourceCodecs,
+} from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");
 
@@ -358,6 +362,8 @@ export class RTCRtpSender {
 
   registerTrack(track: MediaStreamTrack) {
     if (track.stopped) throw new Error("track is ended");
+
+    captureTrackSourceCodecs(track);
 
     if (this.disposeTrack) {
       this.disposeTrack();

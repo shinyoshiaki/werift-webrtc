@@ -58,6 +58,11 @@ The import does not mutate globals by itself. Call `installPolyfill()` when the
 application is ready to install the adapter, and call the returned function
 when that scope is finished.
 
+Use `peerConnectionConfig` to apply codec capabilities to every
+polyfill-created PeerConnection, including mediasoup-client probe and transport
+instances. Fixed-codec registers must match those capabilities or track
+attachment throws `NotSupportedError`; they do not expand the codec list.
+
 ## Public entrypoints
 
 | Import | Use |

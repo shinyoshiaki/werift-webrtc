@@ -7,7 +7,7 @@ import {
   RTCRtpSender,
   RTCRtpTransceiver,
 } from "../media";
-import { RTCPeerConnection, RTCTrackEvent } from "../peerConnection";
+import { type RTCPeerConnectionConfig, RTCTrackEvent } from "../peerConnection";
 import { RTCDtlsTransport } from "../transport/dtls";
 import { RTCIceCandidate, RTCIceTransport } from "../transport/ice";
 import * as browserIdentity from "./browserIdentity";
@@ -17,6 +17,7 @@ import {
 } from "./existingMediaDevices";
 import { MediaDevices } from "./mediaDevices";
 import type { BoundMediaRegister, MediaRegister } from "./mediaRegister";
+import { createPolyfillRTCPeerConnection } from "./peerConnectionConfig";
 import { createEmptyRegister } from "./registers/empty";
 import { PolyfillRTCSessionDescription } from "./rtcSessionDescription";
 
@@ -38,6 +39,8 @@ const INSTALLED_KEYS = [
 
 export interface InstallPolyfillOptions {
   mediaRegister: MediaRegister[];
+  /** Default configuration for every RTCPeerConnection created by this install. */
+  peerConnectionConfig?: RTCPeerConnectionConfig;
   existingMediaDevices?: ExistingMediaDevicesMode;
   target?: object;
   /** navigator.userAgent に設定する値。指定時は既存値より優先する */
@@ -53,6 +56,15 @@ export function installPolyfill(options: InstallPolyfillOptions): () => void {
   }
   if (!Array.isArray(options.mediaRegister)) {
     throw new TypeError("mediaRegister must be an array");
+  }
+  if (
+    "peerConnectionConfig" in options &&
+    options.peerConnectionConfig !== undefined &&
+    (options.peerConnectionConfig === null ||
+      typeof options.peerConnectionConfig !== "object" ||
+      Array.isArray(options.peerConnectionConfig))
+  ) {
+    throw new TypeError("peerConnectionConfig must be an object");
   }
 
   const explicitUserAgent = browserIdentity.assertUserAgentOption(
@@ -75,7 +87,11 @@ export function installPolyfill(options: InstallPolyfillOptions): () => void {
 
   const mediaDevices = new MediaDevices(boundRegisters);
   try {
-    assign(target, "RTCPeerConnection", RTCPeerConnection);
+    assign(
+      target,
+      "RTCPeerConnection",
+      createPolyfillRTCPeerConnection(options.peerConnectionConfig),
+    );
     assign(target, "RTCSessionDescription", PolyfillRTCSessionDescription);
     assign(target, "RTCIceCandidate", RTCIceCandidate);
     assign(target, "RTCDataChannel", RTCDataChannel);

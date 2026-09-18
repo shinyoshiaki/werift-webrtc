@@ -1,3 +1,4 @@
+import { useH264 } from "../../../src";
 import {
   createCallbackRegister,
   createEmptyRegister,
@@ -8,6 +9,7 @@ import {
 } from "../../../src/polyfill/dom";
 
 const uninstall = installPolyfill({
+  peerConnectionConfig: { codecs: { video: [useH264()] } },
   mediaRegister: [
     createEmptyRegister(),
     createCallbackRegister({

@@ -14,7 +14,7 @@ import type { CandidatePair, Message, Protocol } from "./imports/ice";
 import {
   type MediaStream,
   type MediaStreamTrack,
-  RTCRtpCodecParameters,
+  type RTCRtpCodecParameters,
   type RTCRtpHeaderExtensionParameters,
   type RTCRtpReceiver,
   type RTCRtpSender,
@@ -23,9 +23,7 @@ import {
   RtpRouter,
   TransceiverManager,
   type TransceiverOptions,
-  useOPUS,
-  usePCMU,
-  useVP8,
+  defaultCodecs,
 } from "./media";
 import {
   type RTCPeerConnectionStats,
@@ -1332,34 +1330,6 @@ export const findCodecByMimeType = (
     ? target
     : undefined;
 
-export function adoptSenderTrackCodec(
-  config: PeerConfig,
-  track: MediaStreamTrack | undefined | null,
-) {
-  const codec = track?.codec;
-  if (!codec || (track.kind !== "audio" && track.kind !== "video")) {
-    return;
-  }
-  const kind = track.kind;
-  const list = [...(config.codecs[kind] ?? [])];
-  const mime = codec.mimeType.toLowerCase();
-  const index = list.findIndex(
-    (candidate) => candidate.mimeType.toLowerCase() === mime,
-  );
-  if (index === 0) {
-    assignDynamicPayloadTypes(config);
-    return;
-  }
-  if (index > 0) {
-    const [existing] = list.splice(index, 1);
-    list.unshift(existing);
-  } else {
-    list.unshift(cloneCodecParameters(codec));
-  }
-  config.codecs[kind] = list;
-  assignDynamicPayloadTypes(config);
-}
-
 function assignDynamicPayloadTypes(config: PeerConfig) {
   for (const [i, codecParams] of enumerate([
     ...(config.codecs.audio || []),
@@ -1387,20 +1357,6 @@ function assignDynamicPayloadTypes(config: PeerConfig) {
         break;
     }
   }
-}
-
-function cloneCodecParameters(codec: RTCRtpCodecParameters) {
-  return new RTCRtpCodecParameters({
-    mimeType: codec.mimeType,
-    clockRate: codec.clockRate,
-    ...(codec.channels != undefined ? { channels: codec.channels } : {}),
-    ...(codec.payloadType != undefined
-      ? { payloadType: codec.payloadType }
-      : {}),
-    rtcpFeedback: [...codec.rtcpFeedback],
-    ...(codec.parameters != undefined ? { parameters: codec.parameters } : {}),
-    direction: codec.direction,
-  });
 }
 
 export type RTCIceServer = {
@@ -1443,10 +1399,7 @@ export type RTCPeerConnectionConfig = Partial<
 
 function generateDefaultPeerConfig(): PeerConfig {
   return {
-    codecs: {
-      audio: [useOPUS(), usePCMU()],
-      video: [useVP8()],
-    },
+    codecs: defaultCodecs(),
     headerExtensions: {
       audio: [],
       video: [],

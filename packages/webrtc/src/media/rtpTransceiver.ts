@@ -3,7 +3,9 @@ import { Event } from "../imports/common";
 
 import type { RTCDtlsTransport } from "..";
 import { SenderDirections } from "../const";
+import { createWebRtcTypeError } from "../errors";
 import type { Kind } from "../types/domain";
+import { cloneCodecParameters } from "./codec";
 import type {
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
@@ -36,6 +38,19 @@ export class RTCRtpTransceiver {
     return this._codecs;
   }
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
+  private _codecPreferences?: RTCRtpCodecParameters[];
+
+  get codecPreferences(): readonly RTCRtpCodecParameters[] | undefined {
+    return this._codecPreferences;
+  }
+
+  setCodecPreferences(codecs: RTCRtpCodecParameters[]): void {
+    if (!Array.isArray(codecs)) {
+      throw createWebRtcTypeError("codecs must be an array");
+    }
+    this._codecPreferences =
+      codecs.length === 0 ? undefined : codecs.map(cloneCodecParameters);
+  }
   options: Partial<TransceiverOptions> = {};
   stopping = false;
   stopped = false;

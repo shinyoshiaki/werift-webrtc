@@ -1,7 +1,7 @@
 import { createSocket } from "dgram";
 import { PassThrough } from "stream";
 
-import { RTCPeerConnection } from "../../src";
+import { RTCPeerConnection, useH264, useVP8 } from "../../src";
 import { OverconstrainedError } from "../../src/errors";
 import { RtcpRrPacket, RtpPacket } from "../../src/imports/rtp";
 import { MediaStream, MediaStreamTrack } from "../../src/media/track";
@@ -579,21 +579,30 @@ describe("werift/polyfill installPolyfill", () => {
     expect("window" in target).toBe(false);
   });
 
-  test("callback register の mimeType は PC codecs なしで offer に載る", async () => {
+  test("callback register の fixed codec は PC capability を制約する", async () => {
     const arranged = await arrangePolyfillVideoTrack(
       createH264CallbackRegister(),
     );
-    const pc = new RTCPeerConnection();
+    const defaultPc = new RTCPeerConnection();
+    const h264Pc = new RTCPeerConnection({
+      codecs: { video: [useVP8(), useH264()] },
+    });
     try {
-      // Act: デフォルト codecs の PeerConnection に H264 track を載せて offer する。
-      pc.addTransceiver(arranged.track, { direction: "sendonly" });
-      const offer = await pc.createOffer();
+      // Act / Assert: デフォルト VP8 capability では H264 source を拒否する。
+      expect(() =>
+        defaultPc.addTransceiver(arranged.track, { direction: "sendonly" }),
+      ).toThrow(expect.objectContaining({ name: "NotSupportedError" }));
+
+      // Act: H264 capability を明示した PC で offer する。
+      h264Pc.addTransceiver(arranged.track, { direction: "sendonly" });
+      const offer = await h264Pc.createOffer();
 
       // Assert: register の H264 が track.codec と SDP の両方に出る。
       expect(arranged.track.codec?.mimeType.toLowerCase()).toContain("h264");
       expect(offer.sdp).toMatch(/a=rtpmap:\d+ H264\/90000/i);
     } finally {
-      await pc.close();
+      await defaultPc.close();
+      await h264Pc.close();
       arranged.uninstall();
     }
   });
@@ -1037,7 +1046,7 @@ describe("werift/polyfill builtin registers", () => {
     }
   }, 20_000);
 
-  test("mp4/webm は mediabunny で検出したコーデックを PC codecs なしで offer する", async () => {
+  test("mp4/webm の検出 codec は PC capability を制約する", async () => {
     const webm = await createAvWebmBuffer();
     const mp4 = await createAvMp4Buffer();
     await withRegister(createMp4WebmRegister({ binary: webm }), async () => {
@@ -1070,16 +1079,25 @@ describe("werift/polyfill builtin registers", () => {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       const video = stream.getVideoTracks()[0] as MediaStreamTrack;
       const pc = new RTCPeerConnection();
+      const h264Pc = new RTCPeerConnection({
+        codecs: { video: [video.codec!] },
+      });
       try {
-        pc.addTransceiver(video, { direction: "sendonly" });
-        const offer = await pc.createOffer();
+        // 実行 / 検証: H264 を持たない default PC は fixed source を拒否する。
+        expect(() =>
+          pc.addTransceiver(video, { direction: "sendonly" }),
+        ).toThrow(expect.objectContaining({ name: "NotSupportedError" }));
 
-        // 検証: H264 ファイルでも PC に codecs を渡さず SDP に載る。
+        h264Pc.addTransceiver(video, { direction: "sendonly" });
+        const offer = await h264Pc.createOffer();
+
+        // 検証: container と同じ H264 capability なら SDP に載る。
         expect(video.codec?.mimeType.toLowerCase()).toContain("h264");
         expect(video.codec?.clockRate).toBe(90_000);
         expect(offer.sdp).toMatch(/H264\/90000/i);
       } finally {
         await pc.close();
+        await h264Pc.close();
       }
     });
   }, 20_000);

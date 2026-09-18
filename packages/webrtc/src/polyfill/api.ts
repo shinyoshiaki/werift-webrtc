@@ -11,6 +11,11 @@ export type {
 } from "./mediaRegister";
 export { installPolyfill } from "./install";
 export type { InstallPolyfillOptions } from "./install";
+export type { RTCPeerConnectionConfig } from "../peerConnection";
+export {
+  createPolyfillRTCPeerConnection,
+  mergePeerConnectionConfig,
+} from "./peerConnectionConfig";
 export {
   createCallbackRegister,
   createDummyRegister,

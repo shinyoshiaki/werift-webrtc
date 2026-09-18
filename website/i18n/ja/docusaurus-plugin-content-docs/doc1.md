@@ -18,6 +18,8 @@ werift は DataChannel と MediaChannel に対応しています。
 
 `mediaRegister` は必須ですが、空配列も有効です。その場合 `getUserMedia()` は定期 RTP も codec 設定もない、muted のプレーンな audio/video track を返します。同じ挙動を明示したり他の register と併用したりする場合は `createEmptyRegister()` を使います。
 
+`peerConnectionConfig` を渡すと、mediasoup-client の capability probe と transport を含む、polyfill 経由のすべての PeerConnection に codec の既定値を適用できます。たとえば `installPolyfill({ mediaRegister, peerConnectionConfig: { codecs: { video: [useH264()] } } })` は H264-only の video 環境を作ります。fixed encoded source が capability と一致しない場合、track の追加は `NotSupportedError` になります。
+
 インストール、register、制約、クリーンアップ、TypeScript の詳細は、[polyfill ガイド](https://github.com/shinyoshiaki/werift-webrtc/blob/develop/docs/polyfill/README.md)を参照してください。
 
 Node.js では polyfill のインストールだけで `mediasoup-client` に `handlerName` / `handlerFactory` を渡さず使えます。既存の User-Agent が未設定または `Node.js/<major>` のときだけ Chromium 111 互換値を補完し、非 Node の値は保持します。上書きしたい場合だけ `userAgent` オプションを渡します。uninstall でインストール前の descriptor に戻ります。「追加設定なし」は Handler 自動選択を指し、`mediaRegister` とシグナリングは引き続き必要です。

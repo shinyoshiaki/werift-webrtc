@@ -11,6 +11,31 @@ import {
 import type { Kind } from "../types/domain";
 import type { RTCRtpCodecParameters } from "./parameters";
 
+const sourceCodecsByTrack = new WeakMap<
+  MediaStreamTrack,
+  readonly RTCRtpCodecParameters[]
+>();
+
+export function setTrackSourceCodecs(
+  track: MediaStreamTrack,
+  codecs: readonly RTCRtpCodecParameters[] | undefined,
+) {
+  if (codecs == undefined) sourceCodecsByTrack.delete(track);
+  else sourceCodecsByTrack.set(track, codecs);
+}
+
+export function getTrackSourceCodecs(
+  track: MediaStreamTrack | undefined | null,
+) {
+  return track == undefined ? undefined : sourceCodecsByTrack.get(track);
+}
+
+export function captureTrackSourceCodecs(track: MediaStreamTrack) {
+  if (!sourceCodecsByTrack.has(track) && track.codec != undefined) {
+    sourceCodecsByTrack.set(track, [track.codec]);
+  }
+}
+
 class TrackBroadcastSource {
   private readonly tracks = new Set<MediaStreamTrack>();
   private readonly upstreamStops = new Set<() => void>();
@@ -171,7 +196,7 @@ export class MediaStreamTrack extends EventTarget {
   }
 
   clone(): MediaStreamTrack {
-    return new MediaStreamTrack({
+    const cloned = new MediaStreamTrack({
       kind: this.kind,
       remote: this.remote,
       enabled: this.enabled,
@@ -183,6 +208,8 @@ export class MediaStreamTrack extends EventTarget {
       header: this.header,
       broadcastSource: this.broadcastSource,
     });
+    setTrackSourceCodecs(cloned, getTrackSourceCodecs(this));
+    return cloned;
   }
 }
 
