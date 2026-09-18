@@ -150,6 +150,7 @@ describe("codec resolution", () => {
     pc.close();
   });
 
+  // setCodecPreferences() は解決済み codec を無効化し、次回 offer/answer で再解決する。
   test("changing preferences after first offer is reflected in renegotiation", async () => {
     const pc = new RTCPeerConnection({
       codecs: { video: [useVP8(), useH264()] },
