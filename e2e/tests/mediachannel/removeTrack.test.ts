@@ -6,6 +6,16 @@ const mediachannel_addtrack_removefirst_addtrack =
 
 const mediachannel_offer_replace_second = "mediachannel_offer_replace_second";
 
+function expectInactiveSection(sdp: string, mid: string, count: number) {
+  const [session, ...media] = sdp.split(/(?=^m=)/m);
+  expect(media).toHaveLength(count);
+  expect(media[1]).toContain(`a=mid:${mid}\r\n`);
+  expect(media[1]).toContain("a=inactive\r\n");
+  expect(Number(media[1].split(" ")[1])).toBeGreaterThan(0);
+  const bundle = session.match(/^a=group:BUNDLE (.+)\r?$/m)?.[1];
+  expect(bundle?.trim().split(/\s+/)).toContain(mid);
+}
+
 describe("mediachannel_removeTrack", () => {
   if (browserName !== "Firefox") {
     it(mediachannel_removetrack_addtrack, async () =>
@@ -168,7 +178,7 @@ describe("mediachannel_removeTrack", () => {
         await navigator.mediaDevices.getUserMedia({ video: true })
       ).getTracks();
 
-      // add first
+      // Act: 1 本目を交渉し、werift 側で RTP 受信を確認する。
       pc.addTransceiver(video, { direction: "sendonly" });
       await pc.setLocalDescription(await pc.createOffer());
       const answer = await peer.request(mediachannel_offer_replace_second, {
@@ -182,7 +192,7 @@ describe("mediachannel_removeTrack", () => {
         payload: { index: 0 },
       });
 
-      // add second
+      // Act: 2 本目を追加し、対応する m-line で RTP 受信を確認する。
       const second = pc.addTransceiver(video, { direction: "sendonly" });
       {
         await pc.setLocalDescription(await pc.createOffer());
@@ -197,7 +207,7 @@ describe("mediachannel_removeTrack", () => {
         payload: { index: 1 },
       });
 
-      // add third
+      // Act: 3 本目を追加し、対応する m-line で RTP 受信を確認する。
       pc.addTransceiver(video, { direction: "sendonly" });
       {
         await pc.setLocalDescription(await pc.createOffer());
@@ -212,8 +222,10 @@ describe("mediachannel_removeTrack", () => {
         payload: { index: 2 },
       });
 
-      // remove second
+      const secondMid = second.mid!;
+      // Act: sendonly の 2 本目を removeTrack し、inactive として再交渉する。
       pc.removeTrack(second.sender);
+      expect(second.direction).toBe("inactive");
       {
         await pc.setLocalDescription(await pc.createOffer());
         const answer = await peer.request(mediachannel_offer_replace_second, {
@@ -222,10 +234,15 @@ describe("mediachannel_removeTrack", () => {
         });
 
         await pc.setRemoteDescription(answer);
+        // Assert: inactive は reject ではなく、同じ MID・非ゼロ port・BUNDLE 所属を維持する。
+        expectInactiveSection(pc.localDescription!.sdp, secondMid, 3);
+        expectInactiveSection(answer.sdp, secondMid, 3);
+        expect(second.currentDirection).toBe("inactive");
       }
 
-      // addTransceiver は inactive 枠を recycle せず新しい m-line を足す
-      pc.addTransceiver(video, { direction: "sendonly" });
+      // Act: ブラウザの addTransceiver は新規 transceiver を作る（W3C WebRTC §5.1）。
+      // inactive は停止・reject ではないため、既存の 2 本目の m-line は再利用されない。
+      const fourth = pc.addTransceiver(video, { direction: "sendonly" });
       {
         await pc.setLocalDescription(await pc.createOffer());
         const answer = await peer.request(mediachannel_offer_replace_second, {
@@ -233,7 +250,18 @@ describe("mediachannel_removeTrack", () => {
           payload: pc.localDescription,
         });
         await pc.setRemoteDescription(answer);
+        // Assert: 2 本目を維持したまま、4 本目の m-line が追加・受諾される。
+        expectInactiveSection(pc.localDescription!.sdp, secondMid, 4);
+        expectInactiveSection(answer.sdp, secondMid, 4);
+        expect(pc.getTransceivers()).toHaveLength(4);
+        expect(fourth).not.toBe(second);
+        expect(fourth.mid).not.toBe(secondMid);
+        expect(fourth.currentDirection).toBe("sendonly");
+        expect(answer.sdp.split(/(?=^m=)/m)[4]).toContain(
+          `a=mid:${fourth.mid}\r\n`,
+        );
       }
+      // Assert: 新規 m-line（index=3）へ実際に RTP が届く。
       await peer.request(mediachannel_offer_replace_second, {
         type: "check",
         payload: { index: 3 },
