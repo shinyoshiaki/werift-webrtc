@@ -111,6 +111,8 @@ and does not provide browser media capture.
 Effective sending codecs are the intersection of PeerConnection capabilities,
 the fixed codec of an encoded source, and preferences set with
 `RTCRtpTransceiver.setCodecPreferences()`. Passing `[]` clears preferences.
+Changing preferences invalidates the transceiver's resolved codecs, so the
+next `createOffer()` or `createAnswer()` re-resolves them.
 Fixed encoded sources do not add codecs to the PeerConnection: incompatible
 `addTrack()` or `addTransceiver()` calls throw `NotSupportedError`. H264
 `profile-level-id` and `packetization-mode` must match when both are specified;
