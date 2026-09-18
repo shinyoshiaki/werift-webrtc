@@ -93,6 +93,114 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
     expect(rtp.payload).toEqual(Buffer.from([1, 2, 3, 4]));
   });
 
+  test("resyncCodecs replaces codec map, RTX mapping, and track codec", () => {
+    const dtls = createDtlsTransport();
+    const receiver = new RTCRtpReceiver(defaultPeerConfig, "video", 1234);
+    receiver.setDtlsTransport(dtls);
+
+    const track = new MediaStreamTrack({ kind: "video" });
+    track.ssrc = 777;
+
+    // Arrange: VP8 + RTX で受信準備する。
+    receiver.addTrack(track);
+    receiver.prepareReceive({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "video/vp8",
+          clockRate: 90000,
+          payloadType: 96,
+        }),
+        new RTCRtpCodecParameters({
+          mimeType: "video/rtx",
+          clockRate: 90000,
+          payloadType: 97,
+          parameters: codecParametersToString({ apt: 96 }),
+        }),
+      ],
+      encodings: [
+        new RTCRtpCodingParameters({
+          ssrc: 777,
+          payloadType: 96,
+          rtx: { ssrc: 666 },
+        }),
+        new RTCRtpCodingParameters({
+          ssrc: 666,
+          payloadType: 97,
+        }),
+      ],
+      headerExtensions: [],
+    });
+
+    // Act: H264 + 新しい RTX mapping に置換する。
+    receiver.resyncCodecs({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "video/h264",
+          clockRate: 90000,
+          payloadType: 98,
+        }),
+        new RTCRtpCodecParameters({
+          mimeType: "video/rtx",
+          clockRate: 90000,
+          payloadType: 99,
+          parameters: codecParametersToString({ apt: 98 }),
+        }),
+      ],
+      encodings: [
+        new RTCRtpCodingParameters({
+          ssrc: 777,
+          payloadType: 98,
+          rtx: { ssrc: 666 },
+        }),
+        new RTCRtpCodingParameters({
+          ssrc: 666,
+          payloadType: 99,
+        }),
+      ],
+      headerExtensions: [],
+    });
+
+    // Assert: track の codec が更新される。
+    expect(track.codec?.mimeType.toLowerCase()).toBe("video/h264");
+
+    const received: unknown[] = [];
+    track.onReceiveRtp.subscribe((rtp) => {
+      received.push(rtp);
+    });
+
+    // Act: 除外された VP8 と古い RTX を受信させる。
+    receiver.handleRtpBySsrc(
+      new RtpPacket(
+        new RtpHeader({ ssrc: 777, payloadType: 96 }),
+        Buffer.from([1]),
+      ),
+      {},
+    );
+    receiver.handleRtpBySsrc(
+      new RtpPacket(
+        new RtpHeader({ ssrc: 666, payloadType: 97 }),
+        Buffer.from([2]),
+      ),
+      {},
+    );
+
+    // Assert: 除外された codec は受信されない。
+    expect(received).toHaveLength(0);
+
+    // Act: 残った H264 を受信させる。
+    receiver.handleRtpBySsrc(
+      new RtpPacket(
+        new RtpHeader({ ssrc: 777, payloadType: 98 }),
+        Buffer.from([3]),
+      ),
+      {},
+    );
+
+    // Assert: 新しい codec は受信される。
+    expect(received).toHaveLength(1);
+    receiver.stop();
+  });
+
   test("getStats returns report with seconds-based jitter and byte counters", async () => {
     const dtls = createDtlsTransport();
     const receiver = new RTCRtpReceiver(defaultPeerConfig, "video", 1234);

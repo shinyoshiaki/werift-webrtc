@@ -393,7 +393,7 @@ export class TransceiverManager {
       for (const param of remoteMedia.simulcastParameters) {
         this.router.registerRtpReceiverByRid(transceiver, param, remoteParams);
       }
-      transceiver.receiver.prepareReceive(remoteParams);
+      transceiver.receiver.resyncCodecs(remoteParams);
       this.router.registerRtpReceiverBySsrc(transceiver, remoteParams);
     }
 
@@ -491,7 +491,7 @@ export class TransceiverManager {
         this.router.registerRtpReceiverByRid(transceiver, param, remotePrams);
       }
 
-      transceiver.receiver.prepareReceive(remotePrams);
+      transceiver.receiver.resyncCodecs(remotePrams);
       // register ssrc receiver
       this.router.registerRtpReceiverBySsrc(transceiver, remotePrams);
     }

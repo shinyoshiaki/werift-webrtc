@@ -147,6 +147,29 @@ export class RTCRtpReceiver {
   }
 
   /**
+   * negotiated codec と receiver の実処理状態を再同期する。
+   * codec map と RTX mapping を置換し、既存 remote track の codec
+   * metadata も新しい先頭 codec に更新する。
+   * setCodecPreferences() 後の createAnswer() 再解決や remote からの
+   * 再交渉では、除外された payload type の RTP を受け付けないようにする。
+   */
+  resyncCodecs(params: RTCRtpReceiveParameters) {
+    for (const key of Object.keys(this.codecs)) {
+      delete this.codecs[Number(key)];
+    }
+    for (const key of Object.keys(this.ssrcByRtx)) {
+      delete this.ssrcByRtx[Number(key)];
+    }
+    this.prepareReceive(params);
+    const [codec] = params.codecs;
+    if (codec) {
+      for (const track of this.tracks) {
+        track.codec = codec;
+      }
+    }
+  }
+
+  /**
    * setup TWCC if supported
    */
   setupTWCC(mediaSourceSsrc: number) {

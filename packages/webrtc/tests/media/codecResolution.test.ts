@@ -1,7 +1,10 @@
+import { vi } from "vitest";
 import {
   MediaStreamTrack,
   RTCPeerConnection,
   RTCRtpCodecParameters,
+  RtpHeader,
+  RtpPacket,
   useH264,
   useVP8,
 } from "../../src";
@@ -248,6 +251,68 @@ describe("codec resolution", () => {
     expect(
       answererTransceiver.sender.codec?.mimeType.toLowerCase(),
     ).toBe("video/h264");
+    await offerer.close();
+    await answerer.close();
+  });
+
+  test("answer resync drops excluded RTP and updates remote track codec", async () => {
+    const offerer = new RTCPeerConnection({
+      codecs: { video: [useVP8(), useH264()] },
+    });
+    offerer.addTrack(videoTrack());
+
+    // Arrange: offer 側が VP8/H264 で offer を作成する。
+    const offer = await offerer.createOffer();
+
+    const answerer = new RTCPeerConnection({
+      codecs: { video: [useVP8(), useH264()] },
+    });
+    // Arrange: answerer も local track を持つ (sendrecv)。
+    answerer.addTrack(videoTrack());
+    await answerer.setRemoteDescription(offer);
+    const answererTransceiver = answerer.getTransceivers()[0];
+    const remoteTrack = answererTransceiver.receiver.tracks[0];
+    const vp8PayloadType = answererTransceiver.codecs.find(
+      (codec) => codec.name.toLowerCase() === "vp8",
+    )!.payloadType;
+
+    // Act: remote offer 適用後に preference を H264 のみに変更して answer を作成する。
+    answererTransceiver.setCodecPreferences([useH264()]);
+    const answer = await answerer.createAnswer();
+    const h264PayloadType = answererTransceiver.codecs.find(
+      (codec) => codec.name.toLowerCase() === "h264",
+    )!.payloadType;
+
+    // Assert: answer SDP と remote track の codec が H264 に更新される。
+    expect(answer.sdp.toLowerCase()).toContain("h264/90000");
+    expect(answer.sdp.toLowerCase()).not.toContain("vp8/90000");
+    expect(remoteTrack.codec?.mimeType.toLowerCase()).toBe("video/h264");
+
+    // Act: 除外された VP8 と残った H264 の RTP を受信させる。
+    const onRtp = vi.fn();
+    remoteTrack.onReceiveRtp.subscribe(onRtp);
+    const ssrc = remoteTrack.ssrc!;
+    answererTransceiver.receiver.handleRtpBySsrc(
+      new RtpPacket(
+        new RtpHeader({ ssrc, payloadType: vp8PayloadType }),
+        Buffer.from([1, 2, 3, 4]),
+      ),
+      {},
+    );
+
+    // Assert: 除外された codec は受信されない。
+    expect(onRtp).not.toHaveBeenCalled();
+
+    answererTransceiver.receiver.handleRtpBySsrc(
+      new RtpPacket(
+        new RtpHeader({ ssrc, payloadType: h264PayloadType }),
+        Buffer.from([5, 6, 7, 8]),
+      ),
+      {},
+    );
+
+    // Assert: 残った codec は受信される。
+    expect(onRtp).toHaveBeenCalledTimes(1);
     await offerer.close();
     await answerer.close();
   });
