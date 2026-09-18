@@ -50,6 +50,10 @@ export class RTCRtpTransceiver {
     }
     this._codecPreferences =
       codecs.length === 0 ? undefined : codecs.map(cloneCodecParameters);
+    // preference 変更を次回 createOffer()/createAnswer() に反映させるため、
+    // 解決済み codec を無効化する。createOffer()/createAnswer() は
+    // codecs が空の場合に再解決する。
+    this._codecs = [];
   }
   options: Partial<TransceiverOptions> = {};
   stopping = false;

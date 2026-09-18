@@ -149,4 +149,74 @@ describe("codec resolution", () => {
     ).toEqual(["vp8", "h264", "rtx"]);
     pc.close();
   });
+
+  test("changing preferences after first offer is reflected in renegotiation", async () => {
+    const pc = new RTCPeerConnection({
+      codecs: { video: [useVP8(), useH264()] },
+    });
+    pc.addTrack(videoTrack());
+
+    // Act: 初回 offer では全 capability を広告する。
+    const firstOffer = await pc.createOffer();
+
+    // Assert: 初回は VP8/H264 の両方を含む。
+    expect(firstOffer.sdp.toLowerCase()).toContain("vp8/90000");
+    expect(firstOffer.sdp.toLowerCase()).toContain("h264/90000");
+
+    // Act: 初回 offer 後に preference を H264 のみに変更して再 offer する。
+    pc.getTransceivers()[0].setCodecPreferences([useH264()]);
+    const secondOffer = await pc.createOffer();
+
+    // Assert: 2 回目の offer は H264 のみに絞られる。
+    expect(secondOffer.sdp.toLowerCase()).toContain("h264/90000");
+    expect(secondOffer.sdp.toLowerCase()).not.toContain("vp8/90000");
+    expect(codecNames(pc)).toEqual(["video/h264"]);
+    pc.close();
+  });
+
+  test("incompatible preferences after first offer fail at next offer", async () => {
+    const pc = new RTCPeerConnection({
+      codecs: { video: [useVP8(), useH264()] },
+    });
+    pc.addTrack(videoTrack(useH264()));
+
+    // Act: 初回 offer は fixed H264 source により H264 のみで成功する。
+    const firstOffer = await pc.createOffer();
+
+    // Assert: 初回は H264 のみを含む。
+    expect(firstOffer.sdp.toLowerCase()).toContain("h264/90000");
+
+    // Act: 初回 offer 後に source と互換の無い preference を設定する。
+    pc.getTransceivers()[0].setCodecPreferences([useVP8()]);
+
+    // Assert: 次回 offer で NotSupportedError になる。
+    await expect(pc.createOffer()).rejects.toMatchObject({
+      name: "NotSupportedError",
+    });
+    pc.close();
+  });
+
+  test("preferences changed after remote offer are reflected in answer", async () => {
+    const offerer = new RTCPeerConnection({
+      codecs: { video: [useVP8(), useH264()] },
+    });
+    offerer.addTrack(videoTrack());
+
+    // Act: offer 側が VP8/H264 で offer を作成し、answer 側が remote に適用する。
+    const offer = await offerer.createOffer();
+    const answerer = new RTCPeerConnection({
+      codecs: { video: [useVP8(), useH264()] },
+    });
+    await answerer.setRemoteDescription(offer);
+
+    // Act: remote offer 適用後に preference を H264 のみに変更して answer を作成する。
+    answerer.getTransceivers()[0].setCodecPreferences([useH264()]);
+    const answer = await answerer.createAnswer();
+
+    // Assert: answer は H264 のみに絞られる。
+    expect(answer.sdp.toLowerCase()).toContain("h264/90000");
+    expect(answer.sdp.toLowerCase()).not.toContain("vp8/90000");
+    await offerer.close();
+    await answerer.close();
+  });
 });

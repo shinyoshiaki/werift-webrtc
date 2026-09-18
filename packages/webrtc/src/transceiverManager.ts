@@ -371,17 +371,15 @@ export class TransceiverManager {
     return receiveParameters;
   }
 
-  setRemoteRTP(
+  /**
+   * remote offer と local (source constraint + preferences) から
+   * answer 用の codec を再解決する。
+   * setCodecPreferences() による無効化後に createAnswer() から呼ばれる。
+   */
+  refreshAnswerCodecs(
     transceiver: RTCRtpTransceiver,
     remoteMedia: MediaDescription,
-    type: "offer" | "answer" | "pranswer",
-    mLineIndex: number,
   ): void {
-    if (!transceiver.mid) {
-      transceiver.mid = remoteMedia.rtp.muxId ?? null;
-    }
-    transceiver.mLineIndex = mLineIndex;
-
     const localCodecs = resolveCodecs(
       this.config.codecs[remoteMedia.kind] || [],
       getTrackSourceCodecs(transceiver.sender.track),
@@ -421,6 +419,20 @@ export class TransceiverManager {
         "No compatible codec remains after remote negotiation.",
       );
     }
+  }
+
+  setRemoteRTP(
+    transceiver: RTCRtpTransceiver,
+    remoteMedia: MediaDescription,
+    type: "offer" | "answer" | "pranswer",
+    mLineIndex: number,
+  ): void {
+    if (!transceiver.mid) {
+      transceiver.mid = remoteMedia.rtp.muxId ?? null;
+    }
+    transceiver.mLineIndex = mLineIndex;
+
+    this.refreshAnswerCodecs(transceiver, remoteMedia);
     transceiver.headerExtensions = remoteMedia.rtp.headerExtensions.filter(
       (extension) =>
         (

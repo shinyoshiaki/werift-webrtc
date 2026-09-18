@@ -1127,6 +1127,34 @@ export class RTCPeerConnection extends EventTarget {
 
     await this.secureManager.ensureCerts();
 
+    // setCodecPreferences() で無効化された transceiver を再解決する。
+    // offer 側と異なり answer は remote offer との交渉結果を使う。
+    for (const transceiver of this.transceiverManager.getTransceivers()) {
+      if (transceiver.codecs.length !== 0) {
+        continue;
+      }
+      const remoteDescription = this.sdpManager._remoteDescription;
+      const remoteMedia =
+        remoteDescription?.media.find(
+          (media) =>
+            media.rtp.muxId != undefined &&
+            media.rtp.muxId === transceiver.mid &&
+            media.kind === transceiver.kind,
+        ) ??
+        (transceiver.mLineIndex != undefined
+          ? remoteDescription?.media[transceiver.mLineIndex]
+          : undefined);
+      if (remoteMedia && ["audio", "video"].includes(remoteMedia.kind)) {
+        this.transceiverManager.refreshAnswerCodecs(transceiver, remoteMedia);
+      } else {
+        this.transceiverManager.assignTransceiverCodecs(transceiver);
+      }
+      if (transceiver.headerExtensions.length === 0) {
+        transceiver.headerExtensions =
+          this.config.headerExtensions[transceiver.kind] ?? [];
+      }
+    }
+
     const description = this.sdpManager.buildAnswerSdp({
       transceivers: this.transceiverManager.getTransceivers(),
       sctpTransport: this.sctpTransport,
