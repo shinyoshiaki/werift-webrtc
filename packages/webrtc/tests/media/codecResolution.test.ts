@@ -220,4 +220,35 @@ describe("codec resolution", () => {
     await offerer.close();
     await answerer.close();
   });
+
+  test("answerer with local track syncs sender codec with answer SDP", async () => {
+    const offerer = new RTCPeerConnection({
+      codecs: { video: [useVP8(), useH264()] },
+    });
+    offerer.addTrack(videoTrack());
+
+    // Arrange: offer 側が VP8/H264 で offer を作成する。
+    const offer = await offerer.createOffer();
+
+    const answerer = new RTCPeerConnection({
+      codecs: { video: [useVP8(), useH264()] },
+    });
+    // Arrange: answerer も local track を持つ (sendrecv)。
+    answerer.addTrack(videoTrack());
+    await answerer.setRemoteDescription(offer);
+    const answererTransceiver = answerer.getTransceivers()[0];
+
+    // Act: remote offer 適用後に preference を H264 のみに変更して answer を作成する。
+    answererTransceiver.setCodecPreferences([useH264()]);
+    const answer = await answerer.createAnswer();
+
+    // Assert: answer SDP と sender の実 codec が一致する。
+    expect(answer.sdp.toLowerCase()).toContain("h264/90000");
+    expect(answer.sdp.toLowerCase()).not.toContain("vp8/90000");
+    expect(
+      answererTransceiver.sender.codec?.mimeType.toLowerCase(),
+    ).toBe("video/h264");
+    await offerer.close();
+    await answerer.close();
+  });
 });

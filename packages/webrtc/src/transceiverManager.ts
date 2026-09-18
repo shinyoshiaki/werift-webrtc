@@ -373,8 +373,39 @@ export class TransceiverManager {
 
   /**
    * remote offer と local (source constraint + preferences) から
-   * answer 用の codec を再解決する。
+   * answer 用の codec を再解決し、sender/receiver の codec 状態も
+   * 新しい negotiated codec に同期する。
    * setCodecPreferences() による無効化後に createAnswer() から呼ばれる。
+   * direction / headerExtensions / onTrack は setRemoteDescription() 時の
+   * まま変えない (track イベントの重複発火を避ける)。
+   */
+  resyncAnswerCodecs(
+    transceiver: RTCRtpTransceiver,
+    remoteMedia: MediaDescription,
+  ): void {
+    this.refreshAnswerCodecs(transceiver, remoteMedia);
+
+    const localParams = this.getLocalRtpParams(transceiver);
+    transceiver.sender.prepareSend(localParams);
+
+    if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
+      const remoteParams = this.getRemoteRtpParams(remoteMedia, transceiver);
+      for (const param of remoteMedia.simulcastParameters) {
+        this.router.registerRtpReceiverByRid(transceiver, param, remoteParams);
+      }
+      transceiver.receiver.prepareReceive(remoteParams);
+      this.router.registerRtpReceiverBySsrc(transceiver, remoteParams);
+    }
+
+    if (remoteMedia.ssrc[0]?.ssrc) {
+      transceiver.receiver.setupTWCC(remoteMedia.ssrc[0].ssrc);
+    }
+  }
+
+  /**
+   * remote offer と local (source constraint + preferences) から
+   * answer 用の codec だけを再解決する (sender/receiver の同期なし)。
+   * setRemoteRTP() の交渉部分として使う。
    */
   refreshAnswerCodecs(
     transceiver: RTCRtpTransceiver,

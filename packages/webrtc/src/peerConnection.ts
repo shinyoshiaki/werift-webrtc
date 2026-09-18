@@ -1128,7 +1128,8 @@ export class RTCPeerConnection extends EventTarget {
     await this.secureManager.ensureCerts();
 
     // setCodecPreferences() で無効化された transceiver を再解決する。
-    // offer 側と異なり answer は remote offer との交渉結果を使う。
+    // offer 側と異なり answer は remote offer との交渉結果を使い、
+    // sender/receiver の codec 状態も新しい negotiated codec に同期する。
     for (const transceiver of this.transceiverManager.getTransceivers()) {
       if (transceiver.codecs.length !== 0) {
         continue;
@@ -1145,7 +1146,7 @@ export class RTCPeerConnection extends EventTarget {
           ? remoteDescription?.media[transceiver.mLineIndex]
           : undefined);
       if (remoteMedia && ["audio", "video"].includes(remoteMedia.kind)) {
-        this.transceiverManager.refreshAnswerCodecs(transceiver, remoteMedia);
+        this.transceiverManager.resyncAnswerCodecs(transceiver, remoteMedia);
       } else {
         this.transceiverManager.assignTransceiverCodecs(transceiver);
       }
