@@ -413,28 +413,11 @@ export class TransceiverManager {
    * answer 用の codec だけを再解決する (sender/receiver の同期なし)。
    * setRemoteRTP() の交渉部分として使う。
    */
-  refreshAnswerCodecs(
-    transceiver: RTCRtpTransceiver,
+  private resolveRemoteCodecSet(
+    localCodecs: RTCRtpCodecParameters[],
     remoteMedia: MediaDescription,
-    order: "local" | "remote" = "local",
-    offeredCodecs?: RTCRtpCodecParameters[],
-  ): void {
-    const localCodecs =
-      offeredCodecs ??
-      resolveCodecs(
-        this.config.codecs[remoteMedia.kind] || [],
-        getTrackSourceCodecs(transceiver.sender.track),
-        transceiver.codecPreferences,
-      );
-    if (!offeredCodecs) {
-      assertCodecsSupported({
-        kind: remoteMedia.kind,
-        configured: this.config.codecs[remoteMedia.kind] || [],
-        source: getTrackSourceCodecs(transceiver.sender.track),
-        preferences: transceiver.codecPreferences,
-      });
-    }
-
+    order: "local" | "remote",
+  ): RTCRtpCodecParameters[] {
     // # negotiate codecs
     const remoteByLocal = new Map<
       RTCRtpCodecParameters,
@@ -454,7 +437,7 @@ export class TransceiverManager {
       }
     }
 
-    transceiver.codecs = localCodecs.flatMap((localCodec) => {
+    const negotiated = localCodecs.flatMap((localCodec) => {
       if (localCodec.name.toLowerCase() !== "rtx") {
         const remoteCodec = remoteByLocal.get(localCodec);
         return remoteCodec ? [remoteCodec] : [];
@@ -486,42 +469,94 @@ export class TransceiverManager {
       const remoteOrder = new Map(
         remoteMedia.rtp.codecs.map((codec, index) => [codec, index]),
       );
-      transceiver.codecs.sort(
+      negotiated.sort(
         (left, right) => remoteOrder.get(left)! - remoteOrder.get(right)!,
       );
     }
-
-    if (offeredCodecs) {
-      assertCodecsSupported({
-        kind: remoteMedia.kind,
-        configured: transceiver.codecs,
-        source: getTrackSourceCodecs(transceiver.sender.track),
-        preferences: undefined,
-      });
-    }
-
-    log("negotiated codecs", transceiver.codecs);
-    if (transceiver.codecs.length === 0) {
+    if (negotiated.length === 0) {
       throw createWebRtcDomException(
         "NotSupportedError",
         "No compatible codec remains after remote negotiation.",
       );
     }
+    return negotiated;
   }
 
-  validateRemoteAnswerSourceCodecs(remoteSdp: SessionDescription): void {
+  refreshAnswerCodecs(
+    transceiver: RTCRtpTransceiver,
+    remoteMedia: MediaDescription,
+  ): void {
+    const configured = this.config.codecs[remoteMedia.kind] || [];
+    const source = getTrackSourceCodecs(transceiver.sender.track);
+    assertCodecsSupported({
+      kind: remoteMedia.kind,
+      configured,
+      source,
+      preferences: transceiver.codecPreferences,
+    });
+    const localCodecs = resolveCodecs(
+      configured,
+      source,
+      transceiver.codecPreferences,
+    );
+    transceiver.codecs = this.resolveRemoteCodecSet(
+      localCodecs,
+      remoteMedia,
+      "local",
+    );
+    log("negotiated codecs", transceiver.codecs);
+  }
+
+  planRemoteRtpCodecs(
+    remoteSdp: SessionDescription,
+  ): Map<number, RTCRtpCodecParameters[]> {
+    const plan = new Map<number, RTCRtpCodecParameters[]>();
+    const used = new Set<RTCRtpTransceiver>();
     for (const [index, remoteMedia] of remoteSdp.media.entries()) {
       if (!["audio", "video"].includes(remoteMedia.kind)) continue;
-      const transceiver = this.getTransceiverByMLineIndex(index);
+      if (remoteMedia.port === 0) {
+        plan.set(index, []);
+        continue;
+      }
+      const isOffer = remoteSdp.type === "offer";
+      const transceiver =
+        (!isOffer ? this.getTransceiverByMLineIndex(index) : undefined) ??
+        this.transceivers.find(
+          (candidate) =>
+            !used.has(candidate) &&
+            candidate.kind === remoteMedia.kind &&
+            [null, remoteMedia.rtp.muxId].includes(candidate.mid),
+        );
+      if (transceiver) used.add(transceiver);
       const source = getTrackSourceCodecs(transceiver?.sender.track);
-      if (source == undefined) continue;
-      assertCodecsSupported({
-        kind: remoteMedia.kind,
-        configured: remoteMedia.rtp.codecs,
-        source,
-        preferences: undefined,
-      });
+      const configured = this.config.codecs[remoteMedia.kind] || [];
+      if (isOffer) {
+        assertCodecsSupported({
+          kind: remoteMedia.kind,
+          configured,
+          source,
+          preferences: transceiver?.codecPreferences,
+        });
+      }
+      const localCodecs = isOffer
+        ? resolveCodecs(configured, source, transceiver?.codecPreferences)
+        : transceiver?.pendingLocalOfferCodecs || [];
+      const negotiated = this.resolveRemoteCodecSet(
+        localCodecs,
+        remoteMedia,
+        isOffer ? "local" : "remote",
+      );
+      if (!isOffer && source != undefined) {
+        assertCodecsSupported({
+          kind: remoteMedia.kind,
+          configured: negotiated,
+          source,
+          preferences: undefined,
+        });
+      }
+      plan.set(index, negotiated);
     }
+    return plan;
   }
 
   setRemoteRTP(
@@ -529,19 +564,20 @@ export class TransceiverManager {
     remoteMedia: MediaDescription,
     type: "offer" | "answer" | "pranswer",
     mLineIndex: number,
+    codecs: RTCRtpCodecParameters[],
   ): void {
     if (!transceiver.mid) {
       transceiver.mid = remoteMedia.rtp.muxId ?? null;
     }
     transceiver.mLineIndex = mLineIndex;
 
-    this.refreshAnswerCodecs(
-      transceiver,
-      remoteMedia,
-      type === "offer" ? "local" : "remote",
-      type === "offer" ? undefined : transceiver.pendingLocalOfferCodecs,
-    );
+    transceiver.codecs = codecs;
     if (type === "answer") transceiver.pendingLocalOfferCodecs = undefined;
+    if (remoteMedia.port === 0) {
+      transceiver.headerExtensions = [];
+      transceiver.setCurrentDirection("inactive");
+      return;
+    }
     transceiver.headerExtensions = remoteMedia.rtp.headerExtensions.filter(
       (extension) =>
         (

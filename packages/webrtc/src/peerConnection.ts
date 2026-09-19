@@ -923,19 +923,10 @@ export class RTCPeerConnection extends EventTarget {
 
     await this.waitForPendingDescriptionTask();
 
-    const needsImplicitLocalRollback =
-      sessionDescription.type === "offer" &&
-      ["have-local-offer", "have-local-pranswer"].includes(this.signalingState);
-    if (needsImplicitLocalRollback) {
-      this.sdpManager.rollbackLocalDescription(this.signalingState);
-      this.shouldNegotiationneeded = true;
-      this.setSignalingState("stable");
-      await Promise.resolve();
-    }
-
+    let codecPlan = new Map<number, RTCRtpCodecParameters[]>();
     if (
-      (sessionDescription.type === "answer" ||
-        sessionDescription.type === "pranswer") &&
+      sessionDescription.type &&
+      sessionDescription.type !== "rollback" &&
       sessionDescription.sdp
     ) {
       const preview = this.sdpManager.parseSdp({
@@ -944,7 +935,17 @@ export class RTCPeerConnection extends EventTarget {
         signalingState: this.signalingState,
         type: sessionDescription.type,
       });
-      this.transceiverManager.validateRemoteAnswerSourceCodecs(preview);
+      codecPlan = this.transceiverManager.planRemoteRtpCodecs(preview);
+    }
+
+    const needsImplicitLocalRollback =
+      sessionDescription.type === "offer" &&
+      ["have-local-offer", "have-local-pranswer"].includes(this.signalingState);
+    if (needsImplicitLocalRollback) {
+      this.sdpManager.rollbackLocalDescription(this.signalingState);
+      this.shouldNegotiationneeded = true;
+      this.setSignalingState("stable");
+      await Promise.resolve();
     }
 
     // # parse and validate description
@@ -1011,6 +1012,7 @@ export class RTCPeerConnection extends EventTarget {
           remoteMedia,
           remoteSdp.type,
           i,
+          codecPlan.get(i) ?? [],
         );
       } else if (remoteMedia.kind === "application") {
         let sctpTransport = this.sctpTransport;

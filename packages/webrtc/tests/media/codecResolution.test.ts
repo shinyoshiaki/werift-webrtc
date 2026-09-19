@@ -26,6 +26,35 @@ function codecNames(pc: RTCPeerConnection) {
     .codecs.map((codec) => codec.mimeType.toLowerCase());
 }
 
+function remoteApplicationSnapshot(pc: RTCPeerConnection) {
+  return {
+    currentLocal: pc.currentLocalDescription,
+    pendingLocal: pc.pendingLocalDescription,
+    currentRemote: pc.currentRemoteDescription,
+    pendingRemote: pc.pendingRemoteDescription,
+    signalingState: pc.signalingState,
+    transceivers: pc.getTransceivers().map((transceiver) => ({
+      mid: transceiver.mid,
+      mLineIndex: transceiver.mLineIndex,
+      codecs: transceiver.codecs.map((codec) => ({ ...codec })),
+      pendingLocalOfferCodecs: transceiver.pendingLocalOfferCodecs?.map(
+        (codec) => ({ ...codec }),
+      ),
+      headerExtensions: transceiver.headerExtensions.map((extension) => ({
+        ...extension,
+      })),
+      currentDirection: transceiver.currentDirection,
+      senderCodec: transceiver.sender.codec
+        ? { ...transceiver.sender.codec }
+        : undefined,
+      receiverCodec: transceiver.receiver.track.codec
+        ? { ...transceiver.receiver.track.codec }
+        : undefined,
+      dtlsState: transceiver.dtlsTransport.state,
+    })),
+  };
+}
+
 describe("codec resolution", () => {
   test("RED preference preserves its sending position before primary codec", () => {
     const opus = new RTCRtpCodecParameters({
@@ -744,6 +773,117 @@ describe("codec resolution", () => {
     expect(offerer.remoteDescription).toBeNull();
     expect(offerer.signalingState).toBe("have-local-offer");
     expect(offerer.getTransceivers()[0].codecs).toEqual(codecsBefore);
+    await offerer.close();
+    await answerer.close();
+  });
+
+  test.each([
+    ["raw", "answer"],
+    ["raw", "pranswer"],
+    ["fixed", "answer"],
+    ["fixed", "pranswer"],
+  ] as const)(
+    "%s track keeps all state when an incompatible remote %s is rejected",
+    async (sourceType, descriptionType) => {
+      const fixedCodec = useH264({
+        parameters: "profile-level-id=42e01f;packetization-mode=1",
+      });
+      const configured = sourceType === "fixed" ? [fixedCodec] : [useVP8()];
+      const offerer = new RTCPeerConnection({ codecs: { video: configured } });
+      offerer.addTrack(
+        videoTrack(sourceType === "fixed" ? fixedCodec : undefined),
+      );
+      const offer = await offerer.createOffer();
+      await offerer.setLocalDescription(offer);
+      const answerer = new RTCPeerConnection({
+        codecs: { video: configured },
+      });
+      answerer.addTrack(videoTrack());
+      await answerer.setRemoteDescription(offer);
+      const answer = await answerer.createAnswer();
+      const invalidSdp =
+        sourceType === "fixed"
+          ? answer.sdp.replace("42e01f", "42c00a")
+          : answer.sdp.replace("VP8/90000", "H264/90000");
+      const before = remoteApplicationSnapshot(offerer);
+      const onTrack = vi.fn();
+      offerer.onTrack.subscribe(onTrack);
+
+      // 実行: codec不一致のanswer/pranswerを適用する。
+      const act = offerer.setRemoteDescription({
+        type: descriptionType,
+        sdp: invalidSdp,
+      });
+
+      // 検証: 例外前後のSDP・transceiver・transport状態とイベントを不変に保つ。
+      await expect(act).rejects.toMatchObject({ name: "NotSupportedError" });
+      expect(remoteApplicationSnapshot(offerer)).toEqual(before);
+      expect(onTrack).not.toHaveBeenCalled();
+
+      // 実行 / 検証: 拒否直後にも正常answerを適用できる。
+      await expect(
+        offerer.setRemoteDescription(answer),
+      ).resolves.toBeUndefined();
+      await offerer.close();
+      await answerer.close();
+    },
+  );
+
+  test("a later failing m-line leaves earlier media and events untouched", async () => {
+    const offerer = new RTCPeerConnection({
+      codecs: { audio: [useOPUS()], video: [useVP8()] },
+    });
+    offerer.addTrack(new MediaStreamTrack({ kind: "audio" }));
+    offerer.addTrack(videoTrack());
+    const offer = await offerer.createOffer();
+    const answerer = new RTCPeerConnection({
+      codecs: { audio: [useOPUS()], video: [useVP8(), useH264()] },
+    });
+    answerer.addTrack(new MediaStreamTrack({ kind: "audio" }));
+    answerer.addTrack(videoTrack(useH264()));
+    const before = remoteApplicationSnapshot(answerer);
+    const onTrack = vi.fn();
+    answerer.onTrack.subscribe(onTrack);
+
+    // 実行: audioは成功するが後続videoがfixed sourceと不一致のofferを適用する。
+    const act = answerer.setRemoteDescription(offer);
+
+    // 検証: 全m-lineの解決完了前には先行audioもイベントも反映しない。
+    await expect(act).rejects.toMatchObject({ name: "NotSupportedError" });
+    expect(remoteApplicationSnapshot(answerer)).toEqual(before);
+    expect(onTrack).not.toHaveBeenCalled();
+    await offerer.close();
+    await answerer.close();
+  });
+
+  test("a rejected answer m-line ignores incompatible codec parameters", async () => {
+    const fixedCodec = useH264({
+      parameters: "profile-level-id=42e01f;packetization-mode=1",
+    });
+    const offerer = new RTCPeerConnection({
+      codecs: { video: [fixedCodec] },
+    });
+    offerer.addTrack(videoTrack(fixedCodec));
+    const offer = await offerer.createOffer();
+    await offerer.setLocalDescription(offer);
+    const answerer = new RTCPeerConnection({
+      codecs: { video: [fixedCodec] },
+    });
+    await answerer.setRemoteDescription(offer);
+    const answer = await answerer.createAnswer();
+    const rejectedSdp = answer.sdp
+      .replace("42e01f", "42c00a")
+      .replace(/m=video \d+ /, "m=video 0 ");
+
+    // 実行: codec fmtpが非互換でもport=0でrejectされたanswerを適用する。
+    await offerer.setRemoteDescription({ type: "answer", sdp: rejectedSdp });
+
+    // 検証: rejected sectionはRTP設定を開始せずinactiveとして確定する。
+    const transceiver = offerer.getTransceivers()[0];
+    expect(offerer.signalingState).toBe("stable");
+    expect(transceiver.codecs).toEqual([]);
+    expect(transceiver.currentDirection).toBe("inactive");
+    expect(transceiver.sender.codec).toBeUndefined();
     await offerer.close();
     await answerer.close();
   });

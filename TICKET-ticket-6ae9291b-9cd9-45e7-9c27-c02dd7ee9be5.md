@@ -455,6 +455,63 @@ message 内の codec は `mimeType` の列挙（`", "` 区切り）とする。s
 
 ---
 
+## 6. 追加要件: remote SDP codec 解決の原子性
+
+### 6.1 仕様の固定
+
+本節は HEAD `6568cda0d90c07c56ec2e8f1121d75a7f74e5694` で確認した状態汚染を解消するための追加要件であり、既存の codec 判定規則は変更しない。
+
+- preference は MIME 一致で照合し、`clockRate` は双方指定時のみ比較する。`parameters` / `payloadType` は照合に使用しない。
+- remote SDP の codec membership は従来どおり MIME 一致を維持する。
+- fixed source と capability の H264 `packetization-mode` / `profile-level-id` は双方指定時のみ比較する。
+- 共通 codec がない場合は既存どおり `NotSupportedError` とする。自動で rejected answer を生成しない。
+- H264 profile/level negotiation の厳格化や省略値の補完は本チケットへ追加せず、必要なら別チケットとする。
+- `replaceTrack()` は現在の送信 primary codec と互換な fixed source だけを許可する。別 primary への暗黙切替は行わない。
+
+### 6.2 解決と反映の分離
+
+remote offer / answer / pranswer の適用は次の2段階で行う。
+
+1. 全 audio/video m-line について、source constraint、preference、pending local offer、remote codec membership、RTX/RED 対応を副作用なしで解決し、適用予定の codec 集合を作る。
+2. 全 m-line の解決が成功した場合に限り、その同じ解決結果を使用して SDP、mid、mLineIndex、pending codec、sender/receiver、router、transport、イベントを反映する。
+
+事前検証と本適用で codec 判定を別実装にしない。検証後に同じ計算を再実行せず、検証済みの解決結果をそのまま適用する。後付け rollback は、発火済みイベントや transport 副作用を戻せないため採用しない。
+
+いずれかの m-line で codec 解決に失敗した場合、先行 m-line を含めて次の観測可能状態を変更しない。
+
+- current / pending の local・remote description と signaling state
+- transceiver の mid、mLineIndex、codec、pending offer codec、direction、header extension
+- sender / receiver の codec、RTX / RED、router 登録
+- ICE / DTLS / SCTP transport の設定・開始状態
+- `onTrack` など remote SDP 適用に伴うイベント
+
+拒否直後に、正常な SDP を同じ PeerConnection へ適用できなければならない。
+
+### 6.3 rejected / inactive m-line
+
+- `port=0` の audio/video m-line は rejected section として扱い、codec 解決・source compatibility 検証を行わない。
+- rejected section の RTP/RTCP sender・receiver・router を設定または開始せず、transceiver を inactive として反映する。
+- BUNDLE transport を共有する他の有効 section は維持する。
+- `port!=0` の `inactive` section は rejected と同一視せず、通常の codec 解決・source constraint 検証を維持する。
+
+根拠: RFC 3264 §6 では rejected stream の media formats は無視され、§6.1 の inactive stream は offer に基づく形式を持つ。
+
+### 6.4 追加の受け入れ条件
+
+共通の状態 snapshot utility を用い、少なくとも次を恒久テストで確認する。
+
+- raw / fixed source × remote answer / pranswer の不一致が `NotSupportedError` となり、失敗前後の全状態が不変である。
+- fixed source または local capability と非互換な remote offer を、状態変更や `onTrack` 発火なしで拒否する。
+- 複数 m-line の後段で失敗しても、先行 m-line の sender / receiver / codec / transport / event に副作用がない。
+- `port=0` の rejected answer は非互換 fmtp を無視して受理され、RTP/RTCP 処理を開始しない。
+- `port!=0` の inactive answer は通常の codec 検証を受ける。
+- 拒否直後の正常 SDP 適用と RTP 送受信が成功する。
+- 既存の payload type 対応、RTX / RED、raw/fixed clone、preference 変更中の pending offer の回帰テストを維持する。
+
+再レビュー時は、レビュー対象 SHA、チケット本文の revision、package / workspace / mediasoup interop の結果、および上記検証表を同じ実装状態に対する証跡としてまとめる。
+
+---
+
 ## 主な参照
 
 - `packages/webrtc/src/polyfill/install.ts`
@@ -482,3 +539,5 @@ message 内の codec は `mimeType` の列挙（`", "` 区切り）とする。s
 7. H264 の compatibility は `packetization-mode` / `profile-level-id` を両方指定時のみ比較する。remote SDP 交渉は従来どおり MIME 一致を維持する。
 8. `setCodecPreferences` の引数は `RTCRtpCodecParameters[]`、preference 照合は MIME 一致（`clockRate` は双方指定時のみ）とする。`RTCRtpCodecCapability` 型分離は Phase 4。
 9. integration fixture は `installInteropPeerConnection` を廃止して `peerConnectionConfig` に置き換え、H264 produce テストは mimeType 一致の source register を選ぶよう修正する。
+10. remote SDP は全 m-line の codec を副作用なしで解決してから一括反映し、失敗時は状態とイベントを不変に保つ。
+11. `port=0` は rejected として codec/source 検証と RTP/RTCP 適用をスキップする。`port!=0` の inactive section は通常の codec 検証を維持する。
