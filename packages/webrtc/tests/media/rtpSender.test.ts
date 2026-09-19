@@ -62,6 +62,64 @@ describe("media/rtpSender", () => {
     expect(spy).toBeCalledTimes(2);
   });
 
+  test("prepareSend clears excluded RTX and RED state", async () => {
+    const sender = new RTCRtpSender(new MediaStreamTrack({ kind: "video" }));
+    const vp8 = new RTCRtpCodecParameters({
+      mimeType: "video/VP8",
+      clockRate: 90000,
+      payloadType: 96,
+    });
+
+    // 実行: 初回交渉で VP8 に紐づく RTX と RED を設定する。
+    sender.prepareSend({
+      codecs: [
+        vp8,
+        new RTCRtpCodecParameters({
+          mimeType: "video/rtx",
+          clockRate: 90000,
+          payloadType: 97,
+          parameters: "apt=96",
+        }),
+        new RTCRtpCodecParameters({
+          mimeType: "video/red",
+          clockRate: 90000,
+          payloadType: 98,
+          parameters: "96/96",
+        }),
+      ],
+      headerExtensions: [],
+    });
+
+    // 検証: 初回交渉の補助 codec 状態が保持される。
+    expect(senderStatsState(sender)).toMatchObject({
+      rtxPayloadType: 97,
+      redRedundantPayloadType: 96,
+    });
+
+    // 実行: RTX/RED を含まない H264-only の再交渉結果を適用する。
+    sender.prepareSend({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "video/H264",
+          clockRate: 90000,
+          payloadType: 100,
+        }),
+      ],
+      headerExtensions: [],
+    });
+    const stats = await sender.getStats();
+    const outbound = Array.from(stats.values()).find(
+      (stat) => stat.type === "outbound-rtp",
+    ) as { rtxSsrc?: number };
+
+    // 検証: 除外済みの RTX/RED payload type と RTX 統計を残さない。
+    expect(senderStatsState(sender)).toMatchObject({
+      rtxPayloadType: undefined,
+      redRedundantPayloadType: undefined,
+    });
+    expect(outbound.rtxSsrc).toBeUndefined();
+  });
+
   test("replaceTrack without first RTP still continues sequence and timestamp", async () => {
     const track1 = new MediaStreamTrack({ kind: "audio" });
     const dtls = createDtlsTransport();
@@ -527,6 +585,13 @@ describe("media/rtpSender", () => {
 
 function pendingRtpQueue(sender: RTCRtpSender) {
   return (sender as unknown as { pendingRtp: unknown[] }).pendingRtp;
+}
+
+function senderStatsState(sender: RTCRtpSender) {
+  return sender as unknown as {
+    rtxPayloadType?: number;
+    redRedundantPayloadType?: number;
+  };
 }
 
 function arrangeDisconnectedSender(

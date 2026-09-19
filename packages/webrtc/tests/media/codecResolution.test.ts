@@ -226,8 +226,18 @@ describe("codec resolution", () => {
   });
 
   test("answerer with local track syncs sender codec with answer SDP", async () => {
+    const codecs = () => [
+      useVP8(),
+      new RTCRtpCodecParameters({
+        mimeType: "video/rtx",
+        clockRate: 90000,
+        payloadType: 97,
+        parameters: "apt=96",
+      }),
+      useH264(),
+    ];
     const offerer = new RTCPeerConnection({
-      codecs: { video: [useVP8(), useH264()] },
+      codecs: { video: codecs() },
     });
     offerer.addTrack(videoTrack());
 
@@ -235,7 +245,7 @@ describe("codec resolution", () => {
     const offer = await offerer.createOffer();
 
     const answerer = new RTCPeerConnection({
-      codecs: { video: [useVP8(), useH264()] },
+      codecs: { video: codecs() },
     });
     // Arrange: answerer も local track を持つ (sendrecv)。
     answerer.addTrack(videoTrack());
@@ -252,6 +262,19 @@ describe("codec resolution", () => {
     expect(answererTransceiver.sender.codec?.mimeType.toLowerCase()).toBe(
       "video/h264",
     );
+    expect(answer.sdp.toLowerCase()).not.toContain("rtx/90000");
+    expect(
+      (
+        answererTransceiver.sender as unknown as {
+          rtxPayloadType?: number;
+        }
+      ).rtxPayloadType,
+    ).toBeUndefined();
+    const senderStats = await answererTransceiver.sender.getStats();
+    const outbound = Array.from(senderStats.values()).find(
+      (stat) => stat.type === "outbound-rtp",
+    ) as { rtxSsrc?: number };
+    expect(outbound.rtxSsrc).toBeUndefined();
     await offerer.close();
     await answerer.close();
   });

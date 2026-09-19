@@ -270,6 +270,8 @@ export class RTCRtpSender {
       this.track.codec = this.codec;
     }
 
+    this.rtxPayloadType = undefined;
+    this.redRedundantPayloadType = undefined;
     params.codecs.forEach((codec) => {
       const codecParams = codecParametersFromString(codec.parameters ?? "");
       if (
