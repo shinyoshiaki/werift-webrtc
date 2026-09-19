@@ -348,25 +348,25 @@ describe("codec resolution", () => {
   });
 
   test("answer preserves RED preference order for a sendrecv transceiver", async () => {
-    const codecs = () => {
-      const opus = useOPUS({ payloadType: 96 });
+    const codecs = (opusPayloadType: number, redPayloadType: number) => {
+      const opus = useOPUS({ payloadType: opusPayloadType });
       const red = new RTCRtpCodecParameters({
         mimeType: "audio/red",
         clockRate: 48_000,
         channels: 2,
-        payloadType: 97,
-        parameters: "96/96",
+        payloadType: redPayloadType,
+        parameters: `${opusPayloadType}/${opusPayloadType}`,
       });
       return { opus, red };
     };
-    const offerCodecs = codecs();
+    const offerCodecs = codecs(96, 97);
     const offerer = new RTCPeerConnection({
       codecs: { audio: [offerCodecs.opus, offerCodecs.red] },
     });
     offerer.addTrack(new MediaStreamTrack({ kind: "audio" }));
     const offer = await offerer.createOffer();
 
-    const answerCodecs = codecs();
+    const answerCodecs = codecs(98, 99);
     const answerer = new RTCPeerConnection({
       codecs: { audio: [answerCodecs.opus, answerCodecs.red] },
     });
@@ -387,6 +387,65 @@ describe("codec resolution", () => {
       .split("\r\n")
       .find((line) => line.startsWith("m=audio"));
     expect(mediaLine?.split(" ").slice(3, 5)).toEqual(["97", "96"]);
+    await offerer.close();
+    await answerer.close();
+  });
+
+  test("answer maps duplicate MIME profiles and RTX to remote payload types", async () => {
+    const h264 = (payloadType: number, profile: string) =>
+      useH264({
+        payloadType,
+        parameters: `profile-level-id=${profile};packetization-mode=1`,
+      });
+    const rtx = (payloadType: number, apt: number) =>
+      new RTCRtpCodecParameters({
+        mimeType: "video/rtx",
+        clockRate: 90_000,
+        payloadType,
+        parameters: `apt=${apt}`,
+      });
+    const offerer = new RTCPeerConnection({
+      codecs: {
+        video: [
+          h264(96, "42e01f"),
+          rtx(97, 96),
+          h264(98, "640c1f"),
+          rtx(99, 98),
+        ],
+      },
+    });
+    offerer.addTrack(videoTrack());
+    const offer = await offerer.createOffer();
+    const answerer = new RTCPeerConnection({
+      codecs: {
+        video: [
+          h264(110, "42e01f"),
+          rtx(111, 110),
+          h264(112, "640c1f"),
+          rtx(113, 112),
+        ],
+      },
+    });
+    answerer.addTrack(videoTrack());
+
+    // 実行: 同一MIMEの異なるprofileとRTXを持つofferへanswerする。
+    await answerer.setRemoteDescription(offer);
+    const answer = await answerer.createAnswer();
+    const negotiated = answerer.getTransceivers()[0].codecs;
+
+    // 検証: remote codecを重複なく対応付け、offer側PTとRTX aptを使用する。
+    expect(negotiated.map((codec) => codec.payloadType)).toEqual([
+      96, 97, 98, 99,
+    ]);
+    expect(
+      negotiated
+        .filter((codec) => codec.name.toLowerCase() === "rtx")
+        .map((codec) => codec.parameters),
+    ).toEqual(["apt=96", "apt=98"]);
+    const mediaLine = answer.sdp
+      .split("\r\n")
+      .find((line) => line.startsWith("m=video"));
+    expect(mediaLine?.split(" ").slice(3, 7)).toEqual(["96", "97", "98", "99"]);
     await offerer.close();
     await answerer.close();
   });

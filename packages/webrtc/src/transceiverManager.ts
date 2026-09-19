@@ -21,11 +21,12 @@ import {
 } from "./media";
 import {
   assertCodecsSupported,
+  isCodecCompatible,
   resolveCodecs,
 } from "./media/codecCompatibility";
 import type { RTCStats } from "./media/stats";
 import { captureTrackSourceCodecs, getTrackSourceCodecs } from "./media/track";
-import { type PeerConfig, findCodecByMimeType } from "./peerConnection";
+import type { PeerConfig } from "./peerConnection";
 import { type MediaDescription, codecParametersFromString } from "./sdp";
 import type { RTCDtlsTransport } from "./transport/dtls";
 import type { Kind } from "./types/domain";
@@ -423,12 +424,26 @@ export class TransceiverManager {
     });
 
     // # negotiate codecs
+    const remoteByLocal = new Map<
+      RTCRtpCodecParameters,
+      RTCRtpCodecParameters
+    >();
+    const usedRemote = new Set<RTCRtpCodecParameters>();
+    for (const localCodec of localCodecs) {
+      if (localCodec.name.toLowerCase() === "rtx") continue;
+      const remoteCodec = remoteMedia.rtp.codecs.find(
+        (codec) =>
+          !usedRemote.has(codec) && isCodecCompatible(localCodec, codec),
+      );
+      if (remoteCodec) {
+        remoteByLocal.set(localCodec, remoteCodec);
+        usedRemote.add(remoteCodec);
+      }
+    }
+
     transceiver.codecs = localCodecs.flatMap((localCodec) => {
       if (localCodec.name.toLowerCase() !== "rtx") {
-        const remoteCodec = findCodecByMimeType(
-          remoteMedia.rtp.codecs,
-          localCodec,
-        );
+        const remoteCodec = remoteByLocal.get(localCodec);
         return remoteCodec ? [remoteCodec] : [];
       }
 
@@ -439,19 +454,20 @@ export class TransceiverManager {
         (codec) => codec.payloadType === localApt,
       );
       if (!localPrimary) return [];
-      const remotePrimary = findCodecByMimeType(
-        remoteMedia.rtp.codecs,
-        localPrimary,
-      );
+      const remotePrimary = remoteByLocal.get(localPrimary);
       if (!remotePrimary) return [];
       const remoteRtx = remoteMedia.rtp.codecs.find((codec) => {
-        if (codec.name.toLowerCase() !== "rtx") return false;
+        if (codec.name.toLowerCase() !== "rtx" || usedRemote.has(codec)) {
+          return false;
+        }
         return (
           codecParametersFromString(codec.parameters ?? "").apt ===
           remotePrimary.payloadType
         );
       });
-      return remoteRtx ? [remoteRtx] : [];
+      if (!remoteRtx) return [];
+      usedRemote.add(remoteRtx);
+      return [remoteRtx];
     });
 
     log("negotiated codecs", transceiver.codecs);
