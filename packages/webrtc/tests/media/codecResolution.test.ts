@@ -144,7 +144,7 @@ describe("codec resolution", () => {
     match.close();
   });
 
-  test("fixed H264 source accepts an equivalent profile-level representation", () => {
+  test("fixed H264 source compares specified profile-level-id values", () => {
     const source = useH264({
       parameters: "profile-level-id=42c01f;packetization-mode=1",
     });
@@ -158,12 +158,14 @@ describe("codec resolution", () => {
       },
     });
 
-    // 実行 / 検証: 同じprofileとlevelのconstraint bit表現差を許容する。
-    expect(() => pc.addTrack(videoTrack(source))).not.toThrow();
+    // 実行 / 検証: 双方に指定されたsource制約は文字列値が異なれば拒否する。
+    expect(() => pc.addTrack(videoTrack(source))).toThrow(
+      expect.objectContaining({ name: "NotSupportedError" }),
+    );
     pc.close();
   });
 
-  test("fixed mode 1 H264 source rejects capability with omitted mode", () => {
+  test("fixed H264 source accepts capability with an omitted parameter", () => {
     const source = useH264({
       parameters: "profile-level-id=42e01f;packetization-mode=1",
     });
@@ -175,14 +177,12 @@ describe("codec resolution", () => {
     });
     const pc = new RTCPeerConnection({ codecs: { video: [capability] } });
 
-    // 実行 / 検証: mode省略をmode 0として扱い、mode 1 sourceを拒否する。
-    expect(() => pc.addTrack(videoTrack(source))).toThrow(
-      expect.objectContaining({ name: "NotSupportedError" }),
-    );
+    // 実行 / 検証: 片側だけのfmtp指定は判定不能なのでsource制約を許容する。
+    expect(() => pc.addTrack(videoTrack(source))).not.toThrow();
     pc.close();
   });
 
-  test("remote H264 omitted parameters use SDP defaults", async () => {
+  test("remote H264 membership ignores fmtp differences", async () => {
     const omitted = new RTCRtpCodecParameters({
       mimeType: "video/H264",
       clockRate: 90_000,
@@ -203,10 +203,9 @@ describe("codec resolution", () => {
     });
     modeOne.addTrack(videoTrack());
 
-    // 実行 / 検証: remoteのmode省略はmode 0なのでmode 1 localと非互換になる。
-    await expect(modeOne.setRemoteDescription(offer)).rejects.toMatchObject({
-      name: "NotSupportedError",
-    });
+    // 実行 / 検証: remote membershipはMIME一致なのでmode差に関係なく成立する。
+    await modeOne.setRemoteDescription(offer);
+    await expect(modeOne.createAnswer()).resolves.toBeDefined();
     modeOne.close();
 
     const highProfile = new RTCPeerConnection({
@@ -220,49 +219,12 @@ describe("codec resolution", () => {
     });
     highProfile.addTrack(videoTrack());
 
-    // 実行 / 検証: profile省略は既定Constrained BaselineなのでHighと非互換になる。
-    await expect(highProfile.setRemoteDescription(offer)).rejects.toMatchObject(
-      { name: "NotSupportedError" },
-    );
+    // 実行 / 検証: remote membershipはprofile差も照合に使用しない。
+    await highProfile.setRemoteDescription(offer);
+    await expect(highProfile.createAnswer()).resolves.toBeDefined();
     offerer.close();
     highProfile.close();
   });
-
-  test.each([
-    ["omitted local parameters", undefined],
-    ["explicit local mode 0", "packetization-mode=0"],
-  ])(
-    "serializes normalized H264 defaults for %s",
-    async (_name, parameters) => {
-      const codec = (value?: string) =>
-        new RTCRtpCodecParameters({
-          mimeType: "video/H264",
-          clockRate: 90_000,
-          payloadType: 96,
-          parameters: value,
-        });
-      const offerer = new RTCPeerConnection({
-        codecs: { video: [codec()] },
-      });
-      offerer.addTrack(videoTrack());
-      const offer = await offerer.createOffer();
-      const answerer = new RTCPeerConnection({
-        codecs: { video: [codec(parameters)] },
-      });
-      answerer.addTrack(videoTrack());
-
-      // 実行: parameter省略offerへ、省略またはmode 0明示のlocal codecでanswerする。
-      await answerer.setRemoteDescription(offer);
-      const answer = await answerer.createAnswer();
-
-      // 検証: mode 0と既定profileを値付きfmtpとして正確に出力する。
-      expect(
-        answer.sdp.split("\r\n").find((line) => line.startsWith("a=fmtp:96")),
-      ).toBe("a=fmtp:96 packetization-mode=0;profile-level-id=42e01f");
-      await offerer.close();
-      await answerer.close();
-    },
-  );
 
   test("per-track constraints do not mutate PC codecs and retain RTX", async () => {
     const vp8 = useVP8({ payloadType: 96 });
@@ -424,7 +386,7 @@ describe("codec resolution", () => {
     await answerer.close();
   });
 
-  test("H264 parameter preference changes invalidate codecs and request negotiation", async () => {
+  test("H264 parameter preference changes request negotiation but match by MIME", async () => {
     const h264Preference = (profile: string, mode: number) =>
       useH264({
         parameters: `profile-level-id=${profile};packetization-mode=${mode}`,
@@ -466,19 +428,21 @@ describe("codec resolution", () => {
     // 実行: 変更後preferenceで次のofferを生成する。
     const changedOffer = await offerer.createOffer();
 
-    // 検証: SDPとsender候補に変更後のH264 parametersを反映する。
+    // 検証: preferenceのfmtpではなく、最初にMIME一致したcapabilityを使用する。
     expect(changedOffer.sdp.toLowerCase()).toContain(
-      "profile-level-id=42c00d;packetization-mode=0",
-    );
-    expect(changedOffer.sdp.toLowerCase()).not.toContain(
       "profile-level-id=42e01f;packetization-mode=1",
     );
-    expect(transceiver.codecs[0].parameters).toBe(changed.parameters);
+    expect(changedOffer.sdp.toLowerCase()).not.toContain(
+      "profile-level-id=42c00d;packetization-mode=0",
+    );
+    expect(transceiver.codecs[0].parameters).toBe(
+      h264Preference("42e01f", 1).parameters,
+    );
     await offerer.close();
     await answerer.close();
   });
 
-  test("unsupported H264 parameter preference fails instead of using stale codec", async () => {
+  test("H264 preference ignores parameters when selecting a capability", async () => {
     const configured = useH264({
       parameters: "profile-level-id=42e01f;packetization-mode=1",
     });
@@ -487,18 +451,20 @@ describe("codec resolution", () => {
     await pc.createOffer();
     const transceiver = pc.getTransceivers()[0];
 
-    // 実行: 単一capabilityと異なるprofile/modeをpreference指定する。
+    // 実行: 単一capabilityと異なるprofile/modeをpreference指定してofferする。
     transceiver.setCodecPreferences([
       useH264({
         parameters: "profile-level-id=42c00d;packetization-mode=0",
       }),
     ]);
 
-    // 検証: 古いcodecへfallbackせず、次のoffer生成を明示的に失敗させる。
-    await expect(pc.createOffer()).rejects.toMatchObject({
-      name: "NotSupportedError",
-    });
-    expect(transceiver.codecs).toEqual([]);
+    const offer = await pc.createOffer();
+
+    // 検証: parametersを照合せず、MIME/clockRateが一致するconfigured codecを選ぶ。
+    expect(offer.sdp.toLowerCase()).toContain(
+      "profile-level-id=42e01f;packetization-mode=1",
+    );
+    expect(transceiver.codecs).toEqual([configured]);
     pc.close();
   });
 
@@ -652,7 +618,7 @@ describe("codec resolution", () => {
     await answerer.close();
   });
 
-  test("negotiates equivalent H264 constraint forms with asymmetric levels", async () => {
+  test("remote H264 negotiation preserves the offered codec parameters", async () => {
     const h264 = (profileLevelId: string) =>
       useH264({
         parameters: `profile-level-id=${profileLevelId};packetization-mode=1;level-asymmetry-allowed=1`,
@@ -674,16 +640,16 @@ describe("codec resolution", () => {
     await answerer.setLocalDescription(answer);
     await offerer.setRemoteDescription(answer);
 
-    // 検証: level asymmetryが双方で許可されていれば往復交渉が成立する。
+    // 検証: remote membershipはMIMEで成立し、answerはofferのcodecを保持する。
     expect(answer.sdp.toLowerCase()).toContain("h264/90000");
-    expect(answer.sdp.toLowerCase()).toContain("profile-level-id=42c00d");
+    expect(answer.sdp.toLowerCase()).toContain("profile-level-id=42e01f");
     expect(answerer.getTransceivers()[0].codecs).toHaveLength(1);
     expect(offerer.getTransceivers()[0].codecs).toHaveLength(1);
     await offerer.close();
     await answerer.close();
   });
 
-  test("negotiates the lower H264 level without asymmetry", async () => {
+  test("remote H264 negotiation does not rewrite the offered level", async () => {
     const h264 = (profileLevelId: string) =>
       useH264({
         parameters: `profile-level-id=${profileLevelId};packetization-mode=1;level-asymmetry-allowed=0`,
@@ -705,8 +671,8 @@ describe("codec resolution", () => {
     await answerer.setLocalDescription(answer);
     await offerer.setRemoteDescription(answer);
 
-    // 検証: 双方が処理できる低いlevelをanswerへ設定する。
-    expect(answer.sdp.toLowerCase()).toContain("profile-level-id=42e00d");
+    // 検証: remote codec objectを採用し、offerのlevelをanswerへ維持する。
+    expect(answer.sdp.toLowerCase()).toContain("profile-level-id=42e01f");
     await offerer.close();
     await answerer.close();
   });

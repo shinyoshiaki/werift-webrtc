@@ -21,8 +21,6 @@ import {
 } from "./media";
 import {
   assertCodecsSupported,
-  isRemoteCodecCompatible,
-  negotiateRemoteCodec,
   resolveCodecs,
 } from "./media/codecCompatibility";
 import type { RTCStats } from "./media/stats";
@@ -443,15 +441,11 @@ export class TransceiverManager {
       if (localCodec.name.toLowerCase() === "rtx") continue;
       const remoteCodec = remoteMedia.rtp.codecs.find(
         (codec) =>
-          !usedRemote.has(codec) && isRemoteCodecCompatible(localCodec, codec),
+          !usedRemote.has(codec) &&
+          codec.mimeType.toLowerCase() === localCodec.mimeType.toLowerCase(),
       );
       if (remoteCodec) {
-        remoteByLocal.set(
-          localCodec,
-          order === "local"
-            ? negotiateRemoteCodec(localCodec, remoteCodec)
-            : remoteCodec,
-        );
+        remoteByLocal.set(localCodec, remoteCodec);
         usedRemote.add(remoteCodec);
       }
     }

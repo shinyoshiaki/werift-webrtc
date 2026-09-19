@@ -1,7 +1,6 @@
 import { createWebRtcDomException } from "../errors";
-import { codecParametersFromString, codecParametersToString } from "../sdp";
+import { codecParametersFromString } from "../sdp";
 import type { Kind } from "../types/domain";
-import { cloneCodecParameters } from "./codec";
 import type { RTCRtpCodecParameters } from "./parameters";
 
 function codecName(codec: RTCRtpCodecParameters) {
@@ -12,16 +11,11 @@ function optionalEqual<T>(left: T | undefined, right: T | undefined) {
   return left == undefined || right == undefined || left === right;
 }
 
-const DEFAULT_H264_PROFILE_LEVEL_ID = "42e01f";
-
 function h264Parameters(codec: RTCRtpCodecParameters) {
   const parameters = codecParametersFromString(codec.parameters ?? "");
   return {
-    parameters,
-    packetizationMode: Number(parameters["packetization-mode"] ?? 0),
-    profileLevelId: String(
-      parameters["profile-level-id"] ?? DEFAULT_H264_PROFILE_LEVEL_ID,
-    ).toLowerCase(),
+    packetizationMode: parameters["packetization-mode"],
+    profileLevelId: parameters["profile-level-id"]?.toString().toLowerCase(),
   };
 }
 
@@ -39,117 +33,17 @@ export function isCodecCompatible(
   const sourceParameters = h264Parameters(source);
   const configuredParameters = h264Parameters(configured);
   if (
-    sourceParameters.packetizationMode !==
-    configuredParameters.packetizationMode
+    !optionalEqual(
+      sourceParameters.packetizationMode,
+      configuredParameters.packetizationMode,
+    )
   ) {
     return false;
   }
-  const sourceProfile = parseH264ProfileLevelId(
+  return optionalEqual(
     sourceParameters.profileLevelId,
-  );
-  const configuredProfile = parseH264ProfileLevelId(
     configuredParameters.profileLevelId,
   );
-  return (
-    sourceProfile != undefined &&
-    configuredProfile != undefined &&
-    sourceProfile.profile === configuredProfile.profile &&
-    sourceProfile.level === configuredProfile.level
-  );
-}
-
-/** SDP negotiation compatibility. Unlike fixed-source constraints, H264 level
- * differences are allowed when both endpoints advertise level asymmetry. */
-export function isRemoteCodecCompatible(
-  local: RTCRtpCodecParameters,
-  remote: RTCRtpCodecParameters,
-) {
-  if (local.mimeType.toLowerCase() !== remote.mimeType.toLowerCase()) {
-    return false;
-  }
-  if (local.clockRate !== remote.clockRate) return false;
-  if (!optionalEqual(local.channels, remote.channels)) return false;
-  if (codecName(local) !== "h264") return true;
-
-  const localParameters = h264Parameters(local);
-  const remoteParameters = h264Parameters(remote);
-  if (
-    localParameters.packetizationMode !== remoteParameters.packetizationMode
-  ) {
-    return false;
-  }
-  const localProfile = parseH264ProfileLevelId(localParameters.profileLevelId);
-  const remoteProfile = parseH264ProfileLevelId(
-    remoteParameters.profileLevelId,
-  );
-  if (
-    !localProfile ||
-    !remoteProfile ||
-    localProfile.profile !== remoteProfile.profile
-  ) {
-    return false;
-  }
-  return true;
-}
-
-export function negotiateRemoteCodec(
-  local: RTCRtpCodecParameters,
-  remote: RTCRtpCodecParameters,
-) {
-  if (codecName(local) !== "h264") return remote;
-  const localParameters = h264Parameters(local);
-  const remoteParameters = h264Parameters(remote);
-  const localId = localParameters.profileLevelId;
-  const remoteId = remoteParameters.profileLevelId;
-  const localProfile = parseH264ProfileLevelId(localId);
-  const remoteProfile = parseH264ProfileLevelId(remoteId);
-  if (!localProfile || !remoteProfile) return remote;
-  const asymmetryAllowed =
-    String(localParameters.parameters["level-asymmetry-allowed"]) === "1" &&
-    String(remoteParameters.parameters["level-asymmetry-allowed"]) === "1";
-  const negotiatedId = asymmetryAllowed
-    ? localId
-    : h264LevelRank(localProfile.level) <= h264LevelRank(remoteProfile.level)
-      ? localId
-      : remoteId;
-  const negotiated = cloneCodecParameters(remote);
-  negotiated.parameters = codecParametersToString({
-    ...remoteParameters.parameters,
-    "packetization-mode": remoteParameters.packetizationMode,
-    "profile-level-id": negotiatedId,
-  });
-  return negotiated;
-}
-
-function h264LevelRank(level: number | string) {
-  return level === "1b" ? 10.5 : Number(level);
-}
-
-function parseH264ProfileLevelId(value: string) {
-  if (!/^[0-9a-f]{6}$/i.test(value) || value === "000000") return;
-  const numeric = Number.parseInt(value, 16);
-  const profileIdc = (numeric >> 16) & 0xff;
-  const profileIop = (numeric >> 8) & 0xff;
-  const levelIdc = numeric & 0xff;
-  const patterns: Array<[number, number, number, string]> = [
-    [0x42, 0x4f, 0x40, "constrained-baseline"],
-    [0x4d, 0x8f, 0x80, "constrained-baseline"],
-    [0x58, 0xcf, 0xc0, "constrained-baseline"],
-    [0x42, 0x4f, 0x00, "baseline"],
-    [0x58, 0xcf, 0x80, "baseline"],
-    [0x4d, 0xaf, 0x00, "main"],
-    [0x64, 0xff, 0x00, "high"],
-    [0x64, 0xff, 0x0c, "constrained-high"],
-    [0xf4, 0xff, 0x00, "predictive-high-444"],
-  ];
-  const profile = patterns.find(
-    ([idc, mask, expected]) =>
-      profileIdc === idc && (profileIop & mask) === expected,
-  )?.[3];
-  if (!profile) return;
-  const level =
-    levelIdc === 0x0b && (profileIop & 0x10) !== 0 ? "1b" : levelIdc;
-  return { profile, level };
 }
 
 function isAuxiliary(codec: RTCRtpCodecParameters) {
@@ -217,19 +111,9 @@ export function applyCodecPreferences(
 ) {
   if (preferences == undefined) return configured;
   const preferred = preferences.flatMap((preference) => {
-    const candidates = configured.filter((codec) =>
+    const match = configured.find((codec) =>
       matchesPreference(codec, preference),
     );
-    const exactH264 = candidates.find(
-      (codec) =>
-        codecName(codec) === "h264" &&
-        preference.parameters != undefined &&
-        isCodecCompatible(preference, codec),
-    );
-    const match =
-      codecName(preference) === "h264" && preference.parameters != undefined
-        ? exactH264
-        : candidates[0];
     return match ? [match] : [];
   });
   const uniquePreferred = [...new Set(preferred)];
