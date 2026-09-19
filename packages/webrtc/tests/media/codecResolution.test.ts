@@ -249,9 +249,9 @@ describe("codec resolution", () => {
     // Assert: answer SDP と sender の実 codec が一致する。
     expect(answer.sdp.toLowerCase()).toContain("h264/90000");
     expect(answer.sdp.toLowerCase()).not.toContain("vp8/90000");
-    expect(
-      answererTransceiver.sender.codec?.mimeType.toLowerCase(),
-    ).toBe("video/h264");
+    expect(answererTransceiver.sender.codec?.mimeType.toLowerCase()).toBe(
+      "video/h264",
+    );
     await offerer.close();
     await answerer.close();
   });
@@ -346,9 +346,9 @@ describe("codec resolution", () => {
     // Assert: answer SDP と sender が H264 に更新され、TWCC 状態は破棄される。
     expect(answer.sdp.toLowerCase()).toContain("h264/90000");
     expect(answer.sdp.toLowerCase()).not.toContain("vp8/90000");
-    expect(
-      answererTransceiver.sender.codec?.mimeType.toLowerCase(),
-    ).toBe("video/h264");
+    expect(answererTransceiver.sender.codec?.mimeType.toLowerCase()).toBe(
+      "video/h264",
+    );
     expect(answererTransceiver.receiver.receiverTWCC).toBeUndefined();
     await offerer.close();
     await answerer.close();

@@ -490,10 +490,7 @@ export class TransceiverManager {
         this.router.registerRtpReceiverByRid(transceiver, param, remotePrams);
       }
 
-      transceiver.receiver.resyncCodecs(
-        remotePrams,
-        remoteMedia.ssrc[0]?.ssrc,
-      );
+      transceiver.receiver.resyncCodecs(remotePrams, remoteMedia.ssrc[0]?.ssrc);
       // register ssrc receiver
       this.router.registerRtpReceiverBySsrc(transceiver, remotePrams);
     }

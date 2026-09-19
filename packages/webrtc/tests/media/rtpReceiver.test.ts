@@ -221,9 +221,7 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
           rtcpFeedback: [useTWCC()],
         }),
       ],
-      encodings: [
-        new RTCRtpCodingParameters({ ssrc: 111, payloadType: 96 }),
-      ],
+      encodings: [new RTCRtpCodingParameters({ ssrc: 111, payloadType: 96 })],
       headerExtensions: [],
     });
     receiver.setupTWCC(111);
@@ -239,9 +237,7 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
             payloadType: 98,
           }),
         ],
-        encodings: [
-          new RTCRtpCodingParameters({ ssrc: 222, payloadType: 98 }),
-        ],
+        encodings: [new RTCRtpCodingParameters({ ssrc: 222, payloadType: 98 })],
         headerExtensions: [],
       },
       222,
@@ -261,9 +257,7 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
             rtcpFeedback: [useTWCC()],
           }),
         ],
-        encodings: [
-          new RTCRtpCodingParameters({ ssrc: 333, payloadType: 96 }),
-        ],
+        encodings: [new RTCRtpCodingParameters({ ssrc: 333, payloadType: 96 })],
         headerExtensions: [],
       },
       333,

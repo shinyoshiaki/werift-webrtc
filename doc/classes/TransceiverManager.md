@@ -258,6 +258,30 @@
 
 ***
 
+### refreshAnswerCodecs()
+
+> **refreshAnswerCodecs**(`transceiver`, `remoteMedia`): `void`
+
+remote offer と local (source constraint + preferences) から
+answer 用の codec だけを再解決する (sender/receiver の同期なし)。
+setRemoteRTP() の交渉部分として使う。
+
+#### Parameters
+
+##### transceiver
+
+[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+
+##### remoteMedia
+
+[`MediaDescription`](MediaDescription.md)
+
+#### Returns
+
+`void`
+
+***
+
 ### removeTrack()
 
 > **removeTrack**(`sender`): `void`
@@ -287,6 +311,33 @@
 ##### index
 
 `number`
+
+#### Returns
+
+`void`
+
+***
+
+### resyncAnswerCodecs()
+
+> **resyncAnswerCodecs**(`transceiver`, `remoteMedia`): `void`
+
+remote offer と local (source constraint + preferences) から
+answer 用の codec を再解決し、sender/receiver の codec 状態も
+新しい negotiated codec に同期する。
+setCodecPreferences() による無効化後に createAnswer() から呼ばれる。
+direction / headerExtensions / onTrack は setRemoteDescription() 時の
+まま変えない (track イベントの重複発火を避ける)。
+
+#### Parameters
+
+##### transceiver
+
+[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+
+##### remoteMedia
+
+[`MediaDescription`](MediaDescription.md)
 
 #### Returns
 
