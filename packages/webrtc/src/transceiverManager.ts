@@ -422,13 +422,20 @@ export class TransceiverManager {
     source?: readonly RTCRtpCodecParameters[],
   ): RTCRtpCodecParameters[] {
     // # negotiate codecs
+    const codecName = (codec: RTCRtpCodecParameters) =>
+      codec.name.toLowerCase();
+    const redPayloadTypes = (codec: RTCRtpCodecParameters) =>
+      (codec.parameters ?? "")
+        .split("/")
+        .map(Number)
+        .filter((payloadType) => !Number.isNaN(payloadType));
     const remoteByLocal = new Map<
       RTCRtpCodecParameters,
       RTCRtpCodecParameters
     >();
     const usedRemote = new Set<RTCRtpCodecParameters>();
     for (const localCodec of localCodecs) {
-      if (localCodec.name.toLowerCase() === "rtx") continue;
+      if (["red", "rtx"].includes(codecName(localCodec))) continue;
       const remoteCodec = remoteMedia.rtp.codecs.find(
         (codec) =>
           !usedRemote.has(codec) &&
@@ -445,7 +452,35 @@ export class TransceiverManager {
     }
 
     const negotiated = localCodecs.flatMap((localCodec) => {
-      if (localCodec.name.toLowerCase() !== "rtx") {
+      if (codecName(localCodec) === "red") {
+        const remotePrimaryPayloadTypes = redPayloadTypes(localCodec).flatMap(
+          (payloadType) => {
+            const localPrimary = localCodecs.find(
+              (codec) => codec.payloadType === payloadType,
+            );
+            const remotePrimary = localPrimary
+              ? remoteByLocal.get(localPrimary)
+              : undefined;
+            return remotePrimary ? [remotePrimary.payloadType] : [];
+          },
+        );
+        const remoteRed = remoteMedia.rtp.codecs.find((codec) => {
+          if (codecName(codec) !== "red" || usedRemote.has(codec)) return false;
+          const referenced = redPayloadTypes(codec);
+          return (
+            referenced.length === remotePrimaryPayloadTypes.length &&
+            referenced.every(
+              (payloadType, index) =>
+                payloadType === remotePrimaryPayloadTypes[index],
+            )
+          );
+        });
+        if (!remoteRed) return [];
+        usedRemote.add(remoteRed);
+        return [remoteRed];
+      }
+
+      if (codecName(localCodec) !== "rtx") {
         const remoteCodec = remoteByLocal.get(localCodec);
         return remoteCodec ? [remoteCodec] : [];
       }
@@ -460,7 +495,7 @@ export class TransceiverManager {
       const remotePrimary = remoteByLocal.get(localPrimary);
       if (!remotePrimary) return [];
       const remoteRtx = remoteMedia.rtp.codecs.find((codec) => {
-        if (codec.name.toLowerCase() !== "rtx" || usedRemote.has(codec)) {
+        if (codecName(codec) !== "rtx" || usedRemote.has(codec)) {
           return false;
         }
         return (

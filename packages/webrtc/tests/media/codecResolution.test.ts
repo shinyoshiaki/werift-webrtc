@@ -650,6 +650,71 @@ describe("codec resolution", () => {
     await answerer.close();
   });
 
+  test.each([
+    [
+      "Opus",
+      "audio",
+      useOPUS({ payloadType: 96 }),
+      useOPUS({ payloadType: 110 }),
+    ],
+    [
+      "H264",
+      "video",
+      useH264({ payloadType: 96 }),
+      useH264({ payloadType: 110 }),
+    ],
+  ] as const)(
+    "fixed %s source preserves RED for offerer and answerer",
+    async (_codecName, kind, offerPrimary, answerPrimary) => {
+      const red = (payloadType: number, primaryPayloadType: number) =>
+        new RTCRtpCodecParameters({
+          mimeType: `${kind}/red`,
+          clockRate: offerPrimary.clockRate,
+          channels: offerPrimary.channels,
+          payloadType,
+          parameters: `${primaryPayloadType}/${primaryPayloadType}`,
+        });
+      const offerRed = red(97, 96);
+      const answerRed = red(111, 110);
+      const offerer = new RTCPeerConnection({
+        codecs: { [kind]: [offerPrimary, offerRed] },
+      });
+      const offererTransceiver = offerer.addTransceiver(
+        new MediaStreamTrack({ kind, codec: offerPrimary }),
+      );
+      offererTransceiver.setCodecPreferences([offerRed, offerPrimary]);
+      const answerer = new RTCPeerConnection({
+        codecs: { [kind]: [answerPrimary, answerRed] },
+      });
+      const answererTransceiver = answerer.addTransceiver(
+        new MediaStreamTrack({ kind, codec: answerPrimary }),
+      );
+      answererTransceiver.setCodecPreferences([answerRed, answerPrimary]);
+
+      // 実行: 両側にfixed sourceを持つRED優先のoffer/answerを完了する。
+      const offer = await offerer.createOffer();
+      await offerer.setLocalDescription(offer);
+      await answerer.setRemoteDescription(offer);
+      const answer = await answerer.createAnswer();
+      await answerer.setLocalDescription(answer);
+      await offerer.setRemoteDescription(answer);
+
+      // 検証: offerer/answererともREDと参照先primaryを維持し、REDを送信形式にする。
+      expect(
+        offererTransceiver.codecs.map((codec) => codec.name.toLowerCase()),
+      ).toEqual(["red", offerPrimary.name.toLowerCase()]);
+      expect(
+        answererTransceiver.codecs.map((codec) => codec.name.toLowerCase()),
+      ).toEqual(["red", offerPrimary.name.toLowerCase()]);
+      expect(offererTransceiver.sender.codec?.name.toLowerCase()).toBe("red");
+      expect(answererTransceiver.sender.codec?.name.toLowerCase()).toBe("red");
+      expect(offer.sdp).toContain("a=fmtp:97 96/96");
+      expect(answer.sdp).toContain("a=fmtp:97 96/96");
+      await offerer.close();
+      await answerer.close();
+    },
+  );
+
   test("remote H264 negotiation preserves the offered codec parameters", async () => {
     const h264 = (profileLevelId: string) =>
       useH264({
