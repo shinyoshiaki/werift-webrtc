@@ -9,6 +9,7 @@ import {
   useTWCC,
   useVP8,
 } from "../../src";
+import { setTrackSourceCodecs } from "../../src/media/track";
 
 function videoTrack(codec?: RTCRtpCodecParameters) {
   return new MediaStreamTrack({ kind: "video", codec });
@@ -152,6 +153,46 @@ describe("codec resolution", () => {
         .codecs.video?.map((codec) => codec.name.toLowerCase()),
     ).toEqual(["vp8", "h264", "rtx"]);
     pc.close();
+  });
+
+  test("RED is retained only when all referenced primary codecs remain", async () => {
+    const codecs = () => [
+      useVP8({ payloadType: 96 }),
+      useH264({ payloadType: 97 }),
+      new RTCRtpCodecParameters({
+        mimeType: "video/red",
+        clockRate: 90_000,
+        payloadType: 98,
+        parameters: "96/97",
+      }),
+    ];
+    const partialTrack = videoTrack();
+    setTrackSourceCodecs(partialTrack, [useVP8()]);
+    const partial = new RTCPeerConnection({ codecs: { video: codecs() } });
+    partial.addTrack(partialTrack);
+
+    // 実行: RED が参照する primary の一部だけを許可して解決する。
+    await partial.createOffer();
+
+    // 検証: 参照先が欠けた RED は保持しない。
+    expect(codecNames(partial)).toEqual(["video/vp8"]);
+    partial.close();
+
+    const completeTrack = videoTrack();
+    setTrackSourceCodecs(completeTrack, [useVP8(), useH264()]);
+    const complete = new RTCPeerConnection({ codecs: { video: codecs() } });
+    complete.addTrack(completeTrack);
+
+    // 実行: RED の全参照先を許可して解決する。
+    await complete.createOffer();
+
+    // 検証: 全参照先が残る場合だけ RED を保持する。
+    expect(codecNames(complete)).toEqual([
+      "video/vp8",
+      "video/h264",
+      "video/red",
+    ]);
+    complete.close();
   });
 
   // setCodecPreferences() は解決済み codec を無効化し、次回 offer/answer で再解決する。

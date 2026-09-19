@@ -63,11 +63,14 @@ function withAuxiliaryCodecs(
 ) {
   const keptPayloadTypes = new Set(primary.map((codec) => codec.payloadType));
   const auxiliary = configured.filter(
-    (codec) =>
-      isAuxiliary(codec) &&
-      referencedPayloadTypes(codec).some((payloadType) =>
-        keptPayloadTypes.has(payloadType),
-      ),
+    (codec) => {
+      if (!isAuxiliary(codec)) return false;
+      const referenced = referencedPayloadTypes(codec);
+      return (
+        referenced.length > 0 &&
+        referenced.every((payloadType) => keptPayloadTypes.has(payloadType))
+      );
+    },
   );
   return configured.filter(
     (codec) => primary.includes(codec) || auxiliary.includes(codec),
