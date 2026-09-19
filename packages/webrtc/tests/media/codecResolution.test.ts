@@ -6,6 +6,7 @@ import {
   RtpHeader,
   RtpPacket,
   useH264,
+  useOPUS,
   useTWCC,
   useVP8,
 } from "../../src";
@@ -342,6 +343,50 @@ describe("codec resolution", () => {
       (stat) => stat.type === "outbound-rtp",
     ) as { rtxSsrc?: number };
     expect(outbound.rtxSsrc).toBeUndefined();
+    await offerer.close();
+    await answerer.close();
+  });
+
+  test("answer preserves RED preference order for a sendrecv transceiver", async () => {
+    const codecs = () => {
+      const opus = useOPUS({ payloadType: 96 });
+      const red = new RTCRtpCodecParameters({
+        mimeType: "audio/red",
+        clockRate: 48_000,
+        channels: 2,
+        payloadType: 97,
+        parameters: "96/96",
+      });
+      return { opus, red };
+    };
+    const offerCodecs = codecs();
+    const offerer = new RTCPeerConnection({
+      codecs: { audio: [offerCodecs.opus, offerCodecs.red] },
+    });
+    offerer.addTrack(new MediaStreamTrack({ kind: "audio" }));
+    const offer = await offerer.createOffer();
+
+    const answerCodecs = codecs();
+    const answerer = new RTCPeerConnection({
+      codecs: { audio: [answerCodecs.opus, answerCodecs.red] },
+    });
+    answerer.addTrack(new MediaStreamTrack({ kind: "audio" }));
+    await answerer.setRemoteDescription(offer);
+    const transceiver = answerer.getTransceivers()[0];
+
+    // 実行: remote offerとは逆にREDを優先してanswerを作成する。
+    transceiver.setCodecPreferences([answerCodecs.red, answerCodecs.opus]);
+    const answer = await answerer.createAnswer();
+
+    // 検証: answer SDPとsenderの送信codecがRED preferenceを維持する。
+    expect(transceiver.codecs.map((codec) => codec.name.toLowerCase())).toEqual(
+      ["red", "opus"],
+    );
+    expect(transceiver.sender.codec?.mimeType.toLowerCase()).toBe("audio/red");
+    const mediaLine = answer.sdp
+      .split("\r\n")
+      .find((line) => line.startsWith("m=audio"));
+    expect(mediaLine?.split(" ").slice(3, 5)).toEqual(["97", "96"]);
     await offerer.close();
     await answerer.close();
   });
