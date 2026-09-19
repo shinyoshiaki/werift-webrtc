@@ -39,6 +39,7 @@ export class RTCRtpTransceiver {
   }
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
   private _codecPreferences?: RTCRtpCodecParameters[];
+  readonly onCodecPreferencesChanged = new Event<[]>();
   pendingLocalOfferCodecs?: RTCRtpCodecParameters[];
 
   get codecPreferences(): readonly RTCRtpCodecParameters[] | undefined {
@@ -49,12 +50,15 @@ export class RTCRtpTransceiver {
     if (!Array.isArray(codecs)) {
       throw createWebRtcTypeError("codecs must be an array");
     }
-    this._codecPreferences =
+    const next =
       codecs.length === 0 ? undefined : codecs.map(cloneCodecParameters);
+    if (sameCodecPreferences(this._codecPreferences, next)) return;
+    this._codecPreferences = next;
     // preference 変更を次回 createOffer()/createAnswer() に反映させるため、
     // 解決済み codec を無効化する。createOffer()/createAnswer() は
     // codecs が空の場合に再解決する。
     this._codecs = [];
+    this.onCodecPreferencesChanged.execute();
   }
   options: Partial<TransceiverOptions> = {};
   stopping = false;
@@ -190,6 +194,21 @@ export class RTCRtpTransceiver {
 
     return stats;
   }
+}
+
+function sameCodecPreferences(
+  left: readonly RTCRtpCodecParameters[] | undefined,
+  right: readonly RTCRtpCodecParameters[] | undefined,
+) {
+  if (left === right) return true;
+  if (left == undefined || right == undefined || left.length !== right.length) {
+    return false;
+  }
+  return left.every(
+    (codec, index) =>
+      codec.mimeType.toLowerCase() === right[index].mimeType.toLowerCase() &&
+      codec.clockRate === right[index].clockRate,
+  );
 }
 
 export const Inactive = "inactive";

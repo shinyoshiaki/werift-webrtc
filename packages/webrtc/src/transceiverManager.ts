@@ -129,6 +129,9 @@ export class TransceiverManager {
       sender,
       direction,
     );
+    newTransceiver.onCodecPreferencesChanged.subscribe(() => {
+      this.onNegotiationNeeded.execute();
+    });
     newTransceiver.options = {
       ...options,
       simulcast:

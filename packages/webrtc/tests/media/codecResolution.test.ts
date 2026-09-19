@@ -367,6 +367,63 @@ describe("codec resolution", () => {
     pc.close();
   });
 
+  test("preference changes invalidate a cached implicit offer", async () => {
+    const pc = new RTCPeerConnection({
+      codecs: { video: [useVP8(), useH264()] },
+    });
+    pc.addTrack(videoTrack());
+
+    // 実行: 全codecのoffer作成後、H264 preferenceへ変更して暗黙offerを設定する。
+    const cached = await pc.createOffer();
+    expect(cached.sdp.toLowerCase()).toContain("vp8/90000");
+    pc.getTransceivers()[0].setCodecPreferences([useH264()]);
+    await pc.setLocalDescription();
+    const localSdp = pc.localDescription!.sdp;
+
+    // 検証: cached offerを再利用せず、H264だけのSDPと内部codecを設定する。
+    expect(localSdp.toLowerCase()).toContain("h264/90000");
+    expect(localSdp.toLowerCase()).not.toContain("vp8/90000");
+    expect(codecNames(pc)).toEqual(["video/h264"]);
+    pc.close();
+  });
+
+  test("preference changes request negotiation only when semantics change", async () => {
+    const offerer = new RTCPeerConnection({
+      codecs: { video: [useVP8(), useH264()] },
+    });
+    offerer.addTrack(videoTrack());
+    const answerer = new RTCPeerConnection({
+      codecs: { video: [useVP8(), useH264()] },
+    });
+    answerer.addTrack(videoTrack());
+    const offer = await offerer.createOffer();
+    await offerer.setLocalDescription(offer);
+    await answerer.setRemoteDescription(offer);
+    const answer = await answerer.createAnswer();
+    await answerer.setLocalDescription(answer);
+    await offerer.setRemoteDescription(answer);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const onNegotiationNeeded = vi.fn();
+    offerer.onnegotiationneeded = onNegotiationNeeded;
+    const transceiver = offerer.getTransceivers()[0];
+
+    // 実行: stable状態でpreferenceをH264へ変更する。
+    transceiver.setCodecPreferences([useH264()]);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    // 検証: negotiationneededが一度発火する。
+    expect(onNegotiationNeeded).toHaveBeenCalledTimes(1);
+
+    // 実行: 意味的に同じpreferenceを再設定する。
+    transceiver.setCodecPreferences([useH264()]);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    // 検証: 不要な再交渉を追加要求しない。
+    expect(onNegotiationNeeded).toHaveBeenCalledTimes(1);
+    await offerer.close();
+    await answerer.close();
+  });
+
   test("incompatible preferences after first offer fail at next offer", async () => {
     const pc = new RTCPeerConnection({
       codecs: { video: [useVP8(), useH264()] },
