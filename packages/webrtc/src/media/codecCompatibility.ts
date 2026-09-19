@@ -62,16 +62,14 @@ function withAuxiliaryCodecs(
   primary: RTCRtpCodecParameters[],
 ) {
   const keptPayloadTypes = new Set(primary.map((codec) => codec.payloadType));
-  const auxiliary = configured.filter(
-    (codec) => {
-      if (!isAuxiliary(codec)) return false;
-      const referenced = referencedPayloadTypes(codec);
-      return (
-        referenced.length > 0 &&
-        referenced.every((payloadType) => keptPayloadTypes.has(payloadType))
-      );
-    },
-  );
+  const auxiliary = configured.filter((codec) => {
+    if (!isAuxiliary(codec)) return false;
+    const referenced = referencedPayloadTypes(codec);
+    return (
+      referenced.length > 0 &&
+      referenced.every((payloadType) => keptPayloadTypes.has(payloadType))
+    );
+  });
   return configured.filter(
     (codec) => primary.includes(codec) || auxiliary.includes(codec),
   );
@@ -104,16 +102,27 @@ export function applyCodecPreferences(
   preferences: readonly RTCRtpCodecParameters[] | undefined,
 ) {
   if (preferences == undefined) return configured;
-  const primary = preferences.flatMap((preference) => {
-    const match = configured.find(
-      (codec) => !isAuxiliary(codec) && matchesPreference(codec, preference),
+  const preferred = preferences.flatMap((preference) => {
+    const match = configured.find((codec) =>
+      matchesPreference(codec, preference),
     );
     return match ? [match] : [];
   });
-  const uniquePrimary = [...new Set(primary)];
-  const allowed = withAuxiliaryCodecs(configured, uniquePrimary);
-  const auxiliary = allowed.filter(isAuxiliary);
-  return [...uniquePrimary, ...auxiliary];
+  const uniquePreferred = [...new Set(preferred)];
+  const referencedByPreferredAuxiliary = new Set(
+    uniquePreferred.filter(isAuxiliary).flatMap(referencedPayloadTypes),
+  );
+  const primary = configured.filter(
+    (codec) =>
+      !isAuxiliary(codec) &&
+      (uniquePreferred.includes(codec) ||
+        referencedByPreferredAuxiliary.has(codec.payloadType)),
+  );
+  const allowed = withAuxiliaryCodecs(configured, primary);
+  return [
+    ...uniquePreferred.filter((codec) => allowed.includes(codec)),
+    ...allowed.filter((codec) => !uniquePreferred.includes(codec)),
+  ];
 }
 
 export function resolveCodecs(

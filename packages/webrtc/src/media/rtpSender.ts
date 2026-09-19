@@ -27,6 +27,7 @@ import { setTimeout } from "timers/promises";
 import { Event, random16, uint16Add, uint32Add } from "../imports/common";
 
 import { codecParametersFromString } from "..";
+import { createWebRtcDomException } from "../errors";
 import {
   type Extension,
   GenericNack,
@@ -57,6 +58,7 @@ import {
 import type { RTCDtlsTransport } from "../transport/dtls";
 import type { Kind } from "../types/domain";
 import { compactNtp, milliTime, ntpTime, timestampSeconds } from "../utils";
+import { isCodecCompatible } from "./codecCompatibility";
 import type {
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
@@ -79,6 +81,7 @@ import {
   type MediaStream,
   type MediaStreamTrack,
   captureTrackSourceCodecs,
+  getTrackSourceCodecs,
 } from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");
@@ -422,6 +425,19 @@ export class RTCRtpSender {
     }
 
     if (track.stopped) throw new Error("track is ended");
+
+    captureTrackSourceCodecs(track);
+    const sourceCodecs = getTrackSourceCodecs(track);
+    if (
+      this.codec != undefined &&
+      sourceCodecs != undefined &&
+      !sourceCodecs.some((source) => isCodecCompatible(source, this.codec!))
+    ) {
+      throw createWebRtcDomException(
+        "InvalidModificationError",
+        `Track codec ${sourceCodecs.map((codec) => codec.mimeType).join(", ")} is incompatible with negotiated codec ${this.codec.mimeType}`,
+      );
+    }
 
     if (this.sequenceNumber != undefined) {
       this.scheduleRtpContinuity();

@@ -9,6 +9,7 @@ import {
   useTWCC,
   useVP8,
 } from "../../src";
+import { applyCodecPreferences } from "../../src/media/codecCompatibility";
 import { setTrackSourceCodecs } from "../../src/media/track";
 
 function videoTrack(codec?: RTCRtpCodecParameters) {
@@ -22,6 +23,31 @@ function codecNames(pc: RTCPeerConnection) {
 }
 
 describe("codec resolution", () => {
+  test("RED preference preserves its sending position before primary codec", () => {
+    const opus = new RTCRtpCodecParameters({
+      mimeType: "audio/opus",
+      clockRate: 48_000,
+      channels: 2,
+      payloadType: 96,
+    });
+    const red = new RTCRtpCodecParameters({
+      mimeType: "audio/red",
+      clockRate: 48_000,
+      channels: 2,
+      payloadType: 97,
+      parameters: "96/96",
+    });
+
+    // 実行: RED を送信 codec の先頭として preference に指定する。
+    const resolved = applyCodecPreferences([opus, red], [red, opus]);
+
+    // 検証: RED と参照先 primary の順序を維持する。
+    expect(resolved.map((codec) => codec.mimeType.toLowerCase())).toEqual([
+      "audio/red",
+      "audio/opus",
+    ]);
+  });
+
   test("fixed H264 source is rejected by a VP8-only connection", () => {
     const pc = new RTCPeerConnection({ codecs: { video: [useVP8()] } });
 

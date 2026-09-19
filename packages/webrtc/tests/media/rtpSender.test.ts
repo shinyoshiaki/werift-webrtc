@@ -62,6 +62,37 @@ describe("media/rtpSender", () => {
     expect(spy).toBeCalledTimes(2);
   });
 
+  test("replaceTrack rejects a fixed source incompatible with negotiated codec", async () => {
+    const original = new MediaStreamTrack({
+      kind: "video",
+      codec: new RTCRtpCodecParameters({
+        mimeType: "video/VP8",
+        clockRate: 90_000,
+        payloadType: 96,
+      }),
+    });
+    const sender = new RTCRtpSender(original);
+    sender.prepareSend({ codecs: [original.codec!], headerExtensions: [] });
+    const replacement = new MediaStreamTrack({
+      kind: "video",
+      codec: new RTCRtpCodecParameters({
+        mimeType: "video/H264",
+        clockRate: 90_000,
+        payloadType: 97,
+      }),
+    });
+
+    // 実行: VP8 交渉済み sender を fixed H264 source へ置換する。
+    const act = sender.replaceTrack(replacement);
+
+    // 検証: track を変更する前に拒否し、既存 VP8 track を維持する。
+    await expect(act).rejects.toMatchObject({
+      name: "InvalidModificationError",
+    });
+    expect(sender.track).toBe(original);
+    expect(sender.codec?.mimeType.toLowerCase()).toBe("video/vp8");
+  });
+
   test("prepareSend clears excluded RTX and RED state", async () => {
     const sender = new RTCRtpSender(new MediaStreamTrack({ kind: "video" }));
     const vp8 = new RTCRtpCodecParameters({
