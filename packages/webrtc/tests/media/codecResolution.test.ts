@@ -430,7 +430,9 @@ describe("codec resolution", () => {
         parameters: `profile-level-id=${profile};packetization-mode=${mode}`,
       });
     const offerer = new RTCPeerConnection({
-      codecs: { video: [useH264()] },
+      codecs: {
+        video: [h264Preference("42e01f", 1), h264Preference("42c00d", 0)],
+      },
     });
     offerer.addTrack(videoTrack());
     const transceiver = offerer.getTransceivers()[0];
@@ -460,6 +462,18 @@ describe("codec resolution", () => {
     );
     expect(transceiver.codecs).toEqual([]);
     expect(onNegotiationNeeded).toHaveBeenCalledTimes(1);
+
+    // 実行: 変更後preferenceで次のofferを生成する。
+    const changedOffer = await offerer.createOffer();
+
+    // 検証: SDPとsender候補に変更後のH264 parametersを反映する。
+    expect(changedOffer.sdp.toLowerCase()).toContain(
+      "profile-level-id=42c00d;packetization-mode=0",
+    );
+    expect(changedOffer.sdp.toLowerCase()).not.toContain(
+      "profile-level-id=42e01f;packetization-mode=1",
+    );
+    expect(transceiver.codecs[0].parameters).toBe(changed.parameters);
     await offerer.close();
     await answerer.close();
   });

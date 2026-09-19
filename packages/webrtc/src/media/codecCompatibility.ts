@@ -217,9 +217,16 @@ export function applyCodecPreferences(
 ) {
   if (preferences == undefined) return configured;
   const preferred = preferences.flatMap((preference) => {
-    const match = configured.find((codec) =>
+    const candidates = configured.filter((codec) =>
       matchesPreference(codec, preference),
     );
+    const match =
+      candidates.find(
+        (codec) =>
+          codecName(codec) === "h264" &&
+          preference.parameters != undefined &&
+          isCodecCompatible(preference, codec),
+      ) ?? candidates[0];
     return match ? [match] : [];
   });
   const uniquePreferred = [...new Set(preferred)];
