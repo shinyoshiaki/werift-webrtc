@@ -201,6 +201,7 @@ export class RTCRtpSender {
   private readonly pendingRtpMaxLength: number;
   codec?: RTCRtpCodecParameters;
   private negotiatedCodecs: RTCRtpCodecParameters[] = [];
+  private sendPrimaryCodec?: RTCRtpCodecParameters;
   public dtlsTransport!: RTCDtlsTransport;
   private dtlsDisposer: (() => void)[] = [];
 
@@ -273,6 +274,18 @@ export class RTCRtpSender {
     this.codec =
       params.codecs.find((codec) => codec.name.toLowerCase() !== "rtx") ??
       params.codecs[0];
+    const redPrimaryPayloadType =
+      this.codec?.name.toLowerCase() === "red"
+        ? Number((this.codec.parameters ?? "").split("/")[0])
+        : undefined;
+    this.sendPrimaryCodec =
+      this.codec?.name.toLowerCase() === "red"
+        ? params.codecs.find(
+            (codec) =>
+              !["red", "rtx"].includes(codec.name.toLowerCase()) &&
+              codec.payloadType === redPrimaryPayloadType,
+          )
+        : this.codec;
     if (this.track) {
       this.track.codec = this.codec;
     }
@@ -283,20 +296,17 @@ export class RTCRtpSender {
       const codecParams = codecParametersFromString(codec.parameters ?? "");
       if (
         codec.name.toLowerCase() === "rtx" &&
-        params.codecs.some(
-          (candidate) =>
-            !["red", "rtx"].includes(candidate.name.toLowerCase()) &&
-            candidate.payloadType === codecParams["apt"],
-        )
+        this.sendPrimaryCodec?.payloadType === codecParams["apt"]
       ) {
         this.rtxPayloadType = codec.payloadType;
       }
-      if (codec.name.toLowerCase() === "red") {
-        this.redRedundantPayloadType = Number(
-          (codec.parameters ?? "").split("/")[0],
-        );
-      }
     });
+    if (
+      this.codec?.name.toLowerCase() === "red" &&
+      this.sendPrimaryCodec != undefined
+    ) {
+      this.redRedundantPayloadType = this.sendPrimaryCodec.payloadType;
+    }
     void this.drainPendingRtp();
   }
 
@@ -437,14 +447,10 @@ export class RTCRtpSender {
     captureTrackSourceCodecs(track);
     const sourceCodecs = getTrackSourceCodecs(track);
     if (
-      this.negotiatedCodecs.length > 0 &&
+      this.sendPrimaryCodec != undefined &&
       sourceCodecs != undefined &&
       !sourceCodecs.some((source) =>
-        this.negotiatedCodecs.some(
-          (negotiated) =>
-            !["red", "rtx"].includes(negotiated.name.toLowerCase()) &&
-            isCodecCompatible(source, negotiated),
-        ),
+        isCodecCompatible(source, this.sendPrimaryCodec!),
       )
     ) {
       throw createWebRtcDomException(

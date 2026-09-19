@@ -72,7 +72,17 @@ describe("media/rtpSender", () => {
       }),
     });
     const sender = new RTCRtpSender(original);
-    sender.prepareSend({ codecs: [original.codec!], headerExtensions: [] });
+    sender.prepareSend({
+      codecs: [
+        original.codec!,
+        new RTCRtpCodecParameters({
+          mimeType: "video/H264",
+          clockRate: 90_000,
+          payloadType: 97,
+        }),
+      ],
+      headerExtensions: [],
+    });
     const replacement = new MediaStreamTrack({
       kind: "video",
       codec: new RTCRtpCodecParameters({
@@ -144,18 +154,18 @@ describe("media/rtpSender", () => {
     // 実行: 初回交渉で VP8 に紐づく RTX と RED を設定する。
     sender.prepareSend({
       codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "video/red",
+          clockRate: 90000,
+          payloadType: 98,
+          parameters: "96/96",
+        }),
         vp8,
         new RTCRtpCodecParameters({
           mimeType: "video/rtx",
           clockRate: 90000,
           payloadType: 97,
           parameters: "apt=96",
-        }),
-        new RTCRtpCodecParameters({
-          mimeType: "video/red",
-          clockRate: 90000,
-          payloadType: 98,
-          parameters: "96/96",
         }),
       ],
       headerExtensions: [],
@@ -222,6 +232,69 @@ describe("media/rtpSender", () => {
     expect(sender.codec?.mimeType.toLowerCase()).toBe("video/red");
     expect(senderStatsState(sender).rtxPayloadType).toBe(97);
     expect(senderStatsState(sender).redRedundantPayloadType).toBe(96);
+  });
+
+  test("prepareSend selects RTX for the active primary only", () => {
+    const sender = new RTCRtpSender(new MediaStreamTrack({ kind: "video" }));
+
+    // 実行: VP8/H264 と各 codec 用 RTX を同時に交渉する。
+    sender.prepareSend({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "video/VP8",
+          clockRate: 90_000,
+          payloadType: 96,
+        }),
+        new RTCRtpCodecParameters({
+          mimeType: "video/rtx",
+          clockRate: 90_000,
+          payloadType: 97,
+          parameters: "apt=96",
+        }),
+        new RTCRtpCodecParameters({
+          mimeType: "video/H264",
+          clockRate: 90_000,
+          payloadType: 98,
+        }),
+        new RTCRtpCodecParameters({
+          mimeType: "video/rtx",
+          clockRate: 90_000,
+          payloadType: 99,
+          parameters: "apt=98",
+        }),
+      ],
+      headerExtensions: [],
+    });
+
+    // 検証: 実際の送信 codec VP8 に対応する RTX だけを選ぶ。
+    expect(sender.codec?.mimeType.toLowerCase()).toBe("video/vp8");
+    expect(senderStatsState(sender).rtxPayloadType).toBe(97);
+  });
+
+  test("prepareSend does not enable RED wrapping when primary is first", () => {
+    const sender = new RTCRtpSender(new MediaStreamTrack({ kind: "audio" }));
+
+    // 実行: OPUS preference相当の順序で、後続にREDがあるcodec一覧を適用する。
+    sender.prepareSend({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "audio/opus",
+          clockRate: 48_000,
+          payloadType: 96,
+        }),
+        new RTCRtpCodecParameters({
+          mimeType: "audio/red",
+          clockRate: 48_000,
+          payloadType: 97,
+          parameters: "96/96",
+        }),
+      ],
+      headerExtensions: [],
+    });
+
+    // 検証: RTP headerがOPUSのときRED wrappingを有効にしない。
+    expect(sender.codec?.mimeType.toLowerCase()).toBe("audio/opus");
+    expect(senderStatsState(sender).redRedundantPayloadType).toBeUndefined();
   });
 
   test("replaceTrack without first RTP still continues sequence and timestamp", async () => {
