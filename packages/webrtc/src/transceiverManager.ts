@@ -618,10 +618,26 @@ export class TransceiverManager {
 
     transceiver.codecs = codecs;
     if (type === "answer") transceiver.pendingLocalOfferCodecs = undefined;
+
+    const mediaDirection = remoteMedia.direction ?? "inactive";
+
+    // rejected m-line は remote の方向属性に関係なく inactive として answer する。
+    // RTP/RTCP の設定は port=0 の section へ適用しない。
     if (remoteMedia.port === 0) {
       transceiver.headerExtensions = [];
-      transceiver.setCurrentDirection("inactive");
+      if (["answer", "pranswer"].includes(type)) {
+        transceiver.setCurrentDirection("inactive");
+      } else {
+        transceiver.offerDirection = "inactive";
+      }
       return;
+    }
+
+    const direction = reverseDirection(mediaDirection);
+    if (["answer", "pranswer"].includes(type)) {
+      transceiver.setCurrentDirection(direction);
+    } else {
+      transceiver.offerDirection = direction;
     }
     transceiver.headerExtensions = remoteMedia.rtp.headerExtensions.filter(
       (extension) =>
@@ -632,13 +648,6 @@ export class TransceiverManager {
     );
 
     // # configure direction
-    const mediaDirection = remoteMedia.direction ?? "inactive";
-    const direction = reverseDirection(mediaDirection);
-    if (["answer", "pranswer"].includes(type)) {
-      transceiver.setCurrentDirection(direction);
-    } else {
-      transceiver.offerDirection = direction;
-    }
     const localParams = this.getLocalRtpParams(transceiver);
     transceiver.sender.prepareSend(localParams);
 

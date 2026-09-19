@@ -242,6 +242,22 @@
 
 ***
 
+### planRemoteRtpCodecs()
+
+> **planRemoteRtpCodecs**(`remoteSdp`): `Map`\<`number`, [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]\>
+
+#### Parameters
+
+##### remoteSdp
+
+[`SessionDescription`](SessionDescription.md)
+
+#### Returns
+
+`Map`\<`number`, [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]\>
+
+***
+
 ### pushTransceiver()
 
 > **pushTransceiver**(`t`): `void`
@@ -261,10 +277,6 @@
 ### refreshAnswerCodecs()
 
 > **refreshAnswerCodecs**(`transceiver`, `remoteMedia`): `void`
-
-remote offer と local (source constraint + preferences) から
-answer 用の codec だけを再解決する (sender/receiver の同期なし)。
-setRemoteRTP() の交渉部分として使う。
 
 #### Parameters
 
@@ -347,7 +359,7 @@ direction / headerExtensions / onTrack は setRemoteDescription() 時の
 
 ### setRemoteRTP()
 
-> **setRemoteRTP**(`transceiver`, `remoteMedia`, `type`, `mLineIndex`): `void`
+> **setRemoteRTP**(`transceiver`, `remoteMedia`, `type`, `mLineIndex`, `codecs`): `void`
 
 #### Parameters
 
@@ -366,6 +378,10 @@ direction / headerExtensions / onTrack は setRemoteDescription() 時の
 ##### mLineIndex
 
 `number`
+
+##### codecs
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
 
 #### Returns
 

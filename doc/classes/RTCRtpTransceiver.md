@@ -48,6 +48,12 @@ RFC 8829 4.2.4.  direction the transceiver was initialized with
 
 ***
 
+### codecPreferencesNeedResolution
+
+> **codecPreferencesNeedResolution**: `boolean` = `false`
+
+***
+
 ### headerExtensions
 
 > **headerExtensions**: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[] = `[]`
@@ -84,6 +90,12 @@ RFC 8829 4.2.4.  direction the transceiver was initialized with
 
 ***
 
+### onCodecPreferencesChanged
+
+> `readonly` **onCodecPreferencesChanged**: [`Event`](Event.md)\<\[\]\>
+
+***
+
 ### onTrack
 
 > `readonly` **onTrack**: [`Event`](Event.md)\<\[[`MediaStreamTrack`](MediaStreamTrack.md), [`RTCRtpTransceiver`](RTCRtpTransceiver.md)\]\>
@@ -93,6 +105,12 @@ RFC 8829 4.2.4.  direction the transceiver was initialized with
 ### options
 
 > **options**: `Partial`\<[`TransceiverOptions`](../interfaces/TransceiverOptions.md)\> = `{}`
+
+***
+
+### pendingLocalOfferCodecs?
+
+> `optional` **pendingLocalOfferCodecs**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
 
 ***
 
