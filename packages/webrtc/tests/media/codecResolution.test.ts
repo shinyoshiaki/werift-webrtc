@@ -776,6 +776,50 @@ describe("codec resolution", () => {
     await answerer.close();
   });
 
+  test("remote offer selects a later compatible H264 and its RTX", async () => {
+    const h264 = (payloadType: number, parameters: string) =>
+      useH264({ payloadType, parameters });
+    const rtx = (payloadType: number, apt: number) =>
+      new RTCRtpCodecParameters({
+        mimeType: "video/rtx",
+        clockRate: 90_000,
+        payloadType,
+        parameters: `apt=${apt}`,
+      });
+    const incompatible = h264(
+      96,
+      "profile-level-id=42e01f;packetization-mode=1",
+    );
+    const compatible = h264(98, "profile-level-id=42c00a;packetization-mode=0");
+    const offerer = new RTCPeerConnection({
+      codecs: { video: [incompatible, rtx(97, 96), compatible, rtx(99, 98)] },
+    });
+    offerer.addTrack(videoTrack());
+    const offer = await offerer.createOffer();
+    const fixedCodec = h264(
+      110,
+      "profile-level-id=42c00a;packetization-mode=0",
+    );
+    const answerer = new RTCPeerConnection({
+      codecs: { video: [fixedCodec, rtx(111, 110)] },
+    });
+    answerer.addTrack(videoTrack(fixedCodec));
+
+    // 実行: 先頭が非互換、後続が互換な複数H264 offerを適用する。
+    await answerer.setRemoteDescription(offer);
+    const answer = await answerer.createAnswer();
+
+    // 検証: 後続のprimaryと、それを参照するRTXだけを選択する。
+    expect(
+      answerer.getTransceivers()[0].codecs.map((codec) => codec.payloadType),
+    ).toEqual([98, 99]);
+    expect(answer.sdp).toContain("m=video 9 UDP/TLS/RTP/SAVPF 98 99");
+    expect(answer.sdp).toContain("a=fmtp:99 apt=98");
+    expect(answer.sdp).not.toContain("a=fmtp:97 apt=96");
+    await offerer.close();
+    await answerer.close();
+  });
+
   test("remote answer rejects a codec incompatible with the fixed source", async () => {
     const sourceCodec = useH264({
       parameters: "profile-level-id=42e01f;packetization-mode=1",
