@@ -933,6 +933,20 @@ export class RTCPeerConnection extends EventTarget {
       await Promise.resolve();
     }
 
+    if (
+      (sessionDescription.type === "answer" ||
+        sessionDescription.type === "pranswer") &&
+      sessionDescription.sdp
+    ) {
+      const preview = this.sdpManager.parseSdp({
+        sdp: sessionDescription.sdp,
+        isLocal: false,
+        signalingState: this.signalingState,
+        type: sessionDescription.type,
+      });
+      this.transceiverManager.validateRemoteAnswerSourceCodecs(preview);
+    }
+
     // # parse and validate description
     const remoteSdp = this.sdpManager.setRemoteDescription(
       sessionDescription,

@@ -26,7 +26,11 @@ import {
 import type { RTCStats } from "./media/stats";
 import { captureTrackSourceCodecs, getTrackSourceCodecs } from "./media/track";
 import type { PeerConfig } from "./peerConnection";
-import { type MediaDescription, codecParametersFromString } from "./sdp";
+import {
+  type MediaDescription,
+  type SessionDescription,
+  codecParametersFromString,
+} from "./sdp";
 import type { RTCDtlsTransport } from "./transport/dtls";
 import type { Kind } from "./types/domain";
 import { reverseDirection } from "./utils";
@@ -502,6 +506,21 @@ export class TransceiverManager {
         "NotSupportedError",
         "No compatible codec remains after remote negotiation.",
       );
+    }
+  }
+
+  validateRemoteAnswerSourceCodecs(remoteSdp: SessionDescription): void {
+    for (const [index, remoteMedia] of remoteSdp.media.entries()) {
+      if (!["audio", "video"].includes(remoteMedia.kind)) continue;
+      const transceiver = this.getTransceiverByMLineIndex(index);
+      const source = getTrackSourceCodecs(transceiver?.sender.track);
+      if (source == undefined) continue;
+      assertCodecsSupported({
+        kind: remoteMedia.kind,
+        configured: remoteMedia.rtp.codecs,
+        source,
+        preferences: undefined,
+      });
     }
   }
 

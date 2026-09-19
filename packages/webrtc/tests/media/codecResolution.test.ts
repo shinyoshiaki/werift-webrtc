@@ -734,12 +734,16 @@ describe("codec resolution", () => {
         "profile-level-id=42c00a",
       ),
     };
+    const codecsBefore = [...offerer.getTransceivers()[0].codecs];
 
     // 実行: pending offerとMIMEは同じだがfixed sourceと非互換なanswerを適用する。
     const act = offerer.setRemoteDescription(incompatibleAnswer);
 
     // 検証: remote offerのMIME membershipとは別に、answerをsource制約で拒否する。
     await expect(act).rejects.toMatchObject({ name: "NotSupportedError" });
+    expect(offerer.remoteDescription).toBeNull();
+    expect(offerer.signalingState).toBe("have-local-offer");
+    expect(offerer.getTransceivers()[0].codecs).toEqual(codecsBefore);
     await offerer.close();
     await answerer.close();
   });
