@@ -487,6 +487,15 @@ export class TransceiverManager {
       );
     }
 
+    if (offeredCodecs) {
+      assertCodecsSupported({
+        kind: remoteMedia.kind,
+        configured: transceiver.codecs,
+        source: getTrackSourceCodecs(transceiver.sender.track),
+        preferences: undefined,
+      });
+    }
+
     log("negotiated codecs", transceiver.codecs);
     if (transceiver.codecs.length === 0) {
       throw createWebRtcDomException(

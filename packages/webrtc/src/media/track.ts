@@ -15,11 +15,13 @@ const sourceCodecsByTrack = new WeakMap<
   MediaStreamTrack,
   readonly RTCRtpCodecParameters[]
 >();
+const sourceCodecsCapturedByTrack = new WeakSet<MediaStreamTrack>();
 
 export function setTrackSourceCodecs(
   track: MediaStreamTrack,
   codecs: readonly RTCRtpCodecParameters[] | undefined,
 ) {
+  sourceCodecsCapturedByTrack.add(track);
   if (codecs == undefined) sourceCodecsByTrack.delete(track);
   else sourceCodecsByTrack.set(track, codecs);
 }
@@ -31,7 +33,9 @@ export function getTrackSourceCodecs(
 }
 
 export function captureTrackSourceCodecs(track: MediaStreamTrack) {
-  if (!sourceCodecsByTrack.has(track) && track.codec != undefined) {
+  if (sourceCodecsCapturedByTrack.has(track)) return;
+  sourceCodecsCapturedByTrack.add(track);
+  if (track.codec != undefined) {
     sourceCodecsByTrack.set(track, [track.codec]);
   }
 }

@@ -62,7 +62,7 @@ describe("media/rtpSender", () => {
     expect(spy).toBeCalledTimes(2);
   });
 
-  test("replaceTrack rejects a fixed source incompatible with negotiated codec", async () => {
+  test("replaceTrack accepts a fixed source matching any negotiated primary codec", async () => {
     const original = new MediaStreamTrack({
       kind: "video",
       codec: new RTCRtpCodecParameters({
@@ -92,15 +92,40 @@ describe("media/rtpSender", () => {
       }),
     });
 
-    // 実行: VP8 交渉済み sender を fixed H264 source へ置換する。
+    // 実行: VP8が送信先頭でも、交渉集合に含まれるfixed H264 sourceへ置換する。
+    await sender.replaceTrack(replacement);
+
+    // 検証: auxiliaryを除く全primaryとの積で判定し、H264 sourceを許可する。
+    expect(sender.track).toBe(replacement);
+    expect(sender.codec?.mimeType.toLowerCase()).toBe("video/vp8");
+  });
+
+  test("replaceTrack rejects a fixed source absent from negotiated primaries", async () => {
+    const original = new MediaStreamTrack({ kind: "video" });
+    const vp8 = new RTCRtpCodecParameters({
+      mimeType: "video/VP8",
+      clockRate: 90_000,
+      payloadType: 96,
+    });
+    const sender = new RTCRtpSender(original);
+    sender.prepareSend({ codecs: [vp8], headerExtensions: [] });
+    const replacement = new MediaStreamTrack({
+      kind: "video",
+      codec: new RTCRtpCodecParameters({
+        mimeType: "video/H264",
+        clockRate: 90_000,
+        payloadType: 97,
+      }),
+    });
+
+    // 実行: H264を含まない交渉集合へfixed H264 sourceを置換する。
     const act = sender.replaceTrack(replacement);
 
-    // 検証: track を変更する前に拒否し、既存 VP8 track を維持する。
+    // 検証: sourceと互換なprimaryがないためtrack変更前に拒否する。
     await expect(act).rejects.toMatchObject({
       name: "InvalidModificationError",
     });
     expect(sender.track).toBe(original);
-    expect(sender.codec?.mimeType.toLowerCase()).toBe("video/vp8");
   });
 
   test("replaceTrack accepts a primary source wrapped by negotiated RED", async () => {

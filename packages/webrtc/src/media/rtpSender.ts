@@ -446,11 +446,16 @@ export class RTCRtpSender {
 
     captureTrackSourceCodecs(track);
     const sourceCodecs = getTrackSourceCodecs(track);
+    const negotiatedPrimaryCodecs = this.negotiatedCodecs.filter(
+      (codec) => !["red", "rtx"].includes(codec.name.toLowerCase()),
+    );
     if (
-      this.sendPrimaryCodec != undefined &&
+      negotiatedPrimaryCodecs.length > 0 &&
       sourceCodecs != undefined &&
       !sourceCodecs.some((source) =>
-        isCodecCompatible(source, this.sendPrimaryCodec!),
+        negotiatedPrimaryCodecs.some((negotiated) =>
+          isCodecCompatible(source, negotiated),
+        ),
       )
     ) {
       throw createWebRtcDomException(

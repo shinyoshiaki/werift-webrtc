@@ -11,7 +11,10 @@ import {
   useVP8,
 } from "../../src";
 import { applyCodecPreferences } from "../../src/media/codecCompatibility";
-import { setTrackSourceCodecs } from "../../src/media/track";
+import {
+  getTrackSourceCodecs,
+  setTrackSourceCodecs,
+} from "../../src/media/track";
 
 function videoTrack(codec?: RTCRtpCodecParameters) {
   return new MediaStreamTrack({ kind: "video", codec });
@@ -706,6 +709,59 @@ describe("codec resolution", () => {
     );
     await offerer.close();
     await answerer.close();
+  });
+
+  test("remote answer rejects a codec incompatible with the fixed source", async () => {
+    const sourceCodec = useH264({
+      parameters: "profile-level-id=42e01f;packetization-mode=1",
+    });
+    const offerer = new RTCPeerConnection({
+      codecs: { video: [sourceCodec] },
+    });
+    offerer.addTrack(videoTrack(sourceCodec));
+    const offer = await offerer.createOffer();
+    await offerer.setLocalDescription(offer);
+    const answerer = new RTCPeerConnection({
+      codecs: { video: [sourceCodec] },
+    });
+    answerer.addTrack(videoTrack());
+    await answerer.setRemoteDescription(offer);
+    const answer = await answerer.createAnswer();
+    const incompatibleAnswer = {
+      type: answer.type,
+      sdp: answer.sdp.replace(
+        "profile-level-id=42e01f",
+        "profile-level-id=42c00a",
+      ),
+    };
+
+    // 実行: pending offerとMIMEは同じだがfixed sourceと非互換なanswerを適用する。
+    const act = offerer.setRemoteDescription(incompatibleAnswer);
+
+    // 検証: remote offerのMIME membershipとは別に、answerをsource制約で拒否する。
+    await expect(act).rejects.toMatchObject({ name: "NotSupportedError" });
+    await offerer.close();
+    await answerer.close();
+  });
+
+  test("a negotiated raw track clone remains unconstrained", async () => {
+    const raw = videoTrack();
+    const first = new RTCPeerConnection({ codecs: { video: [useH264()] } });
+    first.addTrack(raw);
+    raw.codec = useH264();
+    const cloned = raw.clone();
+    const second = new RTCPeerConnection({ codecs: { video: [useVP8()] } });
+
+    // 実行: senderがH264を設定したraw trackのcloneをVP8-only PCへ追加する。
+    const act = () => second.addTrack(cloned);
+
+    // 検証: negotiated track.codecをsource metadataとして再捕捉しない。
+    expect(raw.codec?.mimeType.toLowerCase()).toBe("video/h264");
+    expect(getTrackSourceCodecs(cloned)).toBeUndefined();
+    expect(act).not.toThrow();
+    await expect(second.createOffer()).resolves.toBeDefined();
+    await first.close();
+    await second.close();
   });
 
   test("answer maps duplicate MIME profiles and RTX to remote payload types", async () => {
