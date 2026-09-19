@@ -228,6 +228,42 @@ describe("codec resolution", () => {
     highProfile.close();
   });
 
+  test.each([
+    ["omitted local parameters", undefined],
+    ["explicit local mode 0", "packetization-mode=0"],
+  ])(
+    "serializes normalized H264 defaults for %s",
+    async (_name, parameters) => {
+      const codec = (value?: string) =>
+        new RTCRtpCodecParameters({
+          mimeType: "video/H264",
+          clockRate: 90_000,
+          payloadType: 96,
+          parameters: value,
+        });
+      const offerer = new RTCPeerConnection({
+        codecs: { video: [codec()] },
+      });
+      offerer.addTrack(videoTrack());
+      const offer = await offerer.createOffer();
+      const answerer = new RTCPeerConnection({
+        codecs: { video: [codec(parameters)] },
+      });
+      answerer.addTrack(videoTrack());
+
+      // 実行: parameter省略offerへ、省略またはmode 0明示のlocal codecでanswerする。
+      await answerer.setRemoteDescription(offer);
+      const answer = await answerer.createAnswer();
+
+      // 検証: mode 0と既定profileを値付きfmtpとして正確に出力する。
+      expect(
+        answer.sdp.split("\r\n").find((line) => line.startsWith("a=fmtp:96")),
+      ).toBe("a=fmtp:96 packetization-mode=0;profile-level-id=42e01f");
+      await offerer.close();
+      await answerer.close();
+    },
+  );
+
   test("per-track constraints do not mutate PC codecs and retain RTX", async () => {
     const vp8 = useVP8({ payloadType: 96 });
     const h264 = useH264({ payloadType: 97 });
