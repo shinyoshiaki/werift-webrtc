@@ -163,6 +163,71 @@ describe("codec resolution", () => {
     pc.close();
   });
 
+  test("fixed mode 1 H264 source rejects capability with omitted mode", () => {
+    const source = useH264({
+      parameters: "profile-level-id=42e01f;packetization-mode=1",
+    });
+    const capability = new RTCRtpCodecParameters({
+      mimeType: "video/H264",
+      clockRate: 90_000,
+      payloadType: 96,
+      parameters: "profile-level-id=42e01f",
+    });
+    const pc = new RTCPeerConnection({ codecs: { video: [capability] } });
+
+    // 実行 / 検証: mode省略をmode 0として扱い、mode 1 sourceを拒否する。
+    expect(() => pc.addTrack(videoTrack(source))).toThrow(
+      expect.objectContaining({ name: "NotSupportedError" }),
+    );
+    pc.close();
+  });
+
+  test("remote H264 omitted parameters use SDP defaults", async () => {
+    const omitted = new RTCRtpCodecParameters({
+      mimeType: "video/H264",
+      clockRate: 90_000,
+      payloadType: 96,
+    });
+    const offerer = new RTCPeerConnection({ codecs: { video: [omitted] } });
+    offerer.addTrack(videoTrack());
+    const offer = await offerer.createOffer();
+
+    const modeOne = new RTCPeerConnection({
+      codecs: {
+        video: [
+          useH264({
+            parameters: "profile-level-id=42e01f;packetization-mode=1",
+          }),
+        ],
+      },
+    });
+    modeOne.addTrack(videoTrack());
+
+    // 実行 / 検証: remoteのmode省略はmode 0なのでmode 1 localと非互換になる。
+    await expect(modeOne.setRemoteDescription(offer)).rejects.toMatchObject({
+      name: "NotSupportedError",
+    });
+    modeOne.close();
+
+    const highProfile = new RTCPeerConnection({
+      codecs: {
+        video: [
+          useH264({
+            parameters: "profile-level-id=640c1f;packetization-mode=0",
+          }),
+        ],
+      },
+    });
+    highProfile.addTrack(videoTrack());
+
+    // 実行 / 検証: profile省略は既定Constrained BaselineなのでHighと非互換になる。
+    await expect(highProfile.setRemoteDescription(offer)).rejects.toMatchObject(
+      { name: "NotSupportedError" },
+    );
+    offerer.close();
+    highProfile.close();
+  });
+
   test("per-track constraints do not mutate PC codecs and retain RTX", async () => {
     const vp8 = useVP8({ payloadType: 96 });
     const h264 = useH264({ payloadType: 97 });

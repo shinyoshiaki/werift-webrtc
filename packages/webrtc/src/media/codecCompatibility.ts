@@ -12,6 +12,19 @@ function optionalEqual<T>(left: T | undefined, right: T | undefined) {
   return left == undefined || right == undefined || left === right;
 }
 
+const DEFAULT_H264_PROFILE_LEVEL_ID = "42e01f";
+
+function h264Parameters(codec: RTCRtpCodecParameters) {
+  const parameters = codecParametersFromString(codec.parameters ?? "");
+  return {
+    parameters,
+    packetizationMode: Number(parameters["packetization-mode"] ?? 0),
+    profileLevelId: String(
+      parameters["profile-level-id"] ?? DEFAULT_H264_PROFILE_LEVEL_ID,
+    ).toLowerCase(),
+  };
+}
+
 export function isCodecCompatible(
   source: RTCRtpCodecParameters,
   configured: RTCRtpCodecParameters,
@@ -23,30 +36,20 @@ export function isCodecCompatible(
   if (!optionalEqual(source.channels, configured.channels)) return false;
   if (codecName(source) !== "h264") return true;
 
-  const sourceParameters = codecParametersFromString(source.parameters ?? "");
-  const configuredParameters = codecParametersFromString(
-    configured.parameters ?? "",
-  );
+  const sourceParameters = h264Parameters(source);
+  const configuredParameters = h264Parameters(configured);
   if (
-    !optionalEqual(
-      sourceParameters["packetization-mode"],
-      configuredParameters["packetization-mode"],
-    )
+    sourceParameters.packetizationMode !==
+    configuredParameters.packetizationMode
   ) {
     return false;
   }
-  const sourceProfileLevelId =
-    sourceParameters["profile-level-id"]?.toLowerCase();
-  const configuredProfileLevelId =
-    configuredParameters["profile-level-id"]?.toLowerCase();
-  if (
-    sourceProfileLevelId == undefined ||
-    configuredProfileLevelId == undefined
-  ) {
-    return true;
-  }
-  const sourceProfile = parseH264ProfileLevelId(sourceProfileLevelId);
-  const configuredProfile = parseH264ProfileLevelId(configuredProfileLevelId);
+  const sourceProfile = parseH264ProfileLevelId(
+    sourceParameters.profileLevelId,
+  );
+  const configuredProfile = parseH264ProfileLevelId(
+    configuredParameters.profileLevelId,
+  );
   return (
     sourceProfile != undefined &&
     configuredProfile != undefined &&
@@ -68,25 +71,17 @@ export function isRemoteCodecCompatible(
   if (!optionalEqual(local.channels, remote.channels)) return false;
   if (codecName(local) !== "h264") return true;
 
-  const localParameters = codecParametersFromString(local.parameters ?? "");
-  const remoteParameters = codecParametersFromString(remote.parameters ?? "");
+  const localParameters = h264Parameters(local);
+  const remoteParameters = h264Parameters(remote);
   if (
-    !optionalEqual(
-      localParameters["packetization-mode"],
-      remoteParameters["packetization-mode"],
-    )
+    localParameters.packetizationMode !== remoteParameters.packetizationMode
   ) {
     return false;
   }
-  const localProfileLevelId =
-    localParameters["profile-level-id"]?.toLowerCase();
-  const remoteProfileLevelId =
-    remoteParameters["profile-level-id"]?.toLowerCase();
-  if (localProfileLevelId == undefined || remoteProfileLevelId == undefined) {
-    return true;
-  }
-  const localProfile = parseH264ProfileLevelId(localProfileLevelId);
-  const remoteProfile = parseH264ProfileLevelId(remoteProfileLevelId);
+  const localProfile = parseH264ProfileLevelId(localParameters.profileLevelId);
+  const remoteProfile = parseH264ProfileLevelId(
+    remoteParameters.profileLevelId,
+  );
   if (
     !localProfile ||
     !remoteProfile ||
@@ -102,17 +97,16 @@ export function negotiateRemoteCodec(
   remote: RTCRtpCodecParameters,
 ) {
   if (codecName(local) !== "h264") return remote;
-  const localParameters = codecParametersFromString(local.parameters ?? "");
-  const remoteParameters = codecParametersFromString(remote.parameters ?? "");
-  const localId = localParameters["profile-level-id"]?.toLowerCase();
-  const remoteId = remoteParameters["profile-level-id"]?.toLowerCase();
-  if (!localId || !remoteId) return remote;
+  const localParameters = h264Parameters(local);
+  const remoteParameters = h264Parameters(remote);
+  const localId = localParameters.profileLevelId;
+  const remoteId = remoteParameters.profileLevelId;
   const localProfile = parseH264ProfileLevelId(localId);
   const remoteProfile = parseH264ProfileLevelId(remoteId);
   if (!localProfile || !remoteProfile) return remote;
   const asymmetryAllowed =
-    String(localParameters["level-asymmetry-allowed"]) === "1" &&
-    String(remoteParameters["level-asymmetry-allowed"]) === "1";
+    String(localParameters.parameters["level-asymmetry-allowed"]) === "1" &&
+    String(remoteParameters.parameters["level-asymmetry-allowed"]) === "1";
   const negotiatedId = asymmetryAllowed
     ? localId
     : h264LevelRank(localProfile.level) <= h264LevelRank(remoteProfile.level)
@@ -120,7 +114,8 @@ export function negotiateRemoteCodec(
       : remoteId;
   const negotiated = cloneCodecParameters(remote);
   negotiated.parameters = codecParametersToString({
-    ...remoteParameters,
+    ...remoteParameters.parameters,
+    "packetization-mode": remoteParameters.packetizationMode,
     "profile-level-id": negotiatedId,
   });
   return negotiated;
