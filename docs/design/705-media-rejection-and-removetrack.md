@@ -4,6 +4,8 @@
 
 本書は 2026-09-19 時点の `develop`（`62582c21`）を「以前」、作業ブランチの `83ab91e9` を「現在」として比較する。対象は [チケット #705](../../TICKET-ticket-4502cb15-1c26-483f-9742-2294e86e343e.md) と [removeTrack E2E](../../e2e/tests/mediachannel/removeTrack.test.ts) に関係する SDP・transceiver の挙動であり、WebRTC 全体への完全準拠を示すものではない。
 
+追補では、`1cc2a64c` の werift と、調査時点のブラウザ・SDK の公開ソースを確認した。**inactive のまま新規 transceiver を追加し続ければ SDP は大きくなる。ただし、既存 transceiver の再開には port 0 は不要である。** 「同じ transceiver の再使用」と「停止済み m-line の位置を別 transceiver に割り当てること」を分けて設計する必要がある。
+
 ## 仕様が区別する状態
 
 media section は `m=` 行から始まる SDP の単位、MID はその識別子、m-line index は SDP 内の 0 始まりの位置である。MID と index は別の値であり、再利用された位置に新しい MID が付く場合もある。
@@ -63,6 +65,100 @@ index   MID   ブラウザの offer の方向
 
 したがって index 3 の検証は、inactive と reject の区別を回復した結果を確認するものとなる。単に `addTransceiver()` は常に m-line を末尾に追加する、と一般化するのは誤りである。
 
+## inactive はいつ port 0 になるか
+
+inactive の継続時間、track の不在、RTP の無通信、m-line の本数を理由に、自動的に port 0 にする仕様はない。`MediaStreamTrack.stop()` も `RTCRtpTransceiver.stop()` とは別である。
+
+| 操作・条件 | 非ゼロ port の inactive section への結果 |
+| --- | --- |
+| `direction = "inactive"`、`removeTrack()`、`replaceTrack(null)` | これらだけでは section を拒否しない。`replaceTrack(null)` 単独では direction も変更しない |
+| アプリが既存 transceiver に `stop()` を呼び、自分から次の offer を生成 | 対応する section を port 0 で提示し、offer/answer で停止を交渉する |
+| 相手から section の削除を表す port 0 の offer を受信 | answer も port 0 を維持する（bundle-only の例外は後述） |
+| 相手が対応する answer section を reject | answer の port 0 により拒否が確定する。共通 codec がない場合などが該当 |
+| `pc.close()` | 接続全体の終了。再利用用の port 0 SDP を交渉する操作ではない |
+
+根拠は [RFC 3264 §8.2](https://www.rfc-editor.org/rfc/rfc3264.html#section-8.2)、[RFC 9429 §5.2.2 / §5.3.1](https://www.rfc-editor.org/info/rfc9429/#section-5.2.2)、[W3C transceiver.stop](https://www.w3.org/TR/webrtc/#dom-rtcrtptransceiver-stop) である。`stop()` は既存の SDP 文字列を即座に書き換えるのではなく、次の交渉に反映される。W3C は stopping と stopped を区別し、stopping は `createOffer()` では停止扱いにするが、まだ stopped でない段階の `createAnswer()` に同じ扱いを適用しない。answerer が永久停止したい場合も、自分から交渉を開始する手順が必要となる。
+
+停止済みの位置を新しい transceiver に回す際は、旧 transceiver を復活させるのではない。同じ m-line index に新しい MID を割り当てる。[RFC 9429 §5.2.2](https://www.rfc-editor.org/info/rfc9429/#section-5.2.2) の対象は current local/remote description の拒否済み section であり、`stop()` の直後、まだ拒否を交渉していない時点で新規追加しても、同じ offer 内で再利用されるとは限らない。
+
+## SDP の増加を抑える三つの方法
+
+### 1. 既存の transceiver を明示的に再開する
+
+カメラ、画面共有などの用途ごとに transceiver を保持し、一時停止・再開・映像ソース切り替えには同じ sender を使う。以前に送信した transceiver でも、停止されていなければアプリが明示的に再使用できる。MID と m-line の位置を維持するため、追加の section は不要となる。
+
+```js
+// ブラウザ API の概念例。negotiate() は offer/answer を完了するアプリ側の処理。
+// slot は以前 sendonly で交渉済みの video transceiver。
+pc.removeTrack(slot.sender);
+await negotiate(); // slot は inactive のまま保持される
+
+await slot.sender.replaceTrack(nextVideoTrack);
+slot.direction = "sendonly";
+await negotiate(); // 同じ MID の送信を再開する
+```
+
+`replaceTrack()` は同じ media kind が必要で、既存の交渉条件に収まらない交換は失敗し得る。direction の変更には再交渉が必要であり、inactive のまま track だけ戻しても送信は再開しない。また相手の direction が受信を許す必要がある。仕様にも direction と replaceTrack を組み合わせた [hold / resume の例](https://www.w3.org/TR/webrtc/#hold-functionality) がある。
+
+一時的に送信ソースだけ外したい場合は `replaceTrack(null)` と同じ sender への `replaceTrack(track)` という選択肢もある。この場合、送信可能な交渉方向を維持していれば direction 変更の交渉は不要だが、相手へ inactive を通知する方法とは異なる。
+
+### 2. addTrack の限定的な自動再使用を利用する
+
+[W3C addTrack](https://www.w3.org/TR/webrtc/#dom-rtcpeerconnection-addtrack) の既存 sender 選択には、track が null、media kind が一致、transceiver が stopping でないことに加え、**currentDirection が過去に一度も sendonly/sendrecv になっていない**という条件がある。「実際に RTP パケットを送ったか」ではなく、交渉された方向の履歴による条件である。
+
+そのため、未送信の inactive/recvonly 枠なら自動再使用の候補になるが、一度送信を交渉した枠を removeTrack しただけでは候補に戻らない。後者のケースで `addTrack()` を反復すると新規枠が増え得る。任意の inactive 枠を使いたい場合は、方法 1 のように保存した sender/transceiver を明示的に選ぶ。
+
+### 3. 不要な transceiver を永久停止し、拒否済みの位置を再利用する
+
+```js
+// ブラウザ API の概念例。いったん停止の交渉を完了させる。
+slot.stop();
+await negotiate(); // current SDP に旧 MID の port 0 が反映される
+
+const replacement = pc.addTransceiver(nextVideoTrack, { direction: "sendonly" });
+await negotiate(); // 再利用可能な位置があれば、新しい MID で使われる
+```
+
+この方法は旧 transceiver の不可逆な停止を伴う。再利用可能な位置がなければ追加されるため、並行して追加・停止を行う場合も本数が必ず一定になるとは限らない。SDP の m-line を単に削除・詰め直すこともできない（[RFC 3264 §8](https://www.rfc-editor.org/rfc/rfc3264.html#section-8)）。再利用は増加を抑える手段であり、過去に拡大した SDP の本数を縮める保証ではない。
+
+## 公開実装で確認できる運用
+
+以下は調査時点の公開ソースに基づく。main/v3 ブランチへのリンクは更新され得る。全製品・全リリースの挙動を代表するものではない。
+
+| 実装 | 確認した処理 | 肥大化対策としての意味 |
+| --- | --- | --- |
+| Chromium の基盤 libwebrtc | `FindFirstTransceiverForAddedTrack()` が sender の track・kind・停止状態・送信履歴を調べる | inactive を無条件に addTrack の再使用候補にはしない |
+| libwebrtc の offer 生成 | current description の rejected 状態などから再利用可能 index をキューに入れ、新規 transceiver に優先割り当て。新 MID を生成 | 拒否済みの位置を消費してから末尾に追加する |
+| Firefox の JSEP | disabled answer の適用時に停止・関連付け解除・`SetCanRecycleMyMsection()`。次の `GetTransceiverForLocal()` で未関連付けの RTP transceiver に同じ level を割り当てる | inactive の存在だけではなく、交渉済みの拒否状態で再利用を管理する |
+
+参照: libwebrtc [rtp_transmission_manager.cc](https://webrtc.googlesource.com/src/+/refs/heads/main/pc/rtp_transmission_manager.cc)、[sdp_offer_answer.cc](https://webrtc.googlesource.com/src/+/refs/heads/main/pc/sdp_offer_answer.cc)、Firefox [JsepSessionImpl.cpp](https://github.com/mozilla-firefox/firefox/blob/main/dom/media/webrtc/jsep/JsepSessionImpl.cpp)。Firefox の当該ローカル再利用経路は同じ media type の候補を探す。libwebrtc と Firefox の全境界条件が同一である、という意味ではない。
+
+アプリ側の具体例として、mediasoup-client の [Chrome111 handler](https://github.com/versatica/mediasoup-client/blob/v3/src/handlers/Chrome111.ts) は pause/resume と stop を分けている。`pauseSending()` は保存済み transceiver を inactive にし、`resumeSending()` は同じものを sendonly に戻す。`stopSending()` は media section を close できた場合に transceiver.stop を呼び、交渉を完了する。
+
+同 SDK の [RemoteSdp](https://github.com/versatica/mediasoup-client/blob/v3/src/handlers/sdp/RemoteSdp.ts) は、次回追加時に closed section を優先して選ぶ。ただし最初の BUNDLE section は transport の扱いを考慮して close せず disable に留める実装である。また受信側の再利用では Firefox との互換性を考慮して同じ kind を選ぶ。実運用では、単純な「inactive はすべて port 0 にする」規則ではなく、pause/resume、close/recycle、BUNDLE 維持を分けている。
+
+## Chromium での追加観測
+
+追補作成時、インストール済み Chromium **151.0.7922.34** を Playwright から起動し、ブラウザ内の二つの RTCPeerConnection 間で各段階の offer/answer を適用した。初期配置は audio の index 0 と、対象 video の index 1（MID `1`）。各ケースは独立した接続を使用した。
+
+| video に対する操作 | 観測された結果 |
+| --- | --- |
+| removeTrack → 交渉 → 新規 addTransceiver → 交渉 | 元の MID `1` は port 9 / inactive、新規 MID `2` を末尾に追加。本数 2 → 3 |
+| removeTrack → 交渉 → 同じ sender の replaceTrack + sendonly → 交渉 | MID `1` のまま port 9 / sendonly。本数 2 のまま |
+| 送信交渉済みの sender を removeTrack → 交渉 → addTrack → 交渉 | sender の自動再使用なし。MID `2` を追加し、本数 2 → 3 |
+| removeTrack → 交渉 → stop → 交渉 → 新規 addTransceiver → 交渉 | MID `1` が port 9 / inactive → port 0。その後同じ index 1 が MID `2` / port 9 に変わり、本数 2 のまま |
+| 最初から未送信の inactive video を交渉 → addTrack → 交渉 | 既存 sender を再使用し、MID `1` のまま sendonly。本数 2 のまま |
+
+観測には canvas の video track を用いた。ICE 接続成立や RTP 到達は待たず、SDP・MID・本数と sender の同一性を確認したもので、メディア疎通の試験ではない。Firefox と mediasoup-client はソース調査のみで、今回実行していない。使用した Chromium は環境に存在したビルドであり、市場の安定版のバージョンを意味しない。
+
+## werift にそのまま適用できるか
+
+上記の stop → port 0 → recycle の説明は、仕様とブラウザ実装の手順である。`1cc2a64c` の werift では [RTCRtpTransceiver.stop()](../../packages/webrtc/src/media/rtpTransceiver.ts) は TODO を含み、基本的に `stopping = true` を設定するだけである。[SDPManager](../../packages/webrtc/src/sdpManager.ts) の m-line 生成は `rejected` を port 判定に使い、`stopping` を直接 port 0 に結び付けていない。したがって、werift で stop を呼べばブラウザと同じ再利用手順が完了する、と本書の例を保証することはできない。
+
+現行 werift で明示的に port 0 へ進む経路は、remote port 0 や codec 不一致による `rejected` の設定である。ローカル inactive 枠の独自再利用処理も、送信履歴や rejected の除外条件を持ち、ブラウザの停止済み m-line 再利用と同じ機能ではない。
+
+長寿命接続の SDP 肥大化対策としては、まず用途ごとの既存 transceiver を維持する設計が考えられる。不要枠の永久停止と再割り当てまで必要なら、werift の stop・SDP・MID 対応を独立した課題として検証・実装する必要がある。これは #705 の inactive を port 0 に戻す理由にはならない。本追補ではこの差異を記録し、ランタイムの変更は行っていない。
+
 ## Issue #705 の変更との関係
 
 [RFC 3264 §6 / §6.1](https://www.rfc-editor.org/rfc/rfc3264.html#section-6) は、共通 format のない stream を port 0 で拒否し、offer の format を少なくとも 1 つ残すことを求める。answer は offer と対応する数・順序の m-line を持つ。[RFC 8829 §5.3.1](https://www.rfc-editor.org/rfc/rfc8829.html#section-5.3.1) も answer 生成時の拒否と、対応する proto・MID の扱いを規定している。
@@ -102,4 +198,4 @@ index   MID   ブラウザの offer の方向
 
 [705 回帰テスト](../../packages/webrtc/tests/issue/705.test.ts) は codec 不一致、remote port 0、BUNDLE、candidate 対応、再交渉と pipeline 解除を検証する。
 
-2026-09-18 のテスト補強時（`317cc4f2`）の実行結果は、Chromium 140 の removeTrack E2E がリトライなしで 3 件成功、webrtc 全体が 305 passed / 3 skipped、webrtc と E2E の型チェックおよび E2E ビルドが成功だった。これはその時点の記録であり、現在の HEAD に対する再実行結果ではない。今回の文書作成ではソースと仕様の照合、相対リンクの確認、`git diff --check` のみを行い、コードテストは再実行していない。旧版の実ブラウザ再現、他ブラウザ、WPT、全体 CI は本書の検証根拠に含めない。
+2026-09-18 のテスト補強時（`317cc4f2`）の実行結果は、Chromium 140 の removeTrack E2E がリトライなしで 3 件成功、webrtc 全体が 305 passed / 3 skipped、webrtc と E2E の型チェックおよび E2E ビルドが成功だった。これはその時点の記録であり、現在の HEAD に対する再実行結果ではない。初版の文書作成ではソースと仕様の照合、相対リンクの確認、`git diff --check` のみを行った。今回の追補では上記 Chromium の5ケースを追加観測し、パッケージテストは再実行していない。旧版の実ブラウザ再現、Firefox/Safari の実行、WPT、全体 CI は本追補の検証根拠に含めない。
