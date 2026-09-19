@@ -93,6 +93,46 @@ describe("media/rtpSender", () => {
     expect(sender.codec?.mimeType.toLowerCase()).toBe("video/vp8");
   });
 
+  test("replaceTrack accepts a primary source wrapped by negotiated RED", async () => {
+    const opus = new RTCRtpCodecParameters({
+      mimeType: "audio/opus",
+      clockRate: 48_000,
+      channels: 2,
+      payloadType: 96,
+    });
+    const original = new MediaStreamTrack({ kind: "audio", codec: opus });
+    const sender = new RTCRtpSender(original);
+    sender.prepareSend({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "audio/red",
+          clockRate: 48_000,
+          channels: 2,
+          payloadType: 97,
+          parameters: "96/96",
+        }),
+        opus,
+      ],
+      headerExtensions: [],
+    });
+    const replacement = new MediaStreamTrack({
+      kind: "audio",
+      codec: new RTCRtpCodecParameters({
+        mimeType: "audio/opus",
+        clockRate: 48_000,
+        channels: 2,
+        payloadType: 96,
+      }),
+    });
+
+    // 実行: RED が先頭の交渉後に、参照先と同じ fixed OPUS source へ置換する。
+    await sender.replaceTrack(replacement);
+
+    // 検証: auxiliary codec ではなく primary codec との互換性で許可する。
+    expect(sender.track).toBe(replacement);
+    expect(sender.codec?.mimeType.toLowerCase()).toBe("audio/red");
+  });
+
   test("prepareSend clears excluded RTX and RED state", async () => {
     const sender = new RTCRtpSender(new MediaStreamTrack({ kind: "video" }));
     const vp8 = new RTCRtpCodecParameters({

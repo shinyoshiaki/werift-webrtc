@@ -200,6 +200,7 @@ export class RTCRtpSender {
   private readonly pendingRtpEnabled: boolean;
   private readonly pendingRtpMaxLength: number;
   codec?: RTCRtpCodecParameters;
+  private negotiatedCodecs: RTCRtpCodecParameters[] = [];
   public dtlsTransport!: RTCDtlsTransport;
   private dtlsDisposer: (() => void)[] = [];
 
@@ -268,6 +269,7 @@ export class RTCRtpSender {
     this.rtpStreamId = params.rtpStreamId ?? this.rtpStreamId;
     this.repairedRtpStreamId = params.repairedRtpStreamId;
 
+    this.negotiatedCodecs = [...params.codecs];
     this.codec = params.codecs[0];
     if (this.track) {
       this.track.codec = this.codec;
@@ -429,13 +431,19 @@ export class RTCRtpSender {
     captureTrackSourceCodecs(track);
     const sourceCodecs = getTrackSourceCodecs(track);
     if (
-      this.codec != undefined &&
+      this.negotiatedCodecs.length > 0 &&
       sourceCodecs != undefined &&
-      !sourceCodecs.some((source) => isCodecCompatible(source, this.codec!))
+      !sourceCodecs.some((source) =>
+        this.negotiatedCodecs.some(
+          (negotiated) =>
+            !["red", "rtx"].includes(negotiated.name.toLowerCase()) &&
+            isCodecCompatible(source, negotiated),
+        ),
+      )
     ) {
       throw createWebRtcDomException(
         "InvalidModificationError",
-        `Track codec ${sourceCodecs.map((codec) => codec.mimeType).join(", ")} is incompatible with negotiated codec ${this.codec.mimeType}`,
+        `Track codec ${sourceCodecs.map((codec) => codec.mimeType).join(", ")} is incompatible with negotiated codecs ${this.negotiatedCodecs.map((codec) => codec.mimeType).join(", ")}`,
       );
     }
 
