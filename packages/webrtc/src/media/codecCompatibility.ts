@@ -38,6 +38,45 @@ export function isCodecCompatible(
   );
 }
 
+/** SDP negotiation compatibility. Unlike fixed-source constraints, H264 level
+ * differences are allowed when both endpoints advertise level asymmetry. */
+export function isRemoteCodecCompatible(
+  local: RTCRtpCodecParameters,
+  remote: RTCRtpCodecParameters,
+) {
+  if (local.mimeType.toLowerCase() !== remote.mimeType.toLowerCase()) {
+    return false;
+  }
+  if (local.clockRate !== remote.clockRate) return false;
+  if (!optionalEqual(local.channels, remote.channels)) return false;
+  if (codecName(local) !== "h264") return true;
+
+  const localParameters = codecParametersFromString(local.parameters ?? "");
+  const remoteParameters = codecParametersFromString(remote.parameters ?? "");
+  if (
+    !optionalEqual(
+      localParameters["packetization-mode"],
+      remoteParameters["packetization-mode"],
+    )
+  ) {
+    return false;
+  }
+  const localProfileLevelId =
+    localParameters["profile-level-id"]?.toLowerCase();
+  const remoteProfileLevelId =
+    remoteParameters["profile-level-id"]?.toLowerCase();
+  if (localProfileLevelId == undefined || remoteProfileLevelId == undefined) {
+    return true;
+  }
+  if (localProfileLevelId.slice(0, 4) !== remoteProfileLevelId.slice(0, 4)) {
+    return false;
+  }
+  const levelAsymmetryAllowed =
+    String(localParameters["level-asymmetry-allowed"]) === "1" &&
+    String(remoteParameters["level-asymmetry-allowed"]) === "1";
+  return levelAsymmetryAllowed || localProfileLevelId === remoteProfileLevelId;
+}
+
 function isAuxiliary(codec: RTCRtpCodecParameters) {
   return ["rtx", "red"].includes(codecName(codec));
 }

@@ -365,6 +365,7 @@ describe("codec resolution", () => {
     });
     offerer.addTrack(new MediaStreamTrack({ kind: "audio" }));
     const offer = await offerer.createOffer();
+    await offerer.setLocalDescription(offer);
 
     const answerCodecs = codecs(98, 99);
     const answerer = new RTCPeerConnection({
@@ -377,16 +378,51 @@ describe("codec resolution", () => {
     // 実行: remote offerとは逆にREDを優先してanswerを作成する。
     transceiver.setCodecPreferences([answerCodecs.red, answerCodecs.opus]);
     const answer = await answerer.createAnswer();
+    await answerer.setLocalDescription(answer);
+    await offerer.setRemoteDescription(answer);
 
     // 検証: answer SDPとsenderの送信codecがRED preferenceを維持する。
     expect(transceiver.codecs.map((codec) => codec.name.toLowerCase())).toEqual(
       ["red", "opus"],
     );
     expect(transceiver.sender.codec?.mimeType.toLowerCase()).toBe("audio/red");
+    expect(
+      offerer.getTransceivers()[0].sender.codec?.mimeType.toLowerCase(),
+    ).toBe("audio/red");
     const mediaLine = answer.sdp
       .split("\r\n")
       .find((line) => line.startsWith("m=audio"));
     expect(mediaLine?.split(" ").slice(3, 5)).toEqual(["97", "96"]);
+    await offerer.close();
+    await answerer.close();
+  });
+
+  test("negotiates H264 profile with different asymmetric levels", async () => {
+    const h264 = (level: string) =>
+      useH264({
+        parameters: `profile-level-id=42e0${level};packetization-mode=1;level-asymmetry-allowed=1`,
+      });
+    const offerer = new RTCPeerConnection({
+      codecs: { video: [h264("1f")] },
+    });
+    offerer.addTrack(videoTrack());
+    const offer = await offerer.createOffer();
+    await offerer.setLocalDescription(offer);
+    const answerer = new RTCPeerConnection({
+      codecs: { video: [h264("0d")] },
+    });
+    answerer.addTrack(videoTrack());
+
+    // 実行: 同一profileでlevelだけが異なるofferを適用してanswerする。
+    await answerer.setRemoteDescription(offer);
+    const answer = await answerer.createAnswer();
+    await answerer.setLocalDescription(answer);
+    await offerer.setRemoteDescription(answer);
+
+    // 検証: level asymmetryが双方で許可されていれば往復交渉が成立する。
+    expect(answer.sdp.toLowerCase()).toContain("h264/90000");
+    expect(answerer.getTransceivers()[0].codecs).toHaveLength(1);
+    expect(offerer.getTransceivers()[0].codecs).toHaveLength(1);
     await offerer.close();
     await answerer.close();
   });

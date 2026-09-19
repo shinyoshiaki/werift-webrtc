@@ -21,7 +21,7 @@ import {
 } from "./media";
 import {
   assertCodecsSupported,
-  isCodecCompatible,
+  isRemoteCodecCompatible,
   resolveCodecs,
 } from "./media/codecCompatibility";
 import type { RTCStats } from "./media/stats";
@@ -410,6 +410,7 @@ export class TransceiverManager {
   refreshAnswerCodecs(
     transceiver: RTCRtpTransceiver,
     remoteMedia: MediaDescription,
+    order: "local" | "remote" = "local",
   ): void {
     const localCodecs = resolveCodecs(
       this.config.codecs[remoteMedia.kind] || [],
@@ -433,7 +434,7 @@ export class TransceiverManager {
       if (localCodec.name.toLowerCase() === "rtx") continue;
       const remoteCodec = remoteMedia.rtp.codecs.find(
         (codec) =>
-          !usedRemote.has(codec) && isCodecCompatible(localCodec, codec),
+          !usedRemote.has(codec) && isRemoteCodecCompatible(localCodec, codec),
       );
       if (remoteCodec) {
         remoteByLocal.set(localCodec, remoteCodec);
@@ -469,6 +470,14 @@ export class TransceiverManager {
       usedRemote.add(remoteRtx);
       return [remoteRtx];
     });
+    if (order === "remote") {
+      const remoteOrder = new Map(
+        remoteMedia.rtp.codecs.map((codec, index) => [codec, index]),
+      );
+      transceiver.codecs.sort(
+        (left, right) => remoteOrder.get(left)! - remoteOrder.get(right)!,
+      );
+    }
 
     log("negotiated codecs", transceiver.codecs);
     if (transceiver.codecs.length === 0) {
@@ -490,7 +499,11 @@ export class TransceiverManager {
     }
     transceiver.mLineIndex = mLineIndex;
 
-    this.refreshAnswerCodecs(transceiver, remoteMedia);
+    this.refreshAnswerCodecs(
+      transceiver,
+      remoteMedia,
+      type === "offer" ? "local" : "remote",
+    );
     transceiver.headerExtensions = remoteMedia.rtp.headerExtensions.filter(
       (extension) =>
         (
