@@ -220,13 +220,16 @@ export function applyCodecPreferences(
     const candidates = configured.filter((codec) =>
       matchesPreference(codec, preference),
     );
+    const exactH264 = candidates.find(
+      (codec) =>
+        codecName(codec) === "h264" &&
+        preference.parameters != undefined &&
+        isCodecCompatible(preference, codec),
+    );
     const match =
-      candidates.find(
-        (codec) =>
-          codecName(codec) === "h264" &&
-          preference.parameters != undefined &&
-          isCodecCompatible(preference, codec),
-      ) ?? candidates[0];
+      codecName(preference) === "h264" && preference.parameters != undefined
+        ? exactH264
+        : candidates[0];
     return match ? [match] : [];
   });
   const uniquePreferred = [...new Set(preferred)];

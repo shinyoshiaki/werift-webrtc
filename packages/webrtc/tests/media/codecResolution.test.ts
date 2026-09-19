@@ -478,6 +478,30 @@ describe("codec resolution", () => {
     await answerer.close();
   });
 
+  test("unsupported H264 parameter preference fails instead of using stale codec", async () => {
+    const configured = useH264({
+      parameters: "profile-level-id=42e01f;packetization-mode=1",
+    });
+    const pc = new RTCPeerConnection({ codecs: { video: [configured] } });
+    pc.addTrack(videoTrack());
+    await pc.createOffer();
+    const transceiver = pc.getTransceivers()[0];
+
+    // 実行: 単一capabilityと異なるprofile/modeをpreference指定する。
+    transceiver.setCodecPreferences([
+      useH264({
+        parameters: "profile-level-id=42c00d;packetization-mode=0",
+      }),
+    ]);
+
+    // 検証: 古いcodecへfallbackせず、次のoffer生成を明示的に失敗させる。
+    await expect(pc.createOffer()).rejects.toMatchObject({
+      name: "NotSupportedError",
+    });
+    expect(transceiver.codecs).toEqual([]);
+    pc.close();
+  });
+
   test("incompatible preferences after first offer fail at next offer", async () => {
     const pc = new RTCPeerConnection({
       codecs: { video: [useVP8(), useH264()] },
