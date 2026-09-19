@@ -270,7 +270,9 @@ export class RTCRtpSender {
     this.repairedRtpStreamId = params.repairedRtpStreamId;
 
     this.negotiatedCodecs = [...params.codecs];
-    this.codec = params.codecs[0];
+    this.codec =
+      params.codecs.find((codec) => codec.name.toLowerCase() !== "rtx") ??
+      params.codecs[0];
     if (this.track) {
       this.track.codec = this.codec;
     }
@@ -281,7 +283,11 @@ export class RTCRtpSender {
       const codecParams = codecParametersFromString(codec.parameters ?? "");
       if (
         codec.name.toLowerCase() === "rtx" &&
-        codecParams["apt"] === this.codec?.payloadType
+        params.codecs.some(
+          (candidate) =>
+            !["red", "rtx"].includes(candidate.name.toLowerCase()) &&
+            candidate.payloadType === codecParams["apt"],
+        )
       ) {
         this.rtxPayloadType = codec.payloadType;
       }

@@ -191,6 +191,39 @@ describe("media/rtpSender", () => {
     expect(outbound.rtxSsrc).toBeUndefined();
   });
 
+  test("prepareSend resolves RTX from its primary when RED is first", () => {
+    const sender = new RTCRtpSender(new MediaStreamTrack({ kind: "video" }));
+
+    // 実行: RED、VP8、RTX の順序で交渉結果を適用する。
+    sender.prepareSend({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "video/red",
+          clockRate: 90_000,
+          payloadType: 98,
+          parameters: "96/96",
+        }),
+        new RTCRtpCodecParameters({
+          mimeType: "video/VP8",
+          clockRate: 90_000,
+          payloadType: 96,
+        }),
+        new RTCRtpCodecParameters({
+          mimeType: "video/rtx",
+          clockRate: 90_000,
+          payloadType: 97,
+          parameters: "apt=96",
+        }),
+      ],
+      headerExtensions: [],
+    });
+
+    // 検証: RED を送信 codec に保ちつつ、RTX は参照先 VP8 から解決する。
+    expect(sender.codec?.mimeType.toLowerCase()).toBe("video/red");
+    expect(senderStatsState(sender).rtxPayloadType).toBe(97);
+    expect(senderStatsState(sender).redRedundantPayloadType).toBe(96);
+  });
+
   test("replaceTrack without first RTP still continues sequence and timestamp", async () => {
     const track1 = new MediaStreamTrack({ kind: "audio" });
     const dtls = createDtlsTransport();
