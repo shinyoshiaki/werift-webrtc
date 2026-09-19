@@ -660,6 +660,9 @@ export class RTCPeerConnection extends EventTarget {
 
     if (sessionDescription?.type === "rollback") {
       this.sdpManager.rollbackLocalDescription(this.signalingState);
+      for (const transceiver of this.transceiverManager.getTransceivers()) {
+        transceiver.pendingLocalOfferCodecs = undefined;
+      }
       this.setSignalingState("stable");
       if (this.shouldNegotiationneeded) {
         this.needNegotiation();
@@ -735,6 +738,9 @@ export class RTCPeerConnection extends EventTarget {
           this.transceiverManager.getTransceiverByMLineIndex(i);
         if (transceiver) {
           transceiver.mid = mid;
+          if (description.type === "offer") {
+            transceiver.pendingLocalOfferCodecs = [...media.rtp.codecs];
+          }
         }
       }
       if (media.kind === "application" && this.sctpTransport) {

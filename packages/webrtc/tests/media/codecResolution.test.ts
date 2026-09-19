@@ -397,19 +397,19 @@ describe("codec resolution", () => {
     await answerer.close();
   });
 
-  test("negotiates H264 profile with different asymmetric levels", async () => {
-    const h264 = (level: string) =>
+  test("negotiates equivalent H264 constraint forms with asymmetric levels", async () => {
+    const h264 = (profileLevelId: string) =>
       useH264({
-        parameters: `profile-level-id=42e0${level};packetization-mode=1;level-asymmetry-allowed=1`,
+        parameters: `profile-level-id=${profileLevelId};packetization-mode=1;level-asymmetry-allowed=1`,
       });
     const offerer = new RTCPeerConnection({
-      codecs: { video: [h264("1f")] },
+      codecs: { video: [h264("42e01f")] },
     });
     offerer.addTrack(videoTrack());
     const offer = await offerer.createOffer();
     await offerer.setLocalDescription(offer);
     const answerer = new RTCPeerConnection({
-      codecs: { video: [h264("0d")] },
+      codecs: { video: [h264("42c00d")] },
     });
     answerer.addTrack(videoTrack());
 
@@ -423,6 +423,37 @@ describe("codec resolution", () => {
     expect(answer.sdp.toLowerCase()).toContain("h264/90000");
     expect(answerer.getTransceivers()[0].codecs).toHaveLength(1);
     expect(offerer.getTransceivers()[0].codecs).toHaveLength(1);
+    await offerer.close();
+    await answerer.close();
+  });
+
+  test("remote answer uses pending offer codecs after preferences change", async () => {
+    const offerer = new RTCPeerConnection({
+      codecs: { video: [useVP8(), useH264()] },
+    });
+    offerer.addTrack(videoTrack());
+    const transceiver = offerer.getTransceivers()[0];
+    transceiver.setCodecPreferences([useVP8()]);
+    const offer = await offerer.createOffer();
+    await offerer.setLocalDescription(offer);
+
+    const answerer = new RTCPeerConnection({
+      codecs: { video: [useVP8(), useH264()] },
+    });
+    answerer.addTrack(videoTrack());
+    await answerer.setRemoteDescription(offer);
+    const answer = await answerer.createAnswer();
+    await answerer.setLocalDescription(answer);
+
+    // 実行: 次回交渉用preferenceをH264へ変えた後、pending VP8 offerへのanswerを適用する。
+    transceiver.setCodecPreferences([useH264()]);
+    await offerer.setRemoteDescription(answer);
+
+    // 検証: 最新preferenceではなく送信済みofferのVP8 codecで交渉を完了する。
+    expect(transceiver.sender.codec?.mimeType.toLowerCase()).toBe("video/vp8");
+    expect(transceiver.codecs.map((codec) => codec.name.toLowerCase())).toEqual(
+      ["vp8"],
+    );
     await offerer.close();
     await answerer.close();
   });

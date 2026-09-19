@@ -39,6 +39,7 @@ export class RTCRtpTransceiver {
   }
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
   private _codecPreferences?: RTCRtpCodecParameters[];
+  pendingLocalOfferCodecs?: RTCRtpCodecParameters[];
 
   get codecPreferences(): readonly RTCRtpCodecParameters[] | undefined {
     return this._codecPreferences;

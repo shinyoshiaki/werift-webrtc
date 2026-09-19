@@ -411,18 +411,23 @@ export class TransceiverManager {
     transceiver: RTCRtpTransceiver,
     remoteMedia: MediaDescription,
     order: "local" | "remote" = "local",
+    offeredCodecs?: RTCRtpCodecParameters[],
   ): void {
-    const localCodecs = resolveCodecs(
-      this.config.codecs[remoteMedia.kind] || [],
-      getTrackSourceCodecs(transceiver.sender.track),
-      transceiver.codecPreferences,
-    );
-    assertCodecsSupported({
-      kind: remoteMedia.kind,
-      configured: this.config.codecs[remoteMedia.kind] || [],
-      source: getTrackSourceCodecs(transceiver.sender.track),
-      preferences: transceiver.codecPreferences,
-    });
+    const localCodecs =
+      offeredCodecs ??
+      resolveCodecs(
+        this.config.codecs[remoteMedia.kind] || [],
+        getTrackSourceCodecs(transceiver.sender.track),
+        transceiver.codecPreferences,
+      );
+    if (!offeredCodecs) {
+      assertCodecsSupported({
+        kind: remoteMedia.kind,
+        configured: this.config.codecs[remoteMedia.kind] || [],
+        source: getTrackSourceCodecs(transceiver.sender.track),
+        preferences: transceiver.codecPreferences,
+      });
+    }
 
     // # negotiate codecs
     const remoteByLocal = new Map<
@@ -503,7 +508,9 @@ export class TransceiverManager {
       transceiver,
       remoteMedia,
       type === "offer" ? "local" : "remote",
+      type === "offer" ? undefined : transceiver.pendingLocalOfferCodecs,
     );
+    if (type === "answer") transceiver.pendingLocalOfferCodecs = undefined;
     transceiver.headerExtensions = remoteMedia.rtp.headerExtensions.filter(
       (extension) =>
         (

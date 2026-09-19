@@ -68,13 +68,46 @@ export function isRemoteCodecCompatible(
   if (localProfileLevelId == undefined || remoteProfileLevelId == undefined) {
     return true;
   }
-  if (localProfileLevelId.slice(0, 4) !== remoteProfileLevelId.slice(0, 4)) {
+  const localProfile = parseH264ProfileLevelId(localProfileLevelId);
+  const remoteProfile = parseH264ProfileLevelId(remoteProfileLevelId);
+  if (
+    !localProfile ||
+    !remoteProfile ||
+    localProfile.profile !== remoteProfile.profile
+  ) {
     return false;
   }
   const levelAsymmetryAllowed =
     String(localParameters["level-asymmetry-allowed"]) === "1" &&
     String(remoteParameters["level-asymmetry-allowed"]) === "1";
-  return levelAsymmetryAllowed || localProfileLevelId === remoteProfileLevelId;
+  return levelAsymmetryAllowed || localProfile.level === remoteProfile.level;
+}
+
+function parseH264ProfileLevelId(value: string) {
+  if (!/^[0-9a-f]{6}$/i.test(value) || value === "000000") return;
+  const numeric = Number.parseInt(value, 16);
+  const profileIdc = (numeric >> 16) & 0xff;
+  const profileIop = (numeric >> 8) & 0xff;
+  const levelIdc = numeric & 0xff;
+  const patterns: Array<[number, number, number, string]> = [
+    [0x42, 0x4f, 0x40, "constrained-baseline"],
+    [0x4d, 0x8f, 0x80, "constrained-baseline"],
+    [0x58, 0xcf, 0xc0, "constrained-baseline"],
+    [0x42, 0x4f, 0x00, "baseline"],
+    [0x58, 0xcf, 0x80, "baseline"],
+    [0x4d, 0xaf, 0x00, "main"],
+    [0x64, 0xff, 0x00, "high"],
+    [0x64, 0xff, 0x0c, "constrained-high"],
+    [0xf4, 0xff, 0x00, "predictive-high-444"],
+  ];
+  const profile = patterns.find(
+    ([idc, mask, expected]) =>
+      profileIdc === idc && (profileIop & mask) === expected,
+  )?.[3];
+  if (!profile) return;
+  const level =
+    levelIdc === 0x0b && (profileIop & 0x10) !== 0 ? "1b" : levelIdc;
+  return { profile, level };
 }
 
 function isAuxiliary(codec: RTCRtpCodecParameters) {
