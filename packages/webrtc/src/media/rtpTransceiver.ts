@@ -204,11 +204,22 @@ function sameCodecPreferences(
   if (left == undefined || right == undefined || left.length !== right.length) {
     return false;
   }
-  return left.every(
-    (codec, index) =>
-      codec.mimeType.toLowerCase() === right[index].mimeType.toLowerCase() &&
-      codec.clockRate === right[index].clockRate,
-  );
+  return stableCodecValue(left) === stableCodecValue(right);
+}
+
+function stableCodecValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableCodecValue).join(",")}]`;
+  }
+  if (value != undefined && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right));
+    return `{${entries
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableCodecValue(item)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "undefined";
 }
 
 export const Inactive = "inactive";

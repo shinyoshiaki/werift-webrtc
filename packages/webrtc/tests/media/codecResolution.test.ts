@@ -424,6 +424,46 @@ describe("codec resolution", () => {
     await answerer.close();
   });
 
+  test("H264 parameter preference changes invalidate codecs and request negotiation", async () => {
+    const h264Preference = (profile: string, mode: number) =>
+      useH264({
+        parameters: `profile-level-id=${profile};packetization-mode=${mode}`,
+      });
+    const offerer = new RTCPeerConnection({
+      codecs: { video: [useH264()] },
+    });
+    offerer.addTrack(videoTrack());
+    const transceiver = offerer.getTransceivers()[0];
+    transceiver.setCodecPreferences([h264Preference("42e01f", 1)]);
+    const answerer = new RTCPeerConnection({
+      codecs: { video: [useH264()] },
+    });
+    answerer.addTrack(videoTrack());
+    const offer = await offerer.createOffer();
+    await offerer.setLocalDescription(offer);
+    await answerer.setRemoteDescription(offer);
+    const answer = await answerer.createAnswer();
+    await answerer.setLocalDescription(answer);
+    await offerer.setRemoteDescription(answer);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const onNegotiationNeeded = vi.fn();
+    offerer.onnegotiationneeded = onNegotiationNeeded;
+
+    // 実行: MIME/clockRateが同じH264のprofileとpacketization modeを変更する。
+    const changed = h264Preference("42c00d", 0);
+    transceiver.setCodecPreferences([changed]);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    // 検証: preferenceを更新し、codec cacheを無効化して再交渉を要求する。
+    expect(transceiver.codecPreferences?.[0].parameters).toBe(
+      changed.parameters,
+    );
+    expect(transceiver.codecs).toEqual([]);
+    expect(onNegotiationNeeded).toHaveBeenCalledTimes(1);
+    await offerer.close();
+    await answerer.close();
+  });
+
   test("incompatible preferences after first offer fail at next offer", async () => {
     const pc = new RTCPeerConnection({
       codecs: { video: [useVP8(), useH264()] },
