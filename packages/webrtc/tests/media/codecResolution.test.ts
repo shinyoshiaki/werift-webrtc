@@ -144,6 +144,25 @@ describe("codec resolution", () => {
     match.close();
   });
 
+  test("fixed H264 source accepts an equivalent profile-level representation", () => {
+    const source = useH264({
+      parameters: "profile-level-id=42c01f;packetization-mode=1",
+    });
+    const pc = new RTCPeerConnection({
+      codecs: {
+        video: [
+          useH264({
+            parameters: "profile-level-id=42e01f;packetization-mode=1",
+          }),
+        ],
+      },
+    });
+
+    // 実行 / 検証: 同じprofileとlevelのconstraint bit表現差を許容する。
+    expect(() => pc.addTrack(videoTrack(source))).not.toThrow();
+    pc.close();
+  });
+
   test("per-track constraints do not mutate PC codecs and retain RTX", async () => {
     const vp8 = useVP8({ payloadType: 96 });
     const h264 = useH264({ payloadType: 97 });
@@ -421,8 +440,37 @@ describe("codec resolution", () => {
 
     // 検証: level asymmetryが双方で許可されていれば往復交渉が成立する。
     expect(answer.sdp.toLowerCase()).toContain("h264/90000");
+    expect(answer.sdp.toLowerCase()).toContain("profile-level-id=42c00d");
     expect(answerer.getTransceivers()[0].codecs).toHaveLength(1);
     expect(offerer.getTransceivers()[0].codecs).toHaveLength(1);
+    await offerer.close();
+    await answerer.close();
+  });
+
+  test("negotiates the lower H264 level without asymmetry", async () => {
+    const h264 = (profileLevelId: string) =>
+      useH264({
+        parameters: `profile-level-id=${profileLevelId};packetization-mode=1;level-asymmetry-allowed=0`,
+      });
+    const offerer = new RTCPeerConnection({
+      codecs: { video: [h264("42e01f")] },
+    });
+    offerer.addTrack(videoTrack());
+    const offer = await offerer.createOffer();
+    await offerer.setLocalDescription(offer);
+    const answerer = new RTCPeerConnection({
+      codecs: { video: [h264("42e00d")] },
+    });
+    answerer.addTrack(videoTrack());
+
+    // 実行: level asymmetryなしでlevel 3.1のofferへlevel 1.3でanswerする。
+    await answerer.setRemoteDescription(offer);
+    const answer = await answerer.createAnswer();
+    await answerer.setLocalDescription(answer);
+    await offerer.setRemoteDescription(answer);
+
+    // 検証: 双方が処理できる低いlevelをanswerへ設定する。
+    expect(answer.sdp.toLowerCase()).toContain("profile-level-id=42e00d");
     await offerer.close();
     await answerer.close();
   });

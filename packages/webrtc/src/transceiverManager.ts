@@ -22,6 +22,7 @@ import {
 import {
   assertCodecsSupported,
   isRemoteCodecCompatible,
+  negotiateRemoteCodec,
   resolveCodecs,
 } from "./media/codecCompatibility";
 import type { RTCStats } from "./media/stats";
@@ -442,7 +443,12 @@ export class TransceiverManager {
           !usedRemote.has(codec) && isRemoteCodecCompatible(localCodec, codec),
       );
       if (remoteCodec) {
-        remoteByLocal.set(localCodec, remoteCodec);
+        remoteByLocal.set(
+          localCodec,
+          order === "local"
+            ? negotiateRemoteCodec(localCodec, remoteCodec)
+            : remoteCodec,
+        );
         usedRemote.add(remoteCodec);
       }
     }
