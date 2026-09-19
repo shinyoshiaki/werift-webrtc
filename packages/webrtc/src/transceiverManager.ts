@@ -100,7 +100,6 @@ export class TransceiverManager {
     trackOrKind: Kind | MediaStreamTrack,
     dtlsTransport?: RTCDtlsTransport,
     options: Partial<TransceiverOptions> = {},
-    claimedMids?: ReadonlySet<string>,
   ): RTCRtpTransceiver {
     const kind =
       typeof trackOrKind === "string" ? trackOrKind : trackOrKind.kind;
@@ -130,26 +129,14 @@ export class TransceiverManager {
       ).map((encoding) => ({ ...encoding })),
     );
     this.router.registerRtpSender(newTransceiver.sender);
-
-    // Reuse inactive slots only for local addTrack/addTransceiver.
-    // Remote offers pass claimedMids: never replace an already-associated
-    // transceiver, or a recycled Chrome m-line can steal another section's mid
-    // and createAnswer then throws "Transceiver with mid=X not found".
-    const reuseInactive = (t: RTCRtpTransceiver) =>
-      claimedMids == null &&
-      t.currentDirection === "inactive" &&
-      !t.usedForSender &&
-      !t.rejected;
-    const inactiveTransceiverIndex = this.transceivers.findIndex(reuseInactive);
-    const inactiveTransceiver = this.transceivers.find(reuseInactive);
-    if (inactiveTransceiverIndex > -1 && inactiveTransceiver) {
-      this.replaceTransceiver(newTransceiver, inactiveTransceiverIndex);
-      newTransceiver.mLineIndex = inactiveTransceiver.mLineIndex;
-      newTransceiver.mid = inactiveTransceiver.mid;
-      inactiveTransceiver.setCurrentDirection(undefined);
-    } else {
-      this.pushTransceiver(newTransceiver);
-    }
+    newTransceiver.onStopping.subscribe(() => {
+      this.clearRejectedRtpPipeline(newTransceiver);
+      this.router.unregisterRtpSender(newTransceiver.sender);
+      this.onNegotiationNeeded.execute();
+    });
+    // New transceivers get an available, negotiated port-zero slot at offer
+    // generation time. Never steal an associated inactive transceiver's MID.
+    this.pushTransceiver(newTransceiver);
     this.onTransceiverAdded.execute(newTransceiver);
 
     return newTransceiver;
@@ -169,6 +156,8 @@ export class TransceiverManager {
     const emptyTrackSenderTransceiver = this.transceivers.find(
       (t) =>
         !t.rejected &&
+        !t.stopping &&
+        !t.usedForSender &&
         t.sender.track == undefined &&
         t.kind === track.kind &&
         SenderDirections.includes(t.direction) === true,
@@ -187,6 +176,7 @@ export class TransceiverManager {
     const notSendTransceiver = this.transceivers.find(
       (t) =>
         !t.rejected &&
+        !t.stopping &&
         t.sender.track == undefined &&
         t.kind === track.kind &&
         SenderDirections.includes(t.direction) === false &&
@@ -364,18 +354,23 @@ export class TransceiverManager {
 
     log("negotiated codecs", transceiver.codecs);
     transceiver.rejected =
-      transceiver.codecs.length === 0 || remoteMedia.port === 0;
+      transceiver.stopped ||
+      transceiver.codecs.length === 0 ||
+      remoteMedia.port === 0;
 
     // # configure direction
     const mediaDirection = remoteMedia.direction ?? "inactive";
     const direction = reverseDirection(mediaDirection);
     if (["answer", "pranswer"].includes(type)) {
-      transceiver.setCurrentDirection(direction);
+      if (!transceiver.stopped) transceiver.setCurrentDirection(direction);
     } else {
       transceiver.offerDirection = direction;
     }
 
-    if (transceiver.rejected) {
+    if (remoteMedia.port === 0) {
+      transceiver.stop();
+    }
+    if (transceiver.rejected || transceiver.stopping) {
       this.clearRejectedRtpPipeline(transceiver);
       return;
     }

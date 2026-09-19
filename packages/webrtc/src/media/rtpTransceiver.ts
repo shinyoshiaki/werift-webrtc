@@ -22,6 +22,8 @@ import type { MediaStream, MediaStreamTrack } from "./track";
 export class RTCRtpTransceiver {
   readonly id = randomUUID().toString();
   readonly onTrack = new Event<[MediaStreamTrack, RTCRtpTransceiver]>();
+  /** @internal */
+  readonly onStopping = new Event<[]>();
   mid: string | null = null;
   mLineIndex?: number;
   /**should not be reused because it has been used for sending before. */
@@ -90,6 +92,9 @@ export class RTCRtpTransceiver {
 
   setCurrentDirection(direction: CurrentDirection | undefined) {
     this._currentDirection = direction;
+    if (direction === "sendonly" || direction === "sendrecv") {
+      this.usedForSender = true;
+    }
   }
 
   setDtlsTransport(dtls: RTCDtlsTransport) {
@@ -114,16 +119,20 @@ export class RTCRtpTransceiver {
     }
   }
 
-  // todo impl
-  // https://www.w3.org/TR/webrtc/#methods-8
   stop() {
     if (this.stopping) {
       return;
     }
 
-    // todo Stop sending and receiving with transceiver.
-
     this.stopping = true;
+    this._direction = "inactive";
+    const track = this.sender.track;
+    this.sender.stop();
+    // Stopping transmission does not detach the application's sender track.
+    this.sender.track = track;
+    this.receiver.track.stop();
+    this.receiver.stop();
+    this.onStopping.execute();
   }
 
   forceStop() {
@@ -131,11 +140,9 @@ export class RTCRtpTransceiver {
       return;
     }
 
-    this.stopping = true;
+    this.stop();
     this.stopped = true;
     this.setCurrentDirection("stopped");
-    this.receiver.stop();
-    this.sender.stop();
   }
 
   getPayloadType(mimeType: string) {

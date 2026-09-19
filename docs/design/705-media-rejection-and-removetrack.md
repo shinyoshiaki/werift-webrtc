@@ -151,13 +151,42 @@ await negotiate(); // 再利用可能な位置があれば、新しい MID で�
 
 観測には canvas の video track を用いた。ICE 接続成立や RTP 到達は待たず、SDP・MID・本数と sender の同一性を確認したもので、メディア疎通の試験ではない。Firefox と mediasoup-client はソース調査のみで、今回実行していない。使用した Chromium は環境に存在したビルドであり、市場の安定版のバージョンを意味しない。
 
-## werift にそのまま適用できるか
+## 追加実装: モード選択と stop による再利用
 
-上記の stop → port 0 → recycle の説明は、仕様とブラウザ実装の手順である。`1cc2a64c` の werift では [RTCRtpTransceiver.stop()](../../packages/webrtc/src/media/rtpTransceiver.ts) は TODO を含み、基本的に `stopping = true` を設定するだけである。[SDPManager](../../packages/webrtc/src/sdpManager.ts) の m-line 生成は `rejected` を port 判定に使い、`stopping` を直接 port 0 に結び付けていない。したがって、werift で stop を呼べばブラウザと同じ再利用手順が完了する、と本書の例を保証することはできない。
+追加要件への対応で `PeerConfig.mLineReuse` を導入した。前回調査時の `1cc2a64c` では stop が未完成だったが、以下の停止・再利用処理を追加している。
 
-現行 werift で明示的に port 0 へ進む経路は、remote port 0 や codec 不一致による `rejected` の設定である。ローカル inactive 枠の独自再利用処理も、送信履歴や rejected の除外条件を持ち、ブラウザの停止済み m-line 再利用と同じ機能ではない。
+```ts
+const compatible = new RTCPeerConnection({ mLineReuse: "compatible" }); // 既定
+const aggressive = new RTCPeerConnection({ mLineReuse: "aggressive" });
+```
 
-長寿命接続の SDP 肥大化対策としては、まず用途ごとの既存 transceiver を維持する設計が考えられる。不要枠の永久停止と再割り当てまで必要なら、werift の stop・SDP・MID 対応を独立した課題として検証・実装する必要がある。これは #705 の inactive を port 0 に戻す理由にはならない。本追補ではこの差異を記録し、ランタイムの変更は行っていない。
+| モード | inactive の SDP | 新しい transceiver に既存位置を割り当てる条件 |
+| --- | --- | --- |
+| `compatible` | 非ゼロ port を維持 | 明示的な stop または remote port 0 による停止の拒否交渉が完了した枠 |
+| `aggressive` | 従来どおり port 0 を生成 | inactive を含め、停止・拒否の交渉が完了した枠 |
+
+モードは生成時に選び、`setConfiguration()` での変更は拒否する。積極モードは一時停止を永久拒否として扱う従来の wire 挙動を選ぶものであり、仕様準拠の hold 操作とは異なる。拒否後は旧 transceiver の再開を前提にせず、新しい transceiver を追加する。codec 不一致の拒否、有効な format、BUNDLE からの除外、candidate の MID/index 対応は両モードで維持する。
+
+互換モードでは `addTransceiver()` が既存 inactive transceiver を置き換える旧内部処理も使わない。`addTrack()` の候補からは停止中・拒否済み・送信交渉履歴のある sender を除外する。codec 不一致によるローカルの `rejected` 表現と、stop による永久停止は分けており、この追加は全 reject ケースの JSEP 状態機械を作り直すものではない。
+
+### removeTrack と stop をまとめても本数は維持される
+
+**`removeTrack → stop → 交渉 → 新規 addTransceiver → 交渉` でも、元が2本なら2本のままである。** removeTrack と stop の間の交渉は不要である。ただし stop の拒否交渉を完了してから新規 transceiver を追加することが条件となる。
+
+```ts
+pc.removeTrack(second.sender);
+second.stop();
+await negotiate(); // ここで2本目が port 0 になる
+
+const next = pc.addTransceiver(video, { direction: "sendonly" });
+await negotiate(); // 同じ index に新しい MID。本数は2本のまま
+```
+
+Chromium 151.0.7922.34 同士でも、この短縮手順により index 1 / MID `1` が port 0 になり、その後 index 1 / MID `2` / port 9 に置き換わることを確認した。さらにブラウザと werift の間で、ブラウザ側 stop と werift 側 stop の両方を検証している。実行範囲は末尾の検証記録を参照。
+
+stop は sender/receiver のメディア処理と router 登録を止め、交渉を要求する。共有 ICE/DTLS transport は残す。次の local offer は port 0 を生成し、answer が適用されると stopped が確定する。新しい offer の生成時に交渉済みの位置を再利用し、旧 transceiver の MID/index を外して新しい MID を割り当てる。SDP に関連付けられる前の stop は m-line を追加しない。
+
+stop の交渉前に新規追加した場合は、停止予定の枠を先取りせず新しい位置へ追加する。また互換モードで answerer が stop を呼んだだけの段階では、生成 answer の port を強制的に 0 にせず、自分からの次の offer で停止を交渉する。
 
 ## Issue #705 の変更との関係
 
@@ -188,9 +217,9 @@ await negotiate(); // 再利用可能な位置があれば、新しい MID で�
 
 - RFC 8843 の port 0 は、`a=bundle-only` を伴う場合には単純な reject と同義ではない。現在の `setRemoteRTP()` は port 0 を直接 reject 判定に使うため、その組み合わせへの一般的な準拠を本修正だけで保証できない。
 - 初回 BUNDLE の tag 選択と、既に交渉済みの BUNDLE の tag 変更には異なる制約がある。現在の `appendBundleGroup()` は非ゼロ port の media を SDP 順に並べる実装であり、任意の offer の BUNDLE リスト順や交渉済み group の全状態を再現するものではない。
-- ブラウザの `addTransceiver()` の説明を、そのまま werift の全ローカル API に適用することはできない。現在も werift のローカル追加経路には、条件付きの inactive 枠再利用が残る。今回変更したのは remote 適用時の既存 MID 保護と rejected 枠の再利用除外であり、JSEP の拒否済み m-line 再利用全体を実装し直したものではない。
+- ブラウザの `addTransceiver()` の説明を、そのまま werift の全ローカル API に適用することはできない。追加実装後は、互換モードで inactive を保持し、停止交渉が完了した位置を再利用する。積極モードでは inactive を port 0 にする従来の wire 挙動を選べる。JSEP の全 reject ケースの状態管理を網羅するものではない。
 
-これらは仕様とコードを読み比べた際の適用範囲の説明であり、この文書追加で別のプロトコル修正を実施したものではない。
+これらは仕様とコードを読み比べた際の適用範囲の説明であり、今回の追加要件で実装した範囲とは分けて扱う。
 
 ## 検証との対応
 
@@ -199,3 +228,6 @@ await negotiate(); // 再利用可能な位置があれば、新しい MID で�
 [705 回帰テスト](../../packages/webrtc/tests/issue/705.test.ts) は codec 不一致、remote port 0、BUNDLE、candidate 対応、再交渉と pipeline 解除を検証する。
 
 2026-09-18 のテスト補強時（`317cc4f2`）の実行結果は、Chromium 140 の removeTrack E2E がリトライなしで 3 件成功、webrtc 全体が 305 passed / 3 skipped、webrtc と E2E の型チェックおよび E2E ビルドが成功だった。これはその時点の記録であり、現在の HEAD に対する再実行結果ではない。初版の文書作成ではソースと仕様の照合、相対リンクの確認、`git diff --check` のみを行った。今回の追補では上記 Chromium の5ケースを追加観測し、パッケージテストは再実行していない。旧版の実ブラウザ再現、Firefox/Safari の実行、WPT、全体 CI は本追補の検証根拠に含めない。
+
+
+追加実装の検証では、`705-reuse.test.ts` の11件、webrtc 全体の318 passed / 3 skipped、workspace の `npm run type` と `npm run test:small`（import-test を含む）が成功した。E2E の型チェック・ビルドと、Chromium ↔ werift の removeTrack 7件（リトライなし）も成功した。E2E は compatible / aggressive、ブラウザ stop、werift stop を含み、再利用した MID/index の実 RTP 受信まで確認した。WPT、Firefox/Safari、E2E 全件、全体 CI は追加実装でも未実施である。

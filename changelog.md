@@ -8,6 +8,8 @@
 
 ### 🚀 Features
 
+- **M-line reuse policy** (#705): `mLineReuse: "compatible"` (default) keeps inactive sections and supports recycling a stopped transceiver's position after its port-zero offer/answer exchange. `"aggressive"` preserves the legacy inactive-to-port-zero behavior as an explicit opt-in. Recycling uses a new MID and leaves shared transports available to the remaining media.
+
 - **`werift/polyfill`**: Opt-in installer that puts werift WebRTC constructors on `globalThis` (or a `target` sandbox) and implements `navigator.mediaDevices.getUserMedia` via `mediaRegister` (MP4/WebM, RTP/RTCP, encoded binary, or `createCallbackRegister`).
 
 ### 🐛 Bug Fixes

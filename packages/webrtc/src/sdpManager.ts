@@ -23,6 +23,7 @@ export class SDPManager {
   readonly cname: string;
   readonly midSuffix: boolean;
   readonly bundlePolicy?: BundlePolicy;
+  readonly mLineReuse: "compatible" | "aggressive";
 
   private seenMid = new Set<string>();
 
@@ -30,10 +31,17 @@ export class SDPManager {
     cname,
     midSuffix,
     bundlePolicy,
-  }: { cname: string; midSuffix?: boolean; bundlePolicy?: BundlePolicy }) {
+    mLineReuse = "compatible",
+  }: {
+    cname: string;
+    midSuffix?: boolean;
+    bundlePolicy?: BundlePolicy;
+    mLineReuse?: "compatible" | "aggressive";
+  }) {
     this.cname = cname;
     this.midSuffix = midSuffix ?? false;
     this.bundlePolicy = bundlePolicy;
+    this.mLineReuse = mLineReuse;
   }
 
   get localDescription() {
@@ -74,7 +82,13 @@ export class SDPManager {
     direction: MediaDirection,
     fallbackFmt: MediaDescription["fmt"] = [],
     profile = "UDP/TLS/RTP/SAVPF",
+    isOffer = false,
   ): MediaDescription {
+    const rejected =
+      transceiver.rejected ||
+      transceiver.stopped ||
+      (isOffer && transceiver.stopping) ||
+      (this.mLineReuse === "aggressive" && direction === "inactive");
     const fmt =
       transceiver.codecs.length > 0
         ? transceiver.codecs.map((c) => c.payloadType)
@@ -83,7 +97,7 @@ export class SDPManager {
           : [0];
     const media = new MediaDescription(
       transceiver.kind,
-      transceiver.rejected ? 0 : DISCARD_PORT,
+      rejected ? 0 : DISCARD_PORT,
       profile,
       fmt,
     );
@@ -123,7 +137,7 @@ export class SDPManager {
     }
 
     this.addTransportDescription(media, transceiver.dtlsTransport, {
-      rejected: transceiver.rejected,
+      rejected,
     });
     return media;
   }
@@ -279,6 +293,28 @@ export class SDPManager {
     // # handle existing transceivers / sctp
     const currentMedia = this.currentLocalDescription?.media ?? [];
 
+    // Only completed rejection is recyclable, not a stop awaiting its answer.
+    for (const [i, media] of currentMedia.entries()) {
+      const previous = transceivers.find((t) => t.mid === media.rtp.muxId);
+      const remote = this.currentRemoteDescription?.media[i];
+      if (
+        !previous?.stopped ||
+        !(
+          media.port === 0 ||
+          (remote?.port === 0 && remote.rtp.muxId === previous.mid)
+        )
+      )
+        continue;
+      const replacement = transceivers.find(
+        (t) => !t.stopping && t.mid == null,
+      );
+      if (!replacement) continue;
+      previous.mid = null;
+      previous.mLineIndex = undefined;
+      replacement.mLineIndex = i;
+      replacement.mid = this.allocateMid(this.midSuffix ? "av" : "");
+    }
+
     currentMedia.forEach((m, i) => {
       const mid = m.rtp.muxId;
       if (!mid) {
@@ -293,9 +329,11 @@ export class SDPManager {
           this.createMediaDescriptionForSctp(sctpTransport),
         );
       } else {
-        const transceiver = transceivers.find((t) => t.mid === mid);
+        const transceiver =
+          transceivers.find((t) => t.mid === mid) ??
+          transceivers.find((t) => !t.stopping && t.mLineIndex === i);
         if (!transceiver) {
-          if (m.direction === "inactive") {
+          if (m.port === 0 || m.direction === "inactive") {
             description.media.push(m);
             return;
           }
@@ -306,6 +344,9 @@ export class SDPManager {
           this.createMediaDescriptionForTransceiver(
             transceiver,
             transceiver.direction,
+            m.fmt,
+            m.profile,
+            true,
           ),
         );
       }
@@ -313,7 +354,8 @@ export class SDPManager {
 
     // # handle new transceivers / sctp
     for (const transceiver of transceivers.filter(
-      (t) => !description.media.find((m) => m.rtp.muxId === t.mid),
+      (t) =>
+        !t.stopping && !description.media.find((m) => m.rtp.muxId === t.mid),
     )) {
       if (transceiver.mid == undefined) {
         transceiver.mid = this.allocateMid(this.midSuffix ? "av" : "");
@@ -321,6 +363,9 @@ export class SDPManager {
       const mediaDescription = this.createMediaDescriptionForTransceiver(
         transceiver,
         transceiver.direction,
+        [],
+        "UDP/TLS/RTP/SAVPF",
+        true,
       );
       if (transceiver.mLineIndex === undefined) {
         transceiver.mLineIndex = description.media.length;
@@ -594,22 +639,20 @@ export class SDPManager {
     const fallbackDtlsTransport =
       transceivers.find((transceiver) => transceiver?.dtlsTransport)
         ?.dtlsTransport ?? sctpTransport?.dtlsTransport;
-    description.media
-      .filter((m) => ["audio", "video"].includes(m.kind))
-      .forEach((m, i) => {
-        const transceiver =
-          transceivers.find((t) => t.mid != null && t.mid === m.rtp.muxId) ??
-          transceiverByMLineIndex.get(i) ??
-          transceivers[i];
-        const dtlsTransport =
-          transceiver?.dtlsTransport ?? fallbackDtlsTransport;
-        if (!dtlsTransport) {
-          throw new Error(`dtls transport not found for media index ${i}`);
-        }
-        this.addTransportDescription(m, dtlsTransport, {
-          rejected: transceiver?.rejected,
-        });
+    description.media.forEach((m, i) => {
+      if (!["audio", "video"].includes(m.kind)) return;
+      const transceiver =
+        transceivers.find((t) => t.mid != null && t.mid === m.rtp.muxId) ??
+        transceiverByMLineIndex.get(i) ??
+        transceivers[i];
+      const dtlsTransport = transceiver?.dtlsTransport ?? fallbackDtlsTransport;
+      if (!dtlsTransport) {
+        throw new Error(`dtls transport not found for media index ${i}`);
+      }
+      this.addTransportDescription(m, dtlsTransport, {
+        rejected: transceiver?.rejected,
       });
+    });
     const sctpMedia = description.media.find((m) => m.kind === "application");
     if (sctpTransport && sctpMedia) {
       this.addTransportDescription(sctpMedia, sctpTransport.dtlsTransport);

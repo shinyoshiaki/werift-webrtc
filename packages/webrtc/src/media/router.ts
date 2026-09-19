@@ -43,6 +43,12 @@ export class RtpRouter {
     this.ssrcTable[sender.ssrc] = sender;
   }
 
+  unregisterRtpSender(sender: RTCRtpSender) {
+    for (const [ssrc, endpoint] of Object.entries(this.ssrcTable)) {
+      if (endpoint === sender) delete this.ssrcTable[Number(ssrc)];
+    }
+  }
+
   private registerRtpReceiver(receiver: RTCRtpReceiver, ssrc: number) {
     log("registerRtpReceiver", ssrc);
     this.ssrcTable[ssrc] = receiver;

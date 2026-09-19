@@ -1,5 +1,5 @@
 import {
-  type MediaStreamTrack,
+  MediaStreamTrack,
   type RTCIceCandidate,
   RTCPeerConnection,
   type RTCPeerConnectionConfig,
@@ -150,6 +150,33 @@ export async function negotiateOfferAnswer(
   await answerer.setRemoteDescription(offerer.localDescription!);
   await answerer.setLocalDescription(await answerer.createAnswer());
   await offerer.setRemoteDescription(answerer.localDescription!);
+}
+
+export async function createReuseScenario(
+  config: RTCPeerConnectionConfig = {},
+  { dataFirst = false, videoFirst = false } = {},
+) {
+  const offerer = createBundledPeerConnection(config);
+  const answerer = createBundledPeerConnection(config);
+  if (dataFirst) {
+    offerer.createDataChannel("anchor");
+    await negotiateOfferAnswer(offerer, answerer);
+  }
+  const track = new MediaStreamTrack({ kind: "video" });
+  let video: RTCRtpTransceiver;
+  if (videoFirst)
+    video = offerer.addTransceiver(track, { direction: "sendonly" });
+  offerer.addTransceiver("audio", { direction: "sendonly" });
+  if (!videoFirst)
+    video = offerer.addTransceiver(track, { direction: "sendonly" });
+  try {
+    // Arrange: 同じ helper で接続と m-line の初期配置を用意する。
+    await negotiateOfferAnswer(offerer, answerer);
+    return { offerer, answerer, video: video!, track };
+  } catch (error) {
+    await Promise.all([offerer.close(), answerer.close()]);
+    throw error;
+  }
 }
 
 export function hostIceCandidateInit(sdpMid: string, sdpMLineIndex: number) {

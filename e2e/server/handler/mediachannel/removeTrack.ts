@@ -119,9 +119,28 @@ class mediachannel_removetrack_offer_base {
     switch (type) {
       case "init":
         {
-          this.pc = new RTCPeerConnection(await peerConfig);
+          this.pc = new RTCPeerConnection({
+            ...(await peerConfig),
+            mLineReuse: payload?.mLineReuse ?? "compatible",
+          });
           accept({});
         }
+        break;
+      case "stop":
+        {
+          const transceiver = this.pc
+            .getTransceivers()
+            .find((t) => t.mLineIndex === payload.index);
+          if (!transceiver) throw new Error("transceiver not found");
+          this.pc.removeTrack(transceiver.sender);
+          transceiver.stop();
+          await this.pc.setLocalDescription(await this.pc.createOffer());
+          accept(this.pc.localDescription);
+        }
+        break;
+      case "answer":
+        await this.pc.setRemoteDescription(payload);
+        accept({});
         break;
       case "offer":
         {

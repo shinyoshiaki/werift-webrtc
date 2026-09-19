@@ -202,6 +202,7 @@ export class RTCPeerConnection extends EventTarget {
     this.sdpManager = new SDPManager({
       cname: this.cname,
       bundlePolicy: this.config.bundlePolicy,
+      mLineReuse: this.config.mLineReuse,
     });
     this.transceiverManager = new TransceiverManager(
       this.cname,
@@ -365,6 +366,20 @@ export class RTCPeerConnection extends EventTarget {
   setConfiguration(config: RTCPeerConnectionConfig) {
     const normalizedConfig = normalizePeerConfiguration(config);
     const isReconfiguration = !!this.sdpManager;
+
+    if (
+      normalizedConfig.mLineReuse !== undefined &&
+      !["compatible", "aggressive"].includes(normalizedConfig.mLineReuse)
+    ) {
+      throw new TypeError("mLineReuse must be compatible or aggressive");
+    }
+    if (
+      isReconfiguration &&
+      normalizedConfig.mLineReuse !== undefined &&
+      normalizedConfig.mLineReuse !== this.config.mLineReuse
+    ) {
+      throw new Error("mLineReuse cannot be changed");
+    }
 
     if (
       normalizedConfig.rtcpMuxPolicy &&
@@ -760,6 +775,7 @@ export class RTCPeerConnection extends EventTarget {
     // # configure direction
     if (["answer", "pranswer"].includes(description.type)) {
       for (const t of this.transceiverManager.getTransceivers()) {
+        if (t.stopped) continue;
         const direction = andDirection(t.direction, t.offerDirection);
         t.setCurrentDirection(direction);
       }
@@ -771,6 +787,10 @@ export class RTCPeerConnection extends EventTarget {
       this.transceiverManager.getTransceivers(),
       this.sctpTransport,
     );
+
+    if (description.type === "answer") {
+      this.finishMediaStops(description);
+    }
 
     await this.gatherCandidates().catch((e) => {
       log("gatherCandidates failed", e);
@@ -954,6 +974,7 @@ export class RTCPeerConnection extends EventTarget {
       transceiver: RTCRtpTransceiver,
       media: MediaDescription,
     ) =>
+      (!transceiver.stopping || transceiver.mid === media.rtp.muxId) &&
       transceiver.kind === media.kind &&
       [null, media.rtp.muxId].includes(transceiver.mid);
 
@@ -969,26 +990,24 @@ export class RTCPeerConnection extends EventTarget {
       let dtlsTransport: RTCDtlsTransport;
 
       if (["audio", "video"].includes(remoteMedia.kind)) {
+        const previous = this.transceiverManager.getTransceiverByMLineIndex(i);
+        if (
+          remoteSdp.type === "offer" &&
+          previous?.stopped &&
+          previous.mid !== remoteMedia.rtp.muxId &&
+          !claimedMids.has(previous.mid!)
+        ) {
+          previous.mid = null;
+          previous.mLineIndex = undefined;
+        }
         let transceiver = this.transceiverManager
           .getTransceivers()
           .find((t) => matchTransceiverWithMedia(t, remoteMedia));
         if (!transceiver) {
           // create remote transceiver
-          transceiver = this.addRemoteTransceiver(
-            remoteMedia.kind,
-            claimedMids,
-          );
+          transceiver = this.addRemoteTransceiver(remoteMedia.kind);
           transceiver.mid = remoteMedia.rtp.muxId ?? null;
           this.onRemoteTransceiverAdded.execute(transceiver);
-        } else {
-          if (transceiver.direction === "inactive" && transceiver.stopping) {
-            transceiver.stopped = true;
-
-            if (sessionDescription.type === "answer") {
-              transceiver.setCurrentDirection("inactive");
-            }
-            return;
-          }
         }
 
         if (this.sdpManager.remoteIsBundled) {
@@ -1083,6 +1102,7 @@ export class RTCPeerConnection extends EventTarget {
     if (remoteSdp.type === "offer") {
       this.setSignalingState("have-remote-offer");
     } else if (remoteSdp.type === "answer") {
+      this.finishMediaStops(remoteSdp);
       this.setSignalingState("stable");
     } else if (remoteSdp.type === "pranswer") {
       this.setSignalingState("have-remote-pranswer");
@@ -1106,6 +1126,22 @@ export class RTCPeerConnection extends EventTarget {
     this.invalidateLastCreatedDescriptions();
   }
 
+  private finishMediaStops(description: SessionDescription) {
+    for (const media of description.media) {
+      if (media.port !== 0) continue;
+      const transceiver = this.getTransceivers().find(
+        (t) => t.mid === media.rtp.muxId,
+      );
+      if (
+        transceiver &&
+        (transceiver.stopping || this.config.mLineReuse === "aggressive")
+      ) {
+        transceiver.rejected = true;
+        transceiver.forceStop();
+      }
+    }
+  }
+
   addTransceiver(
     trackOrKind: Kind | MediaStreamTrack,
     options: Partial<TransceiverOptions> = {},
@@ -1123,13 +1159,12 @@ export class RTCPeerConnection extends EventTarget {
     return transceiver;
   }
 
-  private addRemoteTransceiver(kind: Kind, claimedMids: ReadonlySet<string>) {
+  private addRemoteTransceiver(kind: Kind) {
     const dtlsTransport = this.findOrCreateTransport();
     const transceiver = this.transceiverManager.addTransceiver(
       kind,
       dtlsTransport,
       { direction: "recvonly" },
-      claimedMids,
     );
 
     this.secureManager.updateIceConnectionState();
@@ -1335,6 +1370,9 @@ export interface PeerConfig {
   }>;
   icePasswordPrefix: string | undefined;
   bundlePolicy: BundlePolicy;
+  /** M-line recycling policy. Compatible preserves inactive sections (default).
+   * Aggressive rejects inactive sections so their positions can be recycled. */
+  mLineReuse: "compatible" | "aggressive";
   rtcpMuxPolicy: "require";
   iceCandidatePoolSize: number;
   certificates: RTCCertificate[];
@@ -1499,6 +1537,7 @@ function generateDefaultPeerConfig(): PeerConfig {
     iceUseLinkLocalAddress: undefined,
     dtls: {},
     bundlePolicy: "max-compat",
+    mLineReuse: "compatible",
     rtcpMuxPolicy: "require",
     iceCandidatePoolSize: 0,
     certificates: [],

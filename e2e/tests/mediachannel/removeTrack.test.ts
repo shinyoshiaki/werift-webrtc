@@ -1,4 +1,5 @@
 import { browserName, peer, sleep, waitVideoPlay } from "../fixture";
+import { createReuseBrowserPair, mediaSections } from "./removeTrack.helpers";
 
 const mediachannel_removetrack_addtrack = "mediachannel_removetrack_addtrack";
 const mediachannel_addtrack_removefirst_addtrack =
@@ -17,6 +18,51 @@ function expectInactiveSection(sdp: string, mid: string, count: number) {
 }
 
 describe("mediachannel_removeTrack", () => {
+  for (const scenario of [
+    "compatible",
+    "aggressive",
+    "browser-stop",
+    "werift-stop",
+  ] as const) {
+    it(`m-line reuse: ${scenario}`, async () => {
+      const { pc, track, second, negotiate, request, close } =
+        await createReuseBrowserPair(
+          scenario === "aggressive" ? "aggressive" : "compatible",
+        );
+      const oldMid = second.mid;
+      try {
+        // Act: removeTrack と stop をまとめるか、removeTrack のみをモード別に交渉する。
+        if (scenario === "werift-stop") {
+          const offer = await request("stop", { index: 1 });
+          await pc.setRemoteDescription(offer);
+          await pc.setLocalDescription(await pc.createAnswer());
+          await request("answer", pc.localDescription);
+        } else {
+          pc.removeTrack(second.sender);
+          if (scenario === "browser-stop") second.stop();
+          await negotiate();
+        }
+        // Assert: 互換モードの removeTrack 単独のみ非ゼロ port を維持する。
+        const port = mediaSections(pc.remoteDescription!.sdp)[1].port;
+        if (scenario === "compatible") expect(port).toBeGreaterThan(0);
+        else expect(port).toBe(0);
+        // Act: 新規 transceiver を追加し、再交渉する。
+        const next = pc.addTransceiver(track, { direction: "sendonly" });
+        await negotiate();
+        // Assert: stop 済み／積極モードは2本、inactive を維持する場合は3本になる。
+        const sections = mediaSections(pc.localDescription!.sdp);
+        expect(sections).toHaveLength(scenario === "compatible" ? 3 : 2);
+        expect(next.mid).not.toBe(oldMid);
+        const index = sections.findIndex((section) => section.mid === next.mid);
+        expect(index).toBe(scenario === "compatible" ? 2 : 1);
+        // Assert: 再利用した MID/index で werift が RTP を実際に受信する。
+        await request("check", { index });
+      } finally {
+        await close();
+      }
+    }, 60_000);
+  }
+
   if (browserName !== "Firefox") {
     it(mediachannel_removetrack_addtrack, async () =>
       new Promise<void>(async (done) => {
