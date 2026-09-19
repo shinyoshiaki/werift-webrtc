@@ -764,6 +764,22 @@ describe("codec resolution", () => {
     await second.close();
   });
 
+  test("a fixed track cloned before attachment retains its source codec", () => {
+    const fixed = videoTrack(useH264());
+
+    // 実行: metadata capture前のfixed trackをcloneしてVP8-only PCへ追加する。
+    const cloned = fixed.clone();
+    const pc = new RTCPeerConnection({ codecs: { video: [useVP8()] } });
+    const act = () => pc.addTrack(cloned);
+
+    // 検証: clone時に公開codecをsource constraintとして捕捉し、非互換を拒否する。
+    expect(getTrackSourceCodecs(cloned)?.[0].mimeType.toLowerCase()).toBe(
+      "video/h264",
+    );
+    expect(act).toThrow(expect.objectContaining({ name: "NotSupportedError" }));
+    pc.close();
+  });
+
   test("answer maps duplicate MIME profiles and RTX to remote payload types", async () => {
     const h264 = (payloadType: number, profile: string) =>
       useH264({

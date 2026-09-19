@@ -212,7 +212,11 @@ export class MediaStreamTrack extends EventTarget {
       header: this.header,
       broadcastSource: this.broadcastSource,
     });
-    setTrackSourceCodecs(cloned, getTrackSourceCodecs(this));
+    if (sourceCodecsCapturedByTrack.has(this)) {
+      setTrackSourceCodecs(cloned, getTrackSourceCodecs(this));
+    } else {
+      captureTrackSourceCodecs(cloned);
+    }
     return cloned;
   }
 }
