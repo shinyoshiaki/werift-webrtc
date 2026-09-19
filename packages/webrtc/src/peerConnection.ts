@@ -479,7 +479,10 @@ export class RTCPeerConnection extends EventTarget {
     await this.secureManager.ensureCerts();
 
     for (const transceiver of this.transceiverManager.getTransceivers()) {
-      if (transceiver.codecs.length === 0) {
+      if (
+        transceiver.codecs.length === 0 ||
+        transceiver.codecPreferencesNeedResolution
+      ) {
         this.transceiverManager.assignTransceiverCodecs(transceiver);
       }
       if (transceiver.headerExtensions.length === 0) {
@@ -1153,7 +1156,10 @@ export class RTCPeerConnection extends EventTarget {
     // offer 側と異なり answer は remote offer との交渉結果を使い、
     // sender/receiver の codec 状態も新しい negotiated codec に同期する。
     for (const transceiver of this.transceiverManager.getTransceivers()) {
-      if (transceiver.codecs.length !== 0) {
+      if (
+        transceiver.codecs.length !== 0 &&
+        !transceiver.codecPreferencesNeedResolution
+      ) {
         continue;
       }
       const remoteDescription = this.sdpManager._remoteDescription;

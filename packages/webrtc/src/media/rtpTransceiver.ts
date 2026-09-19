@@ -41,6 +41,7 @@ export class RTCRtpTransceiver {
   private _codecPreferences?: RTCRtpCodecParameters[];
   readonly onCodecPreferencesChanged = new Event<[]>();
   pendingLocalOfferCodecs?: RTCRtpCodecParameters[];
+  codecPreferencesNeedResolution = false;
 
   get codecPreferences(): readonly RTCRtpCodecParameters[] | undefined {
     return this._codecPreferences;
@@ -54,9 +55,10 @@ export class RTCRtpTransceiver {
       codecs.length === 0 ? undefined : codecs.map(cloneCodecParameters);
     if (sameCodecPreferences(this._codecPreferences, next)) return;
     this._codecPreferences = next;
-    // preference 変更を次回 createOffer()/createAnswer() に反映させるため、
-    // 解決済み codec を無効化する。createOffer()/createAnswer() は
-    // codecs が空の場合に再解決する。
+    // 現在の交渉結果とは別に、次回 offer/answer 用の再解決要求を保持する。
+    // pending offer への answer が現在の codec を書き戻しても、この要求は
+    // 次回の createOffer() まで失われない。
+    this.codecPreferencesNeedResolution = true;
     this._codecs = [];
     this.onCodecPreferencesChanged.execute();
   }

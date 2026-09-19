@@ -736,6 +736,42 @@ describe("codec resolution", () => {
     expect(transceiver.codecs.map((codec) => codec.name.toLowerCase())).toEqual(
       ["vp8"],
     );
+
+    // 実行: pending offerへのanswer適用後に、次回offerを生成する。
+    const nextOffer = await offerer.createOffer();
+
+    // 検証: 旧交渉codecの反映で再解決要求が失われず、H264 preferenceを使用する。
+    expect(nextOffer.sdp.toLowerCase()).toContain("h264/90000");
+    expect(nextOffer.sdp.toLowerCase()).not.toContain("vp8/90000");
+    expect(codecNames(offerer)).toEqual(["video/h264"]);
+    await offerer.close();
+    await answerer.close();
+  });
+
+  test("remote offer must be compatible with a fixed H264 source", async () => {
+    const remoteCodec = useH264({
+      parameters: "profile-level-id=42e01f;packetization-mode=1",
+    });
+    const fixedCodec = useH264({
+      parameters: "profile-level-id=42c00a;packetization-mode=0",
+    });
+    const offerer = new RTCPeerConnection({
+      codecs: { video: [remoteCodec] },
+    });
+    offerer.addTrack(videoTrack());
+    const offer = await offerer.createOffer();
+    const answerer = new RTCPeerConnection({
+      codecs: { video: [fixedCodec] },
+    });
+    answerer.addTrack(videoTrack(fixedCodec));
+    const stateBefore = remoteApplicationSnapshot(answerer);
+
+    // 実行: MIMEは一致するがfixed sourceのfmtpと非互換なofferを適用する。
+    const act = answerer.setRemoteDescription(offer);
+
+    // 検証: sourceとremote候補の厳密照合で拒否し、状態へ副作用を残さない。
+    await expect(act).rejects.toMatchObject({ name: "NotSupportedError" });
+    expect(remoteApplicationSnapshot(answerer)).toEqual(stateBefore);
     await offerer.close();
     await answerer.close();
   });

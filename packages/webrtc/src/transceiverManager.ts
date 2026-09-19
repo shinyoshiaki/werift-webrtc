@@ -287,6 +287,7 @@ export class TransceiverManager {
       source: getTrackSourceCodecs(transceiver.sender.track),
       preferences: transceiver.codecPreferences,
     });
+    transceiver.codecPreferencesNeedResolution = false;
   }
 
   private filterCodecsByDirection(
@@ -504,6 +505,7 @@ export class TransceiverManager {
       remoteMedia,
       "local",
     );
+    transceiver.codecPreferencesNeedResolution = false;
     log("negotiated codecs", transceiver.codecs);
   }
 
@@ -546,7 +548,7 @@ export class TransceiverManager {
         remoteMedia,
         isOffer ? "local" : "remote",
       );
-      if (!isOffer && source != undefined) {
+      if (source != undefined) {
         assertCodecsSupported({
           kind: remoteMedia.kind,
           configured: negotiated,
