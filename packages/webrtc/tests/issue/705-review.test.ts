@@ -2316,7 +2316,6 @@ describe("PR #711 review P1 Round9 の回帰テスト", () => {
       );
       channel1.send("before");
       await expect(awaitMessage(channel2)).resolves.toBe("before");
-
       // Act: sctp-port を変えた re-offer を適用する。
       const reOffer = await offerer.createOffer();
       await offerer.setLocalDescription(reOffer);
@@ -2507,13 +2506,15 @@ describe("PR #711 review P1 Round10 の回帰テスト", () => {
       expect(stagedEocOf()).not.toBe(true);
 
       // Act: pending 世代の EOC (明示・省略) は stage される。
+      // current EOC は live のまま残る (rollback でも巻き戻らない)。
       await answerer.setRemoteDescription({ type: "rollback" });
+      expect(endOf()).toBe(true);
       await expect(
         answerer.setRemoteDescription({ ...reOffer, sdp: reSdpBase }),
       ).resolves.toBeUndefined();
-      expect(endOf()).toBe(false);
+      expect(endOf()).toBe(true);
       await expect(eoc(pendingUfrag)).resolves.toBeUndefined();
-      expect(endOf()).toBe(false);
+      expect(endOf()).toBe(true);
       expect(stagedEocOf()).toBe(true);
       await expect(eoc()).resolves.toBeUndefined();
       expect(stagedEocOf()).toBe(true);
@@ -2732,4 +2733,218 @@ describe("PR #711 review P1 Round10 の回帰テスト", () => {
       await Promise.all([offerer.close(), answerer.close()]);
     }
   }, 60000);
+});
+
+describe("PR #711 review P1 Round11 の回帰テスト", () => {
+  test("current 世代の EOC は rollback 後も live に残る", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    offerer.addTransceiver("audio", { direction: "sendonly" });
+
+    try {
+      // Arrange: gathering 前の SDP で交渉し current を確定させる。
+      const offer = await offerer.createOffer();
+      await offerer.setLocalDescription(offer);
+      await answerer.setRemoteDescription(offer);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      const currentUfrag = parseSdp(offer.sdp).media[0]?.iceParams
+        ?.usernameFragment!;
+      const mid = parseSdp(offer.sdp).media[0]?.rtp.muxId!;
+      const transceiver = answerer.getTransceivers()[0];
+      const endOf = () =>
+        (
+          transceiver.dtlsTransport.iceTransport as unknown as {
+            connection: { remoteCandidatesEnd: boolean };
+          }
+        ).connection.remoteCandidatesEnd;
+      const eoc = (ufrag?: string | null) =>
+        answerer.addIceCandidate({
+          candidate: "",
+          sdpMid: mid,
+          ...(ufrag === undefined ? {} : { usernameFragment: ufrag }),
+        });
+      expect(endOf()).toBe(false);
+
+      // Act: 新世代 re-offer を適用し、current 世代の EOC を送る。
+      const reOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(reOffer);
+      await expect(
+        answerer.setRemoteDescription({
+          ...reOffer,
+          sdp: reOffer.sdp
+            ?.replace(/a=ice-ufrag:[^\r\n]+/, "a=ice-ufrag:genEoc20")
+            .replace(/a=ice-pwd:[^\r\n]+/, "a=ice-pwd:0123456789abcdefghijuy"),
+        }),
+      ).resolves.toBeUndefined();
+      await expect(eoc(currentUfrag)).resolves.toBeUndefined();
+      expect(endOf()).toBe(true);
+
+      // Act: rollback する。
+      await expect(
+        answerer.setRemoteDescription({ type: "rollback" }),
+      ).resolves.toBeUndefined();
+
+      // Assert: current EOC は live のまま残る。
+      expect(answerer.signalingState).toBe("stable");
+      expect(endOf()).toBe(true);
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("pending 世代の EOC は rollback で破棄される", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    offerer.addTransceiver("audio", { direction: "sendonly" });
+
+    try {
+      // Arrange: gathering 前の SDP で交渉し current を確定させる。
+      const offer = await offerer.createOffer();
+      await offerer.setLocalDescription(offer);
+      await answerer.setRemoteDescription(offer);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      const mid = parseSdp(offer.sdp).media[0]?.rtp.muxId!;
+      const transceiver = answerer.getTransceivers()[0];
+      const endOf = () =>
+        (
+          transceiver.dtlsTransport.iceTransport as unknown as {
+            connection: { remoteCandidatesEnd: boolean };
+          }
+        ).connection.remoteCandidatesEnd;
+      const stagedEocOf = () =>
+        (
+          answerer as unknown as {
+            stagedIceParams: Map<{ id: string }, { endOfCandidates: boolean }>;
+          }
+        ).stagedIceParams.get(transceiver.dtlsTransport.iceTransport as never)
+          ?.endOfCandidates;
+      expect(endOf()).toBe(false);
+
+      // Act: 新世代 re-offer を適用し、pending 世代の EOC を送る。
+      const reOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(reOffer);
+      const pendingUfrag = "genEoc21";
+      await expect(
+        answerer.setRemoteDescription({
+          ...reOffer,
+          sdp: reOffer.sdp
+            ?.replace(/a=ice-ufrag:[^\r\n]+/, `a=ice-ufrag:${pendingUfrag}`)
+            .replace(/a=ice-pwd:[^\r\n]+/, "a=ice-pwd:0123456789abcdefghijuy"),
+        }),
+      ).resolves.toBeUndefined();
+      await expect(eoc(pendingUfrag)).resolves.toBeUndefined();
+
+      // Assert: staged のまま live には反映されない。
+      function eoc(ufrag?: string | null) {
+        return answerer.addIceCandidate({
+          candidate: "",
+          sdpMid: mid,
+          ...(ufrag === undefined ? {} : { usernameFragment: ufrag }),
+        });
+      }
+      expect(endOf()).toBe(false);
+      expect(stagedEocOf()).toBe(true);
+
+      // Act: rollback する。
+      await expect(
+        answerer.setRemoteDescription({ type: "rollback" }),
+      ).resolves.toBeUndefined();
+
+      // Assert: staged EOC は破棄され、live は変わらない。
+      expect(endOf()).toBe(false);
+      expect(stagedEocOf()).toBeUndefined();
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("ログ呼び出しに ICE 認証情報が出ない", async () => {
+    const calls: unknown[][] = [];
+    const methods = ["log", "info", "warn", "error", "debug"] as const;
+    const restores = methods.map((method) => {
+      const spy = vi
+        .spyOn(console, method)
+        .mockImplementation((...args: unknown[]) => {
+          calls.push(args);
+        });
+      return () => spy.mockRestore();
+    });
+    const stderrWrite = process.stderr.write.bind(process.stderr);
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(((
+      chunk: unknown,
+      ...rest: unknown[]
+    ) => {
+      calls.push([chunk, ...rest]);
+      return true;
+    }) as typeof process.stderr.write);
+    const { default: Debug } = await import("debug");
+    Debug.enable("werift*");
+    // Act: 既知 literal の認証情報で交渉・再交渉・restart する。
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    offerer.addTransceiver("audio", { direction: "sendonly" });
+    try {
+      const offer = await offerer.createOffer();
+      await offerer.setLocalDescription(offer);
+      const craftedSdp = (base: string | undefined, tag: string) =>
+        base
+          ?.replace(/a=ice-ufrag:[^\r\n]+/, `a=ice-ufrag:LogoSpyUfrag${tag}`)
+          .replace(/a=ice-pwd:[^\r\n]+/, `a=ice-pwd:LogoSpyPwd${tag}0123456789`)
+          .replace(
+            /a=fingerprint:sha-256 ([0-9A-F:]+)/,
+            "a=fingerprint:sha-256 AA:BB:CC:DD",
+          );
+      await answerer.setRemoteDescription({
+        ...offer,
+        sdp: craftedSdp(offer.sdp, "01"),
+      });
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      const reOffer = await offerer.createOffer({ iceRestart: true });
+      await offerer.setLocalDescription(reOffer);
+      await answerer.setRemoteDescription({
+        ...reOffer,
+        sdp: craftedSdp(reOffer.sdp, "02"),
+      });
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      // restart 経路 (log 呼び出しあり) が実行されたことを確認する。
+      const restarts = (
+        answerer.getTransceivers()[0].dtlsTransport.iceTransport as unknown as {
+          iceRestarts: number;
+        }
+      ).iceRestarts;
+      expect(restarts).toBeGreaterThan(0);
+    } finally {
+      restores.forEach((restore) => restore());
+      stderrSpy.mockRestore();
+      Debug.disable();
+      process.stderr.write = stderrWrite;
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+
+    // Assert: 既知 literal がどのログ呼び出しにも渡されない。
+    const dumped = calls
+      .map((args) =>
+        args
+          .map((arg) => {
+            try {
+              return typeof arg === "string" ? arg : JSON.stringify(arg);
+            } catch {
+              return String(arg);
+            }
+          })
+          .join(" "),
+      )
+      .join("\n");
+    for (const literal of [
+      "LogoSpyUfrag01",
+      "LogoSpyUfrag02",
+      "LogoSpyPwd01",
+      "LogoSpyPwd02",
+      "AA:BB:CC:DD",
+    ]) {
+      expect(dumped).not.toContain(literal);
+    }
+  }, 90000);
 });

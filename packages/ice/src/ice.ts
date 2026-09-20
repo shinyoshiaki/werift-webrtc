@@ -226,7 +226,7 @@ export class Connection implements IceConnection {
     usernameFragment: string;
     password: string;
   }) {
-    log("setRemoteParams", { iceLite, usernameFragment, password });
+    log("setRemoteParams", { iceLite });
     this.remoteIsLite = iceLite;
     this.remoteUsername = usernameFragment;
     this.remotePassword = password;
@@ -644,7 +644,7 @@ export class Connection implements IceConnection {
       this.unfreezeInitial();
     }
 
-    log("earlyChecks", this.localPassword, this.earlyChecks.length);
+    log("earlyChecks", this.earlyChecks.length);
     // # handle early checks
     for (const earlyCheck of this.earlyChecks) {
       this.checkIncoming(...earlyCheck);
@@ -1095,7 +1095,7 @@ export class Connection implements IceConnection {
       return;
     }
 
-    log("addRemoteCandidate", remoteCandidate);
+    log("addRemoteCandidate");
     this._remoteCandidates.push(remoteCandidate);
 
     this.pairRemoteCandidate(remoteCandidate);

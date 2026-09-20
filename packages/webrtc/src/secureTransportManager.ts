@@ -346,7 +346,7 @@ export class SecureTransportManager {
       // EOC の帰属も generation で判定する。selectCandidateSdp() が選んだ側が
       // pending なら stage し、current なら即時適用する。EOC 自体に ufrag が
       // 無い場合の選択は selectCandidateSdp() の most-recent 規則に従う。
-      // live 適用時は rollback 用に snapshot を取る (first-wins)。
+      // current 世代の EOC は snapshot 対象外とし、rollback 後も live に残す。
       const useSdpIsPending = pendingSdp != null && useSdp === pendingSdp;
 
       const liveTargets = candidateTarget.filter((iceTransport) => {
@@ -355,7 +355,9 @@ export class SecureTransportManager {
           staged.endOfCandidates = true;
           return false;
         }
-        this.snapshotIceCandidates(candidateSnapshot, iceTransport);
+        if (useSdpIsPending) {
+          this.snapshotIceCandidates(candidateSnapshot, iceTransport);
+        }
         return true;
       });
       await Promise.all(

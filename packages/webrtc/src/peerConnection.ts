@@ -857,12 +857,6 @@ export class RTCPeerConnection extends EventTarget {
       this.sctpTransport,
     );
 
-    console.log(
-      "SLDDBG type",
-      description.type,
-      "staged",
-      this.stagedIceParams.size,
-    );
     if (description.type === "answer") {
       // local answer の commit: stage していた remote 更新を反映する。
       // restart を伴う場合も通常フローと同じ扱いで、新 candidate は trickle
@@ -1397,13 +1391,6 @@ export class RTCPeerConnection extends EventTarget {
 
         if (remoteMedia.iceParams) {
           const renomination = !!this.sdpManager.inactiveRemoteMedia;
-          console.log(
-            "STAGEDBG decision",
-            remoteSdp.type,
-            stageRemoteParams,
-            JSON.stringify(iceTransport.connection.remoteUsername),
-            remoteMedia.iceParams.usernameFragment,
-          );
           if (stageRemoteParams) {
             // 新世代の params・candidates・EOC を stage する。同一 offer 内の
             // 複数 m-line は蓄積し、世代が変わる replacement offer では最新の
