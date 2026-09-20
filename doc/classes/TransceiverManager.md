@@ -294,21 +294,59 @@
 
 ***
 
+### restoreRouterTables()
+
+> **restoreRouterTables**(`snapshot`): `void`
+
+#### Parameters
+
+##### snapshot
+
+[`RouterTableSnapshot`](../interfaces/RouterTableSnapshot.md)
+
+#### Returns
+
+`void`
+
+***
+
+### restoreTransceiverMedia()
+
+> **restoreTransceiverMedia**(`snapshot`): `void`
+
+#### Parameters
+
+##### snapshot
+
+[`TransceiverMediaSnapshot`](../interfaces/TransceiverMediaSnapshot.md)[]
+
+#### Returns
+
+`void`
+
+***
+
 ### runWithoutNegotiationNeeded()
 
-> **runWithoutNegotiationNeeded**(`fn`): `void`
+> **runWithoutNegotiationNeeded**\<`T`\>(`fn`): `T`
 
-内部確定処理を negotiationneeded なしで実行する。
+内部確定処理を negotiationneeded なしで実行する。protocol-driven な
+rejection 適用 (remote SDP 由来の stop/finalize) では、新しい local
+negotiation を要求しない。application の明示的 stop とは別経路にする。
+
+#### Type Parameters
+
+• **T**
 
 #### Parameters
 
 ##### fn
 
-() => `void`
+() => `T`
 
 #### Returns
 
-`void`
+`T`
 
 ***
 
@@ -337,6 +375,30 @@
 #### Returns
 
 `void`
+
+***
+
+### snapshotRouterTables()
+
+> **snapshotRouterTables**(): [`RouterTableSnapshot`](../interfaces/RouterTableSnapshot.md)
+
+#### Returns
+
+[`RouterTableSnapshot`](../interfaces/RouterTableSnapshot.md)
+
+***
+
+### snapshotTransceiverMedia()
+
+> **snapshotTransceiverMedia**(): [`TransceiverMediaSnapshot`](../interfaces/TransceiverMediaSnapshot.md)[]
+
+remote offer/pranswer 適用前の transceiver media 状態の snapshot。
+rollback 時に復元し、pending だった codec/rejection/direction 変更を
+current session へ漏らさないようにする。
+
+#### Returns
+
+[`TransceiverMediaSnapshot`](../interfaces/TransceiverMediaSnapshot.md)[]
 
 ***
 

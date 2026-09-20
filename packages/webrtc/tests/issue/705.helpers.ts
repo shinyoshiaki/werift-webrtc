@@ -219,6 +219,29 @@ export function hostIceCandidateInit(sdpMid: string, sdpMLineIndex: number) {
   };
 }
 
+/**
+ * 双方向の trickle candidate を転送する。ICE restart 後の再接続など、
+ * SDP 内 candidate だけでは足りない交換で使う。戻り値で購読を解除する。
+ */
+export function forwardIceCandidates(
+  a: RTCPeerConnection,
+  b: RTCPeerConnection,
+) {
+  const subscriptions = [
+    a.onIceCandidate.subscribe((candidate) => {
+      if (candidate) {
+        b.addIceCandidate(candidate).catch(() => undefined);
+      }
+    }),
+    b.onIceCandidate.subscribe((candidate) => {
+      if (candidate) {
+        a.addIceCandidate(candidate).catch(() => undefined);
+      }
+    }),
+  ];
+  return () => subscriptions.forEach(({ unSubscribe }) => unSubscribe());
+}
+
 export function waitForIceGatheringComplete(pc: RTCPeerConnection) {
   if (pc.iceGatheringState === "complete") {
     return Promise.resolve();

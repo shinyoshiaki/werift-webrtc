@@ -663,19 +663,23 @@ export class SDPManager {
   }
 
   /**
-   * local candidate に付ける BUNDLE tag を決める。交渉済みの tag (remote
-   * answer/pranswer の group 先頭) が local の受け入れ済み m-line に対応すれば
-   * それを使い、offer 側の古い tag や reject 済み MID を避ける。対応がなければ
-   * local group 基準の従来方式に fallback する。
+   * local candidate に付ける BUNDLE tag を決める。commit 済みの negotiated tag
+   * (current remote の group 先頭) を優先し、pending offer の追加 BUNDLE 提案は
+   * answer で commit されるまで採用しない。対応がなければ local group 基準の
+   * 従来方式に fallback する。
    */
   getNegotiatedBundleTag(): {
     media?: MediaDescription;
     sdpMLineIndex: number;
   } {
     const local = this._localDescription;
-    const remoteTag = this._remoteDescription?.group.find(
-      (group) => group.semantic === "BUNDLE",
-    )?.items[0];
+    const remoteTag =
+      this.currentRemoteDescription?.group.find(
+        (group) => group.semantic === "BUNDLE",
+      )?.items[0] ??
+      this._remoteDescription?.group.find(
+        (group) => group.semantic === "BUNDLE",
+      )?.items[0];
     if (local && remoteTag) {
       const sdpMLineIndex = local.media.findIndex(
         (media) => media.rtp.muxId === remoteTag && media.port !== 0,

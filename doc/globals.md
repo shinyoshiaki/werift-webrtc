@@ -117,6 +117,7 @@
 
 - [CandidatePairStats](interfaces/CandidatePairStats.md)
 - [DataChannelStats](interfaces/DataChannelStats.md)
+- [DtlsRemoteSnapshot](interfaces/DtlsRemoteSnapshot.md)
 - [DtlsTransportStats](interfaces/DtlsTransportStats.md)
 - [Extensions](interfaces/Extensions.md)
 - [IceConnection](interfaces/IceConnection.md)
@@ -124,6 +125,7 @@
 - [MessageEvent](interfaces/MessageEvent.md)
 - [PeerConfig](interfaces/PeerConfig.md)
 - [Protocol](interfaces/Protocol.md)
+- [RouterTableSnapshot](interfaces/RouterTableSnapshot.md)
 - [RTCAudioPlayoutStats](interfaces/RTCAudioPlayoutStats.md)
 - [RTCAudioSourceStats](interfaces/RTCAudioSourceStats.md)
 - [RTCCertificateStats](interfaces/RTCCertificateStats.md)
@@ -153,13 +155,17 @@
 - [RTCStats](interfaces/RTCStats.md)
 - [RTCTransportStats](interfaces/RTCTransportStats.md)
 - [RTCVideoSourceStats](interfaces/RTCVideoSourceStats.md)
+- [RtpReceiverMediaSnapshot](interfaces/RtpReceiverMediaSnapshot.md)
+- [RtpSenderMediaSnapshot](interfaces/RtpSenderMediaSnapshot.md)
 - [StreamTransportOptions](interfaces/StreamTransportOptions.md)
 - [TransactionRequestOptions](interfaces/TransactionRequestOptions.md)
+- [TransceiverMediaSnapshot](interfaces/TransceiverMediaSnapshot.md)
 - [TransceiverOptions](interfaces/TransceiverOptions.md)
 - [Transport](interfaces/Transport.md)
 - [TurnChannel](interfaces/TurnChannel.md)
 - [TurnClientConfig](interfaces/TurnClientConfig.md)
 - [TurnClientOptions](interfaces/TurnClientOptions.md)
+- [TwccMediaSnapshot](interfaces/TwccMediaSnapshot.md)
 - [videoOrientationPayload](interfaces/videoOrientationPayload.md)
 
 ## Type Aliases

@@ -306,6 +306,29 @@ MediaDescriptionをトランシーバー用に作成
 
 ***
 
+### getNegotiatedBundleTag()
+
+> **getNegotiatedBundleTag**(): `object`
+
+local candidate に付ける BUNDLE tag を決める。commit 済みの negotiated tag
+(current remote の group 先頭) を優先し、pending offer の追加 BUNDLE 提案は
+answer で commit されるまで採用しない。対応がなければ local group 基準の
+従来方式に fallback する。
+
+#### Returns
+
+`object`
+
+##### media?
+
+> `optional` **media**: [`MediaDescription`](MediaDescription.md)
+
+##### sdpMLineIndex
+
+> **sdpMLineIndex**: `number`
+
+***
+
 ### parseSdp()
 
 > **parseSdp**(`__namedParameters`): [`SessionDescription`](SessionDescription.md)

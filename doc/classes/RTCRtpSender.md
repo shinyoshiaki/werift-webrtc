@@ -370,6 +370,22 @@ at the source-switch boundary.
 
 ***
 
+### restoreMediaState()
+
+> **restoreMediaState**(`snapshot`): `void`
+
+#### Parameters
+
+##### snapshot
+
+[`RtpSenderMediaSnapshot`](../interfaces/RtpSenderMediaSnapshot.md)
+
+#### Returns
+
+`void`
+
+***
+
 ### runRtcp()
 
 > **runRtcp**(): `Promise`\<`void`\>
@@ -472,6 +488,19 @@ dropped, even if a drain is already in progress.
 #### Returns
 
 `void`
+
+***
+
+### snapshotMediaState()
+
+> **snapshotMediaState**(): [`RtpSenderMediaSnapshot`](../interfaces/RtpSenderMediaSnapshot.md)
+
+remote offer/pranswer 適用前の sender media 状態。rollback 時に復元し、
+pending だった prepareSend を current session へ漏らさないようにする。
+
+#### Returns
+
+[`RtpSenderMediaSnapshot`](../interfaces/RtpSenderMediaSnapshot.md)
 
 ***
 

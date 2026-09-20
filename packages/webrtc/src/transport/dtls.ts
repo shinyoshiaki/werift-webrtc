@@ -185,6 +185,26 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     this.remoteParameters = new RTCDtlsParameters(fingerprints, role);
   }
 
+  /**
+   * rollback 用に remote DTLS state を退避・復元する。setRemoteParams() は
+   * fingerprint を累積するため、直接代入で復元し再累積させない。
+   */
+  snapshotRemoteState(): DtlsRemoteSnapshot {
+    return {
+      fingerprints: [...(this.remoteParameters?.fingerprints ?? [])],
+      paramsRole: this.remoteParameters?.role ?? "auto",
+      transportRole: this.role,
+    };
+  }
+
+  restoreRemoteState(snapshot: DtlsRemoteSnapshot): void {
+    this.remoteParameters = new RTCDtlsParameters(
+      [...snapshot.fingerprints],
+      snapshot.paramsRole,
+    );
+    this.role = snapshot.transportRole;
+  }
+
   async start() {
     if (this.state !== "new") {
       throw new Error("state must be new");
@@ -603,6 +623,12 @@ export const DtlsStates = [
 export type DtlsState = (typeof DtlsStates)[number];
 
 export type DtlsRole = "auto" | "server" | "client";
+
+export interface DtlsRemoteSnapshot {
+  fingerprints: RTCDtlsFingerprint[];
+  paramsRole: "auto" | "client" | "server";
+  transportRole: DtlsRole;
+}
 
 export class RTCCertificate {
   publicKey: string;

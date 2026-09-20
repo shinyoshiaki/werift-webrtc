@@ -389,6 +389,22 @@ seconds
 
 ***
 
+### restoreMediaState()
+
+> **restoreMediaState**(`snapshot`): `void`
+
+#### Parameters
+
+##### snapshot
+
+[`RtpReceiverMediaSnapshot`](../interfaces/RtpReceiverMediaSnapshot.md)
+
+#### Returns
+
+`void`
+
+***
+
 ### runRtcp()
 
 > **runRtcp**(): `Promise`\<`void`\>
@@ -446,6 +462,20 @@ setup TWCC if supported
 #### Returns
 
 `void`
+
+***
+
+### snapshotMediaState()
+
+> **snapshotMediaState**(): [`RtpReceiverMediaSnapshot`](../interfaces/RtpReceiverMediaSnapshot.md)
+
+remote offer/pranswer 適用前の receiver media 状態。rollback 時に復元し、
+pending だった track 追加・router 登録・codec 準備を current session へ
+漏らさないようにする。
+
+#### Returns
+
+[`RtpReceiverMediaSnapshot`](../interfaces/RtpReceiverMediaSnapshot.md)
 
 ***
 

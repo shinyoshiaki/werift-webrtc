@@ -296,6 +296,22 @@
 
 ***
 
+### restoreRemoteState()
+
+> **restoreRemoteState**(`snapshot`): `void`
+
+#### Parameters
+
+##### snapshot
+
+[`DtlsRemoteSnapshot`](../interfaces/DtlsRemoteSnapshot.md)
+
+#### Returns
+
+`void`
+
+***
+
 ### sendData()
 
 > `readonly` **sendData**(`data`): `Promise`\<`void`\>
@@ -361,6 +377,19 @@
 #### Returns
 
 `void`
+
+***
+
+### snapshotRemoteState()
+
+> **snapshotRemoteState**(): [`DtlsRemoteSnapshot`](../interfaces/DtlsRemoteSnapshot.md)
+
+rollback 用に remote DTLS state を退避・復元する。setRemoteParams() は
+fingerprint を累積するため、直接代入で復元し再累積させない。
+
+#### Returns
+
+[`DtlsRemoteSnapshot`](../interfaces/DtlsRemoteSnapshot.md)
 
 ***
 

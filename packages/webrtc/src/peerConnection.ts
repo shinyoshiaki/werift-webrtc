@@ -48,6 +48,7 @@ import { type RTCSessionDescriptionInit, SDPManager } from "./sdpManager";
 import { SecureTransportManager } from "./secureTransportManager";
 import type {
   DtlsKeys,
+  DtlsRemoteSnapshot,
   RTCCertificate,
   RTCDtlsTransport,
 } from "./transport/dtls";
@@ -119,6 +120,27 @@ export class RTCPeerConnection extends EventTarget {
   private pendingRouterSnapshot?: RouterTableSnapshot;
   private pendingSctpSnapshot?: SctpMediaSnapshot;
   private pendingTransportIds?: Set<string>;
+  /**
+   * commit 待ちの remote ICE/DTLS 更新。ICE-restart 級の変更は current
+   * session を壊さないよう適用せず stage し、local answer の commit
+   * (setLocalDescription) で反映する。rollback では破棄する。
+   */
+  private stagedIceParams = new Map<
+    RTCIceTransport,
+    {
+      params: NonNullable<MediaDescription["iceParams"]>;
+      renomination: boolean;
+    }
+  >();
+  private stagedDtlsParams = new Map<
+    RTCDtlsTransport,
+    NonNullable<MediaDescription["dtlsParams"]>
+  >();
+  private pendingIceSnapshot = new Map<
+    RTCIceTransport,
+    { remoteUsername: string; remotePassword: string }
+  >();
+  private pendingDtlsSnapshot = new Map<RTCDtlsTransport, DtlsRemoteSnapshot>();
 
   readonly iceGatheringStateChange = new Event<[IceGathererState]>();
   readonly iceConnectionStateChange = new Event<[RTCIceConnectionState]>();
@@ -667,12 +689,25 @@ export class RTCPeerConnection extends EventTarget {
       // 共有 transport の持ち主は live な transceiver を優先する。停止済みを
       // 拾うと reject 済み MID でラベルしてしまう。
       const owner = owners.find((t) => !t.stopping && !t.stopped) ?? owners[0];
-      // candidate 生成元 transport の持ち主が local BUNDLE group 外なら、
-      // group tag ではなく自身の MID/index でラベルする。
-      const localBundleItems =
-        this._localDescription?.group.find(
+      // candidate 生成元 transport の持ち主が negotiated BUNDLE group 外なら、
+      // group tag ではなく自身の MID/index でラベルする。membership は current
+      // descriptions の積集合で判定し、pending offer の追加提案は commit まで
+      // 採用しない。current remote が無い交渉前は local group 基準に従来どおり。
+      const currentLocalItems =
+        this.sdpManager.currentLocalDescription?.group.find(
           (group) => group.semantic === "BUNDLE",
-        )?.items ?? [];
+        )?.items;
+      const currentRemoteItems =
+        this.sdpManager.currentRemoteDescription?.group.find(
+          (group) => group.semantic === "BUNDLE",
+        )?.items;
+      const effectiveBundleItems = this.sdpManager.currentRemoteDescription
+        ? (currentLocalItems ?? []).filter((mid) =>
+            (currentRemoteItems ?? []).includes(mid),
+          )
+        : (this._localDescription?.group.find(
+            (group) => group.semantic === "BUNDLE",
+          )?.items ?? []);
       this.secureManager.handleNewIceCandidate({
         candidate,
         bundlePolicy: this.sdpManager.bundlePolicy,
@@ -680,7 +715,8 @@ export class RTCPeerConnection extends EventTarget {
         media: tagged.media,
         sdpMLineIndex: tagged.sdpMLineIndex,
         transceiver: owner,
-        transceiverBundled: !owner?.mid || localBundleItems.includes(owner.mid),
+        transceiverBundled:
+          !owner?.mid || (effectiveBundleItems?.includes(owner.mid) ?? false),
         sctpTransport:
           this.sctpTransport?.dtlsTransport.iceTransport.id === iceTransport.id
             ? this.sctpTransport
@@ -819,6 +855,21 @@ export class RTCPeerConnection extends EventTarget {
     );
 
     if (description.type === "answer") {
+      // local answer の commit: stage していた remote 更新を反映する。
+      // restart を伴う場合も通常フローと同じ扱いで、新 candidate は trickle
+      // で送る。相手は userHistory により旧世代 ufrag の check も受け付ける。
+      for (const [iceTransport, staged] of this.stagedIceParams) {
+        iceTransport.setRemoteParams(staged.params, staged.renomination);
+        if (staged.params.iceLite && !iceTransport.connection.iceLite) {
+          iceTransport.connection.iceControlling = true;
+        }
+      }
+      for (const [dtlsTransport, params] of this.stagedDtlsParams) {
+        dtlsTransport.setRemoteParams(params);
+      }
+      this.stagedIceParams.clear();
+      this.stagedDtlsParams.clear();
+      this.pendingDtlsSnapshot.clear();
       this.finishMediaStops(description);
       // local answer の commit で pending は確定した。rollback 対象は無い。
       this.pendingTransceiverSnapshot = undefined;
@@ -1020,6 +1071,14 @@ export class RTCPeerConnection extends EventTarget {
         await this.sctpManager.restoreMediaState(this.pendingSctpSnapshot);
         this.pendingSctpSnapshot = undefined;
       }
+      // DTLS remote state を commit 前に戻す (fingerprint 累積の巻き戻し)。
+      for (const [dtlsTransport, snapshot] of this.pendingDtlsSnapshot) {
+        dtlsTransport.restoreRemoteState(snapshot);
+      }
+      this.pendingDtlsSnapshot.clear();
+      // stage した remote 更新は破棄する (何も適用していないため復元は不要)。
+      this.stagedIceParams.clear();
+      this.stagedDtlsParams.clear();
       // pending 中に作られ、復元後に持ち主のいない transport を停止する。
       await this.stopOrphanedTransports();
       if (
@@ -1083,6 +1142,10 @@ export class RTCPeerConnection extends EventTarget {
       this.pendingRouterSnapshot = undefined;
       this.pendingSctpSnapshot = undefined;
       this.pendingTransportIds = undefined;
+      // remote answer は commit のため stage は不要。answer 経路で fresh に適用する。
+      this.stagedIceParams.clear();
+      this.stagedDtlsParams.clear();
+      this.pendingDtlsSnapshot.clear();
     }
 
     const matchTransceiverWithMedia = (
@@ -1232,28 +1295,57 @@ export class RTCPeerConnection extends EventTarget {
 
         const iceTransport = dtlsTransport.iceTransport;
 
+        // ICE-restart 級の変更 (remote credentials が既存と異なる) は offer/pranswer
+        // では commit まで stage し、current session の接続を壊さない。同一世代・
+        // 初回は即時適用する (answer は commit のため常に即時)。
+        const stageRemoteParams =
+          (remoteSdp.type === "offer" || remoteSdp.type === "pranswer") &&
+          !!iceTransport.connection.remoteUsername &&
+          !!iceTransport.connection.remotePassword &&
+          !!remoteMedia.iceParams &&
+          (iceTransport.connection.remoteUsername !==
+            remoteMedia.iceParams.usernameFragment ||
+            iceTransport.connection.remotePassword !==
+              remoteMedia.iceParams.password);
+
         if (remoteMedia.iceParams) {
           const renomination = !!this.sdpManager.inactiveRemoteMedia;
-          iceTransport.setRemoteParams(remoteMedia.iceParams, renomination);
+          if (stageRemoteParams) {
+            this.stagedIceParams.set(iceTransport, {
+              params: remoteMedia.iceParams,
+              renomination,
+            });
+          } else {
+            iceTransport.setRemoteParams(remoteMedia.iceParams, renomination);
 
-          // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
-          // RFC 8445 S6.1.1
-          if (
-            remoteMedia.iceParams.iceLite &&
-            !iceTransport.connection.iceLite
-          ) {
-            iceTransport.connection.iceControlling = true;
+            // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
+            // RFC 8445 S6.1.1
+            if (
+              remoteMedia.iceParams.iceLite &&
+              !iceTransport.connection.iceLite
+            ) {
+              iceTransport.connection.iceControlling = true;
+            }
           }
         }
         if (remoteMedia.dtlsParams) {
-          dtlsTransport.setRemoteParams(remoteMedia.dtlsParams);
+          if (stageRemoteParams && !this.stagedDtlsParams.has(dtlsTransport)) {
+            this.stagedDtlsParams.set(dtlsTransport, remoteMedia.dtlsParams);
+          } else if (!stageRemoteParams) {
+            if (remoteSdp.type === "offer" || remoteSdp.type === "pranswer") {
+              this.snapshotDtlsRemote(dtlsTransport);
+            }
+            dtlsTransport.setRemoteParams(remoteMedia.dtlsParams);
+          }
         }
 
-        // # add ICE candidates
-        remoteMedia.iceCandidates.forEach(iceTransport.addRemoteCandidate);
+        if (!stageRemoteParams) {
+          // # add ICE candidates
+          remoteMedia.iceCandidates.forEach(iceTransport.addRemoteCandidate);
 
-        if (remoteMedia.iceCandidatesComplete) {
-          iceTransport.addRemoteCandidate(undefined);
+          if (remoteMedia.iceCandidatesComplete) {
+            iceTransport.addRemoteCandidate(undefined);
+          }
         }
 
         // # set DTLS role
@@ -1340,6 +1432,19 @@ export class RTCPeerConnection extends EventTarget {
       (transport) => !knownIds.has(transport.id) && !ownedIds.has(transport.id),
     );
     await Promise.allSettled(orphaned.map((transport) => transport.stop()));
+  }
+
+  /**
+   * rollback 用に DTLS remote state を退避する (first-wins)。fingerprint は
+   * 累積するため、直接代入で復元できるよう commit 前の値を残す。
+   */
+  private snapshotDtlsRemote(dtlsTransport: RTCDtlsTransport): void {
+    if (!this.pendingDtlsSnapshot.has(dtlsTransport)) {
+      this.pendingDtlsSnapshot.set(
+        dtlsTransport,
+        dtlsTransport.snapshotRemoteState(),
+      );
+    }
   }
 
   private finishMediaStops(description: SessionDescription) {
@@ -1493,6 +1598,13 @@ export class RTCPeerConnection extends EventTarget {
 
     this.isClosed = true;
     this.pendingRemoteCandidates.length = 0;
+    this.pendingTransceiverSnapshot = undefined;
+    this.pendingRouterSnapshot = undefined;
+    this.pendingSctpSnapshot = undefined;
+    this.pendingTransportIds = undefined;
+    this.stagedIceParams.clear();
+    this.stagedDtlsParams.clear();
+    this.pendingDtlsSnapshot.clear();
     this.setSignalingState("closed");
 
     this.transceiverManager.close();
