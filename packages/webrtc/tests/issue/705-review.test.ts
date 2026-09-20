@@ -2447,3 +2447,289 @@ describe("PR #711 review P1 Round9 の回帰テスト", () => {
     }
   });
 });
+
+describe("PR #711 review P1 Round10 の回帰テスト", () => {
+  test("EOC の帰属は generation 照合に従う", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    offerer.addTransceiver("audio", { direction: "sendonly" });
+
+    try {
+      // Arrange: gathering 前の SDP で交渉し current を確定させる。
+      const offer = await offerer.createOffer();
+      await offerer.setLocalDescription(offer);
+      await answerer.setRemoteDescription(offer);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      const currentUfrag = parseSdp(offer.sdp).media[0]?.iceParams
+        ?.usernameFragment!;
+      const mid = parseSdp(offer.sdp).media[0]?.rtp.muxId!;
+      const transceiver = answerer.getTransceivers()[0];
+      const iceTransport = transceiver.dtlsTransport.iceTransport;
+      const endOf = () =>
+        (
+          iceTransport as unknown as {
+            connection: { remoteCandidatesEnd: boolean };
+          }
+        ).connection.remoteCandidatesEnd;
+      const stagedEocOf = () =>
+        (
+          answerer as unknown as {
+            stagedIceParams: Map<{ id: string }, { endOfCandidates: boolean }>;
+          }
+        ).stagedIceParams.get(iceTransport as never)?.endOfCandidates;
+      const eoc = (ufrag?: string | null) =>
+        answerer.addIceCandidate({
+          candidate: "",
+          sdpMid: mid,
+          ...(ufrag === undefined ? {} : { usernameFragment: ufrag }),
+        });
+      expect(endOf()).toBe(false);
+
+      // Act: 新世代 re-offer を適用する。
+      // re-offer 自体の EOC 行は取り除き、trickle EOC だけを検証対象にする。
+      const reOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(reOffer);
+      const pendingUfrag = "genEoc10";
+      const reSdpBase = (
+        reOffer.sdp?.replace(/\r\na=end-of-candidates/, "") ?? reOffer.sdp
+      )
+        .replace(/a=ice-ufrag:[^\r\n]+/, `a=ice-ufrag:${pendingUfrag}`)
+        .replace(/a=ice-pwd:[^\r\n]+/, "a=ice-pwd:0123456789abcdefghijuy");
+      expect(parseSdp(reSdpBase).media[0]?.iceCandidatesComplete).toBe(false);
+      await expect(
+        answerer.setRemoteDescription({ ...reOffer, sdp: reSdpBase }),
+      ).resolves.toBeUndefined();
+      expect(stagedEocOf()).not.toBe(true);
+
+      // Act: current 世代の EOC は live に即時適用される。
+      await expect(eoc(currentUfrag)).resolves.toBeUndefined();
+      expect(endOf()).toBe(true);
+      expect(stagedEocOf()).not.toBe(true);
+
+      // Act: pending 世代の EOC (明示・省略) は stage される。
+      await answerer.setRemoteDescription({ type: "rollback" });
+      await expect(
+        answerer.setRemoteDescription({ ...reOffer, sdp: reSdpBase }),
+      ).resolves.toBeUndefined();
+      expect(endOf()).toBe(false);
+      await expect(eoc(pendingUfrag)).resolves.toBeUndefined();
+      expect(endOf()).toBe(false);
+      expect(stagedEocOf()).toBe(true);
+      await expect(eoc()).resolves.toBeUndefined();
+      expect(stagedEocOf()).toBe(true);
+
+      // Act: commit すると staged EOC が適用される。
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      expect(endOf()).toBe(true);
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  }, 60000);
+
+  test("commit 後に届いた新世代 candidate は受理される", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    offerer.addTransceiver("audio", { direction: "sendonly" });
+
+    try {
+      // Arrange: gathering 前の SDP で交渉し current を確定させる。
+      const offer = await offerer.createOffer();
+      await offerer.setLocalDescription(offer);
+      await answerer.setRemoteDescription(offer);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      const mid = parseSdp(offer.sdp).media[0]?.rtp.muxId!;
+      const transceiver = answerer.getTransceivers()[0];
+      const hosts = () =>
+        (
+          transceiver.dtlsTransport.iceTransport as unknown as {
+            connection: { remoteCandidates: { host: string }[] };
+          }
+        ).connection.remoteCandidates.map((c) => c.host);
+
+      // Act: 新世代 re-offer → current EOC (live) → commit する。
+      // re-offer 自体の EOC 行は取り除き、trickle EOC だけを検証対象にする。
+      const reOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(reOffer);
+      const pendingUfrag = "genEoc11";
+      const reSdpBase = (
+        reOffer.sdp?.replace(/\r\na=end-of-candidates/, "") ?? reOffer.sdp
+      )
+        .replace(/a=ice-ufrag:[^\r\n]+/, `a=ice-ufrag:${pendingUfrag}`)
+        .replace(/a=ice-pwd:[^\r\n]+/, "a=ice-pwd:0123456789abcdefghijuy");
+      expect(parseSdp(reSdpBase).media[0]?.iceCandidatesComplete).toBe(false);
+      await expect(
+        answerer.setRemoteDescription({ ...reOffer, sdp: reSdpBase }),
+      ).resolves.toBeUndefined();
+      const currentUfrag = parseSdp(offer.sdp).media[0]?.iceParams
+        ?.usernameFragment!;
+      await expect(
+        answerer.addIceCandidate({
+          candidate: "",
+          sdpMid: mid,
+          usernameFragment: currentUfrag,
+        }),
+      ).resolves.toBeUndefined();
+      await answerer.setLocalDescription(await answerer.createAnswer());
+
+      // Act: commit 後に新世代 candidate が届く。
+      await expect(
+        answerer.addIceCandidate({
+          candidate: "candidate:1 1 udp 2113929471 192.0.2.77 10100 typ host",
+          sdpMid: mid,
+          sdpMLineIndex: 0,
+          usernameFragment: pendingUfrag,
+        }),
+      ).resolves.toBeUndefined();
+
+      // Assert: 新世代として受理される。
+      expect(hosts()).toContain("192.0.2.77");
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("final answer の sctp-port 変更は拒否され旧 association が残る", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+
+    try {
+      // Arrange: data channel を確立する。
+      const [channel1, channel2] = await createDataChannelPair(
+        undefined,
+        offerer,
+        answerer,
+      );
+
+      // Act: re-offer に対して port を変えた final answer を適用する。
+      const reOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(reOffer);
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      const answer = await answerer.createAnswer();
+      const changedAnswer = {
+        ...answer,
+        sdp: answer.sdp?.replace(/a=sctp-port:\d+/, "a=sctp-port:6000"),
+      };
+      expect(changedAnswer.sdp).not.toBe(answer.sdp);
+      const beforeLocalSdp = offerer.localDescription?.sdp;
+      const beforeRemoteSdp = offerer.remoteDescription?.sdp;
+      expect(beforeRemoteSdp).toBeDefined();
+      await expect(offerer.setRemoteDescription(changedAnswer)).rejects.toThrow(
+        /SCTP port change/,
+      );
+
+      // Assert: signaling・記述が変わらず、旧 association で送受信できる。
+      expect(offerer.signalingState).toBe("have-local-offer");
+      expect(offerer.localDescription?.sdp).toBe(beforeLocalSdp);
+      expect(offerer.remoteDescription?.sdp).toBe(beforeRemoteSdp);
+      channel1.send("after-answer-reject");
+      await expect(awaitMessage(channel2)).resolves.toBe("after-answer-reject");
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  }, 60000);
+
+  test("max-size 省略は 64K に正規化され rollback では旧値が残る", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+
+    try {
+      // Arrange: data channel を確立する。
+      const [channel1, channel2] = await createDataChannelPair(
+        undefined,
+        offerer,
+        answerer,
+      );
+      const maxSizeOf = (pc: RTCPeerConnection) =>
+        (
+          pc as unknown as {
+            sctpManager: {
+              sctpTransport?: { remoteMaxMessageSize: number };
+            };
+          }
+        ).sctpManager.sctpTransport?.remoteMaxMessageSize;
+
+      // Act: max-size:0 にして commit する (unlimited を確立)。
+      const offer0 = await offerer.createOffer();
+      await offerer.setLocalDescription(offer0);
+      const zeroSdp = offer0.sdp?.replace(
+        /a=max-message-size:\d+/,
+        "a=max-message-size:0",
+      );
+      expect(zeroSdp).not.toBe(offer0.sdp);
+      await answerer.setRemoteDescription({ ...offer0, sdp: zeroSdp });
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      expect(maxSizeOf(answerer)).toBe(0);
+
+      // Act: 属性を削除した re-offer → answer → commit する。
+      const reOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(reOffer);
+      const droppedSdp = reOffer.sdp?.replace(/\r\na=max-message-size:\d+/, "");
+      expect(droppedSdp).not.toBe(reOffer.sdp);
+      await answerer.setRemoteDescription({ ...reOffer, sdp: droppedSdp });
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+
+      // Assert: 省略時は 64K に正規化され、超過分は reject される。
+      expect(maxSizeOf(answerer)).toBe(65536);
+      expect(() => channel2.send(Buffer.alloc(65537))).toThrow(
+        "max-message-size exceeded",
+      );
+      channel2.send(Buffer.alloc(100));
+      await expect(awaitMessage(channel1)).resolves.toBeDefined();
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  }, 60000);
+
+  test("max-size 省略 re-offer の rollback では旧値が残る", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+
+    try {
+      // Arrange: data channel を確立し、max-size:0 を commit する。
+      const [channel1, channel2] = await createDataChannelPair(
+        undefined,
+        offerer,
+        answerer,
+      );
+      const maxSizeOf = (pc: RTCPeerConnection) =>
+        (
+          pc as unknown as {
+            sctpManager: {
+              sctpTransport?: { remoteMaxMessageSize: number };
+            };
+          }
+        ).sctpManager.sctpTransport?.remoteMaxMessageSize;
+      const offer0 = await offerer.createOffer();
+      await offerer.setLocalDescription(offer0);
+      const zeroSdp = offer0.sdp?.replace(
+        /a=max-message-size:\d+/,
+        "a=max-message-size:0",
+      );
+      await answerer.setRemoteDescription({ ...offer0, sdp: zeroSdp });
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      expect(maxSizeOf(answerer)).toBe(0);
+
+      // Act: 属性削除の re-offer を適用して rollback する。
+      const reOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(reOffer);
+      const droppedSdp = reOffer.sdp?.replace(/\r\na=max-message-size:\d+/, "");
+      expect(droppedSdp).not.toBe(reOffer.sdp);
+      await expect(
+        answerer.setRemoteDescription({ ...reOffer, sdp: droppedSdp }),
+      ).resolves.toBeUndefined();
+      await expect(
+        answerer.setRemoteDescription({ type: "rollback" }),
+      ).resolves.toBeUndefined();
+
+      // Assert: 旧値 (0=unlimited) が維持され、送受信できる。
+      expect(maxSizeOf(answerer)).toBe(0);
+      channel1.send("kept");
+      await expect(awaitMessage(channel2)).resolves.toBe("kept");
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  }, 60000);
+});

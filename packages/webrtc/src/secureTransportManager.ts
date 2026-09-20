@@ -14,6 +14,7 @@ import {
 import { IceCandidate, RTCIceGatherer, RTCIceTransport } from "./transport/ice";
 import type {
   IceGathererState,
+  IceRemoteCandidateSnapshot,
   RTCIceCandidate,
   RTCIceCandidateInit,
   RTCIceConnectionState,
@@ -301,6 +302,7 @@ export class SecureTransportManager {
       }
     >,
     currentSdp?: SessionDescription,
+    candidateSnapshot?: Map<RTCIceTransport, IceRemoteCandidateSnapshot>,
   ) {
     const candidateText = candidateMessage?.candidate;
     const sdpMid = candidateMessage?.sdpMid;
@@ -341,15 +343,19 @@ export class SecureTransportManager {
           return acc;
         }, []);
 
-      // pending generation がある transport の EOC は stage し、current 世代の
-      // trickle 受理を止めない。EOC 自体に ufrag が無いことが多いため、staged
-      // entry の有無で帰属を判定する。
+      // EOC の帰属も generation で判定する。selectCandidateSdp() が選んだ側が
+      // pending なら stage し、current なら即時適用する。EOC 自体に ufrag が
+      // 無い場合の選択は selectCandidateSdp() の most-recent 規則に従う。
+      // live 適用時は rollback 用に snapshot を取る (first-wins)。
+      const useSdpIsPending = pendingSdp != null && useSdp === pendingSdp;
+
       const liveTargets = candidateTarget.filter((iceTransport) => {
         const staged = stagedIce?.get(iceTransport);
-        if (staged) {
+        if (staged && useSdpIsPending) {
           staged.endOfCandidates = true;
           return false;
         }
+        this.snapshotIceCandidates(candidateSnapshot, iceTransport);
         return true;
       });
       await Promise.all(
@@ -396,7 +402,8 @@ export class SecureTransportManager {
 
     // pending generation の trickle は commit 用 bucket へ。ufrag 省略時は
     // most-recent (pending) 世代とみなし、明示 ufrag は一致する bucket へ。
-    // staged entry が無い・ufrag が current 側の場合は即時適用する。
+    // staged entry が無い・ufrag が current 側の場合は即時適用する
+    // (適用前に snapshot を取る)。
     const staged = stagedIce?.get(iceTransport);
     const messageUfrag = candidateMessage?.usernameFragment ?? null;
     if (
@@ -411,12 +418,32 @@ export class SecureTransportManager {
       };
     }
 
+    // live trickle candidate は即時適用し、snapshot は取らない。current 世代の
+    // candidate は rollback 後も残す。EOC のみ下の分岐で退避する。
     await iceTransport.addRemoteCandidate(candidate);
     return {
       kind: "candidate" as const,
       candidate,
       mediaIndices: [targetMediaIndex],
     };
+  }
+
+  /**
+   * live 適用する trickle の直前に remote candidate state を退避する
+   * (first-wins)。rollback で pending 中の適用を取り消せるようにする。
+   */
+  private snapshotIceCandidates(
+    candidateSnapshot:
+      | Map<RTCIceTransport, IceRemoteCandidateSnapshot>
+      | undefined,
+    iceTransport: RTCIceTransport,
+  ): void {
+    if (candidateSnapshot && !candidateSnapshot.has(iceTransport)) {
+      candidateSnapshot.set(
+        iceTransport,
+        iceTransport.snapshotRemoteCandidates(),
+      );
+    }
   }
 
   /**

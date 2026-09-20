@@ -857,6 +857,12 @@ export class RTCPeerConnection extends EventTarget {
       this.sctpTransport,
     );
 
+    console.log(
+      "SLDDBG type",
+      description.type,
+      "staged",
+      this.stagedIceParams.size,
+    );
     if (description.type === "answer") {
       // local answer の commit: stage していた remote 更新を反映する。
       // restart を伴う場合も通常フローと同じ扱いで、新 candidate は trickle
@@ -952,11 +958,16 @@ export class RTCPeerConnection extends EventTarget {
     if (!sdp) {
       return;
     }
+    // pending 中の trickle だけ snapshot 対象にする。stable 中は渡さず、
+    // 次 offer 時の first-wins を汚さない。
     const appliedCandidate = await this.secureManager.addIceCandidate(
       sdp,
       candidateMessage,
       this.stagedIceParams,
       this.sdpManager.currentRemoteDescription,
+      this.sdpManager.pendingRemoteDescription
+        ? this.pendingIceCandidateSnapshot
+        : undefined,
     );
     const remoteDescription = this.sdpManager._remoteDescription;
     if (!remoteDescription || !appliedCandidate) {
@@ -1147,6 +1158,7 @@ export class RTCPeerConnection extends EventTarget {
           remoteSdp,
           prevPendingLocalDescription,
         );
+        this.assertSctpPortUnchanged(remoteSdp);
       } catch (error) {
         this.sdpManager.pendingRemoteDescription = prevPendingRemoteDescription;
         this.sdpManager.currentRemoteDescription = prevCurrentRemoteDescription;
@@ -1164,24 +1176,20 @@ export class RTCPeerConnection extends EventTarget {
 
     // SCTP port の変更は association の作り直しが必要で未サポートのため、
     // live association に触れる前に明示的に拒否する。初回・同値は受理する。
-    if (remoteSdp.type === "offer" || remoteSdp.type === "pranswer") {
-      const appMedia = remoteSdp.media.find(
-        (media) => media.kind === "application",
-      );
-      const currentPort = this.sctpTransport?.sctp.getRemotePort();
-      if (
-        appMedia?.sctpPort != null &&
-        currentPort != null &&
-        appMedia.sctpPort !== currentPort
-      ) {
+    // final answer も含め、全 remote description 型で検証する。
+    if (
+      remoteSdp.type === "offer" ||
+      remoteSdp.type === "pranswer" ||
+      remoteSdp.type === "answer"
+    ) {
+      try {
+        this.assertSctpPortUnchanged(remoteSdp);
+      } catch (error) {
         this.sdpManager.pendingRemoteDescription = prevPendingRemoteDescription;
         this.sdpManager.currentRemoteDescription = prevCurrentRemoteDescription;
         this.sdpManager.pendingLocalDescription = prevPendingLocalDescription;
         this.sdpManager.currentLocalDescription = prevCurrentLocalDescription;
-        throw createWebRtcDomException(
-          "InvalidModificationError",
-          "SCTP port change requires a new association, which is not supported.",
-        );
+        throw error;
       }
     }
 
@@ -1389,6 +1397,13 @@ export class RTCPeerConnection extends EventTarget {
 
         if (remoteMedia.iceParams) {
           const renomination = !!this.sdpManager.inactiveRemoteMedia;
+          console.log(
+            "STAGEDBG decision",
+            remoteSdp.type,
+            stageRemoteParams,
+            JSON.stringify(iceTransport.connection.remoteUsername),
+            remoteMedia.iceParams.usernameFragment,
+          );
           if (stageRemoteParams) {
             // 新世代の params・candidates・EOC を stage する。同一 offer 内の
             // 複数 m-line は蓄積し、世代が変わる replacement offer では最新の
@@ -1550,6 +1565,28 @@ export class RTCPeerConnection extends EventTarget {
       this.pendingIceCandidateSnapshot.set(
         iceTransport,
         iceTransport.snapshotRemoteCandidates(),
+      );
+    }
+  }
+
+  /**
+   * SCTP port 変更の事前検証。確立済み association と異なる port は
+   * live に触れる前に明示的に拒否する (association replacement 未サポート)。
+   * 初回・同値・port 省略は受理する。
+   */
+  private assertSctpPortUnchanged(remoteSdp: SessionDescription): void {
+    const appMedia = remoteSdp.media.find(
+      (media) => media.kind === "application",
+    );
+    const currentPort = this.sctpTransport?.sctp.getRemotePort();
+    if (
+      appMedia?.sctpPort != null &&
+      currentPort != null &&
+      appMedia.sctpPort !== currentPort
+    ) {
+      throw createWebRtcDomException(
+        "InvalidModificationError",
+        "SCTP port change requires a new association, which is not supported.",
       );
     }
   }

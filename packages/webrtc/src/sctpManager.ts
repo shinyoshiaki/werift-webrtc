@@ -10,7 +10,7 @@ import {
 } from "./media/stats";
 import type { MediaDescription } from "./sdp";
 import type { RTCDtlsTransport } from "./transport/dtls";
-import { RTCSctpTransport } from "./transport/sctp";
+import { DEFAULT_MAX_MESSAGE_SIZE, RTCSctpTransport } from "./transport/sctp";
 
 const log = debug("werift:packages/webrtc/src/transport/sctpManager.ts");
 
@@ -152,7 +152,10 @@ export class SctpTransportManager {
     ) {
       // association への反映は local final answer の commit まで stage する。
       // port 変更自体は SRD 側で事前に拒否済みのため、ここでは max-size のみ。
-      this.stagedMaxMessageSize = remoteMedia.sctpCapabilities?.maxMessageSize;
+      // 属性省略時は RFC 8841 §6.1 の 64K に正規化し、明示 0 (unlimited) と区別する。
+      this.stagedMaxMessageSize =
+        remoteMedia.sctpCapabilities?.maxMessageSize ??
+        DEFAULT_MAX_MESSAGE_SIZE;
       return;
     }
 

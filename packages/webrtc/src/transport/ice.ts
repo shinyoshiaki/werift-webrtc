@@ -214,6 +214,14 @@ export class RTCIceTransport {
   }
 
   setRemoteParams(remoteParameters: RTCIceParameters, renomination = false) {
+    console.log(
+      "SETREMOTEDBG",
+      JSON.stringify(this.connection.remoteUsername),
+      JSON.stringify(this.connection.remotePassword),
+      remoteParameters.usernameFragment,
+      this.renominating,
+      renomination,
+    );
     if (renomination) {
       this.renominating = true;
     }
