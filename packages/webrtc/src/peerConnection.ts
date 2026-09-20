@@ -862,16 +862,22 @@ export class RTCPeerConnection extends EventTarget {
       // restart を伴う場合も通常フローと同じ扱いで、新 candidate は trickle
       // で送る。相手は userHistory により旧世代 ufrag の check も受け付ける。
       for (const [iceTransport, staged] of this.stagedIceParams) {
+        // restart で list が初期化されるため、live candidate を退避する。
+        const liveCandidates = [...iceTransport.connection.remoteCandidates];
         iceTransport.setRemoteParams(staged.params, staged.renomination);
         if (staged.params.iceLite && !iceTransport.connection.iceLite) {
           iceTransport.connection.iceControlling = true;
+        }
+        // live candidate を戻した上で staged を追加する。restart で初期化
+        // 済みのため重複は起きない。
+        for (const candidate of liveCandidates) {
+          await iceTransport.connection.addRemoteCandidate(candidate);
         }
       }
       for (const [dtlsTransport, params] of this.stagedDtlsParams) {
         dtlsTransport.setRemoteParams(params);
       }
       // credentials と同じ transaction で staged candidates/EOC を反映する。
-      // setRemoteParams の restart が list を初期化した後に追加する。
       for (const [iceTransport, staged] of this.stagedIceParams) {
         for (const candidate of staged.candidates) {
           iceTransport.addRemoteCandidate(candidate);
@@ -884,6 +890,7 @@ export class RTCPeerConnection extends EventTarget {
       this.stagedDtlsParams.clear();
       this.pendingDtlsSnapshot.clear();
       this.pendingIceCandidateSnapshot.clear();
+      this.sctpManager.commitStagedAssociation();
       this.finishMediaStops(description);
       // local answer の commit で pending は確定した。rollback 対象は無い。
       this.pendingTransceiverSnapshot = undefined;
@@ -949,6 +956,7 @@ export class RTCPeerConnection extends EventTarget {
       sdp,
       candidateMessage,
       this.stagedIceParams,
+      this.sdpManager.currentRemoteDescription,
     );
     const remoteDescription = this.sdpManager._remoteDescription;
     if (!remoteDescription || !appliedCandidate) {
@@ -1111,6 +1119,7 @@ export class RTCPeerConnection extends EventTarget {
       // stage した remote 更新は破棄する (何も適用していないため復元は不要)。
       this.stagedIceParams.clear();
       this.stagedDtlsParams.clear();
+      this.sctpManager.clearStagedAssociation();
       // pending 中に作られ、復元後に持ち主のいない transport を停止する。
       await this.stopOrphanedTransports();
       if (
@@ -1153,6 +1162,29 @@ export class RTCPeerConnection extends EventTarget {
     const bundledMids = new Set(offeredBundleGroup?.items ?? []);
     const bundledTag = offeredBundleGroup?.items[0];
 
+    // SCTP port の変更は association の作り直しが必要で未サポートのため、
+    // live association に触れる前に明示的に拒否する。初回・同値は受理する。
+    if (remoteSdp.type === "offer" || remoteSdp.type === "pranswer") {
+      const appMedia = remoteSdp.media.find(
+        (media) => media.kind === "application",
+      );
+      const currentPort = this.sctpTransport?.sctp.getRemotePort();
+      if (
+        appMedia?.sctpPort != null &&
+        currentPort != null &&
+        appMedia.sctpPort !== currentPort
+      ) {
+        this.sdpManager.pendingRemoteDescription = prevPendingRemoteDescription;
+        this.sdpManager.currentRemoteDescription = prevCurrentRemoteDescription;
+        this.sdpManager.pendingLocalDescription = prevPendingLocalDescription;
+        this.sdpManager.currentLocalDescription = prevCurrentLocalDescription;
+        throw createWebRtcDomException(
+          "InvalidModificationError",
+          "SCTP port change requires a new association, which is not supported.",
+        );
+      }
+    }
+
     // remote offer/pranswer 適用前の media 状態を退避する。terminal stop や
     // pipeline 破棄は commit まで遅延しているため、rollback ではこの snapshot
     // への復元で current session と一致させられる。
@@ -1179,6 +1211,7 @@ export class RTCPeerConnection extends EventTarget {
       this.stagedDtlsParams.clear();
       this.pendingDtlsSnapshot.clear();
       this.pendingIceCandidateSnapshot.clear();
+      this.sctpManager.clearStagedAssociation();
     }
 
     const matchTransceiverWithMedia = (
@@ -1331,7 +1364,10 @@ export class RTCPeerConnection extends EventTarget {
 
           dtlsTransport = sctpTransport.dtlsTransport;
 
-          this.sctpManager.setRemoteSCTP(remoteMedia, i);
+          this.sctpManager.setRemoteSCTP(remoteMedia, i, {
+            deferAssociation:
+              remoteSdp.type === "offer" || remoteSdp.type === "pranswer",
+          });
         } else {
           throw new Error("invalid media kind");
         }

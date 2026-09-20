@@ -30,6 +30,11 @@ export class SctpTransportManager {
   dataChannelsOpened = 0;
   dataChannelsClosed = 0;
   private dataChannels: RTCDataChannel[] = [];
+  /**
+   * commit 待ちの remote max-message-size。port と違って cap 変更は
+   * association を壊さないが、current session への即時反映は避ける。
+   */
+  private stagedMaxMessageSize?: number;
 
   readonly onDataChannel = new Event<[RTCDataChannel]>();
 
@@ -125,8 +130,29 @@ export class SctpTransportManager {
     log("sctp connected");
   }
 
-  setRemoteSCTP(remoteMedia: MediaDescription, mLineIndex: number) {
+  setRemoteSCTP(
+    remoteMedia: MediaDescription,
+    mLineIndex: number,
+    options: { deferAssociation?: boolean } = {},
+  ) {
     if (!this.sctpTransport) {
+      return;
+    }
+
+    // structural binding は常時即時 (answer 生成に必要)。
+    this.sctpTransport.mLineIndex = mLineIndex;
+    if (!this.sctpTransport.mid) {
+      this.sctpTransport.mid = remoteMedia.rtp.muxId;
+    }
+    // live association がある場合だけ commit まで stage する。初回確立時は
+    // 即時適用しないと datachannel が繋がらない。
+    if (
+      options.deferAssociation &&
+      this.sctpTransport.sctp.getRemotePort() != null
+    ) {
+      // association への反映は local final answer の commit まで stage する。
+      // port 変更自体は SRD 側で事前に拒否済みのため、ここでは max-size のみ。
+      this.stagedMaxMessageSize = remoteMedia.sctpCapabilities?.maxMessageSize;
       return;
     }
 
@@ -140,10 +166,19 @@ export class SctpTransportManager {
     }
 
     this.sctpTransport.setRemotePort(this.sctpRemotePort);
-    this.sctpTransport.mLineIndex = mLineIndex;
-    if (!this.sctpTransport.mid) {
-      this.sctpTransport.mid = remoteMedia.rtp.muxId;
+  }
+
+  /** staged max-message-size を commit 時に反映する。 */
+  commitStagedAssociation(): void {
+    if (this.stagedMaxMessageSize !== undefined && this.sctpTransport) {
+      this.sctpTransport.setRemoteMaxMessageSize(this.stagedMaxMessageSize);
     }
+    this.stagedMaxMessageSize = undefined;
+  }
+
+  /** staged max-message-size を破棄する (rollback 用)。 */
+  clearStagedAssociation(): void {
+    this.stagedMaxMessageSize = undefined;
   }
 
   /**

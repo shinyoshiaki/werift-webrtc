@@ -300,6 +300,7 @@ export class SecureTransportManager {
         endOfCandidates: boolean;
       }
     >,
+    currentSdp?: SessionDescription,
   ) {
     const candidateText = candidateMessage?.candidate;
     const sdpMid = candidateMessage?.sdpMid;
@@ -307,8 +308,20 @@ export class SecureTransportManager {
     const usernameFragment = candidateMessage?.usernameFragment;
     const isEndOfCandidates =
       candidateMessage == null || candidateText == null || candidateText === "";
-    const mediaIndices = this.resolveCandidateMediaIndices({
+    // generation 解決: pending と current の両方を見る。明示 ufrag は一致する
+    // 方へ、省略時は most-recent (pending があれば pending) へ振り分ける。
+    const pendingSdp = currentSdp && sdp !== currentSdp ? sdp : undefined;
+    const useSdp = this.selectCandidateSdp(
       sdp,
+      pendingSdp,
+      currentSdp,
+      isEndOfCandidates,
+      sdpMid,
+      sdpMLineIndex,
+      usernameFragment ?? null,
+    );
+    const mediaIndices = this.resolveCandidateMediaIndices({
+      sdp: useSdp,
       isEndOfCandidates,
       sdpMid,
       sdpMLineIndex,
@@ -317,7 +330,7 @@ export class SecureTransportManager {
 
     if (isEndOfCandidates) {
       const candidateTarget = mediaIndices
-        .map((index) => this.getTransportByMLineIndex(sdp, index))
+        .map((index) => this.getTransportByMLineIndex(useSdp, index))
         .filter(
           (iceTransport): iceTransport is RTCIceTransport => !!iceTransport,
         )
@@ -359,7 +372,7 @@ export class SecureTransportManager {
     }
 
     const targetMediaIndex = mediaIndices[0];
-    const targetMedia = sdp.media[targetMediaIndex];
+    const targetMedia = useSdp.media[targetMediaIndex];
     if (!targetMedia) {
       throw createWebRtcDomException(
         "OperationError",
@@ -369,7 +382,10 @@ export class SecureTransportManager {
     candidate.sdpMid = targetMedia.rtp.muxId ?? undefined;
     candidate.sdpMLineIndex = targetMediaIndex;
 
-    const iceTransport = this.getTransportByMLineIndex(sdp, targetMediaIndex);
+    const iceTransport = this.getTransportByMLineIndex(
+      useSdp,
+      targetMediaIndex,
+    );
 
     if (!iceTransport) {
       throw createWebRtcDomException(
@@ -378,14 +394,14 @@ export class SecureTransportManager {
       );
     }
 
-    // pending generation と ufrag が一致する trickle は commit 用 bucket へ。
-    // ufrag 不明・current 世代は従来どおり即時適用する。
+    // pending generation の trickle は commit 用 bucket へ。ufrag 省略時は
+    // most-recent (pending) 世代とみなし、明示 ufrag は一致する bucket へ。
+    // staged entry が無い・ufrag が current 側の場合は即時適用する。
     const staged = stagedIce?.get(iceTransport);
     const messageUfrag = candidateMessage?.usernameFragment ?? null;
     if (
       staged &&
-      messageUfrag &&
-      messageUfrag === staged.params.usernameFragment
+      (messageUfrag == null || messageUfrag === staged.params.usernameFragment)
     ) {
       staged.candidates.push(candidate);
       return {
@@ -401,6 +417,87 @@ export class SecureTransportManager {
       candidate,
       mediaIndices: [targetMediaIndex],
     };
+  }
+
+  /**
+   * trickle/EOC の generation を current/pending の両 applied remote
+   * descriptions から解決する。明示 ufrag は一致する方へ、省略時は
+   * most-recent (pending があれば pending) へ振り分ける。
+   */
+  private selectCandidateSdp(
+    primarySdp: SessionDescription,
+    pendingSdp: SessionDescription | undefined,
+    currentSdp: SessionDescription | undefined,
+    isEndOfCandidates: boolean,
+    sdpMid: string | null | undefined,
+    sdpMLineIndex: number | null | undefined,
+    usernameFragment: string | null,
+  ): SessionDescription {
+    const hasTarget = sdpMid != null || sdpMLineIndex != null;
+    if (!hasTarget) {
+      // global EOC: most-recent へ。
+      return pendingSdp ?? primarySdp;
+    }
+    if (usernameFragment) {
+      if (
+        this.findMediaIndex(pendingSdp, sdpMid, sdpMLineIndex) != null &&
+        this.mediaUfrag(
+          pendingSdp!,
+          this.findMediaIndex(pendingSdp, sdpMid, sdpMLineIndex)!,
+        ) === usernameFragment
+      ) {
+        return pendingSdp!;
+      }
+      if (
+        this.findMediaIndex(currentSdp, sdpMid, sdpMLineIndex) != null &&
+        this.mediaUfrag(
+          currentSdp!,
+          this.findMediaIndex(currentSdp, sdpMid, sdpMLineIndex)!,
+        ) === usernameFragment
+      ) {
+        return currentSdp!;
+      }
+      return primarySdp;
+    }
+    if (this.findMediaIndex(pendingSdp, sdpMid, sdpMLineIndex) != null) {
+      return pendingSdp!;
+    }
+    if (
+      currentSdp &&
+      this.findMediaIndex(currentSdp, sdpMid, sdpMLineIndex) != null
+    ) {
+      return currentSdp;
+    }
+    return primarySdp;
+  }
+
+  private findMediaIndex(
+    sdp: SessionDescription | undefined,
+    sdpMid: string | null | undefined,
+    sdpMLineIndex: number | null | undefined,
+  ): number | undefined {
+    if (!sdp) {
+      return undefined;
+    }
+    if (typeof sdpMid === "string") {
+      const index = sdp.media.findIndex((media) => media.rtp.muxId === sdpMid);
+      return index >= 0 ? index : undefined;
+    }
+    if (
+      typeof sdpMLineIndex === "number" &&
+      sdpMLineIndex >= 0 &&
+      sdpMLineIndex < sdp.media.length
+    ) {
+      return sdpMLineIndex;
+    }
+    return undefined;
+  }
+
+  private mediaUfrag(
+    sdp: SessionDescription,
+    mediaIndex: number,
+  ): string | undefined {
+    return sdp.media[mediaIndex]?.iceParams?.usernameFragment;
   }
 
   private resolveCandidateMediaIndices({
