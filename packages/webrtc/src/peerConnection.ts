@@ -1235,6 +1235,13 @@ export class RTCPeerConnection extends EventTarget {
 
     // tagged MID の transport を bundleTransport にする。先頭 m-line ではなく
     // offered tag を基準にし、tag reject 後の付け替えにも追従する。
+    // application はここで確保し、membership に応じて独立させる。
+    if (
+      remoteSdp.media.some((media) => media.kind === "application") &&
+      !this.sctpTransport
+    ) {
+      this.createSctpTransport();
+    }
     let bundleTransport: RTCDtlsTransport | undefined;
     if (offeredBundleGroup && bundledTag) {
       bundleTransport =
@@ -1315,7 +1322,10 @@ export class RTCPeerConnection extends EventTarget {
         } else if (remoteMedia.kind === "application") {
           let sctpTransport = this.sctpTransport;
           if (!sctpTransport) {
+            // phase-1 で確保済みのはずだが、念のためフォールバックする。
             sctpTransport = this.createSctpTransport();
+          }
+          if (!sctpTransport.mid) {
             sctpTransport.mid = remoteMedia.rtp.muxId;
           }
 
@@ -1464,8 +1474,9 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   /**
-   * rollback 後に持ち主のいなくなった transport を停止する。pending 中に分割
-   * などで作られたものだけが対象で、既存の transport には触らない。
+   * rollback 後に持ち主のいなくなった transport を停止する。所有者導出の
+   * getter では検出できないため生成台帳から探す。pending 中に作られたもの
+   * だけが対象で、既存の transport には触らない。
    */
   private async stopOrphanedTransports(): Promise<void> {
     const knownIds = this.pendingTransportIds;
@@ -1484,10 +1495,14 @@ export class RTCPeerConnection extends EventTarget {
     if (sctpId) {
       ownedIds.add(sctpId);
     }
-    const orphaned = this.secureManager.dtlsTransports.filter(
-      (transport) => !knownIds.has(transport.id) && !ownedIds.has(transport.id),
+    const orphaned = this.secureManager.allDtlsTransports.filter(
+      (transport) =>
+        !knownIds.has(transport.id) &&
+        !ownedIds.has(transport.id) &&
+        transport.state !== "closed",
     );
     await Promise.allSettled(orphaned.map((transport) => transport.stop()));
+    this.secureManager.pruneClosedTransports();
   }
 
   /**

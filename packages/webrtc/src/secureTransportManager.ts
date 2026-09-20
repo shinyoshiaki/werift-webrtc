@@ -39,6 +39,12 @@ export class SecureTransportManager {
   private config: PeerConfig;
   private transceiverManager: TransceiverManager;
   private sctpManager: SctpTransportManager;
+  /**
+   * 生成した全 DTLS transport の追跡台帳。dtlsTransports getter は所有者から
+   * 導出するため、rollback で持ち主を失った transport はここから拾う。
+   * 閉済みは GC 時に取り除く。
+   */
+  private readonly createdDtlsTransports: RTCDtlsTransport[] = [];
 
   constructor({
     config,
@@ -210,8 +216,23 @@ export class SecureTransportManager {
       this.certificate,
       srtpProfiles,
     );
+    this.createdDtlsTransports.push(dtlsTransport);
 
     return dtlsTransport;
+  }
+
+  /** 生成後に閉じられたものも含む全 DTLS transport (GC 用)。 */
+  get allDtlsTransports(): RTCDtlsTransport[] {
+    return [...this.createdDtlsTransports];
+  }
+
+  /** 台帳から閉済み transport を取り除く。 */
+  pruneClosedTransports(): void {
+    for (let i = this.createdDtlsTransports.length - 1; i >= 0; i--) {
+      if (this.createdDtlsTransports[i].state === "closed") {
+        this.createdDtlsTransports.splice(i, 1);
+      }
+    }
   }
 
   handleNewIceCandidate({

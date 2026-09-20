@@ -1869,6 +1869,74 @@ describe("PR #711 review P1 Round6 の回帰テスト", () => {
     }
   });
 
+  test("rollback で新規 RTP・分割・SCTP transport がすべて停止される", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    offerer.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
+      direction: "sendonly",
+    });
+    offerer.addTransceiver(new MediaStreamTrack({ kind: "audio" }), {
+      direction: "sendonly",
+    });
+    offerer.createDataChannel("chat");
+    const offer = await offerer.createOffer();
+    const sctpOf = (pc: RTCPeerConnection) =>
+      (
+        pc as unknown as {
+          sctpManager: { sctpTransport?: { dtlsTransport: { id: string } } };
+        }
+      ).sctpManager.sctpTransport;
+
+    try {
+      // Act: audio のみ bundle の [video, audio, application] offer を適用する。
+      await offerer.setLocalDescription(offer);
+      const parsed = parseSdp(offer.sdp);
+      const audioMid = parsed.media[1]?.rtp.muxId;
+      await expect(
+        answerer.setRemoteDescription({
+          ...offer,
+          sdp: rewriteBundleGroup(offer.sdp, [audioMid!]),
+        }),
+      ).resolves.toBeUndefined();
+      expect(answerer.getTransceivers()).toHaveLength(2);
+      expect(sctpOf(answerer)).toBeDefined();
+      const audioT = answerer
+        .getTransceivers()
+        .find((t) => t.mid === audioMid)!;
+      const videoT = answerer
+        .getTransceivers()
+        .find((t) => t.kind === "video")!;
+      const sharedDtls = audioT.dtlsTransport;
+      const splitDtls = videoT.dtlsTransport;
+      const sctpDtls = sctpOf(answerer)!.dtlsTransport;
+
+      // Assert: tag 共有・video 分割・SCTP 分割で3 transport になる。
+      expect(splitDtls).not.toBe(sharedDtls);
+      expect(sctpDtls).not.toBe(sharedDtls);
+      expect(splitDtls).not.toBe(sctpDtls);
+
+      // Act: rollback する。
+      await expect(
+        answerer.setRemoteDescription({ type: "rollback" }),
+      ).resolves.toBeUndefined();
+
+      // Assert: transceiver・SCTP が除去され、全 transport が停止する。
+      expect(answerer.signalingState).toBe("stable");
+      expect(answerer.getTransceivers()).toHaveLength(0);
+      expect(sctpOf(answerer)).toBeUndefined();
+      for (const dtls of [sharedDtls, splitDtls, sctpDtls] as {
+        state: string;
+      }[]) {
+        expect(dtls.state).toBe("closed");
+      }
+      expect(parseSdp((await answerer.createOffer()).sdp).media).toHaveLength(
+        0,
+      );
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
   test("replacement offer では staged が最新世代に置き換わる", async () => {
     const offerer = new RTCPeerConnection({ iceServers: [] });
     const answerer = new RTCPeerConnection({ iceServers: [] });
