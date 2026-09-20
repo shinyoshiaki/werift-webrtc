@@ -47,6 +47,19 @@ import { MediaStreamTrack } from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/rtpReceiver.ts");
 
+export interface RtpReceiverMediaSnapshot {
+  tracks: MediaStreamTrack[];
+  trackBySSRC: { [ssrc: string]: MediaStreamTrack };
+  trackByRID: { [rid: string]: MediaStreamTrack };
+  ssrcByRtx: { [rtxSsrc: number]: number };
+  codecs: { [pt: number]: RTCRtpCodecParameters };
+  remoteStreamId?: string;
+  remoteStreamIds: string[];
+  remoteTrackId?: string;
+  receiverTWCC?: ReceiverTWCC;
+  rtcpRunning: boolean;
+}
+
 export class RTCRtpReceiver {
   private readonly codecs: { [pt: number]: RTCRtpCodecParameters } = {};
   private readonly defaultTrack: MediaStreamTrack;
@@ -209,6 +222,52 @@ export class RTCRtpReceiver {
       this.trackByRID[track.rid] = track;
     }
     return true;
+  }
+
+  /**
+   * remote offer/pranswer 適用前の receiver media 状態。rollback 時に復元し、
+   * pending だった track 追加・router 登録・codec 準備を current session へ
+   * 漏らさないようにする。
+   */
+  snapshotMediaState(): RtpReceiverMediaSnapshot {
+    return {
+      tracks: [...this.tracks],
+      trackBySSRC: { ...this.trackBySSRC },
+      trackByRID: { ...this.trackByRID },
+      ssrcByRtx: { ...this.ssrcByRtx },
+      codecs: { ...this.codecs },
+      remoteStreamId: this.remoteStreamId,
+      remoteStreamIds: [...this.remoteStreamIds],
+      remoteTrackId: this.remoteTrackId,
+      receiverTWCC: this.receiverTWCC,
+      rtcpRunning: this.rtcpRunning,
+    };
+  }
+
+  restoreMediaState(snapshot: RtpReceiverMediaSnapshot): void {
+    this.tracks.length = 0;
+    this.tracks.push(...snapshot.tracks);
+    for (const key of Object.keys(this.trackBySSRC)) {
+      delete this.trackBySSRC[key];
+    }
+    Object.assign(this.trackBySSRC, snapshot.trackBySSRC);
+    for (const key of Object.keys(this.trackByRID)) {
+      delete this.trackByRID[key];
+    }
+    Object.assign(this.trackByRID, snapshot.trackByRID);
+    for (const key of Object.keys(this.ssrcByRtx)) {
+      delete this.ssrcByRtx[Number(key)];
+    }
+    Object.assign(this.ssrcByRtx, snapshot.ssrcByRtx);
+    for (const key of Object.keys(this.codecs)) {
+      delete this.codecs[Number(key)];
+    }
+    Object.assign(this.codecs, snapshot.codecs);
+    this.remoteStreamId = snapshot.remoteStreamId;
+    this.remoteStreamIds = [...snapshot.remoteStreamIds];
+    this.remoteTrackId = snapshot.remoteTrackId;
+    this.receiverTWCC = snapshot.receiverTWCC;
+    this.rtcpRunning = snapshot.rtcpRunning;
   }
 
   stop() {

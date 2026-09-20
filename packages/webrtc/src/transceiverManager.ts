@@ -15,7 +15,9 @@ import {
   RTCRtpSender,
   RTCRtpTransceiver,
   Recvonly,
+  type RtpReceiverMediaSnapshot,
   type RtpRouter,
+  type RtpSenderMediaSnapshot,
   Sendonly,
   Sendrecv,
   type TransceiverOptions,
@@ -48,6 +50,15 @@ export interface TransceiverMediaSnapshot {
   offerDirection: RTCRtpTransceiver["offerDirection"];
   currentDirection: RTCRtpTransceiver["currentDirection"];
   usedForSender: boolean;
+  receiver: RtpReceiverMediaSnapshot;
+  sender: RtpSenderMediaSnapshot;
+}
+
+export interface RouterTableSnapshot {
+  ssrcTable: RtpRouter["ssrcTable"];
+  ridTable: RtpRouter["ridTable"];
+  midTable: RtpRouter["midTable"];
+  extIdUriMap: RtpRouter["extIdUriMap"];
 }
 
 function simulcastFromSendEncodings(
@@ -416,10 +427,20 @@ export class TransceiverManager {
       offerDirection: transceiver.offerDirection,
       currentDirection: transceiver.currentDirection,
       usedForSender: transceiver.usedForSender,
+      receiver: transceiver.receiver.snapshotMediaState(),
+      sender: transceiver.sender.snapshotMediaState(),
     }));
   }
 
   restoreTransceiverMedia(snapshot: TransceiverMediaSnapshot[]): void {
+    // rollback 後に追加された transceiver を取り除く。
+    for (let i = this.transceivers.length - 1; i >= 0; i--) {
+      if (
+        !snapshot.some((entry) => entry.transceiver === this.transceivers[i])
+      ) {
+        this.transceivers.splice(i, 1);
+      }
+    }
     for (const entry of snapshot) {
       if (!this.transceivers.includes(entry.transceiver)) {
         continue;
@@ -435,7 +456,37 @@ export class TransceiverManager {
       transceiver.setCurrentDirection(entry.currentDirection ?? undefined);
       // setDirection/setCurrentDirection の副作用を snapshot 値で上書きする。
       transceiver.usedForSender = entry.usedForSender;
+      transceiver.receiver.restoreMediaState(entry.receiver);
+      transceiver.sender.restoreMediaState(entry.sender);
     }
+  }
+
+  snapshotRouterTables(): RouterTableSnapshot {
+    return {
+      ssrcTable: { ...this.router.ssrcTable },
+      ridTable: { ...this.router.ridTable },
+      midTable: { ...this.router.midTable },
+      extIdUriMap: { ...this.router.extIdUriMap },
+    };
+  }
+
+  restoreRouterTables(snapshot: RouterTableSnapshot): void {
+    for (const key of Object.keys(this.router.ssrcTable)) {
+      delete this.router.ssrcTable[Number(key)];
+    }
+    Object.assign(this.router.ssrcTable, snapshot.ssrcTable);
+    for (const key of Object.keys(this.router.ridTable)) {
+      delete this.router.ridTable[key];
+    }
+    Object.assign(this.router.ridTable, snapshot.ridTable);
+    for (const key of Object.keys(this.router.midTable)) {
+      delete this.router.midTable[key];
+    }
+    Object.assign(this.router.midTable, snapshot.midTable);
+    for (const key of Object.keys(this.router.extIdUriMap)) {
+      delete this.router.extIdUriMap[Number(key)];
+    }
+    Object.assign(this.router.extIdUriMap, snapshot.extIdUriMap);
   }
 
   setRemoteRTP(

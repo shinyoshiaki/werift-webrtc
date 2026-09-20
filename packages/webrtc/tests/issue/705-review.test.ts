@@ -892,4 +892,131 @@ describe("PR #711 review P1 Round2 の回帰テスト", () => {
       await Promise.all([offerer.close(), answerer.close()]);
     }
   });
+
+  test("MID 未設定の同種 transceiver が複数あっても各 m-line に割り当てる", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    offerer.addTransceiver("video", { direction: "sendonly" });
+    offerer.addTransceiver("video", { direction: "sendonly" });
+    const offer = await offerer.createOffer();
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    answerer.addTransceiver("video", { direction: "recvonly" });
+    answerer.addTransceiver("video", { direction: "recvonly" });
+
+    try {
+      // Act: MID 未確定の同種 transceiver 2本に 2 m-line offer を適用する。
+      await expect(
+        answerer.setRemoteDescription(offer),
+      ).resolves.toBeUndefined();
+      const mids = answerer.getTransceivers().map((t) => t.mid);
+      const answer = await answerer.createAnswer();
+
+      // Assert: 各 m-line が別 transceiver に割当たり、answer を組める。
+      expect(new Set(mids).size).toBe(2);
+      expect(
+        parseSdp(answer.sdp)
+          .media.map((media) => media.rtp.muxId)
+          .sort(),
+      ).toEqual([...mids].sort());
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("SSRC 変更の accepted re-offer 後の rollback で track が戻る", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    const track = new MediaStreamTrack({ kind: "audio" });
+    offerer.addTransceiver(track, { direction: "sendonly" });
+    const onTrack = vi.fn();
+    answerer.ontrack = onTrack;
+
+    try {
+      // Arrange: 同一 ufrag のまま再 offer できるよう初回 offer を保持して接続する。
+      const firstOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(firstOffer);
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      await Promise.all([
+        waitForConnection(offerer),
+        waitForConnection(answerer),
+      ]);
+      const transceiver = answerer.getTransceivers()[0];
+      const originalTrack = transceiver.receiver.tracks[0];
+      expect(onTrack).toHaveBeenCalledTimes(1);
+
+      // Act: SSRC を変えた accepted re-offer を適用してから rollback する。
+      const oldSsrc = offerer.getTransceivers()[0].sender.ssrc;
+      const reSdp = firstOffer.sdp
+        ?.split("\r\n")
+        .map((line) =>
+          line.startsWith(`a=ssrc:${oldSsrc}`)
+            ? line.replace(`a=ssrc:${oldSsrc}`, "a=ssrc:23456789")
+            : line,
+        )
+        .join("\r\n");
+      await expect(
+        answerer.setRemoteDescription({ ...firstOffer, sdp: reSdp }),
+      ).resolves.toBeUndefined();
+      expect(transceiver.receiver.tracks).toHaveLength(2);
+      await expect(
+        answerer.setRemoteDescription({ type: "rollback" }),
+      ).resolves.toBeUndefined();
+
+      // Assert: track が1本に戻り、重複 ontrack なく RTP が継続する。
+      expect(answerer.signalingState).toBe("stable");
+      expect(transceiver.receiver.tracks).toHaveLength(1);
+      expect(transceiver.receiver.tracks[0]).toBe(originalTrack);
+      expect(onTrack).toHaveBeenCalledTimes(2);
+      expect(
+        parseSdp((await answerer.createOffer()).sdp).media[0]?.port,
+      ).not.toBe(0);
+      sendTestRtp(track, "after-ssrc-rollback");
+      await expect(waitForRtp(transceiver)).resolves.toBeDefined();
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("新規 remote transceiver 追加後の rollback で一覧が戻る", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    const track = new MediaStreamTrack({ kind: "audio" });
+    offerer.addTransceiver(track, { direction: "sendonly" });
+
+    try {
+      // Arrange: audio 1本で交渉・接続する。
+      await negotiateOfferAnswer(offerer, answerer);
+      await Promise.all([
+        waitForConnection(offerer),
+        waitForConnection(answerer),
+      ]);
+      const audioMid = answerer.getTransceivers()[0].mid;
+      expect(answerer.getTransceivers()).toHaveLength(1);
+
+      // Act: video を追加した re-offer を適用してから rollback する。
+      offerer.addTransceiver("video", { direction: "sendonly" });
+      const reOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(reOffer);
+      await expect(
+        answerer.setRemoteDescription(offerer.localDescription!),
+      ).resolves.toBeUndefined();
+      expect(answerer.getTransceivers()).toHaveLength(2);
+      await expect(
+        answerer.setRemoteDescription({ type: "rollback" }),
+      ).resolves.toBeUndefined();
+
+      // Assert: transceiver 一覧が戻り、既存 session が壊れない。
+      expect(answerer.signalingState).toBe("stable");
+      expect(answerer.getTransceivers()).toHaveLength(1);
+      expect(answerer.getTransceivers()[0].mid).toBe(audioMid);
+      expect(answerer.getTransceivers()[0].rejected).toBe(false);
+      sendTestRtp(track, "after-add-rollback");
+      await expect(
+        waitForRtp(answerer.getTransceivers()[0]),
+      ).resolves.toBeDefined();
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
 });

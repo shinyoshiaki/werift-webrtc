@@ -135,6 +135,13 @@ function freezeRtpContinuityOffsets(
   };
 }
 
+export interface RtpSenderMediaSnapshot {
+  codec?: RTCRtpCodecParameters;
+  headerExtensions: RTCRtpHeaderExtensionParameters[];
+  mid?: string;
+  trackCodec?: RTCRtpCodecParameters;
+}
+
 export class RTCRtpSender {
   readonly type = "sender";
   readonly kind: Kind;
@@ -265,6 +272,28 @@ export class RTCRtpSender {
     this.rtcpCancel = new AbortController();
     if (this.track) {
       this.track.codec = undefined;
+    }
+  }
+
+  /**
+   * remote offer/pranswer 適用前の sender media 状態。rollback 時に復元し、
+   * pending だった prepareSend を current session へ漏らさないようにする。
+   */
+  snapshotMediaState(): RtpSenderMediaSnapshot {
+    return {
+      codec: this.codec,
+      headerExtensions: this.headerExtensions,
+      mid: this.mid,
+      trackCodec: this.track?.codec,
+    };
+  }
+
+  restoreMediaState(snapshot: RtpSenderMediaSnapshot): void {
+    this.codec = snapshot.codec;
+    this.headerExtensions = snapshot.headerExtensions;
+    this.mid = snapshot.mid;
+    if (this.track) {
+      this.track.codec = snapshot.trackCodec;
     }
   }
 

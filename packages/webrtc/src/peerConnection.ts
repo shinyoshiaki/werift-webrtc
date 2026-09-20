@@ -20,6 +20,7 @@ import {
   type RTCRtpSender,
   type RTCRtpSenderOptions,
   type RTCRtpTransceiver,
+  type RouterTableSnapshot,
   RtpRouter,
   TransceiverManager,
   type TransceiverMediaSnapshot,
@@ -115,6 +116,7 @@ export class RTCPeerConnection extends EventTarget {
    * 復元し、pending だった変更を current session へ漏らさない。
    */
   private pendingTransceiverSnapshot?: TransceiverMediaSnapshot[];
+  private pendingRouterSnapshot?: RouterTableSnapshot;
 
   readonly iceGatheringStateChange = new Event<[IceGathererState]>();
   readonly iceConnectionStateChange = new Event<[RTCIceConnectionState]>();
@@ -818,6 +820,7 @@ export class RTCPeerConnection extends EventTarget {
       this.finishMediaStops(description);
       // local answer の commit で pending は確定した。rollback 対象は無い。
       this.pendingTransceiverSnapshot = undefined;
+      this.pendingRouterSnapshot = undefined;
     }
 
     await this.gatherCandidates().catch((e) => {
@@ -1005,6 +1008,10 @@ export class RTCPeerConnection extends EventTarget {
         );
         this.pendingTransceiverSnapshot = undefined;
       }
+      if (this.pendingRouterSnapshot) {
+        this.transceiverManager.restoreRouterTables(this.pendingRouterSnapshot);
+        this.pendingRouterSnapshot = undefined;
+      }
       if (
         this.signalingState === "have-remote-pranswer" &&
         this.sdpManager.pendingLocalDescription
@@ -1051,8 +1058,11 @@ export class RTCPeerConnection extends EventTarget {
     if (remoteSdp.type === "offer" || remoteSdp.type === "pranswer") {
       this.pendingTransceiverSnapshot =
         this.transceiverManager.snapshotTransceiverMedia();
+      this.pendingRouterSnapshot =
+        this.transceiverManager.snapshotRouterTables();
     } else {
       this.pendingTransceiverSnapshot = undefined;
+      this.pendingRouterSnapshot = undefined;
     }
 
     const matchTransceiverWithMedia = (
@@ -1072,6 +1082,9 @@ export class RTCPeerConnection extends EventTarget {
     );
 
     // # match/create transceivers and assign transports by BUNDLE membership
+    // 割当済み transceiver は予約し、MID 未設定の同種 transceiver が複数
+    // m-line に重複割り当てされないようにする。
+    const assignedTransceivers = new Set<RTCRtpTransceiver>();
     const mediaTransceivers: (RTCRtpTransceiver | undefined)[] =
       remoteSdp.media.map((remoteMedia, i) => {
         if (!["audio", "video"].includes(remoteMedia.kind)) {
@@ -1089,13 +1102,18 @@ export class RTCPeerConnection extends EventTarget {
         }
         let transceiver = this.transceiverManager
           .getTransceivers()
-          .find((t) => matchTransceiverWithMedia(t, remoteMedia));
+          .find(
+            (t) =>
+              !assignedTransceivers.has(t) &&
+              matchTransceiverWithMedia(t, remoteMedia),
+          );
         if (!transceiver) {
           // create remote transceiver
           transceiver = this.addRemoteTransceiver(remoteMedia.kind);
           transceiver.mid = remoteMedia.rtp.muxId ?? null;
           this.onRemoteTransceiverAdded.execute(transceiver);
         }
+        assignedTransceivers.add(transceiver);
         return transceiver;
       });
 
