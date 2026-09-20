@@ -37,7 +37,7 @@ import {
   generateStatsId,
   getStatsTimestamp,
 } from "./media/stats";
-import { SctpTransportManager } from "./sctpManager";
+import { type SctpMediaSnapshot, SctpTransportManager } from "./sctpManager";
 import {
   type BundlePolicy,
   type MediaDescription,
@@ -117,7 +117,7 @@ export class RTCPeerConnection extends EventTarget {
    */
   private pendingTransceiverSnapshot?: TransceiverMediaSnapshot[];
   private pendingRouterSnapshot?: RouterTableSnapshot;
-  private pendingSctpTransport?: RTCDtlsTransport;
+  private pendingSctpSnapshot?: SctpMediaSnapshot;
   private pendingTransportIds?: Set<string>;
 
   readonly iceGatheringStateChange = new Event<[IceGathererState]>();
@@ -823,7 +823,7 @@ export class RTCPeerConnection extends EventTarget {
       // local answer の commit で pending は確定した。rollback 対象は無い。
       this.pendingTransceiverSnapshot = undefined;
       this.pendingRouterSnapshot = undefined;
-      this.pendingSctpTransport = undefined;
+      this.pendingSctpSnapshot = undefined;
       this.pendingTransportIds = undefined;
     }
 
@@ -1016,14 +1016,10 @@ export class RTCPeerConnection extends EventTarget {
         this.transceiverManager.restoreRouterTables(this.pendingRouterSnapshot);
         this.pendingRouterSnapshot = undefined;
       }
-      if (
-        this.pendingSctpTransport &&
-        this.sctpTransport &&
-        this.sctpTransport.dtlsTransport !== this.pendingSctpTransport
-      ) {
-        this.sctpTransport.setDtlsTransport(this.pendingSctpTransport);
+      if (this.pendingSctpSnapshot) {
+        await this.sctpManager.restoreMediaState(this.pendingSctpSnapshot);
+        this.pendingSctpSnapshot = undefined;
       }
-      this.pendingSctpTransport = undefined;
       // pending 中に作られ、復元後に持ち主のいない transport を停止する。
       await this.stopOrphanedTransports();
       if (
@@ -1070,18 +1066,22 @@ export class RTCPeerConnection extends EventTarget {
     // pipeline 破棄は commit まで遅延しているため、rollback ではこの snapshot
     // への復元で current session と一致させられる。
     if (remoteSdp.type === "offer" || remoteSdp.type === "pranswer") {
-      this.pendingTransceiverSnapshot =
-        this.transceiverManager.snapshotTransceiverMedia();
-      this.pendingRouterSnapshot =
-        this.transceiverManager.snapshotRouterTables();
-      this.pendingSctpTransport = this.sctpTransport?.dtlsTransport;
-      this.pendingTransportIds = new Set(
-        this.secureManager.dtlsTransports.map((transport) => transport.id),
-      );
+      // 複数 pending offer では current session 直前の snapshot を上書きしない。
+      // 最初の snapshot への復元で current と一致させられる。
+      if (!this.pendingTransceiverSnapshot) {
+        this.pendingTransceiverSnapshot =
+          this.transceiverManager.snapshotTransceiverMedia();
+        this.pendingRouterSnapshot =
+          this.transceiverManager.snapshotRouterTables();
+        this.pendingSctpSnapshot = this.sctpManager.snapshotMediaState();
+        this.pendingTransportIds = new Set(
+          this.secureManager.dtlsTransports.map((transport) => transport.id),
+        );
+      }
     } else {
       this.pendingTransceiverSnapshot = undefined;
       this.pendingRouterSnapshot = undefined;
-      this.pendingSctpTransport = undefined;
+      this.pendingSctpSnapshot = undefined;
       this.pendingTransportIds = undefined;
     }
 

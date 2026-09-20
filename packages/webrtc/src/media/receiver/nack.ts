@@ -13,6 +13,12 @@ const log = debug("werift:packages/webrtc/src/media/receiver/nack.ts");
 
 const LOST_SIZE = 30 * 5;
 
+export interface NackMediaSnapshot {
+  newEstSeqNum: number;
+  lost: { [seqNum: number]: number };
+  mediaSourceSsrc?: number;
+}
+
 export class NackHandler {
   private newEstSeqNum = 0;
   private _lost: { [seqNum: number]: number } = {};
@@ -106,6 +112,24 @@ export class NackHandler {
   close() {
     this.closed = true;
     this.reset();
+  }
+
+  /**
+   * rollback 用に pending 中の speculative packet 状態を退避・復元する。
+   * timer は _lost が空になれば自己停止するため管理しない。
+   */
+  snapshotState(): NackMediaSnapshot {
+    return {
+      newEstSeqNum: this.newEstSeqNum,
+      lost: { ...this._lost },
+      mediaSourceSsrc: this.mediaSourceSsrc,
+    };
+  }
+
+  restoreState(snapshot: NackMediaSnapshot): void {
+    this.newEstSeqNum = snapshot.newEstSeqNum;
+    this._lost = { ...snapshot.lost };
+    this.mediaSourceSsrc = snapshot.mediaSourceSsrc;
   }
 
   reset() {

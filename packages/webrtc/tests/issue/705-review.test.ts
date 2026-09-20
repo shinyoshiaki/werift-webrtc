@@ -6,6 +6,9 @@ import {
   RtpPacket,
   useOPUS,
   usePCMU,
+  useSdesMid,
+  useTransportWideCC,
+  useVP8,
 } from "../../src";
 import {
   createAudioOnlyPeerConnection,
@@ -1195,6 +1198,184 @@ describe("PR #711 review P1 Round2 の回帰テスト", () => {
       expect(internals.cname).toBeUndefined();
     } finally {
       await pc.close();
+    }
+  });
+
+  test("datachannel 追加後の rollback で SCTP が戻る", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    offerer.createDataChannel("chat");
+    const offer = await offerer.createOffer();
+
+    try {
+      // Act: application m-line を含む offer を適用してから rollback する。
+      await offerer.setLocalDescription(offer);
+      await expect(
+        answerer.setRemoteDescription(offerer.localDescription!),
+      ).resolves.toBeUndefined();
+      expect(
+        parseSdp(answerer.remoteDescription?.sdp).media.map((m) => m.kind),
+      ).toContain("application");
+
+      // Assert: rollback 後に datachannel m-line が残らず、次 offer にも出ない。
+      await expect(
+        answerer.setRemoteDescription({ type: "rollback" }),
+      ).resolves.toBeUndefined();
+      expect(answerer.signalingState).toBe("stable");
+      expect(
+        parseSdp((await answerer.createOffer()).sdp).media.map((m) => m.kind),
+      ).not.toContain("application");
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("複数 offer 適用後の rollback は最初の pending 前に戻る", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    const track = new MediaStreamTrack({ kind: "audio" });
+    offerer.addTransceiver(track, { direction: "sendonly" });
+
+    try {
+      // Arrange: 同一 ufrag のまま再 offer できるよう初回 offer を保持して接続する。
+      const firstOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(firstOffer);
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      await Promise.all([
+        waitForConnection(offerer),
+        waitForConnection(answerer),
+      ]);
+      const transceiver = answerer.getTransceivers()[0];
+      const pcmuOnlySdp = firstOffer.sdp
+        ?.replace(
+          "m=audio 9 UDP/TLS/RTP/SAVPF 96 0",
+          "m=audio 9 UDP/TLS/RTP/SAVPF 0",
+        )
+        .replace(/\r\na=rtpmap:96 OPUS\/48000\/2/, "");
+      const opusOnlySdp = stripPcmuFromOffer(firstOffer.sdp);
+
+      // Act: offer を2回重ねてから rollback する。
+      await expect(
+        answerer.setRemoteDescription({ ...firstOffer, sdp: pcmuOnlySdp }),
+      ).resolves.toBeUndefined();
+      expect(transceiver.sender.codec?.mimeType).toBe("audio/PCMU");
+      await expect(
+        answerer.setRemoteDescription({ ...firstOffer, sdp: opusOnlySdp }),
+      ).resolves.toBeUndefined();
+      expect(transceiver.sender.codec?.mimeType).toBe("audio/OPUS");
+      await expect(
+        answerer.setRemoteDescription({ type: "rollback" }),
+      ).resolves.toBeUndefined();
+
+      // Assert: 最初の pending 前（OPUS の current session）に戻る。
+      expect(answerer.signalingState).toBe("stable");
+      expect(transceiver.sender.codec?.mimeType).toBe("audio/OPUS");
+      expect(transceiver.rejected).toBe(false);
+      sendTestRtp(track, "after-multi-rollback");
+      await expect(waitForRtp(transceiver)).resolves.toBeDefined();
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("pending 中の RTP による NACK/TWCC 状態は rollback で戻る", async () => {
+    const videoCodec = (feedback: { type: string }[]) =>
+      useVP8({ rtcpFeedback: feedback as never });
+    const twccFeedback = [{ type: "nack" }, { type: "transport-cc" }];
+    const twccExtensions = [useSdesMid(), useTransportWideCC()];
+    const offerer = new RTCPeerConnection({
+      iceServers: [],
+      codecs: { video: [videoCodec(twccFeedback)] },
+      headerExtensions: { video: twccExtensions },
+    });
+    const answerer = new RTCPeerConnection({
+      iceServers: [],
+      codecs: { video: [videoCodec(twccFeedback)] },
+      headerExtensions: { video: twccExtensions },
+    });
+    const track = new MediaStreamTrack({ kind: "video" });
+    offerer.addTransceiver(track, { direction: "sendonly" });
+
+    try {
+      // Arrange: 交渉し、未知 SSRC 配送の MID 拡張 ID と VP8 PT を得る。
+      const firstOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(firstOffer);
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      const transceiver = answerer.getTransceivers()[0];
+      const mid = transceiver.mid!;
+      const midId = transceiver.headerExtensions.find(
+        (extension) => extension.uri === "urn:ietf:params:rtp-hdrext:sdes:mid",
+      )?.id;
+      const twccId = transceiver.headerExtensions.find(
+        (extension) =>
+          extension.uri ===
+          "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01",
+      )?.id;
+      const vp8Pt = transceiver.codecs.find((codec) =>
+        codec.mimeType.toLowerCase().includes("vp8"),
+      )?.payloadType;
+      expect(midId).toBeDefined();
+      expect(twccId).toBeDefined();
+      expect(vp8Pt).toBeDefined();
+      const router = (
+        answerer as unknown as {
+          router: { routeRtp: (packet: RtpPacket) => void };
+        }
+      ).router;
+      const nackLost = () =>
+        (
+          transceiver.receiver as unknown as {
+            nack: { lostSeqNumbers: number[] };
+          }
+        ).nack.lostSeqNumbers;
+      const twccKeys = () =>
+        Object.keys(transceiver.receiver.receiverTWCC?.extensionInfo ?? {});
+      const packet = (ssrc: number, seq: number, tsn: number) =>
+        new RtpPacket(
+          new RtpHeader({
+            ssrc,
+            sequenceNumber: seq,
+            timestamp: 90000,
+            payloadType: vp8Pt,
+            extensions: [
+              { id: midId!, payload: Buffer.from(mid) },
+              { id: twccId!, payload: Buffer.from([tsn >> 8, tsn & 0xff]) },
+            ],
+          }),
+          Buffer.from("speculative"),
+        );
+
+      // Arrange: pending 前に1パケットだけ受けて基準状態を作る。
+      router.routeRtp(packet(0x11111111, 10, 1));
+      expect(nackLost()).toEqual([]);
+      const baselineTwccKeys = twccKeys();
+      expect(baselineTwccKeys.length).toBeGreaterThan(0);
+
+      // Act: accepted re-offer を適用し、pending 中に gap 付き RTP を受ける。
+      const reOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(reOffer);
+      await expect(
+        answerer.setRemoteDescription(offerer.localDescription!),
+      ).resolves.toBeUndefined();
+      router.routeRtp(packet(0x11111111, 12, 2));
+      expect(nackLost()).toEqual([11]);
+      expect(twccKeys().length).toBeGreaterThan(0);
+
+      // Act: rollback する。
+      await expect(
+        answerer.setRemoteDescription({ type: "rollback" }),
+      ).resolves.toBeUndefined();
+
+      // Assert: speculative packet の NACK/TWCC 状態が基準に戻る。
+      expect(nackLost()).toEqual([]);
+      expect(twccKeys()).toEqual(baselineTwccKeys);
+      sendTestRtp(track, "after-nack-rollback");
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
     }
   });
 });

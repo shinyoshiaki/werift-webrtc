@@ -9,9 +9,19 @@ import {
   getStatsTimestamp,
 } from "./media/stats";
 import type { MediaDescription } from "./sdp";
+import type { RTCDtlsTransport } from "./transport/dtls";
 import { RTCSctpTransport } from "./transport/sctp";
 
 const log = debug("werift:packages/webrtc/src/transport/sctpManager.ts");
+
+export interface SctpMediaSnapshot {
+  existed: boolean;
+  mid?: string;
+  mLineIndex?: number;
+  sctpRemotePort?: number;
+  remoteMaxMessageSize?: number;
+  dtlsTransport?: RTCDtlsTransport;
+}
 
 export class SctpTransportManager {
   sctpTransport?: RTCSctpTransport;
@@ -132,6 +142,50 @@ export class SctpTransportManager {
     this.sctpTransport.mLineIndex = mLineIndex;
     if (!this.sctpTransport.mid) {
       this.sctpTransport.mid = remoteMedia.rtp.muxId;
+    }
+  }
+
+  /**
+   * remote offer/pranswer 適用前の SCTP 状態。rollback 時に復元し、pending 中に
+   * 新規作成された transport は停止・除去する。datachannel 自体は対象外。
+   */
+  snapshotMediaState(): SctpMediaSnapshot {
+    const transport = this.sctpTransport;
+    return {
+      existed: !!transport,
+      mid: transport?.mid,
+      mLineIndex: transport?.mLineIndex,
+      sctpRemotePort: this.sctpRemotePort,
+      remoteMaxMessageSize: transport?.remoteMaxMessageSize,
+      dtlsTransport: transport?.dtlsTransport,
+    };
+  }
+
+  async restoreMediaState(snapshot: SctpMediaSnapshot): Promise<void> {
+    if (!snapshot.existed) {
+      const created = this.sctpTransport;
+      this.sctpTransport = undefined;
+      this.sctpRemotePort = snapshot.sctpRemotePort;
+      if (created) {
+        await created.stop().catch(() => undefined);
+      }
+      return;
+    }
+    const transport = this.sctpTransport;
+    if (!transport) {
+      return;
+    }
+    transport.mid = snapshot.mid;
+    transport.mLineIndex = snapshot.mLineIndex;
+    this.sctpRemotePort = snapshot.sctpRemotePort;
+    if (snapshot.remoteMaxMessageSize !== undefined) {
+      transport.remoteMaxMessageSize = snapshot.remoteMaxMessageSize;
+    }
+    if (
+      snapshot.dtlsTransport &&
+      transport.dtlsTransport !== snapshot.dtlsTransport
+    ) {
+      transport.setDtlsTransport(snapshot.dtlsTransport);
     }
   }
 

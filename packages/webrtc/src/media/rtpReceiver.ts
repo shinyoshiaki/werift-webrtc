@@ -26,7 +26,7 @@ import type {
   RTCRtpCodecParameters,
   RTCRtpReceiveParameters,
 } from "./parameters";
-import { NackHandler } from "./receiver/nack";
+import { NackHandler, type NackMediaSnapshot } from "./receiver/nack";
 import { ReceiverTWCC } from "./receiver/receiverTwcc";
 import { StreamStatistics } from "./receiver/statistics";
 
@@ -47,6 +47,12 @@ import { MediaStreamTrack } from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/rtpReceiver.ts");
 
+export interface TwccMediaSnapshot {
+  extensionInfo: { [tsn: number]: { tsn: number; timestamp: bigint } };
+  fbPktCount: number;
+  lastTimestamp?: bigint;
+}
+
 export interface RtpReceiverMediaSnapshot {
   tracks: MediaStreamTrack[];
   trackBySSRC: { [ssrc: string]: MediaStreamTrack };
@@ -61,6 +67,8 @@ export interface RtpReceiverMediaSnapshot {
   sdesMid?: string;
   latestRid?: string;
   latestRepairedRid?: string;
+  twcc?: TwccMediaSnapshot;
+  nack: NackMediaSnapshot;
   /** packet-driven statistics keyed by SSRC (new keys are dropped on restore) */
   remoteStreams: { [ssrc: number]: StreamStatistics };
   senderReportsReceivedBySsrc: { [ssrc: number]: number };
@@ -254,6 +262,14 @@ export class RTCRtpReceiver {
       remoteTrackId: this.remoteTrackId,
       receiverTWCC: this.receiverTWCC,
       rtcpRunning: this.rtcpRunning,
+      twcc: this.receiverTWCC
+        ? {
+            extensionInfo: { ...this.receiverTWCC.extensionInfo },
+            fbPktCount: this.receiverTWCC.fbPktCount,
+            lastTimestamp: this.receiverTWCC.lastTimestamp,
+          }
+        : undefined,
+      nack: this.nack.snapshotState(),
       sdesMid: this.sdesMid,
       latestRid: this.latestRid,
       latestRepairedRid: this.latestRepairedRid,
@@ -300,6 +316,15 @@ export class RTCRtpReceiver {
     this.remoteTrackId = snapshot.remoteTrackId;
     this.receiverTWCC = snapshot.receiverTWCC;
     this.rtcpRunning = snapshot.rtcpRunning;
+    // TWCC/NACK の内部状態は pending 中の speculative packet 分を戻す。
+    // オブジェクト参照自体は receiverTWCC の復元で扱う。
+    const twcc = this.receiverTWCC;
+    if (twcc && snapshot.twcc) {
+      twcc.extensionInfo = { ...snapshot.twcc.extensionInfo };
+      twcc.fbPktCount = snapshot.twcc.fbPktCount;
+      twcc.lastTimestamp = snapshot.twcc.lastTimestamp;
+    }
+    this.nack.restoreState(snapshot.nack);
     this.sdesMid = snapshot.sdesMid;
     this.latestRid = snapshot.latestRid;
     this.latestRepairedRid = snapshot.latestRepairedRid;
