@@ -62,14 +62,24 @@ export class RtpRouter {
 
     const encodings = params.encodings.filter((e) => e.ssrc != undefined);
     if (encodings.length === 0) {
-      transceiver.addTrack(
-        new MediaStreamTrack({
-          kind: transceiver.kind,
-          id: transceiver.sender.trackId,
-          remote: true,
-          codec: params.codecs[0],
-        }),
+      // SSRC-less m-line 用の placeholder track は transceiver ごとに1本だけ
+      // 作り、再交渉では MID/header-extension routing の更新に留める。作り直すと
+      // receiver.tracks と ontrack が再交渉のたびに増える。
+      const existing = transceiver.receiver.tracks.find(
+        (track) => !track.rid && !track.ssrc,
       );
+      if (existing) {
+        existing.codec = params.codecs[0];
+      } else {
+        transceiver.addTrack(
+          new MediaStreamTrack({
+            kind: transceiver.kind,
+            id: transceiver.sender.trackId,
+            remote: true,
+            codec: params.codecs[0],
+          }),
+        );
+      }
     } else {
       encodings.forEach((encode, i) => {
         this.registerRtpReceiver(transceiver.receiver, encode.ssrc);

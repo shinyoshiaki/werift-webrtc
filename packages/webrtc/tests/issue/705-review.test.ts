@@ -1,15 +1,27 @@
-import { MediaStreamTrack, RTCPeerConnection } from "../../src";
+import {
+  MediaStreamTrack,
+  RTCPeerConnection,
+  RtpHeader,
+  RtpPacket,
+  useOPUS,
+  usePCMU,
+} from "../../src";
 import {
   createAudioOnlyPeerConnection,
   createBundledPeerConnection,
   createOfferWithKinds,
   getBundleItems,
+  getSectionUfrag,
   negotiateOfferAnswer,
   parseSdp,
   replaceMediaPortByMid,
   rewriteBundleGroup,
   sendTestRtp,
+  stripPcmuFromOffer,
+  stripSsrcLines,
   waitForConnection,
+  waitForIceCandidate,
+  waitForIceGatheringComplete,
   waitForRtp,
 } from "./705.helpers";
 
@@ -292,7 +304,7 @@ describe("PR #711 review P1指摘の回帰テスト", () => {
     }
   });
 
-  test("交渉前に removeTrack した sender を addTrack が再利用せず RTP を送れる", async () => {
+  test("交渉前に removeTrack しても addTrack で RTP を送れる", async () => {
     const offerer = createBundledPeerConnection();
     const answerer = createBundledPeerConnection();
     const track1 = new MediaStreamTrack({ kind: "video" });
@@ -300,32 +312,582 @@ describe("PR #711 review P1指摘の回帰テスト", () => {
 
     try {
       // Act: 交渉前に addTransceiver → removeTrack → addTrack する。
+      // removeTrack は terminal stop ではなく detach なので sender は生き残る。
       const first = offerer.addTransceiver(track1, { direction: "sendonly" });
       offerer.removeTrack(first.sender);
-      expect(first.sender.stopped).toBe(true);
+      expect(first.sender.stopped).toBe(false);
+      expect(first.sender.track).toBeNull();
       const sender = offerer.addTrack(track2);
 
-      // Assert: 停止済み sender は再利用せず、使える sender を返す。
-      expect(sender).not.toBe(first.sender);
+      // Assert: detach された live sender が再利用され、使えるまま残る。
+      expect(sender).toBe(first.sender);
       expect(sender.stopped).toBe(false);
 
       // Act: 交渉・接続して新しい track の RTP を送る。
-      // 旧 sender の m-line (index 0) と新規 m-line (index 1) の2本になる。
       await negotiateOfferAnswer(offerer, answerer);
       await Promise.all([
         waitForConnection(offerer),
         waitForConnection(answerer),
       ]);
-      expect(parseSdp(offerer.localDescription?.sdp).media).toHaveLength(2);
+      expect(parseSdp(offerer.localDescription?.sdp).media).toHaveLength(1);
       const remote = answerer
         .getTransceivers()
-        .find((transceiver) => transceiver.mLineIndex === 1);
+        .find((transceiver) => transceiver.mLineIndex === 0);
       const received = waitForRtp(remote);
       sendTestRtp(track2, "retrack");
 
       // Assert: 相手側で実 RTP を受信できる。
       await expect(received).resolves.toBeDefined();
       expect(remote?.rejected).toBe(false);
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+});
+
+describe("PR #711 review P1 Round2 の回帰テスト", () => {
+  test("partial BUNDLE では group 外 m-line が独立 transport を維持し両方で RTP が通る", async () => {
+    const offerer = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "disable",
+    });
+    const videoTrack = new MediaStreamTrack({ kind: "video" });
+    const audioTrack = new MediaStreamTrack({ kind: "audio" });
+    offerer.addTransceiver(videoTrack, { direction: "sendonly" });
+    offerer.addTransceiver(audioTrack, { direction: "sendonly" });
+    const answerer = createBundledPeerConnection();
+    const offer = await offerer.createOffer();
+    const parsed = parseSdp(offer.sdp);
+    const videoMid = parsed.media[0]?.rtp.muxId;
+    const audioMid = parsed.media[1]?.rtp.muxId;
+    const seenCandidates: { sdpMid?: string | null }[] = [];
+    const { unSubscribe } = answerer.onIceCandidate.subscribe((candidate) => {
+      if (candidate) {
+        seenCandidates.push({ sdpMid: candidate.sdpMid });
+      }
+    });
+
+    try {
+      // Act: offerer は独立 transport のまま、answerer 側だけ audio を bundle する。
+      // disable offer には group 行が無いため、audio MID の group 行を挿入する。
+      await offerer.setLocalDescription(offer);
+      const partialSdp = offer.sdp!.replace(
+        /\r\nm=/,
+        `\r\na=group:BUNDLE ${audioMid}\r\nm=`,
+      );
+      await expect(
+        answerer.setRemoteDescription({ ...offer, sdp: partialSdp }),
+      ).resolves.toBeUndefined();
+      const answer = await answerer.createAnswer();
+      const parsedAnswer = parseSdp(answer.sdp);
+      const answerAudio = parsedAnswer.media[1];
+      const answerVideo = parsedAnswer.media[0];
+      const answererAudio = answerer
+        .getTransceivers()
+        .find((transceiver) => transceiver.mid === audioMid);
+      const answererVideo = answerer
+        .getTransceivers()
+        .find((transceiver) => transceiver.mid === videoMid);
+
+      // Assert: group は audio のみ。video は受け入れつつ bundle しない。
+      // 分割 transport は credentials を引き継ぐため ufrag は一致しうるが、
+      // transport/DTLS オブジェクトは独立している。
+      expect(getBundleItems(parsedAnswer)).toEqual([audioMid]);
+      expect(answerAudio?.port).not.toBe(0);
+      expect(answerVideo?.port).not.toBe(0);
+      expect(getSectionUfrag(answer.sdp, audioMid!)).toBeDefined();
+      expect(getSectionUfrag(answer.sdp, videoMid!)).toBeDefined();
+      expect(answererAudio?.dtlsTransport).toBeDefined();
+      expect(answererVideo?.dtlsTransport).toBeDefined();
+      expect(answererAudio?.dtlsTransport).not.toBe(
+        answererVideo?.dtlsTransport,
+      );
+
+      // Act: 交換を完了して両 transport で接続・受信する。
+      await answerer.setLocalDescription(answer);
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      await Promise.all([
+        waitForConnection(offerer),
+        waitForConnection(answerer),
+      ]);
+      await waitForIceGatheringComplete(answerer);
+      const videoReceived = waitForRtp(answererVideo);
+      const audioReceived = waitForRtp(answererAudio);
+      sendTestRtp(videoTrack, "partial-video");
+      sendTestRtp(audioTrack, "partial-audio");
+
+      // Assert: 両 m-line で実 RTP が通り、trickle も各 MID で来る。
+      await expect(videoReceived).resolves.toBeDefined();
+      await expect(audioReceived).resolves.toBeDefined();
+      expect(seenCandidates.map((c) => c.sdpMid)).toContain(videoMid);
+      expect(seenCandidates.map((c) => c.sdpMid)).toContain(audioMid);
+    } finally {
+      unSubscribe();
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("先頭 tag reject 後の answer でも accepted tag の transport/candidate で接続できる", async () => {
+    const offerer = createBundledPeerConnection();
+    const answerer = createAudioOnlyPeerConnection();
+    const videoTrack = new MediaStreamTrack({ kind: "video" });
+    const audioTrack = new MediaStreamTrack({ kind: "audio" });
+    offerer.addTransceiver(videoTrack, { direction: "sendonly" });
+    offerer.addTransceiver(audioTrack, { direction: "sendonly" });
+
+    try {
+      // Act: video を reject する answer で tag を audio へ移して接続する。
+      await negotiateOfferAnswer(offerer, answerer);
+      await Promise.all([
+        waitForConnection(offerer),
+        waitForConnection(answerer),
+      ]);
+      const parsedOffer = parseSdp(offerer.localDescription?.sdp);
+      const audioMid = parsedOffer.media[1]?.rtp.muxId;
+      const received = waitForRtp(
+        answerer
+          .getTransceivers()
+          .find((transceiver) => transceiver.mid === audioMid),
+      );
+      sendTestRtp(audioTrack, "tagged");
+
+      // Assert: accepted tag 側の transport で RTP が通る。
+      await expect(received).resolves.toBeDefined();
+      expect(getBundleItems(parseSdp(answerer.localDescription?.sdp))).toEqual([
+        audioMid,
+      ]);
+
+      // Act: ICE restart 後の新規 candidate が negotiated tag を使う。
+      const restartOffer = await offerer.createOffer({ iceRestart: true });
+      const freshCandidate = waitForIceCandidate(offerer);
+      await offerer.setLocalDescription(restartOffer);
+      const candidate = await freshCandidate;
+      const parsedRestart = parseSdp(restartOffer.sdp);
+
+      // Assert: reject 済み先頭ではなく accepted audio MID で送られる。
+      expect(candidate.sdpMid).toBe(audioMid);
+      expect(candidate.sdpMLineIndex).toBe(
+        parsedRestart.media.findIndex((media) => media.rtp.muxId === audioMid),
+      );
+
+      // Act: restart 交換を完了して後片付けする。
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("offer で絞った codec 以外だけの final answer は失敗し pending を保つ", async () => {
+    const offerer = new RTCPeerConnection({
+      iceServers: [],
+      codecs: { audio: [useOPUS(), usePCMU({ direction: "recvonly" })] },
+    });
+    offerer.addTransceiver("audio", { direction: "sendonly" });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    const offer = await offerer.createOffer();
+
+    try {
+      // Arrange: sendonly offer から PCMU が落ち、pending は OPUS のみになる。
+      expect(
+        parseSdp(offer.sdp).media[0]?.rtp.codecs.map((codec) => codec.mimeType),
+      ).toEqual(["audio/OPUS"]);
+      await offerer.setLocalDescription(offer);
+      // SLD で description が補完されるため、以後の不変比較の基準は SLD 後の値にする。
+      const beforeLocalSdp = offerer.localDescription?.sdp;
+      await answerer.setRemoteDescription(offer);
+      const validAnswer = await answerer.createAnswer();
+      // Act: config にはあるが offer に無い PCMU だけの answer を適用する。
+      const badSdp = validAnswer.sdp?.replace(/OPUS\/48000\/2/i, "PCMU/8000");
+      expect(badSdp).not.toBe(validAnswer.sdp);
+      await expect(
+        offerer.setRemoteDescription({ ...validAnswer, sdp: badSdp }),
+      ).rejects.toThrow();
+
+      // Assert: have-local-offer と pending local offer がそのまま残る。
+      expect(offerer.signalingState).toBe("have-local-offer");
+      expect(offerer.localDescription?.sdp).toBe(beforeLocalSdp);
+      expect(offerer.remoteDescription).toBeNull();
+
+      // Act: 同条件の pranswer も失敗する（対照ケース）。
+      await expect(
+        offerer.setRemoteDescription({ type: "pranswer", sdp: badSdp }),
+      ).rejects.toThrow();
+
+      // Assert: pranswer でも状態は変わらない。
+      expect(offerer.signalingState).toBe("have-local-offer");
+      expect(offerer.localDescription?.sdp).toBe(beforeLocalSdp);
+      expect(offerer.remoteDescription).toBeNull();
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("交渉済み sender を removeTrack 後に同じ sender で再開できる", async () => {
+    const offerer = createBundledPeerConnection();
+    const answerer = createBundledPeerConnection();
+    const track1 = new MediaStreamTrack({ kind: "video" });
+    const track2 = new MediaStreamTrack({ kind: "video" });
+    const transceiver = offerer.addTransceiver(track1, {
+      direction: "sendonly",
+    });
+
+    try {
+      // Arrange: 交渉・接続して MID/index を確定させる。
+      await negotiateOfferAnswer(offerer, answerer);
+      await Promise.all([
+        waitForConnection(offerer),
+        waitForConnection(answerer),
+      ]);
+      const mid = transceiver.mid;
+      const mLineIndex = transceiver.mLineIndex;
+
+      // Act: removeTrack 後に同じ sender へ差し替えて direction を復帰する。
+      offerer.removeTrack(transceiver.sender);
+      expect(transceiver.sender.stopped).toBe(false);
+      await transceiver.sender.replaceTrack(track2);
+      transceiver.direction = "sendonly";
+      await negotiateOfferAnswer(offerer, answerer);
+
+      // Assert: 同一 MID/m-line のまま再開し、RTP が通る。
+      expect(transceiver.mid).toBe(mid);
+      expect(transceiver.mLineIndex).toBe(mLineIndex);
+      expect(
+        parseSdp(offerer.localDescription?.sdp).media.filter(
+          (media) => media.kind === "video",
+        ),
+      ).toHaveLength(1);
+      expect(
+        parseSdp(offerer.localDescription?.sdp).media[mLineIndex!]?.port,
+      ).not.toBe(0);
+      const received = waitForRtp(
+        answerer.getTransceivers().find((t) => t.mid === mid),
+      );
+      sendTestRtp(track2, "resumed");
+
+      // Assert: 差し替えた track の RTP が相手に届く。
+      await expect(received).resolves.toBeDefined();
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("remote answer の reject で stable に戻っても negotiationneeded は発火しない", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    offerer.addTransceiver("audio", { direction: "sendonly" });
+    const offer = await offerer.createOffer();
+    const answerer = new RTCPeerConnection({
+      iceServers: [],
+      codecs: { audio: [], video: [] },
+    });
+    const onNegotiationNeeded = vi.fn();
+
+    try {
+      // Arrange: local offer を確定させ、port 0 answer を用意する。
+      await offerer.setLocalDescription(offer);
+      await answerer.setRemoteDescription(offer);
+      const answer = await answerer.createAnswer();
+      expect(parseSdp(answer.sdp).media[0]?.port).toBe(0);
+      await answerer.setLocalDescription(answer);
+      offerer.onnegotiationneeded = onNegotiationNeeded;
+      await new Promise((resolve) => setImmediate(resolve));
+      await new Promise((resolve) => setImmediate(resolve));
+      onNegotiationNeeded.mockClear();
+
+      // Act: port 0 の remote final answer を適用する。
+      await expect(
+        offerer.setRemoteDescription(answerer.localDescription!),
+      ).resolves.toBeUndefined();
+      await new Promise((resolve) => setImmediate(resolve));
+      await new Promise((resolve) => setImmediate(resolve));
+
+      // Assert: stable に戻っても余分な event は発火しない。
+      expect(offerer.signalingState).toBe("stable");
+      expect(offerer.getTransceivers()[0]?.stopped).toBe(true);
+      expect(onNegotiationNeeded).not.toHaveBeenCalled();
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("remote port 0 re-offer から local answer まで余分な event は発火しない", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    const track = new MediaStreamTrack({ kind: "audio" });
+    offerer.addTransceiver(track, { direction: "sendonly" });
+    const onNegotiationNeeded = vi.fn();
+
+    try {
+      // Arrange: opus で交渉する。同一 ufrag のまま再 offer できるよう初回 offer を保持する。
+      const firstOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(firstOffer);
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+
+      // Act: 同一 m-line を port 0 にした再 offer から answer まで適用する。
+      // ICE restart を起こさない同一 ufrag にし、protocol-driven stop の副作用だけを見る。
+      const mid = parseSdp(firstOffer.sdp).media[0]?.rtp.muxId;
+      const zeroSdp = replaceMediaPortByMid(firstOffer.sdp, mid!, 0);
+      answerer.onnegotiationneeded = onNegotiationNeeded;
+      await new Promise((resolve) => setImmediate(resolve));
+      await new Promise((resolve) => setImmediate(resolve));
+      onNegotiationNeeded.mockClear();
+      await answerer.setRemoteDescription({ ...firstOffer, sdp: zeroSdp });
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await new Promise((resolve) => setImmediate(resolve));
+      await new Promise((resolve) => setImmediate(resolve));
+
+      // Assert: 拒否の確定まで余分な event は発火しない。
+      expect(parseSdp(answerer.localDescription?.sdp).media[0]?.port).toBe(0);
+      expect(answerer.getTransceivers()[0]?.stopped).toBe(true);
+      expect(onNegotiationNeeded).not.toHaveBeenCalled();
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("明示的 transceiver.stop() は negotiationneeded を発火させる", async () => {
+    const offerer = createBundledPeerConnection();
+    const answerer = createBundledPeerConnection();
+    const track = new MediaStreamTrack({ kind: "video" });
+    const transceiver = offerer.addTransceiver(track, {
+      direction: "sendonly",
+    });
+    const onNegotiationNeeded = vi.fn();
+
+    try {
+      // Arrange: 交渉して stable にする。
+      await negotiateOfferAnswer(offerer, answerer);
+      expect(offerer.signalingState).toBe("stable");
+      offerer.onnegotiationneeded = onNegotiationNeeded;
+      await new Promise((resolve) => setImmediate(resolve));
+      await new Promise((resolve) => setImmediate(resolve));
+      onNegotiationNeeded.mockClear();
+
+      // Act: application が明示的に stop する。
+      transceiver.stop();
+      await new Promise((resolve) => setImmediate(resolve));
+      await new Promise((resolve) => setImmediate(resolve));
+
+      // Assert: 対照ケースとして negotiation が要求される。
+      expect(onNegotiationNeeded).toHaveBeenCalled();
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("unsupported re-offer 後の rollback で current session が復元される", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    const track = new MediaStreamTrack({ kind: "audio" });
+    offerer.addTransceiver(track, { direction: "sendonly" });
+
+    try {
+      // Arrange: 同一 ufrag のまま再 offer できるよう初回 offer を保持して接続する。
+      const firstOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(firstOffer);
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      await Promise.all([
+        waitForConnection(offerer),
+        waitForConnection(answerer),
+      ]);
+
+      // Act: 非対応 codec の re-offer を適用してから rollback する。
+      const unsupportedSdp = firstOffer.sdp
+        ?.replace(/OPUS\/48000\/2/i, "G722/8000")
+        .replace(/PCMU\/8000/i, "PCMA/8000");
+      await answerer.setRemoteDescription({
+        ...firstOffer,
+        sdp: unsupportedSdp,
+      });
+      const pending = answerer.getTransceivers()[0];
+      expect(pending.rejected).toBe(true);
+      await expect(
+        answerer.setRemoteDescription({ type: "rollback" }),
+      ).resolves.toBeUndefined();
+      const transceiver = answerer.getTransceivers()[0];
+
+      // Assert: rejected/codec が戻り、pipeline と次 offer が壊れない。
+      expect(answerer.signalingState).toBe("stable");
+      expect(transceiver.rejected).toBe(false);
+      expect(transceiver.sender.codec).toBeDefined();
+      expect(transceiver.receiver.tracks.length).toBeGreaterThan(0);
+      expect(
+        parseSdp((await answerer.createOffer()).sdp).media[0]?.port,
+      ).not.toBe(0);
+
+      // Assert: 元 codec の RTP が継続する。
+      sendTestRtp(track, "after-rollback");
+      await expect(waitForRtp(transceiver)).resolves.toBeDefined();
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("port 0 re-offer 後の rollback で停止せず current session が復元される", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    const track = new MediaStreamTrack({ kind: "audio" });
+    offerer.addTransceiver(track, { direction: "sendonly" });
+
+    try {
+      // Arrange: 同一 ufrag のまま再 offer できるよう初回 offer を保持して接続する。
+      const firstOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(firstOffer);
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      await Promise.all([
+        waitForConnection(offerer),
+        waitForConnection(answerer),
+      ]);
+
+      // Act: port 0 の re-offer を適用してから rollback する。
+      const mid = parseSdp(firstOffer.sdp).media[0]?.rtp.muxId;
+      const zeroSdp = replaceMediaPortByMid(firstOffer.sdp, mid!, 0);
+      await answerer.setRemoteDescription({ ...firstOffer, sdp: zeroSdp });
+      const pending = answerer.getTransceivers()[0];
+      expect(pending.rejected).toBe(true);
+      expect(pending.stopping).toBe(false);
+      expect(pending.stopped).toBe(false);
+      expect(pending.sender.codec).toBeDefined();
+      await expect(
+        answerer.setRemoteDescription({ type: "rollback" }),
+      ).resolves.toBeUndefined();
+      const transceiver = answerer.getTransceivers()[0];
+
+      // Assert: terminal stop が残らず、pipeline と次 offer が壊れない。
+      expect(answerer.signalingState).toBe("stable");
+      expect(transceiver.rejected).toBe(false);
+      expect(transceiver.stopping).toBe(false);
+      expect(transceiver.stopped).toBe(false);
+      expect(transceiver.sender.codec).toBeDefined();
+      expect(transceiver.receiver.tracks.length).toBeGreaterThan(0);
+      expect(
+        parseSdp((await answerer.createOffer()).sdp).media[0]?.port,
+      ).not.toBe(0);
+
+      // Assert: 元 codec の RTP が継続する。
+      sendTestRtp(track, "after-zero-rollback");
+      await expect(waitForRtp(transceiver)).resolves.toBeDefined();
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("port 0 pranswer 後の rollback で pending offer が残る", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    const track = new MediaStreamTrack({ kind: "audio" });
+    offerer.addTransceiver(track, { direction: "sendonly" });
+
+    try {
+      // Arrange: 交渉し、offerer が再 offer を pending にする。
+      await negotiateOfferAnswer(offerer, answerer);
+      const reOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(reOffer);
+      const mid = parseSdp(reOffer.sdp).media[0]?.rtp.muxId;
+
+      // Act: port 0 の pranswer を適用してから rollback する。
+      const zeroSdp = replaceMediaPortByMid(reOffer.sdp, mid!, 0);
+      await expect(
+        offerer.setRemoteDescription({ type: "pranswer", sdp: zeroSdp }),
+      ).resolves.toBeUndefined();
+      const pending = offerer.getTransceivers()[0];
+      expect(offerer.signalingState).toBe("have-remote-pranswer");
+      expect(pending.rejected).toBe(true);
+      expect(pending.stopping).toBe(false);
+      await expect(
+        offerer.setRemoteDescription({ type: "rollback" }),
+      ).resolves.toBeUndefined();
+
+      // Assert: have-local-offer に戻り、pending offer と pipeline が残る。
+      expect(offerer.signalingState).toBe("have-local-offer");
+      expect(offerer.localDescription?.sdp).toBe(reOffer.sdp);
+      const transceiver = offerer.getTransceivers()[0];
+      expect(transceiver.rejected).toBe(false);
+      expect(transceiver.stopping).toBe(false);
+      expect(transceiver.stopped).toBe(false);
+      expect(transceiver.sender.codec).toBeDefined();
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("SSRC-less m-line の再交渉でも track と ontrack は増えない", async () => {
+    const offerer = createBundledPeerConnection();
+    const answerer = createBundledPeerConnection();
+    const track = new MediaStreamTrack({ kind: "video" });
+    offerer.addTransceiver(track, { direction: "sendonly" });
+    const onTrack = vi.fn();
+    answerer.ontrack = onTrack;
+    const offer = await offerer.createOffer();
+
+    try {
+      // Act: a=ssrc の無い offer を適用して answer する。
+      await offerer.setLocalDescription(offer);
+      await expect(
+        answerer.setRemoteDescription({
+          ...offer,
+          sdp: stripSsrcLines(offer.sdp),
+        }),
+      ).resolves.toBeUndefined();
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      const transceiver = answerer.getTransceivers()[0];
+      const firstTrack = transceiver.receiver.tracks[0];
+      expect(firstTrack).toBeDefined();
+      expect(onTrack).toHaveBeenCalledTimes(1);
+
+      // Act: 同一 m-line を SSRC-less のまま再 offer する。
+      const offer2 = await offerer.createOffer();
+      await offerer.setLocalDescription(offer2);
+      await expect(
+        answerer.setRemoteDescription({
+          ...offer2,
+          sdp: stripSsrcLines(offer2.sdp),
+        }),
+      ).resolves.toBeUndefined();
+
+      // Assert: placeholder track は1本のまま、ontrack も増えない。
+      expect(transceiver.receiver.tracks).toHaveLength(1);
+      expect(transceiver.receiver.tracks[0]).toBe(firstTrack);
+      expect(onTrack).toHaveBeenCalledTimes(1);
+
+      // Act: 未知 SSRC の RTP を MID で配送する。
+      const mid = parseSdp(offer2.sdp).media[0]?.rtp.muxId;
+      const midExtId = transceiver.headerExtensions.find(
+        (extension) => extension.uri === "urn:ietf:params:rtp-hdrext:sdes:mid",
+      )?.id;
+      const vp8Pt = transceiver.codecs.find((codec) =>
+        codec.mimeType.toLowerCase().includes("vp8"),
+      )?.payloadType;
+      expect(midExtId).toBeDefined();
+      expect(vp8Pt).toBeDefined();
+      const received = waitForRtp(transceiver);
+      (
+        answerer as unknown as {
+          router: { routeRtp: (packet: RtpPacket) => void };
+        }
+      ).router.routeRtp(
+        new RtpPacket(
+          new RtpHeader({
+            ssrc: 0x12345678,
+            payloadType: vp8Pt,
+            extensions: [{ id: midExtId!, payload: Buffer.from(mid!) }],
+          }),
+          Buffer.from("unknown-ssrc"),
+        ),
+      );
+
+      // Assert: 同じ track に届く。
+      await expect(received).resolves.toBeDefined();
+      expect(transceiver.receiver.tracks).toHaveLength(1);
+      expect(transceiver.receiver.tracks[0]).toBe(firstTrack);
     } finally {
       await Promise.all([offerer.close(), answerer.close()]);
     }

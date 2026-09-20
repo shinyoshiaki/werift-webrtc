@@ -26,12 +26,29 @@ import {
   adoptSenderTrackCodec,
   findCodecByMimeType,
 } from "./peerConnection";
-import { type MediaDescription, type SessionDescription, codecParametersFromString } from "./sdp";
+import {
+  type MediaDescription,
+  type SessionDescription,
+  codecParametersFromString,
+} from "./sdp";
 import type { RTCDtlsTransport } from "./transport/dtls";
 import type { Kind } from "./types/domain";
 import { reverseDirection } from "./utils";
 
 const log = debug("werift:packages/webrtc/src/media/rtpTransceiverManager.ts");
+
+export interface TransceiverMediaSnapshot {
+  transceiver: RTCRtpTransceiver;
+  mid: string | null;
+  mLineIndex: number | undefined;
+  codecs: RTCRtpCodecParameters[];
+  headerExtensions: RTCRtpTransceiver["headerExtensions"];
+  rejected: boolean;
+  direction: RTCRtpTransceiver["direction"];
+  offerDirection: RTCRtpTransceiver["offerDirection"];
+  currentDirection: RTCRtpTransceiver["currentDirection"];
+  usedForSender: boolean;
+}
 
 function simulcastFromSendEncodings(
   encodings: RTCRtpEncodingParameters[] | undefined,
@@ -70,12 +87,14 @@ export class TransceiverManager {
   private finalizeSuppressed = 0;
 
   /**
-   * 内部確定処理を negotiationneeded なしで実行する。
+   * 内部確定処理を negotiationneeded なしで実行する。protocol-driven な
+   * rejection 適用 (remote SDP 由来の stop/finalize) では、新しい local
+   * negotiation を要求しない。application の明示的 stop とは別経路にする。
    */
-  runWithoutNegotiationNeeded(fn: () => void): void {
+  runWithoutNegotiationNeeded<T>(fn: () => T): T {
     this.finalizeSuppressed++;
     try {
-      fn();
+      return fn();
     } finally {
       this.finalizeSuppressed--;
     }
@@ -246,7 +265,11 @@ export class TransceiverManager {
       return;
     }
 
-    sender.stop();
+    // removeTrack は track の detach であり terminal stop ではない。同じ
+    // sender への replaceTrack + direction 復帰で同じ MID/m-line を再開できる
+    // よう、stopped フラグは立てない。terminal な停止は transceiver.stop() 側
+    // の sender.stop() に限定する。
+    void sender.replaceTrack(null);
 
     if (["recvonly", "inactive"].includes(transceiver.currentDirection ?? "")) {
       this.onNegotiationNeeded.execute();
@@ -376,6 +399,45 @@ export class TransceiverManager {
     });
   }
 
+  /**
+   * remote offer/pranswer 適用前の transceiver media 状態の snapshot。
+   * rollback 時に復元し、pending だった codec/rejection/direction 変更を
+   * current session へ漏らさないようにする。
+   */
+  snapshotTransceiverMedia(): TransceiverMediaSnapshot[] {
+    return this.transceivers.map((transceiver) => ({
+      transceiver,
+      mid: transceiver.mid,
+      mLineIndex: transceiver.mLineIndex,
+      codecs: transceiver.codecs,
+      headerExtensions: transceiver.headerExtensions,
+      rejected: transceiver.rejected,
+      direction: transceiver.direction,
+      offerDirection: transceiver.offerDirection,
+      currentDirection: transceiver.currentDirection,
+      usedForSender: transceiver.usedForSender,
+    }));
+  }
+
+  restoreTransceiverMedia(snapshot: TransceiverMediaSnapshot[]): void {
+    for (const entry of snapshot) {
+      if (!this.transceivers.includes(entry.transceiver)) {
+        continue;
+      }
+      const transceiver = entry.transceiver;
+      transceiver.mid = entry.mid;
+      transceiver.mLineIndex = entry.mLineIndex;
+      transceiver.codecs = entry.codecs;
+      transceiver.headerExtensions = entry.headerExtensions;
+      transceiver.rejected = entry.rejected;
+      transceiver.setDirection(entry.direction);
+      transceiver.offerDirection = entry.offerDirection;
+      transceiver.setCurrentDirection(entry.currentDirection ?? undefined);
+      // setDirection/setCurrentDirection の副作用を snapshot 値で上書きする。
+      transceiver.usedForSender = entry.usedForSender;
+    }
+  }
+
   setRemoteRTP(
     transceiver: RTCRtpTransceiver,
     remoteMedia: MediaDescription,
@@ -440,23 +502,22 @@ export class TransceiverManager {
       transceiver.offerDirection = direction;
     }
 
-    if (remoteMedia.port === 0 && type !== "pranswer") {
-      transceiver.stop();
-    }
-    if (transceiver.rejected || transceiver.stopping) {
-      if (
-        transceiver.sender.codec !== undefined &&
-        (type === "pranswer" ||
-          (type === "offer" && remoteMedia.port !== 0))
-      ) {
-        // まだ確定していない拒否 (provisional / pending) では current
-        // pipeline (旧 codec の RTP 送受信) を維持する。offer の codec 不一致は
-        // local rejected answer の commit まで、pranswer の port 0 は final
-        // answer まで保持する。新規 m-line は pipeline が無いのでそのまま
-        // 準備を skip できる。
+    if (type === "answer") {
+      // remote final answer は確定なので terminal stop を即時実行してよい。
+      if (remoteMedia.port === 0) {
+        transceiver.stop();
+      }
+      if (transceiver.rejected || transceiver.stopping) {
+        this.clearRejectedRtpPipeline(transceiver);
         return;
       }
-      this.clearRejectedRtpPipeline(transceiver);
+    } else if (transceiver.rejected || transceiver.stopping) {
+      // offer/pranswer は pending 扱い: local/remote answer の commit までは
+      // current pipeline と terminal 状態を変更せず、rollback で復元できる
+      // ようにする。確定は answer 適用時 (finishMediaStops) に行う。
+      if (transceiver.sender.codec === undefined) {
+        this.clearRejectedRtpPipeline(transceiver);
+      }
       return;
     }
 
@@ -473,6 +534,10 @@ export class TransceiverManager {
     const localParams = this.getLocalRtpParams(transceiver);
     transceiver.sender.prepareSend(localParams);
 
+    // 再交渉で track が増えたときだけ ontrack する。同一 track のままでは
+    // アプリへ重複通知しない。
+    const tracksBefore = transceiver.receiver.tracks.length;
+
     if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
       const remotePrams = this.getRemoteRtpParams(remoteMedia, transceiver);
 
@@ -487,7 +552,8 @@ export class TransceiverManager {
     }
     if (
       remoteMedia.port !== 0 &&
-      ["sendonly", "sendrecv"].includes(mediaDirection)
+      ["sendonly", "sendrecv"].includes(mediaDirection) &&
+      transceiver.receiver.tracks.length > tracksBefore
     ) {
       const remoteStreamIds = [
         ...new Set(remoteMedia.msids.map((msid) => msid.split(" ")[0])),

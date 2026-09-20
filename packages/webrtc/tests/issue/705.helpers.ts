@@ -142,6 +142,38 @@ export function rewriteBundleGroup(sdp: string | undefined, mids: string[]) {
   );
 }
 
+export function stripSsrcLines(sdp: string | undefined) {
+  if (!sdp) {
+    throw new Error("sdp is empty");
+  }
+  return sdp
+    .split("\r\n")
+    .filter((line) => !line.startsWith("a=ssrc"))
+    .join("\r\n");
+}
+
+export function stripPcmuFromOffer(sdp: string | undefined) {
+  if (!sdp) {
+    throw new Error("sdp is empty");
+  }
+  return sdp
+    .replace(
+      "m=audio 9 UDP/TLS/RTP/SAVPF 96 0",
+      "m=audio 9 UDP/TLS/RTP/SAVPF 96",
+    )
+    .replace(/\r\na=rtpmap:0 PCMU\/8000/, "");
+}
+
+export function getSectionUfrag(sdp: string | undefined, mid: string) {
+  if (!sdp) {
+    throw new Error("sdp is empty");
+  }
+  const section = sdp
+    .split(/\r\n(?=m=)/)
+    .find((part) => part.includes(`a=mid:${mid}\r\n`));
+  return section?.split("\r\n").find((line) => line.startsWith("a=ice-ufrag:"));
+}
+
 export async function negotiateOfferAnswer(
   offerer: RTCPeerConnection,
   answerer: RTCPeerConnection,

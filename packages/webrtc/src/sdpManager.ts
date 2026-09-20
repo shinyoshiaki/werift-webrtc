@@ -517,15 +517,23 @@ export class SDPManager {
 
     if (sessionDescription.type === "rollback") {
       if (
-        !["have-remote-offer", "have-local-pranswer"].includes(signalingState)
+        ![
+          "have-remote-offer",
+          "have-local-pranswer",
+          "have-remote-pranswer",
+        ].includes(signalingState)
       ) {
         throw createWebRtcDomException(
           "InvalidStateError",
           "Cannot rollback remote description in signaling state",
         );
       }
-      this.pendingLocalDescription = undefined;
       this.pendingRemoteDescription = undefined;
+      if (signalingState !== "have-remote-pranswer") {
+        // remote pranswer の rollback では pending local offer を残し、
+        // have-local-offer へ戻して final answer を待てるようにする。
+        this.pendingLocalDescription = undefined;
+      }
       return;
     }
 
@@ -652,6 +660,31 @@ export class SDPManager {
     }
 
     return { media: target.media[0], sdpMLineIndex: 0 };
+  }
+
+  /**
+   * local candidate に付ける BUNDLE tag を決める。交渉済みの tag (remote
+   * answer/pranswer の group 先頭) が local の受け入れ済み m-line に対応すれば
+   * それを使い、offer 側の古い tag や reject 済み MID を避ける。対応がなければ
+   * local group 基準の従来方式に fallback する。
+   */
+  getNegotiatedBundleTag(): {
+    media?: MediaDescription;
+    sdpMLineIndex: number;
+  } {
+    const local = this._localDescription;
+    const remoteTag = this._remoteDescription?.group.find(
+      (group) => group.semantic === "BUNDLE",
+    )?.items[0];
+    if (local && remoteTag) {
+      const sdpMLineIndex = local.media.findIndex(
+        (media) => media.rtp.muxId === remoteTag && media.port !== 0,
+      );
+      if (sdpMLineIndex >= 0) {
+        return { media: local.media[sdpMLineIndex], sdpMLineIndex };
+      }
+    }
+    return this.getBundleTaggedMedia(local);
   }
 
   /**

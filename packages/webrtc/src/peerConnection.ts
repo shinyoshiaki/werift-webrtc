@@ -22,6 +22,7 @@ import {
   type RTCRtpTransceiver,
   RtpRouter,
   TransceiverManager,
+  type TransceiverMediaSnapshot,
   type TransceiverOptions,
   useOPUS,
   usePCMU,
@@ -109,6 +110,11 @@ export class RTCPeerConnection extends EventTarget {
   private readonly pendingRemoteCandidates: Array<
     RTCIceCandidate | RTCIceCandidateInit | null
   > = [];
+  /**
+   * remote offer/pranswer 適用前の transceiver media snapshot。rollback 時に
+   * 復元し、pending だった変更を current session へ漏らさない。
+   */
+  private pendingTransceiverSnapshot?: TransceiverMediaSnapshot[];
 
   readonly iceGatheringStateChange = new Event<[IceGathererState]>();
   readonly iceConnectionStateChange = new Event<[RTCIceConnectionState]>();
@@ -587,7 +593,10 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private findOrCreateTransport() {
-    const existingDtlsTransport = this.dtlsTransports.find(
+    // live transport のみ再利用する。停止済み transceiver だけが掴んでいる
+    // transport を新規 m-line が拾うと failed な ICE に紐づいて接続できない。
+    // 詳しくは SecureTransportManager.liveDtlsTransports を参照。
+    const existingDtlsTransport = this.secureManager.liveDtlsTransports.find(
       (transport) => transport.state !== "closed",
     );
     const existing = existingDtlsTransport?.iceTransport;
@@ -603,6 +612,14 @@ export class RTCPeerConnection extends EventTarget {
       }
     }
 
+    return this.createIndependentTransport();
+  }
+
+  /**
+   * ICE/DTLS/RTP 配線つきの独立 transport を作る。BUNDLE group 外の m-line が
+   * 共有 transport に載ってしまった場合の付け替えにも使う。
+   */
+  private createIndependentTransport() {
     const dtlsTransport = this.secureManager.createTransport();
     dtlsTransport.onRtp.subscribe((rtp) => {
       this.router.routeRtp(rtp);
@@ -639,18 +656,27 @@ export class RTCPeerConnection extends EventTarget {
         return;
       }
 
-      const tagged = this.sdpManager.getBundleTaggedMedia(
-        this._localDescription,
-      );
+      const tagged = this.sdpManager.getNegotiatedBundleTag();
+      const owners = this.transceiverManager
+        .getTransceivers()
+        .filter((t) => t?.dtlsTransport?.iceTransport.id === iceTransport.id);
+      // 共有 transport の持ち主は live な transceiver を優先する。停止済みを
+      // 拾うと reject 済み MID でラベルしてしまう。
+      const owner = owners.find((t) => !t.stopping && !t.stopped) ?? owners[0];
+      // candidate 生成元 transport の持ち主が local BUNDLE group 外なら、
+      // group tag ではなく自身の MID/index でラベルする。
+      const localBundleItems =
+        this._localDescription?.group.find(
+          (group) => group.semantic === "BUNDLE",
+        )?.items ?? [];
       this.secureManager.handleNewIceCandidate({
         candidate,
         bundlePolicy: this.sdpManager.bundlePolicy,
         remoteIsBundled: !!this.sdpManager.remoteIsBundled,
         media: tagged.media,
         sdpMLineIndex: tagged.sdpMLineIndex,
-        transceiver: this.transceiverManager
-          .getTransceivers()
-          .find((t) => t?.dtlsTransport?.iceTransport.id === iceTransport.id),
+        transceiver: owner,
+        transceiverBundled: !owner?.mid || localBundleItems.includes(owner.mid),
         sctpTransport:
           this.sctpTransport?.dtlsTransport.iceTransport.id === iceTransport.id
             ? this.sctpTransport
@@ -790,6 +816,8 @@ export class RTCPeerConnection extends EventTarget {
 
     if (description.type === "answer") {
       this.finishMediaStops(description);
+      // local answer の commit で pending は確定した。rollback 対象は無い。
+      this.pendingTransceiverSnapshot = undefined;
     }
 
     await this.gatherCandidates().catch((e) => {
@@ -887,8 +915,10 @@ export class RTCPeerConnection extends EventTarget {
   private async connect() {
     log("start connect");
 
+    // dead transport (停止済み transceiver だけのもの) を除外する。含めると
+    // start 失敗で connectionState が failed になる。
     const res = await Promise.allSettled(
-      this.dtlsTransports.map(async (dtlsTransport) => {
+      this.secureManager.liveDtlsTransports.map(async (dtlsTransport) => {
         const { iceTransport } = dtlsTransport;
         if (iceTransport.state === "connected") {
           return;
@@ -967,7 +997,24 @@ export class RTCPeerConnection extends EventTarget {
       this.signalingState,
     );
     if (!remoteSdp) {
-      this.setSignalingState("stable");
+      // remote rollback: pending offer/pranswer 由来の transceiver 変更を
+      // SRD 前の snapshot に戻し、current session との不一致を残さない。
+      if (this.pendingTransceiverSnapshot) {
+        this.transceiverManager.restoreTransceiverMedia(
+          this.pendingTransceiverSnapshot,
+        );
+        this.pendingTransceiverSnapshot = undefined;
+      }
+      if (
+        this.signalingState === "have-remote-pranswer" &&
+        this.sdpManager.pendingLocalDescription
+      ) {
+        // remote pranswer の rollback: pending local offer を残したまま
+        // have-local-offer へ戻し、final answer を待てるようにする。
+        this.setSignalingState("have-local-offer");
+      } else {
+        this.setSignalingState("stable");
+      }
       if (this.shouldNegotiationneeded) {
         this.needNegotiation();
       }
@@ -976,9 +1023,12 @@ export class RTCPeerConnection extends EventTarget {
     }
     if (remoteSdp.type === "answer" || remoteSdp.type === "pranswer") {
       try {
+        // commit で pendingLocalDescription は current へ移るため、検証は
+        // commit 前の exact pending local offer (退避済み) に対して行う。
+        // config フォールバックでは offer で絞った codec を検出できない。
         this.transceiverManager.validateAnswerCodecs(
           remoteSdp,
-          this.sdpManager.pendingLocalDescription,
+          prevPendingLocalDescription,
         );
       } catch (error) {
         this.sdpManager.pendingRemoteDescription = prevPendingRemoteDescription;
@@ -988,9 +1038,22 @@ export class RTCPeerConnection extends EventTarget {
         throw error;
       }
     }
-    let bundleTransport: RTCDtlsTransport | undefined;
+    // BUNDLE は boolean ではなく offered group の membership set と
+    // identification-tag として扱う。transport 共有は group member のみに
+    // 限定し、group 外の m-section は独立 transport を維持する。
+    const offeredBundleGroup = this.sdpManager.remoteIsBundled;
+    const bundledMids = new Set(offeredBundleGroup?.items ?? []);
+    const bundledTag = offeredBundleGroup?.items[0];
 
-    // # apply description
+    // remote offer/pranswer 適用前の media 状態を退避する。terminal stop や
+    // pipeline 破棄は commit まで遅延しているため、rollback ではこの snapshot
+    // への復元で current session と一致させられる。
+    if (remoteSdp.type === "offer" || remoteSdp.type === "pranswer") {
+      this.pendingTransceiverSnapshot =
+        this.transceiverManager.snapshotTransceiverMedia();
+    } else {
+      this.pendingTransceiverSnapshot = undefined;
+    }
 
     const matchTransceiverWithMedia = (
       transceiver: RTCRtpTransceiver,
@@ -1008,10 +1071,12 @@ export class RTCPeerConnection extends EventTarget {
         .filter((mid): mid is string => !!mid),
     );
 
-    let transports = remoteSdp.media.map((remoteMedia, i) => {
-      let dtlsTransport: RTCDtlsTransport;
-
-      if (["audio", "video"].includes(remoteMedia.kind)) {
+    // # match/create transceivers and assign transports by BUNDLE membership
+    const mediaTransceivers: (RTCRtpTransceiver | undefined)[] =
+      remoteSdp.media.map((remoteMedia, i) => {
+        if (!["audio", "video"].includes(remoteMedia.kind)) {
+          return undefined;
+        }
         const previous = this.transceiverManager.getTransceiverByMLineIndex(i);
         if (
           remoteSdp.type === "offer" &&
@@ -1031,75 +1096,136 @@ export class RTCPeerConnection extends EventTarget {
           transceiver.mid = remoteMedia.rtp.muxId ?? null;
           this.onRemoteTransceiverAdded.execute(transceiver);
         }
+        return transceiver;
+      });
 
-        if (this.sdpManager.remoteIsBundled) {
-          if (!bundleTransport) {
+    // tagged MID の transport を bundleTransport にする。先頭 m-line ではなく
+    // offered tag を基準にし、tag reject 後の付け替えにも追従する。
+    let bundleTransport: RTCDtlsTransport | undefined;
+    if (offeredBundleGroup && bundledTag) {
+      bundleTransport =
+        mediaTransceivers.find((t) => t?.mid === bundledTag)?.dtlsTransport ??
+        (this.sctpTransport?.mid === bundledTag
+          ? this.sctpTransport.dtlsTransport
+          : undefined);
+    }
+    remoteSdp.media.forEach((remoteMedia, i) => {
+      const mid = remoteMedia.rtp.muxId;
+      const inOfferedGroup =
+        !!offeredBundleGroup && !!mid && bundledMids.has(mid);
+      if (["audio", "video"].includes(remoteMedia.kind)) {
+        const transceiver = mediaTransceivers[i]!;
+        if (!inOfferedGroup) {
+          if (
+            offeredBundleGroup &&
+            bundleTransport &&
+            transceiver.dtlsTransport === bundleTransport &&
+            // 接続しない section (停止済み・remote port 0) は共有に残し、
+            // garbage transport を増やさない。live の受け入れ section だけ独立させる。
+            !transceiver.stopping &&
+            !transceiver.stopped &&
+            remoteMedia.port !== 0
+          ) {
+            // group 外は独立 transport を維持する。
+            transceiver.setDtlsTransport(this.createIndependentTransport());
+          }
+        } else {
+          if (bundleTransport) {
+            if (transceiver.dtlsTransport !== bundleTransport) {
+              transceiver.setDtlsTransport(bundleTransport);
+            }
+          } else {
             bundleTransport = transceiver.dtlsTransport;
-          } else {
-            transceiver.setDtlsTransport(bundleTransport);
           }
         }
-
-        dtlsTransport = transceiver.dtlsTransport;
-
-        this.transceiverManager.setRemoteRTP(
-          transceiver,
-          remoteMedia,
-          remoteSdp.type,
-          i,
-        );
-      } else if (remoteMedia.kind === "application") {
-        let sctpTransport = this.sctpTransport;
-        if (!sctpTransport) {
-          sctpTransport = this.createSctpTransport();
-          sctpTransport.mid = remoteMedia.rtp.muxId;
-        }
-
-        if (this.sdpManager.remoteIsBundled) {
-          if (!bundleTransport) {
-            bundleTransport = sctpTransport.dtlsTransport;
+      } else if (remoteMedia.kind === "application" && this.sctpTransport) {
+        if (!inOfferedGroup) {
+          if (
+            offeredBundleGroup &&
+            bundleTransport &&
+            this.sctpTransport.dtlsTransport === bundleTransport
+          ) {
+            this.sctpTransport.setDtlsTransport(
+              this.createIndependentTransport(),
+            );
+          }
+        } else {
+          if (bundleTransport) {
+            if (this.sctpTransport.dtlsTransport !== bundleTransport) {
+              this.sctpTransport.setDtlsTransport(bundleTransport);
+            }
           } else {
-            sctpTransport.setDtlsTransport(bundleTransport);
+            bundleTransport = this.sctpTransport.dtlsTransport;
           }
         }
-
-        dtlsTransport = sctpTransport.dtlsTransport;
-
-        this.sctpManager.setRemoteSCTP(remoteMedia, i);
-      } else {
-        throw new Error("invalid media kind");
       }
+    });
 
-      const iceTransport = dtlsTransport.iceTransport;
+    // protocol-driven な適用 (remote SDP 由来の stop を含む) では
+    // negotiationneeded を発火させない。交換自体で確定するため。
+    let transports = this.transceiverManager.runWithoutNegotiationNeeded(() =>
+      remoteSdp.media.map((remoteMedia, i) => {
+        let dtlsTransport: RTCDtlsTransport;
 
-      if (remoteMedia.iceParams) {
-        const renomination = !!this.sdpManager.inactiveRemoteMedia;
-        iceTransport.setRemoteParams(remoteMedia.iceParams, renomination);
+        if (["audio", "video"].includes(remoteMedia.kind)) {
+          const transceiver = mediaTransceivers[i]!;
 
-        // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
-        // RFC 8445 S6.1.1
-        if (remoteMedia.iceParams.iceLite && !iceTransport.connection.iceLite) {
-          iceTransport.connection.iceControlling = true;
+          dtlsTransport = transceiver.dtlsTransport;
+
+          this.transceiverManager.setRemoteRTP(
+            transceiver,
+            remoteMedia,
+            remoteSdp.type,
+            i,
+          );
+        } else if (remoteMedia.kind === "application") {
+          let sctpTransport = this.sctpTransport;
+          if (!sctpTransport) {
+            sctpTransport = this.createSctpTransport();
+            sctpTransport.mid = remoteMedia.rtp.muxId;
+          }
+
+          dtlsTransport = sctpTransport.dtlsTransport;
+
+          this.sctpManager.setRemoteSCTP(remoteMedia, i);
+        } else {
+          throw new Error("invalid media kind");
         }
-      }
-      if (remoteMedia.dtlsParams) {
-        dtlsTransport.setRemoteParams(remoteMedia.dtlsParams);
-      }
 
-      // # add ICE candidates
-      remoteMedia.iceCandidates.forEach(iceTransport.addRemoteCandidate);
+        const iceTransport = dtlsTransport.iceTransport;
 
-      if (remoteMedia.iceCandidatesComplete) {
-        iceTransport.addRemoteCandidate(undefined);
-      }
+        if (remoteMedia.iceParams) {
+          const renomination = !!this.sdpManager.inactiveRemoteMedia;
+          iceTransport.setRemoteParams(remoteMedia.iceParams, renomination);
 
-      // # set DTLS role
-      if (remoteSdp.type === "answer" && remoteMedia.dtlsParams?.role) {
-        dtlsTransport.role =
-          remoteMedia.dtlsParams.role === "client" ? "server" : "client";
-      }
-      return iceTransport;
-    }) as RTCIceTransport[];
+          // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
+          // RFC 8445 S6.1.1
+          if (
+            remoteMedia.iceParams.iceLite &&
+            !iceTransport.connection.iceLite
+          ) {
+            iceTransport.connection.iceControlling = true;
+          }
+        }
+        if (remoteMedia.dtlsParams) {
+          dtlsTransport.setRemoteParams(remoteMedia.dtlsParams);
+        }
+
+        // # add ICE candidates
+        remoteMedia.iceCandidates.forEach(iceTransport.addRemoteCandidate);
+
+        if (remoteMedia.iceCandidatesComplete) {
+          iceTransport.addRemoteCandidate(undefined);
+        }
+
+        // # set DTLS role
+        if (remoteSdp.type === "answer" && remoteMedia.dtlsParams?.role) {
+          dtlsTransport.role =
+            remoteMedia.dtlsParams.role === "client" ? "server" : "client";
+        }
+        return iceTransport;
+      }),
+    ) as RTCIceTransport[];
 
     // filter out inactive transports
     transports = transports.filter((iceTransport) => !!iceTransport);
@@ -1113,12 +1239,15 @@ export class RTCPeerConnection extends EventTarget {
       );
 
     if (sessionDescription.type === "answer") {
-      for (const transceiver of removedTransceivers) {
-        // todo: handle answer side transceiver removal work.
-        // event should trigger to notify media source to stop.
-        transceiver.stop();
-        transceiver.stopped = true;
-      }
+      // protocol-driven の確定であり、application の明示的 stop ではない。
+      this.transceiverManager.runWithoutNegotiationNeeded(() => {
+        for (const transceiver of removedTransceivers) {
+          // todo: handle answer side transceiver removal work.
+          // event should trigger to notify media source to stop.
+          transceiver.stop();
+          transceiver.stopped = true;
+        }
+      });
     }
 
     if (remoteSdp.type === "offer") {

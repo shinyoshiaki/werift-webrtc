@@ -82,6 +82,31 @@ export class SecureTransportManager {
     return this.dtlsTransports.map((d) => d.iceTransport);
   }
 
+  /**
+   * 停止済み transceiver だけが掴む dead transport を除いた一覧。ICE 集約状態・
+   * gather・restart・connect・transport 再利用は live のみを対象にし、確定済み
+   * reject 枠の transport に引きずられないようにする。close/stats/role 設定は
+   * 従来どおり全 transport が対象。
+   */
+  get liveDtlsTransports(): RTCDtlsTransport[] {
+    return this.dtlsTransports.filter((transport) => {
+      if (this.sctpManager.sctpTransport?.dtlsTransport?.id === transport.id) {
+        return true;
+      }
+      const owners = this.transceiverManager
+        .getTransceivers()
+        .filter((t) => t.dtlsTransport?.id === transport.id);
+      if (owners.length === 0) {
+        return true;
+      }
+      return owners.some((t) => !t.stopping && !t.stopped);
+    });
+  }
+
+  get liveIceTransports(): RTCIceTransport[] {
+    return this.liveDtlsTransports.map((d) => d.iceTransport);
+  }
+
   setupCertificate(keys: DtlsKeys) {
     this.certificate = new RTCCertificate(
       keys.keyPem,
@@ -193,6 +218,7 @@ export class SecureTransportManager {
     sdpMLineIndex,
     remoteIsBundled,
     transceiver,
+    transceiverBundled,
     sctpTransport,
     bundlePolicy,
   }: {
@@ -201,11 +227,18 @@ export class SecureTransportManager {
     sdpMLineIndex?: number;
     remoteIsBundled: boolean;
     transceiver?: RTCRtpTransceiver;
+    /** candidate 生成元 transport の持ち主が local BUNDLE group 内か */
+    transceiverBundled?: boolean;
     sctpTransport?: RTCSctpTransport;
     bundlePolicy?: BundlePolicy;
   }) {
     // Assign sdpMid and sdpMLineIndex
-    if (bundlePolicy === "max-bundle" || remoteIsBundled) {
+    // group 外 transport 由来の candidate は持ち主自身の MID/index で送る。
+    // 不明時は従来どおり tag を使う (SCTP 等の既存経路を変えない)。
+    if (
+      (bundlePolicy === "max-bundle" || remoteIsBundled) &&
+      (transceiverBundled ?? true)
+    ) {
       candidate.sdpMLineIndex = sdpMLineIndex ?? 0;
       if (media) {
         candidate.sdpMid = media.rtp.muxId;
@@ -399,7 +432,7 @@ export class SecureTransportManager {
   }
 
   restartIce() {
-    for (const transport of this.iceTransports) {
+    for (const transport of this.liveIceTransports) {
       transport.restart();
     }
     // restart() resets each gatherer to "new"; refresh the aggregate cache
@@ -438,7 +471,7 @@ export class SecureTransportManager {
 
   // https://w3c.github.io/webrtc-pc/#dom-rtcicegatheringstate
   private updateIceGatheringState() {
-    const all = this.iceTransports;
+    const all = this.liveIceTransports;
 
     function allMatch(...state: IceGathererState[]) {
       return (
@@ -469,7 +502,7 @@ export class SecureTransportManager {
 
   // https://w3c.github.io/webrtc-pc/#dom-rtciceconnectionstate
   updateIceConnectionState() {
-    const all = this.iceTransports;
+    const all = this.liveIceTransports;
     let newState: RTCIceConnectionState;
 
     function allMatch(...state: RTCIceConnectionState[]) {
@@ -522,16 +555,22 @@ export class SecureTransportManager {
   }
 
   async gatherCandidates(remoteIsBundled: boolean) {
-    const connected = this.iceTransports.find(
+    const live = this.liveIceTransports;
+    const connected = live.find(
       (transport) =>
         transport.state === "connected" || transport.state === "completed",
     );
-    if (remoteIsBundled && connected) {
+    // 新規 transport は bundled 接続があっても gather する。確定済み reject 枠
+    // の dead transport は gather しない。
+    const fresh = live.filter(
+      (transport) => transport.gatheringState === "new",
+    );
+    if (remoteIsBundled && connected && fresh.length === 0) {
       // no need to gather ice candidates on an existing bundled connection
       log("skipping ICE gathering for bundled connection");
     } else {
       await Promise.allSettled(
-        this.iceTransports.map((iceTransport) => iceTransport.gather()),
+        live.map((iceTransport) => iceTransport.gather()),
       ).catch((e) => {
         // エラーハンドリングを追加 (例: ログ出力)
         log("gatherCandidates failed", e);
