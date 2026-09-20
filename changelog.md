@@ -14,7 +14,7 @@
 
 ### 🐛 Bug Fixes
 
-- **Reject unsupported RTP m-lines in the generated answer instead of throwing** (#705): `setRemoteDescription` no longer throws `negotiate codecs failed` when an offered audio/video m-line has no codec in common with `PeerConfig.codecs`. The offer is applied, the m-line is answered with port `0` (same MID / order / type and a valid format token), rejected sections skip the media pipeline, and BUNDLE tags are reselected per RFC 8843. After `removeTrack`, a new m-line is demultiplexed by MID when the packet SSRC is not yet in the routing table, including when Chrome also attaches an unknown RID extension, so Chrome can keep sending on the added transceiver.
+- **Reject unsupported RTP m-lines in the generated answer instead of throwing** (#705): `setRemoteDescription` no longer throws `negotiate codecs failed` when an offered audio/video m-line has no codec in common with `PeerConfig.codecs`. The offer is applied, the m-line is answered with port `0` (same MID / order / type and a valid format token), rejected sections skip the media pipeline, and BUNDLE tags are reselected per RFC 8843. Codec mismatch on a renegotiated m-line keeps the current pipeline until the port-zero answer is applied, then the transceiver moves to terminal `stopped` (recyclable in any mode without re-firing `negotiationneeded`); a non-zero answer/pranswer with no codec in common with the pending local offer is rejected before commit. Answer BUNDLE groups follow the offered membership and identification-tag order. After `removeTrack`, a new m-line is demultiplexed by MID when the packet SSRC is not yet in the routing table, including when Chrome also attaches an unknown RID extension, so Chrome can keep sending on the added transceiver.
 
 ## v0.24.4
 

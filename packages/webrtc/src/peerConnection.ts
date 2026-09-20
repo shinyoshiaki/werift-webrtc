@@ -954,6 +954,14 @@ export class RTCPeerConnection extends EventTarget {
     }
 
     // # parse and validate description
+    // answer/pranswer の codec 検証に失敗したら description の commit を
+    // 巻き戻せるよう、適用前の記述を退避しておく。
+    const prevPendingRemoteDescription =
+      this.sdpManager.pendingRemoteDescription;
+    const prevCurrentRemoteDescription =
+      this.sdpManager.currentRemoteDescription;
+    const prevPendingLocalDescription = this.sdpManager.pendingLocalDescription;
+    const prevCurrentLocalDescription = this.sdpManager.currentLocalDescription;
     const remoteSdp = this.sdpManager.setRemoteDescription(
       sessionDescription,
       this.signalingState,
@@ -965,6 +973,20 @@ export class RTCPeerConnection extends EventTarget {
       }
       this.invalidateLastCreatedDescriptions();
       return;
+    }
+    if (remoteSdp.type === "answer" || remoteSdp.type === "pranswer") {
+      try {
+        this.transceiverManager.validateAnswerCodecs(
+          remoteSdp,
+          this.sdpManager.pendingLocalDescription,
+        );
+      } catch (error) {
+        this.sdpManager.pendingRemoteDescription = prevPendingRemoteDescription;
+        this.sdpManager.currentRemoteDescription = prevCurrentRemoteDescription;
+        this.sdpManager.pendingLocalDescription = prevPendingLocalDescription;
+        this.sdpManager.currentLocalDescription = prevCurrentLocalDescription;
+        throw error;
+      }
     }
     let bundleTransport: RTCDtlsTransport | undefined;
 
@@ -1127,19 +1149,27 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private finishMediaStops(description: SessionDescription) {
-    for (const media of description.media) {
-      if (media.port !== 0) continue;
-      const transceiver = this.getTransceivers().find(
-        (t) => t.mid === media.rtp.muxId,
-      );
-      if (
-        transceiver &&
-        (transceiver.stopping || this.config.mLineReuse === "aggressive")
-      ) {
-        transceiver.rejected = true;
-        transceiver.forceStop();
+    // rejected answer の確定時は mLineReuse に関係なく terminal stopped へ
+    // 移し、交渉済み port-zero slot を再利用可能にする。pending 段階では
+    // rejected と stopped を分離したままにし、ここでの確定処理では
+    // negotiationneeded を再発火させない。
+    this.transceiverManager.runWithoutNegotiationNeeded(() => {
+      for (const media of description.media) {
+        if (media.port !== 0) continue;
+        const transceiver = this.getTransceivers().find(
+          (t) => t.mid === media.rtp.muxId,
+        );
+        if (
+          transceiver &&
+          (transceiver.stopping ||
+            transceiver.rejected ||
+            this.config.mLineReuse === "aggressive")
+        ) {
+          transceiver.rejected = true;
+          transceiver.forceStop();
+        }
       }
-    }
+    });
   }
 
   addTransceiver(

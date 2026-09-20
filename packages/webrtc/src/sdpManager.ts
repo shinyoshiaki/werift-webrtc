@@ -488,7 +488,7 @@ export class SDPManager {
       description.media.push(media);
     }
 
-    this.appendBundleGroup(description);
+    this.appendAnswerBundleGroup(description);
 
     return description;
   }
@@ -578,6 +578,35 @@ export class SDPManager {
       .filter((media) => media.port !== 0)
       .map((media) => media.rtp.muxId)
       .filter((mid): mid is string => !!mid);
+    if (mids.length > 0) {
+      description.group.push(new GroupDescription("BUNDLE", mids));
+    }
+  }
+
+  /**
+   * answer 用の BUNDLE group を組み立てる。offer 生成とは分け、remote offer の
+   * BUNDLE membership と identification-tag の順序を基準にし、reject 済み
+   * (port 0) の MID だけを除外する。offer に無い m-section を勝手に束ねず、
+   * subsequent negotiation の tag 制約も offered group から継承する。
+   */
+  private appendAnswerBundleGroup(description: SessionDescription) {
+    if (this.bundlePolicy === "disable") {
+      return;
+    }
+    const offered = this._remoteDescription?.group.find(
+      (group) => group.semantic === "BUNDLE",
+    );
+    if (!offered) {
+      return;
+    }
+    const accepted = new Set(
+      description.media
+        .filter((media) => media.port !== 0)
+        .map((media) => media.rtp.muxId),
+    );
+    const mids = offered.items.filter(
+      (mid): mid is string => !!mid && accepted.has(mid),
+    );
     if (mids.length > 0) {
       description.group.push(new GroupDescription("BUNDLE", mids));
     }

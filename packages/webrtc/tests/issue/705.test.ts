@@ -1,7 +1,6 @@
 import {
   MediaStreamTrack,
   RTCPeerConnection,
-  RTCRtpCodecParameters,
   useH264,
   useOPUS,
 } from "../../src";
@@ -266,55 +265,65 @@ describe("https://github.com/shinyoshiaki/werift-webrtc/issues/705", () => {
     }
   });
 
-  test("再交渉で非対応 codec になったら既存 pipeline を解除する", async () => {
-    const { pc: offerer, offer } = await createOfferWithKinds(["audio"]);
+  test("再交渉で非対応 codec になっても answer 確定までは既存 pipeline を維持する", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
     const answerer = new RTCPeerConnection({ iceServers: [] });
-    const unsupportedOfferer = new RTCPeerConnection({
-      iceServers: [],
-      codecs: {
-        audio: [
-          new RTCRtpCodecParameters({
-            mimeType: "audio/G722",
-            clockRate: 8000,
-            payloadType: 9,
-          }),
-        ],
-      },
-    });
-    unsupportedOfferer.addTransceiver("audio", { direction: "sendonly" });
+    const track = new MediaStreamTrack({ kind: "audio" });
+    offerer.addTransceiver(track, { direction: "sendonly" });
 
     try {
-      // Act: 一度 opus で交渉したあと、同一 m-line に非対応 codec の offer を再適用する。
-      await answerer.setRemoteDescription(offer);
+      // Arrange: 同一 ufrag のまま再 offer できるよう、初回 offer の SDP を保持して交渉・接続する。
+      const firstOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(firstOffer);
+      await answerer.setRemoteDescription(offerer.localDescription!);
       await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      await Promise.all([
+        waitForConnection(offerer),
+        waitForConnection(answerer),
+      ]);
+      sendTestRtp(track, "before");
+      await expect(
+        waitForRtp(answerer.getTransceivers()[0]),
+      ).resolves.toBeDefined();
+
+      // Act: 同一 m-line を非対応 codec にした再 offer を適用する。
+      // PCMU が残ると共通 codec 扱いになるため、両方とも非対応に書き換える。
+      const unsupportedSdp = firstOffer.sdp
+        ?.replace(/opus\/48000\/2/i, "G722/8000")
+        .replace(/PCMU\/8000/i, "PCMA/8000");
+      await expect(
+        answerer.setRemoteDescription({ ...firstOffer, sdp: unsupportedSdp }),
+      ).resolves.toBeUndefined();
       const transceiver = answerer.getTransceivers()[0];
-      expect(transceiver.rejected).toBe(false);
+      const existingTrack = transceiver.receiver.tracks[0];
+
+      // Assert: pending rejection では current pipeline が残り、旧 RTP も受信できる。
+      expect(transceiver.rejected).toBe(true);
+      expect(transceiver.stopped).toBe(false);
+      expect(transceiver.stopping).toBe(false);
       expect(transceiver.sender.codec).toBeDefined();
       expect(transceiver.receiver.tracks.length).toBeGreaterThan(0);
-      const existingTrack = transceiver.receiver.tracks[0];
       expect(existingTrack.readyState).toBe("live");
+      sendTestRtp(track, "during");
+      await expect(waitForRtp(transceiver)).resolves.toBeDefined();
+      expect(parseSdp((await answerer.createAnswer()).sdp).media[0]?.port).toBe(
+        0,
+      );
 
-      const unsupportedOffer = await unsupportedOfferer.createOffer();
-      await expect(
-        answerer.setRemoteDescription(unsupportedOffer),
-      ).resolves.toBeUndefined();
-      const parsedAnswer = parseSdp((await answerer.createAnswer()).sdp);
+      // Act: port 0 の answer を適用して reject を確定させる。
+      await answerer.setLocalDescription(await answerer.createAnswer());
 
-      // Assert: rejected になり、sender codec / 既存 track / RTCP は残らない。
-      expect(transceiver.rejected).toBe(true);
+      // Assert: 確定後に初めて pipeline が解除され、terminal stopped になる。
       expect(transceiver.sender.codec).toBeUndefined();
       expect(transceiver.receiver.tracks).toHaveLength(0);
       expect(existingTrack.readyState).toBe("ended");
       expect(transceiver.receiver.rtcpRunning).toBe(false);
       expect(transceiver.receiver.receiverTWCC).toBeUndefined();
-      expect(parsedAnswer.media[0]?.port).toBe(0);
-      expect(parsedAnswer.media[0]?.fmt.length).toBeGreaterThan(0);
+      expect(transceiver.stopped).toBe(true);
+      expect(transceiver.currentDirection).toBe("stopped");
     } finally {
-      await Promise.all([
-        offerer.close(),
-        answerer.close(),
-        unsupportedOfferer.close(),
-      ]);
+      await Promise.all([offerer.close(), answerer.close()]);
     }
   });
 
@@ -573,7 +582,7 @@ describe("https://github.com/shinyoshiaki/werift-webrtc/issues/705", () => {
     }
   });
 
-  test("reject 済み transceiver は addTrack で再利用せず新しい m-line を足す", async () => {
+  test("reject 確定後の新規 transceiver は同じ m-line を新 MID で再利用する", async () => {
     const offerer = new RTCPeerConnection({
       iceServers: [],
       codecs: { audio: [useOPUS()], video: [useH264()] },
@@ -583,41 +592,43 @@ describe("https://github.com/shinyoshiaki/werift-webrtc/issues/705", () => {
     const answerer = new RTCPeerConnection({ iceServers: [] });
 
     try {
-      // Act: 非対応 video を reject したあと、addTrack で新しい video を追加して offer する。
+      // Act: 非対応 video を reject して answer を確定させたあと、新しい video を追加する。
       await answerer.setRemoteDescription(await offerer.createOffer());
       await answerer.setLocalDescription(await answerer.createAnswer());
       const rejectedVideo = answerer
         .getTransceivers()
         .find((transceiver) => transceiver.kind === "video");
       expect(rejectedVideo?.rejected).toBe(true);
+      // Assert: local answer の確定で terminal stopped になる。
+      expect(rejectedVideo?.stopped).toBe(true);
+      expect(rejectedVideo?.currentDirection).toBe("stopped");
+      const oldMid = rejectedVideo?.mid;
 
       const sender = answerer.addTrack(new MediaStreamTrack({ kind: "video" }));
       const nextOffer = parseSdp((await answerer.createOffer()).sdp);
-      const acceptedVideo = nextOffer.media.filter(
-        (media) => media.kind === "video" && media.port !== 0,
-      );
 
-      // Assert: 既存 reject m-line は維持し、新しい accepted video m-line が追加される。
+      // Assert: reject 済み sender は再利用せず、同じ m-line index を新 MID で再利用する。
       expect(sender).not.toBe(rejectedVideo?.sender);
-      expect(rejectedVideo?.rejected).toBe(true);
+      expect(sender.stopped).toBe(false);
       expect(rejectedVideo?.sender.track).toBeFalsy();
       expect(answerer.getTransceivers()).toHaveLength(3);
+      expect(rejectedVideo?.mid).toBeNull();
+      expect(rejectedVideo?.mLineIndex).toBeUndefined();
       expect(
         nextOffer.media.filter((media) => media.kind === "video"),
-      ).toHaveLength(2);
+      ).toHaveLength(1);
       expect(nextOffer.media[0]?.kind).toBe("video");
-      expect(nextOffer.media[0]?.port).toBe(0);
-      expect(acceptedVideo).toHaveLength(1);
-      expect(getBundleItems(nextOffer)).not.toContain(
+      expect(nextOffer.media[0]?.port).not.toBe(0);
+      expect(nextOffer.media[0]?.rtp.muxId).not.toBe(oldMid);
+      expect(getBundleItems(nextOffer)).toContain(
         nextOffer.media[0]?.rtp.muxId,
       );
-      expect(getBundleItems(nextOffer)).toContain(acceptedVideo[0]?.rtp.muxId);
     } finally {
       await Promise.all([offerer.close(), answerer.close()]);
     }
   });
 
-  test("inactive かつ reject 済み transceiver も addTrack で再利用しない", async () => {
+  test("inactive かつ reject 済み transceiver は確定後に stopped になり再利用される", async () => {
     const offerer = new RTCPeerConnection({
       iceServers: [],
       codecs: { audio: [useOPUS()], video: [useH264()] },
@@ -626,28 +637,28 @@ describe("https://github.com/shinyoshiaki/werift-webrtc/issues/705", () => {
     const answerer = new RTCPeerConnection({ iceServers: [] });
 
     try {
-      // Act: inactive かつ非対応 codec の video を reject したあと addTrack する。
+      // Act: inactive かつ非対応 codec の video を reject して answer を確定させる。
       await answerer.setRemoteDescription(await offerer.createOffer());
       await answerer.setLocalDescription(await answerer.createAnswer());
       const rejectedVideo = answerer.getTransceivers()[0];
       expect(rejectedVideo.rejected).toBe(true);
-      expect(rejectedVideo.currentDirection).toBe("inactive");
+      // Assert: codec reject の確定は direction 交渉と別に terminal stopped になる。
+      expect(rejectedVideo.stopped).toBe(true);
+      expect(rejectedVideo.currentDirection).toBe("stopped");
+      const oldMid = rejectedVideo.mid;
 
       answerer.addTrack(new MediaStreamTrack({ kind: "video" }));
       const nextOffer = parseSdp((await answerer.createOffer()).sdp);
 
-      // Assert: inactive reject 枠は置換せず、新しい accepted video m-line が追加される。
+      // Assert: inactive reject 枠は置換せず、同じ m-line index を新 MID で再利用する。
       expect(rejectedVideo.rejected).toBe(true);
+      expect(rejectedVideo.mid).toBeNull();
       expect(answerer.getTransceivers()).toHaveLength(2);
       expect(
         nextOffer.media.filter((media) => media.kind === "video"),
-      ).toHaveLength(2);
-      expect(nextOffer.media[0]?.port).toBe(0);
-      expect(
-        nextOffer.media.filter(
-          (media) => media.kind === "video" && media.port !== 0,
-        ),
       ).toHaveLength(1);
+      expect(nextOffer.media[0]?.port).not.toBe(0);
+      expect(nextOffer.media[0]?.rtp.muxId).not.toBe(oldMid);
     } finally {
       await Promise.all([offerer.close(), answerer.close()]);
     }

@@ -26,7 +26,7 @@ import {
   adoptSenderTrackCodec,
   findCodecByMimeType,
 } from "./peerConnection";
-import { type MediaDescription, codecParametersFromString } from "./sdp";
+import { type MediaDescription, type SessionDescription, codecParametersFromString } from "./sdp";
 import type { RTCDtlsTransport } from "./transport/dtls";
 import type { Kind } from "./types/domain";
 import { reverseDirection } from "./utils";
@@ -63,6 +63,23 @@ export class TransceiverManager {
     ]
   >();
   readonly onNegotiationNeeded = new Event<[]>();
+  /**
+   * finalize 中 (確定済み rejection の terminal stop など) は、新しい交渉を
+   * 要求する必要がないため negotiationneeded の再発火を抑える。
+   */
+  private finalizeSuppressed = 0;
+
+  /**
+   * 内部確定処理を negotiationneeded なしで実行する。
+   */
+  runWithoutNegotiationNeeded(fn: () => void): void {
+    this.finalizeSuppressed++;
+    try {
+      fn();
+    } finally {
+      this.finalizeSuppressed--;
+    }
+  }
 
   constructor(
     private readonly cname: string,
@@ -132,7 +149,9 @@ export class TransceiverManager {
     newTransceiver.onStopping.subscribe(() => {
       this.clearRejectedRtpPipeline(newTransceiver);
       this.router.unregisterRtpSender(newTransceiver.sender);
-      this.onNegotiationNeeded.execute();
+      if (this.finalizeSuppressed === 0) {
+        this.onNegotiationNeeded.execute();
+      }
     });
     // New transceivers get an available, negotiated port-zero slot at offer
     // generation time. Never steal an associated inactive transceiver's MID.
@@ -157,6 +176,7 @@ export class TransceiverManager {
       (t) =>
         !t.rejected &&
         !t.stopping &&
+        !t.sender.stopped &&
         !t.usedForSender &&
         t.sender.track == undefined &&
         t.kind === track.kind &&
@@ -177,6 +197,7 @@ export class TransceiverManager {
       (t) =>
         !t.rejected &&
         !t.stopping &&
+        !t.sender.stopped &&
         t.sender.track == undefined &&
         t.kind === track.kind &&
         SenderDirections.includes(t.direction) === false &&
@@ -317,6 +338,44 @@ export class TransceiverManager {
     return receiveParameters;
   }
 
+  /**
+   * remote answer/pranswer の commit 前検証。non-zero の audio/video m-line は
+   * pending local offer と共通 codec が必要。offer 側の「unsupported は answer
+   * で reject」を answer 側に広げず、無効な answer は状態変更前に失敗させる。
+   * remote port 0 は通常どおり受理する。
+   */
+  validateAnswerCodecs(
+    remoteSdp: SessionDescription,
+    localOffer: SessionDescription | undefined,
+  ): void {
+    remoteSdp.media.forEach((remoteMedia, index) => {
+      if (!["audio", "video"].includes(remoteMedia.kind)) {
+        return;
+      }
+      if (remoteMedia.port === 0) {
+        return;
+      }
+      const localMedia =
+        localOffer?.media[index] ??
+        localOffer?.media.find(
+          (media) => media.rtp.muxId === remoteMedia.rtp.muxId,
+        );
+      const localCodecs =
+        localMedia && ["audio", "video"].includes(localMedia.kind)
+          ? localMedia.rtp.codecs
+          : (this.config.codecs[remoteMedia.kind] ?? []);
+      const common = remoteMedia.rtp.codecs.filter((remoteCodec) =>
+        findCodecByMimeType(localCodecs, remoteCodec),
+      );
+      if (common.length === 0) {
+        throw createWebRtcDomException(
+          "InvalidAccessError",
+          `answer m-line ${index} has no common codec with the local offer.`,
+        );
+      }
+    });
+  }
+
   setRemoteRTP(
     transceiver: RTCRtpTransceiver,
     remoteMedia: MediaDescription,
@@ -358,6 +417,20 @@ export class TransceiverManager {
       transceiver.codecs.length === 0 ||
       remoteMedia.port === 0;
 
+    if (
+      (type === "answer" || type === "pranswer") &&
+      remoteMedia.port !== 0 &&
+      transceiver.codecs.length === 0
+    ) {
+      // offerer は answer で m-line を拒否できない。non-zero answer/pranswer
+      // の codec 不一致は無効な answer として失敗させる。通常は
+      // validateAnswerCodecs の事前検証で弾くため、ここは防御的な二重化。
+      throw createWebRtcDomException(
+        "InvalidAccessError",
+        "answered codecs are not compatible with the local offer.",
+      );
+    }
+
     // # configure direction
     const mediaDirection = remoteMedia.direction ?? "inactive";
     const direction = reverseDirection(mediaDirection);
@@ -371,6 +444,16 @@ export class TransceiverManager {
       transceiver.stop();
     }
     if (transceiver.rejected || transceiver.stopping) {
+      if (
+        type === "offer" &&
+        remoteMedia.port !== 0 &&
+        transceiver.sender.codec !== undefined
+      ) {
+        // pending rejection: local rejected answer が commit されるまで
+        // current pipeline (旧 codec の RTP 受信) を維持する。新規 m-line は
+        // pipeline が無いのでそのまま準備を skip できる。
+        return;
+      }
       this.clearRejectedRtpPipeline(transceiver);
       return;
     }
