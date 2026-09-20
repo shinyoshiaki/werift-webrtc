@@ -190,6 +190,15 @@ Advertised local SCTP max-message-size in SDP. Use 0 for unlimited.
 
 ***
 
+### mLineReuse
+
+> **mLineReuse**: `"compatible"` \| `"aggressive"`
+
+M-line recycling policy. Compatible preserves inactive sections (default).
+Aggressive rejects inactive sections so their positions can be recycled.
+
+***
+
 ### pendingRtp
 
 > **pendingRtp**: `NonNullable`\<`undefined` \| `boolean` \| [`PendingRtpOptions`](../type-aliases/PendingRtpOptions.md)\>

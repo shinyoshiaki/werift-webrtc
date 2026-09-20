@@ -28,6 +28,10 @@
 
 `boolean`
 
+###### mLineReuse?
+
+`"compatible"` \| `"aggressive"` = `"compatible"`
+
 #### Returns
 
 [`SDPManager`](SDPManager.md)
@@ -61,6 +65,12 @@
 ### midSuffix
 
 > `readonly` **midSuffix**: `boolean`
+
+***
+
+### mLineReuse
+
+> `readonly` **mLineReuse**: `"compatible"` \| `"aggressive"`
 
 ***
 
@@ -240,7 +250,7 @@ MediaDescriptionをSCTP用に作成
 
 ### createMediaDescriptionForTransceiver()
 
-> **createMediaDescriptionForTransceiver**(`transceiver`, `direction`, `fallbackFmt`, `profile`): [`MediaDescription`](MediaDescription.md)
+> **createMediaDescriptionForTransceiver**(`transceiver`, `direction`, `fallbackFmt`, `profile`, `isOffer`): [`MediaDescription`](MediaDescription.md)
 
 MediaDescriptionをトランシーバー用に作成
 
@@ -261,6 +271,10 @@ MediaDescriptionをトランシーバー用に作成
 ##### profile
 
 `string` = `"UDP/TLS/RTP/SAVPF"`
+
+##### isOffer
+
+`boolean` = `false`
 
 #### Returns
 

@@ -179,3 +179,19 @@
 #### Returns
 
 `void`
+
+***
+
+### unregisterRtpSender()
+
+> **unregisterRtpSender**(`sender`): `void`
+
+#### Parameters
+
+##### sender
+
+[`RTCRtpSender`](RTCRtpSender.md)
+
+#### Returns
+
+`void`

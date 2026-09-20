@@ -44,6 +44,24 @@ WPT_UPDATE_COVERAGE_BASELINE=1 npm run wpt:coverage --workspace packages/webrtc
 
 ## Documentation
 
+### M-line reuse
+
+`new RTCPeerConnection({ mLineReuse: "compatible" })` (the default) preserves
+inactive media sections. To retire a section permanently, call its transceiver's
+`stop()` and complete an offer/answer exchange. A subsequently added transceiver
+can reuse that negotiated port-zero position with a new MID.
+
+`mLineReuse: "aggressive"` opts into the legacy behavior of generating port zero
+for inactive sections, making their positions available after negotiation without
+an explicit `stop()`. This rejects the section rather than putting it on hold;
+resuming the same transceiver is not supported after rejection. Both modes keep
+codec rejection, valid SDP formats, BUNDLE exclusion, and ICE MID mapping.
+
+Choose the mode at construction; `setConfiguration()` cannot change it.
+See [the specification and behavior comparison](_media/705-media-rejection-and-removetrack.md).
+
+### References
+
 - [Website](https://shinyoshiaki.github.io/werift-webrtc/website/build/)
 - [API Reference](https://shinyoshiaki.github.io/werift-webrtc/website/build/docs/api)
 - [Examples](../../examples)

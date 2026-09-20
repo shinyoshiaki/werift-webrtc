@@ -78,7 +78,7 @@
 
 ### addTransceiver()
 
-> **addTransceiver**(`trackOrKind`, `dtlsTransport`?, `options`?, `claimedMids`?): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+> **addTransceiver**(`trackOrKind`, `dtlsTransport`?, `options`?): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
 
 #### Parameters
 
@@ -93,10 +93,6 @@
 ##### options?
 
 `Partial`\<[`TransceiverOptions`](../interfaces/TransceiverOptions.md)\> = `{}`
-
-##### claimedMids?
-
-`ReadonlySet`\<`string`\>
 
 #### Returns
 
@@ -298,6 +294,24 @@
 
 ***
 
+### runWithoutNegotiationNeeded()
+
+> **runWithoutNegotiationNeeded**(`fn`): `void`
+
+内部確定処理を negotiationneeded なしで実行する。
+
+#### Parameters
+
+##### fn
+
+() => `void`
+
+#### Returns
+
+`void`
+
+***
+
 ### setRemoteRTP()
 
 > **setRemoteRTP**(`transceiver`, `remoteMedia`, `type`, `mLineIndex`): `void`
@@ -319,6 +333,31 @@
 ##### mLineIndex
 
 `number`
+
+#### Returns
+
+`void`
+
+***
+
+### validateAnswerCodecs()
+
+> **validateAnswerCodecs**(`remoteSdp`, `localOffer`): `void`
+
+remote answer/pranswer の commit 前検証。non-zero の audio/video m-line は
+pending local offer と共通 codec が必要。offer 側の「unsupported は answer
+で reject」を answer 側に広げず、無効な answer は状態変更前に失敗させる。
+remote port 0 は通常どおり受理する。
+
+#### Parameters
+
+##### remoteSdp
+
+[`SessionDescription`](SessionDescription.md)
+
+##### localOffer
+
+`undefined` | [`SessionDescription`](SessionDescription.md)
 
 #### Returns
 
