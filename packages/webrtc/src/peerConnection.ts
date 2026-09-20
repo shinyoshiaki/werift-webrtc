@@ -1068,8 +1068,20 @@ export class RTCPeerConnection extends EventTarget {
         this.pendingRouterSnapshot = undefined;
       }
       if (this.pendingSctpSnapshot) {
+        // pending 中に作られた SCTP に付随する fresh DTLS は、SCTP 除去で
+        // 持ち主を失い検出不能になるため、除去前に明示的に停止する。
+        // 共有 transport (pending 前から存在) は停止しない。
+        const createdSctpDtls = !this.pendingSctpSnapshot.existed
+          ? this.sctpTransport?.dtlsTransport
+          : undefined;
         await this.sctpManager.restoreMediaState(this.pendingSctpSnapshot);
         this.pendingSctpSnapshot = undefined;
+        if (
+          createdSctpDtls &&
+          !this.pendingTransportIds?.has(createdSctpDtls.id)
+        ) {
+          await createdSctpDtls.stop().catch(() => undefined);
+        }
       }
       // DTLS remote state を commit 前に戻す (fingerprint 累積の巻き戻し)。
       for (const [dtlsTransport, snapshot] of this.pendingDtlsSnapshot) {

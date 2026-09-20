@@ -1231,6 +1231,95 @@ describe("PR #711 review P1 Round2 の回帰テスト", () => {
     }
   });
 
+  test("既存 SCTP のポート変更は rollback で内部まで戻る", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    offerer.createDataChannel("chat");
+    const offer = await offerer.createOffer();
+    const sctpOf = (pc: RTCPeerConnection) =>
+      (
+        pc as unknown as {
+          sctpManager: {
+            sctpTransport?: {
+              sctp: { getRemotePort(): number | undefined };
+            };
+            sctpRemotePort?: number;
+          };
+        }
+      ).sctpManager;
+
+    try {
+      // Arrange: datachannel 付きで交渉する。
+      await offerer.setLocalDescription(offer);
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      expect(sctpOf(answerer).sctpTransport?.sctp.getRemotePort()).toBe(5000);
+
+      // Act: sctp-port を変えた re-offer を適用してから rollback する。
+      const reOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(reOffer);
+      const changedSdp = reOffer.sdp?.replace(
+        "a=sctp-port:5000",
+        "a=sctp-port:5001",
+      );
+      expect(changedSdp).not.toBe(reOffer.sdp);
+      await expect(
+        answerer.setRemoteDescription({ ...reOffer, sdp: changedSdp }),
+      ).resolves.toBeUndefined();
+      expect(sctpOf(answerer).sctpTransport?.sctp.getRemotePort()).toBe(5001);
+      await expect(
+        answerer.setRemoteDescription({ type: "rollback" }),
+      ).resolves.toBeUndefined();
+
+      // Assert: manager と内部の両方が旧ポートに戻る。
+      expect(sctpOf(answerer).sctpRemotePort).toBe(5000);
+      expect(sctpOf(answerer).sctpTransport?.sctp.getRemotePort()).toBe(5000);
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("新規 SCTP 付随の DTLS は rollback で停止される", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    offerer.createDataChannel("chat");
+    const offer = await offerer.createOffer();
+
+    try {
+      // Act: datachannel のみの offer を何もない PC に適用する。
+      await offerer.setLocalDescription(offer);
+      await expect(
+        answerer.setRemoteDescription(offerer.localDescription!),
+      ).resolves.toBeUndefined();
+      const created = (
+        answerer as unknown as {
+          sctpManager: {
+            sctpTransport?: { dtlsTransport: { id: string; state: string } };
+          };
+        }
+      ).sctpManager.sctpTransport;
+      expect(created).toBeDefined();
+      const dtlsTransport = created!.dtlsTransport;
+      // Act: rollback する。
+      await expect(
+        answerer.setRemoteDescription({ type: "rollback" }),
+      ).resolves.toBeUndefined();
+
+      // Assert: SCTP が除去され、付随 DTLS が停止する。
+      expect(
+        (
+          answerer as unknown as {
+            sctpManager: { sctpTransport?: unknown };
+          }
+        ).sctpManager.sctpTransport,
+      ).toBeUndefined();
+      expect(dtlsTransport.state).toBe("closed");
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
   test("複数 offer 適用後の rollback は最初の pending 前に戻る", async () => {
     const offerer = new RTCPeerConnection({ iceServers: [] });
     const answerer = new RTCPeerConnection({ iceServers: [] });

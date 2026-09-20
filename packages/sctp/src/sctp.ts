@@ -1329,6 +1329,10 @@ export class SCTP {
     this.remotePort = port;
   }
 
+  getRemotePort(): number | undefined {
+    return this.remotePort;
+  }
+
   async start(remotePort?: number) {
     if (!this.started) {
       this.started = true;

@@ -21,6 +21,7 @@ export interface SctpMediaSnapshot {
   sctpRemotePort?: number;
   remoteMaxMessageSize?: number;
   dtlsTransport?: RTCDtlsTransport;
+  internalRemotePort?: number;
 }
 
 export class SctpTransportManager {
@@ -158,6 +159,7 @@ export class SctpTransportManager {
       sctpRemotePort: this.sctpRemotePort,
       remoteMaxMessageSize: transport?.remoteMaxMessageSize,
       dtlsTransport: transport?.dtlsTransport,
+      internalRemotePort: transport?.sctp.getRemotePort(),
     };
   }
 
@@ -186,6 +188,9 @@ export class SctpTransportManager {
       transport.dtlsTransport !== snapshot.dtlsTransport
     ) {
       transport.setDtlsTransport(snapshot.dtlsTransport);
+    }
+    if (snapshot.internalRemotePort !== undefined) {
+      transport.setRemotePort(snapshot.internalRemotePort);
     }
   }
 
