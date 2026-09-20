@@ -440,18 +440,20 @@ export class TransceiverManager {
       transceiver.offerDirection = direction;
     }
 
-    if (remoteMedia.port === 0) {
+    if (remoteMedia.port === 0 && type !== "pranswer") {
       transceiver.stop();
     }
     if (transceiver.rejected || transceiver.stopping) {
       if (
-        type === "offer" &&
-        remoteMedia.port !== 0 &&
-        transceiver.sender.codec !== undefined
+        transceiver.sender.codec !== undefined &&
+        (type === "pranswer" ||
+          (type === "offer" && remoteMedia.port !== 0))
       ) {
-        // pending rejection: local rejected answer が commit されるまで
-        // current pipeline (旧 codec の RTP 受信) を維持する。新規 m-line は
-        // pipeline が無いのでそのまま準備を skip できる。
+        // まだ確定していない拒否 (provisional / pending) では current
+        // pipeline (旧 codec の RTP 送受信) を維持する。offer の codec 不一致は
+        // local rejected answer の commit まで、pranswer の port 0 は final
+        // answer まで保持する。新規 m-line は pipeline が無いのでそのまま
+        // 準備を skip できる。
         return;
       }
       this.clearRejectedRtpPipeline(transceiver);

@@ -180,6 +180,53 @@ describe("PR #711 review P1指摘の回帰テスト", () => {
     }
   });
 
+  test("pranswer の port 0 では pipeline を維持し final answer で確定する", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    const track = new MediaStreamTrack({ kind: "audio" });
+    offerer.addTransceiver(track, { direction: "sendonly" });
+
+    try {
+      // Arrange: opus で交渉・接続し、offerer 側の送信 pipeline を作る。
+      await negotiateOfferAnswer(offerer, answerer);
+      await Promise.all([
+        waitForConnection(offerer),
+        waitForConnection(answerer),
+      ]);
+      const transceiver = offerer.getTransceivers()[0];
+      expect(transceiver.sender.codec).toBeDefined();
+
+      // Act: pending の local offer に対し、port 0 の pranswer を適用する。
+      const reOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(reOffer);
+      const mid = parseSdp(reOffer.sdp).media[0]?.rtp.muxId;
+      const zeroSdp = replaceMediaPortByMid(reOffer.sdp, mid!, 0);
+      await expect(
+        offerer.setRemoteDescription({ type: "pranswer", sdp: zeroSdp }),
+      ).resolves.toBeUndefined();
+
+      // Assert: provisional な拒否では pipeline を維持し、確定しない。
+      expect(offerer.signalingState).toBe("have-remote-pranswer");
+      expect(transceiver.rejected).toBe(true);
+      expect(transceiver.stopping).toBe(false);
+      expect(transceiver.stopped).toBe(false);
+      expect(transceiver.sender.codec).toBeDefined();
+
+      // Act: 同じ内容の final answer を適用する。
+      await expect(
+        offerer.setRemoteDescription({ type: "answer", sdp: zeroSdp }),
+      ).resolves.toBeUndefined();
+
+      // Assert: final answer で初めて pipeline が解除され stopped になる。
+      expect(offerer.signalingState).toBe("stable");
+      expect(transceiver.sender.codec).toBeUndefined();
+      expect(transceiver.stopped).toBe(true);
+      expect(transceiver.currentDirection).toBe("stopped");
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
   test("remote の port 0 answer でも transceiver は stopped になる", async () => {
     const offerer = new RTCPeerConnection({ iceServers: [] });
     offerer.addTransceiver("audio", { direction: "sendonly" });
