@@ -1,6 +1,7 @@
 import {
   MediaStreamTrack,
   RTCPeerConnection,
+  RTCRtpCodecParameters,
   RtpHeader,
   RtpPacket,
   useOPUS,
@@ -959,14 +960,16 @@ describe("PR #711 review P1 Round2 の回帰テスト", () => {
         answerer.setRemoteDescription({ ...firstOffer, sdp: reSdp }),
       ).resolves.toBeUndefined();
       expect(transceiver.receiver.tracks).toHaveLength(2);
+      const speculativeTrack = transceiver.receiver.tracks[1];
       await expect(
         answerer.setRemoteDescription({ type: "rollback" }),
       ).resolves.toBeUndefined();
 
-      // Assert: track が1本に戻り、重複 ontrack なく RTP が継続する。
+      // Assert: track が1本に戻り、speculative track は停止し、重複 ontrack なく RTP が継続する。
       expect(answerer.signalingState).toBe("stable");
       expect(transceiver.receiver.tracks).toHaveLength(1);
       expect(transceiver.receiver.tracks[0]).toBe(originalTrack);
+      expect(speculativeTrack.readyState).toBe("ended");
       expect(onTrack).toHaveBeenCalledTimes(2);
       expect(
         parseSdp((await answerer.createOffer()).sdp).media[0]?.port,
@@ -1002,21 +1005,196 @@ describe("PR #711 review P1 Round2 の回帰テスト", () => {
         answerer.setRemoteDescription(offerer.localDescription!),
       ).resolves.toBeUndefined();
       expect(answerer.getTransceivers()).toHaveLength(2);
+      const added = answerer.getTransceivers()[1];
+      const addedSsrc = added.sender.ssrc;
       await expect(
         answerer.setRemoteDescription({ type: "rollback" }),
       ).resolves.toBeUndefined();
 
-      // Assert: transceiver 一覧が戻り、既存 session が壊れない。
+      // Assert: transceiver 一覧が戻り、追加分は停止・登録解除される。
       expect(answerer.signalingState).toBe("stable");
       expect(answerer.getTransceivers()).toHaveLength(1);
       expect(answerer.getTransceivers()[0].mid).toBe(audioMid);
       expect(answerer.getTransceivers()[0].rejected).toBe(false);
+      expect(added.stopping).toBe(true);
+      expect(added.sender.stopped).toBe(true);
+      expect(added.receiver.stopped).toBe(true);
+      expect(
+        (
+          answerer as unknown as {
+            router: { ssrcTable: { [ssrc: number]: unknown } };
+          }
+        ).router.ssrcTable[addedSsrc],
+      ).toBeUndefined();
       sendTestRtp(track, "after-add-rollback");
       await expect(
         waitForRtp(answerer.getTransceivers()[0]),
       ).resolves.toBeDefined();
     } finally {
       await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("BUNDLE membership 変更後の rollback で transport 配線が戻る", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    offerer.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
+      direction: "sendonly",
+    });
+    offerer.addTransceiver(new MediaStreamTrack({ kind: "audio" }), {
+      direction: "sendonly",
+    });
+
+    try {
+      // Arrange: max-bundle 相当の offer で交渉し、transport を共有させる。
+      const offer = await offerer.createOffer();
+      await offerer.setLocalDescription(offer);
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      const parsed = parseSdp(offer.sdp);
+      const videoMid = parsed.media[0]?.rtp.muxId;
+      const audioMid = parsed.media[1]?.rtp.muxId;
+      const videoT = answerer
+        .getTransceivers()
+        .find((t) => t.mid === videoMid)!;
+      const audioT = answerer
+        .getTransceivers()
+        .find((t) => t.mid === audioMid)!;
+      expect(videoT.dtlsTransport).toBe(audioT.dtlsTransport);
+
+      // Act: group を video のみに狭めた re-offer を適用する。
+      const reOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(reOffer);
+      const reVideoMid = parseSdp(reOffer.sdp).media[0]?.rtp.muxId;
+      const reAudioMid = parseSdp(reOffer.sdp).media[1]?.rtp.muxId;
+      await expect(
+        answerer.setRemoteDescription({
+          ...reOffer,
+          sdp: rewriteBundleGroup(reOffer.sdp, [reVideoMid!]),
+        }),
+      ).resolves.toBeUndefined();
+
+      // Assert: group 外の audio が独立 transport に分離される。
+      const reVideoT = answerer
+        .getTransceivers()
+        .find((t) => t.mid === reVideoMid)!;
+      const reAudioT = answerer
+        .getTransceivers()
+        .find((t) => t.mid === reAudioMid)!;
+      expect(reAudioT.dtlsTransport).not.toBe(reVideoT.dtlsTransport);
+
+      // Act: rollback する。
+      await expect(
+        answerer.setRemoteDescription({ type: "rollback" }),
+      ).resolves.toBeUndefined();
+
+      // Assert: transport 配線が共有に戻る。
+      expect(answerer.signalingState).toBe("stable");
+      expect(reAudioT.dtlsTransport).toBe(reVideoT.dtlsTransport);
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("codec 構成変更の re-offer 後の rollback で sender 準備が戻る", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    const track = new MediaStreamTrack({ kind: "audio" });
+    offerer.addTransceiver(track, { direction: "sendonly" });
+
+    try {
+      // Arrange: 同一 ufrag のまま再 offer できるよう初回 offer を保持して接続する。
+      const firstOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(firstOffer);
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      await Promise.all([
+        waitForConnection(offerer),
+        waitForConnection(answerer),
+      ]);
+      const transceiver = answerer.getTransceivers()[0];
+      expect(transceiver.sender.codec?.mimeType).toBe("audio/OPUS");
+
+      // Act: PCMU のみに絞った accepted re-offer を適用してから rollback する。
+      const narrowedSdp = firstOffer.sdp
+        ?.replace(
+          "m=audio 9 UDP/TLS/RTP/SAVPF 96 0",
+          "m=audio 9 UDP/TLS/RTP/SAVPF 0",
+        )
+        .replace(/\r\na=rtpmap:96 OPUS\/48000\/2/, "");
+      expect(
+        parseSdp(narrowedSdp).media[0]?.rtp.codecs.map((c) => c.mimeType),
+      ).toEqual(["audio/PCMU"]);
+      await expect(
+        answerer.setRemoteDescription({ ...firstOffer, sdp: narrowedSdp }),
+      ).resolves.toBeUndefined();
+      expect(transceiver.sender.codec?.mimeType).toBe("audio/PCMU");
+      await expect(
+        answerer.setRemoteDescription({ type: "rollback" }),
+      ).resolves.toBeUndefined();
+
+      // Assert: sender 準備が OPUS に戻り、RTP が継続する。
+      expect(transceiver.sender.codec?.mimeType).toBe("audio/OPUS");
+      sendTestRtp(track, "after-codec-rollback");
+      await expect(waitForRtp(transceiver)).resolves.toBeDefined();
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("sender snapshot は RTX/RED 関連 field を復元する", async () => {
+    const pc = new RTCPeerConnection({ iceServers: [] });
+    const sender = pc.addTrack(new MediaStreamTrack({ kind: "video" }));
+
+    try {
+      // Arrange: RTX/RED を含む送信パラメータで準備する。
+      const snapshot = sender.snapshotMediaState();
+      sender.prepareSend({
+        codecs: [
+          new RTCRtpCodecParameters({
+            mimeType: "video/VP8",
+            clockRate: 90000,
+            payloadType: 96,
+          }),
+          new RTCRtpCodecParameters({
+            mimeType: "video/rtx",
+            clockRate: 90000,
+            payloadType: 97,
+            parameters: "apt=96",
+          }),
+          new RTCRtpCodecParameters({
+            mimeType: "video/red",
+            clockRate: 90000,
+            payloadType: 98,
+            parameters: "96/96",
+          }),
+        ],
+        muxId: "9",
+        headerExtensions: [],
+        rtcp: { cname: "pending", ssrc: 1, mux: true },
+      });
+      const internals = sender as unknown as {
+        rtxPayloadType?: number;
+        redRedundantPayloadType?: number;
+        rtpStreamId?: string;
+        cname?: string;
+      };
+      expect(internals.rtxPayloadType).toBe(97);
+      expect(internals.redRedundantPayloadType).toBe(96);
+
+      // Act: snapshot へ復元する。
+      sender.restoreMediaState(snapshot);
+
+      // Assert: 準備前の状態に戻る。
+      expect(sender.codec).toBeUndefined();
+      expect(internals.rtxPayloadType).toBeUndefined();
+      expect(internals.redRedundantPayloadType).toBeUndefined();
+      expect(internals.rtpStreamId).toBeUndefined();
+      expect(internals.cname).toBeUndefined();
+    } finally {
+      await pc.close();
     }
   });
 });

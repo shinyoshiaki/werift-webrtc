@@ -52,6 +52,7 @@ export interface TransceiverMediaSnapshot {
   usedForSender: boolean;
   receiver: RtpReceiverMediaSnapshot;
   sender: RtpSenderMediaSnapshot;
+  dtlsTransport?: RTCDtlsTransport;
 }
 
 export interface RouterTableSnapshot {
@@ -429,11 +430,23 @@ export class TransceiverManager {
       usedForSender: transceiver.usedForSender,
       receiver: transceiver.receiver.snapshotMediaState(),
       sender: transceiver.sender.snapshotMediaState(),
+      dtlsTransport: transceiver.dtlsTransport,
     }));
   }
 
   restoreTransceiverMedia(snapshot: TransceiverMediaSnapshot[]): void {
-    // rollback 後に追加された transceiver を取り除く。
+    // rollback 後に追加された transceiver は明示的に停止してから取り除く。
+    // sender/receiver・router 登録の後始末を伴う。交換自体で確定したわけでは
+    // ないため negotiationneeded は発火させない。
+    const added = this.transceivers.filter(
+      (transceiver) =>
+        !snapshot.some((entry) => entry.transceiver === transceiver),
+    );
+    this.runWithoutNegotiationNeeded(() => {
+      for (const transceiver of added) {
+        transceiver.stop();
+      }
+    });
     for (let i = this.transceivers.length - 1; i >= 0; i--) {
       if (
         !snapshot.some((entry) => entry.transceiver === this.transceivers[i])
@@ -458,6 +471,12 @@ export class TransceiverManager {
       transceiver.usedForSender = entry.usedForSender;
       transceiver.receiver.restoreMediaState(entry.receiver);
       transceiver.sender.restoreMediaState(entry.sender);
+      if (
+        entry.dtlsTransport &&
+        transceiver.dtlsTransport !== entry.dtlsTransport
+      ) {
+        transceiver.setDtlsTransport(entry.dtlsTransport);
+      }
     }
   }
 

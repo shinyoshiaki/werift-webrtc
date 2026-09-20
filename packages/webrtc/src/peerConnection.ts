@@ -117,6 +117,8 @@ export class RTCPeerConnection extends EventTarget {
    */
   private pendingTransceiverSnapshot?: TransceiverMediaSnapshot[];
   private pendingRouterSnapshot?: RouterTableSnapshot;
+  private pendingSctpTransport?: RTCDtlsTransport;
+  private pendingTransportIds?: Set<string>;
 
   readonly iceGatheringStateChange = new Event<[IceGathererState]>();
   readonly iceConnectionStateChange = new Event<[RTCIceConnectionState]>();
@@ -821,6 +823,8 @@ export class RTCPeerConnection extends EventTarget {
       // local answer の commit で pending は確定した。rollback 対象は無い。
       this.pendingTransceiverSnapshot = undefined;
       this.pendingRouterSnapshot = undefined;
+      this.pendingSctpTransport = undefined;
+      this.pendingTransportIds = undefined;
     }
 
     await this.gatherCandidates().catch((e) => {
@@ -1013,6 +1017,16 @@ export class RTCPeerConnection extends EventTarget {
         this.pendingRouterSnapshot = undefined;
       }
       if (
+        this.pendingSctpTransport &&
+        this.sctpTransport &&
+        this.sctpTransport.dtlsTransport !== this.pendingSctpTransport
+      ) {
+        this.sctpTransport.setDtlsTransport(this.pendingSctpTransport);
+      }
+      this.pendingSctpTransport = undefined;
+      // pending 中に作られ、復元後に持ち主のいない transport を停止する。
+      await this.stopOrphanedTransports();
+      if (
         this.signalingState === "have-remote-pranswer" &&
         this.sdpManager.pendingLocalDescription
       ) {
@@ -1060,9 +1074,15 @@ export class RTCPeerConnection extends EventTarget {
         this.transceiverManager.snapshotTransceiverMedia();
       this.pendingRouterSnapshot =
         this.transceiverManager.snapshotRouterTables();
+      this.pendingSctpTransport = this.sctpTransport?.dtlsTransport;
+      this.pendingTransportIds = new Set(
+        this.secureManager.dtlsTransports.map((transport) => transport.id),
+      );
     } else {
       this.pendingTransceiverSnapshot = undefined;
       this.pendingRouterSnapshot = undefined;
+      this.pendingSctpTransport = undefined;
+      this.pendingTransportIds = undefined;
     }
 
     const matchTransceiverWithMedia = (
@@ -1293,6 +1313,33 @@ export class RTCPeerConnection extends EventTarget {
       this.needNegotiation();
     }
     this.invalidateLastCreatedDescriptions();
+  }
+
+  /**
+   * rollback 後に持ち主のいなくなった transport を停止する。pending 中に分割
+   * などで作られたものだけが対象で、既存の transport には触らない。
+   */
+  private async stopOrphanedTransports(): Promise<void> {
+    const knownIds = this.pendingTransportIds;
+    this.pendingTransportIds = undefined;
+    if (!knownIds) {
+      return;
+    }
+    const ownedIds = new Set<string>();
+    for (const transceiver of this.transceiverManager.getTransceivers()) {
+      const id = transceiver.dtlsTransport?.id;
+      if (id) {
+        ownedIds.add(id);
+      }
+    }
+    const sctpId = this.sctpTransport?.dtlsTransport?.id;
+    if (sctpId) {
+      ownedIds.add(sctpId);
+    }
+    const orphaned = this.secureManager.dtlsTransports.filter(
+      (transport) => !knownIds.has(transport.id) && !ownedIds.has(transport.id),
+    );
+    await Promise.allSettled(orphaned.map((transport) => transport.stop()));
   }
 
   private finishMediaStops(description: SessionDescription) {

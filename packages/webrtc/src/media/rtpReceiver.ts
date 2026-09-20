@@ -58,6 +58,19 @@ export interface RtpReceiverMediaSnapshot {
   remoteTrackId?: string;
   receiverTWCC?: ReceiverTWCC;
   rtcpRunning: boolean;
+  sdesMid?: string;
+  latestRid?: string;
+  latestRepairedRid?: string;
+  /** packet-driven statistics keyed by SSRC (new keys are dropped on restore) */
+  remoteStreams: { [ssrc: number]: StreamStatistics };
+  senderReportsReceivedBySsrc: { [ssrc: number]: number };
+  remoteTimestampsBySsrc: { [ssrc: number]: number };
+  remotePacketCountBySsrc: { [ssrc: number]: number };
+  remoteOctetCountBySsrc: { [ssrc: number]: number };
+  nackCountBySsrc: { [ssrc: number]: number };
+  pliCountBySsrc: { [ssrc: number]: number };
+  lastSRtimestamp: { [ssrc: number]: number };
+  receiveLastSRTimestamp: { [ssrc: number]: number };
 }
 
 export class RTCRtpReceiver {
@@ -241,10 +254,29 @@ export class RTCRtpReceiver {
       remoteTrackId: this.remoteTrackId,
       receiverTWCC: this.receiverTWCC,
       rtcpRunning: this.rtcpRunning,
+      sdesMid: this.sdesMid,
+      latestRid: this.latestRid,
+      latestRepairedRid: this.latestRepairedRid,
+      remoteStreams: { ...this.remoteStreams },
+      senderReportsReceivedBySsrc: { ...this.senderReportsReceivedBySsrc },
+      remoteTimestampsBySsrc: { ...this.remoteTimestampsBySsrc },
+      remotePacketCountBySsrc: { ...this.remotePacketCountBySsrc },
+      remoteOctetCountBySsrc: { ...this.remoteOctetCountBySsrc },
+      nackCountBySsrc: { ...this.nackCountBySsrc },
+      pliCountBySsrc: { ...this.pliCountBySsrc },
+      lastSRtimestamp: { ...this.lastSRtimestamp },
+      receiveLastSRTimestamp: { ...this.receiveLastSRTimestamp },
     };
   }
 
   restoreMediaState(snapshot: RtpReceiverMediaSnapshot): void {
+    // rollback 後に追加された speculative track は停止してから取り除く。
+    // ontrack でアプリへ渡った track が live のまま残らないようにする。
+    for (const track of [...this.tracks]) {
+      if (!snapshot.tracks.includes(track)) {
+        track.stop();
+      }
+    }
     this.tracks.length = 0;
     this.tracks.push(...snapshot.tracks);
     for (const key of Object.keys(this.trackBySSRC)) {
@@ -268,6 +300,46 @@ export class RTCRtpReceiver {
     this.remoteTrackId = snapshot.remoteTrackId;
     this.receiverTWCC = snapshot.receiverTWCC;
     this.rtcpRunning = snapshot.rtcpRunning;
+    this.sdesMid = snapshot.sdesMid;
+    this.latestRid = snapshot.latestRid;
+    this.latestRepairedRid = snapshot.latestRepairedRid;
+    // packet-driven statistics は pending 中に増えたキーを落とし、既存の計測値
+    // 自体は実際に受信したパケットの記録として残す。
+    this.dropNewNumericKeys(this.remoteStreams, snapshot.remoteStreams);
+    this.dropNewNumericKeys(
+      this.senderReportsReceivedBySsrc,
+      snapshot.senderReportsReceivedBySsrc,
+    );
+    this.dropNewNumericKeys(
+      this.remoteTimestampsBySsrc,
+      snapshot.remoteTimestampsBySsrc,
+    );
+    this.dropNewNumericKeys(
+      this.remotePacketCountBySsrc,
+      snapshot.remotePacketCountBySsrc,
+    );
+    this.dropNewNumericKeys(
+      this.remoteOctetCountBySsrc,
+      snapshot.remoteOctetCountBySsrc,
+    );
+    this.dropNewNumericKeys(this.nackCountBySsrc, snapshot.nackCountBySsrc);
+    this.dropNewNumericKeys(this.pliCountBySsrc, snapshot.pliCountBySsrc);
+    this.dropNewNumericKeys(this.lastSRtimestamp, snapshot.lastSRtimestamp);
+    this.dropNewNumericKeys(
+      this.receiveLastSRTimestamp,
+      snapshot.receiveLastSRTimestamp,
+    );
+  }
+
+  private dropNewNumericKeys(
+    current: { [key: number]: unknown },
+    snapshot: { [key: number]: unknown },
+  ): void {
+    for (const key of Object.keys(current)) {
+      if (!(key in snapshot)) {
+        delete current[Number(key)];
+      }
+    }
   }
 
   stop() {

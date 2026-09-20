@@ -140,6 +140,11 @@ export interface RtpSenderMediaSnapshot {
   headerExtensions: RTCRtpHeaderExtensionParameters[];
   mid?: string;
   trackCodec?: RTCRtpCodecParameters;
+  rtxPayloadType?: number;
+  redRedundantPayloadType?: number;
+  rtpStreamId?: string;
+  repairedRtpStreamId?: string;
+  cname?: string;
 }
 
 export class RTCRtpSender {
@@ -285,6 +290,11 @@ export class RTCRtpSender {
       headerExtensions: this.headerExtensions,
       mid: this.mid,
       trackCodec: this.track?.codec,
+      rtxPayloadType: this.rtxPayloadType,
+      redRedundantPayloadType: this.redRedundantPayloadType,
+      rtpStreamId: this.rtpStreamId,
+      repairedRtpStreamId: this.repairedRtpStreamId,
+      cname: this.cname,
     };
   }
 
@@ -295,6 +305,11 @@ export class RTCRtpSender {
     if (this.track) {
       this.track.codec = snapshot.trackCodec;
     }
+    this.rtxPayloadType = snapshot.rtxPayloadType;
+    this.redRedundantPayloadType = snapshot.redRedundantPayloadType;
+    this.rtpStreamId = snapshot.rtpStreamId;
+    this.repairedRtpStreamId = snapshot.repairedRtpStreamId;
+    this.cname = snapshot.cname;
   }
 
   prepareSend(params: RTCRtpSendParameters) {

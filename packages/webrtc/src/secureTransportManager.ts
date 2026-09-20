@@ -97,7 +97,9 @@ export class SecureTransportManager {
         .getTransceivers()
         .filter((t) => t.dtlsTransport?.id === transport.id);
       if (owners.length === 0) {
-        return true;
+        // 持ち主のいない transport は閉じていなければ live 扱い
+        // (生成直後の transient を拾うため)。
+        return transport.state !== "closed";
       }
       return owners.some((t) => !t.stopping && !t.stopped);
     });
