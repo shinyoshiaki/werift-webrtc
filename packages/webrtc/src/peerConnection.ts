@@ -891,7 +891,7 @@ export class RTCPeerConnection extends EventTarget {
       this.pendingDtlsSnapshot.clear();
       this.pendingIceCandidateSnapshot.clear();
       this.sctpManager.commitStagedAssociation();
-      this.finishMediaStops(description);
+      await this.finishMediaStops(description);
       // local answer の commit で pending は確定した。rollback 対象は無い。
       this.pendingTransceiverSnapshot = undefined;
       this.pendingRouterSnapshot = undefined;
@@ -1485,7 +1485,7 @@ export class RTCPeerConnection extends EventTarget {
     if (remoteSdp.type === "offer") {
       this.setSignalingState("have-remote-offer");
     } else if (remoteSdp.type === "answer") {
-      this.finishMediaStops(remoteSdp);
+      await this.finishMediaStops(remoteSdp);
       this.setSignalingState("stable");
     } else if (remoteSdp.type === "pranswer") {
       this.setSignalingState("have-remote-pranswer");
@@ -1567,11 +1567,14 @@ export class RTCPeerConnection extends EventTarget {
     }
   }
 
-  private finishMediaStops(description: SessionDescription) {
-    // rejected answer の確定時は mLineReuse に関係なく terminal stopped へ
-    // 移し、交渉済み port-zero slot を再利用可能にする。pending 段階では
-    // rejected と stopped を分離したままにし、ここでの確定処理では
-    // negotiationneeded を再発火させない。
+  /**
+   * reject 確定した transceiver を terminal stopped にし、他に live の持ち主が
+   * いない transport を停止・prune する。共有 transport は残す。
+   */
+  private async finishMediaStops(
+    description: SessionDescription,
+  ): Promise<void> {
+    const finalized: RTCRtpTransceiver[] = [];
     this.transceiverManager.runWithoutNegotiationNeeded(() => {
       for (const media of description.media) {
         if (media.port !== 0) continue;
@@ -1586,9 +1589,33 @@ export class RTCPeerConnection extends EventTarget {
         ) {
           transceiver.rejected = true;
           transceiver.forceStop();
+          finalized.push(transceiver);
         }
       }
     });
+    const liveIds = new Set<string>();
+    for (const transceiver of this.transceiverManager.getTransceivers()) {
+      if (
+        !transceiver.stopping &&
+        !transceiver.stopped &&
+        transceiver.dtlsTransport
+      ) {
+        liveIds.add(transceiver.dtlsTransport.id);
+      }
+    }
+    const sctpId = this.sctpTransport?.dtlsTransport?.id;
+    if (sctpId) {
+      liveIds.add(sctpId);
+    }
+    const targets = new Map<string, RTCDtlsTransport>();
+    for (const transceiver of finalized) {
+      const dtls = transceiver.dtlsTransport;
+      if (dtls && !liveIds.has(dtls.id)) {
+        targets.set(dtls.id, dtls);
+      }
+    }
+    await Promise.allSettled([...targets.values()].map((dtls) => dtls.stop()));
+    this.secureManager.pruneClosedTransports();
   }
 
   addTransceiver(

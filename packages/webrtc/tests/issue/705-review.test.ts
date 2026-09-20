@@ -2394,7 +2394,6 @@ describe("PR #711 review P1 Round9 の回帰テスト", () => {
       await offerer.setRemoteDescription(answerer.localDescription!);
 
       // Assert: commit 後は新 cap になり、超過分は明示 reject される。
-      // cap は answerer 側送信に適用される。
       expect(maxSizeOf(answerer)).toBe(5);
       expect(() => channel2.send("hello!")).toThrow(
         "max-message-size exceeded",
@@ -2405,4 +2404,46 @@ describe("PR #711 review P1 Round9 の回帰テスト", () => {
       await Promise.all([offerer.close(), answerer.close()]);
     }
   }, 60000);
+
+  test("reject 確定後に共有されていない transport が停止される", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    offerer.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
+      direction: "sendonly",
+    });
+    offerer.addTransceiver(new MediaStreamTrack({ kind: "audio" }), {
+      direction: "sendonly",
+    });
+    const answerer = createAudioOnlyPeerConnection();
+
+    try {
+      // Arrange: audio のみ bundle の offer で video を独立させる。
+      const offer = await offerer.createOffer();
+      const audioMid = parseSdp(offer.sdp).media[1]?.rtp.muxId;
+      await offerer.setLocalDescription(offer);
+      await answerer.setRemoteDescription({
+        ...offer,
+        sdp: rewriteBundleGroup(offer.sdp, [audioMid!]),
+      });
+      const videoT = answerer
+        .getTransceivers()
+        .find((t) => t.kind === "video")!;
+      const audioT = answerer
+        .getTransceivers()
+        .find((t) => t.kind === "audio")!;
+      expect(videoT.dtlsTransport).not.toBe(audioT.dtlsTransport);
+      const videoDtls = videoT.dtlsTransport;
+      const audioDtls = audioT.dtlsTransport;
+
+      // Act: 非対応 video を answer で確定させる。
+      await answerer.setLocalDescription(await answerer.createAnswer());
+
+      // Assert: reject 済み video は停止し、その独立 transport は閉じる。
+      // 共有 transport は live のまま残る。
+      expect(videoT.stopped).toBe(true);
+      expect(videoDtls.state).toBe("closed");
+      expect(audioDtls.state).not.toBe("closed");
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
 });
