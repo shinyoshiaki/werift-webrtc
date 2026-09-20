@@ -1489,7 +1489,12 @@ describe("PR #711 review P1 Round6 の回帰テスト", () => {
       const transceiver = answerer.getTransceivers()[0];
       const iceConnection = transceiver.dtlsTransport
         .iceTransport as unknown as {
-        connection: { remoteUsername: string; remotePassword: string };
+        connection: {
+          remoteUsername: string;
+          remotePassword: string;
+          remoteCandidates: { host: string }[];
+          remoteCandidatesEnd: boolean;
+        };
       };
       const dtlsTransport = transceiver.dtlsTransport as unknown as {
         remoteParameters?: { fingerprints: { value: string }[] };
@@ -1501,6 +1506,7 @@ describe("PR #711 review P1 Round6 の回帰テスト", () => {
       );
       const oldRole = dtlsTransport.role;
       expect(oldUfrag.length).toBeGreaterThan(0);
+      const baselineEnd = iceConnection.connection.remoteCandidatesEnd;
 
       // Act: 新 ufrag/pwd・candidate・EOC・変更 fingerprint の re-offer を適用する。
       // offerer 自体は restart せず、SDP 上だけ新世代に見せて answerer 側の扱いを見る。
@@ -1517,8 +1523,8 @@ describe("PR #711 review P1 Round6 の回帰テスト", () => {
               `a=fingerprint:sha-256 ${hex.slice(0, -1)}${hex.endsWith("0") ? "1" : "0"}`,
           )
           .replace(
-            "\r\nm=",
-            "\r\na=candidate:1 1 udp 2113929471 192.0.2.1 10100 typ host\r\na=end-of-candidates\r\nm=",
+            /(m=audio [^\r\n]*\r\n)/,
+            `$1a=candidate:1 1 udp 2113929471 192.0.2.1 10100 typ host\r\na=end-of-candidates\r\n`,
           ) ?? reOffer.sdp;
       expect(parseSdp(craftedSdp).media[0]?.iceParams?.usernameFragment).toBe(
         reUfrag,
@@ -1532,8 +1538,14 @@ describe("PR #711 review P1 Round6 の回帰テスト", () => {
       ).resolves.toBeUndefined();
 
       // Assert: current description と transport の remote state が旧世代のまま。
+      // staged だった candidate/EOC も適用されずに破棄される。
+      // baseline の in-SDP/trickle candidate は残るため、crafted の不在で判定する。
       expect(answerer.signalingState).toBe("stable");
       expect(iceConnection.connection.remoteUsername).toBe(oldUfrag);
+      expect(
+        iceConnection.connection.remoteCandidates.map((c) => c.host),
+      ).not.toContain("192.0.2.1");
+      expect(iceConnection.connection.remoteCandidatesEnd).toBe(baselineEnd);
       expect(JSON.stringify(dtlsTransport.remoteParameters?.fingerprints)).toBe(
         oldFingerprints,
       );
@@ -1734,4 +1746,364 @@ describe("PR #711 review P1 Round6 の回帰テスト", () => {
       await Promise.all([offerer.close(), answerer.close()]);
     }
   }, 90000);
+
+  test("staged candidate/EOC は local answer commit で credentials と一緒に適用される", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    offerer.addTransceiver("audio", { direction: "sendonly" });
+
+    try {
+      // Arrange: 交渉し、ICE state を読む準備をする。
+      await negotiateOfferAnswer(offerer, answerer);
+      const transceiver = answerer.getTransceivers()[0];
+      const iceConnection = transceiver.dtlsTransport
+        .iceTransport as unknown as {
+        connection: {
+          remoteUsername: string;
+          remoteCandidates: { host: string }[];
+          remoteCandidatesEnd: boolean;
+        };
+      };
+      const oldUfrag = iceConnection.connection.remoteUsername;
+
+      // Act: 新世代 ufrag・candidate・EOC の re-offer を適用する。
+      const reOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(reOffer);
+      const craftedSdp =
+        reOffer.sdp
+          ?.replace(/a=ice-ufrag:[^\r\n]+/, "a=ice-ufrag:commit11")
+          .replace(/a=ice-pwd:[^\r\n]+/, "a=ice-pwd:0123456789abcdefghijuy")
+          .replace(
+            /(m=audio [^\r\n]*\r\n)/,
+            `$1a=candidate:1 1 udp 2113929471 192.0.2.1 10100 typ host\r\na=end-of-candidates\r\n`,
+          ) ?? reOffer.sdp;
+      await expect(
+        answerer.setRemoteDescription({ ...reOffer, sdp: craftedSdp }),
+      ).resolves.toBeUndefined();
+
+      // Assert: commit 前は stage されるだけで適用されない。
+      // baseline の in-SDP candidate は残るため、crafted の不在で判定する。
+      expect(iceConnection.connection.remoteUsername).toBe(oldUfrag);
+      expect(
+        iceConnection.connection.remoteCandidates.map((c) => c.host),
+      ).not.toContain("192.0.2.1");
+
+      // Act: local answer を作って commit する。
+      await answerer.setLocalDescription(await answerer.createAnswer());
+
+      // Assert: credentials と同じ transaction で candidate/EOC が適用される。
+      expect(iceConnection.connection.remoteUsername).toBe("commit11");
+      expect(
+        iceConnection.connection.remoteCandidates.map((c) => c.host),
+      ).toContain("192.0.2.1");
+      expect(iceConnection.connection.remoteCandidatesEnd).toBe(true);
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("同一世代の candidate/EOC 追加は rollback で巻き戻る", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    offerer.addTransceiver("audio", { direction: "sendonly" });
+
+    try {
+      // Arrange: gathering 前の SDP で交渉し、ICE state を読む準備をする。
+      // SLD 後の SDP には candidate/EOC が混入するため、生成直後の SDP を使う。
+      const offer = await offerer.createOffer();
+      await offerer.setLocalDescription(offer);
+      await answerer.setRemoteDescription(offer);
+      const answer = await answerer.createAnswer();
+      await offerer.setRemoteDescription(answer);
+      const transceiver = answerer.getTransceivers()[0];
+      const iceConnection = transceiver.dtlsTransport
+        .iceTransport as unknown as {
+        connection: {
+          remoteCandidates: { host: string }[];
+          remoteCandidatesEnd: boolean;
+        };
+      };
+      const baselineHosts = iceConnection.connection.remoteCandidates.map(
+        (c) => c.host,
+      );
+      const baselineEnd = iceConnection.connection.remoteCandidatesEnd;
+
+      // Act: 同一世代のまま candidate を足した re-offer を適用する。
+      const reOffer = await offerer.createOffer();
+      const craftedSdp =
+        reOffer.sdp?.replace(
+          /(m=audio [^\r\n]*\r\n)/,
+          `$1a=candidate:1 1 udp 2113929471 192.0.2.1 10100 typ host\r\n`,
+        ) ?? reOffer.sdp;
+      await expect(
+        answerer.setRemoteDescription({ ...reOffer, sdp: craftedSdp }),
+      ).resolves.toBeUndefined();
+
+      // Assert: 同一世代なので即時適用される。
+      expect(
+        iceConnection.connection.remoteCandidates.map((c) => c.host),
+      ).toContain("192.0.2.1");
+
+      // Act: EOC だけ足した re-offer を適用してから rollback する。
+      const eocSdp =
+        reOffer.sdp?.replace(
+          /(m=audio [^\r\n]*\r\n)/,
+          `$1a=end-of-candidates\r\n`,
+        ) ?? reOffer.sdp;
+      await expect(
+        answerer.setRemoteDescription({ ...reOffer, sdp: eocSdp }),
+      ).resolves.toBeUndefined();
+      expect(iceConnection.connection.remoteCandidatesEnd).toBe(true);
+      await expect(
+        answerer.setRemoteDescription({ type: "rollback" }),
+      ).resolves.toBeUndefined();
+
+      // Assert: candidate list と EOC が巻き戻る。
+      expect(answerer.signalingState).toBe("stable");
+      expect(
+        iceConnection.connection.remoteCandidates.map((c) => c.host),
+      ).toEqual(baselineHosts);
+      expect(iceConnection.connection.remoteCandidatesEnd).toBe(baselineEnd);
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("replacement offer では staged が最新世代に置き換わる", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    offerer.addTransceiver("audio", { direction: "sendonly" });
+    const craftGeneration = (baseSdp: string, ufrag: string, fp: string) =>
+      baseSdp
+        .replace(/a=ice-ufrag:[^\r\n]+/, `a=ice-ufrag:${ufrag}`)
+        .replace(/a=ice-pwd:[^\r\n]+/, `a=ice-pwd:${ufrag}0123456789abcdef`)
+        .replace(
+          /a=fingerprint:sha-256 [^\r\n]+/,
+          `a=fingerprint:sha-256 ${fp}`,
+        );
+
+    try {
+      // Arrange: 交渉し、旧世代の state を記録する。
+      await negotiateOfferAnswer(offerer, answerer);
+      const transceiver = answerer.getTransceivers()[0];
+      const iceConnection = transceiver.dtlsTransport
+        .iceTransport as unknown as {
+        connection: { remoteUsername: string };
+      };
+      const dtlsTransport = transceiver.dtlsTransport as unknown as {
+        remoteParameters?: { fingerprints: { value: string }[] };
+      };
+      const oldUfrag = iceConnection.connection.remoteUsername;
+      const fpValues = () =>
+        (dtlsTransport.remoteParameters?.fingerprints ?? []).map(
+          (f) => f.value,
+        );
+
+      // Act: offer A → replacement offer B を適用する。
+      const base = await offerer.createOffer();
+      await offerer.setLocalDescription(base);
+      const sdpA = craftGeneration(base.sdp!, "genAAAA", "AA:BB:CC");
+      const sdpB = craftGeneration(base.sdp!, "genBBBB", "DD:EE:FF");
+      await expect(
+        answerer.setRemoteDescription({ ...base, sdp: sdpA }),
+      ).resolves.toBeUndefined();
+      await expect(
+        answerer.setRemoteDescription({ ...base, sdp: sdpB }),
+      ).resolves.toBeUndefined();
+
+      // Assert: どちらも stage されるだけで適用されない。
+      expect(iceConnection.connection.remoteUsername).toBe(oldUfrag);
+      expect(fpValues()).not.toContain("AA:BB:CC");
+      expect(fpValues()).not.toContain("DD:EE:FF");
+
+      // Act: B の answer を commit する。
+      await answerer.setLocalDescription(await answerer.createAnswer());
+
+      // Assert: ICE/DTLS ともに最新の B 世代になる (A には戻らない)。
+      expect(iceConnection.connection.remoteUsername).toBe("genBBBB");
+      expect(fpValues()).toContain("DD:EE:FF");
+      expect(fpValues()).not.toContain("AA:BB:CC");
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("replacement offer 後の rollback は最初の pending 前に戻る", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    offerer.addTransceiver("audio", { direction: "sendonly" });
+    const craftGeneration = (baseSdp: string, ufrag: string, fp: string) =>
+      baseSdp
+        .replace(/a=ice-ufrag:[^\r\n]+/, `a=ice-ufrag:${ufrag}`)
+        .replace(/a=ice-pwd:[^\r\n]+/, `a=ice-pwd:${ufrag}0123456789abcdef`)
+        .replace(
+          /a=fingerprint:sha-256 [^\r\n]+/,
+          `a=fingerprint:sha-256 ${fp}`,
+        );
+
+    try {
+      // Arrange: 交渉し、旧世代の state を記録する。
+      await negotiateOfferAnswer(offerer, answerer);
+      const transceiver = answerer.getTransceivers()[0];
+      const iceConnection = transceiver.dtlsTransport
+        .iceTransport as unknown as {
+        connection: { remoteUsername: string };
+      };
+      const dtlsTransport = transceiver.dtlsTransport as unknown as {
+        remoteParameters?: { fingerprints: { value: string }[] };
+      };
+      const oldUfrag = iceConnection.connection.remoteUsername;
+      const oldFps = JSON.stringify(
+        dtlsTransport.remoteParameters?.fingerprints,
+      );
+      const base = await offerer.createOffer();
+      await offerer.setLocalDescription(base);
+
+      // Act: offer A → replacement offer B → rollback する。
+      await expect(
+        answerer.setRemoteDescription({
+          ...base,
+          sdp: craftGeneration(base.sdp!, "genAAAA", "AA:BB:CC"),
+        }),
+      ).resolves.toBeUndefined();
+      await expect(
+        answerer.setRemoteDescription({
+          ...base,
+          sdp: craftGeneration(base.sdp!, "genBBBB", "DD:EE:FF"),
+        }),
+      ).resolves.toBeUndefined();
+      await expect(
+        answerer.setRemoteDescription({ type: "rollback" }),
+      ).resolves.toBeUndefined();
+
+      // Assert: A ではなく最初の pending 前 (pre-A) に戻る。
+      expect(answerer.signalingState).toBe("stable");
+      expect(iceConnection.connection.remoteUsername).toBe(oldUfrag);
+      expect(JSON.stringify(dtlsTransport.remoteParameters?.fingerprints)).toBe(
+        oldFps,
+      );
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("answer 前の新世代 trickle は commit で適用される", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    offerer.addTransceiver("audio", { direction: "sendonly" });
+
+    try {
+      // Arrange: 交渉する。
+      await negotiateOfferAnswer(offerer, answerer);
+      const transceiver = answerer.getTransceivers()[0];
+      const iceConnection = transceiver.dtlsTransport
+        .iceTransport as unknown as {
+        connection: {
+          remoteCandidates: { host: string }[];
+          remoteCandidatesEnd: boolean;
+        };
+      };
+      // in-SDP EOC により baseline で End が立つことがあるため比較基準にする。
+      const baselineEnd = iceConnection.connection.remoteCandidatesEnd;
+      const mid = transceiver.mid!;
+
+      // Act: 新世代 re-offer を適用し、answer 前に新世代 trickle を送る.
+      const reOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(reOffer);
+      const craftedSdp =
+        reOffer.sdp
+          ?.replace(/a=ice-ufrag:[^\r\n]+/, "a=ice-ufrag:trick11")
+          .replace(/a=ice-pwd:[^\r\n]+/, "a=ice-pwd:0123456789abcdefghijuy") ??
+        reOffer.sdp;
+      await expect(
+        answerer.setRemoteDescription({ ...reOffer, sdp: craftedSdp }),
+      ).resolves.toBeUndefined();
+      await expect(
+        answerer.addIceCandidate({
+          candidate: "candidate:1 1 udp 2113929471 192.0.2.55 10100 typ host",
+          sdpMid: mid,
+          sdpMLineIndex: 0,
+          usernameFragment: "trick11",
+        }),
+      ).resolves.toBeUndefined();
+      await expect(
+        answerer.addIceCandidate({ candidate: "", sdpMid: mid }),
+      ).resolves.toBeUndefined();
+
+      // Assert: commit 前は bucket されるだけで適用されない。
+      // baseline の End 状態は in-SDP EOC により変わりうるため比較で判定する。
+      expect(
+        iceConnection.connection.remoteCandidates.map((c) => c.host),
+      ).not.toContain("192.0.2.55");
+      expect(iceConnection.connection.remoteCandidatesEnd).toBe(baselineEnd);
+
+      // Act: local answer を作って commit する。
+      await answerer.setLocalDescription(await answerer.createAnswer());
+
+      // Assert: trickle 分も含めて新世代が適用される。
+      expect(
+        iceConnection.connection.remoteCandidates.map((c) => c.host),
+      ).toContain("192.0.2.55");
+      expect(iceConnection.connection.remoteCandidatesEnd).toBe(true);
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("新世代 trickle は rollback で破棄される", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    offerer.addTransceiver("audio", { direction: "sendonly" });
+
+    try {
+      // Arrange: 交渉する。
+      await negotiateOfferAnswer(offerer, answerer);
+      const transceiver = answerer.getTransceivers()[0];
+      const iceConnection = transceiver.dtlsTransport
+        .iceTransport as unknown as {
+        connection: {
+          remoteCandidates: { host: string }[];
+          remoteCandidatesEnd: boolean;
+        };
+      };
+      // in-SDP EOC により baseline で End が立つことがあるため比較基準にする。
+      const baselineEnd = iceConnection.connection.remoteCandidatesEnd;
+      const mid = transceiver.mid!;
+
+      // Act: 新世代 re-offer の後に新世代 trickle を送り、rollback する。
+      const reOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(reOffer);
+      const craftedSdp =
+        reOffer.sdp
+          ?.replace(/a=ice-ufrag:[^\r\n]+/, "a=ice-ufrag:trick22")
+          .replace(/a=ice-pwd:[^\r\n]+/, "a=ice-pwd:0123456789abcdefghijuy") ??
+        reOffer.sdp;
+      await expect(
+        answerer.setRemoteDescription({ ...reOffer, sdp: craftedSdp }),
+      ).resolves.toBeUndefined();
+      await expect(
+        answerer.addIceCandidate({
+          candidate: "candidate:1 1 udp 2113929471 192.0.2.66 10100 typ host",
+          sdpMid: mid,
+          sdpMLineIndex: 0,
+          usernameFragment: "trick22",
+        }),
+      ).resolves.toBeUndefined();
+      await expect(
+        answerer.addIceCandidate({ candidate: "", sdpMid: mid }),
+      ).resolves.toBeUndefined();
+      await expect(
+        answerer.setRemoteDescription({ type: "rollback" }),
+      ).resolves.toBeUndefined();
+
+      // Assert: bucket ごと破棄され、current 世代のまま残る。
+      expect(answerer.signalingState).toBe("stable");
+      expect(
+        iceConnection.connection.remoteCandidates.map((c) => c.host),
+      ).not.toContain("192.0.2.66");
+      expect(iceConnection.connection.remoteCandidatesEnd).toBe(baselineEnd);
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  });
 });

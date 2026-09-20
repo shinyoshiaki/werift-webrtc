@@ -194,6 +194,25 @@ export class RTCIceTransport {
     }
   };
 
+  /**
+   * rollback 用に remote candidate state を退避・復元する。同一世代の
+   * candidate/EOC 適用を取り消すためのもので、checklist の pair 自体は
+   * 同一世代として残す。
+   */
+  snapshotRemoteCandidates(): IceRemoteCandidateSnapshot {
+    return {
+      remoteCandidates: [...this.connection.remoteCandidates],
+      remoteCandidatesEnd: this.connection.remoteCandidatesEnd,
+    };
+  }
+
+  restoreRemoteCandidates(snapshot: IceRemoteCandidateSnapshot): void {
+    const current = this.connection.remoteCandidates;
+    current.length = 0;
+    current.push(...snapshot.remoteCandidates);
+    this.connection.remoteCandidatesEnd = snapshot.remoteCandidatesEnd;
+  }
+
   setRemoteParams(remoteParameters: RTCIceParameters, renomination = false) {
     if (renomination) {
       this.renominating = true;
@@ -370,6 +389,11 @@ export type RTCIceConnectionState = (typeof IceTransportStates)[number];
 
 export const IceGathererStates = ["new", "gathering", "complete"] as const;
 export type IceGathererState = (typeof IceGathererStates)[number];
+
+export interface IceRemoteCandidateSnapshot {
+  remoteCandidates: Candidate[];
+  remoteCandidatesEnd: boolean;
+}
 
 export class RTCIceGatherer {
   onIceCandidate: (candidate: IceCandidate | undefined) => void = () => {};

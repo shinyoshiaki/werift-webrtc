@@ -271,6 +271,14 @@ export class SecureTransportManager {
   async addIceCandidate(
     sdp: SessionDescription,
     candidateMessage: RTCIceCandidate | RTCIceCandidateInit | null,
+    stagedIce?: Map<
+      RTCIceTransport,
+      {
+        params: { usernameFragment: string };
+        candidates: IceCandidate[];
+        endOfCandidates: boolean;
+      }
+    >,
   ) {
     const candidateText = candidateMessage?.candidate;
     const sdpMid = candidateMessage?.sdpMid;
@@ -299,8 +307,19 @@ export class SecureTransportManager {
           return acc;
         }, []);
 
+      // pending generation がある transport の EOC は stage し、current 世代の
+      // trickle 受理を止めない。EOC 自体に ufrag が無いことが多いため、staged
+      // entry の有無で帰属を判定する。
+      const liveTargets = candidateTarget.filter((iceTransport) => {
+        const staged = stagedIce?.get(iceTransport);
+        if (staged) {
+          staged.endOfCandidates = true;
+          return false;
+        }
+        return true;
+      });
       await Promise.all(
-        candidateTarget.map((iceTransport) =>
+        liveTargets.map((iceTransport) =>
           iceTransport.addRemoteCandidate(undefined),
         ),
       );
@@ -336,6 +355,23 @@ export class SecureTransportManager {
         "OperationError",
         "ICE transport not found for candidate",
       );
+    }
+
+    // pending generation と ufrag が一致する trickle は commit 用 bucket へ。
+    // ufrag 不明・current 世代は従来どおり即時適用する。
+    const staged = stagedIce?.get(iceTransport);
+    const messageUfrag = candidateMessage?.usernameFragment ?? null;
+    if (
+      staged &&
+      messageUfrag &&
+      messageUfrag === staged.params.usernameFragment
+    ) {
+      staged.candidates.push(candidate);
+      return {
+        kind: "candidate" as const,
+        candidate,
+        mediaIndices: [targetMediaIndex],
+      };
     }
 
     await iceTransport.addRemoteCandidate(candidate);
