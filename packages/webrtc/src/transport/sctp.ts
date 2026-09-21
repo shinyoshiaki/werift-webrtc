@@ -2,7 +2,12 @@ import { randomUUID } from "crypto";
 
 import { Event, debug } from "../imports/common";
 
-import { SCTP, SCTP_STATE, type Transport } from "../../../sctp/src";
+import {
+  SCTP,
+  type SCTPOptions,
+  SCTP_STATE,
+  type Transport,
+} from "../../../sctp/src";
 import {
   DATA_CHANNEL_ACK,
   DATA_CHANNEL_OPEN,
@@ -44,6 +49,7 @@ export class RTCSctpTransport {
   constructor(
     public port = 5000,
     public maxMessageSize = DEFAULT_MAX_MESSAGE_SIZE,
+    private readonly sctpOptions: SCTPOptions = {},
   ) {}
 
   get transport() {
@@ -58,7 +64,11 @@ export class RTCSctpTransport {
     this.eventDisposer.forEach((dispose) => dispose());
 
     this.dtlsTransport = dtlsTransport;
-    this.sctp = new SCTP(new BridgeDtls(this.dtlsTransport), this.port);
+    this.sctp = new SCTP(
+      new BridgeDtls(this.dtlsTransport),
+      this.port,
+      this.sctpOptions,
+    );
 
     this.eventDisposer = [
       ...[

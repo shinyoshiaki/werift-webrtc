@@ -27,6 +27,13 @@
 
 import { crc32c } from "./imports/common";
 
+export const SCTP_PADDING_MULTIPLE = 4;
+export const SCTP_COMMON_HEADER_SIZE = 12;
+export const SCTP_CHUNK_HEADER_SIZE = 4;
+export const SCTP_DATA_FIXED_HEADER_SIZE = 12;
+export const SCTP_DATA_CHUNK_HEADER_SIZE =
+  SCTP_CHUNK_HEADER_SIZE + SCTP_DATA_FIXED_HEADER_SIZE;
+
 export class Chunk {
   public get body(): Buffer | undefined {
     return this._body;
@@ -48,10 +55,10 @@ export class Chunk {
   get bytes() {
     if (!this.body) throw new Error();
 
-    const header = Buffer.alloc(4);
+    const header = Buffer.alloc(SCTP_CHUNK_HEADER_SIZE);
     header.writeUInt8(this.type, 0);
     header.writeUInt8(this.flags, 1);
-    header.writeUInt16BE(this.body.length + 4, 2);
+    header.writeUInt16BE(this.body.length + SCTP_CHUNK_HEADER_SIZE, 2);
 
     const data = Buffer.concat([
       header,
@@ -207,8 +214,8 @@ export class DataChunk extends Chunk {
   }
 
   get bytes() {
-    const length = 16 + this.userData.length;
-    const header = Buffer.alloc(16);
+    const length = SCTP_DATA_CHUNK_HEADER_SIZE + this.userData.length;
+    const header = Buffer.alloc(SCTP_DATA_CHUNK_HEADER_SIZE);
     header.writeUInt8(this.type, 0);
     header.writeUInt8(this.flags, 1);
     header.writeUInt16BE(length, 2);
@@ -477,8 +484,8 @@ export const CHUNK_BY_TYPE = CHUNK_CLASSES.reduce(
 );
 
 function padL(l: number) {
-  const m = l % 4;
-  return m ? 4 - m : 0;
+  const m = l % SCTP_PADDING_MULTIPLE;
+  return m ? SCTP_PADDING_MULTIPLE - m : 0;
 }
 
 function encodeParams(params: [number, Buffer][]) {
@@ -510,7 +517,7 @@ export function decodeParams(body: Buffer): [number, Buffer][] {
 }
 
 export function parsePacket(data: Buffer): [number, number, number, Chunk[]] {
-  if (data.length < 12)
+  if (data.length < SCTP_COMMON_HEADER_SIZE)
     throw new Error("SCTP packet length is less than 12 bytes");
 
   const sourcePort = data.readUInt16BE(0);
@@ -523,14 +530,14 @@ export function parsePacket(data: Buffer): [number, number, number, Chunk[]] {
     Buffer.concat([
       data.slice(0, 8),
       Buffer.from("\x00\x00\x00\x00"),
-      data.slice(12),
+      data.slice(SCTP_COMMON_HEADER_SIZE),
     ]),
   );
 
   if (checkSum !== expect) throw new Error("SCTP packet has invalid checksum");
 
   const chunks: Chunk[] = [];
-  let pos = 12;
+  let pos = SCTP_COMMON_HEADER_SIZE;
   while (pos + 4 <= data.length) {
     const chunkType = data.readUInt8(pos);
     const chunkFlags = data.readUInt8(pos + 1);
@@ -553,7 +560,7 @@ export function serializePacket(
   verificationTag: number,
   chunk: Chunk,
 ) {
-  const header = Buffer.alloc(8);
+  const header = Buffer.alloc(SCTP_COMMON_HEADER_SIZE - 4);
   header.writeUInt16BE(sourcePort, 0);
   header.writeUInt16BE(destinationPort, 2);
   header.writeUInt32BE(verificationTag, 4);

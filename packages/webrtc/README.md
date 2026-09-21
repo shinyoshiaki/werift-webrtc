@@ -74,6 +74,19 @@ Open:
 
 https://shinyoshiaki.github.io/werift-webrtc/examples/datachannel/answer
 
+The outbound SCTP packet MTU can be configured independently from the
+negotiated DataChannel message-size limit:
+
+```typescript
+const peerConnection = new RTCPeerConnection({
+  sctp: { mtu: 1052 },
+});
+```
+
+`sctp.mtu` defaults to 1191 bytes (a maximum DATA payload of 1160 bytes per
+fragment). It cannot be changed to a different value after the SCTP transport
+has been created.
+
 ## Current implementation highlights
 
 - Browser-compatible `RTCPeerConnection` API and standard WebRTC events

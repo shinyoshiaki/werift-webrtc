@@ -8,6 +8,7 @@
 
 ### 🚀 Features
 
+- **Configurable SCTP outbound MTU** (#708): `SCTP` and `RTCPeerConnection({ sctp: { mtu } })` now accept an outbound packet MTU. The default is 1191 bytes, changing DATA fragmentation and congestion-control units from a 1200-byte payload to 1160 bytes (maximum serialized DATA packet: 1188 bytes).
 - **`werift/polyfill`**: Opt-in installer that puts werift WebRTC constructors on `globalThis` (or a `target` sandbox) and implements `navigator.mediaDevices.getUserMedia` via `mediaRegister` (MP4/WebM, RTP/RTCP, encoded binary, or `createCallbackRegister`).
 
 ## v0.24.4

@@ -3,6 +3,19 @@ import { RTCDataChannelParameters } from "../../src/dataChannel";
 import { dtlsTransportPair } from "../fixture";
 
 describe("RTCSctpTransportTest", () => {
+  test("reuses outbound MTU when replacing the DTLS transport", async () => {
+    const [first] = await dtlsTransportPair();
+    const [second] = await dtlsTransportPair();
+    const transport = new RTCSctpTransport(5000, undefined, { mtu: 1052 });
+
+    // Act: DTLS transport を差し替えて SCTP association を再生成する。
+    transport.setDtlsTransport(first);
+    transport.setDtlsTransport(second);
+
+    // Assert: constructor で指定した MTU が再生成後にも保持される。
+    expect(transport.sctp.mtu).toBe(1052);
+  });
+
   function trackChannels(transport: RTCSctpTransport) {
     const channels: RTCDataChannel[] = [];
 

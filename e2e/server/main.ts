@@ -27,6 +27,7 @@ import {
 } from "./handler/datachannel/close";
 import {
   datachannel_answer,
+  datachannel_binary_echo,
   datachannel_offer,
 } from "./handler/datachannel/datachannel";
 import { datachannel_ice_lite_answer } from "./handler/datachannel/iceLite";
@@ -148,6 +149,7 @@ function attachWebSocketServer() {
   server.on("connectionrequest", async (_, accept) => {
     const tests = {
       datachannel_answer: new datachannel_answer(),
+      datachannel_binary_echo: new datachannel_binary_echo(),
       datachannel_ice_lite_answer: new datachannel_ice_lite_answer(),
       datachannel_ice_tcp: new datachannel_ice_tcp(),
       datachannel_offer: new datachannel_offer(),
