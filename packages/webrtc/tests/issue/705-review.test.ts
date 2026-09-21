@@ -2232,11 +2232,11 @@ describe("PR #711 review P1 Round9 の回帰テスト", () => {
       expect(hosts()).not.toContain("192.0.2.13");
 
       // Act: commit すると bucket 分が適用される。
+      // restart により旧世代は持ち越さず、新世代のみ残る。
       await answerer.setLocalDescription(await answerer.createAnswer());
       expect(hosts()).toContain("192.0.2.12");
       expect(hosts()).toContain("192.0.2.13");
-      // current 世代分はそのまま残る。
-      expect(hosts()).toContain("192.0.2.11");
+      expect(hosts()).not.toContain("192.0.2.11");
     } finally {
       await Promise.all([offerer.close(), answerer.close()]);
     }
@@ -2947,4 +2947,91 @@ describe("PR #711 review P1 Round11 の回帰テスト", () => {
       expect(dumped).not.toContain(literal);
     }
   }, 90000);
+
+  test("restart commit 後の世代は新 candidate のみで旧経路を使わない", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    offerer.addTransceiver("audio", { direction: "sendonly" });
+
+    try {
+      // Arrange: gathering 前の SDP で交渉し current を確定させる。
+      const offer = await offerer.createOffer();
+      await offerer.setLocalDescription(offer);
+      await answerer.setRemoteDescription(offer);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      const mid = parseSdp(offer.sdp).media[0]?.rtp.muxId!;
+      const transceiver = answerer.getTransceivers()[0];
+      const ice = () =>
+        transceiver.dtlsTransport.iceTransport as unknown as {
+          connection: {
+            remoteUsername: string;
+            remoteCandidates: { host: string }[];
+            remoteCandidatesEnd: boolean;
+            checkList: { remoteCandidate: { host: string } }[];
+            nominated?: unknown;
+          };
+        };
+      const hosts = () => ice().connection.remoteCandidates.map((c) => c.host);
+      const trickle = (host: string, ufrag?: string | null) =>
+        answerer.addIceCandidate({
+          candidate: `candidate:1 1 udp 2113929471 ${host} 10100 typ host`,
+          sdpMid: mid,
+          sdpMLineIndex: 0,
+          ...(ufrag === undefined ? {} : { usernameFragment: ufrag }),
+        });
+
+      // Act: 旧世代 candidate を live に入れ、新世代 re-offer を適用する。
+      await expect(trickle("192.0.2.31")).resolves.toBeUndefined();
+      expect(hosts()).toContain("192.0.2.31");
+      const reOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(reOffer);
+      const newUfrag = "genRestart1";
+      await expect(
+        answerer.setRemoteDescription({
+          ...reOffer,
+          sdp:
+            reOffer.sdp
+              ?.replace(/a=ice-ufrag:[^\r\n]+/, `a=ice-ufrag:${newUfrag}`)
+              .replace(/a=ice-pwd:[^\r\n]+/, "a=ice-pwd:0123456789abcdefghijuy")
+              .replace(
+                /(m=audio [^\r\n]*\r\n)/,
+                `$1a=candidate:1 1 udp 2113929471 192.0.2.32 10100 typ host\r\na=end-of-candidates\r\n`,
+              ) ?? reOffer.sdp,
+        }),
+      ).resolves.toBeUndefined();
+
+      // Act: rollback すると旧世代だけが残る。
+      await expect(
+        answerer.setRemoteDescription({ type: "rollback" }),
+      ).resolves.toBeUndefined();
+      expect(hosts()).toContain("192.0.2.31");
+      expect(hosts()).not.toContain("192.0.2.32");
+
+      // Act: 再適用して commit する。
+      await expect(
+        answerer.setRemoteDescription({
+          ...reOffer,
+          sdp:
+            reOffer.sdp
+              ?.replace(/a=ice-ufrag:[^\r\n]+/, `a=ice-ufrag:${newUfrag}`)
+              .replace(/a=ice-pwd:[^\r\n]+/, "a=ice-pwd:0123456789abcdefghijuy")
+              .replace(
+                /(m=audio [^\r\n]*\r\n)/,
+                `$1a=candidate:1 1 udp 2113929471 192.0.2.32 10100 typ host\r\na=end-of-candidates\r\n`,
+              ) ?? reOffer.sdp,
+        }),
+      ).resolves.toBeUndefined();
+      await answerer.setLocalDescription(await answerer.createAnswer());
+
+      // Assert: 新世代のみ残り、旧経路は selected/nominated されない。
+      expect(hosts()).toContain("192.0.2.32");
+      expect(hosts()).not.toContain("192.0.2.31");
+      expect(ice().connection.nominated).toBeFalsy();
+      for (const pair of ice().connection.checkList) {
+        expect(pair.remoteCandidate.host).not.toBe("192.0.2.31");
+      }
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  }, 60000);
 });

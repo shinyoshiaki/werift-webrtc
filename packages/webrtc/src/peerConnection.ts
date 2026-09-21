@@ -862,16 +862,12 @@ export class RTCPeerConnection extends EventTarget {
       // restart を伴う場合も通常フローと同じ扱いで、新 candidate は trickle
       // で送る。相手は userHistory により旧世代 ufrag の check も受け付ける。
       for (const [iceTransport, staged] of this.stagedIceParams) {
-        // restart で list が初期化されるため、live candidate を退避する。
-        const liveCandidates = [...iceTransport.connection.remoteCandidates];
+        // restart で list が初期化される。新 generation には staged と
+        // commit 後の trickle/EOC だけを入れ、旧世代は持ち越さない。
+        // 旧 session は commit まで live のまま維持される。
         iceTransport.setRemoteParams(staged.params, staged.renomination);
         if (staged.params.iceLite && !iceTransport.connection.iceLite) {
           iceTransport.connection.iceControlling = true;
-        }
-        // live candidate を戻した上で staged を追加する。restart で初期化
-        // 済みのため重複は起きない。
-        for (const candidate of liveCandidates) {
-          await iceTransport.connection.addRemoteCandidate(candidate);
         }
       }
       for (const [dtlsTransport, params] of this.stagedDtlsParams) {
