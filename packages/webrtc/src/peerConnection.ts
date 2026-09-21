@@ -424,8 +424,8 @@ export class RTCPeerConnection extends EventTarget {
       throw new Error("iceCandidatePoolSize > 0 is not supported");
     }
 
-    const requestedSctpMtu = normalizedConfig.sctp?.mtu;
-    if (requestedSctpMtu !== undefined) {
+    if (normalizedConfig.sctp !== undefined) {
+      const requestedSctpMtu = normalizedConfig.sctp.mtu ?? DEFAULT_SCTP_MTU;
       validateSctpMtu(requestedSctpMtu);
       if (
         this.sctpManager?.sctpTransport &&

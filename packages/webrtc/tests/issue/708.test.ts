@@ -57,4 +57,26 @@ describe("issue #708 SCTP outbound MTU", () => {
     pc.setConfiguration({ sctp: {} });
     expect(pc.getConfiguration().sctp.mtu).toBe(DEFAULT_SCTP_MTU);
   });
+
+  test("rejects explicit empty SCTP config after transport creation when it would change MTU", () => {
+    const pcCustom = new RTCPeerConnection({ sctp: { mtu: 1052 } });
+    // Act: DataChannel に必要な SCTP transport を生成する。
+    pcCustom.createDataChannel("dc");
+
+    // Assert: 明示的な空指定は既定値への変更になるため拒否し、状態を維持する。
+    expect(() => pcCustom.setConfiguration({ sctp: {} })).toThrow(
+      "sctp.mtu cannot be changed after SCTP transport creation",
+    );
+    expect(pcCustom.getConfiguration().sctp.mtu).toBe(1052);
+    expect(pcCustom.sctpTransport!.sctp.mtu).toBe(1052);
+
+    const pcDefault = new RTCPeerConnection();
+    // Act: 既定 MTU の transport に対して空指定を適用する。
+    pcDefault.createDataChannel("dc");
+
+    // Assert: 既定値と一致するため許可し、transport と一致を保つ。
+    expect(() => pcDefault.setConfiguration({ sctp: {} })).not.toThrow();
+    expect(pcDefault.getConfiguration().sctp.mtu).toBe(DEFAULT_SCTP_MTU);
+    expect(pcDefault.sctpTransport!.sctp.mtu).toBe(DEFAULT_SCTP_MTU);
+  });
 });
