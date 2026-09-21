@@ -12,6 +12,8 @@ import {
   addSDPHeader,
 } from "./sdp";
 import type { RTCDtlsTransport } from "./transport/dtls";
+import { RTCIceParameters } from "./transport/ice";
+import type { RTCIceTransport } from "./transport/ice";
 import type { RTCSctpTransport } from "./transport/sctp";
 import { andDirection } from "./utils";
 
@@ -83,6 +85,10 @@ export class SDPManager {
     fallbackFmt: MediaDescription["fmt"] = [],
     profile = "UDP/TLS/RTP/SAVPF",
     isOffer = false,
+    stagedLocalIce?: Map<
+      RTCIceTransport,
+      { usernameFragment: string; password: string }
+    >,
   ): MediaDescription {
     const rejected =
       transceiver.rejected ||
@@ -138,6 +144,7 @@ export class SDPManager {
 
     this.addTransportDescription(media, transceiver.dtlsTransport, {
       rejected,
+      stagedLocalIce,
     });
     return media;
   }
@@ -166,13 +173,29 @@ export class SDPManager {
   addTransportDescription(
     media: MediaDescription,
     dtlsTransport: RTCDtlsTransport,
-    options: { rejected?: boolean } = {},
+    options: {
+      rejected?: boolean;
+      stagedLocalIce?: Map<
+        RTCIceTransport,
+        { usernameFragment: string; password: string }
+      >;
+    } = {},
   ): void {
     const iceTransport = dtlsTransport.iceTransport;
 
     media.iceCandidates = iceTransport.localCandidates;
     media.iceCandidatesComplete = iceTransport.gatheringState === "complete";
     media.iceParams = iceTransport.localParameters;
+    // staged local generation があれば answer に載せる。commit 時に同じ値へ
+    // 切り替えるため、answer と live の不一致が起きない。
+    const stagedLocal = options.stagedLocalIce?.get(iceTransport);
+    if (stagedLocal) {
+      media.iceParams = new RTCIceParameters({
+        iceLite: media.iceParams?.iceLite ?? false,
+        usernameFragment: stagedLocal.usernameFragment,
+        password: stagedLocal.password,
+      });
+    }
     media.iceOptions = "trickle";
 
     media.host = DISCARD_HOST;
@@ -398,11 +421,16 @@ export class SDPManager {
     transceivers,
     sctpTransport,
     signalingState,
+    stagedLocalIce,
   }: {
     transceivers: RTCRtpTransceiver[];
     sctpTransport: RTCSctpTransport | undefined;
 
     signalingState: string;
+    stagedLocalIce?: Map<
+      RTCIceTransport,
+      { usernameFragment: string; password: string }
+    >;
   }): SessionDescription {
     if (
       !["have-remote-offer", "have-local-pranswer"].includes(signalingState)
@@ -439,6 +467,8 @@ export class SDPManager {
           andDirection(transceiver.direction, transceiver.offerDirection),
           remoteMedia.fmt,
           remoteMedia.profile || "UDP/TLS/RTP/SAVPF",
+          false,
+          stagedLocalIce,
         );
         if (transceiver.rejected) {
           if (remoteMedia.fmt.length > 0) {

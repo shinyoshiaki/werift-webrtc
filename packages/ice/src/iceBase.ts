@@ -41,7 +41,7 @@ export interface IceConnection {
   readonly stateChanged: Event<[IceState]>;
   readonly onIceCandidate: Event<[Candidate]>;
 
-  restart(): void;
+  restart(newLocal?: { usernameFragment: string; password: string }): void;
 
   setIceServers(options: Partial<IceOptions>): void;
 

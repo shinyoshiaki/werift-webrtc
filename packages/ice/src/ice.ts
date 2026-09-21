@@ -166,11 +166,18 @@ export class Connection implements IceConnection {
     return this.options.iceLite;
   }
 
-  async restart() {
+  async restart(newLocal?: { usernameFragment: string; password: string }) {
     this.generation++;
 
-    this.localUsername = randomString(4);
-    this.localPassword = randomString(22);
+    if (newLocal) {
+      // commit 時に answer へ載せた staged credentials へ切り替える。
+      // ランダム再生成しないことで answer と live の不一致を防ぐ。
+      this.localUsername = newLocal.usernameFragment;
+      this.localPassword = newLocal.password;
+    } else {
+      this.localUsername = randomString(4);
+      this.localPassword = randomString(22);
+    }
     if (this.options.localPasswordPrefix) {
       this.localPassword =
         this.options.localPasswordPrefix +

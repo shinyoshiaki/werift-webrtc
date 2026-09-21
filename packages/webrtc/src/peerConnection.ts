@@ -1,4 +1,4 @@
-import { randomUUID } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 
 import type { RTCDataChannel } from "./dataChannel";
 import { createWebRtcDomException, createWebRtcTypeError } from "./errors";
@@ -133,6 +133,8 @@ export class RTCPeerConnection extends EventTarget {
       renomination: boolean;
       candidates: MediaDescription["iceCandidates"];
       endOfCandidates: boolean;
+      localUsername: string;
+      localPassword: string;
     }
   >();
   private stagedDtlsParams = new Map<
@@ -862,9 +864,13 @@ export class RTCPeerConnection extends EventTarget {
       // restart を伴う場合も通常フローと同じ扱いで、新 candidate は trickle
       // で送る。相手は userHistory により旧世代 ufrag の check も受け付ける。
       for (const [iceTransport, staged] of this.stagedIceParams) {
-        // restart で list が初期化される。新 generation には staged と
-        // commit 後の trickle/EOC だけを入れ、旧世代は持ち越さない。
-        // 旧 session は commit まで live のまま維持される。
+        // answer に載せた staged local generation へ atomically 切り替える。
+        // ランダム再生成すると answer と live が不一致になるため、必ず
+        // staged 値で restart する。
+        iceTransport.restart({
+          usernameFragment: staged.localUsername,
+          password: staged.localPassword,
+        });
         iceTransport.setRemoteParams(staged.params, staged.renomination);
         if (staged.params.iceLite && !iceTransport.connection.iceLite) {
           iceTransport.connection.iceControlling = true;
@@ -1390,7 +1396,8 @@ export class RTCPeerConnection extends EventTarget {
           if (stageRemoteParams) {
             // 新世代の params・candidates・EOC を stage する。同一 offer 内の
             // 複数 m-line は蓄積し、世代が変わる replacement offer では最新の
-            // generation 内容へ置き換える。
+            // generation 内容へ置き換える。local 側も次の generation を用意し、
+            // createAnswer へ載せて commit 時に atomically 切り替える。
             const prev = this.stagedIceParams.get(iceTransport);
             if (
               !prev ||
@@ -1398,11 +1405,14 @@ export class RTCPeerConnection extends EventTarget {
                 remoteMedia.iceParams.usernameFragment ||
               prev.params.password !== remoteMedia.iceParams.password
             ) {
+              const local = this.generateStagedLocalCredentials();
               this.stagedIceParams.set(iceTransport, {
                 params: remoteMedia.iceParams,
                 renomination,
                 candidates: [...remoteMedia.iceCandidates],
                 endOfCandidates: remoteMedia.iceCandidatesComplete,
+                localUsername: local.usernameFragment,
+                localPassword: local.password,
               });
             } else {
               prev.params = remoteMedia.iceParams;
@@ -1575,6 +1585,21 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   /**
+   * 次の local ICE generation を生成する。名前解決の衝突を避けるため、
+   * localPasswordPrefix の扱いは Connection.restart() と揃える。
+   */
+  private generateStagedLocalCredentials(): {
+    usernameFragment: string;
+    password: string;
+  } {
+    const prefix = this.config.icePasswordPrefix ?? "";
+    return {
+      usernameFragment: randomBytes(2).toString("hex"),
+      password: prefix + randomBytes(11).toString("hex").slice(prefix.length),
+    };
+  }
+
+  /**
    * rollback 用に DTLS remote state を退避する (first-wins)。fingerprint は
    * 累積するため、直接代入で復元できるよう commit 前の値を残す。
    */
@@ -1688,10 +1713,23 @@ export class RTCPeerConnection extends EventTarget {
 
     await this.secureManager.ensureCerts();
 
+    // staged local generation があれば answer に載せる。commit 時に同じ値へ
+    // 切り替えるため、answer と live の不一致が起きない。
+    const stagedLocalIce = new Map<
+      RTCIceTransport,
+      { usernameFragment: string; password: string }
+    >();
+    for (const [iceTransport, staged] of this.stagedIceParams) {
+      stagedLocalIce.set(iceTransport, {
+        usernameFragment: staged.localUsername,
+        password: staged.localPassword,
+      });
+    }
     const description = this.sdpManager.buildAnswerSdp({
       transceivers: this.transceiverManager.getTransceivers(),
       sctpTransport: this.sctpTransport,
       signalingState: this.signalingState,
+      stagedLocalIce,
     });
     const createdAnswer = description.toJSON();
     this.lastCreatedAnswer = createdAnswer;

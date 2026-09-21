@@ -2735,6 +2735,238 @@ describe("PR #711 review P1 Round10 の回帰テスト", () => {
   }, 60000);
 });
 
+describe("PR #711 review P1 Round13 の回帰テスト", () => {
+  test("answer の local credentials と commit 後の live が完全一致する", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    const track = new MediaStreamTrack({ kind: "audio" });
+    offerer.addTransceiver(track, { direction: "sendonly" });
+
+    try {
+      // Arrange: 接続し、旧世代 L0 を記録する。
+      await negotiateOfferAnswer(offerer, answerer);
+      await Promise.all([
+        waitForConnection(offerer),
+        waitForConnection(answerer),
+      ]);
+      const transceiver = answerer.getTransceivers()[0];
+      const iceTransport = transceiver.dtlsTransport.iceTransport;
+      const localOf = () => ({
+        usernameFragment: iceTransport.localParameters?.usernameFragment ?? "",
+        password: iceTransport.localParameters?.password ?? "",
+      });
+      const restartsOf = () =>
+        (
+          iceTransport as unknown as {
+            iceRestarts: number;
+          }
+        ).iceRestarts;
+      const before = localOf();
+      expect(before.usernameFragment.length).toBeGreaterThan(0);
+      expect(restartsOf()).toBe(0);
+
+      // Act: remote restart re-offer を適用し、answer を作る。
+      const reOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(reOffer);
+      const newUfrag = `rstr${Date.now().toString(36)}`;
+      await expect(
+        answerer.setRemoteDescription({
+          ...reOffer,
+          sdp:
+            reOffer.sdp
+              ?.replace(/a=ice-ufrag:[^\r\n]+/, `a=ice-ufrag:${newUfrag}`)
+              .replace(
+                /a=ice-pwd:[^\r\n]+/,
+                "a=ice-pwd:0123456789abcdefghijuy",
+              ) ?? reOffer.sdp,
+        }),
+      ).resolves.toBeUndefined();
+      // commit 前は L0 のまま、restart も起きない。
+      expect(localOf()).toEqual(before);
+      expect(restartsOf()).toBe(0);
+      const answer = await answerer.createAnswer();
+      const answerUfrag = parseSdp(answer.sdp).media[0]?.iceParams
+        ?.usernameFragment;
+      const answerPwd = parseSdp(answer.sdp).media[0]?.iceParams?.password;
+      expect(answerUfrag).toBeDefined();
+      expect(answerUfrag).not.toBe(before.usernameFragment);
+
+      // Act: commit する。
+      await answerer.setLocalDescription(answer);
+
+      // Assert: live が answer と完全一致し、二重 rotate しない。
+      expect(localOf().usernameFragment).toBe(answerUfrag);
+      expect(localOf().password).toBe(answerPwd);
+      expect(restartsOf()).toBe(1);
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  }, 60000);
+
+  test("commit 後の candidate は answer の ufrag と一致する", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    offerer.addTransceiver("audio", { direction: "sendonly" });
+
+    try {
+      // Arrange: 接続する。
+      await negotiateOfferAnswer(offerer, answerer);
+      await Promise.all([
+        waitForConnection(offerer),
+        waitForConnection(answerer),
+      ]);
+
+      // Act: restart re-offer → answer → commit し、その後 gather する。
+      const reOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(reOffer);
+      await expect(
+        answerer.setRemoteDescription({
+          ...reOffer,
+          sdp: reOffer.sdp
+            ?.replace(/a=ice-ufrag:[^\r\n]+/, "a=ice-ufrag:genLocal1")
+            .replace(/a=ice-pwd:[^\r\n]+/, "a=ice-pwd:0123456789abcdefghijuy"),
+        }),
+      ).resolves.toBeUndefined();
+      const answer = await answerer.createAnswer();
+      const answerUfrag = parseSdp(answer.sdp).media[0]?.iceParams
+        ?.usernameFragment!;
+      const freshCandidate = waitForIceCandidate(answerer);
+      await answerer.setLocalDescription(answer);
+      const candidate = await freshCandidate;
+
+      // Assert: 新 candidate は answer の世代で送られる。
+      // (gatherer の生オブジェクトは ufrag 持ち、toJSON では usernameFragment)
+      const candidateUfrag =
+        (
+          candidate as unknown as {
+            usernameFragment?: string;
+            ufrag?: string;
+          }
+        ).usernameFragment ??
+        (
+          candidate as unknown as {
+            usernameFragment?: string;
+            ufrag?: string;
+          }
+        ).ufrag;
+      expect(candidate.sdpMid).toBe(
+        answerer.getTransceivers()[0]?.mid ?? undefined,
+      );
+      expect(candidateUfrag).toBe(answerUfrag);
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  }, 60000);
+
+  test("restart 交換後の credentials は新世代で一致する", async () => {
+    const offerer = createBundledPeerConnection();
+    const answerer = createBundledPeerConnection();
+    const track = new MediaStreamTrack({ kind: "audio" });
+    offerer.addTransceiver(track, { direction: "sendonly" });
+    const stopForwarding = forwardIceCandidates(offerer, answerer);
+
+    try {
+      // Arrange: 接続し、旧世代を記録する。
+      await negotiateOfferAnswer(offerer, answerer);
+      await Promise.all([
+        waitForConnection(offerer),
+        waitForConnection(answerer),
+      ]);
+      const oldUfrag = parseSdp(offerer.localDescription?.sdp).media[0]
+        ?.iceParams?.usernameFragment;
+
+      // Act: answerer 側からの restart を含む再交渉を trickle 付きで回す。
+      // 注意: restart 後の実メディア再開は本環境では baseline でも不通のた
+      // め、交換成立と credentials 一貫性で検証する (ICE checks が再開せず
+      // nominated に至らない事前存在の制限。DTLS stale による connect 短絡)。
+      const restartOffer = await answerer.createOffer({ iceRestart: true });
+      await answerer.setLocalDescription(restartOffer);
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      await offerer.setLocalDescription(await offerer.createAnswer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      const answererUfrag = parseSdp(answerer.localDescription?.sdp)
+        .media.map((m) => m.iceParams?.usernameFragment)
+        .find((v) => !!v);
+
+      // Assert: 交換が成立し、両端末が新世代で一致する。
+      // answerer の local は restart 世代、offerer の remote はそれと一致する。
+      expect(offerer.signalingState).toBe("stable");
+      expect(answerer.signalingState).toBe("stable");
+      expect(answererUfrag).toBeDefined();
+      expect(answererUfrag).not.toBe(oldUfrag);
+      const offererRemoteUfrag = (
+        offerer.getTransceivers()[0].dtlsTransport.iceTransport as unknown as {
+          connection: { remoteUsername: string };
+        }
+      ).connection.remoteUsername;
+      expect(offererRemoteUfrag).toBe(answererUfrag);
+    } finally {
+      stopForwarding();
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  }, 120000);
+
+  test("answer 前 rollback では旧 local credentials と selected pair が残る", async () => {
+    const offerer = new RTCPeerConnection({ iceServers: [] });
+    const answerer = new RTCPeerConnection({ iceServers: [] });
+    const track = new MediaStreamTrack({ kind: "audio" });
+    offerer.addTransceiver(track, { direction: "sendonly" });
+
+    try {
+      // Arrange: 接続し、L0 と selected pair を記録する。
+      await negotiateOfferAnswer(offerer, answerer);
+      await Promise.all([
+        waitForConnection(offerer),
+        waitForConnection(answerer),
+      ]);
+      const transceiver = answerer.getTransceivers()[0];
+      const iceTransport = transceiver.dtlsTransport.iceTransport;
+      const localOf = () => ({
+        usernameFragment: iceTransport.localParameters?.usernameFragment ?? "",
+        password: iceTransport.localParameters?.password ?? "",
+      });
+      const before = localOf();
+      const nominatedBefore = (
+        iceTransport as unknown as {
+          connection: { nominated?: unknown };
+        }
+      ).connection.nominated;
+
+      // Act: restart re-offer を適用して rollback する。
+      const reOffer = await offerer.createOffer();
+      await offerer.setLocalDescription(reOffer);
+      await expect(
+        answerer.setRemoteDescription({
+          ...reOffer,
+          sdp: reOffer.sdp
+            ?.replace(/a=ice-ufrag:[^\r\n]+/, "a=ice-ufrag:genRb01")
+            .replace(/a=ice-pwd:[^\r\n]+/, "a=ice-pwd:0123456789abcdefghijuy"),
+        }),
+      ).resolves.toBeUndefined();
+      await expect(
+        answerer.setRemoteDescription({ type: "rollback" }),
+      ).resolves.toBeUndefined();
+
+      // Assert: L0 と selected pair が維持される。
+      expect(answerer.signalingState).toBe("stable");
+      expect(localOf()).toEqual(before);
+      expect(
+        (
+          iceTransport as unknown as {
+            connection: { nominated?: unknown };
+          }
+        ).connection.nominated,
+      ).toBe(nominatedBefore);
+
+      // Assert: 既存 RTP が継続する。
+      sendTestRtp(track, "after-rollback-kept");
+      await expect(waitForRtp(transceiver)).resolves.toBeDefined();
+    } finally {
+      await Promise.all([offerer.close(), answerer.close()]);
+    }
+  }, 60000);
+});
+
 describe("PR #711 review P1 Round11 の回帰テスト", () => {
   test("current 世代の EOC は rollback 後も live に残る", async () => {
     const offerer = new RTCPeerConnection({ iceServers: [] });

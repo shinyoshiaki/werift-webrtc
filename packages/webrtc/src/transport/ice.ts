@@ -235,9 +235,9 @@ export class RTCIceTransport {
     this.connection.setRemoteParams(remoteParameters);
   }
 
-  restart() {
+  restart(nextLocal?: { usernameFragment: string; password: string }) {
     this.iceRestarts++;
-    this.connection.restart();
+    this.connection.restart(nextLocal);
     this.setState("new");
     // Use setGatheringState so onGatheringStateChange fires and the
     // SecureTransportManager aggregate iceGatheringState stays in sync.
