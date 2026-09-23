@@ -1,6 +1,11 @@
 import { type Address, Event, crc32 } from "../../../common/src";
-import { CandidatePair } from "../../src";
+import { CandidatePair, type Connection } from "../../src";
 import { Candidate } from "../../src/candidate";
+import {
+  type SpedHandle,
+  type SpedHooks,
+  attachSpedToConnection,
+} from "../../src/internal/sped";
 import {
   FINGERPRINT_LENGTH,
   FINGERPRINT_XOR,
@@ -8,6 +13,29 @@ import {
 } from "../../src/stun/const";
 import { type Message, paddingLength } from "../../src/stun/message";
 import type { Protocol } from "../../src/types/model";
+
+/** Shared Arrange: default SPED hooks for Connection attach tests. */
+export function createSpedTestHooks(
+  overrides: Partial<SpedHooks> = {},
+): SpedHooks {
+  return {
+    inject: async () => {},
+    onFallbackFlight: async () => {},
+    setRetransmissionMode: () => {},
+    updateRtt: () => {},
+    resetRtt: () => {},
+    setMtu: () => {},
+    ...overrides,
+  };
+}
+
+/** Shared Arrange: attach SPED with default hooks. */
+export function attachTestSped(
+  connection: Connection,
+  overrides: Partial<SpedHooks> = {},
+): SpedHandle {
+  return attachSpedToConnection(connection, createSpedTestHooks(overrides));
+}
 
 /** Shared Arrange: host UDP protocol for SPED decorate / datagram tests. */
 export class SpedProtocolMock implements Protocol {

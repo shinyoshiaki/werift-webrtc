@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { Connection } from "../../src/ice";
 import {
   CONSENT_FAILURES,
   CONSENT_RESPONSE_TIMEOUT,
   CONSENT_RESPONSE_TIMEOUT_MIN,
   CONSENT_TIMEOUT,
   CandidatePair,
+  CandidatePairState,
   consentResponseTimeoutMs,
 } from "../../src/iceBase";
 import { classes, methods } from "../../src/stun/const";
@@ -232,6 +234,44 @@ describe("ICE consent freshness (RFC 7675)", () => {
     await harness.connection.send(Buffer.from("after-restart"));
     expect(sendSpy).toHaveBeenCalledTimes(1);
     expect(harness.connection.state).toBe("new");
+  });
+
+  it("remote nomination だけでは initial consent 前の application data を送らない", async () => {
+    // Arrange: USE-CANDIDATE は受信済みだが、対応する Binding Response はまだ無い。
+    const connection = new Connection(false);
+    const protocol = new ConsentMockProtocol();
+    const pair = new CandidatePair(
+      protocol,
+      createConsentCandidate("192.0.2.2", 5000, "remote"),
+      false,
+    );
+    pair.remoteNominated = true;
+    pair.responsesReceived = 0;
+    pair.updateState(CandidatePairState.IN_PROGRESS);
+    connection.checkList.push(pair);
+    connection.state = "connected";
+    const sendData = vi.spyOn(protocol, "sendData");
+
+    try {
+      // Act: nomination 通知だけを根拠に application data を送る。
+      await connection.send(Buffer.from("before-consent"));
+
+      // Assert: 成功応答のない IN_PROGRESS pair からは wire へ出ない。
+      expect(connection.canSendApplicationData()).toBe(false);
+      expect(sendData).not.toHaveBeenCalled();
+
+      // Act: Binding Response を受理した状態へ進めてから送信する。
+      pair.updateState(CandidatePairState.SUCCEEDED);
+      pair.nominated = true;
+      connection.nominated = pair;
+      (connection as any).consentFresh = true;
+      await connection.send(Buffer.from("after-consent"));
+
+      // Assert: 成功 pair と consent がそろった後だけ wire へ出る。
+      expect(sendData).toHaveBeenCalledTimes(1);
+    } finally {
+      await connection.close();
+    }
   });
 
   it("resetNominatedPair で consent lifecycle を停止し、新 pair 指名で再開する", async () => {

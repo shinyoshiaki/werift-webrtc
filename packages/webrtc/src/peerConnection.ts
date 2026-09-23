@@ -54,7 +54,6 @@ import type {
   RTCIceCandidate,
   RTCIceCandidateInit,
   RTCIceConnectionState,
-  RTCIceTransport,
 } from "./transport/ice";
 import {
   DEFAULT_MAX_MESSAGE_SIZE,
@@ -433,6 +432,12 @@ export class RTCPeerConnection extends EventTarget {
       deepMerge(nextDtls, normalizedConfig.dtls);
       normalizedConfig.dtls = nextDtls;
     }
+    if (normalizedConfig.warp !== undefined) {
+      normalizedConfig.warp = {
+        ...this.config.warp,
+        ...normalizedConfig.warp,
+      };
+    }
 
     if (this.dtlsTransportCreated) {
       if (
@@ -462,6 +467,19 @@ export class RTCPeerConnection extends EventTarget {
     }
 
     deepMerge(this.config, normalizedConfig as Partial<PeerConfig>);
+
+    // DTLS transports keep a defensive copy of the WARP policy.  Re-apply a
+    // live configuration change so the public PeerConfig and every existing
+    // transport agree about early send and media buffering permissions.
+    if (
+      isReconfiguration &&
+      normalizedConfig.warp !== undefined &&
+      this.secureManager
+    ) {
+      for (const dtlsTransport of this.secureManager.dtlsTransports) {
+        dtlsTransport.updateWarpConfig(this.config.warp);
+      }
+    }
 
     if (this.config.icePortRange) {
       const [min, max] = this.config.icePortRange;
@@ -928,6 +946,8 @@ export class RTCPeerConnection extends EventTarget {
   private async connect() {
     log("start connect");
 
+    if (this.isClosed) return;
+
     if (this.config.sped === true && !peerConfigHasDtls13(this.config)) {
       throw new Error(
         "PeerConfig.sped requires DTLS 1.3 in dtls.protocolVersions",
@@ -938,11 +958,25 @@ export class RTCPeerConnection extends EventTarget {
         "PeerConfig.sped cannot be combined with dtls.helloRetryRequest",
       );
     }
+    if (
+      this.config.warp.allowEarlyServerData === true &&
+      (this.config.sped !== true || !peerConfigHasDtls13(this.config))
+    ) {
+      throw new Error(
+        "warp.allowEarlyServerData requires PeerConfig.sped and DTLS 1.3",
+      );
+    }
 
+    // The transport set for this connect attempt must remain stable.  A
+    // connection-state callback may add a transceiver while the attempt is
+    // settling; its new, unnegotiated transport belongs to a later offer.
+    const connectTransports = [...this.dtlsTransports];
     const epoch = ++this.connectEpoch;
     const res = await Promise.allSettled(
-      this.dtlsTransports.map(async (dtlsTransport) => {
+      connectTransports.map(async (dtlsTransport) => {
         const { iceTransport } = dtlsTransport;
+        const ownsSctp =
+          this.sctpTransport?.dtlsTransport.id === dtlsTransport.id;
         // Gathering sets Connection.state to "completed" before any remote
         // checks. Only "connected" means ICE has a nominated pair.
         // ICE restart leaves DTLS connected while ICE returns to "new"/gather
@@ -951,6 +985,9 @@ export class RTCPeerConnection extends EventTarget {
           iceTransport.state === "connected" &&
           dtlsTransport.state === "connected"
         ) {
+          if (ownsSctp) {
+            await this.sctpManager.connectSctp();
+          }
           return;
         }
 
@@ -961,9 +998,41 @@ export class RTCPeerConnection extends EventTarget {
             if (iceTransport.state !== "connected") {
               await iceTransport.start();
             }
+            if (ownsSctp) {
+              await this.sctpManager.connectSctp();
+            }
             return;
           }
           const dtlsPromise = dtlsTransport.start();
+          // The DTLS client is the passive SCTP endpoint.  Arm it before
+          // authentication so an early server INIT cannot establish SCTP
+          // before RTCSctpTransport has assigned its stream-id parity.
+          const earlyWritePromise =
+            this.config.warp.allowEarlyServerData &&
+            dtlsTransport.role === "server"
+              ? dtlsTransport.waitForWriteReady()
+              : Promise.resolve();
+          const earlySctpPromise = (
+            ownsSctp && dtlsTransport.role === "client"
+              ? this.sctpManager.connectSctp()
+              : ownsSctp && this.config.warp.allowEarlyServerData
+                ? earlyWritePromise.then(() =>
+                    dtlsTransport.isEarlyServerWriteAllowed()
+                      ? this.sctpManager.connectSctp()
+                      : undefined,
+                  )
+                : Promise.resolve()
+          ).catch((error) => {
+            // Early SCTP is an optimization. Policy revocation, generation
+            // changes, or a temporarily unavailable candidate path may close
+            // this fresh association; SctpTransportManager clears its cached
+            // promise so the authenticated path below can create and retry a
+            // new association.
+            log(
+              "early SCTP start cancelled; retry after authentication",
+              error,
+            );
+          });
           const icePromise =
             iceTransport.state === "connected"
               ? Promise.resolve()
@@ -972,6 +1041,7 @@ export class RTCPeerConnection extends EventTarget {
             log("sped ice/dtls start failed", err);
             throw err;
           });
+          await earlySctpPromise;
         } else {
           if (iceTransport.state !== "connected") {
             await iceTransport.start().catch((err) => {
@@ -981,6 +1051,9 @@ export class RTCPeerConnection extends EventTarget {
           }
 
           if (dtlsTransport.state === "connected") {
+            if (ownsSctp) {
+              await this.sctpManager.connectSctp();
+            }
             return;
           }
 
@@ -999,11 +1072,27 @@ export class RTCPeerConnection extends EventTarget {
       }),
     );
 
-    if (epoch !== this.connectEpoch) {
+    if (this.isClosed || epoch !== this.connectEpoch) {
       return;
     }
 
-    if (res.find((r) => r.status === "rejected")) {
+    const transportStates = connectTransports.map(
+      (dtlsTransport) => dtlsTransport.state,
+    );
+    const transportFailed = transportStates.some((state) => state === "failed");
+    const transportNotConnected = transportStates.some(
+      (state) => state !== "connected",
+    );
+
+    // A transport can fail asynchronously while an older connect() is still
+    // settling (for example, a re-negotiation can reject a new fingerprint).
+    // Promise fulfillment alone is not enough to publish PeerConnection
+    // success; the current transport state remains the authentication boundary.
+    if (
+      res.find((r) => r.status === "rejected") ||
+      transportFailed ||
+      transportNotConnected
+    ) {
       this.secureManager.setConnectionState("failed");
     } else {
       this.secureManager.setConnectionState("connected");
@@ -1046,6 +1135,13 @@ export class RTCPeerConnection extends EventTarget {
       return;
     }
     let bundleTransport: RTCDtlsTransport | undefined;
+    const bundleGroup = this.sdpManager.remoteIsBundled;
+    const bundleTag = bundleGroup?.items[0];
+    const replacedBundleTransports = new Set<RTCDtlsTransport>();
+    const pendingBundleRebindings: Array<{
+      previousTransport: RTCDtlsTransport;
+      rebind: (transport: RTCDtlsTransport) => void;
+    }> = [];
 
     // # apply description
 
@@ -1056,8 +1152,19 @@ export class RTCPeerConnection extends EventTarget {
       transceiver.kind === media.kind &&
       [null, media.rtp.muxId].includes(transceiver.mid);
 
-    let transports = remoteSdp.media.map((remoteMedia, i) => {
+    const remoteMediaEntries = remoteSdp.media.map((remoteMedia, i) => ({
+      remoteMedia,
+      index: i,
+    }));
+
+    // Keep the SDP m-line order for transceiver/SCTP matching.  The BUNDLE tag
+    // transport is selected during this pass, and sections encountered before
+    // the tag are rebound after all media have been assigned.
+    remoteMediaEntries.forEach(({ remoteMedia, index: i }) => {
       let dtlsTransport: RTCDtlsTransport;
+      const isBundleMember =
+        bundleGroup?.items.includes(remoteMedia.rtp.muxId ?? "") ?? false;
+      const isBundleTag = isBundleMember && remoteMedia.rtp.muxId === bundleTag;
 
       if (["audio", "video"].includes(remoteMedia.kind)) {
         let transceiver = this.transceiverManager
@@ -1081,11 +1188,23 @@ export class RTCPeerConnection extends EventTarget {
           }
         }
 
-        if (this.sdpManager.remoteIsBundled) {
-          if (!bundleTransport) {
+        if (isBundleMember) {
+          if (isBundleTag) {
             bundleTransport = transceiver.dtlsTransport;
-          } else {
+          } else if (bundleTransport) {
+            const previousTransport = transceiver.dtlsTransport;
             transceiver.setDtlsTransport(bundleTransport);
+            if (previousTransport !== bundleTransport) {
+              replacedBundleTransports.add(previousTransport);
+            }
+          } else {
+            const previousTransport = transceiver.dtlsTransport;
+            const mappedTransceiver = transceiver;
+            pendingBundleRebindings.push({
+              previousTransport,
+              rebind: (transport) =>
+                mappedTransceiver.setDtlsTransport(transport),
+            });
           }
         }
 
@@ -1104,11 +1223,23 @@ export class RTCPeerConnection extends EventTarget {
           sctpTransport.mid = remoteMedia.rtp.muxId;
         }
 
-        if (this.sdpManager.remoteIsBundled) {
-          if (!bundleTransport) {
+        if (isBundleMember) {
+          if (isBundleTag) {
             bundleTransport = sctpTransport.dtlsTransport;
-          } else {
+          } else if (bundleTransport) {
+            const previousTransport = sctpTransport.dtlsTransport;
             sctpTransport.setDtlsTransport(bundleTransport);
+            if (previousTransport !== bundleTransport) {
+              replacedBundleTransports.add(previousTransport);
+            }
+          } else {
+            const previousTransport = sctpTransport.dtlsTransport;
+            const mappedSctpTransport = sctpTransport;
+            pendingBundleRebindings.push({
+              previousTransport,
+              rebind: (transport) =>
+                mappedSctpTransport.setDtlsTransport(transport),
+            });
           }
         }
 
@@ -1120,8 +1251,13 @@ export class RTCPeerConnection extends EventTarget {
       }
 
       const iceTransport = dtlsTransport.iceTransport;
+      // BUNDLE transport の ICE/DTLS parameters は tag m-line が所有する。
+      // 非 tag section の credentials や candidate を共有 transport へ適用すると、
+      // 認証対象と実際の送信先が section の処理順で上書きされてしまう。
+      const shouldApplyBundleTransportParams =
+        !isBundleMember || isBundleTag || bundleTag === undefined;
 
-      if (remoteMedia.iceParams) {
+      if (remoteMedia.iceParams && shouldApplyBundleTransportParams) {
         const renomination = !!this.sdpManager.inactiveRemoteMedia;
         iceTransport.setRemoteParams(remoteMedia.iceParams, renomination);
 
@@ -1131,27 +1267,60 @@ export class RTCPeerConnection extends EventTarget {
           iceTransport.connection.iceControlling = true;
         }
       }
-      if (remoteMedia.dtlsParams) {
+      // For a BUNDLE transport, only the group's tag supplies DTLS
+      // parameters.  Applying later sections would replace the tag's
+      // fingerprint and make a valid certificate fail authentication.
+      if (remoteMedia.dtlsParams && shouldApplyBundleTransportParams) {
         dtlsTransport.setRemoteParams(remoteMedia.dtlsParams);
       }
 
       // # add ICE candidates
-      remoteMedia.iceCandidates.forEach(iceTransport.addRemoteCandidate);
+      if (shouldApplyBundleTransportParams) {
+        remoteMedia.iceCandidates.forEach(iceTransport.addRemoteCandidate);
+      }
 
-      if (remoteMedia.iceCandidatesComplete) {
+      if (
+        remoteMedia.iceCandidatesComplete &&
+        shouldApplyBundleTransportParams
+      ) {
         iceTransport.addRemoteCandidate(undefined);
       }
 
       // # set DTLS role
-      if (remoteSdp.type === "answer" && remoteMedia.dtlsParams?.role) {
+      if (
+        remoteSdp.type === "answer" &&
+        remoteMedia.dtlsParams?.role &&
+        shouldApplyBundleTransportParams
+      ) {
         dtlsTransport.role =
           remoteMedia.dtlsParams.role === "client" ? "server" : "client";
       }
-      return iceTransport;
-    }) as RTCIceTransport[];
+    });
 
-    // filter out inactive transports
-    transports = transports.filter((iceTransport) => !!iceTransport);
+    if (bundleTransport) {
+      for (const pending of pendingBundleRebindings) {
+        pending.rebind(bundleTransport);
+        if (pending.previousTransport !== bundleTransport) {
+          replacedBundleTransports.add(pending.previousTransport);
+        }
+      }
+    }
+
+    // A max-compat offer creates one DTLS transport per m-line before the
+    // remote BUNDLE group is applied.  Once a non-tag section is rebound to
+    // the tag transport, the old transport is no longer visible through the
+    // transceiver manager, so stop it explicitly to release its ICE listener,
+    // timers, and early-data buffers.  Keep any transport still referenced by
+    // another active section.
+    const activeDtlsTransports = new Set(this.dtlsTransports);
+    await Promise.allSettled(
+      [...replacedBundleTransports]
+        .filter((transport) => !activeDtlsTransports.has(transport))
+        .map((transport) => this.secureManager.stopTransport(transport)),
+    );
+    if (this.isClosed) {
+      return;
+    }
 
     const removedTransceivers = this.transceiverManager
       .getTransceivers()
@@ -1179,6 +1348,9 @@ export class RTCPeerConnection extends EventTarget {
     }
 
     await this.flushPendingRemoteCandidates();
+    if (this.isClosed) {
+      return;
+    }
 
     // connect transports
     if (remoteSdp.type === "answer") {
@@ -1252,6 +1424,9 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private setSignalingState(state: RTCSignalingState) {
+    if (this.isClosed && state !== "closed") {
+      return;
+    }
     if (this.signalingState === state) {
       return;
     }
@@ -1308,6 +1483,9 @@ export class RTCPeerConnection extends EventTarget {
     if (this.isClosed) return;
 
     this.isClosed = true;
+    // Invalidate every in-flight connect() continuation before lower layers
+    // reject their pending waits.  A close must remain the terminal state.
+    this.connectEpoch++;
     this.pendingRemoteCandidates.length = 0;
     this.setSignalingState("closed");
 
@@ -1410,6 +1588,11 @@ export interface PeerConfig {
    * (SPED uses ICE-authenticated address validation, not a DTLS cookie).
    */
   sped?: boolean;
+  /** Experimental WARP traffic policy. Early outbound remains opt-in. */
+  warp?: {
+    allowEarlyServerData?: boolean;
+    earlyMediaPolicy?: "drop" | "buffer";
+  };
   dtls: Partial<{
     keys: DtlsKeys;
     /**
@@ -1524,6 +1707,10 @@ function generateDefaultPeerConfig(): Required<PeerConfig> {
     iceUseLinkLocalAddress: undefined,
     dtls: {},
     sped: false,
+    warp: {
+      allowEarlyServerData: false,
+      earlyMediaPolicy: "drop",
+    },
     bundlePolicy: "max-compat",
     rtcpMuxPolicy: "require",
     iceCandidatePoolSize: 0,
@@ -1570,6 +1757,26 @@ function normalizePeerConfiguration(
 
   if ("sped" in input) {
     normalizedConfig.sped = input.sped === true;
+  }
+
+  if ("warp" in input) {
+    if (
+      input.warp?.earlyMediaPolicy !== undefined &&
+      input.warp.earlyMediaPolicy !== "drop" &&
+      input.warp.earlyMediaPolicy !== "buffer"
+    ) {
+      throw createWebRtcTypeError(
+        'warp.earlyMediaPolicy must be "drop" or "buffer"',
+      );
+    }
+    normalizedConfig.warp = {};
+    if (input.warp?.allowEarlyServerData !== undefined) {
+      normalizedConfig.warp.allowEarlyServerData =
+        input.warp.allowEarlyServerData === true;
+    }
+    if (input.warp?.earlyMediaPolicy !== undefined) {
+      normalizedConfig.warp.earlyMediaPolicy = input.warp.earlyMediaPolicy;
+    }
   }
 
   return normalizedConfig;
@@ -1631,6 +1838,7 @@ function clonePeerConfiguration(config: PeerConfig) {
         : undefined,
       helloRetryRequest: config.dtls.helloRetryRequest,
     },
+    warp: config.warp ? { ...config.warp } : undefined,
     certificates: [...config.certificates],
     debug: { ...config.debug },
   };

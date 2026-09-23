@@ -40,6 +40,7 @@ export class SecureTransportManager {
   private config: PeerConfig;
   private transceiverManager: TransceiverManager;
   private sctpManager: SctpTransportManager;
+  private dtlsStateDisposers = new Map<RTCDtlsTransport, () => void>();
 
   constructor({
     config,
@@ -182,6 +183,7 @@ export class SecureTransportManager {
         debug: this.config.debug,
         protocolVersions: this.config.dtls.protocolVersions,
         helloRetryRequest: this.config.dtls.helloRetryRequest,
+        warp: this.config.warp,
       },
       iceTransport,
       this.certificate,
@@ -190,6 +192,16 @@ export class SecureTransportManager {
     if (this.config.sped === true) {
       markDtlsTransportSped(dtlsTransport);
     }
+
+    // A fingerprint re-validation failure happens after the initial
+    // connection has already been reported.  Bridge that terminal DTLS state
+    // to PeerConnection.connectionState instead of leaving it "connected".
+    const stateSubscription = dtlsTransport.onStateChange.subscribe((state) => {
+      if (state === "failed" && this.connectionState !== "closed") {
+        this.setConnectionState("failed");
+      }
+    });
+    this.dtlsStateDisposers.set(dtlsTransport, stateSubscription.unSubscribe);
 
     return dtlsTransport;
   }
@@ -407,6 +419,9 @@ export class SecureTransportManager {
     for (const transport of this.iceTransports) {
       transport.restart();
     }
+    for (const transport of this.dtlsTransports) {
+      transport.handleIceRestart();
+    }
     // restart() resets each gatherer to "new"; refresh the aggregate cache
     // even if a gatherer failed to emit onGatheringStateChange.
     this.updateIceGatheringState();
@@ -576,10 +591,26 @@ export class SecureTransportManager {
     }
   }
 
+  /** Stop a transport that was replaced while applying a BUNDLE description. */
+  async stopTransport(dtlsTransport: RTCDtlsTransport) {
+    const dispose = this.dtlsStateDisposers.get(dtlsTransport);
+    if (dispose) {
+      dispose();
+      this.dtlsStateDisposers.delete(dtlsTransport);
+    }
+    await dtlsTransport.stop();
+  }
+
   async close() {
     this.setConnectionState("closed");
 
-    await Promise.allSettled([...this.dtlsTransports.map((t) => t.stop())]);
+    const createdTransports = [...this.dtlsStateDisposers.keys()];
+    for (const dispose of this.dtlsStateDisposers.values()) {
+      dispose();
+    }
+    this.dtlsStateDisposers.clear();
+
+    await Promise.allSettled(createdTransports.map((t) => t.stop()));
 
     this.iceGatheringStateChange.allUnsubscribe();
     this.iceConnectionStateChange.allUnsubscribe();

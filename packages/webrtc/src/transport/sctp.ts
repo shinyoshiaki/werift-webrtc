@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { Event, debug } from "../imports/common";
 
 import { SCTP, SCTP_STATE, type Transport } from "../../../sctp/src";
+import { SCTPStartCancelledError } from "../../../sctp/src/sctp";
 import {
   DATA_CHANNEL_ACK,
   DATA_CHANNEL_OPEN,
@@ -40,6 +41,7 @@ export class RTCSctpTransport {
   private dataChannelQueue: [RTCDataChannel, number, Buffer][] = [];
   private dataChannelId?: number;
   private eventDisposer: (() => void)[] = [];
+  private stopping = false;
 
   constructor(
     public port = 5000,
@@ -55,15 +57,27 @@ export class RTCSctpTransport {
       return;
     }
 
-    this.eventDisposer.forEach((dispose) => dispose());
+    this.disposeSctpListeners();
 
     this.dtlsTransport = dtlsTransport;
+    this.stopping = false;
+    this.createSctpAssociation();
+  }
+
+  private disposeSctpListeners() {
+    this.eventDisposer.forEach((dispose) => dispose());
+    this.eventDisposer = [];
+  }
+
+  private createSctpAssociation() {
+    this.disposeSctpListeners();
     this.sctp = new SCTP(new BridgeDtls(this.dtlsTransport), this.port);
+    const association = this.sctp;
 
     this.eventDisposer = [
       ...[
-        this.sctp.onReceive.subscribe(this.datachannelReceive),
-        this.sctp.onReconfigStreams.subscribe((ids: number[]) => {
+        association.onReceive.subscribe(this.datachannelReceive),
+        association.onReconfigStreams.subscribe((ids: number[]) => {
           ids.forEach((id) => {
             const dc = this.dataChannels[id];
             if (!dc) return;
@@ -73,7 +87,7 @@ export class RTCSctpTransport {
             delete this.dataChannels[id];
           });
         }),
-        this.sctp.stateChanged.connected.subscribe(() => {
+        association.stateChanged.connected.subscribe(() => {
           Object.values(this.dataChannels).forEach((channel) => {
             if (channel.negotiated && channel.readyState !== "open") {
               channel.setReadyState("open");
@@ -81,28 +95,71 @@ export class RTCSctpTransport {
           });
           this.dataChannelFlush();
         }),
-        this.sctp.stateChanged.closed.subscribe(() => {
-          Object.values(this.dataChannels).forEach((dc) => {
-            dc.setReadyState("closed");
-          });
-          this.dataChannels = {};
+        association.stateChanged.closed.subscribe(() => {
+          // Keep pre-establishment channels and queued DCEP available for a
+          // retry. Once an association was established (or the transport is
+          // explicitly stopping), closing the SCTP association closes them.
+          if (!association.hadEstablished && !this.stopping) return;
+          this.closeDataChannels();
         }),
+        ...(() => {
+          // A pre-established early association cannot make progress after
+          // permission is revoked. Cancel it immediately instead of waiting
+          // for SCTP T1 retransmissions to expire; authenticated retry will
+          // create a fresh association through SctpTransportManager.
+          const cancelStart = () => {
+            if (
+              this.sctp === association &&
+              association.associationState !== SCTP_STATE.ESTABLISHED
+            ) {
+              association.cancelStart(new SCTPStartCancelledError());
+            }
+          };
+          return [
+            this.dtlsTransport.onEarlyApplicationSendRevoked?.subscribe(
+              cancelStart,
+            ),
+            this.dtlsTransport.onEarlyApplicationAttemptCancelled?.subscribe(
+              cancelStart,
+            ),
+          ].flatMap((subscription) => (subscription ? [subscription] : []));
+        })(),
         this.dtlsTransport.onStateChange.subscribe((state) => {
-          if (state === "closed") {
-            this.sctp.setState(SCTP_STATE.CLOSED);
+          if (state === "failed" || state === "closed") {
+            // DTLS failure is terminal for this SCTP association.  Do not
+            // preserve queued DCEP/data for a retry after authentication has
+            // failed, and close every channel immediately.
+            this.stopping = true;
+            // Close queued pre-establishment channels before SCTP removes its
+            // state listeners; otherwise their DCEP entries are lost without
+            // a DataChannel close event.
+            this.closeDataChannels();
+            association.setState(SCTP_STATE.CLOSED);
+            this.disposeSctpListeners();
           }
         }),
       ].map((e) => e.unSubscribe),
-      () => (this.sctp.onSackReceived = async () => {}),
+      () => (association.onSackReceived = async () => {}),
     ];
 
-    this.sctp.onSackReceived = async () => {
+    association.onSackReceived = async () => {
       await this.dataChannelFlush();
     };
   }
 
+  /** @internal Prepare a fresh association after INIT/T1 failure. */
+  prepareForStart() {
+    if (this.stopping) {
+      throw new Error("SCTP transport is stopped");
+    }
+    if (this.sctp.state === "closed") {
+      this.createSctpAssociation();
+    }
+    return this.sctp;
+  }
+
   private get isServer() {
-    return this.dtlsTransport.iceTransport.role !== "controlling";
+    return this.dtlsTransport.role === "server";
   }
 
   channelByLabel(label: string) {
@@ -322,6 +379,25 @@ export class RTCSctpTransport {
     this.dataChannelQueue = [];
   }
 
+  /** Close retained channels even when SCTP removed its state listeners. */
+  private closeDataChannels() {
+    const channels = new Set<RTCDataChannel>([
+      ...Object.values(this.dataChannels),
+      ...this.dataChannelQueue.map(([channel]) => channel),
+    ]);
+    this.dataChannelQueue = [];
+    this.dataChannels = {};
+
+    for (const channel of channels) {
+      if (channel.readyState === "closed") continue;
+      try {
+        channel.setReadyState("closed");
+      } catch (error) {
+        log("datachannel close callback failed", error);
+      }
+    }
+  }
+
   private assertSendableMessageSize(size: number) {
     if (this.remoteMaxMessageSize !== 0 && size > this.remoteMaxMessageSize) {
       throw new Error(
@@ -369,19 +445,31 @@ export class RTCSctpTransport {
   }
 
   async start(remotePort: number) {
+    this.prepareForStart();
     if (this.isServer) {
-      this.dataChannelId = 0;
-    } else {
       this.dataChannelId = 1;
+    } else {
+      this.dataChannelId = 0;
     }
-    this.sctp.isServer = this.isServer;
+    // SCTP's `isServer` flag means passive COOKIE-WAIT peer. WARP assigns the
+    // active INIT sender to the DTLS server, independently of the ICE role.
+    this.sctp.isServer = !this.isServer;
 
     await this.sctp.start(remotePort);
   }
 
   async stop() {
+    this.stopping = true;
     this.dtlsTransport.dataReceiver = () => {};
-    await this.sctp.stop();
+    // SCTP removes its own state listeners when it reaches CLOSED.  Explicit
+    // PeerConnection shutdown must therefore close retained channels without
+    // relying on a later stateChanged.closed callback.
+    this.closeDataChannels();
+    try {
+      await this.sctp.stop();
+    } finally {
+      this.disposeSctpListeners();
+    }
   }
 
   dataChannelClose(channel: RTCDataChannel) {
