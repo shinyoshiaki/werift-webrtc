@@ -61,6 +61,9 @@ export interface IceConnection {
 
   send(data: Buffer): Promise<void>;
 
+  /** @internal Return whether application data has an authenticated ICE path. */
+  canSendApplicationData(): boolean;
+
   getDefaultCandidate(): Candidate | undefined;
   resetNominatedPair(): void;
 }

@@ -4,7 +4,11 @@ import { type Address, Event } from "../../common/src";
 import { NodeStunServer, NodeTurnServer } from "../../ice-server/src";
 import { Candidate } from "../src/candidate";
 import { Connection } from "../src/ice";
-import { CandidatePair, type IceOptions } from "../src/iceBase";
+import {
+  CandidatePair,
+  CandidatePairState,
+  type IceOptions,
+} from "../src/iceBase";
 import type { Message } from "../src/stun/message";
 import type { Protocol, TransactionRequestOptions } from "../src/types/model";
 
@@ -193,6 +197,7 @@ export function createConsentHarness(
     iceControlling,
   );
   nominated.nominated = true;
+  nominated.updateState(CandidatePairState.SUCCEEDED);
 
   const connection = new Connection(iceControlling);
   connection.remoteUsername = "remote";

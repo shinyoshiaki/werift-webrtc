@@ -381,7 +381,11 @@ export class RTCRtpSender {
   }
 
   async sendRtp(rtp: Buffer | RtpPacket) {
-    if (this.dtlsTransport.state !== "connected" || !this.codec) {
+    if (
+      (this.dtlsTransport.state !== "connected" &&
+        !this.dtlsTransport.isEarlyServerWriteAllowed()) ||
+      !this.codec
+    ) {
       return;
     }
 

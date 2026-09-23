@@ -183,6 +183,18 @@ async function setupChAThenSpoofedHvr(opts?: {
 test("e2e/dual: CH-A delivered + spoofed HVR race still completes DTLS 1.3", async () => {
   // Arrange / Act
   const { server, client, errors } = await setupChAThenSpoofedHvr();
+  // 接続前に association 所有の3種類の readiness 待機を登録する。
+  const readinessOutcomes = [
+    client.waitForWriteReady(),
+    client.waitForPeerHandshakeAuthenticated(),
+    client.waitForHandshakeComplete(),
+  ].map((wait) =>
+    wait.then(
+      () => "ready",
+      (error) =>
+        `error:${error instanceof Error ? error.message : String(error)}`,
+    ),
+  );
 
   await new Promise<void>(async (resolve, reject) => {
     const timer = setTimeout(
@@ -228,6 +240,16 @@ test("e2e/dual: CH-A delivered + spoofed HVR race still completes DTLS 1.3", asy
     });
     await client.connect();
   });
+
+  // HVR 後に parked な1.3 engineが復帰した経路でも全 readiness が完了する。
+  await expect(
+    Promise.race([
+      Promise.all(readinessOutcomes),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("HVR 1.3 readiness timeout")), 5_000),
+      ),
+    ]),
+  ).resolves.toEqual(["ready", "ready", "ready"]);
 
   // Assert: Flight1 終了後も遅延 onError なし
   await new Promise((r) => setTimeout(r, 600));

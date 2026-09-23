@@ -23,3 +23,17 @@
 ### protocolVersions?
 
 > `optional` **protocolVersions**: readonly [`DtlsVersion`](../enumerations/DtlsVersion.md)[]
+
+***
+
+### warp?
+
+> `optional` **warp**: `object`
+
+#### allowEarlyServerData?
+
+> `optional` **allowEarlyServerData**: `boolean`
+
+#### earlyMediaPolicy?
+
+> `optional` **earlyMediaPolicy**: `"buffer"` \| `"drop"`

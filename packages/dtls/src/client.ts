@@ -26,7 +26,7 @@ import { ClientHello } from "./handshake/message/client/hello";
 import { ServerHello } from "./handshake/message/server/hello";
 import { ServerHelloVerifyRequest } from "./handshake/message/server/helloVerifyRequest";
 import { DtlsRandom } from "./handshake/random";
-import type { Address } from "./imports/common";
+import type { Address, DatagramRxMeta } from "./imports/common";
 import { debug } from "./imports/common";
 import { AlertDesc, ContentType } from "./record/const";
 import type { FragmentedHandshake } from "./record/message/fragment";
@@ -45,6 +45,7 @@ import {
 } from "./version";
 
 import type { DtlsHandshakeCarrier } from "./carrier/types";
+import type { EarlyDataBufferStats } from "./engine/v1_3/early-data-buffer";
 
 const log = debug("werift-dtls : packages/dtls/src/client.ts : log");
 
@@ -82,6 +83,19 @@ export class DtlsClient extends DtlsSocket {
    */
   get dualAssociationPhase(): DualAssociationPhase {
     return this.dualPhase;
+  }
+
+  /** @internal Include a parked 1.3 candidate while dual version probing. */
+  override get earlyDataStats(): EarlyDataBufferStats {
+    return (
+      this.engine13?.earlyDataStats ??
+      this.parkedEngine13?.earlyDataStats ?? {
+        bufferedPackets: 0,
+        bufferedBytes: 0,
+        droppedPackets: 0,
+        droppedBytes: 0,
+      }
+    );
   }
 
   /**
@@ -493,12 +507,12 @@ export class DtlsClient extends DtlsSocket {
    * True when a captured associationGen still owns the DTLS 1.2 handshake path.
    * False after hard-close or commit to 1.3 (1.2 Flight5 must not resume).
    */
-  private isLegacy12PathActive(gen: number): boolean {
+  private isLegacy12PathActive(gen: number, rxGeneration?: number): boolean {
     if (gen !== this.associationGen) return false;
     if (this.dualPhase === "closed") return false;
     if (this.dualPhase === "committed13") return false;
     if (this.engine13) return false;
-    return true;
+    return this.isCurrentRxGeneration(rxGeneration);
   }
 
   /**
@@ -565,8 +579,8 @@ export class DtlsClient extends DtlsSocket {
     }
     const carrier = this.associationCarrier;
     if (carrier && !carrier.isClosed()) {
-      carrier.setInjectHandler((bytes, peer) =>
-        this.associationInject(bytes, peer),
+      carrier.setInjectHandler((bytes, peer, opts) =>
+        this.associationInject(bytes, peer, opts),
       );
     }
   }
@@ -582,6 +596,7 @@ export class DtlsClient extends DtlsSocket {
   private associationInject(
     bytes: Buffer,
     peer?: [string, number] | { address?: string; port?: number } | string,
+    opts?: { rxGeneration?: number },
   ): void | Promise<void> {
     if (this.dualPhase === "closed") return;
     if (this.associationCarrier?.isStaleInboundInject?.()) return;
@@ -633,7 +648,7 @@ export class DtlsClient extends DtlsSocket {
       };
       t.rinfo = { address: addr[0], port: addr[1] };
     }
-    return this.udpOnMessage(Buffer.from(bytes), addr);
+    return this.udpOnMessage(Buffer.from(bytes), addr, opts);
   }
 
   /**
@@ -671,6 +686,12 @@ export class DtlsClient extends DtlsSocket {
       return;
     }
     log("dual association: commit DTLS 1.2");
+    // The current legacy handler is the owner that selected DTLS 1.2.  Keep
+    // its ownership token valid so a later parse/validation error (for example
+    // malformed use_srtp) is reported as a current-association failure rather
+    // than being mistaken for a stale callback.  Ownership is invalidated
+    // only when the 1.2 candidate is actually abandoned (close/renegotiation
+    // or commit to DTLS 1.3).
     this.dualPhase = "committed12";
     this.dualResume = undefined;
     // Soft-dispose parked 1.3 (stops RTO via closed + flightId-scoped
@@ -1047,9 +1068,20 @@ export class DtlsClient extends DtlsSocket {
    * CH-A engine (keeps transcript continuity); else prime a fresh engine from
    * dualResume and reinject the datagram.
    */
-  private resumeDtls13FromDualPath(datagram: Buffer): void {
+  private resumeDtls13FromDualPath(
+    datagram: Buffer,
+    rxGeneration?: number,
+  ): void {
     if (this.dualPhase === "closed" || this.dualPhase === "committed12") {
       // Late 1.3 after close or 1.2 commit must not reverse the association.
+      return;
+    }
+    // A ServerHello accepted by the old ICE carrier must not select a DTLS
+    // version for the new carrier generation.  This dispatcher path commits
+    // synchronously, so it needs the same receive-generation check as the
+    // asynchronous legacy handshake path.
+    if (!this.isCurrentRxGeneration(rxGeneration)) {
+      log("dual association: drop stale ServerHello generation");
       return;
     }
 
@@ -1075,7 +1107,12 @@ export class DtlsClient extends DtlsSocket {
 
     // Stop 1.2 Flight1 retransmit by advancing flight only — never set fatalError
     // for a successful version commit (would surface as delayed public onError).
+    if (!this.isCurrentRxGeneration(rxGeneration)) {
+      log("dual association: ServerHello generation changed before commit");
+      return;
+    }
     this.abortLegacy12Flight();
+    this.invalidateLegacy12HandshakeOwnership();
     this.dualPhase = "committed13";
     // Invalidate in-flight 1.2 handleHandshakes / Flight5 after version commit.
     this.associationGen++;
@@ -1092,7 +1129,10 @@ export class DtlsClient extends DtlsSocket {
       this.engine13 = parked;
       // Association keeps UDP + carrier.inject; engine RX only via injectDatagram.
       this.bindAssociationInbound(parked);
-      parked.injectDatagram(datagram, rinfo);
+      // Wake association-level readiness waiters after the parked candidate is
+      // active again and before the triggering datagram is reprocessed.
+      this.notifyEngine13Selected();
+      parked.injectDatagram(datagram, rinfo, rxGeneration);
       return;
     }
 
@@ -1130,7 +1170,7 @@ export class DtlsClient extends DtlsSocket {
     // Constructor stole transport.onData / inject — reclaim for association.
     this.bindAssociationInbound(engine);
     // Full datagram reinject so coalesced epoch-2 records are not lost
-    engine.injectDatagram(datagram, rinfo);
+    engine.injectDatagram(datagram, rinfo, rxGeneration);
   }
 
   async connect() {
@@ -1179,11 +1219,14 @@ export class DtlsClient extends DtlsSocket {
   private handleHandshakes = async (
     assembled: FragmentedHandshake[],
     _peer?: Address,
+    meta?: DatagramRxMeta,
   ) => {
     if (this.engine13) return;
     if (this.dualPhase === "closed") return;
     // Capture generation so awaits cannot resume after close / commit13.
     const gen = this.associationGen;
+    const rxGeneration = meta?.rxGeneration;
+    const isActive = () => this.isLegacy12PathActive(gen, rxGeneration);
 
     log(
       this.dtls.sessionId,
@@ -1192,7 +1235,7 @@ export class DtlsClient extends DtlsSocket {
     );
 
     for (const handshake of assembled) {
-      if (!this.isLegacy12PathActive(gen)) return;
+      if (!isActive()) return;
       switch (handshake.msg_type) {
         case HandshakeType.hello_verify_request_3:
           {
@@ -1200,7 +1243,7 @@ export class DtlsClient extends DtlsSocket {
               handshake.fragment,
             );
             await new Flight3(this.transport, this.dtls).exec(verifyReq);
-            if (!this.isLegacy12PathActive(gen)) return;
+            if (!isActive()) return;
             // Do not overwrite dualResume with the cookie-bearing CH2 body.
             // dualResume is the original dual CH-A used if a 1.3 SH/HRR for
             // that first CH still arrives (spoofed HVR race). Pure 1.2 peers
@@ -1210,7 +1253,7 @@ export class DtlsClient extends DtlsSocket {
         case HandshakeType.server_hello_2:
           {
             if (this.connected) return;
-            if (!this.isLegacy12PathActive(gen)) return;
+            if (!isActive()) return;
             const only13 =
               this.protocolVersions.length === 1 &&
               this.protocolVersions[0] === DtlsVersion.V1_3;
@@ -1251,7 +1294,7 @@ export class DtlsClient extends DtlsSocket {
                   0,
                   fragBytes,
                 );
-                this.resumeDtls13FromDualPath(pkt);
+                this.resumeDtls13FromDualPath(pkt, meta?.rxGeneration);
                 return;
               }
               // kind === "dtls12": DOWNGRD check then commit
@@ -1265,9 +1308,9 @@ export class DtlsClient extends DtlsSocket {
                 );
                 return;
               }
-              if (!this.isLegacy12PathActive(gen)) return;
+              if (!isActive()) return;
               this.commitDualTo12();
-              if (!this.isLegacy12PathActive(gen)) return;
+              if (!isActive()) return;
               // Same as pure 1.2: do not replace Flight5 on duplicate SH.
               if (this.flight5 || this.dtls.flight >= 5 || this.connected) {
                 this.flight5?.handleHandshake(handshake);
@@ -1308,7 +1351,7 @@ export class DtlsClient extends DtlsSocket {
               }
             }
 
-            if (!this.isLegacy12PathActive(gen)) return;
+            if (!isActive()) return;
             // Duplicate ServerHello (Flight4 retransmit) must not replace an
             // existing Flight5 mid-handshake or re-apply crypto (ECDHE).
             if (this.flight5 || this.dtls.flight >= 5 || this.connected) {
@@ -1330,14 +1373,14 @@ export class DtlsClient extends DtlsSocket {
           {
             await this.waitForReady(() => !!this.flight5);
             // 解放済み candidate に触れないよう await 後に再検証
-            if (!this.isLegacy12PathActive(gen)) return;
+            if (!isActive()) return;
             this.flight5?.handleHandshake(handshake);
           }
           break;
         case HandshakeType.server_hello_done_14:
           {
             await this.waitForReady(() => !!this.flight5);
-            if (!this.isLegacy12PathActive(gen)) return;
+            if (!isActive()) return;
             this.flight5?.handleHandshake(handshake);
 
             const targets = [
@@ -1349,14 +1392,14 @@ export class DtlsClient extends DtlsSocket {
               this.dtls.checkHandshakesExist(targets),
             );
             // close / commit13 後は Flight5.exec も onConnect も行わない
-            if (!this.isLegacy12PathActive(gen)) return;
+            if (!isActive()) return;
             await this.flight5?.exec();
-            if (!this.isLegacy12PathActive(gen)) return;
+            if (!isActive()) return;
           }
           break;
         case HandshakeType.finished_20:
           {
-            if (!this.isLegacy12PathActive(gen)) return;
+            if (!isActive()) return;
             if (this.connected) return;
             this.dtls.flight = 7;
             this.connected = true;
@@ -1384,9 +1427,20 @@ export class DtlsClient extends DtlsSocket {
    * - probing + epoch-0 illegal_parameter only: suppress (legacy_cookie vs 1.3)
    * - else: DTLS 1.2 record path (committed12 / dual cookie / pure 1.2)
    */
-  protected udpOnMessage = (data: Buffer, addr?: Address) => {
+  protected udpOnMessage = (
+    data: Buffer,
+    addr?: Address,
+    meta?: DatagramRxMeta,
+  ) => {
     // Terminal: dualPhase closed *or* associationTornDown mid peer-close reply.
     if (this.dualPhase === "closed" || this.associationTornDown) {
+      return;
+    }
+    // Version selection below is synchronous and bypasses the legacy
+    // handleDatagram generation checks.  Reject stale ICE datagrams before a
+    // probing ServerHello can commit the association to DTLS 1.3.
+    if (!this.isCurrentRxGeneration(meta?.rxGeneration)) {
+      log("dual association: drop stale RX generation before version select");
       return;
     }
     // Prefer explicit addr (UDP / inject); fall back to last rinfo.
@@ -1423,7 +1477,7 @@ export class DtlsClient extends DtlsSocket {
     }
 
     if (this.engine13 && !this.engine13.isClosed()) {
-      return this.engine13.injectDatagram(data, peerTuple);
+      return this.engine13.injectDatagram(data, peerTuple, meta?.rxGeneration);
     }
 
     if (
@@ -1431,7 +1485,7 @@ export class DtlsClient extends DtlsSocket {
       !this.engine13 &&
       this.datagramSelectsDtls13(data)
     ) {
-      this.resumeDtls13FromDualPath(data);
+      this.resumeDtls13FromDualPath(data, meta?.rxGeneration);
       return;
     }
     if (
@@ -1446,7 +1500,7 @@ export class DtlsClient extends DtlsSocket {
     }
     // After commit12, late 1.3 SH must not reverse version (resume guards too).
     // Pass peer so base 1.2 RX pin gate applies (UDP + carrier.inject parity).
-    this.handleUdpDatagram(data, peerAddr);
+    this.handleUdpDatagram(data, peerAddr, meta);
   };
 
   /**

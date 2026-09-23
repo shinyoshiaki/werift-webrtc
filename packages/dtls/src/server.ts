@@ -11,7 +11,7 @@ import {
 } from "./handshake/extensions/cookie";
 import { SupportedVersions } from "./handshake/extensions/supportedVersions";
 import { ClientHello } from "./handshake/message/client/hello";
-import type { Address } from "./imports/common";
+import type { Address, DatagramRxMeta } from "./imports/common";
 import { debug } from "./imports/common";
 import { AlertDesc, ContentType } from "./record/const";
 import type { FragmentedHandshake } from "./record/message/fragment";
@@ -58,6 +58,14 @@ export class DtlsServer extends DtlsSocket {
     // dispatches to 1.3 only after selectVersion chooses V1_3.
     if (only13) {
       this.startEngine13();
+    } else if (dual) {
+      // Before version selection there is no 1.3 engine to own carrier.inject.
+      // Route the embedded ClientHello through the association dispatcher;
+      // selecting 1.3 will create the engine and rebind this same carrier.
+      const carrier = (this.options as DtlsInternalOptions).handshakeCarrier;
+      carrier?.setInjectHandler((bytes, peer, opts) =>
+        this.serverAssociationInject(bytes, peer, opts),
+      );
     }
 
     log(this.dtls.sessionId, "start server", {
@@ -72,6 +80,7 @@ export class DtlsServer extends DtlsSocket {
     if (!this.options.cert || !this.options.key) {
       throw new Error("DTLS 1.3 requires cert and key options");
     }
+    this.invalidateLegacy12HandshakeOwnership();
     const engine = new Dtls13Connection(
       {
         transport: this.options.transport,
@@ -110,8 +119,8 @@ export class DtlsServer extends DtlsSocket {
     this.transport.socket.onData = this.udpOnMessage;
     const carrier = engine.getHandshakeCarrier();
     if (carrier && !carrier.isClosed()) {
-      carrier.setInjectHandler((bytes, peer) =>
-        this.serverAssociationInject(bytes, peer),
+      carrier.setInjectHandler((bytes, peer, opts) =>
+        this.serverAssociationInject(bytes, peer, opts),
       );
     }
   }
@@ -123,6 +132,7 @@ export class DtlsServer extends DtlsSocket {
   private serverAssociationInject(
     bytes: Buffer,
     peer?: [string, number] | { address?: string; port?: number } | string,
+    opts?: { rxGeneration?: number },
   ): void | Promise<void> {
     if (this.associationTornDown) return;
     if (this.engine13?.getHandshakeCarrier()?.isStaleInboundInject?.()) {
@@ -141,21 +151,25 @@ export class DtlsServer extends DtlsSocket {
         addr = [peer.address, peer.port];
       }
     }
-    return this.udpOnMessage(Buffer.from(bytes), addr);
+    return this.udpOnMessage(Buffer.from(bytes), addr, opts);
   }
 
   /**
    * Association RX: 1.3 engine when active, else DTLS 1.2 record path.
    * Terminal association drops all inbound (UDP and inject).
    */
-  protected udpOnMessage = (data: Buffer, addr?: Address) => {
+  protected udpOnMessage = (
+    data: Buffer,
+    addr?: Address,
+    meta?: DatagramRxMeta,
+  ) => {
     if (this.associationTornDown) return;
     const eng = this.engine13;
     if (eng && !eng.isClosed()) {
       const peer = addr ? ([addr[0], addr[1]] as [string, number]) : undefined;
-      return eng.injectDatagram(data, peer);
+      return eng.injectDatagram(data, peer, meta?.rxGeneration);
     }
-    this.handleUdpDatagram(data, addr);
+    this.handleUdpDatagram(data, addr, meta);
   };
 
   /**
@@ -193,8 +207,15 @@ export class DtlsServer extends DtlsSocket {
   private handleHandshakes = async (
     assembled: FragmentedHandshake[],
     peer?: Address,
+    meta?: DatagramRxMeta,
   ) => {
     if (this.engine13) return;
+    const rxGeneration = meta?.rxGeneration;
+    const isActive = () =>
+      !this.associationTornDown &&
+      !this.engine13 &&
+      this.isCurrentRxGeneration(rxGeneration);
+    if (!isActive()) return;
 
     // Freeze the datagram source for this async turn. Concurrent spoof RX may
     // overwrite UdpTransport.rinfo before Flight2 / protocol alerts send.
@@ -220,6 +241,7 @@ export class DtlsServer extends DtlsSocket {
     );
 
     for (const handshake of assembled) {
+      if (!isActive()) return;
       switch (handshake.msg_type) {
         // flight1,3
         case HandshakeType.client_hello_1:
@@ -244,6 +266,7 @@ export class DtlsServer extends DtlsSocket {
             // Extension absent → legacy DTLS 1.2.
             const selected = this.selectVersionFromClientHello(clientHello);
             if (selected === DtlsVersion.V1_3) {
+              if (!isActive()) return;
               // Preserve ClientHello source for dtls-cookie peerKey mint/verify.
               const peerAddr: [string, number] | undefined = replyTo
                 ? [replyTo[0], replyTo[1]]
@@ -251,6 +274,7 @@ export class DtlsServer extends DtlsSocket {
               this.startEngine13();
               const eng = this.engine13 as Dtls13Connection | undefined;
               if (eng) {
+                if (!this.isCurrentRxGeneration(rxGeneration)) return;
                 const fragBytes = handshake.serialize();
                 const pkt = serializePlaintextRecord(
                   ContentType.handshake,
@@ -258,7 +282,7 @@ export class DtlsServer extends DtlsSocket {
                   0,
                   fragBytes,
                 );
-                eng.injectDatagram(pkt, peerAddr);
+                eng.injectDatagram(pkt, peerAddr, meta?.rxGeneration);
               }
               log("association selected DTLS 1.3, reinjected ClientHello", {
                 peer: peerAddr,
@@ -272,7 +296,7 @@ export class DtlsServer extends DtlsSocket {
               // or ICE / authenticated-single-peer). Pre-auth UDP must not
               // DoS the listening server.
               await this.sendPlaintextAlert(AlertDesc.ProtocolVersion, replyTo);
-              if (this.associationTornDown) return;
+              if (!isActive()) return;
               if (this.hasAssociationPeerAuth()) {
                 this.reportLegacy12Fatal(
                   new ProtocolVersionError(
@@ -355,7 +379,7 @@ export class DtlsServer extends DtlsSocket {
                   this.cipher,
                   this.srtp,
                 ).exec(handshake, this.options.certificateRequest);
-                if (this.associationTornDown) return;
+                if (!isActive()) return;
                 return;
               }
 
@@ -397,7 +421,7 @@ export class DtlsServer extends DtlsSocket {
                 this.srtp,
               ).exec(handshake, this.options.certificateRequest);
               // close/fatal during Flight4 must not continue HS
-              if (this.associationTornDown) return;
+              if (!isActive()) return;
             }
           }
           break;
@@ -407,6 +431,7 @@ export class DtlsServer extends DtlsSocket {
         case HandshakeType.client_key_exchange_16:
           {
             if (this.connected || this.associationTornDown) return;
+            if (!isActive()) return;
             // Do not replace Flight6 on retransmitted Flight5 fragments —
             // ClientKeyExchange handler is idempotent via cache, but replacing
             // the instance mid-waitForReady would race Finished processing.
@@ -425,7 +450,7 @@ export class DtlsServer extends DtlsSocket {
             // Terminal / already connected: never re-enter connect path
             if (this.associationTornDown || this.connected) return;
             await this.waitForReady(() => !!this.flight6);
-            if (this.associationTornDown || this.connected) return;
+            if (!isActive() || this.connected) return;
             this.flight6?.handleHandshake(handshake);
 
             const requiredHandshakes = [
@@ -437,10 +462,11 @@ export class DtlsServer extends DtlsSocket {
               this.dtls.checkHandshakesExist(requiredHandshakes),
             );
             // close/fatal during waitForReady must not Flight6.exec or onConnect
-            if (this.associationTornDown || this.connected) return;
+            if (!isActive() || this.connected) return;
             await this.flight6?.exec();
-            if (this.associationTornDown || this.connected) return;
+            if (!isActive() || this.connected) return;
 
+            if (!isActive()) return;
             this.connected = true;
             // Safety net: pin from last authenticated HS peer if Flight4 pin
             // was skipped (should not overwrite an existing pin after spoof).
@@ -449,6 +475,7 @@ export class DtlsServer extends DtlsSocket {
             // after flight=6; cancel before onConnect for lifecycle completeness.
             this.cancelLegacy12FlightTimers();
             this.onConnect.execute();
+            if (!this.isCurrentRxGeneration(rxGeneration)) return;
             log(this.dtls.sessionId, "dtls connected");
           }
           break;
