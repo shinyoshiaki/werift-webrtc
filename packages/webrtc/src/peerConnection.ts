@@ -1007,20 +1007,19 @@ export class RTCPeerConnection extends EventTarget {
           // The DTLS client is the passive SCTP endpoint.  Arm it before
           // authentication so an early server INIT cannot establish SCTP
           // before RTCSctpTransport has assigned its stream-id parity.
-          const earlyWritePromise =
-            this.config.warp.allowEarlyServerData &&
-            dtlsTransport.role === "server"
-              ? dtlsTransport.waitForWriteReady()
-              : Promise.resolve();
           const earlySctpPromise = (
             ownsSctp && dtlsTransport.role === "client"
               ? this.sctpManager.connectSctp()
-              : ownsSctp && this.config.warp.allowEarlyServerData
-                ? earlyWritePromise.then(() =>
-                    dtlsTransport.isEarlyServerWriteAllowed()
-                      ? this.sctpManager.connectSctp()
-                      : undefined,
-                  )
+              : ownsSctp &&
+                  dtlsTransport.role === "server" &&
+                  this.config.warp.allowEarlyServerData
+                ? dtlsTransport
+                    .waitForWriteReady()
+                    .then(() =>
+                      dtlsTransport.isEarlyServerWriteAllowed()
+                        ? this.sctpManager.connectSctp()
+                        : undefined,
+                    )
                 : Promise.resolve()
           ).catch((error) => {
             // Early SCTP is an optimization. Policy revocation, generation

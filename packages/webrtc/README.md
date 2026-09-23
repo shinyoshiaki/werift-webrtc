@@ -59,6 +59,12 @@ fingerprint matches. Pre-authentication encrypted media is dropped by default;
 set `warp.earlyMediaPolicy` to `"buffer"` to retain up to 256 packets / 256 KiB
 for at most two seconds.
 
+`close()` can interrupt the DTLS handshake with or without DataChannels.
+Revoking early sending with `setConfiguration({ warp: {
+allowEarlyServerData: false } })` cancels unfinished SCTP starts. A cancelled
+association stays closed even if an in-flight send completes later; a retry
+uses a fresh association.
+
 ```ts
 const pc = new RTCPeerConnection({
   sped: true,

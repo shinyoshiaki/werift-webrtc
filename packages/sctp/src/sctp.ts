@@ -512,6 +512,9 @@ export class SCTP {
             this.cancelStart(err);
             return;
           }
+          // Sending may outlive stop/cancelStart. A cancelled association
+          // must stay closed so its owner can retry with a fresh instance.
+          if (this.isStopped) return;
           this.setState(SCTP_STATE.ESTABLISHED);
         }
         break;
