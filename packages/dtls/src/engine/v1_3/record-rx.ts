@@ -21,7 +21,7 @@ import {
   DtlsVersionSelected,
   ProtocolVersionError,
 } from "../../version";
-import type { Dtls13Host } from "./host";
+import { type Dtls13Host, isStaleRxGeneration } from "./host";
 import {
   FRAGMENT_TTL_MS,
   MAX_ACK_RECORD_NUMBERS,
@@ -41,6 +41,7 @@ export function handleDatagram(
 
   data: Buffer,
   addr?: [string, number] | { address?: string; port?: number } | string,
+  rxGeneration?: number,
 ): Promise<void> {
   if (this.closed) return Promise.resolve();
   // Serialize RX so concurrent UDP datagrams cannot race key install / inbox
@@ -48,13 +49,24 @@ export function handleDatagram(
   const src = addr ?? this.peerFromTransport();
   const peer = peerKeyFromAddr(src);
   const peerAddr = this.addrToTuple(src);
+  const acceptedGeneration = rxGeneration;
   const processed = this.rxChain.then(() => {
     if (this.carrier.isStaleInboundInject?.()) {
       return;
     }
-    return this.handleDatagramAsync(buf, peer, peerAddr);
+    // ICE restart race: a datagram accepted before the restart must not act
+    // on the post-restart association (state, fatal, app-data delivery).
+    if (isStaleRxGeneration(this, acceptedGeneration)) return;
+    return this.handleDatagramAsync(buf, peer, peerAddr, acceptedGeneration);
   });
   this.rxChain = processed.catch((e) => {
+    // The receive operation may reject after ICE restart.  Its error belongs
+    // to the accepted generation, so never fail the current association from
+    // an obsolete queued continuation.
+    if (isStaleRxGeneration(this, acceptedGeneration)) {
+      log("drop stale DTLS 1.3 RX chain error", e);
+      return;
+    }
     // ProtocolVersionError / authenticated handshake failures already call fail()
     // or rethrow after failAuthenticatedHandshake. Unauthenticated errors are
     // discarded inside handleDatagramAsync and should not reach here often.
@@ -85,9 +97,11 @@ export async function handleDatagramAsync(
   data: Buffer,
   peerKey?: string,
   peerAddr?: [string, number],
+  rxGeneration?: number,
 ): Promise<void> {
   if (this.closed) return;
   if (this.carrier.isStaleInboundInject?.()) return;
+  if (isStaleRxGeneration(this, rxGeneration)) return;
 
   // Epic 1 peer gate:
   // - datagram-address: once provisional/pin, only that 5-tuple may deliver
@@ -116,7 +130,7 @@ export async function handleDatagramAsync(
   }
 
   try {
-    await this.processDatagramRecords(data);
+    await this.processDatagramRecords(data, rxGeneration);
   } finally {
     this.currentPeerKey = undefined;
     this.currentPeerAddr = undefined;
@@ -129,13 +143,18 @@ export async function handleDatagramAsync(
 export async function processDatagramRecords(
   this: Dtls13Host,
   data: Buffer,
+  rxGeneration?: number,
 ): Promise<void> {
   if (this.closed) return;
   if (this.carrier.isStaleInboundInject?.()) return;
+  if (isStaleRxGeneration(this, rxGeneration)) return;
   this.evictExpiredFragments();
   let offset = 0;
   while (offset < data.length) {
     if (this.closed) return;
+    // 同一 UDP datagram 内でも先行 record の callback が ICE restart を
+    // 起こし得るため、次の record を parse/dispatch する直前に再確認する。
+    if (isStaleRxGeneration(this, rxGeneration)) return;
     let rec;
     try {
       rec = parseNextRecord(data.subarray(offset), (low) =>
@@ -170,6 +189,9 @@ export async function processDatagramRecords(
       return;
     }
     if (!rec) break;
+    // epoch candidate の解決中に restart が起きた場合も、parse 済みの
+    // record を旧 datagram の世代のまま dispatch しない。
+    if (isStaleRxGeneration(this, rxGeneration)) return;
     offset += rec.consumed;
     try {
       // Order is critical (RFC 9147 §7):
@@ -179,17 +201,43 @@ export async function processDatagramRecords(
       // queueMicrotask cannot be used for (3): microtasks run before this
       // continuation, so Finished would be missing from the ACK.
       if (rec.kind === "plaintext") {
-        const accepted = await this.onPlaintextRecordAsync(rec);
+        const accepted = await this.onPlaintextRecordAsync(rec, rxGeneration);
         if (accepted && rec.contentType === ContentType.handshake) {
-          await this.finishHandshakeRecordAck(rec.epoch, rec.sequenceNumber);
+          // Finished の callback が ICE restart を起こしても、検証済み
+          // handshake record の受理記録と ACK は先に確定させる。ここを
+          // 世代チェックより後にすると、再送が replay 扱いになり、ACK
+          // を返せないまま handshakeComplete に到達できない。
+          await this.finishHandshakeRecordAck(
+            rec.epoch,
+            rec.sequenceNumber,
+            rxGeneration,
+          );
         }
+        // record callback / application delivery の途中で restart した場合、
+        // 同一 datagram に残る旧世代 record を新 association へ渡さない。
+        if (isStaleRxGeneration(this, rxGeneration)) return;
       } else {
-        const accepted = await this.onCiphertextRecordAsync(rec);
+        const accepted = await this.onCiphertextRecordAsync(rec, rxGeneration);
         if (accepted && rec.contentType === ContentType.handshake) {
-          await this.finishHandshakeRecordAck(rec.epoch, rec.sequenceNumber);
+          // Finished の検証後に世代が変わっても、受理記録を残して ACK
+          // を処理する。以降の record は世代チェックで配送しない。
+          await this.finishHandshakeRecordAck(
+            rec.epoch,
+            rec.sequenceNumber,
+            rxGeneration,
+          );
         }
+        // AEAD 後の onData / handshake callback が await 中に restart した
+        // 場合も、同一 datagram の後続 record を世代境界で打ち切る。
+        if (isStaleRxGeneration(this, rxGeneration)) return;
       }
     } catch (e) {
+      // A rejected async callback from an old generation must not become a
+      // fatal error for the current association.
+      if (isStaleRxGeneration(this, rxGeneration)) {
+        log("drop stale DTLS 1.3 record error", e);
+        return;
+      }
       // Protocol version / dual selection / negotiation failures surface
       if (
         e instanceof ProtocolVersionError ||
@@ -239,6 +287,7 @@ export async function processDatagramRecords(
         }
         await this.failAuthenticatedHandshake(
           e instanceof Error ? e : new Error(String(e)),
+          rxGeneration,
         );
         return;
       }
@@ -248,6 +297,7 @@ export async function processDatagramRecords(
       if (rec.kind === "ciphertext") {
         await this.failAuthenticatedHandshake(
           e instanceof Error ? e : new Error(String(e)),
+          rxGeneration,
         );
         return;
       }
@@ -268,6 +318,7 @@ export async function processDatagramRecords(
         }
         await this.failAuthenticatedHandshake(
           e instanceof DtlsProtocolError ? e : new DtlsProtocolError(e.message),
+          rxGeneration,
         );
         return;
       }
@@ -310,6 +361,7 @@ export async function finishHandshakeRecordAck(
 
   epoch: number,
   sequenceNumber: number,
+  acceptedGeneration?: number,
 ): Promise<void> {
   const needIntermediate = this.noteHandshakeRecordForAck(
     epoch,
@@ -329,6 +381,13 @@ export async function finishHandshakeRecordAck(
         break;
       }
     }
+    if (
+      this.role === "server" &&
+      this.peerFinishedReceived &&
+      this.receivedRecordNumbers.length === 0
+    ) {
+      this.markHandshakeComplete();
+    }
     // RFC 9147: response KeyUpdate is not an implicit ACK of peer KeyUpdate.
     // If our own KeyUpdate is still un-ACKed, defer the response until after
     // handleAck → applyPendingKeyUpdateWrite (crossed update_requested).
@@ -341,7 +400,9 @@ export async function finishHandshakeRecordAck(
         try {
           await this.keyUpdate(false);
         } catch (e) {
-          this.fail(e instanceof Error ? e : new Error(String(e)));
+          if (!isStaleRxGeneration(this, acceptedGeneration)) {
+            this.fail(e instanceof Error ? e : new Error(String(e)));
+          }
         }
       }
     }
@@ -368,6 +429,7 @@ export async function onPlaintextRecordAsync(
     sequenceNumber: number;
     fragment: Buffer;
   },
+  acceptedGeneration?: number,
 ): Promise<boolean> {
   // Only epoch 0 plaintext is valid for DTLS 1.3 handshake bootstrap
   if (rec.epoch !== 0) {
@@ -405,7 +467,7 @@ export async function onPlaintextRecordAsync(
       );
       return false;
     }
-    this.handleAlert(rec.fragment, 0, rec.sequenceNumber);
+    this.handleAlert(rec.fragment, 0, rec.sequenceNumber, acceptedGeneration);
     return false;
   }
   if (rec.contentType === ContentType.ack) {
@@ -415,7 +477,7 @@ export async function onPlaintextRecordAsync(
       log("drop epoch-0 ACK from unassociated peer");
       return false;
     }
-    this.handleAck(rec.fragment, 0);
+    this.handleAck(rec.fragment, 0, acceptedGeneration);
     return false;
   }
   if (rec.contentType === ContentType.handshake) {
@@ -445,6 +507,7 @@ export async function onCiphertextRecordAsync(
     sequenceNumber: number;
     content: Buffer;
   },
+  acceptedGeneration?: number,
 ): Promise<boolean> {
   switch (rec.contentType) {
     case ContentType.handshake:
@@ -476,11 +539,7 @@ export async function onCiphertextRecordAsync(
       if (!this.connected) {
         // UDP reorder: epoch-3 app data before markConnected.
         // Bound buffer to prevent pre-Finished memory DoS (RFC 9147: buffer or discard).
-        if (
-          this.earlyAppData.length >= this.maxEarlyAppDataRecords ||
-          this.earlyAppDataBytes + rec.content.length >
-            this.maxEarlyAppDataBytes
-        ) {
+        if (!this.bufferEarlyAppData(rec.content)) {
           log(
             "drop early app data: buffer limit",
             this.earlyAppData.length,
@@ -488,14 +547,12 @@ export async function onCiphertextRecordAsync(
           );
           return false;
         }
-        this.earlyAppData.push(rec.content);
-        this.earlyAppDataBytes += rec.content.length;
         return false;
       }
       this.onData.execute(rec.content);
       return false;
     case ContentType.ack:
-      this.handleAck(rec.content, rec.epoch);
+      this.handleAck(rec.content, rec.epoch, acceptedGeneration);
       return false;
     case ContentType.alert:
       // RFC 8446: zero-length Alert after deprotection → unexpected_message
@@ -505,7 +562,12 @@ export async function onCiphertextRecordAsync(
           AlertDesc.UnexpectedMessage,
         );
       }
-      this.handleAlert(rec.content, rec.epoch, rec.sequenceNumber);
+      this.handleAlert(
+        rec.content,
+        rec.epoch,
+        rec.sequenceNumber,
+        acceptedGeneration,
+      );
       return false;
     default:
       // AEAD-authenticated unknown type is fatal (not silent ignore)
@@ -529,6 +591,7 @@ export function handleAlert(
   fragment: Buffer,
   receivedEpoch: number,
   sequenceNumber = 0,
+  acceptedGeneration?: number,
 ) {
   // Epoch-0: only reached when onPlaintextRecord verified associated peer
   // and pre-protected-keys. Epoch>0: AEAD-authenticated.
@@ -538,7 +601,9 @@ export function handleAlert(
       log("drop truncated epoch-0 alert");
       return;
     }
-    this.fail(new Error("decode_error: truncated alert"));
+    if (!isStaleRxGeneration(this, acceptedGeneration)) {
+      this.fail(new Error("decode_error: truncated alert"));
+    }
     return;
   }
   let alert: Alert;
@@ -549,7 +614,9 @@ export function handleAlert(
       log("drop malformed epoch-0 alert");
       return;
     }
-    this.fail(new Error("decode_error: malformed alert"));
+    if (!isStaleRxGeneration(this, acceptedGeneration)) {
+      this.fail(new Error("decode_error: malformed alert"));
+    }
     return;
   }
   log(
@@ -561,6 +628,14 @@ export function handleAlert(
     "seq",
     sequenceNumber,
   );
+
+  // Decryption authenticates the record, but not its ICE generation.  A
+  // close_notify/fatal Alert accepted before restart must not close or fail
+  // the association that owns the newer generation.
+  if (isStaleRxGeneration(this, acceptedGeneration)) {
+    log("drop stale authenticated alert", acceptedGeneration);
+    return;
+  }
 
   if (alert.description === AlertDesc.CloseNotify) {
     // RFC 9147: record epoch/seq boundary for reordered app data; then align
@@ -579,20 +654,24 @@ export function handleAlert(
   }
 
   if (alert.description === AlertDesc.ProtocolVersion) {
-    this.fail(
-      new ProtocolVersionError(
-        "peer rejected protocol version (alert protocol_version)",
-      ),
-    );
+    if (!isStaleRxGeneration(this, acceptedGeneration)) {
+      this.fail(
+        new ProtocolVersionError(
+          "peer rejected protocol version (alert protocol_version)",
+        ),
+      );
+    }
     return;
   }
 
   // TLS 1.3: error alerts are fatal regardless of AlertLevel
-  this.fail(
-    new Error(
-      `fatal alert ${alert.description} (${AlertDesc[alert.description] ?? "unknown"})`,
-    ),
-  );
+  if (!isStaleRxGeneration(this, acceptedGeneration)) {
+    this.fail(
+      new Error(
+        `fatal alert ${alert.description} (${AlertDesc[alert.description] ?? "unknown"})`,
+      ),
+    );
+  }
 }
 
 /**
@@ -605,6 +684,7 @@ export function handleAck(
   this: Dtls13Host,
   content: Buffer,
   receivedEpoch: number,
+  acceptedGeneration?: number,
 ) {
   try {
     const ack = DtlsAck.deSerialize(content, {
@@ -688,14 +768,19 @@ export function handleAck(
     // Fully ACK'd (local outbound flight). Do not clear receivedRecordNumbers —
     // that tracks remote inbound records still needing ACK emission.
     this.clearPendingFlight();
+    if (this.role === "client" && this.localFinishedSent) {
+      this.markHandshakeComplete();
+    }
     // RFC 9147 §8: only after KeyUpdate is ACK'd may we send with new keys
     this.applyPendingKeyUpdateWrite();
     // Crossed update_requested: send deferred response now that own KU is ACK'd
     if (this.deferredKeyUpdateResponse && !this.pendingKeyUpdateWrite) {
       this.deferredKeyUpdateResponse = false;
-      void this.keyUpdate(false).catch((e) =>
-        this.fail(e instanceof Error ? e : new Error(String(e))),
-      );
+      void this.keyUpdate(false).catch((e) => {
+        if (!isStaleRxGeneration(this, acceptedGeneration)) {
+          this.fail(e instanceof Error ? e : new Error(String(e)));
+        }
+      });
     }
   } catch (e) {
     if (receivedEpoch >= 2) {

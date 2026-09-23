@@ -2,7 +2,7 @@ import { decode, types } from "@shinyoshiaki/binary-data";
 
 import { setTimeout } from "timers/promises";
 import { Event, EventDisposer, debug } from "./imports/common";
-import type { Address, Transport } from "./imports/common";
+import type { Address, DatagramRxMeta, Transport } from "./imports/common";
 
 import {
   NamedCurveAlgorithmList,
@@ -17,6 +17,8 @@ import { DtlsContext } from "./context/dtls";
 import { SrtpContext } from "./context/srtp";
 import { TransportContext } from "./context/transport";
 import type { Dtls13Connection } from "./engine/v1_3/connection";
+import type { EarlyDataBufferStats } from "./engine/v1_3/early-data-buffer";
+import type { DtlsReadiness } from "./engine/v1_3/types";
 import { peerKeyFromAddr } from "./handshake/extensions/cookie";
 import { EllipticCurves } from "./handshake/extensions/ellipticCurves";
 import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecret";
@@ -32,6 +34,7 @@ import { parsePacket, parsePlainText } from "./record/receive";
 import type { Extension } from "./typings/domain";
 import {
   DtlsVersion,
+  DtlsVersionSelected,
   ProtocolVersionError,
   normalizeProtocolVersions,
 } from "./version";
@@ -70,6 +73,7 @@ export class DtlsSocket {
   onHandleHandshakes!: (
     assembled: FragmentedHandshake[],
     peer?: Address,
+    meta?: DatagramRxMeta,
   ) => Promise<void>;
 
   private bufferFragmentedHandshakes: FragmentedHandshake[] = [];
@@ -82,6 +86,12 @@ export class DtlsSocket {
    * candidates cannot surface stale onConnect / onError / onClose.
    */
   private engine13Bridge = new EventDisposer();
+  /** Opaque carrier generation provider for the DTLS 1.3 RX queue. */
+  private rxGenerationProvider?: () => number | undefined;
+  /** Ownership epoch for asynchronous DTLS 1.2 handshake handlers. */
+  private legacy12HandshakeOwnership = 0;
+  /** Wakes readiness waiters when a dual-stack association selects 1.3. */
+  private readonly onEngine13Selected = new Event<[]>();
   /** Negotiated / configured protocol versions (priority order). */
   readonly protocolVersions: DtlsVersion[];
 
@@ -109,6 +119,252 @@ export class DtlsSocket {
     return !!this.engine13;
   }
 
+  /** @internal Cryptographic readiness; SDP authentication is deliberately absent. */
+  get readiness(): DtlsReadiness {
+    if (this.engine13) return { ...this.engine13.readiness };
+    return {
+      writeReady: this.connected,
+      peerHandshakeAuthenticated: this.connected,
+      handshakeComplete: this.connected,
+    };
+  }
+
+  /** @internal Association-lifetime DTLS 1.3 retransmissions. */
+  get totalRetransmitCount(): number {
+    return this.engine13?.totalRetransmitCount ?? 0;
+  }
+
+  /** @internal Read-only snapshot of the active DTLS 1.3 early-data queue. */
+  get earlyDataStats(): EarlyDataBufferStats {
+    return (
+      this.engine13?.earlyDataStats ?? {
+        bufferedPackets: 0,
+        bufferedBytes: 0,
+        droppedPackets: 0,
+        droppedBytes: 0,
+      }
+    );
+  }
+
+  /** @internal */
+  async waitForWriteReady(): Promise<void> {
+    await this.waitForSelectedReadiness((engine) => engine.waitForWriteReady());
+    if (!this.engine13) return;
+    const profile = this.engine13.srtpProfile;
+    if (profile !== undefined) this.srtp.srtpProfile = profile;
+  }
+
+  /** @internal */
+  waitForPeerHandshakeAuthenticated(): Promise<void> {
+    return this.waitForSelectedReadiness((engine) =>
+      engine.waitForPeerHandshakeAuthenticated(),
+    );
+  }
+
+  /** @internal */
+  waitForHandshakeComplete(): Promise<void> {
+    return this.waitForSelectedReadiness((engine) =>
+      engine.waitForHandshakeComplete(),
+    );
+  }
+
+  /** @internal Drop DTLS 1.3 pre-authentication application records. */
+  clearEarlyDataBuffer(): void {
+    this.engine13?.clearEarlyAppData();
+  }
+
+  /**
+   * @internal Opaque carrier generation provider for the DTLS 1.3 RX queue
+   * (e.g. ICE generation, owned by the WebRTC layer). Queued datagrams whose
+   * accept-time `rxGeneration` differs at execution time are dropped, closing
+   * the ICE-restart RX race. Unset = no check.
+   */
+  setExpectedRxGeneration(provider?: () => number | undefined): void {
+    this.rxGenerationProvider = provider;
+    if (this.engine13) this.engine13.expectedRxGeneration = provider;
+  }
+
+  /**
+   * Check the carrier generation at every DTLS 1.2 receive boundary.
+   *
+   * DTLS 1.3 performs this check again when its record queue resumes.  The
+   * legacy path has asynchronous Flight handlers instead, so the association
+   * must reject an old datagram both before parsing and after each await.  An
+   * unset provider means this socket is being used by the standalone UDP API,
+   * where no carrier generation exists and the check is intentionally disabled.
+   */
+  protected isCurrentRxGeneration(rxGeneration?: number): boolean {
+    const expected = this.rxGenerationProvider?.();
+    if (expected === undefined) return true;
+    return rxGeneration !== undefined && rxGeneration === expected;
+  }
+
+  private waitForLegacyReadiness(): Promise<void> {
+    if (this.connected) return Promise.resolve();
+    if (this.associationTornDown) {
+      return Promise.reject(
+        new Error("DTLS association closed before readiness"),
+      );
+    }
+    return new Promise<void>((resolve, reject) => {
+      const connected = this.onConnect.subscribe(() => {
+        cleanup();
+        resolve();
+      });
+      const failed = this.onError.subscribe((error) => {
+        cleanup();
+        reject(error);
+      });
+      const closed = this.onClose.subscribe(() => {
+        cleanup();
+        reject(new Error("DTLS association closed before readiness"));
+      });
+      const cleanup = () => {
+        connected.unSubscribe();
+        failed.unSubscribe();
+        closed.unSubscribe();
+      };
+      if (this.connected) {
+        cleanup();
+        resolve();
+      }
+    });
+  }
+
+  /**
+   * Wait for the readiness milestone owned by the selected protocol engine.
+   * A dual-stack server has no 1.3 engine until ClientHello is classified, so
+   * choosing the legacy latch at call time would accidentally turn 0.5-RTT
+   * readiness into a full-handshake wait.
+   */
+  private waitForSelectedReadiness(
+    wait13: (engine: Dtls13Connection) => Promise<void>,
+  ): Promise<void> {
+    if (!this.protocolVersions.includes(DtlsVersion.V1_3)) {
+      return this.waitForLegacyReadiness();
+    }
+    if (this.associationTornDown) {
+      return Promise.reject(
+        new Error("DTLS association closed before readiness"),
+      );
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      const disposer = new EventDisposer();
+      let settled = false;
+      let attachedEngine: Dtls13Connection | undefined;
+      let waitGeneration = 0;
+
+      const cleanup = () => {
+        disposer.dispose();
+        attachedEngine = undefined;
+        waitGeneration++;
+      };
+      const resolveReady = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve();
+      };
+      const rejectReady = (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(error instanceof Error ? error : new Error(String(error)));
+      };
+
+      const attachCurrentEngine = () => {
+        const engine = this.engine13;
+        if (settled || !engine || attachedEngine === engine) return;
+        attachedEngine = engine;
+        const generation = ++waitGeneration;
+        void wait13(engine).then(
+          () => {
+            // A candidate that was parked/released for DTLS 1.2 is not the
+            // association's selected readiness source.  Wait for the legacy
+            // onConnect edge instead of resolving from a stale candidate.
+            if (
+              settled ||
+              generation !== waitGeneration ||
+              this.engine13 !== engine
+            ) {
+              return;
+            }
+            resolveReady();
+          },
+          (error) => {
+            if (settled || generation !== waitGeneration) return;
+            attachedEngine = undefined;
+            if (this.isSoftVersionSelectionError(error)) {
+              // DtlsVersionSelected is an internal dual-stack transition, not
+              // a readiness failure.  The association now owns the waiter and
+              // will resolve it from the committed 1.2 onConnect (or attach a
+              // newly selected 1.3 engine).
+              return;
+            }
+            rejectReady(error);
+          },
+        );
+      };
+      const observeCurrentAssociation = () => {
+        if (settled) return;
+        if (this.engine13) {
+          attachCurrentEngine();
+        } else if (this.connected) {
+          resolveReady();
+        }
+      };
+
+      this.onEngine13Selected
+        .subscribe(observeCurrentAssociation)
+        .disposer(disposer);
+      this.onConnect
+        .subscribe(() => {
+          // DTLS 1.3 onConnect is not handshakeComplete for the three
+          // readiness milestones; the engine waiter remains authoritative.
+          if (!this.engine13) resolveReady();
+        })
+        .disposer(disposer);
+      this.onError
+        .subscribe((error) => {
+          // The dual client normally filters this transition before it reaches
+          // the public socket event. Keep the association waiter tolerant if a
+          // subclass exposes it during the handoff.
+          if (this.isSoftVersionSelectionError(error)) {
+            observeCurrentAssociation();
+            return;
+          }
+          rejectReady(error);
+        })
+        .disposer(disposer);
+      this.onClose
+        .subscribe(() => {
+          rejectReady(new Error("DTLS association closed before readiness"));
+        })
+        .disposer(disposer);
+
+      // Close the subscribe-before-state-check race, including a 1.3 engine
+      // constructed before this waiter was registered.
+      observeCurrentAssociation();
+    });
+  }
+
+  /** A dual 1.3 probe uses this rejection to transition to the 1.2 owner. */
+  private isSoftVersionSelectionError(error: unknown): boolean {
+    if (!this.protocolVersions.includes(DtlsVersion.V1_2)) return false;
+    const candidate = error as {
+      name?: unknown;
+      code?: unknown;
+      version?: unknown;
+    };
+    return (
+      (error instanceof DtlsVersionSelected ||
+        candidate.name === "DtlsVersionSelected" ||
+        candidate.code === "version_selected") &&
+      candidate.version === DtlsVersion.V1_2
+    );
+  }
+
   renegotiation() {
     // Terminal association must not re-init flight/cipher state (invariant:
     // reconnect / renegotiation on a closed association is prohibited).
@@ -128,6 +384,7 @@ export class DtlsSocket {
       return;
     }
     log("renegotiation", this.sessionType);
+    this.invalidateLegacy12HandshakeOwnership();
     this.connected = false;
     // Cancel retransmit timers on the *old* context before abandoning it.
     // Otherwise Flight.transmit sleeps keep firing against a detached DtlsContext
@@ -149,8 +406,12 @@ export class DtlsSocket {
     this.setupExtensions();
   }
 
-  protected udpOnMessage = (data: Buffer, addr?: Address) => {
-    this.handleUdpDatagram(data, addr);
+  protected udpOnMessage = (
+    data: Buffer,
+    addr?: Address,
+    meta?: DatagramRxMeta,
+  ) => {
+    this.handleUdpDatagram(data, addr, meta);
   };
 
   /** Normalize host so 0.0.0.0 / :: match loopback pin keys used by Flight. */
@@ -255,6 +516,39 @@ export class DtlsSocket {
     });
   }
 
+  /**
+   * Check ownership before an asynchronous legacy handshake rejection is
+   * allowed to change association state.
+   *
+   * The receive path validates these conditions before starting the async
+   * handler, but a later rejection resumes outside that synchronous boundary.
+   * A DTLS 1.2 handler from an old ICE generation, a released dual candidate,
+   * or a changed peer pin must be discarded instead of failing the current
+   * association.
+   */
+  protected ownsLegacy12Handshake(
+    ownership: number,
+    rxGeneration: number | undefined,
+    peer?: Address,
+  ): boolean {
+    return (
+      ownership === this.legacy12HandshakeOwnership &&
+      !this.associationTornDown &&
+      !this.engine13 &&
+      this.isCurrentRxGeneration(rxGeneration) &&
+      this.matchesPinnedPeer(peer)
+    );
+  }
+
+  /**
+   * Invalidate legacy handshake callbacks that no longer own the association.
+   * Used by dual-version selection and renegotiation before replacing the
+   * lower-level state while keeping the public socket alive.
+   */
+  protected invalidateLegacy12HandshakeOwnership(): void {
+    this.legacy12HandshakeOwnership++;
+  }
+
   /** Restore transport.rinfo to pin so spoof sources do not stick for later TX fallbacks. */
   protected restorePinnedRinfo(): void {
     const pin = this.transport.pinnedPeer;
@@ -273,9 +567,17 @@ export class DtlsSocket {
    * spoofed UDP / carrier inject cannot deliver app data or force terminal
    * via unauthenticated alerts.
    */
-  protected handleUdpDatagram(data: Buffer, addr?: Address): void {
+  protected handleUdpDatagram(
+    data: Buffer,
+    addr?: Address,
+    meta?: DatagramRxMeta,
+  ): void {
     // Terminal association: drop all RX (no onData / handshake resume after fatal).
     if (this.associationTornDown) return;
+    // ICE restart can occur after the datagram has been accepted by the
+    // transport but before this handler starts.  Reject that stale generation
+    // before parse/decrypt so it cannot advance a DTLS 1.2 association.
+    if (!this.isCurrentRxGeneration(meta?.rxGeneration)) return;
 
     const peer = this.resolveInboundPeer(addr);
     // Association peer pin owns RX as well as TX once set (cookie / connect).
@@ -307,10 +609,14 @@ export class DtlsSocket {
       try {
         // Re-check: async fatal during multi-record datagram must stop mid-loop.
         if (this.associationTornDown) return;
+        // A synchronous callback for an earlier record may restart ICE.  The
+        // remainder of this datagram belongs to the old generation too.
+        if (!this.isCurrentRxGeneration(meta?.rxGeneration)) return;
         const recordEpoch = packet.recordLayerHeader.epoch;
         const messages = parsePlainText(this.dtls, this.cipher)(packet);
         for (const message of messages) {
           if (this.associationTornDown) return;
+          if (!this.isCurrentRxGeneration(meta?.rxGeneration)) return;
           switch (message.type) {
             case ContentType.handshake:
               {
@@ -343,23 +649,44 @@ export class DtlsSocket {
 
                 // Pass the datagram source so async Flight2 / protocol alerts
                 // do not depend on mutable UdpTransport.rinfo after await.
-                this.onHandleHandshakes(assembled, peer).catch((error) => {
-                  err(this.dtls.sessionId, "onHandleHandshakes error", error);
-                  const e =
-                    error instanceof Error ? error : new Error(String(error));
-                  // Pre-cookie / unpinned: drop per-source only — never tear down
-                  // the listening association (unauthenticated DoS).
-                  if (!this.hasAssociationPeerAuth()) {
-                    log(
-                      this.dtls.sessionId,
-                      "DTLS 1.2: drop pre-auth handshake error (no association fatal)",
-                      e.message,
-                    );
-                    return;
-                  }
-                  // Post-pin: handshake failure is association-fatal.
-                  this.reportLegacy12Fatal(e);
-                });
+                const ownership = this.legacy12HandshakeOwnership;
+                this.onHandleHandshakes(assembled, peer, meta).catch(
+                  (error) => {
+                    err(this.dtls.sessionId, "onHandleHandshakes error", error);
+                    const e =
+                      error instanceof Error ? error : new Error(String(error));
+                    // Reject resumes after the async handshake boundary.  The
+                    // datagram may belong to an old ICE generation or to a
+                    // released dual-stack candidate; neither may tear down a
+                    // current association.
+                    if (
+                      !this.ownsLegacy12Handshake(
+                        ownership,
+                        meta?.rxGeneration,
+                        peer,
+                      )
+                    ) {
+                      log(
+                        this.dtls.sessionId,
+                        "DTLS 1.2: drop stale async handshake error",
+                        e.message,
+                      );
+                      return;
+                    }
+                    // Pre-cookie / unpinned: drop per-source only — never tear down
+                    // the listening association (unauthenticated DoS).
+                    if (!this.hasAssociationPeerAuth()) {
+                      log(
+                        this.dtls.sessionId,
+                        "DTLS 1.2: drop pre-auth handshake error (no association fatal)",
+                        e.message,
+                      );
+                      return;
+                    }
+                    // Post-pin: handshake failure is association-fatal.
+                    this.reportLegacy12Fatal(e);
+                  },
+                );
               }
               break;
             case ContentType.applicationData:
@@ -376,6 +703,9 @@ export class DtlsSocket {
                   break;
                 }
                 this.onData.execute(message.data as Buffer);
+                // onData is synchronous and may trigger ICE restart.  Do not
+                // continue processing another record from the old datagram.
+                if (!this.isCurrentRxGeneration(meta?.rxGeneration)) return;
               }
               break;
             case ContentType.alert:
@@ -624,7 +954,10 @@ export class DtlsSocket {
     )[0];
     // Prefer explicit addr, else TransportContext.pinnedPeer (association pin).
     // Never rely solely on last UDP rinfo (spoof hijack).
-    await this.transport.send(this.cipher.encryptPacket(pkt).serialize(), addr);
+    await this.transport.sendApplication(
+      this.cipher.encryptPacket(pkt).serialize(),
+      addr,
+    );
   };
 
   /**
@@ -926,6 +1259,9 @@ export class DtlsSocket {
     // Replace any prior bridge so only the current candidate is public.
     this.unbridgeEngine13();
     this.engine13 = engine;
+    if (this.rxGenerationProvider) {
+      engine.expectedRxGeneration = this.rxGenerationProvider;
+    }
     engine.onConnect
       .subscribe(() => {
         // Terminal mid-handshake: do not flip connected back to true / re-fire.
@@ -975,6 +1311,18 @@ export class DtlsSocket {
         this.onEngine13PeerOrLocalClose();
       })
       .disposer(this.engine13Bridge);
+    this.notifyEngine13Selected();
+  }
+
+  /**
+   * Notify association-level readiness waiters that DTLS 1.3 is active.
+   *
+   * A dual-stack client can resume a parked candidate without rebuilding its
+   * event bridge, so that path must share the same selection notification as a
+   * freshly created engine.
+   */
+  protected notifyEngine13Selected(): void {
+    this.onEngine13Selected.execute();
   }
 
   /**

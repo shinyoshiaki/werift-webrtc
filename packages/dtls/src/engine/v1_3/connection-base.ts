@@ -30,10 +30,16 @@ import {
   normalizeProtocolVersions,
   supportsVersion,
 } from "../../version";
+import {
+  EarlyDataBuffer,
+  type EarlyDataBufferStats,
+} from "./early-data-buffer";
 import { HandshakeTranscript } from "./transcript";
 import {
   type AddressValidationMode,
   type Dtls13Options,
+  type DtlsReadiness,
+  EARLY_APP_DATA_RETENTION_MS,
   EPOCH_KEY_TTL_MS,
   EPOCH_PRUNE_INTERVAL_MS,
   MAX_ACCEPTED_HS_RECORDS,
@@ -84,6 +90,14 @@ export class Dtls13ConnectionBase {
    * disable Public API synchronously so send() cannot race the notify path.
    */
   readonly onClosing = new Event();
+  readonly onWriteReady = new Event<[]>();
+  readonly onPeerHandshakeAuthenticated = new Event<[]>();
+  readonly onHandshakeComplete = new Event<[]>();
+  readonly readiness: DtlsReadiness = {
+    writeReady: false,
+    peerHandshakeAuthenticated: false,
+    handshakeComplete: false,
+  };
 
   connected = false;
   /**
@@ -187,6 +201,8 @@ export class Dtls13ConnectionBase {
   cancelRetransmit: (() => void) | undefined;
   cancelEpochPrune: (() => void) | undefined;
   retransmitCount = 0;
+  /** Association-lifetime count; unlike retransmitCount this never resets. */
+  totalRetransmitCount = 0;
   readonly maxRetransmit = 10;
   closed = false;
   /**
@@ -351,8 +367,17 @@ export class Dtls13ConnectionBase {
    * Epoch-3 app data received before markConnected (UDP reorder window).
    * Bounded by {@link maxEarlyAppDataRecords} / {@link maxEarlyAppDataBytes}.
    */
-  earlyAppData: Buffer[] = [];
-  earlyAppDataBytes = 0;
+  private readonly earlyAppDataBuffer: EarlyDataBuffer;
+  get earlyAppData(): readonly Buffer[] {
+    return this.earlyAppDataBuffer.packets;
+  }
+  get earlyAppDataBytes(): number {
+    return this.earlyAppDataBuffer.bytes;
+  }
+  /** @internal Snapshot of the DTLS-owned pre-connect application queue. */
+  get earlyDataStats(): EarlyDataBufferStats {
+    return this.earlyAppDataBuffer.snapshot();
+  }
   /** Resolved early-app-data record cap (Options or DataChannel default). */
   readonly maxEarlyAppDataRecords: number;
   /** Resolved early-app-data byte cap (Options or DataChannel default). */
@@ -374,6 +399,13 @@ export class Dtls13ConnectionBase {
   };
   /** Serialize datagram handling to avoid races on keys / message_seq inbox. */
   rxChain: Promise<void> = Promise.resolve();
+  /**
+   * Opaque carrier generation provider (e.g. ICE generation, set by the
+   * WebRTC layer). When set, `handleDatagram` drops queued datagrams whose
+   * accept-time `rxGeneration` no longer matches at queue-execution time,
+   * closing the ICE-restart RX race. Unset = no check (generic engine use).
+   */
+  expectedRxGeneration?: () => number | undefined;
 
   constructor(
     readonly options: Dtls13Options,
@@ -426,6 +458,11 @@ export class Dtls13ConnectionBase {
     this.maxEarlyAppDataBytes = resolveMaxEarlyAppDataBytes(
       options.maxEarlyAppDataBytes,
     );
+    this.earlyAppDataBuffer = new EarlyDataBuffer(
+      this.maxEarlyAppDataRecords,
+      this.maxEarlyAppDataBytes,
+      EARLY_APP_DATA_RETENTION_MS,
+    );
     this.hsPhase =
       this.role === "client" ? "wait_server_hello" : "wait_client_hello";
     this.installEpoch(0, createEpochProtection(0));
@@ -437,14 +474,22 @@ export class Dtls13ConnectionBase {
       });
     // Inject may carry peer from dual-engine reinject; fall back to transport.rinfo
     const self = this as this & {
-      handleDatagram: (data: Buffer, addr?: any) => void | Promise<void>;
+      handleDatagram: (
+        data: Buffer,
+        addr?: any,
+        rxGeneration?: number,
+      ) => void | Promise<void>;
       scheduleRetransmit: () => void;
     };
-    this.carrier.setInjectHandler((bytes, peer) =>
-      self.handleDatagram(bytes, peer),
+    this.carrier.setInjectHandler((bytes, peer, opts) =>
+      self.handleDatagram(bytes, peer, opts?.rxGeneration),
     );
-    options.transport.onData = (data, addr) =>
-      self.handleDatagram(data, addr as [string, number] | undefined);
+    options.transport.onData = (data, addr, meta) =>
+      self.handleDatagram(
+        data,
+        addr as [string, number] | undefined,
+        meta?.rxGeneration,
+      );
     // external → internal: resume retransmission timer for pending flight
     this.carrier.events.onRetransmissionModeChange = (mode) => {
       if (mode === "external") {
@@ -949,18 +994,106 @@ export class Dtls13ConnectionBase {
       this.carrier.cancelAllTimers();
     }
     this.carrier.events.onHandshakeComplete?.();
+    const drainGeneration = this.expectedRxGeneration?.();
+    const drainIsCurrent = () =>
+      drainGeneration === undefined ||
+      this.expectedRxGeneration?.() === drainGeneration;
     this.onConnect.execute();
-    // Flush app data that arrived early due to reorder
-    for (const buf of this.earlyAppData) {
+    // Flush app data that arrived early due to reorder.  Take one record at a
+    // time so an ICE restart from one callback prevents the remainder of the
+    // old-generation queue from reaching the application.
+    while (drainIsCurrent()) {
+      const buf = this.earlyAppDataBuffer.takeOne();
+      if (!buf) break;
       this.onData.execute(buf);
     }
-    this.earlyAppData = [];
-    this.earlyAppDataBytes = 0;
+    if (!drainIsCurrent()) this.clearEarlyAppData();
   }
 
   clearEarlyAppData() {
-    this.earlyAppData = [];
-    this.earlyAppDataBytes = 0;
+    this.earlyAppDataBuffer.clear(true);
+  }
+
+  bufferEarlyAppData(data: Buffer): boolean {
+    return this.earlyAppDataBuffer.push(data);
+  }
+
+  markWriteReady(): void {
+    if (this.readiness.writeReady || this.closed || this.closing) return;
+    this.readiness.writeReady = true;
+    this.onWriteReady.execute();
+  }
+
+  markPeerHandshakeAuthenticated(): void {
+    if (
+      this.readiness.peerHandshakeAuthenticated ||
+      this.closed ||
+      this.closing
+    )
+      return;
+    this.readiness.peerHandshakeAuthenticated = true;
+    this.onPeerHandshakeAuthenticated.execute();
+  }
+
+  markHandshakeComplete(): void {
+    if (this.readiness.handshakeComplete || this.closed || this.closing) return;
+    this.readiness.handshakeComplete = true;
+    this.onHandshakeComplete.execute();
+  }
+
+  waitForWriteReady(): Promise<void> {
+    return this.waitForMilestone("writeReady", this.onWriteReady);
+  }
+
+  waitForPeerHandshakeAuthenticated(): Promise<void> {
+    return this.waitForMilestone(
+      "peerHandshakeAuthenticated",
+      this.onPeerHandshakeAuthenticated,
+    );
+  }
+
+  waitForHandshakeComplete(): Promise<void> {
+    return this.waitForMilestone("handshakeComplete", this.onHandshakeComplete);
+  }
+
+  private waitForMilestone(
+    milestone: keyof DtlsReadiness,
+    event: Event<[]>,
+  ): Promise<void> {
+    if (this.readiness[milestone]) return Promise.resolve();
+    if (this.closed || this.closing) {
+      return Promise.reject(
+        new Error("DTLS association closed before readiness"),
+      );
+    }
+    return new Promise<void>((resolve, reject) => {
+      const ready = event.subscribe(() => {
+        cleanup();
+        resolve();
+      });
+      const closing = this.onClosing.subscribe(() => {
+        cleanup();
+        reject(new Error("DTLS association closed before readiness"));
+      });
+      const failed = this.onError.subscribe((error) => {
+        cleanup();
+        reject(error);
+      });
+      const closed = this.onClose.subscribe(() => {
+        cleanup();
+        reject(new Error("DTLS association closed before readiness"));
+      });
+      const cleanup = () => {
+        ready.unSubscribe();
+        closing.unSubscribe();
+        failed.unSubscribe();
+        closed.unSubscribe();
+      };
+      if (this.readiness[milestone]) {
+        cleanup();
+        resolve();
+      }
+    });
   }
 
   /**
@@ -1069,10 +1202,15 @@ export class Dtls13ConnectionBase {
   injectDatagram(
     bytes: Buffer,
     peer?: [string, number] | { address?: string; port?: number } | string,
+    rxGeneration?: number,
   ): Promise<void> | void {
     const self = this as this & {
-      handleDatagram: (data: Buffer, addr?: any) => void | Promise<void>;
+      handleDatagram: (
+        data: Buffer,
+        addr?: any,
+        rxGeneration?: number,
+      ) => void | Promise<void>;
     };
-    return self.handleDatagram(Buffer.from(bytes), peer);
+    return self.handleDatagram(Buffer.from(bytes), peer, rxGeneration);
   }
 }
