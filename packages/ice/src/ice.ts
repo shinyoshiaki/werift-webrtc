@@ -35,6 +35,7 @@ import {
   isAuthenticatedHandshakePair,
 } from "./internal/datagram";
 import {
+  decoratePendingSpedResponse,
   getConnectionSpedRuntime,
   setConnectionSpedRuntime,
 } from "./internal/sped-bind";
@@ -681,8 +682,11 @@ export class Connection implements IceConnection {
         verified.transactionId,
       );
       response.setAttribute("XOR-MAPPED-ADDRESS", addr);
-      if (this.spedRuntime && pair) {
-        if (!this.spedRuntime.decorateOutgoing(response, pair)) {
+      if (pair) {
+        const decorated = this.spedRuntime
+          ? this.spedRuntime.decorateOutgoing(response, pair)
+          : decoratePendingSpedResponse(this, response, pair, verified);
+        if (!decorated) {
           return;
         }
       }

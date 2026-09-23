@@ -1,3 +1,4 @@
+import { prepareConnectionSped } from "../../ice/src/internal/sped-bind";
 import { SRTP_PROFILE } from "./const";
 import { createWebRtcDomException, createWebRtcTypeError } from "./errors";
 import { Event, debug } from "./imports/common";
@@ -191,6 +192,10 @@ export class SecureTransportManager {
     );
     if (this.config.sped === true) {
       markDtlsTransportSped(dtlsTransport);
+      // Candidates can receive authenticated checks before setLocalDescription
+      // finishes gathering and starts DTLS. Do not advertise a non-SPED peer
+      // during that interval; leave DTLS DATA unacknowledged until start().
+      prepareConnectionSped(iceTransport.connection);
     }
 
     // A fingerprint re-validation failure happens after the initial

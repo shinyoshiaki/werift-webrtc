@@ -17,6 +17,13 @@ Constants live in `src/sped/draft00/constants.ts` only.
 
 Per ICE **generation**: `disabled | probing | active | fallback | complete`.
 
+An opted-in WebRTC transport advertises empty DATA in authenticated ICE
+Responses even while candidate gathering is still running and DTLS has not
+started. It sends no ACK for incoming DTLS DATA in this phase, so the peer
+retains its flight for delivery after the runtime attaches. This preparation
+is cleared on runtime attachment or ICE close; non-SPED and relay paths do
+not advertise support.
+
 - **L1**: un-ACKed current DTLS flight datagrams (defensive copies). Round-robin one datagram per Binding.
 - **L2**: pending CRC-32 values in receive order, **deduplicated**. A Binding advertises at most 4 (head of the queue) and then **consumes** those entries; remainder is carried to the next Binding. Duplicate DATA still reaches DTLS inject (replay), but does not grow L2.
 - Handshake complete or ICE restart clears L1/L2 and resets round-robin / peerSupport. Restart while DTLS is still `connecting` restores `wireSendEnabled=false`, returns the carrier to external retransmission, and reseeds the current flight into the new generation L1; restart after DTLS `connected` marks SPED `complete` and returns the carrier to internal retransmission. SPED handshake always runs DTLS 1.3 only, even when `dtls.protocolVersions` also lists 1.2 (dual-stack 1.2 HVR probe is not used on the SPED path).

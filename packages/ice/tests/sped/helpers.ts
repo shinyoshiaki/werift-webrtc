@@ -6,13 +6,17 @@ import {
   type SpedHooks,
   attachSpedToConnection,
 } from "../../src/internal/sped";
+import { DTLS_IN_STUN_DATA } from "../../src/sped/draft00/constants";
 import {
   FINGERPRINT_LENGTH,
   FINGERPRINT_XOR,
   HEADER_LENGTH,
+  classes,
+  methods,
 } from "../../src/stun/const";
-import { type Message, paddingLength } from "../../src/stun/message";
+import { Message, paddingLength } from "../../src/stun/message";
 import type { Protocol } from "../../src/types/model";
+import { createTestConnection } from "../utils";
 
 /** Shared Arrange: default SPED hooks for Connection attach tests. */
 export function createSpedTestHooks(
@@ -35,6 +39,40 @@ export function attachTestSped(
   overrides: Partial<SpedHooks> = {},
 ): SpedHandle {
   return attachSpedToConnection(connection, createSpedTestHooks(overrides));
+}
+
+/** Shared Arrange: deliver a real HMAC-checked Binding before DTLS exists. */
+export function preparePrestartSpedBinding() {
+  const connection = createTestConnection(true);
+  const protocol = new SpedProtocolMock();
+  const pair = spedPair(protocol, "host");
+  connection.checkList.push(pair);
+  const hello = Buffer.from([22, 0xfe, 0xfd, 0, 1]);
+  const receive = async (
+    password = connection.localPassword,
+    withData = true,
+  ) => {
+    protocol.sentMessage = undefined;
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request
+      .setAttribute("USERNAME", `${connection.localUsername}:remote`)
+      .setAttribute("PRIORITY", 1)
+      .setAttribute("ICE-CONTROLLED", 1n);
+    if (withData) request.appendRawAttribute(DTLS_IN_STUN_DATA, hello);
+    request.addMessageIntegrity(Buffer.from(password)).addFingerprint();
+    await (
+      connection as unknown as {
+        handleBindingRequest(
+          protocol: Protocol,
+          request: Message,
+          address: Address,
+          bytes: Buffer,
+        ): Promise<void>;
+      }
+    ).handleBindingRequest(protocol, request, pair.remoteAddr, request.bytes);
+    return protocol.sentMessage as Message | undefined;
+  };
+  return { connection, protocol, pair, hello, receive };
 }
 
 /** Shared Arrange: host UDP protocol for SPED decorate / datagram tests. */
