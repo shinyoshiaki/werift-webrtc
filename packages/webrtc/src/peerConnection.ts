@@ -48,6 +48,7 @@ import { type RTCSessionDescriptionInit, SDPManager } from "./sdpManager";
 import { SecureTransportManager } from "./secureTransportManager";
 import type {
   DtlsKeys,
+  DtlsRole,
   RTCCertificate,
   RTCDtlsTransport,
 } from "./transport/dtls";
@@ -883,13 +884,23 @@ export class RTCPeerConnection extends EventTarget {
         }
       }
 
-      // setup ice,dtls role
-      const role = description.media.find((media) => media.dtlsParams)
+      // setup ice,dtls role. Each transport takes the role of its own m-line:
+      // a BUNDLE split owner is a new association whose role can differ from
+      // the transport the first m-line keeps.
+      const fallbackRole = description.media.find((media) => media.dtlsParams)
         ?.dtlsParams?.role;
+      const roleByTransport = new Map<RTCDtlsTransport, DtlsRole>();
+      for (const media of description.media) {
+        const transport = this.currentTransportForMid(media.rtp.muxId ?? "");
+        const role = media.dtlsParams?.role;
+        if (transport && role && !roleByTransport.has(transport)) {
+          roleByTransport.set(transport, role);
+        }
+      }
 
       this.secureManager.setLocalRole({
         type: description.type === "offer" ? "offer" : "answer",
-        role,
+        role: (transport) => roleByTransport.get(transport) ?? fallbackRole,
       });
 
       // # configure direction
@@ -906,7 +917,8 @@ export class RTCPeerConnection extends EventTarget {
           const rejected = this.transceiverManager
             .getTransceivers()
             .find((t) => t.mid === media.rtp.muxId);
-          if (rejected) {
+          // Same as a remote answer: an `inactive` m-line also has port zero.
+          if (rejected?.stopping) {
             this.router.unregisterTransceiver(rejected);
             rejected.forceStop();
           }
@@ -1780,9 +1792,13 @@ export class RTCPeerConnection extends EventTarget {
             const rejected = this.transceiverManager
               .getTransceivers()
               .find((t) => t.mid === remoteMedia.rtp.muxId);
-            if (rejected) {
+            // werift writes an `inactive` m-line with port zero, so a zero
+            // port stops only a transceiver the application is stopping.
+            if (rejected?.stopping) {
               this.router.unregisterTransceiver(rejected);
               rejected.forceStop();
+            } else if (rejected && !rejected.stopped) {
+              rejected.setCurrentDirection("inactive");
             }
           }
           return;
@@ -1793,6 +1809,24 @@ export class RTCPeerConnection extends EventTarget {
             .getTransceivers()
             .find((t) => matchTransceiverWithMedia(t, remoteMedia));
           if (!transceiver) {
+            // JSEP 5.2.2: a new MID on an existing m-line recycles it, so the
+            // transceiver that owned it is stopped. The flags are part of the
+            // rollback baseline; its sender/receiver stop at the answer.
+            const displaced = this.transceiverManager
+              .getTransceivers()
+              .find(
+                (t) =>
+                  !t.stopped &&
+                  t.mLineIndex === i &&
+                  !!t.mid &&
+                  t.mid !== remoteMedia.rtp.muxId,
+              );
+            if (displaced) {
+              displaced.stopping = true;
+              displaced.stopped = true;
+              this.router.unregisterTransceiver(displaced);
+              this.negotiation.rememberDisplacedTransceiver(displaced);
+            }
             // create remote transceiver
             transceiver = this.addTransceiver(remoteMedia.kind, {
               direction: "recvonly",
@@ -2036,18 +2070,24 @@ export class RTCPeerConnection extends EventTarget {
     const currentRemote = this.sdpManager.currentRemoteDescription;
     const pendingOffer = this.sdpManager.pendingRemoteDescription;
     if (currentRemote && pendingOffer?.type === "offer") {
-      const remoteRestart = pendingOffer.media.some((media, index) => {
-        const previous = currentRemote.media[index];
-        return (
-          media.port !== 0 &&
-          previous?.iceParams?.usernameFragment &&
-          media.iceParams?.usernameFragment !==
-            previous.iceParams.usernameFragment
-        );
-      });
       // An ICE restart keeps the DTLS association (RFC 8842): stage the new
-      // generation on the existing ICE transports instead of a new transport.
-      if (remoteRestart) this.secureManager.stageIceRestart();
+      // generation on the existing ICE transport of each BUNDLE owner whose
+      // credentials changed. A MID that moves to a new owner (BUNDLE split)
+      // brings its credentials to its own pending transport instead, so the
+      // transport it leaves is not restarted.
+      const restarted = new Set<RTCIceTransport>();
+      for (const [owner, plan] of this.planPendingBundleTopology(pendingOffer)
+        .owners) {
+        const live = plan.reuse?.iceTransport;
+        const proposed = pendingOffer.media.find(
+          (media) => media.rtp.muxId === owner,
+        )?.iceParams?.usernameFragment;
+        const committed = live?.getRemoteParameters()?.usernameFragment;
+        if (live && proposed && committed && proposed !== committed) {
+          restarted.add(live);
+        }
+      }
+      this.secureManager.stageIceRestart(restarted);
     }
 
     await this.preparePendingBundleTopology();

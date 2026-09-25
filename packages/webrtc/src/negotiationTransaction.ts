@@ -23,6 +23,9 @@ type TransceiverBaseline = {
   receiverTracks: RTCRtpTransceiver["receiver"]["tracks"];
   receiverBySsrc: RTCRtpTransceiver["receiver"]["trackBySSRC"];
   receiverByRid: RTCRtpTransceiver["receiver"]["trackByRID"];
+  receiveTables: ReturnType<
+    RTCRtpTransceiver["receiver"]["snapshotReceiveTables"]
+  >;
   notifiedRemoteTrack: ReturnType<TransceiverManager["getNotifiedRemoteTrack"]>;
 };
 
@@ -41,6 +44,8 @@ export class NegotiationTransaction {
     sctpRemoteMaxMessageSize?: number;
   };
   private readonly remoteCreated = new Set<RTCRtpTransceiver>();
+  /** Transceivers whose m-line a remote offer recycled with a new MID. */
+  private readonly displaced = new Set<RTCRtpTransceiver>();
   private readonly preparedTransports = new Map<string, RTCDtlsTransport>();
   private readonly pendingOnlyTransports = new Set<RTCDtlsTransport>();
   private readonly emittedPendingCandidates = new Set<string>();
@@ -86,6 +91,7 @@ export class NegotiationTransaction {
               receiverTracks: [...transceiver.receiver.tracks],
               receiverBySsrc: { ...transceiver.receiver.trackBySSRC },
               receiverByRid: { ...transceiver.receiver.trackByRID },
+              receiveTables: transceiver.receiver.snapshotReceiveTables(),
               notifiedRemoteTrack:
                 this.transceivers.getNotifiedRemoteTrack(transceiver),
             },
@@ -116,6 +122,10 @@ export class NegotiationTransaction {
 
   rememberRemoteTransceiver(transceiver: RTCRtpTransceiver) {
     this.remoteCreated.add(transceiver);
+  }
+
+  rememberDisplacedTransceiver(transceiver: RTCRtpTransceiver) {
+    this.displaced.add(transceiver);
   }
 
   get preparedDescription() {
@@ -182,6 +192,13 @@ export class NegotiationTransaction {
 
   async commit() {
     this.phase = "committing";
+    // The recycling offer is final: the displaced transceiver stops for good.
+    for (const transceiver of this.displaced) {
+      if (!transceiver.stopped) continue;
+      transceiver.setCurrentDirection("stopped");
+      transceiver.receiver.stop();
+      transceiver.sender.stop();
+    }
     const oldTransports = new Set(
       [...(this.baseline?.transceivers.values() ?? [])].map(
         (state) => state.dtlsTransport,
@@ -253,14 +270,9 @@ export class NegotiationTransaction {
         transceiver,
         state.notifiedRemoteTrack,
       );
-      const currentMedia = this.sdp.currentRemoteDescription?.media.find(
-        (media) => media.rtp.muxId === state.mid,
-      );
-      if (currentMedia?.port !== undefined && currentMedia.port !== 0) {
-        transceiver.receiver.prepareReceive(
-          this.transceivers.getRemoteRtpParams(currentMedia, transceiver),
-        );
-      }
+      // Codec/RTX tables added or changed by a pending description are
+      // dropped; current RTP is decoded exactly as before the transaction.
+      transceiver.receiver.restoreReceiveTables(state.receiveTables);
     }
 
     const orphanTransports = new Set<RTCDtlsTransport>();
@@ -312,6 +324,7 @@ export class NegotiationTransaction {
     }
     if (keepBaseline) {
       this.remoteCreated.clear();
+      this.displaced.clear();
       this.preparedTransports.clear();
       this.pendingOnlyTransports.clear();
       this.emittedPendingCandidates.clear();
@@ -326,6 +339,7 @@ export class NegotiationTransaction {
   private cleanup() {
     this.baseline = undefined;
     this.remoteCreated.clear();
+    this.displaced.clear();
     this.preparedTransports.clear();
     this.pendingOnlyTransports.clear();
     this.emittedPendingCandidates.clear();

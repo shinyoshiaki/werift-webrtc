@@ -37,6 +37,7 @@ export class SecureTransportManager {
   readonly connectionStateChange = new Event<[ConnectionState]>();
 
   private config: PeerConfig;
+  private lastLocalCredentials?: { usernameFragment: string; password: string };
   private transceiverManager: TransceiverManager;
   private sctpManager: SctpTransportManager;
 
@@ -165,9 +166,26 @@ export class SecureTransportManager {
       useLinkLocalAddress: this.config.iceUseLinkLocalAddress,
     });
 
-    if (existing) {
-      iceGatherer.connection.localUsername = existing.connection.localUsername;
-      iceGatherer.connection.localPassword = existing.connection.localPassword;
+    // ICE credentials change only on an ICE restart (JSEP 5.2.1). A transport
+    // created after rollback discarded every live transport keeps the last
+    // credentials, so a previously created description stays applicable.
+    const inherited = existing
+      ? {
+          usernameFragment: existing.connection.localUsername,
+          password: existing.connection.localPassword,
+        }
+      : !independentIceCredentials
+        ? this.lastLocalCredentials
+        : undefined;
+    if (inherited) {
+      iceGatherer.connection.localUsername = inherited.usernameFragment;
+      iceGatherer.connection.localPassword = inherited.password;
+    }
+    if (!independentIceCredentials) {
+      this.lastLocalCredentials = {
+        usernameFragment: iceGatherer.connection.localUsername,
+        password: iceGatherer.connection.localPassword,
+      };
     }
 
     iceGatherer.onGatheringStateChange.subscribe(() => {
@@ -419,14 +437,21 @@ export class SecureTransportManager {
     for (const transport of this.iceTransports) {
       transport.restart();
     }
+    const [first] = this.iceTransports;
+    if (first) this.lastLocalCredentials = first.localParameters;
     // restart() resets each gatherer to "new"; refresh the aggregate cache
     // even if a gatherer failed to emit onGatheringStateChange.
     this.updateIceGatheringState();
   }
 
-  stageIceRestart() {
+  /** Stage restart credentials on `targets` (all transports by default). */
+  stageIceRestart(targets?: ReadonlySet<RTCIceTransport>) {
     for (const transport of this.iceTransports) {
-      transport.stageLocalRestart();
+      if (!targets || targets.has(transport)) {
+        transport.stageLocalRestart();
+      } else {
+        transport.rollbackLocalRestart();
+      }
     }
   }
 
@@ -452,6 +477,8 @@ export class SecureTransportManager {
     await Promise.all(
       this.iceTransports.map((transport) => transport.commitLocalRestart()),
     );
+    const [first] = this.iceTransports;
+    if (first) this.lastLocalCredentials = first.localParameters;
     this.updateIceGatheringState();
   }
 
@@ -460,7 +487,9 @@ export class SecureTransportManager {
     role,
   }: {
     type: "offer" | "answer";
-    role: "auto" | "client" | "server" | undefined;
+    role: (
+      dtlsTransport: RTCDtlsTransport,
+    ) => "auto" | "client" | "server" | undefined;
   }) {
     for (const dtlsTransport of this.dtlsTransports) {
       const iceTransport = dtlsTransport.iceTransport;
@@ -477,8 +506,9 @@ export class SecureTransportManager {
 
       // # set DTLS role for mediasoup
       if (type === "answer") {
-        if (role) {
-          dtlsTransport.role = role;
+        const transportRole = role(dtlsTransport);
+        if (transportRole) {
+          dtlsTransport.role = transportRole;
         }
       }
     }

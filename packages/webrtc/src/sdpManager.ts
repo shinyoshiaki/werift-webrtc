@@ -10,6 +10,7 @@ import {
   SessionDescription,
   SsrcDescription,
   addSDPHeader,
+  codecParametersFromString,
 } from "./sdp";
 import type { RTCDtlsTransport } from "./transport/dtls";
 import type { RTCSctpTransport } from "./transport/sctp";
@@ -89,6 +90,7 @@ export class SDPManager {
     media.rtcpHost = "0.0.0.0";
     media.rtcpPort = 9;
     media.rtcpMux = true;
+
     media.ssrc = [
       new SsrcDescription({ ssrc: transceiver.sender.ssrc, cname: this.cname }),
     ];
@@ -249,6 +251,9 @@ export class SDPManager {
             "Existing m-lines must retain their order, kind and MID",
           );
         }
+        if (!isLocal && !reusable && next.port !== 0) {
+          this.assertStablePayloadTypes(oldMedia, next);
+        }
       }
     }
 
@@ -279,6 +284,36 @@ export class SDPManager {
         throw createWebRtcDomException(
           "InvalidModificationError",
           "Answer cannot accept a rejected m-line",
+        );
+      }
+    }
+  }
+
+  /**
+   * RFC 3264 section 8.3.2: a dynamic payload type keeps its codec for the
+   * session. A remap would change how in-flight current RTP is decoded while
+   * the new description is still pending, so it is rejected before mutation.
+   */
+  private assertStablePayloadTypes(
+    oldMedia: MediaDescription,
+    next: MediaDescription,
+  ) {
+    for (const codec of next.rtp.codecs) {
+      const previous = oldMedia.rtp.codecs.find(
+        (c) => c.payloadType === codec.payloadType,
+      );
+      if (!previous) continue;
+      const apt = (c: typeof codec) =>
+        codecParametersFromString(c.parameters ?? "")["apt"];
+      if (
+        previous.mimeType.toLowerCase() !== codec.mimeType.toLowerCase() ||
+        previous.clockRate !== codec.clockRate ||
+        (previous.channels ?? 1) !== (codec.channels ?? 1) ||
+        (previous.name.toLowerCase() === "rtx" && apt(previous) !== apt(codec))
+      ) {
+        throw createWebRtcDomException(
+          "InvalidModificationError",
+          `Payload type ${codec.payloadType} cannot be remapped within a session`,
         );
       }
     }
@@ -356,8 +391,38 @@ export class SDPManager {
 
     // # handle existing transceivers / sctp
     const currentMedia = this.currentLocalDescription?.media ?? [];
+    // JSEP 5.2.2: an added transceiver recycles an m-line whose port is zero
+    // in the current local or remote description, keeping the m-line count.
+    const added = transceivers.filter(
+      (t) =>
+        t.mid == undefined &&
+        t.mLineIndex === undefined &&
+        !t.stopping &&
+        !t.stopped,
+    );
 
     currentMedia.forEach((m, i) => {
+      // werift also writes an `inactive` m-line with port zero, so only an
+      // m-line whose transceiver is gone or stopped is recyclable.
+      const owner = transceivers.find(
+        (t) => !!m.rtp.muxId && t.mid === m.rtp.muxId,
+      );
+      const recyclable =
+        m.kind !== "application" &&
+        (!owner || owner.stopped) &&
+        (m.port === 0 || this.currentRemoteDescription?.media[i]?.port === 0);
+      const recycled = recyclable ? added.shift() : undefined;
+      if (recycled) {
+        recycled.mid = this.allocateMid(this.midSuffix ? "av" : "");
+        recycled.mLineIndex = i;
+        description.media.push(
+          this.createMediaDescriptionForTransceiver(
+            recycled,
+            recycled.direction,
+          ),
+        );
+        return;
+      }
       const mid = m.rtp.muxId;
       if (!mid) {
         return;
@@ -383,15 +448,23 @@ export class SDPManager {
         description.media.push(
           this.createMediaDescriptionForTransceiver(
             transceiver,
-            transceiver.direction,
+            // JSEP 5.2.2: a stopping or stopped transceiver is offered as a
+            // rejected (zero port) m-line.
+            transceiver.stopping || transceiver.stopped
+              ? "inactive"
+              : transceiver.direction,
           ),
         );
       }
     });
 
     // # handle new transceivers / sctp
+    // A stopping or stopped transceiver never gets a new m-line (JSEP 5.2.2).
     for (const transceiver of transceivers.filter(
-      (t) => !description.media.find((m) => m.rtp.muxId === t.mid),
+      (t) =>
+        !t.stopping &&
+        !t.stopped &&
+        !description.media.find((m) => m.rtp.muxId === t.mid),
     )) {
       if (transceiver.mid == undefined) {
         transceiver.mid = this.allocateMid(this.midSuffix ? "av" : "");
@@ -486,7 +559,10 @@ export class SDPManager {
         }
         media = this.createMediaDescriptionForTransceiver(
           transceiver,
-          andDirection(transceiver.direction, transceiver.offerDirection),
+          // JSEP 5.3.1: a stopping transceiver rejects its m-line.
+          transceiver.stopping || transceiver.stopped
+            ? "inactive"
+            : andDirection(transceiver.direction, transceiver.offerDirection),
         );
         if (media.port === 0) media.fmt = remoteMedia.fmt;
         dtlsTransport = transceiver.dtlsTransport;
@@ -511,7 +587,10 @@ export class SDPManager {
       // # determine DTLS role, or preserve the currently configured role
       if (media.dtlsParams) {
         if (dtlsTransport.role === "auto") {
-          media.dtlsParams.role = "client";
+          // RFC 8842 section 5.3: answer `passive` to an `active` offer and
+          // `active` to `actpass`/`passive`.
+          media.dtlsParams.role =
+            remoteMedia.dtlsParams?.role === "client" ? "server" : "client";
         } else {
           media.dtlsParams.role = dtlsTransport.role;
         }
@@ -652,6 +731,27 @@ export class SDPManager {
   }
 
   /**
+   * RFC 8842 section 5.2: an offer for a new DTLS association (a transport
+   * prepared for this offer that has never connected, such as a BUNDLE split
+   * owner) uses `actpass`, even if the SDP carried the shared transport's role.
+   */
+  private offerNewAssociation(
+    description: SessionDescription,
+    media: MediaDescription,
+    dtlsTransport: RTCDtlsTransport,
+    transportByMid?: Map<string, RTCDtlsTransport>,
+  ) {
+    if (
+      description.type === "offer" &&
+      media.dtlsParams &&
+      dtlsTransport.state === "new" &&
+      transportByMid?.get(media.rtp.muxId ?? "") === dtlsTransport
+    ) {
+      media.dtlsParams.role = "auto";
+    }
+  }
+
+  /**
    * ローカルセッション記述を設定し、トランスポート情報を追加する
    */
   setLocal(
@@ -677,13 +777,19 @@ export class SDPManager {
         throw new Error(`dtls transport not found for media index ${i}`);
       }
       this.addTransportDescription(m, dtlsTransport);
+      this.offerNewAssociation(description, m, dtlsTransport, transportByMid);
     });
     const sctpMedia = description.media.find((m) => m.kind === "application");
     if (sctpTransport && sctpMedia) {
-      this.addTransportDescription(
-        sctpMedia,
+      const dtlsTransport =
         (sctpMedia.rtp.muxId && transportByMid?.get(sctpMedia.rtp.muxId)) ||
-          sctpTransport.dtlsTransport,
+        sctpTransport.dtlsTransport;
+      this.addTransportDescription(sctpMedia, dtlsTransport);
+      this.offerNewAssociation(
+        description,
+        sctpMedia,
+        dtlsTransport,
+        transportByMid,
       );
     }
 

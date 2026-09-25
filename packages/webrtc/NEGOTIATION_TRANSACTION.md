@@ -90,10 +90,36 @@ Application-added transceivers remain in the collection after rollback even
 when they have no local track; their identity, direction and sender are not
 part of the SDP rollback baseline.
 
+A stopping transceiver is offered and answered as a rejected (zero port)
+m-line (JSEP 5.2.2, 5.3.1); the final answer marks it stopped and unregisters
+its routes. werift also writes an `inactive` m-line with a zero port, so a
+zero-port answer stops only a transceiver the application is stopping; any
+other one keeps `currentDirection` `inactive`. A transceiver added later
+recycles the m-line of a stopped transceiver with a new MID instead of
+appending one. When a remote offer recycles an m-line, the transceiver that
+owned it is marked stopped and its routes are removed as SDP-driven, reversible
+changes; its sender and receiver stop at the final answer.
+
+ICE credentials change only on an ICE restart. A transport created after
+rollback discarded every live transport inherits the last local credentials,
+so a description created before the rollback still matches its transport.
+
+A dynamic payload type keeps its codec for the session (RFC 3264 section
+8.3.2). A remote offer, pranswer or answer that remaps a payload type of a
+current, non-rejected m-line is rejected in validate, so in-flight current RTP
+is never decoded with a pending codec. New payload types of a pending
+description may be added to a receiver; the rollback baseline holds each
+receiver's codec and RTX-SSRC tables and rollback restores them exactly.
+
 A BUNDLE split prepares a separate ICE/DTLS transport for its new owner while
 the previously shared transport stays connected. This also applies to a local
 offer whose BUNDLE group was changed before `setLocalDescription`; the pending
 local SDP is refreshed with the new owner's own ICE credentials and candidates.
+The new owner is a new DTLS association, so its offer uses `actpass` and the
+answerer picks the opposite of the offered setup (RFC 8842). Each transport
+takes the DTLS role of its own m-line, not of the first m-line. The m-line that
+moves away brings its new ufrag to its own transport; the transport it leaves
+is not treated as an ICE restart.
 
 For pranswer, non-`inactive` agreed m-lines may send and receive RTP/RTCP.
 Pending ICE may gather, check and nominate; DTLS may start after ICE; a new
@@ -116,8 +142,11 @@ bucket is selected by the pending ufrag, incoming checks for the staged ufrag
 are answered and recorded there only, and nomination is kept as provisional.
 The current pair, consent and DTLS session keep carrying RTP and SCTP. A
 replacement pranswer resets that checklist, rollback discards it, and the
-final answer activates the staged credentials on that transport. Only a
-BUNDLE owner change creates a separate pending ICE/DTLS transport.
+final answer activates the staged credentials on that transport. A remote
+restart is detected per BUNDLE owner that keeps its live transport, by
+comparing the owner's proposed ufrag with that transport's committed remote
+ufrag; only those transports stage restart credentials. Only a BUNDLE owner
+change creates a separate pending ICE/DTLS transport.
 
 A remote re-offer whose BUNDLE plan would move an established SCTP association
 to another DTLS transport is rejected in validate, before a replacement retires
@@ -131,3 +160,17 @@ behavior. Candidate and EOC mutations are idempotent within a generation; an
 old-generation callback may update only that generation and cannot be carried
 into a replacement generation. Upstream WPT-only stricter behavior belongs in
 `tools/wpt-runner` wrappers.
+
+## Test coverage
+
+`tests/integrate/negotiationTransactionUtils.ts` holds the shared Arrange
+utilities and the test-only `assertNegotiationInvariants(pc)`. In every
+signaling state it checks MID uniqueness, router endpoints and receiver codec
+tables against current SDP, BUNDLE owner, MID and mLineIndex, the live ICE
+generation (credentials, candidates, EOC, checklist membership of the selected
+pair, no provisional generation in stable), DTLS role and fingerprint, SCTP
+MID, mLineIndex, owner transport and parameters, and that every transport
+that left use is closed. `negotiationTransactionMatrix.test.ts` runs the
+transition matrix with each peer once as the offerer and calls the helper after
+every description and candidate operation, then verifies RTP and DataChannel
+traffic in both directions.

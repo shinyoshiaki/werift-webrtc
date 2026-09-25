@@ -146,6 +146,25 @@ export class RTCRtpReceiver {
     });
   }
 
+  /** Internal: capture the decode tables for a negotiation rollback baseline. */
+  snapshotReceiveTables() {
+    return { codecs: { ...this.codecs }, ssrcByRtx: { ...this.ssrcByRtx } };
+  }
+
+  /** Internal: replace the decode tables with a rollback baseline. */
+  restoreReceiveTables(
+    snapshot: ReturnType<RTCRtpReceiver["snapshotReceiveTables"]>,
+  ) {
+    for (const table of [this.codecs, this.ssrcByRtx] as Record<
+      number,
+      unknown
+    >[]) {
+      for (const key of Object.keys(table)) delete table[Number(key)];
+    }
+    Object.assign(this.codecs, snapshot.codecs);
+    Object.assign(this.ssrcByRtx, snapshot.ssrcByRtx);
+  }
+
   /**
    * setup TWCC if supported
    */

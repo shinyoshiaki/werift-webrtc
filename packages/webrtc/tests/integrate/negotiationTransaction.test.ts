@@ -45,6 +45,81 @@ describe("negotiation transaction", () => {
     }
   });
 
+  test("a pending payload type leaves the receiver codec table by rollback", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers();
+    try {
+      // Arrange: 受信側の codec/RTX 対応表を控え、新しい PT 120 を足した
+      // re-offer を用意する (既存 PT の割当ては変えない)。
+      const receiver = answerer.getTransceivers()[0].receiver;
+      const baseline = receiver.snapshotReceiveTables();
+      const committedPt = Number(
+        Object.entries(baseline.codecs).find(
+          ([, codec]) => codec.mimeType === "video/VP8",
+        )![0],
+      );
+      await offerer.setLocalDescription(await offerer.createOffer());
+      const withNewPt = offerer
+        .localDescription!.sdp.replace(/^(m=video [^\r\n]+)/m, "$1 120")
+        .replace(
+          /^(a=rtpmap:\d+ VP8\/90000\r?\n)/m,
+          "$1a=rtpmap:120 VP8/90000\r\n",
+        );
+
+      // Act: 新 PT を含む remote offer を pending として適用する。
+      await answerer.setRemoteDescription({ type: "offer", sdp: withNewPt });
+
+      // Assert: pending 中は新 PT が加わるが既存 PT の解釈は変わらず、旧 RTP が届く。
+      const pending = receiver.snapshotReceiveTables();
+      expect(pending.codecs[120]?.mimeType).toBe("video/VP8");
+      expect(pending.codecs[committedPt]).toEqual(baseline.codecs[committedPt]);
+      assertNegotiationInvariants(answerer);
+      await sendAndExpectRtp(outgoing, incoming, "new-pt-pending");
+
+      // Act: 双方の pending description を rollback する。
+      await offerer.setLocalDescription({ type: "rollback" });
+      await answerer.setRemoteDescription({ type: "rollback" });
+
+      // Assert: codec/RTX 対応表は baseline と完全に一致し、旧 RTP が届く。
+      expect(receiver.snapshotReceiveTables()).toEqual(baseline);
+      assertNegotiationInvariants(offerer);
+      assertNegotiationInvariants(answerer);
+      await sendAndExpectRtp(outgoing, incoming, "new-pt-rollback");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("a re-offer that remaps a current payload type is rejected before mutation", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers();
+    try {
+      // Arrange: 受信側の対応表を控え、VP8 の PT を H264 に再割当てした offer を作る。
+      const receiver = answerer.getTransceivers()[0].receiver;
+      const baseline = receiver.snapshotReceiveTables();
+      const current = answerer.currentRemoteDescription!.sdp;
+      await offerer.setLocalDescription(await offerer.createOffer());
+      const remapped = offerer.localDescription!.sdp.replace(
+        /a=rtpmap:(\d+) VP8\/90000/,
+        "a=rtpmap:$1 H264/90000",
+      );
+
+      // Act: PT を再割当てする remote offer を適用する (RFC 3264 8.3.2 違反)。
+      await expect(
+        answerer.setRemoteDescription({ type: "offer", sdp: remapped }),
+      ).rejects.toMatchObject({ name: "InvalidModificationError" });
+
+      // Assert: signaling・current SDP・受信対応表は変わらず、旧 RTP が届く。
+      expect(answerer.signalingState).toBe("stable");
+      expect(answerer.currentRemoteDescription!.sdp).toBe(current);
+      expect(receiver.snapshotReceiveTables()).toEqual(baseline);
+      assertNegotiationInvariants(answerer);
+      await sendAndExpectRtp(outgoing, incoming, "remap-rejected");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
   test("ICE restart pranswer connects a pending generation and rollback keeps current RTP", async () => {
     const { offerer, answerer, outgoing, incoming } =
       await createConnectedVideoPeers();
