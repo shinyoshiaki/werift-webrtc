@@ -69,7 +69,7 @@ running through every pending row.
 | Offer/pranswer/final answer | P negotiated RTP may run; final K can differ | C owner retained; P routing | P checks and nomination may run | P handshake after ICE | New P association may run | P ufrag bucket | Provisional events are permanent history |
 | Replacement offer/pranswer | Retire old P; retain C | Retire old P; retain C | Drop old P checks | Stop old P handshake | Close old P association | Drop old P bucket | Do not repeat identical events |
 | Rollback or implicit rollback | R detaches P, restores C | R restores C owner | R stops P, preserves C pair | R preserves C session | R closes P, preserves C | R drops P bucket | Close/statechange may fire; no event retraction |
-| ICE restart commit/rollback | C routes until K/R | C owner until K/R | P credentials, checklist and pair; K switches or R drops | P handshake while C remains live | C association remains live during P | P ufrag distinct from C | Candidates labeled by generation |
+| ICE restart commit/rollback | C routes until K/R | C owner until K/R | P credentials, checklist and pair; K switches or R drops | C session kept (JSEP: no DTLS restart) | C association remains live during P | P ufrag distinct from C | Candidates labeled by generation |
 | BUNDLE split/merge/tag change | P MID routes, K switches | P owner table; K/R selects | P transport per owner | P binding per owner | P application binding | Route by MID and owner | Notify after owner selection |
 | Reject/stop/reuse m-line | C route until K; K unregisters/stops | Shared C owner persists | Shared C pair persists | Shared C session persists | Unrelated C association persists | Rejected MID receives no candidate | Track transitions only |
 | SCTP parameter re-offer | C media | C owner | C pair | C session | P port/limit/MID; reject unsupported existing port change before mutation | C bucket | Existing channels remain live |
@@ -105,13 +105,22 @@ their committed association; channels opened on a pending-only association
 close when it is discarded. Application-created unattached channels remain
 application objects for a later negotiation.
 
-When a re-offer changes ICE credentials, a separate pending ICE/DTLS transport
-gathers candidates and runs checks during pranswer. Its candidate and EOC
-bucket is selected by the pending ufrag. The committed transport remains bound
-to existing media until final answer; rollback stops the pending transport.
-For an established SCTP association, the existing ICE transport stages restart
-credentials so DataChannels remain on their current DTLS association; the
-final answer activates those credentials on that transport.
+When a re-offer changes ICE credentials (local `iceRestart` or a remote restart
+offer), the owner's existing ICE transport stages the new credentials. JSEP
+keeps the DTLS association across an ICE restart, so no second DTLS transport,
+certificate or role is proposed; browsers reject such a change. During
+pranswer that transport runs a provisional ICE generation beside the selected
+current pair: the pranswer (or pending offer) credentials, candidates, trickle
+and EOC feed a separate checklist, incoming checks for the staged ufrag are
+answered and recorded there only, and nomination is kept as provisional. The
+current pair, consent and DTLS session keep carrying RTP and SCTP. A
+replacement pranswer resets that checklist, rollback discards it, and the
+final answer activates the staged credentials on that transport. A separate
+pending transport is used only when BUNDLE topology needs a new owner.
+
+A remote re-offer whose BUNDLE plan would move an established SCTP association
+to another DTLS transport is rejected in validate, before a replacement retires
+the earlier pending offer; the earlier offer can still be answered.
 
 Trickle with an explicit `usernameFragment` targets the matching current or
 pending remote generation; without one it targets the latest applicable

@@ -32,6 +32,8 @@ If a rule applies only to a specific package or subdirectory, put it in the near
 12. Follow existing patterns: manager-style orchestration in `packages/webrtc`, asynchronous notifications based on the custom `Event` class, and package-local error handling instead of broad catch-and-ignore logic. Use handling.
 13. When changing public API, protocol behavior, examples, or WPT wiring, update the nearest docs or examples that demonstrate the behavior.
 14. Keep upstream-WPT-only strict behavior inside `packages/webrtc/tools/wpt-runner/*` wrappers. Do not leak stricter WPT shims into the default `packages/webrtc/src` API when that would regress existing werift convenience behavior.
+15. To compare behavior against an older commit, check it out in a separate temporary worktree (`git worktree add --detach <tmp-dir> <commit>`) and remove it afterwards. The working tree may be auto-committed by external tooling at any time, so it must always hold the intended change.
+16. For long E2E investigations, reproduce the targeted spec file first, then run the full `npm run e2e`. Run long commands in the background and record the current branch/commit state before waiting on them, so an interrupted session can be resumed.
 
 ## Don't
 
@@ -41,6 +43,8 @@ If a rule applies only to a specific package or subdirectory, put it in the near
 * Do not let package guides drift in structure. Differences should mostly be limited to responsibilities, validation, references, and cross-package cautions.
 * Do not duplicate Arrange-phase setup across multiple test files when it can be safely shared through common utilities.
 * Do not leave Act / Assert phases without comments when the operation sequence or expectation is not obvious from a quick read.
+* Do not rewrite the working tree to an older revision (`git checkout <old> -- .`, `git stash`) to get a baseline while a task is in progress.
+* Do not stop processes with `pkill -f <pattern>`; the pattern can match the invoking shell itself. Stop the E2E server through `e2e/stop.js` or by PID.
 
 ## Commands
 

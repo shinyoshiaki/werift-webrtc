@@ -529,49 +529,6 @@ export class RTCPeerConnection extends EventTarget {
       this.transceiverManager.getTransceivers(),
       this.sctpTransport,
     );
-    if (
-      restartRequested &&
-      this.sdpManager.currentRemoteDescription &&
-      this.sctpTransport?.sctp?.associationState !== SCTP_STATE.ESTABLISHED
-    ) {
-      const pending = this.findOrCreateTransport(true);
-      pending.iceTransport.iceRestarts =
-        Math.max(
-          ...this.iceTransports.map((transport) => transport.iceRestarts),
-        ) + 1;
-      pending.iceTransport.connection.generation = this.iceGeneration + 1;
-      try {
-        const firstMid = description.media.find(
-          (media) => media.port !== 0 && media.rtp.muxId,
-        )?.rtp.muxId;
-        if (firstMid) {
-          this.negotiation.prepareTransport(
-            description,
-            firstMid,
-            pending,
-            true,
-          );
-        }
-        await pending.iceTransport.gather();
-        for (const media of description.media) {
-          if (media.port === 0 || !media.rtp.muxId) continue;
-          this.negotiation.prepareTransport(
-            description,
-            media.rtp.muxId,
-            pending,
-            true,
-          );
-          media.iceParams = pending.iceTransport.localParameters;
-          media.iceCandidates = [...pending.iceTransport.localCandidates];
-          media.iceCandidatesComplete = true;
-          media.dtlsParams = pending.localParameters;
-        }
-        this.secureManager.rollbackStagedIceRestart();
-      } catch (error) {
-        await this.negotiation.discardPreparedTransports();
-        throw error;
-      }
-    }
     const createdOffer = description.toJSON();
     this.lastCreatedOffer = createdOffer;
     return createdOffer;
@@ -1107,19 +1064,24 @@ export class RTCPeerConnection extends EventTarget {
               .getTransceivers()
               .find((t) => t.mid === media.rtp.muxId)?.dtlsTransport);
       if (!dtls) continue;
+      const bundledNonTag =
+        bundledMids.has(media.rtp.muxId ?? "") &&
+        media.rtp.muxId !== bundleItems[0];
       if (
         pendingOnly &&
         !this.negotiation.isPendingOnlyTransport(dtls.iceTransport.id)
-      )
+      ) {
+        // A restart on a transport that keeps its SCTP association checks the
+        // new generation beside the selected current pair.
+        if (!bundledNonTag) {
+          await this.applyProvisionalIce(dtls.iceTransport, media);
+        }
         continue;
+      }
       if (media.kind === "application") {
         this.sctpManager.setRemoteSCTP(media, index);
       }
-      if (
-        bundledMids.has(media.rtp.muxId ?? "") &&
-        media.rtp.muxId !== bundleItems[0]
-      )
-        continue;
+      if (bundledNonTag) continue;
       if (media.iceParams) dtls.iceTransport.setRemoteParams(media.iceParams);
       if (media.dtlsParams) dtls.setRemoteParams(media.dtlsParams);
       const candidates =
@@ -1136,6 +1098,32 @@ export class RTCPeerConnection extends EventTarget {
       }
       if (eoc.has(transport)) await transport.addRemoteCandidate(undefined);
     }
+  }
+
+  private async applyProvisionalIce(
+    iceTransport: RTCIceTransport,
+    media: MediaDescription,
+  ) {
+    if (!iceTransport.hasStagedRestart || !media.iceParams) return;
+    iceTransport.setProvisionalRemoteParams(media.iceParams);
+    for (const candidate of media.iceCandidates) {
+      await iceTransport.addProvisionalRemoteCandidate(candidate);
+    }
+    if (media.iceCandidatesComplete) {
+      await iceTransport.addProvisionalRemoteCandidate(undefined);
+    }
+  }
+
+  private currentTransportForMid(mid: string) {
+    return (
+      this.negotiation.transportByMid.get(mid) ??
+      this.transceiverManager
+        .getTransceivers()
+        .find((transceiver) => transceiver.mid === mid)?.dtlsTransport ??
+      (this.sctpTransport?.mid === mid
+        ? this.sctpTransport.dtlsTransport
+        : undefined)
+    );
   }
 
   private async prepareLocalOfferTopology(offer: SessionDescription) {
@@ -1187,17 +1175,11 @@ export class RTCPeerConnection extends EventTarget {
     }
   }
 
-  /** Keep a re-offer's proposed BUNDLE owners separate from the live bindings. */
-  private async preparePendingBundleTopology() {
-    const offer = this.sdpManager.pendingRemoteDescription;
-    if (
-      !offer ||
-      offer.type !== "offer" ||
-      this.negotiation.preparedDescription === offer
-    )
-      return;
-    if (!this.sdpManager.currentRemoteDescription) return;
-
+  /**
+   * Decide which live transport each proposed BUNDLE owner of a re-offer would
+   * reuse. `undefined` means the owner needs a new pending transport.
+   */
+  private planPendingBundleTopology(offer: SessionDescription) {
     const bundle =
       this.sdpManager.bundlePolicy === "disable"
         ? undefined
@@ -1231,47 +1213,66 @@ export class RTCPeerConnection extends EventTarget {
         this.sctpTransport.dtlsTransport,
       );
     }
+    // An ICE restart stays on the owner's transport (JSEP keeps the DTLS
+    // association); only a split or a new owner needs a pending transport.
+    const owners = new Map<string, { reuse?: RTCDtlsTransport }>();
+    const used = new Set<RTCDtlsTransport>();
+    for (const owner of new Set(ownerByMid.values())) {
+      const transport = currentByMid.get(owner);
+      if (!transport || used.has(transport)) {
+        owners.set(owner, {});
+      } else {
+        owners.set(owner, { reuse: transport });
+        used.add(transport);
+      }
+    }
+    return { ownerByMid, owners };
+  }
+
+  /** Reject a re-offer whose topology would move a connected SCTP association. */
+  private assertPendingSctpBinding(offer: SessionDescription) {
+    const sctp = this.sctpTransport;
+    if (
+      !this.sdpManager.currentRemoteDescription ||
+      !sctp?.mid ||
+      sctp.sctp?.associationState !== SCTP_STATE.ESTABLISHED
+    )
+      return;
+    const { ownerByMid, owners } = this.planPendingBundleTopology(offer);
+    const owner = ownerByMid.get(sctp.mid);
+    if (owner === undefined) return;
+    if (owners.get(owner)?.reuse !== sctp.dtlsTransport) {
+      throw createWebRtcDomException(
+        "InvalidModificationError",
+        "Moving a connected SCTP association to another DTLS transport is unsupported",
+      );
+    }
+  }
+
+  /** Keep a re-offer's proposed BUNDLE owners separate from the live bindings. */
+  private async preparePendingBundleTopology() {
+    const offer = this.sdpManager.pendingRemoteDescription;
+    if (
+      !offer ||
+      offer.type !== "offer" ||
+      this.negotiation.preparedDescription === offer
+    )
+      return;
+    if (!this.sdpManager.currentRemoteDescription) return;
+
+    this.assertPendingSctpBinding(offer);
+    const { ownerByMid, owners } = this.planPendingBundleTopology(offer);
     try {
       const ownerTransports = new Map<string, RTCDtlsTransport>();
-      const used = new Set<RTCDtlsTransport>();
-      for (const owner of new Set(ownerByMid.values())) {
-        let transport = currentByMid.get(owner);
-        const proposedMedia = offer.media.find(
-          (media) => media.rtp.muxId === owner,
-        );
-        const currentMedia =
-          this.sdpManager.currentRemoteDescription.media.find(
-            (media) => media.rtp.muxId === owner,
-          );
-        const restarted =
-          !!proposedMedia?.iceParams &&
-          !!currentMedia?.iceParams &&
-          proposedMedia.iceParams.usernameFragment !==
-            currentMedia.iceParams.usernameFragment;
-        const connectedSctpOwner =
-          this.sctpTransport?.sctp?.associationState ===
-            SCTP_STATE.ESTABLISHED &&
-          ownerByMid.get(this.sctpTransport.mid ?? "") === owner;
-        if (
-          !transport ||
-          used.has(transport) ||
-          (restarted && !connectedSctpOwner)
-        ) {
+      for (const [owner, plan] of owners) {
+        let transport = plan.reuse;
+        if (!transport) {
           transport = this.findOrCreateTransport(true);
-          if (restarted) {
-            transport.iceTransport.iceRestarts =
-              (currentByMid.get(owner)?.iceTransport.iceRestarts ?? 0) + 1;
-            transport.iceTransport.connection.generation =
-              (currentByMid.get(owner)?.iceTransport.connection.generation ??
-                0) + 1;
-          }
           this.negotiation.prepareTransport(offer, owner, transport, true);
           await transport.iceTransport.gather();
         }
         ownerTransports.set(owner, transport);
-        used.add(transport);
       }
-      this.assertPreparedSctpBinding(ownerByMid, ownerTransports);
       for (const [mid, owner] of ownerByMid) {
         this.negotiation.prepareTransport(
           offer,
@@ -1282,22 +1283,6 @@ export class RTCPeerConnection extends EventTarget {
     } catch (error) {
       await this.negotiation.discardPreparedTransports();
       throw error;
-    }
-  }
-
-  private assertPreparedSctpBinding(
-    ownerByMid: Map<string, string>,
-    ownerTransports: Map<string, RTCDtlsTransport>,
-  ) {
-    const sctp = this.sctpTransport;
-    if (!sctp?.mid || sctp.sctp?.associationState !== SCTP_STATE.ESTABLISHED)
-      return;
-    const desired = ownerTransports.get(ownerByMid.get(sctp.mid) ?? "");
-    if (desired && desired !== sctp.dtlsTransport) {
-      throw createWebRtcDomException(
-        "InvalidModificationError",
-        "Moving a connected SCTP association to another DTLS transport is unsupported",
-      );
     }
   }
 
@@ -1397,6 +1382,32 @@ export class RTCPeerConnection extends EventTarget {
             : appliedCandidate.candidate,
         );
       }
+      if (
+        this.signalingState === "have-local-pranswer" ||
+        this.signalingState === "have-remote-pranswer"
+      ) {
+        const provisional = new Set(
+          appliedCandidate.mediaIndices
+            .map(
+              (index) =>
+                this.currentTransportForMid(
+                  remoteDescription.media[index]?.rtp.muxId ?? "",
+                )?.iceTransport,
+            )
+            .filter(
+              (transport): transport is RTCIceTransport =>
+                !!transport?.hasStagedRestart &&
+                !this.negotiation.isPendingOnlyTransport(transport.id),
+            ),
+        );
+        for (const transport of provisional) {
+          await transport.addProvisionalRemoteCandidate(
+            appliedCandidate.kind === "end-of-candidates"
+              ? undefined
+              : appliedCandidate.candidate,
+          );
+        }
+      }
     }
 
     if (appliedCandidate.kind === "end-of-candidates") {
@@ -1482,6 +1493,11 @@ export class RTCPeerConnection extends EventTarget {
     ].filter((transport) =>
       this.negotiation.isPendingOnlyTransport(transport.iceTransport.id),
     );
+    for (const iceTransport of this.iceTransports) {
+      if (!this.negotiation.isPendingOnlyTransport(iceTransport.id)) {
+        iceTransport.startProvisionalChecks();
+      }
+    }
     await Promise.all(
       pending.map(async (transport) => {
         transport.iceTransport.connection.iceControlling =
@@ -1668,6 +1684,11 @@ export class RTCPeerConnection extends EventTarget {
         }
       }
 
+      if (remoteSdp.type === "offer") {
+        // Checked before a replacement retires the previous pending offer.
+        this.assertPendingSctpBinding(remoteSdp);
+      }
+
       const needsImplicitLocalRollback =
         sessionDescription.type === "offer" &&
         ["have-local-offer", "have-local-pranswer"].includes(
@@ -1733,6 +1754,7 @@ export class RTCPeerConnection extends EventTarget {
 
       // # apply description
 
+      const provisionalIce: [RTCIceTransport, MediaDescription][] = [];
       const matchTransceiverWithMedia = (
         transceiver: RTCRtpTransceiver,
         media: MediaDescription,
@@ -1894,6 +1916,16 @@ export class RTCPeerConnection extends EventTarget {
           iceTransport.addRemoteCandidate(undefined);
         }
 
+        if (
+          remoteSdp.type === "pranswer" &&
+          preserveCurrentTransport &&
+          !pendingTransport &&
+          !bundledNonTag &&
+          iceTransport.hasStagedRestart
+        ) {
+          provisionalIce.push([iceTransport, remoteMedia]);
+        }
+
         // # set DTLS role
         if (
           (remoteSdp.type === "answer" || remoteSdp.type === "pranswer") &&
@@ -1908,6 +1940,9 @@ export class RTCPeerConnection extends EventTarget {
 
       // filter out inactive transports
       transports = transports.filter((iceTransport) => !!iceTransport);
+      for (const [iceTransport, media] of provisionalIce) {
+        await this.applyProvisionalIce(iceTransport, media);
+      }
 
       const removedTransceivers = this.transceiverManager
         .getTransceivers()
@@ -2011,13 +2046,9 @@ export class RTCPeerConnection extends EventTarget {
         );
       });
       if (remoteRestart) {
-        if (
-          this.sctpTransport?.sctp?.associationState === SCTP_STATE.ESTABLISHED
-        ) {
-          this.secureManager.stageIceRestart();
-        } else {
-          this.secureManager.rollbackStagedIceRestart();
-        }
+        // JSEP: an ICE restart keeps the DTLS association, so the new
+        // generation is staged on the existing transport.
+        this.secureManager.stageIceRestart();
       }
     }
 
