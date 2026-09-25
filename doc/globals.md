@@ -316,6 +316,7 @@
 - [fingerprint](functions/fingerprint.md)
 - [generateCodecStatsId](functions/generateCodecStatsId.md)
 - [generateStatsId](functions/generateStatsId.md)
+- [getApplicationStopRevision](functions/getApplicationStopRevision.md)
 - [getBit](functions/getBit.md)
 - [getDataChannelMessageSize](functions/getDataChannelMessageSize.md)
 - [getGlobalIp](functions/getGlobalIp.md)

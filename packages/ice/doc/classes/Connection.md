@@ -294,6 +294,22 @@
 
 ***
 
+### provisionalNominated
+
+#### Get Signature
+
+> **get** **provisionalNominated**(): `undefined` \| [`CandidatePair`](CandidatePair.md)
+
+##### Returns
+
+`undefined` \| [`CandidatePair`](CandidatePair.md)
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`provisionalNominated`](../interfaces/IceConnection.md#provisionalnominated)
+
+***
+
 ### remoteCandidates
 
 #### Get Signature
@@ -323,6 +339,26 @@
 [`IceConnection`](../interfaces/IceConnection.md).[`remoteCandidates`](../interfaces/IceConnection.md#remotecandidates)
 
 ## Methods
+
+### addProvisionalRemoteCandidate()
+
+> **addProvisionalRemoteCandidate**(`remoteCandidate`): `Promise`\<`void`\>
+
+#### Parameters
+
+##### remoteCandidate
+
+`undefined` | [`Candidate`](Candidate.md)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`addProvisionalRemoteCandidate`](../interfaces/IceConnection.md#addprovisionalremotecandidate)
+
+***
 
 ### addRemoteCandidate()
 
@@ -430,6 +466,32 @@ readonly \[`string`, `number`\]
 
 ***
 
+### commitLocalCredentials()
+
+> **commitLocalCredentials**(`usernameFragment`, `password`): `void`
+
+Called after restart, before re-gathering the chosen generation.
+
+#### Parameters
+
+##### usernameFragment
+
+`string`
+
+##### password
+
+`string`
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`commitLocalCredentials`](../interfaces/IceConnection.md#commitlocalcredentials)
+
+***
+
 ### connect()
 
 > **connect**(): `Promise`\<`void`\>
@@ -441,6 +503,26 @@ readonly \[`string`, `number`\]
 #### Implementation of
 
 [`IceConnection`](../interfaces/IceConnection.md).[`connect`](../interfaces/IceConnection.md#connect)
+
+***
+
+### discardStagedLocalCredentials()
+
+> **discardStagedLocalCredentials**(`usernameFragment`): `void`
+
+#### Parameters
+
+##### usernameFragment
+
+`string`
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`discardStagedLocalCredentials`](../interfaces/IceConnection.md#discardstagedlocalcredentials)
 
 ***
 
@@ -548,6 +630,34 @@ Link headers) and must take effect before the next gather pass.
 
 ***
 
+### setProvisionalRemoteParams()
+
+> **setProvisionalRemoteParams**(`__namedParameters`): `void`
+
+Remote credentials of the provisional generation (pranswer).
+
+#### Parameters
+
+##### \_\_namedParameters
+
+###### password
+
+`string`
+
+###### usernameFragment
+
+`string`
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`setProvisionalRemoteParams`](../interfaces/IceConnection.md#setprovisionalremoteparams)
+
+***
+
 ### setRemoteParams()
 
 > **setRemoteParams**(`__namedParameters`): `void`
@@ -575,3 +685,45 @@ Link headers) and must take effect before the next gather pass.
 #### Implementation of
 
 [`IceConnection`](../interfaces/IceConnection.md).[`setRemoteParams`](../interfaces/IceConnection.md#setremoteparams)
+
+***
+
+### stageLocalCredentials()
+
+> **stageLocalCredentials**(`usernameFragment`, `password`): `void`
+
+Accept provisional checks without changing the selected current pair.
+
+#### Parameters
+
+##### usernameFragment
+
+`string`
+
+##### password
+
+`string`
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`stageLocalCredentials`](../interfaces/IceConnection.md#stagelocalcredentials)
+
+***
+
+### startProvisionalChecks()
+
+> **startProvisionalChecks**(): `void`
+
+Start checks for the provisional generation; the selected pair is kept.
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`startProvisionalChecks`](../interfaces/IceConnection.md#startprovisionalchecks)

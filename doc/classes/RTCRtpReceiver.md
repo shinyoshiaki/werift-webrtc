@@ -379,6 +379,30 @@ seconds
 
 ***
 
+### restoreReceiveTables()
+
+> **restoreReceiveTables**(`snapshot`): `void`
+
+Internal: replace the decode tables with a rollback baseline.
+
+#### Parameters
+
+##### snapshot
+
+###### codecs
+
+\{\} = `...`
+
+###### ssrcByRtx
+
+\{\} = `...`
+
+#### Returns
+
+`void`
+
+***
+
 ### runRtcp()
 
 > **runRtcp**(): `Promise`\<`void`\>
@@ -436,6 +460,34 @@ setup TWCC if supported
 #### Returns
 
 `void`
+
+***
+
+### snapshotReceiveTables()
+
+> **snapshotReceiveTables**(): `object`
+
+Internal: capture the decode tables for a negotiation rollback baseline.
+
+#### Returns
+
+`object`
+
+##### codecs
+
+> **codecs**: `object`
+
+###### Index Signature
+
+\[`key`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+##### ssrcByRtx
+
+> **ssrcByRtx**: `object`
+
+###### Index Signature
+
+\[`key`: `number`\]: `number`
 
 ***
 

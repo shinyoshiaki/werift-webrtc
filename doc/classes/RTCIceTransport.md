@@ -125,6 +125,18 @@
 
 ***
 
+### hasStagedRestart
+
+#### Get Signature
+
+> **get** **hasStagedRestart**(): `boolean`
+
+##### Returns
+
+`boolean`
+
+***
+
 ### localCandidates
 
 #### Get Signature
@@ -185,6 +197,22 @@
 
 ***
 
+### addProvisionalRemoteCandidate()
+
+> **addProvisionalRemoteCandidate**(`candidate`?): `undefined` \| `Promise`\<`void`\>
+
+#### Parameters
+
+##### candidate?
+
+[`IceCandidate`](IceCandidate.md)
+
+#### Returns
+
+`undefined` \| `Promise`\<`void`\>
+
+***
+
 ### addRemoteCandidate()
 
 > **addRemoteCandidate**(`candidate`?): `undefined` \| `Promise`\<`void`\>
@@ -201,6 +229,16 @@
 
 ***
 
+### commitLocalRestart()
+
+> **commitLocalRestart**(): `Promise`\<`void`\>
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
 ### dispatchEvent()
 
 > **dispatchEvent**(`event`): `boolean`
@@ -214,6 +252,26 @@
 #### Returns
 
 `boolean`
+
+***
+
+### emitCommittedCandidates()
+
+> **emitCommittedCandidates**(): `void`
+
+#### Returns
+
+`void`
+
+***
+
+### emitStagedCandidates()
+
+> **emitStagedCandidates**(): `void`
+
+#### Returns
+
+`void`
 
 ***
 
@@ -319,7 +377,23 @@
 
 ### restart()
 
-> **restart**(): `void`
+> **restart**(`notifyNegotiation`): `void`
+
+#### Parameters
+
+##### notifyNegotiation
+
+`boolean` = `true`
+
+#### Returns
+
+`void`
+
+***
+
+### rollbackLocalRestart()
+
+> **rollbackLocalRestart**(): `void`
 
 #### Returns
 
@@ -336,6 +410,24 @@
 ##### options
 
 `Partial`\<[`IceOptions`](../interfaces/IceOptions.md)\>
+
+#### Returns
+
+`void`
+
+***
+
+### setProvisionalRemoteParams()
+
+> **setProvisionalRemoteParams**(`remoteParameters`): `void`
+
+Feed a pranswer's ICE generation to the provisional checklist.
+
+#### Parameters
+
+##### remoteParameters
+
+[`RTCIceParameters`](RTCIceParameters.md)
 
 #### Returns
 
@@ -363,6 +455,18 @@
 
 ***
 
+### stageLocalRestart()
+
+> **stageLocalRestart**(): `void`
+
+Prepare an ICE generation for SDP without touching the selected pair.
+
+#### Returns
+
+`void`
+
+***
+
 ### start()
 
 > **start**(): `Promise`\<`void`\>
@@ -370,6 +474,16 @@
 #### Returns
 
 `Promise`\<`void`\>
+
+***
+
+### startProvisionalChecks()
+
+> **startProvisionalChecks**(): `void`
+
+#### Returns
+
+`void`
 
 ***
 

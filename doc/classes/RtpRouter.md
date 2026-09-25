@@ -137,3 +137,19 @@
 #### Returns
 
 `void`
+
+***
+
+### unregisterTransceiver()
+
+> **unregisterTransceiver**(`transceiver`): `void`
+
+#### Parameters
+
+##### transceiver
+
+[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+
+#### Returns
+
+`void`

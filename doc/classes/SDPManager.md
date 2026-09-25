@@ -164,6 +164,22 @@
 
 ***
 
+### applyRemoteDescription()
+
+> **applyRemoteDescription**(`remoteSdp`): `void`
+
+#### Parameters
+
+##### remoteSdp
+
+[`SessionDescription`](SessionDescription.md)
+
+#### Returns
+
+`void`
+
+***
+
 ### buildAnswerSdp()
 
 > **buildAnswerSdp**(`__namedParameters`): [`SessionDescription`](SessionDescription.md)
@@ -185,6 +201,10 @@
 ###### transceivers
 
 [`RTCRtpTransceiver`](RTCRtpTransceiver.md)[]
+
+###### transportByMid?
+
+`Map`\<`string`, [`RTCDtlsTransport`](RTCDtlsTransport.md)\>
 
 #### Returns
 
@@ -318,7 +338,7 @@ MediaDescriptionをトランシーバー用に作成
 
 ### setLocal()
 
-> **setLocal**(`description`, `transceivers`, `sctpTransport`?): `void`
+> **setLocal**(`description`, `transceivers`, `sctpTransport`?, `transportByMid`?): `void`
 
 ローカルセッション記述を設定し、トランスポート情報を追加する
 
@@ -341,6 +361,10 @@ MediaDescriptionをトランシーバー用に作成
 ###### mid?
 
 `string`
+
+##### transportByMid?
+
+`Map`\<`string`, [`RTCDtlsTransport`](RTCDtlsTransport.md)\>
 
 #### Returns
 

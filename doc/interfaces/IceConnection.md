@@ -92,6 +92,12 @@
 
 ***
 
+### provisionalNominated?
+
+> `readonly` `optional` **provisionalNominated**: [`CandidatePair`](../classes/CandidatePair.md)
+
+***
+
 ### remoteCandidates
 
 > **remoteCandidates**: [`Candidate`](../classes/Candidate.md)[]
@@ -146,6 +152,22 @@
 
 ## Methods
 
+### addProvisionalRemoteCandidate()
+
+> **addProvisionalRemoteCandidate**(`candidate`): `Promise`\<`void`\>
+
+#### Parameters
+
+##### candidate
+
+`undefined` | [`Candidate`](../classes/Candidate.md)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
 ### addRemoteCandidate()
 
 > **addRemoteCandidate**(`remoteCandidate`): `Promise`\<`void`\>
@@ -172,6 +194,26 @@
 
 ***
 
+### commitLocalCredentials()
+
+> **commitLocalCredentials**(`usernameFragment`, `password`): `void`
+
+#### Parameters
+
+##### usernameFragment
+
+`string`
+
+##### password
+
+`string`
+
+#### Returns
+
+`void`
+
+***
+
 ### connect()
 
 > **connect**(): `Promise`\<`void`\>
@@ -179,6 +221,22 @@
 #### Returns
 
 `Promise`\<`void`\>
+
+***
+
+### discardStagedLocalCredentials()
+
+> **discardStagedLocalCredentials**(`usernameFragment`): `void`
+
+#### Parameters
+
+##### usernameFragment
+
+`string`
+
+#### Returns
+
+`void`
 
 ***
 
@@ -254,6 +312,28 @@
 
 ***
 
+### setProvisionalRemoteParams()
+
+> **setProvisionalRemoteParams**(`params`): `void`
+
+#### Parameters
+
+##### params
+
+###### password
+
+`string`
+
+###### usernameFragment
+
+`string`
+
+#### Returns
+
+`void`
+
+***
+
 ### setRemoteParams()
 
 > **setRemoteParams**(`params`): `void`
@@ -273,6 +353,36 @@
 ###### usernameFragment
 
 `string`
+
+#### Returns
+
+`void`
+
+***
+
+### stageLocalCredentials()
+
+> **stageLocalCredentials**(`usernameFragment`, `password`): `void`
+
+#### Parameters
+
+##### usernameFragment
+
+`string`
+
+##### password
+
+`string`
+
+#### Returns
+
+`void`
+
+***
+
+### startProvisionalChecks()
+
+> **startProvisionalChecks**(): `void`
 
 #### Returns
 

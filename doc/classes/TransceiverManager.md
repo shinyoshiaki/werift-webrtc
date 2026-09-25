@@ -160,6 +160,22 @@
 
 ***
 
+### getNotifiedRemoteTrack()
+
+> **getNotifiedRemoteTrack**(`transceiver`): `undefined` \| \{ `streams`: `string`[]; `track`: [`MediaStreamTrack`](MediaStreamTrack.md); \}
+
+#### Parameters
+
+##### transceiver
+
+[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+
+#### Returns
+
+`undefined` \| \{ `streams`: `string`[]; `track`: [`MediaStreamTrack`](MediaStreamTrack.md); \}
+
+***
+
 ### getReceivers()
 
 > **getReceivers**(): [`RTCRtpReceiver`](RTCRtpReceiver.md)[]
@@ -258,6 +274,24 @@
 
 ***
 
+### removeRemoteTransceiver()
+
+> **removeRemoteTransceiver**(`transceiver`): `void`
+
+Remove an uncommitted transceiver created only by a remote offer.
+
+#### Parameters
+
+##### transceiver
+
+[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+
+#### Returns
+
+`void`
+
+***
+
 ### removeTrack()
 
 > **removeTrack**(`sender`): `void`
@@ -267,6 +301,26 @@
 ##### sender
 
 [`RTCRtpSender`](RTCRtpSender.md)
+
+#### Returns
+
+`void`
+
+***
+
+### replaceStoppedTransceiverAtMLineIndex()
+
+> **replaceStoppedTransceiverAtMLineIndex**(`transceiver`, `mLineIndex`): `void`
+
+#### Parameters
+
+##### transceiver
+
+[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+
+##### mLineIndex
+
+`number`
 
 #### Returns
 
@@ -287,6 +341,42 @@
 ##### index
 
 `number`
+
+#### Returns
+
+`void`
+
+***
+
+### restoreNotifiedRemoteTrack()
+
+> **restoreNotifiedRemoteTrack**(`transceiver`, `state`): `void`
+
+#### Parameters
+
+##### transceiver
+
+[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+
+##### state
+
+`undefined` | \{ `streams`: `string`[]; `track`: [`MediaStreamTrack`](MediaStreamTrack.md); \}
+
+#### Returns
+
+`void`
+
+***
+
+### restoreTransceiverOrder()
+
+> **restoreTransceiverOrder**(`baseline`): `void`
+
+#### Parameters
+
+##### baseline
+
+[`RTCRtpTransceiver`](RTCRtpTransceiver.md)[]
 
 #### Returns
 
