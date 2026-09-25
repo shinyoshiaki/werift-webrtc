@@ -174,7 +174,7 @@ export class RTCIceTransport {
     };
     // Existing sockets can respond to provisional STUN checks for the new
     // ufrag while the old generation continues to carry media.
-    this.connection.stageLocalCredentials(usernameFragment, password);
+    this.connection.stageLocalCredentials?.(usernameFragment, password);
   }
 
   get hasStagedRestart() {
@@ -184,19 +184,19 @@ export class RTCIceTransport {
   /** Feed a pranswer's ICE generation to the provisional checklist. */
   setProvisionalRemoteParams(remoteParameters: RTCIceParameters) {
     if (!this.stagedLocalRestart) return;
-    this.connection.setProvisionalRemoteParams(remoteParameters);
+    this.connection.setProvisionalRemoteParams?.(remoteParameters);
   }
 
   addProvisionalRemoteCandidate(candidate?: IceCandidate) {
     if (!this.stagedLocalRestart) return;
-    return this.connection.addProvisionalRemoteCandidate(
+    return this.connection.addProvisionalRemoteCandidate?.(
       candidate ? candidateToIce(candidate) : undefined,
     );
   }
 
   startProvisionalChecks() {
     if (!this.stagedLocalRestart) return;
-    this.connection.startProvisionalChecks();
+    this.connection.startProvisionalChecks?.();
   }
 
   emitStagedCandidates() {
@@ -211,7 +211,7 @@ export class RTCIceTransport {
 
   rollbackLocalRestart() {
     if (!this.stagedLocalRestart) return;
-    this.connection.discardStagedLocalCredentials(
+    this.connection.discardStagedLocalCredentials?.(
       this.stagedLocalRestart.usernameFragment,
     );
     this.stagedLocalRestart = undefined;
@@ -221,10 +221,15 @@ export class RTCIceTransport {
     const staged = this.stagedLocalRestart;
     if (!staged) return;
     this.restart(false);
-    this.connection.commitLocalCredentials(
-      staged.usernameFragment,
-      staged.password,
-    );
+    if (this.connection.commitLocalCredentials) {
+      this.connection.commitLocalCredentials(
+        staged.usernameFragment,
+        staged.password,
+      );
+    } else {
+      this.connection.localUsername = staged.usernameFragment;
+      this.connection.localPassword = staged.password;
+    }
     this.stagedLocalRestart = undefined;
     await this.gather();
     if (!staged.emitted) {

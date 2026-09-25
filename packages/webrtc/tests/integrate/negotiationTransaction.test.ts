@@ -12,6 +12,7 @@ import {
   createConnectedMediaAndDataPeers,
   createConnectedVideoPeers,
   createDuplexSession,
+  createRewrittenOffer,
   createSplitOffer,
   expectSessionAlive,
   sendAndExpectData,
@@ -660,36 +661,48 @@ describe("negotiation transaction", () => {
     }
   });
 
-  test("local SDP direction munging stays available while ICE credentials are checked", async () => {
+  test("setLocalDescription accepts only the last created offer", async () => {
     const peer = new RTCPeerConnection();
     try {
-      // Arrange: 送受信可能な audio offer を作る。
+      // Arrange: offer を 2 回作り、1 回目の offer と書き換えた最新 offer を用意する。
       peer.addTransceiver("audio");
-      const offer = await peer.createOffer();
-
-      // Act: application が direction を変更した local offer を適用する。
-      await peer.setLocalDescription({
-        type: "offer",
-        sdp: offer.sdp.replace("a=sendrecv", "a=recvonly"),
-      });
-
-      // Assert: SDP の media 編集は受け入れ、未確定のまま保持する。
-      expect(peer.pendingLocalDescription!.sdp).toContain("a=recvonly");
-      await peer.setLocalDescription({ type: "rollback" });
-      const nextOffer = await peer.createOffer();
-
-      // Act / Assert: 未準備の ICE credential への書換えは適用前に拒否する。
-      await expect(
-        peer.setLocalDescription({
-          type: "offer",
-          sdp: nextOffer.sdp.replace(
+      const older = await peer.createOffer();
+      const latest = await peer.createOffer();
+      const rejected = [
+        older,
+        {
+          type: "offer" as const,
+          sdp: latest.sdp.replace("a=sendrecv", "a=recvonly"),
+        },
+        {
+          type: "offer" as const,
+          sdp: latest.sdp.replace(
             /a=ice-ufrag:[^\r\n]+/,
             "a=ice-ufrag:wronggeneration",
           ),
-        }),
-      ).rejects.toMatchObject({ name: "InvalidModificationError" });
-      expect(peer.signalingState).toBe("stable");
-      expect(peer.pendingLocalDescription).toBeNull();
+        },
+      ];
+      expect(older.sdp).not.toBe(latest.sdp);
+
+      for (const offer of rejected) {
+        // Act: 最新ではない / 書き換えた local offer を適用する。
+        const result = peer.setLocalDescription(offer);
+
+        // Assert: W3C どおり InvalidModificationError で拒否し、状態は変えない。
+        await expect(result).rejects.toMatchObject({
+          name: "InvalidModificationError",
+        });
+        expect(peer.signalingState).toBe("stable");
+        expect(peer.pendingLocalDescription).toBeNull();
+        assertNegotiationInvariants(peer);
+      }
+
+      // Act: 最新の offer を適用する。
+      await peer.setLocalDescription(latest);
+
+      // Assert: 最新 offer だけが pending になる。
+      expect(peer.signalingState).toBe("have-local-offer");
+      expect(peer.pendingLocalDescription!.sdp).toContain("a=sendrecv");
     } finally {
       await peer.close();
     }
@@ -1201,14 +1214,14 @@ describe("negotiation transaction", () => {
       await sendAndExpectRtp(video, receivedVideo!, "unbundled-video");
 
       // Act / Assert: 接続済み SCTP を別 DTLS owner へ移す answer / offer は適用前に拒否する。
-      const changedTag = await offerer.createOffer();
-      await offerer.setLocalDescription({
-        type: "offer",
-        sdp: changedTag.sdp.replace(
-          /a=group:BUNDLE [^\r\n]+/,
-          `a=group:BUNDLE ${mids[1]} ${mids[0]} ${mids[2]}`,
+      await offerer.setLocalDescription(
+        await createRewrittenOffer(offerer, (sdp) =>
+          sdp.replace(
+            /a=group:BUNDLE [^\r\n]+/,
+            `a=group:BUNDLE ${mids[1]} ${mids[0]} ${mids[2]}`,
+          ),
         ),
-      });
+      );
       const incompatibleAnswer = offerer.currentRemoteDescription!.sdp.replace(
         /a=group:BUNDLE [^\r\n]+/,
         `a=group:BUNDLE ${mids[1]} ${mids[0]} ${mids[2]}`,
@@ -1341,12 +1354,14 @@ describe("negotiation transaction", () => {
       const currentLocal = offerer.currentLocalDescription!.sdp;
       const selectedPair = offerer.iceTransports[0].getSelectedCandidatePair();
       offerer.addTransceiver(audio, { direction: "sendonly" });
-      const offer = await offerer.createOffer();
-      const videoMid = offer.sdp.match(/a=mid:([^\r\n]+)/)![1];
-      const splitSdp = offer.sdp.replace(
-        /a=group:BUNDLE [^\r\n]+/,
-        `a=group:BUNDLE ${videoMid}`,
-      );
+      let videoMid = "";
+      const { sdp: splitSdp } = await createRewrittenOffer(offerer, (sdp) => {
+        videoMid = sdp.match(/a=mid:([^\r\n]+)/)![1];
+        return sdp.replace(
+          /a=group:BUNDLE [^\r\n]+/,
+          `a=group:BUNDLE ${videoMid}`,
+        );
+      });
 
       // Act: 新 audio の ICE transport を pending に準備し、旧 video は継続する。
       await offerer.setLocalDescription({ type: "offer", sdp: splitSdp });
@@ -1386,15 +1401,15 @@ describe("negotiation transaction", () => {
 
       // Act: 次の offer で audio を新 BUNDLE tag にして video を合流させる。
       const oldVideoTransport = offerer.getTransceivers()[0].dtlsTransport;
-      const mergedOffer = await offerer.createOffer();
       const audioMid = offerer.getTransceivers()[1].mid;
-      await offerer.setLocalDescription({
-        type: "offer",
-        sdp: mergedOffer.sdp.replace(
-          /a=group:BUNDLE [^\r\n]+/,
-          `a=group:BUNDLE ${audioMid} ${videoMid}`,
+      await offerer.setLocalDescription(
+        await createRewrittenOffer(offerer, (sdp) =>
+          sdp.replace(
+            /a=group:BUNDLE [^\r\n]+/,
+            `a=group:BUNDLE ${audioMid} ${videoMid}`,
+          ),
         ),
-      });
+      );
       await answerer.setRemoteDescription(offerer.localDescription!);
       await answerer.setLocalDescription(await answerer.createAnswer());
       await offerer.setRemoteDescription(answerer.localDescription!);
@@ -1422,15 +1437,14 @@ describe("negotiation transaction", () => {
       const localAudio = offerer.addTransceiver(audio, {
         direction: "sendonly",
       });
-      const offer = await offerer.createOffer();
-      const videoMid = offer.sdp.match(/a=mid:([^\r\n]+)/)![1];
-      const splitOffer = {
-        type: "offer" as const,
-        sdp: offer.sdp.replace(
+      let videoMid = "";
+      const splitOffer = await createRewrittenOffer(offerer, (sdp) => {
+        videoMid = sdp.match(/a=mid:([^\r\n]+)/)![1];
+        return sdp.replace(
           /a=group:BUNDLE [^\r\n]+/,
           `a=group:BUNDLE ${videoMid}`,
-        ),
-      };
+        );
+      });
 
       // Act: pending owner を用意してから rollback する。
       await offerer.setLocalDescription(splitOffer);

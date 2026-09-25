@@ -42,17 +42,22 @@ export interface IceConnection {
   readonly onIceCandidate: Event<[Candidate]>;
 
   restart(): void;
-  stageLocalCredentials(usernameFragment: string, password: string): void;
-  discardStagedLocalCredentials(usernameFragment: string): void;
-  commitLocalCredentials(usernameFragment: string, password: string): void;
-  setProvisionalRemoteParams(params: {
+  /**
+   * Optional staged-restart and provisional-generation support. An
+   * implementation without them still restarts ICE at the final answer, but
+   * cannot answer or run checks for the new generation during pranswer.
+   */
+  stageLocalCredentials?(usernameFragment: string, password: string): void;
+  discardStagedLocalCredentials?(usernameFragment: string): void;
+  commitLocalCredentials?(usernameFragment: string, password: string): void;
+  setProvisionalRemoteParams?(params: {
     usernameFragment: string;
     password: string;
   }): void;
-  addProvisionalRemoteCandidate(
+  addProvisionalRemoteCandidate?(
     candidate: Candidate | undefined,
   ): Promise<void>;
-  startProvisionalChecks(): void;
+  startProvisionalChecks?(): void;
   readonly provisionalNominated?: CandidatePair;
 
   setIceServers(options: Partial<IceOptions>): void;

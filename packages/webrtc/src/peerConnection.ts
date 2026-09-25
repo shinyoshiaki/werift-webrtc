@@ -775,6 +775,20 @@ export class RTCPeerConnection extends EventTarget {
             : generatedDescription!.sdp,
       };
 
+      // W3C setLocalDescription: an offer must be the last one createOffer
+      // produced. Local SDP munging (codec, direction, BUNDLE, ICE) is refused
+      // before any transaction or live state is touched.
+      if (
+        sessionDescription.type === "offer" &&
+        this.lastCreatedOffer &&
+        sessionDescription.sdp !== this.lastCreatedOffer.sdp
+      ) {
+        throw createWebRtcDomException(
+          "InvalidModificationError",
+          "setLocalDescription must use the latest created offer",
+        );
+      }
+
       // # parse and validate description
       const descriptionType = sessionDescription.type as Exclude<
         RTCSessionDescriptionInit["type"],

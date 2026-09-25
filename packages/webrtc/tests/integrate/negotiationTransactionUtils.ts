@@ -179,7 +179,8 @@ function assertDescriptionBindings(pc: RTCPeerConnection) {
     pc.dtlsTransports.length,
   );
   if (pc.signalingState === "stable") {
-    expect(snapshot.phase).toBe("idle");
+    // createOffer opens the transaction (baseline) before anything is applied.
+    expect(["idle", "pending"]).toContain(snapshot.phase);
     expect(snapshot.pendingLocal).toBeUndefined();
     expect(snapshot.pendingRemote).toBeUndefined();
     expect(snapshot.pendingTransports).toBe(0);
@@ -669,13 +670,12 @@ export async function negotiate(
     remoteAnswer?: (sdp: string) => string;
   } = {},
 ) {
-  const offer = await offerer.pc.createOffer({
-    iceRestart: options.iceRestart,
-  });
-  const localOffer = options.localOffer?.(offer.sdp) ?? offer.sdp;
-  await step(session, () =>
-    offerer.pc.setLocalDescription({ type: "offer", sdp: localOffer }),
+  const offer = await createRewrittenOffer(
+    offerer.pc,
+    options.localOffer ?? ((sdp) => sdp),
+    { iceRestart: options.iceRestart },
   );
+  await step(session, () => offerer.pc.setLocalDescription(offer));
   await step(session, () =>
     answerer.pc.setRemoteDescription(offerer.pc.localDescription!),
   );
@@ -753,11 +753,31 @@ export async function addNegotiatedAudio(
 
 /** Local offer SDP whose BUNDLE group leaves `mid` out (a BUNDLE split). */
 export async function createSplitOffer(pc: RTCPeerConnection, mid: string) {
-  const offer = await pc.createOffer();
-  const group = offer.sdp.match(/^a=group:BUNDLE ([^\r\n]+)/m)![1];
-  const kept = group.split(" ").filter((item) => item !== mid);
-  return offer.sdp.replace(
-    /^a=group:BUNDLE [^\r\n]+/m,
-    `a=group:BUNDLE ${kept.join(" ")}`,
-  );
+  const offer = await createRewrittenOffer(pc, (sdp) => {
+    const group = sdp.match(/^a=group:BUNDLE ([^\r\n]+)/m)![1];
+    const kept = group.split(" ").filter((item) => item !== mid);
+    return sdp.replace(
+      /^a=group:BUNDLE [^\r\n]+/m,
+      `a=group:BUNDLE ${kept.join(" ")}`,
+    );
+  });
+  return offer.sdp;
+}
+
+/**
+ * Test-only stand-in for createOffer under another local policy (for example
+ * a BUNDLE group that leaves a MID out). Applications cannot munge a local
+ * offer: setLocalDescription accepts only the last created offer. This helper
+ * records the rewritten SDP as that offer, as createOffer would have.
+ */
+export async function createRewrittenOffer(
+  pc: RTCPeerConnection,
+  rewrite: (sdp: string) => string,
+  options: { iceRestart?: boolean } = {},
+) {
+  const offer = await pc.createOffer(options);
+  const rewritten = { type: "offer" as const, sdp: rewrite(offer.sdp) };
+  (pc as unknown as { lastCreatedOffer?: unknown }).lastCreatedOffer =
+    rewritten;
+  return rewritten;
 }

@@ -29,9 +29,9 @@ generation or SCTP association and stream ID.
 
 | Phase | Preconditions | Postconditions and failure |
 | --- | --- | --- |
-| begin | stable or first offer | Capture baseline once; assign transaction ID and revision. No current transport is stopped. |
+| begin | stable or first offer | Capture baseline once; assign transaction ID and revision. No current transport is stopped. `createOffer` in stable already begins (it assigns MIDs and stages ICE credentials), so a created but unapplied offer leaves signaling `stable` with no pending description or transport. |
 | replace/update | active transaction | Retire old pending-only resources and candidate buckets. Keep baseline and emitted-event history. A byte-identical description is idempotent. |
-| validate | parsed proposal | Check signaling transition, unique MID, m-line order and reuse, exact MID match of every answer m-line and BUNDLE member (no prefix or suffix matching), BUNDLE membership and tag, codec/rejection, ICE credentials, DTLS role/fingerprint and SCTP port before live mutation. Failure leaves previous pending revision and current untouched. |
+| validate | parsed proposal | For a local offer, reject any SDP other than the last `createOffer` result with `InvalidModificationError` (W3C `setLocalDescription`; local SDP munging is not supported). Check signaling transition, unique MID, m-line order and reuse, exact MID match of every answer m-line and BUNDLE member (no prefix or suffix matching), BUNDLE membership and tag, codec/rejection, ICE credentials, DTLS role/fingerprint and SCTP port before live mutation. Failure leaves previous pending revision and current untouched. |
 | prepare | validated proposal | Allocate any new transport and media objects under pending ownership; prepare may fail and must clean only the newly allocated objects. A local (replacement) offer stages its transports before the previous pending offer is replaced, and `createOffer` never discards the transports of an applied pending offer, so a preparation failure leaves the previous pending description, transaction and signaling state intact. |
 | commit | validated final answer and successful prepare | Switch BUNDLE routing, ICE generation, DTLS parameters, SCTP binding and RTP/router, then publish the current descriptions and `stable`. No fallible validation is allowed after the switch. Start remaining asynchronous connect work and report later failures on that generation. |
 | cleanup | commit or rollback finished | Stop orphan pending resources; keep only current ownership and event deduplication needed for future revisions. |
@@ -145,7 +145,10 @@ replacement pranswer resets that checklist, rollback discards it, and the
 final answer activates the staged credentials on that transport. A remote
 restart is detected per BUNDLE owner that keeps its live transport, by
 comparing the owner's proposed ufrag with that transport's committed remote
-ufrag; only those transports stage restart credentials. Only a BUNDLE owner
+ufrag; only those transports stage restart credentials. The staged-credential and
+provisional-generation methods of `IceConnection` are optional: a custom
+implementation without them still restarts ICE at the final answer, but cannot
+run provisional checks during pranswer. Only a BUNDLE owner
 change creates a separate pending ICE/DTLS transport.
 
 A remote re-offer whose BUNDLE plan would move an established SCTP association

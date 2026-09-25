@@ -329,3 +329,72 @@ export async function createLocalTurnServer(
   await server.listen();
   return server;
 }
+
+/** Shared Arrange helper: two host-only connections with a nominated pair. */
+export async function createConnectedPair() {
+  const a = createTestConnection(true);
+  const b = createTestConnection(false);
+  await inviteAccept(a, b);
+  await Promise.all([a.connect(), b.connect()]);
+  return { a, b };
+}
+
+/**
+ * Shared Arrange helper: stage a new local generation on both sides and feed
+ * each side the other's staged credentials and candidates, as a pranswer
+ * carrying an ICE restart would.
+ */
+export async function stageProvisionalGeneration(a: Connection, b: Connection) {
+  const credentials = {
+    a: { usernameFragment: "provA", password: "provisional-password-a-000" },
+    b: { usernameFragment: "provB", password: "provisional-password-b-000" },
+  };
+  a.stageLocalCredentials(
+    credentials.a.usernameFragment,
+    credentials.a.password,
+  );
+  b.stageLocalCredentials(
+    credentials.b.usernameFragment,
+    credentials.b.password,
+  );
+  a.setProvisionalRemoteParams(credentials.b);
+  b.setProvisionalRemoteParams(credentials.a);
+  for (const [local, remote] of [
+    [a, b],
+    [b, a],
+  ] as const) {
+    for (const candidate of remote.localCandidates) {
+      await local.addProvisionalRemoteCandidate(
+        Candidate.fromSdp(candidate.toSdp()),
+      );
+    }
+    await local.addProvisionalRemoteCandidate(undefined);
+  }
+  return credentials;
+}
+
+/** Wait until the provisional generation of `connection` has a nominated pair. */
+export async function waitProvisionalNominated(
+  connection: Connection,
+  timeoutMs = 3000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (!connection.provisionalNominated) {
+    if (Date.now() > deadline) {
+      throw new Error("provisional generation was not nominated");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  return connection.provisionalNominated;
+}
+
+/** Data sent on the selected pair from `from` arrives at `to`. */
+export async function expectDataFlows(
+  from: Connection,
+  to: Connection,
+  text: string,
+) {
+  const received = to.onData.watch((data) => data.toString() === text, 2000);
+  await from.send(Buffer.from(text));
+  await received;
+}
