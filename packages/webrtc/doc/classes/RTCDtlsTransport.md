@@ -1,0 +1,413 @@
+[**werift**](../README.md)
+
+***
+
+[werift](../globals.md) / RTCDtlsTransport
+
+# Class: RTCDtlsTransport
+
+## Implements
+
+- [`DtlsTransportStats`](../interfaces/DtlsTransportStats.md)
+
+## Constructors
+
+### new RTCDtlsTransport()
+
+> **new RTCDtlsTransport**(`config`, `iceTransport`, `localCertificate`?, `srtpProfiles`?): [`RTCDtlsTransport`](RTCDtlsTransport.md)
+
+#### Parameters
+
+##### config
+
+###### debug?
+
+`Partial`\<\{ `disableRecvRetransmit`: `boolean`; `disableSendNack`: `boolean`; `inboundPacketLoss`: `number`; `outboundPacketLoss`: `number`; `receiverReportDelay`: `number`; \}\>
+
+##### iceTransport
+
+[`RTCIceTransport`](RTCIceTransport.md)
+
+##### localCertificate?
+
+[`RTCCertificate`](RTCCertificate.md)
+
+##### srtpProfiles?
+
+(`1` \| `7`)[] = `[]`
+
+#### Returns
+
+[`RTCDtlsTransport`](RTCDtlsTransport.md)
+
+## Properties
+
+### bytesReceived
+
+> **bytesReceived**: `number` = `0`
+
+#### Implementation of
+
+[`DtlsTransportStats`](../interfaces/DtlsTransportStats.md).[`bytesReceived`](../interfaces/DtlsTransportStats.md#bytesreceived)
+
+***
+
+### bytesSent
+
+> **bytesSent**: `number` = `0`
+
+#### Implementation of
+
+[`DtlsTransportStats`](../interfaces/DtlsTransportStats.md).[`bytesSent`](../interfaces/DtlsTransportStats.md#bytessent)
+
+***
+
+### config
+
+> `readonly` **config**: `object`
+
+#### debug?
+
+> `optional` **debug**: `Partial`\<\{ `disableRecvRetransmit`: `boolean`; `disableSendNack`: `boolean`; `inboundPacketLoss`: `number`; `outboundPacketLoss`: `number`; `receiverReportDelay`: `number`; \}\>
+
+***
+
+### dataReceiver()
+
+> **dataReceiver**: (`buf`) => `void`
+
+#### Parameters
+
+##### buf
+
+`Buffer`
+
+#### Returns
+
+`void`
+
+***
+
+### dtls?
+
+> `optional` **dtls**: [`DtlsSocket`](DtlsSocket.md)
+
+***
+
+### iceTransport
+
+> `readonly` **iceTransport**: [`RTCIceTransport`](RTCIceTransport.md)
+
+***
+
+### id
+
+> **id**: `string`
+
+***
+
+### localCertificate?
+
+> `optional` **localCertificate**: [`RTCCertificate`](RTCCertificate.md)
+
+***
+
+### onRtcp
+
+> `readonly` **onRtcp**: [`Event`](Event.md)\<\[[`RtcpPacket`](../type-aliases/RtcpPacket.md)\]\>
+
+***
+
+### onRtp
+
+> `readonly` **onRtp**: [`Event`](Event.md)\<\[[`RtpPacket`](RtpPacket.md)\]\>
+
+***
+
+### onstatechange()?
+
+> `optional` **onstatechange**: () => `void`
+
+#### Returns
+
+`void`
+
+***
+
+### onStateChange
+
+> `readonly` **onStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"connecting"`\]\>
+
+***
+
+### packetsReceived
+
+> **packetsReceived**: `number` = `0`
+
+#### Implementation of
+
+[`DtlsTransportStats`](../interfaces/DtlsTransportStats.md).[`packetsReceived`](../interfaces/DtlsTransportStats.md#packetsreceived)
+
+***
+
+### packetsSent
+
+> **packetsSent**: `number` = `0`
+
+#### Implementation of
+
+[`DtlsTransportStats`](../interfaces/DtlsTransportStats.md).[`packetsSent`](../interfaces/DtlsTransportStats.md#packetssent)
+
+***
+
+### role
+
+> **role**: [`DtlsRole`](../type-aliases/DtlsRole.md) = `"auto"`
+
+***
+
+### srtcp
+
+> **srtcp**: [`SrtcpSession`](SrtcpSession.md)
+
+***
+
+### srtp
+
+> **srtp**: [`SrtpSession`](SrtpSession.md)
+
+***
+
+### srtpStarted
+
+> **srtpStarted**: `boolean` = `false`
+
+***
+
+### state
+
+> **state**: `"closed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"connecting"` = `"new"`
+
+***
+
+### transportSequenceNumber
+
+> **transportSequenceNumber**: `number` = `0`
+
+***
+
+### localCertificate?
+
+> `static` `optional` **localCertificate**: [`RTCCertificate`](RTCCertificate.md)
+
+***
+
+### localCertificatePromise?
+
+> `static` `optional` **localCertificatePromise**: `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
+
+## Accessors
+
+### localParameters
+
+#### Get Signature
+
+> **get** **localParameters**(): [`RTCDtlsParameters`](RTCDtlsParameters.md)
+
+##### Returns
+
+[`RTCDtlsParameters`](RTCDtlsParameters.md)
+
+## Methods
+
+### addEventListener()
+
+> **addEventListener**(`type`, `listener`, `options`?): `void`
+
+#### Parameters
+
+##### type
+
+`string`
+
+##### listener
+
+(...`args`) => `void`
+
+##### options?
+
+`boolean` | \{ `once`: `boolean`; \}
+
+#### Returns
+
+`void`
+
+***
+
+### dispatchEvent()
+
+> **dispatchEvent**(`event`): `boolean`
+
+#### Parameters
+
+##### event
+
+`Event`
+
+#### Returns
+
+`boolean`
+
+***
+
+### getStats()
+
+> **getStats**(`timestamp`): `Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+
+#### Parameters
+
+##### timestamp
+
+`number` = `...`
+
+#### Returns
+
+`Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+
+***
+
+### removeEventListener()
+
+> **removeEventListener**(`type`, `listener`): `void`
+
+#### Parameters
+
+##### type
+
+`string`
+
+##### listener
+
+(...`args`) => `void`
+
+#### Returns
+
+`void`
+
+***
+
+### sendData()
+
+> `readonly` **sendData**(`data`): `Promise`\<`void`\>
+
+#### Parameters
+
+##### data
+
+`Buffer`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### sendRtcp()
+
+> **sendRtcp**(`packets`): `Promise`\<`undefined` \| `number`\>
+
+#### Parameters
+
+##### packets
+
+[`RtcpPacket`](../type-aliases/RtcpPacket.md)[]
+
+#### Returns
+
+`Promise`\<`undefined` \| `number`\>
+
+***
+
+### sendRtp()
+
+> **sendRtp**(`payload`, `header`): `Promise`\<`number`\>
+
+#### Parameters
+
+##### payload
+
+`Buffer`
+
+##### header
+
+[`RtpHeader`](RtpHeader.md)
+
+#### Returns
+
+`Promise`\<`number`\>
+
+***
+
+### setRemoteParams()
+
+> **setRemoteParams**(`remoteParameters`): `void`
+
+#### Parameters
+
+##### remoteParameters
+
+[`RTCDtlsParameters`](RTCDtlsParameters.md)
+
+#### Returns
+
+`void`
+
+***
+
+### start()
+
+> **start**(): `Promise`\<`void`\>
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### startSrtp()
+
+> **startSrtp**(): `void`
+
+#### Returns
+
+`void`
+
+***
+
+### stop()
+
+> **stop**(): `Promise`\<`void`\>
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### updateSrtpSession()
+
+> **updateSrtpSession**(): `void`
+
+#### Returns
+
+`void`
+
+***
+
+### SetupCertificate()
+
+> `static` **SetupCertificate**(): `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
+
+#### Returns
+
+`Promise`\<[`RTCCertificate`](RTCCertificate.md)\>

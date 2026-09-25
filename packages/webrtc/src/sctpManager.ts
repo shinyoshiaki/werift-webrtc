@@ -1,3 +1,4 @@
+import type { SCTPOptions } from "../../sctp/src";
 import { createWebRtcTypeError } from "./errors";
 import { Event, debug } from "./imports/common";
 
@@ -24,8 +25,8 @@ export class SctpTransportManager {
 
   constructor() {}
 
-  createSctpTransport(maxMessageSize?: number) {
-    const sctp = new RTCSctpTransport(5000, maxMessageSize);
+  createSctpTransport(maxMessageSize?: number, sctpOptions?: SCTPOptions) {
+    const sctp = new RTCSctpTransport(5000, maxMessageSize, sctpOptions);
     sctp.mid = undefined;
     sctp.onDataChannel.subscribe((channel) => {
       this.dataChannelsOpened++;
