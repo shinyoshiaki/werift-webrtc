@@ -31,7 +31,7 @@ generation or SCTP association and stream ID.
 | --- | --- | --- |
 | begin | stable or first offer | Capture baseline once; assign transaction ID and revision. No current transport is stopped. |
 | replace/update | active transaction | Retire old pending-only resources and candidate buckets. Keep baseline and emitted-event history. A byte-identical description is idempotent. |
-| validate | parsed proposal | Check signaling transition, unique MID, m-line order and reuse, BUNDLE membership and tag, codec/rejection, ICE credentials, DTLS role/fingerprint and SCTP port before live mutation. Failure leaves previous pending revision and current untouched. |
+| validate | parsed proposal | Check signaling transition, unique MID, m-line order and reuse, exact MID match of every answer m-line and BUNDLE member (no prefix or suffix matching), BUNDLE membership and tag, codec/rejection, ICE credentials, DTLS role/fingerprint and SCTP port before live mutation. Failure leaves previous pending revision and current untouched. |
 | prepare | validated proposal | Allocate any new transport and media objects under pending ownership; prepare may fail and must clean only the newly allocated objects. |
 | commit | validated final answer and successful prepare | Switch BUNDLE routing, ICE generation, DTLS parameters, SCTP binding and RTP/router, then publish the current descriptions and `stable`. No fallible validation is allowed after the switch. Start remaining asynchronous connect work and report later failures on that generation. |
 | cleanup | commit or rollback finished | Stop orphan pending resources; keep only current ownership and event deduplication needed for future revisions. |

@@ -45,6 +45,92 @@ describe("negotiation transaction", () => {
     }
   });
 
+  test.each([
+    [
+      "answer MID with a suffix",
+      (sdp: string) => sdp.replace("a=mid:0", "a=mid:0_extra"),
+    ],
+    [
+      "BUNDLE member with a suffix",
+      (sdp: string) =>
+        sdp.replace(/^a=group:BUNDLE 0\b/m, "a=group:BUNDLE 0_extra"),
+    ],
+  ])("an %s is rejected before any state changes", async (_, munge) => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers();
+    try {
+      // Arrange: re-offer を commit 前まで進め、offerer の状態を控える。
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      const answer = answerer.localDescription!.sdp;
+      const current = offerer.currentRemoteDescription!.sdp;
+      const transceivers = offerer.getTransceivers();
+      const mids = transceivers.map((t) => t.mid);
+      const invalid = munge(answer);
+      expect(invalid).not.toBe(answer);
+
+      // Act: offer と完全一致しない MID を含む answer を適用する。
+      const result = offerer.setRemoteDescription({
+        type: "answer",
+        sdp: invalid,
+      });
+
+      // Assert: 拒否され、signaling・current・transceiver と MID は変わらない。
+      await expect(result).rejects.toMatchObject({
+        name: expect.stringMatching(/InvalidModificationError|OperationError/),
+      });
+      expect(offerer.signalingState).toBe("have-local-offer");
+      expect(offerer.currentRemoteDescription!.sdp).toBe(current);
+      expect(offerer.getTransceivers()).toEqual(transceivers);
+      expect(offerer.getTransceivers().map((t) => t.mid)).toEqual(mids);
+      assertNegotiationInvariants(offerer);
+      await sendAndExpectRtp(outgoing, incoming, "exact-mid-rejected");
+
+      // Act: offer と一致する answer はそのまま commit できる。
+      await offerer.setRemoteDescription({ type: "answer", sdp: answer });
+
+      // Assert: stable に戻り旧 RTP 経路も続く。
+      expect(offerer.signalingState).toBe("stable");
+      assertNegotiationInvariants(offerer);
+      await sendAndExpectRtp(outgoing, incoming, "exact-mid-committed");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("a remote offer whose BUNDLE member is not an exact MID creates nothing", async () => {
+    const offerer = new RTCPeerConnection();
+    const answerer = new RTCPeerConnection();
+    const onRemoteTransceiver = vi.fn();
+    answerer.onRemoteTransceiverAdded.subscribe(onRemoteTransceiver);
+    try {
+      // Arrange: BUNDLE group の MID に suffix を付けた初回 offer を作る。
+      offerer.addTransceiver("audio");
+      const offer = await offerer.createOffer();
+      const invalid = offer.sdp.replace(
+        /^a=group:BUNDLE 0\b/m,
+        "a=group:BUNDLE 0_extra",
+      );
+
+      // Act: その offer を remote description として適用する。
+      const result = answerer.setRemoteDescription({
+        type: "offer",
+        sdp: invalid,
+      });
+
+      // Assert: 拒否され、transceiver も通知も作られず stable のまま。
+      await expect(result).rejects.toMatchObject({ name: "OperationError" });
+      expect(answerer.signalingState).toBe("stable");
+      expect(answerer.remoteDescription).toBeFalsy();
+      expect(answerer.getTransceivers()).toHaveLength(0);
+      expect(onRemoteTransceiver).not.toHaveBeenCalled();
+      assertNegotiationInvariants(answerer);
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
   test("a pending payload type leaves the receiver codec table by rollback", async () => {
     const { offerer, answerer, outgoing, incoming } =
       await createConnectedVideoPeers();

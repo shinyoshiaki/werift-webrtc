@@ -217,12 +217,10 @@ export class SDPManager {
     for (const group of description.group.filter(
       (group) => group.semantic === "BUNDLE",
     )) {
-      const resolvesMid = (item: string) =>
-        presentMids.includes(item) ||
-        presentMids.some((mid) => mid.startsWith(`${item}_`));
+      // BUNDLE members are identified by exact MID (RFC 8843 section 7).
       if (
         new Set(group.items).size !== group.items.length ||
-        group.items.some((mid) => !resolvesMid(mid))
+        group.items.some((mid) => !presentMids.includes(mid))
       ) {
         throw createWebRtcDomException(
           "OperationError",
@@ -271,9 +269,7 @@ export class SDPManager {
       const offered = offer.media[index];
       if (
         media.kind !== offered.kind ||
-        (offered.rtp.muxId &&
-          media.rtp.muxId !== offered.rtp.muxId &&
-          !media.rtp.muxId?.startsWith(`${offered.rtp.muxId}_`))
+        (offered.rtp.muxId && media.rtp.muxId !== offered.rtp.muxId)
       ) {
         throw createWebRtcDomException(
           "InvalidModificationError",
