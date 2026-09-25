@@ -51,6 +51,34 @@ export async function waitForConnection(pc: RTCPeerConnection) {
   await pc.connectionStateChange.watch((state) => state === "connected");
 }
 
+/** Wait for the pending ICE/DTLS association while live media stays bound. */
+export async function waitForPendingTransport(pc: RTCPeerConnection) {
+  const negotiation = pc as unknown as {
+    negotiation: {
+      transportByMid: Map<string, RTCPeerConnection["dtlsTransports"][number]>;
+    };
+  };
+  const pending = [
+    ...new Set(negotiation.negotiation.transportByMid.values()),
+  ].filter((transport) => !pc.dtlsTransports.includes(transport));
+  expect(pending.length).toBeGreaterThan(0);
+  await Promise.race([
+    Promise.all(
+      pending.map(async (transport) => {
+        if (transport.state !== "connected") {
+          await transport.onStateChange.watch((state) => state === "connected");
+        }
+      }),
+    ),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Pending DTLS did not connect")), 3000),
+    ),
+  ]);
+  for (const transport of pending) {
+    expect(transport.iceTransport.getSelectedCandidatePair()).not.toBeNull();
+  }
+}
+
 export async function sendAndExpectRtp(
   outgoing: MediaStreamTrack,
   incoming: MediaStreamTrack,

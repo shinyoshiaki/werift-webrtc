@@ -1,4 +1,5 @@
 import type { RTCRtpTransceiver, RtpRouter, TransceiverManager } from "./media";
+import { getApplicationStopRevision } from "./media/rtpTransceiver";
 import type { SctpTransportManager } from "./sctpManager";
 import type { SessionDescription } from "./sdp";
 import type { SDPManager } from "./sdpManager";
@@ -13,6 +14,7 @@ type TransceiverBaseline = {
   currentDirection: RTCRtpTransceiver["currentDirection"];
   stopping: boolean;
   stopped: boolean;
+  applicationStopRevision: number;
   dtlsTransport: RTCDtlsTransport;
   senderCodec: RTCRtpTransceiver["sender"]["codec"];
   remoteStreamIds: string[];
@@ -75,6 +77,7 @@ export class NegotiationTransaction {
               currentDirection: transceiver.currentDirection,
               stopping: transceiver.stopping,
               stopped: transceiver.stopped,
+              applicationStopRevision: getApplicationStopRevision(transceiver),
               dtlsTransport: transceiver.dtlsTransport,
               senderCodec: transceiver.sender.codec,
               remoteStreamIds: [...transceiver.receiver.remoteStreamIds],
@@ -223,7 +226,10 @@ export class NegotiationTransaction {
       transceiver.headerExtensions = state.headerExtensions;
       transceiver.offerDirection = state.offerDirection;
       transceiver.setCurrentDirection(state.currentDirection ?? undefined);
-      transceiver.stopping = state.stopping;
+      transceiver.stopping =
+        state.stopping ||
+        getApplicationStopRevision(transceiver) !==
+          state.applicationStopRevision;
       transceiver.stopped = state.stopped;
       transceiver.setDtlsTransport(state.dtlsTransport);
       transceiver.sender.codec = state.senderCodec;
@@ -262,7 +268,10 @@ export class NegotiationTransaction {
       orphanTransports.add(transport);
     }
     for (const transceiver of this.remoteCreated) {
-      if (transceiver.sender.track) {
+      if (
+        transceiver.sender.track ||
+        getApplicationStopRevision(transceiver) > 0
+      ) {
         transceiver.mid = null;
         transceiver.mLineIndex = undefined;
         continue;

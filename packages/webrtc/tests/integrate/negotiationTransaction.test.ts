@@ -11,9 +11,90 @@ import {
   sendAndExpectRtp,
   waitForConnection,
   waitForIce,
+  waitForPendingTransport,
 } from "./negotiationTransactionUtils";
 
 describe("negotiation transaction", () => {
+  test("rollback preserves application stop and a new trackless transceiver", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers();
+    try {
+      // Arrange: 接続済み transceiver の identity と現在の SDP を控える。
+      const existing = answerer.getTransceivers()[0];
+      const currentRemote = answerer.currentRemoteDescription!.sdp;
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+
+      // Act: pending 中にアプリが停止と track のない transceiver 追加を行う。
+      existing.stop();
+      const added = answerer.addTransceiver("audio", { direction: "recvonly" });
+      await answerer.setRemoteDescription({ type: "rollback" });
+
+      // Assert: SDP 由来の状態だけが戻り、アプリ操作と旧実通信が残る。
+      expect(answerer.getTransceivers()).toContain(existing);
+      expect(existing.stopping).toBe(true);
+      expect(answerer.getTransceivers()).toContain(added);
+      expect(added.sender.track).toBeNull();
+      expect(added.mid).toBeNull();
+      expect(answerer.currentRemoteDescription!.sdp).toBe(currentRemote);
+      await sendAndExpectRtp(outgoing, incoming, "app-operations-rollback");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("ICE restart pranswer connects a pending generation and rollback keeps current RTP", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers();
+    try {
+      // Arrange: 現行 pair と ICE generation を記録する。
+      const oldOffererTransport = offerer.iceTransports[0];
+      const oldAnswererTransport = answerer.iceTransports[0];
+      const oldPair = oldOffererTransport.getSelectedCandidatePair();
+      const currentRemote = answerer.currentRemoteDescription!.sdp;
+
+      // Act: restart offer と pranswer で別の ICE/DTLS generation を接続する。
+      await offerer.setLocalDescription(
+        await offerer.createOffer({ iceRestart: true }),
+      );
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      const answer = await answerer.createAnswer();
+      await answerer.setLocalDescription({ type: "pranswer", sdp: answer.sdp });
+      await offerer.setRemoteDescription({
+        type: "pranswer",
+        sdp: answerer.localDescription!.sdp,
+      });
+      await Promise.all([
+        waitForPendingTransport(offerer),
+        waitForPendingTransport(answerer),
+      ]);
+      await sendAndExpectRtp(
+        outgoing,
+        incoming,
+        "pending-restart-before-rollback",
+      );
+
+      // Act: 双方の pending description を破棄する。
+      await offerer.setLocalDescription({ type: "rollback" });
+      await answerer.setRemoteDescription({ type: "rollback" });
+
+      // Assert: 旧 pair と SDP に戻り、RTP が実際に届く。
+      expect(offerer.iceTransports[0]).toBe(oldOffererTransport);
+      expect(answerer.iceTransports[0]).toBe(oldAnswererTransport);
+      expect(oldOffererTransport.getSelectedCandidatePair()).toEqual(oldPair);
+      expect(answerer.currentRemoteDescription!.sdp).toBe(currentRemote);
+      await sendAndExpectRtp(
+        outgoing,
+        incoming,
+        "pending-restart-after-rollback",
+      );
+      assertNegotiationInvariants(offerer);
+      assertNegotiationInvariants(answerer);
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  }, 10000);
+
   test("rollback removes remote-only objects and a repeated offer does not duplicate events", async () => {
     const offerer = new RTCPeerConnection();
     const answerer = new RTCPeerConnection();
@@ -602,6 +683,11 @@ describe("negotiation transaction", () => {
         type: "pranswer",
         sdp: answerer.localDescription!.sdp,
       });
+      // Assert: pranswer だけで新しい ICE/DTLS pair が接続する。
+      await Promise.all([
+        waitForPendingTransport(offerer),
+        waitForPendingTransport(answerer),
+      ]);
 
       // Assert: pranswer 中は旧 nomination で RTP が続き、current は旧 SDP のまま。
       expect(offerer.iceTransports[0].getSelectedCandidatePair()).toEqual(

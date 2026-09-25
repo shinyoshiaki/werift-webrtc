@@ -69,7 +69,7 @@ running through every pending row.
 | Offer/pranswer/final answer | P negotiated RTP may run; final K can differ | C owner retained; P routing | P checks and nomination may run | P handshake after ICE | New P association may run | P ufrag bucket | Provisional events are permanent history |
 | Replacement offer/pranswer | Retire old P; retain C | Retire old P; retain C | Drop old P checks | Stop old P handshake | Close old P association | Drop old P bucket | Do not repeat identical events |
 | Rollback or implicit rollback | R detaches P, restores C | R restores C owner | R stops P, preserves C pair | R preserves C session | R closes P, preserves C | R drops P bucket | Close/statechange may fire; no event retraction |
-| ICE restart commit/rollback | C routes until K/R | C owner until K/R | P credentials, checklist and pair; K switches or R drops | Reuse C if valid | Reuse C association | P ufrag distinct from C | Candidates labeled by generation |
+| ICE restart commit/rollback | C routes until K/R | C owner until K/R | P credentials, checklist and pair; K switches or R drops | P handshake while C remains live | C association remains live during P | P ufrag distinct from C | Candidates labeled by generation |
 | BUNDLE split/merge/tag change | P MID routes, K switches | P owner table; K/R selects | P transport per owner | P binding per owner | P application binding | Route by MID and owner | Notify after owner selection |
 | Reject/stop/reuse m-line | C route until K; K unregisters/stops | Shared C owner persists | Shared C pair persists | Shared C session persists | Unrelated C association persists | Rejected MID receives no candidate | Track transitions only |
 | SCTP parameter re-offer | C media | C owner | C pair | C session | P port/limit/MID; reject unsupported existing port change before mutation | C bucket | Existing channels remain live |
@@ -82,6 +82,13 @@ remote-only transceiver removed by rollback loses its MID and is excluded from
 the peer's transceiver collection unless the application attached a local
 track. The application may still hold its object reference. A subsequent new
 offer may create a new object and a new legitimate notification.
+
+Rollback reverses SDP-driven `stopping` and `stopped` changes. An application
+`stop()` call made during pending negotiation remains effective, including
+when the same transceiver was already marked stopping by SDP processing.
+Application-added transceivers remain in the collection after rollback even
+when they have no local track; their identity, direction and sender are not
+part of the SDP rollback baseline.
 
 A BUNDLE split prepares a separate ICE/DTLS transport for its new owner while
 the previously shared transport stays connected. This also applies to a local
@@ -97,6 +104,14 @@ rolled-back provisional resources are stopped. Existing DataChannels stay on
 their committed association; channels opened on a pending-only association
 close when it is discarded. Application-created unattached channels remain
 application objects for a later negotiation.
+
+When a re-offer changes ICE credentials, a separate pending ICE/DTLS transport
+gathers candidates and runs checks during pranswer. Its candidate and EOC
+bucket is selected by the pending ufrag. The committed transport remains bound
+to existing media until final answer; rollback stops the pending transport.
+For an established SCTP association, the existing ICE transport stages restart
+credentials so DataChannels remain on their current DTLS association; the
+final answer activates those credentials on that transport.
 
 Trickle with an explicit `usernameFragment` targets the matching current or
 pending remote generation; without one it targets the latest applicable

@@ -127,8 +127,7 @@ export class TransceiverManager {
 
   restoreTransceiverOrder(baseline: RTCRtpTransceiver[]) {
     const attachedLater = this.transceivers.filter(
-      (transceiver) =>
-        !baseline.includes(transceiver) && !!transceiver.sender.track,
+      (transceiver) => !baseline.includes(transceiver),
     );
     this.transceivers.splice(
       0,

@@ -19,6 +19,13 @@ import {
 } from "./stats";
 import type { MediaStream, MediaStreamTrack } from "./track";
 
+const applicationStops = new WeakMap<RTCRtpTransceiver, number>();
+
+/** Internal provenance used by negotiation rollback. */
+export function getApplicationStopRevision(transceiver: RTCRtpTransceiver) {
+  return applicationStops.get(transceiver) ?? 0;
+}
+
 export class RTCRtpTransceiver {
   readonly id = randomUUID().toString();
   readonly onTrack = new Event<[MediaStreamTrack, RTCRtpTransceiver]>();
@@ -111,6 +118,7 @@ export class RTCRtpTransceiver {
   // todo impl
   // https://www.w3.org/TR/webrtc/#methods-8
   stop() {
+    applicationStops.set(this, getApplicationStopRevision(this) + 1);
     if (this.stopping) {
       return;
     }
