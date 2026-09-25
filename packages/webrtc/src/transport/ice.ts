@@ -1,4 +1,4 @@
-import { randomUUID } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 import { Event, debug } from "../imports/common";
 
 import {
@@ -68,6 +68,13 @@ export class RTCIceTransport {
   iceRestarts = 0;
   private waitStart?: Event<[]>;
   private renominating = false;
+  private stagedLocalRestart?: {
+    usernameFragment: string;
+    password: string;
+    candidates: IceCandidate[];
+    emitted: boolean;
+  };
+  private committedCandidateEvents?: IceCandidate[];
   private readonly events = new DomEventTarget();
   onstatechange?: () => void;
   ongatheringstatechange?: () => void;
@@ -117,11 +124,100 @@ export class RTCIceTransport {
   }
 
   get localCandidates() {
-    return this.iceGather.localCandidates;
+    return (
+      this.stagedLocalRestart?.candidates ?? this.iceGather.localCandidates
+    );
   }
 
   get localParameters() {
-    return this.iceGather.localParameters;
+    const pending = this.stagedLocalRestart;
+    return pending
+      ? new RTCIceParameters({
+          iceLite: this.connection.iceLite,
+          usernameFragment: pending.usernameFragment,
+          password: pending.password,
+        })
+      : this.iceGather.localParameters;
+  }
+
+  /** Prepare an ICE generation for SDP without touching the selected pair. */
+  stageLocalRestart() {
+    this.rollbackLocalRestart();
+    const usernameFragment = randomBytes(6).toString("base64url");
+    const password = randomBytes(24).toString("base64url");
+    const candidates = this.iceGather.localCandidates.map((candidate) => {
+      const copy = Object.assign(
+        new IceCandidate(
+          candidate.component,
+          candidate.foundation,
+          candidate.ip,
+          candidate.port,
+          candidate.priority,
+          candidate.protocol,
+          candidate.type,
+          this.connection.generation + 1,
+          usernameFragment,
+        ),
+        {
+          relatedAddress: candidate.relatedAddress,
+          relatedPort: candidate.relatedPort,
+          tcpType: candidate.tcpType,
+        },
+      );
+      return copy;
+    });
+    this.stagedLocalRestart = {
+      usernameFragment,
+      password,
+      candidates,
+      emitted: false,
+    };
+    // Existing sockets can respond to provisional STUN checks for the new
+    // ufrag while the old generation continues to carry media.
+    this.connection.stageLocalCredentials(usernameFragment, password);
+  }
+
+  emitStagedCandidates() {
+    const staged = this.stagedLocalRestart;
+    if (!staged || staged.emitted) return;
+    staged.emitted = true;
+    for (const candidate of staged.candidates) {
+      this.onIceCandidate.execute(candidate);
+    }
+    this.onIceCandidate.execute(undefined);
+  }
+
+  rollbackLocalRestart() {
+    if (!this.stagedLocalRestart) return;
+    this.connection.discardStagedLocalCredentials(
+      this.stagedLocalRestart.usernameFragment,
+    );
+    this.stagedLocalRestart = undefined;
+  }
+
+  async commitLocalRestart() {
+    const staged = this.stagedLocalRestart;
+    if (!staged) return;
+    this.restart(false);
+    this.connection.commitLocalCredentials(
+      staged.usernameFragment,
+      staged.password,
+    );
+    this.stagedLocalRestart = undefined;
+    await this.gather();
+    if (!staged.emitted) {
+      this.committedCandidateEvents = this.iceGather.localCandidates;
+    }
+  }
+
+  emitCommittedCandidates() {
+    const candidates = this.committedCandidateEvents;
+    if (!candidates) return;
+    this.committedCandidateEvents = undefined;
+    for (const candidate of candidates) {
+      this.onIceCandidate.execute(candidate);
+    }
+    this.onIceCandidate.execute(undefined);
   }
 
   getRemoteCandidates() {
@@ -216,7 +312,7 @@ export class RTCIceTransport {
     this.connection.setRemoteParams(remoteParameters);
   }
 
-  restart() {
+  restart(notifyNegotiation = true) {
     this.iceRestarts++;
     this.connection.restart();
     this.setState("new");
@@ -224,7 +320,7 @@ export class RTCIceTransport {
     // SecureTransportManager aggregate iceGatheringState stays in sync.
     this.iceGather.setGatheringState("new");
     this.waitStart = undefined;
-    this.onNegotiationNeeded.execute();
+    if (notifyNegotiation) this.onNegotiationNeeded.execute();
   }
 
   async start() {

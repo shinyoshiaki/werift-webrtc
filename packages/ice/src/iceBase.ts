@@ -42,6 +42,9 @@ export interface IceConnection {
   readonly onIceCandidate: Event<[Candidate]>;
 
   restart(): void;
+  stageLocalCredentials(usernameFragment: string, password: string): void;
+  discardStagedLocalCredentials(usernameFragment: string): void;
+  commitLocalCredentials(usernameFragment: string, password: string): void;
 
   setIceServers(options: Partial<IceOptions>): void;
 

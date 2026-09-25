@@ -195,8 +195,93 @@ export class SDPManager {
   }): SessionDescription {
     const description = SessionDescription.parse(sdp);
     this.validateDescription({ description, isLocal, signalingState, type });
+    this.validateSections(description, type, isLocal);
     description.type = type;
     return description;
+  }
+
+  /** Checks cross-section constraints before any media or transport is changed. */
+  private validateSections(
+    description: SessionDescription,
+    type: "offer" | "answer" | "pranswer",
+    isLocal: boolean,
+  ) {
+    const mids = description.media.map((media) => media.rtp.muxId);
+    const presentMids = mids.filter((mid): mid is string => !!mid);
+    if (new Set(presentMids).size !== presentMids.length) {
+      throw createWebRtcDomException("OperationError", "Duplicate MID in SDP");
+    }
+
+    for (const group of description.group.filter(
+      (group) => group.semantic === "BUNDLE",
+    )) {
+      const resolvesMid = (item: string) =>
+        presentMids.includes(item) ||
+        presentMids.some((mid) => mid.startsWith(`${item}_`));
+      if (
+        new Set(group.items).size !== group.items.length ||
+        group.items.some((mid) => !resolvesMid(mid))
+      ) {
+        throw createWebRtcDomException(
+          "OperationError",
+          "Invalid BUNDLE group in SDP",
+        );
+      }
+    }
+
+    const previous = isLocal
+      ? this.currentLocalDescription
+      : this.currentRemoteDescription;
+    if (previous) {
+      for (const [index, oldMedia] of previous.media.entries()) {
+        const next = description.media[index];
+        const reusable =
+          oldMedia.port === 0 || oldMedia.direction === "inactive";
+        if (
+          !next ||
+          (next.kind !== oldMedia.kind && oldMedia.port !== 0) ||
+          (oldMedia.rtp.muxId &&
+            next.rtp.muxId !== oldMedia.rtp.muxId &&
+            !reusable)
+        ) {
+          throw createWebRtcDomException(
+            "InvalidModificationError",
+            "Existing m-lines must retain their order, kind and MID",
+          );
+        }
+      }
+    }
+
+    if (type === "offer") return;
+    const offer = isLocal
+      ? this.pendingRemoteDescription
+      : this.pendingLocalDescription;
+    if (!offer || description.media.length !== offer.media.length) {
+      throw createWebRtcDomException(
+        "InvalidModificationError",
+        "Answer m-lines must match the offer",
+      );
+    }
+    for (const [index, media] of description.media.entries()) {
+      const offered = offer.media[index];
+      if (
+        media.kind !== offered.kind ||
+        (offered.rtp.muxId &&
+          media.rtp.muxId !== offered.rtp.muxId &&
+          !media.rtp.muxId?.startsWith(`${offered.rtp.muxId}_`))
+      ) {
+        throw createWebRtcDomException(
+          "InvalidModificationError",
+          "Answer m-lines must match the offer",
+        );
+      }
+      if (media.port !== 0 && offered.port === 0) {
+        throw createWebRtcDomException(
+          "InvalidModificationError",
+          "Answer cannot accept a rejected m-line",
+        );
+      }
+    }
   }
 
   private validateDescription({
@@ -212,7 +297,11 @@ export class SDPManager {
   }) {
     if (isLocal) {
       if (type === "offer") {
-        if (!["stable", "have-local-offer"].includes(signalingState))
+        if (
+          !["stable", "have-local-offer", "have-remote-pranswer"].includes(
+            signalingState,
+          )
+        )
           throw createWebRtcDomException(
             "InvalidStateError",
             "Cannot handle offer in signaling state",
@@ -230,9 +319,12 @@ export class SDPManager {
     } else {
       if (type === "offer") {
         if (
-          !["stable", "have-remote-offer", "have-local-offer"].includes(
-            signalingState,
-          )
+          ![
+            "stable",
+            "have-remote-offer",
+            "have-local-offer",
+            "have-local-pranswer",
+          ].includes(signalingState)
         ) {
           throw createWebRtcDomException(
             "InvalidStateError",
@@ -347,11 +439,12 @@ export class SDPManager {
     transceivers,
     sctpTransport,
     signalingState,
+    transportByMid,
   }: {
     transceivers: RTCRtpTransceiver[];
     sctpTransport: RTCSctpTransport | undefined;
-
     signalingState: string;
+    transportByMid?: Map<string, RTCDtlsTransport>;
   }): SessionDescription {
     if (
       !["have-remote-offer", "have-local-pranswer"].includes(signalingState)
@@ -369,6 +462,19 @@ export class SDPManager {
       let dtlsTransport!: RTCDtlsTransport;
       let media: MediaDescription;
 
+      if (remoteMedia.port === 0) {
+        media = new MediaDescription(
+          remoteMedia.kind,
+          0,
+          remoteMedia.profile,
+          remoteMedia.fmt,
+        );
+        media.rtp.muxId = remoteMedia.rtp.muxId;
+        media.direction = "inactive";
+        description.media.push(media);
+        continue;
+      }
+
       if (["audio", "video"].includes(remoteMedia.kind)) {
         const transceiver = transceivers.find(
           (t) => t.mid === remoteMedia.rtp.muxId,
@@ -382,6 +488,7 @@ export class SDPManager {
           transceiver,
           andDirection(transceiver.direction, transceiver.offerDirection),
         );
+        if (media.port === 0) media.fmt = remoteMedia.fmt;
         dtlsTransport = transceiver.dtlsTransport;
       } else if (remoteMedia.kind === "application") {
         if (!sctpTransport || !sctpTransport.mid) {
@@ -392,6 +499,13 @@ export class SDPManager {
         dtlsTransport = sctpTransport.dtlsTransport;
       } else {
         throw new Error("invalid kind");
+      }
+
+      const proposedTransport =
+        remoteMedia.rtp.muxId && transportByMid?.get(remoteMedia.rtp.muxId);
+      if (proposedTransport) {
+        dtlsTransport = proposedTransport;
+        this.addTransportDescription(media, proposedTransport);
       }
 
       // # determine DTLS role, or preserve the currently configured role
@@ -419,14 +533,17 @@ export class SDPManager {
       description.media.push(media);
     }
 
-    if (this.bundlePolicy !== "disable") {
-      const bundle = new GroupDescription("BUNDLE", []);
-      for (const media of description.media) {
-        if (media.rtp.muxId) {
-          bundle.items.push(media.rtp.muxId!);
-        }
+    const offeredBundle = this._remoteDescription.group.find(
+      (group) => group.semantic === "BUNDLE",
+    );
+    if (this.bundlePolicy !== "disable" && offeredBundle) {
+      const acceptedMids = new Set(
+        description.media.map((media) => media.rtp.muxId),
+      );
+      const items = offeredBundle.items.filter((mid) => acceptedMids.has(mid));
+      if (items.length) {
+        description.group.push(new GroupDescription("BUNDLE", items));
       }
-      description.group.push(bundle);
     }
 
     return description;
@@ -456,7 +573,11 @@ export class SDPManager {
 
     if (sessionDescription.type === "rollback") {
       if (
-        !["have-remote-offer", "have-local-pranswer"].includes(signalingState)
+        ![
+          "have-remote-offer",
+          "have-local-pranswer",
+          "have-remote-pranswer",
+        ].includes(signalingState)
       ) {
         throw createWebRtcDomException(
           "InvalidStateError",
@@ -480,6 +601,12 @@ export class SDPManager {
       type: sessionDescription.type,
     });
 
+    this.applyRemoteDescription(remoteSdp);
+
+    return remoteSdp;
+  }
+
+  applyRemoteDescription(remoteSdp: SessionDescription) {
     if (remoteSdp.type === "offer" || remoteSdp.type === "pranswer") {
       this.pendingRemoteDescription = remoteSdp;
     } else {
@@ -490,12 +617,16 @@ export class SDPManager {
       this.pendingRemoteDescription = undefined;
       this.pendingLocalDescription = undefined;
     }
-
-    return remoteSdp;
   }
 
   rollbackLocalDescription(signalingState: string) {
-    if (!["have-local-offer", "have-local-pranswer"].includes(signalingState)) {
+    if (
+      ![
+        "have-local-offer",
+        "have-local-pranswer",
+        "have-remote-pranswer",
+      ].includes(signalingState)
+    ) {
       throw createWebRtcDomException(
         "InvalidStateError",
         "Cannot rollback local description in signaling state",
@@ -527,6 +658,7 @@ export class SDPManager {
     description: SessionDescription,
     transceivers: RTCRtpTransceiver[],
     sctpTransport?: { dtlsTransport: RTCDtlsTransport; mid?: string },
+    transportByMid?: Map<string, RTCDtlsTransport>,
   ) {
     const transceiverByMLineIndex = new Map(
       transceivers.map((transceiver) => [transceiver?.mLineIndex, transceiver]),
@@ -534,20 +666,25 @@ export class SDPManager {
     const fallbackDtlsTransport =
       transceivers.find((transceiver) => transceiver?.dtlsTransport)
         ?.dtlsTransport ?? sctpTransport?.dtlsTransport;
-    description.media
-      .filter((m) => ["audio", "video"].includes(m.kind))
-      .forEach((m, i) => {
-        const transceiver = transceiverByMLineIndex.get(i) ?? transceivers[i];
-        const dtlsTransport =
-          transceiver?.dtlsTransport ?? fallbackDtlsTransport;
-        if (!dtlsTransport) {
-          throw new Error(`dtls transport not found for media index ${i}`);
-        }
-        this.addTransportDescription(m, dtlsTransport);
-      });
+    description.media.forEach((m, i) => {
+      if (!["audio", "video"].includes(m.kind)) return;
+      const transceiver = transceiverByMLineIndex.get(i) ?? transceivers[i];
+      const dtlsTransport =
+        (m.rtp.muxId && transportByMid?.get(m.rtp.muxId)) ||
+        transceiver?.dtlsTransport ||
+        fallbackDtlsTransport;
+      if (!dtlsTransport) {
+        throw new Error(`dtls transport not found for media index ${i}`);
+      }
+      this.addTransportDescription(m, dtlsTransport);
+    });
     const sctpMedia = description.media.find((m) => m.kind === "application");
     if (sctpTransport && sctpMedia) {
-      this.addTransportDescription(sctpMedia, sctpTransport.dtlsTransport);
+      this.addTransportDescription(
+        sctpMedia,
+        (sctpMedia.rtp.muxId && transportByMid?.get(sctpMedia.rtp.muxId)) ||
+          sctpTransport.dtlsTransport,
+      );
     }
 
     this.setLocalDescription(description);

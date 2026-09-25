@@ -49,6 +49,23 @@ function simulcastFromSendEncodings(
 
 export class TransceiverManager {
   private readonly transceivers: RTCRtpTransceiver[] = [];
+  private readonly notifiedRemoteTrack = new WeakMap<
+    RTCRtpTransceiver,
+    { track: MediaStreamTrack; streams: string[] }
+  >();
+
+  getNotifiedRemoteTrack(transceiver: RTCRtpTransceiver) {
+    const state = this.notifiedRemoteTrack.get(transceiver);
+    return state && { track: state.track, streams: [...state.streams] };
+  }
+
+  restoreNotifiedRemoteTrack(
+    transceiver: RTCRtpTransceiver,
+    state: ReturnType<TransceiverManager["getNotifiedRemoteTrack"]>,
+  ) {
+    if (state) this.notifiedRemoteTrack.set(transceiver, state);
+    else this.notifiedRemoteTrack.delete(transceiver);
+  }
 
   readonly onTransceiverAdded = new Event<[RTCRtpTransceiver]>();
   readonly onRemoteTransceiverAdded = new Event<[RTCRtpTransceiver]>();
@@ -82,13 +99,57 @@ export class TransceiverManager {
   }
 
   getTransceiverByMLineIndex(index: number): RTCRtpTransceiver | undefined {
-    return this.transceivers.find(
-      (transceiver) => transceiver.mLineIndex === index,
+    return (
+      this.transceivers.find(
+        (transceiver) =>
+          transceiver.mLineIndex === index && !transceiver.stopped,
+      ) ??
+      this.transceivers.find((transceiver) => transceiver.mLineIndex === index)
+    );
+  }
+
+  replaceStoppedTransceiverAtMLineIndex(
+    transceiver: RTCRtpTransceiver,
+    mLineIndex: number,
+  ) {
+    const oldIndex = this.transceivers.findIndex(
+      (candidate) =>
+        candidate !== transceiver &&
+        candidate.stopped &&
+        candidate.mLineIndex === mLineIndex,
+    );
+    if (oldIndex < 0) return;
+    const newIndex = this.transceivers.indexOf(transceiver);
+    if (newIndex < 0) return;
+    this.transceivers.splice(newIndex, 1);
+    this.transceivers.splice(oldIndex, 1, transceiver);
+  }
+
+  restoreTransceiverOrder(baseline: RTCRtpTransceiver[]) {
+    const attachedLater = this.transceivers.filter(
+      (transceiver) =>
+        !baseline.includes(transceiver) && !!transceiver.sender.track,
+    );
+    this.transceivers.splice(
+      0,
+      this.transceivers.length,
+      ...baseline,
+      ...attachedLater,
     );
   }
 
   pushTransceiver(t: RTCRtpTransceiver): void {
     this.transceivers.push(t);
+  }
+
+  /** Remove an uncommitted transceiver created only by a remote offer. */
+  removeRemoteTransceiver(transceiver: RTCRtpTransceiver): void {
+    const index = this.transceivers.indexOf(transceiver);
+    if (index < 0) return;
+    transceiver.forceStop();
+    transceiver.mid = null;
+    transceiver.mLineIndex = undefined;
+    this.transceivers.splice(index, 1);
   }
 
   replaceTransceiver(t: RTCRtpTransceiver, index: number): void {
@@ -355,7 +416,11 @@ export class TransceiverManager {
     });
 
     log("negotiated codecs", transceiver.codecs);
-    if (transceiver.codecs.length === 0) {
+    if (transceiver.codecs.length === 0 && remoteMedia.port !== 0) {
+      if (type === "offer") {
+        transceiver.offerDirection = "inactive";
+        return;
+      }
       throw new Error("negotiate codecs failed.");
     }
     transceiver.headerExtensions = remoteMedia.rtp.headerExtensions.filter(
@@ -375,7 +440,11 @@ export class TransceiverManager {
       transceiver.offerDirection = direction;
     }
     const localParams = this.getLocalRtpParams(transceiver);
-    transceiver.sender.prepareSend(localParams);
+    // During a re-offer the committed sender keeps its codec until the final
+    // answer. The proposed codec remains on the transceiver for createAnswer.
+    if (type !== "offer" || !transceiver.currentDirection) {
+      transceiver.sender.prepareSend(localParams);
+    }
 
     if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
       const remotePrams = this.getRemoteRtpParams(remoteMedia, transceiver);
@@ -401,17 +470,24 @@ export class TransceiverManager {
       transceiver.receiver.remoteStreamIds = remoteStreamIds;
       transceiver.receiver.remoteTrackId = remoteTrackId;
 
-      this.onTrack.execute({
-        track: transceiver.receiver.track,
-        transceiver,
-        streams: remoteStreamIds.map(
-          (id) =>
-            new MediaStream({
-              id,
-              tracks: [transceiver.receiver.track],
-            }),
-        ),
-      });
+      const track = transceiver.receiver.track;
+      const previous = this.notifiedRemoteTrack.get(transceiver);
+      if (
+        previous?.track !== track ||
+        previous.streams.join("\0") !== remoteStreamIds.join("\0")
+      ) {
+        this.notifiedRemoteTrack.set(transceiver, {
+          track,
+          streams: remoteStreamIds,
+        });
+        this.onTrack.execute({
+          track,
+          transceiver,
+          streams: remoteStreamIds.map(
+            (id) => new MediaStream({ id, tracks: [track] }),
+          ),
+        });
+      }
     }
 
     if (remoteMedia.ssrc[0]?.ssrc) {

@@ -209,6 +209,29 @@ export class Connection implements IceConnection {
     this.stopConsentLifecycle();
   }
 
+  /** Accept provisional checks without changing the selected current pair. */
+  stageLocalCredentials(usernameFragment: string, password: string) {
+    this.userHistory[usernameFragment] = password;
+  }
+
+  discardStagedLocalCredentials(usernameFragment: string) {
+    if (usernameFragment !== this.localUsername) {
+      delete this.userHistory[usernameFragment];
+    }
+  }
+
+  /** Called after restart, before re-gathering the chosen generation. */
+  commitLocalCredentials(usernameFragment: string, password: string) {
+    this.localUsername = usernameFragment;
+    this.localPassword = password;
+    this.userHistory[usernameFragment] = password;
+    for (const protocol of this.protocols) {
+      if (protocol.localCandidate) {
+        protocol.localCandidate.ufrag = usernameFragment;
+      }
+    }
+  }
+
   resetNominatedPair() {
     log("resetNominatedPair");
     this.nominated = undefined;

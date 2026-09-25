@@ -174,10 +174,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   setRemoteParams(remoteParameters: RTCDtlsParameters) {
-    const fingerprints = deduplicateFingerprints([
-      ...(this.remoteParameters?.fingerprints ?? []),
-      ...remoteParameters.fingerprints,
-    ]);
+    const fingerprints = deduplicateFingerprints(remoteParameters.fingerprints);
     const role =
       remoteParameters.role === "auto" && this.remoteParameters?.role
         ? this.remoteParameters.role

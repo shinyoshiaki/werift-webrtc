@@ -66,7 +66,10 @@ export class SecureTransportManager {
 
   get dtlsTransports() {
     const transports = [
-      ...this.transceiverManager.getTransceivers().map((t) => t?.dtlsTransport),
+      ...this.transceiverManager
+        .getTransceivers()
+        .filter((transceiver) => !transceiver.stopped)
+        .map((transceiver) => transceiver.dtlsTransport),
       this.sctpManager.sctpTransport?.dtlsTransport,
     ].filter((t) => t != undefined);
 
@@ -137,10 +140,10 @@ export class SecureTransportManager {
     }
   }
 
-  createTransport() {
-    const existing = this.iceTransports.find(
-      (transport) => transport.state !== "closed",
-    );
+  createTransport(independentIceCredentials = false) {
+    const existing =
+      !independentIceCredentials &&
+      this.iceTransports.find((transport) => transport.state !== "closed");
 
     const iceGatherer = new RTCIceGatherer({
       ...this.resolveIceServerOptions(),
@@ -234,6 +237,7 @@ export class SecureTransportManager {
   async addIceCandidate(
     sdp: SessionDescription,
     candidateMessage: RTCIceCandidate | RTCIceCandidateInit | null,
+    applyToTransport = true,
   ) {
     const candidateText = candidateMessage?.candidate;
     const sdpMid = candidateMessage?.sdpMid;
@@ -250,7 +254,11 @@ export class SecureTransportManager {
     });
 
     if (isEndOfCandidates) {
-      const candidateTarget = mediaIndices
+      const unfinished = mediaIndices.filter(
+        (index) => !sdp.media[index]?.iceCandidatesComplete,
+      );
+      if (unfinished.length === 0) return;
+      const candidateTarget = unfinished
         .map((index) => this.getTransportByMLineIndex(sdp, index))
         .filter(
           (iceTransport): iceTransport is RTCIceTransport => !!iceTransport,
@@ -262,14 +270,16 @@ export class SecureTransportManager {
           return acc;
         }, []);
 
-      await Promise.all(
-        candidateTarget.map((iceTransport) =>
-          iceTransport.addRemoteCandidate(undefined),
-        ),
-      );
+      if (applyToTransport) {
+        await Promise.all(
+          candidateTarget.map((iceTransport) =>
+            iceTransport.addRemoteCandidate(undefined),
+          ),
+        );
+      }
       return {
         kind: "end-of-candidates" as const,
-        mediaIndices,
+        mediaIndices: unfinished,
       };
     }
 
@@ -292,16 +302,25 @@ export class SecureTransportManager {
     candidate.sdpMid = targetMedia.rtp.muxId ?? undefined;
     candidate.sdpMLineIndex = targetMediaIndex;
 
+    if (
+      targetMedia.iceCandidates.some(
+        (existing) =>
+          existing.toJSON().candidate === candidate.toJSON().candidate,
+      )
+    ) {
+      return;
+    }
+
     const iceTransport = this.getTransportByMLineIndex(sdp, targetMediaIndex);
 
-    if (!iceTransport) {
+    if (!iceTransport && applyToTransport) {
       throw createWebRtcDomException(
         "OperationError",
         "ICE transport not found for candidate",
       );
     }
 
-    await iceTransport.addRemoteCandidate(candidate);
+    if (applyToTransport) await iceTransport?.addRemoteCandidate(candidate);
     return {
       kind: "candidate" as const,
       candidate,
@@ -402,6 +421,37 @@ export class SecureTransportManager {
     }
     // restart() resets each gatherer to "new"; refresh the aggregate cache
     // even if a gatherer failed to emit onGatheringStateChange.
+    this.updateIceGatheringState();
+  }
+
+  stageIceRestart() {
+    for (const transport of this.iceTransports) {
+      transport.stageLocalRestart();
+    }
+  }
+
+  rollbackStagedIceRestart() {
+    for (const transport of this.iceTransports) {
+      transport.rollbackLocalRestart();
+    }
+  }
+
+  emitStagedIceCandidates() {
+    for (const transport of this.iceTransports) {
+      transport.emitStagedCandidates();
+    }
+  }
+
+  emitCommittedIceCandidates() {
+    for (const transport of this.iceTransports) {
+      transport.emitCommittedCandidates();
+    }
+  }
+
+  async commitStagedIceRestart() {
+    await Promise.all(
+      this.iceTransports.map((transport) => transport.commitLocalRestart()),
+    );
     this.updateIceGatheringState();
   }
 
@@ -519,22 +569,14 @@ export class SecureTransportManager {
     }
   }
 
-  async gatherCandidates(remoteIsBundled: boolean) {
-    const connected = this.iceTransports.find(
-      (transport) =>
-        transport.state === "connected" || transport.state === "completed",
+  async gatherCandidates() {
+    // A partial BUNDLE group may coexist with a connected owner and a new
+    // unbundled transport. Gather every new transport independently.
+    await Promise.allSettled(
+      this.iceTransports
+        .filter((iceTransport) => iceTransport.gatheringState === "new")
+        .map((iceTransport) => iceTransport.gather()),
     );
-    if (remoteIsBundled && connected) {
-      // no need to gather ice candidates on an existing bundled connection
-      log("skipping ICE gathering for bundled connection");
-    } else {
-      await Promise.allSettled(
-        this.iceTransports.map((iceTransport) => iceTransport.gather()),
-      ).catch((e) => {
-        // エラーハンドリングを追加 (例: ログ出力)
-        log("gatherCandidates failed", e);
-      });
-    }
   }
 
   setConnectionState(state: ConnectionState) {
