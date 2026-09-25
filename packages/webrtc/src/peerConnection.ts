@@ -495,9 +495,8 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   async createOffer({ iceRestart }: { iceRestart?: boolean } = {}) {
-    if (this.negotiation.transportByMid.size > 0) {
-      await this.negotiation.discardPreparedTransports();
-    }
+    // Transports prepared for an applied pending offer stay until that offer
+    // is replaced or rolled back; setLocalDescription stages new ones first.
     if (this.signalingState === "stable") this.negotiation.begin();
     const restartRequested = !!iceRestart || this.needRestart;
     if (restartRequested) {
@@ -791,24 +790,31 @@ export class RTCPeerConnection extends EventTarget {
       });
       for (const media of description.media) {
         if (media.port === 0 || !media.iceParams) continue;
-        const transport =
-          ((description.type === "answer" ||
-            description.type === "pranswer" ||
-            description.type === "offer") &&
-            media.rtp.muxId &&
-            this.negotiation.transportByMid.get(media.rtp.muxId)) ||
-          (media.kind === "application"
+        const prepared =
+          media.rtp.muxId &&
+          this.negotiation.transportByMid.get(media.rtp.muxId);
+        const live =
+          media.kind === "application"
             ? this.sctpTransport?.dtlsTransport
             : this.transceiverManager
                 .getTransceivers()
                 .find((transceiver) => transceiver.mid === media.rtp.muxId)
-                ?.dtlsTransport);
+                ?.dtlsTransport;
+        const matches = (transport?: RTCDtlsTransport) =>
+          transport?.iceTransport.localParameters.usernameFragment ===
+            media.iceParams!.usernameFragment &&
+          transport.iceTransport.localParameters.password ===
+            media.iceParams!.password;
+        // An answer must use the transport prepared for it. A (replacement)
+        // offer is built from the live transports; re-applying the previous
+        // pending offer may carry its prepared credentials instead.
+        const acceptable =
+          description.type === "offer"
+            ? [prepared, live].filter(Boolean)
+            : [prepared || live].filter(Boolean);
         if (
-          transport &&
-          (transport.iceTransport.localParameters.usernameFragment !==
-            media.iceParams.usernameFragment ||
-            transport.iceTransport.localParameters.password !==
-              media.iceParams.password)
+          acceptable.length > 0 &&
+          !acceptable.some((transport) => matches(transport || undefined))
         ) {
           throw createWebRtcDomException(
             "InvalidModificationError",
@@ -816,34 +822,55 @@ export class RTCPeerConnection extends EventTarget {
           );
         }
       }
-      if (
-        description.type === "offer" &&
-        this.signalingState === "have-remote-pranswer"
-      ) {
-        this.negotiation.retireRemoteGeneration(
-          this.sdpManager.pendingRemoteDescription,
-        );
-        this.sdpManager.setRemoteDescription(
-          { type: "rollback" },
-          this.signalingState,
-        );
-        this.secureManager.rollbackStagedIceRestart();
-        await this.negotiation.rollback();
-        await this.cleanupInitialProvisionalTransport();
-        this.setSignalingState("stable");
-      }
-      if (description.type === "offer") {
-        if (this.signalingState === "have-local-offer") {
-          await this.negotiation.replace();
-          this.sdpManager.pendingLocalDescription = undefined;
-        } else {
-          this.negotiation.begin();
+      // Stage the offer's transports before retiring anything pending.
+      const stagedOfferTopology =
+        description.type === "offer"
+          ? await this.stageLocalOfferTopology(description)
+          : undefined;
+      try {
+        if (
+          description.type === "offer" &&
+          this.signalingState === "have-remote-pranswer"
+        ) {
+          this.negotiation.retireRemoteGeneration(
+            this.sdpManager.pendingRemoteDescription,
+          );
+          this.sdpManager.setRemoteDescription(
+            { type: "rollback" },
+            this.signalingState,
+          );
+          this.secureManager.rollbackStagedIceRestart();
+          await this.negotiation.rollback();
+          await this.cleanupInitialProvisionalTransport();
+          this.setSignalingState("stable");
         }
-      }
-      this.negotiation.validate();
-      this.negotiation.prepare();
-      if (description.type === "offer") {
-        await this.prepareLocalOfferTopology(description);
+        if (description.type === "offer") {
+          if (this.signalingState === "have-local-offer") {
+            await this.negotiation.replace();
+            this.sdpManager.pendingLocalDescription = undefined;
+          } else {
+            this.negotiation.begin();
+          }
+        }
+        this.negotiation.validate();
+        this.negotiation.prepare();
+        if (stagedOfferTopology) {
+          this.installLocalOfferTopology(description, stagedOfferTopology);
+        }
+      } catch (error) {
+        // Staged transports not yet owned by the transaction are stopped.
+        await Promise.allSettled(
+          (stagedOfferTopology ?? [])
+            .filter(
+              ({ transport, pendingOnly }) =>
+                pendingOnly &&
+                !this.negotiation.isPendingOnlyTransport(
+                  transport.iceTransport.id,
+                ),
+            )
+            .map(({ transport }) => transport.stop()),
+        );
+        throw error;
       }
 
       if (
@@ -1138,9 +1165,14 @@ export class RTCPeerConnection extends EventTarget {
     );
   }
 
-  private async prepareLocalOfferTopology(offer: SessionDescription) {
-    if (this.negotiation.transportByMid.size > 0) return;
-    if (this.negotiation.preparedDescription === offer) return;
+  /**
+   * Prepare the transports a local offer needs without touching the pending
+   * transaction. A replacement offer is staged here first, so a failure (for
+   * example ICE gathering of a new BUNDLE owner) stops only what was staged
+   * and leaves the previous pending offer, its transports and the signaling
+   * state as they were.
+   */
+  private async stageLocalOfferTopology(offer: SessionDescription) {
     const bundle =
       this.sdpManager.bundlePolicy === "disable"
         ? undefined
@@ -1165,25 +1197,47 @@ export class RTCPeerConnection extends EventTarget {
         this.sctpTransport.dtlsTransport,
       );
     }
+    const staged: {
+      mid: string;
+      transport: RTCDtlsTransport;
+      pendingOnly: boolean;
+    }[] = [];
+    const created: RTCDtlsTransport[] = [];
     const assignedOwner = new Map<RTCDtlsTransport, string>();
     try {
       for (const [mid, owner] of ownerByMid) {
         let transport = currentByMid.get(mid);
+        let pendingOnly = false;
         if (
           !transport ||
           (assignedOwner.has(transport) &&
             assignedOwner.get(transport) !== owner)
         ) {
           transport = this.findOrCreateTransport(true);
-          this.negotiation.prepareTransport(offer, mid, transport, true);
+          created.push(transport);
+          pendingOnly = true;
           await transport.iceTransport.gather();
         }
         assignedOwner.set(transport, owner);
-        this.negotiation.prepareTransport(offer, mid, transport);
+        staged.push({ mid, transport, pendingOnly });
       }
     } catch (error) {
-      await this.negotiation.discardPreparedTransports();
+      await Promise.allSettled(created.map((transport) => transport.stop()));
       throw error;
+    }
+    return staged;
+  }
+
+  /** Hand staged local-offer transports to the pending transaction. */
+  private installLocalOfferTopology(
+    offer: SessionDescription,
+    staged: Awaited<ReturnType<RTCPeerConnection["stageLocalOfferTopology"]>>,
+  ) {
+    for (const { mid, transport, pendingOnly } of staged) {
+      if (pendingOnly) {
+        this.negotiation.prepareTransport(offer, mid, transport, true);
+      }
+      this.negotiation.prepareTransport(offer, mid, transport);
     }
   }
 

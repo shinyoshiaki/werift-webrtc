@@ -5,13 +5,19 @@ import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
 } from "../../src";
+import { RTCIceTransport } from "../../src/transport/ice";
 import {
+  addNegotiatedAudio,
   assertNegotiationInvariants,
   createConnectedMediaAndDataPeers,
   createConnectedVideoPeers,
+  createDuplexSession,
+  createSplitOffer,
+  expectSessionAlive,
   sendAndExpectData,
   sendAndExpectRtp,
   waitForConnection,
+  waitForDtlsConnected,
   waitForIce,
   waitForProvisionalNomination,
 } from "./negotiationTransactionUtils";
@@ -128,6 +134,73 @@ describe("negotiation transaction", () => {
       assertNegotiationInvariants(answerer);
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("a replacement local offer whose transport preparation fails keeps the earlier pending offer", async () => {
+    const session = await createDuplexSession();
+    const { a, b } = session;
+    try {
+      // Arrange: audio を追加して交渉し、audio を BUNDLE から外す offer を
+      // pending にする (分割用の新 transport が準備される)。
+      const audio = await addNegotiatedAudio(session, a, b);
+      await a.pc.setLocalDescription({
+        type: "offer",
+        sdp: await createSplitOffer(a.pc, audio.mid),
+      });
+      const pending = a.pc.pendingLocalDescription!.sdp;
+      const internal = a.pc as unknown as {
+        negotiation: {
+          transportByMid: Map<string, RTCPeerConnection["dtlsTransports"][0]>;
+        };
+      };
+      const preparedAudio = internal.negotiation.transportByMid.get(audio.mid)!;
+      expect(a.pc.dtlsTransports).not.toContain(preparedAudio);
+      const replacement = await createSplitOffer(a.pc, audio.mid);
+      const gather = vi
+        .spyOn(RTCIceTransport.prototype, "gather")
+        .mockRejectedValueOnce(new Error("gather failed"));
+
+      // Act: 新 transport の ICE gathering が失敗する replacement offer を適用する。
+      const result = a.pc.setLocalDescription({
+        type: "offer",
+        sdp: replacement,
+      });
+
+      // Assert: 失敗し、先行 pending offer・準備済み transport・signaling state が残る。
+      await expect(result).rejects.toThrow("gather failed");
+      gather.mockRestore();
+      expect(a.pc.signalingState).toBe("have-local-offer");
+      expect(a.pc.pendingLocalDescription!.sdp).toBe(pending);
+      expect(internal.negotiation.transportByMid.get(audio.mid)).toBe(
+        preparedAudio,
+      );
+      expect(preparedAudio.iceTransport.state).not.toBe("closed");
+      assertNegotiationInvariants(a.pc);
+      await expectSessionAlive(session, "failed-replacement");
+
+      // Act: 残った先行 offer に answer して commit する。
+      await b.pc.setRemoteDescription(a.pc.localDescription!);
+      await b.pc.setLocalDescription(await b.pc.createAnswer());
+      await a.pc.setRemoteDescription(b.pc.localDescription!);
+      await Promise.all([
+        waitForDtlsConnected(audio.transceiver.dtlsTransport),
+        waitForDtlsConnected(audio.remote().dtlsTransport),
+      ]);
+
+      // Assert: 先行 offer の分割 transport で audio が届き、既存経路も続く。
+      expect(audio.transceiver.dtlsTransport).toBe(preparedAudio);
+      assertNegotiationInvariants(a.pc);
+      assertNegotiationInvariants(b.pc);
+      await sendAndExpectRtp(
+        audio.out,
+        audio.remote().receiver.track,
+        "split-after-failed-replacement",
+      );
+      await expectSessionAlive(session, "after-failed-replacement");
+    } finally {
+      vi.restoreAllMocks();
+      await session.close();
     }
   });
 

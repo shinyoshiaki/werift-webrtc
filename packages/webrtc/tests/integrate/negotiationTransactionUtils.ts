@@ -735,3 +735,29 @@ export async function waitForDtlsConnected(
     "DTLS transport did not connect",
   );
 }
+
+/** Negotiate an extra sendonly audio m-line from `offerer` on a duplex session. */
+export async function addNegotiatedAudio(
+  session: DuplexSession,
+  offerer: Peer,
+  answerer: Peer,
+) {
+  const out = new MediaStreamTrack({ kind: "audio" });
+  const transceiver = offerer.pc.addTransceiver(out, { direction: "sendonly" });
+  await negotiate(session, offerer, answerer);
+  const mid = transceiver.mid!;
+  const remote = () =>
+    answerer.pc.getTransceivers().find((t) => t.mid === mid)!;
+  return { out, transceiver, mid, remote };
+}
+
+/** Local offer SDP whose BUNDLE group leaves `mid` out (a BUNDLE split). */
+export async function createSplitOffer(pc: RTCPeerConnection, mid: string) {
+  const offer = await pc.createOffer();
+  const group = offer.sdp.match(/^a=group:BUNDLE ([^\r\n]+)/m)![1];
+  const kept = group.split(" ").filter((item) => item !== mid);
+  return offer.sdp.replace(
+    /^a=group:BUNDLE [^\r\n]+/m,
+    `a=group:BUNDLE ${kept.join(" ")}`,
+  );
+}
