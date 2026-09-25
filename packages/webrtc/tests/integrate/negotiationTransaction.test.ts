@@ -7,14 +7,11 @@ import {
 } from "../../src";
 import {
   assertNegotiationInvariants,
-  createConnectedMediaAndDataPeers,
   createConnectedVideoPeers,
-  sendAndExpectData,
   sendAndExpectRtp,
   waitForConnection,
   waitForIce,
   waitForPendingTransport,
-  waitForProvisionalNomination,
 } from "./negotiationTransactionUtils";
 
 describe("negotiation transaction", () => {
@@ -97,150 +94,6 @@ describe("negotiation transaction", () => {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
   }, 10000);
-
-  test.each(["answer", "rollback"] as const)(
-    "ICE restart pranswer over a connected SCTP association checks the new generation, then %s",
-    async (outcome) => {
-      const { offerer, answerer, outgoing, incoming, channel, received } =
-        await createConnectedMediaAndDataPeers();
-      try {
-        // Arrange: 現行 generation の selected pair と SCTP transport を控える。
-        const offererIce = offerer.iceTransports[0];
-        const answererIce = answerer.iceTransports[0];
-        const offererPair = offererIce.connection.nominated;
-        const answererPair = answererIce.connection.nominated;
-        const sctpTransport = answerer.sctpTransport!.dtlsTransport;
-        const currentRemote = answerer.currentRemoteDescription!.sdp;
-
-        // Act: 確立済み SCTP を保つ restart offer に pranswer を返す。
-        await offerer.setLocalDescription(
-          await offerer.createOffer({ iceRestart: true }),
-        );
-        await answerer.setRemoteDescription(offerer.localDescription!);
-        const answer = await answerer.createAnswer();
-        await answerer.setLocalDescription({
-          type: "pranswer",
-          sdp: answer.sdp,
-        });
-        await offerer.setRemoteDescription({
-          type: "pranswer",
-          sdp: answerer.localDescription!.sdp,
-        });
-        const [offererConnection] = await waitForProvisionalNomination(offerer);
-        const [answererConnection] =
-          await waitForProvisionalNomination(answerer);
-
-        // Assert: pending generation は pranswer の資格情報で nominate され、
-        // current の pair・SDP・association はそのまま通信を続ける。
-        const offerUfrag =
-          offerer.localDescription!.sdp.match(/a=ice-ufrag:(\S+)/)![1];
-        const answerUfrag =
-          answerer.localDescription!.sdp.match(/a=ice-ufrag:(\S+)/)![1];
-        expect(offererConnection.provisionalNominated).toBeDefined();
-        expect(offererIce.connection.nominated).toBe(offererPair);
-        expect(answererIce.connection.nominated).toBe(answererPair);
-        expect(offererIce.connection.remoteUsername).not.toBe(answerUfrag);
-        expect(answererIce.connection.remoteUsername).not.toBe(offerUfrag);
-        expect(answererConnection.provisionalNominated).toBeDefined();
-        expect(answerer.sctpTransport!.dtlsTransport).toBe(sctpTransport);
-        expect(answerer.currentRemoteDescription!.sdp).toBe(currentRemote);
-        await sendAndExpectRtp(
-          outgoing,
-          incoming,
-          `sctp-restart-pranswer-${outcome}`,
-        );
-        await sendAndExpectData(channel, received, `dc-pranswer-${outcome}`);
-
-        if (outcome === "answer") {
-          // Act: final answer で pending generation を commit する。
-          await answerer.setLocalDescription({
-            type: "answer",
-            sdp: answer.sdp,
-          });
-          await offerer.setRemoteDescription(answerer.localDescription!);
-          await Promise.all([waitForIce(offerer), waitForIce(answerer)]);
-
-          // Assert: 双方の live generation が SDP と一致し、SCTP は移動しない。
-          expect(offererIce.getRemoteParameters()?.usernameFragment).toBe(
-            answerUfrag,
-          );
-          expect(answererIce.getRemoteParameters()?.usernameFragment).toBe(
-            offerUfrag,
-          );
-          expect(answererIce.localParameters.usernameFragment).toBe(
-            answerUfrag,
-          );
-        } else {
-          // Act: 双方の pending description を rollback する。
-          await offerer.setLocalDescription({ type: "rollback" });
-          await answerer.setRemoteDescription({ type: "rollback" });
-
-          // Assert: provisional generation は破棄され、current pair が残る。
-          expect(offererIce.connection.provisionalNominated).toBeUndefined();
-          expect(answererIce.connection.provisionalNominated).toBeUndefined();
-          expect(offererIce.connection.nominated).toBe(offererPair);
-          expect(answererIce.connection.nominated).toBe(answererPair);
-          expect(answerer.currentRemoteDescription!.sdp).toBe(currentRemote);
-        }
-
-        // Assert: commit/rollback 後も同じ association で RTP と DataChannel が届く。
-        expect(answerer.sctpTransport!.dtlsTransport).toBe(sctpTransport);
-        await sendAndExpectRtp(
-          outgoing,
-          incoming,
-          `sctp-restart-after-${outcome}`,
-        );
-        await sendAndExpectData(channel, received, `dc-after-${outcome}`);
-        await sendAndExpectData(received, channel, `dc-reverse-${outcome}`);
-        assertNegotiationInvariants(offerer);
-        assertNegotiationInvariants(answerer);
-      } finally {
-        await Promise.allSettled([offerer.close(), answerer.close()]);
-      }
-    },
-    15000,
-  );
-
-  test("a replacement offer that would move SCTP is rejected before retiring the pending offer", async () => {
-    const { offerer, answerer, channel, received } =
-      await createConnectedMediaAndDataPeers();
-    try {
-      // Arrange: 有効な re-offer を pending に置き、SCTP を BUNDLE から外す
-      // replacement offer を用意する。
-      await offerer.setLocalDescription(await offerer.createOffer());
-      await answerer.setRemoteDescription(offerer.localDescription!);
-      const pendingOffer = answerer.pendingRemoteDescription!.sdp;
-      const sctpTransport = answerer.sctpTransport!.dtlsTransport;
-      const replacement = offerer.localDescription!.sdp.replace(
-        /a=group:BUNDLE [^\r\n]+\r\n/,
-        "",
-      );
-
-      // Act: SCTP を別 DTLS transport に移す replacement offer を適用する。
-      await expect(
-        answerer.setRemoteDescription({ type: "offer", sdp: replacement }),
-      ).rejects.toMatchObject({ name: "InvalidModificationError" });
-
-      // Assert: 先行 pending と SCTP binding は置換前のまま残る。
-      expect(answerer.signalingState).toBe("have-remote-offer");
-      expect(answerer.pendingRemoteDescription!.sdp).toBe(pendingOffer);
-      expect(answerer.sctpTransport!.dtlsTransport).toBe(sctpTransport);
-
-      // Act: 残った先行 pending をそのまま answer で commit する。
-      await answerer.setLocalDescription(await answerer.createAnswer());
-      await offerer.setRemoteDescription(answerer.localDescription!);
-
-      // Assert: stable へ進み、既存 association で双方向に通信できる。
-      expect(answerer.signalingState).toBe("stable");
-      expect(answerer.currentRemoteDescription!.sdp).toBe(pendingOffer);
-      await sendAndExpectData(channel, received, "after-rejected-replacement");
-      await sendAndExpectData(received, channel, "reverse-after-replacement");
-      assertNegotiationInvariants(offerer);
-      assertNegotiationInvariants(answerer);
-    } finally {
-      await Promise.allSettled([offerer.close(), answerer.close()]);
-    }
-  });
 
   test("rollback removes remote-only objects and a repeated offer does not duplicate events", async () => {
     const offerer = new RTCPeerConnection();
@@ -959,7 +812,7 @@ describe("negotiation transaction", () => {
       expect(receivedVideo).toBeDefined();
       await sendAndExpectRtp(video, receivedVideo!, "unbundled-video");
 
-      // Act / Assert: 接続済み SCTP を別 DTLS owner へ移す answer / offer は適用前に拒否する。
+      // Act / Assert: 接続済み SCTP を別 DTLS owner へ移す answer は準備時に拒否する。
       const changedTag = await offerer.createOffer();
       await offerer.setLocalDescription({
         type: "offer",
@@ -978,12 +831,12 @@ describe("negotiation transaction", () => {
           sdp: incompatibleAnswer,
         }),
       ).rejects.toMatchObject({ name: "InvalidModificationError" });
-      // 受信側は offer の validate で拒否し、stable の current を保つ。
-      await expect(
-        answerer.setRemoteDescription(offerer.localDescription!),
-      ).rejects.toMatchObject({ name: "InvalidModificationError" });
-      expect(answerer.signalingState).toBe("stable");
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await expect(answerer.createAnswer()).rejects.toMatchObject({
+        name: "InvalidModificationError",
+      });
       await offerer.setLocalDescription({ type: "rollback" });
+      await answerer.setRemoteDescription({ type: "rollback" });
       await sendAndExpectRtp(video, receivedVideo!, "tag-change-rejected");
 
       // Act: 次の offer で全 m-line を BUNDLE に戻す。

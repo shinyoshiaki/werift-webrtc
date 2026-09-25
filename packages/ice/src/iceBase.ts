@@ -45,15 +45,6 @@ export interface IceConnection {
   stageLocalCredentials(usernameFragment: string, password: string): void;
   discardStagedLocalCredentials(usernameFragment: string): void;
   commitLocalCredentials(usernameFragment: string, password: string): void;
-  setProvisionalRemoteParams(params: {
-    usernameFragment: string;
-    password: string;
-  }): void;
-  addProvisionalRemoteCandidate(
-    candidate: Candidate | undefined,
-  ): Promise<void>;
-  startProvisionalChecks(): void;
-  readonly provisionalNominated?: CandidatePair;
 
   setIceServers(options: Partial<IceOptions>): void;
 

@@ -2,7 +2,6 @@ import { expect } from "vitest";
 
 import {
   MediaStreamTrack,
-  type RTCDataChannel,
   RTCPeerConnection,
   RtpHeader,
   RtpPacket,
@@ -38,85 +37,6 @@ export async function createConnectedVideoPeers() {
   ]);
   if (!incoming) throw new Error("Remote video track was not delivered");
   return { offerer, answerer, outgoing, incoming };
-}
-
-/** Connected video + DataChannel session whose SCTP association is established. */
-export async function createConnectedMediaAndDataPeers() {
-  const offerer = new RTCPeerConnection();
-  const answerer = new RTCPeerConnection();
-  const outgoing = new MediaStreamTrack({ kind: "video" });
-  let incoming: MediaStreamTrack | undefined;
-  answerer.onRemoteTransceiverAdded.subscribe((transceiver) => {
-    transceiver.onTrack.subscribe((track) => {
-      incoming = track;
-    });
-  });
-  const channel = offerer.createDataChannel("transaction");
-  const remoteChannel = answerer.onDataChannel.asPromise().then(([c]) => c);
-  offerer.addTransceiver(outgoing, { direction: "sendonly" });
-  await offerer.setLocalDescription(await offerer.createOffer());
-  await answerer.setRemoteDescription(offerer.localDescription!);
-  await answerer.setLocalDescription(await answerer.createAnswer());
-  await offerer.setRemoteDescription(answerer.localDescription!);
-  if (channel.readyState !== "open") {
-    await withTimeout(
-      channel.stateChanged.watch((state) => state === "open"),
-      "DataChannel did not open",
-    );
-  }
-  const received = await withTimeout(remoteChannel, "No remote DataChannel");
-  if (!incoming) throw new Error("Remote video track was not delivered");
-  return { offerer, answerer, outgoing, incoming, channel, received };
-}
-
-export async function sendAndExpectData(
-  from: RTCDataChannel,
-  to: RTCDataChannel,
-  text: string,
-) {
-  const message = to.onMessage.watch((data) => data.toString() === text);
-  from.send(Buffer.from(text));
-  await withTimeout(message, `DataChannel message was not received: ${text}`);
-}
-
-type ProvisionalIce = {
-  connection: {
-    nominated?: unknown;
-    remoteUsername: string;
-    provisionalNominated?: { localCandidate: { ufrag?: string } };
-  };
-};
-
-/** Wait until the provisional ICE generation of every transport nominates a pair. */
-export async function waitForProvisionalNomination(pc: RTCPeerConnection) {
-  const transports = pc.iceTransports as unknown as ProvisionalIce[];
-  await withTimeout(
-    (async () => {
-      while (
-        !transports.every(
-          (transport) => transport.connection.provisionalNominated,
-        )
-      ) {
-        await new Promise((resolve) => setTimeout(resolve, 20));
-      }
-    })(),
-    "Provisional ICE generation was not nominated",
-  );
-  return transports.map((transport) => transport.connection);
-}
-
-async function withTimeout<T>(promise: Promise<T>, message: string, ms = 3000) {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), ms);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 export async function waitForIce(pc: RTCPeerConnection) {

@@ -177,28 +177,6 @@ export class RTCIceTransport {
     this.connection.stageLocalCredentials(usernameFragment, password);
   }
 
-  get hasStagedRestart() {
-    return !!this.stagedLocalRestart;
-  }
-
-  /** Feed a pranswer's ICE generation to the provisional checklist. */
-  setProvisionalRemoteParams(remoteParameters: RTCIceParameters) {
-    if (!this.stagedLocalRestart) return;
-    this.connection.setProvisionalRemoteParams(remoteParameters);
-  }
-
-  addProvisionalRemoteCandidate(candidate?: IceCandidate) {
-    if (!this.stagedLocalRestart) return;
-    return this.connection.addProvisionalRemoteCandidate(
-      candidate ? candidateToIce(candidate) : undefined,
-    );
-  }
-
-  startProvisionalChecks() {
-    if (!this.stagedLocalRestart) return;
-    this.connection.startProvisionalChecks();
-  }
-
   emitStagedCandidates() {
     const staged = this.stagedLocalRestart;
     if (!staged || staged.emitted) return;

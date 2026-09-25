@@ -110,19 +110,8 @@ gathers candidates and runs checks during pranswer. Its candidate and EOC
 bucket is selected by the pending ufrag. The committed transport remains bound
 to existing media until final answer; rollback stops the pending transport.
 For an established SCTP association, the existing ICE transport stages restart
-credentials so DataChannels remain on their current DTLS association. During
-pranswer that transport runs a provisional ICE generation beside the selected
-current pair: the pranswer (or pending offer) credentials, candidates, trickle
-and EOC feed a separate checklist, incoming checks for the staged ufrag are
-answered and recorded there only, and nomination is kept as provisional. The
-current pair, consent and DTLS session keep carrying RTP and SCTP; no second
-DTLS handshake is needed because the association is not moved. A replacement
-pranswer resets that checklist, rollback discards it, and the final answer
-activates the staged credentials on that transport.
-
-A remote re-offer whose BUNDLE plan would move an established SCTP association
-to another DTLS transport is rejected in validate, before a replacement retires
-the earlier pending offer; the earlier offer can still be answered.
+credentials so DataChannels remain on their current DTLS association; the
+final answer activates those credentials on that transport.
 
 Trickle with an explicit `usernameFragment` targets the matching current or
 pending remote generation; without one it targets the latest applicable

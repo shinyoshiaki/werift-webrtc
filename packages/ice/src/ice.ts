@@ -79,8 +79,6 @@ export class Connection implements IceConnection {
   private consentSessionId = 0;
   private consentExpiryTimer?: ReturnType<typeof setTimeout>;
   private consentRequestAbort?: AbortController;
-  /** ICE restart generation checked beside the selected current pair. */
-  private provisional?: ProvisionalGeneration;
 
   readonly onData = new Event<[Buffer]>();
   readonly stateChanged = new Event<[IceState]>();
@@ -209,262 +207,16 @@ export class Connection implements IceConnection {
 
     // Tear down consent timers/transactions; new credentials require a new session.
     this.stopConsentLifecycle();
-    this.provisional = undefined;
   }
 
   /** Accept provisional checks without changing the selected current pair. */
   stageLocalCredentials(usernameFragment: string, password: string) {
     this.userHistory[usernameFragment] = password;
-    this.provisional = {
-      localUsername: usernameFragment,
-      localPassword: password,
-      remoteCandidates: [],
-      remoteCandidatesEnd: false,
-      pairs: [],
-      started: false,
-    };
   }
 
   discardStagedLocalCredentials(usernameFragment: string) {
-    if (this.provisional?.localUsername === usernameFragment) {
-      this.provisional = undefined;
-    }
     if (usernameFragment !== this.localUsername) {
       delete this.userHistory[usernameFragment];
-    }
-  }
-
-  /** Remote credentials of the provisional generation (pranswer). */
-  setProvisionalRemoteParams({
-    usernameFragment,
-    password,
-  }: {
-    usernameFragment: string;
-    password: string;
-  }) {
-    const generation = this.provisional;
-    if (!generation) return;
-    if (
-      generation.remoteUsername === usernameFragment &&
-      generation.remotePassword === password
-    ) {
-      return;
-    }
-    // A replacement pranswer starts a new provisional checklist.
-    generation.remoteUsername = usernameFragment;
-    generation.remotePassword = password;
-    generation.remoteCandidates = [];
-    generation.remoteCandidatesEnd = false;
-    generation.pairs = [];
-    generation.nominated = undefined;
-  }
-
-  async addProvisionalRemoteCandidate(remoteCandidate: Candidate | undefined) {
-    const generation = this.provisional;
-    if (!generation) return;
-    if (!remoteCandidate) {
-      generation.remoteCandidatesEnd = true;
-      return;
-    }
-    if (remoteCandidate.host.includes(".local")) {
-      try {
-        if (!this.lookup) {
-          this.lookup = new MdnsLookup();
-        }
-        remoteCandidate.host = await this.lookup.lookup(remoteCandidate.host);
-      } catch (error) {
-        return;
-      }
-    }
-    try {
-      validateRemoteCandidate(remoteCandidate);
-    } catch (error) {
-      return;
-    }
-    if (
-      this.provisional !== generation ||
-      generation.remoteCandidates.some(
-        (c) =>
-          c.host === remoteCandidate.host &&
-          c.port === remoteCandidate.port &&
-          c.transport.toLowerCase() === remoteCandidate.transport.toLowerCase(),
-      )
-    ) {
-      return;
-    }
-    generation.remoteCandidates.push(remoteCandidate);
-    for (const protocol of this.protocols) {
-      this.tryProvisionalPair(generation, protocol, remoteCandidate);
-    }
-  }
-
-  /** Start checks for the provisional generation; the selected pair is kept. */
-  startProvisionalChecks() {
-    const generation = this.provisional;
-    if (!generation || generation.started) return;
-    generation.started = true;
-    for (const remoteCandidate of generation.remoteCandidates) {
-      for (const protocol of this.protocols) {
-        this.tryProvisionalPair(generation, protocol, remoteCandidate);
-      }
-    }
-    for (const pair of generation.pairs) {
-      void this.checkProvisional(generation, pair);
-    }
-  }
-
-  get provisionalNominated() {
-    return this.provisional?.nominated;
-  }
-
-  private tryProvisionalPair(
-    generation: ProvisionalGeneration,
-    protocol: Protocol,
-    remoteCandidate: Candidate,
-  ) {
-    if (
-      !protocol.localCandidate?.canPairWith(remoteCandidate) ||
-      (protocol.localCandidate.transport.toLowerCase() === "tcp" &&
-        protocol.localCandidate.tcptype === "passive" &&
-        remoteCandidate.type !== "prflx") ||
-      generation.pairs.some(
-        (pair) =>
-          pair.protocol === protocol &&
-          pair.remoteCandidate === remoteCandidate,
-      )
-    ) {
-      return;
-    }
-    const pair = new CandidatePair(
-      protocol,
-      remoteCandidate,
-      this.iceControlling,
-    );
-    pair.updateState(CandidatePairState.WAITING);
-    generation.pairs.push(pair);
-    if (generation.started) void this.checkProvisional(generation, pair);
-  }
-
-  private async checkProvisional(
-    generation: ProvisionalGeneration,
-    pair: CandidatePair,
-    retry = true,
-  ): Promise<void> {
-    if (
-      this.provisional !== generation ||
-      !generation.started ||
-      !generation.remoteUsername ||
-      !generation.remotePassword ||
-      [CandidatePairState.IN_PROGRESS, CandidatePairState.SUCCEEDED].includes(
-        pair.state,
-      )
-    ) {
-      return;
-    }
-    pair.updateState(CandidatePairState.IN_PROGRESS);
-    const nominate = this.iceControlling && !this.remoteIsLite;
-    const request = this.buildRequest({
-      nominate,
-      localUsername: generation.localUsername,
-      remoteUsername: generation.remoteUsername,
-      iceControlling: this.iceControlling,
-      localCandidate: pair.localCandidate,
-    });
-    try {
-      pair.requestsSent++;
-      const [, addr] = await pair.protocol.request(
-        request,
-        pair.remoteAddr,
-        Buffer.from(generation.remotePassword, "utf8"),
-        pair.localCandidate.transport.toLowerCase() === "tcp" ? 0 : 4,
-      );
-      pair.responsesReceived++;
-      if (this.provisional !== generation) return;
-      if (addr[0] !== pair.remoteAddr[0] || addr[1] !== pair.remoteAddr[1]) {
-        pair.updateState(CandidatePairState.FAILED);
-        return;
-      }
-    } catch (error) {
-      if (this.provisional !== generation) return;
-      const code = (error as TransactionError).response?.getAttributeValue(
-        "ERROR-CODE",
-      )?.[0];
-      pair.updateState(CandidatePairState.FAILED);
-      if (code === 487 && retry) {
-        this.switchRole(request.attributesKeys.includes("ICE-CONTROLLED"));
-        pair.updateState(CandidatePairState.WAITING);
-        return this.checkProvisional(generation, pair, false);
-      }
-      return;
-    }
-    if (nominate || pair.remoteNominated) pair.nominated = true;
-    pair.updateState(CandidatePairState.SUCCEEDED);
-    if (pair.nominated && !generation.nominated) {
-      log("provisional nominated", pair.toJSON());
-      generation.nominated = pair;
-    }
-  }
-
-  /** Incoming check for the provisional ufrag; never touches the current checklist. */
-  private checkIncomingProvisional(
-    generation: ProvisionalGeneration,
-    message: Message,
-    addr: Address,
-    protocol: Protocol,
-  ) {
-    const [host, port] = addr;
-    let remoteCandidate = generation.remoteCandidates.find(
-      (c) => c.host === host && c.port === port,
-    );
-    if (!remoteCandidate) {
-      remoteCandidate = new Candidate(
-        randomString(10),
-        1,
-        protocol.localCandidate?.transport ?? "udp",
-        message.getAttributeValue("PRIORITY"),
-        host,
-        port,
-        "prflx",
-        undefined,
-        undefined,
-        protocol.localCandidate?.transport === "tcp"
-          ? remoteTcpTypeForIncoming(protocol.localCandidate.tcptype)
-          : undefined,
-        undefined,
-        undefined,
-      );
-      generation.remoteCandidates.push(remoteCandidate);
-    }
-    let pair = generation.pairs.find(
-      (p) => p.protocol === protocol && p.remoteCandidate === remoteCandidate,
-    );
-    if (!pair) {
-      pair = new CandidatePair(protocol, remoteCandidate, this.iceControlling);
-      pair.updateState(CandidatePairState.WAITING);
-      generation.pairs.push(pair);
-    }
-    pair.noteIncomingRequest(message.transactionIdHex);
-    pair.requestsReceived++;
-    pair.responsesSent++;
-
-    if (
-      message.attributesKeys.includes("USE-CANDIDATE") &&
-      !this.iceControlling
-    ) {
-      pair.remoteNominated = true;
-      if (this.iceLite || pair.state === CandidatePairState.SUCCEEDED) {
-        pair.nominated = true;
-        pair.updateState(CandidatePairState.SUCCEEDED);
-        generation.nominated ??= pair;
-      }
-    }
-    if (
-      !this.iceLite &&
-      [CandidatePairState.WAITING, CandidatePairState.FAILED].includes(
-        pair.state,
-      )
-    ) {
-      void this.checkProvisional(generation, pair);
     }
   }
 
@@ -616,16 +368,6 @@ export class Connection implements IceConnection {
       protocol.sendStun(response, addr).catch((e) => {
         log("sendStun error", e);
       });
-
-      const provisional = this.provisional;
-      if (
-        provisional &&
-        localUsername === provisional.localUsername &&
-        localUsername !== this.localUsername
-      ) {
-        this.checkIncomingProvisional(provisional, msg, addr, protocol);
-        return;
-      }
 
       if (this.checkList.length === 0 && !this.earlyChecksDone) {
         this.earlyChecks.push([msg, addr, protocol]);
@@ -1930,16 +1672,4 @@ const encodeTxUsername = ({
 const decodeTxUsername = (txUsername: string) => {
   const [remoteUsername, localUsername] = txUsername.split(":");
   return { remoteUsername, localUsername };
-};
-
-type ProvisionalGeneration = {
-  localUsername: string;
-  localPassword: string;
-  remoteUsername?: string;
-  remotePassword?: string;
-  remoteCandidates: Candidate[];
-  remoteCandidatesEnd: boolean;
-  pairs: CandidatePair[];
-  nominated?: CandidatePair;
-  started: boolean;
 };
