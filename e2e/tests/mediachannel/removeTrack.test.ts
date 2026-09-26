@@ -229,7 +229,8 @@ describe("mediachannel_removeTrack", () => {
         }
 
         // replace second
-        pc.addTransceiver(video, { direction: "sendonly" });
+        // removeTrack だけの inactive m-line は再利用されないため、Chromium は新しい m-line を末尾に追加する
+        const replaced = pc.addTransceiver(video, { direction: "sendonly" });
         {
           await pc.setLocalDescription(await pc.createOffer());
           const answer = await peer.request(mediachannel_offer_replace_second, {
@@ -238,9 +239,13 @@ describe("mediachannel_removeTrack", () => {
           });
           await pc.setRemoteDescription(answer);
         }
+        const replacedIndex = pc
+          .getTransceivers()
+          .findIndex((t) => t === replaced);
+        expect(replacedIndex).toBe(3);
         await peer.request(mediachannel_offer_replace_second, {
           type: "check",
-          payload: { index: 1 },
+          payload: { index: replacedIndex },
         });
 
         pc.close();

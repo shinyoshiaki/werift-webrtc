@@ -9,6 +9,17 @@
 ### 🚀 Features
 
 - **`werift/polyfill`**: Opt-in installer that puts werift WebRTC constructors on `globalThis` (or a `target` sandbox) and implements `navigator.mediaDevices.getUserMedia` via `mediaRegister` (MP4/WebM, RTP/RTCP, encoded binary, or `createCallbackRegister`).
+- **`PeerConfig.mLineReuse`** (#705): `"compatible"` (default) keeps accepted `inactive` m-lines on a non-zero port and uses port 0 only for rejected / stopped m-lines; `"aggressive"` keeps the legacy inactive port 0. The value is validated on construction and cannot be changed by `setConfiguration()`.
+- **`RTCRtpTransceiver.stop()` and m-line reuse** (#705): `stop()` is idempotent, releases the sender / receiver / router registrations immediately, and negotiates port 0 in the next local offer. A new `addTransceiver()` reuses a port 0 position of the same kind only after the rejection has been negotiated, with a new MID and a new transceiver.
+
+### 🐛 Bug Fixes
+
+- **Reject unsupported RTP m-lines in the answer instead of throwing** (#705): `setRemoteDescription()` no longer fails with `negotiate codecs failed.` when an audio/video section has no common codec. The answer keeps the m-line count, order, MID, type and proto, and rejects only that section with port 0 and one offered fmt token. Audio-only peers no longer need to add VP8 to accept a browser offer that bundles video.
+  - The answer BUNDLE group contains only accepted offered members; an offerer-tagged section rejected in the initial answer moves the tag to the first accepted member, and a fully rejected group is omitted. An established tag is kept.
+  - Accepted m-lines outside the offered BUNDLE group get their own transport and ICE credentials. Local trickle candidates carry the MID / index of the accepted section that owns the ICE transport (not always m-line 0); remote candidates for rejected sections are recorded without throwing. SCTP before RTP keeps the original indexes.
+  - A non-zero remote answer / pranswer without a common codec is rejected with `InvalidAccessError` before any state changes. An unsupported re-offer keeps the existing track and RTP pipeline while pending and after rollback, and is released only when the port 0 answer is applied.
+  - `removeTrack()` detaches the track without stopping the sender, so the same sender can resume. `addTrack()` reuses only unsent, non-stopped, non-rejected senders. Re-offers no longer fire `ontrack` again for an already receiving transceiver, and remote-initiated stops do not fire `negotiationneeded`.
+  - Design note: `docs/design/705-media-rejection-and-removetrack.md`.
 
 ## v0.24.4
 

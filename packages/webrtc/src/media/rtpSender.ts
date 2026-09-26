@@ -404,12 +404,7 @@ export class RTCRtpSender {
 
   async replaceTrack(track: MediaStreamTrack | null) {
     if (track === null) {
-      this.rtpContinuityPending = false;
-      this.discardPendingRtp();
-      if (this.disposeTrack) {
-        this.disposeTrack();
-      }
-      this.track = null;
+      this.detachTrack();
       return;
     }
 
@@ -423,7 +418,21 @@ export class RTCRtpSender {
     log("replaceTrack", "ssrc", track.ssrc, "rid", track.rid);
   }
 
-  stop() {
+  /**
+   * Detach the current track without stopping the sender (`removeTrack`).
+   * The same sender can resume sending after `replaceTrack(track)`.
+   */
+  detachTrack() {
+    this.rtpContinuityPending = false;
+    this.discardPendingRtp();
+    if (this.disposeTrack) {
+      this.disposeTrack();
+      this.disposeTrack = undefined;
+    }
+    this.track = null;
+  }
+
+  stop({ keepTrack = false }: { keepTrack?: boolean } = {}) {
     this.stopped = true;
     this.rtpContinuityPending = false;
     this.discardPendingRtp();
@@ -431,8 +440,11 @@ export class RTCRtpSender {
     this.rtcpCancel.abort();
     if (this.disposeTrack) {
       this.disposeTrack();
+      this.disposeTrack = undefined;
     }
-    this.track = null;
+    if (!keepTrack) {
+      this.track = null;
+    }
   }
 
   async runRtcp() {

@@ -38,6 +38,37 @@ npm run wpt --workspace packages/webrtc -- --update-baseline
 WPT_UPDATE_COVERAGE_BASELINE=1 npm run wpt:coverage --workspace packages/webrtc
 ```
 
+## Rejected, stopped and reused m-lines
+
+A remote offer can contain audio/video sections that the local `codecs` cannot handle. `setRemoteDescription()` still succeeds and the answer rejects only those sections with port 0 at the same position (Issue #705). For example, an audio-only peer can answer a browser offer that bundles video without adding VP8:
+
+```ts
+const pc = new RTCPeerConnection({
+  codecs: { audio: [useOPUS()], video: [] },
+});
+await pc.setRemoteDescription(browserOffer); // audio + video in BUNDLE
+await pc.setLocalDescription(await pc.createAnswer()); // video: m=video 0 ...
+```
+
+`mLineReuse` selects how inactive and stopped m-lines are written. It is fixed at construction time.
+
+```ts
+new RTCPeerConnection(); // mLineReuse: "compatible" (default)
+new RTCPeerConnection({ mLineReuse: "aggressive" }); // legacy: inactive also uses port 0
+```
+
+| `mLineReuse` | accepted `inactive` | rejected / stopped |
+| --- | --- | --- |
+| `"compatible"` (default) | non-zero port | port 0 |
+| `"aggressive"` | port 0 | port 0 |
+
+- Rejected (`transceiver.rejected`): no common codec or remote port 0. No sender/receiver pipeline, router registration, `ontrack` or TWCC is set up for it.
+- Stopped: `transceiver.stop()` releases media immediately and is negotiated as port 0 in the next local offer; `transceiver.stopped` becomes `true` when the answer is applied. An answerer that calls `stop()` answers `inactive` first and negotiates the stop in its own next offer.
+- Reused: after the port 0 negotiation completes, `addTransceiver()` of the same kind takes that position with a new MID and a new transceiver, so the number of m-lines does not grow. Positions that are only stopping are not reused.
+- `removeTrack(sender)` only detaches the track. `sender.replaceTrack(track)` plus `transceiver.direction = "sendrecv"` resumes sending on the same sender.
+
+See [the design note](../../docs/design/705-media-rejection-and-removetrack.md) for BUNDLE, ICE candidate and rollback details.
+
 ## Documentation
 
 - [Website](https://shinyoshiaki.github.io/werift-webrtc/website/build/)
