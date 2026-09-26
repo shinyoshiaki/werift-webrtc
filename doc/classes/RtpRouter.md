@@ -28,6 +28,15 @@
 
 ***
 
+### learnedSsrcs
+
+> `readonly` **learnedSsrcs**: `Set`\<`number`\>
+
+SSRCs registered from received packets (simulcast after RID stops being
+sent), not from SDP. Negotiation rollback keeps these entries.
+
+***
+
 ### ridTable
 
 > **ridTable**: `object` = `{}`

@@ -152,9 +152,9 @@
 
 ## Methods
 
-### addProvisionalRemoteCandidate()
+### addProvisionalRemoteCandidate()?
 
-> **addProvisionalRemoteCandidate**(`candidate`): `Promise`\<`void`\>
+> `optional` **addProvisionalRemoteCandidate**(`candidate`): `Promise`\<`void`\>
 
 #### Parameters
 
@@ -194,9 +194,9 @@
 
 ***
 
-### commitLocalCredentials()
+### commitLocalCredentials()?
 
-> **commitLocalCredentials**(`usernameFragment`, `password`): `void`
+> `optional` **commitLocalCredentials**(`usernameFragment`, `password`): `void`
 
 #### Parameters
 
@@ -224,9 +224,9 @@
 
 ***
 
-### discardStagedLocalCredentials()
+### discardStagedLocalCredentials()?
 
-> **discardStagedLocalCredentials**(`usernameFragment`): `void`
+> `optional` **discardStagedLocalCredentials**(`usernameFragment`): `void`
 
 #### Parameters
 
@@ -312,9 +312,9 @@
 
 ***
 
-### setProvisionalRemoteParams()
+### setProvisionalRemoteParams()?
 
-> **setProvisionalRemoteParams**(`params`): `void`
+> `optional` **setProvisionalRemoteParams**(`params`): `void`
 
 #### Parameters
 
@@ -360,9 +360,13 @@
 
 ***
 
-### stageLocalCredentials()
+### stageLocalCredentials()?
 
-> **stageLocalCredentials**(`usernameFragment`, `password`): `void`
+> `optional` **stageLocalCredentials**(`usernameFragment`, `password`): `void`
+
+Optional staged-restart and provisional-generation support. An
+implementation without them still restarts ICE at the final answer, but
+cannot answer or run checks for the new generation during pranswer.
 
 #### Parameters
 
@@ -380,9 +384,9 @@
 
 ***
 
-### startProvisionalChecks()
+### startProvisionalChecks()?
 
-> **startProvisionalChecks**(): `void`
+> `optional` **startProvisionalChecks**(): `void`
 
 #### Returns
 

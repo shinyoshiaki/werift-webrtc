@@ -75,6 +75,14 @@ compactNtp
 
 ***
 
+### learnedTrackSsrcs
+
+> `readonly` **learnedTrackSsrcs**: `Set`\<`number`\>
+
+SSRCs of `trackBySSRC` learned from RID packets rather than SDP.
+
+***
+
 ### onPacketLost
 
 > `readonly` **onPacketLost**: [`Event`](Event.md)\<\[[`GenericNack`](GenericNack.md)\]\>
