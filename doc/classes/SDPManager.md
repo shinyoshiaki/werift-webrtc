@@ -28,6 +28,10 @@
 
 `boolean`
 
+###### mLineReuse?
+
+[`MLineReuse`](../type-aliases/MLineReuse.md)
+
 #### Returns
 
 [`SDPManager`](SDPManager.md)
@@ -64,6 +68,12 @@
 
 ***
 
+### mLineReuse
+
+> `readonly` **mLineReuse**: [`MLineReuse`](../type-aliases/MLineReuse.md)
+
+***
+
 ### pendingLocalDescription?
 
 > `optional` **pendingLocalDescription**: [`SessionDescription`](SessionDescription.md)
@@ -97,6 +107,20 @@
 ##### Returns
 
 `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+
+***
+
+### negotiatedBundleTag
+
+#### Get Signature
+
+> **get** **negotiatedBundleTag**(): `undefined` \| `string`
+
+確定済み answer の BUNDLE tag (先頭 MID)
+
+##### Returns
+
+`undefined` \| `string`
 
 ***
 
@@ -247,6 +271,47 @@ MediaDescriptionをトランシーバー用に作成
 ##### direction
 
 `"inactive"` | `"sendonly"` | `"recvonly"` | `"sendrecv"`
+
+#### Returns
+
+[`MediaDescription`](MediaDescription.md)
+
+***
+
+### createRejectedMediaDescription()
+
+> **createRejectedMediaDescription**(`source`, `dtlsTransport`?): [`MediaDescription`](MediaDescription.md)
+
+拒否 / 停止した m-line を作成する (RFC 3264 §6 / RFC 8829 §5.3.1)。
+port は 0、proto と MID は元の m-line を保ち、fmt は少なくとも 1 token 残す。
+
+#### Parameters
+
+##### source
+
+###### codecs
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+
+###### fmt
+
+(`string` \| `number`)[]
+
+###### kind
+
+[`Kind`](../type-aliases/Kind.md)
+
+###### mid?
+
+`string`
+
+###### profile
+
+`string`
+
+##### dtlsTransport?
+
+[`RTCDtlsTransport`](RTCDtlsTransport.md)
 
 #### Returns
 

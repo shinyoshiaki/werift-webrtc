@@ -184,6 +184,7 @@
 - [InterfaceAddresses](type-aliases/InterfaceAddresses.md)
 - [Kind](type-aliases/Kind.md)
 - [MediaDirection](type-aliases/MediaDirection.md)
+- [MLineReuse](type-aliases/MLineReuse.md)
 - [NamedCurveAlgorithms](type-aliases/NamedCurveAlgorithms.md)
 - [PendingRtpOptions](type-aliases/PendingRtpOptions.md)
 - [RequireAtLeastOne](type-aliases/RequireAtLeastOne.md)

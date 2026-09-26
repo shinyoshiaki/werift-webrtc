@@ -855,8 +855,10 @@ export class RTCPeerConnection extends EventTarget {
       const mid = media.rtp.muxId!;
       this.sdpManager.registerMid(mid);
       if (["audio", "video"].includes(media.kind) && media.port !== 0) {
-        const transceiver =
-          this.transceiverManager.getTransceiverByMLineIndex(i);
+        // 停止済みの transceiver には非ゼロ m-line の MID を割り当てない
+        const transceiver = this.transceiverManager
+          .getTransceivers()
+          .find((t) => t.mLineIndex === i && !t.stopped);
         if (transceiver) {
           transceiver.mid = mid;
         }
@@ -1112,6 +1114,8 @@ export class RTCPeerConnection extends EventTarget {
               return { remoteMedia, index };
             }
             transceiver = this.addRemoteTransceiver(remoteMedia, index);
+          } else if (transceiver.mid == null) {
+            this.transceiverManager.associateMLine(transceiver, index);
           }
           associated.add(transceiver);
           return { remoteMedia, index, transceiver };

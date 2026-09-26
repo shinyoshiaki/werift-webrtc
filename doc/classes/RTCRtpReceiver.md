@@ -277,6 +277,18 @@ seconds
 
 ***
 
+### endTracks()
+
+> **endTracks**(): `void`
+
+transceiver の停止確定時に remote track を ended にする
+
+#### Returns
+
+`void`
+
+***
+
 ### getStats()
 
 > **getStats**(): `Promise`\<[`RTCStatsReport`](RTCStatsReport.md)\>

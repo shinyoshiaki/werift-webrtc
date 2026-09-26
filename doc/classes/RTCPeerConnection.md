@@ -1225,6 +1225,16 @@ Advertised local SCTP max-message-size in SDP. Use 0 for unlimited.
 
 > **midSuffix**: `boolean`
 
+##### mLineReuse
+
+> **mLineReuse**: [`MLineReuse`](../type-aliases/MLineReuse.md)
+
+How local SDP marks inactive / stopped m-lines. Cannot be changed after construction.
+- `"compatible"` (default): an accepted `inactive` m-line keeps a non-zero port.
+  Only rejected (no common codec / remote port 0) or stopped m-lines use port 0,
+  and only those negotiated port 0 positions are reused by new transceivers.
+- `"aggressive"`: legacy behavior. `inactive` m-lines are also written with port 0.
+
 ##### pendingRtp
 
 > **pendingRtp**: `boolean` \| \{ `enabled`: `boolean`; `maxLength`: `number`; \}

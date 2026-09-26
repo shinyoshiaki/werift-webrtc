@@ -62,6 +62,8 @@ new RTCPeerConnection({ mLineReuse: "aggressive" }); // legacy: inactive also us
 | `"compatible"` (default) | non-zero port | port 0 |
 | `"aggressive"` | port 0 | port 0 |
 
+With `"aggressive"`, the remote side (browsers included) treats an inactive port 0 m-line as rejected, so once it is negotiated the transceiver becomes `stopped` and cannot be resumed by setting `direction` back to `"sendrecv"`. Add a new transceiver instead; it reuses that position. This differs from older werift versions. Use the default `"compatible"` if you need to pause and resume with `inactive`.
+
 - Rejected (`transceiver.rejected`): no common codec or remote port 0. No sender/receiver pipeline, router registration, `ontrack` or TWCC is set up for it.
 - Stopped: `transceiver.stop()` releases media immediately and is negotiated as port 0 in the next local offer; `transceiver.stopped` becomes `true` when the answer is applied. An answerer that calls `stop()` answers `inactive` first and negotiates the stop in its own next offer.
 - Reused: after the port 0 negotiation completes, `addTransceiver()` of the same kind takes that position with a new MID and a new transceiver, so the number of m-lines does not grow. Positions that are only stopping are not reused.

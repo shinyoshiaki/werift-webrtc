@@ -3,6 +3,7 @@
  * 705.test.ts と 705-reuse.test.ts から共有する。
  */
 import {
+  type MLineReuse,
   MediaStreamTrack,
   type PeerConfig,
   RTCPeerConnection,
@@ -288,4 +289,44 @@ export type PeerConfigPatch = Partial<PeerConfig>;
 
 export async function closeAll(...pcs: RTCPeerConnection[]) {
   await Promise.allSettled(pcs.map((pc) => pc.close()));
+}
+
+/** audio + video を交渉済みの werift ペアを作る */
+export async function createNegotiatedPair({
+  mLineReuse = "compatible",
+  bundlePolicy,
+  dataChannelFirst = false,
+  connect = false,
+}: {
+  mLineReuse?: MLineReuse;
+  bundlePolicy?: "disable";
+  dataChannelFirst?: boolean;
+  connect?: boolean;
+} = {}) {
+  const caller = createPeer({ mLineReuse, bundlePolicy });
+  const callee = createPeer({ mLineReuse, bundlePolicy });
+  if (connect) {
+    exchangeIceCandidates(caller, callee);
+  }
+  if (dataChannelFirst) {
+    // SCTP を先に交渉して m-line 0 に置く
+    caller.createDataChannel("dc");
+    await negotiate(caller, callee);
+  }
+  const audioTrack = createTrack("audio");
+  const videoTrack = createTrack("video");
+  const audio = caller.addTransceiver(audioTrack);
+  const video = caller.addTransceiver(videoTrack);
+  await negotiate(caller, callee);
+  if (connect) {
+    await waitForConnected(caller, callee);
+  }
+  return { caller, callee, audio, video, audioTrack, videoTrack };
+}
+
+export function transceiverByMid(
+  pc: RTCPeerConnection,
+  mid: string | undefined,
+) {
+  return pc.getTransceivers().find((t) => t.mid === mid);
 }

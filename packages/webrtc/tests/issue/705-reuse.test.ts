@@ -1,55 +1,17 @@
-import type { MLineReuse, RTCPeerConnection } from "../../src";
 import {
   bundleGroups,
   closeAll,
   countNegotiationNeeded,
+  createNegotiatedPair,
   createPeer,
   createTrack,
-  exchangeIceCandidates,
   expectRtpDelivered,
   flushEvents,
   mLines,
   negotiate,
   routedSsrcs,
-  waitForConnected,
+  transceiverByMid,
 } from "./705.helpers";
-
-/** audio + video を交渉済みの werift ペアを作る */
-async function createNegotiatedPair({
-  mLineReuse = "compatible",
-  bundlePolicy,
-  dataChannelFirst = false,
-  connect = false,
-}: {
-  mLineReuse?: MLineReuse;
-  bundlePolicy?: "disable";
-  dataChannelFirst?: boolean;
-  connect?: boolean;
-} = {}) {
-  const caller = createPeer({ mLineReuse, bundlePolicy });
-  const callee = createPeer({ mLineReuse, bundlePolicy });
-  if (connect) {
-    exchangeIceCandidates(caller, callee);
-  }
-  if (dataChannelFirst) {
-    // SCTP を先に交渉して m-line 0 に置く
-    caller.createDataChannel("dc");
-    await negotiate(caller, callee);
-  }
-  const audioTrack = createTrack("audio");
-  const videoTrack = createTrack("video");
-  const audio = caller.addTransceiver(audioTrack);
-  const video = caller.addTransceiver(videoTrack);
-  await negotiate(caller, callee);
-  if (connect) {
-    await waitForConnected(caller, callee);
-  }
-  return { caller, callee, audio, video, audioTrack, videoTrack };
-}
-
-function transceiverByMid(pc: RTCPeerConnection, mid: string | undefined) {
-  return pc.getTransceivers().find((t) => t.mid === mid);
-}
 
 describe("issue 705: transceiver.stop()", () => {
   test("stop() is idempotent, releases the pipeline and requests negotiation once", async () => {
@@ -279,6 +241,73 @@ describe("issue 705: m-line reuse after a confirmed stop", () => {
       expect(mLines(offer).map((m) => m.port)).toEqual([9, 0, 9]);
       expect(newVideo.mLineIndex).toBe(2);
       expect(caller.getTransceivers()).toContain(video);
+    } finally {
+      await closeAll(caller, callee);
+    }
+  });
+
+  test("an unassociated answerer transceiver takes over the reused index and survives the answerer's re-offer", async () => {
+    // Arrange: callee は停止確定前に同じ kind の未関連付け transceiver を持つ
+    const { caller, callee, video } = await createNegotiatedPair();
+    const oldCalleeVideo = transceiverByMid(callee, video.mid!)!;
+    const pendingCalleeVideo = callee.addTransceiver(createTrack("video"));
+
+    try {
+      // Act: caller が stop を交渉し、同じ位置を新 MID で再利用する
+      video.stop();
+      await negotiate(caller, callee);
+      const newVideo = caller.addTransceiver(createTrack("video"));
+      await negotiate(caller, callee);
+
+      // Assert: callee の未関連付け transceiver が index 1 / 新 MID を引き継ぎ、MID は重複しない
+      expect(pendingCalleeVideo.mid).toBe(newVideo.mid);
+      expect(pendingCalleeVideo.mLineIndex).toBe(1);
+      expect(pendingCalleeVideo.currentDirection).toBe("sendrecv");
+      const calleeMids = callee.getTransceivers().map((t) => t.mid);
+      expect(new Set(calleeMids).size).toBe(calleeMids.length);
+      // Assert: 旧 stopped transceiver は m-line から外れ、一覧からも置き換えられる
+      expect(oldCalleeVideo.mid).toBeNull();
+      expect(oldCalleeVideo.mLineIndex).toBeUndefined();
+      expect(callee.getTransceivers()).not.toContain(oldCalleeVideo);
+
+      // Act: callee 側から re-offer する
+      const { offer } = await negotiate(callee, caller);
+
+      // Assert: 再利用した m-line は port 0 にならず、caller 側の新 transceiver も生きている
+      const lines = mLines(offer);
+      expect(lines).toHaveLength(2);
+      expect(lines[1].port).toBe(9);
+      expect(lines[1].mid).toBe(newVideo.mid);
+      expect(newVideo.stopped).toBe(false);
+      expect(newVideo.currentDirection).toBe("sendrecv");
+    } finally {
+      await closeAll(caller, callee);
+    }
+  });
+
+  test("rolling back the reuse offer restores the stopped transceiver and leaves the answerer transceiver unassociated", async () => {
+    // Arrange: callee は停止確定前に同じ kind の未関連付け transceiver を持つ
+    const { caller, callee, video } = await createNegotiatedPair();
+    const oldMid = video.mid!;
+    const oldCalleeVideo = transceiverByMid(callee, oldMid)!;
+    const pendingCalleeVideo = callee.addTransceiver(createTrack("video"));
+    video.stop();
+    await negotiate(caller, callee);
+    const calleeTransceiversBefore = [...callee.getTransceivers()];
+
+    try {
+      // Act: 再利用 offer を callee に適用してから rollback する
+      caller.addTransceiver(createTrack("video"));
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription(caller.localDescription!);
+      await callee.setRemoteDescription({ type: "rollback" });
+
+      // Assert: 旧 stopped transceiver が元の位置に戻り、未関連付け transceiver は未関連付けに戻る
+      expect(callee.getTransceivers()).toEqual(calleeTransceiversBefore);
+      expect(oldCalleeVideo.mLineIndex).toBe(1);
+      expect(oldCalleeVideo.mid).toBe(oldMid);
+      expect(pendingCalleeVideo.mid).toBeNull();
+      expect(pendingCalleeVideo.mLineIndex).toBeUndefined();
     } finally {
       await closeAll(caller, callee);
     }

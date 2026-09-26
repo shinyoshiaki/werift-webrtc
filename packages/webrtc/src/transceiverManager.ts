@@ -163,6 +163,22 @@ export class TransceiverManager {
     this.replaceTransceiver(newTransceiver, index);
   }
 
+  /**
+   * 既存の未関連付け transceiver を remote m-line の位置に関連付ける。
+   * 同じ位置に停止済みの旧 transceiver があれば m-line から外し、配列上でも置き換える。
+   * (旧 transceiver が位置を持ったままだと MID の割り当て先が重複する)
+   */
+  associateMLine(transceiver: RTCRtpTransceiver, mLineIndex: number) {
+    const previous = this.transceivers.find(
+      (t) => t !== transceiver && t.stopped && t.mLineIndex === mLineIndex,
+    );
+    if (!previous) {
+      return;
+    }
+    this.transceivers.splice(this.transceivers.indexOf(transceiver), 1);
+    this.takeOverMLine(previous, transceiver);
+  }
+
   addTransceiver(
     trackOrKind: Kind | MediaStreamTrack,
     dtlsTransport?: RTCDtlsTransport,

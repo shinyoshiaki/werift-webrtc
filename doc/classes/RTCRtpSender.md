@@ -228,6 +228,19 @@
 
 ***
 
+### detachTrack()
+
+> **detachTrack**(): `void`
+
+Detach the current track without stopping the sender (`removeTrack`).
+The same sender can resume sending after `replaceTrack(track)`.
+
+#### Returns
+
+`void`
+
+***
+
 ### getParameters()
 
 > **getParameters**(): `object`
@@ -467,7 +480,15 @@ dropped, even if a drain is already in progress.
 
 ### stop()
 
-> **stop**(): `void`
+> **stop**(`__namedParameters`): `void`
+
+#### Parameters
+
+##### \_\_namedParameters
+
+###### keepTrack?
+
+`boolean` = `false`
 
 #### Returns
 
