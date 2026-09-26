@@ -101,6 +101,15 @@ export class RTCPeerConnection extends EventTarget {
   config: Required<PeerConfig> = generateDefaultPeerConfig();
   signalingState: RTCSignalingState = "stable";
   negotiationneeded = false;
+  /**同じ tick の複数の変更で negotiationneeded を重複発火しないための予約フラグ */
+  private negotiationneededScheduled = false;
+  /**交渉が必要な変更の通し番号 */
+  private negotiationChangeSeq = 0;
+  /**answer まで確定した local offer が反映している変更の通し番号 */
+  private negotiatedChangeSeq = 0;
+  /**適用中の local offer が反映している変更の通し番号 (rollback で破棄) */
+  private pendingOfferChangeSeq?: number;
+  private lastCreatedOfferChangeSeq = 0;
   needRestart = false;
   private readonly router = new RtpRouter();
   private readonly sdpManager: SDPManager;
@@ -522,6 +531,7 @@ export class RTCPeerConnection extends EventTarget {
     );
     const createdOffer = description.toJSON();
     this.lastCreatedOffer = createdOffer;
+    this.lastCreatedOfferChangeSeq = this.negotiationChangeSeq;
     return createdOffer;
   }
 
@@ -562,18 +572,41 @@ export class RTCPeerConnection extends EventTarget {
     if (this.isClosed) {
       throw createWebRtcDomException("InvalidStateError", "peer closed");
     }
-    this.transceiverManager.removeTrack(sender);
-    this.needNegotiation();
+    if (this.transceiverManager.removeTrack(sender)) {
+      this.needNegotiation();
+    }
   }
 
-  private needNegotiation = async () => {
+  /**交渉が必要な変更を記録し、negotiationneeded を予約する */
+  private needNegotiation = () => {
+    this.negotiationChangeSeq++;
+    this.scheduleNegotiationneeded();
+  };
+
+  /**未交渉の変更が残っていれば negotiationneeded を予約する (stable 復帰時の再判定にも使う) */
+  private scheduleNegotiationneeded() {
     this.invalidateLastCreatedDescriptions();
     this.shouldNegotiationneeded = true;
-    if (this.negotiationneeded || this.signalingState !== "stable") {
+    if (
+      this.negotiationneeded ||
+      this.negotiationneededScheduled ||
+      this.signalingState !== "stable"
+    ) {
       return;
     }
     this.shouldNegotiationneeded = false;
+    this.negotiationneededScheduled = true;
     setImmediate(() => {
+      this.negotiationneededScheduled = false;
+      if (this.negotiatedChangeSeq >= this.negotiationChangeSeq) {
+        // 発火前に適用された local offer が変更をすべて含んでいる
+        return;
+      }
+      if (this.signalingState !== "stable") {
+        // stable に戻った時点で改めて判定する
+        this.shouldNegotiationneeded = true;
+        return;
+      }
       this.negotiationneeded = true;
       this.onNegotiationneeded.execute();
       if (this.onnegotiationneeded) {
@@ -581,7 +614,7 @@ export class RTCPeerConnection extends EventTarget {
       }
       this.emit("negotiationneeded");
     });
-  };
+  }
 
   private invalidateLastCreatedDescriptions() {
     this.lastCreatedAnswer = undefined;
@@ -778,9 +811,10 @@ export class RTCPeerConnection extends EventTarget {
 
     if (sessionDescription?.type === "rollback") {
       this.sdpManager.rollbackLocalDescription(this.signalingState);
+      this.pendingOfferChangeSeq = undefined;
       this.setSignalingState("stable");
       if (this.shouldNegotiationneeded) {
-        this.needNegotiation();
+        this.scheduleNegotiationneeded();
       }
       this.invalidateLastCreatedDescriptions();
       return;
@@ -837,6 +871,11 @@ export class RTCPeerConnection extends EventTarget {
 
     // # update signaling state
     if (description.type === "offer") {
+      // この offer は作成時点までの変更を含む。answer の適用で交渉済みにする
+      this.pendingOfferChangeSeq =
+        this.lastCreatedOffer?.sdp === sessionDescription.sdp
+          ? this.lastCreatedOfferChangeSeq
+          : undefined;
       this.setSignalingState("have-local-offer");
     } else if (description.type === "answer") {
       this.setSignalingState("stable");
@@ -855,10 +894,16 @@ export class RTCPeerConnection extends EventTarget {
       const mid = media.rtp.muxId!;
       this.sdpManager.registerMid(mid);
       if (["audio", "video"].includes(media.kind) && media.port !== 0) {
-        // 停止済みの transceiver には非ゼロ m-line の MID を割り当てない
+        // 停止済み、別 kind、別 MID の transceiver には割り当てない (MID の一意性を保つ)
         const transceiver = this.transceiverManager
           .getTransceivers()
-          .find((t) => t.mLineIndex === i && !t.stopped);
+          .find(
+            (t) =>
+              t.mLineIndex === i &&
+              !t.stopped &&
+              t.kind === media.kind &&
+              (t.mid == null || t.mid === mid),
+          );
         if (transceiver) {
           transceiver.mid = mid;
         }
@@ -922,7 +967,7 @@ export class RTCPeerConnection extends EventTarget {
     const hasUnnegotiatedStop =
       description.type === "answer" && this.settleStoppingTransceivers();
     if (this.shouldNegotiationneeded || hasUnnegotiatedStop) {
-      this.needNegotiation();
+      this.scheduleNegotiationneeded();
     }
 
     this.invalidateLastCreatedDescriptions();
@@ -1059,6 +1104,7 @@ export class RTCPeerConnection extends EventTarget {
       ["have-local-offer", "have-local-pranswer"].includes(this.signalingState);
     if (needsImplicitLocalRollback) {
       this.sdpManager.rollbackLocalDescription(this.signalingState);
+      this.pendingOfferChangeSeq = undefined;
       this.shouldNegotiationneeded = true;
       this.setSignalingState("stable");
       await Promise.resolve();
@@ -1078,7 +1124,7 @@ export class RTCPeerConnection extends EventTarget {
       this.closeIdleTransports(transportsBeforeRollback);
       this.setSignalingState("stable");
       if (this.shouldNegotiationneeded) {
-        this.needNegotiation();
+        this.scheduleNegotiationneeded();
       }
       this.invalidateLastCreatedDescriptions();
       return;
@@ -1131,6 +1177,12 @@ export class RTCPeerConnection extends EventTarget {
         }
       },
     );
+    if (remoteSdp.type === "offer") {
+      this.transceiverManager.releaseUnassociatedReservations(
+        associated,
+        remoteSdp.media.length,
+      );
+    }
     const ownerOf = (entry: RemoteMediaEntry) =>
       entry.transceiver ?? entry.sctpTransport;
 
@@ -1297,10 +1349,20 @@ export class RTCPeerConnection extends EventTarget {
     }
 
     this.negotiationneeded = false;
+    if (
+      remoteSdp.type === "answer" &&
+      this.pendingOfferChangeSeq != undefined
+    ) {
+      this.negotiatedChangeSeq = Math.max(
+        this.negotiatedChangeSeq,
+        this.pendingOfferChangeSeq,
+      );
+      this.pendingOfferChangeSeq = undefined;
+    }
     const hasUnnegotiatedStop =
       remoteSdp.type === "answer" && this.settleStoppingTransceivers();
     if (this.shouldNegotiationneeded || hasUnnegotiatedStop) {
-      this.needNegotiation();
+      this.scheduleNegotiationneeded();
     }
     this.invalidateLastCreatedDescriptions();
   }

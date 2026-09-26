@@ -1,15 +1,19 @@
 import {
+  answerRemoteOffer,
+  buildRemoteSdp,
   bundleGroups,
   closeAll,
   countNegotiationNeeded,
   createNegotiatedPair,
   createPeer,
+  createRemoteStoppedVideoReservation,
   createTrack,
   expectRtpDelivered,
   flushEvents,
   mLines,
   negotiate,
   routedSsrcs,
+  startAutoNegotiation,
   transceiverByMid,
 } from "./705.helpers";
 
@@ -313,6 +317,55 @@ describe("issue 705: m-line reuse after a confirmed stop", () => {
     }
   });
 
+  test("a remote offer that reuses a locally reserved index with another kind releases the reservation", async () => {
+    // Arrange: remote の停止確定後、werift が自分の offer 前に video で index 1 を予約している
+    const { pc, reservedVideo } = await createRemoteStoppedVideoReservation();
+
+    try {
+      // Assert (前提): 予約は index 1 を指し、MID は未割り当て
+      expect(reservedVideo.mLineIndex).toBe(1);
+      expect(reservedVideo.mid).toBeNull();
+
+      // Act: remote が index 1 を audio の新 MID で再利用した offer を送り、answer を確定する
+      await answerRemoteOffer(
+        pc,
+        buildRemoteSdp({
+          sections: [
+            { kind: "audio", mid: "0" },
+            { kind: "audio", mid: "2" },
+          ],
+          bundle: ["0", "2"],
+        }),
+      );
+
+      // Assert: 予約した video は MID を奪わず予約も解除され、MID は一意
+      const audio2 = pc.getTransceivers().find((t) => t.mid === "2")!;
+      expect(audio2.kind).toBe("audio");
+      expect(audio2.mLineIndex).toBe(1);
+      expect(reservedVideo.mid).toBeNull();
+      expect(reservedVideo.mLineIndex).toBeUndefined();
+      const mids = pc
+        .getTransceivers()
+        .map((t) => t.mid)
+        .filter((mid) => mid != null);
+      expect(new Set(mids).size).toBe(mids.length);
+
+      // Act: werift から次の offer を作る
+      const offer = await pc.createOffer();
+
+      // Assert: 交渉済み audio の m-line は残り、予約していた video は新しい MID で末尾に追加される
+      const lines = mLines(offer.sdp);
+      expect(lines.map((m) => [m.kind, m.mid])).toEqual([
+        ["audio", "0"],
+        ["audio", "2"],
+        ["video", reservedVideo.mid],
+      ]);
+      expect(reservedVideo.mLineIndex).toBe(2);
+    } finally {
+      await closeAll(pc);
+    }
+  });
+
   test("stopping the BUNDLE tag moves the tag and keeps the shared transport", async () => {
     // Arrange: 接続済みで audio(0) が tag
     const { caller, callee, audio, video, videoTrack } =
@@ -436,6 +489,73 @@ describe("issue 705: m-line reuse after a confirmed stop", () => {
       });
     } finally {
       await closeAll(caller, callee);
+    }
+  });
+
+  test("removeTrack fires negotiationneeded once, and not again for a sender without a track", async () => {
+    // Arrange
+    const { caller, callee, video } = await createNegotiatedPair();
+    await flushEvents();
+    const negotiationNeeded = countNegotiationNeeded(caller);
+
+    try {
+      // Act: 交渉済み sendrecv の sender で removeTrack する
+      caller.removeTrack(video.sender);
+      await flushEvents();
+
+      // Assert: negotiationneeded は 1 回だけ
+      expect(negotiationNeeded.count).toBe(1);
+
+      // Act: 交渉して、track のない sender で再度 removeTrack する
+      await negotiate(caller, callee);
+      caller.removeTrack(video.sender);
+      await flushEvents();
+
+      // Assert: 変更がないので追加の negotiationneeded は発火しない
+      expect(negotiationNeeded.count).toBe(1);
+    } finally {
+      await closeAll(caller, callee);
+    }
+  });
+
+  test("onnegotiationneeded-driven signaling handles removeTrack with a single offer", async () => {
+    // Arrange: onnegotiationneeded で offer を送る一般的な実装
+    const { caller, callee, video } = await createNegotiatedPair();
+    await flushEvents();
+    const auto = startAutoNegotiation(caller, callee);
+
+    try {
+      // Act: removeTrack して、自動交渉が落ち着くまで待つ
+      caller.removeTrack(video.sender);
+      await auto.settle();
+
+      // Assert: offer は 1 回だけで signaling エラーは起きず、送信停止が交渉済みになる
+      // (callee は recvonly なので確定方向は inactive)
+      expect(auto.result.errors).toEqual([]);
+      expect(auto.result.offers).toBe(1);
+      expect(caller.signalingState).toBe("stable");
+      expect(video.direction).toBe("recvonly");
+      expect(video.currentDirection).toBe("inactive");
+    } finally {
+      await closeAll(caller, callee);
+    }
+  });
+
+  test("changes in the same tick fire a single negotiationneeded", async () => {
+    // Arrange
+    const pc = createPeer();
+    const negotiationNeeded = countNegotiationNeeded(pc);
+
+    try {
+      // Act: 同じ tick で 2 つの transceiver を追加する
+      pc.addTransceiver("audio");
+      pc.addTransceiver("video");
+      await flushEvents();
+
+      // Assert: negotiationneeded はまとめて 1 回
+      expect(negotiationNeeded.count).toBe(1);
+    } finally {
+      await closeAll(pc);
     }
   });
 

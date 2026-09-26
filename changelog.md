@@ -23,6 +23,8 @@
   - Accepted m-lines outside the offered BUNDLE group get their own transport and ICE credentials. Local trickle candidates carry the MID / index of the accepted section that owns the ICE transport (not always m-line 0); remote candidates for rejected sections are recorded without throwing. SCTP before RTP keeps the original indexes.
   - A non-zero remote answer / pranswer without a common codec is rejected with `InvalidAccessError` before any state changes. An unsupported re-offer keeps the existing track and RTP pipeline while pending and after rollback, and is released only when the port 0 answer is applied.
   - `removeTrack()` detaches the track without stopping the sender, so the same sender can resume. `addTrack()` reuses only unsent, non-stopped, non-rejected senders. Re-offers no longer fire `ontrack` again for an already receiving transceiver, and remote-initiated stops do not fire `negotiationneeded`.
+  - `negotiationneeded` is coalesced: changes in the same tick (including `removeTrack()`) fire it once, and an event queued before a local offer that already covers the change is dropped once that offer is answered. This avoids duplicate offers and `InvalidStateError` in `onnegotiationneeded`-driven signaling.
+  - A local transceiver that reserved a stopped position before its own offer releases the reservation when a remote offer reuses that position (e.g. with another kind), and is appended in the next offer instead of taking the remote MID.
   - Design note: `docs/design/705-media-rejection-and-removetrack.md`.
 
 ## v0.24.4

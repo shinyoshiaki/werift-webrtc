@@ -179,6 +179,26 @@ export class TransceiverManager {
     this.takeOverMLine(previous, transceiver);
   }
 
+  /**
+   * remote offer が定義した位置のうち、関連付けられなかった未交渉 transceiver の予約を解除する。
+   * (remote が予約位置を別 kind や別 transceiver で再利用した場合、次の offer で末尾に追加させる)
+   */
+  releaseUnassociatedReservations(
+    associated: Set<RTCRtpTransceiver>,
+    mLineCount: number,
+  ) {
+    for (const t of this.transceivers) {
+      if (
+        !associated.has(t) &&
+        t.mid == null &&
+        t.mLineIndex != undefined &&
+        t.mLineIndex < mLineCount
+      ) {
+        t.mLineIndex = undefined;
+      }
+    }
+  }
+
   addTransceiver(
     trackOrKind: Kind | MediaStreamTrack,
     dtlsTransport?: RTCDtlsTransport,
@@ -299,7 +319,11 @@ export class TransceiverManager {
     }
   }
 
-  removeTrack(sender: RTCRtpSender): void {
+  /**
+   * sender から track を外す。
+   * @returns 交渉が必要な変更をした場合 true (呼び出し側が negotiationneeded を要求する)
+   */
+  removeTrack(sender: RTCRtpSender): boolean {
     if (!this.getSenders().find(({ ssrc }) => sender.ssrc === ssrc)) {
       throw createWebRtcDomException(
         "InvalidAccessError",
@@ -313,11 +337,11 @@ export class TransceiverManager {
     if (!transceiver) throw new Error("No matching transceiver found");
 
     if (transceiver.stopping || transceiver.stopped) {
-      return;
+      return false;
     }
 
     if (sender.track == undefined) {
-      return;
+      return false;
     }
 
     // sender 自体は止めず track だけ外し、同じ sender で送信を再開できるようにする
@@ -328,7 +352,7 @@ export class TransceiverManager {
     } else if (transceiver.direction === "sendonly") {
       transceiver.setDirection("inactive");
     }
-    this.onNegotiationNeeded.execute();
+    return true;
   }
 
   assignTransceiverCodecs(transceiver: RTCRtpTransceiver): void {

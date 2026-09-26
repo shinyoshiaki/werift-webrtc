@@ -334,9 +334,34 @@ remote m-line の codec と local 設定の共通部分を返す
 
 ***
 
+### releaseUnassociatedReservations()
+
+> **releaseUnassociatedReservations**(`associated`, `mLineCount`): `void`
+
+remote offer が定義した位置のうち、関連付けられなかった未交渉 transceiver の予約を解除する。
+(remote が予約位置を別 kind や別 transceiver で再利用した場合、次の offer で末尾に追加させる)
+
+#### Parameters
+
+##### associated
+
+`Set`\<[`RTCRtpTransceiver`](RTCRtpTransceiver.md)\>
+
+##### mLineCount
+
+`number`
+
+#### Returns
+
+`void`
+
+***
+
 ### removeTrack()
 
-> **removeTrack**(`sender`): `void`
+> **removeTrack**(`sender`): `boolean`
+
+sender から track を外す。
 
 #### Parameters
 
@@ -346,7 +371,9 @@ remote m-line の codec と local 設定の共通部分を返す
 
 #### Returns
 
-`void`
+`boolean`
+
+交渉が必要な変更をした場合 true (呼び出し側が negotiationneeded を要求する)
 
 ***
 

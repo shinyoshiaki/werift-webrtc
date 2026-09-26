@@ -330,3 +330,76 @@ export function transceiverByMid(
 ) {
   return pc.getTransceivers().find((t) => t.mid === mid);
 }
+
+/**
+ * remote offerer が video (MID "1") を port 0 で停止し、その停止確定後に
+ * werift 側が自分の offer 前に addTransceiver("video") で index 1 を予約した状態を作る。
+ */
+export async function createRemoteStoppedVideoReservation() {
+  const pc = createPeer();
+  await answerRemoteOffer(
+    pc,
+    buildRemoteSdp({
+      sections: [
+        { kind: "audio", mid: "0" },
+        { kind: "video", mid: "1", codec: "VP8" },
+      ],
+      bundle: ["0", "1"],
+    }),
+  );
+  await answerRemoteOffer(
+    pc,
+    buildRemoteSdp({
+      sections: [
+        { kind: "audio", mid: "0" },
+        { kind: "video", mid: "1", codec: "VP8", port: 0 },
+      ],
+      bundle: ["0"],
+    }),
+  );
+  const reservedVideo = pc.addTransceiver("video");
+  return { pc, reservedVideo };
+}
+
+/**
+ * onnegotiationneeded で offer を作り、WebSocket 相当の直列キューで answerer と往復させる
+ * 一般的なアプリ実装を再現する。offer 数と発生したエラーを記録する。
+ */
+export function startAutoNegotiation(
+  offerer: RTCPeerConnection,
+  answerer: RTCPeerConnection,
+) {
+  const result = { offers: 0, errors: [] as unknown[] };
+  let queue = Promise.resolve();
+  const send = (task: () => Promise<void>) => {
+    queue = queue.then(task).catch((error) => {
+      result.errors.push(error);
+    });
+  };
+  offerer.onnegotiationneeded = async () => {
+    try {
+      const offer = await offerer.createOffer();
+      await offerer.setLocalDescription(offer);
+      result.offers++;
+      const localOffer = offerer.localDescription!;
+      send(async () => {
+        await answerer.setRemoteDescription(localOffer);
+        await answerer.setLocalDescription(await answerer.createAnswer());
+        const answer = answerer.localDescription!;
+        send(() => offerer.setRemoteDescription(answer));
+      });
+    } catch (error) {
+      result.errors.push(error);
+    }
+  };
+  return {
+    result,
+    /** 直列キューの処理が落ち着くまで待つ */
+    settle: async () => {
+      for (let i = 0; i < 5; i++) {
+        await flushEvents();
+        await queue;
+      }
+    },
+  };
+}
