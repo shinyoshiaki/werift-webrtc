@@ -1,3 +1,4 @@
+import { SCTP_STATE } from "../../sctp/src";
 import type { RTCRtpTransceiver, RtpRouter, TransceiverManager } from "./media";
 import { getApplicationStopRevision } from "./media/rtpTransceiver";
 import type { SctpTransportManager } from "./sctpManager";
@@ -38,6 +39,7 @@ export class NegotiationTransaction {
     ridTable: RtpRouter["ridTable"];
     extIdUriMap: RtpRouter["extIdUriMap"];
     sctpTransport: SctpTransportManager["sctpTransport"];
+    sctpDtlsTransport?: RTCDtlsTransport;
     sctpRemotePort?: number;
     sctpMid?: string;
     sctpMLineIndex?: number;
@@ -52,6 +54,11 @@ export class NegotiationTransaction {
   private readonly emittedPendingCandidates = new Set<string>();
   private preparedFor?: SessionDescription;
   private readonly retiredRemoteUfrags = new Set<string>();
+  /**
+   * Transports created since the last commit. One that no binding holds at
+   * commit (e.g. a data channel's own transport that BUNDLE replaced) stops.
+   */
+  private readonly createdTransports = new Set<RTCDtlsTransport>();
   private revision = 0;
   private phase:
     | "idle"
@@ -125,11 +132,16 @@ export class NegotiationTransaction {
       ridTable: { ...this.router.ridTable },
       extIdUriMap: { ...this.router.extIdUriMap },
       sctpTransport: this.sctp.sctpTransport,
+      sctpDtlsTransport: this.sctp.sctpTransport?.dtlsTransport,
       sctpRemotePort: this.sctp.sctpRemotePort,
       sctpMid: this.sctp.sctpTransport?.mid,
       sctpMLineIndex: this.sctp.sctpTransport?.mLineIndex,
       sctpRemoteMaxMessageSize: this.sctp.sctpTransport?.remoteMaxMessageSize,
     };
+  }
+
+  noteCreatedTransport(transport: RTCDtlsTransport) {
+    this.createdTransports.add(transport);
   }
 
   validate() {
@@ -224,9 +236,13 @@ export class NegotiationTransaction {
         (state) => state.dtlsTransport,
       ),
     );
-    if (this.baseline?.sctpTransport?.dtlsTransport) {
-      oldTransports.add(this.baseline.sctpTransport.dtlsTransport);
+    if (this.baseline?.sctpDtlsTransport) {
+      oldTransports.add(this.baseline.sctpDtlsTransport);
     }
+    for (const transport of this.createdTransports) {
+      oldTransports.add(transport);
+    }
+    this.createdTransports.clear();
     this.cleanup();
     const inUse = new Set(
       this.transceivers
@@ -344,13 +360,23 @@ export class NegotiationTransaction {
     this.router.ridTable = { ...baseline.ridTable };
     this.router.extIdUriMap = { ...baseline.extIdUriMap };
 
-    if (
-      this.sctp.sctpTransport &&
+    const added =
       this.sctp.sctpTransport !== baseline.sctpTransport
-    ) {
-      await this.sctp.sctpTransport.stop();
+        ? this.sctp.sctpTransport
+        : undefined;
+    // createDataChannel is an application operation: its SCTP transport
+    // survives rollback, unbound from the rolled-back m-line, so the next
+    // offer carries m=application again. An association that already ran
+    // under the pending description is description state and is torn down.
+    const keepAdded =
+      !!added &&
+      this.sctp.isApplicationOwned(added) &&
+      added.sctp.associationState === SCTP_STATE.CLOSED;
+    if (added && !keepAdded) {
+      await added.stop();
     }
-    this.sctp.sctpTransport = baseline.sctpTransport;
+    this.sctp.sctpTransport = keepAdded ? added : baseline.sctpTransport;
+    if (added && keepAdded) this.sctp.detachFromDescription(added);
     this.sctp.sctpRemotePort = baseline.sctpRemotePort;
     if (baseline.sctpTransport) {
       baseline.sctpTransport.mid = baseline.sctpMid;

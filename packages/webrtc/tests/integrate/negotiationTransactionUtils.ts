@@ -504,12 +504,17 @@ function assertDtlsBindings(pc: RTCPeerConnection, snapshot: Snapshot) {
 
 function assertSctpBinding(pc: RTCPeerConnection, snapshot: Snapshot) {
   const sctp = pc.sctpTransport;
-  if (!sctp || pc.signalingState !== "stable" || !snapshot.currentRemote)
+  if (!sctp || pc.signalingState !== "stable") return;
+  const media = [...(snapshot.currentRemote?.media.entries() ?? [])];
+  if (!media.some(([, m]) => m.kind === "application")) {
+    // createDataChannel だけの SCTP は未交渉: m-line にも remote port にも束縛されない。
+    expect(sctp.mid).toBeUndefined();
+    expect(sctp.mLineIndex).toBeUndefined();
+    expect(pc.sctpRemotePort).toBeUndefined();
     return;
+  }
   const [index, application] =
-    [...snapshot.currentRemote.media.entries()].find(
-      ([, media]) => media.kind === "application" && media.port !== 0,
-    ) ?? [];
+    media.find(([, m]) => m.kind === "application" && m.port !== 0) ?? [];
   if (!application) return;
   // SCTP は current の application m-line (MID/mLineIndex) に束縛される。
   expect(sctp.mid).toBe(application.rtp.muxId);
@@ -850,4 +855,57 @@ export async function createSimulcastPeers() {
     sendLayer,
     close: () => Promise.allSettled([offerer.close(), answerer.close()]),
   };
+}
+
+/**
+ * Two peers before their first negotiation; the offerer sends video so the
+ * first offer is not empty.
+ */
+export function createUnnegotiatedVideoPeers() {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  const outgoing = new MediaStreamTrack({ kind: "video" });
+  const incoming = answerer.onRemoteTransceiverAdded
+    .asPromise()
+    .then(([transceiver]) =>
+      transceiver.receiver.track
+        ? transceiver.receiver.track
+        : transceiver.onTrack.asPromise().then(([track]) => track),
+    );
+  offerer.addTransceiver(outgoing, { direction: "sendonly" });
+  return {
+    offerer,
+    answerer,
+    outgoing,
+    incoming: () =>
+      withTimeout(incoming, "Remote video track was not delivered"),
+    close: () => Promise.allSettled([offerer.close(), answerer.close()]),
+  };
+}
+
+/**
+ * Negotiate from `offerer` after a rolled-back transaction and expect the
+ * application-created `channel` to open and carry data to `answerer`.
+ */
+export async function negotiateAndExpectChannel(
+  offerer: RTCPeerConnection,
+  answerer: RTCPeerConnection,
+  channel: RTCDataChannel,
+) {
+  const remote = answerer.onDataChannel.watch((c) => c.label === channel.label);
+  const offer = await offerer.createOffer();
+  expect(offer.sdp).toContain("m=application");
+  await offerer.setLocalDescription(offer);
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  await answerer.setLocalDescription(await answerer.createAnswer());
+  await offerer.setRemoteDescription(answerer.localDescription!);
+  if (channel.readyState !== "open") {
+    await withTimeout(
+      channel.stateChanged.watch((state) => state === "open"),
+      `DataChannel ${channel.label} did not open`,
+    );
+  }
+  const [received] = await withTimeout(remote, "No remote DataChannel");
+  await sendAndExpectData(channel, received, `${channel.label}-after-rollback`);
+  return received;
 }

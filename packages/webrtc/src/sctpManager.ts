@@ -9,7 +9,7 @@ import {
   getStatsTimestamp,
 } from "./media/stats";
 import type { MediaDescription } from "./sdp";
-import { RTCSctpTransport } from "./transport/sctp";
+import { DEFAULT_MAX_MESSAGE_SIZE, RTCSctpTransport } from "./transport/sctp";
 
 const log = debug("werift:packages/webrtc/src/transport/sctpManager.ts");
 
@@ -19,6 +19,11 @@ export class SctpTransportManager {
   dataChannelsOpened = 0;
   dataChannelsClosed = 0;
   private dataChannels: RTCDataChannel[] = [];
+  /**
+   * SCTP transports that carry a `createDataChannel` call. They are
+   * application state: negotiation rollback keeps them instead of stopping.
+   */
+  private readonly applicationOwned = new WeakSet<RTCSctpTransport>();
 
   readonly onDataChannel = new Event<[RTCDataChannel]>();
 
@@ -78,6 +83,7 @@ export class SctpTransportManager {
     if (!this.sctpTransport) {
       this.sctpTransport = this.createSctpTransport();
     }
+    this.applicationOwned.add(this.sctpTransport);
 
     const parameters = new RTCDataChannelParameters({
       id: settings.id,
@@ -102,6 +108,17 @@ export class SctpTransportManager {
       }
     });
     return channel;
+  }
+
+  isApplicationOwned(transport: RTCSctpTransport) {
+    return this.applicationOwned.has(transport);
+  }
+
+  /** Drop what a rolled-back description set on a kept SCTP transport. */
+  detachFromDescription(transport: RTCSctpTransport) {
+    transport.mid = undefined;
+    transport.mLineIndex = undefined;
+    transport.remoteMaxMessageSize = DEFAULT_MAX_MESSAGE_SIZE;
   }
 
   async connectSctp() {

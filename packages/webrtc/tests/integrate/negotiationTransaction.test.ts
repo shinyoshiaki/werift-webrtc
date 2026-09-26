@@ -15,7 +15,9 @@ import {
   createRewrittenOffer,
   createSimulcastPeers,
   createSplitOffer,
+  createUnnegotiatedVideoPeers,
   expectSessionAlive,
+  negotiateAndExpectChannel,
   sendAndExpectData,
   sendAndExpectRtp,
   waitForConnection,
@@ -238,6 +240,68 @@ describe("negotiation transaction", () => {
         expect(answerer.signalingState).toBe("stable");
         assertNegotiationInvariants(answerer);
         assertNegotiationInvariants(offerer);
+      } finally {
+        await close();
+      }
+    },
+  );
+
+  test.each([
+    ["in have-local-offer", "local-offer"],
+    ["in have-remote-offer", "remote-offer"],
+    ["between createOffer and setting that older offer", "stale-offer"],
+  ] as const)(
+    "rollback keeps a DataChannel created %s and the next negotiation opens it",
+    async (_, when) => {
+      const { offerer, answerer, outgoing, incoming, close } =
+        createUnnegotiatedVideoPeers();
+      try {
+        // Arrange: m=application を含まない初回 offer で transaction を開く。
+        let channel;
+        let creator = offerer;
+        let peer = answerer;
+        if (when === "stale-offer") {
+          const staleOffer = await offerer.createOffer();
+          channel = offerer.createDataChannel(when);
+          await offerer.setLocalDescription(staleOffer);
+        } else {
+          await offerer.setLocalDescription(await offerer.createOffer());
+          if (when === "remote-offer") {
+            await answerer.setRemoteDescription(offerer.localDescription!);
+            creator = answerer;
+            peer = offerer;
+          }
+          channel = creator.createDataChannel(when);
+        }
+
+        // Act: application の createDataChannel を挟んだ transaction を rollback する。
+        await offerer.setLocalDescription({ type: "rollback" });
+        if (answerer.signalingState === "have-remote-offer") {
+          await answerer.setRemoteDescription({ type: "rollback" });
+        }
+
+        // Assert: SCTP transport は止まらず、未交渉 (MID/remote port なし) で残る。
+        expect(creator.signalingState).toBe("stable");
+        expect(creator.sctpTransport).toBe(channel.sctp);
+        expect(channel.readyState).toBe("connecting");
+        assertNegotiationInvariants(offerer);
+        assertNegotiationInvariants(answerer);
+
+        // Act: 作成側から改めて交渉する。
+        if (creator === answerer) creator.addTransceiver("video");
+        const received = await negotiateAndExpectChannel(
+          creator,
+          peer,
+          channel,
+        );
+
+        // Assert: channel が開いて両方向に届き、交渉済みの RTP も届く。
+        await sendAndExpectData(received, channel, `${when}-reply`);
+        if (creator === offerer) {
+          await sendAndExpectRtp(outgoing, await incoming(), `${when}-rtp`);
+        }
+        assertNegotiationInvariants(offerer);
+        assertNegotiationInvariants(answerer);
       } finally {
         await close();
       }

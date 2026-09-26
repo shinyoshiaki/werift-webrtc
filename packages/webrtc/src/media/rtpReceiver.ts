@@ -195,6 +195,7 @@ export class RTCRtpReceiver {
     this.tracks.push(track);
     if (track.ssrc) {
       this.trackBySSRC[track.ssrc] = track;
+      this.learnedTrackSsrcs.delete(track.ssrc);
     }
     if (track.rid) {
       this.trackByRID[track.rid] = track;

@@ -37,6 +37,7 @@ export class RtpRouter {
 
   registerRtpSender(sender: RTCRtpSender) {
     this.ssrcTable[sender.ssrc] = sender;
+    this.learnedSsrcs.delete(sender.ssrc);
   }
 
   unregisterTransceiver(transceiver: RTCRtpTransceiver) {
@@ -61,6 +62,9 @@ export class RtpRouter {
   private registerRtpReceiver(receiver: RTCRtpReceiver, ssrc: number) {
     log("registerRtpReceiver", ssrc);
     this.ssrcTable[ssrc] = receiver;
+    // Registration from SDP makes the route description state again; the
+    // packet path re-marks it as learned right after this call.
+    this.learnedSsrcs.delete(ssrc);
   }
 
   registerRtpReceiverBySsrc(
