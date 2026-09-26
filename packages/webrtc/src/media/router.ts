@@ -27,6 +27,11 @@ export class RtpRouter {
   ssrcTable: { [ssrc: number]: RTCRtpReceiver | RTCRtpSender } = {};
   ridTable: { [rid: string]: RTCRtpReceiver | RTCRtpSender } = {};
   extIdUriMap: { [id: number]: string } = {};
+  /**
+   * SSRCs registered from received packets (simulcast after RID stops being
+   * sent), not from SDP. Negotiation rollback keeps these entries.
+   */
+  readonly learnedSsrcs = new Set<number>();
 
   constructor() {}
 
@@ -133,6 +138,7 @@ export class RtpRouter {
       if (rtpReceiver) {
         log("simulcast register receiver by ssrc", packet.header.ssrc);
         this.registerRtpReceiver(rtpReceiver, packet.header.ssrc);
+        this.learnedSsrcs.add(packet.header.ssrc);
         rtpReceiver.handleRtpBySsrc(packet, extensions);
       } else {
         // bug

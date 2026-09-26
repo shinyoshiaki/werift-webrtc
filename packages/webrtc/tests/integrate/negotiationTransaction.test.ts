@@ -13,6 +13,7 @@ import {
   createConnectedVideoPeers,
   createDuplexSession,
   createRewrittenOffer,
+  createSimulcastPeers,
   createSplitOffer,
   expectSessionAlive,
   sendAndExpectData,
@@ -204,6 +205,44 @@ describe("negotiation transaction", () => {
       await session.close();
     }
   });
+
+  test.each([
+    ["during a pending re-offer", false],
+    ["after an unapplied createOffer in stable", true],
+  ])(
+    "rollback keeps simulcast SSRCs learned %s",
+    async (_, createOfferFirst) => {
+      const { offerer, answerer, sendLayer, close } =
+        await createSimulcastPeers();
+      try {
+        // Arrange: RID 付き packet で high/low の SSRC を受信側に学習させる。
+        await sendLayer("low", 2222, "low-learned", { withRid: true });
+        if (createOfferFirst) {
+          // Arrange: 受信側が offer を作るだけで適用しない (transaction は開かない)。
+          await answerer.createOffer();
+          assertNegotiationInvariants(answerer);
+        }
+        await offerer.setLocalDescription(await offerer.createOffer());
+        await answerer.setRemoteDescription(offerer.localDescription!);
+
+        // Act: pending 中に RID 付き packet で別 SSRC を学習し、両側で rollback する。
+        await sendLayer("high", 1111, "high-learned", { withRid: true });
+        await offerer.setLocalDescription({ type: "rollback" });
+        await answerer.setRemoteDescription({ type: "rollback" });
+
+        // Assert: RID なし (SSRC のみ) の packet が学習済みの各層へ届き続ける。
+        await sendLayer("high", 1111, "high-after-rollback", {
+          withRid: false,
+        });
+        await sendLayer("low", 2222, "low-after-rollback", { withRid: false });
+        expect(answerer.signalingState).toBe("stable");
+        assertNegotiationInvariants(answerer);
+        assertNegotiationInvariants(offerer);
+      } finally {
+        await close();
+      }
+    },
+  );
 
   test("a pending payload type leaves the receiver codec table by rollback", async () => {
     const { offerer, answerer, outgoing, incoming } =

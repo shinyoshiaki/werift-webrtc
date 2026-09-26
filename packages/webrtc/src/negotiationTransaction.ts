@@ -43,6 +43,7 @@ export class NegotiationTransaction {
     sctpMLineIndex?: number;
     sctpRemoteMaxMessageSize?: number;
   };
+  private offerSnapshot?: NegotiationTransaction["baseline"];
   private readonly remoteCreated = new Set<RTCRtpTransceiver>();
   /** Transceivers whose m-line a remote offer recycled with a new MID. */
   private readonly displaced = new Set<RTCRtpTransceiver>();
@@ -66,50 +67,69 @@ export class NegotiationTransaction {
     private readonly sctp: SctpTransportManager,
   ) {}
 
-  begin() {
+  /**
+   * `createOffer` in stable records the baseline it would roll back to, but
+   * does not open a transaction: nothing is pending until the offer is set.
+   */
+  snapshotForOffer() {
+    if (!this.baseline) this.offerSnapshot = this.capture();
+  }
+
+  /**
+   * Open the transaction when a description is applied. A local offer uses
+   * the snapshot taken by the `createOffer` that produced it, so MIDs that
+   * createOffer assigned revert on rollback; anything else captures now.
+   */
+  begin({ fromCreatedOffer = false }: { fromCreatedOffer?: boolean } = {}) {
     if (!this.baseline) {
-      this.baseline = {
-        orderedTransceivers: [...this.transceivers.getTransceivers()],
-        transceivers: new Map(
-          this.transceivers.getTransceivers().map((transceiver) => [
-            transceiver,
-            {
-              mid: transceiver.mid,
-              mLineIndex: transceiver.mLineIndex,
-              codecs: transceiver.codecs,
-              headerExtensions: transceiver.headerExtensions,
-              offerDirection: transceiver.offerDirection,
-              currentDirection: transceiver.currentDirection,
-              stopping: transceiver.stopping,
-              stopped: transceiver.stopped,
-              applicationStopRevision: getApplicationStopRevision(transceiver),
-              dtlsTransport: transceiver.dtlsTransport,
-              senderCodec: transceiver.sender.codec,
-              remoteStreamIds: [...transceiver.receiver.remoteStreamIds],
-              remoteStreamId: transceiver.receiver.remoteStreamId,
-              remoteTrackId: transceiver.receiver.remoteTrackId,
-              receiverTracks: [...transceiver.receiver.tracks],
-              receiverBySsrc: { ...transceiver.receiver.trackBySSRC },
-              receiverByRid: { ...transceiver.receiver.trackByRID },
-              receiveTables: transceiver.receiver.snapshotReceiveTables(),
-              notifiedRemoteTrack:
-                this.transceivers.getNotifiedRemoteTrack(transceiver),
-            },
-          ]),
-        ),
-        ssrcTable: { ...this.router.ssrcTable },
-        ridTable: { ...this.router.ridTable },
-        extIdUriMap: { ...this.router.extIdUriMap },
-        sctpTransport: this.sctp.sctpTransport,
-        sctpRemotePort: this.sctp.sctpRemotePort,
-        sctpMid: this.sctp.sctpTransport?.mid,
-        sctpMLineIndex: this.sctp.sctpTransport?.mLineIndex,
-        sctpRemoteMaxMessageSize: this.sctp.sctpTransport?.remoteMaxMessageSize,
-      };
+      this.baseline =
+        (fromCreatedOffer ? this.offerSnapshot : undefined) ?? this.capture();
     }
+    this.offerSnapshot = undefined;
     this.revision++;
     this.phase = "pending";
     return this.revision;
+  }
+
+  private capture(): NonNullable<NegotiationTransaction["baseline"]> {
+    return {
+      orderedTransceivers: [...this.transceivers.getTransceivers()],
+      transceivers: new Map(
+        this.transceivers.getTransceivers().map((transceiver) => [
+          transceiver,
+          {
+            mid: transceiver.mid,
+            mLineIndex: transceiver.mLineIndex,
+            codecs: transceiver.codecs,
+            headerExtensions: transceiver.headerExtensions,
+            offerDirection: transceiver.offerDirection,
+            currentDirection: transceiver.currentDirection,
+            stopping: transceiver.stopping,
+            stopped: transceiver.stopped,
+            applicationStopRevision: getApplicationStopRevision(transceiver),
+            dtlsTransport: transceiver.dtlsTransport,
+            senderCodec: transceiver.sender.codec,
+            remoteStreamIds: [...transceiver.receiver.remoteStreamIds],
+            remoteStreamId: transceiver.receiver.remoteStreamId,
+            remoteTrackId: transceiver.receiver.remoteTrackId,
+            receiverTracks: [...transceiver.receiver.tracks],
+            receiverBySsrc: { ...transceiver.receiver.trackBySSRC },
+            receiverByRid: { ...transceiver.receiver.trackByRID },
+            receiveTables: transceiver.receiver.snapshotReceiveTables(),
+            notifiedRemoteTrack:
+              this.transceivers.getNotifiedRemoteTrack(transceiver),
+          },
+        ]),
+      ),
+      ssrcTable: { ...this.router.ssrcTable },
+      ridTable: { ...this.router.ridTable },
+      extIdUriMap: { ...this.router.extIdUriMap },
+      sctpTransport: this.sctp.sctpTransport,
+      sctpRemotePort: this.sctp.sctpRemotePort,
+      sctpMid: this.sctp.sctpTransport?.mid,
+      sctpMLineIndex: this.sctp.sctpTransport?.mLineIndex,
+      sctpRemoteMaxMessageSize: this.sctp.sctpTransport?.remoteMaxMessageSize,
+    };
   }
 
   validate() {
@@ -258,10 +278,23 @@ export class NegotiationTransaction {
         transceiver.receiver.tracks.length,
         ...state.receiverTracks,
       );
+      // SSRCs learned from RID packets are live state, not SDP: keep those
+      // whose track survives the rollback.
+      const learnedTracks = Object.entries(
+        transceiver.receiver.trackBySSRC,
+      ).filter(
+        ([ssrc, track]) =>
+          transceiver.receiver.learnedTrackSsrcs.has(Number(ssrc)) &&
+          !(ssrc in state.receiverBySsrc) &&
+          state.receiverTracks.includes(track),
+      );
       for (const ssrc of Object.keys(transceiver.receiver.trackBySSRC)) {
         delete transceiver.receiver.trackBySSRC[ssrc];
       }
       Object.assign(transceiver.receiver.trackBySSRC, state.receiverBySsrc);
+      for (const [ssrc, track] of learnedTracks) {
+        transceiver.receiver.trackBySSRC[ssrc] = track;
+      }
       for (const rid of Object.keys(transceiver.receiver.trackByRID)) {
         delete transceiver.receiver.trackByRID[rid];
       }
@@ -292,9 +325,24 @@ export class NegotiationTransaction {
       this.transceivers.removeRemoteTransceiver(transceiver);
     }
     this.transceivers.restoreTransceiverOrder(baseline.orderedTransceivers);
-    this.router.ssrcTable = baseline.ssrcTable;
-    this.router.ridTable = baseline.ridTable;
-    this.router.extIdUriMap = baseline.extIdUriMap;
+    // Packet-learned SSRC routes stay when their receiver is still attached.
+    const endpoints = new Set<unknown>(
+      this.transceivers
+        .getTransceivers()
+        .flatMap((transceiver) => [transceiver.sender, transceiver.receiver]),
+    );
+    const learnedRoutes = Object.entries(this.router.ssrcTable).filter(
+      ([ssrc, endpoint]) =>
+        this.router.learnedSsrcs.has(Number(ssrc)) &&
+        !(ssrc in baseline.ssrcTable) &&
+        endpoints.has(endpoint),
+    );
+    this.router.ssrcTable = { ...baseline.ssrcTable };
+    for (const [ssrc, endpoint] of learnedRoutes) {
+      this.router.ssrcTable[Number(ssrc)] = endpoint;
+    }
+    this.router.ridTable = { ...baseline.ridTable };
+    this.router.extIdUriMap = { ...baseline.extIdUriMap };
 
     if (
       this.sctp.sctpTransport &&

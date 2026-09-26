@@ -6,6 +6,8 @@ import {
   RTCPeerConnection,
   RtpHeader,
   RtpPacket,
+  useSdesMid,
+  useSdesRTPStreamId,
 } from "../../src";
 import type { SessionDescription } from "../../src/sdp";
 
@@ -179,8 +181,7 @@ function assertDescriptionBindings(pc: RTCPeerConnection) {
     pc.dtlsTransports.length,
   );
   if (pc.signalingState === "stable") {
-    // createOffer opens the transaction (baseline) before anything is applied.
-    expect(["idle", "pending"]).toContain(snapshot.phase);
+    expect(snapshot.phase).toBe("idle");
     expect(snapshot.pendingLocal).toBeUndefined();
     expect(snapshot.pendingRemote).toBeUndefined();
     expect(snapshot.pendingTransports).toBe(0);
@@ -780,4 +781,73 @@ export async function createRewrittenOffer(
   (pc as unknown as { lastCreatedOffer?: unknown }).lastCreatedOffer =
     rewritten;
   return rewritten;
+}
+
+/**
+ * Shared Arrange: a connected sendonly simulcast video (RIDs "high" / "low")
+ * with MID and RID header extensions. `sendLayer` writes one SRTP packet on
+ * the offerer's DTLS transport, with or without the RID extension, so a test
+ * can make the answerer learn an SSRC from RID packets and then send RID-less.
+ */
+export async function createSimulcastPeers() {
+  const config = {
+    headerExtensions: { video: [useSdesMid(), useSdesRTPStreamId()] },
+  };
+  const offerer = new RTCPeerConnection(config);
+  const answerer = new RTCPeerConnection(config);
+  offerer.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
+    direction: "sendonly",
+    sendEncodings: [{ rid: "high" }, { rid: "low" }],
+  });
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  await answerer.setLocalDescription(await answerer.createAnswer());
+  await offerer.setRemoteDescription(answerer.localDescription!);
+  await withTimeout(
+    Promise.all([waitForConnection(offerer), waitForConnection(answerer)]),
+    "Simulcast peers did not connect",
+  );
+  const sdp = offerer.currentLocalDescription!.sdp;
+  const ridExtensionId = Number(
+    sdp.match(
+      /a=extmap:(\d+) urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id/,
+    )![1],
+  );
+  const payloadType = Number(sdp.match(/a=rtpmap:(\d+) VP8\/90000/)![1]);
+  let sequenceNumber = 0;
+  const receiver = () => answerer.getTransceivers()[0].receiver;
+
+  /** Send `text` as SSRC `ssrc` and wait until the `rid` layer track gets it. */
+  const sendLayer = async (
+    rid: "high" | "low",
+    ssrc: number,
+    text: string,
+    { withRid }: { withRid: boolean },
+  ) => {
+    const track = receiver().trackByRID[rid];
+    const received = track.onReceiveRtp.watch(
+      (packet) => packet.payload.toString() === text,
+      2000,
+    );
+    const header = new RtpHeader({
+      ssrc,
+      payloadType,
+      sequenceNumber: ++sequenceNumber,
+      timestamp: sequenceNumber * 3000,
+      marker: true,
+      extensions: withRid
+        ? [{ id: ridExtensionId, payload: Buffer.from(rid) }]
+        : [],
+    });
+    await offerer
+      .getTransceivers()[0]
+      .dtlsTransport.sendRtp(Buffer.from(text), header);
+    await received;
+  };
+  return {
+    offerer,
+    answerer,
+    sendLayer,
+    close: () => Promise.allSettled([offerer.close(), answerer.close()]),
+  };
 }

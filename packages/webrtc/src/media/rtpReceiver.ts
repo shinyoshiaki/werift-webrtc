@@ -56,6 +56,8 @@ export class RTCRtpReceiver {
     );
   }
   private readonly ssrcByRtx: { [rtxSsrc: number]: number } = {};
+  /** SSRCs of `trackBySSRC` learned from RID packets rather than SDP. */
+  readonly learnedTrackSsrcs = new Set<number>();
   private readonly nack = new NackHandler(this);
   private readonly audioRedHandler = new RedHandler();
 
@@ -447,6 +449,7 @@ export class RTCRtpReceiver {
     const track = this.trackByRID[rid];
     if (!this.trackBySSRC[packet.header.ssrc]) {
       this.trackBySSRC[packet.header.ssrc] = track;
+      this.learnedTrackSsrcs.add(packet.header.ssrc);
     }
 
     this.handleRTP(packet, extensions, track);

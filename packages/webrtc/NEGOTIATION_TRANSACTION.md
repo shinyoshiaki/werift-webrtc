@@ -6,7 +6,10 @@ The last pair of descriptions that reached `stable` is **current**. Its RTP
 routes, BUNDLE owner, ICE selected pair, DTLS session and SCTP association
 remain usable while another negotiation is pending. Packet driven counters,
 consent timers and retransmission state belong to the live transport and are
-never copied into an SDP snapshot.
+never copied into an SDP snapshot. SSRC routes and receiver SSRC-to-track
+entries learned from received packets (simulcast after RID stops) are marked
+as learned; rollback restores the SDP-derived baseline and keeps learned
+entries whose receiver and track survive the rollback.
 
 An offer starts a transaction. The first current pair and the identities of
 its transceivers, router entries, BUNDLE transports, ICE generations, DTLS
@@ -29,7 +32,7 @@ generation or SCTP association and stream ID.
 
 | Phase | Preconditions | Postconditions and failure |
 | --- | --- | --- |
-| begin | stable or first offer | Capture baseline once; assign transaction ID and revision. No current transport is stopped. `createOffer` in stable already begins (it assigns MIDs and stages ICE credentials), so a created but unapplied offer leaves signaling `stable` with no pending description or transport. |
+| begin | stable or first offer | Capture baseline once; assign transaction ID and revision. No current transport is stopped. The transaction opens when a description is applied. `createOffer` in stable only records the baseline snapshot that `setLocalDescription` of that offer adopts (so MIDs it assigned revert on rollback); an unapplied offer leaves no open transaction, and a remote offer captures its own baseline. |
 | replace/update | active transaction | Retire old pending-only resources and candidate buckets. Keep baseline and emitted-event history. A byte-identical description is idempotent. |
 | validate | parsed proposal | For a local offer, reject any SDP other than the last `createOffer` result with `InvalidModificationError` (W3C `setLocalDescription`; local SDP munging is not supported). Check signaling transition, unique MID, m-line order and reuse, exact MID match of every answer m-line and BUNDLE member (no prefix or suffix matching), BUNDLE membership and tag, codec/rejection, ICE credentials, DTLS role/fingerprint and SCTP port before live mutation. Failure leaves previous pending revision and current untouched. |
 | prepare | validated proposal | Allocate any new transport and media objects under pending ownership; prepare may fail and must clean only the newly allocated objects. A local (replacement) offer stages its transports before the previous pending offer is replaced, and `createOffer` never discards the transports of an applied pending offer, so a preparation failure leaves the previous pending description, transaction and signaling state intact. |

@@ -497,7 +497,7 @@ export class RTCPeerConnection extends EventTarget {
   async createOffer({ iceRestart }: { iceRestart?: boolean } = {}) {
     // Transports prepared for an applied pending offer stay until that offer
     // is replaced or rolled back; setLocalDescription stages new ones first.
-    if (this.signalingState === "stable") this.negotiation.begin();
+    if (this.signalingState === "stable") this.negotiation.snapshotForOffer();
     const restartRequested = !!iceRestart || this.needRestart;
     if (restartRequested) {
       this.needRestart = false;
@@ -863,7 +863,7 @@ export class RTCPeerConnection extends EventTarget {
             await this.negotiation.replace();
             this.sdpManager.pendingLocalDescription = undefined;
           } else {
-            this.negotiation.begin();
+            this.negotiation.begin({ fromCreatedOffer: true });
           }
         }
         this.negotiation.validate();
