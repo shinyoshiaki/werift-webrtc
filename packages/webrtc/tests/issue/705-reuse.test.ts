@@ -7,6 +7,7 @@ import {
   createNegotiatedPair,
   createPeer,
   createRemoteStoppedVideoReservation,
+  createSendonlyVideoPair,
   createTrack,
   expectRtpDelivered,
   flushEvents,
@@ -363,6 +364,48 @@ describe("issue 705: m-line reuse after a confirmed stop", () => {
       expect(reservedVideo.mLineIndex).toBe(2);
     } finally {
       await closeAll(pc);
+    }
+  });
+
+  test("aggressive answerer: an inactive m-line answered with port 0 is stopped on both sides and its index is reused", async () => {
+    // Arrange: caller が sendonly video を 3 本送り、callee は aggressive の answerer
+    const { caller, callee, videos } = await createSendonlyVideoPair({
+      calleeMLineReuse: "aggressive",
+      count: 3,
+    });
+    const second = videos[1];
+    const calleeSecond = transceiverByMid(callee, second.mid!)!;
+
+    try {
+      // Act: 2 本目を removeTrack して交渉する
+      caller.removeTrack(second.sender);
+      const { answer } = await negotiate(caller, callee);
+
+      // Assert: callee は inactive を port 0 で答え、自分の transceiver も停止を確定する
+      expect(mLines(answer)[1].port).toBe(0);
+      expect(second.stopped).toBe(true);
+      expect(calleeSecond.stopped).toBe(true);
+
+      // Act: caller が video を追加して交渉する
+      const track = createTrack("video");
+      const replaced = caller.addTransceiver(track, { direction: "sendonly" });
+      await negotiate(caller, callee);
+
+      // Assert: 同じ index 1 を新 MID で再利用し、callee の index 1 は新しい transceiver 1 つだけ
+      expect(replaced.mLineIndex).toBe(1);
+      const atIndex1 = callee
+        .getTransceivers()
+        .filter((t) => t.mLineIndex === 1);
+      expect(atIndex1).toHaveLength(1);
+      expect(atIndex1[0].mid).toBe(replaced.mid);
+      // Assert: 再利用した位置で RTP を受信できる
+      await expectRtpDelivered({
+        track,
+        receiverTransceiver: atIndex1[0],
+        payload: "replaced",
+      });
+    } finally {
+      await closeAll(caller, callee);
     }
   });
 

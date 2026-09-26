@@ -886,6 +886,17 @@ export class RTCPeerConnection extends EventTarget {
     if (description.type === "answer") {
       // answer の確定で拒否予定の m-line を停止し、RTP pipeline / 遊休 transport を解放する
       this.transceiverManager.commitRemoteOffer();
+      // port 0 で答えた m-line (aggressive の inactive など) は offerer 側で拒否として停止が確定する。
+      // answerer 側も同じ位置を停止確定にし、offerer が新 MID で再利用できるようにする
+      for (const media of description.media) {
+        if (!["audio", "video"].includes(media.kind) || media.port !== 0) {
+          continue;
+        }
+        const transceiver = this.transceiverManager
+          .getTransceivers()
+          .find((t) => t.mid === media.rtp.muxId && !t.stopped);
+        transceiver?.commitStopped({ rejected: true });
+      }
       this.closeIdleTransports();
     }
 

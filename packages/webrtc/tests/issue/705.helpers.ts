@@ -403,3 +403,28 @@ export function startAutoNegotiation(
     },
   };
 }
+
+/**
+ * caller (compatible) が sendonly video を 1 本ずつ追加交渉し、callee を指定モードの answerer にした
+ * 接続済みペアを作る (Chromium offerer + werift answerer の removeTrack E2E と同じ構成)。
+ */
+export async function createSendonlyVideoPair({
+  calleeMLineReuse,
+  count,
+}: {
+  calleeMLineReuse: MLineReuse;
+  count: number;
+}) {
+  const caller = createPeer();
+  const callee = createPeer({ mLineReuse: calleeMLineReuse });
+  exchangeIceCandidates(caller, callee);
+  const videos: RTCRtpTransceiver[] = [];
+  for (let i = 0; i < count; i++) {
+    videos.push(
+      caller.addTransceiver(createTrack("video"), { direction: "sendonly" }),
+    );
+    await negotiate(caller, callee);
+  }
+  await waitForConnected(caller, callee);
+  return { caller, callee, videos };
+}

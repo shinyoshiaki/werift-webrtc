@@ -8,7 +8,7 @@
 - **m-line behavior changes** (#705):
   - Accepted `inactive` m-lines now use port 9 by default (`mLineReuse: "compatible"`). Set `mLineReuse: "aggressive"` to keep the previous inactive port 0.
   - `addTransceiver()` / `addTrack()` no longer take over an `inactive` m-line left by `removeTrack()`. Only a position whose port 0 stop / rejection has been negotiated is reused (with a new MID and a new transceiver); otherwise a new m-line is appended. Call `transceiver.stop()` and negotiate to free a position for reuse.
-  - In `"aggressive"` mode, a negotiated inactive (port 0) m-line is treated as rejected: the transceiver becomes permanently stopped and cannot be resumed with `direction = "sendrecv"`. Add a new transceiver (which reuses the position) or use `"compatible"` to pause and resume.
+  - In `"aggressive"` mode, a negotiated inactive (port 0) m-line is treated as rejected: the transceiver becomes permanently stopped on both the offerer and the answerer and cannot be resumed with `direction = "sendrecv"`. Add a new transceiver (which reuses the position) or use `"compatible"` to pause and resume.
 
 ### 🚀 Features
 

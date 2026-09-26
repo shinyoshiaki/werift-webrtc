@@ -1,6 +1,7 @@
 import type { ChildProcess } from "child_process";
 import type { AcceptFn } from "protoo-server";
 import {
+  type MLineReuse,
   type MediaStreamTrack,
   MediaStreamTrackFactory,
   RTCPeerConnection,
@@ -14,6 +15,8 @@ export class mediachannel_removetrack_answer_base {
     MediaStreamTrack,
     { dispose: () => void; process: ChildProcess }
   >();
+
+  constructor(private readonly mLineReuse: MLineReuse = "compatible") {}
 
   private async createTrackSource() {
     const [track, port, dispose] = await MediaStreamTrackFactory.rtpSource({
@@ -57,7 +60,10 @@ export class mediachannel_removetrack_answer_base {
         {
           await this.cleanup();
 
-          this.pc = new RTCPeerConnection(await peerConfig);
+          this.pc = new RTCPeerConnection({
+            ...(await peerConfig),
+            mLineReuse: this.mLineReuse,
+          });
           const track = await this.createTrackSource();
           this.pc.addTrack(track);
           await this.pc.setLocalDescription(await this.pc.createOffer());
@@ -115,11 +121,16 @@ export class mediachannel_addtrack_removefirst_addtrack extends mediachannel_rem
 class mediachannel_removetrack_offer_base {
   pc!: RTCPeerConnection;
 
+  constructor(private readonly mLineReuse: MLineReuse = "compatible") {}
+
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {
       case "init":
         {
-          this.pc = new RTCPeerConnection(await peerConfig);
+          this.pc = new RTCPeerConnection({
+            ...(await peerConfig),
+            mLineReuse: this.mLineReuse,
+          });
           accept({});
         }
         break;
