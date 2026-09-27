@@ -60,6 +60,13 @@ function mapCandidatePairState(state: number): RTCStatsIceCandidatePairState {
                 +-------+      
  */
 
+type StagedLocalRestart = {
+  usernameFragment: string;
+  password: string;
+  candidates: IceCandidate[];
+  emitted: boolean;
+};
+
 export class RTCIceTransport {
   readonly id = randomUUID().toString();
   connection: IceConnection;
@@ -68,12 +75,13 @@ export class RTCIceTransport {
   iceRestarts = 0;
   private waitStart?: Event<[]>;
   private renominating = false;
-  private stagedLocalRestart?: {
-    usernameFragment: string;
-    password: string;
-    candidates: IceCandidate[];
-    emitted: boolean;
-  };
+  private stagedLocalRestart?: StagedLocalRestart;
+  /**
+   * The staged generation an applied description (pending local offer, or a
+   * remote offer being answered) carries. It stays until that description is
+   * committed, replaced or rolled back; an unapplied createOffer cannot drop it.
+   */
+  private appliedLocalRestart?: StagedLocalRestart;
   private committedCandidateEvents?: IceCandidate[];
   private readonly events = new DomEventTarget();
   onstatechange?: () => void;
@@ -142,6 +150,14 @@ export class RTCIceTransport {
 
   /** Prepare an ICE generation for SDP without touching the selected pair. */
   stageLocalRestart() {
+    // JSEP 5.2.1: a new offer reuses the credentials of the pending applied
+    // offer, which already restarts ICE.
+    if (
+      this.stagedLocalRestart &&
+      this.stagedLocalRestart === this.appliedLocalRestart
+    ) {
+      return;
+    }
     this.rollbackLocalRestart();
     const usernameFragment = randomBytes(6).toString("base64url");
     const password = randomBytes(24).toString("base64url");
@@ -210,11 +226,32 @@ export class RTCIceTransport {
   }
 
   rollbackLocalRestart() {
+    this.appliedLocalRestart = undefined;
     if (!this.stagedLocalRestart) return;
     this.connection.discardStagedLocalCredentials?.(
       this.stagedLocalRestart.usernameFragment,
     );
     this.stagedLocalRestart = undefined;
+  }
+
+  /** The staged generation now belongs to an applied description. */
+  markLocalRestartApplied() {
+    this.appliedLocalRestart = this.stagedLocalRestart;
+  }
+
+  /** Drop only what an unapplied createOffer staged; keep the applied one. */
+  discardUnappliedLocalRestart() {
+    const staged = this.stagedLocalRestart;
+    const applied = this.appliedLocalRestart;
+    if (!staged || staged === applied) return;
+    this.connection.discardStagedLocalCredentials?.(staged.usernameFragment);
+    this.stagedLocalRestart = applied;
+    if (applied) {
+      this.connection.stageLocalCredentials?.(
+        applied.usernameFragment,
+        applied.password,
+      );
+    }
   }
 
   async commitLocalRestart() {
@@ -231,6 +268,7 @@ export class RTCIceTransport {
       this.connection.localPassword = staged.password;
     }
     this.stagedLocalRestart = undefined;
+    this.appliedLocalRestart = undefined;
     await this.gather();
     if (!staged.emitted) {
       this.committedCandidateEvents = this.iceGather.localCandidates;

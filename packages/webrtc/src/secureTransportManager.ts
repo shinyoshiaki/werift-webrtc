@@ -461,6 +461,20 @@ export class SecureTransportManager {
     }
   }
 
+  /** The staged restart credentials now belong to an applied description. */
+  markStagedIceRestartApplied() {
+    for (const transport of this.iceTransports) {
+      transport.markLocalRestartApplied();
+    }
+  }
+
+  /** Discard restart credentials staged only by an unapplied createOffer. */
+  discardUnappliedIceRestart() {
+    for (const transport of this.iceTransports) {
+      transport.discardUnappliedLocalRestart();
+    }
+  }
+
   emitStagedIceCandidates() {
     for (const transport of this.iceTransports) {
       transport.emitStagedCandidates();

@@ -1618,6 +1618,59 @@ describe("negotiation transaction", () => {
     }
   });
 
+  test.each([
+    ["createOffer()", false],
+    ["createOffer({ iceRestart: true })", true],
+  ])(
+    "an unapplied %s keeps the restart credentials of the applied pending offer",
+    async (_, iceRestart) => {
+      const { offerer, answerer, outgoing, incoming } =
+        await createConnectedVideoPeers();
+      try {
+        // Arrange: ICE restart offer を適用して pending にする。
+        const generation = offerer.iceGeneration;
+        await offerer.setLocalDescription(
+          await offerer.createOffer({ iceRestart: true }),
+        );
+        const ufragOf = (sdp: string) =>
+          sdp.match(/^a=ice-ufrag:(.*?)\r?$/m)![1];
+        const offeredUfrag = ufragOf(offerer.pendingLocalDescription!.sdp);
+
+        // Act: 適用しない offer を作る。
+        const unapplied = await offerer.createOffer({ iceRestart });
+
+        // Assert: pending offer の資格情報が再利用される (JSEP 5.2.1)。
+        expect(ufragOf(unapplied.sdp)).toBe(offeredUfrag);
+        assertNegotiationInvariants(offerer);
+
+        // Act: 適用済みの restart offer に最終 answer を返す。
+        await answerer.setRemoteDescription(offerer.pendingLocalDescription!);
+        await answerer.setLocalDescription(await answerer.createAnswer());
+        await offerer.setRemoteDescription(answerer.localDescription!);
+        await waitForCommittedNomination(offerer);
+
+        // Assert: current SDP と ICE transport の資格情報が一致し、新 generation で RTP が届く。
+        expect(offerer.signalingState).toBe("stable");
+        expect(ufragOf(offerer.currentLocalDescription!.sdp)).toBe(
+          offeredUfrag,
+        );
+        expect(offerer.iceTransports[0].connection.localUsername).toBe(
+          offeredUfrag,
+        );
+        expect(offerer.iceGeneration).toBe(generation + 1);
+        assertNegotiationInvariants(offerer);
+        assertNegotiationInvariants(answerer);
+        await sendAndExpectRtp(
+          outgoing,
+          incoming,
+          `restart-kept-${iceRestart}`,
+        );
+      } finally {
+        await Promise.allSettled([offerer.close(), answerer.close()]);
+      }
+    },
+  );
+
   test("both peers commit matching local and remote ICE restart generations", async () => {
     const { offerer, answerer, outgoing, incoming } =
       await createConnectedVideoPeers();

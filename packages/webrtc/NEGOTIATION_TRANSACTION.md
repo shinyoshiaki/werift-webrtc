@@ -180,6 +180,14 @@ during the transaction that no binding holds at commit (for example the data
 channel's own transport after BUNDLE moved SCTP to the tag) is stopped at
 commit.
 
+Restart credentials that an applied offer carries belong to that offer until
+it is answered, replaced or rolled back. A later `createOffer()` that is not
+applied cannot drop them: without `iceRestart` it only discards credentials
+an earlier unapplied `createOffer` staged, and with `iceRestart` it reuses the
+pending offer's credentials (JSEP 5.2.1). The final answer switches exactly
+the generation of the applied offer, so the current local SDP and the live
+ICE credentials agree.
+
 An ICE restart (changed ufrag/pwd without a transport topology change) keeps
 the existing ICE and DTLS transports and their DTLS association, as RFC 8842
 and JSEP require and as browsers expect: a restart must not renegotiate the

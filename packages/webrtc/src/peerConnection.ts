@@ -516,8 +516,15 @@ export class RTCPeerConnection extends EventTarget {
       } else {
         this.secureManager.restartIce();
       }
-    } else {
-      this.secureManager.rollbackStagedIceRestart();
+    } else if (
+      ["stable", "have-local-offer", "have-remote-pranswer"].includes(
+        this.signalingState,
+      )
+    ) {
+      // An applied pending offer keeps its restart credentials until it is
+      // answered, replaced or rolled back; credentials staged for an answer
+      // (have-remote-offer) are not the offerer's to discard.
+      this.secureManager.discardUnappliedIceRestart();
     }
 
     await this.secureManager.ensureCerts();
@@ -985,6 +992,7 @@ export class RTCPeerConnection extends EventTarget {
       );
 
       if (description.type === "offer") {
+        this.secureManager.markStagedIceRestartApplied();
         this.setSignalingState("have-local-offer");
       } else if (description.type === "answer") {
         this.setSignalingState("stable");
@@ -2205,6 +2213,8 @@ export class RTCPeerConnection extends EventTarget {
         if (remoteSdp.type === "answer") {
           // The final answer switches a staged ICE restart only now, after
           // every fallible step, and before its remote ICE parameters apply.
+          // Only the generation the applied offer carries is switched.
+          this.secureManager.discardUnappliedIceRestart();
           await this.commitStagedIceRestart();
         }
         for (const update of transportUpdates) update();
