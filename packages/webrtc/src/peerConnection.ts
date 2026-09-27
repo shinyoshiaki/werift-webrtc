@@ -70,6 +70,28 @@ import { andDirection, deepMerge } from "./utils";
 
 const log = debug("werift:packages/webrtc/src/peerConnection.ts");
 
+/**
+ * The ICE generation of a candidate is its ufrag, given either as the
+ * `usernameFragment` property or as the `ufrag` token of the candidate
+ * string. Both forms route the same way; conflicting values are rejected.
+ */
+function normalizeCandidateUfrag(
+  message: RTCIceCandidate | RTCIceCandidateInit | null,
+): RTCIceCandidate | RTCIceCandidateInit | null {
+  if (!message) return message;
+  const fromString = message.candidate?.match(/\bufrag\s+(\S+)/)?.[1];
+  const fromProperty = message.usernameFragment ?? undefined;
+  if (fromString && fromProperty && fromString !== fromProperty) {
+    throw createWebRtcDomException(
+      "OperationError",
+      "Candidate ufrag does not match usernameFragment",
+    );
+  }
+  if (!fromString || fromProperty) return message;
+  const init = "toJSON" in message ? message.toJSON() : { ...message };
+  return { ...init, usernameFragment: fromString };
+}
+
 function fingerprintKey(params: NonNullable<MediaDescription["dtlsParams"]>) {
   return params.fingerprints
     .map(
@@ -1434,10 +1456,9 @@ export class RTCPeerConnection extends EventTarget {
         throw createWebRtcDomException("InvalidStateError", "is closed");
       }
 
+      candidateMessage = normalizeCandidateUfrag(candidateMessage);
       if (!this.remoteDescription || !this.sdpManager._remoteDescription) {
-        const ufrag =
-          candidateMessage?.usernameFragment ??
-          candidateMessage?.candidate?.match(/\bufrag\s+(\S+)/)?.[1];
+        const ufrag = candidateMessage?.usernameFragment;
         if (this.negotiation.isRetiredRemoteUfrag(ufrag)) {
           throw createWebRtcDomException(
             "OperationError",

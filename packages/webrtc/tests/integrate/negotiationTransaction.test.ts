@@ -1015,6 +1015,86 @@ describe("negotiation transaction", () => {
     }
   });
 
+  test("a candidate's ufrag in the candidate string routes it to the same generation as the usernameFragment property", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers({}, { trickleOpen: true });
+    try {
+      // Arrange: ICE restart re-offer で current (旧) と pending (新) の ufrag を併存させる。
+      const ufragOf = (sdp: string) => sdp.match(/^a=ice-ufrag:(.*?)\r?$/m)![1];
+      const oldUfrag = ufragOf(answerer.currentRemoteDescription!.sdp);
+      await offerer.setLocalDescription(
+        await offerer.createOffer({ iceRestart: true }),
+      );
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      const newUfrag = ufragOf(answerer.pendingRemoteDescription!.sdp);
+      expect(newUfrag).not.toBe(oldUfrag);
+      const mid =
+        answerer.currentRemoteDescription!.sdp.match(/^a=mid:(.*?)\r?$/m)![1];
+      const [, foundation, rest] = answerer.currentRemoteDescription!.sdp.match(
+        /^a=candidate:(\S+) (\d+ \S+ \d+ \S+) \d+ typ host/m,
+      )!;
+      const candidateAt = (port: number) =>
+        `candidate:${foundation}${port % 10} ${rest} ${port} typ host ufrag ${oldUfrag}`;
+      const connection = answerer.iceTransports[0].connection;
+      const live = (port: number) =>
+        connection.remoteCandidates.some((c) => c.port === port);
+
+      // Act: 旧 ufrag を候補文字列だけに含める形と、プロパティでも渡す形で追加する。
+      await answerer.addIceCandidate({
+        candidate: candidateAt(40991),
+        sdpMid: mid,
+      });
+      await answerer.addIceCandidate({
+        candidate: candidateAt(40992),
+        sdpMid: mid,
+        usernameFragment: oldUfrag,
+      });
+
+      // Assert: どちらも旧世代として current SDP と稼働中 checklist に入り、pending SDP には入らない。
+      for (const port of [40991, 40992]) {
+        expect(answerer.currentRemoteDescription!.sdp).toContain(
+          ` ${port} typ host`,
+        );
+        expect(answerer.pendingRemoteDescription!.sdp).not.toContain(
+          ` ${port} typ host`,
+        );
+        expect(live(port)).toBe(true);
+      }
+      assertNegotiationInvariants(answerer);
+
+      // Act: 候補文字列とプロパティで ufrag が食い違う候補を追加する。
+      await expect(
+        answerer.addIceCandidate({
+          candidate: candidateAt(40993),
+          sdpMid: mid,
+          usernameFragment: newUfrag,
+        }),
+      ).rejects.toMatchObject({ name: "OperationError" });
+
+      // Assert: 食い違う候補はどの世代にも記録されない。
+      expect(answerer.currentRemoteDescription!.sdp).not.toContain(
+        " 40993 typ host",
+      );
+      expect(answerer.pendingRemoteDescription!.sdp).not.toContain(
+        " 40993 typ host",
+      );
+      expect(live(40993)).toBe(false);
+
+      // Act: re-offer を両側で rollback する。
+      await answerer.setRemoteDescription({ type: "rollback" });
+      await offerer.setLocalDescription({ type: "rollback" });
+
+      // Assert: 旧世代の候補は current に残り、既存 RTP が届く。
+      expect(answerer.currentRemoteDescription!.sdp).toContain(
+        " 40991 typ host",
+      );
+      assertNegotiationInvariants(answerer);
+      await sendAndExpectRtp(outgoing, incoming, "ufrag-in-candidate-string");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
   test("an answer leaves the MID of a rejected m-line out of its BUNDLE group", async () => {
     const session = await createDuplexSession();
     try {

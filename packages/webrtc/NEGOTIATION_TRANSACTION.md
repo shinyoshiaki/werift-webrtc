@@ -77,6 +77,11 @@ before anything is committed, and leaves the queue so a retry of the same
 description succeeds; the valid queued candidates are applied after the
 description is published.
 
+A trickled candidate belongs to the ICE generation of its ufrag, given either
+as the `usernameFragment` property or as the `ufrag` token of the candidate
+string; both forms are routed identically (current or pending generation),
+and a candidate whose two values disagree is rejected with `OperationError`.
+
 During a remote re-offer, a trickled candidate for an m-line whose ufrag is
 unchanged belongs to both the pending proposal and the live ICE generation.
 It is recorded in the pending SDP and, unless the live generation already
