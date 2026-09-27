@@ -9,7 +9,9 @@ consent timers and retransmission state belong to the live transport and are
 never copied into an SDP snapshot. SSRC routes and receiver SSRC-to-track
 entries learned from received packets (simulcast after RID stops) are marked
 as learned; rollback restores the SDP-derived baseline and keeps learned
-entries whose receiver and track survive the rollback.
+entries whose receiver and track survive the rollback. When a description
+registers the same SSRC, the entry becomes description state again and loses
+the learned mark.
 
 An offer starts a transaction. The first current pair and the identities of
 its transceivers, router entries, BUNDLE transports, ICE generations, DTLS
@@ -133,6 +135,19 @@ rolled-back provisional resources are stopped. Existing DataChannels stay on
 their committed association; channels opened on a pending-only association
 close when it is discarded. Application-created unattached channels remain
 application objects for a later negotiation.
+
+`createDataChannel` is an application operation, like `stop()`. An SCTP
+transport that carries a `createDataChannel` call is marked as
+application-owned. When rollback finds such a transport that is not in the
+baseline and whose association has not started, it keeps the transport and
+its channels. Rollback only clears the MID, m-line index, remote port and
+remote message size that the rolled-back description set. The next offer
+carries `m=application` again, and the channels open once it is answered. An
+SCTP transport that a description created, or an association that already
+ran under the pending description, is stopped as before. A transport created
+during the transaction that no binding holds at commit (for example the data
+channel's own transport after BUNDLE moved SCTP to the tag) is stopped at
+commit.
 
 An ICE restart (changed ufrag/pwd without a transport topology change) keeps
 the existing ICE and DTLS transports and their DTLS association, as RFC 8842
