@@ -19,6 +19,7 @@ import {
   createUnnegotiatedVideoPeers,
   expectSessionAlive,
   keepOnlyRtx,
+  mungeSection,
   negotiate,
   negotiateAndExpectChannel,
   negotiationInternals,
@@ -837,6 +838,66 @@ describe("negotiation transaction", () => {
         expect(eocCount(answerer.currentRemoteDescription!.sdp)).toBe(2);
         assertNegotiationInvariants(answerer);
         await sendAndExpectRtp(outgoing, incoming, `pending-eoc-${finish}`);
+      } finally {
+        await Promise.allSettled([offerer.close(), answerer.close()]);
+      }
+    },
+  );
+
+  test.each(["answer", "rollback"] as const)(
+    "end-of-candidates in the body of a non-tag m-line of a same-ufrag re-offer ends the shared generation after %s",
+    async (finish) => {
+      const { offerer, answerer, outgoing, incoming } =
+        await createConnectedVideoPeers(
+          {},
+          { trickleOpen: true, withAudio: true },
+        );
+      try {
+        // Arrange: 非 tag m-line の本文だけに EOC を載せた同じ ufrag の re-offer を作る。
+        await offerer.setLocalDescription(await offerer.createOffer());
+        const stripped = offerer.localDescription!.sdp.replace(
+          /^a=end-of-candidates\r?\n/gm,
+          "",
+        );
+        const nonTagMid = stripped
+          .match(/^a=group:BUNDLE (.*?)\r?$/m)![1]
+          .trim()
+          .split(" ")[1];
+        const offer = mungeSection(
+          stripped,
+          nonTagMid,
+          (section) => `${section.trimEnd()}\r\na=end-of-candidates\r\n`,
+        );
+        const connection = answerer.iceTransports[0].connection;
+        const eocCount = (sdp: string) =>
+          sdp.match(/^a=end-of-candidates/gm)?.length ?? 0;
+        expect(eocCount(offer)).toBe(1);
+        expect(connection.remoteCandidatesEnd).toBe(false);
+
+        // Act: re-offer を適用する (answer はまだ返さない)。
+        await answerer.setRemoteDescription({ type: "offer", sdp: offer });
+
+        // Assert: 共有 transport が完了し、current と pending の両 SDP で 2 m-line とも完了扱い。
+        expect(connection.remoteCandidatesEnd).toBe(true);
+        expect(eocCount(answerer.currentRemoteDescription!.sdp)).toBe(2);
+        expect(eocCount(answerer.pendingRemoteDescription!.sdp)).toBe(2);
+        assertNegotiationInvariants(answerer);
+
+        // Act: answer で確定する、または rollback する。
+        if (finish === "answer") {
+          await answerer.setLocalDescription(await answerer.createAnswer());
+          await offerer.setRemoteDescription(answerer.localDescription!);
+        } else {
+          await answerer.setRemoteDescription({ type: "rollback" });
+          await offerer.setLocalDescription({ type: "rollback" });
+        }
+
+        // Assert: 確定した SDP と live transport の EOC 状態が一致し、RTP が届く。
+        expect(answerer.signalingState).toBe("stable");
+        expect(connection.remoteCandidatesEnd).toBe(true);
+        expect(eocCount(answerer.currentRemoteDescription!.sdp)).toBe(2);
+        assertNegotiationInvariants(answerer);
+        await sendAndExpectRtp(outgoing, incoming, `body-eoc-${finish}`);
       } finally {
         await Promise.allSettled([offerer.close(), answerer.close()]);
       }

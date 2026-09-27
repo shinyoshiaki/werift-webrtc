@@ -88,7 +88,10 @@ during a re-offer marks every m-line of that generation in it) and to any
 remote description applied later that repeats an ended generation, so the
 SDP committed by an answer, or kept by a rollback, matches the live transport.
 Only the generation that ended counts: a pending ICE restart ufrag on the same
-transport stays open.
+transport stays open. An end-of-candidates written in the SDP body of any
+BUNDLE m-line, including a non-tag one, ends the shared generation the same
+way as a trickled one; it is applied after every m-line's candidates so it
+cannot close the transport before the tag's candidates arrive.
 
 An answer leaves the MID of an m-line it rejects (offered with port 0, or
 whose transceiver is stopping or stopped) out of its BUNDLE group, as

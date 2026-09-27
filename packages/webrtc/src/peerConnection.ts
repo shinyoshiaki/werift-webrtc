@@ -1569,17 +1569,22 @@ export class RTCPeerConnection extends EventTarget {
   ) {
     const current = this.sdpManager.currentRemoteDescription;
     if (!current) return;
-    for (const [index, media] of proposal.media.entries()) {
-      const mid = media.rtp.muxId ?? "";
-      if (media.port === 0) continue;
-      if (bundleItems.includes(mid) && bundleItems[0] !== mid) continue;
-      const prepared = this.negotiation.transportByMid.get(mid);
-      if (
+    const shared = [...proposal.media.entries()].filter(([, media]) => {
+      if (media.port === 0) return false;
+      const prepared = this.negotiation.transportByMid.get(
+        media.rtp.muxId ?? "",
+      );
+      return !(
         prepared &&
         this.negotiation.isPendingOnlyTransport(prepared.iceTransport.id)
-      ) {
-        continue;
-      }
+      );
+    });
+    // Candidates first (a non-tag BUNDLE member carries none of its own),
+    // then end-of-candidates from any m-line, since it ends the shared
+    // generation for the whole group.
+    for (const [index, media] of shared) {
+      const mid = media.rtp.muxId ?? "";
+      if (bundleItems.includes(mid) && bundleItems[0] !== mid) continue;
       for (const candidate of media.iceCandidates) {
         await this.deliverSameGenerationCandidate(proposal, current, {
           kind: "candidate",
@@ -1587,12 +1592,13 @@ export class RTCPeerConnection extends EventTarget {
           mediaIndices: [index],
         });
       }
-      if (media.iceCandidatesComplete) {
-        await this.deliverSameGenerationCandidate(proposal, current, {
-          kind: "end-of-candidates",
-          mediaIndices: [index],
-        });
-      }
+    }
+    for (const [index, media] of shared) {
+      if (!media.iceCandidatesComplete) continue;
+      await this.deliverSameGenerationCandidate(proposal, current, {
+        kind: "end-of-candidates",
+        mediaIndices: [index],
+      });
     }
   }
 
@@ -2088,6 +2094,7 @@ export class RTCPeerConnection extends EventTarget {
         // m-line applied without error, so a failure above leaves the ICE
         // generation, selected pair and DTLS/SCTP bindings untouched.
         const transportUpdates: (() => void)[] = [];
+        const endOfCandidates: RTCIceTransport[] = [];
         let transports = remoteSdp.media.map((remoteMedia, i) => {
           let dtlsTransport: RTCDtlsTransport;
           const preparedTransport = remoteMedia.rtp.muxId
@@ -2267,12 +2274,13 @@ export class RTCPeerConnection extends EventTarget {
               );
             }
 
+            // End-of-candidates ends the shared generation whichever BUNDLE
+            // m-line carries it; it runs after every m-line's candidates.
             if (
               remoteMedia.iceCandidatesComplete &&
-              (!preserveCurrentTransport || !!pendingTransport) &&
-              !bundledNonTag
+              (!preserveCurrentTransport || !!pendingTransport)
             ) {
-              iceTransport.addRemoteCandidate(undefined);
+              endOfCandidates.push(iceTransport);
             }
 
             if (
@@ -2309,6 +2317,9 @@ export class RTCPeerConnection extends EventTarget {
           await this.commitStagedIceRestart();
         }
         for (const update of transportUpdates) update();
+        for (const iceTransport of new Set(endOfCandidates)) {
+          iceTransport.addRemoteCandidate(undefined);
+        }
         if (preserveCurrentTransport) {
           await this.deliverSameGenerationDescription(remoteSdp, bundleItems);
         }
