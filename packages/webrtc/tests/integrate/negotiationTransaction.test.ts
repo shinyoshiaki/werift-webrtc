@@ -787,6 +787,62 @@ describe("negotiation transaction", () => {
     }
   });
 
+  test.each(["answer", "rollback"] as const)(
+    "end-of-candidates trickled on a non-tag m-line during a same-ufrag re-offer stays aligned after %s",
+    async (finish) => {
+      const { offerer, answerer, outgoing, incoming } =
+        await createConnectedVideoPeers(
+          {},
+          { trickleOpen: true, withAudio: true },
+        );
+      try {
+        // Arrange: EOC 前の世代のまま、ICE restart なしの re-offer を pending にする。
+        await offerer.setLocalDescription(await offerer.createOffer());
+        await answerer.setRemoteDescription({
+          type: "offer",
+          sdp: offerer.localDescription!.sdp.replace(
+            /^a=end-of-candidates\r?\n/gm,
+            "",
+          ),
+        });
+        const nonTagMid = answerer
+          .pendingRemoteDescription!.sdp.match(/^a=group:BUNDLE (.*?)\r?$/m)![1]
+          .trim()
+          .split(" ")[1];
+        const connection = answerer.iceTransports[0].connection;
+        const eocCount = (sdp: string) =>
+          sdp.match(/^a=end-of-candidates/gm)?.length ?? 0;
+
+        // Act: pending 中に非 tag m-line へ EOC を trickle する。
+        await answerer.addIceCandidate({ candidate: "", sdpMid: nonTagMid });
+
+        // Assert: 共有 transport が完了し、pending と current の両 SDP で 2 m-line とも完了扱い。
+        expect(connection.remoteCandidatesEnd).toBe(true);
+        expect(eocCount(answerer.pendingRemoteDescription!.sdp)).toBe(2);
+        expect(eocCount(answerer.currentRemoteDescription!.sdp)).toBe(2);
+        assertNegotiationInvariants(answerer);
+
+        // Act: answer で確定する、または rollback する。
+        if (finish === "answer") {
+          await answerer.setLocalDescription(await answerer.createAnswer());
+          await offerer.setRemoteDescription(answerer.localDescription!);
+        } else {
+          await answerer.setRemoteDescription({ type: "rollback" });
+          await offerer.setLocalDescription({ type: "rollback" });
+        }
+
+        // Assert: 確定した SDP と live transport の EOC 状態が一致し、RTP が届く。
+        expect(answerer.signalingState).toBe("stable");
+        expect(connection.remoteCandidatesEnd).toBe(true);
+        expect(eocCount(answerer.currentRemoteDescription!.sdp)).toBe(2);
+        assertNegotiationInvariants(answerer);
+        await sendAndExpectRtp(outgoing, incoming, `pending-eoc-${finish}`);
+      } finally {
+        await Promise.allSettled([offerer.close(), answerer.close()]);
+      }
+    },
+  );
+
   test("an answer leaves the MID of a rejected m-line out of its BUNDLE group", async () => {
     const session = await createDuplexSession();
     try {

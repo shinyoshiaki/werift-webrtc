@@ -11,7 +11,7 @@ import {
   useSdesRTPStreamId,
   useVP8,
 } from "../../src";
-import type { SessionDescription } from "../../src/sdp";
+import { SessionDescription } from "../../src/sdp";
 
 /** Shared Arrange setup for negotiation transaction regression tests. */
 export async function createConnectedVideoPeers(
@@ -471,11 +471,27 @@ function assertIceGenerations(pc: RTCPeerConnection, snapshot: Snapshot) {
         ),
       ).toBe(true);
     }
-    // EOC は current SDP に記録された generation にだけ反映される。
+    // EOC は current SDP に記録された generation にだけ反映され、完了した
+    // transport・世代を共有する m-line (BUNDLE group) は current/pending SDP
+    // のどちらでも全て完了扱いになる。
     if (connection.remoteCandidatesEnd) {
       expect(remoteMedia.some((media) => media.iceCandidatesComplete)).toBe(
         true,
       );
+      const pendingRemote = pc.pendingRemoteDescription
+        ? SessionDescription.parse(pc.pendingRemoteDescription.sdp)
+        : undefined;
+      for (const media of [
+        ...remoteMedia,
+        ...(pendingRemote?.media ?? []).filter(
+          (m) => liveTransportForMid(pc, m.rtp.muxId) === transport,
+        ),
+      ]) {
+        if (media.port === 0) continue;
+        if (media.iceParams?.usernameFragment !== connection.remoteUsername)
+          continue;
+        expect(media.iceCandidatesComplete).toBe(true);
+      }
     }
     // selected pair は live checklist に属する。
     if (connection.nominated) {

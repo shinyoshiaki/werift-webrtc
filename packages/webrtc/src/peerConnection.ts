@@ -1539,12 +1539,11 @@ export class RTCPeerConnection extends EventTarget {
           media.iceCandidatesComplete = true;
         }
       }
-      if (!stageOnly) {
-        this.completeSharedTransportMedia(
-          remoteDescription,
-          appliedCandidate.mediaIndices,
-        );
-      }
+      // A pending SDP becomes current at the answer, so it is aligned too.
+      this.completeSharedTransportMedia(
+        remoteDescription,
+        appliedCandidate.mediaIndices,
+      );
       return;
     }
 
@@ -1619,8 +1618,12 @@ export class RTCPeerConnection extends EventTarget {
         const transport = this.currentTransportForMid(
           media?.rtp.muxId ?? "",
         )?.iceTransport;
-        return transport?.connection.remoteCandidatesEnd
-          ? { transport, ufrag: media?.iceParams?.usernameFragment }
+        const ufrag = media?.iceParams?.usernameFragment;
+        // Only the generation that actually ended on the transport counts; a
+        // pending restart ufrag on the same transport is still open.
+        return transport?.connection.remoteCandidatesEnd &&
+          transport.connection.remoteUsername === ufrag
+          ? { transport, ufrag }
           : undefined;
       })
       .filter((generation) => !!generation?.ufrag);
@@ -2309,6 +2312,13 @@ export class RTCPeerConnection extends EventTarget {
         if (preserveCurrentTransport) {
           await this.deliverSameGenerationDescription(remoteSdp, bundleItems);
         }
+        // A description that repeats an ICE generation which already ended
+        // on its transport records that end too, so it cannot become current
+        // promising candidates the live transport no longer accepts.
+        this.completeSharedTransportMedia(
+          remoteSdp,
+          remoteSdp.media.map((_, index) => index),
+        );
         for (const [iceTransport, media] of provisionalIce) {
           await this.applyProvisionalIce(iceTransport, media);
         }

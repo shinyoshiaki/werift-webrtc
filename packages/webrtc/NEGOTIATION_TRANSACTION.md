@@ -82,7 +82,13 @@ one BUNDLE m-line, every m-line that shares the transport and ufrag (the rest
 of the group) is marked complete in that SDP, so the tag and the non-tag
 m-lines agree. A candidate for a transport whose generation already ended is
 neither written to the current SDP nor handed to the live checklist, so after
-a rollback the current SDP lists only candidates the live generation accepted.
+a rollback the current SDP lists only candidates the live generation accepted. The
+same alignment applies to a pending remote SDP (an end-of-candidates trickled
+during a re-offer marks every m-line of that generation in it) and to any
+remote description applied later that repeats an ended generation, so the
+SDP committed by an answer, or kept by a rollback, matches the live transport.
+Only the generation that ended counts: a pending ICE restart ufrag on the same
+transport stays open.
 
 An answer leaves the MID of an m-line it rejects (offered with port 0, or
 whose transceiver is stopping or stopped) out of its BUNDLE group, as
