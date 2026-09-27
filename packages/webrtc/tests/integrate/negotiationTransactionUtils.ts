@@ -16,6 +16,7 @@ import type { SessionDescription } from "../../src/sdp";
 /** Shared Arrange setup for negotiation transaction regression tests. */
 export async function createConnectedVideoPeers(
   config: ConstructorParameters<typeof RTCPeerConnection>[0] = {},
+  { trickleOpen = false }: { trickleOpen?: boolean } = {},
 ) {
   const offerer = new RTCPeerConnection(config);
   const answerer = new RTCPeerConnection(config);
@@ -28,7 +29,17 @@ export async function createConnectedVideoPeers(
   });
   offerer.addTransceiver(outgoing, { direction: "sendonly" });
   await offerer.setLocalDescription(await offerer.createOffer());
-  await answerer.setRemoteDescription(offerer.localDescription!);
+  // trickleOpen: the answerer's current remote generation has no
+  // end-of-candidates yet, so later trickle candidates still belong to it.
+  const offer = offerer.localDescription!;
+  await answerer.setRemoteDescription(
+    trickleOpen
+      ? {
+          type: "offer",
+          sdp: offer.sdp.replace(/^a=end-of-candidates\r?\n/gm, ""),
+        }
+      : offer,
+  );
   await answerer.setLocalDescription(await answerer.createAnswer());
   await offerer.setRemoteDescription(answerer.localDescription!);
   await Promise.race([

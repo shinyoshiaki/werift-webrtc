@@ -545,6 +545,112 @@ describe("negotiation transaction", () => {
     }
   });
 
+  test.each(["pranswer", "answer"] as const)(
+    "a %s that flips the DTLS setup of a connected association is rejected and the role survives rollback",
+    async (type) => {
+      const { offerer, answerer, outgoing, incoming } =
+        await createConnectedVideoPeers();
+      try {
+        // Arrange: 現在の DTLS role を控え、setup を反転させた再交渉の応答を作る。
+        const dtls = offerer.dtlsTransports[0];
+        const role = dtls.role;
+        await offerer.setLocalDescription(await offerer.createOffer());
+        await answerer.setRemoteDescription(offerer.localDescription!);
+        await answerer.setLocalDescription(await answerer.createAnswer());
+        const answer = answerer.localDescription!.sdp;
+        const flipped = answer.replace(/^a=setup:(\w+)/gm, (_, setup) =>
+          setup === "active" ? "a=setup:passive" : "a=setup:active",
+        );
+        expect(flipped).not.toBe(answer);
+
+        // Act: role を反転させる応答を適用する。
+        await expect(
+          offerer.setRemoteDescription({ type, sdp: flipped }),
+        ).rejects.toMatchObject({ name: "InvalidModificationError" });
+
+        // Assert: 提案は受理されず、稼働中 association の role と RTP は変わらない。
+        expect(offerer.signalingState).toBe("have-local-offer");
+        expect(dtls.role).toBe(role);
+        assertNegotiationInvariants(offerer);
+        await sendAndExpectRtp(outgoing, incoming, `${type}-role-rejected`);
+
+        // Act: 両側を rollback する。
+        await offerer.setLocalDescription({ type: "rollback" });
+
+        // Assert: rollback 後も role は変わらず、RTP が届く。
+        expect(offerer.signalingState).toBe("stable");
+        expect(dtls.role).toBe(role);
+        assertNegotiationInvariants(offerer);
+        await sendAndExpectRtp(outgoing, incoming, `${type}-role-rollback`);
+      } finally {
+        await Promise.allSettled([offerer.close(), answerer.close()]);
+      }
+    },
+  );
+
+  test("a trickle candidate of the unchanged ICE generation reaches the live checklist during a re-offer", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers({}, { trickleOpen: true });
+    try {
+      // Arrange: EOC 前の世代のまま ICE restart なしの re-offer を pending にし、同じ ufrag の新しい候補を作る。
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription({
+        type: "offer",
+        sdp: offerer.localDescription!.sdp.replace(
+          /^a=end-of-candidates\r?\n/gm,
+          "",
+        ),
+      });
+      const offer = offerer.localDescription!.sdp;
+      const ufrag = offer.match(/^a=ice-ufrag:(.*?)\r?$/m)![1];
+      const mid = offer.match(/^a=mid:(.*?)\r?$/m)![1];
+      const [, foundation, component, protocol, priority, ip] = offer.match(
+        /^a=candidate:(\S+) (\d+) (\S+) (\d+) (\S+) \d+ typ host/m,
+      )!;
+      const port = 40999;
+      const candidate = `candidate:${foundation}9 ${component} ${protocol} ${priority} ${ip} ${port} typ host`;
+      const connection = answerer.iceTransports[0].connection;
+      const livePorts = () =>
+        connection.remoteCandidates.filter(
+          (c) => c.host === ip && c.port === port,
+        ).length;
+      expect(livePorts()).toBe(0);
+
+      // Act: 同じ候補を 2 回 trickle する。
+      for (let i = 0; i < 2; i++) {
+        await answerer.addIceCandidate({
+          candidate,
+          sdpMid: mid,
+          usernameFragment: ufrag,
+        });
+      }
+
+      // Assert: pending と current の両 SDP に記録され、稼働中 checklist には 1 回だけ届く。
+      expect(answerer.pendingRemoteDescription!.sdp).toContain(
+        ` ${port} typ host`,
+      );
+      expect(answerer.currentRemoteDescription!.sdp).toContain(
+        ` ${port} typ host`,
+      );
+      expect(livePorts()).toBe(1);
+      assertNegotiationInvariants(answerer);
+
+      // Act: re-offer を両側で rollback する。
+      await answerer.setRemoteDescription({ type: "rollback" });
+      await offerer.setLocalDescription({ type: "rollback" });
+
+      // Assert: 同じ世代の候補は current に残り、既存 RTP も届く。
+      expect(answerer.currentRemoteDescription!.sdp).toContain(
+        ` ${port} typ host`,
+      );
+      expect(livePorts()).toBe(1);
+      assertNegotiationInvariants(answerer);
+      await sendAndExpectRtp(outgoing, incoming, "same-generation-trickle");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
   test("an answer leaves the MID of a rejected m-line out of its BUNDLE group", async () => {
     const session = await createDuplexSession();
     try {

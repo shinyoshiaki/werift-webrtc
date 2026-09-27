@@ -338,6 +338,7 @@
 - [makeIntegrityKey](functions/makeIntegrityKey.md)
 - [microTime](functions/microTime.md)
 - [milliTime](functions/milliTime.md)
+- [negotiateRemoteCodecs](functions/negotiateRemoteCodecs.md)
 - [nodeIpAddress](functions/nodeIpAddress.md)
 - [normalizeFamilyNodeV18](functions/normalizeFamilyNodeV18.md)
 - [normalizeFingerprintAlgorithm](functions/normalizeFingerprintAlgorithm.md)

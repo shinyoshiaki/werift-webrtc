@@ -1489,6 +1489,13 @@ export class RTCPeerConnection extends EventTarget {
             : appliedCandidate.candidate,
         );
       }
+      if (current) {
+        await this.deliverSameGenerationCandidate(
+          remoteDescription,
+          current,
+          appliedCandidate,
+        );
+      }
       if (
         this.signalingState === "have-local-pranswer" ||
         this.signalingState === "have-remote-pranswer"
@@ -1533,6 +1540,58 @@ export class RTCPeerConnection extends EventTarget {
         continue;
       }
       media.iceCandidates.push(appliedCandidate.candidate);
+    }
+  }
+
+  /**
+   * A candidate trickled for a pending re-offer whose m-line keeps the current
+   * ufrag belongs to the live ICE generation as well. Besides the pending SDP,
+   * it is recorded in the current SDP and handed to the live checklist once,
+   * so the committed session can use it while the proposal is pending.
+   */
+  private async deliverSameGenerationCandidate(
+    pending: SessionDescription,
+    current: SessionDescription,
+    applied: NonNullable<
+      Awaited<ReturnType<SecureTransportManager["addIceCandidate"]>>
+    >,
+  ) {
+    for (const index of applied.mediaIndices) {
+      const mid = pending.media[index]?.rtp.muxId;
+      const ufrag = pending.media[index]?.iceParams?.usernameFragment;
+      const currentMedia = current.media.find(
+        (media) => media.rtp.muxId === mid,
+      );
+      const iceTransport = mid
+        ? this.currentTransportForMid(mid)?.iceTransport
+        : undefined;
+      if (
+        !ufrag ||
+        !currentMedia ||
+        currentMedia.iceParams?.usernameFragment !== ufrag ||
+        !iceTransport ||
+        this.negotiation.isPendingOnlyTransport(iceTransport.id) ||
+        iceTransport.connection.remoteUsername !== ufrag ||
+        // RFC 8838: a generation that signalled end-of-candidates is complete.
+        currentMedia.iceCandidatesComplete
+      ) {
+        continue;
+      }
+      if (applied.kind === "end-of-candidates") {
+        currentMedia.iceCandidatesComplete = true;
+        await iceTransport.addRemoteCandidate(undefined);
+        continue;
+      }
+      const text = applied.candidate.toJSON().candidate;
+      if (
+        currentMedia.iceCandidates.some(
+          (existing) => existing.toJSON().candidate === text,
+        )
+      ) {
+        continue;
+      }
+      currentMedia.iceCandidates.push(applied.candidate);
+      await iceTransport.addRemoteCandidate(applied.candidate);
     }
   }
 
@@ -1748,6 +1807,37 @@ export class RTCPeerConnection extends EventTarget {
                 "Changing the fingerprint of a connected DTLS association is unsupported",
               );
             }
+          }
+          // An answer or pranswer keeps the DTLS role of a live association
+          // (RFC 8842 section 5.5); only a new association, such as a BUNDLE
+          // split owner prepared for this proposal, may take another role.
+          // A non-tag BUNDLE member never sets a role, so it is not checked.
+          const prepared = this.negotiation.transportByMid.get(
+            media.rtp.muxId ?? "",
+          );
+          const bundleItems =
+            this.sdpManager.bundlePolicy === "disable"
+              ? []
+              : (remoteSdp.group.find((group) => group.semantic === "BUNDLE")
+                  ?.items ?? []);
+          const bundledNonTag =
+            bundleItems.includes(media.rtp.muxId ?? "") &&
+            bundleItems[0] !== media.rtp.muxId;
+          const remoteRole = media.dtlsParams?.role;
+          if (
+            remoteSdp.type !== "offer" &&
+            !bundledNonTag &&
+            remoteRole &&
+            transport &&
+            ["connecting", "connected"].includes(transport.state) &&
+            transport.role !== "auto" &&
+            (!prepared || prepared === transport) &&
+            (remoteRole === "client" ? "server" : "client") !== transport.role
+          ) {
+            throw createWebRtcDomException(
+              "InvalidModificationError",
+              "Changing the DTLS role of a connected association is unsupported",
+            );
           }
         }
         if (

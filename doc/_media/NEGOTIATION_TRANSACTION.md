@@ -36,16 +36,40 @@ generation or SCTP association and stream ID.
 | --- | --- | --- |
 | begin | stable or first offer | Capture baseline once; assign transaction ID and revision. No current transport is stopped. The transaction opens when a description is applied. `createOffer` in stable only records the baseline snapshot that `setLocalDescription` of that offer adopts (so MIDs it assigned revert on rollback); an unapplied offer leaves no open transaction, and a remote offer captures its own baseline. |
 | replace/update | active transaction | Retire old pending-only resources and candidate buckets. Keep baseline and emitted-event history. A byte-identical description is idempotent. |
-| validate | parsed proposal | For a local offer, reject any SDP other than the last `createOffer` result with `InvalidModificationError` (W3C `setLocalDescription`; local SDP munging is not supported). Check signaling transition, unique MID, m-line order and reuse, exact MID match of every answer m-line and BUNDLE member (no prefix or suffix matching), BUNDLE membership and tag, codec/rejection, ICE credentials, DTLS role/fingerprint and SCTP port before live mutation. Failure leaves previous pending revision and current untouched. |
+| validate | parsed proposal | For a local offer, reject any SDP other than the last `createOffer` result with `InvalidModificationError` (W3C `setLocalDescription`; local SDP munging is not supported). The compared value is W3C `[[LastCreatedOffer]]`: only `createOffer` replaces it, so a peer that never created an offer rejects every explicit offer, including one created by another peer. The separately invalidated copy used by a parameterless `setLocalDescription` does not relax this check. Check signaling transition, unique MID, m-line order and reuse, exact MID match of every answer m-line and BUNDLE member (no prefix or suffix matching), BUNDLE membership and tag, codec/rejection (a remote answer or pranswer m-line must keep a codec under the same rule `setRemoteRTP` applies, so RTX whose `apt` codec is missing counts as no codec), ICE credentials, DTLS role/fingerprint and SCTP port before live mutation. Failure leaves previous pending revision and current untouched. |
 | prepare | validated proposal | Allocate any new transport and media objects under pending ownership; prepare may fail and must clean only the newly allocated objects. A local (replacement) offer stages its transports before the previous pending offer is replaced, and `createOffer` never discards the transports of an applied pending offer, so a preparation failure leaves the previous pending description, transaction and signaling state intact. |
 | commit | validated final answer and successful prepare | Switch BUNDLE routing, ICE generation, DTLS parameters, SCTP binding and RTP/router, then publish the current descriptions and `stable`. No fallible validation is allowed after the switch. Start remaining asynchronous connect work and report later failures on that generation. |
-| cleanup | commit or rollback finished | Stop orphan pending resources; keep only current ownership and event deduplication needed for future revisions. |
+| cleanup | commit or rollback finished | Stop orphan pending resources; keep only current ownership and event deduplication needed for future revisions. A transport created during the transaction is remembered until it closes or a commit decides whether it is still bound; `close()` drops every such reference and the `createOffer` snapshot. |
 | rollback | active pending transaction | Stop provisional communication, discard pending candidates/EOC and resources, restore the first baseline and publish `stable`. Already delivered events remain delivered. |
 
 The ordered operations are `begin → replace/update → validate → prepare →
 commit → cleanup` or `begin → … → rollback → cleanup`. A synchronous failure
 before commit leaves the previously published current and pending descriptions
-and live session intact. A failed asynchronous ICE check or DTLS/SCTP handshake
+and live session intact. Should applying a remote description still throw
+after validation, the operation undoes its own changes before it rejects: a
+remote offer rolls its transaction back to `stable` (a replacement offer has
+already released the previous proposal, so it cannot be restored), and an
+answer or pranswer restores the checkpoint taken when it began, keeping the
+pending offer. Applying a remote description runs in two phases so this
+undo never has to reach live transports: first every m-line updates the
+restorable media, router and SCTP state; only after all of them succeed are
+the staged ICE restart switched (final answer), remote ICE/DTLS parameters,
+candidates, EOC and DTLS roles applied, and an application-stopped
+transceiver's sender and receiver stopped. A failure in the first phase
+therefore keeps the committed ICE generation, selected pair and DTLS/SCTP
+bindings (the checkpoint also rebinds SCTP to its DTLS transport).
+Candidates that `addIceCandidate` queued before any remote description are
+checked against the incoming description at the end of the first phase. One
+that the description cannot place (unknown `sdpMid`, out-of-range
+`sdpMLineIndex`, unmatched ufrag, unparsable) rejects `setRemoteDescription`
+before anything is committed, and leaves the queue so a retry of the same
+description succeeds; the valid queued candidates are applied after the
+description is published.
+
+An answer leaves the MID of an m-line it rejects (offered with port 0, or
+whose transceiver is stopping or stopped) out of its BUNDLE group, as
+RFC 8843 section 7.3.3 requires. werift also writes `inactive` m-lines with
+port 0; those are not rejections and stay in the group. A failed asynchronous ICE check or DTLS/SCTP handshake
 is a transport failure, not a description validation failure.
 
 ## Signaling transitions
