@@ -604,6 +604,43 @@ describe("issue 705: answer validation, pending re-offer and rollback", () => {
     },
   );
 
+  test("rolling back a remote offer keeps a track-less transceiver the app added meanwhile", async () => {
+    // Arrange: callee に caller の初回 offer (audio + video) を適用した pending 状態
+    const caller = createPeer();
+    const callee = createPeer();
+    caller.addTransceiver(new MediaStreamTrack({ kind: "audio" }));
+    caller.addTransceiver(new MediaStreamTrack({ kind: "video" }));
+    await caller.setLocalDescription(await caller.createOffer());
+    await callee.setRemoteDescription(caller.localDescription!);
+    const remoteCreated = [...callee.getTransceivers()];
+
+    try {
+      // Act: offer 適用中にアプリが track なしの video transceiver を追加してから rollback する
+      const appVideo = callee.addTransceiver("video");
+      await callee.setRemoteDescription({ type: "rollback" });
+
+      // Assert: remote offer が作った transceiver だけが破棄される
+      expect(callee.signalingState).toBe("stable");
+      expect(remoteCreated.every((t) => t.stopped)).toBe(true);
+      expect(callee.getTransceivers()).toEqual([appVideo]);
+      // Assert: アプリの transceiver は停止されず、関連付けだけ外れて残る
+      expect(appVideo.stopped).toBe(false);
+      expect(appVideo.stopping).toBe(false);
+      expect(appVideo.mid).toBeNull();
+      expect(appVideo.mLineIndex).toBeUndefined();
+
+      // Act: callee から次の offer を作る
+      const offer = await callee.createOffer();
+
+      // Assert: アプリの video が m-line として交渉される
+      expect(mLines(offer.sdp).map((m) => [m.kind, m.port])).toEqual([
+        ["video", 9],
+      ]);
+    } finally {
+      await closeAll(caller, callee);
+    }
+  });
+
   test("an unsupported re-offer keeps RTP/track while pending and after rollback, then stops on commit", async () => {
     // Arrange: werift 同士で audio + video を接続済み
     const caller = createPeer();

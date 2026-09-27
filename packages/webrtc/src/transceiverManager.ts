@@ -52,6 +52,8 @@ export class TransceiverManager {
   private readonly watched = new WeakSet<RTCRtpTransceiver>();
   private remoteOfferSnapshot?: {
     transceivers: RTCRtpTransceiver[];
+    /**適用中の remote offer が作成した transceiver (rollback で破棄する対象) */
+    remoteCreated: Set<RTCRtpTransceiver>;
     states: Map<
       RTCRtpTransceiver,
       {
@@ -250,6 +252,9 @@ export class TransceiverManager {
       this.takeOverMLine(reusable, newTransceiver);
     } else {
       this.pushTransceiver(newTransceiver);
+    }
+    if (remoteMLineIndex != undefined) {
+      this.remoteOfferSnapshot?.remoteCreated.add(newTransceiver);
     }
     this.onTransceiverAdded.execute(newTransceiver);
 
@@ -576,6 +581,7 @@ export class TransceiverManager {
     }
     this.remoteOfferSnapshot = {
       transceivers: [...this.transceivers],
+      remoteCreated: new Set(),
       states: new Map(
         this.transceivers.map((t) => [
           t,
@@ -615,8 +621,12 @@ export class TransceiverManager {
       if (snapshot.states.has(transceiver)) {
         continue;
       }
-      if (transceiver.sender.track) {
-        // rollback 中に addTrack された transceiver は残し、関連付けだけ外す
+      // app が追加した transceiver と、remote offer が作ったが app が addTrack で使い始めた
+      // transceiver は残し、関連付けだけ外す (track の有無ではなく作成元で判定する)
+      if (
+        !snapshot.remoteCreated.has(transceiver) ||
+        transceiver.sender.track
+      ) {
         transceiver.mid = null;
         transceiver.mLineIndex = undefined;
         snapshot.transceivers.push(transceiver);

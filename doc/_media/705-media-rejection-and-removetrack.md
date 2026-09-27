@@ -108,6 +108,8 @@ addTransceiver("video") ◄── 確定済み port 0 の同じ kind の位置�
 - 非対応 re-offer の適用中 (`have-remote-offer`) は `pendingRejection` だけを立て、既存 track / RTP pipeline を維持する。
 - local answer の確定で停止・解放する。`setRemoteDescription({ type: "rollback" })` では transceiver 対応
   (MID / index / 置き換え前の transceiver) を元に戻し、その offer が作った transceiver を破棄する。
+  破棄対象は track の有無ではなく作成元で判定する。適用中にアプリが追加した transceiver (track なしを含む) と、
+  offer が作った後にアプリが addTrack で使い始めた transceiver は、関連付けだけ外して残す。
 - SSRC のない remote track は transceiver ごとの placeholder を再利用し、同じ受信状態の re-offer / re-answer で
   `ontrack` を重複発火しない。
 
