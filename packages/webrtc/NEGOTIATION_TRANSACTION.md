@@ -42,6 +42,13 @@ generation or SCTP association and stream ID.
 | cleanup | commit or rollback finished | Stop orphan pending resources; keep only current ownership and event deduplication needed for future revisions. A transport created during the transaction is remembered until it closes or a commit decides whether it is still bound; `close()` drops every such reference and the `createOffer` snapshot. |
 | rollback | active pending transaction | Stop provisional communication, discard pending candidates/EOC and resources, restore the first baseline and publish `stable`. Already delivered events remain delivered. |
 
+`createOffer`, `createAnswer`, `setLocalDescription`, `setRemoteDescription`
+and `addIceCandidate` share one operations chain (W3C). A `createOffer` called
+while an earlier `setLocalDescription(offer)` is still running therefore
+creates its offer only after that one is applied, and cannot turn the offer
+being applied into a stale one. Parameterless `setLocalDescription` creates
+its description inside its own queued operation.
+
 The ordered operations are `begin → replace/update → validate → prepare →
 commit → cleanup` or `begin → … → rollback → cleanup`. A synchronous failure
 before commit leaves the previously published current and pending descriptions

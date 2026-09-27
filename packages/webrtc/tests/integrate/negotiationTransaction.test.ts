@@ -957,6 +957,64 @@ describe("negotiation transaction", () => {
     }
   });
 
+  test("createOffer called while setLocalDescription is running does not invalidate that offer", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers();
+    try {
+      // Arrange: re-offer A を作る。
+      const offerA = await offerer.createOffer();
+
+      // Act: setLocalDescription(A) の完了を待たずに次の createOffer を呼ぶ。
+      const applying = offerer.setLocalDescription(offerA);
+      const creating = offerer.createOffer();
+      const [, offerB] = await Promise.all([applying, creating]);
+
+      // Assert: 先行した A はそのまま適用され、B は A の後に作られる。
+      expect(offerer.signalingState).toBe("have-local-offer");
+      expect(offerer.pendingLocalDescription!.sdp).toBe(offerA.sdp);
+      assertNegotiationInvariants(offerer);
+
+      // Act: 後続の B を置換 offer として適用し、answer で確定する。
+      await offerer.setLocalDescription(offerB);
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+
+      // Assert: 交渉が完了し、RTP も届く。
+      expect(offerer.signalingState).toBe("stable");
+      assertNegotiationInvariants(offerer);
+      await sendAndExpectRtp(outgoing, incoming, "queued-create-offer");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("createAnswer called while setRemoteDescription is running answers that offer", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers();
+    try {
+      // Arrange: re-offer を適用する。
+      await offerer.setLocalDescription(await offerer.createOffer());
+
+      // Act: setRemoteDescription(offer) の完了を待たずに createAnswer を呼ぶ。
+      const applying = answerer.setRemoteDescription(offerer.localDescription!);
+      const answering = answerer.createAnswer();
+      const [, answer] = await Promise.all([applying, answering]);
+
+      // Assert: answer は適用後の offer に対して作られ、そのまま確定できる。
+      expect(answerer.signalingState).toBe("have-remote-offer");
+      await answerer.setLocalDescription(answer);
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      expect(offerer.signalingState).toBe("stable");
+      expect(answerer.signalingState).toBe("stable");
+      assertNegotiationInvariants(offerer);
+      assertNegotiationInvariants(answerer);
+      await sendAndExpectRtp(outgoing, incoming, "queued-create-answer");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
   test("an answer leaves the MID of a rejected m-line out of its BUNDLE group", async () => {
     const session = await createDuplexSession();
     try {

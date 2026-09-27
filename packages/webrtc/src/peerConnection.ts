@@ -501,7 +501,17 @@ export class RTCPeerConnection extends EventTarget {
     return clonePeerConfiguration(this.config);
   }
 
-  async createOffer({ iceRestart }: { iceRestart?: boolean } = {}) {
+  /**
+   * W3C operations chain: createOffer runs after every earlier description
+   * operation, so an offer it produces cannot invalidate a setLocalDescription
+   * that was called before it.
+   */
+  createOffer(options: { iceRestart?: boolean } = {}) {
+    return this.enqueueDescriptionOperation(() => this.createOfferNow(options));
+  }
+
+  /** createOffer body; call directly only from inside a queued operation. */
+  private async createOfferNow({ iceRestart }: { iceRestart?: boolean } = {}) {
     // Transports prepared for an applied pending offer stay until that offer
     // is replaced or rolled back; setLocalDescription stages new ones first.
     if (this.signalingState === "stable") this.negotiation.snapshotForOffer();
@@ -774,13 +784,13 @@ export class RTCPeerConnection extends EventTarget {
 
       const generatedDescription = needsGeneratedDescription
         ? sessionDescription?.type === "offer"
-          ? (this.lastCreatedOffer ?? (await this.createOffer()))
+          ? (this.lastCreatedOffer ?? (await this.createOfferNow()))
           : sessionDescription?.type === "answer" ||
               sessionDescription?.type === "pranswer"
-            ? (this.lastCreatedAnswer ?? (await this.createAnswer()))
+            ? (this.lastCreatedAnswer ?? (await this.createAnswerNow()))
             : implicitOfferState.includes(this.signalingState)
-              ? (this.lastCreatedOffer ?? (await this.createOffer()))
-              : (this.lastCreatedAnswer ?? (await this.createAnswer()))
+              ? (this.lastCreatedOffer ?? (await this.createOfferNow()))
+              : (this.lastCreatedAnswer ?? (await this.createAnswerNow()))
         : undefined;
 
       sessionDescription = {
@@ -2442,7 +2452,13 @@ export class RTCPeerConnection extends EventTarget {
     return transceiver.sender;
   }
 
-  async createAnswer() {
+  /** W3C operations chain: createAnswer is ordered with SLD/SRD calls. */
+  createAnswer() {
+    return this.enqueueDescriptionOperation(() => this.createAnswerNow());
+  }
+
+  /** createAnswer body; call directly only from inside a queued operation. */
+  private async createAnswerNow() {
     this.assertNotClosed();
 
     await this.secureManager.ensureCerts();
