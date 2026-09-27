@@ -465,6 +465,13 @@ export class NegotiationTransaction {
       await added.stop();
     }
     this.sctp.sctpTransport = keepAdded ? added : baseline.sctpTransport;
+    if (
+      baseline.sctpTransport &&
+      baseline.sctpDtlsTransport &&
+      baseline.sctpTransport.dtlsTransport !== baseline.sctpDtlsTransport
+    ) {
+      baseline.sctpTransport.setDtlsTransport(baseline.sctpDtlsTransport);
+    }
     if (added && keepAdded) this.sctp.detachFromDescription(added);
     this.sctp.sctpRemotePort = baseline.sctpRemotePort;
     if (baseline.sctpTransport) {

@@ -24,6 +24,7 @@ import {
   negotiationInternals,
   sendAndExpectData,
   sendAndExpectRtp,
+  waitForCommittedNomination,
   waitForConnection,
   waitForDtlsConnected,
   waitForIce,
@@ -435,6 +436,58 @@ describe("negotiation transaction", () => {
       expect(offerer.signalingState).toBe("stable");
       assertNegotiationInvariants(offerer);
       await sendAndExpectRtp(outgoing, incoming, "answer-apply-recovered");
+    } finally {
+      vi.restoreAllMocks();
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("an ICE restart answer that fails while applying keeps the committed generation and pair", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers();
+    try {
+      // Arrange: 現在の ICE generation と選択済み pair を控え、ICE restart offer/answer を用意する。
+      const transport = offerer.iceTransports[0];
+      const liveUfrag = () => transport.connection.localUsername;
+      const ufrag = liveUfrag();
+      const pair = transport.getSelectedCandidatePair();
+      const generation = offerer.iceGeneration;
+      await offerer.setLocalDescription(
+        await offerer.createOffer({ iceRestart: true }),
+      );
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      const answer = answerer.localDescription!;
+      const spy = vi
+        .spyOn(negotiationInternals(offerer).transceiverManager, "setRemoteRTP")
+        .mockImplementationOnce(() => {
+          throw new Error("injected apply failure");
+        });
+
+      // Act: restart answer の適用中に例外が起きる。
+      await expect(offerer.setRemoteDescription(answer)).rejects.toThrow(
+        "injected apply failure",
+      );
+      spy.mockRestore();
+
+      // Assert: restart は確定せず、generation・ufrag・選択済み pair が残り、RTP が届く。
+      expect(offerer.signalingState).toBe("have-local-offer");
+      expect(offerer.iceGeneration).toBe(generation);
+      expect(liveUfrag()).toBe(ufrag);
+      expect(transport.getSelectedCandidatePair()).toEqual(pair);
+      assertNegotiationInvariants(offerer);
+      await sendAndExpectRtp(outgoing, incoming, "restart-answer-failed");
+
+      // Act: 同じ answer を改めて適用する。
+      await offerer.setRemoteDescription(answer);
+      await waitForCommittedNomination(offerer);
+
+      // Assert: 新しい generation に切り替わり、RTP も継続する。
+      expect(offerer.signalingState).toBe("stable");
+      expect(offerer.iceGeneration).toBe(generation + 1);
+      expect(liveUfrag()).not.toBe(ufrag);
+      assertNegotiationInvariants(offerer);
+      await sendAndExpectRtp(outgoing, incoming, "restart-answer-recovered");
     } finally {
       vi.restoreAllMocks();
       await Promise.allSettled([offerer.close(), answerer.close()]);

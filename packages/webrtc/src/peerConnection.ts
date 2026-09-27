@@ -1841,7 +1841,6 @@ export class RTCPeerConnection extends EventTarget {
       try {
         if (remoteSdp.type === "answer") {
           this.applyPendingBundleTopology();
-          await this.commitStagedIceRestart();
         }
 
         const bundleItems =
@@ -1873,6 +1872,10 @@ export class RTCPeerConnection extends EventTarget {
           transceiver.kind === media.kind &&
           [null, media.rtp.muxId].includes(transceiver.mid);
 
+        // Live transport and media stop operations run only after every
+        // m-line applied without error, so a failure above leaves the ICE
+        // generation, selected pair and DTLS/SCTP bindings untouched.
+        const transportUpdates: (() => void)[] = [];
         let transports = remoteSdp.media.map((remoteMedia, i) => {
           let dtlsTransport: RTCDtlsTransport;
           const preparedTransport = remoteMedia.rtp.muxId
@@ -1894,8 +1897,10 @@ export class RTCPeerConnection extends EventTarget {
               // werift writes an `inactive` m-line with port zero, so a zero
               // port stops only a transceiver the application is stopping.
               if (rejected?.stopping) {
-                this.router.unregisterTransceiver(rejected);
-                rejected.forceStop();
+                transportUpdates.push(() => {
+                  this.router.unregisterTransceiver(rejected);
+                  rejected.forceStop();
+                });
               } else if (rejected && !rejected.stopped) {
                 rejected.setCurrentDirection("inactive");
               }
@@ -2012,73 +2017,83 @@ export class RTCPeerConnection extends EventTarget {
             bundledMids.has(remoteMedia.rtp.muxId ?? "") &&
             remoteMedia.rtp.muxId !== bundleTag;
 
-          if (
-            remoteMedia.iceParams &&
-            (!preserveCurrentTransport || !!pendingTransport) &&
-            !bundledNonTag
-          ) {
-            const renomination = remoteSdp.media.some(
-              (media) => media.direction === "inactive",
-            );
-            iceTransport.setRemoteParams(remoteMedia.iceParams, renomination);
-
-            // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
-            // RFC 8445 S6.1.1
+          transportUpdates.push(() => {
             if (
-              remoteMedia.iceParams.iceLite &&
-              !iceTransport.connection.iceLite
+              remoteMedia.iceParams &&
+              (!preserveCurrentTransport || !!pendingTransport) &&
+              !bundledNonTag
             ) {
-              iceTransport.connection.iceControlling = true;
+              const renomination = remoteSdp.media.some(
+                (media) => media.direction === "inactive",
+              );
+              iceTransport.setRemoteParams(remoteMedia.iceParams, renomination);
+
+              // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
+              // RFC 8445 S6.1.1
+              if (
+                remoteMedia.iceParams.iceLite &&
+                !iceTransport.connection.iceLite
+              ) {
+                iceTransport.connection.iceControlling = true;
+              }
             }
-          }
-          if (
-            remoteMedia.dtlsParams &&
-            (!preserveCurrentTransport || !!pendingTransport) &&
-            !bundledNonTag
-          ) {
-            dtlsTransport.setRemoteParams(remoteMedia.dtlsParams);
-          }
+            if (
+              remoteMedia.dtlsParams &&
+              (!preserveCurrentTransport || !!pendingTransport) &&
+              !bundledNonTag
+            ) {
+              dtlsTransport.setRemoteParams(remoteMedia.dtlsParams);
+            }
 
-          // # add ICE candidates
-          if (
-            (!preserveCurrentTransport || !!pendingTransport) &&
-            !bundledNonTag
-          ) {
-            remoteMedia.iceCandidates.forEach(iceTransport.addRemoteCandidate);
-          }
+            // # add ICE candidates
+            if (
+              (!preserveCurrentTransport || !!pendingTransport) &&
+              !bundledNonTag
+            ) {
+              remoteMedia.iceCandidates.forEach(
+                iceTransport.addRemoteCandidate,
+              );
+            }
 
-          if (
-            remoteMedia.iceCandidatesComplete &&
-            (!preserveCurrentTransport || !!pendingTransport) &&
-            !bundledNonTag
-          ) {
-            iceTransport.addRemoteCandidate(undefined);
-          }
+            if (
+              remoteMedia.iceCandidatesComplete &&
+              (!preserveCurrentTransport || !!pendingTransport) &&
+              !bundledNonTag
+            ) {
+              iceTransport.addRemoteCandidate(undefined);
+            }
 
-          if (
-            remoteSdp.type === "pranswer" &&
-            preserveCurrentTransport &&
-            !pendingTransport &&
-            !bundledNonTag &&
-            iceTransport.hasStagedRestart
-          ) {
-            provisionalIce.push([iceTransport, remoteMedia]);
-          }
+            if (
+              remoteSdp.type === "pranswer" &&
+              preserveCurrentTransport &&
+              !pendingTransport &&
+              !bundledNonTag &&
+              iceTransport.hasStagedRestart
+            ) {
+              provisionalIce.push([iceTransport, remoteMedia]);
+            }
 
-          // # set DTLS role
-          if (
-            (remoteSdp.type === "answer" || remoteSdp.type === "pranswer") &&
-            remoteMedia.dtlsParams?.role &&
-            !bundledNonTag
-          ) {
-            dtlsTransport.role =
-              remoteMedia.dtlsParams.role === "client" ? "server" : "client";
-          }
+            // # set DTLS role
+            if (
+              (remoteSdp.type === "answer" || remoteSdp.type === "pranswer") &&
+              remoteMedia.dtlsParams?.role &&
+              !bundledNonTag
+            ) {
+              dtlsTransport.role =
+                remoteMedia.dtlsParams.role === "client" ? "server" : "client";
+            }
+          });
           return iceTransport;
         }) as RTCIceTransport[];
 
         // filter out inactive transports
         transports = transports.filter((iceTransport) => !!iceTransport);
+        if (remoteSdp.type === "answer") {
+          // The final answer switches a staged ICE restart only now, after
+          // every fallible step, and before its remote ICE parameters apply.
+          await this.commitStagedIceRestart();
+        }
+        for (const update of transportUpdates) update();
         for (const [iceTransport, media] of provisionalIce) {
           await this.applyProvisionalIce(iceTransport, media);
         }

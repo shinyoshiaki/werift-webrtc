@@ -50,9 +50,14 @@ after validation, the operation undoes its own changes before it rejects: a
 remote offer rolls its transaction back to `stable` (a replacement offer has
 already released the previous proposal, so it cannot be restored), and an
 answer or pranswer restores the checkpoint taken when it began, keeping the
-pending offer. A staged ICE restart that an answer already switched is the one
-change this path cannot undo; the validation above rejects its known failure
-causes first.
+pending offer. Applying a remote description runs in two phases so this
+undo never has to reach live transports: first every m-line updates the
+restorable media, router and SCTP state; only after all of them succeed are
+the staged ICE restart switched (final answer), remote ICE/DTLS parameters,
+candidates, EOC and DTLS roles applied, and an application-stopped
+transceiver's sender and receiver stopped. A failure in the first phase
+therefore keeps the committed ICE generation, selected pair and DTLS/SCTP
+bindings (the checkpoint also rebinds SCTP to its DTLS transport).
 
 An answer leaves the MID of an m-line it rejects (offered with port 0, or
 whose transceiver is stopping or stopped) out of its BUNDLE group, as
