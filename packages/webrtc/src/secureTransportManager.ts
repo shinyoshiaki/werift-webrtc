@@ -426,9 +426,13 @@ export class SecureTransportManager {
   setLocalRole({
     type,
     role,
+    roleOfTransport,
   }: {
     type: "offer" | "answer";
+    /**transport 個別の role がない場合に使う local description 先頭の role */
     role: "auto" | "client" | "server" | undefined;
+    /**local description でその transport を使う m-line の role */
+    roleOfTransport?: Map<RTCDtlsTransport, "auto" | "client" | "server">;
   }) {
     for (const dtlsTransport of this.dtlsTransports) {
       const iceTransport = dtlsTransport.iceTransport;
@@ -445,8 +449,9 @@ export class SecureTransportManager {
 
       // # set DTLS role for mediasoup
       if (type === "answer") {
-        if (role) {
-          dtlsTransport.role = role;
+        const transportRole = roleOfTransport?.get(dtlsTransport) ?? role;
+        if (transportRole) {
+          dtlsTransport.role = transportRole;
         }
       }
     }
@@ -537,22 +542,19 @@ export class SecureTransportManager {
     }
   }
 
-  async gatherCandidates(remoteIsBundled: boolean) {
-    const connected = this.iceTransports.find(
-      (transport) =>
-        transport.state === "connected" || transport.state === "completed",
-    );
-    if (remoteIsBundled && connected) {
-      // no need to gather ice candidates on an existing bundled connection
-      log("skipping ICE gathering for bundled connection");
-    } else {
-      await Promise.allSettled(
-        this.iceTransports.map((iceTransport) => iceTransport.gather()),
-      ).catch((e) => {
-        // エラーハンドリングを追加 (例: ログ出力)
-        log("gatherCandidates failed", e);
-      });
-    }
+  /**
+   * 未収集 (gatheringState=new) の ICE transport だけ候補を収集する。
+   * 収集済み transport は gather() が何もしないので、確立済み BUNDLE の transport は再収集されず、
+   * BUNDLE group 外に新設した独立 transport だけが候補を収集する。
+   */
+  async gatherCandidates() {
+    await Promise.allSettled(
+      this.iceTransports
+        .filter((iceTransport) => iceTransport.state !== "closed")
+        .map((iceTransport) => iceTransport.gather()),
+    ).catch((e) => {
+      log("gatherCandidates failed", e);
+    });
   }
 
   setConnectionState(state: ConnectionState) {

@@ -927,10 +927,35 @@ export class RTCPeerConnection extends EventTarget {
     // setup ice,dtls role
     const role = description.media.find((media) => media.dtlsParams)?.dtlsParams
       ?.role;
+    // transport ごとに、その transport を使う受け入れ済み m-line の a=setup を適用する
+    // (BUNDLE group 外の独立 transport は先頭 m-line と異なる role を持ちうる)
+    const roleOfTransport = new Map<
+      RTCDtlsTransport,
+      "auto" | "client" | "server"
+    >();
+    for (const media of description.media) {
+      const mid = media.rtp.muxId;
+      const mediaRole = media.dtlsParams?.role;
+      if (media.port === 0 || mid == undefined || !mediaRole) {
+        continue;
+      }
+      const owner =
+        media.kind === "application"
+          ? this.sctpTransport?.mid === mid
+            ? this.sctpTransport
+            : undefined
+          : this.transceiverManager
+              .getTransceivers()
+              .find((t) => t.mid === mid && !t.stopped);
+      if (owner?.dtlsTransport && !roleOfTransport.has(owner.dtlsTransport)) {
+        roleOfTransport.set(owner.dtlsTransport, mediaRole);
+      }
+    }
 
     this.secureManager.setLocalRole({
       type: description.type === "offer" ? "offer" : "answer",
       role,
+      roleOfTransport,
     });
 
     // # configure direction
@@ -986,9 +1011,7 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private async gatherCandidates() {
-    await this.secureManager.gatherCandidates(
-      !!this.sdpManager.remoteIsBundled,
-    );
+    await this.secureManager.gatherCandidates();
   }
 
   async addIceCandidate(
@@ -1122,6 +1145,7 @@ export class RTCPeerConnection extends EventTarget {
     }
 
     // # parse and validate description
+    this.assertAnswerKeepsSharedTransports(sessionDescription);
     const remoteSdp = this.sdpManager.setRemoteDescription(
       sessionDescription,
       this.signalingState,
@@ -1215,8 +1239,10 @@ export class RTCPeerConnection extends EventTarget {
         owner.setDtlsTransport(shared);
       }
     }
-    if (bundleGroups.length > 0) {
-      // group 外で受け入れた m-line は bundlePolicy を問わず独立した transport / ICE credentials を持つ
+    if (bundleGroups.length > 0 && remoteSdp.type === "offer") {
+      // answerer として、group 外で受け入れた m-line は bundlePolicy を問わず独立した transport / ICE credentials を持つ。
+      // offerer (remote answer) では offer で渡した ICE credentials を保つため transport を作り直さない
+      // (共有 transport を分割する answer は assertAnswerKeepsSharedTransports で事前に拒否済み)
       // (answer が示す所有関係と実際の transport を一致させる)
       const claimed = new Set<RTCDtlsTransport>(groupTransports.values());
       for (const entry of entries) {
@@ -1377,6 +1403,68 @@ export class RTCPeerConnection extends EventTarget {
       this.scheduleNegotiationneeded();
     }
     this.invalidateLastCreatedDescriptions();
+  }
+
+  /**
+   * remote answer / pranswer の検証 (offerer 側、状態を変更する前に実行する)。
+   * local offer で 1 つの transport を共有した m-line を、answer が同じ BUNDLE group に置かずに
+   * 異なる ICE credentials で受け入れることはできない (RFC 8843 7.3.2)。共有 transport は分割できず、
+   * 新しい transport を作ると offer で渡した ICE credentials とも一致しなくなる。
+   * group の記述が MID と一致しなくても remote の ICE credentials が同じなら、同じ transport のまま扱う。
+   */
+  private assertAnswerKeepsSharedTransports(
+    sessionDescription: RTCSessionDescriptionInit,
+  ) {
+    if (
+      !["answer", "pranswer"].includes(sessionDescription.type ?? "") ||
+      !["have-local-offer", "have-local-pranswer"].includes(
+        this.signalingState,
+      ) ||
+      !sessionDescription.sdp ||
+      this.config.bundlePolicy === "disable"
+    ) {
+      return;
+    }
+    const answer = SessionDescription.parse(sessionDescription.sdp);
+    const answerGroups = answer.group.filter((g) => g.semantic === "BUNDLE");
+    const byTransport = new Map<
+      RTCDtlsTransport,
+      { group?: GroupDescription; credentials: string }
+    >();
+    for (const media of answer.media) {
+      const mid = media.rtp.muxId;
+      if (media.port === 0 || mid == undefined) {
+        continue;
+      }
+      const owner =
+        media.kind === "application"
+          ? this.sctpTransport?.mid === mid
+            ? this.sctpTransport
+            : undefined
+          : this.transceiverManager
+              .getTransceivers()
+              .find((t) => t.mid === mid && !t.stopped);
+      const transport = owner?.dtlsTransport;
+      if (!transport) {
+        continue;
+      }
+      const current = {
+        group: answerGroups.find((g) => g.items.includes(mid)),
+        credentials: `${media.iceParams?.usernameFragment}:${media.iceParams?.password}`,
+      };
+      const first = byTransport.get(transport);
+      if (!first) {
+        byTransport.set(transport, current);
+        continue;
+      }
+      const sameGroup = !!current.group && current.group === first.group;
+      if (!sameGroup && current.credentials !== first.credentials) {
+        throw createWebRtcDomException(
+          "InvalidAccessError",
+          `mid=${mid} shares a transport in the local offer but the remote ${sessionDescription.type} moves it out of that BUNDLE group`,
+        );
+      }
+    }
   }
 
   /**

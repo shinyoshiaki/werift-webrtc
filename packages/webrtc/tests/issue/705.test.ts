@@ -9,6 +9,8 @@ import {
   bundleGroups,
   closeAll,
   collectLocalCandidates,
+  createBundlePairWithOutsideReoffer,
+  createUnbundledPairForCalleeReoffer,
   countNegotiationNeeded,
   createAudioOnlyPeer,
   createPeer,
@@ -327,6 +329,145 @@ describe("issue 705: BUNDLE membership, transports and ICE ownership", () => {
       }
     },
   );
+
+  test("a new independent transport outside the established BUNDLE gathers its own candidates", async () => {
+    // Arrange: 接続済み BUNDLE に、group 外の m-line を追加する re-offer
+    const { caller, callee, outsideMid, outsideOffer } =
+      await createBundlePairWithOutsideReoffer();
+    const bundled = callee.getTransceivers()[0].dtlsTransport;
+    const candidates: { sdpMid?: string; sdpMLineIndex?: number }[] = [];
+    callee.onIceCandidate.subscribe((candidate) => {
+      if (candidate) {
+        candidates.push({
+          sdpMid: candidate.sdpMid,
+          sdpMLineIndex: candidate.sdpMLineIndex,
+        });
+      }
+    });
+
+    try {
+      // Act: callee が re-offer に答える
+      await answerRemoteOffer(callee, outsideOffer);
+      const outside = callee
+        .getTransceivers()
+        .find((t) => t.mid === outsideMid)!;
+      await vi.waitFor(
+        () =>
+          expect(outside.dtlsTransport.iceTransport.gatheringState).toBe(
+            "complete",
+          ),
+        { timeout: 5000 },
+      );
+
+      // Assert: group 外は独立 transport で、候補収集が完了する
+      expect(outside.dtlsTransport).not.toBe(bundled);
+      expect(bundled.iceTransport.gatheringState).toBe("complete");
+      // Assert: 新しい候補は group 外 m-line の MID / index を持ち、既存 BUNDLE transport は再収集されない
+      expect(candidates.length).toBeGreaterThan(0);
+      expect(candidates).toEqual(
+        candidates.map(() => ({ sdpMid: outsideMid, sdpMLineIndex: 2 })),
+      );
+    } finally {
+      await closeAll(caller, callee);
+    }
+  });
+
+  test("an answerer that was the initial offerer applies the advertised DTLS role to the independent transport", async () => {
+    // Arrange: 初回 offerer (DTLS server) の caller が、callee の group 外 re-offer に答える
+    const { caller, callee, outsideMid, outsideOffer } =
+      await createBundlePairWithOutsideReoffer({ reofferFrom: "callee" });
+
+    try {
+      // Act
+      const answer = await answerRemoteOffer(caller, outsideOffer);
+
+      // Assert: answer の a=setup と transport の DTLS role が m-line ごとに一致する
+      for (const media of parseSdp(answer).media) {
+        const transceiver = caller
+          .getTransceivers()
+          .find((t) => t.mid === media.rtp.muxId)!;
+        expect(transceiver.dtlsTransport.role).toBe(media.dtlsParams?.role);
+      }
+      // Assert: 確立済み BUNDLE は server のまま、group 外の独立 transport は client
+      const roles = caller
+        .getTransceivers()
+        .map((t) => [t.mid, t.dtlsTransport.role]);
+      expect(roles).toEqual([
+        ["0", "server"],
+        ["1", "server"],
+        [outsideMid, "client"],
+      ]);
+    } finally {
+      await closeAll(caller, callee);
+    }
+  });
+
+  test("unbundled: a re-offer from the initial answerer connects the new transport", async () => {
+    // Arrange: disable で接続済み、callee (初回 answerer) が audio を追加する
+    const { caller, callee } = await createUnbundledPairForCalleeReoffer();
+    const added = callee.addTransceiver(
+      new MediaStreamTrack({ kind: "audio" }),
+    );
+
+    try {
+      // Act: callee から re-offer して交渉する
+      await negotiate(callee, caller);
+
+      // Assert: 新しい transport の DTLS role は相補的になり、両者とも connected になる
+      const remote = caller.getTransceivers().find((t) => t.mid === added.mid)!;
+      expect(
+        [added.dtlsTransport.role, remote.dtlsTransport.role].sort(),
+      ).toEqual(["client", "server"]);
+      await vi.waitFor(
+        () => {
+          expect(added.dtlsTransport.state).toBe("connected");
+          expect(remote.dtlsTransport.state).toBe("connected");
+        },
+        { timeout: 5000 },
+      );
+      expect(caller.connectionState).toBe("connected");
+      expect(callee.connectionState).toBe("connected");
+    } finally {
+      await closeAll(caller, callee);
+    }
+  });
+
+  test("an answer that moves a member sharing the offered transport out of the BUNDLE is rejected by the offerer", async () => {
+    // Arrange: callee は group 外 (別 ICE credentials) で受け入れた answer を返す
+    const { caller, callee, outsideMid, outsideOffer } =
+      await createBundlePairWithOutsideReoffer();
+    const answer = await answerRemoteOffer(callee, outsideOffer);
+    const transportsBefore = caller
+      .getTransceivers()
+      .map((t) => t.dtlsTransport);
+    const localBefore = caller.localDescription!.sdp;
+
+    try {
+      // Act: offer で共有 transport に載せた m-line を group 外で受け入れた answer を適用する
+      const result = caller.setRemoteDescription({
+        type: "answer",
+        sdp: answer,
+      });
+
+      // Assert: 状態を変える前に InvalidAccessError で拒否する
+      await expect(result).rejects.toMatchObject({
+        name: "InvalidAccessError",
+      });
+      expect(caller.signalingState).toBe("have-local-offer");
+      expect(caller.localDescription!.sdp).toBe(localBefore);
+      expect(caller.currentRemoteDescription!.sdp).not.toBe(answer);
+      // Assert: transport は分割も作り直しもされない
+      expect(caller.getTransceivers().map((t) => t.dtlsTransport)).toEqual(
+        transportsBefore,
+      );
+      expect(
+        caller.getTransceivers().find((t) => t.mid === outsideMid)!
+          .dtlsTransport,
+      ).toBe(transportsBefore[0]);
+    } finally {
+      await closeAll(caller, callee);
+    }
+  });
 
   test("local trickle candidates use the accepted tag's MID and m-line index", async () => {
     // Arrange: 拒否 tag(video 0) + audio(1) + SCTP(2)

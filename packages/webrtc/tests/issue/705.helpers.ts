@@ -431,3 +431,76 @@ export async function createSendonlyVideoPair({
   await waitForConnected(caller, callee);
   return { caller, callee, videos };
 }
+
+/** SDP の指定 MID の m-line section だけ ICE credentials を差し替える */
+function replaceSectionIceCredentials(
+  sdp: string,
+  mid: string,
+  ufrag: string,
+  pwd: string,
+) {
+  const [session, ...sections] = sdp.split(/\r\n(?=m=)/);
+  return [
+    session,
+    ...sections.map((section) =>
+      section.includes(`\r\na=mid:${mid}\r\n`)
+        ? section
+            .replace(/a=ice-ufrag:.*/, `a=ice-ufrag:${ufrag}`)
+            .replace(/a=ice-pwd:.*/, `a=ice-pwd:${pwd}`)
+        : section,
+    ),
+  ].join("\r\n");
+}
+
+/**
+ * werift 同士を BUNDLE (audio 0 / audio 1) で接続した後 (caller が初回 offerer)、
+ * `reofferFrom` 側が audio を追加した re-offer を作り、新しい m-line だけを
+ * BUNDLE group の外 (別 ICE credentials) にした offer を相手向けに返す。
+ * re-offer 側には書き換え前の offer を適用済み (have-local-offer)。
+ */
+export async function createBundlePairWithOutsideReoffer({
+  reofferFrom = "caller",
+}: { reofferFrom?: "caller" | "callee" } = {}) {
+  const caller = createPeer();
+  const callee = createPeer();
+  exchangeIceCandidates(caller, callee);
+  caller.addTransceiver(createTrack("audio"));
+  caller.addTransceiver(createTrack("audio"));
+  await negotiate(caller, callee);
+  await waitForConnected(caller, callee);
+
+  const reofferer = reofferFrom === "caller" ? caller : callee;
+  const added = reofferer.addTransceiver(createTrack("audio"));
+  await reofferer.setLocalDescription(await reofferer.createOffer());
+  const outsideMid = added.mid!;
+  const original = reofferer.localDescription!.sdp;
+  const bundleLine = original.match(/a=group:BUNDLE .*/)![0];
+  const outsideOffer = replaceSectionIceCredentials(
+    original.replace(
+      bundleLine,
+      bundleLine
+        .split(" ")
+        .filter((item) => item !== outsideMid)
+        .join(" "),
+    ),
+    outsideMid,
+    "outsideufrag",
+    "outsidepasswordwithenoughlength",
+  );
+  return { caller, callee, outsideMid, outsideOffer };
+}
+
+/**
+ * bundlePolicy: "disable" の werift 同士を接続した後 (caller が初回 offerer)、
+ * callee が audio を追加して自分から re-offer する前の状態を作る。
+ */
+export async function createUnbundledPairForCalleeReoffer() {
+  const caller = createPeer({ bundlePolicy: "disable" });
+  const callee = createPeer({ bundlePolicy: "disable" });
+  exchangeIceCandidates(caller, callee);
+  caller.addTransceiver(createTrack("audio"));
+  caller.addTransceiver(createTrack("video"));
+  await negotiate(caller, callee);
+  await waitForConnected(caller, callee);
+  return { caller, callee };
+}

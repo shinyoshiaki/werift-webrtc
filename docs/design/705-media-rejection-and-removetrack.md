@@ -60,8 +60,15 @@ m=audio 9 UDP/TLS/RTP/SAVPF 111 (mid 1) m=audio 9 UDP/TLS/RTP/SAVPF 111  ← ans
 
 - offered BUNDLE group の member だけが共有 transport を使い、ICE / DTLS パラメータは group の tag
   (先頭の非ゼロ member) から適用する。拒否 member の remote 候補も共有 transport に渡す。
-- group 外で受け入れた m-line は、`bundlePolicy` (`max-bundle` を含む) を問わず独立した transport と ICE credentials を持つ。
-  `bundlePolicy: "disable"` は各 section 独立。
+- answerer として group 外で受け入れた m-line は、`bundlePolicy` (`max-bundle` を含む) を問わず独立した transport と
+  ICE credentials を持つ。`bundlePolicy: "disable"` は各 section 独立。
+- transport のライフサイクル: 新設した独立 transport は、確立済み BUNDLE があっても自分の候補を収集する
+  (収集は `gatheringState=new` の transport だけで行い、収集済み transport は再収集しない)。DTLS role は
+  local description の先頭 m-line ではなく、その transport を使う m-line の `a=setup` を transport ごとに適用する。
+- offerer として、offer で 1 つの transport を共有した m-line を remote answer / pranswer が同じ BUNDLE group に置かず、
+  異なる ICE credentials で受け入れた場合は、状態を変える前に `InvalidAccessError` で拒否する (RFC 8843 7.3.2)。
+  offerer 側では transport を作り直さず、offer で渡した ICE credentials を保つ。group の記述が MID と一致しなくても
+  remote の ICE credentials が同じ m-line は同じ transport のまま扱う (#142)。
 - local trickle candidate の `sdpMid` / `sdpMLineIndex` は、その ICE transport を所有する受け入れ済み m-line
   (BUNDLE なら tag) に合わせる。停止 / 拒否 section しか使わない transport の候補は通知しない。
 - remote candidate は remote SDP の全 media 配列で MID / index を解決する。拒否した m-line 向けの候補は
