@@ -1008,6 +1008,57 @@ describe("negotiation transaction", () => {
     }
   });
 
+  test.each([
+    ["a peer that never created an offer", false],
+    ["a connected peer whose own offers were already applied", true],
+  ])(
+    "an offer created by another peer is rejected by %s",
+    async (_, connected) => {
+      const peers = connected
+        ? await createConnectedVideoPeers()
+        : createUnnegotiatedVideoPeers();
+      const { offerer, answerer } = peers;
+      try {
+        // Arrange: offer を作る側と、それを自分の offer として渡される側を用意する。
+        if (connected) {
+          // Arrange: answerer 自身も一度 offer を作って適用し、交渉を完了させておく。
+          await answerer.setLocalDescription(await answerer.createOffer());
+          await offerer.setRemoteDescription(answerer.localDescription!);
+          await offerer.setLocalDescription(await offerer.createAnswer());
+          await answerer.setRemoteDescription(offerer.localDescription!);
+        }
+        const foreignOffer = await offerer.createOffer();
+        const state = answerer.signalingState;
+        const current = answerer.currentLocalDescription?.sdp;
+        const phase =
+          negotiationInternals(answerer).negotiation.inspect().phase;
+
+        // Act: 他の peer が作った offer を setLocalDescription に渡す。
+        await expect(
+          answerer.setLocalDescription(foreignOffer),
+        ).rejects.toMatchObject({ name: "InvalidModificationError" });
+
+        // Assert: signaling state・pending/current description・transaction は変わらない。
+        expect(answerer.signalingState).toBe(state);
+        expect(answerer.pendingLocalDescription).toBeNull();
+        expect(answerer.currentLocalDescription?.sdp).toBe(current);
+        expect(negotiationInternals(answerer).negotiation.inspect().phase).toBe(
+          phase,
+        );
+        assertNegotiationInvariants(answerer);
+
+        // Act: 自分で作った offer なら適用できる。
+        await answerer.setLocalDescription(await answerer.createOffer());
+
+        // Assert: 自身の offer で have-local-offer に進む。
+        expect(answerer.signalingState).toBe("have-local-offer");
+        assertNegotiationInvariants(answerer);
+      } finally {
+        await Promise.allSettled([offerer.close(), answerer.close()]);
+      }
+    },
+  );
+
   test("an unsupported offered codec rejects only its m-line", async () => {
     const offerer = new RTCPeerConnection({
       codecs: {

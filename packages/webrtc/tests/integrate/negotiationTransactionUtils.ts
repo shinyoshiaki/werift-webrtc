@@ -787,8 +787,12 @@ export async function createRewrittenOffer(
 ) {
   const offer = await pc.createOffer(options);
   const rewritten = { type: "offer" as const, sdp: rewrite(offer.sdp) };
-  (pc as unknown as { lastCreatedOffer?: unknown }).lastCreatedOffer =
-    rewritten;
+  const internal = pc as unknown as {
+    lastCreatedOffer?: unknown;
+    createdOfferSdp?: string;
+  };
+  internal.lastCreatedOffer = rewritten;
+  internal.createdOfferSdp = rewritten.sdp;
   return rewritten;
 }
 

@@ -122,7 +122,13 @@ export class RTCPeerConnection extends EventTarget {
   private descriptionTail: Promise<void> = Promise.resolve();
   private shouldNegotiationneeded = false;
   private lastCreatedAnswer?: RTCSessionDescription;
+  /** Reusable by a parameterless setLocalDescription while still valid. */
   private lastCreatedOffer?: RTCSessionDescription;
+  /**
+   * W3C [[LastCreatedOffer]]: the SDP of this peer's latest createOffer. Only
+   * createOffer replaces it; an explicit local offer must match it.
+   */
+  private createdOfferSdp?: string;
   private readonly pendingRemoteCandidates: Array<
     RTCIceCandidate | RTCIceCandidateInit | null
   > = [];
@@ -532,6 +538,7 @@ export class RTCPeerConnection extends EventTarget {
     );
     const createdOffer = description.toJSON();
     this.lastCreatedOffer = createdOffer;
+    this.createdOfferSdp = createdOffer.sdp;
     return createdOffer;
   }
 
@@ -777,13 +784,14 @@ export class RTCPeerConnection extends EventTarget {
             : generatedDescription!.sdp,
       };
 
-      // W3C setLocalDescription: an offer must be the last one createOffer
-      // produced. Local SDP munging (codec, direction, BUNDLE, ICE) is refused
-      // before any transaction or live state is touched.
+      // W3C setLocalDescription: an offer must be the last one this peer's
+      // createOffer produced. A peer that never created an offer accepts none,
+      // so an offer from another peer and local SDP munging (codec,
+      // direction, BUNDLE, ICE) are refused before any transaction or live
+      // state is touched.
       if (
         sessionDescription.type === "offer" &&
-        this.lastCreatedOffer &&
-        sessionDescription.sdp !== this.lastCreatedOffer.sdp
+        sessionDescription.sdp !== this.createdOfferSdp
       ) {
         throw createWebRtcDomException(
           "InvalidModificationError",
