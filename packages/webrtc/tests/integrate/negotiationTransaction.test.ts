@@ -651,6 +651,68 @@ describe("negotiation transaction", () => {
     }
   });
 
+  test("candidates in the body of a same-ufrag re-offer reach the live checklist before the answer", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers({}, { trickleOpen: true });
+    try {
+      // Arrange: ICE restart なしの re-offer に、同じ ufrag の新しい候補を SDP 本文で足す (EOC なし)。
+      await offerer.setLocalDescription(await offerer.createOffer());
+      const offer = offerer.localDescription!.sdp.replace(
+        /^a=end-of-candidates\r?\n/gm,
+        "",
+      );
+      const [line, foundation, rest] = offer.match(
+        /^a=candidate:(\S+) (\d+ \S+ \d+ \S+) \d+ typ host.*$/m,
+      )!;
+      const port = 40998;
+      const added = `a=candidate:${foundation}8 ${rest} ${port} typ host`;
+      const withCandidate = offer.replace(line, `${line}\r\n${added}`);
+      const connection = answerer.iceTransports[0].connection;
+      const liveCount = () =>
+        connection.remoteCandidates.filter((c) => c.port === port).length;
+      expect(liveCount()).toBe(0);
+
+      // Act: 新しい候補を含む re-offer を適用する (answer はまだ返さない)。
+      await answerer.setRemoteDescription({
+        type: "offer",
+        sdp: withCandidate,
+      });
+
+      // Assert: 候補は answer 前に稼働中 checklist と current SDP に 1 回だけ入る。
+      expect(liveCount()).toBe(1);
+      expect(answerer.currentRemoteDescription!.sdp).toContain(
+        ` ${port} typ host`,
+      );
+      expect(connection.remoteCandidatesEnd).toBe(false);
+      assertNegotiationInvariants(answerer);
+
+      // Act: 同じ候補と EOC を含む置換 offer を適用する。
+      await answerer.setRemoteDescription({
+        type: "offer",
+        sdp: `${withCandidate.trimEnd()}\r\na=end-of-candidates\r\n`,
+      });
+
+      // Assert: 候補は重複せず、同じ世代の EOC も稼働中 generation に届く。
+      expect(liveCount()).toBe(1);
+      expect(connection.remoteCandidatesEnd).toBe(true);
+      assertNegotiationInvariants(answerer);
+
+      // Act: re-offer を両側で rollback する。
+      await answerer.setRemoteDescription({ type: "rollback" });
+      await offerer.setLocalDescription({ type: "rollback" });
+
+      // Assert: 同じ世代の候補は current と checklist に残り、既存 RTP も届く。
+      expect(liveCount()).toBe(1);
+      expect(answerer.currentRemoteDescription!.sdp).toContain(
+        ` ${port} typ host`,
+      );
+      assertNegotiationInvariants(answerer);
+      await sendAndExpectRtp(outgoing, incoming, "same-generation-offer-body");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
   test("an answer leaves the MID of a rejected m-line out of its BUNDLE group", async () => {
     const session = await createDuplexSession();
     try {

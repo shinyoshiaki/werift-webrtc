@@ -71,7 +71,11 @@ unchanged belongs to both the pending proposal and the live ICE generation.
 It is recorded in the pending SDP and, unless the live generation already
 signalled end-of-candidates (RFC 8838), also in the current SDP and handed to
 the live checklist exactly once. A rollback keeps it, because the generation
-it belongs to stays current.
+it belongs to stays current. The same applies to candidates and
+end-of-candidates carried in the body of a same-ufrag re-offer or pranswer
+that keeps the current transports: once every fallible step has passed, they
+reach the live generation before any answer, without duplicates, and nothing
+is added after that generation's end-of-candidates.
 
 An answer leaves the MID of an m-line it rejects (offered with port 0, or
 whose transceiver is stopping or stopped) out of its BUNDLE group, as

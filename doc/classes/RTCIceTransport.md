@@ -6,27 +6,6 @@
 
 # Class: RTCIceTransport
 
-+------------+
-                                           |            |
-                                           |disconnected|
-                                           |            |
-                                           +------------+
-                                           ^           ^
-                                           |           |
-+------+      +----------+      +-----------+      +----------+
-|      |      |          |      |           |      |          |
-| new  | ---> | checking | ---> | connected | ---> | completed|
-|      |      |          |      |           |      |          |
-+------+      +----+-----+      +-----------+      +----------+
-                   |           
-                   |           
-                   v           
-               +-------+       
-               |       |      
-               | failed|      
-               |       |      
-               +-------+
-
 ## Constructors
 
 ### new RTCIceTransport()
@@ -239,6 +218,18 @@
 
 ***
 
+### discardUnappliedLocalRestart()
+
+> **discardUnappliedLocalRestart**(): `void`
+
+Drop only what an unapplied createOffer staged; keep the applied one.
+
+#### Returns
+
+`void`
+
+***
+
 ### dispatchEvent()
 
 > **dispatchEvent**(`event`): `boolean`
@@ -352,6 +343,18 @@
 #### Returns
 
 `Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+
+***
+
+### markLocalRestartApplied()
+
+> **markLocalRestartApplied**(): `void`
+
+The staged generation now belongs to an applied description.
+
+#### Returns
+
+`void`
 
 ***
 

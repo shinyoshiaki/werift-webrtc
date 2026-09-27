@@ -1552,6 +1552,46 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   /**
+   * A re-offer or pranswer that keeps the current transports may still carry
+   * new candidates or end-of-candidates for an m-line whose ufrag is
+   * unchanged. They belong to the live generation too, so they reach the live
+   * checklist and the current SDP (once, and not after its end-of-candidates),
+   * exactly like trickled ones. A pending-only transport receives its own.
+   */
+  private async deliverSameGenerationDescription(
+    proposal: SessionDescription,
+    bundleItems: string[],
+  ) {
+    const current = this.sdpManager.currentRemoteDescription;
+    if (!current) return;
+    for (const [index, media] of proposal.media.entries()) {
+      const mid = media.rtp.muxId ?? "";
+      if (media.port === 0) continue;
+      if (bundleItems.includes(mid) && bundleItems[0] !== mid) continue;
+      const prepared = this.negotiation.transportByMid.get(mid);
+      if (
+        prepared &&
+        this.negotiation.isPendingOnlyTransport(prepared.iceTransport.id)
+      ) {
+        continue;
+      }
+      for (const candidate of media.iceCandidates) {
+        await this.deliverSameGenerationCandidate(proposal, current, {
+          kind: "candidate",
+          candidate,
+          mediaIndices: [index],
+        });
+      }
+      if (media.iceCandidatesComplete) {
+        await this.deliverSameGenerationCandidate(proposal, current, {
+          kind: "end-of-candidates",
+          mediaIndices: [index],
+        });
+      }
+    }
+  }
+
+  /**
    * A candidate trickled for a pending re-offer whose m-line keeps the current
    * ufrag belongs to the live ICE generation as well. Besides the pending SDP,
    * it is recorded in the current SDP and handed to the live checklist once,
@@ -2218,6 +2258,9 @@ export class RTCPeerConnection extends EventTarget {
           await this.commitStagedIceRestart();
         }
         for (const update of transportUpdates) update();
+        if (preserveCurrentTransport) {
+          await this.deliverSameGenerationDescription(remoteSdp, bundleItems);
+        }
         for (const [iceTransport, media] of provisionalIce) {
           await this.applyProvisionalIce(iceTransport, media);
         }

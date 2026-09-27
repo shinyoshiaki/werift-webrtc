@@ -36,7 +36,7 @@ generation or SCTP association and stream ID.
 | --- | --- | --- |
 | begin | stable or first offer | Capture baseline once; assign transaction ID and revision. No current transport is stopped. The transaction opens when a description is applied. `createOffer` in stable only records the baseline snapshot that `setLocalDescription` of that offer adopts (so MIDs it assigned revert on rollback); an unapplied offer leaves no open transaction, and a remote offer captures its own baseline. |
 | replace/update | active transaction | Retire old pending-only resources and candidate buckets. Keep baseline and emitted-event history. A byte-identical description is idempotent. |
-| validate | parsed proposal | For a local offer, reject any SDP other than the last `createOffer` result with `InvalidModificationError` (W3C `setLocalDescription`; local SDP munging is not supported). The compared value is W3C `[[LastCreatedOffer]]`: only `createOffer` replaces it, so a peer that never created an offer rejects every explicit offer, including one created by another peer. The separately invalidated copy used by a parameterless `setLocalDescription` does not relax this check. Check signaling transition, unique MID, m-line order and reuse, exact MID match of every answer m-line and BUNDLE member (no prefix or suffix matching), BUNDLE membership and tag, codec/rejection (a remote answer or pranswer m-line must keep a codec under the same rule `setRemoteRTP` applies, so RTX whose `apt` codec is missing counts as no codec), ICE credentials, DTLS role/fingerprint and SCTP port before live mutation. Failure leaves previous pending revision and current untouched. |
+| validate | parsed proposal | For a local offer, reject any SDP other than the last `createOffer` result with `InvalidModificationError` (W3C `setLocalDescription`; local SDP munging is not supported). The compared value is W3C `[[LastCreatedOffer]]`: only `createOffer` replaces it, so a peer that never created an offer rejects every explicit offer, including one created by another peer. The separately invalidated copy used by a parameterless `setLocalDescription` does not relax this check. Check signaling transition, unique MID, m-line order and reuse, exact MID match of every answer m-line and BUNDLE member (no prefix or suffix matching), BUNDLE membership and tag, codec/rejection (a remote answer or pranswer m-line must keep a codec under the same rule `setRemoteRTP` applies, so RTX whose `apt` codec is missing counts as no codec), ICE credentials, DTLS role/fingerprint and SCTP port before live mutation. An answer or pranswer whose `setup` would change the role of a connecting or connected DTLS association is rejected with `InvalidModificationError` (RFC 8842 section 5.5); a new association prepared for the proposal (BUNDLE split owner) and non-tag BUNDLE members are exempt. Failure leaves previous pending revision and current untouched. |
 | prepare | validated proposal | Allocate any new transport and media objects under pending ownership; prepare may fail and must clean only the newly allocated objects. A local (replacement) offer stages its transports before the previous pending offer is replaced, and `createOffer` never discards the transports of an applied pending offer, so a preparation failure leaves the previous pending description, transaction and signaling state intact. |
 | commit | validated final answer and successful prepare | Switch BUNDLE routing, ICE generation, DTLS parameters, SCTP binding and RTP/router, then publish the current descriptions and `stable`. No fallible validation is allowed after the switch. Start remaining asynchronous connect work and report later failures on that generation. |
 | cleanup | commit or rollback finished | Stop orphan pending resources; keep only current ownership and event deduplication needed for future revisions. A transport created during the transaction is remembered until it closes or a commit decides whether it is still bound; `close()` drops every such reference and the `createOffer` snapshot. |
@@ -65,6 +65,13 @@ that the description cannot place (unknown `sdpMid`, out-of-range
 before anything is committed, and leaves the queue so a retry of the same
 description succeeds; the valid queued candidates are applied after the
 description is published.
+
+During a remote re-offer, a trickled candidate for an m-line whose ufrag is
+unchanged belongs to both the pending proposal and the live ICE generation.
+It is recorded in the pending SDP and, unless the live generation already
+signalled end-of-candidates (RFC 8838), also in the current SDP and handed to
+the live checklist exactly once. A rollback keeps it, because the generation
+it belongs to stays current.
 
 An answer leaves the MID of an m-line it rejects (offered with port 0, or
 whose transceiver is stopping or stopped) out of its BUNDLE group, as
@@ -172,6 +179,14 @@ ran under the pending description, is stopped as before. A transport created
 during the transaction that no binding holds at commit (for example the data
 channel's own transport after BUNDLE moved SCTP to the tag) is stopped at
 commit.
+
+Restart credentials that an applied offer carries belong to that offer until
+it is answered, replaced or rolled back. A later `createOffer()` that is not
+applied cannot drop them: without `iceRestart` it only discards credentials
+an earlier unapplied `createOffer` staged, and with `iceRestart` it reuses the
+pending offer's credentials (JSEP 5.2.1). The final answer switches exactly
+the generation of the applied offer, so the current local SDP and the live
+ICE credentials agree.
 
 An ICE restart (changed ufrag/pwd without a transport topology change) keeps
 the existing ICE and DTLS transports and their DTLS association, as RFC 8842
