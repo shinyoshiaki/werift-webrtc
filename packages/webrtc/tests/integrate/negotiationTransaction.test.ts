@@ -494,6 +494,57 @@ describe("negotiation transaction", () => {
     }
   });
 
+  test("a queued candidate that the answer cannot place rejects the answer before commit", async () => {
+    const { offerer, answerer, outgoing, incoming, close } =
+      createUnnegotiatedVideoPeers();
+    try {
+      // Arrange: 初回 offer/answer を作り、offerer に remote description より先に候補を積む。
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      const answer = answerer.localDescription!;
+      const line = answer.sdp.match(/^a=(candidate:.*?)\r?$/m)![1];
+      await offerer.addIceCandidate({
+        candidate: line,
+        sdpMid: "missing-mid",
+      });
+      const pendingOffer = offerer.pendingLocalDescription!.sdp;
+
+      // Act: 置き場所のない候補が queue にある状態で answer を適用する。
+      await expect(offerer.setRemoteDescription(answer)).rejects.toMatchObject({
+        name: "OperationError",
+      });
+
+      // Assert: answer は commit されず、pending offer と transaction が残り、answer の ICE 資格情報も入らない。
+      expect(offerer.signalingState).toBe("have-local-offer");
+      expect(offerer.remoteDescription).toBeNull();
+      expect(offerer.currentRemoteDescription).toBeNull();
+      expect(offerer.pendingLocalDescription!.sdp).toBe(pendingOffer);
+      expect(negotiationInternals(offerer).negotiation.inspect().phase).toBe(
+        "pending",
+      );
+      const answerUfrag = answer.sdp.match(/^a=ice-ufrag:(.*?)\r?$/m)![1];
+      expect(offerer.iceTransports[0].connection.remoteUsername).not.toBe(
+        answerUfrag,
+      );
+      assertNegotiationInvariants(offerer);
+
+      // Act: 同じ answer を改めて適用する (拒否した候補は queue から外れている)。
+      await offerer.setRemoteDescription(answer);
+
+      // Assert: 交渉が完了し、RTP が届く。
+      expect(offerer.signalingState).toBe("stable");
+      await Promise.all([
+        waitForConnection(offerer),
+        waitForConnection(answerer),
+      ]);
+      assertNegotiationInvariants(offerer);
+      await sendAndExpectRtp(outgoing, await incoming(), "queued-candidate");
+    } finally {
+      await close();
+    }
+  });
+
   test("an answer leaves the MID of a rejected m-line out of its BUNDLE group", async () => {
     const session = await createDuplexSession();
     try {
@@ -1237,7 +1288,10 @@ describe("negotiation transaction", () => {
       assertNegotiationInvariants(answerer);
       expect(localChannel.readyState).toBe("closed");
       expect(offerer.currentLocalDescription).toBeNull();
-      expect(offerer.iceTransports[0].state).toBe("new");
+      const answerUfrag = answer.sdp.match(/^a=ice-ufrag:(.*?)\r?$/m)![1];
+      expect(offerer.iceTransports[0].connection.remoteUsername).not.toBe(
+        answerUfrag,
+      );
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }

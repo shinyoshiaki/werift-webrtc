@@ -1536,6 +1536,29 @@ export class RTCPeerConnection extends EventTarget {
     }
   }
 
+  /**
+   * Candidates queued before any remote description are checked against the
+   * description being applied while it can still be undone, so a bad one
+   * rejects setRemoteDescription before anything is committed. The rejected
+   * candidates leave the queue: their addIceCandidate already resolved, and a
+   * retry of the same description must not fail on them again.
+   */
+  private async validatePendingRemoteCandidates(sdp: SessionDescription) {
+    let firstError: unknown;
+    for (const candidate of [...this.pendingRemoteCandidates]) {
+      try {
+        await this.secureManager.addIceCandidate(sdp, candidate ?? null, false);
+      } catch (error) {
+        firstError ??= error;
+        this.pendingRemoteCandidates.splice(
+          this.pendingRemoteCandidates.indexOf(candidate),
+          1,
+        );
+      }
+    }
+    if (firstError) throw firstError;
+  }
+
   private async flushPendingRemoteCandidates() {
     while (
       this.pendingRemoteCandidates.length > 0 &&
@@ -2088,6 +2111,7 @@ export class RTCPeerConnection extends EventTarget {
 
         // filter out inactive transports
         transports = transports.filter((iceTransport) => !!iceTransport);
+        await this.validatePendingRemoteCandidates(remoteSdp);
         if (remoteSdp.type === "answer") {
           // The final answer switches a staged ICE restart only now, after
           // every fallible step, and before its remote ICE parameters apply.
