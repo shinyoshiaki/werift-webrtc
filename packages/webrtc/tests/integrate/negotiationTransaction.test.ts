@@ -713,6 +713,80 @@ describe("negotiation transaction", () => {
     }
   });
 
+  test("end-of-candidates on a non-tag BUNDLE m-line completes the shared transport for every m-line", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers(
+        {},
+        { trickleOpen: true, withAudio: true },
+      );
+    try {
+      // Arrange: 映像 (tag) と音声 (非 tag) が一つの ICE transport を共有し、EOC 前の世代にある。
+      const current = answerer.currentRemoteDescription!.sdp;
+      const [tagMid, nonTagMid] = current
+        .match(/^a=group:BUNDLE (.*?)\r?$/m)![1]
+        .trim()
+        .split(" ");
+      const connection = answerer.iceTransports[0].connection;
+      expect(answerer.iceTransports).toHaveLength(1);
+      expect(connection.remoteCandidatesEnd).toBe(false);
+
+      // Act: 非 tag m-line に EOC を trickle する。
+      await answerer.addIceCandidate({ candidate: "", sdpMid: nonTagMid });
+
+      // Assert: 共有 transport が完了し、current SDP の両 m-line が完了扱いになる。
+      expect(connection.remoteCandidatesEnd).toBe(true);
+      expect(
+        answerer.currentRemoteDescription!.sdp.match(/^a=end-of-candidates/gm),
+      ).toHaveLength(2);
+      assertNegotiationInvariants(answerer);
+
+      // Act: tag m-line の候補を本文に足した同じ ufrag の re-offer を適用する。
+      await offerer.setLocalDescription(await offerer.createOffer());
+      const offer = offerer.localDescription!.sdp.replace(
+        /^a=end-of-candidates\r?\n/gm,
+        "",
+      );
+      const [line, foundation, rest] = offer.match(
+        /^a=candidate:(\S+) (\d+ \S+ \d+ \S+) \d+ typ host.*$/m,
+      )!;
+      const port = 40997;
+      const withCandidate = offer.replace(
+        line,
+        `${line}\r\na=candidate:${foundation}7 ${rest} ${port} typ host`,
+      );
+      expect(withCandidate.indexOf(` ${port} typ host`)).toBeLessThan(
+        withCandidate.indexOf(`a=mid:${nonTagMid}`),
+      );
+      await answerer.setRemoteDescription({
+        type: "offer",
+        sdp: withCandidate,
+      });
+
+      // Assert: 完了済み transport の候補は current SDP にも checklist にも入らない。
+      expect(answerer.currentRemoteDescription!.sdp).not.toContain(
+        ` ${port} typ host`,
+      );
+      expect(connection.remoteCandidates.some((c) => c.port === port)).toBe(
+        false,
+      );
+      assertNegotiationInvariants(answerer);
+
+      // Act: re-offer を両側で rollback する。
+      await answerer.setRemoteDescription({ type: "rollback" });
+      await offerer.setLocalDescription({ type: "rollback" });
+
+      // Assert: current SDP は受け付けていない候補を含まず、既存 RTP が届く。
+      expect(answerer.currentRemoteDescription!.sdp).not.toContain(
+        ` ${port} typ host`,
+      );
+      expect(tagMid).not.toBe(nonTagMid);
+      assertNegotiationInvariants(answerer);
+      await sendAndExpectRtp(outgoing, incoming, "bundle-eoc-shared");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
   test("an answer leaves the MID of a rejected m-line out of its BUNDLE group", async () => {
     const session = await createDuplexSession();
     try {

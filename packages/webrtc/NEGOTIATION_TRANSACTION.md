@@ -77,6 +77,13 @@ that keeps the current transports: once every fallible step has passed, they
 reach the live generation before any answer, without duplicates, and nothing
 is added after that generation's end-of-candidates.
 
+End-of-candidates ends an ICE generation on its transport. When it arrives for
+one BUNDLE m-line, every m-line that shares the transport and ufrag (the rest
+of the group) is marked complete in that SDP, so the tag and the non-tag
+m-lines agree. A candidate for a transport whose generation already ended is
+neither written to the current SDP nor handed to the live checklist, so after
+a rollback the current SDP lists only candidates the live generation accepted.
+
 An answer leaves the MID of an m-line it rejects (offered with port 0, or
 whose transceiver is stopping or stopped) out of its BUNDLE group, as
 RFC 8843 section 7.3.3 requires. werift also writes `inactive` m-lines with

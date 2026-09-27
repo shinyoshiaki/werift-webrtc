@@ -16,18 +16,24 @@ import type { SessionDescription } from "../../src/sdp";
 /** Shared Arrange setup for negotiation transaction regression tests. */
 export async function createConnectedVideoPeers(
   config: ConstructorParameters<typeof RTCPeerConnection>[0] = {},
-  { trickleOpen = false }: { trickleOpen?: boolean } = {},
+  {
+    trickleOpen = false,
+    withAudio = false,
+  }: { trickleOpen?: boolean; withAudio?: boolean } = {},
 ) {
   const offerer = new RTCPeerConnection(config);
   const answerer = new RTCPeerConnection(config);
   const outgoing = new MediaStreamTrack({ kind: "video" });
   let incoming: MediaStreamTrack | undefined;
   answerer.onRemoteTransceiverAdded.subscribe((transceiver) => {
+    if (transceiver.kind !== "video") return;
     transceiver.onTrack.subscribe((track) => {
       incoming = track;
     });
   });
   offerer.addTransceiver(outgoing, { direction: "sendonly" });
+  // withAudio: a second (non-tag) m-line in the same BUNDLE group.
+  if (withAudio) offerer.addTransceiver("audio", { direction: "sendonly" });
   await offerer.setLocalDescription(await offerer.createOffer());
   // trickleOpen: the answerer's current remote generation has no
   // end-of-candidates yet, so later trickle candidates still belong to it.

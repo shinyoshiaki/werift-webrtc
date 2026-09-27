@@ -1539,6 +1539,12 @@ export class RTCPeerConnection extends EventTarget {
           media.iceCandidatesComplete = true;
         }
       }
+      if (!stageOnly) {
+        this.completeSharedTransportMedia(
+          remoteDescription,
+          appliedCandidate.mediaIndices,
+        );
+      }
       return;
     }
 
@@ -1597,6 +1603,43 @@ export class RTCPeerConnection extends EventTarget {
    * it is recorded in the current SDP and handed to the live checklist once,
    * so the committed session can use it while the proposal is pending.
    */
+  /**
+   * End-of-candidates ends an ICE generation on its transport, not one
+   * m-line: every m-line of `sdp` on the same finished transport with the
+   * same ufrag as `completed` (the rest of its BUNDLE group) is marked
+   * complete, so the SDP never promises more candidates to it.
+   */
+  private completeSharedTransportMedia(
+    sdp: SessionDescription,
+    completed: number[],
+  ) {
+    const generations = completed
+      .map((index) => {
+        const media = sdp.media[index];
+        const transport = this.currentTransportForMid(
+          media?.rtp.muxId ?? "",
+        )?.iceTransport;
+        return transport?.connection.remoteCandidatesEnd
+          ? { transport, ufrag: media?.iceParams?.usernameFragment }
+          : undefined;
+      })
+      .filter((generation) => !!generation?.ufrag);
+    for (const media of sdp.media) {
+      const transport = this.currentTransportForMid(
+        media.rtp.muxId ?? "",
+      )?.iceTransport;
+      if (
+        generations.some(
+          (generation) =>
+            generation?.transport === transport &&
+            generation?.ufrag === media.iceParams?.usernameFragment,
+        )
+      ) {
+        media.iceCandidatesComplete = true;
+      }
+    }
+  }
+
   private async deliverSameGenerationCandidate(
     pending: SessionDescription,
     current: SessionDescription,
@@ -1620,14 +1663,19 @@ export class RTCPeerConnection extends EventTarget {
         !iceTransport ||
         this.negotiation.isPendingOnlyTransport(iceTransport.id) ||
         iceTransport.connection.remoteUsername !== ufrag ||
-        // RFC 8838: a generation that signalled end-of-candidates is complete.
-        currentMedia.iceCandidatesComplete
+        // RFC 8838: a generation that signalled end-of-candidates is complete,
+        // whichever BUNDLE m-line of the shared transport carried it.
+        currentMedia.iceCandidatesComplete ||
+        iceTransport.connection.remoteCandidatesEnd
       ) {
         continue;
       }
       if (applied.kind === "end-of-candidates") {
         currentMedia.iceCandidatesComplete = true;
         await iceTransport.addRemoteCandidate(undefined);
+        this.completeSharedTransportMedia(current, [
+          current.media.indexOf(currentMedia),
+        ]);
         continue;
       }
       const text = applied.candidate.toJSON().candidate;
