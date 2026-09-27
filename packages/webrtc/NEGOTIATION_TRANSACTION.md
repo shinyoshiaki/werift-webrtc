@@ -59,7 +59,11 @@ transceiver's sender and receiver stopped. A failure in the first phase
 therefore keeps the committed ICE generation, selected pair and DTLS/SCTP
 bindings (the checkpoint also rebinds SCTP to its DTLS transport).
 Candidates that `addIceCandidate` queued before any remote description are
-checked against the incoming description at the end of the first phase. One
+checked against the incoming description during validation, before any
+state change and before any application event (`onRemoteTransceiverAdded`,
+`onTrack`) fires. The implicit rollback of a local offer yields a task after
+publishing `stable`, so handlers observe that state before the remote offer
+moves the connection to `have-remote-offer`. One
 that the description cannot place (unknown `sdpMid`, out-of-range
 `sdpMLineIndex`, unmatched ufrag, unparsable) rejects `setRemoteDescription`
 before anything is committed, and leaves the queue so a retry of the same

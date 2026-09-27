@@ -904,6 +904,59 @@ describe("negotiation transaction", () => {
     },
   );
 
+  test("a queued candidate the remote offer cannot place rejects it before any application event", async () => {
+    const { offerer, answerer, outgoing, incoming, close } =
+      createUnnegotiatedVideoPeers();
+    try {
+      // Arrange: answerer に remote description より先に置き場所のない候補を積み、通知を数える。
+      await offerer.setLocalDescription(await offerer.createOffer());
+      const offer = offerer.localDescription!;
+      const line = offer.sdp.match(/^a=(candidate:.*?)\r?$/m)![1];
+      await answerer.addIceCandidate({
+        candidate: line,
+        sdpMid: "missing-mid",
+      });
+      let transceiverEvents = 0;
+      let trackEvents = 0;
+      answerer.onRemoteTransceiverAdded.subscribe(() => transceiverEvents++);
+      answerer.onTrack.subscribe(() => trackEvents++);
+
+      // Act: その状態で remote offer を適用する。
+      await expect(answerer.setRemoteDescription(offer)).rejects.toMatchObject({
+        name: "OperationError",
+      });
+
+      // Assert: 状態は変わらず、transceiver/track の通知も一度も出ない。
+      expect(answerer.signalingState).toBe("stable");
+      expect(answerer.remoteDescription).toBeNull();
+      expect(answerer.getTransceivers()).toHaveLength(0);
+      expect(transceiverEvents).toBe(0);
+      expect(trackEvents).toBe(0);
+      assertNegotiationInvariants(answerer);
+
+      // Act: 同じ offer を改めて適用し交渉を完了する (拒否した候補は queue から外れている)。
+      await answerer.setRemoteDescription(offer);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+
+      // Assert: 通知は成立した交渉の分だけ 1 回ずつ出て、RTP が届く。
+      expect(transceiverEvents).toBe(1);
+      expect(trackEvents).toBe(1);
+      await Promise.all([
+        waitForConnection(offerer),
+        waitForConnection(answerer),
+      ]);
+      assertNegotiationInvariants(answerer);
+      await sendAndExpectRtp(
+        outgoing,
+        await incoming(),
+        "queued-candidate-offer",
+      );
+    } finally {
+      await close();
+    }
+  });
+
   test("an answer leaves the MID of a rejected m-line out of its BUNDLE group", async () => {
     const session = await createDuplexSession();
     try {

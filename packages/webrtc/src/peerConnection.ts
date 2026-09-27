@@ -993,10 +993,12 @@ export class RTCPeerConnection extends EventTarget {
 
       if (description.type === "offer") {
         this.secureManager.markStagedIceRestartApplied();
+        this.negotiation.settle();
         this.setSignalingState("have-local-offer");
       } else if (description.type === "answer") {
         this.setSignalingState("stable");
       } else if (description.type === "pranswer") {
+        this.negotiation.settle();
         this.setSignalingState("have-local-pranswer");
       }
 
@@ -1702,8 +1704,8 @@ export class RTCPeerConnection extends EventTarget {
 
   /**
    * Candidates queued before any remote description are checked against the
-   * description being applied while it can still be undone, so a bad one
-   * rejects setRemoteDescription before anything is committed. The rejected
+   * description during validation, so a bad one rejects setRemoteDescription
+   * before any state changes and before any application event fires. The rejected
    * candidates leave the queue: their addIceCandidate already resolved, and a
    * retry of the same description must not fail on them again.
    */
@@ -2010,6 +2012,13 @@ export class RTCPeerConnection extends EventTarget {
         this.assertPendingSctpBinding(remoteSdp);
       }
 
+      // Queued candidates are placed against the parsed proposal before any
+      // state changes or application events (track, transceiver) fire.
+      // Only a non-empty queue awaits, so ordinary offers keep their timing.
+      if (this.pendingRemoteCandidates.length > 0) {
+        await this.validatePendingRemoteCandidates(remoteSdp);
+      }
+
       const needsImplicitLocalRollback =
         sessionDescription.type === "offer" &&
         ["have-local-offer", "have-local-pranswer"].includes(
@@ -2025,7 +2034,9 @@ export class RTCPeerConnection extends EventTarget {
         await this.cleanupInitialProvisionalTransport();
         this.shouldNegotiationneeded = true;
         this.setSignalingState("stable");
-        await Promise.resolve();
+        // The implicit rollback's "stable" is observable on its own: yield a
+        // task so handlers run before the offer moves to have-remote-offer.
+        await new Promise<void>((resolve) => setImmediate(resolve));
       }
       if (
         remoteSdp.type === "offer" &&
@@ -2308,7 +2319,6 @@ export class RTCPeerConnection extends EventTarget {
 
         // filter out inactive transports
         transports = transports.filter((iceTransport) => !!iceTransport);
-        await this.validatePendingRemoteCandidates(remoteSdp);
         if (remoteSdp.type === "answer") {
           // The final answer switches a staged ICE restart only now, after
           // every fallible step, and before its remote ICE parameters apply.
@@ -2365,6 +2375,7 @@ export class RTCPeerConnection extends EventTarget {
 
       if (remoteSdp.type === "offer") {
         this.sdpManager.applyRemoteDescription(remoteSdp);
+        this.negotiation.settle();
         this.setSignalingState("have-remote-offer");
       } else if (remoteSdp.type === "answer") {
         this.sdpManager.applyRemoteDescription(remoteSdp);
@@ -2372,6 +2383,7 @@ export class RTCPeerConnection extends EventTarget {
         this.setSignalingState("stable");
       } else if (remoteSdp.type === "pranswer") {
         this.sdpManager.applyRemoteDescription(remoteSdp);
+        this.negotiation.settle();
         this.setSignalingState("have-remote-pranswer");
       }
 

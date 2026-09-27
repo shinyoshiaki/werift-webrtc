@@ -165,6 +165,11 @@ export class NegotiationTransaction {
     });
   }
 
+  /** A description was applied without committing: the proposal is pending. */
+  settle() {
+    if (this.baseline) this.phase = "pending";
+  }
+
   validate() {
     this.phase = "validating";
   }
