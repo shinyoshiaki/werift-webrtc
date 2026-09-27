@@ -1478,8 +1478,19 @@ export class RTCPeerConnection extends EventTarget {
     const current = this.sdpManager.currentRemoteDescription;
     const pending = this.sdpManager.pendingRemoteDescription;
     const ufrag = candidateMessage?.usernameFragment;
+    // The generation is decided by the m-line the candidate targets: with a
+    // partial BUNDLE split one m-line may keep the current ufrag while another
+    // moves to a new one within the same pending description.
+    const sdpMid = candidateMessage?.sdpMid;
+    const sdpMLineIndex = candidateMessage?.sdpMLineIndex;
+    const targetMedia = (description: SessionDescription) =>
+      typeof sdpMid === "string"
+        ? description.media.filter((media) => media.rtp.muxId === sdpMid)
+        : typeof sdpMLineIndex === "number"
+          ? description.media.slice(sdpMLineIndex, sdpMLineIndex + 1)
+          : description.media;
     const matchesUfrag = (description: SessionDescription) =>
-      description.media.some(
+      targetMedia(description).some(
         (media) => media.iceParams?.usernameFragment === ufrag,
       );
     const sdp =

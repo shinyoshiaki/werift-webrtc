@@ -1095,6 +1095,65 @@ describe("negotiation transaction", () => {
     }
   });
 
+  test("during a partial BUNDLE split re-offer a candidate follows the ufrag of the m-line it targets", async () => {
+    const session = await createDuplexSession();
+    const { a, b } = session;
+    try {
+      // Arrange: audio を追加し、audio だけを BUNDLE から外す re-offer を b に適用する。
+      const audio = await addNegotiatedAudio(session, a, b);
+      await a.pc.setLocalDescription({
+        type: "offer",
+        sdp: await createSplitOffer(a.pc, audio.mid),
+      });
+      await b.pc.setRemoteDescription(a.pc.pendingLocalDescription!);
+      const sectionOf = (sdp: string, mid: string) =>
+        sdp
+          .split(/(?=^m=)/m)
+          .find((part) => new RegExp(`^a=mid:${mid}\\r?$`, "m").test(part))!;
+      const ufragIn = (section: string) =>
+        section.match(/^a=ice-ufrag:(.*?)\r?$/m)![1];
+      const current = () => b.pc.currentRemoteDescription!.sdp;
+      const pending = () => b.pc.pendingRemoteDescription!.sdp;
+      const oldAudioUfrag = ufragIn(sectionOf(current(), audio.mid));
+      const newAudioUfrag = ufragIn(sectionOf(pending(), audio.mid));
+      const videoMid = b.video.mid!;
+      // audio だけが新しい ufrag になり、video は旧 ufrag のまま。
+      expect(newAudioUfrag).not.toBe(oldAudioUfrag);
+      expect(ufragIn(sectionOf(pending(), videoMid))).toBe(
+        ufragIn(sectionOf(current(), videoMid)),
+      );
+      const [, foundation, rest] = current().match(
+        /^a=candidate:(\S+) (\d+ \S+ \d+ \S+) \d+ typ host/m,
+      )!;
+      const candidateAt = (port: number, ufrag: string) => ({
+        candidate: `candidate:${foundation}${port % 10} ${rest} ${port} typ host ufrag ${ufrag}`,
+        sdpMid: audio.mid,
+      });
+
+      // Act: 旧世代と新世代の audio 候補を追加する。
+      await b.pc.addIceCandidate(candidateAt(40981, oldAudioUfrag));
+      await b.pc.addIceCandidate(candidateAt(40982, newAudioUfrag));
+
+      // Assert: 旧世代は current の audio に、新世代は pending の audio に記録される。
+      expect(sectionOf(current(), audio.mid)).toContain(" 40981 typ host");
+      expect(sectionOf(pending(), audio.mid)).not.toContain(" 40981 typ host");
+      expect(sectionOf(pending(), audio.mid)).toContain(" 40982 typ host");
+      expect(sectionOf(current(), audio.mid)).not.toContain(" 40982 typ host");
+      assertNegotiationInvariants(b.pc);
+
+      // Act: re-offer を両側で rollback する。
+      await b.pc.setRemoteDescription({ type: "rollback" });
+      await a.pc.setLocalDescription({ type: "rollback" });
+
+      // Assert: 旧世代の候補は current に残り、映像・DataChannel も通信を続ける。
+      expect(sectionOf(current(), audio.mid)).toContain(" 40981 typ host");
+      assertNegotiationInvariants(b.pc);
+      await expectSessionAlive(session, "partial-split-candidate");
+    } finally {
+      await session.close();
+    }
+  });
+
   test("an answer leaves the MID of a rejected m-line out of its BUNDLE group", async () => {
     const session = await createDuplexSession();
     try {

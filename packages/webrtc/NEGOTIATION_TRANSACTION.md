@@ -80,7 +80,11 @@ description is published.
 A trickled candidate belongs to the ICE generation of its ufrag, given either
 as the `usernameFragment` property or as the `ufrag` token of the candidate
 string; both forms are routed identically (current or pending generation),
-and a candidate whose two values disagree is rejected with `OperationError`.
+and a candidate whose two values disagree is rejected with `OperationError`. The
+current or pending generation is chosen by the ufrag of the m-line the
+candidate targets (`sdpMid`, else `sdpMLineIndex`), not of any m-line: in a
+partial BUNDLE split one m-line can keep the current ufrag while another
+moves to a new one within the same pending description.
 
 During a remote re-offer, a trickled candidate for an m-line whose ufrag is
 unchanged belongs to both the pending proposal and the live ICE generation.
