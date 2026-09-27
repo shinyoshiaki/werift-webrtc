@@ -665,35 +665,42 @@ export class SDPManager {
   }
 
   /**
-   * 確立済み BUNDLE の transport を共有している m-line を、
-   * re-offer が group の外へ出すことはできない (共有 transport を分割できない)。
+   * 確立済み BUNDLE の transport を共有している m-line を、re-offer が
+   * group の外へ出したり別々の group に分割したりすることはできない
+   * (共有 transport を分割できない)。状態を変更する前に拒否する。
    */
   private assertBundlePreserved(remoteSdp: SessionDescription) {
     if (remoteSdp.type !== "offer" || this.bundlePolicy === "disable") {
       return;
     }
-    const negotiated = [
-      this.currentLocalDescription,
-      this.currentRemoteDescription,
-    ]
-      .find((d) => d?.type === "answer")
-      ?.group.find((g) => g.semantic === "BUNDLE");
-    if (!negotiated) {
-      return;
-    }
+    const negotiatedGroups =
+      [this.currentLocalDescription, this.currentRemoteDescription]
+        .find((d) => d?.type === "answer")
+        ?.group.filter((g) => g.semantic === "BUNDLE") ?? [];
     const offeredGroups = remoteSdp.group.filter(
       (g) => g.semantic === "BUNDLE",
     );
-    for (const mid of negotiated.items) {
-      const media = remoteSdp.media.find((m) => m.rtp.muxId === mid);
-      if (!media || media.port === 0) {
-        continue;
-      }
-      if (!offeredGroups.some((g) => g.items.includes(mid))) {
-        throw createWebRtcDomException(
-          "InvalidAccessError",
-          `BUNDLE transport of mid=${mid} cannot be preserved by the remote offer`,
-        );
+    for (const negotiated of negotiatedGroups) {
+      let sharedGroup: GroupDescription | undefined;
+      for (const mid of negotiated.items) {
+        const media = remoteSdp.media.find((m) => m.rtp.muxId === mid);
+        if (!media || media.port === 0) {
+          continue;
+        }
+        const offeredGroup = offeredGroups.find((g) => g.items.includes(mid));
+        if (!offeredGroup) {
+          throw createWebRtcDomException(
+            "InvalidAccessError",
+            `BUNDLE transport of mid=${mid} cannot be preserved by the remote offer`,
+          );
+        }
+        sharedGroup ??= offeredGroup;
+        if (offeredGroup !== sharedGroup) {
+          throw createWebRtcDomException(
+            "InvalidAccessError",
+            `BUNDLE transport of mid=${mid} cannot be split into another BUNDLE group by the remote offer`,
+          );
+        }
       }
     }
   }

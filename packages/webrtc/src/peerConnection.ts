@@ -1215,8 +1215,9 @@ export class RTCPeerConnection extends EventTarget {
         owner.setDtlsTransport(shared);
       }
     }
-    if (bundleGroups.length > 0 && this.config.bundlePolicy !== "max-bundle") {
-      // group 外で受け入れた m-line は独立した transport / ICE credentials を持つ
+    if (bundleGroups.length > 0) {
+      // group 外で受け入れた m-line は bundlePolicy を問わず独立した transport / ICE credentials を持つ
+      // (answer が示す所有関係と実際の transport を一致させる)
       const claimed = new Set<RTCDtlsTransport>(groupTransports.values());
       for (const entry of entries) {
         const owner = ownerOf(entry);

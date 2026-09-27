@@ -44,21 +44,24 @@ const FINGERPRINT =
 
 /**
  * ブラウザ相当の remote offer / answer SDP を組み立てる。
- * `bundle` を省略すると BUNDLE group を付けない (unbundled)。
+ * `bundle` / `bundles` を省略すると BUNDLE group を付けない (unbundled)。
+ * `bundles` は複数の BUNDLE group を並べる場合に使う。
  */
 export function buildRemoteSdp({
   sections,
   bundle,
+  bundles = bundle ? [bundle] : [],
   setup = "actpass",
 }: {
   sections: RemoteSection[];
   bundle?: string[];
+  bundles?: string[][];
   setup?: "actpass" | "active" | "passive";
 }) {
   const lines = ["v=0", "o=- 4611731400430051336 2 IN IP4 127.0.0.1", "s=-"];
   lines.push("t=0 0");
-  if (bundle) {
-    lines.push(`a=group:BUNDLE ${bundle.join(" ")}`);
+  for (const group of bundles) {
+    lines.push(`a=group:BUNDLE ${group.join(" ")}`);
   }
   lines.push("a=msid-semantic: WMS *");
 

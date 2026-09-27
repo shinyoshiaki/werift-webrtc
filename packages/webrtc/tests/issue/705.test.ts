@@ -279,48 +279,54 @@ describe("issue 705: reject unsupported RTP m-lines in the answer", () => {
 });
 
 describe("issue 705: BUNDLE membership, transports and ICE ownership", () => {
-  test("m-lines outside the offered group get an independent transport and ICE credentials", async () => {
-    // Arrange: audio 0/1 は BUNDLE、audio 2 は group 外
-    const pc = createAudioOnlyPeer();
-    const offer = buildRemoteSdp({
-      sections: [
-        { kind: "audio", mid: "0" },
-        { kind: "audio", mid: "1" },
-        { kind: "audio", mid: "2", ufrag: "otherufrag" },
-      ],
-      bundle: ["0", "1"],
-    });
+  test.each([
+    { bundlePolicy: undefined },
+    { bundlePolicy: "max-bundle" as const },
+  ])(
+    "m-lines outside the offered group get an independent transport and ICE credentials (bundlePolicy=$bundlePolicy)",
+    async ({ bundlePolicy }) => {
+      // Arrange: audio 0/1 は BUNDLE、audio 2 は group 外 (max-bundle でも同じ扱い)
+      const pc = createAudioOnlyPeer({ bundlePolicy });
+      const offer = buildRemoteSdp({
+        sections: [
+          { kind: "audio", mid: "0" },
+          { kind: "audio", mid: "1" },
+          { kind: "audio", mid: "2", ufrag: "otherufrag" },
+        ],
+        bundle: ["0", "1"],
+      });
 
-    try {
-      // Act
-      const answer = await answerRemoteOffer(pc, offer);
+      try {
+        // Act
+        const answer = await answerRemoteOffer(pc, offer);
 
-      // Assert: answer の group は offered membership と一致する
-      expect(bundleGroups(answer)).toEqual([["0", "1"]]);
-      const media = parseSdp(answer).media;
-      expect(media[0].iceParams?.usernameFragment).toBe(
-        media[1].iceParams?.usernameFragment,
-      );
-      expect(media[2].iceParams?.usernameFragment).not.toBe(
-        media[0].iceParams?.usernameFragment,
-      );
+        // Assert: answer の group は offered membership と一致する
+        expect(bundleGroups(answer)).toEqual([["0", "1"]]);
+        const media = parseSdp(answer).media;
+        expect(media[0].iceParams?.usernameFragment).toBe(
+          media[1].iceParams?.usernameFragment,
+        );
+        expect(media[2].iceParams?.usernameFragment).not.toBe(
+          media[0].iceParams?.usernameFragment,
+        );
 
-      // Assert: group 外は別 transport で、remote の ICE 資格情報も別に適用される
-      const [t0, t1, t2] = ["0", "1", "2"].map(
-        (mid) => pc.getTransceivers().find((t) => t.mid === mid)!,
-      );
-      expect(t0.dtlsTransport).toBe(t1.dtlsTransport);
-      expect(t2.dtlsTransport).not.toBe(t0.dtlsTransport);
-      expect(t2.dtlsTransport.iceTransport.connection.remoteUsername).toBe(
-        "otherufrag",
-      );
-      expect(t0.dtlsTransport.iceTransport.connection.remoteUsername).toBe(
-        REMOTE_UFRAG,
-      );
-    } finally {
-      await closeAll(pc);
-    }
-  });
+        // Assert: group 外は別 transport で、remote の ICE 資格情報も別に適用される
+        const [t0, t1, t2] = ["0", "1", "2"].map(
+          (mid) => pc.getTransceivers().find((t) => t.mid === mid)!,
+        );
+        expect(t0.dtlsTransport).toBe(t1.dtlsTransport);
+        expect(t2.dtlsTransport).not.toBe(t0.dtlsTransport);
+        expect(t2.dtlsTransport.iceTransport.connection.remoteUsername).toBe(
+          "otherufrag",
+        );
+        expect(t0.dtlsTransport.iceTransport.connection.remoteUsername).toBe(
+          REMOTE_UFRAG,
+        );
+      } finally {
+        await closeAll(pc);
+      }
+    },
+  );
 
   test("local trickle candidates use the accepted tag's MID and m-line index", async () => {
     // Arrange: 拒否 tag(video 0) + audio(1) + SCTP(2)
@@ -432,45 +438,57 @@ describe("issue 705: BUNDLE membership, transports and ICE ownership", () => {
     }
   });
 
-  test("a re-offer that cannot preserve the established BUNDLE is rejected without state changes", async () => {
-    // Arrange: mid 0/1 を BUNDLE で確立済み
-    const pc = createAudioOnlyPeer();
-    await answerRemoteOffer(
-      pc,
-      buildRemoteSdp({
-        sections: [
-          { kind: "audio", mid: "0" },
-          { kind: "audio", mid: "1" },
-        ],
-        bundle: ["0", "1"],
-      }),
-    );
-    const remoteBefore = pc.remoteDescription!.sdp;
-
-    try {
-      // Act: 共有 transport の member を group の外へ出す re-offer を適用する
-      const result = pc.setRemoteDescription({
-        type: "offer",
-        sdp: buildRemoteSdp({
+  test.each([
+    { label: "moves a member out of the group", bundles: [["0"]] },
+    { label: "splits the members into two groups", bundles: [["0"], ["1"]] },
+  ])(
+    "a re-offer that $label is rejected without state changes",
+    async ({ bundles }) => {
+      // Arrange: mid 0/1 を BUNDLE で確立済み
+      const pc = createAudioOnlyPeer();
+      await answerRemoteOffer(
+        pc,
+        buildRemoteSdp({
           sections: [
             { kind: "audio", mid: "0" },
             { kind: "audio", mid: "1" },
           ],
-          bundle: ["0"],
+          bundle: ["0", "1"],
         }),
-      });
+      );
+      const remoteBefore = pc.remoteDescription!.sdp;
 
-      // Assert: InvalidAccessError で拒否し、signaling state と descriptions を保つ
-      await expect(result).rejects.toMatchObject({
-        name: "InvalidAccessError",
-      });
-      expect(pc.signalingState).toBe("stable");
-      expect(pc.remoteDescription!.sdp).toBe(remoteBefore);
-      expect(pc.pendingRemoteDescription).toBeNull();
-    } finally {
-      await closeAll(pc);
-    }
-  });
+      try {
+        // Act: 共有 transport の member を group の外へ出す / 別 group に分割する re-offer を適用する
+        const result = pc.setRemoteDescription({
+          type: "offer",
+          sdp: buildRemoteSdp({
+            sections: [
+              { kind: "audio", mid: "0" },
+              { kind: "audio", mid: "1", ufrag: "otherufrag" },
+            ],
+            bundles,
+          }),
+        });
+
+        // Assert: InvalidAccessError で拒否し、signaling state と descriptions を保つ
+        await expect(result).rejects.toMatchObject({
+          name: "InvalidAccessError",
+        });
+        expect(pc.signalingState).toBe("stable");
+        expect(pc.remoteDescription!.sdp).toBe(remoteBefore);
+        expect(pc.pendingRemoteDescription).toBeNull();
+        // Assert: 共有 transport と remote ICE 資格情報は変わらない
+        const [t0, t1] = pc.getTransceivers();
+        expect(t0.dtlsTransport).toBe(t1.dtlsTransport);
+        expect(t0.dtlsTransport.iceTransport.connection.remoteUsername).toBe(
+          REMOTE_UFRAG,
+        );
+      } finally {
+        await closeAll(pc);
+      }
+    },
+  );
 });
 
 describe("issue 705: mLineReuse configuration", () => {

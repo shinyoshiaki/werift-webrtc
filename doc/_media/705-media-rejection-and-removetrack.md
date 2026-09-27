@@ -51,8 +51,8 @@ m=audio 9 UDP/TLS/RTP/SAVPF 111 (mid 1) m=audio 9 UDP/TLS/RTP/SAVPF 111  ← ans
 - SRD は codec が空でも MID と m-line index を設定して続行する。拒否 section では `prepareSend` / `prepareReceive` /
   router 登録 / `onTrack` / TWCC を行わない。remote が既に port 0 の場合も同じ。
 - 未知の MID の port 0 m-line には transceiver を関連付けない (予約済みの新 transceiver を奪わない)。
-- 確立済み BUNDLE の re-offer では negotiated tag を group 先頭に保つ。共有 transport の member を group 外へ出す
-  re-offer は、状態を変える前に `InvalidAccessError` で拒否する。
+- 確立済み BUNDLE の re-offer では negotiated tag を group 先頭に保つ。共有 transport の member を group 外へ出す、
+  または別々の group に分割する re-offer は、状態を変える前に `InvalidAccessError` で拒否する。
 - 非ゼロ port の remote answer / pranswer が pending local offer と共通 codec を持たない場合、
   `InvalidAccessError` で拒否し、signaling state と descriptions を変更しない。
 
@@ -60,7 +60,8 @@ m=audio 9 UDP/TLS/RTP/SAVPF 111 (mid 1) m=audio 9 UDP/TLS/RTP/SAVPF 111  ← ans
 
 - offered BUNDLE group の member だけが共有 transport を使い、ICE / DTLS パラメータは group の tag
   (先頭の非ゼロ member) から適用する。拒否 member の remote 候補も共有 transport に渡す。
-- group 外で受け入れた m-line は独立した transport と ICE credentials を持つ。`bundlePolicy: "disable"` は各 section 独立。
+- group 外で受け入れた m-line は、`bundlePolicy` (`max-bundle` を含む) を問わず独立した transport と ICE credentials を持つ。
+  `bundlePolicy: "disable"` は各 section 独立。
 - local trickle candidate の `sdpMid` / `sdpMLineIndex` は、その ICE transport を所有する受け入れ済み m-line
   (BUNDLE なら tag) に合わせる。停止 / 拒否 section しか使わない transport の候補は通知しない。
 - remote candidate は remote SDP の全 media 配列で MID / index を解決する。拒否した m-line 向けの候補は
