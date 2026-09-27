@@ -30,22 +30,39 @@ type TransceiverBaseline = {
   notifiedRemoteTrack: ReturnType<TransceiverManager["getNotifiedRemoteTrack"]>;
 };
 
+type Baseline = {
+  orderedTransceivers: RTCRtpTransceiver[];
+  transceivers: Map<RTCRtpTransceiver, TransceiverBaseline>;
+  ssrcTable: RtpRouter["ssrcTable"];
+  ridTable: RtpRouter["ridTable"];
+  extIdUriMap: RtpRouter["extIdUriMap"];
+  sctpTransport: SctpTransportManager["sctpTransport"];
+  sctpDtlsTransport?: RTCDtlsTransport;
+  sctpRemotePort?: number;
+  sctpMid?: string;
+  sctpMLineIndex?: number;
+  sctpRemoteMaxMessageSize?: number;
+};
+
+export type NegotiationCheckpoint = {
+  state: Baseline;
+  remoteCreated: Set<RTCRtpTransceiver>;
+  displaced: Set<RTCRtpTransceiver>;
+  pendingOnly: Set<RTCDtlsTransport>;
+  prepared: Map<string, RTCDtlsTransport>;
+  emitted: Set<string>;
+  preparedFor?: SessionDescription;
+};
+
+function replaceSet<T>(target: Set<T>, source: Set<T>) {
+  target.clear();
+  for (const value of source) target.add(value);
+}
+
 /** One owner for the reversible metadata of a PeerConnection negotiation. */
 export class NegotiationTransaction {
-  private baseline?: {
-    orderedTransceivers: RTCRtpTransceiver[];
-    transceivers: Map<RTCRtpTransceiver, TransceiverBaseline>;
-    ssrcTable: RtpRouter["ssrcTable"];
-    ridTable: RtpRouter["ridTable"];
-    extIdUriMap: RtpRouter["extIdUriMap"];
-    sctpTransport: SctpTransportManager["sctpTransport"];
-    sctpDtlsTransport?: RTCDtlsTransport;
-    sctpRemotePort?: number;
-    sctpMid?: string;
-    sctpMLineIndex?: number;
-    sctpRemoteMaxMessageSize?: number;
-  };
-  private offerSnapshot?: NegotiationTransaction["baseline"];
+  private baseline?: Baseline;
+  private offerSnapshot?: Baseline;
   private readonly remoteCreated = new Set<RTCRtpTransceiver>();
   /** Transceivers whose m-line a remote offer recycled with a new MID. */
   private readonly displaced = new Set<RTCRtpTransceiver>();
@@ -98,7 +115,7 @@ export class NegotiationTransaction {
     return this.revision;
   }
 
-  private capture(): NonNullable<NegotiationTransaction["baseline"]> {
+  private capture(): Baseline {
     return {
       orderedTransceivers: [...this.transceivers.getTransceivers()],
       transceivers: new Map(
@@ -142,6 +159,10 @@ export class NegotiationTransaction {
 
   noteCreatedTransport(transport: RTCDtlsTransport) {
     this.createdTransports.add(transport);
+    // A stopped transport needs no cleanup; do not keep referencing it.
+    transport.onStateChange.subscribe((state) => {
+      if (state === "closed") this.createdTransports.delete(transport);
+    });
   }
 
   validate() {
@@ -272,6 +293,77 @@ export class NegotiationTransaction {
     const baseline = this.baseline;
     if (!baseline) return;
 
+    await this.restoreState(
+      baseline,
+      this.remoteCreated,
+      this.pendingOnlyTransports,
+    );
+    if (keepBaseline) {
+      this.remoteCreated.clear();
+      this.displaced.clear();
+      this.preparedTransports.clear();
+      this.pendingOnlyTransports.clear();
+      this.emittedPendingCandidates.clear();
+      this.preparedFor = undefined;
+      this.revision++;
+      this.phase = "pending";
+    } else {
+      this.cleanup();
+    }
+  }
+
+  /**
+   * Record the state before one description operation mutates anything, so a
+   * failure inside that operation can undo exactly its own changes.
+   */
+  checkpoint(): NegotiationCheckpoint {
+    return {
+      state: this.capture(),
+      remoteCreated: new Set(this.remoteCreated),
+      displaced: new Set(this.displaced),
+      pendingOnly: new Set(this.pendingOnlyTransports),
+      prepared: new Map(this.preparedTransports),
+      emitted: new Set(this.emittedPendingCandidates),
+      preparedFor: this.preparedFor,
+    };
+  }
+
+  /** Undo one failed description operation back to its checkpoint. */
+  async restoreCheckpoint(checkpoint: NegotiationCheckpoint) {
+    await this.restoreState(
+      checkpoint.state,
+      new Set(
+        [...this.remoteCreated].filter(
+          (transceiver) => !checkpoint.remoteCreated.has(transceiver),
+        ),
+      ),
+      new Set(
+        [...this.pendingOnlyTransports].filter(
+          (transport) => !checkpoint.pendingOnly.has(transport),
+        ),
+      ),
+    );
+    replaceSet(this.remoteCreated, checkpoint.remoteCreated);
+    replaceSet(this.displaced, checkpoint.displaced);
+    replaceSet(this.pendingOnlyTransports, checkpoint.pendingOnly);
+    replaceSet(this.emittedPendingCandidates, checkpoint.emitted);
+    this.preparedTransports.clear();
+    for (const [mid, transport] of checkpoint.prepared) {
+      this.preparedTransports.set(mid, transport);
+    }
+    this.preparedFor = checkpoint.preparedFor;
+    this.phase = "pending";
+  }
+
+  /**
+   * Put transceivers, routes and SCTP back to `baseline`. Transceivers in
+   * `removable` and transports in `orphanCandidates` were added after it.
+   */
+  private async restoreState(
+    baseline: Baseline,
+    removable: Set<RTCRtpTransceiver>,
+    orphanCandidates: Set<RTCDtlsTransport>,
+  ) {
     for (const [transceiver, state] of baseline.transceivers) {
       transceiver.mid = state.mid;
       transceiver.mLineIndex = state.mLineIndex;
@@ -324,11 +416,8 @@ export class NegotiationTransaction {
       transceiver.receiver.restoreReceiveTables(state.receiveTables);
     }
 
-    const orphanTransports = new Set<RTCDtlsTransport>();
-    for (const transport of this.pendingOnlyTransports) {
-      orphanTransports.add(transport);
-    }
-    for (const transceiver of this.remoteCreated) {
+    const orphanTransports = new Set<RTCDtlsTransport>(orphanCandidates);
+    for (const transceiver of removable) {
       if (
         transceiver.sender.track ||
         getApplicationStopRevision(transceiver) > 0
@@ -396,18 +485,13 @@ export class NegotiationTransaction {
     for (const transport of orphanTransports) {
       if (!inUse.has(transport)) await transport.stop();
     }
-    if (keepBaseline) {
-      this.remoteCreated.clear();
-      this.displaced.clear();
-      this.preparedTransports.clear();
-      this.pendingOnlyTransports.clear();
-      this.emittedPendingCandidates.clear();
-      this.preparedFor = undefined;
-      this.revision++;
-      this.phase = "pending";
-    } else {
-      this.cleanup();
-    }
+  }
+
+  /** PeerConnection close: drop every reference the transaction holds. */
+  dispose() {
+    this.createdTransports.clear();
+    this.offerSnapshot = undefined;
+    this.cleanup();
   }
 
   private cleanup() {
@@ -433,6 +517,8 @@ export class NegotiationTransaction {
       baselineTransceivers: this.baseline?.transceivers.size ?? 0,
       remoteCreated: this.remoteCreated.size,
       pendingTransports: this.pendingOnlyTransports.size,
+      createdTransports: [...this.createdTransports],
+      hasOfferSnapshot: !!this.offerSnapshot,
     };
   }
 }

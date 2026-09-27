@@ -32,6 +32,35 @@ import { reverseDirection } from "./utils";
 
 const log = debug("werift:packages/webrtc/src/media/rtpTransceiverManager.ts");
 
+/**
+ * Remote codecs of an m-line that local codecs support. RTX is kept only when
+ * the codec its `apt` names is kept too. Pre-validation and application use
+ * the same rule, so an m-line that negotiates nothing is rejected up front.
+ */
+export function negotiateRemoteCodecs(
+  localCodecs: RTCRtpCodecParameters[],
+  remoteMedia: MediaDescription,
+) {
+  return remoteMedia.rtp.codecs.filter((remoteCodec) => {
+    const existCodec = findCodecByMimeType(localCodecs, remoteCodec);
+    if (!existCodec) {
+      return false;
+    }
+
+    if (existCodec?.name.toLowerCase() === "rtx") {
+      const params = codecParametersFromString(existCodec.parameters ?? "");
+      const pt = params["apt"];
+      const origin = remoteMedia.rtp.codecs.find((c) => c.payloadType === pt);
+      if (!origin) {
+        return false;
+      }
+      return !!findCodecByMimeType(localCodecs, origin);
+    }
+
+    return true;
+  });
+}
+
 function simulcastFromSendEncodings(
   encodings: RTCRtpEncodingParameters[] | undefined,
 ): TransceiverOptions["simulcast"] | undefined {
@@ -393,26 +422,10 @@ export class TransceiverManager {
     adoptSenderTrackCodec(this.config, transceiver.sender.track);
 
     // # negotiate codecs
-    transceiver.codecs = remoteMedia.rtp.codecs.filter((remoteCodec) => {
-      const localCodecs = this.config.codecs[remoteMedia.kind] || [];
-
-      const existCodec = findCodecByMimeType(localCodecs, remoteCodec);
-      if (!existCodec) {
-        return false;
-      }
-
-      if (existCodec?.name.toLowerCase() === "rtx") {
-        const params = codecParametersFromString(existCodec.parameters ?? "");
-        const pt = params["apt"];
-        const origin = remoteMedia.rtp.codecs.find((c) => c.payloadType === pt);
-        if (!origin) {
-          return false;
-        }
-        return !!findCodecByMimeType(localCodecs, origin);
-      }
-
-      return true;
-    });
+    transceiver.codecs = negotiateRemoteCodecs(
+      this.config.codecs[remoteMedia.kind] || [],
+      remoteMedia,
+    );
 
     log("negotiated codecs", transceiver.codecs);
     if (transceiver.codecs.length === 0 && remoteMedia.port !== 0) {

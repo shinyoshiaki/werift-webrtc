@@ -527,11 +527,16 @@ export class SDPManager {
     const description = new SessionDescription();
     addSDPHeader("answer", description);
 
+    // m-lines this answer rejects; RFC 8843 section 7.3.3 keeps them out of
+    // the answer's BUNDLE group. werift also writes `inactive` as port 0, so
+    // the port alone does not mean rejection.
+    const rejectedMids = new Set<string>();
     for (const remoteMedia of this._remoteDescription.media) {
       let dtlsTransport!: RTCDtlsTransport;
       let media: MediaDescription;
 
       if (remoteMedia.port === 0) {
+        if (remoteMedia.rtp.muxId) rejectedMids.add(remoteMedia.rtp.muxId);
         media = new MediaDescription(
           remoteMedia.kind,
           0,
@@ -552,6 +557,12 @@ export class SDPManager {
           throw new Error(
             `Transceiver with mid=${remoteMedia.rtp.muxId} not found`,
           );
+        }
+        if (
+          (transceiver.stopping || transceiver.stopped) &&
+          remoteMedia.rtp.muxId
+        ) {
+          rejectedMids.add(remoteMedia.rtp.muxId);
         }
         media = this.createMediaDescriptionForTransceiver(
           transceiver,
@@ -615,7 +626,9 @@ export class SDPManager {
       const acceptedMids = new Set(
         description.media.map((media) => media.rtp.muxId),
       );
-      const items = offeredBundle.items.filter((mid) => acceptedMids.has(mid));
+      const items = offeredBundle.items.filter(
+        (mid) => acceptedMids.has(mid) && !rejectedMids.has(mid),
+      );
       if (items.length) {
         description.group.push(new GroupDescription("BUNDLE", items));
       }

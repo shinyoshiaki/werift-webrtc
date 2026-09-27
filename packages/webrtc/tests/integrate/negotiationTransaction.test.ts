@@ -11,13 +11,17 @@ import {
   assertNegotiationInvariants,
   createConnectedMediaAndDataPeers,
   createConnectedVideoPeers,
+  createConnectedVideoPeersWithRtx,
   createDuplexSession,
   createRewrittenOffer,
   createSimulcastPeers,
   createSplitOffer,
   createUnnegotiatedVideoPeers,
   expectSessionAlive,
+  keepOnlyRtx,
+  negotiate,
   negotiateAndExpectChannel,
+  negotiationInternals,
   sendAndExpectData,
   sendAndExpectRtp,
   waitForConnection,
@@ -307,6 +311,199 @@ describe("negotiation transaction", () => {
       }
     },
   );
+
+  test("an answer whose RTX has no associated codec is rejected before mutation", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeersWithRtx();
+    try {
+      // Arrange: re-offer に対し、VP8 を落として RTX だけを残した answer を作る。
+      await offerer.setLocalDescription(await offerer.createOffer());
+      const pendingOffer = offerer.pendingLocalDescription!.sdp;
+      const current = offerer.currentRemoteDescription!.sdp;
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      const answer = answerer.localDescription!.sdp;
+
+      // Act: apt の指す codec がない answer を適用する。
+      await expect(
+        offerer.setRemoteDescription({
+          type: "answer",
+          sdp: keepOnlyRtx(answer),
+        }),
+      ).rejects.toMatchObject({ name: "OperationError" });
+
+      // Assert: 事前検証で拒否され、pending offer・current・RTP は変わらない。
+      expect(offerer.signalingState).toBe("have-local-offer");
+      expect(offerer.pendingLocalDescription!.sdp).toBe(pendingOffer);
+      expect(offerer.currentRemoteDescription!.sdp).toBe(current);
+      assertNegotiationInvariants(offerer);
+      await sendAndExpectRtp(outgoing, incoming, "rtx-only-rejected");
+
+      // Act: 正しい answer を適用する。
+      await offerer.setRemoteDescription({ type: "answer", sdp: answer });
+
+      // Assert: 交渉が完了し RTP も継続する。
+      expect(offerer.signalingState).toBe("stable");
+      assertNegotiationInvariants(offerer);
+      await sendAndExpectRtp(outgoing, incoming, "rtx-only-recovered");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("a remote offer that fails while applying leaves no partial state", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers();
+    try {
+      // Arrange: 音声を足す re-offer を作り、受信側の RTP 適用を一度だけ失敗させる。
+      offerer.addTransceiver("audio", { direction: "sendonly" });
+      await offerer.setLocalDescription(await offerer.createOffer());
+      const current = answerer.currentRemoteDescription!.sdp;
+      const transceivers = answerer.getTransceivers().length;
+      const internals = negotiationInternals(answerer);
+      const spy = vi
+        .spyOn(internals.transceiverManager, "setRemoteRTP")
+        .mockImplementationOnce(() => {
+          throw new Error("injected apply failure");
+        });
+
+      // Act: 事前検証を通った後の適用中に例外が起きる。
+      await expect(
+        answerer.setRemoteDescription(offerer.localDescription!),
+      ).rejects.toThrow("injected apply failure");
+      spy.mockRestore();
+
+      // Assert: stable に戻り、作りかけの transceiver も transaction も残らない。
+      expect(answerer.signalingState).toBe("stable");
+      expect(answerer.pendingRemoteDescription).toBeNull();
+      expect(answerer.currentRemoteDescription!.sdp).toBe(current);
+      expect(answerer.getTransceivers()).toHaveLength(transceivers);
+      expect(internals.negotiation.inspect().phase).toBe("idle");
+      assertNegotiationInvariants(answerer);
+      await sendAndExpectRtp(outgoing, incoming, "offer-apply-failed");
+
+      // Act: 同じ offer を改めて適用し交渉を完了する。
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+
+      // Assert: 両側 stable で音声 m-line が加わり、既存 RTP も届く。
+      expect(answerer.getTransceivers()).toHaveLength(transceivers + 1);
+      assertNegotiationInvariants(offerer);
+      assertNegotiationInvariants(answerer);
+      await sendAndExpectRtp(outgoing, incoming, "offer-apply-recovered");
+    } finally {
+      vi.restoreAllMocks();
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("an answer that fails while applying returns to its pending offer", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers();
+    try {
+      // Arrange: re-offer と answer を用意し、offer 側の RTP 適用を一度だけ失敗させる。
+      await offerer.setLocalDescription(await offerer.createOffer());
+      const pendingOffer = offerer.pendingLocalDescription!.sdp;
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      const spy = vi
+        .spyOn(negotiationInternals(offerer).transceiverManager, "setRemoteRTP")
+        .mockImplementationOnce(() => {
+          throw new Error("injected apply failure");
+        });
+
+      // Act: answer の適用中に例外が起きる。
+      await expect(
+        offerer.setRemoteDescription(answerer.localDescription!),
+      ).rejects.toThrow("injected apply failure");
+      spy.mockRestore();
+
+      // Assert: pending offer のまま残り、transaction も pending に戻り、binding と current RTP は壊れない。
+      expect(offerer.signalingState).toBe("have-local-offer");
+      expect(offerer.pendingLocalDescription!.sdp).toBe(pendingOffer);
+      expect(negotiationInternals(offerer).negotiation.inspect().phase).toBe(
+        "pending",
+      );
+      assertNegotiationInvariants(offerer);
+      await sendAndExpectRtp(outgoing, incoming, "answer-apply-failed");
+
+      // Act: 同じ answer を改めて適用する。
+      await offerer.setRemoteDescription(answerer.localDescription!);
+
+      // Assert: 交渉が完了し RTP も継続する。
+      expect(offerer.signalingState).toBe("stable");
+      assertNegotiationInvariants(offerer);
+      await sendAndExpectRtp(outgoing, incoming, "answer-apply-recovered");
+    } finally {
+      vi.restoreAllMocks();
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("an answer leaves the MID of a rejected m-line out of its BUNDLE group", async () => {
+    const session = await createDuplexSession();
+    try {
+      // Arrange: 音声を追加で交渉し、answer 側がその transceiver を stop する。
+      const audio = await addNegotiatedAudio(session, session.a, session.b);
+      audio.remote().stop();
+
+      // Act: a から再交渉し、b は stop 済みの m-line を拒否した answer を返す。
+      await negotiate(session, session.a, session.b);
+
+      // Assert: answer の音声 m-line は port 0 で BUNDLE group に含まれない。
+      const answer = session.b.pc.currentLocalDescription!;
+      const section = answer.sdp
+        .split(/(?=^m=)/m)
+        .find((part) =>
+          new RegExp(`^a=mid:${audio.mid}\\r?$`, "m").test(part),
+        )!;
+      expect(section).toMatch(/^m=audio 0 /);
+      const group = answer.sdp
+        .match(/^a=group:BUNDLE (.*)$/m)![1]
+        .trim()
+        .split(" ");
+      expect(group).not.toContain(audio.mid);
+      expect(group).toContain(session.a.video.mid);
+
+      // Assert: BUNDLE に残る映像と DataChannel は両方向で通信を続ける。
+      await expectSessionAlive(session, "rejected-mid-out-of-bundle");
+    } finally {
+      await session.close();
+    }
+  });
+
+  test("rollback and close drop the transaction's references to closed or unused objects", async () => {
+    const { offerer, answerer, close } = createUnnegotiatedVideoPeers();
+    const internals = negotiationInternals(offerer);
+    try {
+      // Arrange: 初回 offer を適用し、DataChannel 用の transport も作らせる。
+      await offerer.setLocalDescription(await offerer.createOffer());
+      offerer.createDataChannel("references");
+      await offerer.createOffer();
+
+      // Act: rollback する。
+      await offerer.setLocalDescription({ type: "rollback" });
+
+      // Assert: 停止した transport への参照は残らない。
+      const afterRollback = internals.negotiation.inspect();
+      expect(afterRollback.phase).toBe("idle");
+      expect(
+        afterRollback.createdTransports.filter((t) => t.state === "closed"),
+      ).toEqual([]);
+
+      // Act: offer を作ったまま close する。
+      await offerer.createOffer();
+      await offerer.close();
+
+      // Assert: transport と offer snapshot の参照をすべて手放す。
+      const afterClose = internals.negotiation.inspect();
+      expect(afterClose.createdTransports).toEqual([]);
+      expect(afterClose.hasOfferSnapshot).toBe(false);
+    } finally {
+      await close();
+    }
+  });
 
   test("a pending payload type leaves the receiver codec table by rollback", async () => {
     const { offerer, answerer, outgoing, incoming } =

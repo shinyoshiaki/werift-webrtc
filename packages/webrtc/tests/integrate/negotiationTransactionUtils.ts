@@ -4,17 +4,21 @@ import {
   MediaStreamTrack,
   type RTCDataChannel,
   RTCPeerConnection,
+  RTCRtpCodecParameters,
   RtpHeader,
   RtpPacket,
   useSdesMid,
   useSdesRTPStreamId,
+  useVP8,
 } from "../../src";
 import type { SessionDescription } from "../../src/sdp";
 
 /** Shared Arrange setup for negotiation transaction regression tests. */
-export async function createConnectedVideoPeers() {
-  const offerer = new RTCPeerConnection();
-  const answerer = new RTCPeerConnection();
+export async function createConnectedVideoPeers(
+  config: ConstructorParameters<typeof RTCPeerConnection>[0] = {},
+) {
+  const offerer = new RTCPeerConnection(config);
+  const answerer = new RTCPeerConnection(config);
   const outgoing = new MediaStreamTrack({ kind: "video" });
   let incoming: MediaStreamTrack | undefined;
   answerer.onRemoteTransceiverAdded.subscribe((transceiver) => {
@@ -865,13 +869,11 @@ export function createUnnegotiatedVideoPeers() {
   const offerer = new RTCPeerConnection();
   const answerer = new RTCPeerConnection();
   const outgoing = new MediaStreamTrack({ kind: "video" });
-  const incoming = answerer.onRemoteTransceiverAdded
-    .asPromise()
-    .then(([transceiver]) =>
-      transceiver.receiver.track
-        ? transceiver.receiver.track
-        : transceiver.onTrack.asPromise().then(([track]) => track),
-    );
+  const incoming = new Promise<MediaStreamTrack>((resolve) => {
+    answerer.onRemoteTransceiverAdded.subscribe((transceiver) => {
+      transceiver.onTrack.subscribe(resolve);
+    });
+  });
   offerer.addTransceiver(outgoing, { direction: "sendonly" });
   return {
     offerer,
@@ -908,4 +910,45 @@ export async function negotiateAndExpectChannel(
   const [received] = await withTimeout(remote, "No remote DataChannel");
   await sendAndExpectData(channel, received, `${channel.label}-after-rollback`);
   return received;
+}
+
+/** Connected sendonly video whose peers also support RTX (VP8 + video/rtx). */
+export function createConnectedVideoPeersWithRtx() {
+  return createConnectedVideoPeers({
+    codecs: {
+      video: [
+        useVP8(),
+        new RTCRtpCodecParameters({ mimeType: "video/rtx", clockRate: 90000 }),
+      ],
+    },
+  });
+}
+
+/** Keep only the RTX payload type in the video m-line: its `apt` codec is gone. */
+export function keepOnlyRtx(sdp: string) {
+  const vp8 = sdp.match(/a=rtpmap:(\d+) VP8\/90000/)![1];
+  const rtx = sdp.match(/a=rtpmap:(\d+) rtx\/90000/)![1];
+  return sdp
+    .replace(/^(m=video \d+ [^ ]+) .*$/m, `$1 ${rtx}`)
+    .split(/\r?\n/)
+    .filter(
+      (line) => !new RegExp(`^a=(rtpmap|fmtp|rtcp-fb):${vp8} `).test(line),
+    )
+    .join("\r\n");
+}
+
+type NegotiationInternals = {
+  negotiation: {
+    inspect(): {
+      phase: string;
+      createdTransports: { state: string }[];
+      hasOfferSnapshot: boolean;
+    };
+  };
+  transceiverManager: { setRemoteRTP: (...args: unknown[]) => void };
+};
+
+/** Test-only view of the negotiation transaction owned by `pc`. */
+export function negotiationInternals(pc: RTCPeerConnection) {
+  return pc as unknown as NegotiationInternals;
 }
