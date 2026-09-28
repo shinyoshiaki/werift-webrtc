@@ -42,6 +42,13 @@ generation or SCTP association and stream ID.
 | cleanup | commit or rollback finished | Stop orphan pending resources; keep only current ownership and event deduplication needed for future revisions. A transport created during the transaction is remembered until it closes or a commit decides whether it is still bound; `close()` drops every such reference and the `createOffer` snapshot. |
 | rollback | active pending transaction | Stop provisional communication, discard pending candidates/EOC and resources, restore the first baseline and publish `stable`. Already delivered events remain delivered. |
 
+`createOffer`, `createAnswer`, `setLocalDescription`, `setRemoteDescription`
+and `addIceCandidate` share one operations chain (W3C). A `createOffer` called
+while an earlier `setLocalDescription(offer)` is still running therefore
+creates its offer only after that one is applied, and cannot turn the offer
+being applied into a stale one. Parameterless `setLocalDescription` creates
+its description inside its own queued operation.
+
 The ordered operations are `begin → replace/update → validate → prepare →
 commit → cleanup` or `begin → … → rollback → cleanup`. A synchronous failure
 before commit leaves the previously published current and pending descriptions
@@ -59,19 +66,52 @@ transceiver's sender and receiver stopped. A failure in the first phase
 therefore keeps the committed ICE generation, selected pair and DTLS/SCTP
 bindings (the checkpoint also rebinds SCTP to its DTLS transport).
 Candidates that `addIceCandidate` queued before any remote description are
-checked against the incoming description at the end of the first phase. One
+checked against the incoming description during validation, before any
+state change and before any application event (`onRemoteTransceiverAdded`,
+`onTrack`) fires. The implicit rollback of a local offer yields a task after
+publishing `stable`, so handlers observe that state before the remote offer
+moves the connection to `have-remote-offer`. One
 that the description cannot place (unknown `sdpMid`, out-of-range
 `sdpMLineIndex`, unmatched ufrag, unparsable) rejects `setRemoteDescription`
 before anything is committed, and leaves the queue so a retry of the same
 description succeeds; the valid queued candidates are applied after the
 description is published.
 
+A trickled candidate belongs to the ICE generation of its ufrag, given either
+as the `usernameFragment` property or as the `ufrag` token of the candidate
+string; both forms are routed identically (current or pending generation),
+and a candidate whose two values disagree is rejected with `OperationError`. The
+current or pending generation is chosen by the ufrag of the m-line the
+candidate targets (`sdpMid`, else `sdpMLineIndex`), not of any m-line: in a
+partial BUNDLE split one m-line can keep the current ufrag while another
+moves to a new one within the same pending description.
+
 During a remote re-offer, a trickled candidate for an m-line whose ufrag is
 unchanged belongs to both the pending proposal and the live ICE generation.
 It is recorded in the pending SDP and, unless the live generation already
 signalled end-of-candidates (RFC 8838), also in the current SDP and handed to
 the live checklist exactly once. A rollback keeps it, because the generation
-it belongs to stays current.
+it belongs to stays current. The same applies to candidates and
+end-of-candidates carried in the body of a same-ufrag re-offer or pranswer
+that keeps the current transports: once every fallible step has passed, they
+reach the live generation before any answer, without duplicates, and nothing
+is added after that generation's end-of-candidates.
+
+End-of-candidates ends an ICE generation on its transport. When it arrives for
+one BUNDLE m-line, every m-line that shares the transport and ufrag (the rest
+of the group) is marked complete in that SDP, so the tag and the non-tag
+m-lines agree. A candidate for a transport whose generation already ended is
+neither written to the current SDP nor handed to the live checklist, so after
+a rollback the current SDP lists only candidates the live generation accepted. The
+same alignment applies to a pending remote SDP (an end-of-candidates trickled
+during a re-offer marks every m-line of that generation in it) and to any
+remote description applied later that repeats an ended generation, so the
+SDP committed by an answer, or kept by a rollback, matches the live transport.
+Only the generation that ended counts: a pending ICE restart ufrag on the same
+transport stays open. An end-of-candidates written in the SDP body of any
+BUNDLE m-line, including a non-tag one, ends the shared generation the same
+way as a trickled one; it is applied after every m-line's candidates so it
+cannot close the transport before the tag's candidates arrive.
 
 An answer leaves the MID of an m-line it rejects (offered with port 0, or
 whose transceiver is stopping or stopped) out of its BUNDLE group, as

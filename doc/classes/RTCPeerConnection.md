@@ -881,6 +881,8 @@ v0.1.26
 
 > **createAnswer**(): `Promise`\<[`RTCSessionDescription`](RTCSessionDescription.md)\>
 
+W3C operations chain: createAnswer is ordered with SLD/SRD calls.
+
 #### Returns
 
 `Promise`\<[`RTCSessionDescription`](RTCSessionDescription.md)\>
@@ -909,11 +911,15 @@ v0.1.26
 
 ### createOffer()
 
-> **createOffer**(`__namedParameters`): `Promise`\<[`RTCSessionDescription`](RTCSessionDescription.md)\>
+> **createOffer**(`options`): `Promise`\<[`RTCSessionDescription`](RTCSessionDescription.md)\>
+
+W3C operations chain: createOffer runs after every earlier description
+operation, so an offer it produces cannot invalidate a setLocalDescription
+that was called before it.
 
 #### Parameters
 
-##### \_\_namedParameters
+##### options
 
 ###### iceRestart?
 
