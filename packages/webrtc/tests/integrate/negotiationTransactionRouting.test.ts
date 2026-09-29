@@ -45,6 +45,50 @@ describe("negotiation transaction routing tables", () => {
     }
   });
 
+  test("a remote re-offer that swaps the active MID and RID extension ids is rejected before mutation", async () => {
+    const { offerer, answerer, sendLayer, ridExtensionId, close } =
+      await createSimulcastPeers();
+    try {
+      // Arrange: current SDP で使っている MID と RID の extension ID を交換する。
+      const current = answerer.currentRemoteDescription!.sdp;
+      const midExtensionId = Number(
+        current.match(
+          /^a=extmap:(\d+) urn:ietf:params:rtp-hdrext:sdes:mid/m,
+        )![1],
+      );
+      let offer = (await offerer.createOffer()).sdp;
+      offer = offer.replace(
+        new RegExp(
+          `(^a=extmap:)${midExtensionId}( urn:ietf:params:rtp-hdrext:sdes:mid$)`,
+          "gm",
+        ),
+        `$1${ridExtensionId}$2`,
+      );
+      offer = offer.replace(
+        new RegExp(
+          `(^a=extmap:)${ridExtensionId}( urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id$)`,
+          "gm",
+        ),
+        `$1${midExtensionId}$2`,
+      );
+
+      // Act: routing ID の対応が反転する re-offer を適用する。
+      await expect(
+        answerer.setRemoteDescription({ type: "offer", sdp: offer }),
+      ).rejects.toMatchObject({ name: "InvalidModificationError" });
+
+      // Assert: pending/current の state は変わらず、current の MID/RID 解釈と RTP が保たれる。
+      expect(answerer.signalingState).toBe("stable");
+      expect(answerer.currentRemoteDescription!.sdp).toBe(current);
+      assertNegotiationInvariants(answerer);
+      await sendLayer("high", 1111, "extmap-id-swap-rejected", {
+        withRid: true,
+      });
+    } finally {
+      await close();
+    }
+  });
+
   test.each(["answer", "rollback"] as const)(
     "a URI moved to a new header extension id keeps current RTP parsed through %s",
     async (finish) => {
