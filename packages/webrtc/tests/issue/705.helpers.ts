@@ -504,3 +504,87 @@ export async function createUnbundledPairForCalleeReoffer() {
   await waitForConnected(caller, callee);
   return { caller, callee };
 }
+
+/**
+ * 初回 offer/answer 後の BUNDLE group と transport の対応を検証する (§3.5〜3.7 の範囲に限定)。
+ * - answer の同じ BUNDLE group の受け入れ m-line は 1 つの transport を共有し、
+ *   別 group・group 外の m-line とは共有しない
+ *   (offerer 側で remote の ICE credentials が同じ m-line は共有を保つ #142 の例外を許す)
+ * - 各 transport の local ICE ufrag は local SDP のその m-line の値と一致する
+ * - 各 transport の remote ICE ufrag は、remote SDP の group で最初に受け入れた member
+ *   (group 外ならその m-line) の値と一致する
+ * - 各 transport の DTLS role は local answer の a=setup (offerer なら remote answer の逆) と一致する
+ */
+export function expectTransportsMatchBundle(pc: RTCPeerConnection) {
+  const localIsAnswer = pc.localDescription!.type === "answer";
+  const local = parseSdp(pc.localDescription!.sdp);
+  const remote = parseSdp(pc.remoteDescription!.sdp);
+  const answer = localIsAnswer ? local : remote;
+  const bundleOf = (sdp: SessionDescription) =>
+    sdp.group.filter((g) => g.semantic === "BUNDLE");
+  const answerGroups = bundleOf(answer);
+  const remoteGroups = bundleOf(remote);
+
+  const accepted = answer.media
+    .map((media, index) => ({ media, index, mid: media.rtp.muxId! }))
+    .filter(({ media }) => media.port !== 0)
+    .map((entry) => {
+      const owner =
+        entry.media.kind === "application"
+          ? pc.sctpTransport
+          : pc.getTransceivers().find((t) => t.mid === entry.mid && !t.stopped);
+      return { ...entry, transport: owner?.dtlsTransport };
+    })
+    .filter((entry) => !!entry.transport);
+  const groupOf = (groups: typeof answerGroups, mid: string) =>
+    groups.find((g) => g.items.includes(mid));
+  const remoteUfrag = (index: number) =>
+    remote.media[index].iceParams?.usernameFragment;
+
+  for (const a of accepted) {
+    const context = `mid=${a.mid}`;
+    // 共有関係は answer の BUNDLE group と一致する
+    for (const b of accepted) {
+      if (a === b) {
+        continue;
+      }
+      const sameGroup =
+        !!groupOf(answerGroups, a.mid) &&
+        groupOf(answerGroups, a.mid) === groupOf(answerGroups, b.mid);
+      const sameRemoteCredentials =
+        !localIsAnswer && remoteUfrag(a.index) === remoteUfrag(b.index);
+      if (sameGroup) {
+        expect(a.transport, `${context} shares with mid=${b.mid}`).toBe(
+          b.transport,
+        );
+      } else if (!sameRemoteCredentials) {
+        expect(
+          a.transport,
+          `${context} is separate from mid=${b.mid}`,
+        ).not.toBe(b.transport);
+      }
+    }
+    const connection = a.transport!.iceTransport.connection;
+    // local ICE ufrag は local SDP の値と一致する
+    expect(connection.localUsername, `${context} local ufrag`).toBe(
+      local.media[a.index].iceParams?.usernameFragment,
+    );
+    // remote ICE ufrag は group で最初に受け入れた member (group 外なら自身) の値
+    const remoteGroup = groupOf(remoteGroups, a.mid);
+    const source =
+      remoteGroup?.items
+        .map((mid) => accepted.find((e) => e.mid === mid))
+        .find((e) => !!e) ?? a;
+    expect(connection.remoteUsername, `${context} remote ufrag`).toBe(
+      remoteUfrag(source.index),
+    );
+    // DTLS role は a=setup と一致する
+    const answerRole = answer.media[a.index].dtlsParams?.role;
+    const expectedRole = localIsAnswer
+      ? answerRole
+      : answerRole === "client"
+        ? "server"
+        : "client";
+    expect(a.transport!.role, `${context} DTLS role`).toBe(expectedRole);
+  }
+}

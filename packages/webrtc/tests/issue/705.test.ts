@@ -9,12 +9,14 @@ import {
   bundleGroups,
   closeAll,
   collectLocalCandidates,
-  createBundlePairWithOutsideReoffer,
-  createUnbundledPairForCalleeReoffer,
   countNegotiationNeeded,
   createAudioOnlyPeer,
+  createBundlePairWithOutsideReoffer,
   createPeer,
+  createUnbundledPairForCalleeReoffer,
   exchangeIceCandidates,
+  expectRtpDelivered,
+  expectTransportsMatchBundle,
   flushEvents,
   mLines,
   negotiate,
@@ -630,6 +632,163 @@ describe("issue 705: BUNDLE membership, transports and ICE ownership", () => {
       }
     },
   );
+});
+
+describe("issue 705: BUNDLE group と transport の対応 (初回 offer/answer)", () => {
+  // remote offer の所有関係は bundlePolicy によらず offer の BUNDLE group だけで決まる
+  const layouts: {
+    name: string;
+    offer: Parameters<typeof buildRemoteSdp>[0];
+  }[] = [
+    {
+      name: "all members in one group",
+      offer: {
+        sections: [
+          { kind: "audio", mid: "0" },
+          { kind: "audio", mid: "1" },
+          { kind: "application", mid: "2" },
+        ],
+        bundle: ["0", "1", "2"],
+      },
+    },
+    {
+      name: "one m-line outside the group",
+      offer: {
+        sections: [
+          { kind: "audio", mid: "0" },
+          { kind: "audio", mid: "1" },
+          { kind: "audio", mid: "2", ufrag: "outsideufrag" },
+        ],
+        bundle: ["0", "1"],
+      },
+    },
+    {
+      name: "no BUNDLE group",
+      offer: {
+        sections: [
+          { kind: "audio", mid: "0" },
+          { kind: "audio", mid: "1", ufrag: "secondufrag" },
+        ],
+      },
+    },
+    {
+      name: "two BUNDLE groups",
+      offer: {
+        sections: [
+          { kind: "audio", mid: "0" },
+          { kind: "audio", mid: "1" },
+          { kind: "audio", mid: "2", ufrag: "groupbufrag" },
+          { kind: "audio", mid: "3", ufrag: "groupbufrag" },
+        ],
+        bundles: [
+          ["0", "1"],
+          ["2", "3"],
+        ],
+      },
+    },
+    {
+      name: "rejected tag with its own ICE credentials",
+      offer: {
+        sections: [
+          { kind: "video", mid: "0", codec: "VP8", ufrag: "rejectedufrag" },
+          { kind: "audio", mid: "1" },
+          { kind: "application", mid: "2" },
+        ],
+        bundle: ["0", "1", "2"],
+      },
+    },
+    {
+      name: "SCTP first with an m-line outside the group",
+      offer: {
+        sections: [
+          { kind: "application", mid: "0" },
+          { kind: "audio", mid: "1" },
+          { kind: "audio", mid: "2", ufrag: "outsideufrag" },
+        ],
+        bundle: ["0", "1"],
+      },
+    },
+  ];
+  const policies = ["max-compat", "max-bundle", "disable"] as const;
+  const cases = policies.flatMap((bundlePolicy) =>
+    layouts.map((layout) => ({ bundlePolicy, ...layout })),
+  );
+
+  test.each(cases)(
+    "answerer ($bundlePolicy): $name",
+    async ({ bundlePolicy, offer }) => {
+      // Arrange: 音声のみの answerer (video は codec 不一致で拒否される)
+      const pc = createAudioOnlyPeer({ bundlePolicy });
+
+      try {
+        // Act: remote offer に答える
+        await answerRemoteOffer(pc, buildRemoteSdp(offer));
+
+        // Assert: BUNDLE group と transport / ICE credentials / DTLS role の対応が SDP と一致する
+        expectTransportsMatchBundle(pc);
+      } finally {
+        await closeAll(pc);
+      }
+    },
+  );
+
+  test.each(policies)(
+    "werift offerer and answerer ($s)",
+    async (bundlePolicy) => {
+      // Arrange: 同じ bundlePolicy の werift 同士で audio + video + DataChannel を用意する
+      const caller = createPeer({ bundlePolicy });
+      const callee = createPeer({ bundlePolicy });
+      caller.addTransceiver(new MediaStreamTrack({ kind: "audio" }));
+      caller.addTransceiver(new MediaStreamTrack({ kind: "video" }));
+      caller.createDataChannel("dc");
+
+      try {
+        // Act: 初回 offer / answer を交渉する
+        await negotiate(caller, callee);
+
+        // Assert: offerer / answerer の双方で対応が SDP と一致する
+        expectTransportsMatchBundle(caller);
+        expectTransportsMatchBundle(callee);
+      } finally {
+        await closeAll(caller, callee);
+      }
+    },
+  );
+
+  test("an unbundled offerer connects to a max-bundle answerer and delivers RTP on every m-line", async () => {
+    // Arrange: disable の caller が BUNDLE group のない offer を max-bundle の callee に送る
+    const caller = createPeer({ bundlePolicy: "disable" });
+    const callee = createPeer({ bundlePolicy: "max-bundle" });
+    exchangeIceCandidates(caller, callee);
+    const audioTrack = new MediaStreamTrack({ kind: "audio" });
+    const videoTrack = new MediaStreamTrack({ kind: "video" });
+    const audio = caller.addTransceiver(audioTrack, { direction: "sendonly" });
+    const video = caller.addTransceiver(videoTrack, { direction: "sendonly" });
+
+    try {
+      // Act: 交渉して接続を待つ
+      await negotiate(caller, callee);
+      await waitForConnected(caller, callee);
+
+      // Assert: callee は m-line ごとに独立 transport を持ち、対応が SDP と一致する
+      expectTransportsMatchBundle(callee);
+      // Assert: 両方の m-line で RTP が届く
+      for (const [transceiver, track] of [
+        [audio, audioTrack],
+        [video, videoTrack],
+      ] as const) {
+        await expectRtpDelivered({
+          track,
+          receiverTransceiver: callee
+            .getTransceivers()
+            .find((t) => t.mid === transceiver.mid)!,
+          payload: `rtp-${transceiver.mid}`,
+        });
+      }
+    } finally {
+      await closeAll(caller, callee);
+    }
+  });
 });
 
 describe("issue 705: mLineReuse configuration", () => {

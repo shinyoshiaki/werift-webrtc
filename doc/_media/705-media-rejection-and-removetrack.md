@@ -58,17 +58,23 @@ m=audio 9 UDP/TLS/RTP/SAVPF 111 (mid 1) m=audio 9 UDP/TLS/RTP/SAVPF 111  ← ans
 
 ### BUNDLE / transport / ICE
 
-- offered BUNDLE group の member だけが共有 transport を使い、ICE / DTLS パラメータは group の tag
-  (先頭の非ゼロ member) から適用する。拒否 member の remote 候補も共有 transport に渡す。
-- answerer として group 外で受け入れた m-line は、`bundlePolicy` (`max-bundle` を含む) を問わず独立した transport と
-  ICE credentials を持つ。`bundlePolicy: "disable"` は各 section 独立。
+- remote offer に対する transport の所有関係は、`bundlePolicy` によらず **offer の BUNDLE group だけ**で決まる。
+  `max-bundle` / `balanced` は自分が出す offer の組み立てにだけ効き、remote offer の group 構成を上書きしない。
+  - offered BUNDLE group ごとに 1 つの transport を共有する。group が複数あれば group ごとに別 transport にする
+    (既存 member の transport を優先し、他の group が使っていれば新設する)。
+  - group 外、または group のない offer で受け入れた m-line は、`max-bundle` でも独立した transport と ICE credentials を持つ。
+  - `bundlePolicy: "disable"` は answer に group を出さず、各 section が独立する。
+- ICE / DTLS パラメータは group で**最初に受け入れた member** (tag) から適用する。codec 不一致で拒否した member の
+  ICE credentials は使わない。拒否 member の remote 候補も共有 transport に渡す。
 - transport のライフサイクル: 新設した独立 transport は、確立済み BUNDLE があっても自分の候補を収集する
   (収集は `gatheringState=new` の transport だけで行い、収集済み transport は再収集しない)。DTLS role は
   local description の先頭 m-line ではなく、その transport を使う m-line の `a=setup` を transport ごとに適用する。
 - offerer として、offer で 1 つの transport を共有した m-line を remote answer / pranswer が同じ BUNDLE group に置かず、
   異なる ICE credentials で受け入れた場合は、状態を変える前に `InvalidAccessError` で拒否する (RFC 8843 7.3.2)。
-  offerer 側では transport を作り直さず、offer で渡した ICE credentials を保つ。group の記述が MID と一致しなくても
-  remote の ICE credentials が同じ m-line は同じ transport のまま扱う (#142)。
+  offerer 側では transport を作り直さず、offer で渡した ICE credentials を保つ。
+  - **意図した例外 (#142)**: remote answer の group の記述が MID と一致しない、または group の外に出していても、
+    remote の ICE credentials が同じ m-line は同じ transport のまま扱う (remote は実質 BUNDLE しているため)。
+    この場合の共有は不具合ではない。
 - local trickle candidate の `sdpMid` / `sdpMLineIndex` は、その ICE transport を所有する受け入れ済み m-line
   (BUNDLE なら tag) に合わせる。停止 / 拒否 section しか使わない transport の候補は通知しない。
 - remote candidate は remote SDP の全 media 配列で MID / index を解決する。拒否した m-line 向けの候補は
@@ -124,6 +130,11 @@ addTransceiver("video") ◄── 確定済み port 0 の同じ kind の位置�
 
 - `packages/webrtc/tests/issue/705.test.ts`: 拒否 answer の形、BUNDLE tag、全拒否、remote port 0、後続 m-line、
   remote / local candidate の MID と index、group 外 transport、SCTP 先行、`mLineReuse`、answer 検証、pending / rollback。
+  初回 offer/answer の BUNDLE group と transport の対応は、`705.helpers.ts` の `expectTransportsMatchBundle(pc)`
+  (共有関係が answer の group と一致、local ufrag が SDP と一致、remote ufrag が group の最初に受け入れた member の値、
+  DTLS role が `a=setup` と一致) を `bundlePolicy` × group 構成 (単一 group / group 外 / group なし / 複数 group /
+  拒否 tag / SCTP 先行) の表形式テストと werift 同士の offerer / answerer で検証する。
+  両方向の遷移マトリクスは 0ad06d37 の範囲。
 - `packages/webrtc/tests/issue/705-reuse.test.ts`: `stop()` の冪等性と解放、未関連付け stop、交渉前の非再利用、
   確定後の同 index / 新 MID 再利用、answerer の停止、BUNDLE 先頭停止、unbundled、SCTP 先行、繰り返し再利用後の RTP 受信。
 - `e2e/tests/mediachannel/reuse.test.ts`: Chromium ↔ werift で removeTrack + stop → port 0 → 再利用を 2 回繰り返し、

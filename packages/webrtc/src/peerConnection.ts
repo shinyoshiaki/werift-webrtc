@@ -1222,29 +1222,47 @@ export class RTCPeerConnection extends EventTarget {
       entry.transceiver ?? entry.sctpTransport;
 
     // ## transport ownership
-    // offered BUNDLE group の member だけが tag の transport を共有する
+    // remote offer の所有関係は bundlePolicy によらず offer の BUNDLE group だけで決まる
+    // (max-bundle は自分の offer にだけ効く)。group ごとに 1 つの transport を共有し、
+    // 異なる group や group 外の m-line とは共有しない。
+    // remote answer では offer で渡した ICE credentials を保つため transport を作り直さない
+    // (共有 transport を分割する answer は assertAnswerKeepsSharedTransports で事前に拒否済み)
+    const isRemoteOffer = remoteSdp.type === "offer";
+    const liveTransport = (transport: RTCDtlsTransport | undefined) =>
+      !!transport && transport.state !== "closed";
     const groupTransports = new Map<GroupDescription, RTCDtlsTransport>();
-    for (const entry of entries) {
-      const owner = ownerOf(entry);
-      const group = groupOfMid(entry.remoteMedia.rtp.muxId);
-      if (!owner || !group) {
+    const claimed = new Set<RTCDtlsTransport>();
+    for (const group of bundleGroups) {
+      const members = entries.filter(
+        (entry) =>
+          !!ownerOf(entry) &&
+          group.items.includes(entry.remoteMedia.rtp.muxId!),
+      );
+      if (members.length === 0) {
         continue;
       }
-      const shared = groupTransports.get(group);
+      // 既存 member の transport を優先し、他の group が使っていれば新しい transport を作る
+      let shared = members
+        .map((entry) => ownerOf(entry)!.dtlsTransport)
+        .find(
+          (transport) =>
+            liveTransport(transport) &&
+            (!isRemoteOffer || !claimed.has(transport)),
+        );
       if (!shared) {
-        if (owner.dtlsTransport && owner.dtlsTransport.state !== "closed") {
-          groupTransports.set(group, owner.dtlsTransport);
+        shared = this.createDtlsTransport({ inheritCredentials: false });
+      }
+      groupTransports.set(group, shared);
+      claimed.add(shared);
+      for (const entry of members) {
+        const owner = ownerOf(entry)!;
+        if (owner.dtlsTransport !== shared) {
+          owner.setDtlsTransport(shared);
         }
-      } else if (owner.dtlsTransport !== shared) {
-        owner.setDtlsTransport(shared);
       }
     }
-    if (bundleGroups.length > 0 && remoteSdp.type === "offer") {
-      // answerer として、group 外で受け入れた m-line は bundlePolicy を問わず独立した transport / ICE credentials を持つ。
-      // offerer (remote answer) では offer で渡した ICE credentials を保つため transport を作り直さない
-      // (共有 transport を分割する answer は assertAnswerKeepsSharedTransports で事前に拒否済み)
-      // (answer が示す所有関係と実際の transport を一致させる)
-      const claimed = new Set<RTCDtlsTransport>(groupTransports.values());
+    if (isRemoteOffer) {
+      // group 外 (group のない offer を含む) で受け入れた m-line は独立した transport / ICE credentials を持つ
       for (const entry of entries) {
         const owner = ownerOf(entry);
         if (
@@ -1255,8 +1273,7 @@ export class RTCPeerConnection extends EventTarget {
           continue;
         }
         if (
-          !owner.dtlsTransport ||
-          owner.dtlsTransport.state === "closed" ||
+          !liveTransport(owner.dtlsTransport) ||
           claimed.has(owner.dtlsTransport)
         ) {
           owner.setDtlsTransport(
@@ -1266,7 +1283,30 @@ export class RTCPeerConnection extends EventTarget {
         claimed.add(owner.dtlsTransport);
       }
     }
-    // ICE / DTLS パラメータは group の tag (先頭の非ゼロ member) から適用する
+
+    // ## apply RTP / SCTP (受け入れ判定)
+    const acceptedEntries = new Set<RemoteMediaEntry>();
+    for (const entry of entries) {
+      const { remoteMedia, index } = entry;
+      if (entry.transceiver) {
+        if (
+          this.transceiverManager.setRemoteRTP(
+            entry.transceiver,
+            remoteMedia,
+            remoteSdp.type,
+            index,
+          )
+        ) {
+          acceptedEntries.add(entry);
+        }
+      } else if (entry.sctpTransport) {
+        this.sctpManager.setRemoteSCTP(remoteMedia, index);
+        acceptedEntries.add(entry);
+      }
+    }
+
+    // ICE / DTLS パラメータは group で最初に受け入れた member (tag) から適用する
+    // (codec 不一致で拒否した member のパラメータは使わない)
     const groupParamSources = new Map<GroupDescription, RemoteMediaEntry>();
     for (const group of bundleGroups) {
       for (const mid of group.items) {
@@ -1274,7 +1314,7 @@ export class RTCPeerConnection extends EventTarget {
           (e) =>
             e.remoteMedia.rtp.muxId === mid &&
             e.remoteMedia.port !== 0 &&
-            !!ownerOf(e),
+            acceptedEntries.has(e),
         );
         if (entry) {
           groupParamSources.set(group, entry);
@@ -1283,27 +1323,15 @@ export class RTCPeerConnection extends EventTarget {
       }
     }
 
-    // ## apply RTP / SCTP and transport parameters
+    // ## apply transport parameters
     for (const entry of entries) {
-      const { remoteMedia, index } = entry;
-      let accepted: boolean;
-      let dtlsTransport: RTCDtlsTransport | undefined;
-
-      if (entry.transceiver) {
-        accepted = this.transceiverManager.setRemoteRTP(
-          entry.transceiver,
-          remoteMedia,
-          remoteSdp.type,
-          index,
-        );
-        dtlsTransport = entry.transceiver.dtlsTransport;
-      } else if (entry.sctpTransport) {
-        this.sctpManager.setRemoteSCTP(remoteMedia, index);
-        accepted = true;
-        dtlsTransport = entry.sctpTransport.dtlsTransport;
-      } else {
+      const { remoteMedia } = entry;
+      const owner = ownerOf(entry);
+      if (!owner) {
         continue;
       }
+      const accepted = acceptedEntries.has(entry);
+      const dtlsTransport = owner.dtlsTransport;
 
       const group = groupOfMid(remoteMedia.rtp.muxId);
       if (

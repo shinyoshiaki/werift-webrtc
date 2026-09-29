@@ -11,7 +11,9 @@
 
 [RFC 8829（JSEP）](https://www.rfc-editor.org/rfc/rfc8829)、[RFC 3264 §6.1](https://www.rfc-editor.org/rfc/rfc3264#section-6.1) に従い、共通 format のない section は answer の同じ位置で拒否する。[RFC 8843 §7.3](https://www.rfc-editor.org/rfc/rfc8843#section-7.3) に従い、BUNDLE の拒否済み MID を group に残さず、初回 answer で tag が拒否された場合は受け入れた section へ tag を移す。
 
-追加要件として、`mLineReuse` モード、`transceiver.stop()`、停止交渉後の m-line 再利用を実装する。`removeTrack` と `stop` を同じ交渉前に行い、port 0 の拒否交渉を完了してから新規 transceiver を追加した場合、元が 2 本なら m-line は 2 本のまま、再利用位置には新 MID と新 transceiver を置く。
+追加要件として、`mLineReuse` モード、`transceiver.stop()`、停止交渉後の m-line 再利用を実装する。
+
+追加要件 (2026-09-29) として、BUNDLE group 外の m-line に独立 transport を持たせたことで生じる「SDP が宣言する transport の所有関係と実際の transport の食い違い」を §3.12〜3.14 のとおり解消し、初回 offer/answer の BUNDLE と transport の対応を不変条件テストとして残す。背景: transport の割り当てが生成時 (`findOrCreateTransport()`、develop 由来で `max-bundle` / `remoteIsBundled` なら既存 transport を返す) と SRD の後補正の 2 つに分かれ、answer は offer の group から作られるため、両者が一致しない組み合わせ (`max-bundle` で group のない offer、複数 BUNDLE group、codec 不一致で拒否された tag) ごとに不整合が残っていた。develop は answer に全 MID の BUNDLE group を載せていたため SDP と内部状態は一致していたが、本差分が answer から group を外したことで食い違いが表面化した (§2.1 の範囲)。`removeTrack` と `stop` を同じ交渉前に行い、port 0 の拒否交渉を完了してから新規 transceiver を追加した場合、元が 2 本なら m-line は 2 本のまま、再利用位置には新 MID と新 transceiver を置く。
 
 ## 2. 関連チケット 0ad06d37 とのスコープ境界（レビュー重複防止）
 
@@ -23,6 +25,7 @@
 
 - codec 不一致 / remote port 0 の m-line を answer で拒否する動作と、answer SDP の位置・MID・type・proto・port・fmt の整合
 - 拒否 MID を含む BUNDLE group / tag の answer 上の扱いと、受け入れ m-line の transport / ICE candidate の MID・index 整合
+- 本差分が導入した group 外の独立 transport のライフサイクル (生成 → 候補収集 → remote パラメータ適用 → 候補の所有者判定 → DTLS role → 接続 → 解放) と、初回 offer/answer における BUNDLE group と transport の対応 (§3.12〜3.14)
 - `PeerConfig.mLineReuse`、`transceiver.stop()`、停止位置の再利用、`removeTrack()` の再開可能性
 - 上記に直接必要な範囲の pending（非対応 re-offer の保留）と rollback（確定前の RTP pipeline / track 復元）
 - 上記の回帰テスト、設計文書、README、changelog
@@ -37,7 +40,7 @@
 - pranswer 中の暫定 RTP / connectivity checks / DTLS handshake / 新規 SCTP・DataChannel 通信
 - ICE restart / trickle の generation 管理、BUNDLE split/merge、SCTP parameter・port 変更
 - `ontrack` / transceiver / `icecandidate` / `ondatachannel` の不可逆イベントと speculative object の寿命・重複通知契約
-- `assertNegotiationInvariants` 相当の test-only helper と両方向 transition matrix テスト
+- `assertNegotiationInvariants` 相当の test-only helper と両方向 transition matrix テスト (本チケットの `expectTransportsMatchBundle` は §3.14 のとおり初回 offer/answer の BUNDLE と transport の対応に限定し、これに該当しない)
 - 0ad06d37 のレビューで既出の論点（`setLocalDescription` の offer 同一性チェック、`IceConnection` interface のメソッド追加に伴う breaking change、`assertStablePayloadTypes` の適用範囲）。本チケットの差分が同等の変更を新たに持ち込まない限り再指摘しない
 
 ### 2.3 レビュー判定の基準
@@ -69,6 +72,19 @@
 10. 新規 `addTransceiver()` は**拒否交渉が確定した** port 0 位置を優先し、旧 transceiver から MID/index を外して新 MID を割り当てる。停止予定の位置を交渉前に先取りしない。旧オブジェクトは復活させない。remote offer の同じ位置に新 MID が来た場合も新 receiver/router を作る。`addTrack()` の自動再使用は未送信・非停止・非拒否 sender に限る。`removeTrack()` は sender の track を detach し、同じ sender で再開可能にする。
 11. SSRC のない remote track は transceiver ごとの placeholder を再利用し、re-offer の `onTrack` と track 重複を防ぐ。非対応 re-offer の rollback では元の transceiver 対応、track、RTP pipeline を復元する。remote SDP に起因する stop は `negotiationneeded` を発火させず、アプリケーションの `stop()` は発火させる。未設定 MID の複数 transceiver は異なる m-line を予約する。
 
+### transport 所有関係 (追加要件 2026-09-29)
+
+12. **remote offer の所有関係は offer の BUNDLE group だけで決める。** `bundlePolicy` は自分が出す offer の組み立てにだけ効き、remote offer の group 構成を上書きしない。
+    - (A) group 外、または BUNDLE group のない offer で受け入れた m-line は、`max-bundle` を含む全 `bundlePolicy` で独立した transport と ICE credentials を持つ。2 本の m-line が 1 つの transport を共有して remote ICE credentials が後の m-line の値で上書きされる状態を作らない。`bundlePolicy: "disable"` の offerer と `max-bundle` の answerer でも全 m-line が接続し RTP が届く。
+    - (B) offer に BUNDLE group が複数ある場合は group ごとに別の transport を割り当てる (既存 member の transport を優先し、他 group が使っていれば新設)。この割り当ては **remote offer に限定**し、remote answer には適用しない (offerer 側は offer で渡した ICE credentials を保つ)。
+13. **(C) ICE / DTLS パラメータは group で最初に受け入れた member から適用する。** codec 不一致で拒否された tag の ICE credentials を共有 transport に適用しない。そのため SRD の RTP 適用は「受け入れ判定」と「transport パラメータ適用」の 2 段に分ける。
+14. **不変条件をテストとして残す。** `705.helpers.ts` に `expectTransportsMatchBundle(pc)` を置き、`705.test.ts` に `bundlePolicy` (`max-compat` / `max-bundle` / `disable`) × group 構成 (単一 group / group 外 / group なし / 複数 group / 拒否 tag / SCTP 先行) の表形式テストと、werift 同士の offerer / answerer のテストを置く。検証する不変条件は次のとおり。範囲は初回 offer/answer の BUNDLE と transport の対応 (§3.5〜3.7) に限定し、両方向の遷移マトリクスは §2.2 のとおり 0ad06d37 に残す。
+    - transport の共有関係が answer の BUNDLE group と一致する (同じ group は共有、別 group・group 外は非共有)
+    - 各 transport の local ICE ufrag が local SDP のその m-line の値と一致する
+    - 各 transport の remote ICE ufrag が remote SDP の group で最初に受け入れた member (group 外なら自身) の値と一致する
+    - 各 transport の DTLS role が `a=setup` と一致する
+    - **意図した例外 (#142)**: offerer 側で remote answer が group の記述と MID を一致させていない、または group 外に出していても、remote の ICE credentials が同じ m-line は共有を保つ。この共有は不具合として扱わない。
+
 ## 4. 技術調査と実装経路
 
 | 箇所 | 現状と必要な対応 |
@@ -77,6 +93,7 @@
 | `src/media/rtpTransceiver.ts`、`src/media/rtpSender.ts`、`src/media/rtpReceiver.ts`、`src/media/router.ts` | `stop()` は `stopping = true` のみ。sender/receiver には停止処理があるが router には登録解除 API がない。拒否状態、停止完了、リソース解放、再開可能な `removeTrack()` を連動させる。 |
 | `src/sdpManager.ts` | `createMediaDescriptionForTransceiver()` は codec 配列から fmt を作るため空 fmt になりうる。`addTransportDescription()` は inactive を port 0 にする。`buildAnswerSdp()` は全 MID を BUNDLE に入れる。offer/answer の位置対応、format fallback、モード別 port、offered membership/tag をここで整える。`setLocal()` は RTP media を filter した index で transceiver を引くため、SCTP 先行時は元の media index で照合する。 |
 | `src/peerConnection.ts` | SRD は pending remote 保存後に各 m-line の codec/transport を適用し、最後に signaling state を変える。BUNDLE なら現在全 media が先頭 transport を共有する。local candidate callback は `_localDescription.media[0]` を使用する。offer/answer 適用時の検証、確定・rollback、transport 所有者、候補通知、stop の negotiation を調整する。 |
+| `src/peerConnection.ts` (追加要件) | `findOrCreateTransport()` は develop 由来のまま `max-bundle` / `remoteIsBundled` で既存 transport を返す。SRD の transport ownership ブロックで remote offer の group ごとに transport を確定し、group 外 / group なしを独立させ (§3.12)、RTP 適用を受け入れ判定とパラメータ適用の 2 段に分ける (§3.13)。 |
 | `src/secureTransportManager.ts` | remote candidate の MID/index 解決は remote SDP media 配列を参照するので、その位置対応を維持する。local candidate は bundled なら index `0` に固定するため、実 tag/index と transport 所有者で付与する。 |
 
 実装順は、(1) codec reject と有効な answer、(2) offered BUNDLE membership と ICE transport の対応、(3) `mLineReuse` と停止・再利用、(4) re-offer/answer/rollback とイベントの整合性、(5) 回帰・interop 検証と文書更新とする。全 PeerConnection negotiation state machine の再設計は §2 のとおり別チケット 0ad06d37 が扱い、WPT 専用 strict shim の通常 API への移植も範囲外。§3 の rollback・確定処理は、この変更で触る RTP/m-line に必要な範囲で実装する。
@@ -88,6 +105,8 @@
 - 現在の `setRemoteDescription()` は pending remote 保存後に処理するため、追加する拒否エラーや検証は、可能な限り破壊的な状態更新より前に行う。特に非ゼロ answer/pranswer の codec 検証失敗では signaling/descriptions を保つ。
 - `removeTrack → 交渉 → stop → 交渉 → 新規追加` と `removeTrack + stop → 交渉 → 新規追加` の両手順を比較し、port 0 交渉前の新規追加は既存位置を奪わないことを確認する。
 - 既存の `tests/integrate/peerConnection.test.ts` の port 0/no-ontrack、`tests/issue/141.test.ts` / `142.test.ts`、通常のデフォルト codec 交渉を維持する。テストの Arrange は `705.helpers.ts` など 1 箇所にまとめ、Act/Assert には日本語コメントを付ける。
+- 設計文書の BUNDLE 節に、remote offer の所有関係は `bundlePolicy` によらず offer の group だけで決まり `max-bundle` は自分の offer にだけ効くこと、#142 の例外 (ICE credentials が同じなら共有を保つ) が意図したものであることを明記する。
+- transport 所有の検証は group の有無だけでなく、ufrag が m-line ごとに異なるテストデータで remote credentials の上書きまで確認する (全 m-line が同じ ufrag のデータでは上書きが見えない)。
 - `docs/design/705-media-rejection-and-removetrack.md` と `packages/webrtc/README.md` にモードの選択例と停止・拒否・再利用の意味を記載し、`changelog.md` の Unreleased に #705 の修正を追記する。現作業ツリーには当該設計文書と `705*.test.ts` はまだない。
 
 ## 6. 完了条件
@@ -101,5 +120,6 @@
 - [ ] `mLineReuse` 両値、既定値、無効値、途中変更拒否を検証する。`compatible` の inactive は非ゼロ、`aggressive` の inactive は port 0。両モードで #705 の拒否動作が成立する。
 - [ ] `705-reuse.test.ts` で `stop()` の冪等性と解放、交渉要求、未関連付け stop、交渉前の非再利用、確定後の同 index/新 MID 再利用、answerer の停止、BUNDLE 先頭停止、unbundled、SCTP 先行、繰り返し再利用後の実 RTP 受信を検証する。
 - [ ] 非ゼロ answer/pranswer の codec 不一致は `InvalidAccessError` で状態を変えず拒否する。非対応 re-offer の pending 中と rollback 後は既存 RTP/track を維持し、確定後だけ停止・再利用可能にする。`onTrack` 重複と `negotiationneeded` の発火条件も検証する。
+- [ ] (追加要件) remote offer の所有関係が `bundlePolicy` によらず offer の BUNDLE group で決まる。`max-bundle` で group なし / group 外の m-line が独立 transport を持つ、複数 BUNDLE group が group ごとに別 transport を持つ (remote offer 限定)、拒否 tag ではなく最初に受け入れた member の ICE / DTLS パラメータを適用する、の 3 点を `expectTransportsMatchBundle` の表形式テストで検証し、`disable` offerer ↔ `max-bundle` answerer の全 m-line で RTP が届く。#142 の例外を維持し、設計文書に明記する。
 - [ ] `cd packages/webrtc && npm run type` と `cd packages/webrtc && npm test` が通る。変更が package をまたぐ場合は workspace の `npm run type` / `npm run test:small` へ広げる。Chromium ↔ werift の removeTrack/stop/reuse RTP E2E を両モードで確認する。Firefox/Safari、WPT、E2E 全件、workspace CI は必須ゲートとしない。
 - [ ] README、設計文書、`changelog.md` Unreleased を更新し、通常のデフォルト codec negotiation と既存 port 0・Issue #141/#142 テストが通る。
