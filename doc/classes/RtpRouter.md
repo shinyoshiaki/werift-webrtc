@@ -41,9 +41,11 @@ sent), not from SDP. Negotiation rollback keeps these entries.
 
 > **ridTable**: `object` = `{}`
 
+Keyed by [ridRouteKey](../functions/ridRouteKey.md) (MID + RID).
+
 #### Index Signature
 
-\[`rid`: `string`\]: [`RTCRtpSender`](RTCRtpSender.md) \| [`RTCRtpReceiver`](RTCRtpReceiver.md)
+\[`midAndRid`: `string`\]: [`RTCRtpSender`](RTCRtpSender.md) \| [`RTCRtpReceiver`](RTCRtpReceiver.md)
 
 ***
 
@@ -55,11 +57,37 @@ sent), not from SDP. Negotiation rollback keeps these entries.
 
 \[`ssrc`: `number`\]: [`RTCRtpSender`](RTCRtpSender.md) \| [`RTCRtpReceiver`](RTCRtpReceiver.md)
 
+## Accessors
+
+### staged
+
+#### Get Signature
+
+> **get** **staged**(): `StagedRoutes`
+
+Test-only observation of staged routes.
+
+##### Returns
+
+`StagedRoutes`
+
 ## Methods
+
+### commitStaged()
+
+> **commitStaged**(): `void`
+
+Internal: the negotiation committed, staged routes replace current ones.
+
+#### Returns
+
+`void`
+
+***
 
 ### registerRtpReceiverByRid()
 
-> **registerRtpReceiverByRid**(`transceiver`, `param`, `params`): `void`
+> **registerRtpReceiverByRid**(`transceiver`, `param`, `params`, `__namedParameters`): `void`
 
 #### Parameters
 
@@ -75,6 +103,12 @@ sent), not from SDP. Negotiation rollback keeps these entries.
 
 [`RTCRtpReceiveParameters`](../interfaces/RTCRtpReceiveParameters.md)
 
+##### \_\_namedParameters
+
+###### deferConflicts?
+
+`boolean` = `false`
+
 #### Returns
 
 `void`
@@ -83,7 +117,11 @@ sent), not from SDP. Negotiation rollback keeps these entries.
 
 ### registerRtpReceiverBySsrc()
 
-> **registerRtpReceiverBySsrc**(`transceiver`, `params`): `void`
+> **registerRtpReceiverBySsrc**(`transceiver`, `params`, `__namedParameters`): `void`
+
+With `deferConflicts` (a pending offer or pranswer) an SSRC the current
+session routes to another receiver is staged until commit; new SSRCs route
+at once so provisional RTP flows.
 
 #### Parameters
 
@@ -94,6 +132,12 @@ sent), not from SDP. Negotiation rollback keeps these entries.
 ##### params
 
 [`RTCRtpReceiveParameters`](../interfaces/RTCRtpReceiveParameters.md)
+
+##### \_\_namedParameters
+
+###### deferConflicts?
+
+`boolean` = `false`
 
 #### Returns
 
@@ -110,6 +154,24 @@ sent), not from SDP. Negotiation rollback keeps these entries.
 ##### sender
 
 [`RTCRtpSender`](RTCRtpSender.md)
+
+#### Returns
+
+`void`
+
+***
+
+### restoreStaged()
+
+> **restoreStaged**(`snapshot`): `void`
+
+Internal: restore staged routes (an empty snapshot discards them).
+
+#### Parameters
+
+##### snapshot
+
+`StagedRoutes`
 
 #### Returns
 
@@ -146,6 +208,18 @@ sent), not from SDP. Negotiation rollback keeps these entries.
 #### Returns
 
 `void`
+
+***
+
+### snapshotStaged()
+
+> **snapshotStaged**(): `StagedRoutes`
+
+Internal: capture staged routes for a transaction baseline or checkpoint.
+
+#### Returns
+
+`StagedRoutes`
 
 ***
 

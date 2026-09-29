@@ -360,6 +360,62 @@ at the source-switch boundary.
 
 ***
 
+### restoreSendParams()
+
+> **restoreSendParams**(`snapshot`): `void`
+
+Internal: return to a negotiation baseline's send parameters.
+
+#### Parameters
+
+##### snapshot
+
+###### cname
+
+`undefined` \| `string` = `...`
+
+###### codec
+
+`undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) = `...`
+
+###### headerExtensions
+
+[`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[] = `...`
+
+###### mid
+
+`undefined` \| `string` = `...`
+
+###### redRedundantPayloadType
+
+`undefined` \| `number` = `...`
+
+###### repairedRtpStreamId
+
+`undefined` \| `string` = `...`
+
+###### rtpStreamId
+
+`undefined` \| `string` = `...`
+
+###### rtxPayloadType
+
+`undefined` \| `number` = `...`
+
+###### track
+
+`null` \| [`MediaStreamTrack`](MediaStreamTrack.md) = `...`
+
+###### trackCodec
+
+`undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) = `...`
+
+#### Returns
+
+`void`
+
+***
+
 ### runRtcp()
 
 > **runRtcp**(): `Promise`\<`void`\>
@@ -462,6 +518,58 @@ dropped, even if a drain is already in progress.
 #### Returns
 
 `void`
+
+***
+
+### snapshotSendParams()
+
+> **snapshotSendParams**(): `object`
+
+Internal: the negotiated send parameters, for a negotiation baseline.
+
+#### Returns
+
+`object`
+
+##### cname
+
+> **cname**: `undefined` \| `string`
+
+##### codec
+
+> **codec**: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+##### headerExtensions
+
+> **headerExtensions**: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]
+
+##### mid
+
+> **mid**: `undefined` \| `string`
+
+##### redRedundantPayloadType
+
+> **redRedundantPayloadType**: `undefined` \| `number`
+
+##### repairedRtpStreamId
+
+> **repairedRtpStreamId**: `undefined` \| `string`
+
+##### rtpStreamId
+
+> **rtpStreamId**: `undefined` \| `string`
+
+##### rtxPayloadType
+
+> **rtxPayloadType**: `undefined` \| `number`
+
+##### track
+
+> **track**: `null` \| [`MediaStreamTrack`](MediaStreamTrack.md)
+
+##### trackCodec
+
+> **trackCodec**: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
 
 ***
 

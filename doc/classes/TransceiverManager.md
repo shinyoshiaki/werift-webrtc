@@ -78,7 +78,7 @@
 
 ### addTransceiver()
 
-> **addTransceiver**(`trackOrKind`, `dtlsTransport`?, `options`?): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+> **addTransceiver**(`trackOrKind`, `dtlsTransport`?, `options`?, `__namedParameters`?): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
 
 #### Parameters
 
@@ -93,6 +93,16 @@
 ##### options?
 
 `Partial`\<[`TransceiverOptions`](../interfaces/TransceiverOptions.md)\> = `{}`
+
+##### \_\_namedParameters?
+
+An application call may take over an inactive transceiver's slot
+(werift behavior). One created for a pending remote offer never does:
+it must not change a transceiver the current session knows.
+
+###### reuseInactive?
+
+`boolean` = `true`
 
 #### Returns
 

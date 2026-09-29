@@ -360,6 +360,7 @@
 - [resolveTurnTransport](functions/resolveTurnTransport.md)
 - [reverseDirection](functions/reverseDirection.md)
 - [reverseSimulcastDirection](functions/reverseSimulcastDirection.md)
+- [ridRouteKey](functions/ridRouteKey.md)
 - [rtpHeaderExtensionsParser](functions/rtpHeaderExtensionsParser.md)
 - [saltLength](functions/saltLength.md)
 - [serializeAbsSendTime](functions/serializeAbsSendTime.md)

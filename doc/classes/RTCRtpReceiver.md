@@ -285,6 +285,18 @@ seconds
 
 ***
 
+### commitStagedReceive()
+
+> **commitStagedReceive**(): `void`
+
+Internal: the transaction committed, staged payload types and RTX pairs apply.
+
+#### Returns
+
+`void`
+
+***
+
 ### getStats()
 
 > **getStats**(): `Promise`\<[`RTCStatsReport`](RTCStatsReport.md)\>
@@ -373,13 +385,25 @@ seconds
 
 ### prepareReceive()
 
-> **prepareReceive**(`params`): `void`
+> **prepareReceive**(`params`, `__namedParameters`): `void`
+
+Receive tables are keyed by payload type and RTX SSRC. With
+`deferConflicts` (a pending offer or pranswer), a new key applies at once
+so provisional RTP decodes, but a key the current session already uses
+with another value is staged: current RTP keeps its codec and RTX pairing
+until the transaction commits, and rollback drops the staged value.
 
 #### Parameters
 
 ##### params
 
 [`RTCRtpReceiveParameters`](../interfaces/RTCRtpReceiveParameters.md)
+
+##### \_\_namedParameters
+
+###### deferConflicts?
+
+`boolean` = `false`
 
 #### Returns
 
@@ -402,6 +426,14 @@ Internal: replace the decode tables with a rollback baseline.
 \{\} = `...`
 
 ###### ssrcByRtx
+
+\{\} = `...`
+
+###### stagedCodecs
+
+\{\} = `...`
+
+###### stagedSsrcByRtx
 
 \{\} = `...`
 
@@ -492,6 +524,22 @@ Internal: capture the decode tables for a negotiation rollback baseline.
 ##### ssrcByRtx
 
 > **ssrcByRtx**: `object`
+
+###### Index Signature
+
+\[`key`: `number`\]: `number`
+
+##### stagedCodecs
+
+> **stagedCodecs**: `object`
+
+###### Index Signature
+
+\[`key`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+##### stagedSsrcByRtx
+
+> **stagedSsrcByRtx**: `object`
 
 ###### Index Signature
 
