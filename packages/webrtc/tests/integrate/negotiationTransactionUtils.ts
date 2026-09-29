@@ -3,14 +3,18 @@ import { expect } from "vitest";
 import {
   MediaStreamTrack,
   type RTCDataChannel,
+  type RTCRtpTransceiver,
   RTCPeerConnection,
   RTCRtpCodecParameters,
   RtpHeader,
   RtpPacket,
   useSdesMid,
+  useAbsSendTime,
+  useOPUS,
   useSdesRTPStreamId,
   useVP8,
 } from "../../src";
+import { ridRouteKey } from "../../src/media/router";
 import { SessionDescription } from "../../src/sdp";
 
 /** Shared Arrange setup for negotiation transaction regression tests. */
@@ -328,6 +332,7 @@ function assertDescriptionBindings(pc: RTCPeerConnection) {
 export function assertNegotiationInvariants(pc: RTCPeerConnection) {
   const snapshot = assertDescriptionBindings(pc);
   assertRouterAndCodecs(pc, snapshot);
+  assertRouteTables(pc, snapshot);
   assertIceGenerations(pc, snapshot);
   assertDtlsBindings(pc, snapshot);
   assertSctpBinding(pc, snapshot);
@@ -385,6 +390,81 @@ function currentMediaByTransport(
     byTransport.set(transport, [...(byTransport.get(transport) ?? []), media]);
   }
   return byTransport;
+}
+
+/**
+ * The live routing tables keep the current session's keys in every signaling
+ * state: SSRC and RTX pairing, MID+RID and extmap ID all resolve as the
+ * current SDP says, while a pending proposal can only add keys (conflicting
+ * ones stay staged until commit).
+ */
+function assertRouteTables(pc: RTCPeerConnection, snapshot: Snapshot) {
+  const internal = pc as unknown as {
+    router: {
+      ssrcTable: Record<number, unknown>;
+      ridTable: Record<string, unknown>;
+      extIdUriMap: Record<number, string>;
+      staged: { ssrc: unknown[]; rid: unknown[] };
+    };
+  };
+  const { router } = internal;
+  // stable では staged route は残らない (commit か rollback で解消済み)。
+  if (pc.signalingState === "stable") {
+    expect(router.staged.ssrc).toEqual([]);
+    expect(router.staged.rid).toEqual([]);
+  }
+  const current = snapshot.currentRemote;
+  const local = snapshot.currentLocal;
+  if (!current || !local) return;
+  // extmap: router が知る ID は current SDP と同じ URI を指す (再割当てなし)。
+  for (const media of current.media) {
+    if (media.port === 0) continue;
+    for (const extension of media.rtp.headerExtensions) {
+      const live = router.extIdUriMap[extension.id];
+      if (live !== undefined) expect(live).toBe(extension.uri);
+    }
+  }
+  for (const [index, media] of current.media.entries()) {
+    if (media.port === 0 || media.kind === "application") continue;
+    const localDirection = local.media[index]?.direction;
+    const remoteSends = ["sendonly", "sendrecv"].includes(
+      media.direction ?? "",
+    );
+    const localReceives = ["recvonly", "sendrecv"].includes(
+      localDirection ?? "",
+    );
+    if (!remoteSends || !localReceives) continue;
+    const transceiver = pc
+      .getTransceivers()
+      .find((t) => t.mid === media.rtp.muxId && !t.stopped);
+    if (!transceiver) continue;
+    const receiver = transceiver.receiver;
+    const tables = receiver.snapshotReceiveTables();
+    const rtxSsrcs = new Set<number>();
+    for (const group of media.ssrcGroup) {
+      if (group.semantic !== "FID") continue;
+      const [mediaSsrc, rtxSsrc] = group.items.map(Number);
+      rtxSsrcs.add(rtxSsrc);
+      // RTX の対応は current SDP の FID のまま。
+      expect(tables.ssrcByRtx[rtxSsrc]).toBe(mediaSsrc);
+    }
+    for (const { ssrc } of media.ssrc) {
+      // current SDP の SSRC は current の receiver に届く。
+      expect(router.ssrcTable[ssrc]).toBe(receiver);
+      if (rtxSsrcs.has(ssrc)) continue;
+      // その SSRC の track は receiver の tracks に属する。
+      const track = receiver.trackBySSRC[ssrc];
+      expect(track).toBeDefined();
+      expect(receiver.tracks).toContain(track);
+    }
+    for (const { rid } of media.simulcastParameters) {
+      // RID は MID と組で current の receiver に届く。
+      expect(router.ridTable[ridRouteKey(media.rtp.muxId ?? "", rid)]).toBe(
+        receiver,
+      );
+      expect(receiver.tracks).toContain(receiver.trackByRID[rid]);
+    }
+  }
 }
 
 function assertRouterAndCodecs(pc: RTCPeerConnection, snapshot: Snapshot) {
@@ -679,6 +759,15 @@ export async function expectSessionAlive(
   );
 }
 
+/** The m-section identified by `mid`. */
+export function sectionOf(sdp: string, mid: string) {
+  const section = sdp
+    .split(/(?=^m=)/m)
+    .find((part) => new RegExp(`^a=mid:${mid}\\r?$`, "m").test(part));
+  if (!section) throw new Error(`No m-section with MID ${mid}`);
+  return section;
+}
+
 /** Rewrite the m-section identified by `mid`, leaving the rest of the SDP. */
 export function mungeSection(
   sdp: string,
@@ -860,17 +949,22 @@ export async function createSimulcastPeers() {
     )![1],
   );
   const payloadType = Number(sdp.match(/a=rtpmap:(\d+) VP8\/90000/)![1]);
+  const midExtensionId = Number(
+    sdp.match(/a=extmap:(\d+) urn:ietf:params:rtp-hdrext:sdes:mid/)![1],
+  );
   let sequenceNumber = 0;
-  const receiver = () => answerer.getTransceivers()[0].receiver;
+  const firstMid = answerer.getTransceivers()[0].mid!;
+  const receiver = (mid: string) =>
+    answerer.getTransceivers().find((t) => t.mid === mid)!.receiver;
 
   /** Send `text` as SSRC `ssrc` and wait until the `rid` layer track gets it. */
   const sendLayer = async (
     rid: "high" | "low",
     ssrc: number,
     text: string,
-    { withRid }: { withRid: boolean },
+    { withRid, mid = firstMid }: { withRid: boolean; mid?: string },
   ) => {
-    const track = receiver().trackByRID[rid];
+    const track = receiver(mid).trackByRID[rid];
     const received = track.onReceiveRtp.watch(
       (packet) => packet.payload.toString() === text,
       2000,
@@ -881,9 +975,11 @@ export async function createSimulcastPeers() {
       sequenceNumber: ++sequenceNumber,
       timestamp: sequenceNumber * 3000,
       marker: true,
-      extensions: withRid
-        ? [{ id: ridExtensionId, payload: Buffer.from(rid) }]
-        : [],
+      // MID は常に載せる (RID は MID と組で解決される)。
+      extensions: [
+        { id: midExtensionId, payload: Buffer.from(mid) },
+        ...(withRid ? [{ id: ridExtensionId, payload: Buffer.from(rid) }] : []),
+      ],
     });
     await offerer
       .getTransceivers()[0]
@@ -894,6 +990,8 @@ export async function createSimulcastPeers() {
     offerer,
     answerer,
     sendLayer,
+    firstMid,
+    ridExtensionId,
     close: () => Promise.allSettled([offerer.close(), answerer.close()]),
   };
 }
@@ -988,4 +1086,336 @@ type NegotiationInternals = {
 /** Test-only view of the negotiation transaction owned by `pc`. */
 export function negotiationInternals(pc: RTCPeerConnection) {
   return pc as unknown as NegotiationInternals;
+}
+
+/**
+ * Connected peers where the offerer sends `count` video tracks, each on its
+ * own m-line (one BUNDLE group); `incoming[i]` receives `outgoing[i]`.
+ */
+export async function createConnectedMultiVideoPeers(
+  count: number,
+  config: ConstructorParameters<typeof RTCPeerConnection>[0] = {},
+) {
+  const offerer = new RTCPeerConnection(config);
+  const answerer = new RTCPeerConnection(config);
+  const outgoing = [...Array(count)].map(
+    () => new MediaStreamTrack({ kind: "video" }),
+  );
+  for (const track of outgoing) {
+    offerer.addTransceiver(track, { direction: "sendonly" });
+  }
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  await answerer.setLocalDescription(await answerer.createAnswer());
+  await offerer.setRemoteDescription(answerer.localDescription!);
+  await withTimeout(
+    Promise.all([waitForConnection(offerer), waitForConnection(answerer)]),
+    "Multi video peers did not connect",
+  );
+  const incoming = offerer
+    .getTransceivers()
+    .map(
+      (sent) =>
+        answerer.getTransceivers().find((t) => t.mid === sent.mid)!.receiver
+          .track,
+    );
+  return {
+    offerer,
+    answerer,
+    outgoing,
+    incoming,
+    close: () => Promise.allSettled([offerer.close(), answerer.close()]),
+  };
+}
+
+/**
+ * Send one RTP packet on `outgoing` and report the MID of the `pc` transceiver
+ * whose receiver delivered it on any of its tracks (undefined when none did).
+ */
+export async function receivingMid(
+  outgoing: MediaStreamTrack,
+  pc: RTCPeerConnection,
+  text: string,
+) {
+  const subscriptions: { unSubscribe: () => void }[] = [];
+  const received = new Promise<string | null>((resolve) => {
+    for (const transceiver of pc.getTransceivers()) {
+      for (const track of transceiver.receiver.tracks) {
+        subscriptions.push(
+          track.onReceiveRtp.subscribe((packet) => {
+            if (packet.payload.toString() === text) resolve(transceiver.mid);
+          }),
+        );
+      }
+    }
+  });
+  outgoing.writeRtp(
+    new RtpPacket(new RtpHeader(), Buffer.from(text)).serialize(),
+  );
+  try {
+    return await Promise.race([
+      received,
+      new Promise<undefined>((resolve) =>
+        setTimeout(() => resolve(undefined), 1500),
+      ),
+    ]);
+  } finally {
+    for (const subscription of subscriptions) subscription.unSubscribe();
+  }
+}
+
+/** Deterministic PRNG (mulberry32) so a failing fuzz seed replays exactly. */
+export function seededRandom(seed: number) {
+  let state = seed >>> 0;
+  const next = () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  return {
+    next,
+    chance: (p: number) => next() < p,
+    pick: <T>(items: readonly T[]) => items[Math.floor(next() * items.length)],
+  };
+}
+export type SeededRandom = ReturnType<typeof seededRandom>;
+
+/**
+ * Shared Arrange for the negotiation property test: a duplex session whose
+ * video uses RTX and header extensions (MID, abs-send-time), so routing-table
+ * mutations (RTX pairing, extmap IDs) are available to the operations.
+ */
+export async function createFuzzSession() {
+  const session = await createDuplexSession({
+    codecs: {
+      audio: [useOPUS()],
+      video: [
+        useVP8(),
+        new RTCRtpCodecParameters({ mimeType: "video/rtx", clockRate: 90000 }),
+      ],
+    },
+    headerExtensions: {
+      video: [useSdesMid(), useAbsSendTime()],
+      audio: [useSdesMid()],
+    },
+  });
+  return { session, audio: [] as FuzzAudio[], log: [] as string[] };
+}
+type FuzzAudio = {
+  out: MediaStreamTrack;
+  sender: Peer;
+  transceiver: RTCRtpTransceiver;
+};
+/** Audio lines the committed session carries (a rolled-back one is not yet). */
+const negotiatedAudio = (ctx: FuzzContext) =>
+  ctx.audio.filter(
+    ({ transceiver }) => !!transceiver.mid && !!transceiver.currentDirection,
+  );
+export type FuzzContext = Awaited<ReturnType<typeof createFuzzSession>>;
+
+/** Real traffic of every committed stream: video + DataChannel both ways, and each audio. */
+export async function expectFuzzSessionAlive(ctx: FuzzContext, label: string) {
+  await expectSessionAlive(ctx.session, label);
+  for (const [index, audio] of negotiatedAudio(ctx).entries()) {
+    const receiver = (
+      audio.sender === ctx.session.a ? ctx.session.b : ctx.session.a
+    ).pc
+      .getTransceivers()
+      .find((t) => t.mid === audio.transceiver.mid)!.receiver;
+    await sendAndExpectRtp(
+      audio.out,
+      receiver.track,
+      `${label}-audio-${index}`,
+    );
+  }
+}
+
+const audioSplit = (sdp: string, mid: string, split: boolean) => {
+  const group = sdp.match(/^a=group:BUNDLE ([^\r\n]+)/m)![1].split(" ");
+  const items = split
+    ? group.filter((item) => item !== mid)
+    : [...group.filter((item) => item !== mid), mid];
+  return sdp.replace(
+    /^a=group:BUNDLE [^\r\n]+/m,
+    `a=group:BUNDLE ${items.join(" ")}`,
+  );
+};
+
+/**
+ * One committed or rolled-back negotiation episode chosen by `rng`: offer
+ * variants (plain, ICE restart, new audio m-line, audio BUNDLE split/merge),
+ * then pranswer / replacement offer / end-of-candidates, then answer or
+ * rollback. Invariants of both peers are checked after every operation.
+ */
+export async function fuzzEpisode(ctx: FuzzContext, rng: SeededRandom) {
+  const { session } = ctx;
+  const [offerer, answerer] = rng.chance(0.5)
+    ? [session.a, session.b]
+    : [session.b, session.a];
+  const name = offerer === session.a ? "a" : "b";
+  const variant = rng.pick([
+    "plain",
+    "iceRestart",
+    ...(ctx.audio.length < 2 ? ["addAudio"] : []),
+    ...(negotiatedAudio(ctx).length > 0 ? ["splitAudio", "mergeAudio"] : []),
+  ] as const);
+  const finish = rng.pick([
+    "answer",
+    "pranswerAnswer",
+    "pranswerRollback",
+    "rollback",
+    "replacementAnswer",
+  ] as const);
+  const endOfCandidates = rng.chance(0.3);
+  ctx.log.push(
+    `episode ${name} ${variant} ${finish}${endOfCandidates ? " eoc" : ""}`,
+  );
+
+  if (variant === "addAudio") {
+    const out = new MediaStreamTrack({ kind: "audio" });
+    const transceiver = offerer.pc.addTransceiver(out, {
+      direction: "sendonly",
+    });
+    // rollback されても transceiver は残り、後の episode で交渉される。
+    ctx.audio.push({ out, sender: offerer, transceiver });
+  }
+  const splitTarget =
+    variant === "splitAudio" || variant === "mergeAudio"
+      ? rng.pick(negotiatedAudio(ctx)).transceiver.mid!
+      : undefined;
+  const makeOffer = () =>
+    createRewrittenOffer(
+      offerer.pc,
+      (sdp) =>
+        splitTarget && sdp.includes(`a=mid:${splitTarget}`)
+          ? audioSplit(sdp, splitTarget, variant === "splitAudio")
+          : sdp,
+      { iceRestart: variant === "iceRestart" },
+    );
+
+  await step(session, async () =>
+    offerer.pc.setLocalDescription(await makeOffer()),
+  );
+  await step(session, () =>
+    answerer.pc.setRemoteDescription(offerer.pc.localDescription!),
+  );
+  if (endOfCandidates) {
+    const mid = answerer.pc.getTransceivers()[0].mid!;
+    await step(session, () =>
+      answerer.pc.addIceCandidate({ candidate: "", sdpMid: mid }),
+    );
+  }
+  if (finish === "replacementAnswer") {
+    await step(session, async () =>
+      offerer.pc.setLocalDescription(await makeOffer()),
+    );
+    await step(session, () =>
+      answerer.pc.setRemoteDescription(offerer.pc.localDescription!),
+    );
+  }
+  if (finish === "pranswerAnswer" || finish === "pranswerRollback") {
+    const pranswer = await answerer.pc.createAnswer();
+    await step(session, () =>
+      answerer.pc.setLocalDescription({ type: "pranswer", sdp: pranswer.sdp }),
+    );
+    await step(session, () =>
+      offerer.pc.setRemoteDescription({
+        type: "pranswer",
+        sdp: answerer.pc.localDescription!.sdp,
+      }),
+    );
+  }
+  if (finish === "rollback" || finish === "pranswerRollback") {
+    await step(session, () =>
+      answerer.pc.setRemoteDescription({ type: "rollback" }),
+    );
+    await step(session, () =>
+      offerer.pc.setLocalDescription({ type: "rollback" }),
+    );
+    return;
+  }
+  await step(session, async () =>
+    answerer.pc.setLocalDescription(await answerer.pc.createAnswer()),
+  );
+  await step(session, () =>
+    offerer.pc.setRemoteDescription(answerer.pc.localDescription!),
+  );
+  if (variant === "iceRestart") {
+    // commit で旧 pair を離れるので、新 generation の nomination を待つ。
+    await Promise.all([
+      waitForCommittedNomination(offerer.pc),
+      waitForCommittedNomination(answerer.pc),
+    ]);
+  }
+  // BUNDLE split などで新しく作られた transport の DTLS 確立を待つ。
+  await Promise.all(
+    [offerer.pc, answerer.pc].flatMap((pc) =>
+      pc.dtlsTransports.map((transport) => waitForDtlsConnected(transport)),
+    ),
+  );
+}
+
+/**
+ * A remote-only proposal that reassigns routing keys (RTX pairing, extmap URI
+ * moved to a new ID) or remaps an extmap ID. Allowed ones stay pending while
+ * the current session must keep flowing, then roll back; a remap must be
+ * rejected without any state change.
+ */
+export async function fuzzRemoteMutation(ctx: FuzzContext, rng: SeededRandom) {
+  const { session } = ctx;
+  const [offerer, answerer] = rng.chance(0.5)
+    ? [session.a, session.b]
+    : [session.b, session.a];
+  const mutation = rng.pick([
+    "rtxPairing",
+    "extmapMove",
+    "extmapRemap",
+  ] as const);
+  ctx.log.push(`mutation ${offerer === session.a ? "a" : "b"} ${mutation}`);
+  const offer = (await offerer.pc.createOffer()).sdp;
+  const videoMid = offerer.video.mid!;
+  let sdp = offer;
+  if (mutation === "rtxPairing") {
+    const fid = sectionOf(offer, videoMid).match(
+      /^a=ssrc-group:FID (\d+) \d+/m,
+    );
+    if (!fid) return;
+    sdp = mungeSection(offer, videoMid, (section) =>
+      section.split(fid[1]).join("987654"),
+    );
+  } else {
+    const extmap = sectionOf(offer, videoMid).match(
+      /^a=extmap:(\d+) (http:\/\/www\.webrtc\.org\/experiments\/rtp-hdrext\/abs-send-time)/m,
+    );
+    if (!extmap) return;
+    const replacement =
+      mutation === "extmapMove"
+        ? `a=extmap:13 ${extmap[2]}`
+        : `a=extmap:${extmap[1]} urn:ietf:params:rtp-hdrext:toffset`;
+    sdp = offer.split(`a=extmap:${extmap[1]} ${extmap[2]}`).join(replacement);
+  }
+  const before = {
+    state: answerer.pc.signalingState,
+    current: answerer.pc.currentRemoteDescription!.sdp,
+  };
+  if (mutation === "extmapRemap") {
+    // ID の再割当ては適用前に拒否され、状態は一切変わらない。
+    await expect(
+      answerer.pc.setRemoteDescription({ type: "offer", sdp }),
+    ).rejects.toMatchObject({ name: "InvalidModificationError" });
+    expect(answerer.pc.signalingState).toBe(before.state);
+    expect(answerer.pc.currentRemoteDescription!.sdp).toBe(before.current);
+    assertNegotiationInvariants(answerer.pc);
+    return;
+  }
+  await step(session, () =>
+    answerer.pc.setRemoteDescription({ type: "offer", sdp }),
+  );
+  // pending 中も current の RTP・DataChannel は双方向に流れる。
+  await expectFuzzSessionAlive(ctx, `pending-${mutation}`);
+  await step(session, () =>
+    answerer.pc.setRemoteDescription({ type: "rollback" }),
+  );
 }

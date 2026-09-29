@@ -995,7 +995,13 @@ export class RTCPeerConnection extends EventTarget {
 
       // # configure direction
       if (["answer", "pranswer"].includes(description.type)) {
+        // Only transceivers with an m-line in this answer are negotiated; one
+        // the application added after the offer stays without a direction.
+        const answeredMids = new Set(
+          description.media.map((media) => media.rtp.muxId),
+        );
         for (const t of this.transceiverManager.getTransceivers()) {
+          if (!t.mid || !answeredMids.has(t.mid)) continue;
           const direction = andDirection(t.direction, t.offerDirection);
           t.setCurrentDirection(direction);
         }
@@ -1030,6 +1036,9 @@ export class RTCPeerConnection extends EventTarget {
       } else if (description.type === "answer") {
         this.setSignalingState("stable");
       } else if (description.type === "pranswer") {
+        // The final answer reuses the restart credentials this pranswer
+        // already signalled.
+        this.secureManager.markStagedIceRestartApplied();
         this.negotiation.settle();
         this.setSignalingState("have-local-pranswer");
       }

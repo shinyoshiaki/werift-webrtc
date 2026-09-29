@@ -36,6 +36,7 @@ type Baseline = {
   ssrcTable: RtpRouter["ssrcTable"];
   ridTable: RtpRouter["ridTable"];
   extIdUriMap: RtpRouter["extIdUriMap"];
+  stagedRoutes: ReturnType<RtpRouter["snapshotStaged"]>;
   sctpTransport: SctpTransportManager["sctpTransport"];
   sctpDtlsTransport?: RTCDtlsTransport;
   sctpRemotePort?: number;
@@ -148,6 +149,7 @@ export class NegotiationTransaction {
       ssrcTable: { ...this.router.ssrcTable },
       ridTable: { ...this.router.ridTable },
       extIdUriMap: { ...this.router.extIdUriMap },
+      stagedRoutes: this.router.snapshotStaged(),
       sctpTransport: this.sctp.sctpTransport,
       sctpDtlsTransport: this.sctp.sctpTransport?.dtlsTransport,
       sctpRemotePort: this.sctp.sctpRemotePort,
@@ -250,6 +252,12 @@ export class NegotiationTransaction {
 
   async commit() {
     this.phase = "committing";
+    // Routes and decode entries a pending proposal could not take from the
+    // current session switch now, together with the descriptions.
+    this.router.commitStaged();
+    for (const transceiver of this.transceivers.getTransceivers()) {
+      transceiver.receiver.commitStagedReceive();
+    }
     // The recycling offer is final: the displaced transceiver stops for good.
     for (const transceiver of this.displaced) {
       if (!transceiver.stopped) continue;
@@ -453,6 +461,7 @@ export class NegotiationTransaction {
     }
     this.router.ridTable = { ...baseline.ridTable };
     this.router.extIdUriMap = { ...baseline.extIdUriMap };
+    this.router.restoreStaged(baseline.stagedRoutes);
 
     const added =
       this.sctp.sctpTransport !== baseline.sctpTransport

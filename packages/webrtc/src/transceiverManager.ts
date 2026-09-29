@@ -461,14 +461,22 @@ export class TransceiverManager {
     if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
       const remotePrams = this.getRemoteRtpParams(remoteMedia, transceiver);
 
+      // A pending offer or pranswer may add routes and decode entries, but a
+      // key the current session uses keeps its value until the commit.
+      const staging = { deferConflicts: type !== "answer" };
       // register simulcast receiver
       for (const param of remoteMedia.simulcastParameters) {
-        this.router.registerRtpReceiverByRid(transceiver, param, remotePrams);
+        this.router.registerRtpReceiverByRid(
+          transceiver,
+          param,
+          remotePrams,
+          staging,
+        );
       }
 
-      transceiver.receiver.prepareReceive(remotePrams);
+      transceiver.receiver.prepareReceive(remotePrams, staging);
       // register ssrc receiver
-      this.router.registerRtpReceiverBySsrc(transceiver, remotePrams);
+      this.router.registerRtpReceiverBySsrc(transceiver, remotePrams, staging);
     }
     if (
       remoteMedia.port !== 0 &&

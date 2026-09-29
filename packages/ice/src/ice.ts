@@ -668,6 +668,15 @@ export class Connection implements IceConnection {
       }
       return true;
     });
+    // An ICE restart keeps its UDP sockets. They are not re-created above, but
+    // their server-reflexive address is part of the new generation too, so
+    // the STUN query below runs for them as well.
+    const reusedStunProtocols = this.protocols.filter(
+      (protocol): protocol is StunProtocol =>
+        protocol instanceof StunProtocol &&
+        protocol.localCandidate?.type === "host" &&
+        protocol.localCandidate.transport === "udp",
+    );
 
     const localStunPromises = gatherRelayOnly
       ? []
@@ -788,7 +797,10 @@ export class Connection implements IceConnection {
     }
 
     if (!gatherIceLite && !gatherRelayOnly && stunServer) {
-      const stunCandidatePromises = localStunPromises.map(
+      const stunCandidatePromises = [
+        ...reusedStunProtocols.map(async (protocol) => protocol),
+        ...localStunPromises,
+      ].map(
         async (protocolPromise) => {
           const protocol = await protocolPromise;
           if (!protocol) return;
@@ -1761,7 +1773,10 @@ export class Connection implements IceConnection {
     pair.noteIncomingRequest(message.transactionIdHex);
     pair.requestsReceived++;
     pair.responsesSent++;
-    pair.localCandidate.ufrag = localUsername;
+    // The pair's local candidate is the protocol's shared candidate of the
+    // current generation. A late check addressed to an earlier ufrag (consent
+    // on the old pair during an ICE restart) must not relabel it, or the next
+    // description would advertise it under that old ufrag.
 
     log("Triggered Checks", message.toJSON(), pair.toJSON(), {
       localUsername: this.localUsername,

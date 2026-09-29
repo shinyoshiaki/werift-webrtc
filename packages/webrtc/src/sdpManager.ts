@@ -253,6 +253,7 @@ export class SDPManager {
           this.assertStablePayloadTypes(oldMedia, next);
         }
       }
+      if (!isLocal) this.assertStableHeaderExtensionIds(previous, description);
     }
 
     if (type === "offer") return;
@@ -281,6 +282,38 @@ export class SDPManager {
           "InvalidModificationError",
           "Answer cannot accept a rejected m-line",
         );
+      }
+    }
+  }
+
+  /**
+   * RFC 8285 section 7: a header extension ID in use must not be remapped to
+   * another URI within the session (Chrome rejects it too). The router's ID
+   * map is shared by every m-line, so a remap in the proposal would reparse
+   * current RTP while the description is still pending. Adding extensions,
+   * or moving a URI to a new ID, stays allowed.
+   */
+  private assertStableHeaderExtensionIds(
+    current: SessionDescription,
+    next: SessionDescription,
+  ) {
+    const active = new Map<number, string>();
+    for (const media of current.media) {
+      if (media.port === 0) continue;
+      for (const extension of media.rtp.headerExtensions) {
+        active.set(extension.id, extension.uri);
+      }
+    }
+    for (const media of next.media) {
+      if (media.port === 0) continue;
+      for (const extension of media.rtp.headerExtensions) {
+        const uri = active.get(extension.id);
+        if (uri !== undefined && uri !== extension.uri) {
+          throw createWebRtcDomException(
+            "InvalidModificationError",
+            `RTP header extension id ${extension.id} cannot be remapped within a session`,
+          );
+        }
       }
     }
   }

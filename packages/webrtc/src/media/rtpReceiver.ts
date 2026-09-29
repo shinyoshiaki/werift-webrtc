@@ -56,6 +56,8 @@ export class RTCRtpReceiver {
     );
   }
   private readonly ssrcByRtx: { [rtxSsrc: number]: number } = {};
+  private readonly stagedCodecs: { [pt: number]: RTCRtpCodecParameters } = {};
+  private readonly stagedSsrcByRtx: { [rtxSsrc: number]: number } = {};
   /** SSRCs of `trackBySSRC` learned from RID packets rather than SDP. */
   readonly learnedTrackSsrcs = new Set<number>();
   private readonly nack = new NackHandler(this);
@@ -137,34 +139,67 @@ export class RTCRtpReceiver {
     );
   }
 
-  prepareReceive(params: RTCRtpReceiveParameters) {
+  /**
+   * Receive tables are keyed by payload type and RTX SSRC. With
+   * `deferConflicts` (a pending offer or pranswer), a new key applies at once
+   * so provisional RTP decodes, but a key the current session already uses
+   * with another value is staged: current RTP keeps its codec and RTX pairing
+   * until the transaction commits, and rollback drops the staged value.
+   */
+  prepareReceive(
+    params: RTCRtpReceiveParameters,
+    { deferConflicts = false }: { deferConflicts?: boolean } = {},
+  ) {
     params.codecs.forEach((c) => {
-      this.codecs[c.payloadType] = c;
+      const existing = this.codecs[c.payloadType];
+      if (deferConflicts && existing && !sameCodec(existing, c)) {
+        this.stagedCodecs[c.payloadType] = c;
+      } else {
+        this.codecs[c.payloadType] = c;
+      }
     });
     params.encodings.forEach((e) => {
-      if (e.rtx) {
+      if (!e.rtx) return;
+      const existing = this.ssrcByRtx[e.rtx.ssrc];
+      if (deferConflicts && existing !== undefined && existing !== e.ssrc) {
+        this.stagedSsrcByRtx[e.rtx.ssrc] = e.ssrc;
+      } else {
         this.ssrcByRtx[e.rtx.ssrc] = e.ssrc;
       }
     });
   }
 
+  /** Internal: the transaction committed, staged payload types and RTX pairs apply. */
+  commitStagedReceive() {
+    Object.assign(this.codecs, this.stagedCodecs);
+    Object.assign(this.ssrcByRtx, this.stagedSsrcByRtx);
+    clearTable(this.stagedCodecs);
+    clearTable(this.stagedSsrcByRtx);
+  }
+
   /** Internal: capture the decode tables for a negotiation rollback baseline. */
   snapshotReceiveTables() {
-    return { codecs: { ...this.codecs }, ssrcByRtx: { ...this.ssrcByRtx } };
+    return {
+      codecs: { ...this.codecs },
+      ssrcByRtx: { ...this.ssrcByRtx },
+      stagedCodecs: { ...this.stagedCodecs },
+      stagedSsrcByRtx: { ...this.stagedSsrcByRtx },
+    };
   }
 
   /** Internal: replace the decode tables with a rollback baseline. */
   restoreReceiveTables(
     snapshot: ReturnType<RTCRtpReceiver["snapshotReceiveTables"]>,
   ) {
-    for (const table of [this.codecs, this.ssrcByRtx] as Record<
-      number,
-      unknown
-    >[]) {
-      for (const key of Object.keys(table)) delete table[Number(key)];
+    for (const [table, saved] of [
+      [this.codecs, snapshot.codecs],
+      [this.ssrcByRtx, snapshot.ssrcByRtx],
+      [this.stagedCodecs, snapshot.stagedCodecs],
+      [this.stagedSsrcByRtx, snapshot.stagedSsrcByRtx],
+    ] as [Record<number, unknown>, Record<number, unknown>][]) {
+      clearTable(table);
+      Object.assign(table, saved);
     }
-    Object.assign(this.codecs, snapshot.codecs);
-    Object.assign(this.ssrcByRtx, snapshot.ssrcByRtx);
   }
 
   /**
@@ -532,4 +567,17 @@ export class RTCRtpReceiver {
 
     this.runRtcp();
   }
+}
+
+function clearTable(table: Record<number, unknown>) {
+  for (const key of Object.keys(table)) delete table[Number(key)];
+}
+
+function sameCodec(a: RTCRtpCodecParameters, b: RTCRtpCodecParameters) {
+  return (
+    a.mimeType.toLowerCase() === b.mimeType.toLowerCase() &&
+    a.clockRate === b.clockRate &&
+    (a.channels ?? 1) === (b.channels ?? 1) &&
+    (a.parameters ?? "") === (b.parameters ?? "")
+  );
 }
