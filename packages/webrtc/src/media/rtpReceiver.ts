@@ -422,7 +422,8 @@ export class RTCRtpReceiver {
   }
 
   async sendRtcpPLI(mediaSsrc: number) {
-    if (!this.pliEnabled) {
+    const codec = this.trackBySSRC[mediaSsrc]?.codec;
+    if (codec ? !hasFeedback(codec, usePLI().type) : !this.pliEnabled) {
       log("pli not supported", { mediaSsrc });
       return;
     }
@@ -521,10 +522,13 @@ export class RTCRtpReceiver {
       }
 
       this.receiverTWCC.handleTWCC(transportSequenceNumber);
-    } else if (this.twccEnabled) {
+    } else if (hasFeedback(codec, useTWCC().type)) {
       this.setupTWCC(packet.header.ssrc);
     }
 
+    // RTCP feedback follows the codec this packet was negotiated with, not
+    // whichever payload type happens to sort first in the receive table.
+    let mediaCodec = codec;
     if (codec.name.toLowerCase() === "rtx") {
       const originalSsrc = this.ssrcByRtx[packet.header.ssrc];
       const codecParams = codecParametersFromString(codec.parameters ?? "");
@@ -533,6 +537,7 @@ export class RTCRtpReceiver {
 
       packet = unwrapRtx(packet, rtxCodec.payloadType, originalSsrc);
       track = this.trackBySSRC[originalSsrc];
+      mediaCodec = rtxCodec;
     }
 
     let red: Red | undefined;
@@ -547,7 +552,7 @@ export class RTCRtpReceiver {
       }
     }
 
-    if (track?.kind === "video" && this.nackEnabled) {
+    if (track?.kind === "video" && hasFeedback(mediaCodec, "nack")) {
       this.nack.addPacket(packet);
     }
 
@@ -573,11 +578,29 @@ function clearTable(table: Record<number, unknown>) {
   for (const key of Object.keys(table)) delete table[Number(key)];
 }
 
+const feedbackKey = (codec: RTCRtpCodecParameters) =>
+  codec.rtcpFeedback
+    .map((f) => `${f.type} ${f.parameter ?? ""}`)
+    .sort()
+    .join(",");
+
 function sameCodec(a: RTCRtpCodecParameters, b: RTCRtpCodecParameters) {
   return (
     a.mimeType.toLowerCase() === b.mimeType.toLowerCase() &&
     a.clockRate === b.clockRate &&
     (a.channels ?? 1) === (b.channels ?? 1) &&
-    (a.parameters ?? "") === (b.parameters ?? "")
+    (a.parameters ?? "") === (b.parameters ?? "") &&
+    feedbackKey(a) === feedbackKey(b)
+  );
+}
+
+function hasFeedback(
+  codec: RTCRtpCodecParameters | undefined,
+  type: string,
+  parameter?: string,
+) {
+  return !!codec?.rtcpFeedback.some(
+    (f) =>
+      f.type === type && (parameter === undefined || f.parameter === parameter),
   );
 }

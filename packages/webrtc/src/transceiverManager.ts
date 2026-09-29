@@ -188,6 +188,12 @@ export class TransceiverManager {
     trackOrKind: Kind | MediaStreamTrack,
     dtlsTransport?: RTCDtlsTransport,
     options: Partial<TransceiverOptions> = {},
+    /**
+     * An application call may take over an inactive transceiver's slot
+     * (werift behavior). One created for a pending remote offer never does:
+     * it must not change a transceiver the current session knows.
+     */
+    { reuseInactive = true }: { reuseInactive?: boolean } = {},
   ): RTCRtpTransceiver {
     const kind =
       typeof trackOrKind === "string" ? trackOrKind : trackOrKind.kind;
@@ -225,7 +231,7 @@ export class TransceiverManager {
     const inactiveTransceiver = this.transceivers.find(
       (t) => t.currentDirection === "inactive" && !t.usedForSender,
     );
-    if (inactiveTransceiverIndex > -1 && inactiveTransceiver) {
+    if (reuseInactive && inactiveTransceiverIndex > -1 && inactiveTransceiver) {
       this.replaceTransceiver(newTransceiver, inactiveTransceiverIndex);
       newTransceiver.mLineIndex = inactiveTransceiver.mLineIndex;
       newTransceiver.mid = inactiveTransceiver.mid;
@@ -510,7 +516,10 @@ export class TransceiverManager {
       }
     }
 
-    if (remoteMedia.ssrc[0]?.ssrc) {
+    // A pending offer or pranswer does not start transport-cc feedback for
+    // the current stream; the receiver starts it from a packet whose codec
+    // negotiated it, or here once the description is an answer.
+    if (type === "answer" && remoteMedia.ssrc[0]?.ssrc) {
       transceiver.receiver.setupTWCC(remoteMedia.ssrc[0].ssrc);
     }
   }

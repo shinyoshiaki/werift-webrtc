@@ -81,6 +81,8 @@ export class Connection implements IceConnection {
   private consentRequestAbort?: AbortController;
   /** ICE restart generation checked beside the selected current pair. */
   private provisional?: ProvisionalGeneration;
+  /** Last server-reflexive candidate each UDP socket advertised. */
+  private readonly reflexiveBySocket = new WeakMap<Protocol, Candidate>();
 
   readonly onData = new Event<[Buffer]>();
   readonly stateChanged = new Event<[IceState]>();
@@ -797,10 +799,47 @@ export class Connection implements IceConnection {
     }
 
     if (!gatherIceLite && !gatherRelayOnly && stunServer) {
-      const stunCandidatePromises = [
-        ...reusedStunProtocols.map(async (protocol) => protocol),
-        ...localStunPromises,
-      ].map(
+      // Sockets kept across an ICE restart query STUN again; if no fresh
+      // answer arrives in time, the mapping they already advertised stays in
+      // the new generation instead of silently disappearing from it.
+      const reusedReflexivePromises = reusedStunProtocols
+        .filter((protocol) => isIPv4(protocol.localCandidate!.host))
+        .map(async (protocol) => {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const fresh = await Promise.race([
+            serverReflexiveCandidate(protocol, stunServer).catch(
+              () => undefined,
+            ),
+            new Promise<undefined>((resolve) => {
+              timer = setTimeout(() => resolve(undefined), timeout * 1000);
+            }),
+          ]);
+          clearTimeout(timer);
+          const previous = this.reflexiveBySocket.get(protocol);
+          const candidate =
+            fresh ??
+            (previous &&
+              new Candidate(
+                previous.foundation,
+                previous.component,
+                previous.transport,
+                previous.priority,
+                previous.host,
+                previous.port,
+                previous.type,
+                previous.relatedAddress,
+                previous.relatedPort,
+                previous.tcptype,
+              ));
+          if (candidate) {
+            this.reflexiveBySocket.set(protocol, candidate);
+            this.appendLocalCandidate(candidate);
+          }
+          return candidate;
+        });
+      candidatePromises.push(...reusedReflexivePromises);
+
+      const stunCandidatePromises = localStunPromises.map(
         async (protocolPromise) => {
           const protocol = await protocolPromise;
           if (!protocol) return;
@@ -819,6 +858,7 @@ export class Connection implements IceConnection {
                   log("error", error);
                 });
                 if (candidate) {
+                  this.reflexiveBySocket.set(protocol, candidate);
                   this.appendLocalCandidate(candidate);
                 }
 
@@ -1485,6 +1525,9 @@ export class Connection implements IceConnection {
         (pair.remoteCandidate.generation != undefined
           ? pair.remoteCandidate.generation === this.generation
           : true) &&
+        // A check still in flight when an ICE restart reset the checklist
+        // belongs to the discarded generation and cannot select its pair.
+        this.checkList.includes(pair) &&
         this.nominated == undefined
       ) {
         log("nominated", pair.toJSON());

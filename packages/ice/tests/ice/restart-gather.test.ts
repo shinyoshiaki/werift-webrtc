@@ -47,4 +47,39 @@ describe("ICE restart gathering", () => {
       }
     },
   );
+
+  testWithLocalStun(
+    "a restart whose STUN query gets no answer keeps the srflx the socket already advertised",
+    async () => {
+      // Arrange: 最初の generation の srflx を得た後、STUN server を止める。
+      const server = await createLocalStunServer(localStunHost!);
+      const connection = createTestConnection(true, {
+        stunServer: server.address,
+        stunGatherTimeout: 1,
+        useIpv6: false,
+      });
+      try {
+        await connection.gatherCandidates();
+        const before = connection.localCandidates
+          .filter((c) => c.type === "srflx")
+          .map((c) => `${c.host}:${c.port}:${c.relatedPort}`)
+          .sort();
+        expect(before.length).toBeGreaterThan(0);
+        await server.close();
+
+        // Act: STUN が応答しない状態で ICE restart して gather する。
+        await connection.restart();
+        await connection.gatherCandidates();
+
+        // Assert: 同じ socket の srflx は新 generation でも一度ずつ広告される。
+        const after = connection.localCandidates
+          .filter((c) => c.type === "srflx")
+          .map((c) => `${c.host}:${c.port}:${c.relatedPort}`)
+          .sort();
+        expect(after).toEqual(before);
+      } finally {
+        await connection.close();
+      }
+    },
+  );
 });

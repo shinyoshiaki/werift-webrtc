@@ -261,6 +261,66 @@ old-generation callback may update only that generation and cannot be carried
 into a replacement generation. Upstream WPT-only stricter behavior belongs in
 `tools/wpt-runner` wrappers.
 
+MIDs and m-line indexes that `createOffer` assigns are provisional until that
+offer is applied. When a remote offer opens the transaction instead, the
+assignments of every unapplied `createOffer` since the last transaction are
+reverted for transceivers the session never negotiated, so they cannot collide
+with the remote m-lines. Applying a replacement local offer (or an offer after
+a remote pranswer) restores the baseline and then re-applies the assignments
+that offer was created with. An answer or pranswer gives a current direction
+only to transceivers with an m-line in it; one the application added after the
+offer stays unnegotiated.
+
+## Routing keys
+
+The router and receivers resolve RTP by keys that the current session and a
+pending proposal share: payload type, RTP header extension ID, SSRC, RTX SSRC
+and MID+RID. One rule covers all of them. A pending remote offer or pranswer
+may **add** keys, which take effect at once so provisional RTP can flow, but a
+key the current session already uses keeps its current value until the final
+answer commits. A conflicting value is either rejected before any mutation or
+staged and switched at commit; rollback drops what was staged and restores
+what the pending description added.
+
+| Key | Where | Conflicting proposal | Basis |
+| --- | --- | --- | --- |
+| Payload type → codec | receiver codec table | Remap rejected (`InvalidModificationError`); fmtp-only change of the same codec staged until commit | RFC 3264 §8.3.2 |
+| Header extension ID → URI | router `extIdUriMap` (shared by all m-lines) | ID remapped to another URI rejected; a URI moved to a new ID is an addition (old ID keeps parsing) | RFC 8285 §7; Chrome rejects "RTP extension ID reassignment" |
+| SSRC → receiver | router `ssrcTable` | SSRC moved to another m-line staged: current RTP keeps its receiver until commit | Chrome accepts the move |
+| RTX SSRC → media SSRC | receiver RTX table | Changed pairing staged until commit | Chrome accepts the change |
+| MID+RID → receiver | router `ridTable` | RIDs are scoped to their m-line (RFC 8851), so another m-line reusing RID names is a new key, not a conflict | RFC 8851 |
+| Remote track for SSRC/RID | receiver `tracks` | Only added for new keys; the current track of a key is never replaced | — |
+| RTCP feedback of a payload type | receiver codec table | A changed `a=rtcp-fb` of a current payload type is staged until commit; NACK / TWCC / PLI follow the codec of each packet, not the lowest payload type | — |
+
+The RID lookup uses the MID header extension when the packet carries it and
+otherwise the first m-line with that RID. The sender keeps its committed codec
+and header extension IDs while a re-offer is pending; werift never remaps its
+own extension IDs. A remote pranswer may apply its send parameters
+provisionally (codec, header extensions, RTX / RED payload types, MID, RID);
+the baseline holds the complete set and rollback restores it. Transport-cc
+feedback is not started by a pending description: the receiver starts it from
+a packet whose codec negotiated it, or when the answer commits, and a feedback
+object a pending description started is stopped on rollback. A transceiver
+created for a remote offer is not an application operation: it does not make
+negotiation needed and never takes over an inactive transceiver's slot.
+
+## ICE generation boundaries
+
+A restart keeps the ICE transport's sockets. The ICE package keeps the
+generations apart on them:
+
+- The new generation queries STUN again on the kept sockets; if no answer
+  arrives in time, the socket's previous server-reflexive candidate is
+  advertised again instead of being dropped. A description therefore never
+  stops listing a candidate its generation already advertised.
+- A late check addressed to an earlier ufrag (consent on the old pair) does not
+  relabel the live host candidate with that ufrag.
+- A check still in flight when the restart reset the checklist cannot select a
+  pair of the discarded checklist.
+- Restart credentials an applied offer or pranswer signalled stay until that
+  description is answered, replaced or rolled back; `createOffer` /
+  `createAnswer` reuse them instead of generating new ones.
+
 ## Test coverage
 
 `tests/integrate/negotiationTransactionUtils.ts` holds the shared Arrange
@@ -274,3 +334,51 @@ that left use is closed. `negotiationTransactionMatrix.test.ts` runs the
 transition matrix with each peer once as the offerer and calls the helper after
 every description and candidate operation, then verifies RTP and DataChannel
 traffic in both directions.
+The helper also checks the routing keys above against the live tables in every
+signaling state: each SSRC, RTX pair and MID+RID of the current remote SDP
+resolves to the current receiver (with its track), no extmap ID the router
+knows contradicts the current SDP, and no staged route survives in `stable`.
+
+`negotiationTransactionProperty.test.ts` is a seeded property test. Each step
+is a random negotiation episode (offer / pranswer / answer / rollback /
+replacement, ICE restart, new audio m-line, audio BUNDLE split/merge,
+end-of-candidates) or a remote-only routing-key mutation (RTX pairing, extmap
+URI moved to a new ID, which then rolls back, or an extmap ID remap, which must
+be rejected without state change). The helper runs after every operation and
+real RTP (video, audio) and DataChannel traffic is checked after every step.
+`negotiationTransactionRouting.test.ts` covers each routing key and
+`negotiationTransactionRegression.test.ts` turns what the property test and
+the pre-review self-review found into deterministic cases.
+CI replays a fixed seed set plus the seeds that found bugs; a deeper local
+search uses `WERIFT_NEGOTIATION_FUZZ_SEEDS`, `WERIFT_NEGOTIATION_FUZZ_STEPS`
+and `WERIFT_NEGOTIATION_FUZZ_SEED`, and a failure prints its seed and
+operations. Before asking for review, run a deeper search and a self-review
+that lists every path writing live tables while a description is pending.
+
+## Scope and known constraints
+
+The transition table, the mutation matrix and the property test's operation
+catalog define what this design guarantees. A new combination outside them
+(another subsystem, operation or interop target) is handled as a follow-up,
+not as a change of this contract. Known constraints:
+
+- Interoperability is verified with Chrome only.
+- A DataChannel created on an already connected session without an SCTP
+  association does not open after renegotiation (existing since `develop`).
+- The header extension ID map is shared by the whole PeerConnection. m-lines
+  on separate (non-BUNDLE) transports that map one ID to different URIs are
+  not supported; only a remap of an ID the current session uses is rejected.
+- A remote offer may associate an unassociated transceiver the application
+  created with `addTransceiver` (W3C reuses only `addTrack` ones); this is
+  existing werift behavior.
+- The ICE layer drops the old selected pair when a restart commits; RTP pauses
+  until the new generation nominates a pair.
+- Codec order and dynamic payload types in the configuration may be adjusted
+  to a sender track's codec while a remote description is applied; this only
+  affects later offers, not current RTP, and rollback does not undo it.
+- A transceiver displaced by m-line recycling is marked stopped when the
+  recycling offer is applied (its current m-line is already rejected, so no
+  current traffic uses it); rollback restores it.
+- `createOffer` fills empty codec and header extension lists of a transceiver;
+  these are defaults, not negotiated state, and stay after an unapplied offer.
+

@@ -19,6 +19,8 @@ Instructions for coding agents working in `packages/webrtc`.
 3. Add Japanese comments in Act / Assert phases when operation order or expectations are not obvious.
 4. When adding package scripts, update this guide's Commands table in the same change.
 5. Keep memleak tests out of the default vitest suite (`vitest.config.mts` excludes `tests/memleak/**`).
+6. For negotiation changes (`negotiationTransaction.ts`, description apply paths, router / receiver / sender tables), follow the rules in `NEGOTIATION_TRANSACTION.md`: a pending description may add routing keys but must not change a key the current session uses (reject before mutation or stage until commit). Keep `assertNegotiationInvariants` in `tests/integrate/negotiationTransactionUtils.ts` able to detect a new class of state, and add a found failure as a deterministic case or a replayed seed.
+7. Before requesting review of a negotiation change, run a deeper property search (for example `WERIFT_NEGOTIATION_FUZZ_SEEDS=300 WERIFT_NEGOTIATION_FUZZ_STEPS=20 npx vitest run tests/integrate/negotiationTransactionProperty.test.ts`) and a self-review that lists every path writing live state while a description is pending.
 
 ## Don't
 
@@ -42,6 +44,7 @@ Memleak details, env vars, and report interpretation: `tests/memleak/README.md`.
 ## Validation
 
 * Logic changes in `src`: `npm run type` and relevant `npm test` paths.
+* Negotiation changes: the full `npm test` (includes the negotiation property test with fixed and regression seeds), plus the deeper property search above before review.
 * Memleak harness changes: short smoke with reduced env (see `tests/memleak/README.md`), then optional full `npm run memleak`.
 * WPT runner / allowlist: `npm run wpt`.
 

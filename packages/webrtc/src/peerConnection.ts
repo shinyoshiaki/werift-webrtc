@@ -884,12 +884,51 @@ export class RTCPeerConnection extends EventTarget {
             "Local SDP must use prepared ICE credentials",
           );
         }
+        // Like a remote one, a local answer or pranswer keeps the DTLS role
+        // of a live association (RFC 8842 section 5.5); an edited a=setup is
+        // refused before it can change the running transport.
+        const bundleItems =
+          description.group.find((group) => group.semantic === "BUNDLE")
+            ?.items ?? [];
+        const bundledNonTag =
+          bundleItems.includes(media.rtp.muxId ?? "") &&
+          bundleItems[0] !== media.rtp.muxId;
+        const localRole = media.dtlsParams?.role;
+        if (
+          description.type !== "offer" &&
+          !bundledNonTag &&
+          localRole &&
+          localRole !== "auto" &&
+          live &&
+          (!prepared || prepared === live) &&
+          ["connecting", "connected"].includes(live.state) &&
+          live.role !== "auto" &&
+          live.role !== localRole
+        ) {
+          throw createWebRtcDomException(
+            "InvalidModificationError",
+            "Changing the DTLS role of a connected association is unsupported",
+          );
+        }
       }
       // Stage the offer's transports before retiring anything pending.
       const stagedOfferTopology =
         description.type === "offer"
           ? await this.stageLocalOfferTopology(description)
           : undefined;
+      // The offer being applied was created with these MID / m-line
+      // assignments. Replacing the pending offer or rolling back a remote
+      // pranswer restores the baseline first, so they are re-applied after.
+      const offeredMids = new Set(
+        description.media.map((media) => media.rtp.muxId),
+      );
+      const offerAssignments =
+        description.type === "offer"
+          ? this.transceiverManager
+              .getTransceivers()
+              .filter((t) => t.mid && offeredMids.has(t.mid))
+              .map((t) => [t, t.mid, t.mLineIndex] as const)
+          : [];
       try {
         if (
           description.type === "offer" &&
@@ -913,6 +952,10 @@ export class RTCPeerConnection extends EventTarget {
             this.sdpManager.pendingLocalDescription = undefined;
           } else {
             this.negotiation.begin({ fromCreatedOffer: true });
+          }
+          for (const [transceiver, mid, mLineIndex] of offerAssignments) {
+            transceiver.mid = mid;
+            transceiver.mLineIndex = mLineIndex;
           }
         }
         this.negotiation.validate();
@@ -990,7 +1033,12 @@ export class RTCPeerConnection extends EventTarget {
 
       this.secureManager.setLocalRole({
         type: description.type === "offer" ? "offer" : "answer",
-        role: (transport) => roleByTransport.get(transport) ?? fallbackRole,
+        // A transport without an m-line of its own here only takes the
+        // fallback while it has no role yet; an established association
+        // (such as a BUNDLE split owner) keeps its role.
+        role: (transport) =>
+          roleByTransport.get(transport) ??
+          (transport.role === "auto" ? fallbackRole : undefined),
       });
 
       // # configure direction
@@ -2197,15 +2245,17 @@ export class RTCPeerConnection extends EventTarget {
               // JSEP 5.2.2: a new MID on an existing m-line recycles it, so the
               // transceiver that owned it is stopped. The flags are part of the
               // rollback baseline; its sender/receiver stop at the answer.
-              const displaced = this.transceiverManager
-                .getTransceivers()
-                .find(
-                  (t) =>
-                    !t.stopped &&
-                    t.mLineIndex === i &&
-                    !!t.mid &&
-                    t.mid !== remoteMedia.rtp.muxId,
-                );
+              const displaced = this.transceiverManager.getTransceivers().find(
+                (t) =>
+                  !t.stopped &&
+                  t.mLineIndex === i &&
+                  !!t.mid &&
+                  t.mid !== remoteMedia.rtp.muxId &&
+                  // Only the transceiver that owns this m-line in the
+                  // current session is displaced by its recycling.
+                  this.sdpManager.currentRemoteDescription?.media[i]?.rtp
+                    .muxId === t.mid,
+              );
               if (displaced) {
                 displaced.stopping = true;
                 displaced.stopped = true;
@@ -2213,9 +2263,14 @@ export class RTCPeerConnection extends EventTarget {
                 this.negotiation.rememberDisplacedTransceiver(displaced);
               }
               // create remote transceiver
-              transceiver = this.addTransceiver(remoteMedia.kind, {
-                direction: "recvonly",
-              });
+              // Not an application operation: no negotiationneeded and no
+              // takeover of an inactive current transceiver.
+              transceiver = this.transceiverManager.addTransceiver(
+                remoteMedia.kind,
+                this.findOrCreateTransport(),
+                { direction: "recvonly" },
+                { reuseInactive: false },
+              );
               transceiver.mid = remoteMedia.rtp.muxId ?? null;
               this.transceiverManager.replaceStoppedTransceiverAtMLineIndex(
                 transceiver,

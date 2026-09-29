@@ -3,14 +3,14 @@ import { expect } from "vitest";
 import {
   MediaStreamTrack,
   type RTCDataChannel,
-  type RTCRtpTransceiver,
   RTCPeerConnection,
   RTCRtpCodecParameters,
+  type RTCRtpTransceiver,
   RtpHeader,
   RtpPacket,
-  useSdesMid,
   useAbsSendTime,
   useOPUS,
+  useSdesMid,
   useSdesRTPStreamId,
   useVP8,
 } from "../../src";
@@ -1208,10 +1208,15 @@ type FuzzAudio = {
   sender: Peer;
   transceiver: RTCRtpTransceiver;
 };
-/** Audio lines the committed session carries (a rolled-back one is not yet). */
+/**
+ * Audio lines the committed session sends (a rolled-back one is not yet, and
+ * one the answer made inactive carries no RTP).
+ */
 const negotiatedAudio = (ctx: FuzzContext) =>
   ctx.audio.filter(
-    ({ transceiver }) => !!transceiver.mid && !!transceiver.currentDirection,
+    ({ transceiver }) =>
+      !!transceiver.mid &&
+      ["sendonly", "sendrecv"].includes(transceiver.currentDirection ?? ""),
   );
 export type FuzzContext = Awaited<ReturnType<typeof createFuzzSession>>;
 

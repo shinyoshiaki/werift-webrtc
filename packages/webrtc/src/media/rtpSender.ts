@@ -254,6 +254,37 @@ export class RTCRtpSender {
     this.redEncoder.distance = n;
   }
 
+  /** Internal: the negotiated send parameters, for a negotiation baseline. */
+  snapshotSendParams() {
+    return {
+      cname: this.cname,
+      mid: this.mid,
+      headerExtensions: [...this.headerExtensions],
+      rtpStreamId: this.rtpStreamId,
+      repairedRtpStreamId: this.repairedRtpStreamId,
+      codec: this.codec,
+      track: this.track,
+      trackCodec: this.track?.codec,
+      rtxPayloadType: this.rtxPayloadType,
+      redRedundantPayloadType: this.redRedundantPayloadType,
+    };
+  }
+
+  /** Internal: return to a negotiation baseline's send parameters. */
+  restoreSendParams(snapshot: ReturnType<RTCRtpSender["snapshotSendParams"]>) {
+    this.cname = snapshot.cname;
+    this.mid = snapshot.mid;
+    this.headerExtensions = [...snapshot.headerExtensions];
+    this.rtpStreamId = snapshot.rtpStreamId;
+    this.repairedRtpStreamId = snapshot.repairedRtpStreamId;
+    this.codec = snapshot.codec;
+    if (this.track && this.track === snapshot.track) {
+      this.track.codec = snapshot.trackCodec;
+    }
+    this.rtxPayloadType = snapshot.rtxPayloadType;
+    this.redRedundantPayloadType = snapshot.redRedundantPayloadType;
+  }
+
   prepareSend(params: RTCRtpSendParameters) {
     this.cname = params.rtcp?.cname;
     this.mid = params.muxId;
@@ -266,6 +297,10 @@ export class RTCRtpSender {
       this.track.codec = this.codec;
     }
 
+    // Derived from these codecs only: a description without RTX/RED turns
+    // them off instead of keeping an earlier negotiation's payload type.
+    this.rtxPayloadType = undefined;
+    this.redRedundantPayloadType = undefined;
     params.codecs.forEach((codec) => {
       const codecParams = codecParametersFromString(codec.parameters ?? "");
       if (

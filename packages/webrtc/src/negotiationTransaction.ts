@@ -17,7 +17,8 @@ type TransceiverBaseline = {
   stopped: boolean;
   applicationStopRevision: number;
   dtlsTransport: RTCDtlsTransport;
-  senderCodec: RTCRtpTransceiver["sender"]["codec"];
+  senderParams: ReturnType<RTCRtpTransceiver["sender"]["snapshotSendParams"]>;
+  receiverTWCC: RTCRtpTransceiver["receiver"]["receiverTWCC"];
   remoteStreamIds: string[];
   remoteStreamId?: string;
   remoteTrackId?: string;
@@ -97,7 +98,21 @@ export class NegotiationTransaction {
    * does not open a transaction: nothing is pending until the offer is set.
    */
   snapshotForOffer() {
-    if (!this.baseline) this.offerSnapshot = this.capture();
+    if (this.baseline) return;
+    const fresh = this.capture();
+    if (!this.offerSnapshot) {
+      this.offerSnapshot = fresh;
+      return;
+    }
+    // Earlier createOffer calls were not applied: keep the state from before
+    // the first of them (their MIDs and m-line indexes are not negotiated),
+    // and only add transceivers the application created since.
+    for (const [transceiver, state] of fresh.transceivers) {
+      if (!this.offerSnapshot.transceivers.has(transceiver)) {
+        this.offerSnapshot.transceivers.set(transceiver, state);
+        this.offerSnapshot.orderedTransceivers.push(transceiver);
+      }
+    }
   }
 
   /**
@@ -106,6 +121,9 @@ export class NegotiationTransaction {
    * createOffer assigned revert on rollback; anything else captures now.
    */
   begin({ fromCreatedOffer = false }: { fromCreatedOffer?: boolean } = {}) {
+    if (!this.baseline && !fromCreatedOffer && this.offerSnapshot) {
+      this.revertUnappliedOffer(this.offerSnapshot);
+    }
     if (!this.baseline) {
       this.baseline =
         (fromCreatedOffer ? this.offerSnapshot : undefined) ?? this.capture();
@@ -114,6 +132,29 @@ export class NegotiationTransaction {
     this.revision++;
     this.phase = "pending";
     return this.revision;
+  }
+
+  /**
+   * A created offer that was never applied must not leave its MID and m-line
+   * assignments behind (W3C associates a MID only when a description is
+   * set). When a remote offer opens the transaction instead, transceivers the
+   * session never negotiated go back to the snapshot createOffer took.
+   */
+  private revertUnappliedOffer(snapshot: Baseline) {
+    for (const [transceiver, state] of snapshot.transceivers) {
+      if (transceiver.currentDirection || transceiver.stopped) continue;
+      transceiver.mid = state.mid;
+      transceiver.mLineIndex = state.mLineIndex;
+    }
+    const sctp = this.sctp.sctpTransport;
+    if (
+      sctp &&
+      sctp === snapshot.sctpTransport &&
+      this.sctp.sctpRemotePort === undefined
+    ) {
+      sctp.mid = snapshot.sctpMid;
+      sctp.mLineIndex = snapshot.sctpMLineIndex;
+    }
   }
 
   private capture(): Baseline {
@@ -133,7 +174,8 @@ export class NegotiationTransaction {
             stopped: transceiver.stopped,
             applicationStopRevision: getApplicationStopRevision(transceiver),
             dtlsTransport: transceiver.dtlsTransport,
-            senderCodec: transceiver.sender.codec,
+            senderParams: transceiver.sender.snapshotSendParams(),
+            receiverTWCC: transceiver.receiver.receiverTWCC,
             remoteStreamIds: [...transceiver.receiver.remoteStreamIds],
             remoteStreamId: transceiver.receiver.remoteStreamId,
             remoteTrackId: transceiver.receiver.remoteTrackId,
@@ -390,7 +432,14 @@ export class NegotiationTransaction {
           state.applicationStopRevision;
       transceiver.stopped = state.stopped;
       transceiver.setDtlsTransport(state.dtlsTransport);
-      transceiver.sender.codec = state.senderCodec;
+      transceiver.sender.restoreSendParams(state.senderParams);
+      // Transport-cc feedback a pending description started for this
+      // receiver stops; the current session's feedback (if any) remains.
+      const receiver = transceiver.receiver;
+      if (receiver.receiverTWCC !== state.receiverTWCC) {
+        if (receiver.receiverTWCC) receiver.receiverTWCC.twccRunning = false;
+        receiver.receiverTWCC = state.receiverTWCC;
+      }
       transceiver.receiver.remoteStreamIds = state.remoteStreamIds;
       transceiver.receiver.remoteStreamId = state.remoteStreamId;
       transceiver.receiver.remoteTrackId = state.remoteTrackId;
