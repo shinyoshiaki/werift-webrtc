@@ -5,6 +5,7 @@ import { browserName, peer, sleep, waitVideoPlay } from "../fixture";
 // replacedMLineIndex: removeTrack で inactive にした m-line の後に追加した transceiver の m-line index
 //   compatible: inactive は port 9 のまま残るので、Chromium は末尾 (3) に追加する
 //   aggressive: inactive は従来どおり port 0 で拒否されるので、Chromium は同じ位置 (1) を再利用する
+//   compatible でもブラウザが transceiver.stop() で開放すれば同じ位置 (1) を再利用する (replaceVariants)
 const modes = [
   { mode: "compatible", suffix: "", removedPort: 9, replacedMLineIndex: 3 },
   {
@@ -27,7 +28,7 @@ function findMLine(sdp: string, mid: string | null) {
 
 describe.each(modes)(
   "mediachannel_removeTrack ($mode)",
-  ({ suffix, removedPort, replacedMLineIndex }) => {
+  ({ mode, suffix, removedPort, replacedMLineIndex }) => {
     const mediachannel_removetrack_addtrack = `mediachannel_removetrack_addtrack${suffix}`;
     const mediachannel_addtrack_removefirst_addtrack = `mediachannel_addtrack_removefirst_addtrack${suffix}`;
     const mediachannel_offer_replace_second = `mediachannel_offer_replace_second${suffix}`;
@@ -178,121 +179,152 @@ describe.each(modes)(
           done();
         }));
     }
-    it(
-      mediachannel_offer_replace_second,
-      // 失敗時に hang せず fail するよう、Promise executor で包まない
-      async () => {
-        if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
-        await sleep(100);
+    // browserStop: ブラウザが removeTrack に加えて transceiver.stop() で m-line を開放する。
+    //   compatible でも port 0 の停止交渉が完了するので、Chromium は同じ位置 (1) を再利用する
+    const replaceVariants = [
+      { browserStop: false, removedPort, replacedMLineIndex },
+      ...(mode === "compatible"
+        ? [{ browserStop: true, removedPort: 0, replacedMLineIndex: 1 }]
+        : []),
+    ];
+    for (const variant of replaceVariants) {
+      it(
+        variant.browserStop
+          ? `${mediachannel_offer_replace_second}_browser_stop`
+          : mediachannel_offer_replace_second,
+        // 失敗時に hang せず fail するよう、Promise executor で包まない
+        async () => {
+          if (!peer.connected)
+            await new Promise<void>((r) => peer.on("open", r));
+          await sleep(100);
 
-        await peer.request(mediachannel_offer_replace_second, {
-          type: "init",
-        });
+          await peer.request(mediachannel_offer_replace_second, {
+            type: "init",
+          });
 
-        const pc = new RTCPeerConnection({
-          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-        });
+          const pc = new RTCPeerConnection({
+            iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+          });
 
-        pc.onicecandidate = ({ candidate }) => {
-          peer
-            .request(mediachannel_offer_replace_second, {
-              type: "candidate",
-              payload: candidate,
-            })
-            .catch(() => {});
-        };
+          pc.onicecandidate = ({ candidate }) => {
+            peer
+              .request(mediachannel_offer_replace_second, {
+                type: "candidate",
+                payload: candidate,
+              })
+              .catch(() => {});
+          };
 
-        const [video] = (
-          await navigator.mediaDevices.getUserMedia({ video: true })
-        ).getTracks();
+          const [video] = (
+            await navigator.mediaDevices.getUserMedia({ video: true })
+          ).getTracks();
 
-        // add first
-        pc.addTransceiver(video, { direction: "sendonly" });
-        await pc.setLocalDescription(await pc.createOffer());
-        const answer = await peer.request(mediachannel_offer_replace_second, {
-          type: "offer",
-          payload: pc.localDescription,
-        });
-        await pc.setRemoteDescription(answer);
-
-        await peer.request(mediachannel_offer_replace_second, {
-          type: "check",
-          payload: { index: 0 },
-        });
-
-        // add second
-        const second = pc.addTransceiver(video, { direction: "sendonly" });
-        {
+          // add first
+          pc.addTransceiver(video, { direction: "sendonly" });
           await pc.setLocalDescription(await pc.createOffer());
           const answer = await peer.request(mediachannel_offer_replace_second, {
             type: "offer",
             payload: pc.localDescription,
           });
           await pc.setRemoteDescription(answer);
-        }
-        await peer.request(mediachannel_offer_replace_second, {
-          type: "check",
-          payload: { index: 1 },
-        });
 
-        // add third
-        pc.addTransceiver(video, { direction: "sendonly" });
-        {
-          await pc.setLocalDescription(await pc.createOffer());
-          const answer = await peer.request(mediachannel_offer_replace_second, {
-            type: "offer",
-            payload: pc.localDescription,
-          });
-          await pc.setRemoteDescription(answer);
-        }
-        await peer.request(mediachannel_offer_replace_second, {
-          type: "check",
-          payload: { index: 2 },
-        });
-
-        // remove second
-        // aggressive では Chromium が停止を確定すると mid が null になるため先に保持する
-        const secondMid = second.mid;
-        pc.removeTrack(second.sender);
-        {
-          await pc.setLocalDescription(await pc.createOffer());
-          const answer = await peer.request(mediachannel_offer_replace_second, {
-            type: "offer",
-            payload: pc.localDescription,
+          await peer.request(mediachannel_offer_replace_second, {
+            type: "check",
+            payload: { index: 0 },
           });
 
-          await pc.setRemoteDescription(answer).catch((e) => {
-            throw e;
+          // add second
+          const second = pc.addTransceiver(video, { direction: "sendonly" });
+          {
+            await pc.setLocalDescription(await pc.createOffer());
+            const answer = await peer.request(
+              mediachannel_offer_replace_second,
+              {
+                type: "offer",
+                payload: pc.localDescription,
+              },
+            );
+            await pc.setRemoteDescription(answer);
+          }
+          await peer.request(mediachannel_offer_replace_second, {
+            type: "check",
+            payload: { index: 1 },
           });
 
-          // removeTrack した m-line の answer port はモードごとの従来挙動になる
-          expect(findMLine(answer.sdp, secondMid).port).toBe(removedPort);
-        }
-
-        // replace second
-        const replaced = pc.addTransceiver(video, { direction: "sendonly" });
-        {
-          await pc.setLocalDescription(await pc.createOffer());
-          const answer = await peer.request(mediachannel_offer_replace_second, {
-            type: "offer",
-            payload: pc.localDescription,
+          // add third
+          pc.addTransceiver(video, { direction: "sendonly" });
+          {
+            await pc.setLocalDescription(await pc.createOffer());
+            const answer = await peer.request(
+              mediachannel_offer_replace_second,
+              {
+                type: "offer",
+                payload: pc.localDescription,
+              },
+            );
+            await pc.setRemoteDescription(answer);
+          }
+          await peer.request(mediachannel_offer_replace_second, {
+            type: "check",
+            payload: { index: 2 },
           });
-          await pc.setRemoteDescription(answer);
-        }
-        // 追加した transceiver の m-line 位置はモードごとに決まり、そこで RTP を受信できる
-        const replacedIndex = findMLine(
-          pc.localDescription!.sdp,
-          replaced.mid,
-        ).index;
-        expect(replacedIndex).toBe(replacedMLineIndex);
-        await peer.request(mediachannel_offer_replace_second, {
-          type: "check",
-          payload: { index: replacedIndex },
-        });
 
-        pc.close();
-      },
-      60 * 1000,
-    );
+          // remove second
+          // aggressive では Chromium が停止を確定すると mid が null になるため先に保持する
+          const secondMid = second.mid;
+          pc.removeTrack(second.sender);
+          if (variant.browserStop) {
+            // ブラウザ側で m-line を開放する (次の offer で port 0 を交渉する)
+            second.stop();
+          }
+          {
+            await pc.setLocalDescription(await pc.createOffer());
+            const answer = await peer.request(
+              mediachannel_offer_replace_second,
+              {
+                type: "offer",
+                payload: pc.localDescription,
+              },
+            );
+
+            await pc.setRemoteDescription(answer).catch((e) => {
+              throw e;
+            });
+
+            // removeTrack した m-line の answer port はモードごとの従来挙動になる
+            expect(findMLine(answer.sdp, secondMid).port).toBe(
+              variant.removedPort,
+            );
+          }
+
+          // replace second
+          const replaced = pc.addTransceiver(video, { direction: "sendonly" });
+          {
+            await pc.setLocalDescription(await pc.createOffer());
+            const answer = await peer.request(
+              mediachannel_offer_replace_second,
+              {
+                type: "offer",
+                payload: pc.localDescription,
+              },
+            );
+            await pc.setRemoteDescription(answer);
+          }
+          // 追加した transceiver の m-line 位置はモードごとに決まり、そこで RTP を受信できる
+          const replacedIndex = findMLine(
+            pc.localDescription!.sdp,
+            replaced.mid,
+          ).index;
+          expect(replacedIndex).toBe(variant.replacedMLineIndex);
+          await peer.request(mediachannel_offer_replace_second, {
+            type: "check",
+            payload: { index: replacedIndex },
+          });
+
+          pc.close();
+        },
+        60 * 1000,
+      );
+    }
   },
 );
