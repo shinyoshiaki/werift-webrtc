@@ -190,6 +190,13 @@ export class RTCRtpReceiver {
     this.nack.close();
   }
 
+  /**transceiver の停止確定時に remote track を ended にする */
+  endTracks() {
+    for (const track of [...this.tracks, this.defaultTrack]) {
+      track.stop();
+    }
+  }
+
   async runRtcp() {
     if (this.rtcpRunning || this.stopped) return;
     this.rtcpRunning = true;

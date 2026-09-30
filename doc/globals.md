@@ -148,6 +148,7 @@
 - [RTCRtpParameters](interfaces/RTCRtpParameters.md)
 - [RTCRtpReceiveParameters](interfaces/RTCRtpReceiveParameters.md)
 - [RTCRtpStreamStats](interfaces/RTCRtpStreamStats.md)
+- [RTCSctpConfiguration](interfaces/RTCSctpConfiguration.md)
 - [RTCSentRtpStreamStats](interfaces/RTCSentRtpStreamStats.md)
 - [RTCSessionDescriptionInit](interfaces/RTCSessionDescriptionInit.md)
 - [RTCStats](interfaces/RTCStats.md)
@@ -184,6 +185,7 @@
 - [InterfaceAddresses](type-aliases/InterfaceAddresses.md)
 - [Kind](type-aliases/Kind.md)
 - [MediaDirection](type-aliases/MediaDirection.md)
+- [MLineReuse](type-aliases/MLineReuse.md)
 - [NamedCurveAlgorithms](type-aliases/NamedCurveAlgorithms.md)
 - [PendingRtpOptions](type-aliases/PendingRtpOptions.md)
 - [RequireAtLeastOne](type-aliases/RequireAtLeastOne.md)
@@ -269,6 +271,7 @@
 - [supportedAudioCodecs](variables/supportedAudioCodecs.md)
 - [supportedCodecs](variables/supportedCodecs.md)
 - [supportedVideoCodecs](variables/supportedVideoCodecs.md)
+- [TCP\_CHECK\_RESPONSE\_TIMEOUT\_MS](variables/TCP_CHECK_RESPONSE_TIMEOUT_MS.md)
 - [timer](variables/timer.md)
 
 ## Functions

@@ -46,6 +46,14 @@
 
 ***
 
+### onConnectionClosed?
+
+> `optional` **onConnectionClosed**: `Event`\<\[readonly \[`string`, `number`\]\]\>
+
+Connection-oriented protocols: the connection to this remote address is gone.
+
+***
+
 ### onDataReceived
 
 > **onDataReceived**: `Event`\<\[`Buffer`\<`ArrayBufferLike`\>\]\>

@@ -78,7 +78,7 @@
 
 ### addTransceiver()
 
-> **addTransceiver**(`trackOrKind`, `dtlsTransport`?, `options`?): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+> **addTransceiver**(`trackOrKind`, `dtlsTransport`?, `options`?, `__namedParameters`?): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
 
 #### Parameters
 
@@ -93,6 +93,14 @@
 ##### options?
 
 `Partial`\<[`TransceiverOptions`](../interfaces/TransceiverOptions.md)\> = `{}`
+
+##### \_\_namedParameters?
+
+###### remoteMLineIndex?
+
+`number`
+
+remote offer 起因で作る場合の m-line index。確定済み停止位置の自動再利用は行わない
 
 #### Returns
 
@@ -109,6 +117,43 @@
 ##### transceiver
 
 [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+
+#### Returns
+
+`void`
+
+***
+
+### associateMLine()
+
+> **associateMLine**(`transceiver`, `mLineIndex`): `void`
+
+既存の未関連付け transceiver を remote m-line の位置に関連付ける。
+同じ位置に停止済みの旧 transceiver があれば m-line から外し、配列上でも置き換える。
+(旧 transceiver が位置を持ったままだと MID の割り当て先が重複する)
+
+#### Parameters
+
+##### transceiver
+
+[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+
+##### mLineIndex
+
+`number`
+
+#### Returns
+
+`void`
+
+***
+
+### beginRemoteOffer()
+
+> **beginRemoteOffer**(): `void`
+
+remote offer 適用前の transceiver 対応を保存する。
+同じ offer/answer 交換中に複数回呼ばれても最初の状態を保持する。
 
 #### Returns
 
@@ -141,6 +186,19 @@
 #### Returns
 
 [`RTCStats`](../interfaces/RTCStats.md)[]
+
+***
+
+### commitRemoteOffer()
+
+> **commitRemoteOffer**(): `void`
+
+local answer の確定で、拒否予定の m-line を停止・解放する。
+remote SDP 起因の停止なので negotiationneeded は要求しない。
+
+#### Returns
+
+`void`
 
 ***
 
@@ -242,6 +300,24 @@
 
 ***
 
+### negotiateCodecs()
+
+> **negotiateCodecs**(`remoteMedia`): [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+
+remote m-line の codec と local 設定の共通部分を返す
+
+#### Parameters
+
+##### remoteMedia
+
+[`MediaDescription`](MediaDescription.md)
+
+#### Returns
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+
+***
+
 ### pushTransceiver()
 
 > **pushTransceiver**(`t`): `void`
@@ -258,9 +334,34 @@
 
 ***
 
+### releaseUnassociatedReservations()
+
+> **releaseUnassociatedReservations**(`associated`, `mLineCount`): `void`
+
+remote offer が定義した位置のうち、関連付けられなかった未交渉 transceiver の予約を解除する。
+(remote が予約位置を別 kind や別 transceiver で再利用した場合、次の offer で末尾に追加させる)
+
+#### Parameters
+
+##### associated
+
+`Set`\<[`RTCRtpTransceiver`](RTCRtpTransceiver.md)\>
+
+##### mLineCount
+
+`number`
+
+#### Returns
+
+`void`
+
+***
+
 ### removeTrack()
 
-> **removeTrack**(`sender`): `void`
+> **removeTrack**(`sender`): `boolean`
+
+sender から track を外す。
 
 #### Parameters
 
@@ -270,7 +371,9 @@
 
 #### Returns
 
-`void`
+`boolean`
+
+交渉が必要な変更をした場合 true (呼び出し側が negotiationneeded を要求する)
 
 ***
 
@@ -294,9 +397,25 @@
 
 ***
 
+### rollbackRemoteOffer()
+
+> **rollbackRemoteOffer**(): `void`
+
+remote offer の rollback で transceiver 対応を元に戻す
+
+#### Returns
+
+`void`
+
+***
+
 ### setRemoteRTP()
 
-> **setRemoteRTP**(`transceiver`, `remoteMedia`, `type`, `mLineIndex`): `void`
+> **setRemoteRTP**(`transceiver`, `remoteMedia`, `type`, `mLineIndex`): `boolean`
+
+remote m-line を transceiver に適用する。
+共通 codec がない、または remote port 0 の m-line は拒否として扱い、
+sender/receiver 準備・router 登録・onTrack・TWCC を行わない。
 
 #### Parameters
 
@@ -318,4 +437,29 @@
 
 #### Returns
 
-`void`
+`boolean`
+
+受け入れた (RTP を流す) 場合 true
+
+***
+
+### settleStoppingTransceivers()
+
+> **settleStoppingTransceivers**(`negotiatedMids`): `boolean`
+
+answer 確定後に、stopping のまま交渉対象になり得ない transceiver の停止を確定する。
+(MID が確定済み local description の非ゼロ m-line にない = offer から外れる)
+
+#### Parameters
+
+##### negotiatedMids
+
+`Set`\<`string`\>
+
+確定済み local description の非ゼロ port の MID
+
+#### Returns
+
+`boolean`
+
+次の自分の offer で port 0 を交渉すべき transceiver があるか
