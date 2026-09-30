@@ -82,6 +82,20 @@ export class TransceiverManager {
     RTCRtpTransceiver,
     { track: MediaStreamTrack; streams: string[] }
   >();
+  private readonly watched = new WeakSet<RTCRtpTransceiver>();
+  private remoteOfferSnapshot?: {
+    transceivers: RTCRtpTransceiver[];
+    remoteCreated: Set<RTCRtpTransceiver>;
+    states: Map<
+      RTCRtpTransceiver,
+      {
+        mid: string | null;
+        mLineIndex?: number;
+        pendingRejection: boolean;
+        firedReceiving: boolean;
+      }
+    >;
+  };
 
   getNotifiedRemoteTrack(transceiver: RTCRtpTransceiver) {
     const state = this.notifiedRemoteTrack.get(transceiver);
@@ -167,6 +181,7 @@ export class TransceiverManager {
   }
 
   pushTransceiver(t: RTCRtpTransceiver): void {
+    this.watchTransceiver(t);
     this.transceivers.push(t);
   }
 
@@ -181,19 +196,110 @@ export class TransceiverManager {
   }
 
   replaceTransceiver(t: RTCRtpTransceiver, index: number): void {
+    this.watchTransceiver(t);
     this.transceivers[index] = t;
+  }
+
+  /**m-line から外れた transceiver の購読を解除する */
+  private unwatchTransceiver(t: RTCRtpTransceiver) {
+    this.watched.delete(t);
+    t.onRelease.allUnsubscribe();
+    t.onStopRequested.allUnsubscribe();
+  }
+
+  private watchTransceiver(t: RTCRtpTransceiver) {
+    if (this.watched.has(t)) {
+      return;
+    }
+    this.watched.add(t);
+    t.onRelease.subscribe(() => {
+      this.router.unregisterTransceiver(t);
+    });
+    t.onStopRequested.subscribe(() => {
+      // 未関連付けの stop は m-line を作らないので交渉不要
+      if (!t.stopped) {
+        this.onNegotiationNeeded.execute();
+      }
+    });
+  }
+
+  /**
+   * 拒否 / 停止の交渉が確定した port 0 の位置のうち、同じ kind で
+   * まだ他の transceiver が予約していないものを返す。
+   * stopping (未交渉) の位置は先取りしない。
+   */
+  private findReusableTransceiver(kind: Kind) {
+    return this.transceivers.find(
+      (t) =>
+        t.stopped &&
+        t.kind === kind &&
+        t.mLineIndex != undefined &&
+        !this.transceivers.some(
+          (other) => other !== t && other.mLineIndex === t.mLineIndex,
+        ),
+    );
+  }
+
+  /**旧 transceiver を m-line から外し、同じ位置に新しい transceiver を置く */
+  private takeOverMLine(
+    oldTransceiver: RTCRtpTransceiver,
+    newTransceiver: RTCRtpTransceiver,
+  ) {
+    const index = this.transceivers.indexOf(oldTransceiver);
+    newTransceiver.mLineIndex = oldTransceiver.mLineIndex;
+    oldTransceiver.mid = null;
+    oldTransceiver.mLineIndex = undefined;
+    this.unwatchTransceiver(oldTransceiver);
+    this.replaceTransceiver(newTransceiver, index);
+  }
+
+  /**
+   * 既存の未関連付け transceiver を remote m-line の位置に関連付ける。
+   * 同じ位置に停止済みの旧 transceiver があれば m-line から外し、配列上でも置き換える。
+   * (旧 transceiver が位置を持ったままだと MID の割り当て先が重複する)
+   */
+  associateMLine(transceiver: RTCRtpTransceiver, mLineIndex: number) {
+    const previous = this.transceivers.find(
+      (t) => t !== transceiver && t.stopped && t.mLineIndex === mLineIndex,
+    );
+    if (!previous) {
+      return;
+    }
+    this.transceivers.splice(this.transceivers.indexOf(transceiver), 1);
+    this.takeOverMLine(previous, transceiver);
+  }
+
+  /**
+   * remote offer が定義した位置のうち、関連付けられなかった未交渉 transceiver の予約を解除する。
+   * (remote が予約位置を別 kind や別 transceiver で再利用した場合、次の offer で末尾に追加させる)
+   */
+  releaseUnassociatedReservations(
+    associated: Set<RTCRtpTransceiver>,
+    mLineCount: number,
+  ) {
+    for (const t of this.transceivers) {
+      if (
+        !associated.has(t) &&
+        t.mid == null &&
+        t.mLineIndex != undefined &&
+        t.mLineIndex < mLineCount
+      ) {
+        t.mLineIndex = undefined;
+      }
+    }
   }
 
   addTransceiver(
     trackOrKind: Kind | MediaStreamTrack,
     dtlsTransport?: RTCDtlsTransport,
     options: Partial<TransceiverOptions> = {},
-    /**
-     * An application call may take over an inactive transceiver's slot
-     * (werift behavior). One created for a pending remote offer never does:
-     * it must not change a transceiver the current session knows.
-     */
-    { reuseInactive = true }: { reuseInactive?: boolean } = {},
+    {
+      reuseInactive = true,
+      remoteMLineIndex,
+    }: {
+      reuseInactive?: boolean;
+      remoteMLineIndex?: number;
+    } = {},
   ): RTCRtpTransceiver {
     const kind =
       typeof trackOrKind === "string" ? trackOrKind : trackOrKind.kind;
@@ -224,20 +330,27 @@ export class TransceiverManager {
     );
     this.router.registerRtpSender(newTransceiver.sender);
 
-    // reuse inactive
-    const inactiveTransceiverIndex = this.transceivers.findIndex(
-      (t) => t.currentDirection === "inactive" && !t.usedForSender,
-    );
-    const inactiveTransceiver = this.transceivers.find(
-      (t) => t.currentDirection === "inactive" && !t.usedForSender,
-    );
-    if (reuseInactive && inactiveTransceiverIndex > -1 && inactiveTransceiver) {
-      this.replaceTransceiver(newTransceiver, inactiveTransceiverIndex);
-      newTransceiver.mLineIndex = inactiveTransceiver.mLineIndex;
-      newTransceiver.mid = inactiveTransceiver.mid;
-      inactiveTransceiver.setCurrentDirection(undefined);
+    const reusable =
+      remoteMLineIndex != undefined
+        ? this.transceivers.find(
+            (t) => t.stopped && t.mLineIndex === remoteMLineIndex,
+          )
+        : reuseInactive
+          ? this.transceivers.find(
+              (t) => t.currentDirection === "inactive" && !t.usedForSender,
+            )
+          : undefined;
+    if (reusable) {
+      const index = this.transceivers.indexOf(reusable);
+      this.replaceTransceiver(newTransceiver, index);
+      newTransceiver.mLineIndex = reusable.mLineIndex;
+      newTransceiver.mid = reusable.mid;
+      reusable.setCurrentDirection(undefined);
     } else {
       this.pushTransceiver(newTransceiver);
+    }
+    if (remoteMLineIndex != undefined) {
+      this.remoteOfferSnapshot?.remoteCreated.add(newTransceiver);
     }
     this.onTransceiverAdded.execute(newTransceiver);
 
@@ -255,11 +368,17 @@ export class TransceiverManager {
       );
     }
 
+    const reusableForTrack = (t: RTCRtpTransceiver) =>
+      t.sender.track == undefined &&
+      t.kind === track.kind &&
+      !t.usedForSender &&
+      !t.stopping &&
+      !t.stopped &&
+      !t.rejected &&
+      !t.pendingRejection;
+
     const emptyTrackSenderTransceiver = this.transceivers.find(
-      (t) =>
-        t.sender.track == undefined &&
-        t.kind === track.kind &&
-        SenderDirections.includes(t.direction) === true,
+      (t) => reusableForTrack(t) && SenderDirections.includes(t.direction),
     );
     if (emptyTrackSenderTransceiver) {
       const sender = emptyTrackSenderTransceiver.sender;
@@ -273,11 +392,7 @@ export class TransceiverManager {
     }
 
     const notSendTransceiver = this.transceivers.find(
-      (t) =>
-        t.sender.track == undefined &&
-        t.kind === track.kind &&
-        SenderDirections.includes(t.direction) === false &&
-        !t.usedForSender,
+      (t) => reusableForTrack(t) && !SenderDirections.includes(t.direction),
     );
     if (notSendTransceiver) {
       const sender = notSendTransceiver.sender;
@@ -305,7 +420,11 @@ export class TransceiverManager {
     }
   }
 
-  removeTrack(sender: RTCRtpSender): void {
+  /**
+   * sender から track を外す。
+   * @returns 交渉が必要な変更をした場合 true (呼び出し側が negotiationneeded を要求する)
+   */
+  removeTrack(sender: RTCRtpSender): boolean {
     if (!this.getSenders().find(({ ssrc }) => sender.ssrc === ssrc)) {
       throw createWebRtcDomException(
         "InvalidAccessError",
@@ -319,24 +438,22 @@ export class TransceiverManager {
     if (!transceiver) throw new Error("No matching transceiver found");
 
     if (transceiver.stopping || transceiver.stopped) {
-      return;
+      return false;
     }
 
-    sender.stop();
-
-    if (["recvonly", "inactive"].includes(transceiver.currentDirection ?? "")) {
-      this.onNegotiationNeeded.execute();
-      return;
+    if (sender.track == undefined) {
+      return false;
     }
+
+    // sender 自体は止めず track だけ外し、同じ sender で送信を再開できるようにする
+    sender.detachTrack();
 
     if (transceiver.direction === "sendrecv") {
       transceiver.setDirection("recvonly");
-    } else if (
-      transceiver.direction === "sendonly" ||
-      transceiver.direction === "recvonly"
-    ) {
+    } else if (transceiver.direction === "sendonly") {
       transceiver.setDirection("inactive");
     }
+    return true;
   }
 
   assignTransceiverCodecs(transceiver: RTCRtpTransceiver): void {
@@ -414,33 +531,57 @@ export class TransceiverManager {
     return receiveParameters;
   }
 
+  /**remote m-line の codec と local 設定の共通部分を返す */
+  negotiateCodecs(remoteMedia: MediaDescription): RTCRtpCodecParameters[] {
+    return negotiateRemoteCodecs(
+      this.config.codecs[remoteMedia.kind] || [],
+      remoteMedia,
+    );
+  }
+
+  /** remote m-line を適用する。拒否された m-line なら false を返す */
   setRemoteRTP(
     transceiver: RTCRtpTransceiver,
     remoteMedia: MediaDescription,
     type: "offer" | "answer" | "pranswer",
     mLineIndex: number,
-  ): void {
+  ): boolean {
     if (!transceiver.mid) {
       transceiver.mid = remoteMedia.rtp.muxId ?? null;
     }
     transceiver.mLineIndex = mLineIndex;
 
+    if (transceiver.stopped) {
+      // 確定済みの停止 / 拒否 m-line は復活させない
+      return false;
+    }
+
+    if (transceiver.stopping) {
+      // app の stop() は自分の offer で交渉する。port 0 の answer で停止を確定する
+      if (type === "answer" && remoteMedia.port === 0) {
+        transceiver.commitStopped({ rejected: false });
+      }
+      return false;
+    }
+
     adoptSenderTrackCodec(this.config, transceiver.sender.track);
 
     // # negotiate codecs
-    transceiver.codecs = negotiateRemoteCodecs(
-      this.config.codecs[remoteMedia.kind] || [],
-      remoteMedia,
-    );
+    const codecs = this.negotiateCodecs(remoteMedia);
+    log("negotiated codecs", codecs);
 
-    log("negotiated codecs", transceiver.codecs);
-    if (transceiver.codecs.length === 0 && remoteMedia.port !== 0) {
-      if (type === "offer") {
-        transceiver.offerDirection = "inactive";
-        return;
+    if (remoteMedia.port === 0 || codecs.length === 0) {
+      if (type === "answer") {
+        transceiver.commitStopped({ rejected: true });
+      } else {
+        // answer が確定するまで既存の RTP pipeline / track は維持する
+        transceiver.pendingRejection = true;
       }
-      throw new Error("negotiate codecs failed.");
+      return false;
     }
+    transceiver.pendingRejection = false;
+
+    transceiver.codecs = codecs;
     transceiver.headerExtensions = remoteMedia.rtp.headerExtensions.filter(
       (extension) =>
         (
@@ -484,10 +625,7 @@ export class TransceiverManager {
       // register ssrc receiver
       this.router.registerRtpReceiverBySsrc(transceiver, remotePrams, staging);
     }
-    if (
-      remoteMedia.port !== 0 &&
-      ["sendonly", "sendrecv"].includes(mediaDirection)
-    ) {
+    if (["sendonly", "sendrecv"].includes(mediaDirection)) {
       const remoteStreamIds = [
         ...new Set(remoteMedia.msids.map((msid) => msid.split(" ")[0])),
       ];
@@ -514,6 +652,10 @@ export class TransceiverManager {
           ),
         });
       }
+      transceiver.firedReceiving = true;
+    } else {
+      this.notifiedRemoteTrack.delete(transceiver);
+      transceiver.firedReceiving = false;
     }
 
     // A pending offer or pranswer does not start transport-cc feedback for
@@ -522,6 +664,105 @@ export class TransceiverManager {
     if (type === "answer" && remoteMedia.ssrc[0]?.ssrc) {
       transceiver.receiver.setupTWCC(remoteMedia.ssrc[0].ssrc);
     }
+    return true;
+  }
+
+  /**
+   * remote offer 適用前の transceiver 対応を保存する。
+   * 同じ offer/answer 交換中に複数回呼ばれても最初の状態を保持する。
+   */
+  beginRemoteOffer() {
+    if (this.remoteOfferSnapshot) {
+      return;
+    }
+    this.remoteOfferSnapshot = {
+      transceivers: [...this.transceivers],
+      remoteCreated: new Set(),
+      states: new Map(
+        this.transceivers.map((t) => [
+          t,
+          {
+            mid: t.mid,
+            mLineIndex: t.mLineIndex,
+            pendingRejection: t.pendingRejection,
+            firedReceiving: t.firedReceiving,
+          },
+        ]),
+      ),
+    };
+  }
+
+  /**
+   * local answer の確定で、拒否予定の m-line を停止・解放する。
+   * remote SDP 起因の停止なので negotiationneeded は要求しない。
+   */
+  commitRemoteOffer() {
+    this.remoteOfferSnapshot = undefined;
+    for (const transceiver of this.transceivers) {
+      if (transceiver.pendingRejection) {
+        transceiver.commitStopped({ rejected: true });
+      }
+    }
+  }
+
+  /**remote offer の rollback で transceiver 対応を元に戻す */
+  rollbackRemoteOffer() {
+    const snapshot = this.remoteOfferSnapshot;
+    this.remoteOfferSnapshot = undefined;
+    if (!snapshot) {
+      return;
+    }
+
+    for (const transceiver of this.transceivers) {
+      if (snapshot.states.has(transceiver)) {
+        continue;
+      }
+      // app が追加した transceiver と、remote offer が作ったが app が addTrack で使い始めた
+      // transceiver は残し、関連付けだけ外す (track の有無ではなく作成元で判定する)
+      if (
+        !snapshot.remoteCreated.has(transceiver) ||
+        transceiver.sender.track
+      ) {
+        transceiver.mid = null;
+        transceiver.mLineIndex = undefined;
+        snapshot.transceivers.push(transceiver);
+        continue;
+      }
+      // remote offer が作った transceiver は破棄する
+      transceiver.forceStop();
+      this.unwatchTransceiver(transceiver);
+    }
+
+    this.transceivers.splice(
+      0,
+      this.transceivers.length,
+      ...snapshot.transceivers,
+    );
+    snapshot.transceivers.forEach((t) => this.watchTransceiver(t));
+    for (const [transceiver, state] of snapshot.states) {
+      transceiver.mid = state.mid;
+      transceiver.mLineIndex = state.mLineIndex;
+      transceiver.pendingRejection = state.pendingRejection;
+      transceiver.firedReceiving = state.firedReceiving;
+    }
+  }
+
+  /**
+   * answer 確定後に、stopping のまま交渉対象になり得ない transceiver の停止を確定する。
+   * (MID が確定済み local description の非ゼロ m-line にない = offer から外れる)
+   * @param negotiatedMids 確定済み local description の非ゼロ port の MID
+   * @returns 次の自分の offer で port 0 を交渉すべき transceiver があるか
+   */
+  settleStoppingTransceivers(negotiatedMids: Set<string>) {
+    for (const t of this.transceivers) {
+      if (!t.stopping || t.stopped) {
+        continue;
+      }
+      if (t.mid == undefined || !negotiatedMids.has(t.mid)) {
+        t.commitStopped({ rejected: false });
+      }
+    }
+    return this.transceivers.some((t) => t.stopping && !t.stopped);
   }
 
   collectStats(timestamp: number): RTCStats[] {
@@ -569,6 +810,7 @@ export class TransceiverManager {
   close() {
     for (const transceiver of this.transceivers) {
       transceiver.forceStop();
+      this.unwatchTransceiver(transceiver);
     }
 
     this.onTransceiverAdded.allUnsubscribe();

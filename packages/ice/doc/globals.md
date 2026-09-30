@@ -58,6 +58,7 @@
 - [IPV6\_PROTOCOL](variables/IPV6_PROTOCOL.md)
 - [RETRY\_MAX](variables/RETRY_MAX.md)
 - [RETRY\_RTO](variables/RETRY_RTO.md)
+- [TCP\_CHECK\_RESPONSE\_TIMEOUT\_MS](variables/TCP_CHECK_RESPONSE_TIMEOUT_MS.md)
 
 ## Functions
 

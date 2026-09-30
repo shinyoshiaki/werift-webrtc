@@ -748,38 +748,44 @@ export class RTCPeerConnection extends EventTarget {
         return;
       }
 
+      const owner = this.resolveLocalCandidateOwner(iceTransport);
+      if (!owner) return;
       this.secureManager.handleNewIceCandidate({
         candidate,
-        bundlePolicy: this.sdpManager.bundlePolicy,
-        remoteIsBundled: !!this.sdpManager.remoteIsBundled?.items.some(
-          (mid) =>
-            this.transceiverManager
-              .getTransceivers()
-              .some(
-                (t) =>
-                  t.dtlsTransport.iceTransport.id === iceTransport.id &&
-                  t.mid === mid,
-              ) ||
-            (this.sctpTransport?.dtlsTransport.iceTransport.id ===
-              iceTransport.id &&
-              this.sctpTransport.mid === mid),
-        ),
-        media:
-          this._localDescription.media.find(
-            (media) =>
-              media.rtp.muxId === this.sdpManager.remoteIsBundled?.items[0],
-          ) ?? this._localDescription.media[0],
-        transceiver: this.transceiverManager
-          .getTransceivers()
-          .find((t) => t?.dtlsTransport?.iceTransport.id === iceTransport.id),
-        sctpTransport:
-          this.sctpTransport?.dtlsTransport.iceTransport.id === iceTransport.id
-            ? this.sctpTransport
-            : undefined,
+        sdpMid: owner.mid,
+        sdpMLineIndex: owner.index,
       });
     });
 
     return dtlsTransport;
+  }
+
+  /**Resolve candidate metadata from an accepted m-line that owns this transport. */
+  private resolveLocalCandidateOwner(iceTransport: RTCIceTransport) {
+    const description = this._localDescription;
+    if (!description) return;
+    const owners = description.media
+      .map((media, index) => ({ media, index }))
+      .filter(({ media }) => {
+        if (media.port === 0) return false;
+        const mid = media.rtp.muxId;
+        if (media.kind === "application") {
+          return (
+            this.sctpTransport?.mid === mid &&
+            this.sctpTransport.dtlsTransport.iceTransport.id === iceTransport.id
+          );
+        }
+        const transceiver = this.transceiverManager
+          .getTransceivers()
+          .find((t) => t.mid === mid && !t.stopped);
+        return transceiver?.dtlsTransport.iceTransport.id === iceTransport.id;
+      });
+    if (owners.length === 0) return;
+    const bundle = description.group.find(
+      (group) => group.semantic === "BUNDLE",
+    );
+    const tag = bundle?.items[0];
+    return owners.find(({ media }) => media.rtp.muxId === tag) ?? owners[0];
   }
 
   async setLocalDescription(sessionDescription: {
@@ -1073,6 +1079,8 @@ export class RTCPeerConnection extends EventTarget {
         }
       }
       if (description.type === "answer") {
+        // remote offer が拒否予定にした transceiver を final answer で確定する。
+        this.transceiverManager.commitRemoteOffer();
         for (const media of description.media.filter(
           (media) => media.port === 0,
         )) {
@@ -1080,9 +1088,9 @@ export class RTCPeerConnection extends EventTarget {
             .getTransceivers()
             .find((t) => t.mid === media.rtp.muxId);
           // Same as a remote answer: an `inactive` m-line also has port zero.
-          if (rejected?.stopping) {
+          if (rejected?.stopping || rejected?.pendingRejection) {
             this.router.unregisterTransceiver(rejected);
-            rejected.forceStop();
+            rejected.commitStopped({ rejected: !rejected.stopping });
           }
         }
       }
@@ -1344,6 +1352,7 @@ export class RTCPeerConnection extends EventTarget {
         bundledMids.has(media.rtp.muxId) ? bundle!.items[0] : media.rtp.muxId,
       );
     }
+
     const currentByMid = new Map<string, RTCDtlsTransport>();
     for (const transceiver of this.transceiverManager.getTransceivers()) {
       if (transceiver.mid)
@@ -1355,35 +1364,37 @@ export class RTCPeerConnection extends EventTarget {
         this.sctpTransport.dtlsTransport,
       );
     }
-    const staged: {
-      mid: string;
-      transport: RTCDtlsTransport;
-      pendingOnly: boolean;
-    }[] = [];
+
+    // Select one transport per proposed owner, starting with the transport
+    // already bound to the BUNDLE tag. Every member then follows that owner.
+    const ownerTransport = new Map<
+      string,
+      { transport: RTCDtlsTransport; pendingOnly: boolean }
+    >();
+    const used = new Set<RTCDtlsTransport>();
     const created: RTCDtlsTransport[] = [];
-    const assignedOwner = new Map<RTCDtlsTransport, string>();
     try {
-      for (const [mid, owner] of ownerByMid) {
-        let transport = currentByMid.get(mid);
+      for (const owner of new Set(ownerByMid.values())) {
+        let transport = currentByMid.get(owner);
         let pendingOnly = false;
-        if (
-          !transport ||
-          (assignedOwner.has(transport) &&
-            assignedOwner.get(transport) !== owner)
-        ) {
+        if (!transport || used.has(transport)) {
           transport = this.findOrCreateTransport(true);
           created.push(transport);
           pendingOnly = true;
           await transport.iceTransport.gather();
         }
-        assignedOwner.set(transport, owner);
-        staged.push({ mid, transport, pendingOnly });
+        used.add(transport);
+        ownerTransport.set(owner, { transport, pendingOnly });
       }
     } catch (error) {
       await Promise.allSettled(created.map((transport) => transport.stop()));
       throw error;
     }
-    return staged;
+
+    return [...ownerByMid].map(([mid, owner]) => ({
+      mid,
+      ...ownerTransport.get(owner)!,
+    }));
   }
 
   /** Hand staged local-offer transports to the pending transaction. */
@@ -2241,12 +2252,21 @@ export class RTCPeerConnection extends EventTarget {
               const rejected = this.transceiverManager
                 .getTransceivers()
                 .find((t) => t.mid === remoteMedia.rtp.muxId);
+              const offered =
+                this.sdpManager.pendingLocalDescription?.media.find(
+                  (media) => media.rtp.muxId === remoteMedia.rtp.muxId,
+                );
               // werift writes an `inactive` m-line with port zero, so a zero
               // port stops only a transceiver the application is stopping.
-              if (rejected?.stopping) {
+              if (
+                rejected &&
+                (rejected.stopping ||
+                  rejected.pendingRejection ||
+                  (offered?.port !== 0 && offered != undefined))
+              ) {
                 transportUpdates.push(() => {
                   this.router.unregisterTransceiver(rejected);
-                  rejected.forceStop();
+                  rejected.commitStopped({ rejected: !rejected.stopping });
                 });
               } else if (rejected && !rejected.stopped) {
                 rejected.setCurrentDirection("inactive");

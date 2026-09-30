@@ -12,6 +12,16 @@ so consent freshness (retransmissions: 0, longer timeout) can be expressed.
 
 ## Properties
 
+### failOnSendError?
+
+> `optional` **failOnSendError**: `boolean`
+
+Fail the transaction as soon as the request cannot be sent instead of
+waiting for the response timeout. Used on reliable transports (TCP),
+where a send error means the connection itself is unusable.
+
+***
+
 ### integrityKey?
 
 > `optional` **integrityKey**: `Buffer`\<`ArrayBufferLike`\>

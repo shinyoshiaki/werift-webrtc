@@ -290,6 +290,11 @@ seconds
 > **commitStagedReceive**(): `void`
 
 Internal: the transaction committed, staged payload types and RTX pairs apply.
+### endTracks()
+
+> **endTracks**(): `void`
+
+transceiver の停止確定時に remote track を ended にする
 
 #### Returns
 

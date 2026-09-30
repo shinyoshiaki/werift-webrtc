@@ -46,6 +46,18 @@
 
 ***
 
+### onConnectionClosed
+
+> `readonly` **onConnectionClosed**: `Event`\<\[readonly \[`string`, `number`\]\]\>
+
+The connection to this remote address was closed (by either side).
+
+#### Inherited from
+
+`BaseTcpProtocol.onConnectionClosed`
+
+***
+
 ### onDataReceived
 
 > `readonly` **onDataReceived**: `Event`\<\[`Buffer`\<`ArrayBufferLike`\>\]\>
@@ -188,21 +200,45 @@
 
 ### forgetSocket()
 
-> `protected` **forgetSocket**(`remoteAddr`?): `void`
+> `protected` **forgetSocket**(`entry`): `boolean`
+
+Drop `entry` only if it is still the socket registered for its address.
 
 #### Parameters
 
-##### remoteAddr?
+##### entry
+
+`SocketEntry`
+
+#### Returns
+
+`boolean`
+
+#### Inherited from
+
+`BaseTcpProtocol.forgetSocket`
+
+***
+
+### getOpenSocket()
+
+> `protected` **getOpenSocket**(`addr`): `undefined` \| `SocketEntry`
+
+Registered socket for `addr`, discarding it if it is already closed.
+
+#### Parameters
+
+##### addr
 
 readonly \[`string`, `number`\]
 
 #### Returns
 
-`void`
+`undefined` \| `SocketEntry`
 
 #### Inherited from
 
-`BaseTcpProtocol.forgetSocket`
+`BaseTcpProtocol.getOpenSocket`
 
 ***
 

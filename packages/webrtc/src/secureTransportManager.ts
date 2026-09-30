@@ -65,21 +65,23 @@ export class SecureTransportManager {
     }
   }
 
+  /**live な m-line (停止確定していない transceiver / SCTP) が使う transport */
   get dtlsTransports() {
-    const transports = [
+    return uniqueTransports([
       ...this.transceiverManager
         .getTransceivers()
         .filter((transceiver) => !transceiver.stopped)
         .map((transceiver) => transceiver.dtlsTransport),
       this.sctpManager.sctpTransport?.dtlsTransport,
-    ].filter((t) => t != undefined);
+    ]);
+  }
 
-    return transports.reduce((acc: RTCDtlsTransport[], cur) => {
-      if (!acc.map((d) => d.id).includes(cur.id)) {
-        acc.push(cur);
-      }
-      return acc;
-    }, []);
+  /**停止済み transceiver の transport も含めた全 transport */
+  private get allDtlsTransports() {
+    return uniqueTransports([
+      ...this.transceiverManager.getTransceivers().map((t) => t?.dtlsTransport),
+      this.sctpManager.sctpTransport?.dtlsTransport,
+    ]);
   }
 
   get iceTransports() {
@@ -141,10 +143,15 @@ export class SecureTransportManager {
     }
   }
 
-  createTransport(independentIceCredentials = false) {
-    const existing =
-      !independentIceCredentials &&
-      this.iceTransports.find((transport) => transport.state !== "closed");
+  createTransport(option: boolean | { inheritCredentials?: boolean } = true) {
+    const inheritCredentials =
+      typeof option === "boolean"
+        ? !option
+        : option.inheritCredentials !== false;
+    const independentIceCredentials = !inheritCredentials;
+    const existing = inheritCredentials
+      ? this.iceTransports.find((transport) => transport.state !== "closed")
+      : undefined;
 
     const iceGatherer = new RTCIceGatherer({
       ...this.resolveIceServerOptions(),
@@ -208,37 +215,21 @@ export class SecureTransportManager {
     return dtlsTransport;
   }
 
+  /**
+   * sdpMid / sdpMLineIndex は ICE transport を所有する受け入れ済み m-line
+   * (BUNDLE なら tag) を呼び出し側で解決して渡す。
+   */
   handleNewIceCandidate({
     candidate,
-    media,
-    remoteIsBundled,
-    transceiver,
-    sctpTransport,
-    bundlePolicy,
+    sdpMid,
+    sdpMLineIndex,
   }: {
     candidate: IceCandidate;
-    media?: MediaDescription;
-    remoteIsBundled: boolean;
-    transceiver?: RTCRtpTransceiver;
-    sctpTransport?: RTCSctpTransport;
-    bundlePolicy?: BundlePolicy;
+    sdpMid?: string;
+    sdpMLineIndex?: number;
   }) {
-    // Assign sdpMid and sdpMLineIndex
-    if (bundlePolicy === "max-bundle" || remoteIsBundled) {
-      candidate.sdpMLineIndex = 0;
-      if (media) {
-        candidate.sdpMid = media.rtp.muxId;
-      }
-    } else {
-      if (transceiver) {
-        candidate.sdpMLineIndex = transceiver.mLineIndex;
-        candidate.sdpMid = transceiver.mid ?? undefined;
-      }
-      if (sctpTransport) {
-        candidate.sdpMLineIndex = sctpTransport.mLineIndex;
-        candidate.sdpMid = sctpTransport.mid;
-      }
-    }
+    candidate.sdpMid = sdpMid;
+    candidate.sdpMLineIndex = sdpMLineIndex;
 
     if (
       candidate.foundation &&
@@ -332,6 +323,13 @@ export class SecureTransportManager {
     const iceTransport = this.getTransportByMLineIndex(sdp, targetMediaIndex);
 
     if (!iceTransport && applyToTransport) {
+      if (this.isRejectedMedia(targetMedia)) {
+        return {
+          kind: "candidate" as const,
+          candidate,
+          mediaIndices: [targetMediaIndex],
+        };
+      }
       throw createWebRtcDomException(
         "OperationError",
         "ICE transport not found for candidate",
@@ -405,6 +403,24 @@ export class SecureTransportManager {
     return mediaIndices;
   }
 
+  private isRejectedMedia(media: MediaDescription) {
+    if (media.port === 0) {
+      return true;
+    }
+    if (!["audio", "video"].includes(media.kind)) {
+      return false;
+    }
+    const transceiver = this.transceiverManager
+      .getTransceivers()
+      .find((t) => t.mid != undefined && t.mid === media.rtp.muxId);
+    return (
+      !transceiver ||
+      transceiver.stopped ||
+      transceiver.stopping ||
+      transceiver.pendingRejection
+    );
+  }
+
   private getTransportByMid(mid?: string) {
     if (!mid) {
       return;
@@ -415,11 +431,14 @@ export class SecureTransportManager {
       .getTransceivers()
       .find((t) => t.mid === mid);
     if (transceiver) {
-      iceTransport = transceiver.dtlsTransport.iceTransport;
+      iceTransport = transceiver.dtlsTransport?.iceTransport;
     } else if (!iceTransport && this.sctpManager.sctpTransport?.mid === mid) {
       iceTransport = this.sctpManager.sctpTransport.dtlsTransport.iceTransport;
     }
 
+    if (iceTransport?.state === "closed") {
+      return;
+    }
     return iceTransport;
   }
 
@@ -499,11 +518,19 @@ export class SecureTransportManager {
   setLocalRole({
     type,
     role,
+    roleOfTransport,
   }: {
     type: "offer" | "answer";
-    role: (
-      dtlsTransport: RTCDtlsTransport,
-    ) => "auto" | "client" | "server" | undefined;
+    role:
+      | "auto"
+      | "client"
+      | "server"
+      | undefined
+      | ((
+          transport: RTCDtlsTransport,
+        ) => "auto" | "client" | "server" | undefined);
+    /**local description でその transport を使う m-line の role */
+    roleOfTransport?: Map<RTCDtlsTransport, "auto" | "client" | "server">;
   }) {
     for (const dtlsTransport of this.dtlsTransports) {
       const iceTransport = dtlsTransport.iceTransport;
@@ -520,7 +547,9 @@ export class SecureTransportManager {
 
       // # set DTLS role for mediasoup
       if (type === "answer") {
-        const transportRole = role(dtlsTransport);
+        const transportRole =
+          roleOfTransport?.get(dtlsTransport) ??
+          (typeof role === "function" ? role(dtlsTransport) : role);
         if (transportRole) {
           dtlsTransport.role = transportRole;
         }
@@ -614,11 +643,14 @@ export class SecureTransportManager {
   }
 
   async gatherCandidates() {
-    // A partial BUNDLE group may coexist with a connected owner and a new
-    // unbundled transport. Gather every new transport independently.
+    // Partial BUNDLE topology can have an established owner and newly added transports.
     await Promise.allSettled(
       this.iceTransports
-        .filter((iceTransport) => iceTransport.gatheringState === "new")
+        .filter(
+          (iceTransport) =>
+            iceTransport.state !== "closed" &&
+            iceTransport.gatheringState === "new",
+        )
         .map((iceTransport) => iceTransport.gather()),
     );
   }
@@ -658,13 +690,22 @@ export class SecureTransportManager {
   async close() {
     this.setConnectionState("closed");
 
-    await Promise.allSettled([...this.dtlsTransports.map((t) => t.stop())]);
+    await Promise.allSettled([...this.allDtlsTransports.map((t) => t.stop())]);
 
     this.iceGatheringStateChange.allUnsubscribe();
     this.iceConnectionStateChange.allUnsubscribe();
     this.onIceCandidate.allUnsubscribe();
     this.connectionStateChange.allUnsubscribe();
   }
+}
+
+function uniqueTransports(transports: (RTCDtlsTransport | undefined)[]) {
+  return transports.reduce((acc: RTCDtlsTransport[], cur) => {
+    if (cur && !acc.map((d) => d.id).includes(cur.id)) {
+      acc.push(cur);
+    }
+    return acc;
+  }, []);
 }
 
 const srtpProfiles = [

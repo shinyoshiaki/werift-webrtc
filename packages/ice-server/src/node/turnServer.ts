@@ -148,6 +148,30 @@ export class NodeTurnServer {
       throw new Error("NodeTurnServer tls requires both key and cert");
     }
 
+    // With port 0, UDP picks an ephemeral port and TCP reuses that number.
+    // The number may already be taken on the TCP side, so pick a new one.
+    const sharesEphemeralPort =
+      this.port === 0 && this.udpEnabled && this.tcpEnabled;
+    const maxAttempts = sharesEphemeralPort ? SHARED_PORT_BIND_ATTEMPTS : 1;
+
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await this.listenTransports();
+        break;
+      } catch (error) {
+        // Never leave a half-open server behind (e.g. UDP bound, TCP failed).
+        await this.closeListeners();
+        if (isAddressInUseError(error) && attempt < maxAttempts) {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    this.updateTimer();
+  }
+
+  private async listenTransports() {
     if (this.udpEnabled) {
       await this.listenUdp();
     }
@@ -165,8 +189,6 @@ export class NodeTurnServer {
         await this.listenTls(this.tlsPort);
       }
     }
-
-    this.updateTimer();
   }
 
   attachTlsSocket(
@@ -207,6 +229,10 @@ export class NodeTurnServer {
     );
     this.relaySockets.clear();
 
+    await Promise.all([...relayClosers, this.closeListeners()]);
+  }
+
+  private async closeListeners() {
     const closers: Promise<void>[] = [];
     if (this.udpSocket) {
       const udpSocket = this.udpSocket;
@@ -241,7 +267,7 @@ export class NodeTurnServer {
 
     this.boundPort = undefined;
     this.boundTlsPort = undefined;
-    await Promise.all([...relayClosers, ...closers]);
+    await Promise.all(closers);
   }
 
   private async listenUdp() {
@@ -664,6 +690,17 @@ function normalizeAddress(address: string) {
 
 function isWildcardAddress(address: string) {
   return address === "0.0.0.0" || address === "::";
+}
+
+const SHARED_PORT_BIND_ATTEMPTS = 10;
+
+function isAddressInUseError(error: unknown) {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    "code" in error &&
+    (error as NodeJS.ErrnoException).code === "EADDRINUSE"
+  );
 }
 
 function isClosedTcpWriteError(error: unknown) {

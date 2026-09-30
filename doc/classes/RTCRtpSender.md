@@ -228,6 +228,19 @@
 
 ***
 
+### detachTrack()
+
+> **detachTrack**(): `void`
+
+Detach the current track without stopping the sender (`removeTrack`).
+The same sender can resume sending after `replaceTrack(track)`.
+
+#### Returns
+
+`void`
+
+***
+
 ### getParameters()
 
 > **getParameters**(): `object`
@@ -575,7 +588,15 @@ Internal: the negotiated send parameters, for a negotiation baseline.
 
 ### stop()
 
-> **stop**(): `void`
+> **stop**(`__namedParameters`): `void`
+
+#### Parameters
+
+##### \_\_namedParameters
+
+###### keepTrack?
+
+`boolean` = `false`
 
 #### Returns
 

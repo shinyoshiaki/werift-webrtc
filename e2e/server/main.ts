@@ -56,6 +56,11 @@ import {
   mediachannel_removetrack_addtrack,
 } from "./handler/mediachannel/removeTrack";
 import {
+  mediachannel_reject_unsupported_video,
+  mediachannel_reuse_aggressive,
+  mediachannel_reuse_compatible,
+} from "./handler/mediachannel/reuse";
+import {
   mediachannel_rtx_client_answer,
   mediachannel_rtx_client_offer,
 } from "./handler/mediachannel/rtx";
@@ -190,6 +195,17 @@ function attachWebSocketServer() {
         new mediachannel_addtrack_removefirst_addtrack(),
       mediachannel_offer_replace_second:
         new mediachannel_offer_replace_second(),
+      // Issue #705: aggressive モードでも removeTrack の挙動が変わらないことを確認する
+      mediachannel_removetrack_addtrack_aggressive:
+        new mediachannel_removetrack_addtrack("aggressive"),
+      mediachannel_addtrack_removefirst_addtrack_aggressive:
+        new mediachannel_addtrack_removefirst_addtrack("aggressive"),
+      mediachannel_offer_replace_second_aggressive:
+        new mediachannel_offer_replace_second("aggressive"),
+      mediachannel_reuse_compatible: new mediachannel_reuse_compatible(),
+      mediachannel_reuse_aggressive: new mediachannel_reuse_aggressive(),
+      mediachannel_reject_unsupported_video:
+        new mediachannel_reject_unsupported_video(),
       ice_restart_web_trigger: new ice_restart_web_trigger(),
       ice_restart_node_trigger: new ice_restart_node_trigger(),
     };

@@ -63,6 +63,7 @@ export class Transaction {
   private readonly onResponse = new Event<[Message, Address]>();
   private readonly onRequestSent?: (attempt: number) => void;
   private readonly signal?: AbortSignal;
+  private readonly failOnSendError: boolean;
   /** Remote address this transaction was sent to; responses must match. */
   readonly expectedAddr: Address;
   /**
@@ -91,6 +92,7 @@ export class Transaction {
     this.timeoutDelay = options.responseTimeout ?? RETRY_RTO;
     this.onRequestSent = options.onRequestSent;
     this.signal = options.signal;
+    this.failOnSendError = options.failOnSendError ?? false;
     this.expectedAddr = addr;
     this.integrityKey = options.integrityKey;
   }
@@ -171,13 +173,17 @@ export class Transaction {
   }
 
   private failWithTimeout() {
+    this.fail(new TransactionTimeout());
+  }
+
+  private fail(error: Error) {
     if (this.ended) {
       return;
     }
     this.ended = true;
     this.clearWait();
     if (this.onResponse.length > 0) {
-      this.onResponse.error(new TransactionTimeout());
+      this.onResponse.error(error);
     }
   }
 
@@ -211,6 +217,9 @@ export class Transaction {
       this.onRequestSent?.(this.tries);
       this.protocol.sendStun(this.request, this.addr).catch((e) => {
         log("send stun failed", e);
+        if (this.failOnSendError) {
+          this.fail(e);
+        }
       });
       await this.wait(this.timeoutDelay);
       if (this.ended) {
