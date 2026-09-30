@@ -124,6 +124,16 @@ export class Connection implements IceConnection {
   // P2P接続完了したソケット
   nominated?: CandidatePair;
   private nominating = false;
+  /** Authenticated pair the remote peer last sent application data on. */
+  private lastDataPair?: CandidatePair;
+  /**
+   * Selected pairs of the previous generation (ours and the one the peer was
+   * sending on; nomination can be asymmetric). RFC 8445 §9: media continues
+   * over the previously selected pair until the restart selects a new one.
+   * The peer may keep using it after we nominate, so these are released once
+   * the peer sends on an authenticated current-generation pair.
+   */
+  private previousSelectedPairs: CandidatePair[] = [];
   private checkListDone = false;
   private checkListState = new PQueue<number>();
   private incomingPairWait?: { settle: (learned: boolean) => void };
@@ -239,6 +249,14 @@ export class Connection implements IceConnection {
   }
 
   async restart() {
+    const selected = [this.nominated, this.lastDataPair].filter(
+      (pair): pair is CandidatePair =>
+        pair !== undefined && isAuthenticatedHandshakePair(pair),
+    );
+    if (selected.length > 0) {
+      this.previousSelectedPairs = [...new Set(selected)];
+    }
+    this.lastDataPair = undefined;
     this.generation++;
     this.abandonInFlightStunTransactions();
 
@@ -477,6 +495,10 @@ export class Connection implements IceConnection {
           addr !== undefined &&
           pair !== undefined &&
           isAuthenticatedHandshakePair(pair);
+        if (authenticated) {
+          this.lastDataPair = pair;
+          this.previousSelectedPairs = [];
+        }
         connectionDatagramEvent(this).execute({
           bytes: data,
           // Never copy pair.remoteAddr into source: a missing addr must not
@@ -486,6 +508,8 @@ export class Connection implements IceConnection {
           pair,
           generation: this.generation,
           authenticated,
+          fromPreviousSelectedPair:
+            pair === undefined && this.isPreviousSelectedPair(protocol, addr),
         });
 
         const activePair = this.nominated;
@@ -1478,6 +1502,8 @@ export class Connection implements IceConnection {
     }
 
     this.nominated = undefined;
+    this.lastDataPair = undefined;
+    this.previousSelectedPairs = [];
     for (const protocol of this.protocols) {
       if (protocol.close) {
         await protocol.close();
@@ -1666,6 +1692,18 @@ export class Connection implements IceConnection {
       return this.nominated;
     }
     return this.checkList.find((candidate) => candidate.protocol === protocol);
+  }
+
+  private isPreviousSelectedPair(protocol: Protocol, addr?: Address) {
+    if (addr === undefined) {
+      return false;
+    }
+    return this.previousSelectedPairs.some(
+      (previous) =>
+        previous.protocol === protocol &&
+        previous.remoteAddr[0] === addr[0] &&
+        previous.remoteAddr[1] === addr[1],
+    );
   }
 
   private hasOutstandingChecks(): boolean {

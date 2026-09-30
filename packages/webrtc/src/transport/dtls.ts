@@ -1357,10 +1357,14 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     const ice = this.iceTransport.connection as Connection;
     const current = this.currentAttempt;
     if (ctx.generation !== ice.generation) return;
-    if (!ctx.authenticated || !ctx.pair) return;
-    if (ctx.protocol !== ctx.pair.protocol) return;
-    const remote = ctx.pair.remoteAddr;
-    if (ctx.source[0] !== remote[0] || ctx.source[1] !== remote[1]) return;
+    // ICE restart 後も相手が新 pair へ移るまでは、旧世代の選択 pair の media を
+    // 受け付ける (RFC 8445 §9)。DTLS の認証経路には使わない。
+    if (!ctx.fromPreviousSelectedPair) {
+      if (!ctx.authenticated || !ctx.pair) return;
+      if (ctx.protocol !== ctx.pair.protocol) return;
+      const remote = ctx.pair.remoteAddr;
+      if (ctx.source[0] !== remote[0] || ctx.source[1] !== remote[1]) return;
+    }
 
     const data = ctx.bytes;
     if (!isMedia(data)) return;
