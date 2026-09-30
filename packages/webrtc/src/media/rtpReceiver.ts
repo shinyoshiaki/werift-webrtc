@@ -97,6 +97,8 @@ export class RTCRtpReceiver {
   private remoteOctetCountBySsrc: { [ssrc: number]: number } = {};
   private nackCountBySsrc: { [ssrc: number]: number } = {};
   private pliCountBySsrc: { [ssrc: number]: number } = {};
+  /** Media payload type last received on each SSRC (RTX resolved to its media SSRC). */
+  private payloadTypeBySsrc: { [ssrc: number]: number } = {};
 
   constructor(
     readonly config: PeerConfig,
@@ -441,9 +443,26 @@ export class RTCRtpReceiver {
     return buildStatsReport(stats, this.getStatsRootIds());
   }
 
+  /**
+   * Internal: whether PLI is negotiated for `mediaSsrc`, and the payload type
+   * that decides it. PLI follows the negotiated receive codec of this SSRC:
+   * the live codec table (current while a proposal is pending, switched at
+   * commit and restored on rollback), not the codec its track was created with.
+   */
+  pliNegotiation(mediaSsrc: number) {
+    const payloadType =
+      this.payloadTypeBySsrc[mediaSsrc] ??
+      this.trackBySSRC[mediaSsrc]?.codec?.payloadType;
+    const codec =
+      payloadType != undefined ? this.codecs[payloadType] : undefined;
+    return {
+      payloadType: codec ? payloadType : undefined,
+      allowed: codec ? hasFeedback(codec, usePLI().type) : !!this.pliEnabled,
+    };
+  }
+
   async sendRtcpPLI(mediaSsrc: number) {
-    const codec = this.trackBySSRC[mediaSsrc]?.codec;
-    if (codec ? !hasFeedback(codec, usePLI().type) : !this.pliEnabled) {
+    if (!this.pliNegotiation(mediaSsrc).allowed) {
       log("pli not supported", { mediaSsrc });
       return;
     }
@@ -571,6 +590,8 @@ export class RTCRtpReceiver {
         return;
       }
     }
+
+    this.payloadTypeBySsrc[packet.header.ssrc] = mediaCodec.payloadType;
 
     if (track?.kind === "video" && hasFeedback(mediaCodec, "nack")) {
       this.nack.addPacket(packet);

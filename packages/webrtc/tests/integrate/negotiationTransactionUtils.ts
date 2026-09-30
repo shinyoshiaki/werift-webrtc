@@ -5,6 +5,8 @@ import {
   type RTCDataChannel,
   RTCPeerConnection,
   RTCRtpCodecParameters,
+  type RTCRtpReceiver,
+  type RTCRtpSender,
   type RTCRtpTransceiver,
   RtpHeader,
   RtpPacket,
@@ -65,6 +67,47 @@ export async function createConnectedVideoPeers(
   ]);
   if (!incoming) throw new Error("Remote video track was not delivered");
   return { offerer, answerer, outgoing, incoming };
+}
+
+/** VP8 without RTCP feedback, for sessions that renegotiate NACK / PLI later. */
+export const videoWithoutFeedback = {
+  codecs: { video: [useVP8({ rtcpFeedback: [] })] },
+};
+
+/** Rewrite the VP8 `a=rtcp-fb` lines of an SDP: remove them, or add NACK and PLI. */
+export function rewriteVideoFeedback(sdp: string, mode: "add" | "remove") {
+  if (mode === "remove") {
+    return sdp.replace(/^a=rtcp-fb:\d+ nack(?: pli)?\r?\n/gm, "");
+  }
+  return sdp.replace(
+    /^(a=rtpmap:(\d+) VP8\/90000)\r?$/m,
+    "$1\r\na=rtcp-fb:$2 nack\r\na=rtcp-fb:$2 nack pli",
+  );
+}
+
+/**
+ * Request a PLI from `receiver` for `sender`'s SSRC and report whether it
+ * actually reached `sender` (a real RTCP packet over the session).
+ */
+export async function pliReaches(
+  receiver: RTCRtpReceiver,
+  sender: RTCRtpSender,
+  waitMs = 500,
+) {
+  let received = false;
+  const { unSubscribe } = sender.onPictureLossIndication.subscribe(() => {
+    received = true;
+  });
+  try {
+    await receiver.sendRtcpPLI(sender.ssrc);
+    const deadline = Date.now() + waitMs;
+    while (!received && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    return received;
+  } finally {
+    unSubscribe();
+  }
 }
 
 /** Connected video + DataChannel session whose SCTP association is established. */
@@ -608,6 +651,20 @@ function assertRouterAndCodecs(pc: RTCPeerConnection, snapshot: Snapshot) {
         (c) => c.payloadType === codec.payloadType,
       )!;
       expect(receiveCodecKey(live)).toEqual(receiveCodecKey(committed));
+    }
+    // 実際の PLI 送信判定も、その SSRC の current SDP の codec の RTCP feedback に従う。
+    for (const { ssrc } of media.ssrc) {
+      if (!transceiver.receiver.trackBySSRC[ssrc]) continue;
+      const { payloadType, allowed } =
+        transceiver.receiver.pliNegotiation(ssrc);
+      const committed = media.rtp.codecs.find(
+        (c) => c.payloadType === payloadType,
+      );
+      if (!committed) continue;
+      expect(allowed).toBe(
+        // werift は nack 系 feedback (nack / nack pli) の交渉で PLI を送る。
+        committed.rtcpFeedback.some((f) => f.type === "nack"),
+      );
     }
   }
 }

@@ -408,6 +408,35 @@ transceiver の停止確定時に remote track を ended にする
 
 ***
 
+### pliNegotiation()
+
+> **pliNegotiation**(`mediaSsrc`): `object`
+
+Internal: whether PLI is negotiated for `mediaSsrc`, and the payload type
+that decides it. PLI follows the negotiated receive codec of this SSRC:
+the live codec table (current while a proposal is pending, switched at
+commit and restored on rollback), not the codec its track was created with.
+
+#### Parameters
+
+##### mediaSsrc
+
+`number`
+
+#### Returns
+
+`object`
+
+##### allowed
+
+> **allowed**: `boolean`
+
+##### payloadType
+
+> **payloadType**: `undefined` \| `number`
+
+***
+
 ### prepareReceive()
 
 > **prepareReceive**(`params`, `__namedParameters`): `void`

@@ -9,11 +9,14 @@ import {
   createUnnegotiatedPeers,
   expectSessionAlive,
   negotiate,
+  pliReaches,
   provisionalIce,
+  rewriteVideoFeedback,
   sectionOf,
   sendAndExpectRtp,
   stubIceMdns,
   trickleCandidate,
+  videoWithoutFeedback,
   waitForCommittedNomination,
 } from "./negotiationTransactionUtils";
 
@@ -593,6 +596,76 @@ describe("negotiation transaction live-state regressions", () => {
 
       // Assert: 呼出し時に pending だった資格情報も置き換え対象なので、要求は残り新しい資格情報を出す。
       expect(ufragOf(retry.sdp)).not.toBe(pending);
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("PLI stops at the commit of a re-offer that removes NACK/PLI for the same SSRC", async () => {
+    const { offerer, answerer } = await createConnectedVideoPeers();
+    const sender = offerer.getTransceivers()[0].sender;
+    const receiver = answerer.getTransceivers()[0].receiver;
+    try {
+      // Arrange: 接続済み session は PLI を交渉済みで、実際に届く。
+      expect(await pliReaches(receiver, sender)).toBe(true);
+
+      // Act: 同じ SSRC の VP8 から NACK/PLI を外した re-offer を pending にする。
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription({
+        type: "offer",
+        sdp: rewriteVideoFeedback(offerer.localDescription!.sdp, "remove"),
+      });
+      // Assert: pending 中は current の設定のまま PLI が届く。
+      expect(await pliReaches(receiver, sender)).toBe(true);
+
+      // Act: answer で確定する。
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+
+      // Assert: 確定した SDP は PLI を持たず、PLI は送られない。
+      expect(answerer.currentLocalDescription!.sdp).not.toMatch(
+        /^a=rtcp-fb:\d+ nack/m,
+      );
+      expect(await pliReaches(receiver, sender)).toBe(false);
+      assertNegotiationInvariants(answerer);
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("PLI starts only at the commit of a re-offer that adds NACK/PLI for the same SSRC", async () => {
+    const { offerer, answerer } =
+      await createConnectedVideoPeers(videoWithoutFeedback);
+    const sender = offerer.getTransceivers()[0].sender;
+    const receiver = answerer.getTransceivers()[0].receiver;
+    const addFeedback = async () => {
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription({
+        type: "offer",
+        sdp: rewriteVideoFeedback(offerer.localDescription!.sdp, "add"),
+      });
+    };
+    try {
+      // Arrange: 初回交渉は PLI を持たず、送られない。
+      expect(await pliReaches(receiver, sender)).toBe(false);
+
+      // Act: 同じ VP8 / SSRC に NACK/PLI を足した re-offer を pending にしてから rollback する。
+      await addFeedback();
+      // Assert: pending 中は current の設定のまま PLI は送られない。
+      expect(await pliReaches(receiver, sender)).toBe(false);
+      await answerer.setRemoteDescription({ type: "rollback" });
+      await offerer.setLocalDescription({ type: "rollback" });
+      // Assert: rollback 後も current の設定に戻ったまま送られない。
+      expect(await pliReaches(receiver, sender)).toBe(false);
+
+      // Act: 同じ re-offer を適用し、answer で確定する。
+      await addFeedback();
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+
+      // Assert: 確定後は PLI が相手 sender に実際に届く。
+      expect(await pliReaches(receiver, sender)).toBe(true);
+      assertNegotiationInvariants(answerer);
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
