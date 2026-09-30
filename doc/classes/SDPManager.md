@@ -110,17 +110,17 @@
 
 ***
 
-### negotiatedBundleTag
+### negotiatedBundleTags
 
 #### Get Signature
 
-> **get** **negotiatedBundleTag**(): `undefined` \| `string`
+> **get** **negotiatedBundleTags**(): `string`[]
 
-確定済み answer の BUNDLE tag (先頭 MID)
+確定済み answer の BUNDLE tag (各 group の先頭 MID)
 
 ##### Returns
 
-`undefined` \| `string`
+`string`[]
 
 ***
 

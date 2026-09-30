@@ -320,6 +320,14 @@ generations apart on them:
 - Restart credentials an applied offer or pranswer signalled stay until that
   description is answered, replaced or rolled back; `createOffer` /
   `createAnswer` reuse them instead of generating new ones.
+- A provisional check counts only for the checklist it was sent for: a
+  response that arrives after a replacement pranswer (new remote credentials)
+  or after its pair left the checklist is ignored, and an incoming check from
+  other remote credentials than the current provisional ones creates no pair.
+- `restartIce()` records the current local ufrags to replace (W3C
+  `[[LocalIceCredentialsToReplace]]`). Every `createOffer` restarts ICE while
+  the request stands; a rollback or glare keeps it, and it clears only when an
+  answer commits local credentials outside that set.
 - Remote end-of-candidates completes a generation (RFC 8838), live or
   provisional: a later candidate of it reaches neither the SDP (current or
   pending) nor any checklist, and its mDNS name is not resolved. A candidate
@@ -377,6 +385,9 @@ inside this transaction:
   replaces what earlier pranswers of the same offer staged: staged routes and
   receive values are dropped before it applies, so the commit switches only to
   what the latest description carries.
+- Every BUNDLE group counts, not only the first: the owner (tag) of each
+  group decides the transport of its members for staged topology, candidate
+  delivery and the DTLS role, and the answer keeps each negotiated tag first.
 - Transport ownership: for a first negotiation and for answers, each offered
   BUNDLE group shares one transport and an m-line outside every group gets its
   own transport with its own ICE credentials, whatever `bundlePolicy` is. A

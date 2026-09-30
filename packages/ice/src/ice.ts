@@ -399,8 +399,15 @@ export class Connection implements IceConnection {
     pair: CandidatePair,
     retry = true,
   ): Promise<void> {
+    const revision = generation.revision;
+    // A check belongs to one checklist: a replacement pranswer (new revision)
+    // or a replaced generation makes its outcome meaningless.
+    const belongs = () =>
+      this.provisional === generation &&
+      generation.revision === revision &&
+      generation.pairs.includes(pair);
     if (
-      this.provisional !== generation ||
+      !belongs() ||
       !generation.started ||
       !generation.remoteUsername ||
       !generation.remotePassword ||
@@ -428,13 +435,13 @@ export class Connection implements IceConnection {
         pair.localCandidate.transport.toLowerCase() === "tcp" ? 0 : 4,
       );
       pair.responsesReceived++;
-      if (this.provisional !== generation) return;
+      if (!belongs()) return;
       if (addr[0] !== pair.remoteAddr[0] || addr[1] !== pair.remoteAddr[1]) {
         pair.updateState(CandidatePairState.FAILED);
         return;
       }
     } catch (error) {
-      if (this.provisional !== generation) return;
+      if (!belongs()) return;
       const code = (error as TransactionError).response?.getAttributeValue(
         "ERROR-CODE",
       )?.[0];
@@ -461,6 +468,16 @@ export class Connection implements IceConnection {
     addr: Address,
     protocol: Protocol,
   ) {
+    // Only checks from the remote credentials of the current checklist count
+    // (a replacement pranswer replaced any earlier ones).
+    const txUsername = message.getAttributeValue("USERNAME");
+    const sender =
+      typeof txUsername === "string"
+        ? decodeTxUsername(txUsername).localUsername
+        : undefined;
+    if (generation.remoteUsername && sender !== generation.remoteUsername) {
+      return;
+    }
     const [host, port] = addr;
     let remoteCandidate = generation.remoteCandidates.find(
       (c) => c.host === host && c.port === port,

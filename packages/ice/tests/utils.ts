@@ -581,3 +581,39 @@ export function provisionalGeneration(connection: Connection) {
     }
   ).provisional;
 }
+
+/**
+ * Arrange: hold the response of the next check request sent for `pair`;
+ * `release` answers it with a success response from the pair's address.
+ */
+export function holdNextCheckResponse(pair: CandidatePair) {
+  const protocol = pair.protocol;
+  const original = protocol.request.bind(protocol);
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  protocol.request = (async () => {
+    protocol.request = original;
+    await held;
+    return [new Message(methods.BINDING, classes.RESPONSE), pair.remoteAddr];
+  }) as typeof protocol.request;
+  return { release };
+}
+
+/** Test-only access to start one provisional check of `pair` directly. */
+export function checkProvisionalPair(
+  connection: Connection,
+  pair: CandidatePair,
+) {
+  const internal = connection as unknown as {
+    provisional?: { started: boolean };
+    checkProvisional: (
+      generation: unknown,
+      pair: CandidatePair,
+    ) => Promise<void>;
+  };
+  const generation = internal.provisional!;
+  generation.started = true;
+  return internal.checkProvisional(generation, pair);
+}

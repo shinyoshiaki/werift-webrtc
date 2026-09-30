@@ -622,7 +622,10 @@ export class SDPManager {
       if (mids.length) {
         const bundle = new GroupDescription(
           "BUNDLE",
-          orderBundleMids(mids, this.negotiatedBundleTag),
+          orderBundleMids(
+            mids,
+            this.negotiatedBundleTags.find((tag) => mids.includes(tag)),
+          ),
         );
         description.group.push(bundle);
       }
@@ -653,13 +656,15 @@ export class SDPManager {
     ].find((t): t is RTCDtlsTransport => !!t && t.state !== "closed");
   }
 
-  /**確定済み answer の BUNDLE tag (先頭 MID) */
-  get negotiatedBundleTag(): string | undefined {
+  /**確定済み answer の BUNDLE tag (各 group の先頭 MID) */
+  get negotiatedBundleTags(): string[] {
     const answer = [
       this.currentLocalDescription,
       this.currentRemoteDescription,
     ].find((d) => d?.type === "answer");
-    return answer?.group.find((g) => g.semantic === "BUNDLE")?.items[0];
+    return (answer?.group ?? [])
+      .filter((g) => g.semantic === "BUNDLE")
+      .map((g) => g.items[0]);
   }
 
   /**
@@ -828,7 +833,7 @@ export class SDPManager {
         .filter((m) => m.port !== 0 && m.rtp.muxId)
         .map((m) => m.rtp.muxId!),
     );
-    const negotiatedTag = this.negotiatedBundleTag;
+    const negotiatedTags = this.negotiatedBundleTags;
 
     return remoteDescription.group
       .filter((group) => group.semantic === "BUNDLE")
@@ -840,7 +845,13 @@ export class SDPManager {
       .filter((mids) => mids.length > 0)
       .map(
         (mids) =>
-          new GroupDescription("BUNDLE", orderBundleMids(mids, negotiatedTag)),
+          new GroupDescription(
+            "BUNDLE",
+            orderBundleMids(
+              mids,
+              negotiatedTags.find((tag) => mids.includes(tag)),
+            ),
+          ),
       );
   }
 

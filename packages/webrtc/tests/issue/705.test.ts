@@ -647,6 +647,47 @@ describe("issue 705: BUNDLE membership, transports and ICE ownership", () => {
   );
 });
 
+describe("issue 705: 複数 BUNDLE group の再交渉", () => {
+  test("a re-offer with the same two BUNDLE groups keeps each group on its own shared transport", async () => {
+    // Arrange: [0,1] と [2,3] の 2 つの BUNDLE group を初回交渉で確定する
+    const pc = createAudioOnlyPeer();
+    const offer = buildRemoteSdp({
+      sections: [
+        { kind: "audio", mid: "0" },
+        { kind: "audio", mid: "1" },
+        { kind: "audio", mid: "2", ufrag: "groupbufrag" },
+        { kind: "audio", mid: "3", ufrag: "groupbufrag" },
+      ],
+      bundles: [
+        ["0", "1"],
+        ["2", "3"],
+      ],
+    });
+
+    try {
+      await answerRemoteOffer(pc, offer);
+      expectTransportsMatchBundle(pc);
+      const [t0, t1, t2, t3] = pc.getTransceivers();
+      const transports = [t0, t1, t2, t3].map((t) => t.dtlsTransport);
+
+      // Act: topology を変えない re-offer を answer で確定する
+      const answer = await answerRemoteOffer(pc, offer);
+
+      // Assert: answer は 2 つの group を保ち、各 group の member は同じ transport を共有し続ける
+      expect(bundleGroups(answer)).toEqual([
+        ["0", "1"],
+        ["2", "3"],
+      ]);
+      expectTransportsMatchBundle(pc);
+      expect([t0, t1, t2, t3].map((t) => t.dtlsTransport)).toEqual(transports);
+      expect(t2.dtlsTransport).toBe(t3.dtlsTransport);
+      expect(t2.dtlsTransport).not.toBe(t0.dtlsTransport);
+    } finally {
+      await closeAll(pc);
+    }
+  });
+});
+
 describe("issue 705: BUNDLE group と transport の対応 (初回 offer/answer)", () => {
   // remote offer の所有関係は bundlePolicy によらず offer の BUNDLE group だけで決まる
   const layouts: {

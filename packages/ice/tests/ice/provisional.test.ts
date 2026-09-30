@@ -1,6 +1,9 @@
 import {
+  checkProvisionalPair,
   createConnectedPair,
   expectDataFlows,
+  holdNextCheckResponse,
+  provisionalGeneration,
   stageProvisionalGeneration,
   waitProvisionalNominated,
 } from "../utils";
@@ -98,6 +101,31 @@ describe("provisional ICE generation", () => {
       expect(a.generation).toBeGreaterThan(generation);
       expect(a.provisionalNominated).toBeUndefined();
       expect(a.nominated).toBeUndefined();
+    } finally {
+      await Promise.all([a.close(), b.close()]);
+    }
+  });
+
+  test("a check answered after a replacement pranswer cannot nominate the new checklist", async () => {
+    const { a, b } = await createConnectedPair();
+    try {
+      // Arrange: provisional generation の check を 1 つ応答待ちにする。
+      await stageProvisionalGeneration(a, b);
+      const pair = provisionalGeneration(a)!.pairs[0];
+      const held = holdNextCheckResponse(pair);
+      const check = checkProvisionalPair(a, pair);
+
+      // Act: 応答待ちの間に replacement pranswer で remote 資格情報を置き換え、旧応答を受ける。
+      a.setProvisionalRemoteParams({
+        usernameFragment: "provB2",
+        password: "provisional-password-b-001",
+      });
+      held.release();
+      await check;
+
+      // Assert: 旧 checklist の pair は新しい checklist に属さず、nominate もされない。
+      expect(provisionalGeneration(a)!.pairs).not.toContain(pair);
+      expect(a.provisionalNominated).toBeUndefined();
     } finally {
       await Promise.all([a.close(), b.close()]);
     }

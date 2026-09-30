@@ -492,4 +492,41 @@ describe("negotiation transaction live-state regressions", () => {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
   });
+
+  test("a restartIce() request survives a rolled-back offer until an answer commits new credentials", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers();
+    const ufragOf = (sdp: string) => sdp.match(/^a=ice-ufrag:(\S+)/m)![1];
+    try {
+      // Arrange: 接続済み session の current ICE 資格情報を控える。
+      const old = ufragOf(offerer.currentLocalDescription!.sdp);
+
+      // Act: restartIce() の offer を適用し、rollback してから offer を作り直す。
+      offerer.restartIce();
+      const first = await offerer.createOffer();
+      await offerer.setLocalDescription(first);
+      await offerer.setLocalDescription({ type: "rollback" });
+      const retry = await offerer.createOffer();
+
+      // Assert: rollback で要求は失われず、作り直した offer も新しい資格情報を提示する。
+      expect(ufragOf(first.sdp)).not.toBe(old);
+      expect(ufragOf(retry.sdp)).not.toBe(old);
+
+      // Act: 作り直した offer で交渉を確定する。
+      await offerer.setLocalDescription(retry);
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      await waitForCommittedNomination(offerer);
+      const committed = ufragOf(offerer.currentLocalDescription!.sdp);
+
+      // Assert: 要求は満たされ、次の offer は確定した資格情報を再利用し、RTP も届く。
+      expect(committed).toBe(ufragOf(retry.sdp));
+      expect(ufragOf((await offerer.createOffer()).sdp)).toBe(committed);
+      assertNegotiationInvariants(offerer);
+      await sendAndExpectRtp(outgoing, incoming, "restart-after-rollback");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
 });

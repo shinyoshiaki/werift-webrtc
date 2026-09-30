@@ -139,6 +139,12 @@ export class RTCPeerConnection extends EventTarget {
   signalingState: RTCSignalingState = "stable";
   negotiationneeded = false;
   needRestart = false;
+  /**
+   * W3C [[LocalIceCredentialsToReplace]]: local ufrags current when
+   * `restartIce()` was called. The request stays until a negotiation commits
+   * local credentials outside this set (rollback or glare keep it).
+   */
+  private iceCredentialsToReplace = new Set<string>();
   private readonly router = new RtpRouter();
   private readonly sdpManager: SDPManager;
   private readonly transceiverManager: TransceiverManager;
@@ -592,13 +598,14 @@ export class RTCPeerConnection extends EventTarget {
     if (this.signalingState === "stable") this.negotiation.snapshotForOffer();
     const restartRequested = !!iceRestart || this.needRestart;
     if (restartRequested) {
-      this.needRestart = false;
       if (
         this.sdpManager.currentLocalDescription &&
         this.sdpManager.currentRemoteDescription
       ) {
         this.secureManager.stageIceRestart();
       } else {
+        // No current credentials to replace: fresh ones satisfy restartIce().
+        this.needRestart = false;
         this.secureManager.restartIce();
       }
     } else if (
@@ -926,7 +933,8 @@ export class RTCPeerConnection extends EventTarget {
         await this.cleanupInitialProvisionalTransport();
         this.setSignalingState("stable");
         this.pendingOfferChangeSeq = undefined;
-        if (this.shouldNegotiationneeded) {
+        // An unsatisfied restartIce() request makes negotiation needed again.
+        if (this.shouldNegotiationneeded || this.needRestart) {
           this.scheduleNegotiationneeded();
         }
         this.invalidateLastCreatedDescriptions();
@@ -1021,12 +1029,10 @@ export class RTCPeerConnection extends EventTarget {
         // Like a remote one, a local answer or pranswer keeps the DTLS role
         // of a live association (RFC 8842 section 5.5); an edited a=setup is
         // refused before it can change the running transport.
-        const bundleItems =
-          description.group.find((group) => group.semantic === "BUNDLE")
-            ?.items ?? [];
-        const bundledNonTag =
-          bundleItems.includes(media.rtp.muxId ?? "") &&
-          bundleItems[0] !== media.rtp.muxId;
+        const bundledNonTag = this.isBundledNonTag(
+          description,
+          media.rtp.muxId,
+        );
         const localRole = media.dtlsParams?.role;
         if (
           description.type !== "offer" &&
@@ -1297,6 +1303,7 @@ export class RTCPeerConnection extends EventTarget {
         this.negotiation.transportByMid,
       );
 
+      if (description.type === "answer") this.settleIceRestartRequest();
       // answerer の stop() は次の自分の offer で交渉する
       const hasUnnegotiatedStop =
         description.type === "answer" && this.settleStoppingTransceivers();
@@ -1375,9 +1382,6 @@ export class RTCPeerConnection extends EventTarget {
   private async activatePendingRemoteTransport(pendingOnly = false) {
     const offer = this.sdpManager.pendingRemoteDescription;
     if (!offer || offer.type !== "offer") return;
-    const bundleItems =
-      offer.group.find((group) => group.semantic === "BUNDLE")?.items ?? [];
-    const bundledMids = new Set(bundleItems);
     const candidatesByTransport = new Map<
       RTCIceTransport,
       Map<string, (typeof offer.media)[number]["iceCandidates"][number]>
@@ -1394,9 +1398,7 @@ export class RTCPeerConnection extends EventTarget {
               .getTransceivers()
               .find((t) => t.mid === media.rtp.muxId)?.dtlsTransport);
       if (!dtls) continue;
-      const bundledNonTag =
-        bundledMids.has(media.rtp.muxId ?? "") &&
-        media.rtp.muxId !== bundleItems[0];
+      const bundledNonTag = this.isBundledNonTag(offer, media.rtp.muxId);
       if (
         pendingOnly &&
         !this.negotiation.isPendingOnlyTransport(dtls.iceTransport.id)
@@ -1464,17 +1466,12 @@ export class RTCPeerConnection extends EventTarget {
    * state as they were.
    */
   private async stageLocalOfferTopology(offer: SessionDescription) {
-    const bundle =
-      this.sdpManager.bundlePolicy === "disable"
-        ? undefined
-        : offer.group.find((group) => group.semantic === "BUNDLE");
-    const bundledMids = new Set(bundle?.items ?? []);
     const ownerByMid = new Map<string, string>();
     for (const media of offer.media) {
       if (media.port === 0 || !media.rtp.muxId) continue;
       ownerByMid.set(
         media.rtp.muxId,
-        bundledMids.has(media.rtp.muxId) ? bundle!.items[0] : media.rtp.muxId,
+        this.bundleTagOf(offer, media.rtp.muxId) ?? media.rtp.muxId,
       );
     }
 
@@ -1540,11 +1537,6 @@ export class RTCPeerConnection extends EventTarget {
    * reuse. `undefined` means the owner needs a new pending transport.
    */
   private planPendingBundleTopology(offer: SessionDescription) {
-    const bundle =
-      this.sdpManager.bundlePolicy === "disable"
-        ? undefined
-        : offer.group.find((group) => group.semantic === "BUNDLE");
-    const bundleMids = new Set(bundle?.items ?? []);
     const ownerByMid = new Map<string, string>();
     for (const media of offer.media) {
       if (media.port === 0 || !media.rtp.muxId) continue;
@@ -1558,7 +1550,7 @@ export class RTCPeerConnection extends EventTarget {
         continue;
       ownerByMid.set(
         media.rtp.muxId,
-        bundleMids.has(media.rtp.muxId) ? bundle!.items[0] : media.rtp.muxId,
+        this.bundleTagOf(offer, media.rtp.muxId) ?? media.rtp.muxId,
       );
     }
 
@@ -1818,10 +1810,7 @@ export class RTCPeerConnection extends EventTarget {
    * checklist and the current SDP (once, and not after its end-of-candidates),
    * exactly like trickled ones. A pending-only transport receives its own.
    */
-  private async deliverSameGenerationDescription(
-    proposal: SessionDescription,
-    bundleItems: string[],
-  ) {
+  private async deliverSameGenerationDescription(proposal: SessionDescription) {
     const current = this.sdpManager.currentRemoteDescription;
     if (!current) return;
     const shared = [...proposal.media.entries()].filter(([, media]) => {
@@ -1838,8 +1827,7 @@ export class RTCPeerConnection extends EventTarget {
     // then end-of-candidates from any m-line, since it ends the shared
     // generation for the whole group.
     for (const [index, media] of shared) {
-      const mid = media.rtp.muxId ?? "";
-      if (bundleItems.includes(mid) && bundleItems[0] !== mid) continue;
+      if (this.isBundledNonTag(proposal, media.rtp.muxId)) continue;
       for (const candidate of media.iceCandidates) {
         await this.deliverSameGenerationCandidate(proposal, current, {
           kind: "candidate",
@@ -2059,7 +2047,32 @@ export class RTCPeerConnection extends EventTarget {
 
   restartIce() {
     this.needRestart = true;
+    this.iceCredentialsToReplace = new Set(this.currentLocalUfrags());
     this.needNegotiation();
+  }
+
+  private currentLocalUfrags() {
+    return (this.sdpManager.currentLocalDescription?.media ?? [])
+      .filter((media) => media.port !== 0)
+      .map((media) => media.iceParams?.usernameFragment)
+      .filter((ufrag): ufrag is string => !!ufrag);
+  }
+
+  /**
+   * An answer committed: a `restartIce()` request is satisfied once no current
+   * local credentials are among those it asked to replace.
+   */
+  private settleIceRestartRequest() {
+    if (!this.needRestart) return;
+    if (
+      this.currentLocalUfrags().some((ufrag) =>
+        this.iceCredentialsToReplace.has(ufrag),
+      )
+    ) {
+      return;
+    }
+    this.needRestart = false;
+    this.iceCredentialsToReplace.clear();
   }
 
   async setRemoteDescription(sessionDescription: RTCSessionDescriptionInit) {
@@ -2083,7 +2096,9 @@ export class RTCPeerConnection extends EventTarget {
         await this.cleanupInitialProvisionalTransport();
         this.setSignalingState("stable");
         this.pendingOfferChangeSeq = undefined;
-        if (this.shouldNegotiationneeded) this.scheduleNegotiationneeded();
+        if (this.shouldNegotiationneeded || this.needRestart) {
+          this.scheduleNegotiationneeded();
+        }
         this.invalidateLastCreatedDescriptions();
         return;
       }
@@ -2178,14 +2193,10 @@ export class RTCPeerConnection extends EventTarget {
           const prepared = this.negotiation.transportByMid.get(
             media.rtp.muxId ?? "",
           );
-          const bundleItems =
-            this.sdpManager.bundlePolicy === "disable"
-              ? []
-              : (remoteSdp.group.find((group) => group.semantic === "BUNDLE")
-                  ?.items ?? []);
-          const bundledNonTag =
-            bundleItems.includes(media.rtp.muxId ?? "") &&
-            bundleItems[0] !== media.rtp.muxId;
+          const bundledNonTag = this.isBundledNonTag(
+            remoteSdp,
+            media.rtp.muxId,
+          );
           const remoteRole = media.dtlsParams?.role;
           if (
             remoteSdp.type !== "offer" &&
@@ -2340,7 +2351,6 @@ export class RTCPeerConnection extends EventTarget {
           mid == undefined
             ? undefined
             : bundleGroups.find((group) => group.items.includes(mid));
-        const bundleItems = bundleGroups[0]?.items ?? [];
         const preserveCurrentTransport =
           (remoteSdp.type === "offer" || remoteSdp.type === "pranswer") &&
           !!this.sdpManager.currentRemoteDescription;
@@ -2454,27 +2464,28 @@ export class RTCPeerConnection extends EventTarget {
           // A re-offer or pranswer on a live session keeps every current
           // owner on its transport: a new BUNDLE topology (split, merge, a new
           // owner outside the group) is prepared for the answer and switches
-          // only at the commit. New members join the tag's transport.
-          const group = bundleGroups[0];
-          const members = entries.filter(
-            (entry) =>
-              !!ownerOf(entry) &&
-              entry.remoteMedia.port !== 0 &&
-              !!group?.items.includes(entry.remoteMedia.rtp.muxId!),
-          );
-          const tag =
-            members.find(
-              (entry) => entry.remoteMedia.rtp.muxId === group?.items[0],
-            ) ?? members[0];
-          const shared = tag && ownerOf(tag)!.dtlsTransport;
-          for (const entry of members) {
-            const owner = ownerOf(entry)!;
-            if (
-              shared &&
-              !keepsCurrent(entry) &&
-              owner.dtlsTransport !== shared
-            ) {
-              owner.setDtlsTransport(shared);
+          // only at the commit. New members join their group tag's transport.
+          for (const group of bundleGroups) {
+            const members = entries.filter(
+              (entry) =>
+                !!ownerOf(entry) &&
+                entry.remoteMedia.port !== 0 &&
+                group.items.includes(entry.remoteMedia.rtp.muxId!),
+            );
+            const tag =
+              members.find(
+                (entry) => entry.remoteMedia.rtp.muxId === group.items[0],
+              ) ?? members[0];
+            const shared = tag && ownerOf(tag)!.dtlsTransport;
+            for (const entry of members) {
+              const owner = ownerOf(entry)!;
+              if (
+                shared &&
+                !keepsCurrent(entry) &&
+                owner.dtlsTransport !== shared
+              ) {
+                owner.setDtlsTransport(shared);
+              }
             }
           }
         } else {
@@ -2700,7 +2711,7 @@ export class RTCPeerConnection extends EventTarget {
           iceTransport.addRemoteCandidate(undefined);
         }
         if (preserveCurrentTransport) {
-          await this.deliverSameGenerationDescription(remoteSdp, bundleItems);
+          await this.deliverSameGenerationDescription(remoteSdp);
         }
         // A description that repeats an ICE generation which already ended
         // on its transport records that end too, so it cannot become current
@@ -2780,6 +2791,7 @@ export class RTCPeerConnection extends EventTarget {
         );
         this.pendingOfferChangeSeq = undefined;
       }
+      if (remoteSdp.type === "answer") this.settleIceRestartRequest();
       const hasUnnegotiatedStop =
         remoteSdp.type === "answer" && this.settleStoppingTransceivers();
       if (this.shouldNegotiationneeded || hasUnnegotiatedStop) {
@@ -2847,6 +2859,26 @@ export class RTCPeerConnection extends EventTarget {
         );
       }
     }
+  }
+
+  /**
+   * BUNDLE tag (first MID) of the group of `description` that contains `mid`.
+   * Every group counts, not only the first one (RFC 8843 allows several).
+   */
+  private bundleTagOf(description: SessionDescription, mid?: string | null) {
+    if (this.sdpManager.bundlePolicy === "disable" || mid == undefined) return;
+    return description.group.find(
+      (group) => group.semantic === "BUNDLE" && group.items.includes(mid),
+    )?.items[0];
+  }
+
+  /** `mid` is a BUNDLE member that shares its group tag's transport. */
+  private isBundledNonTag(
+    description: SessionDescription,
+    mid?: string | null,
+  ) {
+    const tag = this.bundleTagOf(description, mid);
+    return tag !== undefined && tag !== mid;
   }
 
   /**
