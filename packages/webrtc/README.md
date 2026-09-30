@@ -31,6 +31,8 @@ npm run wpt --workspace packages/webrtc
 npm run wpt:coverage --workspace packages/webrtc
 ```
 
+WPT reports use `v8-to-istanbul` directly to retain the V8 metrics used by the committed coverage baseline, independently of Vitest's AST-based coverage provider. Only observed TypeScript sources and source-mapped lines are measured.
+
 Refresh the committed baselines when intentionally expanding upstream coverage:
 
 ```sh
