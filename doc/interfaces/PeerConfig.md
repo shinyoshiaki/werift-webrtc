@@ -217,6 +217,18 @@ Disabled by default. Pass `true` or `{ enabled: true, maxLength }` to buffer.
 
 ***
 
+### sctp
+
+> **sctp**: `object`
+
+SCTP outbound packet MTU used for DATA chunk fragmentation.
+
+#### mtu
+
+> **mtu**: `number`
+
+***
+
 ### turnTlsOptions
 
 > **turnTlsOptions**: `undefined` \| [`TlsConnectionOptions`](../type-aliases/TlsConnectionOptions.md)

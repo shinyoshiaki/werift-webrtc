@@ -1249,6 +1249,14 @@ How local SDP marks inactive / stopped m-lines. Cannot be changed after construc
 
 > **rtcpMuxPolicy**: `"require"`
 
+##### sctp
+
+> **sctp**: `object`
+
+###### sctp.mtu
+
+> **mtu**: `number`
+
 ##### turnTlsOptions
 
 > **turnTlsOptions**: `undefined` \| [`TlsConnectionOptions`](../type-aliases/TlsConnectionOptions.md)
