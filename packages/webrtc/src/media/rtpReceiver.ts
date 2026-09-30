@@ -155,6 +155,9 @@ export class RTCRtpReceiver {
       if (deferConflicts && existing && !sameCodec(existing, c)) {
         this.stagedCodecs[c.payloadType] = c;
       } else {
+        // The latest description decides the key: an earlier staged value
+        // must not overwrite it at the commit.
+        delete this.stagedCodecs[c.payloadType];
         this.codecs[c.payloadType] = c;
       }
     });
@@ -164,9 +167,19 @@ export class RTCRtpReceiver {
       if (deferConflicts && existing !== undefined && existing !== e.ssrc) {
         this.stagedSsrcByRtx[e.rtx.ssrc] = e.ssrc;
       } else {
+        delete this.stagedSsrcByRtx[e.rtx.ssrc];
         this.ssrcByRtx[e.rtx.ssrc] = e.ssrc;
       }
     });
+  }
+
+  /**
+   * Internal: drop values staged by an earlier remote pranswer. A later
+   * pranswer or the final answer replaces that proposal as a whole.
+   */
+  discardStagedReceive() {
+    clearTable(this.stagedCodecs);
+    clearTable(this.stagedSsrcByRtx);
   }
 
   /** Internal: the transaction committed, staged payload types and RTX pairs apply. */

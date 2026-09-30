@@ -52,13 +52,16 @@ m=audio 9 UDP/TLS/RTP/SAVPF 111 (mid 1) m=audio 9 UDP/TLS/RTP/SAVPF 111  ← ans
   router 登録 / `onTrack` / TWCC を行わない。remote が既に port 0 の場合も同じ。
 - 未知の MID の port 0 m-line には transceiver を関連付けない (予約済みの新 transceiver を奪わない)。
 - 確立済み BUNDLE の re-offer では negotiated tag を group 先頭に保つ。共有 transport の member を group 外へ出す、
-  または別々の group に分割する re-offer は、状態を変える前に `InvalidAccessError` で拒否する。
+  または別々の group に分割する re-offer (RFC 8843 7.5) は、negotiation transaction (`0ad06d37`) が
+  staged topology として pending にし、answer の確定まで current の共有 transport を変えない
+  (`packages/webrtc/NEGOTIATION_TRANSACTION.md`)。
 - 非ゼロ port の remote answer / pranswer が pending local offer と共通 codec を持たない場合、
   `InvalidAccessError` で拒否し、signaling state と descriptions を変更しない。
 
 ### BUNDLE / transport / ICE
 
-- remote offer に対する transport の所有関係は、`bundlePolicy` によらず **offer の BUNDLE group だけ**で決まる。
+- remote offer に対する transport の所有関係は、`bundlePolicy` によらず **offer の BUNDLE group だけ**で決まる
+  (確立済み session の re-offer では current の所有を保ち、変更は answer で確定する)。
   `max-bundle` / `balanced` は自分が出す offer の組み立てにだけ効き、remote offer の group 構成を上書きしない。
   - offered BUNDLE group ごとに 1 つの transport を共有する。group が複数あれば group ごとに別 transport にする
     (既存 member の transport を優先し、他の group が使っていれば新設する)。

@@ -290,6 +290,26 @@ seconds
 > **commitStagedReceive**(): `void`
 
 Internal: the transaction committed, staged payload types and RTX pairs apply.
+
+#### Returns
+
+`void`
+
+***
+
+### discardStagedReceive()
+
+> **discardStagedReceive**(): `void`
+
+Internal: drop values staged by an earlier remote pranswer. A later
+pranswer or the final answer replaces that proposal as a whole.
+
+#### Returns
+
+`void`
+
+***
+
 ### endTracks()
 
 > **endTracks**(): `void`

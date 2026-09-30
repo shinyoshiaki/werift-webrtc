@@ -227,7 +227,6 @@ Internal: capture staged routes for a transaction baseline or checkpoint.
 
 > **unregisterTransceiver**(`transceiver`): `void`
 
-停止した transceiver の SSRC / RID 登録を解除する
 #### Parameters
 
 ##### transceiver

@@ -20,6 +20,7 @@ import {
   flushEvents,
   mLines,
   negotiate,
+  offerUnsupportedVideoCodec,
   parseSdp,
   routedSsrcs,
   waitForConnected,
@@ -585,7 +586,9 @@ describe("issue 705: BUNDLE membership, transports and ICE ownership", () => {
     { label: "moves a member out of the group", bundles: [["0"]] },
     { label: "splits the members into two groups", bundles: [["0"], ["1"]] },
   ])(
-    "a re-offer that $label is rejected without state changes",
+    // RFC 8843 7.5 は re-offer で member を group の外へ移すことを認める。分割は negotiation
+    // transaction の staged topology として pending にし (0ad06d37)、answer まで共有 transport を変えない
+    "a re-offer that $label stays pending without changing the shared transport, and rollback restores it",
     async ({ bundles }) => {
       // Arrange: mid 0/1 を BUNDLE で確立済み
       const pc = createAudioOnlyPeer();
@@ -600,10 +603,12 @@ describe("issue 705: BUNDLE membership, transports and ICE ownership", () => {
         }),
       );
       const remoteBefore = pc.remoteDescription!.sdp;
+      const [t0, t1] = pc.getTransceivers();
+      const shared = t0.dtlsTransport;
 
       try {
         // Act: 共有 transport の member を group の外へ出す / 別 group に分割する re-offer を適用する
-        const result = pc.setRemoteDescription({
+        await pc.setRemoteDescription({
           type: "offer",
           sdp: buildRemoteSdp({
             sections: [
@@ -614,17 +619,25 @@ describe("issue 705: BUNDLE membership, transports and ICE ownership", () => {
           }),
         });
 
-        // Assert: InvalidAccessError で拒否し、signaling state と descriptions を保つ
-        await expect(result).rejects.toMatchObject({
-          name: "InvalidAccessError",
-        });
+        // Assert: 分割は pending になり、current の共有 transport と remote ICE 資格情報は変わらない
+        expect(pc.signalingState).toBe("have-remote-offer");
+        expect(pc.currentRemoteDescription!.sdp).toBe(remoteBefore);
+        expect(t0.dtlsTransport).toBe(shared);
+        expect(t1.dtlsTransport).toBe(shared);
+        expect(shared.iceTransport.connection.remoteUsername).toBe(
+          REMOTE_UFRAG,
+        );
+
+        // Act: rollback する
+        await pc.setRemoteDescription({ type: "rollback" });
+
+        // Assert: signaling state と descriptions、共有 transport が元に戻る
         expect(pc.signalingState).toBe("stable");
         expect(pc.remoteDescription!.sdp).toBe(remoteBefore);
         expect(pc.pendingRemoteDescription).toBeNull();
-        // Assert: 共有 transport と remote ICE 資格情報は変わらない
-        const [t0, t1] = pc.getTransceivers();
-        expect(t0.dtlsTransport).toBe(t1.dtlsTransport);
-        expect(t0.dtlsTransport.iceTransport.connection.remoteUsername).toBe(
+        expect(t0.dtlsTransport).toBe(shared);
+        expect(t1.dtlsTransport).toBe(shared);
+        expect(shared.iceTransport.connection.remoteUsername).toBe(
           REMOTE_UFRAG,
         );
       } finally {
@@ -960,9 +973,8 @@ describe("issue 705: answer validation, pending re-offer and rollback", () => {
     try {
       // Act: video を非対応 codec に書き換えた re-offer を pending にする
       await caller.setLocalDescription(await caller.createOffer());
-      const unsupportedOffer = caller.localDescription!.sdp.replace(
-        /VP8\/90000/g,
-        "H264/90000",
+      const unsupportedOffer = offerUnsupportedVideoCodec(
+        caller.localDescription!.sdp,
       );
       await callee.setRemoteDescription({
         type: "offer",

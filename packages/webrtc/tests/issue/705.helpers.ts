@@ -432,7 +432,45 @@ export async function createSendonlyVideoPair({
   return { caller, callee, videos };
 }
 
-/** SDP の指定 MID の m-line section だけ ICE credentials を差し替える */
+/**
+ * video section の VP8 を、使われていない新しい payload type の非対応 codec (H264) に置き換える。
+ * 使用中の payload type の codec を付け替える re-offer は適用前に拒否される (RFC 3264 8.3.2) ため、
+ * 非対応 codec は新しい payload type で提案する。
+ */
+export function offerUnsupportedVideoCodec(sdp: string, payloadType = 125) {
+  const [session, ...sections] = sdp.split(/\r\n(?=m=)/);
+  return [
+    session,
+    ...sections.map((section) => {
+      const vp8 = section.match(/^a=rtpmap:(\d+) VP8\/90000/m);
+      if (!section.startsWith("m=video") || !vp8) {
+        return section;
+      }
+      const pt = vp8[1];
+      return section
+        .replace(
+          /^(m=video \S+ \S+)(.*)$/m,
+          (_, head: string, fmts: string) =>
+            `${head}${fmts
+              .split(" ")
+              .map((fmt) => (fmt === pt ? `${payloadType}` : fmt))
+              .join(" ")}`,
+        )
+        .replace(
+          `a=rtpmap:${pt} VP8/90000`,
+          `a=rtpmap:${payloadType} H264/90000`,
+        )
+        .replaceAll(`a=rtcp-fb:${pt} `, `a=rtcp-fb:${payloadType} `)
+        .replaceAll(`a=fmtp:${pt} `, `a=fmtp:${payloadType} `)
+        .replaceAll(`apt=${pt}`, `apt=${payloadType}`);
+    }),
+  ].join("\r\n");
+}
+
+/**
+ * SDP の指定 MID の m-line section だけ ICE credentials を差し替え、新しい DTLS association
+ * として `a=setup:actpass` を提案する (RFC 8842 5.2: 新しい association の offerer は actpass)
+ */
 function replaceSectionIceCredentials(
   sdp: string,
   mid: string,
@@ -447,6 +485,7 @@ function replaceSectionIceCredentials(
         ? section
             .replace(/a=ice-ufrag:.*/, `a=ice-ufrag:${ufrag}`)
             .replace(/a=ice-pwd:.*/, `a=ice-pwd:${pwd}`)
+            .replace(/a=setup:.*/, "a=setup:actpass")
         : section,
     ),
   ].join("\r\n");

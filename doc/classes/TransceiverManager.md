@@ -96,13 +96,6 @@
 
 ##### \_\_namedParameters?
 
-An application call may take over an inactive transceiver's slot
-(werift behavior). One created for a pending remote offer never does:
-it must not change a transceiver the current session knows.
-
-###### reuseInactive?
-
-`boolean` = `true`
 ###### remoteMLineIndex?
 
 `number`
@@ -148,19 +141,6 @@ remote offer 起因で作る場合の m-line index。確定済み停止位置の
 ##### mLineIndex
 
 `number`
-
-#### Returns
-
-`void`
-
-***
-
-### beginRemoteOffer()
-
-> **beginRemoteOffer**(): `void`
-
-remote offer 適用前の transceiver 対応を保存する。
-同じ offer/answer 交換中に複数回呼ばれても最初の状態を保持する。
 
 #### Returns
 
@@ -357,17 +337,6 @@ remote m-line の codec と local 設定の共通部分を返す
 
 ***
 
-### removeRemoteTransceiver()
-
-> **removeRemoteTransceiver**(`transceiver`): `void`
-
-Remove an uncommitted transceiver created only by a remote offer.
-
-#### Parameters
-
-##### transceiver
-
-[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
 ### releaseUnassociatedReservations()
 
 > **releaseUnassociatedReservations**(`associated`, `mLineCount`): `void`
@@ -384,6 +353,24 @@ remote offer が定義した位置のうち、関連付けられなかった未�
 ##### mLineCount
 
 `number`
+
+#### Returns
+
+`void`
+
+***
+
+### removeRemoteTransceiver()
+
+> **removeRemoteTransceiver**(`transceiver`): `void`
+
+Remove an uncommitted transceiver created only by a remote offer.
+
+#### Parameters
+
+##### transceiver
+
+[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
 
 #### Returns
 
@@ -408,26 +395,6 @@ sender から track を外す。
 `boolean`
 
 交渉が必要な変更をした場合 true (呼び出し側が negotiationneeded を要求する)
-
-***
-
-### replaceStoppedTransceiverAtMLineIndex()
-
-> **replaceStoppedTransceiverAtMLineIndex**(`transceiver`, `mLineIndex`): `void`
-
-#### Parameters
-
-##### transceiver
-
-[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
-
-##### mLineIndex
-
-`number`
-
-#### Returns
-
-`void`
 
 ***
 
@@ -480,11 +447,6 @@ sender から track を外す。
 ##### baseline
 
 [`RTCRtpTransceiver`](RTCRtpTransceiver.md)[]
-### rollbackRemoteOffer()
-
-> **rollbackRemoteOffer**(): `void`
-
-remote offer の rollback で transceiver 対応を元に戻す
 
 #### Returns
 
@@ -496,9 +458,7 @@ remote offer の rollback で transceiver 対応を元に戻す
 
 > **setRemoteRTP**(`transceiver`, `remoteMedia`, `type`, `mLineIndex`): `boolean`
 
-remote m-line を transceiver に適用する。
-共通 codec がない、または remote port 0 の m-line は拒否として扱い、
-sender/receiver 準備・router 登録・onTrack・TWCC を行わない。
+remote m-line を適用する。拒否された m-line なら false を返す
 
 #### Parameters
 
@@ -521,8 +481,6 @@ sender/receiver 準備・router 登録・onTrack・TWCC を行わない。
 #### Returns
 
 `boolean`
-
-受け入れた (RTP を流す) 場合 true
 
 ***
 

@@ -4,6 +4,7 @@ import {
   createConnectedVideoPeers,
   createConnectedVideoPeersWithRtx,
   createDuplexSession,
+  createUnnegotiatedPeers,
   expectSessionAlive,
   negotiate,
   sectionOf,
@@ -306,6 +307,106 @@ describe("negotiation transaction live-state regressions", () => {
       assertNegotiationInvariants(answerer);
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("a final answer replaces the RTCP feedback a pranswer staged", async () => {
+    const session = await createDuplexSession();
+    const { a, b } = session;
+    try {
+      // Arrange: re-offer を b に渡し、VP8 の NACK を外した pranswer を用意する。
+      await a.pc.setLocalDescription(await a.pc.createOffer());
+      await b.pc.setRemoteDescription(a.pc.localDescription!);
+      const answer = await b.pc.createAnswer();
+      const pt = Number(answer.sdp.match(/^a=rtpmap:(\d+) VP8\/90000/m)![1]);
+      const withoutNack = answer.sdp.replace(
+        new RegExp(`^a=rtcp-fb:${pt} nack\\r?\\n`, "m"),
+        "",
+      );
+      expect(withoutNack).not.toBe(answer.sdp);
+      const hasNack = () =>
+        a.video.receiver
+          .snapshotReceiveTables()
+          .codecs[pt].rtcpFeedback.some(
+            (f) => f.type === "nack" && !f.parameter,
+          );
+
+      // Act: NACK なしの pranswer を受け、NACK を含む final answer で確定する。
+      await b.pc.setLocalDescription({ type: "pranswer", sdp: answer.sdp });
+      await a.pc.setRemoteDescription({ type: "pranswer", sdp: withoutNack });
+      // Assert: pranswer の feedback 変更は commit まで保留され、current の NACK を保つ。
+      expect(hasNack()).toBe(true);
+      await b.pc.setLocalDescription({ type: "answer", sdp: answer.sdp });
+      await a.pc.setRemoteDescription(b.pc.localDescription!);
+
+      // Assert: 確定 SDP と receiver の feedback が一致し (helper も検査する)、通信が続く。
+      expect(a.pc.currentRemoteDescription!.sdp).toContain(
+        `a=rtcp-fb:${pt} nack\r\n`,
+      );
+      expect(hasNack()).toBe(true);
+      assertNegotiationInvariants(a.pc);
+      await expectSessionAlive(session, "pranswer-feedback-replaced");
+    } finally {
+      await session.close();
+    }
+  });
+
+  test("adding video after an inactive audio m-line does not take the audio m-line", async () => {
+    const { offerer, answerer, close } = createUnnegotiatedPeers();
+    try {
+      // Arrange: inactive な audio m-line を確定させる。
+      const audio = offerer.addTransceiver("audio", { direction: "inactive" });
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      const audioMid = audio.mid;
+      expect(audio.currentDirection).toBe("inactive");
+
+      // Act: 別 kind の video を追加して、自身の offer を作って適用する。
+      const video = offerer.addTransceiver("video");
+      await offerer.setLocalDescription(await offerer.createOffer());
+
+      // Assert: audio は MID と index を保ち、video は新しい m-line を末尾に持つ。
+      expect(audio.mid).toBe(audioMid);
+      expect(audio.mLineIndex).toBe(0);
+      expect(video.mid).not.toBe(audioMid);
+      expect(video.mLineIndex).toBe(1);
+      expect(offerer.getTransceivers()).toEqual([audio, video]);
+      assertNegotiationInvariants(offerer);
+    } finally {
+      await close();
+    }
+  });
+
+  test("an answer whose codec was not in the offer is rejected before mutation", async () => {
+    const { offerer, answerer, close } = createUnnegotiatedPeers();
+    try {
+      // Arrange: 設定は Opus/PCMU に対応するが、offer は Opus だけを提案する。
+      const audio = offerer.addTransceiver("audio");
+      audio.codecs = offerer.config.codecs.audio!.filter(
+        (codec) => codec.name.toLowerCase() === "opus",
+      );
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      const answer = await answerer.createAnswer();
+      const unoffered = answer.sdp.replace(/opus\/48000\/2/i, "PCMU/8000");
+      expect(unoffered).not.toBe(answer.sdp);
+      const pendingOffer = offerer.pendingLocalDescription!.sdp;
+
+      // Act / Assert: offer にない PCMU に差し替えた answer は InvalidAccessError で拒否される。
+      await expect(
+        offerer.setRemoteDescription({ type: "answer", sdp: unoffered }),
+      ).rejects.toMatchObject({ name: "InvalidAccessError" });
+
+      // Assert: 状態は変わらず、offer と合意する正しい answer はそのまま適用できる。
+      expect(offerer.signalingState).toBe("have-local-offer");
+      expect(offerer.pendingLocalDescription!.sdp).toBe(pendingOffer);
+      expect(offerer.currentRemoteDescription).toBeNull();
+      await offerer.setRemoteDescription(answer);
+      expect(offerer.signalingState).toBe("stable");
+    } finally {
+      await close();
     }
   });
 });

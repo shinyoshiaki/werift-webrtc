@@ -15,6 +15,9 @@ type TransceiverBaseline = {
   currentDirection: RTCRtpTransceiver["currentDirection"];
   stopping: boolean;
   stopped: boolean;
+  rejected: boolean;
+  pendingRejection: boolean;
+  firedReceiving: boolean;
   applicationStopRevision: number;
   dtlsTransport: RTCDtlsTransport;
   senderParams: ReturnType<RTCRtpTransceiver["sender"]["snapshotSendParams"]>;
@@ -51,6 +54,7 @@ export type NegotiationCheckpoint = {
   remoteCreated: Set<RTCRtpTransceiver>;
   displaced: Set<RTCRtpTransceiver>;
   pendingOnly: Set<RTCDtlsTransport>;
+  owners: Set<RTCDtlsTransport>;
   prepared: Map<string, RTCDtlsTransport>;
   emitted: Set<string>;
   preparedFor?: SessionDescription;
@@ -78,6 +82,11 @@ export class NegotiationTransaction {
    * commit (e.g. a data channel's own transport that BUNDLE replaced) stops.
    */
   private readonly createdTransports = new Set<RTCDtlsTransport>();
+  /**
+   * Transports a remote offer created to own a BUNDLE group or an m-line
+   * outside it. Rollback stops those no restored owner uses.
+   */
+  private readonly ownerTransports = new Set<RTCDtlsTransport>();
   private revision = 0;
   private phase:
     | "idle"
@@ -172,6 +181,9 @@ export class NegotiationTransaction {
             currentDirection: transceiver.currentDirection,
             stopping: transceiver.stopping,
             stopped: transceiver.stopped,
+            rejected: transceiver.rejected,
+            pendingRejection: transceiver.pendingRejection,
+            firedReceiving: transceiver.firedReceiving,
             applicationStopRevision: getApplicationStopRevision(transceiver),
             dtlsTransport: transceiver.dtlsTransport,
             senderParams: transceiver.sender.snapshotSendParams(),
@@ -224,6 +236,10 @@ export class NegotiationTransaction {
 
   rememberRemoteTransceiver(transceiver: RTCRtpTransceiver) {
     this.remoteCreated.add(transceiver);
+  }
+
+  rememberOwnerTransport(transport: RTCDtlsTransport) {
+    this.ownerTransports.add(transport);
   }
 
   rememberDisplacedTransceiver(transceiver: RTCRtpTransceiver) {
@@ -336,6 +352,19 @@ export class NegotiationTransaction {
     );
   }
 
+  /**
+   * A remote pranswer or answer replaces every earlier remote pranswer of
+   * this offer: routes and receive values those staged are dropped before it
+   * applies, so the commit switches only to what the latest description
+   * carries.
+   */
+  discardStagedRemoteAnswer() {
+    this.router.restoreStaged({ ssrc: [], rid: [] });
+    for (const transceiver of this.transceivers.getTransceivers()) {
+      transceiver.receiver.discardStagedReceive();
+    }
+  }
+
   async replace() {
     await this.restore(true);
   }
@@ -351,11 +380,12 @@ export class NegotiationTransaction {
     await this.restoreState(
       baseline,
       this.remoteCreated,
-      this.pendingOnlyTransports,
+      new Set([...this.pendingOnlyTransports, ...this.ownerTransports]),
     );
     if (keepBaseline) {
       this.remoteCreated.clear();
       this.displaced.clear();
+      this.ownerTransports.clear();
       this.preparedTransports.clear();
       this.pendingOnlyTransports.clear();
       this.emittedPendingCandidates.clear();
@@ -377,6 +407,7 @@ export class NegotiationTransaction {
       remoteCreated: new Set(this.remoteCreated),
       displaced: new Set(this.displaced),
       pendingOnly: new Set(this.pendingOnlyTransports),
+      owners: new Set(this.ownerTransports),
       prepared: new Map(this.preparedTransports),
       emitted: new Set(this.emittedPendingCandidates),
       preparedFor: this.preparedFor,
@@ -393,14 +424,17 @@ export class NegotiationTransaction {
         ),
       ),
       new Set(
-        [...this.pendingOnlyTransports].filter(
-          (transport) => !checkpoint.pendingOnly.has(transport),
+        [...this.pendingOnlyTransports, ...this.ownerTransports].filter(
+          (transport) =>
+            !checkpoint.pendingOnly.has(transport) &&
+            !checkpoint.owners.has(transport),
         ),
       ),
     );
     replaceSet(this.remoteCreated, checkpoint.remoteCreated);
     replaceSet(this.displaced, checkpoint.displaced);
     replaceSet(this.pendingOnlyTransports, checkpoint.pendingOnly);
+    replaceSet(this.ownerTransports, checkpoint.owners);
     replaceSet(this.emittedPendingCandidates, checkpoint.emitted);
     this.preparedTransports.clear();
     for (const [mid, transport] of checkpoint.prepared) {
@@ -431,6 +465,9 @@ export class NegotiationTransaction {
         getApplicationStopRevision(transceiver) !==
           state.applicationStopRevision;
       transceiver.stopped = state.stopped;
+      transceiver.rejected = state.rejected;
+      transceiver.pendingRejection = state.pendingRejection;
+      transceiver.firedReceiving = state.firedReceiving;
       transceiver.setDtlsTransport(state.dtlsTransport);
       transceiver.sender.restoreSendParams(state.senderParams);
       // Transport-cc feedback a pending description started for this
@@ -568,6 +605,7 @@ export class NegotiationTransaction {
     this.baseline = undefined;
     this.remoteCreated.clear();
     this.displaced.clear();
+    this.ownerTransports.clear();
     this.preparedTransports.clear();
     this.pendingOnlyTransports.clear();
     this.emittedPendingCandidates.clear();

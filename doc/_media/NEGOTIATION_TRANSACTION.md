@@ -355,6 +355,40 @@ and `WERIFT_NEGOTIATION_FUZZ_SEED`, and a failure prints its seed and
 operations. Before asking for review, run a deeper search and a self-review
 that lists every path writing live tables while a description is pending.
 
+## m-line rejection, stop and reuse (issue 705)
+
+The m-line rules of `docs/design/705-media-rejection-and-removetrack.md` run
+inside this transaction:
+
+- A remote offer or pranswer m-line without a common codec, or with port 0 for
+  a known MID, only marks `pendingRejection`; the current pipeline keeps
+  running. The flag, `rejected` and the track notification state are part of
+  the baseline, so rollback restores them. The local answer commits the
+  rejection (release, router unregistration); a remote answer with port 0
+  stops the m-line after every fallible step.
+- A remote answer or pranswer must share a codec with the pending local offer
+  (`InvalidAccessError`, checked in validate). A remote pranswer or answer
+  replaces what earlier pranswers of the same offer staged: staged routes and
+  receive values are dropped before it applies, so the commit switches only to
+  what the latest description carries.
+- Transport ownership: for a first negotiation and for answers, each offered
+  BUNDLE group shares one transport and an m-line outside every group gets its
+  own transport with its own ICE credentials, whatever `bundlePolicy` is. A
+  transport created only for that ownership is dropped on rollback. A re-offer
+  or pranswer on a live session keeps every current owner on its transport and
+  prepares a changed topology for the answer (see BUNDLE split above), so a
+  re-offer that moves an established member out of its group (RFC 8843
+  section 7.5) is staged rather than rejected.
+- A remote answer that moves an m-line sharing a transport in the local offer
+  out of that BUNDLE group with other ICE credentials is rejected before
+  mutation (RFC 8843 section 7.3.2).
+- An application `addTransceiver` reuses only a same-kind position whose
+  rejection or stop is committed; a transceiver for a remote offer replaces
+  only a stopped transceiver at its index. Neither takes an inactive one.
+- The answerer's `stop()` answers `inactive` and negotiates port 0 in its own
+  next offer. `negotiationneeded` is coalesced per task and fires only for
+  changes the last committed local offer did not carry.
+
 ## Scope and known constraints
 
 The transition table, the mutation matrix and the property test's operation

@@ -726,7 +726,6 @@ export class SDPManager {
         if (
           !transceiver ||
           remoteMedia.port === 0 ||
-          transceiver.stopping ||
           transceiver.stopped ||
           transceiver.pendingRejection
         ) {
@@ -747,9 +746,12 @@ export class SDPManager {
             dtlsTransport,
           );
         } else {
+          // answerer の stop() だけでは port 0 にせず、次の自分の offer で停止を交渉する
           media = this.createMediaDescriptionForTransceiver(
             transceiver,
-            andDirection(transceiver.direction, transceiver.offerDirection),
+            transceiver.stopping
+              ? "inactive"
+              : andDirection(transceiver.direction, transceiver.offerDirection),
           );
           dtlsTransport = transceiver.dtlsTransport;
         }
@@ -766,7 +768,9 @@ export class SDPManager {
 
       const proposedTransport =
         remoteMedia.rtp.muxId && transportByMid?.get(remoteMedia.rtp.muxId);
-      if (proposedTransport) {
+      // A rejected m-line keeps port 0: only an accepted one takes the
+      // transport prepared for the pending proposal.
+      if (proposedTransport && accepted) {
         dtlsTransport = proposedTransport;
         this.addTransportDescription(media, proposedTransport);
       }
@@ -878,47 +882,6 @@ export class SDPManager {
     });
   }
 
-  /**
-   * 確立済み BUNDLE の transport を共有している m-line を、re-offer が
-   * group の外へ出したり別々の group に分割したりすることはできない
-   * (共有 transport を分割できない)。状態を変更する前に拒否する。
-   */
-  private assertBundlePreserved(remoteSdp: SessionDescription) {
-    if (remoteSdp.type !== "offer" || this.bundlePolicy === "disable") {
-      return;
-    }
-    const negotiatedGroups =
-      [this.currentLocalDescription, this.currentRemoteDescription]
-        .find((d) => d?.type === "answer")
-        ?.group.filter((g) => g.semantic === "BUNDLE") ?? [];
-    const offeredGroups = remoteSdp.group.filter(
-      (g) => g.semantic === "BUNDLE",
-    );
-    for (const negotiated of negotiatedGroups) {
-      let sharedGroup: GroupDescription | undefined;
-      for (const mid of negotiated.items) {
-        const media = remoteSdp.media.find((m) => m.rtp.muxId === mid);
-        if (!media || media.port === 0) {
-          continue;
-        }
-        const offeredGroup = offeredGroups.find((g) => g.items.includes(mid));
-        if (!offeredGroup) {
-          throw createWebRtcDomException(
-            "InvalidAccessError",
-            `BUNDLE transport of mid=${mid} cannot be preserved by the remote offer`,
-          );
-        }
-        sharedGroup ??= offeredGroup;
-        if (offeredGroup !== sharedGroup) {
-          throw createWebRtcDomException(
-            "InvalidAccessError",
-            `BUNDLE transport of mid=${mid} cannot be split into another BUNDLE group by the remote offer`,
-          );
-        }
-      }
-    }
-  }
-
   setLocalDescription(description: SessionDescription) {
     if (description.type === "offer" || description.type === "pranswer") {
       this.pendingLocalDescription = description;
@@ -970,13 +933,20 @@ export class SDPManager {
       signalingState,
       type: sessionDescription.type,
     });
-    // 状態を変更する前に検証し、失敗時は signaling state / descriptions を保つ
-    this.assertRemoteAnswerCodecs(remoteSdp);
-    this.assertBundlePreserved(remoteSdp);
+    this.validateRemoteDescription(remoteSdp);
 
     this.applyRemoteDescription(remoteSdp);
 
     return remoteSdp;
+  }
+
+  /**
+   * 状態を変更する前の remote description の検証。失敗時は signaling state /
+   * descriptions を保つ。answer / pranswer は pending local offer と共通 codec を持つ。
+   * (re-offer による BUNDLE の分割・統合は negotiation transaction が staged topology として扱う)
+   */
+  validateRemoteDescription(remoteSdp: SessionDescription) {
+    this.assertRemoteAnswerCodecs(remoteSdp);
   }
 
   applyRemoteDescription(remoteSdp: SessionDescription) {

@@ -470,3 +470,23 @@ port は 0、proto と MID は元の m-line を保ち、fmt は少なくとも 1
 #### Returns
 
 `undefined` \| [`SessionDescription`](SessionDescription.md)
+
+***
+
+### validateRemoteDescription()
+
+> **validateRemoteDescription**(`remoteSdp`): `void`
+
+状態を変更する前の remote description の検証。失敗時は signaling state /
+descriptions を保つ。answer / pranswer は pending local offer と共通 codec を持つ。
+(re-offer による BUNDLE の分割・統合は negotiation transaction が staged topology として扱う)
+
+#### Parameters
+
+##### remoteSdp
+
+[`SessionDescription`](SessionDescription.md)
+
+#### Returns
+
+`void`

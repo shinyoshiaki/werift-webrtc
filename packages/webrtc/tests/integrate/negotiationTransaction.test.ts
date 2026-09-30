@@ -34,30 +34,35 @@ import {
 
 describe("negotiation transaction", () => {
   test("rollback preserves application stop and a new trackless transceiver", async () => {
-    const { offerer, answerer, outgoing, incoming } =
-      await createConnectedVideoPeers();
+    const session = await createDuplexSession();
+    const { a, b } = session;
     try {
-      // Arrange: 接続済み transceiver の identity と現在の SDP を控える。
-      const existing = answerer.getTransceivers()[0];
-      const currentRemote = answerer.currentRemoteDescription!.sdp;
-      await offerer.setLocalDescription(await offerer.createOffer());
-      await answerer.setRemoteDescription(offerer.localDescription!);
+      // Arrange: 音声を追加で交渉し、re-offer を b に pending で適用する。
+      const audio = await addNegotiatedAudio(session, a, b);
+      const existing = audio.remote();
+      const currentRemote = b.pc.currentRemoteDescription!.sdp;
+      await a.pc.setLocalDescription(await a.pc.createOffer());
+      await b.pc.setRemoteDescription(a.pc.localDescription!);
 
-      // Act: pending 中にアプリが停止と track のない transceiver 追加を行う。
+      // Act: pending 中にアプリが停止と track のない transceiver 追加を行い、rollback する。
       existing.stop();
-      const added = answerer.addTransceiver("audio", { direction: "recvonly" });
-      await answerer.setRemoteDescription({ type: "rollback" });
+      const added = b.pc.addTransceiver("audio", { direction: "recvonly" });
+      await b.pc.setRemoteDescription({ type: "rollback" });
 
-      // Assert: SDP 由来の状態だけが戻り、アプリ操作と旧実通信が残る。
-      expect(answerer.getTransceivers()).toContain(existing);
-      expect(existing.stopping).toBe(true);
-      expect(answerer.getTransceivers()).toContain(added);
+      // Assert: SDP 由来の状態だけが戻り、アプリ操作 (stop / 追加) は残る。
+      expect(b.pc.getTransceivers()).toContain(existing);
+      expect(b.pc.getTransceivers()).toContain(added);
       expect(added.sender.track).toBeNull();
       expect(added.mid).toBeNull();
-      expect(answerer.currentRemoteDescription!.sdp).toBe(currentRemote);
-      await sendAndExpectRtp(outgoing, incoming, "app-operations-rollback");
+      expect(b.pc.currentRemoteDescription!.sdp).toBe(currentRemote);
+      // Assert: stop() で解放した pipeline は rollback でも再開しない。
+      expect(existing.stopping).toBe(true);
+      expect(existing.receiver.stopped).toBe(true);
+      expect(existing.receiver.track.readyState).toBe("ended");
+      // Assert: 停止していない video と DataChannel は両方向で通信を続ける。
+      await expectSessionAlive(session, "app-operations-rollback");
     } finally {
-      await Promise.allSettled([offerer.close(), answerer.close()]);
+      await session.close();
     }
   });
 
@@ -332,7 +337,8 @@ describe("negotiation transaction", () => {
           type: "answer",
           sdp: keepOnlyRtx(answer),
         }),
-      ).rejects.toMatchObject({ name: "OperationError" });
+        // 共通 codec のない非ゼロ port の answer は InvalidAccessError (issue 705 と同じ規則)
+      ).rejects.toMatchObject({ name: "InvalidAccessError" });
 
       // Assert: 事前検証で拒否され、pending offer・current・RTP は変わらない。
       expect(offerer.signalingState).toBe("have-local-offer");
@@ -1157,15 +1163,17 @@ describe("negotiation transaction", () => {
   test("an answer leaves the MID of a rejected m-line out of its BUNDLE group", async () => {
     const session = await createDuplexSession();
     try {
-      // Arrange: 音声を追加で交渉し、answer 側がその transceiver を stop する。
+      // Arrange: 音声を追加で交渉し、b がその transceiver を stop する。
       const audio = await addNegotiatedAudio(session, session.a, session.b);
       audio.remote().stop();
 
-      // Act: a から再交渉し、b は stop 済みの m-line を拒否した answer を返す。
+      // Act: a から再交渉する。answerer の stop() は inactive で答えるだけなので、
+      // b は自分の次の offer で port 0 を交渉し、a はその m-line を拒否した answer を返す。
       await negotiate(session, session.a, session.b);
+      await negotiate(session, session.b, session.a);
 
       // Assert: answer の音声 m-line は port 0 で BUNDLE group に含まれない。
-      const answer = session.b.pc.currentLocalDescription!;
+      const answer = session.a.pc.currentLocalDescription!;
       const section = answer.sdp
         .split(/(?=^m=)/m)
         .find((part) =>
@@ -1178,6 +1186,8 @@ describe("negotiation transaction", () => {
         .split(" ");
       expect(group).not.toContain(audio.mid);
       expect(group).toContain(session.a.video.mid);
+      // Assert: 両側で停止が確定する。
+      expect(audio.remote().stopped).toBe(true);
 
       // Assert: BUNDLE に残る映像と DataChannel は両方向で通信を続ける。
       await expectSessionAlive(session, "rejected-mid-out-of-bundle");
@@ -2295,21 +2305,23 @@ describe("negotiation transaction", () => {
       }
     });
     try {
-      // Arrange: audio/application は BUNDLE、video は独立する offer を作る。
+      // Arrange: audio/application は BUNDLE、video は独立する offer を offerer 自身が出す
+      // (offer で共有した transport を answer だけが分割することはできない: RFC 8843 7.3.2)。
       offerer.addTransceiver("audio");
       offerer.addTransceiver(video, { direction: "sendonly" });
       offerer.createDataChannel("bundle");
-      await offerer.setLocalDescription(await offerer.createOffer());
       const mids = [
-        ...offerer.localDescription!.sdp.matchAll(/a=mid:([^\r\n]+)/g),
+        ...(await offerer.createOffer()).sdp.matchAll(/a=mid:([^\r\n]+)/g),
       ].map((match) => match[1]);
-      const partialOffer = {
-        type: "offer" as const,
-        sdp: offerer.localDescription!.sdp.replace(
-          /a=group:BUNDLE [^\r\n]+/,
-          `a=group:BUNDLE ${mids[0]} ${mids[2]}`,
+      await offerer.setLocalDescription(
+        await createRewrittenOffer(offerer, (sdp) =>
+          sdp.replace(
+            /a=group:BUNDLE [^\r\n]+/,
+            `a=group:BUNDLE ${mids[0]} ${mids[2]}`,
+          ),
         ),
-      };
+      );
+      const partialOffer = offerer.localDescription!;
 
       // Act: 部分 BUNDLE offer を適用して answer を作る。
       await answerer.setRemoteDescription(partialOffer);

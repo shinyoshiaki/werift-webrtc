@@ -265,7 +265,9 @@ function assertDescriptionBindings(pc: RTCPeerConnection) {
             ?.usernameFragment,
         ).toBe(media.iceParams.usernameFragment);
       }
+      // app の stop() は pipeline をその場で解放する (port 0 は次の自分の offer で交渉)。
       if (
+        !transceiver.stopping &&
         ["sendonly", "sendrecv"].includes(media.direction ?? "inactive") &&
         ["recvonly", "sendrecv"].includes(transceiver.direction) &&
         media.ssrc[0]
@@ -437,7 +439,8 @@ function assertRouteTables(pc: RTCPeerConnection, snapshot: Snapshot) {
     const transceiver = pc
       .getTransceivers()
       .find((t) => t.mid === media.rtp.muxId && !t.stopped);
-    if (!transceiver) continue;
+    // app の stop() は pipeline をその場で解放し、port 0 は次の自分の offer で交渉する。
+    if (!transceiver || transceiver.stopping) continue;
     const receiver = transceiver.receiver;
     const tables = receiver.snapshotReceiveTables();
     const rtxSsrcs = new Set<number>();
@@ -495,7 +498,10 @@ function assertRouterAndCodecs(pc: RTCPeerConnection, snapshot: Snapshot) {
     if (pc.signalingState === "stable") {
       expect(transceiver.mLineIndex).toBe(index);
     }
-    // current SDP の payload type は pending 中も current の codec で解釈される。
+    // app の stop() で解放した pipeline は受信設定を検査しない。
+    if (transceiver.stopping) continue;
+    // current SDP の payload type は pending 中も current の codec・fmtp・RTCP feedback
+    // で解釈される (final answer と実際の受信設定が一致する)。
     const table = transceiver.receiver.snapshotReceiveTables().codecs;
     for (const codec of transceiver.codecs) {
       const live = table[codec.payloadType];
@@ -507,11 +513,22 @@ function assertRouterAndCodecs(pc: RTCPeerConnection, snapshot: Snapshot) {
       const committed = media.rtp.codecs.find(
         (c) => c.payloadType === codec.payloadType,
       )!;
-      expect(live.mimeType.toLowerCase()).toBe(
-        committed.mimeType.toLowerCase(),
-      );
+      expect(receiveCodecKey(live)).toEqual(receiveCodecKey(committed));
     }
   }
+}
+
+/** 受信設定の比較キー: MIME type、clock rate、channels、fmtp、RTCP feedback の集合。 */
+function receiveCodecKey(codec: RTCRtpCodecParameters) {
+  return {
+    mimeType: codec.mimeType.toLowerCase(),
+    clockRate: codec.clockRate,
+    channels: codec.channels ?? 1,
+    parameters: codec.parameters ?? "",
+    rtcpFeedback: codec.rtcpFeedback
+      .map((feedback) => `${feedback.type} ${feedback.parameter ?? ""}`.trim())
+      .sort(),
+  };
 }
 
 function assertIceGenerations(pc: RTCPeerConnection, snapshot: Snapshot) {
@@ -992,6 +1009,17 @@ export async function createSimulcastPeers() {
     sendLayer,
     firstMid,
     ridExtensionId,
+    close: () => Promise.allSettled([offerer.close(), answerer.close()]),
+  };
+}
+
+/** Two peers before their first negotiation, without any transceiver. */
+export function createUnnegotiatedPeers() {
+  const offerer = new RTCPeerConnection({ iceServers: [] });
+  const answerer = new RTCPeerConnection({ iceServers: [] });
+  return {
+    offerer,
+    answerer,
     close: () => Promise.allSettled([offerer.close(), answerer.close()]),
   };
 }

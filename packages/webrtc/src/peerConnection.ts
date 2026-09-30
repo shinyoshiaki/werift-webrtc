@@ -42,11 +42,16 @@ import { NegotiationTransaction } from "./negotiationTransaction";
 import { SctpTransportManager } from "./sctpManager";
 import {
   type BundlePolicy,
+  type GroupDescription,
   type MediaDescription,
   type RTCSessionDescription,
   SessionDescription,
 } from "./sdp";
-import { type RTCSessionDescriptionInit, SDPManager } from "./sdpManager";
+import {
+  type MLineReuse,
+  type RTCSessionDescriptionInit,
+  SDPManager,
+} from "./sdpManager";
 import { SecureTransportManager } from "./secureTransportManager";
 import type {
   DtlsKeys,
@@ -144,6 +149,16 @@ export class RTCPeerConnection extends EventTarget {
   private applyingIceRestart = false;
   private descriptionTail: Promise<void> = Promise.resolve();
   private shouldNegotiationneeded = false;
+  /**同じ tick の複数の変更で negotiationneeded を重複発火しないための予約フラグ */
+  private negotiationneededScheduled = false;
+  /**交渉が必要な変更の通し番号 */
+  private negotiationChangeSeq = 0;
+  /**answer まで確定した local offer が反映している変更の通し番号 */
+  private negotiatedChangeSeq = 0;
+  /**適用中の local offer が反映している変更の通し番号 (rollback で破棄) */
+  private pendingOfferChangeSeq?: number;
+  /**最後に作った offer が反映している変更の通し番号 */
+  private createdOfferChangeSeq = 0;
   private lastCreatedAnswer?: RTCSessionDescription;
   /** Reusable by a parameterless setLocalDescription while still valid. */
   private lastCreatedOffer?: RTCSessionDescription;
@@ -248,6 +263,7 @@ export class RTCPeerConnection extends EventTarget {
     this.sdpManager = new SDPManager({
       cname: this.cname,
       bundlePolicy: this.config.bundlePolicy,
+      mLineReuse: this.config.mLineReuse,
     });
     this.transceiverManager = new TransceiverManager(
       this.cname,
@@ -442,6 +458,26 @@ export class RTCPeerConnection extends EventTarget {
     }
 
     if (
+      normalizedConfig.mLineReuse !== undefined &&
+      !MLineReuseModes.includes(normalizedConfig.mLineReuse)
+    ) {
+      throw createWebRtcTypeError(
+        `mLineReuse must be one of ${MLineReuseModes.join(", ")}`,
+      );
+    }
+
+    if (
+      isReconfiguration &&
+      normalizedConfig.mLineReuse !== undefined &&
+      normalizedConfig.mLineReuse !== this.config.mLineReuse
+    ) {
+      throw createWebRtcDomException(
+        "InvalidModificationError",
+        "mLineReuse cannot be changed",
+      );
+    }
+
+    if (
       isReconfiguration &&
       normalizedConfig.rtcpMuxPolicy !== undefined &&
       normalizedConfig.rtcpMuxPolicy !== this.config.rtcpMuxPolicy
@@ -595,6 +631,7 @@ export class RTCPeerConnection extends EventTarget {
     const createdOffer = description.toJSON();
     this.lastCreatedOffer = createdOffer;
     this.createdOfferSdp = createdOffer.sdp;
+    this.createdOfferChangeSeq = this.negotiationChangeSeq;
     return createdOffer;
   }
 
@@ -636,18 +673,42 @@ export class RTCPeerConnection extends EventTarget {
     if (this.isClosed) {
       throw createWebRtcDomException("InvalidStateError", "peer closed");
     }
-    this.transceiverManager.removeTrack(sender);
-    this.needNegotiation();
+    if (this.transceiverManager.removeTrack(sender)) {
+      this.needNegotiation();
+    }
   }
 
-  private needNegotiation = async () => {
+  /**交渉が必要な変更を記録し、negotiationneeded を予約する */
+  private needNegotiation = () => {
+    this.negotiationChangeSeq++;
+    this.scheduleNegotiationneeded();
+  };
+
+  /**未交渉の変更が残っていれば negotiationneeded を予約する (stable 復帰時の再判定にも使う) */
+  private scheduleNegotiationneeded() {
     this.invalidateLastCreatedDescriptions();
     this.shouldNegotiationneeded = true;
-    if (this.negotiationneeded || this.signalingState !== "stable") {
+    if (
+      this.negotiationneeded ||
+      this.negotiationneededScheduled ||
+      this.signalingState !== "stable"
+    ) {
       return;
     }
     this.shouldNegotiationneeded = false;
+    this.negotiationneededScheduled = true;
     setImmediate(() => {
+      this.negotiationneededScheduled = false;
+      if (this.isClosed) return;
+      if (this.negotiatedChangeSeq >= this.negotiationChangeSeq) {
+        // 発火前に適用された local offer が変更をすべて含んでいる
+        return;
+      }
+      if (this.signalingState !== "stable") {
+        // stable に戻った時点で改めて判定する
+        this.shouldNegotiationneeded = true;
+        return;
+      }
       this.negotiationneeded = true;
       this.onNegotiationneeded.execute();
       if (this.onnegotiationneeded) {
@@ -655,7 +716,7 @@ export class RTCPeerConnection extends EventTarget {
       }
       this.emit("negotiationneeded");
     });
-  };
+  }
 
   private invalidateLastCreatedDescriptions() {
     this.lastCreatedAnswer = undefined;
@@ -749,7 +810,11 @@ export class RTCPeerConnection extends EventTarget {
       }
 
       const owner = this.resolveLocalCandidateOwner(iceTransport);
-      if (!owner) return;
+      if (!owner) {
+        // 停止 / 拒否した m-line だけが使う transport の候補は通知しない
+        log("no accepted m-line owns the ice transport", iceTransport.id);
+        return;
+      }
       this.secureManager.handleNewIceCandidate({
         candidate,
         sdpMid: owner.mid,
@@ -771,21 +836,65 @@ export class RTCPeerConnection extends EventTarget {
         const mid = media.rtp.muxId;
         if (media.kind === "application") {
           return (
-            this.sctpTransport?.mid === mid &&
-            this.sctpTransport.dtlsTransport.iceTransport.id === iceTransport.id
+            !!this.sctpTransport &&
+            this.sctpTransport.mid === mid &&
+            this.sctpTransport.dtlsTransport?.iceTransport.id ===
+              iceTransport.id
           );
         }
         const transceiver = this.transceiverManager
           .getTransceivers()
           .find((t) => t.mid === mid && !t.stopped);
-        return transceiver?.dtlsTransport.iceTransport.id === iceTransport.id;
+        return transceiver?.dtlsTransport?.iceTransport.id === iceTransport.id;
       });
-    if (owners.length === 0) return;
-    const bundle = description.group.find(
-      (group) => group.semantic === "BUNDLE",
+    const tags = description.group
+      .filter((group) => group.semantic === "BUNDLE")
+      .map((group) => group.items[0]);
+    const owner =
+      owners.find(({ media }) => tags.includes(media.rtp.muxId!)) ?? owners[0];
+    if (!owner) return;
+    return { mid: owner.media.rtp.muxId, index: owner.index };
+  }
+
+  /**
+   * answer 確定後の stopping transceiver を整理する。
+   * @returns port 0 を自分の offer で交渉すべき transceiver が残っているか
+   */
+  private settleStoppingTransceivers() {
+    const negotiatedMids = new Set(
+      (this.sdpManager.currentLocalDescription?.media ?? [])
+        .filter((media) => media.port !== 0 && media.rtp.muxId)
+        .map((media) => media.rtp.muxId!),
     );
-    const tag = bundle?.items[0];
-    return owners.find(({ media }) => media.rtp.muxId === tag) ?? owners[0];
+    const pending =
+      this.transceiverManager.settleStoppingTransceivers(negotiatedMids);
+    this.closeIdleTransports();
+    return pending;
+  }
+
+  /**停止した transceiver の transport のうち、live な利用者がいないものを閉じる */
+  private closeIdleTransports(
+    candidates: (RTCDtlsTransport | undefined)[] = this.transceiverManager
+      .getTransceivers()
+      .filter((t) => t.stopped)
+      .map((t) => t.dtlsTransport),
+  ) {
+    const live = new Set(this.dtlsTransports.map((t) => t.id));
+    for (const transport of this.negotiation.transportByMid.values()) {
+      live.add(transport.id);
+    }
+    for (const transport of new Set(candidates)) {
+      if (
+        !transport ||
+        transport.state === "closed" ||
+        live.has(transport.id)
+      ) {
+        continue;
+      }
+      transport.stop().catch((error) => {
+        log("failed to close idle transport", error);
+      });
+    }
   }
 
   async setLocalDescription(sessionDescription: {
@@ -816,8 +925,9 @@ export class RTCPeerConnection extends EventTarget {
         await this.negotiation.rollback();
         await this.cleanupInitialProvisionalTransport();
         this.setSignalingState("stable");
+        this.pendingOfferChangeSeq = undefined;
         if (this.shouldNegotiationneeded) {
-          this.needNegotiation();
+          this.scheduleNegotiationneeded();
         }
         this.invalidateLastCreatedDescriptions();
         return;
@@ -1029,9 +1139,17 @@ export class RTCPeerConnection extends EventTarget {
       for (const [i, media] of enumerate(description.media)) {
         const mid = media.rtp.muxId!;
         this.sdpManager.registerMid(mid);
-        if (["audio", "video"].includes(media.kind)) {
-          const transceiver =
-            this.transceiverManager.getTransceiverByMLineIndex(i);
+        if (["audio", "video"].includes(media.kind) && media.port !== 0) {
+          // 停止済み、別 kind、別 MID の transceiver には割り当てない (MID の一意性を保つ)
+          const transceiver = this.transceiverManager
+            .getTransceivers()
+            .find(
+              (t) =>
+                t.mLineIndex === i &&
+                !t.stopped &&
+                t.kind === media.kind &&
+                (t.mid == null || t.mid === mid),
+            );
           if (transceiver) {
             transceiver.mid = mid;
           }
@@ -1074,24 +1192,26 @@ export class RTCPeerConnection extends EventTarget {
         );
         for (const t of this.transceiverManager.getTransceivers()) {
           if (!t.mid || !answeredMids.has(t.mid)) continue;
-          const direction = andDirection(t.direction, t.offerDirection);
+          if (t.stopped || t.pendingRejection) continue;
+          const direction = t.stopping
+            ? "inactive"
+            : andDirection(t.direction, t.offerDirection);
           t.setCurrentDirection(direction);
         }
       }
       if (description.type === "answer") {
-        // remote offer が拒否予定にした transceiver を final answer で確定する。
+        // answer の確定で拒否予定の m-line を停止し、RTP pipeline を解放する
         this.transceiverManager.commitRemoteOffer();
-        for (const media of description.media.filter(
-          (media) => media.port === 0,
-        )) {
-          const rejected = this.transceiverManager
-            .getTransceivers()
-            .find((t) => t.mid === media.rtp.muxId);
-          // Same as a remote answer: an `inactive` m-line also has port zero.
-          if (rejected?.stopping || rejected?.pendingRejection) {
-            this.router.unregisterTransceiver(rejected);
-            rejected.commitStopped({ rejected: !rejected.stopping });
+        // port 0 で答えた m-line (aggressive の inactive など) は offerer 側で拒否として
+        // 停止が確定する。answerer 側も同じ位置を停止確定にし、offerer が新 MID で再利用できるようにする
+        for (const media of description.media) {
+          if (!["audio", "video"].includes(media.kind) || media.port !== 0) {
+            continue;
           }
+          const transceiver = this.transceiverManager
+            .getTransceivers()
+            .find((t) => t.mid === media.rtp.muxId && !t.stopped);
+          transceiver?.commitStopped({ rejected: true });
         }
       }
 
@@ -1106,6 +1226,8 @@ export class RTCPeerConnection extends EventTarget {
       if (description.type === "offer") {
         this.secureManager.markStagedIceRestartApplied();
         this.negotiation.settle();
+        // この offer は作成時点までの変更を含む。answer の適用で交渉済みにする
+        this.pendingOfferChangeSeq = this.createdOfferChangeSeq;
         this.setSignalingState("have-local-offer");
       } else if (description.type === "answer") {
         this.setSignalingState("stable");
@@ -1175,8 +1297,11 @@ export class RTCPeerConnection extends EventTarget {
         this.negotiation.transportByMid,
       );
 
-      if (this.shouldNegotiationneeded) {
-        this.needNegotiation();
+      // answerer の stop() は次の自分の offer で交渉する
+      const hasUnnegotiatedStop =
+        description.type === "answer" && this.settleStoppingTransceivers();
+      if (this.shouldNegotiationneeded || hasUnnegotiatedStop) {
+        this.scheduleNegotiationneeded();
       }
 
       this.invalidateLastCreatedDescriptions();
@@ -1957,7 +2082,8 @@ export class RTCPeerConnection extends EventTarget {
         await this.negotiation.rollback();
         await this.cleanupInitialProvisionalTransport();
         this.setSignalingState("stable");
-        if (this.shouldNegotiationneeded) this.needNegotiation();
+        this.pendingOfferChangeSeq = undefined;
+        if (this.shouldNegotiationneeded) this.scheduleNegotiationneeded();
         this.invalidateLastCreatedDescriptions();
         return;
       }
@@ -1984,6 +2110,8 @@ export class RTCPeerConnection extends EventTarget {
         signalingState: this.signalingState,
         type: sessionDescription.type,
       });
+      this.sdpManager.validateRemoteDescription(remoteSdp);
+      this.assertAnswerKeepsSharedTransports(remoteSdp);
       for (const [mediaIndex, media] of remoteSdp.media.entries()) {
         if (!["audio", "video", "application"].includes(media.kind)) {
           throw createWebRtcDomException(
@@ -2015,7 +2143,7 @@ export class RTCPeerConnection extends EventTarget {
           negotiateRemoteCodecs(this.localCodecsFor(media), media).length === 0
         ) {
           throw createWebRtcDomException(
-            "OperationError",
+            "InvalidAccessError",
             "No supported codec in answer",
           );
         }
@@ -2160,6 +2288,7 @@ export class RTCPeerConnection extends EventTarget {
         this.secureManager.rollbackStagedIceRestart();
         await this.negotiation.rollback();
         await this.cleanupInitialProvisionalTransport();
+        this.pendingOfferChangeSeq = undefined;
         this.shouldNegotiationneeded = true;
         this.setSignalingState("stable");
         // The implicit rollback's "stable" is observable on its own: yield a
@@ -2196,90 +2325,60 @@ export class RTCPeerConnection extends EventTarget {
       const openedHere = remoteSdp.type === "offer";
       const checkpoint = this.negotiation.checkpoint();
       try {
+        if (remoteSdp.type === "answer" || remoteSdp.type === "pranswer") {
+          this.negotiation.discardStagedRemoteAnswer();
+        }
         if (remoteSdp.type === "answer") {
           this.applyPendingBundleTopology();
         }
 
-        const bundleItems =
+        const bundleGroups =
           this.sdpManager.bundlePolicy === "disable"
             ? []
-            : (remoteSdp.group.find((group) => group.semantic === "BUNDLE")
-                ?.items ?? []);
-        const bundledMids = new Set(bundleItems);
-        const bundleTag = bundleItems[0];
-        let bundleTransport: RTCDtlsTransport | undefined =
-          this.transceiverManager
-            .getTransceivers()
-            .find((transceiver) => transceiver.mid === bundleTag)
-            ?.dtlsTransport ??
-          (bundleTag && this.sctpTransport?.mid === bundleTag
-            ? this.sctpTransport.dtlsTransport
-            : undefined);
+            : remoteSdp.group.filter((group) => group.semantic === "BUNDLE");
+        const groupOfMid = (mid: string | undefined) =>
+          mid == undefined
+            ? undefined
+            : bundleGroups.find((group) => group.items.includes(mid));
+        const bundleItems = bundleGroups[0]?.items ?? [];
         const preserveCurrentTransport =
           (remoteSdp.type === "offer" || remoteSdp.type === "pranswer") &&
           !!this.sdpManager.currentRemoteDescription;
+        const isRemoteOffer = remoteSdp.type === "offer";
 
         // # apply description
 
         const provisionalIce: [RTCIceTransport, MediaDescription][] = [];
-        const matchTransceiverWithMedia = (
-          transceiver: RTCRtpTransceiver,
-          media: MediaDescription,
-        ) =>
-          transceiver.kind === media.kind &&
-          [null, media.rtp.muxId].includes(transceiver.mid);
-
         // Live transport and media stop operations run only after every
         // m-line applied without error, so a failure above leaves the ICE
         // generation, selected pair and DTLS/SCTP bindings untouched.
         const transportUpdates: (() => void)[] = [];
         const endOfCandidates: RTCIceTransport[] = [];
-        let transports = remoteSdp.media.map((remoteMedia, i) => {
-          let dtlsTransport: RTCDtlsTransport;
-          const preparedTransport = remoteMedia.rtp.muxId
-            ? this.negotiation.transportByMid.get(remoteMedia.rtp.muxId)
-            : undefined;
-          const pendingTransport =
-            preparedTransport &&
-            this.negotiation.isPendingOnlyTransport(
-              preparedTransport.iceTransport.id,
-            )
-              ? preparedTransport
-              : undefined;
 
-          if (remoteMedia.port === 0) {
-            if (remoteSdp.type === "answer") {
-              const rejected = this.transceiverManager
-                .getTransceivers()
-                .find((t) => t.mid === remoteMedia.rtp.muxId);
-              const offered =
-                this.sdpManager.pendingLocalDescription?.media.find(
-                  (media) => media.rtp.muxId === remoteMedia.rtp.muxId,
-                );
-              // werift writes an `inactive` m-line with port zero, so a zero
-              // port stops only a transceiver the application is stopping.
-              if (
-                rejected &&
-                (rejected.stopping ||
-                  rejected.pendingRejection ||
-                  (offered?.port !== 0 && offered != undefined))
-              ) {
-                transportUpdates.push(() => {
-                  this.router.unregisterTransceiver(rejected);
-                  rejected.commitStopped({ rejected: !rejected.stopping });
-                });
-              } else if (rejected && !rejected.stopped) {
-                rejected.setCurrentDirection("inactive");
+        // ## associate m-lines with transceivers / sctp
+        const associated = new Set<RTCRtpTransceiver>();
+        const entries: RemoteMediaEntry[] = remoteSdp.media.map(
+          (remoteMedia, i) => {
+            if (remoteMedia.kind === "application") {
+              if (remoteMedia.port === 0) return { remoteMedia, index: i };
+              let sctpTransport = this.sctpTransport;
+              if (!sctpTransport) {
+                sctpTransport = this.createSctpTransport();
+                sctpTransport.mid = remoteMedia.rtp.muxId;
               }
+              return { remoteMedia, index: i, sctpTransport };
             }
-            return;
-          }
-
-          if (["audio", "video"].includes(remoteMedia.kind)) {
-            let transceiver = this.transceiverManager
-              .getTransceivers()
-              .find((t) => matchTransceiverWithMedia(t, remoteMedia));
+            if (!["audio", "video"].includes(remoteMedia.kind)) {
+              throw new Error("invalid media kind");
+            }
+            let transceiver = this.findTransceiverForRemoteMedia(
+              remoteMedia,
+              i,
+              associated,
+            );
             if (!transceiver) {
+              // 未知の MID の拒否済み m-line には transceiver を関連付けない
+              if (remoteMedia.port === 0) return { remoteMedia, index: i };
               // JSEP 5.2.2: a new MID on an existing m-line recycles it, so the
               // transceiver that owned it is stopped. The flags are part of the
               // rollback baseline; its sender/receiver stop at the answer.
@@ -2302,94 +2401,223 @@ export class RTCPeerConnection extends EventTarget {
               }
               // create remote transceiver
               // Not an application operation: no negotiationneeded and no
-              // takeover of an inactive current transceiver.
+              // takeover of an inactive current transceiver. A stopped
+              // transceiver at the same index is replaced, never revived.
               transceiver = this.transceiverManager.addTransceiver(
                 remoteMedia.kind,
                 this.findOrCreateTransport(),
                 { direction: "recvonly" },
-                { reuseInactive: false },
+                { remoteMLineIndex: i },
               );
               transceiver.mid = remoteMedia.rtp.muxId ?? null;
-              this.transceiverManager.replaceStoppedTransceiverAtMLineIndex(
-                transceiver,
-                i,
-              );
               this.negotiation.rememberRemoteTransceiver(transceiver);
               this.onRemoteTransceiverAdded.execute(transceiver);
-            } else {
-              if (
-                transceiver.direction === "inactive" &&
-                transceiver.stopping
-              ) {
-                transceiver.stopped = true;
-
-                if (sessionDescription.type === "answer") {
-                  transceiver.setCurrentDirection("inactive");
-                }
-                return;
-              }
+            } else if (transceiver.mid == null) {
+              this.transceiverManager.associateMLine(transceiver, i);
             }
+            associated.add(transceiver);
+            return { remoteMedia, index: i, transceiver };
+          },
+        );
+        if (isRemoteOffer) {
+          // 関連付けられなかった未交渉 transceiver の位置の予約を解除する
+          this.transceiverManager.releaseUnassociatedReservations(
+            associated,
+            remoteSdp.media.length,
+          );
+        }
+        const ownerOf = (entry: RemoteMediaEntry) =>
+          entry.transceiver ?? entry.sctpTransport;
+        // A current owner keeps its transport while a re-offer or pranswer is
+        // pending; a staged BUNDLE topology switches it at the answer.
+        const keepsCurrent = (entry: RemoteMediaEntry) =>
+          preserveCurrentTransport &&
+          (entry.transceiver
+            ? !!entry.transceiver.currentDirection
+            : !!this.sctpManager.sctpRemotePort);
 
-            if (bundledMids.has(remoteMedia.rtp.muxId ?? "")) {
-              if (!bundleTransport) {
-                bundleTransport = transceiver.dtlsTransport;
-              } else {
-                if (
-                  !preserveCurrentTransport ||
-                  !transceiver.currentDirection
-                ) {
-                  transceiver.setDtlsTransport(bundleTransport);
-                }
-              }
+        // ## transport ownership
+        // BUNDLE group ごとに 1 つの transport を共有する。remote offer の所有関係は
+        // bundlePolicy によらず offer の group だけで決まり (max-bundle は自分の offer にだけ効く)、
+        // 異なる group や group 外の m-line とは共有しない。
+        const liveTransport = (transport: RTCDtlsTransport | undefined) =>
+          !!transport && transport.state !== "closed";
+        const claimed = new Set<RTCDtlsTransport>();
+        // A transport that inherited another owner's ICE credentials is the
+        // same ICE session on the wire, so it counts as claimed as well.
+        const ufragOf = (transport: RTCDtlsTransport) =>
+          transport.iceTransport.localParameters.usernameFragment;
+        const isClaimed = (transport: RTCDtlsTransport) =>
+          claimed.has(transport) ||
+          [...claimed].some((other) => ufragOf(other) === ufragOf(transport));
+        if (preserveCurrentTransport) {
+          // A re-offer or pranswer on a live session keeps every current
+          // owner on its transport: a new BUNDLE topology (split, merge, a new
+          // owner outside the group) is prepared for the answer and switches
+          // only at the commit. New members join the tag's transport.
+          const group = bundleGroups[0];
+          const members = entries.filter(
+            (entry) =>
+              !!ownerOf(entry) &&
+              entry.remoteMedia.port !== 0 &&
+              !!group?.items.includes(entry.remoteMedia.rtp.muxId!),
+          );
+          const tag =
+            members.find(
+              (entry) => entry.remoteMedia.rtp.muxId === group?.items[0],
+            ) ?? members[0];
+          const shared = tag && ownerOf(tag)!.dtlsTransport;
+          for (const entry of members) {
+            const owner = ownerOf(entry)!;
+            if (
+              shared &&
+              !keepsCurrent(entry) &&
+              owner.dtlsTransport !== shared
+            ) {
+              owner.setDtlsTransport(shared);
             }
-
-            dtlsTransport =
-              preserveCurrentTransport && pendingTransport
-                ? pendingTransport
-                : transceiver.dtlsTransport;
-
-            this.transceiverManager.setRemoteRTP(
-              transceiver,
-              remoteMedia,
-              remoteSdp.type,
-              i,
+          }
+        } else {
+          for (const group of bundleGroups) {
+            const members = entries.filter(
+              (entry) =>
+                !!ownerOf(entry) &&
+                entry.remoteMedia.port !== 0 &&
+                group.items.includes(entry.remoteMedia.rtp.muxId!),
             );
-          } else if (remoteMedia.kind === "application") {
-            let sctpTransport = this.sctpTransport;
-            if (!sctpTransport) {
-              sctpTransport = this.createSctpTransport();
-              sctpTransport.mid = remoteMedia.rtp.muxId;
+            if (members.length === 0) continue;
+            // The tag's transport first, then any other member's.
+            const preferred = [
+              ...members.filter(
+                (entry) => entry.remoteMedia.rtp.muxId === group.items[0],
+              ),
+              ...members,
+            ];
+            let shared = preferred
+              .map((entry) => ownerOf(entry)!.dtlsTransport)
+              .find(
+                (transport) =>
+                  liveTransport(transport) &&
+                  (!isRemoteOffer || !isClaimed(transport)),
+              );
+            if (!shared) shared = this.createOwnerTransport();
+            claimed.add(shared);
+            for (const entry of members) {
+              const owner = ownerOf(entry)!;
+              if (owner.dtlsTransport !== shared)
+                owner.setDtlsTransport(shared);
             }
-
-            if (bundledMids.has(remoteMedia.rtp.muxId ?? "")) {
-              if (!bundleTransport) {
-                bundleTransport = sctpTransport.dtlsTransport;
-              } else {
-                if (
-                  !preserveCurrentTransport ||
-                  !this.sctpManager.sctpRemotePort
-                ) {
-                  sctpTransport.setDtlsTransport(bundleTransport);
-                }
+          }
+          if (isRemoteOffer) {
+            // group 外 (group のない offer を含む) で受け入れる m-line は、max-bundle でも
+            // 独立した transport と ICE credentials を持つ
+            for (const entry of entries) {
+              const owner = ownerOf(entry);
+              if (
+                !owner ||
+                entry.remoteMedia.port === 0 ||
+                groupOfMid(entry.remoteMedia.rtp.muxId)
+              ) {
+                continue;
               }
+              if (
+                !liveTransport(owner.dtlsTransport) ||
+                isClaimed(owner.dtlsTransport)
+              ) {
+                owner.setDtlsTransport(this.createOwnerTransport());
+              }
+              claimed.add(owner.dtlsTransport);
             }
+          }
+        }
 
-            dtlsTransport =
-              preserveCurrentTransport && pendingTransport
-                ? pendingTransport
-                : sctpTransport.dtlsTransport;
-
+        // ## apply RTP / SCTP (受け入れ判定)
+        const acceptedEntries = new Set<RemoteMediaEntry>();
+        for (const entry of entries) {
+          const { remoteMedia, index: i, transceiver } = entry;
+          if (transceiver) {
+            if (remoteMedia.port !== 0) {
+              if (
+                this.transceiverManager.setRemoteRTP(
+                  transceiver,
+                  remoteMedia,
+                  remoteSdp.type,
+                  i,
+                )
+              ) {
+                acceptedEntries.add(entry);
+              }
+              continue;
+            }
+            // remote port 0: an offer or pranswer only marks the rejection
+            // (the current pipeline keeps running until the answer); an
+            // answer stops it once every fallible step has passed.
+            transceiver.mLineIndex = i;
+            if (transceiver.stopped) continue;
+            if (remoteSdp.type === "answer") {
+              transportUpdates.push(() =>
+                transceiver.commitStopped({ rejected: !transceiver.stopping }),
+              );
+            } else if (!transceiver.stopping) {
+              transceiver.pendingRejection = true;
+            }
+          } else if (entry.sctpTransport) {
             if (!preserveCurrentTransport || !this.sctpManager.sctpRemotePort) {
               this.sctpManager.setRemoteSCTP(remoteMedia, i);
             }
-          } else {
-            throw new Error("invalid media kind");
+            acceptedEntries.add(entry);
           }
+        }
 
+        // ICE / DTLS パラメータは group で最初に受け入れた member (通常は tag) から適用する
+        // (codec 不一致で拒否した member のパラメータは使わない)
+        const groupParamSources = new Map<GroupDescription, RemoteMediaEntry>();
+        for (const group of bundleGroups) {
+          for (const mid of group.items) {
+            const entry = entries.find(
+              (e) =>
+                e.remoteMedia.rtp.muxId === mid &&
+                e.remoteMedia.port !== 0 &&
+                acceptedEntries.has(e),
+            );
+            if (entry) {
+              groupParamSources.set(group, entry);
+              break;
+            }
+          }
+        }
+
+        // ## apply transport parameters
+        for (const entry of entries) {
+          const { remoteMedia } = entry;
+          const owner = ownerOf(entry);
+          const group = groupOfMid(remoteMedia.rtp.muxId);
+          if (
+            !owner ||
+            remoteMedia.port === 0 ||
+            // group 外の拒否 section の transport は使わない
+            (!acceptedEntries.has(entry) && !group)
+          ) {
+            continue;
+          }
+          const preparedTransport = remoteMedia.rtp.muxId
+            ? this.negotiation.transportByMid.get(remoteMedia.rtp.muxId)
+            : undefined;
+          const pendingTransport =
+            preparedTransport &&
+            this.negotiation.isPendingOnlyTransport(
+              preparedTransport.iceTransport.id,
+            )
+              ? preparedTransport
+              : undefined;
+          const dtlsTransport =
+            preserveCurrentTransport && pendingTransport
+              ? pendingTransport
+              : owner.dtlsTransport;
+          if (!liveTransport(dtlsTransport)) continue;
           const iceTransport = dtlsTransport.iceTransport;
           const bundledNonTag =
-            bundledMids.has(remoteMedia.rtp.muxId ?? "") &&
-            remoteMedia.rtp.muxId !== bundleTag;
+            !!group && groupParamSources.get(group) !== entry;
 
           transportUpdates.push(() => {
             if (
@@ -2458,11 +2686,8 @@ export class RTCPeerConnection extends EventTarget {
                 remoteMedia.dtlsParams.role === "client" ? "server" : "client";
             }
           });
-          return iceTransport;
-        }) as RTCIceTransport[];
+        }
 
-        // filter out inactive transports
-        transports = transports.filter((iceTransport) => !!iceTransport);
         if (remoteSdp.type === "answer") {
           // The final answer switches a staged ICE restart only now, after
           // every fallible step, and before its remote ICE parameters apply.
@@ -2488,20 +2713,16 @@ export class RTCPeerConnection extends EventTarget {
           await this.applyProvisionalIce(iceTransport, media);
         }
 
-        const removedTransceivers = this.transceiverManager
-          .getTransceivers()
-          .filter(
-            (t) =>
-              remoteSdp.media.find((m) => matchTransceiverWithMedia(t, m)) ==
-              undefined,
-          );
-
-        if (sessionDescription.type === "answer") {
-          for (const transceiver of removedTransceivers) {
-            // todo: handle answer side transceiver removal work.
-            // event should trigger to notify media source to stop.
-            transceiver.stopping = true;
-            transceiver.stopped = true;
+        if (remoteSdp.type === "answer") {
+          // answer に含まれない既存 m-line は remote 起因の停止として確定する
+          for (const transceiver of this.transceiverManager.getTransceivers()) {
+            if (
+              !associated.has(transceiver) &&
+              transceiver.mid != undefined &&
+              !transceiver.stopped
+            ) {
+              transceiver.commitStopped({ rejected: true });
+            }
           }
         }
       } catch (error) {
@@ -2548,11 +2769,121 @@ export class RTCPeerConnection extends EventTarget {
       }
 
       this.negotiationneeded = false;
-      if (this.shouldNegotiationneeded) {
-        this.needNegotiation();
+      if (
+        remoteSdp.type === "answer" &&
+        this.pendingOfferChangeSeq != undefined
+      ) {
+        // 確定した local offer が反映していた変更は交渉済みになる
+        this.negotiatedChangeSeq = Math.max(
+          this.negotiatedChangeSeq,
+          this.pendingOfferChangeSeq,
+        );
+        this.pendingOfferChangeSeq = undefined;
+      }
+      const hasUnnegotiatedStop =
+        remoteSdp.type === "answer" && this.settleStoppingTransceivers();
+      if (this.shouldNegotiationneeded || hasUnnegotiatedStop) {
+        this.scheduleNegotiationneeded();
       }
       this.invalidateLastCreatedDescriptions();
     });
+  }
+
+  /**
+   * remote answer / pranswer の検証 (offerer 側、状態を変更する前に実行する)。
+   * local offer で 1 つの transport を共有した m-line を、answer が同じ BUNDLE group に置かずに
+   * 異なる ICE credentials で受け入れることはできない (RFC 8843 7.3.2)。共有 transport は分割できず、
+   * 新しい transport を作ると offer で渡した ICE credentials とも一致しなくなる。
+   * group の記述が MID と一致しなくても remote の ICE credentials が同じなら、同じ transport のまま扱う。
+   */
+  private assertAnswerKeepsSharedTransports(answer: SessionDescription) {
+    if (
+      !["answer", "pranswer"].includes(answer.type) ||
+      !["have-local-offer", "have-remote-pranswer"].includes(
+        this.signalingState,
+      ) ||
+      this.config.bundlePolicy === "disable"
+    ) {
+      return;
+    }
+    const answerGroups = answer.group.filter((g) => g.semantic === "BUNDLE");
+    const byTransport = new Map<
+      RTCDtlsTransport,
+      { group?: GroupDescription; credentials: string }
+    >();
+    for (const media of answer.media) {
+      const mid = media.rtp.muxId;
+      if (media.port === 0 || mid == undefined) {
+        continue;
+      }
+      const owner =
+        media.kind === "application"
+          ? this.sctpTransport?.mid === mid
+            ? this.sctpTransport
+            : undefined
+          : this.transceiverManager
+              .getTransceivers()
+              .find((t) => t.mid === mid && !t.stopped);
+      // local offer 用に準備した transport があれば、それが offer での所有 transport
+      const transport =
+        this.negotiation.transportByMid.get(mid) ?? owner?.dtlsTransport;
+      if (!transport) {
+        continue;
+      }
+      const current = {
+        group: answerGroups.find((g) => g.items.includes(mid)),
+        credentials: `${media.iceParams?.usernameFragment}:${media.iceParams?.password}`,
+      };
+      const first = byTransport.get(transport);
+      if (!first) {
+        byTransport.set(transport, current);
+        continue;
+      }
+      const sameGroup = !!current.group && current.group === first.group;
+      if (!sameGroup && current.credentials !== first.credentials) {
+        throw createWebRtcDomException(
+          "InvalidAccessError",
+          `mid=${mid} shares a transport in the local offer but the remote ${answer.type} moves it out of that BUNDLE group`,
+        );
+      }
+    }
+  }
+
+  /**
+   * remote description の transport 所有で使う独立 transport (別 ICE credentials) を作る。
+   * rollback で使われなくなれば transaction が閉じる。
+   */
+  private createOwnerTransport() {
+    const transport = this.findOrCreateTransport(true);
+    this.negotiation.rememberOwnerTransport(transport);
+    return transport;
+  }
+
+  /**
+   * remote m-line に対応する transceiver を探す。MID の一致を優先し、
+   * 未関連付け transceiver は同じ offer 内で異なる m-line に割り当てる。
+   */
+  private findTransceiverForRemoteMedia(
+    remoteMedia: MediaDescription,
+    index: number,
+    associated: Set<RTCRtpTransceiver>,
+  ) {
+    const candidates = this.transceiverManager
+      .getTransceivers()
+      .filter((t) => !associated.has(t) && t.kind === remoteMedia.kind);
+    const mid = remoteMedia.rtp.muxId;
+    const byMid =
+      mid != undefined ? candidates.find((t) => t.mid === mid) : undefined;
+    if (byMid) {
+      return byMid;
+    }
+    if (remoteMedia.port === 0) {
+      return;
+    }
+    const unassociated = candidates.filter(
+      (t) => t.mid == null && !t.stopping && !t.stopped,
+    );
+    return unassociated.find((t) => t.mLineIndex === index) ?? unassociated[0];
   }
 
   addTransceiver(
@@ -2816,7 +3147,17 @@ export interface PeerConfig {
    * Disabled by default. Pass `true` or `{ enabled: true, maxLength }` to buffer.
    */
   pendingRtp: NonNullable<RTCRtpSenderOptions["pendingRtp"]>;
+  /**
+   * How local SDP marks inactive / stopped m-lines. Cannot be changed after construction.
+   * - `"compatible"` (default): an accepted `inactive` m-line keeps a non-zero port.
+   *   Only rejected (no common codec / remote port 0) or stopped m-lines use port 0,
+   *   and only those negotiated port 0 positions are reused by new transceivers.
+   * - `"aggressive"`: legacy behavior. `inactive` m-lines are also written with port 0.
+   */
+  mLineReuse: MLineReuse;
 }
+
+const MLineReuseModes: readonly MLineReuse[] = ["compatible", "aggressive"];
 
 export const findCodecByMimeType = (
   codecs: RTCRtpCodecParameters[],
@@ -2986,6 +3327,7 @@ function generateDefaultPeerConfig(): PeerConfig {
     maxMessageSize: DEFAULT_MAX_MESSAGE_SIZE,
     sctp: { mtu: DEFAULT_SCTP_MTU },
     pendingRtp: false,
+    mLineReuse: "compatible",
   };
 }
 export const defaultPeerConfig: PeerConfig = generateDefaultPeerConfig();
@@ -3106,6 +3448,13 @@ export class RTCTrackEvent {
     this.receiver = init.receiver;
   }
 }
+
+type RemoteMediaEntry = {
+  remoteMedia: MediaDescription;
+  index: number;
+  transceiver?: RTCRtpTransceiver;
+  sctpTransport?: RTCSctpTransport;
+};
 
 export interface RTCDataChannelEvent {
   type?: "datachannel";
