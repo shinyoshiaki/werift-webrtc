@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import { transform } from "esbuild";
 import { expect, test } from "vitest";
 
-import { createCoverageProvider } from "../../tools/wpt-runner/coverage";
+import { createCoverageProvider } from "../../tools/wpt-runner/coverageProvider";
 
 test("WPT coverage provider maps TypeScript sources and writes reports", async () => {
   // Arrange: 本番レポートを変更しない一時ディレクトリを用意する。
