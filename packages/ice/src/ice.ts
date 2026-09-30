@@ -55,6 +55,14 @@ export class Connection implements IceConnection {
   turnServer?: Address;
   options: IceOptions;
   remoteCandidatesEnd = false;
+  /**
+   * End-of-candidates arrived while earlier candidates were still resolving
+   * (mDNS). No candidate is accepted any more; `remoteCandidatesEnd` follows
+   * once those resolutions settle.
+   */
+  private remoteCandidatesEndRequested = false;
+  /** mDNS resolutions of remote candidates that arrived before end-of-candidates. */
+  private readonly remoteResolutions = new Set<Promise<string>>();
   localCandidatesEnd = false;
   generation = -1;
   userHistory: { [username: string]: string } = {};
@@ -187,6 +195,8 @@ export class Connection implements IceConnection {
     this.localCandidates = [];
     this._remoteCandidates = [];
     this.remoteCandidatesEnd = false;
+    this.remoteCandidatesEndRequested = false;
+    this.remoteResolutions.clear();
     this.localCandidatesEnd = false;
     this.state = "new";
     this.lookup?.close?.();
@@ -222,6 +232,9 @@ export class Connection implements IceConnection {
       localPassword: password,
       remoteCandidates: [],
       remoteCandidatesEnd: false,
+      remoteCandidatesEndRequested: false,
+      resolutions: new Set(),
+      revision: 0,
       pairs: [],
       started: false,
     };
@@ -252,11 +265,15 @@ export class Connection implements IceConnection {
     ) {
       return;
     }
-    // A replacement pranswer starts a new provisional checklist.
+    // A replacement pranswer starts a new provisional checklist; candidates
+    // still resolving for the replaced one are dropped by `revision`.
     generation.remoteUsername = usernameFragment;
     generation.remotePassword = password;
     generation.remoteCandidates = [];
     generation.remoteCandidatesEnd = false;
+    generation.remoteCandidatesEndRequested = false;
+    generation.resolutions.clear();
+    generation.revision++;
     generation.pairs = [];
     generation.nominated = undefined;
   }
@@ -264,8 +281,30 @@ export class Connection implements IceConnection {
   async addProvisionalRemoteCandidate(remoteCandidate: Candidate | undefined) {
     const generation = this.provisional;
     if (!generation) return;
+    const revision = generation.revision;
+    const current = () =>
+      this.provisional === generation && generation.revision === revision;
     if (!remoteCandidate) {
+      if (
+        generation.remoteCandidatesEnd ||
+        generation.remoteCandidatesEndRequested
+      ) {
+        return;
+      }
+      // Candidates that arrived before end-of-candidates finish first.
+      generation.remoteCandidatesEndRequested = true;
+      if (generation.resolutions.size > 0) {
+        await Promise.allSettled([...generation.resolutions]);
+        if (!current()) return;
+      }
       generation.remoteCandidatesEnd = true;
+      return;
+    }
+    // RFC 8838: a completed generation takes no further candidates.
+    if (
+      generation.remoteCandidatesEnd ||
+      generation.remoteCandidatesEndRequested
+    ) {
       return;
     }
     if (remoteCandidate.host.includes(".local")) {
@@ -273,10 +312,18 @@ export class Connection implements IceConnection {
         if (!this.lookup) {
           this.lookup = new MdnsLookup();
         }
-        remoteCandidate.host = await this.lookup.lookup(remoteCandidate.host);
+        const resolution = this.lookup.lookup(remoteCandidate.host);
+        generation.resolutions.add(resolution);
+        try {
+          remoteCandidate.host = await resolution;
+        } finally {
+          generation.resolutions.delete(resolution);
+        }
       } catch (error) {
         return;
       }
+      // The generation may have been replaced or completed while resolving.
+      if (!current() || generation.remoteCandidatesEnd) return;
     }
     try {
       validateRemoteCandidate(remoteCandidate);
@@ -284,7 +331,7 @@ export class Connection implements IceConnection {
       return;
     }
     if (
-      this.provisional !== generation ||
+      !current() ||
       generation.remoteCandidates.some(
         (c) =>
           c.host === remoteCandidate.host &&
@@ -1432,20 +1479,43 @@ export class Connection implements IceConnection {
     // """
 
     if (!remoteCandidate) {
+      if (this.remoteCandidatesEnd || this.remoteCandidatesEndRequested) {
+        return;
+      }
+      // Candidates that arrived before end-of-candidates finish first.
+      this.remoteCandidatesEndRequested = true;
+      if (this.remoteResolutions.size > 0) {
+        const generation = this.generation;
+        await Promise.allSettled([...this.remoteResolutions]);
+        if (this.generation !== generation) return;
+      }
       this.remoteCandidatesEnd = true;
       return;
     }
 
+    // RFC 8838: a completed generation takes no further candidates.
+    if (this.remoteCandidatesEnd || this.remoteCandidatesEndRequested) {
+      return;
+    }
+
     if (remoteCandidate.host.includes(".local")) {
+      const generation = this.generation;
       try {
         if (!this.lookup) {
           this.lookup = new MdnsLookup();
         }
-        const host = await this.lookup.lookup(remoteCandidate.host);
-        remoteCandidate.host = host;
+        const resolution = this.lookup.lookup(remoteCandidate.host);
+        this.remoteResolutions.add(resolution);
+        try {
+          remoteCandidate.host = await resolution;
+        } finally {
+          this.remoteResolutions.delete(resolution);
+        }
       } catch (error) {
         return;
       }
+      // An ICE restart or completion while resolving ends this candidate's generation.
+      if (this.generation !== generation || this.remoteCandidatesEnd) return;
     }
 
     try {
@@ -2136,6 +2206,11 @@ type ProvisionalGeneration = {
   remotePassword?: string;
   remoteCandidates: Candidate[];
   remoteCandidatesEnd: boolean;
+  /** End-of-candidates arrived; waiting for earlier mDNS resolutions. */
+  remoteCandidatesEndRequested: boolean;
+  resolutions: Set<Promise<string>>;
+  /** Incremented when a replacement pranswer restarts this checklist. */
+  revision: number;
   pairs: CandidatePair[];
   nominated?: CandidatePair;
   started: boolean;

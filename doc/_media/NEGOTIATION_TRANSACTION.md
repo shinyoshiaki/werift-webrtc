@@ -320,6 +320,12 @@ generations apart on them:
 - Restart credentials an applied offer or pranswer signalled stay until that
   description is answered, replaced or rolled back; `createOffer` /
   `createAnswer` reuse them instead of generating new ones.
+- Remote end-of-candidates completes a generation (RFC 8838), live or
+  provisional: a later candidate of it reaches neither the SDP (current or
+  pending) nor any checklist, and its mDNS name is not resolved. A candidate
+  that arrived before end-of-candidates and is still resolving its mDNS name
+  is kept; the generation completes after it. A resolution that finishes
+  after an ICE restart or a replacement pranswer is dropped.
 
 ## Test coverage
 

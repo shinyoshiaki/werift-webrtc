@@ -4,11 +4,15 @@ import {
   createConnectedVideoPeers,
   createConnectedVideoPeersWithRtx,
   createDuplexSession,
+  createIceRestartPranswer,
   createUnnegotiatedPeers,
   expectSessionAlive,
   negotiate,
+  provisionalIce,
   sectionOf,
   sendAndExpectRtp,
+  stubIceMdns,
+  trickleCandidate,
   waitForCommittedNomination,
 } from "./negotiationTransactionUtils";
 
@@ -407,6 +411,85 @@ describe("negotiation transaction live-state regressions", () => {
       expect(offerer.signalingState).toBe("stable");
     } finally {
       await close();
+    }
+  });
+
+  test.each([
+    ["a host candidate", "127.0.0.1"],
+    ["an mDNS candidate", "peer.local"],
+  ])(
+    "%s after end-of-candidates of an ICE restart pranswer reaches neither the pending SDP nor the provisional checklist",
+    async (_, host) => {
+      const { offerer, answerer, outgoing, incoming, ufrag, mid } =
+        await createIceRestartPranswer();
+      const mdns = stubIceMdns(offerer);
+      try {
+        // Arrange: pranswer の restart generation に end-of-candidates を適用する。
+        await offerer.addIceCandidate({
+          candidate: "",
+          sdpMid: mid,
+          usernameFragment: ufrag,
+        });
+        const pendingSdp = offerer.pendingRemoteDescription!.sdp;
+        const provisional = provisionalIce(offerer)!;
+        const candidates = provisional.remoteCandidates.length;
+        const pairs = provisional.pairs.length;
+
+        // Act: 同じ ufrag の候補が end-of-candidates の後に届く。
+        await offerer.addIceCandidate(
+          trickleCandidate(50999, ufrag, mid, host),
+        );
+
+        // Assert: 完了済み generation の pending SDP と provisional checklist は変わらない。
+        expect(offerer.pendingRemoteDescription!.sdp).toBe(pendingSdp);
+        expect(offerer.pendingRemoteDescription!.sdp).toContain(
+          "a=end-of-candidates",
+        );
+        expect(provisional.remoteCandidatesEnd).toBe(true);
+        expect(provisional.remoteCandidates).toHaveLength(candidates);
+        expect(provisional.pairs).toHaveLength(pairs);
+        // Assert: mDNS 名の解決も始めない。
+        expect(mdns.requested).toBe(0);
+        assertNegotiationInvariants(offerer);
+        await sendAndExpectRtp(outgoing, incoming, "late-candidate-ignored");
+      } finally {
+        await Promise.allSettled([offerer.close(), answerer.close()]);
+      }
+    },
+  );
+
+  test("an mDNS candidate trickled before end-of-candidates of an ICE restart pranswer is kept", async () => {
+    const { offerer, answerer, ufrag, mid } = await createIceRestartPranswer();
+    const mdns = stubIceMdns(offerer);
+    try {
+      // Arrange: provisional generation の mDNS 候補を解決中にし、続けて EOC を送る。
+      const resolving = offerer.addIceCandidate(
+        trickleCandidate(50998, ufrag, mid, "peer.local"),
+      );
+      const end = offerer.addIceCandidate({
+        candidate: "",
+        sdpMid: mid,
+        usernameFragment: ufrag,
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(mdns.requested).toBe(1);
+
+      // Act: mDNS 解決を完了させる。
+      mdns.resolveAll("127.0.0.1");
+      await Promise.all([resolving, end]);
+
+      // Assert: EOC 前に届いた候補は pending SDP と provisional checklist に入り、その後に完了する。
+      const provisional = provisionalIce(offerer)!;
+      expect(provisional.remoteCandidates.some((c) => c.port === 50998)).toBe(
+        true,
+      );
+      expect(provisional.remoteCandidatesEnd).toBe(true);
+      const section = sectionOf(offerer.pendingRemoteDescription!.sdp, mid);
+      expect(section).toContain(" 50998 typ host");
+      expect(section).toContain("a=end-of-candidates");
+      assertNegotiationInvariants(offerer);
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
     }
   });
 });

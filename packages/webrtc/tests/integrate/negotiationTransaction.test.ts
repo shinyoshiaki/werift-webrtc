@@ -1111,7 +1111,15 @@ describe("negotiation transaction", () => {
         type: "offer",
         sdp: await createSplitOffer(a.pc, audio.mid),
       });
-      await b.pc.setRemoteDescription(a.pc.pendingLocalDescription!);
+      // 新世代の audio 候補はまだ trickle 中 (audio section に EOC なし) として渡す。
+      await b.pc.setRemoteDescription({
+        type: "offer",
+        sdp: mungeSection(
+          a.pc.pendingLocalDescription!.sdp,
+          audio.mid,
+          (section) => section.replace(/a=end-of-candidates\r\n/g, ""),
+        ),
+      });
       const sectionOf = (sdp: string, mid: string) =>
         sdp
           .split(/(?=^m=)/m)
@@ -1140,8 +1148,10 @@ describe("negotiation transaction", () => {
       await b.pc.addIceCandidate(candidateAt(40981, oldAudioUfrag));
       await b.pc.addIceCandidate(candidateAt(40982, newAudioUfrag));
 
-      // Assert: 旧世代は current の audio に、新世代は pending の audio に記録される。
-      expect(sectionOf(current(), audio.mid)).toContain(" 40981 typ host");
+      // Assert: 旧世代は end-of-candidates で完了済みなので current にも pending にも入らず
+      // (RFC 8838)、新世代は pending の audio にだけ記録される。
+      expect(sectionOf(current(), audio.mid)).toContain("a=end-of-candidates");
+      expect(sectionOf(current(), audio.mid)).not.toContain(" 40981 typ host");
       expect(sectionOf(pending(), audio.mid)).not.toContain(" 40981 typ host");
       expect(sectionOf(pending(), audio.mid)).toContain(" 40982 typ host");
       expect(sectionOf(current(), audio.mid)).not.toContain(" 40982 typ host");
@@ -1151,8 +1161,8 @@ describe("negotiation transaction", () => {
       await b.pc.setRemoteDescription({ type: "rollback" });
       await a.pc.setLocalDescription({ type: "rollback" });
 
-      // Assert: 旧世代の候補は current に残り、映像・DataChannel も通信を続ける。
-      expect(sectionOf(current(), audio.mid)).toContain(" 40981 typ host");
+      // Assert: current は元のまま (新世代の候補も残らず)、映像・DataChannel も通信を続ける。
+      expect(sectionOf(current(), audio.mid)).not.toContain(" 40982 typ host");
       assertNegotiationInvariants(b.pc);
       await expectSessionAlive(session, "partial-split-candidate");
     } finally {
@@ -2716,7 +2726,14 @@ describe("negotiation transaction", () => {
       // Arrange: 同じ tick に渡す remote offer と candidate を用意する。
       offerer.addTransceiver("audio");
       await offerer.setLocalDescription(await offerer.createOffer());
-      const offer = offerer.localDescription!;
+      // candidate の trickle がまだ続いている offer として渡す (EOC 後の候補は破棄される)。
+      const offer = {
+        type: "offer" as const,
+        sdp: offerer.localDescription!.sdp.replace(
+          /a=end-of-candidates\r\n/g,
+          "",
+        ),
+      };
       const mid = offer.sdp.match(/a=mid:([^\r\n]+)/)![1];
       const ufrag = offer.sdp.match(/a=ice-ufrag:([^\r\n]+)/)![1];
       const candidate = {

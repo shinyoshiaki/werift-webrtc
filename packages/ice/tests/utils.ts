@@ -536,3 +536,48 @@ export async function getClosedTcpPort(host = "127.0.0.1") {
   await server.close();
   return server.address;
 }
+
+/**
+ * Arrange: replace the mDNS lookup of `connection` with one the test
+ * resolves, so a `.local` candidate can stay resolving while other
+ * operations (end-of-candidates, restart, replacement) run.
+ */
+export function stubMdnsLookup(connection: Connection) {
+  const pending: ((address: string) => void)[] = [];
+  const stub = {
+    lookup: () =>
+      new Promise<string>((resolve) => {
+        pending.push(resolve);
+      }),
+    close: () => undefined,
+  };
+  (connection as unknown as { lookup?: typeof stub }).lookup = stub;
+  return {
+    get pending() {
+      return pending.length;
+    },
+    resolveAll: (address = "127.0.0.1") => {
+      for (const resolve of pending.splice(0)) resolve(address);
+    },
+  };
+}
+
+/** A remote host candidate at `host:port` (`host` may be an mDNS name). */
+export function remoteHostCandidate(port: number, host = "127.0.0.1") {
+  return Candidate.fromSdp(
+    `candidate${port} 1 udp 2130706431 ${host} ${port} typ host`,
+  );
+}
+
+/** Test-only observation of the provisional generation of `connection`. */
+export function provisionalGeneration(connection: Connection) {
+  return (
+    connection as unknown as {
+      provisional?: {
+        remoteCandidates: Candidate[];
+        remoteCandidatesEnd: boolean;
+        pairs: CandidatePair[];
+      };
+    }
+  ).provisional;
+}

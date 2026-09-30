@@ -319,6 +319,12 @@ export class SecureTransportManager {
     ) {
       return;
     }
+    // RFC 8838: the generation of this m-line already ended. The candidate is
+    // ignored, so it reaches neither the SDP nor any (live, pending-only or
+    // provisional) checklist of that generation.
+    if (targetMedia.iceCandidatesComplete) {
+      return;
+    }
 
     const iceTransport = this.getTransportByMLineIndex(sdp, targetMediaIndex);
 

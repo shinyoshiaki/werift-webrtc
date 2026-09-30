@@ -114,6 +114,90 @@ type ProvisionalIce = {
   };
 };
 
+/**
+ * Shared Arrange: a connected session with an ICE restart offer answered by a
+ * pranswer (without end-of-candidates yet), so the offerer's transport holds a
+ * provisional generation for the pranswer's credentials. Returns the
+ * pranswer ufrag and its MID.
+ */
+export async function createIceRestartPranswer() {
+  const peers = await createConnectedVideoPeers();
+  const { offerer, answerer } = peers;
+  await offerer.setLocalDescription(
+    await offerer.createOffer({ iceRestart: true }),
+  );
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  const answer = await answerer.createAnswer();
+  await answerer.setLocalDescription({ type: "pranswer", sdp: answer.sdp });
+  // The pranswer is signalled while its candidates are still trickling, so
+  // the offerer receives end-of-candidates later through addIceCandidate.
+  await offerer.setRemoteDescription({
+    type: "pranswer",
+    sdp: answerer.localDescription!.sdp.replace(/a=end-of-candidates\r\n/g, ""),
+  });
+  const pending = offerer.pendingRemoteDescription!.sdp;
+  const ufrag = pending.match(/^a=ice-ufrag:([^\r\n]+)/m)![1];
+  const mid = pending.match(/^a=mid:([^\r\n]+)/m)![1];
+  return { ...peers, ufrag, mid };
+}
+
+type ProvisionalInternals = {
+  connection: {
+    provisional?: {
+      remoteCandidates: { port: number }[];
+      remoteCandidatesEnd: boolean;
+      pairs: { remoteCandidate: { port: number } }[];
+    };
+    lookup?: { lookup: (host: string) => Promise<string>; close: () => void };
+  };
+};
+
+/** Test-only observation of the provisional ICE generation of `pc`'s first transport. */
+export function provisionalIce(pc: RTCPeerConnection) {
+  return (pc.iceTransports[0] as unknown as ProvisionalInternals).connection
+    .provisional;
+}
+
+/**
+ * Arrange: replace the mDNS lookup of `pc`'s first ICE transport with one the
+ * test resolves, so a `.local` candidate can stay resolving while other
+ * operations run.
+ */
+export function stubIceMdns(pc: RTCPeerConnection) {
+  const pending: ((address: string) => void)[] = [];
+  let requested = 0;
+  (pc.iceTransports[0] as unknown as ProvisionalInternals).connection.lookup = {
+    lookup: () =>
+      new Promise<string>((resolve) => {
+        requested++;
+        pending.push(resolve);
+      }),
+    close: () => undefined,
+  };
+  return {
+    get requested() {
+      return requested;
+    },
+    resolveAll: (address = "127.0.0.1") => {
+      for (const resolve of pending.splice(0)) resolve(address);
+    },
+  };
+}
+
+/** A remote host candidate of generation `ufrag` for `sdpMid`. */
+export function trickleCandidate(
+  port: number,
+  ufrag: string,
+  sdpMid: string,
+  host = "127.0.0.1",
+) {
+  return {
+    candidate: `candidate:${port} 1 udp 2130706431 ${host} ${port} typ host ufrag ${ufrag}`,
+    sdpMid,
+    usernameFragment: ufrag,
+  };
+}
+
 /** Wait until the provisional ICE generation of every transport nominates a pair. */
 export async function waitForProvisionalNomination(pc: RTCPeerConnection) {
   const transports = pc.iceTransports as unknown as ProvisionalIce[];
