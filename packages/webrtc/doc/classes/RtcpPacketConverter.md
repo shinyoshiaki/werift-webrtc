@@ -1,0 +1,33 @@
+[**werift**](../README.md)
+
+***
+
+[werift](../globals.md) / RtcpPacketConverter
+
+# Class: RtcpPacketConverter
+
+## Constructors
+
+### new RtcpPacketConverter()
+
+> **new RtcpPacketConverter**(): [`RtcpPacketConverter`](RtcpPacketConverter.md)
+
+#### Returns
+
+[`RtcpPacketConverter`](RtcpPacketConverter.md)
+
+## Methods
+
+### deSerialize()
+
+> `static` **deSerialize**(`data`): [`RtcpPacket`](../type-aliases/RtcpPacket.md)[]
+
+#### Parameters
+
+##### data
+
+`Buffer`
+
+#### Returns
+
+[`RtcpPacket`](../type-aliases/RtcpPacket.md)[]

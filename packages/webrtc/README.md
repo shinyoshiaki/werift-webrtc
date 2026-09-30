@@ -31,6 +31,8 @@ npm run wpt --workspace packages/webrtc
 npm run wpt:coverage --workspace packages/webrtc
 ```
 
+WPT reports use `v8-to-istanbul` directly to retain the V8 metrics used by the committed coverage baseline, independently of Vitest's AST-based coverage provider. Only observed TypeScript sources and source-mapped lines are measured.
+
 Refresh the committed baselines when intentionally expanding upstream coverage:
 
 ```sh
@@ -74,6 +76,19 @@ npm run datachannel
 Open:
 
 https://shinyoshiaki.github.io/werift-webrtc/examples/datachannel/answer
+
+The outbound SCTP packet MTU can be configured independently from the
+negotiated DataChannel message-size limit:
+
+```typescript
+const peerConnection = new RTCPeerConnection({
+  sctp: { mtu: 1052 },
+});
+```
+
+`sctp.mtu` defaults to 1191 bytes (a maximum DATA payload of 1160 bytes per
+fragment). It cannot be changed to a different value after the SCTP transport
+has been created.
 
 ## Current implementation highlights
 

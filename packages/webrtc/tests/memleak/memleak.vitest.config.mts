@@ -13,17 +13,12 @@ export default defineConfig({
     environment: "node",
     include: ["tests/memleak/**/*.test.ts"],
     fileParallelism: false,
+    isolate: false,
     maxWorkers: 1,
-    minWorkers: 1,
     retry: 0,
     testTimeout: 30 * 60 * 1000,
     hookTimeout: 60_000,
     pool: "forks",
-    poolOptions: {
-      forks: {
-        singleFork: true,
-        execArgv: ["--expose-gc"],
-      },
-    },
+    execArgv: ["--expose-gc"],
   },
 });
