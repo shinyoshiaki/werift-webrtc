@@ -1,20 +1,20 @@
+import { spawnSync } from "child_process";
+import { tmpdir } from "os";
+import { dirname, extname, resolve } from "path";
+import { fileURLToPath } from "url";
 import { mergeProcessCovs } from "@bcoe/v8-coverage";
 import { transform as esbuildTransform } from "esbuild";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "fs/promises";
-import { tmpdir } from "os";
-import { dirname, extname, resolve } from "path";
-import { spawnSync } from "child_process";
-import { fileURLToPath } from "url";
 import {
+  type CoverageTotals,
   extractCoverageTotals,
   findCoverageRegressions,
-  type CoverageTotals,
 } from "./coverageLogic";
 import {
+  type WptRunReport,
   defaultMarkdownReportPath,
   defaultReportPath,
   formatMarkdownReport,
-  type WptRunReport,
 } from "./runner";
 
 const toolDir = dirname(fileURLToPath(import.meta.url));
@@ -121,7 +121,8 @@ export async function createCoverageProvider(reportsDirectory = coverageDir) {
       cleanOnRerun: true,
       exclude: [],
       excludeAfterRemap: false,
-      include: ["src/**/*.ts"],
+      // Preserve the previous all:false policy: measure only files observed by WPT.
+      include: undefined,
       provider: "v8",
       reporter: [
         ["json-summary", { file: "coverage-summary.json" }],
