@@ -961,7 +961,12 @@ describe("codec resolution", () => {
       });
 
       // 検証: 例外前後のSDP・transceiver・transport状態とイベントを不変に保つ。
-      await expect(act).rejects.toMatchObject({ name: "NotSupportedError" });
+      // MIME が 1 つも一致しない raw は Issue #705 の InvalidAccessError、
+      // fixed source の fmtp 不一致は NotSupportedError になる。
+      await expect(act).rejects.toMatchObject({
+        name:
+          sourceType === "fixed" ? "NotSupportedError" : "InvalidAccessError",
+      });
       expect(remoteApplicationSnapshot(offerer)).toEqual(before);
       expect(onTrack).not.toHaveBeenCalled();
 
@@ -1023,12 +1028,32 @@ describe("codec resolution", () => {
     // 実行: codec fmtpが非互換でもport=0でrejectされたanswerを適用する。
     await offerer.setRemoteDescription({ type: "answer", sdp: rejectedSdp });
 
-    // 検証: rejected sectionはRTP設定を開始せずinactiveとして確定する。
+    // 検証: rejected sectionはRTP設定を開始せず、Issue #705 の拒否として停止を確定する。
     const transceiver = offerer.getTransceivers()[0];
     expect(offerer.signalingState).toBe("stable");
-    expect(transceiver.codecs).toEqual([]);
-    expect(transceiver.currentDirection).toBe("inactive");
+    expect(transceiver.stopped).toBe(true);
+    expect(transceiver.currentDirection).toBe("stopped");
     expect(transceiver.sender.codec).toBeUndefined();
+    await offerer.close();
+    await answerer.close();
+  });
+
+  test("a remote offer without a common codec is rejected even when an existing transceiver needs resolution", async () => {
+    const offerer = new RTCPeerConnection({ codecs: { video: [useH264()] } });
+    offerer.addTransceiver("video", { direction: "sendrecv" });
+    const offer = await offerer.createOffer();
+    await offerer.setLocalDescription(offer);
+    const answerer = new RTCPeerConnection({ codecs: { video: [useVP8()] } });
+    const transceiver = answerer.addTransceiver("video");
+    transceiver.setCodecPreferences([useVP8()]);
+
+    // 実行: MIME が一致しない remote offer を適用して answer を作る。
+    await answerer.setRemoteDescription(offer);
+    const answer = await answerer.createAnswer();
+
+    // 検証: codec 解決で NotSupportedError にせず、Issue #705 どおり port 0 で拒否する。
+    expect(transceiver.pendingRejection).toBe(true);
+    expect(answer.sdp).toContain("m=video 0 ");
     await offerer.close();
     await answerer.close();
   });

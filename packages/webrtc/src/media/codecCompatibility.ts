@@ -50,6 +50,25 @@ function isAuxiliary(codec: RTCRtpCodecParameters) {
   return ["rtx", "red"].includes(codecName(codec));
 }
 
+/**
+ * RTX / RED を除く primary codec に MIME 一致が 1 つでもあるか。
+ * remote m-line を local capability で扱えるかの判定 (Issue #705) に使う。
+ */
+export function hasCommonPrimaryMimeType(
+  local: readonly RTCRtpCodecParameters[],
+  remote: readonly RTCRtpCodecParameters[],
+) {
+  return local.some(
+    (localCodec) =>
+      !isAuxiliary(localCodec) &&
+      remote.some(
+        (remoteCodec) =>
+          remoteCodec.mimeType.toLowerCase() ===
+          localCodec.mimeType.toLowerCase(),
+      ),
+  );
+}
+
 function referencedPayloadTypes(codec: RTCRtpCodecParameters) {
   const parameters = codec.parameters ?? "";
   if (codecName(codec) === "rtx") {

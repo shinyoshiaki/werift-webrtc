@@ -24,6 +24,10 @@ function socketKey(addr: Address) {
   return `${addr[0]}:${addr[1]}`;
 }
 
+function isSocketClosed(socket: Socket) {
+  return socket.destroyed || socket.writableEnded;
+}
+
 function addressFromSocket(socket: Socket) {
   if (!socket.remoteAddress || !socket.remotePort) {
     return;
@@ -66,6 +70,8 @@ abstract class BaseTcpProtocol implements Protocol {
 
   readonly onRequestReceived = new Event<[Message, Address, Buffer]>();
   readonly onDataReceived = new Event<[Buffer]>();
+  /** The connection to this remote address was closed (by either side). */
+  readonly onConnectionClosed = new Event<[Address]>();
 
   protected readonly sockets = new Map<string, SocketEntry>();
 
@@ -81,11 +87,38 @@ abstract class BaseTcpProtocol implements Protocol {
     this.sockets.set(socketKey(remoteAddr), entry);
   }
 
-  protected forgetSocket(remoteAddr?: Address) {
+  /** Drop `entry` only if it is still the socket registered for its address. */
+  protected forgetSocket(entry: SocketEntry) {
+    const remoteAddr = entry.remoteAddr;
     if (!remoteAddr) {
+      return false;
+    }
+    const key = socketKey(remoteAddr);
+    if (this.sockets.get(key) !== entry) {
+      return false;
+    }
+    this.sockets.delete(key);
+    return true;
+  }
+
+  /** Registered socket for `addr`, discarding it if it is already closed. */
+  protected getOpenSocket(addr: Address) {
+    const entry = this.sockets.get(socketKey(addr));
+    if (!entry) {
       return;
     }
-    this.sockets.delete(socketKey(remoteAddr));
+    if (isSocketClosed(entry.socket)) {
+      this.dropSocket(entry);
+      return;
+    }
+    return entry;
+  }
+
+  private dropSocket(entry: SocketEntry) {
+    entry.socket.destroy();
+    if (this.forgetSocket(entry) && entry.remoteAddr) {
+      this.onConnectionClosed.execute(entry.remoteAddr);
+    }
   }
 
   protected registerSocket(socket: Socket, remoteAddr?: Address) {
@@ -121,7 +154,9 @@ abstract class BaseTcpProtocol implements Protocol {
       }
     });
     socket.on("close", () => {
-      this.forgetSocket(entry.remoteAddr);
+      if (this.forgetSocket(entry) && entry.remoteAddr) {
+        this.onConnectionClosed.execute(entry.remoteAddr);
+      }
     });
     socket.on("error", (error) => {
       log("tcp socket error", error);
@@ -162,15 +197,23 @@ abstract class BaseTcpProtocol implements Protocol {
 
   private async sendFrame(data: Buffer, addr: Address) {
     const entry = await this.getSocket(addr);
-    await new Promise<void>((resolve, reject) => {
-      entry.socket.write(encodeTcpFrame(data), (error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        entry.socket.write(encodeTcpFrame(data), (error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
       });
-    });
+    } catch (error) {
+      // EPIPE / ECONNRESET / ERR_STREAM_DESTROYED: this connection is gone.
+      // Forget it so the next send does not reuse it, and report the failure.
+      log("tcp write failed", addr, error);
+      this.dropSocket(entry);
+      throw error;
+    }
   }
 
   async sendStun(message: Message, addr: Address) {
@@ -198,11 +241,15 @@ abstract class BaseTcpProtocol implements Protocol {
     }
 
     const resolvedAddr = await resolveRequestAddress(addr);
-    const options = buildTransactionOptions(
-      integrityKey,
-      retransmissionsOrOptions,
-      onRequestSent,
-    );
+    const options: TransactionRequestOptions = {
+      // A failed connect/write will not be fixed by waiting for a response.
+      failOnSendError: true,
+      ...buildTransactionOptions(
+        integrityKey,
+        retransmissionsOrOptions,
+        onRequestSent,
+      ),
+    };
     const transaction = new Transaction(request, resolvedAddr, this, options);
     this.transactions[request.transactionIdHex] = transaction;
 
@@ -239,6 +286,7 @@ abstract class BaseTcpProtocol implements Protocol {
     await this.pruneForSelection();
     this.onRequestReceived.complete();
     this.onDataReceived.complete();
+    this.onConnectionClosed.complete();
   }
 }
 
@@ -251,7 +299,7 @@ export class TcpActiveProtocol extends BaseTcpProtocol {
 
   protected async getSocket(addr: Address) {
     const key = socketKey(addr);
-    const existing = this.sockets.get(key);
+    const existing = this.getOpenSocket(addr);
     if (existing) {
       return existing;
     }
@@ -317,7 +365,7 @@ export class TcpPassiveProtocol extends BaseTcpProtocol {
   }
 
   protected async getSocket(addr: Address) {
-    const entry = this.sockets.get(socketKey(addr));
+    const entry = this.getOpenSocket(addr);
     if (!entry) {
       throw new Error("tcp passive connection not established");
     }

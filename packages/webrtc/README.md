@@ -31,12 +31,49 @@ npm run wpt --workspace packages/webrtc
 npm run wpt:coverage --workspace packages/webrtc
 ```
 
+WPT reports use `v8-to-istanbul` directly to retain the V8 metrics used by the committed coverage baseline, independently of Vitest's AST-based coverage provider. Only observed TypeScript sources and source-mapped lines are measured.
+
 Refresh the committed baselines when intentionally expanding upstream coverage:
 
 ```sh
 npm run wpt --workspace packages/webrtc -- --update-baseline
 WPT_UPDATE_COVERAGE_BASELINE=1 npm run wpt:coverage --workspace packages/webrtc
 ```
+
+## Rejected, stopped and reused m-lines
+
+A remote offer can contain audio/video sections that the local `codecs` cannot handle. `setRemoteDescription()` still succeeds and the answer rejects only those sections with port 0 at the same position (Issue #705). For example, an audio-only peer can answer a browser offer that bundles video without adding VP8:
+
+```ts
+const pc = new RTCPeerConnection({
+  codecs: { audio: [useOPUS()], video: [] },
+});
+await pc.setRemoteDescription(browserOffer); // audio + video in BUNDLE
+await pc.setLocalDescription(await pc.createAnswer()); // video: m=video 0 ...
+```
+
+`mLineReuse` selects how inactive and stopped m-lines are written. It is fixed at construction time.
+
+```ts
+new RTCPeerConnection(); // mLineReuse: "compatible" (default)
+new RTCPeerConnection({ mLineReuse: "aggressive" }); // legacy: inactive also uses port 0
+```
+
+| `mLineReuse` | accepted `inactive` | rejected / stopped |
+| --- | --- | --- |
+| `"compatible"` (default) | non-zero port | port 0 |
+| `"aggressive"` | port 0 | port 0 |
+
+With `"aggressive"`, the remote side (browsers included) treats an inactive port 0 m-line as rejected, so once it is negotiated the transceiver becomes `stopped` and cannot be resumed by setting `direction` back to `"sendrecv"`. Add a new transceiver instead; it reuses that position. This differs from older werift versions. Use the default `"compatible"` if you need to pause and resume with `inactive`.
+
+In `"compatible"`, `inactive` m-lines are kept and not reused. To reuse an m-line position, release it explicitly: call `transceiver.stop()` on the side that owns the track (in the browser, after `pc.removeTrack(sender)`) and renegotiate. The m-line is negotiated as port 0 and both sides stop it, then the next `addTransceiver()` / `addTrack()` of the same kind (browser or werift) takes that position with a new MID, so the number of m-lines does not grow. Choose `"aggressive"` only when you cannot change the remote side to call `stop()`.
+
+- Rejected (`transceiver.rejected`): no common codec or remote port 0. No sender/receiver pipeline, router registration, `ontrack` or TWCC is set up for it.
+- Stopped: `transceiver.stop()` releases media immediately and is negotiated as port 0 in the next local offer; `transceiver.stopped` becomes `true` when the answer is applied. An answerer that calls `stop()` answers `inactive` first and negotiates the stop in its own next offer.
+- Reused: after the port 0 negotiation completes, `addTransceiver()` of the same kind takes that position with a new MID and a new transceiver, so the number of m-lines does not grow. Positions that are only stopping are not reused.
+- `removeTrack(sender)` only detaches the track. `sender.replaceTrack(track)` plus `transceiver.direction = "sendrecv"` resumes sending on the same sender.
+
+See [the design note](../../docs/design/705-media-rejection-and-removetrack.md) for BUNDLE, ICE candidate and rollback details.
 
 ## Documentation
 
@@ -73,6 +110,19 @@ npm run datachannel
 Open:
 
 https://shinyoshiaki.github.io/werift-webrtc/examples/datachannel/answer
+
+The outbound SCTP packet MTU can be configured independently from the
+negotiated DataChannel message-size limit:
+
+```typescript
+const peerConnection = new RTCPeerConnection({
+  sctp: { mtu: 1052 },
+});
+```
+
+`sctp.mtu` defaults to 1191 bytes (a maximum DATA payload of 1160 bytes per
+fragment). It cannot be changed to a different value after the SCTP transport
+has been created.
 
 ## Current implementation highlights
 

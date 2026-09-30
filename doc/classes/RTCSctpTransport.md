@@ -10,7 +10,7 @@
 
 ### new RTCSctpTransport()
 
-> **new RTCSctpTransport**(`port`, `maxMessageSize`): [`RTCSctpTransport`](RTCSctpTransport.md)
+> **new RTCSctpTransport**(`port`, `maxMessageSize`, `sctpOptions`): [`RTCSctpTransport`](RTCSctpTransport.md)
 
 #### Parameters
 
@@ -21,6 +21,10 @@
 ##### maxMessageSize
 
 `number` = `DEFAULT_MAX_MESSAGE_SIZE`
+
+##### sctpOptions
+
+`SCTPOptions` = `{}`
 
 #### Returns
 

@@ -1,12 +1,17 @@
 import { deepStrictEqual } from "assert";
 import { readFileSync } from "fs";
 import * as net from "node:net";
-import { Event } from "../../common/src";
+import { type Address, Event } from "../../common/src";
 import { NodeStunServer, NodeTurnServer } from "../../ice-server/src";
 import { Candidate } from "../src/candidate";
 import { Connection } from "../src/ice";
-import { CandidatePair, type IceOptions } from "../src/iceBase";
-import type { Message } from "../src/stun/message";
+import {
+  CandidatePair,
+  CandidatePairState,
+  type IceOptions,
+} from "../src/iceBase";
+import { classes, methods } from "../src/stun/const";
+import { Message } from "../src/stun/message";
 import type { Protocol, TransactionRequestOptions } from "../src/types/model";
 
 export const TURN_TEST_USERNAME = "turn-user";
@@ -80,6 +85,8 @@ export class ConsentMockProtocol implements Protocol {
   sentMessages: Message[] = [];
   sendStunCount = 0;
   requestTimes: number[] = [];
+  /** Transaction options of each request(), normalized to the object form. */
+  requestOptions: TransactionRequestOptions[] = [];
   readonly request: Protocol["request"];
 
   constructor(
@@ -108,6 +115,12 @@ export class ConsentMockProtocol implements Protocol {
     ) => {
       this.requestTimes.push(Date.now());
       this.sentMessages.push(message);
+      this.requestOptions.push(
+        typeof retransmissionsOrOptions === "object" &&
+          retransmissionsOrOptions !== null
+          ? retransmissionsOrOptions
+          : { retransmissions: retransmissionsOrOptions, onRequestSent },
+      );
 
       const retransmissions =
         typeof retransmissionsOrOptions === "object" &&
@@ -148,7 +161,10 @@ export class ConsentMockProtocol implements Protocol {
       if (outcome === "timeout") {
         throw new Error("simulated STUN timeout");
       }
-      return [{} as Message, ["192.0.2.2", 5000] as const];
+      return [
+        new Message(methods.BINDING, classes.RESPONSE),
+        ["192.0.2.2", 5000] as const,
+      ];
     }) as Protocol["request"];
   }
 
@@ -328,4 +344,137 @@ export async function createLocalTurnServer(
   });
   await server.listen();
   return server;
+}
+
+/**
+ * Arrange: controlling Connection with one TCP mock protocol and no pairs yet.
+ * Used to inspect the connectivity checks / nomination the agent sends.
+ */
+export function createTcpCheckHarness() {
+  const protocol = new ConsentMockProtocol({
+    type: "tcp",
+    localCandidate: createConsentCandidate("192.0.2.1", 9, "local", "tcp"),
+  });
+  const connection = new Connection(true);
+  connection.remoteUsername = "remote";
+  connection.remotePassword = "remote-password";
+  // ConsentMockProtocol answers every request from this address.
+  const remoteAddr: Address = ["192.0.2.2", 5000];
+  return { connection, protocol, remoteAddr };
+}
+
+/** Arrange: TCP pair (local active -> remote passive) added to the check list. */
+export function addTcpPair(harness: ReturnType<typeof createTcpCheckHarness>) {
+  const remoteCandidate = createConsentCandidate(
+    harness.remoteAddr[0],
+    harness.remoteAddr[1],
+    "remote",
+    "tcp",
+  );
+  remoteCandidate.tcptype = "passive";
+  const pair = new CandidatePair(
+    harness.protocol,
+    remoteCandidate,
+    harness.connection.iceControlling,
+  );
+  pair.updateState(CandidatePairState.WAITING);
+  harness.connection.checkList.push(pair);
+  return pair;
+}
+
+/** Arrange: incoming ICE connectivity check sent by the controlled peer. */
+export function createIncomingCheck(
+  connection: Connection,
+  options: { useCandidate?: boolean } = {},
+) {
+  const request = new Message(methods.BINDING, classes.REQUEST);
+  request
+    .setAttribute(
+      "USERNAME",
+      `${connection.localUsername}:${connection.remoteUsername}`,
+    )
+    .setAttribute("PRIORITY", 1_000)
+    .setAttribute("ICE-CONTROLLED", 1n);
+  if (options.useCandidate) {
+    request.setAttribute("USE-CANDIDATE", null);
+  }
+  return request;
+}
+
+/** Arrange: two agents (a = controlling) gathering TCP host candidates only. */
+export function createTcpOnlyConnections() {
+  const options: Partial<IceOptions> = {
+    useTcp: true,
+    useIpv6: false,
+    stunServer: undefined,
+  };
+  return {
+    a: createTestConnection(true, options),
+    b: createTestConnection(false, options),
+  };
+}
+
+/** Arrange: offer/answer exchange that only exposes TCP candidates. */
+export async function exchangeTcpOnlyCandidates(a: Connection, b: Connection) {
+  await a.gatherCandidates();
+  b.remoteCandidates = a.localCandidates.filter(
+    (candidate) => candidate.transport === "tcp",
+  );
+  b.remoteUsername = a.localUsername;
+  b.remotePassword = a.localPassword;
+
+  await b.gatherCandidates();
+  a.remoteCandidates = b.localCandidates.filter(
+    (candidate) => candidate.transport === "tcp",
+  );
+  a.remoteUsername = b.localUsername;
+  a.remotePassword = b.localPassword;
+}
+
+/** Arrange: TCP-only agents that completed ICE with each other. */
+export async function connectTcpOnly() {
+  const { a, b } = createTcpOnlyConnections();
+  await exchangeTcpOnlyCandidates(a, b);
+  await Promise.all([a.connect(), b.connect()]);
+  return { a, b };
+}
+
+/** Socket of the TCP connection behind `connection.nominated`. */
+export function getSelectedTcpSocket(connection: Connection) {
+  const pair = connection.nominated;
+  if (!pair) {
+    return;
+  }
+  const sockets: Map<string, { socket: net.Socket }> | undefined = (
+    pair.protocol as any
+  ).sockets;
+  return sockets?.get(`${pair.remoteAddr[0]}:${pair.remoteAddr[1]}`)?.socket;
+}
+
+/** Arrange: plain TCP server that records accepted sockets. */
+export async function createRecordingTcpServer(host = "127.0.0.1") {
+  const sockets: net.Socket[] = [];
+  const server = net.createServer((socket) => {
+    sockets.push(socket);
+    socket.on("error", () => {});
+    socket.resume();
+  });
+  await new Promise<void>((resolve) => server.listen(0, host, resolve));
+  const address = server.address() as net.AddressInfo;
+
+  return {
+    address: [host, address.port] as Address,
+    sockets,
+    close: async () => {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    },
+  };
+}
+
+/** Arrange: a loopback TCP port with nothing listening on it. */
+export async function getClosedTcpPort(host = "127.0.0.1") {
+  const server = await createRecordingTcpServer(host);
+  await server.close();
+  return server.address;
 }
