@@ -545,6 +545,15 @@ export class NegotiationTransaction {
     for (const [ssrc, endpoint] of learnedRoutes) {
       this.router.ssrcTable[Number(ssrc)] = endpoint;
     }
+    // A sender's own SSRC route is application state (addTransceiver), not
+    // description state: every live sender that survives keeps it, including
+    // one the application added while the description was pending.
+    for (const transceiver of this.transceivers.getTransceivers()) {
+      if (transceiver.stopped || transceiver.stopping) continue;
+      if (!(transceiver.sender.ssrc in this.router.ssrcTable)) {
+        this.router.registerRtpSender(transceiver.sender);
+      }
+    }
     this.router.ridTable = { ...baseline.ridTable };
     this.router.extIdUriMap = { ...baseline.extIdUriMap };
     this.router.restoreStaged(baseline.stagedRoutes);

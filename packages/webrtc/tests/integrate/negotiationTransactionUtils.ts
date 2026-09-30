@@ -317,7 +317,9 @@ function assertDescriptionBindings(pc: RTCPeerConnection) {
           : pc.getTransceivers().find((t) => t.mid === media.rtp.muxId)
               ?.dtlsTransport;
       if (!transport || !media.iceParams) continue;
-      expect(transport.iceTransport.localParameters.usernameFragment).toBe(
+      // live generation のローカル資格情報は current SDP のもの (未適用の createOffer が
+      // stage した restart 資格情報は SDP 作成用で、live 接続には入らない)。
+      expect(transport.iceTransport.connection.localUsername).toBe(
         media.iceParams.usernameFragment,
       );
     }
@@ -570,6 +572,14 @@ function assertRouterAndCodecs(pc: RTCPeerConnection, snapshot: Snapshot) {
     ...Object.values(internal.router.ridTable),
   ]) {
     expect(endpoints.has(endpoint)).toBe(true);
+  }
+  // 停止していない sender は、交渉状態によらず自分の SSRC で RTCP を受け取れる
+  // (アプリが pending 中に追加し、rollback 後も残る sender を含む)。
+  for (const transceiver of pc.getTransceivers()) {
+    if (transceiver.stopped || transceiver.stopping) continue;
+    expect(internal.router.ssrcTable[transceiver.sender.ssrc]).toBe(
+      transceiver.sender,
+    );
   }
   for (const [index, media] of (
     snapshot.currentRemote?.media ?? []

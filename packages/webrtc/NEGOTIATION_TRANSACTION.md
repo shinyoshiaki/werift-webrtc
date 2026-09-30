@@ -289,6 +289,7 @@ what the pending description added.
 | SSRC → receiver | router `ssrcTable` | SSRC moved to another m-line staged: current RTP keeps its receiver until commit | Chrome accepts the move |
 | RTX SSRC → media SSRC | receiver RTX table | Changed pairing staged until commit | Chrome accepts the change |
 | MID+RID → receiver | router `ridTable` | RIDs are scoped to their m-line (RFC 8851), so another m-line reusing RID names is a new key, not a conflict | RFC 8851 |
+| Sender SSRC → sender | router `ssrcTable` | Application state (`addTransceiver`), not description state: rollback keeps the route of every live sender, including one added while the description was pending | — |
 | Remote track for SSRC/RID | receiver `tracks` | Only added for new keys; the current track of a key is never replaced | — |
 | RTCP feedback of a payload type | receiver codec table | A changed `a=rtcp-fb` of a current payload type is staged until commit; NACK / TWCC / PLI follow the codec of each packet, not the lowest payload type | — |
 
@@ -324,8 +325,8 @@ generations apart on them:
   response that arrives after a replacement pranswer (new remote credentials)
   or after its pair left the checklist is ignored, and an incoming check from
   other remote credentials than the current provisional ones creates no pair.
-- `restartIce()` records the current local ufrags to replace (W3C
-  `[[LocalIceCredentialsToReplace]]`). Every `createOffer` restarts ICE while
+- `restartIce()` records the local ufrags of the current and the pending
+  local description to replace (W3C `[[LocalIceCredentialsToReplace]]`). Every `createOffer` restarts ICE while
   the request stands; a rollback or glare keeps it, and it clears only when an
   answer commits local credentials outside that set.
 - Remote end-of-candidates completes a generation (RFC 8838), live or

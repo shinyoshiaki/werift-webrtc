@@ -140,8 +140,8 @@ export class RTCPeerConnection extends EventTarget {
   negotiationneeded = false;
   needRestart = false;
   /**
-   * W3C [[LocalIceCredentialsToReplace]]: local ufrags current when
-   * `restartIce()` was called. The request stays until a negotiation commits
+   * W3C [[LocalIceCredentialsToReplace]]: local ufrags of the current and the
+   * pending local description when `restartIce()` was called. The request stays until a negotiation commits
    * local credentials outside this set (rollback or glare keep it).
    */
   private iceCredentialsToReplace = new Set<string>();
@@ -2047,12 +2047,15 @@ export class RTCPeerConnection extends EventTarget {
 
   restartIce() {
     this.needRestart = true;
-    this.iceCredentialsToReplace = new Set(this.currentLocalUfrags());
+    this.iceCredentialsToReplace = new Set([
+      ...this.localUfrags(this.sdpManager.currentLocalDescription),
+      ...this.localUfrags(this.sdpManager.pendingLocalDescription),
+    ]);
     this.needNegotiation();
   }
 
-  private currentLocalUfrags() {
-    return (this.sdpManager.currentLocalDescription?.media ?? [])
+  private localUfrags(description?: SessionDescription) {
+    return (description?.media ?? [])
       .filter((media) => media.port !== 0)
       .map((media) => media.iceParams?.usernameFragment)
       .filter((ufrag): ufrag is string => !!ufrag);
@@ -2065,7 +2068,7 @@ export class RTCPeerConnection extends EventTarget {
   private settleIceRestartRequest() {
     if (!this.needRestart) return;
     if (
-      this.currentLocalUfrags().some((ufrag) =>
+      this.localUfrags(this.sdpManager.currentLocalDescription).some((ufrag) =>
         this.iceCredentialsToReplace.has(ufrag),
       )
     ) {

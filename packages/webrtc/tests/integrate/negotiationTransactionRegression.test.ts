@@ -1,3 +1,4 @@
+import { vi } from "vitest";
 import { MediaStreamTrack } from "../../src";
 import {
   assertNegotiationInvariants,
@@ -525,6 +526,73 @@ describe("negotiation transaction live-state regressions", () => {
       expect(ufragOf((await offerer.createOffer()).sdp)).toBe(committed);
       assertNegotiationInvariants(offerer);
       await sendAndExpectRtp(outgoing, incoming, "restart-after-rollback");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("a sender added during a rolled-back offer keeps receiving RTCP after renegotiation", async () => {
+    const session = await createDuplexSession();
+    const { a, b } = session;
+    try {
+      // Arrange: re-offer を適用した pending 中に、アプリが送信用 video を追加する。
+      await a.pc.setLocalDescription(await a.pc.createOffer());
+      const late = a.pc.addTransceiver(
+        new MediaStreamTrack({ kind: "video" }),
+        {
+          direction: "sendonly",
+        },
+      );
+      const onPli = vi.fn();
+      late.sender.onPictureLossIndication.subscribe(onPli);
+
+      // Act: pending offer を rollback し (追加した sender は残る)、改めて交渉する。
+      await a.pc.setLocalDescription({ type: "rollback" });
+      // Assert: rollback 後も追加した sender の SSRC 経路が残る (helper も検査する)。
+      assertNegotiationInvariants(a.pc);
+      await negotiate(session, a, b);
+      const receiver = b.pc
+        .getTransceivers()
+        .find((t) => t.mid === late.mid)!.receiver;
+      await receiver.sendRtcpPLI(late.sender.ssrc);
+
+      // Assert: 相手の PLI が追加した sender に実際に届き、既存の通信も続く。
+      await vi.waitFor(() => expect(onPli).toHaveBeenCalled(), {
+        timeout: 2000,
+      });
+      await expectSessionAlive(session, "late-sender-rtcp");
+    } finally {
+      await session.close();
+    }
+  });
+
+  test("restartIce() while a restart offer is pending also replaces the pending credentials", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers();
+    const ufragOf = (sdp: string) => sdp.match(/^a=ice-ufrag:(\S+)/m)![1];
+    try {
+      // Arrange: restart 資格情報を持つ offer を pending にする。
+      await offerer.setLocalDescription(
+        await offerer.createOffer({ iceRestart: true }),
+      );
+      const pending = ufragOf(offerer.pendingLocalDescription!.sdp);
+
+      // Act: pending 中に restartIce() を呼び、その前の offer の answer を確定する。
+      offerer.restartIce();
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      await waitForCommittedNomination(offerer);
+      // Assert: 以前の offer の資格情報で確定し、session は整合したまま通信できる。
+      expect(ufragOf(offerer.currentLocalDescription!.sdp)).toBe(pending);
+      assertNegotiationInvariants(offerer);
+      await sendAndExpectRtp(outgoing, incoming, "restart-while-pending");
+
+      // Act: 次の offer を作る。
+      const retry = await offerer.createOffer();
+
+      // Assert: 呼出し時に pending だった資格情報も置き換え対象なので、要求は残り新しい資格情報を出す。
+      expect(ufragOf(retry.sdp)).not.toBe(pending);
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
