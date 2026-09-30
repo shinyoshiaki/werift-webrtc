@@ -1,5 +1,8 @@
 const { spawnSync } = require("node:child_process");
 const { dirname, join } = require("node:path");
+const {
+  playwrightInstallEnv,
+} = require("../scripts/playwright-host-platform.js");
 
 // DTLS version tests must use Playwright's pinned Chromium. The shared
 // installer skips download when /usr/bin/google-chrome exists (GHA), so
@@ -11,7 +14,7 @@ const cliPath = join(dirname(playwrightPackageJson), "cli.js");
 const result = spawnSync(
   process.execPath,
   [cliPath, "install", "chromium", "chromium-headless-shell"],
-  { cwd: __dirname, stdio: "inherit" },
+  { cwd: __dirname, env: playwrightInstallEnv(), stdio: "inherit" },
 );
 
 if (result.error) {

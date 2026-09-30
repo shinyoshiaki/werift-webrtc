@@ -50,13 +50,13 @@ WARP 導入とは独立した既存の SDP・メディア実装の制約と E2E 
 
 - simulcast テストの一方の track 再生後の早期 close、例外の reject/cleanup、過剰な capture constraints を見直す。
 - removeTrack の確認対象を固定 index ではなく実際の MID で選ぶ。
-- Playwright の未対応 OS の扱いを整理する。切り出した Ubuntu 26 向け workaround は x64 固定であり、OS/architecture ごとの確認が必要。
+- Playwright の未対応 OS の扱い: CI 停止を解消するため、Epic 4 側で `scripts/playwright-host-platform.js` を追加済み（2026-09-30）。Ubuntu 24.04 より新しい Ubuntu の x64/arm64 に限り、browser install 時だけ `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-<arch>` を与える。Playwright 本体が新しい Ubuntu に対応した時点で撤去を検討する。
 - ブラウザーの「再生できた」だけでレイヤー分離成功と扱わない。
 - `tests/bundle/max-bundle.test.ts` の `bundle_max_bundle_answer` が Chromium 149 で20秒タイムアウトする。切り出し後の全38件中この1件が失敗し、基準 `64aef07d` の隔離 worktree でも同じケースが失敗した（対になる offer ケースは成功）。この既存失敗も本チケットで調査する。
 
 ## Epic 4 に残す変更
 
-DTLS readiness、fingerprint gate、early application/media queue、directional SRTP、DTLS role 基準の SCTP、early start の取消・再試行、SPED/direct fallback、Full/Lite、ICE generation 分離、stats を残す。複数 m-line の fingerprint/ICE が BUNDLE tag を上書きしない最小限の処理と、不要 transport の WARP queue/timer cleanup も認証境界のために残す。SDP staging に依存せず、別 pair の成功応答から既に認証された SPED 固定経路の handshake 再送を再開できる処理も残す（application の nomination/consent 条件は維持）。CI の依存 install の非 auditing 化は WARP 検証の実行基盤として残す。
+DTLS readiness、fingerprint gate、early application/media queue、directional SRTP、DTLS role 基準の SCTP、early start の取消・再試行、SPED/direct fallback、Full/Lite、ICE generation 分離、stats を残す。複数 m-line の fingerprint/ICE が BUNDLE tag を上書きしない最小限の処理と、不要 transport の WARP queue/timer cleanup も認証境界のために残す。SDP staging に依存せず、別 pair の成功応答から既に認証された SPED 固定経路の handshake 再送を再開できる処理も残す（application の nomination/consent 条件は維持）。CI の依存 install の非 auditing 化と、Playwright 未対応 Ubuntu での browser install 補助は WARP 検証の実行基盤として残す。
 
 ## 完了条件
 
