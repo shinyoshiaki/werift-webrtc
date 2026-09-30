@@ -1,32 +1,29 @@
-import { spawnSync } from "child_process";
-import { tmpdir } from "os";
-import { dirname, resolve } from "path";
-import { fileURLToPath } from "url";
 import { mergeProcessCovs } from "@bcoe/v8-coverage";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "fs/promises";
+import { tmpdir } from "os";
+import { dirname, resolve } from "path";
+import { spawnSync } from "child_process";
+import { fileURLToPath } from "url";
 import {
-  type CoverageTotals,
   extractCoverageTotals,
   findCoverageRegressions,
+  type CoverageTotals,
 } from "./coverageLogic";
-import { createCoverageProvider } from "./coverageProvider";
 import {
-  type WptRunReport,
   defaultMarkdownReportPath,
   defaultReportPath,
   formatMarkdownReport,
+  type WptRunReport,
 } from "./runner";
+
+import { convertCoverage, generateCoverageReports } from "./coverageProvider";
 
 const toolDir = dirname(fileURLToPath(import.meta.url));
 const packageDir = resolve(toolDir, "..", "..");
 const repoRoot = resolve(packageDir, "..", "..");
 const coverageDir = resolve(repoRoot, "coverage", "webrtc-wpt");
 const coverageSummaryPath = resolve(coverageDir, "coverage-summary.json");
-const coverageBaselinePath = resolve(
-  packageDir,
-  "wpt",
-  "coverage-baseline.json",
-);
+const coverageBaselinePath = resolve(packageDir, "wpt", "coverage-baseline.json");
 const sourceDir = resolve(packageDir, "src");
 const tsconfigPath = resolve(packageDir, "tsconfig.json");
 
@@ -34,19 +31,15 @@ async function main() {
   const rawCoverageDir = await mkdtemp(resolve(tmpdir(), "werift-wpt-v8-"));
 
   try {
-    const result = spawnSync(
-      "npx",
-      ["tsx", "--tsconfig", tsconfigPath, "tools/wpt-runner/run.ts"],
-      {
-        cwd: packageDir,
-        env: {
-          ...process.env,
-          NODE_V8_COVERAGE: rawCoverageDir,
-          WPT_USE_WORKERS: "1",
-        },
-        stdio: "inherit",
+    const result = spawnSync("npx", ["tsx", "--tsconfig", tsconfigPath, "tools/wpt-runner/run.ts"], {
+      cwd: packageDir,
+      env: {
+        ...process.env,
+        NODE_V8_COVERAGE: rawCoverageDir,
+        WPT_USE_WORKERS: "1",
       },
-    );
+      stdio: "inherit",
+    });
 
     if (result.status !== 0) {
       process.exit(result.status ?? 1);
@@ -54,26 +47,11 @@ async function main() {
 
     const markdown = await readMarkdownReport();
     const mergedCoverage = await mergeRawCoverage(rawCoverageDir);
-    const provider = await createCoverageProvider();
-    await provider.clean();
-
-    const coverageFilePath = resolve(
-      provider.coverageFilesDirectory,
-      "coverage-wpt.json",
-    );
-    await writeFile(coverageFilePath, JSON.stringify(mergedCoverage), "utf8");
-    provider.coverageFiles.set("wpt", {
-      ssr: {
-        "wpt-runner": coverageFilePath,
-      },
-    });
-
-    const coverageMap = await provider.generateCoverage({ allTestsRun: true });
+    const coverageMap = await convertCoverage(mergedCoverage);
     coverageMap.filter((filePath) => {
       return filePath.startsWith(sourceDir) && filePath.endsWith(".ts");
     });
-    await provider.generateReports(coverageMap, true);
-    await provider.cleanAfterRun();
+    await generateCoverageReports(coverageMap, coverageDir);
     await mkdir(dirname(defaultMarkdownReportPath), { recursive: true });
     await writeFile(defaultMarkdownReportPath, markdown, "utf8");
 
@@ -88,9 +66,7 @@ async function main() {
     const totals = extractCoverageTotals(summary);
     await updateBaselineIfRequested(totals);
 
-    const baseline = JSON.parse(
-      await readFile(coverageBaselinePath, "utf8"),
-    ) as {
+    const baseline = JSON.parse(await readFile(coverageBaselinePath, "utf8")) as {
       totals: Partial<CoverageTotals>;
     };
     const regressions = findCoverageRegressions(totals, baseline.totals);
@@ -167,17 +143,12 @@ async function readMarkdownReport() {
   try {
     return await readFile(defaultMarkdownReportPath, "utf8");
   } catch {
-    const report = JSON.parse(
-      await readFile(defaultReportPath, "utf8"),
-    ) as WptRunReport;
+    const report = JSON.parse(await readFile(defaultReportPath, "utf8")) as WptRunReport;
     return formatMarkdownReport(report);
   }
 }
 
-if (
-  process.argv[1] &&
-  resolve(process.argv[1]) === fileURLToPath(import.meta.url)
-) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch((error) => {
     console.error(error);
     process.exitCode = 1;

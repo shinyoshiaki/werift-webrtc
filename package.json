@@ -51,7 +51,11 @@
   "devDependencies": {
     "@vitest/coverage-v8": "4.1.11",
     "@biomejs/biome": "1.9.4",
+    "@jridgewell/trace-mapping": "0.3.9",
     "@types/node": "^22.13.4",
+    "istanbul-lib-coverage": "3.2.2",
+    "istanbul-lib-report": "3.0.1",
+    "istanbul-reports": "3.2.0",
     "knip": "^5.44.1",
     "npm-run-all2": "^7.0.2",
     "organize-imports-cli": "^0.10.0",
@@ -61,6 +65,7 @@
     "typedoc": "0.27.7",
     "typedoc-plugin-markdown": "4.4.2",
     "typescript": "5.7.3",
+    "v8-to-istanbul": "9.3.0",
     "vitest": "4.1.11"
   },
   "packageManager": "npm@11.1.0",
