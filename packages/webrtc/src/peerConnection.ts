@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 
+import { DEFAULT_SCTP_MTU, validateSctpMtu } from "../../sctp/src";
 import type { RTCDataChannel } from "./dataChannel";
 import { createWebRtcDomException, createWebRtcTypeError } from "./errors";
 import { EventTarget, enumerate } from "./helper";
@@ -458,7 +459,23 @@ export class RTCPeerConnection extends EventTarget {
       throw new Error("iceCandidatePoolSize > 0 is not supported");
     }
 
+    if (normalizedConfig.sctp !== undefined) {
+      const requestedSctpMtu = normalizedConfig.sctp.mtu ?? DEFAULT_SCTP_MTU;
+      validateSctpMtu(requestedSctpMtu);
+      if (
+        this.sctpManager?.sctpTransport &&
+        requestedSctpMtu !== this.config.sctp.mtu
+      ) {
+        throw new Error(
+          "sctp.mtu cannot be changed after SCTP transport creation",
+        );
+      }
+    }
+
     deepMerge(this.config, normalizedConfig as Partial<PeerConfig>);
+    this.config.sctp = {
+      mtu: this.config.sctp?.mtu ?? DEFAULT_SCTP_MTU,
+    };
 
     if (this.config.icePortRange) {
       const [min, max] = this.config.icePortRange;
@@ -538,6 +555,7 @@ export class RTCPeerConnection extends EventTarget {
   private createSctpTransport() {
     const sctp = this.sctpManager.createSctpTransport(
       this.config.maxMessageSize,
+      this.config.sctp,
     );
     const dtlsTransport = this.findOrCreateTransport();
     sctp.setDtlsTransport(dtlsTransport);
@@ -1761,6 +1779,8 @@ export interface PeerConfig {
   midSuffix: boolean;
   /** Advertised local SCTP max-message-size in SDP. Use 0 for unlimited. */
   maxMessageSize: number;
+  /** SCTP outbound packet MTU used for DATA chunk fragmentation. */
+  sctp: { mtu: number };
   /**
    * Queue outbound RTP on each sender until DTLS is connected.
    * Disabled by default. Pass `true` or `{ enabled: true, maxLength }` to buffer.
@@ -1869,6 +1889,11 @@ export type RTCIceServer = {
 export type RTCBundlePolicy = "balanced" | "max-compat" | "max-bundle";
 export type RTCRtcpMuxPolicy = "require";
 
+export interface RTCSctpConfiguration {
+  /** SCTP outbound packet MTU used for DATA chunk fragmentation. Defaults to 1191. */
+  mtu?: number;
+}
+
 export interface RTCConfiguration {
   iceServers?: RTCIceServer[];
   iceTransportPolicy?: PeerConfig["iceTransportPolicy"];
@@ -1893,10 +1918,14 @@ type RTCPeerConnectionRTCConfiguration = Omit<
 export type RTCPeerConnectionConfig = Partial<
   Omit<
     PeerConfig,
-    "bundlePolicy" | "rtcpMuxPolicy" | "iceCandidatePoolSize" | "certificates"
+    | "bundlePolicy"
+    | "rtcpMuxPolicy"
+    | "iceCandidatePoolSize"
+    | "certificates"
+    | "sctp"
   >
 > &
-  RTCPeerConnectionRTCConfiguration;
+  RTCPeerConnectionRTCConfiguration & { sctp?: RTCSctpConfiguration };
 
 function generateDefaultPeerConfig(): PeerConfig {
   return {
@@ -1935,6 +1964,7 @@ function generateDefaultPeerConfig(): PeerConfig {
     midSuffix: false,
     forceTurnTCP: false,
     maxMessageSize: DEFAULT_MAX_MESSAGE_SIZE,
+    sctp: { mtu: DEFAULT_SCTP_MTU },
     pendingRtp: false,
     mLineReuse: "compatible",
   };
@@ -1943,9 +1973,15 @@ export const defaultPeerConfig: PeerConfig = generateDefaultPeerConfig();
 
 function normalizePeerConfiguration(
   config: RTCPeerConnectionConfig,
-): Partial<PeerConfig> {
+): Partial<PeerConfig> & { sctp?: RTCSctpConfiguration } {
   const input = Object(config ?? {}) as RTCPeerConnectionConfig;
-  const normalizedConfig = { ...input } as Partial<PeerConfig>;
+  const normalizedConfig = { ...input } as Partial<PeerConfig> & {
+    sctp?: RTCSctpConfiguration;
+  };
+
+  if (input.sctp !== undefined) {
+    normalizedConfig.sctp = { ...input.sctp } as PeerConfig["sctp"];
+  }
 
   if (input.bundlePolicy === "balanced") {
     normalizedConfig.bundlePolicy = "max-compat";
@@ -2024,6 +2060,7 @@ function clonePeerConfiguration(config: PeerConfig) {
     dtls: { ...config.dtls },
     certificates: [...config.certificates],
     debug: { ...config.debug },
+    sctp: { ...config.sctp },
     pendingRtp:
       typeof config.pendingRtp === "object" && config.pendingRtp != undefined
         ? { ...config.pendingRtp }

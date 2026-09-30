@@ -19,6 +19,7 @@
 
 ### 🚀 Features
 
+- **Configurable SCTP outbound MTU** (#708): `SCTP` and `RTCPeerConnection({ sctp: { mtu } })` now accept an outbound packet MTU. The default is 1191 bytes, changing DATA fragmentation and congestion-control units from a 1200-byte payload to 1160 bytes (maximum serialized DATA packet: 1188 bytes).
 - **`werift/polyfill`**: Opt-in installer that puts werift WebRTC constructors on `globalThis` (or a `target` sandbox) and implements `navigator.mediaDevices.getUserMedia` via `mediaRegister` (MP4/WebM, RTP/RTCP, encoded binary, or `createCallbackRegister`).
 - **`PeerConfig.mLineReuse`** (#705): `"compatible"` (default) keeps accepted `inactive` m-lines on a non-zero port and uses port 0 only for rejected / stopped m-lines; `"aggressive"` keeps the legacy inactive port 0. The value is validated on construction and cannot be changed by `setConfiguration()`.
 - **`RTCRtpTransceiver.stop()` and m-line reuse** (#705): `stop()` is idempotent, releases the sender / receiver / router registrations immediately, and negotiates port 0 in the next local offer. A new `addTransceiver()` reuses a port 0 position of the same kind only after the rejection has been negotiated, with a new MID and a new transceiver.

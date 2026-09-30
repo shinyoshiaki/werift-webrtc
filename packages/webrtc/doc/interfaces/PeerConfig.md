@@ -1,0 +1,228 @@
+[**werift**](../README.md)
+
+***
+
+[werift](../globals.md) / PeerConfig
+
+# Interface: PeerConfig
+
+## Properties
+
+### bundlePolicy
+
+> **bundlePolicy**: [`BundlePolicy`](../type-aliases/BundlePolicy.md)
+
+***
+
+### certificates
+
+> **certificates**: [`RTCCertificate`](../classes/RTCCertificate.md)[]
+
+***
+
+### codecs
+
+> **codecs**: `Partial`\<\{ `audio`: [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[]; `video`: [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[]; \}\>
+
+***
+
+### debug
+
+> **debug**: `Partial`
+
+***
+
+### dtls
+
+> **dtls**: `Partial`\<\{ `keys`: [`DtlsKeys`](../type-aliases/DtlsKeys.md); \}\>
+
+***
+
+### ~~forceTurnTCP~~
+
+> **forceTurnTCP**: `boolean`
+
+#### Deprecated
+
+Prefer turn URL transport parameters or turnTransport.
+
+***
+
+### headerExtensions
+
+> **headerExtensions**: `Partial`\<\{ `audio`: [`RTCRtpHeaderExtensionParameters`](../classes/RTCRtpHeaderExtensionParameters.md)[]; `video`: [`RTCRtpHeaderExtensionParameters`](../classes/RTCRtpHeaderExtensionParameters.md)[]; \}\>
+
+***
+
+### iceAdditionalHostAddresses
+
+> **iceAdditionalHostAddresses**: `undefined` \| `string`[]
+
+Add additional host (local) addresses to use for candidate gathering.
+Notably, you can include hosts that are normally excluded, such as loopback, tun interfaces, etc.
+
+***
+
+### iceCandidatePoolSize
+
+> **iceCandidatePoolSize**: `number`
+
+***
+
+### iceFilterCandidatePair
+
+> **iceFilterCandidatePair**: `undefined` \| (`pair`) => `boolean`
+
+***
+
+### iceFilterStunResponse
+
+> **iceFilterStunResponse**: `undefined` \| (`message`, `addr`, `protocol`) => `boolean`
+
+If provided, is called on each STUN request.
+Return `true` if a STUN response should be sent, false if it should be skipped.
+
+***
+
+### iceInterfaceAddresses
+
+> **iceInterfaceAddresses**: `undefined` \| [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md)
+
+***
+
+### iceLite
+
+> **iceLite**: `boolean`
+
+Advertise local ICE lite and operate in the controlled role.
+
+***
+
+### icePasswordPrefix
+
+> **icePasswordPrefix**: `undefined` \| `string`
+
+***
+
+### icePortRange
+
+> **icePortRange**: `undefined` \| \[`number`, `number`\]
+
+Minimum port and Maximum port must not be the same value
+
+***
+
+### iceServers
+
+> **iceServers**: [`RTCIceServer`](../type-aliases/RTCIceServer.md)[]
+
+***
+
+### iceStunGatherTimeout
+
+> **iceStunGatherTimeout**: `undefined` \| `number`
+
+Seconds to wait for server-reflexive candidates while gathering.
+Defaults to 5 when undefined.
+
+***
+
+### iceTcpPassive
+
+> **iceTcpPassive**: `boolean`
+
+Gather passive (listening) TCP host candidates. Defaults to true.
+
+***
+
+### iceTransportPolicy
+
+> **iceTransportPolicy**: `"relay"` \| `"all"`
+
+***
+
+### iceTurnConnectTimeout
+
+> **iceTurnConnectTimeout**: `undefined` \| `number`
+
+Seconds to wait for a TURN TCP/TLS connection to be established.
+Defaults to 8 when undefined.
+
+***
+
+### iceUseIpv4
+
+> **iceUseIpv4**: `boolean`
+
+***
+
+### iceUseIpv6
+
+> **iceUseIpv6**: `boolean`
+
+***
+
+### iceUseLinkLocalAddress
+
+> **iceUseLinkLocalAddress**: `undefined` \| `boolean`
+
+such as google cloud run
+
+***
+
+### iceUseTcp
+
+> **iceUseTcp**: `boolean`
+
+***
+
+### maxMessageSize
+
+> **maxMessageSize**: `number`
+
+Advertised local SCTP max-message-size in SDP. Use 0 for unlimited.
+
+***
+
+### midSuffix
+
+> **midSuffix**: `boolean`
+
+***
+
+### pendingRtp
+
+> **pendingRtp**: `NonNullable`\<`undefined` \| `boolean` \| [`PendingRtpOptions`](../type-aliases/PendingRtpOptions.md)\>
+
+Queue outbound RTP on each sender until DTLS is connected.
+Disabled by default. Pass `true` or `{ enabled: true, maxLength }` to buffer.
+
+***
+
+### rtcpMuxPolicy
+
+> **rtcpMuxPolicy**: `"require"`
+
+***
+
+### sctp
+
+> **sctp**: `object`
+
+SCTP outbound packet MTU used for DATA chunk fragmentation.
+
+#### mtu
+
+> **mtu**: `number`
+
+***
+
+### turnTlsOptions
+
+> **turnTlsOptions**: `undefined` \| [`TlsConnectionOptions`](../type-aliases/TlsConnectionOptions.md)
+
+***
+
+### turnTransport
+
+> **turnTransport**: `undefined` \| `"tcp"` \| `"tls"` \| `"udp"`
