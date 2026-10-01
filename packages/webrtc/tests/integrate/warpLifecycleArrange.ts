@@ -176,3 +176,60 @@ export async function addSameAddressCandidate(
     (pair) => pair.remoteAddr[0] === host && pair.remoteAddr[1] === port,
   );
 }
+
+/**
+ * Arrange: early WARP peers where the DTLS server (SCTP initiator) holds the
+ * first inbound COOKIE_ACK before its SCTP association processes it. At that
+ * point the responder is already ESTABLISHED.
+ */
+export function prepareHeldCookieAckAtInitiator() {
+  const { server, client } = createEarlyWarpPeers();
+  const channels = [server, client].map((peer) =>
+    peer.createDataChannel("held-cookie-ack", { negotiated: true, id: 0 }),
+  );
+  const dtls = server.sctp!.dtlsTransport;
+  let receiver: (data: Buffer) => void = dtls.dataReceiver;
+  let held: Buffer | undefined;
+  let heldBy!: (association: SCTP) => void;
+  const entered = new Promise<SCTP>((resolve) => {
+    heldBy = resolve;
+  });
+  // SCTP re-assigns dataReceiver whenever it creates an association; wrap
+  // whatever is installed so the hold also covers replaced instances.
+  Object.defineProperty(dtls, "dataReceiver", {
+    configurable: true,
+    get: () => (data: Buffer) => {
+      const chunks = parsePacket(data)[3];
+      if (
+        held === undefined &&
+        chunks.some((chunk) => chunk.type === CookieAckChunk.type)
+      ) {
+        held = data;
+        heldBy(server.sctp!.sctp);
+        return;
+      }
+      receiver(data);
+    },
+    set: (next: (data: Buffer) => void) => {
+      receiver = next;
+    },
+  });
+  exchangeIceCandidates(server, client);
+  return {
+    server,
+    client,
+    channels,
+    entered,
+    /** Deliver the held COOKIE_ACK to whichever association is now installed. */
+    release: () => {
+      if (held) receiver(held);
+    },
+    restore: () => {
+      Object.defineProperty(dtls, "dataReceiver", {
+        configurable: true,
+        writable: true,
+        value: receiver,
+      });
+    },
+  };
+}

@@ -107,16 +107,14 @@ export class RTCSctpTransport {
           // permission is revoked. Cancel it immediately instead of waiting
           // for SCTP T1 retransmissions to expire; authenticated retry will
           // create a fresh association through SctpTransportManager.
-          // Once COOKIE_ACK passed the send boundary the peer may already be
-          // ESTABLISHED and never re-INIT, so cancelling would strand it.
+          // SCTP refuses once COOKIE_ECHO / COOKIE_ACK was handed off (the
+          // peer may be ESTABLISHED and never re-INIT). Such a start is kept;
+          // a cancelled attempt may have dropped the peer's in-flight reply,
+          // so retransmit now rather than at the next T1 expiry.
           const cancelStart = () => {
-            if (
-              this.sctp === association &&
-              association.associationState !== SCTP_STATE.ESTABLISHED &&
-              !association.startCommitted
-            ) {
-              association.cancelStart(new SCTPStartCancelledError());
-            }
+            if (this.sctp !== association) return;
+            if (association.cancelStart(new SCTPStartCancelledError())) return;
+            if (association.startCommitted) association.retransmitStartNow();
           };
           // Only a DTLS server starts SCTP under the early send permission; a
           // DTLS client's start never depended on it.
@@ -134,6 +132,12 @@ export class RTCSctpTransport {
           ].flatMap((subscription) => (subscription ? [subscription] : []));
         })(),
         this.dtlsTransport.onStateChange.subscribe((state) => {
+          if (state === "connected") {
+            // A start kept across a cancel/revoke can proceed now; don't wait
+            // for the next T1 expiry.
+            if (this.sctp === association) association.retransmitStartNow();
+            return;
+          }
           if (state === "failed" || state === "closed") {
             // DTLS failure is terminal for this SCTP association.  Do not
             // preserve queued DCEP/data for a retry after authentication has

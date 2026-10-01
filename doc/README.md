@@ -67,9 +67,11 @@ for at most two seconds.
 Revoking early sending with `setConfiguration({ warp: {
 allowEarlyServerData: false } })` cancels unfinished SCTP starts of the DTLS
 server. A cancelled association stays closed even if an in-flight send
-completes later; a retry uses a fresh association. Once COOKIE_ACK has been
-handed to DTLS the peer may already be established, so that association is
-kept and resumes after authentication.
+completes later; a retry uses a fresh association. Once COOKIE_ECHO or
+COOKIE_ACK has been handed to DTLS the peer may already be established, so the
+start is no longer cancelled: a send that fails afterwards counts as packet
+loss and SCTP retransmits (immediately on cancel/revoke and when DTLS
+connects) on the same association.
 
 ```ts
 const pc = new RTCPeerConnection({

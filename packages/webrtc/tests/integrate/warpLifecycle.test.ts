@@ -8,6 +8,7 @@ import {
   observeUnhandledRejections,
   prepareContinuousRtp,
   prepareDelayedCookieAck,
+  prepareHeldCookieAckAtInitiator,
   prepareWarpClose,
 } from "./warpLifecycleArrange";
 
@@ -44,7 +45,7 @@ describe("WARP asynchronous shutdown", () => {
   );
 
   test.each(["continue", "revoke", "close"] as const)(
-    "COOKIE_ACK の遅延完了は取消・終了と整合する (%s)",
+    "応答側 (DTLS client) の COOKIE_ACK 遅延完了は取消・終了と整合する (%s)",
     async (action) => {
       // Arrange: 実接続の passive SCTP で COOKIE_ACK の送信完了を保留する。
       const fixture = prepareDelayedCookieAck();
@@ -53,11 +54,14 @@ describe("WARP asynchronous shutdown", () => {
         // Act: COOKIE_ACK が wire に出てから、必要なケースだけ許可を取り消す。
         await exchangeOfferAnswer(server, client);
         const association = await fixture.entered;
-        expect(association.hadEstablished).toBe(false);
+        // Assert: RFC 4960 5.1 (D) どおり、COOKIE_ACK を渡した時点で確立済み。
+        expect(association.associationState).toBe(SCTP_STATE.ESTABLISHED);
         expect(association.startCommitted).toBe(true);
+        expect(client.dtlsTransports[0].role).toBe("client");
         if (action === "revoke") {
+          // Act: DTLS client は early 送信権限を使わないため、取消しは何もしない。
           client.setConfiguration({ warp: { allowEarlyServerData: false } });
-          // Assert: 相手が確立済みになり得るため、送信済み association は取り消さない。
+          // Assert: 送信済み association はそのまま残る。
           expect(association.state).not.toBe("closed");
         } else if (action === "close") {
           // Act: 通常終了でも送信待機中の association を閉じる。
@@ -68,10 +72,9 @@ describe("WARP asynchronous shutdown", () => {
         await nextTurn();
 
         if (action === "close") {
-          // Assert: 古い送信処理で CLOSED を上書きせず、終了状態を保つ。
+          // Assert: 遅れて完了した送信処理が CLOSED を上書きせず、終了状態を保つ。
           expect(association.state).toBe("closed");
           expect(association.associationState).toBe(SCTP_STATE.CLOSED);
-          expect(association.hadEstablished).toBe(false);
           expect(client.connectionState).toBe("closed");
           expect(channels[1].readyState).toBe("closed");
           return;
@@ -99,6 +102,82 @@ describe("WARP asynchronous shutdown", () => {
         channels[1].send(`to-server-${action}`);
         // Assert: server 側で受信でき、双方向配送が成立する。
         expect(await toServer).toBe(`to-server-${action}`);
+      } finally {
+        fixture.restore();
+        await Promise.allSettled([server.close(), client.close()]);
+      }
+    },
+    15_000,
+  );
+});
+
+describe("WARP SCTP start cancellation at the initiator", () => {
+  test.each([
+    { trigger: "revoke", heldAck: "deliver" },
+    { trigger: "attempt-cancel", heldAck: "deliver" },
+    { trigger: "attempt-cancel", heldAck: "drop" },
+  ] as const)(
+    "開始側 (DTLS server) は COOKIE_ECHO 送信後の取消しで association を作り直さない ($trigger, COOKIE_ACK=$heldAck)",
+    async ({ trigger, heldAck }) => {
+      // Arrange: 開始側が COOKIE_ACK を処理する手前で保留する。応答側は確立済み。
+      const fixture = prepareHeldCookieAckAtInitiator();
+      const { server, client, channels } = fixture;
+      const closedAssociations: unknown[] = [];
+      try {
+        await exchangeOfferAnswer(server, client);
+        const association = await fixture.entered;
+        const responder = client.sctp!.sctp;
+        expect(server.dtlsTransports[0].role).toBe("server");
+        expect(association.associationState).toBe(SCTP_STATE.COOKIE_ECHOED);
+        expect(association.startCommitted).toBe(true);
+        expect(responder.hadEstablished).toBe(true);
+        server.sctp!.sctp.stateChanged.closed.subscribe(() => {
+          closedAssociations.push(association);
+        });
+
+        // Act: 早期送信の許可取消し、または試行取消しの通知を開始側で発生させる。
+        if (trigger === "revoke") {
+          server.setConfiguration({ warp: { allowEarlyServerData: false } });
+        } else {
+          server.dtlsTransports[0].onEarlyApplicationAttemptCancelled.execute();
+        }
+        await nextTurn();
+
+        // Assert: 相手が状態を持つため、開始側の association は閉じも置換もされない。
+        expect(association.state).not.toBe("closed");
+        expect(server.sctp!.sctp).toBe(association);
+        expect(closedAssociations).toEqual([]);
+
+        // Act: 保留していた COOKIE_ACK を配送する。drop は取消しで受信途中の
+        // 応答が捨てられた場合を表し、開始側の即時再送だけが回復手段になる。
+        if (heldAck === "deliver") fixture.release();
+
+        // Assert: 両側とも取消し前と同じ association のまま確立し、channel が開く。
+        // drop でも T1 (3 秒) を待たずに回復する。
+        await vi.waitFor(
+          () => {
+            expect(channels.map((channel) => channel.readyState)).toEqual([
+              "open",
+              "open",
+            ]);
+          },
+          { timeout: 1_500 },
+        );
+        expect(server.sctp!.sctp).toBe(association);
+        expect(client.sctp!.sctp).toBe(responder);
+        expect(association.hadEstablished).toBe(true);
+
+        // Act: server → client へ送信する。
+        const toClient = awaitMessage(channels[1]);
+        channels[0].send(`to-client-${trigger}-${heldAck}`);
+        // Assert: client 側で受信できる。
+        expect(await toClient).toBe(`to-client-${trigger}-${heldAck}`);
+
+        // Act: client → server へ送信する。
+        const toServer = awaitMessage(channels[0]);
+        channels[1].send(`to-server-${trigger}-${heldAck}`);
+        // Assert: server 側でも受信でき、双方向配送が成立する。
+        expect(await toServer).toBe(`to-server-${trigger}-${heldAck}`);
       } finally {
         fixture.restore();
         await Promise.allSettled([server.close(), client.close()]);
