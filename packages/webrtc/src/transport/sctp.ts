@@ -107,17 +107,26 @@ export class RTCSctpTransport {
           // permission is revoked. Cancel it immediately instead of waiting
           // for SCTP T1 retransmissions to expire; authenticated retry will
           // create a fresh association through SctpTransportManager.
+          // Once COOKIE_ACK passed the send boundary the peer may already be
+          // ESTABLISHED and never re-INIT, so cancelling would strand it.
           const cancelStart = () => {
             if (
               this.sctp === association &&
-              association.associationState !== SCTP_STATE.ESTABLISHED
+              association.associationState !== SCTP_STATE.ESTABLISHED &&
+              !association.startCommitted
             ) {
               association.cancelStart(new SCTPStartCancelledError());
             }
           };
+          // Only a DTLS server starts SCTP under the early send permission; a
+          // DTLS client's start never depended on it.
+          const cancelOnRevoke = () => {
+            if (this.dtlsTransport.role !== "server") return;
+            cancelStart();
+          };
           return [
             this.dtlsTransport.onEarlyApplicationSendRevoked?.subscribe(
-              cancelStart,
+              cancelOnRevoke,
             ),
             this.dtlsTransport.onEarlyApplicationAttemptCancelled?.subscribe(
               cancelStart,

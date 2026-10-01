@@ -508,8 +508,11 @@ export class Connection implements IceConnection {
           pair,
           generation: this.generation,
           authenticated,
+          // A new-generation pair for the same 5-tuple may already exist
+          // (WAITING/IN_PROGRESS) before it is authenticated; that must not
+          // hide the retained previous selected path.
           fromPreviousSelectedPair:
-            pair === undefined && this.isPreviousSelectedPair(protocol, addr),
+            !authenticated && this.isPreviousSelectedPair(protocol, addr),
         });
 
         const activePair = this.nominated;

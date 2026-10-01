@@ -115,6 +115,7 @@ export class SCTP {
   private isStopping = false;
   private isClosed = false;
   private wasEstablished = false;
+  private cookieAckHandedOff = false;
   private _startCancellationError?: Error;
 
   private hmacKey = randomBytes(16);
@@ -222,6 +223,15 @@ export class SCTP {
   /** @internal True when this association reached ESTABLISHED before it closed. */
   get hadEstablished() {
     return this.wasEstablished;
+  }
+
+  /**
+   * @internal True once COOKIE_ACK passed the transport's send boundary. The
+   * peer may already be ESTABLISHED, so an external start cancellation can
+   * only leave the two endpoints out of sync from here on.
+   */
+  get startCommitted() {
+    return this.cookieAckHandedOff;
   }
 
   /** @internal Error supplied when a pre-established start was cancelled. */
@@ -504,7 +514,11 @@ export class SCTP {
           }
           const ack = new CookieAckChunk();
           try {
-            await this.sendChunk(ack);
+            const sending = this.sendChunk(ack);
+            // The transport admits or rejects the packet synchronously; a
+            // rejection still settles below and cancels this start.
+            this.cookieAckHandedOff = true;
+            await sending;
           } catch (error) {
             const err =
               error instanceof Error ? error : new Error(String(error));

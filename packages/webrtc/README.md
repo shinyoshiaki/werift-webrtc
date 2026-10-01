@@ -61,9 +61,11 @@ for at most two seconds.
 
 `close()` can interrupt the DTLS handshake with or without DataChannels.
 Revoking early sending with `setConfiguration({ warp: {
-allowEarlyServerData: false } })` cancels unfinished SCTP starts. A cancelled
-association stays closed even if an in-flight send completes later; a retry
-uses a fresh association.
+allowEarlyServerData: false } })` cancels unfinished SCTP starts of the DTLS
+server. A cancelled association stays closed even if an in-flight send
+completes later; a retry uses a fresh association. Once COOKIE_ACK has been
+handed to DTLS the peer may already be established, so that association is
+kept and resumes after authentication.
 
 ```ts
 const pc = new RTCPeerConnection({

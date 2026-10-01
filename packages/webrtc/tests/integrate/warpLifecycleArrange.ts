@@ -1,8 +1,15 @@
 import { vi } from "vitest";
+import { Candidate } from "../../../ice/src";
 import type { SCTP } from "../../../sctp/src";
 import { CookieAckChunk, parsePacket } from "../../../sctp/src/chunk";
-import { DtlsVersion, RTCPeerConnection } from "../../src";
-import { exchangeIceCandidates } from "../utils";
+import {
+  DtlsVersion,
+  MediaStreamTrack,
+  RTCPeerConnection,
+  RtpHeader,
+  RtpPacket,
+} from "../../src";
+import { exchangeIceCandidates, exchangeOfferAnswer } from "../utils";
 
 export function createEarlyWarpPeers() {
   const config = {
@@ -97,3 +104,75 @@ export function observeUnhandledRejections() {
 
 export const nextTurn = () =>
   new Promise<void>((resolve) => setImmediate(resolve));
+
+/**
+ * Arrange: connected sendonly → recvonly audio peers with a continuous RTP
+ * stream. `received` counts RTP delivered to the receiver's remote track.
+ */
+export async function prepareContinuousRtp() {
+  const sender = new RTCPeerConnection({ iceServers: [] });
+  const receiver = new RTCPeerConnection({ iceServers: [] });
+  const track = new MediaStreamTrack({ kind: "audio" });
+  sender.addTransceiver(track, { direction: "sendonly" });
+  const stats = { received: 0 };
+  receiver.onTrack.subscribe((remote) => {
+    remote.onReceiveRtp.subscribe(() => {
+      stats.received++;
+    });
+  });
+  exchangeIceCandidates(sender, receiver);
+  await exchangeOfferAnswer(sender, receiver);
+  await Promise.all(
+    [sender, receiver].map((pc) =>
+      pc.connectionStateChange.watch((state) => state === "connected"),
+    ),
+  );
+
+  let sequenceNumber = 0;
+  const timer = setInterval(() => {
+    const header = new RtpHeader({
+      payloadType: 111,
+      sequenceNumber: sequenceNumber++ & 0xffff,
+      timestamp: sequenceNumber * 960,
+    });
+    track.writeRtp(new RtpPacket(header, Buffer.from("media")));
+  }, 10);
+
+  return {
+    sender,
+    receiver,
+    stats,
+    /** Resolves after `count` more RTP packets reached the receiver. */
+    receivedMore: (count: number) => {
+      const target = stats.received + count;
+      return vi.waitFor(
+        () => {
+          if (stats.received < target) throw new Error("waiting for RTP");
+        },
+        { timeout: 2_000 },
+      );
+    },
+    stop: () => clearInterval(timer),
+  };
+}
+
+/** Arrange: the 5-tuple source the receiver currently sees for media. */
+export function currentMediaSource(pc: RTCPeerConnection) {
+  const connection = pc.dtlsTransports[0].iceTransport.connection;
+  const pair = connection.nominated!;
+  return { protocol: pair.protocol, address: pair.remoteAddr };
+}
+
+/** Arrange: register a new-generation remote candidate for an existing 5-tuple. */
+export async function addSameAddressCandidate(
+  pc: RTCPeerConnection,
+  [host, port]: readonly [string, number],
+) {
+  const connection = pc.dtlsTransports[0].iceTransport.connection;
+  await connection.addRemoteCandidate(
+    Candidate.fromSdp(`restart 1 udp 2116026367 ${host} ${port} typ host`),
+  );
+  return connection.checkList.find(
+    (pair) => pair.remoteAddr[0] === host && pair.remoteAddr[1] === port,
+  );
+}
