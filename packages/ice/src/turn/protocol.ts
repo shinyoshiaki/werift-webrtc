@@ -52,6 +52,21 @@ function isStreamTransport(transport: Transport) {
   return transport.type === "tcp" || transport.type === "tls";
 }
 
+/**
+ * DNS family for resolving the TURN server address, matched to the bound UDP
+ * socket (as StunProtocol.request does): a udp4 socket cannot send to an
+ * IPv6 answer, so a host that resolves IPv6-first would drop every request.
+ * Stream transports keep the default lookup.
+ */
+function serverLookupFamily(transport: Transport): 0 | 4 | 6 {
+  if (isStreamTransport(transport)) {
+    return 0;
+  }
+  const socketType = (transport as unknown as { socketType?: string })
+    .socketType;
+  return socketType === "udp6" ? 6 : 4;
+}
+
 /** Permission is peer-IP scoped (RFC 8656). */
 function permissionKey(addr: Address): string {
   return addr[0];
@@ -392,7 +407,10 @@ export class TurnProtocol implements Protocol {
     // TURN server allocation/refresh uses default STUN retry policy unless
     // callers pass explicit options. Peer consent goes through StunOverTurnProtocol.
     // Prefer the TURN session integrity key for response verification.
-    const resolvedAddr = await resolveRequestAddress(addr);
+    const resolvedAddr = await resolveRequestAddress(
+      addr,
+      serverLookupFamily(this.transport),
+    );
     const options = buildTransactionOptions(
       this.integrityKey,
       retransmissionsOrOptions,
