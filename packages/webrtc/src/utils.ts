@@ -15,7 +15,7 @@ import { CipherContext } from "./imports/dtls";
 
 import { Directions, type MediaDirection } from "./media/rtpTransceiver";
 import { MediaStreamTrack } from "./media/track";
-import type { RTCIceServer } from "./peerConnection";
+import type { RTCIceServer } from "./peerConfig";
 
 const log = debug("werift:packages/webrtc/src/utils.ts");
 

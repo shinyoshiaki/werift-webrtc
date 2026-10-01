@@ -24,7 +24,7 @@ import {
   type PeerConfig,
   adoptSenderTrackCodec,
   findCodecByMimeType,
-} from "./peerConnection";
+} from "./peerConfig";
 import { type MediaDescription, codecParametersFromString } from "./sdp";
 import type { RTCDtlsTransport } from "./transport/dtls";
 import type { Kind } from "./types/domain";

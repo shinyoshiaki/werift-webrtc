@@ -18,7 +18,7 @@ import {
   debug,
   unwrapRtx,
 } from "../imports/rtp";
-import type { PeerConfig } from "../peerConnection";
+import type { PeerConfig } from "../peerConfig";
 import type { RTCDtlsTransport } from "../transport/dtls";
 import type { Kind } from "../types/domain";
 import { compactNtp, ntpTimeToEpochMs, timestampSeconds } from "../utils";

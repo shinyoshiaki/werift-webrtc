@@ -82,13 +82,13 @@
 
 ### onStateChange
 
-> `readonly` **onStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`\]\>
+> `readonly` **onStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"new"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"failed"` \| `"checking"`\]\>
 
 ***
 
 ### state
 
-> **state**: `"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"` = `"new"`
+> **state**: `"closed"` \| `"new"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"failed"` \| `"checking"` = `"new"`
 
 ## Accessors
 

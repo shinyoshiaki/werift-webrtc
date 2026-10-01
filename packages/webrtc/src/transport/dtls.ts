@@ -41,7 +41,7 @@ import {
   generateStatsId,
   getStatsTimestamp,
 } from "../media/stats";
-import type { DebugConfig } from "../peerConnection";
+import type { DebugConfig } from "../peerConfig";
 import {
   fingerprint,
   isDtls,

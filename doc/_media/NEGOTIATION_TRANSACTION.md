@@ -336,6 +336,23 @@ generations apart on them:
   is kept; the generation completes after it. A resolution that finishes
   after an ICE restart or a replacement pranswer is dropped.
 
+## Code layout
+
+`RTCPeerConnection` (`src/peerConnection.ts`) keeps the public API and the
+order of each description operation; each concern lives in its own module.
+
+| Module | Responsibility |
+| --- | --- |
+| `negotiationTransaction.ts` | Baseline, checkpoints, commit and rollback of every reversible state |
+| `descriptionValidation.ts` | Local / remote description checks before any mutation |
+| `remoteMediaApplication.ts` | Remote m-lines: transceiver association, BUNDLE transport ownership, RTP / SCTP acceptance, planned transport updates |
+| `bundleTopology.ts` | BUNDLE tags of every group, staged topology for local and remote offers, shared-transport checks |
+| `remoteCandidates.ts` | Trickle ICE: routing candidates and end-of-candidates to their generation, pre-SRD queue |
+| `transportActivation.ts` | Connecting live and provisional transports, activating staged parameters, retiring a first provisional connection |
+| `negotiationNeeded.ts` | `negotiationneeded` coalescing and change sequence numbers |
+| `iceRestartRequest.ts` | `restartIce()` request until a negotiation replaces the credentials |
+| `peerConfig.ts` / `peerConnectionEvents.ts` | Configuration types, defaults and validation; event types |
+
 ## Test coverage
 
 `tests/integrate/negotiationTransactionUtils.ts` holds the shared Arrange

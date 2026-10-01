@@ -68,13 +68,13 @@ reviewable diff does not depend on external PR text.
 
 ### connectionStateChange
 
-> `readonly` **connectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"failed"` \| `"connecting"`\]\>
+> `readonly` **connectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"disconnected"` \| `"failed"`\]\>
 
 ***
 
 ### iceConnectionStateChange
 
-> `readonly` **iceConnectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`\]\>
+> `readonly` **iceConnectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"new"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"failed"` \| `"checking"`\]\>
 
 ***
 
@@ -87,18 +87,6 @@ reviewable diff does not depend on external PR text.
 ### id
 
 > `readonly` **id**: `string`
-
-***
-
-### needRestart
-
-> **needRestart**: `boolean` = `false`
-
-***
-
-### negotiationneeded
-
-> **negotiationneeded**: `boolean` = `false`
 
 ***
 
@@ -271,11 +259,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **connectionState**(): `"closed"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"failed"` \| `"connecting"`
+> **get** **connectionState**(): `"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"disconnected"` \| `"failed"`
 
 ##### Returns
 
-`"closed"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"failed"` \| `"connecting"`
+`"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"disconnected"` \| `"failed"`
 
 ***
 
@@ -331,11 +319,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **iceConnectionState**(): `"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`
+> **get** **iceConnectionState**(): `"closed"` \| `"new"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"failed"` \| `"checking"`
 
 ##### Returns
 
-`"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`
+`"closed"` \| `"new"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"failed"` \| `"checking"`
 
 ***
 
@@ -396,6 +384,62 @@ v13.6.0, v12.17.0
 ##### Returns
 
 `null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+
+***
+
+### needRestart
+
+#### Get Signature
+
+> **get** **needRestart**(): `boolean`
+
+A `restartIce()` request that no committed negotiation satisfied yet.
+
+##### Returns
+
+`boolean`
+
+#### Set Signature
+
+> **set** **needRestart**(`value`): `void`
+
+##### Parameters
+
+###### value
+
+`boolean`
+
+##### Returns
+
+`void`
+
+***
+
+### negotiationneeded
+
+#### Get Signature
+
+> **get** **negotiationneeded**(): `boolean`
+
+W3C [[NegotiationNeeded]].
+
+##### Returns
+
+`boolean`
+
+#### Set Signature
+
+> **set** **negotiationneeded**(`value`): `void`
+
+##### Parameters
+
+###### value
+
+`boolean`
+
+##### Returns
+
+`void`
 
 ***
 
