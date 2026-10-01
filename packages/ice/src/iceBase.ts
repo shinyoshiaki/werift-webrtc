@@ -259,6 +259,11 @@ export interface IceOptions {
   turnPassword?: string;
   turnTransport?: "udp" | "tcp" | "tls";
   turnTlsOptions?: TlsConnectionOptions;
+  /**
+   * IP family of the TURN/UDP socket when turnServer is a hostname.
+   * Defaults to 4. An IP literal turnServer uses its own family.
+   */
+  turnUdpFamily?: 4 | 6;
   forceTurn?: boolean;
   localPasswordPrefix?: string;
   useIpv4: boolean;

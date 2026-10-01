@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { setTimeout } from "timers/promises";
 
 import { makeTurnIntegrityKey } from "../../../ice-server/src/turn/auth";
@@ -22,6 +23,7 @@ import { classes, methods } from "../stun/const";
 import { Message, paddingLength, parseMessage } from "../stun/message";
 import {
   Transaction,
+  addressEquals,
   buildTransactionOptions,
   resolveRequestAddress,
 } from "../stun/transaction";
@@ -50,21 +52,6 @@ export interface TurnChannel {
 
 function isStreamTransport(transport: Transport) {
   return transport.type === "tcp" || transport.type === "tls";
-}
-
-/**
- * DNS family for resolving the TURN server address, matched to the bound UDP
- * socket (as StunProtocol.request does): a udp4 socket cannot send to an
- * IPv6 answer, so a host that resolves IPv6-first would drop every request.
- * Stream transports keep the default lookup.
- */
-function serverLookupFamily(transport: Transport): 0 | 4 | 6 {
-  if (isStreamTransport(transport)) {
-    return 0;
-  }
-  const socketType = (transport as unknown as { socketType?: string })
-    .socketType;
-  return socketType === "udp6" ? 6 : 4;
 }
 
 /** Permission is peer-IP scoped (RFC 8656). */
@@ -211,8 +198,12 @@ export class TurnProtocol implements Protocol {
   private permissionQueue: Promise<void> = Promise.resolve();
   /** In-flight CreatePermission per peer IP (dedupe concurrent). */
   private creatingPermissionByAddr = new Map<string, Promise<void>>();
+  /** Concrete TURN server address the allocation lives on, once selected. */
+  private pinnedServerEndpoint?: Address;
+  private serverEndpointSelection?: Promise<Address>;
 
   constructor(
+    /** TURN server as configured; the host may be a hostname. */
     public server: Address,
     public username: string,
     public password: string,
@@ -407,10 +398,7 @@ export class TurnProtocol implements Protocol {
     // TURN server allocation/refresh uses default STUN retry policy unless
     // callers pass explicit options. Peer consent goes through StunOverTurnProtocol.
     // Prefer the TURN session integrity key for response verification.
-    const resolvedAddr = await resolveRequestAddress(
-      addr,
-      serverLookupFamily(this.transport),
-    );
+    const resolvedAddr = await this.resolveRequestTarget(addr);
     const options = buildTransactionOptions(
       this.integrityKey,
       retransmissionsOrOptions,
@@ -428,6 +416,72 @@ export class TurnProtocol implements Protocol {
     }
   }
 
+  /**
+   * The concrete TURN server address, selected on the first request and
+   * pinned for the rest of the allocation, so a later DNS answer can never
+   * move REFRESH, CREATE_PERMISSION, CHANNEL_BIND or data to another server.
+   */
+  get serverEndpoint(): Address | undefined {
+    return this.pinnedServerEndpoint;
+  }
+
+  /**
+   * Address a request to `addr` is sent to, and the address its response
+   * must come from. A stream carries every request to the peer it is
+   * connected to, so it always uses the server endpoint.
+   */
+  private async resolveRequestTarget(addr: Address): Promise<Address> {
+    if (isStreamTransport(this.transport) || addressEquals(addr, this.server)) {
+      return this.selectServerEndpoint();
+    }
+    return resolveRequestAddress(addr, this.transport.addressFamily ?? 0);
+  }
+
+  private async serverDestination(): Promise<Address> {
+    return this.pinnedServerEndpoint ?? this.selectServerEndpoint();
+  }
+
+  private selectServerEndpoint(): Promise<Address> {
+    this.serverEndpointSelection ??= this.resolveServerEndpoint().then(
+      (endpoint) => {
+        this.pinnedServerEndpoint = endpoint;
+        return endpoint;
+      },
+      (error) => {
+        // Let a later request try again, e.g. after a transient DNS failure.
+        this.serverEndpointSelection = undefined;
+        throw error;
+      },
+    );
+    return this.serverEndpointSelection;
+  }
+
+  /**
+   * UDP: resolve the configured server in the bound socket's family; a udp4
+   * socket cannot send to an IPv6 answer. TCP/TLS: use the peer the socket
+   * actually connected to. Looking the hostname up again could return a
+   * different A/AAAA record, and responses from the real peer would then be
+   * dropped as coming from an unexpected address.
+   */
+  private async resolveServerEndpoint(): Promise<Address> {
+    const transport = this.transport;
+    if (!isStreamTransport(transport)) {
+      return resolveRequestAddress(this.server, transport.addressFamily ?? 0);
+    }
+    if (transport.remoteAddress) {
+      return transport.remoteAddress;
+    }
+    if (
+      transport instanceof TcpTransport ||
+      transport instanceof TlsTransport
+    ) {
+      throw new Error(`${transport.type} transport has no remote address`);
+    }
+    // A custom stream transport that does not report its peer: fall back to
+    // a lookup with no family preference.
+    return resolveRequestAddress(this.server);
+  }
+
   async requestWithRetry(
     request: Message,
     addr: Address,
@@ -443,9 +497,6 @@ export class TurnProtocol implements Protocol {
         log("requestWithRetry error", error);
         throw error;
       }
-
-      // resolve dns address
-      this.server = error.addr;
 
       const [errorCode] = error.response.getAttributeValue("ERROR-CODE");
       const nonce = error.response.getAttributeValue("NONCE");
@@ -496,11 +547,14 @@ export class TurnProtocol implements Protocol {
         .setAttribute("DATA", data)
         .setAttribute("XOR-PEER-ADDRESS", addr);
 
-      await this.sendStun(indicate, this.server);
+      await this.sendStun(indicate, await this.serverDestination());
       return;
     }
 
-    await this.send(encodeChannelData(channel.number, data), this.server);
+    await this.send(
+      encodeChannelData(channel.number, data),
+      await this.serverDestination(),
+    );
   }
 
   /**
@@ -672,6 +726,11 @@ export interface TurnClientOptions {
   interfaceAddresses?: InterfaceAddresses;
   /** Maximum time to wait for TCP/TLS connection establishment, in milliseconds. */
   connectTimeoutMs?: number;
+  /**
+   * IP family of the UDP socket when the server address is a hostname.
+   * Defaults to 4. An IP literal server address uses its own family.
+   */
+  udpFamily?: 4 | 6;
 }
 
 export async function createTurnClient(
@@ -684,14 +743,20 @@ export async function createTurnClient(
     tlsOptions,
     transport: transportType,
     connectTimeoutMs,
+    udpFamily,
   }: TurnClientOptions = {},
 ) {
   lifetime ??= DEFAULT_ALLOCATION_LIFETIME;
   transportType ??= ssl ? "tls" : "udp";
+  const udpSocketType =
+    (isIP(address[0]) || udpFamily || 4) === 6 ? "udp6" : "udp4";
 
   const transport =
     transportType === "udp"
-      ? await UdpTransport.init("udp4", { portRange, interfaceAddresses })
+      ? await UdpTransport.init(udpSocketType, {
+          portRange,
+          interfaceAddresses,
+        })
       : transportType === "tcp"
         ? await TcpTransport.init(address, { connectTimeoutMs })
         : await TlsTransport.init(address, tlsOptions, { connectTimeoutMs });
@@ -735,6 +800,7 @@ export async function createStunOverTurnClient(
     ssl,
     tlsOptions,
     transport: transportType,
+    udpFamily,
   }: {
     lifetime?: number;
     ssl?: boolean;
@@ -744,6 +810,8 @@ export async function createStunOverTurnClient(
     interfaceAddresses?: InterfaceAddresses;
     /** Maximum time to wait for TCP/TLS connection establishment, in milliseconds. */
     connectTimeoutMs?: number;
+    /** See TurnClientOptions.udpFamily. */
+    udpFamily?: 4 | 6;
   } = {},
 ) {
   const turn = await createTurnClient(
@@ -760,6 +828,7 @@ export async function createStunOverTurnClient(
       tlsOptions,
       transport: transportType,
       connectTimeoutMs,
+      udpFamily,
     },
   );
   const turnTransport = new StunOverTurnProtocol(turn);
