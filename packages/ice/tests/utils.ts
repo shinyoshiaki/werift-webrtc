@@ -1,7 +1,8 @@
 import { deepStrictEqual } from "assert";
 import { readFileSync } from "fs";
+import * as dns from "node:dns";
 import * as net from "node:net";
-import { type Address, Event } from "../../common/src";
+import { type Address, Event, type Transport } from "../../common/src";
 import { NodeStunServer, NodeTurnServer } from "../../ice-server/src";
 import { Candidate } from "../src/candidate";
 import { Connection } from "../src/ice";
@@ -477,4 +478,47 @@ export async function getClosedTcpPort(host = "127.0.0.1") {
   const server = await createRecordingTcpServer(host);
   await server.close();
   return server.address;
+}
+
+/**
+ * Transport stub that records every destination address it is asked to send
+ * to, without touching the network. `socketType` mirrors UdpTransport's
+ * private field so code that matches DNS family to the socket can read it.
+ */
+export function createRecordingTransport(
+  type: "udp" | "tcp",
+  socketType?: "udp4" | "udp6",
+) {
+  const sentTo: Address[] = [];
+  const transport = {
+    type,
+    socketType,
+    closed: false,
+    onData: () => {},
+    address: { address: "127.0.0.1", port: 0, family: "IPv4" },
+    send: async (_data: Buffer, addr?: Address) => {
+      if (addr) sentTo.push(addr);
+    },
+    close: async () => {},
+  };
+  return { transport: transport as Transport, sentTo };
+}
+
+/**
+ * Stub dns.promises.lookup for a dual-stack host: family 4 answers the IPv4
+ * address, family 6 and family 0 (no preference) answer the IPv6 address,
+ * like a resolver that returns AAAA first. Records the requested families.
+ */
+export function stubDualStackLookup(ipv4: string, ipv6: string) {
+  const families: (number | undefined)[] = [];
+  const spy = vi.spyOn(dns.promises, "lookup").mockImplementation((async (
+    _host: string,
+    options?: { family?: number },
+  ) => {
+    families.push(options?.family);
+    return options?.family === 4
+      ? { address: ipv4, family: 4 }
+      : { address: ipv6, family: 6 };
+  }) as unknown as typeof dns.promises.lookup);
+  return { families, restore: () => spy.mockRestore() };
 }
