@@ -2,15 +2,22 @@ import { setTimeout } from "timers/promises";
 import { vi } from "vitest";
 
 import { HashAlgorithm } from "../../../dtls/src/cipher/const";
+import { CandidatePairState, type Connection } from "../../../ice/src";
+import { SCTP_STATE } from "../../../sctp/src";
 import {
+  DtlsVersion,
   MediaStream,
   MediaStreamTrack,
+  RTCCertificate,
   type RTCDataChannel,
   RTCPeerConnection,
   RTCTrackEvent,
+  RtcpRrPacket,
+  RtpHeader,
   createSelfSignedCertificate,
 } from "../../src";
 import { SignatureAlgorithm } from "../../src/const";
+import { createDataChannelPair } from "../utils";
 
 describe("peerConnection", () => {
   test("test_connect_datachannel_modern_sdp", async () =>
@@ -141,6 +148,8 @@ describe("peerConnection", () => {
     const caller = new RTCPeerConnection({});
     const callee = new RTCPeerConnection({});
     const channel = caller.createDataChannel("chat");
+    let closeEvents = 0;
+    channel.onclose = () => closeEvents++;
     let remoteChannelOpened = false;
 
     callee.onDataChannel.subscribe((remoteChannel) => {
@@ -166,9 +175,507 @@ describe("peerConnection", () => {
 
     expect(caller.connectionState).toBe("failed");
     expect(channel.readyState).not.toBe("open");
+    expect(channel.readyState).toBe("closed");
+    expect(closeEvents).toBe(1);
     expect(remoteChannelOpened).toBeFalsy();
 
     await Promise.allSettled([caller.close(), callee.close()]);
+  });
+
+  test("post-connect fingerprint failure propagates to PeerConnection, SCTP, and DataChannel", async () => {
+    // Arrange: 実際の PeerConnection で DataChannel を接続済みにする。
+    const caller = new RTCPeerConnection({});
+    const callee = new RTCPeerConnection({});
+    const channel = caller.createDataChannel("chat");
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription(caller.localDescription!);
+      await callee.setLocalDescription(await callee.createAnswer());
+      await caller.setRemoteDescription(callee.localDescription!);
+      await assertDataChannelOpen(channel);
+      expect(channel.readyState).toBe("open");
+
+      // Act: 再ネゴシエーションの remote offer に不一致 fingerprint を適用する。
+      const renegotiationOffer = await callee.createOffer();
+      await callee.setLocalDescription(renegotiationOffer);
+      await caller.setRemoteDescription({
+        type: "offer",
+        sdp: tamperFingerprints(callee.localDescription!.sdp),
+      });
+      // 認証失敗イベントが欠落すると無期限に待たず、このテストを失敗させる。
+      if (caller.connectionState !== "failed") {
+        await caller.connectionStateChange.asPromise(5_000);
+      }
+
+      // Assert: 認証失敗を上位状態へ伝播し、SCTP と DataChannel を閉じる。
+      expect(caller.dtlsTransports[0].state).toBe("failed");
+      expect(caller.connectionState).toBe("failed");
+      expect(caller.sctp?.sctp.associationState).toBe(SCTP_STATE.CLOSED);
+      expect(channel.readyState).toBe("closed");
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  }, 30_000);
+
+  test("media-only の古い connect は fingerprint failure 後に connected を上書きしない", async () => {
+    // Arrange: media-only の実接続を用意し、初回 connect の完了直前を保持する。
+    const caller = new RTCPeerConnection({});
+    const callee = new RTCPeerConnection({});
+    caller.addTransceiver("audio");
+    await caller.setLocalDescription(await caller.createOffer());
+    await callee.setRemoteDescription(caller.localDescription!);
+    await callee.setLocalDescription(await callee.createAnswer());
+
+    const dtls = caller.dtlsTransports[0]!;
+    const originalStart = dtls.start;
+    let startEntered!: () => void;
+    const startEnteredPromise = new Promise<void>((resolve) => {
+      startEntered = resolve;
+    });
+    let releaseStart!: () => void;
+    const startGate = new Promise<void>((resolve) => {
+      releaseStart = resolve;
+    });
+    dtls.start = async () => {
+      await originalStart.call(dtls);
+      startEntered();
+      await startGate;
+    };
+
+    try {
+      // Act: DTLS は connected まで進めるが、古い connect() の最終判定を止める。
+      await caller.setRemoteDescription(callee.localDescription!);
+      await startEnteredPromise;
+      expect(dtls.state).toBe("connected");
+
+      // Act: 保留中の connect() より先に、不一致 fingerprint の offer を適用する。
+      const renegotiationOffer = await callee.createOffer();
+      await callee.setLocalDescription(renegotiationOffer);
+      await caller.setRemoteDescription({
+        type: "offer",
+        sdp: tamperFingerprints(callee.localDescription!.sdp),
+      });
+      expect(dtls.state).toBe("failed");
+
+      // Act: 古い connect() を再開する。
+      releaseStart();
+      await setTimeout(0);
+
+      // Assert: 古い Promise の成功結果で failed を connected に戻さない。
+      expect(caller.connectionState).toBe("failed");
+    } finally {
+      dtls.start = originalStart;
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  }, 30_000);
+
+  test("接続中に追加した未交渉 transport は接続判定へ混入しない", async () => {
+    // Arrange: bundle を無効にした DTLS 1.2、direct DTLS 1.3、SPED DTLS 1.3 の接続を用意する。
+    const cases = [
+      ["DTLS 1.2", {}],
+      ["direct DTLS 1.3", { dtls: { protocolVersions: [DtlsVersion.V1_3] } }],
+      [
+        "SPED DTLS 1.3",
+        { sped: true, dtls: { protocolVersions: [DtlsVersion.V1_3] } },
+      ],
+    ] as const;
+
+    for (const [label, extraConfig] of cases) {
+      const caller = new RTCPeerConnection({
+        iceServers: [],
+        bundlePolicy: "disable",
+        ...extraConfig,
+      });
+      const callee = new RTCPeerConnection({
+        iceServers: [],
+        bundlePolicy: "disable",
+        ...extraConfig,
+      });
+      caller.addTransceiver("audio");
+      const initialTransport = caller.dtlsTransports[0]!;
+      let addedVideo = false;
+      const receivedPayloads: string[] = [];
+
+      caller.onconnectionstatechange = () => {
+        if (caller.connectionState === "connecting" && !addedVideo) {
+          addedVideo = true;
+          // Act: 初回接続の通知中に、次の SDP 交渉用 transport を追加する。
+          caller.addTransceiver("video");
+        }
+      };
+
+      try {
+        // Act: 音声だけを含む初回 offer/answer を適用して接続を開始する。
+        await caller.setLocalDescription(await caller.createOffer());
+        await callee.setRemoteDescription(caller.localDescription!);
+        callee.dtlsTransports[0]!.onRtp.subscribe((packet) => {
+          receivedPayloads.push(packet.payload.toString());
+        });
+        await callee.setLocalDescription(await callee.createAnswer());
+        await caller.setRemoteDescription(callee.localDescription!);
+
+        // Act: 対象 transport の接続完了を待ち、既存 media の送信を行う。
+        const deadline = Date.now() + 5_000;
+        while (
+          (initialTransport.state !== "connected" ||
+            caller.connectionState !== "connected") &&
+          Date.now() < deadline
+        ) {
+          await setTimeout(10);
+        }
+        await initialTransport.sendRtp(
+          Buffer.from("existing-audio-is-live"),
+          new RtpHeader({
+            ssrc: 3456,
+            payloadType: 96,
+            sequenceNumber: 1,
+          }),
+        );
+        while (receivedPayloads.length === 0 && Date.now() < deadline) {
+          await setTimeout(10);
+        }
+
+        // Assert: 新規 transport は未交渉のままでも、既存接続の成功を失敗にしない。
+        expect(initialTransport.state, label).toBe("connected");
+        expect(caller.connectionState, label).toBe("connected");
+        expect(caller.dtlsTransports).toHaveLength(2);
+        expect(caller.dtlsTransports[1]?.state).toBe("new");
+        expect(receivedPayloads).toContain("existing-audio-is-live");
+      } finally {
+        await Promise.allSettled([caller.close(), callee.close()]);
+      }
+    }
+  }, 60_000);
+
+  test("BUNDLE tag の DTLS/ICE parameters が後続 media section で上書きされない", async () => {
+    // Arrange: BUNDLE の tag 以外の m-line だけ別証明書・ICE parameters になる offer を用意する。
+    const alternateKeys = await createSelfSignedCertificate({
+      signature: SignatureAlgorithm.ecdsa_3,
+      hash: HashAlgorithm.sha256_4,
+    });
+    const alternateCertificate = new RTCCertificate(
+      alternateKeys.keyPem,
+      alternateKeys.certPem,
+      alternateKeys.signatureHash,
+    );
+    const cases = [
+      ["DTLS 1.2", {}],
+      ["direct DTLS 1.3", { dtls: { protocolVersions: [DtlsVersion.V1_3] } }],
+      [
+        "SPED DTLS 1.3",
+        { sped: true, dtls: { protocolVersions: [DtlsVersion.V1_3] } },
+      ],
+    ] as const;
+
+    for (const [label, extraConfig] of cases) {
+      const caller = new RTCPeerConnection({
+        iceServers: [],
+        bundlePolicy: "max-compat",
+        ...extraConfig,
+      });
+      const callee = new RTCPeerConnection({
+        iceServers: [],
+        ...extraConfig,
+      });
+      caller.addTransceiver("audio");
+      caller.addTransceiver("video");
+      const originalTransports = [...caller.dtlsTransports];
+      let receivedAudio: string | undefined;
+
+      try {
+        await caller.setLocalDescription(await caller.createOffer());
+
+        // Act: BUNDLE tag の audio の値を保存し、video だけ異なる値へ書き換える。
+        caller.dtlsTransports[1]!.localCertificate = alternateCertificate;
+        const fingerprint = alternateCertificate.getFingerprints()[0]!;
+        const sections = caller.localDescription!.sdp.split(/(?=^m=)/m);
+        const tagSection = sections[1]!;
+        const tagUfragMatch = tagSection.match(/^a=ice-ufrag:([^\r\n]+)$/m);
+        const tagPasswordMatch = tagSection.match(/^a=ice-pwd:([^\r\n]+)$/m);
+        const tagCandidates = [
+          ...tagSection.matchAll(/^a=candidate:([^\r\n]+)$/gm),
+        ].map((match) => match[1]!);
+        expect(tagUfragMatch).not.toBeNull();
+        expect(tagPasswordMatch).not.toBeNull();
+        expect(tagCandidates.length).toBeGreaterThan(0);
+
+        const nonTagCandidate = "a=candidate:9999 1 udp 1 192.0.2.1 9 typ host";
+        sections[2] = sections[2]!
+          .replace(
+            /^a=fingerprint:.*$/gm,
+            `a=fingerprint:${fingerprint.algorithm} ${fingerprint.value}`,
+          )
+          .replace(/^a=ice-ufrag:.*$/gm, "a=ice-ufrag:NonTagUfrag1234")
+          .replace(
+            /^a=ice-pwd:.*$/gm,
+            "a=ice-pwd:NonTagPassword01234567890123456789",
+          )
+          .replace(/^a=candidate:.*$/gm, nonTagCandidate);
+        const modifiedOffer = {
+          type: "offer" as const,
+          sdp: sections.join(""),
+        };
+        await callee.setRemoteDescription(modifiedOffer);
+
+        // Assert: 非 tag の credentials/candidate が共有 transport に混入していない。
+        const calleeIce = callee.dtlsTransports[0]!.iceTransport.connection;
+        expect(calleeIce.remoteUsername).toBe(tagUfragMatch![1]);
+        expect(calleeIce.remotePassword).toBe(tagPasswordMatch![1]);
+        expect(
+          calleeIce.remoteCandidates.map((candidate) => candidate.toSdp()),
+        ).toEqual(tagCandidates);
+
+        callee.dtlsTransports[0]!.onRtp.subscribe((packet) => {
+          receivedAudio = packet.payload.toString();
+        });
+        await callee.setLocalDescription(await callee.createAnswer());
+        await caller.setRemoteDescription(callee.localDescription!);
+
+        // Act: 両端の BUNDLE transport が認証済みになるまで待って audio を送る。
+        const deadline = Date.now() + 10_000;
+        while (
+          (caller.connectionState !== "connected" ||
+            callee.connectionState !== "connected") &&
+          Date.now() < deadline
+        ) {
+          await setTimeout(10);
+        }
+        await caller.dtlsTransports[0]!.sendRtp(
+          Buffer.from("bundled-audio"),
+          new RtpHeader({ ssrc: 0x713, sequenceNumber: 1, payloadType: 96 }),
+        );
+        while (receivedAudio === undefined && Date.now() < deadline) {
+          await setTimeout(10);
+        }
+
+        // Assert: tag の DTLS/ICE 値で認証・接続され、後続 video の値で失敗しない。
+        expect(caller.connectionState, label).toBe("connected");
+        expect(callee.connectionState, label).toBe("connected");
+        expect(callee.dtlsTransports[0]!.state, label).toBe("connected");
+        expect(receivedAudio, label).toBe("bundled-audio");
+        expect(caller.dtlsTransports, label).not.toContain(
+          originalTransports[1],
+        );
+        expect(originalTransports[1]!.state, label).toBe("closed");
+        expect(originalTransports[1]!.iceTransport.state, label).toBe("closed");
+      } finally {
+        await Promise.allSettled([caller.close(), callee.close()]);
+        await Promise.allSettled(
+          originalTransports.map((transport) => transport.stop()),
+        );
+      }
+    }
+  }, 90_000);
+
+  test("setRemoteDescription は close 後に signalingState を再開しない", async () => {
+    const cases = [
+      ["transport replacement なし", false],
+      ["BUNDLE transport replacement あり", true],
+    ] as const;
+
+    for (const [label, withBundleReplacement] of cases) {
+      // Arrange: remote transceiver 通知から SRD の await 中に close する構成を作る。
+      const caller = new RTCPeerConnection({
+        iceServers: [],
+        ...(withBundleReplacement
+          ? { bundlePolicy: "max-compat" as const }
+          : {}),
+      });
+      const callee = new RTCPeerConnection({ iceServers: [] });
+      caller.addTransceiver("audio");
+      if (withBundleReplacement) {
+        caller.addTransceiver("video");
+      }
+      await caller.setLocalDescription(await caller.createOffer());
+
+      let closePromise: Promise<void> | undefined;
+      callee.onRemoteTransceiverAdded.subscribe(() => {
+        if (closePromise) return;
+        closePromise = new Promise<void>((resolve) => {
+          queueMicrotask(() => {
+            void callee.close().finally(resolve);
+          });
+        });
+      });
+
+      try {
+        // Act: SRD の transceiver 通知後、追加された stopTransport 待機へ入る。
+        await callee.setRemoteDescription(caller.localDescription!);
+        expect(closePromise, label).toBeDefined();
+        await closePromise;
+
+        // Assert: close 済みの PeerConnection は両方の公開状態を終端に保つ。
+        expect(callee.connectionState, label).toBe("closed");
+        expect(callee.signalingState, label).toBe("closed");
+      } finally {
+        await Promise.allSettled([caller.close(), callee.close()]);
+      }
+    }
+  });
+
+  test("BUNDLE tag の順序変更で同種 transceiver の割り当てを入れ替えない", async () => {
+    // Arrange: 未割り当ての video transceiver と、逆順の BUNDLE tag を持つ offer を用意する。
+    const caller = new RTCPeerConnection({
+      iceServers: [],
+      bundlePolicy: "max-compat",
+    });
+    const callee = new RTCPeerConnection({ iceServers: [] });
+    const callerCamera = new MediaStreamTrack({ kind: "video" });
+    const callerScreen = new MediaStreamTrack({ kind: "video" });
+    const calleeCamera = new MediaStreamTrack({ kind: "video" });
+    const calleeScreen = new MediaStreamTrack({ kind: "video" });
+    caller.addTransceiver(callerCamera);
+    caller.addTransceiver(callerScreen);
+    const cameraSender = callee.addTrack(calleeCamera);
+    const screenSender = callee.addTrack(calleeScreen);
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      const originalSdp = caller.localDescription!.sdp;
+      const bundleMatch = originalSdp.match(/^a=group:BUNDLE ([^\r\n]+)$/m);
+      expect(bundleMatch).not.toBeNull();
+      const reversedBundle = bundleMatch![1]!
+        .trim()
+        .split(" ")
+        .reverse()
+        .join(" ");
+      const modifiedOffer = {
+        type: "offer" as const,
+        sdp: originalSdp.replace(
+          bundleMatch![0],
+          `a=group:BUNDLE ${reversedBundle}`,
+        ),
+      };
+      const offerMids = [
+        ...modifiedOffer.sdp.matchAll(/^a=mid:([^\r\n]+)$/gm),
+      ].map((match) => match[1]!);
+
+      // Act: m-line 順を維持したまま、逆順 tag の offer を適用する。
+      await callee.setRemoteDescription(modifiedOffer);
+      const transceivers = callee.getTransceivers();
+
+      // Assert: sender の track と remote m-line の MID 対応は SDP 順のままになる。
+      expect(transceivers).toHaveLength(2);
+      expect(transceivers[0]!.sender).toBe(cameraSender);
+      expect(transceivers[0]!.sender.track).toBe(calleeCamera);
+      expect(transceivers[0]!.mid).toBe(offerMids[0]);
+      expect(transceivers[1]!.sender).toBe(screenSender);
+      expect(transceivers[1]!.sender.track).toBe(calleeScreen);
+      expect(transceivers[1]!.mid).toBe(offerMids[1]);
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
+  test("SCTP start failure 後の PeerConnection close は DataChannel を閉じる", async () => {
+    // Arrange: negotiated channel を作成し、SCTP association を開始前の状態にする。
+    const peer = new RTCPeerConnection({});
+    const channel = peer.createDataChannel("negotiated", {
+      negotiated: true,
+      id: 0,
+    });
+    let closeEvents = 0;
+    channel.onclose = () => closeEvents++;
+
+    try {
+      await peer.setLocalDescription(await peer.createOffer());
+      const association = peer.sctp!.sctp;
+
+      // Act: INIT 失敗後に下位 SCTP が CLOSED になった状態で PC を閉じる。
+      association.setState(SCTP_STATE.CLOSED);
+      expect(channel.readyState).toBe("connecting");
+      await peer.close();
+
+      // Assert: SCTP の購読解除後でも保持中 channel を明示的に閉じる。
+      expect(channel.readyState).toBe("closed");
+      expect(closeEvents).toBe(1);
+    } finally {
+      await peer.close();
+    }
+  });
+
+  test("media-only handshake 中の close 後は connect の失敗で closed を上書きしない", async () => {
+    // Arrange: SCTP を持たない media-only の offer/answer を用意する。
+    const caller = new RTCPeerConnection({});
+    const callee = new RTCPeerConnection({});
+    caller.addTransceiver("audio");
+    await caller.setLocalDescription(await caller.createOffer());
+    await callee.setRemoteDescription(caller.localDescription!);
+    await callee.setLocalDescription(await callee.createAnswer());
+
+    const dtls = caller.dtlsTransports[0]!;
+    const originalIceStart = dtls.iceTransport.start;
+    const originalDtlsStart = dtls.start;
+    let startEntered!: () => void;
+    const startEnteredPromise = new Promise<void>((resolve) => {
+      startEntered = resolve;
+    });
+    let rejectStart!: (error: Error) => void;
+    const startFailure = new Promise<never>((_, reject) => {
+      rejectStart = reject;
+    });
+    dtls.iceTransport.start = async () => {};
+    dtls.start = async () => {
+      startEntered();
+      return startFailure;
+    };
+
+    try {
+      // Act: answer適用で connect() を開始し、DTLS start の reject を保留する。
+      await caller.setRemoteDescription(callee.localDescription!);
+      await startEnteredPromise;
+
+      // Act: 下位待機を閉じた後に失敗させる。
+      await caller.close();
+      rejectStart(new Error("handshake aborted by close"));
+      await setTimeout(0);
+
+      // Assert: connect の失敗処理は close 済み PC を failed へ戻さない。
+      expect(caller.connectionState).toBe("closed");
+    } finally {
+      dtls.iceTransport.start = originalIceStart;
+      dtls.start = originalDtlsStart;
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
+  test("ICE/DTLS connected 後の再接続でも SCTP retry に到達する", async () => {
+    // Arrange: 実 DataChannel を確立し、ICE/DTLS/SCTP が一度成功した状態を作る。
+    const caller = new RTCPeerConnection({});
+    const callee = new RTCPeerConnection({});
+    const [channel] = await createDataChannelPair({}, caller, callee);
+    const manager = (
+      caller as unknown as {
+        sctpManager: { connectSctp(): Promise<void> };
+      }
+    ).sctpManager;
+    const originalConnectSctp = manager.connectSctp.bind(manager);
+    let attempts = 0;
+    manager.connectSctp = async () => {
+      attempts++;
+      if (attempts === 1) {
+        throw new Error("simulated SCTP INIT failure");
+      }
+      await originalConnectSctp();
+    };
+
+    try {
+      // Act: 接続済みの早期 return からも SCTP の初回 retry を実行する。
+      await (caller as unknown as { connect(): Promise<void> }).connect();
+      expect(caller.connectionState).toBe("failed");
+
+      // Act: 再ネゴシエーション相当の connect() を再度実行する。
+      await (caller as unknown as { connect(): Promise<void> }).connect();
+
+      // Assert: manager の二回目の開始へ到達し、PCだけ connected にはしない。
+      expect(attempts).toBe(2);
+      expect(caller.connectionState).toBe("connected");
+      expect(channel.readyState).toBe("open");
+    } finally {
+      manager.connectSctp = originalConnectSctp;
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
   });
 
   test("constructor applies WebIDL-style validation for configuration dictionaries", () => {
@@ -733,6 +1240,103 @@ a=ssrc:1001 cname:some
       await pc2.close();
     }
   });
+
+  test("ICE restart 中は remote nomination だけの pair から RTP/RTCP を送らない", async () => {
+    // Arrange: 非 SPED・DTLS 1.2 の実 PeerConnection と DTLS/SRTP を接続する。
+    const caller = new RTCPeerConnection({});
+    const callee = new RTCPeerConnection({});
+    let receivedRtp = 0;
+    let receivedRtcp = 0;
+
+    try {
+      await createDataChannelPair(undefined, caller, callee);
+      const sender = callee.dtlsTransports[0]!;
+      const receiver = caller.dtlsTransports[0]!;
+      receiver.onRtp.subscribe(() => receivedRtp++);
+      receiver.onRtcp.subscribe(() => receivedRtcp++);
+
+      const controlledIce = callee.dtlsTransports[0]!.iceTransport
+        .connection as Connection;
+      const generationBeforeRestart = controlledIce.generation;
+
+      // Act: ICE restart を実行し、新 generation の候補交換を開始する。
+      await caller.setLocalDescription(
+        await caller.createOffer({ iceRestart: true }),
+      );
+      await callee.setRemoteDescription(caller.localDescription!);
+      await callee.setLocalDescription(await callee.createAnswer());
+      await caller.setRemoteDescription(callee.localDescription!);
+
+      const deadline = Date.now() + 5_000;
+      while (
+        (controlledIce.generation <= generationBeforeRestart ||
+          controlledIce.checkList.length === 0) &&
+        Date.now() < deadline
+      ) {
+        await setTimeout(10);
+      }
+      expect(controlledIce.generation).toBeGreaterThan(generationBeforeRestart);
+      const pair = controlledIce.checkList[0];
+      expect(pair).toBeDefined();
+
+      // Act: USE-CANDIDATE は届いたが、成功応答はまだ無い状態を再現する。
+      pair!.handle?.resolve?.();
+      controlledIce.checkList = [pair!];
+      pair!.remoteNominated = true;
+      pair!.nominated = false;
+      pair!.responsesReceived = 0;
+      pair!.updateState(CandidatePairState.IN_PROGRESS);
+      controlledIce.nominated = undefined;
+      controlledIce.state = "connected";
+      (controlledIce as any).consentFresh = false;
+      const packetsSentBefore = sender.packetsSent;
+      const bytesSentBefore = sender.bytesSent;
+
+      const blockedRtp = await sender.sendRtp(
+        Buffer.from("before-consent"),
+        new RtpHeader({ ssrc: 0x7101, payloadType: 96 }),
+      );
+      const blockedRtcp = await sender.sendRtcp([
+        new RtcpRrPacket({ ssrc: 0x7101, reports: [] }),
+      ]);
+      await setTimeout(50);
+
+      // Assert: nomination通知だけでは wire、RTP/RTCP callback、統計を進めない。
+      expect(blockedRtp).toBe(0);
+      expect(blockedRtcp).toBe(0);
+      expect(receivedRtp).toBe(0);
+      expect(receivedRtcp).toBe(0);
+      expect(sender.packetsSent).toBe(packetsSentBefore);
+      expect(sender.bytesSent).toBe(bytesSentBefore);
+
+      // Act: 対応する成功応答と consent を成立させてから再送する。
+      pair!.updateState(CandidatePairState.SUCCEEDED);
+      pair!.nominated = true;
+      controlledIce.nominated = pair;
+      (controlledIce as any).consentFresh = true;
+      const allowedRtp = await sender.sendRtp(
+        Buffer.from("after-consent"),
+        new RtpHeader({ ssrc: 0x7102, payloadType: 96 }),
+      );
+      await sender.sendRtcp([new RtcpRrPacket({ ssrc: 0x7102, reports: [] })]);
+
+      // Assert: successful check response 後だけ実際の peer へ配送される。
+      expect(allowedRtp).toBeGreaterThan(0);
+      expect(sender.packetsSent).toBe(packetsSentBefore + 2);
+      expect(sender.bytesSent).toBeGreaterThan(bytesSentBefore);
+      const deliveryDeadline = Date.now() + 5_000;
+      while (
+        (receivedRtp === 0 || receivedRtcp === 0) &&
+        Date.now() < deliveryDeadline
+      ) {
+        await setTimeout(10);
+      }
+      expect(receivedRtp).toBe(1);
+      expect(receivedRtcp).toBe(1);
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  }, 20_000);
 });
 
 describe("initial config", () => {

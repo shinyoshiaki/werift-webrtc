@@ -18,15 +18,25 @@ import {
 import type { SpedPeerSupport, SpedState } from "./types";
 
 /**
+ * Un-ACKed L1 datagram with its own send state. The `sent` flag travels with
+ * the packet object so partial ACKs (which remove entries and shift positions)
+ * can never misattribute "already sent" to a different packet.
+ */
+interface L1Entry {
+  packet: Buffer;
+  sent: boolean;
+}
+
+/**
  * Per-ICE-generation SPED draft-00 session (L1 / L2).
- * DTLS record ACK state stays in the DTLS engine — this only tracks STUN CRCs.
+ * DTLS record ACK state stays in the DTLS engine.
  */
 export class SpedSession {
   state: SpedState;
   peerSupport: SpedPeerSupport = "unknown";
   generation: number;
   /** Un-ACKed current DTLS flight datagrams (defensive copies). */
-  private l1: Buffer[] = [];
+  private l1: L1Entry[] = [];
   /**
    * First L1 flight bytes. Fallback sends this snapshot even if later
    * MTU shrink re-fragments `l1` for STUN embedding.
@@ -36,6 +46,7 @@ export class SpedSession {
   private l2: number[] = [];
   private roundRobinIndex = 0;
   private firstAuthenticatedSeen = false;
+  private totalRetransmitCount = 0;
 
   constructor(generation: number, state: SpedState = "probing") {
     this.generation = generation;
@@ -43,7 +54,7 @@ export class SpedSession {
   }
 
   get l1Datagrams(): Buffer[] {
-    return this.l1.map((packet) => Buffer.from(packet));
+    return this.l1.map((entry) => Buffer.from(entry.packet));
   }
 
   get hasL1(): boolean {
@@ -56,6 +67,10 @@ export class SpedSession {
 
   get embedding(): boolean {
     return this.state === "probing" || this.state === "active";
+  }
+
+  get retransmissions(): number {
+    return this.totalRetransmitCount;
   }
 
   /**
@@ -79,11 +94,11 @@ export class SpedSession {
     this.l1 = packets.map((packet) => {
       const copy = Buffer.alloc(packet.length);
       packet.copy(copy);
-      return copy;
+      return { packet: copy, sent: false };
     });
     if (this.originalFallbackFlight == null && this.l1.length > 0) {
-      this.originalFallbackFlight = this.l1.map((packet) =>
-        Buffer.from(packet),
+      this.originalFallbackFlight = this.l1.map((entry) =>
+        Buffer.from(entry.packet),
       );
     }
     this.roundRobinIndex = 0;
@@ -123,7 +138,8 @@ export class SpedSession {
       return;
     }
     const set = new Set(crcs.map((crc) => crc >>> 0));
-    this.l1 = this.l1.filter((packet) => !set.has(spedDataCrc32(packet)));
+    // entry 単位で除去するため送信済みフラグは残存パケットに正しく追従する。
+    this.l1 = this.l1.filter((entry) => !set.has(spedDataCrc32(entry.packet)));
     if (this.roundRobinIndex >= this.l1.length) {
       this.roundRobinIndex = 0;
     }
@@ -161,6 +177,15 @@ export class SpedSession {
     this.state = "complete";
   }
 
+  /** Association selected a direct (for example DTLS 1.2) carrier. */
+  commitDirectFallback(): void {
+    this.l1 = [];
+    this.originalFallbackFlight = undefined;
+    this.l2 = [];
+    this.roundRobinIndex = 0;
+    this.state = "fallback";
+  }
+
   reset(generation: number): void {
     this.generation = generation;
     this.l1 = [];
@@ -178,20 +203,20 @@ export class SpedSession {
     return source.map((packet) => Buffer.from(packet));
   }
 
-  selectDataPayload(maxValueBytes: number): Buffer {
+  private selectDataPayloadIndex(maxValueBytes: number): number | undefined {
     if (this.l1.length === 0 || maxValueBytes <= 0) {
-      return Buffer.alloc(0);
+      return undefined;
     }
     const start = this.roundRobinIndex % this.l1.length;
     for (let offset = 0; offset < this.l1.length; offset++) {
       const index = (start + offset) % this.l1.length;
-      const packet = this.l1[index]!;
-      if (packet.length <= maxValueBytes) {
+      const entry = this.l1[index]!;
+      if (entry.packet.length <= maxValueBytes) {
         this.roundRobinIndex = (index + 1) % this.l1.length;
-        return Buffer.from(packet);
+        return index;
       }
     }
-    return Buffer.alloc(0);
+    return undefined;
   }
 
   /**
@@ -206,10 +231,20 @@ export class SpedSession {
     const ackValue = encodeSpedAck(acks).value;
     const budget = remainingDataValueBudget(message, ackValue);
     const maxPayload = maxPayloadFitting(budget);
-    const dataValue = this.selectDataPayload(maxPayload);
+    const selectedIndex = this.selectDataPayloadIndex(maxPayload);
+    const selected =
+      selectedIndex === undefined ? undefined : this.l1[selectedIndex]!;
+    const dataValue =
+      selected === undefined ? Buffer.alloc(0) : Buffer.from(selected.packet);
     const size = estimatedStunSizeAfterSped(message, ackValue, dataValue);
     if (!stunFitsPathMtu(size)) {
       return false;
+    }
+    if (selected !== undefined) {
+      // 再送判定はパケットに紐づく送信済みフラグで行う。部分 ACK で位置が
+      // ずれても別パケットを送信済みと誤認しない。
+      if (selected.sent) this.totalRetransmitCount++;
+      selected.sent = true;
     }
     message.appendRawAttribute(DTLS_IN_STUN_ACK, ackValue);
     message.appendRawAttribute(

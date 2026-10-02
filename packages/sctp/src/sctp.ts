@@ -75,6 +75,16 @@ const SCTP_HEARTBEAT_INTERVAL = 30;
 
 const RECONFIG_MAX_STREAMS = 135;
 
+/** A pre-established association was deliberately abandoned by its owner. */
+export class SCTPStartCancelledError extends Error {
+  readonly code = "SCTP_START_CANCELLED" as const;
+
+  constructor(message = "SCTP association start cancelled") {
+    super(message);
+    this.name = "SCTPStartCancelledError";
+  }
+}
+
 // # parameters
 const SCTP_STATE_COOKIE = 0x0007;
 const SCTP_SUPPORTED_CHUNK_EXT = 0x8008; //32778
@@ -104,6 +114,9 @@ export class SCTP {
   isServer = true;
   private isStopping = false;
   private isClosed = false;
+  private wasEstablished = false;
+  private startHandedOff = false;
+  private _startCancellationError?: Error;
 
   private hmacKey = randomBytes(16);
   private localPartialReliability = true;
@@ -205,6 +218,27 @@ export class SCTP {
       return Math.min(this._inboundStreamsCount, this._outboundStreamsCount);
     }
     return undefined;
+  }
+
+  /** @internal True when this association reached ESTABLISHED before it closed. */
+  get hadEstablished() {
+    return this.wasEstablished;
+  }
+
+  /**
+   * @internal True once this endpoint handed the chunk that lets the peer
+   * create association state to the transport: COOKIE_ECHO on the initiator,
+   * COOKIE_ACK on the responder. The peer may already be ESTABLISHED and will
+   * not send a new INIT, so cancelStart() refuses from here and send failures
+   * are treated as packet loss recovered by retransmission.
+   */
+  get startCommitted() {
+    return this.startHandedOff;
+  }
+
+  /** @internal Error supplied when a pre-established start was cancelled. */
+  get startCancellationError() {
+    return this._startCancellationError;
   }
 
   static client(transport: Transport, port = 5000) {
@@ -357,9 +391,15 @@ export class SCTP {
           ]);
           ack.params.push([SCTP_STATE_COOKIE, cookie]);
           log("send initAck", ack);
-          await this.sendChunk(ack).catch((err: Error) => {
+          try {
+            await this.sendChunk(ack);
+          } catch (error) {
+            const err =
+              error instanceof Error ? error : new Error(String(error));
             log("send initAck failed", err.message);
-          });
+            this.cancelStart(err);
+            return;
+          }
         }
         break;
       case InitAckChunk.type:
@@ -391,12 +431,16 @@ export class SCTP {
               break;
             }
           }
-          await this.sendChunk(echo).catch((err: Error) => {
-            log("send echo failed", err.message);
-          });
-
+          // Enter COOKIE_ECHOED and arm T1 before handing the chunk off: a
+          // duplicate INIT_ACK or an early COOKIE_ACK during the send must see
+          // the new state. From here the peer may hold association state, so
+          // a failed send is packet loss that T1 recovers, never a cancel.
           this.timer1Start(echo);
           this.setState(SCTP_STATE.COOKIE_ECHOED);
+          this.startHandedOff = true;
+          await this.sendChunk(echo).catch((err: Error) => {
+            log("send echo failed; T1 retransmits", err.message);
+          });
         }
         break;
       case SackChunk.type:
@@ -468,10 +512,18 @@ export class SCTP {
             return;
           }
           const ack = new CookieAckChunk();
-          await this.sendChunk(ack).catch((err: Error) => {
-            log("send cookieAck failed", err.message);
+          // RFC 4960 5.1 (D): move to ESTABLISHED when replying. Hand off the
+          // COOKIE_ACK first so it precedes DATA flushed by the connected
+          // event. A failed send is packet loss: the initiator retransmits
+          // COOKIE_ECHO and this association (same cookie key) answers again.
+          this.startHandedOff = true;
+          const sending = this.sendChunk(ack).catch((err: Error) => {
+            log("send cookieAck failed; peer retransmits", err.message);
           });
-          this.setState(SCTP_STATE.ESTABLISHED);
+          if (this.associationState !== SCTP_STATE.ESTABLISHED) {
+            this.setState(SCTP_STATE.ESTABLISHED);
+          }
+          await sending;
         }
         break;
       case CookieAckChunk.type:
@@ -1068,8 +1120,13 @@ export class SCTP {
     } else {
       setImmediate(() => {
         if (this.isStopped) return;
-        this.sendChunk(this.timer1Chunk!).catch((err: Error) => {
+        this.sendChunk(this.timer1Chunk!).catch((error) => {
+          const err = error instanceof Error ? error : new Error(String(error));
           log("send timer1 chunk failed", err.message);
+          // After COOKIE_ECHO the peer may already be ESTABLISHED: keep T1
+          // running (cancelStart refuses committed starts) so a later
+          // retransmission or the max-retrans limit decides.
+          this.cancelStart(err);
         });
       });
       if (this.isStopped) return;
@@ -1354,14 +1411,22 @@ export class SCTP {
     this.setExtensions(init.params);
     log("send init", init);
 
+    // # start T1 timer and enter COOKIE-WAIT state
+    // Before handing INIT off, so an INIT_ACK that arrives while the send is
+    // still pending is not dropped by the COOKIE_WAIT guard.
+    this.timer1Start(init);
+    this.setState(SCTP_STATE.COOKIE_WAIT);
     try {
       await this.sendChunk(init);
-
-      // # start T1 timer and enter COOKIE-WAIT state
-      this.timer1Start(init);
-      this.setState(SCTP_STATE.COOKIE_WAIT);
     } catch (error: any) {
-      log("send init failed", error.message);
+      // The INIT_ACK may already have committed the start; then this is only
+      // a late send error and T1 / the peer recover it.
+      if (this.startHandedOff) return;
+      // INIT failure is a failed association attempt, not a successful start.
+      // Surface it to the owner and publish CLOSED so waiters cannot remain
+      // pending until an unrelated timeout.
+      this.setState(SCTP_STATE.CLOSED);
+      throw error;
     }
   }
 
@@ -1396,6 +1461,7 @@ export class SCTP {
       this.associationState = state;
     }
     if (state === SCTP_STATE.ESTABLISHED) {
+      this.wasEstablished = true;
       this.isStopping = false;
       this.isClosed = false;
       this.setConnectionState("connected");
@@ -1443,6 +1509,47 @@ export class SCTP {
     clearTimeout(this.timerReconfigHandle);
     clearTimeout(this.timerHeartbeatHandle);
     clearTimeout(this.sackTimeout);
+  }
+
+  /**
+   * Abort a pre-established association without waiting for T1. This is used
+   * by early WebRTC paths when their permission or carrier generation is
+   * revoked; an authenticated retry can then allocate a new SCTP instance.
+   */
+  cancelStart(error: Error = new SCTPStartCancelledError()): boolean {
+    if (this.associationState === SCTP_STATE.ESTABLISHED) return false;
+    // The peer may already be ESTABLISHED and will not send a new INIT.
+    if (this.startHandedOff) return false;
+    this._startCancellationError = error;
+    this.isStopping = true;
+    // Keep the carrier's receive slot callable.  A WebRTC DTLS transport can
+    // still release fingerprint-gated application data after this association
+    // is cancelled; assigning undefined here would make that delivery throw
+    // before the authenticated retry installs its new SCTP handler.  The old
+    // handler is harmless because handleData() drops packets while stopped.
+    this.setState(SCTP_STATE.CLOSED);
+    return true;
+  }
+
+  /**
+   * @internal Retransmit the pending INIT / COOKIE_ECHO now instead of at the
+   * next T1 expiry, e.g. after the carrier dropped an in-flight reply.
+   */
+  retransmitStartNow() {
+    if (this.isStopped || !this.timer1Handle || !this.timer1Chunk) return;
+    if (
+      this.associationState !== SCTP_STATE.COOKIE_WAIT &&
+      this.associationState !== SCTP_STATE.COOKIE_ECHOED
+    ) {
+      return;
+    }
+    clearTimeout(this.timer1Handle);
+    this.timer1Handle = setTimeout(this.timer1Expired, this.rto * 1000);
+    this.sendChunk(this.timer1Chunk).catch((error) => {
+      const err = error instanceof Error ? error : new Error(String(error));
+      log("retransmit start chunk failed", err.message);
+      this.cancelStart(err);
+    });
   }
 
   async abort() {

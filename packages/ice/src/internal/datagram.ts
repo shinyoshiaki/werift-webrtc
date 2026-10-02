@@ -30,6 +30,12 @@ export interface IceDatagramContext {
   pair?: CandidatePair;
   generation: number;
   authenticated: boolean;
+  /**
+   * The source is the selected pair of the previous generation, retained
+   * after an ICE restart until the peer sends on the new selected pair.
+   * Only media may use this path; it never authenticates DTLS delivery.
+   */
+  fromPreviousSelectedPair?: boolean;
 }
 
 /**

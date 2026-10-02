@@ -1,4 +1,7 @@
-import { RTCDataChannel, RTCSctpTransport } from "../../src";
+import { vi } from "vitest";
+
+import { SCTP_STATE } from "../../../sctp/src";
+import { Event, RTCDataChannel, RTCSctpTransport } from "../../src";
 import { RTCDataChannelParameters } from "../../src/dataChannel";
 import { dtlsTransportPair } from "../fixture";
 
@@ -55,4 +58,33 @@ describe("RTCSctpTransportTest", () => {
         channel.send(Buffer.from("pong"));
       });
     }));
+
+  test("INIT 送信失敗を reject し、次の start で association を再構築する", async () => {
+    // Arrange: DTLS bridge の最初の送信だけ失敗させる。
+    const sendData = vi
+      .fn<(...args: [Buffer]) => Promise<void>>()
+      .mockRejectedValueOnce(new Error("INIT send failed"))
+      .mockResolvedValue(undefined);
+    const dtls = {
+      id: "fake-dtls",
+      role: "server",
+      onStateChange: new Event<[string]>(),
+      dataReceiver: () => {},
+      sendData,
+    } as any;
+    const transport = new RTCSctpTransport();
+    transport.setDtlsTransport(dtls);
+
+    // Act: 初回の INIT failure は接続待ちのまま残さず reject する。
+    await expect(transport.start(5001)).rejects.toThrow("INIT send failed");
+    const failedAssociation = transport.sctp;
+
+    // Assert: 失敗 association は CLOSED で、次回 start は新 association を使う。
+    expect(failedAssociation.associationState).toBe(SCTP_STATE.CLOSED);
+    await transport.start(5001);
+    expect(transport.sctp).not.toBe(failedAssociation);
+    expect(transport.sctp.associationState).toBe(SCTP_STATE.COOKIE_WAIT);
+
+    await transport.stop();
+  });
 });

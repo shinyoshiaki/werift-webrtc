@@ -330,11 +330,21 @@ class StreamTransport implements Transport {
   };
 }
 
+/**
+ * Optional per-datagram RX metadata threaded through {@link Transport.onData}.
+ * `rxGeneration` is an opaque carrier generation token (e.g. ICE generation):
+ * the DTLS engine drops queued datagrams whose accept-time generation no
+ * longer matches at queue-execution time (ICE restart race).
+ */
+export interface DatagramRxMeta {
+  rxGeneration?: number;
+}
+
 export interface Transport {
   type: string;
   address: AddressInfo;
   closed: boolean;
-  onData: (data: Buffer, addr: Address) => void;
+  onData: (data: Buffer, addr: Address, meta?: DatagramRxMeta) => void;
   send: (data: Buffer, addr?: Address) => Promise<void>;
   /**
    * Optional flush: wait until the datagram is accepted by the kernel.

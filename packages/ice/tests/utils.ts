@@ -4,7 +4,15 @@ import { type Address, Event } from "../../common/src";
 import { NodeStunServer, NodeTurnServer } from "../../ice-server/src";
 import { Candidate } from "../src/candidate";
 import { Connection } from "../src/ice";
-import { CandidatePair, type IceOptions } from "../src/iceBase";
+import {
+  CandidatePair,
+  CandidatePairState,
+  type IceOptions,
+} from "../src/iceBase";
+import {
+  type IceDatagramContext,
+  connectionDatagramEvent,
+} from "../src/internal/datagram";
 import type { Message } from "../src/stun/message";
 import type { Protocol, TransactionRequestOptions } from "../src/types/model";
 
@@ -193,6 +201,7 @@ export function createConsentHarness(
     iceControlling,
   );
   nominated.nominated = true;
+  nominated.updateState(CandidatePairState.SUCCEEDED);
 
   const connection = new Connection(iceControlling);
   connection.remoteUsername = "remote";
@@ -304,4 +313,32 @@ export async function createLocalTurnServer(
   });
   await server.listen();
   return server;
+}
+
+/**
+ * Arrange: two loopback Connections with a selected pair.
+ * Sockets are bound to 127.0.0.1 so the datagram source always matches the
+ * candidate address (wildcard sockets on multi-homed hosts may not).
+ */
+export async function createConnectedPair() {
+  const options: Partial<IceOptions> = {
+    useIpv6: false,
+    interfaceAddresses: { udp4: "127.0.0.1" },
+    additionalHostAddresses: ["127.0.0.1"],
+    filterCandidatePair: (pair) => pair.remoteCandidate.host === "127.0.0.1",
+  };
+  const a = createTestConnection(true, options);
+  const b = createTestConnection(false, options);
+  await inviteAccept(a, b);
+  await Promise.all([a.connect(), b.connect()]);
+  return { a, b };
+}
+
+/** Arrange: collect internal datagram contexts delivered by a Connection. */
+export function collectDatagrams(connection: Connection) {
+  const received: IceDatagramContext[] = [];
+  connectionDatagramEvent(connection).subscribe((ctx) => {
+    received.push(ctx);
+  });
+  return received;
 }

@@ -3,6 +3,7 @@
 const { spawnSync } = require("node:child_process");
 const { existsSync } = require("node:fs");
 const { basename, dirname, join } = require("node:path");
+const { playwrightInstallEnv } = require("./playwright-host-platform.js");
 
 const repoRoot = join(__dirname, "..");
 
@@ -70,6 +71,7 @@ function installWithPlaywright(packageDir) {
     [cliPath, "install", "chromium", "chromium-headless-shell"],
     {
       cwd: repoRoot,
+      env: playwrightInstallEnv(),
       stdio: "inherit",
     },
   );
@@ -122,6 +124,7 @@ function main() {
       ["playwright", "install", "chromium", "chromium-headless-shell"],
       {
         cwd: repoRoot,
+        env: playwrightInstallEnv(),
         stdio: "inherit",
       },
     );

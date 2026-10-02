@@ -35,8 +35,8 @@ import {
   isAuthenticatedHandshakePair,
 } from "./internal/datagram";
 import {
+  decoratePendingSpedResponse,
   getConnectionSpedRuntime,
-  registerSpedCarryMaybeFlush,
   setConnectionSpedRuntime,
 } from "./internal/sped-bind";
 import { SpedBindingResponseCache } from "./internal/sped-binding-cache";
@@ -124,6 +124,16 @@ export class Connection implements IceConnection {
   // P2P接続完了したソケット
   nominated?: CandidatePair;
   private nominating = false;
+  /** Authenticated pair the remote peer last sent application data on. */
+  private lastDataPair?: CandidatePair;
+  /**
+   * Selected pairs of the previous generation (ours and the one the peer was
+   * sending on; nomination can be asymmetric). RFC 8445 §9: media continues
+   * over the previously selected pair until the restart selects a new one.
+   * The peer may keep using it after we nominate, so these are released once
+   * the peer sends on an authenticated current-generation pair.
+   */
+  private previousSelectedPairs: CandidatePair[] = [];
   private checkListDone = false;
   private checkListState = new PQueue<number>();
   private incomingPairWait?: { settle: (learned: boolean) => void };
@@ -150,15 +160,6 @@ export class Connection implements IceConnection {
   private set spedRuntime(runtime: SpedRuntime | undefined) {
     setConnectionSpedRuntime(this, runtime);
   }
-  private spedCarryInFlight = false;
-  private spedCarryQueued = false;
-  /**
-   * After receiving SPED DATA, send one more Binding even without local L1
-   * so ICE-Lite (Responses only) can put the next L1 datagram on the reply.
-   */
-  private spedSolicitPeerCarry = false;
-  private spedCarryEpoch = 0;
-  private spedIncomingStunDepth = 0;
   /**
    * Exact SPED Binding Response bytes keyed by STUN transaction id.
    * Handshake only: TTL = STUN transaction lifetime, LRU-capped.
@@ -177,7 +178,6 @@ export class Connection implements IceConnection {
       this._iceControlling = false;
     }
     this.applyStunTurnServersFromOptions();
-    registerSpedCarryMaybeFlush(this, () => this.maybeFlushSpedCarry());
     this.restart();
     log("new Connection", this.options);
   }
@@ -249,8 +249,15 @@ export class Connection implements IceConnection {
   }
 
   async restart() {
+    const selected = [this.nominated, this.lastDataPair].filter(
+      (pair): pair is CandidatePair =>
+        pair !== undefined && isAuthenticatedHandshakePair(pair),
+    );
+    if (selected.length > 0) {
+      this.previousSelectedPairs = [...new Set(selected)];
+    }
+    this.lastDataPair = undefined;
     this.generation++;
-    this.spedCarryEpoch++;
     this.abandonInFlightStunTransactions();
 
     this.localUsername = randomString(4);
@@ -292,9 +299,6 @@ export class Connection implements IceConnection {
 
     // Tear down consent timers/transactions; new credentials require a new session.
     this.stopConsentLifecycle();
-    this.spedCarryInFlight = false;
-    this.spedCarryQueued = false;
-    this.spedSolicitPeerCarry = false;
     this.spedBindingCache.clear();
     this.spedRuntime?.reset(this.generation);
   }
@@ -491,6 +495,10 @@ export class Connection implements IceConnection {
           addr !== undefined &&
           pair !== undefined &&
           isAuthenticatedHandshakePair(pair);
+        if (authenticated) {
+          this.lastDataPair = pair;
+          this.previousSelectedPairs = [];
+        }
         connectionDatagramEvent(this).execute({
           bytes: data,
           // Never copy pair.remoteAddr into source: a missing addr must not
@@ -500,6 +508,11 @@ export class Connection implements IceConnection {
           pair,
           generation: this.generation,
           authenticated,
+          // A new-generation pair for the same 5-tuple may already exist
+          // (WAITING/IN_PROGRESS) before it is authenticated; that must not
+          // hide the retained previous selected path.
+          fromPreviousSelectedPair:
+            !authenticated && this.isPreviousSelectedPair(protocol, addr),
         });
 
         const activePair = this.nominated;
@@ -558,22 +571,13 @@ export class Connection implements IceConnection {
     }
 
     const { iceControlling } = this;
-    this.spedIncomingStunDepth++;
-    try {
-      await this.handleCurrentGenerationBinding(
-        protocol,
-        verified,
-        addr,
-        localPassword,
-        iceControlling,
-      );
-    } finally {
-      this.spedIncomingStunDepth--;
-      if (this.spedIncomingStunDepth === 0 && this.spedCarryQueued) {
-        this.spedCarryQueued = false;
-        void this.flushSpedCarry();
-      }
-    }
+    await this.handleCurrentGenerationBinding(
+      protocol,
+      verified,
+      addr,
+      localPassword,
+      iceControlling,
+    );
   }
 
   private async handleCurrentGenerationBinding(
@@ -705,8 +709,11 @@ export class Connection implements IceConnection {
         verified.transactionId,
       );
       response.setAttribute("XOR-MAPPED-ADDRESS", addr);
-      if (this.spedRuntime && pair) {
-        if (!this.spedRuntime.decorateOutgoing(response, pair)) {
+      if (pair) {
+        const decorated = this.spedRuntime
+          ? this.spedRuntime.decorateOutgoing(response, pair)
+          : decoratePendingSpedResponse(this, response, pair, verified);
+        if (!decorated) {
           return;
         }
       }
@@ -1211,8 +1218,15 @@ export class Connection implements IceConnection {
     );
   }
 
-  private canSendApplicationData(): boolean {
-    if (!this.nominated) {
+  /**
+   * @internal
+   * Return whether application data can be delivered on the selected pair.
+   * This is kept separate from {@link send} so transports that buffer data
+   * can distinguish an unavailable path from a successful no-op.
+   */
+  canSendApplicationData(): boolean {
+    const activePair = this.applicationDataPair();
+    if (!activePair) {
       return false;
     }
     if (this.state === "closed" || this.state === "failed") {
@@ -1222,7 +1236,25 @@ export class Connection implements IceConnection {
     if (this.iceLite) {
       return true;
     }
+    // Full ICE requires consent from a successful Binding response. A remote
+    // USE-CANDIDATE only records nomination; it does not prove that this peer
+    // can receive application data on the pair.
     return this.consentFresh;
+  }
+
+  private applicationDataPair(): CandidatePair | undefined {
+    if (
+      this.nominated &&
+      this.nominated.state === CandidatePairState.SUCCEEDED
+    ) {
+      return this.nominated;
+    }
+    return this.checkList.find(
+      (pair) =>
+        pair.state === CandidatePairState.SUCCEEDED &&
+        isAuthenticatedHandshakePair(pair) &&
+        (pair.nominated || (this.iceLite && pair.remoteNominated)),
+    );
   }
 
   private abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
@@ -1473,6 +1505,8 @@ export class Connection implements IceConnection {
     }
 
     this.nominated = undefined;
+    this.lastDataPair = undefined;
+    this.previousSelectedPairs = [];
     for (const protocol of this.protocols) {
       if (protocol.close) {
         await protocol.close();
@@ -1484,10 +1518,6 @@ export class Connection implements IceConnection {
 
     this.lookup?.close?.();
     this.lookup = undefined;
-    this.spedCarryEpoch++;
-    this.spedCarryInFlight = false;
-    this.spedCarryQueued = false;
-    this.spedSolicitPeerCarry = false;
     this.spedBindingCache.clear();
     this.spedRuntime?.abort();
     this.spedRuntime = undefined;
@@ -1579,7 +1609,10 @@ export class Connection implements IceConnection {
     if (!this.canSendApplicationData()) {
       return;
     }
-    const activePair = this.nominated!;
+    const activePair = this.applicationDataPair();
+    if (!activePair) {
+      return;
+    }
     await activePair.protocol.sendData(data, activePair.remoteAddr);
 
     // Update statistics
@@ -1662,6 +1695,18 @@ export class Connection implements IceConnection {
       return this.nominated;
     }
     return this.checkList.find((candidate) => candidate.protocol === protocol);
+  }
+
+  private isPreviousSelectedPair(protocol: Protocol, addr?: Address) {
+    if (addr === undefined) {
+      return false;
+    }
+    return this.previousSelectedPairs.some(
+      (previous) =>
+        previous.protocol === protocol &&
+        previous.remoteAddr[0] === addr[0] &&
+        previous.remoteAddr[1] === addr[1],
+    );
   }
 
   private hasOutstandingChecks(): boolean {
@@ -1782,6 +1827,17 @@ export class Connection implements IceConnection {
     return this.spedRuntime?.decorateOutgoing(request, pair) ?? true;
   }
 
+  private bindingResponseSourceMatches(
+    addr: Address | undefined,
+    pair: CandidatePair,
+  ): boolean {
+    return (
+      addr != null &&
+      addr[0] === pair.remoteAddr[0] &&
+      addr[1] === pair.remoteAddr[1]
+    );
+  }
+
   private stunCheckTransactionOptions(
     pair: CandidatePair,
     udpRetransmissions: number,
@@ -1826,139 +1882,6 @@ export class Connection implements IceConnection {
     }
   }
 
-  private maybeFlushSpedCarry() {
-    if (this.iceLite) {
-      return;
-    }
-    if (this.spedIncomingStunDepth > 0) {
-      this.spedCarryQueued = true;
-      return;
-    }
-    if (this.isTerminalIceState()) {
-      return;
-    }
-    void this.flushSpedCarry();
-  }
-
-  private isTerminalIceState() {
-    const state = this.state as IceState;
-    return state === "failed" || state === "closed";
-  }
-
-  /**
-   * Send a Binding carrying current L1 when ICE checks will not
-   * do so soon enough (e.g. Finished after aggressive nomination).
-   * ICE-Lite never originates connectivity Binding Requests.
-   */
-  private async flushSpedCarry() {
-    if (this.iceLite) {
-      return;
-    }
-    if (this.isTerminalIceState()) {
-      return;
-    }
-    const runtime = this.spedRuntime;
-    if (!runtime?.session.embedding) {
-      return;
-    }
-    if (this.spedCarryInFlight) {
-      this.spedCarryQueued = true;
-      return;
-    }
-    if (!runtime.session.hasL1 && !this.spedSolicitPeerCarry) {
-      return;
-    }
-    if (!this.remoteUsername || !this.remotePassword) {
-      return;
-    }
-    this.spedSolicitPeerCarry = false;
-
-    const pair = this.selectSpedCarryPair(runtime);
-    const protocol = pair?.protocol;
-    const addr = pair?.remoteAddr;
-    if (!pair || !protocol || !addr || !runtime.shouldDecorate(pair)) {
-      return;
-    }
-
-    this.spedCarryInFlight = true;
-    const generation = this.generation;
-    const carryEpoch = this.spedCarryEpoch;
-    let requestSucceeded = false;
-    try {
-      const request = this.buildRequest({
-        nominate: false,
-        localUsername: this.localUsername,
-        remoteUsername: this.remoteUsername,
-        iceControlling: this.iceControlling,
-        localCandidate: pair.localCandidate,
-      });
-      if (!runtime.decorateOutgoing(request, pair)) {
-        return;
-      }
-      const retransmissions =
-        protocol.localCandidate?.transport.toLowerCase() === "tcp" ? 0 : 2;
-      const [response, responseAddr] = await protocol.request(
-        request,
-        addr,
-        Buffer.from(this.remotePassword, "utf8"),
-        this.stunCheckTransactionOptions(pair, retransmissions),
-      );
-      if (
-        generation !== this.generation ||
-        carryEpoch !== this.spedCarryEpoch
-      ) {
-        return;
-      }
-      requestSucceeded = true;
-      await this.consumeSpedStun(
-        response,
-        responseAddr,
-        protocol,
-        pair,
-        generation,
-      );
-    } catch {
-      // Loss is acceptable; connectivity checks / consent retry L1.
-    } finally {
-      this.spedCarryInFlight = false;
-      const stale =
-        carryEpoch !== this.spedCarryEpoch ||
-        generation !== this.generation ||
-        this.isTerminalIceState();
-      if (!stale) {
-        if (this.spedCarryQueued) {
-          this.spedCarryQueued = false;
-          void this.flushSpedCarry();
-        } else if (
-          requestSucceeded &&
-          runtime.session.embedding &&
-          runtime.session.hasL1
-        ) {
-          void this.flushSpedCarry();
-        }
-      }
-    }
-  }
-
-  private selectSpedCarryPair(runtime: SpedRuntime): CandidatePair | undefined {
-    if (runtime.lastPath && runtime.shouldDecorate(runtime.lastPath)) {
-      return runtime.lastPath;
-    }
-    const ordered: CandidatePair[] = [];
-    if (this.nominated) {
-      ordered.push(this.nominated);
-    }
-    for (const candidate of this.checkList) {
-      if (
-        candidate.state === CandidatePairState.SUCCEEDED ||
-        candidate.state === CandidatePairState.IN_PROGRESS
-      ) {
-        ordered.push(candidate);
-      }
-    }
-    return ordered.find((candidate) => runtime.shouldDecorate(candidate));
-  }
-
   private async consumeSpedStun(
     message: Message,
     addr: Address,
@@ -1973,12 +1896,7 @@ export class Connection implements IceConnection {
     if (!pair || !runtime || !runtime.isLiveGeneration(generation)) {
       return;
     }
-    const result = await runtime.handleAuthenticatedStun(
-      message,
-      addr,
-      generation,
-      pair,
-    );
+    await runtime.handleAuthenticatedStun(message, addr, generation, pair);
     if (
       generation !== this.generation ||
       !runtime.isLiveGeneration(generation)
@@ -1987,10 +1905,6 @@ export class Connection implements IceConnection {
     }
     if (pair) {
       runtime.syncRtt(pair);
-    }
-    if (result.inject) {
-      this.spedSolicitPeerCarry = true;
-      this.maybeFlushSpedCarry();
     }
     this.settleSpedUnconfirmed(pair);
     await this.maybeSendSpedFallback(protocol, addr, generation);
@@ -2127,7 +2041,6 @@ export class Connection implements IceConnection {
       log("check start", pair.toJSON());
 
       pair.updateState(CandidatePairState.IN_PROGRESS);
-      const result: { response?: Message; addr?: Address } = {};
       const { remotePassword, remoteUsername, generation } = this;
       const localUsername = pair.localCandidate.ufrag ?? this.localUsername;
       const stopIfStale = () => {
@@ -2179,13 +2092,16 @@ export class Connection implements IceConnection {
         if (stopIfStale()) {
           return;
         }
+        if (!this.bindingResponseSourceMatches(addr, pair)) {
+          pair.updateState(CandidatePairState.FAILED);
+          this.checkComplete(pair);
+          r();
+          return;
+        }
+
         pair.responsesReceived++;
-
-        // Calculate RTT
         const endTime = performance.now();
-        const rtt = (endTime - startTime) / 1000; // Convert to seconds
-
-        // Update RTT statistics
+        const rtt = (endTime - startTime) / 1000;
         pair.rtt = rtt;
         pair.totalRoundTripTime += rtt;
         pair.roundTripTimeMeasurements++;
@@ -2197,8 +2113,7 @@ export class Connection implements IceConnection {
           generation,
           rtt,
         });
-        result.response = response;
-        result.addr = addr;
+        this.spedRuntime?.tryMarkDirectHandshakeReady(pair, generation);
         await this.consumeSpedStun(
           response,
           addr,
@@ -2256,17 +2171,6 @@ export class Connection implements IceConnection {
         return;
       }
 
-      // # check remote address matches
-      if (
-        result.addr[0] !== pair.remoteAddr[0] ||
-        result.addr[1] !== pair.remoteAddr[1]
-      ) {
-        pair.updateState(CandidatePairState.FAILED);
-        this.checkComplete(pair);
-        r();
-        return;
-      }
-
       // # success
       if (nominate || pair.remoteNominated) {
         // # nominated by agressive nomination or the remote party
@@ -2309,7 +2213,14 @@ export class Connection implements IceConnection {
           if (stopIfStale()) {
             return;
           }
+          if (!this.bindingResponseSourceMatches(nomAddr, pair)) {
+            pair.updateState(CandidatePairState.FAILED);
+            this.checkComplete(pair);
+            r();
+            return;
+          }
           pair.responsesReceived++;
+          this.spedRuntime?.tryMarkDirectHandshakeReady(pair, generation);
           await this.consumeSpedStun(
             nomResponse,
             nomAddr,
@@ -2421,6 +2332,7 @@ export class Connection implements IceConnection {
         pair.nominated = true;
         pair.updateState(CandidatePairState.SUCCEEDED);
         this.checkComplete(pair);
+        this.spedRuntime?.tryMarkDirectHandshakeReady(pair, this.generation);
       }
       return;
     }

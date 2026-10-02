@@ -1,3 +1,4 @@
+import type { SCTP } from "../../sctp/src";
 import { createWebRtcTypeError } from "./errors";
 import { Event, debug } from "./imports/common";
 
@@ -19,7 +20,11 @@ export class SctpTransportManager {
   dataChannelsOpened = 0;
   dataChannelsClosed = 0;
   private dataChannels: RTCDataChannel[] = [];
-  private connectPromise?: Promise<void>;
+  /** A fulfilled promise belongs to one concrete SCTP association only. */
+  private connectAttempt?: {
+    association: SCTP;
+    promise: Promise<void>;
+  };
 
   readonly onDataChannel = new Event<[RTCDataChannel]>();
 
@@ -109,16 +114,91 @@ export class SctpTransportManager {
     if (!this.sctpTransport || !this.sctpRemotePort) {
       return;
     }
-    if (this.connectPromise) {
-      await this.connectPromise;
+    const transport = this.sctpTransport;
+    const association = transport.prepareForStart();
+    const previousAttempt = this.connectAttempt;
+    if (previousAttempt?.association === association) {
+      await previousAttempt.promise;
       return;
     }
-    this.connectPromise = (async () => {
-      await this.sctpTransport!.start(this.sctpRemotePort!);
-      await this.sctpTransport!.sctp.stateChanged.connected.asPromise();
-      log("sctp connected");
+    const outcome = this.waitForSctpOutcome(association);
+    // Attach a fulfillment handler before starting SCTP.  INIT failure can
+    // synchronously transition the association to CLOSED, so awaiting only
+    // transport.start() would leave outcome.promise rejected and unhandled.
+    const outcomeResult = outcome.promise.then(
+      () => ({ ok: true as const }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
+    const attempt = (async () => {
+      try {
+        await transport.start(this.sctpRemotePort!);
+        const result = await outcomeResult;
+        if (result.ok === false) {
+          throw result.error;
+        }
+        log("sctp connected");
+      } finally {
+        outcome.dispose();
+      }
     })();
-    await this.connectPromise;
+    const currentAttempt = { association, promise: attempt };
+    this.connectAttempt = currentAttempt;
+    try {
+      await attempt;
+    } catch (error) {
+      if (this.connectAttempt === currentAttempt) {
+        this.connectAttempt = undefined;
+      }
+      throw error;
+    }
+  }
+
+  private waitForSctpOutcome(sctp: SCTP) {
+    let settled = false;
+    let unSubscribeConnected = () => {};
+    let unSubscribeClosed = () => {};
+    const dispose = () => {
+      unSubscribeConnected();
+      unSubscribeClosed();
+      unSubscribeConnected = () => {};
+      unSubscribeClosed = () => {};
+    };
+
+    const promise = new Promise<void>((resolve, reject) => {
+      const complete = (callback: () => void) => {
+        if (settled) return;
+        settled = true;
+        dispose();
+        callback();
+      };
+
+      unSubscribeConnected = sctp.stateChanged.connected.subscribe(() =>
+        complete(resolve),
+      ).unSubscribe;
+      unSubscribeClosed = sctp.stateChanged.closed.subscribe(() =>
+        complete(() =>
+          reject(
+            sctp.startCancellationError ??
+              new Error("SCTP association closed before connecting"),
+          ),
+        ),
+      ).unSubscribe;
+
+      // The association may already have transitioned before the listeners
+      // were installed (notably after a synchronous INIT failure).
+      if (sctp.state === "connected") {
+        complete(resolve);
+      } else if (sctp.state === "closed") {
+        complete(() =>
+          reject(
+            sctp.startCancellationError ??
+              new Error("SCTP association closed before connecting"),
+          ),
+        );
+      }
+    });
+
+    return { promise, dispose };
   }
 
   setRemoteSCTP(remoteMedia: MediaDescription, mLineIndex: number) {

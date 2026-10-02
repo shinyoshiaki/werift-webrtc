@@ -56,6 +56,23 @@ const cookieHrr = new RTCPeerConnection({
 
 `PeerConfig.sped` defaults to `false`: ICE completes, then DTLS starts. Set `sped: true` together with DTLS 1.3 so this PeerConnection embeds the DTLS 1.3 handshake in authenticated ICE Binding attributes (`0xC070` / `0xC071`). `connect()` throws if `sped` is true and `dtls.protocolVersions` does not include `"1.3"`. `sped: true` cannot be combined with `dtls.helloRetryRequest: true` (SPED uses ICE-authenticated address validation, not a DTLS cookie).
 
+WARP early server traffic is separately and explicitly enabled with
+`warp: { allowEarlyServerData: true }`. It requires both `sped: true` and DTLS
+1.3. Inbound application data and media remain hidden until the SDP
+fingerprint matches. Pre-authentication encrypted media is dropped by default;
+set `warp.earlyMediaPolicy` to `"buffer"` to retain up to 256 packets / 256 KiB
+for at most two seconds.
+
+`close()` can interrupt the DTLS handshake with or without DataChannels.
+Revoking early sending with `setConfiguration({ warp: {
+allowEarlyServerData: false } })` cancels unfinished SCTP starts of the DTLS
+server. A cancelled association stays closed even if an in-flight send
+completes later; a retry uses a fresh association. Once COOKIE_ECHO or
+COOKIE_ACK has been handed to DTLS the peer may already be established, so the
+start is no longer cancelled: a send that fails afterwards counts as packet
+loss and SCTP retransmits (immediately on cancel/revoke and when DTLS
+connects) on the same association.
+
 ```ts
 const pc = new RTCPeerConnection({
   sped: true,

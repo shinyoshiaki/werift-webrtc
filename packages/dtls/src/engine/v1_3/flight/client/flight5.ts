@@ -38,6 +38,7 @@ export async function onServerFinished(
   }
   this.transcript.add(HandshakeType.finished_20, body);
   this.peerFinishedReceived = true;
+  this.markPeerHandshakeAuthenticated();
 
   const appSecrets = this.keySchedule.deriveApplicationSecrets(
     this.handshakeSecret!,
@@ -126,6 +127,7 @@ export async function onServerFinished(
   this.writeEpoch = 3;
   this.readEpoch = 3;
   this.localFinishedSent = true;
+  this.markWriteReady();
   // Keep pending final-flight retransmit until ACK clears it
   this.markConnected({ keepPendingFlight: true });
   log("client connected");

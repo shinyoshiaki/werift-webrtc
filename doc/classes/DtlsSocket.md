@@ -111,7 +111,7 @@ When set, DTLS 1.3 engine owns the transport and crypto state.
 
 ### onHandleHandshakes()
 
-> **onHandleHandshakes**: (`assembled`, `peer`?) => `Promise`\<`void`\>
+> **onHandleHandshakes**: (`assembled`, `peer`?, `meta`?) => `Promise`\<`void`\>
 
 Assembled handshake handler. `peer` is the source of the datagram that
 produced these messages (explicit UDP/inject addr) — async handlers must
@@ -126,6 +126,10 @@ reply to this address rather than reading mutable transport.rinfo.
 ##### peer?
 
 readonly \[`string`, `number`\]
+
+##### meta?
+
+[`DatagramRxMeta`](../interfaces/DatagramRxMeta.md)
 
 #### Returns
 
@@ -489,7 +493,7 @@ transport.send never settles (~250ms budget, parity with 1.3).
 
 ### handleUdpDatagram()
 
-> `protected` **handleUdpDatagram**(`data`, `addr`?): `void`
+> `protected` **handleUdpDatagram**(`data`, `addr`?, `meta`?): `void`
 
 Process one UDP datagram on the DTLS 1.2 record path.
 Subclasses (dual client) may intercept before calling this.
@@ -507,6 +511,10 @@ via unauthenticated alerts.
 ##### addr?
 
 readonly \[`string`, `number`\]
+
+##### meta?
+
+[`DatagramRxMeta`](../interfaces/DatagramRxMeta.md)
 
 #### Returns
 
@@ -531,6 +539,20 @@ but either is sufficient for association-lifecycle alert decisions.
 #### Returns
 
 `boolean`
+
+***
+
+### invalidateLegacy12HandshakeOwnership()
+
+> `protected` **invalidateLegacy12HandshakeOwnership**(): `void`
+
+Invalidate legacy handshake callbacks that no longer own the association.
+Used by dual-version selection and renegotiation before replacing the
+lower-level state while keeping the public socket alive.
+
+#### Returns
+
+`void`
 
 ***
 
@@ -561,6 +583,30 @@ close_notify must not tear down a post-handshake association (unauth DoS).
 Transport path already authenticates a single peer (ICE / equivalent).
 Distinct from TransportContext.pinnedPeer (UDP return-routability).
 Driven by [peerIdentityMode](DtlsSocket.md#peeridentitymode) (public Options) when set.
+
+#### Returns
+
+`boolean`
+
+***
+
+### isCurrentRxGeneration()
+
+> `protected` **isCurrentRxGeneration**(`rxGeneration`?): `boolean`
+
+Check the carrier generation at every DTLS 1.2 receive boundary.
+
+DTLS 1.3 performs this check again when its record queue resumes.  The
+legacy path has asynchronous Flight handlers instead, so the association
+must reject an old datagram both before parsing and after each await.  An
+unset provider means this socket is being used by the standalone UDP API,
+where no carrier generation exists and the check is intentionally disabled.
+
+#### Parameters
+
+##### rxGeneration?
+
+`number`
 
 #### Returns
 
@@ -612,6 +658,22 @@ readonly \[`string`, `number`\]
 
 ***
 
+### notifyEngine13Selected()
+
+> `protected` **notifyEngine13Selected**(): `void`
+
+Notify association-level readiness waiters that DTLS 1.3 is active.
+
+A dual-stack client can resume a parked candidate without rebuilding its
+event bridge, so that path must share the same selection notification as a
+freshly created engine.
+
+#### Returns
+
+`void`
+
+***
+
 ### onEngine13PeerOrLocalClose()
 
 > `protected` **onEngine13PeerOrLocalClose**(): `void`
@@ -637,6 +699,39 @@ Dual client overrides for phase/carrier/transport ownership.
 #### Returns
 
 `void`
+
+***
+
+### ownsLegacy12Handshake()
+
+> `protected` **ownsLegacy12Handshake**(`ownership`, `rxGeneration`, `peer`?): `boolean`
+
+Check ownership before an asynchronous legacy handshake rejection is
+allowed to change association state.
+
+The receive path validates these conditions before starting the async
+handler, but a later rejection resumes outside that synchronous boundary.
+A DTLS 1.2 handler from an old ICE generation, a released dual candidate,
+or a changed peer pin must be discarded instead of failing the current
+association.
+
+#### Parameters
+
+##### ownership
+
+`number`
+
+##### rxGeneration
+
+`undefined` | `number`
+
+##### peer?
+
+readonly \[`string`, `number`\]
+
+#### Returns
+
+`boolean`
 
 ***
 
@@ -840,7 +935,7 @@ Explicit peer for this reply. Required pre-cookie so a concurrent
 
 ### udpOnMessage()
 
-> `protected` **udpOnMessage**(`data`, `addr`?): `void`
+> `protected` **udpOnMessage**(`data`, `addr`?, `meta`?): `void`
 
 #### Parameters
 
@@ -851,6 +946,10 @@ Explicit peer for this reply. Required pre-cookie so a concurrent
 ##### addr?
 
 readonly \[`string`, `number`\]
+
+##### meta?
+
+[`DatagramRxMeta`](../interfaces/DatagramRxMeta.md)
 
 #### Returns
 

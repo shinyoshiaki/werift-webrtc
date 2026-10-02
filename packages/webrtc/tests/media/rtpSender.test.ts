@@ -107,6 +107,23 @@ describe("media/rtpSender", () => {
       ),
     ).toBe(false);
   });
+
+  test("early server writeReady permits RTP while DTLS state is connecting", async () => {
+    // Arrange: codec 設定済み sender を public connecting state に戻し、early opt-in を許可する。
+    const { sender, dtls, sendRtp } = createConnectedRtpSender();
+    dtls.state = "connecting";
+    vi.spyOn(dtls, "isEarlyServerWriteAllowed").mockReturnValue(true);
+
+    try {
+      // Act: fingerprint 認証前の server writeReady 相当で RTP を送る。
+      await sender.sendRtp(createRtpPacket(1, 1, Buffer.from("early")));
+
+      // Assert: connected 固定ゲートで捨てず、DTLS transport まで伝播する。
+      expect(sendRtp).toHaveBeenCalledTimes(1);
+    } finally {
+      sender.stop();
+    }
+  });
 });
 
 describe("media/rtpSender RTP continuity", () => {

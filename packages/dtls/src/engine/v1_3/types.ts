@@ -80,6 +80,13 @@ export const MAX_EARLY_APP_DATA_RECORDS = 256;
  * couple of back-to-back messages.
  */
 export const MAX_EARLY_APP_DATA_BYTES = 256 * 1024;
+export const EARLY_APP_DATA_RETENTION_MS = 2_000;
+
+export interface DtlsReadiness {
+  writeReady: boolean;
+  peerHandshakeAuthenticated: boolean;
+  handshakeComplete: boolean;
+}
 /**
  * Opt-in unbounded early-app-data buffer for trusted P2P paths.
  * Pass as `maxEarlyAppDataRecords` / `maxEarlyAppDataBytes`.
