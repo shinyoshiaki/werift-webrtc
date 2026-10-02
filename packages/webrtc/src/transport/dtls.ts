@@ -1,13 +1,6 @@
-import { Certificate, PrivateKey } from "@fidm/x509";
-
 import { randomUUID } from "crypto";
 import { setTimeout } from "timers/promises";
-import {
-  type Address,
-  type DatagramRxMeta,
-  Event,
-  type Transport,
-} from "../imports/common";
+import { Event } from "../imports/common";
 
 import { DirectHandshakeCarrier } from "../../../dtls/src/carrier/direct";
 import {
@@ -19,228 +12,64 @@ import {
 import type { Connection } from "../../../ice/src";
 import {
   type IceDatagramContext,
-  allowsAuthenticatedDtlsDelivery,
   connectionDatagramEvent,
 } from "../../../ice/src/internal/datagram";
 import { attachSpedToConnection } from "../../../ice/src/internal/sped";
 import { getConnectionSpedRuntime } from "../../../ice/src/internal/sped-bind";
 import { EventTarget as DomEventTarget } from "../helper";
-import {
-  CipherContext,
-  DtlsClient,
-  DtlsServer,
-  type DtlsSocket,
-  type DtlsVersion,
-  HashAlgorithm,
-  NamedCurveAlgorithm,
-  SignatureAlgorithm,
-  type SignatureHash,
-} from "../imports/dtls";
-import type { IceConnection } from "../imports/ice";
+import { DtlsClient, DtlsServer, type DtlsSocket } from "../imports/dtls";
 import {
   type RtcpPacket,
-  RtcpPacketConverter,
   type RtpHeader,
-  RtpPacket,
-  SrtcpSession,
-  SrtpAuthenticationError,
+  type RtpPacket,
+  type SrtcpSession,
   type SrtpProfile,
-  SrtpSession,
+  type SrtpSession,
   debug,
   isMedia,
   isRtcp,
-  keyLength,
-  saltLength,
 } from "../imports/rtp";
+import { type RTCStats, getStatsTimestamp } from "../media/stats";
+import { InboundApplicationGate } from "./dtls-application-gate";
 import {
-  type RTCCertificateStats,
-  type RTCIceCandidatePairStats,
-  type RTCIceCandidateStats,
-  type RTCStats,
-  type RTCTransportStats,
-  generateStatsId,
-  getStatsTimestamp,
-} from "../media/stats";
-import type { DebugConfig } from "../peerConnection";
+  type RTCCertificate,
+  RTCDtlsParameters,
+  createSelfSignedCertificate,
+} from "./dtls-certificate";
 import {
-  fingerprint,
-  isDtls,
-  normalizeFingerprintAlgorithm,
-  normalizeFingerprintValue,
-} from "../utils";
+  deduplicateFingerprints,
+  verifyRemoteCertificateFingerprint,
+} from "./dtls-fingerprint";
+import { createIceTransport } from "./dtls-ice-transport";
 import { isDtlsTransportSped } from "./dtls-sped";
+import { createSrtpSessions, decryptRtcp, decryptRtp } from "./dtls-srtp";
+import { buildDtlsTransportStats } from "./dtls-stats";
+import type {
+  DtlsRole,
+  DtlsState,
+  DtlsTransportConfig,
+  DtlsTransportStats,
+  TransportAttempt,
+  WebRtcDtlsReadiness,
+} from "./dtls-types";
 import type { RTCIceTransport } from "./ice";
 import { IceSpedTransport } from "./sped";
 
+export {
+  type DtlsKeys,
+  RTCCertificate,
+  RTCDtlsFingerprint,
+  RTCDtlsParameters,
+} from "./dtls-certificate";
+export {
+  type DtlsRole,
+  type DtlsState,
+  DtlsStates,
+  type DtlsTransportConfig,
+  type DtlsTransportStats,
+} from "./dtls-types";
+
 const log = debug("werift:packages/webrtc/src/transport/dtls.ts");
-
-export interface DtlsTransportConfig {
-  debug?: DebugConfig;
-  protocolVersions?: readonly DtlsVersion[];
-  helloRetryRequest?: boolean;
-  warp?: {
-    allowEarlyServerData?: boolean;
-    earlyMediaPolicy?: "drop" | "buffer";
-  };
-}
-
-interface WebRtcDtlsReadiness {
-  writeReady: boolean;
-  peerAuthenticated: boolean;
-  handshakeComplete: boolean;
-}
-
-interface TransportAttempt {
-  readonly id: number;
-  readonly iceGeneration: number;
-}
-
-class InboundApplicationGate {
-  private authenticated = false;
-  private aborted = false;
-  private buffer = new EarlyDataBuffer(256, 256 * 1024, 2_000);
-  private retiredDroppedPackets = 0;
-  private retiredDroppedBytes = 0;
-
-  constructor(private readonly deliver: (data: Buffer) => void) {}
-
-  /** Read-only snapshot source for stats; instance may rotate on restart. */
-  snapshot() {
-    const current = this.buffer.snapshot();
-    return {
-      ...current,
-      droppedPackets: current.droppedPackets + this.retiredDroppedPackets,
-      droppedBytes: current.droppedBytes + this.retiredDroppedBytes,
-    };
-  }
-
-  receive(data: Buffer): void {
-    if (this.aborted) return;
-    if (this.authenticated) this.deliver(data);
-    else this.buffer.push(data);
-  }
-
-  authenticate(
-    shouldContinue?: () => boolean,
-    isTerminal?: () => boolean,
-  ): void {
-    if (this.aborted || this.authenticated) return;
-    if (shouldContinue && !shouldContinue()) {
-      // restart による drift では新 attempt 用に gate を残し、terminal 時のみ廃棄する。
-      if (isTerminal?.()) this.abort();
-      return;
-    }
-    this.authenticated = true;
-    const buffer = this.buffer;
-    while (true) {
-      // close/restart が deliver callback 内で発生したら残りを破棄する。
-      if (this.aborted) {
-        buffer.clear(true);
-        return;
-      }
-      if (shouldContinue && !shouldContinue()) {
-        if (isTerminal?.()) this.abort();
-        else buffer.clear(true);
-        return;
-      }
-      const data = buffer.takeOne();
-      if (!data) return;
-      this.deliver(data);
-      if (this.aborted) {
-        buffer.clear(true);
-        return;
-      }
-      if (shouldContinue && !shouldContinue()) {
-        if (isTerminal?.()) this.abort();
-        else buffer.clear(true);
-        return;
-      }
-    }
-  }
-
-  abort(): void {
-    this.aborted = true;
-    this.buffer.clear(true);
-    this.buffer.dispose();
-  }
-
-  /**
-   * ICE restart 後の新 attempt 用に gate を再初期化する。旧 drain の残余は
-   * 呼び出し側が破棄済みとし、buffer と認証状態だけを新世代用に開き直す。
-   * fingerprint mismatch 等の terminal abort とは別扱いである。
-   */
-  restartForNewAttempt(): void {
-    // A generation change owns the old queue's complete lifecycle.  Dispose it
-    // before replacing the instance so its retention timer cannot survive the
-    // restart and mutate detached state two seconds later.
-    this.buffer.clear(true);
-    this.retainDroppedStats();
-    this.buffer.dispose();
-    this.authenticated = false;
-    this.aborted = false;
-    // dispose 済みの buffer は復活できないため新世代用に作り直す。
-    this.buffer = new EarlyDataBuffer(256, 256 * 1024, 2_000);
-  }
-
-  clearPending(): void {
-    if (!this.authenticated && !this.aborted) this.buffer.clear(true);
-  }
-
-  resetPending(): void {
-    if (!this.authenticated && !this.aborted) this.buffer.clear(true);
-  }
-
-  private retainDroppedStats(): void {
-    const stats = this.buffer.snapshot();
-    this.retiredDroppedPackets += stats.droppedPackets;
-    this.retiredDroppedBytes += stats.droppedBytes;
-  }
-}
-
-function formatDtlsVersion(socket?: DtlsSocket) {
-  if (!socket) {
-    return;
-  }
-  if (socket.isDtls13) {
-    return "DTLS 1.3";
-  }
-  const version = socket.dtls?.version;
-  if (!version) return;
-  if (version.major === 0xfe && version.minor === 0xfd) {
-    return "DTLS 1.2";
-  }
-  if (version.major === 0xfe && version.minor === 0xff) {
-    return "DTLS 1.0";
-  }
-}
-
-function formatDtlsCipher(socket?: DtlsSocket) {
-  if (!socket) {
-    return;
-  }
-  if (socket.isDtls13) {
-    return "TLS_AES_128_GCM_SHA256";
-  }
-  return socket.cipher?.cipher?.name;
-}
-
-function formatSrtpCipher(profile?: number) {
-  switch (profile) {
-    case 0x0001:
-      return "AES_CM_128_HMAC_SHA1_80";
-    case 0x0007:
-      return "AEAD_AES_128_GCM";
-    default:
-      return;
-  }
-}
-
-export interface DtlsTransportStats {
-  bytesSent: number;
-  bytesReceived: number;
-  packetsSent: number;
-  packetsReceived: number;
-}
 
 export class RTCDtlsTransport implements DtlsTransportStats {
   readonly config: DtlsTransportConfig;
@@ -393,19 +222,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     }
 
     this.localCertificatePromise = (async () => {
-      const { certPem, keyPem, signatureHash } =
-        await CipherContext.createSelfSignedCertificateWithKey(
-          {
-            signature: SignatureAlgorithm.ecdsa_3,
-            hash: HashAlgorithm.sha256_4,
-          },
-          NamedCurveAlgorithm.secp256r1_23,
-        );
-      this.localCertificate = new RTCCertificate(
-        keyPem,
-        certPem,
-        signatureHash,
-      );
+      this.localCertificate = await createSelfSignedCertificate();
       return this.localCertificate;
     })();
 
@@ -1223,67 +1040,10 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   private verifyRemoteCertificateFingerprint() {
-    if (
-      !this.remoteParameters ||
-      this.remoteParameters.fingerprints.length === 0
-    ) {
-      throw new Error("remote fingerprint not exist");
-    }
-
-    const remoteCertificate = this.dtls?.remoteCertificate;
-    if (!remoteCertificate) {
-      throw new Error("remote certificate not available");
-    }
-
-    const supportedFingerprints = this.remoteParameters.fingerprints.flatMap(
-      ({ algorithm, value }) => {
-        const normalizedAlgorithm = normalizeFingerprintAlgorithm(algorithm);
-        if (!normalizedAlgorithm) {
-          return [];
-        }
-
-        const normalizedValue = normalizeFingerprintValue(value);
-        if (!normalizedValue) {
-          throw new Error("remote fingerprint value is empty");
-        }
-
-        return [{ normalizedAlgorithm, normalizedValue }];
-      },
+    verifyRemoteCertificateFingerprint(
+      this.remoteParameters?.fingerprints,
+      this.dtls?.remoteCertificate,
     );
-    if (supportedFingerprints.length === 0) {
-      throw new Error("no supported remote fingerprint algorithms");
-    }
-
-    const preferredAlgorithm = selectPreferredFingerprintAlgorithm(
-      supportedFingerprints,
-    );
-    const expectedFingerprints = supportedFingerprints.filter(
-      ({ normalizedAlgorithm }) => normalizedAlgorithm === preferredAlgorithm,
-    );
-
-    const actualFingerprints = expectedFingerprints.reduce(
-      (acc, { normalizedAlgorithm }) => {
-        if (!acc.has(normalizedAlgorithm)) {
-          acc.set(
-            normalizedAlgorithm,
-            normalizeFingerprintValue(
-              fingerprint(remoteCertificate, normalizedAlgorithm),
-            ),
-          );
-        }
-        return acc;
-      },
-      new Map<string, string>(),
-    );
-
-    const matched = expectedFingerprints.some(
-      ({ normalizedAlgorithm, normalizedValue }) =>
-        actualFingerprints.get(normalizedAlgorithm) === normalizedValue,
-    );
-
-    if (!matched) {
-      throw new Error("remote certificate fingerprint mismatch");
-    }
   }
 
   updateSrtpSession() {
@@ -1294,26 +1054,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     if (this.srtpKeysInstalled) return;
     if (!this.dtls) throw new Error();
 
-    const profile = this.dtls.srtp.srtpProfile;
-    if (!profile) {
-      throw new Error("need srtpProfile");
-    }
-    log("selected SRTP Profile", profile);
-
-    const { localKey, localSalt, remoteKey, remoteSalt } =
-      this.dtls.extractSessionKeys(keyLength(profile), saltLength(profile));
-
-    const config = {
-      keys: {
-        localMasterKey: localKey,
-        localMasterSalt: localSalt,
-        remoteMasterKey: remoteKey,
-        remoteMasterSalt: remoteSalt,
-      },
-      profile,
-    };
-    this.srtp = new SrtpSession(config);
-    this.srtcp = new SrtcpSession(config);
+    const { srtp, srtcp } = createSrtpSessions(this.dtls);
+    this.srtp = srtp;
+    this.srtcp = srtcp;
     this.srtpKeysInstalled = true;
   }
 
@@ -1391,23 +1134,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   private handleMediaPacket(data: Buffer, attempt: TransportAttempt) {
     if (!this.canDeliverMedia(attempt)) return;
     if (isRtcp(data)) {
-      let dec: Buffer;
-      try {
-        dec = this.srtcp.decrypt(data);
-      } catch (error) {
-        if (error instanceof SrtpAuthenticationError) {
-          log("dropping invalid SRTCP packet", error);
-          return;
-        }
-        throw error;
-      }
-      let rtcpPackets;
-      try {
-        rtcpPackets = RtcpPacketConverter.deSerialize(dec);
-      } catch (error) {
-        log("dropping malformed SRTCP packet", error);
-        return;
-      }
+      const rtcpPackets = decryptRtcp(this.srtcp, data);
+      if (!rtcpPackets) return;
       for (const rtcp of rtcpPackets) {
         // 1つの SRTCP datagram に複数 packet が含まれる場合も、先頭の
         // callback 内の close/restart/fingerprint failure を直ちに反映する。
@@ -1419,23 +1147,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         }
       }
     } else {
-      let dec: Buffer;
-      try {
-        dec = this.srtp.decrypt(data);
-      } catch (error) {
-        if (error instanceof SrtpAuthenticationError) {
-          log("dropping invalid SRTP packet", error);
-          return;
-        }
-        throw error;
-      }
-      let rtp;
-      try {
-        rtp = RtpPacket.deSerialize(dec);
-      } catch (error) {
-        log("dropping malformed SRTP packet", error);
-        return;
-      }
+      const rtp = decryptRtp(this.srtp, data);
+      if (!rtp) return;
       if (!this.canDeliverMedia(attempt)) return;
       try {
         this.onRtp.execute(rtp);
@@ -1631,114 +1344,28 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   async getStats(timestamp = getStatsTimestamp()): Promise<RTCStats[]> {
-    const stats: RTCStats[] = [];
-
-    const transportId = generateStatsId("transport", this.id);
-
-    // Transport stats
-    const appQueue = this.applicationGate.snapshot();
-    const mediaQueue = this.mediaBufferStats();
-    const dtlsQueue = this.dtls?.earlyDataStats;
-    const spedDiagnostics = getConnectionSpedRuntime(
-      this.iceTransport.connection as Connection,
-    )?.diagnosticsSnapshot();
-    const transportStats: RTCTransportStats = {
-      type: "transport",
-      id: transportId,
+    const { transportId, stats } = buildDtlsTransportStats(
+      {
+        id: this.id,
+        state: this.state,
+        role: this.role,
+        iceTransport: this.iceTransport,
+        dtls: this.dtls,
+        localCertificate: this.localCertificate,
+        remoteCertificate: this.remoteCertificateForStats(),
+        remoteFingerprints: this.remoteParameters?.fingerprints,
+        bytesSent: this.bytesSent,
+        bytesReceived: this.bytesReceived,
+        packetsSent: this.packetsSent,
+        packetsReceived: this.packetsReceived,
+        applicationQueue: this.applicationGate.snapshot(),
+        mediaQueue: this.mediaBufferStats(),
+        handshakeStartedAt: this.handshakeStartedAt,
+        peerAuthenticatedAt: this.peerAuthenticatedAt,
+        earlyServerSendUsed: this.earlyServerSendUsed,
+      },
       timestamp,
-      bytesSent: this.bytesSent,
-      bytesReceived: this.bytesReceived,
-      packetsSent: this.packetsSent,
-      packetsReceived: this.packetsReceived,
-      dtlsState: this.state,
-      iceState: this.iceTransport.state,
-      iceRole:
-        this.iceTransport.role === "unknown"
-          ? undefined
-          : this.iceTransport.role,
-      iceLocalUsernameFragment:
-        this.iceTransport.localParameters.usernameFragment,
-      selectedCandidatePairId: this.iceTransport.connection.nominated
-        ? generateStatsId(
-            "candidate-pair",
-            this.iceTransport.connection.nominated.id,
-          )
-        : undefined,
-      localCertificateId: this.localCertificate
-        ? generateStatsId("certificate", this.id, "local")
-        : undefined,
-      remoteCertificateId: this.remoteCertificateForStats()
-        ? generateStatsId("certificate", this.id, "remote")
-        : undefined,
-      dtlsRole: this.role === "auto" ? undefined : this.role,
-      tlsVersion: formatDtlsVersion(this.dtls),
-      dtlsCipher: formatDtlsCipher(this.dtls),
-      srtpCipher: formatSrtpCipher(this.dtls?.srtp.srtpProfile),
-      iceRestarts: this.iceTransport.iceRestarts,
-      warpSpedState: spedDiagnostics?.state ?? "disabled",
-      warpCarrier: spedDiagnostics?.carrier ?? "direct",
-      warpHandshakeRttMs:
-        this.handshakeStartedAt !== undefined &&
-        this.peerAuthenticatedAt !== undefined
-          ? this.peerAuthenticatedAt - this.handshakeStartedAt
-          : undefined,
-      warpDtlsRetransmissions: this.dtls?.totalRetransmitCount ?? 0,
-      warpSpedRetransmissions: spedDiagnostics?.retransmissions ?? 0,
-      warpEarlyBufferedPackets:
-        appQueue.bufferedPackets +
-        mediaQueue.bufferedPackets +
-        (dtlsQueue?.bufferedPackets ?? 0),
-      warpEarlyBufferedBytes:
-        appQueue.bufferedBytes +
-        mediaQueue.bufferedBytes +
-        (dtlsQueue?.bufferedBytes ?? 0),
-      warpEarlyDroppedPackets:
-        appQueue.droppedPackets +
-        mediaQueue.droppedPackets +
-        (dtlsQueue?.droppedPackets ?? 0),
-      warpEarlyDroppedBytes:
-        appQueue.droppedBytes +
-        mediaQueue.droppedBytes +
-        (dtlsQueue?.droppedBytes ?? 0),
-      warpEarlyServerSendUsed: this.earlyServerSendUsed,
-      iceGeneration: (this.iceTransport.connection as Connection).generation,
-    };
-    stats.push(transportStats);
-
-    // Certificate stats
-    if (this.localCertificate) {
-      const fingerprints = this.localCertificate.getFingerprints();
-      if (fingerprints.length > 0) {
-        const certStats: RTCCertificateStats = {
-          type: "certificate",
-          id: generateStatsId("certificate", this.id, "local"),
-          timestamp,
-          fingerprint: fingerprints[0].value,
-          fingerprintAlgorithm: fingerprints[0].algorithm,
-          base64Certificate: Buffer.from(
-            this.localCertificate.certPem,
-          ).toString("base64"),
-        };
-        stats.push(certStats);
-      }
-    }
-
-    const remoteCertificate = this.remoteCertificateForStats();
-    if (
-      this.remoteParameters &&
-      this.remoteParameters.fingerprints.length > 0 &&
-      remoteCertificate
-    ) {
-      const certStats: RTCCertificateStats = {
-        type: "certificate",
-        id: generateStatsId("certificate", this.id, "remote"),
-        timestamp,
-        fingerprint: this.remoteParameters.fingerprints[0].value,
-        fingerprintAlgorithm: this.remoteParameters.fingerprints[0].algorithm,
-        base64Certificate: Buffer.from(remoteCertificate).toString("base64"),
-      };
-      stats.push(certStats);
-    }
+    );
 
     // Get ICE stats
     const iceStats = await this.iceTransport.getStats(timestamp, transportId);
@@ -1747,161 +1374,3 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     return stats;
   }
 }
-
-export const DtlsStates = [
-  "new",
-  "connecting",
-  "connected",
-  "closed",
-  "failed",
-] as const;
-export type DtlsState = (typeof DtlsStates)[number];
-
-export type DtlsRole = "auto" | "server" | "client";
-
-export class RTCCertificate {
-  publicKey: string;
-  privateKey: string;
-
-  constructor(
-    privateKeyPem: string,
-    public certPem: string,
-    public signatureHash: SignatureHash,
-  ) {
-    const cert = Certificate.fromPEM(Buffer.from(certPem));
-    this.publicKey = cert.publicKey.toPEM();
-    this.privateKey = PrivateKey.fromPEM(Buffer.from(privateKeyPem)).toPEM();
-  }
-
-  getFingerprints(): RTCDtlsFingerprint[] {
-    return [
-      new RTCDtlsFingerprint(
-        "sha-256",
-        fingerprint(
-          Certificate.fromPEM(Buffer.from(this.certPem)).raw,
-          "sha256",
-        ),
-      ),
-    ];
-  }
-}
-
-export type DtlsKeys = {
-  certPem: string;
-  keyPem: string;
-  signatureHash: SignatureHash;
-};
-
-export class RTCDtlsFingerprint {
-  constructor(
-    public algorithm: string,
-    public value: string,
-  ) {}
-}
-
-export class RTCDtlsParameters {
-  constructor(
-    public fingerprints: RTCDtlsFingerprint[] = [],
-    public role: "auto" | "client" | "server",
-  ) {}
-}
-
-const deduplicateFingerprints = (fingerprints: RTCDtlsFingerprint[]) => {
-  const seen = new Set<string>();
-  return fingerprints.filter(({ algorithm, value }) => {
-    const key = `${
-      normalizeFingerprintAlgorithm(algorithm) ?? algorithm.trim().toLowerCase()
-    }:${normalizeFingerprintValue(value)}`;
-    if (seen.has(key)) {
-      return false;
-    }
-    seen.add(key);
-    return true;
-  });
-};
-
-const preferredFingerprintAlgorithms = [
-  "sha512",
-  "sha384",
-  "sha256",
-  "sha224",
-  "sha1",
-] as const;
-
-const selectPreferredFingerprintAlgorithm = (
-  fingerprints: { normalizedAlgorithm: string }[],
-) => {
-  return (
-    preferredFingerprintAlgorithms.find((algorithm) =>
-      fingerprints.some(
-        ({ normalizedAlgorithm }) => normalizedAlgorithm === algorithm,
-      ),
-    ) ?? fingerprints[0].normalizedAlgorithm
-  );
-};
-
-class IceTransport implements Transport {
-  closed: boolean = false;
-  private readonly datagramSubscription: { unSubscribe(): void };
-  /**
-   * ICE selected-pair path is already authenticated — DTLS 1.2 must not treat
-   * AEAD-protected alerts as "pre-auth" merely because UDP pin is unavailable.
-   */
-  readonly peerAuthenticated = true;
-  constructor(private ice: IceConnection) {
-    this.datagramSubscription = connectionDatagramEvent(ice).subscribe(
-      (ctx) => {
-        if (
-          isDtls(ctx.bytes) &&
-          allowsAuthenticatedDtlsDelivery(ctx, (ice as Connection).generation)
-        ) {
-          if (this.onData) {
-            // 世代トークンを engine RX queue まで運び、restart 後の stale 実行を防ぐ。
-            this.onData(ctx.bytes, ctx.source, {
-              rxGeneration: ctx.generation,
-            });
-          }
-        }
-      },
-    );
-  }
-  onData: (buf: Buffer, addr?: Address, meta?: DatagramRxMeta) => void =
-    () => {};
-
-  /**
-   * DTLS 1.3 cookie HRR / anti-amp keys the peer from the RX 5-tuple.
-   * ICE already demuxed to the nominated pair, so expose that remote address
-   * instead of an empty AddressInfo (which made cookie HRR undeliverable).
-   */
-  get address() {
-    const [address, port] = this.remotePeer();
-    return { address, port, family: address.includes(":") ? "IPv6" : "IPv4" };
-  }
-
-  get rinfo() {
-    const [address, port] = this.remotePeer();
-    return { address, port };
-  }
-
-  type: string = "ice";
-
-  readonly send = (data: Buffer, _addr?: Address) => {
-    return this.ice.send(data);
-  };
-
-  async close() {
-    this.closed = true;
-    this.datagramSubscription.unSubscribe();
-    this.ice.close();
-  }
-
-  private remotePeer(): Address {
-    const nominated = this.ice.nominated;
-    if (nominated) {
-      return nominated.remoteAddr;
-    }
-    return ["0.0.0.0", 0];
-  }
-}
-
-const createIceTransport = (ice: IceConnection) => new IceTransport(ice);
