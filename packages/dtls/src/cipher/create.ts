@@ -8,6 +8,7 @@ import {
   createRSAKeyExchange,
 } from "./key-exchange";
 import AEADCipher from "./suites/aead";
+import AEADChaCha20Poly1305Cipher from "./suites/chacha";
 
 const cipherSuites = {
   TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: 0xc02b,
@@ -148,11 +149,59 @@ export function createCipher(cipher: number) {
         AEAD_AES_256_GCM,
         "sha384",
       );
+    case cipherSuites.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:
+      return createChaCha20Poly1305Cipher(
+        cipherSuites.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+        "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
+        ECDHE_RSA_KEY_EXCHANGE,
+      );
+    case cipherSuites.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:
+      return createChaCha20Poly1305Cipher(
+        cipherSuites.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+        "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256",
+        ECDHE_ECDSA_KEY_EXCHANGE,
+      );
     default:
       break;
   }
 
   return null as any as AEADCipher;
+}
+
+/**
+ * AEAD_CHACHA20_POLY1305 (RFC 7905). Uses a 32-byte key and a 12-byte fixed
+ * write IV; there is no explicit nonce on the wire (record_iv_length === 0).
+ * @param {number} id An internal id of cipher suite.
+ * @param {string} name A valid cipher suite name.
+ * @param {KeyExchange} kx Key exchange type.
+ * @param {string} hash
+ * @returns {AEADChaCha20Poly1305Cipher}
+ */
+export function createChaCha20Poly1305Cipher(
+  id: number,
+  name: string,
+  kx: KeyExchange,
+  hash = "sha256",
+) {
+  const cipher = new AEADChaCha20Poly1305Cipher();
+
+  cipher.id = id;
+  cipher.name = name;
+  cipher.kx = kx;
+  cipher.hashAlgorithm = hash;
+
+  cipher.keyLength = 32;
+  cipher.nonceLength = 12;
+
+  // RFC 7905: 12-byte fixed IV, no explicit (per-record) nonce on the wire.
+  cipher.nonceImplicitLength = 12;
+  cipher.nonceExplicitLength = 0;
+
+  cipher.ivLength = cipher.nonceImplicitLength;
+
+  cipher.authTagLength = 16;
+
+  return cipher;
 }
 
 /**
