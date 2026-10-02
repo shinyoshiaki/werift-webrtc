@@ -1,15 +1,15 @@
 // RTCPeerConnection configuration: the public configuration types, their
 // defaults, input normalization (W3C RTCConfiguration compatibility) and the
 // validation `setConfiguration` applies before merging.
-import { DEFAULT_SCTP_MTU, validateSctpMtu } from "../../sctp/src";
-import { createWebRtcDomException, createWebRtcTypeError } from "./errors";
-import { enumerate } from "./helper";
+import { DEFAULT_SCTP_MTU, validateSctpMtu } from "../../../sctp/src";
+import { createWebRtcDomException, createWebRtcTypeError } from "../errors";
+import { enumerate } from "../helper";
 import type {
   Address,
   InterfaceAddresses,
   TlsConnectionOptions,
-} from "./imports/common";
-import type { CandidatePair, Message, Protocol } from "./imports/ice";
+} from "../imports/common";
+import type { CandidatePair, Message, Protocol } from "../imports/ice";
 import {
   type MediaStreamTrack,
   RTCRtpCodecParameters,
@@ -18,12 +18,12 @@ import {
   useOPUS,
   usePCMU,
   useVP8,
-} from "./media";
-import type { BundlePolicy } from "./sdp";
-import type { MLineReuse } from "./sdpManager";
-import type { DtlsKeys, RTCCertificate } from "./transport/dtls";
-import { DEFAULT_MAX_MESSAGE_SIZE } from "./transport/sctp";
-import { deepMerge } from "./utils";
+} from "../media";
+import type { BundlePolicy } from "../sdp";
+import type { MLineReuse } from "../sdpManager";
+import type { DtlsKeys, RTCCertificate } from "../transport/dtls";
+import { DEFAULT_MAX_MESSAGE_SIZE } from "../transport/sctp";
+import { deepMerge } from "../utils";
 
 export type DebugConfig = Partial<{
   /**% */

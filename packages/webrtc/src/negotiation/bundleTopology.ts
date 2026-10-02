@@ -1,12 +1,12 @@
-import { SCTP_STATE } from "../../sctp/src";
-import { createWebRtcDomException } from "./errors";
-import type { TransceiverManager } from "./media";
-import type { NegotiationTransaction } from "./negotiationTransaction";
-import type { SctpTransportManager } from "./sctpManager";
-import type { GroupDescription, SessionDescription } from "./sdp";
-import type { SDPManager } from "./sdpManager";
-import type { RTCDtlsTransport } from "./transport/dtls";
-import type { RTCSignalingState } from "./types/domain";
+import { SCTP_STATE } from "../../../sctp/src";
+import { createWebRtcDomException } from "../errors";
+import type { TransceiverManager } from "../media";
+import type { NegotiationTransaction } from "../negotiationTransaction";
+import type { SctpTransportManager } from "../sctpManager";
+import type { GroupDescription, SessionDescription } from "../sdp";
+import type { SDPManager } from "../sdpManager";
+import type { RTCDtlsTransport } from "../transport/dtls";
+import type { RTCSignalingState } from "../types/domain";
 
 /**
  * BUNDLE ownership of a negotiation: which transport each m-line uses for a

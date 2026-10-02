@@ -1,15 +1,19 @@
-import type { RTCRtpTransceiver, RtpRouter, TransceiverManager } from "./media";
-import type { NegotiationTransaction } from "./negotiationTransaction";
-import type { SctpTransportManager } from "./sctpManager";
+import type {
+  RTCRtpTransceiver,
+  RtpRouter,
+  TransceiverManager,
+} from "../media";
+import type { NegotiationTransaction } from "../negotiationTransaction";
+import type { SctpTransportManager } from "../sctpManager";
 import type {
   GroupDescription,
   MediaDescription,
   SessionDescription,
-} from "./sdp";
-import type { SDPManager } from "./sdpManager";
-import type { RTCDtlsTransport } from "./transport/dtls";
-import type { RTCIceTransport } from "./transport/ice";
-import type { RTCSctpTransport } from "./transport/sctp";
+} from "../sdp";
+import type { SDPManager } from "../sdpManager";
+import type { RTCDtlsTransport } from "../transport/dtls";
+import type { RTCIceTransport } from "../transport/ice";
+import type { RTCSctpTransport } from "../transport/sctp";
 
 type RemoteMediaEntry = {
   remoteMedia: MediaDescription;

@@ -1,14 +1,14 @@
-import { SCTP_STATE } from "../../sctp/src";
+import { SCTP_STATE } from "../../../sctp/src";
+import type { PeerConfig } from "../api/peerConfig";
+import { createWebRtcDomException } from "../errors";
+import { type TransceiverManager, negotiateRemoteCodecs } from "../media";
+import type { NegotiationTransaction } from "../negotiationTransaction";
+import type { SctpTransportManager } from "../sctpManager";
+import type { MediaDescription, SessionDescription } from "../sdp";
+import type { SDPManager } from "../sdpManager";
+import type { RTCDtlsTransport } from "../transport/dtls";
+import type { RTCSignalingState } from "../types/domain";
 import type { BundleTopology } from "./bundleTopology";
-import { createWebRtcDomException } from "./errors";
-import { type TransceiverManager, negotiateRemoteCodecs } from "./media";
-import type { NegotiationTransaction } from "./negotiationTransaction";
-import type { PeerConfig } from "./peerConfig";
-import type { SctpTransportManager } from "./sctpManager";
-import type { MediaDescription, SessionDescription } from "./sdp";
-import type { SDPManager } from "./sdpManager";
-import type { RTCDtlsTransport } from "./transport/dtls";
-import type { RTCSignalingState } from "./types/domain";
 
 function fingerprintKey(params: NonNullable<MediaDescription["dtlsParams"]>) {
   return params.fingerprints

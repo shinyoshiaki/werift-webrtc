@@ -1,9 +1,9 @@
+import type { PeerConfig } from "./api/peerConfig";
 import { SRTP_PROFILE } from "./const";
 import { createWebRtcDomException, createWebRtcTypeError } from "./errors";
 import { Event, debug } from "./imports/common";
 import type { RTCRtpTransceiver, TransceiverManager } from "./media";
 import type { RTCStats } from "./media/stats";
-import type { PeerConfig } from "./peerConfig";
 import type { SctpTransportManager } from "./sctpManager";
 import type { BundlePolicy, MediaDescription, SessionDescription } from "./sdp";
 import {

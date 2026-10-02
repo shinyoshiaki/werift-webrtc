@@ -4,7 +4,7 @@ remote offer にローカルで扱えない audio/video m-line が含まれて�
 answer の同じ位置を port `0` で拒否する。あわせて `transceiver.stop()` と、停止交渉が確定した m-line の再利用を扱う。
 
 対象実装: `packages/webrtc/src/transceiverManager.ts`、`src/sdpManager.ts`、`src/peerConnection.ts`、
-`src/remoteMediaApplication.ts` (remote m-line の対応付けと BUNDLE 所有)、
+`src/negotiation/remoteMediaApplication.ts` (remote m-line の対応付けと BUNDLE 所有)、
 `src/secureTransportManager.ts`、`src/media/rtpTransceiver.ts`、`src/media/rtpSender.ts`、`src/media/router.ts`
 
 参照: [RFC 8829 (JSEP)](https://www.rfc-editor.org/rfc/rfc8829) §5.3.1、

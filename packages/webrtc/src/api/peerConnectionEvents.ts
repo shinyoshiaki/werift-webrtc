@@ -1,12 +1,12 @@
-import type { RTCDataChannel } from "./dataChannel";
+import type { RTCDataChannel } from "../dataChannel";
 import type {
   MediaStream,
   MediaStreamTrack,
   RTCRtpReceiver,
   RTCRtpTransceiver,
-} from "./media";
-import type { RTCIceCandidate } from "./transport/ice";
-import type { Callback, CallbackWithValue } from "./types/util";
+} from "../media";
+import type { RTCIceCandidate } from "../transport/ice";
+import type { Callback, CallbackWithValue } from "../types/util";
 
 // Events RTCPeerConnection dispatches and the `on*` handler attributes.
 

@@ -1,10 +1,20 @@
 import { randomUUID } from "crypto";
-import { BundleTopology } from "./bundleTopology";
+import {
+  type PeerConfig,
+  type RTCPeerConnectionConfig,
+  clonePeerConfiguration,
+  generateDefaultPeerConfig,
+  mergePeerConfiguration,
+} from "./api/peerConfig";
+import {
+  type PeerConnectionEventHandlers,
+  type RTCDataChannelEvent,
+  type RTCPeerConnectionIceEvent,
+  RTCTrackEvent,
+} from "./api/peerConnectionEvents";
 import type { RTCDataChannel } from "./dataChannel";
-import { DescriptionValidation } from "./descriptionValidation";
 import { createWebRtcDomException } from "./errors";
 import { EventTarget, enumerate } from "./helper";
-import { IceRestartRequest } from "./iceRestartRequest";
 import { Event, debug } from "./imports/common";
 import {
   type MediaStream,
@@ -23,23 +33,17 @@ import {
   generateStatsId,
   getStatsTimestamp,
 } from "./media/stats";
-import { NegotiationNeeded } from "./negotiationNeeded";
+import { BundleTopology } from "./negotiation/bundleTopology";
+import { DescriptionValidation } from "./negotiation/descriptionValidation";
+import { IceRestartRequest } from "./negotiation/iceRestartRequest";
+import { NegotiationNeeded } from "./negotiation/negotiationNeeded";
+import {
+  RemoteCandidates,
+  normalizeCandidateUfrag,
+} from "./negotiation/remoteCandidates";
+import { RemoteMediaApplication } from "./negotiation/remoteMediaApplication";
+import { TransportActivation } from "./negotiation/transportActivation";
 import { NegotiationTransaction } from "./negotiationTransaction";
-import {
-  type PeerConfig,
-  type RTCPeerConnectionConfig,
-  clonePeerConfiguration,
-  generateDefaultPeerConfig,
-  mergePeerConfiguration,
-} from "./peerConfig";
-import {
-  type PeerConnectionEventHandlers,
-  type RTCDataChannelEvent,
-  type RTCPeerConnectionIceEvent,
-  RTCTrackEvent,
-} from "./peerConnectionEvents";
-import { RemoteCandidates, normalizeCandidateUfrag } from "./remoteCandidates";
-import { RemoteMediaApplication } from "./remoteMediaApplication";
 import { SctpTransportManager } from "./sctpManager";
 import { type RTCSessionDescription, SessionDescription } from "./sdp";
 import { type RTCSessionDescriptionInit, SDPManager } from "./sdpManager";
@@ -52,7 +56,6 @@ import type {
   RTCIceConnectionState,
   RTCIceTransport,
 } from "./transport/ice";
-import { TransportActivation } from "./transportActivation";
 import type { ConnectionState, Kind, RTCSignalingState } from "./types/domain";
 import type { Callback, CallbackWithValue } from "./types/util";
 import { andDirection } from "./utils";
@@ -69,12 +72,12 @@ export {
   adoptSenderTrackCodec,
   defaultPeerConfig,
   findCodecByMimeType,
-} from "./peerConfig";
+} from "./api/peerConfig";
 export {
   type RTCDataChannelEvent,
   type RTCPeerConnectionIceEvent,
   RTCTrackEvent,
-} from "./peerConnectionEvents";
+} from "./api/peerConnectionEvents";
 
 const log = debug("werift:packages/webrtc/src/peerConnection.ts");
 

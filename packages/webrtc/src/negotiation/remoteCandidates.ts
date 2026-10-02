@@ -1,16 +1,16 @@
-import type { BundleTopology } from "./bundleTopology";
-import { createWebRtcDomException } from "./errors";
-import type { NegotiationTransaction } from "./negotiationTransaction";
-import type { SessionDescription } from "./sdp";
-import type { SDPManager } from "./sdpManager";
-import type { SecureTransportManager } from "./secureTransportManager";
-import type { RTCDtlsTransport } from "./transport/dtls";
+import { createWebRtcDomException } from "../errors";
+import type { NegotiationTransaction } from "../negotiationTransaction";
+import type { SessionDescription } from "../sdp";
+import type { SDPManager } from "../sdpManager";
+import type { SecureTransportManager } from "../secureTransportManager";
+import type { RTCDtlsTransport } from "../transport/dtls";
 import type {
   RTCIceCandidate,
   RTCIceCandidateInit,
   RTCIceTransport,
-} from "./transport/ice";
-import type { RTCSignalingState } from "./types/domain";
+} from "../transport/ice";
+import type { RTCSignalingState } from "../types/domain";
+import type { BundleTopology } from "./bundleTopology";
 
 /**
  * The ICE generation of a candidate is its ufrag, given either as the

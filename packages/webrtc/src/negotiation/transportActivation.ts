@@ -1,16 +1,18 @@
+import { debug } from "../imports/common";
+import type { TransceiverManager } from "../media";
+import type { NegotiationTransaction } from "../negotiationTransaction";
+import type { SctpTransportManager } from "../sctpManager";
+import type { MediaDescription } from "../sdp";
+import type { SDPManager } from "../sdpManager";
+import type { SecureTransportManager } from "../secureTransportManager";
+import type { RTCDtlsTransport } from "../transport/dtls";
+import type { RTCIceTransport } from "../transport/ice";
+import type { RTCSignalingState } from "../types/domain";
 import type { BundleTopology } from "./bundleTopology";
-import { debug } from "./imports/common";
-import type { TransceiverManager } from "./media";
-import type { NegotiationTransaction } from "./negotiationTransaction";
-import type { SctpTransportManager } from "./sctpManager";
-import type { MediaDescription } from "./sdp";
-import type { SDPManager } from "./sdpManager";
-import type { SecureTransportManager } from "./secureTransportManager";
-import type { RTCDtlsTransport } from "./transport/dtls";
-import type { RTCIceTransport } from "./transport/ice";
-import type { RTCSignalingState } from "./types/domain";
 
-const log = debug("werift:packages/webrtc/src/transportActivation.ts");
+const log = debug(
+  "werift:packages/webrtc/src/negotiation/transportActivation.ts",
+);
 
 /**
  * Starting transports for a negotiation: connecting the live ICE / DTLS /

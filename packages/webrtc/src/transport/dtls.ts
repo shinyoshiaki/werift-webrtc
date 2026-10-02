@@ -5,6 +5,7 @@ import { setTimeout } from "timers/promises";
 import { Event, type Transport } from "../imports/common";
 
 import type { AddressInfo } from "net";
+import type { DebugConfig } from "../api/peerConfig";
 import { EventTarget as DomEventTarget } from "../helper";
 import {
   CipherContext,
@@ -41,7 +42,6 @@ import {
   generateStatsId,
   getStatsTimestamp,
 } from "../media/stats";
-import type { DebugConfig } from "../peerConfig";
 import {
   fingerprint,
   isDtls,

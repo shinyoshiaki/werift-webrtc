@@ -340,18 +340,20 @@ generations apart on them:
 
 `RTCPeerConnection` (`src/peerConnection.ts`) keeps the public API and the
 order of each description operation; each concern lives in its own module.
+`src/negotiation/` holds the negotiation subsystems it drives, `src/api/` the
+public configuration and event types it re-exports.
 
 | Module | Responsibility |
 | --- | --- |
 | `negotiationTransaction.ts` | Baseline, checkpoints, commit and rollback of every reversible state |
-| `descriptionValidation.ts` | Local / remote description checks before any mutation |
-| `remoteMediaApplication.ts` | Remote m-lines: transceiver association, BUNDLE transport ownership, RTP / SCTP acceptance, planned transport updates |
-| `bundleTopology.ts` | BUNDLE tags of every group, staged topology for local and remote offers, shared-transport checks |
-| `remoteCandidates.ts` | Trickle ICE: routing candidates and end-of-candidates to their generation, pre-SRD queue |
-| `transportActivation.ts` | Connecting live and provisional transports, activating staged parameters, retiring a first provisional connection |
-| `negotiationNeeded.ts` | `negotiationneeded` coalescing and change sequence numbers |
-| `iceRestartRequest.ts` | `restartIce()` request until a negotiation replaces the credentials |
-| `peerConfig.ts` / `peerConnectionEvents.ts` | Configuration types, defaults and validation; event types |
+| `negotiation/descriptionValidation.ts` | Local / remote description checks before any mutation |
+| `negotiation/remoteMediaApplication.ts` | Remote m-lines: transceiver association, BUNDLE transport ownership, RTP / SCTP acceptance, planned transport updates |
+| `negotiation/bundleTopology.ts` | BUNDLE tags of every group, staged topology for local and remote offers, shared-transport checks |
+| `negotiation/remoteCandidates.ts` | Trickle ICE: routing candidates and end-of-candidates to their generation, pre-SRD queue |
+| `negotiation/transportActivation.ts` | Connecting live and provisional transports, activating staged parameters, retiring a first provisional connection |
+| `negotiation/negotiationNeeded.ts` | `negotiationneeded` coalescing and change sequence numbers |
+| `negotiation/iceRestartRequest.ts` | `restartIce()` request until a negotiation replaces the credentials |
+| `api/peerConfig.ts` / `api/peerConnectionEvents.ts` | Configuration types, defaults and validation; event types |
 
 ## Test coverage
 

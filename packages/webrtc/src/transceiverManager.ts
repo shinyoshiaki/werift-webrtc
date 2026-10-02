@@ -1,3 +1,8 @@
+import {
+  type PeerConfig,
+  adoptSenderTrackCodec,
+  findCodecByMimeType,
+} from "./api/peerConfig";
 import { ReceiverDirection, SenderDirections } from "./const";
 import { createWebRtcDomException } from "./errors";
 import { Event, debug } from "./imports/common";
@@ -20,11 +25,6 @@ import {
   type TransceiverOptions,
 } from "./media";
 import type { RTCStats } from "./media/stats";
-import {
-  type PeerConfig,
-  adoptSenderTrackCodec,
-  findCodecByMimeType,
-} from "./peerConfig";
 import { type MediaDescription, codecParametersFromString } from "./sdp";
 import type { RTCDtlsTransport } from "./transport/dtls";
 import type { Kind } from "./types/domain";

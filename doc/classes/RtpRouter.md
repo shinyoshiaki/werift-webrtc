@@ -45,7 +45,7 @@ Keyed by [ridRouteKey](../functions/ridRouteKey.md) (MID + RID).
 
 #### Index Signature
 
-\[`midAndRid`: `string`\]: [`RTCRtpSender`](RTCRtpSender.md) \| [`RTCRtpReceiver`](RTCRtpReceiver.md)
+\[`midAndRid`: `string`\]: [`RTCRtpReceiver`](RTCRtpReceiver.md) \| [`RTCRtpSender`](RTCRtpSender.md)
 
 ***
 
@@ -55,7 +55,7 @@ Keyed by [ridRouteKey](../functions/ridRouteKey.md) (MID + RID).
 
 #### Index Signature
 
-\[`ssrc`: `number`\]: [`RTCRtpSender`](RTCRtpSender.md) \| [`RTCRtpReceiver`](RTCRtpReceiver.md)
+\[`ssrc`: `number`\]: [`RTCRtpReceiver`](RTCRtpReceiver.md) \| [`RTCRtpSender`](RTCRtpSender.md)
 
 ## Accessors
 

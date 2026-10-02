@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { setTimeout } from "timers/promises";
 import { Event, int } from "../imports/common";
 
+import type { PeerConfig } from "../api/peerConfig";
 import {
   type Extensions,
   PictureLossIndication,
@@ -18,7 +19,6 @@ import {
   debug,
   unwrapRtx,
 } from "../imports/rtp";
-import type { PeerConfig } from "../peerConfig";
 import type { RTCDtlsTransport } from "../transport/dtls";
 import type { Kind } from "../types/domain";
 import { compactNtp, ntpTimeToEpochMs, timestampSeconds } from "../utils";

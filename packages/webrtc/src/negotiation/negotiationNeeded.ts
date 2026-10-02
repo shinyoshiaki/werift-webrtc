@@ -1,4 +1,4 @@
-import type { RTCSignalingState } from "./types/domain";
+import type { RTCSignalingState } from "../types/domain";
 
 /**
  * W3C negotiation-needed bookkeeping for one RTCPeerConnection.

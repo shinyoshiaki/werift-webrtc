@@ -1,4 +1,4 @@
-import type { SessionDescription } from "./sdp";
+import type { SessionDescription } from "../sdp";
 
 /** Local ICE ufrags of the accepted m-lines of `description`. */
 export function localIceUfrags(description?: SessionDescription) {
