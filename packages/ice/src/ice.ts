@@ -1212,14 +1212,7 @@ export class Connection implements IceConnection {
       // Once the nominated flag is set for a component of a data stream, it
       // concludes the ICE processing for that component.  See Section 8.
       // So disallow overwriting of the pair nominated for that component
-      if (
-        pair.nominated &&
-        // remoteのgenerationをチェックする.localのgenerationは更新が間に合わないかもしれないのでチェックしない
-        (pair.remoteCandidate.generation != undefined
-          ? pair.remoteCandidate.generation === this.generation
-          : true) &&
-        this.nominated == undefined
-      ) {
+      if (pair.nominated && this.nominated == undefined) {
         log("nominated", pair.toJSON());
         this.nominated = pair;
         this.nominating = false;
