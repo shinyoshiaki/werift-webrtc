@@ -2,7 +2,7 @@
 
 - Issue: https://github.com/shinyoshiaki/werift-webrtc/issues/726
 - 関連 PR: #725 `fix(ice): resolve TURN server hostname in the UDP socket's address family`（OPEN・未マージ、外部コントリビュータ @ayushguptax、head `ayushguptax/werift-webrtc:fix/turn-dns-family`、`maintainerCanModify: true`、`Closes #726`）
-- **作業方針（確定）**: #725 のブランチ上で作り替える。新規 PR は作らず、#725 の head ブランチにメンテナとしてコミットを積み、#725 をマージして #726 をクローズする
+- **作業方針（確定）**: #725 のブランチ上で作り替える。新規 PR は作らず、#725 の head ブランチにメンテナとしてコミットを積む。**PR のマージおよび #726 のクローズは本チケットの作業範囲に含めない。ユーザーから明示的な指示があるまで実施しない**
 - 対象パッケージ: `packages/common`（Transport 契約）, `packages/ice`（STUN/TURN）, `packages/webrtc`（`PeerConfig.turnUdpFamily` の伝搬・docs）
 
 ## 1. 目的と背景
@@ -131,9 +131,9 @@ export interface Transport {
 ### 4.3 PR #725 の扱い: **#725 のブランチ上で作り替える**
 
 - `gh pr checkout 725` で取得し、追加コミットを #725 の head（`ayushguptax/werift-webrtc:fix/turn-dns-family`）へ push する（`maintainerCanModify: true` で許可されている）。force push はせず、コントリビュータのコミットと著者情報を残す。
-- マージ前に develop へ追従する（現時点で `MERGEABLE`）。squash マージにする場合は、コントリビュータを `Co-authored-by` に残す。
+- develop へ追従させる（現時点で `MERGEABLE`）作業は本チケットの範囲に含める。ただし **PR のマージ（squash 含む）および #726 のクローズは、ユーザーから明示的な指示があるまで実施しない**。squash マージ時に `Co-authored-by` を付ける点はメモとして残すのみとし、実行はしない。
 - 1st commit の暫定実装（private `socketType` キャスト）は 2nd commit で既に置き換わっているので、履歴上残っていても問題ない。
-- 追加コミットの内容は PR 本文にも追記する（決定事項 4.1 / 4.2、webrtc への伝搬、docs）。fork PR の CI workflow はメンテナが承認して実行させる。
+- 追加コミットの内容は PR 本文にも追記する（決定事項 4.1 / 4.2、webrtc への伝搬、docs）。fork PR の CI workflow の承認・実行、およびマージ可否の最終判断はユーザー（メンテナ）が行う。
 
 ## 5. 残作業（#725 上に積むコミット）
 
@@ -206,6 +206,7 @@ Arrange は `packages/ice/tests/utils.ts`（webrtc 側は `packages/webrtc/tests
   - `cd packages/webrtc && npm run type && npm test`
   - ルートで `npm run type` と `npm run test:small`
   - `npm run test:pion-turn --workspace packages/ice`（Docker 環境がある場合。UDP/TCP が通ること）
-  - #725 の GitHub Actions CI が green（fork PR の workflow をメンテナが承認して実行）
+  - #725 の GitHub Actions CI が green であることを確認する（fork PR の workflow 承認はユーザー（メンテナ）が行う。本チケットの作業としては実行しない）
 - [ ] 任意: Cloudflare TURN（`turn.cloudflare.com:3478`、UDP、デュアルスタックで AAAA 先頭の環境）で、2nd commit 以降の実装でも UDP で即座に allocate できることを再確認する
-- [ ] #725 をマージし、#726 がクローズされる
+
+**本チケットの完了条件に PR #725 のマージおよび #726 のクローズは含めない。** これらはユーザーが明示的に指示した場合にのみ、別途実施する。
