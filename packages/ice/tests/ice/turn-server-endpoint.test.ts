@@ -291,6 +291,41 @@ describe("TURN/UDP against a local TURN server", () => {
     expect(turn.relayedAddress[0]).toBe("::1");
   });
 
+  test("an IPv4 literal server ignores udpFamily 6 and gets a udp4 socket", async () => {
+    // Arrange: IPv4 で待ち受ける TURN サーバ
+    const server = await startTurnServer();
+
+    // Act: udpFamily: 6 と矛盾する IPv4 リテラルを指定して Allocate する
+    const turn = await createTurnClient(
+      { address: server, ...credentials },
+      { udpFamily: 6 },
+    );
+    cleanups.push(() => turn.close());
+
+    // Assert: リテラルが優先され、udp4 ソケットで IPv4 の端点に割り当てられている
+    expect(turn.transport.addressFamily).toBe(4);
+    expect(turn.serverEndpoint).toEqual(server);
+  });
+
+  test("an IPv6 literal server ignores udpFamily 4 and gets a udp6 socket", async (context) => {
+    // Arrange: IPv6 ループバックで待ち受ける TURN サーバ
+    if (!(await canBindIpv6Loopback())) {
+      context.skip();
+    }
+    const server = await startTurnServer("::1");
+
+    // Act: udpFamily: 4 と矛盾する IPv6 リテラルを指定して Allocate する
+    const turn = await createTurnClient(
+      { address: server, ...credentials },
+      { udpFamily: 4 },
+    );
+    cleanups.push(() => turn.close());
+
+    // Assert: リテラルが優先され、udp6 ソケットで IPv6 の端点に割り当てられている
+    expect(turn.transport.addressFamily).toBe(6);
+    expect(turn.serverEndpoint).toEqual(server);
+  });
+
   test("udpFamily 6 resolves a hostname to its IPv6 address", async (context) => {
     // Arrange: IPv6 ループバックの TURN サーバと、デュアルスタックのホスト名
     if (!(await canBindIpv6Loopback())) {

@@ -727,10 +727,35 @@ export interface TurnClientOptions {
   /** Maximum time to wait for TCP/TLS connection establishment, in milliseconds. */
   connectTimeoutMs?: number;
   /**
-   * IP family of the UDP socket when the server address is a hostname.
-   * Defaults to 4. An IP literal server address uses its own family.
+   * Preferred IP family of the UDP socket, applied only when the server
+   * address is a hostname. Ignored for an IP literal server address, whose
+   * own family always selects the socket. Defaults to 4.
    */
   udpFamily?: 4 | 6;
+}
+
+/**
+ * Select the UDP socket type for a TURN server.
+ * Precedence: IP literal family > udpFamily > 4.
+ * An IP literal fixes the destination family, so a conflicting udpFamily is
+ * ignored (and logged) rather than making the server unreachable.
+ */
+function selectTurnUdpSocketType(
+  address: Address,
+  udpFamily: 4 | 6 | undefined,
+): "udp4" | "udp6" {
+  const literalFamily = isIP(address[0]);
+  if (literalFamily === 4 || literalFamily === 6) {
+    if (udpFamily && udpFamily !== literalFamily) {
+      log("udpFamily ignored for IP literal TURN server", {
+        address,
+        udpFamily,
+        literalFamily,
+      });
+    }
+    return literalFamily === 6 ? "udp6" : "udp4";
+  }
+  return (udpFamily ?? 4) === 6 ? "udp6" : "udp4";
 }
 
 export async function createTurnClient(
@@ -748,12 +773,9 @@ export async function createTurnClient(
 ) {
   lifetime ??= DEFAULT_ALLOCATION_LIFETIME;
   transportType ??= ssl ? "tls" : "udp";
-  const udpSocketType =
-    (isIP(address[0]) || udpFamily || 4) === 6 ? "udp6" : "udp4";
-
   const transport =
     transportType === "udp"
-      ? await UdpTransport.init(udpSocketType, {
+      ? await UdpTransport.init(selectTurnUdpSocketType(address, udpFamily), {
           portRange,
           interfaceAddresses,
         })
@@ -783,54 +805,10 @@ export async function createTurnClient(
 }
 
 export async function createStunOverTurnClient(
-  {
-    address,
-    username,
-    password,
-  }: {
-    address: Address;
-    username: string;
-    password: string;
-  },
-  {
-    lifetime,
-    portRange,
-    interfaceAddresses,
-    connectTimeoutMs,
-    ssl,
-    tlsOptions,
-    transport: transportType,
-    udpFamily,
-  }: {
-    lifetime?: number;
-    ssl?: boolean;
-    transport?: "udp" | "tcp" | "tls";
-    tlsOptions?: TlsConnectionOptions;
-    portRange?: [number, number];
-    interfaceAddresses?: InterfaceAddresses;
-    /** Maximum time to wait for TCP/TLS connection establishment, in milliseconds. */
-    connectTimeoutMs?: number;
-    /** See TurnClientOptions.udpFamily. */
-    udpFamily?: 4 | 6;
-  } = {},
+  config: TurnClientConfig,
+  options: TurnClientOptions = {},
 ) {
-  const turn = await createTurnClient(
-    {
-      address,
-      username,
-      password,
-    },
-    {
-      lifetime,
-      portRange,
-      interfaceAddresses,
-      ssl,
-      tlsOptions,
-      transport: transportType,
-      connectTimeoutMs,
-      udpFamily,
-    },
-  );
+  const turn = await createTurnClient(config, options);
   const turnTransport = new StunOverTurnProtocol(turn);
   return turnTransport;
 }
