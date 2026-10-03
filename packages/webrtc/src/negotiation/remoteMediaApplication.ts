@@ -71,7 +71,11 @@ export class RemoteMediaApplication {
     return this.transceivers.planRemoteRtpCodecs(
       remoteSdp,
       (remoteMedia, index) => {
-        const transceiver = this.findTransceiver(remoteMedia, index, associated);
+        const transceiver = this.findTransceiver(
+          remoteMedia,
+          index,
+          associated,
+        );
         if (transceiver) associated.add(transceiver);
         return transceiver;
       },

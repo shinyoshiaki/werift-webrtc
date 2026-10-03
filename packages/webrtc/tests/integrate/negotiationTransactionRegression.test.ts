@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import { MediaStreamTrack } from "../../src";
+import { MediaStreamTrack, useH264, useVP8 } from "../../src";
 import {
   assertNegotiationInvariants,
   createConnectedVideoPeers,
@@ -666,6 +666,48 @@ describe("negotiation transaction live-state regressions", () => {
       // Assert: 確定後は PLI が相手 sender に実際に届く。
       expect(await pliReaches(receiver, sender)).toBe(true);
       assertNegotiationInvariants(answerer);
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("codec preferences resolved by createAnswer apply to live receive tables only at the answer commit", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers({
+        codecs: { video: [useVP8(), useH264()] },
+      });
+    try {
+      // Arrange: current は VP8。answerer は re-offer を受けた後で H264 だけを優先する。
+      const transceiver = answerer.getTransceivers()[0];
+      const receiver = transceiver.receiver;
+      const vp8Pt = Number(
+        answerer.currentLocalDescription!.sdp.match(
+          /^a=rtpmap:(\d+) VP8\/90000/im,
+        )![1],
+      );
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      transceiver.setCodecPreferences([useH264()]);
+
+      // Act: preference を反映した answer を作る (まだ適用しない)。
+      const answer = await answerer.createAnswer();
+
+      // Assert: answer は H264 だけを提案するが、pending 中は current の VP8 で受信を続ける。
+      expect(answer.sdp).toMatch(/^a=rtpmap:\d+ H264\/90000/im);
+      expect(answer.sdp).not.toMatch(/^a=rtpmap:\d+ VP8\/90000/im);
+      expect(receiver.snapshotReceiveTables().codecs[vp8Pt]?.name).toBe("VP8");
+      assertNegotiationInvariants(answerer);
+      await sendAndExpectRtp(outgoing, incoming, "answer-codec-pending");
+
+      // Act: answer を適用して transaction を commit する。
+      await answerer.setLocalDescription(answer);
+      await offerer.setRemoteDescription(answerer.localDescription!);
+
+      // Assert: commit 後は確定した H264 だけが受信 table に残る。
+      const codecs = Object.values(receiver.snapshotReceiveTables().codecs);
+      expect(codecs.map((codec) => codec.name.toUpperCase())).toEqual(["H264"]);
+      assertNegotiationInvariants(answerer);
+      assertNegotiationInvariants(offerer);
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }

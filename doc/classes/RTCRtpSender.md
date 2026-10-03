@@ -399,6 +399,10 @@ Internal: return to a negotiation baseline's send parameters.
 
 `undefined` \| `string` = `...`
 
+###### negotiatedCodecs
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[] = `...`
+
 ###### redRedundantPayloadType
 
 `undefined` \| `number` = `...`
@@ -414,6 +418,10 @@ Internal: return to a negotiation baseline's send parameters.
 ###### rtxPayloadType
 
 `undefined` \| `number` = `...`
+
+###### sendPrimaryCodec
+
+`undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) = `...`
 
 ###### track
 
@@ -560,6 +568,10 @@ Internal: the negotiated send parameters, for a negotiation baseline.
 
 > **mid**: `undefined` \| `string`
 
+##### negotiatedCodecs
+
+> **negotiatedCodecs**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+
 ##### redRedundantPayloadType
 
 > **redRedundantPayloadType**: `undefined` \| `number`
@@ -575,6 +587,10 @@ Internal: the negotiated send parameters, for a negotiation baseline.
 ##### rtxPayloadType
 
 > **rtxPayloadType**: `undefined` \| `number`
+
+##### sendPrimaryCodec
+
+> **sendPrimaryCodec**: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
 
 ##### track
 

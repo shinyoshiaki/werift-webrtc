@@ -69,7 +69,6 @@ export {
   type RTCPeerConnectionConfig,
   type RTCRtcpMuxPolicy,
   type RTCSctpConfiguration,
-  adoptSenderTrackCodec,
   defaultPeerConfig,
   findCodecByMimeType,
 } from "./api/peerConfig";
@@ -1565,7 +1564,9 @@ export class RTCPeerConnection extends EventTarget {
           ? remoteDescription?.media[transceiver.mLineIndex]
           : undefined);
       if (remoteMedia && ["audio", "video"].includes(remoteMedia.kind)) {
-        this.transceiverManager.resyncAnswerCodecs(transceiver, remoteMedia);
+        // The live sender/receiver tables follow at the local answer commit
+        // (commitAnswerCodecs), so pending RTP keeps the current codecs.
+        this.transceiverManager.refreshAnswerCodecs(transceiver, remoteMedia);
       } else {
         this.transceiverManager.assignTransceiverCodecs(transceiver);
       }

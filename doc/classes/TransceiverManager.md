@@ -176,6 +176,28 @@ remote offer 起因で作る場合の m-line index。確定済み停止位置の
 
 ***
 
+### commitAnswerCodecs()
+
+> **commitAnswerCodecs**(`transceiver`, `remoteMedia`): `void`
+
+Commit an answer's refreshed codec proposal to sender and receiver state.
+
+#### Parameters
+
+##### transceiver
+
+[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+
+##### remoteMedia
+
+[`MediaDescription`](MediaDescription.md)
+
+#### Returns
+
+`void`
+
+***
+
 ### commitRemoteOffer()
 
 > **commitRemoteOffer**(): `void`
@@ -448,28 +470,6 @@ sender から track を外す。
 
 ***
 
-### resyncAnswerCodecs()
-
-> **resyncAnswerCodecs**(`transceiver`, `remoteMedia`): `void`
-
-remote offer と local の source constraint / codec preference から answer codec を再解決する。
-
-#### Parameters
-
-##### transceiver
-
-[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
-
-##### remoteMedia
-
-[`MediaDescription`](MediaDescription.md)
-
-#### Returns
-
-`void`
-
-***
-
 ### restoreNotifiedRemoteTrack()
 
 > **restoreNotifiedRemoteTrack**(`transceiver`, `state`): `void`
@@ -540,6 +540,8 @@ sender/receiver 準備・router 登録・onTrack・TWCC を行わない。
 #### Returns
 
 `boolean`
+
+受け入れた (RTP を流す) 場合 true
 
 ***
 

@@ -1,8 +1,4 @@
-import {
-  type PeerConfig,
-  adoptSenderTrackCodec,
-  findCodecByMimeType,
-} from "./api/peerConfig";
+import { type PeerConfig, findCodecByMimeType } from "./api/peerConfig";
 import { ReceiverDirection, SenderDirections } from "./const";
 import { createWebRtcDomException } from "./errors";
 import { Event, debug } from "./imports/common";
@@ -561,36 +557,6 @@ export class TransceiverManager {
 
   /**
    * remote offer と local (source constraint + preferences) から
-   * answer 用の codec を再解決し、sender/receiver の codec 状態も
-   * 新しい negotiated codec に同期する。
-   * setCodecPreferences() による無効化後に createAnswer() から呼ばれる。
-   * direction / headerExtensions / onTrack は setRemoteDescription() 時の
-   * まま変えない (track イベントの重複発火を避ける)。
-   */
-  resyncAnswerCodecs(
-    transceiver: RTCRtpTransceiver,
-    remoteMedia: MediaDescription,
-  ): void {
-    this.refreshAnswerCodecs(transceiver, remoteMedia);
-    const localParams = this.getLocalRtpParams(transceiver);
-    transceiver.sender.prepareSend(localParams);
-
-    if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
-      const remoteParams = this.getRemoteRtpParams(remoteMedia, transceiver);
-      for (const param of remoteMedia.simulcastParameters) {
-        this.router.registerRtpReceiverByRid(transceiver, param, remoteParams);
-      }
-      transceiver.receiver.resyncCodecs(
-        remoteParams,
-        remoteMedia.ssrc[0]?.ssrc,
-      );
-      this.router.registerRtpReceiverBySsrc(transceiver, remoteParams);
-    }
-    transceiver.codecPreferencesNeedResolution = false;
-  }
-
-  /**
-   * remote offer と local (source constraint + preferences) から
    * answer 用の codec だけを再解決する (sender/receiver の同期なし)。
    * setRemoteRTP() の交渉部分として使う。
    */
@@ -636,8 +602,8 @@ export class TransceiverManager {
               ? remoteByLocal.get(localPrimary)
               : undefined;
             return remotePrimary?.map((codec) => codec.payloadType) ?? [];
-        },
-      );
+          },
+        );
         const remoteRed = remoteMedia.rtp.codecs.find((codec) => {
           if (codecName(codec) !== "red") return false;
           const referenced = redPayloadTypes(codec);

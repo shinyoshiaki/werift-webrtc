@@ -444,9 +444,12 @@ not as a change of this contract. Known constraints:
   existing werift behavior.
 - The ICE layer drops the old selected pair when a restart commits; RTP pauses
   until the new generation nominates a pair.
-- Codec order and dynamic payload types in the configuration may be adjusted
-  to a sender track's codec while a remote description is applied; this only
-  affects later offers, not current RTP, and rollback does not undo it.
+- `setCodecPreferences()` only marks the transceiver for re-resolution.
+  `createAnswer` resolves the answer's codecs onto the transceiver (the
+  proposal); the sender, receiver codec / RTX tables, TWCC and remote track
+  codec follow at the local answer commit, so RTP of the current session is
+  never decoded with a codec the pending answer only proposes. Rollback
+  restores the proposal and the re-resolution flag from the baseline.
 - A transceiver displaced by m-line recycling is marked stopped when the
   recycling offer is applied (its current m-line is already rejected, so no
   current traffic uses it); rollback restores it.

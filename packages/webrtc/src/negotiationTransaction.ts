@@ -464,8 +464,9 @@ export class NegotiationTransaction {
       transceiver.mid = state.mid;
       transceiver.mLineIndex = state.mLineIndex;
       transceiver.codecs = state.codecs;
-      transceiver.pendingLocalOfferCodecs =
-        state.pendingLocalOfferCodecs && [...state.pendingLocalOfferCodecs];
+      transceiver.pendingLocalOfferCodecs = state.pendingLocalOfferCodecs && [
+        ...state.pendingLocalOfferCodecs,
+      ];
       transceiver.codecPreferencesNeedResolution =
         state.codecPreferencesNeedResolution;
       transceiver.headerExtensions = state.headerExtensions;
