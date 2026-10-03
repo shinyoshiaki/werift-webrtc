@@ -6,6 +6,7 @@ import {
 } from "../../../ice/tests/utils";
 import { RTCIceGatherer, RTCIceTransport, RTCPeerConnection } from "../../src";
 import { iceTransportPair } from "../fixture";
+import { createPeerConnectionWithIceTransport } from "../utils";
 
 describe("iceTransport", () => {
   test("ICE consent failure maps to failed without closing PeerConnection", async () => {
@@ -265,6 +266,38 @@ describe("iceTransport", () => {
         ]);
         expect(ice.connection.options.turnUsername).toBe("post");
         expect((pc as any).needRestart).toBe(false);
+      } finally {
+        await pc.close();
+      }
+    });
+  });
+
+  describe("turnUdpFamily", () => {
+    test("PeerConfig.turnUdpFamily が Connection の turnUdpFamily に伝搬する", async () => {
+      // Arrange
+      const { pc, ice } = createPeerConnectionWithIceTransport({
+        turnUdpFamily: 6,
+      });
+      try {
+        // Act: RTCIceGatherer が生成した Connection のオプションを読む
+        const { turnUdpFamily } = ice.connection.options;
+
+        // Assert: 指定した family がそのまま IceOptions に渡っている
+        expect(turnUdpFamily).toBe(6);
+      } finally {
+        await pc.close();
+      }
+    });
+
+    test("turnUdpFamily 未指定なら undefined のまま (既定 udp4)", async () => {
+      // Arrange
+      const { pc, ice } = createPeerConnectionWithIceTransport();
+      try {
+        // Act: RTCIceGatherer が生成した Connection のオプションを読む
+        const { turnUdpFamily } = ice.connection.options;
+
+        // Assert: 既定値は undefined で、ice 層の既定 (udp4) に委ねられる
+        expect(turnUdpFamily).toBeUndefined();
       } finally {
         await pc.close();
       }
