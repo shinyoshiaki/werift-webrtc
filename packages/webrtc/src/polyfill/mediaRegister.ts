@@ -30,6 +30,12 @@ export interface MediaGetUserMediaRequest {
 
 export interface MediaRegister {
   readonly mimeType: string;
+  /**
+   * Per-kind selection placeholders when one register serves multiple kinds.
+   * `getUserMedia` matching uses this for the requested kind; it is not copied
+   * onto `track.codec`.
+   */
+  readonly mimeTypeByKind?: Partial<Readonly<Record<MediaKind, string>>>;
   readonly kinds: readonly MediaKind[];
   readonly deviceId?: string;
   readonly groupId?: string;
@@ -47,6 +53,13 @@ export interface MediaRegisterCommonOptions {
   deviceId?: string;
   groupId?: string;
   label?: string;
+}
+
+export function mimeTypeForKind(
+  register: Pick<MediaRegister, "mimeType" | "mimeTypeByKind">,
+  kind: MediaKind,
+): string {
+  return register.mimeTypeByKind?.[kind] ?? register.mimeType;
 }
 
 export function normalizeTrackConstraints(

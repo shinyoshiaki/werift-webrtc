@@ -4,6 +4,7 @@
 
 ### ⚠️ Breaking changes
 
+- **Fixed encoded sources no longer expand PeerConnection codecs implicitly.** Their codec is now a hard constraint and incompatible `addTrack()` / `addTransceiver()` calls throw `NotSupportedError`. The public `adoptSenderTrackCodec` helper was removed.
 - **Removed `getUserMedia({ path | buffer | stream })` from `werift/nonstandard`.** File playback now goes through `werift/polyfill`: `installPolyfill({ mediaRegister: [createMp4WebmRegister({ path })] })` then `navigator.mediaDevices.getUserMedia({ audio: true, video: true })`.
 - **m-line behavior changes** (#705):
   - Accepted `inactive` m-lines now use port 9 by default (`mLineReuse: "compatible"`). Set `mLineReuse: "aggressive"` to keep the previous inactive port 0.
@@ -19,6 +20,8 @@
 
 ### 🚀 Features
 
+- **Polyfill codec integration**: `installPolyfill()` accepts `peerConnectionConfig`, and `RTCRtpTransceiver.setCodecPreferences()` now filters and orders codecs independently from fixed-source constraints.
+- **Empty media tracks for `werift/polyfill`**: `mediaRegister: []` now lets `getUserMedia()` return plain audio/video tracks instead of `NotFoundError`, and the new `createEmptyRegister()` exposes the same no-RTP, codec-unset behavior explicitly.
 - **Configurable SCTP outbound MTU** (#708): `SCTP` and `RTCPeerConnection({ sctp: { mtu } })` now accept an outbound packet MTU. The default is 1191 bytes, changing DATA fragmentation and congestion-control units from a 1200-byte payload to 1160 bytes (maximum serialized DATA packet: 1188 bytes).
 - **`werift/polyfill`**: Opt-in installer that puts werift WebRTC constructors on `globalThis` (or a `target` sandbox) and implements `navigator.mediaDevices.getUserMedia` via `mediaRegister` (MP4/WebM, RTP/RTCP, encoded binary, or `createCallbackRegister`).
 - **`PeerConfig.mLineReuse`** (#705): `"compatible"` (default) keeps accepted `inactive` m-lines on a non-zero port and uses port 0 only for rejected / stopped m-lines; `"aggressive"` keeps the legacy inactive port 0. The value is validated on construction and cannot be changed by `setConfiguration()`.
