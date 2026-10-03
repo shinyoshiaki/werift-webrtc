@@ -303,21 +303,31 @@ remote SDP 起因の停止なので negotiationneeded は要求しない。
 
 ***
 
-### negotiateCodecs()
+### planRemoteRtpCodecs()
 
-> **negotiateCodecs**(`remoteMedia`): [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+> **planRemoteRtpCodecs**(`remoteSdp`, `findTransceiver`): `Map`\<`number`, [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]\>
 
-remote m-line の codec と local 設定の共通部分を返す
+remote SDP の全 audio/video m-line の codec を副作用なしで解決する。
+transceiver の対応付けは本適用と同じ resolver を使い、検証と適用の判定をずらさない。
+- port 0、停止済み / 停止中の m-line は codec 解決をしない (空)
+- local capability と MIME が 1 つも一致しない m-line は空とし、
+  offer は setRemoteRTP() で拒否 (port 0 answer)、answer/pranswer は
+  SDPManager が InvalidAccessError とする (Issue #705)
+- source constraint / preference / pending offer との不一致は NotSupportedError
 
 #### Parameters
 
-##### remoteMedia
+##### remoteSdp
 
-[`MediaDescription`](MediaDescription.md)
+[`SessionDescription`](SessionDescription.md)
+
+##### findTransceiver
+
+(`remoteMedia`, `index`) => `undefined` \| [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
 
 #### Returns
 
-[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+`Map`\<`number`, [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]\>
 
 ***
 
@@ -330,6 +340,26 @@ remote m-line の codec と local 設定の共通部分を返す
 ##### t
 
 [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+
+#### Returns
+
+`void`
+
+***
+
+### refreshAnswerCodecs()
+
+> **refreshAnswerCodecs**(`transceiver`, `remoteMedia`): `void`
+
+#### Parameters
+
+##### transceiver
+
+[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+
+##### remoteMedia
+
+[`MediaDescription`](MediaDescription.md)
 
 #### Returns
 
@@ -418,6 +448,28 @@ sender から track を外す。
 
 ***
 
+### resyncAnswerCodecs()
+
+> **resyncAnswerCodecs**(`transceiver`, `remoteMedia`): `void`
+
+remote offer と local の source constraint / codec preference から answer codec を再解決する。
+
+#### Parameters
+
+##### transceiver
+
+[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+
+##### remoteMedia
+
+[`MediaDescription`](MediaDescription.md)
+
+#### Returns
+
+`void`
+
+***
+
 ### restoreNotifiedRemoteTrack()
 
 > **restoreNotifiedRemoteTrack**(`transceiver`, `state`): `void`
@@ -456,9 +508,12 @@ sender から track を外す。
 
 ### setRemoteRTP()
 
-> **setRemoteRTP**(`transceiver`, `remoteMedia`, `type`, `mLineIndex`): `boolean`
+> **setRemoteRTP**(`transceiver`, `remoteMedia`, `type`, `mLineIndex`, `codecs`): `boolean`
 
-remote m-line を適用する。拒否された m-line なら false を返す
+remote m-line を transceiver に適用する。
+codecs は planRemoteRtpCodecs() で検証済みの解決結果を渡す。
+codec が空、または remote port 0 の m-line は拒否として扱い、
+sender/receiver 準備・router 登録・onTrack・TWCC を行わない。
 
 #### Parameters
 
@@ -477,6 +532,10 @@ remote m-line を適用する。拒否された m-line なら false を返す
 ##### mLineIndex
 
 `number`
+
+##### codecs
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
 
 #### Returns
 

@@ -48,6 +48,12 @@ RFC 8829 4.2.4.  direction the transceiver was initialized with
 
 ***
 
+### codecPreferencesNeedResolution
+
+> **codecPreferencesNeedResolution**: `boolean` = `false`
+
+***
+
 ### headerExtensions
 
 > **headerExtensions**: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[] = `[]`
@@ -84,6 +90,12 @@ RFC 8829 4.2.4.  direction the transceiver was initialized with
 
 ***
 
+### onCodecPreferencesChanged
+
+> `readonly` **onCodecPreferencesChanged**: [`Event`](Event.md)\<\[\]\>
+
+***
+
 ### onTrack
 
 > `readonly` **onTrack**: [`Event`](Event.md)\<\[[`MediaStreamTrack`](MediaStreamTrack.md), [`RTCRtpTransceiver`](RTCRtpTransceiver.md)\]\>
@@ -93,6 +105,12 @@ RFC 8829 4.2.4.  direction the transceiver was initialized with
 ### options
 
 > **options**: `Partial`\<[`TransceiverOptions`](../interfaces/TransceiverOptions.md)\> = `{}`
+
+***
+
+### pendingLocalOfferCodecs?
+
+> `optional` **pendingLocalOfferCodecs**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
 
 ***
 
@@ -161,6 +179,18 @@ m-line (MID / index) と関連付け済みか
 ##### Returns
 
 `boolean`
+
+***
+
+### codecPreferences
+
+#### Get Signature
+
+> **get** **codecPreferences**(): `undefined` \| readonly [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+
+##### Returns
+
+`undefined` \| readonly [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
 
 ***
 
@@ -333,6 +363,22 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 #### Returns
 
 `undefined` \| `number`
+
+***
+
+### setCodecPreferences()
+
+> **setCodecPreferences**(`codecs`): `void`
+
+#### Parameters
+
+##### codecs
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+
+#### Returns
+
+`void`
 
 ***
 

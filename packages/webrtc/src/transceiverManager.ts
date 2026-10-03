@@ -24,8 +24,19 @@ import {
   Sendrecv,
   type TransceiverOptions,
 } from "./media";
+import {
+  assertCodecsSupported,
+  hasCommonPrimaryMimeType,
+  isCodecCompatible,
+  resolveCodecs,
+} from "./media/codecCompatibility";
 import type { RTCStats } from "./media/stats";
-import { type MediaDescription, codecParametersFromString } from "./sdp";
+import { captureTrackSourceCodecs, getTrackSourceCodecs } from "./media/track";
+import {
+  type MediaDescription,
+  type SessionDescription,
+  codecParametersFromString,
+} from "./sdp";
 import type { RTCDtlsTransport } from "./transport/dtls";
 import type { Kind } from "./types/domain";
 import { reverseDirection } from "./utils";
@@ -277,6 +288,16 @@ export class TransceiverManager {
 
     const direction = options.direction || "sendrecv";
 
+    if (typeof trackOrKind !== "string") {
+      captureTrackSourceCodecs(trackOrKind);
+      assertCodecsSupported({
+        kind,
+        configured: this.filterCodecsByDirection(kind, direction),
+        source: getTrackSourceCodecs(trackOrKind),
+        preferences: undefined,
+      });
+    }
+
     const sender = new RTCRtpSender(trackOrKind, {
       pendingRtp: this.config.pendingRtp,
     });
@@ -288,6 +309,9 @@ export class TransceiverManager {
       sender,
       direction,
     );
+    newTransceiver.onCodecPreferencesChanged.subscribe(() => {
+      this.onNegotiationNeeded.execute();
+    });
     newTransceiver.options = {
       ...options,
       simulcast:
@@ -343,6 +367,7 @@ export class TransceiverManager {
       (t) => reusableForTrack(t) && SenderDirections.includes(t.direction),
     );
     if (emptyTrackSenderTransceiver) {
+      this.validateTrackForTransceiver(track, emptyTrackSenderTransceiver);
       const sender = emptyTrackSenderTransceiver.sender;
       sender.setStreams(streams);
       sender.registerTrack(track);
@@ -350,6 +375,7 @@ export class TransceiverManager {
         ...emptyTrackSenderTransceiver.options,
         streams,
       };
+      emptyTrackSenderTransceiver.codecs = [];
       return emptyTrackSenderTransceiver;
     }
 
@@ -357,6 +383,17 @@ export class TransceiverManager {
       (t) => reusableForTrack(t) && !SenderDirections.includes(t.direction),
     );
     if (notSendTransceiver) {
+      const nextDirection =
+        notSendTransceiver.direction === "recvonly"
+          ? "sendrecv"
+          : notSendTransceiver.direction === "inactive"
+            ? "sendonly"
+            : notSendTransceiver.direction;
+      this.validateTrackForTransceiver(
+        track,
+        notSendTransceiver,
+        nextDirection,
+      );
       const sender = notSendTransceiver.sender;
       sender.setStreams(streams);
       sender.registerTrack(track);
@@ -372,6 +409,7 @@ export class TransceiverManager {
           notSendTransceiver.setDirection("sendonly");
           break;
       }
+      notSendTransceiver.codecs = [];
       return notSendTransceiver;
     } else {
       const transceiver = this.addTransceiver(track, undefined, {
@@ -419,32 +457,60 @@ export class TransceiverManager {
   }
 
   assignTransceiverCodecs(transceiver: RTCRtpTransceiver): void {
-    adoptSenderTrackCodec(this.config, transceiver.sender.track);
-    const codecs = (
-      this.config.codecs[transceiver.kind] as RTCRtpCodecParameters[]
-    ).filter((codecCandidate) => {
-      switch (codecCandidate.direction) {
-        case "recvonly": {
-          if (ReceiverDirection.includes(transceiver.direction)) return true;
-          return false;
-        }
-        case "sendonly": {
-          if (SenderDirections.includes(transceiver.direction)) return true;
-          return false;
-        }
-        case "sendrecv": {
-          if ([Sendrecv, Recvonly, Sendonly].includes(transceiver.direction))
-            return true;
-          return false;
-        }
-        case "all": {
-          return true;
-        }
-        default:
-          return false;
-      }
+    const configured = this.filterCodecsByDirection(
+      transceiver.kind,
+      transceiver.direction,
+    );
+    transceiver.codecs = assertCodecsSupported({
+      kind: transceiver.kind,
+      configured,
+      source: getTrackSourceCodecs(transceiver.sender.track),
+      preferences: transceiver.codecPreferences,
     });
-    transceiver.codecs = codecs;
+    transceiver.codecPreferencesNeedResolution = false;
+  }
+
+  private filterCodecsByDirection(
+    kind: Kind,
+    direction: RTCRtpTransceiver["direction"],
+  ) {
+    return (this.config.codecs[kind] as RTCRtpCodecParameters[]).filter(
+      (codecCandidate) => {
+        switch (codecCandidate.direction) {
+          case "recvonly": {
+            if (ReceiverDirection.includes(direction)) return true;
+            return false;
+          }
+          case "sendonly": {
+            if (SenderDirections.includes(direction)) return true;
+            return false;
+          }
+          case "sendrecv": {
+            if ([Sendrecv, Recvonly, Sendonly].includes(direction)) return true;
+            return false;
+          }
+          case "all": {
+            return true;
+          }
+          default:
+            return false;
+        }
+      },
+    );
+  }
+
+  private validateTrackForTransceiver(
+    track: MediaStreamTrack,
+    transceiver: RTCRtpTransceiver,
+    direction = transceiver.direction,
+  ) {
+    captureTrackSourceCodecs(track);
+    assertCodecsSupported({
+      kind: track.kind,
+      configured: this.filterCodecsByDirection(track.kind, direction),
+      source: getTrackSourceCodecs(track),
+      preferences: transceiver.codecPreferences,
+    });
   }
 
   getLocalRtpParams(transceiver: RTCRtpTransceiver): RTCRtpParameters {
@@ -493,25 +559,272 @@ export class TransceiverManager {
     return receiveParameters;
   }
 
-  /**remote m-line の codec と local 設定の共通部分を返す */
-  negotiateCodecs(remoteMedia: MediaDescription): RTCRtpCodecParameters[] {
-    return negotiateRemoteCodecs(
-      this.config.codecs[remoteMedia.kind] || [],
-      remoteMedia,
-    );
+  /**
+   * remote offer と local (source constraint + preferences) から
+   * answer 用の codec を再解決し、sender/receiver の codec 状態も
+   * 新しい negotiated codec に同期する。
+   * setCodecPreferences() による無効化後に createAnswer() から呼ばれる。
+   * direction / headerExtensions / onTrack は setRemoteDescription() 時の
+   * まま変えない (track イベントの重複発火を避ける)。
+   */
+  resyncAnswerCodecs(
+    transceiver: RTCRtpTransceiver,
+    remoteMedia: MediaDescription,
+  ): void {
+    this.refreshAnswerCodecs(transceiver, remoteMedia);
+    const localParams = this.getLocalRtpParams(transceiver);
+    transceiver.sender.prepareSend(localParams);
+
+    if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
+      const remoteParams = this.getRemoteRtpParams(remoteMedia, transceiver);
+      for (const param of remoteMedia.simulcastParameters) {
+        this.router.registerRtpReceiverByRid(transceiver, param, remoteParams);
+      }
+      transceiver.receiver.resyncCodecs(
+        remoteParams,
+        remoteMedia.ssrc[0]?.ssrc,
+      );
+      this.router.registerRtpReceiverBySsrc(transceiver, remoteParams);
+    }
+    transceiver.codecPreferencesNeedResolution = false;
   }
 
-  /** remote m-line を適用する。拒否された m-line なら false を返す */
+  /**
+   * remote offer と local (source constraint + preferences) から
+   * answer 用の codec だけを再解決する (sender/receiver の同期なし)。
+   * setRemoteRTP() の交渉部分として使う。
+   */
+  private resolveRemoteCodecSet(
+    localCodecs: RTCRtpCodecParameters[],
+    remoteMedia: MediaDescription,
+    order: "local" | "remote",
+    source?: readonly RTCRtpCodecParameters[],
+  ): RTCRtpCodecParameters[] {
+    // # negotiate codecs
+    const codecName = (codec: RTCRtpCodecParameters) =>
+      codec.name.toLowerCase();
+    const redPayloadTypes = (codec: RTCRtpCodecParameters) =>
+      (codec.parameters ?? "")
+        .split("/")
+        .map(Number)
+        .filter((payloadType) => !Number.isNaN(payloadType));
+    const remoteByLocal = new Map<
+      RTCRtpCodecParameters,
+      RTCRtpCodecParameters[]
+    >();
+    for (const localCodec of localCodecs) {
+      if (["red", "rtx"].includes(codecName(localCodec))) continue;
+      const remoteCodecs = remoteMedia.rtp.codecs.filter(
+        (codec) =>
+          codec.mimeType.toLowerCase() === localCodec.mimeType.toLowerCase() &&
+          (source == undefined ||
+            source.some((sourceCodec) =>
+              isCodecCompatible(sourceCodec, codec),
+            )),
+      );
+      if (remoteCodecs.length > 0) remoteByLocal.set(localCodec, remoteCodecs);
+    }
+
+    const negotiated = localCodecs.flatMap((localCodec) => {
+      if (codecName(localCodec) === "red") {
+        const remotePrimaryPayloadTypes = redPayloadTypes(localCodec).flatMap(
+          (payloadType) => {
+            const localPrimary = localCodecs.find(
+              (codec) => codec.payloadType === payloadType,
+            );
+            const remotePrimary = localPrimary
+              ? remoteByLocal.get(localPrimary)
+              : undefined;
+            return remotePrimary?.map((codec) => codec.payloadType) ?? [];
+        },
+      );
+        const remoteRed = remoteMedia.rtp.codecs.find((codec) => {
+          if (codecName(codec) !== "red") return false;
+          const referenced = redPayloadTypes(codec);
+          return (
+            referenced.length === remotePrimaryPayloadTypes.length &&
+            referenced.every(
+              (payloadType, index) =>
+                payloadType === remotePrimaryPayloadTypes[index],
+            )
+          );
+        });
+        if (!remoteRed) return [];
+        return [remoteRed];
+      }
+
+      if (codecName(localCodec) !== "rtx") {
+        return remoteByLocal.get(localCodec) ?? [];
+      }
+
+      const localApt = codecParametersFromString(
+        localCodec.parameters ?? "",
+      ).apt;
+      const localPrimary = localCodecs.find(
+        (codec) => codec.payloadType === localApt,
+      );
+      if (!localPrimary) return [];
+      const remotePrimaryPayloadTypes = new Set(
+        remoteByLocal.get(localPrimary)?.map((codec) => codec.payloadType),
+      );
+      return remoteMedia.rtp.codecs.filter(
+        (codec) =>
+          codecName(codec) === "rtx" &&
+          remotePrimaryPayloadTypes.has(
+            codecParametersFromString(codec.parameters ?? "").apt,
+          ),
+      );
+    });
+    const uniqueNegotiated = [...new Set(negotiated)];
+    if (order === "remote") {
+      const remoteOrder = new Map(
+        remoteMedia.rtp.codecs.map((codec, index) => [codec, index]),
+      );
+      uniqueNegotiated.sort(
+        (left, right) => remoteOrder.get(left)! - remoteOrder.get(right)!,
+      );
+    }
+    if (uniqueNegotiated.length === 0) {
+      throw createWebRtcDomException(
+        "NotSupportedError",
+        "No compatible codec remains after remote negotiation.",
+      );
+    }
+    return uniqueNegotiated;
+  }
+
+  refreshAnswerCodecs(
+    transceiver: RTCRtpTransceiver,
+    remoteMedia: MediaDescription,
+  ): void {
+    const configured = this.config.codecs[remoteMedia.kind] || [];
+    const source = getTrackSourceCodecs(transceiver.sender.track);
+    assertCodecsSupported({
+      kind: remoteMedia.kind,
+      configured,
+      source,
+      preferences: transceiver.codecPreferences,
+    });
+    const localCodecs = resolveCodecs(
+      configured,
+      source,
+      transceiver.codecPreferences,
+    );
+    transceiver.codecs = this.resolveRemoteCodecSet(
+      localCodecs,
+      remoteMedia,
+      "local",
+      source,
+    );
+    log("negotiated codecs", transceiver.codecs);
+  }
+
+  /** Commit an answer's refreshed codec proposal to sender and receiver state. */
+  commitAnswerCodecs(
+    transceiver: RTCRtpTransceiver,
+    remoteMedia: MediaDescription,
+  ) {
+    transceiver.sender.prepareSend(this.getLocalRtpParams(transceiver));
+    if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
+      const remoteParams = this.getRemoteRtpParams(remoteMedia, transceiver);
+      for (const param of remoteMedia.simulcastParameters) {
+        this.router.registerRtpReceiverByRid(transceiver, param, remoteParams);
+      }
+      transceiver.receiver.resyncCodecs(
+        remoteParams,
+        remoteMedia.ssrc[0]?.ssrc,
+      );
+      this.router.registerRtpReceiverBySsrc(transceiver, remoteParams);
+    }
+    transceiver.codecPreferencesNeedResolution = false;
+  }
+
+  /**
+   * remote SDP の全 audio/video m-line の codec を副作用なしで解決する。
+   * transceiver の対応付けは本適用と同じ resolver を使い、検証と適用の判定をずらさない。
+   * - port 0、停止済み / 停止中の m-line は codec 解決をしない (空)
+   * - local capability と MIME が 1 つも一致しない m-line は空とし、
+   *   offer は setRemoteRTP() で拒否 (port 0 answer)、answer/pranswer は
+   *   SDPManager が InvalidAccessError とする (Issue #705)
+   * - source constraint / preference / pending offer との不一致は NotSupportedError
+   */
+  planRemoteRtpCodecs(
+    remoteSdp: SessionDescription,
+    findTransceiver: (
+      remoteMedia: MediaDescription,
+      index: number,
+    ) => RTCRtpTransceiver | undefined,
+  ): Map<number, RTCRtpCodecParameters[]> {
+    const plan = new Map<number, RTCRtpCodecParameters[]>();
+    const isOffer = remoteSdp.type === "offer";
+    for (const [index, remoteMedia] of remoteSdp.media.entries()) {
+      if (!["audio", "video"].includes(remoteMedia.kind)) continue;
+      const transceiver = findTransceiver(remoteMedia, index);
+      if (
+        remoteMedia.port === 0 ||
+        transceiver?.stopped ||
+        transceiver?.stopping
+      ) {
+        plan.set(index, []);
+        continue;
+      }
+      const source = getTrackSourceCodecs(transceiver?.sender.track);
+      const configured = this.config.codecs[remoteMedia.kind] || [];
+      const localCodecs = isOffer
+        ? configured
+        : transceiver?.pendingLocalOfferCodecs || [];
+      if (!hasCommonPrimaryMimeType(localCodecs, remoteMedia.rtp.codecs)) {
+        plan.set(index, []);
+        continue;
+      }
+      if (isOffer) {
+        assertCodecsSupported({
+          kind: remoteMedia.kind,
+          configured,
+          source,
+          preferences: transceiver?.codecPreferences,
+        });
+      }
+      const negotiated = this.resolveRemoteCodecSet(
+        isOffer
+          ? resolveCodecs(configured, source, transceiver?.codecPreferences)
+          : localCodecs,
+        remoteMedia,
+        "remote",
+        source,
+      );
+      if (source != undefined) {
+        assertCodecsSupported({
+          kind: remoteMedia.kind,
+          configured: negotiated,
+          source,
+          preferences: undefined,
+        });
+      }
+      plan.set(index, negotiated);
+    }
+    return plan;
+  }
+
+  /**
+   * remote m-line を transceiver に適用する。
+   * codecs は planRemoteRtpCodecs() で検証済みの解決結果を渡す。
+   * codec が空、または remote port 0 の m-line は拒否として扱い、
+   * sender/receiver 準備・router 登録・onTrack・TWCC を行わない。
+   * @returns 受け入れた (RTP を流す) 場合 true
+   */
   setRemoteRTP(
     transceiver: RTCRtpTransceiver,
     remoteMedia: MediaDescription,
     type: "offer" | "answer" | "pranswer",
     mLineIndex: number,
+    codecs: RTCRtpCodecParameters[],
   ): boolean {
     if (!transceiver.mid) {
       transceiver.mid = remoteMedia.rtp.muxId ?? null;
     }
     transceiver.mLineIndex = mLineIndex;
+    if (type === "answer") transceiver.pendingLocalOfferCodecs = undefined;
 
     if (transceiver.stopped) {
       // 確定済みの停止 / 拒否 m-line は復活させない
@@ -526,10 +839,6 @@ export class TransceiverManager {
       return false;
     }
 
-    adoptSenderTrackCodec(this.config, transceiver.sender.track);
-
-    // # negotiate codecs
-    const codecs = this.negotiateCodecs(remoteMedia);
     log("negotiated codecs", codecs);
 
     if (remoteMedia.port === 0 || codecs.length === 0) {
@@ -583,7 +892,14 @@ export class TransceiverManager {
         );
       }
 
-      transceiver.receiver.prepareReceive(remotePrams, staging);
+      if (type === "answer") {
+        transceiver.receiver.resyncCodecs(
+          remotePrams,
+          remoteMedia.ssrc[0]?.ssrc,
+        );
+      } else {
+        transceiver.receiver.prepareReceive(remotePrams, staging);
+      }
       // register ssrc receiver
       this.router.registerRtpReceiverBySsrc(transceiver, remotePrams, staging);
     }
@@ -623,7 +939,10 @@ export class TransceiverManager {
     // A pending offer or pranswer does not start transport-cc feedback for
     // the current stream; the receiver starts it from a packet whose codec
     // negotiated it, or here once the description is an answer.
-    if (type === "answer" && remoteMedia.ssrc[0]?.ssrc) {
+    if (
+      (type === "answer" || !transceiver.currentDirection) &&
+      remoteMedia.ssrc[0]?.ssrc
+    ) {
       transceiver.receiver.setupTWCC(remoteMedia.ssrc[0].ssrc);
     }
     return true;

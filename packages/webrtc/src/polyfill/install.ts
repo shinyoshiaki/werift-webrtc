@@ -7,7 +7,7 @@ import {
   RTCRtpSender,
   RTCRtpTransceiver,
 } from "../media";
-import { RTCPeerConnection, RTCTrackEvent } from "../peerConnection";
+import { type RTCPeerConnectionConfig, RTCTrackEvent } from "../peerConnection";
 import { RTCDtlsTransport } from "../transport/dtls";
 import { RTCIceCandidate, RTCIceTransport } from "../transport/ice";
 import * as browserIdentity from "./browserIdentity";
@@ -17,6 +17,8 @@ import {
 } from "./existingMediaDevices";
 import { MediaDevices } from "./mediaDevices";
 import type { BoundMediaRegister, MediaRegister } from "./mediaRegister";
+import { createPolyfillRTCPeerConnection } from "./peerConnectionConfig";
+import { createEmptyRegister } from "./registers/empty";
 import { PolyfillRTCSessionDescription } from "./rtcSessionDescription";
 
 const INSTALLED_KEYS = [
@@ -37,6 +39,8 @@ const INSTALLED_KEYS = [
 
 export interface InstallPolyfillOptions {
   mediaRegister: MediaRegister[];
+  /** Default configuration for every RTCPeerConnection created by this install. */
+  peerConnectionConfig?: RTCPeerConnectionConfig;
   existingMediaDevices?: ExistingMediaDevicesMode;
   target?: object;
   /** navigator.userAgent に設定する値。指定時は既存値より優先する */
@@ -53,6 +57,15 @@ export function installPolyfill(options: InstallPolyfillOptions): () => void {
   if (!Array.isArray(options.mediaRegister)) {
     throw new TypeError("mediaRegister must be an array");
   }
+  if (
+    "peerConnectionConfig" in options &&
+    options.peerConnectionConfig !== undefined &&
+    (options.peerConnectionConfig === null ||
+      typeof options.peerConnectionConfig !== "object" ||
+      Array.isArray(options.peerConnectionConfig))
+  ) {
+    throw new TypeError("peerConnectionConfig must be an object");
+  }
 
   const explicitUserAgent = browserIdentity.assertUserAgentOption(
     options.userAgent,
@@ -63,14 +76,22 @@ export function installPolyfill(options: InstallPolyfillOptions): () => void {
     getExistingMediaDevices(target),
     options.existingMediaDevices ?? "overwrite",
   );
-  const boundRegisters = bindRegisters(options.mediaRegister);
+  const registers =
+    options.mediaRegister.length === 0
+      ? [createEmptyRegister()]
+      : options.mediaRegister;
+  const boundRegisters = bindRegisters(registers);
   const previous = snapshot(target, INSTALLED_KEYS);
   previous.window = descriptorOf(target, "window");
   const previousNavigator = snapshotNavigator(target);
 
   const mediaDevices = new MediaDevices(boundRegisters);
   try {
-    assign(target, "RTCPeerConnection", RTCPeerConnection);
+    assign(
+      target,
+      "RTCPeerConnection",
+      createPolyfillRTCPeerConnection(options.peerConnectionConfig),
+    );
     assign(target, "RTCSessionDescription", PolyfillRTCSessionDescription);
     assign(target, "RTCIceCandidate", RTCIceCandidate);
     assign(target, "RTCDataChannel", RTCDataChannel);
@@ -129,6 +150,9 @@ function bindRegisters(registers: MediaRegister[]): BoundMediaRegister[] {
     return {
       get mimeType() {
         return register.mimeType;
+      },
+      get mimeTypeByKind() {
+        return register.mimeTypeByKind;
       },
       get kinds() {
         return register.kinds;

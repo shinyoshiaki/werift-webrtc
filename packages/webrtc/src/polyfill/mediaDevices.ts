@@ -6,7 +6,7 @@ import type {
   MediaStreamConstraints,
   MediaTrackConstraints,
 } from "./mediaRegister";
-import { normalizeTrackConstraints } from "./mediaRegister";
+import { mimeTypeForKind, normalizeTrackConstraints } from "./mediaRegister";
 import {
   type MediaKind,
   type PolyfillTrackConstraints,
@@ -136,7 +136,12 @@ export class MediaDevices extends EventTarget {
       const selected = selectRegisterForKind(
         kind,
         constraints as boolean | PolyfillTrackConstraints,
-        available,
+        available.map((register) => ({
+          deviceId: register.deviceId,
+          groupId: register.groupId,
+          kinds: register.kinds,
+          mimeType: mimeTypeForKind(register, kind),
+        })),
       );
       const register = this.registers.find(
         (candidate) => candidate.deviceId === selected.deviceId,

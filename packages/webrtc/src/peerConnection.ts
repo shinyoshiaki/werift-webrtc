@@ -546,7 +546,10 @@ export class RTCPeerConnection extends EventTarget {
     await this.secureManager.ensureCerts();
 
     for (const transceiver of this.transceiverManager.getTransceivers()) {
-      if (transceiver.codecs.length === 0) {
+      if (
+        transceiver.codecs.length === 0 ||
+        transceiver.codecPreferencesNeedResolution
+      ) {
         this.transceiverManager.assignTransceiverCodecs(transceiver);
       }
       if (transceiver.headerExtensions.length === 0) {
@@ -928,6 +931,12 @@ export class RTCPeerConnection extends EventTarget {
           for (const [transceiver, mid, mLineIndex] of offerAssignments) {
             transceiver.mid = mid;
             transceiver.mLineIndex = mLineIndex;
+            const offeredMedia = description.media.find(
+              (media) => media.rtp.muxId === mid,
+            );
+            transceiver.pendingLocalOfferCodecs = offeredMedia
+              ? [...offeredMedia.rtp.codecs]
+              : undefined;
           }
         }
         this.negotiation.validate();
@@ -964,6 +973,17 @@ export class RTCPeerConnection extends EventTarget {
               this.transceiverManager.getLocalRtpParams(transceiver),
             );
           }
+          if (!transceiver.codecPreferencesNeedResolution) continue;
+          const remoteMedia =
+            this.sdpManager.pendingRemoteDescription?.media.find(
+              (media) => media.rtp.muxId === transceiver.mid,
+            );
+          if (remoteMedia && ["audio", "video"].includes(remoteMedia.kind)) {
+            this.transceiverManager.commitAnswerCodecs(
+              transceiver,
+              remoteMedia,
+            );
+          }
         }
       }
       if (
@@ -971,6 +991,24 @@ export class RTCPeerConnection extends EventTarget {
         this.sdpManager.currentRemoteDescription
       ) {
         await this.activation.activatePendingRemote(true);
+      }
+      if (
+        description.type === "answer" &&
+        !this.sdpManager.currentRemoteDescription
+      ) {
+        for (const transceiver of this.transceiverManager.getTransceivers()) {
+          if (!transceiver.codecPreferencesNeedResolution) continue;
+          const remoteMedia =
+            this.sdpManager.pendingRemoteDescription?.media.find(
+              (media) => media.rtp.muxId === transceiver.mid,
+            );
+          if (remoteMedia && ["audio", "video"].includes(remoteMedia.kind)) {
+            this.transceiverManager.commitAnswerCodecs(
+              transceiver,
+              remoteMedia,
+            );
+          }
+        }
       }
 
       // # assign MID
@@ -1248,6 +1286,10 @@ export class RTCPeerConnection extends EventTarget {
       });
       this.validator.validateRemote(remoteSdp, this.signalingState);
 
+      // Resolve codec compatibility before implicit rollback or any transaction
+      // mutation, then pass the same plan into the staged m-line application.
+      const codecPlan = this.remoteMedia.planCodecs(remoteSdp);
+
       // Queued candidates are placed against the parsed proposal before any
       // state changes or application events (track, transceiver) fire.
       // Only a non-empty queue awaits, so ordinary offers keep their timing.
@@ -1318,7 +1360,7 @@ export class RTCPeerConnection extends EventTarget {
           endOfCandidates,
           provisionalIce,
           associated,
-        } = this.remoteMedia.apply(remoteSdp);
+        } = this.remoteMedia.apply(remoteSdp, codecPlan);
 
         if (remoteSdp.type === "answer") {
           // The final answer switches a staged ICE restart only now, after
@@ -1494,6 +1536,44 @@ export class RTCPeerConnection extends EventTarget {
     }
 
     await this.topology.preparePending();
+
+    // setCodecPreferences() は negotiated codec と分けて保持される。
+    // Answer SDP 用の候補だけを再解決し、送受信の live table は commit まで触らない。
+    for (const transceiver of this.transceiverManager.getTransceivers()) {
+      if (
+        transceiver.codecs.length !== 0 &&
+        !transceiver.codecPreferencesNeedResolution
+      ) {
+        continue;
+      }
+      if (
+        transceiver.pendingRejection ||
+        transceiver.stopping ||
+        transceiver.stopped
+      ) {
+        continue;
+      }
+      const remoteDescription = this.sdpManager.pendingRemoteDescription;
+      const remoteMedia =
+        remoteDescription?.media.find(
+          (media) =>
+            media.rtp.muxId != undefined &&
+            media.rtp.muxId === transceiver.mid &&
+            media.kind === transceiver.kind,
+        ) ??
+        (transceiver.mLineIndex != undefined
+          ? remoteDescription?.media[transceiver.mLineIndex]
+          : undefined);
+      if (remoteMedia && ["audio", "video"].includes(remoteMedia.kind)) {
+        this.transceiverManager.resyncAnswerCodecs(transceiver, remoteMedia);
+      } else {
+        this.transceiverManager.assignTransceiverCodecs(transceiver);
+      }
+      if (transceiver.headerExtensions.length === 0) {
+        transceiver.headerExtensions =
+          this.config.headerExtensions[transceiver.kind] ?? [];
+      }
+    }
 
     const description = this.sdpManager.buildAnswerSdp({
       transceivers: this.transceiverManager.getTransceivers(),

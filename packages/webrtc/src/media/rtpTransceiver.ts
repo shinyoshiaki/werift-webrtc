@@ -3,7 +3,9 @@ import { Event } from "../imports/common";
 
 import type { RTCDtlsTransport } from "..";
 import { SenderDirections } from "../const";
+import { createWebRtcTypeError } from "../errors";
 import type { Kind } from "../types/domain";
+import { cloneCodecParameters } from "./codec";
 import type {
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
@@ -43,6 +45,30 @@ export class RTCRtpTransceiver {
     return this._codecs;
   }
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
+  private _codecPreferences?: RTCRtpCodecParameters[];
+  readonly onCodecPreferencesChanged = new Event<[]>();
+  pendingLocalOfferCodecs?: RTCRtpCodecParameters[];
+  codecPreferencesNeedResolution = false;
+
+  get codecPreferences(): readonly RTCRtpCodecParameters[] | undefined {
+    return this._codecPreferences;
+  }
+
+  setCodecPreferences(codecs: RTCRtpCodecParameters[]): void {
+    if (!Array.isArray(codecs)) {
+      throw createWebRtcTypeError("codecs must be an array");
+    }
+    const next =
+      codecs.length === 0 ? undefined : codecs.map(cloneCodecParameters);
+    if (sameCodecPreferences(this._codecPreferences, next)) return;
+    this._codecPreferences = next;
+    // 現在の交渉結果とは別に、次回 offer/answer 用の再解決要求を保持する。
+    // pending offer への answer が現在の codec を書き戻しても、この要求は
+    // 次回の createOffer() まで失われない。
+    this.codecPreferencesNeedResolution = true;
+    this._codecs = [];
+    this.onCodecPreferencesChanged.execute();
+  }
   options: Partial<TransceiverOptions> = {};
   /**stop() 済み、または停止が確定した transceiver */
   stopping = false;
@@ -245,6 +271,32 @@ export class RTCRtpTransceiver {
 
     return stats;
   }
+}
+
+function sameCodecPreferences(
+  left: readonly RTCRtpCodecParameters[] | undefined,
+  right: readonly RTCRtpCodecParameters[] | undefined,
+) {
+  if (left === right) return true;
+  if (left == undefined || right == undefined || left.length !== right.length) {
+    return false;
+  }
+  return stableCodecValue(left) === stableCodecValue(right);
+}
+
+function stableCodecValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableCodecValue).join(",")}]`;
+  }
+  if (value != undefined && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right));
+    return `{${entries
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableCodecValue(item)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "undefined";
 }
 
 export const Inactive = "inactive";
