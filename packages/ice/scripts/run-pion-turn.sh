@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start pion TURN (UDP) on a free host port and print connection env for tests.
+# Start pion TURN (UDP) and pion TURN (TCP control connection) on free host ports and print connection env for tests.
 #
 # Usage:
 #   eval "$(./packages/ice/scripts/run-pion-turn.sh --print-env)"
@@ -15,6 +15,9 @@ PROJECT_NAME="${PION_TURN_COMPOSE_PROJECT:-werift-pion-turn}"
 STATE_DIR="${TMPDIR:-/tmp}/werift-pion-turn-${PROJECT_NAME}"
 ENV_FILE="${STATE_DIR}/env"
 COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.yml"
+TCP_COMPOSE_DIR="$(cd "${SCRIPT_DIR}/../docker/pion-turn-tcp" && pwd)"
+TCP_PROJECT_NAME="${PROJECT_NAME}-tcp"
+TCP_COMPOSE_FILE="${TCP_COMPOSE_DIR}/docker-compose.yml"
 
 USERNAME="${PION_TURN_USERNAME:-username}"
 PASSWORD="${PION_TURN_PASSWORD:-password}"
@@ -40,7 +43,7 @@ Usage: run-pion-turn.sh [--print-env|--up|--down|--status|--run -- <cmd...>] [--
 
 Environment overrides:
   PION_TURN_PUBLIC_IP, PION_TURN_USERNAME, PION_TURN_PASSWORD,
-  PION_TURN_USERS, PION_TURN_REALM, PION_TURN_UDP_PORT (optional fixed port),
+  PION_TURN_USERS, PION_TURN_REALM, PION_TURN_UDP_PORT / PION_TURN_TCP_PORT (optional fixed ports),
   PION_TURN_COMPOSE_PROJECT
 
 Examples:
@@ -75,6 +78,20 @@ compose() {
   docker compose -p "${PROJECT_NAME}" -f "${COMPOSE_FILE}" "$@"
 }
 
+compose_tcp() {
+  docker compose -p "${TCP_PROJECT_NAME}" -f "${TCP_COMPOSE_FILE}" "$@"
+}
+
+pick_free_tcp_port() {
+  python3 - <<'PY'
+import socket
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.bind(("127.0.0.1", 0))
+print(s.getsockname()[1])
+s.close()
+PY
+}
+
 pick_free_udp_port() {
   # Prefer python for a true free ephemeral bind.
   if command -v python3 >/dev/null 2>&1; then
@@ -92,7 +109,7 @@ PY
 }
 
 write_env_file() {
-  local host="$1" port="$2"
+  local host="$1" port="$2" tcp_port="$3"
   mkdir -p "${STATE_DIR}"
   cat > "${ENV_FILE}" <<EOF
 PION_TURN_HOST=${host}
@@ -102,6 +119,7 @@ PION_TURN_PASSWORD=${PASSWORD}
 PION_TURN_PUBLIC_IP=${PUBLIC_IP}
 PION_TURN_REALM=${REALM}
 PION_TURN_UDP_PORT=${port}
+PION_TURN_TCP_PORT=${tcp_port}
 PION_TURN_COMPOSE_PROJECT=${PROJECT_NAME}
 EOF
 }
@@ -123,6 +141,7 @@ print_exports() {
   echo "export PION_TURN_PUBLIC_IP=${PION_TURN_PUBLIC_IP}"
   echo "export PION_TURN_REALM=${PION_TURN_REALM}"
   echo "export PION_TURN_UDP_PORT=${PION_TURN_UDP_PORT}"
+  echo "export PION_TURN_TCP_PORT=${PION_TURN_TCP_PORT}"
   echo "export PION_TURN_COMPOSE_PROJECT=${PION_TURN_COMPOSE_PROJECT}"
 }
 
@@ -195,8 +214,21 @@ PY
   return 1
 }
 
+wait_tcp_ready() {
+  local port="$1" i
+  for i in $(seq 1 60); do
+    if (exec 3<>"/dev/tcp/${PUBLIC_IP}/${port}") 2>/dev/null; then
+      return 0
+    fi
+    sleep 0.5
+  done
+  echo "Timed out waiting for pion TURN TCP on ${PUBLIC_IP}:${port}" >&2
+  return 1
+}
+
 do_down() {
   compose down --remove-orphans 2>/dev/null || true
+  compose_tcp down --remove-orphans 2>/dev/null || true
   rm -rf "${STATE_DIR}"
 }
 
@@ -216,26 +248,35 @@ do_up() {
     port="$(pick_free_udp_port)"
   fi
 
+  local tcp_port="${PION_TURN_TCP_PORT:-}"
+  if [[ -z "${tcp_port}" ]]; then
+    tcp_port="$(pick_free_tcp_port)"
+  fi
+
   export PION_TURN_UDP_PORT="${port}"
+  export PION_TURN_TCP_PORT="${tcp_port}"
   export PION_TURN_PUBLIC_IP="${PUBLIC_IP}"
   export PION_TURN_USERS="${USERS}"
   export PION_TURN_REALM="${REALM}"
   export PION_TURN_VERSION="${PION_TURN_VERSION:-main}"
 
-  write_env_file "${PUBLIC_IP}" "${port}"
+  write_env_file "${PUBLIC_IP}" "${port}" "${tcp_port}"
 
   # Ensure previous instance for this project is gone (ports/state).
   compose down --remove-orphans 2>/dev/null || true
+  compose_tcp down --remove-orphans 2>/dev/null || true
 
   if [[ "${DETACH}" == "true" ]]; then
     compose up -d --build
+    compose_tcp up -d --build
   else
     compose up --build
     return 0
   fi
 
   wait_ready "${port}"
-  echo "pion TURN is up on ${PUBLIC_IP}:${port} (project=${PROJECT_NAME})" >&2
+  wait_tcp_ready "${tcp_port}"
+  echo "pion TURN is up on ${PUBLIC_IP}:${port} udp / ${tcp_port} tcp (project=${PROJECT_NAME})" >&2
 }
 
 do_run() {
@@ -251,7 +292,7 @@ do_run() {
   do_up
   load_env_file
   export PION_TURN_HOST PION_TURN_PORT PION_TURN_USERNAME PION_TURN_PASSWORD
-  export PION_TURN_PUBLIC_IP PION_TURN_REALM PION_TURN_UDP_PORT PION_TURN_COMPOSE_PROJECT
+  export PION_TURN_PUBLIC_IP PION_TURN_REALM PION_TURN_UDP_PORT PION_TURN_TCP_PORT PION_TURN_COMPOSE_PROJECT
 
   echo "Running: ${RUN_ARGS[*]}" >&2
   echo "  PION_TURN_HOST=${PION_TURN_HOST} PION_TURN_PORT=${PION_TURN_PORT}" >&2

@@ -6,7 +6,7 @@ import { createTestConnection } from "../utils";
  * Opt-in interop against a third-party pion TURN server.
  *
  * Gate: set PION_TURN_HOST (and usually PION_TURN_PORT / credentials).
- * Recommended (trap always downs compose):
+ * Recommended (starts UDP + TCP servers; trap always downs compose):
  *   npm run test:pion-turn --workspace packages/ice
  * Manual:
  *   eval "$(./packages/ice/scripts/run-pion-turn.sh --print-env)"
