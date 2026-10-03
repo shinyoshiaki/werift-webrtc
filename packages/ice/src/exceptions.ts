@@ -30,3 +30,18 @@ export class TransactionTimeout extends TransactionError {
     return "STUN transaction timed out";
   }
 }
+
+/**
+ * The request target is an IP literal of a different family than the socket
+ * that would carry it, so it can never be delivered.
+ */
+export class AddressFamilyMismatch extends Error {
+  constructor(
+    public addr: Address,
+    public socketFamily: 4 | 6,
+  ) {
+    super(
+      `cannot reach ${addr[0]}:${addr[1]} from an IPv${socketFamily} socket`,
+    );
+  }
+}

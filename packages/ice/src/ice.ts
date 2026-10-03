@@ -588,6 +588,7 @@ export class Connection implements IceConnection {
             transport: turnTransport,
             tlsOptions: this.options.turnTlsOptions,
             connectTimeoutMs: (this.options.turnConnectTimeout ?? 8) * 1000,
+            udpFamily: this.options.turnUdpFamily,
           },
         ).catch(async (e) => {
           if (turnTransport === "udp") {

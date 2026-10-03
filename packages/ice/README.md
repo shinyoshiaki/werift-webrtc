@@ -6,6 +6,22 @@ based on aioice
 The TURN client is exercised against the local `werift-ice-server`
 reference TURN server over UDP, TCP, and TLS (`turns:`) control transports.
 
+## TURN server endpoint selection
+
+- One allocation keeps one concrete server endpoint for its lifetime. Allocate
+  retries, Refresh, CreatePermission, ChannelBind, Send indications and
+  ChannelData never look the hostname up again.
+- UDP: the socket family comes from an IP literal server address. For a
+  hostname it comes from `udpFamily` (`IceOptions.turnUdpFamily`,
+  `PeerConfig.turnUdpFamily` in `werift`), default `4`, and the hostname is
+  resolved in that family. `udpFamily` is ignored for an IP literal.
+- TCP/TLS: the endpoint is the peer the stream connected to
+  (`Transport.remoteAddress`); the hostname is not resolved again. TLS still
+  verifies the certificate against the configured hostname. SNI is sent only
+  when `tlsOptions.servername` is set.
+- `TurnProtocol.server` always holds the configured address; the resolved
+  endpoint is `TurnProtocol.serverEndpoint`.
+
 ## pion TURN interop (opt-in)
 
 Default `npm test` skips third-party TURN tests. To exercise werift ICE against

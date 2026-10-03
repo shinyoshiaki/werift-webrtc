@@ -238,3 +238,13 @@ SCTP outbound packet MTU used for DATA chunk fragmentation.
 ### turnTransport
 
 > **turnTransport**: `undefined` \| `"tcp"` \| `"tls"` \| `"udp"`
+
+***
+
+### turnUdpFamily
+
+> **turnUdpFamily**: `undefined` \| `4` \| `6`
+
+Preferred IP family of the TURN/UDP socket, applied only when the TURN
+server is a hostname. Ignored for an IP literal server, whose own family
+always selects the socket. Defaults to 4 when undefined.
