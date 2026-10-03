@@ -51,6 +51,30 @@ function isAuxiliary(codec: RTCRtpCodecParameters) {
 }
 
 /**
+ * remote track が実際に配信する codec を返す。
+ * audio の RED は RTCRtpReceiver が primary へ展開してから track へ渡すため、
+ * RED が参照する primary codec (不明なら先頭の primary) を track の codec とする。
+ */
+export function deliveredTrackCodec(
+  kind: string,
+  codec: RTCRtpCodecParameters | undefined,
+  negotiated: readonly RTCRtpCodecParameters[],
+) {
+  if (kind !== "audio" || codec == undefined || codecName(codec) !== "red") {
+    return codec;
+  }
+  const [primaryPayloadType] = referencedPayloadTypes(codec);
+  return (
+    negotiated.find(
+      (candidate) =>
+        !isAuxiliary(candidate) && candidate.payloadType === primaryPayloadType,
+    ) ??
+    negotiated.find((candidate) => !isAuxiliary(candidate)) ??
+    codec
+  );
+}
+
+/**
  * RTX / RED を除く primary codec に MIME 一致が 1 つでもあるか。
  * remote m-line を local capability で扱えるかの判定 (Issue #705) に使う。
  */

@@ -600,6 +600,46 @@ describe("codec resolution", () => {
     await answerer.close();
   });
 
+  test("a received RED audio track can be echoed back with replaceTrack", async () => {
+    const audioCodecs = () => [
+      new RTCRtpCodecParameters({
+        mimeType: "audio/red",
+        clockRate: 48_000,
+        channels: 2,
+      }),
+      useOPUS(),
+    ];
+    const echo = new RTCPeerConnection({ codecs: { audio: audioCodecs() } });
+    const transceiver = echo.addTransceiver("audio");
+    const replaced: Promise<void>[] = [];
+    transceiver.onTrack.subscribe((track) => {
+      replaced.push(transceiver.sender.replaceTrack(track));
+    });
+    const offer = await echo.createOffer();
+    await echo.setLocalDescription(offer);
+    const remote = new RTCPeerConnection({ codecs: { audio: audioCodecs() } });
+    remote.addTrack(new MediaStreamTrack({ kind: "audio" }));
+    await remote.setRemoteDescription(offer);
+    const answer = await remote.createAnswer();
+    await remote.setLocalDescription(answer);
+
+    // 実行: RED を送信 codec とする answer を適用し、受信 track を送り返す。
+    await echo.setRemoteDescription(answer);
+
+    // 検証: RED は primary へ展開して配信されるため、受信 track は OPUS として扱われ、
+    // RED を送信する sender へ replaceTrack できる。
+    expect(transceiver.sender.codec?.mimeType.toLowerCase()).toBe("audio/red");
+    expect(replaced).toHaveLength(1);
+    await expect(replaced[0]).resolves.toBeUndefined();
+    expect(
+      getTrackSourceCodecs(transceiver.sender.track)?.map((codec) =>
+        codec.mimeType.toLowerCase(),
+      ),
+    ).toEqual(["audio/opus"]);
+    await echo.close();
+    await remote.close();
+  });
+
   test("answer preserves RED preference order for a sendrecv transceiver", async () => {
     const codecs = (opusPayloadType: number, redPayloadType: number) => {
       const opus = useOPUS({ payloadType: opusPayloadType });

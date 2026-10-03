@@ -22,6 +22,7 @@ import type { PeerConfig } from "../peerConnection";
 import type { RTCDtlsTransport } from "../transport/dtls";
 import type { Kind } from "../types/domain";
 import { compactNtp, ntpTimeToEpochMs, timestampSeconds } from "../utils";
+import { deliveredTrackCodec } from "./codecCompatibility";
 import type {
   RTCRtpCodecParameters,
   RTCRtpReceiveParameters,
@@ -163,7 +164,11 @@ export class RTCRtpReceiver {
       delete this.ssrcByRtx[Number(key)];
     }
     this.prepareReceive(params);
-    const [codec] = params.codecs;
+    const codec = deliveredTrackCodec(
+      this.kind,
+      params.codecs[0],
+      params.codecs,
+    );
     if (codec) {
       for (const track of this.tracks) {
         track.codec = codec;

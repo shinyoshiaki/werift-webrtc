@@ -12,6 +12,7 @@ import {
   debug,
   rtpHeaderExtensionsParser,
 } from "../imports/rtp";
+import { deliveredTrackCodec } from "./codecCompatibility";
 import type {
   RTCRtpReceiveParameters,
   RTCRtpSimulcastParameters,
@@ -55,7 +56,11 @@ export class RtpRouter {
             kind: transceiver.kind,
             id: transceiver.sender.trackId,
             remote: true,
-            codec: params.codecs[i],
+            codec: deliveredTrackCodec(
+              transceiver.kind,
+              params.codecs[i],
+              params.codecs,
+            ),
           }),
         );
         if (encode.rtx) {

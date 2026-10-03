@@ -309,6 +309,7 @@
 - [createTurnClient](functions/createTurnClient.md)
 - [deepMerge](functions/deepMerge.md)
 - [defaultCodecs](functions/defaultCodecs.md)
+- [deliveredTrackCodec](functions/deliveredTrackCodec.md)
 - [dePacketizeRtpPackets](functions/dePacketizeRtpPackets.md)
 - [deserializeAbsSendTime](functions/deserializeAbsSendTime.md)
 - [deserializeAudioLevelIndication](functions/deserializeAudioLevelIndication.md)
