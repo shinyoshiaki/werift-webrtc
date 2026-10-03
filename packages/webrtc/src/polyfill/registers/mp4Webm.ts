@@ -2,7 +2,7 @@ import type { Readable } from "stream";
 
 import { OverconstrainedError, createWebRtcDomException } from "../../errors";
 import { RTCRtpCodecParameters } from "../../media/parameters";
-import type { MediaStreamTrack } from "../../media/track";
+import { type MediaStreamTrack, setTrackSourceCodecs } from "../../media/track";
 import { createFileMediaPlayer } from "../../nonstandard/userMedia";
 import type {
   MediaGetUserMediaRequest,
@@ -311,6 +311,7 @@ function applyInspectedOrExplicitCodec(
       );
     }
     track.codec = inspected;
+    setTrackSourceCodecs(track, [inspected]);
     return;
   }
   const explicit = resolveMp4WebmCodecHint(hint);
@@ -325,6 +326,8 @@ function applyInspectedOrExplicitCodec(
   }
   source.codec = explicit;
   track.codec = explicit;
+  setTrackSourceCodecs(source, [explicit]);
+  setTrackSourceCodecs(track, [explicit]);
 }
 
 function resolveMp4WebmCodecHint(

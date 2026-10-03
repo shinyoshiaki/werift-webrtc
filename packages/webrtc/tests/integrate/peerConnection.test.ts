@@ -333,6 +333,41 @@ a=ssrc:1001 cname:some
     }
   });
 
+  test("inactive offer remains inactive after answer application", async () => {
+    const offerer = new RTCPeerConnection();
+    const answerer = new RTCPeerConnection();
+    const track = new MediaStreamTrack({ kind: "audio" });
+    const stream = new MediaStream();
+    stream.addTrack(track);
+
+    try {
+      // Arrange: inactive の audio transceiver から offer を作る。
+      const sender = offerer.addTrack(track, stream);
+      const transceiver = offerer.getTransceivers()[0];
+      transceiver.direction = "inactive";
+      const offer = await offerer.createOffer();
+      await offerer.setLocalDescription(offer);
+
+      // Act: inactive offer に対する answer を生成して offerer へ適用する。
+      await answerer.setRemoteDescription(offer);
+      const answer = await answerer.createAnswer();
+      await answerer.setLocalDescription(answer);
+      await offerer.setRemoteDescription(answerer.localDescription!);
+
+      // Assert: 既定の mLineReuse "compatible" では inactive section を拒否せず非ゼロ port で answer し、
+      // answer 後も inactive のまま removeTrack が方向を変えない。
+      expect(answer.sdp).toContain("m=audio 9");
+      expect(answer.sdp).toContain("a=inactive");
+      expect(transceiver.currentDirection).toBe("inactive");
+      offerer.removeTrack(sender);
+      expect(transceiver.direction).toBe("inactive");
+      expect(transceiver.currentDirection).toBe("inactive");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+      track.stop();
+    }
+  });
+
   test("setRemoteDescription keeps addTrack transceiver ahead of remote ones while pending", async () => {
     const caller = new RTCPeerConnection();
     const callee = new RTCPeerConnection();

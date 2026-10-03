@@ -11,6 +11,35 @@ import {
 import type { Kind } from "../types/domain";
 import type { RTCRtpCodecParameters } from "./parameters";
 
+const sourceCodecsByTrack = new WeakMap<
+  MediaStreamTrack,
+  readonly RTCRtpCodecParameters[]
+>();
+const sourceCodecsCapturedByTrack = new WeakSet<MediaStreamTrack>();
+
+export function setTrackSourceCodecs(
+  track: MediaStreamTrack,
+  codecs: readonly RTCRtpCodecParameters[] | undefined,
+) {
+  sourceCodecsCapturedByTrack.add(track);
+  if (codecs == undefined) sourceCodecsByTrack.delete(track);
+  else sourceCodecsByTrack.set(track, codecs);
+}
+
+export function getTrackSourceCodecs(
+  track: MediaStreamTrack | undefined | null,
+) {
+  return track == undefined ? undefined : sourceCodecsByTrack.get(track);
+}
+
+export function captureTrackSourceCodecs(track: MediaStreamTrack) {
+  if (sourceCodecsCapturedByTrack.has(track)) return;
+  sourceCodecsCapturedByTrack.add(track);
+  if (track.codec != undefined) {
+    sourceCodecsByTrack.set(track, [track.codec]);
+  }
+}
+
 class TrackBroadcastSource {
   private readonly tracks = new Set<MediaStreamTrack>();
   private readonly upstreamStops = new Set<() => void>();
@@ -171,7 +200,7 @@ export class MediaStreamTrack extends EventTarget {
   }
 
   clone(): MediaStreamTrack {
-    return new MediaStreamTrack({
+    const cloned = new MediaStreamTrack({
       kind: this.kind,
       remote: this.remote,
       enabled: this.enabled,
@@ -183,6 +212,12 @@ export class MediaStreamTrack extends EventTarget {
       header: this.header,
       broadcastSource: this.broadcastSource,
     });
+    if (sourceCodecsCapturedByTrack.has(this)) {
+      setTrackSourceCodecs(cloned, getTrackSourceCodecs(this));
+    } else {
+      captureTrackSourceCodecs(cloned);
+    }
+    return cloned;
   }
 }
 

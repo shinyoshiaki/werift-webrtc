@@ -62,6 +62,269 @@ describe("media/rtpSender", () => {
     expect(spy).toBeCalledTimes(2);
   });
 
+  test("replaceTrack rejects a fixed source incompatible with the sending codec", async () => {
+    const original = new MediaStreamTrack({
+      kind: "video",
+      codec: new RTCRtpCodecParameters({
+        mimeType: "video/VP8",
+        clockRate: 90_000,
+        payloadType: 96,
+      }),
+    });
+    const sender = new RTCRtpSender(original);
+    sender.prepareSend({
+      codecs: [
+        original.codec!,
+        new RTCRtpCodecParameters({
+          mimeType: "video/H264",
+          clockRate: 90_000,
+          payloadType: 97,
+        }),
+      ],
+      headerExtensions: [],
+    });
+    const replacement = new MediaStreamTrack({
+      kind: "video",
+      codec: new RTCRtpCodecParameters({
+        mimeType: "video/H264",
+        clockRate: 90_000,
+        payloadType: 97,
+      }),
+    });
+
+    // 実行: H264も交渉済みだが、現在VP8送信中のsenderへfixed H264 sourceを指定する。
+    const act = sender.replaceTrack(replacement);
+
+    // 検証: RTP形式を切り替えずに誤送信しないよう、track変更前に拒否する。
+    await expect(act).rejects.toMatchObject({
+      name: "InvalidModificationError",
+    });
+    expect(sender.track).toBe(original);
+    expect(sender.codec?.mimeType.toLowerCase()).toBe("video/vp8");
+  });
+
+  test("replaceTrack rejects a fixed source absent from negotiated primaries", async () => {
+    const original = new MediaStreamTrack({ kind: "video" });
+    const vp8 = new RTCRtpCodecParameters({
+      mimeType: "video/VP8",
+      clockRate: 90_000,
+      payloadType: 96,
+    });
+    const sender = new RTCRtpSender(original);
+    sender.prepareSend({ codecs: [vp8], headerExtensions: [] });
+    const replacement = new MediaStreamTrack({
+      kind: "video",
+      codec: new RTCRtpCodecParameters({
+        mimeType: "video/H264",
+        clockRate: 90_000,
+        payloadType: 97,
+      }),
+    });
+
+    // 実行: H264を含まない交渉集合へfixed H264 sourceを置換する。
+    const act = sender.replaceTrack(replacement);
+
+    // 検証: sourceと互換なprimaryがないためtrack変更前に拒否する。
+    await expect(act).rejects.toMatchObject({
+      name: "InvalidModificationError",
+    });
+    expect(sender.track).toBe(original);
+  });
+
+  test("replaceTrack accepts a primary source wrapped by negotiated RED", async () => {
+    const opus = new RTCRtpCodecParameters({
+      mimeType: "audio/opus",
+      clockRate: 48_000,
+      channels: 2,
+      payloadType: 96,
+    });
+    const original = new MediaStreamTrack({ kind: "audio", codec: opus });
+    const sender = new RTCRtpSender(original);
+    sender.prepareSend({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "audio/red",
+          clockRate: 48_000,
+          channels: 2,
+          payloadType: 97,
+          parameters: "96/96",
+        }),
+        opus,
+      ],
+      headerExtensions: [],
+    });
+    const replacement = new MediaStreamTrack({
+      kind: "audio",
+      codec: new RTCRtpCodecParameters({
+        mimeType: "audio/opus",
+        clockRate: 48_000,
+        channels: 2,
+        payloadType: 96,
+      }),
+    });
+
+    // 実行: RED が先頭の交渉後に、参照先と同じ fixed OPUS source へ置換する。
+    await sender.replaceTrack(replacement);
+
+    // 検証: auxiliary codec ではなく primary codec との互換性で許可する。
+    expect(sender.track).toBe(replacement);
+    expect(sender.codec?.mimeType.toLowerCase()).toBe("audio/red");
+  });
+
+  test("prepareSend clears excluded RTX and RED state", async () => {
+    const sender = new RTCRtpSender(new MediaStreamTrack({ kind: "video" }));
+    const vp8 = new RTCRtpCodecParameters({
+      mimeType: "video/VP8",
+      clockRate: 90000,
+      payloadType: 96,
+    });
+
+    // 実行: 初回交渉で VP8 に紐づく RTX と RED を設定する。
+    sender.prepareSend({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "video/red",
+          clockRate: 90000,
+          payloadType: 98,
+          parameters: "96/96",
+        }),
+        vp8,
+        new RTCRtpCodecParameters({
+          mimeType: "video/rtx",
+          clockRate: 90000,
+          payloadType: 97,
+          parameters: "apt=96",
+        }),
+      ],
+      headerExtensions: [],
+    });
+
+    // 検証: 初回交渉の補助 codec 状態が保持される。
+    expect(senderStatsState(sender)).toMatchObject({
+      rtxPayloadType: 97,
+      redRedundantPayloadType: 96,
+    });
+
+    // 実行: RTX/RED を含まない H264-only の再交渉結果を適用する。
+    sender.prepareSend({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "video/H264",
+          clockRate: 90000,
+          payloadType: 100,
+        }),
+      ],
+      headerExtensions: [],
+    });
+    const stats = await sender.getStats();
+    const outbound = Array.from(stats.values()).find(
+      (stat) => stat.type === "outbound-rtp",
+    ) as { rtxSsrc?: number };
+
+    // 検証: 除外済みの RTX/RED payload type と RTX 統計を残さない。
+    expect(senderStatsState(sender)).toMatchObject({
+      rtxPayloadType: undefined,
+      redRedundantPayloadType: undefined,
+    });
+    expect(outbound.rtxSsrc).toBeUndefined();
+  });
+
+  test("prepareSend resolves RTX from its primary when RED is first", () => {
+    const sender = new RTCRtpSender(new MediaStreamTrack({ kind: "video" }));
+
+    // 実行: RED、VP8、RTX の順序で交渉結果を適用する。
+    sender.prepareSend({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "video/red",
+          clockRate: 90_000,
+          payloadType: 98,
+          parameters: "96/96",
+        }),
+        new RTCRtpCodecParameters({
+          mimeType: "video/VP8",
+          clockRate: 90_000,
+          payloadType: 96,
+        }),
+        new RTCRtpCodecParameters({
+          mimeType: "video/rtx",
+          clockRate: 90_000,
+          payloadType: 97,
+          parameters: "apt=96",
+        }),
+      ],
+      headerExtensions: [],
+    });
+
+    // 検証: RED を送信 codec に保ちつつ、RTX は参照先 VP8 から解決する。
+    expect(sender.codec?.mimeType.toLowerCase()).toBe("video/red");
+    expect(senderStatsState(sender).rtxPayloadType).toBe(97);
+    expect(senderStatsState(sender).redRedundantPayloadType).toBe(96);
+  });
+
+  test("prepareSend selects RTX for the active primary only", () => {
+    const sender = new RTCRtpSender(new MediaStreamTrack({ kind: "video" }));
+
+    // 実行: VP8/H264 と各 codec 用 RTX を同時に交渉する。
+    sender.prepareSend({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "video/VP8",
+          clockRate: 90_000,
+          payloadType: 96,
+        }),
+        new RTCRtpCodecParameters({
+          mimeType: "video/rtx",
+          clockRate: 90_000,
+          payloadType: 97,
+          parameters: "apt=96",
+        }),
+        new RTCRtpCodecParameters({
+          mimeType: "video/H264",
+          clockRate: 90_000,
+          payloadType: 98,
+        }),
+        new RTCRtpCodecParameters({
+          mimeType: "video/rtx",
+          clockRate: 90_000,
+          payloadType: 99,
+          parameters: "apt=98",
+        }),
+      ],
+      headerExtensions: [],
+    });
+
+    // 検証: 実際の送信 codec VP8 に対応する RTX だけを選ぶ。
+    expect(sender.codec?.mimeType.toLowerCase()).toBe("video/vp8");
+    expect(senderStatsState(sender).rtxPayloadType).toBe(97);
+  });
+
+  test("prepareSend does not enable RED wrapping when primary is first", () => {
+    const sender = new RTCRtpSender(new MediaStreamTrack({ kind: "audio" }));
+
+    // 実行: OPUS preference相当の順序で、後続にREDがあるcodec一覧を適用する。
+    sender.prepareSend({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "audio/opus",
+          clockRate: 48_000,
+          payloadType: 96,
+        }),
+        new RTCRtpCodecParameters({
+          mimeType: "audio/red",
+          clockRate: 48_000,
+          payloadType: 97,
+          parameters: "96/96",
+        }),
+      ],
+      headerExtensions: [],
+    });
+
+    // 検証: RTP headerがOPUSのときRED wrappingを有効にしない。
+    expect(sender.codec?.mimeType.toLowerCase()).toBe("audio/opus");
+    expect(senderStatsState(sender).redRedundantPayloadType).toBeUndefined();
+  });
+
   test("replaceTrack without first RTP still continues sequence and timestamp", async () => {
     const track1 = new MediaStreamTrack({ kind: "audio" });
     const dtls = createDtlsTransport();
@@ -527,6 +790,13 @@ describe("media/rtpSender", () => {
 
 function pendingRtpQueue(sender: RTCRtpSender) {
   return (sender as unknown as { pendingRtp: unknown[] }).pendingRtp;
+}
+
+function senderStatsState(sender: RTCRtpSender) {
+  return sender as unknown as {
+    rtxPayloadType?: number;
+    redRedundantPayloadType?: number;
+  };
 }
 
 function arrangeDisconnectedSender(

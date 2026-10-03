@@ -15,7 +15,7 @@ import type { CandidatePair, Message, Protocol } from "./imports/ice";
 import {
   type MediaStream,
   type MediaStreamTrack,
-  RTCRtpCodecParameters,
+  type RTCRtpCodecParameters,
   type RTCRtpHeaderExtensionParameters,
   type RTCRtpReceiver,
   type RTCRtpSender,
@@ -24,9 +24,7 @@ import {
   RtpRouter,
   TransceiverManager,
   type TransceiverOptions,
-  useOPUS,
-  usePCMU,
-  useVP8,
+  defaultCodecs,
 } from "./media";
 import {
   type RTCPeerConnectionStats,
@@ -533,7 +531,10 @@ export class RTCPeerConnection extends EventTarget {
     await this.secureManager.ensureCerts();
 
     for (const transceiver of this.transceiverManager.getTransceivers()) {
-      if (transceiver.codecs.length === 0) {
+      if (
+        transceiver.codecs.length === 0 ||
+        transceiver.codecPreferencesNeedResolution
+      ) {
         this.transceiverManager.assignTransceiverCodecs(transceiver);
       }
       if (transceiver.headerExtensions.length === 0) {
@@ -829,6 +830,9 @@ export class RTCPeerConnection extends EventTarget {
 
     if (sessionDescription?.type === "rollback") {
       this.sdpManager.rollbackLocalDescription(this.signalingState);
+      for (const transceiver of this.transceiverManager.getTransceivers()) {
+        transceiver.pendingLocalOfferCodecs = undefined;
+      }
       this.pendingOfferChangeSeq = undefined;
       this.setSignalingState("stable");
       if (this.shouldNegotiationneeded) {
@@ -935,6 +939,9 @@ export class RTCPeerConnection extends EventTarget {
           );
         if (transceiver) {
           transceiver.mid = mid;
+          if (description.type === "offer") {
+            transceiver.pendingLocalOfferCodecs = [...media.rtp.codecs];
+          }
         }
       }
       if (media.kind === "application" && this.sctpTransport) {
@@ -1151,11 +1158,42 @@ export class RTCPeerConnection extends EventTarget {
 
     await this.waitForPendingDescriptionTask();
 
+    let codecPlan = new Map<number, RTCRtpCodecParameters[]>();
+    if (
+      sessionDescription.type &&
+      sessionDescription.type !== "rollback" &&
+      sessionDescription.sdp
+    ) {
+      const preview = this.sdpManager.parseSdp({
+        sdp: sessionDescription.sdp,
+        isLocal: false,
+        signalingState: this.signalingState,
+        type: sessionDescription.type,
+      });
+      // 本適用と同じ対応付けで全 m-line の codec を副作用なしに解決する
+      const planned = new Set<RTCRtpTransceiver>();
+      codecPlan = this.transceiverManager.planRemoteRtpCodecs(
+        preview,
+        (remoteMedia, index) => {
+          const transceiver = this.findTransceiverForRemoteMedia(
+            remoteMedia,
+            index,
+            planned,
+          );
+          if (transceiver) planned.add(transceiver);
+          return transceiver;
+        },
+      );
+    }
+
     const needsImplicitLocalRollback =
       sessionDescription.type === "offer" &&
       ["have-local-offer", "have-local-pranswer"].includes(this.signalingState);
     if (needsImplicitLocalRollback) {
       this.sdpManager.rollbackLocalDescription(this.signalingState);
+      for (const transceiver of this.transceiverManager.getTransceivers()) {
+        transceiver.pendingLocalOfferCodecs = undefined;
+      }
       this.pendingOfferChangeSeq = undefined;
       this.shouldNegotiationneeded = true;
       this.setSignalingState("stable");
@@ -1313,6 +1351,7 @@ export class RTCPeerConnection extends EventTarget {
             remoteMedia,
             remoteSdp.type,
             index,
+            codecPlan.get(index) ?? [],
           )
         ) {
           acceptedEntries.add(entry);
@@ -1594,6 +1633,46 @@ export class RTCPeerConnection extends EventTarget {
 
     await this.secureManager.ensureCerts();
 
+    // setCodecPreferences() で無効化された transceiver を再解決する。
+    // offer 側と異なり answer は remote offer との交渉結果を使い、
+    // sender/receiver の codec 状態も新しい negotiated codec に同期する。
+    for (const transceiver of this.transceiverManager.getTransceivers()) {
+      if (
+        transceiver.codecs.length !== 0 &&
+        !transceiver.codecPreferencesNeedResolution
+      ) {
+        continue;
+      }
+      // 拒否予定 / 停止済みの m-line は port 0 で answer するため codec を解決しない
+      if (
+        transceiver.pendingRejection ||
+        transceiver.stopping ||
+        transceiver.stopped
+      ) {
+        continue;
+      }
+      const remoteDescription = this.sdpManager._remoteDescription;
+      const remoteMedia =
+        remoteDescription?.media.find(
+          (media) =>
+            media.rtp.muxId != undefined &&
+            media.rtp.muxId === transceiver.mid &&
+            media.kind === transceiver.kind,
+        ) ??
+        (transceiver.mLineIndex != undefined
+          ? remoteDescription?.media[transceiver.mLineIndex]
+          : undefined);
+      if (remoteMedia && ["audio", "video"].includes(remoteMedia.kind)) {
+        this.transceiverManager.resyncAnswerCodecs(transceiver, remoteMedia);
+      } else {
+        this.transceiverManager.assignTransceiverCodecs(transceiver);
+      }
+      if (transceiver.headerExtensions.length === 0) {
+        transceiver.headerExtensions =
+          this.config.headerExtensions[transceiver.kind] ?? [];
+      }
+    }
+
     const description = this.sdpManager.buildAnswerSdp({
       transceivers: this.transceiverManager.getTransceivers(),
       sctpTransport: this.sctpTransport,
@@ -1809,34 +1888,6 @@ export const findCodecByMimeType = (
     ? target
     : undefined;
 
-export function adoptSenderTrackCodec(
-  config: PeerConfig,
-  track: MediaStreamTrack | undefined | null,
-) {
-  const codec = track?.codec;
-  if (!codec || (track.kind !== "audio" && track.kind !== "video")) {
-    return;
-  }
-  const kind = track.kind;
-  const list = [...(config.codecs[kind] ?? [])];
-  const mime = codec.mimeType.toLowerCase();
-  const index = list.findIndex(
-    (candidate) => candidate.mimeType.toLowerCase() === mime,
-  );
-  if (index === 0) {
-    assignDynamicPayloadTypes(config);
-    return;
-  }
-  if (index > 0) {
-    const [existing] = list.splice(index, 1);
-    list.unshift(existing);
-  } else {
-    list.unshift(cloneCodecParameters(codec));
-  }
-  config.codecs[kind] = list;
-  assignDynamicPayloadTypes(config);
-}
-
 function assignDynamicPayloadTypes(config: PeerConfig) {
   for (const [i, codecParams] of enumerate([
     ...(config.codecs.audio || []),
@@ -1864,20 +1915,6 @@ function assignDynamicPayloadTypes(config: PeerConfig) {
         break;
     }
   }
-}
-
-function cloneCodecParameters(codec: RTCRtpCodecParameters) {
-  return new RTCRtpCodecParameters({
-    mimeType: codec.mimeType,
-    clockRate: codec.clockRate,
-    ...(codec.channels != undefined ? { channels: codec.channels } : {}),
-    ...(codec.payloadType != undefined
-      ? { payloadType: codec.payloadType }
-      : {}),
-    rtcpFeedback: [...codec.rtcpFeedback],
-    ...(codec.parameters != undefined ? { parameters: codec.parameters } : {}),
-    direction: codec.direction,
-  });
 }
 
 export type RTCIceServer = {
@@ -1929,10 +1966,7 @@ export type RTCPeerConnectionConfig = Partial<
 
 function generateDefaultPeerConfig(): PeerConfig {
   return {
-    codecs: {
-      audio: [useOPUS(), usePCMU()],
-      video: [useVP8()],
-    },
+    codecs: defaultCodecs(),
     headerExtensions: {
       audio: [],
       video: [],
