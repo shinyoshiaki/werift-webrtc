@@ -769,7 +769,16 @@ export async function createTurnClient(
     transport,
   );
 
-  await turn.connectionMade();
+  try {
+    await turn.connectionMade();
+  } catch (error) {
+    try {
+      await turn.close();
+    } catch (closeError) {
+      log("failed to close TURN client after allocation failure", closeError);
+    }
+    throw error;
+  }
   return turn;
 }
 
