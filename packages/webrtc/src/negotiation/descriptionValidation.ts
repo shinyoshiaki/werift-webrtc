@@ -135,7 +135,13 @@ export class DescriptionValidation {
         remoteSdp.type !== "offer" &&
         media.port !== 0 &&
         media.kind !== "application" &&
-        negotiateRemoteCodecs(this.localCodecsFor(media), media).length === 0
+        negotiateRemoteCodecs(
+          this.transceivers
+            .getTransceivers()
+            .find((transceiver) => transceiver.mid === media.rtp.muxId)
+            ?.pendingLocalOfferCodecs ?? this.localCodecsFor(media),
+          media,
+        ).length === 0
       ) {
         throw createWebRtcDomException(
           "InvalidAccessError",

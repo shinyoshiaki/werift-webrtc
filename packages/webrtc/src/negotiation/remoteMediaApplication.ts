@@ -1,4 +1,5 @@
 import type {
+  RTCRtpCodecParameters,
   RTCRtpTransceiver,
   RtpRouter,
   TransceiverManager,
@@ -64,7 +65,23 @@ export class RemoteMediaApplication {
     },
   ) {}
 
-  apply(remoteSdp: SessionDescription): RemoteMediaPlan {
+  /** Resolve all m-line codecs without mutating the current transaction. */
+  planCodecs(remoteSdp: SessionDescription) {
+    const associated = new Set<RTCRtpTransceiver>();
+    return this.transceivers.planRemoteRtpCodecs(
+      remoteSdp,
+      (remoteMedia, index) => {
+        const transceiver = this.findTransceiver(remoteMedia, index, associated);
+        if (transceiver) associated.add(transceiver);
+        return transceiver;
+      },
+    );
+  }
+
+  apply(
+    remoteSdp: SessionDescription,
+    codecPlan: Map<number, RTCRtpCodecParameters[]> = new Map(),
+  ): RemoteMediaPlan {
     const bundleGroups =
       this.sdp.bundlePolicy === "disable"
         ? []
@@ -87,7 +104,7 @@ export class RemoteMediaApplication {
       bundleGroups,
       preserveCurrentTransport,
     );
-    const accepted = this.accept(remoteSdp, entries, plan);
+    const accepted = this.accept(remoteSdp, entries, plan, codecPlan);
     this.planTransportUpdates(remoteSdp, entries, bundleGroups, accepted, plan);
     return plan;
   }
@@ -302,6 +319,7 @@ export class RemoteMediaApplication {
     remoteSdp: SessionDescription,
     entries: RemoteMediaEntry[],
     plan: RemoteMediaPlan,
+    codecPlan: Map<number, RTCRtpCodecParameters[]>,
   ) {
     const accepted = new Set<RemoteMediaEntry>();
     for (const entry of entries) {
@@ -314,6 +332,7 @@ export class RemoteMediaApplication {
               remoteMedia,
               remoteSdp.type,
               i,
+              codecPlan.get(i) ?? [],
             )
           ) {
             accepted.add(entry);

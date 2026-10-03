@@ -10,6 +10,8 @@ type TransceiverBaseline = {
   mid: string | null;
   mLineIndex?: number;
   codecs: RTCRtpTransceiver["codecs"];
+  pendingLocalOfferCodecs?: RTCRtpTransceiver["pendingLocalOfferCodecs"];
+  codecPreferencesNeedResolution: boolean;
   headerExtensions: RTCRtpTransceiver["headerExtensions"];
   offerDirection: RTCRtpTransceiver["offerDirection"];
   currentDirection: RTCRtpTransceiver["currentDirection"];
@@ -176,6 +178,11 @@ export class NegotiationTransaction {
             mid: transceiver.mid,
             mLineIndex: transceiver.mLineIndex,
             codecs: transceiver.codecs,
+            pendingLocalOfferCodecs: transceiver.pendingLocalOfferCodecs && [
+              ...transceiver.pendingLocalOfferCodecs,
+            ],
+            codecPreferencesNeedResolution:
+              transceiver.codecPreferencesNeedResolution,
             headerExtensions: transceiver.headerExtensions,
             offerDirection: transceiver.offerDirection,
             currentDirection: transceiver.currentDirection,
@@ -457,6 +464,10 @@ export class NegotiationTransaction {
       transceiver.mid = state.mid;
       transceiver.mLineIndex = state.mLineIndex;
       transceiver.codecs = state.codecs;
+      transceiver.pendingLocalOfferCodecs =
+        state.pendingLocalOfferCodecs && [...state.pendingLocalOfferCodecs];
+      transceiver.codecPreferencesNeedResolution =
+        state.codecPreferencesNeedResolution;
       transceiver.headerExtensions = state.headerExtensions;
       transceiver.offerDirection = state.offerDirection;
       transceiver.setCurrentDirection(state.currentDirection ?? undefined);
