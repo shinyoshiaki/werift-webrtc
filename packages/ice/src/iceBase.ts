@@ -260,8 +260,9 @@ export interface IceOptions {
   turnTransport?: "udp" | "tcp" | "tls";
   turnTlsOptions?: TlsConnectionOptions;
   /**
-   * IP family of the TURN/UDP socket when turnServer is a hostname.
-   * Defaults to 4. An IP literal turnServer uses its own family.
+   * Preferred IP family of the TURN/UDP socket, applied only when turnServer
+   * is a hostname. Ignored for an IP literal turnServer, whose own family
+   * always selects the socket. Defaults to 4.
    */
   turnUdpFamily?: 4 | 6;
   forceTurn?: boolean;
