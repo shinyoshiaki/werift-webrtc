@@ -22,6 +22,8 @@
 
 readonly \[`string`, `number`\]
 
+TURN server as configured; the host may be a hostname.
+
 ##### username
 
 `string`
@@ -146,6 +148,8 @@ sec
 
 > **server**: readonly \[`string`, `number`\]
 
+TURN server as configured; the host may be a hostname.
+
 ***
 
 ### transactions
@@ -183,6 +187,22 @@ sec
 ### type
 
 > `static` **type**: `string` = `"turn"`
+
+## Accessors
+
+### serverEndpoint
+
+#### Get Signature
+
+> **get** **serverEndpoint**(): `undefined` \| readonly \[`string`, `number`\]
+
+The concrete TURN server address, selected on the first request and
+pinned for the rest of the allocation, so a later DNS answer can never
+move REFRESH, CREATE_PERMISSION, CHANNEL_BIND or data to another server.
+
+##### Returns
+
+`undefined` \| readonly \[`string`, `number`\]
 
 ## Methods
 
