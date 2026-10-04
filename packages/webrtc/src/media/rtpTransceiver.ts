@@ -21,6 +21,11 @@ import {
 } from "./stats";
 import type { MediaStream, MediaStreamTrack } from "./track";
 
+/** A transceiver's negotiation state, for a rollback baseline. */
+export type TransceiverNegotiationState = ReturnType<
+  RTCRtpTransceiver["snapshotNegotiationState"]
+>;
+
 const applicationStops = new WeakMap<RTCRtpTransceiver, number>();
 
 /** Internal provenance used by negotiation rollback. */
@@ -149,6 +154,69 @@ export class RTCRtpTransceiver {
   setDtlsTransport(dtls: RTCDtlsTransport) {
     this.receiver.setDtlsTransport(dtls);
     this.sender.setDtlsTransport(dtls);
+  }
+
+  /**
+   * Internal: everything a negotiation may change on this transceiver, its
+   * sender and its receiver, for a rollback baseline. Codec preferences are an
+   * application choice and are not part of it.
+   */
+  snapshotNegotiationState() {
+    return {
+      mid: this.mid,
+      mLineIndex: this.mLineIndex,
+      codecs: this.codecs,
+      pendingLocalOfferCodecs: this.pendingLocalOfferCodecs && [
+        ...this.pendingLocalOfferCodecs,
+      ],
+      codecPreferencesNeedResolution: this.codecPreferencesNeedResolution,
+      headerExtensions: this.headerExtensions,
+      offerDirection: this.offerDirection,
+      currentDirection: this.currentDirection,
+      stopping: this.stopping,
+      stopped: this.stopped,
+      rejected: this.rejected,
+      pendingRejection: this.pendingRejection,
+      firedReceiving: this.firedReceiving,
+      applicationStopRevision: getApplicationStopRevision(this),
+      dtlsTransport: this.dtlsTransport,
+      sender: this.sender.snapshotSendParams(),
+      receiver: this.receiver.snapshotNegotiationState(),
+    };
+  }
+
+  /** Internal: return to a negotiation baseline taken by `snapshotNegotiationState`. */
+  restoreNegotiationState(state: TransceiverNegotiationState) {
+    this.mid = state.mid;
+    this.mLineIndex = state.mLineIndex;
+    this.codecs = state.codecs;
+    this.pendingLocalOfferCodecs = state.pendingLocalOfferCodecs && [
+      ...state.pendingLocalOfferCodecs,
+    ];
+    this.codecPreferencesNeedResolution = state.codecPreferencesNeedResolution;
+    this.headerExtensions = state.headerExtensions;
+    this.offerDirection = state.offerDirection;
+    this.setCurrentDirection(state.currentDirection ?? undefined);
+    // stop() is an application operation: one made during the rolled-back
+    // negotiation stays.
+    this.stopping =
+      state.stopping ||
+      getApplicationStopRevision(this) !== state.applicationStopRevision;
+    this.stopped = state.stopped;
+    this.rejected = state.rejected;
+    this.pendingRejection = state.pendingRejection;
+    this.firedReceiving = state.firedReceiving;
+    this.setDtlsTransport(state.dtlsTransport);
+    this.sender.restoreSendParams(state.sender);
+    this.receiver.restoreNegotiationState(state.receiver);
+  }
+
+  /**
+   * Internal: the application uses this transceiver (it attached a track or
+   * stopped it), so a rollback keeps it even if a remote offer created it.
+   */
+  get heldByApplication() {
+    return !!this.sender.track || getApplicationStopRevision(this) > 0;
   }
 
   get msid() {

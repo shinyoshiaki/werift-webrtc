@@ -345,7 +345,7 @@ public configuration and event types it re-exports.
 
 | Module | Responsibility |
 | --- | --- |
-| `negotiationTransaction.ts` | Baseline, checkpoints, commit and rollback of every reversible state |
+| `negotiationTransaction.ts` | Lifecycle of the baseline, checkpoints, commit and rollback; resources a proposal created (`ProposalResources`) |
 | `negotiation/descriptionValidation.ts` | Local / remote description checks before any mutation |
 | `negotiation/remoteMediaApplication.ts` | Remote m-lines: transceiver association, BUNDLE transport ownership, RTP / SCTP acceptance, planned transport updates |
 | `negotiation/bundleTopology.ts` | BUNDLE tags of every group, staged topology for local and remote offers, shared-transport checks |
@@ -354,6 +354,18 @@ public configuration and event types it re-exports.
 | `negotiation/negotiationNeeded.ts` | `negotiationneeded` coalescing and change sequence numbers |
 | `negotiation/iceRestartRequest.ts` | `restartIce()` request until a negotiation replaces the credentials |
 | `api/peerConfig.ts` / `api/peerConnectionEvents.ts` | Configuration types, defaults and validation; event types |
+
+Each component owns the snapshot of its own reversible state and the rule
+for restoring it; the transaction only composes them. A new piece of
+negotiation state is added to its component's pair, not to the transaction:
+
+| Component | Snapshot / restore | Kept across rollback |
+| --- | --- | --- |
+| `RTCRtpTransceiver` | `snapshotNegotiationState` / `restoreNegotiationState` (with its sender and receiver) | an application `stop()` made during the transaction |
+| `RTCRtpReceiver` | `snapshotNegotiationState` / `restoreNegotiationState` | SSRCs learned from RID packets whose track survives |
+| `TransceiverManager` | `snapshotNegotiationState` / `restoreNegotiationState` (order, track notification, removal of proposal-created transceivers) | transceivers the application uses (`heldByApplication`) |
+| `RtpRouter` | `snapshotRoutes` / `restoreRoutes` | packet-learned SSRC routes, every live sender's own route |
+| `SctpTransportManager` | `snapshotNegotiationState` / `restoreNegotiationState` | an application-created SCTP transport whose association never ran |
 
 ## Test coverage
 

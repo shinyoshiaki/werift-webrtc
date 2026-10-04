@@ -1,94 +1,100 @@
-import { SCTP_STATE } from "../../sctp/src";
-import type { RTCRtpTransceiver, RtpRouter, TransceiverManager } from "./media";
-import { getApplicationStopRevision } from "./media/rtpTransceiver";
-import type { SctpTransportManager } from "./sctpManager";
+import type {
+  RTCRtpTransceiver,
+  RouterSnapshot,
+  RtpRouter,
+  TransceiverManager,
+  TransceiversNegotiationState,
+} from "./media";
+import type { SctpNegotiationState, SctpTransportManager } from "./sctpManager";
 import type { SessionDescription } from "./sdp";
 import type { SDPManager } from "./sdpManager";
 import type { RTCDtlsTransport } from "./transport/dtls";
 
-type TransceiverBaseline = {
-  mid: string | null;
-  mLineIndex?: number;
-  codecs: RTCRtpTransceiver["codecs"];
-  pendingLocalOfferCodecs?: RTCRtpTransceiver["pendingLocalOfferCodecs"];
-  codecPreferencesNeedResolution: boolean;
-  headerExtensions: RTCRtpTransceiver["headerExtensions"];
-  offerDirection: RTCRtpTransceiver["offerDirection"];
-  currentDirection: RTCRtpTransceiver["currentDirection"];
-  stopping: boolean;
-  stopped: boolean;
-  rejected: boolean;
-  pendingRejection: boolean;
-  firedReceiving: boolean;
-  applicationStopRevision: number;
-  dtlsTransport: RTCDtlsTransport;
-  senderParams: ReturnType<RTCRtpTransceiver["sender"]["snapshotSendParams"]>;
-  receiverTWCC: RTCRtpTransceiver["receiver"]["receiverTWCC"];
-  remoteStreamIds: string[];
-  remoteStreamId?: string;
-  remoteTrackId?: string;
-  receiverTracks: RTCRtpTransceiver["receiver"]["tracks"];
-  receiverBySsrc: RTCRtpTransceiver["receiver"]["trackBySSRC"];
-  receiverByRid: RTCRtpTransceiver["receiver"]["trackByRID"];
-  receiveTables: ReturnType<
-    RTCRtpTransceiver["receiver"]["snapshotReceiveTables"]
-  >;
-  notifiedRemoteTrack: ReturnType<TransceiverManager["getNotifiedRemoteTrack"]>;
+/**
+ * The reversible state of a negotiation. Each component captures and restores
+ * its own part, so a new piece of state is added where it lives (its
+ * `snapshot*` / `restore*` pair), not here.
+ */
+type Baseline = {
+  transceivers: TransceiversNegotiationState;
+  routes: RouterSnapshot;
+  sctp: SctpNegotiationState;
 };
 
-type Baseline = {
-  orderedTransceivers: RTCRtpTransceiver[];
-  transceivers: Map<RTCRtpTransceiver, TransceiverBaseline>;
-  ssrcTable: RtpRouter["ssrcTable"];
-  ridTable: RtpRouter["ridTable"];
-  extIdUriMap: RtpRouter["extIdUriMap"];
-  stagedRoutes: ReturnType<RtpRouter["snapshotStaged"]>;
-  sctpTransport: SctpTransportManager["sctpTransport"];
-  sctpDtlsTransport?: RTCDtlsTransport;
-  sctpRemotePort?: number;
-  sctpMid?: string;
-  sctpMLineIndex?: number;
-  sctpRemoteMaxMessageSize?: number;
-};
+/**
+ * Resources a pending proposal created or prepared. They belong to the
+ * proposal: replacement and rollback drop them, a checkpoint copies them.
+ */
+class ProposalResources {
+  /** Transceivers a remote offer created. */
+  readonly remoteCreated = new Set<RTCRtpTransceiver>();
+  /** Transceivers whose m-line a remote offer recycled with a new MID. */
+  readonly displaced = new Set<RTCRtpTransceiver>();
+  /** Transport each MID uses under the proposal (BUNDLE topology). */
+  readonly prepared = new Map<string, RTCDtlsTransport>();
+  /** Prepared transports no live binding uses yet. */
+  readonly pendingOnly = new Set<RTCDtlsTransport>();
+  /** Transports a remote offer created to own a BUNDLE group or an m-line. */
+  readonly owners = new Set<RTCDtlsTransport>();
+  /** Pending-only transports whose candidates were already emitted. */
+  readonly emittedCandidates = new Set<string>();
+  /** The description the transports were prepared for. */
+  preparedFor?: SessionDescription;
+
+  /** Transports that only this proposal holds. */
+  get speculativeTransports() {
+    return [...this.pendingOnly, ...this.owners];
+  }
+
+  clear() {
+    this.assign(new ProposalResources());
+  }
+
+  copy() {
+    const copy = new ProposalResources();
+    copy.assign(this);
+    return copy;
+  }
+
+  assign(source: ProposalResources) {
+    replaceSet(this.remoteCreated, source.remoteCreated);
+    replaceSet(this.displaced, source.displaced);
+    replaceSet(this.pendingOnly, source.pendingOnly);
+    replaceSet(this.owners, source.owners);
+    replaceSet(this.emittedCandidates, source.emittedCandidates);
+    this.prepared.clear();
+    for (const [mid, transport] of source.prepared) {
+      this.prepared.set(mid, transport);
+    }
+    this.preparedFor = source.preparedFor;
+  }
+}
 
 export type NegotiationCheckpoint = {
   state: Baseline;
-  remoteCreated: Set<RTCRtpTransceiver>;
-  displaced: Set<RTCRtpTransceiver>;
-  pendingOnly: Set<RTCDtlsTransport>;
-  owners: Set<RTCDtlsTransport>;
-  prepared: Map<string, RTCDtlsTransport>;
-  emitted: Set<string>;
-  preparedFor?: SessionDescription;
+  resources: ProposalResources;
 };
 
-function replaceSet<T>(target: Set<T>, source: Set<T>) {
+function replaceSet<T>(target: Set<T>, source: Iterable<T>) {
+  const values = [...source];
   target.clear();
-  for (const value of source) target.add(value);
+  for (const value of values) target.add(value);
 }
+
+/** Remote ufrags of retired generations kept to reject late callbacks. */
+const RETIRED_UFRAG_HISTORY = 64;
 
 /** One owner for the reversible metadata of a PeerConnection negotiation. */
 export class NegotiationTransaction {
   private baseline?: Baseline;
   private offerSnapshot?: Baseline;
-  private readonly remoteCreated = new Set<RTCRtpTransceiver>();
-  /** Transceivers whose m-line a remote offer recycled with a new MID. */
-  private readonly displaced = new Set<RTCRtpTransceiver>();
-  private readonly preparedTransports = new Map<string, RTCDtlsTransport>();
-  private readonly pendingOnlyTransports = new Set<RTCDtlsTransport>();
-  private readonly emittedPendingCandidates = new Set<string>();
-  private preparedFor?: SessionDescription;
+  private readonly resources = new ProposalResources();
   private readonly retiredRemoteUfrags = new Set<string>();
   /**
    * Transports created since the last commit. One that no binding holds at
    * commit (e.g. a data channel's own transport that BUNDLE replaced) stops.
    */
   private readonly createdTransports = new Set<RTCDtlsTransport>();
-  /**
-   * Transports a remote offer created to own a BUNDLE group or an m-line
-   * outside it. Rollback stops those no restored owner uses.
-   */
-  private readonly ownerTransports = new Set<RTCDtlsTransport>();
   private revision = 0;
   private phase:
     | "idle"
@@ -104,6 +110,8 @@ export class NegotiationTransaction {
     private readonly sctp: SctpTransportManager,
   ) {}
 
+  // # lifecycle
+
   /**
    * `createOffer` in stable records the baseline it would roll back to, but
    * does not open a transaction: nothing is pending until the offer is set.
@@ -118,10 +126,11 @@ export class NegotiationTransaction {
     // Earlier createOffer calls were not applied: keep the state from before
     // the first of them (their MIDs and m-line indexes are not negotiated),
     // and only add transceivers the application created since.
-    for (const [transceiver, state] of fresh.transceivers) {
-      if (!this.offerSnapshot.transceivers.has(transceiver)) {
-        this.offerSnapshot.transceivers.set(transceiver, state);
-        this.offerSnapshot.orderedTransceivers.push(transceiver);
+    const { order, states } = this.offerSnapshot.transceivers;
+    for (const [transceiver, state] of fresh.transceivers.states) {
+      if (!states.has(transceiver)) {
+        states.set(transceiver, state);
+        order.push(transceiver);
       }
     }
   }
@@ -133,7 +142,12 @@ export class NegotiationTransaction {
    */
   begin({ fromCreatedOffer = false }: { fromCreatedOffer?: boolean } = {}) {
     if (!this.baseline && !fromCreatedOffer && this.offerSnapshot) {
-      this.revertUnappliedOffer(this.offerSnapshot);
+      // When a remote offer opens the transaction instead, what an unapplied
+      // createOffer associated goes back first.
+      this.transceivers.revertUnappliedAssociations(
+        this.offerSnapshot.transceivers,
+      );
+      this.sctp.revertUnappliedAssociation(this.offerSnapshot.sctp);
     }
     if (!this.baseline) {
       this.baseline =
@@ -143,89 +157,6 @@ export class NegotiationTransaction {
     this.revision++;
     this.phase = "pending";
     return this.revision;
-  }
-
-  /**
-   * A created offer that was never applied must not leave its MID and m-line
-   * assignments behind (W3C associates a MID only when a description is
-   * set). When a remote offer opens the transaction instead, transceivers the
-   * session never negotiated go back to the snapshot createOffer took.
-   */
-  private revertUnappliedOffer(snapshot: Baseline) {
-    for (const [transceiver, state] of snapshot.transceivers) {
-      if (transceiver.currentDirection || transceiver.stopped) continue;
-      transceiver.mid = state.mid;
-      transceiver.mLineIndex = state.mLineIndex;
-    }
-    const sctp = this.sctp.sctpTransport;
-    if (
-      sctp &&
-      sctp === snapshot.sctpTransport &&
-      this.sctp.sctpRemotePort === undefined
-    ) {
-      sctp.mid = snapshot.sctpMid;
-      sctp.mLineIndex = snapshot.sctpMLineIndex;
-    }
-  }
-
-  private capture(): Baseline {
-    return {
-      orderedTransceivers: [...this.transceivers.getTransceivers()],
-      transceivers: new Map(
-        this.transceivers.getTransceivers().map((transceiver) => [
-          transceiver,
-          {
-            mid: transceiver.mid,
-            mLineIndex: transceiver.mLineIndex,
-            codecs: transceiver.codecs,
-            pendingLocalOfferCodecs: transceiver.pendingLocalOfferCodecs && [
-              ...transceiver.pendingLocalOfferCodecs,
-            ],
-            codecPreferencesNeedResolution:
-              transceiver.codecPreferencesNeedResolution,
-            headerExtensions: transceiver.headerExtensions,
-            offerDirection: transceiver.offerDirection,
-            currentDirection: transceiver.currentDirection,
-            stopping: transceiver.stopping,
-            stopped: transceiver.stopped,
-            rejected: transceiver.rejected,
-            pendingRejection: transceiver.pendingRejection,
-            firedReceiving: transceiver.firedReceiving,
-            applicationStopRevision: getApplicationStopRevision(transceiver),
-            dtlsTransport: transceiver.dtlsTransport,
-            senderParams: transceiver.sender.snapshotSendParams(),
-            receiverTWCC: transceiver.receiver.receiverTWCC,
-            remoteStreamIds: [...transceiver.receiver.remoteStreamIds],
-            remoteStreamId: transceiver.receiver.remoteStreamId,
-            remoteTrackId: transceiver.receiver.remoteTrackId,
-            receiverTracks: [...transceiver.receiver.tracks],
-            receiverBySsrc: { ...transceiver.receiver.trackBySSRC },
-            receiverByRid: { ...transceiver.receiver.trackByRID },
-            receiveTables: transceiver.receiver.snapshotReceiveTables(),
-            notifiedRemoteTrack:
-              this.transceivers.getNotifiedRemoteTrack(transceiver),
-          },
-        ]),
-      ),
-      ssrcTable: { ...this.router.ssrcTable },
-      ridTable: { ...this.router.ridTable },
-      extIdUriMap: { ...this.router.extIdUriMap },
-      stagedRoutes: this.router.snapshotStaged(),
-      sctpTransport: this.sctp.sctpTransport,
-      sctpDtlsTransport: this.sctp.sctpTransport?.dtlsTransport,
-      sctpRemotePort: this.sctp.sctpRemotePort,
-      sctpMid: this.sctp.sctpTransport?.mid,
-      sctpMLineIndex: this.sctp.sctpTransport?.mLineIndex,
-      sctpRemoteMaxMessageSize: this.sctp.sctpTransport?.remoteMaxMessageSize,
-    };
-  }
-
-  noteCreatedTransport(transport: RTCDtlsTransport) {
-    this.createdTransports.add(transport);
-    // A stopped transport needs no cleanup; do not keep referencing it.
-    transport.onStateChange.subscribe((state) => {
-      if (state === "closed") this.createdTransports.delete(transport);
-    });
   }
 
   /** A description was applied without committing: the proposal is pending. */
@@ -241,38 +172,139 @@ export class NegotiationTransaction {
     this.phase = "preparing";
   }
 
+  async commit() {
+    this.phase = "committing";
+    // Routes and decode entries a pending proposal could not take from the
+    // current session switch now, together with the descriptions.
+    this.router.commitStaged();
+    for (const transceiver of this.transceivers.getTransceivers()) {
+      transceiver.receiver.commitStagedReceive();
+    }
+    // The recycling offer is final: the displaced transceiver stops for good.
+    for (const transceiver of this.resources.displaced) {
+      if (!transceiver.stopped) continue;
+      transceiver.setCurrentDirection("stopped");
+      transceiver.receiver.stop();
+      transceiver.sender.stop();
+    }
+    // Every transport the previous session or this transaction used is a
+    // candidate; those no live binding holds after the commit stop.
+    const candidates = new Set(this.createdTransports);
+    for (const { transceiver } of this.baseline?.transceivers.states.values() ??
+      []) {
+      candidates.add(transceiver.dtlsTransport);
+    }
+    if (this.baseline?.sctp.dtlsTransport) {
+      candidates.add(this.baseline.sctp.dtlsTransport);
+    }
+    this.createdTransports.clear();
+    this.cleanup();
+    const inUse = this.transportsInUse({ includeStopped: false });
+    await Promise.all(
+      [...candidates]
+        .filter((transport) => !inUse.has(transport))
+        .map((transport) => transport.stop()),
+    );
+  }
+
+  /** A replacement proposal: back to the baseline, which stays for the new one. */
+  async replace() {
+    if (!this.baseline) return;
+    await this.restoreState(
+      this.baseline,
+      this.resources.remoteCreated,
+      this.resources.speculativeTransports,
+    );
+    this.resources.clear();
+    this.revision++;
+    this.phase = "pending";
+  }
+
+  async rollback() {
+    if (!this.baseline) return;
+    await this.restoreState(
+      this.baseline,
+      this.resources.remoteCreated,
+      this.resources.speculativeTransports,
+    );
+    this.cleanup();
+  }
+
+  /**
+   * Record the state before one description operation mutates anything, so a
+   * failure inside that operation can undo exactly its own changes.
+   */
+  checkpoint(): NegotiationCheckpoint {
+    return { state: this.capture(), resources: this.resources.copy() };
+  }
+
+  /** Undo one failed description operation back to its checkpoint. */
+  async restoreCheckpoint(checkpoint: NegotiationCheckpoint) {
+    const before = checkpoint.resources;
+    const kept = new Set(before.speculativeTransports);
+    await this.restoreState(
+      checkpoint.state,
+      [...this.resources.remoteCreated].filter(
+        (transceiver) => !before.remoteCreated.has(transceiver),
+      ),
+      this.resources.speculativeTransports.filter(
+        (transport) => !kept.has(transport),
+      ),
+    );
+    this.resources.assign(before);
+    this.phase = "pending";
+  }
+
+  /** PeerConnection close: drop every reference the transaction holds. */
+  dispose() {
+    this.createdTransports.clear();
+    this.offerSnapshot = undefined;
+    this.cleanup();
+  }
+
+  // # proposal resources
+
+  noteCreatedTransport(transport: RTCDtlsTransport) {
+    this.createdTransports.add(transport);
+    // A stopped transport needs no cleanup; do not keep referencing it.
+    transport.onStateChange.subscribe((state) => {
+      if (state === "closed") this.createdTransports.delete(transport);
+    });
+  }
+
   rememberRemoteTransceiver(transceiver: RTCRtpTransceiver) {
-    this.remoteCreated.add(transceiver);
+    this.resources.remoteCreated.add(transceiver);
   }
 
   rememberOwnerTransport(transport: RTCDtlsTransport) {
-    this.ownerTransports.add(transport);
+    this.resources.owners.add(transport);
   }
 
   rememberDisplacedTransceiver(transceiver: RTCRtpTransceiver) {
-    this.displaced.add(transceiver);
+    this.resources.displaced.add(transceiver);
   }
 
   get preparedDescription() {
-    return this.preparedFor;
+    return this.resources.preparedFor;
   }
 
   get transportByMid() {
-    return this.preparedTransports;
+    return this.resources.prepared;
   }
 
   isPendingOnlyTransport(iceTransportId: string) {
-    return [...this.pendingOnlyTransports].some(
+    return [...this.resources.pendingOnly].some(
       (transport) => transport.iceTransport.id === iceTransportId,
     );
   }
 
   takePreparedCandidateTransports() {
-    const transports = [...this.pendingOnlyTransports].filter(
-      (transport) => !this.emittedPendingCandidates.has(transport.id),
+    const { pendingOnly, emittedCandidates } = this.resources;
+    const transports = [...pendingOnly].filter(
+      (transport) => !emittedCandidates.has(transport.id),
     );
     for (const transport of transports) {
-      this.emittedPendingCandidates.add(transport.id);
+      emittedCandidates.add(transport.id);
     }
     return transports;
   }
@@ -283,80 +315,19 @@ export class NegotiationTransaction {
     transport: RTCDtlsTransport,
     pendingOnly = false,
   ) {
-    this.preparedFor = description;
-    this.preparedTransports.set(mid, transport);
-    if (pendingOnly) this.pendingOnlyTransports.add(transport);
+    this.resources.preparedFor = description;
+    this.resources.prepared.set(mid, transport);
+    if (pendingOnly) this.resources.pendingOnly.add(transport);
   }
 
   async discardPreparedTransports() {
-    const pendingOnly = [...this.pendingOnlyTransports];
-    this.preparedTransports.clear();
-    this.pendingOnlyTransports.clear();
-    this.emittedPendingCandidates.clear();
-    this.preparedFor = undefined;
-    await Promise.allSettled(pendingOnly.map((transport) => transport.stop()));
-  }
-
-  retireRemoteGeneration(description?: SessionDescription) {
-    for (const media of description?.media ?? []) {
-      const ufrag = media.iceParams?.usernameFragment;
-      if (ufrag) this.retiredRemoteUfrags.add(ufrag);
-    }
-    // A bounded history covers late callbacks without retaining every past
-    // negotiation for the lifetime of a long-running peer.
-    while (this.retiredRemoteUfrags.size > 64) {
-      this.retiredRemoteUfrags.delete(
-        this.retiredRemoteUfrags.values().next().value!,
-      );
-    }
-  }
-
-  isRetiredRemoteUfrag(ufrag?: string | null) {
-    return !!ufrag && this.retiredRemoteUfrags.has(ufrag);
-  }
-
-  async commit() {
-    this.phase = "committing";
-    // Routes and decode entries a pending proposal could not take from the
-    // current session switch now, together with the descriptions.
-    this.router.commitStaged();
-    for (const transceiver of this.transceivers.getTransceivers()) {
-      transceiver.receiver.commitStagedReceive();
-    }
-    // The recycling offer is final: the displaced transceiver stops for good.
-    for (const transceiver of this.displaced) {
-      if (!transceiver.stopped) continue;
-      transceiver.setCurrentDirection("stopped");
-      transceiver.receiver.stop();
-      transceiver.sender.stop();
-    }
-    const oldTransports = new Set(
-      [...(this.baseline?.transceivers.values() ?? [])].map(
-        (state) => state.dtlsTransport,
-      ),
-    );
-    if (this.baseline?.sctpDtlsTransport) {
-      oldTransports.add(this.baseline.sctpDtlsTransport);
-    }
-    for (const transport of this.createdTransports) {
-      oldTransports.add(transport);
-    }
-    this.createdTransports.clear();
-    this.cleanup();
-    const inUse = new Set(
-      this.transceivers
-        .getTransceivers()
-        .filter((transceiver) => !transceiver.stopped)
-        .map((transceiver) => transceiver.dtlsTransport),
-    );
-    if (this.sctp.sctpTransport?.dtlsTransport) {
-      inUse.add(this.sctp.sctpTransport.dtlsTransport);
-    }
-    await Promise.all(
-      [...oldTransports]
-        .filter((transport) => !inUse.has(transport))
-        .map((transport) => transport.stop()),
-    );
+    const { prepared, pendingOnly, emittedCandidates } = this.resources;
+    const stopping = [...pendingOnly];
+    prepared.clear();
+    pendingOnly.clear();
+    emittedCandidates.clear();
+    this.resources.preparedFor = undefined;
+    await Promise.allSettled(stopping.map((transport) => transport.stop()));
   }
 
   /**
@@ -372,265 +343,81 @@ export class NegotiationTransaction {
     }
   }
 
-  async replace() {
-    await this.restore(true);
-  }
+  // # retired ICE generations
 
-  async rollback() {
-    await this.restore(false);
-  }
-
-  private async restore(keepBaseline: boolean) {
-    const baseline = this.baseline;
-    if (!baseline) return;
-
-    await this.restoreState(
-      baseline,
-      this.remoteCreated,
-      new Set([...this.pendingOnlyTransports, ...this.ownerTransports]),
-    );
-    if (keepBaseline) {
-      this.remoteCreated.clear();
-      this.displaced.clear();
-      this.ownerTransports.clear();
-      this.preparedTransports.clear();
-      this.pendingOnlyTransports.clear();
-      this.emittedPendingCandidates.clear();
-      this.preparedFor = undefined;
-      this.revision++;
-      this.phase = "pending";
-    } else {
-      this.cleanup();
+  retireRemoteGeneration(description?: SessionDescription) {
+    for (const media of description?.media ?? []) {
+      const ufrag = media.iceParams?.usernameFragment;
+      if (ufrag) this.retiredRemoteUfrags.add(ufrag);
+    }
+    // A bounded history covers late callbacks without retaining every past
+    // negotiation for the lifetime of a long-running peer.
+    while (this.retiredRemoteUfrags.size > RETIRED_UFRAG_HISTORY) {
+      this.retiredRemoteUfrags.delete(
+        this.retiredRemoteUfrags.values().next().value!,
+      );
     }
   }
 
-  /**
-   * Record the state before one description operation mutates anything, so a
-   * failure inside that operation can undo exactly its own changes.
-   */
-  checkpoint(): NegotiationCheckpoint {
+  isRetiredRemoteUfrag(ufrag?: string | null) {
+    return !!ufrag && this.retiredRemoteUfrags.has(ufrag);
+  }
+
+  // # state capture and restore
+
+  private capture(): Baseline {
     return {
-      state: this.capture(),
-      remoteCreated: new Set(this.remoteCreated),
-      displaced: new Set(this.displaced),
-      pendingOnly: new Set(this.pendingOnlyTransports),
-      owners: new Set(this.ownerTransports),
-      prepared: new Map(this.preparedTransports),
-      emitted: new Set(this.emittedPendingCandidates),
-      preparedFor: this.preparedFor,
+      transceivers: this.transceivers.snapshotNegotiationState(),
+      routes: this.router.snapshotRoutes(),
+      sctp: this.sctp.snapshotNegotiationState(),
     };
-  }
-
-  /** Undo one failed description operation back to its checkpoint. */
-  async restoreCheckpoint(checkpoint: NegotiationCheckpoint) {
-    await this.restoreState(
-      checkpoint.state,
-      new Set(
-        [...this.remoteCreated].filter(
-          (transceiver) => !checkpoint.remoteCreated.has(transceiver),
-        ),
-      ),
-      new Set(
-        [...this.pendingOnlyTransports, ...this.ownerTransports].filter(
-          (transport) =>
-            !checkpoint.pendingOnly.has(transport) &&
-            !checkpoint.owners.has(transport),
-        ),
-      ),
-    );
-    replaceSet(this.remoteCreated, checkpoint.remoteCreated);
-    replaceSet(this.displaced, checkpoint.displaced);
-    replaceSet(this.pendingOnlyTransports, checkpoint.pendingOnly);
-    replaceSet(this.ownerTransports, checkpoint.owners);
-    replaceSet(this.emittedPendingCandidates, checkpoint.emitted);
-    this.preparedTransports.clear();
-    for (const [mid, transport] of checkpoint.prepared) {
-      this.preparedTransports.set(mid, transport);
-    }
-    this.preparedFor = checkpoint.preparedFor;
-    this.phase = "pending";
   }
 
   /**
    * Put transceivers, routes and SCTP back to `baseline`. Transceivers in
-   * `removable` and transports in `orphanCandidates` were added after it.
+   * `added` and transports in `speculative` were created after it; those no
+   * restored owner uses stop.
    */
   private async restoreState(
     baseline: Baseline,
-    removable: Set<RTCRtpTransceiver>,
-    orphanCandidates: Set<RTCDtlsTransport>,
+    added: Iterable<RTCRtpTransceiver>,
+    speculative: Iterable<RTCDtlsTransport>,
   ) {
-    for (const [transceiver, state] of baseline.transceivers) {
-      transceiver.mid = state.mid;
-      transceiver.mLineIndex = state.mLineIndex;
-      transceiver.codecs = state.codecs;
-      transceiver.pendingLocalOfferCodecs = state.pendingLocalOfferCodecs && [
-        ...state.pendingLocalOfferCodecs,
-      ];
-      transceiver.codecPreferencesNeedResolution =
-        state.codecPreferencesNeedResolution;
-      transceiver.headerExtensions = state.headerExtensions;
-      transceiver.offerDirection = state.offerDirection;
-      transceiver.setCurrentDirection(state.currentDirection ?? undefined);
-      transceiver.stopping =
-        state.stopping ||
-        getApplicationStopRevision(transceiver) !==
-          state.applicationStopRevision;
-      transceiver.stopped = state.stopped;
-      transceiver.rejected = state.rejected;
-      transceiver.pendingRejection = state.pendingRejection;
-      transceiver.firedReceiving = state.firedReceiving;
-      transceiver.setDtlsTransport(state.dtlsTransport);
-      transceiver.sender.restoreSendParams(state.senderParams);
-      // Transport-cc feedback a pending description started for this
-      // receiver stops; the current session's feedback (if any) remains.
-      const receiver = transceiver.receiver;
-      if (receiver.receiverTWCC !== state.receiverTWCC) {
-        if (receiver.receiverTWCC) receiver.receiverTWCC.twccRunning = false;
-        receiver.receiverTWCC = state.receiverTWCC;
-      }
-      transceiver.receiver.remoteStreamIds = state.remoteStreamIds;
-      transceiver.receiver.remoteStreamId = state.remoteStreamId;
-      transceiver.receiver.remoteTrackId = state.remoteTrackId;
-      transceiver.receiver.tracks.splice(
-        0,
-        transceiver.receiver.tracks.length,
-        ...state.receiverTracks,
-      );
-      // SSRCs learned from RID packets are live state, not SDP: keep those
-      // whose track survives the rollback.
-      const learnedTracks = Object.entries(
-        transceiver.receiver.trackBySSRC,
-      ).filter(
-        ([ssrc, track]) =>
-          transceiver.receiver.learnedTrackSsrcs.has(Number(ssrc)) &&
-          !(ssrc in state.receiverBySsrc) &&
-          state.receiverTracks.includes(track),
-      );
-      for (const ssrc of Object.keys(transceiver.receiver.trackBySSRC)) {
-        delete transceiver.receiver.trackBySSRC[ssrc];
-      }
-      Object.assign(transceiver.receiver.trackBySSRC, state.receiverBySsrc);
-      for (const [ssrc, track] of learnedTracks) {
-        transceiver.receiver.trackBySSRC[ssrc] = track;
-      }
-      for (const rid of Object.keys(transceiver.receiver.trackByRID)) {
-        delete transceiver.receiver.trackByRID[rid];
-      }
-      Object.assign(transceiver.receiver.trackByRID, state.receiverByRid);
-      this.transceivers.restoreNotifiedRemoteTrack(
-        transceiver,
-        state.notifiedRemoteTrack,
-      );
-      // Codec/RTX tables added or changed by a pending description are
-      // dropped; current RTP is decoded exactly as before the transaction.
-      transceiver.receiver.restoreReceiveTables(state.receiveTables);
-    }
-
-    const orphanTransports = new Set<RTCDtlsTransport>(orphanCandidates);
-    for (const transceiver of removable) {
-      if (
-        transceiver.sender.track ||
-        getApplicationStopRevision(transceiver) > 0
-      ) {
-        transceiver.mid = null;
-        transceiver.mLineIndex = undefined;
-        continue;
-      }
-      orphanTransports.add(transceiver.dtlsTransport);
-      this.transceivers.removeRemoteTransceiver(transceiver);
-    }
-    this.transceivers.restoreTransceiverOrder(baseline.orderedTransceivers);
-    // Packet-learned SSRC routes stay when their receiver is still attached.
-    const endpoints = new Set<unknown>(
-      this.transceivers
-        .getTransceivers()
-        .flatMap((transceiver) => [transceiver.sender, transceiver.receiver]),
+    const removedTransports = this.transceivers.restoreNegotiationState(
+      baseline.transceivers,
+      added,
     );
-    const learnedRoutes = Object.entries(this.router.ssrcTable).filter(
-      ([ssrc, endpoint]) =>
-        this.router.learnedSsrcs.has(Number(ssrc)) &&
-        !(ssrc in baseline.ssrcTable) &&
-        endpoints.has(endpoint),
-    );
-    this.router.ssrcTable = { ...baseline.ssrcTable };
-    for (const [ssrc, endpoint] of learnedRoutes) {
-      this.router.ssrcTable[Number(ssrc)] = endpoint;
-    }
-    // A sender's own SSRC route is application state (addTransceiver), not
-    // description state: every live sender that survives keeps it, including
-    // one the application added while the description was pending.
-    for (const transceiver of this.transceivers.getTransceivers()) {
-      if (transceiver.stopped || transceiver.stopping) continue;
-      if (!(transceiver.sender.ssrc in this.router.ssrcTable)) {
-        this.router.registerRtpSender(transceiver.sender);
-      }
-    }
-    this.router.ridTable = { ...baseline.ridTable };
-    this.router.extIdUriMap = { ...baseline.extIdUriMap };
-    this.router.restoreStaged(baseline.stagedRoutes);
+    const live = this.transceivers.getTransceivers();
+    this.router.restoreRoutes(baseline.routes, {
+      endpoints: new Set(live.flatMap((t) => [t.sender, t.receiver])),
+      liveSenders: live
+        .filter((t) => !t.stopped && !t.stopping)
+        .map((t) => t.sender),
+    });
+    await this.sctp.restoreNegotiationState(baseline.sctp);
 
-    const added =
-      this.sctp.sctpTransport !== baseline.sctpTransport
-        ? this.sctp.sctpTransport
-        : undefined;
-    // createDataChannel is an application operation: its SCTP transport
-    // survives rollback, unbound from the rolled-back m-line, so the next
-    // offer carries m=application again. An association that already ran
-    // under the pending description is description state and is torn down.
-    const keepAdded =
-      !!added &&
-      this.sctp.isApplicationOwned(added) &&
-      added.sctp.associationState === SCTP_STATE.CLOSED;
-    if (added && !keepAdded) {
-      await added.stop();
-    }
-    this.sctp.sctpTransport = keepAdded ? added : baseline.sctpTransport;
-    if (
-      baseline.sctpTransport &&
-      baseline.sctpDtlsTransport &&
-      baseline.sctpTransport.dtlsTransport !== baseline.sctpDtlsTransport
-    ) {
-      baseline.sctpTransport.setDtlsTransport(baseline.sctpDtlsTransport);
-    }
-    if (added && keepAdded) this.sctp.detachFromDescription(added);
-    this.sctp.sctpRemotePort = baseline.sctpRemotePort;
-    if (baseline.sctpTransport) {
-      baseline.sctpTransport.mid = baseline.sctpMid;
-      baseline.sctpTransport.mLineIndex = baseline.sctpMLineIndex;
-      if (baseline.sctpRemoteMaxMessageSize !== undefined) {
-        baseline.sctpTransport.remoteMaxMessageSize =
-          baseline.sctpRemoteMaxMessageSize;
-      }
-    }
-
-    const inUse = new Set(
-      this.transceivers.getTransceivers().map((t) => t.dtlsTransport),
-    );
-    if (this.sctp.sctpTransport?.dtlsTransport) {
-      inUse.add(this.sctp.sctpTransport.dtlsTransport);
-    }
-    for (const transport of orphanTransports) {
+    const inUse = this.transportsInUse({ includeStopped: true });
+    for (const transport of new Set([...speculative, ...removedTransports])) {
       if (!inUse.has(transport)) await transport.stop();
     }
   }
 
-  /** PeerConnection close: drop every reference the transaction holds. */
-  dispose() {
-    this.createdTransports.clear();
-    this.offerSnapshot = undefined;
-    this.cleanup();
+  /** Transports a transceiver (optionally a stopped one) or SCTP is bound to. */
+  private transportsInUse({ includeStopped }: { includeStopped: boolean }) {
+    const inUse = new Set(
+      this.transceivers
+        .getTransceivers()
+        .filter((transceiver) => includeStopped || !transceiver.stopped)
+        .map((transceiver) => transceiver.dtlsTransport),
+    );
+    const sctp = this.sctp.sctpTransport?.dtlsTransport;
+    if (sctp) inUse.add(sctp);
+    return inUse;
   }
 
   private cleanup() {
     this.baseline = undefined;
-    this.remoteCreated.clear();
-    this.displaced.clear();
-    this.ownerTransports.clear();
-    this.preparedTransports.clear();
-    this.pendingOnlyTransports.clear();
-    this.emittedPendingCandidates.clear();
-    this.preparedFor = undefined;
+    this.resources.clear();
     this.phase = "idle";
   }
 
@@ -643,9 +430,9 @@ export class NegotiationTransaction {
       currentRemote: this.sdp.currentRemoteDescription,
       pendingLocal: this.sdp.pendingLocalDescription,
       pendingRemote: this.sdp.pendingRemoteDescription,
-      baselineTransceivers: this.baseline?.transceivers.size ?? 0,
-      remoteCreated: this.remoteCreated.size,
-      pendingTransports: this.pendingOnlyTransports.size,
+      baselineTransceivers: this.baseline?.transceivers.states.size ?? 0,
+      remoteCreated: this.resources.remoteCreated.size,
+      pendingTransports: this.resources.pendingOnly.size,
       createdTransports: [...this.createdTransports],
       hasOfferSnapshot: !!this.offerSnapshot,
     };

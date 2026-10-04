@@ -465,6 +465,70 @@ until the transaction commits, and rollback drops the staged value.
 
 ***
 
+### restoreNegotiationState()
+
+> **restoreNegotiationState**(`state`): `void`
+
+Internal: return to a negotiation baseline taken by `snapshotNegotiationState`.
+
+#### Parameters
+
+##### state
+
+###### receiverTWCC
+
+`undefined` \| `ReceiverTWCC` = `...`
+
+###### receiveTables
+
+\{ `codecs`: \{\}; `ssrcByRtx`: \{\}; `stagedCodecs`: \{\}; `stagedSsrcByRtx`: \{\}; \} = `...`
+
+###### receiveTables.codecs
+
+\{\} = `...`
+
+###### receiveTables.ssrcByRtx
+
+\{\} = `...`
+
+###### receiveTables.stagedCodecs
+
+\{\} = `...`
+
+###### receiveTables.stagedSsrcByRtx
+
+\{\} = `...`
+
+###### remoteStreamId
+
+`undefined` \| `string` = `...`
+
+###### remoteStreamIds
+
+`string`[] = `...`
+
+###### remoteTrackId
+
+`undefined` \| `string` = `...`
+
+###### trackByRID
+
+\{\} = `...`
+
+###### trackBySSRC
+
+\{\} = `...`
+
+###### tracks
+
+[`MediaStreamTrack`](MediaStreamTrack.md)[] = `...`
+
+#### Returns
+
+`void`
+
+***
+
 ### restoreReceiveTables()
 
 > **restoreReceiveTables**(`snapshot`): `void`
@@ -578,6 +642,92 @@ setup TWCC if supported
 #### Returns
 
 `void`
+
+***
+
+### snapshotNegotiationState()
+
+> **snapshotNegotiationState**(): `object`
+
+Internal: everything a negotiation may change on this receiver, for a
+rollback baseline. Packet-driven runtime (statistics, NACK, RTCP) is not
+part of it.
+
+#### Returns
+
+`object`
+
+##### receiverTWCC
+
+> **receiverTWCC**: `undefined` \| `ReceiverTWCC`
+
+##### receiveTables
+
+> **receiveTables**: `object`
+
+###### receiveTables.codecs
+
+> **codecs**: `object`
+
+###### Index Signature
+
+\[`key`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+###### receiveTables.ssrcByRtx
+
+> **ssrcByRtx**: `object`
+
+###### Index Signature
+
+\[`key`: `number`\]: `number`
+
+###### receiveTables.stagedCodecs
+
+> **stagedCodecs**: `object`
+
+###### Index Signature
+
+\[`key`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+###### receiveTables.stagedSsrcByRtx
+
+> **stagedSsrcByRtx**: `object`
+
+###### Index Signature
+
+\[`key`: `number`\]: `number`
+
+##### remoteStreamId
+
+> **remoteStreamId**: `undefined` \| `string`
+
+##### remoteStreamIds
+
+> **remoteStreamIds**: `string`[]
+
+##### remoteTrackId
+
+> **remoteTrackId**: `undefined` \| `string`
+
+##### trackByRID
+
+> **trackByRID**: `object`
+
+###### Index Signature
+
+\[`key`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
+
+##### trackBySSRC
+
+> **trackBySSRC**: `object`
+
+###### Index Signature
+
+\[`key`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
+
+##### tracks
+
+> **tracks**: [`MediaStreamTrack`](MediaStreamTrack.md)[]
 
 ***
 

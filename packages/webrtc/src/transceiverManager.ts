@@ -18,6 +18,7 @@ import {
   type RtpRouter,
   Sendonly,
   Sendrecv,
+  type TransceiverNegotiationState,
   type TransceiverOptions,
 } from "./media";
 import {
@@ -68,6 +69,18 @@ export function negotiateRemoteCodecs(
   });
 }
 
+/** The transceivers of a PeerConnection and their negotiation state. */
+export type TransceiversNegotiationState = {
+  order: RTCRtpTransceiver[];
+  states: Map<
+    RTCRtpTransceiver,
+    {
+      transceiver: TransceiverNegotiationState;
+      notifiedRemoteTrack?: { track: MediaStreamTrack; streams: string[] };
+    }
+  >;
+};
+
 function simulcastFromSendEncodings(
   encodings: RTCRtpEncodingParameters[] | undefined,
 ): TransceiverOptions["simulcast"] | undefined {
@@ -91,17 +104,75 @@ export class TransceiverManager {
   >();
   private readonly watched = new WeakSet<RTCRtpTransceiver>();
 
-  getNotifiedRemoteTrack(transceiver: RTCRtpTransceiver) {
+  private getNotifiedRemoteTrack(transceiver: RTCRtpTransceiver) {
     const state = this.notifiedRemoteTrack.get(transceiver);
     return state && { track: state.track, streams: [...state.streams] };
   }
 
-  restoreNotifiedRemoteTrack(
+  private restoreNotifiedRemoteTrack(
     transceiver: RTCRtpTransceiver,
     state: ReturnType<TransceiverManager["getNotifiedRemoteTrack"]>,
   ) {
     if (state) this.notifiedRemoteTrack.set(transceiver, state);
     else this.notifiedRemoteTrack.delete(transceiver);
+  }
+
+  /** Internal: the transceivers, their order and negotiation state, for a rollback baseline. */
+  snapshotNegotiationState(): TransceiversNegotiationState {
+    return {
+      order: [...this.transceivers],
+      states: new Map(
+        this.transceivers.map((transceiver) => [
+          transceiver,
+          {
+            transceiver: transceiver.snapshotNegotiationState(),
+            notifiedRemoteTrack: this.getNotifiedRemoteTrack(transceiver),
+          },
+        ]),
+      ),
+    };
+  }
+
+  /**
+   * Internal: return to a negotiation baseline. Transceivers in `added` were
+   * created by the rolled-back proposal: they are removed unless the
+   * application uses them, in which case only their m-line association goes.
+   * @returns transports of the removed transceivers (the caller stops unused ones)
+   */
+  restoreNegotiationState(
+    snapshot: TransceiversNegotiationState,
+    added: Iterable<RTCRtpTransceiver>,
+  ) {
+    for (const [transceiver, state] of snapshot.states) {
+      transceiver.restoreNegotiationState(state.transceiver);
+      this.restoreNotifiedRemoteTrack(transceiver, state.notifiedRemoteTrack);
+    }
+    const removedTransports: RTCDtlsTransport[] = [];
+    for (const transceiver of added) {
+      if (transceiver.heldByApplication) {
+        transceiver.mid = null;
+        transceiver.mLineIndex = undefined;
+        continue;
+      }
+      removedTransports.push(transceiver.dtlsTransport);
+      this.removeRemoteTransceiver(transceiver);
+    }
+    this.restoreTransceiverOrder(snapshot.order);
+    return removedTransports;
+  }
+
+  /**
+   * Internal: a created offer that was never applied must not leave its MID
+   * and m-line assignments behind (W3C associates a MID only when a
+   * description is set). Transceivers the session never negotiated go back to
+   * `snapshot`.
+   */
+  revertUnappliedAssociations(snapshot: TransceiversNegotiationState) {
+    for (const [transceiver, { transceiver: state }] of snapshot.states) {
+      if (transceiver.currentDirection || transceiver.stopped) continue;
+      transceiver.mid = state.mid;
+      transceiver.mLineIndex = state.mLineIndex;
+    }
   }
 
   readonly onTransceiverAdded = new Event<[RTCRtpTransceiver]>();
@@ -145,7 +216,7 @@ export class TransceiverManager {
     );
   }
 
-  restoreTransceiverOrder(baseline: RTCRtpTransceiver[]) {
+  private restoreTransceiverOrder(baseline: RTCRtpTransceiver[]) {
     const attachedLater = this.transceivers.filter(
       (transceiver) => !baseline.includes(transceiver),
     );
@@ -165,7 +236,7 @@ export class TransceiverManager {
   }
 
   /** Remove an uncommitted transceiver created only by a remote offer. */
-  removeRemoteTransceiver(transceiver: RTCRtpTransceiver): void {
+  private removeRemoteTransceiver(transceiver: RTCRtpTransceiver): void {
     const index = this.transceivers.indexOf(transceiver);
     if (index < 0) return;
     transceiver.forceStop();

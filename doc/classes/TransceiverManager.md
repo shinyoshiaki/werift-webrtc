@@ -227,22 +227,6 @@ remote SDP 起因の停止なので negotiationneeded は要求しない。
 
 ***
 
-### getNotifiedRemoteTrack()
-
-> **getNotifiedRemoteTrack**(`transceiver`): `undefined` \| \{ `streams`: `string`[]; `track`: [`MediaStreamTrack`](MediaStreamTrack.md); \}
-
-#### Parameters
-
-##### transceiver
-
-[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
-
-#### Returns
-
-`undefined` \| \{ `streams`: `string`[]; `track`: [`MediaStreamTrack`](MediaStreamTrack.md); \}
-
-***
-
 ### getReceivers()
 
 > **getReceivers**(): [`RTCRtpReceiver`](RTCRtpReceiver.md)[]
@@ -412,24 +396,6 @@ remote offer が定義した位置のうち、関連付けられなかった未�
 
 ***
 
-### removeRemoteTransceiver()
-
-> **removeRemoteTransceiver**(`transceiver`): `void`
-
-Remove an uncommitted transceiver created only by a remote offer.
-
-#### Parameters
-
-##### transceiver
-
-[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
-
-#### Returns
-
-`void`
-
-***
-
 ### removeTrack()
 
 > **removeTrack**(`sender`): `boolean`
@@ -470,35 +436,46 @@ sender から track を外す。
 
 ***
 
-### restoreNotifiedRemoteTrack()
+### restoreNegotiationState()
 
-> **restoreNotifiedRemoteTrack**(`transceiver`, `state`): `void`
+> **restoreNegotiationState**(`snapshot`, `added`): [`RTCDtlsTransport`](RTCDtlsTransport.md)[]
+
+Internal: return to a negotiation baseline. Transceivers in `added` were
+created by the rolled-back proposal: they are removed unless the
+application uses them, in which case only their m-line association goes.
 
 #### Parameters
 
-##### transceiver
+##### snapshot
 
-[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+[`TransceiversNegotiationState`](../type-aliases/TransceiversNegotiationState.md)
 
-##### state
+##### added
 
-`undefined` | \{ `streams`: `string`[]; `track`: [`MediaStreamTrack`](MediaStreamTrack.md); \}
+`Iterable`\<[`RTCRtpTransceiver`](RTCRtpTransceiver.md)\>
 
 #### Returns
 
-`void`
+[`RTCDtlsTransport`](RTCDtlsTransport.md)[]
+
+transports of the removed transceivers (the caller stops unused ones)
 
 ***
 
-### restoreTransceiverOrder()
+### revertUnappliedAssociations()
 
-> **restoreTransceiverOrder**(`baseline`): `void`
+> **revertUnappliedAssociations**(`snapshot`): `void`
+
+Internal: a created offer that was never applied must not leave its MID
+and m-line assignments behind (W3C associates a MID only when a
+description is set). Transceivers the session never negotiated go back to
+`snapshot`.
 
 #### Parameters
 
-##### baseline
+##### snapshot
 
-[`RTCRtpTransceiver`](RTCRtpTransceiver.md)[]
+[`TransceiversNegotiationState`](../type-aliases/TransceiversNegotiationState.md)
 
 #### Returns
 
@@ -565,3 +542,15 @@ answer 確定後に、stopping のまま交渉対象になり得ない transceiv
 `boolean`
 
 次の自分の offer で port 0 を交渉すべき transceiver があるか
+
+***
+
+### snapshotNegotiationState()
+
+> **snapshotNegotiationState**(): [`TransceiversNegotiationState`](../type-aliases/TransceiversNegotiationState.md)
+
+Internal: the transceivers, their order and negotiation state, for a rollback baseline.
+
+#### Returns
+
+[`TransceiversNegotiationState`](../type-aliases/TransceiversNegotiationState.md)

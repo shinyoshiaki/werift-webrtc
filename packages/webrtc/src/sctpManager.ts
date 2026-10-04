@@ -1,4 +1,4 @@
-import type { SCTPOptions } from "../../sctp/src";
+import { type SCTPOptions, SCTP_STATE } from "../../sctp/src";
 import { createWebRtcTypeError } from "./errors";
 import { Event, debug } from "./imports/common";
 
@@ -10,9 +10,15 @@ import {
   getStatsTimestamp,
 } from "./media/stats";
 import type { MediaDescription } from "./sdp";
+import type { RTCDtlsTransport } from "./transport/dtls";
 import { DEFAULT_MAX_MESSAGE_SIZE, RTCSctpTransport } from "./transport/sctp";
 
 const log = debug("werift:packages/webrtc/src/transport/sctpManager.ts");
+
+/** The SCTP binding of a PeerConnection, for a negotiation rollback baseline. */
+export type SctpNegotiationState = ReturnType<
+  SctpTransportManager["snapshotNegotiationState"]
+>;
 
 export class SctpTransportManager {
   sctpTransport?: RTCSctpTransport;
@@ -113,6 +119,70 @@ export class SctpTransportManager {
 
   isApplicationOwned(transport: RTCSctpTransport) {
     return this.applicationOwned.has(transport);
+  }
+
+  /** Internal: the SCTP binding a negotiation may change, for a rollback baseline. */
+  snapshotNegotiationState() {
+    const transport = this.sctpTransport;
+    return {
+      transport,
+      dtlsTransport: transport?.dtlsTransport as RTCDtlsTransport | undefined,
+      remotePort: this.sctpRemotePort,
+      mid: transport?.mid,
+      mLineIndex: transport?.mLineIndex,
+      remoteMaxMessageSize: transport?.remoteMaxMessageSize,
+    };
+  }
+
+  /** Internal: return to a negotiation baseline taken by `snapshotNegotiationState`. */
+  async restoreNegotiationState(state: SctpNegotiationState) {
+    const added =
+      this.sctpTransport !== state.transport ? this.sctpTransport : undefined;
+    // createDataChannel is an application operation: its SCTP transport
+    // survives rollback, unbound from the rolled-back m-line, so the next
+    // offer carries m=application again. An association that already ran
+    // under the pending description is description state and is torn down.
+    const keepAdded =
+      !!added &&
+      this.isApplicationOwned(added) &&
+      added.sctp.associationState === SCTP_STATE.CLOSED;
+    if (added && !keepAdded) {
+      await added.stop();
+    }
+    this.sctpTransport = keepAdded ? added : state.transport;
+    if (
+      state.transport &&
+      state.dtlsTransport &&
+      state.transport.dtlsTransport !== state.dtlsTransport
+    ) {
+      state.transport.setDtlsTransport(state.dtlsTransport);
+    }
+    if (added && keepAdded) this.detachFromDescription(added);
+    this.sctpRemotePort = state.remotePort;
+    if (state.transport) {
+      state.transport.mid = state.mid;
+      state.transport.mLineIndex = state.mLineIndex;
+      if (state.remoteMaxMessageSize !== undefined) {
+        state.transport.remoteMaxMessageSize = state.remoteMaxMessageSize;
+      }
+    }
+  }
+
+  /**
+   * Internal: an SCTP transport that no description bound yet goes back to
+   * the MID / m-line index of `state` (see TransceiverManager's
+   * `revertUnappliedAssociations`).
+   */
+  revertUnappliedAssociation(state: SctpNegotiationState) {
+    const transport = this.sctpTransport;
+    if (
+      transport &&
+      transport === state.transport &&
+      this.sctpRemotePort === undefined
+    ) {
+      transport.mid = state.mid;
+      transport.mLineIndex = state.mLineIndex;
+    }
   }
 
   /** Drop what a rolled-back description set on a kept SCTP transport. */

@@ -188,7 +188,9 @@
 - [MLineReuse](type-aliases/MLineReuse.md)
 - [NamedCurveAlgorithms](type-aliases/NamedCurveAlgorithms.md)
 - [PendingRtpOptions](type-aliases/PendingRtpOptions.md)
+- [ReceiverNegotiationState](type-aliases/ReceiverNegotiationState.md)
 - [RequireAtLeastOne](type-aliases/RequireAtLeastOne.md)
+- [RouterSnapshot](type-aliases/RouterSnapshot.md)
 - [RTCBundlePolicy](type-aliases/RTCBundlePolicy.md)
 - [RTCDataChannelState](type-aliases/RTCDataChannelState.md)
 - [RTCDtlsRole](type-aliases/RTCDtlsRole.md)
@@ -215,6 +217,8 @@
 - [SrtpProfile](type-aliases/SrtpProfile.md)
 - [TcpCandidateType](type-aliases/TcpCandidateType.md)
 - [TlsConnectionOptions](type-aliases/TlsConnectionOptions.md)
+- [TransceiverNegotiationState](type-aliases/TransceiverNegotiationState.md)
+- [TransceiversNegotiationState](type-aliases/TransceiversNegotiationState.md)
 - [TransportWideCCPayload](type-aliases/TransportWideCCPayload.md)
 
 ## Variables

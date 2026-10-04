@@ -48,6 +48,11 @@ import { MediaStreamTrack } from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/rtpReceiver.ts");
 
+/** A receiver's negotiation state, for a rollback baseline. */
+export type ReceiverNegotiationState = ReturnType<
+  RTCRtpReceiver["snapshotNegotiationState"]
+>;
+
 export class RTCRtpReceiver {
   private readonly codecs: { [pt: number]: RTCRtpCodecParameters } = {};
   private readonly defaultTrack: MediaStreamTrack;
@@ -216,6 +221,54 @@ export class RTCRtpReceiver {
       clearTable(table);
       Object.assign(table, saved);
     }
+  }
+
+  /**
+   * Internal: everything a negotiation may change on this receiver, for a
+   * rollback baseline. Packet-driven runtime (statistics, NACK, RTCP) is not
+   * part of it.
+   */
+  snapshotNegotiationState() {
+    return {
+      receiverTWCC: this.receiverTWCC,
+      remoteStreamIds: [...this.remoteStreamIds],
+      remoteStreamId: this.remoteStreamId,
+      remoteTrackId: this.remoteTrackId,
+      tracks: [...this.tracks],
+      trackBySSRC: { ...this.trackBySSRC },
+      trackByRID: { ...this.trackByRID },
+      receiveTables: this.snapshotReceiveTables(),
+    };
+  }
+
+  /** Internal: return to a negotiation baseline taken by `snapshotNegotiationState`. */
+  restoreNegotiationState(state: ReceiverNegotiationState) {
+    // Transport-cc feedback a pending description started for this receiver
+    // stops; the current session's feedback (if any) remains.
+    if (this.receiverTWCC !== state.receiverTWCC) {
+      if (this.receiverTWCC) this.receiverTWCC.twccRunning = false;
+      this.receiverTWCC = state.receiverTWCC;
+    }
+    this.remoteStreamIds = state.remoteStreamIds;
+    this.remoteStreamId = state.remoteStreamId;
+    this.remoteTrackId = state.remoteTrackId;
+    this.tracks.splice(0, this.tracks.length, ...state.tracks);
+    // SSRCs learned from RID packets are live state, not SDP: keep those
+    // whose track survives the rollback.
+    const learnedTracks = Object.entries(this.trackBySSRC).filter(
+      ([ssrc, track]) =>
+        this.learnedTrackSsrcs.has(Number(ssrc)) &&
+        !(ssrc in state.trackBySSRC) &&
+        state.tracks.includes(track),
+    );
+    replaceTable(this.trackBySSRC, state.trackBySSRC);
+    for (const [ssrc, track] of learnedTracks) {
+      this.trackBySSRC[ssrc] = track;
+    }
+    replaceTable(this.trackByRID, state.trackByRID);
+    // Codec/RTX tables added or changed by a pending description are
+    // dropped; current RTP is decoded exactly as before the transaction.
+    this.restoreReceiveTables(state.receiveTables);
   }
 
   /**
@@ -639,6 +692,12 @@ export class RTCRtpReceiver {
 
 function clearTable(table: Record<number, unknown>) {
   for (const key of Object.keys(table)) delete table[Number(key)];
+}
+
+/** Replace the entries of a string-keyed table in place (keys may be RIDs). */
+function replaceTable<T>(table: Record<string, T>, source: Record<string, T>) {
+  for (const key of Object.keys(table)) delete table[key];
+  Object.assign(table, source);
 }
 
 const feedbackKey = (codec: RTCRtpCodecParameters) =>

@@ -161,6 +161,51 @@ at once so provisional RTP flows.
 
 ***
 
+### restoreRoutes()
+
+> **restoreRoutes**(`snapshot`, `__namedParameters`): `void`
+
+Internal: return to a negotiation baseline. Two kinds of route are not
+description state and survive: SSRCs learned from packets for an endpoint
+still attached, and the own SSRC of every live sender (including one the
+application added while the description was pending).
+
+#### Parameters
+
+##### snapshot
+
+###### extIdUriMap
+
+\{\} = `...`
+
+###### ridTable
+
+\{\} = `...`
+
+###### ssrcTable
+
+\{\} = `...`
+
+###### staged
+
+`StagedRoutes` = `...`
+
+##### \_\_namedParameters
+
+###### endpoints
+
+`Set`\<[`RTCRtpReceiver`](RTCRtpReceiver.md) \| [`RTCRtpSender`](RTCRtpSender.md)\>
+
+###### liveSenders
+
+[`RTCRtpSender`](RTCRtpSender.md)[]
+
+#### Returns
+
+`void`
+
+***
+
 ### restoreStaged()
 
 > **restoreStaged**(`snapshot`): `void`
@@ -208,6 +253,46 @@ Internal: restore staged routes (an empty snapshot discards them).
 #### Returns
 
 `void`
+
+***
+
+### snapshotRoutes()
+
+> **snapshotRoutes**(): `object`
+
+Internal: every route a negotiation may change, for a rollback baseline.
+
+#### Returns
+
+`object`
+
+##### extIdUriMap
+
+> **extIdUriMap**: `object`
+
+###### Index Signature
+
+\[`key`: `number`\]: `string`
+
+##### ridTable
+
+> **ridTable**: `object`
+
+###### Index Signature
+
+\[`key`: `string`\]: [`RTCRtpReceiver`](RTCRtpReceiver.md) \| [`RTCRtpSender`](RTCRtpSender.md)
+
+##### ssrcTable
+
+> **ssrcTable**: `object`
+
+###### Index Signature
+
+\[`key`: `number`\]: [`RTCRtpReceiver`](RTCRtpReceiver.md) \| [`RTCRtpSender`](RTCRtpSender.md)
+
+##### staged
+
+> **staged**: `StagedRoutes`
 
 ***
 

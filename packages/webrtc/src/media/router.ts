@@ -31,6 +31,9 @@ const log = debug("werift:packages/webrtc/src/media/router.ts");
 export const ridRouteKey = (mid: string, rid: string) => `${mid}\u0000${rid}`;
 const ridOfRouteKey = (key: string) => key.slice(key.indexOf("\u0000") + 1);
 
+/** The routes of a router, for a negotiation rollback baseline. */
+export type RouterSnapshot = ReturnType<RtpRouter["snapshotRoutes"]>;
+
 type StagedRoutes = {
   ssrc: [number, RTCRtpReceiver][];
   rid: [string, RTCRtpReceiver][];
@@ -83,6 +86,50 @@ export class RtpRouter {
   restoreStaged(snapshot: StagedRoutes) {
     this.stagedSsrc = new Map(snapshot.ssrc);
     this.stagedRid = new Map(snapshot.rid);
+  }
+
+  /** Internal: every route a negotiation may change, for a rollback baseline. */
+  snapshotRoutes() {
+    return {
+      ssrcTable: { ...this.ssrcTable },
+      ridTable: { ...this.ridTable },
+      extIdUriMap: { ...this.extIdUriMap },
+      staged: this.snapshotStaged(),
+    };
+  }
+
+  /**
+   * Internal: return to a negotiation baseline. Two kinds of route are not
+   * description state and survive: SSRCs learned from packets for an endpoint
+   * still attached, and the own SSRC of every live sender (including one the
+   * application added while the description was pending).
+   */
+  restoreRoutes(
+    snapshot: RouterSnapshot,
+    {
+      endpoints,
+      liveSenders,
+    }: {
+      endpoints: Set<RTCRtpReceiver | RTCRtpSender>;
+      liveSenders: RTCRtpSender[];
+    },
+  ) {
+    const learnedRoutes = Object.entries(this.ssrcTable).filter(
+      ([ssrc, endpoint]) =>
+        this.learnedSsrcs.has(Number(ssrc)) &&
+        !(ssrc in snapshot.ssrcTable) &&
+        endpoints.has(endpoint),
+    );
+    this.ssrcTable = { ...snapshot.ssrcTable };
+    for (const [ssrc, endpoint] of learnedRoutes) {
+      this.ssrcTable[Number(ssrc)] = endpoint;
+    }
+    for (const sender of liveSenders) {
+      if (!(sender.ssrc in this.ssrcTable)) this.registerRtpSender(sender);
+    }
+    this.ridTable = { ...snapshot.ridTable };
+    this.extIdUriMap = { ...snapshot.extIdUriMap };
+    this.restoreStaged(snapshot.staged);
   }
 
   /** Test-only observation of staged routes. */
