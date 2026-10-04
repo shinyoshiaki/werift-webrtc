@@ -131,6 +131,7 @@ export class SecureTransportManager {
       ...this.resolveIceServerOptions(),
       forceTurn: this.config.iceTransportPolicy === "relay",
       useTcp: this.config.iceUseTcp,
+      turnUdpFamily: this.config.turnUdpFamily,
     };
     for (const iceTransport of this.iceTransports) {
       // Only update gatherers that have never gathered in this generation.
@@ -164,6 +165,7 @@ export class SecureTransportManager {
       stunGatherTimeout: this.config.iceStunGatherTimeout,
       turnConnectTimeout: this.config.iceTurnConnectTimeout,
       turnTlsOptions: this.config.turnTlsOptions,
+      turnUdpFamily: this.config.turnUdpFamily,
       useLinkLocalAddress: this.config.iceUseLinkLocalAddress,
     });
 

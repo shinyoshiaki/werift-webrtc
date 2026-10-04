@@ -512,7 +512,8 @@ export class RTCPeerConnection extends EventTarget {
     if (
       isReconfiguration &&
       this.secureManager &&
-      normalizedConfig.iceServers !== undefined
+      (normalizedConfig.iceServers !== undefined ||
+        normalizedConfig.turnUdpFamily !== undefined)
     ) {
       this.secureManager.updateIceServers();
     }
@@ -1836,6 +1837,12 @@ export interface PeerConfig {
   iceTurnConnectTimeout: number | undefined;
   turnTransport: "udp" | "tcp" | "tls" | undefined;
   turnTlsOptions: TlsConnectionOptions | undefined;
+  /**
+   * Preferred IP family of the TURN/UDP socket, applied only when the TURN
+   * server is a hostname. Ignored for an IP literal server, whose own family
+   * always selects the socket. Defaults to 4 when undefined.
+   */
+  turnUdpFamily: 4 | 6 | undefined;
   /** @deprecated Prefer turn URL transport parameters or turnTransport. */
   forceTurnTCP: boolean;
   /** such as google cloud run */
@@ -1985,6 +1992,7 @@ function generateDefaultPeerConfig(): PeerConfig {
     iceTurnConnectTimeout: undefined,
     turnTransport: undefined,
     turnTlsOptions: undefined,
+    turnUdpFamily: undefined,
     iceFilterStunResponse: undefined,
     iceFilterCandidatePair: undefined,
     icePasswordPrefix: undefined,

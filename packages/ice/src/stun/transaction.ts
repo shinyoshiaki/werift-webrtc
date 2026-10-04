@@ -1,9 +1,13 @@
 import { promises as dns } from "node:dns";
-import { isIP } from "node:net";
+import { SocketAddress, isIP } from "node:net";
 
 import { type Address, Event, debug } from "../imports/common";
 
-import { TransactionFailed, TransactionTimeout } from "../exceptions";
+import {
+  AddressFamilyMismatch,
+  TransactionFailed,
+  TransactionTimeout,
+} from "../exceptions";
 import type { Protocol, TransactionRequestOptions } from "../types/model";
 import { RETRY_MAX, RETRY_RTO, classes } from "./const";
 import type { Message } from "./message";
@@ -13,12 +17,21 @@ const log = debug("werift-ice:packages/ice/src/stun/transaction.ts");
 /**
  * Resolve a request target to a concrete IP before creating a Transaction so
  * response source-address checks match the UDP peer address (hostname ≠ IP).
+ *
+ * `family` is the family of the socket that will carry the request: a
+ * hostname resolves only in that family, and an IP literal of the other
+ * family throws AddressFamilyMismatch instead of retransmitting into a send
+ * that cannot succeed. Family 0 means unknown: no preference, no check.
  */
 export async function resolveRequestAddress(
   addr: Address,
   family: 0 | 4 | 6 = 0,
 ): Promise<Address> {
-  if (isIP(addr[0])) {
+  const literalFamily = isIP(addr[0]);
+  if (literalFamily) {
+    if (family !== 0 && literalFamily !== family) {
+      throw new AddressFamilyMismatch(addr, family);
+    }
     return addr;
   }
   const looked = await dns.lookup(addr[0], { family });
@@ -50,9 +63,21 @@ export function normalizeTransactionOptions(
   };
 }
 
-/** Compare ICE transport addresses (host, port). */
+/**
+ * Compare ICE transport addresses (host, port).
+ * IPv6 literals are compared in canonical form because the socket reports
+ * `::1` even when the peer was configured as `0:0:0:0:0:0:0:1`.
+ */
 export function addressEquals(a: Address, b: Address): boolean {
-  return a[0] === b[0] && a[1] === b[1];
+  return a[1] === b[1] && canonicalHost(a[0]) === canonicalHost(b[0]);
+}
+
+// Only used for comparison; never for the address a packet is sent to,
+// since SocketAddress drops the zone id (`fe80::1%eth0`).
+function canonicalHost(host: string): string {
+  return isIP(host) === 6
+    ? new SocketAddress({ address: host, family: "ipv6" }).address
+    : host;
 }
 
 export class Transaction {

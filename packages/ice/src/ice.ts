@@ -129,6 +129,9 @@ export class Connection implements IceConnection {
     if (options.turnTlsOptions !== undefined) {
       this.options.turnTlsOptions = options.turnTlsOptions;
     }
+    if (options.turnUdpFamily !== undefined) {
+      this.options.turnUdpFamily = options.turnUdpFamily;
+    }
 
     this.applyStunTurnServersFromOptions();
     log("Connection ice servers updated", this.options);
@@ -588,6 +591,7 @@ export class Connection implements IceConnection {
             transport: turnTransport,
             tlsOptions: this.options.turnTlsOptions,
             connectTimeoutMs: (this.options.turnConnectTimeout ?? 8) * 1000,
+            udpFamily: this.options.turnUdpFamily,
           },
         ).catch(async (e) => {
           if (turnTransport === "udp") {

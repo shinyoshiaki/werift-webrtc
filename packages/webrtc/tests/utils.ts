@@ -1,9 +1,27 @@
 import { readFileSync } from "fs";
 
-import { type RTCDataChannel, RTCPeerConnection } from "../src";
+import {
+  type PeerConfig,
+  type RTCDataChannel,
+  type RTCIceTransport,
+  RTCPeerConnection,
+} from "../src";
 
 export function load(name: string) {
   return readFileSync("./tests/data/" + name);
+}
+
+/**
+ * Create a PeerConnection with one data channel so that its first
+ * RTCIceTransport exists, and return both.
+ */
+export function createPeerConnectionWithIceTransport(
+  config: Partial<PeerConfig> = {},
+) {
+  const pc = new RTCPeerConnection({ iceServers: [], ...config });
+  pc.createDataChannel("ice-transport");
+  const ice = (pc as any).secureManager.iceTransports[0] as RTCIceTransport;
+  return { pc, ice };
 }
 
 export async function createDataChannelPair(
