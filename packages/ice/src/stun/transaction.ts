@@ -1,5 +1,5 @@
 import { promises as dns } from "node:dns";
-import { isIP } from "node:net";
+import { SocketAddress, isIP } from "node:net";
 
 import { type Address, Event, debug } from "../imports/common";
 
@@ -63,9 +63,21 @@ export function normalizeTransactionOptions(
   };
 }
 
-/** Compare ICE transport addresses (host, port). */
+/**
+ * Compare ICE transport addresses (host, port).
+ * IPv6 literals are compared in canonical form because the socket reports
+ * `::1` even when the peer was configured as `0:0:0:0:0:0:0:1`.
+ */
 export function addressEquals(a: Address, b: Address): boolean {
-  return a[0] === b[0] && a[1] === b[1];
+  return a[1] === b[1] && canonicalHost(a[0]) === canonicalHost(b[0]);
+}
+
+// Only used for comparison; never for the address a packet is sent to,
+// since SocketAddress drops the zone id (`fe80::1%eth0`).
+function canonicalHost(host: string): string {
+  return isIP(host) === 6
+    ? new SocketAddress({ address: host, family: "ipv6" }).address
+    : host;
 }
 
 export class Transaction {

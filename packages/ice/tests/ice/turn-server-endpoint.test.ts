@@ -291,6 +291,26 @@ describe("TURN/UDP against a local TURN server", () => {
     expect(turn.relayedAddress[0]).toBe("::1");
   });
 
+  test("an IPv6 literal in expanded notation allocates without the retransmission timeout", async (context) => {
+    // Arrange: IPv6 ループバックの TURN サーバと、同じアドレスの展開表記
+    if (!(await canBindIpv6Loopback())) {
+      context.skip();
+    }
+    const [, port] = await startTurnServer("::1");
+    const started = performance.now();
+
+    // Act: 展開表記の IPv6 リテラルで Allocate する
+    const turn = await createTurnClient({
+      address: ["0:0:0:0:0:0:0:1", port],
+      ...credentials,
+    });
+    cleanups.push(() => turn.close());
+
+    // Assert: 送信元 ::1 の応答が破棄されず、再送タイムアウトを待たずに割り当てられる
+    expect(turn.transport.addressFamily).toBe(6);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   test("an IPv4 literal server ignores udpFamily 6 and gets a udp4 socket", async () => {
     // Arrange: IPv4 で待ち受ける TURN サーバ
     const server = await startTurnServer();
