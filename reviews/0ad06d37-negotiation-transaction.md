@@ -200,4 +200,4 @@ develop のマージ（`c580f5d2`）でコンフリクトを解消したとき�
 | `909c6991` | 同じ SSRC の再交渉後に PLI の判定が古いまま残る | live な受信 codec で判定 — [packages/webrtc/src/media/rtpReceiver.ts](review-diff:packages/webrtc/src/media/rtpReceiver.ts:commit:909c6991) |
 | `69ff0059` / `922aa3bb` | （依頼）`peerConnection.ts` の分割とディレクトリ整理 | 挙動を変えないモジュール分割 — [packages/webrtc/src/peerConnection.ts](review-diff:packages/webrtc/src/peerConnection.ts:commit:69ff0059) |
 | `64f374a3` / `d5cd6112` | develop の codec 統合のマージと CI 対応 | codec の切り替えを commit 時に統一 — [packages/webrtc/src/transceiverManager.ts](review-diff:packages/webrtc/src/transceiverManager.ts:commit:d5cd6112) |
-| `98247860` | （依頼）`negotiationTransaction.ts` のリファクタリング | snapshot を各コンポーネントへ移し、提案の資源を集約 — [packages/webrtc/src/negotiationTransaction.ts](review-diff:packages/webrtc/src/negotiationTransaction.ts:commit:98247860) |
+| `98247860` | （依頼）`negotiationTransaction.ts` のリファクタリング | snapshot を各コンポーネントへ移し、提案の資源を集約 — [packages/webrtc/src/negotiationTransaction.ts](review-diff:packages/webrtc/src/negotiationTransaction.ts:commit:98247860dbbf) |
