@@ -289,6 +289,48 @@ describe("iceTransport", () => {
       }
     });
 
+    test("収集前の setConfiguration で turnUdpFamily だけを更新しても Connection に反映される", async () => {
+      // Arrange: turnUdpFamily 未指定の PeerConnection (transport は収集前)
+      const { pc, ice } = createPeerConnectionWithIceTransport();
+      try {
+        // Act: iceServers を変えず family だけを更新する
+        pc.setConfiguration({ iceServers: [], turnUdpFamily: 6 });
+
+        // Assert: 設定値と、既に生成済みの Connection の両方が 6 になる
+        expect(pc.getConfiguration().turnUdpFamily).toBe(6);
+        expect(ice.connection.options.turnUdpFamily).toBe(6);
+      } finally {
+        await pc.close();
+      }
+    });
+
+    test("収集前の setConfiguration で iceServers と一緒に指定した turnUdpFamily が Connection に反映される", async () => {
+      // Arrange
+      const { pc, ice } = createPeerConnectionWithIceTransport();
+      try {
+        // Act: TURN と family を同時に更新する
+        pc.setConfiguration({
+          iceServers: [
+            {
+              urls: "turn:turn.example.com:3478",
+              username: "u",
+              credential: "p",
+            },
+          ],
+          turnUdpFamily: 6,
+        });
+
+        // Assert: TURN サーバと family が Connection に反映される
+        expect(ice.connection.options.turnServer).toEqual([
+          "turn.example.com",
+          3478,
+        ]);
+        expect(ice.connection.options.turnUdpFamily).toBe(6);
+      } finally {
+        await pc.close();
+      }
+    });
+
     test("turnUdpFamily 未指定なら undefined のまま (既定 udp4)", async () => {
       // Arrange
       const { pc, ice } = createPeerConnectionWithIceTransport();

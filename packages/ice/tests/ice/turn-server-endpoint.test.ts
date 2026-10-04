@@ -2,6 +2,7 @@ import { createSocket } from "node:dgram";
 import { performance } from "node:perf_hooks";
 import { setImmediate } from "node:timers/promises";
 import { type Address, TcpTransport } from "../../../common/src";
+import { Connection } from "../../src/ice";
 import { TransactionTimeout } from "../../src/exceptions";
 import { classes, methods } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
@@ -366,5 +367,34 @@ describe("TURN/UDP against a local TURN server", () => {
     expect(turn.transport.addressFamily).toBe(6);
     expect(dns.families).toEqual([6]);
     expect(turn.serverEndpoint).toEqual(["::1", port]);
+  });
+
+  test("setIceServers after construction applies turnUdpFamily to relay gathering", async (context) => {
+    // Arrange: IPv6 でのみ待ち受ける TURN サーバと、デュアルスタックのホスト名
+    if (!(await canBindIpv6Loopback())) {
+      context.skip();
+    }
+    const [, port] = await startTurnServer("::1");
+    const dns = stubDualStackLookup("127.0.0.1", "::1");
+    cleanups.push(() => dns.restore());
+    const connection = new Connection(true, { forceTurn: true });
+    cleanups.push(() => connection.close());
+
+    // Act: 収集前に family を含めて設定を更新してから候補を収集する
+    connection.setIceServers({
+      turnServer: [TURN_HOST, port],
+      turnUsername: credentials.username,
+      turnPassword: credentials.password,
+      turnTransport: "udp",
+      turnUdpFamily: 6,
+    });
+    await connection.gatherCandidates();
+
+    // Assert: IPv6 として名前解決され、relay 候補が取得できている
+    expect(connection.options.turnUdpFamily).toBe(6);
+    expect(dns.families).toContain(6);
+    expect(
+      connection.localCandidates.filter((c) => c.type === "relay").length,
+    ).toBeGreaterThan(0);
   });
 });

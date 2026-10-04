@@ -512,7 +512,8 @@ export class RTCPeerConnection extends EventTarget {
     if (
       isReconfiguration &&
       this.secureManager &&
-      normalizedConfig.iceServers !== undefined
+      (normalizedConfig.iceServers !== undefined ||
+        normalizedConfig.turnUdpFamily !== undefined)
     ) {
       this.secureManager.updateIceServers();
     }
