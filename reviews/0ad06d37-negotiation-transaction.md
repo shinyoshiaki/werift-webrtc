@@ -49,6 +49,7 @@ ide:
 
 提案が作った資源（remote offer が作った transceiver、置換された transceiver、準備済み transport、pending-only transport、owner transport、候補を通知済みの transport）は、`ProposalResources` にまとめています。消去・複製・復元はこのクラスの中の 1 か所だけです（[packages/webrtc/src/negotiationTransaction.ts:28](review-file:packages/webrtc/src/negotiationTransaction.ts:28)）。replacement は「pending は最後のもの、baseline は最初のもの」です。新しい offer が来ると、前の pending を baseline まで戻してから適用します。
 
+<!-- review-bookmark id="bm_1a1058d1043-1704bd93" title="2.1 transaction coordinator（baseline / c" -->
 ### 2.2 description 適用の順序（validate → codec 計画 → prepare → apply → commit）
 
 `setRemoteDescription` は、次の順で進みます。

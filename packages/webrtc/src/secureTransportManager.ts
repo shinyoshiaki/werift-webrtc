@@ -514,9 +514,17 @@ export class SecureTransportManager {
     }
   }
 
-  async commitStagedIceRestart() {
+  /**
+   * Called unconditionally whenever a remote answer is applied. Whether ICE
+   * actually restarts depends on each transport's own state: only transports
+   * that staged a local restart for the applied offer do anything; the rest
+   * no-op inside `commitLocalRestartIfStaged`.
+   */
+  async commitIceRestartIfAnyStaged() {
     await Promise.all(
-      this.iceTransports.map((transport) => transport.commitLocalRestart()),
+      this.iceTransports.map((transport) =>
+        transport.commitLocalRestartIfStaged(),
+      ),
     );
     const [first] = this.iceTransports;
     if (first) this.lastLocalCredentials = first.localParameters;

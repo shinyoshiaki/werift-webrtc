@@ -965,7 +965,7 @@ export class RTCPeerConnection extends EventTarget {
         this.sdpManager.currentRemoteDescription
       ) {
         this.topology.applyPending();
-        await this.commitStagedIceRestart();
+        await this.commitIceRestartIfAnyStaged();
         await this.activation.activatePendingRemote();
         for (const transceiver of this.transceiverManager.getTransceivers()) {
           if (transceiver.mid && transceiver.codecs.length > 0) {
@@ -1193,10 +1193,11 @@ export class RTCPeerConnection extends EventTarget {
     await this.secureManager.gatherCandidates();
   }
 
-  private async commitStagedIceRestart() {
+  /** Always called on answer; see commitIceRestartIfAnyStaged on secureManager for why this is unconditional. */
+  private async commitIceRestartIfAnyStaged() {
     this.applyingIceRestart = true;
     try {
-      await this.secureManager.commitStagedIceRestart();
+      await this.secureManager.commitIceRestartIfAnyStaged();
     } finally {
       this.applyingIceRestart = false;
     }
@@ -1363,11 +1364,13 @@ export class RTCPeerConnection extends EventTarget {
         } = this.remoteMedia.apply(remoteSdp, codecPlan);
 
         if (remoteSdp.type === "answer") {
-          // The final answer switches a staged ICE restart only now, after
-          // every fallible step, and before its remote ICE parameters apply.
-          // Only the generation the applied offer carries is switched.
+          // Every answer reaches this point, but it only actually restarts
+          // ICE on transports that staged a restart for the applied offer
+          // (see commitIceRestartIfAnyStaged). Run after every fallible step
+          // and before its remote ICE parameters apply, so only the
+          // generation the applied offer carries is switched.
           this.secureManager.discardUnappliedIceRestart();
-          await this.commitStagedIceRestart();
+          await this.commitIceRestartIfAnyStaged();
         }
         for (const update of transportUpdates) update();
         for (const iceTransport of new Set(endOfCandidates)) {

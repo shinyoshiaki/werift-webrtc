@@ -254,7 +254,11 @@ export class RTCIceTransport {
     }
   }
 
-  async commitLocalRestart() {
+  /**
+   * Called unconditionally on every answer; actually restarts ICE only if
+   * this transport has a staged local restart. No-op otherwise.
+   */
+  async commitLocalRestartIfStaged() {
     const staged = this.stagedLocalRestart;
     if (!staged) return;
     this.restart(false);
