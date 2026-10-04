@@ -29,7 +29,7 @@ reference TURN server over UDP, TCP, and TLS (`turns:`) control transports.
 ## pion TURN interop (opt-in)
 
 Default `npm test` skips third-party TURN tests. To exercise werift ICE against
-[pion/turn](https://github.com/pion/turn) in Docker (dynamic free UDP port):
+[pion/turn](https://github.com/pion/turn) in Docker (dynamic free UDP port, plus a TCP-control-connection server on a free TCP port exported as `PION_TURN_TCP_PORT`):
 
 ```bash
 # Recommended: start → run tests → always docker compose down (trap)
@@ -53,4 +53,4 @@ PION_TURN_HOST="$PION_TURN_HOST" PION_TURN_PORT="$PION_TURN_PORT" \
 | `PION_TURN_PUBLIC_IP` | no | `127.0.0.1` |
 
 Scripts: `packages/ice/scripts/run-pion-turn.sh`  
-Compose: `packages/ice/docker/pion-turn/` (`network_mode: host`, free `UDP_PORT`)
+Compose: `packages/ice/docker/pion-turn/` (`network_mode: host`, free `UDP_PORT`), `packages/ice/docker/pion-turn-tcp/` (free `TCP_PORT`)
