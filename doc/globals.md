@@ -183,6 +183,7 @@
 - [IceGathererState](type-aliases/IceGathererState.md)
 - [IceState](type-aliases/IceState.md)
 - [InterfaceAddresses](type-aliases/InterfaceAddresses.md)
+- [IpAddressFamily](type-aliases/IpAddressFamily.md)
 - [Kind](type-aliases/Kind.md)
 - [MediaDirection](type-aliases/MediaDirection.md)
 - [MLineReuse](type-aliases/MLineReuse.md)

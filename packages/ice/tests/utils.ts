@@ -1,7 +1,10 @@
 import { deepStrictEqual } from "assert";
 import { readFileSync } from "fs";
+import * as dgram from "node:dgram";
+import * as dns from "node:dns";
 import * as net from "node:net";
-import { type Address, Event } from "../../common/src";
+import * as tls from "node:tls";
+import { type Address, Event, type Transport } from "../../common/src";
 import { NodeStunServer, NodeTurnServer } from "../../ice-server/src";
 import { Candidate } from "../src/candidate";
 import { Connection } from "../src/ice";
@@ -11,7 +14,8 @@ import {
   type IceOptions,
 } from "../src/iceBase";
 import { classes, methods } from "../src/stun/const";
-import { Message } from "../src/stun/message";
+import { Message, parseMessage } from "../src/stun/message";
+import { splitTurnTcpFrames } from "../src/turn/frame";
 import type { Protocol, TransactionRequestOptions } from "../src/types/model";
 
 export const TURN_TEST_USERNAME = "turn-user";
@@ -616,4 +620,160 @@ export function checkProvisionalPair(
   const generation = internal.provisional!;
   generation.started = true;
   return internal.checkProvisional(generation, pair);
+}
+
+/**
+ * Transport stub that records every destination address it is asked to send
+ * to, without touching the network. `metadata` is what the transport reports
+ * about itself; leave it empty to model a custom transport that reports
+ * nothing.
+ */
+export function createRecordingTransport(
+  type: "udp" | "tcp",
+  metadata: Pick<Transport, "addressFamily" | "remoteAddress"> = {},
+) {
+  const sentTo: Address[] = [];
+  const transport: Transport = {
+    type,
+    closed: false,
+    onData: () => {},
+    address: { address: "127.0.0.1", port: 0, family: "IPv4" },
+    send: async (_data: Buffer, addr?: Address) => {
+      if (addr) sentTo.push(addr);
+    },
+    close: async () => {},
+    ...metadata,
+  };
+  return { transport, sentTo };
+}
+
+/**
+ * Replace a real transport's send with a recorder, so tests can see where a
+ * built-in transport would send without putting packets on the network.
+ */
+export function recordSends(transport: Transport) {
+  const sentTo: Address[] = [];
+  vi.spyOn(transport, "send").mockImplementation(
+    async (_data: Buffer, addr?: Address) => {
+      if (addr) sentTo.push(addr);
+    },
+  );
+  return sentTo;
+}
+
+/**
+ * Stub dns.promises.lookup. `answer` picks the address for each call from the
+ * requested family and the call index; the requested families are recorded.
+ */
+export function stubLookup(
+  answer: (family: number | undefined, call: number) => string,
+) {
+  const families: (number | undefined)[] = [];
+  const spy = vi.spyOn(dns.promises, "lookup").mockImplementation((async (
+    _host: string,
+    options?: { family?: number },
+  ) => {
+    const address = answer(options?.family, families.length);
+    families.push(options?.family);
+    return { address, family: net.isIP(address) };
+  }) as unknown as typeof dns.promises.lookup);
+  return { families, restore: () => spy.mockRestore() };
+}
+
+/**
+ * Stub dns.promises.lookup for a dual-stack host: family 4 answers the IPv4
+ * address, family 6 and family 0 (no preference) answer the IPv6 address,
+ * like a resolver that returns AAAA first. Records the requested families.
+ */
+export function stubDualStackLookup(ipv4: string, ipv6: string) {
+  return stubLookup((family) => (family === 4 ? ipv4 : ipv6));
+}
+
+/**
+ * Stub dns.promises.lookup for a host whose answer changes: the first call
+ * answers `first`, every later call answers `later` (DNS rotation).
+ */
+export function stubRotatingLookup(first: string, later: string) {
+  return stubLookup((_family, call) => (call === 0 ? first : later));
+}
+
+/** Success response a TURN server would send for a request. */
+export function createTurnSuccessResponse(request: Message) {
+  const response = new Message(
+    request.messageMethod,
+    classes.RESPONSE,
+    request.transactionId,
+  );
+  if (request.messageMethod === methods.ALLOCATE) {
+    response
+      .setAttribute("XOR-RELAYED-ADDRESS", ["198.51.100.1", 50000])
+      .setAttribute("XOR-MAPPED-ADDRESS", ["198.51.100.2", 40000])
+      .setAttribute("LIFETIME", 600);
+  }
+  return response;
+}
+
+/**
+ * Minimal TURN server over TCP or TLS on 127.0.0.1. It records the requests
+ * it receives. With `respond`, it answers every request with
+ * createTurnSuccessResponse (no authentication).
+ */
+export async function createStreamTurnServer({
+  tls: useTls = false,
+  respond = true,
+}: { tls?: boolean; respond?: boolean } = {}) {
+  const requests: Message[] = [];
+  const sockets = new Set<net.Socket>();
+  const onConnection = (socket: net.Socket) => {
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
+    let buffer: Buffer = Buffer.alloc(0);
+    socket.on("data", (data) => {
+      const { frames, rest } = splitTurnTcpFrames(
+        Buffer.concat([buffer, data]),
+      );
+      buffer = rest;
+      for (const frame of frames) {
+        const request = parseMessage(frame);
+        if (!request) continue;
+        requests.push(request);
+        if (respond) {
+          socket.write(createTurnSuccessResponse(request).bytes);
+        }
+      }
+    });
+    socket.on("error", () => {});
+  };
+  const server = useTls
+    ? tls.createServer(getLocalTurnServerTlsOptions(), onConnection)
+    : net.createServer(onConnection);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as net.AddressInfo;
+
+  return {
+    port,
+    requests,
+    close: async () => {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    },
+  };
+}
+
+/** Whether a UDP socket can bind the IPv6 loopback address on this host. */
+export async function canBindIpv6Loopback() {
+  const socket = dgram.createSocket("udp6");
+  try {
+    await new Promise<void>((resolve, reject) => {
+      socket.once("error", reject);
+      socket.bind(0, "::1", () => resolve());
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    try {
+      socket.close();
+    } catch {}
+  }
 }
