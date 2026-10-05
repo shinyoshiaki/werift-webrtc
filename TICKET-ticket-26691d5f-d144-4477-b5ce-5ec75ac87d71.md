@@ -1,75 +1,3 @@
-# Fix fMP4 muxer infinite loop when video track dimensions are undefined
-
-## Summary
-
-The fMP4 muxer can enter an infinite loop when a video track does not provide `width` and/or `height` metadata.
-
-## Reproduction
-
-A downstream user (`sergio-pulido/reverie`) reproduced this while muxing H.264 RTP into fMP4 using werift 0.24.4.
-
-The failure happens when processing the first complete H.264 keyframe:
-
-```
-computeRatio(track.width!, track.height!)
-  -> gcd(width, height)
-```
-
-`Track.width` and `Track.height` are optional, so values can be `undefined` at runtime.
-
-With both values undefined:
-
-```
-gcd(undefined, undefined)
-```
-
-causes:
-
-```ts
-while (y !== 0) {
-  ...
-}
-```
-
-to never terminate because `undefined % undefined` becomes `NaN` and `NaN !== 0` is always true.
-
-## Impact
-
-- fMP4 muxing never completes
-- no init segment/media segment is produced
-- recording pipelines can hang indefinitely
-- Node.js event loop can be blocked
-
-## Expected behavior
-
-Invalid or missing video dimensions should not cause an infinite loop. Possible approaches:
-
-- return a safe default ratio when dimensions are unavailable
-- skip aspect-ratio calculation
-- validate dimensions before calling gcd
-
-## Additional notes
-
-The public type already allows optional dimensions:
-
-```ts
-width?: number;
-height?: number;
-```
-
-Therefore the runtime path should handle missing values safely.
-
-A regression test should cover:
-
-- H.264 keyframe processing
-- fMP4 muxing with undefined width/height
-- ensuring muxing fails gracefully or continues without hanging
-
-Related downstream reproduction:
-- https://github.com/sergio-pulido/reverie/pull/22
-
----
-
 ## 詳細化
 
 ### 1. 目的と背景
@@ -113,9 +41,28 @@ Related downstream reproduction:
 2. そうでなければ、キーフレーム内 SPS から得た寸法を使用。
    - `annexb2avcc()` が avcC に加えて SPS の `details`（少なくとも `codec_size` と `present_size`）を返せるようにする。既存 export の互換性を保つため、新関数（例: `annexb2avccWithDetails()` / `parseAvcDecoderConfig()`）を追加し、`annexb2avcc()` はそれをラップする形が安全。
    - `codedWidth/Height` には `codec_size`、表示アスペクトには `present_size`（SAR 考慮）を使うのが WebCodecs の意味論に合う。
-3. どちらでも解決できない場合（SPS が無い/壊れている等）は、**ハングも同期例外の漏出もさせない**。
-   - 推奨: そのキーフレームでは video track を初期化せず、次のキーフレームを待つ（`debug` ログを出す）。既存の「キーフレームが来るまで delta をドロップする」挙動と整合する。
-   - 代替: `container.write()` に到達する前にエラーとして扱い、`stop()` 経路で EOL を出して終了する。どちらを採るかは実装時に決め、テストで固定する。
+3. どちらでも解決できない場合（SPS / PPS が無い、SPS 解析が失敗する、SPS 由来の寸法が正の有限整数でない等）は、**そのキーフレームを破棄して video track を初期化せず、次のキーフレームを待つ**（確定事項。理由は 3-2-1 を参照）。
+
+#### 3-2-1. 確定事項: 寸法を解決できないキーフレームはスキップして次のキーフレームを待つ
+
+**決定**: `stop()` で muxing を終了するのではなく、そのキーフレームを捨てて video track を未初期化のまま保ち、後続の delta も従来どおり捨て、次のキーフレームで再度解決を試みる。
+
+**理由**:
+
+- **既存挙動と一致する**: `processVideoInput()` はもともと「`container.videoTrack` が未初期化の間は、キーフレームが来るまで delta を捨てる」作りになっている。寸法を解決できないキーフレームを「初期化に使えないフレーム」として同じ扱いにするだけなので、状態遷移を増やさずに済む。
+- **一時的な欠損から回復できる**: ライブ RTP では、パケットロスで SPS が壊れることや、最初のキーフレームに in-band の SPS / PPS が付いていないことがある。こうした問題は次のキーフレーム（PLI/FIR や定期 IDR）で解消することが多い。1 フレームの不良で録画全体を終了させるのは影響が大きすぎる。
+- **終端処理を壊さない**: video track が未初期化のまま `eol` / `destroy()` が来ても、`Mp4Container.stop()` は `!tracksReady` のときバッファを破棄して return し、`MP4Base.stop()` は従来どおり `{ eol: true }` を 1 回出力する。つまり「出力が無いまま EOL だけが届く」形で、呼び出し側は必ず終了を検知できる。
+- **呼び出し側に判断を委ねられる**: 終了させたい利用者は、自分で `destroy()` を呼べばよい。逆に muxer 側から勝手に終了すると、利用者は復帰できない。
+
+**実装上の要件**:
+
+- 寸法と avcC の解決（SPS / PPS 抽出、`parseSPS()`、寸法の検証）は、`container.write()` と `annexb2avcSample()` より**前に**行い、失敗したら何も書き込まずに `return` する。
+- 解決ヘルパー（例: `parseAvcDecoderConfig(frame.data)`）は、失敗時に例外ではなく `undefined` を返す。
+  - SPS / PPS が無い場合は、`!` を使わず明示的に分岐する（現在の `annexb2avcc()` は `video_metadata_.sps!` で TypeError になる）。
+  - `ExpGolomb` は入力が途中で尽きると例外を投げる（`exp-golomb.ts:42`）。そのため `SPSParser.parseSPS()` の呼び出し**だけ**を狭い `try/catch` で囲み、「解決不能」に変換する。AGENTS.md が禁じているのは広範囲の catch-and-ignore であり、この catch は失敗理由を戻り値として扱う package-local なエラー処理なので許容範囲。
+- スキップするたびに `debug`（`werift-rtp : packages/rtp/src/extra/processor/mp4.ts` などの namespace）でログを出す。キーフレームごとに出る量なので、通常のログレベルでは出さない。
+- 新しいイベントやエラーコールバックは追加しない（公開 API を増やさない）。将来必要になったら別チケットで扱う。
+- `Track.width` / `Track.height` が有効でも SPS / PPS が無ければ avcC を作れないため、同じスキップ経路に入る。明示寸法の有無にかかわらず、avcC を作れないキーフレームは初期化に使わない。
 
 #### 3-3. `container.ts` の判定修正
 
@@ -134,10 +81,12 @@ Related downstream reproduction:
 | --- | --- |
 | video-only、`width` / `height` 未指定、SPS 付きキーフレーム + delta 2 枚 + EOL | ハングせず完了。mediabunny で読み戻すと `getDisplayWidth()/Height()` が SPS 由来の `1920x1080`、codec が `avc1.42001e` |
 | `width` のみ指定（`height` 未指定） | 同上（部分指定は無効扱いで SPS にフォールバック）※仕様として決めた挙動をテストで固定 |
-| `width: 0` / `NaN` / 負数など不正値 | ハングしない（SPS フォールバックまたは graceful な終了） |
+| `width: 0` / `NaN` / 負数など不正値 | ハングせず、SPS 由来の `1920x1080` にフォールバックして正常な fMP4 になる |
 | audio + video（video 寸法未指定） | init segment と media segment が出力され、EOL が 1 回だけ届く |
 | 既存の 640x360 明示ケース | 従来どおり 640x360（明示値が SPS より優先されることの回帰確認） |
-| SPS を含まないキーフレームのみ | 例外が呼び出し側へ漏れず、ハングしない（3-2 の 3 で決めた挙動） |
+| 寸法未指定で、SPS / PPS を含まないキーフレーム → delta → SPS 付きキーフレーム → delta → EOL | `inputVideo()` が throw しない。最初のキーフレームと後続 delta は捨てられ、2 枚目のキーフレームで初期化される。読み戻した fMP4 の寸法は `1920x1080`、開始時刻は 2 枚目のキーフレーム以降 |
+| 寸法未指定で、SPS / PPS を含まない（または SPS が途中で切れた）キーフレームだけを投入して EOL | `inputVideo()` が throw せずハングもしない。`data` 出力は 0 件、`{ eol: true }` がちょうど 1 回届く |
+| `destroy()` で終了（video 未初期化のまま） | 同上。EOL が 1 回届き、unhandled rejection も残らない |
 | `computeRatio()` 単体（export した場合） | `undefined` / `0` / `NaN` / `Infinity` で即座に返る、`1920,1080 → 16,9` |
 
 注意:
@@ -151,14 +100,17 @@ Related downstream reproduction:
 - **ルート原因を直す**: `track.width ?? 640` のような固定デフォルトで握りつぶすのは避ける（実映像とアスペクトが食い違う MP4 を生成するため）。`packages/webrtc/src/nonstandard/recorder/writer/webm.ts` は `?? 640` を使っているが、MP4 側は SPS という正確な情報源がある。
 - **例外処理**: AGENTS.md の方針に従い、広い catch-and-ignore は追加しない。寸法解決失敗は明示的に分岐で扱う。
 - **寸法の変化**: ストリーム途中で SPS の解像度が変わるケース（simulcast 切替など）は本チケットの対象外。初期化時点の SPS のみを使う。
-- **SPS 解析失敗**: `annexb2avcc()` は SPS/PPS が無いと `video_metadata_.sps!` で TypeError になる既存問題がある。3-2 の 3 の扱いを決める際にこの経路も同期例外として漏れないようにする。
+- **SPS 解析失敗**: `annexb2avcc()` は SPS/PPS が無いと `video_metadata_.sps!` で TypeError になる。また `ExpGolomb` はデータ不足で throw する。3-2-1 のとおり、新しい解決ヘルパーでは `undefined` 返却に変換し、同期例外として漏らさない。既存 export の `annexb2avcc()` 自体の throw 挙動は互換性のため変えない。
+- **スキップ中の audio バッファ**: audio + video 構成では、`Mp4Container` が `tracksReady` になるまで audio フレームを `frameBuffer` に溜め続ける。これは既存挙動（最初のキーフレームが来るまで）と同じだが、有効なキーフレームが長時間来ないとメモリが増え続ける。上限やドロップ方針は本チケットの対象外とし、必要なら別チケットで扱う。
+- **ログ**: `debug` の namespace は既存の `werift-rtp : packages/rtp/src/...` 形式に合わせる。
 - 影響パッケージは `packages/rtp` のみ（`packages/webrtc` は再 export 経由で恩恵を受ける）。公開挙動の変更（SPS 補完）を伴うため、`packages/webrtc` 側の nonstandard テストも通ることを確認する。
 
 ### 6. 完了条件
 
 - [ ] `width` / `height` が未指定・部分指定・不正値でも `MP4Base.processVideoInput()` が無限ループしない。
 - [ ] 寸法未指定時、最初のキーフレームの SPS から寸法が補完され、mediabunny で読み戻せる正しい fMP4（init + media segment + 単一 EOL）が出力される。
-- [ ] SPS からも寸法を得られない場合、ハングも呼び出し側への同期例外漏出も起きない（採用した挙動がテストで固定されている）。
+- [ ] SPS / PPS から avcC や寸法を得られないキーフレームは捨てられる。`inputVideo()` は throw せず、video track は未初期化のまま次のキーフレームで初期化される（3-2-1）。
+- [ ] 有効なキーフレームが 1 枚も来ないまま `eol` / `destroy()` された場合、`data` 出力 0 件・`{ eol: true }` 1 回で終了し、unhandled rejection が残らない。
 - [ ] 明示寸法が指定されている既存ケースの出力が変わらない（既存 `mp4.test.ts` が全て通る）。
 - [ ] `container.ts` の `isVideoConfig()` が寸法欠落時も video config と正しく判定する。
 - [ ] 上記の回帰テストが `packages/rtp/tests/processor/mp4.test.ts` に Arrange / Act / Assert + 日本語コメントで追加され、共有 Arrange は `tests/utils.ts` に置かれている。
