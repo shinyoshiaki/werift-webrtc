@@ -36,6 +36,10 @@ export async function collectMp4Buffer(
   act: (mp4: MP4Callback) => void | Promise<void>,
 ) {
   const outputs = await collectMp4Outputs(tracks, act);
+  return mp4OutputsToBuffer(outputs);
+}
+
+export function mp4OutputsToBuffer(outputs: Mp4Output[]) {
   const chunks = outputs
     .filter((output): output is Extract<Mp4Output, { data: Uint8Array }> => {
       return "data" in output;
@@ -81,6 +85,86 @@ export async function collectMp4Outputs(
   }
 
   return outputs;
+}
+
+export type Mp4TestFrame = {
+  data: Buffer;
+  isKeyframe: boolean;
+  time: number;
+};
+
+export function createFrame(
+  data: Buffer,
+  isKeyframe: boolean,
+  time: number,
+): Mp4TestFrame {
+  return { data, isKeyframe, time };
+}
+
+export function createAudioFrames() {
+  return [
+    createFrame(Buffer.from([0xf8, 0xff, 0xfe, 0x01]), true, 0),
+    createFrame(Buffer.from([0xf8, 0xff, 0xfe, 0x02]), true, 20),
+    createFrame(Buffer.from([0xf8, 0xff, 0xfe, 0x03]), true, 40),
+  ];
+}
+
+/** Baseline H.264 SPS (1920x1080, SAR 1:1) */
+export const avcTestSps =
+  "000000016742001eda01e0089f970110000003000100000300320f183196";
+/** PPS paired with {@link avcTestSps} */
+export const avcTestPps = "0000000168ce06e2";
+/** IDR slice without parameter sets */
+export const avcTestIdrSlice = "0000000165888421a0";
+
+/**
+ * SPS/PPS + IDR keyframe followed by two delta frames.
+ * `timeOffset` shifts every frame time (ms).
+ */
+export function createVideoFrames(timeOffset = 0) {
+  return [
+    createFrame(
+      Buffer.from(avcTestSps + avcTestPps + avcTestIdrSlice, "hex"),
+      true,
+      timeOffset,
+    ),
+    createFrame(Buffer.from("00000001419a2211", "hex"), false, timeOffset + 33),
+    createFrame(Buffer.from("00000001419a3344", "hex"), false, timeOffset + 66),
+  ];
+}
+
+export function createAvcKeyframeWithoutParameterSets(time: number) {
+  return createFrame(Buffer.from(avcTestIdrSlice, "hex"), true, time);
+}
+
+export function createAvcKeyframeWithTruncatedSps(time: number) {
+  return createFrame(
+    Buffer.from("000000016742" + avcTestPps + avcTestIdrSlice, "hex"),
+    true,
+    time,
+  );
+}
+
+export function createVideoTrack(
+  dimensions: Pick<Track, "width" | "height"> = {},
+  trackNumber = 1,
+): Track {
+  return {
+    ...dimensions,
+    kind: "video",
+    codec: "avc1",
+    clockRate: 90_000,
+    trackNumber,
+  };
+}
+
+export function createAudioTrack(trackNumber = 1): Track {
+  return {
+    kind: "audio",
+    codec: "opus",
+    clockRate: 48_000,
+    trackNumber,
+  };
 }
 
 export function createMp4Input(buffer: Buffer) {

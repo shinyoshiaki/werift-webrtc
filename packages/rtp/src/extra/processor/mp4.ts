@@ -1,4 +1,4 @@
-import { Event } from "../../imports/common";
+import { Event, debug } from "../../imports/common";
 
 import { OpusRtpPayload } from "../..";
 import {
@@ -6,9 +6,11 @@ import {
   Mp4Container,
   type Mp4SupportedCodec,
   annexb2avcSample,
-  annexb2avcc,
+  parseAvcDecoderConfig,
 } from "../container/mp4";
 import type { AVProcessor } from "./interface";
+
+const log = debug("werift-rtp : packages/rtp/src/extra/processor/mp4.ts");
 
 export type Mp4Input = {
   frame?: {
@@ -93,23 +95,19 @@ export class MP4Base implements AVProcessor<Mp4Input> {
     this.videoStopped = false;
     if (!this.container.videoTrack) {
       if (frame.isKeyframe) {
-        const avcc = annexb2avcc(frame.data);
+        const config = resolveVideoDecoderConfig(track, frame.data);
+        if (!config) {
+          // Keep the video track uninitialized and wait for the next keyframe,
+          // the same way delta frames before the first keyframe are dropped.
+          log(
+            "skip keyframe: avcC / dimensions could not be resolved from SPS/PPS",
+            { time: frame.time },
+          );
+          return;
+        }
         const sample = annexb2avcSample(frame.data);
 
-        const [displayAspectWidth, displayAspectHeight] = computeRatio(
-          track.width!,
-          track.height!,
-        );
-
-        this.container.write({
-          codec: avccToCodecString(avcc),
-          codedWidth: track.width,
-          codedHeight: track.height,
-          description: toArrayBuffer(Buffer.from(avcc)),
-          displayAspectWidth,
-          displayAspectHeight,
-          track: "video",
-        });
+        this.container.write(config);
         this.container.write({
           byteLength: sample.length,
           duration: null,
@@ -197,22 +195,71 @@ export class MP4Base implements AVProcessor<Mp4Input> {
   }
 }
 
-function computeRatio(a: number, b: number) {
-  function gcd(x: number, y: number) {
-    while (y !== 0) {
-      const temp = y;
-      y = x % y;
-      x = temp;
-    }
-    return x;
+function resolveVideoDecoderConfig(track: Track, data: Buffer) {
+  const avcConfig = parseAvcDecoderConfig(data);
+  if (!avcConfig) {
+    return undefined;
   }
 
-  const divisor = gcd(a, b);
-  return [a / divisor, b / divisor];
+  // Explicit track dimensions take precedence over the SPS.
+  const explicit =
+    isPositiveInteger(track.width) && isPositiveInteger(track.height)
+      ? { width: track.width, height: track.height }
+      : undefined;
+  const codedSize = explicit ?? avcConfig.codedSize;
+  const displaySize = explicit ?? avcConfig.presentSize;
+  const ratio = computeRatio(displaySize.width, displaySize.height);
+
+  return {
+    codec: avccToCodecString(avcConfig.avcc),
+    codedWidth: codedSize.width,
+    codedHeight: codedSize.height,
+    description: toArrayBuffer(Buffer.from(avcConfig.avcc)),
+    displayAspectWidth: ratio?.[0],
+    displayAspectHeight: ratio?.[1],
+    track: "video" as const,
+  };
+}
+
+/**
+ * Reduces `a:b` to its lowest terms.
+ * Returns `undefined` unless both values are positive finite integers.
+ * @internal
+ */
+export function computeRatio(
+  a: number | undefined,
+  b: number | undefined,
+): [number, number] | undefined {
+  if (!isPositiveInteger(a) || !isPositiveInteger(b)) {
+    return undefined;
+  }
+
+  let x = a;
+  let y = b;
+  while (y !== 0) {
+    const temp = y;
+    y = x % y;
+    x = temp;
+  }
+  return [a / x, b / x];
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
 }
 
 export interface Track {
+  /**
+   * Video width in pixels.
+   * When `width` / `height` are not both positive integers, the coded size from
+   * the SPS of the first usable keyframe is used instead.
+   */
   width?: number;
+  /**
+   * Video height in pixels.
+   * When `width` / `height` are not both positive integers, the coded size from
+   * the SPS of the first usable keyframe is used instead.
+   */
   height?: number;
   kind: "audio" | "video";
   codec: Mp4SupportedCodec;
