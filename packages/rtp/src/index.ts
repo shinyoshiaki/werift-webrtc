@@ -15,6 +15,7 @@ export * from "./rtcp/rtpfb/twcc";
 export * from "./rtcp/sdes";
 export * from "./rtcp/sr";
 export * from "./rtp/headerExtension";
+export * from "./rtp/mediaClock";
 export * from "./rtp/red/encoder";
 export * from "./rtp/red/handler";
 export * from "./rtp/red/packet";
