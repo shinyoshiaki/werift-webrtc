@@ -64,6 +64,17 @@
 - 新しいイベントやエラーコールバックは追加しない（公開 API を増やさない）。将来必要になったら別チケットで扱う。
 - `Track.width` / `Track.height` が有効でも SPS / PPS が無ければ avcC を作れないため、同じスキップ経路に入る。明示寸法の有無にかかわらず、avcC を作れないキーフレームは初期化に使わない。
 
+#### 3-2-2. 検討済み: WebM のような固定ダミー値（例: 640x360）を使わない理由
+
+WebM 側（`packages/webrtc/src/nonstandard/recorder/writer/webm.ts`）は `width ?? 640` / `height ?? 360` で補っている。fMP4 でも同じことは**技術的には可能**で、無限ループも解消する。ただし、次の理由から採用しない。
+
+- **ダミー値では、本当に困るケースを救えない**: fMP4 の init segment（`avcC`）には、寸法とは関係なく SPS / PPS のバイト列そのものが必要。さらに High 系 profile では、SPS の解析結果（`chroma_format_idc` / `bit_depth_*`、`h264.ts` の `AVCDecoderConfigurationRecord`）も必要になる。そのため、SPS / PPS が無い・壊れているキーフレームでは、ダミー寸法を入れても init segment を作れない（作っても再生できない）。結局、3-2-1 のスキップ処理は必要になる。
+- **SPS があるなら実際の値をタダで得られる**: `annexb2avcc()` はすでに `SPSParser.parseSPS()` を呼んで `codec_size` / `present_size` を計算しており、今はそれを捨てているだけ。ダミー値で済ませても実装コストはほとんど減らない。
+- **ダミー値は誤ったメタデータとして残る**: H.264 のデコーダは SPS から実際の解像度を取るので、映像のデコード自体はたいてい成功する。一方、`tkhd` / `avc1` sample entry の幅・高さ（表示サイズ）は 640x360 のまま記録される。既存テストでも、SPS が 1920x1080 なのに mediabunny は `Track` に指定した 640x360 を表示サイズとして読み戻している。4:3 や縦長の映像では、プレイヤーによっては引き伸ばされて表示される。また、表示サイズを使う後段処理（サムネイル生成、メタデータ表示など）も誤った値を受け取る。
+- **WebM との違い**: WebM の writer は `nonstandard` recorder が `Track` を組み立てる箇所で値を補っており、MP4 のような codec 設定から寸法を取る経路を持っていない。MP4 には SPS という正確な情報源があるので、そちらを使う。
+
+**結論**: 解決順序は「明示値 → SPS → スキップ（3-2-1）」のままとし、固定ダミー値の段は設けない。SPS が正常に解析できれば寸法も必ず得られるため、「avcC は作れるのに寸法だけ取れない」ケースは、実質的には SPS が壊れているケースに限られる。その場合も再生できない init segment を出すより、スキップするほうが安全である。
+
 #### 3-3. `container.ts` の判定修正
 
 - `isVideoConfig()` を `codedWidth` の有無ではなく `track === "video"` や audio 固有フィールド（`numberOfChannels` / `sampleRate`）の有無で判定するよう修正し、寸法欠落時に正しく `"missing coded video dimensions"` へ到達するようにする（防御的ガードとして残す）。
@@ -97,7 +108,7 @@
 ### 5. 制約・注意点
 
 - **後方互換**: `Track` 型は変更しない（optional のまま）。明示された寸法は従来どおり最優先。`annexb2avcc()` のシグネチャ・戻り値は変えない。
-- **ルート原因を直す**: `track.width ?? 640` のような固定デフォルトで握りつぶすのは避ける（実映像とアスペクトが食い違う MP4 を生成するため）。`packages/webrtc/src/nonstandard/recorder/writer/webm.ts` は `?? 640` を使っているが、MP4 側は SPS という正確な情報源がある。
+- **ルート原因を直す**: `track.width ?? 640` のような固定デフォルトで握りつぶすのは避ける（詳細は 3-2-2）。`packages/webrtc/src/nonstandard/recorder/writer/webm.ts` は `?? 640` を使っているが、MP4 側には SPS という正確な情報源がある。
 - **例外処理**: AGENTS.md の方針に従い、広い catch-and-ignore は追加しない。寸法解決失敗は明示的に分岐で扱う。
 - **寸法の変化**: ストリーム途中で SPS の解像度が変わるケース（simulcast 切替など）は本チケットの対象外。初期化時点の SPS のみを使う。
 - **SPS 解析失敗**: `annexb2avcc()` は SPS/PPS が無いと `video_metadata_.sps!` で TypeError になる。また `ExpGolomb` はデータ不足で throw する。3-2-1 のとおり、新しい解決ヘルパーでは `undefined` 返却に変換し、同期例外として漏らさない。既存 export の `annexb2avcc()` 自体の throw 挙動は互換性のため変えない。
