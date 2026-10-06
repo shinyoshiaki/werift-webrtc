@@ -208,6 +208,52 @@ clock.stop();       // 終了。この後に timer handle が残らないこと
 - [ ] `packages/rtp/README.md` に使用例と、使う場面 / 使わない場面（relay）が追記され、`packages/rtp/doc` が再生成されている
 - [ ] 検証: `cd packages/rtp && npm run type && npm test` が通る。公開 API の変更なので、ルートで `npm run type` と `npm run test:small` も通る
 
+## 7. 追加要件（レビュー中に追加）
+
+### 7.1 エンコード済み映像（固定フレームレート）
+
+- エンコード済みのデルタフレームを skip すると次のキーフレームまで映像が乱れるため、映像向けに skip しないモードを用意する。
+- `RtpMediaClock` に `stallPolicy: "skip" | "delay"` を追加する（既定 `"skip"` で従来どおり）。
+  - `"delay"`: ストール時も次のスロットを 1 回だけ発火し、その時刻に re-anchor する。ストールはギャップではなく遅延として吸収し、burst しない。1 フレーム未満の遅れでは re-anchor しない（ドリフトしない）。
+  - `"delay"` では `resume()` の既定を `continuous: true` にする。
+
+### 7.2 可変フレームレート（`RtpMediaPacer`）
+
+- フレームごとの `pts`（B フレームがあれば `dts`）で送出時刻を決める `RtpMediaPacer` を `werift-rtp` に追加し、`werift` からも使えるようにする。
+  - 送出時刻: `anchor.time + (dts - anchor.dts) * 1000 / clockRate`（monotonic、絶対値計算）
+  - RTP timestamp: `initialTimestamp + (pts - 最初の pts)`（uint32 wrap）
+  - フレームは skip しない。送出フレームと次のキュー内フレームが両方期限切れ（ストール）のときだけ re-anchor し、遅延（`delay`）として吸収する。burst しない。
+  - `dts` は push 順に単調非減少（違反は `RangeError`）。
+  - pause/resume/stop/AbortSignal/unref、`queueLength`（送り側のバックプレッシャー用）に対応する。
+  - tick は `RtpBuilder.create(payload, { tick })` にそのまま渡せる。
+
+### 7.3 ストリーミングソースの可変フレームレート
+
+demuxer（先読みできるファイル）だけでなく、**リアルタイムに到着するストリーミングソース**（ライブエンコーダー、ffmpeg / GStreamer のパイプ、ネットワーク入力、変化時のみフレームを出す画面キャプチャなど）の可変フレームレートにも対応することを明確にする。
+
+- 到着ジッタ: 早く届いたフレーム（まとめ届き）は自分の pts まで待ち、キューが空の間に遅れて届いたフレームはすぐ送る。
+- 遅延は累積しない: re-anchor は遅れたまとめ届きで 2 フレーム以上が期限切れになったときだけ起こる。`delay` は観測された最大の到着遅れまでで止まる。
+- `latencyMs` オプション（既定 0、0 以上の有限値）: 最初のフレームの送出をこの分遅らせ、想定ジッタ以内のまとめ届きを re-anchor なしで平滑化する。
+- ストリームの途切れ（例: 10 秒フレームなし）は pts の大きな差として扱う。再開フレームは期限どおりに送り、RTP timestamp も同じだけ進める。遅延は発生させない。
+- タイムスタンプを持たないソースは、取得時刻・到着時刻を pts として使う方法を README に示す。
+- ソースがタイムスタンプをリセットした場合は、新しい pacer を `initialTimestamp` を引き継いで作る、という運用を README に示す。
+- サンプルコード:
+  - README: demuxer 用とストリーミングソース用（エンコーダーのコールバック、タイムスタンプなしのソース）の例
+  - 実行できる例: `packages/rtp/examples/node/pacer/ffmpeg-vfr-stream.ts`（ffmpeg が `-re` で 30fps / 10fps を切り替えるライブ VP8 を IVF でパイプ出力 → `RtpMediaPacer` → RTP/UDP。ローカル受信側で timestamp 差と到着間隔を表示する）
+
+### 7.4 追加テスト観点
+
+- `stallPolicy: "delay"`: 5 秒ストール後に skip せず 1 回だけ発火し burst しないこと、1 ms 遅れで 1 分動かしてもドリフトしないこと、エンコード済みフレーム列（キーフレーム間隔 30 秒）を途中ストールさせても全フレームが連続 seq/timestamp で送られること、`resume()` の既定動作
+- `RtpMediaPacer`（先読み）: 可変間隔の送出時刻、1 ms 遅れで 1 分動かしてもずれないこと、ストール、B フレーム（dts 順送出・pts から timestamp）、遅れて届いたフレーム、pause/resume、tick 中の stop/abort、`RtpBuilder` 連携（32-bit wrap）
+- `RtpMediaPacer`（ストリーミング）: 到着ジッタ（0〜15 ms）で 1 分流しても全フレームが pts 通りに送られ遅れがジッタ幅以内であること、遅れたまとめ届きで `delay` が 1 度だけ増え以後増えないこと、`latencyMs` によって re-anchor なしで平滑化されること、10 秒の途切れ、`latencyMs` の入力検証
+
+### 7.5 追加の完了条件
+
+- [ ] `stallPolicy` と `RtpMediaPacer`（`latencyMs` を含む）が実装・export されている
+- [ ] 7.4 のテストが AAA 形式・日本語コメント・`tests/utils.ts` への Arrange 集約の規約を守って追加されている
+- [ ] README に固定 / 可変フレームレート、先読み / ストリーミングそれぞれの使い方と制約（音声と別クロックの場合のリップシンクのずれ、`onTick` を await しないこと）が記載され、`packages/rtp/doc` とルート `doc` が再生成されている
+- [ ] `examples/node/pacer/ffmpeg-vfr-stream.ts` が実行でき、VFR の間隔どおりに RTP が送出されることを確認している
+
 ## フォローアップ候補（本チケット外）
 
 - `packages/webrtc/src/nonstandard/dummyMedia.ts` の `ScheduledRtpSource` を `RtpMediaClock` に置き換え、ストール後の burst をなくすことを検討する（変更する場合は `npm run wpt --workspace packages/webrtc` で検証する）

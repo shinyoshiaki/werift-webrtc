@@ -264,3 +264,50 @@ export function createVfrTimings(
     return timing;
   });
 }
+
+/**
+ * Arrivals of a live (streaming) VFR source in 90 kHz units: frame `i` is
+ * captured at `pts / 90` ms and reaches the application `jitterMs[i % n]` ms
+ * later. With `burstSize > 1`, frames are delivered in chunks together with the
+ * last frame of each chunk (e.g. a pipe flushing several frames at once).
+ */
+export function createStreamingVfrArrivals(
+  count: number,
+  options: {
+    durations?: number[];
+    jitterMs?: number[];
+    burstSize?: number;
+  } = {},
+) {
+  const jitterMs = options.jitterMs ?? [0];
+  const burstSize = options.burstSize ?? 1;
+  const frames = createVfrTimings(count, options.durations).map((timing) => ({
+    ...timing,
+    arrivalMs: timing.pts / 90 + jitterMs[timing.index % jitterMs.length],
+  }));
+  return frames.map((frame) => {
+    const last = Math.min(
+      frames.length - 1,
+      Math.floor(frame.index / burstSize) * burstSize + burstSize - 1,
+    );
+    return {
+      ...frame,
+      arrivalMs: Math.max(frame.arrivalMs, frames[last].arrivalMs),
+    };
+  });
+}
+
+/** Pushes each arrival into `pacer` at `startMs + arrivalMs` on the harness timer. */
+export function deliverStreamingArrivals(
+  harness: ReturnType<typeof createManualMediaClockHarness>,
+  pacer: RtpMediaPacer<number>,
+  arrivals: ReturnType<typeof createStreamingVfrArrivals>,
+  startMs = harness.now(),
+) {
+  for (const arrival of arrivals) {
+    harness.scheduler.setTimeout(
+      () => pacer.push(arrival.index, { pts: arrival.pts }),
+      startMs + arrival.arrivalMs - harness.now(),
+    );
+  }
+}

@@ -1,5 +1,10 @@
 import { RtpBuilder } from "../../src/util";
-import { createManualMediaClockHarness, createVfrTimings } from "../utils";
+import {
+  createManualMediaClockHarness,
+  createStreamingVfrArrivals,
+  createVfrTimings,
+  deliverStreamingArrivals,
+} from "../utils";
 
 describe("rtp/mediaPacer", () => {
   test("可変フレームレートのフレームを各 pts の絶対 deadline で送出する", () => {
@@ -263,5 +268,151 @@ describe("rtp/mediaPacer", () => {
       timings.map((t) => (0xffffffff - 2000 + t.pts) % 2 ** 32),
     );
     pacer.stop();
+  });
+});
+
+describe("rtp/mediaPacer (streaming source)", () => {
+  /** 12 フレームに 1 回、そのフレームを含むまとめ届きが 60ms 遅れる */
+  const lateBurstJitter = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 60];
+
+  test("ライブ VFR: 到着ジッタがあっても全フレームを pts 通りに送り、遅延はジッタ幅を超えない", () => {
+    // Arrange: 1 分間の VFR ライブソース。到着は 0〜15ms 揺らぐ
+    const harness = createManualMediaClockHarness();
+    const pacer = harness.createPacer<number>({
+      clockRate: 90_000,
+      initialTimestamp: 0,
+    });
+    const ticks = harness.collectPacerTicks(pacer);
+    const arrivals = createStreamingVfrArrivals(2000, {
+      jitterMs: [0, 15, 3, 9, 0, 12, 6],
+    });
+    pacer.start();
+
+    // Act: フレームを到着時刻に 1 枚ずつ push し、1 分強進める
+    deliverStreamingArrivals(harness, pacer, arrivals);
+    harness.advance(arrivals.at(-1)!.arrivalMs + 100);
+
+    // Assert: 全フレームが順番通り、timestamp は pts のまま
+    expect(ticks.map((t) => t.frame)).toEqual(arrivals.map((a) => a.index));
+    expect(ticks.map((t) => t.timestamp)).toEqual(arrivals.map((a) => a.pts));
+    // Assert: 到着前には送らず、pts 基準の予定時刻からの遅れはジッタ幅 (15ms) 以内
+    ticks.forEach((tick, i) => {
+      expect(tick.firedAt).toBeGreaterThanOrEqual(arrivals[i].arrivalMs);
+      expect(tick.firedAt - arrivals[i].pts / 90).toBeLessThanOrEqual(15);
+    });
+    expect(pacer.delay).toBeLessThanOrEqual(15);
+    pacer.stop();
+  });
+
+  test("まとめ届き (4 フレームずつ) のパイプでも遅延は累積せず、収束後は pts 間隔で滑らかに送る", () => {
+    // Arrange: 4 フレームずつまとめて届き、12 フレームに 1 回 60ms 遅れる VFR ライブソース
+    const harness = createManualMediaClockHarness();
+    const pacer = harness.createPacer<number>({
+      clockRate: 90_000,
+      initialTimestamp: 0,
+    });
+    const ticks = harness.collectPacerTicks(pacer);
+    const arrivals = createStreamingVfrArrivals(2000, {
+      burstSize: 4,
+      jitterMs: lateBurstJitter,
+    });
+    pacer.start();
+
+    // Act: 1 分強流す
+    deliverStreamingArrivals(harness, pacer, arrivals);
+    harness.advance(arrivals.at(-1)!.arrivalMs + 500);
+
+    // Assert: 全フレームが送られる
+    expect(ticks.map((t) => t.frame)).toEqual(arrivals.map((a) => a.index));
+    // Assert: 遅れたまとめ届きで 1 度だけ re-anchor し、delay は 60ms 以内に収まる
+    const early = ticks.find((t) => t.firedAt > 2000)!.delay;
+    expect(early).toBeGreaterThan(0);
+    expect(early).toBeLessThanOrEqual(60);
+    // Assert: その後 1 分流しても delay は増えない
+    expect(ticks.at(-1)!.delay).toBe(early);
+    // Assert: 収束後の送出間隔は pts 間隔と一致し、burst しない
+    for (let i = ticks.length - 100; i < ticks.length; i++) {
+      expect(ticks[i].firedAt - ticks[i - 1].firedAt).toBeCloseTo(
+        (ticks[i].pts - ticks[i - 1].pts) / 90,
+        6,
+      );
+    }
+    pacer.stop();
+  });
+
+  test("latencyMs を確保するとまとめ届きを最初から re-anchor なしで平滑化する", () => {
+    // Arrange: 到着の遅れ (60ms) より大きい 70ms の初期遅延
+    const harness = createManualMediaClockHarness();
+    const pacer = harness.createPacer<number>({
+      clockRate: 90_000,
+      initialTimestamp: 0,
+      latencyMs: 70,
+    });
+    const ticks = harness.collectPacerTicks(pacer);
+    const arrivals = createStreamingVfrArrivals(300, {
+      burstSize: 4,
+      jitterMs: lateBurstJitter,
+    });
+    pacer.start();
+
+    // Act
+    deliverStreamingArrivals(harness, pacer, arrivals);
+    harness.advance(arrivals.at(-1)!.arrivalMs + 500);
+
+    // Assert: 最初のフレームは最初のまとめ届き + 70ms、以降は全フレーム pts 間隔で送る
+    expect(ticks[0].firedAt).toBeCloseTo(arrivals[0].arrivalMs + 70, 6);
+    for (let i = 1; i < ticks.length; i++) {
+      expect(ticks[i].firedAt - ticks[i - 1].firedAt).toBeCloseTo(
+        (ticks[i].pts - ticks[i - 1].pts) / 90,
+        6,
+      );
+    }
+    // Assert: 遅延の付け替えは起きない
+    expect(ticks.every((t) => t.delay === 0)).toBe(true);
+    pacer.stop();
+  });
+
+  test("画面共有のように 10 秒フレームが途切れても、再開フレームは到着時に送られ timestamp にギャップが出る", () => {
+    // Arrange: 30fps で 1 秒流した後、10 秒間フレームなし、その後 30fps で再開する
+    const harness = createManualMediaClockHarness();
+    const pacer = harness.createPacer<number>({
+      clockRate: 90_000,
+      initialTimestamp: 0,
+    });
+    const ticks = harness.collectPacerTicks(pacer);
+    const before = createStreamingVfrArrivals(30, { durations: [3000] });
+    const after = createStreamingVfrArrivals(30, { durations: [3000] }).map(
+      (a) => ({ ...a, index: a.index + 30, pts: a.pts + 990_000 }),
+    );
+    pacer.start();
+
+    // Act: 途切れの前後のフレームをそれぞれ到着時刻に push する
+    deliverStreamingArrivals(harness, pacer, before);
+    deliverStreamingArrivals(harness, pacer, after, harness.now() + 11_000);
+    harness.advance(13_000);
+
+    // Assert: 再開フレームは到着した瞬間 (= pts 通り) に送られる
+    expect(ticks).toHaveLength(60);
+    expect(ticks[30].firedAt).toBe(11_000);
+    // Assert: timestamp は 10 秒分 (900000 + 1 フレーム) 進み、遅延は発生しない
+    expect(ticks[30].timestamp - ticks[29].timestamp).toBe(903_000);
+    expect(pacer.delay).toBe(0);
+    pacer.stop();
+  });
+
+  test("latencyMs は 0 以上の有限値のみ受け付ける", () => {
+    // Arrange
+    const harness = createManualMediaClockHarness();
+
+    // Act / Assert: 負値と非有限値は RangeError
+    expect(() =>
+      harness.createPacer({ clockRate: 90_000, latencyMs: -1 }),
+    ).toThrow(RangeError);
+    expect(() =>
+      harness.createPacer({
+        clockRate: 90_000,
+        latencyMs: Number.POSITIVE_INFINITY,
+      }),
+    ).toThrow(RangeError);
   });
 });

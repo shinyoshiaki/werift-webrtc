@@ -7,7 +7,9 @@
 # Class: RtpMediaPacer\<T\>
 
 Monotonic real-time pacer for frames with their own timestamps, such as
-variable-frame-rate encoded video.
+variable-frame-rate encoded video. Works both for sources that are read
+ahead (demuxed files) and for streaming sources that deliver frames in real
+time with jitter (live encoders, pipes, network ingest).
 
 - Frame k is emitted at the absolute deadline
   `anchor.time + (dts(k) - anchor.dts) * 1000 / clockRate`, so timer
@@ -19,6 +21,10 @@ variable-frame-rate encoded video.
   the emitted frame is sent and the timeline is re-anchored to `now`, so the
   stall becomes added latency (`delay`) instead of a burst. A frame pushed
   after its deadline while the queue is empty is emitted immediately.
+- For streaming sources, frames arriving early (bursts) wait for their
+  deadline and frames arriving late are sent at once, so `delay` grows only
+  up to the worst arrival lateness seen, never cumulatively. `latencyMs`
+  reserves headroom for that jitter up front.
 - `resume()` emits the next frame immediately if it became due while paused
   and re-anchors to it; the paused time is added to `delay`.
 - `onTick` subscribers are invoked synchronously after the internal state has

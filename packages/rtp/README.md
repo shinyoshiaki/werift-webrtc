@@ -96,10 +96,18 @@ for variable frame rate use `RtpMediaPacer` below.
 ## variable frame rate (RtpMediaPacer)
 
 `RtpMediaPacer` paces frames by their own timestamps instead of a fixed frame
-duration. Push each frame with its `pts` (and `dts` when B-frames reorder) in
-`clockRate` units; the frame is emitted at
-`anchor + (dts - anchor.dts) / clockRate` on a monotonic clock, and its RTP
-timestamp is `initialTimestamp + (pts - firstPts)`.
+duration, so it handles variable frame rate from both kinds of source:
+
+- **read-ahead sources** (demuxed files): frames are available long before
+  they are due and wait in the queue.
+- **streaming sources** (live encoders, ffmpeg / GStreamer pipes, network
+  ingest, screen capture that only emits frames on change): frames arrive in
+  real time, with jitter and in bursts.
+
+Push each frame with its `pts` (and `dts` when B-frames reorder) in `clockRate`
+units; the frame is emitted at `anchor + (dts - anchor.dts) / clockRate` on a
+monotonic clock, and its RTP timestamp is `initialTimestamp + (pts - firstPts)`.
+The send side is the same for both kinds of source:
 
 ```typescript
 import { RtpBuilder, RtpMediaPacer } from "werift-rtp";
@@ -116,9 +124,13 @@ pacer.start((tick) => {
     );
   });
 });
+```
 
+Read-ahead source (demuxer):
+
+```typescript
 for await (const sample of demuxer) {
-  // container time -> 90 kHz, in decode order
+  // container time (s) -> 90 kHz, in decode order
   pacer.push(sample.data, {
     pts: sample.pts * 90_000,
     dts: sample.dts * 90_000,
@@ -127,16 +139,45 @@ for await (const sample of demuxer) {
 }
 ```
 
+Streaming source (live encoder / pipe):
+
+```typescript
+// headroom for arrival jitter and pipe bursts
+const pacer = new RtpMediaPacer<Buffer>({ clockRate: 90_000, latencyMs: 50 });
+
+encoder.on("frame", (chunk: { data: Buffer; timestampUs: number }) => {
+  // the encoder's capture timestamp (µs) -> 90 kHz; frame intervals may vary
+  pacer.push(chunk.data, { pts: (chunk.timestampUs * 90_000) / 1_000_000 });
+});
+
+// a source without timestamps: use the capture/arrival time as pts
+source.on("frame", (data: Buffer) => {
+  pacer.push(data, { pts: performance.now() * 90 });
+});
+```
+
+A runnable streaming example (ffmpeg live VP8 switching between 30 fps and
+10 fps, IVF over a pipe, RTP over UDP) is in
+`examples/node/pacer/ffmpeg-vfr-stream.ts`.
+
 - Frames are never skipped. If the emitted frame and the next queued frame are
   both overdue (event loop stall, or the producer pushes a late batch), only
   one frame is sent and the timeline is re-anchored to now: the stall becomes
   latency (`tick.delay`), not a burst. Ordinary timer lateness does not move the
   anchor, so there is no drift.
-- A frame pushed after its deadline while the queue is empty is sent
-  immediately.
+- Streaming sources: early frames (bursts) wait for their pts and late frames
+  are sent immediately when the queue is empty. Re-anchoring only happens when
+  a late burst leaves two frames overdue, so `delay` grows to the worst arrival
+  lateness seen and then stays there; it does not accumulate. Set `latencyMs`
+  to at least the expected jitter to avoid re-anchoring altogether.
+- Gaps in a stream (e.g. a screen capture that sends nothing for 10 s) are
+  just a larger pts step: the next frame is sent when it is due, and the RTP
+  timestamp jumps by the same amount.
 - `pause()` / `resume()`: a frame that became due while paused is sent on
   `resume()` and the paused time is added to `delay`.
-- `dts` must be non-decreasing in push order (`RangeError` otherwise).
+- `dts` (or `pts` when `dts` is omitted) must be non-decreasing in push order
+  (`RangeError` otherwise). If a streaming source resets its timestamps, create
+  a new pacer with `initialTimestamp` continuing from the last tick.
 
 Limitations of `stallPolicy: "delay"` and `RtpMediaPacer`:
 

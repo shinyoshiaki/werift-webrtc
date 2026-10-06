@@ -24,6 +24,16 @@ RTP timestamp of the first pushed frame's `pts`. Default: random32().
 
 ***
 
+### latencyMs?
+
+> `optional` **latencyMs**: `number`
+
+Initial playout delay (ms) of the first frame. For streaming sources it
+absorbs arrival jitter / bursts up to this amount without re-anchoring.
+Default: 0.
+
+***
+
 ### now()?
 
 > `optional` **now**: () => `number`

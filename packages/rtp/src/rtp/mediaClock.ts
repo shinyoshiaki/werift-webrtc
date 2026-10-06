@@ -382,6 +382,12 @@ export interface RtpMediaPacerOptions {
   clockRate: number;
   /** RTP timestamp of the first pushed frame's `pts`. Default: random32(). */
   initialTimestamp?: number;
+  /**
+   * Initial playout delay (ms) of the first frame. For streaming sources it
+   * absorbs arrival jitter / bursts up to this amount without re-anchoring.
+   * Default: 0.
+   */
+  latencyMs?: number;
   /** Monotonic time source in ms. Default: `performance.now()`. */
   now?: () => number;
   /** Timer implementation. Default: global setTimeout / clearTimeout. */
@@ -423,7 +429,9 @@ export interface RtpMediaPacerTick<T> {
 
 /**
  * Monotonic real-time pacer for frames with their own timestamps, such as
- * variable-frame-rate encoded video.
+ * variable-frame-rate encoded video. Works both for sources that are read
+ * ahead (demuxed files) and for streaming sources that deliver frames in real
+ * time with jitter (live encoders, pipes, network ingest).
  *
  * - Frame k is emitted at the absolute deadline
  *   `anchor.time + (dts(k) - anchor.dts) * 1000 / clockRate`, so timer
@@ -435,6 +443,10 @@ export interface RtpMediaPacerTick<T> {
  *   the emitted frame is sent and the timeline is re-anchored to `now`, so the
  *   stall becomes added latency (`delay`) instead of a burst. A frame pushed
  *   after its deadline while the queue is empty is emitted immediately.
+ * - For streaming sources, frames arriving early (bursts) wait for their
+ *   deadline and frames arriving late are sent at once, so `delay` grows only
+ *   up to the worst arrival lateness seen, never cumulatively. `latencyMs`
+ *   reserves headroom for that jitter up front.
  * - `resume()` emits the next frame immediately if it became due while paused
  *   and re-anchors to it; the paused time is added to `delay`.
  * - `onTick` subscribers are invoked synchronously after the internal state has
@@ -450,6 +462,7 @@ export class RtpMediaPacer<T = Buffer> {
   private readonly scheduler: RtpMediaClockScheduler;
   private readonly unref: boolean;
   private readonly signal?: AbortSignal;
+  private readonly latencyMs: number;
 
   private _state: RtpMediaClockState = "idle";
   private queue: { frame: T; pts: number; dts: number }[] = [];
@@ -468,6 +481,10 @@ export class RtpMediaPacer<T = Buffer> {
     this.initialTimestamp = toUint32(
       Math.round(options.initialTimestamp ?? random32()),
     );
+    this.latencyMs = options.latencyMs ?? 0;
+    if (!Number.isFinite(this.latencyMs) || this.latencyMs < 0) {
+      throw new RangeError("latencyMs must be a non-negative finite number");
+    }
     this.now = options.now ?? (() => performance.now());
     this.scheduler = options.scheduler ?? defaultScheduler;
     this.unref = options.unref ?? false;
@@ -586,7 +603,9 @@ export class RtpMediaPacer<T = Buffer> {
     if (!next) {
       return;
     }
-    const delay = this.anchor ? Math.max(0, this.deadline(next.dts) - now) : 0;
+    // the first frame anchors the timeline, `latencyMs` after it is scheduled
+    this.anchor ??= { time: now + this.latencyMs, dts: next.dts };
+    const delay = Math.max(0, this.deadline(next.dts) - now);
     const handle = this.scheduler.setTimeout(this.handleTimer, delay);
     if (this.unref) {
       (handle as { unref?: () => void } | undefined)?.unref?.();
@@ -608,9 +627,6 @@ export class RtpMediaPacer<T = Buffer> {
       return;
     }
     const now = this.now();
-    if (!this.anchor) {
-      this.anchor = { time: now, dts: entry.dts };
-    }
     const deadline = this.deadline(entry.dts);
     if (now < deadline - SLOT_EPSILON) {
       // timer fired early
