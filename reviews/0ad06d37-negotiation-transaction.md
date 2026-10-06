@@ -70,6 +70,7 @@ ide:
 
 検証の実装は [packages/webrtc/src/negotiation/descriptionValidation.ts:107](review-file:packages/webrtc/src/negotiation/descriptionValidation.ts:107) です。ローカル側の検証（準備済みの ICE 資格情報を使っているか、DTLS role を変えていないか）は [packages/webrtc/src/negotiation/descriptionValidation.ts:42](review-file:packages/webrtc/src/negotiation/descriptionValidation.ts:42) です。payload type と extmap の再割当ての拒否は [packages/webrtc/src/sdpManager.ts:376](review-file:packages/webrtc/src/sdpManager.ts:376) と [packages/webrtc/src/sdpManager.ts:346](review-file:packages/webrtc/src/sdpManager.ts:346) にあります。
 
+<!-- review-bookmark id="bm_1a10662fd6e-753cc016" title="2.2 description 適用の順序（validate → codec 計" -->
 remote m-line の適用は 4 段階です。入口は [packages/webrtc/src/negotiation/remoteMediaApplication.ts:85](review-file:packages/webrtc/src/negotiation/remoteMediaApplication.ts:85) です。
 
 1. transceiver / SCTP との対応付け: [packages/webrtc/src/negotiation/remoteMediaApplication.ts:117](review-file:packages/webrtc/src/negotiation/remoteMediaApplication.ts:117)
@@ -202,3 +203,4 @@ develop のマージ（`c580f5d2`）でコンフリクトを解消したとき�
 | `69ff0059` / `922aa3bb` | （依頼）`peerConnection.ts` の分割とディレクトリ整理 | 挙動を変えないモジュール分割 — [packages/webrtc/src/peerConnection.ts](review-diff:packages/webrtc/src/peerConnection.ts:commit:69ff0059) |
 | `64f374a3` / `d5cd6112` | develop の codec 統合のマージと CI 対応 | codec の切り替えを commit 時に統一 — [packages/webrtc/src/transceiverManager.ts](review-diff:packages/webrtc/src/transceiverManager.ts:commit:d5cd6112) |
 | `98247860` | （依頼）`negotiationTransaction.ts` のリファクタリング | snapshot を各コンポーネントへ移し、提案の資源を集約 — [packages/webrtc/src/negotiationTransaction.ts](review-diff:packages/webrtc/src/negotiationTransaction.ts:commit:98247860dbbf) |
+<!-- review-bookmark id="bm_1a1066566bb-ef47584a" title="しおり 3" -->
