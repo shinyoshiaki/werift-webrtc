@@ -49,6 +49,10 @@ clock.start();
 - **Stall handling**: if the event loop stalls past several deadlines, `onTick`
   fires once for the latest reached slot. The slots in between are reported as
   `skippedFrames` and appear as a timestamp gap; late packets are never burst.
+  This suits real-time video too: a late frame is dropped rather than sent in a
+  burst, and the timestamp still tracks real time, so receivers keep A/V sync
+  (like a camera dropping frames). If every frame must be delivered (e.g. file
+  transcoding), do not use the clock; drive `RtpBuilder` from your own timeline.
 - **pause / resume**: `resume()` re-anchors the clock to the resume time and
   emits a tick immediately (no burst). By default the paused wall-clock time is
   reflected as a timestamp gap (same as a stall), which keeps RTP time aligned
