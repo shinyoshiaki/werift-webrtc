@@ -47,8 +47,8 @@ export interface RtpBuilderCreateOptions {
   elapsedSamples?: number;
   /** Absolute RTP timestamp (application-owned timeline, e.g. relay). */
   timestamp?: number;
-  /** Use the timestamp of a media clock tick. */
-  tick?: RtpMediaClockTick;
+  /** Use the timestamp of a media clock tick (or `RtpMediaPacer` tick). */
+  tick?: Pick<RtpMediaClockTick, "timestamp">;
   marker?: boolean;
 }
 

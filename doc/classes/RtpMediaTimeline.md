@@ -122,8 +122,10 @@ Latest slot whose deadline has been reached at `now`.
 Resolves the tick to emit at `now`.
 
 Returns `undefined` when the deadline of `nextFrameIndex` has not been
-reached yet. When several slots have elapsed, only the latest reached slot
-is returned and the slots in between are reported as `skippedFrames`.
+reached yet. When several slots have elapsed, `stallPolicy: "skip"`
+(default) returns only the latest reached slot and reports the slots in
+between as `skippedFrames`; `"delay"` returns `nextFrameIndex` with its
+original deadline, so `lateness` shows how far behind the clock is.
 
 #### Parameters
 
@@ -146,6 +148,10 @@ Frame index of the previous tick, if any.
 ###### now
 
 `number`
+
+###### stallPolicy?
+
+[`RtpMediaClockStallPolicy`](../type-aliases/RtpMediaClockStallPolicy.md) = `"skip"`
 
 #### Returns
 

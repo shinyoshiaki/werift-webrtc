@@ -8,6 +8,9 @@ import {
   RtpMediaClock,
   type RtpMediaClockOptions,
   type RtpMediaClockTick,
+  RtpMediaPacer,
+  type RtpMediaPacerOptions,
+  type RtpMediaPacerTick,
 } from "../src/rtp/mediaClock";
 import type { Transport } from "../src/transport";
 
@@ -185,6 +188,18 @@ export function createManualMediaClockHarness(
     return ticks;
   };
 
+  const createPacer = <T = Buffer>(
+    pacerOptions: Omit<RtpMediaPacerOptions, "now" | "scheduler">,
+  ) => new RtpMediaPacer<T>({ ...pacerOptions, now, scheduler });
+
+  const collectPacerTicks = <T>(pacer: RtpMediaPacer<T>) => {
+    const ticks: (RtpMediaPacerTick<T> & { firedAt: number })[] = [];
+    pacer.onTick.subscribe((tick) => {
+      ticks.push({ ...tick, firedAt: currentTime });
+    });
+    return ticks;
+  };
+
   return {
     now,
     scheduler,
@@ -192,6 +207,8 @@ export function createManualMediaClockHarness(
     block,
     createClock,
     collectTicks,
+    createPacer,
+    collectPacerTicks,
     pendingTimerCount: () => timers.size,
   };
 }
@@ -230,4 +247,20 @@ export function createEncodedVideoFrames(
     keyframe: index % keyframeInterval === 0,
     payload: Buffer.from([index & 0xff]),
   }));
+}
+
+/**
+ * Variable-frame-rate frame timings in 90 kHz units. Frame durations cycle
+ * through `durations` (default 1500 / 3000 / 4500 samples = 16.7 / 33.3 / 50 ms).
+ */
+export function createVfrTimings(
+  count: number,
+  durations: number[] = [1500, 3000, 4500],
+) {
+  let pts = 0;
+  return Array.from({ length: count }, (_, index) => {
+    const timing = { index, pts };
+    pts += durations[index % durations.length];
+    return timing;
+  });
 }

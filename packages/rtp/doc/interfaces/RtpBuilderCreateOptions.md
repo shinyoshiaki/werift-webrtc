@@ -24,9 +24,9 @@ Samples to advance for this packet. `0` keeps the current timestamp.
 
 ### tick?
 
-> `optional` **tick**: [`RtpMediaClockTick`](RtpMediaClockTick.md)
+> `optional` **tick**: `Pick`\<[`RtpMediaClockTick`](RtpMediaClockTick.md), `"timestamp"`\>
 
-Use the timestamp of a media clock tick.
+Use the timestamp of a media clock tick (or `RtpMediaPacer` tick).
 
 ***
 
