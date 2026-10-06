@@ -89,6 +89,14 @@ Aborting the signal is equivalent to `stop()`.
 
 ***
 
+### stallPolicy?
+
+> `optional` **stallPolicy**: [`RtpMediaClockStallPolicy`](../type-aliases/RtpMediaClockStallPolicy.md)
+
+Default: `"skip"`.
+
+***
+
 ### unref?
 
 > `optional` **unref**: `boolean`

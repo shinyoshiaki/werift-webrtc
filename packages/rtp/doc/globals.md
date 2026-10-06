@@ -86,6 +86,7 @@
 - [RequireAtLeastOne](type-aliases/RequireAtLeastOne.md)
 - [RtcpPacket](type-aliases/RtcpPacket.md)
 - [RtpBuilderProps](type-aliases/RtpBuilderProps.md)
+- [RtpMediaClockStallPolicy](type-aliases/RtpMediaClockStallPolicy.md)
 - [RtpMediaClockState](type-aliases/RtpMediaClockState.md)
 - [SrtpProfile](type-aliases/SrtpProfile.md)
 - [TlsConnectionOptions](type-aliases/TlsConnectionOptions.md)

@@ -219,3 +219,15 @@ export function createRecordingScheduler() {
     },
   };
 }
+
+/** Pre-encoded video access units: a keyframe every `keyframeInterval` frames. */
+export function createEncodedVideoFrames(
+  count: number,
+  keyframeInterval: number,
+) {
+  return Array.from({ length: count }, (_, index) => ({
+    index,
+    keyframe: index % keyframeInterval === 0,
+    payload: Buffer.from([index & 0xff]),
+  }));
+}

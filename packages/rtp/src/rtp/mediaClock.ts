@@ -104,25 +104,30 @@ export class RtpMediaTimeline {
    * Resolves the tick to emit at `now`.
    *
    * Returns `undefined` when the deadline of `nextFrameIndex` has not been
-   * reached yet. When several slots have elapsed, only the latest reached slot
-   * is returned and the slots in between are reported as `skippedFrames`.
+   * reached yet. When several slots have elapsed, `stallPolicy: "skip"`
+   * (default) returns only the latest reached slot and reports the slots in
+   * between as `skippedFrames`; `"delay"` returns `nextFrameIndex` with its
+   * original deadline, so `lateness` shows how far behind the clock is.
    */
   resolveTick({
     anchor,
     nextFrameIndex,
     lastFrameIndex,
     now,
+    stallPolicy = "skip",
   }: {
     anchor: RtpMediaTimelineAnchor;
     nextFrameIndex: number;
     /** Frame index of the previous tick, if any. */
     lastFrameIndex?: number;
     now: number;
+    stallPolicy?: RtpMediaClockStallPolicy;
   }): RtpMediaClockTick | undefined {
-    const frameIndex = this.latestFrameIndex(anchor, now);
-    if (frameIndex < nextFrameIndex) {
+    const latest = this.latestFrameIndex(anchor, now);
+    if (latest < nextFrameIndex) {
       return undefined;
     }
+    const frameIndex = stallPolicy === "delay" ? nextFrameIndex : latest;
     const deadline = this.deadline(anchor, frameIndex);
     return {
       frameIndex,
@@ -142,7 +147,23 @@ export interface RtpMediaClockScheduler {
   clearTimeout(handle: unknown): void;
 }
 
+/**
+ * What to do when the clock falls behind by one frame or more.
+ *
+ * - `"skip"`: jump to the latest reached slot. The slots in between are
+ *   reported as `skippedFrames` and appear as a timestamp gap. RTP time stays
+ *   aligned with real time. Suited to audio and to live video that encodes the
+ *   latest captured frame on each tick.
+ * - `"delay"`: never skip a slot. The late slot is emitted immediately and the
+ *   timeline is re-anchored to `now`, so the stall is absorbed as added latency
+ *   instead of a gap or a burst. Suited to already-encoded video (or any source
+ *   where every frame must be sent) at a constant frame rate.
+ */
+export type RtpMediaClockStallPolicy = "skip" | "delay";
+
 export interface RtpMediaClockOptions extends RtpMediaTimelineOptions {
+  /** Default: `"skip"`. */
+  stallPolicy?: RtpMediaClockStallPolicy;
   /** Monotonic time source in ms. Default: `performance.now()`. */
   now?: () => number;
   /** Timer implementation. Default: global setTimeout / clearTimeout. */
@@ -155,9 +176,11 @@ export interface RtpMediaClockOptions extends RtpMediaTimelineOptions {
 
 export interface RtpMediaClockResumeOptions {
   /**
-   * `false` (default): the paused wall-clock time is reflected as a timestamp
-   * gap, the same as a scheduler stall.
+   * `false`: the paused wall-clock time is reflected as a timestamp gap, the
+   * same as a scheduler stall.
    * `true`: the pause is collapsed and the timeline advances by one frame.
+   *
+   * Default: `false` for `stallPolicy: "skip"`, `true` for `"delay"`.
    */
   continuous?: boolean;
 }
@@ -175,15 +198,18 @@ const defaultScheduler: RtpMediaClockScheduler = {
  *
  * - Each slot N is scheduled at the absolute deadline
  *   `origin + N * frameDurationMs`, so timer lateness never accumulates.
- * - When the event loop stalls past several deadlines, `onTick` fires once for
- *   the latest reached slot; the slots in between are reported via
- *   `skippedFrames` and appear as a timestamp gap. Late ticks are never burst.
+ * - When the event loop stalls past several deadlines, `onTick` fires once.
+ *   With `stallPolicy: "skip"` (default) it fires for the latest reached slot;
+ *   the slots in between are reported via `skippedFrames` and appear as a
+ *   timestamp gap. With `"delay"` it fires for the next slot and re-anchors
+ *   the timeline, so no slot is skipped. Late ticks are never burst.
  * - `onTick` subscribers are invoked synchronously after the internal state
  *   (including the next timer) has been updated. Returned promises are not
  *   awaited; backpressure is out of scope.
  * - `resume()` re-anchors the origin to the resume time and emits a tick
- *   immediately. By default the paused time is reflected as a timestamp gap;
- *   pass `{ continuous: true }` to collapse it.
+ *   immediately. With `"skip"` the paused time is reflected as a timestamp gap
+ *   by default; pass `{ continuous: true }` to collapse it (default for
+ *   `"delay"`).
  *
  * This is an opt-in utility for media sources. `RTCRtpSender.sendRtp()` never
  * rewrites RTP timestamps based on send time.
@@ -191,6 +217,7 @@ const defaultScheduler: RtpMediaClockScheduler = {
 export class RtpMediaClock {
   readonly timeline: RtpMediaTimeline;
   readonly onTick = new Event<[RtpMediaClockTick]>();
+  readonly stallPolicy: RtpMediaClockStallPolicy;
 
   private readonly now: () => number;
   private readonly scheduler: RtpMediaClockScheduler;
@@ -205,6 +232,7 @@ export class RtpMediaClock {
 
   constructor(options: RtpMediaClockOptions) {
     this.timeline = new RtpMediaTimeline(options);
+    this.stallPolicy = options.stallPolicy ?? "skip";
     this.now = options.now ?? (() => performance.now());
     this.scheduler = options.scheduler ?? defaultScheduler;
     this.unref = options.unref ?? false;
@@ -261,7 +289,8 @@ export class RtpMediaClock {
       return;
     }
     const now = this.now();
-    const frameIndex = options.continuous
+    const continuous = options.continuous ?? this.stallPolicy === "delay";
+    const frameIndex = continuous
       ? this.nextFrameIndex
       : Math.max(
           this.nextFrameIndex,
@@ -313,6 +342,7 @@ export class RtpMediaClock {
       nextFrameIndex: this.nextFrameIndex,
       lastFrameIndex: this._lastTick?.frameIndex,
       now,
+      stallPolicy: this.stallPolicy,
     });
     if (!tick) {
       // timer fired early
@@ -327,6 +357,13 @@ export class RtpMediaClock {
 
     // commit state and the next timer first so that a throwing subscriber
     // cannot corrupt the clock
+    if (
+      this.stallPolicy === "delay" &&
+      tick.lateness >= this.timeline.frameDurationMs
+    ) {
+      // "delay" policy: absorb the stall as latency instead of bursting
+      this.anchor = { time: now, frameIndex: tick.frameIndex };
+    }
     this._lastTick = tick;
     this.nextFrameIndex = tick.frameIndex + 1;
     this.schedule(

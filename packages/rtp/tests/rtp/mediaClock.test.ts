@@ -1,8 +1,10 @@
 import { setTimeout as sleep } from "timers/promises";
 
 import { RtpMediaClock, RtpMediaTimeline } from "../../src/rtp/mediaClock";
+import { RtpBuilder } from "../../src/util";
 import {
   activeTimeoutCount,
+  createEncodedVideoFrames,
   createManualMediaClockHarness,
   createRecordingScheduler,
 } from "../utils";
@@ -149,6 +151,34 @@ describe("rtp/mediaClock", () => {
       });
     });
 
+    test("stallPolicy delay の resolveTick は skip せず次スロットを元の deadline で返す", () => {
+      // Arrange
+      const timeline = new RtpMediaTimeline({
+        clockRate: 48_000,
+        frameSamples: 960,
+        initialTimestamp: 0,
+      });
+
+      // Act: frame 50 の後、5 秒ストールした時刻で解決する
+      const stalled = timeline.resolveTick({
+        anchor: { time: 0, frameIndex: 0 },
+        nextFrameIndex: 51,
+        lastFrameIndex: 50,
+        now: 6000,
+        stallPolicy: "delay",
+      });
+
+      // Assert: 次の frame 51 を返し、遅れは lateness に現れる
+      expect(stalled).toEqual({
+        frameIndex: 51,
+        timestamp: 48960,
+        elapsedSamples: 960,
+        skippedFrames: 0,
+        deadline: 1020,
+        lateness: 4980,
+      });
+    });
+
     test("RTP timestamp は 32-bit で wrap する", () => {
       // Arrange: initialTimestamp = 0xffffffff - 100
       const timeline = new RtpMediaTimeline({
@@ -279,6 +309,149 @@ describe("rtp/mediaClock", () => {
         frameIndex: 301,
         skippedFrames: 0,
         elapsedSamples: 960,
+      });
+      clock.stop();
+    });
+
+    test("stallPolicy delay: 5 秒のストール後も skip せず、遅延として吸収し burst しない", () => {
+      // Arrange: ts=48000 (frame 50) まで進める
+      const harness = createManualMediaClockHarness();
+      const clock = harness.createClock({
+        clockRate: 48_000,
+        frameSamples: 960,
+        initialTimestamp: 0,
+        stallPolicy: "delay",
+      });
+      const ticks = harness.collectTicks(clock);
+      clock.start();
+      harness.advance(1000);
+      const before = ticks.length;
+
+      // Act: イベントループを 5 秒止めてから、溜まったタイマーを処理させる
+      harness.block(5000);
+      harness.advance(0);
+
+      // Assert: tick は 1 回だけで、次の frame 51 が遅延付きで出る
+      expect(ticks.length - before).toBe(1);
+      expect(ticks.at(-1)).toMatchObject({
+        frameIndex: 51,
+        timestamp: 48960,
+        skippedFrames: 0,
+        elapsedSamples: 960,
+        lateness: 4980,
+      });
+
+      // Act: 60ms 進める
+      harness.advance(60);
+
+      // Assert: ストール時刻を origin に 20ms 間隔で連続し、追いつき burst はしない
+      expect(ticks.slice(-3).map((t) => [t.frameIndex, t.deadline])).toEqual([
+        [52, 6020],
+        [53, 6040],
+        [54, 6060],
+      ]);
+      expect(ticks.every((t) => t.skippedFrames === 0)).toBe(true);
+      clock.stop();
+    });
+
+    test("stallPolicy delay: 1 フレーム未満の遅延では re-anchor せずドリフトしない", () => {
+      // Arrange: 全コールバックが 1ms 遅れて呼ばれる環境
+      const harness = createManualMediaClockHarness({ callbackLatency: 1 });
+      const clock = harness.createClock({
+        clockRate: 48_000,
+        frameSamples: 960,
+        initialTimestamp: 0,
+        stallPolicy: "delay",
+      });
+      const ticks = harness.collectTicks(clock);
+
+      // Act: 1 分間動かす
+      clock.start();
+      harness.advance(60_000);
+      clock.stop();
+
+      // Assert: skip 方式と同じく 3000 フレームが元の deadline で出る
+      expect(ticks).toHaveLength(3000);
+      expect(ticks.at(-1)).toMatchObject({
+        timestamp: 2999 * 960,
+        deadline: 2999 * 20,
+        lateness: 1,
+      });
+    });
+
+    test("stallPolicy delay: エンコード済み映像は全フレームを連続 timestamp で送れる", () => {
+      // Arrange: 30fps / keyframe 間隔 900 フレーム (30 秒) のエンコード済みフレーム列
+      const frames = createEncodedVideoFrames(120, 900);
+      const harness = createManualMediaClockHarness();
+      const clock = harness.createClock({
+        clockRate: 90_000,
+        frameDurationMs: 1000 / 30,
+        initialTimestamp: 0,
+        stallPolicy: "delay",
+      });
+      const builder = new RtpBuilder({
+        payloadType: 96,
+        initialSequenceNumber: 0,
+      });
+      const sent: { frame: number; seq: number; ts: number }[] = [];
+      clock.start((tick) => {
+        const frame = frames.shift();
+        if (!frame) {
+          clock.stop();
+          return;
+        }
+        const rtp = builder.create(frame.payload, { tick, marker: true });
+        sent.push({
+          frame: frame.index,
+          seq: rtp.header.sequenceNumber,
+          ts: rtp.header.timestamp,
+        });
+      });
+
+      // Act: 途中で 2 秒ストールさせながら最後まで送る
+      harness.advance(1000);
+      harness.block(2000);
+      harness.advance(10_000);
+
+      // Assert: 1 フレームも欠けず、デルタフレームの参照チェーンが保たれる
+      expect(sent.map((s) => s.frame)).toEqual(
+        Array.from({ length: 120 }, (_, i) => i),
+      );
+      // Assert: seq / timestamp はギャップなく連続する (3000 samples/frame)
+      expect(sent.map((s) => s.seq)).toEqual(
+        Array.from({ length: 120 }, (_, i) => i),
+      );
+      expect(sent.map((s) => s.ts)).toEqual(
+        Array.from({ length: 120 }, (_, i) => i * 3000),
+      );
+      expect(clock.state).toBe("stopped");
+    });
+
+    test("stallPolicy delay の resume は既定で pause 期間を詰める", () => {
+      // Arrange: frame 10 まで進めて 1 秒 pause する
+      const harness = createManualMediaClockHarness();
+      const clock = harness.createClock({
+        clockRate: 48_000,
+        frameSamples: 960,
+        initialTimestamp: 0,
+        stallPolicy: "delay",
+      });
+      const ticks = harness.collectTicks(clock);
+      clock.start();
+      harness.advance(200);
+      clock.pause();
+      harness.advance(1000);
+
+      // Act: オプションなしで resume する
+      clock.resume();
+      harness.advance(0);
+
+      // Assert: ギャップなしで frame 11 から続く
+      expect(ticks.at(-1)).toMatchObject({
+        frameIndex: 11,
+        timestamp: 10560,
+        skippedFrames: 0,
+        deadline: 1200,
       });
       clock.stop();
     });
