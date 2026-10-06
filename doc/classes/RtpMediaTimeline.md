@@ -1,0 +1,170 @@
+[**werift**](../README.md)
+
+***
+
+[werift](../globals.md) / RtpMediaTimeline
+
+# Class: RtpMediaTimeline
+
+Pure, deterministic RTP media timeline.
+
+All values are computed absolutely from the frame index, so no error
+accumulates no matter how long the timeline runs.
+
+## Constructors
+
+### new RtpMediaTimeline()
+
+> **new RtpMediaTimeline**(`options`): [`RtpMediaTimeline`](RtpMediaTimeline.md)
+
+#### Parameters
+
+##### options
+
+[`RtpMediaTimelineOptions`](../interfaces/RtpMediaTimelineOptions.md)
+
+#### Returns
+
+[`RtpMediaTimeline`](RtpMediaTimeline.md)
+
+## Properties
+
+### clockRate
+
+> `readonly` **clockRate**: `number`
+
+***
+
+### frameDurationMs
+
+> `readonly` **frameDurationMs**: `number`
+
+***
+
+### frameSamples
+
+> `readonly` **frameSamples**: `number`
+
+***
+
+### initialTimestamp
+
+> `readonly` **initialTimestamp**: `number`
+
+## Methods
+
+### deadline()
+
+> **deadline**(`anchor`, `frameIndex`): `number`
+
+`anchor.time + (N - anchor.frameIndex) * frameDurationMs`
+
+#### Parameters
+
+##### anchor
+
+[`RtpMediaTimelineAnchor`](../interfaces/RtpMediaTimelineAnchor.md)
+
+##### frameIndex
+
+`number`
+
+#### Returns
+
+`number`
+
+***
+
+### elapsedSamples()
+
+> **elapsedSamples**(`frameIndex`): `number`
+
+`round(N * frameSamples)`: samples elapsed from frame 0 to frame N.
+
+#### Parameters
+
+##### frameIndex
+
+`number`
+
+#### Returns
+
+`number`
+
+***
+
+### latestFrameIndex()
+
+> **latestFrameIndex**(`anchor`, `now`): `number`
+
+Latest slot whose deadline has been reached at `now`.
+
+#### Parameters
+
+##### anchor
+
+[`RtpMediaTimelineAnchor`](../interfaces/RtpMediaTimelineAnchor.md)
+
+##### now
+
+`number`
+
+#### Returns
+
+`number`
+
+***
+
+### resolveTick()
+
+> **resolveTick**(`__namedParameters`): `undefined` \| [`RtpMediaClockTick`](../interfaces/RtpMediaClockTick.md)
+
+Resolves the tick to emit at `now`.
+
+Returns `undefined` when the deadline of `nextFrameIndex` has not been
+reached yet. When several slots have elapsed, only the latest reached slot
+is returned and the slots in between are reported as `skippedFrames`.
+
+#### Parameters
+
+##### \_\_namedParameters
+
+###### anchor
+
+[`RtpMediaTimelineAnchor`](../interfaces/RtpMediaTimelineAnchor.md)
+
+###### lastFrameIndex?
+
+`number`
+
+Frame index of the previous tick, if any.
+
+###### nextFrameIndex
+
+`number`
+
+###### now
+
+`number`
+
+#### Returns
+
+`undefined` \| [`RtpMediaClockTick`](../interfaces/RtpMediaClockTick.md)
+
+***
+
+### timestamp()
+
+> **timestamp**(`frameIndex`): `number`
+
+`(initialTimestamp + elapsedSamples(N)) mod 2^32`
+
+#### Parameters
+
+##### frameIndex
+
+`number`
+
+#### Returns
+
+`number`

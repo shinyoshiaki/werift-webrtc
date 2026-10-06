@@ -16,13 +16,7 @@
 
 ##### props
 
-###### between
-
-`number`
-
-###### clockRate
-
-`number`
+[`RtpBuilderProps`](../type-aliases/RtpBuilderProps.md)
 
 #### Returns
 
@@ -34,23 +28,69 @@
 
 > **sequenceNumber**: `number`
 
-***
+Sequence number of the last created packet.
+
+## Accessors
 
 ### timestamp
 
-> **timestamp**: `number`
+#### Get Signature
+
+> **get** **timestamp**(): `number`
+
+Current RTP timestamp (uint32).
+
+##### Returns
+
+`number`
+
+#### Set Signature
+
+> **set** **timestamp**(`timestamp`): `void`
+
+##### Parameters
+
+###### timestamp
+
+`number`
+
+##### Returns
+
+`void`
 
 ## Methods
 
+### advanceSamples()
+
+> **advanceSamples**(`samples`): `number`
+
+Advances the timestamp only; the sequence number is unchanged.
+
+#### Parameters
+
+##### samples
+
+`number`
+
+#### Returns
+
+`number`
+
+***
+
 ### create()
 
-> **create**(`payload`): [`RtpPacket`](RtpPacket.md)
+> **create**(`payload`, `options`): [`RtpPacket`](RtpPacket.md)
 
 #### Parameters
 
 ##### payload
 
 `Buffer`
+
+##### options
+
+[`RtpBuilderCreateOptions`](../interfaces/RtpBuilderCreateOptions.md) = `{}`
 
 #### Returns
 
