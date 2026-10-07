@@ -149,6 +149,7 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
   <a href="#routing">5. ルーティングキーの staging</a>
   <a href="#snapshot">6. 状態 snapshot の持ち主</a>
   <a href="#ice">7. ICE generation</a>
+  <a href="#eoc" style="padding-left:20px">7.1 EOC と候補</a>
   <a href="#bundle">8. BUNDLE topology</a>
   <a href="#develop">9. develop 機能との統合</a>
   <a href="#modules">10. モジュール構成</a>
@@ -393,17 +394,98 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
   <text x="372" y="125" font-size="12.5">B の check を進める（nominate は保留）</text>
   <rect x="150" y="164" width="568" height="32" rx="6" fill="none" stroke="var(--violet)" stroke-dasharray="6 4"/>
   <text x="164" y="185" font-size="12.5">B の資格情報は stage するだけ（live の ICE agent はまだ A）</text>
-  <text class="sub" x="532" y="222" text-anchor="end">EOC 以降の候補は SDP にも checklist にも入れない</text>
-  <text class="sub" x="532" y="238" text-anchor="end">EOC 前に届いて mDNS を解決中の候補は待つ</text>
+  <text class="sub" x="532" y="222" text-anchor="end">EOC = 相手からの「候補はこれで全部」の通知</text>
+  <text class="sub" x="532" y="238" text-anchor="end">前後に届く候補の扱いは 7.1 の拡大図を参照</text>
 </svg>
 </figure>
 <ul>
   <li><b>restart の切り替え</b>: offer の時点では資格情報を stage するだけで、live の ICE は answer の commit で切り替えます。answer は毎回 <a class="ref" href="../packages/webrtc/src/secureTransportManager.ts" title="packages/webrtc/src/secureTransportManager.ts:523">secureTransportManager.ts:523</a> を通りますが、実際に restart するのは restart を stage した transport だけです。</li>
   <li><b>provisional check</b>: 送信した時点の revision と pair の所属を記録し、応答を処理するときに照合します。replacement pranswer より前の遅延応答が、新しい checklist を nominate することはありません（<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:400">ice.ts:400</a>）。</li>
-  <li><b>EOC</b>: live と provisional のどちらの generation も完了させます（RFC 8838、<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:292">ice.ts:292</a>）。webrtc 層でも、EOC 済みの m-line への候補は無視します（<a class="ref" href="../packages/webrtc/src/secureTransportManager.ts" title="packages/webrtc/src/secureTransportManager.ts:324">secureTransportManager.ts:324</a>）。</li>
+  <li><b>EOC</b>（<a href="#eoc">7.1 拡大図</a>）: live と provisional のどちらの generation も完了させます（RFC 8838、<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:292">ice.ts:292</a>）。webrtc 層でも、EOC 済みの m-line への候補は無視します（<a class="ref" href="../packages/webrtc/src/secureTransportManager.ts" title="packages/webrtc/src/secureTransportManager.ts:324">secureTransportManager.ts:324</a>）。</li>
   <li><b>trickle の振り分け</b>: 候補が対象とする m-line の ufrag で、current と pending のどちらの generation に属するかを決めます（<a class="ref" href="../packages/webrtc/src/negotiation/remoteCandidates.ts" title="packages/webrtc/src/negotiation/remoteCandidates.ts:44">remoteCandidates.ts:44</a>）。EOC は transport 単位なので、BUNDLE group 全体に及びます（<a class="ref" href="../packages/webrtc/src/negotiation/remoteCandidates.ts" title="packages/webrtc/src/negotiation/remoteCandidates.ts:234">remoteCandidates.ts:234</a>）。</li>
   <li><b><code>restartIce()</code></b>: current と pending 両方のローカル ufrag を「置き換える対象」として記録します（W3C の <code>[[LocalIceCredentialsToReplace]]</code>）。rollback や glare の後も要求は残り、確定した資格情報がその対象と重ならなくなったときに解除します（<a class="ref" href="../packages/webrtc/src/negotiation/iceRestartRequest.ts" title="packages/webrtc/src/negotiation/iceRestartRequest.ts:18">iceRestartRequest.ts:18</a>、<a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1230">peerConnection.ts:1230</a>）。</li>
 </ul>
+
+<h3 id="eoc">7.1 拡大図: EOC と、その前後に届く候補</h3>
+<p><b>EOC（end-of-candidates）</b>は、相手からの「この ICE generation の候補はこれで全部です」という通知です。次の 2 つの経路で届きます。</p>
+<ul>
+  <li>trickle ICE で、<code>addIceCandidate(null)</code> または候補の文字列が空（<code>{ candidate: "" }</code>）で呼ばれたとき（<a class="ref" href="../packages/webrtc/src/secureTransportManager.ts" title="packages/webrtc/src/secureTransportManager.ts:257">secureTransportManager.ts:257</a>）</li>
+  <li>offer / pranswer / answer の SDP の m-line に <code>a=end-of-candidates</code> があるとき（<a class="ref" href="../packages/webrtc/src/sdp.ts" title="packages/webrtc/src/sdp.ts:153">sdp.ts:153</a>）</li>
+</ul>
+<p>EOC を受けると、ICE は「これ以上候補は来ない」と判断できます。すべての pair の check が失敗した時点で、それ以上待たずに <code>failed</code> にできます。EOC を受けていない間は、新しい候補が来るのを待ち続けます（<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:1186">ice.ts:1186</a>）。</p>
+<figure class="figure">
+<svg viewBox="0 0 960 360" width="100%" role="img" aria-label="EOC の前後に届く候補の扱い">
+  <g font-size="12" text-anchor="middle">
+    <text x="150" y="18" font-weight="600">候補 a 受信</text><text class="sub" x="150" y="33">host（IP アドレス）</text>
+    <text x="290" y="18" font-weight="600">候補 b 受信</text><text class="sub" x="290" y="33">xxxx.local（mDNS 名）</text>
+    <text x="440" y="18" font-weight="700" style="fill:var(--orange)">EOC 受信</text><text class="sub" x="440" y="33">受付を締め切る</text>
+    <text x="570" y="18" font-weight="600">候補 c 受信</text><text class="sub" x="570" y="33">EOC の後に到着</text>
+    <text x="720" y="18" font-weight="600">b の解決完了</text><text class="sub" x="720" y="33">IP アドレスが判明</text>
+  </g>
+  <g stroke-dasharray="4 4" stroke="var(--line)">
+    <line x1="150" y1="40" x2="150" y2="262"/><line x1="290" y1="40" x2="290" y2="262"/>
+    <line x1="570" y1="40" x2="570" y2="262"/>
+  </g>
+  <line x1="440" y1="40" x2="440" y2="262" stroke="var(--orange)" stroke-width="2"/>
+  <line x1="720" y1="40" x2="720" y2="262" stroke="var(--green)" stroke-width="2.5"/>
+  <g font-size="12.5" font-weight="600">
+    <text x="10" y="80">mDNS 解決</text>
+    <text x="10" y="150">checklist</text><text class="sub" x="10" y="165">接続確認の対象</text>
+    <text x="10" y="232">generation</text><text class="sub" x="10" y="247">の状態</text>
+  </g>
+  <!-- mDNS 解決 -->
+  <rect x="290" y="62" width="428" height="30" rx="6" fill="var(--violet-wash)" stroke="var(--violet)"/>
+  <text x="302" y="82" font-size="12.5">b の名前を解決中（最大 10 秒）。EOC の後も解決を待つ</text>
+  <!-- checklist -->
+  <rect x="150" y="132" width="132" height="44" rx="6" fill="var(--blue-wash)" stroke="var(--blue)"/>
+  <text x="160" y="150" font-size="12">a の pair を追加</text><text x="160" y="167" font-size="12">→ すぐ check</text>
+  <rect x="520" y="132" width="110" height="44" rx="6" fill="var(--orange-wash)" stroke="var(--orange)"/>
+  <text x="530" y="150" font-size="12" style="fill:var(--orange);font-weight:700">✗ c は捨てる</text><text x="530" y="167" font-size="11.5">SDP にも入れない</text>
+  <rect x="722" y="132" width="228" height="44" rx="6" fill="var(--blue-wash)" stroke="var(--blue)"/>
+  <text x="732" y="150" font-size="12">b を IP に置き換えて pair を追加</text><text x="732" y="167" font-size="12">→ a と同じように check する</text>
+  <!-- generation -->
+  <rect x="100" y="214" width="338" height="36" rx="6" fill="var(--blue-wash)" stroke="var(--blue)"/>
+  <text x="112" y="237" font-size="12.5">候補を受け付けている</text>
+  <rect x="442" y="214" width="276" height="36" rx="6" fill="var(--orange-wash)" stroke="var(--orange)"/>
+  <text x="452" y="231" font-size="12">締切済み・未完了: 新しい候補は拒否、</text><text x="452" y="246" font-size="12">解決中の b だけを待つ</text>
+  <rect x="722" y="214" width="228" height="36" rx="6" fill="var(--green-wash)" stroke="var(--green)"/>
+  <text x="732" y="231" font-size="12">完了: 全 pair が失敗したら</text><text x="732" y="246" font-size="12">待たずに failed と判定できる</text>
+  <!-- 例外 -->
+  <text class="sub" x="100" y="284">b の解決が失敗・10 秒でタイムアウトした場合: b は捨て、その時点で完了になる。</text>
+  <text class="sub" x="100" y="302">解決中に ICE restart や replacement pranswer が起きた場合: 解決結果は捨てる（b が属していた generation はもう使われないため）。</text>
+  <text class="sub" x="100" y="320">EOC は check を止めない。追加済みの a・b の pair の check は完了後も続き、成功すれば通常どおり nominate される。</text>
+  <text class="sub" x="100" y="338">live と provisional（pranswer 中の B 向け）の generation は、どちらもこの同じ規則で動く。</text>
+</svg>
+<figcaption>実装: live generation は <a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:1493">ice.ts:1493</a>、provisional generation は <a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:284">ice.ts:284</a>。テスト: <a class="ref" href="../packages/ice/tests/ice/end-of-candidates.test.ts" title="packages/ice/tests/ice/end-of-candidates.test.ts">end-of-candidates.test.ts</a></figcaption>
+</figure>
+
+<h3>7.2 Q&amp;A: EOC の後に届いた候補</h3>
+<table>
+  <thead><tr><th style="width:24%">質問</th><th>回答</th></tr></thead>
+  <tbody>
+    <tr><td>どういうときに起きるか</td><td>
+      仕様どおりの相手は、EOC を送った後に同じ generation の候補を送りません。起きるのは主に次の場合です。
+      <ul>
+        <li>シグナリングで順序が入れ替わった（EOC のメッセージが先に届き、その前に送られた候補が後から届く）</li>
+        <li>SDP が <code>a=end-of-candidates</code> を含んで「完了済み」になっている m-line に、アプリや相手が候補を追加した</li>
+        <li>相手の実装が EOC の後に候補を送る（仕様違反）</li>
+      </ul>
+      新しい ICE generation（ICE restart による新しい ufrag）の候補はこれに当たりません。その候補は新しい generation に振り分けられ、受け付けられます（7 章の trickle の振り分け）。
+    </td></tr>
+    <tr><td>単に捨てられるか</td><td>
+      はい。エラーにはせず、<code>addIceCandidate()</code> は成功として返ります。候補は remote description（SDP）にも checklist にも加わらず、mDNS の名前解決も始めません。webrtc 層（<a class="ref" href="../packages/webrtc/src/secureTransportManager.ts" title="packages/webrtc/src/secureTransportManager.ts:324">secureTransportManager.ts:324</a>）と ICE 層（<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:306">ice.ts:306</a>）の両方で捨てます。
+    </td></tr>
+    <tr><td>それで問題はないか</td><td>
+      通常は問題になりません。理由は次の 3 つです。
+      <ul>
+        <li><b>RFC 8838 の規則に従っている。</b>EOC で完了した generation は、それ以上候補を受け付けません。</li>
+        <li><b>受け付けると判定が矛盾する。</b>EOC の後は「全 pair が失敗した = <code>failed</code>」と判定できます。後から候補が増えると、<code>failed</code> と判定した後に check の対象が増えることになり、状態が合わなくなります。</li>
+        <li><b>救済経路がある。</b>捨てた候補のアドレスから相手が check を送ってくれば、ICE はその送信元を peer-reflexive 候補として学習し、pair を作ります（RFC 8445 §7.3.1.3、<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:2019">ice.ts:2019</a>）。この学習は EOC の後も止めていません。そのため、実際に通信できる経路であれば、多くの場合は接続できます。</li>
+      </ul>
+      <span class="status warn">残るリスク</span> 相手からの check がこちらに届かず、こちらからの check だけが通るネットワークでは、捨てた候補でしか繋がらないことがあります。その場合は接続が失敗します。これは EOC の後に候補を送る相手側の誤りや、シグナリングの順序の入れ替わりで起きるもので、仕様どおりの相手と順序を保つシグナリングの組み合わせでは起きません。
+    </td></tr>
+  </tbody>
+</table>
 
 <!-- ============================================================ -->
 <h2 id="bundle">8. BUNDLE topology</h2>
