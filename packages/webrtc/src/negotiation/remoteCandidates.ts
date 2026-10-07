@@ -118,7 +118,7 @@ export class RemoteCandidates {
           ),
       );
       for (const transport of targets) {
-        await transport.iceTransport.addRemoteCandidate(
+        transport.iceTransport.deliverRemoteCandidate(
           appliedCandidate.kind === "end-of-candidates"
             ? undefined
             : appliedCandidate.candidate,
@@ -150,7 +150,7 @@ export class RemoteCandidates {
             ),
         );
         for (const transport of provisional) {
-          await transport.addProvisionalRemoteCandidate(
+          transport.deliverProvisionalRemoteCandidate(
             appliedCandidate.kind === "end-of-candidates"
               ? undefined
               : appliedCandidate.candidate,
@@ -232,12 +232,17 @@ export class RemoteCandidates {
    * complete, so the SDP never promises more candidates to it.
    */
   completeSharedTransportMedia(sdp: SessionDescription, completed: number[]) {
+    // The current description is laid out on the committed transports; a
+    // pending proposal (a BUNDLE split) maps its MIDs elsewhere meanwhile.
+    const transportFor = (mid: string) =>
+      (sdp === this.sdp.currentRemoteDescription
+        ? this.topology.liveTransportForMid(mid)
+        : this.topology.currentTransportForMid(mid)
+      )?.iceTransport;
     const generations = completed
       .map((index) => {
         const media = sdp.media[index];
-        const transport = this.topology.currentTransportForMid(
-          media?.rtp.muxId ?? "",
-        )?.iceTransport;
+        const transport = transportFor(media?.rtp.muxId ?? "");
         const ufrag = media?.iceParams?.usernameFragment;
         // Only the generation that actually ended on the transport counts; a
         // pending restart ufrag on the same transport is still open.
@@ -248,9 +253,7 @@ export class RemoteCandidates {
       })
       .filter((generation) => !!generation?.ufrag);
     for (const media of sdp.media) {
-      const transport = this.topology.currentTransportForMid(
-        media.rtp.muxId ?? "",
-      )?.iceTransport;
+      const transport = transportFor(media.rtp.muxId ?? "");
       if (
         generations.some(
           (generation) =>
@@ -301,7 +304,7 @@ export class RemoteCandidates {
       }
       if (applied.kind === "end-of-candidates") {
         currentMedia.iceCandidatesComplete = true;
-        await iceTransport.addRemoteCandidate(undefined);
+        iceTransport.deliverRemoteCandidate(undefined);
         this.completeSharedTransportMedia(current, [
           current.media.indexOf(currentMedia),
         ]);
@@ -316,7 +319,7 @@ export class RemoteCandidates {
         continue;
       }
       currentMedia.iceCandidates.push(applied.candidate);
-      await iceTransport.addRemoteCandidate(applied.candidate);
+      iceTransport.deliverRemoteCandidate(applied.candidate);
     }
   }
 

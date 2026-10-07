@@ -465,10 +465,16 @@ export class RemoteMediaApplication {
         }
 
         // # set DTLS role
+        // An answer's `actpass` names no role: a live association keeps its
+        // role, a new one becomes client as before.
+        const keepsLiveRole =
+          remoteMedia.dtlsParams?.role === "auto" &&
+          ["connecting", "connected"].includes(dtlsTransport.state);
         if (
           (remoteSdp.type === "answer" || remoteSdp.type === "pranswer") &&
           remoteMedia.dtlsParams?.role &&
-          !bundledNonTag
+          !bundledNonTag &&
+          !keepsLiveRole
         ) {
           dtlsTransport.role =
             remoteMedia.dtlsParams.role === "client" ? "server" : "client";

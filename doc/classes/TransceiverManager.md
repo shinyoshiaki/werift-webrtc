@@ -448,7 +448,7 @@ application uses them, in which case only their m-line association goes.
 
 ##### snapshot
 
-[`TransceiversNegotiationState`](../type-aliases/TransceiversNegotiationState.md)
+`TransceiversNegotiationState`
 
 ##### added
 
@@ -475,7 +475,7 @@ description is set). Transceivers the session never negotiated go back to
 
 ##### snapshot
 
-[`TransceiversNegotiationState`](../type-aliases/TransceiversNegotiationState.md)
+`TransceiversNegotiationState`
 
 #### Returns
 
@@ -547,10 +547,10 @@ answer 確定後に、stopping のまま交渉対象になり得ない transceiv
 
 ### snapshotNegotiationState()
 
-> **snapshotNegotiationState**(): [`TransceiversNegotiationState`](../type-aliases/TransceiversNegotiationState.md)
+> **snapshotNegotiationState**(): `TransceiversNegotiationState`
 
 Internal: the transceivers, their order and negotiation state, for a rollback baseline.
 
 #### Returns
 
-[`TransceiversNegotiationState`](../type-aliases/TransceiversNegotiationState.md)
+`TransceiversNegotiationState`

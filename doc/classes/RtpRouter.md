@@ -41,7 +41,7 @@ sent), not from SDP. Negotiation rollback keeps these entries.
 
 > **ridTable**: `object` = `{}`
 
-Keyed by [ridRouteKey](../functions/ridRouteKey.md) (MID + RID).
+Keyed by ridRouteKey (MID + RID).
 
 #### Index Signature
 

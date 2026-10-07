@@ -20,6 +20,14 @@
 
 ***
 
+### gathersFromServers?
+
+> `readonly` `optional` **gathersFromServers**: `boolean`
+
+Whether gathering contacts a STUN or TURN server.
+
+***
+
 ### generation
 
 > **generation**: `number`
@@ -243,6 +251,10 @@
 ### gatherCandidates()
 
 > **gatherCandidates**(): `Promise`\<`void`\>
+
+Gather the current generation's candidates. After an ICE restart the
+candidates the kept sockets advertised are re-advertised synchronously;
+only server work (STUN, TURN) is awaited.
 
 #### Returns
 

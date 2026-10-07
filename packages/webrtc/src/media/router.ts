@@ -12,6 +12,7 @@ import {
   debug,
   rtpHeaderExtensionsParser,
 } from "../imports/rtp";
+import { type RouterSnapshot, ridRouteKey } from "../negotiation/internalState";
 import { deliveredTrackCodec } from "./codecCompatibility";
 import type {
   RTCRtpReceiveParameters,
@@ -24,15 +25,7 @@ import { MediaStreamTrack } from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/router.ts");
 
-/**
- * RIDs are scoped to their m-line (RFC 8851), so simulcast routes are keyed
- * by MID and RID: two m-lines may reuse the same RID names.
- */
-export const ridRouteKey = (mid: string, rid: string) => `${mid}\u0000${rid}`;
 const ridOfRouteKey = (key: string) => key.slice(key.indexOf("\u0000") + 1);
-
-/** The routes of a router, for a negotiation rollback baseline. */
-export type RouterSnapshot = ReturnType<RtpRouter["snapshotRoutes"]>;
 
 type StagedRoutes = {
   ssrc: [number, RTCRtpReceiver][];

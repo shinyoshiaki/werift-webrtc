@@ -4,6 +4,8 @@ import {
   MediaStreamTrack,
   RTCPeerConnection,
   RTCRtpCodecParameters,
+  useH264,
+  useVP8,
 } from "../../src";
 import { RTCIceTransport } from "../../src/transport/ice";
 import {
@@ -19,6 +21,7 @@ import {
   createUnnegotiatedVideoPeers,
   expectSessionAlive,
   keepOnlyRtx,
+  movePayloadType,
   mungeSection,
   negotiate,
   negotiateAndExpectChannel,
@@ -1240,10 +1243,12 @@ describe("negotiation transaction", () => {
 
   test("a pending payload type leaves the receiver codec table by rollback", async () => {
     const { offerer, answerer, outgoing, incoming } =
-      await createConnectedVideoPeers();
+      await createConnectedVideoPeers({
+        codecs: { video: [useVP8(), useH264()] },
+      });
     try {
-      // Arrange: 受信側の codec/RTX 対応表を控え、新しい PT 120 を足した
-      // re-offer を用意する (既存 PT の割当ては変えない)。
+      // Arrange: 受信側の codec/RTX 対応表を控え、H264 を新しい PT 120 で提案する
+      // re-offer を用意する (current の PT の割当ては変えない)。
       const receiver = answerer.getTransceivers()[0].receiver;
       const baseline = receiver.snapshotReceiveTables();
       const committedPt = Number(
@@ -1252,19 +1257,23 @@ describe("negotiation transaction", () => {
         )![0],
       );
       await offerer.setLocalDescription(await offerer.createOffer());
-      const withNewPt = offerer
-        .localDescription!.sdp.replace(/^(m=video [^\r\n]+)/m, "$1 120")
-        .replace(
-          /^(a=rtpmap:\d+ VP8\/90000\r?\n)/m,
-          "$1a=rtpmap:120 VP8/90000\r\n",
-        );
+      const h264Pt = Number(
+        offerer.localDescription!.sdp.match(
+          /^a=rtpmap:(\d+) H264\/90000/im,
+        )![1],
+      );
+      const withNewPt = movePayloadType(
+        offerer.localDescription!.sdp,
+        h264Pt,
+        120,
+      );
 
       // Act: 新 PT を含む remote offer を pending として適用する。
       await answerer.setRemoteDescription({ type: "offer", sdp: withNewPt });
 
       // Assert: pending 中は新 PT が加わるが既存 PT の解釈は変わらず、旧 RTP が届く。
       const pending = receiver.snapshotReceiveTables();
-      expect(pending.codecs[120]?.mimeType).toBe("video/VP8");
+      expect(pending.codecs[120]?.mimeType.toLowerCase()).toBe("video/h264");
       expect(pending.codecs[committedPt]).toEqual(baseline.codecs[committedPt]);
       assertNegotiationInvariants(answerer);
       await sendAndExpectRtp(outgoing, incoming, "new-pt-pending");
@@ -2292,7 +2301,9 @@ describe("negotiation transaction", () => {
       assertNegotiationInvariants(offerer);
       expect(emitted).toBeGreaterThan(1);
       expect(candidateEvents).toHaveLength(emitted);
-      expect(candidateEvents.at(-1)).toBeUndefined();
+      // restart の generation は commit 後に STUN から集め直すので、offer では EOC を出さない。
+      expect(candidateEvents).not.toContain(undefined);
+      expect(candidateEvents).not.toContain(ufrag);
       expect(transport.localParameters.usernameFragment).toBe(ufrag);
       expect(transport.getSelectedCandidatePair()).toEqual(pair);
       expect(offerer.iceGeneration).toBe(generation);
