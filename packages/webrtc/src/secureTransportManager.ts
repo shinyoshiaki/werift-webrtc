@@ -533,19 +533,12 @@ export class SecureTransportManager {
   setLocalRole({
     type,
     role,
-    roleOfTransport,
   }: {
     type: "offer" | "answer";
-    role:
-      | "auto"
-      | "client"
-      | "server"
-      | undefined
-      | ((
-          transport: RTCDtlsTransport,
-        ) => "auto" | "client" | "server" | undefined);
-    /**local description でその transport を使う m-line の role */
-    roleOfTransport?: Map<RTCDtlsTransport, "auto" | "client" | "server">;
+    /** answer で transport に設定する DTLS role。undefined なら現在の role を保つ */
+    role: (
+      transport: RTCDtlsTransport,
+    ) => "auto" | "client" | "server" | undefined;
   }) {
     for (const dtlsTransport of this.dtlsTransports) {
       const iceTransport = dtlsTransport.iceTransport;
@@ -562,9 +555,7 @@ export class SecureTransportManager {
 
       // # set DTLS role for mediasoup
       if (type === "answer") {
-        const transportRole =
-          roleOfTransport?.get(dtlsTransport) ??
-          (typeof role === "function" ? role(dtlsTransport) : role);
+        const transportRole = role(dtlsTransport);
         if (transportRole) {
           dtlsTransport.role = transportRole;
         }
