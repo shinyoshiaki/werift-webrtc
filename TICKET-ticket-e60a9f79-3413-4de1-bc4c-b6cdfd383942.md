@@ -4,9 +4,13 @@
 
 - 上流 RTP ソースを差し替えても、下流 RTP/SRTP セッションの seq / timestamp タイムラインを連続させたい（例: Ring → HomeKit ゲートウェイで 30 分ごとに上流 WebRTC 接続を作り直す dgreif/ring#1816）。
 - werift には既に送信側の連続化ロジックがある。ただし `RTCRtpSender` の private 実装なので、受信した RTP や生の RTP を扱うアプリからは使えない。
-  - `packages/webrtc/src/media/rtpSender.ts:130` `freezeRtpContinuityOffsets()`（module-private 関数）
+  - `packages/webrtc/src/media/rtpSender.ts:129` `freezeRtpContinuityOffsets()`（module-private 関数）
   - 状態は private フィールド: `sequenceNumber` / `timestamp` / `seqOffset` / `timestampOffset` / `rtpContinuityPending` / `pendingTimestampStep`（`rtpSender.ts:191-196`）
-  - `replaceRTP(header, discontinuity, timestampStep)`（`rtpSender.ts:581`）と `replaceTrack()`（`rtpSender.ts:457`）は pending にするだけ。最初に実際に送出したパケットでオフセットを確定する（`dispatchRtp()` `rtpSender.ts:618-639`）。
+  - `replaceRTP(header, discontinuity, timestampStep)`（`rtpSender.ts:627`）と `replaceTrack()`（`rtpSender.ts:477`、pending 化は `:504`）は、`scheduleRtpContinuity()`（`rtpSender.ts:642`）で pending にするだけ。最初に実際に送出したパケットでオフセットを確定する（`dispatchRtp()` `rtpSender.ts:648`、確定処理は `:664-685`）。
+- `support-fallback-state` へのリベース（negotiation transaction 化、`469c5ed1` まで）で、`RTCRtpSender` に negotiation のベースライン用 API が追加された。continuity ロジック自体は変わっていない（行番号がずれただけ）。
+  - `snapshotSendParams()` / `restoreSendParams()`（`rtpSender.ts:272` / `:299`）: `RTCRtpTransceiver.snapshotNegotiationState()` / `restoreNegotiationState()` から呼ばれる（`rtpTransceiver.ts:200` / `:235`）。対象は cname / mid / headerExtensions / codec / RTX・RED の PT / track.codec など、description 由来の送信パラメータだけで、RTP タイムラインの状態は含まない。
+  - `proposeSend()` / `proposedPrimaryCodec`（`rtpSender.ts:294` / `:209`）: remote offer が pending の間、`replaceTrack()` は確定済みの codec と answer で切り替わる予定の codec の両方と互換かを検査する（`rtpSender.ts:487`）。
+  - `prepareSend()` の codec 決定は `sendCodecOf()` / `primarySendCodecOf()`（ファイル末尾のヘルパー）に整理された。
 - #677 の修正は `7d3e6087`（#679）でマージ済み。その内容は「pending 方式」「`timestampStep` 既定値 1」「`discontinuity` は写像に影響しない」「`header` 引数はオフセット計算に使わない」。テストも `packages/webrtc/tests/media/rtpSender.test.ts:867-1220`（`describe("media/rtpSender RTP continuity")`）に揃っている。本チケットではこの確定済みの意味論をそのまま汎用プリミティブへ切り出し、公開する。
 
 ## 2. 実装すべき機能・変更内容
@@ -69,7 +73,7 @@ export function timestampStepFromElapsed(elapsedMs: number, clockRate: number): 
   - `switchSource()` を、確定前に複数回呼んだ場合は最後の `timestampStep` が勝つ（上書き）。
   - `switchSource()` のヘッダー引数は受け取らない。互換用に受け取るとしても、オフセット計算には使わない。これは #677 で確定済みの「先頭の実送出パケットを基準にする」方式に合わせるため。
 - 注意すべき設計差分（現在の sender の潜在的な問題）:
-  - 現在の `dispatchRtp()` は `this.sequenceNumber = header.sequenceNumber` を毎パケット無条件に上書きしている（`rtpSender.ts:638-639`）。そのため、切替直前に再順序で古い seq が流れると「直前出力 + 1」が既出の seq と衝突する。
+  - 現在の `dispatchRtp()` は `this.sequenceNumber = header.sequenceNumber` を毎パケット無条件に上書きしている（`rtpSender.ts:684-685`）。そのため、切替直前に再順序で古い seq が流れると「直前出力 + 1」が既出の seq と衝突する。
   - rewriter では `uint16Gt` / `uint32Gt`（`packages/common/src/number.ts`）を使い、wrap を考慮して **最も進んだ出力 seq（とその timestamp）** を基準にする。timestamp は「最大 seq の ts」ではなく、wrap を考慮した最大出力 ts を独立に追跡するのが安全。B フレームなどで seq と ts が単調対応しないことがあるため。
   - この変更で sender の挙動がわずかに変わる。既存テストが通ることを確認し、回帰テストを追加する。
 - ミューテーション方針（受け入れ条件 "No mutation surprises"）:
@@ -82,8 +86,13 @@ export function timestampStepFromElapsed(elapsedMs: number, clockRate: number): 
 - `freezeRtpContinuityOffsets()` と、関連する private フィールド（`timestampOffset`, `seqOffset`, `rtpContinuityPending`, `pendingTimestampStep`）を `RtpContinuityRewriter` のインスタンス 1 つに置き換える。
   - `replaceRTP()` / `scheduleRtpContinuity()` → `rewriter.switchSource({ timestampStep })` と `rtpCache = []`（RTX 履歴のクリアは sender の責務として残す）。
   - `dispatchRtp()` は既に clone 済みなので `rewriteHeaderInPlace(header)` を使う。SSRC と PT の書き換えは sender 側に残す（`header.ssrc = this.ssrc`, `header.payloadType = codec.payloadType`）。
-  - `detachTrack()`（`rtpSender.ts:471` 付近で `rtpContinuityPending = false`）の意味も保つ。`replaceTrack(null)` → 再アタッチ時に `this.sequenceNumber != undefined` なら pending にする、という既存の流れを rewriter の state で表現する。
+  - `detachTrack()`（`rtpSender.ts:515-516`）と `stop()`（`rtpSender.ts:527`）が `rtpContinuityPending = false` にしている意味も保つ。`replaceTrack(null)` → 再アタッチ時に `this.sequenceNumber != undefined` なら pending にする、という既存の流れを rewriter の state で表現する。
   - `this.sequenceNumber` / `this.timestamp` を参照している箇所（stats、`replaceTrack` の判定、ログ）は `rewriter.state` 経由にするか、従来どおり最後の出力値を別に保持する。stats の意味が変わらないように注意する。
+- `replaceTrack()` の順序は維持する。codec 互換検査（`sendPrimaryCodec` と `proposedPrimaryCodec`）で `InvalidModificationError` を投げる場合は、その前に `switchSource()` を呼ばない。拒否された差し替えで continuity が pending にならないようにするため。
+- negotiation のベースラインとの関係:
+  - rewriter の状態は `snapshotSendParams()` / `restoreSendParams()` に**含めない**。出力 RTP タイムラインは送出済みパケットに紐づく live な状態で、description の rollback で巻き戻すと、送信済みの seq を再利用することになる。`NEGOTIATION_TRANSACTION.md` の「Sender SSRC → sender は application state」と同じ扱い。
+  - negotiation の commit / rollback で送信 codec（PT）が変わっても、continuity は切り替えない。PT の書き換えは引き続き sender 側の `header.payloadType = codec.payloadType`（`rtpSender.ts:681`）で行う。
+  - これらの方針を、`restoreSendParams()` 付近のコメントか rewriter の TSDoc に 1 行で明記する。
 - 公開 API の `replaceRTP(header, discontinuity, timestampStep)` のシグネチャと TSDoc は互換のまま維持する。
 
 ### 2.3 ドキュメント・例
@@ -98,9 +107,10 @@ export function timestampStepFromElapsed(elapsedMs: number, clockRate: number): 
 | 項目 | 既存資産 | 方針 |
 | --- | --- | --- |
 | wrap 演算 | `uint16Add` / `uint32Add`（BigInt）/ `uint16Gt` / `uint32Gt`（`packages/common/src/number.ts`） | そのまま使う。`packages/rtp` からは `../imports/common` 経由で import する |
-| オフセット確定 | `freezeRtpContinuityOffsets`（`rtpSender.ts:130`） | rewriter へ移す。基準を「最後の出力」から「最も進んだ出力」へ変える |
+| オフセット確定 | `freezeRtpContinuityOffsets`（`rtpSender.ts:129`） | rewriter へ移す。基準を「最後の出力」から「最も進んだ出力」へ変える |
 | pending 方式 | `scheduleRtpContinuity` / `dispatchRtp` | `switchSource()` + 最初の `rewrite` で確定 |
 | 状態の直列化 | `RtpTimeBase.toJSON()`（`extra/processor/rtpTime.ts`） | `state` getter / `toJSON` / コンストラクタでの `state` 復元 |
+| negotiation の snapshot | `snapshotSendParams` / `restoreSendParams`（`rtpSender.ts:272-317`）、`RTCRtpTransceiver.snapshotNegotiationState`、`packages/webrtc/NEGOTIATION_TRANSACTION.md` | rewriter の状態は snapshot の対象外にする（live な application state） |
 | テストのヘルパー | `packages/webrtc/tests/fixture.ts`（`createConnectedRtpSender`, `sentRtpHeaders`）、`packages/rtp/tests/utils.ts` | rtp 側の Arrange ヘルパー（RTP パケット生成、フレーム列・wrap 近傍列の生成）は `packages/rtp/tests/utils.ts` に集約する |
 
 ### RTCP / SSRC などとの関係（TSDoc と README に明記する）
@@ -124,6 +134,8 @@ export function timestampStepFromElapsed(elapsedMs: number, clockRate: number): 
 - シグナリング層の再接続やリトライ方針は実装しない（スコープ外）。
 - RTX / SR / TWCC の自動処理はしない（上表のとおり、責務の境界を文書化するにとどめる）。
 - テストは Arrange / Act / Assert の 3 フェーズで書き、Act / Assert には日本語コメントを付ける。Arrange のユーティリティは `packages/rtp/tests/utils.ts`（rtp）と `packages/webrtc/tests/fixture.ts`（webrtc）に集約する。
+- `packages/webrtc/AGENTS.md` Do 6〜7（リベースで追加）: router / receiver / sender のテーブルに触れる negotiation の変更では、`NEGOTIATION_TRANSACTION.md` に従い、property search を実行する必要がある。本チケットは送信 RTP の書き換えだけで、negotiation の状態を変えない。ただし `rtpSender.ts` を変更するので、webrtc の `npm test` 全体（negotiation の property テストを含む）が通ることを確認する。snapshot に状態を追加しない限り、深い property search は必須ではない。
+- 変更前後の sender の挙動（再順序境界など）を比べるときは、AGENTS.md Do 15 に従って一時 worktree（`git worktree add --detach <tmp> <rev>`）で行う。active worktree を checkout / reset / stash しない。
 - `packages/rtp` には `AGENTS.md` がない。scripts は `npm run type` / `npm test`（`vitest run ./tests`）。
 
 ## 5. 完了条件
@@ -145,6 +157,7 @@ export function timestampStepFromElapsed(elapsedMs: number, clockRate: number): 
   - `reset`
   - 入力が変更されないこと
 - [ ] `RTCRtpSender` が rewriter を内部で使い、`freezeRtpContinuityOffsets` を削除。既存の continuity テストがすべて通り、再順序境界の回帰テストを追加する。
+- [ ] rewriter の状態が `snapshotSendParams()` / `restoreSendParams()` に含まれず、negotiation の rollback で出力タイムラインが巻き戻らない。codec 互換検査で拒否された `replaceTrack()` では continuity が pending にならない。どちらも webrtc 側のテストで確認する。
 - [ ] RTCP / SSRC / PT / RTX / SR / TWCC / 連続切替の責務境界が TSDoc と `packages/rtp/README.md` に記載されている。
 - [ ] A → B の上流差し替えで下流 RTP が連続する relay 例を追加し、`doc/` を再生成する。
-- [ ] 検証: `cd packages/rtp && npm run type && npm test`、`cd packages/webrtc && npm run type && npm test`。パッケージを跨ぐ公開 API の変更なので、`npm run type` と `npm run test:small` も実行する。
+- [ ] 検証: `cd packages/rtp && npm run type && npm test`、`cd packages/webrtc && npm run type && npm test`（negotiation の property / regression テストを含む）。パッケージを跨ぐ公開 API の変更なので、`npm run type` と `npm run test:small` も実行する。
