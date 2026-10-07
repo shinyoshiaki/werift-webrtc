@@ -18,7 +18,6 @@ import {
   type RtpRouter,
   Sendonly,
   Sendrecv,
-  type TransceiverNegotiationState,
   type TransceiverOptions,
 } from "./media";
 import {
@@ -29,6 +28,7 @@ import {
 } from "./media/codecCompatibility";
 import type { RTCStats } from "./media/stats";
 import { captureTrackSourceCodecs, getTrackSourceCodecs } from "./media/track";
+import type { TransceiversNegotiationState } from "./negotiation/internalState";
 import {
   type MediaDescription,
   type SessionDescription,
@@ -68,18 +68,6 @@ export function negotiateRemoteCodecs(
     return true;
   });
 }
-
-/** The transceivers of a PeerConnection and their negotiation state. */
-export type TransceiversNegotiationState = {
-  order: RTCRtpTransceiver[];
-  states: Map<
-    RTCRtpTransceiver,
-    {
-      transceiver: TransceiverNegotiationState;
-      notifiedRemoteTrack?: { track: MediaStreamTrack; streams: string[] };
-    }
-  >;
-};
 
 function simulcastFromSendEncodings(
   encodings: RTCRtpEncodingParameters[] | undefined,
@@ -663,19 +651,24 @@ export class TransceiverManager {
         .filter((payloadType) => !Number.isNaN(payloadType));
     const remoteByLocal = new Map<
       RTCRtpCodecParameters,
-      RTCRtpCodecParameters[]
+      RTCRtpCodecParameters
     >();
+    const usedRemote = new Set<RTCRtpCodecParameters>();
     for (const localCodec of localCodecs) {
       if (["red", "rtx"].includes(codecName(localCodec))) continue;
-      const remoteCodecs = remoteMedia.rtp.codecs.filter(
+      const remoteCodec = remoteMedia.rtp.codecs.find(
         (codec) =>
+          !usedRemote.has(codec) &&
           codec.mimeType.toLowerCase() === localCodec.mimeType.toLowerCase() &&
           (source == undefined ||
             source.some((sourceCodec) =>
               isCodecCompatible(sourceCodec, codec),
             )),
       );
-      if (remoteCodecs.length > 0) remoteByLocal.set(localCodec, remoteCodecs);
+      if (remoteCodec) {
+        remoteByLocal.set(localCodec, remoteCodec);
+        usedRemote.add(remoteCodec);
+      }
     }
 
     const negotiated = localCodecs.flatMap((localCodec) => {
@@ -688,11 +681,11 @@ export class TransceiverManager {
             const remotePrimary = localPrimary
               ? remoteByLocal.get(localPrimary)
               : undefined;
-            return remotePrimary?.map((codec) => codec.payloadType) ?? [];
+            return remotePrimary ? [remotePrimary.payloadType] : [];
           },
         );
         const remoteRed = remoteMedia.rtp.codecs.find((codec) => {
-          if (codecName(codec) !== "red") return false;
+          if (codecName(codec) !== "red" || usedRemote.has(codec)) return false;
           const referenced = redPayloadTypes(codec);
           return (
             referenced.length === remotePrimaryPayloadTypes.length &&
@@ -703,11 +696,13 @@ export class TransceiverManager {
           );
         });
         if (!remoteRed) return [];
+        usedRemote.add(remoteRed);
         return [remoteRed];
       }
 
       if (codecName(localCodec) !== "rtx") {
-        return remoteByLocal.get(localCodec) ?? [];
+        const remoteCodec = remoteByLocal.get(localCodec);
+        return remoteCodec ? [remoteCodec] : [];
       }
 
       const localApt = codecParametersFromString(
@@ -717,33 +712,36 @@ export class TransceiverManager {
         (codec) => codec.payloadType === localApt,
       );
       if (!localPrimary) return [];
-      const remotePrimaryPayloadTypes = new Set(
-        remoteByLocal.get(localPrimary)?.map((codec) => codec.payloadType),
-      );
-      return remoteMedia.rtp.codecs.filter(
-        (codec) =>
-          codecName(codec) === "rtx" &&
-          remotePrimaryPayloadTypes.has(
-            codecParametersFromString(codec.parameters ?? "").apt,
-          ),
-      );
+      const remotePrimary = remoteByLocal.get(localPrimary);
+      if (!remotePrimary) return [];
+      const remoteRtx = remoteMedia.rtp.codecs.find((codec) => {
+        if (codecName(codec) !== "rtx" || usedRemote.has(codec)) {
+          return false;
+        }
+        return (
+          codecParametersFromString(codec.parameters ?? "").apt ===
+          remotePrimary.payloadType
+        );
+      });
+      if (!remoteRtx) return [];
+      usedRemote.add(remoteRtx);
+      return [remoteRtx];
     });
-    const uniqueNegotiated = [...new Set(negotiated)];
     if (order === "remote") {
       const remoteOrder = new Map(
         remoteMedia.rtp.codecs.map((codec, index) => [codec, index]),
       );
-      uniqueNegotiated.sort(
+      negotiated.sort(
         (left, right) => remoteOrder.get(left)! - remoteOrder.get(right)!,
       );
     }
-    if (uniqueNegotiated.length === 0) {
+    if (negotiated.length === 0) {
       throw createWebRtcDomException(
         "NotSupportedError",
         "No compatible codec remains after remote negotiation.",
       );
     }
-    return uniqueNegotiated;
+    return negotiated;
   }
 
   refreshAnswerCodecs(

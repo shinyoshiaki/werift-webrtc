@@ -184,10 +184,13 @@ export class DescriptionValidation {
           media.rtp.muxId,
         );
         const remoteRole = media.dtlsParams?.role;
+        // An answer's `actpass` (invalid per RFC 5763 section 5) names no role;
+        // werift keeps the role of a live association for it.
         if (
           remoteSdp.type !== "offer" &&
           !bundledNonTag &&
           remoteRole &&
+          remoteRole !== "auto" &&
           transport &&
           ["connecting", "connected"].includes(transport.state) &&
           transport.role !== "auto" &&

@@ -1,13 +1,30 @@
 import { vi } from "vitest";
-import { MediaStreamTrack, useH264, useVP8 } from "../../src";
 import {
+  MediaStreamTrack,
+  RTCPeerConnection,
+  useAbsSendTime,
+  useH264,
+  useSdesMid,
+  useVP8,
+} from "../../src";
+import { negotiate as negotiatePair } from "../issue/705.helpers";
+import {
+  addOfferedCodec,
+  addUnsupportedExtmaps,
   assertNegotiationInvariants,
+  assertTransportsClosed,
   createConnectedVideoPeers,
   createConnectedVideoPeersWithRtx,
   createDuplexSession,
+  createH264OnlyReoffer,
   createIceRestartPranswer,
+  createSplitOffer,
   createUnnegotiatedPeers,
+  currentRemoteGeneration,
+  elapsedMs,
   expectSessionAlive,
+  heldTransports,
+  holdNextGather,
   negotiate,
   pliReaches,
   provisionalIce,
@@ -18,6 +35,8 @@ import {
   trickleCandidate,
   videoWithoutFeedback,
   waitForCommittedNomination,
+  waitForDtlsConnected,
+  waitForRemoteCandidatePort,
 } from "./negotiationTransactionUtils";
 
 /**
@@ -462,6 +481,44 @@ describe("negotiation transaction live-state regressions", () => {
     },
   );
 
+  test("an mDNS candidate that is still resolving does not hold later candidates or description operations", async () => {
+    // Arrange: current の remote generation が trickle 継続中の接続済み peer と、解決しない mDNS lookup
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers({}, { trickleOpen: true });
+    const mdns = stubIceMdns(answerer);
+    try {
+      const { ufrag, mid } = currentRemoteGeneration(answerer);
+
+      // Act: mDNS 候補、通常の候補、description 操作をこの順に行う
+      const mdnsElapsed = await elapsedMs(() =>
+        answerer.addIceCandidate(
+          trickleCandidate(50991, ufrag, mid, "peer.local"),
+        ),
+      );
+      const hostElapsed = await elapsedMs(() =>
+        answerer.addIceCandidate(trickleCandidate(50992, ufrag, mid)),
+      );
+      const offerElapsed = await elapsedMs(() => answerer.createOffer());
+
+      // Assert: どの操作も mDNS の解決 (最大 10 秒) を待たずに終わり、通常の候補はすぐ checklist に入る
+      expect(mdns.requested).toBe(1);
+      expect(Math.max(mdnsElapsed, hostElapsed, offerElapsed)).toBeLessThan(
+        1000,
+      );
+      await waitForRemoteCandidatePort(answerer, 50992);
+      await sendAndExpectRtp(outgoing, incoming, "while mDNS resolves");
+
+      // Act: mDNS の解決を完了させる
+      mdns.resolveAll("127.0.0.1");
+
+      // Assert: 解決後に mDNS 候補も同じ generation の checklist に入る
+      await waitForRemoteCandidatePort(answerer, 50991);
+      assertNegotiationInvariants(answerer);
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
   test("an mDNS candidate trickled before end-of-candidates of an ICE restart pranswer is kept", async () => {
     const { offerer, answerer, ufrag, mid } = await createIceRestartPranswer();
     const mdns = stubIceMdns(offerer);
@@ -666,6 +723,270 @@ describe("negotiation transaction live-state regressions", () => {
       // Assert: 確定後は PLI が相手 sender に実際に届く。
       expect(await pliReaches(receiver, sender)).toBe(true);
       assertNegotiationInvariants(answerer);
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("header extension IDs the answer did not accept stay free for a later offer", async () => {
+    // Arrange: remote の audio offer は werift が受理しない extmap を空き ID すべてに載せる
+    const config = {
+      headerExtensions: {
+        audio: [useSdesMid()],
+        video: [useSdesMid(), useAbsSendTime()],
+      },
+    };
+    const remote = new RTCPeerConnection(config);
+    const local = new RTCPeerConnection(config);
+    try {
+      remote.addTransceiver("audio");
+      await remote.setLocalDescription(await remote.createOffer());
+      await local.setRemoteDescription({
+        type: "offer",
+        sdp: addUnsupportedExtmaps(remote.localDescription!.sdp, "audio"),
+      });
+      await local.setLocalDescription(await local.createAnswer());
+      await remote.setRemoteDescription(local.localDescription!);
+
+      // Act: werift が video を追加して re-offer し、その ID をそのまま返す answer を適用する
+      local.addTransceiver("video");
+      await local.setLocalDescription(await local.createOffer());
+      await remote.setRemoteDescription(local.localDescription!);
+      await remote.setLocalDescription(await remote.createAnswer());
+      await local.setRemoteDescription(remote.localDescription!);
+
+      // Assert: 受理されなかった ID は使用中ではないので、answer は拒否されず stable になる
+      expect(local.signalingState).toBe("stable");
+      assertNegotiationInvariants(local);
+    } finally {
+      await Promise.allSettled([remote.close(), local.close()]);
+    }
+  });
+
+  test("a payload type the answer did not accept can carry another codec in a later remote offer", async () => {
+    // Arrange: remote の audio offer に werift が受理しない codec を PT 110 で載せ、answer で確定する
+    const remote = new RTCPeerConnection();
+    const local = new RTCPeerConnection();
+    try {
+      remote.addTransceiver("audio");
+      await remote.setLocalDescription(await remote.createOffer());
+      await local.setRemoteDescription({
+        type: "offer",
+        sdp: addOfferedCodec(
+          remote.localDescription!.sdp,
+          "audio",
+          110,
+          "FOO/8000",
+        ),
+      });
+      await local.setLocalDescription(await local.createAnswer());
+      await remote.setRemoteDescription(local.localDescription!);
+      expect(local.currentLocalDescription!.sdp).not.toContain("FOO/8000");
+
+      // Act: remote の re-offer が PT 110 を別の codec に使う
+      await remote.setLocalDescription(await remote.createOffer());
+      await local.setRemoteDescription({
+        type: "offer",
+        sdp: addOfferedCodec(
+          remote.localDescription!.sdp,
+          "audio",
+          110,
+          "BAR/8000",
+        ),
+      });
+
+      // Assert: PT 110 は使用中ではないので re-offer は拒否されない
+      expect(local.signalingState).toBe("have-remote-offer");
+      await local.setLocalDescription(await local.createAnswer());
+      assertNegotiationInvariants(local);
+    } finally {
+      await Promise.allSettled([remote.close(), local.close()]);
+    }
+  });
+
+  test("close() during a pending BUNDLE split stops the transports the proposal prepared", async () => {
+    // Arrange: video と audio を BUNDLE で共有する接続済み peer で、audio を分割する offer を適用中にする
+    const { offerer, answerer } = await createConnectedVideoPeers(
+      {},
+      { withAudio: true },
+    );
+    const audioMid = offerer
+      .getTransceivers()
+      .find((transceiver) => transceiver.kind === "audio")!.mid!;
+    const liveBefore = offerer.dtlsTransports.length;
+    await offerer.setLocalDescription({
+      type: "offer",
+      sdp: await createSplitOffer(offerer, audioMid),
+    });
+    const held = heldTransports(offerer);
+    expect(held.size).toBeGreaterThan(liveBefore);
+
+    // Act: pending のまま close する
+    await offerer.close();
+    await answerer.close();
+
+    // Assert: 分割用に用意した transport も含め、すべての DTLS / ICE が閉じる
+    assertTransportsClosed(held);
+  });
+
+  test("close() after a provisional split connection stops both peers' pending transports", async () => {
+    // Arrange: audio を分割する re-offer に pranswer を返し、分割先の transport で暫定接続する
+    const { offerer, answerer } = await createConnectedVideoPeers(
+      {},
+      { withAudio: true },
+    );
+    const audioMid = offerer
+      .getTransceivers()
+      .find((transceiver) => transceiver.kind === "audio")!.mid!;
+    await offerer.setLocalDescription({
+      type: "offer",
+      sdp: await createSplitOffer(offerer, audioMid),
+    });
+    await answerer.setRemoteDescription(offerer.localDescription!);
+    const answer = await answerer.createAnswer();
+    await answerer.setLocalDescription({ type: "pranswer", sdp: answer.sdp });
+    await offerer.setRemoteDescription({ type: "pranswer", sdp: answer.sdp });
+    const held = [...heldTransports(offerer), ...heldTransports(answerer)];
+    await Promise.all(held.map((transport) => waitForDtlsConnected(transport)));
+
+    // Act: 両 peer を pending のまま close する
+    await offerer.close();
+    await answerer.close();
+
+    // Assert: 暫定接続した transport も含め、ICE / DTLS が動き続けない
+    assertTransportsClosed(held);
+  });
+
+  test("an ICE restart commit does not wait for an unreachable STUN server", async () => {
+    // Arrange: 到達できない STUN server を設定した接続済み peer (初回の gather は 1 秒で打ち切る)
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers({
+        iceServers: [{ urls: "stun:192.0.2.1:3478" }],
+        iceStunGatherTimeout: 1,
+      });
+    try {
+      offerer.restartIce();
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+
+      // Act: 双方で restart の answer を適用 (commit) する
+      const answerElapsed = await elapsedMs(async () =>
+        answerer.setLocalDescription(await answerer.createAnswer()),
+      );
+      const commitElapsed = await elapsedMs(() =>
+        offerer.setRemoteDescription(answerer.localDescription!),
+      );
+
+      // Assert: commit は STUN の応答 (最大 1 秒) を待たずに終わり、新しい generation で RTP が届く
+      expect(Math.max(answerElapsed, commitElapsed)).toBeLessThan(500);
+      await waitForCommittedNomination(offerer);
+      await sendAndExpectRtp(outgoing, incoming, "after restart commit");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("restartIce() beside a new m-line with bundlePolicy disable offers the new transport's gathered candidates", async () => {
+    // Arrange: BUNDLE しない接続済み peer
+    const offerer = new RTCPeerConnection({ bundlePolicy: "disable" });
+    const answerer = new RTCPeerConnection({ bundlePolicy: "disable" });
+    try {
+      offerer.addTransceiver("audio");
+      await negotiatePair(offerer, answerer);
+
+      // Act: 新しい m-line の追加と ICE restart を 1 つの offer で行う
+      const video = offerer.addTransceiver("video");
+      offerer.restartIce();
+      await offerer.setLocalDescription(await offerer.createOffer());
+
+      // Assert: まだ generation を持たない新しい transport は restart を stage せず、集めた候補を offer する
+      const section = sectionOf(offerer.localDescription!.sdp, video.mid!);
+      expect(section).toMatch(/^a=candidate:/m);
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      await waitForDtlsConnected(video.dtlsTransport);
+      assertNegotiationInvariants(offerer);
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("a re-answer with a=setup:actpass keeps the DTLS role of the live association", async () => {
+    // Arrange: 接続済みの peer (answerer は active で答え、offerer は server になる)
+    const offerer = new RTCPeerConnection();
+    const answerer = new RTCPeerConnection();
+    try {
+      offerer.createDataChannel("role");
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      const [transport] = offerer.dtlsTransports;
+      await waitForDtlsConnected(transport);
+      const role = transport.role;
+
+      // Act: re-offer に a=setup:actpass の answer が返る
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await offerer.setRemoteDescription({
+        type: "answer",
+        sdp: answerer.localDescription!.sdp.replace(
+          /a=setup:\w+/g,
+          "a=setup:actpass",
+        ),
+      });
+
+      // Assert: 拒否されず、確立済み association の role は変わらない
+      expect(offerer.signalingState).toBe("stable");
+      expect(transport.role).toBe(role);
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("close() while an ICE restart answer commits keeps the state closed", async () => {
+    // Arrange: ICE restart の answer を適用する直前まで交渉する
+    const { offerer, answerer } = await createConnectedVideoPeers();
+    try {
+      offerer.restartIce();
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+
+      // Act: answer の適用 (restart の commit) の途中で close する
+      const gather = holdNextGather(offerer);
+      const applying = offerer.setRemoteDescription(answerer.localDescription!);
+      await gather.reached;
+      await offerer.close();
+      gather.release();
+
+      // Assert: close に追い越された操作は成功を報告せず、signalingState は closed のまま
+      await expect(applying).rejects.toMatchObject({
+        name: "InvalidStateError",
+      });
+      expect(offerer.signalingState).toBe("closed");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("a remote re-offer committed by the local answer switches the receive tables and the remote track codec", async () => {
+    // Arrange: current は VP8、offerer が H264 だけの re-offer を出し answerer が適用済み (preference の変更なし)
+    const { offerer, answerer, outgoing, incoming, transceiver } =
+      await createH264OnlyReoffer();
+    try {
+      // Act: answer を作って適用し、offerer も answer を適用する
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+
+      // Assert: 受信表は H264 だけになり、remote track の codec も H264 に切り替わる
+      const codecs = Object.values(
+        transceiver.receiver.snapshotReceiveTables().codecs,
+      ).map((codec) => codec.name.toUpperCase());
+      expect(codecs).toEqual(["H264"]);
+      expect(incoming.codec?.mimeType.toLowerCase()).toBe("video/h264");
+      assertNegotiationInvariants(answerer);
+      await sendAndExpectRtp(outgoing, incoming, "after H264 commit");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }

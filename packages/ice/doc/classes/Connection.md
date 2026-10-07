@@ -248,6 +248,26 @@
 
 ***
 
+### gathersFromServers
+
+#### Get Signature
+
+> **get** **gathersFromServers**(): `boolean`
+
+Whether gathering contacts a STUN or TURN server (more than re-advertising sockets).
+
+##### Returns
+
+`boolean`
+
+Whether gathering contacts a STUN or TURN server.
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`gathersFromServers`](../interfaces/IceConnection.md#gathersfromservers)
+
+***
+
 ### iceControlling
 
 #### Get Signature
@@ -529,6 +549,14 @@ Called after restart, before re-gathering the chosen generation.
 ### gatherCandidates()
 
 > **gatherCandidates**(): `Promise`\<`void`\>
+
+Gather the local candidates of the current generation.
+
+After an ICE restart everything the kept sockets already advertised is
+advertised again synchronously, before this method first awaits: the host
+candidates and the server-reflexive address each kept socket had. Only
+work that needs a server follows (a fresh STUN query, a new TURN
+allocation), so a caller may let it finish in the background.
 
 #### Returns
 

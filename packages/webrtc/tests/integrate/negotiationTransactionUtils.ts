@@ -24,7 +24,7 @@ import {
   useVP8,
 } from "../../src";
 import type { RTCIceCandidate } from "../../src";
-import { ridRouteKey } from "../../src/media/router";
+import { ridRouteKey } from "../../src/negotiation/internalState";
 import { SessionDescription } from "../../src/sdp";
 
 /** Shared Arrange setup for negotiation transaction regression tests. */
@@ -660,6 +660,27 @@ function assertRouterAndCodecs(pc: RTCPeerConnection, snapshot: Snapshot) {
       )!;
       expect(receiveCodecKey(live)).toEqual(receiveCodecKey(committed));
     }
+    // stable の受信側は確定した codec (current の local と remote の両方にある
+    // payload type) だけを持ち、remote track の codec もその中にある。
+    if (
+      pc.signalingState === "stable" &&
+      ["recvonly", "sendrecv"].includes(transceiver.currentDirection ?? "")
+    ) {
+      const localMedia = snapshot.currentLocal?.media.find(
+        (m) => m.rtp.muxId === media.rtp.muxId,
+      );
+      const negotiated = media.rtp.codecs.filter((codec) =>
+        localMedia?.rtp.codecs.some((c) => c.payloadType === codec.payloadType),
+      );
+      for (const payloadType of Object.keys(table).map(Number)) {
+        expect(negotiated.map((c) => c.payloadType)).toContain(payloadType);
+      }
+      const mimeTypes = negotiated.map((c) => c.mimeType.toLowerCase());
+      for (const track of transceiver.receiver.tracks) {
+        if (!track.codec) continue;
+        expect(mimeTypes).toContain(track.codec.mimeType.toLowerCase());
+      }
+    }
     // 実際の PLI 送信判定も、その SSRC の current SDP の codec の RTCP feedback に従う。
     for (const { ssrc } of media.ssrc) {
       if (!transceiver.receiver.trackBySSRC[ssrc]) continue;
@@ -721,7 +742,8 @@ function assertIceGenerations(pc: RTCPeerConnection, snapshot: Snapshot) {
       expect(
         sdpCandidates.some(
           (c) =>
-            c.ip === candidate.host &&
+            // mDNS 候補は SDP では名前のまま、checklist では解決後のアドレスになる。
+            (c.ip === candidate.host || c.ip.endsWith(".local")) &&
             c.port === candidate.port &&
             c.protocol.toLowerCase() === candidate.transport.toLowerCase(),
         ),
@@ -1671,4 +1693,148 @@ export function offeredVideoCodecs(sdp: string) {
   return [...sdp.matchAll(/^a=rtpmap:\d+ ([^/]+)\/90000/gim)]
     .map((match) => match[1].toUpperCase())
     .filter((name) => name !== "RTX");
+}
+
+/** Remote ICE ufrag and MID of the first m-line of `pc`'s current remote description. */
+export function currentRemoteGeneration(pc: RTCPeerConnection) {
+  const sdp = pc.currentRemoteDescription!.sdp;
+  return {
+    ufrag: sdp.match(/^a=ice-ufrag:(\S+)/m)![1],
+    mid: sdp.match(/^a=mid:(\S+)/m)![1],
+  };
+}
+
+/** Run `operation` and return how long it took in milliseconds. */
+export async function elapsedMs(operation: () => Promise<unknown>) {
+  const started = performance.now();
+  await operation();
+  return performance.now() - started;
+}
+
+/** Wait until the live ICE agent of `pc`'s first transport knows `port` as a remote candidate. */
+export async function waitForRemoteCandidatePort(
+  pc: RTCPeerConnection,
+  port: number,
+) {
+  const connection = pc.iceTransports[0].connection;
+  await withTimeout(
+    (async () => {
+      while (!connection.remoteCandidates.some((c) => c.port === port)) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    })(),
+    `Remote candidate ${port} was not added`,
+  );
+}
+
+/**
+ * Offer the codec of payload type `from` under the new payload type `to`
+ * instead (the m-line list and its rtpmap / fmtp / rtcp-fb lines).
+ */
+export function movePayloadType(sdp: string, from: number, to: number) {
+  return sdp
+    .split("\r\n")
+    .map((line) => {
+      if (line.startsWith("m=")) {
+        return line
+          .split(" ")
+          .map((token, index) =>
+            index >= 3 && token === String(from) ? String(to) : token,
+          )
+          .join(" ");
+      }
+      return line.replace(
+        new RegExp(`^a=(rtpmap|fmtp|rtcp-fb):${from} `),
+        `a=$1:${to} `,
+      );
+    })
+    .join("\r\n");
+}
+
+/**
+ * Add header extensions the answerer does not support to the `kind` m-line of
+ * an offer, on every free one-byte ID (like a browser offering more
+ * extensions than werift accepts).
+ */
+export function addUnsupportedExtmaps(sdp: string, kind: "audio" | "video") {
+  const lines = sdp.split("\r\n");
+  const start = lines.findIndex((line) => line.startsWith(`m=${kind} `));
+  const end = lines.findIndex(
+    (line, index) => index > start && line.startsWith("m="),
+  );
+  const section = lines.slice(start, end < 0 ? undefined : end);
+  const used = new Set(
+    section
+      .map((line) => line.match(/^a=extmap:(\d+)/)?.[1])
+      .filter((id): id is string => !!id)
+      .map(Number),
+  );
+  const added: string[] = [];
+  for (let id = 1; id <= 14; id++) {
+    if (!used.has(id))
+      added.push(`a=extmap:${id} urn:example:unsupported-${id}`);
+  }
+  lines.splice(start + 1, 0, ...added);
+  return lines.join("\r\n");
+}
+
+/** Offer an extra codec `name` at payload type `payloadType` in the `kind` m-line. */
+export function addOfferedCodec(
+  sdp: string,
+  kind: "audio" | "video",
+  payloadType: number,
+  name: string,
+) {
+  const lines = sdp.split("\r\n");
+  const start = lines.findIndex((line) => line.startsWith(`m=${kind} `));
+  lines[start] = `${lines[start]} ${payloadType}`;
+  lines.splice(start + 1, 0, `a=rtpmap:${payloadType} ${name}`);
+  return lines.join("\r\n");
+}
+
+/** Every DTLS transport `pc` holds: live bindings and what a pending proposal prepared or created. */
+export function heldTransports(pc: RTCPeerConnection) {
+  const internal = pc as unknown as {
+    negotiation: {
+      transportByMid: Map<string, DtlsTransport>;
+      inspect: () => { createdTransports: DtlsTransport[] };
+    };
+  };
+  return new Set<DtlsTransport>([
+    ...pc.dtlsTransports,
+    ...internal.negotiation.transportByMid.values(),
+    ...internal.negotiation.inspect().createdTransports,
+  ]);
+}
+
+/** After close, every transport the peer held has stopped its DTLS and ICE (no open socket remains). */
+export function assertTransportsClosed(transports: Iterable<DtlsTransport>) {
+  for (const transport of transports) {
+    expect(transport.state).toBe("closed");
+    expect(transport.iceTransport.state).toBe("closed");
+  }
+}
+
+/**
+ * Arrange: hold the next gathering of `pc`'s first ICE transport (as done by
+ * an ICE restart commit) until `release()` is called.
+ */
+export function holdNextGather(pc: RTCPeerConnection) {
+  const transport = pc.iceTransports[0];
+  const original = transport.gather.bind(transport);
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let started!: () => void;
+  const reached = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  transport.gather = async () => {
+    transport.gather = original;
+    started();
+    await released;
+    return original();
+  };
+  return { reached, release };
 }

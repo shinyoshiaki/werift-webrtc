@@ -253,6 +253,46 @@ Keep ICE servers for the next gathering (an ICE restart).
 
 ***
 
+### deliverProvisionalRemoteCandidate()
+
+> **deliverProvisionalRemoteCandidate**(`candidate`?): `void`
+
+`deliverRemoteCandidate` for the provisional (pranswer) generation.
+
+#### Parameters
+
+##### candidate?
+
+[`IceCandidate`](IceCandidate.md)
+
+#### Returns
+
+`void`
+
+***
+
+### deliverRemoteCandidate()
+
+> **deliverRemoteCandidate**(`candidate`?): `void`
+
+Hand a remote candidate (`undefined`: end-of-candidates) to the ICE agent
+without waiting for it. A host candidate is added synchronously; an mDNS
+name may take seconds to resolve, and the agent itself orders that
+resolution against end-of-candidates and generation changes, so the
+description operation queue must not wait for it.
+
+#### Parameters
+
+##### candidate?
+
+[`IceCandidate`](IceCandidate.md)
+
+#### Returns
+
+`void`
+
+***
+
 ### discardUnappliedLocalRestart()
 
 > **discardUnappliedLocalRestart**(): `void`
@@ -284,6 +324,8 @@ Drop only what an unapplied createOffer staged; keep the applied one.
 ### emitCommittedCandidates()
 
 > **emitCommittedCandidates**(): `void`
+
+Signal the candidates an ICE restart committed by a local answer gathered.
 
 #### Returns
 
