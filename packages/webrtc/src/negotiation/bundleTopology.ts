@@ -55,6 +55,11 @@ export class BundleTopology {
   }
 
   /** Live transport of every m-line (transceiver or SCTP) that has a MID. */
+  /** The transport the committed session uses for `mid` (ignoring a pending proposal). */
+  liveTransportForMid(mid: string) {
+    return this.liveTransportByMid().get(mid);
+  }
+
   private liveTransportByMid() {
     const byMid = new Map<string, RTCDtlsTransport>();
     for (const transceiver of this.transceivers.getTransceivers()) {

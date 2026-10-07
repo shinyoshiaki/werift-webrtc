@@ -63,8 +63,6 @@ export class Connection implements IceConnection {
   private remoteCandidatesEndRequested = false;
   /** mDNS resolutions of remote candidates that arrived before end-of-candidates. */
   private readonly remoteResolutions = new Set<Promise<string>>();
-  /** TURN settings each TURN protocol was allocated with (see `turnGatherKey`). */
-  private readonly turnGatherKeys = new WeakMap<Protocol, string>();
   localCandidatesEnd = false;
   generation = -1;
   userHistory: { [username: string]: string } = {};
@@ -575,37 +573,28 @@ export class Connection implements IceConnection {
   }
 
   // 4.1.1 Gathering Candidates
-  /** Identity of the TURN allocation the current options ask for. */
-  private turnGatherKey() {
-    const { turnUsername, turnPassword } = this.options;
-    if (!this.turnServer || !turnUsername || !turnPassword) return;
-    return JSON.stringify([
-      this.turnServer,
-      turnUsername,
-      turnPassword,
-      this.options.turnTransport ?? "udp",
-      this.options.turnUdpFamily ?? null,
-    ]);
-  }
-
-  private async closeStaleTurnProtocols() {
-    const current = this.turnGatherKey();
-    const stale = this.protocols.filter((protocol) => {
-      const key = this.turnGatherKeys.get(protocol);
-      return key !== undefined && key !== current;
-    });
-    if (stale.length === 0) return;
-    this.protocols = this.protocols.filter((p) => !stale.includes(p));
-    await Promise.allSettled(stale.map((protocol) => protocol.close?.()));
-  }
-
+  /**
+   * Gather the local candidates of the current generation.
+   *
+   * After an ICE restart everything the kept sockets already advertised is
+   * advertised again synchronously, before this method first awaits: the host
+   * candidates and the server-reflexive address each kept socket had. Only
+   * work that needs a server follows (a fresh STUN query, a new TURN
+   * allocation), so a caller may let it finish in the background.
+   */
   async gatherCandidates() {
     if (!this.localCandidatesStart) {
       this.localCandidatesStart = true;
 
-      // A TURN allocation made with settings that changed since (setIceServers)
-      // does not belong to the new generation.
-      await this.closeStaleTurnProtocols();
+      // An ICE restart allocates TURN afresh, which is how a restart recovers
+      // from an allocation that died: the previous one leaves the generation.
+      const previousTurn = this.protocols.filter(
+        (protocol) => protocol.localCandidate?.type === "relay",
+      );
+      this.protocols = this.protocols.filter(
+        (protocol) => !previousTurn.includes(protocol),
+      );
+      void Promise.allSettled(previousTurn.map((protocol) => protocol.close()));
 
       // ICE restart keeps transport protocols; re-advertise their host candidates
       // with the new generation / ufrag before gathering additional addresses.
@@ -614,6 +603,10 @@ export class Connection implements IceConnection {
           protocol.localCandidate.generation = this.generation;
           protocol.localCandidate.ufrag = this.localUsername;
           this.appendLocalCandidate(protocol.localCandidate);
+          const reflexive = this.reflexiveBySocket.get(protocol);
+          if (reflexive) {
+            this.appendLocalCandidate(this.withGeneration(reflexive));
+          }
         }
       }
 
@@ -647,7 +640,32 @@ export class Connection implements IceConnection {
 
       this.localCandidatesEnd = true;
     }
-    this.setState("completed");
+    // Gathering that finishes after connectivity checks began (an ICE restart
+    // keeps gathering from its servers) must not overwrite their state.
+    if (this.state === "new") this.setState("completed");
+  }
+
+  /** A copy of `candidate` labelled with the current generation and ufrag. */
+  private withGeneration(candidate: Candidate) {
+    return new Candidate(
+      candidate.foundation,
+      candidate.component,
+      candidate.transport,
+      candidate.priority,
+      candidate.host,
+      candidate.port,
+      candidate.type,
+      candidate.relatedAddress,
+      candidate.relatedPort,
+      candidate.tcptype,
+      this.generation,
+      this.localUsername,
+    );
+  }
+
+  /** Whether gathering contacts a STUN or TURN server (more than re-advertising sockets). */
+  get gathersFromServers() {
+    return !!this.stunServer || !!this.turnServer;
   }
 
   private appendLocalCandidate(candidate: Candidate) {
@@ -922,9 +940,9 @@ export class Connection implements IceConnection {
     }
 
     if (!gatherIceLite && !gatherRelayOnly && stunServer) {
-      // Sockets kept across an ICE restart query STUN again; if no fresh
-      // answer arrives in time, the mapping they already advertised stays in
-      // the new generation instead of silently disappearing from it.
+      // Sockets kept across an ICE restart query STUN again. The mapping they
+      // already advertised is in the new generation from the start; a
+      // different fresh mapping (the NAT rebound) is added to it.
       const reusedReflexivePromises = reusedStunProtocols
         .filter((protocol) => isIPv4(protocol.localCandidate!.host))
         .map(async (protocol) => {
@@ -939,26 +957,14 @@ export class Connection implements IceConnection {
           ]);
           clearTimeout(timer);
           const previous = this.reflexiveBySocket.get(protocol);
-          const candidate =
-            fresh ??
-            (previous &&
-              new Candidate(
-                previous.foundation,
-                previous.component,
-                previous.transport,
-                previous.priority,
-                previous.host,
-                previous.port,
-                previous.type,
-                previous.relatedAddress,
-                previous.relatedPort,
-                previous.tcptype,
-              ));
-          if (candidate) {
-            this.reflexiveBySocket.set(protocol, candidate);
-            this.appendLocalCandidate(candidate);
+          if (
+            fresh &&
+            (fresh.host !== previous?.host || fresh.port !== previous?.port)
+          ) {
+            this.reflexiveBySocket.set(protocol, fresh);
+            this.appendLocalCandidate(fresh);
           }
-          return candidate;
+          return fresh ?? previous;
         });
       candidatePromises.push(...reusedReflexivePromises);
 
@@ -1003,21 +1009,7 @@ export class Connection implements IceConnection {
       candidatePromises.push(...stunCandidatePromises);
     }
 
-    const turnKey = this.turnGatherKey();
-    const reusedTurn =
-      turnKey !== undefined &&
-      this.protocols.some(
-        (protocol) => this.turnGatherKeys.get(protocol) === turnKey,
-      );
-    // An ICE restart keeps a TURN allocation made with the current settings
-    // (its relay candidate is re-advertised above) instead of allocating again.
-    if (
-      !gatherIceLite &&
-      !reusedTurn &&
-      turnServer &&
-      turnUsername &&
-      turnPassword
-    ) {
+    if (!gatherIceLite && turnServer && turnUsername && turnPassword) {
       const turnCandidatePromise = (async () => {
         const turnTransport = this.options.turnTransport ?? "udp";
         const protocol = await createStunOverTurnClient(
@@ -1055,7 +1047,6 @@ export class Connection implements IceConnection {
         });
         this.ensureProtocol(protocol);
         this.protocols.push(protocol);
-        if (turnKey !== undefined) this.turnGatherKeys.set(protocol, turnKey);
 
         const candidateAddress = protocol.turn.relayedAddress;
         const relatedAddress = protocol.turn.mappedAddress;
@@ -1695,6 +1686,10 @@ export class Connection implements IceConnection {
         log("nominated", pair.toJSON());
         this.nominated = pair;
         this.nominating = false;
+        // RFC 7675 section 5.1: the successful connectivity check that
+        // selected the pair is its initial consent, so data may flow at once
+        // instead of waiting for the consent lifecycle to start.
+        this.consentFresh = true;
         this.pruneTcpConnections(pair);
 
         // After resetNominatedPair / renomination while already connected,

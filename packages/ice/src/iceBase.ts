@@ -68,7 +68,15 @@ export interface IceConnection {
     password: string;
   }): void;
 
+  /**
+   * Gather the current generation's candidates. After an ICE restart the
+   * candidates the kept sockets advertised are re-advertised synchronously;
+   * only server work (STUN, TURN) is awaited.
+   */
   gatherCandidates(): Promise<void>;
+
+  /** Whether gathering contacts a STUN or TURN server. */
+  readonly gathersFromServers?: boolean;
 
   connect(): Promise<void>;
 

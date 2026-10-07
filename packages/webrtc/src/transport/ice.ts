@@ -66,12 +66,11 @@ type StagedLocalRestart = {
   candidates: IceCandidate[];
   emitted: boolean;
   /**
-   * ICE servers changed since the current candidates were gathered, so the
-   * relay candidates and end-of-candidates of this generation are signalled
-   * only after the commit gathers with the new servers.
+   * The generation gathers from its servers again after the commit (a new TURN
+   * allocation, a fresh STUN mapping, changed ICE servers): its relay
+   * candidates and end-of-candidates are trickled then, not with the offer.
    */
   endDeferred?: boolean;
-  emittedCandidates?: IceCandidate[];
 };
 
 export class RTCIceTransport {
@@ -89,7 +88,13 @@ export class RTCIceTransport {
    * committed, replaced or rolled back; an unapplied createOffer cannot drop it.
    */
   private appliedLocalRestart?: StagedLocalRestart;
-  private committedCandidateEvents?: IceCandidate[];
+  /**
+   * Gatherer events of an ICE restart committed by a local answer, held until
+   * that answer is applied (`emitCommittedCandidates`), in their order: the
+   * re-advertised candidates first, then what the servers add and
+   * end-of-candidates.
+   */
+  private heldCandidateEvents?: (IceCandidate | undefined)[];
   /**
    * ICE servers set (setConfiguration) after this transport gathered. They
    * apply to the next gathering, that is the next ICE restart (JSEP 4.1.18).
@@ -109,7 +114,8 @@ export class RTCIceTransport {
       this.setState(state);
     });
     this.iceGather.onIceCandidate = (candidate) => {
-      this.onIceCandidate.execute(candidate);
+      if (this.heldCandidateEvents) this.heldCandidateEvents.push(candidate);
+      else this.onIceCandidate.execute(candidate);
     };
     this.iceGather.onGatheringStateChange.subscribe(() => {
       this.ongatheringstatechange?.();
@@ -157,14 +163,14 @@ export class RTCIceTransport {
   }
 
   /**
-   * A staged restart whose generation is gathered again at the commit because
-   * the ICE servers changed; its relay candidates are not final before that.
+   * A staged restart whose generation keeps gathering from its servers after
+   * the commit; its relay candidates and end-of-candidates come then.
    */
   private stagedGatherPending() {
     const staged = this.stagedLocalRestart;
     if (!staged) return false;
     if (staged.emitted) return !!staged.endDeferred;
-    return !!this.nextGatherIceServers;
+    return !!this.nextGatherIceServers || !!this.connection.gathersFromServers;
   }
 
   get localParameters() {
@@ -240,6 +246,26 @@ export class RTCIceTransport {
     );
   }
 
+  /**
+   * Hand a remote candidate (`undefined`: end-of-candidates) to the ICE agent
+   * without waiting for it. A host candidate is added synchronously; an mDNS
+   * name may take seconds to resolve, and the agent itself orders that
+   * resolution against end-of-candidates and generation changes, so the
+   * description operation queue must not wait for it.
+   */
+  deliverRemoteCandidate(candidate?: IceCandidate) {
+    void Promise.resolve(this.addRemoteCandidate(candidate)).catch((error) =>
+      log("addRemoteCandidate failed", error),
+    );
+  }
+
+  /** `deliverRemoteCandidate` for the provisional (pranswer) generation. */
+  deliverProvisionalRemoteCandidate(candidate?: IceCandidate) {
+    void Promise.resolve(this.addProvisionalRemoteCandidate(candidate)).catch(
+      (error) => log("addProvisionalRemoteCandidate failed", error),
+    );
+  }
+
   startProvisionalChecks() {
     if (!this.stagedLocalRestart) return;
     this.connection.startProvisionalChecks?.();
@@ -251,7 +277,6 @@ export class RTCIceTransport {
     const candidates = this.localCandidates;
     staged.endDeferred = this.stagedGatherPending();
     staged.emitted = true;
-    staged.emittedCandidates = candidates;
     for (const candidate of candidates) {
       this.onIceCandidate.execute(candidate);
     }
@@ -294,9 +319,13 @@ export class RTCIceTransport {
   async commitLocalRestartIfStaged() {
     const staged = this.stagedLocalRestart;
     if (!staged) return;
-    // Candidates already signalled with end-of-candidates fix this
-    // generation's servers; a later server change waits for the next restart.
-    this.restart(false, !staged.emitted || !!staged.endDeferred);
+    // The description already finalized this generation's candidates with
+    // end-of-candidates: it only re-advertises the kept sockets, and a server
+    // change waits for the next restart. Otherwise the generation keeps
+    // gathering from its servers (a fresh STUN mapping, a new TURN allocation)
+    // after the commit and trickles what they add.
+    const regather = this.stagedGatherPending();
+    this.restart(false, regather);
     if (this.connection.commitLocalCredentials) {
       this.connection.commitLocalCredentials(
         staged.usernameFragment,
@@ -308,33 +337,26 @@ export class RTCIceTransport {
     }
     this.stagedLocalRestart = undefined;
     this.appliedLocalRestart = undefined;
-    await this.gather();
-    if (!staged.emitted) {
-      this.committedCandidateEvents = this.iceGather.localCandidates;
-    } else if (staged.endDeferred) {
-      // Trickle what the new servers added, then end the generation.
-      const signalled = staged.emittedCandidates ?? [];
-      this.committedCandidateEvents = this.iceGather.localCandidates.filter(
-        (candidate) =>
-          !signalled.some(
-            (sent) =>
-              sent.ip === candidate.ip &&
-              sent.port === candidate.port &&
-              sent.protocol === candidate.protocol &&
-              sent.type === candidate.type,
-          ),
-      );
+    // A local answer signals its candidates after it is applied.
+    if (!staged.emitted) this.heldCandidateEvents = [];
+    // The kept sockets are re-advertised synchronously; nothing here waits
+    // for a server, so the commit never holds the new generation's checks.
+    const gathering = this.gather();
+    if (regather) {
+      void gathering.catch((error) => log("restart gathering failed", error));
+    } else {
+      await gathering;
     }
   }
 
+  /** Signal the candidates an ICE restart committed by a local answer gathered. */
   emitCommittedCandidates() {
-    const candidates = this.committedCandidateEvents;
-    if (!candidates) return;
-    this.committedCandidateEvents = undefined;
-    for (const candidate of candidates) {
+    const held = this.heldCandidateEvents;
+    if (!held) return;
+    this.heldCandidateEvents = undefined;
+    for (const candidate of held) {
       this.onIceCandidate.execute(candidate);
     }
-    this.onIceCandidate.execute(undefined);
   }
 
   getRemoteCandidates() {

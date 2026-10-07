@@ -74,13 +74,14 @@ describe("develop features inside the negotiation transaction", () => {
       }
     });
 
-    test("a restart with unchanged TURN settings re-advertises the allocation without allocating again", async () => {
-      // Arrange: TURN 付きで接続済みの peer を用意する
+    test("an ICE restart with TURN trickles a fresh relay candidate after the commit", async () => {
+      // Arrange: TURN 付きで接続済みの peer と、offerer の候補を answerer へ転送する経路
       const turn = await createLocalTurnIceServer();
       const offerer = new RTCPeerConnection({ iceServers: turn.iceServers });
       const answerer = new RTCPeerConnection();
       try {
-        offerer.createDataChannel("turn");
+        const channel = offerer.createDataChannel("turn");
+        const received = answerer.onDataChannel.asPromise().then(([c]) => c);
         await offerer.setLocalDescription(await offerer.createOffer());
         await answerer.setRemoteDescription(offerer.localDescription!);
         await answerer.setLocalDescription(await answerer.createAnswer());
@@ -89,30 +90,86 @@ describe("develop features inside the negotiation transaction", () => {
           .getLocalCandidates()
           .filter((c) => c.candidate.includes("typ relay"));
         expect(relayBefore).toHaveLength(1);
+        const events = recordIceCandidates(offerer);
 
-        // Act: 設定を変えずに ICE restart を交渉する
+        // Act: 設定を変えずに ICE restart を交渉し、commit 後の候補を answerer へ trickle する
         offerer.restartIce();
         await offerer.setLocalDescription(await offerer.createOffer());
         const offerSdp = offerer.localDescription!.sdp;
         await answerer.setRemoteDescription(offerer.localDescription!);
         await answerer.setLocalDescription(await answerer.createAnswer());
+        const committedFrom = events.length;
         await offerer.setRemoteDescription(answerer.localDescription!);
+        await waitForEndOfCandidates(events);
+        const committed = events.slice(committedFrom);
+        for (const candidate of committed) {
+          await answerer.addIceCandidate(candidate?.toJSON() ?? null);
+        }
 
-        // Assert: offer は既存の relay 候補と EOC を含み、commit 後も allocation は 1 つのまま同じアドレス
-        expect(offerSdp).toContain("typ relay");
-        expect(offerSdp).toContain("a=end-of-candidates");
-        const relayAfter = offerer.iceTransports[0]
-          .getLocalCandidates()
-          .filter((c) => c.candidate.includes("typ relay"));
-        expect(relayAfter).toHaveLength(1);
-        const address = (candidate: string) => candidate.split(" ").slice(4, 6);
-        expect(address(relayAfter[0].candidate)).toEqual(
-          address(relayBefore[0].candidate),
+        // Assert: offer は古い relay 候補も EOC も含まず、commit 後に新しい allocation の relay 候補と EOC が届く
+        expect(offerSdp).not.toContain("typ relay");
+        expect(offerSdp).not.toContain("a=end-of-candidates");
+        const relayAfter = committed.filter((c) =>
+          c?.candidate.includes("typ relay"),
         );
+        expect(relayAfter).toHaveLength(1);
+        expect(relayAfter[0]!.candidate).not.toBe(relayBefore[0].candidate);
+        expect(committed.at(-1)).toBeUndefined();
+
+        // Assert: 新しい generation で DataChannel が通信できる
+        await waitForCommittedNomination(offerer);
+        await sendAndExpectData(channel, await received, "after restart");
       } finally {
         await offerer.close();
         await answerer.close();
         await turn.server.close();
+      }
+    });
+  });
+
+  describe("one-to-one codec matching (#729)", () => {
+    test("an offer with several H264 variants is answered with only the configured one", async () => {
+      // Arrange: offerer は 3 種類の H264、answerer は既定の H264 (packetization-mode=1) だけを持つ
+      const offerer = new RTCPeerConnection({
+        codecs: {
+          video: [
+            useH264(),
+            useH264({
+              parameters:
+                "profile-level-id=42e01f;packetization-mode=0;level-asymmetry-allowed=1",
+            }),
+            useH264({
+              parameters:
+                "profile-level-id=640032;packetization-mode=1;level-asymmetry-allowed=1",
+            }),
+          ],
+        },
+      });
+      const answerer = new RTCPeerConnection({
+        codecs: { video: [useH264()] },
+      });
+      try {
+        offerer.addTransceiver("video");
+        await offerer.setLocalDescription(await offerer.createOffer());
+        expect(offeredVideoCodecs(offerer.localDescription!.sdp)).toEqual([
+          "H264",
+          "H264",
+          "H264",
+        ]);
+
+        // Act: offer に answer する
+        await answerer.setRemoteDescription(offerer.localDescription!);
+        await answerer.setLocalDescription(await answerer.createAnswer());
+
+        // Assert: answer は設定した 1 つの variant だけを受理する
+        expect(offeredVideoCodecs(answerer.localDescription!.sdp)).toEqual([
+          "H264",
+        ]);
+        await offerer.setRemoteDescription(answerer.localDescription!);
+        assertNegotiationInvariants(answerer);
+        assertNegotiationInvariants(offerer);
+      } finally {
+        await Promise.allSettled([offerer.close(), answerer.close()]);
       }
     });
   });
@@ -238,6 +295,34 @@ describe("develop features inside the negotiation transaction", () => {
   });
 
   describe("m-line reuse during a pending negotiation (#721 / issue 705)", () => {
+    test("a local offer reuses a stopped m-line only for a transceiver of the same kind", async () => {
+      // Arrange: video を停止して port 0 まで交渉済みの session (index 0 が停止済み video)
+      const { offerer, answerer } = await createConnectedVideoPeers();
+      try {
+        const [video] = offerer.getTransceivers();
+        video.stop();
+        await negotiate(offerer, answerer);
+
+        // Act: audio を追加して offer を作る
+        const audio = offerer.addTransceiver("audio");
+        await offerer.setLocalDescription(await offerer.createOffer());
+
+        // Assert: 停止済み video の位置は audio に使わず、audio は新しい m-line に入る
+        const kinds = offerer
+          .localDescription!.sdp.split("\r\n")
+          .filter((line) => line.startsWith("m="))
+          .map((line) => line.split(" ")[0]);
+        expect(kinds[0]).toBe("m=video");
+        expect(audio.mLineIndex).not.toBe(0);
+        await answerer.setRemoteDescription(offerer.localDescription!);
+        await answerer.setLocalDescription(await answerer.createAnswer());
+        await offerer.setRemoteDescription(answerer.localDescription!);
+        assertNegotiationInvariants(offerer);
+      } finally {
+        await Promise.allSettled([offerer.close(), answerer.close()]);
+      }
+    });
+
     test("a transceiver added during a rolled-back offer does not keep the stopped m-line index", async () => {
       // Arrange: audio を停止して port 0 まで交渉済みの session
       const { offerer, answerer } = await createConnectedVideoPeers(

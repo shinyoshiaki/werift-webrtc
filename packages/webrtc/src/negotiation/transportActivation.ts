@@ -73,6 +73,10 @@ export class TransportActivation {
       Map<string, (typeof offer.media)[number]["iceCandidates"][number]>
     >();
     const eoc = new Set<RTCIceTransport>();
+    const transportOfMedia = new Map<
+      (typeof offer.media)[number],
+      RTCIceTransport
+    >();
     for (const [index, media] of offer.media.entries()) {
       if (media.port === 0) continue;
       const dtls =
@@ -84,6 +88,7 @@ export class TransportActivation {
               .getTransceivers()
               .find((t) => t.mid === media.rtp.muxId)?.dtlsTransport);
       if (!dtls) continue;
+      transportOfMedia.set(media, dtls.iceTransport);
       const bundledNonTag = this.topology.isBundledNonTag(
         offer,
         media.rtp.muxId,
@@ -115,9 +120,14 @@ export class TransportActivation {
     }
     for (const [transport, candidates] of candidatesByTransport) {
       for (const candidate of candidates.values()) {
-        await transport.addRemoteCandidate(candidate);
+        transport.deliverRemoteCandidate(candidate);
       }
-      if (eoc.has(transport)) await transport.addRemoteCandidate(undefined);
+      if (eoc.has(transport)) transport.deliverRemoteCandidate(undefined);
+    }
+    // End-of-candidates completes the transport's generation, so every m-line
+    // of the description it carries (a BUNDLE group) records it.
+    for (const [media, transport] of transportOfMedia) {
+      if (eoc.has(transport)) media.iceCandidatesComplete = true;
     }
   }
 
@@ -128,10 +138,10 @@ export class TransportActivation {
     if (!iceTransport.hasStagedRestart || !media.iceParams) return;
     iceTransport.setProvisionalRemoteParams(media.iceParams);
     for (const candidate of media.iceCandidates) {
-      await iceTransport.addProvisionalRemoteCandidate(candidate);
+      iceTransport.deliverProvisionalRemoteCandidate(candidate);
     }
     if (media.iceCandidatesComplete) {
-      await iceTransport.addProvisionalRemoteCandidate(undefined);
+      iceTransport.deliverProvisionalRemoteCandidate(undefined);
     }
   }
 
