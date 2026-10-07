@@ -230,8 +230,11 @@ export interface AvcDecoderConfig {
   avcc: Uint8Array;
   /** coded frame size after SPS cropping */
   codedSize: { width: number; height: number };
-  /** display size after applying the SPS sample aspect ratio */
-  presentSize: { width: number; height: number };
+  /**
+   * sample (pixel) aspect ratio from the SPS VUI.
+   * `1:1` when absent or unspecified (e.g. extended SAR `0:0`).
+   */
+  sampleAspectRatio: { width: number; height: number };
 }
 
 /**
@@ -271,15 +274,19 @@ export function parseAvcDecoderConfig(
     return undefined;
   }
 
-  const { codec_size: codedSize, present_size: presentSize } = details;
+  const { codec_size: codedSize, sar_ratio: sar } = details;
   if (
     !isPositiveInteger(codedSize.width) ||
-    !isPositiveInteger(codedSize.height) ||
-    !isPositiveInteger(presentSize.width) ||
-    !isPositiveInteger(presentSize.height)
+    !isPositiveInteger(codedSize.height)
   ) {
     return undefined;
   }
+  // present_size is not used: it rounds the SAR-scaled width (427 for
+  // 320x240 @ 4:3) and becomes NaN when the SPS signals SAR 0:0.
+  const sampleAspectRatio =
+    isPositiveInteger(sar.width) && isPositiveInteger(sar.height)
+      ? { width: sar.width, height: sar.height }
+      : { width: 1, height: 1 };
 
   const avcc = new AVCDecoderConfigurationRecord(
     sps.data,
@@ -290,7 +297,7 @@ export function parseAvcDecoderConfig(
   return {
     avcc,
     codedSize: { width: codedSize.width, height: codedSize.height },
-    presentSize: { width: presentSize.width, height: presentSize.height },
+    sampleAspectRatio,
   };
 }
 

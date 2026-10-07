@@ -207,8 +207,12 @@ function resolveVideoDecoderConfig(track: Track, data: Buffer) {
       ? { width: track.width, height: track.height }
       : undefined;
   const codedSize = explicit ?? avcConfig.codedSize;
-  const displaySize = explicit ?? avcConfig.presentSize;
-  const ratio = computeRatio(displaySize.width, displaySize.height);
+  // Display aspect = coded size x SAR, kept as exact integers so that e.g.
+  // 320x240 @ SAR 4:3 becomes 16:9 instead of a rounded 427:240.
+  const { sampleAspectRatio: sar } = avcConfig;
+  const ratio = explicit
+    ? computeRatio(explicit.width, explicit.height)
+    : computeRatio(codedSize.width * sar.width, codedSize.height * sar.height);
 
   return {
     codec: avccToCodecString(avcConfig.avcc),
