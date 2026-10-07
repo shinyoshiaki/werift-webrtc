@@ -150,6 +150,7 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
   <a href="#snapshot">6. 状態 snapshot の持ち主</a>
   <a href="#ice">7. ICE generation</a>
   <a href="#eoc" style="padding-left:20px">7.1 EOC と候補</a>
+  <a href="#restart-gap" style="padding-left:20px">7.3 restart 中の通信</a>
   <a href="#bundle">8. BUNDLE topology</a>
   <a href="#bundle-policy" style="padding-left:20px">8.3 bundlePolicy</a>
   <a href="#develop">9. develop 機能との統合</a>
@@ -488,6 +489,59 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
   </tbody>
 </table>
 
+<h3 id="restart-gap">7.3 ICE restart 中の通信: RFC・他の実装との比較</h3>
+<p>このチケットの werift は、ICE restart の commit（answer の適用）で旧 pair を手放します。そのため、新しい generation の pair が nominate されるまで、RTP / DataChannel を送れない時間があります。RFC の規定と Chrome の実装はこれより強く、<b>新しい pair が選ばれるまで旧 pair で送り続けます</b>。<b>RFC と同等ではありません</b>。一方で、Pion や develop の werift は restart を始めた時点で旧 pair を手放すので、それよりは途切れる時間が短くなっています。</p>
+<figure class="figure">
+<svg viewBox="0 0 960 300" width="100%" role="img" aria-label="ICE restart 中に送信できる区間の比較">
+  <g font-size="12" text-anchor="middle">
+    <text x="300" y="18" font-weight="600">① restart の offer を作る</text><text class="sub" x="300" y="33">createOffer({ iceRestart })</text>
+    <text x="560" y="18" font-weight="600">② answer を適用</text><text class="sub" x="560" y="33">commit</text>
+    <text x="740" y="18" font-weight="600">③ 新しい pair を nominate</text><text class="sub" x="740" y="33">新しい generation で接続確認が成功</text>
+  </g>
+  <g stroke="var(--line)" stroke-dasharray="4 4">
+    <line x1="300" y1="40" x2="300" y2="262"/><line x1="560" y1="40" x2="560" y2="262"/><line x1="740" y1="40" x2="740" y2="262"/>
+  </g>
+  <g font-size="12.5" font-weight="600">
+    <text x="10" y="70">RFC 8445 / 8839</text>
+    <text x="10" y="112">Chrome（libwebrtc）</text>
+    <text x="10" y="154">werift（このチケット）</text>
+    <text x="10" y="196">werift（develop）</text>
+    <text x="10" y="238">Pion（v4.2.22）</text>
+  </g>
+  <g>
+    <rect x="200" y="54" width="538" height="26" rx="5" fill="var(--blue-wash)" stroke="var(--blue)"/><rect x="742" y="54" width="208" height="26" rx="5" fill="var(--green-wash)" stroke="var(--green)"/>
+    <rect x="200" y="96" width="538" height="26" rx="5" fill="var(--blue-wash)" stroke="var(--blue)"/><rect x="742" y="96" width="208" height="26" rx="5" fill="var(--green-wash)" stroke="var(--green)"/>
+    <rect x="200" y="138" width="358" height="26" rx="5" fill="var(--blue-wash)" stroke="var(--blue)"/><rect x="562" y="138" width="176" height="26" rx="5" fill="var(--orange-wash)" stroke="var(--orange)"/><rect x="742" y="138" width="208" height="26" rx="5" fill="var(--green-wash)" stroke="var(--green)"/>
+    <rect x="200" y="180" width="98" height="26" rx="5" fill="var(--blue-wash)" stroke="var(--blue)"/><rect x="302" y="180" width="436" height="26" rx="5" fill="var(--orange-wash)" stroke="var(--orange)"/><rect x="742" y="180" width="208" height="26" rx="5" fill="var(--green-wash)" stroke="var(--green)"/>
+    <rect x="200" y="222" width="98" height="26" rx="5" fill="var(--blue-wash)" stroke="var(--blue)"/><rect x="302" y="222" width="436" height="26" rx="5" fill="var(--orange-wash)" stroke="var(--orange)"/><rect x="742" y="222" width="208" height="26" rx="5" fill="var(--green-wash)" stroke="var(--green)"/>
+  </g>
+  <g font-size="12">
+    <text x="210" y="72">旧 pair で送信を続ける</text><text x="752" y="72">新しい pair</text>
+    <text x="210" y="114">旧 pair で送信を続ける</text><text x="752" y="114">新しい pair</text>
+    <text x="210" y="156">旧 pair で送信（pranswer 中も）</text><text x="570" y="156">送れない</text><text x="752" y="156">新しい pair</text>
+    <text x="310" y="198">送れない（シグナリングの往復＋接続確認の間）</text><text x="752" y="198">新しい pair</text>
+    <text x="310" y="240">送れない（シグナリングの往復＋接続確認の間）</text><text x="752" y="240">新しい pair</text>
+  </g>
+  <g font-size="12" class="sub">
+    <rect x="200" y="272" width="12" height="12" rx="3" fill="var(--blue-wash)" stroke="var(--blue)"/><text x="218" y="282">旧 pair で送信できる</text>
+    <rect x="360" y="272" width="12" height="12" rx="3" fill="var(--orange-wash)" stroke="var(--orange)"/><text x="378" y="282">送信できない</text>
+    <rect x="490" y="272" width="12" height="12" rx="3" fill="var(--green-wash)" stroke="var(--green)"/><text x="508" y="282">新しい pair で送信</text>
+  </g>
+</svg>
+<figcaption>offerer 側の図です。answerer 側で restart が始まる時点は実装ごとに異なります（Pion は資格情報が変わった offer を <code>SetRemoteDescription</code> した時点）。区間の長さは模式的なもので、実測値ではありません。</figcaption>
+</figure>
+<table>
+  <thead><tr><th>対象</th><th>restart 中の送信</th><th>根拠</th></tr></thead>
+  <tbody>
+    <tr><td>RFC 8445 / RFC 8839</td><td><span class="tag keep">途切れない</span> restart 前に選ばれていた pair（previous selected pair）を記録し、新しい selected pair ができるまで、その pair で送り続ける</td><td>RFC 8445 §9「restart の間も、既存のセッションでデータを送り続けられる」、§12.1（checklist が Running の間の selected pair = previous selected pair）、RFC 8839 §4.4.3.1.1（previous selected pair を覚え、そこへ送り続ける）</td></tr>
+    <tr><td>Chrome（libwebrtc）</td><td><span class="tag keep">途切れない</span> 選択中の connection は restart の間も残し、新しい generation の connection が選ばれた時点で古いものを捨てる</td><td><code>p2p/base/p2p_transport_channel.cc</code> のコメント「Any selected connection is kept so that it can be used to send data during ICE restart per RFC 8445」（main <code>71b521e4af</code>）</td></tr>
+    <tr><td>werift（このチケット）</td><td><span class="tag stage">answer の commit から nominate まで途切れる</span> offer と pranswer の間は旧 pair で送り続け、commit で ICE agent を作り直す</td><td><a class="ref" href="../packages/webrtc/src/transport/ice.ts" title="packages/webrtc/src/transport/ice.ts:261">ice.ts:261</a> → <a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:184">ice.ts:184</a>（<code>nominated</code> を消す）</td></tr>
+    <tr><td>werift（develop）</td><td><span class="tag reject">restart を始めた時点から途切れる</span> <code>createOffer({ iceRestart })</code> の中で、その場で transport を restart する</td><td>develop の <code>createOffer</code> → <code>secureManager.restartIce()</code></td></tr>
+    <tr><td>Pion（pion/webrtc v4.2.22、pion/ice v4.4.6）</td><td><span class="tag reject">restart を始めた時点から途切れる</span> offerer は <code>CreateOffer(ICERestart)</code>、answerer は資格情報が変わった offer の <code>SetRemoteDescription</code> で <code>Agent.Restart</code> を呼び、selected pair・checklist・候補をすべて消す</td><td><code>icetransport.go</code> の <code>restart()</code> と <code>agent.go</code> の <code>Restart()</code>（<code>setSelectedPair(nil)</code>、<code>deleteAllCandidates()</code>）。開発版の pion/ice（v5.0.0-rc.7）も同じ動作</td></tr>
+  </tbody>
+</table>
+<p><b>RFC に合わせるには</b>、commit で ICE agent を作り直すのではなく、新しい generation の pair が nominate されるまで旧 generation の nominated pair を送信先として残し、nominate された時点で切り替える必要があります。このチケットでは pranswer の間の provisional generation までを扱い、ここは対象外の既知の制約として残しています（12 章）。</p>
+
 <!-- ============================================================ -->
 <h2 id="bundle">8. BUNDLE topology</h2>
 <h3>8.1 BUNDLE group の仕組み</h3>
@@ -622,7 +676,7 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
   <tbody>
     <tr><td><span class="status warn">相互運用</span></td><td>確認したのは Chrome だけです。Firefox と Safari は対象外です。</td></tr>
     <tr><td><span class="status warn">extmap の対応表</span></td><td>PeerConnection 全体で 1 つです。BUNDLE しない別の transport で同じ ID を別の URI に使う構成には対応していません。</td></tr>
-    <tr><td><span class="status warn">ICE restart の commit</span></td><td>旧 pair を手放すため、新しい generation が nominate するまで RTP が途切れます。</td></tr>
+    <tr><td><span class="status warn">ICE restart の commit</span></td><td>旧 pair を手放すため、新しい generation が nominate するまで RTP が途切れます。RFC 8445 / 8839 と Chrome は新しい pair が選ばれるまで旧 pair で送り続けるので、それより弱い動作です。develop と Pion よりは途切れる時間が短くなっています（<a href="#restart-gap">7.3 の比較</a>）。</td></tr>
     <tr><td><span class="status warn">後から作った DataChannel</span></td><td>SCTP association がない接続済み session で後から作った DataChannel は、再交渉しても開きません（develop から既存の問題）。</td></tr>
     <tr><td><span class="status warn">公開される型</span></td><td>snapshot 用の型（<code>TransceiverNegotiationState</code> など 4 つ）は、<code>media/index.ts</code> の <code>export *</code> 経由で型として公開されます。実行時の値は増えていません。</td></tr>
     <tr><td><span class="status warn">WPT の残件</span></td><td>runner 判定は REGRESSION 0 ですが、upstream WPT の FAIL と TIMEOUT はまだ多く残っています。件数は実行時の負荷で変わります。</td></tr>
