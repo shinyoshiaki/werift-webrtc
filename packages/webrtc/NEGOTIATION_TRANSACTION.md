@@ -308,7 +308,33 @@ negotiation needed and never takes over an inactive transceiver's slot.
 ## ICE generation boundaries
 
 A restart keeps the ICE transport's sockets. The ICE package keeps the
-generations apart on them:
+generations apart on them.
+
+**Provisional generation.** While an ICE restart of an established transport
+is negotiated, a second checklist (the provisional generation) runs beside the
+live one on the same sockets. It only exchanges STUN checks; RTP and
+DataChannel stay on the live selected pair.
+
+- Created when the restart credentials are staged: by `createOffer()` while a
+  `restartIce()` request stands (offerer), or by `createAnswer()` for a remote
+  offer that changes the ufrag of a live transport (answerer). It then holds
+  only the local credentials and already answers checks for that ufrag.
+- Fed with the peer's credentials, candidates and end-of-candidates by the
+  pranswer: a remote pranswer on the offerer, the remote offer when the
+  answerer applies its own pranswer. Trickled candidates of that generation
+  follow. A replacement pranswer restarts its checklist (new revision).
+- Checks start when the pranswer is applied (`connectPending`); the
+  controlling side nominates a provisional pair. The live selected pair and the
+  send target never change.
+- Ends at the final answer, which recreates the live ICE agent with the staged
+  credentials and checks the answered generation from scratch (the provisional
+  nomination is not carried over), or at rollback / a replacement offer /
+  discarding an unapplied `createOffer`, which drops it and keeps the live
+  generation. A first negotiation and transports created for the proposal
+  (BUNDLE split, pending-only) have no provisional generation; they connect
+  normally from the pranswer.
+
+Further rules:
 
 - The new generation queries STUN again on the kept sockets; if no answer
   arrives in time, the socket's previous server-reflexive candidate is
