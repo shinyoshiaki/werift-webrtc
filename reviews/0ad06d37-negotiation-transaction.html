@@ -151,6 +151,7 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
   <a href="#ice">7. ICE generation</a>
   <a href="#eoc" style="padding-left:20px">7.1 EOC と候補</a>
   <a href="#bundle">8. BUNDLE topology</a>
+  <a href="#bundle-policy" style="padding-left:20px">8.3 bundlePolicy</a>
   <a href="#develop">9. develop 機能との統合</a>
   <a href="#modules">10. モジュール構成</a>
   <a href="#why">11. 判断理由</a>
@@ -489,7 +490,68 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
 
 <!-- ============================================================ -->
 <h2 id="bundle">8. BUNDLE topology</h2>
-<p>BUNDLE group は最初の 1 つだけでなく、<b>すべての group</b> を扱います。各 group の tag（先頭の MID）が、member の transport を決めます（<a class="ref" href="../packages/webrtc/src/negotiation/bundleTopology.ts" title="packages/webrtc/src/negotiation/bundleTopology.ts:32">bundleTopology.ts:32</a>）。</p>
+<h3>8.1 BUNDLE group の仕組み</h3>
+<p><b>BUNDLE</b> は、複数の m-line（音声・映像・DataChannel など）を <b>1 本の ICE / DTLS 接続にまとめて流す</b>仕組みです（RFC 8843）。どの m-line をまとめるかは、SDP のセッション行 <code>a=group:BUNDLE &lt;mid&gt; &lt;mid&gt; …</code> で表します。</p>
+<ul>
+  <li><b>group は各 Peer が別々に持つものではなく、offer / answer で 2 者が合意するものです。</b>offerer が offer で group を<i>提案</i>し、answerer が answer でそのうち受け入れる m-line だけを返して<i>確定</i>します。確定した group は両側で同じです。</li>
+  <li>実体として、各 Peer は <b>group ごとに transport（ICE + DTLS）を 1 つ</b>持ちます。group 1 の音声と映像は、A 側の transport と B 側の transport の間の 1 本の接続を共有します。</li>
+  <li>group の先頭の MID を <b>tag</b> と呼びます。member が共有する transport のパラメータ（ICE 資格情報・DTLS fingerprint など）は、tag の m-line のものを使います。</li>
+  <li>1 つの SDP に group を<b>複数</b>置けます。m-line が属せる group は 1 つまでで、どの group にも属さない m-line もあり得ます。</li>
+</ul>
+<figure class="figure">
+<svg viewBox="0 0 960 300" width="100%" role="img" aria-label="BUNDLE group の提案・確定と transport の対応">
+  <g font-size="13" font-weight="700" text-anchor="middle">
+    <text x="150" y="22">Peer A（offerer）</text><text x="810" y="22">Peer B（answerer）</text>
+  </g>
+  <path d="M250,62 L708,62" stroke="var(--blue)" stroke-width="2" fill="none" marker-end="url(#aB)"/>
+  <text x="480" y="52" font-size="12.5" text-anchor="middle">offer: a=group:BUNDLE 0 1 2（提案）</text>
+  <path d="M708,102 L252,102" stroke="var(--green)" stroke-width="2" fill="none" marker-end="url(#aG)"/>
+  <text x="480" y="92" font-size="12.5" text-anchor="middle">answer: a=group:BUNDLE 0 1（受け入れた分だけ返して確定）</text>
+  <text class="sub" x="480" y="122" text-anchor="middle">mid 2 は answer で拒否（port 0）されたので group から外れた</text>
+  <g>
+    <rect x="40" y="150" width="220" height="96" rx="10" class="node"/>
+    <text x="54" y="172" font-size="12.5" font-weight="600">transport T1（A 側）</text>
+    <text class="sub" x="54" y="192">mid 0 (tag) / mid 1 が共有</text>
+    <text class="sub" x="54" y="210">ICE 資格情報・DTLS は 1 組</text>
+    <rect x="700" y="150" width="220" height="96" rx="10" class="node"/>
+    <text x="714" y="172" font-size="12.5" font-weight="600">transport T1'（B 側）</text>
+    <text class="sub" x="714" y="192">mid 0 (tag) / mid 1 が共有</text>
+    <text class="sub" x="714" y="210">ICE 資格情報・DTLS は 1 組</text>
+    <path d="M262,198 L698,198" stroke="var(--blue)" stroke-width="6" stroke-linecap="round" opacity=".55"/>
+    <text x="480" y="188" font-size="12.5" text-anchor="middle">1 本の ICE / DTLS 接続（同じ 5-tuple）</text>
+    <text class="sub" x="480" y="222" text-anchor="middle">音声（mid 0）と映像（mid 1）のパケットは MID などで振り分ける</text>
+  </g>
+  <text class="sub" x="480" y="280" text-anchor="middle">group が 2 つなら transport も 2 組（T1⇄T1'、T2⇄T2'）。group 外の m-line は、それぞれ専用の transport を持つ。</text>
+</svg>
+</figure>
+
+<h3>8.2 「group 外」はいつ現れるか</h3>
+<p>werift が自分で作る offer は、拒否済み（port 0）以外の<b>全 m-line を 1 つの group</b> に入れます（<a class="ref" href="../packages/webrtc/src/sdpManager.ts" title="packages/webrtc/src/sdpManager.ts:617">sdpManager.ts:617</a>）。そのため、werift 同士の通常の交渉では group 外も複数 group も現れません。現れるのは次の場合です。</p>
+<table>
+  <thead><tr><th>場面</th><th>何が起きるか</th><th>werift の扱い</th></tr></thead>
+  <tbody>
+    <tr><td>相手の offer が、m-line を group に入れていない、または group を複数に分けている</td><td>BUNDLE 非対応の実装や、意図的に transport を分ける SFU などが送ってくる</td><td>offer の group どおりに transport を割り当てる。group 外の m-line には、独立した ICE 資格情報を持つ専用の transport を作る（<a class="ref" href="../packages/webrtc/src/negotiation/remoteMediaApplication.ts" title="packages/webrtc/src/negotiation/remoteMediaApplication.ts:214">remoteMediaApplication.ts:214</a>）</td></tr>
+    <tr><td>確立済みの member を group から外す re-offer（RFC 8843 §7.5）</td><td>その m-line だけ別の transport に移る（split）</td><td>新しい transport を準備して <span class="tag stage">staged</span> にし、answer の commit で切り替える。それまでは共有中の transport で通信を続ける</td></tr>
+    <tr><td>answer で m-line を拒否する（port 0）</td><td>その m-line は group から外れ、transport も持たない</td><td>自分の answer は、受け入れた MID だけで group を作る（<a class="ref" href="../packages/webrtc/src/sdpManager.ts" title="packages/webrtc/src/sdpManager.ts:827">sdpManager.ts:827</a>）</td></tr>
+    <tr><td>自分が offer で共有させた transport を、相手の answer が分ける</td><td>offer で約束した共有が崩れる</td><td><span class="tag reject">answer を拒否</span>（RFC 8843 §7.3.2、<a class="ref" href="../packages/webrtc/src/negotiation/bundleTopology.ts" title="packages/webrtc/src/negotiation/bundleTopology.ts:249">bundleTopology.ts:249</a>）</td></tr>
+    <tr><td><code>bundlePolicy: "disable"</code>（werift 独自の値）</td><td>group を一切使わない</td><td>自分の offer / answer に group を書かず、相手の group も無視する。全 m-line が group 外になる</td></tr>
+  </tbody>
+</table>
+
+<h3 id="bundle-policy">8.3 bundlePolicy との関係</h3>
+<p><code>bundlePolicy</code> は <b>自分が作る offer で、transport をいつ共有し始めるか</b>を決める設定です（W3C の <code>RTCBundlePolicy</code>）。相手から来た offer の transport の割り当ては、<code>"disable"</code> を除いて policy に関係なく、<b>offer に書かれた group だけ</b>で決まります。</p>
+<table>
+  <thead><tr><th>bundlePolicy</th><th>自分の offer の group</th><th>初回 offer の時点の transport</th><th>answer が group を受け入れた後</th></tr></thead>
+  <tbody>
+    <tr><td><code>"max-bundle"</code></td><td>全 m-line で 1 group</td><td>最初から <b>1 つ</b>を全 m-line で共有（候補の収集も 1 回）</td><td>1 つのまま</td></tr>
+    <tr><td><code>"max-compat"</code>（既定。<code>"balanced"</code> もこれに読み替える）</td><td>全 m-line で 1 group</td><td>相手が BUNDLE に対応していると分かるまでは、<b>m-line ごとに別</b>（相手が BUNDLE 非対応でも、各 m-line が個別に繋がるように）</td><td>tag の transport <b>1 つ</b>にまとめる</td></tr>
+    <tr><td><code>"disable"</code>（werift 独自）</td><td>なし</td><td>m-line ごとに別</td><td>m-line ごとに別のまま</td></tr>
+  </tbody>
+</table>
+<p class="caption">分岐の実装: <a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:650">peerConnection.ts:650</a>。音声と映像の 2 m-line で実際に交渉して確認した結果、offerer の transport 数は max-bundle で 1 → 1、max-compat で 2 → 1、disable で 2 → 2 でした。max-compat の初回 offer の m-line ごとの transport は、ICE 資格情報（ufrag / pwd）を共有しています（develop からの既存の動作）。group 外の m-line や split で作る transport だけが、独立した資格情報を持ちます。</p>
+
+<h3>8.4 このチケットでの扱い</h3>
+<p>BUNDLE group は最初の 1 つだけでなく、<b>すべての group</b> を扱います。各 group の tag が、member の transport を決めます（<a class="ref" href="../packages/webrtc/src/negotiation/bundleTopology.ts" title="packages/webrtc/src/negotiation/bundleTopology.ts:32">bundleTopology.ts:32</a>）。レビュー指摘（<code>d8e4c4cc</code> で修正）の時点では、最初の group しか見ていない処理が 7 箇所あり、2 つ目の group の member が別々の transport に分かれていました。</p>
 <div class="figure">
 <div class="bundle">
   <div class="grp"><h4>group 1: BUNDLE 0 1</h4><span class="mline tag-mid">mid 0 (tag)</span><span class="mline">mid 1</span><div class="transport">transport T1 を共有</div></div>
