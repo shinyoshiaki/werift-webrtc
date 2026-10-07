@@ -281,11 +281,9 @@ export class SecureTransportManager {
         }, []);
 
       if (applyToTransport) {
-        await Promise.all(
-          candidateTarget.map((iceTransport) =>
-            iceTransport.addRemoteCandidate(undefined),
-          ),
-        );
+        for (const iceTransport of candidateTarget) {
+          iceTransport.deliverRemoteCandidate(undefined);
+        }
       }
       return {
         kind: "end-of-candidates" as const,
@@ -343,7 +341,7 @@ export class SecureTransportManager {
       );
     }
 
-    if (applyToTransport) await iceTransport?.addRemoteCandidate(candidate);
+    if (applyToTransport) iceTransport?.deliverRemoteCandidate(candidate);
     return {
       kind: "candidate" as const,
       candidate,
@@ -473,7 +471,12 @@ export class SecureTransportManager {
   /** Stage restart credentials on `targets` (all transports by default). */
   stageIceRestart(targets?: ReadonlySet<RTCIceTransport>) {
     for (const transport of this.iceTransports) {
-      if (!targets || targets.has(transport)) {
+      // A transport without a generation yet (never gathered, e.g. created
+      // for a new m-line beside the restart) starts with fresh credentials
+      // anyway; staging would advertise its empty candidate list as complete.
+      const hasGeneration =
+        transport.gatheringState !== "new" && !!transport.getRemoteParameters();
+      if ((!targets || targets.has(transport)) && hasGeneration) {
         transport.stageLocalRestart();
       } else {
         transport.rollbackLocalRestart();

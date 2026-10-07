@@ -336,10 +336,24 @@ DataChannel stay on the live selected pair.
 
 Further rules:
 
-- The new generation queries STUN again on the kept sockets; if no answer
-  arrives in time, the socket's previous server-reflexive candidate is
-  advertised again instead of being dropped. A description therefore never
-  stops listing a candidate its generation already advertised.
+- Candidates of a restart generation are fixed when its offer or answer is
+  created: the kept sockets' host candidates and the server-reflexive address
+  each had. The commit re-advertises exactly these, synchronously, and never
+  waits for a server, so checks of the new generation start at once. Without
+  ICE servers the description carries end-of-candidates. With STUN or TURN
+  servers it carries neither the relay candidate nor end-of-candidates: after
+  the commit the generation keeps gathering in the background (a fresh STUN
+  query whose changed mapping is added, and a new TURN allocation that
+  replaces the previous one, which closes, so a restart recovers from a dead
+  allocation), trickles what it adds and then end-of-candidates. A
+  description never stops listing a candidate its generation already
+  advertised.
+- The successful check that nominates a pair is its initial consent (RFC 7675
+  section 5.1): data may flow as soon as the pair is selected. Gathering that
+  finishes after checks began does not overwrite the connection state.
+- A transport that has no generation yet (a new m-line created beside a
+  restart) does not stage the restart; its first gathering has fresh
+  credentials.
 - A late check addressed to an earlier ufrag (consent on the old pair) does not
   relabel the live host candidate with that ufrag.
 - A check still in flight when the restart reset the checklist cannot select a
@@ -360,7 +374,13 @@ Further rules:
   pending) nor any checklist, and its mDNS name is not resolved. A candidate
   that arrived before end-of-candidates and is still resolving its mDNS name
   is kept; the generation completes after it. A resolution that finishes
-  after an ICE restart or a replacement pranswer is dropped.
+  after an ICE restart or a replacement pranswer is dropped. End-of-candidates
+  is recorded on every m-line of the transport's BUNDLE group, laid out on the
+  committed transports for the current description.
+- Description operations record a remote candidate in the SDP and route it,
+  then hand it to the ICE agent without waiting: an mDNS name that takes
+  seconds to resolve (or never resolves) does not hold `addIceCandidate`,
+  later candidates or description operations.
 
 ## Code layout
 
@@ -379,6 +399,7 @@ public configuration and event types it re-exports.
 | `negotiation/transportActivation.ts` | Connecting live and provisional transports, activating staged parameters, retiring a first provisional connection |
 | `negotiation/negotiationNeeded.ts` | `negotiationneeded` coalescing and change sequence numbers |
 | `negotiation/iceRestartRequest.ts` | `restartIce()` request until a negotiation replaces the credentials |
+| `negotiation/internalState.ts` | Negotiation state types, the MID+RID route key and application `stop()` provenance (internal, not exported) |
 | `api/peerConfig.ts` / `api/peerConnectionEvents.ts` | Configuration types, defaults and validation; event types |
 
 Each component owns the snapshot of its own reversible state and the rule
@@ -483,14 +504,12 @@ rollback, configuration is not part of the baseline).
   `turnUdpFamily`) are configuration and are not rolled back. A transport that
   has not gathered takes a change at once; one that has gathered keeps its live
   Connection and takes it at its next ICE restart (JSEP 4.1.18), including a
-  restart staged before the change. An ICE restart keeps a TURN allocation made
-  with the current settings (its relay candidate is advertised again) and
-  closes one made with changed settings before allocating anew, so a restart
-  never leaves an unused allocation. When the settings changed, the restart
-  offer signals neither the stale relay candidate nor end-of-candidates; the
-  commit gathers with the new settings and trickles the new candidates and
-  end-of-candidates. Settings changed after the restart offer already
-  signalled end-of-candidates wait for the next restart.
+  restart staged before the change. An ICE restart closes the previous TURN
+  allocation and allocates anew with the current settings after the commit
+  (see "ICE generation boundaries"), so a restart never leaves an unused
+  allocation and recovers from a dead one. Settings changed after a restart
+  offer that carried end-of-candidates (a transport without ICE servers) wait
+  for the next restart.
 - **Codec integration (#729).** `setCodecPreferences()` and a track that
   `addTrack()` attaches are application changes: they clear the transceiver's
   resolved codecs for the next offer / answer but never touch the live sender
@@ -499,10 +518,33 @@ rollback, configuration is not part of the baseline).
   `createAnswer()` and applying that answer commits the applied answer's codecs
   and resolves again for the next offer. While a remote offer is pending,
   `replaceTrack()` checks the track source against the codec the answer would
-  send with as well as the committed one.
+  send with as well as the committed one. The local answer commits the codecs
+  it answered for every live media m-line (sender, receive tables, remote
+  track codec, TWCC), and the answer matches remote codecs one to one (one
+  remote codec per local codec, as #729 introduced; a merge had lost it).
 - **m-line reuse (#721, issue 705).** See the section above. A transceiver the
   application adds during a negotiation that takes over a stopped m-line gives
-  that position back on rollback.
+  that position back on rollback, and a local offer reuses a stopped m-line
+  only for a transceiver of the same kind.
+
+Other rules of the transaction:
+
+- A payload type or header extension ID counts as in use only when both
+  current descriptions carry it for the m-line; what an offer listed but the
+  answer did not accept may be offered again with another value.
+- `close()` stops every transport only the negotiation holds (created for a
+  proposal, pending-only, BUNDLE owners, prepared), also after a provisional
+  connection. `"closed"` is final: a description operation that `close()`
+  overtook is rejected with `InvalidStateError` and does not move the state.
+- A first answer whose m-lines carry the answering server's own MIDs (issue
+  #142, `0_srtp` for the offered `0`) is paired with the offer by position
+  (RFC 3264): an m-line of the offered kind takes the offered MID and its
+  BUNDLE entries follow. Once a session exists an answer MID must equal the
+  offered one (RFC 8843).
+- An answer's `a=setup:actpass` (invalid per RFC 5763 section 5) keeps the
+  role of a live DTLS association; a new association becomes client.
+- Negotiation state types and helpers live in `src/negotiation/internalState.ts`
+  and are not exported by the package.
 
 ## Scope and known constraints
 
@@ -525,6 +567,9 @@ not as a change of this contract. Known constraints:
 - Changing only `iceTransportPolicy` with `setConfiguration` does not reach an
   existing ICE transport, and a TURN allocation that completes after
   `close()` is not closed (both existing since `develop`).
+- With STUN or TURN servers a restart's relay candidate and end-of-candidates
+  follow the commit; a relay-only session has no candidate of the new
+  generation until the new allocation completes.
 - `setCodecPreferences()` only marks the transceiver for re-resolution.
   `createAnswer` resolves the answer's codecs onto the transceiver (the
   proposal); the sender, receiver codec / RTX tables, TWCC and remote track

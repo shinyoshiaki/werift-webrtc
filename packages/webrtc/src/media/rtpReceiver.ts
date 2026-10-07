@@ -19,6 +19,7 @@ import {
   debug,
   unwrapRtx,
 } from "../imports/rtp";
+import type { ReceiverNegotiationState } from "../negotiation/internalState";
 import type { RTCDtlsTransport } from "../transport/dtls";
 import type { Kind } from "../types/domain";
 import { compactNtp, ntpTimeToEpochMs, timestampSeconds } from "../utils";
@@ -47,11 +48,6 @@ import {
 import { MediaStreamTrack } from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/rtpReceiver.ts");
-
-/** A receiver's negotiation state, for a rollback baseline. */
-export type ReceiverNegotiationState = ReturnType<
-  RTCRtpReceiver["snapshotNegotiationState"]
->;
 
 export class RTCRtpReceiver {
   private readonly codecs: { [pt: number]: RTCRtpCodecParameters } = {};

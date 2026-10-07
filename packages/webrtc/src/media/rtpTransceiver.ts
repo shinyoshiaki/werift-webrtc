@@ -4,6 +4,11 @@ import { Event } from "../imports/common";
 import type { RTCDtlsTransport } from "..";
 import { SenderDirections } from "../const";
 import { createWebRtcTypeError } from "../errors";
+import {
+  type TransceiverNegotiationState,
+  getApplicationStopRevision,
+  noteApplicationStop,
+} from "../negotiation/internalState";
 import type { Kind } from "../types/domain";
 import { cloneCodecParameters } from "./codec";
 import type {
@@ -20,18 +25,6 @@ import {
   getStatsTimestamp,
 } from "./stats";
 import type { MediaStream, MediaStreamTrack } from "./track";
-
-/** A transceiver's negotiation state, for a rollback baseline. */
-export type TransceiverNegotiationState = ReturnType<
-  RTCRtpTransceiver["snapshotNegotiationState"]
->;
-
-const applicationStops = new WeakMap<RTCRtpTransceiver, number>();
-
-/** Internal provenance used by negotiation rollback. */
-export function getApplicationStopRevision(transceiver: RTCRtpTransceiver) {
-  return applicationStops.get(transceiver) ?? 0;
-}
 
 export class RTCRtpTransceiver {
   readonly id = randomUUID().toString();
@@ -272,7 +265,7 @@ export class RTCRtpTransceiver {
    * 冪等で、2 回目以降は何もしない。
    */
   stop() {
-    applicationStops.set(this, getApplicationStopRevision(this) + 1);
+    noteApplicationStop(this);
     if (this.stopping) {
       return;
     }

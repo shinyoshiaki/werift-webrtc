@@ -247,9 +247,53 @@ export class SDPManager {
   }): SessionDescription {
     const description = SessionDescription.parse(sdp);
     this.validateDescription({ description, isLocal, signalingState, type });
+    if (!isLocal && type !== "offer") this.alignInitialAnswerMids(description);
     this.validateSections(description, type, isLocal);
     description.type = type;
     return description;
+  }
+
+  /**
+   * RFC 3264 pairs the m-lines of an answer with the offer's by position.
+   * Some servers (issue #142) answer a first offer with MIDs of their own
+   * (`0_srtp` for the offered `0`): such an m-line, of the offered kind at the
+   * offered position, takes the offered MID, and BUNDLE entries naming it
+   * follow. This applies only before a session exists; afterwards an answer
+   * MID must equal the offered one (RFC 8843), and any other mismatch is
+   * rejected by validateSections.
+   */
+  private alignInitialAnswerMids(answer: SessionDescription) {
+    const offer = this.pendingLocalDescription;
+    if (
+      this.currentLocalDescription ||
+      this.currentRemoteDescription ||
+      !offer ||
+      offer.media.length !== answer.media.length
+    ) {
+      return;
+    }
+    const offeredMids = new Set(offer.media.map((media) => media.rtp.muxId));
+    const renamed = new Map<string, string>();
+    for (const [index, media] of answer.media.entries()) {
+      const offered = offer.media[index];
+      const mid = media.rtp.muxId;
+      const offeredMid = offered.rtp.muxId;
+      if (
+        !mid ||
+        !offeredMid ||
+        mid === offeredMid ||
+        offeredMids.has(mid) ||
+        media.kind !== offered.kind ||
+        answer.media.some((other) => other.rtp.muxId === offeredMid)
+      ) {
+        continue;
+      }
+      renamed.set(mid, offeredMid);
+      media.rtp.muxId = offeredMid;
+    }
+    for (const group of answer.group) {
+      group.items = group.items.map((item) => renamed.get(item) ?? item);
+    }
   }
 
   /** Checks cross-section constraints before any media or transport is changed. */
@@ -300,10 +344,10 @@ export class SDPManager {
           );
         }
         if (!isLocal && !reusable && next.port !== 0) {
-          this.assertStablePayloadTypes(oldMedia, next);
+          this.assertStablePayloadTypes(this.negotiatedCodecs(index), next);
         }
       }
-      if (!isLocal) this.assertStableHeaderExtensionIds(previous, description);
+      if (!isLocal) this.assertStableHeaderExtensionIds(description);
     }
 
     if (type === "offer") return;
@@ -337,20 +381,46 @@ export class SDPManager {
   }
 
   /**
+   * The current session uses only what both current descriptions carry for an
+   * m-line: an offer may list payload types and header extensions the answer
+   * did not accept, and those are free to be offered again with another value.
+   */
+  private negotiatedMedia(index: number) {
+    const remote = this.currentRemoteDescription?.media[index];
+    const local = this.currentLocalDescription?.media[index];
+    if (!remote || !local || remote.port === 0 || local.port === 0) return;
+    return { remote, local };
+  }
+
+  private negotiatedCodecs(index: number) {
+    const media = this.negotiatedMedia(index);
+    if (!media) return [];
+    return media.remote.rtp.codecs.filter((codec) =>
+      media.local.rtp.codecs.some((c) => c.payloadType === codec.payloadType),
+    );
+  }
+
+  private negotiatedHeaderExtensions(index: number) {
+    const media = this.negotiatedMedia(index);
+    if (!media) return [];
+    return media.remote.rtp.headerExtensions.filter((extension) =>
+      media.local.rtp.headerExtensions.some(
+        (e) => e.id === extension.id && e.uri === extension.uri,
+      ),
+    );
+  }
+
+  /**
    * RFC 8285 section 7: a header extension ID in use must not be remapped to
    * another URI within the session (Chrome rejects it too). The router's ID
    * map is shared by every m-line, so a remap in the proposal would reparse
    * current RTP while the description is still pending. Adding extensions,
    * or moving a URI to a new ID, stays allowed.
    */
-  private assertStableHeaderExtensionIds(
-    current: SessionDescription,
-    next: SessionDescription,
-  ) {
+  private assertStableHeaderExtensionIds(next: SessionDescription) {
     const active = new Map<number, string>();
-    for (const media of current.media) {
-      if (media.port === 0) continue;
-      for (const extension of media.rtp.headerExtensions) {
+    for (const index of this.currentRemoteDescription?.media.keys() ?? []) {
+      for (const extension of this.negotiatedHeaderExtensions(index)) {
         active.set(extension.id, extension.uri);
       }
     }
@@ -374,11 +444,11 @@ export class SDPManager {
    * the new description is still pending, so it is rejected before mutation.
    */
   private assertStablePayloadTypes(
-    oldMedia: MediaDescription,
+    negotiated: RTCRtpCodecParameters[],
     next: MediaDescription,
   ) {
     for (const codec of next.rtp.codecs) {
-      const previous = oldMedia.rtp.codecs.find(
+      const previous = negotiated.find(
         (c) => c.payloadType === codec.payloadType,
       );
       if (!previous) continue;
@@ -496,7 +566,11 @@ export class SDPManager {
         m.kind !== "application" &&
         (!owner || owner.stopped) &&
         (m.port === 0 || this.currentRemoteDescription?.media[i]?.port === 0);
-      const recycled = recyclable ? added.shift() : undefined;
+      // A stopped position is reused only by the same kind (issue 705 design).
+      const index = recyclable
+        ? added.findIndex((transceiver) => transceiver.kind === m.kind)
+        : -1;
+      const recycled = index >= 0 ? added.splice(index, 1)[0] : undefined;
       if (recycled) {
         recycled.mid = this.allocateMid(this.midSuffix ? "av" : "");
         recycled.mLineIndex = i;
@@ -1079,6 +1153,9 @@ export class SDPManager {
       );
     }
 
+    // Refreshing the transport lines of the current description (candidates
+    // an ICE restart gathers after its commit) keeps it current.
+    if (description === this.currentLocalDescription) return;
     this.setLocalDescription(description);
   }
 }

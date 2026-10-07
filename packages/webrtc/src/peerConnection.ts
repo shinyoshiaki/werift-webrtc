@@ -638,7 +638,12 @@ export class RTCPeerConnection extends EventTarget {
     });
     await previous;
     try {
-      return await operation();
+      const result = await operation();
+      // W3C: an operation that close() overtook does not report success.
+      if (this.isClosed) {
+        throw createWebRtcDomException("InvalidStateError", "is closed");
+      }
+      return result;
     } finally {
       release();
     }
@@ -997,18 +1002,8 @@ export class RTCPeerConnection extends EventTarget {
               this.transceiverManager.getLocalRtpParams(transceiver),
             );
           }
-          if (!transceiver.codecPreferencesNeedResolution) continue;
-          const remoteMedia =
-            this.sdpManager.pendingRemoteDescription?.media.find(
-              (media) => media.rtp.muxId === transceiver.mid,
-            );
-          if (remoteMedia && ["audio", "video"].includes(remoteMedia.kind)) {
-            this.transceiverManager.commitAnswerCodecs(
-              transceiver,
-              remoteMedia,
-            );
-          }
         }
+        this.commitAnsweredCodecs();
       }
       if (
         description.type === "pranswer" &&
@@ -1020,19 +1015,7 @@ export class RTCPeerConnection extends EventTarget {
         description.type === "answer" &&
         !this.sdpManager.currentRemoteDescription
       ) {
-        for (const transceiver of this.transceiverManager.getTransceivers()) {
-          if (!transceiver.codecPreferencesNeedResolution) continue;
-          const remoteMedia =
-            this.sdpManager.pendingRemoteDescription?.media.find(
-              (media) => media.rtp.muxId === transceiver.mid,
-            );
-          if (remoteMedia && ["audio", "video"].includes(remoteMedia.kind)) {
-            this.transceiverManager.commitAnswerCodecs(
-              transceiver,
-              remoteMedia,
-            );
-          }
-        }
+        this.commitAnsweredCodecs();
       }
       for (const transceiver of resolveAfterAnswer) {
         transceiver.codecPreferencesNeedResolution = true;
@@ -1220,6 +1203,33 @@ export class RTCPeerConnection extends EventTarget {
     await this.secureManager.gatherCandidates();
   }
 
+  /**
+   * The local answer commits the codecs it answered for every live media
+   * m-line of the remote offer: the sender, the receive codec / RTX tables, the
+   * remote track codec and TWCC switch now, whatever changed them (a codec
+   * preference, the remote offer or the payload types it uses). Pending
+   * descriptions only added receive keys; the commit replaces the tables.
+   */
+  private commitAnsweredCodecs() {
+    for (const transceiver of this.transceiverManager.getTransceivers()) {
+      if (
+        !transceiver.mid ||
+        transceiver.codecs.length === 0 ||
+        transceiver.stopping ||
+        transceiver.stopped ||
+        transceiver.pendingRejection
+      ) {
+        continue;
+      }
+      const remoteMedia = this.sdpManager.pendingRemoteDescription?.media.find(
+        (media) => media.rtp.muxId === transceiver.mid && media.port !== 0,
+      );
+      if (remoteMedia && ["audio", "video"].includes(remoteMedia.kind)) {
+        this.transceiverManager.commitAnswerCodecs(transceiver, remoteMedia);
+      }
+    }
+  }
+
   /** Always called on answer; see commitIceRestartIfAnyStaged on secureManager for why this is unconditional. */
   private async commitIceRestartIfAnyStaged() {
     this.applyingIceRestart = true;
@@ -1401,7 +1411,7 @@ export class RTCPeerConnection extends EventTarget {
         }
         for (const update of transportUpdates) update();
         for (const iceTransport of new Set(endOfCandidates)) {
-          iceTransport.addRemoteCandidate(undefined);
+          iceTransport.deliverRemoteCandidate(undefined);
         }
         if (preserveCurrentTransport) {
           await this.remoteCandidates.deliverSameGenerationDescription(
@@ -1630,7 +1640,9 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private setSignalingState(state: RTCSignalingState) {
-    if (this.signalingState === state) {
+    // "closed" is final: an operation still finishing after close() must not
+    // move the state back.
+    if (this.signalingState === state || this.signalingState === "closed") {
       return;
     }
     log("signalingStateChange", state);
@@ -1693,7 +1705,7 @@ export class RTCPeerConnection extends EventTarget {
 
     // SCTP ABORT は DTLS/ICE が生きている間に送る（close は abrupt であり SHUTDOWN ではない）
     await this.sctpManager.close();
-    this.negotiation.dispose();
+    await this.negotiation.dispose();
     await this.secureManager.close();
 
     // 公開 Event を完了させ、購読者・クロージャが PeerConnection を保持し続けないようにする

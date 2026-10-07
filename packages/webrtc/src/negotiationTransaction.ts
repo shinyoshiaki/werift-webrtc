@@ -1,10 +1,8 @@
+import type { RTCRtpTransceiver, RtpRouter, TransceiverManager } from "./media";
 import type {
-  RTCRtpTransceiver,
   RouterSnapshot,
-  RtpRouter,
-  TransceiverManager,
   TransceiversNegotiationState,
-} from "./media";
+} from "./negotiation/internalState";
 import type { SctpNegotiationState, SctpTransportManager } from "./sctpManager";
 import type { SessionDescription } from "./sdp";
 import type { SDPManager } from "./sdpManager";
@@ -255,11 +253,24 @@ export class NegotiationTransaction {
     this.phase = "pending";
   }
 
-  /** PeerConnection close: drop every reference the transaction holds. */
-  dispose() {
+  /**
+   * PeerConnection close: stop every transport only the negotiation holds
+   * (created for a proposal, pending-only, BUNDLE owners, prepared for a
+   * topology), which no transceiver or SCTP binding would stop, then drop
+   * every reference.
+   */
+  async dispose() {
+    const transports = new Set([
+      ...this.createdTransports,
+      ...this.resources.speculativeTransports,
+      ...this.resources.prepared.values(),
+    ]);
     this.createdTransports.clear();
     this.offerSnapshot = undefined;
     this.cleanup();
+    await Promise.allSettled(
+      [...transports].map((transport) => transport.stop()),
+    );
   }
 
   // # proposal resources
