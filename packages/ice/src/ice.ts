@@ -63,6 +63,8 @@ export class Connection implements IceConnection {
   private remoteCandidatesEndRequested = false;
   /** mDNS resolutions of remote candidates that arrived before end-of-candidates. */
   private readonly remoteResolutions = new Set<Promise<string>>();
+  /** TURN settings each TURN protocol was allocated with (see `turnGatherKey`). */
+  private readonly turnGatherKeys = new WeakMap<Protocol, string>();
   localCandidatesEnd = false;
   generation = -1;
   userHistory: { [username: string]: string } = {};
@@ -573,9 +575,37 @@ export class Connection implements IceConnection {
   }
 
   // 4.1.1 Gathering Candidates
+  /** Identity of the TURN allocation the current options ask for. */
+  private turnGatherKey() {
+    const { turnUsername, turnPassword } = this.options;
+    if (!this.turnServer || !turnUsername || !turnPassword) return;
+    return JSON.stringify([
+      this.turnServer,
+      turnUsername,
+      turnPassword,
+      this.options.turnTransport ?? "udp",
+      this.options.turnUdpFamily ?? null,
+    ]);
+  }
+
+  private async closeStaleTurnProtocols() {
+    const current = this.turnGatherKey();
+    const stale = this.protocols.filter((protocol) => {
+      const key = this.turnGatherKeys.get(protocol);
+      return key !== undefined && key !== current;
+    });
+    if (stale.length === 0) return;
+    this.protocols = this.protocols.filter((p) => !stale.includes(p));
+    await Promise.allSettled(stale.map((protocol) => protocol.close?.()));
+  }
+
   async gatherCandidates() {
     if (!this.localCandidatesStart) {
       this.localCandidatesStart = true;
+
+      // A TURN allocation made with settings that changed since (setIceServers)
+      // does not belong to the new generation.
+      await this.closeStaleTurnProtocols();
 
       // ICE restart keeps transport protocols; re-advertise their host candidates
       // with the new generation / ufrag before gathering additional addresses.
@@ -973,7 +1003,21 @@ export class Connection implements IceConnection {
       candidatePromises.push(...stunCandidatePromises);
     }
 
-    if (!gatherIceLite && turnServer && turnUsername && turnPassword) {
+    const turnKey = this.turnGatherKey();
+    const reusedTurn =
+      turnKey !== undefined &&
+      this.protocols.some(
+        (protocol) => this.turnGatherKeys.get(protocol) === turnKey,
+      );
+    // An ICE restart keeps a TURN allocation made with the current settings
+    // (its relay candidate is re-advertised above) instead of allocating again.
+    if (
+      !gatherIceLite &&
+      !reusedTurn &&
+      turnServer &&
+      turnUsername &&
+      turnPassword
+    ) {
       const turnCandidatePromise = (async () => {
         const turnTransport = this.options.turnTransport ?? "udp";
         const protocol = await createStunOverTurnClient(
@@ -1011,6 +1055,7 @@ export class Connection implements IceConnection {
         });
         this.ensureProtocol(protocol);
         this.protocols.push(protocol);
+        if (turnKey !== undefined) this.turnGatherKeys.set(protocol, turnKey);
 
         const candidateAddress = protocol.turn.relayedAddress;
         const relatedAddress = protocol.turn.mappedAddress;

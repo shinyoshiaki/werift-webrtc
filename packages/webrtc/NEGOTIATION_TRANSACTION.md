@@ -392,9 +392,12 @@ end-of-candidates) or a remote-only routing-key mutation (RTX pairing, extmap
 URI moved to a new ID, which then rolls back, or an extmap ID remap, which must
 be rejected without state change). The helper runs after every operation and
 real RTP (video, audio) and DataChannel traffic is checked after every step.
-`negotiationTransactionRouting.test.ts` covers each routing key and
+`negotiationTransactionRouting.test.ts` covers each routing key,
 `negotiationTransactionRegression.test.ts` turns what the property test and
-the pre-review self-review found into deterministic cases.
+the pre-review self-review found into deterministic cases, and
+`negotiationTransactionDevelopIntegration.test.ts` covers the develop features
+below (TURN across a staged ICE restart, SCTP MTU, application codec changes
+and m-line reuse during a pending negotiation).
 CI replays a fixed seed set plus the seeds that found bugs; a deeper local
 search uses `WERIFT_NEGOTIATION_FUZZ_SEEDS`, `WERIFT_NEGOTIATION_FUZZ_STEPS`
 and `WERIFT_NEGOTIATION_FUZZ_SEED`, and a failure prints its seed and
@@ -438,6 +441,43 @@ inside this transaction:
   next offer. `negotiationneeded` is coalesced per task and fires only for
   changes the last committed local offer did not carry.
 
+## develop features inside the transaction
+
+Features merged from `develop` while this design was built run under the same
+rules. Each was audited for state it writes while a description is pending
+(negotiated state is staged or rolled back, application state survives a
+rollback, configuration is not part of the baseline).
+
+- **SCTP MTU (#716).** `sctp.mtu` is configuration. Every SCTP transport,
+  including one a pending remote offer creates, is built with it, and moving a
+  transport to another DTLS transport keeps it. It cannot change while any SCTP
+  transport exists (also a pending one); a rollback that removes the
+  proposal's transport makes it changeable again.
+- **TURN settings (#688, #731).** ICE server settings (`iceServers`,
+  `turnUdpFamily`) are configuration and are not rolled back. A transport that
+  has not gathered takes a change at once; one that has gathered keeps its live
+  Connection and takes it at its next ICE restart (JSEP 4.1.18), including a
+  restart staged before the change. An ICE restart keeps a TURN allocation made
+  with the current settings (its relay candidate is advertised again) and
+  closes one made with changed settings before allocating anew, so a restart
+  never leaves an unused allocation. When the settings changed, the restart
+  offer signals neither the stale relay candidate nor end-of-candidates; the
+  commit gathers with the new settings and trickles the new candidates and
+  end-of-candidates. Settings changed after the restart offer already
+  signalled end-of-candidates wait for the next restart.
+- **Codec integration (#729).** `setCodecPreferences()` and a track that
+  `addTrack()` attaches are application changes: they clear the transceiver's
+  resolved codecs for the next offer / answer but never touch the live sender
+  or receiver. A change during a pending negotiation survives its rollback (a
+  revision counter tells it apart from the baseline). A change between
+  `createAnswer()` and applying that answer commits the applied answer's codecs
+  and resolves again for the next offer. While a remote offer is pending,
+  `replaceTrack()` checks the track source against the codec the answer would
+  send with as well as the committed one.
+- **m-line reuse (#721, issue 705).** See the section above. A transceiver the
+  application adds during a negotiation that takes over a stopped m-line gives
+  that position back on rollback.
+
 ## Scope and known constraints
 
 The transition table, the mutation matrix and the property test's operation
@@ -456,12 +496,17 @@ not as a change of this contract. Known constraints:
   existing werift behavior.
 - The ICE layer drops the old selected pair when a restart commits; RTP pauses
   until the new generation nominates a pair.
+- Changing only `iceTransportPolicy` with `setConfiguration` does not reach an
+  existing ICE transport, and a TURN allocation that completes after
+  `close()` is not closed (both existing since `develop`).
 - `setCodecPreferences()` only marks the transceiver for re-resolution.
   `createAnswer` resolves the answer's codecs onto the transceiver (the
   proposal); the sender, receiver codec / RTX tables, TWCC and remote track
   codec follow at the local answer commit, so RTP of the current session is
   never decoded with a codec the pending answer only proposes. Rollback
-  restores the proposal and the re-resolution flag from the baseline.
+  restores the proposal and the re-resolution flag from the baseline unless
+  the application changed the codecs during the negotiation (see "develop
+  features" below).
 - A transceiver displaced by m-line recycling is marked stopped when the
   recycling offer is applied (its current m-line is already rejected, so no
   current traffic uses it); rollback restores it.

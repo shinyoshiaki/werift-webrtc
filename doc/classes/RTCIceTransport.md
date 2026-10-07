@@ -128,6 +128,20 @@
 
 ***
 
+### localCandidatesComplete
+
+#### Get Signature
+
+> **get** **localCandidatesComplete**(): `boolean`
+
+Whether the local description may carry `a=end-of-candidates`.
+
+##### Returns
+
+`boolean`
+
+***
+
 ### localParameters
 
 #### Get Signature
@@ -218,6 +232,24 @@ this transport has a staged local restart. No-op otherwise.
 #### Returns
 
 `Promise`\<`void`\>
+
+***
+
+### deferIceServers()
+
+> **deferIceServers**(`options`): `void`
+
+Keep ICE servers for the next gathering (an ICE restart).
+
+#### Parameters
+
+##### options
+
+`Partial`\<[`IceOptions`](../interfaces/IceOptions.md)\>
+
+#### Returns
+
+`void`
 
 ***
 
@@ -383,11 +415,15 @@ The staged generation now belongs to an applied description.
 
 ### restart()
 
-> **restart**(`notifyNegotiation`): `void`
+> **restart**(`notifyNegotiation`, `applyNextGatherIceServers`): `void`
 
 #### Parameters
 
 ##### notifyNegotiation
+
+`boolean` = `true`
+
+##### applyNextGatherIceServers
 
 `boolean` = `true`
 

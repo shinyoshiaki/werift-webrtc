@@ -16,6 +16,7 @@ import {
 import { classes, methods } from "../src/stun/const";
 import { Message, parseMessage } from "../src/stun/message";
 import { splitTurnTcpFrames } from "../src/turn/frame";
+import type { StunOverTurnProtocol } from "../src/turn/protocol";
 import type { Protocol, TransactionRequestOptions } from "../src/types/model";
 
 export const TURN_TEST_USERNAME = "turn-user";
@@ -776,4 +777,31 @@ export async function canBindIpv6Loopback() {
       socket.close();
     } catch {}
   }
+}
+
+/** Relay-only TURN options of a local test server for `createTestConnection`. */
+export function localTurnOptions(
+  server: Awaited<ReturnType<typeof createLocalTurnServer>>,
+) {
+  return {
+    stunServer: undefined,
+    turnServer: server.address!,
+    turnUsername: TURN_TEST_USERNAME,
+    turnPassword: TURN_TEST_PASSWORD,
+    forceTurn: true,
+  };
+}
+
+/** TURN allocations (relay protocols) a connection currently holds. */
+export function turnAllocations(connection: Connection) {
+  return (
+    (connection as unknown as { protocols: unknown[] })
+      .protocols as StunOverTurnProtocol[]
+  ).filter((protocol) => protocol.localCandidate?.type === "relay");
+}
+
+export function localRelayCandidates(connection: Connection) {
+  return connection.localCandidates.filter(
+    (candidate) => candidate.type === "relay",
+  );
 }

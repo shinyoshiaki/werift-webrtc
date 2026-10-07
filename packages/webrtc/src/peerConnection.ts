@@ -485,13 +485,10 @@ export class RTCPeerConnection extends EventTarget {
         this.config.maxMessageSize;
     }
 
-    // Propagate ICE server changes only to transports still in gathering
-    // state "new". JSEP (RFC 8829 §4.1.18): STUN/TURN changes affect the next
-    // gathering phase; once gathering has started or finished, nothing is
-    // applied to the live Connection (WHIP: createOffer → setConfiguration →
-    // setLocalDescription). Per-transport state is used so a gatherer that
-    // was reset to "new" (e.g. after ICE restart) is not blocked by a stale
-    // manager aggregate of "complete".
+    // JSEP (RFC 8829 §4.1.18): STUN/TURN changes affect the next gathering
+    // phase. Transports still in gathering state "new" take them now (WHIP:
+    // createOffer → setConfiguration → setLocalDescription); the others keep
+    // the live Connection untouched and take them at their next ICE restart.
     if (
       isReconfiguration &&
       this.secureManager &&
@@ -960,6 +957,33 @@ export class RTCPeerConnection extends EventTarget {
         throw error;
       }
 
+      // The applied answer fixes the codecs. An application change after
+      // createAnswer() (setCodecPreferences, addTrack) cleared the codecs it
+      // resolved: commit the answer's codecs and resolve again for the next
+      // offer, instead of committing nothing or the pre-answer codec.
+      const resolveAfterAnswer: RTCRtpTransceiver[] = [];
+      if (description.type === "answer") {
+        for (const transceiver of this.transceiverManager.getTransceivers()) {
+          if (
+            !transceiver.mid ||
+            transceiver.codecs.length > 0 ||
+            transceiver.stopping ||
+            transceiver.stopped
+          ) {
+            continue;
+          }
+          const answered = description.media.find(
+            (media) =>
+              media.rtp.muxId === transceiver.mid &&
+              media.kind === transceiver.kind &&
+              media.port !== 0,
+          );
+          if (!answered) continue;
+          transceiver.codecs = [...answered.rtp.codecs];
+          resolveAfterAnswer.push(transceiver);
+        }
+      }
+
       if (
         description.type === "answer" &&
         this.sdpManager.currentRemoteDescription
@@ -1009,6 +1033,9 @@ export class RTCPeerConnection extends EventTarget {
             );
           }
         }
+      }
+      for (const transceiver of resolveAfterAnswer) {
+        transceiver.codecPreferencesNeedResolution = true;
       }
 
       // # assign MID
@@ -1425,6 +1452,8 @@ export class RTCPeerConnection extends EventTarget {
         this.sdpManager.applyRemoteDescription(remoteSdp);
         await this.negotiation.commit();
         this.setSignalingState("stable");
+        // Candidates a committed ICE restart gathered with changed servers.
+        this.secureManager.emitCommittedIceCandidates();
       } else if (remoteSdp.type === "pranswer") {
         this.sdpManager.applyRemoteDescription(remoteSdp);
         this.negotiation.settle();

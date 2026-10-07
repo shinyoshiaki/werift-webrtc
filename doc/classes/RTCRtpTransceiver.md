@@ -381,6 +381,20 @@ stopped it), so a rollback keeps it even if a remote offer created it.
 
 ***
 
+### markCodecsForResolution()
+
+> **markCodecsForResolution**(): `void`
+
+Internal: an application change makes the next offer / answer resolve
+this transceiver's codecs again. The live sender and receiver keep the
+committed codecs until a description is committed.
+
+#### Returns
+
+`void`
+
+***
+
 ### restoreNegotiationState()
 
 > **restoreNegotiationState**(`state`): `void`
@@ -392,6 +406,10 @@ Internal: return to a negotiation baseline taken by `snapshotNegotiationState`.
 ##### state
 
 ###### applicationStopRevision
+
+`number` = `...`
+
+###### codecChangeRevision
 
 `number` = `...`
 
@@ -497,7 +515,7 @@ Internal: return to a negotiation baseline taken by `snapshotNegotiationState`.
 
 ###### sender
 
-\{ `cname`: `undefined` \| `string`; `codec`: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `headerExtensions`: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]; `mid`: `undefined` \| `string`; `negotiatedCodecs`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]; `redRedundantPayloadType`: `undefined` \| `number`; `repairedRtpStreamId`: `undefined` \| `string`; `rtpStreamId`: `undefined` \| `string`; `rtxPayloadType`: `undefined` \| `number`; `sendPrimaryCodec`: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `track`: `null` \| [`MediaStreamTrack`](MediaStreamTrack.md); `trackCodec`: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \} = `...`
+\{ `cname`: `undefined` \| `string`; `codec`: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `headerExtensions`: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]; `mid`: `undefined` \| `string`; `negotiatedCodecs`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]; `proposedPrimaryCodec`: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `redRedundantPayloadType`: `undefined` \| `number`; `repairedRtpStreamId`: `undefined` \| `string`; `rtpStreamId`: `undefined` \| `string`; `rtxPayloadType`: `undefined` \| `number`; `sendPrimaryCodec`: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `track`: `null` \| [`MediaStreamTrack`](MediaStreamTrack.md); `trackCodec`: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \} = `...`
 
 ###### sender.cname
 
@@ -518,6 +536,10 @@ Internal: return to a negotiation baseline taken by `snapshotNegotiationState`.
 ###### sender.negotiatedCodecs
 
 [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[] = `...`
+
+###### sender.proposedPrimaryCodec
+
+`undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) = `...`
 
 ###### sender.redRedundantPayloadType
 
@@ -640,6 +662,10 @@ application choice and are not part of it.
 ##### applicationStopRevision
 
 > **applicationStopRevision**: `number`
+
+##### codecChangeRevision
+
+> **codecChangeRevision**: `number`
 
 ##### codecPreferencesNeedResolution
 
@@ -788,6 +814,10 @@ application choice and are not part of it.
 ###### sender.negotiatedCodecs
 
 > **negotiatedCodecs**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+
+###### sender.proposedPrimaryCodec
+
+> **proposedPrimaryCodec**: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
 
 ###### sender.redRedundantPayloadType
 

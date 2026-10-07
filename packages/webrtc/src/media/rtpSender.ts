@@ -202,6 +202,11 @@ export class RTCRtpSender {
   codec?: RTCRtpCodecParameters;
   private negotiatedCodecs: RTCRtpCodecParameters[] = [];
   private sendPrimaryCodec?: RTCRtpCodecParameters;
+  /**
+   * Primary codec a pending remote offer's answer would switch this sender to.
+   * `replaceTrack()` must fit it too, since the commit sends the track with it.
+   */
+  private proposedPrimaryCodec?: RTCRtpCodecParameters;
   public dtlsTransport!: RTCDtlsTransport;
   private dtlsDisposer: (() => void)[] = [];
 
@@ -274,11 +279,20 @@ export class RTCRtpSender {
       codec: this.codec,
       negotiatedCodecs: [...this.negotiatedCodecs],
       sendPrimaryCodec: this.sendPrimaryCodec,
+      proposedPrimaryCodec: this.proposedPrimaryCodec,
       track: this.track,
       trackCodec: this.track?.codec,
       rtxPayloadType: this.rtxPayloadType,
       redRedundantPayloadType: this.redRedundantPayloadType,
     };
+  }
+
+  /**
+   * Internal: a pending remote offer proposes `codecs` for the answer while
+   * the committed codec keeps sending until the final answer.
+   */
+  proposeSend(codecs: RTCRtpCodecParameters[]) {
+    this.proposedPrimaryCodec = primarySendCodecOf(codecs);
   }
 
   /** Internal: return to a negotiation baseline's send parameters. */
@@ -291,8 +305,12 @@ export class RTCRtpSender {
     this.codec = snapshot.codec;
     this.negotiatedCodecs = [...snapshot.negotiatedCodecs];
     this.sendPrimaryCodec = snapshot.sendPrimaryCodec;
-    if (this.track && this.track === snapshot.track) {
-      this.track.codec = snapshot.trackCodec;
+    this.proposedPrimaryCodec = snapshot.proposedPrimaryCodec;
+    if (this.track) {
+      // A track attached during the rolled-back negotiation sends with the
+      // restored codec, not the one a pranswer applied.
+      this.track.codec =
+        this.track === snapshot.track ? snapshot.trackCodec : this.codec;
     }
     this.rtxPayloadType = snapshot.rtxPayloadType;
     this.redRedundantPayloadType = snapshot.redRedundantPayloadType;
@@ -306,21 +324,9 @@ export class RTCRtpSender {
     this.repairedRtpStreamId = params.repairedRtpStreamId;
 
     this.negotiatedCodecs = [...params.codecs];
-    this.codec =
-      params.codecs.find((codec) => codec.name.toLowerCase() !== "rtx") ??
-      params.codecs[0];
-    const redPrimaryPayloadType =
-      this.codec?.name.toLowerCase() === "red"
-        ? Number((this.codec.parameters ?? "").split("/")[0])
-        : undefined;
-    this.sendPrimaryCodec =
-      this.codec?.name.toLowerCase() === "red"
-        ? params.codecs.find(
-            (codec) =>
-              !["red", "rtx"].includes(codec.name.toLowerCase()) &&
-              codec.payloadType === redPrimaryPayloadType,
-          )
-        : this.codec;
+    this.proposedPrimaryCodec = undefined;
+    this.codec = sendCodecOf(params.codecs);
+    this.sendPrimaryCodec = primarySendCodecOf(params.codecs);
     if (this.track) {
       this.track.codec = this.codec;
     }
@@ -478,16 +484,19 @@ export class RTCRtpSender {
 
     captureTrackSourceCodecs(track);
     const sourceCodecs = getTrackSourceCodecs(track);
-    if (
-      this.sendPrimaryCodec != undefined &&
-      sourceCodecs != undefined &&
-      !sourceCodecs.some((source) =>
-        isCodecCompatible(source, this.sendPrimaryCodec!),
-      )
-    ) {
+    const incompatible = [
+      this.sendPrimaryCodec,
+      this.proposedPrimaryCodec,
+    ].find(
+      (primary) =>
+        primary != undefined &&
+        sourceCodecs != undefined &&
+        !sourceCodecs.some((source) => isCodecCompatible(source, primary)),
+    );
+    if (incompatible) {
       throw createWebRtcDomException(
         "InvalidModificationError",
-        `Track codec ${sourceCodecs.map((codec) => codec.mimeType).join(", ")} is incompatible with negotiated codecs ${this.negotiatedCodecs.map((codec) => codec.mimeType).join(", ")}`,
+        `Track codec ${sourceCodecs!.map((codec) => codec.mimeType).join(", ")} is incompatible with negotiated codec ${incompatible.mimeType}`,
       );
     }
 
@@ -995,4 +1004,23 @@ export class RTCRtpSender {
 
     return buildStatsReport(stats, this.getStatsRootIds());
   }
+}
+
+/** The codec RTP is sent with: the first non-RTX codec. */
+function sendCodecOf(codecs: RTCRtpCodecParameters[]) {
+  return (
+    codecs.find((codec) => codec.name.toLowerCase() !== "rtx") ?? codecs[0]
+  );
+}
+
+/** The media codec RTP carries: RED's primary payload, else the send codec. */
+function primarySendCodecOf(codecs: RTCRtpCodecParameters[]) {
+  const codec = sendCodecOf(codecs);
+  if (codec?.name.toLowerCase() !== "red") return codec;
+  const primaryPayloadType = Number((codec.parameters ?? "").split("/")[0]);
+  return codecs.find(
+    (candidate) =>
+      !["red", "rtx"].includes(candidate.name.toLowerCase()) &&
+      candidate.payloadType === primaryPayloadType,
+  );
 }

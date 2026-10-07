@@ -157,6 +157,22 @@ export class TransceiverManager {
       removedTransports.push(transceiver.dtlsTransport);
       this.removeRemoteTransceiver(transceiver);
     }
+    // A transceiver the application added during the rolled-back negotiation
+    // may have taken over a stopped m-line that the baseline gives back.
+    const baselineIndexes = new Set(
+      [...snapshot.states.values()].map(
+        ({ transceiver }) => transceiver.mLineIndex,
+      ),
+    );
+    for (const transceiver of this.transceivers) {
+      if (
+        !snapshot.states.has(transceiver) &&
+        transceiver.mLineIndex != undefined &&
+        baselineIndexes.has(transceiver.mLineIndex)
+      ) {
+        transceiver.mLineIndex = undefined;
+      }
+    }
     this.restoreTransceiverOrder(snapshot.order);
     return removedTransports;
   }
@@ -442,7 +458,7 @@ export class TransceiverManager {
         ...emptyTrackSenderTransceiver.options,
         streams,
       };
-      emptyTrackSenderTransceiver.codecs = [];
+      emptyTrackSenderTransceiver.markCodecsForResolution();
       return emptyTrackSenderTransceiver;
     }
 
@@ -476,7 +492,7 @@ export class TransceiverManager {
           notSendTransceiver.setDirection("sendonly");
           break;
       }
-      notSendTransceiver.codecs = [];
+      notSendTransceiver.markCodecsForResolution();
       return notSendTransceiver;
     } else {
       const transceiver = this.addTransceiver(track, undefined, {
@@ -753,6 +769,7 @@ export class TransceiverManager {
       "local",
       source,
     );
+    transceiver.sender.proposeSend(transceiver.codecs);
     log("negotiated codecs", transceiver.codecs);
   }
 
@@ -911,6 +928,8 @@ export class TransceiverManager {
     // answer. The proposed codec remains on the transceiver for createAnswer.
     if (type !== "offer" || !transceiver.currentDirection) {
       transceiver.sender.prepareSend(localParams);
+    } else {
+      transceiver.sender.proposeSend(localParams.codecs);
     }
 
     if (["recvonly", "sendrecv"].includes(transceiver.direction)) {

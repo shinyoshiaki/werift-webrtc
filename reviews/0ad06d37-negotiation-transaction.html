@@ -154,6 +154,7 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
   <a href="#bundle">8. BUNDLE topology</a>
   <a href="#bundle-policy" style="padding-left:20px">8.3 bundlePolicy</a>
   <a href="#develop">9. develop 機能との統合</a>
+  <a href="#develop-audit" style="padding-left:20px">9.3 develop 機能の網羅確認</a>
   <a href="#modules">10. モジュール構成</a>
   <a href="#why">11. 判断理由</a>
   <a href="#risk">12. リスク・既知の制約</a>
@@ -165,8 +166,8 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
 <h1>PeerConnection negotiation transaction<br>— 実装レビュー解説</h1>
 <p class="meta">
   <span>チケット: <a class="ref" href="../TICKET-ticket-0ad06d37-d829-4a08-8e49-2da46e551b79.md" title="TICKET-ticket-0ad06d37-d829-4a08-8e49-2da46e551b79.md">TICKET-ticket-0ad06d37-d829-4a08-8e49-2da46e551b79.md</a></span>
-  <span>HEAD: <code>5dae7059</code></span>
-  <span>比較基準: develop との merge base <code>404b3929</code></span>
+  <span>HEAD: <code>4d83941c</code></span>
+  <span>比較基準: develop との merge base <code>2a0772ae</code></span>
   <span>設計の正: <a class="ref" href="../packages/webrtc/NEGOTIATION_TRANSACTION.md" title="packages/webrtc/NEGOTIATION_TRANSACTION.md">NEGOTIATION_TRANSACTION.md</a></span>
 </p>
 
@@ -313,15 +314,15 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
 
 <!-- ============================================================ -->
 <h2 id="pipeline">4. description 適用の順序</h2>
-<p><code>setRemoteDescription</code>（<a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1238">peerConnection.ts:1238</a>）は、<b>失敗しうる処理をすべて先に済ませ、live の transport を変える処理は最後に回す</b>順序で進みます。どの段階で失敗しても、状態はその操作の前に戻ります。</p>
+<p><code>setRemoteDescription</code>（<a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1265">peerConnection.ts:1265</a>）は、<b>失敗しうる処理をすべて先に済ませ、live の transport を変える処理は最後に回す</b>順序で進みます。どの段階で失敗しても、状態はその操作の前に戻ります。</p>
 <div class="figure">
 <ol class="flow">
-  <li class="guard"><b>事前検証</b><br>状態は何も変えない<br><a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1288">peerConnection.ts:1288</a><span class="fail">✗ 失敗 → 状態不変で reject</span></li>
+  <li class="guard"><b>事前検証</b><br>状態は何も変えない<br><a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1315">peerConnection.ts:1315</a><span class="fail">✗ 失敗 → 状態不変で reject</span></li>
   <li class="guard"><b>codec 計画</b><br>全 m-line の codec を副作用なしで先に決める<br><a class="ref" href="../packages/webrtc/src/negotiation/remoteMediaApplication.ts" title="packages/webrtc/src/negotiation/remoteMediaApplication.ts:69">remoteMediaApplication.ts:69</a><span class="fail">✗ 共通 codec なし → reject</span></li>
-  <li><b>checkpoint</b><br>この操作の分だけ戻せる地点<br><a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1349">peerConnection.ts:1349</a></li>
-  <li><b>m-line の適用（4 段階）</b><br>対応付け → BUNDLE 所有 → RTP / SCTP の受け入れ → transport 更新の<i>計画</i><br><a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1364">peerConnection.ts:1364</a><span class="fail">✗ 失敗 → checkpoint へ戻す</span></li>
-  <li><b>transport 更新を実行</b><br>計画した更新を最後にまとめて実行<br><a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1375">peerConnection.ts:1375</a></li>
-  <li class="commit"><b>answer なら commit</b><br>ICE restart の切替（stage したものだけ）・BUNDLE topology・staged 経路と受信設定を一斉に切り替える<br><a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1197">peerConnection.ts:1197</a></li>
+  <li><b>checkpoint</b><br>この操作の分だけ戻せる地点<br><a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1376">peerConnection.ts:1376</a></li>
+  <li><b>m-line の適用（4 段階）</b><br>対応付け → BUNDLE 所有 → RTP / SCTP の受け入れ → transport 更新の<i>計画</i><br><a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1391">peerConnection.ts:1391</a><span class="fail">✗ 失敗 → checkpoint へ戻す</span></li>
+  <li><b>transport 更新を実行</b><br>計画した更新を最後にまとめて実行<br><a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1402">peerConnection.ts:1402</a></li>
+  <li class="commit"><b>answer なら commit</b><br>ICE restart の切替（stage したものだけ）・BUNDLE topology・staged 経路と受信設定を一斉に切り替える<br><a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1224">peerConnection.ts:1224</a></li>
 </ol>
 </div>
 <p>事前検証で拒否する内容（<a class="ref" href="../packages/webrtc/src/negotiation/descriptionValidation.ts" title="packages/webrtc/src/negotiation/descriptionValidation.ts:107">descriptionValidation.ts:107</a>）:</p>
@@ -330,7 +331,7 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
   <li>DTLS の fingerprint と role の変更（RFC 8842 §5.5）、SCTP port の変更、接続済み SCTP の別 transport への移動</li>
   <li>offer で共有した transport を answer が分割する（RFC 8843 §7.3.2、<a class="ref" href="../packages/webrtc/src/negotiation/bundleTopology.ts" title="packages/webrtc/src/negotiation/bundleTopology.ts:249">bundleTopology.ts:249</a>）</li>
 </ul>
-<p>local 側（<a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:799">peerConnection.ts:799</a>）も同じ順序です。準備済みの ICE 資格情報を使っているか、DTLS role を変えていないかを <a class="ref" href="../packages/webrtc/src/negotiation/descriptionValidation.ts" title="packages/webrtc/src/negotiation/descriptionValidation.ts:42">descriptionValidation.ts:42</a> で先に検証します。</p>
+<p>local 側（<a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:796">peerConnection.ts:796</a>）も同じ順序です。準備済みの ICE 資格情報を使っているか、DTLS role を変えていないかを <a class="ref" href="../packages/webrtc/src/negotiation/descriptionValidation.ts" title="packages/webrtc/src/negotiation/descriptionValidation.ts:42">descriptionValidation.ts:42</a> で先に検証します。</p>
 
 <!-- ============================================================ -->
 <h2 id="routing">5. ルーティングキーの staging</h2>
@@ -364,7 +365,7 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
 <div class="figure">
 <div class="hub">
   <div class="center">NegotiationTransaction <a class="ref" href="../packages/webrtc/src/negotiationTransaction.ts" title="packages/webrtc/src/negotiationTransaction.ts:88">negotiationTransaction.ts:88</a><small>baseline・checkpoint・提案の資源（ProposalResources）を所有し、各コンポーネントの snapshot / restore を順に呼ぶ</small></div>
-  <div class="comp"><b>RTCRtpTransceiver</b>sender と receiver の分も含む<br><a class="ref" href="../packages/webrtc/src/media/rtpTransceiver.ts" title="packages/webrtc/src/media/rtpTransceiver.ts:164">rtpTransceiver.ts:164</a><div class="keep">残す: transaction 中にアプリが呼んだ <code>stop()</code></div></div>
+  <div class="comp"><b>RTCRtpTransceiver</b>sender と receiver の分も含む<br><a class="ref" href="../packages/webrtc/src/media/rtpTransceiver.ts" title="packages/webrtc/src/media/rtpTransceiver.ts:180">rtpTransceiver.ts:180</a><div class="keep">残す: transaction 中にアプリが呼んだ <code>stop()</code></div></div>
   <div class="comp"><b>RTCRtpReceiver</b>受信 codec・RTX・staged 受信設定<br><a class="ref" href="../packages/webrtc/src/media/rtpReceiver.ts" title="packages/webrtc/src/media/rtpReceiver.ts:231">rtpReceiver.ts:231</a><div class="keep">残す: RID パケットから学習した SSRC（その track が残る場合）</div></div>
   <div class="comp"><b>TransceiverManager</b>並び順、track の通知、提案が作った transceiver<br><a class="ref" href="../packages/webrtc/src/transceiverManager.ts" title="packages/webrtc/src/transceiverManager.ts:121">transceiverManager.ts:121</a><div class="keep">残す: アプリが使っている transceiver</div></div>
   <div class="comp"><b>RtpRouter</b>SSRC / RID / staged 経路<br><a class="ref" href="../packages/webrtc/src/media/router.ts" title="packages/webrtc/src/media/router.ts:92">router.ts:92</a><div class="keep">残す: パケットから学習した経路、未停止の各 sender の経路</div></div>
@@ -401,20 +402,20 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
 </svg>
 </figure>
 <ul>
-  <li><b>restart の切り替え</b>: offer の時点では資格情報を stage するだけで、live の ICE は answer の commit で切り替えます。answer は毎回 <a class="ref" href="../packages/webrtc/src/secureTransportManager.ts" title="packages/webrtc/src/secureTransportManager.ts:523">secureTransportManager.ts:523</a> を通りますが、実際に restart するのは restart を stage した transport だけです。</li>
-  <li><b>provisional check</b>: 送信した時点の revision と pair の所属を記録し、応答を処理するときに照合します。replacement pranswer より前の遅延応答が、新しい checklist を nominate することはありません（<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:400">ice.ts:400</a>）。</li>
-  <li><b>EOC</b>（<a href="#eoc">7.1 拡大図</a>）: live と provisional のどちらの generation も完了させます（RFC 8838、<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:292">ice.ts:292</a>）。webrtc 層でも、EOC 済みの m-line への候補は無視します（<a class="ref" href="../packages/webrtc/src/secureTransportManager.ts" title="packages/webrtc/src/secureTransportManager.ts:324">secureTransportManager.ts:324</a>）。</li>
+  <li><b>restart の切り替え</b>: offer の時点では資格情報を stage するだけで、live の ICE は answer の commit で切り替えます。answer は毎回 <a class="ref" href="../packages/webrtc/src/secureTransportManager.ts" title="packages/webrtc/src/secureTransportManager.ts:522">secureTransportManager.ts:522</a> を通りますが、実際に restart するのは restart を stage した transport だけです。</li>
+  <li><b>provisional check</b>: 送信した時点の revision と pair の所属を記録し、応答を処理するときに照合します。replacement pranswer より前の遅延応答が、新しい checklist を nominate することはありません（<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:402">ice.ts:402</a>）。</li>
+  <li><b>EOC</b>（<a href="#eoc">7.1 拡大図</a>）: live と provisional のどちらの generation も完了させます（RFC 8838、<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:294">ice.ts:294</a>）。webrtc 層でも、EOC 済みの m-line への候補は無視します（<a class="ref" href="../packages/webrtc/src/secureTransportManager.ts" title="packages/webrtc/src/secureTransportManager.ts:323">secureTransportManager.ts:323</a>）。</li>
   <li><b>trickle の振り分け</b>: 候補が対象とする m-line の ufrag で、current と pending のどちらの generation に属するかを決めます（<a class="ref" href="../packages/webrtc/src/negotiation/remoteCandidates.ts" title="packages/webrtc/src/negotiation/remoteCandidates.ts:44">remoteCandidates.ts:44</a>）。EOC は transport 単位なので、BUNDLE group 全体に及びます（<a class="ref" href="../packages/webrtc/src/negotiation/remoteCandidates.ts" title="packages/webrtc/src/negotiation/remoteCandidates.ts:234">remoteCandidates.ts:234</a>）。</li>
-  <li><b><code>restartIce()</code></b>: current と pending 両方のローカル ufrag を「置き換える対象」として記録します（W3C の <code>[[LocalIceCredentialsToReplace]]</code>）。rollback や glare の後も要求は残り、確定した資格情報がその対象と重ならなくなったときに解除します（<a class="ref" href="../packages/webrtc/src/negotiation/iceRestartRequest.ts" title="packages/webrtc/src/negotiation/iceRestartRequest.ts:18">iceRestartRequest.ts:18</a>、<a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1230">peerConnection.ts:1230</a>）。</li>
+  <li><b><code>restartIce()</code></b>: current と pending 両方のローカル ufrag を「置き換える対象」として記録します（W3C の <code>[[LocalIceCredentialsToReplace]]</code>）。rollback や glare の後も要求は残り、確定した資格情報がその対象と重ならなくなったときに解除します（<a class="ref" href="../packages/webrtc/src/negotiation/iceRestartRequest.ts" title="packages/webrtc/src/negotiation/iceRestartRequest.ts:18">iceRestartRequest.ts:18</a>、<a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1257">peerConnection.ts:1257</a>）。</li>
 </ul>
 
 <h3 id="eoc">7.1 拡大図: EOC と、その前後に届く候補</h3>
 <p><b>EOC（end-of-candidates）</b>は、相手からの「この ICE generation の候補はこれで全部です」という通知です。次の 2 つの経路で届きます。</p>
 <ul>
-  <li>trickle ICE で、<code>addIceCandidate(null)</code> または候補の文字列が空（<code>{ candidate: "" }</code>）で呼ばれたとき（<a class="ref" href="../packages/webrtc/src/secureTransportManager.ts" title="packages/webrtc/src/secureTransportManager.ts:257">secureTransportManager.ts:257</a>）</li>
+  <li>trickle ICE で、<code>addIceCandidate(null)</code> または候補の文字列が空（<code>{ candidate: "" }</code>）で呼ばれたとき（<a class="ref" href="../packages/webrtc/src/secureTransportManager.ts" title="packages/webrtc/src/secureTransportManager.ts:256">secureTransportManager.ts:256</a>）</li>
   <li>offer / pranswer / answer の SDP の m-line に <code>a=end-of-candidates</code> があるとき（<a class="ref" href="../packages/webrtc/src/sdp.ts" title="packages/webrtc/src/sdp.ts:153">sdp.ts:153</a>）</li>
 </ul>
-<p>EOC を受けると、ICE は「これ以上候補は来ない」と判断できます。すべての pair の check が失敗した時点で、それ以上待たずに <code>failed</code> にできます。EOC を受けていない間は、新しい候補が来るのを待ち続けます（<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:1186">ice.ts:1186</a>）。</p>
+<p>EOC を受けると、ICE は「これ以上候補は来ない」と判断できます。すべての pair の check が失敗した時点で、それ以上待たずに <code>failed</code> にできます。EOC を受けていない間は、新しい候補が来るのを待ち続けます（<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:1231">ice.ts:1231</a>）。</p>
 <figure class="figure">
 <svg viewBox="0 0 960 360" width="100%" role="img" aria-label="EOC の前後に届く候補の扱い">
   <g font-size="12" text-anchor="middle">
@@ -458,7 +459,7 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
   <text class="sub" x="100" y="320">EOC は check を止めない。追加済みの a・b の pair の check は完了後も続き、成功すれば通常どおり nominate される。</text>
   <text class="sub" x="100" y="338">live と provisional（pranswer 中の B 向け）の generation は、どちらもこの同じ規則で動く。</text>
 </svg>
-<figcaption>実装: live generation は <a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:1493">ice.ts:1493</a>、provisional generation は <a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:284">ice.ts:284</a>。テスト: <a class="ref" href="../packages/ice/tests/ice/end-of-candidates.test.ts" title="packages/ice/tests/ice/end-of-candidates.test.ts">end-of-candidates.test.ts</a></figcaption>
+<figcaption>実装: live generation は <a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:1538">ice.ts:1538</a>、provisional generation は <a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:286">ice.ts:286</a>。テスト: <a class="ref" href="../packages/ice/tests/ice/end-of-candidates.test.ts" title="packages/ice/tests/ice/end-of-candidates.test.ts">end-of-candidates.test.ts</a></figcaption>
 </figure>
 
 <h3>7.2 Q&amp;A: EOC の後に届いた候補</h3>
@@ -475,14 +476,14 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
       新しい ICE generation（ICE restart による新しい ufrag）の候補はこれに当たりません。その候補は新しい generation に振り分けられ、受け付けられます（7 章の trickle の振り分け）。
     </td></tr>
     <tr><td>単に捨てられるか</td><td>
-      はい。エラーにはせず、<code>addIceCandidate()</code> は成功として返ります。候補は remote description（SDP）にも checklist にも加わらず、mDNS の名前解決も始めません。webrtc 層（<a class="ref" href="../packages/webrtc/src/secureTransportManager.ts" title="packages/webrtc/src/secureTransportManager.ts:324">secureTransportManager.ts:324</a>）と ICE 層（<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:306">ice.ts:306</a>）の両方で捨てます。
+      はい。エラーにはせず、<code>addIceCandidate()</code> は成功として返ります。候補は remote description（SDP）にも checklist にも加わらず、mDNS の名前解決も始めません。webrtc 層（<a class="ref" href="../packages/webrtc/src/secureTransportManager.ts" title="packages/webrtc/src/secureTransportManager.ts:323">secureTransportManager.ts:323</a>）と ICE 層（<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:308">ice.ts:308</a>）の両方で捨てます。
     </td></tr>
     <tr><td>それで問題はないか</td><td>
       通常は問題になりません。理由は次の 3 つです。
       <ul>
         <li><b>RFC 8838 の規則に従っている。</b>EOC で完了した generation は、それ以上候補を受け付けません。</li>
         <li><b>受け付けると判定が矛盾する。</b>EOC の後は「全 pair が失敗した = <code>failed</code>」と判定できます。後から候補が増えると、<code>failed</code> と判定した後に check の対象が増えることになり、状態が合わなくなります。</li>
-        <li><b>救済経路がある。</b>捨てた候補のアドレスから相手が check を送ってくれば、ICE はその送信元を peer-reflexive 候補として学習し、pair を作ります（RFC 8445 §7.3.1.3、<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:2019">ice.ts:2019</a>）。この学習は EOC の後も止めていません。そのため、実際に通信できる経路であれば、多くの場合は接続できます。</li>
+        <li><b>救済経路がある。</b>捨てた候補のアドレスから相手が check を送ってくれば、ICE はその送信元を peer-reflexive 候補として学習し、pair を作ります（RFC 8445 §7.3.1.3、<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:2064">ice.ts:2064</a>）。この学習は EOC の後も止めていません。そのため、実際に通信できる経路であれば、多くの場合は接続できます。</li>
       </ul>
       <span class="status warn">残るリスク</span> 相手からの check がこちらに届かず、こちらからの check だけが通るネットワークでは、捨てた候補でしか繋がらないことがあります。その場合は接続が失敗します。これは EOC の後に候補を送る相手側の誤りや、シグナリングの順序の入れ替わりで起きるもので、仕様どおりの相手と順序を保つシグナリングの組み合わせでは起きません。
     </td></tr>
@@ -535,7 +536,7 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
   <tbody>
     <tr><td>RFC 8445 / RFC 8839</td><td><span class="tag keep">途切れない</span> restart 前に選ばれていた pair（previous selected pair）を記録し、新しい selected pair ができるまで、その pair で送り続ける</td><td>RFC 8445 §9「restart の間も、既存のセッションでデータを送り続けられる」、§12.1（checklist が Running の間の selected pair = previous selected pair）、RFC 8839 §4.4.3.1.1（previous selected pair を覚え、そこへ送り続ける）</td></tr>
     <tr><td>Chrome（libwebrtc）</td><td><span class="tag keep">途切れない</span> 選択中の connection は restart の間も残し、新しい generation の connection が選ばれた時点で古いものを捨てる</td><td><code>p2p/base/p2p_transport_channel.cc</code> のコメント「Any selected connection is kept so that it can be used to send data during ICE restart per RFC 8445」（main <code>71b521e4af</code>）</td></tr>
-    <tr><td>werift（このチケット）</td><td><span class="tag stage">answer の commit から nominate まで途切れる</span> offer と pranswer の間は旧 pair で送り続け、commit で ICE agent を作り直す</td><td><a class="ref" href="../packages/webrtc/src/transport/ice.ts" title="packages/webrtc/src/transport/ice.ts:261">ice.ts:261</a> → <a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:184">ice.ts:184</a>（<code>nominated</code> を消す）</td></tr>
+    <tr><td>werift（このチケット）</td><td><span class="tag stage">answer の commit から nominate まで途切れる</span> offer と pranswer の間は旧 pair で送り続け、commit で ICE agent を作り直す</td><td><a class="ref" href="../packages/webrtc/src/transport/ice.ts" title="packages/webrtc/src/transport/ice.ts:294">ice.ts:294</a> → <a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:186">ice.ts:186</a>（<code>nominated</code> を消す）</td></tr>
     <tr><td>werift（develop）</td><td><span class="tag reject">restart を始めた時点から途切れる</span> <code>createOffer({ iceRestart })</code> の中で、その場で transport を restart する</td><td>develop の <code>createOffer</code> → <code>secureManager.restartIce()</code></td></tr>
     <tr><td>Pion（pion/webrtc v4.2.22、pion/ice v4.4.6）</td><td><span class="tag reject">restart を始めた時点から途切れる</span> offerer は <code>CreateOffer(ICERestart)</code>、answerer は資格情報が変わった offer の <code>SetRemoteDescription</code> で <code>Agent.Restart</code> を呼び、selected pair・checklist・候補をすべて消す</td><td><code>icetransport.go</code> の <code>restart()</code> と <code>agent.go</code> の <code>Restart()</code>（<code>setSelectedPair(nil)</code>、<code>deleteAllCandidates()</code>）。開発版の pion/ice（v5.0.0-rc.7）も同じ動作</td></tr>
   </tbody>
@@ -602,7 +603,7 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
     <tr><td><code>"disable"</code>（werift 独自）</td><td>なし</td><td>m-line ごとに別</td><td>m-line ごとに別のまま</td></tr>
   </tbody>
 </table>
-<p class="caption">分岐の実装: <a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:650">peerConnection.ts:650</a>。音声と映像の 2 m-line で実際に交渉して確認した結果、offerer の transport 数は max-bundle で 1 → 1、max-compat で 2 → 1、disable で 2 → 2 でした。max-compat の初回 offer の m-line ごとの transport は、ICE 資格情報（ufrag / pwd）を共有しています（develop からの既存の動作）。group 外の m-line や split で作る transport だけが、独立した資格情報を持ちます。</p>
+<p class="caption">分岐の実装: <a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:647">peerConnection.ts:647</a>。音声と映像の 2 m-line で実際に交渉して確認した結果、offerer の transport 数は max-bundle で 1 → 1、max-compat で 2 → 1、disable で 2 → 2 でした。max-compat の初回 offer の m-line ごとの transport は、ICE 資格情報（ufrag / pwd）を共有しています（develop からの既存の動作）。group 外の m-line や split で作る transport だけが、独立した資格情報を持ちます。</p>
 
 <h3>8.4 このチケットでの扱い</h3>
 <p>BUNDLE group は最初の 1 つだけでなく、<b>すべての group</b> を扱います。各 group の tag が、member の transport を決めます（<a class="ref" href="../packages/webrtc/src/negotiation/bundleTopology.ts" title="packages/webrtc/src/negotiation/bundleTopology.ts:32">bundleTopology.ts:32</a>）。レビュー指摘（<code>d8e4c4cc</code> で修正）の時点では、最初の group しか見ていない処理が 7 箇所あり、2 つ目の group の member が別々の transport に分かれていました。</p>
@@ -627,17 +628,30 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
     <tr><td>group 外 m-line の answer の <code>a=setup</code></td><td>常に <code>active</code></td><td>offer の逆</td><td>RFC 8842 §5.3</td></tr>
   </tbody>
 </table>
-<p>あわせて、拒否予定（<code>pendingRejection</code>）を baseline に含め、remote が port 0 で出した m-line も拒否予定にしました。アプリによる m-line の再利用は、kind が一致し、停止が確定した位置に限ります（<a class="ref" href="../packages/webrtc/src/transceiverManager.ts" title="packages/webrtc/src/transceiverManager.ts:397">transceiverManager.ts:397</a>）。</p>
+<p>あわせて、拒否予定（<code>pendingRejection</code>）を baseline に含め、remote が port 0 で出した m-line も拒否予定にしました。アプリによる m-line の再利用は、kind が一致し、停止が確定した位置に限ります（<a class="ref" href="../packages/webrtc/src/transceiverManager.ts" title="packages/webrtc/src/transceiverManager.ts:413">transceiverManager.ts:413</a>）。</p>
 <h3>9.2 codec 統合（<code>setCodecPreferences()</code> / track source codec）</h3>
 <table>
   <thead><tr><th>処理</th><th>develop 単独</th><th>このチケット</th></tr></thead>
   <tbody>
-    <tr><td>remote description の codec</td><td>適用前に計画する（<code>planRemoteRtpCodecs</code>）</td><td>同じ計画を採用し、checkpoint より前の副作用のない段階で全 m-line 分を決める（<a class="ref" href="../packages/webrtc/src/transceiverManager.ts" title="packages/webrtc/src/transceiverManager.ts:788">transceiverManager.ts:788</a>）</td></tr>
+    <tr><td>remote description の codec</td><td>適用前に計画する（<code>planRemoteRtpCodecs</code>）</td><td>同じ計画を採用し、checkpoint より前の副作用のない段階で全 m-line 分を決める（<a class="ref" href="../packages/webrtc/src/transceiverManager.ts" title="packages/webrtc/src/transceiverManager.ts:805">transceiverManager.ts:805</a>）</td></tr>
     <tr><td>受信 codec 表の置き換え（<code>resyncCodecs</code>）</td><td>pending の offer / pranswer の時点</td><td><span class="tag stage">remote answer または commit の時点だけ</span>（<a class="ref" href="../packages/webrtc/src/media/rtpReceiver.ts" title="packages/webrtc/src/media/rtpReceiver.ts:279">rtpReceiver.ts:279</a>）</td></tr>
-    <tr><td><code>createAnswer()</code></td><td>sender と受信設定をその場で切り替える</td><td>提案として解決するだけ。切り替えは local answer の commit（<a class="ref" href="../packages/webrtc/src/transceiverManager.ts" title="packages/webrtc/src/transceiverManager.ts:760">transceiverManager.ts:760</a>）</td></tr>
+    <tr><td><code>createAnswer()</code></td><td>sender と受信設定をその場で切り替える</td><td>提案として解決するだけ。切り替えは local answer の commit（<a class="ref" href="../packages/webrtc/src/transceiverManager.ts" title="packages/webrtc/src/transceiverManager.ts:777">transceiverManager.ts:777</a>）</td></tr>
     <tr><td>rollback</td><td>—</td><td><code>pendingLocalOfferCodecs</code> と再解決の要求を baseline に含める。<code>setCodecPreferences()</code> 自体はアプリの選択なので戻さない</td></tr>
   </tbody>
 </table>
+
+<h3 id="develop-audit">9.3 最新 develop にマージされた機能の網羅的な確認</h3>
+<p>分岐点 <code>62582c21</code> 以降に develop へマージされ、ソースに変更がある 5 つの PR について、pending 中に書き込む状態を「negotiated state（staged か baseline で戻す）」「application state（rollback で戻さない）」「configuration（baseline に含めない）」に分類し、規則に合わない箇所を直しました。</p>
+<table>
+  <thead><tr><th>develop の機能</th><th>見つかった問題</th><th>対応</th></tr></thead>
+  <tbody>
+    <tr><td>#716 SCTP の MTU</td><td>なし（全経路で設定の MTU を使う）</td><td>remote offer 経由と pending 中・rollback 後の変更可否をテストに追加</td></tr>
+    <tr><td>#688 / #731 TURN</td><td>restart を stage する方式のため、restart 前後に変えた ICE server 設定が使われない。restart のたびに使われない TURN allocation が増える</td><td>設定を次の restart まで保持し、restart では同じ設定の allocation を再利用・変わった allocation は閉じて作り直す。設定が変わった restart の offer は relay 候補と EOC を commit 後に trickle（<a class="ref" href="../packages/webrtc/src/transport/ice.ts" title="packages/webrtc/src/transport/ice.ts:294">ice.ts:294</a>、<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:591">ice.ts:591</a>）</td></tr>
+    <tr><td>#729 codec 統合</td><td><code>createAnswer()</code> と answer 適用の間の <code>setCodecPreferences()</code> / <code>addTrack()</code> で RTP が止まる・古い codec で送る。pending 中の codec 変更が rollback で消える。pending 中の <code>replaceTrack()</code> が answer の codec と照合されない</td><td>適用した answer の codec を commit して次の offer で再解決（<a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:964">peerConnection.ts:964</a>）。アプリの変更を revision で区別して rollback 後も残す（<a class="ref" href="../packages/webrtc/src/media/rtpTransceiver.ts" title="packages/webrtc/src/media/rtpTransceiver.ts:89">rtpTransceiver.ts:89</a>）。answer が送信に使う codec とも照合（<a class="ref" href="../packages/webrtc/src/media/rtpSender.ts" title="packages/webrtc/src/media/rtpSender.ts:294">rtpSender.ts:294</a>）</td></tr>
+    <tr><td>#721 / issue 705 m-line 再利用</td><td>pending 中にアプリが追加した transceiver が、rollback 後も停止済み m-line の index を持ち続ける</td><td>rollback で baseline の位置と重なる index を外す（<a class="ref" href="../packages/webrtc/src/transceiverManager.ts" title="packages/webrtc/src/transceiverManager.ts:160">transceiverManager.ts:160</a>）</td></tr>
+  </tbody>
+</table>
+<p class="caption">回帰テスト: <a class="ref" href="../packages/webrtc/tests/integrate/negotiationTransactionDevelopIntegration.test.ts" title="packages/webrtc/tests/integrate/negotiationTransactionDevelopIntegration.test.ts">negotiationTransactionDevelopIntegration.test.ts</a>、<a class="ref" href="../packages/ice/tests/ice/turn-restart.test.ts" title="packages/ice/tests/ice/turn-restart.test.ts">turn-restart.test.ts</a>。いずれも修正前の実装で失敗し、修正後に通ることを確認しています。</p>
 
 <!-- ============================================================ -->
 <h2 id="modules">10. モジュール構成</h2>
@@ -645,12 +659,12 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
 <table>
   <thead><tr><th>ファイル</th><th>責務</th><th class="num">行数</th></tr></thead>
   <tbody>
-    <tr><td><a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts">peerConnection.ts</a></td><td>公開 API と、各 description 操作の手順の組み立て</td><td class="num">1,699</td></tr>
+    <tr><td><a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts">peerConnection.ts</a></td><td>公開 API と、各 description 操作の手順の組み立て</td><td class="num">1,728</td></tr>
     <tr><td><a class="ref" href="../packages/webrtc/src/negotiationTransaction.ts" title="packages/webrtc/src/negotiationTransaction.ts">negotiationTransaction.ts</a></td><td>transaction coordinator（baseline / checkpoint / commit / rollback）</td><td class="num">440</td></tr>
     <tr><td><a class="ref" href="../packages/webrtc/src/negotiation/remoteMediaApplication.ts" title="packages/webrtc/src/negotiation/remoteMediaApplication.ts">remoteMediaApplication.ts</a></td><td>remote m-line の適用（4 段階）と codec 計画</td><td class="num">491</td></tr>
     <tr><td><a class="ref" href="../packages/webrtc/src/negotiation/remoteCandidates.ts" title="packages/webrtc/src/negotiation/remoteCandidates.ts">remoteCandidates.ts</a></td><td>trickle ICE、EOC の振り分け、SRD 前の候補キュー</td><td class="num">350</td></tr>
     <tr><td><a class="ref" href="../packages/webrtc/src/negotiation/bundleTopology.ts" title="packages/webrtc/src/negotiation/bundleTopology.ts">bundleTopology.ts</a></td><td>全 BUNDLE group の tag、staged topology、共有 transport の検証</td><td class="num">303</td></tr>
-    <tr><td><a class="ref" href="../packages/webrtc/src/negotiation/descriptionValidation.ts" title="packages/webrtc/src/negotiation/descriptionValidation.ts">descriptionValidation.ts</a></td><td>状態を変える前の local / remote description の検証</td><td class="num">283</td></tr>
+    <tr><td><a class="ref" href="../packages/webrtc/src/negotiation/descriptionValidation.ts" title="packages/webrtc/src/negotiation/descriptionValidation.ts">descriptionValidation.ts</a></td><td>状態を変える前の local / remote description の検証</td><td class="num">274</td></tr>
     <tr><td><a class="ref" href="../packages/webrtc/src/negotiation/transportActivation.ts" title="packages/webrtc/src/negotiation/transportActivation.ts">transportActivation.ts</a></td><td>live / provisional transport の接続、staged パラメータの有効化</td><td class="num">206</td></tr>
     <tr><td><a class="ref" href="../packages/webrtc/src/negotiation/negotiationNeeded.ts" title="packages/webrtc/src/negotiation/negotiationNeeded.ts">negotiationNeeded.ts</a></td><td><code>negotiationneeded</code> の予約（同じ tick は 1 回）と変更の通し番号</td><td class="num">95</td></tr>
     <tr><td><a class="ref" href="../packages/webrtc/src/negotiation/iceRestartRequest.ts" title="packages/webrtc/src/negotiation/iceRestartRequest.ts">iceRestartRequest.ts</a></td><td><code>restartIce()</code> の要求の保持と解除</td><td class="num">44</td></tr>
@@ -665,7 +679,7 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
   <div class="card"><h4>stage → commit を選んだ</h4>live に書いて rollback で戻す方式では、rollback した後の状態しか守れません。キーの種類ごとに「追加は即時、変更は拒否か staged」と決めたことで、反例を 1 件ずつではなく種類ごとに閉じました。develop の codec 統合も同じ規則に合わせています。</div>
   <div class="card"><h4>拒否か staged かの基準</h4>RFC と Chrome の実際の挙動に合わせました。extmap ID の再割当ては拒否します（RFC 8285 §7。Chrome も拒否）。SSRC の移動と RTX の付け替えは staged にします（Chrome は受理する）。</div>
   <div class="card"><h4>snapshot を持ち主に置いた</h4>transaction が他のオブジェクトのプロパティを列挙すると、状態を追加するたびに漏れが生じます。実際、develop の codec 統合ではこの箇所の修正が必要になりました。</div>
-  <div class="card"><h4>機械的に検出する</h4>各操作の後に、current SDP と live 状態が一致するかを検査します（<a class="ref" href="../packages/webrtc/tests/integrate/negotiationTransactionUtils.ts" title="packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:463">negotiationTransactionUtils.ts:463</a>、ルーティング表は <a class="ref" href="../packages/webrtc/tests/integrate/negotiationTransactionUtils.ts" title="packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:532">negotiationTransactionUtils.ts:532</a>）。ランダムな操作列の生成は <a class="ref" href="../packages/webrtc/tests/integrate/negotiationTransactionUtils.ts" title="packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:1436">negotiationTransactionUtils.ts:1436</a> です。</div>
+  <div class="card"><h4>機械的に検出する</h4>各操作の後に、current SDP と live 状態が一致するかを検査します（<a class="ref" href="../packages/webrtc/tests/integrate/negotiationTransactionUtils.ts" title="packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:471">negotiationTransactionUtils.ts:471</a>、ルーティング表は <a class="ref" href="../packages/webrtc/tests/integrate/negotiationTransactionUtils.ts" title="packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:540">negotiationTransactionUtils.ts:540</a>）。ランダムな操作列の生成は <a class="ref" href="../packages/webrtc/tests/integrate/negotiationTransactionUtils.ts" title="packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:1444">negotiationTransactionUtils.ts:1444</a> です。</div>
   <div class="card"><h4>完了条件を有限にした</h4>遷移表・mutation matrix・操作カタログに載っていない新しい組み合わせは、後続チケットで扱います（設計文書の Scope 章、チケットの 6 章）。</div>
 </div>
 
@@ -686,16 +700,17 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
 <!-- ============================================================ -->
 <h2 id="verify">13. 検証結果</h2>
 <table>
-  <thead><tr><th>検証</th><th>結果</th><th>実行した時点</th></tr></thead>
+  <thead><tr><th>検証</th><th>結果</th></tr></thead>
   <tbody>
-    <tr><td>webrtc の型検査と全テスト</td><td><span class="status ok">46 files、565 passed / 3 skipped</span></td><td>現在の HEAD <code>5dae7059</code>（この文書の作成時に実行）</td></tr>
-    <tr><td>深い property 探索（300 seed × 20 step）</td><td><span class="status old">303 / 303 passed</span></td><td><code>98247860</code>（リファクタリング時点）</td></tr>
-    <tr><td>workspace の <code>npm run type</code> / <code>npm run test:small</code></td><td><span class="status old">全パッケージ成功</span></td><td><code>98247860</code></td></tr>
-    <tr><td>Chrome E2E</td><td><span class="status old">46 / 46 passed</span></td><td><code>98247860</code></td></tr>
-    <tr><td>WPT（allowlist）</td><td><span class="status old">REGRESSION 0（PASS 443）</span></td><td>develop の codec 統合をマージする前</td></tr>
+    <tr><td>webrtc の型検査と全テスト</td><td><span class="status ok">47 files、575 passed / 3 skipped</span></td></tr>
+    <tr><td>ICE の型検査と全テスト</td><td><span class="status ok">195 passed / 3 skipped</span></td></tr>
+    <tr><td>深い property 探索（300 seed × 20 step）</td><td><span class="status ok">303 / 303 passed</span></td></tr>
+    <tr><td>workspace の <code>npm run type</code> / <code>npm run test:small</code></td><td><span class="status ok">全パッケージ成功</span></td></tr>
+    <tr><td>Chrome E2E</td><td><span class="status ok">46 / 46 passed</span></td></tr>
+    <tr><td>WPT（allowlist）</td><td><span class="status ok">REGRESSION 0（PASS 443）</span></td></tr>
   </tbody>
 </table>
-<p class="caption">◷ は現在の HEAD では再実行していない結果です。<code>98247860</code> の後に入ったのは、develop のマージ（TURN の address family 対応など）と、ICE restart の commit 処理の名前変更（<code>commitIceRestartIfAnyStaged</code>）です。</p>
+<p class="caption">すべて <code>4d83941c</code>（最新の develop をマージ済み）に 9.3 の修正を加えた状態で実行しました。</p>
 <p>主なテスト: 遷移マトリクス <a class="ref" href="../packages/webrtc/tests/integrate/negotiationTransactionMatrix.test.ts" title="packages/webrtc/tests/integrate/negotiationTransactionMatrix.test.ts">negotiationTransactionMatrix.test.ts</a>、ルーティングキー <a class="ref" href="../packages/webrtc/tests/integrate/negotiationTransactionRouting.test.ts" title="packages/webrtc/tests/integrate/negotiationTransactionRouting.test.ts">negotiationTransactionRouting.test.ts</a>、レビュー指摘の再現を含む回帰テスト <a class="ref" href="../packages/webrtc/tests/integrate/negotiationTransactionRegression.test.ts" title="packages/webrtc/tests/integrate/negotiationTransactionRegression.test.ts">negotiationTransactionRegression.test.ts</a>、property test <a class="ref" href="../packages/webrtc/tests/integrate/negotiationTransactionProperty.test.ts" title="packages/webrtc/tests/integrate/negotiationTransactionProperty.test.ts:34">negotiationTransactionProperty.test.ts:34</a>、ICE の EOC と mDNS の競合 <a class="ref" href="../packages/ice/tests/ice/end-of-candidates.test.ts" title="packages/ice/tests/ice/end-of-candidates.test.ts">end-of-candidates.test.ts</a></p>
 
 <!-- ============================================================ -->
@@ -718,11 +733,11 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
 <ol class="readorder">
   <li>設計文書 <a class="ref" href="../packages/webrtc/NEGOTIATION_TRANSACTION.md" title="packages/webrtc/NEGOTIATION_TRANSACTION.md">NEGOTIATION_TRANSACTION.md</a> の遷移表と mutation matrix で、何を守るかを把握する</li>
   <li><a class="ref" href="../packages/webrtc/src/negotiationTransaction.ts" title="packages/webrtc/src/negotiationTransaction.ts:88">negotiationTransaction.ts:88</a> で、begin / checkpoint / commit / rollback の流れを読む</li>
-  <li><a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1238">peerConnection.ts:1238</a> と <a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:799">peerConnection.ts:799</a> で、適用の順序を追う（4 章）</li>
+  <li><a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1265">peerConnection.ts:1265</a> と <a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:796">peerConnection.ts:796</a> で、適用の順序を追う（4 章）</li>
   <li><a class="ref" href="../packages/webrtc/src/media/router.ts" title="packages/webrtc/src/media/router.ts:68">router.ts:68</a> と <a class="ref" href="../packages/webrtc/src/media/rtpReceiver.ts" title="packages/webrtc/src/media/rtpReceiver.ts:194">rtpReceiver.ts:194</a> で、staged 値の扱いを確認する（5 章）</li>
   <li><code>src/negotiation/</code> の各モジュールを、関心のある順に読む（7・8 章）</li>
-  <li>ICE 層の provisional generation（<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:353">ice.ts:353</a>）を確認する</li>
-  <li><a class="ref" href="../packages/webrtc/tests/integrate/negotiationTransactionUtils.ts" title="packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:463">negotiationTransactionUtils.ts:463</a> で、何が機械的に検査されているかを確認する</li>
+  <li>ICE 層の provisional generation（<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:355">ice.ts:355</a>）を確認する</li>
+  <li><a class="ref" href="../packages/webrtc/tests/integrate/negotiationTransactionUtils.ts" title="packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:471">negotiationTransactionUtils.ts:471</a> で、何が機械的に検査されているかを確認する</li>
 </ol>
 </main>
 </div>

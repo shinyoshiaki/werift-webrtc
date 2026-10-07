@@ -265,19 +265,10 @@ export class DescriptionValidation {
   }
 
   /**
-   * Local codecs `setRemoteRTP` will negotiate an m-line against, including a
-   * sender track codec it adopts, without mutating the configuration.
+   * Local codecs an answer m-line without a recorded local offer is checked
+   * against: the configured codecs (a sender track's codec is not adopted).
    */
   private localCodecsFor(media: MediaDescription) {
-    const kind = media.kind as "audio" | "video";
-    const trackCodec = this.transceivers
-      .getTransceivers()
-      .find((t) => t.mid === media.rtp.muxId)?.sender.track?.codec;
-    return [
-      ...(this.config.codecs[kind] ?? []),
-      ...(trackCodec && trackCodec.mimeType.split("/")[0].toLowerCase() === kind
-        ? [trackCodec]
-        : []),
-    ];
+    return this.config.codecs[media.kind as "audio" | "video"] ?? [];
   }
 }

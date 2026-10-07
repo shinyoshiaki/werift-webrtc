@@ -1,5 +1,11 @@
 import { expect } from "vitest";
 
+import { getHostAddresses } from "../../../ice/src/utils";
+import {
+  TURN_TEST_PASSWORD,
+  TURN_TEST_USERNAME,
+  createLocalTurnServer,
+} from "../../../ice/tests/utils";
 import {
   MediaStreamTrack,
   type RTCDataChannel,
@@ -11,11 +17,13 @@ import {
   RtpHeader,
   RtpPacket,
   useAbsSendTime,
+  useH264,
   useOPUS,
   useSdesMid,
   useSdesRTPStreamId,
   useVP8,
 } from "../../src";
+import type { RTCIceCandidate } from "../../src";
 import { ridRouteKey } from "../../src/media/router";
 import { SessionDescription } from "../../src/sdp";
 
@@ -1602,4 +1610,65 @@ export async function fuzzRemoteMutation(ctx: FuzzContext, rng: SeededRandom) {
   await step(session, () =>
     answerer.pc.setRemoteDescription({ type: "rollback" }),
   );
+}
+
+/** Shared Arrange: a local TURN server and the RTCIceServer entry for it. */
+export async function createLocalTurnIceServer() {
+  const server = await createLocalTurnServer(getHostAddresses(true, false)[0]!);
+  const [host, port] = server.address!;
+  return {
+    server,
+    iceServers: [
+      {
+        urls: `turn:${host}:${port}`,
+        username: TURN_TEST_USERNAME,
+        credential: TURN_TEST_PASSWORD,
+      },
+    ],
+  };
+}
+
+/** Record `onIceCandidate` events; `undefined` marks end-of-candidates. */
+export function recordIceCandidates(pc: RTCPeerConnection) {
+  const events: (RTCIceCandidate | undefined)[] = [];
+  pc.onIceCandidate.subscribe((candidate) => {
+    events.push(candidate);
+  });
+  return events;
+}
+
+export async function waitForEndOfCandidates(
+  events: (RTCIceCandidate | undefined)[],
+) {
+  await withTimeout(
+    (async () => {
+      while (!events.includes(undefined)) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    })(),
+    "End-of-candidates was not signalled",
+    10000,
+  );
+}
+
+/**
+ * Shared Arrange: a VP8 + H264 capable video session whose current codec is
+ * VP8, and a pending re-offer from the offerer that proposes H264 only.
+ */
+export async function createH264OnlyReoffer() {
+  const peers = await createConnectedVideoPeers({
+    codecs: { video: [useVP8(), useH264()] },
+  });
+  const [offererTransceiver] = peers.offerer.getTransceivers();
+  offererTransceiver.setCodecPreferences([useH264()]);
+  await peers.offerer.setLocalDescription(await peers.offerer.createOffer());
+  await peers.answerer.setRemoteDescription(peers.offerer.localDescription!);
+  return { ...peers, transceiver: peers.answerer.getTransceivers()[0] };
+}
+
+/** Video codec names an SDP offers, in m-line order (RTX excluded). */
+export function offeredVideoCodecs(sdp: string) {
+  return [...sdp.matchAll(/^a=rtpmap:\d+ ([^/]+)\/90000/gim)]
+    .map((match) => match[1].toUpperCase())
+    .filter((name) => name !== "RTX");
 }

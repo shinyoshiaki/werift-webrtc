@@ -118,14 +118,14 @@ export class SecureTransportManager {
   }
 
   /**
-   * Re-apply ICE servers from the current config to ICE transports that have
-   * not started gathering yet (`gatheringState === "new"`).
+   * Re-apply ICE servers from the current config.
    *
-   * JSEP (RFC 8829 §4.1.18) / ticket scope: server changes affect the next
-   * gathering phase. Once gathering has started or finished, leave the live
-   * Connection alone so existing candidates and TURN protocols are not
-   * disturbed. Used when TURN is learned after the gatherer was built
-   * (e.g. from a WHIP Link header) but before setLocalDescription gathers.
+   * JSEP (RFC 8829 §4.1.18): server changes affect the next gathering phase.
+   * A transport that has not gathered yet (`gatheringState === "new"`) takes
+   * them now (e.g. TURN learned from a WHIP Link header before
+   * setLocalDescription gathers). A transport that already gathered keeps its
+   * live Connection untouched and takes them at its next ICE restart, which
+   * also replaces a TURN allocation made with the old settings.
    */
   updateIceServers() {
     const options = {
@@ -135,11 +135,10 @@ export class SecureTransportManager {
       turnUdpFamily: this.config.turnUdpFamily,
     };
     for (const iceTransport of this.iceTransports) {
-      // Only update gatherers that have never gathered in this generation.
-      // Applying after gathering would leave stale TURN protocols in
-      // Connection.protocols that get re-advertised on a later restart.
       if (iceTransport.gatheringState === "new") {
         iceTransport.setIceServers(options);
+      } else {
+        iceTransport.deferIceServers(options);
       }
     }
   }

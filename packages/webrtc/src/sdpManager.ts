@@ -195,7 +195,7 @@ export class SDPManager {
     const iceTransport = dtlsTransport.iceTransport;
 
     media.iceCandidates = iceTransport.localCandidates;
-    media.iceCandidatesComplete = iceTransport.gatheringState === "complete";
+    media.iceCandidatesComplete = iceTransport.localCandidatesComplete;
     media.iceParams = iceTransport.localParameters;
     media.iceOptions = "trickle";
 

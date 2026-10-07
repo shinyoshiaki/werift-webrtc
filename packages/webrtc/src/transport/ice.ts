@@ -65,6 +65,13 @@ type StagedLocalRestart = {
   password: string;
   candidates: IceCandidate[];
   emitted: boolean;
+  /**
+   * ICE servers changed since the current candidates were gathered, so the
+   * relay candidates and end-of-candidates of this generation are signalled
+   * only after the commit gathers with the new servers.
+   */
+  endDeferred?: boolean;
+  emittedCandidates?: IceCandidate[];
 };
 
 export class RTCIceTransport {
@@ -83,6 +90,11 @@ export class RTCIceTransport {
    */
   private appliedLocalRestart?: StagedLocalRestart;
   private committedCandidateEvents?: IceCandidate[];
+  /**
+   * ICE servers set (setConfiguration) after this transport gathered. They
+   * apply to the next gathering, that is the next ICE restart (JSEP 4.1.18).
+   */
+  private nextGatherIceServers?: Partial<IceOptions>;
   private readonly events = new DomEventTarget();
   onstatechange?: () => void;
   ongatheringstatechange?: () => void;
@@ -132,9 +144,27 @@ export class RTCIceTransport {
   }
 
   get localCandidates() {
-    return (
-      this.stagedLocalRestart?.candidates ?? this.iceGather.localCandidates
-    );
+    const staged = this.stagedLocalRestart;
+    if (!staged) return this.iceGather.localCandidates;
+    return this.stagedGatherPending()
+      ? staged.candidates.filter((candidate) => candidate.type !== "relay")
+      : staged.candidates;
+  }
+
+  /** Whether the local description may carry `a=end-of-candidates`. */
+  get localCandidatesComplete() {
+    return this.gatheringState === "complete" && !this.stagedGatherPending();
+  }
+
+  /**
+   * A staged restart whose generation is gathered again at the commit because
+   * the ICE servers changed; its relay candidates are not final before that.
+   */
+  private stagedGatherPending() {
+    const staged = this.stagedLocalRestart;
+    if (!staged) return false;
+    if (staged.emitted) return !!staged.endDeferred;
+    return !!this.nextGatherIceServers;
   }
 
   get localParameters() {
@@ -218,11 +248,14 @@ export class RTCIceTransport {
   emitStagedCandidates() {
     const staged = this.stagedLocalRestart;
     if (!staged || staged.emitted) return;
+    const candidates = this.localCandidates;
+    staged.endDeferred = this.stagedGatherPending();
     staged.emitted = true;
-    for (const candidate of staged.candidates) {
+    staged.emittedCandidates = candidates;
+    for (const candidate of candidates) {
       this.onIceCandidate.execute(candidate);
     }
-    this.onIceCandidate.execute(undefined);
+    if (!staged.endDeferred) this.onIceCandidate.execute(undefined);
   }
 
   rollbackLocalRestart() {
@@ -261,7 +294,9 @@ export class RTCIceTransport {
   async commitLocalRestartIfStaged() {
     const staged = this.stagedLocalRestart;
     if (!staged) return;
-    this.restart(false);
+    // Candidates already signalled with end-of-candidates fix this
+    // generation's servers; a later server change waits for the next restart.
+    this.restart(false, !staged.emitted || !!staged.endDeferred);
     if (this.connection.commitLocalCredentials) {
       this.connection.commitLocalCredentials(
         staged.usernameFragment,
@@ -276,6 +311,19 @@ export class RTCIceTransport {
     await this.gather();
     if (!staged.emitted) {
       this.committedCandidateEvents = this.iceGather.localCandidates;
+    } else if (staged.endDeferred) {
+      // Trickle what the new servers added, then end the generation.
+      const signalled = staged.emittedCandidates ?? [];
+      this.committedCandidateEvents = this.iceGather.localCandidates.filter(
+        (candidate) =>
+          !signalled.some(
+            (sent) =>
+              sent.ip === candidate.ip &&
+              sent.port === candidate.port &&
+              sent.protocol === candidate.protocol &&
+              sent.type === candidate.type,
+          ),
+      );
     }
   }
 
@@ -348,7 +396,13 @@ export class RTCIceTransport {
   }
 
   setIceServers(options: Partial<IceOptions>) {
+    this.nextGatherIceServers = undefined;
     this.iceGather.setIceServers(options);
+  }
+
+  /** Keep ICE servers for the next gathering (an ICE restart). */
+  deferIceServers(options: Partial<IceOptions>) {
+    this.nextGatherIceServers = options;
   }
 
   addRemoteCandidate = (candidate?: IceCandidate) => {
@@ -381,9 +435,11 @@ export class RTCIceTransport {
     this.connection.setRemoteParams(remoteParameters);
   }
 
-  restart(notifyNegotiation = true) {
+  restart(notifyNegotiation = true, applyNextGatherIceServers = true) {
     this.iceRestarts++;
     this.connection.restart();
+    const servers = this.nextGatherIceServers;
+    if (servers && applyNextGatherIceServers) this.setIceServers(servers);
     this.setState("new");
     // Use setGatheringState so onGatheringStateChange fires and the
     // SecureTransportManager aggregate iceGatheringState stays in sync.

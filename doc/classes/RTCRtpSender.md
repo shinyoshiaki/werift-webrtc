@@ -311,6 +311,25 @@ The same sender can resume sending after `replaceTrack(track)`.
 
 ***
 
+### proposeSend()
+
+> **proposeSend**(`codecs`): `void`
+
+Internal: a pending remote offer proposes `codecs` for the answer while
+the committed codec keeps sending until the final answer.
+
+#### Parameters
+
+##### codecs
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+
+#### Returns
+
+`void`
+
+***
+
 ### registerTrack()
 
 > **registerTrack**(`track`): `void`
@@ -402,6 +421,10 @@ Internal: return to a negotiation baseline's send parameters.
 ###### negotiatedCodecs
 
 [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[] = `...`
+
+###### proposedPrimaryCodec
+
+`undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) = `...`
 
 ###### redRedundantPayloadType
 
@@ -571,6 +594,10 @@ Internal: the negotiated send parameters, for a negotiation baseline.
 ##### negotiatedCodecs
 
 > **negotiatedCodecs**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+
+##### proposedPrimaryCodec
+
+> **proposedPrimaryCodec**: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
 
 ##### redRedundantPayloadType
 

@@ -54,6 +54,12 @@ export class RTCRtpTransceiver {
   readonly onCodecPreferencesChanged = new Event<[]>();
   pendingLocalOfferCodecs?: RTCRtpCodecParameters[];
   codecPreferencesNeedResolution = false;
+  /**
+   * Counts application changes to the codecs this transceiver may use
+   * (`setCodecPreferences()`, a track attached by `addTrack()`). A rollback
+   * keeps such a change instead of restoring the baseline's resolved codecs.
+   */
+  private codecChangeRevision = 0;
 
   get codecPreferences(): readonly RTCRtpCodecParameters[] | undefined {
     return this._codecPreferences;
@@ -71,8 +77,18 @@ export class RTCRtpTransceiver {
     // pending offer への answer が現在の codec を書き戻しても、この要求は
     // 次回の createOffer() まで失われない。
     this.codecPreferencesNeedResolution = true;
-    this._codecs = [];
+    this.markCodecsForResolution();
     this.onCodecPreferencesChanged.execute();
+  }
+
+  /**
+   * Internal: an application change makes the next offer / answer resolve
+   * this transceiver's codecs again. The live sender and receiver keep the
+   * committed codecs until a description is committed.
+   */
+  markCodecsForResolution() {
+    this.codecChangeRevision++;
+    this._codecs = [];
   }
   options: Partial<TransceiverOptions> = {};
   /**stop() 済み、または停止が確定した transceiver */
@@ -170,6 +186,7 @@ export class RTCRtpTransceiver {
         ...this.pendingLocalOfferCodecs,
       ],
       codecPreferencesNeedResolution: this.codecPreferencesNeedResolution,
+      codecChangeRevision: this.codecChangeRevision,
       headerExtensions: this.headerExtensions,
       offerDirection: this.offerDirection,
       currentDirection: this.currentDirection,
@@ -189,11 +206,19 @@ export class RTCRtpTransceiver {
   restoreNegotiationState(state: TransceiverNegotiationState) {
     this.mid = state.mid;
     this.mLineIndex = state.mLineIndex;
-    this.codecs = state.codecs;
     this.pendingLocalOfferCodecs = state.pendingLocalOfferCodecs && [
       ...state.pendingLocalOfferCodecs,
     ];
-    this.codecPreferencesNeedResolution = state.codecPreferencesNeedResolution;
+    // A codec change the application made during the rolled-back negotiation
+    // stays: the next offer / answer resolves the codecs again.
+    if (this.codecChangeRevision === state.codecChangeRevision) {
+      this.codecs = state.codecs;
+      this.codecPreferencesNeedResolution =
+        state.codecPreferencesNeedResolution;
+    } else {
+      this.codecs = [];
+      this.codecPreferencesNeedResolution = true;
+    }
     this.headerExtensions = state.headerExtensions;
     this.offerDirection = state.offerDirection;
     this.setCurrentDirection(state.currentDirection ?? undefined);
