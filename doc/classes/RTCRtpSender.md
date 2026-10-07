@@ -397,6 +397,8 @@ at the source-switch boundary.
 > **restoreSendParams**(`snapshot`): `void`
 
 Internal: return to a negotiation baseline's send parameters.
+The output RTP timeline (`rtpContinuity`) is not restored, and a payload
+type change does not switch continuity.
 
 #### Parameters
 

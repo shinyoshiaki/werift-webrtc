@@ -13,8 +13,10 @@ import { RTCRtpCodecParameters } from "../../src/media/parameters";
 import { RTCRtpSender } from "../../src/media/rtpSender";
 import { RTCStatsReport } from "../../src/media/stats";
 import {
+  createAudioCodec,
   createConnectedRtpSender,
   createDtlsTransport,
+  createIncompatibleAudioTrack,
   createRtpPacket,
   sentRtpHeaders,
 } from "../fixture";
@@ -1213,5 +1215,87 @@ describe("media/rtpSender RTP continuity", () => {
     const [header] = sentRtpHeaders(sendRtp);
     expect(header.sequenceNumber).toBe((last.sequenceNumber + 1) & 0xffff);
     expect(header.timestamp).toBe((last.timestamp + 1) >>> 0);
+  });
+
+  test("切替直前に再順序で古い seq が最後に送出されても、新ソース先頭は既出 seq と衝突しない", async () => {
+    const { sender, sendRtp } = arrangeSender();
+
+    // Arrange: 100, 101, 102 のあとに再順序の 99 が最後に送出される。
+    for (const seq of [100, 101, 102, 99]) {
+      await sender.sendRtp(createRtpPacket(seq, seq * 10));
+    }
+    const sentSeqs = sentRtpHeaders(sendRtp).map((h) => h.sequenceNumber);
+    sendRtp.mockClear();
+
+    // Act: ソースを切り替えて新ソースの先頭を送る。
+    sender.replaceRTP({ sequenceNumber: 0, timestamp: 0 });
+    await sender.sendRtp(createRtpPacket(5000, 77));
+
+    // Assert: 「最後の出力 +1」(=既出の 100) ではなく「最大出力 +1」(=103)。
+    const [header] = sentRtpHeaders(sendRtp);
+    expect(sentSeqs).toContain(100);
+    expect(header.sequenceNumber).toBe(103);
+    expect(sentSeqs).not.toContain(header.sequenceNumber);
+    expect(header.timestamp).toBe(1021);
+  });
+
+  test("codec 互換検査で拒否された replaceTrack は continuity を pending にしない", async () => {
+    const { sender, track, sendRtp } = arrangeSender();
+
+    // Arrange: 出力タイムラインを作る。
+    await sender.sendRtp(createRtpPacket(10, 1000));
+    await sender.sendRtp(createRtpPacket(11, 1960));
+    sendRtp.mockClear();
+
+    // Act: 非互換 codec の track へ差し替えようとする。
+    await expect(
+      sender.replaceTrack(createIncompatibleAudioTrack()),
+    ).rejects.toMatchObject({ name: "InvalidModificationError" });
+
+    // Assert: track は変わらず、切替は予約されていない。
+    expect(sender.track).toBe(track);
+
+    // Act: 同じソースで欠落を含む次のパケットを送る。
+    await sender.sendRtp(createRtpPacket(14, 4840));
+
+    // Assert: 再確定されないので入力の欠落ギャップがそのまま残る。
+    const [header] = sentRtpHeaders(sendRtp);
+    expect(header.sequenceNumber).toBe(14);
+    expect(header.timestamp).toBe(4840);
+  });
+
+  test("negotiation の restoreSendParams は出力タイムラインを巻き戻さず、PT 変更でも切り替えない", async () => {
+    const { sender, sendRtp } = arrangeSender();
+
+    // Arrange: ベースラインを取ったあとソース切替を含めて送出する。
+    const baseline = sender.snapshotSendParams();
+    await sender.sendRtp(createRtpPacket(1, 100));
+    sender.replaceRTP({ sequenceNumber: 0, timestamp: 0 });
+    await sender.sendRtp(createRtpPacket(500, 9000));
+    sendRtp.mockClear();
+
+    // Act: 別 PT の codec を適用し、同じソースの次パケットを送る。
+    sender.prepareSend({
+      codecs: [createAudioCodec(111)],
+      headerExtensions: [],
+    });
+    await sender.sendRtp(createRtpPacket(501, 9960));
+
+    // Assert: PT だけが変わり、seq/ts は同じ固定オフセットのまま。
+    const [changed] = sentRtpHeaders(sendRtp);
+    expect(changed.payloadType).toBe(111);
+    expect(changed.sequenceNumber).toBe(3);
+    expect(changed.timestamp).toBe(1061);
+
+    // Act: ベースラインへロールバックし、次パケットを送る。
+    sender.restoreSendParams(baseline);
+    await sender.sendRtp(createRtpPacket(502, 10920));
+
+    // Assert: PT はベースラインへ戻るが、送出済み seq は再利用されない。
+    const restored = sentRtpHeaders(sendRtp).at(-1)!;
+    expect(restored.payloadType).toBe(96);
+    expect(restored.sequenceNumber).toBe(4);
+    expect(restored.timestamp).toBe(2021);
+    expect(Object.keys(baseline)).not.toContain("rtpContinuity");
   });
 });

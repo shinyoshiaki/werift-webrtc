@@ -4,6 +4,7 @@ import { BufferSource, Input, MP4 } from "mediabunny";
 
 import { MP4Callback, type Track } from "../src/extra";
 import type { Mp4Output } from "../src/extra/processor/mp4";
+import { RtpHeader, RtpPacket } from "../src/rtp/rtp";
 import type { Transport } from "../src/transport";
 
 export function load(name: string) {
@@ -112,4 +113,61 @@ function sleep(timeout: number) {
   return new Promise<void>((resolve) => {
     setTimeout(resolve, timeout);
   });
+}
+
+export function createRtpPacket(
+  sequenceNumber: number,
+  timestamp: number,
+  {
+    ssrc = 0x11111111,
+    payloadType = 96,
+    marker = false,
+    payload = Buffer.from([sequenceNumber & 0xff]),
+  }: {
+    ssrc?: number;
+    payloadType?: number;
+    marker?: boolean;
+    payload?: Buffer;
+  } = {},
+) {
+  return new RtpPacket(
+    new RtpHeader({ sequenceNumber, timestamp, ssrc, payloadType, marker }),
+    payload,
+  );
+}
+
+/**
+ * Video-like packets: `frames` frames of `packetsPerFrame` packets that share
+ * one timestamp each. Sequence numbers and timestamps wrap at 16/32 bits.
+ */
+export function createFramePackets({
+  startSequenceNumber,
+  startTimestamp,
+  frames,
+  packetsPerFrame = 1,
+  timestampStep = 3000,
+  ssrc,
+}: {
+  startSequenceNumber: number;
+  startTimestamp: number;
+  frames: number;
+  packetsPerFrame?: number;
+  timestampStep?: number;
+  ssrc?: number;
+}) {
+  const packets: RtpPacket[] = [];
+  for (let frame = 0; frame < frames; frame++) {
+    const timestamp = (startTimestamp + frame * timestampStep) >>> 0;
+    for (let i = 0; i < packetsPerFrame; i++) {
+      const sequenceNumber =
+        (startSequenceNumber + frame * packetsPerFrame + i) & 0xffff;
+      packets.push(
+        createRtpPacket(sequenceNumber, timestamp, {
+          ssrc,
+          marker: i === packetsPerFrame - 1,
+        }),
+      );
+    }
+  }
+  return packets;
 }

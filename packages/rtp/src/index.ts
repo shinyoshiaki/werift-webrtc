@@ -14,6 +14,7 @@ export * from "./rtcp/rtpfb/nack";
 export * from "./rtcp/rtpfb/twcc";
 export * from "./rtcp/sdes";
 export * from "./rtcp/sr";
+export * from "./rtp/continuity";
 export * from "./rtp/headerExtension";
 export * from "./rtp/red/encoder";
 export * from "./rtp/red/handler";

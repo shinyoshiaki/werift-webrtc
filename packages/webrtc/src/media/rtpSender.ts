@@ -42,6 +42,7 @@ import {
   RtcpSourceDescriptionPacket,
   RtcpSrPacket,
   RtcpTransportLayerFeedback,
+  RtpContinuityRewriter,
   type RtpHeader,
   RtpPacket,
   SourceDescriptionChunk,
@@ -126,22 +127,6 @@ function resolvePendingRtpOptions(
   return { enabled: pendingRtp.enabled ?? true, maxLength };
 }
 
-function freezeRtpContinuityOffsets(
-  lastOutputSeq: number,
-  lastOutputTimestamp: number,
-  firstInputSeq: number,
-  firstInputTimestamp: number,
-  timestampStep: number,
-) {
-  return {
-    seqOffset: uint16Add(uint16Add(lastOutputSeq, 1), -firstInputSeq),
-    timestampOffset: uint32Add(
-      uint32Add(lastOutputTimestamp, timestampStep),
-      -firstInputTimestamp,
-    ),
-  };
-}
-
 export class RTCRtpSender {
   readonly type = "sender";
   readonly kind: Kind;
@@ -188,12 +173,11 @@ export class RTCRtpSender {
   receiverEstimatedMaxBitrate = 0n;
 
   // rtp
-  private sequenceNumber?: number;
-  private timestamp?: number;
-  private timestampOffset = 0;
-  private seqOffset = 0;
-  private rtpContinuityPending = false;
-  private pendingTimestampStep = 1;
+  /**
+   * Output RTP timeline. Live state tied to packets already sent: it is not
+   * part of `snapshotSendParams()`, so a negotiation rollback never rewinds it.
+   */
+  private readonly rtpContinuity = new RtpContinuityRewriter();
   private rtpCache: RtpPacket[] = [];
   private pendingRtp: PendingRtpItem[] = [];
   private drainingPendingRtp = false;
@@ -295,7 +279,11 @@ export class RTCRtpSender {
     this.proposedPrimaryCodec = primarySendCodecOf(codecs);
   }
 
-  /** Internal: return to a negotiation baseline's send parameters. */
+  /**
+   * Internal: return to a negotiation baseline's send parameters.
+   * The output RTP timeline (`rtpContinuity`) is not restored, and a payload
+   * type change does not switch continuity.
+   */
   restoreSendParams(snapshot: ReturnType<RTCRtpSender["snapshotSendParams"]>) {
     this.cname = snapshot.cname;
     this.mid = snapshot.mid;
@@ -500,7 +488,7 @@ export class RTCRtpSender {
       );
     }
 
-    if (this.sequenceNumber != undefined) {
+    if (this.rtpContinuity.state.highestOutputSequenceNumber != undefined) {
       this.scheduleRtpContinuity();
     }
 
@@ -513,7 +501,7 @@ export class RTCRtpSender {
    * The same sender can resume sending after `replaceTrack(track)`.
    */
   detachTrack() {
-    this.rtpContinuityPending = false;
+    this.rtpContinuity.cancelPendingSwitch();
     this.discardPendingRtp();
     if (this.disposeTrack) {
       this.disposeTrack();
@@ -524,7 +512,7 @@ export class RTCRtpSender {
 
   stop({ keepTrack = false }: { keepTrack?: boolean } = {}) {
     this.stopped = true;
-    this.rtpContinuityPending = false;
+    this.rtpContinuity.cancelPendingSwitch();
     this.discardPendingRtp();
     this.rtcpRunning = false;
     this.rtcpCancel.abort();
@@ -632,7 +620,7 @@ export class RTCRtpSender {
     this.scheduleRtpContinuity(timestampStep);
     log(
       "replaceRTP",
-      this.sequenceNumber,
+      this.rtpContinuity.state.highestOutputSequenceNumber,
       header.sequenceNumber,
       discontinuity,
       timestampStep,
@@ -640,8 +628,7 @@ export class RTCRtpSender {
   }
 
   private scheduleRtpContinuity(timestampStep = 1) {
-    this.rtpContinuityPending = true;
-    this.pendingTimestampStep = timestampStep;
+    this.rtpContinuity.switchSource({ timestampStep });
     this.rtpCache = [];
   }
 
@@ -658,31 +645,11 @@ export class RTCRtpSender {
     rtp = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp.clone();
 
     const { header, payload } = rtp;
-    const inputSequenceNumber = header.sequenceNumber;
-    const inputTimestamp = header.timestamp;
 
-    if (this.rtpContinuityPending) {
-      if (this.sequenceNumber != undefined && this.timestamp != undefined) {
-        const offsets = freezeRtpContinuityOffsets(
-          this.sequenceNumber,
-          this.timestamp,
-          inputSequenceNumber,
-          inputTimestamp,
-          this.pendingTimestampStep,
-        );
-        this.seqOffset = offsets.seqOffset;
-        this.timestampOffset = offsets.timestampOffset;
-      }
-      this.rtpContinuityPending = false;
-      this.pendingTimestampStep = 1;
-    }
-
+    // Already cloned above, so rewriting in place does not touch the caller's packet.
+    this.rtpContinuity.rewriteHeaderInPlace(header);
     header.ssrc = this.ssrc;
     header.payloadType = codec.payloadType;
-    header.timestamp = uint32Add(header.timestamp, this.timestampOffset);
-    header.sequenceNumber = uint16Add(header.sequenceNumber, this.seqOffset);
-    this.timestamp = header.timestamp;
-    this.sequenceNumber = header.sequenceNumber;
 
     const ntpTimestamp = ntpTime();
 

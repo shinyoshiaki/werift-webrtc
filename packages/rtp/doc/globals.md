@@ -42,6 +42,7 @@
 - [RtcpSrPacket](classes/RtcpSrPacket.md)
 - [RtcpTransportLayerFeedback](classes/RtcpTransportLayerFeedback.md)
 - [RtpBuilder](classes/RtpBuilder.md)
+- [RtpContinuityRewriter](classes/RtpContinuityRewriter.md)
 - [RtpHeader](classes/RtpHeader.md)
 - [RtpPacket](classes/RtpPacket.md)
 - [RunLengthChunk](classes/RunLengthChunk.md)
@@ -62,6 +63,8 @@
 ## Interfaces
 
 - [Extensions](interfaces/Extensions.md)
+- [RtpContinuityRewriterOptions](interfaces/RtpContinuityRewriterOptions.md)
+- [RtpContinuityState](interfaces/RtpContinuityState.md)
 - [StreamTransportOptions](interfaces/StreamTransportOptions.md)
 - [Transport](interfaces/Transport.md)
 - [videoOrientationPayload](interfaces/videoOrientationPayload.md)
@@ -138,6 +141,7 @@
 - [serializeSdesMid](functions/serializeSdesMid.md)
 - [serializeSdesRTPStreamID](functions/serializeSdesRTPStreamID.md)
 - [serializeTransportWideCC](functions/serializeTransportWideCC.md)
+- [timestampStepFromElapsed](functions/timestampStepFromElapsed.md)
 - [uint16Add](functions/uint16Add.md)
 - [uint16Gt](functions/uint16Gt.md)
 - [uint16Gte](functions/uint16Gte.md)

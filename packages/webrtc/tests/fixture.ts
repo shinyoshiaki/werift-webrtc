@@ -103,6 +103,19 @@ export function createConnectedRtpSender(options?: {
   return { sender, track, dtls, sendRtp, sendRtcp };
 }
 
+/** A track whose source codec (PCMU) is incompatible with `createAudioCodec()` (opus). */
+export function createIncompatibleAudioTrack() {
+  return new MediaStreamTrack({
+    kind: "audio",
+    remote: true,
+    codec: new RTCRtpCodecParameters({
+      mimeType: "audio/PCMU",
+      clockRate: 8000,
+      payloadType: 0,
+    }),
+  });
+}
+
 export type ConnectedRtpSenderSetup = ReturnType<
   typeof createConnectedRtpSender
 >;
