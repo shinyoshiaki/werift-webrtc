@@ -62,6 +62,8 @@ a.ref:hover { border-color: var(--blue); color: var(--blue); }
 }
 .invariant small { display: block; color: var(--ink-2); font-size: 12px; margin-bottom: 4px; letter-spacing: .05em; }
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; margin: 16px 0; }
+.cards.wide { grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); }
+td code { white-space: nowrap; }
 .card { background: var(--panel); border-radius: 12px; padding: 14px 16px; }
 .card h4 { margin: 0 0 6px; font-size: 14px; }
 .card ul { margin: 0; padding-left: 18px; font-size: 13.5px; }
@@ -249,39 +251,62 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
 <figcaption>pranswer 状態からの rollback も同じく baseline に戻ります（図では省略）。replace は「pending は最後の offer、baseline は最初の offer の前」で、前の pending を baseline まで戻してから新しい offer を適用します。入口: <a class="ref" href="../packages/webrtc/src/negotiationTransaction.ts" title="packages/webrtc/src/negotiationTransaction.ts:143">negotiationTransaction.ts:143</a> / <a class="ref" href="../packages/webrtc/src/negotiationTransaction.ts" title="packages/webrtc/src/negotiationTransaction.ts:175">negotiationTransaction.ts:175</a> / <a class="ref" href="../packages/webrtc/src/negotiationTransaction.ts" title="packages/webrtc/src/negotiationTransaction.ts:211">negotiationTransaction.ts:211</a> / <a class="ref" href="../packages/webrtc/src/negotiationTransaction.ts" title="packages/webrtc/src/negotiationTransaction.ts:223">negotiationTransaction.ts:223</a></figcaption>
 </figure>
 
-<h3>3.2 pending の間、何が live か</h3>
-<p>offer を出してから answer が確定するまで、current・pending・baseline の 3 つが同時に存在します。commit 境界より左側では、current のキーと経路は書き換えません。</p>
+<h3>3.2 交渉の途中で、どの設定が通信に使われているか</h3>
+<p>再交渉の途中には、「いま通信に使っている設定」と「相手と交渉中の新しい設定」が同時に存在します。この 2 つを混ぜずに扱うことが、このチケットの中心です。まず用語を定義し、具体例で流れを追います。</p>
+<div class="cards wide">
+  <div class="card"><h4><span class="tag now">current</span> 確定済みの設定</h4>最後に完了した offer / answer で合意した設定です（<code>currentLocalDescription</code> / <code>currentRemoteDescription</code>）。<b>実際に RTP や DataChannel を流しているのはこの設定</b>です。</div>
+  <div class="card"><h4><span class="tag stage">pending</span> 交渉中の設定</h4>offer を出したものの、まだ最終 answer で合意していない設定です（<code>pendingLocalDescription</code> / <code>pendingRemoteDescription</code>）。pranswer を受けても、まだ pending のままです。</div>
+  <div class="card"><h4>baseline 巻き戻し先</h4>交渉を始める直前の状態を丸ごと記録した snapshot です。交渉を取り消す（rollback する）ときに、ここへ戻します。</div>
+  <div class="card"><h4><span class="tag keep">commit</span> 確定する瞬間</h4><b>最終 answer（<code>type: "answer"</code>）の <code>setLocalDescription</code> / <code>setRemoteDescription</code> が成功した瞬間</b>です。ここで pending が current に入れ替わります。pranswer では commit しません。</div>
+</div>
+<p><b>例:</b> 音声だけで通話している（確定済みの設定 <b>A</b>）ときに、映像を追加する re-offer（新しい設定 <b>B</b>）を出し、相手から pranswer、最後に answer が返ってくる場合です。</p>
 <figure class="figure">
-<svg viewBox="0 0 960 300" width="100%" role="img" aria-label="current / pending / baseline のタイムライン">
-  <g font-size="12" class="sub">
-    <text x="150" y="20" text-anchor="middle">SLD / SRD(offer)</text>
-    <text x="400" y="20" text-anchor="middle">pranswer</text>
-    <text x="650" y="20" text-anchor="middle" style="fill:var(--green);font-weight:700">answer = commit 境界</text>
+<svg viewBox="0 0 960 330" width="100%" role="img" aria-label="映像を追加する再交渉での、確定済み・交渉中・巻き戻し先の変化">
+  <g font-size="12" text-anchor="middle">
+    <text x="110" y="18" font-weight="600">① 通話中</text><text class="sub" x="110" y="33">stable</text>
+    <text x="250" y="18" font-weight="600">② offer B を適用</text><text class="sub" x="250" y="33">have-local-offer</text>
+    <text x="460" y="18" font-weight="600">③ pranswer を適用</text><text class="sub" x="460" y="33">have-remote-pranswer</text>
+    <text x="700" y="18" font-weight="700" style="fill:var(--green)">④ answer を適用 = commit</text><text class="sub" x="700" y="33">stable</text>
   </g>
-  <g stroke-width="1">
-    <line x1="150" y1="28" x2="150" y2="290" stroke="var(--line)" stroke-dasharray="4 4"/>
-    <line x1="400" y1="28" x2="400" y2="290" stroke="var(--line)" stroke-dasharray="4 4"/>
-    <line x1="650" y1="28" x2="650" y2="290" stroke="var(--green)" stroke-width="2.5"/>
+  <g>
+    <line x1="250" y1="40" x2="250" y2="320" stroke="var(--line)" stroke-dasharray="4 4"/>
+    <line x1="460" y1="40" x2="460" y2="320" stroke="var(--line)" stroke-dasharray="4 4"/>
+    <line x1="700" y1="40" x2="700" y2="250" stroke="var(--green)" stroke-width="2.5"/>
   </g>
   <g font-size="12.5" font-weight="600">
-    <text x="10" y="64">current</text><text x="10" y="124">pending</text><text x="10" y="184">baseline</text><text x="10" y="252" style="fill:var(--orange)">rollback 時</text>
+    <text x="10" y="76">確定済み</text><text class="sub" x="10" y="91">current</text>
+    <text x="10" y="136">交渉中</text><text class="sub" x="10" y="151">pending</text>
+    <text x="10" y="196">巻き戻し先</text><text class="sub" x="10" y="211">baseline</text>
   </g>
-  <rect x="100" y="44" width="548" height="32" rx="6" fill="var(--blue-wash)" stroke="var(--blue)"/>
-  <text x="114" y="65" font-size="12.5">current A — RTP / DataChannel / 選択中の ICE pair はそのまま通信を続ける</text>
-  <rect x="652" y="44" width="298" height="32" rx="6" fill="var(--blue)"/>
-  <text x="666" y="65" font-size="12.5" style="fill:#fff">current = B（staged 値を一斉に有効化）</text>
-  <rect x="150" y="104" width="498" height="32" rx="6" fill="var(--violet-wash)" stroke="var(--violet)"/>
-  <text x="164" y="125" font-size="12.5">pending B — 新しいキーは追加してすぐ有効、current キーの変更は staged</text>
-  <circle cx="400" cy="150" r="5" fill="var(--violet)"/>
-  <text class="sub" x="410" y="154">provisional ICE check（選択中の pair は A のまま）</text>
-  <rect x="150" y="166" width="498" height="30" rx="6" fill="none" stroke="var(--ink-2)" stroke-dasharray="6 4"/>
-  <text x="164" y="186" font-size="12.5">rollback baseline = 開始時の snapshot（replacement でも最初のまま）</text>
-  <path d="M560,198 C560,222 580,236 604,236" fill="none" stroke="var(--orange)" stroke-width="2" marker-end="url(#aO)"/>
-  <rect x="606" y="220" width="344" height="40" rx="6" fill="var(--orange-wash)" stroke="var(--orange)"/>
-  <text x="618" y="237" font-size="12">baseline を復元。current A は無傷のまま。</text>
-  <text x="618" y="253" font-size="12">提案が作った transceiver / transport は閉じる。</text>
+  <rect x="100" y="62" width="598" height="32" rx="6" fill="var(--blue-wash)" stroke="var(--blue)"/>
+  <text x="114" y="83" font-size="12.5">A（音声のみ）で通話を続ける。②・③ の間も、通信は A の設定のまま</text>
+  <rect x="702" y="62" width="248" height="32" rx="6" fill="var(--blue)"/>
+  <text x="716" y="83" font-size="12.5" style="fill:#fff">B（音声＋映像）が確定済みになる</text>
+  <rect x="250" y="122" width="448" height="32" rx="6" fill="var(--violet-wash)" stroke="var(--violet)"/>
+  <text x="264" y="143" font-size="12.5">B（映像を追加する offer）。A に影響しない新しいキーだけ先に受け入れる</text>
+  <circle cx="460" cy="168" r="5" fill="var(--violet)"/>
+  <text class="sub" x="470" y="172">ICE は B 向けの check を裏で進めるだけ</text>
+  <rect x="250" y="182" width="448" height="30" rx="6" fill="none" stroke="var(--ink-2)" stroke-dasharray="6 4"/>
+  <text x="264" y="202" font-size="12.5">② の直前の状態の snapshot（rollback の戻り先）</text>
+  <path d="M600,214 C600,240 620,262 644,262" fill="none" stroke="var(--orange)" stroke-width="2" marker-end="url(#aO)"/>
+  <rect x="646" y="246" width="304" height="76" rx="6" fill="var(--orange-wash)" stroke="var(--orange)"/>
+  <text x="658" y="266" font-size="12" font-weight="600">④' answer の代わりに rollback した場合</text>
+  <text x="658" y="284" font-size="12">baseline に戻し、A で通話を続ける。</text>
+  <text x="658" y="301" font-size="12">B のために作った transceiver や</text>
+  <text x="658" y="317" font-size="12">transport は閉じる。</text>
 </svg>
+<figcaption>緑の縦線（④）が commit です。この線より左では、A が使っているキーと経路（SSRC・payload type・extmap ID・ICE の選択中の pair など）を書き換えません。</figcaption>
 </figure>
+<table>
+  <thead><tr><th>時点</th><th>signalingState</th><th>確定済み (current)</th><th>交渉中 (pending)</th><th>実際の通信と、この時点で起きること</th></tr></thead>
+  <tbody>
+    <tr><td>① 通話中</td><td><code>stable</code></td><td>A</td><td>なし</td><td>A で音声を送受信している。</td></tr>
+    <tr><td>② offer B を適用</td><td><code>have-local-offer</code></td><td>A</td><td>B</td><td>音声は A のまま流れる。baseline を記録する。B で増える映像の SSRC など、A と衝突しない<b>新しいキー</b>はすぐに追加する（相手が先に映像を送ってきても受け取れるように）。A が使っているキーを変える内容は、<span class="tag stage">staged</span>（保留）にするか、適用前に<span class="tag reject">拒否</span>する（5 章）。</td></tr>
+    <tr><td>③ pranswer を適用</td><td><code>have-remote-pranswer</code></td><td>A</td><td>B（相手の暫定回答つき）</td><td>音声は A のまま流れる。ICE restart を含む場合も、B 用の接続確認は裏で進めるだけで、通信中の経路は切り替えない（7 章）。</td></tr>
+    <tr><td>④ answer を適用（commit）</td><td><code>stable</code></td><td>B</td><td>なし</td><td>ここで初めて B に切り替える。staged にしていた変更、ICE restart、BUNDLE の組み替え、codec の変更を、この時点でまとめて反映する。</td></tr>
+    <tr><td>④' rollback</td><td><code>stable</code></td><td>A</td><td>なし（B は破棄）</td><td>baseline に戻す。A の通話は途切れずに続く。</td></tr>
+  </tbody>
+</table>
 
 <!-- ============================================================ -->
 <h2 id="pipeline">4. description 適用の順序</h2>

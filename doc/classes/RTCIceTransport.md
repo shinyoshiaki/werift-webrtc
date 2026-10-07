@@ -208,9 +208,12 @@
 
 ***
 
-### commitLocalRestart()
+### commitLocalRestartIfStaged()
 
-> **commitLocalRestart**(): `Promise`\<`void`\>
+> **commitLocalRestartIfStaged**(): `Promise`\<`void`\>
+
+Called unconditionally on every answer; actually restarts ICE only if
+this transport has a staged local restart. No-op otherwise.
 
 #### Returns
 
