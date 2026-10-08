@@ -117,10 +117,8 @@ develop に取り込まれた issue 705 の規則（`docs/design/705-media-rejec
 | --- | --- |
 | #716 SCTP の送信 MTU (`sctp.mtu`) | configuration として扱う。pending の remote offer が作る SCTP transport・別 DTLS transport への移動・rollback の復元のいずれも設定の MTU を使う。SCTP transport（pending のものを含む）がある間は変更できず、rollback で提案の transport が消えれば変更できる。退行なし（テストを追加）。 |
 | #721 / issue 705 の m-line 拒否・停止・再利用 | 2.5 のとおり。加えて、pending 中にアプリが追加した transceiver が停止済み m-line の位置を引き継いだ場合、rollback でその位置を返す（重複した `mLineIndex` を残さない）。 |
-| #688 TURN 割り当て失敗時の close、#731 TURN endpoint 選択と `turnUdpFamily` | ICE server 設定は configuration で rollback しない。gather 前の transport には即時、gather 済みの transport には次の ICE restart で適用する（restart の stage 後に変更した場合も含む。JSEP 4.1.18）。ICE restart は旧 TURN allocation を閉じ、commit 後に現在の設定で新しく allocate する（未使用の allocation を残さず、切れた allocation からも回復できる。詳細は 2.8）。 |
-| #729 codec 統合 (`setCodecPreferences()`、track source codec) | `setCodecPreferences()` と `addTrack()` による track の追加は application の変更として扱い、transceiver の解決済み codec だけを消して live の sender / receiver は変えない。pending 中の変更は rollback 後も残す（revision で baseline と区別する）。`createAnswer()` から answer 適用までの間の変更は、適用した answer の codec を commit し、次の offer で再解決する。remote offer の pending 中の `replaceTrack()` は、確定済みの codec に加えて answer が送信に使う codec とも track source を照合する。answer 事前検証は develop で廃止された track codec の採用を行わない。merge で失われていた #729 の 1 対 1 の codec 照合（`usedRemote`）と、local answer の codec を自分の設定順に並べる規則（remote answer は remote の順を保つ）を復元する。local answer の commit は、preference の変更有無に関係なく、answer した codec で受信表・remote track の codec・TWCC を置き換える。 |
-
-merge で落ちた変更は機能単位の確認では拾えないため、分岐点以降に develop が `packages/*/src` に加えた全 hunk を HEAD と突き合わせ、(a) transaction 設計で意図的に置き換えたもの、(b) 失われたもの、(c) 不明に分類する。(b) は復元し回帰テストを置く。hunk 単位の目視だけでは同じ hunk 内の 1 行の巻き戻し（answer の codec 順）を見落とすため、develop が追加した各行が現在の `packages/*/src` のどこかに存在するかを機械的に照合し、存在しない行を (a)〜(c) に分類する。見つかった (b) は #729 の 1 対 1 照合と answer の codec 順の 2 件で、それ以外の欠落行は transaction 設計・モジュール分割で置き換えたもの（(a)）だった。
+| #688 TURN 割り当て失敗時の close、#731 TURN endpoint 選択と `turnUdpFamily` | ICE server 設定は configuration で rollback しない。gather 前の transport には即時、gather 済みの transport には次の ICE restart で適用する（restart の stage 後に変更した場合も含む。JSEP 4.1.18）。ICE restart は現在の設定で作られた TURN allocation を再利用して relay 候補を再広告し、設定が変わった allocation は閉じてから作り直す（未使用の allocation を残さない）。設定が変わった restart の offer は古い relay 候補と end-of-candidates を出さず、commit で新しい設定で集め直した候補と end-of-candidates を trickle する。 |
+| #729 codec 統合 (`setCodecPreferences()`、track source codec) | `setCodecPreferences()` と `addTrack()` による track の追加は application の変更として扱い、transceiver の解決済み codec だけを消して live の sender / receiver は変えない。pending 中の変更は rollback 後も残す（revision で baseline と区別する）。`createAnswer()` から answer 適用までの間の変更は、適用した answer の codec を commit し、次の offer で再解決する。remote offer の pending 中の `replaceTrack()` は、確定済みの codec に加えて answer が送信に使う codec とも track source を照合する。answer 事前検証は develop で廃止された track codec の採用を行わない。 |
 
 ### 2.7 provisional ICE generation の明文化（追加要件）
 
@@ -134,18 +132,6 @@ merge で落ちた変更は機能単位の確認では拾えないため、分�
 | 終了 | 最終 answer、または rollback / replacement offer / 適用されない `createOffer()` の破棄 | answer では ICE agent を作り直して live generation を一から check し、provisional の nominate 結果は引き継がない。取り消しでは provisional を捨て、live generation が続く |
 
 初回の交渉と提案のために作る transport（BUNDLE split、pending-only）は provisional を持たず、pranswer で通常の接続を始める。provisional の nominate 結果を commit で引き継がないことは、6 章の「ICE restart の commit で RTP が途切れる」制約の原因として扱う。
-
-### 2.8 レビュー指摘で確定した規則（追加要件）
-
-- **trickle の非同期配送:** description 操作のキューの中では、remote 候補の SDP への記録と generation の振り分けだけを行う。mDNS 解決と checklist への投入は ICE 層で非同期に行い、解決しない `.local` 候補が `addIceCandidate`・後続の候補・description 操作を待たせない（ICE 層は EOC との順序を自分で保つ）。
-- **ICE restart の候補と commit:** restart generation の候補は offer / answer の作成時に確定する（保持した socket の host 候補と、その socket の既存の server-reflexive）。commit はそれを同期的に再広告するだけでサーバーを待たない。ICE server がない場合は description に end-of-candidates を含める。STUN / TURN がある場合は relay 候補と end-of-candidates を含めず、commit 後に背景で STUN を再問い合わせ（変わった mapping だけ追加）し、旧 TURN allocation を閉じて新しく allocate し、追加分と end-of-candidates を trickle する。まだ generation を持たない transport（restart と同時に追加した m-line など）は restart を stage しない。
-- **ICE の状態と consent:** pair を選んだ接続確認の成功を初期 consent とし（RFC 7675 §5.1）、選択直後から送信できる。接続確認の開始後に終わった gathering は ICE の状態を上書きしない。
-- **使用中の判定:** payload type と header extension ID が「使用中」なのは、その m-line の current の local と remote の両方にある場合だけ。offer に載ったが answer で受理されなかったものは、別の値で再提案できる。
-- **close:** `close()` は transaction だけが持つ transport（提案用に作成・pending 専用・BUNDLE owner・準備済み）も停止する。`closed` は終端で、`close()` に追い越された description 操作は `InvalidStateError` で失敗し、状態を戻さない。
-- **MID の照合 (#142):** 初回交渉の remote answer に限り、offer と位置・kind が一致する m-line の独自 MID（`0_srtp` など）は offer の MID に読み替え、BUNDLE の項目も追従する（RFC 3264 の位置対応）。session 確立後は answer の MID は offer と完全一致が必要（RFC 8843）。develop の #142 テストは fixture を変えずに通る。
-- **接続の再開始:** answer の適用で transport の接続を進めるとき、接続済みの ICE transport の接続確認はやり直さない（`iceConnectionState` を `checking` に戻さない）。DTLS handshake が進行中または完了していれば開始し直さない。
-- **受信表の置き換え:** answer の commit で受信表を置き換えるときは、pending の description が staged にした値も捨てる。answer で外した codec は、commit 時の staged 値の適用で戻らない。
-- **その他:** local offer の停止済み m-line の再利用は同じ kind に限る。answer の `a=setup:actpass`（RFC 5763 §5 で不正）は確立済み association の role を保ち、新しい association では client にする。negotiation 用の状態型と helper は `src/negotiation/internalState.ts` に置き、パッケージから export しない。
 
 ## 3. 技術的な実装アプローチ
 
@@ -220,7 +206,6 @@ commit path に例外が残る場合は、公開状態を切り替える前に�
 - [ ] invariant helper、両方向の transition matrix tests、RTP/ICE/BUNDLE/DataChannel の実通信回帰テストが追加されている。不要になった局所的な mutable state と cleanup が除去されている。
 - [ ] 2.4 のルーティングキー規則（追加は即時、current のキーの変更は拒否または commit まで保留、rollback で復元）が全キーで守られ、invariant helper がそれを検査している。
 - [ ] property test が CI の固定 seed と回帰 seed で通り、レビュー依頼前に深い探索と自己レビューを実施している。
-- [ ] 2.8 の規則がそれぞれ回帰テスト（修正前の実装で失敗し、修正後に通る）で確認されている。invariant helper は stable の受信表に確定していない payload type がないこと、staged の受信値が残らないこと、remote track の codec を検査する。
 - [ ] 2.7 の provisional ICE generation のライフサイクル（作成・相手の情報・check・終了）が設計文書とレビュー解説に図と表で記載され、実装と一致している。
 - [ ] 2.6 のとおり、分岐点以降に `develop` へマージされたソース変更を伴う機能（#716、#721、#688、#731、#729）を網羅的に確認し、調整が必要な箇所が修正され、回帰テストが修正前の実装で失敗し修正後に通る。
 - [ ] 2.5 のとおり issue 705 の挙動が transaction の中で動き、`tests/issue/705*.test.ts` は意図した挙動変更の 3 点を除いて develop と同じ期待で通る。
@@ -235,8 +220,7 @@ commit path に例外が残る場合は、公開状態を切り替える前に�
 - header extension の ID 対応は PeerConnection 全体で 1 つ。別 transport（非 BUNDLE）の m-line が同じ ID を別 URI に使う構成は未対応。current が使う ID の再割当てだけを拒否する。
 - `addTransceiver()` で作った未関連付けの transceiver を、remote offer が m-line に関連付けることがある（W3C は `addTrack()` 由来だけを再利用する）。werift の既存動作。
 - ICE restart の commit で ICE 層は旧 selected pair を手放すため、新 generation が nominate するまで RTP が途切れる。RFC 8445 / 8839 と Chrome は新しい pair が選ばれるまで旧 pair で送り続ける。pranswer 中の provisional generation の nominate 結果は commit で引き継がない（2.7）。
-- ICE server がなく、restart の offer が end-of-candidates まで通知した後に変更した ICE server 設定は、その restart では使わず次の restart で使う。
-- STUN / TURN がある場合、restart の relay 候補と end-of-candidates は commit 後に届く。relay だけの構成では新しい allocation ができるまで新 generation の候補がない。
+- ICE restart の offer が end-of-candidates まで通知した後に変更した ICE server 設定は、その restart では使わず次の restart で使う。
 - `setConfiguration` で `iceTransportPolicy` だけを変えても既存の ICE transport には反映されない。`close()` と並行して完了した TURN allocation は閉じられない（いずれも `develop` から既存）。
 - remote description の適用中に、送信 track の codec に合わせて設定の codec 順序と動的 payload type が調整されることがある。影響するのは後の offer だけで、current の RTP には影響せず、rollback でも戻らない。
 - m-line の再利用で置き換わる transceiver は、再利用する offer の適用時点で stopped になる（current の m-line は既に拒否済みで、current の通信は使っていない）。rollback で戻る。

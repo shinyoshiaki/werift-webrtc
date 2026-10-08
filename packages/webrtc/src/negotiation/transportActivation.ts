@@ -152,22 +152,26 @@ export class TransportActivation {
     const res = await Promise.allSettled(
       this.secure.dtlsTransports.map(async (dtlsTransport) => {
         const { iceTransport } = dtlsTransport;
-        if (
-          iceTransport.state === "connected" &&
-          dtlsTransport.state === "connected"
-        ) {
+        // A handshake already running (or done) finishes on its own.
+        const dtlsStarted = () =>
+          dtlsTransport.state === "connected" ||
+          dtlsTransport.state === "connecting";
+        if (iceTransport.state === "connected" && dtlsStarted()) {
           return;
         }
-        const checkDtlsConnected = () => dtlsTransport.state === "connected";
 
         this.secure.setConnectionState("connecting");
 
-        await iceTransport.start().catch((err) => {
-          log("iceTransport.start failed", err);
-          throw err;
-        });
+        // Restarting checks on a connected ICE transport would leave it in
+        // "checking": the connection is already up and reports no new state.
+        if (iceTransport.state !== "connected") {
+          await iceTransport.start().catch((err) => {
+            log("iceTransport.start failed", err);
+            throw err;
+          });
+        }
 
-        if (checkDtlsConnected()) {
+        if (dtlsStarted()) {
           return;
         }
 

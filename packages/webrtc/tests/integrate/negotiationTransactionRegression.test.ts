@@ -20,14 +20,18 @@ import {
   createIceRestartPranswer,
   createSplitOffer,
   createUnnegotiatedPeers,
+  createUnnegotiatedVideoPeers,
   currentRemoteGeneration,
   elapsedMs,
   expectSessionAlive,
   heldTransports,
+  holdDtlsStart,
   holdNextGather,
   negotiate,
+  offeredVideoCodecs,
   pliReaches,
   provisionalIce,
+  receiveCodecNames,
   rewriteVideoFeedback,
   sectionOf,
   sendAndExpectRtp,
@@ -36,6 +40,8 @@ import {
   videoWithoutFeedback,
   waitForCommittedNomination,
   waitForDtlsConnected,
+  waitForDtlsHandshake,
+  waitForIce,
   waitForRemoteCandidatePort,
 } from "./negotiationTransactionUtils";
 
@@ -1029,6 +1035,99 @@ describe("negotiation transaction live-state regressions", () => {
       expect(codecs.map((codec) => codec.name.toUpperCase())).toEqual(["H264"]);
       assertNegotiationInvariants(answerer);
       assertNegotiationInvariants(offerer);
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("an answer applied during the DTLS handshake keeps the connected ICE state", async () => {
+    const { offerer, answerer, outgoing, incoming, close } =
+      createUnnegotiatedVideoPeers();
+    try {
+      // Arrange: 初回交渉の answerer 側 DTLS 開始を止め、offerer の handshake を
+      // ICE 接続済み・DTLS connecting の状態に留める。
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      const held = holdDtlsStart(answerer);
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      await waitForIce(offerer);
+      await waitForDtlsHandshake(offerer.dtlsTransports[0]);
+
+      // Act: handshake 中に次の offer/answer を交換し、answer を適用する。
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+
+      // Assert: 接続済みの ICE は checking に戻らない。
+      expect(offerer.iceConnectionState).toBe("connected");
+
+      // Act: 止めていた handshake を進める。
+      held.release();
+      await waitForDtlsConnected(offerer.dtlsTransports[0]);
+
+      // Assert: ICE は connected のまま、RTP も届く。
+      expect(offerer.iceConnectionState).toBe("connected");
+      await sendAndExpectRtp(outgoing, await incoming(), "after handshake");
+    } finally {
+      await close();
+    }
+  });
+
+  test("the local answer lists codecs in the answerer's preference order", async () => {
+    // Arrange: offerer は H264 → VP8、answerer は VP8 → H264 の順で設定する。
+    const offerer = new RTCPeerConnection({
+      codecs: { video: [useH264(), useVP8()] },
+    });
+    const answerer = new RTCPeerConnection({
+      codecs: { video: [useVP8(), useH264()] },
+    });
+    try {
+      offerer.addTransceiver("video");
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+
+      // Act: answer を作る。
+      const answer = await answerer.createAnswer();
+
+      // Assert: answer の codec 順は remote offer ではなく answerer の設定順になる。
+      expect(offeredVideoCodecs(answer.sdp)).toEqual(["VP8", "H264"]);
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("a codec the local answer dropped leaves the receive table even when the re-offer staged it", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers({
+        codecs: { video: [useVP8(), useH264()] },
+      });
+    try {
+      // Arrange: current の VP8 から RTCP feedback を外した re-offer を受け、
+      // 同じ payload type の VP8 を staged 値にする。answerer は H264 だけを優先する。
+      const transceiver = answerer.getTransceivers()[0];
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription({
+        type: "offer",
+        sdp: rewriteVideoFeedback(offerer.localDescription!.sdp, "remove"),
+      });
+      transceiver.setCodecPreferences([useH264()]);
+      const answer = await answerer.createAnswer();
+      expect(offeredVideoCodecs(answer.sdp)).toEqual(["H264"]);
+
+      // Act: H264 だけの answer を適用して commit する。
+      await answerer.setLocalDescription(answer);
+      await offerer.setRemoteDescription(answerer.localDescription!);
+
+      // Assert: answer で外した VP8 は staged 値からも戻らず、受信表は H264 だけになる。
+      expect(Object.values(receiveCodecNames(transceiver.receiver))).toEqual([
+        "H264",
+      ]);
+      expect(incoming.codec?.mimeType.toLowerCase()).toBe("video/h264");
+      assertNegotiationInvariants(answerer);
+      assertNegotiationInvariants(offerer);
+      await sendAndExpectRtp(outgoing, incoming, "after H264-only answer");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
