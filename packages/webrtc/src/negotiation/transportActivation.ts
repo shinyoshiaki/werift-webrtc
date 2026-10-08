@@ -1,4 +1,4 @@
-import { debug } from "../imports/common";
+import { type Event, debug } from "../imports/common";
 import type { TransceiverManager } from "../media";
 import type { NegotiationTransaction } from "../negotiationTransaction";
 import type { SctpTransportManager } from "../sctpManager";
@@ -145,36 +145,60 @@ export class TransportActivation {
     }
   }
 
-  /** Start ICE, DTLS and SCTP on every live transport. */
+  /**
+   * Start ICE, DTLS and SCTP on every live transport that still needs it.
+   *
+   * ICE checks start only for a generation that has not run them (the first
+   * negotiation or a committed restart); checks already running are
+   * awaited, and an established, completed or failed generation is left to
+   * its own state machine (consent freshness, a later ICE restart). A DTLS
+   * handshake already running is awaited rather than started again. The
+   * connection state changes only when this call started or awaited work.
+   */
   async connect() {
     log("start connect");
 
     const res = await Promise.allSettled(
       this.secure.dtlsTransports.map(async (dtlsTransport) => {
         const { iceTransport } = dtlsTransport;
-        // A handshake already running (or done) finishes on its own.
-        const dtlsStarted = () =>
-          dtlsTransport.state === "connected" ||
-          dtlsTransport.state === "connecting";
-        if (iceTransport.state === "connected" && dtlsStarted()) {
-          return;
-        }
+        let progressed = false;
+        let iceReady = ["connected", "completed"].includes(iceTransport.state);
 
-        this.secure.setConnectionState("connecting");
-
-        // Restarting checks on a connected ICE transport would leave it in
-        // "checking": the connection is already up and reports no new state.
-        if (iceTransport.state !== "connected") {
+        if (!iceTransport.checksStarted) {
+          progressed = true;
+          this.secure.setConnectionState("connecting");
           await iceTransport.start().catch((err) => {
             log("iceTransport.start failed", err);
             throw err;
           });
+          iceReady = true;
+        } else if (iceTransport.state === "checking") {
+          // Checks an earlier connect() (or a pranswer) started are awaited,
+          // never started again.
+          progressed = true;
+          await iceTransport.checksSettled();
+          iceReady = ["connected", "completed"].includes(iceTransport.state);
+          if (!iceReady) {
+            throw new Error(`ICE transport ${iceTransport.state}`);
+          }
         }
 
-        if (dtlsStarted()) {
-          return;
+        if (dtlsTransport.state === "connecting") {
+          const state = await settledState(
+            dtlsTransport.onStateChange,
+            () => dtlsTransport.state,
+            (state) => state !== "connecting",
+          );
+          if (state !== "connected") {
+            throw new Error(`DTLS transport ${state}`);
+          }
+          return true;
+        }
+        if (dtlsTransport.state !== "new" || !iceReady) {
+          return progressed;
         }
 
+        this.secure.setConnectionState("connecting");
         await dtlsTransport.start().catch((err) => {
           log("dtlsTransport.start failed", err);
           throw err;
@@ -186,12 +210,13 @@ export class TransportActivation {
         ) {
           await this.sctp.connectSctp();
         }
+        return true;
       }),
     );
 
     if (res.find((r) => r.status === "rejected")) {
       this.secure.setConnectionState("failed");
-    } else {
+    } else if (res.some((r) => r.status === "fulfilled" && r.value)) {
       this.secure.setConnectionState("connected");
     }
   }
@@ -217,4 +242,30 @@ export class TransportActivation {
       }),
     );
   }
+}
+
+/**
+ * The first state `done` accepts: the current one, or a later one `event`
+ * reports. A completed event (the transport stopped) settles with the state
+ * the transport is left in.
+ */
+function settledState<S>(
+  event: Event<[S]>,
+  current: () => S,
+  done: (state: S) => boolean,
+) {
+  return new Promise<S>((resolve) => {
+    if (done(current()) || event.ended) {
+      resolve(current());
+      return;
+    }
+    const { unSubscribe } = event.subscribe(
+      (state) => {
+        if (!done(state)) return;
+        unSubscribe();
+        resolve(state);
+      },
+      () => resolve(current()),
+    );
+  });
 }
