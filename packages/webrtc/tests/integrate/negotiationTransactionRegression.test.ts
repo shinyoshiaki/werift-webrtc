@@ -1605,4 +1605,109 @@ describe("negotiation transaction live-state regressions", () => {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
   });
+
+  test.each([
+    { label: "video only", withAudio: false },
+    { label: "with a new audio", withAudio: true },
+  ])(
+    "a saved ICE restart offer re-applied after its rollback commits its generation ($label)",
+    async ({ withAudio }) => {
+      const { offerer, answerer, outgoing, incoming } =
+        await createConnectedVideoPeers();
+      try {
+        // Arrange: (必要なら audio を足して) ICE restart の offer を作って保存する。
+        const audioOut = new MediaStreamTrack({ kind: "audio" });
+        const audio = withAudio
+          ? offerer.addTransceiver(audioOut, { direction: "sendonly" })
+          : undefined;
+        const offer = await offerer.createOffer({ iceRestart: true });
+        const ufrag = offer.sdp.match(/^a=ice-ufrag:(\S+)/m)![1];
+
+        // Act: 適用 → rollback → 同じ offer を再適用し、answer で確定する。
+        await offerer.setLocalDescription(offer);
+        await offerer.setLocalDescription({ type: "rollback" });
+        await offerer.setLocalDescription(offer);
+        await answerer.setRemoteDescription(offerer.localDescription!);
+        await answerer.setLocalDescription(await answerer.createAnswer());
+        await offerer.setRemoteDescription(answerer.localDescription!);
+        await Promise.all([
+          waitForCommittedNomination(offerer),
+          waitForCommittedNomination(answerer),
+        ]);
+
+        // Assert: offer の restart generation で確定し、映像 (と audio) の RTP が届く。
+        expect(offerer.iceTransports[0].connection.localUsername).toBe(ufrag);
+        assertNegotiationInvariants(offerer);
+        assertNegotiationInvariants(answerer);
+        await sendAndExpectRtp(
+          outgoing,
+          incoming,
+          "video after re-applied restart",
+        );
+        if (audio) {
+          expect(audio.stopped).toBe(false);
+          const received = answerer
+            .getTransceivers()
+            .find((t) => t.mid === audio.mid)!;
+          await sendAndExpectRtp(
+            audioOut,
+            received.receiver.track,
+            "audio after re-applied restart",
+          );
+        }
+      } finally {
+        await Promise.allSettled([offerer.close(), answerer.close()]);
+      }
+    },
+  );
+
+  test("re-applying a saved restart offer whose generation is gone fails without partial changes", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers();
+    try {
+      // Arrange: audio を足した ICE restart offer を適用して rollback し、その後で
+      // 相手からの ICE restart を確定して ICE generation を進める。
+      const audioOut = new MediaStreamTrack({ kind: "audio" });
+      const audio = offerer.addTransceiver(audioOut, { direction: "sendonly" });
+      const offer = await offerer.createOffer({ iceRestart: true });
+      await offerer.setLocalDescription(offer);
+      await offerer.setLocalDescription({ type: "rollback" });
+      answerer.restartIce();
+      await negotiatePair(answerer, offerer);
+      await Promise.all([
+        waitForCommittedNomination(offerer),
+        waitForCommittedNomination(answerer),
+      ]);
+      const ufrag = offerer.iceTransports[0].connection.localUsername;
+
+      // Act / Assert: 保存した offer の再適用は拒否される。
+      await expect(offerer.setLocalDescription(offer)).rejects.toMatchObject({
+        name: "InvalidModificationError",
+      });
+
+      // Assert: MID・m-line 位置・restart generation の変更は残らない。
+      expect(offerer.signalingState).toBe("stable");
+      expect(audio.mid).toBeNull();
+      expect(audio.mLineIndex).toBeUndefined();
+      expect(offerer.iceTransports[0].hasStagedRestart).toBe(false);
+      expect(offerer.iceTransports[0].connection.localUsername).toBe(ufrag);
+      assertNegotiationInvariants(offerer);
+
+      // Act: offer を作り直して交渉する。
+      await negotiatePair(offerer, answerer);
+
+      // Assert: 作り直した offer では audio も交渉され、映像・音声とも届く。
+      const received = answerer
+        .getTransceivers()
+        .find((t) => t.mid === audio.mid)!;
+      await sendAndExpectRtp(outgoing, incoming, "video after fresh offer");
+      await sendAndExpectRtp(
+        audioOut,
+        received.receiver.track,
+        "audio after fresh offer",
+      );
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
 });
