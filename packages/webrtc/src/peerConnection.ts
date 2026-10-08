@@ -1101,6 +1101,16 @@ export class RTCPeerConnection extends EventTarget {
             .find((t) => t.mid === media.rtp.muxId && !t.stopped);
           transceiver?.commitStopped({ rejected: true });
         }
+        // A local answer rejecting m=application (RFC 8841 section 10.4)
+        // closes the association an earlier pranswer started, without
+        // waiting for the remote ABORT.
+        if (
+          description.media.some(
+            (media) => media.kind === "application" && media.port === 0,
+          )
+        ) {
+          await this.sctpManager.rejectApplication();
+        }
       }
 
       // for trickle ice

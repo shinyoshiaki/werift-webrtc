@@ -569,6 +569,34 @@ describe("late SCTP under pranswer", () => {
     }
   }, 15000);
 
+  test("a local final answer rejecting m=application closes the provisional association", async () => {
+    // Arrange: pranswer で後付け channel を開く。
+    const { offerer, answerer } = await createConnectedVideoPeers();
+    try {
+      const remote = answerer.onDataChannel.watch((c) => c.label === "late");
+      const local = offerer.createDataChannel("late");
+      const answer = await exchangePranswer(offerer, answerer);
+      await waitForChannelState(local, "open");
+      const [received] = await remote;
+
+      // Act: answerer 自身の final answer で m=application を拒否する。
+      await answerer.setLocalDescription({
+        type: "answer",
+        sdp: rejectApplicationSection(answer),
+      });
+
+      // Assert: 相手の ABORT を待たず、answerer 側で association が閉じ binding が解除される。
+      expect(received.readyState).toBe("closed");
+      expect(answerer.sctpRemotePort).toBeUndefined();
+      expect(answerer.sctpTransport!.associationActive).toBe(false);
+      assertNegotiationInvariants(answerer);
+      // Assert: offerer 側も ABORT を受けて channel が閉じる。
+      await waitForChannelState(local, "closed");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  }, 15000);
+
   test("a final answer changing the sctp-port is rejected and the association continues", async () => {
     // Arrange: pranswer で後付け channel を開く。
     const { offerer, answerer } = await createConnectedVideoPeers();
