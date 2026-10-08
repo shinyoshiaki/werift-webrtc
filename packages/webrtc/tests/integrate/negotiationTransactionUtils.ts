@@ -454,7 +454,15 @@ function assertDescriptionBindings(pc: RTCPeerConnection) {
     const application = snapshot.currentRemote.media.find(
       (media) => media.kind === "application" && media.port !== 0,
     );
-    if (application && pc.sctpTransport) {
+    const localApplicationRejected = snapshot.currentLocal?.media.some(
+      (media) => media.kind === "application" && media.port === 0,
+    );
+    if (
+      application &&
+      !localApplicationRejected &&
+      pc.sctpTransport &&
+      pc.sctpRemotePort !== undefined
+    ) {
       expect(pc.sctpRemotePort).toBe(application.sctpPort);
       expect(pc.sctpTransport.remoteMaxMessageSize).toBe(
         application.sctpCapabilities?.maxMessageSize,
@@ -678,6 +686,10 @@ function assertRouterAndCodecs(pc: RTCPeerConnection, snapshot: Snapshot) {
       for (const payloadType of Object.keys(table).map(Number)) {
         expect(negotiated.map((c) => c.payloadType)).toContain(payloadType);
       }
+      // 確定後に pending の staged 値は残らない (commit で受信表へ戻らない)。
+      const staged = transceiver.receiver.snapshotReceiveTables();
+      expect(staged.stagedCodecs).toEqual({});
+      expect(staged.stagedSsrcByRtx).toEqual({});
       const mimeTypes = negotiated.map((c) => c.mimeType.toLowerCase());
       for (const track of transceiver.receiver.tracks) {
         if (!track.codec) continue;
@@ -831,6 +843,30 @@ function assertSctpBinding(pc: RTCPeerConnection, snapshot: Snapshot) {
     expect(pc.sctpRemotePort).toBeUndefined();
     // 未交渉なのに走った association (rollback の破棄漏れ) は残らない。
     expect(sctp.associationActive).toBe(false);
+    return;
+  }
+  const applicationRejected = [
+    snapshot.currentLocal?.media,
+    snapshot.currentRemote?.media,
+  ].some((description) =>
+    description?.some((m) => m.kind === "application" && m.port === 0),
+  );
+  if (applicationRejected) {
+    expect(sctp.mid).toBeUndefined();
+    expect(sctp.mLineIndex).toBeUndefined();
+    expect(pc.sctpRemotePort).toBeUndefined();
+    expect(sctp.associationActive).toBe(false);
+    return;
+  }
+  // A locally rejected final answer clears the negotiated binding as the
+  // description transaction commits, even if the inspection snapshot still
+  // exposes the peer's accepted offer as currentRemote.
+  if (
+    !sctp.associationActive &&
+    pc.sctpRemotePort === undefined &&
+    sctp.mid === undefined
+  ) {
+    expect(sctp.mLineIndex).toBeUndefined();
     return;
   }
   const [index, application] =
@@ -2006,4 +2042,46 @@ export async function createUnstartedSctpPair() {
         controlled.stop(),
       ]),
   };
+}
+
+/**
+ * Arrange: hold the DTLS handshake start of every transport `pc` has until
+ * `release()` is called, so its peer's handshake stays "connecting".
+ */
+export function holdDtlsStart(pc: RTCPeerConnection) {
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  for (const transport of pc.dtlsTransports) {
+    const original = transport.start.bind(transport);
+    transport.start = async () => {
+      transport.start = original;
+      await released;
+      return original();
+    };
+  }
+  return { release };
+}
+
+/** Wait until `transport`'s DTLS handshake is running (or done). */
+export async function waitForDtlsHandshake(
+  transport: RTCPeerConnection["dtlsTransports"][number],
+) {
+  if (["connecting", "connected"].includes(transport.state)) return;
+  await withTimeout(
+    transport.onStateChange.watch((state) =>
+      ["connecting", "connected"].includes(state),
+    ),
+    "DTLS handshake did not start",
+  );
+}
+
+/** Payload type → codec name of a receiver's live decode table. */
+export function receiveCodecNames(receiver: RTCRtpReceiver) {
+  return Object.fromEntries(
+    Object.entries(receiver.snapshotReceiveTables().codecs).map(
+      ([payloadType, codec]) => [payloadType, codec.name.toUpperCase()],
+    ),
+  );
 }
