@@ -1963,3 +1963,48 @@ export function recordIceConnectionStates(pc: RTCPeerConnection) {
   });
   return states;
 }
+
+/**
+ * Shared Arrange: a first negotiation connected at its pranswer. The
+ * offerer sends video (sendrecv) and the answerer replaces the remote-created
+ * transceiver's track before answering, so the application holds it. Both
+ * peers are in the pranswer state with ICE and DTLS connected.
+ */
+export async function createInitialPranswerConnection() {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  offerer.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
+    direction: "sendrecv",
+  });
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  const remoteCreated = answerer.getTransceivers()[0];
+  await remoteCreated.sender.replaceTrack(
+    new MediaStreamTrack({ kind: "video" }),
+  );
+  const pranswer = (await answerer.createAnswer()).sdp;
+  await answerer.setLocalDescription({ type: "pranswer", sdp: pranswer });
+  await offerer.setRemoteDescription({ type: "pranswer", sdp: pranswer });
+  await withTimeout(
+    Promise.all(
+      [offerer, answerer].map((pc) =>
+        waitForDtlsConnected(pc.dtlsTransports[0]),
+      ),
+    ),
+    "provisional DTLS did not connect",
+  );
+  return {
+    offerer,
+    answerer,
+    pranswer,
+    remoteCreated,
+    close: () => Promise.allSettled([offerer.close(), answerer.close()]),
+  };
+}
+
+/** `sdp` with every `a=setup` role reversed (active ↔ passive). */
+export function reverseSetupRole(sdp: string) {
+  return sdp.replace(/^a=setup:(active|passive)/gm, (_, role) =>
+    role === "active" ? "a=setup:passive" : "a=setup:active",
+  );
+}

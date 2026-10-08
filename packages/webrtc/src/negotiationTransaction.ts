@@ -1,6 +1,7 @@
 import type { RTCRtpTransceiver, RtpRouter, TransceiverManager } from "./media";
 import type {
   RouterSnapshot,
+  TransceiverNegotiationState,
   TransceiversNegotiationState,
 } from "./negotiation/internalState";
 import type { SctpNegotiationState, SctpTransportManager } from "./sctpManager";
@@ -93,6 +94,11 @@ export class NegotiationTransaction {
    * commit (e.g. a data channel's own transport that BUNDLE replaced) stops.
    */
   private readonly createdTransports = new Set<RTCDtlsTransport>();
+  /** Negotiation state of each transceiver a remote offer created, at creation. */
+  private readonly createdStates = new WeakMap<
+    RTCRtpTransceiver,
+    TransceiverNegotiationState
+  >();
   private revision = 0;
   private phase:
     | "idle"
@@ -285,6 +291,9 @@ export class NegotiationTransaction {
 
   rememberRemoteTransceiver(transceiver: RTCRtpTransceiver) {
     this.resources.remoteCreated.add(transceiver);
+    // Before the offer negotiates anything on it: a rollback that keeps the
+    // transceiver (the application uses it) returns it to this state.
+    this.createdStates.set(transceiver, transceiver.snapshotNegotiationState());
   }
 
   rememberOwnerTransport(transport: RTCDtlsTransport) {
@@ -397,6 +406,7 @@ export class NegotiationTransaction {
     const removedTransports = this.transceivers.restoreNegotiationState(
       baseline.transceivers,
       added,
+      (transceiver) => this.createdStates.get(transceiver),
     );
     const live = this.transceivers.getTransceivers();
     this.router.restoreRoutes(baseline.routes, {

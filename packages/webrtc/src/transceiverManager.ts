@@ -28,7 +28,10 @@ import {
 } from "./media/codecCompatibility";
 import type { RTCStats } from "./media/stats";
 import { captureTrackSourceCodecs, getTrackSourceCodecs } from "./media/track";
-import type { TransceiversNegotiationState } from "./negotiation/internalState";
+import type {
+  TransceiverNegotiationState,
+  TransceiversNegotiationState,
+} from "./negotiation/internalState";
 import {
   type MediaDescription,
   type SessionDescription,
@@ -130,6 +133,9 @@ export class TransceiverManager {
   restoreNegotiationState(
     snapshot: TransceiversNegotiationState,
     added: Iterable<RTCRtpTransceiver>,
+    createdState: (
+      transceiver: RTCRtpTransceiver,
+    ) => TransceiverNegotiationState | undefined = () => undefined,
   ) {
     for (const [transceiver, state] of snapshot.states) {
       transceiver.restoreNegotiationState(state.transceiver);
@@ -138,6 +144,12 @@ export class TransceiverManager {
     const removedTransports: RTCDtlsTransport[] = [];
     for (const transceiver of added) {
       if (transceiver.heldByApplication) {
+        // Kept for the application, it returns to the state it was created
+        // with (no direction, codecs or routes the proposal negotiated) and
+        // loses its m-line association.
+        const created = createdState(transceiver);
+        if (created) transceiver.restoreNegotiationState(created);
+        this.notifiedRemoteTrack.delete(transceiver);
         transceiver.mid = null;
         transceiver.mLineIndex = undefined;
         continue;

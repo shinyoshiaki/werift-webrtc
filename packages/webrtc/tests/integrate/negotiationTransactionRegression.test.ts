@@ -18,6 +18,7 @@ import {
   createDuplexSession,
   createH264OnlyReoffer,
   createIceRestartPranswer,
+  createInitialPranswerConnection,
   createSplitOffer,
   createUnnegotiatedPeers,
   createUnnegotiatedVideoPeers,
@@ -34,6 +35,7 @@ import {
   provisionalIce,
   receiveCodecNames,
   recordIceConnectionStates,
+  reverseSetupRole,
   rewriteVideoFeedback,
   sectionOf,
   sendAndExpectRtp,
@@ -1182,6 +1184,125 @@ describe("negotiation transaction live-state regressions", () => {
       await sendAndExpectRtp(outgoing, incoming, "after H264-only answer");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("end-of-candidates trickled on a non-tag BUNDLE m-line completes the restarted generation", async () => {
+    const { offerer, answerer } = await createConnectedVideoPeers(
+      {},
+      { withAudio: true },
+    );
+    try {
+      // Arrange: audio (BUNDLE の非 tag) を含む session で、EOC を含まない ICE restart の
+      // re-offer を answerer に適用する。
+      offerer.restartIce();
+      await offerer.setLocalDescription(await offerer.createOffer());
+      const offer = offerer.localDescription!.sdp;
+      const ufrag = offer.match(/^a=ice-ufrag:(\S+)/m)![1];
+      await answerer.setRemoteDescription({
+        type: "offer",
+        sdp: offer.replace(/^a=end-of-candidates\r?\n/gm, ""),
+      });
+      const audioMid = answerer
+        .getTransceivers()
+        .find((t) => t.kind === "audio")!.mid!;
+
+      // Act: 非 tag m-line に新 generation の EOC を trickle してから answer で確定する。
+      await answerer.addIceCandidate({
+        candidate: "",
+        sdpMid: audioMid,
+        usernameFragment: ufrag,
+      });
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+
+      // Assert: 確定した共有 transport の generation が EOC を記録し、
+      // current の全 m-line の SDP も EOC を持つ。
+      const connection = answerer.iceTransports[0].connection;
+      expect(connection.remoteUsername).toBe(ufrag);
+      expect(connection.remoteCandidatesEnd).toBe(true);
+      const current = answerer.currentRemoteDescription!.sdp;
+      expect(current.match(/^a=end-of-candidates/gm)).toHaveLength(
+        current.match(/^m=/gm)!.length,
+      );
+      assertNegotiationInvariants(answerer);
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("a final answer cannot reverse the DTLS role a first pranswer connected with", async () => {
+    const { offerer, answerer, pranswer, close } =
+      await createInitialPranswerConnection();
+    try {
+      // Arrange: 初回 pranswer で接続した offerer の DTLS role を控える。
+      const transport = offerer.dtlsTransports[0];
+      const role = transport.role;
+
+      // Act / Assert: a=setup を反転した final answer は適用前に拒否され、状態は変わらない。
+      await expect(
+        offerer.setRemoteDescription({
+          type: "answer",
+          sdp: reverseSetupRole(pranswer),
+        }),
+      ).rejects.toMatchObject({ name: "InvalidModificationError" });
+      expect(transport.role).toBe(role);
+      expect(offerer.signalingState).toBe("have-remote-pranswer");
+
+      // Act: pranswer と同じ role の final answer で確定し、通常の再交渉を行う。
+      await answerer.setLocalDescription({ type: "answer", sdp: pranswer });
+      await offerer.setRemoteDescription({ type: "answer", sdp: pranswer });
+      await negotiatePair(offerer, answerer);
+
+      // Assert: 再交渉も成功し、role は維持される。
+      expect(offerer.signalingState).toBe("stable");
+      expect(transport.role).toBe(role);
+    } finally {
+      await close();
+    }
+  });
+
+  test("rolling back a first pranswer connection resets the public connection states", async () => {
+    const { offerer, answerer, close } =
+      await createInitialPranswerConnection();
+    try {
+      // Arrange: 初回 pranswer で両 peer が接続済みと報告している。
+      await Promise.all([
+        waitForConnection(offerer),
+        waitForConnection(answerer),
+      ]);
+
+      // Act: 両 peer で初回交渉を rollback する。
+      await answerer.setRemoteDescription({ type: "rollback" });
+      await offerer.setLocalDescription({ type: "rollback" });
+
+      // Assert: current session がないので、接続状態は new に戻る。
+      for (const pc of [offerer, answerer]) {
+        expect(pc.currentRemoteDescription).toBeNull();
+        expect(pc.connectionState).toBe("new");
+        expect(pc.iceConnectionState).toBe("new");
+      }
+    } finally {
+      await close();
+    }
+  });
+
+  test("a remote-created transceiver the application keeps returns to its created state on rollback", async () => {
+    const { answerer, remoteCreated, close } =
+      await createInitialPranswerConnection();
+    try {
+      // Arrange: pranswer で remote 起因の transceiver に direction が確定している。
+      expect(remoteCreated.currentDirection).not.toBeNull();
+
+      // Act: answerer で remote offer を rollback する。
+      await answerer.setRemoteDescription({ type: "rollback" });
+
+      // Assert: app が使う transceiver は残るが、交渉した MID・direction は持たない。
+      expect(answerer.getTransceivers()).toContain(remoteCreated);
+      expect(remoteCreated.mid).toBeNull();
+      expect(remoteCreated.currentDirection).toBeNull();
+    } finally {
+      await close();
     }
   });
 });
