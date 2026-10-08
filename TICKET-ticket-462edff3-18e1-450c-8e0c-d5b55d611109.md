@@ -254,6 +254,30 @@ demuxer（先読みできるファイル）だけでなく、**リアルタイ�
 - [ ] README に固定 / 可変フレームレート、先読み / ストリーミングそれぞれの使い方と制約（音声と別クロックの場合のリップシンクのずれ、`onTick` を await しないこと）が記載され、`packages/rtp/doc` とルート `doc` が再生成されている
 - [ ] `examples/node/pacer/ffmpeg-vfr-stream.ts` が実行でき、VFR の間隔どおりに RTP が送出されることを確認している
 
+### 7.6 example の自動テスト
+
+- `packages/rtp` に、example を利用者と同じ方法（`node --import tsx` で別プロセス実行）で動かして検証するテスト基盤を用意する。
+  - Arrange 用のユーティリティ（`runExample()`: example を実行し exit code・stdout・stderr を集める、`createRtpUdpCollector()`: RTP を受信して記録する UDP ソケット）は `packages/rtp/tests/utils.ts` に置く。
+  - テストは `packages/rtp/tests/examples/` に置き、`package.json` の `test` スクリプト（`vitest run ./tests`）の実行対象にする。
+- 対象は `examples/node/pacer/ffmpeg-vfr-stream.ts` のみとする（他の既存 example は本チケットでは自動テスト化しない）。
+- 検証内容:
+  - 正常終了（exit code 0、stderr なし）
+  - 送出側の要約行 `done frames=N maxLateness=Xms delay=Yms` の frames が期待数と一致する
+  - RTP: seq が欠落なく連続、PT 96 / 単一 SSRC、select フィルタで残る全フレームが届く、先頭フレームが VP8 キーフレームで、各フレームの先頭パケットに S bit がある
+  - timestamp 差が入力 pts の差（30fps 区間は 3000、10fps 区間は 9000）と完全に一致する
+  - どのフレームも pts の予定時刻より早くは届かない（まとめ送りしない）
+  - 送出間隔の精度（到着間隔と timestamp 差の誤差の中央値が 5 ms 未満、30fps と 10fps の間隔差が実時間に現れる、全体でドリフトしない）。ただし CPU 不足で ffmpeg が実時間にエンコードできなかった場合（`maxLateness` ≥ 50 ms）は、ソース側の遅れなので精度の検証は行わず警告を出す
+  - `DEST_PORT` 未指定のモード（内蔵の受信側）でも、全フレームの受信ログに 33.3 ms と 100.0 ms の両方の timestamp 差が現れる
+- example 側の修正:
+  - 終了時に要約行を出す
+  - ffmpeg の起動失敗や異常終了を exit code に反映する
+  - ffmpeg の終了時にキューが空でも、受信側が最後のデータグラムを受け取れるよう、ソケットを閉じるまで 200 ms 待つ
+- example の型チェックのため、`packages/rtp/tsconfig.json` の `include` に `examples/node/pacer` を加える。
+- 前提: `npm test` の実行環境に `ffmpeg`（`libvpx` 付き）が必要。CI（`.github/workflows/nodejs.yml`）ではすでに apt で導入されている。
+- 完了条件:
+  - [ ] `cd packages/rtp && npm test` で example のテストが実行され、通る
+  - [ ] 高い CPU 負荷の下でも、精度の検証以外のテストが誤って失敗しない
+
 ## フォローアップ候補（本チケット外）
 
 - `packages/webrtc/src/nonstandard/dummyMedia.ts` の `ScheduledRtpSource` を `RtpMediaClock` に置き換え、ストール後の burst をなくすことを検討する（変更する場合は `npm run wpt --workspace packages/webrtc` で検証する）

@@ -1,4 +1,7 @@
+import { spawn } from "child_process";
+import { createSocket } from "dgram";
 import { readFileSync } from "fs";
+import { join } from "path";
 
 import { BufferSource, Input, MP4 } from "mediabunny";
 
@@ -12,6 +15,7 @@ import {
   type RtpMediaPacerOptions,
   type RtpMediaPacerTick,
 } from "../src/rtp/mediaClock";
+import { RtpPacket } from "../src/rtp/rtp";
 import type { Transport } from "../src/transport";
 
 export function load(name: string) {
@@ -310,4 +314,71 @@ export function deliverStreamingArrivals(
       startMs + arrival.arrivalMs - harness.now(),
     );
   }
+}
+
+const PACKAGE_ROOT = join(__dirname, "..");
+
+/**
+ * Runs `packages/rtp/<relativePath>` with tsx as a separate Node.js process,
+ * the same way a user runs an example, and collects its output.
+ */
+export function runExample(
+  relativePath: string,
+  options: { env?: Record<string, string>; timeoutMs?: number } = {},
+) {
+  const child = spawn(
+    process.execPath,
+    ["--import", "tsx", join(PACKAGE_ROOT, relativePath)],
+    {
+      cwd: PACKAGE_ROOT,
+      env: { ...process.env, ...options.env },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (data) => {
+    stdout += data;
+  });
+  child.stderr.on("data", (data) => {
+    stderr += data;
+  });
+  return new Promise<{
+    code: number | null;
+    signal: NodeJS.Signals | null;
+    stdout: string;
+    stderr: string;
+  }>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(
+        new Error(
+          `example ${relativePath} timed out\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+        ),
+      );
+    }, options.timeoutMs ?? 30_000);
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("close", (code, signal) => {
+      clearTimeout(timer);
+      resolve({ code, signal, stdout, stderr });
+    });
+  });
+}
+
+/** UDP socket on 127.0.0.1 that records every received RTP packet. */
+export async function createRtpUdpCollector() {
+  const socket = createSocket("udp4");
+  const packets: { rtp: RtpPacket; at: number }[] = [];
+  socket.on("message", (data) => {
+    packets.push({ rtp: RtpPacket.deSerialize(data), at: performance.now() });
+  });
+  await new Promise<void>((resolve) => socket.bind(0, "127.0.0.1", resolve));
+  return {
+    port: socket.address().port,
+    packets,
+    close: () => new Promise<void>((resolve) => socket.close(() => resolve())),
+  };
 }

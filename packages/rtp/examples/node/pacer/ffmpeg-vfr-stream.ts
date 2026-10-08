@@ -14,6 +14,11 @@
  *
  * Without DEST_PORT a local receiver prints, per received frame, the RTP
  * timestamp delta next to the arrival interval, so the VFR pacing is visible.
+ * The last line summarizes the run: `done frames=N maxLateness=Xms delay=Yms`.
+ * A large maxLateness means ffmpeg could not encode in real time (e.g. a busy
+ * CPU), so frames were sent as soon as they arrived.
+ *
+ * Automated check: packages/rtp/tests/examples/ffmpegVfrStream.test.ts
  */
 import { spawn } from "child_process";
 import { createSocket } from "dgram";
@@ -40,8 +45,22 @@ const main = async () => {
   });
   const builder = new RtpBuilder({ payloadType: 96, ssrc: 0x1234_5678 });
   let sourceEnded = false;
+  let maxLateness = 0;
+
+  const finish = () => {
+    if (pacer.state === "stopped") return;
+    pacer.stop();
+    // maxLateness stays near timer jitter while the source is ahead of real
+    // time; a large value means frames arrived late and were sent on arrival
+    console.log(
+      `done frames=${pacer.lastTick ? pacer.lastTick.frameIndex + 1 : 0} maxLateness=${maxLateness.toFixed(1)}ms delay=${pacer.delay.toFixed(1)}ms`,
+    );
+    // let the receiver drain the last datagrams before closing
+    setTimeout(() => socket.close(), 200);
+  };
 
   pacer.start((tick) => {
+    maxLateness = Math.max(maxLateness, tick.lateness);
     // one encoded VP8 frame -> RTP packets sharing the tick's timestamp
     const chunks = splitVp8(tick.frame);
     chunks.forEach((payload, i) => {
@@ -57,8 +76,7 @@ const main = async () => {
       );
     }
     if (sourceEnded && pacer.queueLength === 0) {
-      pacer.stop();
-      setTimeout(() => socket.close(), 200);
+      finish();
     }
   });
 
@@ -85,11 +103,17 @@ const main = async () => {
     });
   });
   ffmpeg.stdout.on("data", (data: Buffer) => ivf.write(data));
-  ffmpeg.on("close", () => {
+  ffmpeg.on("error", (error) => {
+    console.error(`failed to run ffmpeg: ${error.message}`);
+    process.exitCode = 1;
+  });
+  ffmpeg.on("close", (code) => {
+    if (code !== 0) {
+      process.exitCode = 1;
+    }
     sourceEnded = true;
     if (pacer.queueLength === 0) {
-      pacer.stop();
-      socket.close();
+      finish();
     }
   });
 };

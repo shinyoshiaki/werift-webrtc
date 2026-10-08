@@ -162,7 +162,10 @@ source.on("frame", (data: Buffer) => {
 
 A runnable streaming example (ffmpeg live VP8 switching between 30 fps and
 10 fps, IVF over a pipe, RTP over UDP) is in
-`examples/node/pacer/ffmpeg-vfr-stream.ts`.
+`examples/node/pacer/ffmpeg-vfr-stream.ts`. `npm test` runs it as a separate
+process and checks the received RTP stream
+(`tests/examples/ffmpegVfrStream.test.ts`; requires `ffmpeg` with `libvpx` on
+`PATH`).
 
 - Frames are never skipped. If the emitted frame and the next queued frame are
   both overdue (event loop stall, or the producer pushes a late batch), only
