@@ -1452,4 +1452,81 @@ describe("negotiation transaction live-state regressions", () => {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
   });
+
+  test.each([
+    {
+      label: "createOffer({ iceRestart: true })",
+      createOffer: (pc: RTCPeerConnection) =>
+        pc.createOffer({ iceRestart: true }),
+    },
+    {
+      label: "restartIce() + createOffer()",
+      createOffer: (pc: RTCPeerConnection) => {
+        pc.restartIce();
+        return pc.createOffer();
+      },
+    },
+  ])(
+    "an unapplied $label does not discard the restart generation of a saved answer",
+    async ({ createOffer }) => {
+      const { offerer, answerer, outgoing, incoming } =
+        await createConnectedVideoPeers();
+      try {
+        // Arrange: ICE restart の remote offer を受け、answer を保存する。
+        offerer.restartIce();
+        await offerer.setLocalDescription(await offerer.createOffer());
+        await answerer.setRemoteDescription(offerer.localDescription!);
+        const saved = await answerer.createAnswer();
+        const ufragOf = (sdp: string) => sdp.match(/^a=ice-ufrag:(\S+)/m)![1];
+
+        // Act: restart を要求する offer を作るが適用せず、保存した answer を両 peer に適用する。
+        await createOffer(answerer);
+        await answerer.setLocalDescription(saved);
+        await offerer.setRemoteDescription(answerer.localDescription!);
+        await Promise.all([
+          waitForCommittedNomination(offerer),
+          waitForCommittedNomination(answerer),
+        ]);
+
+        // Assert: 保存した answer の generation で確定し、RTP が届く。
+        expect(answerer.signalingState).toBe("stable");
+        expect(answerer.iceTransports[0].connection.localUsername).toBe(
+          ufragOf(saved.sdp),
+        );
+        assertNegotiationInvariants(answerer);
+        assertNegotiationInvariants(offerer);
+        await sendAndExpectRtp(outgoing, incoming, "saved answer after offer");
+      } finally {
+        await Promise.allSettled([offerer.close(), answerer.close()]);
+      }
+    },
+  );
+
+  test("an offer created while a remote offer is pending keeps the MIDs and m-line positions it associated", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers();
+    try {
+      // Arrange: answerer に未交渉の audio を足し、offerer の re-offer を受ける。
+      const audio = answerer.addTransceiver("audio");
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      const video = answerer.getTransceivers()[0];
+      const before = { mid: video.mid, index: video.mLineIndex };
+      const saved = await answerer.createAnswer();
+
+      // Act: 適用できない offer を作り、保存した answer を両 peer に適用する。
+      await answerer.createOffer();
+      await answerer.setLocalDescription(saved);
+      await offerer.setRemoteDescription(answerer.localDescription!);
+
+      // Assert: offer の生成で MID・m-line 位置は変わらず、未交渉の audio にも付かない。
+      expect({ mid: video.mid, index: video.mLineIndex }).toEqual(before);
+      expect(audio.mid).toBeNull();
+      expect(audio.mLineIndex).toBeUndefined();
+      assertNegotiationInvariants(answerer);
+      await sendAndExpectRtp(outgoing, incoming, "after unapplied offer");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
 });
