@@ -556,10 +556,26 @@ export class RTCPeerConnection extends EventTarget {
       }
     }
 
+    // While a remote offer is pending, the offer created now cannot be
+    // applied: the MIDs and m-line positions the pending offer associated
+    // stay as they are.
+    const unapplicable = ["have-remote-offer", "have-local-pranswer"].includes(
+      this.signalingState,
+    );
+    const transceivers = this.transceiverManager.getTransceivers();
+    const positions = transceivers.map((t) => [t.mid, t.mLineIndex] as const);
+    const sctp = this.sctpTransport;
+    const sctpPosition = sctp && ([sctp.mid, sctp.mLineIndex] as const);
     const description = this.sdpManager.buildOfferSdp(
-      this.transceiverManager.getTransceivers(),
+      transceivers,
       this.sctpTransport,
     );
+    if (unapplicable) {
+      transceivers.forEach((t, i) => {
+        [t.mid, t.mLineIndex] = positions[i];
+      });
+      if (sctp && sctpPosition) [sctp.mid, sctp.mLineIndex] = sctpPosition;
+    }
     const createdOffer = description.toJSON();
     this.lastCreatedOffer = createdOffer;
     this.createdOfferSdp = createdOffer.sdp;

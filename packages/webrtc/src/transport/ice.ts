@@ -237,6 +237,13 @@ export class RTCIceTransport {
     if (answering && this.stagedLocalRestart?.answering === answering) {
       return;
     }
+    // A generation staged for the answer to the pending remote offer belongs
+    // to that offer until it is answered or rolled back: an offer created
+    // meanwhile (it cannot be applied while the remote offer is pending)
+    // carries it instead of discarding it, so a saved answer stays applicable.
+    if (!answering && this.stagedLocalRestart?.answering) {
+      return;
+    }
     this.rollbackLocalRestart();
     const usernameFragment = randomBytes(6).toString("base64url");
     const random = randomBytes(24).toString("base64url");
