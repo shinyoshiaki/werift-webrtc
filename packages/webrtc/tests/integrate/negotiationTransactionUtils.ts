@@ -675,6 +675,10 @@ function assertRouterAndCodecs(pc: RTCPeerConnection, snapshot: Snapshot) {
       for (const payloadType of Object.keys(table).map(Number)) {
         expect(negotiated.map((c) => c.payloadType)).toContain(payloadType);
       }
+      // 確定後に pending の staged 値は残らない (commit で受信表へ戻らない)。
+      const staged = transceiver.receiver.snapshotReceiveTables();
+      expect(staged.stagedCodecs).toEqual({});
+      expect(staged.stagedSsrcByRtx).toEqual({});
       const mimeTypes = negotiated.map((c) => c.mimeType.toLowerCase());
       for (const track of transceiver.receiver.tracks) {
         if (!track.codec) continue;
@@ -1837,4 +1841,46 @@ export function holdNextGather(pc: RTCPeerConnection) {
     return original();
   };
   return { reached, release };
+}
+
+/**
+ * Arrange: hold the DTLS handshake start of every transport `pc` has until
+ * `release()` is called, so its peer's handshake stays "connecting".
+ */
+export function holdDtlsStart(pc: RTCPeerConnection) {
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  for (const transport of pc.dtlsTransports) {
+    const original = transport.start.bind(transport);
+    transport.start = async () => {
+      transport.start = original;
+      await released;
+      return original();
+    };
+  }
+  return { release };
+}
+
+/** Wait until `transport`'s DTLS handshake is running (or done). */
+export async function waitForDtlsHandshake(
+  transport: RTCPeerConnection["dtlsTransports"][number],
+) {
+  if (["connecting", "connected"].includes(transport.state)) return;
+  await withTimeout(
+    transport.onStateChange.watch((state) =>
+      ["connecting", "connected"].includes(state),
+    ),
+    "DTLS handshake did not start",
+  );
+}
+
+/** Payload type → codec name of a receiver's live decode table. */
+export function receiveCodecNames(receiver: RTCRtpReceiver) {
+  return Object.fromEntries(
+    Object.entries(receiver.snapshotReceiveTables().codecs).map(
+      ([payloadType, codec]) => [payloadType, codec.name.toUpperCase()],
+    ),
+  );
 }

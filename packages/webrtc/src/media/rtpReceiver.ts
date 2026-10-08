@@ -273,6 +273,9 @@ export class RTCRtpReceiver {
    * prepareReceive() so the current decode path remains available.
    */
   resyncCodecs(params: RTCRtpReceiveParameters, mediaSourceSsrc?: number) {
+    // The committed description replaces the tables as a whole: values a
+    // pending description staged must not come back at the commit.
+    this.discardStagedReceive();
     clearTable(this.codecs);
     clearTable(this.ssrcByRtx);
     this.prepareReceive(params);

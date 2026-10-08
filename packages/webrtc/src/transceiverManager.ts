@@ -842,7 +842,9 @@ export class TransceiverManager {
           ? resolveCodecs(configured, source, transceiver?.codecPreferences)
           : localCodecs,
         remoteMedia,
-        "remote",
+        // An answer lists the answerer's preference order (RFC 3264 §6.1);
+        // a remote answer keeps the order it chose.
+        isOffer ? "local" : "remote",
         source,
       );
       if (source != undefined) {
