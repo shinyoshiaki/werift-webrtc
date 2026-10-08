@@ -366,43 +366,48 @@ describe("connect() with a usable ICE transport", () => {
     }
   }, 15000);
 
-  test("concurrent connect() calls share one ICE start and a failed start releases the waiters", async () => {
-    // Arrange: 未開始の ICE。チェックは外から解決/失敗を制御できる。
+  test("concurrent ICE starts share one attempt and release waiters after failure", async () => {
+    // Arrange: 未開始の ICE。最初のチェックは失敗させ、明示的な再試行は成功させる。
     const { offerer, answerer } = await createConnectedVideoPeers();
     try {
-      const dtls = offerer.dtlsTransports[0];
-      const ice = dtls.iceTransport;
+      const ice = offerer.dtlsTransports[0].iceTransport;
       ice.checksStarted = false;
       ice.state = "new";
-      dtls.state = "new";
       let fail!: (error: Error) => void;
-      const connect = vi.spyOn(ice.connection, "connect").mockImplementation(
-        () =>
-          new Promise<void>((_, reject) => {
-            fail = reject;
-          }),
-      );
-      const dtlsStart = vi.spyOn(dtls, "start").mockResolvedValue();
+      const connect = vi
+        .spyOn(ice.connection, "connect")
+        .mockImplementationOnce(
+          () =>
+            new Promise<void>((_, reject) => {
+              fail = reject;
+            }),
+        )
+        .mockImplementationOnce(async () => {
+          ice.state = "connected";
+        });
 
-      // Act: checking 中に connect() を重複して呼び、チェックを失敗させる。
-      const first = (offerer as any).activation.connect();
+      // Act: checking 中に start() を重複して呼び、チェックを失敗させる。
+      const first = ice.start();
       await vi.waitFor(() => expect(ice.state).toBe("checking"));
-      const second = (offerer as any).activation.connect();
-      await Promise.resolve();
+      await vi.waitFor(() => expect(connect).toHaveBeenCalledTimes(1));
+      const second = ice.start();
       fail(new Error("checks failed"));
 
-      // Assert: 後続も同じ結果を待って収束し、ICE を再 start せず、DTLS も起動しない。
-      await expect(
-        Promise.race([
-          Promise.all([first, second]),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("waiter stuck")), 3000),
-          ),
-        ]),
-      ).resolves.toBeDefined();
+      // Assert: 両 caller は同じ失敗で終了し、重複したチェックを開始しない。
+      const results = await Promise.allSettled([first, second]);
+      expect(results.map((result) => result.status)).toEqual([
+        "rejected",
+        "rejected",
+      ]);
       expect(connect).toHaveBeenCalledTimes(1);
-      expect(dtlsStart).not.toHaveBeenCalled();
       expect(ice.state).toBe("failed");
+
+      // Act: 失敗後に新しい start() を呼ぶ。
+      await expect(ice.start()).resolves.toBeUndefined();
+
+      // Assert: waiter が詰まらず、新しい世代のチェックが一度だけ実行される。
+      expect(connect).toHaveBeenCalledTimes(2);
+      expect(ice.state).toBe("connected");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
