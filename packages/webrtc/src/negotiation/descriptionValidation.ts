@@ -172,10 +172,19 @@ export class DescriptionValidation {
             );
           }
         }
-        // An answer or pranswer keeps the DTLS role of a live association
-        // (RFC 8842 section 5.5); only a new association, such as a BUNDLE
-        // split owner prepared for this proposal, may take another role.
-        // A non-tag BUNDLE member never sets a role, so it is not checked.
+      }
+      // An answer or pranswer keeps the DTLS role of a live association
+      // (RFC 8842 section 5.5), including one a first negotiation connected
+      // at its pranswer; only a new association, such as a BUNDLE split owner
+      // prepared for this proposal, may take another role. A non-tag BUNDLE
+      // member never sets a role, so it is not checked.
+      if (media.port !== 0 && remoteSdp.type !== "offer") {
+        const transport =
+          media.kind === "application"
+            ? this.sctp.sctpTransport?.dtlsTransport
+            : this.transceivers
+                .getTransceivers()
+                .find((t) => t.mid === media.rtp.muxId)?.dtlsTransport;
         const prepared = this.negotiation.transportByMid.get(
           media.rtp.muxId ?? "",
         );
@@ -187,7 +196,6 @@ export class DescriptionValidation {
         // An answer's `actpass` (invalid per RFC 5763 section 5) names no role;
         // werift keeps the role of a live association for it.
         if (
-          remoteSdp.type !== "offer" &&
           !bundledNonTag &&
           remoteRole &&
           remoteRole !== "auto" &&

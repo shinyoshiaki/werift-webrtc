@@ -21,6 +21,12 @@ const log = debug(
  * commits, and retiring a first negotiation's provisional connection.
  */
 export class TransportActivation {
+  /**
+   * Bumped when a first negotiation's provisional connection is retired: a
+   * connect() still running for it no longer reports a connection state.
+   */
+  private connectEpoch = 0;
+
   constructor(
     private readonly sdp: SDPManager,
     private readonly secure: SecureTransportManager,
@@ -40,43 +46,50 @@ export class TransportActivation {
     if (this.sdp.currentLocalDescription || this.sdp.currentRemoteDescription) {
       return;
     }
+    this.connectEpoch++;
     const transports = [...this.secure.dtlsTransports];
     if (
-      !transports.some(
+      transports.some(
         (dtls) =>
           dtls.state !== "new" ||
           !["new", "closed"].includes(dtls.iceTransport.state),
       )
     ) {
-      return;
+      if (this.sctp.sctpTransport) {
+        await this.sctp.sctpTransport.stop();
+        this.sctp.sctpRemotePort = undefined;
+      }
+      await Promise.all(transports.map((dtls) => dtls.stop()));
+      for (const transceiver of this.transceivers.getTransceivers()) {
+        transceiver.setDtlsTransport(this.host.createTransport());
+      }
+      if (this.sctp.sctpTransport) {
+        this.sctp.sctpTransport.setDtlsTransport(this.host.createTransport());
+      }
     }
-    if (this.sctp.sctpTransport) {
-      await this.sctp.sctpTransport.stop();
-      this.sctp.sctpRemotePort = undefined;
-    }
-    await Promise.all(transports.map((dtls) => dtls.stop()));
-    for (const transceiver of this.transceivers.getTransceivers()) {
-      transceiver.setDtlsTransport(this.host.createTransport());
-    }
-    if (this.sctp.sctpTransport) {
-      this.sctp.sctpTransport.setDtlsTransport(this.host.createTransport());
-    }
+    // Without a current session nothing is connected, whatever the
+    // provisional connection had reported (the rolled-back proposal may also
+    // have taken its transports with it): the public states start over.
     this.secure.updateIceConnectionState();
+    this.secure.setConnectionState("new");
   }
 
   /** Activate a re-offer's staged transport parameters at its final answer. */
   async activatePendingRemote(pendingOnly = false) {
     const offer = this.sdp.pendingRemoteDescription;
     if (!offer || offer.type !== "offer") return;
-    const candidatesByTransport = new Map<
-      RTCIceTransport,
-      Map<string, (typeof offer.media)[number]["iceCandidates"][number]>
-    >();
-    const eoc = new Set<RTCIceTransport>();
-    const transportOfMedia = new Map<
-      (typeof offer.media)[number],
-      RTCIceTransport
-    >();
+    type Media = (typeof offer.media)[number];
+    // A BUNDLE group shares one transport: the tag m-line carries its ICE /
+    // DTLS parameters, and candidates or end-of-candidates trickled on any
+    // member m-line belong to that transport's generation.
+    type TransportEntry = {
+      provisional: boolean;
+      tag?: Media;
+      candidates: Map<string, Media["iceCandidates"][number]>;
+      eoc: boolean;
+      members: Media[];
+    };
+    const byTransport = new Map<RTCIceTransport, TransportEntry>();
     for (const [index, media] of offer.media.entries()) {
       if (media.port === 0) continue;
       const dtls =
@@ -88,59 +101,77 @@ export class TransportActivation {
               .getTransceivers()
               .find((t) => t.mid === media.rtp.muxId)?.dtlsTransport);
       if (!dtls) continue;
-      transportOfMedia.set(media, dtls.iceTransport);
       const bundledNonTag = this.topology.isBundledNonTag(
         offer,
         media.rtp.muxId,
       );
-      if (
+      // A restart on a transport that keeps its SCTP association checks the
+      // new generation beside the selected current pair.
+      const provisional =
         pendingOnly &&
-        !this.negotiation.isPendingOnlyTransport(dtls.iceTransport.id)
-      ) {
-        // A restart on a transport that keeps its SCTP association checks the
-        // new generation beside the selected current pair.
-        if (!bundledNonTag) {
-          await this.applyProvisionalIce(dtls.iceTransport, media);
+        !this.negotiation.isPendingOnlyTransport(dtls.iceTransport.id);
+      if (!provisional && media.kind === "application") {
+        this.sctp.setRemoteSCTP(media, index);
+      }
+      const entry: TransportEntry = byTransport.get(dtls.iceTransport) ?? {
+        provisional,
+        candidates: new Map(),
+        eoc: false,
+        members: [],
+      };
+      byTransport.set(dtls.iceTransport, entry);
+      entry.members.push(media);
+      if (!bundledNonTag) {
+        entry.tag = media;
+        if (!provisional) {
+          if (media.iceParams) {
+            dtls.iceTransport.setRemoteParams(media.iceParams);
+          }
+          if (media.dtlsParams) dtls.setRemoteParams(media.dtlsParams);
+        }
+      }
+      for (const candidate of media.iceCandidates) {
+        entry.candidates.set(candidate.toJSON().candidate, candidate);
+      }
+      if (media.iceCandidatesComplete) entry.eoc = true;
+    }
+    for (const [transport, entry] of byTransport) {
+      if (entry.provisional) {
+        if (entry.tag) {
+          await this.applyProvisionalIce(
+            transport,
+            entry.tag,
+            [...entry.candidates.values()],
+            entry.eoc,
+          );
         }
         continue;
       }
-      if (media.kind === "application") {
-        this.sctp.setRemoteSCTP(media, index);
-      }
-      if (bundledNonTag) continue;
-      if (media.iceParams) dtls.iceTransport.setRemoteParams(media.iceParams);
-      if (media.dtlsParams) dtls.setRemoteParams(media.dtlsParams);
-      const candidates =
-        candidatesByTransport.get(dtls.iceTransport) ?? new Map();
-      for (const candidate of media.iceCandidates) {
-        candidates.set(candidate.toJSON().candidate, candidate);
-      }
-      candidatesByTransport.set(dtls.iceTransport, candidates);
-      if (media.iceCandidatesComplete) eoc.add(dtls.iceTransport);
-    }
-    for (const [transport, candidates] of candidatesByTransport) {
-      for (const candidate of candidates.values()) {
+      for (const candidate of entry.candidates.values()) {
         transport.deliverRemoteCandidate(candidate);
       }
-      if (eoc.has(transport)) transport.deliverRemoteCandidate(undefined);
+      if (entry.eoc) transport.deliverRemoteCandidate(undefined);
     }
     // End-of-candidates completes the transport's generation, so every m-line
     // of the description it carries (a BUNDLE group) records it.
-    for (const [media, transport] of transportOfMedia) {
-      if (eoc.has(transport)) media.iceCandidatesComplete = true;
+    for (const entry of byTransport.values()) {
+      if (!entry.eoc) continue;
+      for (const media of entry.members) media.iceCandidatesComplete = true;
     }
   }
 
   async applyProvisionalIce(
     iceTransport: RTCIceTransport,
     media: MediaDescription,
+    candidates = media.iceCandidates,
+    endOfCandidates = media.iceCandidatesComplete,
   ) {
     if (!iceTransport.hasStagedRestart || !media.iceParams) return;
     iceTransport.setProvisionalRemoteParams(media.iceParams);
-    for (const candidate of media.iceCandidates) {
+    for (const candidate of candidates) {
       iceTransport.deliverProvisionalRemoteCandidate(candidate);
     }
-    if (media.iceCandidatesComplete) {
+    if (endOfCandidates) {
       iceTransport.deliverProvisionalRemoteCandidate(undefined);
     }
   }
@@ -157,6 +188,7 @@ export class TransportActivation {
    */
   async connect() {
     log("start connect");
+    const epoch = this.connectEpoch;
 
     const res = await Promise.allSettled(
       this.secure.dtlsTransports.map(async (dtlsTransport) => {
@@ -214,6 +246,7 @@ export class TransportActivation {
       }),
     );
 
+    if (epoch !== this.connectEpoch) return;
     if (res.find((r) => r.status === "rejected")) {
       this.secure.setConnectionState("failed");
     } else if (res.some((r) => r.status === "fulfilled" && r.value)) {
