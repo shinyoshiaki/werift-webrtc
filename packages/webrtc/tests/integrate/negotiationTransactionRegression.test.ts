@@ -1661,7 +1661,7 @@ describe("negotiation transaction live-state regressions", () => {
     },
   );
 
-  test("re-applying a saved restart offer whose generation is gone fails without partial changes", async () => {
+  test("a saved restart offer re-applied after the peer committed another restart still restarts to its generation", async () => {
     const { offerer, answerer, outgoing, incoming } =
       await createConnectedVideoPeers();
     try {
@@ -1670,6 +1670,7 @@ describe("negotiation transaction live-state regressions", () => {
       const audioOut = new MediaStreamTrack({ kind: "audio" });
       const audio = offerer.addTransceiver(audioOut, { direction: "sendonly" });
       const offer = await offerer.createOffer({ iceRestart: true });
+      const ufrag = offer.sdp.match(/^a=ice-ufrag:(\S+)/m)![1];
       await offerer.setLocalDescription(offer);
       await offerer.setLocalDescription({ type: "rollback" });
       answerer.restartIce();
@@ -1678,101 +1679,45 @@ describe("negotiation transaction live-state regressions", () => {
         waitForCommittedNomination(offerer),
         waitForCommittedNomination(answerer),
       ]);
-      const ufrag = offerer.iceTransports[0].connection.localUsername;
+      expect(offerer.iceTransports[0].connection.localUsername).not.toBe(ufrag);
 
-      // Act / Assert: 保存した offer の再適用は拒否される。
-      await expect(offerer.setLocalDescription(offer)).rejects.toMatchObject({
-        name: "InvalidModificationError",
-      });
+      // Act: 保存した (最新の作成) offer を再適用し、answer で確定する。
+      // develop も受理して通信できる (再利用契約 (b))。
+      await offerer.setLocalDescription(offer);
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      await Promise.all([
+        waitForCommittedNomination(offerer),
+        waitForCommittedNomination(answerer),
+      ]);
 
-      // Assert: MID・m-line 位置・restart generation の変更は残らない。
-      expect(offerer.signalingState).toBe("stable");
-      expect(audio.mid).toBeNull();
-      expect(audio.mLineIndex).toBeUndefined();
-      expect(offerer.iceTransports[0].hasStagedRestart).toBe(false);
+      // Assert: offer の restart generation の資格情報で確定し、SDP と ICE agent が一致する。
       expect(offerer.iceTransports[0].connection.localUsername).toBe(ufrag);
+      expect(offerer.currentLocalDescription!.sdp).toContain(
+        `a=ice-ufrag:${ufrag}`,
+      );
       assertNegotiationInvariants(offerer);
+      assertNegotiationInvariants(answerer);
 
-      // Act: offer を作り直して交渉する。
-      await negotiatePair(offerer, answerer);
-
-      // Assert: 作り直した offer では audio も交渉され、映像・音声とも届く。
+      // Assert: 映像と、offer が足した audio の RTP が届く。
       const received = answerer
         .getTransceivers()
         .find((t) => t.mid === audio.mid)!;
-      await sendAndExpectRtp(outgoing, incoming, "video after fresh offer");
+      await sendAndExpectRtp(
+        outgoing,
+        incoming,
+        "video after re-applied offer",
+      );
       await sendAndExpectRtp(
         audioOut,
         received.receiver.track,
-        "audio after fresh offer",
+        "audio after re-applied offer",
       );
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
   });
-
-  test.each([
-    {
-      label: "the saved restart offer",
-      replacement: async (
-        _pc: RTCPeerConnection,
-        saved: Awaited<ReturnType<RTCPeerConnection["createOffer"]>>,
-      ) => saved,
-    },
-    {
-      label: "a newly created restart offer",
-      replacement: (pc: RTCPeerConnection) =>
-        pc.createOffer({ iceRestart: true }),
-    },
-  ])(
-    "replacing a restart offer in have-remote-pranswer with $label keeps the requested restart",
-    async ({ replacement }) => {
-      const { offerer, answerer, outgoing, incoming } =
-        await createConnectedVideoPeers();
-      try {
-        // Arrange: restart offer を適用し、相手の pranswer を受ける。
-        const ufragOf = (sdp: string) => sdp.match(/^a=ice-ufrag:(\S+)/m)![1];
-        const before = {
-          ufrag: offerer.iceTransports[0].connection.localUsername,
-          generation: offerer.iceTransports[0].connection.generation,
-        };
-        const saved = await offerer.createOffer({ iceRestart: true });
-        await offerer.setLocalDescription(saved);
-        await answerer.setRemoteDescription(offerer.localDescription!);
-        const pranswer = (await answerer.createAnswer()).sdp;
-        await answerer.setLocalDescription({ type: "pranswer", sdp: pranswer });
-        await offerer.setRemoteDescription({ type: "pranswer", sdp: pranswer });
-
-        // Act: have-remote-pranswer で offer を置き換え、相手は pranswer を rollback して answer で確定する。
-        await offerer.setLocalDescription(await replacement(offerer, saved));
-        const offered = ufragOf(offerer.localDescription!.sdp);
-        await answerer.setRemoteDescription({ type: "rollback" });
-        await answerer.setRemoteDescription(offerer.localDescription!);
-        await answerer.setLocalDescription(await answerer.createAnswer());
-        await offerer.setRemoteDescription(answerer.localDescription!);
-        await Promise.all([
-          waitForCommittedNomination(offerer),
-          waitForCommittedNomination(answerer),
-        ]);
-
-        // Assert: 置き換えた offer も restart の ufrag を持ち、確定後に ICE generation が進む。
-        expect(offered).toBe(ufragOf(saved.sdp));
-        expect(offered).not.toBe(before.ufrag);
-        const connection = offerer.iceTransports[0].connection;
-        expect(connection.localUsername).toBe(offered);
-        expect(connection.generation).toBeGreaterThan(before.generation);
-        assertNegotiationInvariants(offerer);
-        assertNegotiationInvariants(answerer);
-        await sendAndExpectRtp(
-          outgoing,
-          incoming,
-          "after replaced restart offer",
-        );
-      } finally {
-        await Promise.allSettled([offerer.close(), answerer.close()]);
-      }
-    },
-  );
 
   test("a re-applied restart offer that fails to parse leaves no staged credentials", async () => {
     const { offerer, answerer, outgoing, incoming } =
@@ -1812,6 +1757,66 @@ describe("negotiation transaction live-state regressions", () => {
       await sendAndExpectRtp(outgoing, incoming, "after rejected re-apply");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("a remote answer that answers only the leading m-lines of the offer is accepted and rejects the rest", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers();
+    try {
+      // Arrange: 相手の前回の answer (m-line が少ない) を保存し、offerer は video を足した
+      // offer を適用する。
+      const staleAnswer = answerer.currentLocalDescription!;
+      const added = offerer.addTransceiver("video", { direction: "sendonly" });
+      await offerer.setLocalDescription(await offerer.createOffer());
+
+      // Act: 先頭の m-line だけに答える前回の answer を適用する (develop も受理する)。
+      await offerer.setRemoteDescription(staleAnswer);
+
+      // Assert: 確定し、答えられなかった m-line は拒否として停止する。既存の映像は届く。
+      expect(offerer.signalingState).toBe("stable");
+      expect(added.stopped).toBe(true);
+      assertNegotiationInvariants(offerer);
+      await sendAndExpectRtp(outgoing, incoming, "after a shorter answer");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("a first offer with a DataChannel re-applied after its rollback opens the channel", async () => {
+    const { offerer, answerer, close } = createUnnegotiatedPeers();
+    try {
+      // Arrange: DataChannel を持つ初回 offer を作り、適用して rollback する。
+      const channel = offerer.createDataChannel("reapplied");
+      const offer = await offerer.createOffer();
+      await offerer.setLocalDescription(offer);
+      await offerer.setLocalDescription({ type: "rollback" });
+      const sctpTransport = offerer.sctpTransport!.dtlsTransport;
+
+      // Act: 同じ offer を再適用し、answer で確定する。
+      await offerer.setLocalDescription(offer);
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+
+      // Assert: SCTP の m-line は offer が作られた SCTP transport のまま交渉され
+      // (余分な transport を作らない)、DataChannel が開いて届く。
+      expect(offerer.sctpTransport!.dtlsTransport).toBe(sctpTransport);
+      const received = await answerer.onDataChannel
+        .asPromise(5000)
+        .then(([c]) => c);
+      if (channel.readyState !== "open") {
+        await channel.stateChanged.watch((state) => state === "open", 5000);
+      }
+      const message = received.onMessage.watch(
+        (data) => data.toString() === "hello",
+        5000,
+      );
+      channel.send(Buffer.from("hello"));
+      await message;
+      assertNegotiationInvariants(offerer);
+    } finally {
+      await close();
     }
   });
 });

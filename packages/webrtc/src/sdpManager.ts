@@ -357,7 +357,15 @@ export class SDPManager {
     const offer = isLocal
       ? this.pendingRemoteDescription
       : this.pendingLocalDescription;
-    if (!offer || description.media.length !== offer.media.length) {
+    // RFC 3264 §6 asks for exactly the offer's m-lines. A remote answer that
+    // answers only the leading ones (a peer re-sending its previous answer)
+    // is accepted as develop did: the m-lines it leaves out are rejected by it.
+    const shorterRemote =
+      !isLocal && !!offer && description.media.length < offer.media.length;
+    if (
+      !offer ||
+      (description.media.length !== offer.media.length && !shorterRemote)
+    ) {
       throw createWebRtcDomException(
         "InvalidModificationError",
         "Answer m-lines must match the offer",

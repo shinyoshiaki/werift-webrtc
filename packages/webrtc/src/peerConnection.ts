@@ -157,19 +157,18 @@ export class RTCPeerConnection extends EventTarget {
   /** Reusable by a parameterless setLocalDescription while still valid. */
   private lastCreatedOffer?: RTCSessionDescription;
   /**
-   * W3C [[LastCreatedOffer]]: the SDP of this peer's latest createOffer. Only
-   * createOffer replaces it; an explicit local offer must match it.
+   * W3C [[LastCreatedOffer]] and its generation record: the SDP of this
+   * peer's latest createOffer and the transceiver each of its MIDs was
+   * created for. Only createOffer replaces it; an explicit local offer must
+   * match the SDP. Applying the offer takes the MIDs from the SDP and this
+   * record (never from state kept elsewhere); its ICE restart generations are
+   * registered on the transports (see RTCIceTransport.localGenerationFor).
    */
-  private createdOfferSdp?: string;
-  /**
-   * MID / m-line assignments `createdOfferSdp` was created with. Applying
-   * that offer gives them to transceivers that lost them since: the offer was
-   * created while a remote offer was pending (they were not kept then), or a
-   * rollback of that same offer took them back.
-   */
-  private createdOfferAssignments?: {
-    transceivers: [RTCRtpTransceiver, string | null, number | undefined][];
-    sctp?: [string | undefined, number | undefined];
+  private createdOffer?: {
+    readonly sdp: string;
+    readonly transceiverByMid: ReadonlyMap<string, RTCRtpTransceiver>;
+    /** The negotiation-needed changes the offer includes. */
+    readonly changeSeq: number;
   };
 
   readonly iceGatheringStateChange = new Event<[IceGathererState]>();
@@ -550,7 +549,6 @@ export class RTCPeerConnection extends EventTarget {
       // (have-remote-offer) are not the offerer's to discard.
       this.secureManager.discardUnappliedIceRestart();
     }
-    this.secureManager.rememberOfferedIceRestart();
 
     await this.secureManager.ensureCerts();
 
@@ -581,12 +579,11 @@ export class RTCPeerConnection extends EventTarget {
       transceivers,
       this.sctpTransport,
     );
-    this.createdOfferAssignments = {
-      transceivers: transceivers
+    const transceiverByMid = new Map(
+      transceivers
         .filter((t) => t.mid != undefined)
-        .map((t) => [t, t.mid, t.mLineIndex]),
-      sctp: sctp?.mid != undefined ? [sctp.mid, sctp.mLineIndex] : undefined,
-    };
+        .map((t) => [t.mid!, t] as const),
+    );
     if (unapplicable) {
       transceivers.forEach((t, i) => {
         [t.mid, t.mLineIndex] = positions[i];
@@ -595,8 +592,11 @@ export class RTCPeerConnection extends EventTarget {
     }
     const createdOffer = description.toJSON();
     this.lastCreatedOffer = createdOffer;
-    this.createdOfferSdp = createdOffer.sdp;
-    this.negotiationNeed.noteCreatedOffer();
+    this.createdOffer = {
+      sdp: createdOffer.sdp,
+      transceiverByMid,
+      changeSeq: this.negotiationNeed.noteCreatedOffer(),
+    };
     return createdOffer;
   }
 
@@ -648,44 +648,53 @@ export class RTCPeerConnection extends EventTarget {
     this.negotiationNeed.change();
   };
 
-  /** Give the latest created offer's MID / m-line assignments back to transceivers that lost them. */
-  private restoreCreatedOfferAssignments() {
-    const restored: RTCRtpTransceiver[] = [];
-    let restoredSctp = false;
-    const undo = () => {
-      for (const transceiver of restored) {
-        transceiver.mid = null;
-        transceiver.mLineIndex = undefined;
-      }
-      if (restoredSctp && this.sctpTransport) {
-        this.sctpTransport.mid = undefined;
-        this.sctpTransport.mLineIndex = undefined;
-      }
-    };
-    const deferred = this.createdOfferAssignments;
-    if (!deferred) return undo;
+  /**
+   * The transceiver each audio / video m-line of a local offer associates:
+   * the one with that MID, or the one the offer's generation record created
+   * the MID for while it is still unassociated (an offer created while a
+   * remote offer was pending, or one whose rollback took the MID back).
+   */
+  private planOfferAssignments(description: SessionDescription, sdp: string) {
     const transceivers = this.transceiverManager.getTransceivers();
-    for (const [transceiver, mid, mLineIndex] of deferred.transceivers) {
-      // Only a transceiver still unassociated takes its position, and only
-      // while no other transceiver took that MID meanwhile.
-      if (
-        transceiver.mid != undefined ||
-        transceiver.stopped ||
-        !transceivers.includes(transceiver) ||
-        transceivers.some((t) => t.mid != undefined && t.mid === mid)
-      ) {
-        continue;
+    const record =
+      this.createdOffer?.sdp === sdp ? this.createdOffer : undefined;
+    const assignments: {
+      transceiver: RTCRtpTransceiver;
+      mid: string;
+      index: number;
+    }[] = [];
+    for (const [index, media] of description.media.entries()) {
+      const mid = media.rtp.muxId;
+      if (!mid || !["audio", "video"].includes(media.kind)) continue;
+      let transceiver = transceivers.find((t) => t.mid === mid);
+      if (!transceiver) {
+        const created = record?.transceiverByMid.get(mid);
+        if (
+          created &&
+          created.mid == undefined &&
+          !created.stopped &&
+          transceivers.includes(created)
+        ) {
+          transceiver = created;
+        }
       }
-      transceiver.mid = mid;
-      transceiver.mLineIndex = mLineIndex;
-      restored.push(transceiver);
+      if (transceiver) assignments.push({ transceiver, mid, index });
     }
-    const sctp = this.sctpTransport;
-    if (deferred.sctp && sctp && sctp.mid == undefined) {
-      [sctp.mid, sctp.mLineIndex] = deferred.sctp;
-      restoredSctp = true;
+    return assignments;
+  }
+
+  /** Select, on each transport, the ICE generation `description` carries. */
+  private selectDescribedIceGenerations(description: SessionDescription) {
+    for (const media of description.media) {
+      if (media.port === 0 || !media.iceParams || !media.rtp.muxId) continue;
+      const transport =
+        this.negotiation.transportByMid.get(media.rtp.muxId) ??
+        this.topology.currentTransportForMid(media.rtp.muxId);
+      transport?.iceTransport.selectLocalGeneration(
+        media.iceParams.usernameFragment,
+        media.iceParams.password,
+      );
     }
-    return undo;
   }
 
   private invalidateLastCreatedDescriptions() {
@@ -940,7 +949,7 @@ export class RTCPeerConnection extends EventTarget {
       // state is touched.
       if (
         sessionDescription.type === "offer" &&
-        sessionDescription.sdp !== this.createdOfferSdp
+        sessionDescription.sdp !== this.createdOffer?.sdp
       ) {
         throw createWebRtcDomException(
           "InvalidModificationError",
@@ -948,74 +957,60 @@ export class RTCPeerConnection extends EventTarget {
         );
       }
 
-      // The offer takes the MID / m-line assignments it was created with,
-      // also when they were not kept (created while a remote offer was
-      // pending) or a rollback of this offer took them back.
-      // Its ICE restart generation, if a rollback of this offer discarded
-      // it, is staged again (validation still requires exactly those
-      // credentials). A failed application undoes both.
-      const restagedTransports: RTCIceTransport[] = [];
-      let undoAssignments = () => {};
-      const undoReapply = () => {
-        undoAssignments();
-        for (const transport of restagedTransports.splice(0)) {
-          transport.rollbackLocalRestart();
-        }
-      };
-      if (
-        sessionDescription.type === "offer" &&
-        sessionDescription.sdp === this.createdOfferSdp &&
-        ["stable", "have-local-offer", "have-remote-pranswer"].includes(
-          this.signalingState,
-        )
-      ) {
-        undoAssignments = this.restoreCreatedOfferAssignments();
-        restagedTransports.push(
-          ...this.secureManager.restageOfferedIceRestart(),
-        );
-      }
-
-      // # parse and validate description
+      // # build the proposal from the SDP and its generation record
+      // Nothing below writes live or transaction state until every check
+      // passed: a failure while parsing, validating or staging leaves the
+      // peer exactly as it was.
       const descriptionType = sessionDescription.type as Exclude<
         RTCSessionDescriptionInit["type"],
         "rollback" | undefined
       >;
-      const descriptionSdp = sessionDescription.sdp!;
-
-      let description: SessionDescription;
-      let stagedOfferTopology:
-        | Awaited<ReturnType<BundleTopology["stageLocalOffer"]>>
-        | undefined;
-      try {
-        description = this.sdpManager.parseSdp({
-          sdp: descriptionSdp,
-          isLocal: true,
-          signalingState: this.signalingState,
-          type: descriptionType,
-        });
-        this.validator.validateLocal(description);
-        // Stage the offer's transports before retiring anything pending.
-        stagedOfferTopology =
-          description.type === "offer"
-            ? await this.topology.stageLocalOffer(description)
-            : undefined;
-      } catch (error) {
-        undoReapply();
-        throw error;
-      }
-      // The offer being applied was created with these MID / m-line
-      // assignments. Replacing the pending offer or rolling back a remote
-      // pranswer restores the baseline first, so they are re-applied after.
-      const offeredMids = new Set(
-        description.media.map((media) => media.rtp.muxId),
-      );
+      const description = this.sdpManager.parseSdp({
+        sdp: sessionDescription.sdp!,
+        isLocal: true,
+        signalingState: this.signalingState,
+        type: descriptionType,
+      });
       const offerAssignments =
         description.type === "offer"
-          ? this.transceiverManager
-              .getTransceivers()
-              .filter((t) => t.mid && offeredMids.has(t.mid))
-              .map((t) => [t, t.mid, t.mLineIndex] as const)
+          ? this.planOfferAssignments(description, sessionDescription.sdp!)
           : [];
+      // The SCTP m-line of an offer belongs to the SCTP transport (a
+      // rollback may have taken its MID back).
+      const sctpAssignment =
+        description.type === "offer" && this.sctpTransport
+          ? description.media
+              .map((media, index) => ({ media, index }))
+              .find(
+                ({ media }) =>
+                  media.kind === "application" &&
+                  !!media.rtp.muxId &&
+                  (this.sctpTransport!.mid == undefined ||
+                    this.sctpTransport!.mid === media.rtp.muxId),
+              )
+          : undefined;
+      const assignedTransports = new Map(
+        offerAssignments.map(({ mid, transceiver }) => [
+          mid,
+          transceiver.dtlsTransport,
+        ]),
+      );
+      if (sctpAssignment && this.sctpTransport) {
+        assignedTransports.set(
+          sctpAssignment.media.rtp.muxId!,
+          this.sctpTransport.dtlsTransport,
+        );
+      }
+      this.validator.validateLocal(description, (mid) =>
+        assignedTransports.get(mid),
+      );
+      // Stage the offer's new transports before retiring anything pending.
+      const stagedOfferTopology =
+        description.type === "offer"
+          ? await this.topology.stageLocalOffer(description, assignedTransports)
+          : undefined;
+
+      // # apply
       try {
         if (
           description.type === "offer" &&
@@ -1031,35 +1026,7 @@ export class RTCPeerConnection extends EventTarget {
           this.secureManager.rollbackStagedIceRestart();
           await this.negotiation.rollback();
           await this.activation.cleanupInitialProvisional();
-          // Retiring a first negotiation's provisional connection replaced
-          // the transports the offer's topology was staged on (the new ones
-          // keep the offer's ICE credentials): stage it again on them.
-          if (
-            stagedOfferTopology?.some(
-              ({ transport }) => transport.state === "closed",
-            )
-          ) {
-            await Promise.allSettled(
-              stagedOfferTopology
-                .filter(
-                  ({ transport, pendingOnly }) =>
-                    pendingOnly &&
-                    !this.negotiation.isPendingOnlyTransport(
-                      transport.iceTransport.id,
-                    ),
-                )
-                .map(({ transport }) => transport.stop()),
-            );
-            stagedOfferTopology =
-              await this.topology.stageLocalOffer(description);
-          }
           this.setSignalingState("stable");
-          // Rolling the pranswer back also discarded the restart generation
-          // the offer being applied carries (the same offer re-applied, or a
-          // new one that reused its credentials): stage it again.
-          restagedTransports.push(
-            ...this.secureManager.restageOfferedIceRestart(),
-          );
         }
         if (description.type === "offer") {
           if (this.signalingState === "have-local-offer") {
@@ -1068,17 +1035,20 @@ export class RTCPeerConnection extends EventTarget {
           } else {
             this.negotiation.begin({ fromCreatedOffer: true });
           }
-          for (const [transceiver, mid, mLineIndex] of offerAssignments) {
+          for (const { transceiver, mid, index } of offerAssignments) {
             transceiver.mid = mid;
-            transceiver.mLineIndex = mLineIndex;
-            const offeredMedia = description.media.find(
-              (media) => media.rtp.muxId === mid,
-            );
-            transceiver.pendingLocalOfferCodecs = offeredMedia
-              ? [...offeredMedia.rtp.codecs]
-              : undefined;
+            transceiver.mLineIndex = index;
+            transceiver.pendingLocalOfferCodecs = [
+              ...description.media[index].rtp.codecs,
+            ];
+          }
+          if (sctpAssignment && this.sctpTransport) {
+            this.sctpTransport.mid = sctpAssignment.media.rtp.muxId;
+            this.sctpTransport.mLineIndex = sctpAssignment.index;
           }
         }
+        // Each transport takes the ICE generation the description carries.
+        this.selectDescribedIceGenerations(description);
         this.negotiation.validate();
         this.negotiation.prepare();
         if (stagedOfferTopology) {
@@ -1097,7 +1067,6 @@ export class RTCPeerConnection extends EventTarget {
             )
             .map(({ transport }) => transport.stop()),
         );
-        undoReapply();
         throw error;
       }
 
@@ -1266,7 +1235,7 @@ export class RTCPeerConnection extends EventTarget {
         this.secureManager.markStagedIceRestartApplied();
         this.negotiation.settle();
         // この offer は作成時点までの変更を含む。answer の適用で交渉済みにする
-        this.negotiationNeed.noteAppliedOffer();
+        this.negotiationNeed.noteAppliedOffer(this.createdOffer!.changeSeq);
         this.setSignalingState("have-local-offer");
       } else if (description.type === "answer") {
         this.setSignalingState("stable");

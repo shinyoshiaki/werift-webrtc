@@ -73,6 +73,11 @@ type StagedLocalRestart = {
   endDeferred?: boolean;
   /** The remote offer an answer staged this generation for, if any. */
   answering?: object;
+  /**
+   * The kind of description that created it. The latest created offer and
+   * the latest created answer each keep their generation registered.
+   */
+  createdBy: "offer" | "answer";
 };
 
 export class RTCIceTransport {
@@ -91,19 +96,28 @@ export class RTCIceTransport {
    */
   checksStarted = false;
   private renominating = false;
+  /**
+   * The restart generation selected for the description being created or
+   * applied (the one createOffer / createAnswer put in its SDP, or the one an
+   * applied description carries).
+   */
   private stagedLocalRestart?: StagedLocalRestart;
+  /**
+   * The restart generations the latest created offer and the latest created
+   * answer carry, by ufrag (their generation records). One stays registered
+   * until a newer description of the same kind replaces it (unless an
+   * applied description still carries it) or the transport stops, whatever
+   * is applied, rolled back or committed meanwhile; applying a description
+   * that carries it selects it (an ICE restart to those credentials on the
+   * kept sockets).
+   */
+  private readonly localGenerations = new Map<string, StagedLocalRestart>();
   /**
    * The staged generation an applied description (pending local offer, or a
    * remote offer being answered) carries. It stays until that description is
    * committed, replaced or rolled back; an unapplied createOffer cannot drop it.
    */
   private appliedLocalRestart?: StagedLocalRestart;
-  /**
-   * The generation the latest createOffer() carried (none if it did not
-   * restart), with the agent generation it was staged on. Re-applying that
-   * offer after a rollback stages it again.
-   */
-  private offeredRestart?: { restart: StagedLocalRestart; generation: number };
   /**
    * Gatherer events of an ICE restart committed by a local answer, held until
    * that answer is applied (`emitCommittedCandidates`), in their order: the
@@ -239,18 +253,11 @@ export class RTCIceTransport {
       return;
     }
     // Answers created again for the same remote offer carry the same
-    // generation, so any of them can still be applied.
+    // generation (JSEP 5.3.1).
     if (answering && this.stagedLocalRestart?.answering === answering) {
       return;
     }
-    // A generation staged for the answer to the pending remote offer belongs
-    // to that offer until it is answered or rolled back: an offer created
-    // meanwhile (it cannot be applied while the remote offer is pending)
-    // carries it instead of discarding it, so a saved answer stays applicable.
-    if (!answering && this.stagedLocalRestart?.answering) {
-      return;
-    }
-    this.rollbackLocalRestart();
+    this.unselectLocalRestart();
     const usernameFragment = randomBytes(6).toString("base64url");
     const random = randomBytes(24).toString("base64url");
     // The configured prefix (icePasswordPrefix) marks every generation's
@@ -278,53 +285,78 @@ export class RTCIceTransport {
       );
       return copy;
     });
-    this.stagedLocalRestart = {
+    const generation: StagedLocalRestart = {
       usernameFragment,
       password,
       candidates,
       emitted: false,
       answering,
+      createdBy: answering ? "answer" : "offer",
     };
+    // The previous description of this kind is no longer the latest one.
+    for (const [ufrag, previous] of this.localGenerations) {
+      if (
+        previous.createdBy === generation.createdBy &&
+        previous !== this.appliedLocalRestart
+      ) {
+        this.localGenerations.delete(ufrag);
+      }
+    }
+    this.localGenerations.set(usernameFragment, generation);
+    this.stagedLocalRestart = generation;
     // Existing sockets can respond to provisional STUN checks for the new
     // ufrag while the old generation continues to carry media.
     this.connection.stageLocalCredentials?.(usernameFragment, password);
   }
 
   /**
-   * The latest created offer carries the generation staged now.
+   * The local generation a description with these credentials carries:
+   * `"live"` for the agent's current credentials, the restart generation the
+   * latest created offer or answer carries, or `undefined` when the
+   * credentials belong to no generation the transport can take.
    * @internal
    */
-  rememberOfferedRestart() {
-    const restart = this.stagedLocalRestart;
-    this.offeredRestart = restart && {
-      restart,
-      generation: this.connection.generation,
-    };
+  localGenerationFor(usernameFragment: string, password: string) {
+    const live = this.iceGather.localParameters;
+    if (
+      live.usernameFragment === usernameFragment &&
+      live.password === password
+    ) {
+      return "live" as const;
+    }
+    const generation = this.localGenerations.get(usernameFragment);
+    if (generation?.password === password) return generation;
+    return undefined;
   }
 
   /**
-   * Stage again the generation the latest created offer carried,
-   * when a rollback discarded it and the agent has not moved to another
-   * generation since. Returns whether it staged anything.
+   * Select the local generation an applied description carries (see
+   * `localGenerationFor`). Returns false if the credentials belong to none.
    * @internal
    */
-  restageOfferedRestart() {
-    const offered = this.offeredRestart;
-    if (
-      !offered ||
-      this.stagedLocalRestart ||
-      offered.generation !== this.connection.generation
-    ) {
-      return false;
+  selectLocalGeneration(usernameFragment: string, password: string) {
+    const generation = this.localGenerationFor(usernameFragment, password);
+    if (!generation) return false;
+    if (generation === "live") {
+      this.unselectLocalRestart();
+      return true;
     }
-    // Its candidates are signalled again with the re-applied offer.
-    this.stagedLocalRestart = { ...offered.restart, emitted: false };
-    this.offeredRestart = { ...offered, restart: this.stagedLocalRestart };
+    if (this.stagedLocalRestart === generation) return true;
+    this.unselectLocalRestart();
+    this.stagedLocalRestart = generation;
     this.connection.stageLocalCredentials?.(
-      offered.restart.usernameFragment,
-      offered.restart.password,
+      generation.usernameFragment,
+      generation.password,
     );
     return true;
+  }
+
+  /** Stop answering checks for the selected generation; it stays registered. */
+  private unselectLocalRestart() {
+    const staged = this.stagedLocalRestart;
+    if (!staged) return;
+    this.connection.discardStagedLocalCredentials?.(staged.usernameFragment);
+    this.stagedLocalRestart = undefined;
   }
 
   get hasStagedRestart() {
@@ -383,11 +415,10 @@ export class RTCIceTransport {
 
   rollbackLocalRestart() {
     this.appliedLocalRestart = undefined;
-    if (!this.stagedLocalRestart) return;
-    this.connection.discardStagedLocalCredentials?.(
-      this.stagedLocalRestart.usernameFragment,
-    );
-    this.stagedLocalRestart = undefined;
+    // A description applying this generation again signals its candidates
+    // again (the remote side rolled back too).
+    if (this.stagedLocalRestart) this.stagedLocalRestart.emitted = false;
+    this.unselectLocalRestart();
   }
 
   /** The staged generation now belongs to an applied description. */
@@ -400,9 +431,9 @@ export class RTCIceTransport {
     const staged = this.stagedLocalRestart;
     const applied = this.appliedLocalRestart;
     if (!staged || staged === applied) return;
-    this.connection.discardStagedLocalCredentials?.(staged.usernameFragment);
-    this.stagedLocalRestart = applied;
+    this.unselectLocalRestart();
     if (applied) {
+      this.stagedLocalRestart = applied;
       this.connection.stageLocalCredentials?.(
         applied.usernameFragment,
         applied.password,
@@ -435,6 +466,8 @@ export class RTCIceTransport {
     }
     this.stagedLocalRestart = undefined;
     this.appliedLocalRestart = undefined;
+    // The committed generation is the live one now.
+    this.localGenerations.delete(staged.usernameFragment);
     // A local answer signals its candidates after it is applied.
     if (!staged.emitted) this.heldCandidateEvents = [];
     // The kept sockets are re-advertised synchronously; nothing here waits
@@ -615,6 +648,7 @@ export class RTCIceTransport {
   }
 
   async stop() {
+    this.localGenerations.clear();
     if (this.state !== "closed") {
       this.setState("closed", false);
       await this.connection.close();
