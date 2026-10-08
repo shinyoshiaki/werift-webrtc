@@ -522,6 +522,11 @@ describe("late SCTP under pranswer", () => {
       expect(offerer.sctpRemotePort).toBeUndefined();
       expect(offerer.sctpTransport!.associationActive).toBe(false);
       assertNegotiationInvariants(offerer);
+      // Assert: 相手側 (answerer) も ABORT を受けて association と channel が閉じる。
+      await vi.waitFor(() =>
+        expect(sctpAssociationOf(answerer).state).toBe("closed"),
+      );
+      expect(received.readyState).toBe("closed");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }

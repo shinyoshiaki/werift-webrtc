@@ -102,20 +102,6 @@
 
 ## Accessors
 
-### associationActive
-
-#### Get Signature
-
-> **get** **associationActive**(): `boolean`
-
-The association left its initial state (started, or established passively).
-
-##### Returns
-
-`boolean`
-
-***
-
 ### transport
 
 #### Get Signature
@@ -212,26 +198,6 @@ The association left its initial state (started, or established passively).
 
 ***
 
-### ensureStarted()
-
-> **ensureStarted**(`remotePort`): `Promise`\<`void`\>
-
-Idempotent start: an association that is established (also passively,
-from the remote INIT), handshaking or closed is not started again, so
-no second INIT is sent and the state never moves back.
-
-#### Parameters
-
-##### remotePort
-
-`number`
-
-#### Returns
-
-`Promise`\<`void`\>
-
-***
-
 ### getCapabilities()
 
 > **getCapabilities**(): [`RTCSctpCapabilities`](RTCSctpCapabilities.md)
@@ -239,27 +205,6 @@ no second INIT is sent and the state never moves back.
 #### Returns
 
 [`RTCSctpCapabilities`](RTCSctpCapabilities.md)
-
-***
-
-### resetAssociation()
-
-> **resetAssociation**(`dtlsTransport`): `Promise`\<`void`\>
-
-Discard the current association (ABORT, attached channels close) and
-bind a new, unstarted one (on the same DTLS transport by default).
-Channels still waiting for a stream ID stay queued for the next
-association.
-
-#### Parameters
-
-##### dtlsTransport
-
-[`RTCDtlsTransport`](RTCDtlsTransport.md) = `...`
-
-#### Returns
-
-`Promise`\<`void`\>
 
 ***
 

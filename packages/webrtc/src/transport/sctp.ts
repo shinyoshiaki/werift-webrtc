@@ -64,6 +64,7 @@ export class RTCSctpTransport {
   }
 
   /**
+   * @internal
    * Discard the current association (ABORT, attached channels close) and
    * bind a new, unstarted one (on the same DTLS transport by default).
    * Channels still waiting for a stream ID stay queued for the next
@@ -78,7 +79,10 @@ export class RTCSctpTransport {
     this.bindAssociation(dtlsTransport);
   }
 
-  /** The association left its initial state (started, or established passively). */
+  /**
+   * @internal
+   * The association left its initial state (started, or established passively).
+   */
   get associationActive() {
     return (
       this.sctp.started ||
@@ -414,6 +418,7 @@ export class RTCSctpTransport {
   }
 
   /**
+   * @internal
    * Idempotent start: an association that is established (also passively,
    * from the remote INIT), handshaking or closed is not started again, so
    * no second INIT is sent and the state never moves back.
