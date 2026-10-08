@@ -1587,7 +1587,9 @@ export class RTCPeerConnection extends EventTarget {
           restarted.add(live);
         }
       }
-      this.secureManager.stageIceRestart(restarted);
+      this.secureManager.stageIceRestart(restarted, {
+        answering: pendingOffer,
+      });
     }
 
     await this.topology.preparePending();

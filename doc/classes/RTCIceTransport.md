@@ -541,9 +541,18 @@ Feed a pranswer's ICE generation to the provisional checklist.
 
 ### stageLocalRestart()
 
-> **stageLocalRestart**(): `void`
+> **stageLocalRestart**(`__namedParameters`): `void`
 
 Prepare an ICE generation for SDP without touching the selected pair.
+`answering` is the remote offer an answer is created for.
+
+#### Parameters
+
+##### \_\_namedParameters
+
+###### answering?
+
+`object`
 
 #### Returns
 
