@@ -339,41 +339,74 @@ describe("SCTP added by renegotiation after DTLS is connected", () => {
 });
 
 describe("connect() with a usable ICE transport", () => {
-  test.each([
-    ["locally started", true, 0],
-    ["usable only by remote checks", false, 1],
-  ])(
-    "ICE %s and DTLS new: ICE start calls = %i-%#",
-    async (_, started, startCalls) => {
-      // Arrange: ICE が connected の接続済みペアで、DTLS だけ new に戻す。
-      const { offerer, answerer } = await createConnectedVideoPeers();
-      try {
-        const dtls = offerer.dtlsTransports[0];
-        const ice = dtls.iceTransport;
-        expect(["connected", "completed"]).toContain(ice.state);
-        const iceState = ice.state;
-        ice.started = started as boolean;
-        const iceStart = vi.spyOn(ice, "start").mockResolvedValue();
-        const dtlsStart = vi
-          .spyOn(dtls, "start")
-          .mockImplementation(async () => {
-            dtls.state = "connected";
-          });
-        dtls.state = "new";
+  test("ICE that ran its checks is not started again while DTLS is new", async () => {
+    // Arrange: ICE が connected の接続済みペアで、DTLS だけ new に戻す。
+    const { offerer, answerer } = await createConnectedVideoPeers();
+    try {
+      const dtls = offerer.dtlsTransports[0];
+      const ice = dtls.iceTransport;
+      expect(["connected", "completed"]).toContain(ice.state);
+      expect(ice.checksStarted).toBe(true);
+      const iceState = ice.state;
+      const iceStart = vi.spyOn(ice, "start");
+      const dtlsStart = vi.spyOn(dtls, "start").mockImplementation(async () => {
+        dtls.state = "connected";
+      });
+      dtls.state = "new";
 
-        // Act: 起動処理を呼ぶ。
-        await (offerer as any).activation.connect();
+      // Act: 起動処理を呼ぶ。
+      await (offerer as any).activation.connect();
 
-        // Assert: 利用可能な ICE は再 start されず (checking に戻らない)、DTLS は別に起動される。
-        expect(iceStart).toHaveBeenCalledTimes(startCalls as number);
-        expect(dtlsStart).toHaveBeenCalledTimes(1);
-        expect(ice.state).toBe(iceState);
-      } finally {
-        await Promise.allSettled([offerer.close(), answerer.close()]);
-      }
-    },
-    15000,
-  );
+      // Assert: ICE は再 start されず (checking に戻らず)、DTLS だけ起動される。
+      expect(iceStart).not.toHaveBeenCalled();
+      expect(dtlsStart).toHaveBeenCalledTimes(1);
+      expect(ice.state).toBe(iceState);
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  }, 15000);
+
+  test("concurrent connect() calls share one ICE start and a failed start releases the waiters", async () => {
+    // Arrange: 未開始の ICE。チェックは外から解決/失敗を制御できる。
+    const { offerer, answerer } = await createConnectedVideoPeers();
+    try {
+      const dtls = offerer.dtlsTransports[0];
+      const ice = dtls.iceTransport;
+      ice.checksStarted = false;
+      ice.state = "new";
+      dtls.state = "new";
+      let fail!: (error: Error) => void;
+      const connect = vi.spyOn(ice.connection, "connect").mockImplementation(
+        () =>
+          new Promise<void>((_, reject) => {
+            fail = reject;
+          }),
+      );
+      const dtlsStart = vi.spyOn(dtls, "start").mockResolvedValue();
+
+      // Act: checking 中に connect() を重複して呼び、チェックを失敗させる。
+      const first = (offerer as any).activation.connect();
+      await vi.waitFor(() => expect(ice.state).toBe("checking"));
+      const second = (offerer as any).activation.connect();
+      await Promise.resolve();
+      fail(new Error("checks failed"));
+
+      // Assert: 後続も同じ結果を待って収束し、ICE を再 start せず、DTLS も起動しない。
+      await expect(
+        Promise.race([
+          Promise.all([first, second]),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("waiter stuck")), 3000),
+          ),
+        ]),
+      ).resolves.toBeDefined();
+      expect(connect).toHaveBeenCalledTimes(1);
+      expect(dtlsStart).not.toHaveBeenCalled();
+      expect(ice.state).toBe("failed");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  }, 15000);
 });
 
 describe("late SCTP under pranswer", () => {

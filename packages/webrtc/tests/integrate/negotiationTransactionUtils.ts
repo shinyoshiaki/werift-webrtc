@@ -1,9 +1,11 @@
 import { expect, vi } from "vitest";
 
+import type { Address } from "../../../common/src";
 import { getHostAddresses } from "../../../ice/src/utils";
 import {
   TURN_TEST_PASSWORD,
   TURN_TEST_USERNAME,
+  createHeldUdpProxy,
   createLocalTurnServer,
 } from "../../../ice/tests/utils";
 import { InitChunk } from "../../../sctp/src/chunk";
@@ -2084,4 +2086,81 @@ export function receiveCodecNames(receiver: RTCRtpReceiver) {
       ([payloadType, codec]) => [payloadType, codec.name.toUpperCase()],
     ),
   );
+}
+
+/** The RTCIceServer entry of a TURN server (or a proxy in front of it) at `address`. */
+export function turnIceServers([host, port]: Address) {
+  return [
+    {
+      urls: `turn:${host}:${port}`,
+      username: TURN_TEST_USERNAME,
+      credential: TURN_TEST_PASSWORD,
+    },
+  ];
+}
+
+/**
+ * Shared Arrange: a TURN server the offerer gathered with, plus a held proxy
+ * per later ICE restart, so each restart's background TURN allocation
+ * completes only when the test releases its proxy.
+ */
+export async function createHeldTurnRestartPeers(restarts: number) {
+  const turn = await createLocalTurnIceServer();
+  const proxies = await Promise.all(
+    [...Array(restarts)].map(() => createHeldUdpProxy(turn.server.address!)),
+  );
+  const offerer = new RTCPeerConnection({ iceServers: turn.iceServers });
+  const answerer = new RTCPeerConnection();
+  const channel = offerer.createDataChannel("turn");
+  const received = answerer.onDataChannel.asPromise().then(([c]) => c);
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  await answerer.setLocalDescription(await answerer.createAnswer());
+  await offerer.setRemoteDescription(answerer.localDescription!);
+  return {
+    offerer,
+    answerer,
+    channel,
+    received,
+    proxies,
+    /** Negotiate an ICE restart whose TURN allocation goes through `proxies[index]`. */
+    async restartThrough(index: number) {
+      offerer.setConfiguration({
+        iceServers: turnIceServers(proxies[index].address),
+      });
+      offerer.restartIce();
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+    },
+    async close() {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+      for (const proxy of proxies) proxy.close();
+      await turn.server.close();
+    },
+  };
+}
+
+/**
+ * Arrange: put `pc`'s first ICE transport in `state` as its agent would (for
+ * example "failed" after consent freshness expired), without touching the
+ * selected pair.
+ */
+export function forceIceState(
+  pc: RTCPeerConnection,
+  state: RTCPeerConnection["iceConnectionState"],
+) {
+  (
+    pc.iceTransports[0] as unknown as { setState(state: string): void }
+  ).setState(state);
+}
+
+/** Record the ICE connection states `pc` reports from now on. */
+export function recordIceConnectionStates(pc: RTCPeerConnection) {
+  const states: string[] = [];
+  pc.iceConnectionStateChange.subscribe((state) => {
+    states.push(state);
+  });
+  return states;
 }

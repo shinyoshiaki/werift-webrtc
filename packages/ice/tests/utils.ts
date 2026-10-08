@@ -805,3 +805,55 @@ export function localRelayCandidates(connection: Connection) {
     (candidate) => candidate.type === "relay",
   );
 }
+
+/**
+ * Arrange: a UDP proxy in front of `target` (a local TURN server) that holds
+ * client-to-server datagrams until `release()`, so a gather's TURN
+ * allocation (or STUN query) completes only when the test lets it.
+ */
+export async function createHeldUdpProxy(target: Address) {
+  const host = target[0];
+  const family = net.isIPv4(host) ? "udp4" : "udp6";
+  const front = dgram.createSocket(family);
+  await new Promise<void>((resolve) => front.bind(0, host, resolve));
+  const upstream = new Map<string, dgram.Socket>();
+  const queued: (() => void)[] = [];
+  let held = true;
+  front.on("message", (data, rinfo) => {
+    const key = `${rinfo.address}:${rinfo.port}`;
+    let socket = upstream.get(key);
+    if (!socket) {
+      socket = dgram.createSocket(family);
+      socket.bind(0, host);
+      socket.on("message", (reply) => {
+        front.send(reply, rinfo.port, rinfo.address);
+      });
+      upstream.set(key, socket);
+    }
+    const forward = () => socket!.send(data, target[1], target[0]);
+    if (held) queued.push(forward);
+    else forward();
+  });
+  return {
+    address: [host, front.address().port] as Address,
+    release() {
+      held = false;
+      for (const forward of queued.splice(0)) forward();
+    },
+    close() {
+      for (const socket of upstream.values()) socket.close();
+      front.close();
+    },
+  };
+}
+
+/** Relay-only TURN options that reach `server` through `proxy`. */
+export function proxiedTurnOptions(proxy: { address: Address }) {
+  return {
+    stunServer: undefined,
+    turnServer: proxy.address,
+    turnUsername: TURN_TEST_USERNAME,
+    turnPassword: TURN_TEST_PASSWORD,
+    forceTurn: true,
+  };
+}

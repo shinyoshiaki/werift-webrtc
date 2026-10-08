@@ -1,4 +1,4 @@
-import { debug } from "../imports/common";
+import { type Event, debug } from "../imports/common";
 import type { TransceiverManager } from "../media";
 import type { NegotiationTransaction } from "../negotiationTransaction";
 import type { SctpTransportManager } from "../sctpManager";
@@ -146,9 +146,14 @@ export class TransportActivation {
   }
 
   /**
-   * Start ICE, DTLS and SCTP on every live transport. Each layer is ensured
-   * on its own, so an SCTP association a renegotiation added on an already
-   * connected DTLS transport starts too, without touching ICE / DTLS.
+   * Start ICE, DTLS and SCTP on every live transport that still needs it.
+   *
+   * ICE checks start only for a generation that has not run them (the first
+   * negotiation or a committed restart); checks already running are
+   * awaited, and an established, completed or failed generation is left to
+   * its own state machine (consent freshness, a later ICE restart). A DTLS
+   * handshake already running is awaited rather than started again. The
+   * connection state changes only when this call started or awaited work.
    */
   async connect() {
     log("start connect");
@@ -156,59 +161,68 @@ export class TransportActivation {
     const res = await Promise.allSettled(
       this.secure.dtlsTransports.map(async (dtlsTransport) => {
         const { iceTransport } = dtlsTransport;
-        // ICE that already ran its local checks and is usable is not
-        // started again (that would move it back to "checking"). Remote
-        // checks alone can make it "connected" first, so that case still
-        // starts, as this sets up the local side. DTLS is ensured on its own:
-        // a running handshake is awaited, a new one is started.
-        const iceUsable =
-          ["connected", "completed"].includes(iceTransport.state) &&
-          iceTransport.started;
-        if (!iceUsable) {
+        let progressed = false;
+        let iceReady = ["connected", "completed"].includes(iceTransport.state);
+
+        if (!iceTransport.checksStarted) {
+          progressed = true;
           this.secure.setConnectionState("connecting");
           await iceTransport.start().catch((err) => {
             log("iceTransport.start failed", err);
             throw err;
           });
+          iceReady = true;
+        } else if (iceTransport.state === "checking") {
+          // Checks an earlier connect() (or a pranswer) started are awaited,
+          // never started again.
+          progressed = true;
+          await iceTransport.checksSettled();
+          iceReady = ["connected", "completed"].includes(iceTransport.state);
+          if (!iceReady) {
+            throw new Error(`ICE transport ${iceTransport.state}`);
+          }
         }
-        await this.ensureDtlsConnected(dtlsTransport);
 
+        if (dtlsTransport.state === "connecting") {
+          progressed = true;
+          const state = await settledState(
+            dtlsTransport.onStateChange,
+            () => dtlsTransport.state,
+            (state) => state !== "connecting",
+          );
+          if (state !== "connected") {
+            throw new Error(`DTLS transport ${state}`);
+          }
+        } else if (dtlsTransport.state === "new" && iceReady) {
+          progressed = true;
+          this.secure.setConnectionState("connecting");
+          await dtlsTransport.start().catch((err) => {
+            log("dtlsTransport.start failed", err);
+            throw err;
+          });
+        }
+        if (dtlsTransport.state !== "connected") {
+          return progressed;
+        }
+
+        // SCTP is ensured on its own: an association a renegotiation added
+        // on an already connected DTLS transport starts here too, without
+        // touching ICE / DTLS or the connection state.
         if (
           this.sctp.sctpTransport &&
           this.sctp.sctpTransport.dtlsTransport.id === dtlsTransport.id
         ) {
           await this.sctp.connectSctp();
         }
+        return progressed;
       }),
     );
 
     if (res.find((r) => r.status === "rejected")) {
       this.secure.setConnectionState("failed");
-    } else {
+    } else if (res.some((r) => r.status === "fulfilled" && r.value)) {
       this.secure.setConnectionState("connected");
     }
-  }
-
-  /** Start DTLS once; a handshake already running is awaited, not restarted. */
-  private async ensureDtlsConnected(dtlsTransport: RTCDtlsTransport) {
-    if (dtlsTransport.state === "connected") return;
-    if (dtlsTransport.state === "connecting") {
-      await new Promise<void>((resolve, reject) => {
-        const { unSubscribe } = dtlsTransport.onStateChange.subscribe(
-          (state) => {
-            if (state === "connecting") return;
-            unSubscribe();
-            if (state === "connected") resolve();
-            else reject(new Error(`dtlsTransport ${state}`));
-          },
-        );
-      });
-      return;
-    }
-    await dtlsTransport.start().catch((err) => {
-      log("dtlsTransport.start failed", err);
-      throw err;
-    });
   }
 
   /** Connect a provisional ICE/DTLS generation without changing live bindings. */
@@ -232,4 +246,30 @@ export class TransportActivation {
       }),
     );
   }
+}
+
+/**
+ * The first state `done` accepts: the current one, or a later one `event`
+ * reports. A completed event (the transport stopped) settles with the state
+ * the transport is left in.
+ */
+function settledState<S>(
+  event: Event<[S]>,
+  current: () => S,
+  done: (state: S) => boolean,
+) {
+  return new Promise<S>((resolve) => {
+    if (done(current()) || event.ended) {
+      resolve(current());
+      return;
+    }
+    const { unSubscribe } = event.subscribe(
+      (state) => {
+        if (!done(state)) return;
+        unSubscribe();
+        resolve(state);
+      },
+      () => resolve(current()),
+    );
+  });
 }
