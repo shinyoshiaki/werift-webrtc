@@ -71,6 +71,8 @@ type StagedLocalRestart = {
    * candidates and end-of-candidates are trickled then, not with the offer.
    */
   endDeferred?: boolean;
+  /** The remote offer an answer staged this generation for, if any. */
+  answering?: object;
 };
 
 export class RTCIceTransport {
@@ -216,14 +218,22 @@ export class RTCIceTransport {
     return this.describedLocalGeneration().parameters;
   }
 
-  /** Prepare an ICE generation for SDP without touching the selected pair. */
-  stageLocalRestart() {
+  /**
+   * Prepare an ICE generation for SDP without touching the selected pair.
+   * `answering` is the remote offer an answer is created for.
+   */
+  stageLocalRestart({ answering }: { answering?: object } = {}) {
     // JSEP 5.2.1: a new offer reuses the credentials of the pending applied
     // offer, which already restarts ICE.
     if (
       this.stagedLocalRestart &&
       this.stagedLocalRestart === this.appliedLocalRestart
     ) {
+      return;
+    }
+    // Answers created again for the same remote offer carry the same
+    // generation, so any of them can still be applied.
+    if (answering && this.stagedLocalRestart?.answering === answering) {
       return;
     }
     this.rollbackLocalRestart();
@@ -259,6 +269,7 @@ export class RTCIceTransport {
       password,
       candidates,
       emitted: false,
+      answering,
     };
     // Existing sockets can respond to provisional STUN checks for the new
     // ufrag while the old generation continues to carry media.

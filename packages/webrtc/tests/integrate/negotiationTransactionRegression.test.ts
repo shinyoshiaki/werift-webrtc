@@ -1416,4 +1416,40 @@ describe("negotiation transaction live-state regressions", () => {
       await close();
     }
   });
+
+  test("an ICE restart answer saved before createAnswer() ran again can still be applied", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers();
+    try {
+      // Arrange: ICE restart の remote offer を受け、answer を保存してからもう一度作る。
+      offerer.restartIce();
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      const saved = await answerer.createAnswer();
+      const regenerated = await answerer.createAnswer();
+      const ufragOf = (sdp: string) => sdp.match(/^a=ice-ufrag:(\S+)/m)![1];
+
+      // Assert: 同じ remote offer への answer は同じ restart generation を持つ。
+      expect(ufragOf(regenerated.sdp)).toBe(ufragOf(saved.sdp));
+
+      // Act: 保存した answer を両 peer に適用する。
+      await answerer.setLocalDescription(saved);
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      await Promise.all([
+        waitForCommittedNomination(offerer),
+        waitForCommittedNomination(answerer),
+      ]);
+
+      // Assert: 交渉は確定し、新しい generation で RTP が届く。
+      expect(answerer.signalingState).toBe("stable");
+      expect(answerer.iceTransports[0].connection.localUsername).toBe(
+        ufragOf(saved.sdp),
+      );
+      assertNegotiationInvariants(answerer);
+      assertNegotiationInvariants(offerer);
+      await sendAndExpectRtp(outgoing, incoming, "saved restart answer");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
 });

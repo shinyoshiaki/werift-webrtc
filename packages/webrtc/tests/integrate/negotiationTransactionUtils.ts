@@ -1488,7 +1488,7 @@ const audioSplit = (sdp: string, mid: string, split: boolean) => {
  * One committed or rolled-back negotiation episode chosen by `rng`: offer
  * variants (plain, ICE restart, new audio m-line, audio BUNDLE split/merge),
  * then pranswer / replacement offer / end-of-candidates, then answer or
- * rollback. Invariants of both peers are checked after every operation.
+ * rollback (an ICE restart answer is created twice and the first applied). Invariants of both peers are checked after every operation.
  */
 export async function fuzzEpisode(ctx: FuzzContext, rng: SeededRandom) {
   const { session } = ctx;
@@ -1577,9 +1577,11 @@ export async function fuzzEpisode(ctx: FuzzContext, rng: SeededRandom) {
     );
     return;
   }
-  await step(session, async () =>
-    answerer.pc.setLocalDescription(await answerer.pc.createAnswer()),
-  );
+  // An ICE restart answer is saved, created again, and the saved one is
+  // applied: answers for the same remote offer stay applicable.
+  const saved = await answerer.pc.createAnswer();
+  if (variant === "iceRestart") await answerer.pc.createAnswer();
+  await step(session, () => answerer.pc.setLocalDescription(saved));
   await step(session, () =>
     offerer.pc.setRemoteDescription(answerer.pc.localDescription!),
   );
