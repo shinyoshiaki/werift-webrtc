@@ -1710,4 +1710,108 @@ describe("negotiation transaction live-state regressions", () => {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
   });
+
+  test.each([
+    {
+      label: "the saved restart offer",
+      replacement: async (
+        _pc: RTCPeerConnection,
+        saved: Awaited<ReturnType<RTCPeerConnection["createOffer"]>>,
+      ) => saved,
+    },
+    {
+      label: "a newly created restart offer",
+      replacement: (pc: RTCPeerConnection) =>
+        pc.createOffer({ iceRestart: true }),
+    },
+  ])(
+    "replacing a restart offer in have-remote-pranswer with $label keeps the requested restart",
+    async ({ replacement }) => {
+      const { offerer, answerer, outgoing, incoming } =
+        await createConnectedVideoPeers();
+      try {
+        // Arrange: restart offer を適用し、相手の pranswer を受ける。
+        const ufragOf = (sdp: string) => sdp.match(/^a=ice-ufrag:(\S+)/m)![1];
+        const before = {
+          ufrag: offerer.iceTransports[0].connection.localUsername,
+          generation: offerer.iceTransports[0].connection.generation,
+        };
+        const saved = await offerer.createOffer({ iceRestart: true });
+        await offerer.setLocalDescription(saved);
+        await answerer.setRemoteDescription(offerer.localDescription!);
+        const pranswer = (await answerer.createAnswer()).sdp;
+        await answerer.setLocalDescription({ type: "pranswer", sdp: pranswer });
+        await offerer.setRemoteDescription({ type: "pranswer", sdp: pranswer });
+
+        // Act: have-remote-pranswer で offer を置き換え、相手は pranswer を rollback して answer で確定する。
+        await offerer.setLocalDescription(await replacement(offerer, saved));
+        const offered = ufragOf(offerer.localDescription!.sdp);
+        await answerer.setRemoteDescription({ type: "rollback" });
+        await answerer.setRemoteDescription(offerer.localDescription!);
+        await answerer.setLocalDescription(await answerer.createAnswer());
+        await offerer.setRemoteDescription(answerer.localDescription!);
+        await Promise.all([
+          waitForCommittedNomination(offerer),
+          waitForCommittedNomination(answerer),
+        ]);
+
+        // Assert: 置き換えた offer も restart の ufrag を持ち、確定後に ICE generation が進む。
+        expect(offered).toBe(ufragOf(saved.sdp));
+        expect(offered).not.toBe(before.ufrag);
+        const connection = offerer.iceTransports[0].connection;
+        expect(connection.localUsername).toBe(offered);
+        expect(connection.generation).toBeGreaterThan(before.generation);
+        assertNegotiationInvariants(offerer);
+        assertNegotiationInvariants(answerer);
+        await sendAndExpectRtp(
+          outgoing,
+          incoming,
+          "after replaced restart offer",
+        );
+      } finally {
+        await Promise.allSettled([offerer.close(), answerer.close()]);
+      }
+    },
+  );
+
+  test("a re-applied restart offer that fails to parse leaves no staged credentials", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers();
+    try {
+      // Arrange: audio を含む restart offer を適用して rollback し、相手の通常 offer で
+      // 同じ m-line 位置に video を確定する。
+      const audio = offerer.addTransceiver("audio", { direction: "sendonly" });
+      const saved = await offerer.createOffer({ iceRestart: true });
+      await offerer.setLocalDescription(saved);
+      await offerer.setLocalDescription({ type: "rollback" });
+      answerer.addTransceiver("video", { direction: "sendonly" });
+      await negotiatePair(answerer, offerer);
+      const iceTransport = offerer.iceTransports[0];
+      const before = {
+        signalingState: offerer.signalingState,
+        current: offerer.currentLocalDescription!.sdp,
+        ufrag: iceTransport.localParameters.usernameFragment,
+        staged: iceTransport.hasStagedRestart,
+        audio: { mid: audio.mid, index: audio.mLineIndex },
+      };
+
+      // Act / Assert: 保存した offer の再適用は m-line の不整合で拒否される。
+      await expect(offerer.setLocalDescription(saved)).rejects.toThrow();
+
+      // Assert: stage し直した資格情報や MID は残らず、失敗前と同じ状態になる。
+      expect({
+        signalingState: offerer.signalingState,
+        current: offerer.currentLocalDescription!.sdp,
+        ufrag: iceTransport.localParameters.usernameFragment,
+        staged: iceTransport.hasStagedRestart,
+        audio: { mid: audio.mid, index: audio.mLineIndex },
+      }).toEqual(before);
+      expect(before.staged).toBe(false);
+      expect(before.current).toContain(`a=ice-ufrag:${before.ufrag}`);
+      assertNegotiationInvariants(offerer);
+      await sendAndExpectRtp(outgoing, incoming, "after rejected re-apply");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
 });

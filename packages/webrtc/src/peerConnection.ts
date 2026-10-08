@@ -954,7 +954,14 @@ export class RTCPeerConnection extends EventTarget {
       // Its ICE restart generation, if a rollback of this offer discarded
       // it, is staged again (validation still requires exactly those
       // credentials). A failed application undoes both.
-      let undoReapply = () => {};
+      const restagedTransports: RTCIceTransport[] = [];
+      let undoAssignments = () => {};
+      const undoReapply = () => {
+        undoAssignments();
+        for (const transport of restagedTransports.splice(0)) {
+          transport.rollbackLocalRestart();
+        }
+      };
       if (
         sessionDescription.type === "offer" &&
         sessionDescription.sdp === this.createdOfferSdp &&
@@ -962,12 +969,10 @@ export class RTCPeerConnection extends EventTarget {
           this.signalingState,
         )
       ) {
-        const undoAssignments = this.restoreCreatedOfferAssignments();
-        const restaged = this.secureManager.restageOfferedIceRestart();
-        undoReapply = () => {
-          undoAssignments();
-          for (const transport of restaged) transport.rollbackLocalRestart();
-        };
+        undoAssignments = this.restoreCreatedOfferAssignments();
+        restagedTransports.push(
+          ...this.secureManager.restageOfferedIceRestart(),
+        );
       }
 
       // # parse and validate description
@@ -977,16 +982,17 @@ export class RTCPeerConnection extends EventTarget {
       >;
       const descriptionSdp = sessionDescription.sdp!;
 
-      const description = this.sdpManager.parseSdp({
-        sdp: descriptionSdp,
-        isLocal: true,
-        signalingState: this.signalingState,
-        type: descriptionType,
-      });
+      let description: SessionDescription;
       let stagedOfferTopology:
         | Awaited<ReturnType<BundleTopology["stageLocalOffer"]>>
         | undefined;
       try {
+        description = this.sdpManager.parseSdp({
+          sdp: descriptionSdp,
+          isLocal: true,
+          signalingState: this.signalingState,
+          type: descriptionType,
+        });
         this.validator.validateLocal(description);
         // Stage the offer's transports before retiring anything pending.
         stagedOfferTopology =
@@ -1026,6 +1032,12 @@ export class RTCPeerConnection extends EventTarget {
           await this.negotiation.rollback();
           await this.activation.cleanupInitialProvisional();
           this.setSignalingState("stable");
+          // Rolling the pranswer back also discarded the restart generation
+          // the offer being applied carries (the same offer re-applied, or a
+          // new one that reused its credentials): stage it again.
+          restagedTransports.push(
+            ...this.secureManager.restageOfferedIceRestart(),
+          );
         }
         if (description.type === "offer") {
           if (this.signalingState === "have-local-offer") {
