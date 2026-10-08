@@ -145,36 +145,34 @@ export class TransportActivation {
     }
   }
 
-  /** Start ICE, DTLS and SCTP on every live transport. */
+  /**
+   * Start ICE, DTLS and SCTP on every live transport. Each layer is ensured
+   * on its own, so an SCTP association a renegotiation added on an already
+   * connected DTLS transport starts too, without touching ICE / DTLS.
+   */
   async connect() {
     log("start connect");
 
     const res = await Promise.allSettled(
       this.secure.dtlsTransports.map(async (dtlsTransport) => {
         const { iceTransport } = dtlsTransport;
-        if (
-          iceTransport.state === "connected" &&
-          dtlsTransport.state === "connected"
-        ) {
-          return;
+        // A connected transport (e.g. one a renegotiation adds SCTP to) is
+        // not touched: no ICE start and no "connecting" connection state.
+        // Otherwise ICE is started as before, also when remote checks made
+        // it usable first, because start() sets up the local connection.
+        const linkConnected =
+          ["connected", "completed"].includes(iceTransport.state) &&
+          dtlsTransport.state === "connected";
+        if (!linkConnected) {
+          this.secure.setConnectionState("connecting");
+
+          await iceTransport.start().catch((err) => {
+            log("iceTransport.start failed", err);
+            throw err;
+          });
+
+          await this.ensureDtlsConnected(dtlsTransport);
         }
-        const checkDtlsConnected = () => dtlsTransport.state === "connected";
-
-        this.secure.setConnectionState("connecting");
-
-        await iceTransport.start().catch((err) => {
-          log("iceTransport.start failed", err);
-          throw err;
-        });
-
-        if (checkDtlsConnected()) {
-          return;
-        }
-
-        await dtlsTransport.start().catch((err) => {
-          log("dtlsTransport.start failed", err);
-          throw err;
-        });
 
         if (
           this.sctp.sctpTransport &&
@@ -190,6 +188,28 @@ export class TransportActivation {
     } else {
       this.secure.setConnectionState("connected");
     }
+  }
+
+  /** Start DTLS once; a handshake already running is awaited, not restarted. */
+  private async ensureDtlsConnected(dtlsTransport: RTCDtlsTransport) {
+    if (dtlsTransport.state === "connected") return;
+    if (dtlsTransport.state === "connecting") {
+      await new Promise<void>((resolve, reject) => {
+        const { unSubscribe } = dtlsTransport.onStateChange.subscribe(
+          (state) => {
+            if (state === "connecting") return;
+            unSubscribe();
+            if (state === "connected") resolve();
+            else reject(new Error(`dtlsTransport ${state}`));
+          },
+        );
+      });
+      return;
+    }
+    await dtlsTransport.start().catch((err) => {
+      log("dtlsTransport.start failed", err);
+      throw err;
+    });
   }
 
   /** Connect a provisional ICE/DTLS generation without changing live bindings. */

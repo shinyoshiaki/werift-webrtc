@@ -207,18 +207,36 @@ their committed association; channels opened on a pending-only association
 close when it is discarded. Application-created unattached channels remain
 application objects for a later negotiation.
 
+SCTP is started per layer after every answer or pranswer that negotiates the
+application m-line (JSEP 5.11, W3C "set the session description"), also when
+the bound DTLS transport is already connected: an `m=application` a
+renegotiation adds to a connected session (BUNDLE shares the DTLS transport)
+starts without touching ICE or DTLS and without moving `connectionState`.
+Starting is idempotent: an established association, including one the remote
+INIT established before the local start, a handshaking one and a closed one
+are never started again (no second INIT, no state moving back), so a final
+answer that keeps the pranswer's sctp-port continues the association. A
+final answer that changes the sctp-port is rejected in validate; one that
+rejects `m=application` (port 0, RFC 8841 section 10.4) closes the
+association a pranswer started.
+
 `createDataChannel` is an application operation, like `stop()`. An SCTP
 transport that carries a `createDataChannel` call is marked as
-application-owned. When rollback finds such a transport that is not in the
-baseline and whose association has not started, it keeps the transport and
-its channels. Rollback only clears the MID, m-line index, remote port and
-remote message size that the rolled-back description set. The next offer
-carries `m=application` again, and the channels open once it is answered. An
-SCTP transport that a description created, or an association that already
-ran under the pending description, is stopped as before. A transport created
-during the transaction that no binding holds at commit (for example the data
-channel's own transport after BUNDLE moved SCTP to the tag) is stopped at
-commit.
+application-owned and survives rollback, whether it is in the baseline or was
+added during the transaction. Rollback only clears the MID, m-line index,
+remote port and remote message size that the rolled-back description set.
+The next offer carries `m=application` again, and the channels open once it
+is answered. When the baseline has no negotiated SCTP binding (no remote
+port), an association that left its initial state under the pending
+description (started by a pranswer, or established passively from the remote
+INIT) is pending-only, whether or not its transport is in the baseline: it is
+aborted and an application-owned transport gets a new, unstarted
+association on the same DTLS transport. Channels attached to the discarded
+association (with a stream ID) close; channels still waiting for a stream ID
+stay `connecting` for the next negotiation. An SCTP transport that a
+description created is stopped as before. A transport created during the
+transaction that no binding holds at commit (for example the data channel's
+own transport after BUNDLE moved SCTP to the tag) is stopped at commit.
 
 Restart credentials that an applied offer carries belong to that offer until
 it is answered, replaced or rolled back. A later `createOffer()` that is not
@@ -412,7 +430,7 @@ negotiation state is added to its component's pair, not to the transaction:
 | `RTCRtpReceiver` | `snapshotNegotiationState` / `restoreNegotiationState` | SSRCs learned from RID packets whose track survives |
 | `TransceiverManager` | `snapshotNegotiationState` / `restoreNegotiationState` (order, track notification, removal of proposal-created transceivers) | transceivers the application uses (`heldByApplication`) |
 | `RtpRouter` | `snapshotRoutes` / `restoreRoutes` | packet-learned SSRC routes, every live sender's own route |
-| `SctpTransportManager` | `snapshotNegotiationState` / `restoreNegotiationState` | an application-created SCTP transport whose association never ran |
+| `SctpTransportManager` | `snapshotNegotiationState` / `restoreNegotiationState` | an application-created SCTP transport (a pending-only association is replaced by an unstarted one) and its channels without a stream ID |
 
 ## Test coverage
 
@@ -554,8 +572,6 @@ catalog define what this design guarantees. A new combination outside them
 not as a change of this contract. Known constraints:
 
 - Interoperability is verified with Chrome only.
-- A DataChannel created on an already connected session without an SCTP
-  association does not open after renegotiation (existing since `develop`).
 - The header extension ID map is shared by the whole PeerConnection. m-lines
   on separate (non-BUNDLE) transports that map one ID to different URIs are
   not supported; only a remap of an ID the current session uses is rejected.

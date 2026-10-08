@@ -1409,7 +1409,7 @@ export class RTCPeerConnection extends EventTarget {
           this.secureManager.discardUnappliedIceRestart();
           await this.commitIceRestartIfAnyStaged();
         }
-        for (const update of transportUpdates) update();
+        for (const update of transportUpdates) await update();
         for (const iceTransport of new Set(endOfCandidates)) {
           iceTransport.deliverRemoteCandidate(undefined);
         }

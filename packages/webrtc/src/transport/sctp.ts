@@ -60,7 +60,34 @@ export class RTCSctpTransport {
     if (this.dtlsTransport && this.dtlsTransport.id === dtlsTransport.id) {
       return;
     }
+    this.bindAssociation(dtlsTransport);
+  }
 
+  /**
+   * Discard the current association (ABORT, attached channels close) and
+   * bind a new, unstarted one (on the same DTLS transport by default).
+   * Channels still waiting for a stream ID stay queued for the next
+   * association.
+   */
+  async resetAssociation(dtlsTransport = this.dtlsTransport) {
+    await this.stop();
+    this.dataChannelQueue = this.dataChannelQueue.filter(
+      ([channel]) => channel.id === undefined,
+    );
+    this.dataChannelId = undefined;
+    this.bindAssociation(dtlsTransport);
+  }
+
+  /** The association left its initial state (started, or established passively). */
+  get associationActive() {
+    return (
+      this.sctp.started ||
+      this.sctp.state !== "new" ||
+      this.sctp.associationState !== SCTP_STATE.CLOSED
+    );
+  }
+
+  private bindAssociation(dtlsTransport: RTCDtlsTransport) {
     this.eventDisposer.forEach((dispose) => dispose());
 
     this.dtlsTransport = dtlsTransport;
@@ -302,7 +329,10 @@ export class RTCSctpTransport {
 
       let streamId = channel.id;
       if (streamId === undefined) {
-        streamId = this.dataChannelId!;
+        // An association the remote established before start() decides the
+        // parity here (RFC 8832: DTLS client even; ICE controlling is server).
+        this.dataChannelId ??= this.isServer ? 0 : 1;
+        streamId = this.dataChannelId;
         while (Object.keys(this.dataChannels).includes(streamId.toString())) {
           streamId += 2;
         }
@@ -379,14 +409,25 @@ export class RTCSctpTransport {
   }
 
   async start(remotePort: number) {
-    if (this.isServer) {
-      this.dataChannelId = 0;
-    } else {
-      this.dataChannelId = 1;
-    }
-    this.sctp.isServer = this.isServer;
-
+    this.assignRole();
     await this.sctp.start(remotePort);
+  }
+
+  /**
+   * Idempotent start: an association that is established (also passively,
+   * from the remote INIT), handshaking or closed is not started again, so
+   * no second INIT is sent and the state never moves back.
+   */
+  async ensureStarted(remotePort: number) {
+    if (this.sctp.started || this.sctp.state === "closed") return;
+    this.assignRole();
+    if (this.sctp.state === "connected") return;
+    await this.sctp.start(remotePort);
+  }
+
+  private assignRole() {
+    this.dataChannelId = this.isServer ? 0 : 1;
+    this.sctp.isServer = this.isServer;
   }
 
   async stop() {

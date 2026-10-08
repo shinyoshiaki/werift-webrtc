@@ -1,4 +1,4 @@
-import { type SCTPOptions, SCTP_STATE } from "../../sctp/src";
+import type { SCTPOptions } from "../../sctp/src";
 import { createWebRtcTypeError } from "./errors";
 import { Event, debug } from "./imports/common";
 
@@ -136,20 +136,28 @@ export class SctpTransportManager {
 
   /** Internal: return to a negotiation baseline taken by `snapshotNegotiationState`. */
   async restoreNegotiationState(state: SctpNegotiationState) {
-    const added =
-      this.sctpTransport !== state.transport ? this.sctpTransport : undefined;
+    const current = this.sctpTransport;
+    const added = current !== state.transport ? current : undefined;
     // createDataChannel is an application operation: its SCTP transport
     // survives rollback, unbound from the rolled-back m-line, so the next
-    // offer carries m=application again. An association that already ran
-    // under the pending description is description state and is torn down.
-    const keepAdded =
-      !!added &&
-      this.isApplicationOwned(added) &&
-      added.sctp.associationState === SCTP_STATE.CLOSED;
+    // offer carries m=application again. A transport a description created
+    // is description state and is torn down.
+    const keepAdded = !!added && this.isApplicationOwned(added);
     if (added && !keepAdded) {
       await added.stop();
     }
-    this.sctpTransport = keepAdded ? added : state.transport;
+    // Without a negotiated binding in the baseline, an association that ran
+    // under the pending description (started by a pranswer, or established
+    // passively from the remote INIT) is pending-only: it is discarded and a
+    // new, unstarted one waits for the next negotiation. Attached channels
+    // close; unattached ones stay queued.
+    const kept = keepAdded ? added : state.transport;
+    if (kept && state.remotePort === undefined && kept.associationActive) {
+      await kept.resetAssociation(
+        kept === state.transport ? state.dtlsTransport : undefined,
+      );
+    }
+    this.sctpTransport = kept;
     if (
       state.transport &&
       state.dtlsTransport &&
@@ -166,6 +174,19 @@ export class SctpTransportManager {
         state.transport.remoteMaxMessageSize = state.remoteMaxMessageSize;
       }
     }
+  }
+
+  /**
+   * Internal: a final answer rejected the application m-line (port 0, RFC
+   * 8841 section 10.4). The association a pranswer started closes; the
+   * transport waits unbound for a later negotiation.
+   */
+  async rejectApplication() {
+    const transport = this.sctpTransport;
+    if (!transport) return;
+    if (transport.associationActive) await transport.resetAssociation();
+    this.sctpRemotePort = undefined;
+    this.detachFromDescription(transport);
   }
 
   /**
@@ -192,14 +213,37 @@ export class SctpTransportManager {
     transport.remoteMaxMessageSize = DEFAULT_MAX_MESSAGE_SIZE;
   }
 
+  /**
+   * Start the association of the negotiated application m-line and wait
+   * until it is established. Safe to call any number of times: an
+   * established (also passively established) or handshaking association is
+   * not started again, and a closed one is not waited for.
+   */
   async connectSctp() {
-    if (!this.sctpTransport || !this.sctpRemotePort) {
+    const transport = this.sctpTransport;
+    if (!transport || !this.sctpRemotePort) {
       return;
     }
+    const { sctp } = transport;
+    if (sctp.state === "closed") {
+      log("sctp closed");
+      return;
+    }
+    // Subscribe before starting so a transition during start is not missed.
+    const settled =
+      sctp.state === "connected"
+        ? undefined
+        : Promise.race([
+            sctp.stateChanged.connected.asPromise(),
+            sctp.stateChanged.closed.asPromise(),
+          ]);
 
-    await this.sctpTransport.start(this.sctpRemotePort);
-    await this.sctpTransport.sctp.stateChanged.connected.asPromise();
-    log("sctp connected");
+    await transport.ensureStarted(this.sctpRemotePort);
+    // The state may have settled while starting.
+    if (settled && !["connected", "closed"].includes(sctp.state)) {
+      await settled;
+    }
+    log("sctp", sctp.state);
   }
 
   setRemoteSCTP(remoteMedia: MediaDescription, mLineIndex: number) {

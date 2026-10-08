@@ -32,7 +32,7 @@ export type RemoteMediaPlan = {
    * m-line applied without error, so a failure leaves the ICE generation,
    * selected pair and DTLS/SCTP bindings untouched.
    */
-  transportUpdates: (() => void)[];
+  transportUpdates: (() => void | Promise<void>)[];
   /** Transports whose remote generation ended (run after every candidate). */
   endOfCandidates: RTCIceTransport[];
   /** Pranswer credentials for a transport with a staged ICE restart. */
@@ -355,6 +355,15 @@ export class RemoteMediaApplication {
         } else if (!transceiver.stopping) {
           transceiver.pendingRejection = true;
         }
+      } else if (
+        remoteMedia.kind === "application" &&
+        remoteMedia.port === 0 &&
+        remoteSdp.type === "answer" &&
+        (this.sctp.sctpRemotePort || this.sctp.sctpTransport?.associationActive)
+      ) {
+        // A final answer that rejects m=application (RFC 8841 section 10.4)
+        // closes the association an earlier pranswer started.
+        plan.transportUpdates.push(() => this.sctp.rejectApplication());
       } else if (entry.sctpTransport) {
         if (!plan.preserveCurrentTransport || !this.sctp.sctpRemotePort) {
           this.sctp.setRemoteSCTP(remoteMedia, i);

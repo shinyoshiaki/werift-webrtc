@@ -1,4 +1,4 @@
-import { expect } from "vitest";
+import { expect, vi } from "vitest";
 
 import { getHostAddresses } from "../../../ice/src/utils";
 import {
@@ -6,6 +6,7 @@ import {
   TURN_TEST_USERNAME,
   createLocalTurnServer,
 } from "../../../ice/tests/utils";
+import { InitChunk } from "../../../sctp/src/chunk";
 import {
   MediaStreamTrack,
   type RTCDataChannel,
@@ -26,6 +27,8 @@ import {
 import type { RTCIceCandidate } from "../../src";
 import { ridRouteKey } from "../../src/negotiation/internalState";
 import { SessionDescription } from "../../src/sdp";
+import { RTCSctpTransport } from "../../src/transport/sctp";
+import { dtlsTransportPair } from "../fixture";
 
 /** Shared Arrange setup for negotiation transaction regression tests. */
 export async function createConnectedVideoPeers(
@@ -826,11 +829,21 @@ function assertSctpBinding(pc: RTCPeerConnection, snapshot: Snapshot) {
     expect(sctp.mid).toBeUndefined();
     expect(sctp.mLineIndex).toBeUndefined();
     expect(pc.sctpRemotePort).toBeUndefined();
+    // 未交渉なのに走った association (rollback の破棄漏れ) は残らない。
+    expect(sctp.associationActive).toBe(false);
     return;
   }
   const [index, application] =
     media.find(([, m]) => m.kind === "application" && m.port !== 0) ?? [];
   if (!application) return;
+  // 交渉済みで bound ICE/DTLS が接続済みなら association は起動している。
+  if (
+    pc.sctpRemotePort !== undefined &&
+    sctp.dtlsTransport.state === "connected" &&
+    ["connected", "completed"].includes(sctp.dtlsTransport.iceTransport.state)
+  ) {
+    expect(sctp.associationActive).toBe(true);
+  }
   // SCTP は current の application m-line (MID/mLineIndex) に束縛される。
   expect(sctp.mid).toBe(application.rtp.muxId);
   expect(sctp.mLineIndex).toBe(index);
@@ -1837,4 +1850,160 @@ export function holdNextGather(pc: RTCPeerConnection) {
     return original();
   };
   return { reached, release };
+}
+
+// # late SCTP (m=application added by a renegotiation)
+
+/** Internal SCTP association (packages/sctp instance) bound to `pc`. */
+export function sctpAssociationOf(pc: RTCPeerConnection) {
+  if (!pc.sctpTransport) throw new Error("no SCTP transport");
+  return pc.sctpTransport.sctp;
+}
+
+/**
+ * Arrange: count the INIT chunks `pc`'s current association sends and its
+ * transitions back to "connecting" from now on (a restarted association).
+ */
+export function watchSctpRestart(pc: RTCPeerConnection) {
+  const association = sctpAssociationOf(pc);
+  const sendChunk = vi.spyOn(association, "sendChunk");
+  let connecting = 0;
+  const { unSubscribe } = association.stateChanged.connecting.subscribe(() => {
+    connecting++;
+  });
+  return {
+    association,
+    get inits() {
+      return sendChunk.mock.calls.filter(
+        ([chunk]) => chunk.type === InitChunk.type,
+      ).length;
+    },
+    get connecting() {
+      return connecting;
+    },
+    dispose() {
+      sendChunk.mockRestore();
+      unSubscribe();
+    },
+  };
+}
+
+/** Arrange: every `connectionstatechange` of `pc` from now on. */
+export function recordConnectionStates(pc: RTCPeerConnection) {
+  const states: string[] = [];
+  pc.connectionStateChange.subscribe((state) => states.push(state));
+  return states;
+}
+
+export async function waitForChannelState(
+  channel: RTCDataChannel,
+  state: RTCDataChannel["readyState"],
+) {
+  if (channel.readyState === state) return;
+  await withTimeout(
+    channel.stateChanged.watch((s) => s === state),
+    `DataChannel ${channel.label} did not become ${state}`,
+  );
+}
+
+export async function waitForSctpState(
+  pc: RTCPeerConnection,
+  ready: (association: ReturnType<typeof sctpAssociationOf>) => boolean,
+  message: string,
+) {
+  await withTimeout(
+    (async () => {
+      while (!pc.sctpTransport || !ready(sctpAssociationOf(pc))) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    })(),
+    message,
+  );
+}
+
+/**
+ * Arrange: `offerer` applies a fresh offer and both peers apply the answer
+ * as a pranswer. Returns the answer SDP for a later final answer.
+ */
+export async function exchangePranswer(
+  offerer: RTCPeerConnection,
+  answerer: RTCPeerConnection,
+) {
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  const answer = await answerer.createAnswer();
+  await answerer.setLocalDescription({ type: "pranswer", sdp: answer.sdp });
+  await offerer.setRemoteDescription({
+    type: "pranswer",
+    sdp: answerer.localDescription!.sdp,
+  });
+  return answer.sdp;
+}
+
+/** One full offer / answer round trip from `offerer`. */
+export async function exchangeOfferAnswer(
+  offerer: RTCPeerConnection,
+  answerer: RTCPeerConnection,
+) {
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  await answerer.setLocalDescription(await answerer.createAnswer());
+  await offerer.setRemoteDescription(answerer.localDescription!);
+}
+
+/**
+ * Arrange: `offerer` creates an in-band DataChannel on a session without
+ * SCTP and negotiates it; resolves once both ends are open.
+ */
+export async function negotiateLateDataChannel(
+  offerer: RTCPeerConnection,
+  answerer: RTCPeerConnection,
+  label = "late",
+) {
+  const remote = answerer.onDataChannel.watch((c) => c.label === label);
+  const local = offerer.createDataChannel(label);
+  await exchangeOfferAnswer(offerer, answerer);
+  await waitForChannelState(local, "open");
+  const [received] = await withTimeout(remote, "No remote DataChannel");
+  return { local, remote: received };
+}
+
+/** Arrange: an unresponsive remote, `pc`'s SCTP drops every received packet. */
+export function muteSctpReceive(pc: RTCPeerConnection) {
+  if (!pc.sctpTransport) throw new Error("no SCTP transport");
+  pc.sctpTransport.dtlsTransport.dataReceiver = () => {};
+}
+
+/** Answer SDP whose m=application is rejected (port 0, RFC 8841 10.4). */
+export function rejectApplicationSection(sdp: string) {
+  return sdp.replace(/^m=application \d+ /m, "m=application 0 ");
+}
+
+/**
+ * Arrange: SCTP transports on a connected DTLS pair, both unstarted. The
+ * first one is ICE controlling.
+ */
+export async function createUnstartedSctpPair() {
+  const [client, server] = await dtlsTransportPair();
+  const [controlling, controlled] =
+    client.iceTransport.role === "controlling"
+      ? [client, server]
+      : [server, client];
+  const local = new RTCSctpTransport();
+  local.setDtlsTransport(controlling);
+  const remote = new RTCSctpTransport();
+  remote.setDtlsTransport(controlled);
+  local.setRemotePort(remote.port);
+  remote.setRemotePort(local.port);
+  return {
+    local,
+    remote,
+    close: () =>
+      Promise.allSettled([
+        local.stop(),
+        remote.stop(),
+        controlling.stop(),
+        controlled.stop(),
+      ]),
+  };
 }
