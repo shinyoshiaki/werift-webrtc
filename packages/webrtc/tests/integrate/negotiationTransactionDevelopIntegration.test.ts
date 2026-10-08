@@ -1,3 +1,6 @@
+import type { Connection } from "../../../ice/src";
+import { StunOverTurnProtocol } from "../../../ice/src/turn/protocol";
+import { turnAllocations } from "../../../ice/tests/utils";
 import {
   MediaStreamTrack,
   RTCPeerConnection,
@@ -10,6 +13,7 @@ import {
   createConnectedMediaAndDataPeers,
   createConnectedVideoPeers,
   createH264OnlyReoffer,
+  createHeldTurnRestartPeers,
   createLocalTurnIceServer,
   offeredVideoCodecs,
   recordIceCandidates,
@@ -123,6 +127,102 @@ describe("develop features inside the negotiation transaction", () => {
         await offerer.close();
         await answerer.close();
         await turn.server.close();
+      }
+    });
+  });
+
+  describe("background gathering of consecutive ICE restarts", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+    const relayAllocations = (pc: RTCPeerConnection) =>
+      turnAllocations(pc.iceTransports[0].connection as Connection);
+
+    test("end-of-candidates is signalled once, when the latest generation completes", async () => {
+      // Arrange: 2 回続けた restart の TURN allocation をそれぞれ proxy で保留する
+      const peers = await createHeldTurnRestartPeers(2);
+      const closed = vi.spyOn(StunOverTurnProtocol.prototype, "close");
+      try {
+        await peers.restartThrough(0);
+        await peers.restartThrough(1);
+        const events = recordIceCandidates(peers.offerer);
+
+        // Act: 置き換えられた 1 回目の restart の allocation を完了させる
+        peers.proxies[0].release();
+        await vi.waitFor(() =>
+          expect(new Set(closed.mock.contexts).size).toBe(2),
+        );
+
+        // Assert: 新 generation はまだ gathering で、end-of-candidates も relay 候補も出ない
+        expect(events).not.toContain(undefined);
+        expect(events.some((c) => c?.candidate.includes("typ relay"))).toBe(
+          false,
+        );
+        expect(peers.offerer.iceGatheringState).toBe("gathering");
+
+        // Act: 新 generation の allocation を完了させる
+        peers.proxies[1].release();
+        await waitForEndOfCandidates(events);
+
+        // Assert: end-of-candidates は新 generation の relay 候補の後に一度だけ出る
+        expect(events.filter((c) => c === undefined)).toHaveLength(1);
+        expect(events.at(-1)).toBeUndefined();
+        expect(
+          events.filter((c) => c?.candidate.includes("typ relay")),
+        ).toHaveLength(1);
+        expect(peers.offerer.iceGatheringState).toBe("complete");
+      } finally {
+        await peers.close();
+      }
+    });
+
+    test("only the latest generation keeps a TURN allocation", async () => {
+      // Arrange: 2 回続けた restart の TURN allocation をそれぞれ proxy で保留する
+      const peers = await createHeldTurnRestartPeers(2);
+      const closed = vi.spyOn(StunOverTurnProtocol.prototype, "close");
+      try {
+        await peers.restartThrough(0);
+        await peers.restartThrough(1);
+
+        // Act: 新 generation、置き換えられた generation の順に allocation を完了させる
+        peers.proxies[1].release();
+        await waitForEndOfCandidates(recordIceCandidates(peers.offerer));
+        peers.proxies[0].release();
+        await vi.waitFor(() =>
+          expect(new Set(closed.mock.contexts).size).toBe(2),
+        );
+
+        // Assert: 新 generation の allocation 1 つだけが残り、遅れて完了した旧 allocation は閉じる
+        const allocations = relayAllocations(peers.offerer);
+        expect(allocations).toHaveLength(1);
+        expect(closed.mock.contexts).not.toContain(allocations[0]);
+        const relay = peers.offerer.iceTransports[0]
+          .getLocalCandidates()
+          .filter((c) => c.candidate.includes("typ relay"));
+        expect(relay).toHaveLength(1);
+      } finally {
+        await peers.close();
+      }
+    });
+
+    test("close() during a restart's background TURN gathering leaves no allocation", async () => {
+      // Arrange: restart の TURN allocation を proxy で保留する
+      const peers = await createHeldTurnRestartPeers(1);
+      const closed = vi.spyOn(StunOverTurnProtocol.prototype, "close");
+      try {
+        await peers.restartThrough(0);
+
+        // Act: gathering 中に close し、その後で allocation を完了させる
+        await peers.offerer.close();
+        peers.proxies[0].release();
+
+        // Assert: close 後にできた allocation も閉じ (refresh timer も止まり)、transport に残らない
+        await vi.waitFor(() =>
+          expect(new Set(closed.mock.contexts).size).toBe(2),
+        );
+        expect(relayAllocations(peers.offerer)).toHaveLength(0);
+      } finally {
+        await peers.close();
       }
     });
   });

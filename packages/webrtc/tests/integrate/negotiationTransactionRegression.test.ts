@@ -24,6 +24,7 @@ import {
   currentRemoteGeneration,
   elapsedMs,
   expectSessionAlive,
+  forceIceState,
   heldTransports,
   holdDtlsStart,
   holdNextGather,
@@ -32,6 +33,7 @@ import {
   pliReaches,
   provisionalIce,
   receiveCodecNames,
+  recordIceConnectionStates,
   rewriteVideoFeedback,
   sectionOf,
   sendAndExpectRtp,
@@ -39,6 +41,7 @@ import {
   trickleCandidate,
   videoWithoutFeedback,
   waitForCommittedNomination,
+  waitForConnection,
   waitForDtlsConnected,
   waitForDtlsHandshake,
   waitForIce,
@@ -1060,18 +1063,67 @@ describe("negotiation transaction live-state regressions", () => {
       await answerer.setLocalDescription(await answerer.createAnswer());
       await offerer.setRemoteDescription(answerer.localDescription!);
 
-      // Assert: 接続済みの ICE は checking に戻らない。
+      // Assert: 接続済みの ICE は checking に戻らず、DTLS 完了前に connected を報告しない。
+      await new Promise((resolve) => setTimeout(resolve, 100));
       expect(offerer.iceConnectionState).toBe("connected");
+      expect(offerer.dtlsTransports[0].state).toBe("connecting");
+      expect(offerer.connectionState).toBe("connecting");
 
       // Act: 止めていた handshake を進める。
       held.release();
       await waitForDtlsConnected(offerer.dtlsTransports[0]);
+      await waitForConnection(offerer);
 
-      // Assert: ICE は connected のまま、RTP も届く。
+      // Assert: ICE は connected のまま、DTLS 完了後に connected になり、RTP も届く。
       expect(offerer.iceConnectionState).toBe("connected");
+      expect(offerer.connectionState).toBe("connected");
       await sendAndExpectRtp(outgoing, await incoming(), "after handshake");
     } finally {
       await close();
+    }
+  });
+
+  test("an answer without an ICE restart leaves a failed ICE generation failed", async () => {
+    const { offerer, answerer } = await createConnectedVideoPeers();
+    try {
+      // Arrange: 確立済みの session で offerer の ICE generation を failed にする
+      // (consent の期限切れ相当)。
+      forceIceState(offerer, "failed");
+      const iceStates = recordIceConnectionStates(offerer);
+
+      // Act: ICE restart を含まない再交渉を answer まで行う。
+      await negotiatePair(offerer, answerer);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Assert: failed の generation は接続確認をやり直さず (checking に戻らず)、
+      // connectionState も connected に上書きされない。
+      expect(iceStates).not.toContain("checking");
+      expect(offerer.iceConnectionState).toBe("failed");
+      expect(offerer.connectionState).not.toBe("connected");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("an ICE restart keeps the configured icePasswordPrefix", async () => {
+    // Arrange: icePasswordPrefix を設定して接続済みの peer を用意する
+    const prefix = "werift";
+    const { offerer, answerer } = await createConnectedVideoPeers({
+      icePasswordPrefix: prefix,
+    });
+    try {
+      // Act: ICE restart の offer を作る
+      offerer.restartIce();
+      const offer = await offerer.createOffer();
+
+      // Assert: 新しい generation の ICE password にも prefix が付く
+      const password = offer.sdp.match(/^a=ice-pwd:(\S+)/m)![1];
+      expect(password.startsWith(prefix)).toBe(true);
+      expect(password).not.toBe(
+        offerer.currentLocalDescription!.sdp.match(/^a=ice-pwd:(\S+)/m)![1],
+      );
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
     }
   });
 

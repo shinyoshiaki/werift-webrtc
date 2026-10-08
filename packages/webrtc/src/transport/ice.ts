@@ -80,6 +80,13 @@ export class RTCIceTransport {
   readonly component = "rtp";
   iceRestarts = 0;
   private waitStart?: Event<[]>;
+  /**
+   * Connectivity checks were started for the current generation. A restart
+   * resets it; the state alone cannot tell (an agent that finished gathering
+   * reports "completed" before any check ran).
+   * @internal
+   */
+  checksStarted = false;
   private renominating = false;
   private stagedLocalRestart?: StagedLocalRestart;
   /**
@@ -196,7 +203,11 @@ export class RTCIceTransport {
     }
     this.rollbackLocalRestart();
     const usernameFragment = randomBytes(6).toString("base64url");
-    const password = randomBytes(24).toString("base64url");
+    const random = randomBytes(24).toString("base64url");
+    // The configured prefix (icePasswordPrefix) marks every generation's
+    // password, as the agent's own restart does.
+    const prefix = this.connection.options.localPasswordPrefix ?? "";
+    const password = prefix + random.slice(prefix.length);
     const candidates = this.iceGather.localCandidates.map((candidate) => {
       const copy = Object.assign(
         new IceCandidate(
@@ -467,6 +478,7 @@ export class RTCIceTransport {
     // SecureTransportManager aggregate iceGatheringState stays in sync.
     this.iceGather.setGatheringState("new");
     this.waitStart = undefined;
+    this.checksStarted = false;
     if (notifyNegotiation) this.onNegotiationNeeded.execute();
   }
 
@@ -481,7 +493,9 @@ export class RTCIceTransport {
     if (this.waitStart) {
       await this.waitStart.asPromise();
     }
-    this.waitStart = new Event();
+    const waitStart = new Event<[]>();
+    this.waitStart = waitStart;
+    this.checksStarted = true;
 
     this.setState("checking");
 
@@ -490,11 +504,21 @@ export class RTCIceTransport {
     } catch (error) {
       this.setState("failed");
       throw error;
+    } finally {
+      // A failed start releases its waiters too.
+      waitStart.execute();
+      waitStart.complete();
+      if (this.waitStart === waitStart) this.waitStart = undefined;
     }
+  }
 
-    this.waitStart.execute();
-    this.waitStart.complete();
-    this.waitStart = undefined;
+  /**
+   * Settles when the checks a running start() makes finish (at once if none run).
+   * @internal
+   */
+  async checksSettled() {
+    const waitStart = this.waitStart;
+    if (waitStart) await waitStart.asPromise();
   }
 
   async stop() {
@@ -631,7 +655,16 @@ export class RTCIceGatherer {
   async gather() {
     if (this.gatheringState === "new") {
       this.setState("gathering");
+      const generation = this.connection.generation;
       await this.connection.gatherCandidates();
+      // Gathering an ICE restart (or close) replaced in the meantime does not
+      // complete the new generation: that one signals its own end.
+      if (
+        this.connection.generation !== generation ||
+        this.connection.state === "closed"
+      ) {
+        return;
+      }
       this.onIceCandidate(undefined);
       this.setState("complete");
     }

@@ -64,6 +64,8 @@ export class Connection implements IceConnection {
   /** mDNS resolutions of remote candidates that arrived before end-of-candidates. */
   private readonly remoteResolutions = new Set<Promise<string>>();
   localCandidatesEnd = false;
+  /** connect() began this generation's checks (their outcome sets the state). */
+  private checksBegun = false;
   generation = -1;
   userHistory: { [username: string]: string } = {};
   private readonly tieBreaker: bigint = randomBytes(8).readBigUInt64BE(0);
@@ -201,6 +203,7 @@ export class Connection implements IceConnection {
     this.remoteCandidatesEndRequested = false;
     this.remoteResolutions.clear();
     this.localCandidatesEnd = false;
+    this.checksBegun = false;
     this.state = "new";
     this.lookup?.close?.();
     this.lookup = undefined;
@@ -585,6 +588,7 @@ export class Connection implements IceConnection {
   async gatherCandidates() {
     if (!this.localCandidatesStart) {
       this.localCandidatesStart = true;
+      const generation = this.generation;
 
       // An ICE restart allocates TURN afresh, which is how a restart recovers
       // from an allocation that died: the previous one leaves the generation.
@@ -635,14 +639,27 @@ export class Connection implements IceConnection {
       const candidatePromises = this.getCandidatePromises(
         address,
         this.options.stunGatherTimeout,
+        generation,
       );
       await Promise.allSettled(candidatePromises);
 
+      // A later ICE restart (or close) owns the agent now: this gathering
+      // neither completes that generation nor touches its state.
+      if (!this.isGathering(generation)) return;
       this.localCandidatesEnd = true;
     }
     // Gathering that finishes after connectivity checks began (an ICE restart
-    // keeps gathering from its servers) must not overwrite their state.
-    if (this.state === "new") this.setState("completed");
+    // keeps gathering from its servers) must not overwrite their state: the
+    // agent stays "new" while checking, and only the checks' outcome moves it.
+    if (this.state === "new" && !this.checksBegun) this.setState("completed");
+  }
+
+  /**
+   * Whether gathering started for `generation` still belongs to the agent:
+   * no ICE restart replaced the generation and the agent is not closed.
+   */
+  private isGathering(generation: number) {
+    return this.generation === generation && this.state !== "closed";
   }
 
   /** A copy of `candidate` labelled with the current generation and ufrag. */
@@ -792,8 +809,16 @@ export class Connection implements IceConnection {
     this.setState("failed");
   }
 
-  private getCandidatePromises(addresses: string[], timeout = 5) {
+  private getCandidatePromises(
+    addresses: string[],
+    timeout = 5,
+    generation = this.generation,
+  ) {
     const candidatePromises: Promise<unknown>[] = [];
+    // Each continuation below runs after an await: a socket or allocation it
+    // opened for a replaced generation (or a closed agent) is closed, and
+    // nothing is added to the current one.
+    const stale = () => !this.isGathering(generation);
     const { stunServer, turnServer } = this;
     const { turnUsername, turnPassword } = this.options;
     const gatherIceLite = this.iceLite;
@@ -833,6 +858,10 @@ export class Connection implements IceConnection {
               this.options.portRange,
               this.options.interfaceAddresses,
             );
+            if (stale()) {
+              await protocol.close();
+              return;
+            }
 
             protocol.localIp = address;
             this.protocols.push(protocol);
@@ -886,6 +915,10 @@ export class Connection implements IceConnection {
           const passiveProtocol = new TcpPassiveProtocol();
           this.ensureProtocol(passiveProtocol);
           await passiveProtocol.connectionMade(address, this.options.portRange);
+          if (stale()) {
+            await passiveProtocol.close();
+            return;
+          }
           passiveProtocol.localIp = address;
           passiveProtocol.localCandidate = new Candidate(
             candidateFoundation("host", "tcp", address),
@@ -912,6 +945,10 @@ export class Connection implements IceConnection {
           const activeProtocol = new TcpActiveProtocol();
           this.ensureProtocol(activeProtocol);
           await activeProtocol.connectionMade(address);
+          if (stale()) {
+            await activeProtocol.close();
+            return;
+          }
           activeProtocol.localIp = address;
           activeProtocol.localCandidate = new Candidate(
             candidateFoundation("host", "tcp", address),
@@ -956,6 +993,7 @@ export class Connection implements IceConnection {
             }),
           ]);
           clearTimeout(timer);
+          if (stale()) return;
           const previous = this.reflexiveBySocket.get(protocol);
           if (
             fresh &&
@@ -986,7 +1024,7 @@ export class Connection implements IceConnection {
                 ).catch((error) => {
                   log("error", error);
                 });
-                if (candidate) {
+                if (candidate && !stale()) {
                   this.reflexiveBySocket.set(protocol, candidate);
                   this.appendLocalCandidate(candidate);
                 }
@@ -1045,6 +1083,12 @@ export class Connection implements IceConnection {
             throw e;
           }
         });
+        if (stale()) {
+          // The allocation never joins a generation: release it (and its
+          // refresh timer) instead of keeping a second one alive.
+          await protocol.close();
+          return;
+        }
         this.ensureProtocol(protocol);
         this.protocols.push(protocol);
 
@@ -1096,6 +1140,7 @@ export class Connection implements IceConnection {
     if (!this.remoteUsername || !this.remotePassword) {
       throw new Error("Remote username or password is missing");
     }
+    this.checksBegun = true;
 
     // # 5.7.1. Forming Candidate Pairs
     for (const c of this.remoteCandidates) {
