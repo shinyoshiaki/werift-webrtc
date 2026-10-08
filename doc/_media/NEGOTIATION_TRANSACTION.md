@@ -313,7 +313,10 @@ generations apart on them.
 **Provisional generation.** While an ICE restart of an established transport
 is negotiated, a second checklist (the provisional generation) runs beside the
 live one on the same sockets. It only exchanges STUN checks; RTP and
-DataChannel stay on the live selected pair.
+DataChannel stay on the live selected pair. It follows the live checklist's rules:
+`filterCandidatePair` decides which pairs it forms, an ICE-lite agent only
+answers its checks, and an error response (a 487 role conflict) to a check
+addressed to the staged ufrag is signed with the staged password.
 
 - Created when the restart credentials are staged: by `createOffer()` while a
   `restartIce()` request stands (offerer), or by `createAnswer()` for a remote
@@ -586,4 +589,3 @@ not as a change of this contract. Known constraints:
   current traffic uses it); rollback restores it.
 - `createOffer` fills empty codec and header extension lists of a transceiver;
   these are defaults, not negotiated state, and stay after an unapplied offer.
-

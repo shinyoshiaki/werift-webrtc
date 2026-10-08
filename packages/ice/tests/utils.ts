@@ -857,3 +857,52 @@ export function proxiedTurnOptions(proxy: { address: Address }) {
     forceTurn: true,
   };
 }
+
+/**
+ * Act helper: send one connectivity check from `from`'s selected pair to its
+ * peer, addressed to `remoteUfrag` and signed with `remotePassword`, claiming
+ * the controlled role with the highest tie-breaker (a role conflict for a
+ * controlled peer). Resolves with the ERROR-CODE the verified response
+ * carries; a response the password cannot verify is dropped (timeout).
+ */
+export async function sendRoleConflictCheck(
+  from: Connection,
+  {
+    remoteUfrag,
+    localUfrag,
+    remotePassword,
+  }: { remoteUfrag: string; localUfrag: string; remotePassword: string },
+) {
+  const pair = from.nominated!;
+  const request = new Message(methods.BINDING, classes.REQUEST)
+    .setAttribute("USERNAME", `${remoteUfrag}:${localUfrag}`)
+    .setAttribute("PRIORITY", 1)
+    .setAttribute("ICE-CONTROLLED", 2n ** 64n - 1n);
+  try {
+    await pair.protocol.request(
+      request,
+      pair.remoteAddr,
+      Buffer.from(remotePassword, "utf8"),
+      0,
+    );
+    return undefined;
+  } catch (error) {
+    return (error as { response?: Message }).response?.getAttributeValue(
+      "ERROR-CODE",
+    )?.[0] as number | undefined;
+  }
+}
+
+/** Requests `connection` sends from now on, over every protocol it holds. */
+export function recordCheckRequests(connection: Connection) {
+  let count = 0;
+  for (const protocol of (connection as unknown as { protocols: Protocol[] })
+    .protocols) {
+    const original = protocol.request.bind(protocol);
+    protocol.request = ((...args: Parameters<typeof original>) => {
+      count++;
+      return original(...args);
+    }) as typeof protocol.request;
+  }
+  return { count: () => count };
+}

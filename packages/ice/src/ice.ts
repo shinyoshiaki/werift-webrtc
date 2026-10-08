@@ -395,6 +395,13 @@ export class Connection implements IceConnection {
       remoteCandidate,
       this.iceControlling,
     );
+    // The provisional checklist admits the same pairs as the live one.
+    if (
+      this.options.filterCandidatePair &&
+      !this.options.filterCandidatePair(pair)
+    ) {
+      return;
+    }
     pair.updateState(CandidatePairState.WAITING);
     generation.pairs.push(pair);
     if (generation.started) void this.checkProvisional(generation, pair);
@@ -413,6 +420,9 @@ export class Connection implements IceConnection {
       generation.revision === revision &&
       generation.pairs.includes(pair);
     if (
+      // An ICE-lite agent only answers checks (RFC 8445 §2.5), in the
+      // provisional generation as in the live one.
+      this.iceLite ||
       !belongs() ||
       !generation.started ||
       !generation.remoteUsername ||
@@ -708,7 +718,13 @@ export class Connection implements IceConnection {
       // 7.2.1.1.  Detecting and Repairing Role Conflicts
       if (iceControlling && msg.attributesKeys.includes("ICE-CONTROLLING")) {
         if (this.tieBreaker >= msg.getAttributeValue("ICE-CONTROLLING")) {
-          this.respondError(msg, addr, protocol, [487, "Role Conflict"]);
+          this.respondError(
+            msg,
+            addr,
+            protocol,
+            [487, "Role Conflict"],
+            localPassword,
+          );
           return;
         } else {
           this.switchRole(false);
@@ -721,7 +737,13 @@ export class Connection implements IceConnection {
           this.iceLite ||
           this.tieBreaker < msg.getAttributeValue("ICE-CONTROLLED")
         ) {
-          this.respondError(msg, addr, protocol, [487, "Role Conflict"]);
+          this.respondError(
+            msg,
+            addr,
+            protocol,
+            [487, "Role Conflict"],
+            localPassword,
+          );
           return;
         } else {
           this.switchRole(true);
@@ -2274,6 +2296,11 @@ export class Connection implements IceConnection {
     addr: Address,
     protocol: Protocol,
     errorCode: [number, string],
+    /**
+     * The password of the local ufrag the request is addressed to: a check
+     * for a staged (provisional) generation is verified with its password.
+     */
+    localPassword = this.localPassword,
   ) {
     const response = new Message(
       request.messageMethod,
@@ -2282,7 +2309,7 @@ export class Connection implements IceConnection {
     );
     response
       .setAttribute("ERROR-CODE", errorCode)
-      .addMessageIntegrity(Buffer.from(this.localPassword, "utf8"))
+      .addMessageIntegrity(Buffer.from(localPassword, "utf8"))
       .addFingerprint();
     protocol.sendStun(response, addr).catch((e) => {
       log("sendStun error", e);
