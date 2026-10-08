@@ -521,7 +521,7 @@ rollback, configuration is not part of the baseline).
   `createAnswer()` and applying that answer commits the applied answer's codecs
   and resolves again for the next offer. While a remote offer is pending,
   `replaceTrack()` checks the track source against the codec the answer would
-  send with as well as the committed one. The local answer commits the codecs
+  send with as well as the committed one. The codecs come from the applied answer (or pranswer) itself, never from a later unapplied `createOffer()` or preference change; a first negotiation's pranswer already sends and receives with them. The local answer commits the codecs
   it answered for every live media m-line (sender, receive tables, remote
   track codec, TWCC) and drops the receive values a pending description
   staged, so a codec the answer left out does not come back at the commit.

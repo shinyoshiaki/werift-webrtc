@@ -19,6 +19,7 @@ import { Event, debug } from "./imports/common";
 import {
   type MediaStream,
   type MediaStreamTrack,
+  type RTCRtpCodecParameters,
   type RTCRtpSender,
   type RTCRtpTransceiver,
   RtpRouter,
@@ -962,19 +963,15 @@ export class RTCPeerConnection extends EventTarget {
         throw error;
       }
 
-      // The applied answer fixes the codecs. An application change after
-      // createAnswer() (setCodecPreferences, addTrack) cleared the codecs it
-      // resolved: commit the answer's codecs and resolve again for the next
-      // offer, instead of committing nothing or the pre-answer codec.
+      // The applied answer (or pranswer) fixes the codecs: the transceiver
+      // takes them from the description itself. Whatever was resolved since
+      // createAnswer() (setCodecPreferences, addTrack, or a createOffer() that
+      // was never applied) does not reach the sender / receiver; it is
+      // resolved again for the next offer.
       const resolveAfterAnswer: RTCRtpTransceiver[] = [];
-      if (description.type === "answer") {
+      if (description.type === "answer" || description.type === "pranswer") {
         for (const transceiver of this.transceiverManager.getTransceivers()) {
-          if (
-            !transceiver.mid ||
-            transceiver.codecs.length > 0 ||
-            transceiver.stopping ||
-            transceiver.stopped
-          ) {
+          if (!transceiver.mid || transceiver.stopping || transceiver.stopped) {
             continue;
           }
           const answered = description.media.find(
@@ -983,9 +980,12 @@ export class RTCPeerConnection extends EventTarget {
               media.kind === transceiver.kind &&
               media.port !== 0,
           );
-          if (!answered) continue;
+          if (!answered || answered.rtp.codecs.length === 0) continue;
+          const resolved = transceiver.codecs;
           transceiver.codecs = [...answered.rtp.codecs];
-          resolveAfterAnswer.push(transceiver);
+          if (!sameCodecList(resolved, transceiver.codecs)) {
+            resolveAfterAnswer.push(transceiver);
+          }
         }
       }
 
@@ -1011,8 +1011,11 @@ export class RTCPeerConnection extends EventTarget {
       ) {
         await this.activation.activatePendingRemote(true);
       }
+      // A first negotiation has no current session to protect: its pranswer
+      // already sends and receives with the codecs it answered (a rollback
+      // returns to the baseline), and the final answer commits them.
       if (
-        description.type === "answer" &&
+        (description.type === "answer" || description.type === "pranswer") &&
         !this.sdpManager.currentRemoteDescription
       ) {
         this.commitAnsweredCodecs();
@@ -1737,4 +1740,20 @@ export class RTCPeerConnection extends EventTarget {
 export interface RTCLocalSessionDescriptionInit
   extends RTCSessionDescriptionInit {
   type?: Exclude<RTCSessionDescriptionInit["type"], "rollback"> | "rollback";
+}
+
+/** Same payload types with the same codec, in the same order. */
+function sameCodecList(
+  a: readonly RTCRtpCodecParameters[],
+  b: readonly RTCRtpCodecParameters[],
+) {
+  return (
+    a.length === b.length &&
+    a.every(
+      (codec, index) =>
+        codec.payloadType === b[index].payloadType &&
+        codec.mimeType.toLowerCase() === b[index].mimeType.toLowerCase() &&
+        (codec.parameters ?? "") === (b[index].parameters ?? ""),
+    )
+  );
 }
