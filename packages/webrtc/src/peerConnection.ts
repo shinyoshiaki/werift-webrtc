@@ -161,6 +161,15 @@ export class RTCPeerConnection extends EventTarget {
    * createOffer replaces it; an explicit local offer must match it.
    */
   private createdOfferSdp?: string;
+  /**
+   * MID / m-line assignments `createdOfferSdp` was created with while a
+   * remote offer was pending. They were not kept then (the offer could not be
+   * applied); applying that offer later takes them.
+   */
+  private deferredOfferAssignments?: {
+    transceivers: [RTCRtpTransceiver, string | null, number | undefined][];
+    sctp?: [string | undefined, number | undefined];
+  };
 
   readonly iceGatheringStateChange = new Event<[IceGathererState]>();
   readonly iceConnectionStateChange = new Event<[RTCIceConnectionState]>();
@@ -570,7 +579,17 @@ export class RTCPeerConnection extends EventTarget {
       transceivers,
       this.sctpTransport,
     );
+    this.deferredOfferAssignments = undefined;
     if (unapplicable) {
+      this.deferredOfferAssignments = {
+        transceivers: transceivers
+          .filter((t, i) => t.mid !== positions[i][0])
+          .map((t) => [t, t.mid, t.mLineIndex]),
+        sctp:
+          sctp && sctpPosition && sctp.mid !== sctpPosition[0]
+            ? [sctp.mid, sctp.mLineIndex]
+            : undefined,
+      };
       transceivers.forEach((t, i) => {
         [t.mid, t.mLineIndex] = positions[i];
       });
@@ -630,6 +649,32 @@ export class RTCPeerConnection extends EventTarget {
   private needNegotiation = () => {
     this.negotiationNeed.change();
   };
+
+  /** Give the latest created offer's deferred MID / m-line assignments back. */
+  private takeDeferredOfferAssignments() {
+    const deferred = this.deferredOfferAssignments;
+    this.deferredOfferAssignments = undefined;
+    if (!deferred) return;
+    const transceivers = this.transceiverManager.getTransceivers();
+    for (const [transceiver, mid, mLineIndex] of deferred.transceivers) {
+      // Only a transceiver still unassociated takes its position, and only
+      // while no other transceiver took that MID meanwhile.
+      if (
+        transceiver.mid != undefined ||
+        transceiver.stopped ||
+        !transceivers.includes(transceiver) ||
+        transceivers.some((t) => t.mid != undefined && t.mid === mid)
+      ) {
+        continue;
+      }
+      transceiver.mid = mid;
+      transceiver.mLineIndex = mLineIndex;
+    }
+    const sctp = this.sctpTransport;
+    if (deferred.sctp && sctp && sctp.mid == undefined) {
+      [sctp.mid, sctp.mLineIndex] = deferred.sctp;
+    }
+  }
 
   private invalidateLastCreatedDescriptions() {
     this.lastCreatedAnswer = undefined;
@@ -889,6 +934,18 @@ export class RTCPeerConnection extends EventTarget {
           "InvalidModificationError",
           "setLocalDescription must use the latest created offer",
         );
+      }
+
+      // An offer created while a remote offer was pending takes the MID /
+      // m-line assignments it was created with, as one created now would.
+      if (
+        sessionDescription.type === "offer" &&
+        sessionDescription.sdp === this.createdOfferSdp &&
+        ["stable", "have-local-offer", "have-remote-pranswer"].includes(
+          this.signalingState,
+        )
+      ) {
+        this.takeDeferredOfferAssignments();
       }
 
       // # parse and validate description

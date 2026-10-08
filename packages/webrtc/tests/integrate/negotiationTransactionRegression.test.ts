@@ -1529,4 +1529,45 @@ describe("negotiation transaction live-state regressions", () => {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
   });
+
+  test("an offer created while a remote offer was pending can be applied after stable and negotiates its new audio", async () => {
+    const { offerer, answerer } = await createConnectedVideoPeers();
+    try {
+      // Arrange: answerer に新規 audio を足し、remote re-offer の保留中に
+      // answer と offer を作って保存する。
+      const audioOut = new MediaStreamTrack({ kind: "audio" });
+      const audio = answerer.addTransceiver(audioOut, {
+        direction: "sendonly",
+      });
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      const savedAnswer = await answerer.createAnswer();
+      const savedOffer = await answerer.createOffer();
+      await answerer.setLocalDescription(savedAnswer);
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      expect(answerer.signalingState).toBe("stable");
+
+      // Act: stable に戻った後で保存した offer を適用し、その answer を交換する。
+      await answerer.setLocalDescription(savedOffer);
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      await offerer.setLocalDescription(await offerer.createAnswer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+
+      // Assert: 新規 audio は offer の MID で交渉され、停止せずに RTP が届く。
+      expect(audio.mid).not.toBeNull();
+      expect(audio.currentDirection).toBe("sendonly");
+      const received = offerer
+        .getTransceivers()
+        .find((t) => t.mid === audio.mid)!;
+      assertNegotiationInvariants(answerer);
+      assertNegotiationInvariants(offerer);
+      await sendAndExpectRtp(
+        audioOut,
+        received.receiver.track,
+        "audio from saved offer",
+      );
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
 });
