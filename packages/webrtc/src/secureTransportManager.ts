@@ -487,23 +487,6 @@ export class SecureTransportManager {
     }
   }
 
-  /** The latest created offer carries the generations staged now. */
-  rememberOfferedIceRestart() {
-    for (const transport of this.iceTransports) {
-      transport.rememberOfferedRestart();
-    }
-  }
-
-  /**
-   * Stage again the generations the latest created offer carried that a
-   * rollback discarded. Returns the transports it staged on.
-   */
-  restageOfferedIceRestart() {
-    return this.iceTransports.filter((transport) =>
-      transport.restageOfferedRestart(),
-    );
-  }
-
   rollbackStagedIceRestart() {
     for (const transport of this.iceTransports) {
       transport.rollbackLocalRestart();

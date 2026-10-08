@@ -22,8 +22,6 @@ export class NegotiationNeeded {
   private negotiatedSeq = 0;
   /** Changes carried by the applied local offer (discarded on rollback). */
   private pendingOfferSeq?: number;
-  /** Changes carried by the last created offer. */
-  private createdOfferSeq = 0;
 
   constructor(
     private readonly host: {
@@ -72,13 +70,14 @@ export class NegotiationNeeded {
   }
 
   /** `createOffer`: the offer carries every change made so far. */
+  /** The change sequence a created offer includes (kept in its record). */
   noteCreatedOffer() {
-    this.createdOfferSeq = this.changeSeq;
+    return this.changeSeq;
   }
 
-  /** The created offer was applied as the pending local offer. */
-  noteAppliedOffer() {
-    this.pendingOfferSeq = this.createdOfferSeq;
+  /** A created offer, including changes up to `changeSeq`, was applied. */
+  noteAppliedOffer(changeSeq: number) {
+    this.pendingOfferSeq = changeSeq;
   }
 
   /** The pending local offer was rolled back (explicitly or implicitly). */

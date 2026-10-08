@@ -21,6 +21,7 @@ Instructions for coding agents working in `packages/webrtc`.
 5. Keep memleak tests out of the default vitest suite (`vitest.config.mts` excludes `tests/memleak/**`).
 6. For negotiation changes (`negotiationTransaction.ts`, description apply paths in `peerConnection.ts` and the modules listed under "Code layout" in `NEGOTIATION_TRANSACTION.md`, router / receiver / sender tables), follow the rules in `NEGOTIATION_TRANSACTION.md`: a pending description may add routing keys but must not change a key the current session uses (reject before mutation or stage until commit). Keep `assertNegotiationInvariants` in `tests/integrate/negotiationTransactionUtils.ts` able to detect a new class of state, and add a found failure as a deterministic case or a replayed seed.
 7. Before requesting review of a negotiation change, run a deeper property search (for example `WERIFT_NEGOTIATION_FUZZ_SEEDS=300 WERIFT_NEGOTIATION_FUZZ_STEPS=20 npx vitest run tests/integrate/negotiationTransactionProperty.test.ts`) and a self-review that lists every path writing live state while a description is pending.
+8. A change to how created descriptions are applied later or again must keep the description reuse contract in `NEGOTIATION_TRANSACTION.md`: compare with develop locally with `tools/negotiation-diff` (procedure in that section; never in the active worktree) and keep its difference count at 0.
 
 ## Don't
 
