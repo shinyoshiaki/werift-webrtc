@@ -162,11 +162,12 @@ export class RTCPeerConnection extends EventTarget {
    */
   private createdOfferSdp?: string;
   /**
-   * MID / m-line assignments `createdOfferSdp` was created with while a
-   * remote offer was pending. They were not kept then (the offer could not be
-   * applied); applying that offer later takes them.
+   * MID / m-line assignments `createdOfferSdp` was created with. Applying
+   * that offer gives them to transceivers that lost them since: the offer was
+   * created while a remote offer was pending (they were not kept then), or a
+   * rollback of that same offer took them back.
    */
-  private deferredOfferAssignments?: {
+  private createdOfferAssignments?: {
     transceivers: [RTCRtpTransceiver, string | null, number | undefined][];
     sctp?: [string | undefined, number | undefined];
   };
@@ -579,17 +580,13 @@ export class RTCPeerConnection extends EventTarget {
       transceivers,
       this.sctpTransport,
     );
-    this.deferredOfferAssignments = undefined;
+    this.createdOfferAssignments = {
+      transceivers: transceivers
+        .filter((t) => t.mid != undefined)
+        .map((t) => [t, t.mid, t.mLineIndex]),
+      sctp: sctp?.mid != undefined ? [sctp.mid, sctp.mLineIndex] : undefined,
+    };
     if (unapplicable) {
-      this.deferredOfferAssignments = {
-        transceivers: transceivers
-          .filter((t, i) => t.mid !== positions[i][0])
-          .map((t) => [t, t.mid, t.mLineIndex]),
-        sctp:
-          sctp && sctpPosition && sctp.mid !== sctpPosition[0]
-            ? [sctp.mid, sctp.mLineIndex]
-            : undefined,
-      };
       transceivers.forEach((t, i) => {
         [t.mid, t.mLineIndex] = positions[i];
       });
@@ -650,10 +647,9 @@ export class RTCPeerConnection extends EventTarget {
     this.negotiationNeed.change();
   };
 
-  /** Give the latest created offer's deferred MID / m-line assignments back. */
-  private takeDeferredOfferAssignments() {
-    const deferred = this.deferredOfferAssignments;
-    this.deferredOfferAssignments = undefined;
+  /** Give the latest created offer's MID / m-line assignments back to transceivers that lost them. */
+  private restoreCreatedOfferAssignments() {
+    const deferred = this.createdOfferAssignments;
     if (!deferred) return;
     const transceivers = this.transceiverManager.getTransceivers();
     for (const [transceiver, mid, mLineIndex] of deferred.transceivers) {
@@ -936,8 +932,9 @@ export class RTCPeerConnection extends EventTarget {
         );
       }
 
-      // An offer created while a remote offer was pending takes the MID /
-      // m-line assignments it was created with, as one created now would.
+      // The offer takes the MID / m-line assignments it was created with,
+      // also when they were not kept (created while a remote offer was
+      // pending) or a rollback of this offer took them back.
       if (
         sessionDescription.type === "offer" &&
         sessionDescription.sdp === this.createdOfferSdp &&
@@ -945,7 +942,7 @@ export class RTCPeerConnection extends EventTarget {
           this.signalingState,
         )
       ) {
-        this.takeDeferredOfferAssignments();
+        this.restoreCreatedOfferAssignments();
       }
 
       // # parse and validate description
