@@ -550,6 +550,7 @@ export class RTCPeerConnection extends EventTarget {
       // (have-remote-offer) are not the offerer's to discard.
       this.secureManager.discardUnappliedIceRestart();
     }
+    this.secureManager.rememberOfferedIceRestart();
 
     await this.secureManager.ensureCerts();
 
@@ -649,8 +650,20 @@ export class RTCPeerConnection extends EventTarget {
 
   /** Give the latest created offer's MID / m-line assignments back to transceivers that lost them. */
   private restoreCreatedOfferAssignments() {
+    const restored: RTCRtpTransceiver[] = [];
+    let restoredSctp = false;
+    const undo = () => {
+      for (const transceiver of restored) {
+        transceiver.mid = null;
+        transceiver.mLineIndex = undefined;
+      }
+      if (restoredSctp && this.sctpTransport) {
+        this.sctpTransport.mid = undefined;
+        this.sctpTransport.mLineIndex = undefined;
+      }
+    };
     const deferred = this.createdOfferAssignments;
-    if (!deferred) return;
+    if (!deferred) return undo;
     const transceivers = this.transceiverManager.getTransceivers();
     for (const [transceiver, mid, mLineIndex] of deferred.transceivers) {
       // Only a transceiver still unassociated takes its position, and only
@@ -665,11 +678,14 @@ export class RTCPeerConnection extends EventTarget {
       }
       transceiver.mid = mid;
       transceiver.mLineIndex = mLineIndex;
+      restored.push(transceiver);
     }
     const sctp = this.sctpTransport;
     if (deferred.sctp && sctp && sctp.mid == undefined) {
       [sctp.mid, sctp.mLineIndex] = deferred.sctp;
+      restoredSctp = true;
     }
+    return undo;
   }
 
   private invalidateLastCreatedDescriptions() {
@@ -935,6 +951,10 @@ export class RTCPeerConnection extends EventTarget {
       // The offer takes the MID / m-line assignments it was created with,
       // also when they were not kept (created while a remote offer was
       // pending) or a rollback of this offer took them back.
+      // Its ICE restart generation, if a rollback of this offer discarded
+      // it, is staged again (validation still requires exactly those
+      // credentials). A failed application undoes both.
+      let undoReapply = () => {};
       if (
         sessionDescription.type === "offer" &&
         sessionDescription.sdp === this.createdOfferSdp &&
@@ -942,7 +962,12 @@ export class RTCPeerConnection extends EventTarget {
           this.signalingState,
         )
       ) {
-        this.restoreCreatedOfferAssignments();
+        const undoAssignments = this.restoreCreatedOfferAssignments();
+        const restaged = this.secureManager.restageOfferedIceRestart();
+        undoReapply = () => {
+          undoAssignments();
+          for (const transport of restaged) transport.rollbackLocalRestart();
+        };
       }
 
       // # parse and validate description
@@ -958,12 +983,20 @@ export class RTCPeerConnection extends EventTarget {
         signalingState: this.signalingState,
         type: descriptionType,
       });
-      this.validator.validateLocal(description);
-      // Stage the offer's transports before retiring anything pending.
-      const stagedOfferTopology =
-        description.type === "offer"
-          ? await this.topology.stageLocalOffer(description)
-          : undefined;
+      let stagedOfferTopology:
+        | Awaited<ReturnType<BundleTopology["stageLocalOffer"]>>
+        | undefined;
+      try {
+        this.validator.validateLocal(description);
+        // Stage the offer's transports before retiring anything pending.
+        stagedOfferTopology =
+          description.type === "offer"
+            ? await this.topology.stageLocalOffer(description)
+            : undefined;
+      } catch (error) {
+        undoReapply();
+        throw error;
+      }
       // The offer being applied was created with these MID / m-line
       // assignments. Replacing the pending offer or rolling back a remote
       // pranswer restores the baseline first, so they are re-applied after.
@@ -1030,6 +1063,7 @@ export class RTCPeerConnection extends EventTarget {
             )
             .map(({ transport }) => transport.stop()),
         );
+        undoReapply();
         throw error;
       }
 

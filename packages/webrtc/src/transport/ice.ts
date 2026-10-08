@@ -98,6 +98,12 @@ export class RTCIceTransport {
    */
   private appliedLocalRestart?: StagedLocalRestart;
   /**
+   * The generation the latest createOffer() carried (none if it did not
+   * restart), with the agent generation it was staged on. Re-applying that
+   * offer after a rollback stages it again.
+   */
+  private offeredRestart?: { restart: StagedLocalRestart; generation: number };
+  /**
    * Gatherer events of an ICE restart committed by a local answer, held until
    * that answer is applied (`emitCommittedCandidates`), in their order: the
    * re-advertised candidates first, then what the servers add and
@@ -281,6 +287,43 @@ export class RTCIceTransport {
     // Existing sockets can respond to provisional STUN checks for the new
     // ufrag while the old generation continues to carry media.
     this.connection.stageLocalCredentials?.(usernameFragment, password);
+  }
+
+  /**
+   * The latest created offer carries the generation staged now.
+   * @internal
+   */
+  rememberOfferedRestart() {
+    const restart = this.stagedLocalRestart;
+    this.offeredRestart = restart && {
+      restart,
+      generation: this.connection.generation,
+    };
+  }
+
+  /**
+   * Stage again the generation the latest created offer carried,
+   * when a rollback discarded it and the agent has not moved to another
+   * generation since. Returns whether it staged anything.
+   * @internal
+   */
+  restageOfferedRestart() {
+    const offered = this.offeredRestart;
+    if (
+      !offered ||
+      this.stagedLocalRestart ||
+      offered.generation !== this.connection.generation
+    ) {
+      return false;
+    }
+    // Its candidates are signalled again with the re-applied offer.
+    this.stagedLocalRestart = { ...offered.restart, emitted: false };
+    this.offeredRestart = { ...offered, restart: this.stagedLocalRestart };
+    this.connection.stageLocalCredentials?.(
+      offered.restart.usernameFragment,
+      offered.restart.password,
+    );
+    return true;
   }
 
   get hasStagedRestart() {
