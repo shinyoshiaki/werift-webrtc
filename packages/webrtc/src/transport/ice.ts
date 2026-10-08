@@ -157,16 +157,48 @@ export class RTCIceTransport {
   }
 
   get localCandidates() {
-    const staged = this.stagedLocalRestart;
-    if (!staged) return this.iceGather.localCandidates;
-    return this.stagedGatherPending()
-      ? staged.candidates.filter((candidate) => candidate.type !== "relay")
-      : staged.candidates;
+    return this.describedLocalGeneration().candidates;
   }
 
   /** Whether the local description may carry `a=end-of-candidates`. */
   get localCandidatesComplete() {
-    return this.gatheringState === "complete" && !this.stagedGatherPending();
+    return this.describedLocalGeneration().complete;
+  }
+
+  /**
+   * The local ICE generation a description carries: its credentials,
+   * candidates and whether they are complete. A description being created
+   * carries a staged restart. One already applied (refreshed when the live
+   * generation gathers more) carries the staged restart only if it applied
+   * it; a later createOffer() that staged another generation without applying
+   * it does not change an applied description.
+   * @internal
+   */
+  describedLocalGeneration({ applied = false }: { applied?: boolean } = {}) {
+    const staged = this.stagedLocalRestart;
+    if (!staged || (applied && staged !== this.appliedLocalRestart)) {
+      return {
+        parameters: this.iceGather.localParameters,
+        candidates: this.iceGather.localCandidates,
+        // The gatherer signals end-of-candidates (and the description that
+        // records it refreshes) just before its state becomes "complete".
+        complete:
+          this.gatheringState === "complete" ||
+          this.connection.localCandidatesEnd,
+      };
+    }
+    const pending = this.stagedGatherPending();
+    return {
+      parameters: new RTCIceParameters({
+        iceLite: this.connection.iceLite,
+        usernameFragment: staged.usernameFragment,
+        password: staged.password,
+      }),
+      candidates: pending
+        ? staged.candidates.filter((candidate) => candidate.type !== "relay")
+        : staged.candidates,
+      complete: this.gatheringState === "complete" && !pending,
+    };
   }
 
   /**
@@ -181,14 +213,7 @@ export class RTCIceTransport {
   }
 
   get localParameters() {
-    const pending = this.stagedLocalRestart;
-    return pending
-      ? new RTCIceParameters({
-          iceLite: this.connection.iceLite,
-          usernameFragment: pending.usernameFragment,
-          password: pending.password,
-        })
-      : this.iceGather.localParameters;
+    return this.describedLocalGeneration().parameters;
   }
 
   /** Prepare an ICE generation for SDP without touching the selected pair. */
