@@ -217,7 +217,9 @@ export class SctpTransportManager {
    * Start the association of the negotiated application m-line and wait
    * until it is established. Safe to call any number of times: an
    * established (also passively established) or handshaking association is
-   * not started again, and a closed one is not waited for.
+   * not started again, and a closed one is not waited for. The wait is
+   * bounded even if the remote never answers: the INIT retries (T1) give up
+   * and the association emits `closed`.
    */
   async connectSctp() {
     const transport = this.sctpTransport;

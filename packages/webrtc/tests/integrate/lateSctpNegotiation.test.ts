@@ -210,6 +210,43 @@ describe("SCTP added by renegotiation after DTLS is connected", () => {
     }
   }, 15000);
 
+  test("connectSctp settles when the remote never answers because the INIT retries give up", async () => {
+    // Arrange: 相手の SCTP 受信を止め、INIT に一切応答しない状態にする。
+    const pair = await createUnstartedSctpPair();
+    const { local, remote } = pair;
+    try {
+      remote.dtlsTransport.dataReceiver = () => {};
+      const manager = new SctpTransportManager();
+      manager.sctpTransport = local;
+      manager.sctpRemotePort = remote.port;
+      vi.useFakeTimers({
+        toFake: ["setTimeout", "clearTimeout", "setImmediate"],
+      });
+
+      // Act: 起動を待ち始め、INIT 再送の上限 (T1) まで時間を進める。
+      let settled = false;
+      const connecting = manager.connectSctp().then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(1000);
+
+      // Assert: 再送が続く間は待機中のまま。
+      expect(settled).toBe(false);
+      expect(local.sctp.state).toBe("connecting");
+
+      // Act: INIT 再送が尽きるまで進める。
+      await vi.advanceTimersByTimeAsync(60 * 1000);
+      await connecting;
+
+      // Assert: association が closed になり、待機が有限時間で解消する。
+      expect(settled).toBe(true);
+      expect(local.sctp.state).toBe("closed");
+    } finally {
+      vi.useRealTimers();
+      await pair.close();
+    }
+  }, 15000);
+
   test("another offer / answer on the same application section keeps the association", async () => {
     // Arrange: 後付け SCTP で channel を開く。
     const { offerer, answerer } = await createConnectedVideoPeers();
