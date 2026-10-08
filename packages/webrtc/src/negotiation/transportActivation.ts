@@ -156,29 +156,22 @@ export class TransportActivation {
     const res = await Promise.allSettled(
       this.secure.dtlsTransports.map(async (dtlsTransport) => {
         const { iceTransport } = dtlsTransport;
-        // A connected ICE transport with an active DTLS handshake is already
-        // usable. Wait for that handshake without restarting ICE; SCTP still
-        // starts below on the existing DTLS transport.
-        const linkConnected =
+        // ICE that already ran its local checks and is usable is not
+        // started again (that would move it back to "checking"). Remote
+        // checks alone can make it "connected" first, so that case still
+        // starts, as this sets up the local side. DTLS is ensured on its own:
+        // a running handshake is awaited, a new one is started.
+        const iceUsable =
           ["connected", "completed"].includes(iceTransport.state) &&
-          ["connecting", "connected"].includes(dtlsTransport.state);
-        if (!linkConnected) {
+          iceTransport.started;
+        if (!iceUsable) {
           this.secure.setConnectionState("connecting");
-
-          // Even if remote checks nominated a pair first, start ICE locally
-          // before the first DTLS handshake, as this sets up the local side.
           await iceTransport.start().catch((err) => {
             log("iceTransport.start failed", err);
             throw err;
           });
-
-          // A running handshake completes on its own; a completed handshake
-          // returns immediately. Otherwise start DTLS after ICE is ready.
-          await this.ensureDtlsConnected(dtlsTransport);
-        } else {
-          // If DTLS is still connecting, finish it before starting SCTP.
-          await this.ensureDtlsConnected(dtlsTransport);
         }
+        await this.ensureDtlsConnected(dtlsTransport);
 
         if (
           this.sctp.sctpTransport &&

@@ -338,6 +338,44 @@ describe("SCTP added by renegotiation after DTLS is connected", () => {
   }, 15000);
 });
 
+describe("connect() with a usable ICE transport", () => {
+  test.each([
+    ["locally started", true, 0],
+    ["usable only by remote checks", false, 1],
+  ])(
+    "ICE %s and DTLS new: ICE start calls = %i-%#",
+    async (_, started, startCalls) => {
+      // Arrange: ICE が connected の接続済みペアで、DTLS だけ new に戻す。
+      const { offerer, answerer } = await createConnectedVideoPeers();
+      try {
+        const dtls = offerer.dtlsTransports[0];
+        const ice = dtls.iceTransport;
+        expect(["connected", "completed"]).toContain(ice.state);
+        const iceState = ice.state;
+        ice.started = started as boolean;
+        const iceStart = vi.spyOn(ice, "start").mockResolvedValue();
+        const dtlsStart = vi
+          .spyOn(dtls, "start")
+          .mockImplementation(async () => {
+            dtls.state = "connected";
+          });
+        dtls.state = "new";
+
+        // Act: 起動処理を呼ぶ。
+        await (offerer as any).activation.connect();
+
+        // Assert: 利用可能な ICE は再 start されず (checking に戻らない)、DTLS は別に起動される。
+        expect(iceStart).toHaveBeenCalledTimes(startCalls as number);
+        expect(dtlsStart).toHaveBeenCalledTimes(1);
+        expect(ice.state).toBe(iceState);
+      } finally {
+        await Promise.allSettled([offerer.close(), answerer.close()]);
+      }
+    },
+    15000,
+  );
+});
+
 describe("late SCTP under pranswer", () => {
   test("a pranswer starts it and the final answer keeps it", async () => {
     // Arrange: 接続済みセッションで後付け m=application を pranswer まで進める。

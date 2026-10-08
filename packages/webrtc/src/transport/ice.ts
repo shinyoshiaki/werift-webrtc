@@ -80,6 +80,13 @@ export class RTCIceTransport {
   readonly component = "rtp";
   iceRestarts = 0;
   private waitStart?: Event<[]>;
+  /**
+   * @internal
+   * Local connectivity checks ran to completion since the last (re)start.
+   * A state of "connected" alone does not imply it: remote checks can
+   * nominate a pair first.
+   */
+  started = false;
   private renominating = false;
   private stagedLocalRestart?: StagedLocalRestart;
   /**
@@ -467,6 +474,7 @@ export class RTCIceTransport {
     // SecureTransportManager aggregate iceGatheringState stays in sync.
     this.iceGather.setGatheringState("new");
     this.waitStart = undefined;
+    this.started = false;
     if (notifyNegotiation) this.onNegotiationNeeded.execute();
   }
 
@@ -492,6 +500,7 @@ export class RTCIceTransport {
       throw error;
     }
 
+    this.started = true;
     this.waitStart.execute();
     this.waitStart.complete();
     this.waitStart = undefined;
