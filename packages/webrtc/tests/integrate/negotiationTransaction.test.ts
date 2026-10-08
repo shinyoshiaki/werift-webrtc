@@ -32,6 +32,7 @@ import {
   waitForConnection,
   waitForDtlsConnected,
   waitForIce,
+  waitForPeersConnected,
   waitForProvisionalNomination,
 } from "./negotiationTransactionUtils";
 
@@ -2699,8 +2700,10 @@ describe("negotiation transaction", () => {
     const offerer = new RTCPeerConnection();
     const answerer = new RTCPeerConnection();
     try {
-      // Arrange: 初回 offer と pranswer を双方の pending に置く。
-      offerer.addTransceiver("audio");
+      // Arrange: 初回 offer と pranswer を双方の pending に置き、pranswer で
+      // ICE・DTLS の暫定接続を成立させる。
+      const audioOut = new MediaStreamTrack({ kind: "audio" });
+      offerer.addTransceiver(audioOut, { direction: "sendonly" });
       await offerer.setLocalDescription(await offerer.createOffer());
       await answerer.setRemoteDescription(offerer.localDescription!);
       const provisional = await answerer.createAnswer();
@@ -2712,6 +2715,7 @@ describe("negotiation transaction", () => {
         type: "pranswer",
         sdp: answerer.localDescription!.sdp,
       });
+      await waitForPeersConnected(offerer, answerer);
 
       // Act: offerer は remote pranswer を、answerer は local pranswer を
       // implicit rollback して replacement offer を受ける。
@@ -2725,6 +2729,24 @@ describe("negotiation transaction", () => {
       expect(answerer.currentRemoteDescription).toBeNull();
       expect(offerer.pendingRemoteDescription).toBeNull();
       expect(answerer.pendingLocalDescription).toBeNull();
+
+      // Act: replacement offer を最終 answer で確定する。
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      await waitForPeersConnected(offerer, answerer);
+
+      // Assert: 新しい transport で接続し直し、audio の RTP が届く。
+      expect(offerer.connectionState).toBe("connected");
+      expect(answerer.connectionState).toBe("connected");
+      const mid = offerer.getTransceivers()[0].mid;
+      const received = answerer.getTransceivers().find((t) => t.mid === mid)!;
+      assertNegotiationInvariants(offerer);
+      assertNegotiationInvariants(answerer);
+      await sendAndExpectRtp(
+        audioOut,
+        received.receiver.track,
+        "after replaced provisional offer",
+      );
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }

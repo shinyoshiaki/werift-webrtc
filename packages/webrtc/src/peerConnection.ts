@@ -1031,6 +1031,28 @@ export class RTCPeerConnection extends EventTarget {
           this.secureManager.rollbackStagedIceRestart();
           await this.negotiation.rollback();
           await this.activation.cleanupInitialProvisional();
+          // Retiring a first negotiation's provisional connection replaced
+          // the transports the offer's topology was staged on (the new ones
+          // keep the offer's ICE credentials): stage it again on them.
+          if (
+            stagedOfferTopology?.some(
+              ({ transport }) => transport.state === "closed",
+            )
+          ) {
+            await Promise.allSettled(
+              stagedOfferTopology
+                .filter(
+                  ({ transport, pendingOnly }) =>
+                    pendingOnly &&
+                    !this.negotiation.isPendingOnlyTransport(
+                      transport.iceTransport.id,
+                    ),
+                )
+                .map(({ transport }) => transport.stop()),
+            );
+            stagedOfferTopology =
+              await this.topology.stageLocalOffer(description);
+          }
           this.setSignalingState("stable");
           // Rolling the pranswer back also discarded the restart generation
           // the offer being applied carries (the same offer re-applied, or a
