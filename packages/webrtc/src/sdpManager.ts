@@ -191,12 +191,15 @@ export class SDPManager {
   addTransportDescription(
     media: MediaDescription,
     dtlsTransport: RTCDtlsTransport,
+    { applied = false }: { applied?: boolean } = {},
   ): void {
-    const iceTransport = dtlsTransport.iceTransport;
+    const generation = dtlsTransport.iceTransport.describedLocalGeneration({
+      applied,
+    });
 
-    media.iceCandidates = iceTransport.localCandidates;
-    media.iceCandidatesComplete = iceTransport.localCandidatesComplete;
-    media.iceParams = iceTransport.localParameters;
+    media.iceCandidates = generation.candidates;
+    media.iceCandidatesComplete = generation.complete;
+    media.iceParams = generation.parameters;
     media.iceOptions = "trickle";
 
     media.host = DISCARD_HOST;
@@ -1115,6 +1118,10 @@ export class SDPManager {
     const fallbackDtlsTransport =
       transceivers.find((transceiver) => transceiver?.dtlsTransport)
         ?.dtlsTransport ?? sctpTransport?.dtlsTransport;
+    // Refreshing an applied description keeps the ICE generation it applied.
+    const applied =
+      description === this.currentLocalDescription ||
+      description === this.pendingLocalDescription;
     // SCTP が RTP より先にある SDP でも元の m-line index で transceiver を引く
     description.media.forEach((m, i) => {
       if (!["audio", "video"].includes(m.kind)) return;
@@ -1135,7 +1142,7 @@ export class SDPManager {
       if (!dtlsTransport)
         throw new Error(`dtls transport not found for media index ${i}`);
       const port = m.port;
-      this.addTransportDescription(m, dtlsTransport);
+      this.addTransportDescription(m, dtlsTransport, { applied });
       this.offerNewAssociation(description, m, dtlsTransport, transportByMid);
       if (port === 0) m.port = 0;
     });
@@ -1144,7 +1151,7 @@ export class SDPManager {
       const dtlsTransport =
         (sctpMedia.rtp.muxId && transportByMid?.get(sctpMedia.rtp.muxId)) ||
         sctpTransport.dtlsTransport;
-      this.addTransportDescription(sctpMedia, dtlsTransport);
+      this.addTransportDescription(sctpMedia, dtlsTransport, { applied });
       this.offerNewAssociation(
         description,
         sctpMedia,

@@ -205,6 +205,37 @@ describe("develop features inside the negotiation transaction", () => {
       }
     });
 
+    test("an unapplied restart offer does not change the applied description the gathering refreshes", async () => {
+      // Arrange: restart を確定し、その TURN allocation を proxy で保留する
+      const peers = await createHeldTurnRestartPeers(1);
+      try {
+        await peers.restartThrough(0);
+        const ufragOf = (sdp: string) => sdp.match(/^a=ice-ufrag:(\S+)/m)![1];
+        const committed = ufragOf(peers.offerer.currentLocalDescription!.sdp);
+        const iceTransport = peers.offerer.iceTransports[0];
+
+        // Act: 次の restart offer を作るが適用せず、確定済み generation の gather を完了させる
+        peers.offerer.restartIce();
+        const future = ufragOf((await peers.offerer.createOffer()).sdp);
+        peers.proxies[0].release();
+        await vi.waitFor(() =>
+          expect(iceTransport.gatheringState).toBe("complete"),
+        );
+
+        // Assert: current description は適用した generation の資格情報・relay 候補・EOC を保ち、
+        // live ICE と一致する。未適用 offer の generation は入らない
+        expect(future).not.toBe(committed);
+        const current = peers.offerer.currentLocalDescription!.sdp;
+        expect(ufragOf(current)).toBe(committed);
+        expect(iceTransport.connection.localUsername).toBe(committed);
+        expect(current).toContain("typ relay");
+        expect(current).toContain("a=end-of-candidates");
+        expect(peers.offerer.signalingState).toBe("stable");
+      } finally {
+        await peers.close();
+      }
+    });
+
     test("close() during a restart's background TURN gathering leaves no allocation", async () => {
       // Arrange: restart の TURN allocation を proxy で保留する
       const peers = await createHeldTurnRestartPeers(1);
