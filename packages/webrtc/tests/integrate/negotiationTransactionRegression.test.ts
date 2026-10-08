@@ -1570,4 +1570,39 @@ describe("negotiation transaction live-state regressions", () => {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
   });
+
+  test("re-applying the same offer after its rollback negotiates the new audio it carries", async () => {
+    const { offerer, answerer } = await createConnectedVideoPeers();
+    try {
+      // Arrange: 確立済みの session に audio を足して offer を作る。
+      const audioOut = new MediaStreamTrack({ kind: "audio" });
+      const audio = offerer.addTransceiver(audioOut, { direction: "sendonly" });
+      const offer = await offerer.createOffer();
+
+      // Act: offer を適用して rollback し、同じ offer を再適用して answer で確定する。
+      await offerer.setLocalDescription(offer);
+      await offerer.setLocalDescription({ type: "rollback" });
+      expect(audio.mid).toBeNull();
+      await offerer.setLocalDescription(offer);
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+
+      // Assert: audio は offer の MID で交渉され、停止せずに RTP が届く。
+      expect(audio.stopped).toBe(false);
+      expect(audio.currentDirection).toBe("sendonly");
+      const received = answerer
+        .getTransceivers()
+        .find((t) => t.mid === audio.mid)!;
+      assertNegotiationInvariants(offerer);
+      assertNegotiationInvariants(answerer);
+      await sendAndExpectRtp(
+        audioOut,
+        received.receiver.track,
+        "audio re-applied offer",
+      );
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
 });
