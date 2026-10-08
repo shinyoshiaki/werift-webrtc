@@ -22,6 +22,7 @@ import {
   createSplitOffer,
   createUnnegotiatedPeers,
   createUnnegotiatedVideoPeers,
+  createVp8H264AnsweringPeers,
   currentRemoteGeneration,
   elapsedMs,
   expectSessionAlive,
@@ -47,6 +48,7 @@ import {
   waitForDtlsConnected,
   waitForDtlsHandshake,
   waitForIce,
+  waitForPeersConnected,
   waitForRemoteCandidatePort,
 } from "./negotiationTransactionUtils";
 
@@ -1301,6 +1303,115 @@ describe("negotiation transaction live-state regressions", () => {
       expect(answerer.getTransceivers()).toContain(remoteCreated);
       expect(remoteCreated.mid).toBeNull();
       expect(remoteCreated.currentDirection).toBeNull();
+    } finally {
+      await close();
+    }
+  });
+
+  test("a saved answer commits its own codecs after an unapplied createOffer() resolved others", async () => {
+    const {
+      offerer,
+      answerer,
+      offererOut,
+      answererOut,
+      offererTransceiver,
+      answererTransceiver,
+      close,
+    } = await createVp8H264AnsweringPeers();
+    try {
+      // Arrange: VP8 の answer を作って保存し、その後 H264 を選んで offer を作る (適用しない)。
+      answererTransceiver.setCodecPreferences([useVP8()]);
+      const answer = await answerer.createAnswer();
+      answererTransceiver.setCodecPreferences([useH264()]);
+      await answerer.createOffer();
+
+      // Act: 保存した VP8 の answer を両 peer に適用する。
+      await answerer.setLocalDescription(answer);
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      await waitForPeersConnected(offerer, answerer);
+
+      // Assert: 送受信は適用した answer の VP8 で確定し、双方向に RTP が届く。
+      expect(offeredVideoCodecs(answerer.currentLocalDescription!.sdp)).toEqual(
+        ["VP8"],
+      );
+      expect(answererTransceiver.sender.codec?.mimeType.toLowerCase()).toBe(
+        "video/vp8",
+      );
+      expect(
+        Object.values(receiveCodecNames(answererTransceiver.receiver)),
+      ).toEqual(["VP8"]);
+      assertNegotiationInvariants(answerer);
+      assertNegotiationInvariants(offerer);
+      await sendAndExpectRtp(
+        offererOut,
+        answererTransceiver.receiver.track,
+        "saved-answer a-to-b",
+      );
+      await sendAndExpectRtp(
+        answererOut,
+        offererTransceiver.receiver.track,
+        "saved-answer b-to-a",
+      );
+
+      // Assert: 未適用の offer で選んだ H264 は次の offer で解決し直される。
+      expect(offeredVideoCodecs((await answerer.createOffer()).sdp)).toEqual([
+        "H264",
+      ]);
+    } finally {
+      await close();
+    }
+  });
+
+  test("a first pranswer sends and receives with the codecs it answered", async () => {
+    const {
+      offerer,
+      answerer,
+      offererOut,
+      answererOut,
+      offererTransceiver,
+      answererTransceiver,
+      close,
+    } = await createVp8H264AnsweringPeers();
+    try {
+      // Arrange: answerer は H264 だけを選んだ answer を作る。
+      answererTransceiver.setCodecPreferences([useH264()]);
+      const answer = await answerer.createAnswer();
+
+      // Act: その answer を初回の pranswer として両 peer に適用する。
+      await answerer.setLocalDescription({ type: "pranswer", sdp: answer.sdp });
+      await offerer.setRemoteDescription({
+        type: "pranswer",
+        sdp: answerer.localDescription!.sdp,
+      });
+      await waitForPeersConnected(offerer, answerer);
+
+      // Assert: 暫定通信は pranswer の H264 で双方向に届く。
+      expect(answererTransceiver.sender.codec?.mimeType.toLowerCase()).toBe(
+        "video/h264",
+      );
+      await sendAndExpectRtp(
+        offererOut,
+        answererTransceiver.receiver.track,
+        "pranswer a-to-b",
+      );
+      await sendAndExpectRtp(
+        answererOut,
+        offererTransceiver.receiver.track,
+        "pranswer b-to-a",
+      );
+
+      // Act: 同じ内容の final answer で確定する。
+      await answerer.setLocalDescription({ type: "answer", sdp: answer.sdp });
+      await offerer.setRemoteDescription(answerer.localDescription!);
+
+      // Assert: 確定後も H264 のまま、invariant を満たし双方向に届く。
+      assertNegotiationInvariants(answerer);
+      assertNegotiationInvariants(offerer);
+      await sendAndExpectRtp(
+        answererOut,
+        offererTransceiver.receiver.track,
+        "answer b-to-a",
+      );
     } finally {
       await close();
     }

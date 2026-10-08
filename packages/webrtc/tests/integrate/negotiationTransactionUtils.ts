@@ -687,6 +687,27 @@ function assertRouterAndCodecs(pc: RTCPeerConnection, snapshot: Snapshot) {
         expect(mimeTypes).toContain(track.codec.mimeType.toLowerCase());
       }
     }
+    // stable の送信側は、確定した SDP (current の local と remote の両方) にある
+    // codec で送る (未適用の offer の解決結果は送信 codec にならない)。
+    const sender = transceiver.sender;
+    if (
+      pc.signalingState === "stable" &&
+      ["sendonly", "sendrecv"].includes(transceiver.currentDirection ?? "") &&
+      sender.codec
+    ) {
+      const localMedia = snapshot.currentLocal?.media.find(
+        (m) => m.rtp.muxId === media.rtp.muxId,
+      );
+      const negotiated = media.rtp.codecs.filter((codec) =>
+        localMedia?.rtp.codecs.some((c) => c.payloadType === codec.payloadType),
+      );
+      const sent = negotiated.find(
+        (c) => c.payloadType === sender.codec!.payloadType,
+      );
+      expect(sent?.mimeType.toLowerCase()).toBe(
+        sender.codec.mimeType.toLowerCase(),
+      );
+    }
     // 実際の PLI 送信判定も、その SSRC の current SDP の codec の RTCP feedback に従う。
     for (const { ssrc } of media.ssrc) {
       if (!transceiver.receiver.trackBySSRC[ssrc]) continue;
@@ -2006,5 +2027,43 @@ export async function createInitialPranswerConnection() {
 export function reverseSetupRole(sdp: string) {
   return sdp.replace(/^a=setup:(active|passive)/gm, (_, role) =>
     role === "active" ? "a=setup:passive" : "a=setup:active",
+  );
+}
+
+/**
+ * Shared Arrange: a first negotiation whose offerer and answerer both send
+ * video (VP8 and H264 configured on both sides). The remote offer is applied
+ * on the answerer, which has not answered yet.
+ */
+export async function createVp8H264AnsweringPeers() {
+  const config = { codecs: { video: [useVP8(), useH264()] } };
+  const offerer = new RTCPeerConnection(config);
+  const answerer = new RTCPeerConnection(config);
+  const offererOut = new MediaStreamTrack({ kind: "video" });
+  const answererOut = new MediaStreamTrack({ kind: "video" });
+  const offererTransceiver = offerer.addTransceiver(offererOut, {
+    direction: "sendrecv",
+  });
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  const answererTransceiver = answerer.getTransceivers()[0];
+  answererTransceiver.direction = "sendrecv";
+  await answererTransceiver.sender.replaceTrack(answererOut);
+  return {
+    offerer,
+    answerer,
+    offererOut,
+    answererOut,
+    offererTransceiver,
+    answererTransceiver,
+    close: () => Promise.allSettled([offerer.close(), answerer.close()]),
+  };
+}
+
+/** Wait until both peers report a connected (DTLS established) session. */
+export async function waitForPeersConnected(...pcs: RTCPeerConnection[]) {
+  await withTimeout(
+    Promise.all(pcs.map((pc) => waitForDtlsConnected(pc.dtlsTransports[0]))),
+    "peers did not connect",
   );
 }
