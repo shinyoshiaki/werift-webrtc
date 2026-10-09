@@ -1819,4 +1819,44 @@ describe("negotiation transaction live-state regressions", () => {
       await close();
     }
   });
+
+  test("an answer created again after an unapplied restart offer keeps the saved answer's generation", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers();
+    try {
+      // Arrange: ICE restart の remote offer に answer を作って保存し、未適用の restart
+      // offer を作ってから answer をもう一度作る。
+      offerer.restartIce();
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      const saved = await answerer.createAnswer();
+      await answerer.createOffer({ iceRestart: true });
+      const regenerated = await answerer.createAnswer();
+      const ufragOf = (sdp: string) => sdp.match(/^a=ice-ufrag:(\S+)/m)![1];
+
+      // Assert: 同じ remote offer への answer は、間に作った offer に関係なく同じ generation を持つ。
+      expect(ufragOf(regenerated.sdp)).toBe(ufragOf(saved.sdp));
+
+      // Act: 保存した answer を両 peer に適用する。
+      await answerer.setLocalDescription(saved);
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      await Promise.all([
+        waitForCommittedNomination(offerer),
+        waitForCommittedNomination(answerer),
+      ]);
+
+      // Assert: 保存した answer の generation で確定し、RTP が届く。
+      expect(answerer.iceTransports[0].connection.localUsername).toBe(
+        ufragOf(saved.sdp),
+      );
+      assertNegotiationInvariants(answerer);
+      await sendAndExpectRtp(
+        outgoing,
+        incoming,
+        "saved answer after offer and regeneration",
+      );
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
 });

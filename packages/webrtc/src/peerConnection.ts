@@ -544,11 +544,14 @@ export class RTCPeerConnection extends EventTarget {
         this.signalingState,
       )
     ) {
-      // An applied pending offer keeps its restart credentials until it is
-      // answered, replaced or rolled back; credentials staged for an answer
-      // (have-remote-offer) are not the offerer's to discard.
+      // An offer without a restart carries the live credentials, or those of
+      // the applied pending offer (JSEP 5.2.1). Only the selection changes;
+      // registered generations stay.
       this.secureManager.discardUnappliedIceRestart();
     }
+    // While a remote offer is pending, an offer without a restart carries the
+    // generation the answer would commit: applied once that answer made the
+    // session stable, its credentials are the live ones.
 
     await this.secureManager.ensureCerts();
 
@@ -565,9 +568,11 @@ export class RTCPeerConnection extends EventTarget {
       }
     }
 
-    // While a remote offer is pending, the offer created now cannot be
-    // applied: the MIDs and m-line positions the pending offer associated
-    // stay as they are.
+    // As in develop, an offer created where it can be applied associates its
+    // MIDs and m-line positions now (issue 705 expectations). While a remote
+    // offer is pending it cannot be applied, so the associations stay as the
+    // pending offer made them; the offer's generation record keeps the MIDs
+    // it assigned and applying it later takes them from there.
     const unapplicable = ["have-remote-offer", "have-local-pranswer"].includes(
       this.signalingState,
     );

@@ -154,7 +154,7 @@ changes nothing. "develop" below is measured with
 | Order of operations | Result | Basis |
 | --- | --- | --- |
 | answer saved, `createOffer()` (not applied), the saved answer applied | accept | (a) the answer is still [[LastCreatedAnswer]]; develop: accepted, communicates |
-| answer created again, the first one applied | accept | (b) develop: accepted, communicates (werift, like develop, does not compare an answer with [[LastCreatedAnswer]]) |
+| answer created again (also with an unapplied restart offer created in between), the first one applied | accept | (b) develop: accepted, communicates (werift, like develop, does not compare an answer with [[LastCreatedAnswer]]) |
 | unapplied restart offer (`createOffer({ iceRestart })`, or `restartIce()` + `createOffer()`), then the saved answer applied | accept | (a) [[LastCreatedAnswer]] unchanged; develop accepted but lost the session (it restarted ICE at `createOffer`) |
 | offer created while a remote offer was pending, applied after `stable` | accept | (a) it is [[LastCreatedOffer]]; develop: accepted, communicates |
 | the same offer re-applied after its rollback (no restart / restart / restart with new media) | accept | (a) rollback does not change [[LastCreatedOffer]]; develop: accepted, communicates |
@@ -312,13 +312,14 @@ description created is stopped as before. A transport created during the
 transaction that no binding holds at commit (for example the data channel's
 own transport after BUNDLE moved SCTP to the tag) is stopped at commit.
 
-Restart credentials that an applied offer carries belong to that offer until
-it is answered, replaced or rolled back. A later `createOffer()` that is not
-applied cannot drop them: without `iceRestart` it only discards credentials
-an earlier unapplied `createOffer` staged, and with `iceRestart` it reuses the
-pending offer's credentials (JSEP 5.2.1). The final answer switches exactly
-the generation of the applied offer, so the current local SDP and the live
-ICE credentials agree.
+Restart credentials are registered generations (see the description reuse
+contract): creating a description only changes which generation the next
+SDP carries, and applying a description selects the one its SDP carries. A
+new offer reuses the generation of the applied pending offer (JSEP 5.2.1) and
+an answer created again for the same remote offer reuses the earlier answer's
+(JSEP 5.3.1), whatever was created in between. The final answer switches
+exactly the generation of the applied description, so the current local SDP
+and the live ICE credentials agree.
 
 An ICE restart (changed ufrag/pwd without a transport topology change) keeps
 the existing ICE and DTLS transports and their DTLS association, as RFC 8842
@@ -424,8 +425,9 @@ addressed to the staged ufrag is signed with the staged password.
 - Ends at the final answer, which recreates the live ICE agent with the staged
   credentials and checks the answered generation from scratch (the provisional
   nomination is not carried over), or at rollback / a replacement offer /
-  discarding an unapplied `createOffer`, which drops it and keeps the live
-  generation. A first negotiation and transports created for the proposal
+  creating a description that selects another generation, which stops its
+  checks and keeps the live generation (the generation itself stays
+  registered while its description record does). A first negotiation and transports created for the proposal
   (BUNDLE split, pending-only) have no provisional generation; they connect
   normally from the pranswer.
 
