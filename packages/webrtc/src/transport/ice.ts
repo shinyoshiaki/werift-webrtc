@@ -469,10 +469,14 @@ export class RTCIceTransport {
     }
     this.stagedLocalRestart = undefined;
     this.appliedLocalRestart = undefined;
-    // The committed generation is the live one now.
-    this.localGenerations.delete(staged.usernameFragment);
     // A local answer signals its candidates after it is applied.
     if (!staged.emitted) this.heldCandidateEvents = [];
+    // The generation is live now. Its registration stays with the
+    // description that carries it (a later commit of another generation does
+    // not end it): applying that description again restarts to it, and its
+    // candidates are signalled again then.
+    staged.emitted = false;
+    staged.endDeferred = undefined;
     // The kept sockets are re-advertised synchronously; nothing here waits
     // for a server, so the commit never holds the new generation's checks.
     const gathering = this.gather();

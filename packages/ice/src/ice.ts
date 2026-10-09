@@ -282,6 +282,7 @@ export class Connection implements IceConnection {
     generation.revision++;
     generation.pairs = [];
     generation.nominated = undefined;
+    generation.nominating = false;
   }
 
   async addProvisionalRemoteCandidate(remoteCandidate: Candidate | undefined) {
@@ -471,9 +472,50 @@ export class Connection implements IceConnection {
     }
     if (nominate || pair.remoteNominated) pair.nominated = true;
     pair.updateState(CandidatePairState.SUCCEEDED);
+    if (
+      !pair.nominated &&
+      this.iceControlling &&
+      !generation.nominated &&
+      !generation.nominating
+    ) {
+      // Regular nomination (the peer is ICE-lite, so the checks carried no
+      // USE-CANDIDATE), as the live checklist does: nominate the first pair
+      // that succeeded with a check that carries it.
+      await this.nominateProvisional(generation, pair, belongs);
+    }
     if (pair.nominated && !generation.nominated) {
       log("provisional nominated", pair.toJSON());
       generation.nominated = pair;
+    }
+  }
+
+  private async nominateProvisional(
+    generation: ProvisionalGeneration,
+    pair: CandidatePair,
+    belongs: () => boolean,
+  ) {
+    generation.nominating = true;
+    const request = this.buildRequest({
+      nominate: true,
+      localUsername: generation.localUsername,
+      remoteUsername: generation.remoteUsername!,
+      iceControlling: this.iceControlling,
+      localCandidate: pair.localCandidate,
+    });
+    try {
+      pair.requestsSent++;
+      await pair.protocol.request(
+        request,
+        pair.remoteAddr,
+        Buffer.from(generation.remotePassword!, "utf8"),
+        pair.localCandidate.transport.toLowerCase() === "tcp" ? 0 : 4,
+      );
+      pair.responsesReceived++;
+      if (belongs()) pair.nominated = true;
+    } catch (error) {
+      log("provisional regular nomination failed", error);
+    } finally {
+      if (belongs()) generation.nominating = false;
     }
   }
 
@@ -2346,5 +2388,7 @@ type ProvisionalGeneration = {
   revision: number;
   pairs: CandidatePair[];
   nominated?: CandidatePair;
+  /** A regular nomination (toward an ICE-lite peer) is in flight. */
+  nominating?: boolean;
   started: boolean;
 };
