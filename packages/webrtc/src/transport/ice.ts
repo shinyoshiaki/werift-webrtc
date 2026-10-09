@@ -71,6 +71,13 @@ type StagedLocalRestart = {
    * candidates and end-of-candidates are trickled then, not with the offer.
    */
   endDeferred?: boolean;
+  /** The remote offer an answer staged this generation for, if any. */
+  answering?: object;
+  /**
+   * The kind of description that created it. The latest created offer and
+   * the latest created answer each keep their generation registered.
+   */
+  createdBy: "offer" | "answer";
 };
 
 export class RTCIceTransport {
@@ -88,7 +95,22 @@ export class RTCIceTransport {
    */
   checksStarted = false;
   private renominating = false;
+  /**
+   * The restart generation selected for the description being created or
+   * applied (the one createOffer / createAnswer put in its SDP, or the one an
+   * applied description carries).
+   */
   private stagedLocalRestart?: StagedLocalRestart;
+  /**
+   * The restart generations the latest created offer and the latest created
+   * answer carry, by ufrag (their generation records). One stays registered
+   * until a newer description of the same kind replaces it (unless an
+   * applied description still carries it) or the transport stops, whatever
+   * is applied, rolled back or committed meanwhile; applying a description
+   * that carries it selects it (an ICE restart to those credentials on the
+   * kept sockets).
+   */
+  private readonly localGenerations = new Map<string, StagedLocalRestart>();
   /**
    * The staged generation an applied description (pending local offer, or a
    * remote offer being answered) carries. It stays until that description is
@@ -157,16 +179,48 @@ export class RTCIceTransport {
   }
 
   get localCandidates() {
-    const staged = this.stagedLocalRestart;
-    if (!staged) return this.iceGather.localCandidates;
-    return this.stagedGatherPending()
-      ? staged.candidates.filter((candidate) => candidate.type !== "relay")
-      : staged.candidates;
+    return this.describedLocalGeneration().candidates;
   }
 
   /** Whether the local description may carry `a=end-of-candidates`. */
   get localCandidatesComplete() {
-    return this.gatheringState === "complete" && !this.stagedGatherPending();
+    return this.describedLocalGeneration().complete;
+  }
+
+  /**
+   * The local ICE generation a description carries: its credentials,
+   * candidates and whether they are complete. A description being created
+   * carries a staged restart. One already applied (refreshed when the live
+   * generation gathers more) carries the staged restart only if it applied
+   * it; a later createOffer() that staged another generation without applying
+   * it does not change an applied description.
+   * @internal
+   */
+  describedLocalGeneration({ applied = false }: { applied?: boolean } = {}) {
+    const staged = this.stagedLocalRestart;
+    if (!staged || (applied && staged !== this.appliedLocalRestart)) {
+      return {
+        parameters: this.iceGather.localParameters,
+        candidates: this.iceGather.localCandidates,
+        // The gatherer signals end-of-candidates (and the description that
+        // records it refreshes) just before its state becomes "complete".
+        complete:
+          this.gatheringState === "complete" ||
+          this.connection.localCandidatesEnd,
+      };
+    }
+    const pending = this.stagedGatherPending();
+    return {
+      parameters: new RTCIceParameters({
+        iceLite: this.connection.iceLite,
+        usernameFragment: staged.usernameFragment,
+        password: staged.password,
+      }),
+      candidates: pending
+        ? staged.candidates.filter((candidate) => candidate.type !== "relay")
+        : staged.candidates,
+      complete: this.gatheringState === "complete" && !pending,
+    };
   }
 
   /**
@@ -181,27 +235,28 @@ export class RTCIceTransport {
   }
 
   get localParameters() {
-    const pending = this.stagedLocalRestart;
-    return pending
-      ? new RTCIceParameters({
-          iceLite: this.connection.iceLite,
-          usernameFragment: pending.usernameFragment,
-          password: pending.password,
-        })
-      : this.iceGather.localParameters;
+    return this.describedLocalGeneration().parameters;
   }
 
-  /** Prepare an ICE generation for SDP without touching the selected pair. */
-  stageLocalRestart() {
-    // JSEP 5.2.1: a new offer reuses the credentials of the pending applied
-    // offer, which already restarts ICE.
-    if (
-      this.stagedLocalRestart &&
-      this.stagedLocalRestart === this.appliedLocalRestart
-    ) {
+  /**
+   * Prepare an ICE generation for SDP without touching the selected pair.
+   * `answering` is the remote offer an answer is created for.
+   */
+  stageLocalRestart({ answering }: { answering?: object } = {}) {
+    // The generation a description of this kind already carries is reused,
+    // whatever was selected since: a new offer reuses the one of the pending
+    // applied offer (JSEP 5.2.1), and an answer created again for the same
+    // remote offer reuses the one the earlier answer carries (JSEP 5.3.1).
+    const reused = answering
+      ? [...this.localGenerations.values()].find(
+          (generation) => generation.answering === answering,
+        )
+      : this.appliedLocalRestart;
+    if (reused) {
+      this.selectGeneration(reused);
       return;
     }
-    this.rollbackLocalRestart();
+    this.unselectLocalRestart();
     const usernameFragment = randomBytes(6).toString("base64url");
     const random = randomBytes(24).toString("base64url");
     // The configured prefix (icePasswordPrefix) marks every generation's
@@ -229,15 +284,82 @@ export class RTCIceTransport {
       );
       return copy;
     });
-    this.stagedLocalRestart = {
+    const generation: StagedLocalRestart = {
       usernameFragment,
       password,
       candidates,
       emitted: false,
+      answering,
+      createdBy: answering ? "answer" : "offer",
     };
+    // The previous description of this kind is no longer the latest one.
+    for (const [ufrag, previous] of this.localGenerations) {
+      if (
+        previous.createdBy === generation.createdBy &&
+        previous !== this.appliedLocalRestart
+      ) {
+        this.localGenerations.delete(ufrag);
+      }
+    }
+    this.localGenerations.set(usernameFragment, generation);
+    this.stagedLocalRestart = generation;
     // Existing sockets can respond to provisional STUN checks for the new
     // ufrag while the old generation continues to carry media.
     this.connection.stageLocalCredentials?.(usernameFragment, password);
+  }
+
+  /**
+   * The local generation a description with these credentials carries:
+   * `"live"` for the agent's current credentials, the restart generation the
+   * latest created offer or answer carries, or `undefined` when the
+   * credentials belong to no generation the transport can take.
+   * @internal
+   */
+  localGenerationFor(usernameFragment: string, password: string) {
+    const live = this.iceGather.localParameters;
+    if (
+      live.usernameFragment === usernameFragment &&
+      live.password === password
+    ) {
+      return "live" as const;
+    }
+    const generation = this.localGenerations.get(usernameFragment);
+    if (generation?.password === password) return generation;
+    return undefined;
+  }
+
+  /**
+   * Select the local generation an applied description carries (see
+   * `localGenerationFor`). Returns false if the credentials belong to none.
+   * @internal
+   */
+  selectLocalGeneration(usernameFragment: string, password: string) {
+    const generation = this.localGenerationFor(usernameFragment, password);
+    if (!generation) return false;
+    if (generation === "live") {
+      this.unselectLocalRestart();
+      return true;
+    }
+    this.selectGeneration(generation);
+    return true;
+  }
+
+  private selectGeneration(generation: StagedLocalRestart) {
+    if (this.stagedLocalRestart === generation) return;
+    this.unselectLocalRestart();
+    this.stagedLocalRestart = generation;
+    this.connection.stageLocalCredentials?.(
+      generation.usernameFragment,
+      generation.password,
+    );
+  }
+
+  /** Stop answering checks for the selected generation; it stays registered. */
+  private unselectLocalRestart() {
+    const staged = this.stagedLocalRestart;
+    if (!staged) return;
+    this.connection.discardStagedLocalCredentials?.(staged.usernameFragment);
+    this.stagedLocalRestart = undefined;
   }
 
   get hasStagedRestart() {
@@ -296,11 +418,10 @@ export class RTCIceTransport {
 
   rollbackLocalRestart() {
     this.appliedLocalRestart = undefined;
-    if (!this.stagedLocalRestart) return;
-    this.connection.discardStagedLocalCredentials?.(
-      this.stagedLocalRestart.usernameFragment,
-    );
-    this.stagedLocalRestart = undefined;
+    // A description applying this generation again signals its candidates
+    // again (the remote side rolled back too).
+    if (this.stagedLocalRestart) this.stagedLocalRestart.emitted = false;
+    this.unselectLocalRestart();
   }
 
   /** The staged generation now belongs to an applied description. */
@@ -313,9 +434,9 @@ export class RTCIceTransport {
     const staged = this.stagedLocalRestart;
     const applied = this.appliedLocalRestart;
     if (!staged || staged === applied) return;
-    this.connection.discardStagedLocalCredentials?.(staged.usernameFragment);
-    this.stagedLocalRestart = applied;
+    this.unselectLocalRestart();
     if (applied) {
+      this.stagedLocalRestart = applied;
       this.connection.stageLocalCredentials?.(
         applied.usernameFragment,
         applied.password,
@@ -348,6 +469,8 @@ export class RTCIceTransport {
     }
     this.stagedLocalRestart = undefined;
     this.appliedLocalRestart = undefined;
+    // The committed generation is the live one now.
+    this.localGenerations.delete(staged.usernameFragment);
     // A local answer signals its candidates after it is applied.
     if (!staged.emitted) this.heldCandidateEvents = [];
     // The kept sockets are re-advertised synchronously; nothing here waits
@@ -522,6 +645,7 @@ export class RTCIceTransport {
   }
 
   async stop() {
+    this.localGenerations.clear();
     if (this.state !== "closed") {
       this.setState("closed", false);
       await this.connection.close();

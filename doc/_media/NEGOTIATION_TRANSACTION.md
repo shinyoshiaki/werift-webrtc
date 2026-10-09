@@ -38,7 +38,7 @@ generation or SCTP association and stream ID.
 | replace/update | active transaction | Retire old pending-only resources and candidate buckets. Keep baseline and emitted-event history. A byte-identical description is idempotent. |
 | validate | parsed proposal | For a local offer, reject any SDP other than the last `createOffer` result with `InvalidModificationError` (W3C `setLocalDescription`; local SDP munging is not supported). The compared value is W3C `[[LastCreatedOffer]]`: only `createOffer` replaces it, so a peer that never created an offer rejects every explicit offer, including one created by another peer. The separately invalidated copy used by a parameterless `setLocalDescription` does not relax this check. Check signaling transition, unique MID, m-line order and reuse, exact MID match of every answer m-line and BUNDLE member (no prefix or suffix matching), BUNDLE membership and tag, codec/rejection (a remote answer or pranswer m-line must keep a codec under the same rule `setRemoteRTP` applies, so RTX whose `apt` codec is missing counts as no codec), ICE credentials, DTLS role/fingerprint and SCTP port before live mutation. An answer or pranswer whose `setup` would change the role of a connecting or connected DTLS association is rejected with `InvalidModificationError` (RFC 8842 section 5.5); a new association prepared for the proposal (BUNDLE split owner) and non-tag BUNDLE members are exempt. Failure leaves previous pending revision and current untouched. |
 | prepare | validated proposal | Allocate any new transport and media objects under pending ownership; prepare may fail and must clean only the newly allocated objects. A local (replacement) offer stages its transports before the previous pending offer is replaced, and `createOffer` never discards the transports of an applied pending offer, so a preparation failure leaves the previous pending description, transaction and signaling state intact. |
-| commit | validated final answer and successful prepare | Switch BUNDLE routing, ICE generation, DTLS parameters, SCTP binding and RTP/router, then publish the current descriptions and `stable`. No fallible validation is allowed after the switch. Start remaining asynchronous connect work and report later failures on that generation; ICE checks start only for a generation that has not run them (the first negotiation, a committed restart); running checks are awaited and an established, completed or failed generation is not checked again. A running DTLS handshake is awaited (the connection reports `connected` only after it), never started again. Candidates and end-of-candidates trickled on any member m-line of a BUNDLE group go to the shared transport's generation. A restart's background gathering belongs to its generation: once a later restart or `close()` replaces it, its sockets and TURN allocation close and it signals no candidates, end-of-candidates or `complete`. |
+| commit | validated final answer and successful prepare | Switch BUNDLE routing, ICE generation, DTLS parameters, SCTP binding and RTP/router, then publish the current descriptions and `stable`. No fallible validation is allowed after the switch. Start remaining asynchronous connect work and report later failures on that generation; ICE checks start only for a generation that has not run them (the first negotiation, a committed restart); running checks are awaited and an established, completed or failed generation is not checked again. A running DTLS handshake is awaited (the connection reports `connected` only after it), never started again. Candidates and end-of-candidates trickled on any member m-line of a BUNDLE group go to the shared transport's generation. Applying a created description later or again follows the description reuse contract below. An applied description the gathering refreshes keeps the generation it applied (credentials, candidates, end-of-candidates). A restart's background gathering belongs to its generation: once a later restart or `close()` replaces it, its sockets and TURN allocation close and it signals no candidates, end-of-candidates or `complete`. |
 | cleanup | commit or rollback finished | Stop orphan pending resources; keep only current ownership and event deduplication needed for future revisions. A transport created during the transaction is remembered until it closes or a commit decides whether it is still bound; `close()` drops every such reference and the `createOffer` snapshot. |
 | rollback | active pending transaction | Stop provisional communication, discard pending candidates/EOC and resources, restore the first baseline and publish `stable`. Already delivered events remain delivered. Rolling back a first negotiation (a connection made at its pranswer included) resets `connectionState` and `iceConnectionState` to `new`; a remote-created transceiver the application keeps returns to the state it was created with. A DTLS association a first pranswer connected keeps its role at the final answer. |
 
@@ -118,6 +118,80 @@ whose transceiver is stopping or stopped) out of its BUNDLE group, as
 RFC 8843 section 7.3.3 requires. werift also writes `inactive` m-lines with
 port 0; those are not rejections and stay in the group. A failed asynchronous ICE check or DTLS/SCTP handshake
 is a transport failure, not a description validation failure.
+
+## Description reuse contract
+
+A created description may be applied later or again: after other
+descriptions were created, after a rollback, after the session became stable,
+or as a replacement. Applying it is built only from the SDP and the
+description's generation record, never from state kept elsewhere:
+
+- **Generation records.** `createOffer()` records, with its SDP, the
+  transceiver each MID was created for (`RTCPeerConnection.createdOffer`).
+  Each ICE restart generation a created offer or answer carries is registered
+  on its transport by ufrag (`RTCIceTransport.localGenerationFor`); the
+  latest created offer and the latest created answer each keep theirs until
+  a newer description of the same kind replaces it, whatever is applied,
+  rolled back or committed meanwhile. The codecs come from the SDP itself.
+- **Apply = proposal, then writes.** `setLocalDescription` parses the SDP,
+  plans the MID / m-line assignments from the SDP and the record (transceivers, and the SCTP transport for the application m-line), validates
+  the credentials of every m-line against its transport (the live ones or a
+  registered generation) and stages the new transports the topology needs.
+  Nothing live or transactional is written before all of this passed, so a
+  failure there leaves the peer exactly as it was. Only then are pending
+  descriptions retired, the assignments written and each transport switched
+  to the generation the description carries (an ICE restart to those
+  credentials on the kept sockets). The transports an owner reuses are those
+  live when the offer is installed.
+
+Rules: (a) an application W3C requires to accept is accepted; (b) one
+develop accepted and then communicated with is not regressed (it is
+accepted and communicates); (c) anything else is refused with
+`InvalidModificationError` (or the exception the specification names) and
+changes nothing. "develop" below is measured with
+`tools/negotiation-diff/scenarios.ts` on develop 71b6ddbf.
+
+| Order of operations | Result | Basis |
+| --- | --- | --- |
+| answer saved, `createOffer()` (not applied), the saved answer applied | accept | (a) the answer is still [[LastCreatedAnswer]]; develop: accepted, communicates |
+| answer created again (also with an unapplied restart offer created in between), the first one applied | accept | (b) develop: accepted, communicates (werift, like develop, does not compare an answer with [[LastCreatedAnswer]]) |
+| unapplied restart offer (`createOffer({ iceRestart })`, or `restartIce()` + `createOffer()`), then the saved answer applied | accept | (a) [[LastCreatedAnswer]] unchanged; develop accepted but lost the session (it restarted ICE at `createOffer`) |
+| offer created while a remote offer was pending, applied after `stable` | accept | (a) it is [[LastCreatedOffer]]; develop: accepted, communicates |
+| the same offer re-applied after its rollback (no restart / restart / restart with new media) | accept | (a) rollback does not change [[LastCreatedOffer]]; develop: accepted, communicates |
+| a restart offer re-applied after the peer committed another restart | accept (restarts to the offer's credentials) | (a) and (b): develop accepted and communicates (it made the credentials live at `createOffer`) |
+| the latest offer re-applied after its answer made the session stable | accept | (a) and (b): develop accepted, communicates |
+| `have-remote-pranswer`: replaced by the same offer or a new one; also after a first pranswer connected | accept (the remote pranswer is rolled back first) | ticket 2.1 transition table (werift extension: JSEP 5.5 / W3C reject a local offer in this state with `InvalidStateError`, and develop does) |
+| the peer's previous answer (fewer m-lines) applied to a new local offer | accept; the m-lines it leaves out are rejected | (b) develop: accepted, the session communicates (RFC 3264 §6 asks for the offer's m-line count; found by the develop comparison) |
+| a stale offer (a newer one was created) | reject `InvalidModificationError`, nothing changes | W3C: sdp is not [[LastCreatedOffer]]; develop rejects too |
+| a munged local offer | reject `InvalidModificationError`, nothing changes | W3C: sdp is not [[LastCreatedOffer]]; develop rejects too |
+| glare: the polite peer takes the remote offer | accept (implicit rollback) | W3C implicit rollback of `have-local-offer`; develop: accepted, communicates |
+
+A reuse order the table does not list is a follow-up (see Scope).
+
+### Comparing with develop (local)
+
+`tools/negotiation-diff` drives two peers through the public API only:
+`run.ts` runs seeded operation sequences (unapplied `createOffer` /
+`createAnswer` after `iceRestart`, `addTransceiver`, `setCodecPreferences`
+or `restartIce()`, saved descriptions applied from a pool, rollback,
+re-application, pranswer, glare, trickle and end-of-candidates) and writes
+one JSONL record per operation (resolve or reject with the error name,
+signaling states, RTP per track and DataChannel both ways when stable);
+`compare.ts` reports where develop accepted and then communicated but HEAD
+rejected or lost communication; `scenarios.ts` measures the rows above.
+Never check out develop in the active worktree:
+
+    git worktree add --detach /tmp/werift-develop origin/develop
+    # share the dependencies: link node_modules (root and packages/*)
+    npx tsx --tsconfig ./tsconfig.json tools/negotiation-diff/run.ts \
+      --root /tmp/werift-develop --seeds 200 --steps 12 --out /tmp/develop.jsonl
+    npx tsx --tsconfig ./tsconfig.json tools/negotiation-diff/run.ts \
+      --root ../.. --seeds 200 --steps 12 --out /tmp/head.jsonl
+    npx tsx tools/negotiation-diff/compare.ts /tmp/develop.jsonl /tmp/head.jsonl
+
+CI runs only the fixed-seed property test, whose description-pool episodes
+check the same contract with an atomicity oracle (a refused operation leaves
+both peers' snapshot identical).
 
 ## Signaling transitions
 
@@ -220,13 +294,14 @@ during the transaction that no binding holds at commit (for example the data
 channel's own transport after BUNDLE moved SCTP to the tag) is stopped at
 commit.
 
-Restart credentials that an applied offer carries belong to that offer until
-it is answered, replaced or rolled back. A later `createOffer()` that is not
-applied cannot drop them: without `iceRestart` it only discards credentials
-an earlier unapplied `createOffer` staged, and with `iceRestart` it reuses the
-pending offer's credentials (JSEP 5.2.1). The final answer switches exactly
-the generation of the applied offer, so the current local SDP and the live
-ICE credentials agree.
+Restart credentials are registered generations (see the description reuse
+contract): creating a description only changes which generation the next
+SDP carries, and applying a description selects the one its SDP carries. A
+new offer reuses the generation of the applied pending offer (JSEP 5.2.1) and
+an answer created again for the same remote offer reuses the earlier answer's
+(JSEP 5.3.1), whatever was created in between. The final answer switches
+exactly the generation of the applied description, so the current local SDP
+and the live ICE credentials agree.
 
 An ICE restart (changed ufrag/pwd without a transport topology change) keeps
 the existing ICE and DTLS transports and their DTLS association, as RFC 8842
@@ -332,8 +407,9 @@ addressed to the staged ufrag is signed with the staged password.
 - Ends at the final answer, which recreates the live ICE agent with the staged
   credentials and checks the answered generation from scratch (the provisional
   nomination is not carried over), or at rollback / a replacement offer /
-  discarding an unapplied `createOffer`, which drops it and keeps the live
-  generation. A first negotiation and transports created for the proposal
+  creating a description that selects another generation, which stops its
+  checks and keeps the live generation (the generation itself stays
+  registered while its description record does). A first negotiation and transports created for the proposal
   (BUNDLE split, pending-only) have no provisional generation; they connect
   normally from the pranswer.
 
@@ -560,6 +636,8 @@ catalog define what this design guarantees. A new combination outside them
 not as a change of this contract. Known constraints:
 
 - Interoperability is verified with Chrome only.
+- Reusing created descriptions is guaranteed only for the orders in the
+  description reuse contract table; another order is a follow-up.
 - A DataChannel created on an already connected session without an SCTP
   association does not open after renegotiation (existing since `develop`).
 - The header extension ID map is shared by the whole PeerConnection. m-lines

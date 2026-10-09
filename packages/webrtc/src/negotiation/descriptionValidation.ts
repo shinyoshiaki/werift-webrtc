@@ -39,23 +39,34 @@ export class DescriptionValidation {
    * A local description must use the ICE credentials of the transports
    * prepared for it and keep the DTLS role of a live association.
    */
-  validateLocal(description: SessionDescription) {
+  /**
+   * Validate a local description without changing anything. `transportForMid`
+   * resolves the transport of an m-line the description associates with a
+   * transceiver that is not associated yet.
+   */
+  validateLocal(
+    description: SessionDescription,
+    transportForMid: (mid: string) => RTCDtlsTransport | undefined = () =>
+      undefined,
+  ) {
     for (const media of description.media) {
       if (media.port === 0 || !media.iceParams) continue;
       const prepared =
         media.rtp.muxId && this.negotiation.transportByMid.get(media.rtp.muxId);
       const live =
-        media.kind === "application"
+        (media.kind === "application"
           ? this.sctp.sctpTransport?.dtlsTransport
           : this.transceivers
               .getTransceivers()
               .find((transceiver) => transceiver.mid === media.rtp.muxId)
-              ?.dtlsTransport;
+              ?.dtlsTransport) ?? transportForMid(media.rtp.muxId ?? "");
+      // The credentials are the transport's live ones, or a restart
+      // generation a created description carries that is still valid.
       const matches = (transport?: RTCDtlsTransport) =>
-        transport?.iceTransport.localParameters.usernameFragment ===
-          media.iceParams!.usernameFragment &&
-        transport.iceTransport.localParameters.password ===
-          media.iceParams!.password;
+        !!transport?.iceTransport.localGenerationFor(
+          media.iceParams!.usernameFragment,
+          media.iceParams!.password,
+        );
       // An answer must use the transport prepared for it. A (replacement)
       // offer is built from the live transports; re-applying the previous
       // pending offer may carry its prepared credentials instead.

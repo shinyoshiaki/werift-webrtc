@@ -76,9 +76,15 @@ export class BundleTopology {
    * transaction. A replacement offer is staged here first, so a failure (for
    * example ICE gathering of a new BUNDLE owner) stops only what was staged
    * and leaves the previous pending offer, its transports and the signaling
-   * state as they were.
+   * state as they were. `assigned` are the transports of transceivers the
+   * offer associates that are not associated yet (it is not applied yet).
+   * Only the new transports are kept: an owner that reuses a live transport
+   * takes the one it is bound to when the offer is installed.
    */
-  async stageLocalOffer(offer: SessionDescription) {
+  async stageLocalOffer(
+    offer: SessionDescription,
+    assigned: ReadonlyMap<string, RTCDtlsTransport> = new Map(),
+  ) {
     const ownerByMid = new Map<string, string>();
     for (const media of offer.media) {
       if (media.port === 0 || !media.rtp.muxId) continue;
@@ -88,6 +94,9 @@ export class BundleTopology {
       );
     }
     const currentByMid = this.liveTransportByMid();
+    for (const [mid, transport] of assigned) {
+      if (!currentByMid.has(mid)) currentByMid.set(mid, transport);
+    }
 
     // Select one transport per proposed owner, starting with the transport
     // already bound to the BUNDLE tag. Every member then follows that owner.
@@ -117,6 +126,7 @@ export class BundleTopology {
 
     return [...ownerByMid].map(([mid, owner]) => ({
       mid,
+      owner,
       ...ownerTransport.get(owner)!,
     }));
   }
@@ -126,10 +136,21 @@ export class BundleTopology {
     offer: SessionDescription,
     staged: Awaited<ReturnType<BundleTopology["stageLocalOffer"]>>,
   ) {
-    for (const { mid, transport, pendingOnly } of staged) {
+    const live = this.liveTransportByMid();
+    for (const {
+      mid,
+      owner,
+      transport: stagedTransport,
+      pendingOnly,
+    } of staged) {
       if (pendingOnly) {
-        this.negotiation.prepareTransport(offer, mid, transport, true);
+        this.negotiation.prepareTransport(offer, mid, stagedTransport, true);
+        this.negotiation.prepareTransport(offer, mid, stagedTransport);
+        continue;
       }
+      // The live transport the owner is bound to now (retiring a first
+      // negotiation's provisional connection may have replaced it).
+      const transport = live.get(owner) ?? stagedTransport;
       this.negotiation.prepareTransport(offer, mid, transport);
     }
   }

@@ -803,9 +803,21 @@ function assertIceGenerations(pc: RTCPeerConnection, snapshot: Snapshot) {
       expect(connection.checkList).toContain(connection.nominated);
     }
     if (pc.signalingState === "stable") {
-      // stable では provisional generation も staged restart も残らない。
-      expect(connection.provisional).toBeUndefined();
-      expect(transport.iceTransport.hasStagedRestart).toBe(false);
+      // stable では適用済みの staged restart は残らない。適用していない作成済み
+      // offer の restart generation は残ってよいが、remote 側を持たず
+      // (check も始まっておらず)、current SDP の資格情報とも異なる。
+      const ice = transport.iceTransport as unknown as {
+        appliedLocalRestart?: unknown;
+      };
+      expect(ice.appliedLocalRestart).toBeUndefined();
+      const provisional = connection.provisional as
+        | { remoteUsername?: string; started?: boolean; localUsername: string }
+        | undefined;
+      if (provisional) {
+        expect(provisional.remoteUsername ?? "").toBe("");
+        expect(provisional.started ?? false).toBe(false);
+        expect(provisional.localUsername).not.toBe(connection.localUsername);
+      }
     }
   }
 }
@@ -1136,10 +1148,11 @@ export async function createRewrittenOffer(
   const rewritten = { type: "offer" as const, sdp: rewrite(offer.sdp) };
   const internal = pc as unknown as {
     lastCreatedOffer?: unknown;
-    createdOfferSdp?: string;
+    createdOffer?: { sdp: string };
   };
   internal.lastCreatedOffer = rewritten;
-  internal.createdOfferSdp = rewritten.sdp;
+  // 生成記録 (MID の割り当て) はそのまま、SDP だけを書き換えた offer にする。
+  internal.createdOffer = { ...internal.createdOffer!, sdp: rewritten.sdp };
   return rewritten;
 }
 
@@ -1488,7 +1501,8 @@ const audioSplit = (sdp: string, mid: string, split: boolean) => {
  * One committed or rolled-back negotiation episode chosen by `rng`: offer
  * variants (plain, ICE restart, new audio m-line, audio BUNDLE split/merge),
  * then pranswer / replacement offer / end-of-candidates, then answer or
- * rollback. Invariants of both peers are checked after every operation.
+ * rollback (an ICE restart answer is created twice, an unapplied restart
+ * offer follows, and the first answer is applied). Invariants of both peers are checked after every operation.
  */
 export async function fuzzEpisode(ctx: FuzzContext, rng: SeededRandom) {
   const { session } = ctx;
@@ -1577,9 +1591,15 @@ export async function fuzzEpisode(ctx: FuzzContext, rng: SeededRandom) {
     );
     return;
   }
-  await step(session, async () =>
-    answerer.pc.setLocalDescription(await answerer.pc.createAnswer()),
-  );
+  // An ICE restart answer is saved, created again, an unapplied restart
+  // offer is created, and the saved answer is applied: answers for the same
+  // remote offer stay applicable.
+  const saved = await answerer.pc.createAnswer();
+  if (variant === "iceRestart") {
+    await answerer.pc.createAnswer();
+    await answerer.pc.createOffer({ iceRestart: true });
+  }
+  await step(session, () => answerer.pc.setLocalDescription(saved));
   await step(session, () =>
     offerer.pc.setRemoteDescription(answerer.pc.localDescription!),
   );
@@ -2065,5 +2085,155 @@ export async function waitForPeersConnected(...pcs: RTCPeerConnection[]) {
   await withTimeout(
     Promise.all(pcs.map((pc) => waitForDtlsConnected(pc.dtlsTransports[0]))),
     "peers did not connect",
+  );
+}
+
+/**
+ * Everything a rejected description operation must leave untouched: the
+ * signaling state, the current / pending descriptions, each transport's
+ * public ICE credentials and staged restart, every transceiver's MID and
+ * m-line index, and the router tables.
+ */
+export function negotiationSnapshot(pc: RTCPeerConnection) {
+  const router = (
+    pc as unknown as {
+      router: {
+        ssrcTable: Record<string, unknown>;
+        ridTable: Record<string, unknown>;
+      };
+    }
+  ).router;
+  const endpoints = pc
+    .getTransceivers()
+    .flatMap((t) => [t.sender, t.receiver]) as unknown[];
+  const table = (entries: Record<string, unknown>) =>
+    Object.fromEntries(
+      Object.entries(entries).map(([key, value]) => [
+        key,
+        endpoints.indexOf(value),
+      ]),
+    );
+  return {
+    signalingState: pc.signalingState,
+    currentLocal: pc.currentLocalDescription?.sdp,
+    currentRemote: pc.currentRemoteDescription?.sdp,
+    pendingLocal: pc.pendingLocalDescription?.sdp,
+    pendingRemote: pc.pendingRemoteDescription?.sdp,
+    ice: pc.iceTransports.map((transport) => ({
+      ufrag: transport.localParameters.usernameFragment,
+      staged: transport.hasStagedRestart,
+    })),
+    transceivers: pc
+      .getTransceivers()
+      .map((t) => ({ mid: t.mid, index: t.mLineIndex })),
+    ssrcTable: table(router.ssrcTable),
+    ridTable: table(router.ridTable),
+  };
+}
+
+/**
+ * Act + Assert helper: run a description operation the contract refuses and
+ * check that it rejected and changed nothing on either peer.
+ */
+export async function expectRejectedAtomically(
+  session: DuplexSession,
+  operation: () => Promise<unknown>,
+) {
+  const before = [session.a.pc, session.b.pc].map(negotiationSnapshot);
+  // 拒否される操作を行う。
+  await expect(operation()).rejects.toThrow();
+  // 拒否の前後で両 peer の状態は完全に一致する。
+  expect([session.a.pc, session.b.pc].map(negotiationSnapshot)).toEqual(before);
+  assertNegotiationInvariants(session.a.pc);
+  assertNegotiationInvariants(session.b.pc);
+}
+
+/**
+ * One episode on the description pool: offers and answers are created and
+ * kept, and saved ones are applied later or again (an unapplied restart
+ * offer, a stale offer, rollback and re-application, a regenerated answer,
+ * pranswer then answer). Accepted operations keep the invariants; the ones
+ * the reuse contract refuses must change nothing. It ends committed.
+ */
+export async function fuzzDescriptionPool(ctx: FuzzContext, rng: SeededRandom) {
+  const { session } = ctx;
+  const [offerer, answerer] = rng.chance(0.5)
+    ? [session.a, session.b]
+    : [session.b, session.a];
+  const iceRestart = rng.chance(0.5);
+  ctx.log.push(
+    `pool ${offerer === session.a ? "a" : "b"}${iceRestart ? " iceRestart" : ""}`,
+  );
+
+  const ufragOf = (sdp?: string) => sdp?.match(/^a=ice-ufrag:(\S+)/m)?.[1];
+  const committedUfrag = ufragOf(offerer.pc.currentLocalDescription?.sdp);
+  const offers = [await offerer.pc.createOffer({ iceRestart })];
+  if (rng.chance(0.5)) {
+    // 後から作った (適用しない) offer が最新になり、先の offer は適用できない。
+    offers.push(await offerer.pc.createOffer({ iceRestart: rng.chance(0.5) }));
+    ctx.log.push("  stale offer refused");
+    await expectRejectedAtomically(session, () =>
+      offerer.pc.setLocalDescription(offers[0]),
+    );
+  }
+  const offer = offers[offers.length - 1];
+  await step(session, () => offerer.pc.setLocalDescription(offer));
+  if (rng.chance(0.4)) {
+    // rollback して同じ offer を再適用する。
+    ctx.log.push("  rollback and re-apply");
+    await step(session, () =>
+      offerer.pc.setLocalDescription({ type: "rollback" }),
+    );
+    await step(session, () => offerer.pc.setLocalDescription(offer));
+  }
+  await step(session, () =>
+    answerer.pc.setRemoteDescription(offerer.pc.localDescription!),
+  );
+  const saved = await answerer.pc.createAnswer();
+  if (rng.chance(0.5)) {
+    // answer を作り直し、remote offer の保留中に適用しない offer も作る。
+    // 順序も入れ替える (未適用の offer の後に answer を作り直す場合を含む)。
+    const offerFirst = rng.chance(0.5);
+    ctx.log.push(
+      `  regenerated answer and unapplied offer${offerFirst ? " (offer first)" : ""}`,
+    );
+    if (offerFirst) {
+      await answerer.pc.createOffer({ iceRestart: rng.chance(0.5) });
+      await answerer.pc.createAnswer();
+    } else {
+      await answerer.pc.createAnswer();
+      await answerer.pc.createOffer({ iceRestart: rng.chance(0.5) });
+    }
+  }
+  if (rng.chance(0.3)) {
+    ctx.log.push("  pranswer first");
+    await step(session, () =>
+      answerer.pc.setLocalDescription({ type: "pranswer", sdp: saved.sdp }),
+    );
+    await step(session, () =>
+      offerer.pc.setRemoteDescription({
+        type: "pranswer",
+        sdp: answerer.pc.localDescription!.sdp,
+      }),
+    );
+  }
+  await step(session, () =>
+    answerer.pc.setLocalDescription({ type: "answer", sdp: saved.sdp }),
+  );
+  await step(session, () =>
+    offerer.pc.setRemoteDescription(answerer.pc.localDescription!),
+  );
+  // 適用した offer (古い offer を拒否した場合は後の offer) が ICE restart なら、
+  // 新 generation の nomination を待つ。
+  if (ufragOf(offer.sdp) !== committedUfrag) {
+    await Promise.all([
+      waitForCommittedNomination(offerer.pc),
+      waitForCommittedNomination(answerer.pc),
+    ]);
+  }
+  await Promise.all(
+    [offerer.pc, answerer.pc].flatMap((pc) =>
+      pc.dtlsTransports.map((transport) => waitForDtlsConnected(transport)),
+    ),
   );
 }

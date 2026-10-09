@@ -1416,4 +1416,447 @@ describe("negotiation transaction live-state regressions", () => {
       await close();
     }
   });
+
+  test("an ICE restart answer saved before createAnswer() ran again can still be applied", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers();
+    try {
+      // Arrange: ICE restart の remote offer を受け、answer を保存してからもう一度作る。
+      offerer.restartIce();
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      const saved = await answerer.createAnswer();
+      const regenerated = await answerer.createAnswer();
+      const ufragOf = (sdp: string) => sdp.match(/^a=ice-ufrag:(\S+)/m)![1];
+
+      // Assert: 同じ remote offer への answer は同じ restart generation を持つ。
+      expect(ufragOf(regenerated.sdp)).toBe(ufragOf(saved.sdp));
+
+      // Act: 保存した answer を両 peer に適用する。
+      await answerer.setLocalDescription(saved);
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      await Promise.all([
+        waitForCommittedNomination(offerer),
+        waitForCommittedNomination(answerer),
+      ]);
+
+      // Assert: 交渉は確定し、新しい generation で RTP が届く。
+      expect(answerer.signalingState).toBe("stable");
+      expect(answerer.iceTransports[0].connection.localUsername).toBe(
+        ufragOf(saved.sdp),
+      );
+      assertNegotiationInvariants(answerer);
+      assertNegotiationInvariants(offerer);
+      await sendAndExpectRtp(outgoing, incoming, "saved restart answer");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test.each([
+    {
+      label: "createOffer({ iceRestart: true })",
+      createOffer: (pc: RTCPeerConnection) =>
+        pc.createOffer({ iceRestart: true }),
+    },
+    {
+      label: "restartIce() + createOffer()",
+      createOffer: (pc: RTCPeerConnection) => {
+        pc.restartIce();
+        return pc.createOffer();
+      },
+    },
+  ])(
+    "an unapplied $label does not discard the restart generation of a saved answer",
+    async ({ createOffer }) => {
+      const { offerer, answerer, outgoing, incoming } =
+        await createConnectedVideoPeers();
+      try {
+        // Arrange: ICE restart の remote offer を受け、answer を保存する。
+        offerer.restartIce();
+        await offerer.setLocalDescription(await offerer.createOffer());
+        await answerer.setRemoteDescription(offerer.localDescription!);
+        const saved = await answerer.createAnswer();
+        const ufragOf = (sdp: string) => sdp.match(/^a=ice-ufrag:(\S+)/m)![1];
+
+        // Act: restart を要求する offer を作るが適用せず、保存した answer を両 peer に適用する。
+        await createOffer(answerer);
+        await answerer.setLocalDescription(saved);
+        await offerer.setRemoteDescription(answerer.localDescription!);
+        await Promise.all([
+          waitForCommittedNomination(offerer),
+          waitForCommittedNomination(answerer),
+        ]);
+
+        // Assert: 保存した answer の generation で確定し、RTP が届く。
+        expect(answerer.signalingState).toBe("stable");
+        expect(answerer.iceTransports[0].connection.localUsername).toBe(
+          ufragOf(saved.sdp),
+        );
+        assertNegotiationInvariants(answerer);
+        assertNegotiationInvariants(offerer);
+        await sendAndExpectRtp(outgoing, incoming, "saved answer after offer");
+      } finally {
+        await Promise.allSettled([offerer.close(), answerer.close()]);
+      }
+    },
+  );
+
+  test("an offer created while a remote offer is pending keeps the MIDs and m-line positions it associated", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers();
+    try {
+      // Arrange: answerer に未交渉の audio を足し、offerer の re-offer を受ける。
+      const audio = answerer.addTransceiver("audio");
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      const video = answerer.getTransceivers()[0];
+      const before = { mid: video.mid, index: video.mLineIndex };
+      const saved = await answerer.createAnswer();
+
+      // Act: 適用できない offer を作り、保存した answer を両 peer に適用する。
+      await answerer.createOffer();
+      await answerer.setLocalDescription(saved);
+      await offerer.setRemoteDescription(answerer.localDescription!);
+
+      // Assert: offer の生成で MID・m-line 位置は変わらず、未交渉の audio にも付かない。
+      expect({ mid: video.mid, index: video.mLineIndex }).toEqual(before);
+      expect(audio.mid).toBeNull();
+      expect(audio.mLineIndex).toBeUndefined();
+      assertNegotiationInvariants(answerer);
+      await sendAndExpectRtp(outgoing, incoming, "after unapplied offer");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("an offer created while a remote offer was pending can be applied after stable and negotiates its new audio", async () => {
+    const { offerer, answerer } = await createConnectedVideoPeers();
+    try {
+      // Arrange: answerer に新規 audio を足し、remote re-offer の保留中に
+      // answer と offer を作って保存する。
+      const audioOut = new MediaStreamTrack({ kind: "audio" });
+      const audio = answerer.addTransceiver(audioOut, {
+        direction: "sendonly",
+      });
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      const savedAnswer = await answerer.createAnswer();
+      const savedOffer = await answerer.createOffer();
+      await answerer.setLocalDescription(savedAnswer);
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      expect(answerer.signalingState).toBe("stable");
+
+      // Act: stable に戻った後で保存した offer を適用し、その answer を交換する。
+      await answerer.setLocalDescription(savedOffer);
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      await offerer.setLocalDescription(await offerer.createAnswer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+
+      // Assert: 新規 audio は offer の MID で交渉され、停止せずに RTP が届く。
+      expect(audio.mid).not.toBeNull();
+      expect(audio.currentDirection).toBe("sendonly");
+      const received = offerer
+        .getTransceivers()
+        .find((t) => t.mid === audio.mid)!;
+      assertNegotiationInvariants(answerer);
+      assertNegotiationInvariants(offerer);
+      await sendAndExpectRtp(
+        audioOut,
+        received.receiver.track,
+        "audio from saved offer",
+      );
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("re-applying the same offer after its rollback negotiates the new audio it carries", async () => {
+    const { offerer, answerer } = await createConnectedVideoPeers();
+    try {
+      // Arrange: 確立済みの session に audio を足して offer を作る。
+      const audioOut = new MediaStreamTrack({ kind: "audio" });
+      const audio = offerer.addTransceiver(audioOut, { direction: "sendonly" });
+      const offer = await offerer.createOffer();
+
+      // Act: offer を適用して rollback し、同じ offer を再適用して answer で確定する。
+      await offerer.setLocalDescription(offer);
+      await offerer.setLocalDescription({ type: "rollback" });
+      expect(audio.mid).toBeNull();
+      await offerer.setLocalDescription(offer);
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+
+      // Assert: audio は offer の MID で交渉され、停止せずに RTP が届く。
+      expect(audio.stopped).toBe(false);
+      expect(audio.currentDirection).toBe("sendonly");
+      const received = answerer
+        .getTransceivers()
+        .find((t) => t.mid === audio.mid)!;
+      assertNegotiationInvariants(offerer);
+      assertNegotiationInvariants(answerer);
+      await sendAndExpectRtp(
+        audioOut,
+        received.receiver.track,
+        "audio re-applied offer",
+      );
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test.each([
+    { label: "video only", withAudio: false },
+    { label: "with a new audio", withAudio: true },
+  ])(
+    "a saved ICE restart offer re-applied after its rollback commits its generation ($label)",
+    async ({ withAudio }) => {
+      const { offerer, answerer, outgoing, incoming } =
+        await createConnectedVideoPeers();
+      try {
+        // Arrange: (必要なら audio を足して) ICE restart の offer を作って保存する。
+        const audioOut = new MediaStreamTrack({ kind: "audio" });
+        const audio = withAudio
+          ? offerer.addTransceiver(audioOut, { direction: "sendonly" })
+          : undefined;
+        const offer = await offerer.createOffer({ iceRestart: true });
+        const ufrag = offer.sdp.match(/^a=ice-ufrag:(\S+)/m)![1];
+
+        // Act: 適用 → rollback → 同じ offer を再適用し、answer で確定する。
+        await offerer.setLocalDescription(offer);
+        await offerer.setLocalDescription({ type: "rollback" });
+        await offerer.setLocalDescription(offer);
+        await answerer.setRemoteDescription(offerer.localDescription!);
+        await answerer.setLocalDescription(await answerer.createAnswer());
+        await offerer.setRemoteDescription(answerer.localDescription!);
+        await Promise.all([
+          waitForCommittedNomination(offerer),
+          waitForCommittedNomination(answerer),
+        ]);
+
+        // Assert: offer の restart generation で確定し、映像 (と audio) の RTP が届く。
+        expect(offerer.iceTransports[0].connection.localUsername).toBe(ufrag);
+        assertNegotiationInvariants(offerer);
+        assertNegotiationInvariants(answerer);
+        await sendAndExpectRtp(
+          outgoing,
+          incoming,
+          "video after re-applied restart",
+        );
+        if (audio) {
+          expect(audio.stopped).toBe(false);
+          const received = answerer
+            .getTransceivers()
+            .find((t) => t.mid === audio.mid)!;
+          await sendAndExpectRtp(
+            audioOut,
+            received.receiver.track,
+            "audio after re-applied restart",
+          );
+        }
+      } finally {
+        await Promise.allSettled([offerer.close(), answerer.close()]);
+      }
+    },
+  );
+
+  test("a saved restart offer re-applied after the peer committed another restart still restarts to its generation", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers();
+    try {
+      // Arrange: audio を足した ICE restart offer を適用して rollback し、その後で
+      // 相手からの ICE restart を確定して ICE generation を進める。
+      const audioOut = new MediaStreamTrack({ kind: "audio" });
+      const audio = offerer.addTransceiver(audioOut, { direction: "sendonly" });
+      const offer = await offerer.createOffer({ iceRestart: true });
+      const ufrag = offer.sdp.match(/^a=ice-ufrag:(\S+)/m)![1];
+      await offerer.setLocalDescription(offer);
+      await offerer.setLocalDescription({ type: "rollback" });
+      answerer.restartIce();
+      await negotiatePair(answerer, offerer);
+      await Promise.all([
+        waitForCommittedNomination(offerer),
+        waitForCommittedNomination(answerer),
+      ]);
+      expect(offerer.iceTransports[0].connection.localUsername).not.toBe(ufrag);
+
+      // Act: 保存した (最新の作成) offer を再適用し、answer で確定する。
+      // develop も受理して通信できる (再利用契約 (b))。
+      await offerer.setLocalDescription(offer);
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      await Promise.all([
+        waitForCommittedNomination(offerer),
+        waitForCommittedNomination(answerer),
+      ]);
+
+      // Assert: offer の restart generation の資格情報で確定し、SDP と ICE agent が一致する。
+      expect(offerer.iceTransports[0].connection.localUsername).toBe(ufrag);
+      expect(offerer.currentLocalDescription!.sdp).toContain(
+        `a=ice-ufrag:${ufrag}`,
+      );
+      assertNegotiationInvariants(offerer);
+      assertNegotiationInvariants(answerer);
+
+      // Assert: 映像と、offer が足した audio の RTP が届く。
+      const received = answerer
+        .getTransceivers()
+        .find((t) => t.mid === audio.mid)!;
+      await sendAndExpectRtp(
+        outgoing,
+        incoming,
+        "video after re-applied offer",
+      );
+      await sendAndExpectRtp(
+        audioOut,
+        received.receiver.track,
+        "audio after re-applied offer",
+      );
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("a re-applied restart offer that fails to parse leaves no staged credentials", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers();
+    try {
+      // Arrange: audio を含む restart offer を適用して rollback し、相手の通常 offer で
+      // 同じ m-line 位置に video を確定する。
+      const audio = offerer.addTransceiver("audio", { direction: "sendonly" });
+      const saved = await offerer.createOffer({ iceRestart: true });
+      await offerer.setLocalDescription(saved);
+      await offerer.setLocalDescription({ type: "rollback" });
+      answerer.addTransceiver("video", { direction: "sendonly" });
+      await negotiatePair(answerer, offerer);
+      const iceTransport = offerer.iceTransports[0];
+      const before = {
+        signalingState: offerer.signalingState,
+        current: offerer.currentLocalDescription!.sdp,
+        ufrag: iceTransport.localParameters.usernameFragment,
+        staged: iceTransport.hasStagedRestart,
+        audio: { mid: audio.mid, index: audio.mLineIndex },
+      };
+
+      // Act / Assert: 保存した offer の再適用は m-line の不整合で拒否される。
+      await expect(offerer.setLocalDescription(saved)).rejects.toThrow();
+
+      // Assert: stage し直した資格情報や MID は残らず、失敗前と同じ状態になる。
+      expect({
+        signalingState: offerer.signalingState,
+        current: offerer.currentLocalDescription!.sdp,
+        ufrag: iceTransport.localParameters.usernameFragment,
+        staged: iceTransport.hasStagedRestart,
+        audio: { mid: audio.mid, index: audio.mLineIndex },
+      }).toEqual(before);
+      expect(before.staged).toBe(false);
+      expect(before.current).toContain(`a=ice-ufrag:${before.ufrag}`);
+      assertNegotiationInvariants(offerer);
+      await sendAndExpectRtp(outgoing, incoming, "after rejected re-apply");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("a remote answer that answers only the leading m-lines of the offer is accepted and rejects the rest", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers();
+    try {
+      // Arrange: 相手の前回の answer (m-line が少ない) を保存し、offerer は video を足した
+      // offer を適用する。
+      const staleAnswer = answerer.currentLocalDescription!;
+      const added = offerer.addTransceiver("video", { direction: "sendonly" });
+      await offerer.setLocalDescription(await offerer.createOffer());
+
+      // Act: 先頭の m-line だけに答える前回の answer を適用する (develop も受理する)。
+      await offerer.setRemoteDescription(staleAnswer);
+
+      // Assert: 確定し、答えられなかった m-line は拒否として停止する。既存の映像は届く。
+      expect(offerer.signalingState).toBe("stable");
+      expect(added.stopped).toBe(true);
+      assertNegotiationInvariants(offerer);
+      await sendAndExpectRtp(outgoing, incoming, "after a shorter answer");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("a first offer with a DataChannel re-applied after its rollback opens the channel", async () => {
+    const { offerer, answerer, close } = createUnnegotiatedPeers();
+    try {
+      // Arrange: DataChannel を持つ初回 offer を作り、適用して rollback する。
+      const channel = offerer.createDataChannel("reapplied");
+      const offer = await offerer.createOffer();
+      await offerer.setLocalDescription(offer);
+      await offerer.setLocalDescription({ type: "rollback" });
+      const sctpTransport = offerer.sctpTransport!.dtlsTransport;
+
+      // Act: 同じ offer を再適用し、answer で確定する。
+      await offerer.setLocalDescription(offer);
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+
+      // Assert: SCTP の m-line は offer が作られた SCTP transport のまま交渉され
+      // (余分な transport を作らない)、DataChannel が開いて届く。
+      expect(offerer.sctpTransport!.dtlsTransport).toBe(sctpTransport);
+      const received = await answerer.onDataChannel
+        .asPromise(5000)
+        .then(([c]) => c);
+      if (channel.readyState !== "open") {
+        await channel.stateChanged.watch((state) => state === "open", 5000);
+      }
+      const message = received.onMessage.watch(
+        (data) => data.toString() === "hello",
+        5000,
+      );
+      channel.send(Buffer.from("hello"));
+      await message;
+      assertNegotiationInvariants(offerer);
+    } finally {
+      await close();
+    }
+  });
+
+  test("an answer created again after an unapplied restart offer keeps the saved answer's generation", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers();
+    try {
+      // Arrange: ICE restart の remote offer に answer を作って保存し、未適用の restart
+      // offer を作ってから answer をもう一度作る。
+      offerer.restartIce();
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      const saved = await answerer.createAnswer();
+      await answerer.createOffer({ iceRestart: true });
+      const regenerated = await answerer.createAnswer();
+      const ufragOf = (sdp: string) => sdp.match(/^a=ice-ufrag:(\S+)/m)![1];
+
+      // Assert: 同じ remote offer への answer は、間に作った offer に関係なく同じ generation を持つ。
+      expect(ufragOf(regenerated.sdp)).toBe(ufragOf(saved.sdp));
+
+      // Act: 保存した answer を両 peer に適用する。
+      await answerer.setLocalDescription(saved);
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      await Promise.all([
+        waitForCommittedNomination(offerer),
+        waitForCommittedNomination(answerer),
+      ]);
+
+      // Assert: 保存した answer の generation で確定し、RTP が届く。
+      expect(answerer.iceTransports[0].connection.localUsername).toBe(
+        ufragOf(saved.sdp),
+      );
+      assertNegotiationInvariants(answerer);
+      await sendAndExpectRtp(
+        outgoing,
+        incoming,
+        "saved answer after offer and regeneration",
+      );
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
 });

@@ -469,7 +469,10 @@ export class SecureTransportManager {
   }
 
   /** Stage restart credentials on `targets` (all transports by default). */
-  stageIceRestart(targets?: ReadonlySet<RTCIceTransport>) {
+  stageIceRestart(
+    targets?: ReadonlySet<RTCIceTransport>,
+    { answering }: { answering?: object } = {},
+  ) {
     for (const transport of this.iceTransports) {
       // A transport without a generation yet (never gathered, e.g. created
       // for a new m-line beside the restart) starts with fresh credentials
@@ -477,7 +480,7 @@ export class SecureTransportManager {
       const hasGeneration =
         transport.gatheringState !== "new" && !!transport.getRemoteParameters();
       if ((!targets || targets.has(transport)) && hasGeneration) {
-        transport.stageLocalRestart();
+        transport.stageLocalRestart({ answering });
       } else {
         transport.rollbackLocalRestart();
       }
