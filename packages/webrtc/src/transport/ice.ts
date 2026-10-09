@@ -633,6 +633,7 @@ export class RTCIceTransport {
     this.connection.restartRemote();
     this.setState("new");
     this.waitStart = undefined;
+    this.startPromise = undefined;
     this.checksStarted = false;
   }
 
