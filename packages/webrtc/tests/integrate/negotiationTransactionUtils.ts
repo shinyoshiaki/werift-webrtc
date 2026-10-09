@@ -1,4 +1,4 @@
-import { expect } from "vitest";
+import { afterEach, beforeEach, expect } from "vitest";
 
 import type { Address } from "../../../common/src";
 import { getHostAddresses } from "../../../ice/src/utils";
@@ -388,10 +388,19 @@ function assertDescriptionBindings(pc: RTCPeerConnection) {
           group.semantic === "BUNDLE" &&
           group.items.includes(media.rtp.muxId ?? ""),
       );
+      // RFC 8843: a non-tag member of an accepted BUNDLE group (the local
+      // answer's group for a remote offer, the remote answer's own group)
+      // shares the tag's transport; its own ICE attributes are not used.
+      const answerBundle =
+        snapshot.currentRemote.type === "offer"
+          ? acceptedBundle
+          : snapshot.currentRemote.group.find(
+              (group) =>
+                group.semantic === "BUNDLE" &&
+                group.items.includes(media.rtp.muxId ?? ""),
+            );
       const bundledNonTagFallback =
-        snapshot.currentRemote.type === "offer" &&
-        acceptedBundle &&
-        acceptedBundle.items[0] !== media.rtp.muxId;
+        !!answerBundle && answerBundle.items[0] !== media.rtp.muxId;
       const transceiver = pc
         .getTransceivers()
         .find((t) => t.mid === media.rtp.muxId);
@@ -1093,10 +1102,29 @@ const seenTransports = new WeakMap<RTCPeerConnection, Set<DtlsTransport>>();
 /** Transport identity is remembered per peer so discarded ones must be closed. */
 function assertNoOrphanTransports(pc: RTCPeerConnection) {
   const internal = pc as unknown as {
-    negotiation: { transportByMid: Map<string, DtlsTransport> };
+    negotiation: {
+      transportByMid: Map<string, DtlsTransport>;
+      baseline?: {
+        transceivers: {
+          states: Map<
+            unknown,
+            { transceiver: { dtlsTransport: DtlsTransport } }
+          >;
+        };
+        sctp: { dtlsTransport?: DtlsTransport };
+      };
+    };
   };
   const live = new Set(pc.dtlsTransports);
   const prepared = new Set(internal.negotiation.transportByMid.values());
+  // pending 中は rollback baseline が束縛していた transport も保たれる (commit で停止判定)。
+  const baseline = internal.negotiation.baseline;
+  if (pc.signalingState !== "stable" && baseline) {
+    for (const { transceiver } of baseline.transceivers.states.values()) {
+      prepared.add(transceiver.dtlsTransport);
+    }
+    if (baseline.sctp.dtlsTransport) prepared.add(baseline.sctp.dtlsTransport);
+  }
   const seen = seenTransports.get(pc) ?? new Set<DtlsTransport>();
   seenTransports.set(pc, seen);
   for (const transport of [...live, ...prepared]) seen.add(transport);
@@ -1203,6 +1231,246 @@ export async function expectDataAlive(session: DuplexSession, label: string) {
     session.a.channel,
     `${label}-dc-b-to-a`,
   );
+}
+
+/**
+ * Peers that applied a local description during the current test. Each one
+ * must reach `expectSessionContinues` (or be exempted with a reason) before
+ * the test ends; `enforceSessionContinuation` checks it after each test.
+ */
+const negotiatedPeers = new Set<RTCPeerConnection>();
+const continuedPeers = new Set<RTCPeerConnection>();
+const exemptPeers = new Map<RTCPeerConnection, string>();
+
+/**
+ * A peer the test cannot continue on purpose (closed by the operation under
+ * test, a peer misdescribed on the wire, or no real remote peer); `reason`
+ * documents why.
+ */
+export function exemptFromContinuation(
+  peers: RTCPeerConnection | RTCPeerConnection[],
+  reason: string,
+) {
+  for (const pc of [peers].flat()) exemptPeers.set(pc, reason);
+}
+
+/**
+ * Register hooks that fail a test in which a peer applied a local
+ * description but never reached `expectSessionContinues` and was not
+ * exempted. Call it inside the `describe` of a test file.
+ */
+export function enforceSessionContinuation() {
+  const original = RTCPeerConnection.prototype.setLocalDescription;
+  beforeEach(() => {
+    negotiatedPeers.clear();
+    continuedPeers.clear();
+    exemptPeers.clear();
+    RTCPeerConnection.prototype.setLocalDescription = function (
+      this: RTCPeerConnection,
+      ...args: Parameters<RTCPeerConnection["setLocalDescription"]>
+    ) {
+      negotiatedPeers.add(this);
+      return original.apply(this, args);
+    } as RTCPeerConnection["setLocalDescription"];
+  });
+  afterEach(() => {
+    RTCPeerConnection.prototype.setLocalDescription = original;
+    const missing = [...negotiatedPeers].filter(
+      (pc) => !continuedPeers.has(pc) && !exemptPeers.has(pc),
+    );
+    negotiatedPeers.clear();
+    expect(
+      missing.length,
+      "a negotiated peer did not run expectSessionContinues",
+    ).toBe(0);
+  });
+}
+
+/** Return a peer and its remote peer to `stable` (rollback or final answer). */
+async function settleForContinuation(
+  a: RTCPeerConnection,
+  b: RTCPeerConnection,
+) {
+  for (const [offerer, answerer] of [
+    [a, b],
+    [b, a],
+  ] as const) {
+    if (
+      offerer.signalingState === "have-remote-pranswer" &&
+      answerer.signalingState === "have-local-pranswer"
+    ) {
+      const answer = await answerer.createAnswer();
+      await answerer.setLocalDescription(answer);
+      await offerer.setRemoteDescription(answerer.localDescription!);
+    }
+  }
+  for (const pc of [a, b]) {
+    if (
+      ["have-local-offer", "have-remote-pranswer"].includes(pc.signalingState)
+    ) {
+      await pc.setLocalDescription({ type: "rollback" } as never);
+    }
+    if (
+      ["have-remote-offer", "have-local-pranswer"].includes(pc.signalingState)
+    ) {
+      await pc.setRemoteDescription({ type: "rollback" } as never);
+    }
+    assertNegotiationInvariants(pc);
+  }
+}
+
+/** One offer/answer between two peers, checking invariants after each step. */
+async function continuationNegotiation(
+  offerer: RTCPeerConnection,
+  answerer: RTCPeerConnection,
+  options: { iceRestart?: boolean; beforeAnswer?: () => Promise<void> } = {},
+) {
+  const offer = await offerer.createOffer({ iceRestart: options.iceRestart });
+  await offerer.setLocalDescription(offer);
+  assertNegotiationInvariants(offerer);
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  assertNegotiationInvariants(answerer);
+  await options.beforeAnswer?.();
+  await answerer.setLocalDescription(await answerer.createAnswer());
+  assertNegotiationInvariants(answerer);
+  await offerer.setRemoteDescription(answerer.localDescription!);
+  assertNegotiationInvariants(offerer);
+}
+
+/** RTP from `outgoing` reaches `incoming`, retried until a pair is selected. */
+async function expectRtpEventually(
+  outgoing: MediaStreamTrack,
+  incoming: MediaStreamTrack,
+  text: string,
+  ms = 10000,
+) {
+  let received = false;
+  const { unSubscribe } = incoming.onReceiveRtp.subscribe((packet) => {
+    if (packet.payload.toString() === text) received = true;
+  });
+  try {
+    const deadline = Date.now() + ms;
+    while (!received && Date.now() < deadline) {
+      outgoing.writeRtp(
+        new RtpPacket(new RtpHeader(), Buffer.from(text)).serialize(),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  } finally {
+    unSubscribe();
+  }
+  expect(received, `RTP was not received: ${text}`).toBe(true);
+}
+
+/** A DataChannel message from `from` reaches `to`, retried until open. */
+async function expectDataEventually(
+  from: RTCDataChannel,
+  to: RTCDataChannel,
+  text: string,
+  ms = 10000,
+) {
+  let received = false;
+  const { unSubscribe } = to.onMessage.subscribe((data) => {
+    if (data.toString() === text) received = true;
+  });
+  try {
+    const deadline = Date.now() + ms;
+    while (!received && Date.now() < deadline) {
+      if (from.readyState === "open") from.send(Buffer.from(text));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  } finally {
+    unSubscribe();
+  }
+  expect(received, `DataChannel message was not received: ${text}`).toBe(true);
+}
+
+/**
+ * Assert: a session is still usable after the operations of a test. From
+ * `stable` (a pending description is rolled back, a pranswer is finished
+ * with its final answer) it runs, checking invariants after each step: a
+ * plain offer from `a`, an ICE restart offer from `a`, an offer from `a` that
+ * adds a DataChannel and a transceiver, and an offer from `b`. Then the new
+ * DataChannel and the new transceiver carry data and RTP both ways.
+ */
+export async function expectSessionContinues(
+  a: RTCPeerConnection,
+  b: RTCPeerConnection,
+  label = "continue",
+) {
+  continuedPeers.add(a);
+  continuedPeers.add(b);
+  expect(a.signalingState, "continuation needs an open peer").not.toBe(
+    "closed",
+  );
+  expect(b.signalingState, "continuation needs an open peer").not.toBe(
+    "closed",
+  );
+  await settleForContinuation(a, b);
+
+  // Act: 次の offer と ICE restart の offer をそれぞれ交渉する。
+  await continuationNegotiation(a, b);
+  await continuationNegotiation(a, b, { iceRestart: true });
+
+  // Act: DataChannel と transceiver を足した offer を交渉する。
+  // RED は payload を包むので、先頭の codec が RED でない kind を使う。
+  const kind = (["video", "audio"] as const).find((k) =>
+    [a, b].every(
+      (pc) =>
+        !!pc.config.codecs[k]?.length &&
+        !/\/red$/i.test(pc.config.codecs[k]![0].mimeType),
+    ),
+  );
+  expect(kind, "the peers share no media kind").toBeDefined();
+  const aOut = new MediaStreamTrack({ kind: kind! });
+  const bOut = new MediaStreamTrack({ kind: kind! });
+  const aTransceiver = a.addTransceiver(aOut, { direction: "sendrecv" });
+  const aChannel = a.createDataChannel(`${label}-dc`);
+  let bChannel: RTCDataChannel | undefined;
+  const { unSubscribe } = b.onDataChannel.subscribe((channel) => {
+    if (channel.label === `${label}-dc`) bChannel = channel;
+  });
+  let bTransceiver: RTCRtpTransceiver | undefined;
+  try {
+    await continuationNegotiation(a, b, {
+      beforeAnswer: async () => {
+        bTransceiver = b
+          .getTransceivers()
+          .find((t) => t.mid != undefined && t.mid === aTransceiver.mid);
+        expect(
+          bTransceiver,
+          "added transceiver has no remote side",
+        ).toBeDefined();
+        bTransceiver!.direction = "sendrecv";
+        await bTransceiver!.sender.replaceTrack(bOut);
+      },
+    });
+
+    // Act: 相手側からの再 offer を交渉する。
+    await continuationNegotiation(b, a);
+
+    // Assert: 追加した transceiver で RTP が双方向に届く。
+    await expectRtpEventually(
+      aOut,
+      bTransceiver!.receiver.track,
+      `${label}-rtp-a-to-b`,
+    );
+    await expectRtpEventually(
+      bOut,
+      aTransceiver.receiver.track,
+      `${label}-rtp-b-to-a`,
+    );
+    // Assert: 追加した DataChannel が両端で開き、双方向に届く。
+    const deadline = Date.now() + 10000;
+    while (!bChannel && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(bChannel, "added DataChannel did not reach the peer").toBeDefined();
+    await expectDataEventually(aChannel, bChannel!, `${label}-dc-a-to-b`);
+    await expectDataEventually(bChannel!, aChannel, `${label}-dc-b-to-a`);
+  } finally {
+    unSubscribe();
+  }
 }
 
 /** The m-section identified by `mid`. */
@@ -1900,6 +2168,69 @@ export async function fuzzRemoteMutation(ctx: FuzzContext, rng: SeededRandom) {
   );
 }
 
+/**
+ * The remote peer rejects (port 0, out of BUNDLE) one m-line of a random
+ * kind, in the offer it sends or in the answer it applies itself: the DataChannel's
+ * application m-line, an audio line, or a video line the offer adds. Every
+ * operation keeps the invariants, and the episodes after it keep negotiating
+ * (the application m-line is offered again with its MID, as in develop).
+ */
+export async function fuzzRemoteRejection(ctx: FuzzContext, rng: SeededRandom) {
+  const { session } = ctx;
+  const [offerer, answerer] = rng.chance(0.5)
+    ? [session.a, session.b]
+    : [session.b, session.a];
+  const where = rng.pick(["offer", "answer"] as const);
+  const audio = negotiatedAudio(ctx);
+  const kind = rng.pick([
+    "application",
+    "video",
+    ...(audio.length > 0 ? ["audio"] : []),
+  ] as const);
+  ctx.log.push(
+    `rejection ${offerer === session.a ? "a" : "b"} ${kind} in ${where}`,
+  );
+  const added =
+    kind === "video"
+      ? offerer.pc.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
+          direction: "sendonly",
+        })
+      : undefined;
+  await step(session, async () =>
+    offerer.pc.setLocalDescription(await offerer.pc.createOffer()),
+  );
+  const offer = offerer.pc.localDescription!.sdp;
+  const mid =
+    kind === "application"
+      ? /^m=application[\s\S]*?^a=mid:(\S+)/m.exec(offer)?.[1]
+      : kind === "video"
+        ? added!.mid!
+        : rng.pick(audio).transceiver.mid!;
+  if (!mid) throw new Error(`no ${kind} m-line to reject`);
+  const reject = (sdp: string) =>
+    leaveBundle(
+      mungeSection(sdp, mid, (section) =>
+        section.replace(/^m=(\w+) \d+/m, "m=$1 0"),
+      ),
+      mid,
+    );
+  await step(session, () =>
+    answerer.pc.setRemoteDescription({
+      type: "offer",
+      sdp: where === "offer" ? reject(offer) : offer,
+    }),
+  );
+  // answer での拒否は answerer 自身もその answer を適用する (相手が実際に拒否した状態)。
+  const answer = (await answerer.pc.createAnswer()).sdp;
+  const applied = where === "answer" ? reject(answer) : answer;
+  await step(session, () =>
+    answerer.pc.setLocalDescription({ type: "answer", sdp: applied }),
+  );
+  await step(session, () =>
+    offerer.pc.setRemoteDescription({ type: "answer", sdp: applied }),
+  );
+}
+
 /** Shared Arrange: a local TURN server and the RTCIceServer entry for it. */
 export async function createLocalTurnIceServer() {
   const server = await createLocalTurnServer(getHostAddresses(true, false)[0]!);
@@ -2491,18 +2822,37 @@ export function closeDuringNextPreparedGather(pc: RTCPeerConnection) {
  */
 export async function createMutationSession(
   phase: "initial" | "renegotiation",
+  { audio = false }: { audio?: boolean } = {},
 ): Promise<DuplexSession> {
   const config = {
-    codecs: { video: [useVP8(), useH264()] },
+    codecs: {
+      video: [useVP8(), useH264()],
+      ...(audio ? { audio: [useOPUS()] } : {}),
+    },
     headerExtensions: { video: [useSdesMid(), useAbsSendTime()] },
   };
-  if (phase === "renegotiation") return createDuplexSession(config);
+  if (phase === "renegotiation") {
+    const session = await createDuplexSession(config);
+    if (audio) {
+      // audio の m-line (video の後ろ) を足して確定しておく。
+      session.a.pc.addTransceiver(new MediaStreamTrack({ kind: "audio" }), {
+        direction: "sendrecv",
+      });
+      await negotiate(session, session.a, session.b);
+    }
+    return session;
+  }
   const a = new RTCPeerConnection(config);
   const b = new RTCPeerConnection(config);
   const aOut = new MediaStreamTrack({ kind: "video" });
   const bOut = new MediaStreamTrack({ kind: "video" });
   const aChannel = a.createDataChannel("matrix");
   const aVideo = a.addTransceiver(aOut, { direction: "sendrecv" });
+  if (audio) {
+    a.addTransceiver(new MediaStreamTrack({ kind: "audio" }), {
+      direction: "sendrecv",
+    });
+  }
   const peers = {
     a: { pc: a, out: aOut, video: aVideo, channel: aChannel },
     b: {

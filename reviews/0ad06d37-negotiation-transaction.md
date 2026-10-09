@@ -165,7 +165,8 @@ develop のマージ（`c580f5d2`）でコンフリクトを解消したとき�
 - 相互運用は Chrome でしか確認していません。Firefox や Safari は対象外です。
 - extmap の ID 対応表は PeerConnection 全体で 1 つです。BUNDLE しない別の transport で同じ ID を別の URI に使う構成には対応していません。
 - ICE restart の commit で旧 pair を手放すため、新しい generation が nominate するまで RTP が途切れます。
-- SCTP association を持たない接続済み session で後から作った DataChannel は、再交渉しても開きません（develop から既存の問題）。
+- application m-line を拒否しても、SCTP transport と DataChannel は閉じません（develop と同じ挙動です。W3C の仕様では `sctpTransport` を null にします）。次の offer では同じ MID で application を再提案します。
+- develop の werift は、application を port 0 にした offer に、port 9 で `a=sctp-port` のない answer を返します。HEAD はこの answer を拒否します（状態は変えません）。
 - PLI の判定は werift の既存規則のままで、`nack` 系の feedback が交渉されていれば送ります。
 - 状態の snapshot 用の型（`TransceiverNegotiationState`、`ReceiverNegotiationState`、`TransceiversNegotiationState`、`RouterSnapshot`）は、`media/index.ts` の `export *` を通じて型として公開されています。実行時の値は増えていません。
 - WPT は runner 判定で REGRESSION 0 です。ただし、最後に実行したのは develop の codec 統合をマージする前です。upstream WPT の FAIL や TIMEOUT はまだ多く残っており、件数は実行時の負荷で変動します。
@@ -203,4 +204,5 @@ develop のマージ（`c580f5d2`）でコンフリクトを解消したとき�
 | `69ff0059` / `922aa3bb` | （依頼）`peerConnection.ts` の分割とディレクトリ整理 | 挙動を変えないモジュール分割 — [packages/webrtc/src/peerConnection.ts](review-diff:packages/webrtc/src/peerConnection.ts:commit:69ff0059) |
 | `64f374a3` / `d5cd6112` | develop の codec 統合のマージと CI 対応 | codec の切り替えを commit 時に統一 — [packages/webrtc/src/transceiverManager.ts](review-diff:packages/webrtc/src/transceiverManager.ts:commit:d5cd6112) |
 | `98247860` | （依頼）`negotiationTransaction.ts` のリファクタリング | snapshot を各コンポーネントへ移し、提案の資源を集約 — [packages/webrtc/src/negotiationTransaction.ts](review-diff:packages/webrtc/src/negotiationTransaction.ts:commit:98247860dbbf) |
+| （未コミット） | application m-line を拒否した後の `createOffer()` が失敗する（直前の修正で入れた SCTP の close による退行） | close を撤回して develop の挙動に戻した。application の m-line の位置は current description から求め、相手の port 0 の offer には port 0 で答える。後から足した DataChannel の SCTP も開始する。全試験の最後で `expectSessionContinues` を確認し、変異を kind × 属性の表から生成し、property test に拒否の episode を足した（チケット 2.11） |
 <!-- review-bookmark id="bm_1a1066566bb-ef47584a" title="しおり 3" -->

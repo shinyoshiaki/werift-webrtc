@@ -7,8 +7,10 @@ import {
   createKeptRemoteTransceiver,
   createMutationSession,
   createSplitOffer,
+  enforceSessionContinuation,
   expectDataAlive,
   expectSessionAlive,
+  expectSessionContinues,
   heldTransports,
   holdIncomingDcep,
   negotiate,
@@ -30,6 +32,8 @@ import {
  * transaction (TICKET 2.1 replacement/rollback row, 2.3 and 5-4).
  */
 describe("negotiation transaction events and object lifetime", () => {
+  enforceSessionContinuation();
+
   const cleanups: (() => Promise<unknown>)[] = [];
 
   afterEach(async () => {
@@ -154,7 +158,9 @@ describe("negotiation transaction events and object lifetime", () => {
     await waitForDtlsConnected(reapplied.dtlsTransport!);
     await sendAndExpectRtp(audioOut, reapplied.receiver.track, "t6-audio");
     await expectSessionAlive(session, "t6-after-commit");
-  }, 20000);
+    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+    await expectSessionContinues(a.pc, b.pc, "t6");
+  }, 60000);
 
   test("[2.3-1] a remote pranswer fires ontrack once before the final answer", async () => {
     // Arrange: 受信専用 video の初回 offer に、answerer が送信する pranswer を用意する。
@@ -200,7 +206,9 @@ describe("negotiation transaction events and object lifetime", () => {
     // Assert: final answer は同じ receiver を再通知しない。
     expect(events.tracks).toHaveLength(1);
     await sendAndExpectRtp(outgoing, receiving.receiver.track, "answer-rtp");
-  }, 15000);
+    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+    await expectSessionContinues(offerer, answerer, "pranswer-ontrack");
+  }, 60000);
 
   test("[2.3-2] rollback keeps the receiver and track and restores the last-stable stream association", async () => {
     // Arrange: video に stream "stable-stream" を付けて確定し、別 stream へ移す re-offer を用意する。
@@ -253,7 +261,9 @@ describe("negotiation transaction events and object lifetime", () => {
       "pending-stream",
     ]);
     expect(receiver.remoteStreamIds).toEqual(["pending-stream"]);
-  }, 15000);
+    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+    await expectSessionContinues(a.pc, b.pc, "stream-rollback");
+  }, 60000);
 
   test("[2.3-4] ontrack repeats only for a real stream addition or a transition to receiving", async () => {
     // Arrange: stream "first" で video を確定し、b の通知を記録する。
@@ -319,7 +329,9 @@ describe("negotiation transaction events and object lifetime", () => {
     expect(events.tracks[1].receiver).toBe(b.video.receiver);
     expect(events.tracks[1].track).toBe(track);
     await expectSessionAlive(session, "receiving-again");
-  }, 20000);
+    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+    await expectSessionContinues(a.pc, b.pc, "ontrack-repeat");
+  }, 60000);
 
   test("[2.3-7] a remote-created transceiver kept by addTrack carries the next local offer", async () => {
     // Arrange: addTrack で使った remote-created transceiver を rollback 後も残す。
@@ -354,11 +366,14 @@ describe("negotiation transaction events and object lifetime", () => {
     expect(remote).toBeDefined();
     await waitForPeersConnected(offerer, answerer);
     await sendAndExpectRtp(localTrack, remote!.track, "kept-transceiver");
-  }, 15000);
+    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+    await expectSessionContinues(offerer, answerer, "kept-transceiver");
+  }, 60000);
 
   test("[2.3-7] rollback leaves no candidate of the rolled-back offer on the kept transceiver's transport", async () => {
     // Arrange: addTrack で使った remote-created transceiver を rollback 後も残す。
-    const { kept, close } = await createKeptRemoteTransceiver();
+    const { offerer, answerer, kept, close } =
+      await createKeptRemoteTransceiver();
     cleanups.push(close);
 
     // Act: rollback 後に残った transport の live checklist を読む。
@@ -367,7 +382,9 @@ describe("negotiation transaction events and object lifetime", () => {
 
     // Assert: 旧 m-line との関連と共に、rollback した remote offer の候補も外れている。
     expect(connection.remoteCandidates).toEqual([]);
-  });
+    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+    await expectSessionContinues(offerer, answerer, "kept-rollback-candidates");
+  }, 60000);
 
   test.each(["rollback", "replacement offer"] as const)(
     "[2.3-14] %s closes a remote-created channel of a pending-only association and drops it from the registry",
@@ -404,8 +421,10 @@ describe("negotiation transaction events and object lifetime", () => {
         "offerer channel did not close",
       );
       expect(answererEvents.dataChannels).toEqual([remote]);
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "pending-only-channel");
     },
-    15000,
+    60000,
   );
 
   test("[5-4] channels of a committed association stay open through a renegotiation rollback", async () => {
@@ -460,7 +479,9 @@ describe("negotiation transaction events and object lifetime", () => {
     );
     // Assert: rollback で channel が再通知されることはない。
     expect(bEvents.dataChannels).toEqual([remoteDuringPending]);
-  }, 15000);
+    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+    await expectSessionContinues(a.pc, b.pc, "committed-channels-rollback");
+  }, 60000);
 
   test("[2.3-19] an ICE restart pranswer and its rollback notify only real signaling transitions", async () => {
     // Arrange: 接続済み session の状態通知を記録する。
@@ -508,7 +529,9 @@ describe("negotiation transaction events and object lifetime", () => {
       "connected",
       "connected",
     ]);
-  }, 15000);
+    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+    await expectSessionContinues(a.pc, b.pc, "restart-pranswer-rollback");
+  }, 60000);
 
   test("[2.3-19] rolling back a connection made at the first pranswer notifies only the new transitions", async () => {
     // Arrange: 初回 pranswer で接続し、それまでの通知を控える。
@@ -565,7 +588,9 @@ describe("negotiation transaction events and object lifetime", () => {
       "new",
       "new",
     ]);
-  }, 15000);
+    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+    await expectSessionContinues(offerer, answerer, "first-pranswer-rollback");
+  }, 60000);
 
   test("[2.3-19] negotiationneeded waits for stable and is recomputed once after rollback", async () => {
     // Arrange: 確立済み session で a の re-offer を pending にする。
@@ -605,7 +630,9 @@ describe("negotiation transaction events and object lifetime", () => {
 
     // Assert: 交渉済みの変更について再び通知しない。
     expect(aEvents.negotiationNeeded).toBe(1);
-  }, 15000);
+    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+    await expectSessionContinues(a.pc, b.pc, "negotiationneeded");
+  }, 60000);
 
   test("[2.3-21] re-applying the same pranswer creates no new channel, transceiver or event", async () => {
     // Arrange: video と DataChannel の初回 pranswer で暫定通信を始め、両側の通知を記録する。
@@ -683,7 +710,9 @@ describe("negotiation transaction events and object lifetime", () => {
     expect(counts()).toEqual(before);
     expect(b.channel).toBe(remoteChannel);
     await expectSessionAlive(session, "same-pranswer-committed");
-  }, 20000);
+    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+    await expectSessionContinues(a.pc, b.pc, "same-pranswer");
+  }, 60000);
 
   test("[2.3-22] a DCEP reusing a stream ID on a new association after rollback creates a new channel", async () => {
     // Arrange: 初回 pranswer の association で channel を開いてから両側で rollback する。
@@ -722,7 +751,9 @@ describe("negotiation transaction events and object lifetime", () => {
     expect(remote.readyState).toBe("closed");
     await sendAndExpectData(second, renewed, "renewed-a-to-b");
     await sendAndExpectData(renewed, second, "renewed-b-to-a");
-  }, 15000);
+    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+    await expectSessionContinues(offerer, answerer, "reused-stream-id");
+  }, 60000);
 
   test("[2.3-24] a DCEP held past rollback is not delivered, while the provisional channel still gets its close event", async () => {
     // Arrange: 初回 pranswer の channel を開き、answerer に届く次の DCEP を保留する。
@@ -764,5 +795,7 @@ describe("negotiation transaction events and object lifetime", () => {
     );
     assertNegotiationInvariants(offerer);
     assertNegotiationInvariants(answerer);
-  }, 15000);
+    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+    await expectSessionContinues(offerer, answerer, "held-dcep");
+  }, 60000);
 });

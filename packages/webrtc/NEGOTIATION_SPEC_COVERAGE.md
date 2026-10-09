@@ -1,14 +1,14 @@
 # Negotiation transaction: spec-to-test map
 
 Every requirement sentence of the negotiation transaction ticket (sections
-2.1–2.10 and 5) mapped to the tests that verify it, or marked out of scope
+2.1–2.11 and 5) mapped to the tests that verify it, or marked out of scope
 with the reason. The design is in `NEGOTIATION_TRANSACTION.md`. Keep this map
 current when a requirement or its test changes: a new requirement gets a
 test (named with its ID in brackets) before it is marked covered.
 
 凡例:
 - helper = `negotiationTransactionUtils.ts` の `assertNegotiationInvariants`（assertDescriptionBindings / assertRouterAndCodecs / assertRouteTables / assertIceGenerations / assertDtlsBindings / assertSctpBinding / assertEffectiveValues（`expectedLive`）/ assertNoOrphanTransports）。Matrix・EffectiveValues・Property・Mutation・Interrupt と各 Coverage ファイルは各操作の後に helper を呼ぶ。
-- ファイル名の略記（`packages/webrtc/tests/integrate/` の negotiationTransaction*.test.ts）: NT = negotiationTransaction、Matrix、Reg = Regression、Route = Routing、Dev = DevelopIntegration、EV = EffectiveValues、Mut = Mutation、Intr = Interrupt、Prop = Property、CovE / CovT / CovI / CovC = CoverageEvents / CoverageTransport / CoverageIce / CoverageCodecs。705 = tests/issue/705.test.ts、705r = tests/issue/705-reuse.test.ts、ice:xxx = packages/ice/tests の xxx.test.ts。
+- ファイル名の略記（`packages/webrtc/tests/integrate/` の negotiationTransaction*.test.ts）: NT = negotiationTransaction、Matrix、Reg = Regression、Route = Routing、Dev = DevelopIntegration、EV = EffectiveValues、Mut = Mutation、Intr = Interrupt、Prop = Property、CovE / CovT / CovI / CovC = CoverageEvents / CoverageTransport / CoverageIce / CoverageCodecs、AppRej = ApplicationRejection。705 = tests/issue/705.test.ts、705r = tests/issue/705-reuse.test.ts、ice:xxx = packages/ice/tests の xxx.test.ts。
 - 状態: covered（その文を直接検査するテストがある）、対象外（文書・構造・作業プロセスの記述。理由を併記）。partial / uncovered は 0 件。テスト名の `[ID]` は本表の ID。
 
 | ID | 要件 | テスト | 状態 |
@@ -51,7 +51,7 @@ test (named with its ID in brackets) before it is marked covered.
 | 2.2-10 | 既存 DataChannel の送信上限は provisional な合意値を超えない | helper (assertEffectiveValues / expectedLive "remoteMaxMessageSize"); Matrix: "renegotiation max-message-size follows offer, pranswers and %s" | covered（上限値の一致と、上限を超えるメッセージの送信拒否） |
 | 2.2-11 | 既存 association を壊す提案（SCTP port 変更など）は live mutation 前に拒否する | NT: "an existing SCTP port change is rejected before mutating the association"; Matrix: "validation failures leave current and pending untouched"; Mut: "$phase $stage mutated by $name" (sctpPort, pranswer を含む) | covered |
 | 2.2-12 | final answer は最後の pranswer と異なってよく、SDP 全体を再検証して切り替える | Matrix: "replacement pranswer and a different final answer"; NT: "a final answer can replace provisional SCTP limits without another channel event"; Matrix: "renegotiation max-message-size follows offer, pranswers and %s" | covered |
-| 2.2-13 | final answer で不要な decoder・candidate・transport・provisional SCTP を解放する | EV: "a transport a no-BUNDLE first pranswer added stays closed after the BUNDLE answer"; EV: "SSRCs only a replaced pranswer announced stop routing at the final answer"; helper (assertNoOrphanTransports); CovT: "[2.2-13] a final answer that rejects the application m-line closes the SCTP association a first pranswer opened"; CovT: "[2.2-13] the candidates of a pranswer generation the final answer replaced leave the live checklist" | covered |
+| 2.2-13 | final answer で不要な decoder・candidate・transport・provisional SCTP を解放する | EV: "a transport a no-BUNDLE first pranswer added stays closed after the BUNDLE answer"; EV: "SSRCs only a replaced pranswer announced stop routing at the final answer"; helper (assertNoOrphanTransports); CovT: "[2.2-13] a final answer that rejects the application m-line keeps the SCTP association a first pranswer opened, as develop does"; CovT: "[2.2-13] the candidates of a pranswer generation the final answer replaced leave the live checklist" | covered |
 | 2.2-14 | replacement pranswer は旧 provisional resource を停止・detach して最新案に入れ替える | EV: "SSRCs only a replaced pranswer announced stop routing at the final answer"; ice:provisional "a replacement remote generation resets the checklist and discard drops it"; Matrix: "renegotiation max-message-size follows offer, pranswers and %s" | covered |
 | 2.2-15 | replacement pranswer は baseline と発火済みイベント履歴を上書きしない | NT: "a final answer can replace provisional SCTP limits without another channel event"; Matrix: "renegotiation max-message-size follows offer, pranswers and %s" (rollback で元の上限) | covered |
 | 2.2-16 | rollback は pranswer で始めた送受信・checks・DTLS/SCTP を止め、旧 current の経路を復元する | NT: "ICE restart pranswer over a connected SCTP association checks the new generation, then %s"; NT: "initial pranswer starts provisional DataChannel traffic and rollback closes it"; Matrix: "pranswer followed by rollback restores the current session"; CovT: "[2.2-16] rollback stops the RTP a renegotiation pranswer started and keeps the current stream" | covered |
@@ -264,3 +264,15 @@ test (named with its ID in brackets) before it is marked covered.
 | 2.10-8 | develop 差分ファズで変異を配送する | `tools/negotiation-diff` の `run.ts --mutate`（手元実行、回帰 0 件） | covered |
 | 2.10-9 | gather / mDNS / DTLS / STUN の待機中の close・restartIce・新しい offer・rollback で hang せず、invariant と leak なし、その後に通信できる | Intr: "$interrupt while waiting on $wait"; EV: "a transport a no-BUNDLE first pranswer added stays closed after the BUNDLE answer" | covered |
 | 2.10-10 | 仕様と試験の対応表で partial / uncovered を 0 にし、自己レビューする | 本表 | 対象外（作業プロセス） |
+| 2.11-1 | application m-line の位置は current description が記録する。SCTP のない位置は同じ MID の port 0、束縛された SCTP は同じ MID で再提案、未束縛の SCTP は拒否位置を新しい MID で再利用する | AppRej: "$name"（全経路で次の offer の application m-line を検査）; AppRej: "an application created after the answerer rejected it takes the rejected position with a new MID" | covered |
+| 2.11-2 | 拒否では SCTP を閉じない（answer・相手の offer・pranswer、初回・再交渉。develop と同じ）。commit で交渉されていない transport へ移さない | CovT: "[2.2-13] a final answer that rejects the application m-line keeps the SCTP association a first pranswer opened, as develop does"; AppRej: "$name"（再交渉は元の DataChannel の通信も検査） | covered |
+| 2.11-3 | port 0 の application を含む offer には port 0 で answer する（SCTP transport がなくても失敗しない） | AppRej: "initial remote offer rejects (answerer has no SCTP transport)"; AppRej: "renegotiation remote offer rejects"; Mut: applicationRejected（offer） | covered |
+| 2.11-4 | 拒否位置の新しい MID での再利用で SCTP transport はその MID に移り、current のどちらかで port 0 の位置は新しい MID を受け入れる | AppRej: "an application created after the answerer rejected it takes the rejected position with a new MID"; Prop (fuzzRemoteRejection) | covered |
+| 2.11-5 | 接続済み DTLS transport に後から載った SCTP は association を開始し、SCTP の client / server は DTLS 開始時の ICE role で決める | Reg: "a re-answer with a=setup:actpass keeps the DTLS role of the live association"（continuation）; CovI / Reg の continuation（media だけの session に DataChannel を足す） | covered |
+| 2.11-6 | remote offer の rollback で、その offer の SCTP が使った DTLS transport を（他で使われなければ）止める | CovE: "[2.3-14] replacement offer closes a remote-created channel of a pending-only association and drops it from the registry"（continuation の rollback 後に helper assertNoOrphanTransports） | covered |
+| 2.11-7 | BUNDLE の非 tag m-line が運ぶ別 ufrag の候補を tag の generation に入れない | Mut: videoSeparateCredentials（renegotiation offer） | covered |
+| 2.11-8 | `expectSessionContinues` と `enforceSessionContinuation` を Coverage*・回帰・変異・拒否試験で有効にし、除外は理由付きに限る | CovT / CovE / CovI / CovC / Reg / Mut / AppRej（`enforceSessionContinuation`） | covered |
+| 2.11-9 | kind × 属性の表から変異を生成し、`renegotiates` の変異は後続の素直な再交渉と continuation を必須にする | Mut（単独・全ペア） | covered |
+| 2.11-10 | property test に相手が application・audio・video を offer / answer で拒否する episode を加える | Prop (fuzzRemoteRejection) | covered |
+| 2.11-11 | develop と挙動が変わる規則を棚卸しし、核の不変条件に必須でないものは develop に戻す | NEGOTIATION_TRANSACTION.md「Behavior differences from develop」 | 対象外（文書・作業プロセス） |
+| 2.11-12 | 以後の develop と挙動が変わる修正は `expectSessionContinues` を通すことを条件にする | — | 対象外（作業プロセス） |

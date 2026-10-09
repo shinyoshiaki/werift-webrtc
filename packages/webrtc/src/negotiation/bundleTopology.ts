@@ -313,7 +313,12 @@ export class BundleTopology {
       if (transport) transceiver.setDtlsTransport(transport);
     }
     const sctp = this.sctp.sctpTransport;
-    if (sctp?.mid) {
+    // An answer that rejects the application m-line negotiates no transport
+    // for it: the SCTP transport stays where it runs (as in develop).
+    const rejected =
+      !!answer &&
+      answer.media.find((media) => media.rtp.muxId === sctp?.mid)?.port === 0;
+    if (sctp?.mid && !rejected) {
       // SCTP goes straight to the transport of its owner in the answer: a
       // detour over its own prepared transport would replace the
       // association (also one a first pranswer already connected).

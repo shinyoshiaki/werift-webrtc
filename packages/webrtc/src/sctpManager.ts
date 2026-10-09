@@ -203,20 +203,6 @@ export class SctpTransportManager {
   }
 
   /**
-   * A committed answer rejected the application m-line: the SCTP transport
-   * closes with its channels and is no longer the connection's (W3C sets
-   * [[SctpTransport]] to null). Returns the transport it ran on.
-   */
-  async closeRejected() {
-    const transport = this.sctpTransport;
-    if (!transport) return;
-    this.sctpTransport = undefined;
-    this.sctpRemotePort = undefined;
-    await transport.stop();
-    return transport.dtlsTransport;
-  }
-
-  /**
    * A renegotiation pranswer / answer keeps the association (and its port)
    * but updates the data max message size it negotiates.
    */

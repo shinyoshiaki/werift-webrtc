@@ -992,6 +992,7 @@ export class RTCPeerConnection extends EventTarget {
               .find(
                 ({ media }) =>
                   media.kind === "application" &&
+                  media.port !== 0 &&
                   !!media.rtp.muxId &&
                   (this.sctpTransport!.mid == undefined ||
                     this.sctpTransport!.mid === media.rtp.muxId),
@@ -1167,7 +1168,13 @@ export class RTCPeerConnection extends EventTarget {
             transceiver.mid = mid;
           }
         }
-        if (media.kind === "application" && this.sctpTransport) {
+        // A rejected application m-line binds no SCTP transport: one the
+        // application created stays unbound for the next offer.
+        if (
+          media.kind === "application" &&
+          media.port !== 0 &&
+          this.sctpTransport
+        ) {
           this.sctpTransport.mid = mid;
         }
       }
@@ -1297,7 +1304,6 @@ export class RTCPeerConnection extends EventTarget {
       if (description.type === "answer") {
         await this.negotiation.commit();
         this.completeEndedCurrentGenerations();
-        await this.closeRejectedApplication(description);
       }
 
       await this.gatherCandidates().catch((e) => {
@@ -1601,7 +1607,6 @@ export class RTCPeerConnection extends EventTarget {
         this.sdpManager.applyRemoteDescription(remoteSdp);
         await this.negotiation.commit();
         this.completeEndedCurrentGenerations();
-        await this.closeRejectedApplication(remoteSdp);
         this.setSignalingState("stable");
         // Candidates a committed ICE restart gathered with changed servers.
         this.secureManager.emitCommittedIceCandidates();
@@ -1644,33 +1649,6 @@ export class RTCPeerConnection extends EventTarget {
       }
       this.invalidateLastCreatedDescriptions();
     });
-  }
-
-  /**
-   * A committed answer that rejects the application m-line closes the SCTP
-   * transport (also one a first pranswer connected) and the transport it ran
-   * on when nothing else uses it.
-   */
-  private async closeRejectedApplication(answer: SessionDescription) {
-    const transport = this.sctpManager.sctpTransport;
-    if (!transport) return;
-    const media =
-      answer.media.find(
-        (m) => m.kind === "application" && m.rtp.muxId === transport.mid,
-      ) ??
-      (transport.mLineIndex !== undefined
-        ? answer.media[transport.mLineIndex]
-        : undefined);
-    if (media?.kind !== "application" || media.port !== 0) return;
-    const dtls = await this.sctpManager.closeRejected();
-    if (
-      dtls &&
-      !this.transceiverManager
-        .getTransceivers()
-        .some((t) => !t.stopped && t.dtlsTransport === dtls)
-    ) {
-      await dtls.stop();
-    }
   }
 
   /**

@@ -222,7 +222,7 @@ provisional の checklist は live と同じ規則に従う: 候補から作る 
 - 初回交渉の rollback は、提案が接続した transport に加えて、remote の資格情報・候補だけを受けた transport も置き換える（app が残す transceiver にも旧 offer の候補を残さない）。
 - final answer の適用では、SCTP は answer の BUNDLE owner の transport へ直接移る（自分用に準備した transport を経由して association を作り直さない。初回 pranswer で確立した association と DataChannel を保つ）。
 - 停止した SCTP transport（rollback・置き換え・close）は、保留中の callback が運ぶ DCEP を受け付けず、新しい channel を通知しない。
-- application m-line を拒否（port 0）した answer の commit は SCTP transport とその channel を閉じ、`sctpTransport` を外す（W3C）。他に使われない transport も止める。
+- ~~application m-line を拒否（port 0）した answer の commit は SCTP transport とその channel を閉じ、`sctpTransport` を外す（W3C）。~~ → 2.11 で撤回した。この規則の後、次の `createOffer()` が `sctpTransport not found` で失敗した（develop は成功）。拒否では何も閉じない develop の挙動に戻した。
 - replacement pranswer の後、どの m-line も載せなくなった提案用 transport は、先の pranswer が始めた接続確認を止める（local の generation は final answer のために保つ）。
 - transport-cc feedback は受信したパケットの codec の交渉で始める（最小の payload type の codec に依存しない）。
 - remote offer は、拒否されておらず停止していない local transceiver が使う m-line（`inactive` を含む）に新しい MID を付けて再利用できない（`InvalidModificationError`、状態不変）。
@@ -230,6 +230,48 @@ provisional の checklist は live と同じ規則に従う: 候補から作る 
 - ICE restart の no-server 経路（end-of-candidates を description に含める）は、agent に STUN / TURN がない構成で検証する（werift は `iceServers: []` でも既定の STUN を使う）。
 
 **(d) チケットの同期**: 指定のチケットファイルは古い。最新のチケット内容（本ファイル）をサーバーのチケット本文に反映する。
+
+### 2.11 拒否の後も使い続けられること（追加要件、策A〜C）
+
+**背景**: 2.10 の策3 で追加した規則（application を拒否した answer の commit で SCTP を閉じ、`sctpTransport` を外す）が退行を起こした。拒否の後の `createOffer()`・`createOffer({ iceRestart: true })` が `sctpTransport not found` で失敗し、`createDataChannel()` の後の offer は MID のない application m-line を作った（develop はどちらも成功し、通信できる）。兄弟ケースも同じ原因で失敗していた。初回交渉の answer で拒否された場合と、相手の offer が application を port 0 にした場合である。後者は answer の SDP が不正（port 9 で `a=sctp-port` なし）で、相手の HEAD が `Invalid SCTP port` で拒否していた。原因は次の 4 つ:
+
+- (a) 規則が commit の時点だけを定め、その後の m-line の扱いを決めていなかった。
+- (b) m-line の位置（`mid`・`mLineIndex`）を SCTP オブジェクトが持っていた。
+- (c) 変異ライブラリ・property test・差分ファズが application の拒否を生成しなかった。
+- (d) develop と挙動を変える規則を増やすたびに、その後に続く操作がすべて新しい比較対象になる。
+
+**策A: application m-line の位置を SCTP オブジェクトから独立させる**
+
+- application m-line の位置（MID・index・拒否されたか）は current description が記録する。`createOffer` は SCTP transport のない位置を同じ MID の port 0 で保つ。MID に束縛された SCTP transport は、同じ MID で再提案する（port 9。develop と同じ）。未束縛の SCTP transport（`createDataChannel`）は、拒否された位置を新しい MID で再利用する（transceiver の「同じ kind だけ再利用」と同じ規則）。拒否されていない位置では、その MID を使う。
+  - 指示との差: `{ mid, mLineIndex, rejected }` の記録を `SctpTransportManager` に別に持たず、current description から求めた。別の状態を持つと snapshot / rollback の対象が増え、description と食い違う余地ができるため。
+- 拒否では SCTP を閉じない（策C で develop に戻した）。相手の answer・相手の offer・pranswer と final answer のどの経路でも、初回・再交渉のどちらでも同じ。commit は、answer が交渉していない transport へ SCTP を移さない。
+- 相手の offer で port 0 の application m-line には、port 0 で answer する（RFC 3264 §6）。SCTP transport を持たない answerer でも失敗しない。
+- 相手の offer が、拒否された application の位置を新しい MID で再利用した場合は、SCTP transport をその MID に移す（rollback で戻る）。current の local / remote のどちらかで port 0 の位置は、次の offer / answer で新しい MID を受け入れる（audio / video も同じ。従来は自分の answer の検証が拒否していた）。
+- 接続済みの DTLS transport に後から載った SCTP（media だけの session に、再交渉で最初の DataChannel を足した場合）も association を開始する。develop から既存の「開かない」制約を解消し、6 章から削除した。SCTP の client / server は、DTLS を開始したときの ICE role で決める（werift は offer / answer のたびに ICE role を設定し直すので、後から開始すると両端が client になることがあった）。相手の INIT で先に確立しても、channel ID は同じ規則で決まる。
+- helper の導入で見つかり、直したもの:
+  - 初回交渉で置き換えた remote offer を rollback したとき、その offer の SCTP が使っていた DTLS transport が止まらずに残っていた（leak）。rollback で、他に使われない transport を止める。
+  - BUNDLE の非 tag m-line が別の ufrag の候補を運んでも、tag の generation には入れない。
+- 試験: `negotiationTransactionApplicationRejection.test.ts`。拒否の経路（初回／再交渉 × 相手の answer で拒否／相手の offer で拒否／pranswer で拒否して rollback／pranswer と final answer で拒否）× その後の操作（`createOffer`、ICE restart、`createDataChannel` と transceiver を足した offer、相手からの再 offer、実通信）を検査する。SCTP transport のない answerer が後から作った DataChannel が、拒否された位置を新しい MID で再利用する試験もある。修正前の HEAD では 8 件中 7 件が失敗する（通る 1 件は「pranswer で拒否して rollback」で、レビューで「問題なし」とされたケース）。
+
+**策B: 「その後も使い続けられるか」をすべての試験で共通に確認する**
+
+- `expectSessionContinues(a, b)`（`negotiationTransactionUtils.ts`）を置く。両端を `stable` に戻す（pending は rollback、pranswer は final answer で確定）。そのうえで次の 4 つを、各操作の後に invariant を検査しながら行う: a からの offer → a からの ICE restart の offer → DataChannel と transceiver を足した a からの offer → b からの offer。最後に、追加した DataChannel と transceiver で双方向の実通信を確認する。
+- `enforceSessionContinuation()` は afterEach で、試験中に local description を適用した peer が、すべて `expectSessionContinues` を通ったかを検査する。除外できるのは、理由付きで `exemptFromContinuation` した peer だけ。理由は次の 3 つに限る: `close()` が検査対象、実 peer のない合成 SDP だけで交渉した、実 peer と食い違う変異。対応表の試験（Coverage* 4 本）、回帰試験、変異試験、拒否試験で有効にした。除外の内訳: close の試験 6 箇所（`test.each` を含めて 7 件）、合成 SDP の試験 3 件、実 peer と食い違う SDP の試験（`[5-K14]`、変異試験で `renegotiates` でない misdescribe 変異を受理した場合、初回の answer を b が確定し a が拒否した場合）。
+- 変異の一覧を手選びから、表からの生成に替えた。kind 別の変異は「kind（audio / video / application）× 属性（port 0 と BUNDLE 外、inactive、BUNDLE 外、独自 ICE 資格情報）」の表から作る（19 → 27 種類。`applicationRejected` を含む）。
+  - 変異試験の session には audio を加えた。
+  - 拒否と inactive の変異は `renegotiates` とした。実 peer を誤記述していても、両者が素直に再交渉できる状態だからである。この 2 つは、後続の素直な再交渉と continuation を必須にした。
+- property test に「相手が application・audio・video（追加した m-line）を、自分の送る offer か、自分も適用する answer で拒否する」episode を加えた。既存 seed の操作列を変えないよう、独立した乱数列から引く。
+- invariant helper の修正:
+  - pending 中は、rollback baseline の transport を孤立判定から除く。
+  - answer の BUNDLE で非 tag の m-line の ICE 属性は検査しない（RFC 8843）。
+- 修正前の HEAD での検出: 変異試験は `applicationRejected` の 4 件と `videoSeparateCredentials` の 1 件が失敗し、property test は固定 seed 1〜6 がすべて失敗する。
+
+**策C: develop と挙動を変える箇所を増やさない**
+
+- 以後の修正では、develop と挙動が変わるものを原則として追加しない。追加する場合は、策B の helper を通すことを条件にする。今回の変更は、次の 2 種類だけである:
+  - develop に戻すもの（拒否で SCTP を閉じない）
+  - develop で失敗していた操作を成功させるもの（port 0 の answer、後から足した DataChannel の開始、SCTP の client / server の固定）
+- 2.6〜2.10 の規則のうち develop と挙動が変わるものを、設計文書の "Behavior differences from develop" に棚卸しした。それぞれについて、核の不変条件・W3C・RFC のどれに必須かを示した。必須でないと判断したのは「拒否で SCTP を閉じる」だけで、develop に戻した。表の develop 欄のうち、今回のラウンドで計測していないものは「not measured」と明記した。
 
 ## 3. 技術的な実装アプローチ
 
@@ -292,6 +334,7 @@ commit path に例外が残る場合は、公開状態を切り替える前に�
 - **property test（追加要件）:** seed 固定の乱数で操作列を生成して実行し、各操作の後に invariant helper を、各ステップの後に video・audio・DataChannel の実通信を検査する。操作は offer / pranswer / answer / rollback / replacement、ICE restart、BUNDLE split・merge、m-line 追加、EOC、routing key の変更（RTX 対応、extmap の移動、および拒否されるべき extmap ID 再割当て）を含む。CI では固定 seed と、過去に不具合を見つけた seed を常に再生する。失敗時は seed と操作列を出力し、環境変数で seed 数・step 数を増やした深い探索を手元で実行できるようにする。
 - **レビュー前の自己点検（追加要件）:** レビュー依頼の前に、深い探索（数百 seed）と、「pending 中に live table へ書き込む経路」を洗い出す自己レビューを 1 回ずつ行い、見つかった経路は 2.4 の規則で閉じるか、6 章の既知の制約に記載する。
 - **有効値・相手の多様性・割り込み（2.10）:** invariant helper の `expectedLive` が 2.10 の有効値表（direction・送信 codec・max-message-size）を各操作の後に検査し、pranswer 中の remote SSRC の route も検査する。`negotiationTransactionEffectiveValues.test.ts` は表の行ごとの回帰試験、`negotiationTransactionMutation.test.ts` は変異の単独（CI）・全ペア・乱択の組み合わせ（手元の深い探索）、`negotiationTransactionInterrupt.test.ts` は待機 × 割り込みの表を実行する。develop 差分ファズも `--mutate` で変異を配送する。
+- **その後も使い続けられること（2.11）:** 対応表の試験（Coverage*）・回帰試験・変異試験・拒否試験は、最後に `expectSessionContinues` を呼ぶ。次の offer、ICE restart、DataChannel と transceiver の追加、相手からの再 offer、実通信を確認する。afterEach の `enforceSessionContinuation` が呼び忘れを検出する。除外は理由付きの `exemptFromContinuation` に限る。application m-line の拒否は、経路 × その後の操作の組み合わせで `negotiationTransactionApplicationRejection.test.ts` に固定する。
 - テストは Arrange / Act / Assert に分け、共有 Arrange を単一 utility に置き、Act / Assert の操作と期待には適切な粒度の日本語コメントを入れる。
 
 ### 完了判定
@@ -312,6 +355,7 @@ commit path に例外が残る場合は、公開状態を切り替える前に�
 - [ ] 2.5 のとおり issue 705 の挙動が transaction の中で動き、`tests/issue/705*.test.ts` は意図した挙動変更の 3 点を除いて develop と同じ期待で通る。
 - [ ] 2.10 の有効値表が設計文書にあり、`expectedLive` が一律の「live = current SDP」検査を置き換えている。表の各行に回帰試験があり、修正した箇所は修正前の実装で失敗し修正後に通る。
 - [ ] 変異ライブラリの単独・全ペア・乱択の組み合わせ、割り込みの表、変異を含む develop 差分ファズが通る（差分ファズは「develop は受理して通信でき、HEAD は拒否または通信できない」が 0 件、または意図した拒否として理由を記載）。
+- [ ] 2.11 のとおり、application m-line の拒否の後（全経路）も、次の offer・ICE restart・DataChannel の追加・相手からの再 offer・実通信が成功する。修正前の HEAD で失敗した拒否試験が通る。Coverage*・回帰・変異・拒否の各試験が `expectSessionContinues` を通り（除外は理由付き）、kind × 属性から生成した変異と、property test の拒否 episode が通る。develop との挙動差の棚卸し表が設計文書にある。
 - [ ] 仕様と試験の対応表（7 章、`NEGOTIATION_SPEC_COVERAGE.md`）で partial / uncovered が 0 件で、その後に自己レビューを行っている。
 - [ ] `cd packages/webrtc && npm run type && npm test`、cross-package 変更時の `npm run type && npm run test:small`、関連 E2E が通る。WPT runner や allowlist を変更した場合は `npm run wpt --workspace packages/webrtc`（coverage wiring 変更時は `npm run wpt:coverage --workspace packages/webrtc`）も通る。CI dependency failure があれば先に解消し、transaction tests が CI で実行される。
 
@@ -321,7 +365,9 @@ commit path に例外が残る場合は、公開状態を切り替える前に�
 
 - 相互運用の確認は Chrome のみ。Firefox・Safari などとの相互運用は対象外。
 - 生成済み description の再利用は 2.9 の契約表にある操作順序だけを保証する。表にない再利用順序は後続チケットとする。
-- SCTP association を持たない接続済み session で後から作った DataChannel は、再交渉しても開かない（`develop` から既存）。
+- application m-line を拒否しても SCTP transport と channel は閉じない（`develop` と同じ。W3C は `sctpTransport` を null にする）。次の offer は同じ MID で application を再提案する（2.11）。
+- `develop` の werift は、application を port 0 にした offer に、port 9 で `a=sctp-port` のない answer を返す。HEAD はその answer を `OperationError` で拒否する（状態は変えない）。HEAD 同士では port 0 で答えるので起きない。
+- werift は offer / answer のたびに ICE role を設定し直す（`develop` から既存）。SCTP の client / server は DTLS を開始したときの ICE role で固定する（2.11）。
 - header extension の ID 対応は PeerConnection 全体で 1 つ。別 transport（非 BUNDLE）の m-line が同じ ID を別 URI に使う構成は未対応。current が使う ID の再割当てだけを拒否する。
 - `addTransceiver()` で作った未関連付けの transceiver を、remote offer が m-line に関連付けることがある（W3C は `addTrack()` 由来だけを再利用する）。werift の既存動作。
 - ICE restart の commit で ICE 層は旧 selected pair を手放すため、新 generation が nominate するまで RTP が途切れる。RFC 8445 / 8839 と Chrome は新しい pair が選ばれるまで旧 pair で送り続ける。pranswer 中の provisional generation の nominate 結果は commit で引き継がない（2.7）。
@@ -339,7 +385,7 @@ commit path に例外が残る場合は、公開状態を切り替える前に�
 
 ## 7. 仕様と試験の対応表（策3）
 
-2.1〜2.10 と 5 章の各文（要件）を、それを検証する試験名（または invariant helper）か「対象外（理由）」に対応づけた表を `packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md` に置く（全 251 件: covered 230 件、対象外 21 件、partial / uncovered 0 件）。対象外は設計文書・コード構造・作業プロセスの記述だけで、理由を併記する。
+2.1〜2.11 と 5 章の各文（要件）を、それを検証する試験名（または invariant helper）か「対象外（理由）」に対応づけた表を `packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md` に置く（全 263 件: covered 240 件、対象外 23 件、partial / uncovered 0 件。2.11 で 12 件追加）。対象外は設計文書・コード構造・作業プロセスの記述だけで、理由を併記する。
 
 - 表の作成時点で partial / uncovered だった 59 件は、要件 ID を名前に持つ試験（`negotiationTransactionCoverageEvents` / `Transport` / `Ice` / `Codecs`、`packages/ice/tests/coverageConsent.test.ts`）で閉じた。そのうち修正前の実装で失敗したものは、2.10 の「見つけ、修正して確定した規則」として実装を直した。
 - 要件や試験を変えたら表も更新する。新しい要件は、ID を名前に含む試験を追加してから covered にする。

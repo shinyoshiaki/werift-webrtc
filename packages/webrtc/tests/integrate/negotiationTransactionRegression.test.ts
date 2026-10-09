@@ -29,6 +29,9 @@ import {
   createVp8H264AnsweringPeers,
   currentRemoteGeneration,
   elapsedMs,
+  enforceSessionContinuation,
+  exemptFromContinuation,
+  expectSessionContinues,
   expectSessionAlive,
   forceIceState,
   heldTransports,
@@ -63,6 +66,8 @@ import {
  * (see negotiationTransactionProperty.test.ts for the seeds).
  */
 describe("negotiation transaction regressions", () => {
+  enforceSessionContinuation();
+
   test("a replacement local offer keeps a new transceiver associated with its m-line", async () => {
     const session = await createDuplexSession();
     const { a, b } = session;
@@ -93,10 +98,13 @@ describe("negotiation transaction regressions", () => {
       const remote = b.pc.getTransceivers().find((t) => t.mid === mid)!;
       await sendAndExpectRtp(out, remote.receiver.track, "replacement-audio");
       await expectSessionAlive(session, "replacement-audio");
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(a.pc, b.pc, "replacement-offer");
     } finally {
       await session.close();
     }
-  });
+  }, 60000);
 
   test("an answer does not give a direction to a transceiver without an m-line", async () => {
     const { offerer, answerer } = await createConnectedVideoPeers();
@@ -113,10 +121,13 @@ describe("negotiation transaction regressions", () => {
       expect(late.mid).toBeNull();
       expect(late.currentDirection).toBeFalsy();
       assertNegotiationInvariants(answerer);
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "late-transceiver");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("MIDs from unapplied createOffer calls do not collide with a later remote offer", async () => {
     const session = await createDuplexSession();
@@ -146,10 +157,13 @@ describe("negotiation transaction regressions", () => {
       assertNegotiationInvariants(a.pc);
       assertNegotiationInvariants(b.pc);
       await expectSessionAlive(session, "unapplied-offer-mids");
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(a.pc, b.pc, "unapplied-mids");
     } finally {
       await session.close();
     }
-  });
+  }, 60000);
 
   test("the final answer after an ICE restart pranswer reuses the pranswer credentials", async () => {
     const { offerer, answerer, outgoing, incoming } =
@@ -188,14 +202,19 @@ describe("negotiation transaction regressions", () => {
         waitForCommittedNomination(answerer),
       ]);
       await sendAndExpectRtp(outgoing, incoming, "pranswer-credentials");
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "restart-pranswer");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 });
 
 /** Findings of the pre-review self-review of pending writes to live state. */
 describe("negotiation transaction live-state regressions", () => {
+  enforceSessionContinuation();
+
   test("a remote pranswer that changes send parameters is fully undone by rollback", async () => {
     const { offerer, answerer, outgoing, incoming } =
       await createConnectedVideoPeersWithRtx();
@@ -233,10 +252,13 @@ describe("negotiation transaction live-state regressions", () => {
       expect(sender.snapshotSendParams()).toEqual(before);
       assertNegotiationInvariants(offerer);
       await sendAndExpectRtp(outgoing, incoming, "send-params-rollback");
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "pranswer-rollback");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("a re-offer that changes RTCP feedback of a current payload type is staged until commit", async () => {
     const { offerer, answerer } = await createConnectedVideoPeers();
@@ -267,10 +289,13 @@ describe("negotiation transaction live-state regressions", () => {
 
       // Assert: 確定時に新しい feedback へ切り替わる。
       expect(feedback()).not.toContain("nack ");
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "feedback-staged");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("a pending re-offer that adds transport-cc does not start TWCC feedback for the current stream", async () => {
     const { offerer, answerer, outgoing, incoming } =
@@ -296,10 +321,13 @@ describe("negotiation transaction live-state regressions", () => {
       expect(pending).toBeUndefined();
       expect(receiver.receiverTWCC).toBeUndefined();
       assertNegotiationInvariants(answerer);
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "twcc-pending");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("a local answer that flips the DTLS setup of a connected association is rejected", async () => {
     const { offerer, answerer, outgoing, incoming } =
@@ -327,10 +355,13 @@ describe("negotiation transaction live-state regressions", () => {
       await offerer.setRemoteDescription(answerer.localDescription!);
       assertNegotiationInvariants(answerer);
       await sendAndExpectRtp(outgoing, incoming, "local-setup-rejected");
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "setup-rejected");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("a transceiver created for a remote offer does not make negotiation needed", async () => {
     const { offerer, answerer } = await createConnectedVideoPeers();
@@ -351,10 +382,13 @@ describe("negotiation transaction live-state regressions", () => {
       expect(needed).toBe(0);
       expect(answerer.getTransceivers()).toHaveLength(2);
       assertNegotiationInvariants(answerer);
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "no-negotiationneeded");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("a final answer replaces the RTCP feedback a pranswer staged", async () => {
     const session = await createDuplexSession();
@@ -392,10 +426,13 @@ describe("negotiation transaction live-state regressions", () => {
       expect(hasNack()).toBe(true);
       assertNegotiationInvariants(a.pc);
       await expectSessionAlive(session, "pranswer-feedback-replaced");
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(a.pc, b.pc, "pranswer-feedback");
     } finally {
       await session.close();
     }
-  });
+  }, 60000);
 
   test("adding video after an inactive audio m-line does not take the audio m-line", async () => {
     const { offerer, answerer, close } = createUnnegotiatedPeers();
@@ -420,10 +457,13 @@ describe("negotiation transaction live-state regressions", () => {
       expect(video.mLineIndex).toBe(1);
       expect(offerer.getTransceivers()).toEqual([audio, video]);
       assertNegotiationInvariants(offerer);
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "inactive-audio");
     } finally {
       await close();
     }
-  });
+  }, 60000);
 
   test("an answer whose codec was not in the offer is rejected before mutation", async () => {
     const { offerer, answerer, close } = createUnnegotiatedPeers();
@@ -451,10 +491,13 @@ describe("negotiation transaction live-state regressions", () => {
       expect(offerer.currentRemoteDescription).toBeNull();
       await offerer.setRemoteDescription(answer);
       expect(offerer.signalingState).toBe("stable");
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "unoffered-codec");
     } finally {
       await close();
     }
-  });
+  }, 60000);
 
   test.each([
     ["a host candidate", "127.0.0.1"],
@@ -494,10 +537,14 @@ describe("negotiation transaction live-state regressions", () => {
         expect(mdns.requested).toBe(0);
         assertNegotiationInvariants(offerer);
         await sendAndExpectRtp(outgoing, incoming, "late-candidate-ignored");
+
+        // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+        await expectSessionContinues(offerer, answerer, "late-candidate");
       } finally {
         await Promise.allSettled([offerer.close(), answerer.close()]);
       }
     },
+    60000,
   );
 
   test("an mDNS candidate that is still resolving does not hold later candidates or description operations", async () => {
@@ -533,10 +580,13 @@ describe("negotiation transaction live-state regressions", () => {
       // Assert: 解決後に mDNS 候補も同じ generation の checklist に入る
       await waitForRemoteCandidatePort(answerer, 50991);
       assertNegotiationInvariants(answerer);
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "mdns-resolving");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("an mDNS candidate trickled before end-of-candidates of an ICE restart pranswer is kept", async () => {
     const { offerer, answerer, ufrag, mid } = await createIceRestartPranswer();
@@ -568,10 +618,13 @@ describe("negotiation transaction live-state regressions", () => {
       expect(section).toContain(" 50998 typ host");
       expect(section).toContain("a=end-of-candidates");
       assertNegotiationInvariants(offerer);
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "mdns-before-eoc");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("a restartIce() request survives a rolled-back offer until an answer commits new credentials", async () => {
     const { offerer, answerer, outgoing, incoming } =
@@ -605,10 +658,13 @@ describe("negotiation transaction live-state regressions", () => {
       expect(ufragOf((await offerer.createOffer()).sdp)).toBe(committed);
       assertNegotiationInvariants(offerer);
       await sendAndExpectRtp(outgoing, incoming, "restart-after-rollback");
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "restart-rollback");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("a sender added during a rolled-back offer keeps receiving RTCP after renegotiation", async () => {
     const session = await createDuplexSession();
@@ -640,10 +696,13 @@ describe("negotiation transaction live-state regressions", () => {
         timeout: 2000,
       });
       await expectSessionAlive(session, "late-sender-rtcp");
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(a.pc, b.pc, "late-sender");
     } finally {
       await session.close();
     }
-  });
+  }, 60000);
 
   test("restartIce() while a restart offer is pending also replaces the pending credentials", async () => {
     const { offerer, answerer, outgoing, incoming } =
@@ -672,10 +731,13 @@ describe("negotiation transaction live-state regressions", () => {
 
       // Assert: 呼出し時に pending だった資格情報も置き換え対象なので、要求は残り新しい資格情報を出す。
       expect(ufragOf(retry.sdp)).not.toBe(pending);
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "restart-pending");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("PLI stops at the commit of a re-offer that removes NACK/PLI for the same SSRC", async () => {
     const { offerer, answerer } = await createConnectedVideoPeers();
@@ -704,10 +766,13 @@ describe("negotiation transaction live-state regressions", () => {
       );
       expect(await pliReaches(receiver, sender)).toBe(false);
       assertNegotiationInvariants(answerer);
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "pli-removed");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("PLI starts only at the commit of a re-offer that adds NACK/PLI for the same SSRC", async () => {
     const { offerer, answerer } =
@@ -742,10 +807,13 @@ describe("negotiation transaction live-state regressions", () => {
       // Assert: 確定後は PLI が相手 sender に実際に届く。
       expect(await pliReaches(receiver, sender)).toBe(true);
       assertNegotiationInvariants(answerer);
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "pli-added");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("header extension IDs the answer did not accept stay free for a later offer", async () => {
     // Arrange: remote の audio offer は werift が受理しない extmap を空き ID すべてに載せる
@@ -777,10 +845,13 @@ describe("negotiation transaction live-state regressions", () => {
       // Assert: 受理されなかった ID は使用中ではないので、answer は拒否されず stable になる
       expect(local.signalingState).toBe("stable");
       assertNegotiationInvariants(local);
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(remote, local, "extmap-ids");
     } finally {
       await Promise.allSettled([remote.close(), local.close()]);
     }
-  });
+  }, 60000);
 
   test("a payload type the answer did not accept can carry another codec in a later remote offer", async () => {
     // Arrange: remote の audio offer に werift が受理しない codec を PT 110 で載せ、answer で確定する
@@ -818,10 +889,13 @@ describe("negotiation transaction live-state regressions", () => {
       expect(local.signalingState).toBe("have-remote-offer");
       await local.setLocalDescription(await local.createAnswer());
       assertNegotiationInvariants(local);
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(remote, local, "payload-type");
     } finally {
       await Promise.allSettled([remote.close(), local.close()]);
     }
-  });
+  }, 60000);
 
   test("close() during a pending BUNDLE split stops the transports the proposal prepared", async () => {
     // Arrange: video と audio を BUNDLE で共有する接続済み peer で、audio を分割する offer を適用中にする
@@ -840,13 +914,19 @@ describe("negotiation transaction live-state regressions", () => {
     const held = heldTransports(offerer);
     expect(held.size).toBeGreaterThan(liveBefore);
 
+    // Arrange: close() が検証対象なので、両 peer は継続確認の対象外にする。
+    exemptFromContinuation(
+      [offerer, answerer],
+      "close() is the operation under test",
+    );
+
     // Act: pending のまま close する
     await offerer.close();
     await answerer.close();
 
     // Assert: 分割用に用意した transport も含め、すべての DTLS / ICE が閉じる
     assertTransportsClosed(held);
-  });
+  }, 60000);
 
   test("close() after a provisional split connection stops both peers' pending transports", async () => {
     // Arrange: audio を分割する re-offer に pranswer を返し、分割先の transport で暫定接続する
@@ -868,13 +948,19 @@ describe("negotiation transaction live-state regressions", () => {
     const held = [...heldTransports(offerer), ...heldTransports(answerer)];
     await Promise.all(held.map((transport) => waitForDtlsConnected(transport)));
 
+    // Arrange: close() が検証対象なので、両 peer は継続確認の対象外にする。
+    exemptFromContinuation(
+      [offerer, answerer],
+      "close() is the operation under test",
+    );
+
     // Act: 両 peer を pending のまま close する
     await offerer.close();
     await answerer.close();
 
     // Assert: 暫定接続した transport も含め、ICE / DTLS が動き続けない
     assertTransportsClosed(held);
-  });
+  }, 60000);
 
   test("an ICE restart commit does not wait for an unreachable STUN server", async () => {
     // Arrange: 到達できない STUN server を設定した接続済み peer (初回の gather は 1 秒で打ち切る)
@@ -900,10 +986,13 @@ describe("negotiation transaction live-state regressions", () => {
       expect(Math.max(answerElapsed, commitElapsed)).toBeLessThan(500);
       await waitForCommittedNomination(offerer);
       await sendAndExpectRtp(outgoing, incoming, "after restart commit");
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "stun-unreachable");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("restartIce() beside a new m-line with bundlePolicy disable offers the new transport's gathered candidates", async () => {
     // Arrange: BUNDLE しない接続済み peer
@@ -926,10 +1015,13 @@ describe("negotiation transaction live-state regressions", () => {
       await offerer.setRemoteDescription(answerer.localDescription!);
       await waitForDtlsConnected(video.dtlsTransport);
       assertNegotiationInvariants(offerer);
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "bundle-disable");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("a re-answer with a=setup:actpass keeps the DTLS role of the live association", async () => {
     // Arrange: 接続済みの peer (answerer は active で答え、offerer は server になる)
@@ -958,10 +1050,13 @@ describe("negotiation transaction live-state regressions", () => {
       // Assert: 拒否されず、確立済み association の role は変わらない
       expect(offerer.signalingState).toBe("stable");
       expect(transport.role).toBe(role);
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "actpass");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("close() while an ICE restart answer commits keeps the state closed", async () => {
     // Arrange: ICE restart の answer を適用する直前まで交渉する
@@ -971,6 +1066,12 @@ describe("negotiation transaction live-state regressions", () => {
       await offerer.setLocalDescription(await offerer.createOffer());
       await answerer.setRemoteDescription(offerer.localDescription!);
       await answerer.setLocalDescription(await answerer.createAnswer());
+
+      // Arrange: close() が検証対象なので、両 peer は継続確認の対象外にする。
+      exemptFromContinuation(
+        [offerer, answerer],
+        "close() is the operation under test",
+      );
 
       // Act: answer の適用 (restart の commit) の途中で close する
       const gather = holdNextGather(offerer);
@@ -987,7 +1088,7 @@ describe("negotiation transaction live-state regressions", () => {
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("a remote re-offer committed by the local answer switches the receive tables and the remote track codec", async () => {
     // Arrange: current は VP8、offerer が H264 だけの re-offer を出し answerer が適用済み (preference の変更なし)
@@ -1006,10 +1107,13 @@ describe("negotiation transaction live-state regressions", () => {
       expect(incoming.codec?.mimeType.toLowerCase()).toBe("video/h264");
       assertNegotiationInvariants(answerer);
       await sendAndExpectRtp(outgoing, incoming, "after H264 commit");
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "h264-reoffer");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("codec preferences resolved by createAnswer apply to live receive tables only at the answer commit", async () => {
     const { offerer, answerer, outgoing, incoming } =
@@ -1048,10 +1152,13 @@ describe("negotiation transaction live-state regressions", () => {
       expect(codecs.map((codec) => codec.name.toUpperCase())).toEqual(["H264"]);
       assertNegotiationInvariants(answerer);
       assertNegotiationInvariants(offerer);
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "answer-preferences");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("an answer applied during the DTLS handshake keeps the connected ICE state", async () => {
     const { offerer, answerer, outgoing, incoming, close } =
@@ -1088,10 +1195,13 @@ describe("negotiation transaction live-state regressions", () => {
       expect(offerer.iceConnectionState).toBe("connected");
       expect(offerer.connectionState).toBe("connected");
       await sendAndExpectRtp(outgoing, await incoming(), "after handshake");
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "dtls-handshake");
     } finally {
       await close();
     }
-  });
+  }, 60000);
 
   test("an answer without an ICE restart leaves a failed ICE generation failed", async () => {
     const { offerer, answerer } = await createConnectedVideoPeers();
@@ -1110,10 +1220,13 @@ describe("negotiation transaction live-state regressions", () => {
       expect(iceStates).not.toContain("checking");
       expect(offerer.iceConnectionState).toBe("failed");
       expect(offerer.connectionState).not.toBe("connected");
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "failed-generation");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("an ICE restart keeps the configured icePasswordPrefix", async () => {
     // Arrange: icePasswordPrefix を設定して接続済みの peer を用意する
@@ -1132,10 +1245,13 @@ describe("negotiation transaction live-state regressions", () => {
       expect(password).not.toBe(
         offerer.currentLocalDescription!.sdp.match(/^a=ice-pwd:(\S+)/m)![1],
       );
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "password-prefix");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("the local answer lists codecs in the answerer's preference order", async () => {
     // Arrange: offerer は H264 → VP8、answerer は VP8 → H264 の順で設定する。
@@ -1155,10 +1271,13 @@ describe("negotiation transaction live-state regressions", () => {
 
       // Assert: answer の codec 順は remote offer ではなく answerer の設定順になる。
       expect(offeredVideoCodecs(answer.sdp)).toEqual(["VP8", "H264"]);
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "answer-order");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("a codec the local answer dropped leaves the receive table even when the re-offer staged it", async () => {
     const { offerer, answerer, outgoing, incoming } =
@@ -1190,10 +1309,13 @@ describe("negotiation transaction live-state regressions", () => {
       assertNegotiationInvariants(answerer);
       assertNegotiationInvariants(offerer);
       await sendAndExpectRtp(outgoing, incoming, "after H264-only answer");
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "dropped-codec");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("end-of-candidates trickled on a non-tag BUNDLE m-line completes the restarted generation", async () => {
     const { offerer, answerer } = await createConnectedVideoPeers(
@@ -1234,10 +1356,13 @@ describe("negotiation transaction live-state regressions", () => {
         current.match(/^m=/gm)!.length,
       );
       assertNegotiationInvariants(answerer);
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "non-tag-eoc");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("a final answer cannot reverse the DTLS role a first pranswer connected with", async () => {
     const { offerer, answerer, pranswer, close } =
@@ -1265,10 +1390,13 @@ describe("negotiation transaction live-state regressions", () => {
       // Assert: 再交渉も成功し、role は維持される。
       expect(offerer.signalingState).toBe("stable");
       expect(transport.role).toBe(role);
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "pranswer-role");
     } finally {
       await close();
     }
-  });
+  }, 60000);
 
   test("rolling back a first pranswer connection resets the public connection states", async () => {
     const { offerer, answerer, close } =
@@ -1290,13 +1418,16 @@ describe("negotiation transaction live-state regressions", () => {
         expect(pc.connectionState).toBe("new");
         expect(pc.iceConnectionState).toBe("new");
       }
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "pranswer-rollback");
     } finally {
       await close();
     }
-  });
+  }, 60000);
 
   test("a remote-created transceiver the application keeps returns to its created state on rollback", async () => {
-    const { answerer, remoteCreated, close } =
+    const { offerer, answerer, remoteCreated, close } =
       await createInitialPranswerConnection();
     try {
       // Arrange: pranswer で remote 起因の transceiver に direction が確定している。
@@ -1309,10 +1440,13 @@ describe("negotiation transaction live-state regressions", () => {
       expect(answerer.getTransceivers()).toContain(remoteCreated);
       expect(remoteCreated.mid).toBeNull();
       expect(remoteCreated.currentDirection).toBeNull();
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "remote-created");
     } finally {
       await close();
     }
-  });
+  }, 60000);
 
   test("a saved answer commits its own codecs after an unapplied createOffer() resolved others", async () => {
     const {
@@ -1363,10 +1497,16 @@ describe("negotiation transaction live-state regressions", () => {
       expect(offeredVideoCodecs((await answerer.createOffer()).sdp)).toEqual([
         "H264",
       ]);
+
+      // Arrange: answerer の codec の選択を既定に戻す (H264 だけの選択は VP8 しか
+      // 持たない offerer の次の offer と両立しない。develop と同じく sRD が失敗する)。
+      answererTransceiver.setCodecPreferences([]);
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "saved-answer");
     } finally {
       await close();
     }
-  });
+  }, 60000);
 
   test("a first pranswer sends and receives with the codecs it answered", async () => {
     const {
@@ -1418,10 +1558,13 @@ describe("negotiation transaction live-state regressions", () => {
         offererTransceiver.receiver.track,
         "answer b-to-a",
       );
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "first-pranswer");
     } finally {
       await close();
     }
-  });
+  }, 60000);
 
   test("an ICE restart answer saved before createAnswer() ran again can still be applied", async () => {
     const { offerer, answerer, outgoing, incoming } =
@@ -1454,10 +1597,13 @@ describe("negotiation transaction live-state regressions", () => {
       assertNegotiationInvariants(answerer);
       assertNegotiationInvariants(offerer);
       await sendAndExpectRtp(outgoing, incoming, "saved restart answer");
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "saved-restart-answer");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test.each([
     {
@@ -1502,10 +1648,18 @@ describe("negotiation transaction live-state regressions", () => {
         assertNegotiationInvariants(answerer);
         assertNegotiationInvariants(offerer);
         await sendAndExpectRtp(outgoing, incoming, "saved answer after offer");
+
+        // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+        await expectSessionContinues(
+          offerer,
+          answerer,
+          "saved-answer-after-offer",
+        );
       } finally {
         await Promise.allSettled([offerer.close(), answerer.close()]);
       }
     },
+    60000,
   );
 
   test("an offer created while a remote offer is pending keeps the MIDs and m-line positions it associated", async () => {
@@ -1531,10 +1685,13 @@ describe("negotiation transaction live-state regressions", () => {
       expect(audio.mLineIndex).toBeUndefined();
       assertNegotiationInvariants(answerer);
       await sendAndExpectRtp(outgoing, incoming, "after unapplied offer");
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "offer-while-pending");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("an offer created while a remote offer was pending can be applied after stable and negotiates its new audio", async () => {
     const { offerer, answerer } = await createConnectedVideoPeers();
@@ -1572,10 +1729,13 @@ describe("negotiation transaction live-state regressions", () => {
         received.receiver.track,
         "audio from saved offer",
       );
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "saved-offer");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("re-applying the same offer after its rollback negotiates the new audio it carries", async () => {
     const { offerer, answerer } = await createConnectedVideoPeers();
@@ -1607,10 +1767,13 @@ describe("negotiation transaction live-state regressions", () => {
         received.receiver.track,
         "audio re-applied offer",
       );
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "reapplied-offer");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test.each([
     { label: "video only", withAudio: false },
@@ -1661,10 +1824,14 @@ describe("negotiation transaction live-state regressions", () => {
             "audio after re-applied restart",
           );
         }
+
+        // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+        await expectSessionContinues(offerer, answerer, "reapplied-restart");
       } finally {
         await Promise.allSettled([offerer.close(), answerer.close()]);
       }
     },
+    60000,
   );
 
   test("a saved restart offer re-applied after the peer committed another restart still restarts to its generation", async () => {
@@ -1720,10 +1887,17 @@ describe("negotiation transaction live-state regressions", () => {
         received.receiver.track,
         "audio after re-applied offer",
       );
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(
+        offerer,
+        answerer,
+        "reapplied-after-peer-restart",
+      );
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("a re-applied restart offer that fails to parse leaves no staged credentials", async () => {
     const { offerer, answerer, outgoing, incoming } =
@@ -1761,10 +1935,13 @@ describe("negotiation transaction live-state regressions", () => {
       expect(before.current).toContain(`a=ice-ufrag:${before.ufrag}`);
       assertNegotiationInvariants(offerer);
       await sendAndExpectRtp(outgoing, incoming, "after rejected re-apply");
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "rejected-reapply");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("a remote answer that answers only the leading m-lines of the offer is accepted and rejects the rest", async () => {
     const { offerer, answerer, outgoing, incoming } =
@@ -1784,10 +1961,13 @@ describe("negotiation transaction live-state regressions", () => {
       expect(added.stopped).toBe(true);
       assertNegotiationInvariants(offerer);
       await sendAndExpectRtp(outgoing, incoming, "after a shorter answer");
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "shorter-answer");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("a first offer with a DataChannel re-applied after its rollback opens the channel", async () => {
     const { offerer, answerer, close } = createUnnegotiatedPeers();
@@ -1821,10 +2001,13 @@ describe("negotiation transaction live-state regressions", () => {
       channel.send(Buffer.from("hello"));
       await message;
       assertNegotiationInvariants(offerer);
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "reapplied-datachannel");
     } finally {
       await close();
     }
-  });
+  }, 60000);
 
   test("an answer created again after an unapplied restart offer keeps the saved answer's generation", async () => {
     const { offerer, answerer, outgoing, incoming } =
@@ -1861,10 +2044,13 @@ describe("negotiation transaction live-state regressions", () => {
         incoming,
         "saved answer after offer and regeneration",
       );
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "regenerated-answer");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("a max-compat first offer connects to a peer that answers without BUNDLE", async () => {
     // Arrange: 既定 (max-compat) の offerer と、BUNDLE を使わず m-line ごとに独立した
@@ -1895,10 +2081,13 @@ describe("negotiation transaction live-state regressions", () => {
       await sendAndExpectRtp(videoOut, received("video"), "non-bundle video");
       assertNegotiationInvariants(offerer);
       assertNegotiationInvariants(answerer);
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "non-bundle-answerer");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("the latest restart offer, committed once, applies again after the peer committed another restart", async () => {
     const { offerer, answerer, outgoing, incoming } =
@@ -1935,10 +2124,13 @@ describe("negotiation transaction live-state regressions", () => {
       assertNegotiationInvariants(offerer);
       assertNegotiationInvariants(answerer);
       await sendAndExpectRtp(outgoing, incoming, "latest offer applied again");
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "latest-offer-again");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("a candidate on the tag m-line after end-of-candidates on a non-tag member of a pending restart is ignored", async () => {
     const { offerer, answerer, outgoing, incoming } =
@@ -1983,10 +2175,13 @@ describe("negotiation transaction live-state regressions", () => {
       expect(answerer.currentRemoteDescription!.sdp).not.toContain(" 49999 ");
       assertNegotiationInvariants(answerer);
       await sendAndExpectRtp(outgoing, incoming, "after ignored candidate");
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "ignored-candidate");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test("close() while createAnswer() prepares the transports of a BUNDLE split leaves none running", async () => {
     const { offerer, answerer, close } =
@@ -2006,6 +2201,12 @@ describe("negotiation transaction live-state regressions", () => {
       await answerer.setRemoteDescription(offerer.localDescription!);
       hook = closeDuringNextPreparedGather(answerer);
 
+      // Arrange: close() が検証対象なので、両 peer は継続確認の対象外にする。
+      exemptFromContinuation(
+        [offerer, answerer],
+        "close() is the operation under test",
+      );
+
       // Act: createAnswer の transport 準備 (最初の gather) の途中で close する。
       await expect(answerer.createAnswer()).rejects.toMatchObject({
         name: "InvalidStateError",
@@ -2023,7 +2224,7 @@ describe("negotiation transaction live-state regressions", () => {
       hook?.restore();
       await close();
     }
-  });
+  }, 60000);
 
   test("end-of-candidates on a pending restart reaches its BUNDLE group but not an m-line the offer splits off", async () => {
     const { offerer, answerer } = await createConnectedVideoPeers(
@@ -2069,14 +2270,19 @@ describe("negotiation transaction live-state regressions", () => {
       expect(sectionOf(pending, video)).toContain("a=end-of-candidates");
       expect(sectionOf(pending, audio)).not.toContain("a=end-of-candidates");
       expect(sectionOf(pending, audio)).toContain(" 49998 typ host");
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "split-eoc");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 });
 
 /** Findings of the peer-diversity SDP mutations (negotiationTransactionMutation). */
 describe("negotiation transaction mutation regressions", () => {
+  enforceSessionContinuation();
+
   test("an answer declining BUNDLE onto the same transport keeps the ended generation complete", async () => {
     // Arrange: 確立済み session (EOC 済み) で re-offer を両側に置く。
     const session = await createMutationSession("renegotiation");
@@ -2098,10 +2304,13 @@ describe("negotiation transaction mutation regressions", () => {
       expect(sectionOf(current, "0")).toContain("a=end-of-candidates");
       expect(sectionOf(current, "1")).toContain("a=end-of-candidates");
       assertNegotiationInvariants(a.pc);
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(a.pc, b.pc, "declined-bundle");
     } finally {
       await session.close();
     }
-  });
+  }, 60000);
 
   test("new remote credentials in an answer keep the local credentials the offer described", async () => {
     // Arrange: 確立済み session で re-offer を両側に置く。
@@ -2129,10 +2338,13 @@ describe("negotiation transaction mutation regressions", () => {
       expect(connection.remoteUsername).toBe("mutd");
       expect(connection.localUsername).toBe(offered);
       assertNegotiationInvariants(a.pc);
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(a.pc, b.pc, "new-credentials");
     } finally {
       await session.close();
     }
-  });
+  }, 60000);
 
   test("a rejected m-line does not turn a credential change into a renomination", async () => {
     // Arrange: video を拒否し application に新しい資格情報を持たせた offer を b に届ける。
@@ -2164,8 +2376,11 @@ describe("negotiation transaction mutation regressions", () => {
         );
       }
       assertNegotiationInvariants(a.pc);
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(a.pc, b.pc, "rejected-mline");
     } finally {
       await session.close();
     }
-  });
+  }, 60000);
 });

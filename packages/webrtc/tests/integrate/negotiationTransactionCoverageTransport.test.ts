@@ -18,8 +18,11 @@ import {
   createInitialPranswerConnectionWithOffer,
   createMutationSession,
   createRewrittenOffer,
+  enforceSessionContinuation,
+  exemptFromContinuation,
   expectMediaAlive,
   expectSessionAlive,
+  expectSessionContinues,
   heldTransports,
   holdNewDtlsStart,
   leaveBundle,
@@ -73,6 +76,7 @@ const ssrcTable = (pc: RTCPeerConnection) =>
  * The requirement ID leads each test name.
  */
 describe("negotiation transaction spec coverage: transport", () => {
+  enforceSessionContinuation();
   let session: DuplexSession | undefined;
   const cleanups: (() => Promise<unknown>)[] = [];
 
@@ -155,6 +159,8 @@ describe("negotiation transaction spec coverage: transport", () => {
       "replacement-pranswer-audio",
     );
     await expectSessionAlive(session, "replacement-pranswer-dtls");
+    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+    await expectSessionContinues(a.pc, b.pc, "replacement-pranswer-dtls");
   });
 
   test("[2.2-8] a replacement pranswer that adds BUNDLE detaches the transports a no-BUNDLE pranswer used and stops their checks", async () => {
@@ -210,9 +216,11 @@ describe("negotiation transaction spec coverage: transport", () => {
     );
     // Assert: 確定後も同じ topology で通じる。
     await expectSessionAlive(session, "replacement-pranswer-bundle-final");
+    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+    await expectSessionContinues(a.pc, b.pc, "replacement-pranswer-bundle");
   });
 
-  test("[2.2-13] a final answer that rejects the application m-line closes the SCTP association a first pranswer opened", async () => {
+  test("[2.2-13] a final answer that rejects the application m-line keeps the SCTP association a first pranswer opened, as develop does", async () => {
     // Arrange: 初回交渉の pranswer で SCTP association と DataChannel を開く。
     session = await createMutationSession("initial");
     const { a, b } = session;
@@ -245,19 +253,22 @@ describe("negotiation transaction spec coverage: transport", () => {
     await a.pc.setRemoteDescription({ type: "answer", sdp: rejected });
     assertNegotiationInvariants(a.pc);
 
-    // Assert: provisional SCTP association と DataChannel が閉じ、sctpTransport は残らない。
-    await waitUntil(
-      () => a.channel.readyState === "closed",
-      "provisional DataChannel did not close",
-    );
-    expect(provisional.sctp.associationState).toBe(SCTP_STATE.CLOSED);
-    expect(a.pc.sctpTransport).toBeUndefined();
+    // Assert: develop と同じく SCTP transport と DataChannel は閉じず、同じ MID に束縛されたまま。
+    expect(a.pc.sctpTransport).toBe(provisional);
+    expect(provisional.mid).toBe(APPLICATION);
+    expect(provisional.sctp.associationState).toBe(SCTP_STATE.ESTABLISHED);
+    expect(a.channel.readyState).toBe("open");
     // Assert: 受理された video は確定した transport で届き続ける。
     await sendAndExpectRtp(
       a.out,
       b.video.receiver.track,
       "video-after-sctp-reject",
     );
+    // Assert: 次の offer は同じ MID の application を再提案し、その後も通信できる。
+    expect(sectionOf((await a.pc.createOffer()).sdp, APPLICATION)).toMatch(
+      /^m=application [1-9]/,
+    );
+    await expectSessionContinues(a.pc, b.pc, "after-sctp-reject");
   });
 
   test("[2.2-13] the candidates of a pranswer generation the final answer replaced leave the live checklist", async () => {
@@ -316,6 +327,8 @@ describe("negotiation transaction spec coverage: transport", () => {
     expect(a.pc.currentRemoteDescription!.sdp).not.toContain(" 50991 ");
     await waitForMutationSession(session);
     await expectMediaAlive(session, "pranswer-candidate-released");
+    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+    await expectSessionContinues(a.pc, b.pc, "pranswer-candidate-released");
   });
 
   test("[2.2-16] rollback stops the RTP a renegotiation pranswer started and keeps the current stream", async () => {
@@ -357,6 +370,8 @@ describe("negotiation transaction spec coverage: transport", () => {
     expect(ssrcTable(b.pc)[audioSsrc]).toBeUndefined();
     // Assert: 旧 current の video と DataChannel は双方向に届き続ける。
     await expectSessionAlive(session, "pranswer-rollback-current");
+    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+    await expectSessionContinues(a.pc, b.pc, "pranswer-rollback");
   });
 
   test("[2.2-19] a stable session after the final answer cannot be rolled back", async () => {
@@ -393,11 +408,19 @@ describe("negotiation transaction spec coverage: transport", () => {
       transports,
     );
     await expectSessionAlive(session, "stable-rollback-rejected");
+    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+    await expectSessionContinues(a.pc, b.pc, "stable-rollback-rejected");
   });
 
   test("[2.8-18] close() while a local offer stages the transports of a BUNDLE split leaves none running", async () => {
-    const { offerer, close } = await createConnectedMultiVideoPeers(3);
+    const { offerer, answerer, close } =
+      await createConnectedMultiVideoPeers(3);
     cleanups.push(close);
+    // close() する offerer とその相手は継続確認の対象外。
+    exemptFromContinuation(
+      [offerer, answerer],
+      "close() is the operation under test",
+    );
     // Arrange: 3 m-line の BUNDLE から 2 つを外す (owner transport を 2 つ stage させる) local offer を用意する。
     const [first] = offerer.getTransceivers().map((t) => t.mid!);
     const split = await createRewrittenOffer(offerer, (sdp) =>
@@ -428,6 +451,8 @@ describe("negotiation transaction spec coverage: transport", () => {
     // Arrange: #142 の fixture を、BUNDLE も answer 側の独自 MID で書いた版にする。
     const pc = new RTCPeerConnection();
     cleanups.push(() => pc.close());
+    // 手書きの remote answer とだけ交渉するので継続確認の対象外。
+    exemptFromContinuation(pc, "no real remote peer");
     pc.addTrack(new MediaStreamTrack({ kind: "audio" }));
     pc.addTrack(new MediaStreamTrack({ kind: "video" }));
     pc.createDataChannel("dc");
@@ -526,6 +551,12 @@ describe("negotiation transaction spec coverage: transport", () => {
         answerer.getTransceivers().find((t) => t.mid === mid)!.receiver.track;
       await sendAndExpectRtp(audioOut, received(audio.mid!), "bundled-audio");
       await sendAndExpectRtp(videoOut, received(video.mid!), "bundled-video");
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(
+        offerer,
+        answerer,
+        `first-offer-${bundlePolicy}`,
+      );
     },
   );
 
@@ -533,6 +564,8 @@ describe("negotiation transaction spec coverage: transport", () => {
     // Arrange: max-bundle の初回 offerer (audio + video + DataChannel)。
     const pc = new RTCPeerConnection({ bundlePolicy: "max-bundle" });
     cleanups.push(() => pc.close());
+    // local offer だけで相手の peer がないので継続確認の対象外。
+    exemptFromContinuation(pc, "no real remote peer");
     const audio = pc.addTransceiver("audio", { direction: "sendonly" });
     const video = pc.addTransceiver("video", { direction: "sendonly" });
     pc.createDataChannel("dc");
@@ -555,7 +588,7 @@ describe("negotiation transaction spec coverage: transport", () => {
   test("[2.8-43] an m-line added to a session whose peer accepted BUNDLE shares the tag's transport at the offer", async () => {
     // Arrange: BUNDLE を受理済みの session に audio を追加する。
     session = await createDuplexSession();
-    const { a } = session;
+    const { a, b } = session;
     const audio = a.pc.addTransceiver("audio", { direction: "sendonly" });
 
     // Act: offer を作って適用する。
@@ -570,6 +603,8 @@ describe("negotiation transaction spec coverage: transport", () => {
     );
     expect(audio.dtlsTransport).toBe(a.video.dtlsTransport);
     expect(heldTransports(a.pc)).toEqual(new Set([a.video.dtlsTransport]));
+    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+    await expectSessionContinues(a.pc, b.pc, "bundled-added-mline");
   });
 
   test("[2.8-47] an actpass answer makes a new association the DTLS client", async () => {
@@ -594,6 +629,8 @@ describe("negotiation transaction spec coverage: transport", () => {
       a.pc.dtlsTransports.map(() => "client"),
     );
     assertNegotiationInvariants(a.pc);
+    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+    await expectSessionContinues(a.pc, b.pc, "actpass-answer");
   });
 
   test("[2.9-T8] the same offer replaces a pranswer a first negotiation connected and the final answer reconnects", async () => {
@@ -628,12 +665,20 @@ describe("negotiation transaction spec coverage: transport", () => {
       received.receiver.track,
       "same-offer-after-first-pranswer",
     );
+    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+    await expectSessionContinues(
+      offerer,
+      answerer,
+      "same-offer-first-pranswer",
+    );
   });
 
   test("[5-11] staged topology, candidate delivery, DTLS role and the answer's tags apply to the second BUNDLE group", async () => {
     // Arrange: [0,1] と [2,3] の 2 つの BUNDLE group を確立した answerer。
     const pc = createAudioOnlyPeer();
     cleanups.push(() => pc.close());
+    // 手書きの remote offer とだけ交渉するので継続確認の対象外。
+    exemptFromContinuation(pc, "no real remote peer");
     const sections = (mid3Ufrag: string) => [
       { kind: "audio" as const, mid: "0" },
       { kind: "audio" as const, mid: "1" },
@@ -724,6 +769,7 @@ describe.each([
 ] as const)(
   "negotiation transaction spec coverage: transport (offerer=%s)",
   (from, to) => {
+    enforceSessionContinuation();
     let session: DuplexSession;
     const offerer = (): Peer => session.peers[from];
     const answerer = (): Peer => session.peers[to];
@@ -778,6 +824,12 @@ describe.each([
       // Assert: role は保たれ、確定後も通信できる。
       expect(dtls.role).toBe(role);
       await expectSessionAlive(session, "local-pranswer-setup-final");
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(
+        offerer().pc,
+        answerer().pc,
+        "local-pranswer-setup-final",
+      );
     });
 
     test("[2.5-T3] an answer to an m-line outside the BUNDLE group offered with a=setup:active is passive", async () => {
@@ -845,6 +897,12 @@ describe.each([
         "outside-audio",
       );
       await expectSessionAlive(session, "outside-setup-active");
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(
+        offerer().pc,
+        answerer().pc,
+        "outside-setup-active",
+      );
     });
 
     test("[2.9-T8] the same offer replaces a renegotiation pranswer in have-remote-pranswer", async () => {
@@ -892,6 +950,12 @@ describe.each([
       // Assert: 双方 stable で双方向に通信できる。
       expect(offerer().pc.signalingState).toBe("stable");
       await expectSessionAlive(session, "same-offer-final");
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(
+        offerer().pc,
+        answerer().pc,
+        "same-offer-final",
+      );
     });
 
     test("[5-2] an m-line without a common codec, its port 0 answer and duplicate applications keep the invariants", async () => {
@@ -953,6 +1017,12 @@ describe.each([
       expect(offerer().video.stopped).toBe(false);
       expect(answerer().video.stopped).toBe(false);
       await expectSessionAlive(session, "unsupported-committed");
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(
+        offerer().pc,
+        answerer().pc,
+        "unsupported-committed",
+      );
     });
   },
 );

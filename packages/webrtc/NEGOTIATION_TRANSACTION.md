@@ -531,13 +531,16 @@ by the helper functions listed.
 ## Peer-diversity mutations
 
 `tools/negotiation-diff/mutations.ts` rewrites a werift description the way
-other peers differ: no BUNDLE, one group per m-line, ICE-lite, separate
-credentials for a split m-line, reversed or `actpass` DTLS setup,
+other peers differ. Session-level and codec mutations are listed by hand: no
+BUNDLE, one group per m-line, ICE-lite, reversed or `actpass` DTLS setup,
 max-message-size, sctp-port, no NACK / PLI, a changed fmtp, a codec subset or
-reorder, a rejected (port 0) m-line, an inactive m-line, a renamed MID
-(#142), swapped extmap IDs, other SSRCs, and no end-of-candidates. The
-mutations are pure string rewrites, so the same library drives the tests and
-the develop differential runner.
+reorder, a renamed MID (#142), swapped extmap IDs, other SSRCs, and no
+end-of-candidates. Per-kind mutations are generated from a table of kinds
+(audio, video, application) and attributes (port 0 and out of BUNDLE,
+inactive, out of BUNDLE, own ICE credentials), so every kind gets every
+attribute that applies to it (`applicationRejected`, `audioInactive`, ...).
+The mutations are pure string rewrites, so the same library drives the tests
+and the develop differential runner.
 
 `negotiationTransactionMutation.test.ts` applies them on the wire to the
 offer, the pranswer (followed by a clean final answer) or the answer, in a
@@ -549,7 +552,11 @@ close() leaves no transport running. A mutation marked `misdescribesPeer`
 describes something the real peer on the other end does not do (its BUNDLE,
 ICE, setup, port, MID, SSRC, extension IDs or acceptance of an m-line), so
 connectivity after accepting it is not expected; acceptance or atomic
-rejection still is. By default each mutation runs alone;
+rejection still is. A rejected or inactive m-line is a state either peer can
+offer from, so those mutations are also marked `renegotiates`: the clean
+renegotiation after them must succeed, and the case ends with
+`expectSessionContinues`. The mutation session carries audio, video and a
+DataChannel, so every per-kind mutation applies. By default each mutation runs alone;
 `WERIFT_NEGOTIATION_MUTATION=pairwise` runs every pair and
 `=random:<count>:<seed>` random combinations of up to three. `run.ts
 --mutate <p>` rewrites delivered descriptions with probability `p`, so
@@ -581,9 +588,13 @@ Each has a test that fails without it.
   answer; it never detours over its own prepared transport, which would
   replace an association a first pranswer established.
 - A stopped SCTP transport delivers no DCEP a queued callback still carries.
-- A committed answer that rejects the application m-line closes the SCTP
-  transport and its channels (`sctpTransport` becomes undefined, W3C) and stops
-  the transport when nothing else uses it.
+- A rejected application m-line (port 0 in an answer, a pranswer or the
+  peer's offer) does not close anything, as in develop: the SCTP transport
+  stays bound to its MID and the next offer offers the application again
+  with that MID. At the commit the SCTP transport is not moved to a transport
+  the answer did not negotiate for it. (An earlier rule closed it and removed
+  `sctpTransport`; the next `createOffer()` then failed. See "Rejected
+  application m-lines".)
 - After a replacement pranswer, a proposal transport no m-line uses any more
   stops the checks the earlier pranswer started and keeps its local
   generation for the final answer.
@@ -611,12 +622,31 @@ signaling state: each SSRC, RTX pair and MID+RID of the current remote SDP
 resolves to the current receiver (with its track), no extmap ID the router
 knows contradicts the current SDP, and no staged route survives in `stable`.
 
+### Continuation after every test
+
+`expectSessionContinues(a, b)` checks that a session is still usable after
+the operations of a test, not only right after them: from `stable` (a pending
+description is rolled back, a pranswer is finished with its final answer) it
+negotiates a plain offer from `a`, an ICE restart offer from `a`, an offer
+from `a` that adds a DataChannel and a transceiver, and an offer from `b`,
+with the invariants after every step, then checks data and RTP both ways on
+the added DataChannel and transceiver. `enforceSessionContinuation()` fails a
+test in which a peer applied a local description but never reached the
+helper, unless the test exempted it with a reason
+(`exemptFromContinuation`: `close()` is the operation under test, a single
+peer negotiated against hand-built SDP, or a mutation that misdescribes the
+real peer). The coverage tests, the regression tests, the mutation test and
+the rejected-application test enforce it.
+
 `negotiationTransactionProperty.test.ts` is a seeded property test. Each step
 is a random negotiation episode (offer / pranswer / answer / rollback /
 replacement, ICE restart, new audio m-line, audio BUNDLE split/merge,
 end-of-candidates) or a remote-only routing-key mutation (RTX pairing, extmap
 URI moved to a new ID, which then rolls back, or an extmap ID remap, which must
-be rejected without state change). The helper runs after every operation and
+be rejected without state change). From their own random stream (so the
+operations of existing seeds do not change), episodes also let the remote
+peer reject an application, audio or video (added) m-line in the offer it
+sends or in the answer it applies itself. The helper runs after every operation and
 real RTP (video, audio) and DataChannel traffic is checked after every step.
 `negotiationTransactionRouting.test.ts` covers each routing key,
 `negotiationTransactionRegression.test.ts` turns what the property test and
@@ -741,6 +771,66 @@ Other rules of the transaction:
 - Negotiation state types and helpers live in `src/negotiation/internalState.ts`
   and are not exported by the package.
 
+## Rejected application m-lines
+
+The position of the application m-line (MID, index, rejected or not) is
+recorded by the current description, not by the SCTP transport object, so it
+outlives the transport:
+
+- `createOffer` keeps an application m-line of the current description that
+  has no SCTP transport as a rejected (port 0) m-line with the same MID. An
+  SCTP transport bound to that MID offers it again (port 9, as in develop).
+  An unbound SCTP transport (`createDataChannel` on a peer that has none)
+  takes a rejected position with a new MID, like a transceiver reusing a
+  stopped position of its kind; on a position no side rejected it takes that
+  MID.
+- Rejection never closes the SCTP transport, whichever way it arrives (the
+  peer's answer, the peer's offer, a pranswer and its final answer, initial
+  or renegotiation), and the commit does not move it to a transport the
+  answer did not negotiate for it.
+- An answer to an offer whose application m-line has port 0 has port 0 (RFC
+  3264 section 6), also without an SCTP transport.
+- An offer that reuses the rejected application position with a new MID
+  moves the SCTP transport to that MID (restored by rollback). A position
+  with port 0 in either current description may take a new MID in the next
+  offer or answer (audio and video too).
+- An SCTP transport that joins an already connected DTLS transport (the first
+  application m-line of a renegotiation) starts its association there; the
+  channel IDs follow the DTLS start's ICE role even if the peer's INIT
+  established the association first.
+- Rolling back a remote offer stops the DTLS transport the offer's SCTP
+  transport ran on unless something else uses it.
+
+`negotiationTransactionApplicationRejection.test.ts` runs every rejection
+path (initial / renegotiation x the peer's answer / the peer's offer / a
+pranswer then rollback / a pranswer then the final answer) followed by
+`createOffer`, an ICE restart, a new DataChannel and transceiver, an offer
+from the peer and real traffic, and the late DataChannel of a peer without an
+SCTP transport.
+
+## Behavior differences from develop
+
+Every rule of 2.6 to 2.10 that makes werift behave differently from
+`develop`, whether the core invariant (a pending description never breaks
+the current session) or W3C / RFC needs it, and what was done. New fixes add
+no behavior difference unless they pass `expectSessionContinues`.
+
+| Rule | develop | Needed for | Decision |
+| --- | --- | --- | --- |
+| A rejected application m-line closes SCTP and removes `sctpTransport` (2.10) | keeps SCTP, offers it again | nothing in the core invariant (W3C only) | back to develop |
+| ICE restart staged until the answer, provisional generation (2.2, 2.7, 2.8) | `createOffer` restarts ICE | core: a pending offer must not change the current ICE generation | kept |
+| Pranswer effective values: send codec, direction, max-message-size (2.10) | pranswer barely applied | pranswer contract (2.2), W3C max-message-size | kept |
+| Reject a remap of an extmap ID in use, a role / fingerprint change of a connected DTLS association, a port change or move of a connected SCTP association (2.4, 2.8, 2.10) | no such check (whether it then breaks was not measured in this round) | core | kept |
+| Reject a new MID on the m-line of a transceiver that is not stopped (2.10) | no such check (not measured in this round) | core | kept |
+| Validation of MIDs, BUNDLE groups, SCTP port, codecs before any mutation (2.1) | these errors do not exist in develop | W3C `setRemoteDescription` / `setLocalDescription` and atomic rejection | kept |
+| Last created offer / answer reuse contract (2.9) | offers matched loosely | W3C `[[LastCreatedOffer]]`; develop differences kept at 0 by the differential runner | kept |
+| #142 first-answer MID alignment (2.8) | accepted | develop compatibility | kept (same result as develop) |
+| max-compat BUNDLE stays a proposal until accepted (2.8) | shared at the offer | interop with non-BUNDLE peers (RFC 8843 section 7.2) | kept |
+| New remote credentials in an answer restart the remote generation (2.10) | not measured | interop (Chrome behaves the same) | kept |
+| Answer port 0 to a rejected application offer (2.11) | port 9 without `a=sctp-port` | RFC 3264; HEAD validates `a=sctp-port` | added, passes the helper |
+| SCTP starts on an already connected DTLS transport (2.11) | DataChannel never opens | makes a develop failure work | added, passes the helper |
+| SCTP side from the ICE role at the DTLS start (2.11) | ICE role at the SCTP start | consistent sides when SCTP starts late | added, same side as develop in a normal flow |
+
 ## Scope and known constraints
 
 The transition table, the mutation matrix and the property test's operation
@@ -751,8 +841,15 @@ not as a change of this contract. Known constraints:
 - Interoperability is verified with Chrome only.
 - Reusing created descriptions is guaranteed only for the orders in the
   description reuse contract table; another order is a follow-up.
-- A DataChannel created on an already connected session without an SCTP
-  association does not open after renegotiation (existing since `develop`).
+- A rejected application m-line keeps the SCTP transport and its channels
+  (as in `develop`); W3C would set `sctpTransport` to null. The next offer
+  offers the application again with the same MID.
+- A peer running `develop` answers an offer whose application m-line is
+  rejected with port 9 and no `a=sctp-port`; HEAD rejects that answer
+  (`OperationError`, no state change). HEAD answers such an offer with port 0.
+- werift sets the ICE role at every offer / answer (existing since
+  `develop`). SCTP takes its client / server side from the ICE role when the
+  DTLS transport started, so a later association start agrees with the peer.
 - The header extension ID map is shared by the whole PeerConnection. m-lines
   on separate (non-BUNDLE) transports that map one ID to different URIs are
   not supported; only a remap of an ID the current session uses is rejected.

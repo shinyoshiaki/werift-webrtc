@@ -10,7 +10,16 @@
  * DataChannel. `misdescribesPeer` marks rewrites the real werift peer on the
  * other end does not follow (its BUNDLE, ICE, DTLS setup, SCTP port, MID,
  * SSRC, extension IDs or acceptance of an m-line): accepting them is
- * legitimate, but the session is not expected to keep working afterwards.
+ * legitimate, but the session is not expected to keep working afterwards,
+ * unless `renegotiates` says that both peers must still negotiate cleanly
+ * after it (a rejected or inactive m-line is a state either peer can offer
+ * from). `stopsMedia` marks mutations after which the video m-line stays
+ * stopped through the next negotiation.
+ *
+ * The per-kind mutations are generated from a table of kinds (audio, video,
+ * application) and attributes (port 0, inactive, out of BUNDLE, own ICE
+ * credentials) instead of being picked by hand, so every kind gets every
+ * attribute that applies to it.
  */
 
 export type Mutation = {
@@ -19,6 +28,8 @@ export type Mutation = {
   breaksMedia?: boolean;
   breaksData?: boolean;
   misdescribesPeer?: boolean;
+  renegotiates?: boolean;
+  stopsMedia?: boolean;
 };
 
 const EOL = "\r\n";
@@ -62,7 +73,7 @@ const mapSession = (rewrite: (session: string) => string) => (sdp: string) => {
 const bundleMids = (sdp: string) =>
   /^a=group:BUNDLE (.*)$/m.exec(sdp)?.[1].trim().split(" ") ?? [];
 
-export const MUTATIONS = {
+const SESSION_MUTATIONS = {
   noBundle: {
     description: "no BUNDLE group (each m-line its own transport)",
     apply: mapSession((session) =>
@@ -85,16 +96,6 @@ export const MUTATIONS = {
     description: "ICE-lite peer",
     apply: mapSession((session) =>
       session.replace(/^(t=.*)$/m, `$1${EOL}a=ice-lite`),
-    ),
-    misdescribesPeer: true,
-  },
-  separateCredentials: {
-    description: "the application m-line uses its own ICE credentials",
-    apply: mapKind("application", (section) =>
-      section
-        .replace(/^a=ice-ufrag:.*$/m, "a=ice-ufrag:mutd")
-        .replace(/^a=ice-pwd:.*$/m, "a=ice-pwd:mutatedmutatedmutatedmut")
-        .replace(/ ufrag \S+/g, " ufrag mutd"),
     ),
     misdescribesPeer: true,
   },
@@ -162,32 +163,6 @@ export const MUTATIONS = {
       withPayloadTypes(section, payloadTypes(section).reverse()),
     ),
   },
-  videoRejected: {
-    description: "video m-line with port 0, left out of BUNDLE (RFC 8843)",
-    apply: (sdp) => {
-      const video = sections(sdp).find((s) => s.startsWith("m=video "));
-      const mid = video && /^a=mid:(.*)$/m.exec(video)?.[1].trim();
-      return mapKind("video", (section) =>
-        section.replace(/^m=video \d+/, "m=video 0"),
-      )(sdp).replace(
-        /^a=group:BUNDLE (.*)$/m,
-        (_, mids: string) =>
-          `a=group:BUNDLE ${mids
-            .split(" ")
-            .filter((m) => m !== mid)
-            .join(" ")}`,
-      );
-    },
-    breaksMedia: true,
-    misdescribesPeer: true,
-  },
-  videoInactive: {
-    description: "video inactive",
-    apply: mapKind("video", (section) =>
-      section.replace(/^a=(sendrecv|sendonly|recvonly)$/m, "a=inactive"),
-    ),
-    breaksMedia: true,
-  },
   midRenamed: {
     description: "the video MID renamed (#142)",
     apply: (sdp) => {
@@ -238,12 +213,125 @@ export const MUTATIONS = {
   },
 } satisfies Record<string, Mutation>;
 
-export type MutationName = keyof typeof MUTATIONS;
+const KINDS = ["audio", "video", "application"] as const;
+type Kind = (typeof KINDS)[number];
+
+/** The MID of the first m-section of `kind`. */
+const midOf = (sdp: string, kind: Kind) => {
+  const section = sections(sdp).find((s) => s.startsWith(`m=${kind} `));
+  return section && /^a=mid:(.*)$/m.exec(section)?.[1].trim();
+};
+
+/** Drop the first m-section of `kind` from the BUNDLE group (RFC 8843). */
+const leaveBundle = (kind: Kind) => (sdp: string) => {
+  const mid = midOf(sdp, kind);
+  return sdp.replace(
+    /^a=group:BUNDLE (.*)$/m,
+    (_, mids: string) =>
+      `a=group:BUNDLE ${mids
+        .split(" ")
+        .filter((m) => m !== mid)
+        .join(" ")}`,
+  );
+};
+
+/** The ICE ufrag `SeparateCredentials` gives each kind. */
+const UFRAGS: Record<Kind, string> = {
+  audio: "muta",
+  video: "mutv",
+  application: "mutd",
+};
+
+/** Per-kind attributes; `applies` limits an attribute to some kinds. */
+const ATTRIBUTES = {
+  Rejected: {
+    applies: () => true,
+    describe: (kind: Kind) =>
+      `${kind} m-line with port 0, left out of BUNDLE (RFC 8843)`,
+    apply: (kind: Kind) => (sdp: string) =>
+      leaveBundle(kind)(
+        mapKind(kind, (section) => section.replace(/^m=(\w+) \d+/, "m=$1 0"))(
+          sdp,
+        ),
+      ),
+    flags: (kind: Kind): Partial<Mutation> => ({
+      breaksMedia: kind === "video",
+      stopsMedia: kind === "video",
+      breaksData: kind === "application",
+      misdescribesPeer: true,
+      renegotiates: true,
+    }),
+  },
+  Inactive: {
+    applies: (kind: Kind) => kind !== "application",
+    describe: (kind: Kind) => `${kind} inactive`,
+    apply: (kind: Kind) =>
+      mapKind(kind, (section) =>
+        section.replace(/^a=(sendrecv|sendonly|recvonly)$/m, "a=inactive"),
+      ),
+    flags: (kind: Kind): Partial<Mutation> => ({
+      breaksMedia: kind === "video",
+    }),
+  },
+  OutOfBundle: {
+    applies: () => true,
+    describe: (kind: Kind) => `${kind} m-line left out of BUNDLE`,
+    apply: (kind: Kind) => leaveBundle(kind),
+    flags: (): Partial<Mutation> => ({ misdescribesPeer: true }),
+  },
+  SeparateCredentials: {
+    applies: () => true,
+    describe: (kind: Kind) => `the ${kind} m-line uses its own ICE credentials`,
+    apply: (kind: Kind) =>
+      mapKind(kind, (section) =>
+        section
+          .replace(/^a=ice-ufrag:.*$/m, `a=ice-ufrag:${UFRAGS[kind]}`)
+          .replace(/^a=ice-pwd:.*$/m, "a=ice-pwd:mutatedmutatedmutatedmut")
+          .replace(/ ufrag \S+/g, ` ufrag ${UFRAGS[kind]}`),
+      ),
+    flags: (): Partial<Mutation> => ({ misdescribesPeer: true }),
+  },
+} as const;
+
+type KindMutationName = `${Kind}${keyof typeof ATTRIBUTES}`;
+
+const KIND_MUTATIONS = Object.fromEntries(
+  KINDS.flatMap((kind) =>
+    Object.entries(ATTRIBUTES)
+      .filter(([, attribute]) => attribute.applies(kind))
+      .map(([name, attribute]) => [
+        `${kind}${name}`,
+        {
+          description: attribute.describe(kind),
+          apply: attribute.apply(kind),
+          ...attribute.flags(kind),
+        } satisfies Mutation,
+      ]),
+  ),
+) as Partial<Record<KindMutationName, Mutation>>;
+
+export const MUTATIONS: Record<string, Mutation> = {
+  ...SESSION_MUTATIONS,
+  ...KIND_MUTATIONS,
+};
+
+/** Names kept for tests written before the kind table. */
+const ALIASES = {
+  separateCredentials: "applicationSeparateCredentials",
+} as const;
+
+export type MutationName =
+  | keyof typeof SESSION_MUTATIONS
+  | KindMutationName
+  | keyof typeof ALIASES;
 export const MUTATION_NAMES = Object.keys(MUTATIONS) as MutationName[];
+
+const lookup = (name: MutationName): Mutation =>
+  MUTATIONS[(ALIASES as Record<string, string>)[name] ?? name];
 
 /** Apply mutations in order. */
 export function mutate(sdp: string, names: readonly MutationName[]) {
-  return names.reduce((value, name) => MUTATIONS[name].apply(value), sdp);
+  return names.reduce((value, name) => lookup(name).apply(value), sdp);
 }
 
 /** Every unordered pair of distinct mutations, in a fixed order. */
@@ -256,8 +344,18 @@ export function mutationPairs(
 }
 
 export const breaksMedia = (names: readonly MutationName[]) =>
-  names.some((name) => (MUTATIONS[name] as Mutation).breaksMedia);
+  names.some((name) => lookup(name).breaksMedia);
 export const breaksData = (names: readonly MutationName[]) =>
-  names.some((name) => (MUTATIONS[name] as Mutation).breaksData);
+  names.some((name) => lookup(name).breaksData);
 export const misdescribesPeer = (names: readonly MutationName[]) =>
-  names.some((name) => (MUTATIONS[name] as Mutation).misdescribesPeer);
+  names.some((name) => lookup(name).misdescribesPeer);
+/** Every mutation that misdescribes the peer still lets both renegotiate. */
+export const renegotiates = (names: readonly MutationName[]) =>
+  names.every(
+    (name) => !lookup(name).misdescribesPeer || lookup(name).renegotiates,
+  );
+export const stopsMedia = (names: readonly MutationName[]) =>
+  names.some((name) => lookup(name).stopsMedia);
+/** Data that stays broken after a clean renegotiation. */
+export const keepsDataBroken = (names: readonly MutationName[]) =>
+  names.some((name) => lookup(name).breaksData && !lookup(name).renegotiates);

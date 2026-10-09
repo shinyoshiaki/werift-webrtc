@@ -7,6 +7,9 @@ import {
   createIceRestartPranswer,
   createInitialPranswerConnection,
   createLocalTurnIceServer,
+  enforceSessionContinuation,
+  exemptFromContinuation,
+  expectSessionContinues,
   forceIceState,
   provisionalIce,
   recordConnectionStates,
@@ -44,6 +47,8 @@ const iceConnection = (pc: RTCPeerConnection) =>
  * requirement ID.
  */
 describe("negotiation transaction spec coverage: ICE", () => {
+  enforceSessionContinuation();
+
   test("[2.7-T4a] the final answer checks the restarted generation from scratch instead of taking the provisional nomination", async () => {
     const { offerer, answerer, outgoing, incoming } =
       await createConnectedVideoPeers();
@@ -92,10 +97,12 @@ describe("negotiation transaction spec coverage: ICE", () => {
       }
       // Assert: 確定した generation で RTP が届く。
       await sendAndExpectRtp(outgoing, incoming, "t4a-after-commit");
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "t4a");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  }, 15000);
+  }, 60000);
 
   test.each(["a replacement offer", "a replacement ICE restart offer"])(
     "[2.7-T4b] %s ends the provisional generation of a restart pranswer and the live pair keeps carrying RTP",
@@ -144,11 +151,13 @@ describe("negotiation transaction spec coverage: ICE", () => {
         assertNegotiationInvariants(offerer);
         assertNegotiationInvariants(answerer);
         await sendAndExpectRtp(outgoing, incoming, "t4b-after-commit");
+        // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+        await expectSessionContinues(offerer, answerer, "t4b");
       } finally {
         await Promise.allSettled([offerer.close(), answerer.close()]);
       }
     },
-    15000,
+    60000,
   );
 
   test("[2.8-5] an ICE restart without ICE servers puts end-of-candidates in its descriptions and trickles nothing after the commit", async () => {
@@ -206,10 +215,12 @@ describe("negotiation transaction spec coverage: ICE", () => {
       assertNegotiationInvariants(offerer);
       assertNegotiationInvariants(answerer);
       await sendAndExpectRtp(outgoing, incoming, "2.8-5-after-restart");
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "2.8-5");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  }, 15000);
+  }, 60000);
 
   test.each(["connected", "failed"] as const)(
     "[2.8-27] an answer that starts no connection work leaves a %s connectionState unchanged",
@@ -244,10 +255,13 @@ describe("negotiation transaction spec coverage: ICE", () => {
           expect(iceStates).toEqual([]);
           assertNegotiationInvariants(pc);
         }
+        // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+        await expectSessionContinues(offerer, answerer, `2.8-27-${state}`);
       } finally {
         await Promise.allSettled([offerer.close(), answerer.close()]);
       }
     },
+    60000,
   );
 
   test("[2.8-29] end-of-candidates on a non-tag m-line completes the provisional generation of a restart pranswer for its whole BUNDLE group", async () => {
@@ -285,10 +299,12 @@ describe("negotiation transaction spec coverage: ICE", () => {
       assertNegotiationInvariants(offerer);
       // Assert: live pair の RTP は続く。
       await sendAndExpectRtp(outgoing, incoming, "2.8-29-provisional-eoc");
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "2.8-29");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  });
+  }, 60000);
 
   test.each(["offerer", "answerer"] as const)(
     "[2.8-35] after the %s rolls back a first pranswer connection it reports no later state of that connection",
@@ -318,6 +334,11 @@ describe("negotiation transaction spec coverage: ICE", () => {
         const iceStates = recordIceConnectionStates(rolling);
 
         // Act: 相手が提案の接続を閉じ (DTLS close / ICE の consent 喪失)、遅延処理が走る時間待つ。
+        // 相手の close() 自体が検証対象の操作なので、両 peer とも継続確認の対象外にする。
+        exemptFromContinuation(
+          [rolling, peer],
+          "close() is the operation under test",
+        );
         await peer.close();
         await sleep(1500);
 
@@ -376,10 +397,12 @@ describe("negotiation transaction spec coverage: ICE", () => {
       expect(ufragOf((await offerer.createOffer()).sdp)).toBe(committed);
       assertNegotiationInvariants(offerer);
       await sendAndExpectRtp(outgoing, incoming, "5-9-after-glare");
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "5-9-glare");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  }, 15000);
+  }, 60000);
 
   test("[5-9] an offer created after restartIce() while a restart offer is pending replaces the pending credentials too", async () => {
     const { offerer, answerer, outgoing, incoming } =
@@ -414,10 +437,12 @@ describe("negotiation transaction spec coverage: ICE", () => {
       expect(ufragOf((await offerer.createOffer()).sdp)).toBe(committed);
       assertNegotiationInvariants(offerer);
       await sendAndExpectRtp(outgoing, incoming, "5-9-restart-while-pending");
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "5-9-pending");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
-  }, 15000);
+  }, 60000);
 
   test.each(["a replacement pranswer", "a rollback"] as const)(
     "[5-12] an mDNS candidate of a restart pranswer still resolving at %s reaches neither the SDP nor any checklist",
@@ -477,10 +502,13 @@ describe("negotiation transaction spec coverage: ICE", () => {
         assertNegotiationInvariants(offerer);
         // Assert: live pair の RTP は続く。
         await sendAndExpectRtp(outgoing, incoming, `5-12-${interruption}`);
+        // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+        await expectSessionContinues(offerer, answerer, `5-12-${interruption}`);
       } finally {
         await Promise.allSettled([offerer.close(), answerer.close()]);
       }
     },
+    60000,
   );
 
   test("[2.6-T3a] ICE servers set while an ICE restart is pending survive its rollback and apply to the next restart", async () => {
@@ -530,11 +558,13 @@ describe("negotiation transaction spec coverage: ICE", () => {
       await waitForCommittedNomination(offerer);
       assertNegotiationInvariants(offerer);
       await sendAndExpectData(channel, received, "2.6-T3a-after-restart");
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "2.6-T3a");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
       await turn.server.close();
     }
-  }, 20000);
+  }, 60000);
 
   test("[2.6-T3b] ICE servers set after a restart offer was created apply to that restart's gathering at its commit", async () => {
     // Arrange: TURN なしで接続済みの peer で、restartIce() の offer を作って restart を stage する。
@@ -575,9 +605,11 @@ describe("negotiation transaction spec coverage: ICE", () => {
       await waitForCommittedNomination(offerer);
       assertNegotiationInvariants(offerer);
       await sendAndExpectData(channel, received, "2.6-T3b-after-restart");
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "2.6-T3b");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
       await turn.server.close();
     }
-  }, 20000);
+  }, 60000);
 });

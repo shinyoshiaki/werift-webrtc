@@ -332,8 +332,14 @@ export class SDPManager {
     if (previous) {
       for (const [index, oldMedia] of previous.media.entries()) {
         const next = description.media[index];
+        // Rejected by either side of the current session (JSEP 5.2.2).
+        const counterpart = isLocal
+          ? this.currentRemoteDescription
+          : this.currentLocalDescription;
         const reusable =
-          oldMedia.port === 0 || oldMedia.direction === "inactive";
+          oldMedia.port === 0 ||
+          counterpart?.media[index]?.port === 0 ||
+          oldMedia.direction === "inactive";
         if (
           !next ||
           (next.kind !== oldMedia.kind && oldMedia.port !== 0) ||
@@ -598,12 +604,39 @@ export class SDPManager {
         return;
       }
       if (m.kind === "application") {
-        if (!sctpTransport) {
-          throw new Error("sctpTransport not found");
+        // The m-line keeps its position without an SCTP transport: the
+        // current description, not the transport, records it.
+        const rejected =
+          m.port === 0 || this.currentRemoteDescription?.media[i]?.port === 0;
+        let placed = sctpTransport?.mid === mid;
+        if (sctpTransport && sctpTransport.mid == undefined) {
+          // An unbound transport (createDataChannel) takes a rejected
+          // position with a new MID, like a transceiver reusing a stopped
+          // position of its kind, and keeps the MID of any other position.
+          sctpTransport.mid = rejected
+            ? this.allocateMid(this.midSuffix ? "dc" : "")
+            : mid;
+          placed = true;
         }
-        sctpTransport.mLineIndex = i;
+        if (sctpTransport && placed) {
+          sctpTransport.mLineIndex = i;
+          description.media.push(
+            this.createMediaDescriptionForSctp(sctpTransport),
+          );
+          return;
+        }
+        // No SCTP transport for this position: it stays rejected (port 0).
         description.media.push(
-          this.createMediaDescriptionForSctp(sctpTransport),
+          this.createRejectedMediaDescription(
+            {
+              kind: m.kind,
+              profile: m.profile,
+              fmt: m.fmt,
+              codecs: [],
+              mid,
+            },
+            fallbackDtlsTransport,
+          ),
         );
       } else {
         const transceiver = transceivers.find((t) => t.mid === mid);
@@ -689,7 +722,12 @@ export class SDPManager {
 
     if (
       sctpTransport &&
-      !description.media.find((m) => m.kind === "application")
+      !description.media.find(
+        (m) =>
+          m.kind === "application" &&
+          m.port !== 0 &&
+          m.rtp.muxId === sctpTransport.mid,
+      )
     ) {
       sctpTransport.mLineIndex = description.media.length;
       if (sctpTransport.mid == undefined) {
@@ -1154,7 +1192,10 @@ export class SDPManager {
       this.offerNewAssociation(description, m, dtlsTransport, transportByMid);
       if (port === 0) m.port = 0;
     });
-    const sctpMedia = description.media.find((m) => m.kind === "application");
+    // A rejected (port 0) application m-line carries no transport.
+    const sctpMedia = description.media.find(
+      (m) => m.kind === "application" && m.port !== 0,
+    );
     if (sctpTransport && sctpMedia) {
       const dtlsTransport =
         (sctpMedia.rtp.muxId && transportByMid?.get(sctpMedia.rtp.muxId)) ||

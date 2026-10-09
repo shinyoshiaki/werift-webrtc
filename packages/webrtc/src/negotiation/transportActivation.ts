@@ -1,3 +1,4 @@
+import { SCTP_STATE } from "../../../sctp/src";
 import { type Event, debug } from "../imports/common";
 import type { TransceiverManager } from "../media";
 import type { NegotiationTransaction } from "../negotiationTransaction";
@@ -140,6 +141,14 @@ export class TransportActivation {
       if (media.iceCandidatesComplete) entry.eoc = true;
     }
     for (const [transport, entry] of byTransport) {
+      // A member's candidate of another ICE generation (its own ufrag) does
+      // not belong to the tag's generation.
+      const ufrag = entry.tag?.iceParams?.usernameFragment;
+      for (const [key, candidate] of entry.candidates) {
+        if (ufrag && candidate.ufrag && candidate.ufrag !== ufrag) {
+          entry.candidates.delete(key);
+        }
+      }
       if (entry.provisional) {
         if (entry.tag) {
           await this.applyProvisionalIce(
@@ -228,7 +237,11 @@ export class TransportActivation {
           if (state !== "connected") {
             throw new Error(`DTLS transport ${state}`);
           }
+          this.startJoinedSctp(dtlsTransport);
           return true;
+        }
+        if (dtlsTransport.state === "connected") {
+          this.startJoinedSctp(dtlsTransport);
         }
         if (dtlsTransport.state !== "new" || !iceReady) {
           return progressed;
@@ -256,6 +269,26 @@ export class TransportActivation {
     } else if (res.some((r) => r.status === "fulfilled" && r.value)) {
       this.secure.setConnectionState("connected");
     }
+  }
+
+  /**
+   * An SCTP transport that joined an already connected DTLS transport (the
+   * first application m-line of a renegotiation) starts its association
+   * there; the DTLS start above only covers a new transport.
+   */
+  private startJoinedSctp(dtlsTransport: RTCDtlsTransport) {
+    const sctp = this.sctp.sctpTransport;
+    if (
+      !sctp ||
+      sctp.dtlsTransport !== dtlsTransport ||
+      sctp.sctp.started ||
+      sctp.sctp.associationState !== SCTP_STATE.CLOSED
+    ) {
+      return;
+    }
+    this.sctp.connectSctp().catch((error) => {
+      log("sctp start failed", error);
+    });
   }
 
   /** Connect a provisional ICE/DTLS generation without changing live bindings. */

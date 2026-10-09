@@ -7,15 +7,22 @@ import {
   breaksData,
   breaksMedia,
   createMutationSession,
+  enforceSessionContinuation,
+  exemptFromContinuation,
   expectDataAlive,
   expectMediaAlive,
+  expectSessionContinues,
   heldTransports,
+  keepsDataBroken,
   misdescribesPeer,
   mutate,
   mutationPairs,
   negotiate,
   prepareMutationAnswerer,
+  renegotiates,
+  stopsMedia,
   waitForMutationSession,
+  waitForPeersConnected,
 } from "./negotiationTransactionUtils";
 
 /**
@@ -24,7 +31,11 @@ import {
  * negotiation and of a renegotiation. Every operation is accepted with the
  * invariants holding or rejected atomically; a rejected renegotiation keeps
  * the current session communicating, a clean final answer after a mutated
- * pranswer communicates, and the transports are closed after close().
+ * pranswer communicates, and the transports are closed after close(). A
+ * mutation that misdescribes the peer but `renegotiates` (a rejected or
+ * inactive m-line) must still let both peers renegotiate cleanly, and every
+ * session that renegotiates ends with `expectSessionContinues`. The session
+ * carries audio, video and a DataChannel so every per-kind mutation applies.
  *
  * By default each mutation runs alone. WERIFT_NEGOTIATION_MUTATION=pairwise
  * runs every pair of mutations; =random:<count>:<seed> runs random
@@ -119,6 +130,7 @@ async function mutatedNegotiation(
 
 describe("negotiation transaction SDP mutations", () => {
   let session: DuplexSession;
+  enforceSessionContinuation();
 
   afterEach(async () => {
     // Assert: close() は交渉で作った transport をすべて閉じる (leak なし)。
@@ -134,7 +146,7 @@ describe("negotiation transaction SDP mutations", () => {
     "$phase $stage mutated by $name",
     async ({ phase, stage, mutations }) => {
       // Arrange: 初回交渉前の peer か、確立済みの session を用意する。
-      session = await createMutationSession(phase);
+      session = await createMutationSession(phase, { audio: true });
       const label = `${phase}-${stage}-${mutations.join("+")}`;
 
       // Act: stage の description を wire 上で変異させて交渉する。
@@ -163,24 +175,41 @@ describe("negotiation transaction SDP mutations", () => {
         await expectDataAlive(session, `${label}-rejected`);
       }
 
-      // Act: 変異のない再交渉を行う (変異を受理して peer と食い違ったときや、
-      // b が確定した初回の answer を a が拒否したときは、両 peer の前提が
-      // 異なるので行わない)。
-      if (accepted && misdescribesPeer(effective)) return;
-      if (phase === "initial" && answerRejected) return;
+      // Act: 変異のない再交渉を行う (受理した変異が peer と食い違い、両 peer が
+      // 再交渉できる状態でないときや、b が確定した初回の answer を a が拒否した
+      // ときは、両 peer の前提が異なるので行わない)。
+      if (accepted && !renegotiates(effective)) {
+        exemptFromContinuation(
+          [session.a.pc, session.b.pc],
+          "the accepted mutation misdescribes the real peer",
+        );
+        return;
+      }
+      if (phase === "initial" && answerRejected) {
+        exemptFromContinuation(
+          [session.a.pc, session.b.pc],
+          "b committed a first answer that a rejected",
+        );
+        return;
+      }
       await negotiate(session, session.a, session.b, {
         beforeAnswer: () => prepareMutationAnswerer(session),
       });
-      if (phase === "initial" && !accepted) {
-        await waitForMutationSession(session);
+      if (phase === "initial") {
+        await waitForPeersConnected(session.a.pc, session.b.pc);
       }
-      // Assert: 拒否後や素直な変異の後は、変異のない再交渉で通信できる。
-      if (!(accepted && effective.includes("videoRejected"))) {
+      // Assert: 拒否後や素直な変異の後は、変異のない再交渉で通信できる
+      // (拒否された video は停止したまま、拒否された application は再提案で戻る)。
+      if (!(accepted && stopsMedia(effective))) {
         await expectMediaAlive(session, `${label}-clean`);
       }
-      if (!(accepted && breaksData(effective))) {
+      if (!(accepted && keepsDataBroken(effective))) {
+        if (phase === "initial") await waitForMutationSession(session);
         await expectDataAlive(session, `${label}-clean`);
       }
+      // Assert: その後も次の offer・ICE restart・追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(session.a.pc, session.b.pc, label);
     },
+    60000,
   );
 });

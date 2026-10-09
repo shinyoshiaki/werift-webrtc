@@ -456,10 +456,17 @@ export class NegotiationTransaction {
         .filter((t) => !t.stopped && !t.stopping)
         .map((t) => t.sender),
     });
+    // The transport an SCTP transport the proposal created ran on (a remote
+    // offer's application m-line) stops with it unless something else uses it.
+    const proposedSctp = this.sctp.sctpTransport?.dtlsTransport;
     await this.sctp.restoreNegotiationState(baseline.sctp);
 
     const inUse = this.transportsInUse({ includeStopped: true });
-    for (const transport of new Set([...speculative, ...removedTransports])) {
+    for (const transport of new Set([
+      ...speculative,
+      ...removedTransports,
+      ...(proposedSctp ? [proposedSctp] : []),
+    ])) {
       if (!inUse.has(transport)) await transport.stop();
     }
   }
