@@ -242,16 +242,27 @@ export class RTCIceTransport {
    * Prepare an ICE generation for SDP without touching the selected pair.
    * `answering` is the remote offer an answer is created for.
    */
-  stageLocalRestart({ answering }: { answering?: object } = {}) {
+  stageLocalRestart({
+    answering,
+    replacing,
+  }: {
+    answering?: object;
+    /** Credentials restartIce() asked to replace (W3C [[LocalIceCredentialsToReplace]]). */
+    replacing?: ReadonlySet<string>;
+  } = {}) {
     // The generation a description of this kind already carries is reused,
     // whatever was selected since: a new offer reuses the one of the pending
-    // applied offer (JSEP 5.2.1), and an answer created again for the same
-    // remote offer reuses the one the earlier answer carries (JSEP 5.3.1).
+    // applied offer (JSEP 5.2.1) unless restartIce() asked to replace it, and
+    // an answer created again for the same remote offer reuses the one the
+    // earlier answer carries (JSEP 5.3.1).
+    const applied = this.appliedLocalRestart;
     const reused = answering
       ? [...this.localGenerations.values()].find(
           (generation) => generation.answering === answering,
         )
-      : this.appliedLocalRestart;
+      : applied && !replacing?.has(applied.usernameFragment)
+        ? applied
+        : undefined;
     if (reused) {
       this.selectGeneration(reused);
       return;
@@ -540,6 +551,9 @@ export class RTCIceTransport {
   }
 
   private setState(state: RTCIceConnectionState, emitEvent = true) {
+    // closed is final: checks that stop() interrupted must not report
+    // "failed" (or anything else) afterwards.
+    if (this.state === "closed") return;
     if (state !== this.state) {
       this.state = state;
 
@@ -573,7 +587,17 @@ export class RTCIceTransport {
     }
   };
 
-  setRemoteParams(remoteParameters: RTCIceParameters, renomination = false) {
+  /**
+   * `keepLocalCredentials`: the remote credentials come from an answer or
+   * pranswer, so the local ones are fixed by the applied local offer. Changed
+   * remote credentials restart the checks for the new remote generation
+   * without new local credentials (nothing would describe them to the peer).
+   */
+  setRemoteParams(
+    remoteParameters: RTCIceParameters,
+    renomination = false,
+    { keepLocalCredentials = false }: { keepLocalCredentials?: boolean } = {},
+  ) {
     if (renomination) {
       this.renominating = true;
     }
@@ -587,12 +611,28 @@ export class RTCIceTransport {
         log("renomination", remoteParameters);
         this.connection.resetNominatedPair();
         this.renominating = false;
+      } else if (keepLocalCredentials && this.connection.restartRemote) {
+        log("remote restart", remoteParameters);
+        this.resetRemoteGeneration();
       } else {
         log("restart", remoteParameters);
         this.restart();
       }
     }
     this.connection.setRemoteParams(remoteParameters);
+  }
+
+  /**
+   * Internal: drop the remote generation and its checks, keeping the local
+   * credentials and candidates a description already carries (a remote-only
+   * restart, or a proposal transport a replacement pranswer left unused).
+   */
+  resetRemoteGeneration() {
+    if (!this.connection.restartRemote) return;
+    this.connection.restartRemote();
+    this.setState("new");
+    this.waitStart = undefined;
+    this.checksStarted = false;
   }
 
   restart(notifyNegotiation = true, applyNextGatherIceServers = true) {

@@ -72,6 +72,25 @@ export class BundleTopology {
 
   /** Live transport of every m-line (transceiver or SCTP) that has a MID. */
   /** The transport the committed session uses for `mid` (ignoring a pending proposal). */
+  /**
+   * The transports `description` puts its accepted m-lines on: each m-line's
+   * BUNDLE owner (group tag, else itself), on the transport prepared for the
+   * proposal or else its live one.
+   */
+  transportsOf(description: SessionDescription) {
+    const transports = new Set<RTCDtlsTransport>();
+    for (const media of description.media) {
+      const mid = media.rtp.muxId;
+      if (media.port === 0 || !mid) continue;
+      const owner = this.bundleTagOf(description, mid) ?? mid;
+      const transport =
+        this.negotiation.transportByMid.get(owner) ??
+        this.liveTransportForMid(owner);
+      if (transport) transports.add(transport);
+    }
+    return transports;
+  }
+
   liveTransportForMid(mid: string) {
     return this.liveTransportByMid().get(mid);
   }
@@ -286,7 +305,7 @@ export class BundleTopology {
   }
 
   /** The answer commits: every m-line moves to the transport prepared for it. */
-  applyPending() {
+  applyPending(answer?: SessionDescription) {
     const transports = this.negotiation.transportByMid;
     if (transports.size === 0) return;
     for (const transceiver of this.transceivers.getTransceivers()) {
@@ -295,7 +314,16 @@ export class BundleTopology {
     }
     const sctp = this.sctp.sctpTransport;
     if (sctp?.mid) {
-      const transport = transports.get(sctp.mid);
+      // SCTP goes straight to the transport of its owner in the answer: a
+      // detour over its own prepared transport would replace the
+      // association (also one a first pranswer already connected).
+      const owner = (answer && this.bundleTagOf(answer, sctp.mid)) ?? sctp.mid;
+      const transport =
+        transports.get(owner) ??
+        (owner !== sctp.mid
+          ? this.transceivers.getTransceivers().find((t) => t.mid === owner)
+              ?.dtlsTransport
+          : undefined);
       if (transport) sctp.setDtlsTransport(transport);
     }
   }

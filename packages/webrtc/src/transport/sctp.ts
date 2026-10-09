@@ -40,6 +40,8 @@ export class RTCSctpTransport {
   mLineIndex?: number;
   bundled = false;
   dataChannels: { [key: number]: RTCDataChannel } = {};
+  /** Set by stop(); nothing received afterwards reaches the application. */
+  private stopped = false;
   remoteMaxMessageSize = DEFAULT_MAX_MESSAGE_SIZE;
 
   private dataChannelQueue: [RTCDataChannel, number, Buffer][] = [];
@@ -64,6 +66,8 @@ export class RTCSctpTransport {
     this.eventDisposer.forEach((dispose) => dispose());
 
     this.dtlsTransport = dtlsTransport;
+    // A new association: the transport delivers again.
+    this.stopped = false;
     this.sctp = new SCTP(
       new BridgeDtls(this.dtlsTransport),
       this.port,
@@ -124,6 +128,9 @@ export class RTCSctpTransport {
     ppId: number,
     data: Buffer,
   ) => {
+    // A stopped transport (rolled back, replaced or closed) delivers no
+    // message a callback still queued for it carries.
+    if (this.stopped) return;
     if (ppId === WEBRTC_DCEP && data.length > 0) {
       log("DCEP", streamId, ppId, data);
       switch (data[0]) {
@@ -390,6 +397,7 @@ export class RTCSctpTransport {
   }
 
   async stop() {
+    this.stopped = true;
     this.dtlsTransport.dataReceiver = () => {};
     await this.sctp.stop();
   }

@@ -230,6 +230,32 @@ export class Connection implements IceConnection {
     this.provisional = undefined;
   }
 
+  /**
+   * Only the remote side restarted (new remote credentials in an answer to an
+   * offer that kept the local ones): the remote generation, its checks and
+   * the selected pair start over; local credentials and candidates stay.
+   */
+  restartRemote() {
+    this.generation++;
+    this.remoteUsername = "";
+    this.remotePassword = "";
+    this._remoteCandidates = [];
+    this.remoteCandidatesEnd = false;
+    this.remoteCandidatesEndRequested = false;
+    this.remoteResolutions.clear();
+    this.checksBegun = false;
+    this.state = "new";
+    this.nominated = undefined;
+    this.nominating = false;
+    this.checkList = [];
+    this.checkListDone = false;
+    this.checkListState = new PQueue<number>();
+    this.earlyChecks = [];
+    this.earlyChecksDone = false;
+    this.stopConsentLifecycle();
+    this.provisional = undefined;
+  }
+
   /** Accept provisional checks without changing the selected current pair. */
   stageLocalCredentials(usernameFragment: string, password: string) {
     this.userHistory[usernameFragment] = password;

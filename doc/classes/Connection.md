@@ -610,6 +610,24 @@ allocation), so a caller may let it finish in the background.
 
 ***
 
+### restartRemote()
+
+> **restartRemote**(): `void`
+
+Only the remote side restarted (new remote credentials in an answer to an
+offer that kept the local ones): the remote generation, its checks and
+the selected pair start over; local credentials and candidates stay.
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`restartRemote`](../interfaces/IceConnection.md#restartremote)
+
+***
+
 ### send()
 
 > **send**(`data`): `Promise`\<`void`\>

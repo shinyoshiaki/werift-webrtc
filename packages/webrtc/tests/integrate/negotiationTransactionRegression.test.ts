@@ -21,6 +21,7 @@ import {
   createH264OnlyReoffer,
   createIceRestartPranswer,
   createInitialPranswerConnection,
+  createMutationSession,
   createRewrittenOffer,
   createSplitOffer,
   createUnnegotiatedPeers,
@@ -34,6 +35,7 @@ import {
   holdDtlsStart,
   holdNextGather,
   mungeSection,
+  mutate,
   negotiate,
   offeredVideoCodecs,
   pliReaches,
@@ -2069,6 +2071,101 @@ describe("negotiation transaction live-state regressions", () => {
       expect(sectionOf(pending, audio)).toContain(" 49998 typ host");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+});
+
+/** Findings of the peer-diversity SDP mutations (negotiationTransactionMutation). */
+describe("negotiation transaction mutation regressions", () => {
+  test("an answer declining BUNDLE onto the same transport keeps the ended generation complete", async () => {
+    // Arrange: 確立済み session (EOC 済み) で re-offer を両側に置く。
+    const session = await createMutationSession("renegotiation");
+    const { a, b } = session;
+    try {
+      await a.pc.setLocalDescription(await a.pc.createOffer());
+      await b.pc.setRemoteDescription(a.pc.localDescription!);
+      const answer = (await b.pc.createAnswer()).sdp;
+      await b.pc.setLocalDescription({ type: "answer", sdp: answer });
+
+      // Act: BUNDLE も end-of-candidates も持たない answer を適用する。
+      await a.pc.setRemoteDescription({
+        type: "answer",
+        sdp: mutate(answer, ["noBundle", "noEndOfCandidates"]),
+      });
+
+      // Assert: 同じ transport・ufrag の m-line はどれも終端済みとして記録される。
+      const current = a.pc.currentRemoteDescription!.sdp;
+      expect(sectionOf(current, "0")).toContain("a=end-of-candidates");
+      expect(sectionOf(current, "1")).toContain("a=end-of-candidates");
+      assertNegotiationInvariants(a.pc);
+    } finally {
+      await session.close();
+    }
+  });
+
+  test("new remote credentials in an answer keep the local credentials the offer described", async () => {
+    // Arrange: 確立済み session で re-offer を両側に置く。
+    const session = await createMutationSession("renegotiation");
+    const { a, b } = session;
+    try {
+      await a.pc.setLocalDescription(await a.pc.createOffer());
+      const offered = sectionOf(a.pc.localDescription!.sdp, "1").match(
+        /^a=ice-ufrag:(\S+)/m,
+      )![1];
+      await b.pc.setRemoteDescription(a.pc.localDescription!);
+      const answer = (await b.pc.createAnswer()).sdp;
+      await b.pc.setLocalDescription({ type: "answer", sdp: answer });
+
+      // Act: tag の video を拒否し、新しい tag の application が別の資格情報を持つ answer を適用する。
+      await a.pc.setRemoteDescription({
+        type: "answer",
+        sdp: mutate(answer, ["separateCredentials", "videoRejected"]),
+      });
+
+      // Assert: remote は新しい資格情報で checks をやり直し、local の資格情報は
+      // offer で伝えたまま (どの SDP にも無い資格情報を作らない)。
+      const connection =
+        a.pc.sctpTransport!.dtlsTransport.iceTransport.connection;
+      expect(connection.remoteUsername).toBe("mutd");
+      expect(connection.localUsername).toBe(offered);
+      assertNegotiationInvariants(a.pc);
+    } finally {
+      await session.close();
+    }
+  });
+
+  test("a rejected m-line does not turn a credential change into a renomination", async () => {
+    // Arrange: video を拒否し application に新しい資格情報を持たせた offer を b に届ける。
+    const session = await createMutationSession("renegotiation");
+    const { a, b } = session;
+    try {
+      await a.pc.setLocalDescription(await a.pc.createOffer());
+      await b.pc.setRemoteDescription({
+        type: "offer",
+        sdp: mutate(a.pc.localDescription!.sdp, [
+          "separateCredentials",
+          "videoRejected",
+        ]),
+      });
+      const oldUfrag =
+        b.pc.sctpTransport!.dtlsTransport.iceTransport.connection.localUsername;
+      await b.pc.setLocalDescription(await b.pc.createAnswer());
+
+      // Act: b が新しい資格情報で答えた answer を a に適用する。
+      await a.pc.setRemoteDescription(b.pc.localDescription!);
+
+      // Assert: a の checklist に b の旧 generation の候補は残らない。
+      const connection =
+        a.pc.sctpTransport!.dtlsTransport.iceTransport.connection;
+      expect(connection.remoteUsername).not.toBe(oldUfrag);
+      for (const candidate of connection.remoteCandidates) {
+        expect(candidate.ufrag ?? connection.remoteUsername).toBe(
+          connection.remoteUsername,
+        );
+      }
+      assertNegotiationInvariants(a.pc);
+    } finally {
+      await session.close();
     }
   });
 });

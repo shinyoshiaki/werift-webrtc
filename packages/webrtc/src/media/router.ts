@@ -30,6 +30,7 @@ const ridOfRouteKey = (key: string) => key.slice(key.indexOf("\u0000") + 1);
 type StagedRoutes = {
   ssrc: [number, RTCRtpReceiver][];
   rid: [string, RTCRtpReceiver][];
+  provisional?: [number, RTCRtpReceiver][];
 };
 
 export class RtpRouter {
@@ -43,6 +44,11 @@ export class RtpRouter {
    */
   private stagedSsrc = new Map<number, RTCRtpReceiver>();
   private stagedRid = new Map<string, RTCRtpReceiver>();
+  /**
+   * New SSRC routes a pending description added at once (no conflict). A
+   * later remote pranswer / answer replaces them, the commit keeps them.
+   */
+  private provisionalSsrc = new Map<number, RTCRtpReceiver>();
   extIdUriMap: { [id: number]: string } = {};
   /**
    * SSRCs registered from received packets (simulcast after RID stops being
@@ -68,17 +74,34 @@ export class RtpRouter {
     }
     this.stagedSsrc.clear();
     this.stagedRid.clear();
+    this.provisionalSsrc.clear();
+  }
+
+  /** Internal: drop the routes an earlier pending description added at once. */
+  discardProvisional() {
+    for (const [ssrc, receiver] of this.provisionalSsrc) {
+      if (this.ssrcTable[ssrc] === receiver && !this.learnedSsrcs.has(ssrc)) {
+        delete this.ssrcTable[ssrc];
+        receiver.releaseProvisionalSsrc(ssrc);
+      }
+    }
+    this.provisionalSsrc.clear();
   }
 
   /** Internal: capture staged routes for a transaction baseline or checkpoint. */
   snapshotStaged(): StagedRoutes {
-    return { ssrc: [...this.stagedSsrc], rid: [...this.stagedRid] };
+    return {
+      ssrc: [...this.stagedSsrc],
+      rid: [...this.stagedRid],
+      provisional: [...this.provisionalSsrc],
+    };
   }
 
   /** Internal: restore staged routes (an empty snapshot discards them). */
   restoreStaged(snapshot: StagedRoutes) {
     this.stagedSsrc = new Map(snapshot.ssrc);
     this.stagedRid = new Map(snapshot.rid);
+    this.provisionalSsrc = new Map(snapshot.provisional);
   }
 
   /** Internal: every route a negotiation may change, for a rollback baseline. */
@@ -166,6 +189,8 @@ export class RtpRouter {
       this.stagedSsrc.set(ssrc, receiver);
       return;
     }
+    if (deferConflicts && !existing) this.provisionalSsrc.set(ssrc, receiver);
+    if (!deferConflicts) this.provisionalSsrc.delete(ssrc);
     this.stagedSsrc.delete(ssrc);
     this.ssrcTable[ssrc] = receiver;
     // Registration from SDP makes the route description state again; the

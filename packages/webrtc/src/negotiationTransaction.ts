@@ -211,15 +211,53 @@ export class NegotiationTransaction {
     );
   }
 
-  /** A replacement proposal: back to the baseline, which stays for the new one. */
-  async replace() {
+  /**
+   * A pranswer replaced an earlier one: a transport the proposal prepared that
+   * neither a live binding nor the pranswer (`used`) puts an m-line on stops
+   * the checks the earlier pranswer started. It
+   * stays held (a final answer may still use it) with its local generation.
+   */
+  stopUnusedProposalChecks(used: ReadonlySet<RTCDtlsTransport>) {
+    const inUse = this.transportsInUse({ includeStopped: false });
+    for (const transport of used) inUse.add(transport);
+    for (const transport of new Set([
+      ...this.createdTransports,
+      ...this.resources.speculativeTransports,
+    ])) {
+      if (inUse.has(transport)) continue;
+      if (["new", "closed"].includes(transport.iceTransport.state)) continue;
+      transport.iceTransport.resetRemoteGeneration();
+    }
+  }
+
+  /**
+   * A replacement proposal: back to the baseline, which stays for the new one.
+   * A transceiver the replaced remote offer created for a MID the replacing
+   * one describes again (same kind) is carried over in its created state, so
+   * the new offer associates the same object and nothing is notified twice.
+   */
+  async replace(next?: SessionDescription) {
     if (!this.baseline) return;
+    const carried = new Set(
+      [...this.resources.remoteCreated].filter((transceiver) =>
+        next?.media.some(
+          (media) =>
+            media.port !== 0 &&
+            media.kind === transceiver.kind &&
+            media.rtp.muxId === transceiver.mid,
+        ),
+      ),
+    );
     await this.restoreState(
       this.baseline,
       this.resources.remoteCreated,
       this.resources.speculativeTransports,
+      carried,
     );
     this.resources.clear();
+    for (const transceiver of carried) {
+      this.resources.remoteCreated.add(transceiver);
+    }
     this.revision++;
     this.phase = "pending";
   }
@@ -357,6 +395,7 @@ export class NegotiationTransaction {
    * carries.
    */
   discardStagedRemoteAnswer() {
+    this.router.discardProvisional();
     this.router.restoreStaged({ ssrc: [], rid: [] });
     for (const transceiver of this.transceivers.getTransceivers()) {
       transceiver.receiver.discardStagedReceive();
@@ -402,11 +441,13 @@ export class NegotiationTransaction {
     baseline: Baseline,
     added: Iterable<RTCRtpTransceiver>,
     speculative: Iterable<RTCDtlsTransport>,
+    carried: ReadonlySet<RTCRtpTransceiver> = new Set(),
   ) {
     const removedTransports = this.transceivers.restoreNegotiationState(
       baseline.transceivers,
       added,
       (transceiver) => this.createdStates.get(transceiver),
+      carried,
     );
     const live = this.transceivers.getTransceivers();
     this.router.restoreRoutes(baseline.routes, {

@@ -471,7 +471,10 @@ export class SecureTransportManager {
   /** Stage restart credentials on `targets` (all transports by default). */
   stageIceRestart(
     targets?: ReadonlySet<RTCIceTransport>,
-    { answering }: { answering?: object } = {},
+    {
+      answering,
+      replacing,
+    }: { answering?: object; replacing?: ReadonlySet<string> } = {},
   ) {
     for (const transport of this.iceTransports) {
       // A transport without a generation yet (never gathered, e.g. created
@@ -480,7 +483,7 @@ export class SecureTransportManager {
       const hasGeneration =
         transport.gatheringState !== "new" && !!transport.getRemoteParameters();
       if ((!targets || targets.has(transport)) && hasGeneration) {
-        transport.stageLocalRestart({ answering });
+        transport.stageLocalRestart({ answering, replacing });
       } else {
         transport.rollbackLocalRestart();
       }

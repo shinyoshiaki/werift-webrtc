@@ -358,6 +358,10 @@ export class RemoteMediaApplication {
       } else if (entry.sctpTransport) {
         if (!plan.preserveCurrentTransport || !this.sctp.sctpRemotePort) {
           this.sctp.setRemoteSCTP(remoteMedia, i);
+        } else if (remoteSdp.type === "pranswer") {
+          // A renegotiation offer leaves the current value until the answer
+          // side applies it; a pranswer updates it on the kept association.
+          this.sctp.updateRemoteMaxMessageSize(remoteMedia);
         }
         accepted.add(entry);
       }
@@ -425,10 +429,13 @@ export class RemoteMediaApplication {
 
       plan.transportUpdates.push(() => {
         if (remoteMedia.iceParams && ownsGeneration && !bundledNonTag) {
+          // A rejected (port 0) m-line is not inactive media.
           const renomination = remoteSdp.media.some(
-            (media) => media.direction === "inactive",
+            (media) => media.port !== 0 && media.direction === "inactive",
           );
-          iceTransport.setRemoteParams(remoteMedia.iceParams, renomination);
+          iceTransport.setRemoteParams(remoteMedia.iceParams, renomination, {
+            keepLocalCredentials: remoteSdp.type !== "offer",
+          });
 
           // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
           // RFC 8445 S6.1.1

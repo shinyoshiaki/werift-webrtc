@@ -23,12 +23,14 @@ import {
   useOPUS,
   useSdesMid,
   useSdesRTPStreamId,
+  useTransportWideCC,
   useVP8,
 } from "../../src";
 import type { RTCIceCandidate } from "../../src";
 import { ridRouteKey } from "../../src/negotiation/internalState";
 import { SessionDescription } from "../../src/sdp";
 import { RTCIceTransport } from "../../src/transport/ice";
+export * from "../../tools/negotiation-diff/mutations";
 
 /** Shared Arrange setup for negotiation transaction regression tests. */
 export async function createConnectedVideoPeers(
@@ -328,8 +330,8 @@ function assertDescriptionBindings(pc: RTCPeerConnection) {
         phase: string;
         currentLocal?: SessionDescription;
         currentRemote?: SessionDescription;
-        pendingLocal?: unknown;
-        pendingRemote?: unknown;
+        pendingLocal?: SessionDescription;
+        pendingRemote?: SessionDescription;
         pendingTransports: number;
       };
     };
@@ -461,12 +463,150 @@ function assertDescriptionBindings(pc: RTCPeerConnection) {
     );
     if (application && pc.sctpTransport) {
       expect(pc.sctpRemotePort).toBe(application.sctpPort);
-      expect(pc.sctpTransport.remoteMaxMessageSize).toBe(
-        application.sctpCapabilities?.maxMessageSize,
-      );
     }
   }
   return snapshot;
+}
+
+/**
+ * Which description decides each negotiated value while a negotiation is
+ * pending (ticket 2.10 / NEGOTIATION_TRANSACTION.md "Effective values while
+ * pending"): `current` keeps the committed value, `provisional` takes the
+ * pranswer's, and before any answer the latest committed one applies.
+ */
+export function expectedLive(
+  snapshot: Snapshot,
+  field: "remoteMaxMessageSize" | "direction" | "sendCodec",
+) {
+  const pranswer =
+    snapshot.pendingRemote?.type === "pranswer"
+      ? { side: "remote" as const, description: snapshot.pendingRemote }
+      : snapshot.pendingLocal?.type === "pranswer"
+        ? { side: "local" as const, description: snapshot.pendingLocal }
+        : undefined;
+  const currentAnswer =
+    snapshot.currentLocal?.type === "answer"
+      ? { side: "local" as const, description: snapshot.currentLocal }
+      : snapshot.currentRemote?.type === "answer"
+        ? { side: "remote" as const, description: snapshot.currentRemote }
+        : undefined;
+  switch (field) {
+    // The remote's receive limit: provisional from a pranswer (W3C updates
+    // it on answer and pranswer), else the committed remote description.
+    case "remoteMaxMessageSize": {
+      const description = pranswer
+        ? pranswer.side === "remote"
+          ? pranswer.description
+          : snapshot.pendingRemote
+        : snapshot.currentRemote;
+      return description && { side: "remote" as const, description };
+    }
+    // Direction (and so whether the sender sends) is provisional at a
+    // pranswer (ticket 2.2), else the committed answer's.
+    // Direction and send codec are provisional: the latest pranswer (local
+    // or remote) applies until the final answer or a rollback.
+    case "direction":
+    case "sendCodec":
+      return pranswer ?? currentAnswer;
+  }
+}
+
+/** Effective negotiated values match `expectedLive` in every signaling state. */
+function assertEffectiveValues(pc: RTCPeerConnection, snapshot: Snapshot) {
+  const sctpDescription = expectedLive(snapshot, "remoteMaxMessageSize");
+  const application = sctpDescription?.description.media.find(
+    (media) => media.kind === "application" && media.port !== 0,
+  );
+  if (application && pc.sctpTransport && pc.sctpRemotePort !== undefined) {
+    // 既存 DataChannel の送信上限は、効いている description の合意値。
+    expect(pc.sctpTransport.remoteMaxMessageSize).toBe(
+      application.sctpCapabilities?.maxMessageSize ?? 65536,
+    );
+  }
+  const directionSource = expectedLive(snapshot, "direction");
+  for (const transceiver of pc.getTransceivers()) {
+    if (
+      !transceiver.mid ||
+      transceiver.stopped ||
+      transceiver.stopping ||
+      transceiver.pendingRejection
+    ) {
+      continue;
+    }
+    const media = directionSource?.description.media.find(
+      (m) => m.rtp.muxId === transceiver.mid && m.port !== 0,
+    );
+    if (media && transceiver.currentDirection) {
+      // currentDirection は効いている answer / pranswer の向き。
+      const direction = media.direction ?? "inactive";
+      const expected =
+        directionSource!.side === "local"
+          ? direction
+          : (
+              {
+                sendonly: "recvonly",
+                recvonly: "sendonly",
+                sendrecv: "sendrecv",
+                inactive: "inactive",
+              } as const
+            )[direction];
+      expect(transceiver.currentDirection).toBe(expected);
+    }
+    // 送信 codec は最後に適用した pranswer (なければ current の answer) の codec。
+    const codecSource = expectedLive(snapshot, "sendCodec");
+    const codecMedia = codecSource?.description.media.find(
+      (m) => m.rtp.muxId === transceiver.mid && m.port !== 0,
+    );
+    const sender = transceiver.sender;
+    if (codecMedia && sender.codec && !transceiver.stopping) {
+      // その description の先頭 (RTX 以外) の codec で送る。
+      const first = codecMedia.rtp.codecs.find(
+        (c) => c.name.toLowerCase() !== "rtx",
+      );
+      expect([
+        sender.codec.payloadType,
+        sender.codec.mimeType.toLowerCase(),
+      ]).toEqual([first?.payloadType, first?.mimeType.toLowerCase()]);
+    }
+    // remote pranswer の SSRC は、current と衝突しなければ即座に、衝突すれば
+    // staged として、その receiver に届く。
+    const pranswerMedia =
+      snapshot.pendingRemote?.type === "pranswer"
+        ? snapshot.pendingRemote.media.find(
+            (m) => m.rtp.muxId === transceiver.mid && m.port !== 0,
+          )
+        : undefined;
+    if (
+      pranswerMedia &&
+      ["sendonly", "sendrecv"].includes(pranswerMedia.direction ?? "") &&
+      ["recvonly", "sendrecv"].includes(transceiver.direction)
+    ) {
+      const router = (
+        pc as unknown as {
+          router: {
+            ssrcTable: Record<number, unknown>;
+            staged: { ssrc: [number, unknown][] };
+          };
+        }
+      ).router;
+      for (const { ssrc } of pranswerMedia.ssrc) {
+        expect(
+          router.ssrcTable[ssrc] === transceiver.receiver ||
+            router.staged.ssrc.some(
+              ([staged, receiver]) =>
+                staged === ssrc && receiver === transceiver.receiver,
+            ),
+        ).toBe(true);
+      }
+    }
+    // 送信は currentDirection が送信を含むときだけ (inactive / recvonly では止まる)。
+    if (transceiver.currentDirection) {
+      expect(
+        (transceiver.sender as unknown as { sendSuppressed: boolean })
+          .sendSuppressed,
+      ).toBe(!["sendonly", "sendrecv"].includes(transceiver.currentDirection));
+    }
+  }
 }
 
 /**
@@ -483,6 +623,7 @@ export function assertNegotiationInvariants(pc: RTCPeerConnection) {
   assertIceGenerations(pc, snapshot);
   assertDtlsBindings(pc, snapshot);
   assertSctpBinding(pc, snapshot);
+  assertEffectiveValues(pc, snapshot);
   assertNoOrphanTransports(pc);
   return snapshot;
 }
@@ -744,7 +885,39 @@ function receiveCodecKey(codec: RTCRtpCodecParameters) {
   };
 }
 
+/** Remote candidates each ICE generation (remote ufrag) was ever given. */
+type SdpCandidate =
+  SessionDescription["media"][number]["iceCandidates"][number];
+const candidateHistory = new WeakMap<
+  RTCPeerConnection,
+  Map<string, Map<string, SdpCandidate>>
+>();
+function signalledCandidates(pc: RTCPeerConnection) {
+  return new Map(
+    [
+      ...(candidateHistory.get(pc) ??
+        new Map<string, Map<string, SdpCandidate>>()),
+    ].map(([ufrag, candidates]) => [ufrag, [...candidates.values()]]),
+  );
+}
+function recordSignalledCandidates(pc: RTCPeerConnection, snapshot: Snapshot) {
+  const history = candidateHistory.get(pc) ?? new Map();
+  candidateHistory.set(pc, history);
+  for (const description of [snapshot.currentRemote, snapshot.pendingRemote]) {
+    for (const media of description?.media ?? []) {
+      const ufrag = media.iceParams?.usernameFragment;
+      if (!ufrag) continue;
+      const candidates = history.get(ufrag) ?? new Map<string, SdpCandidate>();
+      history.set(ufrag, candidates);
+      for (const candidate of media.iceCandidates) {
+        candidates.set(candidate.toJSON().candidate, candidate);
+      }
+    }
+  }
+}
+
 function assertIceGenerations(pc: RTCPeerConnection, snapshot: Snapshot) {
+  recordSignalledCandidates(pc, snapshot);
   if (!snapshot.currentRemote || !snapshot.currentLocal) return;
   const remoteByTransport = currentMediaByTransport(pc, snapshot.currentRemote);
   const localByTransport = currentMediaByTransport(pc, snapshot.currentLocal);
@@ -766,7 +939,12 @@ function assertIceGenerations(pc: RTCPeerConnection, snapshot: Snapshot) {
     expect(remoteUfrags.has(connection.remoteUsername)).toBe(true);
     expect(localUfrags.has(connection.localUsername)).toBe(true);
     // live checklist の remote candidate は current generation のものだけ。
-    const sdpCandidates = remoteMedia.flatMap((media) => media.iceCandidates);
+    // 同じ generation の以前の description が伝えた候補も含む (ICE は restart
+    // なしに候補を取り消さない)。
+    const sdpCandidates = [
+      ...remoteMedia.flatMap((media) => media.iceCandidates),
+      ...(signalledCandidates(pc).get(connection.remoteUsername) ?? []),
+    ];
     for (const candidate of connection.remoteCandidates) {
       if (candidate.ufrag) {
         expect(candidate.ufrag).toBe(connection.remoteUsername);
@@ -792,10 +970,25 @@ function assertIceGenerations(pc: RTCPeerConnection, snapshot: Snapshot) {
       const pendingRemote = pc.pendingRemoteDescription
         ? SessionDescription.parse(pc.pendingRemoteDescription.sdp)
         : undefined;
+      // BUNDLE owner (group tag, else the m-line itself) of a MID.
+      const ownerIn = (description: SessionDescription, mid?: string) =>
+        description.group.find(
+          (group) =>
+            group.semantic === "BUNDLE" && group.items.includes(mid ?? ""),
+        )?.items[0] ?? mid;
+      const currentAnswer =
+        snapshot.currentLocal.type === "answer"
+          ? snapshot.currentLocal
+          : snapshot.currentRemote;
+      const currentOwner = ownerIn(currentAnswer, remoteMedia[0]?.rtp.muxId);
       for (const media of [
         ...remoteMedia,
+        // 保留中の提案は、その提案自身の BUNDLE で同じ owner に残る m-line だけ
+        // (group から外す m-line には同じ資格情報でも伝わらない)。
         ...(pendingRemote?.media ?? []).filter(
-          (m) => liveTransportForMid(pc, m.rtp.muxId) === transport,
+          (m) =>
+            liveTransportForMid(pc, m.rtp.muxId) === transport &&
+            ownerIn(pendingRemote!, m.rtp.muxId) === currentOwner,
         ),
       ]) {
         if (media.port === 0) continue;
@@ -980,6 +1173,12 @@ export async function expectSessionAlive(
   session: DuplexSession,
   label: string,
 ) {
+  await expectMediaAlive(session, label);
+  await expectDataAlive(session, label);
+}
+
+/** Real RTP on the committed session in both directions. */
+export async function expectMediaAlive(session: DuplexSession, label: string) {
   await sendAndExpectRtp(
     session.a.out,
     session.b.video.receiver.track,
@@ -990,6 +1189,10 @@ export async function expectSessionAlive(
     session.a.video.receiver.track,
     `${label}-rtp-b-to-a`,
   );
+}
+
+/** DataChannel messages on the committed session in both directions. */
+export async function expectDataAlive(session: DuplexSession, label: string) {
   await sendAndExpectData(
     session.a.channel,
     session.b.channel,
@@ -1028,6 +1231,13 @@ export function mungeSection(
   ].join("");
 }
 
+/** Rewrite the max-message-size of the m-line `mid` (a remote peer's choice). */
+export function withMaxMessageSize(sdp: string, mid: string, size: number) {
+  return mungeSection(sdp, mid, (section) =>
+    section.replace(/a=max-message-size:\d+/, `a=max-message-size:${size}`),
+  );
+}
+
 type Peer = DuplexSession["a"];
 
 /**
@@ -1043,6 +1253,8 @@ export async function negotiate(
     iceRestart?: boolean;
     localOffer?: (sdp: string) => string;
     remoteAnswer?: (sdp: string) => string;
+    /** Runs after the answerer applied the offer, before createAnswer. */
+    beforeAnswer?: () => Promise<void>;
   } = {},
 ) {
   const offer = await createRewrittenOffer(
@@ -1054,6 +1266,7 @@ export async function negotiate(
   await step(session, () =>
     answerer.pc.setRemoteDescription(offerer.pc.localDescription!),
   );
+  await options.beforeAnswer?.();
   await step(session, async () =>
     answerer.pc.setLocalDescription(await answerer.pc.createAnswer()),
   );
@@ -2268,4 +2481,852 @@ export function closeDuringNextPreparedGather(pc: RTCPeerConnection) {
       proto.gather = original;
     },
   };
+}
+
+/**
+ * Arrange: a duplex session for SDP mutations (VP8 + H264, two video header
+ * extensions, a DataChannel). `renegotiation` starts connected; `initial`
+ * starts unnegotiated: `b.video` appears with the remote offer and
+ * `b.channel` once the DataChannel opens (see `prepareMutationAnswerer`).
+ */
+export async function createMutationSession(
+  phase: "initial" | "renegotiation",
+): Promise<DuplexSession> {
+  const config = {
+    codecs: { video: [useVP8(), useH264()] },
+    headerExtensions: { video: [useSdesMid(), useAbsSendTime()] },
+  };
+  if (phase === "renegotiation") return createDuplexSession(config);
+  const a = new RTCPeerConnection(config);
+  const b = new RTCPeerConnection(config);
+  const aOut = new MediaStreamTrack({ kind: "video" });
+  const bOut = new MediaStreamTrack({ kind: "video" });
+  const aChannel = a.createDataChannel("matrix");
+  const aVideo = a.addTransceiver(aOut, { direction: "sendrecv" });
+  const peers = {
+    a: { pc: a, out: aOut, video: aVideo, channel: aChannel },
+    b: {
+      pc: b,
+      out: bOut,
+      get video() {
+        return b.getTransceivers()[0];
+      },
+      channel: undefined as unknown as RTCDataChannel,
+    },
+  };
+  b.onDataChannel.subscribe((channel) => {
+    peers.b.channel = channel;
+  });
+  return {
+    ...peers,
+    peers,
+    close: () => Promise.allSettled([a.close(), b.close()]),
+  } as unknown as DuplexSession;
+}
+
+/** Arrange: the answerer of an initial mutation session sends video too. */
+export async function prepareMutationAnswerer(session: DuplexSession) {
+  const video = session.b.pc.getTransceivers()[0];
+  if (!video || video.sender.track === session.b.out) return;
+  video.direction = "sendrecv";
+  await video.sender.replaceTrack(session.b.out);
+}
+
+/** Wait until a session's DTLS is connected and its DataChannel is open. */
+export async function waitForMutationSession(session: DuplexSession) {
+  await waitForPeersConnected(session.a.pc, session.b.pc);
+  await withTimeout(
+    (async () => {
+      while (session.a.channel.readyState !== "open" || !session.b.channel) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    })(),
+    "DataChannel did not open",
+  );
+}
+
+/**
+ * Act + Assert: run a description operation that may be accepted or
+ * rejected. Accepted: every invariant holds. Rejected: both peers are
+ * exactly as before. Returns whether it was accepted.
+ */
+export async function acceptOrRejectAtomically(
+  session: DuplexSession,
+  operation: () => Promise<unknown>,
+) {
+  const before = [session.a.pc, session.b.pc].map(negotiationSnapshot);
+  const accepted = await operation().then(
+    () => true,
+    () => false,
+  );
+  if (!accepted) {
+    // 拒否されたら両 peer の状態は操作前と完全に一致する。
+    expect([session.a.pc, session.b.pc].map(negotiationSnapshot)).toEqual(
+      before,
+    );
+  }
+  // 受理・拒否どちらでも invariant を満たす。
+  assertNegotiationInvariants(session.a.pc);
+  assertNegotiationInvariants(session.b.pc);
+  return accepted;
+}
+
+/** Rewrite every candidate to an address nobody answers (STUN checks wait). */
+export function unreachableCandidates(sdp: string) {
+  return sdp
+    .replace(
+      /^(a=candidate:\S+ \d+ udp \d+ )\S+ \d+ typ (\w+).*$/gm,
+      "$1127.0.0.1 9 typ host",
+    )
+    .replace(/^a=end-of-candidates\r\n/gm, "");
+}
+
+export type InterruptWait = "gather" | "mdns" | "dtls" | "stun";
+
+/**
+ * Arrange: a mutation session with a negotiation step held at `wait`.
+ * - gather: the offerer's ICE restart commit (remote answer) gathering
+ * - mdns: an mDNS candidate of the offerer's provisional (restart pranswer)
+ *   generation resolving
+ * - dtls: the offerer's DTLS start of a first negotiation's answer
+ * - stun: a first negotiation checking candidates nobody answers
+ * `pending` is the held operation (settled, never rejected here); `release`
+ * lets it go on.
+ */
+export async function arrangeInterruptWait(wait: InterruptWait) {
+  const session = await createMutationSession(
+    wait === "gather" || wait === "mdns" ? "renegotiation" : "initial",
+  );
+  const { a, b } = session;
+  const settle = (operation: Promise<unknown>) =>
+    operation.then(
+      () => "resolved",
+      (error: Error) => error.name,
+    );
+  switch (wait) {
+    case "gather": {
+      await step(session, async () =>
+        a.pc.setLocalDescription(await a.pc.createOffer({ iceRestart: true })),
+      );
+      await step(session, () =>
+        b.pc.setRemoteDescription(a.pc.localDescription!),
+      );
+      await step(session, async () =>
+        b.pc.setLocalDescription(await b.pc.createAnswer()),
+      );
+      const gather = holdNextGather(a.pc);
+      const pending = settle(a.pc.setRemoteDescription(b.pc.localDescription!));
+      await gather.reached;
+      return { session, pending, release: gather.release };
+    }
+    case "mdns": {
+      await step(session, async () =>
+        a.pc.setLocalDescription(await a.pc.createOffer({ iceRestart: true })),
+      );
+      await step(session, () =>
+        b.pc.setRemoteDescription(a.pc.localDescription!),
+      );
+      const answer = (await b.pc.createAnswer()).sdp;
+      await step(session, () =>
+        b.pc.setLocalDescription({ type: "pranswer", sdp: answer }),
+      );
+      await step(session, () =>
+        a.pc.setRemoteDescription({ type: "pranswer", sdp: answer }),
+      );
+      const mdns = stubIceMdns(a.pc);
+      const ufrag = /^a=ice-ufrag:(.*)$/m.exec(answer)![1].trim();
+      const pending = settle(
+        a.pc.addIceCandidate(trickleCandidate(50997, ufrag, "0", "peer.local")),
+      );
+      await withTimeout(
+        (async () => {
+          while (mdns.requested === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 5));
+          }
+        })(),
+        "mDNS lookup did not start",
+      );
+      return { session, pending, release: () => mdns.resolveAll() };
+    }
+    case "dtls":
+    case "stun": {
+      const wire =
+        wait === "stun" ? unreachableCandidates : (sdp: string) => sdp;
+      await a.pc.setLocalDescription(await a.pc.createOffer());
+      await b.pc.setRemoteDescription({
+        type: "offer",
+        sdp: wire(a.pc.localDescription!.sdp),
+      });
+      await prepareMutationAnswerer(session);
+      await b.pc.setLocalDescription(await b.pc.createAnswer());
+      const dtls = wait === "dtls" ? holdDtlsStart(a.pc) : undefined;
+      const pending = settle(
+        a.pc.setRemoteDescription({
+          type: "answer",
+          sdp: wire(b.pc.localDescription!.sdp),
+        }),
+      );
+      await withTimeout(
+        (async () => {
+          const state = wait === "dtls" ? "connected" : "checking";
+          while (a.pc.iceConnectionState !== state) {
+            await new Promise((resolve) => setTimeout(resolve, 5));
+          }
+        })(),
+        `ICE did not reach the ${wait} wait`,
+      );
+      return { session, pending, release: () => dtls?.release() };
+    }
+  }
+}
+
+// --- spec coverage: events ---
+
+/** Poll `condition` until it holds (fails after the shared timeout). */
+export async function waitUntil(condition: () => boolean, message: string) {
+  await withTimeout(
+    (async () => {
+      while (!condition()) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    })(),
+    message,
+  );
+}
+
+/**
+ * Arrange: record the observable negotiation events `pc` delivers from now
+ * on, per kind in delivery order: `track` events (with their streams),
+ * remote-created transceivers, `datachannel`, ICE candidates (undefined =
+ * end-of-candidates), signaling / connection / ICE connection state changes
+ * and `negotiationneeded`.
+ */
+export function recordNegotiationEvents(pc: RTCPeerConnection) {
+  const events = {
+    tracks: [] as import("../../src").RTCTrackEvent[],
+    remoteTransceivers: [] as RTCRtpTransceiver[],
+    dataChannels: [] as RTCDataChannel[],
+    candidates: [] as (RTCIceCandidate | undefined)[],
+    signaling: [] as string[],
+    connection: [] as string[],
+    iceConnection: [] as string[],
+    negotiationNeeded: 0,
+  };
+  pc.addEventListener("track", (event: import("../../src").RTCTrackEvent) => {
+    events.tracks.push(event);
+  });
+  pc.onRemoteTransceiverAdded.subscribe((transceiver) => {
+    events.remoteTransceivers.push(transceiver);
+  });
+  pc.onDataChannel.subscribe((channel) => {
+    events.dataChannels.push(channel);
+  });
+  pc.onIceCandidate.subscribe((candidate) => {
+    events.candidates.push(candidate);
+  });
+  pc.signalingStateChange.subscribe((state) => {
+    events.signaling.push(state);
+  });
+  pc.connectionStateChange.subscribe((state) => {
+    events.connection.push(state);
+  });
+  pc.iceConnectionStateChange.subscribe((state) => {
+    events.iceConnection.push(state);
+  });
+  pc.onNegotiationneeded.subscribe(() => {
+    events.negotiationNeeded++;
+  });
+  return events;
+}
+export type NegotiationEvents = ReturnType<typeof recordNegotiationEvents>;
+
+/**
+ * Shared Arrange: a first negotiation with only an application m-line,
+ * connected at its pranswer. The offerer's channel `local` is open on the
+ * provisional SCTP association and the answerer delivered it as `remote`.
+ * `offererEvents` / `answererEvents` record from before the offer.
+ */
+export async function createInitialPranswerDataChannel(label = "provisional") {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  const offererEvents = recordNegotiationEvents(offerer);
+  const answererEvents = recordNegotiationEvents(answerer);
+  const local = offerer.createDataChannel(label);
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  const pranswer = (await answerer.createAnswer()).sdp;
+  await answerer.setLocalDescription({ type: "pranswer", sdp: pranswer });
+  await offerer.setRemoteDescription({ type: "pranswer", sdp: pranswer });
+  await waitUntil(
+    () => local.readyState === "open" && answererEvents.dataChannels.length > 0,
+    "provisional DataChannel did not open",
+  );
+  return {
+    offerer,
+    answerer,
+    local,
+    remote: answererEvents.dataChannels[0],
+    pranswer,
+    offererEvents,
+    answererEvents,
+    close: () => Promise.allSettled([offerer.close(), answerer.close()]),
+  };
+}
+
+/** RFC 8832 payload protocol identifier of DCEP messages. */
+const DCEP_PPID = 50;
+
+/**
+ * Arrange: hold the DCEP messages `pc`'s current SCTP association receives,
+ * modelling a delivery callback still queued when its negotiation is
+ * discarded. `release()` hands them to the association's own receive path.
+ */
+export function holdIncomingDcep(pc: RTCPeerConnection) {
+  const receive = pc.sctpTransport!.sctp.onReceive;
+  const original = receive.execute;
+  const held: Parameters<typeof original>[] = [];
+  receive.execute = (...args) => {
+    if (args[1] === DCEP_PPID) {
+      held.push(args);
+      return;
+    }
+    original(...args);
+  };
+  return {
+    get held() {
+      return held.length;
+    },
+    release: () => {
+      receive.execute = original;
+      for (const args of held.splice(0)) original(...args);
+    },
+  };
+}
+
+/** The DataChannels `pc`'s SCTP transport currently routes by stream ID. */
+export function registeredDataChannels(pc: RTCPeerConnection) {
+  return Object.values(pc.sctpTransport?.dataChannels ?? {});
+}
+
+/**
+ * Shared Arrange: a first remote offer (sendrecv audio) created a
+ * transceiver on the answerer, the application attached `localTrack` to it
+ * with addTrack, and both peers rolled the offer back, so the answerer keeps
+ * `kept` without a MID. Invariants are checked after every operation.
+ */
+export async function createKeptRemoteTransceiver() {
+  const offerer = new RTCPeerConnection();
+  const answerer = new RTCPeerConnection();
+  const offererEvents = recordNegotiationEvents(offerer);
+  const localTrack = new MediaStreamTrack({ kind: "audio" });
+  const both = async (operation: () => Promise<unknown>) => {
+    await operation();
+    assertNegotiationInvariants(offerer);
+    assertNegotiationInvariants(answerer);
+  };
+  offerer.addTransceiver("audio", { direction: "sendrecv" });
+  await both(async () =>
+    offerer.setLocalDescription(await offerer.createOffer()),
+  );
+  await both(() => answerer.setRemoteDescription(offerer.localDescription!));
+  const kept = answerer.getTransceivers()[0];
+  answerer.addTrack(localTrack);
+  await both(() => offerer.setLocalDescription({ type: "rollback" }));
+  await both(() => answerer.setRemoteDescription({ type: "rollback" }));
+  return {
+    offerer,
+    answerer,
+    kept,
+    localTrack,
+    offererEvents,
+    both,
+    close: () => Promise.allSettled([offerer.close(), answerer.close()]),
+  };
+}
+
+// --- spec coverage: ice ---
+
+/**
+ * Shared Arrange: `createIceRestartPranswer` on a session whose BUNDLE group
+ * also carries a sendonly audio m-line (a non-tag member). The offerer holds
+ * a provisional generation for the pranswer's credentials, without
+ * end-of-candidates yet. Returns the pranswer ufrag and the MIDs of the
+ * video (tag) and audio m-lines.
+ */
+export async function createBundledIceRestartPranswer() {
+  const peers = await createConnectedVideoPeers({}, { withAudio: true });
+  const { offerer, answerer } = peers;
+  await offerer.setLocalDescription(
+    await offerer.createOffer({ iceRestart: true }),
+  );
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  const answer = await answerer.createAnswer();
+  await answerer.setLocalDescription({ type: "pranswer", sdp: answer.sdp });
+  await offerer.setRemoteDescription({
+    type: "pranswer",
+    sdp: answerer.localDescription!.sdp.replace(
+      /^a=end-of-candidates\r?\n/gm,
+      "",
+    ),
+  });
+  const [video, audio] = (["video", "audio"] as const).map(
+    (kind) => offerer.getTransceivers().find((t) => t.kind === kind)!.mid!,
+  );
+  const ufrag = sectionOf(offerer.pendingRemoteDescription!.sdp, video).match(
+    /^a=ice-ufrag:(\S+)/m,
+  )![1];
+  return { ...peers, ufrag, video, audio };
+}
+
+/** Record the connection states `pc` reports from now on. */
+export function recordConnectionStates(pc: RTCPeerConnection) {
+  const states: string[] = [];
+  pc.connectionStateChange.subscribe((state) => {
+    states.push(state);
+  });
+  return states;
+}
+
+/**
+ * `sdp` with the ICE credentials of every m-line replaced, as a peer that
+ * restarted its agent again would send them in a replacement pranswer.
+ */
+export function withIceCredentials(sdp: string, ufrag: string, pwd: string) {
+  return sdp
+    .replace(/^a=ice-ufrag:\S+/gm, `a=ice-ufrag:${ufrag}`)
+    .replace(/^a=ice-pwd:\S+/gm, `a=ice-pwd:${pwd}`);
+}
+
+/**
+ * Arrange: leave every ICE agent of `pc` without a STUN / TURN server. With
+ * `iceServers: []` the ICE agent still falls back to its default STUN
+ * server, so a generation that has no server to query is reached this way.
+ */
+export function removeIceAgentServers(pc: RTCPeerConnection) {
+  for (const transport of pc.iceTransports) {
+    const connection = transport.connection as unknown as {
+      stunServer?: Address;
+      turnServer?: Address;
+    };
+    connection.stunServer = undefined;
+    connection.turnServer = undefined;
+  }
+}
+
+// --- spec coverage: transport ---
+
+/** `sdp` with `mid` left out of its BUNDLE group (the m-line gets its own transport). */
+export function leaveBundle(sdp: string, mid: string) {
+  return sdp.replace(
+    /^a=group:BUNDLE ([^\r\n]+)/m,
+    (_, items: string) =>
+      `a=group:BUNDLE ${items
+        .split(" ")
+        .filter((item) => item !== mid)
+        .join(" ")}`,
+  );
+}
+
+/** `sdp` whose m-line `mid` offers only a codec nobody supports, at a fresh payload type. */
+export function withOnlyUnsupportedCodec(sdp: string, mid: string) {
+  return mungeSection(sdp, mid, (section) =>
+    section
+      .replace(/^(m=\w+ \S+ \S+) [^\r\n]+/m, "$1 125")
+      .replace(/^a=(rtpmap|fmtp|rtcp-fb):\d+ [^\r\n]*\r\n/gm, "")
+      .replace(
+        /^(a=mid:[^\r\n]+\r\n)/m,
+        "$1a=rtpmap:125 x-unsupported/90000\r\n",
+      )
+      .replace(/^a=ssrc-group:[^\r\n]*\r\n/gm, ""),
+  );
+}
+
+/**
+ * Arrange: hold the DTLS start of every transport `pc` holds that has not
+ * started yet (for example a pending BUNDLE split owner) until `release()`.
+ */
+export function holdNewDtlsStart(pc: RTCPeerConnection) {
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const held = [...heldTransports(pc)].filter(
+    (transport) => transport.state === "new",
+  );
+  for (const transport of held) {
+    const original = transport.start.bind(transport);
+    transport.start = async () => {
+      transport.start = original;
+      await released;
+      return original();
+    };
+  }
+  return { held, release };
+}
+
+/**
+ * Arrange: `createInitialPranswerConnection`, also returning the offer the
+ * offerer created ([[LastCreatedOffer]]; its localDescription carries the
+ * gathered candidates on top of it).
+ */
+export async function createInitialPranswerConnectionWithOffer() {
+  const connection = await createInitialPranswerConnection();
+  const { sdp } = (
+    connection.offerer as unknown as { createdOffer: { sdp: string } }
+  ).createdOffer;
+  return { ...connection, offer: { type: "offer" as const, sdp } };
+}
+
+// --- spec coverage: codecs ---
+
+/** Payload type of the first codec named `name` (rtpmap encoding name, any case) in `sdp`. */
+export function payloadTypeOf(sdp: string, name: string) {
+  const match = sdp.match(new RegExp(`^a=rtpmap:(\\d+) ${name}/`, "im"));
+  if (!match) throw new Error(`No ${name} codec in the SDP`);
+  return Number(match[1]);
+}
+
+/**
+ * `sdp` whose `kind` m-lines no longer list the codecs named `names`, nor an
+ * RTX codec whose `apt` pointed at one of them (a remote peer's subset).
+ */
+export function withoutCodecs(
+  sdp: string,
+  kind: "audio" | "video",
+  names: string[],
+) {
+  const [session, ...sections] = sdp.split(/(?=^m=)/m);
+  return [
+    session,
+    ...sections.map((section) => {
+      if (!section.startsWith(`m=${kind} `)) return section;
+      const dropped = new Set<string>();
+      for (const [, pt, name] of section.matchAll(
+        /^a=rtpmap:(\d+) ([^/\r\n]+)\//gm,
+      )) {
+        if (names.some((n) => n.toLowerCase() === name.toLowerCase())) {
+          dropped.add(pt);
+        }
+      }
+      for (const [, pt, apt] of section.matchAll(/^a=fmtp:(\d+) apt=(\d+)/gm)) {
+        if (dropped.has(apt)) dropped.add(pt);
+      }
+      return section
+        .replace(
+          /^(m=\S+ \S+ \S+)([^\r\n]*)/m,
+          (_, head: string, pts: string) =>
+            `${head}${pts
+              .split(" ")
+              .filter((pt) => !dropped.has(pt))
+              .join(" ")}`,
+        )
+        .split("\r\n")
+        .filter((line) => {
+          const pt = line.match(/^a=(?:rtpmap|fmtp|rtcp-fb):(\d+) /)?.[1];
+          return !pt || !dropped.has(pt);
+        })
+        .join("\r\n");
+    }),
+  ].join("");
+}
+
+/** `sdp` without the `a=extmap` lines of the header extension `uri`. */
+export function withoutExtmap(sdp: string, uri: string) {
+  return sdp
+    .split("\r\n")
+    .filter(
+      (line) => !(line.startsWith("a=extmap:") && line.endsWith(` ${uri}`)),
+    )
+    .join("\r\n");
+}
+
+/** `sdp` whose codec `name` also lists the RTCP feedback `type` (for example `transport-cc`). */
+export function withRtcpFeedback(sdp: string, name: string, type: string) {
+  return sdp.replace(
+    new RegExp(`^(a=rtpmap:(\\d+) ${name}/[^\\r\\n]*)`, "gim"),
+    `$1\r\na=rtcp-fb:$2 ${type}`,
+  );
+}
+
+/**
+ * Act helper: write one SRTP packet with exactly the header the test chooses
+ * (payload type, SSRC, sequence number, extensions) on `transport`, without
+ * the sender rewriting it.
+ */
+export async function sendRawRtp(
+  transport: DtlsTransport,
+  header: {
+    ssrc: number;
+    payloadType: number;
+    sequenceNumber: number;
+    extensions?: { id: number; payload: Buffer }[];
+  },
+  payload: Buffer,
+) {
+  await transport.sendRtp(
+    payload,
+    new RtpHeader({
+      timestamp: header.sequenceNumber * 3000,
+      marker: true,
+      ...header,
+    }),
+  );
+}
+
+/** Resolve with the first RTP packet whose payload is `text` on any of `tracks`, and the track that got it. */
+export function watchRtpText(
+  tracks: MediaStreamTrack[],
+  text: string,
+  ms = 2000,
+) {
+  return withTimeout(
+    new Promise<{ track: MediaStreamTrack; packet: RtpPacket }>((resolve) => {
+      for (const track of tracks) {
+        track.onReceiveRtp.subscribe((packet) => {
+          if (packet.payload.toString() === text) resolve({ track, packet });
+        });
+      }
+    }),
+    `RTP was not received: ${text}`,
+    ms,
+  );
+}
+
+/** Record the generic NACK feedback (lost sequence numbers) that reaches `sender` over the session. */
+export function recordSenderFeedback(sender: RTCRtpSender) {
+  const record = { nacks: [] as number[][] };
+  const subscription = sender.onGenericNack.subscribe((nack) =>
+    record.nacks.push(nack.lost),
+  );
+  return { record, stop: () => subscription.unSubscribe() };
+}
+
+let twccSequenceNumber = 20000;
+/**
+ * Write `packets` RTP packets on `outgoing` (its sender adds the transport-cc
+ * header extension when negotiated) and report whether `receiver` sent
+ * transport-wide CC feedback (RTPFB FMT 15) for them on its DTLS transport.
+ * The feedback is observed where it leaves the receiving peer: a werift
+ * sender cannot parse it yet, because `ReceiverTWCC` writes it without the
+ * 32-bit padding (an RTP-layer defect outside the negotiation).
+ */
+export async function twccFeedbackSent(
+  outgoing: MediaStreamTrack,
+  receiver: RTCRtpReceiver,
+  { packets = 15, waitMs = 700 }: { packets?: number; waitMs?: number } = {},
+) {
+  const transport = receiver.dtlsTransport;
+  const original = transport.sendRtcp;
+  let sent = 0;
+  transport.sendRtcp = (rtcp) => {
+    for (const packet of rtcp as {
+      type: number;
+      feedback?: { count: number };
+    }[]) {
+      // RTPFB (205) の FMT 15 が transport-wide CC。
+      if (packet.type === 205 && packet.feedback?.count === 15) sent++;
+    }
+    return original.call(transport, rtcp);
+  };
+  try {
+    for (let i = 0; i < packets; i++) {
+      const sequenceNumber = ++twccSequenceNumber;
+      outgoing.writeRtp(
+        new RtpPacket(
+          new RtpHeader({ sequenceNumber, timestamp: sequenceNumber * 3000 }),
+          Buffer.from(`twcc-${sequenceNumber}`),
+        ).serialize(),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    const deadline = Date.now() + waitMs;
+    while (sent === 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    return sent > 0;
+  } finally {
+    transport.sendRtcp = original;
+  }
+}
+
+/** Configuration of a video RTX codec; its `apt` is the codec configured just before it. */
+export function rtxCodec() {
+  return new RTCRtpCodecParameters({ mimeType: "video/rtx", clockRate: 90000 });
+}
+
+/**
+ * Shared Arrange: connected sendonly video like `createConnectedVideoPeers`,
+ * with a separate configuration per peer and optional codec preferences the
+ * offerer applies before its first offer.
+ */
+export async function createConnectedVideoPeersWith({
+  offerer: offererConfig,
+  answerer: answererConfig = offererConfig,
+  offererPreferences,
+}: {
+  offerer: ConstructorParameters<typeof RTCPeerConnection>[0];
+  answerer?: ConstructorParameters<typeof RTCPeerConnection>[0];
+  offererPreferences?: RTCRtpCodecParameters[];
+}) {
+  const offerer = new RTCPeerConnection(offererConfig);
+  const answerer = new RTCPeerConnection(answererConfig);
+  const outgoing = new MediaStreamTrack({ kind: "video" });
+  const transceiver = offerer.addTransceiver(outgoing, {
+    direction: "sendonly",
+  });
+  if (offererPreferences) transceiver.setCodecPreferences(offererPreferences);
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  await answerer.setLocalDescription(await answerer.createAnswer());
+  await offerer.setRemoteDescription(answerer.localDescription!);
+  await withTimeout(
+    Promise.all([waitForConnection(offerer), waitForConnection(answerer)]),
+    "Video peers did not connect",
+  );
+  const remote = answerer.getTransceivers()[0];
+  return {
+    offerer,
+    answerer,
+    outgoing,
+    incoming: remote.receiver.track,
+    sender: transceiver.sender,
+    receiver: remote.receiver,
+    transceiver,
+    remote,
+    close: () => Promise.allSettled([offerer.close(), answerer.close()]),
+  };
+}
+
+/**
+ * Shared Arrange: connected session whose offerer sends video (VP8 + RTX,
+ * H264 configured) and audio (RED + Opus), both m-lines with the MID and
+ * abs-send-time header extensions, so a description can change the codec,
+ * RTX, RED and header extensions a sender uses.
+ */
+export function createConnectedSendParamPeers() {
+  const red = () =>
+    new RTCRtpCodecParameters({
+      mimeType: "audio/red",
+      clockRate: 48000,
+      channels: 2,
+    });
+  const opus = () =>
+    new RTCRtpCodecParameters({
+      mimeType: "audio/opus",
+      clockRate: 48000,
+      channels: 2,
+    });
+  return createConnectedVideoPeers(
+    {
+      codecs: {
+        video: [useVP8(), rtxCodec(), useH264()],
+        audio: [red(), opus()],
+      },
+      headerExtensions: {
+        video: [useSdesMid(), useAbsSendTime()],
+        audio: [useSdesMid(), useAbsSendTime()],
+      },
+    },
+    { withAudio: true },
+  );
+}
+
+/**
+ * Shared Arrange: both peers send video, configured with VP8 + RTX and
+ * H264 (transport-cc) + RTX. The first negotiation commits VP8 + RTX only;
+ * then the offerer's re-offer that proposes H264 + RTX only is applied on
+ * the answerer, which has not answered yet.
+ */
+export async function createVp8RtxSessionWithH264Reoffer() {
+  const config = () => ({
+    codecs: {
+      video: [
+        useVP8(),
+        rtxCodec(),
+        useH264({
+          rtcpFeedback: [
+            { type: "nack" },
+            { type: "nack", parameter: "pli" },
+            { type: "transport-cc" },
+          ],
+        }),
+        rtxCodec(),
+      ],
+    },
+  });
+  const offerer = new RTCPeerConnection(config());
+  const answerer = new RTCPeerConnection(config());
+  const offererOut = new MediaStreamTrack({ kind: "video" });
+  const answererOut = new MediaStreamTrack({ kind: "video" });
+  const offererTransceiver = offerer.addTransceiver(offererOut, {
+    direction: "sendrecv",
+  });
+  offererTransceiver.setCodecPreferences([useVP8()]);
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  const answererTransceiver = answerer.getTransceivers()[0];
+  answererTransceiver.direction = "sendrecv";
+  await answererTransceiver.sender.replaceTrack(answererOut);
+  await answerer.setLocalDescription(await answerer.createAnswer());
+  await offerer.setRemoteDescription(answerer.localDescription!);
+  await waitForPeersConnected(offerer, answerer);
+  offererTransceiver.setCodecPreferences([useH264()]);
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  return {
+    offerer,
+    answerer,
+    offererOut,
+    answererOut,
+    offererTransceiver,
+    answererTransceiver,
+    close: () => Promise.allSettled([offerer.close(), answerer.close()]),
+  };
+}
+
+/**
+ * Shared Arrange: a VP8 + H264 video session negotiating the transport-cc
+ * header extension, where only `twccCodec` carries the transport-cc RTCP
+ * feedback. The current codec is VP8; the offerer's re-offer that proposes
+ * H264 only is applied on the answerer (no preference change there).
+ */
+export async function createTwccH264OnlyReoffer(twccCodec: "VP8" | "H264") {
+  const feedback = (codec: "VP8" | "H264") => [
+    { type: "nack" },
+    { type: "nack", parameter: "pli" },
+    ...(codec === twccCodec ? [{ type: "transport-cc" }] : []),
+  ];
+  const config = () => ({
+    codecs: {
+      video: [
+        useVP8({ rtcpFeedback: feedback("VP8") }),
+        useH264({ rtcpFeedback: feedback("H264") }),
+      ],
+    },
+    headerExtensions: { video: [useTransportWideCC()] },
+  });
+  const peers = await createConnectedVideoPeersWith({
+    offerer: config(),
+    answerer: config(),
+  });
+  peers.transceiver.setCodecPreferences([useH264()]);
+  await peers.offerer.setLocalDescription(await peers.offerer.createOffer());
+  await peers.answerer.setRemoteDescription(peers.offerer.localDescription!);
+  return peers;
+}
+
+/**
+ * Shared Arrange: a committed session with one inactive audio m-line (index
+ * 0). `inactive` is the answerer's transceiver of that m-line.
+ */
+export async function createCommittedInactiveAudioPeers() {
+  const peers = createUnnegotiatedPeers();
+  const { offerer, answerer } = peers;
+  offerer.addTransceiver("audio", { direction: "inactive" });
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  await answerer.setLocalDescription(await answerer.createAnswer());
+  await offerer.setRemoteDescription(answerer.localDescription!);
+  const [inactive] = answerer.getTransceivers();
+  return { ...peers, inactive, inactiveMid: inactive.mid! };
 }

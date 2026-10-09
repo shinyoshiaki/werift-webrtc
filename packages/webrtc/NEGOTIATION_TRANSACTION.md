@@ -298,9 +298,11 @@ commit.
 Restart credentials are registered generations (see the description reuse
 contract): creating a description only changes which generation the next
 SDP carries, and applying a description selects the one its SDP carries. A
-new offer reuses the generation of the applied pending offer (JSEP 5.2.1) and
-an answer created again for the same remote offer reuses the earlier answer's
-(JSEP 5.3.1), whatever was created in between. The final answer switches
+new offer reuses the generation of the applied pending offer (JSEP 5.2.1),
+unless `restartIce()` was called while it was pending (its credentials are
+then in W3C `[[LocalIceCredentialsToReplace]]` and the offer gets new ones),
+and an answer created again for the same remote offer reuses the earlier
+answer's (JSEP 5.3.1), whatever was created in between. The final answer switches
 exactly the generation of the applied description, so the current local SDP
 and the live ICE credentials agree.
 
@@ -496,6 +498,101 @@ negotiation state is added to its component's pair, not to the transaction:
 | `RtpRouter` | `snapshotRoutes` / `restoreRoutes` | packet-learned SSRC routes, every live sender's own route |
 | `SctpTransportManager` | `snapshotNegotiationState` / `restoreNegotiationState` | an application-created SCTP transport whose association never ran |
 
+## Effective values while pending
+
+Which description a live value follows while a negotiation is pending. Rules:
+**current** (the committed value stays live), **provisional** (the latest
+applied pranswer, local or remote, is live until the final answer or
+rollback), **both** (current stays live and the pending description adds
+what does not conflict; conflicts are staged until commit), **reject** (the
+change is refused before any live mutation). The final answer always commits
+its own values (it can differ from every pranswer) and rollback always
+returns to the baseline. A first negotiation has no current value: its
+pranswer is live (provisional) for every row.
+
+| Value | Remote offer | Pranswer / replacement pranswer | Final answer | Rollback | Checked by |
+| --- | --- | --- | --- | --- | --- |
+| ICE credentials, candidates, EOC | current | both: a provisional generation beside the selected current pair (ICE generation boundaries); a replacement restarts its checklist | commit; changed remote credentials restart the checks and keep the local credentials the offer described | current | helper `assertIceGenerations`; Matrix "local ICE restart then %s"; Regression "new remote credentials in an answer keep the local credentials the offer described" |
+| DTLS role / fingerprint | current | current association kept; a new association (BUNDLE split owner) is provisional; a role change of a connecting / connected association (also one a first pranswer connected) is rejected | commit (same rule) | current | helper `assertDtlsBindings`; Regression "a final answer cannot reverse the DTLS role a first pranswer connected with", "a local answer that flips the DTLS setup of a connected association is rejected" |
+| Receive codec / RTCP feedback | both | both | commit | current | helper `assertRouterAndCodecs`; Routing (`negotiationTransactionRouting.test.ts`) |
+| Send codec (sender parameters) | current (the offer only proposes) | provisional on both sides | commit | current | helper `expectedLive("sendCodec")`; EffectiveValues "a pranswer sends with its codec on both sides until %s" |
+| Direction (`currentDirection`, sending) | current | provisional: an `inactive` / `recvonly` pranswer stops sending | commit | current | helper `expectedLive("direction")`; EffectiveValues "an inactive pranswer stops sending until a sendrecv %s"; Matrix "replacement pranswer and a different final answer" |
+| BUNDLE owner / transport | current | both: current owners stay, a split owner is provisional | commit | current | helper `assertDescriptionBindings`; Matrix "BUNDLE split, tag change and merge route RTP by MID"; Mutation `noBundle` / `splitBundleGroups` |
+| SCTP port | current | reject a change of an existing association (also one a first pranswer started) | reject (same) | current | helper `assertSctpBinding`; Mutation `sctpPort` |
+| SCTP max-message-size | current | provisional (W3C updates the data max message size at answer and pranswer, local or remote) | commit | current | helper `expectedLive("remoteMaxMessageSize")`; Matrix "renegotiation max-message-size follows offer, pranswers and %s" |
+| Header extension IDs | both (new IDs); remap of a current ID rejected | both; remap rejected | commit | current | helper `assertRouteTables`; Routing "a remote re-offer that remaps an active header extension id is rejected before mutation"; Mutation `extmapSwapped` |
+| Remote SSRC routes | both (conflicts staged) | both; the routes a replaced pranswer alone added are dropped, and its track is taken over by the next SSRC the description gives that receiver | commit (a current SSRC the answer omits stays routed, as on `develop`) | current | helper `assertEffectiveValues` (pranswer SSRCs route); EffectiveValues "SSRCs only a replaced pranswer announced stop routing at the final answer", "a first pranswer with other SSRCs leaves the receiver's track to the final answer's SSRC" |
+
+`expectedLive(snapshot, field)` in the test utilities encodes the
+provisional / current columns for direction, send codec and max-message-size
+and replaces a uniform "live = current SDP" check; the other rows are checked
+by the helper functions listed.
+
+## Peer-diversity mutations
+
+`tools/negotiation-diff/mutations.ts` rewrites a werift description the way
+other peers differ: no BUNDLE, one group per m-line, ICE-lite, separate
+credentials for a split m-line, reversed or `actpass` DTLS setup,
+max-message-size, sctp-port, no NACK / PLI, a changed fmtp, a codec subset or
+reorder, a rejected (port 0) m-line, an inactive m-line, a renamed MID
+(#142), swapped extmap IDs, other SSRCs, and no end-of-candidates. The
+mutations are pure string rewrites, so the same library drives the tests and
+the develop differential runner.
+
+`negotiationTransactionMutation.test.ts` applies them on the wire to the
+offer, the pranswer (followed by a clean final answer) or the answer, in a
+first negotiation and in a renegotiation. Every operation must be accepted
+with the invariants holding or rejected atomically; a rejected renegotiation
+keeps the current session communicating; a clean final answer after a
+mutated pranswer communicates; a later clean renegotiation communicates; and
+close() leaves no transport running. A mutation marked `misdescribesPeer`
+describes something the real peer on the other end does not do (its BUNDLE,
+ICE, setup, port, MID, SSRC, extension IDs or acceptance of an m-line), so
+connectivity after accepting it is not expected; acceptance or atomic
+rejection still is. By default each mutation runs alone;
+`WERIFT_NEGOTIATION_MUTATION=pairwise` runs every pair and
+`=random:<count>:<seed>` random combinations of up to three. `run.ts
+--mutate <p>` rewrites delivered descriptions with probability `p`, so
+`compare.ts` reports what `develop` accepted and communicated with but HEAD
+does not.
+
+## Interrupts
+
+`negotiationTransactionInterrupt.test.ts` holds a negotiation at a wait —
+the gathering of an ICE restart commit, an mDNS lookup of a provisional
+generation's candidate, the DTLS start of a first answer, STUN checks to
+candidates nobody answers — and meanwhile closes the connection, requests
+`restartIce()`, starts a new offer, or rolls the pending pranswer back. The
+held operation and the interrupt must settle (no hang), the invariants hold,
+`close()` leaves every transport created so far closed, and otherwise a clean
+negotiation afterwards communicates. A closed ICE transport stays `closed`:
+checks that `stop()` interrupted do not report `failed` afterwards.
+
+## Rules found by mutations and spec coverage
+
+Each has a test that fails without it.
+
+- A replacement remote offer that describes the MID of a transceiver the
+  replaced offer created (same kind) carries it over in its created state —
+  same MID, m-line and track objects — and notifies nothing again.
+- Rolling back a first negotiation also replaces a transport that only got the
+  rolled-back offer's remote credentials and candidates.
+- At the final answer SCTP moves straight to its owner's transport in the
+  answer; it never detours over its own prepared transport, which would
+  replace an association a first pranswer established.
+- A stopped SCTP transport delivers no DCEP a queued callback still carries.
+- A committed answer that rejects the application m-line closes the SCTP
+  transport and its channels (`sctpTransport` becomes undefined, W3C) and stops
+  the transport when nothing else uses it.
+- After a replacement pranswer, a proposal transport no m-line uses any more
+  stops the checks the earlier pranswer started and keeps its local
+  generation for the final answer.
+- Transport-cc feedback starts from a packet whose own codec negotiated it.
+- A remote offer cannot recycle (new MID on) an m-line a local transceiver
+  that is not stopped still uses, inactive or not.
+- An offer created after `restartIce()` while a restart offer is pending
+  replaces the pending credentials too.
+
 ## Test coverage
 
 `tests/integrate/negotiationTransactionUtils.ts` holds the shared Arrange
@@ -527,11 +624,18 @@ the pre-review self-review found into deterministic cases, and
 `negotiationTransactionDevelopIntegration.test.ts` covers the develop features
 below (TURN across a staged ICE restart, SCTP MTU, application codec changes
 and m-line reuse during a pending negotiation).
+`negotiationTransactionEffectiveValues.test.ts` drives the rows of "Effective
+values while pending" the matrix does not change, and
+`negotiationTransactionMutation.test.ts` / `negotiationTransactionInterrupt.test.ts`
+run the peer-diversity mutations and the interrupt matrix above.
 CI replays a fixed seed set plus the seeds that found bugs; a deeper local
 search uses `WERIFT_NEGOTIATION_FUZZ_SEEDS`, `WERIFT_NEGOTIATION_FUZZ_STEPS`
 and `WERIFT_NEGOTIATION_FUZZ_SEED`, and a failure prints its seed and
-operations. Before asking for review, run a deeper search and a self-review
-that lists every path writing live tables while a description is pending.
+operations. Before asking for review, run a deeper search, the pairwise
+mutations (`WERIFT_NEGOTIATION_MUTATION=pairwise`) and a self-review that
+lists every path writing live tables while a description is pending.
+`NEGOTIATION_SPEC_COVERAGE.md` maps every requirement of the ticket to the
+tests that verify it.
 
 ## m-line rejection, stop and reuse (issue 705)
 
@@ -676,3 +780,18 @@ not as a change of this contract. Known constraints:
   current traffic uses it); rollback restores it.
 - `createOffer` fills empty codec and header extension lists of a transceiver;
   these are defaults, not negotiated state, and stay after an unapplied offer.
+- A remote SSRC of the current session that a later answer no longer lists
+  stays routed, and a receiver keeps one track per SSRC it was given across
+  committed renegotiations (existing since `develop`). Only SSRCs a replaced
+  pranswer alone announced are dropped, and their track is reused.
+- An answer or pranswer that changes the remote ICE credentials of a
+  transport whose generation the offer did not restart restarts the checks for
+  the new remote generation and keeps the local credentials (as Chrome does);
+  the session continues once the new pair is nominated.
+- A transport-cc feedback packet without padding is serialized with an RTCP
+  length one word short in `packages/rtp`, so the peer cannot parse it
+  (existing since `develop`, outside negotiation; tests observe that the
+  feedback is sent).
+- The peer-diversity mutations and the develop differential runner exercise
+  werift on both ends; other implementations are covered only as far as the
+  mutations model them.

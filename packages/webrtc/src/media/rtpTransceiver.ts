@@ -149,6 +149,13 @@ export class RTCRtpTransceiver {
 
   setCurrentDirection(direction: CurrentDirection | undefined) {
     this._currentDirection = direction;
+    // A negotiated direction without sending (inactive / recvonly, also a
+    // pranswer's while it is pending) stops the sender from sending.
+    this.sender.setSendSuppressed(
+      !!direction &&
+        direction !== "stopped" &&
+        !SenderDirections.includes(direction),
+    );
     if (
       direction &&
       direction !== "stopped" &&

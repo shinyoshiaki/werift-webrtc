@@ -48,11 +48,14 @@ export class TransportActivation {
     }
     this.connectEpoch++;
     const transports = [...this.secure.dtlsTransports];
+    // A transport the rolled-back proposal connected, or only gave remote
+    // credentials and candidates, is replaced: nothing of it stays live.
     if (
       transports.some(
         (dtls) =>
           dtls.state !== "new" ||
-          !["new", "closed"].includes(dtls.iceTransport.state),
+          !["new", "closed"].includes(dtls.iceTransport.state) ||
+          !!dtls.iceTransport.getRemoteParameters(),
       )
     ) {
       if (this.sctp.sctpTransport) {
@@ -110,8 +113,9 @@ export class TransportActivation {
       const provisional =
         pendingOnly &&
         !this.negotiation.isPendingOnlyTransport(dtls.iceTransport.id);
-      if (!provisional && media.kind === "application") {
-        this.sctp.setRemoteSCTP(media, index);
+      if (media.kind === "application") {
+        if (provisional) this.sctp.updateRemoteMaxMessageSize(media);
+        else this.sctp.setRemoteSCTP(media, index);
       }
       const entry: TransportEntry = byTransport.get(dtls.iceTransport) ?? {
         provisional,

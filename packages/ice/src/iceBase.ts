@@ -50,6 +50,12 @@ export interface IceConnection {
   stageLocalCredentials?(usernameFragment: string, password: string): void;
   discardStagedLocalCredentials?(usernameFragment: string): void;
   commitLocalCredentials?(usernameFragment: string, password: string): void;
+  /**
+   * The remote side alone restarted (new remote credentials in an answer):
+   * drop the remote generation and its checks, keep the local credentials
+   * and gathered candidates.
+   */
+  restartRemote?(): void;
   setProvisionalRemoteParams?(params: {
     usernameFragment: string;
     password: string;

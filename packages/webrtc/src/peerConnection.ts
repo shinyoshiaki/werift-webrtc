@@ -534,7 +534,9 @@ export class RTCPeerConnection extends EventTarget {
         this.sdpManager.currentLocalDescription &&
         this.sdpManager.currentRemoteDescription
       ) {
-        this.secureManager.stageIceRestart();
+        this.secureManager.stageIceRestart(undefined, {
+          replacing: this.iceRestartRequest.replacing,
+        });
       } else {
         // No current credentials to replace: fresh ones satisfy restartIce().
         this.iceRestartRequest.clear();
@@ -1106,7 +1108,7 @@ export class RTCPeerConnection extends EventTarget {
         description.type === "answer" &&
         this.sdpManager.currentRemoteDescription
       ) {
-        this.topology.applyPending();
+        this.topology.applyPending(description);
         await this.commitIceRestartIfAnyStaged();
         await this.activation.activatePendingRemote();
         for (const transceiver of this.transceiverManager.getTransceivers()) {
@@ -1123,6 +1125,15 @@ export class RTCPeerConnection extends EventTarget {
         this.sdpManager.currentRemoteDescription
       ) {
         await this.activation.activatePendingRemote(true);
+        // Like a remote pranswer, a local one sends provisionally with the
+        // codecs it answered; the baseline restores them on rollback.
+        for (const transceiver of this.transceiverManager.getTransceivers()) {
+          if (transceiver.mid && transceiver.codecs.length > 0) {
+            transceiver.sender.prepareSend(
+              this.transceiverManager.getLocalRtpParams(transceiver),
+            );
+          }
+        }
       }
       // A first negotiation has no current session to protect: its pranswer
       // already sends and receives with the codecs it answered (a rollback
@@ -1197,9 +1208,14 @@ export class RTCPeerConnection extends EventTarget {
         for (const t of this.transceiverManager.getTransceivers()) {
           if (!t.mid || !answeredMids.has(t.mid)) continue;
           if (t.stopped || t.pendingRejection) continue;
+          // The direction the applied answer / pranswer carries (it is what
+          // the peer was told), else the one the transceiver would answer.
+          const answered = description.media.find(
+            (media) => media.rtp.muxId === t.mid && media.port !== 0,
+          )?.direction;
           const direction = t.stopping
             ? "inactive"
-            : andDirection(t.direction, t.offerDirection);
+            : (answered ?? andDirection(t.direction, t.offerDirection));
           t.setCurrentDirection(direction);
         }
       }
@@ -1239,6 +1255,9 @@ export class RTCPeerConnection extends EventTarget {
         // The final answer reuses the restart credentials this pranswer
         // already signalled.
         this.secureManager.markStagedIceRestartApplied();
+        this.negotiation.stopUnusedProposalChecks(
+          this.topology.transportsOf(description),
+        );
         this.negotiation.settle();
         this.setSignalingState("have-local-pranswer");
       }
@@ -1275,7 +1294,11 @@ export class RTCPeerConnection extends EventTarget {
         }
       }
 
-      if (description.type === "answer") await this.negotiation.commit();
+      if (description.type === "answer") {
+        await this.negotiation.commit();
+        this.completeEndedCurrentGenerations();
+        await this.closeRejectedApplication(description);
+      }
 
       await this.gatherCandidates().catch((e) => {
         log("gatherCandidates failed", e);
@@ -1480,7 +1503,7 @@ export class RTCPeerConnection extends EventTarget {
         this.negotiation.retireRemoteGeneration(
           this.sdpManager.pendingRemoteDescription,
         );
-        await this.negotiation.replace();
+        await this.negotiation.replace(remoteSdp);
         this.secureManager.rollbackStagedIceRestart();
         this.sdpManager.pendingRemoteDescription = undefined;
       }
@@ -1505,7 +1528,7 @@ export class RTCPeerConnection extends EventTarget {
           this.negotiation.discardStagedRemoteAnswer();
         }
         if (remoteSdp.type === "answer") {
-          this.topology.applyPending();
+          this.topology.applyPending(remoteSdp);
         }
 
         const {
@@ -1577,11 +1600,16 @@ export class RTCPeerConnection extends EventTarget {
       } else if (remoteSdp.type === "answer") {
         this.sdpManager.applyRemoteDescription(remoteSdp);
         await this.negotiation.commit();
+        this.completeEndedCurrentGenerations();
+        await this.closeRejectedApplication(remoteSdp);
         this.setSignalingState("stable");
         // Candidates a committed ICE restart gathered with changed servers.
         this.secureManager.emitCommittedIceCandidates();
       } else if (remoteSdp.type === "pranswer") {
         this.sdpManager.applyRemoteDescription(remoteSdp);
+        this.negotiation.stopUnusedProposalChecks(
+          this.topology.transportsOf(remoteSdp),
+        );
         this.negotiation.settle();
         this.setSignalingState("have-remote-pranswer");
       }
@@ -1616,6 +1644,48 @@ export class RTCPeerConnection extends EventTarget {
       }
       this.invalidateLastCreatedDescriptions();
     });
+  }
+
+  /**
+   * A committed answer that rejects the application m-line closes the SCTP
+   * transport (also one a first pranswer connected) and the transport it ran
+   * on when nothing else uses it.
+   */
+  private async closeRejectedApplication(answer: SessionDescription) {
+    const transport = this.sctpManager.sctpTransport;
+    if (!transport) return;
+    const media =
+      answer.media.find(
+        (m) => m.kind === "application" && m.rtp.muxId === transport.mid,
+      ) ??
+      (transport.mLineIndex !== undefined
+        ? answer.media[transport.mLineIndex]
+        : undefined);
+    if (media?.kind !== "application" || media.port !== 0) return;
+    const dtls = await this.sctpManager.closeRejected();
+    if (
+      dtls &&
+      !this.transceiverManager
+        .getTransceivers()
+        .some((t) => !t.stopped && t.dtlsTransport === dtls)
+    ) {
+      await dtls.stop();
+    }
+  }
+
+  /**
+   * The committed remote description now lies on the committed transports.
+   * A generation that already ended on one of them is ended for every
+   * m-line it carries there too, also one the proposal had split off but
+   * that the answer kept on the same transport.
+   */
+  private completeEndedCurrentGenerations() {
+    const current = this.sdpManager.currentRemoteDescription;
+    if (!current) return;
+    this.remoteCandidates.completeSharedTransportMedia(
+      current,
+      current.media.map((_, index) => index),
+    );
   }
 
   /**
