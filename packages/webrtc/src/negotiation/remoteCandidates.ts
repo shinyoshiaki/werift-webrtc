@@ -234,8 +234,9 @@ export class RemoteCandidates {
   completeSharedTransportMedia(sdp: SessionDescription, completed: number[]) {
     // The current description is laid out on the committed transports; a
     // pending proposal (a BUNDLE split) maps its MIDs elsewhere meanwhile.
+    const isCurrent = sdp === this.sdp.currentRemoteDescription;
     const transportFor = (mid: string) =>
-      (sdp === this.sdp.currentRemoteDescription
+      (isCurrent
         ? this.topology.liveTransportForMid(mid)
         : this.topology.currentTransportForMid(mid)
       )?.iceTransport;
@@ -244,12 +245,15 @@ export class RemoteCandidates {
         const media = sdp.media[index];
         const transport = transportFor(media?.rtp.muxId ?? "");
         const ufrag = media?.iceParams?.usernameFragment;
-        // Only the generation that actually ended on the transport counts; a
-        // pending restart ufrag on the same transport is still open.
-        return transport?.connection.remoteCandidatesEnd &&
-          transport.connection.remoteUsername === ufrag
-          ? { transport, ufrag }
-          : undefined;
+        // The generation that ended: the live generation that ended on the
+        // transport (a pending restart ufrag on the same transport is still
+        // open), and on a pending proposal also the proposed generation whose
+        // end-of-candidates it records.
+        const liveEnded =
+          transport?.connection.remoteCandidatesEnd &&
+          transport.connection.remoteUsername === ufrag;
+        const ended = liveEnded || (!isCurrent && media?.iceCandidatesComplete);
+        return ended && transport ? { transport, ufrag } : undefined;
       })
       .filter((generation) => !!generation?.ufrag);
     for (const media of sdp.media) {
