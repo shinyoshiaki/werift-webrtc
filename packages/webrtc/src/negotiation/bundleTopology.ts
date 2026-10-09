@@ -23,7 +23,23 @@ export class BundleTopology {
     private readonly negotiation: NegotiationTransaction,
     /** A new transport with its own ICE credentials. */
     private readonly createTransport: () => RTCDtlsTransport,
+    /** The PeerConnection was closed (checked after every await). */
+    private readonly isClosed: () => boolean = () => false,
   ) {}
+
+  /**
+   * After an await while preparing transports: a close() that ran meanwhile
+   * already disposed the negotiation, so the transports this preparation
+   * created are stopped here and it fails instead of creating more.
+   */
+  private async assertOpen(created: RTCDtlsTransport[]) {
+    if (!this.isClosed()) return;
+    await Promise.allSettled(created.map((transport) => transport.stop()));
+    throw createWebRtcDomException(
+      "InvalidStateError",
+      "RTCPeerConnection is closed",
+    );
+  }
 
   /**
    * BUNDLE tag (first MID) of the group of `description` that contains `mid`.
@@ -130,6 +146,7 @@ export class BundleTopology {
           created.push(transport);
           pendingOnly = true;
           await transport.iceTransport.gather();
+          await this.assertOpen(created);
         }
         used.add(transport);
         ownerTransport.set(owner, { transport, pendingOnly });
@@ -241,14 +258,17 @@ export class BundleTopology {
 
     this.assertPendingSctpBinding(offer);
     const { ownerByMid, owners } = this.planPending(offer);
+    const created: RTCDtlsTransport[] = [];
     try {
       const ownerTransports = new Map<string, RTCDtlsTransport>();
       for (const [owner, plan] of owners) {
         let transport = plan.reuse;
         if (!transport) {
           transport = this.createTransport();
+          created.push(transport);
           this.negotiation.prepareTransport(offer, owner, transport, true);
           await transport.iceTransport.gather();
+          await this.assertOpen(created);
         }
         ownerTransports.set(owner, transport);
       }

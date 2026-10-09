@@ -232,37 +232,65 @@ export class RemoteCandidates {
    * complete, so the SDP never promises more candidates to it.
    */
   completeSharedTransportMedia(sdp: SessionDescription, completed: number[]) {
-    // The current description is laid out on the committed transports; a
-    // pending proposal (a BUNDLE split) maps its MIDs elsewhere meanwhile.
-    const transportFor = (mid: string) =>
-      (sdp === this.sdp.currentRemoteDescription
-        ? this.topology.liveTransportForMid(mid)
-        : this.topology.currentTransportForMid(mid)
-      )?.iceTransport;
-    const generations = completed
-      .map((index) => {
+    const current = this.sdp.currentRemoteDescription;
+    if (sdp === current) {
+      // The current description is laid out on the committed transports:
+      // only the live generation that ended on a transport counts (a pending
+      // restart ufrag on the same transport is still open).
+      const transportFor = (mid: string) =>
+        this.topology.liveTransportForMid(mid)?.iceTransport;
+      const ended = completed.flatMap((index) => {
         const media = sdp.media[index];
         const transport = transportFor(media?.rtp.muxId ?? "");
         const ufrag = media?.iceParams?.usernameFragment;
-        // Only the generation that actually ended on the transport counts; a
-        // pending restart ufrag on the same transport is still open.
         return transport?.connection.remoteCandidatesEnd &&
           transport.connection.remoteUsername === ufrag
-          ? { transport, ufrag }
-          : undefined;
-      })
-      .filter((generation) => !!generation?.ufrag);
-    for (const media of sdp.media) {
-      const transport = transportFor(media.rtp.muxId ?? "");
-      if (
-        generations.some(
-          (generation) =>
-            generation?.transport === transport &&
-            generation?.ufrag === media.iceParams?.usernameFragment,
-        )
-      ) {
-        media.iceCandidatesComplete = true;
+          ? [{ transport, ufrag }]
+          : [];
+      });
+      for (const media of sdp.media) {
+        const transport = transportFor(media.rtp.muxId ?? "");
+        if (
+          ended.some(
+            (generation) =>
+              generation.transport === transport &&
+              generation.ufrag === media.iceParams?.usernameFragment,
+          )
+        ) {
+          media.iceCandidatesComplete = true;
+        }
       }
+      return;
+    }
+    // A pending proposal: a generation is identified by the proposal's own
+    // BUNDLE ownership (the group tag, or the m-line itself) and ufrag, so an
+    // m-line the proposal splits off stays open even with the same
+    // credentials (RFC 8839 section 5.4), before any transport is prepared.
+    const ownerIn = (description: SessionDescription, mid: string) =>
+      this.topology.bundleTagOf(description, mid) ?? mid;
+    const keyOf = (media: SessionDescription["media"][number]) =>
+      `${ownerIn(sdp, media.rtp.muxId ?? "")}\u0000${media.iceParams?.usernameFragment ?? ""}`;
+    const ended = new Set<string>();
+    for (const index of completed) {
+      const media = sdp.media[index];
+      const mid = media?.rtp.muxId;
+      const ufrag = media?.iceParams?.usernameFragment;
+      if (!media || !mid || !ufrag) continue;
+      // Its end-of-candidates arrived for this proposal, or the proposal
+      // repeats a live generation that already ended, on an m-line it keeps
+      // with the same owner.
+      const live = this.topology.liveTransportForMid(mid)?.iceTransport;
+      const repeatsEndedLive =
+        !!current &&
+        ownerIn(current, mid) === ownerIn(sdp, mid) &&
+        !!live?.connection.remoteCandidatesEnd &&
+        live.connection.remoteUsername === ufrag;
+      if (media.iceCandidatesComplete || repeatsEndedLive) {
+        ended.add(keyOf(media));
+      }
+    }
+    for (const media of sdp.media) {
+      if (ended.has(keyOf(media))) media.iceCandidatesComplete = true;
     }
   }
 

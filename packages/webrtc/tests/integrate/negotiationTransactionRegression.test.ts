@@ -13,12 +13,15 @@ import {
   addUnsupportedExtmaps,
   assertNegotiationInvariants,
   assertTransportsClosed,
+  closeDuringNextPreparedGather,
+  createConnectedMultiVideoPeers,
   createConnectedVideoPeers,
   createConnectedVideoPeersWithRtx,
   createDuplexSession,
   createH264OnlyReoffer,
   createIceRestartPranswer,
   createInitialPranswerConnection,
+  createRewrittenOffer,
   createSplitOffer,
   createUnnegotiatedPeers,
   createUnnegotiatedVideoPeers,
@@ -30,6 +33,7 @@ import {
   heldTransports,
   holdDtlsStart,
   holdNextGather,
+  mungeSection,
   negotiate,
   offeredVideoCodecs,
   pliReaches,
@@ -1929,6 +1933,140 @@ describe("negotiation transaction live-state regressions", () => {
       assertNegotiationInvariants(offerer);
       assertNegotiationInvariants(answerer);
       await sendAndExpectRtp(outgoing, incoming, "latest offer applied again");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("a candidate on the tag m-line after end-of-candidates on a non-tag member of a pending restart is ignored", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers({}, { withAudio: true });
+    try {
+      // Arrange: EOC を含まない ICE restart の re-offer を answerer に適用し、
+      // 非 tag (audio) の m-line に新 generation の EOC を trickle する。
+      offerer.restartIce();
+      await offerer.setLocalDescription(await offerer.createOffer());
+      const offer = offerer.localDescription!.sdp;
+      const ufrag = offer.match(/^a=ice-ufrag:(\S+)/m)![1];
+      await answerer.setRemoteDescription({
+        type: "offer",
+        sdp: offer.replace(/^a=end-of-candidates\r?\n/gm, ""),
+      });
+      const [video, audio] = ["video", "audio"].map(
+        (kind) => answerer.getTransceivers().find((t) => t.kind === kind)!.mid!,
+      );
+      await answerer.addIceCandidate({
+        candidate: "",
+        sdpMid: audio,
+        usernameFragment: ufrag,
+      });
+
+      // Act: 同じ BUNDLE の tag (video) m-line に、同じ generation の遅延候補を送り、answer で確定する。
+      await answerer.addIceCandidate(trickleCandidate(49999, ufrag, video));
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      await Promise.all([
+        waitForCommittedNomination(offerer),
+        waitForCommittedNomination(answerer),
+      ]);
+
+      // Assert: 終端通知の後の候補は pending SDP にも確定後の ICE にも入らない (RFC 8838)。
+      const connection = answerer.iceTransports[0].connection;
+      expect(connection.remoteCandidatesEnd).toBe(true);
+      expect(
+        connection.remoteCandidates.some(
+          (candidate) => candidate.port === 49999,
+        ),
+      ).toBe(false);
+      expect(answerer.currentRemoteDescription!.sdp).not.toContain(" 49999 ");
+      assertNegotiationInvariants(answerer);
+      await sendAndExpectRtp(outgoing, incoming, "after ignored candidate");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("close() while createAnswer() prepares the transports of a BUNDLE split leaves none running", async () => {
+    const { offerer, answerer, close } =
+      await createConnectedMultiVideoPeers(3);
+    let hook: ReturnType<typeof closeDuringNextPreparedGather> | undefined;
+    try {
+      // Arrange: 3 m-line の BUNDLE から 2 つを外す (owner transport を 2 つ準備させる) re-offer を受ける。
+      const [, second, third] = offerer.getTransceivers().map((t) => t.mid!);
+      const split = await createRewrittenOffer(offerer, (sdp) =>
+        sdp.replace(
+          /^a=group:BUNDLE [^\r\n]+/m,
+          `a=group:BUNDLE ${offerer.getTransceivers()[0].mid}`,
+        ),
+      );
+      expect([second, third]).toHaveLength(2);
+      await offerer.setLocalDescription(split);
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      hook = closeDuringNextPreparedGather(answerer);
+
+      // Act: createAnswer の transport 準備 (最初の gather) の途中で close する。
+      await expect(answerer.createAnswer()).rejects.toMatchObject({
+        name: "InvalidStateError",
+      });
+      await hook.closed();
+      hook.restore();
+
+      // Assert: 準備を始めた transport は止まり、close の後に新しい transport は作られない。
+      expect(hook.gathered).toHaveLength(1);
+      for (const transport of hook.gathered) {
+        expect(transport.state).toBe("closed");
+      }
+      expect(answerer.connectionState).toBe("closed");
+    } finally {
+      hook?.restore();
+      await close();
+    }
+  });
+
+  test("end-of-candidates on a pending restart reaches its BUNDLE group but not an m-line the offer splits off", async () => {
+    const { offerer, answerer } = await createConnectedVideoPeers(
+      {},
+      { withAudio: true },
+    );
+    try {
+      // Arrange: ICE restart と BUNDLE 解除 (audio を group から外す) を行い、両 MID が
+      // 同じ ufrag/pwd を持つ remote offer を、transport 準備 (createAnswer) の前まで適用する。
+      offerer.restartIce();
+      const [video, audio] = ["video", "audio"].map(
+        (kind) => offerer.getTransceivers().find((t) => t.kind === kind)!.mid!,
+      );
+      const offer = await createRewrittenOffer(offerer, (sdp) => {
+        const split = sdp
+          .replace(/^a=group:BUNDLE [^\r\n]+/m, `a=group:BUNDLE ${video}`)
+          .replace(/^a=end-of-candidates\r?\n/gm, "");
+        const tag = sectionOf(split, video);
+        const ufrag = tag.match(/^a=ice-ufrag:(\S+)/m)![1];
+        const pwd = tag.match(/^a=ice-pwd:(\S+)/m)![1];
+        return mungeSection(split, audio, (section) =>
+          section
+            .replace(/^a=ice-ufrag:\S+/m, `a=ice-ufrag:${ufrag}`)
+            .replace(/^a=ice-pwd:\S+/m, `a=ice-pwd:${pwd}`),
+        );
+      });
+      const ufrag = sectionOf(offer.sdp, video).match(
+        /^a=ice-ufrag:(\S+)/m,
+      )![1];
+      await answerer.setRemoteDescription(offer);
+
+      // Act: video (tag) にだけ end-of-candidates を通知し、分割される audio に候補を送る。
+      await answerer.addIceCandidate({
+        candidate: "",
+        sdpMid: video,
+        usernameFragment: ufrag,
+      });
+      await answerer.addIceCandidate(trickleCandidate(49998, ufrag, audio));
+
+      // Assert: 終端は video の BUNDLE group だけが完了扱いになり、独立する audio は
+      // 完了せず候補を受け入れる。
+      const pending = answerer.pendingRemoteDescription!.sdp;
+      expect(sectionOf(pending, video)).toContain("a=end-of-candidates");
+      expect(sectionOf(pending, audio)).not.toContain("a=end-of-candidates");
+      expect(sectionOf(pending, audio)).toContain(" 49998 typ host");
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }

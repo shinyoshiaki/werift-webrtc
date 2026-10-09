@@ -305,6 +305,7 @@ export class RTCPeerConnection extends EventTarget {
       this.sctpManager,
       this.negotiation,
       () => this.findOrCreateTransport(true),
+      () => this.isClosed,
     );
     this.remoteMedia = new RemoteMediaApplication(
       this.sdpManager,
