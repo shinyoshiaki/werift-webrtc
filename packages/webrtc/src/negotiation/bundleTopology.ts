@@ -85,17 +85,32 @@ export class BundleTopology {
     offer: SessionDescription,
     assigned: ReadonlyMap<string, RTCDtlsTransport> = new Map(),
   ) {
-    const ownerByMid = new Map<string, string>();
-    for (const media of offer.media) {
-      if (media.port === 0 || !media.rtp.muxId) continue;
-      ownerByMid.set(
-        media.rtp.muxId,
-        this.bundleTagOf(offer, media.rtp.muxId) ?? media.rtp.muxId,
-      );
-    }
     const currentByMid = this.liveTransportByMid();
     for (const [mid, transport] of assigned) {
       if (!currentByMid.has(mid)) currentByMid.set(mid, transport);
+    }
+    // Until the peer has accepted BUNDLE in the committed session, an offered
+    // group is only a proposal under max-compat / balanced: a member keeps
+    // its own transport and candidates and the answer that accepts the group
+    // merges them (RFC 8843 section 7.2). It shares its tag's transport in
+    // the offer under max-bundle, once the peer bundles, or when it already
+    // does (or has no transport of its own yet).
+    const peerBundles = !!this.sdp.currentRemoteDescription?.group.some(
+      (group) => group.semantic === "BUNDLE",
+    );
+    const ownerByMid = new Map<string, string>();
+    for (const media of offer.media) {
+      const mid = media.rtp.muxId;
+      if (media.port === 0 || !mid) continue;
+      const tag = this.bundleTagOf(offer, mid) ?? mid;
+      const own = currentByMid.get(mid);
+      const shared =
+        tag === mid ||
+        this.sdp.bundlePolicy === "max-bundle" ||
+        peerBundles ||
+        !own ||
+        own === currentByMid.get(tag);
+      ownerByMid.set(mid, shared ? tag : mid);
     }
 
     // Select one transport per proposed owner, starting with the transport

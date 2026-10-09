@@ -190,4 +190,28 @@ describe("provisional ICE generation", () => {
       await Promise.all([a.close(), b.close()]);
     }
   });
+
+  test("a full agent nominates a provisional pair toward an ICE-lite peer", async () => {
+    const { a, b } = await createConnectedPair();
+    try {
+      // Arrange: controlled 側の b を ICE-lite とし、a はそれを相手の性質として知っている。
+      b.options.iceLite = true;
+      a.remoteIsLite = true;
+      await stageProvisionalGeneration(a, b);
+
+      // Act: 両側で provisional checks を開始する (ICE-lite の b は応答だけを行う)。
+      a.startProvisionalChecks();
+      b.startProvisionalChecks();
+
+      // Assert: a は check 成功後に USE-CANDIDATE 付きの check で regular nomination を行い、
+      // 両側の provisional generation で同じ経路が nominate される。
+      const nominatedA = await waitProvisionalNominated(a);
+      const nominatedB = await waitProvisionalNominated(b);
+      expect(nominatedA.remoteAddr[1]).toBe(nominatedB.localCandidate.port);
+      expect(nominatedB.remoteAddr[1]).toBe(nominatedA.localCandidate.port);
+      expect(nominatedA.nominated).toBe(true);
+    } finally {
+      await Promise.all([a.close(), b.close()]);
+    }
+  });
 });
