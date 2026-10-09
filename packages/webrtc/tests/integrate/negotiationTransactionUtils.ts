@@ -29,6 +29,7 @@ import {
 import type { RTCIceCandidate } from "../../src";
 import { ridRouteKey } from "../../src/negotiation/internalState";
 import { SessionDescription } from "../../src/sdp";
+import { RTCIceTransport } from "../../src/transport/ice";
 import { RTCSctpTransport } from "../../src/transport/sctp";
 import { dtlsTransportPair } from "../fixture";
 
@@ -2442,4 +2443,30 @@ export async function fuzzDescriptionPool(ctx: FuzzContext, rng: SeededRandom) {
       pc.dtlsTransports.map((transport) => waitForDtlsConnected(transport)),
     ),
   );
+}
+
+/**
+ * Arrange: the next gather of an ICE transport `pc` does not have yet (one
+ * a proposal prepares) closes `pc` while it runs. Returns every transport
+ * gathered from then on, so a test can check that none is left running.
+ */
+export function closeDuringNextPreparedGather(pc: RTCPeerConnection) {
+  const proto = RTCIceTransport.prototype;
+  const original = proto.gather;
+  const existing = new Set(pc.iceTransports);
+  const gathered: RTCIceTransport[] = [];
+  let closing: Promise<void> | undefined;
+  proto.gather = async function (this: RTCIceTransport) {
+    if (existing.has(this)) return original.call(this);
+    gathered.push(this);
+    if (!closing) closing = pc.close();
+    await original.call(this);
+  };
+  return {
+    gathered,
+    closed: () => closing,
+    restore: () => {
+      proto.gather = original;
+    },
+  };
 }
