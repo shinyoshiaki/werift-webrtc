@@ -459,7 +459,7 @@ Internal: return to a negotiation baseline taken by `snapshotNegotiationState`.
 
 ###### receiver
 
-\{ `receiverTWCC`: `undefined` \| `ReceiverTWCC`; `receiveTables`: \{ `codecs`: \{\}; `ssrcByRtx`: \{\}; `stagedCodecs`: \{\}; `stagedSsrcByRtx`: \{\}; \}; `remoteStreamId`: `undefined` \| `string`; `remoteStreamIds`: `string`[]; `remoteTrackId`: `undefined` \| `string`; `trackByRID`: \{\}; `trackBySSRC`: \{\}; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \} = `...`
+\{ `receiverTWCC`: `undefined` \| `ReceiverTWCC`; `receiveTables`: \{ `codecs`: \{\}; `ssrcByRtx`: \{\}; `stagedCodecs`: \{\}; `stagedSsrcByRtx`: \{\}; \}; `remoteStreamId`: `undefined` \| `string`; `remoteStreamIds`: `string`[]; `remoteTrackId`: `undefined` \| `string`; `trackByRID`: \{\}; `trackBySSRC`: \{\}; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; `unboundTracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \} = `...`
 
 ###### receiver.receiverTWCC
 
@@ -506,6 +506,10 @@ Internal: return to a negotiation baseline taken by `snapshotNegotiationState`.
 \{\} = `...`
 
 ###### receiver.tracks
+
+[`MediaStreamTrack`](MediaStreamTrack.md)[] = `...`
+
+###### receiver.unboundTracks
 
 [`MediaStreamTrack`](MediaStreamTrack.md)[] = `...`
 
@@ -786,6 +790,10 @@ application choice and are not part of it.
 ###### receiver.tracks
 
 > **tracks**: [`MediaStreamTrack`](MediaStreamTrack.md)[]
+
+###### receiver.unboundTracks
+
+> **unboundTracks**: [`MediaStreamTrack`](MediaStreamTrack.md)[]
 
 ##### rejected
 

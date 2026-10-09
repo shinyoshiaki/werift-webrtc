@@ -455,6 +455,20 @@ The staged generation now belongs to an applied description.
 
 ***
 
+### resetRemoteGeneration()
+
+> **resetRemoteGeneration**(): `void`
+
+Internal: drop the remote generation and its checks, keeping the local
+credentials and candidates a description already carries (a remote-only
+restart, or a proposal transport a replacement pranswer left unused).
+
+#### Returns
+
+`void`
+
+***
+
 ### restart()
 
 > **restart**(`notifyNegotiation`, `applyNextGatherIceServers`): `void`
@@ -521,7 +535,12 @@ Feed a pranswer's ICE generation to the provisional checklist.
 
 ### setRemoteParams()
 
-> **setRemoteParams**(`remoteParameters`, `renomination`): `void`
+> **setRemoteParams**(`remoteParameters`, `renomination`, `__namedParameters`): `void`
+
+`keepLocalCredentials`: the remote credentials come from an answer or
+pranswer, so the local ones are fixed by the applied local offer. Changed
+remote credentials restart the checks for the new remote generation
+without new local credentials (nothing would describe them to the peer).
 
 #### Parameters
 
@@ -530,6 +549,12 @@ Feed a pranswer's ICE generation to the provisional checklist.
 [`RTCIceParameters`](RTCIceParameters.md)
 
 ##### renomination
+
+`boolean` = `false`
+
+##### \_\_namedParameters
+
+###### keepLocalCredentials?
 
 `boolean` = `false`
 
@@ -553,6 +578,12 @@ Prepare an ICE generation for SDP without touching the selected pair.
 ###### answering?
 
 `object`
+
+###### replacing?
+
+`ReadonlySet`\<`string`\>
+
+Credentials restartIce() asked to replace (W3C [[LocalIceCredentialsToReplace]]).
 
 #### Returns
 

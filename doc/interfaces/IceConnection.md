@@ -292,6 +292,20 @@ only server work (STUN, TURN) is awaited.
 
 ***
 
+### restartRemote()?
+
+> `optional` **restartRemote**(): `void`
+
+The remote side alone restarted (new remote credentials in an answer):
+drop the remote generation and its checks, keep the local credentials
+and gathered candidates.
+
+#### Returns
+
+`void`
+
+***
+
 ### send()
 
 > **send**(`data`): `Promise`\<`void`\>

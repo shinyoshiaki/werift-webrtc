@@ -70,6 +70,12 @@ export class RTCRtpReceiver {
   readonly tracks: MediaStreamTrack[] = [];
   readonly trackBySSRC: { [ssrc: string]: MediaStreamTrack } = {};
   readonly trackByRID: { [rid: string]: MediaStreamTrack } = {};
+  /**
+   * Tracks whose SSRC a later pranswer / answer of the same offer replaced.
+   * The next SSRC a description gives this receiver takes one over, so the
+   * application keeps receiving on the same track object.
+   */
+  private unboundTracks: MediaStreamTrack[] = [];
   /**last sender Report Timestamp
    * compactNtp
    */
@@ -233,6 +239,7 @@ export class RTCRtpReceiver {
       tracks: [...this.tracks],
       trackBySSRC: { ...this.trackBySSRC },
       trackByRID: { ...this.trackByRID },
+      unboundTracks: [...this.unboundTracks],
       receiveTables: this.snapshotReceiveTables(),
     };
   }
@@ -262,6 +269,11 @@ export class RTCRtpReceiver {
       this.trackBySSRC[ssrc] = track;
     }
     replaceTable(this.trackByRID, state.trackByRID);
+    this.unboundTracks = [...state.unboundTracks];
+    // A track the rolled-back description rebound gets its SSRC back.
+    for (const [ssrc, track] of Object.entries(state.trackBySSRC)) {
+      if (!track.rid) track.ssrc = Number(ssrc);
+    }
     // Codec/RTX tables added or changed by a pending description are
     // dropped; current RTP is decoded exactly as before the transaction.
     this.restoreReceiveTables(state.receiveTables);
@@ -294,8 +306,10 @@ export class RTCRtpReceiver {
   /**
    * setup TWCC if supported
    */
-  setupTWCC(mediaSourceSsrc: number) {
-    if (this.twccEnabled && !this.receiverTWCC) {
+  setupTWCC(mediaSourceSsrc: number, negotiated = !!this.twccEnabled) {
+    // `negotiated`: a received packet's own codec negotiated transport-cc
+    // (whatever codec has the lowest payload type).
+    if (negotiated && !this.receiverTWCC) {
       this.receiverTWCC = new ReceiverTWCC(
         this.dtlsTransport,
         this.rtcpSsrc,
@@ -304,8 +318,45 @@ export class RTCRtpReceiver {
     }
   }
 
+  /**
+   * Internal: tracks a replaced remote offer gave this receiver stay its
+   * tracks; the SSRCs the replacing offer gives take them over.
+   */
+  keepUnboundTracks(tracks: MediaStreamTrack[]) {
+    for (const track of tracks) {
+      if (track.rid || this.tracks.includes(track)) continue;
+      this.tracks.push(track);
+      this.unboundTracks.push(track);
+    }
+  }
+
+  /** Internal: a superseded pending description no longer routes `ssrc`. */
+  releaseProvisionalSsrc(ssrc: number) {
+    const track = this.trackBySSRC[ssrc];
+    if (!track || track.rid) return;
+    delete this.trackBySSRC[ssrc];
+    this.unboundTracks.push(track);
+  }
+
   addTrack(track: MediaStreamTrack) {
+    if (
+      track.ssrc &&
+      !track.rid &&
+      !this.trackBySSRC[track.ssrc] &&
+      this.unboundTracks.length > 0
+    ) {
+      const unbound =
+        this.unboundTracks.find((t) => t.ssrc === track.ssrc) ??
+        this.unboundTracks[0];
+      this.unboundTracks = this.unboundTracks.filter((t) => t !== unbound);
+      unbound.ssrc = track.ssrc;
+      unbound.codec = track.codec ?? unbound.codec;
+      this.trackBySSRC[track.ssrc] = unbound;
+      this.learnedTrackSsrcs.delete(track.ssrc);
+      return false;
+    }
     const exist = this.tracks.find((t) => {
+      if (this.unboundTracks.includes(t)) return false;
       if (t.rid) {
         return t.rid === track.rid;
       }
@@ -636,7 +687,7 @@ export class RTCRtpReceiver {
 
       this.receiverTWCC.handleTWCC(transportSequenceNumber);
     } else if (hasFeedback(codec, useTWCC().type)) {
-      this.setupTWCC(packet.header.ssrc);
+      this.setupTWCC(packet.header.ssrc, true);
     }
 
     // RTCP feedback follows the codec this packet was negotiated with, not

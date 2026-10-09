@@ -85,6 +85,18 @@ Internal: the negotiation committed, staged routes replace current ones.
 
 ***
 
+### discardProvisional()
+
+> **discardProvisional**(): `void`
+
+Internal: drop the routes an earlier pending description added at once.
+
+#### Returns
+
+`void`
+
+***
+
 ### registerRtpReceiverByRid()
 
 > **registerRtpReceiverByRid**(`transceiver`, `param`, `params`, `__namedParameters`): `void`

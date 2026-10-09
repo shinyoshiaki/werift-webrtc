@@ -1,3 +1,4 @@
+import { SCTP_STATE } from "../../../sctp/src";
 import { type Event, debug } from "../imports/common";
 import type { TransceiverManager } from "../media";
 import type { NegotiationTransaction } from "../negotiationTransaction";
@@ -48,11 +49,14 @@ export class TransportActivation {
     }
     this.connectEpoch++;
     const transports = [...this.secure.dtlsTransports];
+    // A transport the rolled-back proposal connected, or only gave remote
+    // credentials and candidates, is replaced: nothing of it stays live.
     if (
       transports.some(
         (dtls) =>
           dtls.state !== "new" ||
-          !["new", "closed"].includes(dtls.iceTransport.state),
+          !["new", "closed"].includes(dtls.iceTransport.state) ||
+          !!dtls.iceTransport.getRemoteParameters(),
       )
     ) {
       if (this.sctp.sctpTransport) {
@@ -110,8 +114,9 @@ export class TransportActivation {
       const provisional =
         pendingOnly &&
         !this.negotiation.isPendingOnlyTransport(dtls.iceTransport.id);
-      if (!provisional && media.kind === "application") {
-        this.sctp.setRemoteSCTP(media, index);
+      if (media.kind === "application") {
+        if (provisional) this.sctp.updateRemoteMaxMessageSize(media);
+        else this.sctp.setRemoteSCTP(media, index);
       }
       const entry: TransportEntry = byTransport.get(dtls.iceTransport) ?? {
         provisional,
@@ -136,6 +141,14 @@ export class TransportActivation {
       if (media.iceCandidatesComplete) entry.eoc = true;
     }
     for (const [transport, entry] of byTransport) {
+      // A member's candidate of another ICE generation (its own ufrag) does
+      // not belong to the tag's generation.
+      const ufrag = entry.tag?.iceParams?.usernameFragment;
+      for (const [key, candidate] of entry.candidates) {
+        if (ufrag && candidate.ufrag && candidate.ufrag !== ufrag) {
+          entry.candidates.delete(key);
+        }
+      }
       if (entry.provisional) {
         if (entry.tag) {
           await this.applyProvisionalIce(
@@ -224,21 +237,25 @@ export class TransportActivation {
           if (state !== "connected") {
             throw new Error(`DTLS transport ${state}`);
           }
-        } else if (dtlsTransport.state === "new" && iceReady) {
-          progressed = true;
-          this.secure.setConnectionState("connecting");
-          await dtlsTransport.start().catch((err) => {
-            log("dtlsTransport.start failed", err);
-            throw err;
-          });
+          this.startJoinedSctp(dtlsTransport);
+          return true;
         }
-        if (dtlsTransport.state !== "connected") {
+        if (dtlsTransport.state === "connected") {
+          this.startJoinedSctp(dtlsTransport);
+        }
+        if (dtlsTransport.state !== "new" || !iceReady) {
           return progressed;
         }
 
-        // SCTP is ensured on its own: an association a renegotiation added
-        // on an already connected DTLS transport starts here too, without
-        // touching ICE / DTLS or the connection state.
+        progressed = true;
+        this.secure.setConnectionState("connecting");
+        await dtlsTransport.start().catch((err) => {
+          log("dtlsTransport.start failed", err);
+          throw err;
+        });
+
+        // SCTP on a newly started DTLS transport is ensured before this
+        // transport activation completes.
         if (
           this.sctp.sctpTransport &&
           this.sctp.sctpTransport.dtlsTransport.id === dtlsTransport.id
@@ -255,6 +272,26 @@ export class TransportActivation {
     } else if (res.some((r) => r.status === "fulfilled" && r.value)) {
       this.secure.setConnectionState("connected");
     }
+  }
+
+  /**
+   * An SCTP transport that joined an already connected DTLS transport (the
+   * first application m-line of a renegotiation) starts its association
+   * there; the DTLS start above only covers a new transport.
+   */
+  private startJoinedSctp(dtlsTransport: RTCDtlsTransport) {
+    const sctp = this.sctp.sctpTransport;
+    if (
+      !sctp ||
+      sctp.dtlsTransport !== dtlsTransport ||
+      sctp.sctp.started ||
+      sctp.sctp.associationState !== SCTP_STATE.CLOSED
+    ) {
+      return;
+    }
+    this.sctp.connectSctp().catch((error) => {
+      log("sctp start failed", error);
+    });
   }
 
   /** Connect a provisional ICE/DTLS generation without changing live bindings. */

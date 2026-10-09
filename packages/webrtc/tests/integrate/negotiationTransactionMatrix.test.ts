@@ -10,6 +10,7 @@ import {
   step,
   waitForCommittedNomination,
   waitForDtlsConnected,
+  withMaxMessageSize,
 } from "./negotiationTransactionUtils";
 
 const VIDEO = "0";
@@ -265,6 +266,92 @@ describe.each([
     expect(answerer().pc.sctpTransport!.remoteMaxMessageSize).toBe(131072);
     await expectSessionAlive(session, "max-message-size");
   });
+
+  test.each(["answer", "rollback"] as const)(
+    "renegotiation max-message-size follows offer, pranswers and %s",
+    async (outcome) => {
+      // Arrange: 現在の上限を控え、wire 上の各 description で異なる上限を持たせる。
+      const offererLimit = offerer().pc.sctpTransport!.remoteMaxMessageSize;
+      const answererLimit = answerer().pc.sctpTransport!.remoteMaxMessageSize;
+      const offer = await offerer().pc.createOffer();
+
+      // Act: re-offer を両側に置く (answerer には上限を変えた offer が届く)。
+      await step(session, () => offerer().pc.setLocalDescription(offer));
+      await step(session, () =>
+        answerer().pc.setRemoteDescription({
+          type: "offer",
+          sdp: withMaxMessageSize(offer.sdp, APPLICATION, 131072),
+        }),
+      );
+      // Assert: remote offer の段階では current の上限のまま。
+      expect(answerer().pc.sctpTransport!.remoteMaxMessageSize).toBe(
+        answererLimit,
+      );
+
+      // Act: 上限を変えた pranswer を両側に適用する。
+      const answer = (await answerer().pc.createAnswer()).sdp;
+      const pranswer = withMaxMessageSize(answer, APPLICATION, 98304);
+      await step(session, () =>
+        answerer().pc.setLocalDescription({ type: "pranswer", sdp: answer }),
+      );
+      await step(session, () =>
+        offerer().pc.setRemoteDescription({ type: "pranswer", sdp: pranswer }),
+      );
+      // Assert: pranswer で両側の上限が offer / pranswer の値になる。
+      expect(answerer().pc.sctpTransport!.remoteMaxMessageSize).toBe(131072);
+      expect(offerer().pc.sctpTransport!.remoteMaxMessageSize).toBe(98304);
+
+      // Act: さらに別の上限の replacement pranswer を適用する。
+      const replacement = withMaxMessageSize(answer, APPLICATION, 81920);
+      await step(session, () =>
+        answerer().pc.setLocalDescription({ type: "pranswer", sdp: answer }),
+      );
+      await step(session, () =>
+        offerer().pc.setRemoteDescription({
+          type: "pranswer",
+          sdp: replacement,
+        }),
+      );
+      // Assert: 最後の pranswer の値に置き換わる。
+      expect(offerer().pc.sctpTransport!.remoteMaxMessageSize).toBe(81920);
+      // Assert: 既存 DataChannel は暫定の上限を超えるメッセージを送らない。
+      expect(() => offerer().channel.send(Buffer.alloc(81921))).toThrow(
+        "max-message-size exceeded",
+      );
+      await expectSessionAlive(session, `max-message-size-pranswer-${outcome}`);
+
+      if (outcome === "answer") {
+        // Act: pranswer と異なる上限の final answer で commit する。
+        const final = withMaxMessageSize(answer, APPLICATION, 262144);
+        await step(session, () =>
+          answerer().pc.setLocalDescription({ type: "answer", sdp: answer }),
+        );
+        await step(session, () =>
+          offerer().pc.setRemoteDescription({ type: "answer", sdp: final }),
+        );
+        // Assert: final answer と offer の値が commit される。
+        expect(offerer().pc.sctpTransport!.remoteMaxMessageSize).toBe(262144);
+        expect(answerer().pc.sctpTransport!.remoteMaxMessageSize).toBe(131072);
+      } else {
+        // Act: 両側で rollback する。
+        await step(session, () =>
+          offerer().pc.setLocalDescription({ type: "rollback" }),
+        );
+        await step(session, () =>
+          answerer().pc.setRemoteDescription({ type: "rollback" }),
+        );
+        // Assert: pranswer 前の上限に戻る。
+        expect(offerer().pc.sctpTransport!.remoteMaxMessageSize).toBe(
+          offererLimit,
+        );
+        expect(answerer().pc.sctpTransport!.remoteMaxMessageSize).toBe(
+          answererLimit,
+        );
+      }
+      // Assert: 同じ association で DataChannel が通じる。
+      await expectSessionAlive(session, `max-message-size-${outcome}`);
+    },
+  );
 
   test.each(["answer", "rollback"] as const)(
     "local ICE restart then %s",

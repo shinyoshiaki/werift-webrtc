@@ -136,6 +136,7 @@ export class TransceiverManager {
     createdState: (
       transceiver: RTCRtpTransceiver,
     ) => TransceiverNegotiationState | undefined = () => undefined,
+    carried: ReadonlySet<RTCRtpTransceiver> = new Set(),
   ) {
     for (const [transceiver, state] of snapshot.states) {
       transceiver.restoreNegotiationState(state.transceiver);
@@ -143,6 +144,15 @@ export class TransceiverManager {
     }
     const removedTransports: RTCDtlsTransport[] = [];
     for (const transceiver of added) {
+      if (carried.has(transceiver)) {
+        // A replacement remote offer describes its MID again: it keeps its
+        // MID, m-line and notified track and goes back to its created state.
+        const tracks = [...transceiver.receiver.tracks];
+        const created = createdState(transceiver);
+        if (created) transceiver.restoreNegotiationState(created);
+        transceiver.receiver.keepUnboundTracks(tracks);
+        continue;
+      }
       if (transceiver.heldByApplication) {
         // Kept for the application, it returns to the state it was created
         // with (no direction, codecs or routes the proposal negotiated) and

@@ -906,3 +906,42 @@ export function recordCheckRequests(connection: Connection) {
   }
   return { count: () => count };
 }
+
+// --- spec coverage: ice ---
+
+/**
+ * Arrange: run `atSelection` right after `connection` selects its first pair
+ * (in the microtask that follows the successful check that nominated it),
+ * before `connect()` resolves and before any consent request is sent. The
+ * returned promise settles with what `atSelection` returned.
+ */
+export function atFirstSelection<T>(
+  connection: Connection,
+  atSelection: (pair: CandidatePair) => T,
+) {
+  let selected: CandidatePair | undefined;
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const result = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  Object.defineProperty(connection, "nominated", {
+    configurable: true,
+    enumerable: true,
+    get: () => selected,
+    set: (pair: CandidatePair | undefined) => {
+      const first = !selected && !!pair;
+      selected = pair;
+      if (!first) return;
+      queueMicrotask(() => {
+        try {
+          resolve(atSelection(pair!));
+        } catch (error) {
+          reject(error);
+        }
+      });
+    },
+  });
+  return result;
+}

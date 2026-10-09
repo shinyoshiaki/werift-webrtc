@@ -115,12 +115,45 @@ export class DescriptionValidation {
    * transports, media kinds, SCTP port, codecs, DTLS fingerprint and role, and
    * SCTP binding are all checked before any state changes.
    */
+  /**
+   * A new MID on an existing m-line recycles it (JSEP 5.2.2). An m-line the
+   * current session did not reject belongs to a local transceiver; only a
+   * stopped one gives its slot up, an inactive one the application keeps
+   * does not.
+   */
+  private assertRecyclesOnlyStoppedMLines(remoteSdp: SessionDescription) {
+    const current = this.sdp.currentRemoteDescription;
+    if (remoteSdp.type !== "offer" || !current) return;
+    for (const [index, media] of remoteSdp.media.entries()) {
+      const previous = current.media[index];
+      const committedLocal = this.sdp.currentLocalDescription?.media[index];
+      if (
+        !previous?.rtp.muxId ||
+        media.rtp.muxId === previous.rtp.muxId ||
+        previous.port === 0 ||
+        committedLocal?.port === 0
+      ) {
+        continue;
+      }
+      const owner = this.transceivers
+        .getTransceivers()
+        .find((t) => t.mid === previous.rtp.muxId);
+      if (owner && !owner.stopped && !owner.stopping) {
+        throw createWebRtcDomException(
+          "InvalidModificationError",
+          "An m-line of a transceiver that is not stopped cannot be recycled",
+        );
+      }
+    }
+  }
+
   validateRemote(
     remoteSdp: SessionDescription,
     signalingState: RTCSignalingState,
   ) {
     this.sdp.validateRemoteDescription(remoteSdp);
     this.topology.assertAnswerKeepsSharedTransports(remoteSdp, signalingState);
+    this.assertRecyclesOnlyStoppedMLines(remoteSdp);
     for (const [mediaIndex, media] of remoteSdp.media.entries()) {
       if (!["audio", "video", "application"].includes(media.kind)) {
         throw createWebRtcDomException(

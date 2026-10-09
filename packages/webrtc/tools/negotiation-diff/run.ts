@@ -9,7 +9,10 @@
  * worktree with the same seeds and compare the outputs with `compare.ts`.
  *
  *   npx tsx tools/negotiation-diff/run.ts --root <repo> --seeds 200 \
- *     --steps 12 --out /tmp/head.jsonl
+ *     --steps 12 --out /tmp/head.jsonl [--mutate 0.3]
+ *
+ * With `--mutate p`, a delivered description is rewritten on the wire by one
+ * or two peer-diversity mutations (mutations.ts) with probability p.
  */
 import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -23,6 +26,7 @@ import {
   session,
   withTimeout,
 } from "./lib";
+import { MUTATION_NAMES, mutate } from "./mutations";
 
 const args = new Map<string, string>();
 for (let i = 2; i < process.argv.length; i += 2) {
@@ -33,6 +37,7 @@ const seeds = Number(args.get("seeds") ?? 50);
 const firstSeed = Number(args.get("first") ?? 1);
 const steps = Number(args.get("steps") ?? 12);
 const out = args.get("out") ?? "/tmp/negotiation-diff.jsonl";
+const mutateChance = Number(args.get("mutate") ?? 0);
 
 type Op = { kind: string; peer?: "a" | "b"; [key: string]: unknown };
 
@@ -82,6 +87,16 @@ function nextOp(ctx: Ctx, r: ReturnType<typeof rng>): Op {
       };
     case "trickle":
       return { kind, peer, endOfCandidates: r.chance(0.5) };
+    case "deliver":
+      return mutateChance > 0 && r.chance(mutateChance)
+        ? {
+            kind,
+            peer,
+            mutations: Array.from({ length: 1 + r.int(2) }, () =>
+              r.pick(MUTATION_NAMES),
+            ),
+          }
+        : { kind, peer };
     default:
       return { kind, peer };
   }
@@ -134,7 +149,14 @@ async function apply(ctx: Ctx, op: Op) {
       if (!description) {
         throw Object.assign(new Error("nothing to deliver"), { name: "Skip" });
       }
-      await self.pc.setRemoteDescription(description);
+      await self.pc.setRemoteDescription(
+        op.mutations
+          ? {
+              type: description.type,
+              sdp: mutate(description.sdp, op.mutations as any),
+            }
+          : description,
+      );
       return;
     }
     case "rollbackLocal":

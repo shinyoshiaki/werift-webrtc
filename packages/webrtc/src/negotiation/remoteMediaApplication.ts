@@ -125,6 +125,15 @@ export class RemoteMediaApplication {
         if (!sctpTransport) {
           sctpTransport = this.host.createSctpTransport();
           sctpTransport.mid = remoteMedia.rtp.muxId;
+        } else if (
+          sctpTransport.mid !== undefined &&
+          sctpTransport.mid !== remoteMedia.rtp.muxId &&
+          this.rejectedInCurrent(sctpTransport.mid)
+        ) {
+          // The offer reuses the rejected application position with a new
+          // MID (JSEP 5.2.2): the SCTP transport follows it. A rollback
+          // restores the binding with the rest of the SCTP baseline.
+          sctpTransport.mid = remoteMedia.rtp.muxId;
         }
         return { remoteMedia, index: i, sctpTransport };
       }
@@ -181,6 +190,17 @@ export class RemoteMediaApplication {
       );
     }
     return entries;
+  }
+
+  /** Whether the current session rejected (port 0) the m-line `mid`. */
+  private rejectedInCurrent(mid: string) {
+    return [
+      this.sdp.currentLocalDescription,
+      this.sdp.currentRemoteDescription,
+    ].some(
+      (description) =>
+        description?.media.find((media) => media.rtp.muxId === mid)?.port === 0,
+    );
   }
 
   /**
@@ -367,6 +387,10 @@ export class RemoteMediaApplication {
       } else if (entry.sctpTransport) {
         if (!plan.preserveCurrentTransport || !this.sctp.sctpRemotePort) {
           this.sctp.setRemoteSCTP(remoteMedia, i);
+        } else if (remoteSdp.type === "pranswer") {
+          // A renegotiation offer leaves the current value until the answer
+          // side applies it; a pranswer updates it on the kept association.
+          this.sctp.updateRemoteMaxMessageSize(remoteMedia);
         }
         accepted.add(entry);
       }
@@ -434,10 +458,13 @@ export class RemoteMediaApplication {
 
       plan.transportUpdates.push(() => {
         if (remoteMedia.iceParams && ownsGeneration && !bundledNonTag) {
+          // A rejected (port 0) m-line is not inactive media.
           const renomination = remoteSdp.media.some(
-            (media) => media.direction === "inactive",
+            (media) => media.port !== 0 && media.direction === "inactive",
           );
-          iceTransport.setRemoteParams(remoteMedia.iceParams, renomination);
+          iceTransport.setRemoteParams(remoteMedia.iceParams, renomination, {
+            keepLocalCredentials: remoteSdp.type !== "offer",
+          });
 
           // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
           // RFC 8445 S6.1.1

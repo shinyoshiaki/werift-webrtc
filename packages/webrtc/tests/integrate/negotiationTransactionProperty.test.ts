@@ -4,15 +4,17 @@ import {
   fuzzDescriptionPool,
   fuzzEpisode,
   fuzzRemoteMutation,
+  fuzzRemoteRejection,
   seededRandom,
 } from "./negotiationTransactionUtils";
 
 /**
  * Property test: random operation sequences (offer / pranswer / answer /
  * rollback / replacement, ICE restart, BUNDLE split/merge, new m-lines,
- * end-of-candidates, routing-key mutations, invalid extmap remaps, and the
+ * end-of-candidates, routing-key mutations, invalid extmap remaps, the
  * description pool: saved offers / answers applied later or again, where a
- * refused application must change nothing). After
+ * refused application must change nothing, and the remote peer rejecting an
+ * application, audio or video m-line in its offer or answer). After
  * every operation both peers satisfy the negotiation invariants; after every
  * episode the committed session carries RTP and DataChannel traffic.
  *
@@ -42,15 +44,16 @@ const longRegressionSeeds = process.env.WERIFT_NEGOTIATION_FUZZ_SEED
 
 /**
  * Replay one seed: `steps` random operations, each followed by live traffic.
- * `pool` interleaves description-pool episodes drawn from their own random
- * stream, so the main operations of a seed stay the same; regression seeds
- * replay without them.
+ * `pool` interleaves description-pool and remote-rejection episodes, each
+ * drawn from its own random stream, so the main operations of a seed stay
+ * the same; regression seeds replay without them.
  */
 async function playSeed(seed: number, steps: number, pool = true) {
   // Arrange: RTX と header extension を持つ双方向 session と、seed 固定の乱数。
   const ctx = await createFuzzSession();
   const rng = seededRandom(seed);
   const poolRng = seededRandom(seed * 7919 + 13);
+  const rejectionRng = seededRandom(seed * 104729 + 7);
   try {
     for (let index = 0; index < steps; index++) {
       // Act: 交渉 episode か、remote 側だけの routing key 変更をランダムに行う
@@ -70,11 +73,20 @@ async function playSeed(seed: number, steps: number, pool = true) {
         // Assert: 再利用 episode の後も双方向に通信できる。
         await expectFuzzSessionAlive(ctx, `seed${seed}-step${index}-pool`);
       }
+
+      // Act: 相手が application・audio・video のどれかの m-line を拒否する episode。
+      if (pool && rejectionRng.chance(0.3)) {
+        await fuzzRemoteRejection(ctx, rejectionRng);
+        // Assert: 拒否の後も残りの経路は双方向に通信できる。
+        await expectFuzzSessionAlive(ctx, `seed${seed}-step${index}-rejection`);
+      }
     }
   } catch (error) {
-    (error as Error).message +=
-      `\nseed ${seed} operations:\n  ${ctx.log.join("\n  ")}`;
-    throw error;
+    // DOMException の message は getter だけなので、seed と操作列を足した Error で包む。
+    throw new Error(
+      `${String(error)}\nseed ${seed} operations:\n  ${ctx.log.join("\n  ")}`,
+      { cause: error },
+    );
   } finally {
     await ctx.session.close();
   }
