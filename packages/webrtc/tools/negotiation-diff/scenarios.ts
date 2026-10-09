@@ -84,6 +84,22 @@ const scenarios: {
       after: () => a.pc.setRemoteDescription(b.pc.localDescription),
     };
   },
+  async "unapplied restart offer, answer created again, apply the saved one"({
+    a,
+    b,
+  }) {
+    await a.pc.setLocalDescription(
+      await a.pc.createOffer({ iceRestart: true }),
+    );
+    await b.pc.setRemoteDescription(a.pc.localDescription);
+    const saved = await b.pc.createAnswer();
+    await b.pc.createOffer({ iceRestart: true });
+    await b.pc.createAnswer();
+    return {
+      act: () => b.pc.setLocalDescription(saved),
+      after: () => a.pc.setRemoteDescription(b.pc.localDescription),
+    };
+  },
   async "unapplied restart offer, then apply the saved answer"({ a, b }) {
     await a.pc.setLocalDescription(
       await a.pc.createOffer({ iceRestart: true }),

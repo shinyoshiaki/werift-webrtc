@@ -2192,9 +2192,18 @@ export async function fuzzDescriptionPool(ctx: FuzzContext, rng: SeededRandom) {
   const saved = await answerer.pc.createAnswer();
   if (rng.chance(0.5)) {
     // answer を作り直し、remote offer の保留中に適用しない offer も作る。
-    ctx.log.push("  regenerated answer and unapplied offer");
-    await answerer.pc.createAnswer();
-    await answerer.pc.createOffer({ iceRestart: rng.chance(0.5) });
+    // 順序も入れ替える (未適用の offer の後に answer を作り直す場合を含む)。
+    const offerFirst = rng.chance(0.5);
+    ctx.log.push(
+      `  regenerated answer and unapplied offer${offerFirst ? " (offer first)" : ""}`,
+    );
+    if (offerFirst) {
+      await answerer.pc.createOffer({ iceRestart: rng.chance(0.5) });
+      await answerer.pc.createAnswer();
+    } else {
+      await answerer.pc.createAnswer();
+      await answerer.pc.createOffer({ iceRestart: rng.chance(0.5) });
+    }
   }
   if (rng.chance(0.3)) {
     ctx.log.push("  pranswer first");

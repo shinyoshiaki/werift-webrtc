@@ -243,17 +243,17 @@ export class RTCIceTransport {
    * `answering` is the remote offer an answer is created for.
    */
   stageLocalRestart({ answering }: { answering?: object } = {}) {
-    // JSEP 5.2.1: a new offer reuses the credentials of the pending applied
-    // offer, which already restarts ICE.
-    if (
-      this.stagedLocalRestart &&
-      this.stagedLocalRestart === this.appliedLocalRestart
-    ) {
-      return;
-    }
-    // Answers created again for the same remote offer carry the same
-    // generation (JSEP 5.3.1).
-    if (answering && this.stagedLocalRestart?.answering === answering) {
+    // The generation a description of this kind already carries is reused,
+    // whatever was selected since: a new offer reuses the one of the pending
+    // applied offer (JSEP 5.2.1), and an answer created again for the same
+    // remote offer reuses the one the earlier answer carries (JSEP 5.3.1).
+    const reused = answering
+      ? [...this.localGenerations.values()].find(
+          (generation) => generation.answering === answering,
+        )
+      : this.appliedLocalRestart;
+    if (reused) {
+      this.selectGeneration(reused);
       return;
     }
     this.unselectLocalRestart();
@@ -340,14 +340,18 @@ export class RTCIceTransport {
       this.unselectLocalRestart();
       return true;
     }
-    if (this.stagedLocalRestart === generation) return true;
+    this.selectGeneration(generation);
+    return true;
+  }
+
+  private selectGeneration(generation: StagedLocalRestart) {
+    if (this.stagedLocalRestart === generation) return;
     this.unselectLocalRestart();
     this.stagedLocalRestart = generation;
     this.connection.stageLocalCredentials?.(
       generation.usernameFragment,
       generation.password,
     );
-    return true;
   }
 
   /** Stop answering checks for the selected generation; it stays registered. */
