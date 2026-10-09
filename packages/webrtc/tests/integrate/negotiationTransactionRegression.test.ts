@@ -33,6 +33,7 @@ import {
   heldTransports,
   holdDtlsStart,
   holdNextGather,
+  mungeSection,
   negotiate,
   offeredVideoCodecs,
   pliReaches,
@@ -2019,6 +2020,55 @@ describe("negotiation transaction live-state regressions", () => {
     } finally {
       hook?.restore();
       await close();
+    }
+  });
+
+  test("end-of-candidates on a pending restart reaches its BUNDLE group but not an m-line the offer splits off", async () => {
+    const { offerer, answerer } = await createConnectedVideoPeers(
+      {},
+      { withAudio: true },
+    );
+    try {
+      // Arrange: ICE restart と BUNDLE 解除 (audio を group から外す) を行い、両 MID が
+      // 同じ ufrag/pwd を持つ remote offer を、transport 準備 (createAnswer) の前まで適用する。
+      offerer.restartIce();
+      const [video, audio] = ["video", "audio"].map(
+        (kind) => offerer.getTransceivers().find((t) => t.kind === kind)!.mid!,
+      );
+      const offer = await createRewrittenOffer(offerer, (sdp) => {
+        const split = sdp
+          .replace(/^a=group:BUNDLE [^\r\n]+/m, `a=group:BUNDLE ${video}`)
+          .replace(/^a=end-of-candidates\r?\n/gm, "");
+        const tag = sectionOf(split, video);
+        const ufrag = tag.match(/^a=ice-ufrag:(\S+)/m)![1];
+        const pwd = tag.match(/^a=ice-pwd:(\S+)/m)![1];
+        return mungeSection(split, audio, (section) =>
+          section
+            .replace(/^a=ice-ufrag:\S+/m, `a=ice-ufrag:${ufrag}`)
+            .replace(/^a=ice-pwd:\S+/m, `a=ice-pwd:${pwd}`),
+        );
+      });
+      const ufrag = sectionOf(offer.sdp, video).match(
+        /^a=ice-ufrag:(\S+)/m,
+      )![1];
+      await answerer.setRemoteDescription(offer);
+
+      // Act: video (tag) にだけ end-of-candidates を通知し、分割される audio に候補を送る。
+      await answerer.addIceCandidate({
+        candidate: "",
+        sdpMid: video,
+        usernameFragment: ufrag,
+      });
+      await answerer.addIceCandidate(trickleCandidate(49998, ufrag, audio));
+
+      // Assert: 終端は video の BUNDLE group だけが完了扱いになり、独立する audio は
+      // 完了せず候補を受け入れる。
+      const pending = answerer.pendingRemoteDescription!.sdp;
+      expect(sectionOf(pending, video)).toContain("a=end-of-candidates");
+      expect(sectionOf(pending, audio)).not.toContain("a=end-of-candidates");
+      expect(sectionOf(pending, audio)).toContain(" 49998 typ host");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
     }
   });
 });
