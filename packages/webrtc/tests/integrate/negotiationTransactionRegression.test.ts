@@ -1859,4 +1859,78 @@ describe("negotiation transaction live-state regressions", () => {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
   });
+
+  test("a max-compat first offer connects to a peer that answers without BUNDLE", async () => {
+    // Arrange: 既定 (max-compat) の offerer と、BUNDLE を使わず m-line ごとに独立した
+    // ICE 資格情報で答える answerer。
+    const offerer = new RTCPeerConnection();
+    const answerer = new RTCPeerConnection({ bundlePolicy: "disable" });
+    const audioOut = new MediaStreamTrack({ kind: "audio" });
+    const videoOut = new MediaStreamTrack({ kind: "video" });
+    try {
+      offerer.addTransceiver(audioOut, { direction: "sendonly" });
+      offerer.addTransceiver(videoOut, { direction: "sendonly" });
+
+      // Act: 初回交渉を行い、すべての transport の接続を待つ。
+      await negotiatePair(offerer, answerer);
+      await Promise.all(
+        [offerer, answerer].flatMap((pc) =>
+          pc.dtlsTransports.map((transport) => waitForDtlsConnected(transport)),
+        ),
+      );
+
+      // Assert: BUNDLE なしの answer を受理し、m-line ごとの transport で接続して
+      // audio・video とも届く。
+      expect(offerer.signalingState).toBe("stable");
+      expect(new Set(offerer.dtlsTransports).size).toBe(2);
+      const received = (kind: string) =>
+        answerer.getTransceivers().find((t) => t.kind === kind)!.receiver.track;
+      await sendAndExpectRtp(audioOut, received("audio"), "non-bundle audio");
+      await sendAndExpectRtp(videoOut, received("video"), "non-bundle video");
+      assertNegotiationInvariants(offerer);
+      assertNegotiationInvariants(answerer);
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
+
+  test("the latest restart offer, committed once, applies again after the peer committed another restart", async () => {
+    const { offerer, answerer, outgoing, incoming } =
+      await createConnectedVideoPeers();
+    try {
+      // Arrange: 保存した restart offer を一度確定し、続けて相手からの別の restart を確定する。
+      const offer = await offerer.createOffer({ iceRestart: true });
+      const ufrag = offer.sdp.match(/^a=ice-ufrag:(\S+)/m)![1];
+      await offerer.setLocalDescription(offer);
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      await waitForCommittedNomination(offerer);
+      answerer.restartIce();
+      await negotiatePair(answerer, offerer);
+      await Promise.all([
+        waitForCommittedNomination(offerer),
+        waitForCommittedNomination(answerer),
+      ]);
+      expect(offerer.iceTransports[0].connection.localUsername).not.toBe(ufrag);
+
+      // Act: createOffer をやり直さず、保存した (最新の作成) offer を再適用して確定する。
+      await offerer.setLocalDescription(offer);
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+      await Promise.all([
+        waitForCommittedNomination(offerer),
+        waitForCommittedNomination(answerer),
+      ]);
+
+      // Assert: offer の generation に restart して確定し、RTP が届く。
+      expect(offerer.iceTransports[0].connection.localUsername).toBe(ufrag);
+      assertNegotiationInvariants(offerer);
+      assertNegotiationInvariants(answerer);
+      await sendAndExpectRtp(outgoing, incoming, "latest offer applied again");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  });
 });

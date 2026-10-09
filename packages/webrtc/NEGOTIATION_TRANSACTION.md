@@ -132,7 +132,8 @@ description's generation record, never from state kept elsewhere:
   on its transport by ufrag (`RTCIceTransport.localGenerationFor`); the
   latest created offer and the latest created answer each keep theirs until
   a newer description of the same kind replaces it, whatever is applied,
-  rolled back or committed meanwhile. The codecs come from the SDP itself.
+  rolled back or committed meanwhile (its own commit or another generation's
+  does not end it). The codecs come from the SDP itself.
 - **Apply = proposal, then writes.** `setLocalDescription` parses the SDP,
   plans the MID / m-line assignments from the SDP and the record (transceivers, and the SCTP transport for the application m-line), validates
   the credentials of every m-line against its transport (the live ones or a
@@ -158,7 +159,7 @@ changes nothing. "develop" below is measured with
 | unapplied restart offer (`createOffer({ iceRestart })`, or `restartIce()` + `createOffer()`), then the saved answer applied | accept | (a) [[LastCreatedAnswer]] unchanged; develop accepted but lost the session (it restarted ICE at `createOffer`) |
 | offer created while a remote offer was pending, applied after `stable` | accept | (a) it is [[LastCreatedOffer]]; develop: accepted, communicates |
 | the same offer re-applied after its rollback (no restart / restart / restart with new media) | accept | (a) rollback does not change [[LastCreatedOffer]]; develop: accepted, communicates |
-| a restart offer re-applied after the peer committed another restart | accept (restarts to the offer's credentials) | (a) and (b): develop accepted and communicates (it made the credentials live at `createOffer`) |
+| a restart offer re-applied (after its rollback, or after it committed once) once the peer committed another restart | accept (restarts to the offer's credentials) | (a) and (b): develop accepted and communicates (it made the credentials live at `createOffer`) |
 | the latest offer re-applied after its answer made the session stable | accept | (a) and (b): develop accepted, communicates |
 | `have-remote-pranswer`: replaced by the same offer or a new one; also after a first pranswer connected | accept (the remote pranswer is rolled back first) | ticket 2.1 transition table (werift extension: JSEP 5.5 / W3C reject a local offer in this state with `InvalidStateError`, and develop does) |
 | the peer's previous answer (fewer m-lines) applied to a new local offer | accept; the m-lines it leaves out are rejected | (b) develop: accepted, the session communicates (RFC 3264 §6 asks for the offer's m-line count; found by the develop comparison) |
@@ -390,8 +391,10 @@ is negotiated, a second checklist (the provisional generation) runs beside the
 live one on the same sockets. It only exchanges STUN checks; RTP and
 DataChannel stay on the live selected pair. It follows the live checklist's rules:
 `filterCandidatePair` decides which pairs it forms, an ICE-lite agent only
-answers its checks, and an error response (a 487 role conflict) to a check
-addressed to the staged ufrag is signed with the staged password.
+answers its checks, a controlling full agent nominates toward an ICE-lite
+peer by regular nomination (a check with USE-CANDIDATE on the first pair that
+succeeded), and an error response (a 487 role conflict) to a check addressed
+to the staged ufrag is signed with the staged password.
 
 - Created when the restart credentials are staged: by `createOffer()` while a
   `restartIce()` request stands (offerer), or by `createAnswer()` for a remote
@@ -549,6 +552,12 @@ inside this transaction:
 - Every BUNDLE group counts, not only the first: the owner (tag) of each
   group decides the transport of its members for staged topology, candidate
   delivery and the DTLS role, and the answer keeps each negotiated tag first.
+- A local offer's BUNDLE group is a proposal until the peer has accepted
+  BUNDLE in the committed session: under max-compat / balanced each member
+  keeps its own transport and candidates in the offer, and the answer that
+  accepts the group merges them (RFC 8843 section 7.2); an answer without
+  BUNDLE keeps them separate. Members share the tag's transport in the offer
+  under max-bundle, once the peer bundles, or when they already share it.
 - Transport ownership: for a first negotiation and for answers, each offered
   BUNDLE group shares one transport and an m-line outside every group gets its
   own transport with its own ICE credentials, whatever `bundlePolicy` is. A

@@ -424,7 +424,12 @@ function assertDescriptionBindings(pc: RTCPeerConnection) {
         expect(remoteDtls.fingerprints).toEqual(media.dtlsParams.fingerprints);
       }
     }
-    for (const group of snapshot.currentRemote.group.filter(
+    // 合意した BUNDLE group (answer 側の group) の member は 1 つの transport を共有する。
+    const answer =
+      snapshot.currentRemote.type === "offer"
+        ? snapshot.currentLocal
+        : snapshot.currentRemote;
+    for (const group of (answer?.group ?? []).filter(
       (group) => group.semantic === "BUNDLE",
     )) {
       const owners = group.items
