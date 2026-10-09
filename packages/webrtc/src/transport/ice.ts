@@ -623,7 +623,6 @@ export class RTCIceTransport {
     // their result. Waiting for the event and then continuing would start a
     // second connection attempt after the first one settles.
     if (this.startPromise) return this.startPromise;
-
     const waitStart = new Event<[]>();
     this.waitStart = waitStart;
     this.checksStarted = true;

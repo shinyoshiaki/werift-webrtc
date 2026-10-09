@@ -195,7 +195,6 @@ export class TransportActivation {
         const { iceTransport } = dtlsTransport;
         let progressed = false;
         let iceReady = ["connected", "completed"].includes(iceTransport.state);
-
         if (!iceTransport.checksStarted) {
           progressed = true;
           this.secure.setConnectionState("connecting");
