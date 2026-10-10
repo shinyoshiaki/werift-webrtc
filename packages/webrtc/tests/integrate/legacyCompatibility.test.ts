@@ -2,7 +2,7 @@ import {
   createCompatibilityPeers,
   prepareProvisionalAnswers,
   prepareRidLoopback,
-} from "./legacyCompatibilityArrange";
+} from "./warpArrange";
 
 describe("WARP preserves existing negotiation and simulcast behavior", () => {
   test("remote rollback retains an application-added transceiver", async () => {

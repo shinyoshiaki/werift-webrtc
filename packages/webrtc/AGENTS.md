@@ -45,7 +45,7 @@ Memleak details, env vars, and report interpretation: `tests/memleak/README.md`.
 ## Validation
 
 * Logic changes in `src`: `npm run type` and relevant `npm test` paths.
-* Opt-in released Pion ICE agent fallback: `npm run test:pion-ice-agent` with `WERIFT_PION_ICE_AGENT` or `WERIFT_PION_ICE_AGENT_AUTO_BUILD=1`. Default `npm test` skips a missing path. The opt-in script fails if neither source is set.
+* Opt-in released Pion ICE agent fallback: `npm run test:pion-ice-agent` with `WERIFT_PION_ICE_AGENT` or `WERIFT_PION_ICE_AGENT_AUTO_BUILD=1`. Default `npm test` skips a missing path. The opt-in script fails if neither source is set, even when `packages/ice/tools/pion-ice-agent/pion-ice-agent` is already built (see that README for the explicit command).
 * Memleak harness changes: short smoke with reduced env (see `tests/memleak/README.md`), then optional full `npm run memleak`.
 * WPT runner / allowlist: `npm run wpt`.
 

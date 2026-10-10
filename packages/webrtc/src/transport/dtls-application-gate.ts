@@ -1,10 +1,10 @@
-import { EarlyDataBuffer } from "../../../dtls/src/internal";
+import { createPreAuthEarlyDataBuffer } from "../../../dtls/src/internal";
 
 /** @internal Holds DTLS application data until the SDP fingerprint matches. */
 export class InboundApplicationGate {
   private authenticated = false;
   private aborted = false;
-  private buffer = new EarlyDataBuffer(256, 256 * 1024, 2_000);
+  private buffer = createPreAuthEarlyDataBuffer();
   private retiredDroppedPackets = 0;
   private retiredDroppedBytes = 0;
 
@@ -85,14 +85,16 @@ export class InboundApplicationGate {
     this.authenticated = false;
     this.aborted = false;
     // dispose 済みの buffer は復活できないため新世代用に作り直す。
-    this.buffer = new EarlyDataBuffer(256, 256 * 1024, 2_000);
+    this.buffer = createPreAuthEarlyDataBuffer();
   }
 
-  clearPending(): void {
-    if (!this.authenticated && !this.aborted) this.buffer.clear(true);
-  }
-
-  resetPending(): void {
+  /**
+   * 未認証のまま保持している application data を drop 計上して捨てる。
+   * SPED abort / direct fallback / 同一 generation の SPED reset はいずれも
+   * 「現 attempt の pre-auth queue を無効化する」だけで、認証状態や gate の
+   * 世代は変えない (世代切替は {@link restartForNewAttempt})。
+   */
+  discardPending(): void {
     if (!this.authenticated && !this.aborted) this.buffer.clear(true);
   }
 

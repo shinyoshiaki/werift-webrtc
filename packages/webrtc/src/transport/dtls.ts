@@ -4,9 +4,10 @@ import { Event } from "../imports/common";
 
 import { DirectHandshakeCarrier } from "../../../dtls/src/carrier/direct";
 import {
-  EarlyDataBuffer,
+  type EarlyDataBuffer,
   createDtlsClientInternal,
   createDtlsServerInternal,
+  createPreAuthEarlyDataBuffer,
   refragmentPendingFlightIfNeeded,
 } from "../../../dtls/src/internal";
 import type { Connection } from "../../../ice/src";
@@ -149,11 +150,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     this.applicationGate = new InboundApplicationGate((data) =>
       this.dataReceiver?.(data),
     );
-    this.mediaBuffer = new EarlyDataBuffer(
-      this.config.warp?.earlyMediaPolicy === "buffer" ? 256 : 0,
-      this.config.warp?.earlyMediaPolicy === "buffer" ? 256 * 1024 : 0,
-      2_000,
-    );
+    this.mediaBuffer = createPreAuthEarlyDataBuffer({
+      enabled: this.config.warp?.earlyMediaPolicy === "buffer",
+    });
     // start() までの到着も落とさないよう、ICE datagram 購読は生成直後に開始
     // する。認証前の到着は gate / mediaBuffer 側で保持し、上位へは出さない。
     const ice = this.iceTransport.connection as Connection;
@@ -764,7 +763,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
           this.handshakeStartedAt = Date.now();
           this.peerAuthenticatedAt = undefined;
         } else {
-          this.applicationGate.resetPending();
+          this.applicationGate.discardPending();
         }
         if (this.state === "connected" || handshakeDone) {
           if (handle.runtime.isDirectCarrierSelected()) {
@@ -801,7 +800,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         // not sufficient to reconstruct this permission until a new attempt.
         this.srtpWriteReady = false;
         this.srtpReadReady = false;
-        this.applicationGate.clearPending();
+        this.applicationGate.discardPending();
         this.mediaBuffer.clear(true);
         dtlsSocket?.clearEarlyDataBuffer();
         carrier.invalidateInboundInjects?.();
@@ -812,7 +811,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         this.earlyModeDisabled = true;
         transport.setEarlyApplicationSendEnabled(false);
         this.srtpWriteReady = false;
-        this.applicationGate.clearPending();
+        this.applicationGate.discardPending();
         this.mediaBuffer.clear(true);
         dtlsSocket?.clearEarlyDataBuffer();
         carrier.setWireSendEnabled(true);
@@ -1012,12 +1011,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     this.mediaBuffer.clear(true);
     this.retainMediaDroppedStats();
     this.mediaBuffer.dispose();
-    const buffering = this.config.warp?.earlyMediaPolicy === "buffer";
-    this.mediaBuffer = new EarlyDataBuffer(
-      buffering ? 256 : 0,
-      buffering ? 256 * 1024 : 0,
-      2_000,
-    );
+    this.mediaBuffer = createPreAuthEarlyDataBuffer({
+      enabled: this.config.warp?.earlyMediaPolicy === "buffer",
+    });
   }
 
   private replaceMediaBuffer(): void {

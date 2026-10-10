@@ -7,7 +7,7 @@ import {
 } from "../../../ice/src/sped/draft00/constants";
 import { getRawAttributeValue } from "../../../ice/src/stun/rawAttributeValue";
 import { awaitMessage } from "../utils";
-import { prepareDelayedAnswerer } from "./spedTimingArrange";
+import { prepareDelayedAnswerer } from "./warpArrange";
 
 describe("SPED advertisement before DTLS start", () => {
   test.each(["client", "server"] as const)(

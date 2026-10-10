@@ -82,6 +82,17 @@ export const MAX_EARLY_APP_DATA_RECORDS = 256;
 export const MAX_EARLY_APP_DATA_BYTES = 256 * 1024;
 export const EARLY_APP_DATA_RETENTION_MS = 2_000;
 
+/**
+ * Pre-authentication queue limits shared by the DTLS engine's early
+ * app-data buffer and the WebRTC fingerprint gate / early media buffer, so a
+ * spec limit change applies to every pre-auth queue at once.
+ */
+export const EARLY_DATA_LIMITS = Object.freeze({
+  maxRecords: MAX_EARLY_APP_DATA_RECORDS,
+  maxBytes: MAX_EARLY_APP_DATA_BYTES,
+  retentionMs: EARLY_APP_DATA_RETENTION_MS,
+});
+
 export interface DtlsReadiness {
   writeReady: boolean;
   peerHandshakeAuthenticated: boolean;

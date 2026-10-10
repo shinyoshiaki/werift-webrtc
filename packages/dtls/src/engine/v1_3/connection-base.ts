@@ -39,7 +39,7 @@ import {
   type AddressValidationMode,
   type Dtls13Options,
   type DtlsReadiness,
-  EARLY_APP_DATA_RETENTION_MS,
+  EARLY_DATA_LIMITS,
   EPOCH_KEY_TTL_MS,
   EPOCH_PRUNE_INTERVAL_MS,
   MAX_ACCEPTED_HS_RECORDS,
@@ -461,7 +461,7 @@ export class Dtls13ConnectionBase {
     this.earlyAppDataBuffer = new EarlyDataBuffer(
       this.maxEarlyAppDataRecords,
       this.maxEarlyAppDataBytes,
-      EARLY_APP_DATA_RETENTION_MS,
+      EARLY_DATA_LIMITS.retentionMs,
     );
     this.hsPhase =
       this.role === "client" ? "wait_server_hello" : "wait_client_hello";

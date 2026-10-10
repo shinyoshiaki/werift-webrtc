@@ -10,7 +10,7 @@ import {
   prepareDelayedCookieAck,
   prepareHeldCookieAckAtInitiator,
   prepareWarpClose,
-} from "./warpLifecycleArrange";
+} from "./warpArrange";
 
 describe("WARP asynchronous shutdown", () => {
   test.each([false, true])(
