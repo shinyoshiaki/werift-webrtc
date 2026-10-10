@@ -52,6 +52,7 @@ import {
   sectionOf,
   sendAndExpectData,
   sendAndExpectRtp,
+  settlesWithin,
   stubIceMdns,
   trickleCandidate,
   videoWithoutFeedback,
@@ -1286,6 +1287,84 @@ describe("negotiation transaction live-state regressions", () => {
 
     // Assert: 分割用に用意した transport も含め、すべての DTLS / ICE が閉じる
     assertTransportsClosed(held);
+  }, 60000);
+
+  test("a local pranswer applied again over a connected BUNDLE split keeps its checks settled through the final answer and close()", async () => {
+    // Arrange: audio を分割する re-offer に pranswer を返し、分割先の transport で暫定接続する。
+    const { offerer, answerer } = await createConnectedVideoPeers(
+      {},
+      { withAudio: true },
+    );
+    const audioMid = offerer
+      .getTransceivers()
+      .find((transceiver) => transceiver.kind === "audio")!.mid!;
+    try {
+      await offerer.setLocalDescription({
+        type: "offer",
+        sdp: await createSplitOffer(offerer, audioMid),
+      });
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      const answer = await answerer.createAnswer();
+      await answerer.setLocalDescription({ type: "pranswer", sdp: answer.sdp });
+      await offerer.setRemoteDescription({ type: "pranswer", sdp: answer.sdp });
+      const held = [...heldTransports(offerer), ...heldTransports(answerer)];
+      await Promise.all(
+        held.map((transport) => waitForDtlsConnected(transport)),
+      );
+      const iceStates = () => held.map((t) => t.iceTransport.state);
+      const connected = iceStates();
+      expect(
+        connected.every((s) => ["connected", "completed"].includes(s)),
+      ).toBe(true);
+
+      // Act: 同じ local pranswer をもう一度適用する。
+      await answerer.setLocalDescription({ type: "pranswer", sdp: answer.sdp });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      // Assert: 接続済みの generation の checks はやり直さず (checking に戻らない)、待機は決着している。
+      expect(iceStates()).toEqual(connected);
+      for (const transport of held) {
+        expect(
+          await settlesWithin(transport.iceTransport.checksSettled(), 1000),
+        ).toBe(true);
+      }
+      assertNegotiationInvariants(answerer);
+
+      // Act: final answer で確定する。
+      await answerer.setLocalDescription({ type: "answer", sdp: answer.sdp });
+      await offerer.setRemoteDescription({ type: "answer", sdp: answer.sdp });
+      await waitForPeersConnected(offerer, answerer);
+
+      // Assert: 確定後も checking に戻らず、集約した接続状態と一致する。
+      for (const pc of [offerer, answerer]) {
+        expect(pc.connectionState).toBe("connected");
+        for (const transport of pc.iceTransports) {
+          expect(["connected", "completed"]).toContain(transport.state);
+        }
+      }
+      assertNegotiationInvariants(offerer);
+      assertNegotiationInvariants(answerer);
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "split-pranswer-again");
+
+      // Act: close する。
+      const transports = [
+        ...heldTransports(offerer),
+        ...heldTransports(answerer),
+        ...held,
+      ];
+      await Promise.all([offerer.close(), answerer.close()]);
+
+      // Assert: すべての transport が閉じ、checks の待機も決着する。
+      assertTransportsClosed(transports);
+      for (const transport of transports) {
+        expect(
+          await settlesWithin(transport.iceTransport.checksSettled(), 1000),
+        ).toBe(true);
+      }
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
   }, 60000);
 
   test("close() after a provisional split connection stops both peers' pending transports", async () => {

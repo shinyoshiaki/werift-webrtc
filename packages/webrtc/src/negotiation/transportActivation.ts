@@ -316,12 +316,32 @@ export class TransportActivation {
         iceTransport.startProvisionalChecks();
       }
     }
+    // Like connect(): checks of a generation start once (a pranswer applied
+    // again awaits the running ones, an established generation is left
+    // alone), and a DTLS handshake starts once.
     await Promise.all(
       pending.map(async (transport) => {
-        transport.iceTransport.connection.iceControlling =
-          this.host.signalingState() === "have-remote-pranswer";
-        await transport.iceTransport.start();
-        if (transport.state !== "connected") await transport.start();
+        const { iceTransport } = transport;
+        if (!iceTransport.checksStarted) {
+          if (!iceTransport.getRemoteParameters()) return;
+          iceTransport.connection.iceControlling =
+            this.host.signalingState() === "have-remote-pranswer";
+          await iceTransport.start();
+        } else if (iceTransport.state === "checking") {
+          await iceTransport.checksSettled();
+        }
+        if (!["connected", "completed"].includes(iceTransport.state)) return;
+        if (transport.state === "connecting") {
+          await settledState(
+            transport.onStateChange,
+            () => transport.state,
+            (state) => state !== "connecting",
+          );
+          return;
+        }
+        if (transport.state === "new" && transport.hasRemoteParameters) {
+          await transport.start();
+        }
       }),
     );
   }

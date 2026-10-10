@@ -832,6 +832,11 @@ SCTP transport.
 - **Connection start**: `connect()` starts only transports an applied
   description gave the peer's ICE and DTLS parameters; one whose parameters a
   renegotiation pranswer staged for the final answer starts after it.
+  `connectPending()` (the provisional transports of a pranswer) follows the
+  same rules: checks start once per generation, running ones are awaited,
+  an established generation is not checked again, and a DTLS handshake starts
+  once (a pranswer applied again changes nothing). Stopping an ICE transport
+  settles whoever awaits its checks.
 - **Rollback of remote-created transceivers**: kept (unassociated) only when
   the sender has a track, as develop; an application `stop()`, direction or
   codec preferences do not keep it. A transceiver the application added during

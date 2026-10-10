@@ -307,6 +307,8 @@ provisional の checklist は live と同じ規則に従う: 候補から作る 
 
 - 策E の探索で見つけたもの: 置き換えた local offer を rollback すると、保留中に追加した transceiver が、置き換えの offer で付いた MID を持ち続けた（単独の offer の rollback では null に戻る。W3C は戻す）。rollback は、交渉していない transceiver から、その MID と m-line の関連付けを外す。試験: Reg「rollback of a replacement local offer takes back the MID it gave a transceiver added meanwhile (as after a single offer)」（修正前は失敗）。
 
+- レビュー指摘（pranswer の再適用）: `connectPending()` は、提案用の transport に毎回 `iceTransport.start()` を呼んでいた。そのため、BUNDLE 分割の transport を pranswer で接続した後に同じ local pranswer を再適用すると、ICE が `connected` から `checking` に戻った。checks は完了済みの checklist を待ち続け、final answer の後も戻らず、`checksSettled()` は close 後も決着しなかった。`connectPending()` も `connect()` と同じ規則に従う: checks はその generation でまだ始めていない場合だけ始め、実行中なら完了を待ち、確立済みの generation はやり直さない。DTLS も、実行中の handshake は完了を待ち、新しいものだけを始める。ICE transport の停止は `checksSettled()` の待機を決着させる。試験: Reg「a local pranswer applied again over a connected BUNDLE split keeps its checks settled through the final answer and close()」（修正前は失敗）。
+
 **策E: develop 差分ファズにレビュアーの探索軸を入れる**（`tools/negotiation-diff`）
 
 - 軸:
@@ -444,7 +446,7 @@ commit path に例外が残る場合は、公開状態を切り替える前に�
 
 ## 7. 仕様と試験の対応表（策3）
 
-2.1〜2.12 と 5 章の各文（要件）を、それを検証する試験名（または invariant helper）か「対象外（理由）」に対応づけた表を `packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md` に置く（全 274 件: covered 251 件、対象外 23 件、partial / uncovered 0 件。2.11 で 15 件、2.12 で 8 件追加）。対象外は設計文書・コード構造・作業プロセスの記述だけで、理由を併記する。
+2.1〜2.12 と 5 章の各文（要件）を、それを検証する試験名（または invariant helper）か「対象外（理由）」に対応づけた表を `packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md` に置く（全 275 件: covered 252 件、対象外 23 件、partial / uncovered 0 件。2.11 で 15 件、2.12 で 9 件追加）。対象外は設計文書・コード構造・作業プロセスの記述だけで、理由を併記する。
 
 - 表の作成時点で partial / uncovered だった 59 件は、要件 ID を名前に持つ試験（`negotiationTransactionCoverageEvents` / `Transport` / `Ice` / `Codecs`、`packages/ice/tests/coverageConsent.test.ts`）で閉じた。そのうち修正前の実装で失敗したものは、2.10 の「見つけ、修正して確定した規則」として実装を直した。
 - 要件や試験を変えたら表も更新する。新しい要件は、ID を名前に含む試験を追加してから covered にする。

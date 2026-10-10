@@ -678,8 +678,10 @@ export class RTCIceTransport {
       throw error;
     } finally {
       // A failed start releases its waiters too.
-      waitStart.execute();
-      waitStart.complete();
+      if (!waitStart.ended) {
+        waitStart.execute();
+        waitStart.complete();
+      }
       if (this.waitStart === waitStart) this.waitStart = undefined;
     }
   }
@@ -695,6 +697,13 @@ export class RTCIceTransport {
 
   async stop() {
     this.localGenerations.clear();
+    // Whoever awaits the checks of this transport settles now (checksSettled).
+    const waitStart = this.waitStart;
+    this.waitStart = undefined;
+    if (waitStart && !waitStart.ended) {
+      waitStart.execute();
+      waitStart.complete();
+    }
     if (this.state !== "closed") {
       this.setState("closed", false);
       await this.connection.close();
