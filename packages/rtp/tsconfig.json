@@ -18,6 +18,7 @@
     "noImplicitAny": false,
     "useDefineForClassFields": true,
     "types": [
+      "node",
       "vitest/globals"
     ]
   },

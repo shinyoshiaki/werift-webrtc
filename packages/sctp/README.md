@@ -24,7 +24,9 @@ const client = SCTP.client(
   createUdpTransport(createSocket("udp4"), {
     port,
     address: "127.0.0.1",
-  })
+  }),
+  5000,
+  { mtu: 1052 },
 );
 client.onReceive.subscribe((streamId, ppId, data) => {
   console.log(data.toString());
@@ -41,6 +43,8 @@ client.send(0, WEBRTC_PPID.STRING, Buffer.from("ping"));
 
 `SCTP.stop()` stops the SCTP association only. It does not close the underlying transport automatically, so close your UDP socket (or transport) explicitly when your application is done with it.
 `onReceive` is an `Event<[streamId, ppId, data]>`; use `subscribe`, `once`, or `asPromise` (not assignment).
+
+The optional `mtu` is the maximum outbound SCTP packet size, including SCTP and DATA chunk headers and padding. It defaults to 1191 bytes, which yields a maximum DATA payload of 1160 bytes per fragment.
 
 # reference
 

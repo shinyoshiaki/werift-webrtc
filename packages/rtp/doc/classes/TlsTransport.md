@@ -96,6 +96,28 @@ readonly \[`string`, `number`\]
 
 [`Transport`](../interfaces/Transport.md).[`onData`](../interfaces/Transport.md#ondata)
 
+***
+
+### remoteAddress
+
+#### Get Signature
+
+> **get** **remoteAddress**(): `undefined` \| readonly \[`string`, `number`\]
+
+The peer a connected (stream) transport is talking to. Responses arrive
+from this address. Built-in TCP/TLS transports set it once connected.
+
+##### Returns
+
+`undefined` \| readonly \[`string`, `number`\]
+
+The peer a connected (stream) transport is talking to. Responses arrive
+from this address. Built-in TCP/TLS transports set it once connected.
+
+#### Implementation of
+
+[`Transport`](../interfaces/Transport.md).[`remoteAddress`](../interfaces/Transport.md#remoteaddress)
+
 ## Methods
 
 ### close()
@@ -166,7 +188,7 @@ readonly \[`string`, `number`\]
 
 ### init()
 
-> `static` **init**(`addr`, `options`): `Promise`\<[`TlsTransport`](TlsTransport.md)\>
+> `static` **init**(`addr`, `options`, `streamOptions`): `Promise`\<[`TlsTransport`](TlsTransport.md)\>
 
 #### Parameters
 
@@ -177,6 +199,10 @@ readonly \[`string`, `number`\]
 ##### options
 
 [`TlsConnectionOptions`](../type-aliases/TlsConnectionOptions.md) = `{}`
+
+##### streamOptions
+
+[`StreamTransportOptions`](../interfaces/StreamTransportOptions.md) = `{}`
 
 #### Returns
 

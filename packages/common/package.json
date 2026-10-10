@@ -21,6 +21,7 @@
     "lib"
   ],
   "scripts": {
+    "test": "vitest run ./tests",
     "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
     "deploy": "npm run build && npm publish",
     "format": "biome check --write src tests",
@@ -33,7 +34,7 @@
   },
   "devDependencies": {},
   "engines": {
-    "node": ">=16"
+    "node": ">=22"
   },
   "readme": "README.md"
 }

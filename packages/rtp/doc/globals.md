@@ -63,6 +63,7 @@
 
 - [DatagramRxMeta](interfaces/DatagramRxMeta.md)
 - [Extensions](interfaces/Extensions.md)
+- [StreamTransportOptions](interfaces/StreamTransportOptions.md)
 - [Transport](interfaces/Transport.md)
 - [videoOrientationPayload](interfaces/videoOrientationPayload.md)
 
@@ -73,6 +74,7 @@
 - [DepacketizerCodec](type-aliases/DepacketizerCodec.md)
 - [Extension](type-aliases/Extension.md)
 - [InterfaceAddresses](type-aliases/InterfaceAddresses.md)
+- [IpAddressFamily](type-aliases/IpAddressFamily.md)
 - [RequireAtLeastOne](type-aliases/RequireAtLeastOne.md)
 - [RtcpPacket](type-aliases/RtcpPacket.md)
 - [SrtpProfile](type-aliases/SrtpProfile.md)

@@ -167,7 +167,8 @@ export async function dtlsTransportPair(config: DtlsTransportConfig = {}) {
   }
 }
 
-export const iceTransportPair = async () => {
+/** Arrange: gathered ICE transports with remote params set, not started yet. */
+export const preparedIceTransportPair = async () => {
   const gatherer1 = new RTCIceGatherer();
   const transport1 = new RTCIceTransport(gatherer1);
   transport1.connection.iceControlling = true;
@@ -187,6 +188,12 @@ export const iceTransportPair = async () => {
 
   transport1.setRemoteParams(gatherer2.localParameters);
   transport2.setRemoteParams(gatherer1.localParameters);
+
+  return [transport1, transport2] as const;
+};
+
+export const iceTransportPair = async () => {
+  const [transport1, transport2] = await preparedIceTransportPair();
   await Promise.all([transport1.start(), transport2.start()]);
 
   return [transport1, transport2];

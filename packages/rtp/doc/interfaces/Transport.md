@@ -14,6 +14,16 @@
 
 ***
 
+### addressFamily?
+
+> `optional` **addressFamily**: [`IpAddressFamily`](../type-aliases/IpAddressFamily.md)
+
+IP family of a datagram socket. A datagram transport can only reach
+addresses of this family. Built-in UDP transports always set it; a custom
+transport that leaves it unset gets no family preference.
+
+***
+
 ### close()
 
 > **close**: () => `Promise`\<`void`\>
@@ -61,6 +71,15 @@ readonly \[`string`, `number`\]
 When true, the transport path is already peer-authenticated (e.g. ICE).
 DTLS 1.2 may treat protected records as association-authenticated even
 without a UDP 5-tuple pin (ICE does not expose source address on RX).
+
+***
+
+### remoteAddress?
+
+> `optional` **remoteAddress**: readonly \[`string`, `number`\]
+
+The peer a connected (stream) transport is talking to. Responses arrive
+from this address. Built-in TCP/TLS transports set it once connected.
 
 ***
 

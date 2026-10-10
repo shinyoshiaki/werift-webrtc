@@ -235,10 +235,22 @@ export class RTCIceTransport {
       throw new Error("remoteParams missing");
     }
 
-    if (this.waitStart) {
+    // Serialize concurrent start() calls (e.g. one connect() per
+    // re-negotiation).  Several callers can wake up from the same wait, so
+    // re-check until no other start owns the slot, and release only the
+    // event this call installed.
+    while (this.waitStart) {
       await this.waitStart.asPromise();
     }
-    this.waitStart = new Event();
+    const waitStart = new Event<[]>();
+    this.waitStart = waitStart;
+    const release = () => {
+      if (this.waitStart === waitStart) {
+        this.waitStart = undefined;
+      }
+      waitStart.execute();
+      waitStart.complete();
+    };
 
     const iceRestartsAtStart = this.iceRestarts;
     this.setState("checking");
@@ -246,20 +258,14 @@ export class RTCIceTransport {
     try {
       await this.connection.connect();
     } catch (error) {
-      if (this.iceRestarts !== iceRestartsAtStart) {
-        throw error;
+      if (this.iceRestarts === iceRestartsAtStart) {
+        this.setState("failed");
       }
-      this.setState("failed");
+      release();
       throw error;
     }
 
-    if (this.iceRestarts !== iceRestartsAtStart) {
-      return;
-    }
-
-    this.waitStart.execute();
-    this.waitStart.complete();
-    this.waitStart = undefined;
+    release();
   }
 
   async stop() {

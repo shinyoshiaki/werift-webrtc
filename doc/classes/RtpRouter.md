@@ -137,3 +137,21 @@
 #### Returns
 
 `void`
+
+***
+
+### unregisterTransceiver()
+
+> **unregisterTransceiver**(`transceiver`): `void`
+
+停止した transceiver の SSRC / RID 登録を解除する
+
+#### Parameters
+
+##### transceiver
+
+[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+
+#### Returns
+
+`void`

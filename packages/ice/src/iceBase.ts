@@ -251,12 +251,23 @@ export interface IceOptions {
    * networks can lower it.
    */
   stunGatherTimeout?: number;
+  /**
+   * Seconds to wait for a TURN TCP/TLS connection to be established.
+   * Defaults to 8.
+   */
+  turnConnectTimeout?: number;
   stunServer?: Address;
   turnServer?: Address;
   turnUsername?: string;
   turnPassword?: string;
   turnTransport?: "udp" | "tcp" | "tls";
   turnTlsOptions?: TlsConnectionOptions;
+  /**
+   * Preferred IP family of the TURN/UDP socket, applied only when turnServer
+   * is a hostname. Ignored for an IP literal turnServer, whose own family
+   * always selects the socket. Defaults to 4.
+   */
+  turnUdpFamily?: 4 | 6;
   forceTurn?: boolean;
   localPasswordPrefix?: string;
   useIpv4: boolean;

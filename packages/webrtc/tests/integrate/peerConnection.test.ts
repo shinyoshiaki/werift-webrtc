@@ -840,6 +840,41 @@ a=ssrc:1001 cname:some
     }
   });
 
+  test("inactive offer remains inactive after answer application", async () => {
+    const offerer = new RTCPeerConnection();
+    const answerer = new RTCPeerConnection();
+    const track = new MediaStreamTrack({ kind: "audio" });
+    const stream = new MediaStream();
+    stream.addTrack(track);
+
+    try {
+      // Arrange: inactive の audio transceiver から offer を作る。
+      const sender = offerer.addTrack(track, stream);
+      const transceiver = offerer.getTransceivers()[0];
+      transceiver.direction = "inactive";
+      const offer = await offerer.createOffer();
+      await offerer.setLocalDescription(offer);
+
+      // Act: inactive offer に対する answer を生成して offerer へ適用する。
+      await answerer.setRemoteDescription(offer);
+      const answer = await answerer.createAnswer();
+      await answerer.setLocalDescription(answer);
+      await offerer.setRemoteDescription(answerer.localDescription!);
+
+      // Assert: 既定の mLineReuse "compatible" では inactive section を拒否せず非ゼロ port で answer し、
+      // answer 後も inactive のまま removeTrack が方向を変えない。
+      expect(answer.sdp).toContain("m=audio 9");
+      expect(answer.sdp).toContain("a=inactive");
+      expect(transceiver.currentDirection).toBe("inactive");
+      offerer.removeTrack(sender);
+      expect(transceiver.direction).toBe("inactive");
+      expect(transceiver.currentDirection).toBe("inactive");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+      track.stop();
+    }
+  });
+
   test("setRemoteDescription keeps addTrack transceiver ahead of remote ones while pending", async () => {
     const caller = new RTCPeerConnection();
     const callee = new RTCPeerConnection();
@@ -1051,6 +1086,29 @@ a=ssrc:1001 cname:some
       expect(transceiver.sender.getParameters().encodings[0]?.active).toBe(
         false,
       );
+    } finally {
+      await pc.close();
+    }
+  });
+
+  test("addTransceiver sendEncodings with rid appear as simulcast in the offer", async () => {
+    const pc = new RTCPeerConnection();
+
+    try {
+      // Arrange: rid 付き sendEncodings で送信 transceiver を作る。
+      pc.addTransceiver("video", {
+        direction: "sendonly",
+        sendEncodings: [{ rid: "r0" }, { rid: "r1" }, { rid: "r2" }],
+      });
+
+      // Act: offer を生成する。
+      const offer = await pc.createOffer();
+
+      // Assert: Chrome と同様に a=rid / a=simulcast が SDP に出る。
+      expect(offer.sdp).toContain("a=rid:r0 send");
+      expect(offer.sdp).toContain("a=rid:r1 send");
+      expect(offer.sdp).toContain("a=rid:r2 send");
+      expect(offer.sdp).toMatch(/a=simulcast:send r0;r1;r2/);
     } finally {
       await pc.close();
     }

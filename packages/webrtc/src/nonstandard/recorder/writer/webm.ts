@@ -44,6 +44,7 @@ export class WebmFactory extends MediaWriter {
                 return "VP9";
               case "h264":
                 return "MPEG4/ISO/AVC";
+              case "av1":
               case "av1x":
                 return "AV1";
               default:
@@ -164,5 +165,5 @@ export class WebmFactory extends MediaWriter {
   }
 }
 
-const supportedVideoCodecs = ["h264", "vp8", "vp9", "av1x"] as const;
+const supportedVideoCodecs = ["h264", "vp8", "vp9", "av1", "av1x"] as const;
 type SupportedVideoCodec = (typeof supportedVideoCodecs)[number];

@@ -32,7 +32,7 @@
     "debug": "4.4.0"
   },
   "engines": {
-    "node": ">=10"
+    "node": ">=22"
   },
   "readme": "README.md"
 }

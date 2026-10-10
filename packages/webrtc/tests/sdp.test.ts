@@ -3,6 +3,7 @@ import {
   MediaDescription,
   SessionDescription,
   codecParametersFromString,
+  codecParametersToString,
 } from "../src";
 
 describe("sdp", () => {
@@ -28,6 +29,26 @@ describe("sdp", () => {
         "packetization-mode": 0,
         "profile-level-id": "42001f",
       });
+    });
+
+    test("empty input does not create an empty parameter key", () => {
+      expect(codecParametersFromString("")).toEqual({});
+    });
+  });
+
+  describe("codecParametersToString", () => {
+    test("keeps numeric zero and omits empty or undefined entries", () => {
+      const parameters = codecParametersToString({
+        "": "ignored",
+        "packetization-mode": 0,
+        ignored: undefined,
+        "profile-level-id": "42e01f",
+      });
+
+      expect(parameters).toBe("packetization-mode=0;profile-level-id=42e01f");
+      expect(codecParametersFromString(parameters!)["packetization-mode"]).toBe(
+        0,
+      );
     });
   });
 });

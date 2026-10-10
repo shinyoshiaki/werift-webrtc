@@ -114,6 +114,15 @@ active TCP candidates.
 
 ***
 
+### turnConnectTimeout?
+
+> `optional` **turnConnectTimeout**: `number`
+
+Seconds to wait for a TURN TCP/TLS connection to be established.
+Defaults to 8.
+
+***
+
 ### turnPassword?
 
 > `optional` **turnPassword**: `string`
@@ -135,6 +144,16 @@ active TCP candidates.
 ### turnTransport?
 
 > `optional` **turnTransport**: `"udp"` \| `"tcp"` \| `"tls"`
+
+***
+
+### turnUdpFamily?
+
+> `optional` **turnUdpFamily**: `4` \| `6`
+
+Preferred IP family of the TURN/UDP socket, applied only when turnServer
+is a hostname. Ignored for an IP literal turnServer, whose own family
+always selects the socket. Defaults to 4.
 
 ***
 

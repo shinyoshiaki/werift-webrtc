@@ -141,6 +141,15 @@ Gather passive (listening) TCP host candidates. Defaults to true.
 
 ***
 
+### iceTurnConnectTimeout
+
+> **iceTurnConnectTimeout**: `undefined` \| `number`
+
+Seconds to wait for a TURN TCP/TLS connection to be established.
+Defaults to 8 when undefined.
+
+***
+
 ### iceUseIpv4
 
 > **iceUseIpv4**: `boolean`
@@ -181,9 +190,42 @@ Advertised local SCTP max-message-size in SDP. Use 0 for unlimited.
 
 ***
 
+### mLineReuse
+
+> **mLineReuse**: [`MLineReuse`](../type-aliases/MLineReuse.md)
+
+How local SDP marks inactive / stopped m-lines. Cannot be changed after construction.
+- `"compatible"` (default): an accepted `inactive` m-line keeps a non-zero port.
+  Only rejected (no common codec / remote port 0) or stopped m-lines use port 0,
+  and only those negotiated port 0 positions are reused by new transceivers.
+- `"aggressive"`: legacy behavior. `inactive` m-lines are also written with port 0.
+
+***
+
+### pendingRtp
+
+> **pendingRtp**: `NonNullable`\<`undefined` \| `boolean` \| [`PendingRtpOptions`](../type-aliases/PendingRtpOptions.md)\>
+
+Queue outbound RTP on each sender until DTLS is connected.
+Disabled by default. Pass `true` or `{ enabled: true, maxLength }` to buffer.
+
+***
+
 ### rtcpMuxPolicy
 
 > **rtcpMuxPolicy**: `"require"`
+
+***
+
+### sctp
+
+> **sctp**: `object`
+
+SCTP outbound packet MTU used for DATA chunk fragmentation.
+
+#### mtu
+
+> **mtu**: `number`
 
 ***
 
@@ -210,6 +252,16 @@ Cannot be combined with `dtls.helloRetryRequest: true`
 ### turnTransport
 
 > **turnTransport**: `undefined` \| `"tcp"` \| `"tls"` \| `"udp"`
+
+***
+
+### turnUdpFamily
+
+> **turnUdpFamily**: `undefined` \| `4` \| `6`
+
+Preferred IP family of the TURN/UDP socket, applied only when the TURN
+server is a hostname. Ignored for an IP literal server, whose own family
+always selects the socket. Defaults to 4 when undefined.
 
 ***
 

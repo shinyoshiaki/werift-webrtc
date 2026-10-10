@@ -11,9 +11,8 @@ server.on("connection", (socket) => {
 
     const pc = new RTCPeerConnection({});
     await pc.setRemoteDescription(offer);
-    const answer = pc.createAnswer()!;
-    await pc.setLocalDescription(await answer);
-    socket.send(JSON.stringify(answer));
+    await pc.setLocalDescription(await pc.createAnswer());
+    socket.send(JSON.stringify(pc.localDescription));
 
     pc.onDataChannel.subscribe((channel) => {
       let index = 0;

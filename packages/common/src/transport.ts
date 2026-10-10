@@ -29,6 +29,13 @@ export type TlsConnectionOptions = Omit<
   "host" | "port" | "socket"
 >;
 
+export interface StreamTransportOptions {
+  /** Maximum time to wait for TCP/TLS connection establishment, in milliseconds. */
+  connectTimeoutMs?: number;
+}
+
+const DEFAULT_CONNECT_TIMEOUT_MS = 8000;
+
 export class UdpTransport implements Transport {
   readonly type = "udp";
   readonly socket: Socket;
@@ -124,6 +131,11 @@ export class UdpTransport implements Transport {
     return this.socket.address();
   }
 
+  /** IP family of the bound socket: 4 for udp4, 6 for udp6. */
+  get addressFamily(): IpAddressFamily {
+    return this.socketType === "udp6" ? 6 : 4;
+  }
+
   get host() {
     return this.socket.address().address;
   }
@@ -148,16 +160,24 @@ export class TcpTransport implements Transport {
   readonly type = "tcp" as const;
   private readonly stream: StreamTransport;
 
-  private constructor(addr: Address) {
-    this.stream = new StreamTransport("tcp", () =>
-      connect({ port: addr[1], host: addr[0] }),
+  private constructor(addr: Address, options: StreamTransportOptions = {}) {
+    this.stream = new StreamTransport(
+      "tcp",
+      () => connect({ port: addr[1], host: addr[0] }),
+      undefined,
+      options.connectTimeoutMs,
     );
   }
 
-  static async init(addr: Address) {
-    const transport = new TcpTransport(addr);
-    await transport.init();
-    return transport;
+  static async init(addr: Address, options: StreamTransportOptions = {}) {
+    const transport = new TcpTransport(addr, options);
+    try {
+      await transport.init();
+      return transport;
+    } catch (error) {
+      await transport.close();
+      throw error;
+    }
   }
 
   private async init() {
@@ -166,6 +186,10 @@ export class TcpTransport implements Transport {
 
   get address() {
     return this.stream.address;
+  }
+
+  get remoteAddress() {
+    return this.stream.remoteAddress;
   }
 
   get closed() {
@@ -197,20 +221,37 @@ export class TlsTransport implements Transport {
   readonly type = "tls" as const;
   private readonly stream: StreamTransport;
 
-  private constructor(addr: Address, options: TlsConnectionOptions = {}) {
-    this.stream = new StreamTransport("tls", () =>
-      tls.connect({
-        ...options,
-        host: addr[0],
-        port: addr[1],
-      }),
+  private constructor(
+    addr: Address,
+    options: TlsConnectionOptions = {},
+    streamOptions: StreamTransportOptions = {},
+  ) {
+    this.stream = new StreamTransport(
+      "tls",
+      () =>
+        tls.connect({
+          ...options,
+          host: addr[0],
+          port: addr[1],
+        }),
+      undefined,
+      streamOptions.connectTimeoutMs,
     );
   }
 
-  static async init(addr: Address, options: TlsConnectionOptions = {}) {
-    const transport = new TlsTransport(addr, options);
-    await transport.init();
-    return transport;
+  static async init(
+    addr: Address,
+    options: TlsConnectionOptions = {},
+    streamOptions: StreamTransportOptions = {},
+  ) {
+    const transport = new TlsTransport(addr, options, streamOptions);
+    try {
+      await transport.init();
+      return transport;
+    } catch (error) {
+      await transport.close();
+      throw error;
+    }
   }
 
   private async init() {
@@ -219,6 +260,10 @@ export class TlsTransport implements Transport {
 
   get address() {
     return this.stream.address;
+  }
+
+  get remoteAddress() {
+    return this.stream.remoteAddress;
   }
 
   get closed() {
@@ -252,6 +297,7 @@ class StreamTransport implements Transport {
   private client!: StreamSocket;
   onData: (data: Buffer, addr: Address) => void = () => {};
   closed = false;
+  private rejectConnecting?: (error: Error) => void;
 
   constructor(
     type: StreamTransportType,
@@ -259,6 +305,7 @@ class StreamTransport implements Transport {
     private connectEvent: StreamConnectEvent = type === "tls"
       ? "secureConnect"
       : "connect",
+    private connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MS,
   ) {
     this.type = type;
     this.connect();
@@ -274,28 +321,41 @@ class StreamTransport implements Transport {
     }
     const client = this.createClient();
     this.client = client;
-    this.connecting = new Promise((r, f) => {
-      const onConnect = () => {
+    this.connecting = new Promise((resolve, reject) => {
+      let settled = false;
+      const settle = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        client.off(this.connectEvent, onConnect);
         client.off("error", onConnectError);
-        r();
+        this.rejectConnecting = undefined;
+        error ? reject(error) : resolve();
+      };
+      const onConnect = () => {
+        settle();
       };
       const onConnectError = (error: Error) => {
-        client.off(this.connectEvent, onConnect);
-        f(error);
+        this.closed = true;
+        settle(error);
+        client.destroy();
       };
+      const timer = setTimeout(() => {
+        this.closed = true;
+        settle(
+          new Error(
+            `${this.type} connect timed out after ${this.connectTimeoutMs}ms`,
+          ),
+        );
+        client.destroy();
+      }, this.connectTimeoutMs);
+      this.rejectConnecting = (error) => settle(error);
       client.once(this.connectEvent, onConnect);
       client.once("error", onConnectError);
     });
 
     client.on("data", (data) => {
-      const addr = [
-        this.client.remoteAddress!,
-        this.client.remotePort!,
-      ] as Address;
-      this.onData(data, addr);
-    });
-    client.on("end", () => {
-      this.connect();
+      this.onData(data, this.remoteAddress!);
     });
     client.on("error", (error) => {
       log(`${this.type} transport error`, error);
@@ -308,6 +368,15 @@ class StreamTransport implements Transport {
 
   get address() {
     return {} as AddressInfo;
+  }
+
+  /** The peer the stream is connected to, once connected. */
+  get remoteAddress(): Address | undefined {
+    const { remoteAddress, remotePort } = this.client;
+    if (!remoteAddress || !remotePort) {
+      return undefined;
+    }
+    return [stripZoneId(remoteAddress), remotePort];
   }
 
   send = async (data: Buffer, addr?: Address) => {
@@ -326,6 +395,7 @@ class StreamTransport implements Transport {
 
   close = async () => {
     this.closed = true;
+    this.rejectConnecting?.(new Error(`${this.type} transport closed`));
     this.client?.destroy();
   };
 }
@@ -339,6 +409,13 @@ class StreamTransport implements Transport {
 export interface DatagramRxMeta {
   rxGeneration?: number;
 }
+
+/** Strip an IPv6 zone identifier, e.g. fe80::1%eth0 -> fe80::1. */
+function stripZoneId(address: string) {
+  return address.split("%")[0];
+}
+
+export type IpAddressFamily = 4 | 6;
 
 export interface Transport {
   type: string;
@@ -359,6 +436,17 @@ export interface Transport {
    * without a UDP 5-tuple pin (ICE does not expose source address on RX).
    */
   peerAuthenticated?: boolean;
+  /**
+   * IP family of a datagram socket. A datagram transport can only reach
+   * addresses of this family. Built-in UDP transports always set it; a custom
+   * transport that leaves it unset gets no family preference.
+   */
+  addressFamily?: IpAddressFamily;
+  /**
+   * The peer a connected (stream) transport is talking to. Responses arrive
+   * from this address. Built-in TCP/TLS transports set it once connected.
+   */
+  remoteAddress?: Address;
 }
 
 /** Flush one datagram when the transport supports it; else {@link Transport.send}. */
