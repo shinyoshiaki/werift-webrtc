@@ -251,6 +251,7 @@ provisional の checklist は live と同じ規則に従う: 候補から作る 
 - helper の導入で見つかり、直したもの:
   - 初回交渉で置き換えた remote offer を rollback したとき、その offer の SCTP が使っていた DTLS transport が止まらずに残っていた（leak）。rollback で、他に使われない transport を止める。
   - BUNDLE の非 tag m-line が別の ufrag の候補を運んでも、tag の generation には入れない。
+  - develop から既存の renomination 経路（`inactive` の m-line があるときに remote 資格情報が変わる）は、前の remote generation の ufrag を名乗る候補と pair を checklist に残していた（変異の全ペアで検出）。この経路は develop のまま残し、別の ufrag を名乗る候補と pair だけを落とす（ICE 層の `dropOtherRemoteGenerations`。ufrag を持たない候補は develop と同じく残す）。修正前に失敗する回帰試験を置いた。
 - 試験: `negotiationTransactionApplicationRejection.test.ts`。拒否の経路（初回／再交渉 × 相手の answer で拒否／相手の offer で拒否／pranswer で拒否して rollback／pranswer と final answer で拒否）× その後の操作（`createOffer`、ICE restart、`createDataChannel` と transceiver を足した offer、相手からの再 offer、実通信）を検査する。SCTP transport のない answerer が後から作った DataChannel が、拒否された位置を新しい MID で再利用する試験もある。修正前の HEAD では 8 件中 7 件が失敗する（通る 1 件は「pranswer で拒否して rollback」で、レビューで「問題なし」とされたケース）。
 
 **策B: 「その後も使い続けられるか」をすべての試験で共通に確認する**
@@ -265,6 +266,8 @@ provisional の checklist は live と同じ規則に従う: 候補から作る 
   - pending 中は、rollback baseline の transport を孤立判定から除く。
   - answer の BUNDLE で非 tag の m-line の ICE 属性は検査しない（RFC 8843）。
 - 修正前の HEAD での検出: 変異試験は `applicationRejected` の 4 件と `videoSeparateCredentials` の 1 件が失敗し、property test は固定 seed 1〜6 がすべて失敗する。
+- 変異試験の判定: b が変異した offer を受理して answer を確定し、a がその answer を拒否した場合は、両 peer の前提が食い違う（b の current は変異を反映している）。この場合は「拒否された再交渉は current を壊さない」を期待せず、理由付きで continuation から除外する（初回交渉は従来から同じ扱い）。session に audio を加えて、初めてこの組み合わせ（`audioOutOfBundle`・`noBundle` と video の拒否・inactive）に到達した。
+- develop 差分ファズ（変異 0.3）で「develop は受理し、HEAD は拒否する」2 件は、どちらも `sctpPort` の変異で、確立済み association の SCTP port の変更を拒否したもの（2.10 の意図した拒否）。HEAD はこれを受理すると、current SDP が live の association と異なる port を記述することになる。
 
 **策C: develop と挙動を変える箇所を増やさない**
 
@@ -385,7 +388,7 @@ commit path に例外が残る場合は、公開状態を切り替える前に�
 
 ## 7. 仕様と試験の対応表（策3）
 
-2.1〜2.11 と 5 章の各文（要件）を、それを検証する試験名（または invariant helper）か「対象外（理由）」に対応づけた表を `packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md` に置く（全 263 件: covered 240 件、対象外 23 件、partial / uncovered 0 件。2.11 で 12 件追加）。対象外は設計文書・コード構造・作業プロセスの記述だけで、理由を併記する。
+2.1〜2.11 と 5 章の各文（要件）を、それを検証する試験名（または invariant helper）か「対象外（理由）」に対応づけた表を `packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md` に置く（全 264 件: covered 241 件、対象外 23 件、partial / uncovered 0 件。2.11 で 13 件追加）。対象外は設計文書・コード構造・作業プロセスの記述だけで、理由を併記する。
 
 - 表の作成時点で partial / uncovered だった 59 件は、要件 ID を名前に持つ試験（`negotiationTransactionCoverageEvents` / `Transport` / `Ice` / `Codecs`、`packages/ice/tests/coverageConsent.test.ts`）で閉じた。そのうち修正前の実装で失敗したものは、2.10 の「見つけ、修正して確定した規則」として実装を直した。
 - 要件や試験を変えたら表も更新する。新しい要件は、ID を名前に含む試験を追加してから covered にする。

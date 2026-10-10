@@ -1,4 +1,5 @@
-import { CandidatePairState } from "../../src/iceBase";
+import { Candidate } from "../../src/candidate";
+import { CandidatePair, CandidatePairState } from "../../src/iceBase";
 import { classes, methods } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
 import type { Protocol } from "../../src/types/model";
@@ -10,6 +11,43 @@ type Internals = {
 };
 
 describe("ICE restart generation boundaries", () => {
+  test("dropping other remote generations keeps only the live ufrag's and ufrag-less candidates", async () => {
+    const { a, b } = await createConnectedPair();
+    try {
+      // Arrange: 現在の remote ufrag の候補・ufrag なしの候補・別 generation の候補と、その pair を置く。
+      const live = b.localUsername;
+      const base = b.localCandidates[0];
+      const withUfrag = (ufrag?: string) => {
+        const candidate = Candidate.fromSdp(base.toSdp());
+        candidate.ufrag = ufrag;
+        return candidate;
+      };
+      const current = withUfrag(live);
+      const plain = withUfrag(undefined);
+      const stale = withUfrag("old0");
+      a.remoteCandidates.splice(
+        0,
+        a.remoteCandidates.length,
+        current,
+        plain,
+        stale,
+      );
+      const protocol = a.checkList[0].protocol;
+      const stalePair = new CandidatePair(protocol, stale, a.iceControlling);
+      a.checkList.push(stalePair);
+
+      // Act: 現在の remote ufrag 以外の generation を落とす。
+      a.dropOtherRemoteGenerations(live);
+
+      // Assert: 別 generation の候補とその pair だけが消え、他は残る。
+      expect(a.remoteCandidates).toEqual([current, plain]);
+      expect(a.checkList).not.toContain(stalePair);
+      expect(a.checkList.length).toBeGreaterThan(0);
+    } finally {
+      await Promise.allSettled([a.close(), b.close()]);
+    }
+  });
+
   test("a late check addressed to the previous ufrag does not relabel the live candidate", async () => {
     const { a, b } = await createConnectedPair();
     try {

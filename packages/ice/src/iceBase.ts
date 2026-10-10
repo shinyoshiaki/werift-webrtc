@@ -94,6 +94,8 @@ export interface IceConnection {
 
   getDefaultCandidate(): Candidate | undefined;
   resetNominatedPair(): void;
+  /** Drop remote candidates and pairs that name another remote ufrag. */
+  dropOtherRemoteGenerations?(usernameFragment: string): void;
 }
 
 export interface CandidatePairStats {
