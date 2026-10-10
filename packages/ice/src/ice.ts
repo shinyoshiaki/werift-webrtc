@@ -630,6 +630,25 @@ export class Connection implements IceConnection {
     }
   }
 
+  /**
+   * Drop the remote candidates (and their pairs) that name a ufrag other than
+   * `usernameFragment`: they belong to another remote generation and cannot
+   * pass checks with its credentials. Candidates without a ufrag stay.
+   */
+  dropOtherRemoteGenerations(usernameFragment: string) {
+    const stale = (candidate: Candidate) =>
+      !!candidate.ufrag && candidate.ufrag !== usernameFragment;
+    this._remoteCandidates = this._remoteCandidates.filter(
+      (candidate) => !stale(candidate),
+    );
+    for (const pair of this.checkList) {
+      if (stale(pair.remoteCandidate)) pair.handle?.resolve?.();
+    }
+    this.checkList = this.checkList.filter(
+      (pair) => !stale(pair.remoteCandidate),
+    );
+  }
+
   resetNominatedPair() {
     log("resetNominatedPair");
     this.nominated = undefined;

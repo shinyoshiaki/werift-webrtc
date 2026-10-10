@@ -274,5 +274,6 @@ test (named with its ID in brackets) before it is marked covered.
 | 2.11-8 | `expectSessionContinues` と `enforceSessionContinuation` を Coverage*・回帰・変異・拒否試験で有効にし、除外は理由付きに限る | CovT / CovE / CovI / CovC / Reg / Mut / AppRej（`enforceSessionContinuation`） | covered |
 | 2.11-9 | kind × 属性の表から変異を生成し、`renegotiates` の変異は後続の素直な再交渉と continuation を必須にする | Mut（単独・全ペア） | covered |
 | 2.11-10 | property test に相手が application・audio・video を offer / answer で拒否する episode を加える | Prop (fuzzRemoteRejection) | covered |
+| 2.11-13 | develop の renomination 経路（inactive の m-line と資格情報の変更）は、別の ufrag を名乗る remote 候補と pair を落とし、ufrag のない候補は残す | Reg: "new remote credentials next to an inactive m-line keep only the new remote generation's candidates"; ice:restart-generation "dropping other remote generations keeps only the live ufrag's and ufrag-less candidates"; Mut（全ペア: inactive × videoSeparateCredentials） | covered |
 | 2.11-11 | develop と挙動が変わる規則を棚卸しし、核の不変条件に必須でないものは develop に戻す | NEGOTIATION_TRANSACTION.md「Behavior differences from develop」 | 対象外（文書・作業プロセス） |
 | 2.11-12 | 以後の develop と挙動が変わる修正は `expectSessionContinues` を通すことを条件にする | — | 対象外（作業プロセス） |

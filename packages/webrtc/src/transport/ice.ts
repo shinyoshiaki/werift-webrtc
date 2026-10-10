@@ -610,6 +610,11 @@ export class RTCIceTransport {
       if (this.renominating) {
         log("renomination", remoteParameters);
         this.connection.resetNominatedPair();
+        // The kept checklist holds only the new remote generation's
+        // candidates (and ones without a ufrag, as develop kept them).
+        this.connection.dropOtherRemoteGenerations?.(
+          remoteParameters.usernameFragment,
+        );
         this.renominating = false;
       } else if (keepLocalCredentials && this.connection.restartRemote) {
         log("remote restart", remoteParameters);

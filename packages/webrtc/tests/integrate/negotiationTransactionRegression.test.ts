@@ -2312,6 +2312,43 @@ describe("negotiation transaction mutation regressions", () => {
     }
   }, 60000);
 
+  test("new remote credentials next to an inactive m-line keep only the new remote generation's candidates", async () => {
+    // Arrange: 確立済み session で re-offer を両側に置く。
+    const session = await createMutationSession("renegotiation");
+    const { a, b } = session;
+    try {
+      await a.pc.setLocalDescription(await a.pc.createOffer());
+      await b.pc.setRemoteDescription(a.pc.localDescription!);
+      const answer = (await b.pc.createAnswer()).sdp;
+      await b.pc.setLocalDescription({ type: "answer", sdp: answer });
+      // Arrange: answer は実際の b と異なる資格情報を名乗るので、継続確認の対象外にする。
+      exemptFromContinuation(
+        [a.pc, b.pc],
+        "the answer misdescribes b's ICE credentials",
+      );
+
+      // Act: tag の video を inactive にし、別の資格情報を持たせた answer を適用する
+      // (develop から既存の renomination 経路: inactive の m-line と資格情報の変更)。
+      await a.pc.setRemoteDescription({
+        type: "answer",
+        sdp: mutate(answer, ["videoInactive", "videoSeparateCredentials"]),
+      });
+
+      // Assert: live の remote generation は新しい資格情報で、前の generation の
+      // ufrag を名乗る候補は checklist に残らない。
+      const connection = a.video.dtlsTransport.iceTransport.connection;
+      expect(connection.remoteUsername).toBe("mutv");
+      expect(
+        connection.remoteCandidates.filter(
+          (candidate) => candidate.ufrag && candidate.ufrag !== "mutv",
+        ),
+      ).toEqual([]);
+      assertNegotiationInvariants(a.pc);
+    } finally {
+      await session.close();
+    }
+  }, 60000);
+
   test("new remote credentials in an answer keep the local credentials the offer described", async () => {
     // Arrange: 確立済み session で re-offer を両側に置く。
     const session = await createMutationSession("renegotiation");

@@ -561,7 +561,12 @@ DataChannel, so every per-kind mutation applies. By default each mutation runs a
 `=random:<count>:<seed>` random combinations of up to three. `run.ts
 --mutate <p>` rewrites delivered descriptions with probability `p`, so
 `compare.ts` reports what `develop` accepted and communicated with but HEAD
-does not.
+does not. Its only findings are intended rejections: a changed `sctp-port`
+for an established association, which HEAD rejects atomically (accepting it
+would make the current SDP describe a port the live association does not
+use). When b commits an answer to a mutated offer that a then rejects, the
+peers disagree; the mutation test does not expect the current session to
+work after that and exempts the pair from continuation with that reason.
 
 ## Interrupts
 
@@ -800,6 +805,10 @@ outlives the transport:
   established the association first.
 - Rolling back a remote offer stops the DTLS transport the offer's SCTP
   transport ran on unless something else uses it.
+- The renomination path kept from develop (new remote credentials while an
+  m-line is `inactive`) keeps the checklist but drops the remote candidates
+  and pairs that name another remote ufrag (`dropOtherRemoteGenerations` in
+  the ICE layer); candidates without a ufrag stay, as in develop.
 
 `negotiationTransactionApplicationRejection.test.ts` runs every rejection
 path (initial / renegotiation x the peer's answer / the peer's offer / a
@@ -830,6 +839,7 @@ no behavior difference unless they pass `expectSessionContinues`.
 | Answer port 0 to a rejected application offer (2.11) | port 9 without `a=sctp-port` | RFC 3264; HEAD validates `a=sctp-port` | added, passes the helper |
 | SCTP starts on an already connected DTLS transport (2.11) | DataChannel never opens | makes a develop failure work | added, passes the helper |
 | SCTP side from the ICE role at the DTLS start (2.11) | ICE role at the SCTP start | consistent sides when SCTP starts late | added, same side as develop in a normal flow |
+| Renomination drops remote candidates naming another ufrag (2.11) | keeps them in the checklist | ICE generation consistency (they cannot pass checks with the new credentials) | added, ufrag-less candidates unchanged |
 
 ## Scope and known constraints
 

@@ -169,15 +169,20 @@ describe("negotiation transaction SDP mutations", () => {
         if (!breaksMedia(effective)) await expectMediaAlive(session, label);
         if (!breaksData(effective)) await expectDataAlive(session, label);
       }
+      // b が確定した answer を a が拒否すると、両 peer の前提が食い違う (初回の
+      // answer、または b が変異した offer を受理して確定した場合: b の current は
+      // 変異を反映している)。
+      const diverged =
+        answerRejected && (phase === "initial" || stage === "offer");
       // 拒否された再交渉は current session を壊さない。
-      if (!accepted && phase === "renegotiation") {
+      if (!accepted && phase === "renegotiation" && !diverged) {
         await expectMediaAlive(session, `${label}-rejected`);
         await expectDataAlive(session, `${label}-rejected`);
       }
 
       // Act: 変異のない再交渉を行う (受理した変異が peer と食い違い、両 peer が
-      // 再交渉できる状態でないときや、b が確定した初回の answer を a が拒否した
-      // ときは、両 peer の前提が異なるので行わない)。
+      // 再交渉できる状態でないときや、b が確定した answer を a が拒否して前提が
+      // 食い違ったときは行わない)。
       if (accepted && !renegotiates(effective)) {
         exemptFromContinuation(
           [session.a.pc, session.b.pc],
@@ -185,10 +190,10 @@ describe("negotiation transaction SDP mutations", () => {
         );
         return;
       }
-      if (phase === "initial" && answerRejected) {
+      if (diverged) {
         exemptFromContinuation(
           [session.a.pc, session.b.pc],
-          "b committed a first answer that a rejected",
+          "b committed an answer that a rejected",
         );
         return;
       }
