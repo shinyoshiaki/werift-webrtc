@@ -2533,6 +2533,62 @@ export async function createHeldTurnRestartPeers(restarts: number) {
 }
 
 /**
+ * Shared Arrange: two relay-only peers (`iceTransportPolicy: "relay"`) with a
+ * DataChannel open over TURN. b reaches the TURN server through `proxy`
+ * (released), so a test can hold b's next allocation. Candidates trickle
+ * between the peers; failed deliveries are recorded in `candidateErrors`.
+ */
+export async function createRelayOnlyPeers() {
+  const turn = await createLocalTurnIceServer();
+  const proxy = await createHeldUdpProxy(turn.server.address!);
+  proxy.release();
+  const a = new RTCPeerConnection({
+    iceServers: turn.iceServers,
+    iceTransportPolicy: "relay",
+  });
+  const b = new RTCPeerConnection({
+    iceServers: turnIceServers(proxy.address),
+    iceTransportPolicy: "relay",
+  });
+  const candidateErrors: string[] = [];
+  for (const [from, to] of [
+    [a, b],
+    [b, a],
+  ] as const) {
+    from.onIceCandidate.subscribe((candidate) => {
+      to.addIceCandidate(candidate ?? undefined).catch((error: Error) => {
+        candidateErrors.push(error.message);
+      });
+    });
+  }
+  const channel = a.createDataChannel("relay");
+  const received = b.onDataChannel.asPromise().then(([c]) => c);
+  await a.setLocalDescription(await a.createOffer());
+  await b.setRemoteDescription(a.localDescription!);
+  await b.setLocalDescription(await b.createAnswer());
+  await a.setRemoteDescription(b.localDescription!);
+  const remote = await withTimeout(
+    received,
+    "relay DataChannel did not arrive",
+  );
+  await waitForCommittedNomination(a);
+  await waitForCommittedNomination(b);
+  return {
+    a,
+    b,
+    channel,
+    remote,
+    proxy,
+    candidateErrors,
+    async close() {
+      await Promise.allSettled([a.close(), b.close()]);
+      proxy.close();
+      await turn.server.close();
+    },
+  };
+}
+
+/**
  * Arrange: put `pc`'s first ICE transport in `state` as its agent would (for
  * example "failed" after consent freshness expired), without touching the
  * selected pair.
@@ -3033,7 +3089,11 @@ export async function arrangeInterruptWait(wait: InterruptWait) {
 // --- spec coverage: events ---
 
 /** Poll `condition` until it holds (fails after the shared timeout). */
-export async function waitUntil(condition: () => boolean, message: string) {
+export async function waitUntil(
+  condition: () => boolean,
+  message: string,
+  ms = 3000,
+) {
   await withTimeout(
     (async () => {
       while (!condition()) {
@@ -3041,6 +3101,7 @@ export async function waitUntil(condition: () => boolean, message: string) {
       }
     })(),
     message,
+    ms,
   );
 }
 

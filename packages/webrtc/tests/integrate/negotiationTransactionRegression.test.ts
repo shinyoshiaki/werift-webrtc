@@ -22,6 +22,7 @@ import {
   createIceRestartPranswer,
   createInitialPranswerConnection,
   createMutationSession,
+  createRelayOnlyPeers,
   createRewrittenOffer,
   createSplitOffer,
   createUnnegotiatedPeers,
@@ -48,6 +49,7 @@ import {
   reverseSetupRole,
   rewriteVideoFeedback,
   sectionOf,
+  sendAndExpectData,
   sendAndExpectRtp,
   stubIceMdns,
   trickleCandidate,
@@ -59,6 +61,7 @@ import {
   waitForIce,
   waitForPeersConnected,
   waitForRemoteCandidatePort,
+  waitUntil,
 } from "./negotiationTransactionUtils";
 
 /**
@@ -67,6 +70,59 @@ import {
  */
 describe("negotiation transaction regressions", () => {
   enforceSessionContinuation();
+
+  test.each(["a", "b"] as const)(
+    "a relay-only ICE restart offered by %s nominates once the held TURN allocation completes after the peer's candidates",
+    async (offererName) => {
+      // Arrange: 両 peer が relay-only で、DataChannel が TURN 経由で開いている。
+      const peers = await createRelayOnlyPeers();
+      const { a, b, channel, remote, proxy, candidateErrors } = peers;
+      try {
+        const [offerer, answerer] = offererName === "a" ? [a, b] : [b, a];
+        const connections = () =>
+          [a, b].map((pc) => pc.iceTransports[0].connection);
+        const previous = connections().map((c) => c.localUsername);
+
+        // Act: b の新しい TURN allocation を保留したまま ICE restart を確定する
+        // (a の relay 候補と end-of-candidates が、b のローカル候補より先に b へ届く)。
+        proxy.hold();
+        await offerer.setLocalDescription(
+          await offerer.createOffer({ iceRestart: true }),
+        );
+        await answerer.setRemoteDescription(offerer.localDescription!);
+        await answerer.setLocalDescription(await answerer.createAnswer());
+        await offerer.setRemoteDescription(answerer.localDescription!);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        // Act: b の allocation を完了させる。
+        proxy.release();
+
+        // Assert: 両側が新しい generation の relay pair を nominate する。
+        await waitUntil(
+          () =>
+            connections().every(
+              (c, index) =>
+                c.localUsername !== previous[index] &&
+                c.nominated?.localCandidate.type === "relay" &&
+                c.nominated.localCandidate.ufrag === c.localUsername,
+            ),
+          "the restarted relay generation was not nominated",
+          15000,
+        );
+        // Assert: 元の DataChannel が relay 経由で双方向に届き、候補の配送は失敗しない。
+        await sendAndExpectData(channel, remote, `relay-${offererName}-ab`);
+        await sendAndExpectData(remote, channel, `relay-${offererName}-ba`);
+        expect(candidateErrors).toEqual([]);
+        assertNegotiationInvariants(a);
+        assertNegotiationInvariants(b);
+
+        // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+        await expectSessionContinues(a, b, `relay-restart-${offererName}`);
+      } finally {
+        await peers.close();
+      }
+    },
+    60000,
+  );
 
   test("a replacement local offer keeps a new transceiver associated with its m-line", async () => {
     const session = await createDuplexSession();

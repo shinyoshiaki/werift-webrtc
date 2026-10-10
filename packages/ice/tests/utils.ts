@@ -16,6 +16,7 @@ import {
 import { classes, methods } from "../src/stun/const";
 import { Message, parseMessage } from "../src/stun/message";
 import { splitTurnTcpFrames } from "../src/turn/frame";
+import { getHostAddresses } from "../src/utils";
 import type { StunOverTurnProtocol } from "../src/turn/protocol";
 import type { Protocol, TransactionRequestOptions } from "../src/types/model";
 
@@ -840,9 +841,63 @@ export async function createHeldUdpProxy(target: Address) {
       held = false;
       for (const forward of queued.splice(0)) forward();
     },
+    /** Queue the following datagrams again until the next `release()`. */
+    hold() {
+      held = true;
+    },
     close() {
       for (const socket of upstream.values()) socket.close();
       front.close();
+    },
+  };
+}
+
+/**
+ * Shared Arrange: give each connection the other's current ICE credentials
+ * (as the descriptions of a negotiation would).
+ */
+export function exchangeIceCredentials(a: Connection, b: Connection) {
+  a.remoteUsername = b.localUsername;
+  a.remotePassword = b.localPassword;
+  b.remoteUsername = a.localUsername;
+  b.remotePassword = a.localPassword;
+}
+
+/** Shared Arrange: deliver `from`'s local candidates (and optionally end-of-candidates) to `to`. */
+export async function deliverLocalCandidates(
+  from: Connection,
+  to: Connection,
+  { endOfCandidates }: { endOfCandidates: boolean },
+) {
+  for (const candidate of from.localCandidates) {
+    await to.addRemoteCandidate(Candidate.fromSdp(candidate.toSdp()));
+  }
+  if (endOfCandidates) await to.addRemoteCandidate(undefined);
+}
+
+/**
+ * Shared Arrange: two relay-only connections (b reaches the TURN server
+ * through `proxy`, released) with a nominated relay pair.
+ */
+export async function createConnectedRelayOnlyPair() {
+  const server = await createLocalTurnServer(getHostAddresses(true, false)[0]!);
+  const proxy = await createHeldUdpProxy(server.address!);
+  proxy.release();
+  const a = createTestConnection(true, localTurnOptions(server));
+  const b = createTestConnection(false, proxiedTurnOptions(proxy));
+  await Promise.all([a.gatherCandidates(), b.gatherCandidates()]);
+  exchangeIceCredentials(a, b);
+  await deliverLocalCandidates(a, b, { endOfCandidates: true });
+  await deliverLocalCandidates(b, a, { endOfCandidates: true });
+  await Promise.all([a.connect(), b.connect()]);
+  return {
+    a,
+    b,
+    proxy,
+    close: async () => {
+      await Promise.allSettled([a.close(), b.close()]);
+      proxy.close();
+      await server.close();
     },
   };
 }

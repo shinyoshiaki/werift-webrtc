@@ -874,6 +874,11 @@ not as a change of this contract. Known constraints:
 - With STUN or TURN servers a restart's relay candidate and end-of-candidates
   follow the commit; a relay-only session has no candidate of the new
   generation until the new allocation completes.
+- A restart's connectivity checks keep waiting for candidates until both the
+  peer's end-of-candidates and the local gathering of the generation have
+  ended; a TURN allocation that completes meanwhile pairs with the remote
+  candidates already known. So a relay-only restart whose peer finished
+  first still nominates once its own allocation completes.
 - `setCodecPreferences()` only marks the transceiver for re-resolution.
   `createAnswer` resolves the answer's codecs onto the transceiver (the
   proposal); the sender, receiver codec / RTX tables, TWCC and remote track
