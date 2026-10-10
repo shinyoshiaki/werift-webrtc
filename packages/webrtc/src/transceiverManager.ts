@@ -175,8 +175,16 @@ export class TransceiverManager {
       ),
     );
     for (const transceiver of this.transceivers) {
+      if (snapshot.states.has(transceiver)) continue;
+      // One the application added during the transaction and no description
+      // ever negotiated loses the MID / m-line the rolled-back offer gave it
+      // (W3C), also when a replacement offer gave them.
+      if (!transceiver.currentDirection && !transceiver.stopped) {
+        transceiver.mid = null;
+        transceiver.mLineIndex = undefined;
+        continue;
+      }
       if (
-        !snapshot.states.has(transceiver) &&
         transceiver.mLineIndex != undefined &&
         baselineIndexes.has(transceiver.mLineIndex)
       ) {

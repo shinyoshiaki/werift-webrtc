@@ -189,6 +189,11 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     this.remoteParameters = new RTCDtlsParameters(fingerprints, role);
   }
 
+  /** Internal: whether a description gave this transport the peer's DTLS parameters. */
+  get hasRemoteParameters() {
+    return (this.remoteParameters?.fingerprints.length ?? 0) > 0;
+  }
+
   async start() {
     if (this.state !== "new") {
       throw new Error("state must be new");
