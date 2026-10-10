@@ -10,6 +10,10 @@
 
 - `Error`
 
+## Extended by
+
+- [`SrtpReplayError`](SrtpReplayError.md)
+
 ## Constructors
 
 ### new SrtpAuthenticationError()

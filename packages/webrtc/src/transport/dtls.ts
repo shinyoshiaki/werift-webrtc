@@ -1252,7 +1252,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     }
   }
 
-  async sendRtcp(packets: RtcpPacket[]) {
+  async sendRtcp(packets: RtcpPacket[]): Promise<number> {
     if (this.isTerminated()) return 0;
     if (!this.srtpWriteReady) return 0;
     if (!this.readiness.peerAuthenticated) this.earlyServerSendUsed = true;
@@ -1271,7 +1271,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       // 実際の wire 送信が成功した後だけ統計を更新する。
       this.bytesSent += enc.length;
       this.packetsSent++;
-      return;
+      return enc.length;
     } catch (error) {
       log("failed to send RTCP", error);
       return 0;

@@ -98,6 +98,8 @@
 - [SrtcpSession](classes/SrtcpSession.md)
 - [SrtpAuthenticationError](classes/SrtpAuthenticationError.md)
 - [SrtpContext](classes/SrtpContext.md)
+- [SrtpReplayError](classes/SrtpReplayError.md)
+- [SrtpReplayWindow](classes/SrtpReplayWindow.md)
 - [SrtpSession](classes/SrtpSession.md)
 - [SsrcDescription](classes/SsrcDescription.md)
 - [StatusVectorChunk](classes/StatusVectorChunk.md)

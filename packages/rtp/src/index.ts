@@ -23,4 +23,5 @@ export * from "./rtp/rtx";
 export * from "./srtp/srtcp";
 export * from "./srtp/srtp";
 export * from "./srtp/error";
+export * from "./srtp/replay";
 export * from "./util";

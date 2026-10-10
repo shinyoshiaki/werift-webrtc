@@ -251,6 +251,12 @@ describe("SPED hybrid direct-handshake readiness", () => {
     expect(handle.runtime.isHandshakeDirectReady()).toBe(false);
     expect(handle.session.state).toBe("probing");
     expect(modes.at(-1)).toBe("external");
+    // Assert: direct-ready 前の probing は SPED carrier として診断に出る
+    expect(handle.runtime.diagnosticsSnapshot()).toMatchObject({
+      state: "probing",
+      carrier: "sped",
+      generation: connection.generation,
+    });
   });
 
   it("SPED 対応 peer の hybrid complete は fallback にせず carrier を direct のままにする", () => {

@@ -1,10 +1,15 @@
 import type { RtpHeader } from "../../rtp/rtp";
 import { ProtectionProfileAeadAes128Gcm } from "../const";
 import type { SrtpProfile } from "../const";
+import { SrtpReplayError } from "../error";
 import { parseSrtpRtpHeader } from "../packet";
+import { SrtpReplayWindow } from "../replay";
 import { Context } from "./context";
 
 export class SrtpContext extends Context {
+  /** Receive-side replay windows (RFC 3711 §3.3.2), per SSRC. */
+  private readonly rtpReplayWindows: { [ssrc: number]: SrtpReplayWindow } = {};
+
   constructor(masterKey: Buffer, masterSalt: Buffer, profile: SrtpProfile) {
     super(masterKey, masterSalt, profile);
   }
@@ -30,11 +35,22 @@ export class SrtpContext extends Context {
         };
     this.updateRolloverCount(header.sequenceNumber, nextState);
 
+    // RFC 3711 §3.3.2: reject replayed / too-old packets by packet index.
+    const index = nextState.rolloverCounter * 0x10000 + header.sequenceNumber;
+    const replay = (this.rtpReplayWindows[header.ssrc] ??=
+      new SrtpReplayWindow());
+    if (!replay.check(index)) {
+      throw new SrtpReplayError(
+        `SRTP replay rejected (ssrc=${header.ssrc} index=${index})`,
+      );
+    }
+
     const dec = this.cipher.decryptRtp(
       cipherText,
       nextState.rolloverCounter,
       header,
     );
+    replay.accept(index);
     if (existingState) {
       Object.assign(existingState, nextState);
     } else {

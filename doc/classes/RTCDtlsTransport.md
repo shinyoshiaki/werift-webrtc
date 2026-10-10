@@ -314,7 +314,7 @@
 
 ### sendRtcp()
 
-> **sendRtcp**(`packets`): `Promise`\<`undefined` \| `number`\>
+> **sendRtcp**(`packets`): `Promise`\<`number`\>
 
 #### Parameters
 
@@ -324,7 +324,7 @@
 
 #### Returns
 
-`Promise`\<`undefined` \| `number`\>
+`Promise`\<`number`\>
 
 ***
 

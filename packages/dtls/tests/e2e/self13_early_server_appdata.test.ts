@@ -3,7 +3,7 @@ import { UdpTransport } from "../../../common/src";
 import { DtlsVersion, EARLY_APP_DATA_UNLIMITED } from "../../src";
 import { SessionType } from "../../src/cipher/suites/abstract";
 import { Dtls13Connection } from "../../src/engine/v1_3/connection";
-import { certPem, keyPem } from "../fixture";
+import { arrangeHeldEarlyServerAppData, certPem, keyPem } from "../fixture";
 
 /**
  * RFC 9147 / TLS 1.3: server may send application data on epoch 3 after its
@@ -114,166 +114,155 @@ describe("e2e/self13 early server application data", () => {
 
   test("maxEarlyAppDataRecords option drops overflow before markConnected", async () => {
     // Arrange: 早期バッファを 2 レコードに制限し、markConnected だけ遅らせる
-    const serverTransport = await UdpTransport.init("udp4");
-    const clientTransport = await UdpTransport.init("udp4");
-    clientTransport.rinfo = serverTransport.address;
-
-    const server = new Dtls13Connection(
-      {
-        transport: serverTransport,
-        cert: certPem,
-        key: keyPem,
-        addressValidation: "none",
-        offeredProtocolVersions: [DtlsVersion.V1_3],
-      },
-      SessionType.SERVER,
-    );
-    const client = new Dtls13Connection(
-      {
-        transport: clientTransport,
-        cert: certPem,
-        key: keyPem,
-        addressValidation: "none",
-        offeredProtocolVersions: [DtlsVersion.V1_3],
-        maxEarlyAppDataRecords: 2,
-        maxEarlyAppDataBytes: 64 * 1024,
-      },
-      SessionType.CLIENT,
-    );
-    expect(client["maxEarlyAppDataRecords"]).toBe(2);
-
-    // epoch-3 鍵は入れつつ markConnected だけ遅らせ、早期バッファを観測する
-    const origMark = client["markConnected"].bind(client);
-    let heldOpts: Parameters<Dtls13Connection["markConnected"]> | undefined;
-    client["markConnected"] = (opts) => {
-      heldOpts = [opts];
-    };
-
-    const received: string[] = [];
-    client.onData.subscribe((data) => {
-      received.push(data.toString());
+    const pair = await arrangeHeldEarlyServerAppData({
+      maxEarlyAppDataRecords: 2,
+      maxEarlyAppDataBytes: 64 * 1024,
     });
-
-    const errors: Error[] = [];
-    client.onError.subscribe((e) => errors.push(e));
-    server.onError.subscribe((e) => errors.push(e));
-
-    void client.connect();
-
-    for (let i = 0; i < 100; i++) {
-      if (client["epochs"].get(3)?.readKeys && !client.connected) break;
-      await new Promise((r) => setTimeout(r, 10));
-    }
+    const { server, client } = pair;
+    expect(client["maxEarlyAppDataRecords"]).toBe(2);
     expect(client["epochs"].get(3)?.readKeys).toBeTruthy();
     expect(client.connected).toBe(false);
 
-    for (let i = 0; i < 50; i++) {
-      if (server["writeEpoch"] >= 3) break;
-      await new Promise((r) => setTimeout(r, 10));
+    try {
+      // Act: 未接続のまま制限を超える早期 app data を送る
+      for (let n = 0; n < 4; n++) {
+        await server.send(Buffer.from(`early-${n}`));
+      }
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Assert: 接続前バッファは 2 件で打ち切られる
+      expect(client["earlyAppData"].map((b: Buffer) => b.toString())).toEqual([
+        "early-0",
+        "early-1",
+      ]);
+
+      // Act: markConnected を再開して handshake を完了させる
+      await pair.release();
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Assert: flush 後も超過分は届かず、overflow は handshake を失敗させない
+      expect(pair.received).toEqual(["early-0", "early-1"]);
+      expect(pair.errors).toEqual([]);
+    } finally {
+      pair.close();
     }
+  }, 20_000);
 
-    // Act: 未接続のまま制限を超える早期 app data を送る
-    for (let n = 0; n < 4; n++) {
-      await server.send(Buffer.from(`early-${n}`));
-    }
-    await new Promise((r) => setTimeout(r, 50));
-
-    // Assert: 接続前バッファは 2 件で打ち切られる
-    expect(client["earlyAppData"].map((b: Buffer) => b.toString())).toEqual([
-      "early-0",
-      "early-1",
-    ]);
-
-    const connected = new Promise<void>((resolve) => {
-      client.onConnect.subscribe(() => resolve());
+  test("maxEarlyAppDataBytes option drops the newest record over the byte cap", async () => {
+    // Arrange: record 数には余裕があり、byte 上限 (16) だけが効く設定にする
+    const pair = await arrangeHeldEarlyServerAppData({
+      maxEarlyAppDataRecords: 256,
+      maxEarlyAppDataBytes: 16,
     });
-    client["markConnected"] = origMark;
-    origMark(...(heldOpts ?? []));
-    await connected;
-    await new Promise((r) => setTimeout(r, 50));
+    const { server, client } = pair;
+    expect(client.connected).toBe(false);
 
-    // Assert: flush 後も超過分は届かない
-    expect(received).toEqual(["early-0", "early-1"]);
-    expect(errors).toEqual([]);
-    client.close();
-    server.close();
+    try {
+      // Act: 7 byte の record を 3 件送る (3 件目で 21 > 16 byte になる)
+      for (let n = 0; n < 3; n++) {
+        await server.send(Buffer.from(`bytes-${n}`));
+      }
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Assert: 古い 2 件を保持し、byte 上限を超える新しい record だけを落とす
+      expect(client["earlyAppData"].map((b: Buffer) => b.toString())).toEqual([
+        "bytes-0",
+        "bytes-1",
+      ]);
+      expect(client.earlyDataStats).toMatchObject({
+        bufferedBytes: 14,
+        droppedPackets: 1,
+        droppedBytes: 7,
+      });
+
+      // Act: handshake を完了させる
+      await pair.release();
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Assert: 保持分だけを受信順に配送し、overflow でも接続は成立する
+      expect(pair.received).toEqual(["bytes-0", "bytes-1"]);
+      expect(pair.errors).toEqual([]);
+    } finally {
+      pair.close();
+    }
+  }, 20_000);
+
+  test("2 s retention expiry discards early data without failing the handshake", async () => {
+    // Arrange: 既定上限のまま markConnected を遅らせる
+    const pair = await arrangeHeldEarlyServerAppData();
+    const { server, client } = pair;
+    expect(client.connected).toBe(false);
+
+    try {
+      // Act: 早期 app data を 2 件送り、retention (2 秒) を超えて待つ
+      await server.send(Buffer.from("stale-0"));
+      await server.send(Buffer.from("stale-1"));
+      await new Promise((r) => setTimeout(r, 50));
+      expect(client.earlyDataStats.bufferedPackets).toBe(2);
+      // retention 内 (受信から 1.5 秒程度) ではまだ保持している
+      await new Promise((r) => setTimeout(r, 1_500));
+      expect(client.earlyDataStats.bufferedPackets).toBe(2);
+      const deadline = Date.now() + 5_000;
+      while (
+        client.earlyDataStats.bufferedPackets > 0 &&
+        Date.now() < deadline
+      ) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+
+      // Assert: queue 全体が期限切れで破棄され、drop として計上される
+      expect(client.earlyDataStats).toMatchObject({
+        bufferedPackets: 0,
+        droppedPackets: 2,
+      });
+
+      // Act: handshake を完了させ、期限切れ後の新しい data を送る
+      await pair.release();
+      await server.send(Buffer.from("fresh"));
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Assert: timeout は handshake を失敗させず、期限切れ分は配送しない
+      expect(client.connected).toBe(true);
+      expect(pair.errors).toEqual([]);
+      expect(pair.received).toEqual(["fresh"]);
+    } finally {
+      pair.close();
+    }
   }, 20_000);
 
   test("EARLY_APP_DATA_UNLIMITED buffers all pre-connect app data", async () => {
     // Arrange: P2P 向け無制限、markConnected だけ遅らせる
-    const serverTransport = await UdpTransport.init("udp4");
-    const clientTransport = await UdpTransport.init("udp4");
-    clientTransport.rinfo = serverTransport.address;
-
-    const server = new Dtls13Connection(
-      {
-        transport: serverTransport,
-        cert: certPem,
-        key: keyPem,
-        addressValidation: "none",
-        offeredProtocolVersions: [DtlsVersion.V1_3],
-      },
-      SessionType.SERVER,
-    );
-    const client = new Dtls13Connection(
-      {
-        transport: clientTransport,
-        cert: certPem,
-        key: keyPem,
-        addressValidation: "none",
-        offeredProtocolVersions: [DtlsVersion.V1_3],
-        maxEarlyAppDataRecords: EARLY_APP_DATA_UNLIMITED,
-        maxEarlyAppDataBytes: EARLY_APP_DATA_UNLIMITED,
-      },
-      SessionType.CLIENT,
-    );
+    const pair = await arrangeHeldEarlyServerAppData({
+      maxEarlyAppDataRecords: EARLY_APP_DATA_UNLIMITED,
+      maxEarlyAppDataBytes: EARLY_APP_DATA_UNLIMITED,
+    });
+    const { server, client } = pair;
     expect(client["maxEarlyAppDataRecords"]).toBe(Number.POSITIVE_INFINITY);
-
-    const origMark = client["markConnected"].bind(client);
-    let heldOpts: Parameters<Dtls13Connection["markConnected"]> | undefined;
-    client["markConnected"] = (opts) => {
-      heldOpts = [opts];
-    };
-
-    const received: string[] = [];
-    client.onData.subscribe((data) => {
-      received.push(data.toString());
-    });
-
-    void client.connect();
-    for (let i = 0; i < 100; i++) {
-      if (client["epochs"].get(3)?.readKeys && !client.connected) break;
-      await new Promise((r) => setTimeout(r, 10));
-    }
     expect(client.connected).toBe(false);
-    for (let i = 0; i < 50; i++) {
-      if (server["writeEpoch"] >= 3) break;
-      await new Promise((r) => setTimeout(r, 10));
+
+    try {
+      // Act: 既定 256 より少ないが、上限なしで全件保持できることを確認
+      for (let n = 0; n < 4; n++) {
+        await server.send(Buffer.from(`p2p-${n}`));
+      }
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Assert: 無制限なので 4 件すべてバッファされる
+      expect(client["earlyAppData"].map((b: Buffer) => b.toString())).toEqual([
+        "p2p-0",
+        "p2p-1",
+        "p2p-2",
+        "p2p-3",
+      ]);
+
+      // Act: handshake を完了させる
+      await pair.release();
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Assert: 全件が受信順に配送される
+      expect(pair.received).toEqual(["p2p-0", "p2p-1", "p2p-2", "p2p-3"]);
+    } finally {
+      pair.close();
     }
-
-    // Act: 既定 256 より少ないが、上限なしで全件保持できることを確認
-    for (let n = 0; n < 4; n++) {
-      await server.send(Buffer.from(`p2p-${n}`));
-    }
-    await new Promise((r) => setTimeout(r, 50));
-
-    // Assert: 無制限なので 4 件すべてバッファされる
-    expect(client["earlyAppData"].map((b: Buffer) => b.toString())).toEqual([
-      "p2p-0",
-      "p2p-1",
-      "p2p-2",
-      "p2p-3",
-    ]);
-
-    const connected = new Promise<void>((resolve) => {
-      client.onConnect.subscribe(() => resolve());
-    });
-    client["markConnected"] = origMark;
-    origMark(...(heldOpts ?? []));
-    await connected;
-    await new Promise((r) => setTimeout(r, 50));
-    expect(received).toEqual(["p2p-0", "p2p-1", "p2p-2", "p2p-3"]);
-    client.close();
-    server.close();
   }, 20_000);
 });

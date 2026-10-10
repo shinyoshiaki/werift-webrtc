@@ -1,6 +1,9 @@
-import { UdpTransport } from "../../common/src";
+import { spawn } from "child_process";
+import { UdpTransport, randomPort } from "../../common/src";
 import type { SrtpProfile } from "../../rtp/src/srtp/const";
 import { DtlsClient, DtlsServer, DtlsVersion } from "../src";
+import { SessionType } from "../src/cipher/suites/abstract";
+import { Dtls13Connection } from "../src/engine/v1_3/connection";
 
 export const certPem = `-----BEGIN CERTIFICATE-----
 MIIDETCCAfkCFEtWAs2R7xuwFvkze6b7C0mNodXKMA0GCSqGSIb3DQEBCwUAMEUx
@@ -124,4 +127,157 @@ export async function arrangeDtls13Pair(extra?: Dtls13PairExtra) {
   const server = new DtlsServer({ transport: serverTransport, ...base });
   const client = new DtlsClient({ transport: clientTransport, ...base });
   return { server, client, serverTransport, clientTransport };
+}
+
+/**
+ * Arrange: `openssl s_server -dtls1_2` on an OS-assigned free UDP port.
+ *
+ * Fixed ports (e.g. 55562) sit inside the Linux ephemeral range, so any
+ * unrelated process can already hold them; openssl then fails to bind and
+ * the handshake only surfaces as a timeout. Pick the port at runtime, wait
+ * for openssl's `ACCEPT` instead of a fixed sleep, and report its stderr if
+ * it never starts listening.
+ */
+export async function spawnOpensslDtls12Server(
+  extraArgs: string[] = [],
+  { attempts = 3 }: { attempts?: number } = {},
+) {
+  for (let attempt = 1; ; attempt++) {
+    const port = await randomPort("udp4");
+    const proc = spawn("openssl", [
+      "s_server",
+      "-cert",
+      "./assets/cert.pem",
+      "-key",
+      "./assets/key.pem",
+      "-dtls1_2",
+      "-accept",
+      `127.0.0.1:${port}`,
+      ...extraArgs,
+    ]);
+    proc.stdout.setEncoding("ascii");
+    proc.stderr.setEncoding("ascii");
+    let stderr = "";
+    proc.stderr.on("data", (data: string) => {
+      stderr += data;
+    });
+
+    const listening = await new Promise<boolean>((resolve, reject) => {
+      const cleanup = () => {
+        clearTimeout(timer);
+        proc.stdout.off("data", onData);
+        proc.off("exit", onExit);
+        proc.off("error", onError);
+      };
+      const onData = (data: string) => {
+        if (data.includes("ACCEPT")) {
+          cleanup();
+          resolve(true);
+        }
+      };
+      const onExit = () => {
+        cleanup();
+        resolve(false);
+      };
+      const onError = (error: Error) => {
+        cleanup();
+        reject(error);
+      };
+      const timer = setTimeout(onExit, 5_000);
+      proc.stdout.on("data", onData);
+      proc.once("exit", onExit);
+      proc.once("error", onError);
+    });
+
+    if (listening) {
+      return {
+        port,
+        stdout: proc.stdout,
+        close: () => {
+          proc.kill("SIGTERM");
+        },
+      };
+    }
+    proc.kill("SIGTERM");
+    if (attempt >= attempts) {
+      throw new Error(
+        `openssl s_server did not start on 127.0.0.1:${port}: ${stderr.trim()}`,
+      );
+    }
+  }
+}
+
+/**
+ * Arrange: DTLS 1.3 engine pair where the server has epoch-3 write keys and
+ * the client has epoch-3 read keys but its markConnected() is held, so server
+ * application data lands in the client's pre-connect early buffer.
+ * `release()` lets the client finish the handshake.
+ */
+export async function arrangeHeldEarlyServerAppData(
+  clientLimits: {
+    maxEarlyAppDataRecords?: number;
+    maxEarlyAppDataBytes?: number;
+  } = {},
+) {
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+  const base = {
+    cert: certPem,
+    key: keyPem,
+    addressValidation: "none" as const,
+    offeredProtocolVersions: [DtlsVersion.V1_3],
+  };
+  const server = new Dtls13Connection(
+    { ...base, transport: serverTransport },
+    SessionType.SERVER,
+  );
+  const client = new Dtls13Connection(
+    { ...base, transport: clientTransport, ...clientLimits },
+    SessionType.CLIENT,
+  );
+
+  // epoch-3 鍵は入れつつ markConnected だけ遅らせ、早期バッファを観測する
+  const originalMarkConnected = client["markConnected"].bind(client);
+  let heldOpts: Parameters<Dtls13Connection["markConnected"]> | undefined;
+  client["markConnected"] = (opts) => {
+    heldOpts = [opts];
+  };
+  const received: string[] = [];
+  client.onData.subscribe((data) => {
+    received.push(data.toString());
+  });
+  const errors: Error[] = [];
+  client.onError.subscribe((e) => errors.push(e));
+  server.onError.subscribe((e) => errors.push(e));
+
+  void client.connect();
+  for (let i = 0; i < 100; i++) {
+    if (client["epochs"].get(3)?.readKeys && !client.connected) break;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  for (let i = 0; i < 50; i++) {
+    if (server["writeEpoch"] >= 3) break;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+
+  return {
+    server,
+    client,
+    received,
+    errors,
+    /** Resume the held markConnected() and wait for the client onConnect. */
+    release: async () => {
+      const connected = new Promise<void>((resolve) => {
+        client.onConnect.subscribe(() => resolve());
+      });
+      client["markConnected"] = originalMarkConnected;
+      originalMarkConnected(...(heldOpts ?? []));
+      await connected;
+    },
+    close: () => {
+      client.close();
+      server.close();
+    },
+  };
 }

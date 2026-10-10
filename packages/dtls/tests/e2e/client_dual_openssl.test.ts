@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import { UdpTransport } from "../../../common/src";
 import { DtlsClient, DtlsServer, DtlsVersion } from "../../src";
 import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
-import { certPem, keyPem } from "../fixture";
+import { certPem, keyPem, spawnOpensslDtls12Server } from "../fixture";
 
 /**
  * OpenSSL DTLS 1.2 regression for dual-stack client:
@@ -12,24 +12,10 @@ import { certPem, keyPem } from "../fixture";
 describe("e2e/client dual fallback openssl", () => {
   test("werift [1.3,1.2] client connects to openssl -dtls1_2", async () => {
     // Arrange: 前提を準備する
-    const port = 55561;
-    const args = [
-      "s_server",
-      "-cert",
-      "./assets/cert.pem",
-      "-key",
-      "./assets/key.pem",
-      "-dtls1_2",
-      "-accept",
-      `127.0.0.1:${port}`,
-    ];
-    const openssl = spawn("openssl", args, { cwd: process.cwd() });
-    openssl.stdout?.setEncoding("ascii");
-
-    await new Promise((r) => setTimeout(r, 150));
+    const openssl = await spawnOpensslDtls12Server();
 
     const transport = await UdpTransport.init("udp4");
-    transport.rinfo = { address: "127.0.0.1", port };
+    transport.rinfo = { address: "127.0.0.1", port: openssl.port };
     const client = new DtlsClient({
       transport,
       cert: certPem,
@@ -54,7 +40,7 @@ describe("e2e/client dual fallback openssl", () => {
         clearTimeout(timer);
         reject(e);
       });
-      openssl.stdout?.on("data", (data: string) => {
+      openssl.stdout.on("data", (data: string) => {
         if (data.includes("dual-openssl-12")) {
           clearTimeout(timer);
           resolve();
@@ -63,31 +49,20 @@ describe("e2e/client dual fallback openssl", () => {
       void client.connect().catch(reject);
     }).finally(() => {
       client.close();
-      openssl.kill("SIGTERM");
+      openssl.close();
       void transport.close();
     });
   }, 20_000);
 
   test("werift 1.2 client EXTRACTOR-dtls_srtp still works with openssl", async () => {
     // Arrange: 前提を準備する
-    const port = 55562;
-    const args = [
-      "s_server",
-      "-cert",
-      "./assets/cert.pem",
-      "-key",
-      "./assets/key.pem",
-      "-dtls1_2",
-      "-accept",
-      `127.0.0.1:${port}`,
+    const openssl = await spawnOpensslDtls12Server([
       "-use_srtp",
       "SRTP_AES128_CM_SHA1_80",
-    ];
-    const openssl = spawn("openssl", args, { cwd: process.cwd() });
-    await new Promise((r) => setTimeout(r, 150));
+    ]);
 
     const transport = await UdpTransport.init("udp4");
-    transport.rinfo = { address: "127.0.0.1", port };
+    transport.rinfo = { address: "127.0.0.1", port: openssl.port };
     const client = new DtlsClient({
       transport,
       cert: certPem,
@@ -127,7 +102,7 @@ describe("e2e/client dual fallback openssl", () => {
       void client.connect().catch(reject);
     }).finally(() => {
       client.close();
-      openssl.kill("SIGTERM");
+      openssl.close();
       void transport.close();
     });
   }, 20_000);

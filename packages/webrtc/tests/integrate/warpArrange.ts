@@ -14,6 +14,7 @@ import {
   RtpPacket,
   useSdesRTPStreamId,
 } from "../../src";
+import type { RTCTransportStats } from "../../src/media/stats";
 import { exchangeIceCandidates, exchangeOfferAnswer } from "../utils";
 
 /*
@@ -404,4 +405,114 @@ export async function prepareRidLoopback() {
     receive: (packet: RtpPacket) => input.dtlsTransport.onRtp.execute(packet),
     close: () => Promise.all([sender.close(), receiver.close()]),
   };
+}
+
+// --- WARP diagnostics (RTCTransportStats warp* fields) ---
+
+/** Assert helper: the transport stats entry of a single-transport PeerConnection. */
+export async function transportStatsOf(pc: RTCPeerConnection) {
+  const stats = [...(await pc.getStats()).values()].find(
+    (stat): stat is RTCTransportStats => stat.type === "transport",
+  );
+  if (!stats) throw new Error("transport stats not found");
+  return stats;
+}
+
+/** Assert helper: only the WARP diagnostics fields of a transport stats entry. */
+export function warpFieldsOf(stats: RTCTransportStats) {
+  return {
+    warpSpedState: stats.warpSpedState,
+    warpCarrier: stats.warpCarrier,
+    warpHandshakeRttMs: stats.warpHandshakeRttMs,
+    warpDtlsRetransmissions: stats.warpDtlsRetransmissions,
+    warpSpedRetransmissions: stats.warpSpedRetransmissions,
+    warpEarlyBufferedPackets: stats.warpEarlyBufferedPackets,
+    warpEarlyBufferedBytes: stats.warpEarlyBufferedBytes,
+    warpEarlyDroppedPackets: stats.warpEarlyDroppedPackets,
+    warpEarlyDroppedBytes: stats.warpEarlyDroppedBytes,
+    warpEarlyServerSendUsed: stats.warpEarlyServerSendUsed,
+    iceGeneration: stats.iceGeneration,
+  };
+}
+
+/**
+ * Assert helper: internal protocol sources behind the WARP diagnostics, read
+ * without going through getStats so tests can compare the two.
+ */
+export function warpDiagnosticsSourceOf(pc: RTCPeerConnection) {
+  const transport = pc.dtlsTransports[0] as unknown as {
+    state: string;
+    handshakeStartedAt?: number;
+    peerAuthenticatedAt?: number;
+    earlyServerSendUsed: boolean;
+    readiness: Record<string, boolean>;
+    dtls?: { totalRetransmitCount: number };
+  };
+  const ice = pc.iceTransports[0].connection as Connection;
+  return {
+    state: transport.state,
+    readiness: { ...transport.readiness },
+    handshakeStartedAt: transport.handshakeStartedAt,
+    peerAuthenticatedAt: transport.peerAuthenticatedAt,
+    earlyServerSendUsed: transport.earlyServerSendUsed,
+    dtlsRetransmissions: transport.dtls?.totalRetransmitCount ?? 0,
+    sped: getConnectionSpedRuntime(ice)?.diagnosticsSnapshot(),
+    iceGeneration: ice.generation,
+  };
+}
+
+/** Assert helper: the DTLS 1.3 engine of a transport (kept after socket detach). */
+export function dtls13EngineOf(pc: RTCPeerConnection) {
+  return (
+    pc.dtlsTransports[0] as unknown as {
+      dtls?: { engine13?: { closed: boolean } };
+    }
+  ).dtls?.engine13;
+}
+
+// --- DTLS role mapping (JSEP setup:active / setup:passive) ---
+
+/**
+ * Arrange: negotiate offerer/answerer with the answerer's DTLS role forced
+ * (`client` = setup:active, `server` = setup:passive) and wait until the
+ * offerer-created DataChannel is open on both sides.
+ */
+export async function connectWithAnswererDtlsRole(
+  offerer: RTCPeerConnection,
+  answerer: RTCPeerConnection,
+  answererRole: "client" | "server",
+) {
+  const offererChannel = offerer.createDataChannel("role-mapping");
+  const answererChannel = new Promise<RTCDataChannel>((resolve) => {
+    answerer.ondatachannel = ({ channel }) => resolve(channel);
+  });
+  exchangeIceCandidates(offerer, answerer);
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  answerer.dtlsTransports[0].role = answererRole;
+  await answerer.setLocalDescription(await answerer.createAnswer());
+  await offerer.setRemoteDescription(answerer.localDescription!);
+  const remote = await answererChannel;
+  await Promise.all(
+    [offererChannel, remote].map((channel) =>
+      channel.readyState === "open"
+        ? undefined
+        : new Promise<void>((resolve, reject) => {
+            channel.onopen = () => resolve();
+            channel.onerror = ({ error }) => reject(error);
+          }),
+    ),
+  );
+  return { offererChannel, answererChannel: remote };
+}
+
+/** Assert helper: collect the next `count` messages of a DataChannel in order. */
+export function collectMessages(channel: RTCDataChannel, count: number) {
+  return new Promise<(string | Buffer)[]>((resolve) => {
+    const messages: (string | Buffer)[] = [];
+    channel.onMessage.subscribe((message) => {
+      messages.push(message);
+      if (messages.length === count) resolve(messages);
+    });
+  });
 }

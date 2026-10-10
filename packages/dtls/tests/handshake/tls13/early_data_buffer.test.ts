@@ -19,6 +19,26 @@ describe("EarlyDataBuffer", () => {
     });
   });
 
+  test("drops the newest packet when the byte cap would be exceeded", () => {
+    // Arrange: record 数には余裕があり、8 byte までだけ保持できるバッファ
+    const buffer = new EarlyDataBuffer(256, 8, 2_000);
+
+    // Act: 合計 8 byte まで追加した後、1 byte 超過する record を追加する
+    expect(buffer.push(Buffer.from("abcd"), 0)).toBe(true);
+    expect(buffer.push(Buffer.from("efgh"), 1)).toBe(true);
+    expect(buffer.push(Buffer.from("i"), 2)).toBe(false);
+
+    // Assert: byte 上限でも古い record を残し、新しい record だけを落とす
+    expect(buffer.drain(3).map((data) => data.toString())).toEqual([
+      "abcd",
+      "efgh",
+    ]);
+    expect(buffer.snapshot()).toMatchObject({
+      droppedPackets: 1,
+      droppedBytes: 1,
+    });
+  });
+
   test("drops the complete ordered queue when its head expires", () => {
     // Arrange: retention が 2 秒の ordered queue を作成する。
     const buffer = new EarlyDataBuffer(256, 256 * 1024, 2_000);

@@ -443,6 +443,64 @@ describe("RTCDtlsTransportTest", () => {
     },
   );
 
+  test("pre-auth early media buffer は byte 上限と 2 秒 retention を適用する", async () => {
+    // Arrange: buffer policy の未認証 transport と、2048 byte の RTP 相当 packet
+    const session = await createPreAuthSrtpSession("buffer");
+    const largeRtp = new RtpPacket(
+      new RtpHeader({ ssrc: 10, payloadType: 96 }),
+      Buffer.alloc(2048 - 12, 1),
+    ).serialize();
+    expect(largeRtp.length).toBe(2048);
+    const mediaBuffer = (
+      session as unknown as {
+        mediaBuffer: {
+          snapshot(): {
+            bufferedPackets: number;
+            bufferedBytes: number;
+            droppedPackets: number;
+            droppedBytes: number;
+          };
+        };
+      }
+    ).mediaBuffer;
+
+    try {
+      // Act: packet 数 (256) より先に byte 上限 (256 KiB = 128 件分) を超えさせる
+      for (let i = 0; i < 130; i++) {
+        injectAuthenticatedMedia(session, largeRtp);
+      }
+
+      // Assert: byte 上限で新しい 2 件だけを drop し、古い 128 件を保持する
+      expect(mediaBuffer.snapshot()).toEqual({
+        bufferedPackets: 128,
+        bufferedBytes: 256 * 1024,
+        droppedPackets: 2,
+        droppedBytes: 2 * 2048,
+      });
+
+      // Act: retention (2 秒) 内では保持し、期限後まで待つ
+      await setTimeout(1_500);
+      expect(mediaBuffer.snapshot().bufferedPackets).toBe(128);
+      const deadline = Date.now() + 5_000;
+      while (
+        mediaBuffer.snapshot().bufferedPackets > 0 &&
+        Date.now() < deadline
+      ) {
+        await setTimeout(50);
+      }
+
+      // Assert: 期限切れで queue 全体を drop として計上する
+      expect(mediaBuffer.snapshot()).toEqual({
+        bufferedPackets: 0,
+        bufferedBytes: 0,
+        droppedPackets: 130,
+        droppedBytes: 130 * 2048,
+      });
+    } finally {
+      await session.stop();
+    }
+  }, 15_000);
+
   test("未認証・旧世代の pre-auth media は buffer せず破棄する", async () => {
     // Arrange: fingerprint 未認証の transport に SRTP key だけを導入する。
     const session = await createPreAuthSrtpSession("buffer");

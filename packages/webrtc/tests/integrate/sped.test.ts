@@ -35,6 +35,14 @@ import {
   waitForDtlsState,
   waitForIceNominated,
 } from "../utils";
+import {
+  collectMessages,
+  connectWithAnswererDtlsRole,
+  dtls13EngineOf,
+  transportStatsOf,
+  warpDiagnosticsSourceOf,
+  warpFieldsOf,
+} from "./warpArrange";
 
 const DTLS_IN_STUN_DATA = 0xc070;
 const DTLS_IN_STUN_ACK = 0xc071;
@@ -1021,6 +1029,73 @@ describe("RTCPeerConnection SPED opt-in", () => {
     }
   });
 
+  test("WARP diagnostics は認証時刻差・累計再送・ICE generation を read-only に公開する", async () => {
+    // Arrange: early server を有効にした SPED/DTLS 1.3 接続を確立する。
+    const config = spedPeerConfig({
+      warp: { allowEarlyServerData: true, earlyMediaPolicy: "buffer" },
+    });
+    const pc1 = new RTCPeerConnection(config);
+    const pc2 = new RTCPeerConnection(config);
+
+    try {
+      const [dc1, dc2] = await createDataChannelPair({}, pc1, pc2);
+      dc1.send("diagnostics");
+      expect(await awaitMessage(dc2)).toBe("diagnostics");
+
+      for (const pc of [pc1, pc2]) {
+        // Act: 内部 source を読んだ後に getStats を 2 回呼ぶ。
+        const before = warpDiagnosticsSourceOf(pc);
+        const first = warpFieldsOf(await transportStatsOf(pc));
+        const second = warpFieldsOf(await transportStatsOf(pc));
+        const after = warpDiagnosticsSourceOf(pc);
+
+        // Assert: handshake RTT は ICE RTT ではなく peerAuthenticatedAt -
+        // handshakeStartedAt で、再送数は DTLS/SPED の累計値と一致する。
+        expect(before.peerAuthenticatedAt).toBeGreaterThanOrEqual(
+          before.handshakeStartedAt!,
+        );
+        expect(first.warpHandshakeRttMs).toBe(
+          before.peerAuthenticatedAt! - before.handshakeStartedAt!,
+        );
+        expect(first.warpDtlsRetransmissions).toBe(before.dtlsRetransmissions);
+        expect(first.warpSpedRetransmissions).toBe(
+          before.sped?.retransmissions,
+        );
+        expect(first).toMatchObject({
+          warpSpedState: before.sped?.state,
+          warpCarrier: before.sped?.carrier,
+          warpEarlyServerSendUsed: before.earlyServerSendUsed,
+          iceGeneration: before.iceGeneration,
+        });
+        // Assert: getStats は snapshot だけを返し、protocol state を変えない。
+        expect(second).toEqual(first);
+        expect(after).toEqual(before);
+      }
+
+      // Act: ICE restart で generation を進め、同じ association で再接続する。
+      const generationBefore = warpDiagnosticsSourceOf(pc1).iceGeneration;
+      await pc1.setLocalDescription(
+        await pc1.createOffer({ iceRestart: true }),
+      );
+      await pc2.setRemoteDescription(pc1.localDescription!);
+      await pc2.setLocalDescription(await pc2.createAnswer());
+      await pc1.setRemoteDescription(pc2.localDescription!);
+      await Promise.all([waitForIceNominated(pc1), waitForIceNominated(pc2)]);
+      dc1.send("after-restart");
+      expect(await awaitMessage(dc2)).toBe("after-restart");
+
+      // Assert: stats の iceGeneration は restart 後の ICE generation を示す。
+      const restarted = await transportStatsOf(pc1);
+      expect(restarted.iceGeneration).toBe(generationBefore + 1);
+      expect(restarted.iceGeneration).toBe(
+        warpDiagnosticsSourceOf(pc1).iceGeneration,
+      );
+    } finally {
+      await pc1.close();
+      await pc2.close();
+    }
+  }, 40_000);
+
   test("server 側だけ early opt-in でも passive SCTP を先に arm する", async () => {
     // Arrange: DTLS server だけが early outbound を許可し、client は通常設定にする。
     const server = new RTCPeerConnection(
@@ -1646,13 +1721,17 @@ describe("RTCPeerConnection SPED opt-in", () => {
       await waitUntil(() => pc1.dtlsTransports[0]?.role === "server");
       const server = pc1.dtlsTransports[0]!;
       await server.waitForWriteReady();
+      // close で socket が engine 参照を外すため、client engine を先に保持する。
+      const clientEngine = dtls13EngineOf(pc2);
       expect(
         await server.sendRtp(
           Buffer.from("must-not-leak"),
           new RtpHeader({ ssrc: 0x102, payloadType: 96 }),
         ),
       ).toBeGreaterThan(0);
-      await server.sendRtcp([new RtcpRrPacket({ ssrc: 0x102, reports: [] })]);
+      expect(
+        await server.sendRtcp([new RtcpRrPacket({ ssrc: 0x102, reports: [] })]),
+      ).toBeGreaterThan(0);
       await waitForDtlsState(pc2.dtlsTransports[0]!, "failed");
       await applyAnswer.catch(() => undefined);
 
@@ -1661,6 +1740,18 @@ describe("RTCPeerConnection SPED opt-in", () => {
       expect(receivedDataChannel).toBe(0);
       expect(receivedRtp).toBe(0);
       expect(receivedRtcp).toBe(0);
+      // Assert: mismatch 側は SPED を abort し、DTLS engine を close する
+      // (graceful close のため closed 到達は非同期に待つ)。
+      expect(clientEngine).toBeDefined();
+      await waitUntil(() => clientEngine?.closed === true);
+      expect(warpDiagnosticsSourceOf(pc2).sped?.state).toBe("disabled");
+      expect(await transportStatsOf(pc2)).toMatchObject({
+        dtlsState: "failed",
+        warpSpedState: "disabled",
+        warpEarlyServerSendUsed: false,
+      });
+      // Assert: 認証前の early outbound を使った server 側だけが記録される。
+      expect((await transportStatsOf(pc1)).warpEarlyServerSendUsed).toBe(true);
     } finally {
       await Promise.allSettled([pc1.close(), pc2.close()]);
     }
@@ -2563,6 +2654,68 @@ describe("RTCPeerConnection SPED opt-in", () => {
       await pc2.close();
     }
   }, 30_000);
+
+  test.each(["client", "server"] as const)(
+    "SPED [1.3,1.2] answerer=%s は DTLS 1.2-only peer へ fallback し、DataChannel が DTLS role の parity で双方向に通る",
+    async (answererRole) => {
+      // Arrange: offerer は非 SPED の DTLS 1.2 only、answerer は SPED dual stack。
+      // answerer の DTLS role を setup:active(client) / setup:passive(server) に固定する。
+      const offerer = new RTCPeerConnection({
+        iceServers: [],
+        dtls: { protocolVersions: [DtlsVersion.V1_2] },
+      });
+      const answerer = new RTCPeerConnection({
+        ...spedPeerConfig(),
+        dtls: { protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2] },
+      });
+      const offererRole = answererRole === "client" ? "server" : "client";
+
+      try {
+        const { offererChannel, answererChannel } =
+          await connectWithAnswererDtlsRole(offerer, answerer, answererRole);
+
+        // Act: 接続後に双方で DataChannel を追加し、text/binary を複数件ずつ送る。
+        const fromOfferer = offerer.createDataChannel("from-offerer");
+        const fromAnswerer = answerer.createDataChannel("from-answerer");
+        const toAnswerer = collectMessages(answererChannel, 3);
+        const toOfferer = collectMessages(offererChannel, 3);
+        offererChannel.send("o-1");
+        offererChannel.send(Buffer.from([1, 2, 3]));
+        offererChannel.send("o-3");
+        answererChannel.send("a-1");
+        answererChannel.send(Buffer.from([4, 5, 6]));
+        answererChannel.send("a-3");
+
+        // Assert: 双方とも DTLS 1.2 へ fallback し、指定どおりの role になる。
+        expect(answerer.dtlsTransports[0].role).toBe(answererRole);
+        expect(offerer.dtlsTransports[0].role).toBe(offererRole);
+        expect(offerer.dtlsTransports[0].dtls?.isDtls13).toBe(false);
+        expect(answerer.dtlsTransports[0].dtls?.isDtls13).toBe(false);
+        expect(warpDiagnosticsSourceOf(answerer).sped).toMatchObject({
+          state: "fallback",
+          carrier: "direct",
+        });
+        // Assert: 両方向とも text/binary が送信順のまま届く。
+        expect(await toAnswerer).toEqual([
+          "o-1",
+          Buffer.from([1, 2, 3]),
+          "o-3",
+        ]);
+        expect(await toOfferer).toEqual(["a-1", Buffer.from([4, 5, 6]), "a-3"]);
+        // Assert: stream ID parity は ICE role ではなく DTLS role で決まる
+        // (RFC 8832 §6: DTLS client = even, DTLS server = odd)。
+        const parity = (role: "client" | "server") =>
+          role === "client" ? 0 : 1;
+        expect(offererChannel.id! % 2).toBe(parity(offererRole));
+        expect(fromOfferer.id! % 2).toBe(parity(offererRole));
+        expect(fromAnswerer.id! % 2).toBe(parity(answererRole));
+      } finally {
+        await offerer.close();
+        await answerer.close();
+      }
+    },
+    30_000,
+  );
 
   test("fallback 中の ICE restart では probing 再開後に raw DTLS を出さない", async () => {
     const stun: Buffer[] = [];

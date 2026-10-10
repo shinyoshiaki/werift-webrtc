@@ -49,6 +49,8 @@
 - [SourceDescriptionItem](classes/SourceDescriptionItem.md)
 - [SrtcpSession](classes/SrtcpSession.md)
 - [SrtpAuthenticationError](classes/SrtpAuthenticationError.md)
+- [SrtpReplayError](classes/SrtpReplayError.md)
+- [SrtpReplayWindow](classes/SrtpReplayWindow.md)
 - [SrtpSession](classes/SrtpSession.md)
 - [StatusVectorChunk](classes/StatusVectorChunk.md)
 - [TcpTransport](classes/TcpTransport.md)
