@@ -362,6 +362,20 @@ export async function createConnectedPair() {
 }
 
 /**
+ * Shared Arrange: a full controlling agent `a` connected to an ICE-lite agent
+ * `b` (which sends no checks of its own, so `a` selects a pair only from the
+ * candidates it was given).
+ */
+export async function createConnectedLitePair() {
+  const a = createTestConnection(true);
+  const b = createTestConnection(false, { iceLite: true });
+  await inviteAccept(a, b);
+  a.remoteIsLite = true;
+  await Promise.all([a.connect(), b.connect()]);
+  return { a, b };
+}
+
+/**
  * Arrange: stage a new local generation on both sides and feed
  * each side the other's staged credentials and candidates, as a pranswer
  * carrying an ICE restart would.

@@ -3,7 +3,11 @@ import { CandidatePair, CandidatePairState } from "../../src/iceBase";
 import { classes, methods } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
 import type { Protocol } from "../../src/types/model";
-import { createConnectedPair } from "../utils";
+import {
+  createConnectedLitePair,
+  createConnectedPair,
+  deliverLocalCandidates,
+} from "../utils";
 
 type Internals = {
   protocols: Protocol[];
@@ -11,6 +15,49 @@ type Internals = {
 };
 
 describe("ICE restart generation boundaries", () => {
+  test("a remote-only restart toward an ICE-lite peer nominates although its candidates carry another generation number", async () => {
+    // Arrange: ICE-lite の相手と接続済みの full agent (相手は check を送らない)。
+    const { a, b } = await createConnectedLitePair();
+    try {
+      // Act: 相手だけが資格情報を変え (generation 1 の候補)、a は local を保ったまま remote を切り替える。
+      await b.restart();
+      await b.gatherCandidates();
+      a.restartRemote();
+      a.remoteUsername = b.localUsername;
+      a.remotePassword = b.localPassword;
+      a.remoteIsLite = true;
+      b.remoteUsername = a.localUsername;
+      b.remotePassword = a.localPassword;
+      await deliverLocalCandidates(b, a, { endOfCandidates: true });
+      await deliverLocalCandidates(a, b, { endOfCandidates: true });
+      expect(
+        b.localCandidates.every((c) => c.generation === b.generation),
+      ).toBe(true);
+      expect(a.generation).not.toBe(b.generation);
+      await Promise.all([a.connect(), b.connect()]);
+
+      // Assert: 次の restart の前に、a は pair を選び、データが双方向に届く。
+      expect(a.nominated).toBeDefined();
+      const received = { ab: false, ba: false };
+      a.onData.subscribe((data) => {
+        if (data.toString() === "ba") received.ba = true;
+      });
+      b.onData.subscribe((data) => {
+        if (data.toString() === "ab") received.ab = true;
+      });
+      for (let i = 0; i < 50 && !(received.ab && received.ba); i++) {
+        await Promise.all([
+          a.send(Buffer.from("ab")),
+          b.send(Buffer.from("ba")),
+        ]);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(received).toEqual({ ab: true, ba: true });
+    } finally {
+      await Promise.allSettled([a.close(), b.close()]);
+    }
+  }, 20000);
+
   test("dropping other remote generations keeps only the live ufrag's and ufrag-less candidates", async () => {
     const { a, b } = await createConnectedPair();
     try {

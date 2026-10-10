@@ -13,6 +13,7 @@ import {
   addUnsupportedExtmaps,
   assertNegotiationInvariants,
   assertTransportsClosed,
+  changeAnswererIceCredentials,
   closeDuringNextPreparedGather,
   createConnectedMultiVideoPeers,
   createConnectedVideoPeers,
@@ -426,6 +427,62 @@ describe("negotiation transaction regressions", () => {
       );
     } finally {
       await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  }, 60000);
+
+  test("an ICE-lite peer's final answer with new credentials and generation 1 candidates connects without another restart", async () => {
+    // Arrange: full の offerer と ICE-lite の answerer。pranswer で接続済み。
+    const a = new RTCPeerConnection({ iceServers: [] });
+    const b = new RTCPeerConnection({ iceServers: [], iceLite: true });
+    try {
+      const aOut = new MediaStreamTrack({ kind: "video" });
+      const bOut = new MediaStreamTrack({ kind: "video" });
+      const aVideo = a.addTransceiver(aOut, { direction: "sendrecv" });
+      await a.setLocalDescription(await a.createOffer());
+      await b.setRemoteDescription(a.localDescription!);
+      const bVideo = b.getTransceivers()[0];
+      bVideo.direction = "sendrecv";
+      await bVideo.sender.replaceTrack(bOut);
+      await b.setLocalDescription({
+        type: "pranswer",
+        sdp: (await b.createAnswer()).sdp,
+      });
+      await a.setRemoteDescription(b.localDescription!);
+      await waitForPeersConnected(a, b);
+
+      // Arrange: answerer は final answer で資格情報を変える (候補は generation 1)。
+      await changeAnswererIceCredentials(b);
+      await b.setLocalDescription(await b.createAnswer());
+      expect(b.localDescription!.sdp).toMatch(/ generation 1 /);
+
+      // Act: offerer が final answer を適用する (offerer 自身は restart しない)。
+      await a.setRemoteDescription(b.localDescription!);
+
+      // Assert: 次の restart の前に、新しい remote generation で pair を選び、checks の待機が決着する。
+      const connection = a.iceTransports[0].connection;
+      await waitUntil(
+        () =>
+          !!connection.nominated &&
+          connection.remoteUsername ===
+            a.iceTransports[0].getRemoteParameters()?.usernameFragment,
+        "the new remote generation was not nominated",
+        10000,
+      );
+      expect(
+        await settlesWithin(a.iceTransports[0].checksSettled(), 1000),
+      ).toBe(true);
+      expect(["connected", "completed"]).toContain(a.iceTransports[0].state);
+      // Assert: 両方向に RTP が届く。
+      await sendAndExpectRtp(aOut, bVideo.receiver.track, "lite-answer-a-to-b");
+      await sendAndExpectRtp(bOut, aVideo.receiver.track, "lite-answer-b-to-a");
+      assertNegotiationInvariants(a);
+      // Arrange: answerer の資格情報は内部から変えたので、継続確認の対象外にする。
+      exemptFromContinuation(
+        [a, b],
+        "the answerer's ICE credentials were changed through its internals",
+      );
+    } finally {
+      await Promise.allSettled([a.close(), b.close()]);
     }
   }, 60000);
 

@@ -2365,6 +2365,26 @@ export async function settlesWithin(promise: Promise<unknown>, ms: number) {
   return settled;
 }
 
+/**
+ * Shared Arrange: `pc` (the answerer) moves its ICE agent to new local
+ * credentials before it creates its final answer, as a peer that changes its
+ * credentials in the answer does; it keeps the remote generation and its
+ * candidates. Its candidates then carry `generation 1`.
+ */
+export async function changeAnswererIceCredentials(pc: RTCPeerConnection) {
+  const transport = pc.iceTransports[0];
+  const remote = transport.getRemoteParameters()!;
+  const candidates = [...transport.connection.remoteCandidates];
+  transport.restart(false);
+  transport.setRemoteParams(remote);
+  for (const candidate of candidates) {
+    candidate.generation = undefined;
+    await transport.connection.addRemoteCandidate(candidate);
+  }
+  await transport.connection.addRemoteCandidate(undefined);
+  await transport.gather();
+}
+
 /** Shared Arrange: a local TURN server and the RTCIceServer entry for it. */
 export async function createLocalTurnIceServer() {
   const server = await createLocalTurnServer(getHostAddresses(true, false)[0]!);

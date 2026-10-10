@@ -844,7 +844,11 @@ SCTP transport.
   rolled-back offer gave it, also after a replacement offer (W3C).
 - **Remote generation**: a remote-only ICE restart advances a separate
   `remoteGeneration` (remote-side mDNS, end-of-candidates, consent,
-  nomination); the local gathering of the current generation continues.
+  nomination); the local gathering of the current generation continues. A
+  nominated pair is selected when it is in the current checklist and its
+  remote candidate names the live remote ufrag (if it names one); the SDP
+  `generation` attribute counts the peer's own restarts and is not compared
+  with the local generation.
 - **Simulcast RID routing**: MID+RID first, then RID alone when the packet's
   MID names no route (as develop).
 - **Differential runner axes**: `run.ts` draws a configuration per seed
