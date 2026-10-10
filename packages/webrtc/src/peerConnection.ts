@@ -741,6 +741,8 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private findOrCreateTransport(forceNew = false) {
+    // A closed connection creates no transport (close() could not stop it).
+    this.assertNotClosed();
     const existingDtlsTransport = this.dtlsTransports.find(
       (transport) => transport.state !== "closed",
     );
@@ -915,7 +917,9 @@ export class RTCPeerConnection extends EventTarget {
         this.sdpManager.rollbackLocalDescription(this.signalingState);
         this.secureManager.rollbackStagedIceRestart();
         await this.negotiation.rollback();
+        this.assertOpenAfterYield();
         await this.activation.cleanupInitialProvisional();
+        this.assertOpenAfterYield();
         this.setSignalingState("stable");
         this.negotiationNeed.discardPendingOffer();
         // An unsatisfied restartIce() request makes negotiation needed again.
@@ -941,6 +945,7 @@ export class RTCPeerConnection extends EventTarget {
               ? (this.lastCreatedOffer ?? (await this.createOfferNow()))
               : (this.lastCreatedAnswer ?? (await this.createAnswerNow()))
         : undefined;
+      this.assertOpenAfterYield();
 
       sessionDescription = {
         type: sessionDescription?.type ?? generatedDescription!.type,
@@ -1018,6 +1023,7 @@ export class RTCPeerConnection extends EventTarget {
         description.type === "offer"
           ? await this.topology.stageLocalOffer(description, assignedTransports)
           : undefined;
+      this.assertOpenAfterYield();
 
       // # apply
       try {
@@ -1034,12 +1040,17 @@ export class RTCPeerConnection extends EventTarget {
           );
           this.secureManager.rollbackStagedIceRestart();
           await this.negotiation.rollback();
+          this.assertOpenAfterYield();
           await this.activation.cleanupInitialProvisional();
+          this.assertOpenAfterYield();
           this.setSignalingState("stable");
+          // A "stable" handler may close the connection.
+          this.assertOpenAfterYield();
         }
         if (description.type === "offer") {
           if (this.signalingState === "have-local-offer") {
             await this.negotiation.replace();
+            this.assertOpenAfterYield();
             this.sdpManager.pendingLocalDescription = undefined;
           } else {
             this.negotiation.begin({ fromCreatedOffer: true });
@@ -1111,7 +1122,9 @@ export class RTCPeerConnection extends EventTarget {
       ) {
         this.topology.applyPending(description);
         await this.commitIceRestartIfAnyStaged();
+        this.assertOpenAfterYield();
         await this.activation.activatePendingRemote();
+        this.assertOpenAfterYield();
         for (const transceiver of this.transceiverManager.getTransceivers()) {
           if (transceiver.mid && transceiver.codecs.length > 0) {
             transceiver.sender.prepareSend(
@@ -1126,6 +1139,7 @@ export class RTCPeerConnection extends EventTarget {
         this.sdpManager.currentRemoteDescription
       ) {
         await this.activation.activatePendingRemote(true);
+        this.assertOpenAfterYield();
         // Like a remote pranswer, a local one sends provisionally with the
         // codecs it answered; the baseline restores them on rollback.
         for (const transceiver of this.transceiverManager.getTransceivers()) {
@@ -1268,6 +1282,8 @@ export class RTCPeerConnection extends EventTarget {
         this.negotiation.settle();
         this.setSignalingState("have-local-pranswer");
       }
+      // A signalingstatechange handler may close the connection.
+      this.assertOpenAfterYield();
 
       if (description.type === "offer") {
         this.secureManager.emitStagedIceCandidates();
@@ -1303,12 +1319,14 @@ export class RTCPeerConnection extends EventTarget {
 
       if (description.type === "answer") {
         await this.negotiation.commit();
+        this.assertOpenAfterYield();
         this.completeEndedCurrentGenerations();
       }
 
       await this.gatherCandidates().catch((e) => {
         log("gatherCandidates failed", e);
       });
+      this.assertOpenAfterYield();
 
       // connect transports
       if (description.type === "answer" || description.type === "pranswer") {
@@ -1435,7 +1453,9 @@ export class RTCPeerConnection extends EventTarget {
         );
         this.secureManager.rollbackStagedIceRestart();
         await this.negotiation.rollback();
+        this.assertOpenAfterYield();
         await this.activation.cleanupInitialProvisional();
+        this.assertOpenAfterYield();
         this.setSignalingState("stable");
         this.negotiationNeed.discardPendingOffer();
         if (this.negotiationNeed.recheck || this.needRestart) {
@@ -1478,6 +1498,7 @@ export class RTCPeerConnection extends EventTarget {
       // Only a non-empty queue awaits, so ordinary offers keep their timing.
       if (this.remoteCandidates.queued.length > 0) {
         await this.remoteCandidates.validateQueued(remoteSdp);
+        this.assertOpenAfterYield();
       }
 
       const needsImplicitLocalRollback =
@@ -1492,13 +1513,16 @@ export class RTCPeerConnection extends EventTarget {
         this.sdpManager.rollbackLocalDescription(this.signalingState);
         this.secureManager.rollbackStagedIceRestart();
         await this.negotiation.rollback();
+        this.assertOpenAfterYield();
         await this.activation.cleanupInitialProvisional();
+        this.assertOpenAfterYield();
         this.negotiationNeed.discardPendingOffer();
         this.negotiationNeed.recheck = true;
         this.setSignalingState("stable");
         // The implicit rollback's "stable" is observable on its own: yield a
         // task so handlers run before the offer moves to have-remote-offer.
         await new Promise<void>((resolve) => setImmediate(resolve));
+        this.assertOpenAfterYield();
       }
       if (
         remoteSdp.type === "offer" &&
@@ -1510,6 +1534,7 @@ export class RTCPeerConnection extends EventTarget {
           this.sdpManager.pendingRemoteDescription,
         );
         await this.negotiation.replace(remoteSdp);
+        this.assertOpenAfterYield();
         this.secureManager.rollbackStagedIceRestart();
         this.sdpManager.pendingRemoteDescription = undefined;
       }
@@ -1553,6 +1578,7 @@ export class RTCPeerConnection extends EventTarget {
           // generation the applied offer carries is switched.
           this.secureManager.discardUnappliedIceRestart();
           await this.commitIceRestartIfAnyStaged();
+          this.assertOpenAfterYield();
         }
         for (const update of transportUpdates) update();
         for (const iceTransport of new Set(endOfCandidates)) {
@@ -1562,6 +1588,7 @@ export class RTCPeerConnection extends EventTarget {
           await this.remoteCandidates.deliverSameGenerationDescription(
             remoteSdp,
           );
+          this.assertOpenAfterYield();
         }
         // A description that repeats an ICE generation which already ended
         // on its transport records that end too, so it cannot become current
@@ -1572,6 +1599,7 @@ export class RTCPeerConnection extends EventTarget {
         );
         for (const [iceTransport, media] of provisionalIce) {
           await this.activation.applyProvisionalIce(iceTransport, media);
+          this.assertOpenAfterYield();
         }
 
         if (remoteSdp.type === "answer") {
@@ -1587,6 +1615,9 @@ export class RTCPeerConnection extends EventTarget {
           }
         }
       } catch (error) {
+        // close() already released everything: recovery would only create
+        // state (or transports) on a closed connection.
+        if (this.isClosed) throw error;
         if (openedHere) {
           this.secureManager.rollbackStagedIceRestart();
           await this.negotiation.rollback();
@@ -1606,6 +1637,7 @@ export class RTCPeerConnection extends EventTarget {
       } else if (remoteSdp.type === "answer") {
         this.sdpManager.applyRemoteDescription(remoteSdp);
         await this.negotiation.commit();
+        this.assertOpenAfterYield();
         this.completeEndedCurrentGenerations();
         this.setSignalingState("stable");
         // Candidates a committed ICE restart gathered with changed servers.
@@ -1620,6 +1652,7 @@ export class RTCPeerConnection extends EventTarget {
       }
 
       await this.remoteCandidates.flushQueued();
+      this.assertOpenAfterYield();
 
       // connect transports
       if (remoteSdp.type === "answer" || remoteSdp.type === "pranswer") {
@@ -1794,6 +1827,16 @@ export class RTCPeerConnection extends EventTarget {
     const createdAnswer = description.toJSON();
     this.lastCreatedAnswer = createdAnswer;
     return createdAnswer;
+  }
+
+  /**
+   * A description operation resumes after an await or after an event it
+   * fired: when close() ran in the meantime (an event handler, a timer) it
+   * stops before changing anything, and the operation fails with
+   * InvalidStateError (W3C).
+   */
+  private assertOpenAfterYield() {
+    this.assertNotClosed();
   }
 
   private assertNotClosed() {

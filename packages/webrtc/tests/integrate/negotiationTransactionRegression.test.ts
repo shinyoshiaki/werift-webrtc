@@ -124,6 +124,86 @@ describe("negotiation transaction regressions", () => {
     60000,
   );
 
+  test("close() from the stable event of a glare implicit rollback adds no pending offer and leaves no transport running", async () => {
+    // Arrange: a は local offer を保留し、b は audio と video を足した offer を持つ。
+    const a = new RTCPeerConnection();
+    const b = new RTCPeerConnection();
+    try {
+      a.addTransceiver("audio");
+      b.addTransceiver("audio", { direction: "sendonly" });
+      b.addTransceiver("video", { direction: "sendonly" });
+      await a.setLocalDescription(await a.createOffer());
+      await b.setLocalDescription(await b.createOffer());
+      // Arrange: close() が検証対象なので、両 peer は継続確認の対象外にする。
+      exemptFromContinuation([a, b], "close() is the operation under test");
+      let closing: Promise<void> | undefined;
+      a.signalingStateChange.subscribe((state) => {
+        if (state === "stable") closing = a.close();
+      });
+
+      // Act: glare の implicit rollback が通知する stable の handler から close() する。
+      const applying = a.setRemoteDescription(b.localDescription!);
+
+      // Assert: close に追い越された操作は InvalidStateError で失敗する。
+      await expect(applying).rejects.toMatchObject({
+        name: "InvalidStateError",
+      });
+      await closing;
+      // Assert: 閉鎖後に pending の remote offer も新しい transceiver も追加されない。
+      expect(a.signalingState).toBe("closed");
+      expect(a.pendingRemoteDescription).toBeNull();
+      expect(a.getTransceivers()).toHaveLength(1);
+      // Assert: a が保持する transport (transceiver・交渉が作ったものを含む) はすべて閉じている。
+      assertTransportsClosed([
+        ...heldTransports(a),
+        ...a.getTransceivers().map((t) => t.dtlsTransport),
+      ]);
+    } finally {
+      await Promise.allSettled([a.close(), b.close()]);
+    }
+  });
+
+  test("close() from the stable event of a new local offer that rolls a remote pranswer back adds no pending offer and leaves no transport running", async () => {
+    // Arrange: a の offer に b が pranswer を返し、a は have-remote-pranswer にある。
+    const a = new RTCPeerConnection();
+    const b = new RTCPeerConnection();
+    try {
+      a.addTransceiver("audio");
+      await a.setLocalDescription(await a.createOffer());
+      await b.setRemoteDescription(a.localDescription!);
+      const pranswer = await b.createAnswer();
+      await b.setLocalDescription({ type: "pranswer", sdp: pranswer.sdp });
+      await a.setRemoteDescription(b.localDescription!);
+      expect(a.signalingState).toBe("have-remote-pranswer");
+      // Arrange: close() が検証対象なので、両 peer は継続確認の対象外にする。
+      exemptFromContinuation([a, b], "close() is the operation under test");
+      a.addTransceiver("video");
+      const offer = await a.createOffer();
+      let closing: Promise<void> | undefined;
+      a.signalingStateChange.subscribe((state) => {
+        if (state === "stable") closing = a.close();
+      });
+
+      // Act: pranswer を暗黙に rollback する新しい offer の stable の handler から close() する。
+      const applying = a.setLocalDescription(offer);
+
+      // Assert: close に追い越された操作は InvalidStateError で失敗し、offer は pending にならない。
+      await expect(applying).rejects.toMatchObject({
+        name: "InvalidStateError",
+      });
+      await closing;
+      expect(a.signalingState).toBe("closed");
+      expect(a.pendingLocalDescription).toBeNull();
+      // Assert: a が保持する transport はすべて閉じている。
+      assertTransportsClosed([
+        ...heldTransports(a),
+        ...a.getTransceivers().map((t) => t.dtlsTransport),
+      ]);
+    } finally {
+      await Promise.allSettled([a.close(), b.close()]);
+    }
+  });
+
   test("a replacement local offer keeps a new transceiver associated with its m-line", async () => {
     const session = await createDuplexSession();
     const { a, b } = session;
