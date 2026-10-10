@@ -15,7 +15,10 @@ import { getHostAddresses } from "../../src/utils";
 import {
   assertCandidateTypes,
   createLocalStunServer,
+  createTcpOnlyConnections,
   createTestConnection,
+  exchangeTcpOnlyCandidates,
+  getSelectedTcpSocket,
   inviteAccept,
 } from "../utils";
 
@@ -323,32 +326,11 @@ describe("ice", () => {
   });
 
   test("test_connect_tcp", async () => {
-    const a = createTestConnection(true, {
-      useTcp: true,
-      useIpv6: false,
-      stunServer: undefined,
-    });
-    const b = createTestConnection(false, {
-      useTcp: true,
-      useIpv6: false,
-      stunServer: undefined,
-    });
+    const { a, b } = createTcpOnlyConnections();
 
     try {
       // Arrange: offer/answer 交換では TCP candidate だけを相手へ見せる。
-      await a.gatherCandidates();
-      b.remoteCandidates = a.localCandidates.filter(
-        (candidate) => candidate.transport === "tcp",
-      );
-      b.remoteUsername = a.localUsername;
-      b.remotePassword = a.localPassword;
-
-      await b.gatherCandidates();
-      a.remoteCandidates = b.localCandidates.filter(
-        (candidate) => candidate.transport === "tcp",
-      );
-      a.remoteUsername = b.localUsername;
-      a.remotePassword = b.localPassword;
+      await exchangeTcpOnlyCandidates(a, b);
 
       const tcpCandidatesA = a.localCandidates.filter(
         (candidate) => candidate.transport === "tcp",
@@ -397,6 +379,8 @@ describe("ice", () => {
       await Promise.all([a.connect(), b.connect()]);
 
       // Assert: controlling 側は active/passive の TCP pair を選ぶ。
+      // TCP は regular nomination で優先度最上位の pair (a active -> b passive host)
+      // だけを nominate するため、active になることは決定的。
       expect(a.nominated?.localCandidate.transport).toBe("tcp");
       expect(a.nominated?.localCandidate.tcptype).toBe("active");
       expect(a.nominated?.remoteCandidate.transport).toBe("tcp");
@@ -416,6 +400,15 @@ describe("ice", () => {
             candidate.tcptype === "active",
         ),
       ).toBe(true);
+
+      // Assert: 両端が同じ TCP 接続を選んでいる (a の active dial を b は passive で受けている)。
+      expect(b.nominated?.localCandidate.tcptype).toBe("passive");
+      expect(b.nominated?.remoteCandidate.type).toBe("prflx");
+      expect(b.nominated?.remoteCandidate.tcptype).toBe("active");
+      const socketA = getSelectedTcpSocket(a);
+      const socketB = getSelectedTcpSocket(b);
+      expect(socketA?.localPort).toBe(socketB?.remotePort);
+      expect(socketA?.remotePort).toBe(socketB?.localPort);
 
       // Act: nomination 済み TCP pair 上で双方向に application data を流す。
       await a.send(Buffer.from("howdee over tcp"));

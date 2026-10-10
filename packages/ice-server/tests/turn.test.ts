@@ -1,6 +1,11 @@
-import { createSocket } from "node:dgram";
+import { Socket as UdpSocket, createSocket } from "node:dgram";
 import { readFileSync } from "node:fs";
-import { type Socket as TcpSocket, connect } from "node:net";
+import {
+  type Server as TcpServer,
+  type Socket as TcpSocket,
+  connect,
+  createServer as createTcpServer,
+} from "node:net";
 import {
   type TLSSocket,
   connect as connectTls,
@@ -684,7 +689,116 @@ describe("TurnServerProtocol", () => {
   });
 });
 
+async function occupyTcpPort(port = 0) {
+  const server = createTcpServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Expected TCP address info");
+  }
+  return { server, port: address.port };
+}
+
+async function closeTcpServer(server: TcpServer) {
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+}
+
+async function canBindUdp(port: number) {
+  const socket = createSocket("udp4");
+  try {
+    await new Promise<void>((resolve, reject) => {
+      socket.once("error", reject);
+      socket.bind({ address: "127.0.0.1", port }, () => resolve());
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    socket.close();
+  }
+}
+
+/**
+ * Make the next port-0 UDP bind land on `port`, simulating an ephemeral UDP
+ * number that is already used on the TCP side.
+ */
+function forceNextEphemeralUdpPort(port: number) {
+  const originalBind = UdpSocket.prototype.bind;
+  let forced = false;
+  return vi.spyOn(UdpSocket.prototype, "bind").mockImplementation(function (
+    this: UdpSocket,
+    ...args: any[]
+  ) {
+    const [options] = args;
+    if (!forced && options && typeof options === "object") {
+      forced = true;
+      args[0] = { ...options, port };
+    }
+    return (originalBind as (...a: any[]) => UdpSocket).apply(this, args);
+  });
+}
+
+function createLoopbackTurnServer(port: number) {
+  return new NodeTurnServer({
+    host: "127.0.0.1",
+    port,
+    relayAddress: "127.0.0.1",
+    relayBindAddress: "127.0.0.1",
+  });
+}
+
 describe("NodeTurnServer", () => {
+  test("retries ephemeral udp/tcp port when tcp side is already in use", async () => {
+    const occupied = await occupyTcpPort();
+    const bind = forceNextEphemeralUdpPort(occupied.port);
+    const server = createLoopbackTurnServer(0);
+
+    try {
+      // Act: UDP で取れた番号が TCP 側で使用中でも listen が成功することを確認する。
+      await server.listen();
+
+      // Assert: 1 回目の bind は占有済みの番号になり、2 回目以降で別の番号へ移っている。
+      expect(bind.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(server.address).toEqual(["127.0.0.1", expect.any(Number)]);
+      expect(server.address![1]).not.toBe(occupied.port);
+      // 衝突した試行の UDP socket は閉じられ、同じ番号を再利用できる。
+      expect(await canBindUdp(occupied.port)).toBe(true);
+    } finally {
+      bind.mockRestore();
+      await server.close();
+      await closeTcpServer(occupied.server);
+    }
+  });
+
+  test("fails without leaking resources when an explicit port is in use", async () => {
+    const occupied = await occupyTcpPort();
+    const bind = vi.spyOn(UdpSocket.prototype, "bind");
+    const server = createLoopbackTurnServer(occupied.port);
+
+    try {
+      // Act: 明示ポートは TCP 側が使用中なので、リトライせずに失敗することを確認する。
+      await expect(server.listen()).rejects.toMatchObject({
+        code: "EADDRINUSE",
+      });
+
+      // Assert: UDP bind は 1 回だけで、状態は未 listen に戻っている。
+      expect(bind).toHaveBeenCalledTimes(1);
+      expect(server.address).toBeUndefined();
+      // bind 済みだった UDP socket は閉じられ、同じ番号を再利用できる。
+      expect(await canBindUdp(occupied.port)).toBe(true);
+    } finally {
+      bind.mockRestore();
+      await server.close();
+      await closeTcpServer(occupied.server);
+    }
+  });
+
   test.each(["udp", "tcp", "tls"] as const)(
     "serves Allocate over %s",
     async (transport) => {

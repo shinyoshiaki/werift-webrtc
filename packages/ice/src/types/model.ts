@@ -21,6 +21,12 @@ export interface TransactionRequestOptions {
   /** Abort the outstanding transaction (e.g. consent lifecycle teardown). */
   signal?: AbortSignal;
   /**
+   * Fail the transaction as soon as the request cannot be sent instead of
+   * waiting for the response timeout. Used on reliable transports (TCP),
+   * where a send error means the connection itself is unusable.
+   */
+  failOnSendError?: boolean;
+  /**
    * When set, responses must include MESSAGE-INTEGRITY and pass HMAC
    * verification (protocol re-parses the wire bytes with this key; the
    * transaction also rejects unsigned Messages as defense-in-depth).
@@ -37,6 +43,8 @@ export interface Protocol {
    * required to route handshake DTLS to the matching CandidatePair.
    */
   onDataReceived: Event<[Buffer, Address?]>;
+  /** Connection-oriented protocols: the connection to this remote address is gone. */
+  onConnectionClosed?: Event<[Address]>;
   request: (
     message: Message,
     addr: Address,

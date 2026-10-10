@@ -63,3 +63,29 @@ export class datachannel_offer {
     }
   }
 }
+
+export class datachannel_binary_echo {
+  pc!: RTCPeerConnection;
+
+  async exec(type: string, payload: any, accept: AcceptFn) {
+    switch (type) {
+      case "init": {
+        this.pc = new RTCPeerConnection(await peerConfig);
+        await this.pc.setRemoteDescription(payload);
+        await this.pc.setLocalDescription(await this.pc.createAnswer());
+
+        this.pc.onDataChannel.subscribe((dc) => {
+          dc.onMessage.subscribe((message) => dc.send(message));
+        });
+
+        accept(this.pc.localDescription);
+        break;
+      }
+      case "candidate": {
+        await this.pc.addIceCandidate(payload);
+        accept({});
+        break;
+      }
+    }
+  }
+}

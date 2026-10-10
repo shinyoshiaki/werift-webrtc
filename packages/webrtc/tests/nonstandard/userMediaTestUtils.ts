@@ -37,8 +37,10 @@ import {
   RtpSourceCallback,
   RtpTimeCallback,
   WebmCallback,
-  getUserMedia,
 } from "../../src/nonstandard";
+import { createFileMediaPlayer } from "../../src/nonstandard/userMedia";
+import { createMp4WebmRegister, installPolyfill } from "../../src/polyfill";
+import "../../src/polyfill";
 
 export async function createAvMp4Buffer() {
   const outputs: Uint8Array[] = [];
@@ -78,6 +80,37 @@ export async function createAvMp4Buffer() {
   mp4.inputVideo({ frame: videoFrames[2] });
   mp4.inputAudio({ eol: true });
   mp4.inputVideo({ eol: true });
+
+  await done.promise;
+
+  return Buffer.concat(outputs.map((output) => Buffer.from(output)));
+}
+
+export async function createOpusMp4Buffer() {
+  const outputs: Uint8Array[] = [];
+  const done = createDeferred<void>();
+  const mp4 = new MP4Callback([
+    {
+      kind: "audio",
+      codec: "opus",
+      clockRate: 48_000,
+      trackNumber: 1,
+    },
+  ]);
+
+  mp4.pipe(async (output) => {
+    if ("data" in output) {
+      outputs.push(output.data);
+    } else if ("eol" in output && output.eol) {
+      done.resolve();
+    }
+  });
+
+  const audioFrames = createOpusFrames();
+  mp4.inputAudio({ frame: audioFrames[0] });
+  mp4.inputAudio({ frame: audioFrames[1] });
+  mp4.inputAudio({ frame: audioFrames[2] });
+  mp4.inputAudio({ eol: true });
 
   await done.promise;
 
@@ -167,6 +200,34 @@ async function createWebmBuffer({
       ),
       {
         decoderConfig: videoDecoderConfig,
+      },
+    );
+  }
+
+  await output.finalize();
+  return Buffer.from(output.target.buffer!);
+}
+
+export async function createOpusWebmBuffer() {
+  const audioSource = new EncodedAudioPacketSource("opus");
+  const output = new Output({
+    format: new WebMOutputFormat(),
+    target: new BufferTarget(),
+  });
+
+  output.addAudioTrack(audioSource);
+  await output.start();
+
+  const audioFrames = createOpusFrames();
+  for (const frame of audioFrames) {
+    await audioSource.add(
+      new EncodedPacket(frame.data, "key", frame.time / 1_000, 0.02),
+      {
+        decoderConfig: {
+          codec: "opus",
+          numberOfChannels: 2,
+          sampleRate: 48_000,
+        },
       },
     );
   }
@@ -364,17 +425,26 @@ export async function roundTripMediaAsset({
   const outputPath = join(outputDirectory, `recorded.${recordingFormat}`);
   let keepOutput = false;
 
+  const uninstall = installPolyfill({
+    mediaRegister: [createMp4WebmRegister({ path: sourcePath, loop: true })],
+  });
   try {
     exchangeIceCandidates(sender, receiver);
     const remoteTracksPromise = waitForRemoteTracks(receiver);
-    const media = await getUserMedia({ path: sourcePath });
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: true,
+    });
+    const audio = stream.getAudioTracks()[0];
+    const video = stream.getVideoTracks()[0];
 
-    if (!media.audio || !media.video) {
+    if (!audio || !video) {
+      uninstall();
       throw new Error(`Expected audio and video tracks in ${sourcePath}`);
     }
 
-    sender.addTrack(media.audio);
-    sender.addTrack(media.video);
+    sender.addTrack(audio);
+    sender.addTrack(video);
 
     await exchangeOfferAnswer(sender, receiver);
     await Promise.all([
@@ -390,16 +460,12 @@ export async function roundTripMediaAsset({
     });
 
     try {
-      // 実行: asset を getUserMedia から送出し、対向 peer でそのままファイルへ録画する。
-      await media.start();
-      await waitUntil(
-        () => !(media as any).session && !(media as any).running,
-        10_000,
-      );
-      await waitUntil(() => recording.videoPackets.length > 0, 5_000);
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      // 実行: polyfill getUserMedia で再生を開始した asset を対向 peer で録画する。
+      await waitUntil(() => recording.videoPackets.length > 0, 10_000);
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
     } finally {
-      media.stop();
+      audio.stop();
+      video.stop();
       await recording.stop();
     }
 
@@ -413,6 +479,7 @@ export async function roundTripMediaAsset({
       },
     };
   } finally {
+    uninstall();
     await Promise.allSettled([sender.close(), receiver.close()]);
     if (!keepOutput) {
       await rm(outputDirectory, { recursive: true, force: true }).catch(

@@ -5,7 +5,8 @@ import {
   createLocalTurnServer,
 } from "../../../ice/tests/utils";
 import { RTCIceGatherer, RTCIceTransport, RTCPeerConnection } from "../../src";
-import { iceTransportPair } from "../fixture";
+import { iceTransportPair, preparedIceTransportPair } from "../fixture";
+import { createPeerConnectionWithIceTransport } from "../utils";
 
 describe("iceTransport", () => {
   test("ICE consent failure maps to failed without closing PeerConnection", async () => {
@@ -271,6 +272,80 @@ describe("iceTransport", () => {
     });
   });
 
+  describe("turnUdpFamily", () => {
+    test("PeerConfig.turnUdpFamily が Connection の turnUdpFamily に伝搬する", async () => {
+      // Arrange
+      const { pc, ice } = createPeerConnectionWithIceTransport({
+        turnUdpFamily: 6,
+      });
+      try {
+        // Act: RTCIceGatherer が生成した Connection のオプションを読む
+        const { turnUdpFamily } = ice.connection.options;
+
+        // Assert: 指定した family がそのまま IceOptions に渡っている
+        expect(turnUdpFamily).toBe(6);
+      } finally {
+        await pc.close();
+      }
+    });
+
+    test("収集前の setConfiguration で turnUdpFamily だけを更新しても Connection に反映される", async () => {
+      // Arrange: turnUdpFamily 未指定の PeerConnection (transport は収集前)
+      const { pc, ice } = createPeerConnectionWithIceTransport();
+      try {
+        // Act: iceServers を変えず family だけを更新する
+        pc.setConfiguration({ iceServers: [], turnUdpFamily: 6 });
+
+        // Assert: 設定値と、既に生成済みの Connection の両方が 6 になる
+        expect(pc.getConfiguration().turnUdpFamily).toBe(6);
+        expect(ice.connection.options.turnUdpFamily).toBe(6);
+      } finally {
+        await pc.close();
+      }
+    });
+
+    test("収集前の setConfiguration で iceServers と一緒に指定した turnUdpFamily が Connection に反映される", async () => {
+      // Arrange
+      const { pc, ice } = createPeerConnectionWithIceTransport();
+      try {
+        // Act: TURN と family を同時に更新する
+        pc.setConfiguration({
+          iceServers: [
+            {
+              urls: "turn:turn.example.com:3478",
+              username: "u",
+              credential: "p",
+            },
+          ],
+          turnUdpFamily: 6,
+        });
+
+        // Assert: TURN サーバと family が Connection に反映される
+        expect(ice.connection.options.turnServer).toEqual([
+          "turn.example.com",
+          3478,
+        ]);
+        expect(ice.connection.options.turnUdpFamily).toBe(6);
+      } finally {
+        await pc.close();
+      }
+    });
+
+    test("turnUdpFamily 未指定なら undefined のまま (既定 udp4)", async () => {
+      // Arrange
+      const { pc, ice } = createPeerConnectionWithIceTransport();
+      try {
+        // Act: RTCIceGatherer が生成した Connection のオプションを読む
+        const { turnUdpFamily } = ice.connection.options;
+
+        // Assert: 既定値は undefined で、ice 層の既定 (udp4) に委ねられる
+        expect(turnUdpFamily).toBeUndefined();
+      } finally {
+        await pc.close();
+      }
+    });
+  });
+
   test("consent expiry 後の ICE transport restart で新 credentials により再接続できる", async () => {
     // Arrange: host のみの ICE transport pair
     const [transport1, transport2] = await iceTransportPair();
@@ -347,6 +422,29 @@ describe("iceTransport", () => {
     await Promise.all([transport1.stop(), transport2.stop()]);
     expect(transport1.state).toBe("closed");
     expect(transport2.state).toBe("closed");
+  });
+
+  test("concurrent start() calls all settle once ICE connects", async () => {
+    // Arrange: gather 済みで remote params を設定した未開始の transport ペア
+    const [transport1, transport2] = await preparedIceTransportPair();
+
+    try {
+      // Act: 再交渉ごとの connect() を模して同じ transport の start() を重ねて呼ぶ
+      const starts = [
+        transport1.start(),
+        transport1.start(),
+        transport1.start(),
+        transport2.start(),
+        transport2.start(),
+      ];
+
+      // Assert: 待機中の呼び出しも含めて全て成功し、両側が connected になる
+      await expect(Promise.all(starts)).resolves.toBeDefined();
+      expect(transport1.state).toBe("connected");
+      expect(transport2.state).toBe("connected");
+    } finally {
+      await Promise.all([transport1.stop(), transport2.stop()]);
+    }
   });
 
   test("gather includes TCP host candidates when enabled", async () => {

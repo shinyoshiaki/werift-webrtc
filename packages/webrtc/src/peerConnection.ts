@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 
+import { DEFAULT_SCTP_MTU, validateSctpMtu } from "../../sctp/src";
 import type { RTCDataChannel } from "./dataChannel";
 import { createWebRtcDomException, createWebRtcTypeError } from "./errors";
 import { EventTarget, enumerate } from "./helper";
@@ -19,13 +20,12 @@ import {
   type RTCRtpHeaderExtensionParameters,
   type RTCRtpReceiver,
   type RTCRtpSender,
+  type RTCRtpSenderOptions,
   type RTCRtpTransceiver,
   RtpRouter,
   TransceiverManager,
   type TransceiverOptions,
-  useOPUS,
-  usePCMU,
-  useVP8,
+  defaultCodecs,
 } from "./media";
 import {
   type RTCPeerConnectionStats,
@@ -38,11 +38,16 @@ import {
 import { SctpTransportManager } from "./sctpManager";
 import {
   type BundlePolicy,
+  type GroupDescription,
   type MediaDescription,
   type RTCSessionDescription,
   SessionDescription,
 } from "./sdp";
-import { type RTCSessionDescriptionInit, SDPManager } from "./sdpManager";
+import {
+  type MLineReuse,
+  type RTCSessionDescriptionInit,
+  SDPManager,
+} from "./sdpManager";
 import { SecureTransportManager } from "./secureTransportManager";
 import type {
   DtlsKeys,
@@ -96,6 +101,15 @@ export class RTCPeerConnection extends EventTarget {
   config: Required<PeerConfig> = generateDefaultPeerConfig();
   signalingState: RTCSignalingState = "stable";
   negotiationneeded = false;
+  /**同じ tick の複数の変更で negotiationneeded を重複発火しないための予約フラグ */
+  private negotiationneededScheduled = false;
+  /**交渉が必要な変更の通し番号 */
+  private negotiationChangeSeq = 0;
+  /**answer まで確定した local offer が反映している変更の通し番号 */
+  private negotiatedChangeSeq = 0;
+  /**適用中の local offer が反映している変更の通し番号 (rollback で破棄) */
+  private pendingOfferChangeSeq?: number;
+  private lastCreatedOfferChangeSeq = 0;
   needRestart = false;
   private readonly router = new RtpRouter();
   private readonly sdpManager: SDPManager;
@@ -205,6 +219,7 @@ export class RTCPeerConnection extends EventTarget {
     this.sdpManager = new SDPManager({
       cname: this.cname,
       bundlePolicy: this.config.bundlePolicy,
+      mLineReuse: this.config.mLineReuse,
     });
     this.transceiverManager = new TransceiverManager(
       this.cname,
@@ -393,6 +408,26 @@ export class RTCPeerConnection extends EventTarget {
     }
 
     if (
+      normalizedConfig.mLineReuse !== undefined &&
+      !MLineReuseModes.includes(normalizedConfig.mLineReuse)
+    ) {
+      throw createWebRtcTypeError(
+        `mLineReuse must be one of ${MLineReuseModes.join(", ")}`,
+      );
+    }
+
+    if (
+      isReconfiguration &&
+      normalizedConfig.mLineReuse !== undefined &&
+      normalizedConfig.mLineReuse !== this.config.mLineReuse
+    ) {
+      throw createWebRtcDomException(
+        "InvalidModificationError",
+        "mLineReuse cannot be changed",
+      );
+    }
+
+    if (
       isReconfiguration &&
       normalizedConfig.rtcpMuxPolicy !== undefined &&
       normalizedConfig.rtcpMuxPolicy !== this.config.rtcpMuxPolicy
@@ -461,7 +496,23 @@ export class RTCPeerConnection extends EventTarget {
       }
     }
 
+    if (normalizedConfig.sctp !== undefined) {
+      const requestedSctpMtu = normalizedConfig.sctp.mtu ?? DEFAULT_SCTP_MTU;
+      validateSctpMtu(requestedSctpMtu);
+      if (
+        this.sctpManager?.sctpTransport &&
+        requestedSctpMtu !== this.config.sctp.mtu
+      ) {
+        throw new Error(
+          "sctp.mtu cannot be changed after SCTP transport creation",
+        );
+      }
+    }
+
     deepMerge(this.config, normalizedConfig as Partial<PeerConfig>);
+    this.config.sctp = {
+      mtu: this.config.sctp?.mtu ?? DEFAULT_SCTP_MTU,
+    };
 
     if (this.config.icePortRange) {
       const [min, max] = this.config.icePortRange;
@@ -481,32 +532,7 @@ export class RTCPeerConnection extends EventTarget {
         this.config.maxMessageSize;
     }
 
-    for (const [i, codecParams] of enumerate([
-      ...(this.config.codecs.audio || []),
-      ...(this.config.codecs.video || []),
-    ])) {
-      if (codecParams.payloadType != undefined) {
-        continue;
-      }
-
-      codecParams.payloadType = 96 + i;
-      switch (codecParams.name.toLowerCase()) {
-        case "rtx":
-          {
-            codecParams.parameters = `apt=${codecParams.payloadType - 1}`;
-          }
-          break;
-        case "red":
-          {
-            if (codecParams.contentType === "audio") {
-              const redundant = codecParams.payloadType + 1;
-              codecParams.parameters = `${redundant}/${redundant}`;
-              codecParams.payloadType = 63;
-            }
-          }
-          break;
-      }
-    }
+    assignDynamicPayloadTypes(this.config);
 
     [
       ...(this.config.headerExtensions.audio || []),
@@ -525,7 +551,8 @@ export class RTCPeerConnection extends EventTarget {
     if (
       isReconfiguration &&
       this.secureManager &&
-      normalizedConfig.iceServers !== undefined
+      (normalizedConfig.iceServers !== undefined ||
+        normalizedConfig.turnUdpFamily !== undefined)
     ) {
       this.secureManager.updateIceServers();
     }
@@ -544,7 +571,10 @@ export class RTCPeerConnection extends EventTarget {
     await this.secureManager.ensureCerts();
 
     for (const transceiver of this.transceiverManager.getTransceivers()) {
-      if (transceiver.codecs.length === 0) {
+      if (
+        transceiver.codecs.length === 0 ||
+        transceiver.codecPreferencesNeedResolution
+      ) {
         this.transceiverManager.assignTransceiverCodecs(transceiver);
       }
       if (transceiver.headerExtensions.length === 0) {
@@ -559,12 +589,14 @@ export class RTCPeerConnection extends EventTarget {
     );
     const createdOffer = description.toJSON();
     this.lastCreatedOffer = createdOffer;
+    this.lastCreatedOfferChangeSeq = this.negotiationChangeSeq;
     return createdOffer;
   }
 
   private createSctpTransport() {
     const sctp = this.sctpManager.createSctpTransport(
       this.config.maxMessageSize,
+      this.config.sctp,
     );
     const dtlsTransport = this.findOrCreateTransport();
     sctp.setDtlsTransport(dtlsTransport);
@@ -599,18 +631,41 @@ export class RTCPeerConnection extends EventTarget {
     if (this.isClosed) {
       throw createWebRtcDomException("InvalidStateError", "peer closed");
     }
-    this.transceiverManager.removeTrack(sender);
-    this.needNegotiation();
+    if (this.transceiverManager.removeTrack(sender)) {
+      this.needNegotiation();
+    }
   }
 
-  private needNegotiation = async () => {
+  /**交渉が必要な変更を記録し、negotiationneeded を予約する */
+  private needNegotiation = () => {
+    this.negotiationChangeSeq++;
+    this.scheduleNegotiationneeded();
+  };
+
+  /**未交渉の変更が残っていれば negotiationneeded を予約する (stable 復帰時の再判定にも使う) */
+  private scheduleNegotiationneeded() {
     this.invalidateLastCreatedDescriptions();
     this.shouldNegotiationneeded = true;
-    if (this.negotiationneeded || this.signalingState !== "stable") {
+    if (
+      this.negotiationneeded ||
+      this.negotiationneededScheduled ||
+      this.signalingState !== "stable"
+    ) {
       return;
     }
     this.shouldNegotiationneeded = false;
+    this.negotiationneededScheduled = true;
     setImmediate(() => {
+      this.negotiationneededScheduled = false;
+      if (this.negotiatedChangeSeq >= this.negotiationChangeSeq) {
+        // 発火前に適用された local offer が変更をすべて含んでいる
+        return;
+      }
+      if (this.signalingState !== "stable") {
+        // stable に戻った時点で改めて判定する
+        this.shouldNegotiationneeded = true;
+        return;
+      }
       this.negotiationneeded = true;
       this.onNegotiationneeded.execute();
       if (this.onnegotiationneeded) {
@@ -618,7 +673,7 @@ export class RTCPeerConnection extends EventTarget {
       }
       this.emit("negotiationneeded");
     });
-  };
+  }
 
   private invalidateLastCreatedDescriptions() {
     this.lastCreatedAnswer = undefined;
@@ -638,7 +693,6 @@ export class RTCPeerConnection extends EventTarget {
     const existingDtlsTransport = this.dtlsTransports.find(
       (transport) => transport.state !== "closed",
     );
-    const existing = existingDtlsTransport?.iceTransport;
 
     // Gather ICE candidates for only one track. If the remote endpoint is not bundle-aware, negotiate only one media track.
     // https://w3c.github.io/webrtc-pc/#rtcbundlepolicy-enum
@@ -652,7 +706,17 @@ export class RTCPeerConnection extends EventTarget {
       }
     }
 
-    const dtlsTransport = this.secureManager.createTransport();
+    return this.createDtlsTransport();
+  }
+
+  /**
+   * @param inheritCredentials false の場合は BUNDLE 外の独立 transport として
+   * 既存 transport と異なる ICE credentials を使う
+   */
+  private createDtlsTransport({ inheritCredentials = true } = {}) {
+    const dtlsTransport = this.secureManager.createTransport({
+      inheritCredentials,
+    });
     this.dtlsTransportCreated = true;
     dtlsTransport.onRtp.subscribe((rtp) => {
       this.router.routeRtp(rtp);
@@ -689,22 +753,103 @@ export class RTCPeerConnection extends EventTarget {
         return;
       }
 
+      const owner = this.resolveLocalCandidateOwner(iceTransport);
+      if (!owner) {
+        // 停止 / 拒否した m-line だけが使う transport の候補は通知しない
+        log("no accepted m-line owns the ice transport", iceTransport.id);
+        return;
+      }
+
       this.secureManager.handleNewIceCandidate({
         candidate,
-        bundlePolicy: this.sdpManager.bundlePolicy,
-        remoteIsBundled: !!this.sdpManager.remoteIsBundled,
-        media: this._localDescription.media[0],
-        transceiver: this.transceiverManager
-          .getTransceivers()
-          .find((t) => t?.dtlsTransport?.iceTransport.id === iceTransport.id),
-        sctpTransport:
-          this.sctpTransport?.dtlsTransport.iceTransport.id === iceTransport.id
-            ? this.sctpTransport
-            : undefined,
+        sdpMid: owner.mid,
+        sdpMLineIndex: owner.index,
       });
     });
 
     return dtlsTransport;
+  }
+
+  /**
+   * local candidate の sdpMid / sdpMLineIndex を、その ICE transport を実際に
+   * 所有する受け入れ済み m-line (BUNDLE なら tag) に合わせる。
+   */
+  private resolveLocalCandidateOwner(iceTransport: RTCIceTransport) {
+    const description = this._localDescription;
+    if (!description) {
+      return;
+    }
+    const owners = description.media
+      .map((media, index) => ({ media, index }))
+      .filter(({ media }) => {
+        if (media.port === 0) {
+          return false;
+        }
+        const mid = media.rtp.muxId;
+        if (media.kind === "application") {
+          return (
+            !!this.sctpTransport &&
+            this.sctpTransport.mid === mid &&
+            this.sctpTransport.dtlsTransport?.iceTransport.id ===
+              iceTransport.id
+          );
+        }
+        const transceiver = this.transceiverManager
+          .getTransceivers()
+          .find((t) => t.mid != undefined && t.mid === mid);
+        return (
+          !!transceiver &&
+          !transceiver.stopped &&
+          transceiver.dtlsTransport?.iceTransport.id === iceTransport.id
+        );
+      });
+    const tags = description.group
+      .filter((group) => group.semantic === "BUNDLE")
+      .map((group) => group.items[0]);
+    const owner =
+      owners.find(({ media }) => tags.includes(media.rtp.muxId!)) ?? owners[0];
+    if (!owner) {
+      return;
+    }
+    return { mid: owner.media.rtp.muxId, index: owner.index };
+  }
+
+  /**
+   * answer 確定後の stopping transceiver を整理する。
+   * @returns port 0 を自分の offer で交渉すべき transceiver が残っているか
+   */
+  private settleStoppingTransceivers() {
+    const negotiatedMids = new Set(
+      (this.sdpManager.currentLocalDescription?.media ?? [])
+        .filter((media) => media.port !== 0 && media.rtp.muxId)
+        .map((media) => media.rtp.muxId!),
+    );
+    const pending =
+      this.transceiverManager.settleStoppingTransceivers(negotiatedMids);
+    this.closeIdleTransports();
+    return pending;
+  }
+
+  /**停止した transceiver の transport のうち、live な利用者がいないものを閉じる */
+  private closeIdleTransports(
+    candidates: (RTCDtlsTransport | undefined)[] = this.transceiverManager
+      .getTransceivers()
+      .filter((t) => t.stopped)
+      .map((t) => t.dtlsTransport),
+  ) {
+    const live = new Set(this.dtlsTransports.map((t) => t.id));
+    for (const transport of new Set(candidates)) {
+      if (
+        !transport ||
+        transport.state === "closed" ||
+        live.has(transport.id)
+      ) {
+        continue;
+      }
+      transport.stop().catch((error) => {
+        log("failed to close idle transport", error);
+      });
+    }
   }
 
   async setLocalDescription(sessionDescription: {
@@ -727,9 +872,13 @@ export class RTCPeerConnection extends EventTarget {
 
     if (sessionDescription?.type === "rollback") {
       this.sdpManager.rollbackLocalDescription(this.signalingState);
+      for (const transceiver of this.transceiverManager.getTransceivers()) {
+        transceiver.pendingLocalOfferCodecs = undefined;
+      }
+      this.pendingOfferChangeSeq = undefined;
       this.setSignalingState("stable");
       if (this.shouldNegotiationneeded) {
-        this.needNegotiation();
+        this.scheduleNegotiationneeded();
       }
       this.invalidateLastCreatedDescriptions();
       return;
@@ -786,6 +935,11 @@ export class RTCPeerConnection extends EventTarget {
 
     // # update signaling state
     if (description.type === "offer") {
+      // この offer は作成時点までの変更を含む。answer の適用で交渉済みにする
+      this.pendingOfferChangeSeq =
+        this.lastCreatedOffer?.sdp === sessionDescription.sdp
+          ? this.lastCreatedOfferChangeSeq
+          : undefined;
       this.setSignalingState("have-local-offer");
     } else if (description.type === "answer") {
       this.setSignalingState("stable");
@@ -793,15 +947,43 @@ export class RTCPeerConnection extends EventTarget {
       this.setSignalingState("have-local-pranswer");
     }
 
+    if (description.type === "answer") {
+      // answer の確定で拒否予定の m-line を停止し、RTP pipeline / 遊休 transport を解放する
+      this.transceiverManager.commitRemoteOffer();
+      // port 0 で答えた m-line (aggressive の inactive など) は offerer 側で拒否として停止が確定する。
+      // answerer 側も同じ位置を停止確定にし、offerer が新 MID で再利用できるようにする
+      for (const media of description.media) {
+        if (!["audio", "video"].includes(media.kind) || media.port !== 0) {
+          continue;
+        }
+        const transceiver = this.transceiverManager
+          .getTransceivers()
+          .find((t) => t.mid === media.rtp.muxId && !t.stopped);
+        transceiver?.commitStopped({ rejected: true });
+      }
+      this.closeIdleTransports();
+    }
+
     // # assign MID
     for (const [i, media] of enumerate(description.media)) {
       const mid = media.rtp.muxId!;
       this.sdpManager.registerMid(mid);
-      if (["audio", "video"].includes(media.kind)) {
-        const transceiver =
-          this.transceiverManager.getTransceiverByMLineIndex(i);
+      if (["audio", "video"].includes(media.kind) && media.port !== 0) {
+        // 停止済み、別 kind、別 MID の transceiver には割り当てない (MID の一意性を保つ)
+        const transceiver = this.transceiverManager
+          .getTransceivers()
+          .find(
+            (t) =>
+              t.mLineIndex === i &&
+              !t.stopped &&
+              t.kind === media.kind &&
+              (t.mid == null || t.mid === mid),
+          );
         if (transceiver) {
           transceiver.mid = mid;
+          if (description.type === "offer") {
+            transceiver.pendingLocalOfferCodecs = [...media.rtp.codecs];
+          }
         }
       }
       if (media.kind === "application" && this.sctpTransport) {
@@ -812,16 +994,49 @@ export class RTCPeerConnection extends EventTarget {
     // setup ice,dtls role
     const role = description.media.find((media) => media.dtlsParams)?.dtlsParams
       ?.role;
+    // transport ごとに、その transport を使う受け入れ済み m-line の a=setup を適用する
+    // (BUNDLE group 外の独立 transport は先頭 m-line と異なる role を持ちうる)
+    const roleOfTransport = new Map<
+      RTCDtlsTransport,
+      "auto" | "client" | "server"
+    >();
+    for (const media of description.media) {
+      const mid = media.rtp.muxId;
+      const mediaRole = media.dtlsParams?.role;
+      if (media.port === 0 || mid == undefined || !mediaRole) {
+        continue;
+      }
+      const owner =
+        media.kind === "application"
+          ? this.sctpTransport?.mid === mid
+            ? this.sctpTransport
+            : undefined
+          : this.transceiverManager
+              .getTransceivers()
+              .find((t) => t.mid === mid && !t.stopped);
+      if (owner?.dtlsTransport && !roleOfTransport.has(owner.dtlsTransport)) {
+        roleOfTransport.set(owner.dtlsTransport, mediaRole);
+      }
+    }
 
     this.secureManager.setLocalRole({
       type: description.type === "offer" ? "offer" : "answer",
       role,
+      roleOfTransport,
     });
 
     // # configure direction
     if (["answer", "pranswer"].includes(description.type)) {
-      for (const t of this.transceiverManager.getTransceivers()) {
-        const direction = andDirection(t.direction, t.offerDirection);
+      for (const media of description.media) {
+        const t = this.transceiverManager
+          .getTransceivers()
+          .find((t) => t.mid != undefined && t.mid === media.rtp.muxId);
+        if (!t || t.stopped || t.pendingRejection) {
+          continue;
+        }
+        const direction = t.stopping
+          ? "inactive"
+          : andDirection(t.direction, t.offerDirection);
         t.setCurrentDirection(direction);
       }
     }
@@ -851,8 +1066,11 @@ export class RTCPeerConnection extends EventTarget {
       this.sctpTransport,
     );
 
-    if (this.shouldNegotiationneeded) {
-      this.needNegotiation();
+    // answerer の stop() は次の自分の offer で交渉する
+    const hasUnnegotiatedStop =
+      description.type === "answer" && this.settleStoppingTransceivers();
+    if (this.shouldNegotiationneeded || hasUnnegotiatedStop) {
+      this.scheduleNegotiationneeded();
     }
 
     this.invalidateLastCreatedDescriptions();
@@ -860,9 +1078,7 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private async gatherCandidates() {
-    await this.secureManager.gatherCandidates(
-      !!this.sdpManager.remoteIsBundled,
-    );
+    await this.secureManager.gatherCandidates();
   }
 
   async addIceCandidate(
@@ -1022,117 +1238,270 @@ export class RTCPeerConnection extends EventTarget {
 
     await this.waitForPendingDescriptionTask();
 
+    let codecPlan = new Map<number, RTCRtpCodecParameters[]>();
+    if (
+      sessionDescription.type &&
+      sessionDescription.type !== "rollback" &&
+      sessionDescription.sdp
+    ) {
+      const preview = this.sdpManager.parseSdp({
+        sdp: sessionDescription.sdp,
+        isLocal: false,
+        signalingState: this.signalingState,
+        type: sessionDescription.type,
+      });
+      // 本適用と同じ対応付けで全 m-line の codec を副作用なしに解決する
+      const planned = new Set<RTCRtpTransceiver>();
+      codecPlan = this.transceiverManager.planRemoteRtpCodecs(
+        preview,
+        (remoteMedia, index) => {
+          const transceiver = this.findTransceiverForRemoteMedia(
+            remoteMedia,
+            index,
+            planned,
+          );
+          if (transceiver) planned.add(transceiver);
+          return transceiver;
+        },
+      );
+    }
+
     const needsImplicitLocalRollback =
       sessionDescription.type === "offer" &&
       ["have-local-offer", "have-local-pranswer"].includes(this.signalingState);
     if (needsImplicitLocalRollback) {
       this.sdpManager.rollbackLocalDescription(this.signalingState);
+      for (const transceiver of this.transceiverManager.getTransceivers()) {
+        transceiver.pendingLocalOfferCodecs = undefined;
+      }
+      this.pendingOfferChangeSeq = undefined;
       this.shouldNegotiationneeded = true;
       this.setSignalingState("stable");
       await Promise.resolve();
     }
 
     // # parse and validate description
+    this.assertAnswerKeepsSharedTransports(sessionDescription);
     const remoteSdp = this.sdpManager.setRemoteDescription(
       sessionDescription,
       this.signalingState,
     );
     if (!remoteSdp) {
+      // 非対応 re-offer などの rollback では元の transceiver 対応を復元する
+      const transportsBeforeRollback = this.transceiverManager
+        .getTransceivers()
+        .map((t) => t.dtlsTransport);
+      this.transceiverManager.rollbackRemoteOffer();
+      this.closeIdleTransports(transportsBeforeRollback);
       this.setSignalingState("stable");
       if (this.shouldNegotiationneeded) {
-        this.needNegotiation();
+        this.scheduleNegotiationneeded();
       }
       this.invalidateLastCreatedDescriptions();
       return;
     }
-    let bundleTransport: RTCDtlsTransport | undefined;
+
+    if (remoteSdp.type === "offer") {
+      this.transceiverManager.beginRemoteOffer();
+    }
 
     // # apply description
+    const bundleGroups =
+      this.config.bundlePolicy === "disable"
+        ? []
+        : remoteSdp.group.filter((group) => group.semantic === "BUNDLE");
+    const groupOfMid = (mid: string | undefined) =>
+      mid == undefined
+        ? undefined
+        : bundleGroups.find((group) => group.items.includes(mid));
 
-    const matchTransceiverWithMedia = (
-      transceiver: RTCRtpTransceiver,
-      media: MediaDescription,
-    ) =>
-      transceiver.kind === media.kind &&
-      [null, media.rtp.muxId].includes(transceiver.mid);
-
-    let transports = remoteSdp.media.map((remoteMedia, i) => {
-      let dtlsTransport: RTCDtlsTransport;
-
-      if (["audio", "video"].includes(remoteMedia.kind)) {
-        let transceiver = this.transceiverManager
-          .getTransceivers()
-          .find((t) => matchTransceiverWithMedia(t, remoteMedia));
-        if (!transceiver) {
-          // create remote transceiver
-          transceiver = this.addTransceiver(remoteMedia.kind, {
-            direction: "recvonly",
-          });
-          transceiver.mid = remoteMedia.rtp.muxId ?? null;
-          this.onRemoteTransceiverAdded.execute(transceiver);
-        } else {
-          if (transceiver.direction === "inactive" && transceiver.stopping) {
-            transceiver.stopped = true;
-
-            if (sessionDescription.type === "answer") {
-              transceiver.setCurrentDirection("inactive");
+    // ## associate m-lines with transceivers / sctp
+    const associated = new Set<RTCRtpTransceiver>();
+    const entries: RemoteMediaEntry[] = remoteSdp.media.map(
+      (remoteMedia, index) => {
+        if (["audio", "video"].includes(remoteMedia.kind)) {
+          let transceiver = this.findTransceiverForRemoteMedia(
+            remoteMedia,
+            index,
+            associated,
+          );
+          if (!transceiver) {
+            if (remoteMedia.port === 0) {
+              // 未知の MID の拒否済み m-line には transceiver を関連付けない
+              return { remoteMedia, index };
             }
-            return;
+            transceiver = this.addRemoteTransceiver(remoteMedia, index);
+          } else if (transceiver.mid == null) {
+            this.transceiverManager.associateMLine(transceiver, index);
           }
-        }
-
-        if (this.sdpManager.remoteIsBundled) {
-          if (!bundleTransport) {
-            bundleTransport = transceiver.dtlsTransport;
-          } else {
-            transceiver.setDtlsTransport(bundleTransport);
+          associated.add(transceiver);
+          return { remoteMedia, index, transceiver };
+        } else if (remoteMedia.kind === "application") {
+          let sctpTransport = this.sctpTransport;
+          if (!sctpTransport) {
+            sctpTransport = this.createSctpTransport();
+            sctpTransport.mid = remoteMedia.rtp.muxId;
           }
+          return { remoteMedia, index, sctpTransport };
+        } else {
+          throw new Error("invalid media kind");
         }
+      },
+    );
+    if (remoteSdp.type === "offer") {
+      this.transceiverManager.releaseUnassociatedReservations(
+        associated,
+        remoteSdp.media.length,
+      );
+    }
+    const ownerOf = (entry: RemoteMediaEntry) =>
+      entry.transceiver ?? entry.sctpTransport;
 
-        dtlsTransport = transceiver.dtlsTransport;
-
-        this.transceiverManager.setRemoteRTP(
-          transceiver,
-          remoteMedia,
-          remoteSdp.type,
-          i,
+    // ## transport ownership
+    // remote offer の所有関係は bundlePolicy によらず offer の BUNDLE group だけで決まる
+    // (max-bundle は自分の offer にだけ効く)。group ごとに 1 つの transport を共有し、
+    // 異なる group や group 外の m-line とは共有しない。
+    // remote answer では offer で渡した ICE credentials を保つため transport を作り直さない
+    // (共有 transport を分割する answer は assertAnswerKeepsSharedTransports で事前に拒否済み)
+    const isRemoteOffer = remoteSdp.type === "offer";
+    const liveTransport = (transport: RTCDtlsTransport | undefined) =>
+      !!transport && transport.state !== "closed";
+    const groupTransports = new Map<GroupDescription, RTCDtlsTransport>();
+    const claimed = new Set<RTCDtlsTransport>();
+    for (const group of bundleGroups) {
+      const members = entries.filter(
+        (entry) =>
+          !!ownerOf(entry) &&
+          group.items.includes(entry.remoteMedia.rtp.muxId!),
+      );
+      if (members.length === 0) {
+        continue;
+      }
+      // 既存 member の transport を優先し、他の group が使っていれば新しい transport を作る
+      let shared = members
+        .map((entry) => ownerOf(entry)!.dtlsTransport)
+        .find(
+          (transport) =>
+            liveTransport(transport) &&
+            (!isRemoteOffer || !claimed.has(transport)),
         );
-      } else if (remoteMedia.kind === "application") {
-        let sctpTransport = this.sctpTransport;
-        if (!sctpTransport) {
-          sctpTransport = this.createSctpTransport();
-          sctpTransport.mid = remoteMedia.rtp.muxId;
+      if (!shared) {
+        shared = this.createDtlsTransport({ inheritCredentials: false });
+      }
+      groupTransports.set(group, shared);
+      claimed.add(shared);
+      for (const entry of members) {
+        const owner = ownerOf(entry)!;
+        if (owner.dtlsTransport !== shared) {
+          owner.setDtlsTransport(shared);
         }
-
-        if (this.sdpManager.remoteIsBundled) {
-          if (!bundleTransport) {
-            bundleTransport = sctpTransport.dtlsTransport;
-          } else {
-            sctpTransport.setDtlsTransport(bundleTransport);
-          }
+      }
+    }
+    if (isRemoteOffer) {
+      // group 外 (group のない offer を含む) で受け入れた m-line は独立した transport / ICE credentials を持つ
+      for (const entry of entries) {
+        const owner = ownerOf(entry);
+        if (
+          !owner ||
+          entry.remoteMedia.port === 0 ||
+          groupOfMid(entry.remoteMedia.rtp.muxId)
+        ) {
+          continue;
         }
+        if (
+          !liveTransport(owner.dtlsTransport) ||
+          claimed.has(owner.dtlsTransport)
+        ) {
+          owner.setDtlsTransport(
+            this.createDtlsTransport({ inheritCredentials: false }),
+          );
+        }
+        claimed.add(owner.dtlsTransport);
+      }
+    }
 
-        dtlsTransport = sctpTransport.dtlsTransport;
+    // ## apply RTP / SCTP (受け入れ判定)
+    const acceptedEntries = new Set<RemoteMediaEntry>();
+    for (const entry of entries) {
+      const { remoteMedia, index } = entry;
+      if (entry.transceiver) {
+        if (
+          this.transceiverManager.setRemoteRTP(
+            entry.transceiver,
+            remoteMedia,
+            remoteSdp.type,
+            index,
+            codecPlan.get(index) ?? [],
+          )
+        ) {
+          acceptedEntries.add(entry);
+        }
+      } else if (entry.sctpTransport) {
+        this.sctpManager.setRemoteSCTP(remoteMedia, index);
+        acceptedEntries.add(entry);
+      }
+    }
 
-        this.sctpManager.setRemoteSCTP(remoteMedia, i);
-      } else {
-        throw new Error("invalid media kind");
+    // ICE / DTLS パラメータは group で最初に受け入れた member (tag) から適用する
+    // (codec 不一致で拒否した member のパラメータは使わない)
+    const groupParamSources = new Map<GroupDescription, RemoteMediaEntry>();
+    for (const group of bundleGroups) {
+      for (const mid of group.items) {
+        const entry = entries.find(
+          (e) =>
+            e.remoteMedia.rtp.muxId === mid &&
+            e.remoteMedia.port !== 0 &&
+            acceptedEntries.has(e),
+        );
+        if (entry) {
+          groupParamSources.set(group, entry);
+          break;
+        }
+      }
+    }
+
+    // ## apply transport parameters
+    for (const entry of entries) {
+      const { remoteMedia } = entry;
+      const owner = ownerOf(entry);
+      if (!owner) {
+        continue;
+      }
+      const accepted = acceptedEntries.has(entry);
+      const dtlsTransport = owner.dtlsTransport;
+
+      const group = groupOfMid(remoteMedia.rtp.muxId);
+      if (
+        remoteMedia.port === 0 ||
+        !dtlsTransport ||
+        dtlsTransport.state === "closed" ||
+        // group 外の拒否 section の transport は使わない
+        (!accepted && !group)
+      ) {
+        continue;
       }
 
       const iceTransport = dtlsTransport.iceTransport;
+      const ownsTransportParams =
+        !group || groupParamSources.get(group) === entry;
 
-      if (remoteMedia.iceParams) {
-        const renomination = !!this.sdpManager.inactiveRemoteMedia;
-        iceTransport.setRemoteParams(remoteMedia.iceParams, renomination);
+      if (ownsTransportParams) {
+        if (remoteMedia.iceParams) {
+          const renomination = !!this.sdpManager.inactiveRemoteMedia;
+          iceTransport.setRemoteParams(remoteMedia.iceParams, renomination);
 
-        // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
-        // RFC 8445 S6.1.1
-        if (remoteMedia.iceParams.iceLite && !iceTransport.connection.iceLite) {
-          iceTransport.connection.iceControlling = true;
+          // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
+          // RFC 8445 S6.1.1
+          if (
+            remoteMedia.iceParams.iceLite &&
+            !iceTransport.connection.iceLite
+          ) {
+            iceTransport.connection.iceControlling = true;
+          }
         }
-      }
-      if (remoteMedia.dtlsParams) {
-        dtlsTransport.setRemoteParams(remoteMedia.dtlsParams);
+        if (remoteMedia.dtlsParams) {
+          dtlsTransport.setRemoteParams(remoteMedia.dtlsParams);
+        }
       }
 
       // # add ICE candidates
@@ -1147,27 +1516,20 @@ export class RTCPeerConnection extends EventTarget {
         dtlsTransport.role =
           remoteMedia.dtlsParams.role === "client" ? "server" : "client";
       }
-      return iceTransport;
-    }) as RTCIceTransport[];
+    }
 
-    // filter out inactive transports
-    transports = transports.filter((iceTransport) => !!iceTransport);
-
-    const removedTransceivers = this.transceiverManager
-      .getTransceivers()
-      .filter(
-        (t) =>
-          remoteSdp.media.find((m) => matchTransceiverWithMedia(t, m)) ==
-          undefined,
-      );
-
-    if (sessionDescription.type === "answer") {
-      for (const transceiver of removedTransceivers) {
-        // todo: handle answer side transceiver removal work.
-        // event should trigger to notify media source to stop.
-        transceiver.stop();
-        transceiver.stopped = true;
+    if (remoteSdp.type === "answer") {
+      // answer に含まれない既存 m-line は remote 起因の停止として確定する
+      for (const transceiver of this.transceiverManager.getTransceivers()) {
+        if (
+          !associated.has(transceiver) &&
+          transceiver.mid != undefined &&
+          !transceiver.stopped
+        ) {
+          transceiver.commitStopped({ rejected: true });
+        }
       }
+      this.closeIdleTransports();
     }
 
     if (remoteSdp.type === "offer") {
@@ -1190,10 +1552,129 @@ export class RTCPeerConnection extends EventTarget {
     }
 
     this.negotiationneeded = false;
-    if (this.shouldNegotiationneeded) {
-      this.needNegotiation();
+    if (
+      remoteSdp.type === "answer" &&
+      this.pendingOfferChangeSeq != undefined
+    ) {
+      this.negotiatedChangeSeq = Math.max(
+        this.negotiatedChangeSeq,
+        this.pendingOfferChangeSeq,
+      );
+      this.pendingOfferChangeSeq = undefined;
+    }
+    const hasUnnegotiatedStop =
+      remoteSdp.type === "answer" && this.settleStoppingTransceivers();
+    if (this.shouldNegotiationneeded || hasUnnegotiatedStop) {
+      this.scheduleNegotiationneeded();
     }
     this.invalidateLastCreatedDescriptions();
+  }
+
+  /**
+   * remote answer / pranswer の検証 (offerer 側、状態を変更する前に実行する)。
+   * local offer で 1 つの transport を共有した m-line を、answer が同じ BUNDLE group に置かずに
+   * 異なる ICE credentials で受け入れることはできない (RFC 8843 7.3.2)。共有 transport は分割できず、
+   * 新しい transport を作ると offer で渡した ICE credentials とも一致しなくなる。
+   * group の記述が MID と一致しなくても remote の ICE credentials が同じなら、同じ transport のまま扱う。
+   */
+  private assertAnswerKeepsSharedTransports(
+    sessionDescription: RTCSessionDescriptionInit,
+  ) {
+    if (
+      !["answer", "pranswer"].includes(sessionDescription.type ?? "") ||
+      !["have-local-offer", "have-local-pranswer"].includes(
+        this.signalingState,
+      ) ||
+      !sessionDescription.sdp ||
+      this.config.bundlePolicy === "disable"
+    ) {
+      return;
+    }
+    const answer = SessionDescription.parse(sessionDescription.sdp);
+    const answerGroups = answer.group.filter((g) => g.semantic === "BUNDLE");
+    const byTransport = new Map<
+      RTCDtlsTransport,
+      { group?: GroupDescription; credentials: string }
+    >();
+    for (const media of answer.media) {
+      const mid = media.rtp.muxId;
+      if (media.port === 0 || mid == undefined) {
+        continue;
+      }
+      const owner =
+        media.kind === "application"
+          ? this.sctpTransport?.mid === mid
+            ? this.sctpTransport
+            : undefined
+          : this.transceiverManager
+              .getTransceivers()
+              .find((t) => t.mid === mid && !t.stopped);
+      const transport = owner?.dtlsTransport;
+      if (!transport) {
+        continue;
+      }
+      const current = {
+        group: answerGroups.find((g) => g.items.includes(mid)),
+        credentials: `${media.iceParams?.usernameFragment}:${media.iceParams?.password}`,
+      };
+      const first = byTransport.get(transport);
+      if (!first) {
+        byTransport.set(transport, current);
+        continue;
+      }
+      const sameGroup = !!current.group && current.group === first.group;
+      if (!sameGroup && current.credentials !== first.credentials) {
+        throw createWebRtcDomException(
+          "InvalidAccessError",
+          `mid=${mid} shares a transport in the local offer but the remote ${sessionDescription.type} moves it out of that BUNDLE group`,
+        );
+      }
+    }
+  }
+
+  /**
+   * remote m-line に対応する transceiver を探す。MID の一致を優先し、
+   * 未関連付け transceiver は同じ offer 内で異なる m-line に割り当てる。
+   */
+  private findTransceiverForRemoteMedia(
+    remoteMedia: MediaDescription,
+    index: number,
+    associated: Set<RTCRtpTransceiver>,
+  ) {
+    const candidates = this.transceiverManager
+      .getTransceivers()
+      .filter((t) => !associated.has(t) && t.kind === remoteMedia.kind);
+    const mid = remoteMedia.rtp.muxId;
+    const byMid =
+      mid != undefined ? candidates.find((t) => t.mid === mid) : undefined;
+    if (byMid) {
+      return byMid;
+    }
+    if (remoteMedia.port === 0) {
+      return;
+    }
+    const unassociated = candidates.filter(
+      (t) => t.mid == null && !t.stopping && !t.stopped,
+    );
+    return unassociated.find((t) => t.mLineIndex === index) ?? unassociated[0];
+  }
+
+  /**
+   * remote offer / answer の m-line 用に transceiver を作る。
+   * 同じ位置に停止済みの旧 transceiver があれば、それを復活させず新しい receiver/router で置き換える。
+   */
+  private addRemoteTransceiver(remoteMedia: MediaDescription, index: number) {
+    const dtlsTransport = this.findOrCreateTransport();
+    const transceiver = this.transceiverManager.addTransceiver(
+      remoteMedia.kind,
+      dtlsTransport,
+      { direction: "recvonly" },
+      { remoteMLineIndex: index },
+    );
+    transceiver.mid = remoteMedia.rtp.muxId ?? null;
+    this.secureManager.updateIceConnectionState();
+    this.onRemoteTransceiverAdded.execute(transceiver);
+    return transceiver;
   }
 
   addTransceiver(
@@ -1231,6 +1712,46 @@ export class RTCPeerConnection extends EventTarget {
     this.assertNotClosed();
 
     await this.secureManager.ensureCerts();
+
+    // setCodecPreferences() で無効化された transceiver を再解決する。
+    // offer 側と異なり answer は remote offer との交渉結果を使い、
+    // sender/receiver の codec 状態も新しい negotiated codec に同期する。
+    for (const transceiver of this.transceiverManager.getTransceivers()) {
+      if (
+        transceiver.codecs.length !== 0 &&
+        !transceiver.codecPreferencesNeedResolution
+      ) {
+        continue;
+      }
+      // 拒否予定 / 停止済みの m-line は port 0 で answer するため codec を解決しない
+      if (
+        transceiver.pendingRejection ||
+        transceiver.stopping ||
+        transceiver.stopped
+      ) {
+        continue;
+      }
+      const remoteDescription = this.sdpManager._remoteDescription;
+      const remoteMedia =
+        remoteDescription?.media.find(
+          (media) =>
+            media.rtp.muxId != undefined &&
+            media.rtp.muxId === transceiver.mid &&
+            media.kind === transceiver.kind,
+        ) ??
+        (transceiver.mLineIndex != undefined
+          ? remoteDescription?.media[transceiver.mLineIndex]
+          : undefined);
+      if (remoteMedia && ["audio", "video"].includes(remoteMedia.kind)) {
+        this.transceiverManager.resyncAnswerCodecs(transceiver, remoteMedia);
+      } else {
+        this.transceiverManager.assignTransceiverCodecs(transceiver);
+      }
+      if (transceiver.headerExtensions.length === 0) {
+        transceiver.headerExtensions =
+          this.config.headerExtensions[transceiver.kind] ?? [];
+      }
+    }
 
     const description = this.sdpManager.buildAnswerSdp({
       transceivers: this.transceiverManager.getTransceivers(),
@@ -1388,8 +1909,19 @@ export interface PeerConfig {
    * Defaults to 5 when undefined.
    */
   iceStunGatherTimeout: number | undefined;
+  /**
+   * Seconds to wait for a TURN TCP/TLS connection to be established.
+   * Defaults to 8 when undefined.
+   */
+  iceTurnConnectTimeout: number | undefined;
   turnTransport: "udp" | "tcp" | "tls" | undefined;
   turnTlsOptions: TlsConnectionOptions | undefined;
+  /**
+   * Preferred IP family of the TURN/UDP socket, applied only when the TURN
+   * server is a hostname. Ignored for an IP literal server, whose own family
+   * always selects the socket. Defaults to 4 when undefined.
+   */
+  turnUdpFamily: 4 | 6 | undefined;
   /** @deprecated Prefer turn URL transport parameters or turnTransport. */
   forceTurnTCP: boolean;
   /** such as google cloud run */
@@ -1436,7 +1968,24 @@ export interface PeerConfig {
   midSuffix: boolean;
   /** Advertised local SCTP max-message-size in SDP. Use 0 for unlimited. */
   maxMessageSize: number;
+  /** SCTP outbound packet MTU used for DATA chunk fragmentation. */
+  sctp: { mtu: number };
+  /**
+   * Queue outbound RTP on each sender until DTLS is connected.
+   * Disabled by default. Pass `true` or `{ enabled: true, maxLength }` to buffer.
+   */
+  pendingRtp: NonNullable<RTCRtpSenderOptions["pendingRtp"]>;
+  /**
+   * How local SDP marks inactive / stopped m-lines. Cannot be changed after construction.
+   * - `"compatible"` (default): an accepted `inactive` m-line keeps a non-zero port.
+   *   Only rejected (no common codec / remote port 0) or stopped m-lines use port 0,
+   *   and only those negotiated port 0 positions are reused by new transceivers.
+   * - `"aggressive"`: legacy behavior. `inactive` m-lines are also written with port 0.
+   */
+  mLineReuse: MLineReuse;
 }
+
+const MLineReuseModes: readonly MLineReuse[] = ["compatible", "aggressive"];
 
 export const findCodecByMimeType = (
   codecs: RTCRtpCodecParameters[],
@@ -1449,6 +1998,35 @@ export const findCodecByMimeType = (
     ? target
     : undefined;
 
+function assignDynamicPayloadTypes(config: PeerConfig) {
+  for (const [i, codecParams] of enumerate([
+    ...(config.codecs.audio || []),
+    ...(config.codecs.video || []),
+  ])) {
+    if (codecParams.payloadType != undefined) {
+      continue;
+    }
+
+    codecParams.payloadType = 96 + i;
+    switch (codecParams.name.toLowerCase()) {
+      case "rtx":
+        {
+          codecParams.parameters = `apt=${codecParams.payloadType - 1}`;
+        }
+        break;
+      case "red":
+        {
+          if (codecParams.contentType === "audio") {
+            const redundant = codecParams.payloadType + 1;
+            codecParams.parameters = `${redundant}/${redundant}`;
+            codecParams.payloadType = 63;
+          }
+        }
+        break;
+    }
+  }
+}
+
 export type RTCIceServer = {
   urls: string | string[];
   username?: string;
@@ -1457,6 +2035,11 @@ export type RTCIceServer = {
 
 export type RTCBundlePolicy = "balanced" | "max-compat" | "max-bundle";
 export type RTCRtcpMuxPolicy = "require";
+
+export interface RTCSctpConfiguration {
+  /** SCTP outbound packet MTU used for DATA chunk fragmentation. Defaults to 1191. */
+  mtu?: number;
+}
 
 export interface RTCConfiguration {
   iceServers?: RTCIceServer[];
@@ -1482,10 +2065,14 @@ type RTCPeerConnectionRTCConfiguration = Omit<
 export type RTCPeerConnectionConfig = Partial<
   Omit<
     PeerConfig,
-    "bundlePolicy" | "rtcpMuxPolicy" | "iceCandidatePoolSize" | "certificates"
+    | "bundlePolicy"
+    | "rtcpMuxPolicy"
+    | "iceCandidatePoolSize"
+    | "certificates"
+    | "sctp"
   >
 > &
-  RTCPeerConnectionRTCConfiguration;
+  RTCPeerConnectionRTCConfiguration & { sctp?: RTCSctpConfiguration };
 
 function peerConfigHasDtls13(config: PeerConfig): boolean {
   const versions = config.dtls.protocolVersions;
@@ -1497,10 +2084,7 @@ function peerConfigHasDtls13(config: PeerConfig): boolean {
 
 function generateDefaultPeerConfig(): Required<PeerConfig> {
   return {
-    codecs: {
-      audio: [useOPUS(), usePCMU()],
-      video: [useVP8()],
-    },
+    codecs: defaultCodecs(),
     headerExtensions: {
       audio: [],
       video: [],
@@ -1516,8 +2100,10 @@ function generateDefaultPeerConfig(): Required<PeerConfig> {
     iceUseTcp: false,
     iceTcpPassive: true,
     iceStunGatherTimeout: undefined,
+    iceTurnConnectTimeout: undefined,
     turnTransport: undefined,
     turnTlsOptions: undefined,
+    turnUdpFamily: undefined,
     iceFilterStunResponse: undefined,
     iceFilterCandidatePair: undefined,
     icePasswordPrefix: undefined,
@@ -1532,15 +2118,24 @@ function generateDefaultPeerConfig(): Required<PeerConfig> {
     midSuffix: false,
     forceTurnTCP: false,
     maxMessageSize: DEFAULT_MAX_MESSAGE_SIZE,
+    sctp: { mtu: DEFAULT_SCTP_MTU },
+    pendingRtp: false,
+    mLineReuse: "compatible",
   };
 }
 export const defaultPeerConfig: PeerConfig = generateDefaultPeerConfig();
 
 function normalizePeerConfiguration(
   config: RTCPeerConnectionConfig,
-): Partial<PeerConfig> {
+): Partial<PeerConfig> & { sctp?: RTCSctpConfiguration } {
   const input = Object(config ?? {}) as RTCPeerConnectionConfig;
-  const normalizedConfig = { ...input } as Partial<PeerConfig>;
+  const normalizedConfig = { ...input } as Partial<PeerConfig> & {
+    sctp?: RTCSctpConfiguration;
+  };
+
+  if (input.sctp !== undefined) {
+    normalizedConfig.sctp = { ...input.sctp } as PeerConfig["sctp"];
+  }
 
   if (input.bundlePolicy === "balanced") {
     normalizedConfig.bundlePolicy = "max-compat";
@@ -1633,6 +2228,11 @@ function clonePeerConfiguration(config: PeerConfig) {
     },
     certificates: [...config.certificates],
     debug: { ...config.debug },
+    sctp: { ...config.sctp },
+    pendingRtp:
+      typeof config.pendingRtp === "object" && config.pendingRtp != undefined
+        ? { ...config.pendingRtp }
+        : config.pendingRtp,
   };
 }
 
@@ -1655,6 +2255,13 @@ export class RTCTrackEvent {
     this.receiver = init.receiver;
   }
 }
+
+type RemoteMediaEntry = {
+  remoteMedia: MediaDescription;
+  index: number;
+  transceiver?: RTCRtpTransceiver;
+  sctpTransport?: RTCSctpTransport;
+};
 
 export interface RTCDataChannelEvent {
   type?: "datachannel";

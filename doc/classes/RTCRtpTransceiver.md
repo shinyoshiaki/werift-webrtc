@@ -48,6 +48,12 @@ RFC 8829 4.2.4.  direction the transceiver was initialized with
 
 ***
 
+### codecPreferencesNeedResolution
+
+> **codecPreferencesNeedResolution**: `boolean` = `false`
+
+***
+
 ### headerExtensions
 
 > **headerExtensions**: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[] = `[]`
@@ -84,6 +90,12 @@ RFC 8829 4.2.4.  direction the transceiver was initialized with
 
 ***
 
+### onCodecPreferencesChanged
+
+> `readonly` **onCodecPreferencesChanged**: [`Event`](Event.md)\<\[\]\>
+
+***
+
 ### onTrack
 
 > `readonly` **onTrack**: [`Event`](Event.md)\<\[[`MediaStreamTrack`](MediaStreamTrack.md), [`RTCRtpTransceiver`](RTCRtpTransceiver.md)\]\>
@@ -96,9 +108,33 @@ RFC 8829 4.2.4.  direction the transceiver was initialized with
 
 ***
 
+### pendingLocalOfferCodecs?
+
+> `optional` **pendingLocalOfferCodecs**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+
+***
+
+### pendingRejection
+
+> **pendingRejection**: `boolean` = `false`
+
+remote offer の m-line を拒否予定 (answer 未確定)。
+確定するまで既存の RTP pipeline / track は維持し、rollback で false に戻す。
+
+***
+
 ### receiver
 
 > **receiver**: [`RTCRtpReceiver`](RTCRtpReceiver.md)
+
+***
+
+### rejected
+
+> **rejected**: `boolean` = `false`
+
+共通 codec がない / remote port 0 のため answer で拒否することが確定した。
+`inactive` や app の `stop()` とは区別し、確定後は `stopped` も true になる。
 
 ***
 
@@ -112,11 +148,15 @@ RFC 8829 4.2.4.  direction the transceiver was initialized with
 
 > **stopped**: `boolean` = `false`
 
+port 0 の交渉が確定し、m-line が停止した transceiver
+
 ***
 
 ### stopping
 
 > **stopping**: `boolean` = `false`
+
+stop() 済み、または停止が確定した transceiver
 
 ***
 
@@ -127,6 +167,32 @@ RFC 8829 4.2.4.  direction the transceiver was initialized with
 should not be reused because it has been used for sending before.
 
 ## Accessors
+
+### associated
+
+#### Get Signature
+
+> **get** **associated**(): `boolean`
+
+m-line (MID / index) と関連付け済みか
+
+##### Returns
+
+`boolean`
+
+***
+
+### codecPreferences
+
+#### Get Signature
+
+> **get** **codecPreferences**(): `undefined` \| readonly [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+
+##### Returns
+
+`undefined` \| readonly [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+
+***
 
 ### codecs
 
@@ -300,6 +366,22 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 
 ***
 
+### setCodecPreferences()
+
+> **setCodecPreferences**(`codecs`): `void`
+
+#### Parameters
+
+##### codecs
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+
+#### Returns
+
+`void`
+
+***
+
 ### setCurrentDirection()
 
 > **setCurrentDirection**(`direction`): `void`
@@ -351,6 +433,10 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 ### stop()
 
 > **stop**(): `void`
+
+https://www.w3.org/TR/webrtc/#dom-rtcrtptransceiver-stop
+送受信をただちに止めて資源を解放し、次の自分の offer で port 0 を交渉する。
+冪等で、2 回目以降は何もしない。
 
 #### Returns
 

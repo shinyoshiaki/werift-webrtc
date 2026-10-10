@@ -27,6 +27,7 @@ import {
 } from "./handler/datachannel/close";
 import {
   datachannel_answer,
+  datachannel_binary_echo,
   datachannel_offer,
 } from "./handler/datachannel/datachannel";
 import { datachannel_ice_lite_answer } from "./handler/datachannel/iceLite";
@@ -63,6 +64,11 @@ import {
   mediachannel_offer_replace_second,
   mediachannel_removetrack_addtrack,
 } from "./handler/mediachannel/removeTrack";
+import {
+  mediachannel_reject_unsupported_video,
+  mediachannel_reuse_aggressive,
+  mediachannel_reuse_compatible,
+} from "./handler/mediachannel/reuse";
 import {
   mediachannel_rtx_client_answer,
   mediachannel_rtx_client_offer,
@@ -163,6 +169,7 @@ function attachWebSocketServer() {
       dtls_media_offer: new dtls_media_offer(),
       dtls_fingerprint_answer: new dtls_fingerprint_answer(),
       dtls_fingerprint_offer: new dtls_fingerprint_offer(),
+      datachannel_binary_echo: new datachannel_binary_echo(),
       datachannel_ice_lite_answer: new datachannel_ice_lite_answer(),
       datachannel_ice_tcp: new datachannel_ice_tcp(),
       datachannel_offer: new datachannel_offer(),
@@ -203,6 +210,17 @@ function attachWebSocketServer() {
         new mediachannel_addtrack_removefirst_addtrack(),
       mediachannel_offer_replace_second:
         new mediachannel_offer_replace_second(),
+      // Issue #705: aggressive モードでも removeTrack の挙動が変わらないことを確認する
+      mediachannel_removetrack_addtrack_aggressive:
+        new mediachannel_removetrack_addtrack("aggressive"),
+      mediachannel_addtrack_removefirst_addtrack_aggressive:
+        new mediachannel_addtrack_removefirst_addtrack("aggressive"),
+      mediachannel_offer_replace_second_aggressive:
+        new mediachannel_offer_replace_second("aggressive"),
+      mediachannel_reuse_compatible: new mediachannel_reuse_compatible(),
+      mediachannel_reuse_aggressive: new mediachannel_reuse_aggressive(),
+      mediachannel_reject_unsupported_video:
+        new mediachannel_reject_unsupported_video(),
       ice_restart_web_trigger: new ice_restart_web_trigger(),
       ice_restart_node_trigger: new ice_restart_node_trigger(),
     };

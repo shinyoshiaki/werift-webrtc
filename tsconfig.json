@@ -18,6 +18,7 @@
     "noImplicitAny": false,
     "jsx": "react",
     "types": [
+      "node",
       "vitest/globals"
     ]
   },

@@ -30,6 +30,8 @@
     "e2e": "cd e2e && npm i && npm run ci:silent",
     "e2e:verbose": "cd e2e && npm run ci",
     "example": "tsx watch examples/ice/restart/offer.ts",
+    "examples:e2e": "npm i --prefix examples && cd examples/e2e && npm i && npm run ci:silent",
+    "examples:e2e:install": "cd examples/e2e && npm i && npm run install:browsers",
     "format": "node ./scripts/hoist-imports.mjs --fix && npm run format --workspaces --if-present && run-s format:examples format:e2e",
     "format:e2e": "cd e2e && cp ../biome.json ./ && npm run format",
     "format:examples": "cd examples && cp ../biome.json ./ && npm run format",
@@ -51,8 +53,12 @@
   },
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
+    "@jridgewell/trace-mapping": "0.3.9",
     "@types/node": "^22.13.4",
-    "@vitest/coverage-v8": "3.0.5",
+    "@vitest/coverage-v8": "4.1.11",
+    "istanbul-lib-coverage": "3.2.2",
+    "istanbul-lib-report": "3.0.1",
+    "istanbul-reports": "3.2.0",
     "knip": "^5.44.1",
     "npm-run-all2": "^7.0.2",
     "organize-imports-cli": "^0.10.0",
@@ -63,11 +69,12 @@
     "typedoc": "0.27.7",
     "typedoc-plugin-markdown": "4.4.2",
     "typescript": "5.7.3",
-    "vitest": "3.0.5"
+    "v8-to-istanbul": "9.3.0",
+    "vitest": "4.1.11"
   },
   "packageManager": "npm@11.1.0",
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "readme": "README.md"
 }

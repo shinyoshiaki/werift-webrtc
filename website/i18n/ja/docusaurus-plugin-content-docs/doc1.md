@@ -14,7 +14,42 @@ npm install werift
 # 設計思想
 
 werift は DataChannel と MediaChannel に対応しています。
-werift はコーデックなどのメディア周りは実装していないので getUserMedia などの API は利用できません。そのため、werift からメディアを送信する場合は、RTP パケットを直接、用意された API に入力します。また受信する場合には RTP のパケットを直接受け取ることができます。
+コア API はコーデックや OS のカメラ取得を持ちません。ブラウザ向けライブラリを Node で動かす場合は `werift/polyfill` の `installPolyfill({ mediaRegister })` でグローバルと `navigator.mediaDevices.getUserMedia` を差し込み、ファイル / RTP / エンコード済みバイナリ / ユーザ定義 register からメディアを供給します。sendonly のサンプルは GStreamer/FFmpeg の RTP を `createRtpRtcpRegister` 経由で取り込み、アプリケーションコードから `MediaStreamTrack.writeRtp` を呼びません。ユーザ定義 register から `writeRtp` で直接渡す経路も利用できます。DOM なしの TypeScript は `werift/polyfill` がコンストラクタグローバルを型付けし、`lib.dom` を使う場合は `werift/polyfill/dom` を import します。
+
+`mediaRegister` は必須ですが、空配列も有効です。その場合 `getUserMedia()` は定期 RTP も codec 設定もない、muted のプレーンな audio/video track を返します。同じ挙動を明示したり他の register と併用したりする場合は `createEmptyRegister()` を使います。
+
+`peerConnectionConfig` を渡すと、mediasoup-client の capability probe と transport を含む、polyfill 経由のすべての PeerConnection に codec の既定値を適用できます。たとえば `installPolyfill({ mediaRegister, peerConnectionConfig: { codecs: { video: [useH264()] } } })` は H264-only の video 環境を作ります。fixed encoded source が capability と一致しない場合、track の追加は `NotSupportedError` になります。
+
+インストール、register、制約、クリーンアップ、TypeScript の詳細は、[polyfill ガイド](https://github.com/shinyoshiaki/werift-webrtc/blob/develop/docs/polyfill/README.md)を参照してください。
+
+Node.js では polyfill のインストールだけで `mediasoup-client` に `handlerName` / `handlerFactory` を渡さず使えます。既存の User-Agent が未設定または `Node.js/<major>` のときだけ Chromium 111 互換値を補完し、非 Node の値は保持します。上書きしたい場合だけ `userAgent` オプションを渡します。uninstall でインストール前の descriptor に戻ります。「追加設定なし」は Handler 自動選択を指し、`mediaRegister` とシグナリングは引き続き必要です。
+
+```ts
+import { Device } from "mediasoup-client";
+import {
+  createCallbackRegister,
+  installPolyfill,
+} from "werift/polyfill";
+
+const uninstall = installPolyfill({
+  // 任意。省略時は Node で Chrome111 互換値が自動設定される。
+  // userAgent: "Mozilla/5.0 ... Chrome/120.0.0.0 Safari/537.36",
+  mediaRegister: [
+    createCallbackRegister({
+      mimeType: "audio/opus",
+      kinds: ["audio"],
+      async createTracks() {
+        return [createAudioTrack()];
+      },
+    }),
+  ],
+});
+
+const device = await Device.factory();
+await device.load({ routerRtpCapabilities });
+```
+
+明示 `userAgent` は実ブラウザの値も上書きし、Handler 判定を変えることがあります。`existingMediaDevices: "noop"` でも欠けている / Node の User-Agent は補完します。
 
 # ドキュメント
 

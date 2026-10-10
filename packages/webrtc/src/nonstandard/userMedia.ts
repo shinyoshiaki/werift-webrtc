@@ -20,6 +20,7 @@ import {
 } from "mediabunny";
 
 import { Event } from "../imports/common";
+import { useAV1X, useH264, useOPUS, useVP8, useVP9 } from "../media/codec";
 import type { RTCRtpCodecParameters } from "../media/parameters";
 import { MediaStreamTrack } from "../media/track";
 import { codecParametersFromString } from "../sdp";
@@ -47,7 +48,7 @@ export type FileMediaTrackSource = UserMediaSource & {
   loop?: boolean;
 };
 
-export const getUserMedia = async (options: FileMediaTrackSource) => {
+export const createFileMediaPlayer = async (options: FileMediaTrackSource) => {
   assertSupportedOptions(options);
   const replayableSource = await createReplayableSource(options);
   const input = await createInput(replayableSource);
@@ -140,8 +141,6 @@ class MediaPlayer {
       if (abortController.signal.aborted || this.stopped) {
         return;
       }
-
-      session.runners.forEach((runner) => runner.assertReady());
 
       const initialSourceChanged = this.hasStartedPlayback;
       this.hasStartedPlayback = true;
@@ -304,7 +303,7 @@ class TrackPlaybackRunner {
         }
 
         if (sourceChanged && !sourceChangeNotified) {
-          this.props.track.onSourceChanged.execute(packets[0].header);
+          this.props.track.notifySourceChanged(packets[0].header);
           sourceChangeNotified = true;
         }
 
@@ -318,15 +317,6 @@ class TrackPlaybackRunner {
       }
       throw error;
     }
-  }
-
-  assertReady() {
-    const codec = this.requireNegotiatedCodec();
-    createPacketizer({
-      codec,
-      sourceCodec: this.props.sourceCodec,
-      decoderDescription: this.props.decoderDescription,
-    });
   }
 
   private requireNegotiatedCodec() {
@@ -452,8 +442,39 @@ async function createPlaybackTrack(
       new MediaStreamTrack({
         kind,
         streamId,
+        codec: codecParametersForSource(
+          sourceCodec,
+          decoderConfig && "description" in decoderConfig
+            ? (decoderConfig.description ?? null)
+            : null,
+        ),
       }),
   };
+}
+
+function codecParametersForSource(
+  sourceCodec: SupportedSourceCodec,
+  decoderDescription?: ArrayBuffer | ArrayBufferView | null,
+) {
+  switch (sourceCodec) {
+    case "avc": {
+      const profileLevelId = getH264ProfileLevelId(decoderDescription);
+      if (!profileLevelId) {
+        return useH264();
+      }
+      return useH264({
+        parameters: `profile-level-id=${profileLevelId};packetization-mode=1;level-asymmetry-allowed=1`,
+      });
+    }
+    case "vp8":
+      return useVP8();
+    case "vp9":
+      return useVP9();
+    case "av1":
+      return useAV1X();
+    case "opus":
+      return useOPUS();
+  }
 }
 
 async function requireSupportedCodec(inputTrack: InputTrack) {
@@ -573,7 +594,7 @@ function assertSupportedOptions(options: FileMediaTrackSource) {
 
   if (legacyOptions.width != undefined || legacyOptions.height != undefined) {
     throw new Error(
-      "getUserMedia({ width, height }) is no longer supported for file playback. Resize or re-encode the source before calling getUserMedia().",
+      "File playback no longer accepts { width, height }. Resize or re-encode the source before creating the mp4/webm register.",
     );
   }
 }

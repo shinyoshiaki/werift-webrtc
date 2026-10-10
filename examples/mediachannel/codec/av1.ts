@@ -2,8 +2,8 @@ import { Server } from "ws";
 import {
   AV1RtpPayload,
   RTCPeerConnection,
+  RTCRtpCodecParameters,
   dumpBuffer,
-  useAV1X,
 } from "../../../packages/webrtc/src";
 
 const server = new Server({ port: 8888 });
@@ -14,7 +14,12 @@ console.log("start");
     console.log("new peer");
     const pc = new RTCPeerConnection({
       codecs: {
-        video: [useAV1X()],
+        video: [
+          new RTCRtpCodecParameters({
+            mimeType: "video/AV1",
+            clockRate: 90000,
+          }),
+        ],
       },
     });
 

@@ -20,7 +20,9 @@ console.log("start");
 
   server.on("connection", async (socket) => {
     pc.onIceCandidate.subscribe((candidate) => {
-      socket.send(JSON.stringify(candidate));
+      if (candidate) {
+        socket.send(JSON.stringify(candidate));
+      }
     });
 
     socket.on("message", async (data: any) => {
@@ -29,7 +31,7 @@ console.log("start");
         await pc.addIceCandidate(msg);
       } else {
         if (msg.type === "connect") {
-          pc.setLocalDescription(await pc.createOffer());
+          await pc.setLocalDescription(await pc.createOffer());
           const sdp = JSON.stringify(pc.localDescription);
           socket.send(sdp);
         } else if (msg.type === "offer") {

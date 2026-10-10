@@ -33,7 +33,7 @@ server.on("connection", async (socket) => {
   pc.addTransceiver("video").onTrack.subscribe((track, transceiver) => {
     transceiver.sender.replaceTrack(track);
     track.onReceiveRtp.subscribe((rtp) => {
-      udp.send(rtp.serialize(), port);
+      udp.send(rtp.serialize(), port, "127.0.0.1");
     });
 
     setInterval(() => {
@@ -49,7 +49,7 @@ server.on("connection", async (socket) => {
     "webmmux",
     `filesink location=./gst.webm`,
   ].join(" ! ");
-  const process = spawn("gst-launch-1.0", args.split(" "));
+  const gst = spawn(`gst-launch-1.0 -e ${args}`, { shell: true });
 
   await pc.setLocalDescription(await pc.createOffer());
   const sdp = JSON.stringify(pc.localDescription);
@@ -60,7 +60,7 @@ server.on("connection", async (socket) => {
   });
 
   setTimeout(() => {
-    process.kill("SIGINT");
+    gst.kill("SIGINT");
     console.log("stop");
   }, 15_000);
 });

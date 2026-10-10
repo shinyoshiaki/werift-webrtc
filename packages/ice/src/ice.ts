@@ -41,7 +41,13 @@ import {
 } from "./internal/sped-bind";
 import { SpedBindingResponseCache } from "./internal/sped-binding-cache";
 import { type SpedRuntime, sameCandidatePair } from "./sped/runtime";
-import { RETRY_MAX, RETRY_RTO, classes, methods } from "./stun/const";
+import {
+  RETRY_MAX,
+  RETRY_RTO,
+  TCP_CHECK_RESPONSE_TIMEOUT_MS,
+  classes,
+  methods,
+} from "./stun/const";
 import { Message, parseMessage } from "./stun/message";
 import { StunProtocol } from "./stun/protocol";
 import { TcpActiveProtocol, TcpPassiveProtocol } from "./stun/tcpProtocol";
@@ -50,20 +56,6 @@ import type { Protocol, TransactionRequestOptions } from "./types/model";
 import { getHostAddresses } from "./utils";
 
 const log = debug("werift-ice : packages/ice/src/ice.ts : log");
-
-function isTcpLocalActivePair(pair: CandidatePair): boolean {
-  return (
-    pair.localCandidate.transport.toLowerCase() === "tcp" &&
-    pair.localCandidate.tcptype === "active"
-  );
-}
-
-function isTcpLocalPassivePair(pair: CandidatePair): boolean {
-  return (
-    pair.localCandidate.transport.toLowerCase() === "tcp" &&
-    pair.localCandidate.tcptype === "passive"
-  );
-}
 
 function isTcpActiveCandidate(candidate: {
   transport: string;
@@ -84,18 +76,6 @@ function isTcpActiveCandidate(candidate: {
 function stunTransactionLifetimeMs() {
   const tries = 1 + RETRY_MAX;
   return RETRY_RTO * (2 ** tries - 1);
-}
-
-/**
- * TCP ICE checks send once (retransmissions: 0). Wait for TCP handshake plus
- * a STUN reply; the 50ms UDP RTO is too short for connect().
- */
-function tcpCheckResponseTimeoutMs(rttSeconds?: number): number {
-  const rttMs =
-    rttSeconds !== undefined && Number.isFinite(rttSeconds) && rttSeconds > 0
-      ? Math.round(rttSeconds * 1000)
-      : 0;
-  return Math.max(stunTransactionLifetimeMs(), 1000 + rttMs);
 }
 
 /** Fallback STUN server when none is configured (constructor / setIceServers). */
@@ -210,6 +190,9 @@ export class Connection implements IceConnection {
     }
     if (options.turnTlsOptions !== undefined) {
       this.options.turnTlsOptions = options.turnTlsOptions;
+    }
+    if (options.turnUdpFamily !== undefined) {
+      this.options.turnUdpFamily = options.turnUdpFamily;
     }
 
     this.applyStunTurnServersFromOptions();
@@ -513,6 +496,32 @@ export class Connection implements IceConnection {
         log("dataReceived", error);
       }
     });
+    protocol.onConnectionClosed?.subscribe((remoteAddr) => {
+      this.handleConnectionClosed(protocol, remoteAddr);
+    });
+  }
+
+  /**
+   * RFC 6544: the selected TCP connection is the only path for this component;
+   * once it is closed no application data or consent check can reach the peer,
+   * so fail the same way as a consent expiry instead of waiting for it.
+   */
+  private handleConnectionClosed(protocol: Protocol, remoteAddr: Address) {
+    const nominated = this.nominated;
+    if (
+      !nominated ||
+      nominated.protocol !== protocol ||
+      nominated.remoteAddr[0] !== remoteAddr[0] ||
+      nominated.remoteAddr[1] !== remoteAddr[1]
+    ) {
+      return;
+    }
+    if (this.state === "closed" || this.state === "failed") {
+      return;
+    }
+    log("selected tcp connection closed", nominated.toJSON());
+    this.stopConsentLifecycle();
+    this.setState("failed");
   }
 
   private async handleBindingRequest(
@@ -957,6 +966,8 @@ export class Connection implements IceConnection {
             interfaceAddresses: this.options.interfaceAddresses,
             transport: turnTransport,
             tlsOptions: this.options.turnTlsOptions,
+            connectTimeoutMs: (this.options.turnConnectTimeout ?? 8) * 1000,
+            udpFamily: this.options.turnUdpFamily,
           },
         ).catch(async (e) => {
           if (turnTransport === "udp") {
@@ -970,6 +981,7 @@ export class Connection implements IceConnection {
                 portRange: this.options.portRange,
                 interfaceAddresses: this.options.interfaceAddresses,
                 transport: "tcp",
+                connectTimeoutMs: (this.options.turnConnectTimeout ?? 8) * 1000,
               },
             );
           } else {
@@ -1735,64 +1747,8 @@ export class Connection implements IceConnection {
     this.incomingPairWait?.settle(false);
   }
 
-  private hasViableTcpActivePair(component: number): boolean {
-    return this.checkList.some(
-      (candidate) =>
-        candidate.component === component &&
-        isTcpLocalActivePair(candidate) &&
-        candidate.state !== CandidatePairState.FAILED,
-    );
-  }
-
-  /**
-   * One TCP nomination per component. Prefer local-active while it can still
-   * succeed; fall back to local-passive when no active pair remains.
-   */
-  private canSendTcpNomination(pair: CandidatePair): boolean {
-    if (pair.localCandidate.transport.toLowerCase() !== "tcp") {
-      return true;
-    }
-    if (isTcpLocalPassivePair(pair)) {
-      return !this.hasViableTcpActivePair(pair.component);
-    }
-    return true;
-  }
-
-  private maybeNominateTcpFallback(component: number) {
-    if (!this.iceControlling || this.nominated) {
-      return;
-    }
-    if (this.hasViableTcpActivePair(component)) {
-      return;
-    }
-    const fallback = this.checkList.find(
-      (candidate) =>
-        candidate.component === component &&
-        candidate.state === CandidatePairState.SUCCEEDED &&
-        isTcpLocalPassivePair(candidate),
-    );
-    if (!fallback) {
-      return;
-    }
-    this.nominating = false;
-    fallback.handle = this.checkStart(fallback);
-  }
-
   private decorateSpedRequest(request: Message, pair: CandidatePair): boolean {
     return this.spedRuntime?.decorateOutgoing(request, pair) ?? true;
-  }
-
-  private stunCheckTransactionOptions(
-    pair: CandidatePair,
-    udpRetransmissions: number,
-    onRequestSent?: (attempt: number) => void,
-  ): TransactionRequestOptions {
-    const tcp = pair.localCandidate.transport.toLowerCase() === "tcp";
-    return {
-      retransmissions: tcp ? 0 : udpRetransmissions,
-      responseTimeout: tcp ? tcpCheckResponseTimeoutMs(pair.rtt) : undefined,
-      onRequestSent,
-    };
   }
 
   private isStaleConnectivityCheck(
@@ -1895,13 +1851,16 @@ export class Connection implements IceConnection {
       if (!runtime.decorateOutgoing(request, pair)) {
         return;
       }
-      const retransmissions =
-        protocol.localCandidate?.transport.toLowerCase() === "tcp" ? 0 : 2;
       const [response, responseAddr] = await protocol.request(
         request,
         addr,
         Buffer.from(this.remotePassword, "utf8"),
-        this.stunCheckTransactionOptions(pair, retransmissions),
+        this.isTcpPair(pair)
+          ? {
+              retransmissions: 0,
+              responseTimeout: TCP_CHECK_RESPONSE_TIMEOUT_MS,
+            }
+          : { retransmissions: 2 },
       );
       if (
         generation !== this.generation ||
@@ -2089,8 +2048,11 @@ export class Connection implements IceConnection {
       }
     }
 
-    if (pair.state === CandidatePairState.FAILED) {
-      this.maybeNominateTcpFallback(pair.component);
+    this.nominateTcpPairIfReady();
+
+    // A nomination request is still in flight; its result decides the outcome.
+    if (this.nominating) {
+      return;
     }
 
     {
@@ -2138,12 +2100,9 @@ export class Connection implements IceConnection {
         return true;
       };
 
-      // TCP: prefer local-active, but nominate local-passive when no active
-      // pair can still succeed (send-only peer, or active already failed).
+      // TCP pairs use regular nomination (see nominateTcpPairIfReady).
       const nominate =
-        this.iceControlling &&
-        !this.remoteIsLite &&
-        this.canSendTcpNomination(pair);
+        this.iceControlling && !this.remoteIsLite && !this.isTcpPair(pair);
       const request = this.buildRequest({
         nominate,
         localUsername,
@@ -2170,11 +2129,7 @@ export class Connection implements IceConnection {
           request,
           pair.remoteAddr,
           Buffer.from(remotePassword, "utf8"),
-          this.stunCheckTransactionOptions(pair, 4, (attempt) => {
-            if (attempt > 0) {
-              pair.retransmissionsSent++;
-            }
-          }),
+          this.checkRequestOptions(pair),
         );
         if (stopIfStale()) {
           return;
@@ -2271,11 +2226,9 @@ export class Connection implements IceConnection {
       if (nominate || pair.remoteNominated) {
         // # nominated by agressive nomination or the remote party
         pair.nominated = true;
-      } else if (
-        this.iceControlling &&
-        !this.nominating &&
-        this.canSendTcpNomination(pair)
-      ) {
+      } else if (this.usesTcpRegularNomination(pair)) {
+        // # nominated later by nominateTcpPairIfReady (from checkComplete)
+      } else if (this.iceControlling && !this.nominating) {
         // # perform regular nomination
         this.nominating = true;
         const request = this.buildRequest({
@@ -2300,11 +2253,7 @@ export class Connection implements IceConnection {
             request,
             pair.remoteAddr,
             Buffer.from(this.remotePassword, "utf8"),
-            this.stunCheckTransactionOptions(pair, 4, (attempt) => {
-              if (attempt > 0) {
-                pair.retransmissionsSent++;
-              }
-            }),
+            this.checkRequestOptions(pair),
           );
           if (stopIfStale()) {
             return;
@@ -2321,6 +2270,7 @@ export class Connection implements IceConnection {
             return;
           }
         } catch {
+          this.nominating = false;
           if (stopIfStale()) {
             return;
           }
@@ -2339,6 +2289,134 @@ export class Connection implements IceConnection {
       this.checkComplete(pair);
       r();
     });
+
+  private isTcpPair(pair: CandidatePair) {
+    return pair.localCandidate.transport.toLowerCase() === "tcp";
+  }
+
+  /**
+   * Aggressive nomination lets each side settle on whichever TCP connection
+   * finished first; the two sides can then pick different connections and
+   * pruning destroys the peer's choice. For TCP the controlling agent instead
+   * nominates exactly one valid pair (RFC 8445 §8.1.1 regular nomination).
+   */
+  private usesTcpRegularNomination(pair: CandidatePair) {
+    return this.iceControlling && !this.remoteIsLite && this.isTcpPair(pair);
+  }
+
+  private checkRequestOptions(pair: CandidatePair): TransactionRequestOptions {
+    const onRequestSent = (attempt: number) => {
+      if (attempt > 0) {
+        pair.retransmissionsSent++;
+      }
+    };
+    if (this.isTcpPair(pair)) {
+      // RFC 5389 §7.2.2: no retransmissions over a reliable transport.
+      return {
+        retransmissions: 0,
+        responseTimeout: TCP_CHECK_RESPONSE_TIMEOUT_MS,
+        onRequestSent,
+      };
+    }
+    return { retransmissions: 4, onRequestSent };
+  }
+
+  /**
+   * Controlling side: nominate the highest-priority TCP pair once every
+   * higher-priority TCP pair has finished its check, so the choice does not
+   * depend on which connection happened to complete first.
+   */
+  private nominateTcpPairIfReady() {
+    if (
+      !this.iceControlling ||
+      this.remoteIsLite ||
+      this.nominated ||
+      this.nominating
+    ) {
+      return;
+    }
+
+    for (const pair of this.checkList) {
+      if (!this.isTcpPair(pair)) {
+        continue;
+      }
+      if (pair.state === CandidatePairState.SUCCEEDED) {
+        this.nominateTcpPair(pair);
+        return;
+      }
+      if (pair.state !== CandidatePairState.FAILED) {
+        // A higher-priority pair may still succeed.
+        return;
+      }
+    }
+  }
+
+  private nominateTcpPair(pair: CandidatePair) {
+    this.nominating = true;
+    void this.sendTcpNomination(pair, this.generation);
+  }
+
+  private async sendTcpNomination(pair: CandidatePair, generation: number) {
+    const fail = () => {
+      this.nominating = false;
+      pair.updateState(CandidatePairState.FAILED);
+      this.checkComplete(pair);
+    };
+    const request = this.buildRequest({
+      nominate: true,
+      localUsername: pair.localCandidate.ufrag ?? this.localUsername,
+      remoteUsername: this.remoteUsername,
+      iceControlling: this.iceControlling,
+      localCandidate: pair.localCandidate,
+    });
+    if (!this.decorateSpedRequest(request, pair)) {
+      fail();
+      return;
+    }
+    pair.requestsSent++;
+
+    try {
+      const [response, addr] = await pair.protocol.request(
+        request,
+        pair.remoteAddr,
+        Buffer.from(this.remotePassword, "utf8"),
+        this.checkRequestOptions(pair),
+      );
+      if (this.isStaleNomination(pair, generation)) {
+        return;
+      }
+      pair.responsesReceived++;
+      await this.consumeSpedStun(
+        response,
+        addr,
+        pair.protocol,
+        pair,
+        generation,
+      );
+      if (this.isStaleNomination(pair, generation)) {
+        return;
+      }
+    } catch (error) {
+      if (this.isStaleNomination(pair, generation)) {
+        return;
+      }
+      log("tcp nomination failed", pair.toJSON(), error);
+      fail();
+      return;
+    }
+    pair.nominated = true;
+    this.nominating = false;
+    this.checkComplete(pair);
+  }
+
+  /** The agent was closed or restarted while the nomination was in flight. */
+  private isStaleNomination(pair: CandidatePair, generation: number) {
+    return (
+      this.state === "closed" ||
+      this.generation !== generation ||
+      !this.checkList.includes(pair)
+    );
+  }
 
   private addPair(pair: CandidatePair) {
     this.checkList.push(pair);

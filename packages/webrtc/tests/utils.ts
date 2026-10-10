@@ -3,14 +3,29 @@ import { setTimeout } from "timers/promises";
 
 import {
   type ConnectionState,
+  type PeerConfig,
   type RTCDataChannel,
   type RTCDtlsTransport,
+  type RTCIceTransport,
   RTCPeerConnection,
 } from "../src";
 import type { RTCTransportStats } from "../src/media/stats";
 
 export function load(name: string) {
   return readFileSync("./tests/data/" + name);
+}
+
+/**
+ * Create a PeerConnection with one data channel so that its first
+ * RTCIceTransport exists, and return both.
+ */
+export function createPeerConnectionWithIceTransport(
+  config: Partial<PeerConfig> = {},
+) {
+  const pc = new RTCPeerConnection({ iceServers: [], ...config });
+  pc.createDataChannel("ice-transport");
+  const ice = (pc as any).secureManager.iceTransports[0] as RTCIceTransport;
+  return { pc, ice };
 }
 
 export async function createDataChannelPair(

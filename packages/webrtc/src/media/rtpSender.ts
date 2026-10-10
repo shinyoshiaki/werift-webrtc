@@ -27,6 +27,7 @@ import { setTimeout } from "timers/promises";
 import { Event, random16, uint16Add, uint32Add } from "../imports/common";
 
 import { codecParametersFromString } from "..";
+import { createWebRtcDomException } from "../errors";
 import {
   type Extension,
   GenericNack,
@@ -57,6 +58,7 @@ import {
 import type { RTCDtlsTransport } from "../transport/dtls";
 import type { Kind } from "../types/domain";
 import { compactNtp, milliTime, ntpTime, timestampSeconds } from "../utils";
+import { isCodecCompatible } from "./codecCompatibility";
 import type {
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
@@ -75,12 +77,54 @@ import {
   generateStatsId,
   getStatsTimestamp,
 } from "./stats";
-import type { MediaStream, MediaStreamTrack } from "./track";
+import {
+  type MediaStream,
+  type MediaStreamTrack,
+  captureTrackSourceCodecs,
+  getTrackSourceCodecs,
+} from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");
 
 const RTP_HISTORY_SIZE = 128;
+const DEFAULT_PENDING_RTP_MAX_LENGTH = 256;
 const RTT_ALPHA = 0.85;
+
+export type PendingRtpOptions = {
+  /** Queue RTP until DTLS is connected and a codec is set. Default true when this object is passed. */
+  enabled?: boolean;
+  /** Max queued packets when enabled. Oldest packets are dropped. Default 256. */
+  maxLength?: number;
+};
+
+export type RTCRtpSenderOptions = {
+  /** Pending RTP cache. Disabled by default. Pass `true` or `{ maxLength }` to enable. */
+  pendingRtp?: boolean | PendingRtpOptions;
+};
+
+type PendingRtpItem = {
+  packet: RtpPacket;
+  resolve: () => void;
+  reject: (error: unknown) => void;
+};
+
+function resolvePendingRtpOptions(
+  pendingRtp: RTCRtpSenderOptions["pendingRtp"],
+): { enabled: boolean; maxLength: number } {
+  if (pendingRtp === true) {
+    return { enabled: true, maxLength: DEFAULT_PENDING_RTP_MAX_LENGTH };
+  }
+  if (pendingRtp == undefined || pendingRtp === false) {
+    return { enabled: false, maxLength: DEFAULT_PENDING_RTP_MAX_LENGTH };
+  }
+  const maxLength =
+    typeof pendingRtp.maxLength === "number" &&
+    Number.isFinite(pendingRtp.maxLength) &&
+    pendingRtp.maxLength >= 1
+      ? Math.floor(pendingRtp.maxLength)
+      : DEFAULT_PENDING_RTP_MAX_LENGTH;
+  return { enabled: pendingRtp.enabled ?? true, maxLength };
+}
 
 function freezeRtpContinuityOffsets(
   lastOutputSeq: number,
@@ -151,7 +195,13 @@ export class RTCRtpSender {
   private rtpContinuityPending = false;
   private pendingTimestampStep = 1;
   private rtpCache: RtpPacket[] = [];
+  private pendingRtp: PendingRtpItem[] = [];
+  private drainingPendingRtp = false;
+  private readonly pendingRtpEnabled: boolean;
+  private readonly pendingRtpMaxLength: number;
   codec?: RTCRtpCodecParameters;
+  private negotiatedCodecs: RTCRtpCodecParameters[] = [];
+  private sendPrimaryCodec?: RTCRtpCodecParameters;
   public dtlsTransport!: RTCDtlsTransport;
   private dtlsDisposer: (() => void)[] = [];
 
@@ -161,7 +211,13 @@ export class RTCRtpSender {
   rtcpRunning = false;
   private rtcpCancel = new AbortController();
 
-  constructor(public trackOrKind: Kind | MediaStreamTrack) {
+  constructor(
+    public trackOrKind: Kind | MediaStreamTrack,
+    options: RTCRtpSenderOptions = {},
+  ) {
+    const pendingRtp = resolvePendingRtpOptions(options.pendingRtp);
+    this.pendingRtpEnabled = pendingRtp.enabled;
+    this.pendingRtpMaxLength = pendingRtp.maxLength;
     this.kind =
       typeof this.trackOrKind === "string"
         ? this.trackOrKind
@@ -193,6 +249,7 @@ export class RTCRtpSender {
       this.dtlsTransport.onStateChange.subscribe((state) => {
         if (state === "connected") {
           this.onReady.execute();
+          void this.drainPendingRtp();
         }
       }).unSubscribe,
     ];
@@ -210,32 +267,126 @@ export class RTCRtpSender {
     this.cname = params.rtcp?.cname;
     this.mid = params.muxId;
     this.headerExtensions = params.headerExtensions;
-    this.rtpStreamId = params.rtpStreamId;
+    this.rtpStreamId = params.rtpStreamId ?? this.rtpStreamId;
     this.repairedRtpStreamId = params.repairedRtpStreamId;
 
-    this.codec = params.codecs[0];
+    this.negotiatedCodecs = [...params.codecs];
+    this.codec =
+      params.codecs.find((codec) => codec.name.toLowerCase() !== "rtx") ??
+      params.codecs[0];
+    const redPrimaryPayloadType =
+      this.codec?.name.toLowerCase() === "red"
+        ? Number((this.codec.parameters ?? "").split("/")[0])
+        : undefined;
+    this.sendPrimaryCodec =
+      this.codec?.name.toLowerCase() === "red"
+        ? params.codecs.find(
+            (codec) =>
+              !["red", "rtx"].includes(codec.name.toLowerCase()) &&
+              codec.payloadType === redPrimaryPayloadType,
+          )
+        : this.codec;
     if (this.track) {
       this.track.codec = this.codec;
     }
 
+    this.rtxPayloadType = undefined;
+    this.redRedundantPayloadType = undefined;
     params.codecs.forEach((codec) => {
       const codecParams = codecParametersFromString(codec.parameters ?? "");
       if (
         codec.name.toLowerCase() === "rtx" &&
-        codecParams["apt"] === this.codec?.payloadType
+        this.sendPrimaryCodec?.payloadType === codecParams["apt"]
       ) {
         this.rtxPayloadType = codec.payloadType;
       }
-      if (codec.name.toLowerCase() === "red") {
-        this.redRedundantPayloadType = Number(
-          (codec.parameters ?? "").split("/")[0],
-        );
-      }
     });
+    if (
+      this.codec?.name.toLowerCase() === "red" &&
+      this.sendPrimaryCodec != undefined
+    ) {
+      this.redRedundantPayloadType = this.sendPrimaryCodec.payloadType;
+    }
+    void this.drainPendingRtp();
+  }
+
+  private canSendRtp() {
+    return (
+      !this.stopped && this.dtlsTransport?.state === "connected" && !!this.codec
+    );
+  }
+
+  private settlePendingRtp(item: PendingRtpItem, error?: unknown) {
+    if (error == undefined) {
+      item.resolve();
+      return;
+    }
+    item.reject(error);
+  }
+
+  private discardPendingRtp() {
+    const dropped = this.pendingRtp.splice(0);
+    for (const item of dropped) {
+      this.settlePendingRtp(item);
+    }
+  }
+
+  private enqueuePendingRtp(
+    rtp: Buffer | RtpPacket,
+    resolve: () => void,
+    reject: (error: unknown) => void,
+  ) {
+    const packet = Buffer.isBuffer(rtp)
+      ? RtpPacket.deSerialize(rtp)
+      : rtp.clone();
+    this.pendingRtp.push({ packet, resolve, reject });
+    while (this.pendingRtp.length > this.pendingRtpMaxLength) {
+      const dropped = this.pendingRtp.shift();
+      if (dropped) {
+        this.settlePendingRtp(dropped);
+      }
+    }
+  }
+
+  /**
+   * Send queued RTP once DTLS is connected and a codec is set. Used only when
+   * pending RTP is enabled: `writeRtp` / `sendRtp` may run before ICE/DTLS
+   * completes; dropping those packets would lose the start of a media source.
+   * `drainingPendingRtp` blocks re-entry while `dispatchRtp` is awaited;
+   * packets enqueued during that wait are drained by the recursive call after
+   * the flag is cleared.
+   */
+  private async drainPendingRtp() {
+    if (this.drainingPendingRtp) {
+      return;
+    }
+    this.drainingPendingRtp = true;
+    try {
+      while (this.pendingRtp.length > 0 && this.canSendRtp()) {
+        const item = this.pendingRtp.shift()!;
+        if (!this.canSendRtp()) {
+          this.settlePendingRtp(item);
+          continue;
+        }
+        try {
+          await this.dispatchRtp(item.packet);
+          this.settlePendingRtp(item);
+        } catch (error) {
+          this.settlePendingRtp(item, error);
+        }
+      }
+    } finally {
+      this.drainingPendingRtp = false;
+    }
+    if (this.pendingRtp.length > 0 && this.canSendRtp()) {
+      await this.drainPendingRtp();
+    }
   }
 
   registerTrack(track: MediaStreamTrack) {
     if (track.stopped) throw new Error("track is ended");
+
+    captureTrackSourceCodecs(track);
 
     if (this.disposeTrack) {
       this.disposeTrack();
@@ -272,18 +423,36 @@ export class RTCRtpSender {
       encodings.length > 0
         ? encodings.map((encoding) => ({ ...encoding }))
         : [{}];
+    const rid = this.sendEncodings.find(
+      (encoding) => typeof encoding.rid === "string",
+    )?.rid;
+    if (typeof rid === "string") {
+      this.rtpStreamId = rid;
+    }
   }
 
   async replaceTrack(track: MediaStreamTrack | null) {
     if (track === null) {
-      if (this.disposeTrack) {
-        this.disposeTrack();
-      }
-      this.track = null;
+      this.detachTrack();
       return;
     }
 
     if (track.stopped) throw new Error("track is ended");
+
+    captureTrackSourceCodecs(track);
+    const sourceCodecs = getTrackSourceCodecs(track);
+    if (
+      this.sendPrimaryCodec != undefined &&
+      sourceCodecs != undefined &&
+      !sourceCodecs.some((source) =>
+        isCodecCompatible(source, this.sendPrimaryCodec!),
+      )
+    ) {
+      throw createWebRtcDomException(
+        "InvalidModificationError",
+        `Track codec ${sourceCodecs.map((codec) => codec.mimeType).join(", ")} is incompatible with negotiated codecs ${this.negotiatedCodecs.map((codec) => codec.mimeType).join(", ")}`,
+      );
+    }
 
     if (this.sequenceNumber != undefined) {
       this.scheduleRtpContinuity();
@@ -293,14 +462,33 @@ export class RTCRtpSender {
     log("replaceTrack", "ssrc", track.ssrc, "rid", track.rid);
   }
 
-  stop() {
+  /**
+   * Detach the current track without stopping the sender (`removeTrack`).
+   * The same sender can resume sending after `replaceTrack(track)`.
+   */
+  detachTrack() {
+    this.rtpContinuityPending = false;
+    this.discardPendingRtp();
+    if (this.disposeTrack) {
+      this.disposeTrack();
+      this.disposeTrack = undefined;
+    }
+    this.track = null;
+  }
+
+  stop({ keepTrack = false }: { keepTrack?: boolean } = {}) {
     this.stopped = true;
+    this.rtpContinuityPending = false;
+    this.discardPendingRtp();
     this.rtcpRunning = false;
     this.rtcpCancel.abort();
     if (this.disposeTrack) {
       this.disposeTrack();
+      this.disposeTrack = undefined;
     }
-    this.track = null;
+    if (!keepTrack) {
+      this.track = null;
+    }
   }
 
   async runRtcp() {
@@ -353,6 +541,37 @@ export class RTCRtpSender {
   }
 
   /**
+   * Send an RTP packet. Pending RTP is disabled by default: the packet is
+   * written immediately if DTLS is connected and a codec is set, otherwise
+   * dropped.
+   *
+   * When pending RTP is enabled, the packet is queued until it can be sent.
+   * The returned promise then settles for this packet only:
+   * - resolve: DTLS send completed, or the packet was dropped by `stop()`,
+   *   `replaceTrack(null)`, or pending-queue overflow
+   * - reject: DTLS send threw while writing this packet
+   *
+   * Later `sendRtp()` calls stay pending until their own packet is sent or
+   * dropped, even if a drain is already in progress.
+   */
+  async sendRtp(rtp: Buffer | RtpPacket) {
+    if (this.stopped) {
+      return;
+    }
+    if (!this.pendingRtpEnabled) {
+      if (!this.canSendRtp()) {
+        return;
+      }
+      await this.dispatchRtp(rtp);
+      return;
+    }
+    await new Promise<void>((resolve, reject) => {
+      this.enqueuePendingRtp(rtp, resolve, reject);
+      void this.drainPendingRtp();
+    });
+  }
+
+  /**
    * Schedule RTP continuity rewrite for the next packet that is actually sent.
    * The header argument is kept for API compatibility and is not used to compute
    * offsets. `discontinuity` does not change sequence or timestamp mapping.
@@ -380,12 +599,17 @@ export class RTCRtpSender {
     this.rtpCache = [];
   }
 
-  async sendRtp(rtp: Buffer | RtpPacket) {
-    if (this.dtlsTransport.state !== "connected" || !this.codec) {
+  private async dispatchRtp(rtp: Buffer | RtpPacket) {
+    if (!this.canSendRtp()) {
       return;
     }
 
-    rtp = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;
+    const codec = this.codec;
+    if (!codec) {
+      return;
+    }
+
+    rtp = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp.clone();
 
     const { header, payload } = rtp;
     const inputSequenceNumber = header.sequenceNumber;
@@ -408,7 +632,7 @@ export class RTCRtpSender {
     }
 
     header.ssrc = this.ssrc;
-    header.payloadType = this.codec.payloadType;
+    header.payloadType = codec.payloadType;
     header.timestamp = uint32Add(header.timestamp, this.timestampOffset);
     header.sequenceNumber = uint16Add(header.sequenceNumber, this.seqOffset);
     this.timestamp = header.timestamp;
