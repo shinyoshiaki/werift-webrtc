@@ -1855,13 +1855,16 @@ export class Connection implements IceConnection {
       // So disallow overwriting of the pair nominated for that component
       if (
         pair.nominated &&
-        // remoteのgenerationをチェックする.localのgenerationは更新が間に合わないかもしれないのでチェックしない
-        (pair.remoteCandidate.generation != undefined
-          ? pair.remoteCandidate.generation === this.generation
-          : true) &&
-        // A check still in flight when an ICE restart reset the checklist
-        // belongs to the discarded generation and cannot select its pair.
+        // The pair belongs to the live remote generation: it is in the
+        // current checklist (a restart resets it, so a check still in flight
+        // from a discarded generation cannot select its pair) and its remote
+        // candidate names the live remote ufrag, if it names one. The SDP
+        // `generation` attribute counts the peer's own restarts and is not
+        // comparable with the local generation (a remote-only restart, or a
+        // peer that numbers differently).
         this.checkList.includes(pair) &&
+        (pair.remoteCandidate.ufrag == undefined ||
+          pair.remoteCandidate.ufrag === this.remoteUsername) &&
         this.nominated == undefined
       ) {
         log("nominated", pair.toJSON());

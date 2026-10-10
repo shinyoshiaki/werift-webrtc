@@ -309,6 +309,8 @@ provisional の checklist は live と同じ規則に従う: 候補から作る 
 
 - レビュー指摘（pranswer の再適用）: `connectPending()` は、提案用の transport に毎回 `iceTransport.start()` を呼んでいた。そのため、BUNDLE 分割の transport を pranswer で接続した後に同じ local pranswer を再適用すると、ICE が `connected` から `checking` に戻った。checks は完了済みの checklist を待ち続け、final answer の後も戻らず、`checksSettled()` は close 後も決着しなかった。`connectPending()` も `connect()` と同じ規則に従う: checks はその generation でまだ始めていない場合だけ始め、実行中なら完了を待ち、確立済みの generation はやり直さない。DTLS も、実行中の handshake は完了を待ち、新しいものだけを始める。ICE transport の停止は `checksSettled()` の待機を決着させる。試験: Reg「a local pranswer applied again over a connected BUNDLE split keeps its checks settled through the final answer and close()」（修正前は失敗）。
 
+- レビュー指摘（remote だけの restart と generation 番号）: pair の選択を完了とする判定は、remote 候補の SDP の `generation` 属性とローカルの generation 番号の一致を求めていた。`generation` は相手自身の restart の回数で、ローカルの番号とは比べられない。remote だけの restart（④ で local の番号を進めなくなった）や番号の数え方が違う相手では、一致しない。ICE-lite の相手が final answer で資格情報を変えて候補に `generation 1` を付けると、相手から check が来ないので、nomination に成功しても selected pair が設定されず、ICE は checking のまま `checksSettled()` も決着しなかった。判定は checklist と ufrag の所属で行う: pair が現在の checklist にあり（restart で checklist は作り直される）、remote 候補が ufrag を名乗るなら live の remote ufrag と一致すること。試験: `packages/ice/tests/ice/restart-generation.test.ts`「a remote-only restart toward an ICE-lite peer nominates although its candidates carry another generation number」と Reg「an ICE-lite peer's final answer with new credentials and generation 1 candidates connects without another restart」（どちらも次の restart の前に接続と通信を検査。修正前は失敗）。
+
 **策E: develop 差分ファズにレビュアーの探索軸を入れる**（`tools/negotiation-diff`）
 
 - 軸:
@@ -446,7 +448,7 @@ commit path に例外が残る場合は、公開状態を切り替える前に�
 
 ## 7. 仕様と試験の対応表（策3）
 
-2.1〜2.12 と 5 章の各文（要件）を、それを検証する試験名（または invariant helper）か「対象外（理由）」に対応づけた表を `packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md` に置く（全 275 件: covered 252 件、対象外 23 件、partial / uncovered 0 件。2.11 で 15 件、2.12 で 9 件追加）。対象外は設計文書・コード構造・作業プロセスの記述だけで、理由を併記する。
+2.1〜2.12 と 5 章の各文（要件）を、それを検証する試験名（または invariant helper）か「対象外（理由）」に対応づけた表を `packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md` に置く（全 276 件: covered 253 件、対象外 23 件、partial / uncovered 0 件。2.11 で 15 件、2.12 で 10 件追加）。対象外は設計文書・コード構造・作業プロセスの記述だけで、理由を併記する。
 
 - 表の作成時点で partial / uncovered だった 59 件は、要件 ID を名前に持つ試験（`negotiationTransactionCoverageEvents` / `Transport` / `Ice` / `Codecs`、`packages/ice/tests/coverageConsent.test.ts`）で閉じた。そのうち修正前の実装で失敗したものは、2.10 の「見つけ、修正して確定した規則」として実装を直した。
 - 要件や試験を変えたら表も更新する。新しい要件は、ID を名前に含む試験を追加してから covered にする。
