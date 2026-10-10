@@ -1220,6 +1220,9 @@ export class Connection implements IceConnection {
           this.generation,
           this.localUsername,
         );
+        // An allocation that completes after checks began (an ICE restart
+        // allocates afresh) pairs with the remote candidates already known.
+        this.pairLocalProtocol(protocol);
         this.appendLocalCandidate(protocol.localCandidate);
 
         return protocol.localCandidate;
@@ -1373,8 +1376,10 @@ export class Connection implements IceConnection {
       }
     }
 
-    // # if we expect more candidates, keep going
-    if (!this.remoteCandidatesEnd) {
+    // # if we expect more candidates, keep going: remote ones until
+    // end-of-candidates, local ones until this generation's gathering ends
+    // (a relay candidate of an ICE restart can follow the remote ones).
+    if (!this.remoteCandidatesEnd || !this.localCandidatesEnd) {
       return !this.checkListDone;
     }
 

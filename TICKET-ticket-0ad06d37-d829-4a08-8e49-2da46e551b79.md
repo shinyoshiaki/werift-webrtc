@@ -269,6 +269,12 @@ provisional の checklist は live と同じ規則に従う: 候補から作る 
 - 変異試験の判定: b が変異した offer を受理して answer を確定し、a がその answer を拒否した場合は、両 peer の前提が食い違う（b の current は変異を反映している）。この場合は「拒否された再交渉は current を壊さない」を期待せず、理由付きで continuation から除外する（初回交渉は従来から同じ扱い）。session に audio を加えて、初めてこの組み合わせ（`audioOutOfBundle`・`noBundle` と video の拒否・inactive）に到達した。
 - develop 差分ファズ（変異 0.3）で「develop は受理し、HEAD は拒否する」2 件は、どちらも `sctpPort` の変異で、確立済み association の SCTP port の変更を拒否したもの（2.10 の意図した拒否）。HEAD はこれを受理すると、current SDP が live の association と異なる port を記述することになる。
 
+**レビュー指摘: relay-only の ICE restart**
+
+- restart の commit は新しい TURN allocation を待たない（2.8）。このため relay-only では、相手の候補と end-of-candidates が自分のローカル候補より先に届くことがある。その場合、ICE 層は空の checklist で即座に失敗していた。後から追加される relay 候補も既存の相手候補とペアにならず、復旧しなかった。develop は restart でも旧 allocation を使い続けるので、この順序にならない。ICE 層の同じ手順で develop は通信でき、HEAD は失敗した。
+- 規則: 接続確認は、相手の end-of-candidates に加えて、その generation のローカル収集が終わるまで候補を待ち続ける（空の checklist を収集中に失敗させない）。収集中に確立した TURN allocation は、既知の相手候補とペアを作る（host 候補と同じ）。
+- 試験: `packages/ice/tests/ice/turn-restart.test.ts` の「a relay-only restart whose new allocation completes after the peer's end-of-candidates nominates and carries data」と、`negotiationTransactionRegression.test.ts` の「a relay-only ICE restart offered by %s nominates once the held TURN allocation completes after the peer's candidates」（offerer が a と b の両方）。どちらも両 peer を relay-only にし、片側の新しい allocation を proxy で保留して、restart 後の nomination と実通信を検査する。修正前の HEAD ではどちらも失敗する。既存の TURN restart 試験は host 候補も使えるため、この順序を検出していなかった。
+
 **策C: develop と挙動を変える箇所を増やさない**
 
 - 以後の修正では、develop と挙動が変わるものを原則として追加しない。追加する場合は、策B の helper を通すことを条件にする。今回の変更は、次の 2 種類だけである:
@@ -375,7 +381,7 @@ commit path に例外が残る場合は、公開状態を切り替える前に�
 - `addTransceiver()` で作った未関連付けの transceiver を、remote offer が m-line に関連付けることがある（W3C は `addTrack()` 由来だけを再利用する）。werift の既存動作。
 - ICE restart の commit で ICE 層は旧 selected pair を手放すため、新 generation が nominate するまで RTP が途切れる。RFC 8445 / 8839 と Chrome は新しい pair が選ばれるまで旧 pair で送り続ける。pranswer 中の provisional generation の nominate 結果は commit で引き継がない（2.7）。
 - ICE server がなく、restart の offer が end-of-candidates まで通知した後に変更した ICE server 設定は、その restart では使わず次の restart で使う。
-- STUN / TURN がある場合、restart の relay 候補と end-of-candidates は commit 後に届く。relay だけの構成では新しい allocation ができるまで新 generation の候補がない。
+- STUN / TURN がある場合、restart の relay 候補と end-of-candidates は commit 後に届く。relay だけの構成では、新しい allocation ができるまで新 generation の候補がない（その間も接続確認は失敗せずに候補を待つ。2.11）。
 - `setConfiguration` で `iceTransportPolicy` だけを変えても既存の ICE transport には反映されない。（`develop` から既存）。`close()` と並行して完了した TURN allocation は閉じる（2.8）。
 - remote description の適用中に、送信 track の codec に合わせて設定の codec 順序と動的 payload type が調整されることがある。影響するのは後の offer だけで、current の RTP には影響せず、rollback でも戻らない。
 - m-line の再利用で置き換わる transceiver は、再利用する offer の適用時点で stopped になる（current の m-line は既に拒否済みで、current の通信は使っていない）。rollback で戻る。
@@ -388,7 +394,7 @@ commit path に例外が残る場合は、公開状態を切り替える前に�
 
 ## 7. 仕様と試験の対応表（策3）
 
-2.1〜2.11 と 5 章の各文（要件）を、それを検証する試験名（または invariant helper）か「対象外（理由）」に対応づけた表を `packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md` に置く（全 264 件: covered 241 件、対象外 23 件、partial / uncovered 0 件。2.11 で 13 件追加）。対象外は設計文書・コード構造・作業プロセスの記述だけで、理由を併記する。
+2.1〜2.11 と 5 章の各文（要件）を、それを検証する試験名（または invariant helper）か「対象外（理由）」に対応づけた表を `packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md` に置く（全 265 件: covered 242 件、対象外 23 件、partial / uncovered 0 件。2.11 で 14 件追加）。対象外は設計文書・コード構造・作業プロセスの記述だけで、理由を併記する。
 
 - 表の作成時点で partial / uncovered だった 59 件は、要件 ID を名前に持つ試験（`negotiationTransactionCoverageEvents` / `Transport` / `Ice` / `Codecs`、`packages/ice/tests/coverageConsent.test.ts`）で閉じた。そのうち修正前の実装で失敗したものは、2.10 の「見つけ、修正して確定した規則」として実装を直した。
 - 要件や試験を変えたら表も更新する。新しい要件は、ID を名前に含む試験を追加してから covered にする。
