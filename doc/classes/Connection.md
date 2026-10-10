@@ -546,6 +546,30 @@ Called after restart, before re-gathering the chosen generation.
 
 ***
 
+### dropOtherRemoteGenerations()
+
+> **dropOtherRemoteGenerations**(`usernameFragment`): `void`
+
+Drop the remote candidates (and their pairs) that name a ufrag other than
+`usernameFragment`: they belong to another remote generation and cannot
+pass checks with its credentials. Candidates without a ufrag stay.
+
+#### Parameters
+
+##### usernameFragment
+
+`string`
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`dropOtherRemoteGenerations`](../interfaces/IceConnection.md#dropotherremotegenerations)
+
+***
+
 ### gatherCandidates()
 
 > **gatherCandidates**(): `Promise`\<`void`\>
