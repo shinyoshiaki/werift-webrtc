@@ -702,6 +702,13 @@ export class RTCIceTransport {
 
   async stop() {
     this.localGenerations.clear();
+    // Whoever awaits the checks of this transport settles now (checksSettled).
+    const waitStart = this.waitStart;
+    this.waitStart = undefined;
+    if (waitStart && !waitStart.ended) {
+      waitStart.execute();
+      waitStart.complete();
+    }
     if (this.state !== "closed") {
       this.setState("closed", false);
       await this.connection.close();
