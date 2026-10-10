@@ -67,6 +67,14 @@ export class Connection implements IceConnection {
   /** connect() began this generation's checks (their outcome sets the state). */
   private checksBegun = false;
   generation = -1;
+  /**
+   * Counts every reset of the remote generation: a local ICE restart and a
+   * remote-only one. Remote-side work (a candidate's mDNS lookup, the wait
+   * for end-of-candidates, consent, a nomination in flight) belongs to the
+   * value it started with. A remote-only restart leaves `generation` (the
+   * local gathering's) alone.
+   */
+  private remoteGeneration = 0;
   userHistory: { [username: string]: string } = {};
   private readonly tieBreaker: bigint = randomBytes(8).readBigUInt64BE(0);
   state: IceState = "new";
@@ -77,6 +85,9 @@ export class Connection implements IceConnection {
   nominated?: CandidatePair;
   private nominating = false;
   private checkListDone = false;
+  /** Resolves when the agent closes: work that awaits the network stops waiting. */
+  private readonly closedSignal: Promise<void>;
+  private signalClosed!: () => void;
   private checkListState = new PQueue<number>();
   private earlyChecks: [Message, Address, Protocol][] = [];
   private earlyChecksDone = false;
@@ -102,6 +113,9 @@ export class Connection implements IceConnection {
     private _iceControlling: boolean,
     options?: Partial<IceOptions>,
   ) {
+    this.closedSignal = new Promise<void>((resolve) => {
+      this.signalClosed = resolve;
+    });
     this.options = {
       ...defaultOptions,
       ...options,
@@ -185,6 +199,7 @@ export class Connection implements IceConnection {
 
   async restart() {
     this.generation++;
+    this.remoteGeneration++;
 
     this.localUsername = randomString(4);
     this.localPassword = randomString(22);
@@ -236,7 +251,7 @@ export class Connection implements IceConnection {
    * the selected pair start over; local credentials and candidates stay.
    */
   restartRemote() {
-    this.generation++;
+    this.remoteGeneration++;
     this.remoteUsername = "";
     this.remotePassword = "";
     this._remoteCandidates = [];
@@ -738,7 +753,12 @@ export class Connection implements IceConnection {
         this.options.stunGatherTimeout,
         generation,
       );
-      await Promise.allSettled(candidatePromises);
+      // close() ends the gathering at once: the continuations above close
+      // whatever a server query still opens for a closed agent.
+      await Promise.race([
+        Promise.allSettled(candidatePromises),
+        this.closedSignal,
+      ]);
 
       // A later ICE restart (or close) owns the agent now: this gathering
       // neither completes that generation nor touches its state.
@@ -1554,7 +1574,7 @@ export class Connection implements IceConnection {
           }
 
           const pairId = nominated.id;
-          const generation = this.generation;
+          const generation = this.remoteGeneration;
           const remotePassword = this.remotePassword;
           const { localUsername, remoteUsername, iceControlling } = this;
 
@@ -1607,7 +1627,7 @@ export class Connection implements IceConnection {
               if (this.nominated?.id !== pairId) {
                 return;
               }
-              if (this.generation !== generation) {
+              if (this.remoteGeneration !== generation) {
                 return;
               }
               if (this.remotePassword !== remotePassword) {
@@ -1653,6 +1673,7 @@ export class Connection implements IceConnection {
     // """
 
     this.setState("closed");
+    this.signalClosed();
 
     // # stop consent freshness tests
     this.stopConsentLifecycle();
@@ -1701,9 +1722,9 @@ export class Connection implements IceConnection {
       // Candidates that arrived before end-of-candidates finish first.
       this.remoteCandidatesEndRequested = true;
       if (this.remoteResolutions.size > 0) {
-        const generation = this.generation;
+        const generation = this.remoteGeneration;
         await Promise.allSettled([...this.remoteResolutions]);
-        if (this.generation !== generation) return;
+        if (this.remoteGeneration !== generation) return;
       }
       this.remoteCandidatesEnd = true;
       return;
@@ -1715,7 +1736,7 @@ export class Connection implements IceConnection {
     }
 
     if (remoteCandidate.host.includes(".local")) {
-      const generation = this.generation;
+      const generation = this.remoteGeneration;
       try {
         if (!this.lookup) {
           this.lookup = new MdnsLookup();
@@ -1731,7 +1752,8 @@ export class Connection implements IceConnection {
         return;
       }
       // An ICE restart or completion while resolving ends this candidate's generation.
-      if (this.generation !== generation || this.remoteCandidatesEnd) return;
+      if (this.remoteGeneration !== generation || this.remoteCandidatesEnd)
+        return;
     }
 
     try {
@@ -2142,7 +2164,7 @@ export class Connection implements IceConnection {
 
   private nominateTcpPair(pair: CandidatePair) {
     this.nominating = true;
-    const { generation } = this;
+    const generation = this.remoteGeneration;
     const request = this.buildRequest({
       nominate: true,
       localUsername: pair.localCandidate.ufrag ?? this.localUsername,
@@ -2185,7 +2207,7 @@ export class Connection implements IceConnection {
   private isStaleNomination(pair: CandidatePair, generation: number) {
     return (
       this.state === "closed" ||
-      this.generation !== generation ||
+      this.remoteGeneration !== generation ||
       !this.checkList.includes(pair)
     );
   }

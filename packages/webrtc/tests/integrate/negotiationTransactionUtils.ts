@@ -1687,7 +1687,16 @@ export async function createSimulcastPeers() {
     rid: "high" | "low",
     ssrc: number,
     text: string,
-    { withRid, mid = firstMid }: { withRid: boolean; mid?: string },
+    {
+      withRid,
+      mid = firstMid,
+      headerMid = mid,
+    }: {
+      withRid: boolean;
+      mid?: string;
+      /** The MID extension value the packet carries (another peer's may differ). */
+      headerMid?: string;
+    },
   ) => {
     const track = receiver(mid).trackByRID[rid];
     const received = track.onReceiveRtp.watch(
@@ -1702,7 +1711,7 @@ export async function createSimulcastPeers() {
       marker: true,
       // MID は常に載せる (RID は MID と組で解決される)。
       extensions: [
-        { id: midExtensionId, payload: Buffer.from(mid) },
+        { id: midExtensionId, payload: Buffer.from(headerMid) },
         ...(withRid ? [{ id: ridExtensionId, payload: Buffer.from(rid) }] : []),
       ],
     });
@@ -2229,6 +2238,131 @@ export async function fuzzRemoteRejection(ctx: FuzzContext, rng: SeededRandom) {
   await step(session, () =>
     offerer.pc.setRemoteDescription({ type: "answer", sdp: applied }),
   );
+}
+
+/** Public operations the close-timing matrix interrupts. */
+export const CLOSE_TIMING_OPERATIONS = [
+  "createOffer",
+  "createAnswer",
+  "setLocalDescription(offer)",
+  "setLocalDescription(answer)",
+  "setRemoteDescription(offer)",
+  "setRemoteDescription(answer)",
+  "setRemoteDescription(glare offer)",
+  "setLocalDescription(rollback)",
+  "setRemoteDescription(rollback)",
+  "addIceCandidate",
+] as const;
+export type CloseTimingOperation = (typeof CLOSE_TIMING_OPERATIONS)[number];
+
+/**
+ * Shared Arrange: a peer `pc` in the state `operation` needs, plus the
+ * remote peer that produced its SDP. Returns the operation to start.
+ */
+export async function arrangeCloseTimingOperation(
+  operation: CloseTimingOperation,
+) {
+  const pc = new RTCPeerConnection();
+  const remote = new RTCPeerConnection();
+  pc.addTransceiver("audio");
+  remote.addTransceiver("video");
+  remote.createDataChannel("close-timing");
+  const remoteOffer = async () => {
+    await remote.setLocalDescription(await remote.createOffer());
+    return remote.localDescription!;
+  };
+  let run: () => Promise<unknown>;
+  switch (operation) {
+    case "createOffer":
+      run = () => pc.createOffer();
+      break;
+    case "createAnswer":
+      await pc.setRemoteDescription(await remoteOffer());
+      run = () => pc.createAnswer();
+      break;
+    case "setLocalDescription(offer)": {
+      const offer = await pc.createOffer();
+      run = () => pc.setLocalDescription(offer);
+      break;
+    }
+    case "setLocalDescription(answer)": {
+      await pc.setRemoteDescription(await remoteOffer());
+      const answer = await pc.createAnswer();
+      run = () => pc.setLocalDescription(answer);
+      break;
+    }
+    case "setRemoteDescription(offer)": {
+      const offer = await remoteOffer();
+      run = () => pc.setRemoteDescription(offer);
+      break;
+    }
+    case "setRemoteDescription(answer)": {
+      await pc.setLocalDescription(await pc.createOffer());
+      await remote.setRemoteDescription(pc.localDescription!);
+      await remote.setLocalDescription(await remote.createAnswer());
+      const answer = remote.localDescription!;
+      run = () => pc.setRemoteDescription(answer);
+      break;
+    }
+    case "setRemoteDescription(glare offer)": {
+      await pc.setLocalDescription(await pc.createOffer());
+      const offer = await remoteOffer();
+      run = () => pc.setRemoteDescription(offer);
+      break;
+    }
+    case "setLocalDescription(rollback)":
+      await pc.setLocalDescription(await pc.createOffer());
+      run = () => pc.setLocalDescription({ type: "rollback" });
+      break;
+    case "setRemoteDescription(rollback)":
+      await pc.setRemoteDescription(await remoteOffer());
+      run = () => pc.setRemoteDescription({ type: "rollback" });
+      break;
+    case "addIceCandidate": {
+      const offer = await remoteOffer();
+      await pc.setRemoteDescription(offer);
+      const mid = pc.getTransceivers().find((t) => t.mid)?.mid ?? "0";
+      run = () =>
+        pc.addIceCandidate({
+          candidate: "candidate:1 1 udp 2130706431 127.0.0.1 9 typ host",
+          sdpMid: mid,
+        });
+      break;
+    }
+  }
+  return {
+    pc,
+    run: run!,
+    close: () => Promise.allSettled([pc.close(), remote.close()]),
+  };
+}
+
+/** Act helper: call `pc.close()` after `ticks` microtasks, or after one macrotask. */
+export function closeAfter(pc: RTCPeerConnection, ticks: number | "macrotask") {
+  if (ticks === "macrotask") {
+    return new Promise<void>((resolve) =>
+      setImmediate(() => resolve(pc.close())),
+    );
+  }
+  let chain = Promise.resolve();
+  for (let i = 0; i < ticks; i++) chain = chain.then(() => undefined);
+  return chain.then(() => pc.close());
+}
+
+/** Assert helper: whether `promise` settles (resolves or rejects) within `ms`. */
+export async function settlesWithin(promise: Promise<unknown>, ms: number) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const settled = await Promise.race([
+    promise.then(
+      () => true,
+      () => true,
+    ),
+    new Promise<false>((resolve) => {
+      timer = setTimeout(() => resolve(false), ms);
+    }),
+  ]);
+  clearTimeout(timer);
+  return settled;
 }
 
 /** Shared Arrange: a local TURN server and the RTCIceServer entry for it. */

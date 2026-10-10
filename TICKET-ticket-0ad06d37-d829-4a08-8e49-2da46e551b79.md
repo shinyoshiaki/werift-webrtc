@@ -290,6 +290,46 @@ provisional の checklist は live と同じ規則に従う: 候補から作る 
   - develop で失敗していた操作を成功させるもの（port 0 の answer、後から足した DataChannel の開始、SCTP の client / server の固定）
 - 2.6〜2.10 の規則のうち develop と挙動が変わるものを、設計文書の "Behavior differences from develop" に棚卸しした。それぞれについて、核の不変条件・W3C・RFC のどれに必須かを示した。必須でないと判断したのは「拒否で SCTP を閉じる」だけで、develop に戻した。表の develop 欄のうち、今回のラウンドで計測していないものは「not measured」と明記した。
 
+### 2.12 レビューの探索軸を自前で回す（追加要件、策D・策E）
+
+**背景**: 8 回目のレビューは、develop と比較しながら 4 つの領域を並行して探索し、3 件を確定させた（① `bundlePolicy:"disable"` の再交渉 pranswer で `failed`、② `setRemoteDescription` の 1 microtask 後の `close()` で、その操作と後続の操作が永久に pending、③ remote offer の後にアプリが `stop()` し、rollback すると transceiver が残る）。どれも自前の探索が持たない軸で起きていた: 設定（`bundlePolicy` など）、タイミング（何 microtask 後か）、アプリの操作（rollback 前の `stop()`）。指摘を 1 件ずつ直すのではなく、レビュアーと同じ軸で依頼前に自分たちで探索する。
+
+**策D: 確定した 3 件と、未確認だった 3 件**
+
+- ② **close と操作の連鎖**: W3C の "chain an operation" を `enqueueDescriptionOperation` の 1 か所で実装する。閉じた接続への登録はその場で `InvalidStateError` で reject する。前の操作を待った後、および操作の後に閉じていれば reject する。永久に待つ Promise はなくす（W3C は追い越された操作を永久に pending にするが、該当する WPT 2 件はもともと FAIL で allowlist 外。werift は常に決着させ、アプリが待ち続けない）。ICE の収集も、agent の close で待機をやめる（後から完了した allocation は、その continuation が閉じる）。
+  - 試験: `negotiationTransactionCloseTiming.test.ts`。次の 10 操作それぞれについて、0〜10 microtask 後と 1 macrotask 後に `close()` を割り込ませる（120 件）。操作の Promise と、close 後の操作が決着すること、保持する全 transport が閉じていることを検査する。修正前の HEAD では 13 件が失敗する（その操作も後続の操作も 3 秒以内に決着しない）。
+    - 対象の操作: `createOffer`、`createAnswer`、SLD（offer / answer / rollback）、SRD（offer / answer / glare の offer / rollback）、`addIceCandidate`
+- ① **pranswer と未受信の remote パラメータ**: `connect()` は、適用した description で remote の ICE / DTLS パラメータを受けた transport だけを開始する。再交渉の pranswer は、新しい m-line のパラメータを final answer まで stage するので、その transport は final answer の後に開始する。試験: Reg「a bundlePolicy disable renegotiation pranswer does not fail the connection and the final answer connects」（修正前は失敗）。
+- ③ **rollback で残す transceiver**: remote offer が作った transceiver を rollback で残すのは、sender に track があるときだけにする（develop と同じ）。アプリの `stop()`・`direction`・`setCodecPreferences` では残さない。指示は「`addTrack` で付けた track だけ」だったが、`replaceTrack` で付けた track でも develop は残す。HEAD が削除すると、それ自体が develop との差（策E の transceiver 状態の検査で検出される）になるので、develop と同じにした（W3C は `addTrack` だけを数える）。試験: Reg「rollback of a remote offer after the application's $operation …」（stop / direction / setCodecPreferences / replaceTrack / addTrack。どれも同じ offer の再適用で transceiver が 1 つになる。stop は修正前に失敗）。
+- ④ **remote だけの restart と local の generation**: `restartRemote()` は local と同じ `generation` を進めていた。このため、remote の資格情報が local の収集中に変わると（pranswer と異なる資格情報の final answer など）、収集は古い generation とみなされて relay 候補を捨て、完了しなかった（ICE 層で再現）。remote 側の陳腐化（mDNS 解決、EOC 待ち、consent、送信中の nomination）は別の `remoteGeneration` で判定し、remote だけの restart は local の収集に触れない。試験: `packages/ice/tests/ice/turn-restart.test.ts`「a remote-only restart while the local generation gathers keeps that gathering and its relay candidate」（修正前は失敗）。
+- ⑤ **simulcast の RID**: MID 拡張を持つ RTP は MID+RID で引き、その MID の route がなければ、develop と同じく RID だけで引き直す。試験: Reg「a simulcast layer whose MID extension names no route is still routed by its RID (as develop)」（修正前は失敗）。
+- ⑥ **addIceCandidate と収集**: `addIceCandidate` は、前の操作が description を適用した時点まで待つ（SLD の収集の完了は待たない）。後続の description 操作は、両方の完了を待つ。応答しない STUN server がある場合、修正前は約 5 秒待っていた（develop は約 1 ms）。試験: Reg「addIceCandidate does not wait for the gathering of a setLocalDescription before it (as develop)」（修正前は失敗）。
+
+- 策E の探索で見つけたもの: 置き換えた local offer を rollback すると、保留中に追加した transceiver が、置き換えの offer で付いた MID を持ち続けた（単独の offer の rollback では null に戻る。W3C は戻す）。rollback は、交渉していない transceiver から、その MID と m-line の関連付けを外す。試験: Reg「rollback of a replacement local offer takes back the MID it gave a transceiver added meanwhile (as after a single offer)」（修正前は失敗）。
+
+**策E: develop 差分ファズにレビュアーの探索軸を入れる**（`tools/negotiation-diff`）
+
+- 軸:
+  - 設定（seed ごと）: `bundlePolicy`（max-bundle / balanced / max-compat / disable）、`rtcpMuxPolicy:"require"`、ローカル TURN を使う relay-only。`rtcpMuxPolicy` は develop・HEAD とも `"require"` 以外を受け付けない。
+  - アプリの操作: `stop`、`replaceTrack`、`direction`、`setCodecPreferences`、`createDataChannel`、`restartIce`。
+  - タイミング: `closeDuring` は操作を始め、0〜8 microtask 後か 1 macrotask 後に `close()` する。
+  - 相手: 既存の変異（`--mutate`）。
+- `compare.ts` が HEAD について常に検査すること（どれかがあれば exit 1）:
+  - 全操作（close 後に始めた操作を含む）が時間内に決着する。
+  - 故障を注入していない（変異も close もない）試行で、`connectionState` が `failed` にならない（develop も `failed` になる場合は件数だけを報告する）。
+  - 同じ操作が同じ結果になったとき、transceiver の数と状態（MID、direction、currentDirection、stopping / stopped）が develop と一致する。
+  - これまでどおりの「develop は受理して通信でき、HEAD は拒否または通信できない」差分。
+- ランダムな列ではまず到達しない組み合わせを 2 つの合成操作として加えた（どちらも両 peer が stable のときだけ実行する）。
+  - `pranswerRound`: 新しい m-line を pranswer で 1.5 秒保ってから final answer。
+  - `remoteOfferAppOpRollback`: 相手の offer を適用し、それが作った transceiver を app が操作して（track を付けない状態から）、両側で rollback する。
+- `--ops '<json>'` は決まった操作列を同じ形式で再生し、見つけた差を develop と HEAD で確かめ直せる。
+- 意図した差として数え、失敗にしないもの（理由は設計文書「Behavior differences from develop」）:
+  - 未適用の `createOffer()` は MID を関連付けない（W3C）。develop は `createOffer` の時点で割り当て、次の offer と同じ MID を 2 つの transceiver に与えて新しい m-line を止めることがある。そのような transceiver は kind と direction だけを比べ、MID の値の違い（HEAD は未適用の offer が予約した MID を再利用しない）は比べない。HEAD の MID の重複は差として扱う。
+  - develop が 1 つの MID を 2 つの transceiver に与えた記録は、develop の欠陥として数えるだけにする。
+  - 閉じた peer の transceiver の状態は比べない（close 後は決着だけを検査する）。
+  - pending の remote offer は current の送信 codec を変えず、rollback で戻す（核の不変条件）。develop は remote offer の適用で送信 codec を切り替え、rollback でも戻さない。このため、その後に相手の古い answer（offer にない codec を含む）を適用したとき、develop だけが通信できる。変異試験の seed 7 がこれにあたる。
+- 修正前の HEAD（`3da7c5a4`）に対しては、8 回目で確定した 3 件を検出した。① `disable` の `pranswerRound` で「HEAD だけの failed」、② `closeDuring`（rollback を 1 tick 後に close）で「未決着」、③ `remoteOfferAppOpRollback`（stop）で「transceiver 状態の差」（`--ops` で再生）。
+
 ## 3. 技術的な実装アプローチ
 
 ### 3.1 transaction coordinator と subsystem API
@@ -373,6 +413,7 @@ commit path に例外が残る場合は、公開状態を切り替える前に�
 - [ ] 2.10 の有効値表が設計文書にあり、`expectedLive` が一律の「live = current SDP」検査を置き換えている。表の各行に回帰試験があり、修正した箇所は修正前の実装で失敗し修正後に通る。
 - [ ] 変異ライブラリの単独・全ペア・乱択の組み合わせ、割り込みの表、変異を含む develop 差分ファズが通る（差分ファズは「develop は受理して通信でき、HEAD は拒否または通信できない」が 0 件、または意図した拒否として理由を記載）。
 - [ ] 2.11 のとおり、application m-line の拒否の後（全経路）も、次の offer・ICE restart・DataChannel の追加・相手からの再 offer・実通信が成功する。修正前の HEAD で失敗した拒否試験が通る。Coverage*・回帰・変異・拒否の各試験が `expectSessionContinues` を通り（除外は理由付き）、kind × 属性から生成した変異と、property test の拒否 episode が通る。develop との挙動差の棚卸し表が設計文書にある。
+- [ ] 2.12 のとおり、策D の 6 件にそれぞれ修正前に失敗する試験があり、close のタイミングの表（10 操作 × 12 時点）で全 Promise が決着する。策E の軸と検査を入れた develop 差分ファズ（変異なし・変異あり）で、回帰・未決着・HEAD だけの `failed`・transceiver 状態の差が 0 件、または意図した差として理由を記載している。
 - [ ] 仕様と試験の対応表（7 章、`NEGOTIATION_SPEC_COVERAGE.md`）で partial / uncovered が 0 件で、その後に自己レビューを行っている。
 - [ ] `cd packages/webrtc && npm run type && npm test`、cross-package 変更時の `npm run type && npm run test:small`、関連 E2E が通る。WPT runner や allowlist を変更した場合は `npm run wpt --workspace packages/webrtc`（coverage wiring 変更時は `npm run wpt:coverage --workspace packages/webrtc`）も通る。CI dependency failure があれば先に解消し、transaction tests が CI で実行される。
 
@@ -389,6 +430,7 @@ commit path に例外が残る場合は、公開状態を切り替える前に�
 - `addTransceiver()` で作った未関連付けの transceiver を、remote offer が m-line に関連付けることがある（W3C は `addTrack()` 由来だけを再利用する）。werift の既存動作。
 - ICE restart の commit で ICE 層は旧 selected pair を手放すため、新 generation が nominate するまで RTP が途切れる。RFC 8445 / 8839 と Chrome は新しい pair が選ばれるまで旧 pair で送り続ける。pranswer 中の provisional generation の nominate 結果は commit で引き継がない（2.7）。
 - ICE server がなく、restart の offer が end-of-candidates まで通知した後に変更した ICE server 設定は、その restart では使わず次の restart で使う。
+- `close()` に追い越された操作の Promise は `InvalidStateError` で決着する。W3C は永久に pending にする（WPT「Closing on setRemoteDescription() / rollback neither resolves nor rejects」の 2 件は、もともと FAIL で allowlist 外）。
 - STUN / TURN がある場合、restart の relay 候補と end-of-candidates は commit 後に届く。relay だけの構成では、新しい allocation ができるまで新 generation の候補がない（その間も接続確認は失敗せずに候補を待つ。2.11）。
 - `setConfiguration` で `iceTransportPolicy` だけを変えても既存の ICE transport には反映されない。（`develop` から既存）。`close()` と並行して完了した TURN allocation は閉じる（2.8）。
 - remote description の適用中に、送信 track の codec に合わせて設定の codec 順序と動的 payload type が調整されることがある。影響するのは後の offer だけで、current の RTP には影響せず、rollback でも戻らない。
@@ -402,7 +444,7 @@ commit path に例外が残る場合は、公開状態を切り替える前に�
 
 ## 7. 仕様と試験の対応表（策3）
 
-2.1〜2.11 と 5 章の各文（要件）を、それを検証する試験名（または invariant helper）か「対象外（理由）」に対応づけた表を `packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md` に置く（全 266 件: covered 243 件、対象外 23 件、partial / uncovered 0 件。2.11 で 15 件追加）。対象外は設計文書・コード構造・作業プロセスの記述だけで、理由を併記する。
+2.1〜2.12 と 5 章の各文（要件）を、それを検証する試験名（または invariant helper）か「対象外（理由）」に対応づけた表を `packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md` に置く（全 274 件: covered 251 件、対象外 23 件、partial / uncovered 0 件。2.11 で 15 件、2.12 で 8 件追加）。対象外は設計文書・コード構造・作業プロセスの記述だけで、理由を併記する。
 
 - 表の作成時点で partial / uncovered だった 59 件は、要件 ID を名前に持つ試験（`negotiationTransactionCoverageEvents` / `Transport` / `Ice` / `Codecs`、`packages/ice/tests/coverageConsent.test.ts`）で閉じた。そのうち修正前の実装で失敗したものは、2.10 の「見つけ、修正して確定した規則」として実装を直した。
 - 要件や試験を変えたら表も更新する。新しい要件は、ID を名前に含む試験を追加してから covered にする。

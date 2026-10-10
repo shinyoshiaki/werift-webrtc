@@ -1,7 +1,7 @@
 # Negotiation transaction: spec-to-test map
 
 Every requirement sentence of the negotiation transaction ticket (sections
-2.1–2.11 and 5) mapped to the tests that verify it, or marked out of scope
+2.1–2.12 and 5) mapped to the tests that verify it, or marked out of scope
 with the reason. The design is in `NEGOTIATION_TRANSACTION.md`. Keep this map
 current when a requirement or its test changes: a new requirement gets a
 test (named with its ID in brackets) before it is marked covered.
@@ -277,5 +277,13 @@ test (named with its ID in brackets) before it is marked covered.
 | 2.11-13 | develop の renomination 経路（inactive の m-line と資格情報の変更）は、別の ufrag を名乗る remote 候補と pair を落とし、ufrag のない候補は残す | Reg: "new remote credentials next to an inactive m-line keep only the new remote generation's candidates"; ice:restart-generation "dropping other remote generations keeps only the live ufrag's and ufrag-less candidates"; Mut（全ペア: inactive × videoSeparateCredentials） | covered |
 | 2.11-14 | relay-only の ICE restart で、相手の候補と end-of-candidates が自分の新しい relay 候補より先に届いても、接続確認は収集の終わりまで待ち、後から確立した allocation を既知の相手候補とペアにして nominate する | ice:turn-restart "a relay-only restart whose new allocation completes after the peer's end-of-candidates nominates and carries data"; Reg: "a relay-only ICE restart offered by %s nominates once the held TURN allocation completes after the peer's candidates" | covered |
 | 2.11-15 | description 操作は各 await と signaling 通知の後に閉鎖を確認し、閉じていれば何も変更せず InvalidStateError で失敗する（回復処理も行わず、閉じた接続は transport を作らない） | Reg: "close() from the stable event of a glare implicit rollback adds no pending offer and leaves no transport running"; Reg: "close() from the stable event of a new local offer that rolls a remote pranswer back adds no pending offer and leaves no transport running"; Intr: "$interrupt while waiting on $wait" | covered |
+| 2.12-1 | close() に追い越された操作 (登録時・前の操作の後・実行後) は InvalidStateError で決着し、永久に pending にならない。ICE の収集は close で待機をやめる | CloseTiming: "$operation closed after $ticks"; ice:gather-generation "close() during a restart gather leaves no TURN allocation" | covered |
+| 2.12-2 | connect() は remote の ICE / DTLS パラメータを受けた transport だけを開始する（再交渉 pranswer で failed にならない） | Reg: "a bundlePolicy disable renegotiation pranswer does not fail the connection and the final answer connects" | covered |
+| 2.12-3 | rollback で remote 作成の transceiver を残すのは sender に track があるときだけ（develop と同じ） | Reg: "rollback of a remote offer after the application's $operation keeps the remote-created transceiver only when it has a track (as develop)" | covered |
+| 2.12-4 | remote だけの restart は remoteGeneration を進め、local の収集を止めない | ice:turn-restart "a remote-only restart while the local generation gathers keeps that gathering and its relay candidate" | covered |
+| 2.12-5 | simulcast の RID は MID+RID、MID の route がなければ RID だけで引く | Reg: "a simulcast layer whose MID extension names no route is still routed by its RID (as develop)" | covered |
+| 2.12-6 | addIceCandidate は前の操作の適用まで待ち、収集は待たない。後続の操作は両方を待つ | Reg: "addIceCandidate does not wait for the gathering of a setLocalDescription before it (as develop)" | covered |
+| 2.12-8 | 置き換えた local offer の rollback も、保留中に追加して交渉していない transceiver から MID と m-line の関連付けを外す | Reg: "rollback of a replacement local offer takes back the MID it gave a transceiver added meanwhile (as after a single offer)" | covered |
+| 2.12-7 | develop 差分ファズに設定・アプリの操作・close のタイミング・変異の軸を入れ、未決着・故障なしの failed・transceiver 状態の差を検査する | `tools/negotiation-diff` の `run.ts` / `compare.ts`（手元実行） | covered |
 | 2.11-11 | develop と挙動が変わる規則を棚卸しし、核の不変条件に必須でないものは develop に戻す | NEGOTIATION_TRANSACTION.md「Behavior differences from develop」 | 対象外（文書・作業プロセス） |
 | 2.11-12 | 以後の develop と挙動が変わる修正は `expectSessionContinues` を通すことを条件にする | — | 対象外（作業プロセス） |

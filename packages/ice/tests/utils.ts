@@ -16,9 +16,9 @@ import {
 import { classes, methods } from "../src/stun/const";
 import { Message, parseMessage } from "../src/stun/message";
 import { splitTurnTcpFrames } from "../src/turn/frame";
-import { getHostAddresses } from "../src/utils";
 import type { StunOverTurnProtocol } from "../src/turn/protocol";
 import type { Protocol, TransactionRequestOptions } from "../src/types/model";
+import { getHostAddresses } from "../src/utils";
 
 export const TURN_TEST_USERNAME = "turn-user";
 export const TURN_TEST_PASSWORD = "turn-password";

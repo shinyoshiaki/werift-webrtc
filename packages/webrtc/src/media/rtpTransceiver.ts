@@ -237,11 +237,13 @@ export class RTCRtpTransceiver {
   }
 
   /**
-   * Internal: the application uses this transceiver (it attached a track or
-   * stopped it), so a rollback keeps it even if a remote offer created it.
+   * Internal: the application sends on this transceiver (its sender has a
+   * track), so a rollback keeps it even if a remote offer created it. As in
+   * develop, only a track counts: stop(), a direction or codec preferences
+   * set on a remote-created transceiver do not keep it.
    */
   get heldByApplication() {
-    return !!this.sender.track || getApplicationStopRevision(this) > 0;
+    return !!this.sender.track;
   }
 
   get msid() {

@@ -61,14 +61,21 @@ export type Peer = {
   /** Candidates gathered and not trickled to the other peer yet. */
   candidates: (any | null)[];
   channel?: any;
+  /** connectionState reported "failed" since the last record. */
+  failed?: boolean;
 };
 
-export async function session(api: Api) {
+/**
+ * Two connected peers (video + DataChannel). `extra` adds configuration to
+ * both (bundlePolicy, iceServers, iceTransportPolicy, rtcpMuxPolicy).
+ */
+export async function session(api: Api, extra: Record<string, unknown> = {}) {
   const config = {
     codecs: {
       audio: [api.useOPUS()],
       video: [api.useVP8(), api.useH264()],
     },
+    ...extra,
   };
   const a: Peer = {
     name: "a",
@@ -76,6 +83,7 @@ export async function session(api: Api) {
     outgoing: new Map(),
     pool: [],
     candidates: [],
+    failed: false,
   };
   const b: Peer = {
     name: "b",
@@ -83,10 +91,14 @@ export async function session(api: Api) {
     outgoing: new Map(),
     pool: [],
     candidates: [],
+    failed: false,
   };
   for (const peer of [a, b]) {
     peer.pc.onIceCandidate.subscribe((candidate: any) => {
       peer.candidates.push(candidate ? candidate.toJSON() : null);
+    });
+    peer.pc.connectionStateChange.subscribe((state: string) => {
+      if (state === "failed") peer.failed = true;
     });
   }
   b.pc.onDataChannel.subscribe((channel: any) => {
@@ -199,4 +211,16 @@ export async function communication(ctx: Ctx, label: string) {
     dataAtoB: await dataArrives(ctx.a.channel, ctx.b.channel, `${label}-ab`),
     dataBtoA: await dataArrives(ctx.b.channel, ctx.a.channel, `${label}-ba`),
   };
+}
+
+/** The observable transceiver state of a peer (count, MID, directions, stop). */
+export function transceiverSnapshot(peer: Peer) {
+  return peer.pc.getTransceivers().map((t: any) => ({
+    kind: t.kind,
+    mid: t.mid ?? null,
+    direction: t.direction,
+    currentDirection: t.currentDirection ?? null,
+    stopping: !!t.stopping,
+    stopped: !!t.stopped,
+  }));
 }

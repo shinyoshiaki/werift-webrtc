@@ -276,11 +276,13 @@ export class RtpRouter {
 
   /**
    * The receiver of an RTP stream ID: by MID and RID when the packet carries
-   * the MID extension, otherwise the first m-line that uses that RID.
+   * a MID extension that names a route, otherwise (no MID extension, or a MID
+   * value no route uses) the first m-line that uses that RID, as develop does.
    */
   private receiverByRid(rid: string, mid: unknown) {
     if (typeof mid === "string") {
-      return this.ridTable[ridRouteKey(mid, rid)] as RTCRtpReceiver | undefined;
+      const byMid = this.ridTable[ridRouteKey(mid, rid)];
+      if (byMid) return byMid as RTCRtpReceiver;
     }
     const key = Object.keys(this.ridTable).find(
       (candidate) => ridOfRouteKey(candidate) === rid,

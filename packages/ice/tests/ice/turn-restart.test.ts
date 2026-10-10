@@ -1,13 +1,15 @@
-import { getHostAddresses } from "../../src/utils";
 import { Candidate } from "../../src/candidate";
+import { getHostAddresses } from "../../src/utils";
 import {
   createConnectedRelayOnlyPair,
+  createHeldUdpProxy,
   createLocalTurnServer,
+  createTestConnection,
   deliverLocalCandidates,
   exchangeIceCredentials,
-  createTestConnection,
   localRelayCandidates,
   localTurnOptions,
+  proxiedTurnOptions,
   turnAllocations,
 } from "../utils";
 
@@ -120,4 +122,37 @@ describe("TURN allocation across ICE restart", () => {
       await close();
     }
   }, 30000);
+
+  test("a remote-only restart while the local generation gathers keeps that gathering and its relay candidate", async () => {
+    // Arrange: TURN の allocation を proxy で保留したまま gather を始める。
+    const server = await createLocalTurnServer(localTurnHost);
+    const proxy = await createHeldUdpProxy(server.address!);
+    const connection = createTestConnection(true, proxiedTurnOptions(proxy));
+    try {
+      const gathering = connection.gatherCandidates();
+      connection.setRemoteParams({
+        iceLite: false,
+        usernameFragment: "pran",
+        password: "pranswerpranswerpranswe",
+      });
+
+      // Act: 収集中に remote だけが資格情報を変える (pranswer と異なる final answer)。
+      connection.restartRemote();
+      connection.setRemoteParams({
+        iceLite: false,
+        usernameFragment: "fina",
+        password: "finalanswerfinalanswerf",
+      });
+      proxy.release();
+      await gathering;
+
+      // Assert: local の収集は続き、relay 候補を出して完了する。
+      expect(connection.localCandidatesEnd).toBe(true);
+      expect(connection.localCandidates.map((c) => c.type)).toContain("relay");
+    } finally {
+      await connection.close();
+      proxy.close();
+      await server.close();
+    }
+  });
 });

@@ -152,7 +152,17 @@ export class RTCPeerConnection extends EventTarget {
   private readonly activation: TransportActivation;
   private isClosed = false;
   private applyingIceRestart = false;
-  private descriptionTail: Promise<void> = Promise.resolve();
+  /**
+   * The last operation of the chain: `done` when it finished, `applied` when
+   * the description it applies is in place (setLocalDescription's gathering
+   * wait comes after it). addIceCandidate only needs `applied`.
+   */
+  private descriptionTail: { done: Promise<void>; applied: Promise<void> } = {
+    done: Promise.resolve(),
+    applied: Promise.resolve(),
+  };
+  /** Marks the running operation's description as applied (see descriptionTail). */
+  private markDescriptionApplied = () => {};
   private lastCreatedAnswer?: RTCSessionDescription;
   /** Reusable by a parameterless setLocalDescription while still valid. */
   private lastCreatedOffer?: RTCSessionDescription;
@@ -711,32 +721,66 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private async waitForPendingDescriptionTask() {
-    this.assertNotClosed();
     await Promise.resolve();
-
-    if (this.isClosed) {
-      await new Promise<never>(() => undefined);
-    }
+    this.assertOpenAfterYield();
   }
 
+  /**
+   * W3C "chain an operation", in one place: an operation registered on a
+   * closed connection is rejected at once; one that close() overtook while
+   * it waited for the previous operation, or while it ran, is rejected with
+   * InvalidStateError when it resumes. Every operation's promise settles
+   * (W3C would leave an overtaken one pending forever; werift settles it so
+   * an application awaiting it is never stuck).
+   */
   private async enqueueDescriptionOperation<T>(
     operation: () => Promise<T>,
+    {
+      afterApplied = false,
+    }: {
+      /**
+       * Start once the previous operation applied its description instead of
+       * once it finished (addIceCandidate does not wait for gathering). Later
+       * operations still wait for this one.
+       */
+      afterApplied?: boolean;
+    } = {},
   ): Promise<T> {
+    this.assertNotClosed();
     const previous = this.descriptionTail;
-    let release!: () => void;
-    this.descriptionTail = new Promise<void>((resolve) => {
-      release = resolve;
+    let releaseDone!: () => void;
+    let releaseApplied!: () => void;
+    const done = new Promise<void>((resolve) => {
+      releaseDone = resolve;
     });
-    await previous;
+    const applied = new Promise<void>((resolve) => {
+      releaseApplied = resolve;
+    });
+    this.descriptionTail = afterApplied
+      ? {
+          done: Promise.all([previous.done, done]).then(() => undefined),
+          applied: Promise.all([previous.applied, done]).then(() => undefined),
+        }
+      : { done, applied };
     try {
-      const result = await operation();
-      // W3C: an operation that close() overtook does not report success.
-      if (this.isClosed) {
-        throw createWebRtcDomException("InvalidStateError", "is closed");
+      await (afterApplied ? previous.applied : previous.done);
+      this.assertOpenAfterYield();
+      if (!afterApplied) this.markDescriptionApplied = releaseApplied;
+      let result: T;
+      try {
+        result = await operation();
+      } catch (error) {
+        // An operation close() overtook fails as overtaken, not with the
+        // error its interrupted step raised.
+        this.assertOpenAfterYield();
+        throw error;
       }
+      // W3C: an operation that close() overtook does not report success.
+      this.assertOpenAfterYield();
       return result;
     } finally {
-      release();
+      releaseApplied();
+      releaseDone();
     }
   }
 
@@ -1323,6 +1367,9 @@ export class RTCPeerConnection extends EventTarget {
         this.completeEndedCurrentGenerations();
       }
 
+      // The description is in place: a queued addIceCandidate need not wait
+      // for the gathering below.
+      this.markDescriptionApplied();
       await this.gatherCandidates().catch((e) => {
         log("gatherCandidates failed", e);
       });
@@ -1406,25 +1453,28 @@ export class RTCPeerConnection extends EventTarget {
   async addIceCandidate(
     candidateMessage: RTCIceCandidate | RTCIceCandidateInit | null = {},
   ) {
-    return this.enqueueDescriptionOperation(async () => {
-      if (this.isClosed) {
-        throw createWebRtcDomException("InvalidStateError", "is closed");
-      }
-
-      candidateMessage = normalizeCandidateUfrag(candidateMessage);
-      if (!this.remoteDescription || !this.sdpManager._remoteDescription) {
-        const ufrag = candidateMessage?.usernameFragment;
-        if (this.negotiation.isRetiredRemoteUfrag(ufrag)) {
-          throw createWebRtcDomException(
-            "OperationError",
-            "ICE generation was rolled back or replaced",
-          );
+    return this.enqueueDescriptionOperation(
+      async () => {
+        if (this.isClosed) {
+          throw createWebRtcDomException("InvalidStateError", "is closed");
         }
-        this.remoteCandidates.queued.push(candidateMessage);
-        return;
-      }
-      await this.remoteCandidates.apply(candidateMessage);
-    });
+
+        candidateMessage = normalizeCandidateUfrag(candidateMessage);
+        if (!this.remoteDescription || !this.sdpManager._remoteDescription) {
+          const ufrag = candidateMessage?.usernameFragment;
+          if (this.negotiation.isRetiredRemoteUfrag(ufrag)) {
+            throw createWebRtcDomException(
+              "OperationError",
+              "ICE generation was rolled back or replaced",
+            );
+          }
+          this.remoteCandidates.queued.push(candidateMessage);
+          return;
+        }
+        await this.remoteCandidates.apply(candidateMessage);
+      },
+      { afterApplied: true },
+    );
   }
 
   restartIce() {

@@ -24,6 +24,7 @@ import {
   createMutationSession,
   createRelayOnlyPeers,
   createRewrittenOffer,
+  createSimulcastPeers,
   createSplitOffer,
   createUnnegotiatedPeers,
   createUnnegotiatedVideoPeers,
@@ -203,6 +204,229 @@ describe("negotiation transaction regressions", () => {
       await Promise.allSettled([a.close(), b.close()]);
     }
   });
+
+  test.each([
+    { operation: "stop", kept: false },
+    { operation: "direction", kept: false },
+    { operation: "setCodecPreferences", kept: false },
+    { operation: "replaceTrack", kept: true },
+    { operation: "addTrack", kept: true },
+  ] as const)(
+    "rollback of a remote offer after the application's $operation keeps the remote-created transceiver only when it has a track (as develop)",
+    async ({ operation, kept }) => {
+      // Arrange: b の video offer を a が適用し、remote offer が transceiver を作る。
+      const a = new RTCPeerConnection();
+      const b = new RTCPeerConnection();
+      try {
+        b.addTransceiver("video", { direction: "sendrecv" });
+        await b.setLocalDescription(await b.createOffer());
+        const offer = b.localDescription!;
+        await a.setRemoteDescription(offer);
+        const [created] = a.getTransceivers();
+
+        // Act: rollback の前に app がその transceiver を操作し、rollback する。
+        if (operation === "stop") created.stop();
+        if (operation === "direction") created.direction = "sendonly";
+        if (operation === "setCodecPreferences") {
+          created.setCodecPreferences([useVP8()]);
+        }
+        if (operation === "replaceTrack") {
+          await created.sender.replaceTrack(
+            new MediaStreamTrack({ kind: "video" }),
+          );
+        }
+        if (operation === "addTrack") {
+          a.addTrack(new MediaStreamTrack({ kind: "video" }));
+        }
+        await a.setRemoteDescription({ type: "rollback" });
+
+        // Assert: track を持つものだけが m-line の関連付けを外して残り、停止途中の
+        // transceiver は残らない。
+        expect(
+          a.getTransceivers().map((t) => ({
+            mid: t.mid,
+            stopping: t.stopping,
+            stopped: t.stopped,
+          })),
+        ).toEqual(kept ? [{ mid: null, stopping: false, stopped: false }] : []);
+        assertNegotiationInvariants(a);
+
+        // Act: 同じ offer を再適用する。
+        await a.setRemoteDescription(offer);
+        // Assert: transceiver は重複せず 1 つだけで、offer の MID に関連付く。
+        expect(a.getTransceivers().map((t) => t.mid)).toEqual([
+          offer.sdp.match(/^a=mid:(\S+)/m)![1],
+        ]);
+        assertNegotiationInvariants(a);
+        // Arrange: 片側だけの適用 (answer を返さない) なので継続確認の対象外にする。
+        exemptFromContinuation([a, b], "the test applies only b's offer to a");
+      } finally {
+        await Promise.allSettled([a.close(), b.close()]);
+      }
+    },
+  );
+
+  test("a bundlePolicy disable renegotiation pranswer does not fail the connection and the final answer connects", async () => {
+    // Arrange: bundlePolicy disable で audio と DataChannel が接続済み。
+    const a = new RTCPeerConnection({ bundlePolicy: "disable" });
+    const b = new RTCPeerConnection({ bundlePolicy: "disable" });
+    try {
+      const states: string[] = [];
+      a.addTransceiver(new MediaStreamTrack({ kind: "audio" }), {
+        direction: "sendrecv",
+      });
+      a.createDataChannel("disable");
+      await a.setLocalDescription(await a.createOffer());
+      await b.setRemoteDescription(a.localDescription!);
+      await b.setLocalDescription(await b.createAnswer());
+      await a.setRemoteDescription(b.localDescription!);
+      await waitForPeersConnected(a, b);
+      for (const [name, pc] of [
+        ["a", a],
+        ["b", b],
+      ] as const) {
+        pc.connectionStateChange.subscribe((state) =>
+          states.push(`${name}:${state}`),
+        );
+      }
+      const aVideo = new MediaStreamTrack({ kind: "video" });
+      const aTransceiver = a.addTransceiver(aVideo, { direction: "sendrecv" });
+
+      // Act: 新しい video (独自の transport) を足した re-offer に pranswer を返す。
+      await a.setLocalDescription(await a.createOffer());
+      await b.setRemoteDescription(a.localDescription!);
+      const answer = (await b.createAnswer()).sdp;
+      await b.setLocalDescription({ type: "pranswer", sdp: answer });
+      await a.setRemoteDescription(b.localDescription!);
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+
+      // Assert: remote パラメータのない transport を開始しないので、pranswer 中に failed にならない。
+      expect(states).not.toContain("a:failed");
+      expect(states).not.toContain("b:failed");
+      expect([a.connectionState, b.connectionState]).toEqual([
+        "connected",
+        "connected",
+      ]);
+
+      // Act: final answer で確定する。
+      await b.setLocalDescription({ type: "answer", sdp: answer });
+      await a.setRemoteDescription(b.localDescription!);
+      await waitForPeersConnected(a, b);
+
+      // Assert: 新しい video の RTP が届き、どちらも failed を通らない。
+      const bVideo = b
+        .getTransceivers()
+        .find((t) => t.mid === aTransceiver.mid)!;
+      await waitForDtlsConnected(aTransceiver.dtlsTransport);
+      await waitForDtlsConnected(bVideo.dtlsTransport);
+      await sendAndExpectRtp(aVideo, bVideo.receiver.track, "disable-video");
+      expect(states.filter((state) => state.endsWith("failed"))).toEqual([]);
+      assertNegotiationInvariants(a);
+      assertNegotiationInvariants(b);
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(a, b, "bundle-disable-pranswer");
+    } finally {
+      await Promise.allSettled([a.close(), b.close()]);
+    }
+  }, 60000);
+
+  test("a simulcast layer whose MID extension names no route is still routed by its RID (as develop)", async () => {
+    // Arrange: simulcast (high / low) を受信する接続済み session。
+    const { offerer, answerer, sendLayer, close } =
+      await createSimulcastPeers();
+    try {
+      // Act / Assert: どの route も使わない MID 値と RID を持つ RTP も、RID の層に届く。
+      await sendLayer("high", 0x5001, "rid-unknown-mid-high", {
+        withRid: true,
+        headerMid: "unrouted",
+      });
+      await sendLayer("low", 0x5002, "rid-unknown-mid-low", {
+        withRid: true,
+        headerMid: "unrouted",
+      });
+      // Assert: MID が route と一致する RTP は従来どおり MID+RID で届く。
+      await sendLayer("high", 0x5003, "rid-known-mid-high", { withRid: true });
+      assertNegotiationInvariants(answerer);
+
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(offerer, answerer, "simulcast-rid");
+    } finally {
+      await close();
+    }
+  }, 60000);
+
+  test("addIceCandidate does not wait for the gathering of a setLocalDescription before it (as develop)", async () => {
+    // Arrange: 応答しない STUN server を持つ answerer。setLocalDescription は gather を待つ。
+    const a = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:192.0.2.1:3478" }],
+    });
+    const b = new RTCPeerConnection();
+    try {
+      b.addTransceiver("audio");
+      await b.setLocalDescription(await b.createOffer());
+      // b の候補は trickle で続く (offer に end-of-candidates を載せない)。
+      await a.setRemoteDescription({
+        type: "offer",
+        sdp: mutate(b.localDescription!.sdp, ["noEndOfCandidates"]),
+      });
+      const answer = await a.createAnswer();
+      const start = Date.now();
+      let settledLocal = false;
+
+      // Act: answer の適用 (gather 待ち) の直後に remote 候補を追加する。
+      const applying = a.setLocalDescription(answer).then(() => {
+        settledLocal = true;
+      });
+      await a.addIceCandidate({
+        candidate: "candidate:1 1 udp 2130706431 127.0.0.1 9 typ host",
+        sdpMid: a.getTransceivers()[0].mid!,
+      });
+
+      // Assert: 候補の追加は gather の完了を待たずに終わり、remote description に記録される。
+      expect(Date.now() - start).toBeLessThan(1000);
+      expect(settledLocal).toBe(false);
+      expect(a.remoteDescription!.sdp).toContain("127.0.0.1 9 typ host");
+
+      // Act: 後続の description 操作は先の 2 つの完了を待つ。
+      const rollbackless = a.createOffer();
+      await applying;
+      await rollbackless;
+      // Assert: answer が確定し、invariant を満たす。
+      expect(a.signalingState).toBe("stable");
+      assertNegotiationInvariants(a);
+      // Arrange: answer を b に返さないので継続確認の対象外にする。
+      exemptFromContinuation([a, b], "the test applies only a's answer");
+    } finally {
+      await Promise.allSettled([a.close(), b.close()]);
+    }
+  }, 20000);
+
+  test("rollback of a replacement local offer takes back the MID it gave a transceiver added meanwhile (as after a single offer)", async () => {
+    // Arrange: 接続済みの session で re-offer を保留する。
+    const { offerer, answerer } = await createConnectedVideoPeers();
+    try {
+      await offerer.setLocalDescription(await offerer.createOffer());
+      const added = offerer.addTransceiver("video");
+
+      // Act: 保留中に足した transceiver を含む置き換えの offer を適用し、rollback する。
+      await offerer.setLocalDescription(await offerer.createOffer());
+      expect(added.mid).not.toBeNull();
+      await offerer.setLocalDescription({ type: "rollback" });
+
+      // Assert: 交渉されていない transceiver は MID と m-line の関連付けを失う。
+      expect(added.mid).toBeNull();
+      expect(added.mLineIndex).toBeUndefined();
+      assertNegotiationInvariants(offerer);
+      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
+      await expectSessionContinues(
+        offerer,
+        answerer,
+        "replacement-rollback-mid",
+      );
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  }, 60000);
 
   test("a replacement local offer keeps a new transceiver associated with its m-line", async () => {
     const session = await createDuplexSession();

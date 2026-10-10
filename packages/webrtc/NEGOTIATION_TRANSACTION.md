@@ -817,6 +817,51 @@ pranswer then rollback / a pranswer then the final answer) followed by
 from the peer and real traffic, and the late DataChannel of a peer without an
 SCTP transport.
 
+## Operation chain, connection start and the reviewer's axes
+
+- **Operation chain** (`enqueueDescriptionOperation`, W3C "chain an
+  operation"): registering on a closed connection rejects at once; an
+  operation that `close()` overtook while it waited for the previous one, or
+  while it ran, rejects with `InvalidStateError` when it resumes. Every
+  promise settles (W3C would leave an overtaken one pending; werift settles
+  it). Each operation exposes an "applied" point next to "done":
+  `setLocalDescription` marks it before its gathering wait, and
+  `addIceCandidate` waits only for the previous operation's applied point
+  (as develop, it does not wait for gathering); later operations wait for
+  both. ICE gathering stops waiting when its agent closes.
+- **Connection start**: `connect()` starts only transports an applied
+  description gave the peer's ICE and DTLS parameters; one whose parameters a
+  renegotiation pranswer staged for the final answer starts after it.
+- **Rollback of remote-created transceivers**: kept (unassociated) only when
+  the sender has a track, as develop; an application `stop()`, direction or
+  codec preferences do not keep it. A transceiver the application added during
+  the transaction and no description negotiated loses the MID and m-line the
+  rolled-back offer gave it, also after a replacement offer (W3C).
+- **Remote generation**: a remote-only ICE restart advances a separate
+  `remoteGeneration` (remote-side mDNS, end-of-candidates, consent,
+  nomination); the local gathering of the current generation continues.
+- **Simulcast RID routing**: MID+RID first, then RID alone when the packet's
+  MID names no route (as develop).
+- **Differential runner axes**: `run.ts` draws a configuration per seed
+  (bundlePolicy, rtcpMuxPolicy, relay-only over a local TURN server),
+  application operations (stop, replaceTrack, direction,
+  setCodecPreferences, createDataChannel, restartIce) and `closeDuring`
+  (close() 0..8 microtasks or one macrotask into an operation), besides the
+  peer mutations. `compare.ts` also checks HEAD alone: no unsettled
+  operation, no `failed` connection state without an injected fault, and the
+  same transceivers as develop after the same operation and outcome. Two
+  compositions the random sequence rarely reaches run from stable peers:
+  `pranswerRound` (a new m-line held under a pranswer, then the final answer)
+  and `remoteOfferAppOpRollback` (the peer's offer, an application operation
+  on the transceiver it created, rollback on both sides); `--ops` replays a
+  fixed list. The intended differences in the table below are counted, not
+  failed: a transceiver an unapplied offer did not associate is compared by
+  kind and direction, MID values may differ (HEAD's must be unique), a record
+  where develop gave one MID to two transceivers is develop's defect, and a
+  closed peer's transceivers are not compared.
+  `negotiationTransactionCloseTiming.test.ts` runs the close timing for ten
+  operations in CI.
+
 ## Behavior differences from develop
 
 Every rule of 2.6 to 2.10 that makes werift behave differently from
@@ -839,6 +884,10 @@ no behavior difference unless they pass `expectSessionContinues`.
 | Answer port 0 to a rejected application offer (2.11) | port 9 without `a=sctp-port` | RFC 3264; HEAD validates `a=sctp-port` | added, passes the helper |
 | SCTP starts on an already connected DTLS transport (2.11) | DataChannel never opens | makes a develop failure work | added, passes the helper |
 | SCTP side from the ICE role at the DTLS start (2.11) | ICE role at the SCTP start | consistent sides when SCTP starts late | added, same side as develop in a normal flow |
+| Overtaken operations settle with InvalidStateError (2.12) | some stay pending forever | an application awaiting them is never stuck | added (W3C leaves them pending; those WPT cases were already failing) |
+| addIceCandidate waits only for the applied description (2.12) | not chained | develop latency; still ordered before later descriptions | restores develop behavior |
+| An unapplied createOffer() does not associate MIDs; the description that is applied does (2.9, found again by the 2.12 runner) | assigns the MID at createOffer() | W3C (a MID is associated when a description is set); develop can hand the same MID to two transceivers (an unapplied offer's and the next one's) and then stop the new m-line | kept (intended difference; the runner counts it and stops comparing that seed's states) |
+| A pending remote offer does not switch the current send codec, and rollback restores it (2.2, found again by the 2.12 runner) | switches the send codec when the remote offer is applied and keeps it after rollback | core invariant; develop's later success with a stale answer whose codec the offer did not list depends on that leak | kept (intended difference) |
 | Renomination drops remote candidates naming another ufrag (2.11) | keeps them in the checklist | ICE generation consistency (they cannot pass checks with the new credentials) | added, ufrag-less candidates unchanged |
 
 ## Scope and known constraints

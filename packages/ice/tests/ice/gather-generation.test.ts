@@ -89,15 +89,19 @@ describe("gathering bound to its ICE generation", () => {
       // Act: gather 中に close し、その後で allocation を完了させる
       await connection.close();
       proxy.release();
+      // Assert: gather は close で待たずに終わる。
       await gathering;
 
-      // Assert: close 後にできた allocation は connection に入らず、自身も閉じる
+      // Assert: close 後にできた allocation は connection に入らず、完了した後で自身も閉じる
       // (refresh timer も止まる)。closed の agent は gather を完了扱いにしない
+      const closedAllocations = () => new Set(closed.mock.contexts);
+      for (let i = 0; i < 100 && closedAllocations().size < 2; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
       expect(turnAllocations(connection)).toHaveLength(0);
       expect(connection.localCandidatesEnd).toBe(false);
-      const closedAllocations = new Set(closed.mock.contexts);
-      expect(closedAllocations.has(initial)).toBe(true);
-      expect(closedAllocations.size).toBe(2);
+      expect(closedAllocations().has(initial)).toBe(true);
+      expect(closedAllocations().size).toBe(2);
     } finally {
       proxy.close();
       await server.close();

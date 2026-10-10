@@ -209,6 +209,15 @@ export class TransportActivation {
         let progressed = false;
         let iceReady = ["connected", "completed"].includes(iceTransport.state);
 
+        // Only a transport an applied description gave remote parameters
+        // starts; one whose parameters arrive with a later description (a
+        // renegotiation pranswer stages them for the final answer) waits.
+        if (
+          !iceTransport.checksStarted &&
+          !iceTransport.getRemoteParameters()
+        ) {
+          return progressed;
+        }
         if (!iceTransport.checksStarted) {
           progressed = true;
           this.secure.setConnectionState("connecting");
@@ -243,7 +252,11 @@ export class TransportActivation {
         if (dtlsTransport.state === "connected") {
           this.startJoinedSctp(dtlsTransport);
         }
-        if (dtlsTransport.state !== "new" || !iceReady) {
+        if (
+          dtlsTransport.state !== "new" ||
+          !iceReady ||
+          !dtlsTransport.hasRemoteParameters
+        ) {
           return progressed;
         }
 
