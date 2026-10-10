@@ -7,9 +7,11 @@ const { playwrightInstallEnv } = require("./playwright-host-platform.js");
 
 const repoRoot = join(__dirname, "..");
 
+// e2e keeps its browsers in a package-local path and has its own installer.
+const e2eDir = join(repoRoot, "e2e");
+
 const playwrightPackageDirs = [
   repoRoot,
-  join(repoRoot, "e2e"),
   join(repoRoot, "packages/ice-server/chrome-e2e"),
   join(repoRoot, "examples/turn-loopback/chrome-e2e"),
 ];
@@ -109,10 +111,7 @@ function main() {
   // System Chrome is enough for most browser tests, but DTLS version
   // tests need Playwright's pinned Chromium. Set FORCE_PLAYWRIGHT_BROWSERS=1
   // to install it even when /usr/bin/google-chrome exists (GHA ubuntu-latest).
-  if (
-    resolveSystemChrome() &&
-    process.env.FORCE_PLAYWRIGHT_BROWSERS !== "1"
-  ) {
+  if (resolveSystemChrome() && process.env.FORCE_PLAYWRIGHT_BROWSERS !== "1") {
     process.exit(0);
   }
 
@@ -139,6 +138,20 @@ function main() {
       continue;
     }
     installWithPlaywright(install.packageDir);
+  }
+
+  if (resolveFromPackage(e2eDir, "playwright/package.json")) {
+    const result = spawnSync(
+      process.execPath,
+      [join(e2eDir, "ensure-browser.js")],
+      { cwd: e2eDir, stdio: "inherit" },
+    );
+    if (result.error) {
+      throw result.error;
+    }
+    if ((result.status ?? 1) !== 0) {
+      process.exit(result.status ?? 1);
+    }
   }
 
   process.exit(0);

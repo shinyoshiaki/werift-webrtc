@@ -3,10 +3,12 @@ const { dirname, join } = require("node:path");
 const {
   playwrightInstallEnv,
 } = require("../scripts/playwright-host-platform.js");
+const { withE2ePlaywrightBrowsersPath } = require("./playwright-browsers.js");
 
 // DTLS version tests must use Playwright's pinned Chromium. The shared
 // installer skips download when /usr/bin/google-chrome exists (GHA), so
-// install this package's Playwright browsers directly.
+// install this package's Playwright browsers directly into the package-local
+// browsers path (see playwright-browsers.js).
 const playwrightPackageJson = require.resolve("playwright/package.json", {
   paths: [__dirname],
 });
@@ -14,7 +16,11 @@ const cliPath = join(dirname(playwrightPackageJson), "cli.js");
 const result = spawnSync(
   process.execPath,
   [cliPath, "install", "chromium", "chromium-headless-shell"],
-  { cwd: __dirname, env: playwrightInstallEnv(), stdio: "inherit" },
+  {
+    cwd: __dirname,
+    env: withE2ePlaywrightBrowsersPath(playwrightInstallEnv()),
+    stdio: "inherit",
+  },
 );
 
 if (result.error) {
