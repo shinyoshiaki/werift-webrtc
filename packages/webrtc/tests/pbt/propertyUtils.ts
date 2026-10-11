@@ -8,22 +8,23 @@ import {
   useOPUS,
   useSdesMid,
   useVP8,
-} from "../../../src";
+} from "../../src";
 import {
+  type DuplexSession,
   type Peer,
   assertNegotiationInvariants,
   createDuplexSession,
   createRewrittenOffer,
-  expectRejectedAtomically,
   expectSessionAlive,
   leaveBundle,
   mungeSection,
+  negotiationSnapshot,
   sectionOf,
   sendAndExpectRtp,
   step,
   waitForCommittedNomination,
   waitForDtlsConnected,
-} from "../negotiationTransactionUtils";
+} from "../integrate/negotiationTransactionUtils";
 
 /** Deterministic PRNG (mulberry32) so a failing fuzz seed replays exactly. */
 export function seededRandom(seed: number) {
@@ -354,6 +355,23 @@ export async function fuzzRemoteRejection(ctx: FuzzContext, rng: SeededRandom) {
   await step(session, () =>
     offerer.pc.setRemoteDescription({ type: "answer", sdp: applied }),
   );
+}
+
+/**
+ * Act + Assert helper: run a description operation the contract refuses and
+ * check that it rejected and changed nothing on either peer.
+ */
+export async function expectRejectedAtomically(
+  session: DuplexSession,
+  operation: () => Promise<unknown>,
+) {
+  const before = [session.a.pc, session.b.pc].map(negotiationSnapshot);
+  // 拒否される操作を行う。
+  await expect(operation()).rejects.toThrow();
+  // 拒否の前後で両 peer の状態は完全に一致する。
+  expect([session.a.pc, session.b.pc].map(negotiationSnapshot)).toEqual(before);
+  assertNegotiationInvariants(session.a.pc);
+  assertNegotiationInvariants(session.b.pc);
 }
 
 /**

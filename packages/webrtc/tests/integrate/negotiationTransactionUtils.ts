@@ -2561,23 +2561,6 @@ export function negotiationSnapshot(pc: RTCPeerConnection) {
 }
 
 /**
- * Act + Assert helper: run a description operation the contract refuses and
- * check that it rejected and changed nothing on either peer.
- */
-export async function expectRejectedAtomically(
-  session: DuplexSession,
-  operation: () => Promise<unknown>,
-) {
-  const before = [session.a.pc, session.b.pc].map(negotiationSnapshot);
-  // 拒否される操作を行う。
-  await expect(operation()).rejects.toThrow();
-  // 拒否の前後で両 peer の状態は完全に一致する。
-  expect([session.a.pc, session.b.pc].map(negotiationSnapshot)).toEqual(before);
-  assertNegotiationInvariants(session.a.pc);
-  assertNegotiationInvariants(session.b.pc);
-}
-
-/**
  * Arrange: the next gather of an ICE transport `pc` does not have yet (one
  * a proposal prepares) closes `pc` while it runs. Returns every transport
  * gathered from then on, so a test can check that none is left running.

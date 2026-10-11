@@ -8,7 +8,7 @@ test (named with its ID in brackets) before it is marked covered.
 
 凡例:
 - helper = `negotiationTransactionUtils.ts` の `assertNegotiationInvariants`（assertDescriptionBindings / assertRouterAndCodecs / assertRouteTables / assertIceGenerations / assertDtlsBindings / assertSctpBinding / assertEffectiveValues（`expectedLive`）/ assertNoOrphanTransports）。Matrix・EffectiveValues・Property・Mutation・Interrupt と各 Coverage ファイルは各操作の後に helper を呼ぶ。
-- ファイル名の略記（`packages/webrtc/tests/integrate/` の negotiationTransaction*.test.ts）: NT = negotiationTransaction、Matrix、Reg = Regression、Route = Routing、Dev = DevelopIntegration、EV = EffectiveValues、Mut = Mutation、Intr = Interrupt、Prop = Property（negotiationProperty/ 配下）、CovE / CovT / CovI / CovC = CoverageEvents / CoverageTransport / CoverageIce / CoverageCodecs、AppRej = ApplicationRejection。705 = tests/issue/705.test.ts、705r = tests/issue/705-reuse.test.ts、ice:xxx = packages/ice/tests の xxx.test.ts。
+- ファイル名の略記（`packages/webrtc/tests/integrate/` の negotiationTransaction*.test.ts）: NT = negotiationTransaction、Matrix、Reg = Regression、Route = Routing、Dev = DevelopIntegration、EV = EffectiveValues、Mut = Mutation、Intr = Interrupt、Prop = Property（`packages/webrtc/tests/pbt/` 配下）、CovE / CovT / CovI / CovC = CoverageEvents / CoverageTransport / CoverageIce / CoverageCodecs、AppRej = ApplicationRejection。705 = tests/issue/705.test.ts、705r = tests/issue/705-reuse.test.ts、ice:xxx = packages/ice/tests の xxx.test.ts。
 - 状態: covered（その文を直接検査するテストがある）、対象外（文書・構造・作業プロセスの記述。理由を併記）。partial / uncovered は 0 件。テスト名の `[ID]` は本表の ID。
 
 | ID | 要件 | テスト | 状態 |
