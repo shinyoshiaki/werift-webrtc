@@ -1,0 +1,65 @@
+[**werift**](../README.md)
+
+***
+
+[werift](../globals.md) / BitWriter
+
+# Class: BitWriter
+
+## Constructors
+
+### new BitWriter()
+
+> **new BitWriter**(`bitLength`): [`BitWriter`](BitWriter.md)
+
+#### Parameters
+
+##### bitLength
+
+`number`
+
+#### Returns
+
+[`BitWriter`](BitWriter.md)
+
+## Properties
+
+### value
+
+> **value**: `number` = `0`
+
+## Accessors
+
+### buffer
+
+#### Get Signature
+
+> **get** **buffer**(): `Buffer`\<`ArrayBuffer`\>
+
+##### Returns
+
+`Buffer`\<`ArrayBuffer`\>
+
+## Methods
+
+### set()
+
+> **set**(`size`, `startIndex`, `value`): [`BitWriter`](BitWriter.md)
+
+#### Parameters
+
+##### size
+
+`number`
+
+##### startIndex
+
+`number`
+
+##### value
+
+`number`
+
+#### Returns
+
+[`BitWriter`](BitWriter.md)
