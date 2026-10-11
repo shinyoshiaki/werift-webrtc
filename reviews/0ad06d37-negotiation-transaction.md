@@ -202,7 +202,7 @@ application m-line を拒否した answer の commit で SCTP を閉じる規則
 | 仕組み | 内容 | 実行 |
 | --- | --- | --- |
 | invariant helper | 各操作の後に current SDP と live 状態の一致・有効値・孤立 transport を検査 | すべての交渉試験（[packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:628](review-file:packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:628)） |
-| property test | seed 固定のランダム操作列。description pool の再利用、相手が m-line を拒否する episode を含む。仕組みは 2.14.1 | CI は固定 seed と回帰 seed、深い探索は 300 seed × 20 step（[packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:2003](review-file:packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:2003)、[packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:2187](review-file:packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:2187)） |
+| property test | seed 固定のランダム操作列。description pool の再利用、相手が m-line を拒否する episode を含む。仕組みは 2.14.1 | CI は固定 seed と回帰 seed、深い探索は 300 seed × 20 step（[packages/webrtc/tests/integrate/negotiationProperty/propertyUtils.ts:119](review-file:packages/webrtc/tests/integrate/negotiationProperty/propertyUtils.ts:119)、[packages/webrtc/tests/integrate/negotiationProperty/propertyUtils.ts:303](review-file:packages/webrtc/tests/integrate/negotiationProperty/propertyUtils.ts:303)） |
 | 相手の SDP の変異 | 手書きの session 単位の変異と、「kind × 属性」の表から生成した変異（27 種類）を offer / pranswer / answer、初回と再交渉に適用 | CI は単独、手元で全ペア（[packages/webrtc/tools/negotiation-diff/mutations.ts:246](review-file:packages/webrtc/tools/negotiation-diff/mutations.ts:246)） |
 | 割り込み | gather・mDNS・DTLS・STUN の待機中に close / restartIce / 新しい offer / rollback | CI（[packages/webrtc/tests/integrate/negotiationTransactionInterrupt.test.ts](review-file:packages/webrtc/tests/integrate/negotiationTransactionInterrupt.test.ts)） |
 | close のタイミング | 10 種類の操作 × 0〜10 microtask 後と 1 macrotask 後の close（120 件）。全 Promise の決着と transport の停止を検査 | CI（[packages/webrtc/tests/integrate/negotiationTransactionCloseTiming.test.ts](review-file:packages/webrtc/tests/integrate/negotiationTransactionCloseTiming.test.ts)） |
@@ -211,17 +211,17 @@ application m-line を拒否した answer の commit で SCTP を閉じる規則
 
 #### 2.14.1 property test の仕組み
 
-property test は、「どんな操作の順序でも成り立つべき性質」を決めておき、ランダムに作った操作列でそれが崩れないかを確かめる試験です。例ベースの試験が「この手順ならこうなる」を 1 本ずつ確かめるのに対し、property test は手順そのものを乱数で組み立てます。そのため、人が思いつかない組み合わせにも届きます。本体は [packages/webrtc/tests/integrate/negotiationTransactionProperty.test.ts:51](review-file:packages/webrtc/tests/integrate/negotiationTransactionProperty.test.ts:51) の `playSeed` です。
+property test は、「どんな操作の順序でも成り立つべき性質」を決めておき、ランダムに作った操作列でそれが崩れないかを確かめる試験です。例ベースの試験が「この手順ならこうなる」を 1 本ずつ確かめるのに対し、property test は手順そのものを乱数で組み立てます。そのため、人が思いつかない組み合わせにも届きます。本体は [packages/webrtc/tests/integrate/negotiationProperty/negotiationTransactionProperty.test.ts:51](review-file:packages/webrtc/tests/integrate/negotiationProperty/negotiationTransactionProperty.test.ts:51) の `playSeed` です。各 episode と乱数は [packages/webrtc/tests/integrate/negotiationProperty/propertyUtils.ts:29](review-file:packages/webrtc/tests/integrate/negotiationProperty/propertyUtils.ts:29) 以降にあります。property test のファイルは `packages/webrtc/tests/integrate/negotiationProperty/` にまとめ、invariant の検査など他の試験と共有する helper は `negotiationTransactionUtils.ts` に残しています。
 
 確かめる性質は 3 つです。
 
 1. **各操作の後**：両 peer の invariant が成り立つ。`step()` が操作のたびに `assertNegotiationInvariants` を呼び、pending 中を含むどの signaling state でも検査します（[packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:1189](review-file:packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:1189)）。
-2. **各 step の後**：確定した session が実際に通信できる。video の RTP（双方向）、DataChannel（双方向）、交渉済みの各 audio の RTP を実際に送り、受信を待ちます（[packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:1969](review-file:packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:1969)）。
+2. **各 step の後**：確定した session が実際に通信できる。video の RTP（双方向）、DataChannel（双方向）、交渉済みの各 audio の RTP を実際に送り、受信を待ちます（[packages/webrtc/tests/integrate/negotiationProperty/propertyUtils.ts:85](review-file:packages/webrtc/tests/integrate/negotiationProperty/propertyUtils.ts:85)）。
 3. **拒否された操作**：再利用契約で拒否される操作は、状態を何も変えない（原子性）。
 
 **1 seed の実行の流れ**
 
-まず、video（VP8 + RTX、MID / abs-send-time の header extension）・audio（OPUS）・DataChannel を持つ接続済みの 2 peer を作ります（[packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:1935](review-file:packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:1935)）。RTX と header extension を入れているのは、ルーティングキーを変える操作を選べるようにするためです。そのうえで、次のループを `steps` 回（既定は 8 回）繰り返します。
+まず、video（VP8 + RTX、MID / abs-send-time の header extension）・audio（OPUS）・DataChannel を持つ接続済みの 2 peer を作ります（[packages/webrtc/tests/integrate/negotiationProperty/propertyUtils.ts:51](review-file:packages/webrtc/tests/integrate/negotiationProperty/propertyUtils.ts:51)）。RTX と header extension を入れているのは、ルーティングキーを変える操作を選べるようにするためです。そのうえで、次のループを `steps` 回（既定は 8 回）繰り返します。
 
 ```text
 seed ─┬─ rng          = seededRandom(seed)
@@ -246,10 +246,10 @@ step を steps 回くり返す:
 
 | episode | 乱数で選ぶもの | 特に確認すること |
 | --- | --- | --- |
-| 交渉（[packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:2003](review-file:packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:2003)） | offerer、variant、finish、EOC（30%） | すべての経路で invariant が成り立つ。ICE restart では、answer を保存 → 作り直し → 未適用の restart offer を作成 → 保存した answer を適用しても、その answer が適用できる |
-| remote の routing key 変更（[packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:2123](review-file:packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:2123)） | RTX の SSRC の付け替え / abs-send-time を新しい extmap ID へ移動 / 同じ extmap ID を別 URI に再割り当て | 前の 2 つは、pending のまま現在の RTP と DataChannel が流れることを確認してから rollback する。再割り当ては `InvalidModificationError` で拒否され、signaling state と current SDP が変わらない |
-| description pool（[packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:2918](review-file:packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:2918)） | offerer、ICE restart（50%）、後から別の offer を作って古い方を適用（50%）、rollback して同じ offer を再適用（40%）、answer の作り直しと未適用の offer（50%、順序も 50%）、pranswer を先に適用（30%） | 再利用契約（2.10）。古い offer は拒否され、状態は何も変わらない。保存した answer は、作り直しや未適用の offer の後でも適用できる |
-| m-line の拒否（[packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:2187](review-file:packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:2187)） | offerer、拒否する場所（offer / answer）、種類（application / 新しく足した video / 交渉済みの audio） | port 0 と BUNDLE から外す拒否の後も invariant が成り立ち、残りの経路で通信を続けられる。後の episode でも交渉を続けられる（2.12） |
+| 交渉（[packages/webrtc/tests/integrate/negotiationProperty/propertyUtils.ts:119](review-file:packages/webrtc/tests/integrate/negotiationProperty/propertyUtils.ts:119)） | offerer、variant、finish、EOC（30%） | すべての経路で invariant が成り立つ。ICE restart では、answer を保存 → 作り直し → 未適用の restart offer を作成 → 保存した answer を適用しても、その answer が適用できる |
+| remote の routing key 変更（[packages/webrtc/tests/integrate/negotiationProperty/propertyUtils.ts:239](review-file:packages/webrtc/tests/integrate/negotiationProperty/propertyUtils.ts:239)） | RTX の SSRC の付け替え / abs-send-time を新しい extmap ID へ移動 / 同じ extmap ID を別 URI に再割り当て | 前の 2 つは、pending のまま現在の RTP と DataChannel が流れることを確認してから rollback する。再割り当ては `InvalidModificationError` で拒否され、signaling state と current SDP が変わらない |
+| description pool（[packages/webrtc/tests/integrate/negotiationProperty/propertyUtils.ts:366](review-file:packages/webrtc/tests/integrate/negotiationProperty/propertyUtils.ts:366)） | offerer、ICE restart（50%）、後から別の offer を作って古い方を適用（50%）、rollback して同じ offer を再適用（40%）、answer の作り直しと未適用の offer（50%、順序も 50%）、pranswer を先に適用（30%） | 再利用契約（2.10）。古い offer は拒否され、状態は何も変わらない。保存した answer は、作り直しや未適用の offer の後でも適用できる |
+| m-line の拒否（[packages/webrtc/tests/integrate/negotiationProperty/propertyUtils.ts:303](review-file:packages/webrtc/tests/integrate/negotiationProperty/propertyUtils.ts:303)） | offerer、拒否する場所（offer / answer）、種類（application / 新しく足した video / 交渉済みの audio） | port 0 と BUNDLE から外す拒否の後も invariant が成り立ち、残りの経路で通信を続けられる。後の episode でも交渉を続けられる（2.12） |
 
 交渉 episode は、次の 4 つの選択を組み合わせた手順です。選べる variant は session の状態で変わります。
 
@@ -287,7 +287,7 @@ invariant の検査（[packages/webrtc/tests/integrate/negotiationTransactionUti
 
 **拒否された操作の原子性**
 
-`expectRejectedAtomically` は、拒否の前後で両 peer の snapshot を取り、完全一致を要求します（[packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:2898](review-file:packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:2898)）。snapshot の内容は、signaling state、current / pending の local・remote SDP、各 ICE transport の ufrag と staged restart、transceiver の MID と m-line index、SSRC / RID の表です（[packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:2857](review-file:packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:2857)）。
+`expectRejectedAtomically` は、拒否の前後で両 peer の snapshot を取り、完全一致を要求します（[packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:2567](review-file:packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:2567)）。snapshot の内容は、signaling state、current / pending の local・remote SDP、各 ICE transport の ufrag と staged restart、transceiver の MID と m-line index、SSRC / RID の表です（[packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:2526](review-file:packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:2526)）。
 
 ```text
 snapshot(a, b) → 拒否される操作 (例: 古い offer の SLD → reject) → snapshot(a, b) + invariant
@@ -296,7 +296,7 @@ snapshot(a, b) → 拒否される操作 (例: 古い offer の SLD → reject) 
 
 **再現と、CI で回る seed**
 
-乱数は mulberry32 です（[packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:1913](review-file:packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:1913)）。同じ seed からは同じ乱数列が出るので、操作の選択も同じになります。ただし、ICE や DTLS が終わるタイミングは実際のソケットの通信に依存します。そのため、タイミングに依存する欠陥は、同じ seed でも毎回は再現しないことがあります。失敗すると、seed と操作の記録を付けた例外を投げます（元の例外は `cause` に残します）。出力の形式は次のとおりです（内容は例です）。
+乱数は mulberry32 です（[packages/webrtc/tests/integrate/negotiationProperty/propertyUtils.ts:29](review-file:packages/webrtc/tests/integrate/negotiationProperty/propertyUtils.ts:29)）。同じ seed からは同じ乱数列が出るので、操作の選択も同じになります。ただし、ICE や DTLS が終わるタイミングは実際のソケットの通信に依存します。そのため、タイミングに依存する欠陥は、同じ seed でも毎回は再現しないことがあります。失敗すると、seed と操作の記録を付けた例外を投げます（元の例外は `cause` に残します）。出力の形式は次のとおりです（内容は例です）。
 
 ```text
 AssertionError: expected 'checking' to be 'connected'
@@ -321,7 +321,7 @@ CI で既定値のまま回るのは、次の 12 件です。
 - 回帰 seed 17、19、28：8 step、pool なし。3、4、6 は固定 seed と重複するので除く
 - 長い回帰 seed 254、302、1385：20 step、pool なし
 
-回帰 seed は、この変更で直した欠陥を実際に見つけた seed です（[packages/webrtc/tests/integrate/negotiationTransactionProperty.test.ts:39](review-file:packages/webrtc/tests/integrate/negotiationTransactionProperty.test.ts:39)）。
+回帰 seed は、この変更で直した欠陥を実際に見つけた seed です（[packages/webrtc/tests/integrate/negotiationProperty/negotiationTransactionProperty.test.ts:39](review-file:packages/webrtc/tests/integrate/negotiationProperty/negotiationTransactionProperty.test.ts:39)）。
 
 | seed | 見つかった欠陥 |
 | --- | --- |
@@ -347,7 +347,7 @@ seed 4 は、試験のコメントに欠陥の記載がありません。固定 
 - **拒否と保留の判断は RFC と Chrome の実機挙動に合わせました。** extmap ID の再割当ては拒否します（RFC 8285 §7、Chrome も拒否）。SSRC の移動と RTX の付け替えは保留します（Chrome は受理）。
 - **状態の snapshot は持ち主に置きました。** transaction が他のオブジェクトのプロパティを列挙すると、状態を足すたびに漏れが起きます（実際に develop の codec 統合で修正が必要になりました）。持ち主の snapshot / restore の組だけを直せば済む形にしています。
 - **invariant helper で機械的に検出します。** 各操作の後に、current SDP と live 状態の一致を検査します。対象は、SSRC / RTX / MID+RID / extmap、受信 codec（fmtp と RTCP feedback まで）、PLI の判定、未停止の sender の経路、ICE の credential / candidate / EOC / checklist、DTLS、SCTP です: [packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:628](review-file:packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:628)、ルーティング表の検査は [packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:698](review-file:packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:698)
-- **自分で反例を探索します。** seed 固定の property test で、ランダムな操作列（offer / pranswer / answer / rollback / replacement、ICE restart、BUNDLE の分割と統合、EOC、ルーティングキーの変更）を実行し、各操作の後に invariant を、各ステップの後に実通信を検査します: [packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:2003](review-file:packages/webrtc/tests/integrate/negotiationTransactionUtils.ts:2003)。CI では固定 seed と回帰 seed を再生します: [packages/webrtc/tests/integrate/negotiationTransactionProperty.test.ts:39](review-file:packages/webrtc/tests/integrate/negotiationTransactionProperty.test.ts:39)
+- **自分で反例を探索します。** seed 固定の property test で、ランダムな操作列（offer / pranswer / answer / rollback / replacement、ICE restart、BUNDLE の分割と統合、EOC、ルーティングキーの変更）を実行し、各操作の後に invariant を、各ステップの後に実通信を検査します: [packages/webrtc/tests/integrate/negotiationProperty/propertyUtils.ts:119](review-file:packages/webrtc/tests/integrate/negotiationProperty/propertyUtils.ts:119)。CI では固定 seed と回帰 seed を再生します: [packages/webrtc/tests/integrate/negotiationProperty/negotiationTransactionProperty.test.ts:39](review-file:packages/webrtc/tests/integrate/negotiationProperty/negotiationTransactionProperty.test.ts:39)
 - **develop と挙動を変える箇所を増やしません。** develop と挙動が変わる規則を、核の不変条件・W3C・RFC のどれに必須かで棚卸ししました（[packages/webrtc/NEGOTIATION_TRANSACTION.md:874](review-file:packages/webrtc/NEGOTIATION_TRANSACTION.md:874)）。必須でないもの（application 拒否での SCTP の close）は develop に戻しました。新しい差は、develop で失敗していた操作を成功させるものか、`expectSessionContinues` を通るものに限ります。
 - **完了条件を有限にしました。** 遷移表・mutation matrix・操作カタログに載っていない新しい組み合わせは、後続チケットとして扱います（設計文書の Scope 章、チケットの 6 章）。
 

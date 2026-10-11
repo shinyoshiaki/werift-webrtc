@@ -6,7 +6,7 @@ import {
   fuzzRemoteMutation,
   fuzzRemoteRejection,
   seededRandom,
-} from "./negotiationTransactionUtils";
+} from "./propertyUtils";
 
 /**
  * Property test: random operation sequences (offer / pranswer / answer /
@@ -19,7 +19,7 @@ import {
  * episode the committed session carries RTP and DataChannel traffic.
  *
  * CI runs a fixed set of seeds. For a deeper local search:
- *   WERIFT_NEGOTIATION_FUZZ_SEEDS=200 WERIFT_NEGOTIATION_FUZZ_STEPS=20 npx vitest run tests/integrate/negotiationTransactionProperty.test.ts
+ *   WERIFT_NEGOTIATION_FUZZ_SEEDS=200 WERIFT_NEGOTIATION_FUZZ_STEPS=20 npx vitest run tests/integrate/negotiationProperty
  * A failure names its seed and the operations; WERIFT_NEGOTIATION_FUZZ_SEED
  * replays from that seed.
  */
