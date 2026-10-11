@@ -94,6 +94,17 @@
 
 ***
 
+### iceRoleAtStart?
+
+> `optional` **iceRoleAtStart**: `"unknown"` \| `"controlling"` \| `"controlled"`
+
+Internal: the ICE role when the handshake started. werift sets the ICE role at
+every offer / answer, so an SCTP association that starts later on this
+transport takes its client / server side from here, as both peers agreed
+on it when they started DTLS.
+
+***
+
 ### iceTransport
 
 > `readonly` **iceTransport**: [`RTCIceTransport`](RTCIceTransport.md)
@@ -207,6 +218,20 @@
 > `static` `optional` **localCertificatePromise**: `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
 
 ## Accessors
+
+### hasRemoteParameters
+
+#### Get Signature
+
+> **get** **hasRemoteParameters**(): `boolean`
+
+Internal: whether a description gave this transport the peer's DTLS parameters.
+
+##### Returns
+
+`boolean`
+
+***
 
 ### localParameters
 

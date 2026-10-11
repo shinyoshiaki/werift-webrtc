@@ -248,6 +248,24 @@ Whether gathering contacts a STUN or TURN server.
 
 ***
 
+### dropOtherRemoteGenerations()?
+
+> `optional` **dropOtherRemoteGenerations**(`usernameFragment`): `void`
+
+Drop remote candidates and pairs that name another remote ufrag.
+
+#### Parameters
+
+##### usernameFragment
+
+`string`
+
+#### Returns
+
+`void`
+
+***
+
 ### gatherCandidates()
 
 > **gatherCandidates**(): `Promise`\<`void`\>
