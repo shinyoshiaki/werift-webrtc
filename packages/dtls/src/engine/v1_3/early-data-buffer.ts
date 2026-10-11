@@ -19,7 +19,9 @@ export class EarlyDataBuffer {
     readonly retentionMs = 2_000,
   ) {}
 
+  /** Buffered records still inside the retention window (expires lazily). */
   get packets(): readonly Buffer[] {
+    this.expire(Date.now());
     return this.entries.map(({ data }) => data);
   }
 
@@ -90,6 +92,9 @@ export class EarlyDataBuffer {
   }
 
   snapshot(): EarlyDataBufferStats {
+    // Evaluate expiry at read time too, so observers never see records past
+    // retention even if the timer has not run yet (event-loop lag).
+    this.expire(Date.now());
     return {
       bufferedPackets: this.entries.length,
       bufferedBytes: this.bytes,
@@ -114,7 +119,12 @@ export class EarlyDataBuffer {
     );
     this.timer = setTimeout(() => {
       this.timer = undefined;
-      if (!this.disposed) this.expire(Date.now());
+      if (this.disposed) return;
+      this.expire(Date.now());
+      // Node timers run on a monotonic clock and may fire ~1ms before
+      // Date.now() reaches the deadline; re-arm instead of leaving the queue
+      // without a timer until the next push/drain.
+      this.armTimer();
     }, delay);
     this.timer.unref?.();
   }

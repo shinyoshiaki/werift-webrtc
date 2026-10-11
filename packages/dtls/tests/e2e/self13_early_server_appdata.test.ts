@@ -194,19 +194,20 @@ describe("e2e/self13 early server application data", () => {
     expect(client.connected).toBe(false);
 
     try {
-      // Act: 早期 app data を 2 件送り、retention (2 秒) を超えて待つ
+      // Act: 早期 app data を 2 件送り、保持を確認した時点から 2 秒以上待つ
       await server.send(Buffer.from("stale-0"));
       await server.send(Buffer.from("stale-1"));
-      await new Promise((r) => setTimeout(r, 50));
-      expect(client.earlyDataStats.bufferedPackets).toBe(2);
-      // retention 内 (受信から 1.5 秒程度) ではまだ保持している
-      await new Promise((r) => setTimeout(r, 1_500));
-      expect(client.earlyDataStats.bufferedPackets).toBe(2);
       const deadline = Date.now() + 5_000;
       while (
-        client.earlyDataStats.bufferedPackets > 0 &&
+        client.earlyDataStats.bufferedPackets < 2 &&
         Date.now() < deadline
       ) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      // 受信時刻はこの観測時刻以前なので、ここから 2 秒経てば必ず期限切れ
+      const observedAt = Date.now();
+      expect(client.earlyDataStats.bufferedPackets).toBe(2);
+      while (Date.now() - observedAt < 2_000) {
         await new Promise((r) => setTimeout(r, 50));
       }
 

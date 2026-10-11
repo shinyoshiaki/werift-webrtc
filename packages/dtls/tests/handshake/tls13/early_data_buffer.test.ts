@@ -57,6 +57,63 @@ describe("EarlyDataBuffer", () => {
     });
   });
 
+  test("expires the queue even when the retention timer fires before the wall clock reaches the deadline", () => {
+    // Arrange: setTimeout だけを fake にし、Date.now は個別に制御する
+    // (Node の timer は monotonic clock のため、Date.now より 1ms 程度早く発火し得る)
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let wallClock = 0;
+    const now = vi.spyOn(Date, "now").mockImplementation(() => wallClock);
+    const buffer = new EarlyDataBuffer(256, 256 * 1024, 2_000);
+    buffer.push(Buffer.from("early"));
+
+    try {
+      // Act: timer は 2000ms 後に発火するが、その時点の wall clock は 1999ms
+      wallClock = 1_999;
+      vi.advanceTimersByTime(2_000);
+      const atEarlyFire = buffer.snapshot();
+      wallClock = 2_000;
+      vi.advanceTimersByTime(1);
+
+      // Assert: 早期発火時は保持し、期限到達後に timer を再武装して破棄する
+      expect(atEarlyFire.bufferedPackets).toBe(1);
+      expect(buffer.snapshot()).toMatchObject({
+        bufferedPackets: 0,
+        droppedPackets: 1,
+        droppedBytes: 5,
+      });
+    } finally {
+      now.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  test("snapshot reports expiry without waiting for the retention timer", () => {
+    // Arrange: timer を一切進めない状態で packet を保持する
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let wallClock = 0;
+    const now = vi.spyOn(Date, "now").mockImplementation(() => wallClock);
+    const buffer = new EarlyDataBuffer(256, 256 * 1024, 2_000);
+    buffer.push(Buffer.from("a"));
+    buffer.push(Buffer.from("b"));
+
+    try {
+      // Act: wall clock だけ期限を越えさせて観測する
+      wallClock = 2_000;
+      const snapshot = buffer.snapshot();
+
+      // Assert: timer 未発火でも期限切れの queue は保持数に含めない
+      expect(snapshot).toMatchObject({
+        bufferedPackets: 0,
+        droppedPackets: 2,
+        droppedBytes: 2,
+      });
+      expect(buffer.packets).toEqual([]);
+    } finally {
+      now.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   test("abort cleanup prevents the retention timer from mutating state", () => {
     // Arrange: retention timer を制御できる clock で pre-auth packet を保持する。
     vi.useFakeTimers();
