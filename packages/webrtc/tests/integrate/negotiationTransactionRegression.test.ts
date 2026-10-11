@@ -69,7 +69,7 @@ import {
 
 /**
  * Deterministic regressions for what the negotiation property test found
- * (see negotiationTransactionProperty.test.ts for the seeds).
+ * (see negotiationProperty/negotiationTransactionProperty.test.ts for the seeds).
  */
 describe("negotiation transaction regressions", () => {
   enforceSessionContinuation();

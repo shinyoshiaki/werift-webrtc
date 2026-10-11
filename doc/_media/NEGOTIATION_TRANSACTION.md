@@ -643,7 +643,9 @@ peer negotiated against hand-built SDP, or a mutation that misdescribes the
 real peer). The coverage tests, the regression tests, the mutation test and
 the rejected-application test enforce it.
 
-`negotiationTransactionProperty.test.ts` is a seeded property test. Each step
+`tests/integrate/negotiationProperty/` holds the seeded property test
+(`negotiationTransactionProperty.test.ts`) and its episodes and seeded random
+stream (`propertyUtils.ts`, built on the shared utilities above). Each step
 is a random negotiation episode (offer / pranswer / answer / rollback /
 replacement, ICE restart, new audio m-line, audio BUNDLE split/merge,
 end-of-candidates) or a remote-only routing-key mutation (RTX pairing, extmap
