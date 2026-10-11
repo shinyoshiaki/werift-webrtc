@@ -138,6 +138,7 @@ ide:
   - replay は `SrtpReplayError`（`SrtpAuthenticationError` のサブクラス）として扱い、WebRTC の既存の破棄経路で捨てます。
   - window に記録するのは認証が通った packet だけです。改ざん packet では window は進みません。
   - 新しい SSRC の window も、認証が通った後にだけ作ります。未知の SSRC を持つ偽造 packet を大量に送られても、受信側の状態（replay window / ROC 状態）は増えません（`未知 SSRC の認証失敗 packet を大量に受けても受信側の状態は増えない`、AES-CM / AES-GCM の SRTP と SRTCP）。
+  - window の数は、相手が認証済みで送った SSRC の数で決まり、上限はありません。既存の SSRC ごとの ROC 状態（`srtpSSRCStates`）と同じ寿命・同じ増え方なので、replay 対策によって新たに無制限になった状態はありません。上限の導入は今回のスコープ外とします。
   - テストは `packages/rtp/tests/srtp/replay.test.ts` です。AES-CM と AES-GCM の両方で、replay・ROC をまたぐ rollover・改ざん・SRTCP を確認しています。
 - **§44 auth tag failure / ROC:** rtp package の unit テストで確認しています（`Rejects tampered SRTP auth tag without advancing rollover state`、`TestRolloverCount` など）。E2E 相当の確認は、上記の replay テストの rollover ケースです。
 - **§45 ICE restart:** `sped.test.ts` › `handshake 開始後の ICE restart でも datachannel が開く`、`ICE restart 後も datachannel が使える`、`dtls13.test.ts` › `ICE restart 後も DTLS 1.3 の DataChannel / RTP / RTCP が使える`、上記の `iceGeneration` テスト、Chromium E2E の `tests/ice/restart.test.ts`。

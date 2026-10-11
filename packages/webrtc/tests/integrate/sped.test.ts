@@ -1714,6 +1714,11 @@ describe("RTCPeerConnection SPED opt-in", () => {
       pc2.dtlsTransports[0]!.onRtp.subscribe(() => receivedRtp++);
       pc2.dtlsTransports[0]!.onRtcp.subscribe(() => receivedRtcp++);
       await pc2.setLocalDescription(await pc2.createAnswer());
+      // mismatch 後の close で socket は engine 参照を外すため、pc1 が answer
+      // を適用して DTLS を始める前 (= mismatch が起き得ない時点) に保持する。
+      await waitUntil(() => dtls13EngineOf(pc2) !== undefined);
+      const clientEngine = dtls13EngineOf(pc2)!;
+      expect(clientEngine.closed).toBe(false);
 
       // Act: server write-ready 中に protected media と SCTP INIT を client
       // へ流す。client は fingerprint 検証で失敗する。
@@ -1721,8 +1726,6 @@ describe("RTCPeerConnection SPED opt-in", () => {
       await waitUntil(() => pc1.dtlsTransports[0]?.role === "server");
       const server = pc1.dtlsTransports[0]!;
       await server.waitForWriteReady();
-      // close で socket が engine 参照を外すため、client engine を先に保持する。
-      const clientEngine = dtls13EngineOf(pc2);
       expect(
         await server.sendRtp(
           Buffer.from("must-not-leak"),
@@ -1742,8 +1745,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
       expect(receivedRtcp).toBe(0);
       // Assert: mismatch 側は SPED を abort し、DTLS engine を close する
       // (graceful close のため closed 到達は非同期に待つ)。
-      expect(clientEngine).toBeDefined();
-      await waitUntil(() => clientEngine?.closed === true);
+      await waitUntil(() => clientEngine.closed === true);
       expect(warpDiagnosticsSourceOf(pc2).sped?.state).toBe("disabled");
       expect(await transportStatsOf(pc2)).toMatchObject({
         dtlsState: "failed",
