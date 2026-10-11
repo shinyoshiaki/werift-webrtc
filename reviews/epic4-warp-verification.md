@@ -105,6 +105,11 @@ ide:
 
 **修正したバグ（retention timer）:** Node の timer は monotonic clock で動くため、`Date.now()` が期限に届く約 1ms 前に発火することがあります。旧実装はこのとき何も破棄せず、timer も再武装しなかったので、期限切れの early data が次の `push` / `drain` まで残っていました（全件実行時に retention テストが断続的に失敗した原因）。timer が早く発火した場合は再武装し、`snapshot()` / `packets` でも読み出し時に期限を評価するようにしました。
 
+- 修正は commit `beb5606e` に入っています。`EarlyDataBuffer` は `snapshot()` と `packets` で `expire(Date.now())` を評価し、timer callback は期限前に発火した場合に `armTimer()` で再武装します（`packages/dtls/src/engine/v1_3/early-data-buffer.ts`）。
+- E2E テスト（`2 s retention expiry …`）は固定の `setTimeout(1500)` を使わず、保持を観測した時刻から 2 秒以上経った後に stats を読みます。stats は読み出し時に期限を評価するので、timer の発火時刻には依存しません。
+- timer 経路の単体テスト（`early_data_buffer.test.ts`）: 早期発火時の再武装、timer 未発火でも `snapshot()` が期限切れを反映すること、`takeOne` 後に新しい先頭の期限で timer が再武装されること。
+- 確認: `packages/dtls` の全件を 4 本同時（retry なし）で各 443/443 成功、`npm run test:small` を 3 回連続で成功。
+
 上限値（256 records / 256 KiB / 2 s）は `EARLY_DATA_LIMITS`（`packages/dtls/src/engine/v1_3/types.ts`）に一元化しています。application gate・media buffer・DTLS engine は、いずれもこの定数から上限を取ります。
 
 ## 5. §29–32 stats / diagnostics

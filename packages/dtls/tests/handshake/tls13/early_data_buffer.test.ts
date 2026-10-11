@@ -114,6 +114,40 @@ describe("EarlyDataBuffer", () => {
     }
   });
 
+  test("takeOne re-arms the retention timer for the next head", () => {
+    // Arrange: 0ms と 1500ms に受信した 2 件を保持する
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let wallClock = 0;
+    const now = vi.spyOn(Date, "now").mockImplementation(() => wallClock);
+    const buffer = new EarlyDataBuffer(256, 256 * 1024, 2_000);
+    buffer.push(Buffer.from("head"));
+    wallClock = 1_500;
+    buffer.push(Buffer.from("next"));
+
+    try {
+      // Act: 先頭だけを取り出し、残りの先頭 (1500ms) の期限まで timer を進める
+      wallClock = 1_600;
+      const taken = buffer.takeOne()?.toString();
+      wallClock = 2_000;
+      vi.advanceTimersByTime(400);
+      const beforeDeadline = buffer.snapshot();
+      wallClock = 3_500;
+      vi.advanceTimersByTime(1_500);
+
+      // Assert: 旧先頭の期限では残りを捨てず、新しい先頭の期限で破棄する
+      expect(taken).toBe("head");
+      expect(beforeDeadline.bufferedPackets).toBe(1);
+      expect(buffer.snapshot()).toMatchObject({
+        bufferedPackets: 0,
+        droppedPackets: 1,
+        droppedBytes: 4,
+      });
+    } finally {
+      now.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   test("abort cleanup prevents the retention timer from mutating state", () => {
     // Arrange: retention timer を制御できる clock で pre-auth packet を保持する。
     vi.useFakeTimers();
