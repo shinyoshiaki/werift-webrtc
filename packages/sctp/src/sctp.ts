@@ -103,6 +103,22 @@ const SCTP_HEARTBEAT_INTERVAL = 30;
 const RECONFIG_MAX_STREAMS = 135;
 
 /** A pre-established association was deliberately abandoned by its owner. */
+/**
+ * Thrown by a transport's send when the permission an association start was
+ * sending under has been withdrawn (e.g. WebRTC early server data revoked,
+ * or its carrier generation became stale). Only this error cancels an
+ * in-progress start; any other send failure is treated as packet loss and
+ * left to T1 retransmission.
+ */
+export class SCTPSendPermissionRevokedError extends Error {
+  readonly code = "SCTP_SEND_PERMISSION_REVOKED" as const;
+
+  constructor(message = "SCTP send permission revoked") {
+    super(message);
+    this.name = "SCTPSendPermissionRevokedError";
+  }
+}
+
 export class SCTPStartCancelledError extends Error {
   readonly code = "SCTP_START_CANCELLED" as const;
 
@@ -431,7 +447,9 @@ export class SCTP {
             const err =
               error instanceof Error ? error : new Error(String(error));
             log("send initAck failed", err.message);
-            this.cancelStart(err);
+            // Without a revoked permission this is packet loss: the peer's
+            // T1 retransmits INIT and a new INIT_ACK is sent then.
+            this.cancelStartIfPermissionRevoked(err);
             return;
           }
         }
@@ -1159,8 +1177,9 @@ export class SCTP {
           log("send timer1 chunk failed", err.message);
           // After COOKIE_ECHO the peer may already be ESTABLISHED: keep T1
           // running (cancelStart refuses committed starts) so a later
-          // retransmission or the max-retrans limit decides.
-          this.cancelStart(err);
+          // retransmission or the max-retrans limit decides. Other send
+          // failures are loss and T1 keeps retransmitting.
+          this.cancelStartIfPermissionRevoked(err);
         });
       });
       if (this.isStopped) return;
@@ -1456,9 +1475,15 @@ export class SCTP {
       // The INIT_ACK may already have committed the start; then this is only
       // a late send error and T1 / the peer recover it.
       if (this.startHandedOff) return;
-      // INIT failure is a failed association attempt, not a successful start.
-      // Surface it to the owner and publish CLOSED so waiters cannot remain
-      // pending until an unrelated timeout.
+      // An ordinary send failure is packet loss: T1 is already running and
+      // retransmits INIT (or closes the association after the max retries).
+      if (!(error instanceof SCTPSendPermissionRevokedError)) {
+        log("send init failed; T1 retransmits", error?.message);
+        return;
+      }
+      // A revoked send permission cannot make progress. Surface it to the
+      // owner and publish CLOSED so waiters cannot remain pending until an
+      // unrelated timeout.
       this.setState(SCTP_STATE.CLOSED);
       throw error;
     }
@@ -1550,6 +1575,13 @@ export class SCTP {
    * by early WebRTC paths when their permission or carrier generation is
    * revoked; an authenticated retry can then allocate a new SCTP instance.
    */
+  /** Cancel the start only when the send failed for a revoked permission. */
+  private cancelStartIfPermissionRevoked(error: Error) {
+    if (error instanceof SCTPSendPermissionRevokedError) {
+      this.cancelStart(error);
+    }
+  }
+
   cancelStart(error: Error = new SCTPStartCancelledError()): boolean {
     if (this.associationState === SCTP_STATE.ESTABLISHED) return false;
     // The peer may already be ESTABLISHED and will not send a new INIT.
@@ -1582,7 +1614,7 @@ export class SCTP {
     this.sendChunk(this.timer1Chunk).catch((error) => {
       const err = error instanceof Error ? error : new Error(String(error));
       log("retransmit start chunk failed", err.message);
-      this.cancelStart(err);
+      this.cancelStartIfPermissionRevoked(err);
     });
   }
 

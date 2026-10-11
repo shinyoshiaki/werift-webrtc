@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import { SCTPSendPermissionRevokedError } from "../../../sctp/src";
 
 import { SCTP_STATE } from "../../../sctp/src";
 import { Event, RTCDataChannel, RTCSctpTransport } from "../../src";
@@ -72,11 +73,14 @@ describe("RTCSctpTransportTest", () => {
       });
     }));
 
-  test("INIT 送信失敗を reject し、次の start で association を再構築する", async () => {
-    // Arrange: DTLS bridge の最初の送信だけ失敗させる。
+  test("INIT 送信許可の取消しを reject し、次の start で association を再構築する", async () => {
+    // Arrange: DTLS bridge の最初の送信だけ送信許可の取消しで失敗させる
+    // (単なる送信失敗は損失として T1 が再送する)。
     const sendData = vi
       .fn<(...args: [Buffer]) => Promise<void>>()
-      .mockRejectedValueOnce(new Error("INIT send failed"))
+      .mockRejectedValueOnce(
+        new SCTPSendPermissionRevokedError("INIT send failed"),
+      )
       .mockResolvedValue(undefined);
     const dtls = {
       id: "fake-dtls",

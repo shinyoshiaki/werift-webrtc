@@ -1,6 +1,7 @@
 export { SCTP_STATE, WEBRTC_PPID } from "./const";
 export {
   SCTP,
+  SCTPSendPermissionRevokedError,
   DEFAULT_SCTP_MTU,
   maxPayloadSizeForMtu,
   validateSctpMtu,

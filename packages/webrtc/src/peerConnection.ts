@@ -475,6 +475,17 @@ export class RTCPeerConnection extends EventTarget {
       };
     }
 
+    // Reject invalid SPED / WARP combinations synchronously, before the
+    // configuration is committed (ticket: explicit error before connecting).
+    validateWarpConfiguration({
+      sped:
+        normalizedConfig.sped !== undefined
+          ? normalizedConfig.sped
+          : this.config.sped,
+      dtls: nextDtls,
+      warp: normalizedConfig.warp ?? this.config.warp,
+    });
+
     if (this.dtlsTransportCreated) {
       if (
         "sped" in normalizedConfig &&
@@ -1164,25 +1175,6 @@ export class RTCPeerConnection extends EventTarget {
     log("start connect");
 
     if (this.isClosed) return;
-
-    if (this.config.sped === true && !peerConfigHasDtls13(this.config)) {
-      throw new Error(
-        "PeerConfig.sped requires DTLS 1.3 in dtls.protocolVersions",
-      );
-    }
-    if (this.config.sped === true && this.config.dtls.helloRetryRequest) {
-      throw new Error(
-        "PeerConfig.sped cannot be combined with dtls.helloRetryRequest",
-      );
-    }
-    if (
-      this.config.warp.allowEarlyServerData === true &&
-      (this.config.sped !== true || !peerConfigHasDtls13(this.config))
-    ) {
-      throw new Error(
-        "warp.allowEarlyServerData requires PeerConfig.sped and DTLS 1.3",
-      );
-    }
 
     // The transport set for this connect attempt must remain stable.  A
     // connection-state callback may add a transceiver while the attempt is
@@ -2214,7 +2206,36 @@ export type RTCPeerConnectionConfig = Partial<
 > &
   RTCPeerConnectionRTCConfiguration & { sctp?: RTCSctpConfiguration };
 
-function peerConfigHasDtls13(config: PeerConfig): boolean {
+/**
+ * SPED / WARP option combinations that cannot work. Thrown from the
+ * constructor and setConfiguration() so the caller sees the error before any
+ * connection attempt.
+ */
+function validateWarpConfiguration(
+  config: Pick<PeerConfig, "sped" | "dtls" | "warp">,
+): void {
+  const hasDtls13 = peerConfigHasDtls13(config);
+  if (config.sped === true && !hasDtls13) {
+    throw new Error(
+      "PeerConfig.sped requires DTLS 1.3 in dtls.protocolVersions",
+    );
+  }
+  if (config.sped === true && config.dtls.helloRetryRequest) {
+    throw new Error(
+      "PeerConfig.sped cannot be combined with dtls.helloRetryRequest",
+    );
+  }
+  if (
+    config.warp?.allowEarlyServerData === true &&
+    (config.sped !== true || !hasDtls13)
+  ) {
+    throw new Error(
+      "warp.allowEarlyServerData requires PeerConfig.sped and DTLS 1.3",
+    );
+  }
+}
+
+function peerConfigHasDtls13(config: Pick<PeerConfig, "dtls">): boolean {
   const versions = config.dtls.protocolVersions;
   if (!versions || versions.length === 0) {
     return false;

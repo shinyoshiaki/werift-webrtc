@@ -1759,6 +1759,69 @@ describe("RTCPeerConnection SPED opt-in", () => {
     }
   }, 30_000);
 
+  test.each([
+    {
+      name: "sped with unspecified protocolVersions",
+      config: { sped: true },
+      error: "PeerConfig.sped requires DTLS 1.3 in dtls.protocolVersions",
+    },
+    {
+      name: "sped with empty protocolVersions",
+      config: { sped: true, dtls: { protocolVersions: [] } },
+      error: "PeerConfig.sped requires DTLS 1.3 in dtls.protocolVersions",
+    },
+    {
+      name: "sped without DTLS 1.3",
+      config: { sped: true, dtls: { protocolVersions: [DtlsVersion.V1_2] } },
+      error: "PeerConfig.sped requires DTLS 1.3 in dtls.protocolVersions",
+    },
+    {
+      name: "sped with helloRetryRequest",
+      config: {
+        sped: true,
+        dtls: { protocolVersions: [DtlsVersion.V1_3], helloRetryRequest: true },
+      },
+      error: "PeerConfig.sped cannot be combined with dtls.helloRetryRequest",
+    },
+    {
+      name: "early server data without sped",
+      config: {
+        dtls: { protocolVersions: [DtlsVersion.V1_3] },
+        warp: { allowEarlyServerData: true },
+      },
+      error: "warp.allowEarlyServerData requires PeerConfig.sped and DTLS 1.3",
+    },
+  ])(
+    "不正な WARP 設定 ($name) は constructor で同期的に throw する",
+    ({ config, error }) => {
+      // Act / Assert: 接続開始前に呼び出し側へ明示エラーが返る
+      expect(
+        () => new RTCPeerConnection({ iceServers: [], ...config }),
+      ).toThrow(error);
+    },
+  );
+
+  test("setConfiguration の不正な WARP 設定は throw し、設定を変更しない", () => {
+    // Arrange: 既定 (sped:false) の PeerConnection
+    const pc = new RTCPeerConnection({ iceServers: [] });
+
+    try {
+      // Act / Assert: sped なしの early server data は同期的に拒否される
+      expect(() =>
+        pc.setConfiguration({ warp: { allowEarlyServerData: true } }),
+      ).toThrow("warp.allowEarlyServerData requires PeerConfig.sped");
+      // Assert: 拒否された変更は反映されない
+      expect(pc.getConfiguration().warp?.allowEarlyServerData).toBe(false);
+      // Act / Assert: 正しい組み合わせは受け付ける
+      const valid = new RTCPeerConnection(
+        spedPeerConfig({ warp: { allowEarlyServerData: true } }),
+      );
+      valid.close();
+    } finally {
+      pc.close();
+    }
+  });
+
   test("createDataChannel 後の iceServers 更新では sped が維持される", () => {
     // Arrange: sped:true で transport を生成してから無関係な部分更新
     const pc = new RTCPeerConnection({
@@ -1897,165 +1960,6 @@ describe("RTCPeerConnection SPED opt-in", () => {
         }),
       ).toThrow(/sped cannot be changed after a DTLS transport is created/);
       expect(pc.getConfiguration().sped).toBe(false);
-    } finally {
-      pc.close();
-    }
-  });
-
-  test("sped: true かつ DTLS 1.3 が無いと connect() 開始時に throw する", async () => {
-    // Arrange: 未指定 / 空 / 1.2 のみ
-    const unspecified = new RTCPeerConnection({ iceServers: [], sped: true });
-    const empty = new RTCPeerConnection({
-      iceServers: [],
-      sped: true,
-      dtls: { protocolVersions: [] },
-    });
-    const v12 = new RTCPeerConnection({
-      iceServers: [],
-      sped: true,
-      dtls: { protocolVersions: [DtlsVersion.V1_2] },
-    });
-
-    try {
-      // Act / Assert: constructor では落とさず connect() で失敗
-      await expect((unspecified as any).connect()).rejects.toThrow(
-        /sped requires DTLS 1.3/,
-      );
-      await expect((empty as any).connect()).rejects.toThrow(
-        /sped requires DTLS 1.3/,
-      );
-      await expect((v12 as any).connect()).rejects.toThrow(
-        /sped requires DTLS 1.3/,
-      );
-    } finally {
-      unspecified.close();
-      empty.close();
-      v12.close();
-    }
-  });
-
-  test("通常の offer/answer では sped:true かつ DTLS 1.3 無しは SPED を出さず failed になる", async () => {
-    const configs = [
-      { sped: true as const },
-      { sped: true as const, dtls: { protocolVersions: [] as const } },
-      {
-        sped: true as const,
-        dtls: { protocolVersions: [DtlsVersion.V1_2] as const },
-      },
-    ];
-
-    for (const extra of configs) {
-      // Arrange: Public API の offer/answer。private connect() は直接呼ばない
-      const stun: Buffer[] = [];
-      const handshakeDtls: Buffer[] = [];
-      const pc1 = new RTCPeerConnection({ iceServers: [], ...extra });
-      const pc2 = new RTCPeerConnection({ iceServers: [], ...extra });
-      try {
-        pc1.createDataChannel("dc");
-        exchangeIceCandidates(pc1, pc2);
-        const stopSpy1 = spyWhenReady(pc1, stun, handshakeDtls);
-        await pc1.setLocalDescription(await pc1.createOffer());
-        await pc2.setRemoteDescription(pc1.localDescription!);
-        const stopSpy2 = spyWhenReady(pc2, stun, handshakeDtls);
-        await pc2.setLocalDescription(await pc2.createAnswer());
-
-        // Act: remote answer 設定後に fire-and-forget の connect() が走る
-        await pc1.setRemoteDescription(pc2.localDescription!);
-        await waitUntil(
-          () =>
-            pc1.connectionState === "failed" ||
-            pc2.connectionState === "failed",
-          5_000,
-        );
-
-        // Assert: SPED 属性は wire に出ず、利用者は failed を観測できる
-        expect(
-          stun.some((bytes) =>
-            stunAttributeTypes(bytes).includes(DTLS_IN_STUN_DATA),
-          ),
-        ).toBe(false);
-        expect(
-          stun.some((bytes) =>
-            stunAttributeTypes(bytes).includes(DTLS_IN_STUN_ACK),
-          ),
-        ).toBe(false);
-        expect(
-          pc1.connectionState === "failed" || pc2.connectionState === "failed",
-        ).toBe(true);
-        stopSpy1();
-        stopSpy2();
-      } finally {
-        pc1.close();
-        pc2.close();
-      }
-    }
-  });
-
-  test("通常の offer/answer では sped + helloRetryRequest も SPED を出さず failed になる", async () => {
-    // Arrange
-    const stun: Buffer[] = [];
-    const handshakeDtls: Buffer[] = [];
-    const extra = {
-      sped: true as const,
-      dtls: {
-        protocolVersions: [DtlsVersion.V1_3] as const,
-        helloRetryRequest: true,
-      },
-    };
-    const pc1 = new RTCPeerConnection({ iceServers: [], ...extra });
-    const pc2 = new RTCPeerConnection({ iceServers: [], ...extra });
-    try {
-      pc1.createDataChannel("dc");
-      exchangeIceCandidates(pc1, pc2);
-      const stopSpy1 = spyWhenReady(pc1, stun, handshakeDtls);
-      await pc1.setLocalDescription(await pc1.createOffer());
-      await pc2.setRemoteDescription(pc1.localDescription!);
-      const stopSpy2 = spyWhenReady(pc2, stun, handshakeDtls);
-      await pc2.setLocalDescription(await pc2.createAnswer());
-
-      // Act: signaling 完了後に connect() が設定エラーで failed になる
-      await pc1.setRemoteDescription(pc2.localDescription!);
-      await waitUntil(
-        () =>
-          pc1.connectionState === "failed" || pc2.connectionState === "failed",
-        5_000,
-      );
-
-      // Assert: dtls-cookie 併用は Public API でも SPED を出さない
-      expect(
-        stun.some((bytes) =>
-          stunAttributeTypes(bytes).includes(DTLS_IN_STUN_DATA),
-        ),
-      ).toBe(false);
-      expect(
-        stun.some((bytes) =>
-          stunAttributeTypes(bytes).includes(DTLS_IN_STUN_ACK),
-        ),
-      ).toBe(false);
-      expect(
-        pc1.connectionState === "failed" || pc2.connectionState === "failed",
-      ).toBe(true);
-      stopSpy1();
-      stopSpy2();
-    } finally {
-      pc1.close();
-      pc2.close();
-    }
-  });
-
-  test("sped: true と helloRetryRequest: true は connect() で reject する", async () => {
-    // Arrange
-    const pc = new RTCPeerConnection({
-      iceServers: [],
-      sped: true,
-      dtls: {
-        protocolVersions: [DtlsVersion.V1_3],
-        helloRetryRequest: true,
-      },
-    });
-    try {
-      // Act / Assert: SPED は ice-authenticated 固定。dtls-cookie と併用しない
-      await expect((pc as any).connect()).rejects.toThrow(/helloRetryRequest/);
     } finally {
       pc.close();
     }

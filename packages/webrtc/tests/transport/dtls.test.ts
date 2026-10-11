@@ -2,6 +2,7 @@ import { Certificate } from "@fidm/x509";
 import { setTimeout } from "timers/promises";
 import { vi } from "vitest";
 
+import { DtlsClient } from "../../../dtls/src";
 import type { Connection } from "../../../ice/src";
 import { connectionDatagramEvent } from "../../../ice/src/internal/datagram";
 import {
@@ -1351,6 +1352,55 @@ describe("RTCDtlsTransportTest", () => {
       expect(receiver.data).toHaveLength(0);
       await expect(session1.sendData(Buffer.from("x"))).rejects.toThrow();
     } finally {
+      await Promise.allSettled([session1.stop(), session2.stop()]);
+    }
+  });
+
+  test("handshake 中の ICE restart 後に connect が失敗したら start は failed で reject する", async () => {
+    // Arrange: 非 SPED の pair を作り、DTLS client の connect を制御可能にする。
+    const [session1, session2] = await createDtlsSessions();
+    session1.setRemoteParams(session2.localParameters);
+    session2.setRemoteParams(session1.localParameters);
+    let rejectConnect!: (error: Error) => void;
+    const connect = vi
+      .spyOn(DtlsClient.prototype, "connect")
+      .mockImplementation(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            rejectConnect = reject;
+          }),
+      );
+    const starts = [session1, session2].map((session) => {
+      const started = session.start();
+      void started.catch(() => undefined);
+      return started;
+    }, 15_000);
+
+    try {
+      const deadline = Date.now() + 5_000;
+      while (!connect.mock.calls.length) {
+        if (Date.now() > deadline) throw new Error("connect が呼ばれない");
+        await setTimeout(10);
+      }
+      const client = [session1, session2].find(
+        (session) => session.dtls instanceof DtlsClient,
+      )!;
+      const clientStart = starts[[session1, session2].indexOf(client)];
+
+      // Act: handshake 中に ICE restart で attempt を付け替えた後、同じ
+      // DTLS socket の connect が失敗する。
+      (client.iceTransport.connection as unknown as { generation: number })
+        .generation++;
+      client.handleIceRestart();
+      rejectConnect(new Error("handshake failed after restart"));
+
+      // Assert: 失敗は捨てられず、start は reject して failed になる。
+      await expect(clientStart).rejects.toThrow(
+        "handshake failed after restart",
+      );
+      expect(client.state).toBe("failed");
+    } finally {
+      connect.mockRestore();
       await Promise.allSettled([session1.stop(), session2.stop()]);
     }
   });

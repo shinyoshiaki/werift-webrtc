@@ -4,11 +4,11 @@ ide:
   version: 1
   title: "Epic 4: WARP 対応 WebRTC の検証記録（interop / E2E / 要件とテストの対応）"
   dock: right
-  baseCommit: 0fa440a2ec784d9764b0e2b561ba45e365d74fa0
+  baseCommit: 2fd3ce1992eb1e20da7b4554990a477006c3adfc
 ---
 # Epic 4: WARP 対応 WebRTC の検証記録
 
-設計書 [epic4-warp-webrtc-detailed.md](review-file:epic4-warp-webrtc-detailed.md:1) の §29–32（stats）、§40–50（テスト・相互接続）、§53（完了条件）について、実行した検証と、要件ごとのテストの対応をまとめます。対象は `0fa440a2` に、replay window の登録時期の修正（§6）を加えた作業ツリーです。
+設計書 [epic4-warp-webrtc-detailed.md](review-file:epic4-warp-webrtc-detailed.md:1) の §29–32（stats）、§40–50（テスト・相互接続）、§53（完了条件）について、実行した検証と、要件ごとのテストの対応をまとめます。対象は `2fd3ce19` に、`sped:false` 既定経路の回帰修正（§7）を加えた作業ツリーです。
 
 ## 0. 実行環境（2026-10-10）
 
@@ -153,3 +153,60 @@ ide:
 - §42 row 1/2 の「SPED on・Full×Full」を DTLS role ごとに確認する専用テスト。現状は `spedTiming.test.ts` の `回答側の DTLS %s 開始が遅れても…` が両 role をカバーしていますが、DTLS 開始の遅延条件付きです。
 - §43 の「early disabled 時に writeReady から peerAuthenticated まで送信を保留する」を DataChannel レベルで確認するテスト。
 - §45 の「restart 後に新しい selected pair へ切り替わったこと」を直接確認するテスト。
+
+## 7. `sped:false` 非回帰の証跡
+
+チケットの追加要件（`TICKET-epic4-warp-webrtc-detailed.md` §6）への対応です。レビュー 10 の指摘どおり、SPED/early 用に入れた中断処理が `sped:false` の既定経路にも作用していました。点検で、指摘 4 件のほかに 3 か所の回帰を見つけて修正しました。
+
+### 7.1 SPED/early 用の処理が既定経路から届くかの点検（`warp...HEAD`）
+
+| # | 仕組み | 箇所 | 修正前に `sped:false` から届いたか | 対応 |
+|---|---|---|---|---|
+| 1 | restart 時の `onEarlyApplicationAttemptCancelled` 発火 | `packages/webrtc/src/transport/dtls.ts` `syncAttemptToIceGeneration` | **届いていた**（この関数は SPED transport では早期 return するため、非 SPED 専用） | 発火を削除（指摘 1） |
+| 2 | 同イベントの発火（session abort / fallback flight / generation 変更） | `dtls.ts` `startWithSped` の SPED hook | 届かない（SPED 専用） | 変更なし |
+| 3 | `onEarlyApplicationSendRevoked`（early 送信許可の取消し） | `dtls.ts` `updateWarpConfig` | **届き得た**（`sped:false` でも `allowEarlyServerData` を true→false に変更できた） | 設定検証で到達不能にし、`isDtlsTransportSped` でも限定 |
+| 4 | 送信失敗による SCTP `cancelStart`（INIT_ACK 送信、T1 再送、`retransmitStartNow`） | `packages/sctp/src/sctp.ts` | **届いていた**（任意の送信失敗で association を閉じた） | `SCTPSendPermissionRevokedError` のときだけ取消し（指摘 2） |
+| 5 | INIT 送信失敗で CLOSED + reject | `sctp.ts` `start` | **届いていた** | 取消しのときだけ CLOSED。それ以外は損失として T1 が再送（`warp` でも未到達だった既存の弱点も解消） |
+| 6 | 古い attempt の `connect()` 失敗を捨てる | `dtls.ts` `startSerial` / `startWithSped` | **届いていた**（`start()` が終わらない） | attempt に関係なく現在の失敗として `failed` / reject（指摘 3） |
+| 7 | DTLS 受信を現 generation の認証済み pair に限定 | `dtls-ice-transport.ts` | **届いていた**（handshake 中の restart で相手の最終 flight を捨て、DTLS が完了しない） | 非 SPED では前 generation の選択 pair（RFC 8445 §9）からの DTLS も受理 |
+| 8 | DTLS 1.3 engine の受信世代フィルタ | `dtls.ts` `bindDtlsSocketEvents` | **届いていた**（非 SPED の DTLS 1.3） | SPED transport だけに設定 |
+| 9 | SPED/WARP 設定の検証 | `peerConnection.ts` | `connect()` 内だけで、呼び出し側にエラーが返らない | constructor / `setConfiguration` で同期的に throw（指摘 4） |
+| 10 | fingerprint gate（`InboundApplicationGate`） | `dtls.ts` | 届く（全経路の security invariant として意図どおり） | 変更なし。非 SPED は認証後にしか受信しないため挙動差なし |
+| 11 | media 受信の generation / 認証判定 | `dtls.ts` `onIceDatagram` | 届く | 前 generation の選択 pair を許可済み（既存対応）。マトリクスで確認 |
+| 12 | DTLS `connected` 時の `retransmitStartNow` | `packages/webrtc/src/transport/sctp.ts` | 届く | 非 SPED は SCTP 開始が DTLS `connected` 後なので、再送の前倒しだけ。マトリクスで確認 |
+
+### 7.2 障害注入マトリクス（`warp` / 修正前 / 修正後）
+
+- テスト: `packages/webrtc/tests/integrate/spedFalseNonRegression.test.ts`。Arrange は `tests/integrate/warpArrange.ts` の `runSpedFalseFaultScenario`。
+- 構成: 既定設定（`sped:false`）の 2 つの PeerConnection と negotiated DataChannel。DTLS は既定（1.2）と 1.3 の 2 通り、answerer の DTLS role は client / server の 2 通りで、各シナリオ 4 回。
+- 判定: 一度も `failed` にならず、DataChannel が双方向に届き、最終状態が両側 `connected` であること。
+- 比較: 同じ helper を `warp`（`3404daf8`）と修正前 HEAD（`2fd3ce19`）の一時 worktree にコピーして実行し、`connectionState` の遷移を記録しました。
+
+| restart | 障害 | `warp` | 修正前 HEAD (`2fd3ce19`) | 修正後 |
+|---|---|---|---|---|
+| DTLS 接続中 | なし | 4/4 | 4/4 | 4/4 |
+| SCTP COOKIE_WAIT 中（INIT 送信時） | なし | 4/4 | 0/4（failed 3、未到達 2） | 4/4 |
+| SCTP COOKIE_WAIT 中（INIT 送信時） | `INIT_ACK` を喪失 | 4/4 | 0/4（failed 3、未到達 2） | 4/4 |
+| SCTP COOKIE_ECHOED 中（COOKIE_ECHO 送信時） | なし | 4/4 | 2/4（failed 2、未到達 2） | 4/4 |
+| SCTP COOKIE_ECHOED 中（COOKIE_ECHO 送信時） | `COOKIE_ACK` を喪失 | 4/4 | 2/4（failed 2、未到達 2） | 4/4 |
+| なし | `INIT_ACK` を喪失 | 4/4 | 4/4 | 4/4 |
+| なし | `COOKIE_ACK` を喪失 | 4/4 | 4/4 | 4/4 |
+| なし | `INIT` の送信失敗 | 0/4（未到達 4） | 0/4（failed 4、未到達 4） | 4/4 |
+| なし | `INIT_ACK` の送信失敗 | 4/4 | 0/4（failed 4、未到達 4） | 4/4 |
+| なし | `COOKIE_ECHO` の送信失敗 | 4/4 | 4/4 | 4/4 |
+| SCTP COOKIE_WAIT 中（INIT 送信時） | `INIT_ACK` の送信失敗 | 4/4 | 0/4（failed 3、未到達 4） | 4/4 |
+
+- 合計: `warp` 40/44、修正前 24 件が回帰（`failed` 21、未到達 3）、修正後 44/44。
+- 修正前の典型的な遷移は、offerer `connecting → failed → connecting`、answerer `connecting` のまま（DataChannel 未到達）でした。
+- `warp` で失敗する `INIT` 送信失敗の 4 件は既存の弱点です（INIT を 1 回送れないと T1 が始まらない）。今回の SCTP 側の整理（#5）で解消しました。
+
+### 7.3 修正と回帰テスト
+
+| 指摘 | 修正 | 回帰テスト |
+|---|---|---|
+| 1. restart で一時的に `failed` | #1、#7、#8 | マトリクスの restart 系。修正前は失敗、修正後は成功 |
+| 2. 送信失敗で association を閉じる | #4、#5。`SCTPSendPermissionRevokedError` を SCTP に追加し、SPED early 送信キューと DTLS の未認証送信拒否だけがこの型を投げる | `packages/sctp/tests/sctp.test.ts` › `T1 再送の送信失敗は確定前かつ送信許可の取消しのときだけ start を取り消す`、`INIT 送信失敗 (%s) は送信許可の取消しのときだけ association を閉じる`。マトリクスの送信失敗系 |
+| 3. restart 後の `connect()` 失敗で `start()` が終わらない | #6 | `packages/webrtc/tests/transport/dtls.test.ts` › `handshake 中の ICE restart 後に connect が失敗したら start は failed で reject する`（修正前は timeout） |
+| 4. 設定検証が `connect()` の中だけ | #9 | `packages/webrtc/tests/integrate/sped.test.ts` › `不正な WARP 設定 ($name) は constructor で同期的に throw する`、`setConfiguration の不正な WARP 設定は throw し、設定を変更しない`。「`connect()` で失敗する」ことを前提にした旧テスト 4 件は削除 |
+
+**検証:** `npm run type`、`lint:imports`、`npm run test:small` が成功しました（webrtc 637、SCTP 65、ICE 302、DTLS 444、rtp 125 ほか）。WebRTC・SCTP・ICE・DTLS・rtp の各パッケージは retry なしでも成功しています。`npm run e2e`（一般 E2E 46、DTLS 1.2 / 1.3 モード各 12）と `npm run wpt --workspace packages/webrtc`（後退なし）も成功しました。

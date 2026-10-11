@@ -1,6 +1,6 @@
 import { readFileSync } from "fs";
 
-import type { SCTP } from "../src";
+import { type SCTP, SCTPSendPermissionRevokedError } from "../src";
 import {
   CookieEchoChunk,
   InitAckChunk,
@@ -22,10 +22,13 @@ export function createControlledTransport() {
   const sent: Buffer[] = [];
   let hold: Promise<void> | undefined;
   let release = () => {};
-  let failSends = false;
+  let failSends: "loss" | "revoked" | undefined;
   const transport: Transport = {
     send: async (data: Buffer) => {
-      if (failSends) throw new Error("transport rejected");
+      if (failSends === "revoked") {
+        throw new SCTPSendPermissionRevokedError("transport rejected");
+      }
+      if (failSends === "loss") throw new Error("transport rejected");
       sent.push(data);
       if (hold) await hold;
     },
@@ -44,11 +47,15 @@ export function createControlledTransport() {
       hold = undefined;
       release();
     },
-    failSends: () => {
-      failSends = true;
+    /**
+     * Make subsequent sends reject. `loss` is an ordinary send failure;
+     * `revoked` is the transport withdrawing the start's send permission.
+     */
+    failSends: (kind: "loss" | "revoked" = "loss") => {
+      failSends = kind;
     },
     restoreSends: () => {
-      failSends = false;
+      failSends = undefined;
     },
   };
 }

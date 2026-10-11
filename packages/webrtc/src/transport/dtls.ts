@@ -17,6 +17,7 @@ import {
 } from "../../../ice/src/internal/datagram";
 import { attachSpedToConnection } from "../../../ice/src/internal/sped";
 import { getConnectionSpedRuntime } from "../../../ice/src/internal/sped-bind";
+import { SCTPSendPermissionRevokedError } from "../../../sctp/src";
 import { EventTarget as DomEventTarget } from "../helper";
 import { DtlsClient, DtlsServer, type DtlsSocket } from "../imports/dtls";
 import {
@@ -175,7 +176,13 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     this.spedTransport?.setEarlyApplicationSendEnabled(
       nextWarp.allowEarlyServerData,
     );
-    if (previousAllowEarlyServerData && !nextWarp.allowEarlyServerData) {
+    // Early server send exists only on SPED transports; never revoke (and so
+    // never cancel an SCTP start) on the default non-SPED path.
+    if (
+      isDtlsTransportSped(this) &&
+      previousAllowEarlyServerData &&
+      !nextWarp.allowEarlyServerData
+    ) {
       this.onEarlyApplicationSendRevoked.execute();
     }
     if (previousPolicy !== nextWarp.earlyMediaPolicy) {
@@ -386,9 +393,12 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
     const generation = (this.iceTransport.connection as Connection).generation;
     if (generation === this.currentAttempt.iceGeneration) return;
+    // ここに来るのは SPED でない transport だけで、early 送信は SPED 専用
+    // (isEarlyServerOutboundReady) なので early attempt は存在しない。
+    // onEarlyApplicationAttemptCancelled を発火すると、確立前の通常 SCTP
+    // association まで cancelStart で閉じてしまうため発火しない。
     if (this.state === "connected") {
       // 認証済み association は維持し、新 generation へ attempt を付け替える。
-      this.onEarlyApplicationAttemptCancelled.execute();
       this.rebindConnectedAttempt(this.beginAttempt(generation));
       return;
     }
@@ -396,7 +406,6 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
     // A restart never mutates an in-flight attempt.  Continuations captured
     // by the previous generation must fail the identity check below.
-    this.onEarlyApplicationAttemptCancelled.execute();
     this.beginAttempt(generation);
     // 新 attempt 用に gate を開き直す (旧 drain 残余は呼び出し側が破棄する)。
     this.applicationGate.restartForNewAttempt();
@@ -692,12 +701,13 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       this.bindDtlsSocketEvents(r, f);
 
       if (this.dtls instanceof DtlsClient) {
-        const startedAttempt = this.currentAttempt;
         await setTimeout(100);
         this.dtls.connect().catch((error) => {
           // stop()/close() 後の遅延失敗で closed を failed へ上書きしない。
           if (this.isTerminated()) return;
-          if (startedAttempt && !this.isCurrentAttempt(startedAttempt)) return;
+          // ICE restart で attempt を付け替えても DTLS socket は同じで、
+          // connect() をやり直す経路はない。失敗を捨てると start() が
+          // 終わらないため、attempt に関係なく現在の失敗として扱う。
           this.lastError = error;
           this.setState("failed");
           log("dtls connect failed", error);
@@ -905,11 +915,11 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       });
 
       if (this.dtls instanceof DtlsClient) {
-        const startedAttempt = this.currentAttempt;
         this.dtls.connect().catch((error) => {
           // stop()/close() 後の遅延失敗で closed を failed へ上書きしない。
           if (this.isTerminated()) return;
-          if (startedAttempt && !this.isCurrentAttempt(startedAttempt)) return;
+          // SPED でも restart 後に同じ socket で connect() をやり直す経路は
+          // ないため、attempt の付け替えに関係なく現在の失敗として扱う。
           this.lastError = error;
           this.setState("failed");
           this.abortSpedSession();
@@ -925,9 +935,13 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       return;
     }
     // engine RX queue の stale 実行を世代で遮断する (ICE restart race)。
-    this.dtls.setExpectedRxGeneration(
-      () => (this.iceTransport.connection as Connection).generation,
-    );
+    // 対象は世代ごとに注入される SPED carrier だけ。非 SPED では restart を
+    // またいでも同じ DTLS association の datagram なので遮断しない (warp と同じ)。
+    if (isDtlsTransportSped(this)) {
+      this.dtls.setExpectedRxGeneration(
+        () => (this.iceTransport.connection as Connection).generation,
+      );
+    }
     this.dtls.onData.subscribe((buf) => {
       if (
         this.config.debug?.inboundPacketLoss &&
@@ -1219,7 +1233,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     }
     if (!this.readiness.peerAuthenticated) {
       if (!this.isEarlyServerOutboundReady()) {
-        throw new Error("DTLS peer is not authenticated");
+        throw new SCTPSendPermissionRevokedError(
+          "DTLS peer is not authenticated",
+        );
       }
       this.earlyServerSendUsed = true;
     }

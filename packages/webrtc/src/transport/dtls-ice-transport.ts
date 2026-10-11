@@ -18,9 +18,20 @@ class IceTransport implements Transport {
   constructor(private ice: IceConnection) {
     this.datagramSubscription = connectionDatagramEvent(ice).subscribe(
       (ctx) => {
+        // RFC 8445 §9: after an ICE restart the peer keeps sending on the
+        // previously selected pair until a new pair is selected. This
+        // transport carries the non-SPED association, which is the same
+        // DTLS association on both paths, so accept DTLS from that retained
+        // (previously authenticated) pair as well; dropping it stalls a
+        // handshake that straddles the restart. The SPED carrier does not
+        // use this transport and keeps the strict current-generation rule.
         if (
           isDtls(ctx.bytes) &&
-          allowsAuthenticatedDtlsDelivery(ctx, (ice as Connection).generation)
+          (ctx.fromPreviousSelectedPair === true ||
+            allowsAuthenticatedDtlsDelivery(
+              ctx,
+              (ice as Connection).generation,
+            ))
         ) {
           if (this.onData) {
             // 世代トークンを engine RX queue まで運び、restart 後の stale 実行を防ぐ。

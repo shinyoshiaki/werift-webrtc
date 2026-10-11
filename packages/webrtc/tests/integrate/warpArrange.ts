@@ -4,7 +4,13 @@ import { getConnectionSpedRuntime } from "../../../ice/src/internal/sped-bind";
 import { classes } from "../../../ice/src/stun/const";
 import type { Message } from "../../../ice/src/stun/message";
 import type { SCTP } from "../../../sctp/src";
-import { CookieAckChunk, parsePacket } from "../../../sctp/src/chunk";
+import {
+  CookieAckChunk,
+  CookieEchoChunk,
+  InitAckChunk,
+  InitChunk,
+  parsePacket,
+} from "../../../sctp/src/chunk";
 import {
   DtlsVersion,
   MediaStreamTrack,
@@ -515,4 +521,156 @@ export function collectMessages(channel: RTCDataChannel, count: number) {
       if (messages.length === count) resolve(messages);
     });
   });
+}
+
+// --- sped:false fault injection (default-path non-regression) ---
+
+export type SctpFaultChunk = "INIT" | "INIT_ACK" | "COOKIE_ACK" | "COOKIE_ECHO";
+export type SpedFalseRestartAt =
+  | "none"
+  | "dtls-connecting"
+  | "cookie-wait"
+  | "cookie-echoed";
+
+export type SpedFalseFaultScenario = {
+  /** Answerer DTLS role (client = setup:active, server = setup:passive). */
+  answererRole: "client" | "server";
+  /** Silently drop the first SCTP packet carrying this chunk. */
+  drop?: SctpFaultChunk;
+  /** Make the first send of a packet carrying this chunk reject. */
+  failSend?: SctpFaultChunk;
+  /** When the offerer runs restartIce() + renegotiation. */
+  restartAt: SpedFalseRestartAt;
+  /** dtls.protocolVersions for both peers (default config when omitted). */
+  protocolVersions?: DtlsVersion[];
+};
+
+const sctpFaultChunkType: Record<SctpFaultChunk, number> = {
+  INIT: InitChunk.type,
+  INIT_ACK: InitAckChunk.type,
+  COOKIE_ACK: CookieAckChunk.type,
+  COOKIE_ECHO: CookieEchoChunk.type,
+};
+
+/**
+ * Arrange + Act: two default (`sped: false`) PeerConnections with a negotiated
+ * DataChannel, one SCTP fault and an optional ICE restart at a chosen point.
+ * Returns once both channels exchanged a message (or the timeout elapsed),
+ * with every connectionState each peer went through.
+ */
+export async function runSpedFalseFaultScenario(
+  scenario: SpedFalseFaultScenario,
+  timeoutMs = 20_000,
+) {
+  const config = {
+    iceServers: [],
+    ...(scenario.protocolVersions
+      ? { dtls: { protocolVersions: scenario.protocolVersions } }
+      : {}),
+  };
+  const offerer = new RTCPeerConnection(config);
+  const answerer = new RTCPeerConnection(config);
+  const states = { offerer: [] as string[], answerer: [] as string[] };
+  offerer.connectionStateChange.subscribe((s) => states.offerer.push(s));
+  answerer.connectionStateChange.subscribe((s) => states.answerer.push(s));
+  const channels = [offerer, answerer].map((peer) =>
+    peer.createDataChannel("fault", { negotiated: true, id: 0 }),
+  );
+
+  let restarted: Promise<void> | undefined;
+  const restart = () => {
+    restarted ??= (async () => {
+      offerer.restartIce();
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      await answerer.setLocalDescription(await answerer.createAnswer());
+      await offerer.setRemoteDescription(answerer.localDescription!);
+    })();
+  };
+  const restartOnChunk: Partial<Record<SpedFalseRestartAt, number>> = {
+    "cookie-wait": InitChunk.type,
+    "cookie-echoed": CookieEchoChunk.type,
+  };
+  const faults = { dropped: false, failed: false };
+  const spies = [offerer, answerer].map((peer) => {
+    const dtls = peer.sctp!.dtlsTransport;
+    const original = dtls.sendData;
+    return vi.spyOn(dtls, "sendData").mockImplementation(async (data) => {
+      const types = parsePacket(data)[3].map((chunk) => chunk.type);
+      const trigger = restartOnChunk[scenario.restartAt];
+      if (trigger !== undefined && types.includes(trigger)) {
+        setImmediate(restart);
+      }
+      if (
+        scenario.drop &&
+        !faults.dropped &&
+        types.includes(sctpFaultChunkType[scenario.drop])
+      ) {
+        faults.dropped = true;
+        return;
+      }
+      if (
+        scenario.failSend &&
+        !faults.failed &&
+        types.includes(sctpFaultChunkType[scenario.failSend])
+      ) {
+        faults.failed = true;
+        throw new Error("injected send failure");
+      }
+      return original(data);
+    });
+  });
+
+  exchangeIceCandidates(offerer, answerer);
+  const messages = channels.map(
+    (channel) =>
+      new Promise<string>((resolve) => {
+        channel.onMessage.subscribe((m) => resolve(m.toString()));
+      }),
+  );
+  const open = channels.map(
+    (channel) =>
+      new Promise<void>((resolve) => {
+        if (channel.readyState === "open") resolve();
+        channel.stateChanged.subscribe((state) => {
+          if (state === "open") resolve();
+        });
+      }),
+  );
+
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  answerer.dtlsTransports[0].role = scenario.answererRole;
+  await answerer.setLocalDescription(await answerer.createAnswer());
+  await offerer.setRemoteDescription(answerer.localDescription!);
+  if (scenario.restartAt === "dtls-connecting") restart();
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<"timeout">((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), timeoutMs);
+  });
+  const outcome = await Promise.race([
+    (async () => {
+      await Promise.all(open);
+      if (restarted) await restarted;
+      channels[0].send("from-offerer");
+      channels[1].send("from-answerer");
+      return Promise.all(messages);
+    })(),
+    timedOut,
+  ]);
+  clearTimeout(timer);
+
+  return {
+    states,
+    faults,
+    dtls13: offerer.dtlsTransports[0]?.dtls?.isDtls13 === true,
+    delivered: outcome !== "timeout",
+    messages: outcome === "timeout" ? undefined : outcome,
+    restarted: restarted !== undefined,
+    close: async () => {
+      for (const spy of spies) spy.mockRestore();
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    },
+  };
 }

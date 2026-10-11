@@ -1,15 +1,18 @@
 import { vi } from "vitest";
+import { SCTPSendPermissionRevokedError } from "../../../sctp/src";
 
 import { SCTP_STATE } from "../../../sctp/src";
 import { Event } from "../../src/imports/common";
 import { SctpTransportManager } from "../../src/sctpManager";
 
 describe("SctpTransportManager", () => {
-  test("INIT failure consumes the CLOSED outcome rejection", async () => {
-    // Arrange: SCTP INIT の送信を失敗させ、同時に association が CLOSED 通知を出す bridge を作る。
+  test("INIT send-permission revocation consumes the CLOSED outcome rejection", async () => {
+    // Arrange: SCTP INIT の送信を送信許可の取消しで失敗させ (単なる送信失敗は T1 が再送する)、同時に association が CLOSED 通知を出す bridge を作る。
     const sendData = vi
       .fn<(...args: [Buffer]) => Promise<void>>()
-      .mockRejectedValueOnce(new Error("INIT send failed"));
+      .mockRejectedValueOnce(
+        new SCTPSendPermissionRevokedError("INIT send failed"),
+      );
     const dtls = {
       id: "fake-dtls-init-failure",
       role: "server",

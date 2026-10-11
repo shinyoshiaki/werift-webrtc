@@ -6,6 +6,7 @@ import {
   isAuthenticatedHandshakePair,
 } from "../../../ice/src/internal/datagram";
 import type { SpedRuntime } from "../../../ice/src/sped/runtime";
+import { SCTPSendPermissionRevokedError } from "../../../sctp/src";
 import {
   type Address,
   type DatagramRxMeta,
@@ -261,7 +262,9 @@ export class IceSpedTransport implements Transport {
     }
     if (this.applicationWriteReady) {
       if (application && !this.earlyApplicationSendEnabled) {
-        throw new Error("SPED early application send permission revoked");
+        throw new SCTPSendPermissionRevokedError(
+          "SPED early application send permission revoked",
+        );
       }
       const nominated = this.ice.nominated;
       const pair =
@@ -323,10 +326,10 @@ export class IceSpedTransport implements Transport {
     retentionMs = EARLY_SEND_RETENTION_MS,
   ) {
     if (this.closed) {
-      throw new Error("SPED transport is closed");
+      throw new SCTPSendPermissionRevokedError("SPED transport is closed");
     }
     if (this.ice.state === "failed" || this.ice.state === "closed") {
-      throw new Error(
+      throw new SCTPSendPermissionRevokedError(
         `ICE ${this.ice.state} before SPED application path was ready`,
       );
     }
@@ -335,13 +338,17 @@ export class IceSpedTransport implements Transport {
       options.application &&
       !this.earlyApplicationSendEnabled
     ) {
-      throw new Error("SPED early application send permission revoked");
+      throw new SCTPSendPermissionRevokedError(
+        "SPED early application send permission revoked",
+      );
     }
     if (
       this.pendingEarlySends.length >= EARLY_SEND_MAX_PACKETS ||
       this.pendingEarlySendBytes + data.length > EARLY_SEND_MAX_BYTES
     ) {
-      throw new Error("SPED early application send queue is full");
+      throw new SCTPSendPermissionRevokedError(
+        "SPED early application send queue is full",
+      );
     }
 
     const pending = new Promise<void>((resolve, reject) => {
@@ -436,9 +443,16 @@ export class IceSpedTransport implements Transport {
     shouldReject: (item: PendingEarlySend) => boolean = () => true,
   ) {
     const retained: PendingEarlySend[] = [];
+    // Every early-send rejection means the start-time early permission is
+    // gone (revoked, stale generation, expired, closed); SCTP cancels its
+    // pre-authentication start only for this error type.
+    const revoked =
+      error instanceof SCTPSendPermissionRevokedError
+        ? error
+        : new SCTPSendPermissionRevokedError(error.message);
     for (const item of this.pendingEarlySends) {
       if (shouldReject(item)) {
-        item.reject(error);
+        item.reject(revoked);
       } else {
         retained.push(item);
       }

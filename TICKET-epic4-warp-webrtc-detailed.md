@@ -363,3 +363,34 @@ npm run e2e
 - [ ] released Pion の DATA/ACK codec interop と、非 SPED Pion ICE agent に対する同一-flight direct fallback harness が通る。full SPED agent harness が利用可能なら controlling/controlled、Full/Lite、restart も追加で通る。
 - [ ] OpenSSL DTLS 1.2 と `[1.3,1.2] -> 1.2`、Chromium の通常 DTLS 1.3、SPED 無効の TURN/E2E が回帰しない。
 - [ ] `npm run type`、`npm run test:small`、`npm run doc:check` が成功する。変更がフルスタックに及ぶため、実行可能なら最終的に `npm run ci` も成功する。
+
+## 6. 追加要件: `sped: false` 既定経路の非回帰（レビュー 10 の指摘への対応）
+
+### 背景
+
+- 深いレビュー（差分全体を読んだもの）で、SPED/early 用に入れた中断処理（cancel・revoke・discard・attempt の付け替え）が、SPED を使わない既定経路にも作用していることが分かった。§4 Compatibility invariants の「`sped: false` の既定経路を変えない」と、§5 の「SPED 無効の経路が回帰しない」に反する。
+- これまでの修正は指摘された項目だけを直していたため、次の深いレビューで別の回帰が見つかるという状態だった。このため、指摘 4 件の修正に加えて、既定経路の非回帰を自分で点検し、証跡を残すことを要件とする。
+
+### 修正すべき指摘
+
+1. **ICE restart で一時的に `failed` になる:** SPED でない transport の restart 処理が `onEarlyApplicationAttemptCancelled` を発火し、SCTP の `cancelStart` が確立前の通常 association を閉じていた。early の attempt は SPED 専用なので、非 SPED の経路では発火しない。
+2. **SCTP の送信失敗で association を閉じる:** INIT_ACK の送信失敗、T1 再送の失敗、`retransmitStartNow` の失敗で `cancelStart` していた（SCTP パッケージ単体の利用にも影響）。中断するのは early の送信許可が取り消された場合（専用の error 型）だけにし、それ以外は `warp` と同じく損失として T1 再送に任せる。
+3. **restart 後に `connect()` の失敗が捨てられ、`start()` が終わらない:** 同じ DTLS socket の `connect()` の失敗は、attempt が変わっていても現在の失敗として `failed` / reject にする。
+4. **不正な設定の組み合わせが接続開始前に明示エラーにならない（§2.4）:** 検証を `connect()` の中から constructor / `setConfiguration` に移し、同期的に throw する。否定テストを追加する。
+
+### 自己点検の要件
+
+- `warp...HEAD` の差分から、SPED/early 用の処理が SPED を使わない経路から届く箇所をすべて洗い出し、表にする。
+- 障害注入テスト群を作り、`warp` と HEAD の両方で `connectionState` の遷移を比べる。最低限の組み合わせ:
+  - restart のタイミング: DTLS 接続中、SCTP の COOKIE_WAIT 中、SCTP の COOKIE_ECHOED 中
+  - INIT_ACK または COOKIE_ACK の喪失
+  - 送信失敗の注入
+  - DTLS の役割: client と server
+- 結果を `reviews/epic4-warp-verification.md` に「`sped:false` 非回帰の証跡」として記録し、`baseCommit` を最新に合わせる。
+
+### 完了条件
+
+- [x] 指摘 1–4 を修正し、それぞれ回帰テストがある（修正前のコードでは失敗する）。
+- [x] SPED/early 用処理の到達点検表がある（`reviews/epic4-warp-verification.md` §7.1）。点検で見つかった追加の回帰 3 件（非 SPED の DTLS 受信を現 generation に限定していた点、DTLS 1.3 engine の受信世代フィルタ、`sped:false` でも early 送信許可の取消しを発火し得た点）も修正済み。
+- [x] 障害注入マトリクス（DTLS 既定 / 1.3 × role 2 通り × 11 シナリオ = 44 件）を `packages/webrtc/tests/integrate/spedFalseNonRegression.test.ts` として常設し、`warp`・修正前・修正後の比較を記録した（同 §7.2）。修正後は 44/44 成功で、`warp` で失敗していた INIT 送信失敗の 4 件も解消した。
+- [x] `npm run type`、`npm run test:small`、`npm run e2e`、`npm run wpt --workspace packages/webrtc` が成功する。
