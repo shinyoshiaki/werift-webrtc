@@ -6,7 +6,8 @@ import { Context } from "./context";
 
 export class SrtcpContext extends Context {
   /** Receive-side replay windows (RFC 3711 §3.3.2), per SSRC. */
-  private readonly rtcpReplayWindows: { [ssrc: number]: SrtpReplayWindow } = {};
+  /** @internal */
+  readonly rtcpReplayWindows: { [ssrc: number]: SrtpReplayWindow } = {};
 
   constructor(masterKey: Buffer, masterSalt: Buffer, profile: SrtpProfile) {
     super(masterKey, masterSalt, profile);
@@ -36,14 +37,17 @@ export class SrtcpContext extends Context {
     }
     const ssrc = encrypted.readUInt32BE(4);
     const index = encrypted.readUInt32BE(indexOffset) & maxSRTCPIndex;
-    const replay = (this.rtcpReplayWindows[ssrc] ??= new SrtpReplayWindow());
-    if (!replay.check(index)) {
+    // A new SSRC gets its window only after authentication (see SrtpContext).
+    const existingReplay = this.rtcpReplayWindows[ssrc];
+    if (existingReplay && !existingReplay.check(index)) {
       throw new SrtpReplayError(
         `SRTCP replay rejected (ssrc=${ssrc} index=${index})`,
       );
     }
     const dec = this.cipher.decryptRTCP(encrypted);
+    const replay = existingReplay ?? new SrtpReplayWindow();
     replay.accept(index);
+    this.rtcpReplayWindows[ssrc] = replay;
     return dec;
   }
 }

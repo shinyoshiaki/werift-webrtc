@@ -8,7 +8,8 @@ import { Context } from "./context";
 
 export class SrtpContext extends Context {
   /** Receive-side replay windows (RFC 3711 §3.3.2), per SSRC. */
-  private readonly rtpReplayWindows: { [ssrc: number]: SrtpReplayWindow } = {};
+  /** @internal */
+  readonly rtpReplayWindows: { [ssrc: number]: SrtpReplayWindow } = {};
 
   constructor(masterKey: Buffer, masterSalt: Buffer, profile: SrtpProfile) {
     super(masterKey, masterSalt, profile);
@@ -36,10 +37,11 @@ export class SrtpContext extends Context {
     this.updateRolloverCount(header.sequenceNumber, nextState);
 
     // RFC 3711 §3.3.2: reject replayed / too-old packets by packet index.
+    // A new SSRC gets its window only after authentication, so forged
+    // packets with arbitrary SSRCs cannot grow receiver state.
     const index = nextState.rolloverCounter * 0x10000 + header.sequenceNumber;
-    const replay = (this.rtpReplayWindows[header.ssrc] ??=
-      new SrtpReplayWindow());
-    if (!replay.check(index)) {
+    const existingReplay = this.rtpReplayWindows[header.ssrc];
+    if (existingReplay && !existingReplay.check(index)) {
       throw new SrtpReplayError(
         `SRTP replay rejected (ssrc=${header.ssrc} index=${index})`,
       );
@@ -50,7 +52,9 @@ export class SrtpContext extends Context {
       nextState.rolloverCounter,
       header,
     );
+    const replay = existingReplay ?? new SrtpReplayWindow();
     replay.accept(index);
+    this.rtpReplayWindows[header.ssrc] = replay;
     if (existingState) {
       Object.assign(existingState, nextState);
     } else {

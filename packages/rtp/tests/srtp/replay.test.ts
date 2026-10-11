@@ -86,6 +86,41 @@ describe("srtp/replay (RFC 3711 §3.3.2)", () => {
       expect(pair.receiver.decryptRtp(genuine)[1].sequenceNumber).toBe(20);
     });
 
+    test("未知 SSRC の認証失敗 packet を大量に受けても受信側の状態は増えない", () => {
+      // Arrange: 正規 packet の SSRC だけを書き換えた偽造 SRTP/SRTCP を作る
+      const pair = createSrtpContextPair(profile);
+      const rtp = pair.protectRtp(30);
+      const rtcp = pair.protectRtcp();
+      const forge = (packet: Buffer, ssrcOffset: number, ssrc: number) => {
+        const forged = Buffer.from(packet);
+        forged.writeUInt32BE(ssrc, ssrcOffset);
+        return forged;
+      };
+
+      // Act: 異なる SSRC の偽造 packet を 1,000 件ずつ投入する
+      for (let i = 0; i < 1_000; i++) {
+        const ssrc = 0x10000 + i;
+        expect(() => pair.receiver.decryptRtp(forge(rtp, 8, ssrc))).toThrow(
+          SrtpAuthenticationError,
+        );
+        expect(() =>
+          pair.rtcpReceiver.decryptRTCP(forge(rtcp, 4, ssrc)),
+        ).toThrow(SrtpAuthenticationError);
+      }
+
+      // Assert: 認証に失敗した SSRC の replay window / ROC 状態は残らない
+      expect(Object.keys(pair.receiver.rtpReplayWindows)).toHaveLength(0);
+      expect(Object.keys(pair.receiver.srtpSSRCStates)).toHaveLength(0);
+      expect(Object.keys(pair.rtcpReceiver.rtcpReplayWindows)).toHaveLength(0);
+      // Assert: 正規 packet は受理され、その SSRC の window だけが作られる
+      expect(pair.receiver.decryptRtp(rtp)[1].sequenceNumber).toBe(30);
+      expect(() => pair.rtcpReceiver.decryptRTCP(rtcp)).not.toThrow();
+      expect(Object.keys(pair.receiver.rtpReplayWindows)).toEqual(["4660"]);
+      expect(Object.keys(pair.rtcpReceiver.rtcpReplayWindows)).toEqual([
+        "4660",
+      ]);
+    });
+
     test("SRTCP の再送 (replay) を SRTCP index で拒否する", () => {
       // Arrange: index 1 と 2 の SRTCP packet
       const pair = createSrtpContextPair(profile);
