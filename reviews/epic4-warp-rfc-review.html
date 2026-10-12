@@ -128,7 +128,7 @@
 <main>
 
 <h1>Epic 4: WARP 対応 WebRTC transport<br>仕様（RFC / draft）に基づくレビュー解説</h1>
-<p class="meta">対象: <code>bae52440</code>（ブランチ <code>epic4-warp-webrtc-detailed</code>、比較元 <code>warp</code>）。コード参照の行番号は、この HEAD のファイルから生成時に機械的に解決しています。</p>
+<p class="meta">対象: <code>5659e500</code>（ブランチ <code>epic4-warp-webrtc-detailed</code>、比較元 <code>warp</code>）。コード参照の行番号は、この HEAD のファイルから生成時に機械的に解決しています。</p>
 
 <h2 id="intro">0. この文書について</h2>
 <p>このチケットで実装した WARP（SPED + DTLS 1.3 + 0.5-RTT）対応 WebRTC transport を、根拠となる RFC と draft の条文に対応づけて解説します。各節は次の色分けで書いています。</p>
@@ -136,7 +136,7 @@
 <div class="box impl"><span class="tag">実装</span>werift のどこで、どう実現しているか。リンクは <code>パス:行</code> です。</div>
 <div class="box own"><span class="tag">werift の判断</span>仕様に定めがなく、werift が決めたこと。</div>
 <div class="box dev"><span class="tag">逸脱</span>仕様の文言から意図的に外れていること。</div>
-<p>原文を確認したのは RFC 5764 / 7675 / 7983 / 8445 / 8831 / 9147 / 9443 と draft-hancke-webrtc-sped-00 です。手元に原文がない RFC 8446 / 8122 / 8827 / 8842 / 5763 / 9260 / 8261 / 8832 / 3711 と W3C webrtc-pc / webrtc-stats には <span class="unverified">未照合</span> を付けています。設計の一次資料は <code>epic4-warp-webrtc-detailed.md</code>、要件と完了条件は <code>TICKET-epic4-warp-webrtc-detailed.md</code>、検証の詳細は <code>reviews/epic4-warp-verification.md</code> です。TURN relay 上の WARP はスコープ外です。</p>
+<p>引用した仕様は、すべて原文で節番号と文言を確認しています。RFC は <code>docs/rfc/</code>（RFC 3711 / 5763 / 5764 / 7675 / 7983 / 8122 / 8261 / 8445 / 8446 / 8489 / 8827 / 8831 / 8832 / 8842 / 9147 / 9260 / 9443、draft-hancke-webrtc-sped-00）、W3C 仕様は <code>docs/w3c/</code>（webrtc-pc: W3C Recommendation 13 March 2025、webrtc-stats: W3C Candidate Recommendation Draft 25 September 2025）に原文を置いています。設計の一次資料は <code>epic4-warp-webrtc-detailed.md</code>、要件と完了条件は <code>TICKET-epic4-warp-webrtc-detailed.md</code>、検証の詳細は <code>reviews/epic4-warp-verification.md</code> です。TURN relay 上の WARP はスコープ外です。</p>
 
 <h2 id="overview">1. 全体像と最重要の不変条件</h2>
 <p>WARP は、ICE の接続確認（STUN Binding）に DTLS の handshake を相乗りさせ（SPED）、ICE と DTLS 1.3 を同時に進めることで接続までの往復を減らす仕組みです。werift の transport は次の層でできています。</p>
@@ -246,7 +246,9 @@
 <div class="box own"><span class="tag">werift の判断</span>readiness を 3 段階に分けるのは werift の設計で、仕様にこの概念はありません。<code>peerHandshakeAuthenticated</code> は DTLS の暗号的な検証だけを表し、SDP の照合は含みません（3.1）。</div>
 
 <h3 id="half-rtt">2.2 server の 0.5-RTT application data</h3>
-<div class="box spec"><span class="tag">仕様</span>RFC 9147 §4.2.1: server は自分の Finished を送った後にデータを送り始めることがあり、受信側はそれをバッファしても破棄してもかまいません（MAY）。上位が SCTP のような信頼性のある transport ならバッファすべきです（SHOULD）。</div>
+<div class="box spec"><span class="tag">仕様</span><p>RFC 8446 §4.4.4: server は最初の flight を送った後にデータを送ってかまいません（MAY）。ただしその時点では、相手の身元も生存も保証されていません。</p>
+<blockquote>Servers MAY send data after sending their first flight, but because the handshake is not yet complete, they have no assurance of either the peer's identity or its liveness (i.e., the ClientHello might have been replayed).</blockquote>
+<p>RFC 9147 §4.2.1: 受信側はそれをバッファしても破棄してもかまいません（MAY）。上位が SCTP のような信頼性のある transport ならバッファすべきです（SHOULD）。</p></div>
 <blockquote>For instance, the server may send its Finished message and then start transmitting data. Implementations MAY either buffer or discard such records, though when DTLS is used with a reliable transport (e.g., SCTP [RFC4960]), they SHOULD be buffered …</blockquote>
 <div class="box impl"><span class="tag">実装</span>server は Finished の送信後に epoch 3 の鍵を設定し、<code>writeReady</code> を立てます。0.5-RTT の送信を実際に許すかどうかは WebRTC 層が判断し、明示的に opt-in した server だけに限ります（3.4）。0-RTT（epoch 1）は実装していません。この文書の「early data」は TLS の early_data 拡張ではなく、接続確定前に届く epoch 3 のデータを指します。</div>
 
@@ -323,7 +325,13 @@
 <h2 id="webrtc">3. WebRTC の認証境界（packages/webrtc）</h2>
 
 <h3 id="fingerprint">3.1 SDP fingerprint の照合を認証の境界にする</h3>
-<div class="box spec"><span class="tag">仕様</span>RFC 8122 §5 <span class="unverified">未照合</span>: <code>a=fingerprint</code> は証明書のハッシュで、受け取った証明書と一致しなければ接続を拒否します。RFC 8827 §6.5 <span class="unverified">未照合</span>: WebRTC の機密性は、DTLS 証明書が SDP の fingerprint に束縛されていることに依存します。</div>
+<div class="box spec"><span class="tag">仕様</span>
+<p>RFC 8122 §5: 提示された証明書が SDP の fingerprint と一致すれば、SDP の作成者が接続の開始者だと確信できます。§5.1: 相手が提示した中で最も優先するハッシュ関数の fingerprint 群を選び、証明書がそのどれかと一致することを確認します。</p>
+<blockquote>An endpoint MUST select the set of fingerprints that use its most preferred hash function (out of those offered by the peer) and verify that each certificate used matches one fingerprint out of that set.
+If a certificate does not match any such fingerprint, the endpoint MUST NOT establish the TLS connection.</blockquote>
+<p>RFC 5763 §5: 一致しなければ、ただちに media session を終了しなければなりません（"If the fingerprint does not match the hashed certificate, then the endpoint MUST tear down the media session immediately."）。</p>
+<p>RFC 8827 §4.1: SDP は「通信を鍵ペアに束縛する fingerprint 属性」を運びます。§6.5: すべての media は DTLS-SRTP で鍵を交換した SRTP / SRTCP で、すべての data channel は DTLS で保護しなければなりません。</p>
+</div>
 <div class="box impl"><span class="tag">実装</span>
 <p>DTLS 層の <code>peerHandshakeAuthenticated</code> を待ってから、<a class="ref" href="../packages/webrtc/src/transport/dtls-fingerprint.ts" title="packages/webrtc/src/transport/dtls-fingerprint.ts:46">webrtc/src/transport/dtls-fingerprint.ts:46</a> で照合します（未対応のアルゴリズムは捨て、残りの中で最も強いものだけを比較）。</p>
 <ul>
@@ -359,7 +367,7 @@
 <figcaption>図 5. 受信 application data の gate。media（SRTP）も同じ規則のバッファを使い、受信の許可は「鍵がある かつ peerAuthenticated」のときだけ。</figcaption>
 </figure>
 <div class="box impl"><span class="tag">実装</span><a class="ref" href="../packages/webrtc/src/transport/dtls-application-gate.ts" title="packages/webrtc/src/transport/dtls-application-gate.ts:4">webrtc/src/transport/dtls-application-gate.ts:4</a>。SPED の abort・fallback・同一世代の reset では <code>discardPending()</code> で認証前の保留分だけを捨て、世代の切り替えは <code>restartForNewAttempt()</code> で行います。</div>
-<div class="box spec"><span class="tag">仕様</span>W3C <code>RTCDtlsTransportState</code> <span class="unverified">未照合</span>: <code>connected</code> は「ネゴシエーションが完了し、リモートの fingerprint も検証済み」。</div>
+<div class="box spec"><span class="tag">仕様</span>W3C webrtc-pc §5.5.1 <code>RTCDtlsTransportState</code>: <code>connecting</code> は "DTLS is in the process of negotiating a secure connection and verifying the remote fingerprint."、<code>connected</code> は "DTLS has completed negotiation of a secure connection and verified the remote fingerprint."、<code>failed</code> は "… failure to validate the remote fingerprint" を含みます。werift の state はこの定義どおりで、fingerprint の照合が済むまで <code>connected</code> にしません。</div>
 <div class="box own"><span class="tag">werift の判断</span><code>connected</code> は final ACK を待たずに出し、early server 送信中も公開 state は <code>connecting</code> のままにします。</div>
 
 <h3 id="srtp">3.3 方向別の SRTP 有効化と replay 対策</h3>
@@ -374,7 +382,10 @@
 </table>
 <p>認証前に届いた media は暗号化されたまま保持し（<code>earlyMediaPolicy: "drop"</code> が既定で容量 0）、認証後に復号します。</p>
 </div>
-<div class="box spec"><span class="tag">仕様</span>RFC 3711 §3.3.2 <span class="unverified">未照合</span>: 受信側は replay list（sliding window）で、すでに受け取った index や window より古い index の packet を拒否します。</div>
+<div class="box spec"><span class="tag">仕様</span><p>RFC 3711 §3.3.2: replay 対策は RECOMMENDED です。受信側は replay list（sliding window）を持ち、window の大きさは 64 以上でなければなりません（MUST）。</p>
+<blockquote>Only packets with index ahead of the window, or, inside the window but not already received, SHALL be accepted.
+After the packet has been authenticated (if necessary the window is first moved ahead), the replay list SHALL be updated with the new index.</blockquote>
+<p>§3.4: SRTCP の replay 対策は、SRTCP index を index として、別の replay list で同じ規則を適用します。</p></div>
 <div class="box impl"><span class="tag">実装</span>
 <p>これまで werift の SRTP / SRTCP には replay 対策がありませんでした。<a class="ref" href="../packages/rtp/src/srtp/replay.ts" title="packages/rtp/src/srtp/replay.ts:8">rtp/src/srtp/replay.ts:8</a>（window 64）を受信 context に追加しました。</p>
 <ul>
@@ -419,6 +430,9 @@
 <h3 id="restart">4.4 ICE restart と、以前に選択されていた pair</h3>
 <div class="box spec"><span class="tag">仕様</span>RFC 8445 §9: restart では ufrag とパスワードを両方変えなければなりません（MUST）。restart の間も既存の data session でデータを送り続けてかまいません。</div>
 <blockquote>… data can continue to be sent using existing data sessions, and a new …</blockquote>
+<p>RFC 8842 §6: ICE restart は新しい DTLS association を必要としません。同じ component の ICE candidate はすべて同じ DTLS association に属します。</p>
+<blockquote>However, an ICE restart does not by default require a new DTLS association to be established.
+Each ICE candidate associated with a component is treated as being part of the same DTLS association.</blockquote>
 <div class="box impl"><span class="tag">実装</span>
 <p><a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:234">ice/src/ice.ts:234</a> は generation を進め、ufrag とパスワードを作り直し、SPED をリセットします。以前に選択されていた pair は退避し、相手が新しい pair に移るまでは、そこから届いた datagram に <code>fromPreviousSelectedPair</code> の印を付けます（<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:497">ice/src/ice.ts:497</a>）。</p>
 <ul>
@@ -451,7 +465,7 @@
 <h3 id="sctp-role">5.1 SCTP の役割と stream id の偶奇</h3>
 <div class="box spec"><span class="tag">仕様</span>RFC 8831 §6.1: SCTP は RFC 8261 の DTLS カプセル化で運びます。§6.5:</div>
 <blockquote>… the streams are picked based on the DTLS role (the client picks even stream identifiers, and the server picks odd stream identifiers).</blockquote>
-<p>どちらの側が INIT を送るかは、どの RFC も定めていません。</p>
+<p>RFC 8832 §4（DCEP）も同じ規則を MUST で定めています（"the side acting as the DTLS client MUST use streams with even stream identifiers; the side acting as the DTLS server MUST use streams with odd stream identifiers"）。RFC 8261 は SCTP を DTLS で運ぶ手順そのものを定めます。どちらの側が INIT を送るかは、どの RFC も定めていません。</p>
 <figure>
 <svg viewBox="0 0 980 210" role="img" aria-label="DTLS role と SCTP の役割">
   <rect x="20" y="20" width="440" height="170" rx="8" class="n-sctp"/>
@@ -474,7 +488,7 @@
 <p>テスト: <a class="ref test" href="../packages/webrtc/tests/integrate/sped.test.ts" title="packages/webrtc/tests/integrate/sped.test.ts:2565">DTLS role の parity で双方向に通る（client / server）</a></p>
 
 <h3 id="sctp-cancel">5.2 開始の確定点と、early start の取消し規則</h3>
-<div class="box spec"><span class="tag">仕様</span>RFC 9260 §5.1 <span class="unverified">未照合</span>: INIT → INIT ACK（State Cookie）→ COOKIE ECHO → COOKIE ACK の 4-way handshake と T1 再送。RFC が定める association の放棄は ABORT と T1 の再送上限超過だけで、「開始の取消し」は werift が定義した境界です。</div>
+<div class="box spec"><span class="tag">仕様</span>RFC 9260 §5.1: INIT → INIT ACK（State Cookie）→ COOKIE ECHO → COOKIE ACK の 4-way handshake。§4 の状態遷移の注記: T1-init / T1-cookie が満了したら再送し、'Max.Init.Retransmits'（既定 8、§16）回を超えたら初期化を中止して利用者にエラーを返します（werift も上限 8）。RFC が定める association の放棄は ABORT（§9.1）とこの再送上限だけで、「開始の取消し」は werift が定義した境界です。</div>
 <div class="box impl"><span class="tag">実装</span>
 <p><strong>確定点</strong>: 相手が association の状態を持ちうる時点で開始を確定とします。開始側は COOKIE ECHO、応答側は COOKIE ACK を送信処理に渡した時点です（<a class="ref" href="../packages/sctp/src/sctp.ts" title="packages/sctp/src/sctp.ts:285">sctp/src/sctp.ts:285</a>）。確定後は取り消しません。</p>
 <p><strong>取消し規則</strong>: SPED の reset・ICE restart・early 送信許可の取消しで届く通知に対し、<a class="ref" href="../packages/webrtc/src/transport/sctp.ts" title="packages/webrtc/src/transport/sctp.ts:136">webrtc/src/transport/sctp.ts:136</a> は次の判定で取り消すかどうかを決めます。</p>
@@ -573,20 +587,20 @@
 <h2 id="deviations">8. 仕様からの逸脱と未確認事項</h2>
 <h3>意図的な逸脱</h3>
 <ol>
-<li><strong>0.5-RTT の SRTP / SCTP 送信</strong>（RFC 5764 §5.1）: opt-in した server だけ。既定では無効。</li>
+<li><strong>0.5-RTT の SRTP / SCTP 送信</strong>（RFC 5764 §5.1）: opt-in した server だけ。既定では無効。RFC 8446 §4.4.4 が認める 0.5-RTT 送信を使うが、送信側は相手の身元をまだ確認していない。RFC 5763 §6.2 の early media（answerer が setup:active で SDP answer 前に DTLS を張る）とは別の仕組みで、いずれの場合も受信側は fingerprint の照合まで配送しない。</li>
 <li><strong>SRTP の受信を、相手の認証完了の時点で始める</strong>: final ACK は待たない。</li>
 <li><strong>SPED を DTLS 1.3 だけに限る</strong>（draft §3.2 は 1.2 以上が目標）。</li>
 <li><strong>relay 上の SPED を除外し、association path を 1 本だけ使う</strong>（チケットのスコープ境界とも一致）。</li>
 <li><strong>SPED が active の間でも、一部の Binding に DATA を付けない</strong>（draft §3.3.2.1 の MUST から逸脱）。</li>
 <li><strong>古い世代の、AEAD 認証済みの DTLS 1.3 record（Alert を含む）を適用しない</strong>（SPED transport のみ）。</li>
-<li><strong>STUN の認証失敗時に 400 / 401 を返さない</strong>（RFC 8489 §9.1.3、既存の挙動）。</li>
-<li><strong>SCTP の T1 で RTO を倍にしない、INIT の衝突を処理しない</strong>（RFC 9260、既存の挙動）。</li>
-<li><strong>tls-id（RFC 8842）を実装していない</strong>: fingerprint が変わったら、新しい association を作らず照合に失敗させる。</li>
-<li><strong>stats</strong>: <code>dtlsRole</code> は未確定時に <code>"unknown"</code> ではなく undefined。<code>warpHandshakeRttMs</code> は RTT ではなく「handshake 開始から相手の認証まで」の時間。DTLS 1.2 の <code>warpDtlsRetransmissions</code> は常に 0。</li>
+<li><strong>STUN の認証失敗時に 400 / 401 を返さない</strong>（RFC 8489 §9.1.3 は request に 400 / 401 の error response を MUST で求める。既存の挙動）。</li>
+<li><strong>SCTP の既存の逸脱</strong>（RFC 9260）: T1-init は §6.3 の規則に従うべき（§5.1、SHOULD）だが、満了時に RTO を倍にしない（§6.3.3 rule E2）。応答側は INIT を受けた時点で状態を持つ（§5.1 (B) は INIT ACK 送信後に資源や状態を持たないことを MUST で求める）。開始側は相手の INIT を無視し、§5.2.1 の INIT 衝突を処理しない。</li>
+<li><strong>tls-id（RFC 8842）を実装していない</strong>: RFC 8842 §3.1 は、fingerprint が変わったら offer/answer の後に新しい DTLS association を確立しなければならないとする。werift は新しい association を作らず、確立済みの association の証明書で照合し直して、一致しなければ失敗させる。</li>
+<li><strong>stats</strong>: <code>dtlsRole</code> は未確定時に undefined（webrtc-stats §8.17 は DTLS ネゴシエーション開始前を <code>"unknown"</code> と定める）。<code>warpHandshakeRttMs</code> は RTT ではなく「handshake 開始から相手の認証まで」の時間。DTLS 1.2 の <code>warpDtlsRetransmissions</code> は常に 0。</li>
 </ol>
 <h3>未確認の事項</h3>
 <ul>
-<li><span class="unverified">未照合</span> を付けた RFC と W3C 仕様の節番号・文言は、原文で確認していません。</li>
+<li>W3C 仕様は版によって節番号が変わります。この文書は §0 に記した版（webrtc-pc 2025-03-13 Recommendation、webrtc-stats 2025-09-25 CR Draft）に基づきます。</li>
 <li>Pion 同士の full SPED（controlling / controlled、Full / Lite、SPED 上の restart）は、upstream の対応が前提のため未確認です。</li>
 <li>BoringSSL harness が確認するのは handshake と双方向データだけで、exporter・KeyUpdate・negative cases の外部実装との組み合わせは未確認です（ローカルの self テストは成功）。</li>
 <li><code>npm run examples:e2e</code> は実行していません。</li>
