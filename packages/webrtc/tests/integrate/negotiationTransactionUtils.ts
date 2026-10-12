@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import type { Address } from "../../../common/src";
 import { getHostAddresses } from "../../../ice/src/utils";
@@ -3495,4 +3495,104 @@ export async function createCommittedInactiveAudioPeers() {
   await offerer.setRemoteDescription(answerer.localDescription!);
   const [inactive] = answerer.getTransceivers();
   return { ...peers, inactive, inactiveMid: inactive.mid! };
+}
+
+// --- SDP edits of the declarative cases ---
+
+/** The first `a=ssrc:` of the m-section `mid`. */
+export function ssrcOf(sdp: string, mid: string) {
+  return sectionOf(sdp, mid).match(/^a=ssrc:(\d+) /m)![1];
+}
+
+/** The header extension ID of `uri` in `sdp`. */
+export function extmapId(sdp: string, uri: string) {
+  return Number(sdp.match(new RegExp(`^a=extmap:(\\d+) ${uri}\\r?$`, "m"))![1]);
+}
+
+/** Every `a=extmap:` of `uri` gets the ID `id`. */
+export function setExtmapId(sdp: string, uri: string, id: number) {
+  return sdp.replace(
+    new RegExp(`^a=extmap:\\d+ ${uri}(\\r?)$`, "gm"),
+    `a=extmap:${id} ${uri}$1`,
+  );
+}
+
+/** Every `a=extmap:` of ID `id` gets the URI `uri`. */
+export function setExtmapUri(sdp: string, id: number, uri: string) {
+  return sdp.replace(
+    new RegExp(`^a=extmap:${id} \\S+(\\r?)$`, "gm"),
+    `a=extmap:${id} ${uri}$1`,
+  );
+}
+
+/** Arrange: two peers before any negotiation (`a` with `config`, `b` with `configB`). */
+export function createPeerPair(
+  config: ConstructorParameters<typeof RTCPeerConnection>[0] = {},
+  configB = config,
+) {
+  return {
+    a: new RTCPeerConnection(config),
+    b: new RTCPeerConnection(configB),
+  };
+}
+
+/** Arrange: `pc.close()` from the handler of its next `state` signaling event; resolves after it. */
+export function closeOnSignalingState(pc: RTCPeerConnection, state: string) {
+  return new Promise<void>((resolve) => {
+    pc.signalingStateChange.subscribe((next) => {
+      if (next === state) resolve(pc.close());
+    });
+  });
+}
+
+/** Arrange: the next call of `object[method]` throws "injected apply failure". */
+export function failOnce(object: object, method: string) {
+  return vi
+    .spyOn(object as Record<string, () => unknown>, method)
+    .mockImplementationOnce(() => {
+      throw new Error("injected apply failure");
+    });
+}
+
+/**
+ * Arrange: `createDuplexSession()` seen from the offerer `from` (`a` or `b`):
+ * `offerer` / `answerer` are its peers, `aOut` / `aVideo` / `aChannel` the
+ * offerer's and `bOut` / `bVideo` / `bChannel` the answerer's, and `session`
+ * the session itself. Runs a scenario once per offering direction (which
+ * also swaps the committed DTLS and ICE roles).
+ */
+export async function createDirectedDuplexSession(from: "a" | "b") {
+  const session = await createDuplexSession();
+  const offerer = session.peers[from];
+  const answerer = session.peers[from === "a" ? "b" : "a"];
+  return {
+    offerer: offerer.pc,
+    answerer: answerer.pc,
+    session,
+    aOut: offerer.out,
+    bOut: answerer.out,
+    aVideo: offerer.video,
+    bVideo: answerer.video,
+    aChannel: offerer.channel,
+    bChannel: answerer.channel,
+    close: session.close,
+  };
+}
+
+/**
+ * Shared Arrange: `createConnectedMediaAndDataPeers` (gathered without TURN)
+ * and a local TURN server (`turn.iceServers`) the test configures later.
+ * `close` closes the peers before the server.
+ */
+export async function createConnectedMediaAndDataPeersWithTurnServer() {
+  const peers = await createConnectedMediaAndDataPeers();
+  const turn = await createLocalTurnIceServer();
+  return {
+    ...peers,
+    turn,
+    async close() {
+      await Promise.allSettled([peers.offerer.close(), peers.answerer.close()]);
+      await turn.server.close();
+    },
+  };
 }

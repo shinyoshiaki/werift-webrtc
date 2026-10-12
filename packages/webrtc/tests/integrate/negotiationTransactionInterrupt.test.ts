@@ -8,6 +8,7 @@ import {
   heldTransports,
   negotiate,
   prepareMutationAnswerer,
+  negotiationTest as test,
   waitForCommittedNomination,
   waitForMutationSession,
 } from "./negotiationTransactionUtils";
@@ -62,26 +63,29 @@ async function settleToStable(session: DuplexSession) {
   }
 }
 
+/**
+ * Assert: close() closes every transport the session held, including those
+ * created midway (no leak).
+ */
+async function closeWithoutLeak(
+  session: DuplexSession,
+  transports: Set<unknown>,
+) {
+  for (const pc of [session.a.pc, session.b.pc]) {
+    for (const transport of heldTransports(pc)) transports.add(transport);
+  }
+  await session.close();
+  assertTransportsClosed(transports as Set<never>);
+}
+
 describe("negotiation transaction interrupts", () => {
-  let session: DuplexSession;
-  let transports: Set<unknown>;
-
-  afterEach(async () => {
-    // Assert: close() は途中で作られたものを含め全 transport を閉じる (leak なし)。
-    for (const pc of [session.a.pc, session.b.pc]) {
-      for (const transport of heldTransports(pc)) transports.add(transport);
-    }
-    await session.close();
-    assertTransportsClosed(transports as Set<never>);
-  });
-
-  test.each(cases)(
+  test.for(cases)(
     "$interrupt while waiting on $wait",
-    async ({ wait, interrupt }) => {
+    async ({ wait, interrupt }, { closing }) => {
       // Arrange: wait の地点で止まった交渉を用意する。
       const held = await arrangeInterruptWait(wait);
-      session = held.session;
-      transports = new Set([
+      const session = closing(held.session);
+      const transports = new Set<unknown>([
         ...heldTransports(session.a.pc),
         ...heldTransports(session.b.pc),
       ]);
@@ -109,6 +113,8 @@ describe("negotiation transaction interrupts", () => {
         // close 後は closed のまま、どの transport も動いていない。
         expect(session.a.pc.signalingState).toBe("closed");
         assertTransportsClosed(heldTransports(session.a.pc));
+        // Assert: close() は途中で作られたものを含め全 transport を閉じる (leak なし)。
+        await closeWithoutLeak(session, transports);
         return;
       }
       assertNegotiationInvariants(session.a.pc);
@@ -127,6 +133,8 @@ describe("negotiation transaction interrupts", () => {
 
       // Assert: やり直した session で双方向に通信できる。
       await expectSessionAlive(session, `${interrupt}-${wait}`);
+      // Assert: close() は途中で作られたものを含め全 transport を閉じる (leak なし)。
+      await closeWithoutLeak(session, transports);
     },
   );
 });

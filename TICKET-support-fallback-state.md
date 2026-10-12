@@ -366,6 +366,36 @@ provisional の checklist は live と同じ規則に従う: 候補から作る 
 - 既存の深い探索（`WERIFT_NEGOTIATION_FUZZ_SEEDS=300 WERIFT_NEGOTIATION_FUZZ_STEPS=20`）が通り、既存 PBT の結果と実行時間が変わらない。
 - NEGOTIATION_SPEC_COVERAGE.md の参照先、NEGOTIATION_TRANSACTION.md のテスト構成の節、packages/webrtc/AGENTS.md の深い探索コマンドを更新する。
 
+### 2.14 決定的な個別テストを宣言形式へ移行する（追加要件）
+
+**目的**: `packages/webrtc` の negotiationTransaction 系の決定的なテストを宣言形式へ移行し、検出力と読みやすさを維持しながらケース記述の LoC を最小化する（目標 50〜70% 減。ただし検出力と可読性を優先する）。
+
+**要件**
+
+- 評価: 再利用可能な基盤の LoC は削減評価から除外する。ケース固有の入力・操作列・期待値・フックは置き場所にかかわらずケース記述 LoC として数える（専用関数への移動だけで削減扱いにしない）。基準は個別テスト定義部分の約 8,339 行。
+- 実装: 構成プリセット、固定操作列、段階ごとの期待値を組み合わせてケースを宣言する。分野別の実行器で Arrange、操作、invariant、状態・イベント・通信検査、通信継続、後片付けを共有する。codec/feedback、candidate/EOC、BUNDLE、適用失敗、close/割り込みなどを対象にし、特殊環境やタイミング依存も固定条件と割り込み位置を明示して宣言化する（表現が複雑になるものは手続き型で残してよい）。同一の前提・操作列・判定を持つ重複は一本化し、条件や実装経路が異なるものはパラメータ化して固定ケースを維持する。既存 PBT のファイル・操作列・シード・環境変数は変更しない（固定ケースの宣言化を PBT 化と混同しない）。
+- 維持: 元の具体値、参照同一性、イベント回数・順序、実通信、再試行、検査時点。回帰に必要な連続操作を独立ケースへ分解しない。期待値を本番実装と同じロジックで計算しない。各ケースから初期条件・操作履歴・期待値・仕様 ID・回帰の由来が分かること。失敗時はケース名、操作番号、期待値と実際の値を表示する。
+- 規約・検証: AGENTS.md と NEGOTIATION_TRANSACTION.md に従う（Arrange の集約、日本語の Act/Assert コメント、通信継続の強制）。旧テストと新ケースの対応表を作り、仕様対応表と関連文書を更新する。代表ケースから移行し、関連するバグを一時 worktree で意図的に入れて検出力を比較する。変更ファイル単位の検証の後、package の型検査・全テストと AGENTS.md の検証を行う。
+
+**実施内容**
+
+- 実行器 `tests/integrate/negotiationCaseRunner.ts`（`negotiationCases(title, cases, { fns })`）: ケースは 1 つのテキストで、`case:`（テスト名）・`ref:`（NEGOTIATION_SPEC_COVERAGE.md の ID と `origin:` 回帰の由来）・`given:`（初期条件の式。Arrange は `negotiationTransactionUtils.ts`）・`each:`（固定パラメータ行）・`exempt:`（継続確認を外す理由）と、日本語の Arrange / Act / Assert ラベル付きのステップからなる。ステップは記述操作（`a offer` / `b answer` / `b pranswer` / `a rollback` / `b finish $finish` / `setLocal` / `setRemote` など、`rejects=` は error 名と `negotiationSnapshot` 不変を検査）、`let` / `do` / `start` / `await`、`expect <実値> <比較> <期待値>`（`==`・`is`（参照同一性）・`containsAll`・`like` など）、`rtp` / `data` / `alive`、`waitFor` / `sleep`、`[key=value]` の行条件。式は厳格な JavaScript の部分集合（未知の名前・プロパティはエラー）。実行器は各記述操作の後に全 peer の `assertNegotiationInvariants` を行い、最後に `expectSessionContinues(a, b)` を実行し、peer を閉じて mock を戻す。失敗時はケース名・ref・ステップ番号と本文・所属ラベル・期待値と実際の値・直前のステップ列を出す。各テストファイルが分野の実行器（共有ヘルパーを `fns` に持つ）になる。仕様は NEGOTIATION_TRANSACTION.md「Declarative cases」。
+- 移行: Routing と NT 先頭 10 件を代表として移行し、混入バグで旧と同じ検出を確認した後、残りを分野ごとに移行した。195 宣言のうち 191 宣言（展開 223 件）を宣言形式にし、4 宣言（Interrupt・CloseTiming・ApplicationRejection の PATHS 表・Mutation の行列、展開 302 件）を手続き型で残した（理由は対応表）。全テストは同じファイル・同じ名前で 1 対 1 に移り、内容が同一の重複は見つからず統合はない。対応表は `packages/webrtc/NEGOTIATION_CASES_MAPPING.md`。
+- ケース記述 LoC（集計は TypeScript AST）: A = test 宣言と `negotiationCases` 呼び出しの行範囲の合計（基準 8,339 行と同じ方式。ケースの `fns` と分野の `fns` を含む）は 8,339 → 5,138 行（−38.4%）。B = A ＋テストファイルのトップレベル補助宣言＋共有ファイルの関数のうち 1 ケース以下からしか参照されないもの は 9,362 → 6,210 行（−33.7%）。ケース本文 4,090 行の内訳は日本語ラベル 837、expect 834、記述操作 714、let 505、ヘッダ 573 などで、元の操作と判定を 1 行ずつ保持したため目標の 50% には届かなかった（判定の統合や書式上の詰め込みはしていない）。
+- 基盤 LoC（評価から除外）: 実行器 1,115 行、Utils への追記 101 行（Arrange と SDP 加工の 9 関数。うち 1 ケース専用のものは B に算入）。
+- 検出力の比較（一時 worktree、86e994bf の src にバグを 1 つずつ入れ、旧テストと新ケースを retry なしで実行）: 代表ケース向け 14 件（ルーティング表 R1〜R5、記述適用 N1・N3〜N10。候補の N2 は使っていない）と全分野向け 18 件（codec/feedback C1〜C5、candidate/EOC I1〜I5、BUNDLE B1〜B3、イベント E1〜E3、close K2、TURN T1）。バグなしでは旧新とも失敗 0。旧だけが検出したテストは全 32 件で 0。新だけが追加で検出したのは C4・I1・I4・B1 の 5 テスト（各操作後の invariant と継続確認による）。N5（RTX のみの answer）と K2（glare の stable 通知中の close）はどちらも検出せず、混入が効いていない。
+- 移行中の観測（未調査）: TURN を保留した 2 世代の ICE restart の後、初回の SCTP handshake 中に再交渉すると両側が COOKIE_WAIT に残る事象（8 回中 4 回）。移行前の Dev のテストは継続確認をしていなかった。該当 3 ケースは継続確認の前に DataChannel が開くのを待ち、ケース内にその理由を書いた。実装の原因調査と develop での再現確認は未実施。
+- 実行時間（16 コア、vitest 既定設定）: negotiationTransaction 系 + tests/pbt の wall 160s → 173s、ファイル時間の合計 395s → 514s（全ケースに継続確認が付いたため）。既存 PBT（negotiationTransactionProperty 3.9s、negotiationScenarioProperty 22.6s）は変わらない。
+
+- 検証: 移行ファイルごとの vitest、`npm run type`、biome、`npm test`（56 ファイル、1042 passed / 3 skipped、3 分 08 秒、リトライなし）、深い探索（episode fuzzer 300 seed×20 step 303/303・213 秒、scenario property 300 seed 2163/2163・635 秒、pairwise mutation 2106/2106・1,717 秒）。src は変更していない。
+
+**完了条件**
+
+- `cd packages/webrtc && npm run type && npm test` が通る。
+- 旧テストと新ケースの対応表があり、手続き型で残したものに理由がある。
+- 一時 worktree の混入バグで、旧テストが検出したものを新ケースもすべて検出する。
+- AGENTS.md Do 7 の深い探索が通る。NEGOTIATION_TRANSACTION.md（Declarative cases・Test layout）、NEGOTIATION_SPEC_COVERAGE.md の凡例、packages/webrtc/AGENTS.md を更新する。
+
 ## 3. 技術的な実装アプローチ
 
 ### 3.1 transaction coordinator と subsystem API

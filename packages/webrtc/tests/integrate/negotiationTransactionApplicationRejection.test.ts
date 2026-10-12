@@ -1,5 +1,6 @@
 import { describe, expect } from "vitest";
 
+import { negotiationCases } from "./negotiationCaseRunner";
 import {
   type DuplexSession,
   createMutationSession,
@@ -210,40 +211,39 @@ describe("a rejected application m-line keeps the session usable", () => {
       await expectDataAlive(session, "original-channel");
     }
   });
-
-  test("an application created after the answerer rejected it takes the rejected position with a new MID", async ({
-    closing,
-  }) => {
-    // Arrange: 初回の remote offer で application を拒否し、SCTP transport を持たない answerer。
-    const session = closing(await createMutationSession("initial"));
-    const { a, b } = session;
-    await offerRejects(session);
-    expect(b.pc.sctpTransport).toBeUndefined();
-
-    // Act: answerer が DataChannel を作ってから offer を作る。
-    b.pc.createDataChannel("late");
-    const offer = await b.pc.createOffer();
-
-    // Assert: 拒否された位置 (index 1) を新しい MID で再利用し、port は 0 でない。
-    const sections = offer.sdp.split(/(?=^m=)/m).slice(1);
-    expect(sections).toHaveLength(2);
-    expect(sections[1]).toMatch(/^m=application [1-9]/);
-    const mid = /^a=mid:(\S+)/m.exec(sections[1])?.[1];
-    expect(mid).toBeDefined();
-    expect(mid).not.toBe(APPLICATION);
-
-    // Assert: その offer で交渉した後も session を使い続けられる。
-    await step(session, () => b.pc.setLocalDescription(offer));
-    await step(session, () =>
-      a.pc.setRemoteDescription(b.pc.localDescription!),
-    );
-    await step(session, async () =>
-      a.pc.setLocalDescription(await a.pc.createAnswer()),
-    );
-    await step(session, () =>
-      b.pc.setRemoteDescription(a.pc.localDescription!),
-    );
-    await waitForMutationSession(session);
-    await expectSessionContinues(b.pc, a.pc, "late-channel");
-  }, 60000);
 });
+
+negotiationCases(
+  "a rejected application m-line keeps the session usable",
+  [
+    `
+      case: an application created after the answerer rejected it takes the rejected position with a new MID
+      ref: 2.11-1 2.11-4
+      given: createMutationSession("initial")
+      Arrange: 初回の remote offer で application を拒否し、SCTP transport を持たない answerer。
+      a offer hold
+      b setRemote rejectApplication(local(a).sdp)
+      do prepareMutationAnswerer(session)
+      b answer hold
+      expect applicationPort(local(b).sdp) == 0
+      a setRemote local(b)
+      expect b.sctpTransport is undefined
+      Act: answerer が DataChannel を作ってから offer を作る。
+      do b.createDataChannel("late")
+      b createOffer as=offer
+      Assert: 拒否された位置 (index 1) を新しい MID で再利用し、port は 0 でない。
+      let sections = offer.sdp.split(/(?=^m=)/m).slice(1)
+      expect sections.length == 2
+      expect sections[1] matches /^m=application [1-9]/
+      let mid = /^a=mid:(\\S+)/m.exec(sections[1])[1]
+      expect mid isnt undefined
+      expect mid isnt "1"
+      Assert: その offer で交渉した後も session を使い続けられる。
+      b setLocal offer
+      a setRemote local(b)
+      a answer
+      do waitForMutationSession(session)
+    `,
+  ],
+  { fns: { rejectApplication, applicationPort } },
+);
