@@ -47,6 +47,8 @@ export class RTCSctpTransport {
   private dataChannelId?: number;
   private eventDisposer: (() => void)[] = [];
   private stopping = false;
+  /** Associations whose start began before DTLS peer authentication. */
+  private readonly preAuthenticationStarts = new WeakSet<SCTP>();
 
   constructor(
     public port = 5000,
@@ -121,23 +123,28 @@ export class RTCSctpTransport {
           // peer may be ESTABLISHED and never re-INIT). Such a start is kept;
           // a cancelled attempt may have dropped the peer's in-flight reply,
           // so retransmit now rather than at the next T1 expiry.
-          const cancelStart = () => {
+          //
+          // The cancel applies only to the early attempt itself:
+          // - a start made after DTLS peer authentication is not early and
+          //   must survive SPED resets / ICE restarts;
+          // - only the DTLS server (the active INIT sender) sends SCTP under
+          //   the early permission. The DTLS client's passive association
+          //   is merely armed early; cancelling it would discard the cookie
+          //   key of an INIT_ACK it already sent, so the peer's COOKIE_ECHO
+          //   could never be accepted.
+          const cancelEarlyStart = () => {
             if (this.sctp !== association) return;
+            if (!this.preAuthenticationStarts.has(association)) return;
+            if (this.dtlsTransport.role !== "server") return;
             if (association.cancelStart(new SCTPStartCancelledError())) return;
             if (association.startCommitted) association.retransmitStartNow();
           };
-          // Only a DTLS server starts SCTP under the early send permission; a
-          // DTLS client's start never depended on it.
-          const cancelOnRevoke = () => {
-            if (this.dtlsTransport.role !== "server") return;
-            cancelStart();
-          };
           return [
             this.dtlsTransport.onEarlyApplicationSendRevoked?.subscribe(
-              cancelOnRevoke,
+              cancelEarlyStart,
             ),
             this.dtlsTransport.onEarlyApplicationAttemptCancelled?.subscribe(
-              cancelStart,
+              cancelEarlyStart,
             ),
           ].flatMap((subscription) => (subscription ? [subscription] : []));
         })(),
@@ -469,6 +476,11 @@ export class RTCSctpTransport {
 
   async start(remotePort: number) {
     this.prepareForStart();
+    // RTCDtlsTransport.state is "connected" only after SDP fingerprint
+    // authentication, so anything earlier is an early (pre-auth) start.
+    if (this.dtlsTransport.state !== "connected") {
+      this.preAuthenticationStarts.add(this.sctp);
+    }
     if (this.isServer) {
       this.dataChannelId = 1;
     } else {

@@ -101,7 +101,9 @@ export interface DtlsReadiness {
 /**
  * Opt-in unbounded early-app-data buffer for trusted P2P paths.
  * Pass as `maxEarlyAppDataRecords` / `maxEarlyAppDataBytes`.
- * There is no hidden ceiling — the association will buffer until `onConnect`.
+ * This removes only the record / byte caps. The {@link EARLY_APP_DATA_RETENTION_MS}
+ * (2 s) retention still applies: if `onConnect` does not happen within it,
+ * the whole buffered queue is dropped (counted in the early-data stats).
  */
 export const EARLY_APP_DATA_UNLIMITED = Number.POSITIVE_INFINITY;
 
@@ -170,13 +172,14 @@ export interface Dtls13Options {
    * Max epoch-3 application-data records buffered before markConnected
    * (UDP reorder / 0.5-RTT). Default {@link MAX_EARLY_APP_DATA_RECORDS} (256).
    * Sized for WebRTC DataChannel. Use {@link EARLY_APP_DATA_UNLIMITED} on
-   * trusted P2P paths (no ceiling).
+   * trusted P2P paths (no record cap; the 2 s retention still applies).
    */
   maxEarlyAppDataRecords?: number;
   /**
    * Max bytes of epoch-3 application data buffered before markConnected.
    * Default {@link MAX_EARLY_APP_DATA_BYTES} (256 KiB).
-   * Use {@link EARLY_APP_DATA_UNLIMITED} on trusted P2P paths (no ceiling).
+   * Use {@link EARLY_APP_DATA_UNLIMITED} on trusted P2P paths (no byte cap;
+   * the 2 s retention still applies).
    */
   maxEarlyAppDataBytes?: number;
   /**

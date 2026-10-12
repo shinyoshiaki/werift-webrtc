@@ -10,4 +10,6 @@
 
 Opt-in unbounded early-app-data buffer for trusted P2P paths.
 Pass as `maxEarlyAppDataRecords` / `maxEarlyAppDataBytes`.
-There is no hidden ceiling — the association will buffer until `onConnect`.
+This removes only the record / byte caps. The EARLY\_APP\_DATA\_RETENTION\_MS
+(2 s) retention still applies: if `onConnect` does not happen within it,
+the whole buffered queue is dropped (counted in the early-data stats).

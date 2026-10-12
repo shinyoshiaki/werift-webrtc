@@ -72,16 +72,6 @@ Dual client also flips dualPhase=closed; this flag is the base guard.
 
 ***
 
-### connected
-
-> **connected**: `boolean` = `false`
-
-#### Inherited from
-
-[`DtlsSocket`](DtlsSocket.md).[`connected`](DtlsSocket.md#connected)
-
-***
-
 ### dtls
 
 > **dtls**: `DtlsContext`
@@ -237,6 +227,36 @@ Negotiated / configured protocol versions (priority order).
 [`DtlsSocket`](DtlsSocket.md).[`transport`](DtlsSocket.md#transport)
 
 ## Accessors
+
+### connected
+
+#### Get Signature
+
+> **get** **connected**(): `boolean`
+
+##### Returns
+
+`boolean`
+
+#### Set Signature
+
+> **set** **connected**(`value`): `void`
+
+##### Parameters
+
+###### value
+
+`boolean`
+
+##### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`connected`](DtlsSocket.md#connected)
+
+***
 
 ### isDtls13
 

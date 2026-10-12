@@ -523,16 +523,16 @@ export function collectMessages(channel: RTCDataChannel, count: number) {
   });
 }
 
-// --- sped:false fault injection (default-path non-regression) ---
+// --- SCTP fault injection + ICE restart (sped:false / SPED non-regression) ---
 
 export type SctpFaultChunk = "INIT" | "INIT_ACK" | "COOKIE_ACK" | "COOKIE_ECHO";
-export type SpedFalseRestartAt =
+export type SctpFaultRestartAt =
   | "none"
   | "dtls-connecting"
   | "cookie-wait"
   | "cookie-echoed";
 
-export type SpedFalseFaultScenario = {
+export type SctpFaultScenario = {
   /** Answerer DTLS role (client = setup:active, server = setup:passive). */
   answererRole: "client" | "server";
   /** Silently drop the first SCTP packet carrying this chunk. */
@@ -540,9 +540,14 @@ export type SpedFalseFaultScenario = {
   /** Make the first send of a packet carrying this chunk reject. */
   failSend?: SctpFaultChunk;
   /** When the offerer runs restartIce() + renegotiation. */
-  restartAt: SpedFalseRestartAt;
+  restartAt: SctpFaultRestartAt;
   /** dtls.protocolVersions for both peers (default config when omitted). */
   protocolVersions?: DtlsVersion[];
+  /**
+   * Run the same scenario with SPED + DTLS 1.3 (`early` = allowEarlyServerData).
+   * Omitted = default `sped: false` path.
+   */
+  sped?: { early: boolean };
 };
 
 const sctpFaultChunkType: Record<SctpFaultChunk, number> = {
@@ -553,21 +558,28 @@ const sctpFaultChunkType: Record<SctpFaultChunk, number> = {
 };
 
 /**
- * Arrange + Act: two default (`sped: false`) PeerConnections with a negotiated
+ * Arrange + Act: two PeerConnections (default `sped: false`, or SPED) with a negotiated
  * DataChannel, one SCTP fault and an optional ICE restart at a chosen point.
  * Returns once both channels exchanged a message (or the timeout elapsed),
  * with every connectionState each peer went through.
  */
-export async function runSpedFalseFaultScenario(
-  scenario: SpedFalseFaultScenario,
+export async function runSctpFaultScenario(
+  scenario: SctpFaultScenario,
   timeoutMs = 20_000,
 ) {
-  const config = {
-    iceServers: [],
-    ...(scenario.protocolVersions
-      ? { dtls: { protocolVersions: scenario.protocolVersions } }
-      : {}),
-  };
+  const config = scenario.sped
+    ? {
+        iceServers: [],
+        sped: true,
+        dtls: { protocolVersions: [DtlsVersion.V1_3] },
+        warp: { allowEarlyServerData: scenario.sped.early },
+      }
+    : {
+        iceServers: [],
+        ...(scenario.protocolVersions
+          ? { dtls: { protocolVersions: scenario.protocolVersions } }
+          : {}),
+      };
   const offerer = new RTCPeerConnection(config);
   const answerer = new RTCPeerConnection(config);
   const states = { offerer: [] as string[], answerer: [] as string[] };
@@ -587,7 +599,7 @@ export async function runSpedFalseFaultScenario(
       await offerer.setRemoteDescription(answerer.localDescription!);
     })();
   };
-  const restartOnChunk: Partial<Record<SpedFalseRestartAt, number>> = {
+  const restartOnChunk: Partial<Record<SctpFaultRestartAt, number>> = {
     "cookie-wait": InitChunk.type,
     "cookie-echoed": CookieEchoChunk.type,
   };
@@ -655,7 +667,16 @@ export async function runSpedFalseFaultScenario(
       if (restarted) await restarted;
       channels[0].send("from-offerer");
       channels[1].send("from-answerer");
-      return Promise.all(messages);
+      const received = await Promise.all(messages);
+      // SPED can deliver while connectionState is still settling after a
+      // restart; report the state only once both peers are connected.
+      while (
+        offerer.connectionState !== "connected" ||
+        answerer.connectionState !== "connected"
+      ) {
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      return received;
     })(),
     timedOut,
   ]);
@@ -673,4 +694,43 @@ export async function runSpedFalseFaultScenario(
       await Promise.allSettled([offerer.close(), answerer.close()]);
     },
   };
+}
+
+// --- ICE restart after authentication (selected pair switch) ---
+
+/** Assert helper: the nominated pair of a PeerConnection's first ICE transport. */
+export function selectedPairOf(pc: RTCPeerConnection) {
+  const ice = pc.iceTransports[0].connection as Connection;
+  const pair = ice.nominated;
+  return {
+    pair,
+    localPort: pair?.localCandidate.port,
+    remotePort: pair?.remoteAddr[1],
+    generation: ice.generation,
+  };
+}
+
+/** Act helper: offerer-initiated ICE restart + renegotiation, until both nominate. */
+export async function restartIceAndRenegotiate(
+  offerer: RTCPeerConnection,
+  answerer: RTCPeerConnection,
+) {
+  await offerer.setLocalDescription(
+    await offerer.createOffer({ iceRestart: true }),
+  );
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  await answerer.setLocalDescription(await answerer.createAnswer());
+  await offerer.setRemoteDescription(answerer.localDescription!);
+  const generation = selectedPairOf(offerer).generation;
+  for (const pc of [offerer, answerer]) {
+    const deadline = Date.now() + 10_000;
+    while (
+      selectedPairOf(pc).generation !== generation ||
+      !(pc.iceTransports[0].connection as Connection).nominated ||
+      pc.connectionState !== "connected"
+    ) {
+      if (Date.now() > deadline) throw new Error("ICE restart did not settle");
+      await new Promise((r) => setTimeout(r, 20));
+    }
+  }
 }

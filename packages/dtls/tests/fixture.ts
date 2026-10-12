@@ -1,7 +1,7 @@
 import { spawn } from "child_process";
 import { UdpTransport, randomPort } from "../../common/src";
 import type { SrtpProfile } from "../../rtp/src/srtp/const";
-import { DtlsClient, DtlsServer, DtlsVersion } from "../src";
+import { DtlsClient, DtlsServer, DtlsVersion, type Options } from "../src";
 import { SessionType } from "../src/cipher/suites/abstract";
 import { Dtls13Connection } from "../src/engine/v1_3/connection";
 
@@ -107,6 +107,10 @@ export type Dtls13PairExtra = {
   srtpProfiles?: SrtpProfile[];
   maxEarlyAppDataRecords?: number;
   maxEarlyAppDataBytes?: number;
+  /** Override the default `[1.3]` (e.g. `[1.2]` for legacy lifecycle tests). */
+  protocolVersions?: DtlsVersion[];
+  /** Required by the DTLS 1.2 handshake. */
+  signatureHash?: Options["signatureHash"];
 };
 
 /**

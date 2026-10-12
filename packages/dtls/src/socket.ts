@@ -63,7 +63,23 @@ export class DtlsSocket {
   dtls: DtlsContext;
   srtp: SrtpContext = new SrtpContext();
 
-  connected = false;
+  private _connected = false;
+  /**
+   * DTLS 1.2 readiness latch. 1.2 has no separate milestones, so the first
+   * `connected` edge reaches all three at once; like the 1.3 engine latch it
+   * never resets on close or renegotiation.
+   */
+  private legacyReadinessReached = false;
+
+  get connected(): boolean {
+    return this._connected;
+  }
+
+  set connected(value: boolean) {
+    this._connected = value;
+    if (value) this.legacyReadinessReached = true;
+  }
+
   extensions: Extension[] = [];
   /**
    * Assembled handshake handler. `peer` is the source of the datagram that
@@ -119,13 +135,21 @@ export class DtlsSocket {
     return !!this.engine13;
   }
 
-  /** @internal Cryptographic readiness; SDP authentication is deliberately absent. */
+  /**
+   * @internal Cryptographic readiness; SDP authentication is deliberately absent.
+   *
+   * Lifecycle contract (DTLS 1.2 and 1.3 alike): each milestone latches to
+   * true once for the association and never returns to false, including on
+   * close, failure or renegotiation. Termination is reported through
+   * onClose / onError, not by readiness going back to false.
+   */
   get readiness(): DtlsReadiness {
     if (this.engine13) return { ...this.engine13.readiness };
+    const reached = this.legacyReadinessReached;
     return {
-      writeReady: this.connected,
-      peerHandshakeAuthenticated: this.connected,
-      handshakeComplete: this.connected,
+      writeReady: reached,
+      peerHandshakeAuthenticated: reached,
+      handshakeComplete: reached,
     };
   }
 
@@ -200,7 +224,8 @@ export class DtlsSocket {
   }
 
   private waitForLegacyReadiness(): Promise<void> {
-    if (this.connected) return Promise.resolve();
+    // Same as the 1.3 latch: a reached milestone stays reached.
+    if (this.legacyReadinessReached) return Promise.resolve();
     if (this.associationTornDown) {
       return Promise.reject(
         new Error("DTLS association closed before readiness"),
@@ -1400,13 +1425,15 @@ export interface Options {
    * (UDP reorder / 0.5-RTT early server data).
    * Default 256 — sized for WebRTC DataChannel (64 KiB `maxMessageSize`
    * plus SCTP control and reorder burst).
-   * Pass `EARLY_APP_DATA_UNLIMITED` (`Infinity`) for trusted P2P with no cap.
+   * Pass `EARLY_APP_DATA_UNLIMITED` (`Infinity`) for trusted P2P with no record /
+   * byte cap (the 2 s retention still applies).
    */
   maxEarlyAppDataRecords?: number;
   /**
    * Max bytes of epoch-3 application data buffered before `onConnect`.
    * Default 256 KiB. Raise together with `maxEarlyAppDataRecords`, or pass
-   * `EARLY_APP_DATA_UNLIMITED` (`Infinity`) for trusted P2P with no cap.
+   * `EARLY_APP_DATA_UNLIMITED` (`Infinity`) for trusted P2P with no record /
+   * byte cap (the 2 s retention still applies).
    */
   maxEarlyAppDataBytes?: number;
 }
