@@ -921,7 +921,9 @@ SCTP transport.
   on the transceiver it created, rollback on both sides); `--ops` replays a
   fixed list. The intended differences in the table below are counted, not
   failed: a transceiver an unapplied offer did not associate is compared by
-  kind and direction, MID values may differ (HEAD's must be unique), a record
+  kind and direction, MID values may differ (HEAD's must be unique; the RTP
+  result of a track is matched through the transceiver at the same position,
+  not by MID), a record
   where develop gave one MID to two transceivers is develop's defect, and a
   closed peer's transceivers are not compared.
   `negotiationTransactionCloseTiming.test.ts` runs the close timing for ten

@@ -63,15 +63,32 @@ const [developFile, headFile] = process.argv.slice(2);
 const develop = load(developFile);
 const head = load(headFile);
 
+/**
+ * The track key (`<peer>:<MID>`) of `next` for a track key of `base`: MID
+ * values may differ (see sameTransceivers), so a track is matched through
+ * the transceiver at the same position of the same peer.
+ */
+function trackKeyIn(base: Record, next: Record, key: string) {
+  const [peer, mid] = key.split(":");
+  const p = peer === "a" ? 0 : 1;
+  const baseTransceivers = (base.transceivers as TransceiverState[][])?.[p];
+  const nextTransceivers = (next.transceivers as TransceiverState[][])?.[p];
+  const index = baseTransceivers?.findIndex((t) => t.mid === mid) ?? -1;
+  const nextMid = index >= 0 ? nextTransceivers?.[index]?.mid : undefined;
+  return nextMid != undefined ? `${peer}:${nextMid}` : key;
+}
+
 /** Communication channels that work in `base` but not in `next`. */
-function lost(base: Record["comm"], next: Record["comm"]) {
-  if (!base) return [];
+function lost(base: Record, next: Record) {
+  if (!base.comm) return [];
   const missing: string[] = [];
-  for (const [key, ok] of Object.entries(base.tracks)) {
-    if (ok && !next?.tracks[key]) missing.push(`rtp ${key}`);
+  for (const [key, ok] of Object.entries(base.comm.tracks)) {
+    if (ok && !next.comm?.tracks[trackKeyIn(base, next, key)]) {
+      missing.push(`rtp ${key}`);
+    }
   }
-  if (base.dataAtoB && !next?.dataAtoB) missing.push("data a->b");
-  if (base.dataBtoA && !next?.dataBtoA) missing.push("data b->a");
+  if (base.comm.dataAtoB && !next.comm?.dataAtoB) missing.push("data a->b");
+  if (base.comm.dataBtoA && !next.comm?.dataBtoA) missing.push("data b->a");
   return missing;
 }
 
@@ -211,7 +228,7 @@ for (const [seed, developRecords] of develop) {
       });
       break;
     }
-    const missing = lost(base.comm, next.comm);
+    const missing = lost(base, next);
     // develop accepted the operation and its session communicated at the
     // next point both peers were stable.
     const nextStable = developRecords.slice(index).find((r) => r.comm);
