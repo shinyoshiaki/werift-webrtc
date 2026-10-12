@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Epic 4: WARP 対応 WebRTC transport — 仕様に基づくレビュー解説</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --line: #d1d9e0;
+    --soft: #f6f8fa; --accent: #0969da; --ok: #1a7f37; --warn: #9a6700;
+    --bad: #cf222e; --spec: #0550ae; --own: #8250df; --dev: #bc4c00;
+    --c-ice: #0969da; --c-dtls: #8250df; --c-gate: #bc4c00; --c-sctp: #1a7f37; --c-srtp: #bf3989;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --line: #3d444d;
+      --soft: #151b23; --accent: #4493f8; --ok: #3fb950; --warn: #d29922;
+      --bad: #f85149; --spec: #79c0ff; --own: #bc8cff; --dev: #ffa657;
+      --c-ice: #4493f8; --c-dtls: #bc8cff; --c-gate: #ffa657; --c-sctp: #3fb950; --c-srtp: #ff7eb6;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+    font: 15px/1.75 -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  .layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); max-width: 1320px; margin: 0 auto; }
+  nav { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+    padding: 24px 16px; border-right: 1px solid var(--line); font-size: 13px; }
+  nav a { display: block; color: var(--muted); text-decoration: none; padding: 2px 0; }
+  nav a:hover { color: var(--accent); }
+  nav .sub { padding-left: 12px; }
+  main { padding: 32px 40px 80px; min-width: 0; }
+  h1 { font-size: 26px; line-height: 1.4; margin: 0 0 8px; }
+  h2 { font-size: 21px; margin: 48px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  h3 { font-size: 17px; margin: 32px 0 8px; }
+  p, li { max-width: 78ch; }
+  code { font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--soft); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+  table { border-collapse: collapse; margin: 12px 0 16px; font-size: 14px; width: 100%; }
+  th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--soft); font-weight: 600; }
+  td.num { text-align: center; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  a.ref { font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent);
+    text-decoration: none; white-space: nowrap; }
+  a.ref:hover { text-decoration: underline; }
+  a.ref.test::before { content: "test "; color: var(--muted); }
+  .meta { color: var(--muted); font-size: 13px; }
+  .box { border: 1px solid var(--line); border-left-width: 4px; border-radius: 6px;
+    padding: 10px 14px; margin: 12px 0; background: var(--soft); }
+  .box > :first-child { margin-top: 0; } .box > :last-child { margin-bottom: 0; }
+  .box .tag { display: inline-block; font-size: 12px; font-weight: 700; margin-right: 6px; }
+  .spec { border-left-color: var(--spec); } .spec .tag { color: var(--spec); }
+  .impl { border-left-color: var(--ok); } .impl .tag { color: var(--ok); }
+  .own { border-left-color: var(--own); } .own .tag { color: var(--own); }
+  .dev { border-left-color: var(--dev); } .dev .tag { color: var(--dev); }
+  .key { border-left-color: var(--bad); } .key .tag { color: var(--bad); }
+  .unverified { font-size: 11px; color: var(--warn); border: 1px solid var(--warn); border-radius: 3px;
+    padding: 0 4px; margin-left: 4px; white-space: nowrap; }
+  blockquote { margin: 8px 0; padding: 4px 12px; border-left: 3px solid var(--line); color: var(--muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; white-space: pre-wrap; }
+  figure { margin: 16px 0 24px; }
+  figure svg { width: 100%; height: auto; max-width: 980px; display: block;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+  figcaption { font-size: 13px; color: var(--muted); margin-top: 6px; }
+  svg text { fill: var(--fg); font-family: -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  svg .muted { fill: var(--muted); }
+  svg .lane { stroke: var(--line); stroke-dasharray: 4 4; }
+  svg .arrow { stroke: var(--fg); stroke-width: 1.4; fill: none; marker-end: url(#ah); }
+  svg .arrow.ice { stroke: var(--c-ice); marker-end: url(#ah-ice); }
+  svg .arrow.dtls { stroke: var(--c-dtls); marker-end: url(#ah-dtls); }
+  svg .arrow.sctp { stroke: var(--c-sctp); marker-end: url(#ah-sctp); }
+  svg .arrow.bad { stroke: var(--bad); marker-end: url(#ah-bad); stroke-dasharray: 5 3; }
+  svg .node { fill: var(--soft); stroke: var(--line); }
+  svg .n-ice { fill: none; stroke: var(--c-ice); stroke-width: 2; }
+  svg .n-dtls { fill: none; stroke: var(--c-dtls); stroke-width: 2; }
+  svg .n-gate { fill: none; stroke: var(--c-gate); stroke-width: 2; }
+  svg .n-sctp { fill: none; stroke: var(--c-sctp); stroke-width: 2; }
+  svg .n-srtp { fill: none; stroke: var(--c-srtp); stroke-width: 2; }
+  svg .milestone { fill: var(--c-dtls); }
+  svg .ok { fill: var(--ok); } svg .bad { fill: var(--bad); } svg .warn { fill: var(--warn); }
+  svg .bar-warp { fill: var(--muted); } svg .bar-before { fill: var(--bad); } svg .bar-after { fill: var(--ok); }
+  .legend span { display: inline-block; margin-right: 14px; font-size: 13px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } nav { display: none; } main { padding: 20px; } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill: var(--fg)"/></marker>
+    <marker id="ah-ice" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill: var(--c-ice)"/></marker>
+    <marker id="ah-dtls" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill: var(--c-dtls)"/></marker>
+    <marker id="ah-sctp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill: var(--c-sctp)"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill: var(--bad)"/></marker>
+  </defs>
+</svg>
+<div class="layout">
+<nav>
+  <strong>目次</strong>
+  <a href="#intro">0. この文書について</a>
+  <a href="#overview">1. 全体像と最重要の不変条件</a>
+  <a href="#dtls">2. DTLS 1.3 コア</a>
+  <a class="sub" href="#readiness">2.1 3 段階の readiness</a>
+  <a class="sub" href="#half-rtt">2.2 server の 0.5-RTT</a>
+  <a class="sub" href="#early-buffer">2.3 early data の受信バッファ</a>
+  <a class="sub" href="#final-ack">2.4 最終 flight の ACK と完了判定</a>
+  <a class="sub" href="#latch">2.5 readiness の latch 契約</a>
+  <a class="sub" href="#rxgen">2.6 受信世代による restart 隔離</a>
+  <a class="sub" href="#exporter">2.7 SRTP 鍵の exporter</a>
+  <a href="#webrtc">3. WebRTC の認証境界</a>
+  <a class="sub" href="#fingerprint">3.1 SDP fingerprint の照合</a>
+  <a class="sub" href="#gate">3.2 受信 gate と state</a>
+  <a class="sub" href="#srtp">3.3 方向別 SRTP と replay 対策</a>
+  <a class="sub" href="#early-server">3.4 early server data の opt-in</a>
+  <a class="sub" href="#demux">3.5 先頭バイトによる多重分離</a>
+  <a href="#ice">4. ICE / SPED</a>
+  <a class="sub" href="#sped-attrs">4.1 SPED の STUN 属性</a>
+  <a class="sub" href="#sped-detect">4.2 対応判定と fallback</a>
+  <a class="sub" href="#direct">4.3 direct carrier と再送</a>
+  <a class="sub" href="#restart">4.4 ICE restart と旧経路</a>
+  <a href="#sctp">5. SCTP / DataChannel</a>
+  <a class="sub" href="#sctp-role">5.1 役割と stream id</a>
+  <a class="sub" href="#sctp-cancel">5.2 開始の取消し規則</a>
+  <a class="sub" href="#sctp-loss">5.3 送信失敗は損失として扱う</a>
+  <a href="#default-path">6. 既定経路の非回帰</a>
+  <a href="#verify">7. 検証の証跡</a>
+  <a href="#deviations">8. 仕様からの逸脱と未確認事項</a>
+</nav>
+<main>
+
+<h1>Epic 4: WARP 対応 WebRTC transport<br>仕様（RFC / draft）に基づくレビュー解説</h1>
+<p class="meta">対象: <code>bae52440</code>（ブランチ <code>epic4-warp-webrtc-detailed</code>、比較元 <code>warp</code>）。コード参照の行番号は、この HEAD のファイルから生成時に機械的に解決しています。</p>
+
+<h2 id="intro">0. この文書について</h2>
+<p>このチケットで実装した WARP（SPED + DTLS 1.3 + 0.5-RTT）対応 WebRTC transport を、根拠となる RFC と draft の条文に対応づけて解説します。各節は次の色分けで書いています。</p>
+<div class="box spec"><span class="tag">仕様</span>RFC / draft が求めていること。手元の <code>docs/rfc/</code> に原文がある仕様は、原文で節番号と文言を確認しています。</div>
+<div class="box impl"><span class="tag">実装</span>werift のどこで、どう実現しているか。リンクは <code>パス:行</code> です。</div>
+<div class="box own"><span class="tag">werift の判断</span>仕様に定めがなく、werift が決めたこと。</div>
+<div class="box dev"><span class="tag">逸脱</span>仕様の文言から意図的に外れていること。</div>
+<p>原文を確認したのは RFC 5764 / 7675 / 7983 / 8445 / 8831 / 9147 / 9443 と draft-hancke-webrtc-sped-00 です。手元に原文がない RFC 8446 / 8122 / 8827 / 8842 / 5763 / 9260 / 8261 / 8832 / 3711 と W3C webrtc-pc / webrtc-stats には <span class="unverified">未照合</span> を付けています。設計の一次資料は <code>epic4-warp-webrtc-detailed.md</code>、要件と完了条件は <code>TICKET-epic4-warp-webrtc-detailed.md</code>、検証の詳細は <code>reviews/epic4-warp-verification.md</code> です。TURN relay 上の WARP はスコープ外です。</p>
+
+<h2 id="overview">1. 全体像と最重要の不変条件</h2>
+<p>WARP は、ICE の接続確認（STUN Binding）に DTLS の handshake を相乗りさせ（SPED）、ICE と DTLS 1.3 を同時に進めることで接続までの往復を減らす仕組みです。werift の transport は次の層でできています。</p>
+<figure>
+<svg viewBox="0 0 980 300" role="img" aria-label="WARP transport の層構造">
+  <rect x="20" y="230" width="940" height="50" rx="8" class="n-ice"/>
+  <text x="40" y="261" font-size="15" font-weight="700">ICE / STUN（RFC 8445・8489）</text>
+  <text x="330" y="261" font-size="13" class="muted">SPED: DTLS の flight を STUN Binding の DTLS-IN-STUN-DATA に埋め込む（draft-hancke-webrtc-sped-00）</text>
+  <rect x="20" y="160" width="940" height="56" rx="8" class="n-dtls"/>
+  <text x="40" y="186" font-size="15" font-weight="700">DTLS 1.3（RFC 9147）</text>
+  <text x="40" y="206" font-size="13" class="muted">readiness: writeReady → peerHandshakeAuthenticated → handshakeComplete、server は 0.5-RTT で送信可能</text>
+  <rect x="20" y="96" width="940" height="50" rx="8" class="n-gate"/>
+  <text x="40" y="126" font-size="15" font-weight="700">WebRTC 認証境界: SDP fingerprint 照合（RFC 8122・8827）</text>
+  <text x="560" y="126" font-size="13" class="muted">照合が済むまで上位へ一切渡さない</text>
+  <rect x="20" y="20" width="460" height="60" rx="8" class="n-srtp"/>
+  <text x="40" y="46" font-size="15" font-weight="700">DTLS-SRTP（RFC 5764）</text>
+  <text x="40" y="66" font-size="13" class="muted">RTP / RTCP、方向別の鍵、replay 対策（RFC 3711）</text>
+  <rect x="500" y="20" width="460" height="60" rx="8" class="n-sctp"/>
+  <text x="520" y="46" font-size="15" font-weight="700">SCTP / DataChannel（RFC 8261・8831）</text>
+  <text x="520" y="66" font-size="13" class="muted">INIT は DTLS server、stream id は DTLS role で偶奇</text>
+</svg>
+<figcaption>図 1. 層構造。データは下から上へ流れ、オレンジの認証境界を越えるまでは上位（SRTP / SCTP の利用者）に届かない。</figcaption>
+</figure>
+
+<div class="box key"><span class="tag">最重要の不変条件</span>SDP fingerprint の照合が済むまで、DataChannel のデータ・RTP・RTCP を上位へ一件も配送しない。DTLS の暗号的な認証（Finished の検証）と、WebRTC としての相手の認証（SDP に書かれた証明書であること）は別物で、後者が済んで初めて配送する。</div>
+
+<p>典型的な接続（SPED 有効、DTLS server が early server data を opt-in）の流れは次のとおりです。</p>
+<figure>
+<svg viewBox="0 0 980 560" role="img" aria-label="WARP の接続シーケンス">
+  <text x="150" y="28" font-size="15" font-weight="700" text-anchor="middle">DTLS client（answerer: setup:active）</text>
+  <text x="760" y="28" font-size="15" font-weight="700" text-anchor="middle">DTLS server（offerer）</text>
+  <line x1="150" y1="40" x2="150" y2="545" class="lane"/>
+  <line x1="760" y1="40" x2="760" y2="545" class="lane"/>
+  <line x1="150" y1="70" x2="755" y2="70" class="arrow ice"/>
+  <text x="455" y="62" font-size="13" text-anchor="middle">STUN Binding Request ＋ DATA[ClientHello]</text>
+  <line x1="760" y1="110" x2="155" y2="110" class="arrow ice"/>
+  <text x="455" y="102" font-size="13" text-anchor="middle">Binding Response ＋ DATA[ServerHello … server Finished] ＋ ACK</text>
+  <circle cx="760" cy="126" r="6" class="milestone"/>
+  <text x="774" y="131" font-size="13">writeReady</text>
+  <text x="774" y="147" font-size="12" class="muted">（0.5-RTT 送信可）</text>
+  <line x1="760" y1="170" x2="155" y2="170" class="arrow dtls"/>
+  <text x="455" y="162" font-size="13" text-anchor="middle">epoch 3: SCTP INIT / RTP（opt-in 時のみ、early server data）</text>
+  <rect x="10" y="180" width="130" height="44" rx="6" class="n-gate"/>
+  <text x="75" y="198" font-size="12" text-anchor="middle">受信 gate に保持</text>
+  <text x="75" y="215" font-size="12" text-anchor="middle">（上位に出さない）</text>
+  <circle cx="150" cy="242" r="6" class="milestone"/>
+  <text x="164" y="247" font-size="13">client: peerHandshakeAuthenticated（server Finished を検証）</text>
+  <rect x="164" y="258" width="340" height="26" rx="5" class="n-gate"/>
+  <text x="334" y="276" font-size="13" text-anchor="middle">SDP fingerprint 照合 → 一致したら gate を開く</text>
+  <line x1="150" y1="310" x2="755" y2="310" class="arrow ice"/>
+  <text x="455" y="302" font-size="13" text-anchor="middle">Binding（USE-CANDIDATE）＋ DATA[client Finished]</text>
+  <circle cx="150" cy="330" r="6" class="milestone"/>
+  <text x="164" y="335" font-size="13">client: writeReady → state=connected</text>
+  <circle cx="760" cy="330" r="6" class="milestone"/>
+  <text x="774" y="335" font-size="13">peerHandshake-</text>
+  <text x="774" y="351" font-size="13">Authenticated</text>
+  <text x="774" y="367" font-size="12" class="muted">→ 照合 → connected</text>
+  <line x1="760" y1="395" x2="155" y2="395" class="arrow dtls"/>
+  <text x="455" y="387" font-size="13" text-anchor="middle">ACK（client の最終 flight を確認）</text>
+  <circle cx="760" cy="411" r="6" class="milestone"/>
+  <text x="774" y="416" font-size="13">handshakeComplete</text>
+  <text x="774" y="432" font-size="12" class="muted">（ACK 送信成功）</text>
+  <circle cx="150" cy="420" r="6" class="milestone"/>
+  <text x="164" y="425" font-size="13">client: handshakeComplete（最終 flight が ACK された）</text>
+  <line x1="150" y1="468" x2="755" y2="468" class="arrow sctp"/>
+  <text x="455" y="460" font-size="13" text-anchor="middle">SCTP INIT_ACK → COOKIE_ECHO → COOKIE_ACK、DataChannel open</text>
+  <line x1="760" y1="515" x2="155" y2="515" class="arrow sctp"/>
+  <text x="455" y="507" font-size="13" text-anchor="middle">DataChannel / RTP / RTCP（認証済み、双方向）</text>
+</svg>
+<figcaption>図 2. WARP の接続シーケンス（簡略）。紫の点が DTLS の readiness マイルストーン、オレンジが WebRTC の認証境界。early server data（図の 3 本目の矢印）は既定では無効。</figcaption>
+</figure>
+
+<h2 id="dtls">2. DTLS 1.3 コア（packages/dtls）</h2>
+
+<h3 id="readiness">2.1 3 段階の readiness</h3>
+<div class="box spec"><span class="tag">仕様</span>
+<p>RFC 9147 §5.8.1: 相手の Finished を受け取るまでは、epoch 3 以上の application data を破棄するかバッファしなければなりません。</p>
+<blockquote>Implementations MUST either discard or buffer all application data records for epoch 3 and above until they have received the Finished message from the peer.</blockquote>
+<p>RFC 9147 §5.8.1 の状態機械では、最終 flight の ACK を受け取ると FINISHED に遷移します。server は client の最終 flight を受け取った時点で FINISHED になり、その後も再送された最終 flight には ACK を再送しなければなりません（MUST）。</p>
+</div>
+<div class="box impl"><span class="tag">実装</span>
+<p>DTLS の進行を、一度だけ true になる 3 つのフラグで表します（<a class="ref" href="../packages/dtls/src/engine/v1_3/connection-base.ts" title="packages/dtls/src/engine/v1_3/connection-base.ts:96">dtls/src/engine/v1_3/connection-base.ts:96</a>）。</p>
+<table>
+<tr><th>マイルストーン</th><th>意味</th><th>server で立つ場所</th><th>client で立つ場所</th></tr>
+<tr><td><code>writeReady</code></td><td>epoch 3 で送信できる</td><td>自分の Finished 送信後 <a class="ref" href="../packages/dtls/src/engine/v1_3/flight/server/flight4.ts" title="packages/dtls/src/engine/v1_3/flight/server/flight4.ts:665">dtls/src/engine/v1_3/flight/server/flight4.ts:665</a></td><td>自分の Finished 送信後 <a class="ref" href="../packages/dtls/src/engine/v1_3/flight/client/flight5.ts" title="packages/dtls/src/engine/v1_3/flight/client/flight5.ts:130">dtls/src/engine/v1_3/flight/client/flight5.ts:130</a></td></tr>
+<tr><td><code>peerHandshakeAuthenticated</code></td><td>相手の Finished を検証した（暗号的な認証）</td><td><a class="ref" href="../packages/dtls/src/engine/v1_3/flight/server/flight5.ts" title="packages/dtls/src/engine/v1_3/flight/server/flight5.ts:48">dtls/src/engine/v1_3/flight/server/flight5.ts:48</a></td><td><a class="ref" href="../packages/dtls/src/engine/v1_3/flight/client/flight5.ts" title="packages/dtls/src/engine/v1_3/flight/client/flight5.ts:41">dtls/src/engine/v1_3/flight/client/flight5.ts:41</a></td></tr>
+<tr><td><code>handshakeComplete</code></td><td>最終 flight の ACK まで済んだ</td><td>client の最終 flight の全 record を ACK し終えた時点 <a class="ref" href="../packages/dtls/src/engine/v1_3/record-rx.ts" title="packages/dtls/src/engine/v1_3/record-rx.ts:363">dtls/src/engine/v1_3/record-rx.ts:363</a></td><td>自分の最終 flight が ACK された時点 <a class="ref" href="../packages/dtls/src/engine/v1_3/record-rx.ts" title="packages/dtls/src/engine/v1_3/record-rx.ts:786">dtls/src/engine/v1_3/record-rx.ts:786</a></td></tr>
+</table>
+</div>
+<figure>
+<svg viewBox="0 0 980 170" role="img" aria-label="readiness のタイムライン">
+  <line x1="40" y1="70" x2="940" y2="70" style="stroke: var(--line); stroke-width: 3"/>
+  <circle cx="140" cy="70" r="9" class="milestone"/><text x="140" y="44" font-size="13" text-anchor="middle" font-weight="700">writeReady</text>
+  <text x="140" y="100" font-size="12" text-anchor="middle" class="muted">送信できる</text>
+  <circle cx="380" cy="70" r="9" class="milestone"/><text x="380" y="44" font-size="13" text-anchor="middle" font-weight="700">peerHandshakeAuthenticated</text>
+  <text x="380" y="100" font-size="12" text-anchor="middle" class="muted">DTLS の暗号的な認証</text>
+  <rect x="520" y="56" width="150" height="28" rx="5" class="n-gate"/><text x="595" y="75" font-size="13" text-anchor="middle">fingerprint 照合</text>
+  <text x="595" y="100" font-size="12" text-anchor="middle" class="muted">WebRTC 層</text>
+  <circle cx="740" cy="70" r="9" class="ok"/><text x="740" y="44" font-size="13" text-anchor="middle" font-weight="700">connected</text>
+  <text x="740" y="100" font-size="12" text-anchor="middle" class="muted">start() が resolve</text>
+  <circle cx="890" cy="70" r="9" class="milestone"/><text x="890" y="44" font-size="13" text-anchor="middle" font-weight="700">handshakeComplete</text>
+  <text x="890" y="100" font-size="12" text-anchor="middle" class="muted">最終 ACK まで</text>
+  <text x="40" y="140" font-size="13">RTCDtlsTransport の <tspan font-weight="700">connected</tspan> は handshakeComplete（final ACK）を待たない。early server 送信中も公開 state は connecting のまま。</text>
+</svg>
+<figcaption>図 3. readiness の順序。<code>connected</code> は DTLS の認証と WebRTC の照合の両方が済んだ時点で、final ACK は待ちません。</figcaption>
+</figure>
+<div class="box own"><span class="tag">werift の判断</span>readiness を 3 段階に分けるのは werift の設計で、仕様にこの概念はありません。<code>peerHandshakeAuthenticated</code> は DTLS の暗号的な検証だけを表し、SDP の照合は含みません（3.1）。</div>
+
+<h3 id="half-rtt">2.2 server の 0.5-RTT application data</h3>
+<div class="box spec"><span class="tag">仕様</span>RFC 9147 §4.2.1: server は自分の Finished を送った後にデータを送り始めることがあり、受信側はそれをバッファしても破棄してもかまいません（MAY）。上位が SCTP のような信頼性のある transport ならバッファすべきです（SHOULD）。</div>
+<blockquote>For instance, the server may send its Finished message and then start transmitting data. Implementations MAY either buffer or discard such records, though when DTLS is used with a reliable transport (e.g., SCTP [RFC4960]), they SHOULD be buffered …</blockquote>
+<div class="box impl"><span class="tag">実装</span>server は Finished の送信後に epoch 3 の鍵を設定し、<code>writeReady</code> を立てます。0.5-RTT の送信を実際に許すかどうかは WebRTC 層が判断し、明示的に opt-in した server だけに限ります（3.4）。0-RTT（epoch 1）は実装していません。この文書の「early data」は TLS の early_data 拡張ではなく、接続確定前に届く epoch 3 のデータを指します。</div>
+
+<h3 id="early-buffer">2.3 early data の受信バッファ</h3>
+<div class="box impl"><span class="tag">実装</span>
+<p>接続確定前に届いた epoch 3 の record は、受信順を保つ上限付きキュー <a class="ref" href="../packages/dtls/src/engine/v1_3/early-data-buffer.ts" title="packages/dtls/src/engine/v1_3/early-data-buffer.ts:9">dtls/src/engine/v1_3/early-data-buffer.ts:9</a> に保持します。上限は 256 record / 256 KiB / 2 秒で、DTLS engine、WebRTC の受信 gate、early media バッファの 3 つが同じ定数 <a class="ref" href="../packages/dtls/src/engine/v1_3/types.ts" title="packages/dtls/src/engine/v1_3/types.ts:90">dtls/src/engine/v1_3/types.ts:90</a> を使います。</p>
+<ul>
+<li>上限を超えたら、古い record を残して新しく届いた record を捨てます（順序の途中を欠かさないため）。</li>
+<li>先頭の record が期限切れになったら、キュー全体を捨てます（<a class="ref" href="../packages/dtls/src/engine/v1_3/early-data-buffer.ts" title="packages/dtls/src/engine/v1_3/early-data-buffer.ts:106">dtls/src/engine/v1_3/early-data-buffer.ts:106</a>）。欠けた先頭の後ろだけを上位に見せないためです。</li>
+<li>期限はタイマーだけでなく、読み出し（<code>snapshot()</code> / <code>packets</code>）と追加・取り出しのたびに評価します。Node のタイマーは monotonic clock で動くため <code>Date.now()</code> より約 1 ms 早く発火することがあり、そのときは再武装します（<a class="ref" href="../packages/dtls/src/engine/v1_3/early-data-buffer.ts" title="packages/dtls/src/engine/v1_3/early-data-buffer.ts:124">dtls/src/engine/v1_3/early-data-buffer.ts:124</a>）。以前はこの早期発火で期限切れの data が残り続ける不具合がありました。</li>
+<li><code>EARLY_APP_DATA_UNLIMITED</code> が外すのは record / byte の上限だけで、2 秒の retention は残ります（<a class="ref" href="../packages/dtls/src/engine/v1_3/types.ts" title="packages/dtls/src/engine/v1_3/types.ts:108">dtls/src/engine/v1_3/types.ts:108</a>）。</li>
+</ul>
+</div>
+<div class="box own"><span class="tag">werift の判断</span>2 秒の retention と「先頭が期限切れなら全体を捨てる」方式は werift の判断です。overflow や期限切れは handshake を失敗させません（drop として統計に計上）。</div>
+<p>テスト: <a class="ref test" href="../packages/dtls/tests/handshake/tls13/early_data_buffer.test.ts" title="packages/dtls/tests/handshake/tls13/early_data_buffer.test.ts:5">early_data_buffer.test.ts</a>、<a class="ref test" href="../packages/dtls/tests/e2e/self13_early_server_appdata.test.ts" title="packages/dtls/tests/e2e/self13_early_server_appdata.test.ts:190">self13_early_server_appdata.test.ts</a></p>
+
+<h3 id="final-ack">2.4 最終 flight の ACK と server の完了判定</h3>
+<div class="box spec"><span class="tag">仕様</span>RFC 9147 §5.8.1: server は FINISHED 状態でも、再送された client の最終 flight に ACK を再送しなければなりません。§7.1: 受信した flight の record は ACK で確認します。</div>
+<blockquote>… when in the FINISHED state, the server MUST respond to retransmission of the client's final flight with a retransmit of its ACK.</blockquote>
+<div class="box impl"><span class="tag">実装</span>
+<p>server の <code>handshakeComplete</code> は「client の Finished を受け取り、最終 flight（相互認証なら Certificate・CertificateVerify・Finished）の全 record を含む ACK の送信に成功した」時点で立てます（<a class="ref" href="../packages/dtls/src/engine/v1_3/record-rx.ts" title="packages/dtls/src/engine/v1_3/record-rx.ts:363">dtls/src/engine/v1_3/record-rx.ts:363</a>）。</p>
+<ul>
+<li>受理した record は <a class="ref" href="../packages/dtls/src/engine/v1_3/connection-base.ts" title="packages/dtls/src/engine/v1_3/connection-base.ts:248">dtls/src/engine/v1_3/connection-base.ts:248</a> に記録し、その record を含む ACK の送信が成功したときだけ消します（<a class="ref" href="../packages/dtls/src/engine/v1_3/flight-tx.ts" title="packages/dtls/src/engine/v1_3/flight-tx.ts:788">dtls/src/engine/v1_3/flight-tx.ts:788</a>）。</li>
+<li><code>sendAck()</code> は送信前に ACK 対象を queue から取り出すため、送信が throw したら対象を queue に戻します（<a class="ref" href="../packages/dtls/src/engine/v1_3/flight-tx.ts" title="packages/dtls/src/engine/v1_3/flight-tx.ts:773">dtls/src/engine/v1_3/flight-tx.ts:773</a>）。</li>
+<li>完了判定は、通常の ACK の後だけでなく、replay / 重複 handshake への再 ACK が成功した後にも行います。最初の ACK の送信が（例えば Finished の処理中の世代変更で）失敗しても、再送への ACK で完了できます。</li>
+</ul>
+</div>
+<figure>
+<svg viewBox="0 0 980 250" role="img" aria-label="server の完了判定">
+  <rect x="20" y="20" width="250" height="210" rx="8" class="node"/>
+  <text x="145" y="44" font-size="14" font-weight="700" text-anchor="middle">client の最終 flight</text>
+  <rect x="45" y="60" width="200" height="36" rx="5" class="n-dtls"/><text x="145" y="83" font-size="13" text-anchor="middle">Certificate（rec 1）</text>
+  <rect x="45" y="106" width="200" height="36" rx="5" class="n-dtls"/><text x="145" y="129" font-size="13" text-anchor="middle">CertificateVerify（rec 2）</text>
+  <rect x="45" y="152" width="200" height="36" rx="5" class="n-dtls"/><text x="145" y="175" font-size="13" text-anchor="middle">Finished（rec 3）</text>
+  <line x1="270" y1="125" x2="345" y2="125" class="arrow"/>
+  <rect x="350" y="70" width="270" height="110" rx="8" class="node"/>
+  <text x="485" y="94" font-size="14" font-weight="700" text-anchor="middle">unackedHandshakeRecords</text>
+  <text x="485" y="118" font-size="13" text-anchor="middle">受理で追加: {1, 2, 3}</text>
+  <text x="485" y="140" font-size="13" text-anchor="middle">ACK 送信「成功」でだけ削除</text>
+  <text x="485" y="162" font-size="12" text-anchor="middle" class="muted">失敗・送信中の ACK の record は残る</text>
+  <line x1="620" y1="125" x2="690" y2="125" class="arrow"/>
+  <rect x="695" y="60" width="265" height="130" rx="8" class="n-dtls"/>
+  <text x="827" y="84" font-size="14" font-weight="700" text-anchor="middle">server handshakeComplete</text>
+  <text x="827" y="108" font-size="13" text-anchor="middle">Finished 受信済み</text>
+  <text x="827" y="128" font-size="13" text-anchor="middle">かつ ACK queue が空</text>
+  <text x="827" y="148" font-size="13" text-anchor="middle">かつ未 ACK の集合が空</text>
+  <text x="827" y="174" font-size="12" text-anchor="middle" class="muted">→ rec 3 の ACK が送れるまで完了しない</text>
+</svg>
+<figcaption>図 4. server の完了判定。以前は「ACK queue が空」だけを見ていたため、rec 1 の再 ACK が成功しただけで、Finished の ACK を一度も送れていないのに完了を通知することがありました。</figcaption>
+</figure>
+<p>テスト: <a class="ref test" href="../packages/dtls/tests/e2e/self13_final_ack_retry.test.ts" title="packages/dtls/tests/e2e/self13_final_ack_retry.test.ts:9">最終 ACK の再送で完了</a>、<a class="ref test" href="../packages/dtls/tests/e2e/self13_final_ack_retry.test.ts" title="packages/dtls/tests/e2e/self13_final_ack_retry.test.ts:69">相互認証で Finished の ACK 失敗中は完了しない</a></p>
+
+<h3 id="latch">2.5 readiness の latch 契約（DTLS 1.2 / 1.3 共通）</h3>
+<div class="box impl"><span class="tag">実装</span>
+<p>各マイルストーンは association で一度だけ true になり、close・失敗・renegotiation でも false に戻りません。終了は <code>onClose</code> / <code>onError</code> で通知します（<a class="ref" href="../packages/dtls/src/socket.ts" title="packages/dtls/src/socket.ts:146">dtls/src/socket.ts:146</a>）。</p>
+<ul>
+<li>DTLS 1.2 には段階がないため、最初の <code>connected</code> で 3 つ同時に latch します（<a class="ref" href="../packages/dtls/src/socket.ts" title="packages/dtls/src/socket.ts:72">dtls/src/socket.ts:72</a>）。</li>
+<li>到達済みのマイルストーンを待つ waiter は、close 後でも即座に resolve します。終了状態より先に到達済みかを判定します（<a class="ref" href="../packages/dtls/src/socket.ts" title="packages/dtls/src/socket.ts:275">dtls/src/socket.ts:275</a>）。DTLS 1.3 を含む設定（dual 構成で 1.2 に決まった場合も含む）と 1.2-only の挙動をそろえています。</li>
+</ul>
+</div>
+<p>テスト: <a class="ref test" href="../packages/dtls/tests/e2e/self_readiness_latch.test.ts" title="packages/dtls/tests/e2e/self_readiness_latch.test.ts:33">self_readiness_latch.test.ts</a>（DTLS 1.3 / dual client → 1.2 server / DTLS 1.2）</p>
+
+<h3 id="rxgen">2.6 受信世代（rxGeneration）による ICE restart の隔離</h3>
+<div class="box own"><span class="tag">werift の判断</span>受信世代は werift 独自の仕組みです。近い根拠は RFC 9147 §4.5.2（無効な record は黙って捨てる）と draft §9.1（埋め込まれた DTLS は ICE の認証で保護され、再送の重複は replay として扱う）です。</div>
+<div class="box impl"><span class="tag">実装</span>
+<p>datagram を受け取った時点の ICE generation を DTLS の受信キューまで運び、処理する時点で世代が変わっていたら捨てます（<a class="ref" href="../packages/dtls/src/engine/v1_3/host.ts" title="packages/dtls/src/engine/v1_3/host.ts:15">dtls/src/engine/v1_3/host.ts:15</a>）。restart 後に旧世代の SPED inject が新しい association を動かさないためです。</p>
+<p>このフィルタを設定するのは SPED transport だけです（<a class="ref" href="../packages/webrtc/src/transport/dtls.ts" title="packages/webrtc/src/transport/dtls.ts:941">webrtc/src/transport/dtls.ts:941</a>）。SPED でない経路では restart をまたいでも同じ DTLS association の datagram なので、`warp` と同じく遮断しません（6 章）。</p>
+</div>
+
+<h3 id="exporter">2.7 SRTP 鍵の exporter</h3>
+<div class="box spec"><span class="tag">仕様</span>RFC 5764 §4.2: label <code>"EXTRACTOR-dtls_srtp"</code>、空の context で鍵素材を導出し、client_write_key / server_write_key / client_write_salt / server_write_salt の順に切り出します。</div>
+<div class="box impl"><span class="tag">実装</span><code>waitForWriteReady</code> の時点で SRTP profile を反映するので、server は 0.5-RTT の段階で SRTP 鍵を導出できます。鍵を実際に使ってよいかは WebRTC 層が判断します（3.3）。DTLS client の送信鍵 = server の受信鍵であることは、両方向の RTP / RTCP の E2E で確認しています。</div>
+
+<h2 id="webrtc">3. WebRTC の認証境界（packages/webrtc）</h2>
+
+<h3 id="fingerprint">3.1 SDP fingerprint の照合を認証の境界にする</h3>
+<div class="box spec"><span class="tag">仕様</span>RFC 8122 §5 <span class="unverified">未照合</span>: <code>a=fingerprint</code> は証明書のハッシュで、受け取った証明書と一致しなければ接続を拒否します。RFC 8827 §6.5 <span class="unverified">未照合</span>: WebRTC の機密性は、DTLS 証明書が SDP の fingerprint に束縛されていることに依存します。</div>
+<div class="box impl"><span class="tag">実装</span>
+<p>DTLS 層の <code>peerHandshakeAuthenticated</code> を待ってから、<a class="ref" href="../packages/webrtc/src/transport/dtls-fingerprint.ts" title="packages/webrtc/src/transport/dtls-fingerprint.ts:46">webrtc/src/transport/dtls-fingerprint.ts:46</a> で照合します（未対応のアルゴリズムは捨て、残りの中で最も強いものだけを比較）。</p>
+<ul>
+<li><strong>成功</strong>: <code>peerAuthenticated</code> を立て（<a class="ref" href="../packages/webrtc/src/transport/dtls.ts" title="packages/webrtc/src/transport/dtls.ts:549">webrtc/src/transport/dtls.ts:549</a>）、SRTP 鍵を設定して保持していた media を復号し、受信 gate を開いて保持していたデータを配送し、最後に <code>connected</code> にします。</li>
+<li><strong>不一致</strong>: <a class="ref" href="../packages/webrtc/src/transport/dtls.ts" title="packages/webrtc/src/transport/dtls.ts:265">webrtc/src/transport/dtls.ts:265</a> が gate とキューを破棄し、SPED を中止し、DTLS engine を close して <code>failed</code> にします。</li>
+<li>送信側の境界: 認証前の <code>sendData</code> は、early server の送信許可がない限り <code>SCTPSendPermissionRevokedError</code> を投げます（<a class="ref" href="../packages/webrtc/src/transport/dtls.ts" title="packages/webrtc/src/transport/dtls.ts:1237">webrtc/src/transport/dtls.ts:1237</a>）。</li>
+</ul>
+</div>
+<p>テスト: <a class="ref test" href="../packages/webrtc/tests/integrate/sped.test.ts" title="packages/webrtc/tests/integrate/sped.test.ts:1692">fingerprint 不一致で SCTP / RTP / RTCP を一件も配送しない</a>（実 PeerConnection で、early に送られた DataChannel / RTP / RTCP が 0 件、SPED 中止、engine close、<code>failed</code> を確認）</p>
+
+<h3 id="gate">3.2 受信 gate と公開 state</h3>
+<figure>
+<svg viewBox="0 0 980 220" role="img" aria-label="受信 gate の流れ">
+  <rect x="20" y="80" width="170" height="60" rx="8" class="n-dtls"/>
+  <text x="105" y="105" font-size="14" text-anchor="middle" font-weight="700">DTLS onData</text>
+  <text x="105" y="125" font-size="12" text-anchor="middle" class="muted">epoch 3 のデータ</text>
+  <line x1="190" y1="110" x2="265" y2="110" class="arrow"/>
+  <rect x="270" y="60" width="230" height="100" rx="8" class="n-gate"/>
+  <text x="385" y="86" font-size="14" text-anchor="middle" font-weight="700">InboundApplicationGate</text>
+  <text x="385" y="108" font-size="12" text-anchor="middle">認証前: バッファ（256 / 256 KiB / 2 s）</text>
+  <text x="385" y="128" font-size="12" text-anchor="middle">認証後: 1 件ずつ配送</text>
+  <text x="385" y="146" font-size="12" text-anchor="middle" class="muted">配送ごとに attempt と state を再確認</text>
+  <line x1="500" y1="90" x2="640" y2="60" class="arrow sctp"/>
+  <text x="572" y="62" font-size="12" text-anchor="middle">fingerprint 一致</text>
+  <rect x="645" y="30" width="315" height="50" rx="8" class="n-sctp"/>
+  <text x="802" y="60" font-size="13" text-anchor="middle">SCTP へ受信順に drain → connected</text>
+  <line x1="500" y1="130" x2="640" y2="160" class="arrow bad"/>
+  <text x="572" y="168" font-size="12" text-anchor="middle">不一致・close</text>
+  <rect x="645" y="140" width="315" height="50" rx="8" class="node"/>
+  <text x="802" y="170" font-size="13" text-anchor="middle">abort: 一件も配送せず破棄 → failed</text>
+  <text x="385" y="205" font-size="12" text-anchor="middle" class="muted">ICE restart（世代変更）: 旧 queue と timer を破棄して作り直す</text>
+</svg>
+<figcaption>図 5. 受信 application data の gate。media（SRTP）も同じ規則のバッファを使い、受信の許可は「鍵がある かつ peerAuthenticated」のときだけ。</figcaption>
+</figure>
+<div class="box impl"><span class="tag">実装</span><a class="ref" href="../packages/webrtc/src/transport/dtls-application-gate.ts" title="packages/webrtc/src/transport/dtls-application-gate.ts:4">webrtc/src/transport/dtls-application-gate.ts:4</a>。SPED の abort・fallback・同一世代の reset では <code>discardPending()</code> で認証前の保留分だけを捨て、世代の切り替えは <code>restartForNewAttempt()</code> で行います。</div>
+<div class="box spec"><span class="tag">仕様</span>W3C <code>RTCDtlsTransportState</code> <span class="unverified">未照合</span>: <code>connected</code> は「ネゴシエーションが完了し、リモートの fingerprint も検証済み」。</div>
+<div class="box own"><span class="tag">werift の判断</span><code>connected</code> は final ACK を待たずに出し、early server 送信中も公開 state は <code>connecting</code> のままにします。</div>
+
+<h3 id="srtp">3.3 方向別の SRTP 有効化と replay 対策</h3>
+<div class="box spec"><span class="tag">仕様</span>RFC 5764 §4.2: 鍵は方向ごとに使い分けます。§5.1:</div>
+<blockquote>Within each RTP session, SRTP processing MUST NOT take place before the DTLS handshake completes.</blockquote>
+<div class="box impl"><span class="tag">実装</span>
+<p>鍵の設定と送受信の許可を分けています（<a class="ref" href="../packages/webrtc/src/transport/dtls.ts" title="packages/webrtc/src/transport/dtls.ts:1080">webrtc/src/transport/dtls.ts:1080</a>）。</p>
+<table>
+<tr><th>方向</th><th>許可する条件</th></tr>
+<tr><td>受信（復号して上位へ）</td><td>鍵がある かつ <code>peerAuthenticated</code></td></tr>
+<tr><td>送信</td><td>鍵がある かつ（<code>peerAuthenticated</code> または early server の送信許可）</td></tr>
+</table>
+<p>認証前に届いた media は暗号化されたまま保持し（<code>earlyMediaPolicy: "drop"</code> が既定で容量 0）、認証後に復号します。</p>
+</div>
+<div class="box spec"><span class="tag">仕様</span>RFC 3711 §3.3.2 <span class="unverified">未照合</span>: 受信側は replay list（sliding window）で、すでに受け取った index や window より古い index の packet を拒否します。</div>
+<div class="box impl"><span class="tag">実装</span>
+<p>これまで werift の SRTP / SRTCP には replay 対策がありませんでした。<a class="ref" href="../packages/rtp/src/srtp/replay.ts" title="packages/rtp/src/srtp/replay.ts:8">rtp/src/srtp/replay.ts:8</a>（window 64）を受信 context に追加しました。</p>
+<ul>
+<li>SRTP の index は ROC × 2<sup>16</sup> + SEQ、SRTCP は packet 末尾の 31 bit index です。</li>
+<li>check は復号前、accept（window への記録）は認証成功後だけです。改ざん packet では window は進みません。</li>
+<li>新しい SSRC の window も認証成功後にだけ作ります（<a class="ref" href="../packages/rtp/src/srtp/context/srtp.ts" title="packages/rtp/src/srtp/context/srtp.ts:43">rtp/src/srtp/context/srtp.ts:43</a>）。未知の SSRC の偽造 packet を大量に送られても、受信側の状態は増えません。</li>
+<li>replay は <code>SrtpAuthenticationError</code> のサブクラスとして投げるので、WebRTC の既存の破棄経路でそのまま捨てられます。</li>
+</ul>
+</div>
+<p>テスト: <a class="ref test" href="../packages/rtp/tests/srtp/replay.test.ts" title="packages/rtp/tests/srtp/replay.test.ts:9">replay.test.ts</a>（AES-CM / AES-GCM、replay・rollover・改ざん・未知 SSRC の偽造・SRTCP）</p>
+<div class="box dev"><span class="tag">逸脱</span>受信の復号は final ACK を待たず「相手を認証できた時点」で始めます（§5.1 の「handshake completes」を相手の認証完了と解釈）。opt-in した server だけは相手の認証前に SRTP を送ります。これは §5.1 から外れる実験的な拡張で、既定では無効です。</div>
+
+<h3 id="early-server">3.4 early server data の opt-in と設定の検証</h3>
+<div class="box impl"><span class="tag">実装</span>
+<p>0.5-RTT で送ってよいかの判定は <a class="ref" href="../packages/webrtc/src/transport/dtls.ts" title="packages/webrtc/src/transport/dtls.ts:344">webrtc/src/transport/dtls.ts:344</a> の 1 か所だけで、次のすべてを満たすときに限ります: SPED transport、DTLS role が server、<code>warp.allowEarlyServerData</code> を opt-in、fallback していない、<code>writeReady</code>、DTLS 1.3、現在の attempt。</p>
+<p>不正な組み合わせ（SPED なしの <code>allowEarlyServerData</code>、DTLS 1.3 を含まない SPED、SPED と <code>helloRetryRequest</code>）は、constructor と <code>setConfiguration()</code> で同期的に throw し、設定は変更しません（<a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:2214">webrtc/src/peerConnection.ts:2214</a>）。以前は <code>connect()</code> の中で失敗するだけで、呼び出し側にエラーが返りませんでした。</p>
+</div>
+
+<h3 id="demux">3.5 先頭バイトによる多重分離（RFC 7983 §7 / RFC 9443 §3）</h3>
+<div class="box spec"><span class="tag">仕様</span>RFC 9443 §3（RFC 7983 §7 を更新）: 先頭バイトが 0–3 は STUN、20–63 は DTLS、64–79 は TURN Channel、128–191 は RTP / RTCP。どれにも当てはまらないものは破棄します。</div>
+<div class="box impl"><span class="tag">実装</span>DTLS の判定は <a class="ref" href="../packages/webrtc/src/utils.ts" title="packages/webrtc/src/utils.ts:52">webrtc/src/utils.ts:52</a>、RTP / RTCP の判定は <a class="ref" href="../packages/rtp/src/helper.ts" title="packages/rtp/src/helper.ts:31">rtp/src/helper.ts:31</a>。DTLS を受け取る carrier は、振り分けに加えて「認証済みの pair・現在の世代・送信元 5-tuple の一致」も確認します（<a class="ref" href="../packages/ice/src/internal/datagram.ts" title="packages/ice/src/internal/datagram.ts:59">ice/src/internal/datagram.ts:59</a>）。</div>
+
+<h2 id="ice">4. ICE / SPED（packages/ice）</h2>
+
+<h3 id="sped-attrs">4.1 SPED の STUN 属性（DATA / ACK）</h3>
+<div class="box spec"><span class="tag">仕様</span>draft-hancke-webrtc-sped-00 §3.3.2.1: DTLS-IN-STUN-DATA は DTLS の handshake packet を 1 つ運ぶか、空の値で SPED 対応を示します。空の値を DTLS 層に渡してはいけません（MUST NOT）。先頭バイトが RFC 9443 §3 の DTLS 範囲外なら黙って捨てるべきです（SHOULD）。§3.3.2.2: DTLS-IN-STUN-ACK は受け取った DATA の CRC-32 のリストです。</div>
+<div class="box impl"><span class="tag">実装</span>属性のコードポイントは draft で TBD のため <code>0xC070</code> / <code>0xC071</code> を使っています（<a class="ref" href="../packages/ice/src/sped/draft00/constants.ts" title="packages/ice/src/sped/draft00/constants.ts:6">ice/src/sped/draft00/constants.ts:6</a>）。DTLS の flight（L1）から 1 packet を round-robin で選んで DATA に入れ、MESSAGE-INTEGRITY より前に挿入します。</div>
+
+<h3 id="sped-detect">4.2 相手の SPED 対応の判定と fallback</h3>
+<div class="box spec"><span class="tag">仕様</span>draft §4.3 step 1:</div>
+<blockquote>If this is the first authenticated STUN message received from the peer, and the DTLS-IN-STUN-DATA attribute is not present, conclude that the peer does not support SPED, and conclude SPED processing.</blockquote>
+<div class="box impl"><span class="tag">実装</span>
+<p>判定は世代ごとに 1 回です（<a class="ref" href="../packages/ice/src/sped/draft00/session.ts" title="packages/ice/src/sped/draft00/session.ts:163">ice/src/sped/draft00/session.ts:163</a>）。非対応なら、L1 の最初の bytes をそのまま通常の DTLS として送ります（同じ ClientHello flight で direct fallback）。DTLS を開始する前に届いた認証済みの Binding には空の DATA だけを返し、相手が「非対応」と誤判定しないようにしています。</p>
+<p>外部に見せる状態（<code>disabled</code> / <code>probing</code> / <code>active</code> / <code>fallback</code>）と carrier（<code>sped</code> / <code>direct</code>）は <a class="ref" href="../packages/ice/src/sped/runtime.ts" title="packages/ice/src/sped/runtime.ts:167">ice/src/sped/runtime.ts:167</a> で、stats の <code>warpSpedState</code> / <code>warpCarrier</code> になります（<a class="ref" href="../packages/webrtc/src/transport/dtls-stats.ts" title="packages/webrtc/src/transport/dtls-stats.ts:120">webrtc/src/transport/dtls-stats.ts:120</a>）。</p>
+</div>
+<div class="box dev"><span class="tag">逸脱</span>SPED は DTLS 1.3 に限っています（draft §3.2 は DTLS 1.2 以上を目標）。dual 構成で 1.2 に決まった場合は direct DTLS に確定し、WARP の early semantics を 1.2 に持ち込みません。relay の pair・未確定の prflx・古い世代の ufrag への応答には DATA を付けません（§3.3.2.1 の「active の間はすべての Binding に DATA」からの逸脱）。</div>
+
+<h3 id="direct">4.3 direct carrier と再送モード</h3>
+<div class="box spec"><span class="tag">仕様</span>draft §4.4: 有効な pair ができたら DTLS を直接送ってもかまいません（MAY）。§6: SPED の間は DTLS 内部のタイムアウトを止め、最初の Binding Response で再開することを推奨します。</div>
+<div class="box impl"><span class="tag">実装</span>runtime を作った時点で DTLS の再送を ICE 側に任せる <code>external</code> モードにし、送信元が対称な認証済み Response を受け取ったら <code>internal</code> に戻して直接送信を許します。direct に切り替えても状態は <code>active</code> のままで、<code>carrier</code> が <code>direct</code> になります。</div>
+
+<h3 id="restart">4.4 ICE restart と、以前に選択されていた pair</h3>
+<div class="box spec"><span class="tag">仕様</span>RFC 8445 §9: restart では ufrag とパスワードを両方変えなければなりません（MUST）。restart の間も既存の data session でデータを送り続けてかまいません。</div>
+<blockquote>… data can continue to be sent using existing data sessions, and a new …</blockquote>
+<div class="box impl"><span class="tag">実装</span>
+<p><a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:234">ice/src/ice.ts:234</a> は generation を進め、ufrag とパスワードを作り直し、SPED をリセットします。以前に選択されていた pair は退避し、相手が新しい pair に移るまでは、そこから届いた datagram に <code>fromPreviousSelectedPair</code> の印を付けます（<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:497">ice/src/ice.ts:497</a>）。</p>
+<ul>
+<li>media（RTP / RTCP）はこの経路も受け付けます。</li>
+<li>SPED でない DTLS も、この経路から受け付けます（<a class="ref" href="../packages/webrtc/src/transport/dtls-ice-transport.ts" title="packages/webrtc/src/transport/dtls-ice-transport.ts:30">webrtc/src/transport/dtls-ice-transport.ts:30</a>）。handshake 中に restart すると、相手の最終 flight は旧 pair で届くためです。SPED の carrier は従来どおり現在の世代だけを受け付けます。</li>
+</ul>
+</div>
+<figure>
+<svg viewBox="0 0 980 200" role="img" aria-label="ICE restart と世代">
+  <rect x="20" y="30" width="430" height="140" rx="8" class="n-ice"/>
+  <text x="235" y="54" font-size="14" font-weight="700" text-anchor="middle">generation N（restart 前）</text>
+  <text x="235" y="80" font-size="13" text-anchor="middle">selected pair A（認証済み）</text>
+  <text x="235" y="104" font-size="12" text-anchor="middle" class="muted">restart 後は「以前の選択 pair」として保持</text>
+  <text x="235" y="128" font-size="12" text-anchor="middle">media: 受理 ／ 非 SPED DTLS: 受理</text>
+  <text x="235" y="150" font-size="12" text-anchor="middle">SPED inject・旧世代の DTLS 1.3 queue: 破棄</text>
+  <line x1="450" y1="100" x2="525" y2="100" class="arrow"/>
+  <rect x="530" y="30" width="430" height="140" rx="8" class="n-ice"/>
+  <text x="745" y="54" font-size="14" font-weight="700" text-anchor="middle">generation N+1（restart 後）</text>
+  <text x="745" y="80" font-size="13" text-anchor="middle">新しい ufrag / パスワード、新しい pair B（別ポート）</text>
+  <text x="745" y="104" font-size="12" text-anchor="middle" class="muted">相手が B で送り始めたら A を解放</text>
+  <text x="745" y="128" font-size="12" text-anchor="middle">DTLS / SCTP の association は維持</text>
+  <text x="745" y="150" font-size="12" text-anchor="middle">stats.iceGeneration = N+1</text>
+</svg>
+<figcaption>図 6. ICE restart をまたぐ扱い。association は作り直さず、経路だけが変わる。</figcaption>
+</figure>
+<p>テスト: <a class="ref test" href="../packages/webrtc/tests/integrate/transportFaultMatrix.test.ts" title="packages/webrtc/tests/integrate/transportFaultMatrix.test.ts:117">新しい selected pair へ移り、同じ SCTP association を維持する</a>（sped:false / SPED）</p>
+
+<h2 id="sctp">5. SCTP / DataChannel</h2>
+
+<h3 id="sctp-role">5.1 SCTP の役割と stream id の偶奇</h3>
+<div class="box spec"><span class="tag">仕様</span>RFC 8831 §6.1: SCTP は RFC 8261 の DTLS カプセル化で運びます。§6.5:</div>
+<blockquote>… the streams are picked based on the DTLS role (the client picks even stream identifiers, and the server picks odd stream identifiers).</blockquote>
+<p>どちらの側が INIT を送るかは、どの RFC も定めていません。</p>
+<figure>
+<svg viewBox="0 0 980 210" role="img" aria-label="DTLS role と SCTP の役割">
+  <rect x="20" y="20" width="440" height="170" rx="8" class="n-sctp"/>
+  <text x="240" y="46" font-size="15" font-weight="700" text-anchor="middle">DTLS server（JSEP の setup に依らない）</text>
+  <text x="240" y="76" font-size="13" text-anchor="middle">SCTP の開始側: INIT を送る</text>
+  <text x="240" y="100" font-size="13" text-anchor="middle">opt-in 時は writeReady 後に early INIT</text>
+  <text x="240" y="124" font-size="13" text-anchor="middle">DataChannel の stream id: 奇数（1, 3, 5…）</text>
+  <text x="240" y="160" font-size="12" text-anchor="middle" class="muted">early start は「取消し対象」になり得る（5.2）</text>
+  <rect x="520" y="20" width="440" height="170" rx="8" class="n-sctp"/>
+  <text x="740" y="46" font-size="15" font-weight="700" text-anchor="middle">DTLS client</text>
+  <text x="740" y="76" font-size="13" text-anchor="middle">SCTP の応答側（passive）</text>
+  <text x="740" y="100" font-size="13" text-anchor="middle">認証前に待受け状態にしておく</text>
+  <text x="740" y="124" font-size="13" text-anchor="middle">DataChannel の stream id: 偶数（0, 2, 4…）</text>
+  <text x="740" y="160" font-size="12" text-anchor="middle" class="muted">passive は取消し対象にしない（cookie 鍵を守る）</text>
+</svg>
+<figcaption>図 7. SCTP の役割は ICE role ではなく DTLS role で決まる。</figcaption>
+</figure>
+<div class="box impl"><span class="tag">実装</span><a class="ref" href="../packages/webrtc/src/transport/sctp.ts" title="packages/webrtc/src/transport/sctp.ts:506">webrtc/src/transport/sctp.ts:506</a> — DTLS server が INIT を送り、DTLS client が応答します。DTLS client は、early server の INIT が届いたときに偶奇が未確定にならないよう、相手の認証前に passive 側を待受け状態にします（<a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1219">webrtc/src/peerConnection.ts:1219</a>）。</div>
+<div class="box own"><span class="tag">werift の判断</span>DTLS server を INIT の送り手にするのは、early server data を JSEP のどちらの役割の組み合わせでも成り立たせるための方針です。</div>
+<p>テスト: <a class="ref test" href="../packages/webrtc/tests/integrate/sped.test.ts" title="packages/webrtc/tests/integrate/sped.test.ts:2565">DTLS role の parity で双方向に通る（client / server）</a></p>
+
+<h3 id="sctp-cancel">5.2 開始の確定点と、early start の取消し規則</h3>
+<div class="box spec"><span class="tag">仕様</span>RFC 9260 §5.1 <span class="unverified">未照合</span>: INIT → INIT ACK（State Cookie）→ COOKIE ECHO → COOKIE ACK の 4-way handshake と T1 再送。RFC が定める association の放棄は ABORT と T1 の再送上限超過だけで、「開始の取消し」は werift が定義した境界です。</div>
+<div class="box impl"><span class="tag">実装</span>
+<p><strong>確定点</strong>: 相手が association の状態を持ちうる時点で開始を確定とします。開始側は COOKIE ECHO、応答側は COOKIE ACK を送信処理に渡した時点です（<a class="ref" href="../packages/sctp/src/sctp.ts" title="packages/sctp/src/sctp.ts:285">sctp/src/sctp.ts:285</a>）。確定後は取り消しません。</p>
+<p><strong>取消し規則</strong>: SPED の reset・ICE restart・early 送信許可の取消しで届く通知に対し、<a class="ref" href="../packages/webrtc/src/transport/sctp.ts" title="packages/webrtc/src/transport/sctp.ts:136">webrtc/src/transport/sctp.ts:136</a> は次の判定で取り消すかどうかを決めます。</p>
+</div>
+<figure>
+<svg viewBox="0 0 980 300" role="img" aria-label="early start の取消し判定">
+  <rect x="20" y="20" width="200" height="56" rx="8" class="node"/>
+  <text x="120" y="44" font-size="13" text-anchor="middle" font-weight="700">取消し通知</text>
+  <text x="120" y="63" font-size="12" text-anchor="middle" class="muted">SPED reset / restart / revoke</text>
+  <line x1="220" y1="48" x2="265" y2="48" class="arrow"/>
+  <rect x="270" y="20" width="200" height="56" rx="8" class="n-gate"/>
+  <text x="370" y="44" font-size="13" text-anchor="middle">DTLS 認証前に</text>
+  <text x="370" y="62" font-size="13" text-anchor="middle">開始した association?</text>
+  <line x1="470" y1="48" x2="515" y2="48" class="arrow"/><text x="492" y="40" font-size="11" text-anchor="middle">yes</text>
+  <rect x="520" y="20" width="200" height="56" rx="8" class="n-gate"/>
+  <text x="620" y="44" font-size="13" text-anchor="middle">DTLS server</text>
+  <text x="620" y="62" font-size="13" text-anchor="middle">（INIT の送り手）?</text>
+  <line x1="720" y1="48" x2="765" y2="48" class="arrow"/><text x="742" y="40" font-size="11" text-anchor="middle">yes</text>
+  <rect x="770" y="20" width="190" height="56" rx="8" class="n-gate"/>
+  <text x="865" y="44" font-size="13" text-anchor="middle">まだ DTLS が</text>
+  <text x="865" y="62" font-size="13" text-anchor="middle">connected でない?</text>
+  <line x1="865" y1="76" x2="865" y2="135" class="arrow"/><text x="878" y="108" font-size="11">yes</text>
+  <rect x="740" y="140" width="220" height="56" rx="8" class="n-sctp"/>
+  <text x="850" y="164" font-size="13" text-anchor="middle">cancelStart()</text>
+  <text x="850" y="182" font-size="12" text-anchor="middle" class="muted">確定済みなら拒否される</text>
+  <line x1="370" y1="76" x2="370" y2="220" class="arrow"/><text x="383" y="108" font-size="11">no</text>
+  <line x1="620" y1="76" x2="520" y2="222" class="arrow"/><text x="582" y="108" font-size="11">no</text>
+  <line x1="770" y1="62" x2="560" y2="225" class="arrow"/><text x="690" y="108" font-size="11">no</text>
+  <line x1="740" y1="180" x2="575" y2="238" class="arrow"/><text x="680" y="222" font-size="11">拒否</text>
+  <rect x="270" y="225" width="300" height="60" rx="8" class="n-sctp"/>
+  <text x="420" y="250" font-size="13" text-anchor="middle" font-weight="700">取り消さない（association を維持）</text>
+  <text x="420" y="270" font-size="12" text-anchor="middle" class="muted">保留中の INIT / COOKIE_ECHO を即時再送</text>
+</svg>
+<figcaption>図 8. early start の取消し判定。3 つの条件をすべて満たす「認証前の early attempt そのもの」だけを取り消す。</figcaption>
+</figure>
+<p>この規則にたどり着くまでに、レビューで次の回帰が見つかり修正しました。</p>
+<ul>
+<li><strong>認証後に始めた通常の SCTP 開始</strong>まで、SPED の reset で取り消されていた（<code>connecting → failed → connecting</code>）。→ 条件 1。</li>
+<li><strong>DTLS client の passive association</strong> が取り消され、作り直された association では送信済み INIT_ACK の cookie 鍵が失われ、相手の COOKIE_ECHO を検証できず接続が完了しなかった。→ 条件 2。</li>
+<li><strong>認証前に始めて、認証後も COOKIE_WAIT が続いた early start</strong> が、その後の restart で取り消された。→ 条件 3。</li>
+</ul>
+<p>テスト: <a class="ref test" href="../packages/webrtc/tests/transport/sctp.test.ts" title="packages/webrtc/tests/transport/sctp.test.ts:126">sctp.test.ts（認証前後の取消し）</a>、<a class="ref test" href="../packages/webrtc/tests/integrate/warpLifecycle.test.ts" title="packages/webrtc/tests/integrate/warpLifecycle.test.ts:120">warpLifecycle.test.ts（確定後は作り直さない）</a></p>
+
+<h3 id="sctp-loss">5.3 送信失敗は損失として扱う</h3>
+<div class="box impl"><span class="tag">実装</span>
+<p>SCTP の送信失敗（INIT / INIT_ACK の送信、T1 再送、即時再送）で開始を取り消すのは、transport が <a class="ref" href="../packages/sctp/src/sctp.ts" title="packages/sctp/src/sctp.ts:112">sctp/src/sctp.ts:112</a> を投げた場合だけです（<a class="ref" href="../packages/sctp/src/sctp.ts" title="packages/sctp/src/sctp.ts:1574">sctp/src/sctp.ts:1574</a>）。それ以外の失敗は損失として T1 の再送に任せます（`warp` と同じ）。</p>
+<p>この error を投げるのは、SPED の early 送信経路（許可の取消し・世代の変更・期限切れ）と、DTLS の未認証送信の拒否だけです。認証後の送信は SPED の <code>applicationReady</code> 経路を通り、失敗してもログに出すだけで SCTP には伝わらないため、認証後の association がこの error で取り消される経路はありません。</p>
+</div>
+
+<h2 id="default-path">6. 既定経路（sped:false）と SPED の非回帰</h2>
+<p>SPED / early 用に入れた中断処理（cancel・revoke・discard・attempt の付け替え）が、本来対象外の経路に効いてしまう回帰が、深いレビューのたびに見つかりました。そこで、SCTP の開始中に障害を注入し、ICE restart を重ねる 88 通りのマトリクスを常設テストにしました（4 構成 × DTLS role 2 通り × 11 シナリオ）。</p>
+<table>
+<tr><th>軸</th><th>値</th></tr>
+<tr><td>構成</td><td>sped:false（DTLS 既定）、sped:false（DTLS 1.3）、SPED early=off、SPED early=on</td></tr>
+<tr><td>restart のタイミング</td><td>なし、DTLS 接続中、SCTP COOKIE_WAIT 中（INIT 送信時）、SCTP COOKIE_ECHOED 中（COOKIE_ECHO 送信時）</td></tr>
+<tr><td>障害</td><td>なし、INIT_ACK / COOKIE_ACK の喪失、INIT / INIT_ACK / COOKIE_ECHO の送信失敗</td></tr>
+<tr><td>合格条件</td><td>一度も <code>failed</code> にならず、DataChannel が双方向に届き、両側が最終的に <code>connected</code></td></tr>
+</table>
+<figure>
+<svg viewBox="0 0 980 300" role="img" aria-label="障害注入マトリクスの成功数">
+  <text x="20" y="28" font-size="14" font-weight="700">成功数（各構成群 44 件中）</text>
+  <g transform="translate(0,50)">
+    <text x="20" y="22" font-size="13" font-weight="700">sped:false</text>
+    <text x="20" y="40" font-size="12" class="muted">（既定 / 1.3）</text>
+    <rect x="180" y="0" width="618" height="16" class="bar-warp"/><text x="806" y="13" font-size="12">warp 40</text>
+    <rect x="180" y="22" width="309" height="16" class="bar-before"/><text x="497" y="35" font-size="12">修正前 20</text>
+    <rect x="180" y="44" width="680" height="16" class="bar-after"/><text x="868" y="57" font-size="12">修正後 44</text>
+  </g>
+  <g transform="translate(0,170)">
+    <text x="20" y="22" font-size="13" font-weight="700">SPED</text>
+    <text x="20" y="40" font-size="12" class="muted">（early off / on）</text>
+    <rect x="180" y="0" width="247" height="16" class="bar-warp"/><text x="435" y="13" font-size="12">warp 16</text>
+    <rect x="180" y="22" width="464" height="16" class="bar-before"/><text x="652" y="35" font-size="12">修正前 30</text>
+    <rect x="180" y="44" width="680" height="16" class="bar-after"/><text x="868" y="57" font-size="12">修正後 44</text>
+  </g>
+</svg>
+<figcaption>図 9. マトリクスの成功数。sped:false の修正前は <code>2fd3ce19</code>、SPED の修正前は <code>6b2e88a5</code>。<code>warp</code> の sped:false で失敗する 4 件は INIT の送信失敗（既存の弱点）で、今回あわせて解消。</figcaption>
+</figure>
+<div class="legend"><span><i style="background: var(--muted)"></i>warp</span><span><i style="background: var(--bad)"></i>修正前</span><span><i style="background: var(--ok)"></i>修正後</span></div>
+<p>テスト本体: <a class="ref test" href="../packages/webrtc/tests/integrate/transportFaultMatrix.test.ts" title="packages/webrtc/tests/integrate/transportFaultMatrix.test.ts:63">transportFaultMatrix.test.ts</a>。<code>packages/webrtc/src/transport/sctp.ts</code> だけを修正前に戻すと 90 件中 13 件が失敗することを確認しており、レビュアーが報告した P1 のシナリオもこのマトリクスで検出できます。</p>
+
+<h2 id="verify">7. 検証の証跡</h2>
+<table>
+<tr><th>対象（設計書の節）</th><th>検証</th><th>結果</th></tr>
+<tr><td>BoringSSL interop（§48）</td><td><code>cd packages/dtls &amp;&amp; npm run test:boringssl:docker</code></td><td class="num">5/5</td></tr>
+<tr><td>Pion SPED codec / ICE agent fallback（§47）</td><td><code>test:pion-sped</code> / <code>test:pion-ice-agent</code>（golang コンテナでビルドした harness）</td><td class="num">5/5、1/1</td></tr>
+<tr><td>通常 TURN の非回帰（§46）</td><td><code>test:pion-turn</code>、<code>examples/turn-loopback</code> の Chromium E2E</td><td class="num">3/3、3/3</td></tr>
+<tr><td>Chromium regression（§50）</td><td><code>npm run e2e</code></td><td class="num">46 + DTLS 1.2 / 1.3 各 12</td></tr>
+<tr><td>OpenSSL DTLS 1.2（§49）</td><td><code>packages/dtls</code> の <code>client_dual_openssl</code> ほか</td><td class="num">成功</td></tr>
+<tr><td>mediasoup interop（参考）</td><td><code>integration/werift-mediasoup-interop</code></td><td class="num">7 + 16、browser 8</td></tr>
+<tr><td>unit / integration</td><td><code>npm run test:small</code></td><td class="num">webrtc 685、DTLS 449、ICE 302、rtp 125、SCTP 65 ほか</td></tr>
+<tr><td>WPT</td><td><code>npm run wpt --workspace packages/webrtc</code></td><td class="num">後退なし</td></tr>
+</table>
+<p>要件ごとのテスト対応表（§40 fingerprint、§41 early buffer、§29–32 stats、§42–45 E2E）とコマンドは <code>reviews/epic4-warp-verification.md</code> にあります。</p>
+
+<h2 id="deviations">8. 仕様からの逸脱と未確認事項</h2>
+<h3>意図的な逸脱</h3>
+<ol>
+<li><strong>0.5-RTT の SRTP / SCTP 送信</strong>（RFC 5764 §5.1）: opt-in した server だけ。既定では無効。</li>
+<li><strong>SRTP の受信を、相手の認証完了の時点で始める</strong>: final ACK は待たない。</li>
+<li><strong>SPED を DTLS 1.3 だけに限る</strong>（draft §3.2 は 1.2 以上が目標）。</li>
+<li><strong>relay 上の SPED を除外し、association path を 1 本だけ使う</strong>（チケットのスコープ境界とも一致）。</li>
+<li><strong>SPED が active の間でも、一部の Binding に DATA を付けない</strong>（draft §3.3.2.1 の MUST から逸脱）。</li>
+<li><strong>古い世代の、AEAD 認証済みの DTLS 1.3 record（Alert を含む）を適用しない</strong>（SPED transport のみ）。</li>
+<li><strong>STUN の認証失敗時に 400 / 401 を返さない</strong>（RFC 8489 §9.1.3、既存の挙動）。</li>
+<li><strong>SCTP の T1 で RTO を倍にしない、INIT の衝突を処理しない</strong>（RFC 9260、既存の挙動）。</li>
+<li><strong>tls-id（RFC 8842）を実装していない</strong>: fingerprint が変わったら、新しい association を作らず照合に失敗させる。</li>
+<li><strong>stats</strong>: <code>dtlsRole</code> は未確定時に <code>"unknown"</code> ではなく undefined。<code>warpHandshakeRttMs</code> は RTT ではなく「handshake 開始から相手の認証まで」の時間。DTLS 1.2 の <code>warpDtlsRetransmissions</code> は常に 0。</li>
+</ol>
+<h3>未確認の事項</h3>
+<ul>
+<li><span class="unverified">未照合</span> を付けた RFC と W3C 仕様の節番号・文言は、原文で確認していません。</li>
+<li>Pion 同士の full SPED（controlling / controlled、Full / Lite、SPED 上の restart）は、upstream の対応が前提のため未確認です。</li>
+<li>BoringSSL harness が確認するのは handshake と双方向データだけで、exporter・KeyUpdate・negative cases の外部実装との組み合わせは未確認です（ローカルの self テストは成功）。</li>
+<li><code>npm run examples:e2e</code> は実行していません。</li>
+<li>early send 無効時に DataChannel の送信が認証まで保留されることを、DataChannel レベルで直接確認するテストはありません。</li>
+</ul>
+
+</main>
+</div>
+</body>
+</html>
