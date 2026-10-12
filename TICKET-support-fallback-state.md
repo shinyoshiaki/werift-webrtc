@@ -334,6 +334,38 @@ provisional の checklist は live と同じ規則に従う: 候補から作る 
   - pending の remote offer は current の送信 codec を変えず、rollback で戻す（核の不変条件）。develop は remote offer の適用で送信 codec を切り替え、rollback でも戻さない。このため、その後に相手の古い answer（offer にない codec を含む）を適用したとき、develop だけが通信できる。変異試験の seed 7 がこれにあたる。
 - 修正前の HEAD（`3da7c5a4`）に対しては、8 回目で確定した 3 件を検出した。① `disable` の `pranswerRound` で「HEAD だけの failed」、② `closeDuring`（rollback を 1 tick 後に close）で「未決着」、③ `remoteOfferAppOpRollback`（stop）で「transceiver 状態の差」（`--ops` で再生）。
 
+### 2.13 negotiationTransaction 系テストの行数を検出力を落とさずに減らす（追加要件）
+
+**目的**: `packages/webrtc` の negotiationTransaction 系テスト（`tests/integrate/negotiationTransaction*.test.ts` 14 ファイル・233 テスト、`negotiationTransactionUtils.ts`、`tests/pbt/`）の行数を、検出力を落とさずに減らす。
+
+**方針と規則**
+
+- 各テストを A（invariant・変化なし・通信継続・baseline 一致だけで判定）、B（仕様で決まる具体値。B-lite = 汎用の判定を少し足せば検査できるもの、B-full = それ以外）、C（タイミング・並行処理・特殊な環境）、R（PBT の seed から最小化した回帰）に分類する。PBT で置き換えるのは A と B-lite だけ。C、R、B-full は個別テストのまま残す。
+- 新しい PBT は既存と分ける: `tests/pbt/negotiationScenarioProperty.test.ts` と `tests/pbt/scenarioPropertyUtils.ts`。環境変数は `WERIFT_NEGOTIATION_SCENARIO_SEEDS` / `_STEPS` / `_SEED`。既存の `negotiationTransactionProperty.test.ts` と `propertyUtils.ts` は変更しない（`seededRandom` を import する）。Arrange と判定は `negotiationTransactionUtils.ts` のもの（`createDuplexSession`、`assertNegotiationInvariants`、`negotiationSnapshot`、`expectSessionContinues` など）を再利用する。
+- property は主張ごとに 1 つ。乱数入力とは別に、置き換える各テストの場面を固定ケース（シナリオ文字列、名前は元のテスト名）として必ず実行する。失敗時は seed・入力・操作ログを出し、seed 指定で同じ操作列を再現できる。
+- 個別テストは、固定ケースと判定がその内容を包含し、かつ一時 worktree で src に入れたバグで新 PBT も落ちることを確認したものだけ削除する。
+- 残すテストは `negotiationTransactionUtils.ts` の `test.extend` フィクスチャ `negotiationTest`（`videoPeers` / `session` / `closing`、`as test` で import）と `test.for` で重複を減らす。expect の削除や判定の弱化はしない。
+
+**実施内容**
+
+- 分類（宣言数 / 行数）: A 5 / 238 行、B-lite 48 / 2,113 行、B-full 82 / 3,686 行、C 94 / 4,328 行、R 4 / 138 行（計 233 / 10,503 行）。
+- 新 PBT の 7 つの主張: commit（final answer が両アプリの希望した向きを確定する）、pending（pending 中は確定済みの transport・DTLS role・SCTP・remote ICE・選択ペアの generation を変えない）、rollback（rollback は交渉前の状態に戻す。提案が予約した MID と staged restart は外す）、reject（拒否された操作はどちらの peer も変えない）、trickle（trickle した候補はその generation の description に一度だけ入る）、ice（ICE 資格情報は W3C `[[LocalIceCredentialsToReplace]]` に従う）、create（createOffer / createAnswer は何も変えない）。全操作の後の共通検査は、宣言した結果とエラー名、両 peer の invariant、`candidate:` 接頭辞のない候補行、JSEP の signaling 遷移と pending / current の一致、操作していない peer の不変。`alive` は交渉済みの全 stream の RTP（安定後は両アプリの希望、pending 中は実効の currentDirection）、DataChannel、max-message-size の上限を検査し、各シナリオは `expectSessionContinues` で終わる。固定ケース 63、CI は各 property 1 seed × 4 episode。
+- 削除: A 3 件・B-lite 35 件の計 38 宣言（1,651 行）。対応表と置き換え先は NEGOTIATION_SPEC_COVERAGE.md の `Scen (property)` 参照。B-lite のうち「rollback of a local BUNDLE split keeps the old RTP owner」は、どの混入バグでも個別テストが落ちず検証できなかったため残した。「an offer created by another peer is rejected by %s」の connected ケースも、混入バグで落ちなかったため残した（固定ケースからも外した）。
+- バグ混入検証: 一時 worktree に B1〜B32 の 32 個のバグを 1 つずつ入れた。削除した 38 件のそれぞれについて、個別テストが検出したバグはすべて対応する固定ケースも検出した。B13（glare の暗黙 rollback で pending offer が残る）は削除した個別テストでは検出されず、新 PBT だけが検出した。B12 はどちらも検出せず、残した個別テストが検出した。
+- 新 PBT が見つけて直した実装の不具合 3 件（各固定ケースは修正前に落ちる）:
+  1. ICE restart offer の local description に `a=candidate:candidate:…` が出る（develop では出ない退行）。候補通知が transport の候補オブジェクトの foundation を書き換えていた。通知用に複製するよう修正（`peerConnection.ts`、`transport/ice.ts`）。
+  2. 置き換えの local offer の後に remote pranswer を受けてから rollback すると、pending 中に追加した transceiver が MID を保持した（have-remote-pranswer からの rollback は develop では不可なので退行ではない）。`transceiverManager.ts` で、transaction 中にアプリが追加し確定していない transceiver は常に MID / m-line / 暫定の向きを外す。
+  3. 2 の後、その transceiver が pranswer で受けた codec・経路などを保持し、次の交渉で再利用されると RTP が届かなかった（300 seed 探索の seed 52 / 150 / 240）。作成時の状態を記録し（`rtpTransceiver.ts` の `createdNegotiationState`）、rollback で戻す。配信済みの track イベントの track は未束縛として残す（取り消さない）。
+
+**未対応（既存の差分）**: `tools/negotiation-diff` の develop 比較（200 seed × 12 step）で回帰 2 件（seed 70・167、`pranswerRound` の後に RTP が失われる）。今回の変更前の HEAD（a6295e9e）でも同じく出るため、この追加要件の変更によるものではない。原因の調査と修正は別途行う。
+
+**完了条件**
+
+- `cd packages/webrtc && npm run type && npm test` が通る。
+- `WERIFT_NEGOTIATION_SCENARIO_SEEDS=300 npx vitest run tests/pbt/negotiationScenarioProperty.test.ts` が通る。
+- 既存の深い探索（`WERIFT_NEGOTIATION_FUZZ_SEEDS=300 WERIFT_NEGOTIATION_FUZZ_STEPS=20`）が通り、既存 PBT の結果と実行時間が変わらない。
+- NEGOTIATION_SPEC_COVERAGE.md の参照先、NEGOTIATION_TRANSACTION.md のテスト構成の節、packages/webrtc/AGENTS.md の深い探索コマンドを更新する。
+
 ## 3. 技術的な実装アプローチ
 
 ### 3.1 transaction coordinator と subsystem API

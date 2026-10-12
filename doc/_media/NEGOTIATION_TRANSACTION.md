@@ -512,14 +512,14 @@ pranswer is live (provisional) for every row.
 
 | Value | Remote offer | Pranswer / replacement pranswer | Final answer | Rollback | Checked by |
 | --- | --- | --- | --- | --- | --- |
-| ICE credentials, candidates, EOC | current | both: a provisional generation beside the selected current pair (ICE generation boundaries); a replacement restarts its checklist | commit; changed remote credentials restart the checks and keep the local credentials the offer described | current | helper `assertIceGenerations`; Matrix "local ICE restart then %s"; Regression "new remote credentials in an answer keep the local credentials the offer described" |
-| DTLS role / fingerprint | current | current association kept; a new association (BUNDLE split owner) is provisional; a role change of a connecting / connected association (also one a first pranswer connected) is rejected | commit (same rule) | current | helper `assertDtlsBindings`; Regression "a final answer cannot reverse the DTLS role a first pranswer connected with", "a local answer that flips the DTLS setup of a connected association is rejected" |
+| ICE credentials, candidates, EOC | current | both: a provisional generation beside the selected current pair (ICE generation boundaries); a replacement restarts its checklist | commit; changed remote credentials restart the checks and keep the local credentials the offer described | current | helper `assertIceGenerations`; Scen (ice, rollback) "local ICE restart then %s"; Regression "new remote credentials in an answer keep the local credentials the offer described" |
+| DTLS role / fingerprint | current | current association kept; a new association (BUNDLE split owner) is provisional; a role change of a connecting / connected association (also one a first pranswer connected) is rejected | commit (same rule) | current | helper `assertDtlsBindings`; Regression "a final answer cannot reverse the DTLS role a first pranswer connected with"; Scen (reject) "a local answer that flips the DTLS setup of a connected association is rejected" |
 | Receive codec / RTCP feedback | both | both | commit | current | helper `assertRouterAndCodecs`; Routing (`negotiationTransactionRouting.test.ts`) |
 | Send codec (sender parameters) | current (the offer only proposes) | provisional on both sides | commit | current | helper `expectedLive("sendCodec")`; EffectiveValues "a pranswer sends with its codec on both sides until %s" |
-| Direction (`currentDirection`, sending) | current | provisional: an `inactive` / `recvonly` pranswer stops sending | commit | current | helper `expectedLive("direction")`; EffectiveValues "an inactive pranswer stops sending until a sendrecv %s"; Matrix "replacement pranswer and a different final answer" |
+| Direction (`currentDirection`, sending) | current | provisional: an `inactive` / `recvonly` pranswer stops sending | commit | current | helper `expectedLive("direction")`; Scen (commit, rollback) "an inactive pranswer stops sending until a sendrecv %s"; Scen (commit) "replacement pranswer and a different final answer" |
 | BUNDLE owner / transport | current | both: current owners stay, a split owner is provisional | commit | current | helper `assertDescriptionBindings`; Matrix "BUNDLE split, tag change and merge route RTP by MID"; Mutation `noBundle` / `splitBundleGroups` |
 | SCTP port | current | reject a change of an existing association (also one a first pranswer started) | reject (same) | current | helper `assertSctpBinding`; Mutation `sctpPort` |
-| SCTP max-message-size | current | provisional (W3C updates the data max message size at answer and pranswer, local or remote) | commit | current | helper `expectedLive("remoteMaxMessageSize")`; Matrix "renegotiation max-message-size follows offer, pranswers and %s" |
+| SCTP max-message-size | current | provisional (W3C updates the data max message size at answer and pranswer, local or remote) | commit | current | helper `expectedLive("remoteMaxMessageSize")`; Scen (commit, rollback) "renegotiation max-message-size follows offer, pranswers and %s" |
 | Header extension IDs | both (new IDs); remap of a current ID rejected | both; remap rejected | commit | current | helper `assertRouteTables`; Routing "a remote re-offer that remaps an active header extension id is rejected before mutation"; Mutation `extmapSwapped` |
 | Remote SSRC routes | both (conflicts staged) | both; the routes a replaced pranswer alone added are dropped, and its track is taken over by the next SSRC the description gives that receiver | commit (a current SSRC the answer omits stays routed, as on `develop`) | current | helper `assertEffectiveValues` (pranswer SSRCs route); EffectiveValues "SSRCs only a replaced pranswer announced stop routing at the final answer", "a first pranswer with other SSRCs leaves the receiver's track to the final answer's SSRC" |
 
@@ -608,6 +608,16 @@ Each has a test that fails without it.
   that is not stopped still uses, inactive or not.
 - An offer created after `restartIce()` while a restart offer is pending
   replaces the pending credentials too.
+- Candidates are signalled as copies: the local description renders the
+  transport's own candidates, whose foundation never gets the `candidate:`
+  prefix of the event (an ICE restart offer described
+  `a=candidate:candidate:…`; found by the scenario properties).
+- A transceiver the application added while a description was pending is
+  never committed by it: rollback (also from `have-remote-pranswer`) takes
+  back its MID / m-line, the direction a pranswer gave it and everything the
+  proposal negotiated for it (back to its created state); a track event it
+  already delivered stays, with its track unbound for the next negotiation's
+  SSRC (found by the scenario properties, seeds 15 and 52).
 
 ## Test coverage
 
@@ -618,10 +628,10 @@ tables against current SDP, BUNDLE owner, MID and mLineIndex, the live ICE
 generation (credentials, candidates, EOC, checklist membership of the selected
 pair, no provisional generation in stable), DTLS role and fingerprint, SCTP
 MID, mLineIndex, owner transport and parameters, and that every transport
-that left use is closed. `negotiationTransactionMatrix.test.ts` runs the
-transition matrix with each peer once as the offerer and calls the helper after
-every description and candidate operation, then verifies RTP and DataChannel
-traffic in both directions.
+that left use is closed. The transition matrix runs as fixed scenes of the
+scenario properties below (each peer once as the offerer);
+`negotiationTransactionMatrix.test.ts` keeps the matrix rows with their own
+values (transceiver stop and m-line reuse, BUNDLE split / tag change / merge).
 The helper also checks the routing keys above against the live tables in every
 signaling state: each SSRC, RTX pair and MID+RID of the current remote SDP
 resolves to the current receiver (with its track), no extmap ID the router
@@ -643,8 +653,48 @@ peer negotiated against hand-built SDP, or a mutation that misdescribes the
 real peer). The coverage tests, the regression tests, the mutation test and
 the rejected-application test enforce it.
 
-`tests/pbt/` holds the seeded property test
-(`negotiationTransactionProperty.test.ts`) and its episodes, seeded random
+### Test layout
+
+Tests are sorted by what decides their verdict. A test that needs only the
+invariants, an unchanged state, continued traffic or a baseline match (or a
+value a generic rule derives, such as the effective direction or
+max-message-size) is a fixed scene of a scenario property; a test of a
+spec value no generic rule gives, of timing / concurrency, of a special
+environment (TURN, simulcast, codecs, `bundlePolicy`, held gathering) or a
+regression minimized from a seed stays an individual test. Individual tests
+take their Arrange from the `negotiationTest` fixtures of
+`negotiationTransactionUtils.ts` (`videoPeers`, `session`, `closing`;
+imported as `test`, closed after the test).
+
+`tests/pbt/negotiationScenarioProperty.test.ts` (with
+`scenarioPropertyUtils.ts`) has one property per claim: the final answer
+commits the directions both applications asked for (commit); a pending
+negotiation keeps the committed transports, DTLS roles, SCTP association,
+remote ICE credentials and selected-pair generation (pending); rollback
+returns a peer to the state before the negotiation, except the MIDs and the
+staged ICE restart the proposal only reserved (rollback); a rejected
+operation changes neither peer (reject); a trickled candidate joins its own
+generation's description once (trickle); ICE credentials follow the restart
+requests as W3C `[[LocalIceCredentialsToReplace]]` (ice); and creating an
+offer or answer changes nothing (create). A scenario is text
+(`a offer restart; b reply pranswer edit=inactive; alive silent; a rollback`)
+run on a connected duplex session; every operation is followed by the base
+checks (declared outcome and error name, the helper on both peers, no
+`candidate:` foundation, the JSEP signaling transition with exact pending /
+current descriptions, an untouched other peer), `alive` checks that every
+negotiated stream flows (the applications' directions once settled, else the
+effective `currentDirection`), DataChannel traffic and the effective
+max-message-size limit, and every scenario ends with
+`expectSessionContinues`. Each property runs its fixed scenes, named after
+the individual tests they replaced, and random scenarios: CI runs
+`WERIFT_NEGOTIATION_SCENARIO_SEEDS` (default 1) seeds of
+`WERIFT_NEGOTIATION_SCENARIO_STEPS` (default 4) episodes from
+`WERIFT_NEGOTIATION_SCENARIO_SEED`; a failure prints the seed, the scenario
+text and the operation log, and the same seed replays it. The properties run
+concurrently within the file (`describe.concurrent`).
+
+`tests/pbt/negotiationTransactionProperty.test.ts` holds the seeded episode
+fuzzer and its episodes, seeded random
 stream and atomicity check (`propertyUtils.ts`, built on the shared utilities
 above). Each step
 is a random negotiation episode (offer / pranswer / answer / rollback /
@@ -669,7 +719,10 @@ run the peer-diversity mutations and the interrupt matrix above.
 CI replays a fixed seed set plus the seeds that found bugs; a deeper local
 search uses `WERIFT_NEGOTIATION_FUZZ_SEEDS`, `WERIFT_NEGOTIATION_FUZZ_STEPS`
 and `WERIFT_NEGOTIATION_FUZZ_SEED`, and a failure prints its seed and
-operations. Before asking for review, run a deeper search, the pairwise
+operations. Before asking for review, run both deeper searches
+(`WERIFT_NEGOTIATION_FUZZ_SEEDS=300 WERIFT_NEGOTIATION_FUZZ_STEPS=20` for the
+episode fuzzer, `WERIFT_NEGOTIATION_SCENARIO_SEEDS=300` for the scenario
+properties), the pairwise
 mutations (`WERIFT_NEGOTIATION_MUTATION=pairwise`) and a self-review that
 lists every path writing live tables while a description is pending.
 `NEGOTIATION_SPEC_COVERAGE.md` maps every requirement of the ticket to the

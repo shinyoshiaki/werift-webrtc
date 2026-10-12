@@ -118,6 +118,12 @@ export class RTCRtpTransceiver {
     }
   }
 
+  /**
+   * Internal: the negotiation state the transceiver was created with, so a
+   * rollback can return one that no description committed to it.
+   */
+  createdNegotiationState?: TransceiverNegotiationState;
+
   get dtlsTransport() {
     return this.receiver.dtlsTransport;
   }

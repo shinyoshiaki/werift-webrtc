@@ -422,7 +422,14 @@ export class RTCIceTransport {
     staged.endDeferred = this.stagedGatherPending();
     staged.emitted = true;
     for (const candidate of candidates) {
-      this.onIceCandidate.execute(candidate);
+      // A copy: the listener rewrites the event's foundation and m-line,
+      // while these candidates still render the local description.
+      this.onIceCandidate.execute(
+        Object.assign(
+          Object.create(Object.getPrototypeOf(candidate)),
+          candidate,
+        ) as IceCandidate,
+      );
     }
     if (!staged.endDeferred) this.onIceCandidate.execute(undefined);
   }

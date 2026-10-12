@@ -176,12 +176,24 @@ export class TransceiverManager {
     );
     for (const transceiver of this.transceivers) {
       if (snapshot.states.has(transceiver)) continue;
-      // One the application added during the transaction and no description
-      // ever negotiated loses the MID / m-line the rolled-back offer gave it
-      // (W3C), also when a replacement offer gave them.
-      if (!transceiver.currentDirection && !transceiver.stopped) {
+      // One the application added during the transaction was never
+      // committed (a final answer ends the transaction): it loses the MID /
+      // m-line the rolled-back offer gave it (W3C), also when a replacement
+      // offer gave them, and the direction a pranswer gave it provisionally.
+      if (!transceiver.stopped) {
+        // What the proposal negotiated goes back to the created state; a
+        // delivered track event is not taken back: its track stays, unbound,
+        // for the SSRC a later negotiation gives.
+        const created = transceiver.createdNegotiationState;
+        if (created) {
+          const tracks = [...transceiver.receiver.tracks];
+          const { firedReceiving } = transceiver.snapshotNegotiationState();
+          transceiver.restoreNegotiationState({ ...created, firedReceiving });
+          transceiver.receiver.keepUnboundTracks(tracks);
+        }
         transceiver.mid = null;
         transceiver.mLineIndex = undefined;
+        transceiver.setCurrentDirection(undefined);
         continue;
       }
       if (
@@ -425,6 +437,8 @@ export class TransceiverManager {
       ).map((encoding) => ({ ...encoding })),
     );
     this.router.registerRtpSender(newTransceiver.sender);
+    newTransceiver.createdNegotiationState =
+      newTransceiver.snapshotNegotiationState();
 
     // 旧 transceiver は復活させず、MID は次の offer で新しく割り当てる。
     // 同じ kind で拒否 / 停止の交渉が確定した位置だけを再利用する (inactive は奪わない)

@@ -1,8 +1,8 @@
 import { MediaStream, MediaStreamTrack, RTCPeerConnection } from "../../src";
 import {
+  type DuplexSession,
   assertNegotiationInvariants,
   assertTransportsClosed,
-  createDuplexSession,
   createInitialPranswerDataChannel,
   createKeptRemoteTransceiver,
   createMutationSession,
@@ -20,6 +20,7 @@ import {
   sendAndExpectData,
   sendAndExpectRtp,
   step,
+  negotiationTest as test,
   waitForDtlsConnected,
   waitForMutationSession,
   waitForPeersConnected,
@@ -34,22 +35,29 @@ import {
 describe("negotiation transaction events and object lifetime", () => {
   enforceSessionContinuation();
 
-  const cleanups: (() => Promise<unknown>)[] = [];
-
-  afterEach(async () => {
-    await Promise.allSettled(cleanups.splice(0).map((close) => close()));
-  });
-
-  async function duplex() {
-    const session = await createDuplexSession();
-    cleanups.push(session.close);
-    return session;
+  /** a sets a new offer and b applies it, checking invariants after each. */
+  async function offerAToB(
+    session: DuplexSession,
+    options: Parameters<RTCPeerConnection["createOffer"]>[0] = {},
+  ) {
+    const { a, b } = session;
+    await step(session, async () =>
+      a.pc.setLocalDescription(await a.pc.createOffer(options)),
+    );
+    await step(session, () =>
+      b.pc.setRemoteDescription(a.pc.localDescription!),
+    );
   }
 
-  async function initialPranswerDataChannel(label?: string) {
-    const peers = await createInitialPranswerDataChannel(label);
-    cleanups.push(peers.close);
-    return peers;
+  /** b sets its answer and a applies it, checking invariants after each. */
+  async function answerBToA(session: DuplexSession) {
+    const { a, b } = session;
+    await step(session, async () =>
+      b.pc.setLocalDescription(await b.pc.createAnswer()),
+    );
+    await step(session, () =>
+      a.pc.setRemoteDescription(b.pc.localDescription!),
+    );
   }
 
   /** Candidates signalled more than once (same m-line and candidate line). */
@@ -70,21 +78,17 @@ describe("negotiation transaction events and object lifetime", () => {
     return [...heldTransports(pc)].filter((t) => !before.has(t));
   }
 
-  test("[2.1-T6] a replacement offer and its rollback repeat no delivered event and close the replacement's pending-only transports", async () => {
+  test("[2.1-T6] a replacement offer and its rollback repeat no delivered event and close the replacement's pending-only transports", async ({
+    session,
+  }) => {
     // Arrange: 接続済み session の b で発火する通知を記録し、a に audio を足した offer A を b に適用する。
-    const session = await duplex();
     const { a, b } = session;
     const aEvents = recordNegotiationEvents(a.pc);
     const bEvents = recordNegotiationEvents(b.pc);
     const before = { a: heldTransports(a.pc), b: heldTransports(b.pc) };
     const audioOut = new MediaStreamTrack({ kind: "audio" });
     const audio = a.pc.addTransceiver(audioOut, { direction: "sendonly" });
-    await step(session, async () =>
-      a.pc.setLocalDescription(await a.pc.createOffer()),
-    );
-    await step(session, () =>
-      b.pc.setRemoteDescription(a.pc.localDescription!),
-    );
+    await offerAToB(session);
     expect(bEvents.remoteTransceivers).toHaveLength(1);
     expect(bEvents.tracks).toHaveLength(1);
     const remoteAudio = bEvents.remoteTransceivers[0];
@@ -143,12 +147,7 @@ describe("negotiation transaction events and object lifetime", () => {
     expect(bEvents.tracks[1].transceiver).toBe(reapplied);
 
     // Act: B を final answer で確定する。
-    await step(session, async () =>
-      b.pc.setLocalDescription(await b.pc.createAnswer()),
-    );
-    await step(session, () =>
-      a.pc.setRemoteDescription(b.pc.localDescription!),
-    );
+    await answerBToA(session);
 
     // Assert: commit は通知を重ねず、分離した audio と既存 session が通信する。
     expect(bEvents.remoteTransceivers).toHaveLength(2);
@@ -162,13 +161,12 @@ describe("negotiation transaction events and object lifetime", () => {
     await expectSessionContinues(a.pc, b.pc, "t6");
   }, 60000);
 
-  test("[2.3-1] a remote pranswer fires ontrack once before the final answer", async () => {
+  test("[2.3-1] a remote pranswer fires ontrack once before the final answer", async ({
+    closing,
+  }) => {
     // Arrange: 受信専用 video の初回 offer に、answerer が送信する pranswer を用意する。
-    const offerer = new RTCPeerConnection();
-    const answerer = new RTCPeerConnection();
-    cleanups.push(() =>
-      Promise.allSettled([offerer.close(), answerer.close()]),
-    );
+    const offerer = closing(new RTCPeerConnection());
+    const answerer = closing(new RTCPeerConnection());
     const events = recordNegotiationEvents(offerer);
     const receiving = offerer.addTransceiver("video", {
       direction: "recvonly",
@@ -210,9 +208,10 @@ describe("negotiation transaction events and object lifetime", () => {
     await expectSessionContinues(offerer, answerer, "pranswer-ontrack");
   }, 60000);
 
-  test("[2.3-2] rollback keeps the receiver and track and restores the last-stable stream association", async () => {
+  test("[2.3-2] rollback keeps the receiver and track and restores the last-stable stream association", async ({
+    session,
+  }) => {
     // Arrange: video に stream "stable-stream" を付けて確定し、別 stream へ移す re-offer を用意する。
-    const session = await duplex();
     const { a, b } = session;
     a.video.sender.setStreams([new MediaStream({ id: "stable-stream" })]);
     await negotiate(session, a, b);
@@ -223,12 +222,7 @@ describe("negotiation transaction events and object lifetime", () => {
     a.video.sender.setStreams([new MediaStream({ id: "pending-stream" })]);
 
     // Act: stream を変えた re-offer を適用する。
-    await step(session, async () =>
-      a.pc.setLocalDescription(await a.pc.createOffer()),
-    );
-    await step(session, () =>
-      b.pc.setRemoteDescription(a.pc.localDescription!),
-    );
+    await offerAToB(session);
 
     // Assert: 同じ receiver/track が新しい stream で通知される。
     expect(events.tracks).toHaveLength(1);
@@ -265,9 +259,10 @@ describe("negotiation transaction events and object lifetime", () => {
     await expectSessionContinues(a.pc, b.pc, "stream-rollback");
   }, 60000);
 
-  test("[2.3-4] ontrack repeats only for a real stream addition or a transition to receiving", async () => {
+  test("[2.3-4] ontrack repeats only for a real stream addition or a transition to receiving", async ({
+    session,
+  }) => {
     // Arrange: stream "first" で video を確定し、b の通知を記録する。
-    const session = await duplex();
     const { a, b } = session;
     const first = new MediaStream({ id: "first" });
     a.video.sender.setStreams([first]);
@@ -283,12 +278,7 @@ describe("negotiation transaction events and object lifetime", () => {
 
     // Act: 同じ receiver に stream を追加した re-offer を適用し、同じ offer を再適用する。
     a.video.sender.setStreams([first, new MediaStream({ id: "second" })]);
-    await step(session, async () =>
-      a.pc.setLocalDescription(await a.pc.createOffer()),
-    );
-    await step(session, () =>
-      b.pc.setRemoteDescription(a.pc.localDescription!),
-    );
+    await offerAToB(session);
     expect(events.tracks).toHaveLength(1);
     await step(session, () =>
       b.pc.setRemoteDescription(a.pc.localDescription!),
@@ -303,12 +293,7 @@ describe("negotiation transaction events and object lifetime", () => {
     ]);
 
     // Act: answer で確定する。
-    await step(session, async () =>
-      b.pc.setLocalDescription(await b.pc.createAnswer()),
-    );
-    await step(session, () =>
-      a.pc.setRemoteDescription(b.pc.localDescription!),
-    );
+    await answerBToA(session);
 
     // Assert: commit は同じ遷移を再通知しない。
     expect(events.tracks).toHaveLength(1);
@@ -333,11 +318,12 @@ describe("negotiation transaction events and object lifetime", () => {
     await expectSessionContinues(a.pc, b.pc, "ontrack-repeat");
   }, 60000);
 
-  test("[2.3-7] a remote-created transceiver kept by addTrack carries the next local offer", async () => {
+  test("[2.3-7] a remote-created transceiver kept by addTrack carries the next local offer", async ({
+    closing,
+  }) => {
     // Arrange: addTrack で使った remote-created transceiver を rollback 後も残す。
-    const { offerer, answerer, kept, localTrack, offererEvents, both, close } =
-      await createKeptRemoteTransceiver();
-    cleanups.push(close);
+    const { offerer, answerer, kept, localTrack, offererEvents, both } =
+      closing(await createKeptRemoteTransceiver());
     expect(answerer.getTransceivers()).toEqual([kept]);
     expect(kept.sender.track).toBe(localTrack);
     expect(kept.mid).toBeNull();
@@ -370,11 +356,13 @@ describe("negotiation transaction events and object lifetime", () => {
     await expectSessionContinues(offerer, answerer, "kept-transceiver");
   }, 60000);
 
-  test("[2.3-7] rollback leaves no candidate of the rolled-back offer on the kept transceiver's transport", async () => {
+  test("[2.3-7] rollback leaves no candidate of the rolled-back offer on the kept transceiver's transport", async ({
+    closing,
+  }) => {
     // Arrange: addTrack で使った remote-created transceiver を rollback 後も残す。
-    const { offerer, answerer, kept, close } =
-      await createKeptRemoteTransceiver();
-    cleanups.push(close);
+    const { offerer, answerer, kept } = closing(
+      await createKeptRemoteTransceiver(),
+    );
 
     // Act: rollback 後に残った transport の live checklist を読む。
     const connection = kept.dtlsTransport!.iceTransport
@@ -386,12 +374,14 @@ describe("negotiation transaction events and object lifetime", () => {
     await expectSessionContinues(offerer, answerer, "kept-rollback-candidates");
   }, 60000);
 
-  test.each(["rollback", "replacement offer"] as const)(
+  test.for(["rollback", "replacement offer"] as const)(
     "[2.3-14] %s closes a remote-created channel of a pending-only association and drops it from the registry",
-    async (outcome) => {
+    { timeout: 60000 },
+    async (outcome, { closing }) => {
       // Arrange: 初回 pranswer の provisional association で channel を開く。
-      const { offerer, answerer, local, remote, answererEvents } =
-        await initialPranswerDataChannel();
+      const { offerer, answerer, local, remote, answererEvents } = closing(
+        await createInitialPranswerDataChannel(),
+      );
       const provisionalTransport = remote.sctp;
       expect(registeredDataChannels(answerer)).toContain(remote);
 
@@ -424,21 +414,16 @@ describe("negotiation transaction events and object lifetime", () => {
       // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
       await expectSessionContinues(offerer, answerer, "pending-only-channel");
     },
-    60000,
   );
 
-  test("[5-4] channels of a committed association stay open through a renegotiation rollback", async () => {
+  test("[5-4] channels of a committed association stay open through a renegotiation rollback", async ({
+    session,
+  }) => {
     // Arrange: 確立済み session で re-offer を pranswer まで進める。
-    const session = await duplex();
     const { a, b } = session;
     const bEvents = recordNegotiationEvents(b.pc);
     const association = a.pc.sctpTransport;
-    await step(session, async () =>
-      a.pc.setLocalDescription(await a.pc.createOffer()),
-    );
-    await step(session, () =>
-      b.pc.setRemoteDescription(a.pc.localDescription!),
-    );
+    await offerAToB(session);
     const pranswer = (await b.pc.createAnswer()).sdp;
     await step(session, () =>
       b.pc.setLocalDescription({ type: "pranswer", sdp: pranswer }),
@@ -483,20 +468,16 @@ describe("negotiation transaction events and object lifetime", () => {
     await expectSessionContinues(a.pc, b.pc, "committed-channels-rollback");
   }, 60000);
 
-  test("[2.3-19] an ICE restart pranswer and its rollback notify only real signaling transitions", async () => {
+  test("[2.3-19] an ICE restart pranswer and its rollback notify only real signaling transitions", async ({
+    session,
+  }) => {
     // Arrange: 接続済み session の状態通知を記録する。
-    const session = await duplex();
     const { a, b } = session;
     const aEvents = recordNegotiationEvents(a.pc);
     const bEvents = recordNegotiationEvents(b.pc);
 
     // Act: ICE restart の pranswer で provisional generation を nominate させ、両側で rollback する。
-    await step(session, async () =>
-      a.pc.setLocalDescription(await a.pc.createOffer({ iceRestart: true })),
-    );
-    await step(session, () =>
-      b.pc.setRemoteDescription(a.pc.localDescription!),
-    );
+    await offerAToB(session, { iceRestart: true });
     const pranswer = (await b.pc.createAnswer()).sdp;
     await step(session, () =>
       b.pc.setLocalDescription({ type: "pranswer", sdp: pranswer }),
@@ -533,10 +514,13 @@ describe("negotiation transaction events and object lifetime", () => {
     await expectSessionContinues(a.pc, b.pc, "restart-pranswer-rollback");
   }, 60000);
 
-  test("[2.3-19] rolling back a connection made at the first pranswer notifies only the new transitions", async () => {
+  test("[2.3-19] rolling back a connection made at the first pranswer notifies only the new transitions", async ({
+    closing,
+  }) => {
     // Arrange: 初回 pranswer で接続し、それまでの通知を控える。
-    const { offerer, answerer, offererEvents, answererEvents } =
-      await initialPranswerDataChannel();
+    const { offerer, answerer, offererEvents, answererEvents } = closing(
+      await createInitialPranswerDataChannel(),
+    );
     await waitUntil(
       () =>
         offerer.connectionState === "connected" &&
@@ -592,17 +576,13 @@ describe("negotiation transaction events and object lifetime", () => {
     await expectSessionContinues(offerer, answerer, "first-pranswer-rollback");
   }, 60000);
 
-  test("[2.3-19] negotiationneeded waits for stable and is recomputed once after rollback", async () => {
+  test("[2.3-19] negotiationneeded waits for stable and is recomputed once after rollback", async ({
+    session,
+  }) => {
     // Arrange: 確立済み session で a の re-offer を pending にする。
-    const session = await duplex();
     const { a, b } = session;
     const aEvents = recordNegotiationEvents(a.pc);
-    await step(session, async () =>
-      a.pc.setLocalDescription(await a.pc.createOffer()),
-    );
-    await step(session, () =>
-      b.pc.setRemoteDescription(a.pc.localDescription!),
-    );
+    await offerAToB(session);
 
     // Act: pending 中に application が transceiver を追加する。
     const added = a.pc.addTransceiver("audio");
@@ -634,19 +614,15 @@ describe("negotiation transaction events and object lifetime", () => {
     await expectSessionContinues(a.pc, b.pc, "negotiationneeded");
   }, 60000);
 
-  test("[2.3-21] re-applying the same pranswer creates no new channel, transceiver or event", async () => {
+  test("[2.3-21] re-applying the same pranswer creates no new channel, transceiver or event", async ({
+    closing,
+  }) => {
     // Arrange: video と DataChannel の初回 pranswer で暫定通信を始め、両側の通知を記録する。
-    const session = await createMutationSession("initial");
-    cleanups.push(session.close);
+    const session = closing(await createMutationSession("initial"));
     const { a, b } = session;
     const aEvents = recordNegotiationEvents(a.pc);
     const bEvents = recordNegotiationEvents(b.pc);
-    await step(session, async () =>
-      a.pc.setLocalDescription(await a.pc.createOffer()),
-    );
-    await step(session, () =>
-      b.pc.setRemoteDescription(a.pc.localDescription!),
-    );
+    await offerAToB(session);
     await prepareMutationAnswerer(session);
     const pranswer = (await b.pc.createAnswer()).sdp;
     await step(session, () =>
@@ -714,10 +690,13 @@ describe("negotiation transaction events and object lifetime", () => {
     await expectSessionContinues(a.pc, b.pc, "same-pranswer");
   }, 60000);
 
-  test("[2.3-22] a DCEP reusing a stream ID on a new association after rollback creates a new channel", async () => {
+  test("[2.3-22] a DCEP reusing a stream ID on a new association after rollback creates a new channel", async ({
+    closing,
+  }) => {
     // Arrange: 初回 pranswer の association で channel を開いてから両側で rollback する。
-    const { offerer, answerer, local, remote, answererEvents } =
-      await initialPranswerDataChannel("first");
+    const { offerer, answerer, local, remote, answererEvents } = closing(
+      await createInitialPranswerDataChannel("first"),
+    );
     const firstStreamId = remote.id;
     await offerer.setLocalDescription({ type: "rollback" });
     await answerer.setRemoteDescription({ type: "rollback" });
@@ -755,10 +734,13 @@ describe("negotiation transaction events and object lifetime", () => {
     await expectSessionContinues(offerer, answerer, "reused-stream-id");
   }, 60000);
 
-  test("[2.3-24] a DCEP held past rollback is not delivered, while the provisional channel still gets its close event", async () => {
+  test("[2.3-24] a DCEP held past rollback is not delivered, while the provisional channel still gets its close event", async ({
+    closing,
+  }) => {
     // Arrange: 初回 pranswer の channel を開き、answerer に届く次の DCEP を保留する。
-    const { offerer, answerer, remote, answererEvents } =
-      await initialPranswerDataChannel("first");
+    const { offerer, answerer, remote, answererEvents } = closing(
+      await createInitialPranswerDataChannel("first"),
+    );
     const remoteStates: string[] = [];
     remote.stateChanged.subscribe((state) => {
       remoteStates.push(state);

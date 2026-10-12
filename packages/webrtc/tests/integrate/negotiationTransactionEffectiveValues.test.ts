@@ -10,8 +10,8 @@ import {
   mutate,
   prepareMutationAnswerer,
   sectionOf,
-  sendAndExpectRtp,
   step,
+  negotiationTest as test,
   waitForMutationSession,
 } from "./negotiationTransactionUtils";
 
@@ -28,60 +28,59 @@ describe("negotiation effective values while a renegotiation is pending", () => 
   const offerer = () => session.a;
   const answerer = () => session.b;
 
-  afterEach(async () => {
-    await session.close();
-  });
-
-  /** Put a re-offer on both peers and return the answerer's answer SDP. */
-  async function reoffer() {
+  /**
+   * Put a re-offer on both peers, run `prepare` on the answerer and return
+   * the answerer's answer SDP.
+   */
+  async function reoffer(prepare?: () => unknown) {
     await step(session, async () =>
       offerer().pc.setLocalDescription(await offerer().pc.createOffer()),
     );
     await step(session, () =>
       answerer().pc.setRemoteDescription(offerer().pc.localDescription!),
     );
+    await prepare?.();
     return (await answerer().pc.createAnswer()).sdp;
   }
 
-  test.each(["answer", "rollback"] as const)(
+  /** Apply `sdp` on the answerer and `remoteSdp` on the offerer as `type`. */
+  async function answerWith(
+    type: "pranswer" | "answer",
+    sdp: string,
+    remoteSdp = sdp,
+  ) {
+    await step(session, () => answerer().pc.setLocalDescription({ type, sdp }));
+    await step(session, () =>
+      offerer().pc.setRemoteDescription({ type, sdp: remoteSdp }),
+    );
+  }
+
+  test.for(["answer", "rollback"] as const)(
     "a pranswer sends with its codec on both sides until %s",
-    async (outcome) => {
+    async (outcome, { closing }) => {
       // Arrange: VP8 で確立した後、answerer が H264 だけを選んだ answer を用意する。
-      session = await createDuplexSession({
-        codecs: { video: [useVP8(), useH264()] },
-      });
-      await step(session, async () =>
-        offerer().pc.setLocalDescription(await offerer().pc.createOffer()),
+      session = closing(
+        await createDuplexSession({
+          codecs: { video: [useVP8(), useH264()] },
+        }),
       );
-      await step(session, () =>
-        answerer().pc.setRemoteDescription(offerer().pc.localDescription!),
+      const answer = await reoffer(() =>
+        answerer().video.setCodecPreferences([useH264()]),
       );
-      answerer().video.setCodecPreferences([useH264()]);
-      const answer = (await answerer().pc.createAnswer()).sdp;
       const sendCodecs = () =>
         [offerer(), answerer()].map((peer) =>
           peer.video.sender.codec?.mimeType.toLowerCase(),
         );
 
       // Act: H264 の pranswer を両側に適用する。
-      await step(session, () =>
-        answerer().pc.setLocalDescription({ type: "pranswer", sdp: answer }),
-      );
-      await step(session, () =>
-        offerer().pc.setRemoteDescription({ type: "pranswer", sdp: answer }),
-      );
+      await answerWith("pranswer", answer);
       // Assert: 再交渉の pranswer 中は両側とも pranswer の H264 で送り、届く。
       expect(sendCodecs()).toEqual(["video/h264", "video/h264"]);
       await expectSessionAlive(session, `codec-pranswer-${outcome}`);
 
       if (outcome === "answer") {
         // Act: 同じ内容の final answer で commit する。
-        await step(session, () =>
-          answerer().pc.setLocalDescription({ type: "answer", sdp: answer }),
-        );
-        await step(session, () =>
-          offerer().pc.setRemoteDescription({ type: "answer", sdp: answer }),
-        );
+        await answerWith("answer", answer);
         // Assert: H264 のまま確定する。
         expect(sendCodecs()).toEqual(["video/h264", "video/h264"]);
       } else {
@@ -100,68 +99,11 @@ describe("negotiation effective values while a renegotiation is pending", () => 
     },
   );
 
-  test.each(["answer", "rollback"] as const)(
-    "an inactive pranswer stops sending until a sendrecv %s",
-    async (outcome) => {
-      // Arrange: 確立済み session で、video を inactive にした pranswer を用意する。
-      session = await createDuplexSession();
-      const answer = await reoffer();
-      const inactive = mungeSection(answer, VIDEO, (section) =>
-        section.replace("a=sendrecv", "a=inactive"),
-      );
-
-      // Act: inactive の pranswer を両側に適用する。
-      await step(session, () =>
-        answerer().pc.setLocalDescription({ type: "pranswer", sdp: inactive }),
-      );
-      await step(session, () =>
-        offerer().pc.setRemoteDescription({ type: "pranswer", sdp: inactive }),
-      );
-      // Assert: currentDirection は pranswer の inactive になり、両側とも送らない。
-      expect(offerer().video.currentDirection).toBe("inactive");
-      expect(answerer().video.currentDirection).toBe("inactive");
-      await expect(
-        sendAndExpectRtp(
-          offerer().out,
-          answerer().video.receiver.track,
-          "inactive-a-to-b",
-        ),
-      ).rejects.toThrow("RTP was not received");
-      await expect(
-        sendAndExpectRtp(
-          answerer().out,
-          offerer().video.receiver.track,
-          "inactive-b-to-a",
-        ),
-      ).rejects.toThrow("RTP was not received");
-
-      if (outcome === "answer") {
-        // Act: sendrecv の final answer で commit する。
-        await step(session, () =>
-          answerer().pc.setLocalDescription({ type: "answer", sdp: answer }),
-        );
-        await step(session, () =>
-          offerer().pc.setRemoteDescription({ type: "answer", sdp: answer }),
-        );
-      } else {
-        // Act: 両側で rollback し、current の sendrecv に戻す。
-        await step(session, () =>
-          offerer().pc.setLocalDescription({ type: "rollback" }),
-        );
-        await step(session, () =>
-          answerer().pc.setRemoteDescription({ type: "rollback" }),
-        );
-      }
-      // Assert: 送信が再開し、双方向に届く。
-      expect(offerer().video.currentDirection).toBe("sendrecv");
-      expect(answerer().video.currentDirection).toBe("sendrecv");
-      await expectSessionAlive(session, `inactive-${outcome}`);
-    },
-  );
-
-  test("SSRCs only a replaced pranswer announced stop routing at the final answer", async () => {
+  test("SSRCs only a replaced pranswer announced stop routing at the final answer", async ({
+    closing,
+  }) => {
     // Arrange: answerer の video SSRC を wire 上で pranswer 用と final 用に書き換える。
-    session = await createDuplexSession();
+    session = closing(await createDuplexSession());
     const answer = await reoffer();
     const original = Number(
       /^a=ssrc:(\d+) /m.exec(sectionOf(answer, VIDEO))![1],
@@ -179,15 +121,7 @@ describe("negotiation effective values while a renegotiation is pending", () => 
     const receiver = offerer().video.receiver;
 
     // Act: 別 SSRC の pranswer を offerer に適用する。
-    await step(session, () =>
-      answerer().pc.setLocalDescription({ type: "pranswer", sdp: answer }),
-    );
-    await step(session, () =>
-      offerer().pc.setRemoteDescription({
-        type: "pranswer",
-        sdp: withSsrc(1111),
-      }),
-    );
+    await answerWith("pranswer", answer, withSsrc(1111));
     // Assert: pranswer の SSRC が新たに route され、current の SSRC も残る。
     expect(router().ssrcTable[1111]).toBe(receiver);
     expect(router().ssrcTable[original]).toBe(receiver);
@@ -204,15 +138,7 @@ describe("negotiation effective values while a renegotiation is pending", () => 
     expect(router().ssrcTable[1111]).toBeUndefined();
 
     // Act: さらに別 SSRC の final answer で commit する。
-    await step(session, () =>
-      answerer().pc.setLocalDescription({ type: "answer", sdp: answer }),
-    );
-    await step(session, () =>
-      offerer().pc.setRemoteDescription({
-        type: "answer",
-        sdp: withSsrc(2222),
-      }),
-    );
+    await answerWith("answer", answer, withSsrc(2222));
     // Assert: final answer の SSRC が route され、置き換えられた pranswer だけの
     // SSRC は届かなくなる (確定済み session の SSRC は develop と同じく残る)。
     expect(router().ssrcTable[2222]).toBe(receiver);
@@ -220,36 +146,18 @@ describe("negotiation effective values while a renegotiation is pending", () => 
     expect(router().ssrcTable[original]).toBe(receiver);
   });
 
-  test("a first pranswer with other SSRCs leaves the receiver's track to the final answer's SSRC", async () => {
+  test("a first pranswer with other SSRCs leaves the receiver's track to the final answer's SSRC", async ({
+    closing,
+  }) => {
     // Arrange: 初回交渉で、answerer の video SSRC を wire 上で書き換えた pranswer を用意する。
-    session = await createMutationSession("initial");
-    await step(session, async () =>
-      offerer().pc.setLocalDescription(await offerer().pc.createOffer()),
-    );
-    await step(session, () =>
-      answerer().pc.setRemoteDescription(offerer().pc.localDescription!),
-    );
-    await prepareMutationAnswerer(session);
-    const answer = (await answerer().pc.createAnswer()).sdp;
+    session = closing(await createMutationSession("initial"));
+    const answer = await reoffer(() => prepareMutationAnswerer(session));
 
     // Act: 別 SSRC の pranswer を適用し、offerer の track を控える。
-    await step(session, () =>
-      answerer().pc.setLocalDescription({ type: "pranswer", sdp: answer }),
-    );
-    await step(session, () =>
-      offerer().pc.setRemoteDescription({
-        type: "pranswer",
-        sdp: mutate(answer, ["ssrcChanged"]),
-      }),
-    );
+    await answerWith("pranswer", answer, mutate(answer, ["ssrcChanged"]));
     const track = offerer().video.receiver.track;
     // Act: 実際の SSRC の final answer で確定する。
-    await step(session, () =>
-      answerer().pc.setLocalDescription({ type: "answer", sdp: answer }),
-    );
-    await step(session, () =>
-      offerer().pc.setRemoteDescription({ type: "answer", sdp: answer }),
-    );
+    await answerWith("answer", answer);
     await waitForMutationSession(session);
 
     // Assert: receiver の track は同じ object のまま final answer の SSRC を受け取る。
@@ -258,35 +166,17 @@ describe("negotiation effective values while a renegotiation is pending", () => 
     await expectMediaAlive(session, "first-pranswer-ssrc");
   });
 
-  test("a transport a no-BUNDLE first pranswer added stays closed after the BUNDLE answer", async () => {
+  test("a transport a no-BUNDLE first pranswer added stays closed after the BUNDLE answer", async ({
+    closing,
+  }) => {
     // Arrange: 初回交渉で、BUNDLE なしの pranswer で transport を分けさせる。
-    session = await createMutationSession("initial");
-    await step(session, async () =>
-      offerer().pc.setLocalDescription(await offerer().pc.createOffer()),
-    );
-    await step(session, () =>
-      answerer().pc.setRemoteDescription(offerer().pc.localDescription!),
-    );
-    await prepareMutationAnswerer(session);
-    const answer = (await answerer().pc.createAnswer()).sdp;
-    await step(session, () =>
-      answerer().pc.setLocalDescription({ type: "pranswer", sdp: answer }),
-    );
-    await step(session, () =>
-      offerer().pc.setRemoteDescription({
-        type: "pranswer",
-        sdp: mutate(answer, ["noBundle"]),
-      }),
-    );
+    session = closing(await createMutationSession("initial"));
+    const answer = await reoffer(() => prepareMutationAnswerer(session));
+    await answerWith("pranswer", answer, mutate(answer, ["noBundle"]));
     const split = heldTransports(offerer().pc);
 
     // Act: BUNDLE の final answer で確定し、中断された checks が終わるのを待つ。
-    await step(session, () =>
-      answerer().pc.setLocalDescription({ type: "answer", sdp: answer }),
-    );
-    await step(session, () =>
-      offerer().pc.setRemoteDescription({ type: "answer", sdp: answer }),
-    );
+    await answerWith("answer", answer);
     const dropped = [...split].filter(
       (transport) => !heldTransports(offerer().pc).has(transport),
     );

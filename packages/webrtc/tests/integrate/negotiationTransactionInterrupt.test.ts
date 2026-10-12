@@ -52,10 +52,9 @@ function startInterrupt(session: DuplexSession, interrupt: Interrupt) {
 /** Act: settle both peers back to stable from wherever the interrupt left them. */
 async function settleToStable(session: DuplexSession) {
   const { a, b } = session;
-  if (a.pc.signalingState === "have-local-offer") {
-    await a.pc.setLocalDescription({ type: "rollback" });
-  }
-  if (a.pc.signalingState === "have-remote-pranswer") {
+  if (
+    ["have-local-offer", "have-remote-pranswer"].includes(a.pc.signalingState)
+  ) {
     await a.pc.setLocalDescription({ type: "rollback" });
   }
   if (b.pc.signalingState !== "stable") {

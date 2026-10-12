@@ -1344,9 +1344,17 @@ export class RTCPeerConnection extends EventTarget {
               transport,
           );
           if (mediaIndex < 0) continue;
-          for (const candidate of transport.iceTransport.localCandidates) {
-            candidate.sdpMid = description.media[mediaIndex].rtp.muxId;
-            candidate.sdpMLineIndex = mediaIndex;
+          for (const described of transport.iceTransport.localCandidates) {
+            // Notify a copy: the transport's candidates also render the local
+            // description, whose foundation must stay without "candidate:".
+            const candidate = Object.assign(
+              Object.create(Object.getPrototypeOf(described)),
+              described,
+              {
+                sdpMid: description.media[mediaIndex].rtp.muxId,
+                sdpMLineIndex: mediaIndex,
+              },
+            ) as typeof described;
             if (
               candidate.foundation &&
               !candidate.foundation.startsWith("candidate:")

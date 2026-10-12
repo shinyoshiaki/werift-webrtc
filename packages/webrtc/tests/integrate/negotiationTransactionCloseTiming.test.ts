@@ -5,6 +5,7 @@ import {
   closeAfter,
   heldTransports,
   settlesWithin,
+  negotiationTest as test,
 } from "./negotiationTransactionUtils";
 
 /**
@@ -19,40 +20,38 @@ const cases = CLOSE_TIMING_OPERATIONS.flatMap((operation) =>
 );
 
 describe("close() at every point of a negotiation operation", () => {
-  test.each(cases)(
+  test.for(cases)(
     "$operation closed after $ticks",
-    async ({ operation, ticks }) => {
+    { timeout: 15000 },
+    async ({ operation, ticks }, { closing }) => {
       // Arrange: 操作に必要な状態の peer を用意する。
       const { pc, run, close } = await arrangeCloseTimingOperation(operation);
-      try {
-        // Act: 操作を始め、指定の時点で close() する。
-        const pending = run();
-        // 決着は下で検査する (close 前の reject を未処理扱いにしない)。
-        pending.catch(() => undefined);
-        await closeAfter(pc, ticks);
+      closing({ close });
 
-        // Assert: 操作の promise は決着する (永久に pending にならない)。
-        // 失敗するなら close に追い越されたことを示す InvalidStateError。
-        expect(await settlesWithin(pending, 3000)).toBe(true);
-        const outcome = await pending.then(
-          () => "resolved",
-          (error: Error) => error.name,
-        );
-        expect(["resolved", "InvalidStateError"]).toContain(outcome);
-        // Assert: close 後の操作も InvalidStateError で決着する。
-        await expect(pc.createOffer()).rejects.toMatchObject({
-          name: "InvalidStateError",
-        });
-        expect(pc.signalingState).toBe("closed");
-        // Assert: 保持していた transport はすべて閉じている。
-        assertTransportsClosed([
-          ...heldTransports(pc),
-          ...pc.getTransceivers().map((t) => t.dtlsTransport),
-        ]);
-      } finally {
-        await close();
-      }
+      // Act: 操作を始め、指定の時点で close() する。
+      const pending = run();
+      // 決着は下で検査する (close 前の reject を未処理扱いにしない)。
+      pending.catch(() => undefined);
+      await closeAfter(pc, ticks);
+
+      // Assert: 操作の promise は決着する (永久に pending にならない)。
+      // 失敗するなら close に追い越されたことを示す InvalidStateError。
+      expect(await settlesWithin(pending, 3000)).toBe(true);
+      const outcome = await pending.then(
+        () => "resolved",
+        (error: Error) => error.name,
+      );
+      expect(["resolved", "InvalidStateError"]).toContain(outcome);
+      // Assert: close 後の操作も InvalidStateError で決着する。
+      await expect(pc.createOffer()).rejects.toMatchObject({
+        name: "InvalidStateError",
+      });
+      expect(pc.signalingState).toBe("closed");
+      // Assert: 保持していた transport はすべて閉じている。
+      assertTransportsClosed([
+        ...heldTransports(pc),
+        ...pc.getTransceivers().map((t) => t.dtlsTransport),
+      ]);
     },
-    15000,
   );
 });
