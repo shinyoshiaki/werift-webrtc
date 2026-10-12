@@ -224,7 +224,9 @@ export async function spawnOpensslDtls12Server(
  * Arrange: a plain DTLS 1.3 engine pair (Dtls13Connection) over loopback UDP,
  * for tests that patch engine internals (e.g. the server's ACK send).
  */
-export async function arrangeDtls13EnginePair() {
+export async function arrangeDtls13EnginePair({
+  certificateRequest = false,
+}: { certificateRequest?: boolean } = {}) {
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
@@ -235,7 +237,7 @@ export async function arrangeDtls13EnginePair() {
     offeredProtocolVersions: [DtlsVersion.V1_3],
   };
   const server = new Dtls13Connection(
-    { ...base, transport: serverTransport },
+    { ...base, transport: serverTransport, certificateRequest },
     SessionType.SERVER,
   );
   const client = new Dtls13Connection(

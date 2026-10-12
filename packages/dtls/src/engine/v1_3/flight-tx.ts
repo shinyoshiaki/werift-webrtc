@@ -766,7 +766,15 @@ export async function sendAck(
       restoreAll();
       return 0;
     }
-    const ok = await this.sendWithBudget(record);
+    let ok: boolean;
+    try {
+      ok = await this.sendWithBudget(record);
+    } catch (error) {
+      // A failed send acknowledged nothing: put every number back so a later
+      // ACK (e.g. for the peer's retransmission) still covers it.
+      restoreAll();
+      throw error;
+    }
     if (!ok) {
       restoreAll();
       return 0;
@@ -776,6 +784,9 @@ export async function sendAck(
       ...sorted.slice(n),
       ...this.receivedRecordNumbers,
     ];
+    for (const r of candidate) {
+      this.unackedHandshakeRecords.delete(`${r.epoch}:${r.sequenceNumber}`);
+    }
     return n;
   }
 
@@ -912,9 +923,11 @@ export function noteHandshakeRecordForAck(
 ): boolean {
   if (this.clearRemoteAckOnNextInbound) {
     this.receivedRecordNumbers = [];
+    this.unackedHandshakeRecords.clear();
     this.clearRemoteAckOnNextInbound = false;
   }
   this.markHandshakeRecordAccepted(epoch, sequenceNumber);
+  this.unackedHandshakeRecords.add(`${epoch}:${sequenceNumber}`);
   const exists = this.receivedRecordNumbers.some(
     (r) => r.epoch === epoch && r.sequenceNumber === sequenceNumber,
   );

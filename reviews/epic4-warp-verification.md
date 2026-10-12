@@ -4,11 +4,11 @@ ide:
   version: 1
   title: "Epic 4: WARP 対応 WebRTC の検証記録（interop / E2E / 要件とテストの対応）"
   dock: right
-  baseCommit: add084e128b6ecebd441b9661e67f50fafc1e10f
+  baseCommit: f296d38ee93c8b930185d35e65155e504e58d995
 ---
 # Epic 4: WARP 対応 WebRTC の検証記録
 
-設計書 [epic4-warp-webrtc-detailed.md](review-file:epic4-warp-webrtc-detailed.md:1) の §29–32（stats）、§40–50（テスト・相互接続）、§53（完了条件）について、実行した検証と、要件ごとのテストの対応をまとめます。対象は `add084e1` に、DTLS 1.3 の最終 ACK 再送と readiness waiter の修正（§10）を加えた作業ツリーです。
+設計書 [epic4-warp-webrtc-detailed.md](review-file:epic4-warp-webrtc-detailed.md:1) の §29–32（stats）、§40–50（テスト・相互接続）、§53（完了条件）について、実行した検証と、要件ごとのテストの対応をまとめます。対象は `f296d38e` に、server の完了判定を「Finished を含む全 record の ACK 送信成功」に改めた修正（§10.4）を加えた作業ツリーです。
 
 ## 0. 実行環境（2026-10-10）
 
@@ -332,3 +332,19 @@ SCTP 側で認証状態を見ずに `cancelStart` へ進む経路は、`SCTPSend
 | `packages/dtls` 全件 `--retry=0` | 448 passed / 1 skipped |
 | `cd packages/dtls && npm run test:boringssl:docker` | 5/5 成功 |
 | `npm run doc`（差分なし）、`npm run e2e`（一般 46、DTLS 1.2 / 1.3 モード各 12）、`npm run wpt --workspace packages/webrtc`（後退なし） | 成功 |
+
+### 10.4 Finished の ACK が未送信のまま server が完了する（承認後レビューの再指摘）
+
+- **原因:** `sendAck()` は送信前に ACK 対象を queue から取り出す。`sendWithBudget` が throw すると対象は queue に戻らず、送信中・失敗した ACK の record は queue にも ACK 済みにも残らなかった。§10.1 の完了判定は「queue が空」だけを見ていたため、相互認証で最終 flight が Certificate・CertificateVerify・Finished に分かれ、世代変更と初回 ACK の送信失敗が重なると、先行 record の再 ACK が成功しただけで、Finished の ACK が一度も送れていないのに server が `handshakeComplete=true` を通知していた（client は `false`、最終 flight は保留のまま）。
+- **修正:**
+  - `unackedHandshakeRecords`（`connection-base.ts`）: 受理した handshake record を記録し、その record を含む ACK の送信が成功したときだけ消す（`flight-tx.ts` の `sendAck`）。送信中・失敗した ACK の record は残る。
+  - `sendAck` は送信が throw した場合も ACK 対象を queue に戻す（後続の ACK、たとえば相手の再送への ACK で必ず送り直す）。
+  - server の完了判定（`record-rx.ts` の `completeServerHandshakeIfAcked`）に「`unackedHandshakeRecords` が空」を加え、Finished を含む全 record の ACK 送信成功を条件にした。
+- **回帰テスト:** `packages/dtls/tests/e2e/self13_final_ack_retry.test.ts` › `e2e/self13 相互認証で Finished の ACK が送れていない間は server を handshakeComplete にしない`。
+  - 相互認証で最終 flight を 3 record に分ける。
+  - Finished を含む ACK だけを、`sendAck` が対象を queue から取り出した後の `sendWithBudget` で 2 回失敗させる（初回は世代変更と重ねる）。
+  - 先行 record だけの ACK は成功させる。
+  - `onHandshakeComplete` の時点で Finished の ACK 送信が成功済みであること、その後に両側が完了することを確認する。
+  - 修正前は「Finished の ACK 未送信のまま完了」で失敗した（先行 record の ACK は成功していた）。
+- **検証:** `packages/dtls` 全件 `--retry=0`（449 passed / 1 skipped）、`npm run type`、`lint:imports`、`npm run test:small`（DTLS 449、webrtc 685、ICE 302 ほか）、`npm run test:boringssl:docker`（5/5）、`npm run e2e`（46、DTLS 1.2 / 1.3 モード各 12）、`npm run wpt --workspace packages/webrtc`（後退なし）、`npm run doc`（差分なし）が成功。
+

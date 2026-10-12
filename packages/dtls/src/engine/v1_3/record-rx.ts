@@ -352,17 +352,20 @@ export function resolveEpochCandidates(
 }
 
 /**
- * Server handshakeComplete: client Finished received and every recorded
- * inbound handshake record has been ACKed. Also called after a re-ACK of a
- * retransmitted Finished, because the first ACK may have failed (e.g. its
- * send was rejected when the carrier generation changed during Finished
- * processing) and only the retransmission's ACK reaches the client.
+ * Server handshakeComplete: client Finished received and every accepted
+ * inbound handshake record (Certificate / CertificateVerify / Finished) has
+ * been covered by an ACK that was actually sent. An empty ACK queue is not
+ * enough: an ACK still in flight or whose send failed has already left the
+ * queue. Also called after a re-ACK of a retransmitted record, because the
+ * first ACK may have failed (e.g. its send was rejected when the carrier
+ * generation changed during Finished processing).
  */
 function completeServerHandshakeIfAcked(host: Dtls13Host): void {
   if (
     host.role === "server" &&
     host.peerFinishedReceived &&
-    host.receivedRecordNumbers.length === 0
+    host.receivedRecordNumbers.length === 0 &&
+    host.unackedHandshakeRecords.size === 0
   ) {
     host.markHandshakeComplete();
   }

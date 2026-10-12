@@ -240,6 +240,13 @@ export class Dtls13ConnectionBase {
    */
   receivedRecordNumbers: { epoch: number; sequenceNumber: number }[] = [];
   /**
+   * Accepted inbound handshake records not yet covered by an ACK that was
+   * actually sent ("epoch:seq"). Unlike receivedRecordNumbers, an ACK whose
+   * send is in flight or failed keeps its records here, so completion is
+   * never inferred from an empty ACK queue alone.
+   */
+  unackedHandshakeRecords = new Set<string>();
+  /**
    * After we send a local flight, the next successfully accepted peer handshake
    * record starts a new remote flight — clear the previous ACK list then.
    */
@@ -961,6 +968,7 @@ export class Dtls13ConnectionBase {
   /** Drop pending remote-flight ACK record numbers. */
   clearAckAccumulator() {
     this.receivedRecordNumbers = [];
+    this.unackedHandshakeRecords.clear();
   }
 
   applyPendingKeyUpdateWrite() {
