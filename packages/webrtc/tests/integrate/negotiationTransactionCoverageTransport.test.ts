@@ -1,5 +1,5 @@
 import { SCTP_STATE } from "../../../sctp/src";
-import { MediaStreamTrack, RTCPeerConnection } from "../../src";
+import type { RTCPeerConnection, RTCRtpTransceiver } from "../../src";
 import {
   REMOTE_UFRAG,
   answerRemoteOffer,
@@ -8,47 +8,8 @@ import {
   createAudioOnlyPeer,
   expectTransportsMatchBundle,
 } from "../issue/705.helpers";
-import {
-  type DuplexSession,
-  assertNegotiationInvariants,
-  assertTransportsClosed,
-  closeDuringNextPreparedGather,
-  createConnectedMultiVideoPeers,
-  createDuplexSession,
-  createInitialPranswerConnectionWithOffer,
-  createMutationSession,
-  createRewrittenOffer,
-  enforceSessionContinuation,
-  exemptFromContinuation,
-  expectMediaAlive,
-  expectSessionAlive,
-  expectSessionContinues,
-  heldTransports,
-  holdNewDtlsStart,
-  leaveBundle,
-  mungeSection,
-  mutate,
-  negotiationSnapshot,
-  prepareMutationAnswerer,
-  reverseSetupRole,
-  sdpCandidates,
-  sectionOf,
-  sendAndExpectRtp,
-  step,
-  trickleCandidate,
-  waitForDtlsConnected,
-  waitForMutationSession,
-  waitForPeersConnected,
-  waitUntil,
-  withIceCredentials,
-  withOnlyUnsupportedCodec,
-} from "./negotiationTransactionUtils";
-
-const VIDEO = "0";
-const APPLICATION = "1";
-const BOGUS_FINGERPRINT = Array(32).fill("AB").join(":");
-
-type Peer = DuplexSession["a"];
+import { negotiationCases } from "./negotiationCaseRunner";
+import { sdpCandidates, sectionOf } from "./negotiationTransactionUtils";
 
 /** The value of `a=<name>` in the m-section `mid`. */
 const attribute = (sdp: string, mid: string, name: string) =>
@@ -64,825 +25,24 @@ const remoteFingerprint = (
     }
   ).remoteParameters?.fingerprints[0]?.value;
 
-/** The remote SSRC route table of `pc`'s router. */
-const ssrcTable = (pc: RTCPeerConnection) =>
+/** The receiver the router of `pc` routes the remote SSRC `ssrc` to. */
+const routedReceiver = (pc: RTCPeerConnection, ssrc: number) =>
   (pc as unknown as { router: { ssrcTable: Record<number, unknown> } }).router
-    .ssrcTable;
+    .ssrcTable[ssrc];
 
-/**
- * Spec coverage for the pranswer lifecycle, DTLS, BUNDLE and signaling
- * transitions of TICKET-ticket-0ad06d37 (§2.2, §2.4, §2.5, §2.8, §2.9, §5).
- * The requirement ID leads each test name.
- */
-describe("negotiation transaction spec coverage: transport", () => {
-  enforceSessionContinuation();
-  let session: DuplexSession | undefined;
-  const cleanups: (() => Promise<unknown>)[] = [];
-
-  afterEach(async () => {
-    await session?.close();
-    session = undefined;
-    for (const cleanup of cleanups.splice(0)) await cleanup();
-  });
-
-  test("[2.2-8] a replacement pranswer's DTLS fingerprint and role take effect on a new association that has not started", async () => {
-    // Arrange: 確立済み session で、新しい audio を BUNDLE 外に出す re-offer
-    // (新しい DTLS association) を両側に置き、offerer の新 transport の DTLS 開始を止める。
-    session = await createDuplexSession();
-    const { a, b } = session;
-    const audioOut = new MediaStreamTrack({ kind: "audio" });
-    const audio = a.pc.addTransceiver(audioOut, { direction: "sendonly" });
-    const offer = await createRewrittenOffer(a.pc, (sdp) =>
-      leaveBundle(sdp, audio.mid!),
-    );
-    const mid = audio.mid!;
-    await step(session, () => a.pc.setLocalDescription(offer));
-    const hold = holdNewDtlsStart(a.pc);
-    await step(session, () =>
-      b.pc.setRemoteDescription(a.pc.localDescription!),
-    );
-    const answer = (await b.pc.createAnswer()).sdp;
-    const shared = a.video.dtlsTransport;
-    const sharedRole = shared.role;
-    const sharedFingerprint = remoteFingerprint(shared);
-    const realFingerprint = /^a=fingerprint:\S+ (\S+)/m.exec(
-      sectionOf(answer, mid),
-    )![1];
-    // 1 回目は新 association の fingerprint と a=setup だけを変えた pranswer。
-    const first = mungeSection(answer, mid, (section) =>
-      reverseSetupRole(section).replace(
-        /^a=fingerprint:(\S+) \S+/m,
-        `a=fingerprint:$1 ${BOGUS_FINGERPRINT}`,
-      ),
-    );
-    const newTransport = () =>
-      [...heldTransports(a.pc)].find(
-        (transport) => transport !== shared && transport.state !== "closed",
-      )!;
-
-    // Act: 1 回目の pranswer を両側に適用する。
-    await step(session, () =>
-      b.pc.setLocalDescription({ type: "pranswer", sdp: answer }),
-    );
-    await step(session, () =>
-      a.pc.setRemoteDescription({ type: "pranswer", sdp: first }),
-    );
-    // Assert: 未接続の新 association は 1 回目の pranswer の fingerprint / role になる。
-    expect(hold.held).toHaveLength(1);
-    expect(remoteFingerprint(newTransport())).toBe(BOGUS_FINGERPRINT);
-    expect(newTransport().role).toBe("client");
-
-    // Act: 正しい fingerprint と a=setup の replacement pranswer を適用する。
-    await step(session, () =>
-      a.pc.setRemoteDescription({ type: "pranswer", sdp: answer }),
-    );
-    // Assert: 新 association は最新の pranswer の値に置き換わり、既存 association は変わらない。
-    expect(remoteFingerprint(newTransport())).toBe(realFingerprint);
-    expect(newTransport().role).toBe("server");
-    expect(shared.role).toBe(sharedRole);
-    expect(remoteFingerprint(shared)).toBe(sharedFingerprint);
-
-    // Act: DTLS の開始を許し、新 association の接続を待つ。
-    hold.release();
-    const remoteAudio = b.pc.getTransceivers().find((t) => t.mid === mid)!;
-    await waitForPeersConnected(a.pc, b.pc);
-    await Promise.all([
-      waitForDtlsConnected(newTransport()),
-      waitForDtlsConnected(remoteAudio.dtlsTransport),
-    ]);
-    // Assert: 最新の pranswer の値で接続し、新しい audio の RTP と既存 session が通じる。
-    expect(b.pc.signalingState).toBe("have-local-pranswer");
-    await sendAndExpectRtp(
-      audioOut,
-      remoteAudio.receiver.track,
-      "replacement-pranswer-audio",
-    );
-    await expectSessionAlive(session, "replacement-pranswer-dtls");
-    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
-    await expectSessionContinues(a.pc, b.pc, "replacement-pranswer-dtls");
-  });
-
-  test("[2.2-8] a replacement pranswer that adds BUNDLE detaches the transports a no-BUNDLE pranswer used and stops their checks", async () => {
-    // Arrange: 初回交渉で、BUNDLE なしの pranswer を offerer に適用する。
-    session = await createMutationSession("initial");
-    const { a, b } = session;
-    await step(session, async () =>
-      a.pc.setLocalDescription(await a.pc.createOffer()),
-    );
-    await step(session, () =>
-      b.pc.setRemoteDescription(a.pc.localDescription!),
-    );
-    await prepareMutationAnswerer(session);
-    const answer = (await b.pc.createAnswer()).sdp;
-    await step(session, () =>
-      b.pc.setLocalDescription({ type: "pranswer", sdp: answer }),
-    );
-    await step(session, () =>
-      a.pc.setRemoteDescription({
-        type: "pranswer",
-        sdp: mutate(answer, ["noBundle"]),
-      }),
-    );
-    const unbundled = [...a.pc.dtlsTransports];
-    expect(unbundled.length).toBeGreaterThan(1);
-
-    // Act: BUNDLE を受理した replacement pranswer を適用する。
-    await step(session, () =>
-      a.pc.setRemoteDescription({ type: "pranswer", sdp: answer }),
-    );
-    const detached = unbundled.filter(
-      (transport) => !a.pc.dtlsTransports.includes(transport),
-    );
-
-    // Assert: 全 m-line が tag の transport を共有し、旧 pranswer だけが使った
-    // transport は外れて、その暫定の ICE checks は止まる。
-    expect(a.pc.sctpTransport!.dtlsTransport).toBe(a.video.dtlsTransport);
-    expect(detached.length).toBeGreaterThan(0);
-    for (const transport of detached) {
-      expect(["new", "closed"]).toContain(transport.iceTransport.state);
-    }
-    // Assert: final answer 前の最新 topology で RTP と DataChannel が通じる。
-    await waitForMutationSession(session);
-    expect(a.pc.signalingState).toBe("have-remote-pranswer");
-    await expectSessionAlive(session, "replacement-pranswer-bundle");
-
-    // Act: final answer で確定する。
-    await step(session, () =>
-      b.pc.setLocalDescription({ type: "answer", sdp: answer }),
-    );
-    await step(session, () =>
-      a.pc.setRemoteDescription({ type: "answer", sdp: answer }),
-    );
-    // Assert: 確定後も同じ topology で通じる。
-    await expectSessionAlive(session, "replacement-pranswer-bundle-final");
-    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
-    await expectSessionContinues(a.pc, b.pc, "replacement-pranswer-bundle");
-  });
-
-  test("[2.2-13] a final answer that rejects the application m-line keeps the SCTP association a first pranswer opened, as develop does", async () => {
-    // Arrange: 初回交渉の pranswer で SCTP association と DataChannel を開く。
-    session = await createMutationSession("initial");
-    const { a, b } = session;
-    await step(session, async () =>
-      a.pc.setLocalDescription(await a.pc.createOffer()),
-    );
-    await step(session, () =>
-      b.pc.setRemoteDescription(a.pc.localDescription!),
-    );
-    await prepareMutationAnswerer(session);
-    const answer = (await b.pc.createAnswer()).sdp;
-    await step(session, () =>
-      b.pc.setLocalDescription({ type: "pranswer", sdp: answer }),
-    );
-    await step(session, () =>
-      a.pc.setRemoteDescription({ type: "pranswer", sdp: answer }),
-    );
-    await waitForMutationSession(session);
-    const provisional = a.pc.sctpTransport!;
-    expect(provisional.sctp.associationState).toBe(SCTP_STATE.ESTABLISHED);
-    const rejected = leaveBundle(
-      mungeSection(answer, APPLICATION, (section) =>
-        section.replace(/^m=application \d+/m, "m=application 0"),
-      ),
-      APPLICATION,
-    );
-
-    // Act: application m-line を port 0 で拒否した final answer を offerer に適用する。
-    await b.pc.setLocalDescription({ type: "answer", sdp: answer });
-    await a.pc.setRemoteDescription({ type: "answer", sdp: rejected });
-    assertNegotiationInvariants(a.pc);
-
-    // Assert: develop と同じく SCTP transport と DataChannel は閉じず、同じ MID に束縛されたまま。
-    expect(a.pc.sctpTransport).toBe(provisional);
-    expect(provisional.mid).toBe(APPLICATION);
-    expect(provisional.sctp.associationState).toBe(SCTP_STATE.ESTABLISHED);
-    expect(a.channel.readyState).toBe("open");
-    // Assert: 受理された video は確定した transport で届き続ける。
-    await sendAndExpectRtp(
-      a.out,
-      b.video.receiver.track,
-      "video-after-sctp-reject",
-    );
-    // Assert: 次の offer は同じ MID の application を再提案し、その後も通信できる。
-    expect(sectionOf((await a.pc.createOffer()).sdp, APPLICATION)).toMatch(
-      /^m=application [1-9]/,
-    );
-    await expectSessionContinues(a.pc, b.pc, "after-sctp-reject");
-  });
-
-  test("[2.2-13] the candidates of a pranswer generation the final answer replaced leave the live checklist", async () => {
-    // Arrange: 初回交渉で、final answer と別の ICE generation の候補を持つ pranswer を offerer に適用する。
-    session = await createMutationSession("initial");
-    const { a, b } = session;
-    await step(session, async () =>
-      a.pc.setLocalDescription(await a.pc.createOffer()),
-    );
-    await step(session, () =>
-      b.pc.setRemoteDescription(a.pc.localDescription!),
-    );
-    await prepareMutationAnswerer(session);
-    const answer = (await b.pc.createAnswer()).sdp;
-    const ufrag = attribute(answer, VIDEO, "ice-ufrag")!;
-    // pranswer は別の (provisional) ICE generation とその候補を伝える。
-    const extra = trickleCandidate(50991, "prov", VIDEO).candidate;
-    const pranswer = mungeSection(
-      withIceCredentials(
-        answer,
-        "prov",
-        "provisionalpasswordprovisional",
-      ).replace(/ ufrag \S+/g, " ufrag prov"),
-      VIDEO,
-      (section) =>
-        section.replace(/^(a=ice-pwd:[^\r\n]+\r\n)/m, `$1a=${extra}\r\n`),
-    );
-    const connection = a.pc.iceTransports[0].connection;
-    await step(session, () =>
-      b.pc.setLocalDescription({ type: "pranswer", sdp: answer }),
-    );
-    await step(session, () =>
-      a.pc.setRemoteDescription({ type: "pranswer", sdp: pranswer }),
-    );
-    await waitUntil(
-      () => connection.remoteCandidates.some((c) => c.port === 50991),
-      "the pranswer candidate was not added",
-    );
-
-    // Act: その候補を含まない final answer で確定する。
-    await step(session, () =>
-      b.pc.setLocalDescription({ type: "answer", sdp: answer }),
-    );
-    await step(session, () =>
-      a.pc.setRemoteDescription({ type: "answer", sdp: answer }),
-    );
-
-    // Assert: final answer の generation に切り替わり、pranswer だけが伝えた候補は
-    // live checklist と current SDP から外れる。
-    const live = a.pc.iceTransports[0].connection;
-    expect(live.remoteUsername).toBe(ufrag);
-    expect(live.remoteCandidates.some((c) => c.port === 50991)).toBe(false);
-    expect(
-      live.checkList.some((pair) => pair.remoteCandidate.port === 50991),
-    ).toBe(false);
-    expect(a.pc.currentRemoteDescription!.sdp).not.toContain(" 50991 ");
-    await waitForMutationSession(session);
-    await expectMediaAlive(session, "pranswer-candidate-released");
-    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
-    await expectSessionContinues(a.pc, b.pc, "pranswer-candidate-released");
-  });
-
-  test("[2.2-16] rollback stops the RTP a renegotiation pranswer started and keeps the current stream", async () => {
-    // Arrange: 確立済み session に新しい audio を足した re-offer を pranswer まで進め、
-    // 新 audio の RTP が届くことを確かめる。
-    session = await createDuplexSession();
-    const { a, b } = session;
-    const audioOut = new MediaStreamTrack({ kind: "audio" });
-    const audio = a.pc.addTransceiver(audioOut, { direction: "sendonly" });
-    await step(session, async () =>
-      a.pc.setLocalDescription(await a.pc.createOffer()),
-    );
-    await step(session, () =>
-      b.pc.setRemoteDescription(a.pc.localDescription!),
-    );
-    const answer = (await b.pc.createAnswer()).sdp;
-    await step(session, () =>
-      b.pc.setLocalDescription({ type: "pranswer", sdp: answer }),
-    );
-    await step(session, () =>
-      a.pc.setRemoteDescription({ type: "pranswer", sdp: answer }),
-    );
-    const remoteAudio = b.pc
-      .getTransceivers()
-      .find((t) => t.mid === audio.mid)!;
-    const audioTrack = remoteAudio.receiver.track;
-    const audioSsrc = audio.sender.ssrc;
-    await sendAndExpectRtp(audioOut, audioTrack, "pranswer-audio");
-    expect(ssrcTable(b.pc)[audioSsrc]).toBe(remoteAudio.receiver);
-
-    // Act: 両側で rollback する。
-    await step(session, () => a.pc.setLocalDescription({ type: "rollback" }));
-    await step(session, () => b.pc.setRemoteDescription({ type: "rollback" }));
-
-    // Assert: 新 audio の RTP は届かなくなり、受信側 router にその SSRC は残らない。
-    await expect(
-      sendAndExpectRtp(audioOut, audioTrack, "rolled-back-audio"),
-    ).rejects.toThrow("RTP was not received");
-    expect(ssrcTable(b.pc)[audioSsrc]).toBeUndefined();
-    // Assert: 旧 current の video と DataChannel は双方向に届き続ける。
-    await expectSessionAlive(session, "pranswer-rollback-current");
-    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
-    await expectSessionContinues(a.pc, b.pc, "pranswer-rollback");
-  });
-
-  test("[2.8-18] close() while a local offer stages the transports of a BUNDLE split leaves none running", async () => {
-    const { offerer, answerer, close } =
-      await createConnectedMultiVideoPeers(3);
-    cleanups.push(close);
-    // close() する offerer とその相手は継続確認の対象外。
-    exemptFromContinuation(
-      [offerer, answerer],
-      "close() is the operation under test",
-    );
-    // Arrange: 3 m-line の BUNDLE から 2 つを外す (owner transport を 2 つ stage させる) local offer を用意する。
-    const [first] = offerer.getTransceivers().map((t) => t.mid!);
-    const split = await createRewrittenOffer(offerer, (sdp) =>
-      sdp.replace(/^a=group:BUNDLE [^\r\n]+/m, `a=group:BUNDLE ${first}`),
-    );
-    const live = [...offerer.dtlsTransports];
-    const hook = closeDuringNextPreparedGather(offerer);
-    cleanups.push(async () => hook.restore());
-
-    // Act: local offer の stage (最初の gather) の途中で close する。
-    await expect(offerer.setLocalDescription(split)).rejects.toMatchObject({
-      name: "InvalidStateError",
-    });
-    await hook.closed();
-    hook.restore();
-
-    // Assert: stage を始めた transport は止まり、close の後に新しい transport は作られない。
-    expect(hook.gathered).toHaveLength(1);
-    for (const transport of hook.gathered) {
-      expect(transport.state).toBe("closed");
-    }
-    assertTransportsClosed(live);
-    expect(offerer.connectionState).toBe("closed");
-    expect(offerer.signalingState).toBe("closed");
-  });
-
-  test("[2.8-20] a first answer's own MIDs are read as the offered MIDs in BUNDLE, and a later answer must match exactly", async () => {
-    // Arrange: #142 の fixture を、BUNDLE も answer 側の独自 MID で書いた版にする。
-    const pc = new RTCPeerConnection();
-    cleanups.push(() => pc.close());
-    // 手書きの remote answer とだけ交渉するので継続確認の対象外。
-    exemptFromContinuation(pc, "no real remote peer");
-    pc.addTrack(new MediaStreamTrack({ kind: "audio" }));
-    pc.addTrack(new MediaStreamTrack({ kind: "video" }));
-    pc.createDataChannel("dc");
-    await pc.setLocalDescription(await pc.createOffer());
-
-    // Act: 初回 answer として適用する。
-    // (fixture の payload type は offer と異なるので invariant helper は使わない。)
-    await pc.setRemoteDescription({ type: "answer", sdp: issue142Answer });
-
-    // Assert: 受理され、MID と BUNDLE の項目が offer の MID に読み替えられて transport を共有する。
-    expect(pc.signalingState).toBe("stable");
-    expect(pc.getTransceivers().map((t) => t.mid)).toEqual(["0", "1"]);
-    expect(bundleGroups(pc.currentRemoteDescription!.sdp)).toEqual([
-      ["0", "2", "1"],
-    ]);
-    const [audio, video] = pc.getTransceivers();
-    expect(video.dtlsTransport).toBe(audio.dtlsTransport);
-    expect(pc.sctpTransport!.dtlsTransport).toBe(audio.dtlsTransport);
-    expect(pc.dtlsTransports).toHaveLength(1);
-
-    // Act: 再交渉で、同じ独自 MID の answer を適用する。
-    await pc.setLocalDescription(await pc.createOffer());
-    const before = negotiationSnapshot(pc);
-    await expect(
-      pc.setRemoteDescription({ type: "answer", sdp: issue142Answer }),
-    ).rejects.toThrow();
-
-    // Assert: session 確立後は MID の不一致を拒否し、状態は変わらない。
-    expect(negotiationSnapshot(pc)).toEqual(before);
-    expect(pc.signalingState).toBe("have-local-offer");
-  });
-
-  test.each(["max-compat", "balanced"] as const)(
-    "[2.8-41] a %s first offer keeps each m-line on its own transport and candidates until an answer accepts BUNDLE",
-    async (bundlePolicy) => {
-      // Arrange: audio + video の初回 offerer と、BUNDLE を受理する answerer。
-      const offerer = new RTCPeerConnection({ bundlePolicy });
-      const answerer = new RTCPeerConnection();
-      cleanups.push(() =>
-        Promise.allSettled([offerer.close(), answerer.close()]),
-      );
-      const audioOut = new MediaStreamTrack({ kind: "audio" });
-      const videoOut = new MediaStreamTrack({ kind: "video" });
-      const audio = offerer.addTransceiver(audioOut, { direction: "sendonly" });
-      const video = offerer.addTransceiver(videoOut, { direction: "sendonly" });
-
-      // Act: offer を作って適用する。
-      await offerer.setLocalDescription(await offerer.createOffer());
-      assertNegotiationInvariants(offerer);
-
-      // Assert: offer は BUNDLE を提案するが、各 m-line は自分の transport を持ち、
-      // その transport の候補を広告する。
-      const offer = offerer.localDescription!.sdp;
-      expect(bundleGroups(offer)).toEqual([[audio.mid, video.mid]]);
-      expect(audio.dtlsTransport).not.toBe(video.dtlsTransport);
-      const advertised = (mid: string) =>
-        new Set(
-          sdpCandidates(offer, mid).map(
-            ({ candidate }) => candidate.split(" ")[5],
-          ),
-        );
-      const gathered = (transceiver: typeof audio) =>
-        new Set(
-          transceiver.dtlsTransport.iceTransport.connection.localCandidates.map(
-            (candidate) => String(candidate.port),
-          ),
-        );
-      for (const transceiver of [audio, video]) {
-        expect(advertised(transceiver.mid!).size).toBeGreaterThan(0);
-        expect(advertised(transceiver.mid!)).toEqual(gathered(transceiver));
-      }
-      expect(
-        [...advertised(audio.mid!)].some((port) =>
-          advertised(video.mid!).has(port),
-        ),
-      ).toBe(false);
-      const proposed = heldTransports(offerer);
-
-      // Act: BUNDLE を受理した answer で確定する。
-      await answerer.setRemoteDescription(offerer.localDescription!);
-      await answerer.setLocalDescription(await answerer.createAnswer());
-      await offerer.setRemoteDescription(answerer.localDescription!);
-      assertNegotiationInvariants(offerer);
-      assertNegotiationInvariants(answerer);
-
-      // Assert: tag の transport に統合され、余った transport は閉じる。
-      expect(video.dtlsTransport).toBe(audio.dtlsTransport);
-      const dropped = [...proposed].filter(
-        (transport) => transport !== audio.dtlsTransport,
-      );
-      expect(dropped).toHaveLength(1);
-      assertTransportsClosed(dropped);
-      // Assert: 統合した transport で audio・video とも届く。
-      await waitForPeersConnected(offerer, answerer);
-      const received = (mid: string) =>
-        answerer.getTransceivers().find((t) => t.mid === mid)!.receiver.track;
-      await sendAndExpectRtp(audioOut, received(audio.mid!), "bundled-audio");
-      await sendAndExpectRtp(videoOut, received(video.mid!), "bundled-video");
-      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
-      await expectSessionContinues(
-        offerer,
-        answerer,
-        `first-offer-${bundlePolicy}`,
-      );
-    },
+/** The candidate ports of m-line `mid` in `sdp`. */
+const advertised = (sdp: string, mid: string) =>
+  new Set(
+    sdpCandidates(sdp, mid).map(({ candidate }) => candidate.split(" ")[5]),
   );
 
-  test("[2.8-43] a max-bundle first offer shares the tag's transport at the offer", async () => {
-    // Arrange: max-bundle の初回 offerer (audio + video + DataChannel)。
-    const pc = new RTCPeerConnection({ bundlePolicy: "max-bundle" });
-    cleanups.push(() => pc.close());
-    // local offer だけで相手の peer がないので継続確認の対象外。
-    exemptFromContinuation(pc, "no real remote peer");
-    const audio = pc.addTransceiver("audio", { direction: "sendonly" });
-    const video = pc.addTransceiver("video", { direction: "sendonly" });
-    pc.createDataChannel("dc");
-
-    // Act: offer を作って適用する。
-    await pc.setLocalDescription(await pc.createOffer());
-    assertNegotiationInvariants(pc);
-
-    // Assert: 全 m-line の ufrag が同じで、transport も tag (audio) のものを共有する。
-    const offer = pc.localDescription!.sdp;
-    const mids = offer.match(/^a=mid:\S+/gm)!.map((line) => line.slice(6));
-    expect(
-      new Set(mids.map((mid) => attribute(offer, mid, "ice-ufrag"))),
-    ).toHaveProperty("size", 1);
-    expect(video.dtlsTransport).toBe(audio.dtlsTransport);
-    expect(pc.sctpTransport!.dtlsTransport).toBe(audio.dtlsTransport);
-    expect(heldTransports(pc).size).toBe(1);
-  });
-
-  test("[2.8-43] an m-line added to a session whose peer accepted BUNDLE shares the tag's transport at the offer", async () => {
-    // Arrange: BUNDLE を受理済みの session に audio を追加する。
-    session = await createDuplexSession();
-    const { a, b } = session;
-    const audio = a.pc.addTransceiver("audio", { direction: "sendonly" });
-
-    // Act: offer を作って適用する。
-    await step(session, async () =>
-      a.pc.setLocalDescription(await a.pc.createOffer()),
-    );
-
-    // Assert: 新しい m-line は tag と同じ ufrag で、tag の transport を共有する。
-    const offer = a.pc.localDescription!.sdp;
-    expect(attribute(offer, audio.mid!, "ice-ufrag")).toBe(
-      attribute(offer, VIDEO, "ice-ufrag"),
-    );
-    expect(audio.dtlsTransport).toBe(a.video.dtlsTransport);
-    expect(heldTransports(a.pc)).toEqual(new Set([a.video.dtlsTransport]));
-    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
-    await expectSessionContinues(a.pc, b.pc, "bundled-added-mline");
-  });
-
-  test("[2.8-47] an actpass answer makes a new association the DTLS client", async () => {
-    // Arrange: 初回 offer (actpass) と、全 m-line を a=setup:actpass にした remote answer。
-    session = await createMutationSession("initial");
-    const { a, b } = session;
-    await a.pc.setLocalDescription(await a.pc.createOffer());
-    expect(a.pc.localDescription!.sdp).toMatch(/^a=setup:actpass/m);
-    await b.pc.setRemoteDescription(a.pc.localDescription!);
-    await prepareMutationAnswerer(session);
-    await b.pc.setLocalDescription(await b.pc.createAnswer());
-
-    // Act: actpass の answer を適用する。
-    await a.pc.setRemoteDescription({
-      type: "answer",
-      sdp: mutate(b.pc.localDescription!.sdp, ["setupActpass"]),
-    });
-
-    // Assert: 受理され、新しい association の role は client になる。
-    expect(a.pc.signalingState).toBe("stable");
-    expect(a.pc.dtlsTransports.map((transport) => transport.role)).toEqual(
-      a.pc.dtlsTransports.map(() => "client"),
-    );
-    assertNegotiationInvariants(a.pc);
-    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
-    await expectSessionContinues(a.pc, b.pc, "actpass-answer");
-  });
-
-  test("[2.9-T8] the same offer replaces a pranswer a first negotiation connected and the final answer reconnects", async () => {
-    // Arrange: 初回交渉の pranswer で ICE / DTLS を接続した peer。
-    const { offerer, answerer, offer, close } =
-      await createInitialPranswerConnectionWithOffer();
-    cleanups.push(close);
-    const out = offerer.getTransceivers()[0].sender.track!;
-
-    // Act: 最後に作った同じ offer を offerer に再適用する。
-    await offerer.setLocalDescription(offer);
-    assertNegotiationInvariants(offerer);
-    // Assert: remote pranswer は先に rollback され、offerer は have-local-offer に戻る。
-    expect(offerer.signalingState).toBe("have-local-offer");
-    expect(offerer.pendingRemoteDescription).toBeNull();
-    expect(offerer.currentRemoteDescription).toBeNull();
-
-    // Act: answerer に offer を渡し、final answer で確定する。
-    await answerer.setRemoteDescription(offerer.localDescription!);
-    const received = answerer.getTransceivers()[0];
-    await received.sender.replaceTrack(new MediaStreamTrack({ kind: "video" }));
-    await answerer.setLocalDescription(await answerer.createAnswer());
-    await offerer.setRemoteDescription(answerer.localDescription!);
-    assertNegotiationInvariants(offerer);
-    assertNegotiationInvariants(answerer);
-
-    // Assert: final answer で接続し直し、RTP が届く。
-    await waitForPeersConnected(offerer, answerer);
-    expect(offerer.signalingState).toBe("stable");
-    await sendAndExpectRtp(
-      out,
-      received.receiver.track,
-      "same-offer-after-first-pranswer",
-    );
-    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
-    await expectSessionContinues(
-      offerer,
-      answerer,
-      "same-offer-first-pranswer",
-    );
-  });
-
-  test("[5-11] staged topology, candidate delivery, DTLS role and the answer's tags apply to the second BUNDLE group", async () => {
-    // Arrange: [0,1] と [2,3] の 2 つの BUNDLE group を確立した answerer。
-    const pc = createAudioOnlyPeer();
-    cleanups.push(() => pc.close());
-    // 手書きの remote offer とだけ交渉するので継続確認の対象外。
-    exemptFromContinuation(pc, "no real remote peer");
-    const sections = (mid3Ufrag: string) => [
-      { kind: "audio" as const, mid: "0" },
-      { kind: "audio" as const, mid: "1" },
-      { kind: "audio" as const, mid: "2", ufrag: "groupbufrag" },
-      { kind: "audio" as const, mid: "3", ufrag: mid3Ufrag },
-    ];
-    const twoGroups = buildRemoteSdp({
-      sections: sections("groupbufrag"),
-      bundles: [
-        ["0", "1"],
-        ["2", "3"],
-      ],
-    });
-    const splitSecond = buildRemoteSdp({
-      sections: sections("splitufrag"),
-      bundles: [["0", "1"], ["2"], ["3"]],
-    });
-    await answerRemoteOffer(pc, twoGroups);
-    const [t0, t1, t2, t3] = pc.getTransceivers();
-    const groupA = t0.dtlsTransport;
-    const groupB = t2.dtlsTransport;
-    expect(t3.dtlsTransport).toBe(groupB);
-    expect(groupB).not.toBe(groupA);
-
-    // Act: 2 つ目の group だけを分割する re-offer を適用する。
-    await pc.setRemoteDescription({ type: "offer", sdp: splitSecond });
-    assertNegotiationInvariants(pc);
-    // Assert: pending 中は 2 つ目の group の共有 transport と remote 資格情報が変わらない。
-    expect([t0, t1, t2, t3].map((t) => t.dtlsTransport)).toEqual([
-      groupA,
-      groupA,
-      groupB,
-      groupB,
-    ]);
-    expect(groupB.iceTransport.connection.remoteUsername).toBe("groupbufrag");
-
-    // Act: rollback し、2 つ目の group の非 tag m-line (3) に候補と EOC を trickle する。
-    await pc.setRemoteDescription({ type: "rollback" });
-    assertNegotiationInvariants(pc);
-    await pc.addIceCandidate(trickleCandidate(50993, "groupbufrag", "3"));
-    await pc.addIceCandidate({
-      candidate: "",
-      sdpMid: "3",
-      usernameFragment: "groupbufrag",
-    });
-    assertNegotiationInvariants(pc);
-    // Assert: 候補と EOC はその group の transport にだけ届く。
-    await waitUntil(
-      () =>
-        groupB.iceTransport.connection.remoteCandidates.some(
-          (c) => c.port === 50993,
-        ),
-      "candidate did not reach the second group",
-    );
-    await waitUntil(
-      () => groupB.iceTransport.connection.remoteCandidatesEnd,
-      "EOC did not reach the second group",
-    );
-    expect(
-      groupA.iceTransport.connection.remoteCandidates.some(
-        (c) => c.port === 50993,
-      ),
-    ).toBe(false);
-    expect(groupA.iceTransport.connection.remoteCandidatesEnd).toBe(false);
-    expect(groupA.iceTransport.connection.remoteUsername).toBe(REMOTE_UFRAG);
-
-    // Act: 2 つ目の group を分割する re-offer に answer して確定する。
-    const answer = await answerRemoteOffer(pc, splitSecond);
-
-    // Assert: answer の group と tag は offer と一致し、分割した m-line だけが新しい transport に移る。
-    expect(bundleGroups(answer)).toEqual([["0", "1"], ["2"], ["3"]]);
-    expectTransportsMatchBundle(pc);
-    expect(t2.dtlsTransport).toBe(groupB);
-    expect(t3.dtlsTransport).not.toBe(groupB);
-    expect(t3.dtlsTransport).not.toBe(groupA);
-    expect([t0.dtlsTransport, t1.dtlsTransport]).toEqual([groupA, groupA]);
-    assertNegotiationInvariants(pc);
-  });
-});
-
-/**
- * Transitions run in both offerer directions (each peer is once the local
- * and once the remote offerer, which also swaps the DTLS roles).
- */
-describe.each([
-  ["a", "b"],
-  ["b", "a"],
-] as const)(
-  "negotiation transaction spec coverage: transport (offerer=%s)",
-  (from, to) => {
-    enforceSessionContinuation();
-    let session: DuplexSession;
-    const offerer = (): Peer => session.peers[from];
-    const answerer = (): Peer => session.peers[to];
-
-    beforeEach(async () => {
-      session = await createDuplexSession();
-    });
-    afterEach(async () => {
-      await session.close();
-    });
-
-    test("[2.5-T3] an answer to an m-line outside the BUNDLE group offered with a=setup:active is passive", async () => {
-      // Arrange: 新しい audio を BUNDLE 外に出した offer を作り、answerer に届く
-      // remote offer ではその m-line だけ a=setup:active にする。
-      const audioOut = new MediaStreamTrack({ kind: "audio" });
-      const audio = offerer().pc.addTransceiver(audioOut, {
-        direction: "sendonly",
-      });
-      const offer = await createRewrittenOffer(offerer().pc, (sdp) =>
-        leaveBundle(sdp, audio.mid!),
-      );
-      const mid = audio.mid!;
-      const roles = [offerer(), answerer()].map(
-        (peer) => peer.video.dtlsTransport.role,
-      );
-      await step(session, () => offerer().pc.setLocalDescription(offer));
-      const remoteOffer = mungeSection(
-        offerer().pc.localDescription!.sdp,
-        mid,
-        (section) => section.replace(/^a=setup:\w+/m, "a=setup:active"),
-      );
-      expect(attribute(remoteOffer, mid, "setup")).toBe("active");
-      await step(session, () =>
-        answerer().pc.setRemoteDescription({ type: "offer", sdp: remoteOffer }),
-      );
-
-      // Act: answer を作る。
-      const answer = (await answerer().pc.createAnswer()).sdp;
-
-      // Assert: group 外の m-line は offer の逆の passive で答え、group は従来の role のまま。
-      expect(attribute(answer, mid, "setup")).toBe("passive");
-      expect(attribute(answer, VIDEO, "setup")).toBe(
-        answerer().video.dtlsTransport.role === "client" ? "active" : "passive",
-      );
-
-      // Act: answer で確定する。
-      await step(session, () =>
-        answerer().pc.setLocalDescription({ type: "answer", sdp: answer }),
-      );
-      await step(session, () =>
-        offerer().pc.setRemoteDescription({ type: "answer", sdp: answer }),
-      );
-      const remoteAudio = answerer()
-        .pc.getTransceivers()
-        .find((t) => t.mid === mid)!;
-
-      // Assert: 独立 transport の role は answerer が server、offerer が client。
-      expect(remoteAudio.dtlsTransport).not.toBe(
-        answerer().video.dtlsTransport,
-      );
-      expect(remoteAudio.dtlsTransport.role).toBe("server");
-      expect(audio.dtlsTransport.role).toBe("client");
-      expect(
-        [offerer(), answerer()].map((peer) => peer.video.dtlsTransport.role),
-      ).toEqual(roles);
-      // Assert: 独立 transport で接続し、audio と既存 session が通じる。
-      await Promise.all([
-        waitForDtlsConnected(audio.dtlsTransport),
-        waitForDtlsConnected(remoteAudio.dtlsTransport),
-      ]);
-      await sendAndExpectRtp(
-        audioOut,
-        remoteAudio.receiver.track,
-        "outside-audio",
-      );
-      await expectSessionAlive(session, "outside-setup-active");
-      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
-      await expectSessionContinues(
-        offerer().pc,
-        answerer().pc,
-        "outside-setup-active",
-      );
-    });
-
-    test("[5-2] an m-line without a common codec, its port 0 answer and duplicate applications keep the invariants", async () => {
-      // Arrange: 新しい video m-line を足した re-offer を作り、wire 上でその m-line を
-      // 共通 codec のない提案にする。
-      const extra = offerer().pc.addTransceiver(
-        new MediaStreamTrack({ kind: "video" }),
-        { direction: "sendonly" },
-      );
-      const offer = await offerer().pc.createOffer();
-      const mid = extra.mid!;
-      const unsupported = {
-        type: "offer" as const,
-        sdp: withOnlyUnsupportedCodec(offer.sdp, mid),
-      };
-      await step(session, () => offerer().pc.setLocalDescription(offer));
-
-      // Act: 同じ remote offer を二重に適用する。
-      await step(session, () =>
-        answerer().pc.setRemoteDescription(unsupported),
-      );
-      const transceivers = answerer().pc.getTransceivers();
-      await step(session, () =>
-        answerer().pc.setRemoteDescription(unsupported),
-      );
-      // Assert: 二重適用で transceiver は増えず、pending 中は何も止まらず通信も続く。
-      expect(answerer().pc.getTransceivers()).toEqual(transceivers);
-      const rejecting = answerer()
-        .pc.getTransceivers()
-        .find((t) => t.mid === mid)!;
-      expect(rejecting.stopped).toBe(false);
-      expect(extra.stopped).toBe(false);
-      await expectSessionAlive(session, "unsupported-pending");
-
-      // Act: port 0 を含む answer を作り、pranswer を二重に適用してから確定する。
-      const answer = (await answerer().pc.createAnswer()).sdp;
-      expect(sectionOf(answer, mid)).toMatch(/^m=video 0 /);
-      for (let i = 0; i < 2; i++) {
-        await step(session, () =>
-          answerer().pc.setLocalDescription({ type: "pranswer", sdp: answer }),
-        );
-        await step(session, () =>
-          offerer().pc.setRemoteDescription({ type: "pranswer", sdp: answer }),
-        );
-      }
-      // Assert: pranswer 中も拒否予定の m-line は止まらない。
-      expect(rejecting.stopped).toBe(false);
-      expect(extra.stopped).toBe(false);
-      await step(session, () =>
-        answerer().pc.setLocalDescription({ type: "answer", sdp: answer }),
-      );
-      await step(session, () =>
-        offerer().pc.setRemoteDescription({ type: "answer", sdp: answer }),
-      );
-
-      // Assert: commit で拒否予定の m-line だけが両側で停止し、既存 session は通じる。
-      expect(rejecting.stopped).toBe(true);
-      expect(extra.stopped).toBe(true);
-      expect(offerer().video.stopped).toBe(false);
-      expect(answerer().video.stopped).toBe(false);
-      await expectSessionAlive(session, "unsupported-committed");
-      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
-      await expectSessionContinues(
-        offerer().pc,
-        answerer().pc,
-        "unsupported-committed",
-      );
-    });
-  },
-);
+/** The ports `transceiver`'s ICE transport gathered. */
+const gathered = (transceiver: RTCRtpTransceiver) =>
+  new Set(
+    transceiver.dtlsTransport.iceTransport.connection.localCandidates.map(
+      (candidate) => String(candidate.port),
+    ),
+  );
 
 /** #142 fixture with its BUNDLE group written in the answerer's own MIDs. */
 const issue142Answer = `v=0
@@ -938,3 +98,467 @@ a=setup:passive
 a=mid:2_sctp
 a=sctpmap:5000 webrtc-datachannel 1024
 `;
+
+/**
+ * Spec coverage for the pranswer lifecycle, DTLS, BUNDLE and signaling
+ * transitions of TICKET-ticket-0ad06d37 (§2.2, §2.4, §2.5, §2.8, §2.9, §5).
+ * The requirement ID leads each test name. Video is MID "0" and the
+ * application MID "1" in a duplex or mutation session.
+ */
+negotiationCases(
+  "negotiation transaction spec coverage: transport",
+  [
+    {
+      text: `
+        case: [2.2-8] a replacement pranswer's DTLS fingerprint and role take effect on a new association that has not started
+        ref: 2.2-8
+        given: createDuplexSession()
+        Arrange: 確立済み session で、新しい audio を BUNDLE 外に出す re-offer (新しい DTLS association) を両側に置き、offerer の新 transport の DTLS 開始を止める。
+        let audioOut = new MediaStreamTrack({ kind: "audio" })
+        let audio = a.addTransceiver(audioOut, { direction: "sendonly" })
+        a setLocal createRewrittenOffer(a, (sdp) => leaveBundle(sdp, audio.mid))
+        let mid = audio.mid
+        let hold = holdNewDtlsStart(a)
+        b setRemote local(a)
+        b createAnswer as=answer
+        let shared = aVideo.dtlsTransport
+        let [sharedRole, sharedFingerprint] = [shared.role, remoteFingerprint(shared)]
+        let realFingerprint = /^a=fingerprint:\\S+ (\\S+)/m.exec(sectionOf(answer.sdp, mid))[1]
+        Arrange: 1 回目は新 association の fingerprint と a=setup だけを変えた pranswer。
+        let first = mungeSection(answer.sdp, mid, (section) => reverseSetupRole(section).replace(/^a=fingerprint:(\\S+) \\S+/m, "a=fingerprint:$1 " + BOGUS_FINGERPRINT))
+        let newTransport = () => [...heldTransports(a)].find((t) => t !== shared && t.state !== "closed")
+        Act: 1 回目の pranswer を両側に適用する。
+        b setLocal answer type=pranswer
+        a setRemote first type=pranswer
+        Assert: 未接続の新 association は 1 回目の pranswer の fingerprint / role になる。
+        expect hold.held.length == 1
+        expect remoteFingerprint(newTransport()) == BOGUS_FINGERPRINT
+        expect newTransport().role == "client"
+        Act: 正しい fingerprint と a=setup の replacement pranswer を適用する。
+        a setRemote answer type=pranswer
+        Assert: 新 association は最新の pranswer の値に置き換わり、既存 association は変わらない。
+        expect remoteFingerprint(newTransport()) == realFingerprint
+        expect newTransport().role == "server"
+        expect [shared.role, remoteFingerprint(shared)] == [sharedRole, sharedFingerprint]
+        Act: DTLS の開始を許し、新 association の接続を待つ。
+        do hold.release()
+        let remoteAudio = b.getTransceivers().find((t) => t.mid === mid)
+        do waitForPeersConnected(a, b)
+        do Promise.all([waitForDtlsConnected(newTransport()), waitForDtlsConnected(remoteAudio.dtlsTransport)])
+        Assert: 最新の pranswer の値で接続し、新しい audio の RTP と既存 session が通じる。
+        expect b.signalingState == "have-local-pranswer"
+        rtp audioOut -> remoteAudio.receiver.track
+        alive
+      `,
+      fns: {
+        remoteFingerprint,
+        BOGUS_FINGERPRINT: Array(32).fill("AB").join(":"),
+      },
+    },
+    `
+      case: [2.2-8] a replacement pranswer that adds BUNDLE detaches the transports a no-BUNDLE pranswer used and stops their checks
+      ref: 2.2-8
+      given: createMutationSession("initial")
+      Arrange: 初回交渉で、BUNDLE なしの pranswer を offerer に適用する。
+      a offer
+      do prepareMutationAnswerer(session)
+      b createAnswer as=answer
+      b setLocal answer type=pranswer
+      a setRemote mutate(answer.sdp, ["noBundle"]) type=pranswer
+      let unbundled = [...a.dtlsTransports]
+      expect unbundled.length > 1
+      Act: BUNDLE を受理した replacement pranswer を適用する。
+      a setRemote answer type=pranswer
+      let detached = unbundled.filter((t) => !a.dtlsTransports.includes(t))
+      Assert: 全 m-line が tag の transport を共有し、旧 pranswer だけが使った transport は外れて、その暫定の ICE checks は止まる (new か closed)。
+      expect a.sctpTransport.dtlsTransport is aVideo.dtlsTransport
+      expect detached.length > 0
+      expect detached.filter((t) => t.iceTransport.state !== "new" && t.iceTransport.state !== "closed") == []
+      Assert: final answer 前の最新 topology で RTP と DataChannel が通じる。
+      do waitForMutationSession(session)
+      expect a.signalingState == "have-remote-pranswer"
+      alive
+      Act: final answer で確定する。
+      b setLocal answer
+      a setRemote answer
+      Assert: 確定後も同じ topology で通じる。
+      alive
+    `,
+    {
+      text: `
+        case: [2.2-13] a final answer that rejects the application m-line keeps the SCTP association a first pranswer opened, as develop does
+        ref: 2.2-13 2.11-2; origin: develop comparison
+        given: createMutationSession("initial")
+        Arrange: 初回交渉の pranswer で SCTP association と DataChannel を開く。
+        a offer
+        do prepareMutationAnswerer(session)
+        b createAnswer as=answer
+        b setLocal answer type=pranswer
+        a setRemote answer type=pranswer
+        do waitForMutationSession(session)
+        let provisional = a.sctpTransport
+        expect provisional.sctp.associationState == SCTP_STATE.ESTABLISHED
+        let rejected = leaveBundle(mungeSection(answer.sdp, "1", (s) => s.replace(/^m=application \\d+/m, "m=application 0")), "1")
+        Act: application m-line を port 0 で拒否した final answer を offerer に適用する。
+        b setLocal answer
+        a setRemote rejected
+        Assert: develop と同じく SCTP transport と DataChannel は閉じず、同じ MID に束縛されたまま。
+        expect a.sctpTransport is provisional
+        expect provisional.mid == "1"
+        expect provisional.sctp.associationState == SCTP_STATE.ESTABLISHED
+        expect aChannel.readyState == "open"
+        Assert: 受理された video は確定した transport で届き続ける。
+        rtp aOut -> session.b.video.receiver.track
+        Assert: 次の offer は同じ MID の application を再提案する (その後の通信は runner の継続確認)。
+        a createOffer as=next
+        expect sectionOf(next.sdp, "1") matches /^m=application [1-9]/
+      `,
+      fns: { SCTP_STATE },
+    },
+    `
+      case: [2.2-13] the candidates of a pranswer generation the final answer replaced leave the live checklist
+      ref: 2.2-13
+      given: createMutationSession("initial")
+      Arrange: 初回交渉で、final answer と別の ICE generation の候補を持つ pranswer を offerer に適用する。
+      a offer
+      do prepareMutationAnswerer(session)
+      b createAnswer as=answer
+      let ufrag = attribute(answer.sdp, "0", "ice-ufrag")
+      Arrange: pranswer は別の (provisional) ICE generation とその候補 (port 50991) を伝える。
+      let extra = trickleCandidate(50991, "prov", "0").candidate
+      let provisional = withIceCredentials(answer.sdp, "prov", "provisionalpasswordprovisional").replace(/ ufrag \\S+/g, " ufrag prov")
+      let pranswer = mungeSection(provisional, "0", (s) => s.replace(/^(a=ice-pwd:[^\\r\\n]+\\r\\n)/m, "$1a=" + extra + "\\r\\n"))
+      let connection = a.iceTransports[0].connection
+      b setLocal answer type=pranswer
+      a setRemote pranswer type=pranswer
+      waitFor connection.remoteCandidates.some((c) => c.port === 50991)
+      Act: その候補を含まない final answer で確定する。
+      b setLocal answer
+      a setRemote answer
+      Assert: final answer の generation に切り替わり、pranswer だけが伝えた候補は live checklist と current SDP から外れる。
+      let live = a.iceTransports[0].connection
+      expect live.remoteUsername == ufrag
+      expect live.remoteCandidates.some((c) => c.port === 50991) == false
+      expect live.checkList.some((pair) => pair.remoteCandidate.port === 50991) == false
+      expect a.currentRemoteDescription.sdp lacks " 50991 "
+      do waitForMutationSession(session)
+      do expectMediaAlive(session, "pranswer-candidate-released")
+    `,
+    {
+      text: `
+        case: [2.2-16] rollback stops the RTP a renegotiation pranswer started and keeps the current stream
+        ref: 2.2-16
+        given: createDuplexSession()
+        Arrange: 確立済み session に新しい audio を足した re-offer を pranswer まで進め、新 audio の RTP が届くことを確かめる。
+        let audioOut = new MediaStreamTrack({ kind: "audio" })
+        let audio = a.addTransceiver(audioOut, { direction: "sendonly" })
+        a offer
+        b pranswer
+        let remoteAudio = b.getTransceivers().find((t) => t.mid === audio.mid)
+        let [audioTrack, audioSsrc] = [remoteAudio.receiver.track, audio.sender.ssrc]
+        rtp audioOut -> audioTrack
+        expect routedReceiver(b, audioSsrc) is remoteAudio.receiver
+        Act: 両側で rollback する。
+        a rollback
+        Assert: 新 audio の RTP は届かなくなり、受信側 router にその SSRC は残らない。
+        expect sendAndExpectRtp(audioOut, audioTrack, "rolled-back-audio") rejects="RTP was not received"
+        expect routedReceiver(b, audioSsrc) is undefined
+        Assert: 旧 current の video と DataChannel は双方向に届き続ける。
+        alive
+      `,
+      fns: { routedReceiver },
+    },
+    `
+      case: [2.8-18] close() while a local offer stages the transports of a BUNDLE split leaves none running
+      ref: 2.8-18
+      given: createConnectedMultiVideoPeers(3)
+      exempt: close() is the operation under test
+      Arrange: 3 m-line の BUNDLE から 2 つを外す (owner transport を 2 つ stage させる) local offer を用意する。
+      let first = a.getTransceivers()[0].mid
+      let split = createRewrittenOffer(a, (sdp) => sdp.replace(/^a=group:BUNDLE [^\\r\\n]+/m, "a=group:BUNDLE " + first))
+      let live = [...a.dtlsTransports]
+      let hook = closeDuringNextPreparedGather(a)
+      do closing({ close: hook.restore })
+      Act: local offer の stage (最初の gather) の途中で close する。
+      a setLocal split rejects=InvalidStateError
+      do hook.closed()
+      do hook.restore()
+      Assert: stage を始めた transport は止まり、close の後に新しい transport は作られない。
+      expect hook.gathered.length == 1
+      expect hook.gathered.filter((t) => t.state !== "closed") == []
+      do assertTransportsClosed(live)
+      expect [a.connectionState, a.signalingState] == ["closed", "closed"]
+    `,
+    {
+      text: `
+        case: [2.8-20] a first answer's own MIDs are read as the offered MIDs in BUNDLE, and a later answer must match exactly
+        ref: 2.8-20
+        given: new RTCPeerConnection()
+        exempt: no real remote peer (a hand-written remote answer)
+        invariants: explicit
+        Arrange: #142 の fixture を、BUNDLE も answer 側の独自 MID で書いた版にする (fixture の payload type は offer と異なるので invariant は検査しない)。
+        do a.addTrack(new MediaStreamTrack({ kind: "audio" }))
+        do a.addTrack(new MediaStreamTrack({ kind: "video" }))
+        do a.createDataChannel("dc")
+        a offer hold
+        Act: 初回 answer として適用する。
+        a setRemote issue142Answer
+        Assert: 受理され、MID と BUNDLE の項目が offer の MID に読み替えられて transport を共有する。
+        expect a.signalingState == "stable"
+        expect a.getTransceivers().map((t) => t.mid) == ["0", "1"]
+        expect bundleGroups(a.currentRemoteDescription.sdp) == [["0", "2", "1"]]
+        let [audio, video] = a.getTransceivers()
+        expect video.dtlsTransport is audio.dtlsTransport
+        expect a.sctpTransport.dtlsTransport is audio.dtlsTransport
+        expect a.dtlsTransports.length == 1
+        Act: 再交渉で、同じ独自 MID の answer を適用する。session 確立後は MID の不一致を拒否し、状態は変わらない。
+        a offer hold
+        a setRemote issue142Answer rejects=InvalidModificationError
+        Assert: pending offer のまま残る。
+        expect a.signalingState == "have-local-offer"
+      `,
+      fns: { issue142Answer },
+    },
+    {
+      text: `
+        case: [2.8-41] a $bundlePolicy first offer keeps each m-line on its own transport and candidates until an answer accepts BUNDLE
+        ref: 2.8-41
+        given: {}
+        each: [{ bundlePolicy: "max-compat" }, { bundlePolicy: "balanced" }]
+        Arrange: audio + video の初回 offerer と、BUNDLE を受理する answerer。
+        let a = new RTCPeerConnection({ bundlePolicy: "$bundlePolicy" })
+        let b = new RTCPeerConnection()
+        let [audioOut, videoOut] = [new MediaStreamTrack({ kind: "audio" }), new MediaStreamTrack({ kind: "video" })]
+        let audio = a.addTransceiver(audioOut, { direction: "sendonly" })
+        let video = a.addTransceiver(videoOut, { direction: "sendonly" })
+        Act: offer を作って適用する。
+        a offer hold
+        Assert: offer は BUNDLE を提案するが、各 m-line は自分の transport を持ち、その transport の候補を広告する。
+        let offer = local(a).sdp
+        expect bundleGroups(offer) == [[audio.mid, video.mid]]
+        expect audio.dtlsTransport isnt video.dtlsTransport
+        expect advertised(offer, audio.mid).size > 0
+        expect advertised(offer, audio.mid) == gathered(audio)
+        expect advertised(offer, video.mid).size > 0
+        expect advertised(offer, video.mid) == gathered(video)
+        expect [...advertised(offer, audio.mid)].some((port) => advertised(offer, video.mid).has(port)) == false
+        let proposed = heldTransports(a)
+        Act: BUNDLE を受理した answer で確定する。
+        b setRemote local(a)
+        b answer
+        Assert: tag の transport に統合され、余った transport は閉じる。
+        expect video.dtlsTransport is audio.dtlsTransport
+        let dropped = [...proposed].filter((t) => t !== audio.dtlsTransport)
+        expect dropped.length == 1
+        do assertTransportsClosed(dropped)
+        Assert: 統合した transport で audio・video とも届く。
+        do waitForPeersConnected(a, b)
+        let received = (mid) => b.getTransceivers().find((t) => t.mid === mid).receiver.track
+        rtp audioOut -> received(audio.mid)
+        rtp videoOut -> received(video.mid)
+      `,
+      fns: { advertised, gathered },
+    },
+    `
+      case: [2.8-43] a max-bundle first offer shares the tag's transport at the offer
+      ref: 2.8-43
+      given: new RTCPeerConnection({ bundlePolicy: "max-bundle" })
+      exempt: no real remote peer (a local offer only)
+      Arrange: max-bundle の初回 offerer (audio + video + DataChannel)。
+      let audio = a.addTransceiver("audio", { direction: "sendonly" })
+      let video = a.addTransceiver("video", { direction: "sendonly" })
+      do a.createDataChannel("dc")
+      Act: offer を作って適用する。
+      a offer hold
+      Assert: 全 m-line の ufrag が同じで、transport も tag (audio) のものを共有する。
+      let offer = local(a).sdp
+      let mids = offer.match(/^a=mid:\\S+/gm).map((line) => line.slice(6))
+      expect new Set(mids.map((mid) => attribute(offer, mid, "ice-ufrag"))).size == 1
+      expect video.dtlsTransport is audio.dtlsTransport
+      expect a.sctpTransport.dtlsTransport is audio.dtlsTransport
+      expect heldTransports(a).size == 1
+    `,
+    `
+      case: [2.8-43] an m-line added to a session whose peer accepted BUNDLE shares the tag's transport at the offer
+      ref: 2.8-43
+      given: createDuplexSession()
+      Arrange: BUNDLE を受理済みの session に audio を追加する。
+      let audio = a.addTransceiver("audio", { direction: "sendonly" })
+      Act: offer を作って適用する。
+      a offer hold
+      Assert: 新しい m-line は tag と同じ ufrag で、tag の transport を共有する。
+      expect attribute(local(a).sdp, audio.mid, "ice-ufrag") == attribute(local(a).sdp, "0", "ice-ufrag")
+      expect audio.dtlsTransport is aVideo.dtlsTransport
+      expect heldTransports(a) == new Set([aVideo.dtlsTransport])
+    `,
+    `
+      case: [2.8-47] an actpass answer makes a new association the DTLS client
+      ref: 2.8-47
+      given: createMutationSession("initial")
+      Arrange: 初回 offer (actpass) と、全 m-line を a=setup:actpass にした remote answer。
+      a offer hold
+      expect local(a).sdp matches /^a=setup:actpass/m
+      b setRemote local(a)
+      do prepareMutationAnswerer(session)
+      b answer hold
+      Act: actpass の answer を適用する。
+      a setRemote mutate(local(b).sdp, ["setupActpass"]) type=answer
+      Assert: 受理され、新しい association の role は client になる。
+      expect a.signalingState == "stable"
+      expect a.dtlsTransports.map((t) => t.role) == a.dtlsTransports.map(() => "client")
+    `,
+    `
+      case: [2.9-T8] the same offer replaces a pranswer a first negotiation connected and the final answer reconnects
+      ref: 2.9-T8
+      given: createInitialPranswerConnectionWithOffer()
+      Arrange: 初回交渉の pranswer で ICE / DTLS を接続した peer。
+      let out = a.getTransceivers()[0].sender.track
+      Act: 最後に作った同じ offer を offerer に再適用する。
+      a setLocal offer
+      Assert: remote pranswer は先に rollback され、offerer は have-local-offer に戻る。
+      expect a.signalingState == "have-local-offer"
+      expect a.pendingRemoteDescription is null
+      expect a.currentRemoteDescription is null
+      Act: answerer に offer を渡し、final answer で確定する。
+      b setRemote local(a)
+      let received = b.getTransceivers()[0]
+      do received.sender.replaceTrack(new MediaStreamTrack({ kind: "video" }))
+      b answer
+      Assert: final answer で接続し直し、RTP が届く。
+      do waitForPeersConnected(a, b)
+      expect a.signalingState == "stable"
+      rtp out -> received.receiver.track
+    `,
+    {
+      text: `
+        case: [5-11] staged topology, candidate delivery, DTLS role and the answer's tags apply to the second BUNDLE group
+        ref: 5-11
+        given: createAudioOnlyPeer()
+        exempt: no real remote peer (hand-written remote offers)
+        Arrange: [0,1] と [2,3] の 2 つの BUNDLE group を確立した answerer。
+        let sections = (ufrag) => [{ kind: "audio", mid: "0" }, { kind: "audio", mid: "1" }, { kind: "audio", mid: "2", ufrag: "groupbufrag" }, { kind: "audio", mid: "3", ufrag }]
+        let twoGroups = buildRemoteSdp({ sections: sections("groupbufrag"), bundles: [["0", "1"], ["2", "3"]] })
+        let splitSecond = buildRemoteSdp({ sections: sections("splitufrag"), bundles: [["0", "1"], ["2"], ["3"]] })
+        do answerRemoteOffer(a, twoGroups)
+        let [t0, t1, t2, t3] = a.getTransceivers()
+        let [groupA, groupB] = [t0.dtlsTransport, t2.dtlsTransport]
+        expect t3.dtlsTransport is groupB
+        expect groupB isnt groupA
+        Act: 2 つ目の group だけを分割する re-offer を適用する。
+        a setRemote splitSecond
+        Assert: pending 中は 2 つ目の group の共有 transport と remote 資格情報が変わらない。
+        expect [t0, t1, t2, t3].map((t) => t.dtlsTransport) == [groupA, groupA, groupB, groupB]
+        expect groupB.iceTransport.connection.remoteUsername == "groupbufrag"
+        Act: rollback し、2 つ目の group の非 tag m-line (3) に候補と EOC を trickle する。
+        a setRemote rollback
+        a addCandidate trickleCandidate(50993, "groupbufrag", "3")
+        a addCandidate { candidate: "", sdpMid: "3", usernameFragment: "groupbufrag" }
+        Assert: 候補と EOC はその group の transport にだけ届く。
+        waitFor groupB.iceTransport.connection.remoteCandidates.some((c) => c.port === 50993)
+        waitFor groupB.iceTransport.connection.remoteCandidatesEnd
+        expect groupA.iceTransport.connection.remoteCandidates.some((c) => c.port === 50993) == false
+        expect groupA.iceTransport.connection.remoteCandidatesEnd == false
+        expect groupA.iceTransport.connection.remoteUsername == REMOTE_UFRAG
+        Act: 2 つ目の group を分割する re-offer に answer して確定する。
+        let answer = answerRemoteOffer(a, splitSecond)
+        Assert: answer の group と tag は offer と一致し、分割した m-line だけが新しい transport に移る。
+        expect bundleGroups(answer) == [["0", "1"], ["2"], ["3"]]
+        do expectTransportsMatchBundle(a)
+        expect t2.dtlsTransport is groupB
+        expect t3.dtlsTransport isnt groupB
+        expect t3.dtlsTransport isnt groupA
+        expect [t0.dtlsTransport, t1.dtlsTransport] == [groupA, groupA]
+        invariants a
+      `,
+      fns: {
+        createAudioOnlyPeer,
+        buildRemoteSdp,
+        answerRemoteOffer,
+        expectTransportsMatchBundle,
+        REMOTE_UFRAG,
+      },
+    },
+  ],
+  { fns: { attribute, bundleGroups } },
+);
+
+/**
+ * Transitions run in both offerer directions (each peer is once the local
+ * and once the remote offerer, which also swaps the DTLS roles). `a` is the
+ * offerer and `b` the answerer of `createDirectedDuplexSession(from)`.
+ */
+for (const from of ["a", "b"] as const) {
+  negotiationCases(
+    `negotiation transaction spec coverage: transport (offerer=${from})`,
+    [
+      `
+        case: [2.5-T3] an answer to an m-line outside the BUNDLE group offered with a=setup:active is passive
+        ref: 2.5-T3
+        given: createDirectedDuplexSession(from)
+        Arrange: 新しい audio を BUNDLE 外に出した offer を作り、answerer に届く remote offer ではその m-line だけ a=setup:active にする。
+        let audioOut = new MediaStreamTrack({ kind: "audio" })
+        let audio = a.addTransceiver(audioOut, { direction: "sendonly" })
+        let offer = createRewrittenOffer(a, (sdp) => leaveBundle(sdp, audio.mid))
+        let mid = audio.mid
+        let roles = [aVideo.dtlsTransport.role, bVideo.dtlsTransport.role]
+        a setLocal offer
+        let remoteOffer = mungeSection(local(a).sdp, mid, (s) => s.replace(/^a=setup:\\w+/m, "a=setup:active"))
+        expect attribute(remoteOffer, mid, "setup") == "active"
+        b setRemote remoteOffer
+        Act: answer を作る。
+        b createAnswer as=answer
+        Assert: group 外の m-line は offer の逆の passive で答え、group は従来の role のまま。
+        expect attribute(answer.sdp, mid, "setup") == "passive"
+        expect attribute(answer.sdp, "0", "setup") == (bVideo.dtlsTransport.role === "client" ? "active" : "passive")
+        Act: answer で確定する。
+        b setLocal answer
+        a setRemote answer
+        let remoteAudio = b.getTransceivers().find((t) => t.mid === mid)
+        Assert: 独立 transport の role は answerer が server、offerer が client。
+        expect remoteAudio.dtlsTransport isnt bVideo.dtlsTransport
+        expect remoteAudio.dtlsTransport.role == "server"
+        expect audio.dtlsTransport.role == "client"
+        expect [aVideo.dtlsTransport.role, bVideo.dtlsTransport.role] == roles
+        Assert: 独立 transport で接続し、audio と既存 session が通じる。
+        do Promise.all([waitForDtlsConnected(audio.dtlsTransport), waitForDtlsConnected(remoteAudio.dtlsTransport)])
+        rtp audioOut -> remoteAudio.receiver.track
+        alive
+      `,
+      `
+        case: [5-2] an m-line without a common codec, its port 0 answer and duplicate applications keep the invariants
+        ref: 5-2
+        given: createDirectedDuplexSession(from)
+        Arrange: 新しい video m-line を足した re-offer を作り、wire 上でその m-line を共通 codec のない提案にする。
+        let extra = a.addTransceiver(new MediaStreamTrack({ kind: "video" }), { direction: "sendonly" })
+        a createOffer as=offer
+        let mid = extra.mid
+        let unsupported = { type: "offer", sdp: withOnlyUnsupportedCodec(offer.sdp, mid) }
+        a setLocal offer
+        Act: 同じ remote offer を二重に適用する。
+        b setRemote unsupported
+        let transceivers = b.getTransceivers()
+        b setRemote unsupported
+        Assert: 二重適用で transceiver は増えず、pending 中は何も止まらず通信も続く。
+        expect b.getTransceivers() == transceivers
+        let rejecting = b.getTransceivers().find((t) => t.mid === mid)
+        expect [rejecting.stopped, extra.stopped] == [false, false]
+        alive
+        Act: port 0 を含む answer を作り、pranswer を二重に適用してから確定する。
+        b createAnswer as=answer
+        expect sectionOf(answer.sdp, mid) matches /^m=video 0 /
+        b setLocal answer type=pranswer
+        a setRemote answer type=pranswer
+        b setLocal answer type=pranswer
+        a setRemote answer type=pranswer
+        Assert: pranswer 中も拒否予定の m-line は止まらない。
+        expect [rejecting.stopped, extra.stopped] == [false, false]
+        b setLocal answer
+        a setRemote answer
+        Assert: commit で拒否予定の m-line だけが両側で停止し、既存 session は通じる。
+        expect [rejecting.stopped, extra.stopped, aVideo.stopped, bVideo.stopped] == [true, true, false, false]
+        alive
+      `,
+    ],
+    { fns: { from, attribute } },
+  );
+}
