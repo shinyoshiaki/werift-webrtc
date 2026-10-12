@@ -4,11 +4,11 @@ ide:
   version: 1
   title: "Epic 4: WARP 対応 WebRTC の検証記録（interop / E2E / 要件とテストの対応）"
   dock: right
-  baseCommit: aa1f76bab3028ec81a348a6c68f866120b3fa11b
+  baseCommit: add084e128b6ecebd441b9661e67f50fafc1e10f
 ---
 # Epic 4: WARP 対応 WebRTC の検証記録
 
-設計書 [epic4-warp-webrtc-detailed.md](review-file:epic4-warp-webrtc-detailed.md:1) の §29–32（stats）、§40–50（テスト・相互接続）、§53（完了条件）について、実行した検証と、要件ごとのテストの対応をまとめます。対象は `aa1f76ba` です。この上の差分は `packages/sctp/src/sctp.ts` の JSDoc 2 か所の位置修正と本文書の更新だけで、コードの変更はありません（§9）。
+設計書 [epic4-warp-webrtc-detailed.md](review-file:epic4-warp-webrtc-detailed.md:1) の §29–32（stats）、§40–50（テスト・相互接続）、§53（完了条件）について、実行した検証と、要件ごとのテストの対応をまとめます。対象は `add084e1` に、DTLS 1.3 の最終 ACK 再送と readiness waiter の修正（§10）を加えた作業ツリーです。
 
 ## 0. 実行環境（2026-10-10）
 
@@ -308,3 +308,27 @@ SCTP 側で認証状態を見ずに `cancelStart` へ進む経路は、`SCTPSend
 | `npm run doc:check` | 成功 |
 | `npm run e2e` | 成功（一般 E2E 46、DTLS 1.2 / 1.3 モード各 12） |
 | `npm run wpt --workspace packages/webrtc` | 成功（後退なし） |
+
+## 10. DTLS 1.3 の最終 ACK 再送と readiness waiter（承認後レビューの指摘への対応）
+
+### 10.1 最終 ACK の再送で server の完了待機が解決しない
+
+- **原因:** server の `handshakeComplete` は `packages/dtls/src/engine/v1_3/record-rx.ts` の `finishHandshakeRecordAck` の中でだけ確定していた。client Finished の処理中に carrier の世代が変わり、最初の ACK 送信が reject すると、その失敗は旧世代のものとして捨てられる。client は Finished を再送し、server は replay / 重複 handshake の経路で再 ACK する。しかしこの経路は ACK を送るだけで完了を確定しなかったため、client は完了しても server は `handshakeComplete=false` のまま待機が解決しなかった。
+- **修正:** 完了判定（server・client Finished 受信済み・未 ACK の record なし）を `completeServerHandshakeIfAcked` にまとめ、`finishHandshakeRecordAck` と、replay / 重複 handshake への再 ACK が成功した後の両方から呼ぶ。
+- **回帰テスト:** `packages/dtls/tests/e2e/self13_final_ack_retry.test.ts` › `e2e/self13 最初の最終 ACK が失敗しても、再送 Finished への ACK 成功で server が handshakeComplete になる`。server の受信 datagram に carrier 世代を付け、client Finished 処理中に世代を進めて最初の ACK 送信を reject させる。修正前は server の `waitForHandshakeComplete` が timeout、修正後は両側が完了しエラーもない。
+
+### 10.2 到達済み readiness の waiter が close 後に reject する
+
+- **原因:** `packages/dtls/src/socket.ts` の `waitForSelectedReadiness`（設定に DTLS 1.3 を含む場合に使う）は、到達済みの milestone より先に association の終了を判定していた。接続・完了後に close すると、readiness は全項目 true なのに 3 つの waiter が reject した。1.2-only の経路（`waitForLegacyReadiness`）は到達済みなら即時 resolve するので、両者が食い違っていた。
+- **修正:** 要求された milestone が到達済みなら、終了状態より先に即時 resolve する（readiness は latch という §8.4 の契約どおり）。
+- **回帰テスト:** `packages/dtls/tests/e2e/self_readiness_latch.test.ts`（旧 `self12_readiness_latch.test.ts` を拡張）› `e2e/self readiness latch ($name)`。`DTLS 1.3`、`dual client → 1.2 server`、`DTLS 1.2` のそれぞれで、handshake 完了 → 両側 close の後に readiness が true のままで、3 つの waiter がすべて resolve することを確認する。修正前は `DTLS 1.3` と `dual client → 1.2 server` が失敗し、`DTLS 1.2` だけが成功していた。
+
+### 10.3 検証
+
+| コマンド | 結果 |
+|---|---|
+| `npm run type`、`npm run lint:imports` | 成功 |
+| `npm run test:small` | 成功（DTLS 448 / 1 skipped、webrtc 685 / 4 skipped、ICE 302、rtp 125、SCTP 65 ほか） |
+| `packages/dtls` 全件 `--retry=0` | 448 passed / 1 skipped |
+| `cd packages/dtls && npm run test:boringssl:docker` | 5/5 成功 |
+| `npm run doc`（差分なし）、`npm run e2e`（一般 46、DTLS 1.2 / 1.3 モード各 12）、`npm run wpt --workspace packages/webrtc`（後退なし） | 成功 |

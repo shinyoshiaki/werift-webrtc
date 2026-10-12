@@ -111,6 +111,8 @@ export type Dtls13PairExtra = {
   protocolVersions?: DtlsVersion[];
   /** Required by the DTLS 1.2 handshake. */
   signatureHash?: Options["signatureHash"];
+  /** Server-only override of `protocolVersions` (e.g. dual client → 1.2 server). */
+  serverProtocolVersions?: DtlsVersion[];
 };
 
 /**
@@ -121,14 +123,21 @@ export async function arrangeDtls13Pair(extra?: Dtls13PairExtra) {
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
+  const { serverProtocolVersions, ...shared } = extra ?? {};
   const base = {
     cert: certPem,
     key: keyPem,
     protocolVersions: [DtlsVersion.V1_3] as const,
     addressValidation: "none" as const,
-    ...extra,
+    ...shared,
   };
-  const server = new DtlsServer({ transport: serverTransport, ...base });
+  const server = new DtlsServer({
+    transport: serverTransport,
+    ...base,
+    ...(serverProtocolVersions
+      ? { protocolVersions: serverProtocolVersions }
+      : {}),
+  });
   const client = new DtlsClient({ transport: clientTransport, ...base });
   return { server, client, serverTransport, clientTransport };
 }
@@ -209,6 +218,44 @@ export async function spawnOpensslDtls12Server(
       );
     }
   }
+}
+
+/**
+ * Arrange: a plain DTLS 1.3 engine pair (Dtls13Connection) over loopback UDP,
+ * for tests that patch engine internals (e.g. the server's ACK send).
+ */
+export async function arrangeDtls13EnginePair() {
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+  const base = {
+    cert: certPem,
+    key: keyPem,
+    addressValidation: "none" as const,
+    offeredProtocolVersions: [DtlsVersion.V1_3],
+  };
+  const server = new Dtls13Connection(
+    { ...base, transport: serverTransport },
+    SessionType.SERVER,
+  );
+  const client = new Dtls13Connection(
+    { ...base, transport: clientTransport },
+    SessionType.CLIENT,
+  );
+  return {
+    server,
+    client,
+    serverTransport,
+    clientTransport,
+    close: async () => {
+      client.close();
+      server.close();
+      await Promise.allSettled([
+        serverTransport.close(),
+        clientTransport.close(),
+      ]);
+    },
+  };
 }
 
 /**

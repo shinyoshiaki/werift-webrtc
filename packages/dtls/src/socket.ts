@@ -172,7 +172,9 @@ export class DtlsSocket {
 
   /** @internal */
   async waitForWriteReady(): Promise<void> {
-    await this.waitForSelectedReadiness((engine) => engine.waitForWriteReady());
+    await this.waitForSelectedReadiness("writeReady", (engine) =>
+      engine.waitForWriteReady(),
+    );
     if (!this.engine13) return;
     const profile = this.engine13.srtpProfile;
     if (profile !== undefined) this.srtp.srtpProfile = profile;
@@ -180,14 +182,15 @@ export class DtlsSocket {
 
   /** @internal */
   waitForPeerHandshakeAuthenticated(): Promise<void> {
-    return this.waitForSelectedReadiness((engine) =>
-      engine.waitForPeerHandshakeAuthenticated(),
+    return this.waitForSelectedReadiness(
+      "peerHandshakeAuthenticated",
+      (engine) => engine.waitForPeerHandshakeAuthenticated(),
     );
   }
 
   /** @internal */
   waitForHandshakeComplete(): Promise<void> {
-    return this.waitForSelectedReadiness((engine) =>
+    return this.waitForSelectedReadiness("handshakeComplete", (engine) =>
       engine.waitForHandshakeComplete(),
     );
   }
@@ -263,8 +266,13 @@ export class DtlsSocket {
    * readiness into a full-handshake wait.
    */
   private waitForSelectedReadiness(
+    milestone: keyof DtlsReadiness,
     wait13: (engine: Dtls13Connection) => Promise<void>,
   ): Promise<void> {
+    // Readiness is a latch (see `readiness`): a milestone already reached
+    // stays reached after close, for dual-stack / 1.3 configs exactly as for
+    // 1.2-only. Check it before the terminal state.
+    if (this.readiness[milestone]) return Promise.resolve();
     if (!this.protocolVersions.includes(DtlsVersion.V1_3)) {
       return this.waitForLegacyReadiness();
     }

@@ -175,9 +175,9 @@ export async function processDatagramRecords(
             re.contentType === ContentType.handshake &&
             this.noteReplayForAck(re.epoch, re.sequenceNumber)
           ) {
-            void this.sendAck().catch((err) =>
-              log("re-ACK after replay failed", err),
-            );
+            void this.sendAck()
+              .then(() => completeServerHandshakeIfAcked(this))
+              .catch((err) => log("re-ACK after replay failed", err));
           }
           continue;
         }
@@ -352,6 +352,23 @@ export function resolveEpochCandidates(
 }
 
 /**
+ * Server handshakeComplete: client Finished received and every recorded
+ * inbound handshake record has been ACKed. Also called after a re-ACK of a
+ * retransmitted Finished, because the first ACK may have failed (e.g. its
+ * send was rejected when the carrier generation changed during Finished
+ * processing) and only the retransmission's ACK reaches the client.
+ */
+function completeServerHandshakeIfAcked(host: Dtls13Host): void {
+  if (
+    host.role === "server" &&
+    host.peerFinishedReceived &&
+    host.receivedRecordNumbers.length === 0
+  ) {
+    host.markHandshakeComplete();
+  }
+}
+
+/**
  * After a handshake record is accepted: note for ACK, then optionally ACK and
  * post-ACK actions (KeyUpdate response). Order is fixed so Finished/KeyUpdate
  * record numbers are present in the ACK (RFC 9147 §7 / §8).
@@ -381,13 +398,7 @@ export async function finishHandshakeRecordAck(
         break;
       }
     }
-    if (
-      this.role === "server" &&
-      this.peerFinishedReceived &&
-      this.receivedRecordNumbers.length === 0
-    ) {
-      this.markHandshakeComplete();
-    }
+    completeServerHandshakeIfAcked(this);
     // RFC 9147: response KeyUpdate is not an implicit ACK of peer KeyUpdate.
     // If our own KeyUpdate is still un-ACKed, defer the response until after
     // handleAck → applyPendingKeyUpdateWrite (crossed update_requested).
@@ -893,7 +904,9 @@ export async function enqueueHandshake(
   const seq = hs.message_seq;
   if (seq < this.nextReceiveSeq) {
     // Duplicate handshake message (flight retransmit) — re-ACK so sender advances
-    void this.sendAck().catch((e) => log("re-ACK on dup handshake failed", e));
+    void this.sendAck()
+      .then(() => completeServerHandshakeIfAcked(this))
+      .catch((e) => log("re-ACK on dup handshake failed", e));
     return;
   }
   if (seq > this.nextReceiveSeq) {
