@@ -394,3 +394,29 @@ npm run e2e
 - [x] SPED/early 用処理の到達点検表がある（`reviews/epic4-warp-verification.md` §7.1）。点検で見つかった追加の回帰 3 件（非 SPED の DTLS 受信を現 generation に限定していた点、DTLS 1.3 engine の受信世代フィルタ、`sped:false` でも early 送信許可の取消しを発火し得た点）も修正済み。
 - [x] 障害注入マトリクス（DTLS 既定 / 1.3 × role 2 通り × 11 シナリオ = 44 件）を `packages/webrtc/tests/integrate/spedFalseNonRegression.test.ts` として常設し、`warp`・修正前・修正後の比較を記録した（同 §7.2）。修正後は 44/44 成功で、`warp` で失敗していた INIT 送信失敗の 4 件も解消した。
 - [x] `npm run type`、`npm run test:small`、`npm run e2e`、`npm run wpt --workspace packages/webrtc` が成功する。
+
+## 7. 追加要件: 再レビューを通すための証跡整備（レビュー 1–4 の振り返り）
+
+### 背景（なぜ通らなかったか）
+
+| 要因 | 内容 |
+|---|---|
+| ① 深いレビューのたびに新しい回帰 | 差分全体を読み障害注入で再現するレビューが、毎回本物の回帰を見つけた（`sped:false` の restart で `failed`、SPED の restart で認証後の SCTP が取り消される）。どれも SPED / early 用の cancel 処理が対象外の経路にまで効いていた、同じ種類の問題だった。 |
+| ② 証跡の引き継ぎが途切れた | レビュアーの交代で、前のレビュアーの再現スクリプト（`/tmp` にあり、もう残っていない）を再実行できず、「マトリクスが P1 と同じタイミングかは未確認」として結論が保留になった。 |
+| ③ 手順上の矛盾 | 実行中の自分自身のレビューを見て保留にし、回数だけを消費した。 |
+| ④ 回数の上限 | ①–③と、利用上限エラーや古いコードを前提にした指摘などの基盤側のノイズで、上限（3）を使い切った。 |
+
+### 要件
+
+1. **再レビュー前の修正は最小限にする:** 直すのは `packages/sctp/src/sctp.ts` の JSDoc のずれ 2 か所（`SCTPStartCancelledError` の説明が `SCTPSendPermissionRevokedError` の上に、`cancelStart` の説明が `cancelStartIfPermissionRevoked` の上に重なっていた）だけにする。差分を増やすと新しい指摘を呼び込むため、新しい機能修正は入れない。
+2. **レビュアーに渡す証跡をリポジトリの中に置く:** `reviews/epic4-warp-verification.md` に次を記録し、`baseCommit` を最終的な HEAD に合わせる。
+   - P1 のシナリオと対応するテストの対照
+   - マトリクスが P1 を検出できること（`packages/webrtc/src/transport/sctp.ts` を修正前 `6b2e88a5` に戻すと 13 件失敗、HEAD では 0 件）と、そのまま実行できるコマンド
+   - 同じ種類の取りこぼしの点検結果（`SCTPSendPermissionRevokedError` が認証後の association に届く経路の有無）
+3. **最終 HEAD でまとめて検証する:** `npm run type`、`npm run test:small`、`npm run doc:check`、`npm run e2e`、`npm run wpt --workspace packages/webrtc` を実行し、結果を同じ文書に記録する。
+
+### 完了条件
+
+- [x] JSDoc 2 か所を本来の宣言の上に戻した。コードの変更はない。
+- [x] `reviews/epic4-warp-verification.md` §9 に、P1 とテストの対照、検出性の確認（修正を外すと 90 件中 13 件失敗、HEAD では 90/90 成功）、再現コマンド、取りこぼしの点検結果を記録し、`baseCommit` を更新した。
+- [x] 同 §9.3 に最終検証の結果を記録した（`type`、`lint:imports`、`test:small`、マトリクス `--retry=0`、`doc:check`、`e2e`、`wpt` がすべて成功）。

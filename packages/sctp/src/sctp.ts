@@ -102,7 +102,6 @@ const SCTP_HEARTBEAT_INTERVAL = 30;
 
 const RECONFIG_MAX_STREAMS = 135;
 
-/** A pre-established association was deliberately abandoned by its owner. */
 /**
  * Thrown by a transport's send when the permission an association start was
  * sending under has been withdrawn (e.g. WebRTC early server data revoked,
@@ -119,6 +118,7 @@ export class SCTPSendPermissionRevokedError extends Error {
   }
 }
 
+/** A pre-established association was deliberately abandoned by its owner. */
 export class SCTPStartCancelledError extends Error {
   readonly code = "SCTP_START_CANCELLED" as const;
 
@@ -1570,11 +1570,6 @@ export class SCTP {
     clearTimeout(this.sackTimeout);
   }
 
-  /**
-   * Abort a pre-established association without waiting for T1. This is used
-   * by early WebRTC paths when their permission or carrier generation is
-   * revoked; an authenticated retry can then allocate a new SCTP instance.
-   */
   /** Cancel the start only when the send failed for a revoked permission. */
   private cancelStartIfPermissionRevoked(error: Error) {
     if (error instanceof SCTPSendPermissionRevokedError) {
@@ -1582,6 +1577,11 @@ export class SCTP {
     }
   }
 
+  /**
+   * Abort a pre-established association without waiting for T1. This is used
+   * by early WebRTC paths when their permission or carrier generation is
+   * revoked; an authenticated retry can then allocate a new SCTP instance.
+   */
   cancelStart(error: Error = new SCTPStartCancelledError()): boolean {
     if (this.associationState === SCTP_STATE.ESTABLISHED) return false;
     // The peer may already be ESTABLISHED and will not send a new INIT.

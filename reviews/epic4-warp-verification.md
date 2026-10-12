@@ -4,11 +4,11 @@ ide:
   version: 1
   title: "Epic 4: WARP 対応 WebRTC の検証記録（interop / E2E / 要件とテストの対応）"
   dock: right
-  baseCommit: 6b2e88a5d8da5f6f42639ceb2920172f7f8062ec
+  baseCommit: aa1f76bab3028ec81a348a6c68f866120b3fa11b
 ---
 # Epic 4: WARP 対応 WebRTC の検証記録
 
-設計書 [epic4-warp-webrtc-detailed.md](review-file:epic4-warp-webrtc-detailed.md:1) の §29–32（stats）、§40–50（テスト・相互接続）、§53（完了条件）について、実行した検証と、要件ごとのテストの対応をまとめます。対象は `6b2e88a5` に、認証後の SCTP 開始を SPED restart から守る修正（§8）を加えた作業ツリーです。
+設計書 [epic4-warp-webrtc-detailed.md](review-file:epic4-warp-webrtc-detailed.md:1) の §29–32（stats）、§40–50（テスト・相互接続）、§53（完了条件）について、実行した検証と、要件ごとのテストの対応をまとめます。対象は `aa1f76ba` です。この上の差分は `packages/sctp/src/sctp.ts` の JSDoc 2 か所の位置修正と本文書の更新だけで、コードの変更はありません（§9）。
 
 ## 0. 実行環境（2026-10-10）
 
@@ -260,3 +260,51 @@ ide:
 - **`EARLY_APP_DATA_UNLIMITED` の説明:** 「上限なしで onConnect まで保持」としていたが、実装には 2 秒の retention がある。外れるのは record / byte の上限だけで、retention は適用されると書き直した（`types.ts`、`socket.ts` の `Options`）。
 
 **検証:** `npm run type`、`lint:imports`、`npm run test:small`（webrtc 685、DTLS 445、SCTP 65、ICE 302、rtp 125 ほか）、`npm run doc`、`npm run e2e`（一般 46、DTLS 1.2 / 1.3 モード各 12）、`npm run wpt --workspace packages/webrtc`（後退なし）が成功。
+
+## 9. レビュアー向け証跡（`aa1f76ba` 時点）
+
+レビューごとに担当が変わっても、同じ根拠をリポジトリの中から再確認できるように、P1 の検出性・再現コマンド・取りこぼしの点検・最終検証をまとめます。`/tmp` のスクリプトは使いません。
+
+### 9.1 P1 とテストの対応
+
+| P1 の内容（レビュー 11） | 対応するテスト | `aa1f76ba` | 修正を外した場合 |
+|---|---|---|---|
+| `sped:true`・DTLS 1.3・early outbound 無効、DTLS 接続済み・SCTP COOKIE_WAIT 中に INIT_ACK を 1 回落として offerer が restart → `connecting → failed → connecting → connected` | `packages/webrtc/tests/integrate/transportFaultMatrix.test.ts` › `'SPED early=off' は SCTP 障害注入と ICE restart で failed にならない` › `answerer DTLS=client` / `answerer DTLS=server` › `restart=cookie-wait drop=INIT_ACK` | 成功 | 失敗（`expected [ 'connecting', 'failed', … ] to not include 'failed'`） |
+| 認証前に始めた early start が、認証後も COOKIE_WAIT のまま restart で取り消される | `packages/webrtc/tests/transport/sctp.test.ts` › `認証前に始めた early start は認証前だけ取り消され、認証後の SPED reset では維持される (authenticated=true)` | 成功 | 失敗 |
+
+- **マトリクスが P1 を検出できることの確認:** `packages/webrtc/src/transport/sctp.ts` だけを修正前（`6b2e88a5`）に一時的に戻すと、マトリクス 90 件のうち **13 件が失敗**した。HEAD では 0 件。
+  - 失敗した 13 件: `SPED early=off` × 両 role の `restart=cookie-wait`、`restart=cookie-wait drop=INIT_ACK`、`restart=cookie-wait failSend=INIT_ACK`、`restart=cookie-echoed`、`restart=cookie-echoed drop=COOKIE_ACK`（10 件）と、`SPED early=on` の `restart=cookie-echoed` 系 3 件。
+  - P1 と同じシナリオ（`SPED early=off` × `restart=cookie-wait drop=INIT_ACK`）は「`failed` を含まない」の検証で失敗する。マトリクスの restart は INIT 送信時（DTLS 認証後・SCTP COOKIE_WAIT）に起きるので、P1 と同じタイミングになる。
+- **そのまま実行できるコマンド:**
+
+```bash
+# HEAD: 90/90 成功（--retry=0、約 50 秒）
+cd packages/webrtc
+npx vitest run tests/integrate/transportFaultMatrix.test.ts --retry=0
+
+# 修正を外した場合: 13 件失敗（確認後に元へ戻す）
+git show 6b2e88a5:packages/webrtc/src/transport/sctp.ts > src/transport/sctp.ts
+npx vitest run tests/integrate/transportFaultMatrix.test.ts --retry=0
+git checkout -- src/transport/sctp.ts
+```
+
+### 9.2 同じ種類の取りこぼしの点検
+
+SCTP 側で認証状態を見ずに `cancelStart` へ進む経路は、`SCTPSendPermissionRevokedError`（送信権限の取消し）による送信失敗だけである。このエラーが認証後の association に届くかを点検した。
+
+- このエラーを投げるのは、`packages/webrtc/src/transport/sped.ts` の early 送信経路（`applicationWriteReady` だけが立っている間の early application 送信と、early 送信キュー）と、`packages/webrtc/src/transport/dtls.ts` の `sendData` の未認証拒否（`readiness.peerAuthenticated` が false の場合だけ）である。
+- 認証後の SPED 送信は `sped.ts` の `send` / `sendApplication` から `sendInternal` の `applicationReady` 分岐を通る。経路がまだ使えない場合はキューに入れるだけで（`waitForWire=false`）、失敗はログに出すだけで SCTP には伝わらない。
+- `applicationReady` は `markApplicationReady()` で立つ。これは DTLS の `onConnect` / handshake 完了の hook から呼ばれ、WebRTC の認証（fingerprint 検証は `waitForPeerHandshakeAuthenticated` の後に行う）より遅くならない。
+- 以上から、認証後の association がこのエラーで取り消される経路は見つからなかった。認証後に届く cancel / revoke イベントは、`packages/webrtc/src/transport/sctp.ts` の `cancelEarlyStart` が DTLS `connected` を確認して無視する（§8.2）。
+
+### 9.3 最終検証（`aa1f76ba` + JSDoc 修正の作業ツリー）
+
+| コマンド | 結果 |
+|---|---|
+| `npm run type` | 成功 |
+| `npm run lint:imports` | 成功 |
+| `npm run test:small` | 成功（webrtc 685 / 4 skipped、DTLS 445 / 1 skipped、ICE 302 / 8 skipped、rtp 125、SCTP 65、ice-server 45 ほか） |
+| `npx vitest run tests/integrate/transportFaultMatrix.test.ts --retry=0`（packages/webrtc） | 90/90 成功（約 46 秒） |
+| `npm run doc:check` | 成功 |
+| `npm run e2e` | 成功（一般 E2E 46、DTLS 1.2 / 1.3 モード各 12） |
+| `npm run wpt --workspace packages/webrtc` | 成功（後退なし） |
