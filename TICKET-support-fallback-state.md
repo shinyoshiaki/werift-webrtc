@@ -357,7 +357,7 @@ provisional の checklist は live と同じ規則に従う: 候補から作る 
   2. 置き換えの local offer の後に remote pranswer を受けてから rollback すると、pending 中に追加した transceiver が MID を保持した（have-remote-pranswer からの rollback は develop では不可なので退行ではない）。`transceiverManager.ts` で、transaction 中にアプリが追加し確定していない transceiver は常に MID / m-line / 暫定の向きを外す。
   3. 2 の後、その transceiver が pranswer で受けた codec・経路などを保持し、次の交渉で再利用されると RTP が届かなかった（300 seed 探索の seed 52 / 150 / 240）。作成時の状態を記録し（`rtpTransceiver.ts` の `createdNegotiationState`）、rollback で戻す。配信済みの track イベントの track は未束縛として残す（取り消さない）。
 
-**未対応（既存の差分）**: `tools/negotiation-diff` の develop 比較（200 seed × 12 step）で回帰 2 件（seed 70・167、`pranswerRound` の後に RTP が失われる）。今回の変更前の HEAD（a6295e9e）でも同じく出るため、この追加要件の変更によるものではない。原因の調査と修正は別途行う。
+**develop 差分ファズの「回帰」2 件の調査（seed 70・167）**: `tools/negotiation-diff`（200 seed × 12 step）で、`pranswerRound` の後に RTP が失われる回帰として 2 件が出た。今回の変更前の HEAD（a6295e9e）でも同じく出る。調べると、HEAD 側では全 track の RTP と DataChannel が届いており、通信は失われていなかった。差は MID の値だけである。直前の `remoteOfferAppOpRollback` で rollback された transceiver の MID を HEAD は外す（W3C。設計文書「Behavior differences from develop」の意図した差）。そのため新しい m-line の MID が develop と 1 つずれ（develop 2・3、HEAD 3・4）、`compare.ts` の `lost()` が RTP の結果を「peer:MID」のキーで突き合わせて「失われた」と誤判定していた。状態比較はすでに「MID の値は違ってよい」としているので、実装は修正せず、`lost()` を同じ peer の同じ位置の transceiver で MID を対応付けて比べるよう直した。再比較の結果は回帰 0。HEAD の記録を人工的に壊すと、MID がずれた track でも同じ track でも回帰として検出されることを確認した。
 
 **完了条件**
 
