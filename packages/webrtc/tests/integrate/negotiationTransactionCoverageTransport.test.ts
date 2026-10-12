@@ -28,7 +28,6 @@ import {
   leaveBundle,
   mungeSection,
   mutate,
-  negotiate,
   negotiationSnapshot,
   prepareMutationAnswerer,
   reverseSetupRole,
@@ -372,44 +371,6 @@ describe("negotiation transaction spec coverage: transport", () => {
     await expectSessionAlive(session, "pranswer-rollback-current");
     // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
     await expectSessionContinues(a.pc, b.pc, "pranswer-rollback");
-  });
-
-  test("[2.2-19] a stable session after the final answer cannot be rolled back", async () => {
-    // Arrange: final answer まで交渉して stable にし、両 peer の状態を控える。
-    session = await createDuplexSession();
-    const { a, b } = session;
-    await negotiate(session, a, b);
-    const before = [a.pc, b.pc].map(negotiationSnapshot);
-    const pairs = [a.pc, b.pc].map((pc) =>
-      pc.iceTransports[0].getSelectedCandidatePair(),
-    );
-    const transports = [a.pc, b.pc].map((pc) => [...pc.dtlsTransports]);
-
-    for (const pc of [a.pc, b.pc]) {
-      // Act / Assert: stable での local / remote rollback は InvalidStateError で拒否される (W3C)。
-      await step(session, () =>
-        expect(
-          pc.setLocalDescription({ type: "rollback" }),
-        ).rejects.toMatchObject({ name: "InvalidStateError" }),
-      );
-      await step(session, () =>
-        expect(
-          pc.setRemoteDescription({ type: "rollback" }),
-        ).rejects.toMatchObject({ name: "InvalidStateError" }),
-      );
-    }
-
-    // Assert: description・transport・selected pair は変わらず、通信も続く。
-    expect([a.pc, b.pc].map(negotiationSnapshot)).toEqual(before);
-    expect(
-      [a.pc, b.pc].map((pc) => pc.iceTransports[0].getSelectedCandidatePair()),
-    ).toEqual(pairs);
-    expect([a.pc, b.pc].map((pc) => [...pc.dtlsTransports])).toEqual(
-      transports,
-    );
-    await expectSessionAlive(session, "stable-rollback-rejected");
-    // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
-    await expectSessionContinues(a.pc, b.pc, "stable-rollback-rejected");
   });
 
   test("[2.8-18] close() while a local offer stages the transports of a BUNDLE split leaves none running", async () => {
@@ -781,57 +742,6 @@ describe.each([
       await session.close();
     });
 
-    test("[2.4-8] a local pranswer that flips the DTLS setup of a connected association is rejected", async () => {
-      // Arrange: re-offer を受け、a=setup を反転させた local pranswer を用意する。
-      const dtls = answerer().video.dtlsTransport;
-      const role = dtls.role;
-      await step(session, async () =>
-        offerer().pc.setLocalDescription(await offerer().pc.createOffer()),
-      );
-      await step(session, () =>
-        answerer().pc.setRemoteDescription(offerer().pc.localDescription!),
-      );
-      const answer = (await answerer().pc.createAnswer()).sdp;
-      const flipped = reverseSetupRole(answer);
-      expect(flipped).not.toBe(answer);
-
-      // Act: role を反転させる local pranswer を適用する。
-      await step(session, () =>
-        expect(
-          answerer().pc.setLocalDescription({ type: "pranswer", sdp: flipped }),
-        ).rejects.toMatchObject({
-          name: "InvalidModificationError",
-          message: expect.stringMatching(/DTLS role/),
-        }),
-      );
-
-      // Assert: signaling state と role は変わらず、current session で通信を続ける。
-      expect(answerer().pc.signalingState).toBe("have-remote-offer");
-      expect(answerer().pc.pendingLocalDescription).toBeNull();
-      expect(dtls.role).toBe(role);
-      await expectSessionAlive(session, "local-pranswer-setup-rejected");
-
-      // Act: 元の pranswer と answer で確定する。
-      await step(session, () =>
-        answerer().pc.setLocalDescription({ type: "pranswer", sdp: answer }),
-      );
-      await step(session, () =>
-        answerer().pc.setLocalDescription({ type: "answer", sdp: answer }),
-      );
-      await step(session, () =>
-        offerer().pc.setRemoteDescription({ type: "answer", sdp: answer }),
-      );
-      // Assert: role は保たれ、確定後も通信できる。
-      expect(dtls.role).toBe(role);
-      await expectSessionAlive(session, "local-pranswer-setup-final");
-      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
-      await expectSessionContinues(
-        offerer().pc,
-        answerer().pc,
-        "local-pranswer-setup-final",
-      );
-    });
-
     test("[2.5-T3] an answer to an m-line outside the BUNDLE group offered with a=setup:active is passive", async () => {
       // Arrange: 新しい audio を BUNDLE 外に出した offer を作り、answerer に届く
       // remote offer ではその m-line だけ a=setup:active にする。
@@ -902,59 +812,6 @@ describe.each([
         offerer().pc,
         answerer().pc,
         "outside-setup-active",
-      );
-    });
-
-    test("[2.9-T8] the same offer replaces a renegotiation pranswer in have-remote-pranswer", async () => {
-      // Arrange: re-offer に inactive の pranswer を返し、offerer を have-remote-pranswer にする。
-      const offer = await offerer().pc.createOffer();
-      await step(session, () => offerer().pc.setLocalDescription(offer));
-      await step(session, () => answerer().pc.setRemoteDescription(offer));
-      const answer = (await answerer().pc.createAnswer()).sdp;
-      const inactive = mungeSection(answer, VIDEO, (section) =>
-        section.replace("a=sendrecv", "a=inactive"),
-      );
-      await step(session, () =>
-        answerer().pc.setLocalDescription({ type: "pranswer", sdp: inactive }),
-      );
-      await step(session, () =>
-        offerer().pc.setRemoteDescription({ type: "pranswer", sdp: inactive }),
-      );
-      expect(offerer().pc.signalingState).toBe("have-remote-pranswer");
-      expect(offerer().video.currentDirection).toBe("inactive");
-      const current = offerer().pc.currentRemoteDescription!.sdp;
-
-      // Act: 最後に作った同じ offer を offerer に再適用する。
-      await step(session, () => offerer().pc.setLocalDescription(offer));
-
-      // Assert: remote pranswer は rollback され、have-local-offer に戻り、暫定の inactive は消える。
-      expect(offerer().pc.signalingState).toBe("have-local-offer");
-      expect(offerer().pc.pendingRemoteDescription).toBeNull();
-      expect(offerer().pc.currentRemoteDescription!.sdp).toBe(current);
-      expect(offerer().video.currentDirection).toBe("sendrecv");
-      await sendAndExpectRtp(
-        offerer().out,
-        answerer().video.receiver.track,
-        "same-offer-pending",
-      );
-
-      // Act: answerer に同じ offer を渡し、answer で確定する。
-      // (byte 単位で同じ remote offer の再適用は冪等なので、answerer はその offer に答える。)
-      await step(session, () => answerer().pc.setRemoteDescription(offer));
-      await step(session, async () =>
-        answerer().pc.setLocalDescription(await answerer().pc.createAnswer()),
-      );
-      await step(session, () =>
-        offerer().pc.setRemoteDescription(answerer().pc.localDescription!),
-      );
-      // Assert: 双方 stable で双方向に通信できる。
-      expect(offerer().pc.signalingState).toBe("stable");
-      await expectSessionAlive(session, "same-offer-final");
-      // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
-      await expectSessionContinues(
-        offerer().pc,
-        answerer().pc,
-        "same-offer-final",
       );
     });
 

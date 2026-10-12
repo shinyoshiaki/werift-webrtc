@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import type { Address } from "../../../common/src";
 import { getHostAddresses } from "../../../ice/src/utils";
@@ -34,6 +34,45 @@ import { RTCIceTransport } from "../../src/transport/ice";
 import { RTCSctpTransport } from "../../src/transport/sctp";
 import { dtlsTransportPair } from "../fixture";
 export * from "../../tools/negotiation-diff/mutations";
+
+/** Something a test closes at its end: a peer, or anything with `close()`. */
+type Closable = { close: () => unknown };
+/**
+ * Test with the shared Arrange fixtures of the negotiation tests; each one
+ * is created only when a test destructures it and closed after the test.
+ * - `videoPeers`: `createConnectedVideoPeers()` (sendonly video, connected)
+ * - `session`: `createDuplexSession()` (sendrecv video + DataChannel)
+ * - `closing(value)`: closes `value` (a peer, a session, or an object whose
+ *   `offerer` / `answerer` / `peer` / `close` it closes) after the test, and
+ *   returns it; for Arrange helpers with other arguments.
+ */
+export const negotiationTest = test.extend<{
+  closing: <T extends object>(value: T) => T;
+  videoPeers: Awaited<ReturnType<typeof createConnectedVideoPeers>>;
+  session: DuplexSession;
+}>({
+  // biome-ignore lint/correctness/noEmptyPattern: vitest fixtures take a destructured context
+  closing: async ({}, use) => {
+    const closables: Closable[] = [];
+    await use((value) => {
+      const record = value as Record<string, unknown>;
+      const owned = ["offerer", "answerer", "peer"]
+        .map((key) => record[key])
+        .filter((item): item is Closable => item instanceof RTCPeerConnection);
+      closables.push(
+        ...(typeof record.close === "function" ? [value as Closable] : owned),
+      );
+      return value;
+    });
+    await Promise.allSettled(closables.map((closable) => closable.close()));
+  },
+  videoPeers: async ({ closing }, use) => {
+    await use(closing(await createConnectedVideoPeers()));
+  },
+  session: async ({ closing }, use) => {
+    await use(closing(await createDuplexSession()));
+  },
+});
 
 /** Shared Arrange setup for negotiation transaction regression tests. */
 export async function createConnectedVideoPeers(

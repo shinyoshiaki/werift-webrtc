@@ -119,9 +119,7 @@ async function mutatedNegotiation(
   const answerAccepted = await acceptOrRejectAtomically(session, () =>
     a.pc.setRemoteDescription({ type: "answer", sdp: wire("answer", answer) }),
   );
-  if (!answerAccepted) {
-    await a.pc.setLocalDescription({ type: "rollback" });
-  }
+  if (!answerAccepted) await a.pc.setLocalDescription({ type: "rollback" });
   return {
     accepted: accepted && answerAccepted,
     answerRejected: !answerAccepted,
