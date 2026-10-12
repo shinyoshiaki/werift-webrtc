@@ -125,7 +125,8 @@ export class RTCSctpTransport {
           // so retransmit now rather than at the next T1 expiry.
           //
           // The cancel applies only to the early attempt itself:
-          // - a start made after DTLS peer authentication is not early and
+          // - a start made after DTLS peer authentication is not early, and
+          //   an early start becomes ordinary once DTLS authenticates; both
           //   must survive SPED resets / ICE restarts;
           // - only the DTLS server (the active INIT sender) sends SCTP under
           //   the early permission. The DTLS client's passive association
@@ -134,10 +135,24 @@ export class RTCSctpTransport {
           //   could never be accepted.
           const cancelEarlyStart = () => {
             if (this.sctp !== association) return;
-            if (!this.preAuthenticationStarts.has(association)) return;
-            if (this.dtlsTransport.role !== "server") return;
-            if (association.cancelStart(new SCTPStartCancelledError())) return;
-            if (association.startCommitted) association.retransmitStartNow();
+            const earlyAttempt =
+              this.preAuthenticationStarts.has(association) &&
+              this.dtlsTransport.role === "server" &&
+              // An early start still pending once DTLS authenticated no
+              // longer depends on the early permission: its retransmissions
+              // are ordinary authenticated sends.
+              this.dtlsTransport.state !== "connected";
+            if (
+              earlyAttempt &&
+              association.cancelStart(new SCTPStartCancelledError())
+            ) {
+              return;
+            }
+            // The start is kept (not early, or already committed). The reset
+            // may have dropped an in-flight reply, so retransmit the pending
+            // INIT / COOKIE_ECHO now instead of at the next T1 expiry
+            // (no-op when nothing is pending, e.g. the passive side).
+            association.retransmitStartNow();
           };
           return [
             this.dtlsTransport.onEarlyApplicationSendRevoked?.subscribe(

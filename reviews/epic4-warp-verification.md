@@ -226,6 +226,9 @@ ide:
 - `packages/webrtc/src/transport/sctp.ts`: early の取消し（`onEarlyApplicationAttemptCancelled` と `onEarlyApplicationSendRevoked` の両方）を、次の両方を満たす association だけに限定した。
   1. DTLS が `connected`（= fingerprint 認証済み）になる前に開始した association（`preAuthenticationStarts`）。
   2. DTLS server 側（INIT を送る active 側）の association。early の送信許可で SCTP を送るのは DTLS server だけで、DTLS client の passive association は待受けにすぎない。
+  3. 取消しの時点で DTLS がまだ `connected`（認証済み）でないこと。認証前に始めた early start も、認証後まで COOKIE_WAIT が続けば、その後の再送は通常の認証済み送信なので取り消さない（レビュー 11 の確認レビューで残った指摘）。
+- 取り消さない場合は、reset で落ちた可能性のある応答を待たずに、保留中の INIT / COOKIE_ECHO をすぐ再送する（`retransmitStartNow`。保留がなければ何もしない）。
+- 回帰テスト: `packages/webrtc/tests/transport/sctp.test.ts` › `認証前に始めた early start は認証前だけ取り消され、認証後の SPED reset では維持される (authenticated=$authenticatedBeforeCancel)`。DTLS server が `connecting` で SCTP を開始した後、取消し通知の前に `connected` になった場合は association を維持し、なっていない場合は取り消すことを確認する（修正前は `authenticated=true` が失敗）。end-to-end では認証直後まで COOKIE_WAIT を保つタイミングを安定して作れないため、条件そのものを単体で固定した。
 - §7.1 の表の #2・#3・#12 に関わる経路で、SPED でも認証後の SCTP 開始が取り消されなくなる。
 
 ### 8.3 障害注入マトリクス（SPED、DTLS 1.3）
@@ -256,4 +259,4 @@ ide:
 - **DTLS 1.2 readiness のライフサイクル:** `packages/dtls/src/socket.ts` の 1.2 readiness は `connected` から毎回導出していたため、close や renegotiation で false に戻っていた。1.3 engine と同じく、最初の接続で 3 つの milestone を一度だけ true にし、以後は戻さない latch にした（終了は `onClose` / `onError` で通知）。テスト: `packages/dtls/tests/e2e/self12_readiness_latch.test.ts`（修正前は失敗）。
 - **`EARLY_APP_DATA_UNLIMITED` の説明:** 「上限なしで onConnect まで保持」としていたが、実装には 2 秒の retention がある。外れるのは record / byte の上限だけで、retention は適用されると書き直した（`types.ts`、`socket.ts` の `Options`）。
 
-**検証:** `npm run type`、`lint:imports`、`npm run test:small`（webrtc 683、DTLS 445、SCTP 65、ICE 302、rtp 125 ほか）、`npm run doc`、`npm run e2e`（一般 46、DTLS 1.2 / 1.3 モード各 12）、`npm run wpt --workspace packages/webrtc`（後退なし）が成功。
+**検証:** `npm run type`、`lint:imports`、`npm run test:small`（webrtc 685、DTLS 445、SCTP 65、ICE 302、rtp 125 ほか）、`npm run doc`、`npm run e2e`（一般 46、DTLS 1.2 / 1.3 モード各 12）、`npm run wpt --workspace packages/webrtc`（後退なし）が成功。
