@@ -128,10 +128,14 @@ export class RemoteMediaApplication {
         } else if (
           sctpTransport.mid !== undefined &&
           sctpTransport.mid !== remoteMedia.rtp.muxId &&
-          this.rejectedInCurrent(sctpTransport.mid)
+          (this.rejectedInCurrent(sctpTransport.mid) ||
+            (remoteSdp.type === "offer" && !this.inCurrent(sctpTransport.mid)))
         ) {
           // The offer reuses the rejected application position with a new
-          // MID (JSEP 5.2.2): the SCTP transport follows it. A rollback
+          // MID (JSEP 5.2.2), or names the application m-line of an SCTP
+          // transport no description has negotiated yet (its MID was only
+          // reserved by an unapplied createOffer): the SCTP transport follows
+          // the offer's MID, so the answer does not repeat a MID. A rollback
           // restores the binding with the rest of the SCTP baseline.
           sctpTransport.mid = remoteMedia.rtp.muxId;
         }
@@ -193,6 +197,16 @@ export class RemoteMediaApplication {
   }
 
   /** Whether the current session rejected (port 0) the m-line `mid`. */
+  /** Whether a current description has an m-line with `mid`. */
+  private inCurrent(mid: string) {
+    return [
+      this.sdp.currentLocalDescription,
+      this.sdp.currentRemoteDescription,
+    ].some((description) =>
+      description?.media.some((media) => media.rtp.muxId === mid),
+    );
+  }
+
   private rejectedInCurrent(mid: string) {
     return [
       this.sdp.currentLocalDescription,

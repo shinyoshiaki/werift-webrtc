@@ -1119,9 +1119,8 @@ function assertSctpBinding(pc: RTCPeerConnection, snapshot: Snapshot) {
   if (!sctp || pc.signalingState !== "stable") return;
   const media = [...(snapshot.currentRemote?.media.entries() ?? [])];
   if (!media.some(([, m]) => m.kind === "application")) {
-    // createDataChannel だけの SCTP は未交渉: m-line にも remote port にも束縛されない。
-    expect(sctp.mid).toBeUndefined();
-    expect(sctp.mLineIndex).toBeUndefined();
+    // createDataChannel だけの SCTP は未交渉: remote port に束縛されない。createOffer が
+    // 予約した MID (適用前の offer が使う) は持ってよいが、current の m-line の MID とは重ならない。
     expect(pc.sctpRemotePort).toBeUndefined();
     // 未交渉なのに走った association (rollback の破棄漏れ) は残らない。
     expect(sctp.associationActive).toBe(false);

@@ -851,11 +851,28 @@ export class SDPManager {
             `Transceiver with mid=${remoteMedia.rtp.muxId} not found`,
           );
         }
+        // answerer の stop() だけでは port 0 にせず、次の自分の offer で停止を交渉する
+        const answered =
+          transceiver &&
+          remoteMedia.port !== 0 &&
+          !transceiver.stopped &&
+          !transceiver.pendingRejection
+            ? this.createMediaDescriptionForTransceiver(
+                transceiver,
+                transceiver.stopping
+                  ? "inactive"
+                  : andDirection(
+                      transceiver.direction,
+                      transceiver.offerDirection,
+                    ),
+              )
+            : undefined;
         if (
           !transceiver ||
-          remoteMedia.port === 0 ||
-          transceiver.stopped ||
-          transceiver.pendingRejection
+          !answered ||
+          // codec のない m-line は答えられない (JSEP 5.3.1: 拒否する)。
+          // stop() 直後に setCodecPreferences した transceiver など。
+          answered.rtp.codecs.length === 0
         ) {
           accepted = false;
           if (remoteMedia.rtp.muxId) rejectedMids.add(remoteMedia.rtp.muxId);
@@ -874,13 +891,7 @@ export class SDPManager {
             dtlsTransport,
           );
         } else {
-          // answerer の stop() だけでは port 0 にせず、次の自分の offer で停止を交渉する
-          media = this.createMediaDescriptionForTransceiver(
-            transceiver,
-            transceiver.stopping
-              ? "inactive"
-              : andDirection(transceiver.direction, transceiver.offerDirection),
-          );
+          media = answered;
           dtlsTransport = transceiver.dtlsTransport;
         }
       } else if (remoteMedia.kind === "application") {

@@ -57,8 +57,26 @@ type DescriptionInput = Description | string | "rollback" | null | undefined;
 type OperationOptions = {
   /** Expected error name (`A|B`), or a message fragment with a space or punctuation. */
   rejects?: string;
+  /** The operation may be rejected (a generated scene): if it is, nothing changed. */
+  mayReject?: boolean;
   /** Description type of an SDP string (default: from the signaling state). */
   type?: "offer" | "answer" | "pranswer";
+};
+
+/** A description operation the harness applied (for an `Observer`). */
+export type AppliedStep = {
+  pc: RTCPeerConnection;
+  kind: "setLocal" | "setRemote" | "addCandidate";
+  type?: string;
+  sdp?: string;
+  candidate?: unknown;
+  /** The rejection of an operation run with `mayReject`. */
+  error?: Error;
+};
+/** Checks around every description operation: `before` runs first, `after` gets its value. */
+export type Observer = {
+  before(pc: RTCPeerConnection): unknown;
+  after(step: AppliedStep, before: unknown): Promise<void> | void;
 };
 
 /** Rows of a case that ends its transaction by the final answer or by rollback. */
@@ -146,6 +164,8 @@ export class NegotiationCase {
   private readonly operations: string[] = [];
   private session?: DuplexSession;
   private exemptReason?: string;
+  private observer?: Observer;
+  private ended = false;
 
   constructor(
     readonly name: string,
@@ -235,9 +255,9 @@ export class NegotiationCase {
     const d = this.description(pc, description, "local", options.type);
     await this.apply(
       pc,
-      `setLocal(${this.label(pc)}, ${d.type})`,
+      { kind: "setLocal", type: d.type, sdp: d.sdp },
       () => pc.setLocalDescription(d as never),
-      options.rejects,
+      options,
     );
   }
 
@@ -250,9 +270,9 @@ export class NegotiationCase {
     const d = this.description(pc, description, "remote", options.type);
     await this.apply(
       pc,
-      `setRemote(${this.label(pc)}, ${d.type})`,
+      { kind: "setRemote", type: d.type, sdp: d.sdp },
       () => pc.setRemoteDescription(d as never),
-      options.rejects,
+      options,
     );
   }
 
@@ -260,13 +280,13 @@ export class NegotiationCase {
   async addCandidate(
     pc: RTCPeerConnection,
     candidate: Parameters<RTCPeerConnection["addIceCandidate"]>[0],
-    options: Pick<OperationOptions, "rejects"> = {},
+    options: Pick<OperationOptions, "rejects" | "mayReject"> = {},
   ) {
     await this.apply(
       pc,
-      `addCandidate(${this.label(pc)})`,
+      { kind: "addCandidate", candidate },
       () => pc.addIceCandidate(candidate),
-      options.rejects,
+      options,
     );
   }
 
@@ -395,6 +415,32 @@ export class NegotiationCase {
         (e: Error) => e,
       );
     this.expectRejection(error, expected, "operation");
+  }
+
+  /** Run `observer` around every description operation (the model property). */
+  observe(observer: Observer) {
+    this.observer = observer;
+  }
+
+  /** The peer named `a` or `b`, or undefined. */
+  maybeNamed(name: string) {
+    return [...this.peers].find(([, n]) => n === name)?.[0];
+  }
+
+  /**
+   * Assert the end of a case: the traffic property (`traffic: true`) and
+   * `expectSessionContinues(a, b)` unless exempt. The harness runs it after
+   * the body; a body runs it itself to handle its failure (shrinking).
+   */
+  async end() {
+    this.ended = true;
+    if (this.meta.traffic) await this.expectTraffic({ final: true });
+    if (!this.exemptReason) {
+      const a = this.peerNamed("a");
+      const b = this.peerNamed("b");
+      this.log("expectSessionContinues(a, b)");
+      await expectSessionContinues(a, b, "continue");
+    }
   }
 
   /** Record a step of a generated scene in the operation log. */
@@ -530,13 +576,7 @@ export class NegotiationCase {
   async run(body: () => Promise<void>) {
     try {
       await body();
-      if (this.meta.traffic) await this.expectTraffic({ final: true });
-      if (!this.exemptReason) {
-        const a = this.peerNamed("a");
-        const b = this.peerNamed("b");
-        this.log("expectSessionContinues(a, b)");
-        await expectSessionContinues(a, b, "continue");
-      }
+      if (!this.ended) await this.end();
     } catch (error) {
       throw this.annotate(error);
     } finally {
@@ -557,7 +597,17 @@ export class NegotiationCase {
   }
 
   private annotate(error: unknown) {
-    const e = error instanceof Error ? error : new Error(String(error));
+    const original = error instanceof Error ? error : new Error(String(error));
+    // message を書き換えられないエラー (getter だけのもの) は cause に持って包む。
+    let e = original;
+    try {
+      const message = original.message;
+      original.message = message;
+    } catch {
+      e = new Error(`${original.name}: ${original.message}`, {
+        cause: original,
+      });
+    }
     const last = this.operations.length;
     e.message = [
       `case "${this.name}" (${this.meta.ref})`,
@@ -622,29 +672,37 @@ export class NegotiationCase {
 
   private async apply(
     pc: RTCPeerConnection,
-    operation: string,
+    step: Omit<AppliedStep, "pc" | "error">,
     run: () => Promise<unknown>,
-    rejects: string | undefined,
+    { rejects, mayReject }: OperationOptions,
   ) {
+    const operation =
+      step.kind === "addCandidate"
+        ? `addCandidate(${this.label(pc)})`
+        : `${step.kind}(${this.label(pc)}, ${step.type})`;
     this.log(rejects ? `${operation} rejects ${rejects}` : operation);
-    if (!rejects) {
+    const observed = this.observer?.before(pc);
+    let error: Error | undefined;
+    if (!rejects && !mayReject) {
       await run();
     } else {
       const before = negotiationSnapshot(pc);
-      const error = await run().then(
+      error = await run().then(
         () => undefined,
         (e: Error) => e,
       );
-      this.expectRejection(error, rejects, operation);
-      if (pc.signalingState !== "closed") {
+      if (rejects) this.expectRejection(error, rejects, operation);
+      if (error && pc.signalingState !== "closed") {
         expect(
           negotiationSnapshot(pc),
           `${operation}: a rejected operation changed state`,
         ).toEqual(before);
       }
+      if (error && mayReject) this.log(`  rejected: ${error.name}`);
     }
     if (!this.meta.explicitInvariants) this.invariants();
     if (this.meta.traffic) await this.expectTraffic();
+    await this.observer?.after({ ...step, pc, error }, observed);
   }
 
   private expectRejection(

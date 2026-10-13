@@ -128,6 +128,8 @@ export class TransceiverManager {
    * Internal: return to a negotiation baseline. Transceivers in `added` were
    * created by the rolled-back proposal: they are removed unless the
    * application uses them, in which case only their m-line association goes.
+   * Transceivers in `notified` (a replacement offer describes them again)
+   * keep the track event they delivered.
    * @returns transports of the removed transceivers (the caller stops unused ones)
    */
   restoreNegotiationState(
@@ -137,9 +139,20 @@ export class TransceiverManager {
       transceiver: RTCRtpTransceiver,
     ) => TransceiverNegotiationState | undefined = () => undefined,
     carried: ReadonlySet<RTCRtpTransceiver> = new Set(),
+    notified: ReadonlySet<RTCRtpTransceiver> = new Set(),
   ) {
     for (const [transceiver, state] of snapshot.states) {
+      // A transceiver a replacement offer describes again keeps the track
+      // event it already delivered (it is not repeated).
+      const { firedReceiving } = transceiver.snapshotNegotiationState();
+      const tracks = [...transceiver.receiver.tracks];
       transceiver.restoreNegotiationState(state.transceiver);
+      if (notified.has(transceiver)) {
+        // The same track objects stay for the SSRCs the replacing offer gives.
+        transceiver.receiver.keepUnboundTracks(tracks);
+        transceiver.firedReceiving = firedReceiving;
+        continue;
+      }
       this.restoreNotifiedRemoteTrack(transceiver, state.notifiedRemoteTrack);
     }
     const removedTransports: RTCDtlsTransport[] = [];
