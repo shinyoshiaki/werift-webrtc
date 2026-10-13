@@ -368,7 +368,7 @@ ide:
 - 受信した STUN の振り分けは [runtime.ts:489](review-file:packages/ice/src/sped/runtime.ts:489) です。UDP の prflx 候補は後から relay だと判明することがあるため、DATA がなくても判定を保留します（[runtime.ts:501](review-file:packages/ice/src/sped/runtime.ts:501)）。保留を解消するのは [runtime.ts:377](review-file:packages/ice/src/sped/runtime.ts:377) です。
 - fallback するときは、L1 の最初の bytes を DTLS としてそのまま送ります（[packages/ice/src/ice.ts:326](review-file:packages/ice/src/ice.ts:326)）。
 
-**draft からの逸脱**: §3.3.2.1 は、SPED が active の間はすべての Binding に DATA を付けること（MUST）を求めています。werift は relay の pair、未確定の prflx、古い世代の ufrag への応答には DATA を付けません。
+**draft からの逸脱**: §3.3.2.1 は、SPED が active の間はすべての Binding に DATA を付けること（MUST）を求めています。werift は relay の pair と古い世代の ufrag への応答には DATA を付けません。未確定の UDP prflx や TCP srflx を含む relay 以外の pair では、DTLS 開始前の Request/Response も含めて少なくとも空の DATA を付けます。未確定の prflx は後から relay と判明する可能性があるため、L1 と ACK は載せず空の DATA だけを付けます。
 
 **主なテスト**: [packages/ice/tests/sped/session.test.ts:142](review-file:packages/ice/tests/sped/session.test.ts:142)、[packages/ice/tests/sped/pair-isolation.test.ts:718](review-file:packages/ice/tests/sped/pair-isolation.test.ts:718)、[packages/ice/tests/sped/auth.test.ts:314](review-file:packages/ice/tests/sped/auth.test.ts:314)
 

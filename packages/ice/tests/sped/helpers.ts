@@ -75,6 +75,34 @@ export function preparePrestartSpedBinding() {
   return { connection, protocol, pair, hello, receive };
 }
 
+/**
+ * Shared Arrange: the connectivity-check Binding Request the connection would
+ * send on `pair` (SPED decoration included). undefined = not sendable.
+ */
+export function decoratedCheckRequest(
+  connection: Connection,
+  pair: CandidatePair,
+): Message | undefined {
+  const internal = connection as unknown as {
+    buildRequest(options: {
+      nominate: boolean;
+      localUsername: string;
+      remoteUsername: string;
+      iceControlling: boolean;
+      localCandidate?: Candidate;
+    }): Message;
+    decorateSpedRequest(request: Message, pair: CandidatePair): boolean;
+  };
+  const request = internal.buildRequest({
+    nominate: false,
+    localUsername: connection.localUsername,
+    remoteUsername: "remote",
+    iceControlling: connection.iceControlling,
+    localCandidate: pair.localCandidate,
+  });
+  return internal.decorateSpedRequest(request, pair) ? request : undefined;
+}
+
 /** Shared Arrange: host UDP protocol for SPED decorate / datagram tests. */
 export class SpedProtocolMock implements Protocol {
   type = "mock";

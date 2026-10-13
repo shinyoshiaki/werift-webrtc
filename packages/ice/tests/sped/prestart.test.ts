@@ -1,5 +1,5 @@
 import {
-  decoratePendingSpedResponse,
+  decoratePendingSped,
   getConnectionSpedRuntime,
   prepareConnectionSped,
 } from "../../src/internal/sped-bind";
@@ -10,7 +10,11 @@ import {
 import { classes, methods } from "../../src/stun/const";
 import { Message, parseMessage } from "../../src/stun/message";
 import { getRawAttributeValue } from "../../src/stun/rawAttributeValue";
-import { attachTestSped, preparePrestartSpedBinding } from "./helpers";
+import {
+  attachTestSped,
+  decoratedCheckRequest,
+  preparePrestartSpedBinding,
+} from "./helpers";
 
 describe("SPED pre-start capability advertisement", () => {
   it("DTLS 開始前は空 DATA のみを返し、開始後の再送で初めて inject/ACK する", async () => {
@@ -96,7 +100,7 @@ describe("SPED pre-start capability advertisement", () => {
   });
 
   it.each([false, true])(
-    "未確定 UDP prflx では認証済み DATA の有無に合わせて通知する (DATA=%s)",
+    "未確定 UDP prflx でも DATA の有無に関わらず空 DATA で通知する (DATA=%s)",
     async (withData) => {
       // Arrange: 後から relay と分かる可能性のある prflx 経路を用意する。
       const { connection, pair, receive } = preparePrestartSpedBinding();
@@ -105,12 +109,60 @@ describe("SPED pre-start capability advertisement", () => {
       try {
         // Act: SPED 属性がある場合とない場合の認証済み request を受ける。
         const response = await receive(undefined, withData);
-        // Assert: 相手の対応通知があるときだけ、空 DATA で応答する。
+        // Assert: relay と確定していない経路では常に空 DATA の対応通知を返す
+        // (draft §3.3.2.1)。DTLS flight の ACK はまだ返さない。
         expect(getRawAttributeValue(response!, DTLS_IN_STUN_DATA)).toEqual(
-          withData ? Buffer.alloc(0) : undefined,
+          Buffer.alloc(0),
         );
         expect(
           getRawAttributeValue(response!, DTLS_IN_STUN_ACK),
+        ).toBeUndefined();
+      } finally {
+        await connection.close();
+      }
+    },
+  );
+
+  it.each(["host", "srflx", "prflx"])(
+    "DTLS 開始前に送る %s への接続確認 Request にも空 DATA を付ける",
+    async (remoteType) => {
+      // Arrange: opt-in 済みで runtime 未接続の connection と relay 以外の pair。
+      const { connection, pair } = preparePrestartSpedBinding();
+      pair.remoteCandidate.type = remoteType;
+      prepareConnectionSped(connection);
+      try {
+        // Act: 接続確認の Binding Request を組み立てる。
+        const request = decoratedCheckRequest(connection, pair);
+        // Assert: 相手が最初の認証済み Binding で unsupported と判定しないよう、
+        // 空 DATA だけを付ける。ACK は付けない。
+        expect(getRawAttributeValue(request!, DTLS_IN_STUN_DATA)).toEqual(
+          Buffer.alloc(0),
+        );
+        expect(
+          getRawAttributeValue(request!, DTLS_IN_STUN_ACK),
+        ).toBeUndefined();
+      } finally {
+        await connection.close();
+      }
+    },
+  );
+
+  it.each(["no-opt-in", "local-relay", "remote-relay", "turn"])(
+    "%s では DTLS 開始前の接続確認 Request に DATA を付けない",
+    async (mode) => {
+      // Arrange: 通常 ICE または SPED 対象外の経路を用意する。
+      const { connection, protocol, pair } = preparePrestartSpedBinding();
+      if (mode !== "no-opt-in") prepareConnectionSped(connection);
+      if (mode === "local-relay") protocol.localCandidate.type = "relay";
+      if (mode === "remote-relay") pair.remoteCandidate.type = "relay";
+      if (mode === "turn") protocol.type = "turn";
+      try {
+        // Act: 接続確認の Binding Request を組み立てる。
+        const request = decoratedCheckRequest(connection, pair);
+        // Assert: Request は送信可能なまま、SPED 属性を追加しない。
+        expect(request).toBeDefined();
+        expect(
+          getRawAttributeValue(request!, DTLS_IN_STUN_DATA),
         ).toBeUndefined();
       } finally {
         await connection.close();
@@ -129,7 +181,7 @@ describe("SPED pre-start capability advertisement", () => {
         // Act: runtime への引き継ぎ、または ICE の終了を実行する。
         if (action === "attach") attachTestSped(connection);
         else await connection.close();
-        decoratePendingSpedResponse(connection, response, pair, response);
+        decoratePendingSped(connection, response, pair);
         // Assert: 後続の状態は runtime が所有し、準備用の通知は破棄済みとなる。
         expect(
           getRawAttributeValue(response, DTLS_IN_STUN_DATA),

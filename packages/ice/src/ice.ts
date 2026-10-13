@@ -35,7 +35,7 @@ import {
   isAuthenticatedHandshakePair,
 } from "./internal/datagram";
 import {
-  decoratePendingSpedResponse,
+  decoratePendingSped,
   getConnectionSpedRuntime,
   setConnectionSpedRuntime,
 } from "./internal/sped-bind";
@@ -721,7 +721,7 @@ export class Connection implements IceConnection {
       if (pair) {
         const decorated = this.spedRuntime
           ? this.spedRuntime.decorateOutgoing(response, pair)
-          : decoratePendingSpedResponse(this, response, pair, verified);
+          : decoratePendingSped(this, response, pair);
         if (!decorated) {
           return;
         }
@@ -1793,7 +1793,10 @@ export class Connection implements IceConnection {
   }
 
   private decorateSpedRequest(request: Message, pair: CandidatePair): boolean {
-    return this.spedRuntime?.decorateOutgoing(request, pair) ?? true;
+    const runtime = this.spedRuntime;
+    return runtime
+      ? runtime.decorateOutgoing(request, pair)
+      : decoratePendingSped(this, request, pair);
   }
 
   private bindingResponseSourceMatches(

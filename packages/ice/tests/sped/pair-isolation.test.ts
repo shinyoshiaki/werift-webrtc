@@ -14,7 +14,12 @@ import { classes, methods } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
 import { getRawAttributeValue } from "../../src/stun/rawAttributeValue";
 import { createTestConnection } from "../utils";
-import { SpedProtocolMock, spedPair, tcpSpedPair } from "./helpers";
+import {
+  SpedProtocolMock,
+  decoratedCheckRequest,
+  spedPair,
+  tcpSpedPair,
+} from "./helpers";
 
 function arrangeSpedRuntime() {
   const connection = createTestConnection(true);
@@ -223,6 +228,91 @@ describe("SPED pair eligibility と lastPath isolation", () => {
     });
     tcpPrflx.remoteCandidate.type = "prflx";
     expect(isSpedEligiblePair(tcpPrflx)).toBe(true);
+    const tcpSrflx = tcpSpedPair({
+      localType: "active",
+      remoteType: "passive",
+    });
+    tcpSrflx.remoteCandidate.type = "srflx";
+    expect(isSpedEligiblePair(tcpSrflx)).toBe(true);
+  });
+
+  it("relay 以外の pair は peerSupport unknown でも送信 Binding に DATA を付ける", () => {
+    // Arrange: 相手の対応がまだ不明な runtime と、L1 に載った ClientHello
+    const { handle } = arrangeSpedRuntime();
+    const hello = Buffer.from([22, 0xfe, 0xfd, 0x00, 0x01]);
+    handle.session.replaceL1([hello]);
+    const prflx = spedPair(new SpedProtocolMock(), "prflx", "192.0.2.10", 1000);
+    const tcpSrflx = tcpSpedPair({
+      localType: "active",
+      remoteType: "passive",
+    });
+    tcpSrflx.remoteCandidate.type = "srflx";
+    const relay = spedPair(new SpedProtocolMock(), "relay", "203.0.113.1");
+
+    // Act: 各 pair で Request / Response を送る前の SPED 付与を行う
+    const onPrflx = new Message(methods.BINDING, classes.REQUEST);
+    const prflxOk = handle.runtime.decorateOutgoing(onPrflx, prflx);
+    const onPrflxResponse = new Message(methods.BINDING, classes.RESPONSE);
+    handle.runtime.decorateOutgoing(onPrflxResponse, prflx);
+    const onTcpSrflx = new Message(methods.BINDING, classes.REQUEST);
+    handle.runtime.decorateOutgoing(onTcpSrflx, tcpSrflx);
+    const onRelay = new Message(methods.BINDING, classes.REQUEST);
+    handle.runtime.decorateOutgoing(onRelay, relay);
+
+    // Assert: 未確定 prflx は空 DATA で対応だけを通知し、L1 は載せない
+    expect(handle.session.peerSupport).toBe("unknown");
+    expect(prflxOk).toBe(true);
+    expect(getRawAttributeValue(onPrflx, DTLS_IN_STUN_DATA)).toEqual(
+      Buffer.alloc(0),
+    );
+    expect(getRawAttributeValue(onPrflx, DTLS_IN_STUN_ACK)).toBeUndefined();
+    expect(getRawAttributeValue(onPrflxResponse, DTLS_IN_STUN_DATA)).toEqual(
+      Buffer.alloc(0),
+    );
+    // Assert: TCP srflx は association 候補として L1 を運ぶ
+    expect(
+      getRawAttributeValue(onTcpSrflx, DTLS_IN_STUN_DATA)?.equals(hello),
+    ).toBe(true);
+    // Assert: relay だけは引き続き SPED 属性を付けない
+    expect(getRawAttributeValue(onRelay, DTLS_IN_STUN_DATA)).toBeUndefined();
+    expect(getRawAttributeValue(onRelay, DTLS_IN_STUN_ACK)).toBeUndefined();
+  });
+
+  it("C070 無し Binding で学習した UDP prflx への接続確認にも空 DATA を付ける", async () => {
+    // Arrange: remote candidate 未登録の SPED connection
+    const { connection, handle } = arrangeSpedRuntime();
+    const protocol = new SpedProtocolMock();
+    (connection as any).ensureProtocol(protocol);
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request
+      .setAttribute("USERNAME", `${connection.localUsername}:remote`)
+      .setAttribute("PRIORITY", 1)
+      .setAttribute("ICE-CONTROLLED", 1n)
+      .addMessageIntegrity(Buffer.from(connection.localPassword))
+      .addFingerprint();
+    protocol.onRequestReceived.execute(
+      request,
+      ["192.0.2.20", 4000],
+      request.bytes,
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    const prflxPair = connection.checkList.find(
+      (pair) => pair.remoteAddr[0] === "192.0.2.20",
+    )!;
+
+    try {
+      // Act: 学習した prflx pair へ送る接続確認 Request を組み立てる
+      const check = decoratedCheckRequest(connection, prflxPair);
+
+      // Assert: 対応は未確定のまま、Request には空 DATA を必ず含める
+      expect(prflxPair.remoteCandidate.type).toBe("prflx");
+      expect(handle.session.peerSupport).toBe("unknown");
+      expect(getRawAttributeValue(check!, DTLS_IN_STUN_DATA)).toEqual(
+        Buffer.alloc(0),
+      );
+    } finally {
+      await connection.close();
+    }
   });
 
   it("empty DATA だけでは lastPath を pin しない", async () => {

@@ -3,15 +3,9 @@
  */
 import type { Connection } from "../ice";
 import type { CandidatePair, IceConnection } from "../iceBase";
-import { DTLS_IN_STUN_DATA } from "../sped/draft00/constants";
 import { SpedSession } from "../sped/draft00/session";
-import {
-  type SpedRuntime,
-  isSpedEligiblePair,
-  isSpedEligibleProtocol,
-} from "../sped/runtime";
+import { type SpedRuntime, isSpedAdvertisablePair } from "../sped/runtime";
 import type { Message } from "../stun/message";
-import { getRawAttributeValue } from "../stun/rawAttributeValue";
 
 const runtimes = new WeakMap<Connection, SpedRuntime>();
 const pendingAdvertisements = new WeakMap<IceConnection, SpedSession>();
@@ -22,34 +16,22 @@ export function prepareConnectionSped(connection: IceConnection): void {
 }
 
 /**
- * Called only for authenticated Binding Responses before DTLS attaches.
- * Advertise support without consuming or ACKing any received DTLS flight:
- * the sender must retain L1 until a live DTLS endpoint can receive it.
+ * Called for Binding Requests and authenticated Binding Responses before DTLS
+ * attaches. Advertise support without consuming or ACKing any received DTLS
+ * flight: the sender must retain L1 until a live DTLS endpoint can receive it.
+ * Every non-relay pair advertises (draft §3.3.2.1); the peer otherwise treats
+ * a C070-less first authenticated Binding as unsupported.
  */
-export function decoratePendingSpedResponse(
+export function decoratePendingSped(
   connection: IceConnection,
-  response: Message,
+  message: Message,
   pair: CandidatePair,
-  request: Message,
 ): boolean {
   const advertisement = pendingAdvertisements.get(connection);
-  if (
-    !advertisement ||
-    !isSpedEligibleProtocol(pair.protocol) ||
-    pair.remoteCandidate.type === "relay"
-  ) {
+  if (!advertisement || !isSpedAdvertisablePair(pair)) {
     return true;
   }
-  // A UDP prflx address may still turn out to be a relay. Match the live
-  // runtime's capability-only policy: wait for authenticated DATA evidence.
-  if (
-    !isSpedEligiblePair(pair) &&
-    (pair.remoteCandidate.type !== "prflx" ||
-      getRawAttributeValue(request, DTLS_IN_STUN_DATA) === undefined)
-  ) {
-    return true;
-  }
-  return advertisement.decorateCapabilityAdvertisement(response);
+  return advertisement.decorateCapabilityAdvertisement(message);
 }
 
 export function setConnectionSpedRuntime(

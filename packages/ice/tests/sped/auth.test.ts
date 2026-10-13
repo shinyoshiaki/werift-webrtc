@@ -249,13 +249,17 @@ describe("ICE Binding Request 認証境界", () => {
     );
     await new Promise((r) => setTimeout(r, 30));
 
-    // Assert: prflx pair は作るが capability は確定しない
+    // Assert: prflx pair は作るが capability は確定しない。Response は空 DATA で
+    // 対応だけを通知し、relay かもしれない経路へ L1 / ACK は載せない
     expect(protocol.sentMessage?.messageClass).toBe(classes.RESPONSE);
     expect(connection.checkList.length).toBeGreaterThan(0);
     expect(connection.checkList[0]!.remoteCandidate.type).toBe("prflx");
-    expect(getRawAttributeValue(protocol.sentMessage!, DTLS_IN_STUN_DATA)).toBe(
-      undefined,
-    );
+    expect(
+      getRawAttributeValue(protocol.sentMessage!, DTLS_IN_STUN_DATA),
+    ).toEqual(Buffer.alloc(0));
+    expect(
+      getRawAttributeValue(protocol.sentMessage!, DTLS_IN_STUN_ACK),
+    ).toBeUndefined();
     expect(fallback).toHaveLength(0);
     expect(sentDirect).toHaveLength(0);
     expect(handle.session.state).toBe("probing");

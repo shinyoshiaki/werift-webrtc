@@ -82,12 +82,7 @@ export function isSpedEligibleProtocol(protocol: Protocol): boolean {
     return false;
   }
   const transport = local.transport.toLowerCase();
-  if (transport === "tcp") {
-    return true;
-  }
-  return (
-    transport === "udp" && (local.type === "host" || local.type === "srflx")
-  );
+  return transport === "udp" || transport === "tcp";
 }
 
 export function isSpedEligiblePair(pair: CandidatePair): boolean {
@@ -103,9 +98,24 @@ export function isSpedEligiblePair(pair: CandidatePair): boolean {
   const transport = pair.localCandidate.transport.toLowerCase();
   const remoteType = pair.remoteCandidate.type;
   if (transport === "tcp") {
-    return remoteType === "host" || remoteType === "prflx";
+    return (
+      remoteType === "host" || remoteType === "srflx" || remoteType === "prflx"
+    );
   }
   return remoteType === "host" || remoteType === "srflx";
+}
+
+/**
+ * Non-relay path: every Binding sent while SPED is active carries at least
+ * an empty DTLS-IN-STUN-DATA (draft-hancke-webrtc-sped-00 §3.3.2.1).
+ * Relay pairs stay outside SPED.
+ */
+export function isSpedAdvertisablePair(pair: CandidatePair): boolean {
+  return (
+    pair.localCandidate.type !== "relay" &&
+    pair.remoteCandidate.type !== "relay" &&
+    isSpedEligibleProtocol(pair.protocol)
+  );
 }
 
 /** UDP prflx is unconfirmed: it may later prove to be relay (trickle). */
@@ -290,22 +300,20 @@ export class SpedRuntime {
   }
 
   shouldDecorate(pair: CandidatePair): boolean {
-    return this.bindingRole(pair, "out") === "full";
+    return this.bindingRole(pair) === "full";
   }
 
   /**
    * full: L1 DATA + ACK on the association path.
    * capability: empty C070 only (other eligible pairs after pin, or
-   *   UDP prflx after the peer already advertised DATA).
-   * none: relay / TURN / unconfirmed UDP prflx without evidence.
+   *   unconfirmed UDP prflx that may later prove to be relay).
+   * none: relay / TURN. Every other pair must advertise C070
+   *   (draft §3.3.2.1); a missing C070 makes the peer fall back.
    *
    * A UDP prflx that already received non-empty DATA is the association
    * path until signaling upgrades it (host/srflx) or marks it relay.
    */
-  private bindingRole(
-    pair: CandidatePair,
-    direction: "in" | "out",
-  ): SpedBindingRole {
+  private bindingRole(pair: CandidatePair): SpedBindingRole {
     if (!this.session.embedding) {
       return "none";
     }
@@ -316,13 +324,7 @@ export class SpedRuntime {
     if (isSpedEligiblePair(pair)) {
       return association ? "capability" : "full";
     }
-    if (isUnconfirmedUdpPrflx(pair)) {
-      if (direction === "in") {
-        return "capability";
-      }
-      return this.session.peerSupport === "supported" ? "capability" : "none";
-    }
-    return "none";
+    return isSpedAdvertisablePair(pair) ? "capability" : "none";
   }
 
   /**
@@ -343,7 +345,7 @@ export class SpedRuntime {
   }
 
   decorateOutgoing(message: Message, pair: CandidatePair): boolean {
-    const role = this.bindingRole(pair, "out");
+    const role = this.bindingRole(pair);
     if (role === "none") {
       return true;
     }
@@ -515,7 +517,7 @@ export class SpedRuntime {
         return { fallback: false };
       }
     } else {
-      const role = this.bindingRole(pair, "in");
+      const role = this.bindingRole(pair);
       if (role === "none") {
         return { fallback: false };
       }
