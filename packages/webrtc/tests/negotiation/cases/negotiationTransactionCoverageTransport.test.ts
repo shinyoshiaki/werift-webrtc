@@ -1,4 +1,3 @@
-import { SCTP_STATE } from "../../../../sctp/src";
 import {
   MediaStreamTrack,
   RTCPeerConnection,
@@ -20,7 +19,6 @@ import {
   createConnectedMultiVideoPeers,
   createDirectedDuplexSession,
   createDuplexSession,
-  createInitialPranswerConnectionWithOffer,
   createMutationSession,
   createRewrittenOffer,
   expectMediaAlive,
@@ -33,13 +31,11 @@ import {
   reverseSetupRole,
   sdpCandidates,
   sectionOf,
-  sendAndExpectRtp,
   trickleCandidate,
   waitForDtlsConnected,
   waitForMutationSession,
   waitForPeersConnected,
   withIceCredentials,
-  withOnlyUnsupportedCodec,
 } from "../harness/negotiationTransactionUtils";
 
 /** The value of `a=<name>` in the m-section `mid`. */
@@ -55,11 +51,6 @@ const remoteFingerprint = (
       remoteParameters?: { fingerprints: { value: string }[] };
     }
   ).remoteParameters?.fingerprints[0]?.value;
-
-/** The receiver the router of `pc` routes the remote SSRC `ssrc` to. */
-const routedReceiver = (pc: RTCPeerConnection, ssrc: number) =>
-  (pc as unknown as { router: { ssrcTable: Record<number, unknown> } }).router
-    .ssrcTable[ssrc];
 
 /** The candidate ports of m-line `mid` in `sdp`. */
 const advertised = (sdp: string, mid: string) =>
@@ -212,94 +203,6 @@ describeCases("negotiation transaction spec coverage: transport", () => {
   );
 
   negotiationCase(
-    "[2.2-8] a replacement pranswer that adds BUNDLE detaches the transports a no-BUNDLE pranswer used and stops their checks",
-    { ref: "2.2-8" },
-    async (c) => {
-      // Arrange: 初回交渉で、BUNDLE なしの pranswer を offerer に適用する。
-      const { a, b, session, aVideo } = await c.given(
-        createMutationSession("initial"),
-      );
-      await c.offer(a);
-      await prepareMutationAnswerer(session);
-      const answer = await b.createAnswer();
-      await c.setLocal(b, answer, { type: "pranswer" });
-      await c.setRemote(a, mutate(answer.sdp, ["noBundle"]), {
-        type: "pranswer",
-      });
-      const unbundled = [...a.dtlsTransports];
-      expect(unbundled.length).toBeGreaterThan(1);
-
-      // Act: BUNDLE を受理した replacement pranswer を適用する。
-      await c.setRemote(a, answer, { type: "pranswer" });
-
-      // Assert: 全 m-line が tag の transport を共有し、旧 pranswer だけが使った transport は外れて、その暫定の ICE checks は止まる (new か closed)。
-      const detached = unbundled.filter((t) => !a.dtlsTransports.includes(t));
-      expect(a.sctpTransport!.dtlsTransport).toBe(aVideo.dtlsTransport);
-      expect(detached.length).toBeGreaterThan(0);
-      expect(
-        detached.filter(
-          (t) =>
-            t.iceTransport.state !== "new" && t.iceTransport.state !== "closed",
-        ),
-      ).toEqual([]);
-
-      // Assert: final answer 前の最新 topology で RTP と DataChannel が通じる。
-      await waitForMutationSession(session);
-      expect(a.signalingState).toEqual("have-remote-pranswer");
-      await c.alive();
-
-      // Act: final answer で確定する。
-      await c.setLocal(b, answer);
-      await c.setRemote(a, answer);
-
-      // Assert: 確定後も同じ topology で通じる。
-      await c.alive();
-    },
-  );
-
-  negotiationCase(
-    "[2.2-13] a final answer that rejects the application m-line keeps the SCTP association a first pranswer opened, as develop does",
-    { ref: "2.2-13 2.11-2; origin: develop comparison" },
-    async (c) => {
-      // Arrange: 初回交渉の pranswer で SCTP association と DataChannel を開く。
-      const { a, b, session, aOut, aChannel } = await c.given(
-        createMutationSession("initial"),
-      );
-      await c.offer(a);
-      await prepareMutationAnswerer(session);
-      const answer = await b.createAnswer();
-      await c.setLocal(b, answer, { type: "pranswer" });
-      await c.setRemote(a, answer, { type: "pranswer" });
-      await waitForMutationSession(session);
-      const provisional = a.sctpTransport!;
-      expect(provisional.sctp.associationState).toEqual(SCTP_STATE.ESTABLISHED);
-      const rejected = leaveBundle(
-        mungeSection(answer.sdp, "1", (s) =>
-          s.replace(/^m=application \d+/m, "m=application 0"),
-        ),
-        "1",
-      );
-
-      // Act: application m-line を port 0 で拒否した final answer を offerer に適用する。
-      await c.setLocal(b, answer);
-      await c.setRemote(a, rejected);
-
-      // Assert: develop と同じく SCTP transport と DataChannel は閉じず、同じ MID に束縛されたまま。
-      expect(a.sctpTransport).toBe(provisional);
-      expect(provisional.mid).toEqual("1");
-      expect(provisional.sctp.associationState).toEqual(SCTP_STATE.ESTABLISHED);
-      expect(aChannel.readyState).toEqual("open");
-
-      // Assert: 受理された video は確定した transport で届き続ける。
-      await c.rtp(aOut, session.b.video.receiver.track);
-
-      // Assert: 次の offer は同じ MID の application を再提案する (その後の通信は harness の継続確認)。
-      const next = await a.createOffer();
-      expect(sectionOf(next.sdp, "1")).toMatch(/^m=application [1-9]/);
-    },
-  );
-
-  negotiationCase(
     "[2.2-13] the candidates of a pranswer generation the final answer replaced leave the live checklist",
     { ref: "2.2-13" },
     async (c) => {
@@ -342,39 +245,6 @@ describeCases("negotiation transaction spec coverage: transport", () => {
       expect(a.currentRemoteDescription!.sdp).not.toContain(" 50991 ");
       await waitForMutationSession(session);
       await expectMediaAlive(session, "pranswer-candidate-released");
-    },
-  );
-
-  negotiationCase(
-    "[2.2-16] rollback stops the RTP a renegotiation pranswer started and keeps the current stream",
-    { ref: "2.2-16" },
-    async (c) => {
-      // Arrange: 確立済み session に新しい audio を足した re-offer を pranswer まで進め、新 audio の RTP が届くことを確かめる。
-      const { a, b } = await c.given(createDuplexSession());
-      const audioOut = new MediaStreamTrack({ kind: "audio" });
-      const audio = a.addTransceiver(audioOut, { direction: "sendonly" });
-      await c.offer(a);
-      await c.pranswer(b);
-      const remoteAudio = b.getTransceivers().find((t) => t.mid === audio.mid)!;
-      const [audioTrack, audioSsrc] = [
-        remoteAudio.receiver.track,
-        audio.sender.ssrc,
-      ];
-      await c.rtp(audioOut, audioTrack);
-      expect(routedReceiver(b, audioSsrc)).toBe(remoteAudio.receiver);
-
-      // Act: 両側で rollback する。
-      await c.rollback(a);
-
-      // Assert: 新 audio の RTP は届かなくなり、受信側 router にその SSRC は残らない。
-      await c.rejects(
-        () => sendAndExpectRtp(audioOut, audioTrack, "rolled-back-audio"),
-        "RTP was not received",
-      );
-      expect(routedReceiver(b, audioSsrc)).toBe(undefined);
-
-      // Assert: 旧 current の video と DataChannel は双方向に届き続ける。
-      await c.alive();
     },
   );
 
@@ -578,39 +448,6 @@ describeCases("negotiation transaction spec coverage: transport", () => {
   );
 
   negotiationCase(
-    "[2.9-T8] the same offer replaces a pranswer a first negotiation connected and the final answer reconnects",
-    { ref: "2.9-T8" },
-    async (c) => {
-      // Arrange: 初回交渉の pranswer で ICE / DTLS を接続した peer。
-      const { a, b, offer } = await c.given(
-        createInitialPranswerConnectionWithOffer(),
-      );
-      const out = a.getTransceivers()[0].sender.track!;
-
-      // Act: 最後に作った同じ offer を offerer に再適用する。
-      await c.setLocal(a, offer);
-
-      // Assert: remote pranswer は先に rollback され、offerer は have-local-offer に戻る。
-      expect(a.signalingState).toEqual("have-local-offer");
-      expect(a.pendingRemoteDescription).toBe(null);
-      expect(a.currentRemoteDescription).toBe(null);
-
-      // Act: answerer に offer を渡し、final answer で確定する。
-      await c.setRemote(b, a.localDescription);
-      const received = b.getTransceivers()[0];
-      await received.sender.replaceTrack(
-        new MediaStreamTrack({ kind: "video" }),
-      );
-      await c.answer(b);
-
-      // Assert: final answer で接続し直し、RTP が届く。
-      await waitForPeersConnected(a, b);
-      expect(a.signalingState).toEqual("stable");
-      await c.rtp(out, received.receiver.track);
-    },
-  );
-
-  negotiationCase(
     "[5-11] staged topology, candidate delivery, DTLS role and the answer's tags apply to the second BUNDLE group",
     {
       ref: "5-11",
@@ -757,63 +594,6 @@ for (const from of ["a", "b"] as const) {
             waitForDtlsConnected(remoteAudio.dtlsTransport),
           ]);
           await c.rtp(audioOut, remoteAudio.receiver.track);
-          await c.alive();
-        },
-      );
-
-      negotiationCase(
-        "[5-2] an m-line without a common codec, its port 0 answer and duplicate applications keep the invariants",
-        { ref: "5-2" },
-        async (c) => {
-          // Arrange: 新しい video m-line を足した re-offer を作り、wire 上でその m-line を共通 codec のない提案にする。
-          const { a, b, aVideo, bVideo } = await c.given(
-            createDirectedDuplexSession(from),
-          );
-          const extra = a.addTransceiver(
-            new MediaStreamTrack({ kind: "video" }),
-            { direction: "sendonly" },
-          );
-          const offer = await a.createOffer();
-          const mid = extra.mid!;
-          const unsupported = {
-            type: "offer",
-            sdp: withOnlyUnsupportedCodec(offer.sdp, mid),
-          };
-          await c.setLocal(a, offer);
-
-          // Act: 同じ remote offer を二重に適用する。
-          await c.setRemote(b, unsupported);
-          const transceivers = b.getTransceivers();
-          await c.setRemote(b, unsupported);
-
-          // Assert: 二重適用で transceiver は増えず、pending 中は何も止まらず通信も続く。
-          expect(b.getTransceivers()).toEqual(transceivers);
-          const rejecting = b.getTransceivers().find((t) => t.mid === mid)!;
-          expect([rejecting.stopped, extra.stopped]).toEqual([false, false]);
-          await c.alive();
-
-          // Act: port 0 を含む answer を作り、pranswer を二重に適用してから確定する。
-          const answer = await b.createAnswer();
-          expect(sectionOf(answer.sdp, mid)).toMatch(/^m=video 0 /);
-          await c.setLocal(b, answer, { type: "pranswer" });
-          await c.setRemote(a, answer, { type: "pranswer" });
-          await c.setLocal(b, answer, { type: "pranswer" });
-          await c.setRemote(a, answer, { type: "pranswer" });
-
-          // Assert: pranswer 中も拒否予定の m-line は止まらない。
-          expect([rejecting.stopped, extra.stopped]).toEqual([false, false]);
-
-          // Act: final answer で確定する。
-          await c.setLocal(b, answer);
-          await c.setRemote(a, answer);
-
-          // Assert: commit で拒否予定の m-line だけが両側で停止し、既存 session は通じる。
-          expect([
-            rejecting.stopped,
-            extra.stopped,
-            aVideo.stopped,
-            bVideo.stopped,
-          ]).toEqual([true, true, false, false]);
           await c.alive();
         },
       );

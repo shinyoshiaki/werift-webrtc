@@ -694,6 +694,40 @@ the individual tests they replaced, and random scenarios: CI runs
 text and the operation log, and the same seed replays it. The properties run
 concurrently within the file (`describe.concurrent`).
 
+`tests/pbt/negotiationTrafficProperty.test.ts` (with `trafficPropertyUtils.ts`
+and `trafficScenes.ts`) holds the traffic property: every stream and
+DataChannel the peers negotiated carries traffic after every operation. The
+case harness checks it with `c.expectTraffic()` (meta `traffic: true`) after
+each description operation and after the scene: every stream whose sender's
+`currentDirection` sends, whose transceiver of the same MID on the other peer
+receives (a pranswer sets both provisionally) and that neither side stopped
+delivers one RTP packet from its local track within 2 s, and every
+DataChannel open on both peers delivers a message both ways. Only settled
+transports count (DTLS connected and a nominated pair of the current ICE
+generation; an ICE restart commit drops the old pair until the new
+generation nominates): after an operation an unsettled one is skipped
+without waiting, so the check does not move the scene's own check points,
+and the check after the scene waits up to 10 s for it to settle. It holds
+while both peers have the same
+current session (each one's current local description, without candidates,
+is the other's current remote description); between an answerer's commit and
+the offerer applying that answer, or after one peer committed SDP the other
+never applied, the check is skipped; while a renegotiation is pending, a
+stream on a transport that is not connected yet is not required (a pranswer
+stages a new transport for the final answer, see "Connection start"; seed 74
+of the first deep search). Its fixed scenes are the deterministic
+cases whose verdict included real traffic and that need no special
+environment (TURN, simulcast, mocks, timing), moved from
+`tests/negotiation/cases` with their names and own expectations; its random
+scenes start from a connected duplex session or two unnegotiated peers and
+draw operations by seed (tracks, recvonly transceivers, DataChannels,
+direction, stop, track attach, ICE restart, offer / BUNDLE split offer /
+replacement offer, pranswer, answer, rollback). CI runs
+`WERIFT_NEGOTIATION_TRAFFIC_SEEDS` (default 4) seeds of
+`WERIFT_NEGOTIATION_TRAFFIC_STEPS` (default 8) operations from
+`WERIFT_NEGOTIATION_TRAFFIC_SEED`; a failure prints the seed, the operations
+and the replay command.
+
 `tests/pbt/negotiationTransactionProperty.test.ts` holds the seeded episode
 fuzzer and its episodes, seeded random
 stream and atomicity check (`propertyUtils.ts`, built on the shared utilities
@@ -720,10 +754,12 @@ run the peer-diversity mutations and the interrupt matrix above.
 CI replays a fixed seed set plus the seeds that found bugs; a deeper local
 search uses `WERIFT_NEGOTIATION_FUZZ_SEEDS`, `WERIFT_NEGOTIATION_FUZZ_STEPS`
 and `WERIFT_NEGOTIATION_FUZZ_SEED`, and a failure prints its seed and
-operations. Before asking for review, run both deeper searches
+operations. Before asking for review, run the deeper searches
 (`WERIFT_NEGOTIATION_FUZZ_SEEDS=300 WERIFT_NEGOTIATION_FUZZ_STEPS=20` for the
 episode fuzzer, `WERIFT_NEGOTIATION_SCENARIO_SEEDS=300` for the scenario
-properties), the pairwise
+properties, `WERIFT_NEGOTIATION_TRAFFIC_SEEDS=300
+WERIFT_NEGOTIATION_TRAFFIC_STEPS=12` with `-t seed` for the traffic property),
+the pairwise
 mutations (`WERIFT_NEGOTIATION_MUTATION=pairwise`) and a self-review that
 lists every path writing live tables while a description is pending.
 `NEGOTIATION_SPEC_COVERAGE.md` maps every requirement of the ticket to the
@@ -791,6 +827,9 @@ describeCases("negotiation transaction routing tables", () => {
   case is exempt, restores mocks and closes everything. A failure names the
   case, its `ref`, the number and text of the last operation and the
   operations before it; vitest adds the expected and actual values.
+- `meta.traffic` (the fixed scenes of the traffic property) also checks
+  `c.expectTraffic()` after each description operation and after the body;
+  `c.note(text)` adds a step of a generated scene to the operation log.
 
 Expected values are literals or values the case saved before the operation,
 never computed by the code under test, and a case keeps the operation

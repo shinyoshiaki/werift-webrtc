@@ -3,7 +3,10 @@ import { describe, expect, test, vi } from "vitest";
 import {
   type MediaStreamTrack,
   type RTCDataChannel,
+  type RTCDtlsTransport,
   RTCPeerConnection,
+  RtpHeader,
+  RtpPacket,
 } from "../../../src";
 import {
   type DuplexSession,
@@ -13,6 +16,7 @@ import {
   expectSessionAlive,
   expectSessionContinues,
   negotiationSnapshot,
+  registeredDataChannels,
   sendAndExpectData,
   sendAndExpectRtp,
   waitUntil,
@@ -39,6 +43,12 @@ export type CaseMeta = {
   exempt?: string;
   /** Check the invariants only at `c.invariants()`, not after each operation. */
   explicitInvariants?: boolean;
+  /**
+   * Check the traffic property (`c.expectTraffic()`) after each description
+   * operation and after the body: the fixed scenes of
+   * tests/pbt/negotiationTrafficProperty.test.ts.
+   */
+  traffic?: boolean;
   timeout?: number;
 };
 
@@ -83,6 +93,51 @@ export type Given<T> = T extends {
     : Omit<T, "close">;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * A transport that carries traffic now: DTLS connected and a nominated pair
+ * of the current ICE generation (an ICE restart commit drops the old pair
+ * until the new generation nominates).
+ */
+function settled(transport: RTCDtlsTransport) {
+  const connection = transport.iceTransport.connection;
+  return (
+    transport.state === "connected" &&
+    connection.nominated?.localCandidate.ufrag === connection.localUsername
+  );
+}
+
+/** Send once and expect `event` to deliver it within 2 s (a lost packet fails). */
+async function flows<T>(
+  event: {
+    subscribe: (fn: (value: T) => void) => { unSubscribe: () => void };
+  },
+  match: (value: T) => boolean,
+  send: () => void,
+  message: string,
+) {
+  let received = false;
+  let wake = () => {};
+  const { unSubscribe } = event.subscribe((value) => {
+    if (match(value)) {
+      received = true;
+      wake();
+    }
+  });
+  try {
+    const deadline = Date.now() + 2000;
+    send();
+    while (!received && Date.now() < deadline) {
+      await new Promise<void>((resolve) => {
+        wake = resolve;
+        setTimeout(resolve, 100);
+      });
+    }
+  } finally {
+    unSubscribe();
+  }
+  expect(received, message).toBe(true);
+}
 
 /** The state of one running case; the body receives it as `c`. */
 export class NegotiationCase {
@@ -342,12 +397,140 @@ export class NegotiationCase {
     this.expectRejection(error, expected, "operation");
   }
 
+  /** Record a step of a generated scene in the operation log. */
+  note(step: string) {
+    this.log(step);
+  }
+
+  /**
+   * Assert the traffic property: every stream both peers negotiated (the
+   * sender's `currentDirection` sends, the transceiver of the same MID on
+   * the other peer receives; a pranswer sets them provisionally) and neither
+   * side stopped delivers RTP from the local track to the other peer, and
+   * every DataChannel open on both peers delivers a message both ways: one
+   * packet arrives within 2 s, so a lost packet fails. Only settled
+   * transports count (DTLS connected, a nominated pair of the current ICE
+   * generation): after an operation an unsettled one is skipped without
+   * waiting, so the check does not move the scene's own check points; at the
+   * end (`final`) the check waits 10 s for it to settle. It holds while both peers have the
+   * same current session (each one's current local description, without
+   * candidates, is the other's current remote description). While a
+   * renegotiation is pending, a stream on a transport that is not connected
+   * yet is not required: a pranswer stages a new transport's parameters for
+   * the final answer ("Connection start" in NEGOTIATION_TRANSACTION.md).
+   */
+  async expectTraffic({ final = false } = {}) {
+    const peers = ["a", "b"].map(
+      (name) => [...this.peers].find(([, n]) => n === name)?.[0],
+    );
+    if (peers.some((pc) => !pc || pc.signalingState === "closed")) return;
+    const [a, b] = peers as RTCPeerConnection[];
+    // 両 peer が同じ current session を持つ間だけ通信を求める (一方が answer で
+    // 確定し、もう一方がまだ適用していない間や、相手が適用していない SDP を
+    // 片側だけが確定した場合は、current が食い違う)。
+    const bare = (sdp?: string) =>
+      sdp?.replace(/^a=(candidate:|end-of-candidates).*\r?\n/gm, "");
+    const agree =
+      bare(a.currentLocalDescription?.sdp) ===
+        bare(b.currentRemoteDescription?.sdp) &&
+      bare(b.currentLocalDescription?.sdp) ===
+        bare(a.currentRemoteDescription?.sdp);
+    const label = this.log(agree ? "traffic" : "traffic (current differs)");
+    if (!agree) return;
+    // 再交渉の pending 中、pranswer が parameters を予約した新しい transport は
+    // final answer の後に開始する (Connection start)。接続済みの transport 上の
+    // stream と、初回交渉の pranswer の stream だけが暫定でも流れる。
+    const renegotiating =
+      [a, b].some((pc) => pc.signalingState !== "stable") &&
+      !!a.currentRemoteDescription;
+    for (const [from, to, side] of [
+      [a, b, "a"],
+      [b, a, "b"],
+    ] as const) {
+      for (const transceiver of from.getTransceivers()) {
+        const track = transceiver.sender.track;
+        const direction = transceiver.currentDirection;
+        if (
+          !transceiver.mid ||
+          transceiver.stopping ||
+          transceiver.stopped ||
+          !track ||
+          track.remote
+        ) {
+          continue;
+        }
+        if (direction !== "sendrecv" && direction !== "sendonly") continue;
+        if (renegotiating && transceiver.dtlsTransport.state !== "connected") {
+          continue;
+        }
+        const remote = to
+          .getTransceivers()
+          .find((t) => t.mid === transceiver.mid);
+        // 相手も同じ description を適用し、受信方向で停止していない stream だけが流れる。
+        const receiving = remote?.currentDirection;
+        if (
+          !remote ||
+          remote.stopping ||
+          remote.stopped ||
+          (receiving !== "sendrecv" && receiving !== "recvonly")
+        ) {
+          continue;
+        }
+        const text = `${label}-${side}-${transceiver.mid}`;
+        // 1 回送った RTP が 2 s 以内に届く (sendAndExpectRtp と同じ)。transport が
+        // まだ確立していなければ、操作の後は待たずに対象外 (シーンの時点を変えない)、
+        // 最後は確立を待ってから検査する。
+        if (!(await this.ready(transceiver.dtlsTransport, final))) continue;
+        await flows(
+          remote!.receiver.track.onReceiveRtp,
+          (packet) => packet.payload.toString() === text,
+          () =>
+            track.writeRtp(
+              new RtpPacket(new RtpHeader(), Buffer.from(text)).serialize(),
+            ),
+          `RTP was not received: ${text}`,
+        );
+      }
+    }
+    for (const channel of registeredDataChannels(a)) {
+      const remote = registeredDataChannels(b).find((c) => c.id === channel.id);
+      if (channel.readyState !== "open" || remote?.readyState !== "open") {
+        continue;
+      }
+      if (!(await this.ready(a.sctpTransport!.dtlsTransport, final))) continue;
+      for (const [from, to] of [
+        [channel, remote],
+        [remote, channel],
+      ]) {
+        const text = `${label}-dc-${channel.id}-${from === channel ? "a" : "b"}`;
+        await flows(
+          to.onMessage,
+          (data) => data.toString() === text,
+          () => from.send(Buffer.from(text)),
+          `DataChannel message was not received: ${text}`,
+        );
+      }
+    }
+  }
+
   // --- internals -------------------------------------------------------------
+
+  /** Whether `transport` is settled; at the end of a scene, wait 10 s for it. */
+  private async ready(transport: RTCDtlsTransport, final: boolean) {
+    if (settled(transport) || !final) return settled(transport);
+    await waitUntil(
+      () => settled(transport),
+      `${this.name}: the transport did not settle`,
+      10_000,
+    );
+    return true;
+  }
 
   /** Run the body, then the continuation; close everything afterwards. */
   async run(body: () => Promise<void>) {
     try {
       await body();
+      if (this.meta.traffic) await this.expectTraffic({ final: true });
       if (!this.exemptReason) {
         const a = this.peerNamed("a");
         const b = this.peerNamed("b");
@@ -461,6 +644,7 @@ export class NegotiationCase {
       }
     }
     if (!this.meta.explicitInvariants) this.invariants();
+    if (this.meta.traffic) await this.expectTraffic();
   }
 
   private expectRejection(

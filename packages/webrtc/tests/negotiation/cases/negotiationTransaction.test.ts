@@ -5,21 +5,17 @@ import {
   useH264,
   useVP8,
 } from "../../../src";
-import type {
-  RTCDataChannel,
-  RTCDtlsTransport,
-  RTCPeerConnection,
-} from "../../../src";
+import type { RTCDtlsTransport, RTCPeerConnection } from "../../../src";
+import { describeCases, negotiationCase } from "../harness/negotiationCase";
 import {
-  ANSWER_OR_ROLLBACK,
-  describeCases,
-  negotiationCase,
-} from "../harness/negotiationCase";
+  ufragOf,
+  withBundle,
+  withoutEoc,
+} from "../harness/negotiationTransactionUtils";
 import {
   addNegotiatedAudio,
   createConnectedMediaAndDataPeers,
   createConnectedVideoPeers,
-  createConnectedVideoPeersWithRtx,
   createDuplexSession,
   createPeerPair,
   createRewrittenOffer,
@@ -27,62 +23,15 @@ import {
   createSplitOffer,
   createUnnegotiatedVideoPeers,
   failOnce,
-  keepOnlyRtx,
   movePayloadType,
-  mungeSection,
-  negotiateAndExpectChannel,
   negotiationInternals,
   recordNegotiationEvents,
-  sectionOf,
   waitForCommittedNomination,
   waitForConnection,
   waitForDtlsConnected,
   waitForIce,
-  waitForPeersConnected,
   waitForProvisionalNomination,
 } from "../harness/negotiationTransactionUtils";
-
-/** The first host candidate of `sdp` moved to `port` (foundation suffix: the last digit of `port`). */
-const hostCandidate = (sdp: string, port: number, ufrag?: string) => {
-  const [, foundation, rest] = sdp.match(
-    /^a=candidate:(\S+) (\d+ \S+ \d+ \S+) \d+ typ host/m,
-  )!;
-  const candidate = `candidate:${foundation}${port % 10} ${rest} ${port} typ host`;
-  return ufrag ? `${candidate} ufrag ${ufrag}` : candidate;
-};
-
-/** The SDP without end-of-candidates: the trickle of its generation is still open. */
-const withoutEoc = (sdp: string) =>
-  sdp.replace(/^a=end-of-candidates\r?\n/gm, "");
-
-const eocCount = (sdp: string) =>
-  sdp.match(/^a=end-of-candidates/gm)?.length ?? 0;
-
-/** The MIDs of the BUNDLE group (the first one is the tag). */
-const bundleMids = (sdp: string) =>
-  sdp
-    .match(/^a=group:BUNDLE (.*?)\r?$/m)![1]
-    .trim()
-    .split(" ");
-
-/** The SDP with its BUNDLE group set to `mids`. */
-const withBundle = (sdp: string, mids: string[]) =>
-  sdp.replace(/a=group:BUNDLE [^\r\n]+/, `a=group:BUNDLE ${mids.join(" ")}`);
-
-const ufragOf = (sdp: string) => sdp.match(/^a=ice-ufrag:(.*?)\r?$/m)![1];
-
-/** The SDP with `hostCandidate(sdp, port)` added after its first host candidate. */
-const withHostCandidate = (sdp: string, port: number) => {
-  const [line] = sdp.match(
-    /^a=candidate:\S+ \d+ \S+ \d+ \S+ \d+ typ host.*$/m,
-  )!;
-  return sdp.replace(line, `${line}\r\na=${hostCandidate(sdp, port)}`);
-};
-
-/** Remote candidates on `port` in the live checklist of the first ICE transport. */
-const liveCandidates = (pc: RTCPeerConnection, port: number) =>
-  pc.iceTransports[0].connection.remoteCandidates.filter((c) => c.port === port)
-    .length;
 
 /** The transport the negotiation transaction prepared for `mid` (private state). */
 const preparedTransport = (pc: RTCPeerConnection, mid: string) =>
@@ -93,39 +42,6 @@ const preparedTransport = (pc: RTCPeerConnection, mid: string) =>
   ).negotiation.transportByMid.get(mid);
 
 describeCases("negotiation transaction", () => {
-  negotiationCase(
-    "rollback preserves application stop and a new trackless transceiver",
-    { ref: "2.5-15" },
-    async (c) => {
-      // Arrange: 音声を追加で交渉し、re-offer を b に pending で適用する。
-      const { a, b, session } = await c.given(createDuplexSession());
-      const audio = await addNegotiatedAudio(session, session.a, session.b);
-      const existing = audio.remote();
-      const currentRemote = b.currentRemoteDescription!.sdp;
-      await c.offer(a);
-
-      // Act: pending 中にアプリが停止と track のない transceiver 追加を行い、rollback する。
-      existing.stop();
-      const added = b.addTransceiver("audio", { direction: "recvonly" });
-      await c.setRemote(b, "rollback");
-
-      // Assert: SDP 由来の状態だけが戻り、アプリ操作 (stop / 追加) は残る。
-      for (const item of [existing, added])
-        expect(b.getTransceivers()).toContain(item);
-      expect(added).toMatchObject({ mid: null, sender: { track: null } });
-      expect(b.currentRemoteDescription!.sdp).toEqual(currentRemote);
-
-      // Assert: stop() で解放した pipeline は rollback でも再開しない。
-      expect(existing).toMatchObject({
-        stopping: true,
-        receiver: { stopped: true, track: { readyState: "ended" } },
-      });
-
-      // Assert: 停止していない video と DataChannel は両方向で通信を続ける。
-      await c.alive();
-    },
-  );
-
   negotiationCase(
     "a remote offer whose BUNDLE member is not an exact MID creates nothing",
     { ref: "2.8-20; origin: BUNDLE group validation" },
@@ -214,95 +130,6 @@ describeCases("negotiation transaction", () => {
       await sendLayer("high", 1111, "high-after-rollback", { withRid: false });
       await sendLayer("low", 2222, "low-after-rollback", { withRid: false });
       expect(b.signalingState).toEqual("stable");
-    },
-  );
-
-  negotiationCase.for([
-    {
-      when: "in have-local-offer",
-      kind: "local-offer",
-      creator: "a",
-      peer: "b",
-    },
-    {
-      when: "in have-remote-offer",
-      kind: "remote-offer",
-      creator: "b",
-      peer: "a",
-    },
-    {
-      when: "between createOffer and setting that older offer",
-      kind: "stale-offer",
-      creator: "a",
-      peer: "b",
-    },
-  ] as const)(
-    "rollback keeps a DataChannel created $when and the next negotiation opens it",
-    { ref: "2.3-15 2.3-17 2.3-18" },
-    async (c, { when, kind, creator, peer }) => {
-      // Arrange: m=application を含まない初回 offer で transaction を開き、その途中で DataChannel を作る。
-      const { a, b, outgoing, incoming } = await c.given(
-        createUnnegotiatedVideoPeers(),
-      );
-      let channel: RTCDataChannel;
-      if (kind === "stale-offer") {
-        const staleOffer = await a.createOffer();
-        channel = a.createDataChannel(kind);
-        await c.setLocal(a, staleOffer);
-      } else {
-        await c.offer(a, { hold: true });
-        if (kind === "remote-offer") await c.setRemote(b, a.localDescription);
-        channel = c.named(creator).createDataChannel(kind);
-      }
-
-      // Act: application の createDataChannel を挟んだ transaction を rollback する。
-      await c.rollback(a);
-
-      // Assert: SCTP transport は止まらず、未交渉 (MID/remote port なし) で残る。
-      expect(c.named(creator).signalingState).toEqual("stable");
-      expect(c.named(creator).sctpTransport).toBe(channel.sctp);
-      expect(channel.readyState).toEqual("connecting");
-
-      // Act: 作成側から改めて交渉する。
-      if (creator === "b") b.addTransceiver("video");
-      const received = await negotiateAndExpectChannel(
-        c.named(creator),
-        c.named(peer),
-        channel,
-      );
-
-      // Assert: channel が開いて両方向に届き、交渉済みの RTP も届く。
-      await c.data(received, channel);
-      if (creator === "a") await c.rtp(outgoing, incoming());
-    },
-  );
-
-  negotiationCase(
-    "an answer whose RTX has no associated codec is rejected before mutation",
-    { ref: "2.5-4" },
-    async (c) => {
-      // Arrange: re-offer に対し、VP8 を落として RTX だけを残した answer を作る。
-      const { a, b, outgoing, incoming } = await c.given(
-        createConnectedVideoPeersWithRtx(),
-      );
-      await c.offer(a);
-      await c.answer(b, { hold: true });
-
-      // Act: apt の指す codec がない answer を適用する。共通 codec のない非ゼロ port の answer は InvalidAccessError (issue 705 と同じ規則) で、pending offer・current は変わらない。
-      await c.setRemote(a, keepOnlyRtx(b.localDescription!.sdp), {
-        rejects: "InvalidAccessError",
-      });
-
-      // Assert: 事前検証で拒否され、RTP は変わらず届く。
-      expect(a.signalingState).toEqual("have-local-offer");
-      await c.rtp(outgoing, incoming);
-
-      // Act: 正しい answer を適用する。
-      await c.setRemote(a, b.localDescription);
-
-      // Assert: 交渉が完了し RTP も継続する。
-      expect(a.signalingState).toEqual("stable");
-      await c.rtp(outgoing, incoming);
     },
   );
 
@@ -455,202 +282,6 @@ describeCases("negotiation transaction", () => {
   );
 
   negotiationCase(
-    "a trickle candidate of the unchanged ICE generation reaches the live checklist during a re-offer",
-    { ref: "origin: same-generation trickle during a re-offer" },
-    async (c) => {
-      // Arrange: EOC 前の世代のまま ICE restart なしの re-offer を pending にし、同じ ufrag の新しい候補を作る。
-      const { a, b, outgoing, incoming } = await c.given(
-        createConnectedVideoPeers({}, { trickleOpen: true }),
-      );
-      await c.offer(a, { hold: true });
-      await c.setRemote(b, withoutEoc(a.localDescription!.sdp));
-      const offer = a.localDescription!.sdp;
-      const candidate = {
-        candidate: hostCandidate(offer, 40999),
-        sdpMid: offer.match(/^a=mid:(.*?)\r?$/m)![1],
-        usernameFragment: ufragOf(offer),
-      };
-      expect(liveCandidates(b, 40999)).toEqual(0);
-
-      // Act: 同じ候補を 2 回 trickle する。
-      await c.addCandidate(b, candidate);
-      await c.addCandidate(b, candidate);
-
-      // Assert: pending と current の両 SDP に記録され、稼働中 checklist には 1 回だけ届く。
-      expect(b.pendingRemoteDescription!.sdp).toContain(" 40999 typ host");
-      expect(b.currentRemoteDescription!.sdp).toContain(" 40999 typ host");
-      expect(liveCandidates(b, 40999)).toEqual(1);
-
-      // Act: re-offer を両側で rollback する。
-      await c.rollback(b);
-
-      // Assert: 同じ世代の候補は current に残り、既存 RTP も届く。
-      expect(b.currentRemoteDescription!.sdp).toContain(" 40999 typ host");
-      expect(liveCandidates(b, 40999)).toEqual(1);
-      await c.rtp(outgoing, incoming);
-    },
-  );
-
-  negotiationCase(
-    "candidates in the body of a same-ufrag re-offer reach the live checklist before the answer",
-    { ref: "origin: same-generation candidates in an offer body" },
-    async (c) => {
-      // Arrange: ICE restart なしの re-offer に、同じ ufrag の新しい候補を SDP 本文で足す (EOC なし)。
-      const { a, b, outgoing, incoming } = await c.given(
-        createConnectedVideoPeers({}, { trickleOpen: true }),
-      );
-      await c.offer(a, { hold: true });
-      const withCandidate = withHostCandidate(
-        withoutEoc(a.localDescription!.sdp),
-        40998,
-      );
-      const connection = b.iceTransports[0].connection;
-      expect(liveCandidates(b, 40998)).toEqual(0);
-
-      // Act: 新しい候補を含む re-offer を適用する (answer はまだ返さない)。
-      await c.setRemote(b, withCandidate);
-
-      // Assert: 候補は answer 前に稼働中 checklist と current SDP に 1 回だけ入る。
-      expect(liveCandidates(b, 40998)).toEqual(1);
-      expect(b.currentRemoteDescription!.sdp).toContain(" 40998 typ host");
-      expect(connection.remoteCandidatesEnd).toEqual(false);
-
-      // Act: 同じ候補と EOC を含む置換 offer を適用する。
-      await c.setRemote(
-        b,
-        withCandidate.trimEnd() + "\r\na=end-of-candidates\r\n",
-      );
-
-      // Assert: 候補は重複せず、同じ世代の EOC も稼働中 generation に届く。
-      expect(liveCandidates(b, 40998)).toEqual(1);
-      expect(connection.remoteCandidatesEnd).toEqual(true);
-
-      // Act: re-offer を両側で rollback する。
-      await c.rollback(b);
-
-      // Assert: 同じ世代の候補は current と checklist に残り、既存 RTP も届く。
-      expect(liveCandidates(b, 40998)).toEqual(1);
-      expect(b.currentRemoteDescription!.sdp).toContain(" 40998 typ host");
-      await c.rtp(outgoing, incoming);
-    },
-  );
-
-  negotiationCase(
-    "end-of-candidates on a non-tag BUNDLE m-line completes the shared transport for every m-line",
-    { ref: "2.8-28" },
-    async (c) => {
-      // Arrange: 映像 (tag) と音声 (非 tag) が一つの ICE transport を共有し、EOC 前の世代にある。
-      const { a, b, outgoing, incoming } = await c.given(
-        createConnectedVideoPeers({}, { trickleOpen: true, withAudio: true }),
-      );
-      const [tagMid, nonTagMid] = bundleMids(b.currentRemoteDescription!.sdp);
-      const connection = b.iceTransports[0].connection;
-      expect(b.iceTransports.length).toEqual(1);
-      expect(connection.remoteCandidatesEnd).toEqual(false);
-
-      // Act: 非 tag m-line に EOC を trickle する。
-      await c.addCandidate(b, { candidate: "", sdpMid: nonTagMid });
-
-      // Assert: 共有 transport が完了し、current SDP の両 m-line が完了扱いになる。
-      expect(connection.remoteCandidatesEnd).toEqual(true);
-      expect(eocCount(b.currentRemoteDescription!.sdp)).toEqual(2);
-
-      // Act: tag m-line の候補を本文に足した同じ ufrag の re-offer を適用する。
-      await c.offer(a, { hold: true });
-      const withCandidate = withHostCandidate(
-        withoutEoc(a.localDescription!.sdp),
-        40997,
-      );
-      expect(withCandidate.indexOf(" 40997 typ host")).toBeLessThan(
-        withCandidate.indexOf("a=mid:" + nonTagMid),
-      );
-      await c.setRemote(b, withCandidate);
-
-      // Assert: 完了済み transport の候補は current SDP にも checklist にも入らない。
-      expect(b.currentRemoteDescription!.sdp).not.toContain(" 40997 typ host");
-      expect(liveCandidates(b, 40997)).toEqual(0);
-
-      // Act: re-offer を両側で rollback する。
-      await c.rollback(b);
-
-      // Assert: current SDP は受け付けていない候補を含まず、既存 RTP が届く。
-      expect(b.currentRemoteDescription!.sdp).not.toContain(" 40997 typ host");
-      expect(tagMid).not.toEqual(nonTagMid);
-      await c.rtp(outgoing, incoming);
-    },
-  );
-
-  negotiationCase.for(ANSWER_OR_ROLLBACK)(
-    "end-of-candidates trickled on a non-tag m-line during a same-ufrag re-offer stays aligned after $finish",
-    { ref: "2.8-30" },
-    async (c, { finish }) => {
-      // Arrange: EOC 前の世代のまま、ICE restart なしの re-offer を pending にする。
-      const { a, b, outgoing, incoming } = await c.given(
-        createConnectedVideoPeers({}, { trickleOpen: true, withAudio: true }),
-      );
-      await c.offer(a, { hold: true });
-      await c.setRemote(b, withoutEoc(a.localDescription!.sdp));
-      const nonTagMid = bundleMids(b.pendingRemoteDescription!.sdp)[1];
-      const connection = b.iceTransports[0].connection;
-
-      // Act: pending 中に非 tag m-line へ EOC を trickle する。
-      await c.addCandidate(b, { candidate: "", sdpMid: nonTagMid });
-
-      // Assert: 共有 transport が完了し、pending と current の両 SDP で 2 m-line とも完了扱い。
-      expect(connection.remoteCandidatesEnd).toEqual(true);
-      expect(eocCount(b.pendingRemoteDescription!.sdp)).toEqual(2);
-      expect(eocCount(b.currentRemoteDescription!.sdp)).toEqual(2);
-
-      // Act: answer で確定する、または rollback する。
-      await c.finish(b, finish);
-
-      // Assert: 確定した SDP と live transport の EOC 状態が一致し、RTP が届く。
-      expect(b.signalingState).toEqual("stable");
-      expect(connection.remoteCandidatesEnd).toEqual(true);
-      expect(eocCount(b.currentRemoteDescription!.sdp)).toEqual(2);
-      await c.rtp(outgoing, incoming);
-    },
-  );
-
-  negotiationCase.for(ANSWER_OR_ROLLBACK)(
-    "end-of-candidates in the body of a non-tag m-line of a same-ufrag re-offer ends the shared generation after $finish",
-    { ref: "2.8-30" },
-    async (c, { finish }) => {
-      // Arrange: 非 tag m-line の本文だけに EOC を載せた同じ ufrag の re-offer を作る。
-      const { a, b, outgoing, incoming } = await c.given(
-        createConnectedVideoPeers({}, { trickleOpen: true, withAudio: true }),
-      );
-      await c.offer(a, { hold: true });
-      const stripped = withoutEoc(a.localDescription!.sdp);
-      const offer = mungeSection(
-        stripped,
-        bundleMids(stripped)[1],
-        (section) => section.trimEnd() + "\r\na=end-of-candidates\r\n",
-      );
-      const connection = b.iceTransports[0].connection;
-      expect(eocCount(offer)).toEqual(1);
-      expect(connection.remoteCandidatesEnd).toEqual(false);
-
-      // Act: re-offer を適用する (answer はまだ返さない)。
-      await c.setRemote(b, offer);
-
-      // Assert: 共有 transport が完了し、current と pending の両 SDP で 2 m-line とも完了扱い。
-      expect(connection.remoteCandidatesEnd).toEqual(true);
-      expect(eocCount(b.currentRemoteDescription!.sdp)).toEqual(2);
-      expect(eocCount(b.pendingRemoteDescription!.sdp)).toEqual(2);
-
-      // Act: answer で確定する、または rollback する。
-      await c.finish(b, finish);
-
-      // Assert: 確定した SDP と live transport の EOC 状態が一致し、RTP が届く。
-      expect(b.signalingState).toEqual("stable");
-      expect(connection.remoteCandidatesEnd).toEqual(true);
-      expect(eocCount(b.currentRemoteDescription!.sdp)).toEqual(2);
-      await c.rtp(outgoing, incoming);
-    },
-  );
-
-  negotiationCase(
     "a queued candidate the remote offer cannot place rejects it before any application event",
     { ref: "origin: candidate queue" },
     async (c) => {
@@ -746,142 +377,6 @@ describeCases("negotiation transaction", () => {
       expect(a.signalingState).toEqual("stable");
       expect(b.signalingState).toEqual("stable");
       await c.rtp(outgoing, incoming);
-    },
-  );
-
-  negotiationCase(
-    "a candidate's ufrag in the candidate string routes it to the same generation as the usernameFragment property",
-    { ref: "2.3-22" },
-    async (c) => {
-      // Arrange: ICE restart re-offer で current (旧) と pending (新) の ufrag を併存させる。
-      const { a, b, outgoing, incoming } = await c.given(
-        createConnectedVideoPeers({}, { trickleOpen: true }),
-      );
-      const oldUfrag = ufragOf(b.currentRemoteDescription!.sdp);
-      await c.offer(a, { iceRestart: true });
-      const newUfrag = ufragOf(b.pendingRemoteDescription!.sdp);
-      expect(newUfrag).not.toEqual(oldUfrag);
-      const current = b.currentRemoteDescription!.sdp;
-      const mid = current.match(/^a=mid:(.*?)\r?$/m)![1];
-
-      // Act: 旧 ufrag を候補文字列だけに含める形と、プロパティでも渡す形で追加する。
-      await c.addCandidate(b, {
-        candidate: hostCandidate(current, 40991, oldUfrag),
-        sdpMid: mid,
-      });
-      await c.addCandidate(b, {
-        candidate: hostCandidate(current, 40992, oldUfrag),
-        sdpMid: mid,
-        usernameFragment: oldUfrag,
-      });
-
-      // Assert: どちらも旧世代として current SDP と稼働中 checklist に入り、pending SDP には入らない。
-      expect(b.currentRemoteDescription!.sdp).toContain(" 40991 typ host");
-      expect(b.pendingRemoteDescription!.sdp).not.toContain(" 40991 typ host");
-      expect(liveCandidates(b, 40991)).toBeGreaterThan(0);
-      expect(b.currentRemoteDescription!.sdp).toContain(" 40992 typ host");
-      expect(b.pendingRemoteDescription!.sdp).not.toContain(" 40992 typ host");
-      expect(liveCandidates(b, 40992)).toBeGreaterThan(0);
-
-      // Act: 候補文字列とプロパティで ufrag が食い違う候補を追加する。拒否され状態は変わらない。
-      await c.addCandidate(
-        b,
-        {
-          candidate: hostCandidate(current, 40993, oldUfrag),
-          sdpMid: mid,
-          usernameFragment: newUfrag,
-        },
-        { rejects: "OperationError" },
-      );
-
-      // Assert: 食い違う候補はどの世代にも記録されない。
-      expect(b.currentRemoteDescription!.sdp).not.toContain(" 40993 typ host");
-      expect(b.pendingRemoteDescription!.sdp).not.toContain(" 40993 typ host");
-      expect(liveCandidates(b, 40993)).toEqual(0);
-
-      // Act: re-offer を両側で rollback する。
-      await c.rollback(b);
-
-      // Assert: 旧世代の候補は current に残り、既存 RTP が届く。
-      expect(b.currentRemoteDescription!.sdp).toContain(" 40991 typ host");
-      await c.rtp(outgoing, incoming);
-    },
-  );
-
-  negotiationCase(
-    "during a partial BUNDLE split re-offer a candidate follows the ufrag of the m-line it targets",
-    { ref: "origin: partial BUNDLE split trickle" },
-    async (c) => {
-      // Arrange: audio を追加し、audio だけを BUNDLE から外す re-offer を b に適用する。新世代の audio 候補はまだ trickle 中 (audio section に EOC なし) として渡す。
-      const { a, b, session, bVideo } = await c.given(createDuplexSession());
-      const audio = await addNegotiatedAudio(session, session.a, session.b);
-      await c.setLocal(a, await createSplitOffer(a, audio.mid));
-      await c.setRemote(
-        b,
-        mungeSection(a.pendingLocalDescription!.sdp, audio.mid, (section) =>
-          section.replace(/a=end-of-candidates\r\n/g, ""),
-        ),
-      );
-      const current = () => b.currentRemoteDescription!.sdp;
-      const pending = () => b.pendingRemoteDescription!.sdp;
-      const oldAudioUfrag = ufragOf(sectionOf(current(), audio.mid));
-      const newAudioUfrag = ufragOf(sectionOf(pending(), audio.mid));
-      // Arrange: audio だけが新しい ufrag になり、video は旧 ufrag のまま。
-      expect(newAudioUfrag).not.toEqual(oldAudioUfrag);
-      expect(ufragOf(sectionOf(pending(), bVideo.mid!))).toEqual(
-        ufragOf(sectionOf(current(), bVideo.mid!)),
-      );
-
-      // Act: 旧世代と新世代の audio 候補を追加する。
-      await c.addCandidate(b, {
-        candidate: hostCandidate(current(), 40981, oldAudioUfrag),
-        sdpMid: audio.mid,
-      });
-      await c.addCandidate(b, {
-        candidate: hostCandidate(current(), 40982, newAudioUfrag),
-        sdpMid: audio.mid,
-      });
-
-      // Assert: 旧世代は end-of-candidates で完了済みなので current にも pending にも入らず (RFC 8838)、新世代は pending の audio にだけ記録される。
-      expect(sectionOf(current(), audio.mid)).toContain("a=end-of-candidates");
-      expect(sectionOf(current(), audio.mid)).not.toContain(" 40981 typ host");
-      expect(sectionOf(pending(), audio.mid)).not.toContain(" 40981 typ host");
-      expect(sectionOf(pending(), audio.mid)).toContain(" 40982 typ host");
-      expect(sectionOf(current(), audio.mid)).not.toContain(" 40982 typ host");
-
-      // Act: re-offer を両側で rollback する。
-      await c.rollback(b);
-
-      // Assert: current は元のまま (新世代の候補も残らず)、映像・DataChannel も通信を続ける。
-      expect(sectionOf(current(), audio.mid)).not.toContain(" 40982 typ host");
-      await c.alive();
-    },
-  );
-
-  negotiationCase(
-    "an answer leaves the MID of a rejected m-line out of its BUNDLE group",
-    { ref: "2.5-14" },
-    async (c) => {
-      // Arrange: 音声を追加で交渉し、b がその transceiver を stop する。
-      const { a, b, session, aVideo } = await c.given(createDuplexSession());
-      const audio = await addNegotiatedAudio(session, session.a, session.b);
-      audio.remote().stop();
-
-      // Act: a から再交渉する。answerer の stop() は inactive で答えるだけなので、b は自分の次の offer で port 0 を交渉し、a はその m-line を拒否した answer を返す。
-      await c.negotiate(a);
-      await c.negotiate(b);
-
-      // Assert: answer の音声 m-line は port 0 で BUNDLE group に含まれない。
-      const answer = a.currentLocalDescription!.sdp;
-      expect(sectionOf(answer, audio.mid)).toMatch(/^m=audio 0 /);
-      expect(bundleMids(answer)).not.toContain(audio.mid);
-      expect(bundleMids(answer)).toContain(aVideo.mid);
-
-      // Assert: 両側で停止が確定する。
-      expect(audio.remote().stopped).toEqual(true);
-
-      // Assert: BUNDLE に残る映像と DataChannel は両方向で通信を続ける。
-      await c.alive();
     },
   );
 
@@ -1136,37 +631,6 @@ describeCases("negotiation transaction", () => {
   );
 
   negotiationCase(
-    "rollback removes provisional receiver SSRC mappings on an existing track",
-    { ref: "2.3-2 2.4-3 2.4-T6" },
-    async (c) => {
-      // Arrange: 既存 m-line に別 SSRC を提案する re-offer を作る。
-      const { a, b, outgoing, incoming } = await c.given(
-        createConnectedVideoPeers(),
-      );
-      const receiver = b.getTransceivers()[0].receiver;
-      const originalTracks = [...receiver.tracks];
-      const originalSsrc = a.getTransceivers()[0].sender.ssrc;
-      const provisionalSsrc = originalSsrc + 1;
-      const offer = await a.createOffer();
-
-      // Act: 追加 SSRC を一時登録してから offer を取り消す。
-      await c.setRemote(
-        b,
-        offer.sdp.replaceAll(String(originalSsrc), String(provisionalSsrc)),
-      );
-      expect(receiver.trackBySSRC[provisionalSsrc]).not.toBe(undefined);
-      await c.setRemote(b, "rollback");
-
-      // Assert: receiver の object は維持し、追加 track と SSRC 経路を除去する。
-      expect(receiver.tracks).toEqual(originalTracks);
-      expect(Object.keys(receiver.trackBySSRC)).not.toContain(
-        String(provisionalSsrc),
-      );
-      await c.rtp(outgoing, incoming);
-    },
-  );
-
-  negotiationCase(
     "setLocalDescription accepts only the last created offer",
     { ref: "2.9-4 2.9-T10 2.9-T11" },
     async (c) => {
@@ -1364,47 +828,6 @@ describeCases("negotiation transaction", () => {
   );
 
   negotiationCase(
-    "re-offer pranswer carries new RTP alongside the committed stream",
-    { ref: "2.1-3 2.2-1 2.2-5 2.2-6 2.2-7" },
-    async (c) => {
-      // Arrange: 接続済み video に新しい audio m-line を加える。
-      const { a, b, outgoing, incoming } = await c.given(
-        createConnectedVideoPeers(),
-      );
-      const provisionalAudio = new MediaStreamTrack({ kind: "audio" });
-      const events = recordNegotiationEvents(b);
-      const currentRemote = b.currentRemoteDescription!.sdp;
-      const selectedPair = b.iceTransports[0].getSelectedCandidatePair();
-      a.addTransceiver(provisionalAudio, { direction: "sendonly" });
-      await c.offer(a);
-
-      // Act: pranswer 中に新 audio と旧 video の RTP を両方送る。
-      await c.pranswer(b);
-      const receivedAudio = events.tracks.find(
-        (e) => e.track.kind === "audio",
-      )!.track;
-      await c.rtp(provisionalAudio, receivedAudio);
-      await c.rtp(outgoing, incoming);
-
-      // Assert: current の SDP と ICE pair は pranswer では入れ替わらない。
-      expect(b.currentRemoteDescription!.sdp).toEqual(currentRemote);
-      expect(b.iceTransports[0].getSelectedCandidatePair()).toEqual(
-        selectedPair,
-      );
-
-      // Act: rollback で新 audio を外し、旧 video は送り続ける。
-      await c.rollback(a);
-      await c.rtp(outgoing, incoming);
-
-      // Assert: 接続中の current 経路と description が維持される。
-      expect(b.currentRemoteDescription!.sdp).toEqual(currentRemote);
-      expect(b.iceTransports[0].getSelectedCandidatePair()).toEqual(
-        selectedPair,
-      );
-    },
-  );
-
-  negotiationCase(
     "a final answer can replace provisional SCTP limits without another channel event",
     { ref: "2.2-5 2.2-12 2.2-15 2.3-18 5-4" },
     async (c) => {
@@ -1540,45 +963,6 @@ describeCases("negotiation transaction", () => {
   );
 
   negotiationCase(
-    "local ICE restart rollback retains the committed selected pair",
-    { ref: "2.1-7 2.1-T8 2.3-9 2.3-11 5-4" },
-    async (c) => {
-      // Arrange: live ICE generation と選択済み pair を控える。
-      const { a, outgoing, incoming } = await c.given(
-        createConnectedVideoPeers(),
-      );
-      const transport = a.iceTransports[0];
-      const ufrag = transport.localParameters.usernameFragment;
-      const pair = transport.getSelectedCandidatePair();
-      const generation = a.iceGeneration;
-      const events = recordNegotiationEvents(a);
-      const candidateUfrags = () =>
-        events.candidates.map(
-          (candidate) => candidate?.toJSON().usernameFragment,
-        );
-
-      // Act: restart offer を pending にしてから rollback する。
-      const restartOffer = await c.offer(a, { iceRestart: true, hold: true });
-      const emitted = events.candidates.length;
-      await c.setLocal(a, restartOffer);
-      await c.rtp(outgoing, incoming);
-      await c.setLocal(a, "rollback");
-
-      // Assert: current generation と実通信経路が変わらない。
-      expect(emitted).toBeGreaterThan(1);
-      expect(events.candidates.length).toEqual(emitted);
-
-      // Assert: restart の generation は commit 後に STUN から集め直すので、offer では EOC を出さない。
-      expect(candidateUfrags()).not.toContain(undefined);
-      expect(candidateUfrags()).not.toContain(ufrag);
-      expect(transport.localParameters.usernameFragment).toEqual(ufrag);
-      expect(transport.getSelectedCandidatePair()).toEqual(pair);
-      expect(a.iceGeneration).toEqual(generation);
-      await c.rtp(outgoing, incoming);
-    },
-  );
-
-  negotiationCase(
     "partial BUNDLE keeps an unbundled media transport independent",
     { ref: "origin: partial BUNDLE (RFC 8843 7.3.2)" },
     async (c) => {
@@ -1662,194 +1046,6 @@ describeCases("negotiation transaction", () => {
       expect(remoteVideo.dtlsTransport).toBe(audio.dtlsTransport);
       expect(oldVideoTransport.state).toEqual("closed");
       await c.rtp(video, receivedVideo);
-    },
-  );
-
-  negotiationCase(
-    "re-offer BUNDLE split stages a new owner and rollback discards it",
-    { ref: "2.1-T9 2.3-9 2.5-T1 2.5-11 2.5-12" },
-    async (c) => {
-      // Arrange: 接続中の video に audio を追加し、audio を BUNDLE 外にする。
-      const { a, b, outgoing, incoming } = await c.given(
-        createConnectedVideoPeers(),
-      );
-      const currentTransport = b.getTransceivers()[0].dtlsTransport;
-      const currentRemote = b.currentRemoteDescription!.sdp;
-      a.addTransceiver("audio", { direction: "sendonly" });
-      const offer = await a.createOffer();
-      const mids = [...offer.sdp.matchAll(/a=mid:([^\r\n]+)/g)].map(
-        (m) => m[1],
-      );
-      const splitOffer = withBundle(offer.sdp, [mids[0]]);
-
-      // Act: 新 owner の候補を answer に準備し、現在の video を使い続ける。
-      await c.setRemote(b, splitOffer);
-      const firstAnswer = await b.createAnswer();
-      const pendingTransportCount = b.dtlsTransports.length;
-      await c.rtp(outgoing, incoming);
-
-      // Assert: pending transport は live binding にまだ現れず、SDP だけが別 ICE generation を持つ。
-      expect(pendingTransportCount).toEqual(1);
-      expect(b.getTransceivers()[1].dtlsTransport).toBe(currentTransport);
-      const ufrags = [
-        ...firstAnswer.sdp.matchAll(/a=ice-ufrag:([^\r\n]+)/g),
-      ].map((m) => m[1]);
-      expect(ufrags.length).toEqual(2);
-      expect(new Set(ufrags).size).toEqual(2);
-
-      // Act: rollback で pending owner を破棄し、同じ proposal を再交渉して確定する。
-      await c.setRemote(b, "rollback");
-      expect(b.dtlsTransports.length).toEqual(1);
-      expect(b.currentRemoteDescription!.sdp).toEqual(currentRemote);
-      await c.rtp(outgoing, incoming);
-      await c.setRemote(b, splitOffer);
-      const answer = await b.createAnswer();
-      const events = recordNegotiationEvents(b);
-      await c.setLocal(b, answer);
-
-      // Assert: video の経路を保ち、audio owner の candidate/EOC を一度通知する。
-      expect(b.getTransceivers()[0].dtlsTransport).toBe(currentTransport);
-      expect(b.getTransceivers()[1].dtlsTransport).not.toBe(currentTransport);
-      expect(
-        events.candidates.some((candidate) => candidate?.sdpMid === mids[1]),
-      ).toEqual(true);
-      expect(events.candidates.at(-1)).toEqual(undefined);
-      await c.rtp(outgoing, incoming);
-    },
-  );
-
-  negotiationCase(
-    "a local BUNDLE split prepares independent ICE and carries both RTP streams",
-    { ref: "origin: local BUNDLE split" },
-    async (c) => {
-      // Arrange: 接続済み BUNDLE transport に audio を追加し、group を分割する。
-      const { a, b, outgoing, incoming } = await c.given(
-        createConnectedVideoPeers(),
-      );
-      const audio = new MediaStreamTrack({ kind: "audio" });
-      const events = recordNegotiationEvents(b);
-      const currentLocal = a.currentLocalDescription!.sdp;
-      const selectedPair = a.iceTransports[0].getSelectedCandidatePair();
-      const videoMid = a.getTransceivers()[0].mid!;
-      a.addTransceiver(audio, { direction: "sendonly" });
-      const split = await createRewrittenOffer(a, (sdp) =>
-        withBundle(sdp, [videoMid]),
-      );
-
-      // Act: 新 audio の ICE transport を pending に準備し、旧 video は継続する。
-      await c.setLocal(a, split);
-      expect(a.currentLocalDescription!.sdp).toEqual(currentLocal);
-      expect(a.iceTransports[0].getSelectedCandidatePair()).toEqual(
-        selectedPair,
-      );
-      expect(a.dtlsTransports.length).toEqual(1);
-      await c.rtp(outgoing, incoming);
-
-      // Act: remote answer で新 transport へ audio を結び付ける。
-      await c.setRemote(b, a.localDescription);
-      await c.answer(b);
-      const audioTransport = a.getTransceivers()[1].dtlsTransport;
-      await c.waitFor(() => audioTransport.state === "connected", 3000);
-
-      // Assert: video の旧 pair を維持し、独立 audio と video の RTP が届く。
-      expect(audioTransport).not.toBe(a.getTransceivers()[0].dtlsTransport);
-      const receivedAudio = events.tracks.find(
-        (e) => e.track.kind === "audio",
-      )!.track;
-      await c.rtp(audio, receivedAudio);
-      await c.rtp(outgoing, incoming);
-
-      // Act: 次の offer で audio を新 BUNDLE tag にして video を合流させる。
-      const oldVideoTransport = a.getTransceivers()[0].dtlsTransport;
-      const audioMid = a.getTransceivers()[1].mid!;
-      await c.setLocal(
-        a,
-        await createRewrittenOffer(a, (sdp) =>
-          withBundle(sdp, [audioMid, videoMid]),
-        ),
-      );
-      await c.setRemote(b, a.localDescription);
-      await c.answer(b);
-
-      // Assert: tag 変更後は audio owner を共有し、両方の RTP が届く。
-      expect(a.getTransceivers()[0].dtlsTransport).toBe(audioTransport);
-      expect(oldVideoTransport.state).toEqual("closed");
-      await c.rtp(audio, receivedAudio);
-      await c.rtp(outgoing, incoming);
-    },
-  );
-
-  negotiationCase(
-    "rollback of a local BUNDLE split keeps the old RTP owner",
-    { ref: "2.1-T9 2.5-11" },
-    async (c) => {
-      // Arrange: 新 audio を非 BUNDLE にした local re-offer を作る。
-      const { a, outgoing, incoming } = await c.given(
-        createConnectedVideoPeers(),
-      );
-      const oldTransport = a.getTransceivers()[0].dtlsTransport;
-      const oldPair = oldTransport.iceTransport.getSelectedCandidatePair();
-      const audio = new MediaStreamTrack({ kind: "audio" });
-      const localAudio = a.addTransceiver(audio, { direction: "sendonly" });
-      const videoMid = a.getTransceivers()[0].mid!;
-      const splitOffer = await createRewrittenOffer(a, (sdp) =>
-        withBundle(sdp, [videoMid]),
-      );
-
-      // Act: pending owner を用意してから rollback する。
-      await c.setLocal(a, splitOffer);
-      expect(a.pendingLocalDescription!.sdp).toContain(
-        "a=group:BUNDLE " + videoMid,
-      );
-      await c.rtp(outgoing, incoming);
-      await c.setLocal(a, "rollback");
-
-      // Assert: pending transport は消え、application の audio object と旧 pair は残る。
-      expect(a.dtlsTransports.length).toEqual(1);
-      expect(a.getTransceivers()).toContain(localAudio);
-      expect(localAudio.sender.track).toBe(audio);
-      expect(oldTransport.iceTransport.getSelectedCandidatePair()).toEqual(
-        oldPair,
-      );
-      await c.rtp(outgoing, incoming);
-    },
-  );
-
-  negotiationCase(
-    "replacement offers implicitly roll back either pranswer direction",
-    { ref: "2.1-6 2.1-T12 2.2-18 2.8-34 2.9-T8" },
-    async (c) => {
-      // Arrange: 初回 offer と pranswer を双方の pending に置き、pranswer で ICE・DTLS の暫定接続を成立させる。
-      const { a, b } = await c.given(createPeerPair());
-      const audioOut = new MediaStreamTrack({ kind: "audio" });
-      a.addTransceiver(audioOut, { direction: "sendonly" });
-      await c.offer(a);
-      await c.pranswer(b);
-      await waitForPeersConnected(a, b);
-
-      // Act: offerer は remote pranswer を、answerer は local pranswer を implicit rollback して replacement offer を受ける。
-      await c.offer(a);
-
-      // Assert: 最後の stable baseline は空で、新しい offer だけが pending。
-      expect(a.signalingState).toEqual("have-local-offer");
-      expect(b.signalingState).toEqual("have-remote-offer");
-      expect(a.currentLocalDescription).toEqual(null);
-      expect(b.currentRemoteDescription).toEqual(null);
-      expect(a.pendingRemoteDescription).toEqual(null);
-      expect(b.pendingLocalDescription).toEqual(null);
-
-      // Act: replacement offer を最終 answer で確定する。
-      await c.answer(b);
-      await waitForPeersConnected(a, b);
-
-      // Assert: 新しい transport で接続し直し、audio の RTP が届く。
-      expect(a.connectionState).toEqual("connected");
-      expect(b.connectionState).toEqual("connected");
-      const mid = a.getTransceivers()[0].mid;
-      await c.rtp(
-        audioOut,
-        b.getTransceivers().find((t) => t.mid === mid)!.receiver.track,
-      );
     },
   );
 

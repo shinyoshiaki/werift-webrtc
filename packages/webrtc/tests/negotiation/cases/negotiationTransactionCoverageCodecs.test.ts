@@ -6,7 +6,6 @@ import {
   type RTCRtpSender,
   type RtpPacket,
   SessionDescription,
-  useAbsSendTime,
   useH264,
   useNACK,
   usePLI,
@@ -29,7 +28,6 @@ import {
 } from "../harness/negotiationCase";
 import {
   createCommittedInactiveAudioPeers,
-  createConnectedSendParamPeers,
   createConnectedVideoPeers,
   createConnectedVideoPeersWith,
   createConnectedVideoPeersWithRtx,
@@ -37,10 +35,8 @@ import {
   createInitialPranswerConnection,
   createPeerPair,
   createSimulcastPeers,
-  createTwccH264OnlyReoffer,
   createUnnegotiatedPeers,
   createVp8H264AnsweringPeers,
-  createVp8RtxSessionWithH264Reoffer,
   extmapId,
   mungeSection,
   offeredVideoCodecs,
@@ -56,8 +52,6 @@ import {
   waitForPeersConnected,
   watchRtpText,
   withRtcpFeedback,
-  withoutCodecs,
-  withoutExtmap,
 } from "../harness/negotiationTransactionUtils";
 
 /** Act: seq first, first+1, first+4 (2 lost) on the sender's SSRC with `payloadType`; each must reach `incoming`. */
@@ -204,65 +198,6 @@ describeCases(
         expect(receiver.receiverTWCC).not.toEqual(undefined);
         c.invariants(b);
         feedback.stop();
-      },
-    );
-
-    negotiationCase(
-      "[2.4-4] a remote pranswer that changes codec, RTX, RED and header extensions of the senders is fully undone by rollback",
-      { ref: "2.4-4" },
-      async (c) => {
-        // Arrange: video (VP8+RTX、H264) と audio (RED+Opus) を送り、両方に MID と abs-send-time を交渉した session。
-        const { a, b, outgoing, incoming } = await c.given(
-          createConnectedSendParamPeers(),
-        );
-        const [video, audio] = a.getTransceivers();
-        const before = [
-          video.sender.snapshotSendParams(),
-          audio.sender.snapshotSendParams(),
-        ];
-        const absSendTime = useAbsSendTime().uri;
-        expect(before[0].codec?.name.toUpperCase()).toEqual("VP8");
-        expect(before[0].rtxPayloadType).not.toEqual(undefined);
-        expect(before[1].redRedundantPayloadType).not.toEqual(undefined);
-        expect(before[0].headerExtensions.map((e) => e.uri)).toContain(
-          absSendTime,
-        );
-        await c.offer(a);
-        const answer = await b.createAnswer();
-
-        // Arrange: pranswer は video の VP8 (と その RTX) と audio の RED を外し、abs-send-time もなくす。
-        const pranswer = withoutExtmap(
-          withoutCodecs(withoutCodecs(answer.sdp, "video", ["VP8"]), "audio", [
-            "red",
-          ]),
-          absSendTime,
-        );
-
-        // Act: 送信パラメータを変える remote pranswer を offerer に適用する。
-        await c.setRemote(a, pranswer, { type: "pranswer" });
-
-        // Assert: 再交渉の pranswer は送信パラメータを暫定的に pranswer の値にする (2.10)。
-        const pending = [
-          video.sender.snapshotSendParams(),
-          audio.sender.snapshotSendParams(),
-        ];
-        expect(pending[0].codec?.name.toUpperCase()).toEqual("H264");
-        expect(pending[0].rtxPayloadType).toEqual(undefined);
-        expect(pending[0].headerExtensions.map((e) => e.uri)).not.toContain(
-          absSendTime,
-        );
-        expect(pending[1].codec?.name.toLowerCase()).toEqual("opus");
-        expect(pending[1].redRedundantPayloadType).toEqual(undefined);
-
-        // Act: 両側で rollback する。
-        await c.rollback(a);
-
-        // Assert: codec・RTX・RED・header extension・MID・RID を含む送信パラメータが適用前と完全に一致する。
-        expect(video.sender.snapshotSendParams()).toEqual(before[0]);
-        expect(audio.sender.snapshotSendParams()).toEqual(before[1]);
-
-        // Assert: current の VP8 で RTP が届く。
-        await c.rtp(outgoing, incoming);
       },
     );
 
@@ -495,70 +430,6 @@ describeCases(
         await c.setLocal(b, answer);
         await c.setRemote(a, b.localDescription);
         expect(appInactive.currentDirection).toEqual("inactive");
-      },
-    );
-
-    negotiationCase(
-      "[2.5-16] createAnswer only proposes: sender, receive codec / RTX tables, TWCC and the remote track codec switch at the local answer commit",
-      { ref: "2.5-16" },
-      async (c) => {
-        // Arrange: VP8+RTX で確定した session に、H264(transport-cc)+RTX だけの re-offer が届いている。
-        const {
-          a,
-          b,
-          offererOut,
-          answererOut,
-          offererTransceiver,
-          answererTransceiver,
-        } = await c.given(createVp8RtxSessionWithH264Reoffer());
-        const receiver = answererTransceiver.receiver;
-        const sender = answererTransceiver.sender;
-        const remoteTrack = receiver.track;
-        const vp8 = payloadTypeOf(b.currentRemoteDescription!.sdp, "VP8");
-        const tablesBefore = receiver.snapshotReceiveTables();
-        const sendBefore = sender.snapshotSendParams();
-        expect(sendBefore.codec?.name.toUpperCase()).toEqual("VP8");
-        expect(remoteTrack.codec?.name.toUpperCase()).toEqual("VP8");
-        expect(receiver.receiverTWCC).toEqual(undefined);
-
-        // Act: answer を作る (まだ適用しない)。
-        const answer = await b.createAnswer();
-
-        // Assert: answer は H264+RTX を提案するが、live の送受信は current のまま変わらない。
-        expect(offeredVideoCodecs(answer.sdp)).toEqual(["H264"]);
-        expect(answer.sdp).toMatch(/^a=rtpmap:\d+ rtx\/90000/m);
-        expect(sender.snapshotSendParams()).toEqual(sendBefore);
-        expect(receiver.snapshotReceiveTables()).toEqual(tablesBefore);
-        expect(receiver.receiverTWCC).toEqual(undefined);
-        expect(remoteTrack.codec?.name.toUpperCase()).toEqual("VP8");
-        c.invariants(b);
-        await c.rtp(offererOut, remoteTrack);
-
-        // Act: answer を適用して commit する。
-        await c.setLocal(b, answer);
-        await c.setRemote(a, b.localDescription);
-
-        // Assert: commit で sender・受信 codec/RTX 表・TWCC・remote track の codec が answer の値に切り替わる。
-        const h264 = payloadTypeOf(answer.sdp, "H264");
-        const rtx = Number(
-          answer.sdp.match(new RegExp(`^a=fmtp:(\\d+) apt=${h264}`, "m"))![1],
-        );
-        expect(sender.codec?.name.toUpperCase()).toEqual("H264");
-        expect(receiveCodecNames(receiver)).toEqual(
-          Object.fromEntries([
-            [h264, "H264"],
-            [rtx, "RTX"],
-          ]),
-        );
-        expect(
-          Object.keys(receiver.snapshotReceiveTables().codecs),
-        ).not.toContain(String(vp8));
-        expect(receiver.receiverTWCC).not.toEqual(undefined);
-        expect(remoteTrack.codec?.name.toUpperCase()).toEqual("H264");
-
-        // Assert: 確定した H264 で双方向に届く。
-        await c.rtp(offererOut, remoteTrack);
-        await c.rtp(answererOut, offererTransceiver.receiver.track);
       },
     );
 
@@ -805,33 +676,6 @@ describeCases(
       },
     );
 
-    negotiationCase.for([
-      { change: "stops", twccCodec: "VP8", currentTwcc: true, starts: false },
-      { change: "starts", twccCodec: "H264", currentTwcc: false, starts: true },
-    ] as const)(
-      "[2.6-T4h] the local answer commit $change transport-cc with the answered codec without a preference change",
-      { ref: "2.6-T4h" },
-      async (c, { twccCodec, currentTwcc, starts }) => {
-        // Arrange: current は VP8、H264 だけの re-offer を answerer に適用済み。transport-cc feedback は twccCodec の codec だけが持つ。
-        const { b, receiver, outgoing, incoming } = await c.given(
-          createTwccH264OnlyReoffer(twccCodec),
-        );
-        expect(!!receiver.receiverTWCC).toBe(currentTwcc);
-
-        // Act: preference を変えずに answer を作って commit する。
-        await c.answer(b);
-
-        // Assert: 受信表と remote track の codec は H264 に、TWCC は H264 の feedback に置き換わる。
-        expect(Object.values(receiveCodecNames(receiver))).toEqual(["H264"]);
-        expect(incoming.codec?.name.toUpperCase()).toEqual("H264");
-        expect(!!receiver.receiverTWCC).toBe(starts);
-
-        // Assert: 受信した RTP に transport-cc feedback を送るか (starts) / 送らないか (stops)。
-        expect(await twccFeedbackSent(outgoing, receiver)).toBe(starts);
-        await c.rtp(outgoing, incoming);
-      },
-    );
-
     negotiationCase(
       "[2.8-36] a remote-created transceiver the application keeps returns to its created codecs and has no routes after rollback",
       { ref: "2.8-36" },
@@ -1063,53 +907,6 @@ describeCases(
 
         // Assert: 新しい ID の RID で high 層の track に届く。
         await received;
-        c.invariants(b);
-      },
-    );
-
-    negotiationCase.for(ANSWER_OR_ROLLBACK)(
-      "[5-13] RTP received while a fmtp change is staged is decoded with the current fmtp until $finish",
-      { ref: "5-13" },
-      async (c, { finish }) => {
-        // Arrange: 接続済みの VP8 に fmtp を足した re-offer を作る。
-        const { a, b, outgoing, incoming } = await c.given(
-          createConnectedVideoPeers(),
-        );
-        const receiver = b.getTransceivers()[0].receiver;
-        const offer = await a.createOffer();
-        const pt = payloadTypeOf(offer.sdp, "VP8");
-        const currentFmtp =
-          receiver.snapshotReceiveTables().codecs[pt].parameters;
-        const changed = offer.sdp.replace(
-          new RegExp(`^(a=rtpmap:${pt} VP8/90000)`, "m"),
-          `$1\r\na=fmtp:${pt} max-fr=30`,
-        );
-
-        // Act: fmtp を変える remote offer を適用し、RTP を送る。
-        await c.setRemote(b, changed, { type: "offer" });
-
-        // Assert: fmtp の変更は staged で、pending 中の RTP は current の fmtp の codec で処理されて届く。
-        const tables = receiver.snapshotReceiveTables();
-        expect(tables.codecs[pt].parameters).toBe(currentFmtp);
-        expect(tables.stagedCodecs[pt]?.parameters).toBe("max-fr=30");
-        await c.rtp(outgoing, incoming);
-        c.invariants(b);
-
-        // Act: answer で確定する、または rollback する。
-        await c.finish(b, finish);
-
-        // Assert: 確定すると新しい fmtp に、rollback なら current の fmtp に戻り、RTP が届く。
-        if (finish === "answer") {
-          expect(receiver.snapshotReceiveTables().codecs[pt].parameters).toBe(
-            "max-fr=30",
-          );
-        } else {
-          expect(receiver.snapshotReceiveTables().codecs[pt].parameters).toBe(
-            currentFmtp,
-          );
-        }
-        expect(receiver.snapshotReceiveTables().stagedCodecs).toEqual({});
-        await c.rtp(outgoing, incoming);
         c.invariants(b);
       },
     );

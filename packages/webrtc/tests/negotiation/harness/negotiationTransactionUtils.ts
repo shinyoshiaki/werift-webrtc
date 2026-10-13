@@ -3599,3 +3599,20 @@ export async function createConnectedMediaAndDataPeersWithTurnServer() {
     },
   };
 }
+
+// --- SDP edits shared by negotiation cases and the traffic scenes ---
+
+/** The SDP without end-of-candidates: the trickle of its generation is still open. */
+export const withoutEoc = (sdp: string) =>
+  sdp.replace(/^a=end-of-candidates\r?\n/gm, "");
+
+/** The SDP with its BUNDLE group set to `mids`. */
+export const withBundle = (sdp: string, mids: string[]) =>
+  sdp.replace(/a=group:BUNDLE [^\r\n]+/, `a=group:BUNDLE ${mids.join(" ")}`);
+
+export const ufragOf = (sdp: string) =>
+  sdp.match(/^a=ice-ufrag:(.*?)\r?$/m)![1];
+
+/** `sdp` without the plain `a=rtcp-fb:<pt> nack` line (NACK PLI stays). */
+export const withoutNack = (sdp: string, pt: number) =>
+  sdp.replace(new RegExp(`^a=rtcp-fb:${pt} nack\\r?\\n`, "m"), "");

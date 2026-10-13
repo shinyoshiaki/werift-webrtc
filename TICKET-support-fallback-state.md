@@ -410,6 +410,33 @@ provisional の checklist は live と同じ規則に従う: 候補から作る 
 - 検証: `npm run type`、biome、`npm test`（56 ファイル、1042 passed / 3 skipped、2 分 59 秒）、negotiation 系＋tests/pbt 607/607（リトライなし）、深い探索（episode fuzzer 300×20 303/303・213 秒、scenario property 300 seed 2163/2163・638 秒）、pairwise mutation 2106/2106（1,755 秒）。src は変更していない。
 - 文書: NEGOTIATION_TRANSACTION.md（"Negotiation cases" 節と Test layout、doc/_media の写し）、NEGOTIATION_SPEC_COVERAGE.md の凡例、NEGOTIATION_CASES_MAPPING.md、packages/webrtc/AGENTS.md（Do 6・7 のパス）、reviews のリンク先パス（行番号アンカーは再計算していない）。
 
+### 2.16 通信を判定に含むケースをプロパティベーステストにする（追加要件）
+
+**要件**: ケーステストのうち、通信の到達を判定に含み TURN・simulcast・モック・タイミング指定などの特殊条件を使わない 51 件を、プロパティベーステストにする。
+
+**実施内容**
+
+- 性質（1 つ）: 「交渉済みの全 stream と DataChannel は、どの記述操作の後でも通信できる」。ケース用ハーネスに `c.expectTraffic()` を足し、meta `traffic: true` で各記述操作の後と本体の後に検査する。対象と判定は次のとおり。
+  - stream: 送信側の `currentDirection` が送信、相手の同じ MID の transceiver が受信（pranswer は両側を暫定で設定）、どちらも停止していないもの。1 パケットが 2 s 以内に届くこと（`sendAndExpectRtp` と同じで、失われたら失敗）。
+  - DataChannel: 両 peer で open のものが双方向に届くこと。
+  - 前提: 両 peer が同じ current セッションを持つ間だけ要求する（一方の current local が、候補行を除いて他方の current remote と一致）。answerer が answer で確定し offerer がまだ適用していない間や、相手が適用していない SDP を片側だけが確定した場面は対象外。
+  - 確立済みの transport（DTLS connected、現在の ICE 世代の pair を nominate 済み）だけを対象にする。操作の後の検査では未確立のものを待たずに外し、シーン自身の検査時点を動かさない。本体の後の検査では確立を最大 10 s 待つ。再交渉の pending 中に未接続の transport 上の stream は要求しない（pranswer は新しい transport を final answer まで予約する）。
+- 固定シーン: 51 件（展開 61 件）を `tests/negotiation/cases` から `tests/pbt/trafficScenes.ts` へ、同じ名前・同じ本体（元の具体値の検査を含む）のまま移した。他のケースと共有していた SDP 加工 4 関数（`withoutEoc` / `withBundle` / `ufragOf` / `withoutNack`）は `negotiationTransactionUtils.ts` へ移した。
+- 乱数シーン（`trafficPropertyUtils.ts`）:
+  - 開始状態: 接続済み duplex session、または未交渉の 2 peer（1/3）。
+  - 操作: track 付き / recvonly transceiver の追加、DataChannel、direction、stop、track 付与、restartIce、offer（ICE restart 付きを含む）、BUNDLE 分割 offer、置き換え offer、pranswer、answer、rollback。
+  - 環境変数: `WERIFT_NEGOTIATION_TRAFFIC_SEEDS`（既定 4）/ `_STEPS`（既定 8）/ `_SEED`。失敗時は seed・操作ログ・再現コマンドを出す。既存 PBT の生成器・シード・環境変数は変えていない。
+- 性質の定義を正した経緯（いずれも実装の不具合ではなく設計どおりの過渡状態）:
+  1. local pranswer を相手が未適用の間 → 受信側の `currentDirection` も要求に加えた。
+  2. `stop()` 済み → 対象外にした。
+  3. answer の確定が片側だけの間 → current の一致を前提にした。
+  4. 再交渉の pranswer の新しい transport（深い探索の seed 74） → 未接続なら要求しない。
+  5. ICE restart 確定後の nominate 待ち → 確立済みに nominate を含めた。
+  6. 再送や待ちでシーンの検査時点がずれ、I4 を見逃した → 1 パケット判定にし、操作後は待たないようにした。
+- 検出力（一時 worktree、2.14 と同じ 32 個のバグ、retry なし）: 移動前の 51 件（同じ名前）が検出したテストはすべて移動後も検出し、見逃しは 0。バグなしで失敗 0。既定 4 シードの乱数シーンも I1・I4・B1 を検出した。性質の検査は固定シーン全体で RTP 498 組・DataChannel 178 組を確かめた。検査が 0 組のシーンは [2.2-13] だけで、相手と異なる編集済み answer を確定する場面のため前提（current の一致）を満たさず、元の明示的な検査で判定する。
+- 検証: `npm run type`、biome、`npm test`（57 ファイル、1046 passed / 3 skipped、3 分 01 秒）、移動元 13 ファイル 302 件、通信の property 65 件（1 分 45 秒）、深い探索 `WERIFT_NEGOTIATION_TRAFFIC_SEEDS=300 WERIFT_NEGOTIATION_TRAFFIC_STEPS=12` 300/300（380 秒）。src は変更していない。
+- 文書: NEGOTIATION_TRANSACTION.md（通信の property、ハーネスの `traffic` と `c.note`、深い探索。doc/_media の写しも）、NEGOTIATION_SPEC_COVERAGE.md（移したテストの参照を `Traffic:` に。凡例に追加）、NEGOTIATION_CASES_MAPPING.md（51 行を「→ Traffic / 固定シーン（PBT）」に）、packages/webrtc/AGENTS.md（Do 6 の置き場所、Do 7 の深い探索）。
+
 ## 3. 技術的な実装アプローチ
 
 ### 3.1 transaction coordinator と subsystem API
