@@ -18,7 +18,7 @@ import {
   waitForChannelState,
   waitForSctpState,
   watchSctpRestart,
-} from "./negotiationTransactionUtils";
+} from "../negotiation/harness/negotiationTransactionUtils";
 
 const ESTABLISHED = 4;
 
