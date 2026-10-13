@@ -23,7 +23,7 @@ import {
   stopsMedia,
   waitForMutationSession,
   waitForPeersConnected,
-} from "./negotiationTransactionUtils";
+} from "../harness/negotiationTransactionUtils";
 
 /**
  * Peer-diversity SDP mutations (NEGOTIATION_TRANSACTION.md "Peer-diversity

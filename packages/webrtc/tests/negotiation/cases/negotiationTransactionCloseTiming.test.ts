@@ -6,7 +6,7 @@ import {
   heldTransports,
   settlesWithin,
   negotiationTest as test,
-} from "./negotiationTransactionUtils";
+} from "../harness/negotiationTransactionUtils";
 
 /**
  * close() interrupts every public negotiation operation at every point of

@@ -24,7 +24,7 @@ import {
   step,
   waitForCommittedNomination,
   waitForDtlsConnected,
-} from "../integrate/negotiationTransactionUtils";
+} from "../negotiation/harness/negotiationTransactionUtils";
 
 /** Deterministic PRNG (mulberry32) so a failing fuzz seed replays exactly. */
 export function seededRandom(seed: number) {

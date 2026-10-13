@@ -11,7 +11,7 @@ import {
   negotiationTest as test,
   waitForCommittedNomination,
   waitForMutationSession,
-} from "./negotiationTransactionUtils";
+} from "../harness/negotiationTransactionUtils";
 
 /**
  * Interrupt injection (NEGOTIATION_TRANSACTION.md "Interrupts"): while a

@@ -396,6 +396,20 @@ provisional の checklist は live と同じ規則に従う: 候補から作る 
 - 一時 worktree の混入バグで、旧テストが検出したものを新ケースもすべて検出する。
 - AGENTS.md Do 7 の深い探索が通る。NEGOTIATION_TRANSACTION.md（Declarative cases・Test layout）、NEGOTIATION_SPEC_COVERAGE.md の凡例、packages/webrtc/AGENTS.md を更新する。
 
+### 2.15 ケーステストを専用ディレクトリへ切り出し、TypeScript の AAA テストにする（追加要件）
+
+**要件**: negotiationTransaction 系のケーステストを PBT（`tests/pbt`）のように専用ディレクトリへ切り出し、基盤とケースの実装を別ディレクトリに分けて構造化する。ケースは独自言語ではなく TypeScript で書き、AGENTS.md の Arrange / Act / Assert（日本語コメント）に従う。
+
+**実施内容**
+
+- 配置: `packages/webrtc/tests/negotiation/harness/`（基盤: `negotiationTransactionUtils.ts` = Arrange・`assertNegotiationInvariants`・snapshot・通信と継続確認、`negotiationCase.ts` = ケース用ハーネス）と `packages/webrtc/tests/negotiation/cases/`（ケース 14 ファイル。ファイル名は従来どおり）。`tests/pbt` は import 先だけ変更した。2.14 の DSL 実行器（`negotiationCaseRunner.ts`）は削除した。
+- ハーネス `negotiationCase.ts`: `describeCases(title, fn)`（継続確認の強制）、`negotiationCase(name, { ref, exempt?, explicitInvariants?, timeout? }, async (c) => ...)` と `negotiationCase.for(rows)`（名前の `$key` を行の値で展開）。`c.given(Arrange ヘルパーの値)` が peer を `a` / `b` などの名前で登録し後片付けする。記述操作 `c.setLocal` / `c.setRemote` / `c.addCandidate` / `c.offer` / `c.answer` / `c.pranswer` / `c.negotiate` / `c.rollback` / `c.finish` は毎回の後に全 peer の invariant を検査し、`{ rejects }` では error 名と `negotiationSnapshot` 不変を検査する。`c.rtp` / `c.data` / `c.alive` / `c.waitFor` / `c.start` / `c.rejects`。本体の後に `expectSessionContinues(a, b)`（`exempt` を除く）。失敗時はケース名・`ref`・最後の操作の番号と内容・直前の操作列を出し、期待値と実際の値は vitest の `expect` が出す。
+- 移行: DSL 版（eb66685a）から変換器で TypeScript の下書きを作り、型エラー・読みやすさをファイルごとに手直しした。194 のテスト宣言すべてに `// Arrange:` / `// Act:` / `// Assert:` があり、各段の間は空行。操作列・検査時点・期待値・`ref` / `exempt` / `explicitInvariants` は DSL 版と同じ。手直しで変えたのは、配送しない `createOffer` + `setLocal` を `c.offer(a, { hold: true })` にするなどの同じ操作の言い換え、条件行の `if / else` 化、ケース専用の補助関数のファイル先頭への移動。テスト名は 86e994bf の 524 件と完全に一致する。
+- 検出力（一時 worktree、86e994bf の src に 2.14 と同じ 32 個のバグを 1 つずつ入れ、新ケースを retry なしで実行）: バグなしで失敗 0。旧テストが検出して新ケースが検出しないテストは 0。2.14 の全分野向け 18 件では DSL 版と検出が完全一致した。
+- 行数（2.14 と同じ集計方法）: A 方式 7,433 行（基準 8,339 から −10.9%。DSL 版は 5,138）、厳密方式 8,864 行（基準 9,362 から −5.3%）。TypeScript では biome の整形で式と引数が複数行になるため、DSL 版より増えた。
+- 検証: `npm run type`、biome、`npm test`（56 ファイル、1042 passed / 3 skipped、2 分 59 秒）、negotiation 系＋tests/pbt 607/607（リトライなし）、深い探索（episode fuzzer 300×20 303/303・213 秒、scenario property 300 seed 2163/2163・638 秒）、pairwise mutation 2106/2106（1,755 秒）。src は変更していない。
+- 文書: NEGOTIATION_TRANSACTION.md（"Negotiation cases" 節と Test layout、doc/_media の写し）、NEGOTIATION_SPEC_COVERAGE.md の凡例、NEGOTIATION_CASES_MAPPING.md、packages/webrtc/AGENTS.md（Do 6・7 のパス）、reviews のリンク先パス（行番号アンカーは再計算していない）。
+
 ## 3. 技術的な実装アプローチ
 
 ### 3.1 transaction coordinator と subsystem API
