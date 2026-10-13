@@ -15,7 +15,7 @@ import {
   sendAndExpectRtp,
   waitForCommittedNomination,
   withMaxMessageSize,
-} from "../integrate/negotiationTransactionUtils";
+} from "../negotiation/harness/negotiationTransactionUtils";
 import { type SeededRandom, seededRandom } from "./propertyUtils";
 
 export { seededRandom };

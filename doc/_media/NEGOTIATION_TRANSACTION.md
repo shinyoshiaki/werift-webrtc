@@ -621,7 +621,7 @@ Each has a test that fails without it.
 
 ## Test coverage
 
-`tests/integrate/negotiationTransactionUtils.ts` holds the shared Arrange
+`tests/negotiation/harness/negotiationTransactionUtils.ts` holds the shared Arrange
 utilities and the test-only `assertNegotiationInvariants(pc)`. In every
 signaling state it checks MID uniqueness, router endpoints and receiver codec
 tables against current SDP, BUNDLE owner, MID and mLineIndex, the live ICE
@@ -662,10 +662,10 @@ max-message-size) is a fixed scene of a scenario property; a test of a
 spec value no generic rule gives, of timing / concurrency, of a special
 environment (TURN, simulcast, codecs, `bundlePolicy`, held gathering) or a
 regression minimized from a seed stays an individual test. Individual tests
-are declarative cases (see "Declarative cases"); the few whose control flow
-does not read as steps stay procedural and take their Arrange from the
-`negotiationTest` fixtures of `negotiationTransactionUtils.ts` (`videoPeers`,
-`session`, `closing`; imported as `test`, closed after the test).
+are TypeScript cases of the harness (see "Negotiation cases"); the
+table-driven matrices take their Arrange from the `negotiationTest` fixtures
+of `negotiationTransactionUtils.ts` (`videoPeers`, `session`, `closing`;
+imported as `test`, closed after the test).
 
 `tests/pbt/negotiationScenarioProperty.test.ts` (with
 `scenarioPropertyUtils.ts`) has one property per claim: the final answer
@@ -729,84 +729,81 @@ lists every path writing live tables while a description is pending.
 `NEGOTIATION_SPEC_COVERAGE.md` maps every requirement of the ticket to the
 tests that verify it.
 
-### Declarative cases
+### Negotiation cases (`tests/negotiation`)
 
-The deterministic individual tests are declared as text and run by
-`tests/integrate/negotiationCaseRunner.ts`
-(`negotiationCases(title, cases, options)`). A case is one template string:
+The negotiation tests live in their own directory, like the property tests
+in `tests/pbt`:
 
-```
-case: <test name; $key is replaced by a value of the each: row>
-ref: <spec IDs of NEGOTIATION_SPEC_COVERAGE.md>[; origin: <where a regression came from>]
-given: <initial condition: an expression, usually an Arrange helper of negotiationTransactionUtils.ts>
-each: <optional rows, e.g. ANSWER_OR_ROLLBACK or [{ finish: "answer", mid: "1" }, ...]>
-exempt: <optional: why the peers do not reach expectSessionContinues>
-invariants: explicit   (optional: only at `invariants` steps)
-timeout: <optional ms>
-Arrange: <Japanese comment; labels the steps that follow in a failure>
-<steps, one per line>
-```
-
-The value of `given` becomes the scope: `offerer` / `answerer` become `a` /
-`b`, a duplex session gives `a`, `b`, `aOut`, `bOut`, `aVideo`, `bVideo`,
-`aChannel`, `bChannel` and `session`, other fields keep their names, and a
-`close()` of the value runs after the case. Expressions are a strict
-JavaScript subset (literals, regular expressions, template literals — write
-`\${` inside the TypeScript template — arrays, objects, member access, calls,
-`new`, arrow functions, `!`, `+`, `-`, `===`, `!==`, `&&`, `||`, `??`, `? :`,
-spread, `await`): an unknown name or property is an error (`?.` and `?.[]`
-are lenient), `$key` is replaced in `given:` and the steps,
-and the names are the case's `fns`, the domain `fns`, the exports of
-`negotiationTransactionUtils.ts` and `src`, `vi`, `local(pc)` /
-`remote(pc)`, `ANSWER_OR_ROLLBACK` and a few globals. Steps:
-
-| Step | Meaning |
+| Directory | Contents |
 | --- | --- |
-| `<peer> createOffer [restart] [as=x]` / `createAnswer [as=x]` | create (saved per peer and as `x`) |
-| `<peer> setLocal [expr] [type=t]` / `setRemote <expr> [type=t]` | apply a description, an SDP string (type from the signaling state) or `rollback`; without `expr`, `setLocal` applies what the peer created last |
-| `<peer> addCandidate <expr>` | `addIceCandidate` |
-| `<peer> offer [restart] [hold]` | createOffer, setLocal, then the other peer's setRemote (`hold`: not delivered) |
-| `<peer> answer [hold]` / `pranswer [hold]` | createAnswer, setLocal with that type, then deliver |
-| `<peer> negotiate [restart]` | `offer` and the other peer's `answer` |
-| `<peer> rollback` | rollback of this peer's pending description, then of the other's |
-| `<peer> finish answer` / `finish rollback` | answer a pending remote offer (delivered when the other peer waits), or `rollback` |
-| `... rejects=Name` / `rejects="text"` | the operation fails with that error name (`A|B`) or message, and `negotiationSnapshot` of the peer is unchanged |
-| `let x = expr` / `let [x, y] = expr` | bind the awaited value |
-| `do expr` | evaluate and await |
-| `start x = expr` / `await x [rejects=…]` | start without awaiting (a concurrent operation), await later |
-| `expect <actual> <cmp> <expected>` | `==` (toEqual), `!=`, `is` (toBe, identity), `isnt`, `contains`, `containsAll` (each by identity), `lacks`, `like` (toMatchObject), `matches`, `unlike`, `<`, `<=`, `>`, `>=`; `expect <expr> rejects=…` |
-| `rtp <track> -> <track>` / `data <channel> -> <channel>` | real RTP / DataChannel delivery (`sendAndExpectRtp` / `sendAndExpectData`) |
-| `alive` | `expectSessionAlive(session)` |
-| `invariants [peers]` | `assertNegotiationInvariants` now |
-| `waitFor <expr> [timeout=ms]` / `sleep <ms>` | poll until truthy / wait |
-| `exempt <reason>` | exempt every peer from the continuation from here |
-| `[key=v1\|v2] <step>` / `[key!=v] <step>` | the step runs only for those `each:` rows |
+| `tests/negotiation/harness/` | the shared infrastructure: `negotiationTransactionUtils.ts` (Arrange helpers, `assertNegotiationInvariants`, snapshots, traffic and continuation checks) and `negotiationCase.ts` (the case harness) |
+| `tests/negotiation/cases/` | the cases, one file per area (`negotiationTransaction*.test.ts`: codecs / feedback, events, ICE, transport / BUNDLE, routing, effective values, develop features, regressions, matrix, application rejection, interrupts, close timing, SDP mutations) |
 
-After every description operation (`setLocal`, `setRemote`, `addCandidate`
-and the macros) the runner checks `assertNegotiationInvariants` on every open
-peer of the scope. After the last step it runs `expectSessionContinues(a, b)`
-unless the case is exempt, and it closes every peer and restores mocks. A
-failure prints the case name and `ref`, the step number and text, the
-Arrange / Act / Assert label it belongs to, the expected and actual values,
-and the last steps run. Expected values are literals or values the case saved
-before the operation, never computed by the code under test. A case keeps the
-operation sequence of the regression it records (no split into independent
-cases); a test whose control flow would not read as steps (callbacks with
-their own logic, microtask counting, matrices built from tables) stays a
-procedural test in the same file: the interrupt matrix
-(`negotiationTransactionInterrupt.test.ts`: the interrupt and the release of
-the held wait start in one synchronous tick), the close-timing matrix
-(microtask counting), the rejected-application paths of
-`negotiationTransactionApplicationRejection.test.ts` (an Act function per
-row and a DataChannel check after the continuation) and the SDP mutations
-(combinations chosen by `WERIFT_NEGOTIATION_MUTATION`).
+A deterministic case is a TypeScript test in Arrange / Act / Assert with
+Japanese `// Arrange:` / `// Act:` / `// Assert:` comments, registered with the
+harness:
 
-Each test file is the domain runner of its cases: `negotiationCases(title,
-cases, { fns })` shares the helpers of several cases of that domain (codec /
-feedback, candidate / end-of-candidates, BUNDLE / transport, application
-failure, events, close / interrupt), and a helper only one case uses sits in
-that case (`{ text, fns }`) and counts as case text. The migration from the
-procedural tests is mapped in `NEGOTIATION_CASES_MAPPING.md`.
+```ts
+describeCases("negotiation transaction routing tables", () => {
+  negotiationCase.for(ANSWER_OR_ROLLBACK)(
+    "an RTX SSRC a re-offer pairs with another media SSRC keeps its current pairing until $finish",
+    { ref: "2.4-3 2.4-T4", exempt: "b commits a hand-edited offer that a never applied" },
+    async (c, { finish }) => {
+      // Arrange: ...
+      const { a, b, outgoing, incoming } = await c.given(createConnectedVideoPeersWithRtx());
+      const offer = await a.createOffer();
+      // Act: ...
+      await c.setRemote(b, offer.sdp.split(media).join("999333"));
+      // Assert: ...
+      expect(pairing()).toEqual(Number(media));
+    },
+  );
+});
+```
+
+- `describeCases(title, fn)` is a `describe` that enforces the continuation
+  (`enforceSessionContinuation`); `negotiationCase(name, meta, body)` and
+  `negotiationCase.for(rows)(name, meta, body)` register one test (per row;
+  `$key` in the name is the row's value). `meta.ref` holds the spec IDs of
+  `NEGOTIATION_SPEC_COVERAGE.md` and, for a regression, `origin: ...`;
+  `meta.exempt` says why the peers do not continue; `meta.explicitInvariants`
+  checks the invariants only where the case calls `c.invariants()`.
+- `c.given(value)` takes the value of an Arrange helper of
+  `negotiationTransactionUtils.ts`: `offerer` / `answerer` become `a` / `b`, a
+  duplex session gives `a`, `b`, `aOut`, `bOut`, `aVideo`, `bVideo`,
+  `aChannel`, `bChannel` and `session`, and the peers and the value's
+  `close()` are closed after the case. A peer the case creates itself is
+  registered with `c.peer(pc, name)`; `c.closing(x)` closes anything else.
+- Description operations go through `c` so that every one of them is
+  followed by `assertNegotiationInvariants` on every open peer:
+  `c.setLocal(pc, description | sdp | "rollback")`, `c.setRemote(...)`,
+  `c.addCandidate(...)`, and the steps `c.offer(pc, { iceRestart, hold })`
+  (createOffer, setLocal, the other peer's setRemote unless `hold`),
+  `c.answer` / `c.pranswer`, `c.negotiate`, `c.rollback(pc)` (this peer's
+  pending description, then the other's) and `c.finish(pc, "answer" |
+  "rollback")`. `{ rejects: "Name" }` (or `"A|B"`, or a message fragment)
+  expects the failure and an unchanged `negotiationSnapshot` of the peer.
+- Traffic and waits: `c.rtp(out, in)`, `c.data(from, to)`, `c.alive()` (the
+  duplex session both ways), `c.waitFor(() => condition, ms)`, `c.sleep(ms)`;
+  `c.start(promise)` begins a concurrent operation and `c.rejects(promise,
+  "Name")` checks it later. Assertions are plain vitest `expect`.
+- After the body the harness runs `expectSessionContinues(a, b)` unless the
+  case is exempt, restores mocks and closes everything. A failure names the
+  case, its `ref`, the number and text of the last operation and the
+  operations before it; vitest adds the expected and actual values.
+
+Expected values are literals or values the case saved before the operation,
+never computed by the code under test, and a case keeps the operation
+sequence of the regression it records (no split into independent cases).
+Tests whose control flow is a matrix stay table-driven: the interrupt
+matrix (`negotiationTransactionInterrupt.test.ts`: the interrupt and the
+release of the held wait start in one synchronous tick), the close-timing
+matrix (microtask counting), the rejected-application paths of
+`negotiationTransactionApplicationRejection.test.ts` and the SDP mutations
+(combinations chosen by `WERIFT_NEGOTIATION_MUTATION`). Helpers several
+cases of a file share sit at the top of that file; Arrange helpers belong in
+`negotiationTransactionUtils.ts`. The mapping from the earlier procedural
+tests is in `NEGOTIATION_CASES_MAPPING.md`.
 
 ## m-line rejection, stop and reuse (issue 705)
 

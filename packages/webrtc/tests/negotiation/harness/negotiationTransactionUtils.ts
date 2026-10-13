@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import type { Address } from "../../../common/src";
-import { getHostAddresses } from "../../../ice/src/utils";
+import type { Address } from "../../../../common/src";
+import { getHostAddresses } from "../../../../ice/src/utils";
 import {
   TURN_TEST_PASSWORD,
   TURN_TEST_USERNAME,
   createHeldUdpProxy,
   createLocalTurnServer,
-} from "../../../ice/tests/utils";
+} from "../../../../ice/tests/utils";
 import {
   MediaStreamTrack,
   type RTCDataChannel,
@@ -25,12 +25,12 @@ import {
   useSdesRTPStreamId,
   useTransportWideCC,
   useVP8,
-} from "../../src";
-import type { RTCIceCandidate } from "../../src";
-import { ridRouteKey } from "../../src/negotiation/internalState";
-import { SessionDescription } from "../../src/sdp";
-import { RTCIceTransport } from "../../src/transport/ice";
-export * from "../../tools/negotiation-diff/mutations";
+} from "../../../src";
+import type { RTCIceCandidate } from "../../../src";
+import { ridRouteKey } from "../../../src/negotiation/internalState";
+import { SessionDescription } from "../../../src/sdp";
+import { RTCIceTransport } from "../../../src/transport/ice";
+export * from "../../../tools/negotiation-diff/mutations";
 
 /** Something a test closes at its end: a peer, or anything with `close()`. */
 type Closable = { close: () => unknown };
@@ -2869,7 +2869,7 @@ export async function waitUntil(
  */
 export function recordNegotiationEvents(pc: RTCPeerConnection) {
   const events = {
-    tracks: [] as import("../../src").RTCTrackEvent[],
+    tracks: [] as import("../../../src").RTCTrackEvent[],
     remoteTransceivers: [] as RTCRtpTransceiver[],
     dataChannels: [] as RTCDataChannel[],
     candidates: [] as (RTCIceCandidate | undefined)[],
@@ -2878,9 +2878,12 @@ export function recordNegotiationEvents(pc: RTCPeerConnection) {
     iceConnection: [] as string[],
     negotiationNeeded: 0,
   };
-  pc.addEventListener("track", (event: import("../../src").RTCTrackEvent) => {
-    events.tracks.push(event);
-  });
+  pc.addEventListener(
+    "track",
+    (event: import("../../../src").RTCTrackEvent) => {
+      events.tracks.push(event);
+    },
+  );
   pc.onRemoteTransceiverAdded.subscribe((transceiver) => {
     events.remoteTransceivers.push(transceiver);
   });
