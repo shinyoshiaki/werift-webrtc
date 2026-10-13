@@ -1108,10 +1108,12 @@ function assertSctpBinding(pc: RTCPeerConnection, snapshot: Snapshot) {
   if (!sctp || pc.signalingState !== "stable") return;
   const media = [...(snapshot.currentRemote?.media.entries() ?? [])];
   if (!media.some(([, m]) => m.kind === "application")) {
-    // createDataChannel だけの SCTP は未交渉: m-line にも remote port にも束縛されない。
-    expect(sctp.mid).toBeUndefined();
-    expect(sctp.mLineIndex).toBeUndefined();
+    // createDataChannel だけの SCTP は未交渉: remote port に束縛されない。createOffer が
+    // 予約した MID (適用前の offer が使う) は持ってよいが、current の m-line の MID とは重ならない。
     expect(pc.sctpRemotePort).toBeUndefined();
+    if (sctp.mid != undefined) {
+      expect(media.map(([, m]) => m.rtp.muxId)).not.toContain(sctp.mid);
+    }
     return;
   }
   const [index, application] =

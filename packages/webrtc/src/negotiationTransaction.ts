@@ -238,21 +238,32 @@ export class NegotiationTransaction {
    */
   async replace(next?: SessionDescription) {
     if (!this.baseline) return;
+    const describedAgain = (transceiver: RTCRtpTransceiver) =>
+      !!next?.media.some(
+        (media) =>
+          media.port !== 0 &&
+          media.kind === transceiver.kind &&
+          media.rtp.muxId === transceiver.mid,
+      );
     const carried = new Set(
-      [...this.resources.remoteCreated].filter((transceiver) =>
-        next?.media.some(
-          (media) =>
-            media.port !== 0 &&
-            media.kind === transceiver.kind &&
-            media.rtp.muxId === transceiver.mid,
+      [...this.resources.remoteCreated].filter(describedAgain),
+    );
+    // A transceiver that existed before the transaction and that the
+    // replacing offer describes again keeps the track it already notified,
+    // so the replacement fires no second track event (W3C [[FiredDirection]]).
+    const notified = new Set(
+      this.transceivers
+        .getTransceivers()
+        .filter(
+          (t) => !this.resources.remoteCreated.has(t) && describedAgain(t),
         ),
-      ),
     );
     await this.restoreState(
       this.baseline,
       this.resources.remoteCreated,
       this.resources.speculativeTransports,
       carried,
+      notified,
     );
     this.resources.clear();
     for (const transceiver of carried) {
@@ -442,12 +453,14 @@ export class NegotiationTransaction {
     added: Iterable<RTCRtpTransceiver>,
     speculative: Iterable<RTCDtlsTransport>,
     carried: ReadonlySet<RTCRtpTransceiver> = new Set(),
+    notified: ReadonlySet<RTCRtpTransceiver> = new Set(),
   ) {
     const removedTransports = this.transceivers.restoreNegotiationState(
       baseline.transceivers,
       added,
       (transceiver) => this.createdStates.get(transceiver),
       carried,
+      notified,
     );
     const live = this.transceivers.getTransceivers();
     this.router.restoreRoutes(baseline.routes, {

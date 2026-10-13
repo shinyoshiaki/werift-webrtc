@@ -437,6 +437,37 @@ provisional の checklist は live と同じ規則に従う: 候補から作る 
 - 検証: `npm run type`、biome、`npm test`（57 ファイル、1046 passed / 3 skipped、3 分 01 秒）、移動元 13 ファイル 302 件、通信の property 65 件（1 分 45 秒）、深い探索 `WERIFT_NEGOTIATION_TRAFFIC_SEEDS=300 WERIFT_NEGOTIATION_TRAFFIC_STEPS=12` 300/300（380 秒）。src は変更していない。
 - 文書: NEGOTIATION_TRANSACTION.md（通信の property、ハーネスの `traffic` と `c.note`、深い探索。doc/_media の写しも）、NEGOTIATION_SPEC_COVERAGE.md（移したテストの参照を `Traffic:` に。凡例に追加）、NEGOTIATION_CASES_MAPPING.md（51 行を「→ Traffic / 固定シーン（PBT）」に）、packages/webrtc/AGENTS.md（Do 6 の置き場所、Do 7 の深い探索）。
 
+### 2.17 ケーステストの移植ではなく、性質で広い範囲を覆うプロパティベーステストにする（追加要件）
+
+**要件**: 2.16 の固定シーン（ケース本文 51 件の移植、2,270 行）をやめ、少ないテスト記述で広い範囲を覆うプロパティベーステストにする。検出力のトレードオフは受け入れる。進め方: (1) オラクルを 1 つずつ足して誤検出を直す、(2) 生成器の操作を足して探索し、見つかった失敗を実装か性質の定義かで切り分ける、(3) 縮小を実装する、(4) 固定シーンを短い回帰の操作列に置き換えて 32 バグで比較し、失う範囲を記録する、(5) 文書を更新する。
+
+**実施内容**
+
+- 構成（`packages/webrtc/tests/pbt/`）: `negotiationModelProperty.test.ts`（固定シーンと乱数シーンの登録）、`modelOracles.ts`（オラクル）、`modelPropertyUtils.ts`（操作ライブラリ・生成器・実行器・縮小）、`modelScenes.ts`（固定シーン）。2.16 の traffic の 3 ファイルは削除した。環境変数は `WERIFT_NEGOTIATION_MODEL_SEEDS`（既定 4）/ `_STEPS`（既定 10）/ `_SEED` / `_SHRINK`（0 で縮小しない）。既存の 2 つの PBT は変えていない。
+- オラクル（各記述操作の後にハーネスの `c.observe()` で実行。invariant と通信の性質は従来どおり）:
+  - jsep: 遷移先の状態と、pending / current の description。相手の peer は変わらない。
+  - rollback: description、ICE 資格情報、交渉前からある transceiver の経路・確定済み MID・送信パラメータ・受信表が戻る。アプリが足した transceiver は残る。
+  - events: signalingstatechange。rollback と再適用では track・transceiver を通知しない。track は受信への遷移かストリームの変化でだけ通知する（暗黙の rollback を含む rollback の後は再通知可）。
+  - idempotent / create: 同じ remote description の再適用と、createOffer / createAnswer は何も変えない。
+  - trickle: 重複しない。remote description に入った現在の世代の候補は checklist にも入る。
+  - commit: 確定後に currentDirection が鏡像になり、送信 codec が相手の受信表にある。
+  - channels: アプリが作った DataChannel は閉じず、peer の SCTP transport の上にある。最後に交渉済みなら両側で開く。
+  - reject: 拒否は状態を変えない（`mayReject`）。
+- 生成器: 開始状態 3 種（接続済み、未交渉で a が video と DataChannel、未交渉で a が video のみ）と 20 種の操作。操作は `[side, name, choices]` のデータで、固定シーンは数行で書け、失敗したシーンは操作を 1 つずつ外して縮小し、最小の失敗シーンを出力する。
+- 性質の定義を直したもの（設計どおりの動作）: BUNDLE で同じ候補が各 m-section に入る、分割 offer の資格情報の書き直し、pending 中に足した送信 transceiver の SSRC 経路（5-8）、createOffer が予約しただけの MID、適用していない restart offer の予約、アプリの transport の残存、DCEP の非同期到着、同じ remote offer の再適用（何も変えない）、EOC 後の候補、暗黙の rollback 後の track 再通知。共通 invariant の「未交渉の SCTP は MID を持たない」は「createOffer が予約した MID は持ってよいが current の m-line の MID と重ならない」に緩めた（予約は保存した offer の再適用に必要）。
+- モデル property が見つけて直した実装の不具合（各固定シーンは修正前に失敗する）:
+  1. 置き換えの remote offer（have-remote-offer）で、アプリの既存 transceiver の track イベントが再び発火する（develop は 1 回）。暗黙の rollback が通知済みの track と receiver の track を戻していた（`negotiationTransaction.ts`、`transceiverManager.ts`）。
+  2. 未適用の createOffer が SCTP に予約した MID が、相手の offer の application の MID に従わず、answer が MID を重複させる（develop は重複した answer を送り、HEAD は拒否していた）（`negotiation/remoteMediaApplication.ts`）。
+  3. stop 中で codec preferences を設定した直後の transceiver に、answer が形式のない m-line を作り、自分で解析できない（develop も同じ）。codec のない m-line は拒否（port 0）にした（`sdpManager.ts`）。
+- 行数: シーンの記述は 2,270 行（51 宣言・展開 61 件）→ 257 行（固定シーン 20 件、−89%）。基盤は traffic の 320 行 → 1,080 行（`modelOracles.ts` 562、`modelPropertyUtils.ts` 434、テスト 84）。ハーネス（`observe` / `mayReject` / `end`）とテスト用 invariant の変更は差分 +73 / −23 行。
+- 検出力（一時 worktree、HEAD＋上記の修正の src に 2.14 の 32 個のバグを 1 つずつ入れ、既定の 20 固定シーン＋4 シードを retry なしで実行）: 旧 51 件（2.16 の固定シーン）が検出した 14 個のうち 7 個（N4・N10・I1・I3・I4・B1・E1）を検出し、7 個（R2・R3・C1・C3・C4・I2・B2）は見逃す。見逃す 7 個は、相手の SDP を通信路上で書き換える必要があるもの（R2・R3・B2）、RTX などの codec 構成や transport-cc の開始時点に依存するもの（C1・C3・C4）、end-of-candidates を含まない offer への trickle が必要なもの（I2）。いずれも受け入れたトレードオフで、対応表（NEGOTIATION_CASES_MAPPING.md）に「対象外」として記録した。バグなしでは失敗 0。
+- 縮小の確認: I3 のバグで seed 2 の 10 操作が 3 操作（`b glare`、`b answer`、`a trickle`）の最小シーンに縮んだ。
+- 仕様対応表: 旧テストの参照を `Model (scene)` / `Model (oracle …)` に置き換えた。参照が対象外のテストだけだった 3 件（2.4-T3・2.8-4・2.9-T9）は partial にした。
+- 検証:
+  - 基本: `npm run type`、biome、`npm test`（57 ファイル、1005 passed / 3 skipped、2 分 45 秒）、CI 既定のモデル property 24 件（33 秒、2.16 は 65 件・1 分 45 秒）。
+  - 深い探索: モデル property 300 seed 300/300（383 秒）、episode fuzzer 300×20 303/303（212 秒）、scenario 300 seed 2163/2163（638 秒。develop 差分ファズと並行した回で 1 件失敗し、単独で 5 回と 300 seed 全体を再実行して通過）、pairwise mutation 2106/2106（1,795 秒）。
+  - develop 差分ファズ（200 seed × 12 step）: 回帰 0、hang 0、failed 0。
+
 ## 3. 技術的な実装アプローチ
 
 ### 3.1 transaction coordinator と subsystem API
@@ -551,7 +582,7 @@ commit path に例外が残る場合は、公開状態を切り替える前に�
 
 ## 7. 仕様と試験の対応表（策3）
 
-2.1〜2.12 と 5 章の各文（要件）を、それを検証する試験名（または invariant helper）か「対象外（理由）」に対応づけた表を `packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md` に置く（全 276 件: covered 253 件、対象外 23 件、partial / uncovered 0 件。2.11 で 15 件、2.12 で 10 件追加）。対象外は設計文書・コード構造・作業プロセスの記述だけで、理由を併記する。
+2.1〜2.12 と 5 章の各文（要件）を、それを検証する試験名（または invariant helper）か「対象外（理由）」に対応づけた表を `packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md` に置く（全 276 件: covered 250 件、対象外 23 件、partial 3 件、uncovered 0 件。2.11 で 15 件、2.12 で 10 件追加。partial の 3 件は 2.17 でモデル property に置き換えて具体値の検査を手放した 2.4-T3・2.8-4・2.9-T9）。対象外は設計文書・コード構造・作業プロセスの記述だけで、理由を併記する。
 
 - 表の作成時点で partial / uncovered だった 59 件は、要件 ID を名前に持つ試験（`negotiationTransactionCoverageEvents` / `Transport` / `Ice` / `Codecs`、`packages/ice/tests/coverageConsent.test.ts`）で閉じた。そのうち修正前の実装で失敗したものは、2.10 の「見つけ、修正して確定した規則」として実装を直した。
 - 要件や試験を変えたら表も更新する。新しい要件は、ID を名前に含む試験を追加してから covered にする。
