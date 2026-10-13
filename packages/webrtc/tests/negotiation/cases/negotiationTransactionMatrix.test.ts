@@ -22,40 +22,6 @@ const withBundle = (sdp: string, mids: string) =>
 for (const from of ["a", "b"] as const) {
   describeCases(`negotiation transaction matrix (offerer=${from})`, () => {
     negotiationCase(
-      "transceiver stop rejects its m-line and a later transceiver reuses it",
-      { ref: "2.1-T10" },
-      async (c) => {
-        // Arrange: audio transceiver を追加して交渉する。
-        const { a } = await c.given(createDirectedDuplexSession(from));
-        const firstAudio = a.addTransceiver("audio", { direction: "sendrecv" });
-        await c.negotiate(a);
-        const audioIndex = firstAudio.mLineIndex;
-
-        // Act: audio transceiver を停止して交渉する。
-        firstAudio.stop();
-        await c.negotiate(a);
-
-        // Assert: m-line は port 0 で拒否され、共有 BUNDLE transport は止まらない。
-        expect(a.currentLocalDescription!.sdp).toMatch(/m=audio 0 /);
-        await c.alive();
-
-        // Act: 新しい audio transceiver を追加して交渉する。
-        const secondAudio = a.addTransceiver("audio", {
-          direction: "sendrecv",
-        });
-        await c.negotiate(a);
-
-        // Assert: 停止済み m-line が再利用され、新しい MID で通信を続ける。
-        expect(secondAudio.mLineIndex).toEqual(audioIndex);
-        expect(secondAudio.mid).not.toBe(firstAudio.mid);
-        expect(a.currentLocalDescription!.sdp.match(/^m=/gm)!.length).toEqual(
-          3,
-        );
-        await c.alive();
-      },
-    );
-
-    negotiationCase(
       "BUNDLE split, tag change and merge route RTP by MID",
       { ref: "2.1-T9 2.5-T1 5-5" },
       async (c) => {

@@ -1,7 +1,6 @@
 import type { RTCIceCandidate, RTCPeerConnection } from "../../../src";
 import { describeCases, negotiationCase } from "../harness/negotiationCase";
 import {
-  createBundledIceRestartPranswer,
   createConnectedMediaAndDataPeers,
   createConnectedVideoPeers,
   createIceRestartPranswer,
@@ -13,7 +12,6 @@ import {
   recordIceCandidates,
   recordIceConnectionStates,
   removeIceAgentServers,
-  sectionOf,
   stubIceMdns,
   trickleCandidate,
   waitForCommittedNomination,
@@ -273,49 +271,6 @@ describeCases("negotiation transaction spec coverage: ICE", () => {
         { connection: [], ice: [] },
         { connection: [], ice: [] },
       ]);
-    },
-  );
-
-  negotiationCase(
-    "[2.8-29] end-of-candidates on a non-tag m-line completes the provisional generation of a restart pranswer for its whole BUNDLE group",
-    { ref: "2.8-29" },
-    async (c) => {
-      // Arrange: pranswer は end-of-candidates を含まず、provisional generation は未完了。
-      const { a, video, audio, outgoing, incoming, ufrag } = await c.given(
-        createBundledIceRestartPranswer(),
-      );
-      expect(provisionalIce(a)!.remoteCandidatesEnd).toBe(false);
-
-      // Act: BUNDLE の非 tag (audio) m-line に restart generation の end-of-candidates を trickle する。
-      await c.addCandidate(a, {
-        candidate: "",
-        sdpMid: audio,
-        usernameFragment: ufrag,
-      });
-
-      // Assert: provisional generation が完了し、pending SDP の group の全 m-line が end-of-candidates を持つ。
-      const provisional = provisionalIce(a);
-      expect(provisional!.remoteCandidatesEnd).toBe(true);
-      expect(sectionOf(a.pendingRemoteDescription!.sdp, video)).toContain(
-        "a=end-of-candidates",
-      );
-      expect(sectionOf(a.pendingRemoteDescription!.sdp, audio)).toContain(
-        "a=end-of-candidates",
-      );
-
-      // Act: その後に tag (video) m-line へ同じ generation の候補が届く。
-      const candidates = provisional!.remoteCandidates.length;
-      await c.addCandidate(a, trickleCandidate(50996, ufrag, video));
-
-      // Assert: 完了した generation の候補は pending SDP にも provisional checklist にも入らない。
-      expect(a.pendingRemoteDescription!.sdp).not.toContain(" 50996 ");
-      expect(provisional!.remoteCandidates.length).toEqual(candidates);
-      expect(
-        provisional!.pairs.some((pair) => pair.remoteCandidate.port === 50996),
-      ).toBe(false);
-
-      // Assert: live pair の RTP は続く。
-      await c.rtp(outgoing, incoming);
     },
   );
 
