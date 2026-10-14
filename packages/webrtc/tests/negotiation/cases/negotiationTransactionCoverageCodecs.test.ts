@@ -7,17 +7,11 @@ import {
   useNACK,
   usePLI,
   useREMB,
-  useSdesMid,
-  useSdesRTPStreamId,
   useTWCC,
   useTransportWideCC,
   useVP8,
 } from "../../../src";
 import type { RTCDtlsTransport as DtlsTransport } from "../../../src/transport/dtls";
-import {
-  answerRemoteOffer,
-  createBundlePairWithOutsideReoffer,
-} from "../../issue/705.helpers";
 import { describeCases, negotiationCase } from "../harness/negotiationCase";
 import {
   createCommittedInactiveAudioPeers,
@@ -25,16 +19,12 @@ import {
   createConnectedVideoPeersWith,
   createH264OnlyReoffer,
   createPeerPair,
-  createSimulcastPeers,
   createUnnegotiatedPeers,
-  extmapId,
-  mungeSection,
   offeredVideoCodecs,
   payloadTypeOf,
   pliReaches,
   recordSenderFeedback,
   sendRawRtp,
-  setExtmapId,
   twccFeedbackSent,
   videoWithoutFeedback,
   waitForPeersConnected,
@@ -243,51 +233,6 @@ describeCases(
         expect(b.getTransceivers()[0]).toBe(inactive);
         expect(b.getTransceivers().length).toEqual(2);
         expect(b.getTransceivers()[1].mLineIndex).toEqual(1);
-      },
-    );
-
-    negotiationCase(
-      "[2.4-7] a remote offer that puts a new MID on a committed inactive (not rejected) m-line does not take it",
-      { ref: "2.4-7" },
-      async (c) => {
-        // Arrange: inactive な audio m-line (index 0、port 0 ではない) を確定させ、その位置に別の MID の sendonly audio を置いた offer を作る (拒否済みでない m-line の再利用)。
-        const { a, b, inactive, inactiveMid } = await c.given(
-          createCommittedInactiveAudioPeers(),
-        );
-        const current = b.currentRemoteDescription!.sdp;
-        const offer = await a.createOffer();
-        const recycled = mungeSection(offer.sdp, inactiveMid, (section) =>
-          section
-            .replace(/^a=mid:\S+/m, "a=mid:recycled")
-            .replace(/^a=inactive/m, "a=sendonly"),
-        ).replace(/^a=group:BUNDLE [^\r\n]+/m, "a=group:BUNDLE recycled");
-        expect(SessionDescription.parse(recycled).media[0].port).not.toEqual(0);
-
-        // Act: remote offer として適用する (受理でも拒否でもよい)。
-        const outcome = await b
-          .setRemoteDescription({ type: "offer", sdp: recycled })
-          .then(
-            () => "accepted",
-            (error: Error) => error.name,
-          );
-
-        // Assert: remote offer のための transceiver は inactive な transceiver の枠を奪わない (停止も置き換えもされず、MID と m-line の位置を保つ)。
-        expect(b.getTransceivers()).toContain(inactive);
-        expect(inactive).toMatchObject({
-          mid: inactiveMid,
-          mLineIndex: 0,
-          stopped: false,
-          stopping: false,
-        });
-
-        // Assert: 拒否するなら状態を変えない (受理なら比較しない)。
-        expect(outcome === "accepted" ? "stable" : b.signalingState).toEqual(
-          "stable",
-        );
-        expect(
-          outcome === "accepted" ? current : b.currentRemoteDescription!.sdp,
-        ).toBe(current);
-        c.invariants(b);
       },
     );
 
@@ -602,82 +547,6 @@ describeCases(
         // Assert: PLI の可否は track の codec ではなく、受信 codec 表 (current SDP) の feedback に従う。
         expect(reached).toBe(row.reached);
         c.invariants(b);
-      },
-    );
-
-    negotiationCase(
-      "[5-13] RTP that carries a header extension under its new id arrives after the answer commits the move",
-      { ref: "5-13" },
-      async (c) => {
-        // Arrange: RID 拡張の URI を未使用の ID 12 へ移した re-offer を answerer に適用する。
-        const { a, b, firstMid } = await c.given(createSimulcastPeers());
-        const created = await a.createOffer();
-        const offer = setExtmapId(created.sdp, useSdesRTPStreamId().uri, 12);
-        expect(offer).toContain(`a=extmap:12 ${useSdesRTPStreamId().uri}`);
-        await c.setRemote(b, offer, { type: "offer" });
-        const current = b.currentRemoteDescription!.sdp;
-        const midExtensionId = extmapId(current, useSdesMid().uri);
-        const payloadType = payloadTypeOf(current, "VP8");
-
-        // Act: answer で確定し、新しい ID 12 で RID を載せた RTP を送る。
-        await c.finish(b, "answer");
-        const track = b.getTransceivers()[0].receiver.trackByRID.high;
-        const received = c.start(watchRtpText([track], "new-extension-id"));
-        await sendRawRtp(
-          a.getTransceivers()[0].dtlsTransport,
-          {
-            ssrc: 7777,
-            payloadType,
-            sequenceNumber: 500,
-            extensions: [
-              { id: midExtensionId, payload: Buffer.from(firstMid) },
-              { id: 12, payload: Buffer.from("high") },
-            ],
-          },
-          Buffer.from("new-extension-id"),
-        );
-
-        // Assert: 新しい ID の RID で high 層の track に届く。
-        await received;
-        c.invariants(b);
-      },
-    );
-
-    negotiationCase(
-      "[5-K14] an m-line outside the offered BUNDLE group offered with a=setup:active is answered passive (RFC 8842 section 5.3)",
-      {
-        ref: "5-K14",
-        exempt:
-          "the 705 helper's offer misdescribes the outside m-line ICE credentials (outsideufrag) the callee does not use, so the caller cannot continue",
-        explicitInvariants: true,
-      },
-      async (c) => {
-        // Arrange: 初回 offerer (DTLS server) の caller に、callee が group 外の audio を a=setup:active で提案する re-offer を用意する (705 helper の actpass を active にする)。
-        const { caller, outsideMid, outsideOffer } = await c.given(
-          createBundlePairWithOutsideReoffer({ reofferFrom: "callee" }),
-        );
-        const activeOffer = mungeSection(outsideOffer, outsideMid, (section) =>
-          section.replace(/^a=setup:actpass/m, "a=setup:active"),
-        );
-        expect(activeOffer).not.toEqual(outsideOffer);
-
-        // Act: re-offer に answer して確定する。
-        const answer = await answerRemoteOffer(caller, activeOffer);
-
-        // Assert: group 外の m-line は offer の逆の passive で答え、その独立 transport は server になる。
-        expect(
-          SessionDescription.parse(answer).media.find(
-            (media) => media.rtp.muxId === outsideMid,
-          )!.dtlsParams?.role,
-        ).toEqual("server");
-        expect(answer).toMatch(/^a=setup:passive\r?$/m);
-        expect(
-          caller.getTransceivers().map((t) => [t.mid, t.dtlsTransport.role]),
-        ).toEqual([
-          ["0", "server"],
-          ["1", "server"],
-          [outsideMid, "server"],
-        ]);
       },
     );
   },

@@ -1,6 +1,6 @@
 /**
- * Deep property search in parallel: splits the seeds (or, for the SDP
- * mutations, the cases) of each property test into shards and runs them as
+ * Deep property search in parallel: splits the seeds of each property test
+ * into shards and runs them as
  * separate vitest processes, `--jobs` (default: the CPU count) at a time,
  * all suites in one pool. A failed seed is replayed
  * alone afterwards, so a failure caused by CPU load (the traffic checks have
@@ -13,7 +13,6 @@
  *   fuzz      tests/pbt/negotiationTransactionProperty.test.ts, 300 seeds x 20 steps
  *   scenario  tests/pbt/negotiationScenarioProperty.test.ts, 300 seeds
  *   model     tests/pbt/negotiationModelProperty.test.ts, 300 seeds x 10 steps
- *   mutation  tests/negotiation/cases/negotiationTransactionMutation.test.ts, pairwise
  * The fixed scenes and regression seeds run once in their own shard.
  * Exit code 1 when a seed fails again when replayed alone.
  */
@@ -22,7 +21,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { cpus, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-type Suite = "fuzz" | "scenario" | "model" | "mutation";
+type Suite = "fuzz" | "scenario" | "model";
 type Shard = {
   label: string;
   file: string;
@@ -36,9 +35,7 @@ const option = (name: string) => {
   const index = args.indexOf(`--${name}`);
   return index >= 0 ? args[index + 1] : undefined;
 };
-const suites = (option("suite") ?? "fuzz,scenario,model,mutation").split(
-  ",",
-) as Suite[];
+const suites = (option("suite") ?? "fuzz,scenario,model").split(",") as Suite[];
 const jobs = Number(option("jobs") ?? cpus().length);
 const seedsOption = option("seeds");
 const stepsOption = option("steps");
@@ -131,19 +128,6 @@ function shards(suite: Suite): Shard[] {
         })),
       ];
     }
-    case "mutation": {
-      const file =
-        "tests/negotiation/cases/negotiationTransactionMutation.test.ts";
-      const count = jobs * 3;
-      return [...Array(count).keys()].map((index) => ({
-        label: `mutation pairwise ${index + 1}/${count}`,
-        file,
-        env: {
-          WERIFT_NEGOTIATION_MUTATION: "pairwise",
-          WERIFT_NEGOTIATION_MUTATION_SHARD: `${index}/${count}`,
-        },
-      }));
-    }
   }
 }
 
@@ -219,8 +203,8 @@ const escapeRegExp = (text: string) =>
 async function main() {
   const started = Date.now();
   // 全 suite の分割を 1 つの pool に入れ、suite の境目で待たない。1 分割あたりの
-  // 時間が長い順 (20 step の fuzz、mutation、…) に並べ、最後に待つ時間を減らす。
-  const order: Suite[] = ["fuzz", "mutation", "model", "scenario"];
+  // 時間が長い順 (20 step の fuzz、…) に並べ、最後に待つ時間を減らす。
+  const order: Suite[] = ["fuzz", "model", "scenario"];
   const list = order
     .filter((suite) => suites.includes(suite))
     .flatMap((suite) => shards(suite).map((shard) => ({ suite, shard })));

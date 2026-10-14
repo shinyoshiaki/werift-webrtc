@@ -242,46 +242,6 @@ export function provisionalIce(pc: RTCPeerConnection) {
     .provisional;
 }
 
-/**
- * Arrange: replace the mDNS lookup of `pc`'s first ICE transport with one the
- * test resolves, so a `.local` candidate can stay resolving while other
- * operations run.
- */
-export function stubIceMdns(pc: RTCPeerConnection) {
-  const pending: ((address: string) => void)[] = [];
-  let requested = 0;
-  (pc.iceTransports[0] as unknown as ProvisionalInternals).connection.lookup = {
-    lookup: () =>
-      new Promise<string>((resolve) => {
-        requested++;
-        pending.push(resolve);
-      }),
-    close: () => undefined,
-  };
-  return {
-    get requested() {
-      return requested;
-    },
-    resolveAll: (address = "127.0.0.1") => {
-      for (const resolve of pending.splice(0)) resolve(address);
-    },
-  };
-}
-
-/** A remote host candidate of generation `ufrag` for `sdpMid`. */
-export function trickleCandidate(
-  port: number,
-  ufrag: string,
-  sdpMid: string,
-  host = "127.0.0.1",
-) {
-  return {
-    candidate: `candidate:${port} 1 udp 2130706431 ${host} ${port} typ host ufrag ${ufrag}`,
-    sdpMid,
-    usernameFragment: ufrag,
-  };
-}
-
 /** Wait until the provisional ICE generation of every transport nominates a pair. */
 export async function waitForProvisionalNomination(pc: RTCPeerConnection) {
   const transports = pc.iceTransports as unknown as ProvisionalIce[];
@@ -2052,26 +2012,6 @@ export async function settlesWithin(promise: Promise<unknown>, ms: number) {
   return settled;
 }
 
-/**
- * Shared Arrange: `pc` (the answerer) moves its ICE agent to new local
- * credentials before it creates its final answer, as a peer that changes its
- * credentials in the answer does; it keeps the remote generation and its
- * candidates. Its candidates then carry `generation 1`.
- */
-export async function changeAnswererIceCredentials(pc: RTCPeerConnection) {
-  const transport = pc.iceTransports[0];
-  const remote = transport.getRemoteParameters()!;
-  const candidates = [...transport.connection.remoteCandidates];
-  transport.restart(false);
-  transport.setRemoteParams(remote);
-  for (const candidate of candidates) {
-    candidate.generation = undefined;
-    await transport.connection.addRemoteCandidate(candidate);
-  }
-  await transport.connection.addRemoteCandidate(undefined);
-  await transport.gather();
-}
-
 /** Shared Arrange: a local TURN server and the RTCIceServer entry for it. */
 export async function createLocalTurnIceServer() {
   const server = await createLocalTurnServer(getHostAddresses(true, false)[0]!);
@@ -2133,38 +2073,6 @@ export function offeredVideoCodecs(sdp: string) {
     .filter((name) => name !== "RTX");
 }
 
-/** Remote ICE ufrag and MID of the first m-line of `pc`'s current remote description. */
-export function currentRemoteGeneration(pc: RTCPeerConnection) {
-  const sdp = pc.currentRemoteDescription!.sdp;
-  return {
-    ufrag: sdp.match(/^a=ice-ufrag:(\S+)/m)![1],
-    mid: sdp.match(/^a=mid:(\S+)/m)![1],
-  };
-}
-
-/** Run `operation` and return how long it took in milliseconds. */
-export async function elapsedMs(operation: () => Promise<unknown>) {
-  const started = performance.now();
-  await operation();
-  return performance.now() - started;
-}
-
-/** Wait until the live ICE agent of `pc`'s first transport knows `port` as a remote candidate. */
-export async function waitForRemoteCandidatePort(
-  pc: RTCPeerConnection,
-  port: number,
-) {
-  const connection = pc.iceTransports[0].connection;
-  await withTimeout(
-    (async () => {
-      while (!connection.remoteCandidates.some((c) => c.port === port)) {
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
-    })(),
-    `Remote candidate ${port} was not added`,
-  );
-}
-
 /**
  * Offer the codec of payload type `from` under the new payload type `to`
  * instead (the m-line list and its rtpmap / fmtp / rtcp-fb lines).
@@ -2187,47 +2095,6 @@ export function movePayloadType(sdp: string, from: number, to: number) {
       );
     })
     .join("\r\n");
-}
-
-/**
- * Add header extensions the answerer does not support to the `kind` m-line of
- * an offer, on every free one-byte ID (like a browser offering more
- * extensions than werift accepts).
- */
-export function addUnsupportedExtmaps(sdp: string, kind: "audio" | "video") {
-  const lines = sdp.split("\r\n");
-  const start = lines.findIndex((line) => line.startsWith(`m=${kind} `));
-  const end = lines.findIndex(
-    (line, index) => index > start && line.startsWith("m="),
-  );
-  const section = lines.slice(start, end < 0 ? undefined : end);
-  const used = new Set(
-    section
-      .map((line) => line.match(/^a=extmap:(\d+)/)?.[1])
-      .filter((id): id is string => !!id)
-      .map(Number),
-  );
-  const added: string[] = [];
-  for (let id = 1; id <= 14; id++) {
-    if (!used.has(id))
-      added.push(`a=extmap:${id} urn:example:unsupported-${id}`);
-  }
-  lines.splice(start + 1, 0, ...added);
-  return lines.join("\r\n");
-}
-
-/** Offer an extra codec `name` at payload type `payloadType` in the `kind` m-line. */
-export function addOfferedCodec(
-  sdp: string,
-  kind: "audio" | "video",
-  payloadType: number,
-  name: string,
-) {
-  const lines = sdp.split("\r\n");
-  const start = lines.findIndex((line) => line.startsWith(`m=${kind} `));
-  lines[start] = `${lines[start]} ${payloadType}`;
-  lines.splice(start + 1, 0, `a=rtpmap:${payloadType} ${name}`);
-  return lines.join("\r\n");
 }
 
 /** Every DTLS transport `pc` holds: live bindings and what a pending proposal prepared or created. */
@@ -2685,32 +2552,6 @@ export async function waitForMutationSession(session: DuplexSession) {
   );
 }
 
-/**
- * Act + Assert: run a description operation that may be accepted or
- * rejected. Accepted: every invariant holds. Rejected: both peers are
- * exactly as before. Returns whether it was accepted.
- */
-export async function acceptOrRejectAtomically(
-  session: DuplexSession,
-  operation: () => Promise<unknown>,
-) {
-  const before = [session.a.pc, session.b.pc].map(negotiationSnapshot);
-  const accepted = await operation().then(
-    () => true,
-    () => false,
-  );
-  if (!accepted) {
-    // 拒否されたら両 peer の状態は操作前と完全に一致する。
-    expect([session.a.pc, session.b.pc].map(negotiationSnapshot)).toEqual(
-      before,
-    );
-  }
-  // 受理・拒否どちらでも invariant を満たす。
-  assertNegotiationInvariants(session.a.pc);
-  assertNegotiationInvariants(session.b.pc);
-  return accepted;
-}
-
 /** Rewrite every candidate to an address nobody answers (STUN checks wait). */
 export function unreachableCandidates(sdp: string) {
   return sdp
@@ -2721,13 +2562,11 @@ export function unreachableCandidates(sdp: string) {
     .replace(/^a=end-of-candidates\r\n/gm, "");
 }
 
-export type InterruptWait = "gather" | "mdns" | "dtls" | "stun";
+export type InterruptWait = "gather" | "dtls" | "stun";
 
 /**
  * Arrange: a mutation session with a negotiation step held at `wait`.
  * - gather: the offerer's ICE restart commit (remote answer) gathering
- * - mdns: an mDNS candidate of the offerer's provisional (restart pranswer)
- *   generation resolving
  * - dtls: the offerer's DTLS start of a first negotiation's answer
  * - stun: a first negotiation checking candidates nobody answers
  * `pending` is the held operation (settled, never rejected here); `release`
@@ -2735,7 +2574,7 @@ export type InterruptWait = "gather" | "mdns" | "dtls" | "stun";
  */
 export async function arrangeInterruptWait(wait: InterruptWait) {
   const session = await createMutationSession(
-    wait === "gather" || wait === "mdns" ? "renegotiation" : "initial",
+    wait === "gather" ? "renegotiation" : "initial",
   );
   const { a, b } = session;
   const settle = (operation: Promise<unknown>) =>
@@ -2758,35 +2597,6 @@ export async function arrangeInterruptWait(wait: InterruptWait) {
       const pending = settle(a.pc.setRemoteDescription(b.pc.localDescription!));
       await gather.reached;
       return { session, pending, release: gather.release };
-    }
-    case "mdns": {
-      await step(session, async () =>
-        a.pc.setLocalDescription(await a.pc.createOffer({ iceRestart: true })),
-      );
-      await step(session, () =>
-        b.pc.setRemoteDescription(a.pc.localDescription!),
-      );
-      const answer = (await b.pc.createAnswer()).sdp;
-      await step(session, () =>
-        b.pc.setLocalDescription({ type: "pranswer", sdp: answer }),
-      );
-      await step(session, () =>
-        a.pc.setRemoteDescription({ type: "pranswer", sdp: answer }),
-      );
-      const mdns = stubIceMdns(a.pc);
-      const ufrag = /^a=ice-ufrag:(.*)$/m.exec(answer)![1].trim();
-      const pending = settle(
-        a.pc.addIceCandidate(trickleCandidate(50997, ufrag, "0", "peer.local")),
-      );
-      await withTimeout(
-        (async () => {
-          while (mdns.requested === 0) {
-            await new Promise((resolve) => setTimeout(resolve, 5));
-          }
-        })(),
-        "mDNS lookup did not start",
-      );
-      return { session, pending, release: () => mdns.resolveAll() };
     }
     case "dtls":
     case "stun": {
@@ -3036,16 +2846,6 @@ export function recordConnectionStates(pc: RTCPeerConnection) {
 }
 
 /**
- * `sdp` with the ICE credentials of every m-line replaced, as a peer that
- * restarted its agent again would send them in a replacement pranswer.
- */
-export function withIceCredentials(sdp: string, ufrag: string, pwd: string) {
-  return sdp
-    .replace(/^a=ice-ufrag:\S+/gm, `a=ice-ufrag:${ufrag}`)
-    .replace(/^a=ice-pwd:\S+/gm, `a=ice-pwd:${pwd}`);
-}
-
-/**
  * Arrange: leave every ICE agent of `pc` without a STUN / TURN server. With
  * `iceServers: []` the ICE agent still falls back to its default STUN
  * server, so a generation that has no server to query is reached this way.
@@ -3087,29 +2887,6 @@ export function withOnlyUnsupportedCodec(sdp: string, mid: string) {
       )
       .replace(/^a=ssrc-group:[^\r\n]*\r\n/gm, ""),
   );
-}
-
-/**
- * Arrange: hold the DTLS start of every transport `pc` holds that has not
- * started yet (for example a pending BUNDLE split owner) until `release()`.
- */
-export function holdNewDtlsStart(pc: RTCPeerConnection) {
-  let release!: () => void;
-  const released = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const held = [...heldTransports(pc)].filter(
-    (transport) => transport.state === "new",
-  );
-  for (const transport of held) {
-    const original = transport.start.bind(transport);
-    transport.start = async () => {
-      transport.start = original;
-      await released;
-      return original();
-    };
-  }
-  return { held, release };
 }
 
 /**
@@ -3473,32 +3250,6 @@ export async function createCommittedInactiveAudioPeers() {
 
 // --- SDP edits of the declarative cases ---
 
-/** The first `a=ssrc:` of the m-section `mid`. */
-export function ssrcOf(sdp: string, mid: string) {
-  return sectionOf(sdp, mid).match(/^a=ssrc:(\d+) /m)![1];
-}
-
-/** The header extension ID of `uri` in `sdp`. */
-export function extmapId(sdp: string, uri: string) {
-  return Number(sdp.match(new RegExp(`^a=extmap:(\\d+) ${uri}\\r?$`, "m"))![1]);
-}
-
-/** Every `a=extmap:` of `uri` gets the ID `id`. */
-export function setExtmapId(sdp: string, uri: string, id: number) {
-  return sdp.replace(
-    new RegExp(`^a=extmap:\\d+ ${uri}(\\r?)$`, "gm"),
-    `a=extmap:${id} ${uri}$1`,
-  );
-}
-
-/** Every `a=extmap:` of ID `id` gets the URI `uri`. */
-export function setExtmapUri(sdp: string, id: number, uri: string) {
-  return sdp.replace(
-    new RegExp(`^a=extmap:${id} \\S+(\\r?)$`, "gm"),
-    `a=extmap:${id} ${uri}$1`,
-  );
-}
-
 /** Arrange: two peers before any negotiation (`a` with `config`, `b` with `configB`). */
 export function createPeerPair(
   config: ConstructorParameters<typeof RTCPeerConnection>[0] = {},
@@ -3572,10 +3323,6 @@ export async function createConnectedMediaAndDataPeersWithTurnServer() {
 }
 
 // --- SDP edits shared by negotiation cases and the traffic scenes ---
-
-/** The SDP without end-of-candidates: the trickle of its generation is still open. */
-export const withoutEoc = (sdp: string) =>
-  sdp.replace(/^a=end-of-candidates\r?\n/gm, "");
 
 /** The SDP with its BUNDLE group set to `mids`. */
 export const withBundle = (sdp: string, mids: string[]) =>

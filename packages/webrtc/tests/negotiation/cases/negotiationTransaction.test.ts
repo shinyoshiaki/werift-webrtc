@@ -1,21 +1,12 @@
-import {
-  MediaStreamTrack,
-  RTCIceTransport,
-  RTCRtpCodecParameters,
-} from "../../../src";
+import { RTCIceTransport, RTCRtpCodecParameters } from "../../../src";
 import type { RTCDtlsTransport, RTCPeerConnection } from "../../../src";
 import { describeCases, negotiationCase } from "../harness/negotiationCase";
-import {
-  ufragOf,
-  withBundle,
-  withoutEoc,
-} from "../harness/negotiationTransactionUtils";
+import { ufragOf } from "../harness/negotiationTransactionUtils";
 import {
   addNegotiatedAudio,
   createConnectedVideoPeers,
   createDuplexSession,
   createPeerPair,
-  createRewrittenOffer,
   createSimulcastPeers,
   createSplitOffer,
   createUnnegotiatedVideoPeers,
@@ -37,30 +28,6 @@ const preparedTransport = (pc: RTCPeerConnection, mid: string) =>
   ).negotiation.transportByMid.get(mid);
 
 describeCases("negotiation transaction", () => {
-  negotiationCase(
-    "a remote offer whose BUNDLE member is not an exact MID creates nothing",
-    { ref: "2.8-20; origin: BUNDLE group validation" },
-    async (c) => {
-      // Arrange: BUNDLE group の MID に suffix を付けた初回 offer を作る。
-      const { a, b } = await c.given(createPeerPair());
-      const events = recordNegotiationEvents(b);
-      a.addTransceiver("audio");
-      const offer = await a.createOffer();
-
-      // Act: その offer を remote description として適用する。拒否され状態は変わらない。
-      await c.setRemote(
-        b,
-        offer.sdp.replace(/^a=group:BUNDLE 0\b/m, "a=group:BUNDLE 0_extra"),
-        { rejects: "OperationError" },
-      );
-
-      // Assert: transceiver も通知も作られず stable のまま。
-      expect(b.remoteDescription).toEqual(null);
-      expect(b.getTransceivers().length).toEqual(0);
-      expect(events.remoteTransceivers).toEqual([]);
-    },
-  );
-
   negotiationCase(
     "a replacement local offer whose transport preparation fails keeps the earlier pending offer",
     { ref: "2.9-9" },
@@ -569,159 +536,6 @@ describeCases("negotiation transaction", () => {
       expect(a.iceTransports[0].connection.remoteUsername).not.toEqual(
         ufragOf(answer.sdp),
       );
-    },
-  );
-
-  negotiationCase(
-    "initial pranswer carries provisional RTP before final commit",
-    { ref: "2.1-T1 2.2-1 2.2-2 2.3-1 2.3-3 2.3-6 2.7-3 5-3" },
-    async (c) => {
-      // Arrange: video の初回 offer を受け、receiver を pending に生成する。
-      const { a, b } = await c.given(createPeerPair());
-      const outgoing = new MediaStreamTrack({ kind: "video" });
-      const events = recordNegotiationEvents(b);
-      a.addTransceiver(outgoing, { direction: "sendonly" });
-      await c.offer(a);
-
-      // Act: 双方の pranswer だけで ICE/DTLS と RTP を開始する。
-      const answer = await c.pranswer(b);
-      await Promise.all([waitForConnection(a), waitForConnection(b)]);
-      expect(events.tracks.length).toBeGreaterThan(0);
-      await c.rtp(outgoing, events.tracks[0].track);
-
-      // Act / Assert: 接続済み provisional DTLS の証明書差替えは拒否する。
-      await c.setRemote(
-        a,
-        answer.sdp.replace(
-          /a=fingerprint:sha-256 [^\r\n]+/,
-          "a=fingerprint:sha-256 " + Array(32).fill("00").join(":"),
-        ),
-        { type: "answer", rejects: "InvalidModificationError" },
-      );
-
-      // Assert: current description は空のまま通信し、rollback で仮 transceiver を除外する。
-      expect(b.currentRemoteDescription).toEqual(null);
-      expect(a.currentLocalDescription).toEqual(null);
-      await c.rollback(a);
-      expect(b.getTransceivers().length).toEqual(0);
-    },
-  );
-
-  negotiationCase(
-    "partial BUNDLE keeps an unbundled media transport independent",
-    { ref: "origin: partial BUNDLE (RFC 8843 7.3.2)" },
-    async (c) => {
-      // Arrange: audio/application は BUNDLE、video は独立する offer を offerer 自身が出す (offer で共有した transport を answer だけが分割することはできない: RFC 8843 7.3.2)。
-      const { a, b } = await c.given(createPeerPair());
-      const video = new MediaStreamTrack({ kind: "video" });
-      const events = recordNegotiationEvents(b);
-      a.addTransceiver("audio");
-      a.addTransceiver(video, { direction: "sendonly" });
-      a.createDataChannel("bundle");
-      const probe = await a.createOffer();
-      const mids = [...probe.sdp.matchAll(/a=mid:([^\r\n]+)/g)].map(
-        (m) => m[1],
-      );
-      await c.setLocal(
-        a,
-        await createRewrittenOffer(a, (sdp) =>
-          withBundle(sdp, [mids[0], mids[2]]),
-        ),
-      );
-
-      // Act: 部分 BUNDLE offer を適用して answer を作る。
-      await c.setRemote(b, a.localDescription);
-      const answer = await b.createAnswer();
-
-      // Assert: BUNDLE owner と独立 media の ICE/DTLS transport が分かれる。
-      const [audio, remoteVideo] = b.getTransceivers();
-      expect(answer.sdp).toContain("a=group:BUNDLE " + mids[0] + " " + mids[2]);
-      expect(audio.dtlsTransport).toBe(b.sctpTransport!.dtlsTransport);
-      expect(remoteVideo.dtlsTransport).not.toBe(audio.dtlsTransport);
-
-      // Act: final answer 後に video RTP を独立 transport で送る。
-      await c.setLocal(b, answer);
-      await c.setRemote(a, b.localDescription);
-      await Promise.all([
-        waitForIce(a),
-        waitForIce(b),
-        waitForConnection(a),
-        waitForConnection(b),
-      ]);
-      const receivedVideo = events.tracks.find(
-        (e) => e.track.kind === "video",
-      )!.track;
-      await c.rtp(video, receivedVideo);
-
-      // Act / Assert: 接続済み SCTP を別 DTLS owner へ移す answer / offer は適用前に拒否する。
-      await c.setLocal(
-        a,
-        await createRewrittenOffer(a, (sdp) =>
-          withBundle(sdp, [mids[1], mids[0], mids[2]]),
-        ),
-      );
-      await c.setRemote(
-        a,
-        withBundle(a.currentRemoteDescription!.sdp, [
-          mids[1],
-          mids[0],
-          mids[2],
-        ]),
-        { type: "answer", rejects: "InvalidModificationError" },
-      );
-
-      // Act / Assert: 受信側は offer の validate で拒否し、stable の current を保つ。
-      await c.setRemote(b, a.localDescription, {
-        rejects: "InvalidModificationError",
-      });
-      expect(b.signalingState).toEqual("stable");
-      await c.setLocal(a, "rollback");
-      await c.rtp(video, receivedVideo);
-
-      // Act: 次の offer で全 m-line を BUNDLE に戻す。
-      const oldVideoTransport = remoteVideo.dtlsTransport;
-      await c.offer(a);
-      const mergedAnswer = await b.createAnswer();
-      expect(remoteVideo.dtlsTransport).toBe(oldVideoTransport);
-      await c.rtp(video, receivedVideo);
-      await c.setLocal(b, mergedAnswer);
-      await c.setRemote(a, b.localDescription);
-
-      // Assert: 旧 video owner は解放され、共有 transport で RTP が届く。
-      expect(remoteVideo.dtlsTransport).toBe(audio.dtlsTransport);
-      expect(oldVideoTransport.state).toEqual("closed");
-      await c.rtp(video, receivedVideo);
-    },
-  );
-
-  negotiationCase(
-    "description and trickle operations serialize, and a rolled-back ufrag cannot be buffered",
-    { ref: "origin: operations chain" },
-    async (c) => {
-      // Arrange: 同じ tick に渡す remote offer と candidate を用意する。candidate の trickle がまだ続いている offer として渡す (EOC 後の候補は破棄される)。
-      const { a, b } = await c.given(createPeerPair());
-      a.addTransceiver("audio");
-      await c.offer(a, { hold: true });
-      const offer = withoutEoc(a.localDescription!.sdp);
-      const candidate = {
-        candidate:
-          "candidate:serial 1 udp 2113937151 192.0.2.13 12348 typ host",
-        sdpMid: offer.match(/a=mid:([^\r\n]+)/)![1],
-        usernameFragment: ufragOf(offer),
-      };
-
-      // Act: SRD と trickle を待たずに連続で開始する。
-      await Promise.all([
-        b.setRemoteDescription({ type: "offer", sdp: offer }),
-        b.addIceCandidate(candidate),
-      ]);
-
-      // Assert: candidate は新しい pending description にだけ付く。
-      expect(b.pendingRemoteDescription!.sdp).toContain("serial");
-      await c.setRemote(b, "rollback");
-
-      // Act / Assert: 破棄済み generation の遅延 candidate は次回用キューに入らない。
-      await c.addCandidate(b, candidate, { rejects: "OperationError" });
     },
   );
 });

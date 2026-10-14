@@ -512,16 +512,16 @@ pranswer is live (provisional) for every row.
 
 | Value | Remote offer | Pranswer / replacement pranswer | Final answer | Rollback | Checked by |
 | --- | --- | --- | --- | --- | --- |
-| ICE credentials, candidates, EOC | current | both: a provisional generation beside the selected current pair (ICE generation boundaries); a replacement restarts its checklist | commit; changed remote credentials restart the checks and keep the local credentials the offer described | current | helper `assertIceGenerations`; Scen (ice, rollback) "local ICE restart then %s"; Regression "new remote credentials in an answer keep the local credentials the offer described" |
-| DTLS role / fingerprint | current | current association kept; a new association (BUNDLE split owner) is provisional; a role change of a connecting / connected association (also one a first pranswer connected) is rejected | commit (same rule) | current | helper `assertDtlsBindings`; Regression "a final answer cannot reverse the DTLS role a first pranswer connected with"; Scen (reject) "a local answer that flips the DTLS setup of a connected association is rejected" |
+| ICE credentials, candidates, EOC | current | both: a provisional generation beside the selected current pair (ICE generation boundaries); a replacement restarts its checklist | commit; changed remote credentials restart the checks and keep the local credentials the offer described | current | helper `assertIceGenerations`; Scen (ice, rollback) "local ICE restart then %s" |
+| DTLS role / fingerprint | current | current association kept; a new association (BUNDLE split owner) is provisional; a role change of a connecting / connected association (also one a first pranswer connected) is rejected | commit (same rule) | current | helper `assertDtlsBindings`; Scen (reject) "a local answer that flips the DTLS setup of a connected association is rejected" |
 | Receive codec / RTCP feedback | both | both | commit | current | helper `assertRouterAndCodecs`; Routing (`negotiationTransactionRouting.test.ts`) |
-| Send codec (sender parameters) | current (the offer only proposes) | provisional on both sides | commit | current | helper `expectedLive("sendCodec")`; EffectiveValues "a pranswer sends with its codec on both sides until %s" |
+| Send codec (sender parameters) | current (the offer only proposes) | provisional on both sides | commit | current | helper `expectedLive("sendCodec")`; Model (scene) "a pranswer sends with its codec on both sides until %s" |
 | Direction (`currentDirection`, sending) | current | provisional: an `inactive` / `recvonly` pranswer stops sending | commit | current | helper `expectedLive("direction")`; Scen (commit, rollback) "an inactive pranswer stops sending until a sendrecv %s"; Scen (commit) "replacement pranswer and a different final answer" |
-| BUNDLE owner / transport | current | both: current owners stay, a split owner is provisional | commit | current | helper `assertDescriptionBindings`; Matrix "BUNDLE split, tag change and merge route RTP by MID"; Mutation `noBundle` / `splitBundleGroups` |
-| SCTP port | current | reject a change of an existing association (also one a first pranswer started) | reject (same) | current | helper `assertSctpBinding`; Mutation `sctpPort` |
+| BUNDLE owner / transport | current | both: current owners stay, a split owner is provisional | commit | current | helper `assertDescriptionBindings`; Matrix "BUNDLE split, tag change and merge route RTP by MID" |
+| SCTP port | current | reject a change of an existing association (also one a first pranswer started) | reject (same) | current | helper `assertSctpBinding`; Scen (reject) "an existing SCTP port change is rejected before mutating the association" |
 | SCTP max-message-size | current | provisional (W3C updates the data max message size at answer and pranswer, local or remote) | commit | current | helper `expectedLive("remoteMaxMessageSize")`; Scen (commit, rollback) "renegotiation max-message-size follows offer, pranswers and %s" |
-| Header extension IDs | both (new IDs); remap of a current ID rejected | both; remap rejected | commit | current | helper `assertRouteTables`; Routing "a remote re-offer that remaps an active header extension id is rejected before mutation"; Mutation `extmapSwapped` |
-| Remote SSRC routes | both (conflicts staged) | both; the routes a replaced pranswer alone added are dropped, and its track is taken over by the next SSRC the description gives that receiver | commit (a current SSRC the answer omits stays routed, as on `develop`) | current | helper `assertEffectiveValues` (pranswer SSRCs route); EffectiveValues "SSRCs only a replaced pranswer announced stop routing at the final answer", "a first pranswer with other SSRCs leaves the receiver's track to the final answer's SSRC" |
+| Header extension IDs | both (new IDs); remap of a current ID rejected | both; remap rejected | commit | current | helper `assertRouteTables`; Model (oracle reject: a remap of a current header extension ID) |
+| Remote SSRC routes | both (conflicts staged) | both; the routes a replaced pranswer alone added are dropped, and its track is taken over by the next SSRC the description gives that receiver | commit (a current SSRC the answer omits stays routed, as on `develop`) | current | helper `assertEffectiveValues` (pranswer SSRCs route) |
 
 `expectedLive(snapshot, field)` in the test utilities encodes the
 provisional / current columns for direction, send codec and max-message-size
@@ -542,31 +542,20 @@ attribute that applies to it (`applicationRejected`, `audioInactive`, ...).
 The mutations are pure string rewrites, so the same library drives the tests
 and the develop differential runner.
 
-`negotiationTransactionMutation.test.ts` applies them on the wire to the
-offer, the pranswer (followed by a clean final answer) or the answer, in a
-first negotiation and in a renegotiation. Every operation must be accepted
-with the invariants holding or rejected atomically; a rejected renegotiation
-keeps the current session communicating; a clean final answer after a
-mutated pranswer communicates; a later clean renegotiation communicates; and
-close() leaves no transport running. A mutation marked `misdescribesPeer`
-describes something the real peer on the other end does not do (its BUNDLE,
-ICE, setup, port, MID, SSRC, extension IDs or acceptance of an m-line), so
-connectivity after accepting it is not expected; acceptance or atomic
-rejection still is. A rejected or inactive m-line is a state either peer can
-offer from, so those mutations are also marked `renegotiates`: the clean
-renegotiation after them must succeed, and the case ends with
-`expectSessionContinues`. The mutation session carries audio, video and a
-DataChannel, so every per-kind mutation applies. By default each mutation runs alone;
-`WERIFT_NEGOTIATION_MUTATION=pairwise` runs every pair and
-`=random:<count>:<seed>` random combinations of up to three. `run.ts
---mutate <p>` rewrites delivered descriptions with probability `p`, so
-`compare.ts` reports what `develop` accepted and communicated with but HEAD
-does not. Its only findings are intended rejections: a changed `sctp-port`
-for an established association, which HEAD rejects atomically (accepting it
-would make the current SDP describe a port the live association does not
-use). When b commits an answer to a mutated offer that a then rejects, the
-peers disagree; the mutation test does not expect the current session to
-work after that and exempts the pair from continuation with that reason.
+Interoperability with browsers and other implementations is the
+responsibility of the end-to-end tests (`e2e/`, real Chrome). The individual
+cases in `tests/negotiation/cases` therefore never fabricate another peer's
+description or candidates (TICKET 2.20): the former
+`negotiationTransactionMutation.test.ts`, the rejected-application paths and
+every case that rewrote a remote description, wrote an external SDP or
+trickled hand-made (mDNS) candidates were removed. The library stays for the
+develop differential runner: `run.ts --mutate <p>` rewrites delivered
+descriptions with probability `p`, so `compare.ts` reports what `develop`
+accepted and communicated with but HEAD does not. Its only findings are
+intended rejections: a changed `sctp-port` for an established association,
+which HEAD rejects atomically (accepting it would make the current SDP
+describe a port the live association does not use). The model property's
+wire rewrites (`tests/pbt/modelMutations.ts`) reuse some of these rewrites.
 
 ## Interrupts
 
@@ -676,8 +665,7 @@ test in which a peer applied a local description but never reached the
 helper, unless the test exempted it with a reason
 (`exemptFromContinuation`: `close()` is the operation under test, a single
 peer negotiated against hand-built SDP, or a mutation that misdescribes the
-real peer). The coverage tests, the regression tests, the mutation test and
-the rejected-application test enforce it.
+real peer). Every case file of `tests/negotiation/cases` enforces it.
 
 ### Test layout
 
@@ -850,10 +838,7 @@ the pre-review self-review found into deterministic cases, and
 `negotiationTransactionDevelopIntegration.test.ts` covers the develop features
 below (TURN across a staged ICE restart, SCTP MTU, application codec changes
 and m-line reuse during a pending negotiation).
-`negotiationTransactionEffectiveValues.test.ts` drives the rows of "Effective
-values while pending" the matrix does not change, and
-`negotiationTransactionMutation.test.ts` / `negotiationTransactionInterrupt.test.ts`
-run the peer-diversity mutations and the interrupt matrix above.
+`negotiationTransactionInterrupt.test.ts` runs the interrupt matrix above.
 CI replays a fixed seed set plus the seeds that found bugs; a deeper local
 search uses `WERIFT_NEGOTIATION_FUZZ_SEEDS`, `WERIFT_NEGOTIATION_FUZZ_STEPS`
 and `WERIFT_NEGOTIATION_FUZZ_SEED`, and a failure prints its seed and
@@ -861,11 +846,9 @@ operations. Before asking for review, run the deeper searches
 (`WERIFT_NEGOTIATION_FUZZ_SEEDS=300 WERIFT_NEGOTIATION_FUZZ_STEPS=20` for the
 episode fuzzer, `WERIFT_NEGOTIATION_SCENARIO_SEEDS=300` for the scenario
 properties, `WERIFT_NEGOTIATION_MODEL_SEEDS=300` with `-t seed` for the
-model property) and
-the pairwise
-mutations (`WERIFT_NEGOTIATION_MUTATION=pairwise`) — `npm run pbt:deep`
-runs all four in parallel vitest processes (`tools/pbt-deep/run.ts`: seed
-ranges and mutation shards, `--jobs` defaults to the CPU count, a failure is
+model property) — `npm run pbt:deep`
+runs all three in parallel vitest processes (`tools/pbt-deep/run.ts`: seed
+ranges, `--jobs` defaults to the CPU count, a failure is
 replayed alone to tell a load-induced failure from a real one) — and a
 self-review that lists every path writing live tables while a description is
 pending.
@@ -945,10 +928,11 @@ never computed by the code under test, and a case keeps the operation
 sequence of the regression it records (no split into independent cases).
 Tests whose control flow is a matrix stay table-driven: the interrupt
 matrix (`negotiationTransactionInterrupt.test.ts`: the interrupt and the
-release of the held wait start in one synchronous tick), the close-timing
-matrix (microtask counting), the rejected-application paths of
-`negotiationTransactionApplicationRejection.test.ts` and the SDP mutations
-(combinations chosen by `WERIFT_NEGOTIATION_MUTATION`). Helpers several
+release of the held wait start in one synchronous tick) and the close-timing
+matrix (microtask counting). A case uses only descriptions werift creates
+itself (an offer under another local policy through `createRewrittenOffer`
+included); another implementation's SDP shapes are left to the end-to-end
+tests. Helpers several
 cases of a file share sit at the top of that file; Arrange helpers belong in
 `negotiationTransactionUtils.ts`. The mapping from the earlier procedural
 tests is in `NEGOTIATION_CASES_MAPPING.md`.
@@ -1091,12 +1075,10 @@ outlives the transport:
   and pairs that name another remote ufrag (`dropOtherRemoteGenerations` in
   the ICE layer); candidates without a ufrag stay, as in develop.
 
-`negotiationTransactionApplicationRejection.test.ts` runs every rejection
-path (initial / renegotiation x the peer's answer / the peer's offer / a
-pranswer then rollback / a pranswer then the final answer) followed by
-`createOffer`, an ICE restart, a new DataChannel and transceiver, an offer
-from the peer and real traffic, and the late DataChannel of a peer without an
-SCTP transport.
+The rejection paths were covered by `negotiationTransactionApplicationRejection.test.ts`,
+which built the rejecting peer's description by hand; it was removed in
+TICKET 2.20 (browser interoperability is the end-to-end tests'
+responsibility), so these rules have no individual test now.
 
 ## Operation chain, connection start and the reviewer's axes
 

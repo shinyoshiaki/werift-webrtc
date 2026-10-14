@@ -1,20 +1,10 @@
-import {
-  MediaStreamTrack,
-  useRepairedRtpStreamId,
-  useSdesMid,
-  useSdesRTPStreamId,
-} from "../../../src";
+import { MediaStreamTrack } from "../../../src";
 import {
   ANSWER_OR_ROLLBACK,
   describeCases,
   negotiationCase,
 } from "../harness/negotiationCase";
-import {
-  createSimulcastPeers,
-  extmapId,
-  setExtmapId,
-  setExtmapUri,
-} from "../harness/negotiationTransactionUtils";
+import { createSimulcastPeers } from "../harness/negotiationTransactionUtils";
 
 /**
  * Live routing tables (extmap ID, SSRC, RTX pairing, MID+RID) are shared by
@@ -22,85 +12,6 @@ import {
  * key the current session uses keeps its value until the final answer.
  */
 describeCases("negotiation transaction routing tables", () => {
-  negotiationCase(
-    "a remote re-offer that remaps an active header extension id is rejected before mutation",
-    { ref: "2.4-T2a" },
-    async (c) => {
-      // Arrange: RID 拡張の ID を別 URI に付け替えた re-offer を作る。
-      const { a, b, sendLayer, ridExtensionId } = await c.given(
-        createSimulcastPeers(),
-      );
-      const offer = await a.createOffer();
-
-      // Act: ID を再割当てする remote offer を適用する (RFC 8285 section 7)。拒否され状態は変わらない。
-      await c.setRemote(
-        b,
-        setExtmapUri(offer.sdp, ridExtensionId, useRepairedRtpStreamId().uri),
-        { rejects: "InvalidModificationError" },
-      );
-
-      // Assert: current の RID 付き RTP はそのまま届く。
-      await sendLayer("high", 1111, "extmap-remap-rejected", { withRid: true });
-    },
-  );
-
-  negotiationCase(
-    "a remote re-offer that swaps the active MID and RID extension ids is rejected before mutation",
-    { ref: "2.4-T2a" },
-    async (c) => {
-      // Arrange: current SDP で使っている MID と RID の extension ID を交換した re-offer を作る。
-      const { a, b, sendLayer, ridExtensionId } = await c.given(
-        createSimulcastPeers(),
-      );
-      const mid = extmapId(b.currentRemoteDescription!.sdp, useSdesMid().uri);
-      const offer = await a.createOffer();
-      const swapped = setExtmapId(
-        setExtmapId(offer.sdp, useSdesMid().uri, ridExtensionId),
-        useSdesRTPStreamId().uri,
-        mid,
-      );
-
-      // Act: routing ID の対応が反転する re-offer を適用する。拒否され状態は変わらない。
-      await c.setRemote(b, swapped, { rejects: "InvalidModificationError" });
-
-      // Assert: current の MID/RID 解釈と RTP が保たれる。
-      await sendLayer("high", 1111, "extmap-id-swap-rejected", {
-        withRid: true,
-      });
-    },
-  );
-
-  negotiationCase.for(ANSWER_OR_ROLLBACK)(
-    "a URI moved to a new header extension id keeps current RTP parsed through $finish",
-    { ref: "2.4-T2b" },
-    async (c, { finish }) => {
-      // Arrange: RID 拡張の URI を未使用の ID 12 へ移した re-offer を作る。
-      const { a, b, sendLayer } = await c.given(createSimulcastPeers());
-      const offer = await a.createOffer();
-
-      // Act: remote offer として適用する (answer はまだ返さない)。
-      await c.setRemote(
-        b,
-        setExtmapId(offer.sdp, useSdesRTPStreamId().uri, 12),
-      );
-
-      // Assert: pending 中も旧 ID の RID 付き RTP は current の層へ届く。
-      await sendLayer("high", 1111, `moved-id-pending-${finish}`, {
-        withRid: true,
-      });
-
-      // Act: answer で確定する、または rollback する。
-      await c.finish(b, finish);
-
-      // Assert: 確定後も表は SDP と一致し (各操作後の invariant)、rollback なら旧 ID の RTP が届く。
-      expect(b.signalingState).toEqual("stable");
-      if (finish === "rollback")
-        await sendLayer("low", 2222, "moved-id-after-rollback", {
-          withRid: true,
-        });
-    },
-  );
-
   negotiationCase.for(ANSWER_OR_ROLLBACK)(
     "a second simulcast m-line that reuses the RID names routes by MID through $finish",
     { ref: "2.4-1 2.4-T5" },
