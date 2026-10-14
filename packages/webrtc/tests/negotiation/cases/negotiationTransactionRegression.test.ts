@@ -6,7 +6,10 @@ import {
   useVP8,
 } from "../../../src";
 import { describeCases, negotiationCase } from "../harness/negotiationCase";
-import { withoutNack } from "../harness/negotiationTransactionUtils";
+import {
+  withoutCodecs,
+  withoutNack,
+} from "../harness/negotiationTransactionUtils";
 import {
   addOfferedCodec,
   addUnsupportedExtmaps,
@@ -16,6 +19,7 @@ import {
   closeOnSignalingState,
   createConnectedMultiVideoPeers,
   createConnectedVideoPeers,
+  createConnectedVideoPeersWithRtx,
   createIceRestartPranswer,
   createInitialPranswerConnection,
   createMutationSession,
@@ -490,6 +494,33 @@ describeCases("negotiation transaction regressions", () => {
 
 /** Findings of the pre-review self-review of pending writes to live state. */
 describeCases("negotiation transaction live-state regressions", () => {
+  negotiationCase(
+    "a remote pranswer that changes send parameters is fully undone by rollback",
+    { ref: "2.2-9 2.4-4; origin: self-review (live state)" },
+    async (c) => {
+      // Arrange: offerer の送信パラメータ (RTX を含む) を控え、RTX を外した pranswer を作る。
+      const { a, b, outgoing, incoming } = await c.given(
+        createConnectedVideoPeersWithRtx(),
+      );
+      const sender = a.getTransceivers()[0].sender;
+      const before = sender.snapshotSendParams();
+      expect(before.rtxPayloadType).not.toEqual(undefined);
+      await c.offer(a);
+      const answer = await b.createAnswer();
+
+      // Act: pranswer を適用して送信側が暫定値に変わった後、rollback する。
+      await c.setRemote(a, withoutCodecs(answer.sdp, "video", ["rtx"]), {
+        type: "pranswer",
+      });
+      expect(sender.snapshotSendParams()?.rtxPayloadType).toBe(undefined);
+      await c.setLocal(a, "rollback");
+
+      // Assert: 送信パラメータは current のものへ完全に戻り、RTP も届く。
+      expect(sender.snapshotSendParams()).toEqual(before);
+      await c.rtp(outgoing, incoming);
+    },
+  );
+
   negotiationCase(
     "a re-offer that changes RTCP feedback of a current payload type is staged until commit",
     { ref: "2.4-T7a; origin: self-review (live state)" },

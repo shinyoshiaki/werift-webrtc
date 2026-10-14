@@ -15,6 +15,8 @@ cases"）。途中の版（eb66685a）は独自 DSL のテキストで書いて�
 （表の「→ Model」の行。形式の列にモデル property での扱いを書く）。操作列を固定シーン
 （`tests/pbt/modelScenes.ts`、数行の操作のリスト）にしたもの、オラクル（`modelOracles.ts`）と乱数生成で
 一般化したもの、具体値の検査を手放した「対象外」がある。検出力の比較は TICKET 2.17。
+テスト全体で検出できなくなったバグ（R2・C3・I2）を検出していた 3 宣言（展開 4 件）は TICKET 2.18 で
+ケースに戻した（表の「→ Model」が付かない Reg / NT / Route の行）。
 
 ## 操作・判定の維持
 
@@ -110,7 +112,7 @@ cases"）。途中の版（eb66685a）は独自 DSL のテキストで書いて�
 | Reg | an answer does not give a direction to a transceiver without an m-line | 1 | ケース | origin: property test |
 | Reg → Model | MIDs from unapplied createOffer calls do not collide with a later remote offer | 1 | 固定シーン「MIDs an unapplied createOffer reserved …」 | origin: property test |
 | Reg | the final answer after an ICE restart pranswer reuses the pranswer credentials | 1 | ケース | 2.9-7; origin: property test |
-| Reg → Model | a remote pranswer that changes send parameters is fully undone by rollback | 1 | オラクル: rollback（送信パラメータ）。codec を変える pranswer は生成しない | 2.2-9 2.4-4; origin: self-review (live state) |
+| Reg | a remote pranswer that changes send parameters is fully undone by rollback | 1 | ケース（TICKET 2.18 で戻した。モデル property は RTX を外す pranswer を生成せず C3 を見逃す） | 2.2-9 2.4-4; origin: self-review (live state) |
 | Reg | a re-offer that changes RTCP feedback of a current payload type is staged until commit | 1 | ケース | 2.4-T7a; origin: self-review (live state) |
 | Reg → Model | a pending re-offer that adds transport-cc does not start TWCC feedback for the current stream | 1 | 対象外（transport-cc の開始時点） | 2.4-5; origin: self-review (live state) |
 | Reg | a transceiver created for a remote offer does not make negotiation needed | 1 | ケース | 2.3-20 2.4-6 5-K6; origin: self-review (live state) |
@@ -206,7 +208,7 @@ cases"）。途中の版（eb66685a）は独自 DSL のテキストで書いて�
 | NT | an answer that fails while applying returns to its pending offer | 1 | ケース | 2.1-11 2.1-T13 |
 | NT | an ICE restart answer that fails while applying keeps the committed generation and pair | 1 | ケース | 2.1-11 |
 | NT | a queued candidate that the answer cannot place rejects the answer before commit | 1 | ケース | 2.7-3; origin: candidate queue |
-| NT → Model | a trickle candidate of the unchanged ICE generation reaches the live checklist during a re-offer | 1 | オラクル: trickle（現在の世代の候補は稼働中の checklist に届く） | origin: same-generation trickle during a re-offer |
+| NT | a trickle candidate of the unchanged ICE generation reaches the live checklist during a re-offer | 1 | ケース（TICKET 2.18 で戻した。モデル property は EOC のない offer に trickle せず I2 を見逃す） | origin: same-generation trickle during a re-offer |
 | NT → Model | candidates in the body of a same-ufrag re-offer reach the live checklist before the answer | 1 | 対象外（offer 本文の候補の配送） | origin: same-generation candidates in an offer body |
 | NT → Model | end-of-candidates on a non-tag BUNDLE m-line completes the shared transport for every m-line | 1 | 対象外（非 tag m-line の EOC の整合） | 2.8-28 |
 | NT → Model | end-of-candidates trickled on a non-tag m-line during a same-ufrag re-offer stays aligned after $finish | 2 | 対象外（同上） | 2.8-30 |
@@ -261,8 +263,8 @@ cases"）。途中の版（eb66685a）は独自 DSL のテキストで書いて�
 | Route | a remote re-offer that remaps an active header extension id is rejected before mutation | 1 | ケース | 2.4-T2a |
 | Route | a remote re-offer that swaps the active MID and RID extension ids is rejected before mutation | 1 | ケース | 2.4-T2a |
 | Route | a URI moved to a new header extension id keeps current RTP parsed through $finish | 2 | ケース | 2.4-T2b |
-| Route → Model | an SSRC a re-offer moves to another m-line keeps its current route until $finish | 2 | 対象外（相手の SDP の SSRC を書き換える必要がある） | 2.1-T3 2.4-2 2.4-T3 |
-| Route → Model | an RTX SSRC a re-offer pairs with another media SSRC keeps its current pairing until $finish | 2 | 対象外（同上） | 2.4-3 2.4-T4 |
+| Route | an SSRC a re-offer moves to another m-line keeps its current route until $finish | 2 | ケース（TICKET 2.18 で戻した。相手の SDP の SSRC を書き換える必要がある） | 2.1-T3 2.4-2 2.4-T3 |
+| Route → Model | an RTX SSRC a re-offer pairs with another media SSRC keeps its current pairing until $finish | 2 | 対象外（相手の SDP の SSRC を書き換える必要がある。同じバグ R3 は CovC [5-13] が検出する） | 2.4-3 2.4-T4 |
 | Route | a second simulcast m-line that reuses the RID names routes by MID through $finish | 2 | ケース | 2.4-1 2.4-T5 |
 | EV | a pranswer sends with its codec on both sides until $finish | 2 | ケース | 2.2-1 2.2-8 2.2-9 2.4-4 2.10-2 |
 | EV | SSRCs only a replaced pranswer announced stop routing at the final answer | 1 | ケース | 2.1-4 2.2-7 2.2-13 2.2-14 2.4-1 2.5-13 2.10-4 |
