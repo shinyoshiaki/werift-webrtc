@@ -21,7 +21,9 @@
  *   (no currentDirection) whose MID develop assigned at an unapplied
  *   createOffer() while HEAD associates it when a description is applied
  *   (W3C; NEGOTIATION_TRANSACTION.md "Description reuse contract"); such a
- *   transceiver is compared by kind and direction only. MID values may
+ *   transceiver is compared by kind and direction only. The same holds when
+ *   develop then stopped that transceiver at the answer as a rejected m-line
+ *   while HEAD released the reserved MID (TICKET 2.19). MID values may
  *   differ (HEAD keeps MIDs an unapplied offer reserved) but HEAD's must be
  *   unique; a record where develop gave two transceivers one MID (develop's
  *   defect) is counted, not compared. Once a peer is closed, states are not
@@ -133,6 +135,18 @@ function sameTransceivers(dev: unknown, head: unknown) {
         base.currentDirection === null &&
         t.mid === null &&
         base.mid !== null
+      ) {
+        deferred = true;
+        return base.kind === t.kind && base.direction === t.direction;
+      }
+      // develop stopped a transceiver whose MID only an unapplied
+      // createOffer() reserved; HEAD released the MID (never associated).
+      if (
+        base.stopped === true &&
+        base.mid !== null &&
+        t.mid === null &&
+        t.stopped === false &&
+        t.currentDirection === null
       ) {
         deferred = true;
         return base.kind === t.kind && base.direction === t.direction;

@@ -17,6 +17,11 @@ cases"）。途中の版（eb66685a）は独自 DSL のテキストで書いて�
 一般化したもの、具体値の検査を手放した「対象外」がある。検出力の比較は TICKET 2.17。
 テスト全体で検出できなくなったバグ（R2・C3・I2）を検出していた 3 宣言（展開 4 件）は TICKET 2.18 で
 ケースに戻した（表の「→ Model」が付かない Reg / NT / Route の行）。
+TICKET 2.19 では、相手の SDP を通信路上で書き換える操作（`modelMutations.ts`）、受信 feedback
+（PLI・transport-cc）のオラクル、ICE の選択ペアと DTLS transport の継続のオラクルなどをモデル property に
+加え、そのオラクルで判定できる 29 宣言（展開 37 件）を固定シーンに置き換えた（形式の列が
+「シーン: …（TICKET 2.19）」の行。2.18 で戻した R2・I2・C3 の 3 宣言も含む）。ICE（EOC・資格情報・
+世代）、DTLS role、BUNDLE、RFC の codec 規則の具体値を見るケースは、相互運用に関わるのでケースに残した。
 
 ## 操作・判定の維持
 
@@ -79,7 +84,7 @@ cases"）。途中の版（eb66685a）は独自 DSL のテキストで書いて�
 | --- | --- | --- | --- | --- |
 | CovC | [2.4-T7b] NACK, transport-cc and PLI follow the codec of each packet, not the lowest payload type | 1 | ケース | 2.4-T7b |
 | CovC → Model | [2.4-4] a remote pranswer that changes codec, RTX, RED and header extensions of the senders is fully undone by rollback | 1 | オラクル: rollback（送信パラメータ）。codec を変える pranswer は生成しない | 2.4-4 |
-| CovC | [2.4-5] transport-cc feedback a re-offer adds starts only at the answer commit | 1 | ケース | 2.4-5 |
+| CovC → Model | [2.4-5] transport-cc feedback a re-offer adds starts only at the answer commit | 1 | シーン: "transport-cc feedback a re-offer adds starts only at the answer commit"（TICKET 2.19） | 2.4-5 |
 | CovC | [2.4-5] transport-cc feedback a pranswer packet started stops on rollback | 1 | ケース | 2.4-5 |
 | CovC | [2.4-7] a transceiver for a remote offer does not take the m-line of a committed inactive transceiver | 1 | ケース | 2.4-7 |
 | CovC | [2.4-7] a remote offer that puts a new MID on a committed inactive (not rejected) m-line does not take it | 1 | ケース | 2.4-7 |
@@ -91,11 +96,11 @@ cases"）。途中の版（eb66685a）は独自 DSL のテキストで書いて�
 | CovC | [2.6-T4e] answering with a track source codec does not adopt it into the configured codecs | 1 | ケース | 2.6-T4e |
 | CovC | [2.6-T4g] a remote answer keeps the answerer's codec order for the offerer's codecs and sender | 1 | ケース | 2.6-T4g |
 | CovC → Model | [2.6-T4h] the local answer commit $change transport-cc with the answered codec without a preference change | 2 | 対象外（transport-cc の開始・停止の時点） | 2.6-T4h |
-| CovC | [2.8-36] a remote-created transceiver the application keeps returns to its created codecs and has no routes after rollback | 1 | ケース | 2.8-36 |
-| CovC | [2.8-39] rolling back a first pranswer returns both peers' send and receive codecs to the unnegotiated state | 1 | ケース | 2.8-39 |
-| CovC | [5-7] PLI stays negotiated after a rolled-back re-offer that removes NACK/PLI for the same SSRC | 1 | ケース | 5-7 |
+| CovC → Model | [2.8-36] a remote-created transceiver the application keeps returns to its created codecs and has no routes after rollback | 1 | シーン: "a remote-created transceiver the application gave a track survives the rollback of a first pranswer in its created state"（TICKET 2.19） | 2.8-36 |
+| CovC → Model | [2.8-39] rolling back a first pranswer returns both peers' send and receive codecs to the unnegotiated state | 1 | シーン: "a first pranswer sends with the codec it answered and its rollback returns both peers' codecs to the unnegotiated state"（TICKET 2.19） | 2.8-39 |
+| CovC → Model | [5-7] PLI stays negotiated after a rolled-back re-offer that removes NACK/PLI for the same SSRC | 1 | シーン: "PLI stays negotiated after a rolled-back re-offer that removes it"（TICKET 2.19） | 5-7 |
 | CovC | [5-7] PLI follows the receive codec table $negotiated NACK/PLI, not a remote track codec rewritten $rewritten it | 2 | ケース | 5-7 |
-| CovC | [5-13] RTX packets resolve to the current media SSRC while a re-pairing is pending and after $finish | 2 | ケース | 5-13 |
+| CovC → Model | [5-13] RTX packets resolve to the current media SSRC while a re-pairing is pending and after $finish | 2 | シーン: "an RTX SSRC a re-offer pairs with a new media SSRC keeps its current pairing until %s"（TICKET 2.19） | 5-13 |
 | CovC | [5-13] RTP that carries a header extension under its new id arrives after the answer commits the move | 1 | ケース | 5-13 |
 | CovC → Model | [5-13] RTP received while a fmtp change is staged is decoded with the current fmtp until $finish | 2 | 対象外（fmtp の staging） | 5-13 |
 | CovC | [5-K14] an m-line outside the offered BUNDLE group offered with a=setup:active is answered passive (RFC 8842 section 5.3) | 1 | ケース | 5-K14 |
@@ -103,17 +108,17 @@ cases"）。途中の版（eb66685a）は独自 DSL のテキストで書いて�
 | Reg | a relay-only ICE restart offered by $offerer nominates once the held TURN allocation completes after the peer's candidates | 2 | ケース | 2.11-14; origin: property test |
 | Reg | close() from the stable event of a glare implicit rollback adds no pending offer and leaves no transport running | 1 | ケース | 2.11-15; origin: property test |
 | Reg | close() from the stable event of a new local offer that rolls a remote pranswer back adds no pending offer and leaves no transport running | 1 | ケース | 2.11-15; origin: property test |
-| Reg | rollback of a remote offer after the application's $operation keeps the remote-created transceiver only when it has a track (as develop) | 5 | ケース | 2.12-3; origin: property test (develop comparison) |
+| Reg → Model | rollback of a remote offer after the application's $operation keeps the remote-created transceiver only when it has a track (as develop) | 5 | シーン: "rollback of a remote offer removes the transceiver it created after the application's %s (as develop)"、"a remote-created transceiver the application gave a track survives the rollback of a first pranswer in its created state"（TICKET 2.19） | 2.12-3; origin: property test (develop comparison) |
 | Reg | a bundlePolicy disable renegotiation pranswer does not fail the connection and the final answer connects | 1 | ケース | 2.12-2; origin: property test |
 | Reg | a simulcast layer whose MID extension names no route is still routed by its RID (as develop) | 1 | ケース | 2.12-5; origin: property test (develop comparison) |
 | Reg | addIceCandidate does not wait for the gathering of a setLocalDescription before it (as develop) | 1 | ケース | 2.12-6; origin: property test (develop comparison) |
 | Reg | an ICE-lite peer's final answer with new credentials and generation 1 candidates connects without another restart | 1 | ケース | 2.12-10; origin: property test |
 | Reg → Model | a replacement local offer keeps a new transceiver associated with its m-line | 1 | 固定シーン「a replacement offer keeps a new transceiver on its m-line」 | 2.1-T5; origin: property test |
-| Reg | an answer does not give a direction to a transceiver without an m-line | 1 | ケース | origin: property test |
+| Reg → Model | an answer does not give a direction to a transceiver without an m-line | 1 | シーン: "an answer does not give a direction to a transceiver without an m-line"（TICKET 2.19） | origin: property test |
 | Reg → Model | MIDs from unapplied createOffer calls do not collide with a later remote offer | 1 | 固定シーン「MIDs an unapplied createOffer reserved …」 | origin: property test |
 | Reg | the final answer after an ICE restart pranswer reuses the pranswer credentials | 1 | ケース | 2.9-7; origin: property test |
-| Reg | a remote pranswer that changes send parameters is fully undone by rollback | 1 | ケース（TICKET 2.18 で戻した。モデル property は RTX を外す pranswer を生成せず C3 を見逃す） | 2.2-9 2.4-4; origin: self-review (live state) |
-| Reg | a re-offer that changes RTCP feedback of a current payload type is staged until commit | 1 | ケース | 2.4-T7a; origin: self-review (live state) |
+| Reg → Model | a remote pranswer that changes send parameters is fully undone by rollback | 1 | シーン: "a remote pranswer that changes send parameters (no RTX) is fully undone by rollback"（TICKET 2.19） | 2.2-9 2.4-4; origin: self-review (live state) |
+| Reg → Model | a re-offer that changes RTCP feedback of a current payload type is staged until commit | 1 | シーン: "a re-offer that changes the RTCP feedback of a current payload type is staged until commit"（TICKET 2.19） | 2.4-T7a; origin: self-review (live state) |
 | Reg → Model | a pending re-offer that adds transport-cc does not start TWCC feedback for the current stream | 1 | 対象外（transport-cc の開始時点） | 2.4-5; origin: self-review (live state) |
 | Reg | a transceiver created for a remote offer does not make negotiation needed | 1 | ケース | 2.3-20 2.4-6 5-K6; origin: self-review (live state) |
 | Reg → Model | a final answer replaces the RTCP feedback a pranswer staged | 1 | 対象外（RTCP feedback の staging） | 2.4-T7a 2.5-13; origin: self-review (live state) |
@@ -123,8 +128,8 @@ cases"）。途中の版（eb66685a）は独自 DSL のテキストで書いて�
 | Reg | an mDNS candidate that is still resolving does not hold later candidates or description operations | 1 | ケース | 2.8-1; origin: self-review (live state) |
 | Reg | an mDNS candidate trickled before end-of-candidates of an ICE restart pranswer is kept | 1 | ケース | 2.7-T2 2.8-2 2.8-29 5-12; origin: self-review (live state) |
 | Reg → Model | a sender added during a rolled-back offer keeps receiving RTCP after renegotiation | 1 | 固定シーン「a sender added during a rolled-back offer carries traffic …」（RTCP の到達は対象外） | 5-8; origin: self-review (live state) |
-| Reg | PLI stops at the commit of a re-offer that removes NACK/PLI for the same SSRC | 1 | ケース | 5-7; origin: self-review (live state) |
-| Reg | PLI starts only at the commit of a re-offer that adds NACK/PLI for the same SSRC | 1 | ケース | 2.4-T7b 5-7 5-13; origin: self-review (live state) |
+| Reg → Model | PLI stops at the commit of a re-offer that removes NACK/PLI for the same SSRC | 1 | シーン: "a PLI request needs nack pli: a generic nack alone does not allow it"（TICKET 2.19） | 5-7; origin: self-review (live state) |
+| Reg → Model | PLI starts only at the commit of a re-offer that adds NACK/PLI for the same SSRC | 1 | シーン: "PLI a re-offer adds starts only at its answer commit, not while pending or after a rollback"（TICKET 2.19） | 2.4-T7b 5-7 5-13; origin: self-review (live state) |
 | Reg | header extension IDs the answer did not accept stay free for a later offer | 1 | ケース | 2.8-16; origin: self-review (live state) |
 | Reg | a payload type the answer did not accept can carry another codec in a later remote offer | 1 | ケース | 2.8-16; origin: self-review (live state) |
 | Reg | close() during a pending BUNDLE split stops the transports the proposal prepared | 1 | ケース | 2.8-17; origin: self-review (live state) |
@@ -135,18 +140,18 @@ cases"）。途中の版（eb66685a）は独自 DSL のテキストで書いて�
 | Reg | a re-answer with a=setup:actpass keeps the DTLS role of the live association | 1 | ケース | 2.8-47 2.11-5; origin: self-review (live state) |
 | Reg | close() while an ICE restart answer commits keeps the state closed | 1 | ケース | 2.8-19; origin: self-review (live state) |
 | Reg → Model | a remote re-offer committed by the local answer switches the receive tables and the remote track codec | 1 | オラクル: create・commit で一部（受信表の切り替え時点） | 2.5-16 2.6-T4h; origin: self-review (live state) |
-| Reg | codec preferences resolved by createAnswer apply to live receive tables only at the answer commit | 1 | ケース | 2.5-16 2.6-T4a; origin: self-review (live state) |
+| Reg → Model | codec preferences resolved by createAnswer apply to live receive tables only at the answer commit | 1 | シーン: "codec preferences createAnswer resolves change the live tables only at the answer commit"（TICKET 2.19） | 2.5-16 2.6-T4a; origin: self-review (live state) |
 | Reg | an answer applied during the DTLS handshake keeps the connected ICE state | 1 | ケース | 2.8-23 2.8-24 2.8-26; origin: self-review (live state) |
 | Reg | an answer without an ICE restart leaves a failed ICE generation failed | 1 | ケース | 2.8-23 2.8-24 2.8-27; origin: self-review (live state) |
 | Reg | an ICE restart keeps the configured icePasswordPrefix | 1 | ケース | 2.8-11; origin: self-review (live state) |
 | Reg | the local answer lists codecs in the answerer's preference order | 1 | ケース | 2.6-T4g; origin: self-review (live state) |
-| Reg | a codec the local answer dropped leaves the receive table even when the re-offer staged it | 1 | ケース | 2.8-45; origin: self-review (live state) |
+| Reg → Model | a codec the local answer dropped leaves the receive table even when the re-offer staged it | 1 | シーン: "a codec the local answer drops leaves the receive table although the re-offer staged it"（TICKET 2.19） | 2.8-45; origin: self-review (live state) |
 | Reg | end-of-candidates trickled on a non-tag BUNDLE m-line completes the restarted generation | 1 | ケース | 2.8-28; origin: self-review (live state) |
 | Reg | a final answer cannot reverse the DTLS role a first pranswer connected with | 1 | ケース | 2.8-33; origin: self-review (live state) |
-| Reg | rolling back a first pranswer connection resets the public connection states | 1 | ケース | 2.2-17 2.8-35; origin: self-review (live state) |
-| Reg | a remote-created transceiver the application keeps returns to its created state on rollback | 1 | ケース | 2.3-5 2.8-36; origin: self-review (live state) |
+| Reg → Model | rolling back a first pranswer connection resets the public connection states | 1 | シーン: "a first pranswer connects provisionally and its rollback lets the next negotiation connect"（TICKET 2.19） | 2.2-17 2.8-35; origin: self-review (live state) |
+| Reg → Model | a remote-created transceiver the application keeps returns to its created state on rollback | 1 | シーン: "a remote-created transceiver the application gave a track survives the rollback of a first pranswer in its created state"（TICKET 2.19） | 2.3-5 2.8-36; origin: self-review (live state) |
 | Reg | a saved answer commits its own codecs after an unapplied createOffer() resolved others | 1 | ケース | 2.8-37 2.8-38 2.9-8 2.9-T1; origin: self-review (live state) |
-| Reg | a first pranswer sends and receives with the codecs it answered | 1 | ケース | 2.8-39; origin: self-review (live state) |
+| Reg → Model | a first pranswer sends and receives with the codecs it answered | 1 | シーン: "a first pranswer sends with the codec it answered and its rollback returns both peers' codecs to the unnegotiated state"（TICKET 2.19） | 2.8-39; origin: self-review (live state) |
 | Reg → Model | a re-applied restart offer that fails to parse leaves no staged credentials | 1 | 生成器の古い offer の適用＋reject（拒否は状態を変えない）で一部 | 2.9-4 2.9-9; origin: self-review (live state) |
 | Reg → Model | a remote answer that answers only the leading m-lines of the offer is accepted and rejects the rest | 1 | 対象外（相手の SDP を書き換える必要がある） | 2.9-T9; origin: self-review (live state) |
 | Reg → Model | a first offer with a DataChannel re-applied after its rollback opens the channel | 1 | 固定シーン「a DataChannel created between createOffer and applying that older offer」 | 2.3-15 2.9-10 2.9-T5; origin: self-review (live state) |
@@ -208,7 +213,7 @@ cases"）。途中の版（eb66685a）は独自 DSL のテキストで書いて�
 | NT | an answer that fails while applying returns to its pending offer | 1 | ケース | 2.1-11 2.1-T13 |
 | NT | an ICE restart answer that fails while applying keeps the committed generation and pair | 1 | ケース | 2.1-11 |
 | NT | a queued candidate that the answer cannot place rejects the answer before commit | 1 | ケース | 2.7-3; origin: candidate queue |
-| NT | a trickle candidate of the unchanged ICE generation reaches the live checklist during a re-offer | 1 | ケース（TICKET 2.18 で戻した。モデル property は EOC のない offer に trickle せず I2 を見逃す） | origin: same-generation trickle during a re-offer |
+| NT → Model | a trickle candidate of the unchanged ICE generation reaches the live checklist during a re-offer | 1 | シーン: "a candidate of the unchanged generation trickled during a re-offer without end-of-candidates reaches the live checklist"（TICKET 2.19） | origin: same-generation trickle during a re-offer |
 | NT → Model | candidates in the body of a same-ufrag re-offer reach the live checklist before the answer | 1 | 対象外（offer 本文の候補の配送） | origin: same-generation candidates in an offer body |
 | NT → Model | end-of-candidates on a non-tag BUNDLE m-line completes the shared transport for every m-line | 1 | 対象外（非 tag m-line の EOC の整合） | 2.8-28 |
 | NT → Model | end-of-candidates trickled on a non-tag m-line during a same-ufrag re-offer stays aligned after $finish | 2 | 対象外（同上） | 2.8-30 |
@@ -220,11 +225,11 @@ cases"）。途中の版（eb66685a）は独自 DSL のテキストで書いて�
 | NT → Model | during a partial BUNDLE split re-offer a candidate follows the ufrag of the m-line it targets | 1 | 対象外（部分的な BUNDLE 分割での候補の振り分け） | origin: partial BUNDLE split trickle |
 | NT → Model | an answer leaves the MID of a rejected m-line out of its BUNDLE group | 1 | invariant（BUNDLE）＋生成器の stop で一部 | 2.5-14 |
 | NT | rollback and close drop the transaction's references to closed or unused objects | 1 | ケース | origin: transaction references |
-| NT | a pending payload type leaves the receiver codec table by rollback | 1 | ケース | 2.4-1 2.4-3 5-13 |
-| NT | ICE restart pranswer connects a pending generation and rollback keeps current RTP | 1 | ケース | 2.2-3 2.7-T2 |
-| NT | ICE restart pranswer over a connected SCTP association checks the new generation, then $outcome | 2 | ケース | 2.1-3 2.1-5 2.1-T4 2.1-T8 2.2-6 2.2-16 2.3-16 2.7-T3 2.7-T4b |
-| NT | rollback removes remote-only objects and a repeated offer does not duplicate events | 1 | ケース | 2.1-7 2.1-10 2.1-T1 2.2-2 2.3-1 2.3-3 2.3-4 2.3-6 2.3-8 2.3-21 2.3-23 5-4 |
-| NT | rollback keeps a remote-created transceiver that received a local track | 1 | ケース | 2.3-5 2.3-7 2.8-36 |
+| NT → Model | a pending payload type leaves the receiver codec table by rollback | 1 | シーン: "a payload type a re-offer adds is live while pending and leaves the receive table at rollback"（TICKET 2.19） | 2.4-1 2.4-3 5-13 |
+| NT → Model | ICE restart pranswer connects a pending generation and rollback keeps current RTP | 1 | シーン: "a local ICE restart and a restart pranswer roll back to the committed generation"（TICKET 2.19） | 2.2-3 2.7-T2 |
+| NT → Model | ICE restart pranswer over a connected SCTP association checks the new generation, then $outcome | 2 | シーン: "a local ICE restart and a restart pranswer roll back to the committed generation"、"a restart pranswer is committed by the final answer"（TICKET 2.19） | 2.1-3 2.1-5 2.1-T4 2.1-T8 2.2-6 2.2-16 2.3-16 2.7-T3 2.7-T4b |
+| NT → Model | rollback removes remote-only objects and a repeated offer does not duplicate events | 1 | シーン: "a remote offer applied twice and rolled back notifies its objects once and removes them"（TICKET 2.19） | 2.1-7 2.1-10 2.1-T1 2.2-2 2.3-1 2.3-3 2.3-4 2.3-6 2.3-8 2.3-21 2.3-23 5-4 |
+| NT → Model | rollback keeps a remote-created transceiver that received a local track | 1 | シーン: "a remote-created transceiver the application gave a track survives the rollback of a first pranswer in its created state"（TICKET 2.19） | 2.3-5 2.3-7 2.8-36 |
 | NT → Model | rollback removes provisional receiver SSRC mappings on an existing track | 1 | オラクル: rollback（経路と受信表） | 2.3-2 2.4-3 2.4-T6 |
 | NT | setLocalDescription accepts only the last created offer | 1 | ケース | 2.9-4 2.9-T10 2.9-T11 |
 | NT | an offer created by another peer is rejected by $peer | 2 | ケース | 2.9-4 |
@@ -232,9 +237,9 @@ cases"）。途中の版（eb66685a）は独自 DSL のテキストで書いて�
 | NT | initial pranswer starts provisional DataChannel traffic and rollback closes it | 1 | ケース | 2.1-T4 2.2-4 2.2-5 2.2-16 2.2-17 2.3-13 2.3-14 2.3-16 |
 | NT | initial pranswer carries provisional RTP before final commit | 1 | ケース | 2.1-T1 2.2-1 2.2-2 2.3-1 2.3-3 2.3-6 2.7-3 5-3 |
 | NT → Model | re-offer pranswer carries new RTP alongside the committed stream | 1 | 固定シーン「a renegotiation pranswer carries a new stream …」＋オラクル traffic | 2.1-3 2.2-1 2.2-5 2.2-6 2.2-7 |
-| NT | a final answer can replace provisional SCTP limits without another channel event | 1 | ケース | 2.2-5 2.2-12 2.2-15 2.3-18 5-4 |
-| NT | duplicate trickle candidate and EOC are idempotent within one generation | 1 | ケース | 2.1-10 2.3-21 |
-| NT | both peers commit matching local and remote ICE restart generations | 1 | ケース | 2.1-T7 2.2-3 2.2-6 2.7-T1 2.7-T3 2.7-T4a 5-K6 |
+| NT → Model | a final answer can replace provisional SCTP limits without another channel event | 1 | シーン: "a replacement pranswer and the final answer change the provisional max-message-size without a second channel event"（TICKET 2.19） | 2.2-5 2.2-12 2.2-15 2.3-18 5-4 |
+| NT → Model | duplicate trickle candidate and EOC are idempotent within one generation | 1 | シーン: "a described candidate and end-of-candidates trickled twice change nothing"（TICKET 2.19） | 2.1-10 2.3-21 |
+| NT → Model | both peers commit matching local and remote ICE restart generations | 1 | シーン: "a restart pranswer is committed by the final answer"（TICKET 2.19） | 2.1-T7 2.2-3 2.2-6 2.7-T1 2.7-T3 2.7-T4a 5-K6 |
 | NT → Model | local ICE restart rollback retains the committed selected pair | 1 | 固定シーン「a local ICE restart and a restart pranswer roll back …」＋オラクル rollback | 2.1-7 2.1-T8 2.3-9 2.3-11 5-4 |
 | NT | partial BUNDLE keeps an unbundled media transport independent | 1 | ケース | origin: partial BUNDLE (RFC 8843 7.3.2) |
 | NT → Model | re-offer BUNDLE split stages a new owner and rollback discards it | 1 | 固定シーン「a local BUNDLE split carries both streams, and its rollback keeps the old owner」 | 2.1-T9 2.3-9 2.5-T1 2.5-11 2.5-12 |
@@ -250,8 +255,8 @@ cases"）。途中の版（eb66685a）は独自 DSL のテキストで書いて�
 | Dev | an unapplied restart offer does not change the applied description the gathering refreshes | 1 | ケース | 2.8-13; origin: develop #688 / #731 |
 | Dev | close() during a restart's background TURN gathering leaves no allocation | 1 | ケース | 2.3-12 2.3-24 2.8-8; origin: develop #688 / #731 |
 | Dev | an offer with several H264 variants is answered with only the configured one | 1 | ケース | 2.6-T4f; origin: develop #729 |
-| Dev | setCodecPreferences between createAnswer and setLocalDescription commits the answer's codec | 1 | ケース | 2.6-T4c 2.6-T4h 2.8-38; origin: develop #729 |
-| Dev | addTrack between createAnswer and setLocalDescription sends with the answer's codec | 1 | ケース | 2.6-T4a 2.6-T4c; origin: develop #729 |
+| Dev → Model | setCodecPreferences between createAnswer and setLocalDescription commits the answer's codec | 1 | シーン: "codec preferences changed between createAnswer and setLocalDescription commit the answer's codec"（TICKET 2.19） | 2.6-T4c 2.6-T4h 2.8-38; origin: develop #729 |
+| Dev → Model | addTrack between createAnswer and setLocalDescription sends with the answer's codec | 1 | シーン: "a track attached between createAnswer and setLocalDescription sends with the answer's codec"（TICKET 2.19） | 2.6-T4a 2.6-T4c; origin: develop #729 |
 | Dev | setCodecPreferences during a pending offer survives its rollback | 1 | ケース | 2.5-17 2.6-T4b; origin: develop #729 |
 | Dev | replaceTrack during a pending re-offer rejects a track the answer's codec cannot carry | 1 | ケース | 2.6-T4d; origin: develop #729 |
 | Dev | a track attached during a rolled-back pranswer gets the restored codec | 1 | ケース | 2.5-17; origin: develop #729 |
@@ -263,10 +268,10 @@ cases"）。途中の版（eb66685a）は独自 DSL のテキストで書いて�
 | Route | a remote re-offer that remaps an active header extension id is rejected before mutation | 1 | ケース | 2.4-T2a |
 | Route | a remote re-offer that swaps the active MID and RID extension ids is rejected before mutation | 1 | ケース | 2.4-T2a |
 | Route | a URI moved to a new header extension id keeps current RTP parsed through $finish | 2 | ケース | 2.4-T2b |
-| Route | an SSRC a re-offer moves to another m-line keeps its current route until $finish | 2 | ケース（TICKET 2.18 で戻した。相手の SDP の SSRC を書き換える必要がある） | 2.1-T3 2.4-2 2.4-T3 |
+| Route → Model | an SSRC a re-offer moves to another m-line keeps its current route until $finish | 2 | シーン: "an SSRC a re-offer moves to another m-line keeps its current route until %s"（TICKET 2.19） | 2.1-T3 2.4-2 2.4-T3 |
 | Route → Model | an RTX SSRC a re-offer pairs with another media SSRC keeps its current pairing until $finish | 2 | 対象外（相手の SDP の SSRC を書き換える必要がある。同じバグ R3 は CovC [5-13] が検出する） | 2.4-3 2.4-T4 |
 | Route | a second simulcast m-line that reuses the RID names routes by MID through $finish | 2 | ケース | 2.4-1 2.4-T5 |
-| EV | a pranswer sends with its codec on both sides until $finish | 2 | ケース | 2.2-1 2.2-8 2.2-9 2.4-4 2.10-2 |
+| EV → Model | a pranswer sends with its codec on both sides until $finish | 2 | シーン: "a pranswer sends with its codec on both sides until %s"（TICKET 2.19） | 2.2-1 2.2-8 2.2-9 2.4-4 2.10-2 |
 | EV | SSRCs only a replaced pranswer announced stop routing at the final answer | 1 | ケース | 2.1-4 2.2-7 2.2-13 2.2-14 2.4-1 2.5-13 2.10-4 |
 | EV | a first pranswer with other SSRCs leaves the receiver's track to the final answer's SSRC | 1 | ケース | 2.4-T6 2.10-4 |
 | EV | a transport a no-BUNDLE first pranswer added stays closed after the BUNDLE answer | 1 | ケース | 2.2-13 2.10-9 |

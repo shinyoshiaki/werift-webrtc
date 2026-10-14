@@ -196,6 +196,17 @@ export class SDPManager {
     const generation = dtlsTransport.iceTransport.describedLocalGeneration({
       applied,
     });
+    // An applied description keeps the credentials it applied: an m-line
+    // BUNDLE later moved onto another transport (the tag of a first max-compat
+    // offer) is not rewritten with that transport's generation.
+    if (
+      applied &&
+      media.iceParams &&
+      media.iceParams.usernameFragment !==
+        generation.parameters?.usernameFragment
+    ) {
+      return;
+    }
 
     media.iceCandidates = generation.candidates;
     media.iceCandidatesComplete = generation.complete;

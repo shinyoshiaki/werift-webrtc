@@ -10,14 +10,10 @@ import {
   negotiationCase,
 } from "../harness/negotiationCase";
 import {
-  createConnectedMultiVideoPeers,
   createSimulcastPeers,
   extmapId,
-  mungeSection,
-  receivingMid,
   setExtmapId,
   setExtmapUri,
-  ssrcOf,
 } from "../harness/negotiationTransactionUtils";
 
 /**
@@ -102,44 +98,6 @@ describeCases("negotiation transaction routing tables", () => {
         await sendLayer("low", 2222, "moved-id-after-rollback", {
           withRid: true,
         });
-    },
-  );
-
-  negotiationCase.for([
-    { finish: "answer", after: "1" },
-    { finish: "rollback", after: "0" },
-  ] as const)(
-    "an SSRC a re-offer moves to another m-line keeps its current route until $finish",
-    {
-      ref: "2.1-T3 2.4-2 2.4-T3",
-      exempt: "b commits a hand-edited offer that a never applied",
-    },
-    async (c, { finish, after }) => {
-      // Arrange: m-line 0 の SSRC を m-line 1 に移し、m-line 0 には新しい SSRC 999111 を付けた re-offer を作る。
-      const { a, b, outgoing } = await c.given(
-        createConnectedMultiVideoPeers(2),
-      );
-      const offer = await a.createOffer();
-      const ssrc0 = ssrcOf(offer.sdp, "0");
-      const moved = mungeSection(
-        mungeSection(offer.sdp, "0", (s) => s.split(ssrc0).join("999111")),
-        "1",
-        (s) => s.split(ssrcOf(offer.sdp, "1")).join(ssrc0),
-      );
-
-      // Act: SSRC を付け替える remote offer を適用する (answer はまだ返さない)。
-      await c.setRemote(b, moved);
-
-      // Assert: pending 中は current の経路のまま m-line 0 に届き、付け替えは保留される。
-      expect(await receivingMid(outgoing[0], b, "ssrc-pending")).toEqual("0");
-
-      // Act: answer で確定する、または rollback する。
-      await c.finish(b, finish);
-
-      // Assert: 確定すると SDP どおり m-line 1 へ、rollback なら m-line 0 のまま届く。
-      expect(
-        await receivingMid(outgoing[0], b, `ssrc-after-${finish}`),
-      ).toEqual(after);
     },
   );
 

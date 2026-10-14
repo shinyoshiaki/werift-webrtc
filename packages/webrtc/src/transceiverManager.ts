@@ -662,9 +662,16 @@ export class TransceiverManager {
       rtcp: media.rtp.rtcp,
       codecs: transceiver.codecs,
       headerExtensions: transceiver.headerExtensions,
+      // RTX pairs with its `apt` codec wherever the description lists it (an
+      // answer may put RTX before its primary codec), so primaries come first.
       encodings: Object.values(
-        transceiver.codecs.reduce(
-          (acc: { [pt: number]: RTCRtpCodingParameters }, codec) => {
+        [...transceiver.codecs]
+          .sort(
+            (x, y) =>
+              Number(x.name.toLowerCase() === "rtx") -
+              Number(y.name.toLowerCase() === "rtx"),
+          )
+          .reduce((acc: { [pt: number]: RTCRtpCodingParameters }, codec) => {
             if (codec.name.toLowerCase() === "rtx") {
               const params = codecParametersFromString(codec.parameters ?? "");
               const apt = acc[params["apt"]];
@@ -678,9 +685,7 @@ export class TransceiverManager {
               payloadType: codec.payloadType,
             });
             return acc;
-          },
-          {},
-        ),
+          }, {}),
       ),
     };
 

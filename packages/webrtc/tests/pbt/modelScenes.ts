@@ -93,7 +93,7 @@ export const MODEL_SCENES: (Scene & { name: string; ref: string })[] = [
   },
   {
     name: "a first pranswer connects provisionally and its rollback lets the next negotiation connect",
-    ref: "2.1-T1 2.1-T4 2.3-16; was NT initial pranswer carries provisional RTP / DataChannel traffic",
+    ref: "2.1-T1 2.1-T4 2.3-16 2.3-19; was NT initial pranswer carries provisional RTP / DataChannel traffic, Reg rolling back a first pranswer connection resets the public connection states",
     start: "unnegotiated",
     ops: [
       ["b", "addTrack", { kind: "video" }],
@@ -118,7 +118,7 @@ export const MODEL_SCENES: (Scene & { name: string; ref: string })[] = [
   },
   {
     name: "a local ICE restart and a restart pranswer roll back to the committed generation",
-    ref: "2.1-T8 2.7-T2; was NT local ICE restart rollback retains the committed selected pair, ICE restart pranswer … then rollback",
+    ref: "2.1-T8 2.2-3 2.7-T2 2.7-T3; was NT local ICE restart rollback retains the committed selected pair, ICE restart pranswer connects a pending generation and rollback keeps current RTP, ICE restart pranswer over a connected SCTP association … then rollback",
     start: "connected",
     ops: [
       ["a", "offer", { iceRestart: true }],
@@ -130,7 +130,7 @@ export const MODEL_SCENES: (Scene & { name: string; ref: string })[] = [
   },
   {
     name: "a restart pranswer is committed by the final answer",
-    ref: "2.1-T7 2.7-T4a; was NT ICE restart pranswer … then answer, both peers commit matching ICE restart generations",
+    ref: "2.1-T7 2.2-3 2.2-6 2.7-T1 2.7-T4a 5-K6; was NT ICE restart pranswer over a connected SCTP association … then answer, both peers commit matching local and remote ICE restart generations",
     start: "connected",
     ops: [
       ["a", "offer", { iceRestart: true }],
@@ -252,6 +252,293 @@ export const MODEL_SCENES: (Scene & { name: string; ref: string })[] = [
       ["b", "answer"],
       ["b", "offer"],
       ["a", "answer"],
+    ],
+  },
+  {
+    name: "a PLI request needs nack pli: a generic nack alone does not allow it",
+    ref: "2.4-T7b 5-7; origin: model property (seed 110): PLI was sent for any nack feedback (also in develop); was Reg PLI stops at the commit of a re-offer that removes NACK/PLI for the same SSRC",
+    start: "connected",
+    ops: [
+      ["a", "wireOffer", { mutation: "noPli" }],
+      ["b", "answer"],
+    ],
+  },
+  {
+    name: "the current local description keeps the credentials it applied after BUNDLE merged its m-lines",
+    ref: "2.7-3; origin: model property (seed 38): an end-of-candidates refresh rewrote the current description (also in develop)",
+    start: "unnegotiated",
+    ops: [
+      ["a", "addRecvonly", { kind: "video" }],
+      ["a", "offer", { iceRestart: true }],
+      ["b", "answer"],
+      ["a", "splitOffer", { mid: "1" }],
+    ],
+  },
+  {
+    name: "an answer does not stop a transceiver whose MID only an unapplied createOffer reserved",
+    ref: "2.9-4 2.1-T10; origin: model property (seed 64): the next remote offer's m-line was answered with port 0 (also in develop)",
+    start: "media",
+    ops: [
+      ["a", "offer"],
+      ["b", "answer"],
+      ["b", "offer"],
+      ["b", "addRecvonly", { kind: "video" }],
+      ["b", "createOnly"],
+      ["a", "answer"],
+    ],
+  },
+  {
+    name: "an answer releases the SCTP MID only an unapplied createOffer reserved",
+    ref: "2.9-4; origin: model property (seed 545): the reserved MID collided with the peer's next m-line",
+    start: "media",
+    ops: [
+      ["b", "offer"],
+      ["b", "dataChannel"],
+      ["b", "createOnly"],
+      ["a", "answer"],
+    ],
+  },
+  {
+    name: "a payload type a re-offer adds is live while pending and leaves the receive table at rollback",
+    ref: "2.4-1 2.4-3 5-13; was NT a pending payload type leaves the receiver codec table by rollback",
+    start: "connected",
+    ops: [
+      ["a", "wireOffer", { mutation: "codecRenumbered" }],
+      ["b", "rollback"],
+    ],
+  },
+  {
+    name: "a remote offer applied twice and rolled back notifies its objects once and removes them",
+    ref: "2.1-7 2.1-10 2.1-T1 2.2-2 2.3-1 2.3-3 2.3-4 2.3-6 2.3-8 2.3-21 2.3-23 5-4; was NT rollback removes remote-only objects and a repeated offer does not duplicate events",
+    start: "unnegotiated",
+    ops: [
+      ["a", "offer"],
+      ["b", "reapplyRemote"],
+      ["b", "rollback"],
+      ["a", "offer"],
+    ],
+  },
+  {
+    name: "a remote-created transceiver the application gave a track survives the rollback of a first pranswer in its created state",
+    ref: "2.3-5 2.3-7 2.8-36 2.12-3; was NT rollback keeps a remote-created transceiver that received a local track, CovC [2.8-36], Reg a remote-created transceiver the application keeps returns to its created state, Reg rollback … after the application's replaceTrack",
+    start: "unnegotiated",
+    ops: [
+      ["a", "offer"],
+      ["b", "attachTrack", { index: 0 }],
+      ["b", "pranswer"],
+      ["b", "rollback"],
+    ],
+  },
+  ...(["stop", "direction", "codecPreferences"] as const).map((op) => ({
+    name: `rollback of a remote offer removes the transceiver it created after the application's ${op} (as develop)`,
+    ref: `2.12-3; origin: property test (develop comparison); was Reg rollback of a remote offer after the application's ${op} …`,
+    start: "unnegotiated" as const,
+    ops: [
+      ["a", "offer"],
+      ["b", op, { index: 0, direction: "sendonly", codec: "video/VP8" }],
+      ["b", "rollback"],
+      ["a", "offer"],
+    ] as Scene["ops"],
+  })),
+  {
+    name: "a replacement pranswer and the final answer change the provisional max-message-size without a second channel event",
+    ref: "2.2-5 2.2-12 2.2-15 2.3-18 5-4; was NT a final answer can replace provisional SCTP limits without another channel event",
+    start: "unnegotiated",
+    ops: [
+      ["a", "offer"],
+      ["b", "wireReply", { type: "pranswer", mutation: "maxMessageSize" }],
+      ["b", "pranswer"],
+      ["b", "answer"],
+    ],
+  },
+  {
+    name: "a described candidate and end-of-candidates trickled twice change nothing",
+    ref: "2.1-10 2.3-21; was NT duplicate trickle candidate and EOC are idempotent within one generation",
+    start: "connected",
+    ops: [
+      ["a", "offer"],
+      ["b", "trickle", { twice: true, end: true, existing: true }],
+      ["b", "trickle", { twice: true, end: true, existing: true }],
+      ["b", "answer"],
+    ],
+  },
+  {
+    name: "a candidate of the unchanged generation trickled during a re-offer without end-of-candidates reaches the live checklist",
+    ref: "origin: same-generation trickle during a re-offer; was NT a trickle candidate of the unchanged ICE generation reaches the live checklist during a re-offer",
+    // 初回交渉も end-of-candidates なしで、current の generation が開いたままの session。
+    start: "unnegotiated",
+    ops: [
+      ["a", "wireOffer", { mutation: "noEndOfCandidates" }],
+      ["b", "answer"],
+      ["a", "wireOffer", { mutation: "noEndOfCandidates" }],
+      ["b", "trickle", { twice: true }],
+      ["b", "rollback"],
+    ],
+  },
+  {
+    name: "transport-cc feedback a re-offer adds starts only at the answer commit",
+    ref: "2.4-5; was CovC [2.4-5] transport-cc feedback a re-offer adds starts only at the answer commit",
+    // 初回交渉は transport-cc なしで、受信側の feedback が一度も動いていない session。
+    start: "unnegotiated",
+    ops: [
+      ["a", "wireOffer", { mutation: "noTwcc" }],
+      ["b", "answer"],
+      ["a", "settle"],
+      // preferences を設定すると、次の offer は設定の codec (transport-cc あり) から解決し直す。
+      ["a", "codecPreferences", { index: 0, codec: "video/VP8" }],
+      ["a", "offer"],
+      ["b", "answer"],
+    ],
+  },
+  {
+    name: "PLI stays negotiated after a rolled-back re-offer that removes it",
+    ref: "5-7; was CovC [5-7] PLI stays negotiated after a rolled-back re-offer that removes NACK/PLI for the same SSRC",
+    start: "connected",
+    ops: [
+      ["a", "wireOffer", { mutation: "noPli" }],
+      ["b", "rollback"],
+    ],
+  },
+  {
+    name: "PLI a re-offer adds starts only at its answer commit, not while pending or after a rollback",
+    ref: "2.4-T7b 5-7 5-13; origin: self-review (live state); was Reg PLI starts only at the commit of a re-offer that adds NACK/PLI for the same SSRC",
+    start: "connected",
+    ops: [
+      ["a", "wireOffer", { mutation: "noPli" }],
+      ["b", "answer"],
+      ["a", "offer"],
+      ["b", "rollback"],
+      ["a", "offer"],
+      ["b", "answer"],
+    ],
+  },
+  {
+    name: "a re-offer that changes the RTCP feedback of a current payload type is staged until commit",
+    ref: "2.4-T7a; origin: self-review (live state); was Reg a re-offer that changes RTCP feedback of a current payload type is staged until commit",
+    start: "connected",
+    ops: [
+      ["a", "wireOffer", { mutation: "noNack" }],
+      ["b", "answer"],
+    ],
+  },
+  ...(["answer", "rollback"] as const).map((finish) => ({
+    name: `an RTX SSRC a re-offer pairs with a new media SSRC keeps its current pairing until ${finish}`,
+    ref: `2.4-3 2.4-T4 5-13; was CovC [5-13] RTX packets resolve to the current media SSRC while a re-pairing is pending and after ${finish}`,
+    start: "connected" as const,
+    ops: [
+      ["a", "wireOffer", { mutation: "mediaSsrcRenewed" }],
+      ["b", finish],
+    ] as Scene["ops"],
+  })),
+  ...(["answer", "rollback"] as const).map((finish) => ({
+    name: `an SSRC a re-offer moves to another m-line keeps its current route until ${finish}`,
+    ref: `2.1-T3 2.4-2 2.4-T3; was Route an SSRC a re-offer moves to another m-line keeps its current route until ${finish}`,
+    start: "connected" as const,
+    ops: [
+      ["a", "addTrack", { kind: "video" }],
+      ["a", "offer"],
+      ["b", "answer"],
+      ["a", "wireOffer", { mutation: "ssrcSwapped" }],
+      ["b", finish],
+    ] as Scene["ops"],
+  })),
+  {
+    name: "a remote pranswer that changes send parameters (no RTX) is fully undone by rollback",
+    ref: "2.2-9 2.4-4; origin: self-review (live state); was Reg a remote pranswer that changes send parameters is fully undone by rollback",
+    start: "connected",
+    ops: [
+      ["a", "offer"],
+      ["b", "wireReply", { type: "pranswer", mutation: "noRtx" }],
+      ["a", "rollback"],
+    ],
+  },
+  {
+    name: "a first pranswer sends with the codec it answered and its rollback returns both peers' codecs to the unnegotiated state",
+    ref: "2.8-39; was CovC [2.8-39] rolling back a first pranswer returns both peers' send and receive codecs to the unnegotiated state, Reg a first pranswer sends and receives with the codecs it answered",
+    start: "unnegotiated",
+    ops: [
+      ["a", "offer"],
+      ["b", "attachTrack", { index: 0 }],
+      ["b", "codecPreferences", { index: 0, reversed: true }],
+      ["b", "pranswer"],
+      ["a", "rollback"],
+      ["a", "offer"],
+      ["b", "answer"],
+    ],
+  },
+  ...(["answer", "rollback"] as const).map((finish) => ({
+    name: `a pranswer sends with its codec on both sides until ${finish}`,
+    ref: `2.2-9 2.11; was EV a pranswer sends with its codec on both sides until ${finish}`,
+    start: "connected" as const,
+    ops: [
+      ["a", "offer"],
+      ["b", "codecPreferences", { index: 0, reversed: true }],
+      ["b", "pranswer"],
+      finish === "answer" ? ["b", "answer"] : ["a", "rollback"],
+    ] as Scene["ops"],
+  })),
+  {
+    name: "an answer does not give a direction to a transceiver without an m-line",
+    ref: "origin: property test; was Reg an answer does not give a direction to a transceiver without an m-line",
+    start: "connected",
+    ops: [
+      ["a", "offer"],
+      ["b", "addTrack", { kind: "audio" }],
+      ["b", "answer"],
+    ],
+  },
+  {
+    name: "codec preferences createAnswer resolves change the live tables only at the answer commit",
+    ref: "2.6-T4c 2.8-38; origin: self-review (live state); was Reg codec preferences resolved by createAnswer apply to live receive tables only at the answer commit",
+    start: "connected",
+    ops: [
+      ["a", "offer"],
+      ["b", "codecPreferences", { index: 0, reversed: true }],
+      ["b", "createOnly"],
+      ["b", "answer"],
+    ],
+  },
+  {
+    name: "a codec the local answer drops leaves the receive table although the re-offer staged it",
+    ref: "2.8-45; origin: self-review (live state); was Reg a codec the local answer dropped leaves the receive table even when the re-offer staged it",
+    start: "connected",
+    ops: [
+      ["a", "wireOffer", { mutation: "noNack" }],
+      ["b", "codecPreferences", { index: 0, codec: "video/h264" }],
+      ["b", "answer"],
+    ],
+  },
+  {
+    name: "codec preferences changed between createAnswer and setLocalDescription commit the answer's codec",
+    ref: "2.6-T4c 2.6-T4h 2.8-38; origin: develop #729; was Dev setCodecPreferences between createAnswer and setLocalDescription commits the answer's codec",
+    start: "connected",
+    ops: [
+      ["a", "codecPreferences", { index: 0, codec: "video/h264" }],
+      ["a", "offer"],
+      ["b", "lateAnswer", { index: 0, change: "preferences" }],
+    ],
+  },
+  {
+    name: "a track attached between createAnswer and setLocalDescription sends with the answer's codec",
+    ref: "2.6-T4a 2.6-T4c; origin: develop #729; was Dev addTrack between createAnswer and setLocalDescription sends with the answer's codec",
+    start: "connected",
+    ops: [
+      ["a", "addTrack", { kind: "video" }],
+      ["a", "offer"],
+      ["b", "answer"],
+      ["a", "codecPreferences", { index: 1, codec: "video/h264" }],
+      ["a", "offer"],
+      ["b", "lateAnswer", { index: 1, change: "track" }],
+    ],
+  },
+  {
+    name: "an answer that lists RTX before its primary codec keeps the RTX pairing",
+    ref: "2.4-3 5-13; origin: model property (seed 15): the receiver paired RTX only after its apt codec (also in develop)",
+    start: "connected",
+    ops: [
+      ["b", "codecPreferences", { index: 0, reversed: true }],
+      ["a", "offer"],
+      ["b", "answer"],
     ],
   },
 ];
