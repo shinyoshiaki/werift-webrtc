@@ -558,6 +558,31 @@ provisional の checklist は live と同じ規則に従う: 候補から作る 
   - transport-cc を外した answer を answerer が確定しても、answerer の transport-cc feedback は止まらない。
   - 汎用 NACK の判定 `hasFeedback(codec, "nack")` が `nack pli` だけの codec にも一致する（コードを読んだだけで、テストでは確かめていない）。
 
+### 2.20 ブラウザ風の入力をあえて作るケースを削除する（追加要件）
+
+**要件**: `packages/webrtc/tests/negotiation/cases` の、ブラウザ風のもの（他の実装が送る SDP・候補）をあえて作るテストをすべて削除する。ブラウザとの相互接続の確認は E2E テストの責務とする。ただし、このタスクでは削除したケースを E2E に追加しない。検知の漏れは許容する。
+
+**実施内容**
+
+- 判定基準:
+  - 削除: werift が生成していない相手側の入力を作って与えるケース。相手の description の書き換え、外部実装の SDP（#142 の ICE-lite の answer）、手作りの候補・mDNS 候補、別の ICE 資格情報、SDP 変異の行列、application 拒否を書き換えで作る経路。
+  - 残す: 自分の local description の検証（W3C の API 規則）、自分の offer を別の方針に置き換える `createRewrittenOffer`（BUNDLE 分割）、応答のない候補で待ちを作る Interrupt の環境づくり、werift が作った SDP の上で生の RTP を送るもの（simulcast など）。
+- 削除したもの:
+  - 37 宣言・1,435 行: Reg 17、CovT 6、NT 4、CovC 3、EV 3、Route 3、CovI 1。
+  - 3 ファイル: `negotiationTransactionApplicationRejection.test.ts`、`negotiationTransactionMutation.test.ts`（全ペアの変異）、ケースがなくなった `negotiationTransactionEffectiveValues.test.ts`。
+  - Interrupt の行列のうち、手作りの mDNS 候補で待ちを作る `mdns` の行と、それにだけあった `rollback` の割り込み（13 行 → 9 行）。
+  - 削除したケースだけが使っていた共有ヘルパー 16 個。
+  - `npm run pbt:deep` の mutation suite。
+- 残したもの: `tools/negotiation-diff/mutations.ts`（develop 差分ファズの `--mutate` が使う）と、モデル property の通路での SDP 書き換え（`tests/pbt/modelMutations.ts`。`tests/negotiation/cases` の外なので今回の対象外）。
+- 行数: ケースは 114 宣言・4,244 行 → 76 宣言・2,774 行。ファイル全体は 14 ファイル・5,599 行 → 11 ファイル・3,437 行。
+- 仕様対応表: 削除したテストの参照を外した。他のテストが残らなかった 17 件は「E2E の責務（未試験）」にした（2.4-T2b・2.8-1・2.8-16・2.8-28・2.8-31〜33・2.8-47・2.10-5〜7・2.11-1〜3・2.11-7・2.11-9・2.12-6）。
+- 文書: NEGOTIATION_TRANSACTION.md（Peer-diversity mutations、Effective values の表の検査列、Test layout、Negotiation cases、Rejected application m-lines。`doc/_media` の写しも）、NEGOTIATION_SPEC_COVERAGE.md、NEGOTIATION_CASES_MAPPING.md、`packages/webrtc/AGENTS.md`（Do 6 にケースの方針、Do 7 から mutation を除いた）。
+- 検証:
+  - `npm run type`、変更したファイルの biome、`git diff --check`: 通過。
+  - `npm test`: 54 ファイル、788 passed / 3 skipped、1 分 24 秒。
+  - `npm run pbt:deep`: fuzz 306、scenario 2,163、model 351 が全件通過（115 秒）。scenario seed 44 は負荷下で 1 回失敗し、単独の再実行で通過した。
+- 失ったもの（許容済み）: DTLS role・fingerprint、BUNDLE の tag・MID、RFC 8838 の EOC の扱い、mDNS、extmap ID・payload type の受理と拒否、application の拒否、他の peer の SSRC と資格情報への対応。いずれも werift 同士の個別テストでは検出できなくなった。一部はモデル property の通路での書き換えと invariant で検出できる可能性があるが、測っていない。
+
 ## 3. 技術的な実装アプローチ
 
 ### 3.1 transaction coordinator と subsystem API
@@ -672,7 +697,7 @@ commit path に例外が残る場合は、公開状態を切り替える前に�
 
 ## 7. 仕様と試験の対応表（策3）
 
-2.1〜2.12 と 5 章の各文（要件）を、それを検証する試験名（または invariant helper）か「対象外（理由）」に対応づけた表を `packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md` に置く（全 276 件: covered 251 件、対象外 23 件、partial 2 件、uncovered 0 件。2.11 で 15 件、2.12 で 10 件追加。partial の 2 件は 2.17 でモデル property に置き換えて具体値の検査を手放した 2.8-4・2.9-T9。2.4-T3 は 2.18 でケースを戻して covered）。対象外は設計文書・コード構造・作業プロセスの記述だけで、理由を併記する。
+2.1〜2.12 と 5 章の各文（要件）を、それを検証する試験名（または invariant helper）か「対象外（理由）」に対応づけた表を `packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md` に置く（全 276 件: covered 234 件、対象外 23 件、partial 2 件、E2E の責務（未試験）17 件、uncovered 0 件。2.20 でブラウザ風の入力を作るケースを削除し、17 件は E2E の責務とした。2.11 で 15 件、2.12 で 10 件追加。partial の 2 件は 2.17 でモデル property に置き換えて具体値の検査を手放した 2.8-4・2.9-T9。2.4-T3 は 2.18 でケースを戻して covered）。対象外は設計文書・コード構造・作業プロセスの記述だけで、理由を併記する。
 
 - 表の作成時点で partial / uncovered だった 59 件は、要件 ID を名前に持つ試験（`negotiationTransactionCoverageEvents` / `Transport` / `Ice` / `Codecs`、`packages/ice/tests/coverageConsent.test.ts`）で閉じた。そのうち修正前の実装で失敗したものは、2.10 の「見つけ、修正して確定した規則」として実装を直した。
 - 要件や試験を変えたら表も更新する。新しい要件は、ID を名前に含む試験を追加してから covered にする。

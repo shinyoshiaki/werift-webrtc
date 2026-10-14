@@ -12,13 +12,10 @@ import {
   recordIceCandidates,
   recordIceConnectionStates,
   removeIceAgentServers,
-  stubIceMdns,
-  trickleCandidate,
   waitForCommittedNomination,
   waitForConnection,
   waitForEndOfCandidates,
   waitForProvisionalNomination,
-  withIceCredentials,
 } from "../harness/negotiationTransactionUtils";
 
 type IceConnectionInternals = {
@@ -310,71 +307,6 @@ describeCases("negotiation transaction spec coverage: ICE", () => {
       expect(connectionStates).toEqual([]);
       expect(iceStates).toEqual([]);
       expect(c.named(rolling).signalingState).toEqual("stable");
-    },
-  );
-
-  negotiationCase.for([
-    { interruption: "a replacement pranswer" },
-    { interruption: "a rollback" },
-  ] as const)(
-    "[5-12] an mDNS candidate of a restart pranswer still resolving at $interruption reaches neither the SDP nor any checklist",
-    { ref: "5-12" },
-    async (c, { interruption }) => {
-      // Arrange: provisional generation の mDNS 候補を解決中にする。
-      const { a, b, mid, outgoing, incoming, ufrag } = await c.given(
-        createIceRestartPranswer(),
-      );
-      const mdns = stubIceMdns(a);
-      await c.addCandidate(
-        a,
-        trickleCandidate(50995, ufrag, mid, "peer.local"),
-      );
-      expect(mdns.requested).toEqual(1);
-
-      // Act: 解決前に replacement pranswer (別の資格情報) を適用するか、rollback する。
-      if (interruption === "a replacement pranswer") {
-        await c.setRemote(
-          a,
-          withIceCredentials(
-            b.localDescription!.sdp.replace(/^a=end-of-candidates\r?\n/gm, ""),
-            "repl",
-            "replacementpassword00000",
-          ),
-          { type: "pranswer" },
-        );
-      } else await c.setLocal(a, "rollback");
-
-      // Act: その後で mDNS の解決を完了させる。
-      mdns.resolveAll("127.0.0.1");
-      await c.sleep(100);
-
-      // Assert: 解決した候補は新しい provisional checklist にも live の checklist にも入らない。
-      const provisional = provisionalIce(a);
-      expect(
-        !!provisional?.remoteCandidates.some(
-          (candidate) => candidate.port === 50995,
-        ),
-      ).toBe(false);
-      expect(
-        !!provisional?.pairs.some(
-          (pair) => pair.remoteCandidate.port === 50995,
-        ),
-      ).toBe(false);
-      expect(
-        iceConnection(a).remoteCandidates.some(
-          (candidate) => candidate.port === 50995,
-        ),
-      ).toBe(false);
-
-      // Assert: pending / current の SDP にも入らない。
-      if (interruption === "a replacement pranswer") {
-        expect(provisional?.remoteCandidatesEnd).toBe(false);
-        expect(a.pendingRemoteDescription!.sdp).not.toContain(" 50995 ");
-      } else expect(a.pendingRemoteDescription).toBe(null);
-      expect(a.currentRemoteDescription!.sdp).not.toContain(" 50995 ");
-
-      // Assert: live pair の RTP は続く。
-      await c.rtp(outgoing, incoming);
     },
   );
 

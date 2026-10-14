@@ -15,21 +15,21 @@ import {
 
 /**
  * Interrupt injection (NEGOTIATION_TRANSACTION.md "Interrupts"): while a
- * negotiation waits on gathering, an mDNS lookup, the DTLS start or STUN
- * checks, the application closes the connection, requests an ICE restart,
- * starts a new offer or rolls the pending description back. The held
+ * negotiation waits on gathering, the DTLS start or STUN checks, the
+ * application closes the connection, requests an ICE restart or starts a new
+ * offer. The held
  * operation must settle, the invariants hold, a later clean negotiation
  * communicates, and close() leaves no transport running.
  */
-type Interrupt = "close" | "restartIce" | "newOffer" | "rollback";
+type Interrupt = "close" | "restartIce" | "newOffer";
 
 const cases: { wait: InterruptWait; interrupt: Interrupt }[] = (
-  ["gather", "mdns", "dtls", "stun"] as const
+  ["gather", "dtls", "stun"] as const
 ).flatMap((wait) =>
-  (["close", "restartIce", "newOffer", "rollback"] as const)
-    // rollback は pending の description があるとき (restart pranswer 中) だけ。
-    .filter((interrupt) => interrupt !== "rollback" || wait === "mdns")
-    .map((interrupt) => ({ wait, interrupt })),
+  (["close", "restartIce", "newOffer"] as const).map((interrupt) => ({
+    wait,
+    interrupt,
+  })),
 );
 
 /** Act: start the interrupt (not awaited, the held operation is still running). */
@@ -45,8 +45,6 @@ function startInterrupt(session: DuplexSession, interrupt: Interrupt) {
       return (async () => {
         await a.pc.setLocalDescription(await a.pc.createOffer());
       })();
-    case "rollback":
-      return a.pc.setLocalDescription({ type: "rollback" });
   }
 }
 

@@ -1,23 +1,11 @@
-import {
-  MediaStreamTrack,
-  useAbsSendTime,
-  useH264,
-  useSdesMid,
-  useVP8,
-} from "../../../src";
+import { MediaStreamTrack, useH264, useVP8 } from "../../../src";
 import { describeCases, negotiationCase } from "../harness/negotiationCase";
 import {
-  addOfferedCodec,
-  addUnsupportedExtmaps,
   assertTransportsClosed,
-  changeAnswererIceCredentials,
   closeDuringNextPreparedGather,
   closeOnSignalingState,
   createConnectedMultiVideoPeers,
   createConnectedVideoPeers,
-  createIceRestartPranswer,
-  createInitialPranswerConnection,
-  createMutationSession,
   createPeerPair,
   createRelayOnlyPeers,
   createRewrittenOffer,
@@ -26,69 +14,28 @@ import {
   createUnnegotiatedPeers,
   createUnnegotiatedVideoPeers,
   createVp8H264AnsweringPeers,
-  currentRemoteGeneration,
-  elapsedMs,
   expectSessionContinues,
   forceIceState,
   heldTransports,
   holdDtlsStart,
   holdNextGather,
-  mungeSection,
-  mutate,
   offeredVideoCodecs,
-  provisionalIce,
   receiveCodecNames,
   recordConnectionStates,
   recordIceConnectionStates,
   recordNegotiationEvents,
-  reverseSetupRole,
   sectionOf,
   settlesWithin,
-  stubIceMdns,
-  trickleCandidate,
   waitForCommittedNomination,
   waitForConnection,
   waitForDtlsConnected,
   waitForDtlsHandshake,
   waitForIce,
   waitForPeersConnected,
-  waitForRemoteCandidatePort,
 } from "../harness/negotiationTransactionUtils";
 
 /** Wait for the next macrotask (`setImmediate`). */
 const nextMacrotask = () => new Promise((resolve) => setImmediate(resolve));
-
-/** `settled` turns true once `promise` settles. */
-const settledFlag = (promise: Promise<unknown>) => {
-  const flag = { settled: false };
-  const settle = () => {
-    flag.settled = true;
-  };
-  promise.then(settle, settle);
-  return flag;
-};
-
-/**
- * `sdp` whose BUNDLE group keeps only `video`, without end-of-candidates,
- * and whose `audio` m-line carries the ICE credentials of the `video` m-line.
- */
-const splitWithSharedCredentials = (
-  sdp: string,
-  video: string,
-  audio: string,
-) => {
-  const split = sdp
-    .replace(/^a=group:BUNDLE [^\r\n]+/m, `a=group:BUNDLE ${video}`)
-    .replace(/^a=end-of-candidates\r?\n/gm, "");
-  const tag = sectionOf(split, video);
-  const ufrag = tag.match(/^a=ice-ufrag:(\S+)/m)![1];
-  const pwd = tag.match(/^a=ice-pwd:(\S+)/m)![1];
-  return mungeSection(split, audio, (section) =>
-    section
-      .replace(/^a=ice-ufrag:\S+/m, `a=ice-ufrag:${ufrag}`)
-      .replace(/^a=ice-pwd:\S+/m, `a=ice-pwd:${pwd}`),
-  );
-};
 
 /**
  * Deterministic regressions for what the negotiation property test found
@@ -283,102 +230,6 @@ describeCases("negotiation transaction regressions", () => {
   );
 
   negotiationCase(
-    "addIceCandidate does not wait for the gathering of a setLocalDescription before it (as develop)",
-    {
-      ref: "2.12-6; origin: property test (develop comparison)",
-      exempt: "the test applies only a's answer",
-      timeout: 20000,
-    },
-    async (c) => {
-      // Arrange: 応答しない STUN server を持つ answerer。setLocalDescription は gather を待つ。b の候補は trickle で続く (offer に end-of-candidates を載せない)。
-      const { a, b } = await c.given(
-        createPeerPair({ iceServers: [{ urls: "stun:192.0.2.1:3478" }] }, {}),
-      );
-      b.addTransceiver("audio");
-      await c.offer(b, { hold: true });
-      await c.setRemote(
-        a,
-        mutate(b.localDescription!.sdp, ["noEndOfCandidates"]),
-      );
-      const answer = await a.createAnswer();
-      const started = Date.now();
-
-      // Act: answer の適用 (gather 待ち) の直後に remote 候補を追加する。
-      const applying = c.start(a.setLocalDescription(answer));
-      const answerApplied = settledFlag(applying);
-      await a.addIceCandidate({
-        candidate: "candidate:1 1 udp 2130706431 127.0.0.1 9 typ host",
-        sdpMid: a.getTransceivers()[0].mid,
-      });
-
-      // Assert: 候補の追加は gather の完了を待たずに終わり、remote description に記録される。
-      expect(Date.now() - started).toBeLessThan(1000);
-      expect(answerApplied.settled).toEqual(false);
-      expect(a.remoteDescription!.sdp).toContain("127.0.0.1 9 typ host");
-
-      // Act: 後続の description 操作は先の 2 つの完了を待つ。
-      const next = c.start(a.createOffer());
-      await applying;
-      await next;
-
-      // Assert: answer が確定し、invariant を満たす。
-      expect(a.signalingState).toEqual("stable");
-      c.invariants(a);
-    },
-  );
-
-  negotiationCase(
-    "an ICE-lite peer's final answer with new credentials and generation 1 candidates connects without another restart",
-    {
-      ref: "2.12-10; origin: property test",
-      exempt:
-        "the answerer's ICE credentials were changed through its internals",
-    },
-    async (c) => {
-      // Arrange: full の offerer と ICE-lite の answerer。pranswer で接続済み。
-      const { a, b } = await c.given(
-        createPeerPair({ iceServers: [] }, { iceServers: [], iceLite: true }),
-      );
-      const aOut = new MediaStreamTrack({ kind: "video" });
-      const bOut = new MediaStreamTrack({ kind: "video" });
-      const aVideo = a.addTransceiver(aOut, { direction: "sendrecv" });
-      await c.offer(a);
-      const bVideo = b.getTransceivers()[0];
-      Object.assign(bVideo, { direction: "sendrecv" });
-      await bVideo.sender.replaceTrack(bOut);
-      await c.pranswer(b);
-      await waitForPeersConnected(a, b);
-
-      // Arrange: answerer は final answer で資格情報を変える (候補は generation 1)。
-      await changeAnswererIceCredentials(b);
-      await c.setLocal(b, await b.createAnswer());
-      expect(b.localDescription!.sdp).toMatch(/ generation 1 /);
-
-      // Act: offerer が final answer を適用する (offerer 自身は restart しない)。
-      await c.setRemote(a, b.localDescription);
-
-      // Assert: 次の restart の前に、新しい remote generation で pair を選び、checks の待機が決着する。
-      const transport = a.iceTransports[0];
-      await c.waitFor(
-        () =>
-          !!transport.connection.nominated &&
-          transport.connection.remoteUsername ===
-            transport.getRemoteParameters()?.usernameFragment,
-        10000,
-      );
-      expect(await settlesWithin(transport.checksSettled(), 1000)).toEqual(
-        true,
-      );
-      expect(["connected", "completed"]).toContain(transport.state);
-
-      // Assert: 両方向に RTP が届く。
-      await c.rtp(aOut, bVideo.receiver.track);
-      await c.rtp(bOut, aVideo.receiver.track);
-      c.invariants(a);
-    },
-  );
-
-  negotiationCase(
     "the final answer after an ICE restart pranswer reuses the pranswer credentials",
     { ref: "2.9-7; origin: property test" },
     async (c) => {
@@ -450,221 +301,6 @@ describeCases("negotiation transaction live-state regressions", () => {
       expect(video.mid).not.toBe(audioMid);
       expect(video.mLineIndex).toEqual(1);
       expect(a.getTransceivers()).toEqual([audio, video]);
-    },
-  );
-
-  negotiationCase(
-    "an answer whose codec was not in the offer is rejected before mutation",
-    { ref: "2.5-4; origin: self-review (live state)" },
-    async (c) => {
-      // Arrange: 設定は Opus/PCMU に対応するが、offer は Opus だけを提案する。
-      const { a, b } = await c.given(createUnnegotiatedPeers());
-      const audio = a.addTransceiver("audio");
-      Object.assign(audio, {
-        codecs: a.config.codecs.audio!.filter(
-          (codec) => codec.name.toLowerCase() === "opus",
-        ),
-      });
-      await c.offer(a);
-      const answer = await b.createAnswer();
-      const unoffered = answer.sdp.replace(/opus\/48000\/2/i, "PCMU/8000");
-      expect(unoffered).not.toEqual(answer.sdp);
-
-      // Act / Assert: offer にない PCMU に差し替えた answer は InvalidAccessError で拒否され、状態は変わらない。
-      await c.setRemote(a, unoffered, {
-        type: "answer",
-        rejects: "InvalidAccessError",
-      });
-      expect(a.signalingState).toEqual("have-local-offer");
-      expect(a.currentRemoteDescription).toBe(null);
-
-      // Assert: offer と合意する正しい answer はそのまま適用できる。
-      await c.setRemote(a, answer);
-      expect(a.signalingState).toEqual("stable");
-    },
-  );
-
-  negotiationCase.for([
-    { candidate: "a host candidate", host: "127.0.0.1" },
-    { candidate: "an mDNS candidate", host: "peer.local" },
-  ] as const)(
-    "$candidate after end-of-candidates of an ICE restart pranswer reaches neither the pending SDP nor the provisional checklist",
-    { ref: "5-12; origin: self-review (live state)" },
-    async (c, { candidate, host }) => {
-      // Arrange: pranswer の restart generation に end-of-candidates を適用する。
-      const { a, mid, outgoing, incoming, ufrag } = await c.given(
-        createIceRestartPranswer(),
-      );
-      const mdns = stubIceMdns(a);
-      await c.addCandidate(a, {
-        candidate: "",
-        sdpMid: mid,
-        usernameFragment: ufrag,
-      });
-      const pendingSdp = a.pendingRemoteDescription!.sdp;
-      const provisional = provisionalIce(a);
-      const candidates = provisional!.remoteCandidates.length;
-      const pairs = provisional!.pairs.length;
-
-      // Act: 同じ ufrag の候補が end-of-candidates の後に届く。
-      await c.addCandidate(a, trickleCandidate(50999, ufrag, mid, host));
-
-      // Assert: 完了済み generation の pending SDP と provisional checklist は変わらない。
-      expect(a.pendingRemoteDescription!.sdp).toBe(pendingSdp);
-      expect(a.pendingRemoteDescription!.sdp).toContain("a=end-of-candidates");
-      expect(provisional!.remoteCandidatesEnd).toEqual(true);
-      expect(provisional!.remoteCandidates.length).toEqual(candidates);
-      expect(provisional!.pairs.length).toEqual(pairs);
-
-      // Assert: mDNS 名の解決も始めない。
-      expect(mdns.requested).toEqual(0);
-      c.invariants(a);
-      await c.rtp(outgoing, incoming);
-    },
-  );
-
-  negotiationCase(
-    "an mDNS candidate that is still resolving does not hold later candidates or description operations",
-    { ref: "2.8-1; origin: self-review (live state)" },
-    async (c) => {
-      // Arrange: current の remote generation が trickle 継続中の接続済み peer と、解決しない mDNS lookup
-      const { b, outgoing, incoming } = await c.given(
-        createConnectedVideoPeers({}, { trickleOpen: true }),
-      );
-      const mdns = stubIceMdns(b);
-      const generation = currentRemoteGeneration(b);
-
-      // Act: mDNS 候補、通常の候補、description 操作をこの順に行う
-      const mdnsElapsed = await elapsedMs(() =>
-        b.addIceCandidate(
-          trickleCandidate(
-            50991,
-            generation.ufrag,
-            generation.mid,
-            "peer.local",
-          ),
-        ),
-      );
-      const hostElapsed = await elapsedMs(() =>
-        b.addIceCandidate(
-          trickleCandidate(50992, generation.ufrag, generation.mid),
-        ),
-      );
-      const offerElapsed = await elapsedMs(() => b.createOffer());
-
-      // Assert: どの操作も mDNS の解決 (最大 10 秒) を待たずに終わり、通常の候補はすぐ checklist に入る
-      expect(mdns.requested).toEqual(1);
-      expect(Math.max(mdnsElapsed, hostElapsed, offerElapsed)).toBeLessThan(
-        1000,
-      );
-      await waitForRemoteCandidatePort(b, 50992);
-      await c.rtp(outgoing, incoming);
-
-      // Act: mDNS の解決を完了させる
-      mdns.resolveAll("127.0.0.1");
-
-      // Assert: 解決後に mDNS 候補も同じ generation の checklist に入る
-      await waitForRemoteCandidatePort(b, 50991);
-      c.invariants(b);
-    },
-  );
-
-  negotiationCase(
-    "an mDNS candidate trickled before end-of-candidates of an ICE restart pranswer is kept",
-    { ref: "2.7-T2 2.8-2 2.8-29 5-12; origin: self-review (live state)" },
-    async (c) => {
-      // Arrange: provisional generation の mDNS 候補を解決中にし、続けて EOC を送る。
-      const { a, mid, ufrag } = await c.given(createIceRestartPranswer());
-      const mdns = stubIceMdns(a);
-      const resolving = c.start(
-        a.addIceCandidate(trickleCandidate(50998, ufrag, mid, "peer.local")),
-      );
-      const end = c.start(
-        a.addIceCandidate({
-          candidate: "",
-          sdpMid: mid,
-          usernameFragment: ufrag,
-        }),
-      );
-      await nextMacrotask();
-      expect(mdns.requested).toEqual(1);
-
-      // Act: mDNS 解決を完了させる。
-      mdns.resolveAll("127.0.0.1");
-      await Promise.all([resolving, end]);
-
-      // Assert: EOC 前に届いた候補は pending SDP と provisional checklist に入り、その後に完了する。
-      const provisional = provisionalIce(a);
-      expect(
-        provisional!.remoteCandidates.some(
-          (candidate) => candidate.port === 50998,
-        ),
-      ).toEqual(true);
-      expect(provisional!.remoteCandidatesEnd).toEqual(true);
-      const section = sectionOf(a.pendingRemoteDescription!.sdp, mid);
-      expect(section).toContain(" 50998 typ host");
-      expect(section).toContain("a=end-of-candidates");
-      c.invariants(a);
-    },
-  );
-
-  negotiationCase(
-    "header extension IDs the answer did not accept stay free for a later offer",
-    { ref: "2.8-16; origin: self-review (live state)" },
-    async (c) => {
-      // Arrange: remote (a) の audio offer は werift (b) が受理しない extmap を空き ID すべてに載せる
-      const { a, b } = await c.given(
-        createPeerPair({
-          headerExtensions: {
-            audio: [useSdesMid()],
-            video: [useSdesMid(), useAbsSendTime()],
-          },
-        }),
-      );
-      a.addTransceiver("audio");
-      await c.offer(a, { hold: true });
-      await c.setRemote(
-        b,
-        addUnsupportedExtmaps(a.localDescription!.sdp, "audio"),
-      );
-      await c.answer(b);
-
-      // Act: werift (b) が video を追加して re-offer し、その ID をそのまま返す answer を適用する
-      b.addTransceiver("video");
-      await c.negotiate(b);
-
-      // Assert: 受理されなかった ID は使用中ではないので、answer は拒否されず stable になる
-      expect(b.signalingState).toEqual("stable");
-      c.invariants(b);
-    },
-  );
-
-  negotiationCase(
-    "a payload type the answer did not accept can carry another codec in a later remote offer",
-    { ref: "2.8-16; origin: self-review (live state)" },
-    async (c) => {
-      // Arrange: remote (a) の audio offer に werift (b) が受理しない codec を PT 110 で載せ、answer で確定する
-      const { a, b } = await c.given(createPeerPair());
-      a.addTransceiver("audio");
-      await c.offer(a, { hold: true });
-      await c.setRemote(
-        b,
-        addOfferedCodec(a.localDescription!.sdp, "audio", 110, "FOO/8000"),
-      );
-      await c.answer(b);
-      expect(b.currentLocalDescription!.sdp).not.toContain("FOO/8000");
-
-      // Act: remote の re-offer が PT 110 を別の codec に使う
-      await c.offer(a, { hold: true });
-      await c.setRemote(
-        b,
-        addOfferedCodec(a.localDescription!.sdp, "audio", 110, "BAR/8000"),
-      );
-
-      // Assert: PT 110 は使用中ではないので re-offer は拒否されない
-      expect(b.signalingState).toEqual("have-remote-offer");
-      await c.answer(b, { hold: true });
-      c.invariants(b);
     },
   );
 
@@ -826,32 +462,6 @@ describeCases("negotiation transaction live-state regressions", () => {
   );
 
   negotiationCase(
-    "a re-answer with a=setup:actpass keeps the DTLS role of the live association",
-    { ref: "2.8-47 2.11-5; origin: self-review (live state)" },
-    async (c) => {
-      // Arrange: 接続済みの peer (answerer は active で答え、offerer は server になる)
-      const { a, b } = await c.given(createPeerPair());
-      a.createDataChannel("role");
-      await c.negotiate(a);
-      const transport = a.dtlsTransports[0];
-      await waitForDtlsConnected(transport);
-      const role = transport.role;
-
-      // Act: re-offer に a=setup:actpass の answer (b の前回の answer を書き換えたもの) が返る
-      await c.offer(a, { hold: true });
-      await c.setRemote(
-        a,
-        b.localDescription!.sdp.replace(/a=setup:\w+/g, "a=setup:actpass"),
-        { type: "answer" },
-      );
-
-      // Assert: 拒否されず、確立済み association の role は変わらない
-      expect(a.signalingState).toEqual("stable");
-      expect(transport.role).toBe(role);
-    },
-  );
-
-  negotiationCase(
     "close() while an ICE restart answer commits keeps the state closed",
     {
       ref: "2.8-19; origin: self-review (live state)",
@@ -978,73 +588,6 @@ describeCases("negotiation transaction live-state regressions", () => {
   );
 
   negotiationCase(
-    "end-of-candidates trickled on a non-tag BUNDLE m-line completes the restarted generation",
-    { ref: "2.8-28; origin: self-review (live state)" },
-    async (c) => {
-      // Arrange: audio (BUNDLE の非 tag) を含む session で、EOC を含まない ICE restart の re-offer を answerer に適用する。
-      const { a, b } = await c.given(
-        createConnectedVideoPeers({}, { withAudio: true }),
-      );
-      a.restartIce();
-      await c.offer(a, { hold: true });
-      const ufrag = a.localDescription!.sdp.match(/^a=ice-ufrag:(\S+)/m)![1];
-      await c.setRemote(
-        b,
-        a.localDescription!.sdp.replace(/^a=end-of-candidates\r?\n/gm, ""),
-      );
-      const audioMid = b.getTransceivers().find((t) => t.kind === "audio")!.mid;
-
-      // Act: 非 tag m-line に新 generation の EOC を trickle してから answer で確定する。
-      await c.addCandidate(b, {
-        candidate: "",
-        sdpMid: audioMid,
-        usernameFragment: ufrag,
-      });
-      await c.answer(b);
-
-      // Assert: 確定した共有 transport の generation が EOC を記録し、current の全 m-line の SDP も EOC を持つ。
-      const connection = b.iceTransports[0].connection;
-      expect(connection.remoteUsername).toEqual(ufrag);
-      expect(connection.remoteCandidatesEnd).toEqual(true);
-      const current = b.currentRemoteDescription!.sdp;
-      expect(current.match(/^a=end-of-candidates/gm)!.length).toEqual(
-        current.match(/^m=/gm)!.length,
-      );
-      c.invariants(b);
-    },
-  );
-
-  negotiationCase(
-    "a final answer cannot reverse the DTLS role a first pranswer connected with",
-    { ref: "2.8-33; origin: self-review (live state)" },
-    async (c) => {
-      // Arrange: 初回 pranswer で接続した offerer の DTLS role を控える。
-      const { a, b, pranswer } = await c.given(
-        createInitialPranswerConnection(),
-      );
-      const transport = a.dtlsTransports[0];
-      const role = transport.role;
-
-      // Act / Assert: a=setup を反転した final answer は適用前に拒否され、状態は変わらない。
-      await c.setRemote(a, reverseSetupRole(pranswer), {
-        type: "answer",
-        rejects: "InvalidModificationError",
-      });
-      expect(transport.role).toBe(role);
-      expect(a.signalingState).toEqual("have-remote-pranswer");
-
-      // Act: pranswer と同じ role の final answer で確定し、通常の再交渉を行う。
-      await c.setLocal(b, pranswer, { type: "answer" });
-      await c.setRemote(a, pranswer, { type: "answer" });
-      await c.negotiate(a);
-
-      // Assert: 再交渉も成功し、role は維持される。
-      expect(a.signalingState).toEqual("stable");
-      expect(transport.role).toBe(role);
-    },
-  );
-
-  negotiationCase(
     "a saved answer commits its own codecs after an unapplied createOffer() resolved others",
     { ref: "2.8-37 2.8-38 2.9-8 2.9-T1; origin: self-review (live state)" },
     async (c) => {
@@ -1121,51 +664,6 @@ describeCases("negotiation transaction live-state regressions", () => {
   );
 
   negotiationCase(
-    "a candidate on the tag m-line after end-of-candidates on a non-tag member of a pending restart is ignored",
-    { ref: "2.8-32; origin: self-review (live state)" },
-    async (c) => {
-      // Arrange: EOC を含まない ICE restart の re-offer を answerer に適用し、非 tag (audio) の m-line に新 generation の EOC を trickle する。
-      const { a, b, outgoing, incoming } = await c.given(
-        createConnectedVideoPeers({}, { withAudio: true }),
-      );
-      a.restartIce();
-      await c.offer(a, { hold: true });
-      const ufrag = a.localDescription!.sdp.match(/^a=ice-ufrag:(\S+)/m)![1];
-      await c.setRemote(
-        b,
-        a.localDescription!.sdp.replace(/^a=end-of-candidates\r?\n/gm, ""),
-      );
-      const video = b.getTransceivers().find((t) => t.kind === "video")!.mid;
-      const audio = b.getTransceivers().find((t) => t.kind === "audio")!.mid;
-      await c.addCandidate(b, {
-        candidate: "",
-        sdpMid: audio,
-        usernameFragment: ufrag,
-      });
-
-      // Act: 同じ BUNDLE の tag (video) m-line に、同じ generation の遅延候補を送り、answer で確定する。
-      await c.addCandidate(b, trickleCandidate(49999, ufrag, video!));
-      await c.answer(b);
-      await Promise.all([
-        waitForCommittedNomination(a),
-        waitForCommittedNomination(b),
-      ]);
-
-      // Assert: 終端通知の後の候補は pending SDP にも確定後の ICE にも入らない (RFC 8838)。
-      const connection = b.iceTransports[0].connection;
-      expect(connection.remoteCandidatesEnd).toEqual(true);
-      expect(
-        connection.remoteCandidates.some(
-          (candidate) => candidate.port === 49999,
-        ),
-      ).toEqual(false);
-      expect(b.currentRemoteDescription!.sdp).not.toContain(" 49999 ");
-      c.invariants(b);
-      await c.rtp(outgoing, incoming);
-    },
-  );
-
-  negotiationCase(
     "close() while createAnswer() prepares the transports of a BUNDLE split leaves none running",
     {
       ref: "2.8-18; origin: self-review (live state)",
@@ -1194,158 +692,6 @@ describeCases("negotiation transaction live-state regressions", () => {
         "closed",
       ]);
       expect(b.connectionState).toEqual("closed");
-    },
-  );
-
-  negotiationCase(
-    "end-of-candidates on a pending restart reaches its BUNDLE group but not an m-line the offer splits off",
-    { ref: "2.8-31; origin: self-review (live state)" },
-    async (c) => {
-      // Arrange: ICE restart と BUNDLE 解除 (audio を group から外す) を行い、両 MID が同じ ufrag/pwd を持つ remote offer を、transport 準備 (createAnswer) の前まで適用する。
-      const { a, b } = await c.given(
-        createConnectedVideoPeers({}, { withAudio: true }),
-      );
-      a.restartIce();
-      const video = a.getTransceivers().find((t) => t.kind === "video")!.mid;
-      const audio = a.getTransceivers().find((t) => t.kind === "audio")!.mid;
-      const offer = await createRewrittenOffer(a, (sdp) =>
-        splitWithSharedCredentials(sdp, video!, audio!),
-      );
-      const ufrag = sectionOf(offer.sdp, video!).match(
-        /^a=ice-ufrag:(\S+)/m,
-      )![1];
-      await c.setRemote(b, offer);
-
-      // Act: video (tag) にだけ end-of-candidates を通知し、分割される audio に候補を送る。
-      await c.addCandidate(b, {
-        candidate: "",
-        sdpMid: video,
-        usernameFragment: ufrag,
-      });
-      await c.addCandidate(b, trickleCandidate(49998, ufrag, audio!));
-
-      // Assert: 終端は video の BUNDLE group だけが完了扱いになり、独立する audio は完了せず候補を受け入れる。
-      const pending = b.pendingRemoteDescription!.sdp;
-      expect(sectionOf(pending, video!)).toContain("a=end-of-candidates");
-      expect(sectionOf(pending, audio!)).not.toContain("a=end-of-candidates");
-      expect(sectionOf(pending, audio!)).toContain(" 49998 typ host");
-    },
-  );
-});
-
-/** Findings of the peer-diversity SDP mutations (negotiationTransactionMutation). */
-describeCases("negotiation transaction mutation regressions", () => {
-  negotiationCase(
-    "an answer declining BUNDLE onto the same transport keeps the ended generation complete",
-    { ref: "2.8-28 2.10-6; origin: SDP mutations" },
-    async (c) => {
-      // Arrange: 確立済み session (EOC 済み) で re-offer を両側に置く。
-      const { a, b } = await c.given(createMutationSession("renegotiation"));
-      await c.offer(a);
-      const answer = await c.answer(b, { hold: true });
-
-      // Act: BUNDLE も end-of-candidates も持たない answer を適用する。
-      await c.setRemote(
-        a,
-        mutate(answer.sdp, ["noBundle", "noEndOfCandidates"]),
-      );
-
-      // Assert: 同じ transport・ufrag の m-line はどれも終端済みとして記録される。
-      const current = a.currentRemoteDescription!.sdp;
-      expect(sectionOf(current, "0")).toContain("a=end-of-candidates");
-      expect(sectionOf(current, "1")).toContain("a=end-of-candidates");
-      c.invariants(a);
-    },
-  );
-
-  negotiationCase(
-    "new remote credentials next to an inactive m-line keep only the new remote generation's candidates",
-    {
-      ref: "2.11-13; origin: SDP mutations",
-      exempt: "the answer misdescribes b's ICE credentials",
-    },
-    async (c) => {
-      // Arrange: 確立済み session で re-offer を両側に置く。
-      const { a, b, aVideo } = await c.given(
-        createMutationSession("renegotiation"),
-      );
-      await c.offer(a);
-      const answer = await c.answer(b, { hold: true });
-
-      // Act: tag の video を inactive にし、別の資格情報を持たせた answer を適用する (develop から既存の renomination 経路: inactive の m-line と資格情報の変更)。
-      await c.setRemote(
-        a,
-        mutate(answer.sdp, ["videoInactive", "videoSeparateCredentials"]),
-      );
-
-      // Assert: live の remote generation は新しい資格情報で、前の generation の ufrag を名乗る候補は checklist に残らない。
-      const connection = aVideo.dtlsTransport.iceTransport.connection;
-      expect(connection.remoteUsername).toEqual("mutv");
-      expect(
-        connection.remoteCandidates.filter(
-          (candidate) => candidate?.ufrag && candidate.ufrag !== "mutv",
-        ),
-      ).toEqual([]);
-      c.invariants(a);
-    },
-  );
-
-  negotiationCase(
-    "new remote credentials in an answer keep the local credentials the offer described",
-    { ref: "2.10-5; origin: SDP mutations" },
-    async (c) => {
-      // Arrange: 確立済み session で re-offer を両側に置く。
-      const { a, b } = await c.given(createMutationSession("renegotiation"));
-      await c.offer(a);
-      const offered = sectionOf(a.localDescription!.sdp, "1").match(
-        /^a=ice-ufrag:(\S+)/m,
-      )![1];
-      const answer = await c.answer(b, { hold: true });
-
-      // Act: tag の video を拒否し、新しい tag の application が別の資格情報を持つ answer を適用する。
-      await c.setRemote(
-        a,
-        mutate(answer.sdp, ["separateCredentials", "videoRejected"]),
-      );
-
-      // Assert: remote は新しい資格情報で checks をやり直し、local の資格情報は offer で伝えたまま (どの SDP にも無い資格情報を作らない)。
-      const connection = a.sctpTransport!.dtlsTransport.iceTransport.connection;
-      expect(connection.remoteUsername).toEqual("mutd");
-      expect(connection.localUsername).toEqual(offered);
-      c.invariants(a);
-    },
-  );
-
-  negotiationCase(
-    "a rejected m-line does not turn a credential change into a renomination",
-    { ref: "2.10-5; origin: SDP mutations" },
-    async (c) => {
-      // Arrange: video を拒否し application に新しい資格情報を持たせた offer を b に届ける。
-      const { a, b } = await c.given(createMutationSession("renegotiation"));
-      await c.offer(a, { hold: true });
-      await c.setRemote(
-        b,
-        mutate(a.localDescription!.sdp, [
-          "separateCredentials",
-          "videoRejected",
-        ]),
-      );
-      const oldUfrag =
-        b.sctpTransport!.dtlsTransport.iceTransport.connection.localUsername;
-      await c.answer(b, { hold: true });
-
-      // Act: b が新しい資格情報で答えた answer を a に適用する。
-      await c.setRemote(a, b.localDescription);
-
-      // Assert: a の checklist に b の旧 generation の候補は残らない。
-      const connection = a.sctpTransport!.dtlsTransport.iceTransport.connection;
-      expect(connection.remoteUsername).not.toBe(oldUfrag);
-      expect(
-        connection.remoteCandidates
-          .map((candidate) => candidate?.ufrag ?? connection.remoteUsername)
-          .filter((ufrag) => ufrag !== connection.remoteUsername),
-      ).toEqual([]);
-      c.invariants(a);
     },
   );
 });
