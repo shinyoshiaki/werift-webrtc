@@ -2,20 +2,16 @@ import {
   MediaStreamTrack,
   RTCIceTransport,
   RTCRtpCodecParameters,
-  useH264,
-  useVP8,
 } from "../../../src";
 import type { RTCDtlsTransport, RTCPeerConnection } from "../../../src";
 import { describeCases, negotiationCase } from "../harness/negotiationCase";
 import {
-  trickleCandidate,
   ufragOf,
   withBundle,
   withoutEoc,
 } from "../harness/negotiationTransactionUtils";
 import {
   addNegotiatedAudio,
-  createConnectedMediaAndDataPeers,
   createConnectedVideoPeers,
   createDuplexSession,
   createPeerPair,
@@ -24,14 +20,12 @@ import {
   createSplitOffer,
   createUnnegotiatedVideoPeers,
   failOnce,
-  movePayloadType,
   negotiationInternals,
   recordNegotiationEvents,
   waitForCommittedNomination,
   waitForConnection,
   waitForDtlsConnected,
   waitForIce,
-  waitForProvisionalNomination,
 } from "../harness/negotiationTransactionUtils";
 
 /** The transport the negotiation transaction prepared for `mid` (private state). */
@@ -417,221 +411,6 @@ describeCases("negotiation transaction", () => {
   );
 
   negotiationCase(
-    "a pending payload type leaves the receiver codec table by rollback",
-    { ref: "2.4-1 2.4-3 5-13" },
-    async (c) => {
-      // Arrange: 受信側の codec/RTX 対応表を控え、H264 を新しい PT 120 で提案する re-offer を用意する (current の PT の割当ては変えない)。
-      const { a, b, outgoing, incoming } = await c.given(
-        createConnectedVideoPeers({ codecs: { video: [useVP8(), useH264()] } }),
-      );
-      const receiver = b.getTransceivers()[0].receiver;
-      const baseline = receiver.snapshotReceiveTables();
-      const committedPt = Number(
-        Object.entries(baseline.codecs).find(
-          (entry) => entry[1].mimeType === "video/VP8",
-        )![0],
-      );
-      await c.offer(a, { hold: true });
-      const h264Pt = Number(
-        a.localDescription!.sdp.match(/^a=rtpmap:(\d+) H264\/90000/im)![1],
-      );
-
-      // Act: 新 PT を含む remote offer を pending として適用する。
-      await c.setRemote(
-        b,
-        movePayloadType(a.localDescription!.sdp, h264Pt, 120),
-      );
-
-      // Assert: pending 中は新 PT が加わるが既存 PT の解釈は変わらず、旧 RTP が届く。
-      const pending = receiver.snapshotReceiveTables();
-      expect(pending.codecs[120].mimeType.toLowerCase()).toEqual("video/h264");
-      expect(pending.codecs[committedPt]).toEqual(baseline.codecs[committedPt]);
-      await c.rtp(outgoing, incoming);
-
-      // Act: 双方の pending description を rollback する。
-      await c.rollback(a);
-
-      // Assert: codec/RTX 対応表は baseline と完全に一致し、旧 RTP が届く。
-      expect(receiver.snapshotReceiveTables()).toEqual(baseline);
-      await c.rtp(outgoing, incoming);
-    },
-  );
-
-  negotiationCase(
-    "ICE restart pranswer connects a pending generation and rollback keeps current RTP",
-    { ref: "2.2-3 2.7-T2" },
-    async (c) => {
-      // Arrange: 現行 pair と ICE generation を記録する。
-      const { a, b, outgoing, incoming } = await c.given(
-        createConnectedVideoPeers(),
-      );
-      const oldOffererTransport = a.iceTransports[0];
-      const oldAnswererTransport = b.iceTransports[0];
-      const oldPair = oldOffererTransport.getSelectedCandidatePair();
-      const oldDtls = a.dtlsTransports[0];
-      const currentRemote = b.currentRemoteDescription!.sdp;
-
-      // Act: restart offer と pranswer で新しい ICE generation の checks を進める。
-      await c.offer(a, { iceRestart: true });
-      await c.pranswer(b);
-      await Promise.all([
-        waitForProvisionalNomination(a),
-        waitForProvisionalNomination(b),
-      ]);
-
-      // Assert: ICE restart は DTLS association を作り直さず、旧 pair で RTP が続く。
-      expect(a.dtlsTransports).toEqual([oldDtls]);
-      expect(oldOffererTransport.getSelectedCandidatePair()).toEqual(oldPair);
-      await c.rtp(outgoing, incoming);
-
-      // Act: 双方の pending description を破棄する。
-      await c.rollback(a);
-
-      // Assert: 旧 pair と SDP に戻り、RTP が実際に届く。
-      expect(a.iceTransports[0]).toBe(oldOffererTransport);
-      expect(b.iceTransports[0]).toBe(oldAnswererTransport);
-      expect(oldOffererTransport.getSelectedCandidatePair()).toEqual(oldPair);
-      expect(b.currentRemoteDescription!.sdp).toEqual(currentRemote);
-      await c.rtp(outgoing, incoming);
-    },
-  );
-
-  negotiationCase.for([
-    { outcome: "answer" },
-    { outcome: "rollback" },
-  ] as const)(
-    "ICE restart pranswer over a connected SCTP association checks the new generation, then $outcome",
-    { ref: "2.1-3 2.1-5 2.1-T4 2.1-T8 2.2-6 2.2-16 2.3-16 2.7-T3 2.7-T4b" },
-    async (c, { outcome }) => {
-      // Arrange: 現行 generation の selected pair と SCTP transport を控える。
-      const { a, b, outgoing, incoming, channel, received } = await c.given(
-        createConnectedMediaAndDataPeers(),
-      );
-      const offererIce = a.iceTransports[0];
-      const answererIce = b.iceTransports[0];
-      const offererPair = offererIce.connection.nominated;
-      const answererPair = answererIce.connection.nominated;
-      const sctpTransport = b.sctpTransport!.dtlsTransport;
-      const currentRemote = b.currentRemoteDescription!.sdp;
-
-      // Act: 確立済み SCTP を保つ restart offer に pranswer を返す。
-      await c.offer(a, { iceRestart: true });
-      const answer = await c.pranswer(b);
-      const [offererConnection] = await waitForProvisionalNomination(a);
-      const [answererConnection] = await waitForProvisionalNomination(b);
-
-      // Assert: pending generation は pranswer の資格情報で nominate され、current の pair・SDP・association はそのまま通信を続ける。
-      const offerUfrag = ufragOf(a.localDescription!.sdp);
-      const answerUfrag = ufragOf(b.localDescription!.sdp);
-      expect(offererConnection.provisionalNominated).not.toEqual(undefined);
-      expect(offererIce.connection.nominated).toBe(offererPair);
-      expect(answererIce.connection.nominated).toBe(answererPair);
-      expect(offererIce.connection.remoteUsername).not.toEqual(answerUfrag);
-      expect(answererIce.connection.remoteUsername).not.toEqual(offerUfrag);
-      expect(answererConnection.provisionalNominated).not.toEqual(undefined);
-      expect(b.sctpTransport!.dtlsTransport).toBe(sctpTransport);
-      expect(b.currentRemoteDescription!.sdp).toEqual(currentRemote);
-      await c.rtp(outgoing, incoming);
-      await c.data(channel, received);
-
-      if (outcome === "answer") {
-        // Act: final answer で pending generation を commit する。
-        await c.setLocal(b, answer);
-        await c.setRemote(a, b.localDescription);
-        await Promise.all([waitForIce(a), waitForIce(b)]);
-
-        // Assert: 双方の live generation が SDP と一致し、SCTP は移動しない。
-        expect(offererIce.getRemoteParameters()?.usernameFragment).toEqual(
-          answerUfrag,
-        );
-        expect(answererIce.getRemoteParameters()?.usernameFragment).toEqual(
-          offerUfrag,
-        );
-        expect(answererIce.localParameters.usernameFragment).toEqual(
-          answerUfrag,
-        );
-      } else {
-        // Act: 双方の pending description を rollback する。
-        await c.rollback(a);
-
-        // Assert: provisional generation は破棄され、current pair が残る。
-        expect(offererIce.connection?.provisionalNominated).toEqual(undefined);
-        expect(answererIce.connection?.provisionalNominated).toEqual(undefined);
-        expect(offererIce.connection.nominated).toBe(offererPair);
-        expect(answererIce.connection.nominated).toBe(answererPair);
-        expect(b.currentRemoteDescription!.sdp).toEqual(currentRemote);
-      }
-
-      // Assert: commit/rollback 後も同じ association で RTP と DataChannel が届く。
-      expect(b.sctpTransport!.dtlsTransport).toBe(sctpTransport);
-      await c.rtp(outgoing, incoming);
-      await c.data(channel, received);
-      await c.data(received, channel);
-    },
-  );
-
-  negotiationCase(
-    "rollback removes remote-only objects and a repeated offer does not duplicate events",
-    {
-      ref: "2.1-7 2.1-10 2.1-T1 2.2-2 2.3-1 2.3-3 2.3-4 2.3-6 2.3-8 2.3-21 2.3-23 5-4",
-    },
-    async (c) => {
-      // Arrange: remote offer が初回の transceiver を生成する。
-      const { a, b } = await c.given(createPeerPair());
-      const onTrack = vi.fn();
-      const onRemoteTransceiver = vi.fn();
-      b.onTrack.subscribe(onTrack);
-      b.onRemoteTransceiverAdded.subscribe(onRemoteTransceiver);
-      a.addTransceiver("audio");
-      const offer = await a.createOffer();
-
-      // Act: 同じ offer を再適用してから rollback する。
-      await c.setRemote(b, offer);
-      await c.setRemote(b, offer);
-
-      // Assert: 同じ receiver と transceiver への通知は一度だけ。
-      expect(onRemoteTransceiver.mock.calls.length).toEqual(1);
-      expect(onTrack.mock.calls.length).toEqual(1);
-      const oldTransceiver = b.getTransceivers()[0];
-      await c.setRemote(b, "rollback");
-      expect(b.getTransceivers().length).toEqual(0);
-      expect(oldTransceiver.stopped).toEqual(true);
-
-      // Act: rollback 後の新しい offer は新しい object を作る。
-      await c.setRemote(b, offer);
-
-      // Assert: 新しい receiver 遷移に対する通知だけが追加される。
-      expect(onRemoteTransceiver.mock.calls.length).toEqual(2);
-      expect(onTrack.mock.calls.length).toEqual(2);
-      expect(b.getTransceivers()[0]).not.toBe(oldTransceiver);
-    },
-  );
-
-  negotiationCase(
-    "rollback keeps a remote-created transceiver that received a local track",
-    { ref: "2.3-5 2.3-7 2.8-36" },
-    async (c) => {
-      // Arrange: remote offer で作成された transceiver に application が送信 track を付ける。
-      const { a, b } = await c.given(createPeerPair());
-      const localTrack = new MediaStreamTrack({ kind: "audio" });
-      a.addTransceiver("audio", { direction: "sendonly" });
-      const offer = await a.createOffer();
-      await c.setRemote(b, offer);
-      const transceiver = b.getTransceivers()[0];
-      b.addTrack(localTrack);
-
-      // Act: remote offer を取り消す。
-      await c.setRemote(b, "rollback");
-
-      // Assert: application 所有の sender/track は残り、旧 m-line との関連だけ外れる。
-      expect(b.getTransceivers()).toContain(transceiver);
-      expect(transceiver.sender.track).toBe(localTrack);
-      expect(transceiver.mid).toEqual(null);
-      expect(transceiver?.mLineIndex).toEqual(undefined);
-    },
-  );
-
-  negotiationCase(
     "setLocalDescription accepts only the last created offer",
     { ref: "2.9-4 2.9-T10 2.9-T11" },
     async (c) => {
@@ -829,141 +608,6 @@ describeCases("negotiation transaction", () => {
   );
 
   negotiationCase(
-    "a final answer can replace provisional SCTP limits without another channel event",
-    { ref: "2.2-5 2.2-12 2.2-15 2.3-18 5-4" },
-    async (c) => {
-      // Arrange: application offer と provisional answer を作る。
-      const { a, b } = await c.given(createPeerPair());
-      const channel = a.createDataChannel("limits");
-      const onDataChannel = vi.fn();
-      b.onDataChannel.subscribe(onDataChannel);
-      await c.offer(a);
-      const answer = await b.createAnswer();
-      const maxMessageSize = (size: number) =>
-        answer.sdp.replace(
-          /a=max-message-size:[^\r\n]+/,
-          "a=max-message-size:" + size,
-        );
-      await c.setLocal(b, maxMessageSize(4096), { type: "pranswer" });
-      await c.setRemote(a, b.localDescription);
-      await c.waitFor(() => channel.readyState === "open", 5000);
-
-      // Act: provisional answer を置換しても既存 channel object を再通知しない。
-      await c.setLocal(b, maxMessageSize(3072), { type: "pranswer" });
-      await c.setRemote(a, b.localDescription);
-      expect(a.currentRemoteDescription).toEqual(null);
-      expect(channel.readyState).toEqual("open");
-
-      // Act: 最終 answer では別の max-message-size を採用する。
-      await c.setLocal(b, maxMessageSize(2048), { type: "answer" });
-      await c.setRemote(a, b.localDescription);
-
-      // Assert: final SDP と association の上限が一致し、channel は再通知されない。
-      expect(a.sctpTransport!.remoteMaxMessageSize).toEqual(2048);
-      expect(channel.readyState).toEqual("open");
-      expect(onDataChannel.mock.calls.length).toEqual(1);
-    },
-  );
-
-  negotiationCase(
-    "duplicate trickle candidate and EOC are idempotent within one generation",
-    { ref: "2.1-10 2.3-21" },
-    async (c) => {
-      // Arrange: gathered candidate と EOC を含む offer を適用する。
-      const { a, b } = await c.given(createPeerPair());
-      a.addTransceiver("audio");
-      await c.offer(a);
-      const sdp = b.remoteDescription!.sdp;
-      const mid = sdp.match(/a=mid:([^\r\n]+)/)![1];
-      const candidate = {
-        candidate: sdp.match(/a=(candidate:[^\r\n]+)/)![1],
-        sdpMid: mid,
-        usernameFragment: ufragOf(sdp),
-      };
-      const eoc = {
-        candidate: "",
-        sdpMid: mid,
-        usernameFragment: ufragOf(sdp),
-      };
-      const beforeCount = b.iceTransports[0].getRemoteCandidates().length;
-
-      // Act: 同じ candidate と EOC を二度ずつ trickle する。
-      await c.addCandidate(b, candidate);
-      await c.addCandidate(b, candidate);
-      await c.addCandidate(b, eoc);
-      await c.addCandidate(b, eoc);
-
-      // Assert: description と ICE checklist に重複しない。
-      expect(b.remoteDescription!.sdp).toEqual(sdp);
-      expect(b.iceTransports[0].getRemoteCandidates().length).toEqual(
-        beforeCount,
-      );
-    },
-  );
-
-  negotiationCase(
-    "both peers commit matching local and remote ICE restart generations",
-    { ref: "2.1-T7 2.2-3 2.2-6 2.7-T1 2.7-T3 2.7-T4a 5-K6" },
-    async (c) => {
-      // Arrange: current nomination と generation を控える。
-      const { a, b, outgoing, incoming } = await c.given(
-        createConnectedVideoPeers(),
-      );
-      const oldGeneration = a.iceGeneration;
-      const oldPair = a.iceTransports[0].getSelectedCandidatePair();
-      const oldDtls = a.dtlsTransports[0];
-
-      // Act: local restart offer は pending に置き、旧 nomination を維持する。
-      const offer = await a.createOffer({ iceRestart: true });
-      const offeredUfrag = ufragOf(offer.sdp);
-      expect(a.iceGeneration).toEqual(oldGeneration);
-      await c.setLocal(a, offer);
-      expect(a.iceTransports[0].getSelectedCandidatePair()).toEqual(oldPair);
-      await c.rtp(outgoing, incoming);
-
-      // Act: remote peer も新 generation を answer し、双方で確定する。
-      await c.setRemote(b, a.localDescription);
-      const answer = await b.createAnswer();
-      const answeredUfrag = ufragOf(answer.sdp);
-      await c.setLocal(b, answer, { type: "pranswer" });
-      await c.setRemote(a, b.localDescription);
-
-      // Assert: pranswer だけで新しい ICE generation が provisional に nominate される。
-      await Promise.all([
-        waitForProvisionalNomination(a),
-        waitForProvisionalNomination(b),
-      ]);
-
-      // Assert: pranswer 中は旧 nomination で RTP が続き、current は旧 SDP のまま。
-      expect(a.iceTransports[0].getSelectedCandidatePair()).toEqual(oldPair);
-      expect(a.iceGeneration).toEqual(oldGeneration);
-      await c.rtp(outgoing, incoming);
-
-      // Act: 最終 answer で新 generation へ切り替える。
-      await c.setLocal(b, answer);
-      await c.setRemote(a, b.localDescription);
-      await Promise.all([
-        waitForIce(a),
-        waitForIce(b),
-        waitForConnection(a),
-        waitForConnection(b),
-      ]);
-
-      // Assert: answer SDP、transport credentials と新 nomination が一致し、DTLS association は restart 前のものを使い続ける。
-      expect(a.dtlsTransports).toEqual([oldDtls]);
-      expect(a.iceGeneration).toBeGreaterThan(oldGeneration);
-      expect(a.iceTransports[0].localParameters.usernameFragment).toEqual(
-        offeredUfrag,
-      );
-      expect(b.iceTransports[0].localParameters.usernameFragment).toEqual(
-        answeredUfrag,
-      );
-      expect(a.iceTransports[0].getSelectedCandidatePair()).not.toEqual(null);
-      await c.rtp(outgoing, incoming);
-    },
-  );
-
-  negotiationCase(
     "partial BUNDLE keeps an unbundled media transport independent",
     { ref: "origin: partial BUNDLE (RFC 8843 7.3.2)" },
     async (c) => {
@@ -1078,47 +722,6 @@ describeCases("negotiation transaction", () => {
 
       // Act / Assert: 破棄済み generation の遅延 candidate は次回用キューに入らない。
       await c.addCandidate(b, candidate, { rejects: "OperationError" });
-    },
-  );
-
-  negotiationCase(
-    "a trickle candidate of the unchanged ICE generation reaches the live checklist during a re-offer",
-    { ref: "origin: same-generation trickle during a re-offer" },
-    async (c) => {
-      // Arrange: EOC 前の世代のまま ICE restart なしの re-offer を pending にし、同じ ufrag の新しい候補を作る。
-      const { a, b, outgoing, incoming } = await c.given(
-        createConnectedVideoPeers({}, { trickleOpen: true }),
-      );
-      await c.offer(a, { hold: true });
-      await c.setRemote(b, withoutEoc(a.localDescription!.sdp));
-      const offer = a.localDescription!.sdp;
-      const candidate = trickleCandidate(
-        40999,
-        ufragOf(offer),
-        offer.match(/^a=mid:(.*?)\r?$/m)![1],
-      );
-      const live = () =>
-        b.iceTransports[0].connection.remoteCandidates.filter(
-          (r) => r.port === 40999,
-        ).length;
-      expect(live()).toEqual(0);
-
-      // Act: 同じ候補を 2 回 trickle する。
-      await c.addCandidate(b, candidate);
-      await c.addCandidate(b, candidate);
-
-      // Assert: pending と current の両 SDP に記録され、稼働中 checklist には 1 回だけ届く。
-      expect(b.pendingRemoteDescription!.sdp).toContain(" 40999 typ host");
-      expect(b.currentRemoteDescription!.sdp).toContain(" 40999 typ host");
-      expect(live()).toEqual(1);
-
-      // Act: re-offer を rollback する。
-      await c.rollback(b);
-
-      // Assert: 同じ世代の候補は current に残り、既存 RTP も届く。
-      expect(b.currentRemoteDescription!.sdp).toContain(" 40999 typ host");
-      expect(live()).toEqual(1);
-      await c.rtp(outgoing, incoming);
     },
   );
 });

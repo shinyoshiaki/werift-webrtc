@@ -1661,15 +1661,40 @@ export class RTCPeerConnection extends EventTarget {
         }
 
         if (remoteSdp.type === "answer") {
-          // answer に含まれない既存 m-line は remote 起因の停止として確定する
+          // answer に含まれない既存 m-line は remote 起因の停止として確定する。
+          // 適用していない createOffer が予約しただけの MID (answer する offer にも
+          // current にも m-line がない) は m-line を持たないので停止せず、予約を
+          // 外す (確定した session の後の remote offer がその MID を使える)。その
+          // offer を後で適用するときは生成記録から MID を取り直す。
+          const described = new Set(
+            [
+              this.sdpManager.pendingLocalDescription,
+              this.sdpManager.currentLocalDescription,
+            ].flatMap(
+              (description) =>
+                description?.media.map((media) => media.rtp.muxId) ?? [],
+            ),
+          );
           for (const transceiver of this.transceiverManager.getTransceivers()) {
             if (
-              !associated.has(transceiver) &&
-              transceiver.mid != undefined &&
-              !transceiver.stopped
+              associated.has(transceiver) ||
+              transceiver.mid == undefined ||
+              transceiver.stopped
             ) {
-              transceiver.commitStopped({ rejected: true });
+              continue;
             }
+            if (described.has(transceiver.mid)) {
+              transceiver.commitStopped({ rejected: true });
+            } else {
+              transceiver.mid = null;
+              transceiver.mLineIndex = undefined;
+            }
+          }
+          // SCTP の予約だけの MID も同じく外す。
+          const sctp = this.sctpTransport;
+          if (sctp?.mid != undefined && !described.has(sctp.mid)) {
+            sctp.mid = undefined;
+            sctp.mLineIndex = undefined;
           }
         }
       } catch (error) {

@@ -1,8 +1,12 @@
 import { expect } from "vitest";
 
+import { SessionDescription } from "../../src";
 import type {
   RTCDataChannel,
+  RTCDtlsTransport,
+  RTCIceTransport,
   RTCPeerConnection,
+  RTCRtpReceiver,
   RTCRtpTransceiver,
 } from "../../src";
 import type {
@@ -42,13 +46,31 @@ import {
  * - commit: once both peers have the same current session, the
  *   `currentDirection` of every m-line mirrors the other peer's and every
  *   sending codec is in the other peer's receive table.
- * - channels: a DataChannel open on a committed session stays open.
+ * - channels: a DataChannel open on a committed session stays open; a
+ *   remote channel is announced once.
+ * - feedback: after a packet of payload type P reached a receiver, a PLI
+ *   request leaves it exactly when P's effective `a=rtcp-fb` has `nack pli`,
+ *   and transport-cc feedback runs when it has `transport-cc`. The effective
+ *   feedback of P is the receiver's current remote description's when the
+ *   current session has P on that m-line (a pending change is staged until
+ *   the final answer), else the pending remote description's (an added
+ *   payload type applies at once). An operation that commits nothing never
+ *   starts transport-cc feedback for a packet whose codec lacks it, and
+ *   rollback returns it to the start of the transaction.
+ * - ice: an operation that commits nothing keeps the selected pair of every
+ *   connected ICE transport (a restart checks its new generation beside it).
+ * - continuity: at a commit, an m-line of the previous and the new current
+ *   session that keeps its BUNDLE transport (same tag, or unbundled in
+ *   both) keeps its DTLS transport object (no new handshake, RFC 8843).
  * (A rejected operation changing nothing is checked by the harness.)
  */
 type World = ReturnType<typeof world>;
 
 const bare = (sdp?: string | null) =>
   sdp?.replace(/^a=(candidate:|end-of-candidates).*\r?\n/gm, "");
+/** An applied SDP as the peer stores it (parsed and written again), without candidates. */
+const stored = (sdp?: string) =>
+  sdp === undefined ? undefined : bare(SessionDescription.parse(sdp).string);
 
 function world(pc: RTCPeerConnection) {
   const snapshot = negotiationSnapshot(pc);
@@ -59,13 +81,112 @@ function world(pc: RTCPeerConnection) {
     pendingLocal: bare(snapshot.pendingLocal),
     pendingRemote: bare(snapshot.pendingRemote),
     objects: [...pc.getTransceivers()],
-    sendParams: pc.getTransceivers().map((t) => t.sender.snapshotSendParams()),
+    sendParams: pc.getTransceivers().map((t) => liveSendParams(t)),
     receiveTables: pc
       .getTransceivers()
       .map((t) => t.receiver.snapshotReceiveTables()),
     iceObjects: [...pc.iceTransports],
     routes: routes(pc, pc.getTransceivers()),
+    twcc: pc.getTransceivers().map((t) => !!t.receiver.receiverTWCC),
+    transports: transportsByMid(pc),
   };
+}
+
+/**
+ * The send parameters a negotiation decides. The codec a pending remote
+ * offer proposes for the answer (`proposedPrimaryCodec`) is not live (a
+ * createOffer while the offer is pending may resolve it again, 2.5-17), and
+ * the track is the application's (a rollback keeps a replaced track).
+ */
+function liveSendParams(t: RTCRtpTransceiver) {
+  const {
+    proposedPrimaryCodec: _proposed,
+    track: _track,
+    trackCodec: _trackCodec,
+    ...live
+  } = t.sender.snapshotSendParams();
+  return live;
+}
+
+/** The DTLS transport each MID of `pc` uses (transceivers and SCTP). */
+function transportsByMid(pc: RTCPeerConnection) {
+  const map = new Map<string, RTCDtlsTransport>();
+  for (const t of pc.getTransceivers()) {
+    if (t.mid != undefined && !t.stopped) map.set(t.mid, t.dtlsTransport);
+  }
+  if (pc.sctpTransport?.mid != undefined) {
+    map.set(pc.sctpTransport.mid, pc.sctpTransport.dtlsTransport);
+  }
+  return map;
+}
+
+/** The transport key of `mid` in `sdp`: its BUNDLE tag, or itself when unbundled. */
+function transportKey(sdp: string | undefined, mid: string) {
+  const sections = sdp?.split(/(?=^m=)/m) ?? [];
+  const section = sections.find((s) => s.includes(`a=mid:${mid}\r`));
+  if (!section || /^m=\S+ 0 /.test(section)) return undefined;
+  for (const [, group] of sdp!.matchAll(/^a=group:BUNDLE ([^\r\n]+)/gm)) {
+    const mids = group.trim().split(" ");
+    if (mids.includes(mid)) return `bundle:${mids[0]}`;
+  }
+  return `own:${mid}`;
+}
+
+/** The `a=rtcp-fb` values of payload type `pt` in an m-section. */
+function feedbackOf(section: string, pt: number) {
+  return section
+    .split(/\r?\n/)
+    .filter(
+      (line) =>
+        line.startsWith(`a=rtcp-fb:${pt} `) || line.startsWith("a=rtcp-fb:* "),
+    )
+    .map((line) => line.slice(line.indexOf(" ") + 1));
+}
+
+/**
+ * The effective `a=rtcp-fb` of payload type `pt` for the receiver of `mid`:
+ * the current remote description's if the current session has `pt` on that
+ * m-line, else the pending remote description's (undefined: neither has it).
+ */
+function effectiveFeedback(pc: RTCPeerConnection, mid: string, pt: number) {
+  const section = (sdp?: string) =>
+    sdp
+      ?.split(/(?=^m=)/m)
+      .find((s) => s.includes(`a=mid:${mid}\r`) && !/^m=\S+ 0 /.test(s));
+  const hasPt = (s?: string) =>
+    !!s && s.split(/\r?\n/)[0].split(" ").slice(3).includes(String(pt));
+  const current = section(pc.currentRemoteDescription?.sdp);
+  if (hasPt(current)) return feedbackOf(current!, pt);
+  const pending = section(pc.pendingRemoteDescription?.sdp);
+  if (hasPt(pending)) return feedbackOf(pending!, pt);
+  return undefined;
+}
+
+/** Whether `action` makes `receiver` send an RTCP packet of `type` / `count` (FMT). */
+async function rtcpSent(
+  receiver: RTCRtpReceiver,
+  type: number,
+  count: number,
+  action: () => Promise<unknown>,
+) {
+  const transport = receiver.dtlsTransport;
+  const original = transport.sendRtcp;
+  let sent = false;
+  transport.sendRtcp = (packets) => {
+    for (const packet of packets as {
+      type: number;
+      feedback?: { count: number };
+    }[]) {
+      if (packet.type === type && packet.feedback?.count === count) sent = true;
+    }
+    return original.call(transport, packets);
+  };
+  try {
+    await action();
+  } finally {
+    transport.sendRtcp = original;
+  }
+  return sent;
 }
 
 /**
@@ -146,6 +267,10 @@ type Before = {
   other?: World;
   counts: number[];
   signaling: number;
+  /** Receivers whose transport-cc feedback ran (both peers). */
+  twcc: Set<RTCRtpReceiver>;
+  /** The selected pair of every connected ICE transport (both peers). */
+  pairs: Map<RTCIceTransport, unknown>;
 };
 
 export class ModelOracles implements Observer {
@@ -188,15 +313,34 @@ export class ModelOracles implements Observer {
 
   before(pc: RTCPeerConnection): Before {
     const other = this.other(pc);
+    const peers = [...this.events.keys()];
+    const twcc = new Set<RTCRtpReceiver>();
+    const pairs = new Map<RTCIceTransport, unknown>();
+    for (const peer of peers) {
+      for (const t of peer.getTransceivers()) {
+        if (t.receiver.receiverTWCC) twcc.add(t.receiver);
+      }
+      for (const transport of peer.iceTransports) {
+        const nominated = transport.connection?.nominated;
+        if (
+          transport.state === "connected" ||
+          transport.state === "completed"
+        ) {
+          if (nominated) pairs.set(transport, nominated);
+        }
+      }
+    }
     return {
       self: world(pc),
       other: other && world(other),
       counts: this.counts(pc),
       signaling: this.events.get(pc)!.signaling.length,
+      twcc,
+      pairs,
     };
   }
 
-  after(step: AppliedStep, raw: unknown) {
+  async after(step: AppliedStep, raw: unknown) {
     const { pc } = step;
     const before = raw as Before;
     if (pc.signalingState === "closed") return;
@@ -232,6 +376,18 @@ export class ModelOracles implements Observer {
         );
       }
     }
+    this.announcedOnce(pc, label);
+    for (const t of pc.getTransceivers()) {
+      // m-line のない transceiver は (停止したものを除き) currentDirection を持たない。
+      if (t.mid == undefined && !t.stopped) {
+        expect(
+          t.currentDirection ?? null,
+          `${label}: a transceiver without an m-line has a direction`,
+        ).toBe(null);
+      }
+    }
+    await this.feedback(step, before, label);
+    this.selectedPairs(step, before, label);
     if (this.idempotent || step.type === "rollback") {
       // rollback と同じ description の再適用は track・transceiver・channel を通知しない。
       expect(this.counts(pc), `${label}: new events`).toEqual(before.counts);
@@ -362,7 +518,7 @@ export class ModelOracles implements Observer {
       ).toEqual([undefined, undefined]);
       if (local) {
         expect(structure(now.currentLocal), label).toEqual(structure(step.sdp));
-      } else expect(now.currentRemote, label).toBe(bare(step.sdp));
+      } else expect(now.currentRemote, label).toBe(stored(step.sdp));
       return;
     }
     // offer / pranswer / rollback は current を変えない。
@@ -379,7 +535,7 @@ export class ModelOracles implements Observer {
       // local の offer は分割した m-line の資格情報などが書き直されうる (m-line の構成は同じ)。
       expect(structure(now.pendingLocal), label).toEqual(structure(step.sdp));
     } else {
-      expect(now.pendingRemote, label).toBe(bare(step.sdp));
+      expect(now.pendingRemote, label).toBe(stored(step.sdp));
     }
   }
 
@@ -397,6 +553,8 @@ export class ModelOracles implements Observer {
     if (now.signalingState !== "stable") return;
     const baseline = this.baselines.get(pc);
     this.baselines.delete(pc);
+    if (step.type === "answer" && baseline)
+      this.continuity(baseline, now, label);
     if (step.type !== "rollback" || !baseline) return;
     expect(
       restored(now, baseline, now),
@@ -441,10 +599,112 @@ export class ModelOracles implements Observer {
     }
     for (const t of now.objects) {
       if (baseline.objects.includes(t)) continue;
-      // pending 中にアプリが足した transceiver は MID を持たずに残る。
+      // remote offer が作っただけの transceiver は rollback で消える (W3C)。
+      expect(
+        this.applicationTransceivers.has(t),
+        `${label}: a transceiver the remote offer created stayed`,
+      ).toBe(true);
+      // pending 中にアプリが足した (または track を付けて残した) transceiver は
+      // MID を持たず、作成時の状態 (方向・受信表・受信経路なし) で残る。送信側の
+      // SSRC 経路はアプリの状態なので残る (Routing keys)。
+      const { ssrc, rid } = routes(pc, [t]);
+      const receiving = [...Object.values(ssrc), ...Object.values(rid)].filter(
+        (endpoint) => endpoint === 1,
+      );
       expect(t.mid, `${label}: a transceiver added meanwhile kept a MID`).toBe(
         null,
       );
+      expect(
+        [
+          t.currentDirection ?? null,
+          t.receiver.snapshotReceiveTables().codecs,
+          receiving.length,
+        ],
+        `${label}: a kept transceiver kept negotiated state`,
+      ).toEqual([null, {}, 0]);
+    }
+    if (!pc.currentRemoteDescription) {
+      // 確定した session がなければ、接続状態も最初の new に戻る。
+      expect(
+        [pc.connectionState, pc.iceConnectionState],
+        `${label}: connection states without a session`,
+      ).toEqual(["new", "new"]);
+    }
+    // pending 中に始まった transport-cc feedback は止まり、交渉前のものは残る。
+    expect(
+      baseline.objects.map((t) => now.twcc[now.objects.indexOf(t)]),
+      `${label}: transport-cc feedback`,
+    ).toEqual(baseline.twcc);
+  }
+
+  /**
+   * continuity: an m-line that keeps its BUNDLE transport across a commit
+   * keeps its DTLS transport object.
+   */
+  private continuity(baseline: World, now: World, label: string) {
+    for (const [mid, transport] of baseline.transports) {
+      const before = transportKey(baseline.currentLocal, mid);
+      const after = transportKey(now.currentLocal, mid);
+      if (!before || before !== after || !now.transports.has(mid)) continue;
+      // 同じ BUNDLE transport に残る m-line は DTLS をやり直さない。
+      expect(
+        now.transports.get(mid) === transport,
+        `${label}: the DTLS transport of ${mid} was replaced`,
+      ).toBe(true);
+    }
+  }
+
+  /** channels: each remote DataChannel is announced once while it is open. */
+  private announcedOnce(pc: RTCPeerConnection, label: string) {
+    const open = this.events
+      .get(pc)!
+      .dataChannels.filter((channel) => channel.readyState !== "closed");
+    const ids = open.map((channel) => channel.id);
+    expect(
+      new Set(ids).size,
+      `${label}: a DataChannel was announced twice (${ids})`,
+    ).toBe(ids.length);
+  }
+
+  /**
+   * feedback: PLI and transport-cc follow the effective `a=rtcp-fb` of the
+   * payload type each delivered packet had.
+   */
+  private async feedback(step: AppliedStep, before: Before, label: string) {
+    const commits = step.type === "answer" || step.type === "rollback";
+    for (const d of this.c.delivered) {
+      const { receiver, sender, payloadType } = d;
+      if (payloadType == undefined || receiver.mid == undefined) continue;
+      if (d.to.signalingState === "closed") continue;
+      const fb = effectiveFeedback(d.to, receiver.mid, payloadType);
+      if (!fb) continue;
+      const what = `${label}: ${receiver.mid} PT ${payloadType} (${fb})`;
+      // PLI の要求は、その payload type に nack pli があるときだけ送られる。
+      const pli = await rtcpSent(receiver.receiver, 206, 1, () =>
+        receiver.receiver.sendRtcpPLI(sender.sender.ssrc),
+      );
+      expect(pli, `${what}: PLI`).toBe(fb.includes("nack pli"));
+      const running = !!receiver.receiver.receiverTWCC;
+      if (fb.includes("transport-cc")) {
+        // transport-cc を交渉した codec の packet を受けたら feedback が動く。
+        expect(running, `${what}: transport-cc not running`).toBe(true);
+      } else if (!commits && !before.twcc.has(receiver.receiver)) {
+        // 何も確定しない操作は、transport-cc のない packet で feedback を始めない。
+        expect(running, `${what}: transport-cc started`).toBe(false);
+      }
+    }
+  }
+
+  /** ice: an operation that commits nothing keeps every selected pair. */
+  private selectedPairs(step: AppliedStep, before: Before, label: string) {
+    if (step.type === "answer") return;
+    for (const [transport, pair] of before.pairs) {
+      if (transport.state === "closed") continue;
+      // restart の pending 中も、確定済みの選択ペアで通信を続ける。
+      expect(
+        transport.connection?.nominated === pair,
+        `${label}: the selected pair of a connected transport changed`,
+      ).toBe(true);
     }
   }
 
@@ -507,10 +767,7 @@ export class ModelOracles implements Observer {
     const [a, b] = [...this.events.keys()];
     if (
       [a, b].some((pc) => pc.signalingState !== "stable") ||
-      bare(a.currentLocalDescription?.sdp) !==
-        bare(b.currentRemoteDescription?.sdp) ||
-      bare(b.currentLocalDescription?.sdp) !==
-        bare(a.currentRemoteDescription?.sdp)
+      !this.c.sameSession(a, b)
     ) {
       return;
     }

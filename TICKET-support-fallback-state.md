@@ -494,6 +494,70 @@ provisional の checklist は live と同じ規則に従う: 候補から作る 
   - `--jobs 24`: 負荷によって scenario の seed が失敗し、単独の再実行では通った（flaky）。再実行の分だけ遅くなり 280 秒だったので、既定は CPU 数にした。
   - I3 を入れた一時 worktree では、モデル seed 3・6・7・8 など（8 seed 中）が FAILED として、再現用の環境変数とともに出力された。
 
+### 2.19 通信路の SDP 書き換えと受信 feedback をモデル property に加え、ケースを固定シーンに置き換える（追加要件）
+
+**要件**: ケーステストを直接の移植ではない性質ベースのテストへ寄せる。進め方は案 1（通信路で SDP を書き換える操作を生成器に足す）→ 案 2（受信 feedback のオラクル）→ 案 4（残りの「操作列＋公開状態」を固定シーンにする）。案 3（設定を生成の軸にする）は後回し。間違えると相互運用が壊れるもの（ICE・DTLS role・BUNDLE・RFC の codec 規則などの具体値）はケースに残す。オラクルによる網羅は仕様対応表で covered と数える。CI の seed 数は現状維持（4 seed × 10 step）。
+
+**実施内容**
+
+- 案 1（`tests/pbt/modelMutations.ts`、操作 `wireOffer` / `wireReply`）: offer・pranswer・answer を配送する途中で 19 種の書き換えのどれかを掛ける。
+  - 同じ session を表すもの（8 種）: codec の部分集合・逆順、fmtp、NACK・PLI・transport-cc の削除、max-message-size、end-of-candidates の削除。両 peer は一致したままとみなし（ハーネスの `c.equivalent`）、通信と commit のオラクルも掛かる。
+  - 送り手を誤って記述するもの（11 種）: m-line の inactive・拒否、SSRC の入れ替え・更新、RTX の削除、payload type の付け替え、header extension ID の移動・入れ替え。次の書き換えのない交渉で session が回復することを求める。
+  - current の session が交渉した payload type や header extension ID を付け替える書き換え（RFC 3264 8.3.2、RFC 8285 7）は `InvalidModificationError` での拒否を求める。それ以外は受理か、状態を変えない拒否のどちらでもよい。拒否された後は元の description を配送する。
+  - final answer には同じ session を表す書き換えだけを使う（answerer が自分の answer と違う session を持ち続ける状態は、実在の peer 同士では起きないため）。
+- 案 2（`modelOracles.ts`）:
+  - feedback: 受信した packet の payload type について、PLI は実効の `a=rtcp-fb` に `nack pli` があるときだけ送られ、transport-cc があれば feedback が動く。実効値は、current がその payload type を持てば current の remote description、なければ pending のもの。確定しない操作は、transport-cc のない packet で feedback を始めない。rollback で交渉前に戻る。
+  - ice: 確定しない操作は、接続済み transport の選択ペアを変えない。
+  - commit 時の継続: BUNDLE の transport が変わらない m-line は DTLS transport をやり直さない。
+  - そのほかの追加: remote DataChannel の通知は 1 回。m-line のない transceiver は currentDirection を持たない。rollback では、remote offer が作っただけの transceiver を消し、残す transceiver は作成時の状態に戻し、確定した session がなければ接続状態を new に戻す。
+- 生成器:
+  - 両 peer の設定（`modelConfig`）: VP8（NACK・PLI・REMB・transport-cc）と RTX、H264、Opus、PCMU、MID と transport-cc の header extension。
+  - 操作の追加: remote offer の pending 中のアプリ操作（track の取り付け・direction・codec preferences・stop。remote offer が作った transceiver も対象）、createAnswer と適用の間に preferences か track を変える answer（`lateAnswer`）、接続を待って通信を確かめる `settle`、description にある候補そのものの trickle。
+- 性質の定義を直したもの（どれも実装は設計どおり）:
+  - peer は適用した SDP を解析し直した形で持つ。
+  - answer は offer の payload type を使うのが SHOULD（RFC 3264 6.1）なので、invariant は payload type か codec 名の一致で交渉済みとみなす。
+  - rtx codec を交渉していない m-line の FID は経路を持たない（current と pranswer の invariant）。
+  - createOffer が pending 中に解決し直す提案用の codec（`proposedPrimaryCodec`）と、アプリが付けた track は、rollback と create の比較から外す。
+  - 停止した transceiver は MID がなくても `stopped`。
+  - 送信側の SSRC 経路はアプリの状態なので rollback で残る。
+  - 通信の前提に pending の一致も含める。
+  - 入れ替え系の書き換えは、付け替えになるときだけ使う。
+  - codec preferences は先頭の codec だけか全体の逆順に限る（互いに共通の codec がない preferences では develop と同じく SRD が NotSupportedError を返す）。
+  - テスト補助 `rewriteVideoFeedback` が CRLF を壊して `nack pli\n` を作っていたのを直した。
+- モデル property が見つけて直した実装の不具合（いずれも develop にもある。各固定シーンは修正前の実装で失敗する）:
+  1. PLI を `nack pli` ではなく任意の `nack` で許していた（`media/rtpReceiver.ts`、RFC 4585）。
+  2. end-of-candidates で適用済みの local description を書き直すとき、最初の max-compat offer で独自の transport を持ち、BUNDLE で tag の transport に移った m-line の資格情報を tag のものに書き換え、current local description が交渉の外で変わっていた（`sdpManager.ts`）。
+  3. 適用していない createOffer が予約しただけの MID を、answer が拒否された m-line として停止していた。相手の次の m-line がその MID だと port 0 で答えていた（`peerConnection.ts`）。
+  4. 3 と同じく、予約しただけの SCTP の MID が answer の後も残り、相手の次の MID と重複していた（`peerConnection.ts`）。
+  5. answer が RTX を主 codec より前に並べると、RTX の対応が登録されなかった（`transceiverManager.ts`）。
+- 案 4: オラクルで判定できる 29 宣言（展開 37 件）を固定シーンに置き換えた（NT 9、CovC 5、Reg 11、Dev 2、EV 1、Route 1）。2.18 で戻した R2・I2・C3 の 3 宣言も含む。対応は `NEGOTIATION_CASES_MAPPING.md`、仕様 ID の参照先は `Model (scene)` に変えた（covered 251・partial 2 は変わらない）。残した 114 宣言の内訳:
+  - タイミング・モック・TURN・close: 45 宣言・1,807 行
+  - ICE・DTLS・BUNDLE（相互運用）: 34 宣言・1,284 行
+  - 設定・codec の RFC 規則: 8 宣言・254 行
+  - simulcast: 6 宣言・168 行
+  - その他（内部状態・W3C の個別規則・イベント）: 21 宣言・731 行
+- 行数（宣言の行範囲、2.14 と同じ集計）:
+  - ケース: 143 宣言・5,316 行 → 114 宣言・4,244 行（−1,072 行、−20.2%）。ファイル全体は 6,772 → 5,599 行。
+  - 固定シーン（`modelScenes.ts`）: 257 → 544 行（20 → 51 件）。
+  - ケースと固定シーンの合計: 5,573 → 4,788 行（−14.1%）。
+  - 基盤（評価から除外）: モデル property の基盤 1,080 → 1,709 行（`modelOracles.ts` 819、`modelPropertyUtils.ts` 606、`modelMutations.ts` 198、テスト 86）。ハーネスは +117 / −90 行（削除したケースだけが使っていた補助 5 つを外した分を含む）。`tools/negotiation-diff/compare.ts` は +15 / −1 行。
+  - src: +56 / −11 行。
+- 検出力（一時 worktree、修正後の src に 2.14 の 32 個のバグと、今回の 5 つの修正を戻すバグ F1〜F5 を 1 つずつ入れ、retry なしで実行。モデル property は CI 既定の固定シーン 51 件＋4 seed）:
+  - 削除した 37 件が検出した 10 個（R2・R3・N10・C1・C3・C4・I1・I2・I3・I4）は、すべてモデル property も検出する。
+  - C1・I2 は初版の固定シーンでは見逃した。transport-cc が一度も動いていない session と、end-of-candidates のない初回交渉から始めるようにシーンを直して検出させた。
+  - モデル property だけが検出: N4・B1・E1・F1〜F5。どちらも検出しない: R1・R4・R5・N1・N3・N5〜N9・C2・C5・I5・B2・B3・E2・E3・K2・T1（これらは残したケースや他の property の対象）。バグなしでは失敗 0。
+- 実行時間（16 コア）:
+  - `npm test`: 57 ファイル、1,003 passed / 3 skipped（2 回実行し、3 分 20 秒と 4 分 24 秒。2.18 は 3 分 19 秒）。モデル property のファイルは 33 秒 → 約 75 秒（固定シーンが 20 → 51 件）。
+  - 深い探索 `npm run pbt:deep`: 224 秒、全件通過（fuzz 306、scenario 2,163、model 351、mutation 2,106。model seed 57 は負荷下で 1 回失敗し、単独の再実行で 4 回通過）。
+  - モデル property の誤検出の探索として 1,000 seed を繰り返し実行し、最後は 1,051 件すべて通過した。
+  - develop 差分ファズ（200 seed × 12 step、8 プロセスに分割）: 回帰 0、hang 0、障害なしの failed 0。transceiver の状態差が 1 件（seed 121）出た。これは不具合 3 の修正による意図した差で、develop が予約だけの MID の transceiver を停止し、HEAD は MID を外して使える状態のまま残す。`compare.ts` の意図した差の規則（未適用の createOffer が付けた MID）にこの場合を加えて、状態差 0 になった。
+  - `npm run type`、変更したファイルの biome、`git diff --check`: 通過。
+- 未対応・観測のみ（今回の範囲外として実装は変えていない）:
+  - setCodecPreferences が RTX だけの一覧を受け付ける（W3C では InvalidModificationError）。
+  - answerer の preferences と offer に共通の codec がないと、SRD(offer) が NotSupportedError になる（JSEP 5.3.1 では m-line の拒否）。
+  - transport-cc を外した answer を answerer が確定しても、answerer の transport-cc feedback は止まらない。
+  - 汎用 NACK の判定 `hasFeedback(codec, "nack")` が `nack pli` だけの codec にも一致する（コードを読んだだけで、テストでは確かめていない）。
+
 ## 3. 技術的な実装アプローチ
 
 ### 3.1 transaction coordinator と subsystem API

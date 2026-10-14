@@ -17,8 +17,10 @@ import { MODEL_SCENES } from "./modelScenes";
  * negotiated stream and DataChannel carries traffic (`c.expectTraffic()`)
  * and the oracles of `modelOracles.ts` hold (JSEP transition, rollback to
  * the transaction's start, events, idempotent re-application and creation,
- * trickle, commit of directions and codecs, committed DataChannels); every
- * scene ends with `expectSessionContinues`.
+ * trickle, RTCP feedback (PLI, transport-cc), selected pairs, commit of
+ * directions, codecs and DTLS transports, committed DataChannels); every
+ * scene ends with `expectSessionContinues`. Operations include SDP
+ * rewrites on the wire (`modelMutations.ts`).
  *
  * - Fixed scenes (`modelScenes.ts`): regressions as short operation lists.
  * - Random scenes (`modelPropertyUtils.ts`): a start state and operations

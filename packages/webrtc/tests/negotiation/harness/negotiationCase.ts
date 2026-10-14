@@ -5,8 +5,10 @@ import {
   type RTCDataChannel,
   type RTCDtlsTransport,
   RTCPeerConnection,
+  type RTCRtpTransceiver,
   RtpHeader,
   RtpPacket,
+  SessionDescription,
 } from "../../../src";
 import {
   type DuplexSession,
@@ -45,8 +47,8 @@ export type CaseMeta = {
   explicitInvariants?: boolean;
   /**
    * Check the traffic property (`c.expectTraffic()`) after each description
-   * operation and after the body: the fixed scenes of
-   * tests/pbt/negotiationTrafficProperty.test.ts.
+   * operation and after the body (the model property,
+   * tests/pbt/negotiationModelProperty.test.ts).
    */
   traffic?: boolean;
   timeout?: number;
@@ -112,6 +114,20 @@ export type Given<T> = T extends {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** An SDP without its candidate and end-of-candidates lines. */
+const bare = (sdp?: string | null) =>
+  sdp?.replace(/^a=(candidate:|end-of-candidates).*\r?\n/gm, "");
+
+/** A stream the last traffic check delivered (for the oracles of a property). */
+export type DeliveredStream = {
+  from: RTCPeerConnection;
+  to: RTCPeerConnection;
+  sender: RTCRtpTransceiver;
+  receiver: RTCRtpTransceiver;
+  /** The payload type the sender wrote the packet with. */
+  payloadType?: number;
+};
+
 /**
  * A transport that carries traffic now: DTLS connected and a nominated pair
  * of the current ICE generation (an ICE restart commit drops the old pair
@@ -166,6 +182,10 @@ export class NegotiationCase {
   private exemptReason?: string;
   private observer?: Observer;
   private ended = false;
+  /** SDPs (without candidates) rewritten on the wire that describe the same session as their original. */
+  private readonly equivalents = new Map<string, string>();
+  /** The streams the last traffic check delivered. */
+  delivered: DeliveredStream[] = [];
 
   constructor(
     readonly name: string,
@@ -246,14 +266,17 @@ export class NegotiationCase {
 
   // --- description operations (each followed by the invariants) ---------------
 
-  /** Act: `setLocalDescription` of a description, an SDP string or `"rollback"`. */
+  /**
+   * Act: `setLocalDescription` of a description, an SDP string or
+   * `"rollback"`. Resolves with the rejection of a `mayReject` operation.
+   */
   async setLocal(
     pc: RTCPeerConnection,
     description: DescriptionInput,
     options: OperationOptions = {},
   ) {
     const d = this.description(pc, description, "local", options.type);
-    await this.apply(
+    return this.apply(
       pc,
       { kind: "setLocal", type: d.type, sdp: d.sdp },
       () => pc.setLocalDescription(d as never),
@@ -268,7 +291,7 @@ export class NegotiationCase {
     options: OperationOptions = {},
   ) {
     const d = this.description(pc, description, "remote", options.type);
-    await this.apply(
+    return this.apply(
       pc,
       { kind: "setRemote", type: d.type, sdp: d.sdp },
       () => pc.setRemoteDescription(d as never),
@@ -282,7 +305,7 @@ export class NegotiationCase {
     candidate: Parameters<RTCPeerConnection["addIceCandidate"]>[0],
     options: Pick<OperationOptions, "rejects" | "mayReject"> = {},
   ) {
-    await this.apply(
+    return this.apply(
       pc,
       { kind: "addCandidate", candidate },
       () => pc.addIceCandidate(candidate),
@@ -449,6 +472,42 @@ export class NegotiationCase {
   }
 
   /**
+   * Arrange: `rewritten` (an SDP rewritten on the wire) describes the same
+   * session as `original`: a peer that applied it agrees with the peer that
+   * sent `original` (the traffic property and the commit oracle hold).
+   */
+  equivalent(rewritten: string, original: string) {
+    // peer は description を解析して書き直した形で持つので、その形で対応させる。
+    const stored = (sdp: string) => bare(SessionDescription.parse(sdp).string)!;
+    this.equivalents.set(stored(rewritten), stored(original));
+  }
+
+  /**
+   * Whether `a` and `b` have the same session: each one's current local
+   * description, without candidates, is the other's current remote
+   * description (or a rewrite of it registered with `equivalent`), and so is
+   * a pending local description the other peer applied as its pending remote
+   * one (a pranswer makes it live provisionally).
+   */
+  sameSession(a: RTCPeerConnection, b: RTCPeerConnection) {
+    const canonical = (sdp?: string) =>
+      this.equivalents.get(bare(sdp) ?? "") ?? bare(sdp);
+    const pendingAgree = (x: RTCPeerConnection, y: RTCPeerConnection) =>
+      !x.pendingLocalDescription ||
+      !y.pendingRemoteDescription ||
+      canonical(x.pendingLocalDescription.sdp) ===
+        canonical(y.pendingRemoteDescription.sdp);
+    return (
+      canonical(a.currentLocalDescription?.sdp) ===
+        canonical(b.currentRemoteDescription?.sdp) &&
+      canonical(b.currentLocalDescription?.sdp) ===
+        canonical(a.currentRemoteDescription?.sdp) &&
+      pendingAgree(a, b) &&
+      pendingAgree(b, a)
+    );
+  }
+
+  /**
    * Assert the traffic property: every stream both peers negotiated (the
    * sender's `currentDirection` sends, the transceiver of the same MID on
    * the other peer receives; a pranswer sets them provisionally) and neither
@@ -471,16 +530,11 @@ export class NegotiationCase {
     );
     if (peers.some((pc) => !pc || pc.signalingState === "closed")) return;
     const [a, b] = peers as RTCPeerConnection[];
+    this.delivered = [];
     // 両 peer が同じ current session を持つ間だけ通信を求める (一方が answer で
     // 確定し、もう一方がまだ適用していない間や、相手が適用していない SDP を
     // 片側だけが確定した場合は、current が食い違う)。
-    const bare = (sdp?: string) =>
-      sdp?.replace(/^a=(candidate:|end-of-candidates).*\r?\n/gm, "");
-    const agree =
-      bare(a.currentLocalDescription?.sdp) ===
-        bare(b.currentRemoteDescription?.sdp) &&
-      bare(b.currentLocalDescription?.sdp) ===
-        bare(a.currentRemoteDescription?.sdp);
+    const agree = this.sameSession(a, b);
     const label = this.log(agree ? "traffic" : "traffic (current differs)");
     if (!agree) return;
     // 再交渉の pending 中、pranswer が parameters を予約した新しい transport は
@@ -527,6 +581,13 @@ export class NegotiationCase {
         // まだ確立していなければ、操作の後は待たずに対象外 (シーンの時点を変えない)、
         // 最後は確立を待ってから検査する。
         if (!(await this.ready(transceiver.dtlsTransport, final))) continue;
+        this.delivered.push({
+          from,
+          to,
+          sender: transceiver,
+          receiver: remote!,
+          payloadType: transceiver.sender.codec?.payloadType,
+        });
         await flows(
           remote!.receiver.track.onReceiveRtp,
           (packet) => packet.payload.toString() === text,
@@ -617,7 +678,7 @@ export class NegotiationCase {
       e.message,
       `operations:\n${this.operations
         .map((op, i) => `  #${i + 1} ${op}`)
-        .slice(-10)
+        .slice(-40)
         .join("\n")}`,
     ].join("\n");
     return e;
@@ -703,6 +764,7 @@ export class NegotiationCase {
     if (!this.meta.explicitInvariants) this.invariants();
     if (this.meta.traffic) await this.expectTraffic();
     await this.observer?.after({ ...step, pc, error }, observed);
+    return error;
   }
 
   private expectRejection(

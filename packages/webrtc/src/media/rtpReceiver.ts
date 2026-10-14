@@ -143,9 +143,11 @@ export class RTCRtpReceiver {
     );
   }
 
+  /** `a=rtcp-fb:<pt> nack pli` (RFC 4585): a generic `nack` alone does not allow PLI. */
   get pliEnabled() {
+    const pli = usePLI();
     return this.codecArray[0]?.rtcpFeedback.find(
-      (f) => f.type === usePLI().type,
+      (f) => f.type === pli.type && f.parameter === pli.parameter,
     );
   }
 
@@ -582,7 +584,9 @@ export class RTCRtpReceiver {
       payloadType != undefined ? this.codecs[payloadType] : undefined;
     return {
       payloadType: codec ? payloadType : undefined,
-      allowed: codec ? hasFeedback(codec, usePLI().type) : !!this.pliEnabled,
+      allowed: codec
+        ? hasFeedback(codec, usePLI().type, usePLI().parameter)
+        : !!this.pliEnabled,
     };
   }
 

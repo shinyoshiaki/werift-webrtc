@@ -322,54 +322,6 @@ describe("develop features inside the negotiation transaction", () => {
 
   describeCases("app codec changes during a pending negotiation (#729)", () => {
     negotiationCase(
-      "setCodecPreferences between createAnswer and setLocalDescription commits the answer's codec",
-      { ref: "2.6-T4c 2.6-T4h 2.8-38; origin: develop #729" },
-      async (c) => {
-        // Arrange: current は VP8、offerer が H264 だけの re-offer を出し、answerer が answer を作成済み。
-        const { a, b, outgoing, incoming, transceiver } = await c.given(
-          createH264OnlyReoffer(),
-        );
-        const answer = await b.createAnswer();
-
-        // Act: answer の適用前に preference を変え、その answer を適用する。
-        transceiver.setCodecPreferences([useVP8(), useH264()]);
-        await c.setLocal(b, answer);
-        await c.setRemote(a, b.localDescription);
-
-        // Assert: 受信 table は answer の H264 を持ち、RTP が届く。
-        expect(
-          Object.values(
-            transceiver.receiver.snapshotReceiveTables().codecs,
-          ).map((codec) => codec.name.toUpperCase()),
-        ).toContain("H264");
-        await c.rtp(outgoing, incoming);
-
-        // Assert: 新しい preference は次の offer で再解決される。
-        const next = await b.createOffer();
-        expect(offeredVideoCodecs(next.sdp)[0]).toEqual("VP8");
-      },
-    );
-
-    negotiationCase(
-      "addTrack between createAnswer and setLocalDescription sends with the answer's codec",
-      { ref: "2.6-T4a 2.6-T4c; origin: develop #729" },
-      async (c) => {
-        // Arrange: current は VP8、H264 だけの re-offer への answer を作成済み。
-        const { a, b, transceiver } = await c.given(createH264OnlyReoffer());
-        const answer = await b.createAnswer();
-
-        // Act: answer の適用前に既存 transceiver へ track を追加し、answer を適用する。
-        b.addTrack(new MediaStreamTrack({ kind: "video" }));
-        await c.setLocal(b, answer);
-        await c.setRemote(a, b.localDescription);
-
-        // Assert: sender は answer の H264 で送り、transceiver の codec も空にならない。
-        expect(transceiver.sender.codec?.name.toUpperCase()).toEqual("H264");
-        expect(transceiver.codecs.length).toBeGreaterThan(0);
-      },
-    );
-
-    negotiationCase(
       "setCodecPreferences during a pending offer survives its rollback",
       { ref: "2.5-17 2.6-T4b; origin: develop #729" },
       async (c) => {

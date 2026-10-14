@@ -28,7 +28,7 @@ import {
 } from "../../../src";
 import type { RTCIceCandidate } from "../../../src";
 import { ridRouteKey } from "../../../src/negotiation/internalState";
-import { SessionDescription } from "../../../src/sdp";
+import { type MediaDescription, SessionDescription } from "../../../src/sdp";
 import { RTCIceTransport } from "../../../src/transport/ice";
 export * from "../../../tools/negotiation-diff/mutations";
 
@@ -125,17 +125,6 @@ export async function createConnectedVideoPeers(
 export const videoWithoutFeedback = {
   codecs: { video: [useVP8({ rtcpFeedback: [] })] },
 };
-
-/** Rewrite the VP8 `a=rtcp-fb` lines of an SDP: remove them, or add NACK and PLI. */
-export function rewriteVideoFeedback(sdp: string, mode: "add" | "remove") {
-  if (mode === "remove") {
-    return sdp.replace(/^a=rtcp-fb:\d+ nack(?: pli)?\r?\n/gm, "");
-  }
-  return sdp.replace(
-    /^(a=rtpmap:(\d+) VP8\/90000)\r?$/m,
-    "$1\r\na=rtcp-fb:$2 nack\r\na=rtcp-fb:$2 nack pli",
-  );
-}
 
 /**
  * Request a PLI from `receiver` for `sender`'s SSRC and report whether it
@@ -637,7 +626,16 @@ function assertEffectiveValues(pc: RTCPeerConnection, snapshot: Snapshot) {
           };
         }
       ).router;
+      // rtx codec のない pranswer の FID の RTX SSRC は経路を持たない。
+      const unusedRtx = pranswerMedia.rtp.codecs.some(
+        (codec) => codec.name.toLowerCase() === "rtx",
+      )
+        ? []
+        : pranswerMedia.ssrcGroup
+            .filter((group) => group.semantic === "FID")
+            .map((group) => Number(group.items[1]));
       for (const { ssrc } of pranswerMedia.ssrc) {
+        if (unusedRtx.includes(ssrc)) continue;
         expect(
           router.ssrcTable[ssrc] === transceiver.receiver ||
             router.staged.ssrc.some(
@@ -778,14 +776,24 @@ function assertRouteTables(pc: RTCPeerConnection, snapshot: Snapshot) {
     const receiver = transceiver.receiver;
     const tables = receiver.snapshotReceiveTables();
     const rtxSsrcs = new Set<number>();
+    // RTX の対応は、両側の m-line が rtx codec を交渉したときだけある。
+    const hasRtx = (m?: MediaDescription) =>
+      !!m?.rtp.codecs.some((codec) => codec.name.toLowerCase() === "rtx");
+    const rtxNegotiated = hasRtx(media) && hasRtx(local.media[index]);
+    const unusedRtx = new Set<number>();
     for (const group of media.ssrcGroup) {
       if (group.semantic !== "FID") continue;
       const [mediaSsrc, rtxSsrc] = group.items.map(Number);
+      if (!rtxNegotiated) {
+        unusedRtx.add(rtxSsrc);
+        continue;
+      }
       rtxSsrcs.add(rtxSsrc);
       // RTX の対応は current SDP の FID のまま。
       expect(tables.ssrcByRtx[rtxSsrc]).toBe(mediaSsrc);
     }
     for (const { ssrc } of media.ssrc) {
+      if (unusedRtx.has(ssrc)) continue;
       // current SDP の SSRC は current の receiver に届く。
       expect(router.ssrcTable[ssrc]).toBe(receiver);
       if (rtxSsrcs.has(ssrc)) continue;
@@ -867,7 +875,7 @@ function assertRouterAndCodecs(pc: RTCPeerConnection, snapshot: Snapshot) {
         (m) => m.rtp.muxId === media.rtp.muxId,
       );
       const negotiated = media.rtp.codecs.filter((codec) =>
-        localMedia?.rtp.codecs.some((c) => c.payloadType === codec.payloadType),
+        localMedia?.rtp.codecs.some((c) => sameNegotiatedCodec(c, codec)),
       );
       for (const payloadType of Object.keys(table).map(Number)) {
         expect(negotiated.map((c) => c.payloadType)).toContain(payloadType);
@@ -894,7 +902,7 @@ function assertRouterAndCodecs(pc: RTCPeerConnection, snapshot: Snapshot) {
         (m) => m.rtp.muxId === media.rtp.muxId,
       );
       const negotiated = media.rtp.codecs.filter((codec) =>
-        localMedia?.rtp.codecs.some((c) => c.payloadType === codec.payloadType),
+        localMedia?.rtp.codecs.some((c) => sameNegotiatedCodec(c, codec)),
       );
       const sent = negotiated.find(
         (c) => c.payloadType === sender.codec!.payloadType,
@@ -913,11 +921,28 @@ function assertRouterAndCodecs(pc: RTCPeerConnection, snapshot: Snapshot) {
       );
       if (!committed) continue;
       expect(allowed).toBe(
-        // werift は nack 系 feedback (nack / nack pli) の交渉で PLI を送る。
-        committed.rtcpFeedback.some((f) => f.type === "nack"),
+        // PLI は `nack pli` を交渉したときだけ送る (汎用の `nack` だけでは送らない、RFC 4585)。
+        committed.rtcpFeedback.some(
+          (f) => f.type === "nack" && f.parameter === "pli",
+        ),
       );
     }
   }
+}
+
+/**
+ * Whether a local and a remote codec of one m-line are the same negotiated
+ * codec: the same payload type, or the same MIME type (an answer SHOULD, not
+ * MUST, reuse the offer's payload type: RFC 3264 section 6.1).
+ */
+function sameNegotiatedCodec(
+  local: RTCRtpCodecParameters,
+  remote: RTCRtpCodecParameters,
+) {
+  return (
+    local.payloadType === remote.payloadType ||
+    local.mimeType.toLowerCase() === remote.mimeType.toLowerCase()
+  );
 }
 
 /** 受信設定の比較キー: MIME type、clock rate、channels、fmtp、RTCP feedback の集合。 */
@@ -1833,18 +1858,6 @@ export async function negotiateAndExpectChannel(
   return received;
 }
 
-/** Connected sendonly video whose peers also support RTX (VP8 + video/rtx). */
-export function createConnectedVideoPeersWithRtx() {
-  return createConnectedVideoPeers({
-    codecs: {
-      video: [
-        useVP8(),
-        new RTCRtpCodecParameters({ mimeType: "video/rtx", clockRate: 90000 }),
-      ],
-    },
-  });
-}
-
 /** Keep only the RTX payload type in the video m-line: its `apt` codec is gone. */
 export function keepOnlyRtx(sdp: string) {
   const vp8 = sdp.match(/a=rtpmap:(\d+) VP8\/90000/)![1];
@@ -1912,42 +1925,6 @@ export async function createConnectedMultiVideoPeers(
     incoming,
     close: () => Promise.allSettled([offerer.close(), answerer.close()]),
   };
-}
-
-/**
- * Send one RTP packet on `outgoing` and report the MID of the `pc` transceiver
- * whose receiver delivered it on any of its tracks (undefined when none did).
- */
-export async function receivingMid(
-  outgoing: MediaStreamTrack,
-  pc: RTCPeerConnection,
-  text: string,
-) {
-  const subscriptions: { unSubscribe: () => void }[] = [];
-  const received = new Promise<string | null>((resolve) => {
-    for (const transceiver of pc.getTransceivers()) {
-      for (const track of transceiver.receiver.tracks) {
-        subscriptions.push(
-          track.onReceiveRtp.subscribe((packet) => {
-            if (packet.payload.toString() === text) resolve(transceiver.mid);
-          }),
-        );
-      }
-    }
-  });
-  outgoing.writeRtp(
-    new RtpPacket(new RtpHeader(), Buffer.from(text)).serialize(),
-  );
-  try {
-    return await Promise.race([
-      received,
-      new Promise<undefined>((resolve) =>
-        setTimeout(() => resolve(undefined), 1500),
-      ),
-    ]);
-  } finally {
-    for (const subscription of subscriptions) subscription.unSubscribe();
-  }
 }
 
 /** Public operations the close-timing matrix interrupts. */
@@ -3211,14 +3188,6 @@ export function withoutExtmap(sdp: string, uri: string) {
     .join("\r\n");
 }
 
-/** `sdp` whose codec `name` also lists the RTCP feedback `type` (for example `transport-cc`). */
-export function withRtcpFeedback(sdp: string, name: string, type: string) {
-  return sdp.replace(
-    new RegExp(`^(a=rtpmap:(\\d+) ${name}/[^\\r\\n]*)`, "gim"),
-    `$1\r\na=rtcp-fb:$2 ${type}`,
-  );
-}
-
 /**
  * Act helper: write one SRTP packet with exactly the header the test chooses
  * (payload type, SSRC, sequence number, extensions) on `transport`, without
@@ -3614,7 +3583,3 @@ export const withBundle = (sdp: string, mids: string[]) =>
 
 export const ufragOf = (sdp: string) =>
   sdp.match(/^a=ice-ufrag:(.*?)\r?$/m)![1];
-
-/** `sdp` without the plain `a=rtcp-fb:<pt> nack` line (NACK PLI stays). */
-export const withoutNack = (sdp: string, pt: number) =>
-  sdp.replace(new RegExp(`^a=rtcp-fb:${pt} nack\\r?\\n`, "m"), "");

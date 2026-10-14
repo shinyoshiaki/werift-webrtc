@@ -7,10 +7,6 @@ import {
 } from "../../../src";
 import { describeCases, negotiationCase } from "../harness/negotiationCase";
 import {
-  withoutCodecs,
-  withoutNack,
-} from "../harness/negotiationTransactionUtils";
-import {
   addOfferedCodec,
   addUnsupportedExtmaps,
   assertTransportsClosed,
@@ -19,7 +15,6 @@ import {
   closeOnSignalingState,
   createConnectedMultiVideoPeers,
   createConnectedVideoPeers,
-  createConnectedVideoPeersWithRtx,
   createIceRestartPranswer,
   createInitialPranswerConnection,
   createMutationSession,
@@ -41,19 +36,16 @@ import {
   mungeSection,
   mutate,
   offeredVideoCodecs,
-  pliReaches,
   provisionalIce,
   receiveCodecNames,
   recordConnectionStates,
   recordIceConnectionStates,
   recordNegotiationEvents,
   reverseSetupRole,
-  rewriteVideoFeedback,
   sectionOf,
   settlesWithin,
   stubIceMdns,
   trickleCandidate,
-  videoWithoutFeedback,
   waitForCommittedNomination,
   waitForConnection,
   waitForDtlsConnected,
@@ -214,63 +206,6 @@ describeCases("negotiation transaction regressions", () => {
       assertTransportsClosed([
         ...heldTransports(a),
         ...a.getTransceivers().map((t) => t.dtlsTransport),
-      ]);
-    },
-  );
-
-  negotiationCase.for([
-    { operation: "stop", kept: false },
-    { operation: "direction", kept: false },
-    { operation: "setCodecPreferences", kept: false },
-    { operation: "replaceTrack", kept: true },
-    { operation: "addTrack", kept: true },
-  ] as const)(
-    "rollback of a remote offer after the application's $operation keeps the remote-created transceiver only when it has a track (as develop)",
-    {
-      ref: "2.12-3; origin: property test (develop comparison)",
-      exempt: "the test applies only b's offer to a",
-    },
-    async (c, { operation, kept }) => {
-      // Arrange: b の video offer を a が適用し、remote offer が transceiver を作る。
-      const { a, b } = await c.given(createPeerPair());
-      b.addTransceiver("video", { direction: "sendrecv" });
-      await c.offer(b);
-      const offer = b.localDescription!;
-      const created = a.getTransceivers()[0];
-
-      // Act: rollback の前に app がその transceiver を操作し、rollback する。
-      if (operation === "stop") created.stop();
-      if (operation === "direction")
-        Object.assign(created, { direction: "sendonly" });
-      if (operation === "setCodecPreferences")
-        created.setCodecPreferences([useVP8()]);
-      if (operation === "replaceTrack")
-        await created.sender.replaceTrack(
-          new MediaStreamTrack({ kind: "video" }),
-        );
-      if (operation === "addTrack")
-        a.addTrack(new MediaStreamTrack({ kind: "video" }));
-      await c.setRemote(a, "rollback");
-
-      // Assert: track を持つものだけが m-line の関連付けを外して残り、停止途中の transceiver は残らない。
-      const states = () =>
-        a.getTransceivers().map((t) => ({
-          mid: t.mid,
-          stopping: t.stopping,
-          stopped: t.stopped,
-        }));
-      if (kept === true)
-        expect(states()).toEqual([
-          { mid: null, stopping: false, stopped: false },
-        ]);
-      if (kept === false) expect(states()).toEqual([]);
-
-      // Act: 同じ offer を再適用する。
-      await c.setRemote(a, offer);
-
-      // Assert: transceiver は重複せず 1 つだけで、offer の MID に関連付く。
-      expect(a.getTransceivers().map((t) => t.mid)).toEqual([
-        offer.sdp.match(/^a=mid:(\S+)/m)![1],
       ]);
     },
   );
@@ -444,25 +379,6 @@ describeCases("negotiation transaction regressions", () => {
   );
 
   negotiationCase(
-    "an answer does not give a direction to a transceiver without an m-line",
-    { ref: "origin: property test" },
-    async (c) => {
-      // Arrange: re-offer を受けた後に answerer が audio transceiver を足す。
-      const { a, b } = await c.given(createConnectedVideoPeers());
-      await c.offer(a);
-      const late = b.addTransceiver("audio", { direction: "sendonly" });
-
-      // Act: その transceiver の m-line を含まない answer を適用する。
-      await c.answer(b, { hold: true });
-
-      // Assert: 交渉されていない transceiver は current direction を持たない。
-      expect(late.mid).toBe(null);
-      expect(!late.currentDirection).toEqual(true);
-      c.invariants(b);
-    },
-  );
-
-  negotiationCase(
     "the final answer after an ICE restart pranswer reuses the pranswer credentials",
     { ref: "2.9-7; origin: property test" },
     async (c) => {
@@ -494,64 +410,6 @@ describeCases("negotiation transaction regressions", () => {
 
 /** Findings of the pre-review self-review of pending writes to live state. */
 describeCases("negotiation transaction live-state regressions", () => {
-  negotiationCase(
-    "a remote pranswer that changes send parameters is fully undone by rollback",
-    { ref: "2.2-9 2.4-4; origin: self-review (live state)" },
-    async (c) => {
-      // Arrange: offerer の送信パラメータ (RTX を含む) を控え、RTX を外した pranswer を作る。
-      const { a, b, outgoing, incoming } = await c.given(
-        createConnectedVideoPeersWithRtx(),
-      );
-      const sender = a.getTransceivers()[0].sender;
-      const before = sender.snapshotSendParams();
-      expect(before.rtxPayloadType).not.toEqual(undefined);
-      await c.offer(a);
-      const answer = await b.createAnswer();
-
-      // Act: pranswer を適用して送信側が暫定値に変わった後、rollback する。
-      await c.setRemote(a, withoutCodecs(answer.sdp, "video", ["rtx"]), {
-        type: "pranswer",
-      });
-      expect(sender.snapshotSendParams()?.rtxPayloadType).toBe(undefined);
-      await c.setLocal(a, "rollback");
-
-      // Assert: 送信パラメータは current のものへ完全に戻り、RTP も届く。
-      expect(sender.snapshotSendParams()).toEqual(before);
-      await c.rtp(outgoing, incoming);
-    },
-  );
-
-  negotiationCase(
-    "a re-offer that changes RTCP feedback of a current payload type is staged until commit",
-    { ref: "2.4-T7a; origin: self-review (live state)" },
-    async (c) => {
-      // Arrange: current の VP8 は nack を持つ。nack を外した re-offer を作る (a は適用しない)。
-      const { a, b } = await c.given(createConnectedVideoPeers());
-      const receiver = b.getTransceivers()[0].receiver;
-      const offer = await a.createOffer();
-      const pt = Number(offer.sdp.match(/^a=rtpmap:(\d+) VP8\/90000/m)![1]);
-      const feedback = () =>
-        receiver
-          .snapshotReceiveTables()
-          .codecs[pt].rtcpFeedback.map(
-            (f) => f.type + " " + (f?.parameter ?? ""),
-          );
-      expect(feedback()).toContain("nack ");
-
-      // Act: remote offer として適用する (answer はまだ返さない)。
-      await c.setRemote(b, withoutNack(offer.sdp, pt));
-
-      // Assert: pending 中は current の feedback (nack) のまま。
-      expect(feedback()).toContain("nack ");
-
-      // Act: answer で確定する。
-      await c.answer(b, { hold: true });
-
-      // Assert: 確定時に新しい feedback へ切り替わる。
-      expect(feedback()).not.toContain("nack ");
-    },
-  );
-
   negotiationCase(
     "a transceiver created for a remote offer does not make negotiation needed",
     { ref: "2.3-20 2.4-6 5-K6; origin: self-review (live state)" },
@@ -747,81 +605,6 @@ describeCases("negotiation transaction live-state regressions", () => {
       expect(section).toContain(" 50998 typ host");
       expect(section).toContain("a=end-of-candidates");
       c.invariants(a);
-    },
-  );
-
-  negotiationCase(
-    "PLI stops at the commit of a re-offer that removes NACK/PLI for the same SSRC",
-    { ref: "5-7; origin: self-review (live state)" },
-    async (c) => {
-      // Arrange: 接続済み session は PLI を交渉済みで、実際に届く。
-      const { a, b } = await c.given(createConnectedVideoPeers());
-      const sender = a.getTransceivers()[0].sender;
-      const receiver = b.getTransceivers()[0].receiver;
-      expect(await pliReaches(receiver, sender)).toEqual(true);
-
-      // Act: 同じ SSRC の VP8 から NACK/PLI を外した re-offer を pending にする。
-      await c.offer(a, { hold: true });
-      await c.setRemote(
-        b,
-        rewriteVideoFeedback(a.localDescription!.sdp, "remove"),
-      );
-
-      // Assert: pending 中は current の設定のまま PLI が届く。
-      expect(await pliReaches(receiver, sender)).toEqual(true);
-
-      // Act: answer で確定する。
-      await c.answer(b);
-
-      // Assert: 確定した SDP は PLI を持たず、PLI は送られない。
-      expect(b.currentLocalDescription!.sdp).not.toMatch(
-        /^a=rtcp-fb:\d+ nack/m,
-      );
-      expect(await pliReaches(receiver, sender)).toEqual(false);
-      c.invariants(b);
-    },
-  );
-
-  negotiationCase(
-    "PLI starts only at the commit of a re-offer that adds NACK/PLI for the same SSRC",
-    { ref: "2.4-T7b 5-7 5-13; origin: self-review (live state)" },
-    async (c) => {
-      // Arrange: 初回交渉は PLI を持たず、送られない。
-      const { a, b } = await c.given(
-        createConnectedVideoPeers(videoWithoutFeedback),
-      );
-      const sender = a.getTransceivers()[0].sender;
-      const receiver = b.getTransceivers()[0].receiver;
-      expect(await pliReaches(receiver, sender)).toEqual(false);
-
-      // Act: 同じ VP8 / SSRC に NACK/PLI を足した re-offer を pending にする。
-      await c.offer(a, { hold: true });
-      await c.setRemote(
-        b,
-        rewriteVideoFeedback(a.localDescription!.sdp, "add"),
-      );
-
-      // Assert: pending 中は current の設定のまま PLI は送られない。
-      expect(await pliReaches(receiver, sender)).toEqual(false);
-
-      // Act: re-offer を両側で rollback する。
-      await c.setRemote(b, "rollback");
-      await c.setLocal(a, "rollback");
-
-      // Assert: rollback 後も current の設定に戻ったまま送られない。
-      expect(await pliReaches(receiver, sender)).toEqual(false);
-
-      // Act: 同じ re-offer を適用し、answer で確定する。
-      await c.offer(a, { hold: true });
-      await c.setRemote(
-        b,
-        rewriteVideoFeedback(a.localDescription!.sdp, "add"),
-      );
-      await c.answer(b);
-
-      // Assert: 確定後は PLI が相手 sender に実際に届く。
-      expect(await pliReaches(receiver, sender)).toEqual(true);
-      c.invariants(b);
     },
   );
 
@@ -1095,49 +878,6 @@ describeCases("negotiation transaction live-state regressions", () => {
   );
 
   negotiationCase(
-    "codec preferences resolved by createAnswer apply to live receive tables only at the answer commit",
-    { ref: "2.5-16 2.6-T4a; origin: self-review (live state)" },
-    async (c) => {
-      // Arrange: current は VP8。answerer は re-offer を受けた後で H264 だけを優先する。
-      const { a, b, outgoing, incoming } = await c.given(
-        createConnectedVideoPeers({ codecs: { video: [useVP8(), useH264()] } }),
-      );
-      const transceiver = b.getTransceivers()[0];
-      const receiver = transceiver.receiver;
-      const vp8Pt = Number(
-        b.currentLocalDescription!.sdp.match(
-          /^a=rtpmap:(\d+) VP8\/90000/im,
-        )![1],
-      );
-      await c.offer(a);
-      transceiver.setCodecPreferences([useH264()]);
-
-      // Act: preference を反映した answer を作る (まだ適用しない)。
-      const answer = await b.createAnswer();
-
-      // Assert: answer は H264 だけを提案するが、pending 中は current の VP8 で受信を続ける。
-      expect(answer.sdp).toMatch(/^a=rtpmap:\d+ H264\/90000/im);
-      expect(answer.sdp).not.toMatch(/^a=rtpmap:\d+ VP8\/90000/im);
-      expect(receiver.snapshotReceiveTables().codecs[vp8Pt]?.name).toEqual(
-        "VP8",
-      );
-      c.invariants(b);
-      await c.rtp(outgoing, incoming);
-
-      // Act: answer を適用して transaction を commit する。
-      await c.setLocal(b, answer);
-      await c.setRemote(a, b.localDescription);
-
-      // Assert: commit 後は確定した H264 だけが受信 table に残る。
-      expect(
-        Object.values(receiver.snapshotReceiveTables().codecs).map((codec) =>
-          codec.name.toUpperCase(),
-        ),
-      ).toEqual(["H264"]);
-    },
-  );
-
-  negotiationCase(
     "an answer applied during the DTLS handshake keeps the connected ICE state",
     { ref: "2.8-23 2.8-24 2.8-26; origin: self-review (live state)" },
     async (c) => {
@@ -1238,37 +978,6 @@ describeCases("negotiation transaction live-state regressions", () => {
   );
 
   negotiationCase(
-    "a codec the local answer dropped leaves the receive table even when the re-offer staged it",
-    { ref: "2.8-45; origin: self-review (live state)" },
-    async (c) => {
-      // Arrange: current の VP8 から RTCP feedback を外した re-offer を受け、同じ payload type の VP8 を staged 値にする。answerer は H264 だけを優先する。
-      const { a, b, outgoing, incoming } = await c.given(
-        createConnectedVideoPeers({ codecs: { video: [useVP8(), useH264()] } }),
-      );
-      const transceiver = b.getTransceivers()[0];
-      await c.offer(a, { hold: true });
-      await c.setRemote(
-        b,
-        rewriteVideoFeedback(a.localDescription!.sdp, "remove"),
-      );
-      transceiver.setCodecPreferences([useH264()]);
-      const answer = await b.createAnswer();
-      expect(offeredVideoCodecs(answer.sdp)).toEqual(["H264"]);
-
-      // Act: H264 だけの answer を適用して commit する。
-      await c.setLocal(b, answer);
-      await c.setRemote(a, b.localDescription);
-
-      // Assert: answer で外した VP8 は staged 値からも戻らず、受信表は H264 だけになる。
-      expect(Object.values(receiveCodecNames(transceiver.receiver))).toEqual([
-        "H264",
-      ]);
-      expect(incoming?.codec?.mimeType.toLowerCase()).toEqual("video/h264");
-      await c.rtp(outgoing, incoming);
-    },
-  );
-
-  negotiationCase(
     "end-of-candidates trickled on a non-tag BUNDLE m-line completes the restarted generation",
     { ref: "2.8-28; origin: self-review (live state)" },
     async (c) => {
@@ -1336,50 +1045,6 @@ describeCases("negotiation transaction live-state regressions", () => {
   );
 
   negotiationCase(
-    "rolling back a first pranswer connection resets the public connection states",
-    { ref: "2.2-17 2.8-35; origin: self-review (live state)" },
-    async (c) => {
-      // Arrange: 初回 pranswer で両 peer が接続済みと報告している。
-      const { a, b } = await c.given(createInitialPranswerConnection());
-      await Promise.all([waitForConnection(a), waitForConnection(b)]);
-
-      // Act: 両 peer で初回交渉を rollback する (b、a の順)。
-      await c.rollback(b);
-
-      // Assert: current session がないので、接続状態は new に戻る。
-      expect([a.currentRemoteDescription, b.currentRemoteDescription]).toEqual([
-        null,
-        null,
-      ]);
-      expect([a.connectionState, b.connectionState]).toEqual(["new", "new"]);
-      expect([a.iceConnectionState, b.iceConnectionState]).toEqual([
-        "new",
-        "new",
-      ]);
-    },
-  );
-
-  negotiationCase(
-    "a remote-created transceiver the application keeps returns to its created state on rollback",
-    { ref: "2.3-5 2.8-36; origin: self-review (live state)" },
-    async (c) => {
-      // Arrange: pranswer で remote 起因の transceiver に direction が確定している。
-      const { b, remoteCreated } = await c.given(
-        createInitialPranswerConnection(),
-      );
-      expect(remoteCreated.currentDirection).not.toBe(null);
-
-      // Act: answerer で remote offer を rollback する。
-      await c.setRemote(b, "rollback");
-
-      // Assert: app が使う transceiver は残るが、交渉した MID・direction は持たない。
-      expect(b.getTransceivers()).toContain(remoteCreated);
-      expect(remoteCreated.mid).toBe(null);
-      expect(remoteCreated.currentDirection).toBe(null);
-    },
-  );
-
-  negotiationCase(
     "a saved answer commits its own codecs after an unapplied createOffer() resolved others",
     { ref: "2.8-37 2.8-38 2.9-8 2.9-T1; origin: self-review (live state)" },
     async (c) => {
@@ -1421,43 +1086,6 @@ describeCases("negotiation transaction live-state regressions", () => {
 
       // Arrange: answerer の codec の選択を既定に戻す (H264 だけの選択は VP8 しか持たない offerer の次の offer と両立しない。develop と同じく sRD が失敗する)。
       answererTransceiver.setCodecPreferences([]);
-    },
-  );
-
-  negotiationCase(
-    "a first pranswer sends and receives with the codecs it answered",
-    { ref: "2.8-39; origin: self-review (live state)" },
-    async (c) => {
-      // Arrange: answerer は H264 だけを選んだ answer を作る。
-      const {
-        a,
-        b,
-        offererOut,
-        answererOut,
-        offererTransceiver,
-        answererTransceiver,
-      } = await c.given(createVp8H264AnsweringPeers());
-      answererTransceiver.setCodecPreferences([useH264()]);
-      const answer = await b.createAnswer();
-
-      // Act: その answer を初回の pranswer として両 peer に適用する。
-      await c.setLocal(b, answer.sdp, { type: "pranswer" });
-      await c.setRemote(a, b.localDescription);
-      await waitForPeersConnected(a, b);
-
-      // Assert: 暫定通信は pranswer の H264 で双方向に届く。
-      expect(answererTransceiver.sender?.codec?.mimeType.toLowerCase()).toEqual(
-        "video/h264",
-      );
-      await c.rtp(offererOut, answererTransceiver.receiver.track);
-      await c.rtp(answererOut, offererTransceiver.receiver.track);
-
-      // Act: 同じ内容の final answer で確定する。
-      await c.setLocal(b, answer);
-      await c.setRemote(a, b.localDescription);
-
-      // Assert: 確定後も H264 のまま、invariant を満たし双方向に届く。
-      await c.rtp(answererOut, offererTransceiver.receiver.track);
     },
   );
 

@@ -369,7 +369,7 @@ what the pending description added.
 | MID+RID → receiver | router `ridTable` | RIDs are scoped to their m-line (RFC 8851), so another m-line reusing RID names is a new key, not a conflict | RFC 8851 |
 | Sender SSRC → sender | router `ssrcTable` | Application state (`addTransceiver`), not description state: rollback keeps the route of every live sender, including one added while the description was pending | — |
 | Remote track for SSRC/RID | receiver `tracks` | Only added for new keys; the current track of a key is never replaced | — |
-| RTCP feedback of a payload type | receiver codec table | A changed `a=rtcp-fb` of a current payload type is staged until commit; NACK / TWCC / PLI follow the codec of each packet, not the lowest payload type; a PLI request for an SSRC follows the live receive codec of the payload type that SSRC carries, never a codec kept on its (reused) track | — |
+| RTCP feedback of a payload type | receiver codec table | A changed `a=rtcp-fb` of a current payload type is staged until commit; NACK / TWCC / PLI follow the codec of each packet, not the lowest payload type; a PLI request for an SSRC follows the live receive codec of the payload type that SSRC carries (it needs `nack pli`, RFC 4585), never a codec kept on its (reused) track | — |
 
 The RID lookup uses the MID header extension when the packet carries it and
 otherwise the first m-line with that RID. The sender keeps its committed codec
@@ -629,6 +629,21 @@ Each has a test that fails without it.
   proposal negotiated for it (back to its created state); a track event it
   already delivered stays, with its track unbound for the next negotiation's
   SSRC (found by the scenario properties, seeds 15 and 52).
+- A PLI request needs `a=rtcp-fb:<pt> nack pli` on the payload type the
+  SSRC carries: a generic `nack` alone no longer allows it (RFC 4585; found
+  by the model property's feedback oracle, seed 110; also in develop).
+- Refreshing an applied local description (end-of-candidates) keeps the
+  credentials it applied: an m-line a first max-compat offer described with
+  its own transport, which BUNDLE then moved onto the tag's, is not
+  rewritten with the tag's credentials, so the current local description
+  does not change outside a negotiation (seed 38; also in develop).
+- A MID only an unapplied `createOffer` reserved (no applied description
+  has its m-line) is released at the answer instead of being stopped as a
+  rejected m-line; for a transceiver it was stopped, for SCTP it collided
+  with the peer's next MID (seeds 64, 114 and 545; also in develop).
+- RTX pairs with its `apt` codec wherever the description lists it: an
+  answer that puts RTX before its primary codec (an answerer's preference
+  order) kept no RTX pairing (seed 15; also in develop).
 
 ## Test coverage
 
@@ -706,9 +721,9 @@ text and the operation log, and the same seed replays it. The properties run
 concurrently within the file (`describe.concurrent`).
 
 `tests/pbt/negotiationModelProperty.test.ts` (with `modelPropertyUtils.ts`,
-`modelOracles.ts` and `modelScenes.ts`) is the model property: whatever the
-operations, after every description operation both peers keep the
-invariants and these oracles hold.
+`modelOracles.ts`, `modelMutations.ts` and `modelScenes.ts`) is the model
+property: whatever the operations, after every description operation both
+peers keep the invariants and these oracles hold.
 
 - traffic (`c.expectTraffic()`, meta `traffic: true`): every stream whose
   sender's `currentDirection` sends, whose transceiver of the same MID on the
@@ -719,59 +734,102 @@ invariants and these oracles hold.
   current ICE generation; an ICE restart commit drops the old pair until the
   new generation nominates): after an operation an unsettled one is skipped
   without waiting, and the check after the scene waits up to 10 s for it.
-  It holds while both peers have the same current session (each one's
-  current local description, without candidates, is the other's current
-  remote description); while a renegotiation is pending, a stream on a
-  transport that is not connected yet is not required (a pranswer stages a
-  new transport for the final answer, see "Connection start").
+  It holds while both peers have the same session (`c.sameSession`: each
+  one's current local description, without candidates, is the other's
+  current remote description, and so is a pending local description the
+  other applied; a wire rewrite registered with `c.equivalent` counts as its
+  original); while a renegotiation is pending, a stream on a transport that
+  is not connected yet is not required (a pranswer stages a new transport
+  for the final answer, see "Connection start").
 - jsep: an accepted operation moves the peer to the state of its type and
-  sets the pending or current description it applied (a local description
-  keeps its m-line structure; a rewritten split offer changes credentials),
-  keeps the others, and leaves the other peer untouched.
+  sets the pending or current description it applied (as the peer stores
+  it, parsed and written again; a local description keeps its m-line
+  structure; a rewritten split offer changes credentials), keeps the
+  others, and leaves the other peer untouched. A transceiver without an
+  m-line (not stopped) has no `currentDirection`.
 - rollback: an explicit rollback restores the descriptions, the ICE
   credentials of the transports that existed (a restart only a created
   offer staged is dropped), the routes of the transceivers that existed and
-  their committed MIDs, m-line indexes, send parameters and receive tables;
-  MIDs a created offer only reserved may go; a transceiver the application
-  added stays (without a MID if added meanwhile).
+  their committed MIDs, m-line indexes, send parameters (not the track the
+  application attached, nor the codec a pending remote offer only
+  proposes), receive tables and transport-cc feedback; MIDs a created offer
+  only reserved may go. A transceiver the remote offer created is removed
+  unless the application attached a track to it; one the application added
+  or kept stays without a MID, direction, receive table or receive route;
+  without a current session the connection states are `new` again.
 - events: a state change fires `signalingstatechange` ending in the new
   state; rollback and an idempotent re-application fire no track or
   remote-transceiver event (DataChannels arrive asynchronously by DCEP); a
   receiver's track event fires again only after it stopped receiving (its
-  remote m-line no longer sends, or a rollback) or with other streams.
+  remote m-line no longer sends, or a rollback) or with other streams; an
+  open remote DataChannel is announced once.
 - idempotent / create: re-applying the pending remote description, or
-  creating an offer or answer, changes nothing (descriptions, send
+  creating an offer or answer, changes nothing (descriptions, live send
   parameters, receive tables, events).
 - trickle: a trickled candidate is in its m-section at most once, and one
   of the current generation that entered the remote description is in the
   live checklist.
+- feedback: after a packet of payload type P reached a receiver, a PLI
+  request leaves it exactly when P's effective `a=rtcp-fb` has `nack pli`,
+  and transport-cc feedback runs when it has `transport-cc`. P's effective
+  feedback is the receiver's current remote description's when the current
+  session has P on that m-line (a changed `a=rtcp-fb` is staged until the
+  final answer), else the pending remote description's (an added payload
+  type applies at once). An operation that commits nothing never starts
+  transport-cc feedback for a packet whose codec lacks it.
+- ice: an operation that commits nothing keeps the selected pair of every
+  connected ICE transport (a restart checks its new generation beside it).
 - commit: once both peers have the same current session, every m-line's
   `currentDirection` mirrors the other peer's and every sending codec is in
   the other peer's receive table; a DataChannel open on a committed session
   stays open. A DataChannel the application created never closes, and at the
-  end of a scene one on a negotiated association is open on both peers.
+  end of a scene one on a negotiated association is open on both peers. At
+  a commit, an m-line that keeps its BUNDLE transport (same tag, or
+  unbundled in both sessions) keeps its DTLS transport object (no new
+  handshake).
 - reject: an operation that may be rejected (`mayReject`) changes nothing
-  when it is (the harness compares `negotiationSnapshot`).
+  when it is (the harness compares `negotiationSnapshot`); a wire rewrite
+  that remaps a key the current session negotiated (a payload type to
+  another codec on the same m-line, RFC 3264 section 8.3.2; a header
+  extension ID to another URI, RFC 8285 section 7) must be rejected with
+  `InvalidModificationError`.
 
-A scene is a start state (a connected duplex session, or two unnegotiated
-peers where `a` sends video, with or without a DataChannel) and a list of operations as data
-(`[side, name, choices]`: tracks, recvonly transceivers, DataChannels,
-direction, codec preferences, stop, track attach, `restartIce`, offer (ICE
+Both peers use VP8 (NACK, PLI, REMB, transport-cc) with RTX, H264 (NACK,
+PLI), Opus and PCMU, and the MID and transport-cc header extensions
+(`modelConfig`). A scene is a start state (a connected duplex session, or
+two unnegotiated peers where `a` sends video, with or without a
+DataChannel) and a list of operations as data (`[side, name, choices]`:
+tracks, recvonly transceivers, DataChannels, direction, codec preferences
+(the first codec, or all reversed), stop and track attach (also on a
+transceiver a pending remote offer created), `restartIce`, offer (ICE
 restart), BUNDLE split offer, glare, replacement offer, pranswer, answer,
-rollback, re-application of the pending remote description, create-only,
-applying a stale created offer, trickle with duplicates and
-end-of-candidates). Fixed scenes (`modelScenes.ts`) are the operation
-sequences of former individual tests and regressions in a few lines; random
-scenes draw one applicable operation at a time from a seed. A failure prints
-the seed and the operations and, unless `WERIFT_NEGOTIATION_MODEL_SHRINK=0`,
-shrinks the scene by dropping operations and prints the smallest failing
-one, ready for `modelScenes.ts`. CI runs `WERIFT_NEGOTIATION_MODEL_SEEDS`
-(default 4) seeds of `WERIFT_NEGOTIATION_MODEL_STEPS` (default 10)
-operations from `WERIFT_NEGOTIATION_MODEL_SEED`. The model property replaced
-51 individual tests whose verdict included traffic and needed no special
-environment; it trades their scene-specific values (codec and feedback
-timing, specific SDP edits on the wire, end-of-candidates alignment) for
-oracles over every generated scene (see `NEGOTIATION_CASES_MAPPING.md`).
+an answer after a preference or track change, rollback, re-application of
+the pending remote description, create-only, applying a stale created
+offer, trickle (new or described candidates, duplicates,
+end-of-candidates), and an offer, pranswer or answer rewritten on the wire).
+A wire rewrite (`modelMutations.ts`) either describes the same session
+(fewer codecs or feedback, another order, an fmtp parameter, a larger
+max-message-size, no end-of-candidates: the peers still agree) or
+misdescribes the sender (inactive or rejected m-lines, other or swapped
+SSRCs, no RTX, a renumbered payload type, a moved or swapped header
+extension ID: the next clean negotiation must heal the session); a final
+answer is only rewritten in the first way, and a rejected rewrite is
+followed by the original description. Fixed scenes (`modelScenes.ts`) are
+the operation sequences of former individual tests and regressions in a few
+lines; random scenes draw one applicable operation at a time from a seed. A
+failure prints the seed and the operations and, unless
+`WERIFT_NEGOTIATION_MODEL_SHRINK=0`, shrinks the scene by dropping
+operations and prints the smallest failing one, ready for `modelScenes.ts`.
+CI runs `WERIFT_NEGOTIATION_MODEL_SEEDS` (default 4) seeds of
+`WERIFT_NEGOTIATION_MODEL_STEPS` (default 10) operations from
+`WERIFT_NEGOTIATION_MODEL_SEED`. The model property replaced 51 individual
+tests whose verdict included traffic and needed no special environment
+(TICKET 2.17) and 29 more whose verdict its oracles give (TICKET 2.19); it
+trades their scene-specific values for oracles over every generated scene
+(see `NEGOTIATION_CASES_MAPPING.md`). Cases that check concrete values of
+ICE (end-of-candidates, credentials, generations), DTLS roles, BUNDLE and
+the RFC codec rules stay individual tests: a wrong value there breaks
+interoperability even when both werift peers agree.
 
 `tests/pbt/negotiationTransactionProperty.test.ts` holds the seeded episode
 fuzzer and its episodes, seeded random
@@ -1125,6 +1183,10 @@ no behavior difference unless they pass `expectSessionContinues`.
 | Renomination drops remote candidates naming another ufrag (2.11) | keeps them in the checklist | ICE generation consistency (they cannot pass checks with the new credentials) | added, ufrag-less candidates unchanged |
 | An SCTP transport whose MID only an unapplied createOffer reserved takes the MID of the peer's offer (2.17) | answers the application with the reserved MID, repeating a MID of the offer | W3C (the answerer uses the offer's MIDs); HEAD validates unique MIDs | added, passes the helper (found by the model property) |
 | An answer rejects (port 0) an m-line it can give no codec, e.g. a stopping transceiver whose codec preferences were just set (2.17) | sends an m-line without formats, which it then cannot parse | JSEP 5.3.1 | added, passes the helper (found by the model property) |
+| PLI only with `nack pli` negotiated (2.19) | sends PLI for any `nack` feedback | RFC 4585 (`nack` and `nack pli` are different feedback) | added, passes the helper (found by the model property) |
+| A refresh of an applied local description keeps the credentials it applied (2.19) | rewrites the current description with the BUNDLE tag's credentials at end-of-candidates | W3C (the current description changes only at a negotiation) | added, passes the helper (found by the model property) |
+| A MID only an unapplied createOffer reserved is released at the answer (2.19) | stops the transceiver as rejected (the peer's next m-line with that MID is answered with port 0); keeps the SCTP MID, which collides | W3C (a MID is associated when a description is set) | added, passes the helper (found by the model property; the differential runner counts the stopped-in-develop transceiver as the intended deferred MID) |
+| RTX pairs with its primary codec whatever the order of the codecs (2.19) | no RTX pairing when RTX precedes its primary codec | RFC 4588 (the order is a preference) | added, passes the helper (found by the model property) |
 
 ## Scope and known constraints
 

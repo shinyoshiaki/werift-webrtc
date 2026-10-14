@@ -1,9 +1,5 @@
-import { type RTCPeerConnection, useH264, useVP8 } from "../../../src";
-import {
-  ANSWER_OR_ROLLBACK,
-  describeCases,
-  negotiationCase,
-} from "../harness/negotiationCase";
+import type { RTCPeerConnection } from "../../../src";
+import { describeCases, negotiationCase } from "../harness/negotiationCase";
 import {
   createDuplexSession,
   createMutationSession,
@@ -31,48 +27,6 @@ const ssrcTable = (pc: RTCPeerConnection) =>
 describeCases(
   "negotiation effective values while a renegotiation is pending",
   () => {
-    negotiationCase.for(ANSWER_OR_ROLLBACK)(
-      "a pranswer sends with its codec on both sides until $finish",
-      { ref: "2.2-1 2.2-8 2.2-9 2.4-4 2.10-2" },
-      async (c, { finish }) => {
-        // Arrange: VP8 で確立した後、answerer が H264 だけを選んだ answer を用意する。
-        const { a, b, aVideo, bVideo } = await c.given(
-          createDuplexSession({ codecs: { video: [useVP8(), useH264()] } }),
-        );
-        await c.offer(a);
-        bVideo.setCodecPreferences([useH264()]);
-        const answer = await b.createAnswer();
-        const sendCodecs = () =>
-          [aVideo, bVideo].map((t) => t.sender.codec?.mimeType.toLowerCase());
-
-        // Act: H264 の pranswer を両側に適用する。
-        await c.setLocal(b, answer, { type: "pranswer" });
-        await c.setRemote(a, answer, { type: "pranswer" });
-
-        // Assert: 再交渉の pranswer 中は両側とも pranswer の H264 で送り、届く。
-        expect(sendCodecs()).toEqual(["video/h264", "video/h264"]);
-        await c.alive();
-
-        // Act: 同じ内容の final answer で commit する、または両側で rollback する。
-        if (finish === "answer") {
-          await c.setLocal(b, answer);
-          await c.setRemote(a, answer);
-        } else {
-          await c.rollback(a);
-        }
-
-        // Assert: answer なら H264 のまま確定し、rollback なら両側とも current の VP8 に戻る。
-        if (finish === "answer") {
-          expect(sendCodecs()).toEqual(["video/h264", "video/h264"]);
-        } else {
-          expect(sendCodecs()).toEqual(["video/vp8", "video/vp8"]);
-        }
-
-        // Assert: 確定 / 復元した codec で双方向に届く。
-        await c.alive();
-      },
-    );
-
     negotiationCase(
       "SSRCs only a replaced pranswer announced stop routing at the final answer",
       { ref: "2.1-4 2.2-7 2.2-13 2.2-14 2.4-1 2.5-13 2.10-4" },

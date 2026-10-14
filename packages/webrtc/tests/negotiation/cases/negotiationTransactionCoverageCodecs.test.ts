@@ -1,10 +1,7 @@
 import {
   MediaStreamTrack,
-  type RTCPeerConnection,
   RTCRtpCodecParameters,
-  type RTCRtpReceiver,
   type RTCRtpSender,
-  type RtpPacket,
   SessionDescription,
   useH264,
   useNACK,
@@ -21,37 +18,27 @@ import {
   answerRemoteOffer,
   createBundlePairWithOutsideReoffer,
 } from "../../issue/705.helpers";
-import {
-  ANSWER_OR_ROLLBACK,
-  describeCases,
-  negotiationCase,
-} from "../harness/negotiationCase";
+import { describeCases, negotiationCase } from "../harness/negotiationCase";
 import {
   createCommittedInactiveAudioPeers,
   createConnectedVideoPeers,
   createConnectedVideoPeersWith,
-  createConnectedVideoPeersWithRtx,
   createH264OnlyReoffer,
-  createInitialPranswerConnection,
   createPeerPair,
   createSimulcastPeers,
   createUnnegotiatedPeers,
-  createVp8H264AnsweringPeers,
   extmapId,
   mungeSection,
   offeredVideoCodecs,
   payloadTypeOf,
   pliReaches,
-  receiveCodecNames,
   recordSenderFeedback,
-  rewriteVideoFeedback,
   sendRawRtp,
   setExtmapId,
   twccFeedbackSent,
   videoWithoutFeedback,
   waitForPeersConnected,
   watchRtpText,
-  withRtcpFeedback,
 } from "../harness/negotiationTransactionUtils";
 
 /** Act: seq first, first+1, first+4 (2 lost) on the sender's SSRC with `payloadType`; each must reach `incoming`. */
@@ -86,20 +73,6 @@ const twccH264Config = () => ({
   headerExtensions: { video: [useTransportWideCC()] },
 });
 
-/** How many SSRC / RID routes of `pc`'s router lead to `endpoint`. */
-const routesTo = (pc: RTCPeerConnection, endpoint: RTCRtpReceiver) => {
-  const { router } = pc as unknown as {
-    router: {
-      ssrcTable: Record<number, unknown>;
-      ridTable: Record<string, unknown>;
-    };
-  };
-  return [
-    ...Object.values(router.ssrcTable),
-    ...Object.values(router.ridTable),
-  ].filter((e) => e === endpoint).length;
-};
-
 /** Arrange: replace `track.codec` with a copy whose RTCP feedback is `rtcpFeedback`. */
 const setTrackFeedback = (
   track: MediaStreamTrack,
@@ -109,29 +82,6 @@ const setTrackFeedback = (
     ...track.codec!,
     rtcpFeedback,
   });
-};
-
-/**
- * Act: one RTX packet with `header` whose payload is the original
- * sequence number `osn` (2 bytes) + `text`; resolves with the track
- * of `receiver` that got the repaired packet and that packet.
- */
-const sendRtx = async (
-  transport: DtlsTransport,
-  receiver: RTCRtpReceiver,
-  header: { ssrc: number; payloadType: number; sequenceNumber: number },
-  osn: number,
-  text: string,
-): Promise<{ track: MediaStreamTrack; packet: RtpPacket }> => {
-  const prefix = Buffer.alloc(2);
-  prefix.writeUInt16BE(osn);
-  const received = watchRtpText(receiver.tracks, text);
-  await sendRawRtp(
-    transport,
-    header,
-    Buffer.concat([prefix, Buffer.from(text)]),
-  );
-  return received;
 };
 
 /**
@@ -198,56 +148,6 @@ describeCases(
         expect(receiver.receiverTWCC).not.toEqual(undefined);
         c.invariants(b);
         feedback.stop();
-      },
-    );
-
-    negotiationCase(
-      "[2.4-5] transport-cc feedback a re-offer adds starts only at the answer commit",
-      { ref: "2.4-5" },
-      async (c) => {
-        // Arrange: transport-cc の header extension は交渉済みだが、current の VP8 は transport-cc feedback を持たない。
-        const { a, b, outgoing, receiver } = await c.given(
-          createConnectedVideoPeersWith({
-            offerer: {
-              codecs: { video: [useVP8()] },
-              headerExtensions: { video: [useTransportWideCC()] },
-            },
-            answerer: {
-              codecs: {
-                video: [
-                  useVP8({
-                    rtcpFeedback: [useNACK(), usePLI(), useREMB(), useTWCC()],
-                  }),
-                ],
-              },
-              headerExtensions: { video: [useTransportWideCC()] },
-            },
-          }),
-        );
-        expect(receiver.receiverTWCC).toEqual(undefined);
-        await c.offer(a, { hold: true });
-        const withTwcc = withRtcpFeedback(
-          a.localDescription!.sdp,
-          "VP8",
-          "transport-cc",
-        );
-
-        // Act: VP8 に transport-cc を足した re-offer を answerer に適用する (answer はまだ)。
-        await c.setRemote(b, withTwcc, { type: "offer" });
-
-        // Assert: pending 中は current の RTP に TWCC を始めず、feedback も送らない。
-        expect(await twccFeedbackSent(outgoing, receiver)).toBe(false);
-        expect(receiver.receiverTWCC).toEqual(undefined);
-
-        // Act: answer で確定する。
-        await c.answer(b);
-
-        // Assert: commit で TWCC が始まり、受信した RTP への transport-cc feedback を session に送る。
-        expect(b.currentLocalDescription!.sdp).toMatch(
-          /^a=rtcp-fb:\d+ transport-cc/m,
-        );
-        expect(receiver.receiverTWCC).not.toEqual(undefined);
-        expect(await twccFeedbackSent(outgoing, receiver)).toBe(true);
       },
     );
 
@@ -676,120 +576,6 @@ describeCases(
       },
     );
 
-    negotiationCase(
-      "[2.8-36] a remote-created transceiver the application keeps returns to its created codecs and has no routes after rollback",
-      { ref: "2.8-36" },
-      async (c) => {
-        // Arrange: 初回 pranswer で remote 起因の transceiver に codec・受信経路が付いている。
-        const { b, remoteCreated } = await c.given(
-          createInitialPranswerConnection(),
-        );
-        expect(remoteCreated.codecs.length).toBeGreaterThan(0);
-        expect(routesTo(b, remoteCreated.receiver)).toBeGreaterThan(0);
-
-        // Act: answerer で remote offer を rollback する。
-        await c.setRemote(b, "rollback");
-
-        // Assert: app が使う transceiver は残り、作成時の状態 (MID・direction・codec なし) に戻る。
-        expect(b.getTransceivers()).toContain(remoteCreated);
-        expect(remoteCreated).toMatchObject({
-          mid: null,
-          currentDirection: null,
-          direction: "recvonly",
-          codecs: [],
-        });
-        expect(remoteCreated.sender.codec).toEqual(undefined);
-        expect(remoteCreated.receiver.snapshotReceiveTables()).toEqual({
-          codecs: {},
-          ssrcByRtx: {},
-          stagedCodecs: {},
-          stagedSsrcByRtx: {},
-        });
-
-        // Assert: 受信経路 (SSRC / MID+RID) はどれもその receiver を指さない。
-        expect(routesTo(b, remoteCreated.receiver)).toEqual(0);
-      },
-    );
-
-    negotiationCase(
-      "[2.8-39] rolling back a first pranswer returns both peers' send and receive codecs to the unnegotiated state",
-      { ref: "2.8-39" },
-      async (c) => {
-        // Arrange: answerer は H264 だけを選んだ answer を初回 pranswer として両側に適用し、H264 で通信する。
-        const {
-          a,
-          b,
-          offererOut,
-          answererOut,
-          offererTransceiver,
-          answererTransceiver,
-        } = await c.given(createVp8H264AnsweringPeers());
-        answererTransceiver.setCodecPreferences([useH264()]);
-        await c.pranswer(b);
-        await waitForPeersConnected(a, b);
-        expect(offererTransceiver.sender.codec?.name.toUpperCase()).toEqual(
-          "H264",
-        );
-        expect(answererTransceiver.sender.codec?.name.toUpperCase()).toEqual(
-          "H264",
-        );
-        await c.rtp(offererOut, answererTransceiver.receiver.track);
-
-        // Act: 両側で初回交渉を rollback する。
-        await c.rollback(b);
-
-        // Assert: 送信 codec と受信表は pranswer 前 (未交渉) に戻る。
-        expect(offererTransceiver.sender.codec).toEqual(undefined);
-        expect(receiveCodecNames(offererTransceiver.receiver)).toEqual({});
-        expect(answererTransceiver.sender.codec).toEqual(undefined);
-        expect(receiveCodecNames(answererTransceiver.receiver)).toEqual({});
-
-        // Act: 改めて preference なしで交渉する。
-        answererTransceiver.setCodecPreferences([]);
-        await c.offer(a);
-        const answererSide = b.getTransceivers()[0];
-        answererSide.setDirection("sendrecv");
-        await answererSide.sender.replaceTrack(answererOut);
-        await c.answer(b);
-        await waitForPeersConnected(a, b);
-
-        // Assert: 新しい交渉は VP8 で確定し、invariant を満たして届く。
-        expect(offererTransceiver.sender.codec?.name.toUpperCase()).toEqual(
-          "VP8",
-        );
-        await c.rtp(offererOut, answererSide.receiver.track);
-      },
-    );
-
-    negotiationCase(
-      "[5-7] PLI stays negotiated after a rolled-back re-offer that removes NACK/PLI for the same SSRC",
-      { ref: "5-7" },
-      async (c) => {
-        // Arrange: 接続済み session は PLI を交渉済みで、実際に届く。
-        const { a, b } = await c.given(createConnectedVideoPeers());
-        const sender = a.getTransceivers()[0].sender;
-        const receiver = b.getTransceivers()[0].receiver;
-        expect(await pliReaches(receiver, sender)).toBe(true);
-
-        // Act: 同じ SSRC の VP8 から NACK/PLI を外した re-offer を pending にする。
-        await c.offer(a, { hold: true });
-        await c.setRemote(
-          b,
-          rewriteVideoFeedback(a.localDescription!.sdp, "remove"),
-          { type: "offer" },
-        );
-
-        // Assert: pending 中は current の受信 codec のまま PLI が届く。
-        expect(await pliReaches(receiver, sender)).toBe(true);
-
-        // Act: 両側で rollback する。
-        await c.rollback(b);
-
-        // Assert: rollback 後も current の設定に戻ったまま PLI が届く。
-        expect(await pliReaches(receiver, sender)).toBe(true);
-      },
-    );
-
     negotiationCase.for([
       { negotiated: "with", rewritten: "without", reached: true },
       { negotiated: "without", rewritten: "with", reached: false },
@@ -815,60 +601,6 @@ describeCases(
 
         // Assert: PLI の可否は track の codec ではなく、受信 codec 表 (current SDP) の feedback に従う。
         expect(reached).toBe(row.reached);
-        c.invariants(b);
-      },
-    );
-
-    negotiationCase.for(ANSWER_OR_ROLLBACK)(
-      "[5-13] RTX packets resolve to the current media SSRC while a re-pairing is pending and after $finish",
-      { ref: "5-13" },
-      async (c, { finish }) => {
-        // Arrange: RTX 付きで接続済み。FID の RTX SSRC はそのまま、対のメディア SSRC を変えた re-offer を作る。
-        const { a, b, incoming } = await c.given(
-          createConnectedVideoPeersWithRtx(),
-        );
-        const offer = await a.createOffer();
-        const [, mediaSsrc, rtxSsrc] = offer.sdp
-          .match(/^a=ssrc-group:FID (\d+) (\d+)/m)!
-          .map(Number);
-        const rtxPt = payloadTypeOf(offer.sdp, "rtx");
-        const repaired = offer.sdp.split(String(mediaSsrc)).join("999333");
-        const transport = a.getTransceivers()[0].dtlsTransport;
-        const receiver = b.getTransceivers()[0].receiver;
-
-        // Act: RTX の対応を変える remote offer を適用し、RTX パケットを送る。
-        await c.setRemote(b, repaired, { type: "offer" });
-        const pending = await sendRtx(
-          transport,
-          receiver,
-          { ssrc: rtxSsrc, payloadType: rtxPt, sequenceNumber: 3001 },
-          3000,
-          `rtx-pending-${finish}`,
-        );
-
-        // Assert: pending 中は current の対応のメディア SSRC として current の track に届く。
-        expect(pending.packet.header.ssrc).toEqual(mediaSsrc);
-        expect(pending.track).toBe(incoming);
-
-        // Act: answer で確定する、または rollback してから RTX を送る。
-        await c.finish(b, finish);
-        const after = await sendRtx(
-          transport,
-          receiver,
-          { ssrc: rtxSsrc, payloadType: rtxPt, sequenceNumber: 3002 },
-          3001,
-          `rtx-after-${finish}`,
-        );
-
-        // Assert: 確定後は新しい対のメディア SSRC、rollback 後は元の SSRC として復元される。
-        if (finish === "answer") {
-          expect(after.packet.header.ssrc).toEqual(999333);
-          expect(after.track).toBe(receiver.trackBySSRC[999333]);
-        } else {
-          expect(after.packet.header.ssrc).toEqual(mediaSsrc);
-          expect(after.track).toBe(receiver.trackBySSRC[mediaSsrc]);
-          expect(after.track).toBe(incoming);
-        }
         c.invariants(b);
       },
     );
