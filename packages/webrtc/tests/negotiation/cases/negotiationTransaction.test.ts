@@ -8,6 +8,7 @@ import {
 import type { RTCDtlsTransport, RTCPeerConnection } from "../../../src";
 import { describeCases, negotiationCase } from "../harness/negotiationCase";
 import {
+  trickleCandidate,
   ufragOf,
   withBundle,
   withoutEoc,
@@ -1077,6 +1078,47 @@ describeCases("negotiation transaction", () => {
 
       // Act / Assert: 破棄済み generation の遅延 candidate は次回用キューに入らない。
       await c.addCandidate(b, candidate, { rejects: "OperationError" });
+    },
+  );
+
+  negotiationCase(
+    "a trickle candidate of the unchanged ICE generation reaches the live checklist during a re-offer",
+    { ref: "origin: same-generation trickle during a re-offer" },
+    async (c) => {
+      // Arrange: EOC 前の世代のまま ICE restart なしの re-offer を pending にし、同じ ufrag の新しい候補を作る。
+      const { a, b, outgoing, incoming } = await c.given(
+        createConnectedVideoPeers({}, { trickleOpen: true }),
+      );
+      await c.offer(a, { hold: true });
+      await c.setRemote(b, withoutEoc(a.localDescription!.sdp));
+      const offer = a.localDescription!.sdp;
+      const candidate = trickleCandidate(
+        40999,
+        ufragOf(offer),
+        offer.match(/^a=mid:(.*?)\r?$/m)![1],
+      );
+      const live = () =>
+        b.iceTransports[0].connection.remoteCandidates.filter(
+          (r) => r.port === 40999,
+        ).length;
+      expect(live()).toEqual(0);
+
+      // Act: 同じ候補を 2 回 trickle する。
+      await c.addCandidate(b, candidate);
+      await c.addCandidate(b, candidate);
+
+      // Assert: pending と current の両 SDP に記録され、稼働中 checklist には 1 回だけ届く。
+      expect(b.pendingRemoteDescription!.sdp).toContain(" 40999 typ host");
+      expect(b.currentRemoteDescription!.sdp).toContain(" 40999 typ host");
+      expect(live()).toEqual(1);
+
+      // Act: re-offer を rollback する。
+      await c.rollback(b);
+
+      // Assert: 同じ世代の候補は current に残り、既存 RTP も届く。
+      expect(b.currentRemoteDescription!.sdp).toContain(" 40999 typ host");
+      expect(live()).toEqual(1);
+      await c.rtp(outgoing, incoming);
     },
   );
 });

@@ -468,6 +468,32 @@ provisional の checklist は live と同じ規則に従う: 候補から作る 
   - 深い探索: モデル property 300 seed 300/300（383 秒）、episode fuzzer 300×20 303/303（212 秒）、scenario 300 seed 2163/2163（638 秒。develop 差分ファズと並行した回で 1 件失敗し、単独で 5 回と 300 seed 全体を再実行して通過）、pairwise mutation 2106/2106（1,795 秒）。
   - develop 差分ファズ（200 seed × 12 step）: 回帰 0、hang 0、failed 0。
 
+### 2.18 深い探索の並列化と、テスト全体で見逃すバグのケースを戻す（追加要件）
+
+**要件**: (1) 深い探索（episode fuzzer・scenario・モデル property・pairwise mutation）が遅いので、マルチプロセスで並列に実行してできるだけ速くする。(2) 2.17 で検出できなくなった 7 個のバグ（R2・R3・C1・C3・C4・I2・B2）を検出する個別のケーステストを追加し、追加した行数を報告する。
+
+**実施内容**
+
+- `npm run pbt:deep`（`packages/webrtc/tools/pbt-deep/run.ts`）: 各 suite の seed（mutation は組み合わせ）を分割し、別々の vitest プロセスで `--jobs`（既定は CPU 数）ずつ実行する。全 suite の分割を 1 つの pool に入れ、suite の境目では待たない。固定シーンと回帰 seed は 1 つの分割で 1 回だけ実行する。失敗したテストは単独で再実行し、通ったものは flaky、再び失敗したもの・何も実行しなかった分割・プロセスの異常終了は失敗とし、再現用の環境変数を出力して終了コード 1 を返す。mutation は `WERIFT_NEGOTIATION_MUTATION_SHARD=i/n` で分割する。オプションは `--suite`、`--seeds`、`--steps`、`--seed`、`--jobs`。
+- 7 個のバグについて、2.17 の比較は「モデル property が旧 51 件の代わりになるか」だった。そこで、テスト全体（ケース全ファイルと `tests/pbt`）に各バグを入れて実行し直した（一時 worktree、HEAD の src、retry なし）。テスト全体で見逃していたのは R2・C3・I2 の 3 個だけだった。R3・C1・C4・B2 は、残っているケースが検出していた。
+  - R3: CovC [5-13]（2 件）と episode fuzzer の 11 seed
+  - C1: CovC [2.4-5] "a re-offer adds starts only at the answer commit" とモデル seed 4
+  - C4: CovC [2.4-5] "a pranswer packet started stops on rollback"、Dev #729、Reg "codec preferences resolved by createAnswer …"
+  - B2: CovC [2.6-T1b]、CovT [2.8-41]（2 件）、EV、Reg "a max-compat first offer connects …"
+  - この 4 個については重複になるので、ケースは追加していない。
+- 戻したケース（2.17 で消した旧テストを、そのままの操作と判定で戻した）:
+  - R2: Route "an SSRC a re-offer moves to another m-line keeps its current route until $finish"（展開 2 件）
+  - C3: Reg "a remote pranswer that changes send parameters is fully undone by rollback"
+  - I2: NT "a trickle candidate of the unchanged ICE generation reaches the live checklist during a re-offer"（候補は共有の `trickleCandidate` で作る）
+  - いずれも、バグを入れると失敗し、バグがなければ通ることを確認した。対応表・仕様対応表を更新し、2.4-T3 を covered に戻した。
+- 追加したテストの行数: 3 ファイルで +116 / −1 行。内訳はテスト本体が 107 行（Route 38、Reg 28、NT 41）、import の変更が 9 行。
+- 並列化の効果（16 コアの環境、既定の深さ: fuzz 300 seed × 20 step、scenario 300 seed、モデル 300 seed、pairwise mutation）:
+  - 逐次実行の合計: 約 3,028 秒（2.17 での計測）
+  - `--jobs 8`、suite ごとに順番に実行: 472 秒
+  - 既定（16 jobs、1 つの pool）: 250〜254 秒（約 12 倍）
+  - `--jobs 24`: 負荷によって scenario の seed が失敗し、単独の再実行では通った（flaky）。再実行の分だけ遅くなり 280 秒だったので、既定は CPU 数にした。
+  - I3 を入れた一時 worktree では、モデル seed 3・6・7・8 など（8 seed 中）が FAILED として、再現用の環境変数とともに出力された。
+
 ## 3. 技術的な実装アプローチ
 
 ### 3.1 transaction coordinator と subsystem API
@@ -582,7 +608,7 @@ commit path に例外が残る場合は、公開状態を切り替える前に�
 
 ## 7. 仕様と試験の対応表（策3）
 
-2.1〜2.12 と 5 章の各文（要件）を、それを検証する試験名（または invariant helper）か「対象外（理由）」に対応づけた表を `packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md` に置く（全 276 件: covered 250 件、対象外 23 件、partial 3 件、uncovered 0 件。2.11 で 15 件、2.12 で 10 件追加。partial の 3 件は 2.17 でモデル property に置き換えて具体値の検査を手放した 2.4-T3・2.8-4・2.9-T9）。対象外は設計文書・コード構造・作業プロセスの記述だけで、理由を併記する。
+2.1〜2.12 と 5 章の各文（要件）を、それを検証する試験名（または invariant helper）か「対象外（理由）」に対応づけた表を `packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md` に置く（全 276 件: covered 251 件、対象外 23 件、partial 2 件、uncovered 0 件。2.11 で 15 件、2.12 で 10 件追加。partial の 2 件は 2.17 でモデル property に置き換えて具体値の検査を手放した 2.8-4・2.9-T9。2.4-T3 は 2.18 でケースを戻して covered）。対象外は設計文書・コード構造・作業プロセスの記述だけで、理由を併記する。
 
 - 表の作成時点で partial / uncovered だった 59 件は、要件 ID を名前に持つ試験（`negotiationTransactionCoverageEvents` / `Transport` / `Ice` / `Codecs`、`packages/ice/tests/coverageConsent.test.ts`）で閉じた。そのうち修正前の実装で失敗したものは、2.10 の「見つけ、修正して確定した規則」として実装を直した。
 - 要件や試験を変えたら表も更新する。新しい要件は、ID を名前に含む試験を追加してから covered にする。

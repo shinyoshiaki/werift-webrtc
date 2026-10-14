@@ -803,10 +803,14 @@ operations. Before asking for review, run the deeper searches
 (`WERIFT_NEGOTIATION_FUZZ_SEEDS=300 WERIFT_NEGOTIATION_FUZZ_STEPS=20` for the
 episode fuzzer, `WERIFT_NEGOTIATION_SCENARIO_SEEDS=300` for the scenario
 properties, `WERIFT_NEGOTIATION_MODEL_SEEDS=300` with `-t seed` for the
-model property),
+model property) and
 the pairwise
-mutations (`WERIFT_NEGOTIATION_MUTATION=pairwise`) and a self-review that
-lists every path writing live tables while a description is pending.
+mutations (`WERIFT_NEGOTIATION_MUTATION=pairwise`) — `npm run pbt:deep`
+runs all four in parallel vitest processes (`tools/pbt-deep/run.ts`: seed
+ranges and mutation shards, `--jobs` defaults to the CPU count, a failure is
+replayed alone to tell a load-induced failure from a real one) — and a
+self-review that lists every path writing live tables while a description is
+pending.
 `NEGOTIATION_SPEC_COVERAGE.md` maps every requirement of the ticket to the
 tests that verify it.
 

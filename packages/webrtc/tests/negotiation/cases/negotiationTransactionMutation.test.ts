@@ -39,7 +39,8 @@ import {
  *
  * By default each mutation runs alone. WERIFT_NEGOTIATION_MUTATION=pairwise
  * runs every pair of mutations; =random:<count>:<seed> runs random
- * combinations of up to three.
+ * combinations of up to three. `npm run pbt:deep` splits the cases over
+ * processes with WERIFT_NEGOTIATION_MUTATION_SHARD.
  */
 type Stage = "offer" | "pranswer" | "answer";
 type Phase = "initial" | "renegotiation";
@@ -65,16 +66,24 @@ function combinations(): MutationName[][] {
   return MUTATION_NAMES.map((name) => [name]);
 }
 
-const cases = (["initial", "renegotiation"] as const).flatMap((phase) =>
-  (["offer", "pranswer", "answer"] as const).flatMap((stage) =>
-    combinations().map((mutations) => ({
-      phase,
-      stage,
-      mutations,
-      name: mutations.join("+"),
-    })),
-  ),
-);
+/** WERIFT_NEGOTIATION_MUTATION_SHARD=<i>/<n> runs every n-th case from i (parallel runs). */
+const [shardIndex, shardCount] = (
+  process.env.WERIFT_NEGOTIATION_MUTATION_SHARD ?? "0/1"
+)
+  .split("/")
+  .map(Number);
+const cases = (["initial", "renegotiation"] as const)
+  .flatMap((phase) =>
+    (["offer", "pranswer", "answer"] as const).flatMap((stage) =>
+      combinations().map((mutations) => ({
+        phase,
+        stage,
+        mutations,
+        name: mutations.join("+"),
+      })),
+    ),
+  )
+  .filter((_, index) => index % shardCount === shardIndex);
 
 /**
  * Act: one negotiation from a to b whose `stage` description is mutated on
