@@ -144,6 +144,8 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
   <b>目次</b>
   <a href="#summary">1. まず 1 分で</a>
   <a href="#what">2. PBT とケーステスト</a>
+  <a href="#primer" style="padding-left:20px">2.1 簡単な例で考える</a>
+  <a href="#glossary" style="padding-left:20px">2.2 言葉</a>
   <a href="#map">3. 3 つの PBT の全体像</a>
   <a href="#layout" style="padding-left:20px">ディレクトリ構成</a>
   <a href="#replay">4. 再現・縮小・固定シーン</a>
@@ -153,14 +155,18 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
   <a href="#model-ops" style="padding-left:20px">7.1 操作</a>
   <a href="#model-wire" style="padding-left:20px">7.2 通信路の SDP 書き換え</a>
   <a href="#model-oracles" style="padding-left:20px">7.3 オラクル</a>
-  <a href="#model-walk" style="padding-left:20px">7.4 1 シーンの判定の流れ</a>
-  <a href="#oracle-design">8. オラクルを書くときの注意</a>
-  <a href="#found">9. PBT が見つけた不具合</a>
-  <a href="#run">10. CI と深い探索</a>
-  <a href="#scope">11. 向いているもの・向かないもの</a>
-  <a href="#failure">12. 失敗したときの読み方</a>
-  <a href="#extend">13. 拡張するとき</a>
-  <a href="#readorder">14. おすすめの読み順</a>
+  <a href="#examples">8. 実例で見る 3 つの PBT</a>
+  <a href="#ex-fuzz" style="padding-left:20px">8.1 fuzzer: seed 1</a>
+  <a href="#ex-scenario" style="padding-left:20px">8.2 シナリオ: rollback</a>
+  <a href="#ex-model" style="padding-left:20px">8.3 モデル: seed 1 と PLI</a>
+  <a href="#ex-compare" style="padding-left:20px">8.4 分かること</a>
+  <a href="#oracle-design">9. オラクルを書くときの注意</a>
+  <a href="#found">10. PBT が見つけた不具合</a>
+  <a href="#run">11. CI と深い探索</a>
+  <a href="#scope">12. 向いているもの・向かないもの</a>
+  <a href="#failure">13. 失敗したときの読み方</a>
+  <a href="#extend">14. 拡張するとき</a>
+  <a href="#readorder">15. おすすめの読み順</a>
 </nav>
 <main>
 <h1>werift の negotiation PBT<br>— プロパティベーステストの解説</h1>
@@ -191,9 +197,11 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
   <div class="card"><h4>数字（16 コア）</h4><ul>
     <li>CI: fuzzer 12 件、シナリオ 70 件（固定 63 + 7 seed）、モデル 55 件（固定 51 + 4 seed）</li>
     <li>深い探索 <code>npm run pbt:deep</code>: 2,820 件を 16 プロセスで約 2 分</li>
-    <li>PBT が見つけて直した実装の不具合: 10 件以上（9 章）</li>
+    <li>PBT が見つけて直した実装の不具合: 10 件以上（10 章）</li>
   </ul></div>
 </div>
+
+<p class="caption">PBT が初めてなら、2.1（簡単な例）→ 8 章（実際のテストに当てはめた例）→ 3 章（全体像）の順に読むと分かりやすいです。</p>
 
 <!-- ============================================================ -->
 <h2 id="what">2. PBT とケーステスト</h2>
@@ -208,7 +216,49 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
     <tr><td>失敗したとき</td><td>テスト名で何が壊れたか分かる</td><td>seed・操作ログ・最小の操作列が出る</td></tr>
   </tbody>
 </table>
-<p>両者は役割分担します。PBT で探して見つかった不具合は、最小の操作列を<b>固定シーン</b>として残し、CI で毎回決定的に検出します。タイミング・モック・TURN・close など、操作列で表せないものはケースに残します（11 章）。</p>
+<p>両者は役割分担します。PBT で探して見つかった不具合は、最小の操作列を<b>固定シーン</b>として残し、CI で毎回決定的に検出します。タイミング・モック・TURN・close など、操作列で表せないものはケースに残します（12 章）。</p>
+
+
+<h3 id="primer">2.1 いちばん簡単な例で考える</h3>
+<p>PBT の考え方は、WebRTC と関係ない例のほうが分かりやすいです。「配列を並べ替える関数 <code>sort</code>」を試すとします。</p>
+<div class="two-layer">
+  <div class="layer committed"><h4>例ベースのテスト（ケーステスト）</h4>
+    <code>sort([3, 1, 2])</code> は <code>[1, 2, 3]</code> になる。<br>
+    人が入力と答えを 1 組ずつ書く。書いた組しか確かめない。</div>
+  <div class="layer staged"><h4>プロパティベーステスト（PBT）</h4>
+    どんな配列 <code>xs</code> でも、<code>sort(xs)</code> は<b>昇順に並び</b>、<b>要素の個数と中身は xs と同じ</b>。<br>
+    入力は乱数で何百通りも作り、答えは書かずに「性質」で判定する。</div>
+</div>
+<p>どの PBT も、次の 3 つの部品でできています。このプロジェクトの 3 つの PBT も同じです。</p>
+<div class="cards">
+  <div class="card"><h4>① 入力をどう作るか（生成器）</h4><ul>
+    <li>sort の例: 長さも値もばらばらの配列を乱数で作る</li>
+    <li>このプロジェクト: <code>createOffer</code>・<code>setRemoteDescription</code>・rollback などの<b>操作の並び</b>を乱数で作る</li>
+  </ul></div>
+  <div class="card"><h4>② 何を判定するか（性質・オラクル）</h4><ul>
+    <li>sort の例: 昇順か、要素が同じか</li>
+    <li>このプロジェクト: 「rollback すると交渉前に戻る」「交渉中も確定済みの通信は止まらない」など、<b>どの操作の後でも成り立つはずのこと</b></li>
+  </ul></div>
+  <div class="card"><h4>③ 失敗をどう再現するか（seed）</h4><ul>
+    <li>乱数の種（seed）が同じなら、同じ入力ができる</li>
+    <li>失敗したら seed を指定して再生し、操作を減らして<b>最小の再現手順</b>を探す</li>
+  </ul></div>
+</div>
+
+<h3 id="glossary">2.2 この文書で使う言葉</h3>
+<table>
+  <thead><tr><th style="width:20%">言葉</th><th>意味</th></tr></thead>
+  <tbody>
+    <tr><td>性質（property）</td><td>どんな入力でも成り立つはずのこと。PBT はこれが破れる入力を探す</td></tr>
+    <tr><td>オラクル</td><td>性質を判定するコード。モデル property では <code>oracles.ts</code> にまとめている</td></tr>
+    <tr><td>invariant</td><td>交渉のどの時点でも成り立つ内部の整合性（current の SDP と実際の経路・ICE・DTLS の一致など）。3 つの PBT すべてが各操作の後に確かめる</td></tr>
+    <tr><td>seed</td><td>乱数の種。同じ seed からは同じ操作列ができる</td></tr>
+    <tr><td>シーン・シナリオ・episode</td><td>1 回のテストで実行する操作の並び。PBT ごとに呼び方と粒度が違う（3 章）</td></tr>
+    <tr><td>固定シーン</td><td>乱数ではなく人が決めた操作列。過去の不具合や、置き換えたケースの手順を CI で毎回実行する</td></tr>
+    <tr><td>縮小（shrink）</td><td>失敗した操作列から操作を減らし、まだ失敗する最小の手順を探すこと</td></tr>
+    <tr><td>継続確認</td><td><code>expectSessionContinues</code>。最後に次の交渉や ICE restart をして、その後も通信できるかを確かめる</td></tr>
+  </tbody>
+</table>
 
 <!-- ============================================================ -->
 <h2 id="map">3. 3 つの PBT の全体像</h2>
@@ -379,6 +429,7 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
   <li class="commit"><b>毎回検査する</b><br>invariant → 通信の性質 → 11 種のオラクル</li>
   <li><b>最後に</b><br>DataChannel が開くこと、<code>expectSessionContinues</code></li>
 </ul>
+<p>実際のシーンを 1 つずつ追った例は 8.3 にあります。</p>
 <p>両 peer の設定は <code>modelConfig</code>（<a class="ref" href="../packages/webrtc/tests/pbt/model/generator.ts" title="packages/webrtc/tests/pbt/model/generator.ts:49">model/generator.ts:49</a>）です。VP8（NACK・PLI・REMB・transport-cc）と RTX、H264、Opus、PCMU、MID と transport-cc の header extension を持たせ、codec・feedback・RTX・extension の変化を作れるようにしています。</p>
 
 <h3 id="model-ops">7.1 操作（<a class="ref" href="../packages/webrtc/tests/pbt/model/generator.ts" title="packages/webrtc/tests/pbt/model/generator.ts:133">STEPS</a>）</h3>
@@ -422,8 +473,119 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
   </tbody>
 </table>
 
-<h3 id="model-walk">7.4 1 シーンの判定の流れ</h3>
-<p>固定シーン「PLI a re-offer adds starts only at its answer commit, not while pending or after a rollback」を例に、各操作の後に何が判定されるかを示します。</p>
+<!-- ============================================================ -->
+<h2 id="examples">8. 実例で見る 3 つの PBT</h2>
+<p>ここまでの説明を、実際に CI で動いているテストに当てはめます。どの例も、2.1 の 3 つの部品（① 入力 ② 判定 ③ 再現）に分けて読みます。操作の記録は、各テストを実際に動かして取り出したものです。</p>
+<table>
+  <thead><tr><th style="width:12%"></th><th style="width:29%">8.1 episode fuzzer</th><th style="width:29%">8.2 シナリオ property</th><th style="width:30%">8.3 モデル property</th></tr></thead>
+  <tbody>
+    <tr><td>例にするテスト</td><td>乱数シーン seed 1</td><td>rollback の property の固定シーン「pranswer followed by rollback …」</td><td>乱数シーン seed 1 と、固定シーン「PLI a re-offer adds …」</td></tr>
+    <tr><td>① 入力</td><td>seed 1 から引いた 8 step（交渉 episode など）</td><td>人が書いた 4 ステップのテキスト</td><td>seed 1 から 1 操作ずつ引いた 10 操作／人が書いた 6 操作</td></tr>
+    <tr><td>② 判定</td><td>各操作の後の invariant、各 step の後の実通信</td><td>基本検査 ＋ rollback property の判定</td><td>invariant ＋ 通信 ＋ 11 種のオラクル</td></tr>
+    <tr><td>③ 再現</td><td>seed 1 を指定して再生</td><td>固定なので毎回同じ</td><td>seed 1 を指定して再生、失敗なら縮小</td></tr>
+  </tbody>
+</table>
+
+<h3 id="ex-fuzz">8.1 episode fuzzer: seed 1</h3>
+<p><b>① 入力</b>: <code>seed 1</code> からは、次の 8 step ができます（<a class="ref" href="../packages/webrtc/tests/pbt/fuzz/negotiationTransactionProperty.test.ts" title="packages/webrtc/tests/pbt/fuzz/negotiationTransactionProperty.test.ts">negotiationTransactionProperty.test.ts</a>）。1 行が 1 つの「episode」（交渉 1 回分のまとまった手順）です。<code>pool</code> と <code>rejection</code> の行は、別の乱数系統から確率で追加される episode です（5 章）。</p>
+<pre class="figure"><code>step 0  episode a iceRestart replacementAnswer
+        rejection a video in answer
+step 1  episode b addAudio pranswerRollback
+step 2  episode a plain pranswerRollback eoc
+        rejection a video in answer
+step 3  episode a plain pranswerAnswer
+step 4  episode a plain pranswerRollback
+        pool b
+          regenerated answer and unapplied offer
+          pranswer first
+step 5  mutation a rtxPairing
+        pool a iceRestart
+          rollback and re-apply
+          regenerated answer and unapplied offer (offer first)
+          pranswer first
+step 6  episode b splitAudio answer
+        rejection a audio in offer
+step 7  mutation b rtxPairing
+        pool b iceRestart
+          stale offer refused
+          rollback and re-apply
+        rejection a video in answer</code></pre>
+<p>読み方の例:</p>
+<table>
+  <thead><tr><th style="width:34%">記録</th><th>意味</th></tr></thead>
+  <tbody>
+    <tr><td><code>episode a iceRestart replacementAnswer</code></td><td>a が ICE restart の offer を出し、それを新しい offer で置き換えてから、b の answer で確定する。restart の answer は 2 回作り、間に適用しない restart offer も作ってから、最初の answer を適用する</td></tr>
+    <tr><td><code>rejection a video in answer</code></td><td>a が video を足して offer し、b の answer がその m-line を拒否する（port 0）</td></tr>
+    <tr><td><code>episode b addAudio pranswerRollback</code></td><td>b が audio を足して offer し、pranswer（仮の answer）まで進めてから rollback する</td></tr>
+    <tr><td><code>eoc</code></td><td>候補の終わり（end-of-candidates）も送る</td></tr>
+    <tr><td><code>mutation a rtxPairing</code></td><td>a の offer の中で RTX（再送用のストリーム）の対応を付け替えて b に適用し、pending のまま現在の RTP が届くことを確かめてから rollback する</td></tr>
+    <tr><td><code>pool b</code> … <code>stale offer refused</code></td><td>保存しておいた古い offer の適用は拒否され、状態は何も変わらない（生成済み description の再利用契約）</td></tr>
+  </tbody>
+</table>
+<p><b>② 判定</b>: 細かい操作（createOffer、setLocalDescription など）の 1 つ 1 つの後に、両 peer の invariant を検査します。各 step の後には、video・audio・DataChannel を双方向に実際に送り、届くことを確かめます。拒否されるはずの操作（<code>stale offer refused</code>）では、両 peer の状態が操作の前と同じかも比べます。</p>
+<p><b>③ 再現</b>: <code>WERIFT_NEGOTIATION_FUZZ_SEED=1 WERIFT_NEGOTIATION_FUZZ_SEEDS=1</code> で同じ 8 step を再生できます。失敗すると、上の記録がエラーメッセージに付きます。</p>
+<p><b>この形で見つかった不具合の例</b>: 回帰 seed 19 は「古い接続確認（check）が、捨てたはずの候補ペアを選んでしまう」不具合を見つけました。修正した今も、CI で seed 19 を毎回再生しています。</p>
+
+<h3 id="ex-scenario">8.2 シナリオ property: pranswer の後の rollback</h3>
+<p><b>① 入力</b>: rollback の property の固定シーンです（<a class="ref" href="../packages/webrtc/tests/pbt/scenario/negotiationScenarioProperty.test.ts" title="packages/webrtc/tests/pbt/scenario/negotiationScenarioProperty.test.ts">negotiationScenarioProperty.test.ts</a>）。テキストは <code>o</code>（offerer）と <code>t</code>（answerer）で書かれ、<code>(o=a)</code> と <code>(o=b)</code> の 2 通りに展開されます。次は <code>(o=a)</code> です。</p>
+<pre class="figure"><code>a offer; b reply pranswer; a rollback; alive</code></pre>
+<table>
+  <thead><tr><th style="width:5%">#</th><th style="width:22%">ステップ</th><th>何が起きるか</th><th style="width:34%">その後に確かめること</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td><code>a offer</code></td><td>接続済みの session で、a が再交渉の offer を作って適用し、b に届ける</td><td rowspan="2">基本検査: 操作が受理されたか、両 peer の invariant、JSEP の状態遷移（a は have-local-offer など）、操作していない peer が変わっていないこと</td></tr>
+    <tr><td>2</td><td><code>b reply pranswer</code></td><td>b が仮の answer（pranswer）を返す。仮でも暫定の通信が始まりうる</td></tr>
+    <tr><td>3</td><td><code>a rollback</code></td><td>a が交渉を取り消し、相手側も取り消す</td><td>基本検査 ＋ <b>rollback の判定</b>（下）</td></tr>
+    <tr><td>4</td><td><code>alive</code></td><td>実際に通信してみる</td><td>交渉済みの全ストリームと DataChannel が届く</td></tr>
+  </tbody>
+</table>
+<p><b>② 判定</b>: rollback の判定（<a class="ref" href="../packages/webrtc/tests/pbt/scenario/scenarios.ts" title="packages/webrtc/tests/pbt/scenario/scenarios.ts:695">judgeRollback</a>）は、交渉を始めた時点（episode の開始時）に保存した状態と、rollback 後の状態を比べます。</p>
+<ul>
+  <li>交渉の前からあった transceiver は、同じ MID と m-line の位置のまま残る</li>
+  <li>交渉中にアプリが足した transceiver は残るが、MID と m-line を持たない</li>
+  <li>予約された ICE restart は捨てられ、ICE の資格情報は current のもの</li>
+  <li>SSRC の経路・選択ペアなど、そのほかの状態も開始時と同じ</li>
+</ul>
+<p>判定には「何が何になる」という具体値がありません。「開始時と同じ」という比較だけなので、同じ判定を乱数で作った rollback にもそのまま使えます。</p>
+<p><b>③ 再現</b>: 固定シーンなので、CI で毎回同じ手順を実行します。同じ property の乱数シーン（<code>seed 1</code> など）は、rollback で終わることが多い episode を乱数で並べます。</p>
+<p><b>この形で見つかった不具合の例</b>: 乱数シーンの seed 15 と 52 が、「have-remote-pranswer から rollback すると、交渉中に足した transceiver に MID が残る」不具合を見つけました。</p>
+
+<h3 id="ex-model">8.3 モデル property: seed 1 と PLI のシーン</h3>
+<h4>乱数シーンの例: seed 1</h4>
+<p><b>① 入力</b>: <code>seed 1</code> からは、開始状態「未交渉（a が video と DataChannel を持つ）」と、次の 10 操作ができます（<a class="ref" href="../packages/webrtc/tests/pbt/model/generator.ts" title="packages/webrtc/tests/pbt/model/generator.ts:542">generateScene</a>）。モデル property は episode ではなく <b>1 操作ずつ</b>、その時点で適用できる操作の中から乱数で選びます。</p>
+<table>
+  <thead><tr><th style="width:5%">#</th><th style="width:36%">操作</th><th>意味</th><th style="width:30%">直後に判定するか</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td><code>["a", "offer", { iceRestart: false }]</code></td><td>a が最初の offer を出し、b に届ける</td><td>する（setLocal と setRemote のそれぞれの後）</td></tr>
+    <tr><td>2</td><td><code>["b", "codecPreferences", { index: 0, codec: "video/VP8" }]</code></td><td>offer の処理中に、b が受け取った video の codec を VP8 に絞る</td><td>しない（アプリの操作。次の記述操作で判定）</td></tr>
+    <tr><td>3</td><td><code>["a", "createOnly"]</code></td><td>a が offer を作るだけで適用しない</td><td>する（作るだけでは何も変わらない）</td></tr>
+    <tr><td>4〜7</td><td><code>dataChannel</code> ×2、<code>addTrack audio</code>、<code>dataChannel</code></td><td>a が DataChannel と audio を足す</td><td>しない</td></tr>
+    <tr><td>8</td><td><code>["b", "codecPreferences", { index: 0, reversed: true }]</code></td><td>b が codec の優先順を逆にする</td><td>しない</td></tr>
+    <tr><td>9</td><td><code>["a", "replacementOffer", { iceRestart: false }]</code></td><td>a が答えを待たずに新しい offer で置き換える（足した audio と DataChannel を含む）</td><td>する</td></tr>
+    <tr><td>10</td><td><code>["a", "addTrack", { kind: "video" }]</code></td><td>a が video を足す</td><td>しない</td></tr>
+  </tbody>
+</table>
+<p><b>② 判定</b>: 記述操作のたびに invariant・通信・11 種のオラクルが走ります。たとえば 9 の置き換えの後には、次のことを確かめます。</p>
+<ul>
+  <li><b>jsep</b>: a は have-local-offer のまま、pending の local description が新しい offer になり、current は変わらない</li>
+  <li><b>events</b>: b の既存の transceiver について、track イベントがもう一度出ない（2.17 で直した不具合の再発を防ぐ）</li>
+  <li><b>channels</b>: a が足した DataChannel は閉じず、a の SCTP transport の上にある</li>
+</ul>
+<p>シーンの最後には、交渉済みの DataChannel が両側で開くことを確かめます（この seed では交渉が途中なので対象外）。その後に継続確認を行います。継続確認は、途中の交渉を rollback してから、次の offer・ICE restart・追加・相手からの offer を行い、通信を確かめます。</p>
+<p><b>③ 再現</b>: <code>WERIFT_NEGOTIATION_MODEL_SEED=1 WERIFT_NEGOTIATION_MODEL_SEEDS=1 WERIFT_NEGOTIATION_MODEL_STEPS=10</code> で同じ 10 操作を再生できます。失敗すると、操作を 1 つずつ外して最小の失敗シーンを出力します（4 章）。</p>
+
+<h4 id="model-walk">固定シーンの例: PLI のシーン</h4>
+<p>固定シーン「PLI a re-offer adds starts only at its answer commit, not while pending or after a rollback」です（<a class="ref" href="../packages/webrtc/tests/pbt/model/scenes.ts" title="packages/webrtc/tests/pbt/model/scenes.ts">model/scenes.ts</a>）。PLI は「映像が乱れたので、次の完全なフレームを送って」と受信側から送り手に頼む RTCP の要求で、SDP の <code>a=rtcp-fb:&lt;pt&gt; nack pli</code> で交渉します。このシーンは、PLI を後から足す再交渉で「確定するまでは古い設定のまま、確定したら新しい設定」になるかを試します。</p>
+<table>
+  <thead><tr><th style="width:5%">#</th><th style="width:30%">操作（シーンの 1 行）</th><th>何が起きるか</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td><code>["a", "wireOffer", { mutation: "noPli" }]</code></td><td>a の offer を、通信路で PLI を消してから b に届ける</td></tr>
+    <tr><td>2</td><td><code>["b", "answer"]</code></td><td>b が答えて確定する。この session では PLI を交渉していない</td></tr>
+    <tr><td>3</td><td><code>["a", "offer"]</code></td><td>a が PLI ありの offer を出す（まだ確定していない＝ pending）</td></tr>
+    <tr><td>4</td><td><code>["b", "rollback"]</code></td><td>提案を取り消す</td></tr>
+    <tr><td>5</td><td><code>["a", "offer"]</code></td><td>もう一度提案する</td></tr>
+    <tr><td>6</td><td><code>["b", "answer"]</code></td><td>今度は PLI ありで確定する</td></tr>
+  </tbody>
+</table>
 <figure class="figure">
 <svg viewBox="0 0 960 300" width="100%" role="img" aria-label="PLI のシーンでの各操作と判定">
   <g font-size="12">
@@ -444,11 +606,28 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
     <text x="60" y="264" class="sub">期待値はシーンに書いていない。どの時点でも同じ規則で判定するので、どこで規則が破れても落ちる。</text>
   </g>
 </svg>
-<figcaption>同じ判定が乱数シーンのすべての操作の後にも掛かります。この規則のおかげで、「<code>nack pli</code> ではなく <code>nack</code> だけで PLI を許していた」不具合（develop にもあった）が見つかりました（9 章）。</figcaption>
+<figcaption>シーンには「何回目で PLI を送るか」を一切書いていません。同じ判定が乱数シーンのすべての操作の後にも掛かります。この規則のおかげで、「<code>nack pli</code> ではなく <code>nack</code> だけで PLI を許していた」不具合（develop にもあった）が見つかりました（10 章）。</figcaption>
 </figure>
 
+
+<h3 id="ex-compare">8.4 3 つの例から分かること</h3>
+<div class="cards">
+  <div class="card"><h4>入力の粒度が違う</h4><ul>
+    <li>fuzzer は「交渉 1 回分」、シナリオは「人が読めるテキスト」、モデルは「1 操作ずつ」</li>
+    <li>粒度が細かいほど、人が思いつかない途中の割り込み（offer の処理中の preferences 変更など）が出る</li>
+  </ul></div>
+  <div class="card"><h4>判定に具体値がない</h4><ul>
+    <li>どれも「開始時と同じ」「SDP の規則どおり」「通信できる」で判定する</li>
+    <li>だから同じ判定を、固定シーンにも乱数シーンにも使える</li>
+  </ul></div>
+  <div class="card"><h4>見つけたら固定する</h4><ul>
+    <li>乱数で見つけた手順は、回帰 seed（fuzzer）か固定シーン（シナリオ・モデル）として残す</li>
+    <li>CI では毎回それを再生し、同じ不具合の再発を確実に検出する</li>
+  </ul></div>
+</div>
+
 <!-- ============================================================ -->
-<h2 id="oracle-design">8. オラクルを書くときの注意</h2>
+<h2 id="oracle-design">9. オラクルを書くときの注意</h2>
 <div class="cards wide">
   <div class="card"><h4>期待値を実装と同じ論理で作らない</h4><ul>
     <li>オラクルは SDP（RFC・W3C の規則）と、操作前に保存した状態との比較で書く</li>
@@ -472,7 +651,7 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
 </div>
 
 <!-- ============================================================ -->
-<h2 id="found">9. PBT が見つけた不具合</h2>
+<h2 id="found">10. PBT が見つけた不具合</h2>
 <p>いずれも修正し、修正前に失敗する固定シーンか回帰 seed を CI に残しています。</p>
 <table>
   <thead><tr><th style="width:16%">見つけた PBT</th><th>不具合</th><th style="width:14%">develop</th></tr></thead>
@@ -485,7 +664,7 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
 </table>
 
 <!-- ============================================================ -->
-<h2 id="run">10. CI と深い探索</h2>
+<h2 id="run">11. CI と深い探索</h2>
 <table>
   <thead><tr><th style="width:24%">実行方法</th><th>内容</th><th class="num" style="width:16%">時間（16 コア）</th></tr></thead>
   <tbody>
@@ -497,7 +676,7 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
 <p>オプション: <code>npm run pbt:deep -- --suite model --seeds 1000 --jobs 12</code>。並列度を CPU 数より上げると、通信の 2 秒の予算が負荷で足りなくなり、flaky が増えます。交渉まわりを変更したら、レビューを頼む前に <code>pbt:deep</code> を実行します（<code>packages/webrtc/AGENTS.md</code> の Do 7）。</p>
 
 <!-- ============================================================ -->
-<h2 id="scope">11. 向いているもの・向かないもの</h2>
+<h2 id="scope">12. 向いているもの・向かないもの</h2>
 <table>
   <thead><tr><th style="width:24%">種類</th><th>扱い</th><th style="width:38%">理由</th></tr></thead>
   <tbody>
@@ -513,7 +692,7 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
 <p>モデル property の通信路の書き換え（7.2）も「相手の SDP を作る」ものですが、目的は相互接続ではなく「どんな入力でも状態の一貫性が保たれること」です。2.20 の削除対象（<code>tests/negotiation/cases</code>）の外にあるので残しています。</p>
 
 <!-- ============================================================ -->
-<h2 id="failure">12. 失敗したときの読み方</h2>
+<h2 id="failure">13. 失敗したときの読み方</h2>
 <pre class="figure"><code>AssertionError: case "seed 38 (replay: WERIFT_NEGOTIATION_MODEL_SEED=38 …)" (2.1-5 2.1-10 …; property: model)
 after operation #29: traffic (current differs)          ← 最後に実行した記述操作・検査
 setLocal(offer): current: expected [ …(2) ] to deeply equal [ …(2) ]   ← どのオラクルの何が違ったか
@@ -527,12 +706,12 @@ smallest failing scene: {"start":"unnegotiated","ops":[…]}   ← 縮小した�
 <ol class="readorder">
   <li><b>オラクル名とメッセージ</b>で、どの主張が破れたかを見る（例: <code>setLocal(offer): current</code> は jsep オラクルの「offer は current を変えない」）。</li>
   <li><b>最小シーン</b>を固定シーンとして一時的に追加し、再現させる。</li>
-  <li>実装の不具合か、性質の定義の誤りかを切り分ける（8 章）。develop と比べるときは、別の一時 worktree を使う。</li>
+  <li>実装の不具合か、性質の定義の誤りかを切り分ける（9 章）。develop と比べるときは、別の一時 worktree を使う。</li>
   <li>実装を直したら、修正前に失敗することを確かめてから、固定シーンを残す。</li>
 </ol>
 
 <!-- ============================================================ -->
-<h2 id="extend">13. 拡張するとき</h2>
+<h2 id="extend">14. 拡張するとき</h2>
 <table>
   <thead><tr><th style="width:26%">やりたいこと</th><th>どこを変えるか</th></tr></thead>
   <tbody>
@@ -545,8 +724,9 @@ smallest failing scene: {"start":"unnegotiated","ops":[…]}   ← 縮小した�
 </table>
 
 <!-- ============================================================ -->
-<h2 id="readorder">14. おすすめの読み順</h2>
+<h2 id="readorder">15. おすすめの読み順</h2>
 <ol class="readorder">
+  <li>この文書の 2.1 と 8 章: 部品の分け方と、実際のテストに当てはめた例</li>
   <li><a class="ref" href="../packages/webrtc/tests/pbt/model/negotiationModelProperty.test.ts" title="packages/webrtc/tests/pbt/model/negotiationModelProperty.test.ts">model/negotiationModelProperty.test.ts</a>（86 行）: 固定シーンと乱数シーンの登録、縮小の呼び出し</li>
   <li><a class="ref" href="../packages/webrtc/tests/pbt/model/scenes.ts" title="packages/webrtc/tests/pbt/model/scenes.ts">model/scenes.ts</a>: 固定シーンの例。名前と ref で何を守っているか分かる</li>
   <li><a class="ref" href="../packages/webrtc/tests/pbt/model/generator.ts" title="packages/webrtc/tests/pbt/model/generator.ts:133">model/generator.ts の STEPS</a>: 操作の一覧</li>
