@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>解説: werift の negotiation PBT</title>
+<style>
+:root {
+  color-scheme: light;
+  --surface: #fcfcfb; --panel: #f3f2ee; --panel-2: #eae9e3; --line: #dcdbd5;
+  --ink: #0b0b0b; --ink-2: #52514e; --muted: #7a7974;
+  --blue: #2a78d6; --blue-wash: rgba(42,120,214,.12);
+  --orange: #eb6834; --orange-wash: rgba(235,104,52,.12);
+  --green: #008300; --green-wash: rgba(0,131,0,.10);
+  --violet: #4a3aa7; --violet-wash: rgba(74,58,167,.11);
+  --code-bg: #efeee8;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --surface: #1a1a19; --panel: #232321; --panel-2: #2c2c29; --line: #3a3a37;
+    --ink: #ffffff; --ink-2: #c3c2b7; --muted: #959489;
+    --blue: #3987e5; --blue-wash: rgba(57,135,229,.18);
+    --orange: #d95926; --orange-wash: rgba(217,89,38,.18);
+    --green: #2f9e2f; --green-wash: rgba(47,158,47,.16);
+    --violet: #9085e9; --violet-wash: rgba(144,133,233,.18);
+    --code-bg: #2c2c29;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--surface); color: var(--ink);
+  font: 15px/1.75 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Segoe UI", sans-serif;
+}
+.layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); max-width: 1320px; margin: 0 auto; }
+nav.toc {
+  position: sticky; top: 0; align-self: start; height: 100vh; overflow: auto;
+  padding: 28px 18px; border-right: 1px solid var(--line); font-size: 13px;
+}
+nav.toc b { display: block; margin-bottom: 8px; color: var(--ink-2); font-size: 12px; letter-spacing: .06em; }
+nav.toc a { display: block; padding: 3px 8px; border-radius: 6px; color: var(--ink-2); text-decoration: none; }
+nav.toc a:hover, nav.toc a.active { background: var(--panel); color: var(--ink); }
+main { padding: 32px 44px 80px; min-width: 0; }
+@media (max-width: 960px) { .layout { grid-template-columns: 1fr; } nav.toc { display: none; } main { padding: 20px; } }
+h1 { font-size: 28px; line-height: 1.35; margin: 0 0 6px; }
+h2 { font-size: 21px; margin: 56px 0 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+h3 { font-size: 16px; margin: 28px 0 8px; }
+p { margin: 8px 0; }
+code { font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+a { color: var(--blue); }
+a.ref {
+  font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap;
+  padding: 1px 6px; border: 1px solid var(--line); border-radius: 999px; text-decoration: none; color: var(--ink-2);
+}
+a.ref:hover { border-color: var(--blue); color: var(--blue); }
+.meta { color: var(--ink-2); font-size: 13px; }
+.meta span { margin-right: 14px; white-space: nowrap; }
+.invariant {
+  margin: 22px 0; padding: 18px 22px; border-left: 4px solid var(--green); background: var(--green-wash);
+  border-radius: 0 10px 10px 0; font-size: 16px;
+}
+.invariant small { display: block; color: var(--ink-2); font-size: 12px; margin-bottom: 4px; letter-spacing: .05em; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; margin: 16px 0; }
+.cards.wide { grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); }
+td code { white-space: nowrap; }
+.card { background: var(--panel); border-radius: 12px; padding: 14px 16px; }
+.card h4 { margin: 0 0 6px; font-size: 14px; }
+.card ul { margin: 0; padding-left: 18px; font-size: 13.5px; }
+.figure { background: var(--panel); border-radius: 12px; padding: 18px; margin: 16px 0; overflow-x: auto; }
+pre.figure code { display: block; background: none; padding: 0; white-space: pre; }
+.figure figcaption, .caption { color: var(--ink-2); font-size: 12.5px; margin-top: 8px; }
+svg text { fill: var(--ink); font-family: inherit; }
+svg .sub { fill: var(--ink-2); font-size: 11.5px; }
+svg .node { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; }
+table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13.5px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+th { color: var(--ink-2); font-weight: 600; font-size: 12.5px; background: var(--panel); }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.tag { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 1px 8px; border-radius: 999px; white-space: nowrap; border: 1px solid; }
+.tag.now { color: var(--blue); border-color: var(--blue); background: var(--blue-wash); }
+.tag.stage { color: var(--violet); border-color: var(--violet); background: var(--violet-wash); }
+.tag.reject { color: var(--orange); border-color: var(--orange); background: var(--orange-wash); }
+.tag.keep { color: var(--green); border-color: var(--green); background: var(--green-wash); }
+.flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; margin: 6px 0; padding: 0; list-style: none; counter-reset: step; }
+.flow li {
+  counter-increment: step; flex: 1 1 150px; position: relative; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px 10px 12px; font-size: 13px;
+}
+.flow li::before {
+  content: counter(step); display: inline-grid; place-items: center; width: 20px; height: 20px; margin-right: 6px;
+  border-radius: 50%; background: var(--ink); color: var(--surface); font-size: 11px; font-weight: 700;
+}
+.flow li b { font-size: 13.5px; }
+.flow li .fail { display: block; margin-top: 6px; color: var(--orange); font-size: 12px; }
+.flow li.commit { border-color: var(--green); background: var(--green-wash); }
+.flow li.guard { border-color: var(--blue); }
+.two-layer { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 760px) { .two-layer { grid-template-columns: 1fr; } }
+.layer { border-radius: 10px; padding: 12px 14px; border: 1.5px solid var(--line); background: var(--surface); font-size: 13px; }
+.layer.committed { border-color: var(--blue); }
+.layer.staged { border-color: var(--violet); border-style: dashed; }
+.layer h4 { margin: 0 0 6px; font-size: 14px; }
+.hub { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-top: 12px; }
+.hub .center { grid-column: 1 / -1; text-align: center; background: var(--ink); color: var(--surface); border-radius: 10px; padding: 10px; font-weight: 600; }
+.hub .center small { display: block; font-weight: 400; opacity: .8; }
+.hub .center a.ref { color: inherit; border-color: currentColor; opacity: .85; }
+.hub .comp { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 12.5px; }
+.hub .comp b { display: block; font-size: 13.5px; margin-bottom: 4px; }
+.hub .comp .keep { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); color: var(--ink-2); }
+.bundle { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+@media (max-width: 760px) { .bundle { grid-template-columns: 1fr; } }
+.bundle .grp { border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--surface); font-size: 12.5px; }
+.bundle .grp h4 { margin: 0 0 8px; font-size: 13.5px; }
+.mline { display: inline-block; margin: 2px; padding: 2px 8px; border-radius: 6px; background: var(--panel-2); font: 12px ui-monospace, monospace; }
+.mline.tag-mid { outline: 2px solid var(--blue); }
+.transport { margin-top: 8px; padding: 6px 8px; border-radius: 6px; background: var(--blue-wash); font-size: 12px; }
+.history { list-style: none; padding: 0; margin: 12px 0; border-left: 2px solid var(--line); }
+.history li { position: relative; padding: 4px 0 14px 22px; font-size: 13.5px; }
+.history li::before { content: ""; position: absolute; left: -7px; top: 10px; width: 12px; height: 12px; border-radius: 50%; background: var(--surface); border: 2px solid var(--blue); }
+.history li.req::before { border-color: var(--violet); }
+.history li.merge::before { border-color: var(--muted); }
+.history .sha { font: 12px ui-monospace, monospace; color: var(--ink-2); margin-right: 6px; }
+details { margin: 10px 0; }
+summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
+.legend { display: flex; gap: 18px; font-size: 12.5px; color: var(--ink-2); margin-bottom: 6px; }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 6px; }
+#tip {
+  position: fixed; pointer-events: none; z-index: 10; display: none; max-width: 340px;
+  background: var(--ink); color: var(--surface); padding: 6px 10px; border-radius: 8px; font-size: 12px; line-height: 1.5;
+}
+.status { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.status.ok::before { content: "✔"; color: var(--green); }
+.status.old::before { content: "◷"; color: var(--muted); }
+.status.warn::before { content: "▲"; color: var(--orange); }
+.readorder { counter-reset: r; list-style: none; padding: 0; }
+.readorder li { counter-increment: r; padding: 8px 0 8px 38px; position: relative; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.readorder li::before { content: counter(r); position: absolute; left: 4px; top: 8px; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--blue-wash); color: var(--blue); font-weight: 700; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="toc" aria-label="目次">
+  <b>目次</b>
+  <a href="#summary">1. まず 1 分で</a>
+  <a href="#what">2. PBT とケーステスト</a>
+  <a href="#map">3. 3 つの PBT の全体像</a>
+  <a href="#replay">4. 再現・縮小・固定シーン</a>
+  <a href="#fuzz">5. episode fuzzer</a>
+  <a href="#scenario">6. シナリオ property</a>
+  <a href="#model">7. モデル property</a>
+  <a href="#model-ops" style="padding-left:20px">7.1 操作</a>
+  <a href="#model-wire" style="padding-left:20px">7.2 通信路の SDP 書き換え</a>
+  <a href="#model-oracles" style="padding-left:20px">7.3 オラクル</a>
+  <a href="#model-walk" style="padding-left:20px">7.4 1 シーンの判定の流れ</a>
+  <a href="#oracle-design">8. オラクルを書くときの注意</a>
+  <a href="#found">9. PBT が見つけた不具合</a>
+  <a href="#run">10. CI と深い探索</a>
+  <a href="#scope">11. 向いているもの・向かないもの</a>
+  <a href="#failure">12. 失敗したときの読み方</a>
+  <a href="#extend">13. 拡張するとき</a>
+  <a href="#readorder">14. おすすめの読み順</a>
+</nav>
+<main>
+<h1>werift の negotiation PBT<br>— プロパティベーステストの解説</h1>
+<p class="meta">
+  <span>チケット: <a class="ref" href="../TICKET-support-fallback-state.md" title="TICKET-support-fallback-state.md">TICKET-support-fallback-state.md</a>（2.13〜2.20）</span>
+  <span>HEAD: <code>e0229115</code></span>
+  <span>設計の正: <a class="ref" href="../packages/webrtc/NEGOTIATION_TRANSACTION.md" title="packages/webrtc/NEGOTIATION_TRANSACTION.md">NEGOTIATION_TRANSACTION.md</a>「Test layout」</span>
+  <span>実装レビュー解説: <a class="ref" href="0ad06d37-negotiation-transaction.html">0ad06d37-negotiation-transaction.html</a></span>
+</p>
+
+<!-- ============================================================ -->
+<h2 id="summary">1. まず 1 分で</h2>
+<div class="invariant">
+  <small>PBT が確かめていること</small>
+  どんな順序で交渉の操作を行っても、<b>各操作の後に両 peer が invariant と性質（オラクル）を満たし</b>、最後に <b>その後も使い続けられる</b>（次の offer・ICE restart・追加・相手からの offer の後に通信できる）。
+</div>
+<div class="cards">
+  <div class="card"><h4>3 つの PBT</h4><ul>
+    <li><b>episode fuzzer</b>: 最初に作った乱択テスト。交渉 episode を seed で並べる</li>
+    <li><b>シナリオ property</b>: 主張ごとに 1 つの property。操作列をテキストで書く</li>
+    <li><b>モデル property</b>: 操作を 1 つずつ引き、どの操作の後にも 11 種のオラクルを掛ける</li>
+  </ul></div>
+  <div class="card"><h4>固定シーンと乱数シーン</h4><ul>
+    <li><b>固定シーン</b>: 過去の不具合や、置き換えたケースの操作列。CI で毎回決定的に実行する</li>
+    <li><b>乱数シーン</b>: seed から生成する。CI は少数、深い探索は 300 seed</li>
+    <li>seed を指定すれば同じ操作列を再生でき、モデル property は失敗を最小の操作列に縮める</li>
+  </ul></div>
+  <div class="card"><h4>数字（16 コア）</h4><ul>
+    <li>CI: fuzzer 12 件、シナリオ 70 件（固定 63 + 7 seed）、モデル 55 件（固定 51 + 4 seed）</li>
+    <li>深い探索 <code>npm run pbt:deep</code>: 2,820 件を 16 プロセスで約 2 分</li>
+    <li>PBT が見つけて直した実装の不具合: 10 件以上（9 章）</li>
+  </ul></div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="what">2. PBT とケーステスト</h2>
+<p>ケーステスト（<code>tests/negotiation/cases</code>）は「この手順なら、この値になる」を 1 本ずつ固定して確かめます。PBT（<code>tests/pbt</code>）は「どんな手順でも、この性質は成り立つ」を、乱数で作った大量の操作列で確かめます。</p>
+<table>
+  <thead><tr><th style="width:16%">観点</th><th>ケーステスト</th><th>PBT</th></tr></thead>
+  <tbody>
+    <tr><td>入力</td><td>人が決めた固定の手順</td><td>seed から生成した手順（固定シーンも併用）</td></tr>
+    <tr><td>判定</td><td>具体値（<code>toBe("have-local-offer")</code>、参照同一性、イベント回数）</td><td>性質（「rollback すると交渉前の状態に戻る」「pending 中は選択ペアが変わらない」）</td></tr>
+    <tr><td>期待値の出どころ</td><td>リテラル、または操作前に保存した値</td><td>操作前後の比較と、SDP から決まる規則</td></tr>
+    <tr><td>得意なこと</td><td>仕様の具体値、タイミング、特殊な環境</td><td>想定外の操作順、状態の組み合わせ</td></tr>
+    <tr><td>失敗したとき</td><td>テスト名で何が壊れたか分かる</td><td>seed・操作ログ・最小の操作列が出る</td></tr>
+  </tbody>
+</table>
+<p>両者は役割分担します。PBT で探して見つかった不具合は、最小の操作列を<b>固定シーン</b>として残し、CI で毎回決定的に検出します。タイミング・モック・TURN・close など、操作列で表せないものはケースに残します（11 章）。</p>
+
+<!-- ============================================================ -->
+<h2 id="map">3. 3 つの PBT の全体像</h2>
+<figure class="figure">
+<svg viewBox="0 0 960 360" width="100%" role="img" aria-label="3 つの PBT が共通の基盤を使う構成">
+  <defs>
+    <marker id="aK" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--ink-2)"/></marker>
+  </defs>
+  <g>
+    <rect class="node" x="20" y="20" width="280" height="110" rx="12" style="stroke:var(--blue)"/>
+    <text x="160" y="46" text-anchor="middle" font-weight="600">episode fuzzer</text>
+    <text class="sub" x="160" y="68" text-anchor="middle">negotiationTransactionProperty.test.ts</text>
+    <text class="sub" x="160" y="86" text-anchor="middle">propertyUtils.ts</text>
+    <text class="sub" x="160" y="108" text-anchor="middle">交渉 episode を seed で並べる</text>
+
+    <rect class="node" x="340" y="20" width="280" height="110" rx="12" style="stroke:var(--violet)"/>
+    <text x="480" y="46" text-anchor="middle" font-weight="600">シナリオ property</text>
+    <text class="sub" x="480" y="68" text-anchor="middle">negotiationScenarioProperty.test.ts</text>
+    <text class="sub" x="480" y="86" text-anchor="middle">scenarioPropertyUtils.ts</text>
+    <text class="sub" x="480" y="108" text-anchor="middle">主張 7 つ × テキストの操作列</text>
+
+    <rect class="node" x="660" y="20" width="280" height="110" rx="12" style="stroke:var(--green)"/>
+    <text x="800" y="46" text-anchor="middle" font-weight="600">モデル property</text>
+    <text class="sub" x="800" y="68" text-anchor="middle">negotiationModelProperty.test.ts</text>
+    <text class="sub" x="800" y="86" text-anchor="middle">modelPropertyUtils / Oracles / Mutations / Scenes</text>
+    <text class="sub" x="800" y="108" text-anchor="middle">操作 23 種 × オラクル 11 種</text>
+  </g>
+  <g fill="none" stroke="var(--ink-2)" stroke-width="1.6">
+    <path d="M160,130 L160,190" marker-end="url(#aK)"/>
+    <path d="M480,130 L480,190" marker-end="url(#aK)"/>
+    <path d="M800,130 L800,190" marker-end="url(#aK)"/>
+  </g>
+  <g>
+    <rect x="20" y="192" width="920" height="70" rx="12" fill="var(--panel-2)"/>
+    <text x="480" y="216" text-anchor="middle" font-weight="600">共通の基盤（tests/negotiation/harness）</text>
+    <text class="sub" x="480" y="238" text-anchor="middle">assertNegotiationInvariants（current SDP と live の状態の一致） ・ negotiationSnapshot（拒否の前後比較） ・ expectSessionContinues（その後も使えるか）</text>
+    <text class="sub" x="480" y="254" text-anchor="middle">モデル property はさらにケース用ハーネス negotiationCase.ts（記述操作ごとの検査・通信の性質・操作ログ）を使う</text>
+  </g>
+  <g fill="none" stroke="var(--ink-2)" stroke-width="1.6"><path d="M480,262 L480,292" marker-end="url(#aK)"/></g>
+  <g>
+    <rect class="node" x="300" y="294" width="360" height="50" rx="12"/>
+    <text x="480" y="316" text-anchor="middle" font-weight="600">src/ の RTCPeerConnection（werift 同士の 2 peer）</text>
+    <text class="sub" x="480" y="334" text-anchor="middle">実際の ICE / DTLS / SCTP / RTP で通信する</text>
+  </g>
+</svg>
+<figcaption>3 つは同じ基盤を使います。違いは「何を生成するか」と「何で判定するか」です。</figcaption>
+</figure>
+<table>
+  <thead><tr><th style="width:15%"></th><th>episode fuzzer</th><th>シナリオ property</th><th>モデル property</th></tr></thead>
+  <tbody>
+    <tr><td>生成の単位</td><td>交渉 1 回分の episode（offer〜answer / rollback）</td><td>episode をテキストで並べた操作列</td><td>1 操作ずつ（適用できる操作から重み付きで選ぶ）</td></tr>
+    <tr><td>判定</td><td>invariant ＋ episode ごとの実通信</td><td>property ごとの判定関数（<code>judgeCommit</code> など 7 つ）</td><td>invariant ＋ 通信の性質 ＋ 11 種のオラクル</td></tr>
+    <tr><td>開始状態</td><td>接続済み（RTX・header extension あり）</td><td>接続済み</td><td>接続済み / 未交渉（video ＋ DataChannel）/ 未交渉（video だけ）</td></tr>
+    <tr><td>失敗時</td><td>seed と操作ログ</td><td>seed・入力の操作列・操作ログ</td><td>seed・操作ログ・<b>縮小した最小シーン</b></td></tr>
+    <tr><td>環境変数</td><td><code>WERIFT_NEGOTIATION_FUZZ_SEEDS</code> / <code>_STEPS</code> / <code>_SEED</code></td><td><code>WERIFT_NEGOTIATION_SCENARIO_SEEDS</code> / <code>_STEPS</code> / <code>_SEED</code></td><td><code>WERIFT_NEGOTIATION_MODEL_SEEDS</code> / <code>_STEPS</code> / <code>_SEED</code> / <code>_SHRINK</code></td></tr>
+    <tr><td>CI の既定</td><td class="num">6 seed × 8 step ＋ 回帰 seed</td><td class="num">1 seed × 4 episode（property ごと）</td><td class="num">4 seed × 10 操作</td></tr>
+  </tbody>
+</table>
+<p>3 つあるのは、作った時期と目的が違うためです。fuzzer で「とにかく壊れる手順」を探し、シナリオ property で「主張ごとに」判定を分け、モデル property で「どの操作の後でも成り立つ性質」に一般化しました。既存の 2 つは、過去に不具合を見つけた seed の再現性を守るため、生成器も seed も変えていません。</p>
+
+<!-- ============================================================ -->
+<h2 id="replay">4. 再現・縮小・固定シーン</h2>
+<h3>seed から同じ操作列を作る</h3>
+<p>乱数は <code>seededRandom(seed)</code>（<a class="ref" href="../packages/webrtc/tests/pbt/propertyUtils.ts" title="packages/webrtc/tests/pbt/propertyUtils.ts:30">propertyUtils.ts:30</a>）だけから引きます。同じ seed なら同じ操作列になるので、失敗した seed を環境変数で指定すれば再生できます。テスト名にも再生用のコマンドが入っています。</p>
+<pre class="figure"><code>seed 38 (replay: WERIFT_NEGOTIATION_MODEL_SEED=38 WERIFT_NEGOTIATION_MODEL_SEEDS=1 WERIFT_NEGOTIATION_MODEL_STEPS=10)</code></pre>
+<p>ただし、実際の通信を使うので、結果は CPU の負荷に左右されることがあります。<code>npm run pbt:deep</code> は失敗した seed を単独で再実行し、通れば「flaky」、再び落ちれば「FAILED」と分けて報告します。</p>
+
+<h3>失敗を最小の操作列に縮める（モデル property）</h3>
+<figure class="figure">
+<svg viewBox="0 0 960 250" width="100%" role="img" aria-label="操作を 1 つずつ外して最小の失敗シーンを探す流れ">
+  <defs><marker id="aB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--blue)"/></marker></defs>
+  <g font-size="12">
+    <text x="20" y="28" font-weight="600">失敗した seed の操作列（10 操作）</text>
+    <g>
+      <rect x="20" y="40" width="80" height="30" rx="6" fill="var(--panel-2)"/><text x="60" y="60" text-anchor="middle">op1</text>
+      <rect x="108" y="40" width="80" height="30" rx="6" fill="var(--orange-wash)" stroke="var(--orange)"/><text x="148" y="60" text-anchor="middle">op2</text>
+      <rect x="196" y="40" width="80" height="30" rx="6" fill="var(--panel-2)"/><text x="236" y="60" text-anchor="middle">op3</text>
+      <rect x="284" y="40" width="80" height="30" rx="6" fill="var(--orange-wash)" stroke="var(--orange)"/><text x="324" y="60" text-anchor="middle">op4</text>
+      <rect x="372" y="40" width="80" height="30" rx="6" fill="var(--panel-2)"/><text x="412" y="60" text-anchor="middle">op5</text>
+      <rect x="460" y="40" width="80" height="30" rx="6" fill="var(--panel-2)"/><text x="500" y="60" text-anchor="middle">…</text>
+      <rect x="548" y="40" width="80" height="30" rx="6" fill="var(--orange-wash)" stroke="var(--orange)"/><text x="588" y="60" text-anchor="middle">op10</text>
+    </g>
+    <text x="20" y="104">後ろから 1 つずつ外して再実行し、<tspan font-weight="600">まだ失敗すれば外したまま</tspan>、通るなら戻す（予算は 180 秒）。</text>
+    <path d="M330,116 L330,146" stroke="var(--blue)" stroke-width="2" marker-end="url(#aB)"/>
+    <text x="20" y="176" font-weight="600">最小の失敗シーン（3 操作）</text>
+    <rect x="20" y="188" width="80" height="30" rx="6" fill="var(--orange-wash)" stroke="var(--orange)"/><text x="60" y="208" text-anchor="middle">op2</text>
+    <rect x="108" y="188" width="80" height="30" rx="6" fill="var(--orange-wash)" stroke="var(--orange)"/><text x="148" y="208" text-anchor="middle">op4</text>
+    <rect x="196" y="188" width="80" height="30" rx="6" fill="var(--orange-wash)" stroke="var(--orange)"/><text x="236" y="208" text-anchor="middle">op10</text>
+    <text x="300" y="208" class="sub">→ そのまま modelScenes.ts に貼れる JSON で出力する</text>
+  </g>
+</svg>
+<figcaption><code>shrinkScene</code>（<a class="ref" href="../packages/webrtc/tests/pbt/modelPropertyUtils.ts" title="packages/webrtc/tests/pbt/modelPropertyUtils.ts:584">modelPropertyUtils.ts:584</a>）。縮小中に適用できなくなった操作は飛ばします。</figcaption>
+</figure>
+<p>実例: 2.19 で見つけた「適用済みの local description が交渉の外で書き換わる」不具合は、seed 38 の 10 操作から次の 4 操作に縮みました。</p>
+<pre class="figure"><code>{"start":"unnegotiated","ops":[["a","addRecvonly",{"kind":"video"}],["a","offer",{"iceRestart":true}],["b","answer"],["a","splitOffer",{"mid":"1"}]]}</code></pre>
+
+<h3>固定シーンとして残す</h3>
+<p>縮小した操作列は、名前と由来（<code>ref</code>）を付けて <a class="ref" href="../packages/webrtc/tests/pbt/modelScenes.ts" title="packages/webrtc/tests/pbt/modelScenes.ts">modelScenes.ts</a> に追加します。固定シーンは乱数シーンと同じオラクルで判定されるので、期待値を書く必要はありません。</p>
+<pre class="figure"><code>{
+  name: "an answer releases the SCTP MID only an unapplied createOffer reserved",
+  ref: "2.9-4; origin: model property (seed 545): the reserved MID collided with the peer's next m-line",
+  start: "media",
+  ops: [["b", "offer"], ["b", "dataChannel"], ["b", "createOnly"], ["a", "answer"]],
+}</code></pre>
+
+<!-- ============================================================ -->
+<h2 id="fuzz">5. episode fuzzer</h2>
+<p>最初に作った PBT です（<a class="ref" href="../packages/webrtc/tests/pbt/negotiationTransactionProperty.test.ts" title="packages/webrtc/tests/pbt/negotiationTransactionProperty.test.ts">negotiationTransactionProperty.test.ts</a>）。1 step で次のどれかを 1 回行い、各操作の後に両 peer の invariant を検査し、step の後に video・audio・DataChannel の実通信を確かめます。</p>
+<table>
+  <thead><tr><th style="width:22%">episode</th><th>内容</th></tr></thead>
+  <tbody>
+    <tr><td>交渉 episode（70%）<br><a class="ref" href="../packages/webrtc/tests/pbt/propertyUtils.ts" title="packages/webrtc/tests/pbt/propertyUtils.ts:120">propertyUtils.ts:120</a></td><td>offerer、offer の種類（ICE restart、audio の追加、BUNDLE の分割・統合など）、終わり方（answer / pranswer → answer / rollback / replacement）、end-of-candidates を乱数で選ぶ</td></tr>
+    <tr><td>routing key の変更（30%）<br><a class="ref" href="../packages/webrtc/tests/pbt/propertyUtils.ts" title="packages/webrtc/tests/pbt/propertyUtils.ts:240">propertyUtils.ts:240</a></td><td>RTX の付け替え、extmap URI の新 ID への移動（pending 中も現在の RTP が流れる）、使用中の extmap ID の再割り当て（拒否され、状態は変わらない）</td></tr>
+    <tr><td>description pool<br><a class="ref" href="../packages/webrtc/tests/pbt/propertyUtils.ts" title="packages/webrtc/tests/pbt/propertyUtils.ts:384">propertyUtils.ts:384</a></td><td>保存した offer / answer を後で、または再度適用する（生成済み description の再利用契約）</td></tr>
+    <tr><td>m-line の拒否<br><a class="ref" href="../packages/webrtc/tests/pbt/propertyUtils.ts" title="packages/webrtc/tests/pbt/propertyUtils.ts:304">propertyUtils.ts:304</a></td><td>相手が application / video / audio の m-line を port 0 で拒否する</td></tr>
+  </tbody>
+</table>
+<p><b>乱数を系統に分けている</b>: pool と拒否は後から足した episode なので、主操作とは別の乱数（<code>seed × 7919 + 13</code> と <code>seed × 104729 + 7</code>）から引きます。こうすると、episode を足しても既存の seed の主操作は変わらず、過去に不具合を見つけた seed（3・4・6・17・19・28、20 step の 254・302・1385）が同じ操作を再生し続けます。</p>
+
+<!-- ============================================================ -->
+<h2 id="scenario">6. シナリオ property</h2>
+<p>主張（claim）ごとに 1 つの property を持ち、それぞれ固定シーンと乱数シーンを実行します（<a class="ref" href="../packages/webrtc/tests/pbt/negotiationScenarioProperty.test.ts" title="packages/webrtc/tests/pbt/negotiationScenarioProperty.test.ts">negotiationScenarioProperty.test.ts</a>）。7 つの property はファイル内で並行に動きます（<code>describe.concurrent</code>）。</p>
+<table>
+  <thead><tr><th style="width:12%">property</th><th>主張</th><th style="width:22%">判定関数</th></tr></thead>
+  <tbody>
+    <tr><td>commit</td><td>final answer は、両アプリが求めた方向を確定する</td><td><a class="ref" href="../packages/webrtc/tests/pbt/scenarioPropertyUtils.ts" title="packages/webrtc/tests/pbt/scenarioPropertyUtils.ts:639">judgeCommit</a></td></tr>
+    <tr><td>pending</td><td>交渉中も、確定済みの transport・DTLS role・SCTP・remote の ICE 資格情報・選択ペアの世代を保つ</td><td><a class="ref" href="../packages/webrtc/tests/pbt/scenarioPropertyUtils.ts" title="packages/webrtc/tests/pbt/scenarioPropertyUtils.ts:667">judgePending</a></td></tr>
+    <tr><td>rollback</td><td>rollback は交渉前の状態に戻す</td><td><a class="ref" href="../packages/webrtc/tests/pbt/scenarioPropertyUtils.ts" title="packages/webrtc/tests/pbt/scenarioPropertyUtils.ts:695">judgeRollback</a></td></tr>
+    <tr><td>reject</td><td>拒否された記述操作は、どちらの peer も変えない</td><td><a class="ref" href="../packages/webrtc/tests/pbt/scenarioPropertyUtils.ts" title="packages/webrtc/tests/pbt/scenarioPropertyUtils.ts:753">judgeReject</a></td></tr>
+    <tr><td>trickle</td><td>trickle した候補は、自分の世代の description に 1 回だけ入る</td><td><a class="ref" href="../packages/webrtc/tests/pbt/scenarioPropertyUtils.ts" title="packages/webrtc/tests/pbt/scenarioPropertyUtils.ts:795">judgeTrickle</a></td></tr>
+    <tr><td>ice</td><td>ICE 資格情報は commit まで restart の要求に従う（W3C の <code>[[LocalIceCredentialsToReplace]]</code>）</td><td><a class="ref" href="../packages/webrtc/tests/pbt/scenarioPropertyUtils.ts" title="packages/webrtc/tests/pbt/scenarioPropertyUtils.ts:839">judgeIce</a></td></tr>
+    <tr><td>create</td><td>offer / answer を作るだけでは何も変わらない</td><td><a class="ref" href="../packages/webrtc/tests/pbt/scenarioPropertyUtils.ts" title="packages/webrtc/tests/pbt/scenarioPropertyUtils.ts:764">judgeCreate</a></td></tr>
+  </tbody>
+</table>
+<p>操作列はテキストで書きます（<a class="ref" href="../packages/webrtc/tests/pbt/scenarioPropertyUtils.ts" title="packages/webrtc/tests/pbt/scenarioPropertyUtils.ts:140">scenario()</a>）。1 行か <code>;</code> で 1 ステップです。</p>
+<pre class="figure"><code>a offer restart; b reply pranswer edit=inactive; alive silent; a rollback</code></pre>
+<p>「a が ICE restart の offer を出す → b が inactive に書き換えた pranswer を返す → どのストリームも届かないこと（<code>alive silent</code>）を確かめる → rollback する」という意味です。各ステップの後に、宣言した結果（受理・拒否とエラー名）、両 peer の invariant、JSEP の状態遷移、その property の判定を行います。</p>
+
+<!-- ============================================================ -->
+<h2 id="model">7. モデル property</h2>
+<p>いちばん新しく、いちばん広い PBT です（2.17〜2.19）。<b>どの操作の後でも成り立つ性質</b>だけで判定するので、シーンには期待値を書きません。操作列は <code>[peer, 操作名, 選んだ値]</code> のデータです。</p>
+<ul class="flow">
+  <li class="guard"><b>開始状態を選ぶ</b><br>接続済み（video 双方向 ＋ DataChannel）/ 未交渉（a が video ＋ DataChannel）/ 未交渉（a が video だけ）</li>
+  <li><b>操作を 1 つ引く</b><br>a か b を選び、その時点で適用できる操作から重み付きで選ぶ</li>
+  <li><b>実行する</b><br>記述操作（setLocal / setRemote / addIceCandidate）はハーネス経由</li>
+  <li class="commit"><b>毎回検査する</b><br>invariant → 通信の性質 → 11 種のオラクル</li>
+  <li><b>最後に</b><br>DataChannel が開くこと、<code>expectSessionContinues</code></li>
+</ul>
+<p>両 peer の設定は <code>modelConfig</code>（<a class="ref" href="../packages/webrtc/tests/pbt/modelPropertyUtils.ts" title="packages/webrtc/tests/pbt/modelPropertyUtils.ts:49">modelPropertyUtils.ts:49</a>）です。VP8（NACK・PLI・REMB・transport-cc）と RTX、H264、Opus、PCMU、MID と transport-cc の header extension を持たせ、codec・feedback・RTX・extension の変化を作れるようにしています。</p>
+
+<h3 id="model-ops">7.1 操作（<a class="ref" href="../packages/webrtc/tests/pbt/modelPropertyUtils.ts" title="packages/webrtc/tests/pbt/modelPropertyUtils.ts:133">STEPS</a>）</h3>
+<table>
+  <thead><tr><th style="width:20%">分類</th><th>操作</th></tr></thead>
+  <tbody>
+    <tr><td>アプリの操作</td><td><code>addTrack</code>、<code>addRecvonly</code>、<code>dataChannel</code>、<code>attachTrack</code>（track を付けて sendrecv にする）、<code>direction</code>、<code>codecPreferences</code>（先頭の codec だけ／全体の逆順）、<code>stop</code>、<code>restartIce</code>。stable のときと、remote offer の pending 中（remote offer が作った transceiver にも）に行える</td></tr>
+    <tr><td>交渉</td><td><code>offer</code>（ICE restart あり／なし）、<code>splitOffer</code>（BUNDLE 分割）、<code>glare</code>、<code>replacementOffer</code>、<code>pranswer</code>、<code>answer</code>、<code>lateAnswer</code>（createAnswer の後、適用前に preferences か track を変える）、<code>rollback</code></td></tr>
+    <tr><td>再利用・作るだけ</td><td><code>reapplyRemote</code>（同じ remote description の再適用）、<code>createOnly</code>（offer / answer を作るだけ。offer は保存）、<code>applyStale</code>（保存した古い offer の適用）</td></tr>
+    <tr><td>ICE</td><td><code>trickle</code>（新しい候補か description にある候補を、重複や end-of-candidates も含めて）</td></tr>
+    <tr><td>通信路</td><td><code>wireOffer</code> / <code>wireReply</code>（配送途中で SDP を書き換える。7.2）、<code>settle</code>（接続の確立を待って通信を確かめる）</td></tr>
+  </tbody>
+</table>
+
+<h3 id="model-wire">7.2 通信路の SDP 書き換え（<a class="ref" href="../packages/webrtc/tests/pbt/modelMutations.ts" title="packages/webrtc/tests/pbt/modelMutations.ts:94">modelMutations.ts</a>）</h3>
+<p>offer・pranswer・answer を配送する途中で、19 種の書き換えのどれかを掛けます。書き換えは 2 種類に分かれ、扱いが違います。</p>
+<div class="two-layer">
+  <div class="layer committed"><h4><span class="tag now">same</span> 同じ session を表す（8 種）</h4>
+    codec の部分集合・逆順、fmtp、NACK・PLI・transport-cc の削除、max-message-size、end-of-candidates の削除。<br>両 peer は一致しているとみなす（<code>c.equivalent</code>）ので、通信と commit のオラクルもそのまま掛かる。</div>
+  <div class="layer staged"><h4><span class="tag stage">誤記述</span> 送り手を誤って記述する（11 種）</h4>
+    m-line の inactive・拒否、SSRC の入れ替え・更新、RTX の削除、payload type の付け替え、header extension ID の移動・入れ替え。<br>両 peer は食い違ったままになるので通信は求めず、次の書き換えのない交渉で回復することを求める。</div>
+</div>
+<p>どちらも、current の session が交渉した payload type や header extension ID を付け替える書き換えなら、<code>InvalidModificationError</code> での拒否を求めます（RFC 3264 8.3.2、RFC 8285 7。<a class="ref" href="../packages/webrtc/tests/pbt/modelMutations.ts" title="packages/webrtc/tests/pbt/modelMutations.ts:155">remapsCurrentKeys</a>）。それ以外は、受理されるか、状態を変えずに拒否されるかのどちらでもよく、拒否されたら元の description を配送し直します（<a class="ref" href="../packages/webrtc/tests/pbt/modelPropertyUtils.ts" title="packages/webrtc/tests/pbt/modelPropertyUtils.ts:441">deliver</a>）。final answer には same の書き換えだけを使います。answerer が自分の answer と違う session を持ち続ける状態は、実在の peer 同士では起きないためです。</p>
+
+<h3 id="model-oracles">7.3 オラクル（<a class="ref" href="../packages/webrtc/tests/pbt/modelOracles.ts" title="packages/webrtc/tests/pbt/modelOracles.ts:343">ModelOracles.after</a>）</h3>
+<p>記述操作のたびに、ハーネスが invariant と通信の性質を検査した後、次のオラクルを呼びます。</p>
+<table>
+  <thead><tr><th style="width:15%">オラクル</th><th>主張</th></tr></thead>
+  <tbody>
+    <tr><td>traffic</td><td>両 peer が同じ session を持つ間、送受信できるはずのストリームは RTP が 2 秒以内に届き、開いている DataChannel は双方向に届く（ハーネスの <code>c.expectTraffic()</code>）</td></tr>
+    <tr><td>jsep</td><td>受理された操作は、その種類の signaling state に進み、適用した description を pending / current に置く。相手の peer は変わらない。m-line のない transceiver は currentDirection を持たない</td></tr>
+    <tr><td>rollback</td><td>description・ICE 資格情報・経路・確定済み MID・送信パラメータ・受信表・transport-cc feedback が交渉前に戻る。remote offer が作っただけの transceiver は消え、アプリが残したものは作成時の状態になる</td></tr>
+    <tr><td>events</td><td>状態が変わったときだけ signalingstatechange が出る。rollback と再適用では track などを通知しない。remote の DataChannel の通知は 1 回</td></tr>
+    <tr><td>idempotent / create</td><td>同じ remote description の再適用や、offer / answer を作るだけでは何も変わらない</td></tr>
+    <tr><td>trickle</td><td>候補は SDP に 1 回だけ入り、現在の世代のものは稼働中の checklist にも届く</td></tr>
+    <tr><td>feedback</td><td>PLI は実効の <code>a=rtcp-fb</code> に <code>nack pli</code> があるときだけ送られ、transport-cc があれば feedback が動く。確定しない操作は transport-cc を始めない</td></tr>
+    <tr><td>ice</td><td>確定しない操作は、接続済み transport の選択ペアを変えない</td></tr>
+    <tr><td>commit</td><td>両側の currentDirection は鏡像で、送信 codec は相手の受信表にある。BUNDLE の transport が変わらない m-line は DTLS をやり直さない</td></tr>
+    <tr><td>channels</td><td>アプリの DataChannel は閉じず、最後に交渉済みなら両側で開く</td></tr>
+    <tr><td>reject</td><td>拒否された操作は状態を変えない（ハーネスが <code>negotiationSnapshot</code> を比べる）</td></tr>
+  </tbody>
+</table>
+
+<h3 id="model-walk">7.4 1 シーンの判定の流れ</h3>
+<p>固定シーン「PLI a re-offer adds starts only at its answer commit, not while pending or after a rollback」を例に、各操作の後に何が判定されるかを示します。</p>
+<figure class="figure">
+<svg viewBox="0 0 960 300" width="100%" role="img" aria-label="PLI のシーンでの各操作と判定">
+  <g font-size="12">
+    <line x1="40" y1="70" x2="920" y2="70" stroke="var(--line)" stroke-width="2"/>
+    <g>
+      <circle cx="90" cy="70" r="7" fill="var(--blue)"/><text x="90" y="44" text-anchor="middle" font-weight="600">wireOffer noPli</text><text class="sub" x="90" y="98" text-anchor="middle">b は PLI なしの</text><text class="sub" x="90" y="113" text-anchor="middle">offer を受ける</text>
+      <circle cx="240" cy="70" r="7" fill="var(--green)"/><text x="240" y="44" text-anchor="middle" font-weight="600">b answer</text><text class="sub" x="240" y="98" text-anchor="middle">PLI なしで確定</text>
+      <circle cx="390" cy="70" r="7" fill="var(--blue)"/><text x="390" y="44" text-anchor="middle" font-weight="600">a offer</text><text class="sub" x="390" y="98" text-anchor="middle">PLI ありを提案</text><text class="sub" x="390" y="113" text-anchor="middle">（pending）</text>
+      <circle cx="540" cy="70" r="7" fill="var(--orange)"/><text x="540" y="44" text-anchor="middle" font-weight="600">b rollback</text><text class="sub" x="540" y="98" text-anchor="middle">提案を破棄</text>
+      <circle cx="690" cy="70" r="7" fill="var(--blue)"/><text x="690" y="44" text-anchor="middle" font-weight="600">a offer</text><text class="sub" x="690" y="98" text-anchor="middle">再び提案</text>
+      <circle cx="840" cy="70" r="7" fill="var(--green)"/><text x="840" y="44" text-anchor="middle" font-weight="600">b answer</text><text class="sub" x="840" y="98" text-anchor="middle">PLI ありで確定</text>
+    </g>
+    <rect x="40" y="140" width="880" height="140" rx="10" fill="var(--panel-2)"/>
+    <text x="60" y="164" font-weight="600">各操作の後に feedback オラクルが確かめること（b の受信側）</text>
+    <text x="60" y="190">PLI を送るか = 「その payload type の実効の a=rtcp-fb に nack pli があるか」</text>
+    <text x="60" y="212">実効の値: current がその payload type を持てば current の remote description、なければ pending のもの</text>
+    <text x="60" y="242" class="sub">b answer 後: 送らない ／ a offer 後（pending）: current のまま送らない ／ rollback 後: 送らない ／ 最後の answer 後: 送る</text>
+    <text x="60" y="264" class="sub">期待値はシーンに書いていない。どの時点でも同じ規則で判定するので、どこで規則が破れても落ちる。</text>
+  </g>
+</svg>
+<figcaption>同じ判定が乱数シーンのすべての操作の後にも掛かります。この規則のおかげで、「<code>nack pli</code> ではなく <code>nack</code> だけで PLI を許していた」不具合（develop にもあった）が見つかりました（9 章）。</figcaption>
+</figure>
+
+<!-- ============================================================ -->
+<h2 id="oracle-design">8. オラクルを書くときの注意</h2>
+<div class="cards wide">
+  <div class="card"><h4>期待値を実装と同じ論理で作らない</h4><ul>
+    <li>オラクルは SDP（RFC・W3C の規則）と、操作前に保存した状態との比較で書く</li>
+    <li>実装の内部の表を「正」として読むと、実装と同じ誤りをテストも持つ</li>
+    <li>例: PLI の可否は受信側の内部の表ではなく、SDP の <code>a=rtcp-fb</code> から決める</li>
+  </ul></div>
+  <div class="card"><h4>失敗したら「実装か、性質の定義か」を切り分ける</h4><ul>
+    <li>オラクルを足すたびに、仕様どおりの動作を誤って失敗にする例が見つかる</li>
+    <li>2.19 だけで 10 件ほど性質の定義を直した（例: answer は offer の payload type を使うのが SHOULD なので、payload type か codec 名の一致で交渉済みとみなす。停止した transceiver は MID がなくても <code>stopped</code>）</li>
+    <li>実装の不具合と判断したら、develop で同じか確かめ、修正前に失敗する固定シーンを追加する</li>
+  </ul></div>
+  <div class="card"><h4>前提が成り立つときだけ判定する</h4><ul>
+    <li>通信は「両 peer が同じ session を持つ」間だけ求める（片側だけ確定した間や、誤記述の書き換えの後は求めない）</li>
+    <li>接続が確立していない transport は、操作の後は待たずに対象外にし、シーンの最後だけ 10 秒待つ</li>
+  </ul></div>
+  <div class="card"><h4>シーンの前提が弱いと見逃す</h4><ul>
+    <li>transport-cc が最初から動いている session では、「pending 中に誤って始まる」不具合（C1）を区別できない</li>
+    <li>current の世代が end-of-candidates で終わっていると、同じ世代の trickle（I2）を試せない</li>
+    <li>固定シーンを追加したら、一時 worktree でバグを入れて実際に落ちることを確かめる</li>
+  </ul></div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="found">9. PBT が見つけた不具合</h2>
+<p>いずれも修正し、修正前に失敗する固定シーンか回帰 seed を CI に残しています。</p>
+<table>
+  <thead><tr><th style="width:16%">見つけた PBT</th><th>不具合</th><th style="width:14%">develop</th></tr></thead>
+  <tbody>
+    <tr><td>episode fuzzer</td><td>古い ufrag の検査が live の候補を付け替える（seed 3）、pranswer の restart 資格情報が作り直される（6）、予備の DTLS role が分割 owner を上書きする（17）、古い check が破棄した pair を選ぶ（19）、未答の transceiver に方向が付く（28）、restart 後に srflx を落とす（1385）など</td><td>—</td></tr>
+    <tr><td>シナリオ</td><td>ICE restart の offer が <code>a=candidate:candidate:…</code> を出す。have-remote-pranswer からの rollback で MID が残る（seed 15・52）</td><td>—</td></tr>
+    <tr><td>モデル（2.17）</td><td>置き換えの remote offer で track イベントが 2 回出る。未適用の createOffer が予約した SCTP の MID が重複する。codec のない m-line の answer を自分で解析できない</td><td>1 つ目は develop では 1 回（退行）、3 つ目は develop にもある</td></tr>
+    <tr><td>モデル（2.19）</td><td>PLI を <code>nack</code> だけで許す。適用済みの local description が交渉の外で書き換わる。予約しただけの MID を answer が停止扱いにする（transceiver / SCTP）。RTX を主 codec より前に並べた answer で RTX の対応が付かない</td><td>すべて develop にもある</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="run">10. CI と深い探索</h2>
+<table>
+  <thead><tr><th style="width:24%">実行方法</th><th>内容</th><th class="num" style="width:16%">時間（16 コア）</th></tr></thead>
+  <tbody>
+    <tr><td><code>npm test</code>（CI）</td><td>3 つの PBT の固定シーン・回帰 seed と、少数の乱数 seed。モデル property は固定 51 件 ＋ 4 seed</td><td class="num">package 全体で約 1 分半（モデル property のファイルは約 75 秒）</td></tr>
+    <tr><td><code>npm run pbt:deep</code></td><td>fuzzer 300 seed × 20 step、シナリオ 300 seed、モデル 300 seed を、seed の範囲ごとに別プロセスで並列実行する（<a class="ref" href="../packages/webrtc/tools/pbt-deep/run.ts" title="packages/webrtc/tools/pbt-deep/run.ts">tools/pbt-deep/run.ts</a>）。失敗は単独で再実行して flaky と区別する</td><td class="num">約 2 分</td></tr>
+    <tr><td>seed の再生</td><td>テスト名に出るコマンド（例: <code>WERIFT_NEGOTIATION_MODEL_SEED=38 WERIFT_NEGOTIATION_MODEL_SEEDS=1 …</code>）で 1 seed だけ実行する</td><td class="num">数秒〜数十秒</td></tr>
+  </tbody>
+</table>
+<p>オプション: <code>npm run pbt:deep -- --suite model --seeds 1000 --jobs 12</code>。並列度を CPU 数より上げると、通信の 2 秒の予算が負荷で足りなくなり、flaky が増えます。交渉まわりを変更したら、レビューを頼む前に <code>pbt:deep</code> を実行します（<code>packages/webrtc/AGENTS.md</code> の Do 7）。</p>
+
+<!-- ============================================================ -->
+<h2 id="scope">11. 向いているもの・向かないもの</h2>
+<table>
+  <thead><tr><th style="width:24%">種類</th><th>扱い</th><th style="width:38%">理由</th></tr></thead>
+  <tbody>
+    <tr><td>invariant・状態が変わらないこと・通信の継続・rollback の復元</td><td><span class="tag keep">PBT</span> オラクル</td><td>どの操作の後でも成り立つので、乱数の組み合わせで広く確かめられる</td></tr>
+    <tr><td>過去の不具合の手順</td><td><span class="tag keep">PBT</span> 固定シーン</td><td>CI で毎回決定的に検出する</td></tr>
+    <tr><td>タイミング（同じ tick、n 個目の microtask）</td><td><span class="tag stage">ケース</span> 表駆動</td><td>操作列の間に await が入るので表せず、seed で再現できない</td></tr>
+    <tr><td>モック・故障注入</td><td><span class="tag stage">ケース</span></td><td>期待値が故障ごとの規則で、汎用の性質にならない</td></tr>
+    <tr><td>TURN・ICE-lite など外部環境、close</td><td><span class="tag stage">ケース</span></td><td>実時間に依存して重い。close の後はオラクルが使えない</td></tr>
+    <tr><td>ICE・DTLS・BUNDLE・RFC の codec 規則の具体値</td><td><span class="tag stage">ケース</span></td><td>werift 同士では両側が同じように間違えても通ってしまう</td></tr>
+    <tr><td>ブラウザとの相互接続</td><td><span class="tag reject">E2E</span></td><td>2.20 で、ブラウザ風の入力をあえて作るケースを削除し、実際の Chrome との E2E（<code>e2e/</code>）の責務とした（E2E への追加は未実施）</td></tr>
+  </tbody>
+</table>
+<p>モデル property の通信路の書き換え（7.2）も「相手の SDP を作る」ものですが、目的は相互接続ではなく「どんな入力でも状態の一貫性が保たれること」です。2.20 の削除対象（<code>tests/negotiation/cases</code>）の外にあるので残しています。</p>
+
+<!-- ============================================================ -->
+<h2 id="failure">12. 失敗したときの読み方</h2>
+<pre class="figure"><code>AssertionError: case "seed 38 (replay: WERIFT_NEGOTIATION_MODEL_SEED=38 …)" (2.1-5 2.1-10 …; property: model)
+after operation #29: traffic (current differs)          ← 最後に実行した記述操作・検査
+setLocal(offer): current: expected [ …(2) ] to deeply equal [ …(2) ]   ← どのオラクルの何が違ったか
+operations:                                              ← 直前までの操作ログ
+  #1 start: unnegotiated
+  #2 op 1: b addTrack {"kind":"video"}
+  …
+  #27 op 10: a splitOffer {"mid":"1"}
+  #28 setLocal(a, offer)
+smallest failing scene: {"start":"unnegotiated","ops":[…]}   ← 縮小した最小シーン</code></pre>
+<ol class="readorder">
+  <li><b>オラクル名とメッセージ</b>で、どの主張が破れたかを見る（例: <code>setLocal(offer): current</code> は jsep オラクルの「offer は current を変えない」）。</li>
+  <li><b>最小シーン</b>を固定シーンとして一時的に追加し、再現させる。</li>
+  <li>実装の不具合か、性質の定義の誤りかを切り分ける（8 章）。develop と比べるときは、別の一時 worktree を使う。</li>
+  <li>実装を直したら、修正前に失敗することを確かめてから、固定シーンを残す。</li>
+</ol>
+
+<!-- ============================================================ -->
+<h2 id="extend">13. 拡張するとき</h2>
+<table>
+  <thead><tr><th style="width:26%">やりたいこと</th><th>どこを変えるか</th></tr></thead>
+  <tbody>
+    <tr><td>どの操作の後でも成り立つ主張を足す</td><td><code>modelOracles.ts</code> にオラクルを足す。1,000 seed を実行して、誤検出（性質の定義の誤り）を直してから使う</td></tr>
+    <tr><td>新しい操作を探索させる</td><td><code>modelPropertyUtils.ts</code> の <code>STEPS</code> に <code>applies</code>（いつ適用できるか）・<code>draw</code>（乱数で選ぶ値）・<code>run</code> を足す。既存の seed の操作列は変わる</td></tr>
+    <tr><td>相手の SDP の変化を足す</td><td><code>modelMutations.ts</code> に書き換えを足し、<code>same</code> か誤記述かを決める</td></tr>
+    <tr><td>見つかった不具合を残す</td><td>最小シーンを <code>modelScenes.ts</code> に、名前と <code>ref</code>（仕様 ID と由来）を付けて追加する</td></tr>
+    <tr><td>episode fuzzer / シナリオ property</td><td>既存の seed の再現性を守るため、生成器は変えない。足すなら別の乱数系統から引く</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="readorder">14. おすすめの読み順</h2>
+<ol class="readorder">
+  <li><a class="ref" href="../packages/webrtc/tests/pbt/negotiationModelProperty.test.ts" title="packages/webrtc/tests/pbt/negotiationModelProperty.test.ts">negotiationModelProperty.test.ts</a>（86 行）: 固定シーンと乱数シーンの登録、縮小の呼び出し</li>
+  <li><a class="ref" href="../packages/webrtc/tests/pbt/modelScenes.ts" title="packages/webrtc/tests/pbt/modelScenes.ts">modelScenes.ts</a>: 固定シーンの例。名前と ref で何を守っているか分かる</li>
+  <li><a class="ref" href="../packages/webrtc/tests/pbt/modelPropertyUtils.ts" title="packages/webrtc/tests/pbt/modelPropertyUtils.ts:133">modelPropertyUtils.ts の STEPS</a>: 操作の一覧</li>
+  <li><a class="ref" href="../packages/webrtc/tests/pbt/modelOracles.ts" title="packages/webrtc/tests/pbt/modelOracles.ts:343">modelOracles.ts の after()</a>: 各操作の後に何を判定するか</li>
+  <li><a class="ref" href="../packages/webrtc/tests/negotiation/harness/negotiationCase.ts" title="packages/webrtc/tests/negotiation/harness/negotiationCase.ts">negotiationCase.ts</a>: 記述操作ごとの invariant と通信の性質、操作ログ</li>
+  <li><a class="ref" href="../packages/webrtc/tests/pbt/negotiationScenarioProperty.test.ts" title="packages/webrtc/tests/pbt/negotiationScenarioProperty.test.ts">negotiationScenarioProperty.test.ts</a> と <a class="ref" href="../packages/webrtc/tests/pbt/negotiationTransactionProperty.test.ts" title="packages/webrtc/tests/pbt/negotiationTransactionProperty.test.ts">negotiationTransactionProperty.test.ts</a>: 古い 2 つの PBT</li>
+  <li><a class="ref" href="../packages/webrtc/NEGOTIATION_TRANSACTION.md" title="packages/webrtc/NEGOTIATION_TRANSACTION.md">NEGOTIATION_TRANSACTION.md</a>「Test layout」: 設計としての正</li>
+</ol>
+</main>
+</div>
+<div id="tip" role="tooltip"></div>
+<script>
+// 目次の現在位置をハイライト
+const links = [...document.querySelectorAll("nav.toc a")];
+const observer = new IntersectionObserver((entries) => {
+  for (const entry of entries) if (entry.isIntersecting) {
+    links.forEach((a) => a.classList.toggle("active", a.getAttribute("href") === "#" + entry.target.id));
+  }
+}, { rootMargin: "0px 0px -70% 0px" });
+document.querySelectorAll("h2[id], h3[id]").forEach((h) => observer.observe(h));
+</script>
+</body>
+</html>
