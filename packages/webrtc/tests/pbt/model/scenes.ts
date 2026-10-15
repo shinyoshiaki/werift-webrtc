@@ -1,4 +1,4 @@
-import type { Scene } from "./modelPropertyUtils";
+import type { Scene } from "./generator";
 
 /**
  * Fixed scenes of the model property: the operation sequences of former

@@ -2,31 +2,26 @@ import {
   type CaseMeta,
   describeCases,
   negotiationCase,
-} from "../negotiation/harness/negotiationCase";
-import {
-  type Scene,
-  generateScene,
-  runScene,
-  shrinkScene,
-} from "./modelPropertyUtils";
-import { MODEL_SCENES } from "./modelScenes";
+} from "../../negotiation/harness/negotiationCase";
+import { type Scene, generateScene, runScene, shrinkScene } from "./generator";
+import { MODEL_SCENES } from "./scenes";
 
 /**
  * Model property of the negotiation transaction: whatever the operations,
  * after every description operation both peers keep the invariants, every
  * negotiated stream and DataChannel carries traffic (`c.expectTraffic()`)
- * and the oracles of `modelOracles.ts` hold (JSEP transition, rollback to
+ * and the oracles of `model/oracles.ts` hold (JSEP transition, rollback to
  * the transaction's start, events, idempotent re-application and creation,
  * trickle, RTCP feedback (PLI, transport-cc), selected pairs, commit of
  * directions, codecs and DTLS transports, committed DataChannels); every
  * scene ends with `expectSessionContinues`. Operations include SDP
- * rewrites on the wire (`modelMutations.ts`).
+ * rewrites on the wire (`model/wireMutations.ts`).
  *
- * - Fixed scenes (`modelScenes.ts`): regressions as short operation lists.
- * - Random scenes (`modelPropertyUtils.ts`): a start state and operations
+ * - Fixed scenes (`model/scenes.ts`): regressions as short operation lists.
+ * - Random scenes (`model/generator.ts`): a start state and operations
  *   drawn by a seed. A failure prints the seed and the operations and, unless
  *   `WERIFT_NEGOTIATION_MODEL_SHRINK=0`, the smallest failing scene found by
- *   dropping operations (paste it into `modelScenes.ts`).
+ *   dropping operations (paste it into `model/scenes.ts`).
  *
  * CI runs `WERIFT_NEGOTIATION_MODEL_SEEDS` (default 4) seeds of
  * `WERIFT_NEGOTIATION_MODEL_STEPS` (default 10) operations from

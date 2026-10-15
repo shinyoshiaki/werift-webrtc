@@ -2,7 +2,7 @@ import {
   MUTATIONS,
   movePayloadType,
   withoutCodecs,
-} from "../negotiation/harness/negotiationTransactionUtils";
+} from "../../negotiation/harness/negotiationTransactionUtils";
 
 /**
  * SDP rewrites the model property applies on the wire to a delivered offer,

@@ -48,7 +48,7 @@ export type CaseMeta = {
   /**
    * Check the traffic property (`c.expectTraffic()`) after each description
    * operation and after the body (the model property,
-   * tests/pbt/negotiationModelProperty.test.ts).
+   * tests/pbt/model/negotiationModelProperty.test.ts).
    */
   traffic?: boolean;
   timeout?: number;

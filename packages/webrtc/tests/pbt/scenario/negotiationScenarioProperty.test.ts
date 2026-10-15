@@ -14,11 +14,11 @@ import {
   runScenario,
   scenario,
   seededRandom,
-} from "./scenarioPropertyUtils";
+} from "./scenarios";
 
 /**
  * Scenario property test: one property per claim of the negotiation
- * transaction (`scenarioPropertyUtils.ts` has the judgements and the
+ * transaction (`scenario/scenarios.ts` has the judgements and the
  * scenario text format). Each property runs its fixed scenes, the scenes of
  * the individual tests it replaced (named after them; `(o=a)` / `(o=b)`
  * runs a scene once per offerer), and random scenarios from seeds. Every

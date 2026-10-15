@@ -583,6 +583,25 @@ provisional の checklist は live と同じ規則に従う: 候補から作る 
   - `npm run pbt:deep`: fuzz 306、scenario 2,163、model 351 が全件通過（115 秒）。scenario seed 44 は負荷下で 1 回失敗し、単独の再実行で通過した。
 - 失ったもの（許容済み）: DTLS role・fingerprint、BUNDLE の tag・MID、RFC 8838 の EOC の扱い、mDNS、extmap ID・payload type の受理と拒否、application の拒否、他の peer の SSRC と資格情報への対応。いずれも werift 同士の個別テストでは検出できなくなった。一部はモデル property の通路での書き換えと invariant で検出できる可能性があるが、測っていない。
 
+### 2.21 PBT のディレクトリを全体像と構造に合わせて整理する（追加要件）
+
+**要件**: PBT の全体像と構造（3 つの PBT と共通の基盤）に合わせて、`packages/webrtc/tests/pbt` のディレクトリ構成を構造化する。
+
+**実施内容**
+
+- 構成: PBT ごとのディレクトリと、全 PBT が使うものの `shared/` に分けた。
+  - `shared/random.ts`: `seededRandom`（`fuzz/episodes.ts` から切り出し。コードは同一で、どの seed も同じ操作列を再生する）
+  - `fuzz/`: `negotiationTransactionProperty.test.ts`、`episodes.ts`（旧 `propertyUtils.ts`。`seededRandom` は `shared/random.ts` から再エクスポートする）
+  - `scenario/`: `negotiationScenarioProperty.test.ts`、`scenarios.ts`（旧 `scenarioPropertyUtils.ts`）
+  - `model/`: `negotiationModelProperty.test.ts`、`generator.ts`（旧 `modelPropertyUtils.ts`）、`oracles.ts`（旧 `modelOracles.ts`）、`wireMutations.ts`（旧 `modelMutations.ts`）、`scenes.ts`（旧 `modelScenes.ts`）
+- テストファイル名は変えていないので、vitest の出力と seed の再生コマンドは同じ。生成器と seed も変えていない。
+- 参照の更新: `tools/pbt-deep/run.ts`、ハーネスとケースのコメント、NEGOTIATION_TRANSACTION.md（Test layout に構成の表を追加。`doc/_media` の写しも）、NEGOTIATION_SPEC_COVERAGE.md、NEGOTIATION_CASES_MAPPING.md、`packages/webrtc/AGENTS.md`（Do 6 に構成を追記）、reviews の 3 文書（リンク先と行番号。PBT の解説にディレクトリ構成の図を追加）。2.20 で削除したファイルへの reviews のリンクも外した。このチケットのこれまでの節の旧パスは、当時の記録としてそのまま残した。
+- 検証:
+  - `npm run type`、biome、`git diff --check`: 通過
+  - テストの数は移動前と同じ（fuzz 12、scenario 70、model 55）
+  - `npm test`: 54 ファイル、788 passed / 3 skipped（2 分 2 秒）
+  - `npm run pbt:deep`: fuzz 306・scenario 2,163・model 351 が全件通過（111 秒、flaky なし）
+
 ## 3. 技術的な実装アプローチ
 
 ### 3.1 transaction coordinator と subsystem API

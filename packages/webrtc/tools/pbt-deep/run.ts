@@ -10,9 +10,9 @@
  *   npm run pbt:deep -- --suite model --seeds 1000 --jobs 12
  *
  * Suites (defaults = the deep searches of AGENTS.md Do 7):
- *   fuzz      tests/pbt/negotiationTransactionProperty.test.ts, 300 seeds x 20 steps
- *   scenario  tests/pbt/negotiationScenarioProperty.test.ts, 300 seeds
- *   model     tests/pbt/negotiationModelProperty.test.ts, 300 seeds x 10 steps
+ *   fuzz      tests/pbt/fuzz/negotiationTransactionProperty.test.ts, 300 seeds x 20 steps
+ *   scenario  tests/pbt/scenario/negotiationScenarioProperty.test.ts, 300 seeds
+ *   model     tests/pbt/model/negotiationModelProperty.test.ts, 300 seeds x 10 steps
  * The fixed scenes and regression seeds run once in their own shard.
  * Exit code 1 when a seed fails again when replayed alone.
  */
@@ -65,7 +65,7 @@ function shards(suite: Suite): Shard[] {
   const seeds = Number(seedsOption ?? 300);
   switch (suite) {
     case "fuzz": {
-      const file = "tests/pbt/negotiationTransactionProperty.test.ts";
+      const file = "tests/pbt/fuzz/negotiationTransactionProperty.test.ts";
       const steps = stepsOption ?? "20";
       return [
         // 回帰 seed は FUZZ_SEED を指定しない実行にだけ含まれる。
@@ -88,7 +88,7 @@ function shards(suite: Suite): Shard[] {
       ];
     }
     case "scenario": {
-      const file = "tests/pbt/negotiationScenarioProperty.test.ts";
+      const file = "tests/pbt/scenario/negotiationScenarioProperty.test.ts";
       return [
         { label: "scenario fixed scenes", file, pattern: "fixed: ", env: {} },
         ...ranges(seeds).map(({ first, count }) => ({
@@ -106,7 +106,7 @@ function shards(suite: Suite): Shard[] {
       ];
     }
     case "model": {
-      const file = "tests/pbt/negotiationModelProperty.test.ts";
+      const file = "tests/pbt/model/negotiationModelProperty.test.ts";
       return [
         {
           label: "model fixed scenes",

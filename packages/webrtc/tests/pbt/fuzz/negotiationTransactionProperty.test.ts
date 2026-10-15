@@ -6,7 +6,7 @@ import {
   fuzzRemoteMutation,
   fuzzRemoteRejection,
   seededRandom,
-} from "./propertyUtils";
+} from "./episodes";
 
 /**
  * Property test: random operation sequences (offer / pranswer / answer /

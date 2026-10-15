@@ -555,7 +555,7 @@ accepted and communicated with but HEAD does not. Its only findings are
 intended rejections: a changed `sctp-port` for an established association,
 which HEAD rejects atomically (accepting it would make the current SDP
 describe a port the live association does not use). The model property's
-wire rewrites (`tests/pbt/modelMutations.ts`) reuse some of these rewrites.
+wire rewrites (`tests/pbt/model/wireMutations.ts`) reuse some of these rewrites.
 
 ## Interrupts
 
@@ -681,8 +681,8 @@ table-driven matrices take their Arrange from the `negotiationTest` fixtures
 of `negotiationTransactionUtils.ts` (`videoPeers`, `session`, `closing`;
 imported as `test`, closed after the test).
 
-`tests/pbt/negotiationScenarioProperty.test.ts` (with
-`scenarioPropertyUtils.ts`) has one property per claim: the final answer
+`tests/pbt/scenario/negotiationScenarioProperty.test.ts` (with
+`scenario/scenarios.ts`) has one property per claim: the final answer
 commits the directions both applications asked for (commit); a pending
 negotiation keeps the committed transports, DTLS roles, SCTP association,
 remote ICE credentials and selected-pair generation (pending); rollback
@@ -708,8 +708,8 @@ the individual tests they replaced, and random scenarios: CI runs
 text and the operation log, and the same seed replays it. The properties run
 concurrently within the file (`describe.concurrent`).
 
-`tests/pbt/negotiationModelProperty.test.ts` (with `modelPropertyUtils.ts`,
-`modelOracles.ts`, `modelMutations.ts` and `modelScenes.ts`) is the model
+`tests/pbt/model/negotiationModelProperty.test.ts` (with `model/generator.ts`,
+`model/oracles.ts`, `model/wireMutations.ts` and `model/scenes.ts`) is the model
 property: whatever the operations, after every description operation both
 peers keep the invariants and these oracles hold.
 
@@ -795,19 +795,19 @@ an answer after a preference or track change, rollback, re-application of
 the pending remote description, create-only, applying a stale created
 offer, trickle (new or described candidates, duplicates,
 end-of-candidates), and an offer, pranswer or answer rewritten on the wire).
-A wire rewrite (`modelMutations.ts`) either describes the same session
+A wire rewrite (`model/wireMutations.ts`) either describes the same session
 (fewer codecs or feedback, another order, an fmtp parameter, a larger
 max-message-size, no end-of-candidates: the peers still agree) or
 misdescribes the sender (inactive or rejected m-lines, other or swapped
 SSRCs, no RTX, a renumbered payload type, a moved or swapped header
 extension ID: the next clean negotiation must heal the session); a final
 answer is only rewritten in the first way, and a rejected rewrite is
-followed by the original description. Fixed scenes (`modelScenes.ts`) are
+followed by the original description. Fixed scenes (`model/scenes.ts`) are
 the operation sequences of former individual tests and regressions in a few
 lines; random scenes draw one applicable operation at a time from a seed. A
 failure prints the seed and the operations and, unless
 `WERIFT_NEGOTIATION_MODEL_SHRINK=0`, shrinks the scene by dropping
-operations and prints the smallest failing one, ready for `modelScenes.ts`.
+operations and prints the smallest failing one, ready for `model/scenes.ts`.
 CI runs `WERIFT_NEGOTIATION_MODEL_SEEDS` (default 4) seeds of
 `WERIFT_NEGOTIATION_MODEL_STEPS` (default 10) operations from
 `WERIFT_NEGOTIATION_MODEL_SEED`. The model property replaced 51 individual
@@ -819,10 +819,10 @@ ICE (end-of-candidates, credentials, generations), DTLS roles, BUNDLE and
 the RFC codec rules stay individual tests: a wrong value there breaks
 interoperability even when both werift peers agree.
 
-`tests/pbt/negotiationTransactionProperty.test.ts` holds the seeded episode
-fuzzer and its episodes, seeded random
-stream and atomicity check (`propertyUtils.ts`, built on the shared utilities
-above). Each step
+`tests/pbt/fuzz/negotiationTransactionProperty.test.ts` holds the seeded episode
+fuzzer and its episodes and atomicity check (`fuzz/episodes.ts`, built on
+the shared utilities above); the seeded random stream every property uses is
+`tests/pbt/shared/random.ts`. Each step
 is a random negotiation episode (offer / pranswer / answer / rollback /
 replacement, ICE restart, new audio m-line, audio BUNDLE split/merge,
 end-of-candidates) or a remote-only routing-key mutation (RTX pairing, extmap
@@ -857,13 +857,18 @@ tests that verify it.
 
 ### Negotiation cases (`tests/negotiation`)
 
-The negotiation tests live in their own directory, like the property tests
-in `tests/pbt`:
+The negotiation tests live in their own directories; the property tests in
+`tests/pbt` have one directory per property test and `shared/` for what they
+all use:
 
 | Directory | Contents |
 | --- | --- |
 | `tests/negotiation/harness/` | the shared infrastructure: `negotiationTransactionUtils.ts` (Arrange helpers, `assertNegotiationInvariants`, snapshots, traffic and continuation checks) and `negotiationCase.ts` (the case harness) |
-| `tests/negotiation/cases/` | the cases, one file per area (`negotiationTransaction*.test.ts`: codecs / feedback, events, ICE, transport / BUNDLE, routing, effective values, develop features, regressions, matrix, application rejection, interrupts, close timing, SDP mutations) |
+| `tests/negotiation/cases/` | the cases, one file per area (`negotiationTransaction*.test.ts`: codecs / feedback, events, ICE, transport / BUNDLE, routing, develop features, regressions, matrix, interrupts, close timing) |
+| `tests/pbt/shared/` | `random.ts`: the seeded random stream (`seededRandom`) every property test draws from |
+| `tests/pbt/fuzz/` | the episode fuzzer: `negotiationTransactionProperty.test.ts` and its episodes (`episodes.ts`) |
+| `tests/pbt/scenario/` | the scenario properties: `negotiationScenarioProperty.test.ts` and the scenario text, runner, judgements and generators (`scenarios.ts`) |
+| `tests/pbt/model/` | the model property: `negotiationModelProperty.test.ts`, the configuration, operations, generator, runner and shrinking (`generator.ts`), the oracles (`oracles.ts`), the wire rewrites (`wireMutations.ts`) and the fixed scenes (`scenes.ts`) |
 
 A deterministic case is a TypeScript test in Arrange / Act / Assert with
 Japanese `// Arrange:` / `// Act:` / `// Assert:` comments, registered with the

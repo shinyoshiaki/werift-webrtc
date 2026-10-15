@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 
-import { MediaStreamTrack, type RTCPeerConnection } from "../../src";
+import { MediaStreamTrack, type RTCPeerConnection } from "../../../src";
 import {
   assertNegotiationInvariants,
   createDuplexSession,
@@ -15,14 +15,14 @@ import {
   sendAndExpectRtp,
   waitForCommittedNomination,
   withMaxMessageSize,
-} from "../negotiation/harness/negotiationTransactionUtils";
-import { type SeededRandom, seededRandom } from "./propertyUtils";
+} from "../../negotiation/harness/negotiationTransactionUtils";
+import { type SeededRandom, seededRandom } from "../shared/random";
 
 export { seededRandom };
 
 /**
  * Scenario property test of the negotiation transaction, separate from the
- * episode fuzzer of negotiationTransactionProperty.test.ts. A scenario is a
+ * episode fuzzer of fuzz/negotiationTransactionProperty.test.ts. A scenario is a
  * list of operations on a connected duplex session (`createDuplexSession`:
  * video sendrecv both ways and a DataChannel), written as text (`scenario`)
  * by the fixed cases and the random generators alike. Every operation is

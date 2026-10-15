@@ -145,6 +145,7 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
   <a href="#summary">1. まず 1 分で</a>
   <a href="#what">2. PBT とケーステスト</a>
   <a href="#map">3. 3 つの PBT の全体像</a>
+  <a href="#layout" style="padding-left:20px">ディレクトリ構成</a>
   <a href="#replay">4. 再現・縮小・固定シーン</a>
   <a href="#fuzz">5. episode fuzzer</a>
   <a href="#scenario">6. シナリオ property</a>
@@ -165,7 +166,7 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
 <h1>werift の negotiation PBT<br>— プロパティベーステストの解説</h1>
 <p class="meta">
   <span>チケット: <a class="ref" href="../TICKET-support-fallback-state.md" title="TICKET-support-fallback-state.md">TICKET-support-fallback-state.md</a>（2.13〜2.20）</span>
-  <span>HEAD: <code>e0229115</code></span>
+  <span>HEAD: <code>e5f9b28d</code>（＋ tests/pbt の再構成）</span>
   <span>設計の正: <a class="ref" href="../packages/webrtc/NEGOTIATION_TRANSACTION.md" title="packages/webrtc/NEGOTIATION_TRANSACTION.md">NEGOTIATION_TRANSACTION.md</a>「Test layout」</span>
   <span>実装レビュー解説: <a class="ref" href="0ad06d37-negotiation-transaction.html">0ad06d37-negotiation-transaction.html</a></span>
 </p>
@@ -219,20 +220,20 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
   <g>
     <rect class="node" x="20" y="20" width="280" height="110" rx="12" style="stroke:var(--blue)"/>
     <text x="160" y="46" text-anchor="middle" font-weight="600">episode fuzzer</text>
-    <text class="sub" x="160" y="68" text-anchor="middle">negotiationTransactionProperty.test.ts</text>
-    <text class="sub" x="160" y="86" text-anchor="middle">propertyUtils.ts</text>
+    <text class="sub" x="160" y="68" text-anchor="middle">fuzz/negotiationTransactionProperty.test.ts</text>
+    <text class="sub" x="160" y="86" text-anchor="middle">fuzz/episodes.ts</text>
     <text class="sub" x="160" y="108" text-anchor="middle">交渉 episode を seed で並べる</text>
 
     <rect class="node" x="340" y="20" width="280" height="110" rx="12" style="stroke:var(--violet)"/>
     <text x="480" y="46" text-anchor="middle" font-weight="600">シナリオ property</text>
-    <text class="sub" x="480" y="68" text-anchor="middle">negotiationScenarioProperty.test.ts</text>
-    <text class="sub" x="480" y="86" text-anchor="middle">scenarioPropertyUtils.ts</text>
+    <text class="sub" x="480" y="68" text-anchor="middle">scenario/negotiationScenarioProperty.test.ts</text>
+    <text class="sub" x="480" y="86" text-anchor="middle">scenario/scenarios.ts</text>
     <text class="sub" x="480" y="108" text-anchor="middle">主張 7 つ × テキストの操作列</text>
 
     <rect class="node" x="660" y="20" width="280" height="110" rx="12" style="stroke:var(--green)"/>
     <text x="800" y="46" text-anchor="middle" font-weight="600">モデル property</text>
-    <text class="sub" x="800" y="68" text-anchor="middle">negotiationModelProperty.test.ts</text>
-    <text class="sub" x="800" y="86" text-anchor="middle">modelPropertyUtils / Oracles / Mutations / Scenes</text>
+    <text class="sub" x="800" y="68" text-anchor="middle">model/negotiationModelProperty.test.ts</text>
+    <text class="sub" x="800" y="86" text-anchor="middle">model/ generator・oracles・wireMutations・scenes</text>
     <text class="sub" x="800" y="108" text-anchor="middle">操作 23 種 × オラクル 11 種</text>
   </g>
   <g fill="none" stroke="var(--ink-2)" stroke-width="1.6">
@@ -242,7 +243,7 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
   </g>
   <g>
     <rect x="20" y="192" width="920" height="70" rx="12" fill="var(--panel-2)"/>
-    <text x="480" y="216" text-anchor="middle" font-weight="600">共通の基盤（tests/negotiation/harness）</text>
+    <text x="480" y="216" text-anchor="middle" font-weight="600">共通の基盤（tests/negotiation/harness と tests/pbt/shared）</text>
     <text class="sub" x="480" y="238" text-anchor="middle">assertNegotiationInvariants（current SDP と live の状態の一致） ・ negotiationSnapshot（拒否の前後比較） ・ expectSessionContinues（その後も使えるか）</text>
     <text class="sub" x="480" y="254" text-anchor="middle">モデル property はさらにケース用ハーネス negotiationCase.ts（記述操作ごとの検査・通信の性質・操作ログ）を使う</text>
   </g>
@@ -269,9 +270,31 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
 <p>3 つあるのは、作った時期と目的が違うためです。fuzzer で「とにかく壊れる手順」を探し、シナリオ property で「主張ごとに」判定を分け、モデル property で「どの操作の後でも成り立つ性質」に一般化しました。既存の 2 つは、過去に不具合を見つけた seed の再現性を守るため、生成器も seed も変えていません。</p>
 
 <!-- ============================================================ -->
+<h3 id="layout">ディレクトリ構成</h3>
+<p>PBT ごとにディレクトリを分け、共通の乱数だけを <code>shared/</code> に置いています。Arrange・invariant・継続確認はケースと共有する <code>tests/negotiation/harness</code> にあります。</p>
+<pre class="figure"><code>packages/webrtc/tests/
+├── negotiation/harness/            ケースと PBT が共有する基盤（invariant・snapshot・継続確認・ケース用ハーネス）
+└── pbt/
+    ├── shared/
+    │   └── random.ts               seededRandom（同じ seed から同じ乱数列。全 PBT が使う）
+    ├── fuzz/                       episode fuzzer
+    │   ├── negotiationTransactionProperty.test.ts   seed と回帰 seed の登録
+    │   └── episodes.ts             交渉 episode・routing key の変更・description pool・m-line の拒否
+    ├── scenario/                   シナリオ property
+    │   ├── negotiationScenarioProperty.test.ts      7 つの property と固定シーン
+    │   └── scenarios.ts            操作列のテキストの解析・実行・判定関数・生成器
+    └── model/                      モデル property
+        ├── negotiationModelProperty.test.ts         固定シーンと乱数シーンの登録・縮小
+        ├── generator.ts            設定・操作（STEPS）・開始状態・生成・実行・縮小
+        ├── oracles.ts              各操作の後に判定する性質
+        ├── wireMutations.ts        通信路の SDP 書き換え・付け替えの拒否規則
+        └── scenes.ts               固定シーン（回帰と、置き換えたケース）</code></pre>
+<p>テストファイル名は変えていないので、vitest の出力と再生用のコマンドは以前と同じです。</p>
+
+<!-- ============================================================ -->
 <h2 id="replay">4. 再現・縮小・固定シーン</h2>
 <h3>seed から同じ操作列を作る</h3>
-<p>乱数は <code>seededRandom(seed)</code>（<a class="ref" href="../packages/webrtc/tests/pbt/propertyUtils.ts" title="packages/webrtc/tests/pbt/propertyUtils.ts:30">propertyUtils.ts:30</a>）だけから引きます。同じ seed なら同じ操作列になるので、失敗した seed を環境変数で指定すれば再生できます。テスト名にも再生用のコマンドが入っています。</p>
+<p>乱数は <code>seededRandom(seed)</code>（<a class="ref" href="../packages/webrtc/tests/pbt/shared/random.ts" title="packages/webrtc/tests/pbt/shared/random.ts:6">shared/random.ts:6</a>）だけから引きます。同じ seed なら同じ操作列になるので、失敗した seed を環境変数で指定すれば再生できます。テスト名にも再生用のコマンドが入っています。</p>
 <pre class="figure"><code>seed 38 (replay: WERIFT_NEGOTIATION_MODEL_SEED=38 WERIFT_NEGOTIATION_MODEL_SEEDS=1 WERIFT_NEGOTIATION_MODEL_STEPS=10)</code></pre>
 <p>ただし、実際の通信を使うので、結果は CPU の負荷に左右されることがあります。<code>npm run pbt:deep</code> は失敗した seed を単独で再実行し、通れば「flaky」、再び落ちれば「FAILED」と分けて報告します。</p>
 
@@ -296,16 +319,16 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
     <rect x="20" y="188" width="80" height="30" rx="6" fill="var(--orange-wash)" stroke="var(--orange)"/><text x="60" y="208" text-anchor="middle">op2</text>
     <rect x="108" y="188" width="80" height="30" rx="6" fill="var(--orange-wash)" stroke="var(--orange)"/><text x="148" y="208" text-anchor="middle">op4</text>
     <rect x="196" y="188" width="80" height="30" rx="6" fill="var(--orange-wash)" stroke="var(--orange)"/><text x="236" y="208" text-anchor="middle">op10</text>
-    <text x="300" y="208" class="sub">→ そのまま modelScenes.ts に貼れる JSON で出力する</text>
+    <text x="300" y="208" class="sub">→ そのまま model/scenes.ts に貼れる JSON で出力する</text>
   </g>
 </svg>
-<figcaption><code>shrinkScene</code>（<a class="ref" href="../packages/webrtc/tests/pbt/modelPropertyUtils.ts" title="packages/webrtc/tests/pbt/modelPropertyUtils.ts:584">modelPropertyUtils.ts:584</a>）。縮小中に適用できなくなった操作は飛ばします。</figcaption>
+<figcaption><code>shrinkScene</code>（<a class="ref" href="../packages/webrtc/tests/pbt/model/generator.ts" title="packages/webrtc/tests/pbt/model/generator.ts:584">model/generator.ts:584</a>）。縮小中に適用できなくなった操作は飛ばします。</figcaption>
 </figure>
 <p>実例: 2.19 で見つけた「適用済みの local description が交渉の外で書き換わる」不具合は、seed 38 の 10 操作から次の 4 操作に縮みました。</p>
 <pre class="figure"><code>{"start":"unnegotiated","ops":[["a","addRecvonly",{"kind":"video"}],["a","offer",{"iceRestart":true}],["b","answer"],["a","splitOffer",{"mid":"1"}]]}</code></pre>
 
 <h3>固定シーンとして残す</h3>
-<p>縮小した操作列は、名前と由来（<code>ref</code>）を付けて <a class="ref" href="../packages/webrtc/tests/pbt/modelScenes.ts" title="packages/webrtc/tests/pbt/modelScenes.ts">modelScenes.ts</a> に追加します。固定シーンは乱数シーンと同じオラクルで判定されるので、期待値を書く必要はありません。</p>
+<p>縮小した操作列は、名前と由来（<code>ref</code>）を付けて <a class="ref" href="../packages/webrtc/tests/pbt/model/scenes.ts" title="packages/webrtc/tests/pbt/model/scenes.ts">model/scenes.ts</a> に追加します。固定シーンは乱数シーンと同じオラクルで判定されるので、期待値を書く必要はありません。</p>
 <pre class="figure"><code>{
   name: "an answer releases the SCTP MID only an unapplied createOffer reserved",
   ref: "2.9-4; origin: model property (seed 545): the reserved MID collided with the peer's next m-line",
@@ -315,34 +338,34 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
 
 <!-- ============================================================ -->
 <h2 id="fuzz">5. episode fuzzer</h2>
-<p>最初に作った PBT です（<a class="ref" href="../packages/webrtc/tests/pbt/negotiationTransactionProperty.test.ts" title="packages/webrtc/tests/pbt/negotiationTransactionProperty.test.ts">negotiationTransactionProperty.test.ts</a>）。1 step で次のどれかを 1 回行い、各操作の後に両 peer の invariant を検査し、step の後に video・audio・DataChannel の実通信を確かめます。</p>
+<p>最初に作った PBT です（<a class="ref" href="../packages/webrtc/tests/pbt/fuzz/negotiationTransactionProperty.test.ts" title="packages/webrtc/tests/pbt/fuzz/negotiationTransactionProperty.test.ts">fuzz/negotiationTransactionProperty.test.ts</a>）。1 step で次のどれかを 1 回行い、各操作の後に両 peer の invariant を検査し、step の後に video・audio・DataChannel の実通信を確かめます。</p>
 <table>
   <thead><tr><th style="width:22%">episode</th><th>内容</th></tr></thead>
   <tbody>
-    <tr><td>交渉 episode（70%）<br><a class="ref" href="../packages/webrtc/tests/pbt/propertyUtils.ts" title="packages/webrtc/tests/pbt/propertyUtils.ts:120">propertyUtils.ts:120</a></td><td>offerer、offer の種類（ICE restart、audio の追加、BUNDLE の分割・統合など）、終わり方（answer / pranswer → answer / rollback / replacement）、end-of-candidates を乱数で選ぶ</td></tr>
-    <tr><td>routing key の変更（30%）<br><a class="ref" href="../packages/webrtc/tests/pbt/propertyUtils.ts" title="packages/webrtc/tests/pbt/propertyUtils.ts:240">propertyUtils.ts:240</a></td><td>RTX の付け替え、extmap URI の新 ID への移動（pending 中も現在の RTP が流れる）、使用中の extmap ID の再割り当て（拒否され、状態は変わらない）</td></tr>
-    <tr><td>description pool<br><a class="ref" href="../packages/webrtc/tests/pbt/propertyUtils.ts" title="packages/webrtc/tests/pbt/propertyUtils.ts:384">propertyUtils.ts:384</a></td><td>保存した offer / answer を後で、または再度適用する（生成済み description の再利用契約）</td></tr>
-    <tr><td>m-line の拒否<br><a class="ref" href="../packages/webrtc/tests/pbt/propertyUtils.ts" title="packages/webrtc/tests/pbt/propertyUtils.ts:304">propertyUtils.ts:304</a></td><td>相手が application / video / audio の m-line を port 0 で拒否する</td></tr>
+    <tr><td>交渉 episode（70%）<br><a class="ref" href="../packages/webrtc/tests/pbt/fuzz/episodes.ts" title="packages/webrtc/tests/pbt/fuzz/episodes.ts:105">fuzz/episodes.ts:105</a></td><td>offerer、offer の種類（ICE restart、audio の追加、BUNDLE の分割・統合など）、終わり方（answer / pranswer → answer / rollback / replacement）、end-of-candidates を乱数で選ぶ</td></tr>
+    <tr><td>routing key の変更（30%）<br><a class="ref" href="../packages/webrtc/tests/pbt/fuzz/episodes.ts" title="packages/webrtc/tests/pbt/fuzz/episodes.ts:225">fuzz/episodes.ts:225</a></td><td>RTX の付け替え、extmap URI の新 ID への移動（pending 中も現在の RTP が流れる）、使用中の extmap ID の再割り当て（拒否され、状態は変わらない）</td></tr>
+    <tr><td>description pool<br><a class="ref" href="../packages/webrtc/tests/pbt/fuzz/episodes.ts" title="packages/webrtc/tests/pbt/fuzz/episodes.ts:369">fuzz/episodes.ts:369</a></td><td>保存した offer / answer を後で、または再度適用する（生成済み description の再利用契約）</td></tr>
+    <tr><td>m-line の拒否<br><a class="ref" href="../packages/webrtc/tests/pbt/fuzz/episodes.ts" title="packages/webrtc/tests/pbt/fuzz/episodes.ts:289">fuzz/episodes.ts:289</a></td><td>相手が application / video / audio の m-line を port 0 で拒否する</td></tr>
   </tbody>
 </table>
 <p><b>乱数を系統に分けている</b>: pool と拒否は後から足した episode なので、主操作とは別の乱数（<code>seed × 7919 + 13</code> と <code>seed × 104729 + 7</code>）から引きます。こうすると、episode を足しても既存の seed の主操作は変わらず、過去に不具合を見つけた seed（3・4・6・17・19・28、20 step の 254・302・1385）が同じ操作を再生し続けます。</p>
 
 <!-- ============================================================ -->
 <h2 id="scenario">6. シナリオ property</h2>
-<p>主張（claim）ごとに 1 つの property を持ち、それぞれ固定シーンと乱数シーンを実行します（<a class="ref" href="../packages/webrtc/tests/pbt/negotiationScenarioProperty.test.ts" title="packages/webrtc/tests/pbt/negotiationScenarioProperty.test.ts">negotiationScenarioProperty.test.ts</a>）。7 つの property はファイル内で並行に動きます（<code>describe.concurrent</code>）。</p>
+<p>主張（claim）ごとに 1 つの property を持ち、それぞれ固定シーンと乱数シーンを実行します（<a class="ref" href="../packages/webrtc/tests/pbt/scenario/negotiationScenarioProperty.test.ts" title="packages/webrtc/tests/pbt/scenario/negotiationScenarioProperty.test.ts">scenario/negotiationScenarioProperty.test.ts</a>）。7 つの property はファイル内で並行に動きます（<code>describe.concurrent</code>）。</p>
 <table>
   <thead><tr><th style="width:12%">property</th><th>主張</th><th style="width:22%">判定関数</th></tr></thead>
   <tbody>
-    <tr><td>commit</td><td>final answer は、両アプリが求めた方向を確定する</td><td><a class="ref" href="../packages/webrtc/tests/pbt/scenarioPropertyUtils.ts" title="packages/webrtc/tests/pbt/scenarioPropertyUtils.ts:639">judgeCommit</a></td></tr>
-    <tr><td>pending</td><td>交渉中も、確定済みの transport・DTLS role・SCTP・remote の ICE 資格情報・選択ペアの世代を保つ</td><td><a class="ref" href="../packages/webrtc/tests/pbt/scenarioPropertyUtils.ts" title="packages/webrtc/tests/pbt/scenarioPropertyUtils.ts:667">judgePending</a></td></tr>
-    <tr><td>rollback</td><td>rollback は交渉前の状態に戻す</td><td><a class="ref" href="../packages/webrtc/tests/pbt/scenarioPropertyUtils.ts" title="packages/webrtc/tests/pbt/scenarioPropertyUtils.ts:695">judgeRollback</a></td></tr>
-    <tr><td>reject</td><td>拒否された記述操作は、どちらの peer も変えない</td><td><a class="ref" href="../packages/webrtc/tests/pbt/scenarioPropertyUtils.ts" title="packages/webrtc/tests/pbt/scenarioPropertyUtils.ts:753">judgeReject</a></td></tr>
-    <tr><td>trickle</td><td>trickle した候補は、自分の世代の description に 1 回だけ入る</td><td><a class="ref" href="../packages/webrtc/tests/pbt/scenarioPropertyUtils.ts" title="packages/webrtc/tests/pbt/scenarioPropertyUtils.ts:795">judgeTrickle</a></td></tr>
-    <tr><td>ice</td><td>ICE 資格情報は commit まで restart の要求に従う（W3C の <code>[[LocalIceCredentialsToReplace]]</code>）</td><td><a class="ref" href="../packages/webrtc/tests/pbt/scenarioPropertyUtils.ts" title="packages/webrtc/tests/pbt/scenarioPropertyUtils.ts:839">judgeIce</a></td></tr>
-    <tr><td>create</td><td>offer / answer を作るだけでは何も変わらない</td><td><a class="ref" href="../packages/webrtc/tests/pbt/scenarioPropertyUtils.ts" title="packages/webrtc/tests/pbt/scenarioPropertyUtils.ts:764">judgeCreate</a></td></tr>
+    <tr><td>commit</td><td>final answer は、両アプリが求めた方向を確定する</td><td><a class="ref" href="../packages/webrtc/tests/pbt/scenario/scenarios.ts" title="packages/webrtc/tests/pbt/scenario/scenarios.ts:639">judgeCommit</a></td></tr>
+    <tr><td>pending</td><td>交渉中も、確定済みの transport・DTLS role・SCTP・remote の ICE 資格情報・選択ペアの世代を保つ</td><td><a class="ref" href="../packages/webrtc/tests/pbt/scenario/scenarios.ts" title="packages/webrtc/tests/pbt/scenario/scenarios.ts:667">judgePending</a></td></tr>
+    <tr><td>rollback</td><td>rollback は交渉前の状態に戻す</td><td><a class="ref" href="../packages/webrtc/tests/pbt/scenario/scenarios.ts" title="packages/webrtc/tests/pbt/scenario/scenarios.ts:695">judgeRollback</a></td></tr>
+    <tr><td>reject</td><td>拒否された記述操作は、どちらの peer も変えない</td><td><a class="ref" href="../packages/webrtc/tests/pbt/scenario/scenarios.ts" title="packages/webrtc/tests/pbt/scenario/scenarios.ts:753">judgeReject</a></td></tr>
+    <tr><td>trickle</td><td>trickle した候補は、自分の世代の description に 1 回だけ入る</td><td><a class="ref" href="../packages/webrtc/tests/pbt/scenario/scenarios.ts" title="packages/webrtc/tests/pbt/scenario/scenarios.ts:795">judgeTrickle</a></td></tr>
+    <tr><td>ice</td><td>ICE 資格情報は commit まで restart の要求に従う（W3C の <code>[[LocalIceCredentialsToReplace]]</code>）</td><td><a class="ref" href="../packages/webrtc/tests/pbt/scenario/scenarios.ts" title="packages/webrtc/tests/pbt/scenario/scenarios.ts:839">judgeIce</a></td></tr>
+    <tr><td>create</td><td>offer / answer を作るだけでは何も変わらない</td><td><a class="ref" href="../packages/webrtc/tests/pbt/scenario/scenarios.ts" title="packages/webrtc/tests/pbt/scenario/scenarios.ts:764">judgeCreate</a></td></tr>
   </tbody>
 </table>
-<p>操作列はテキストで書きます（<a class="ref" href="../packages/webrtc/tests/pbt/scenarioPropertyUtils.ts" title="packages/webrtc/tests/pbt/scenarioPropertyUtils.ts:140">scenario()</a>）。1 行か <code>;</code> で 1 ステップです。</p>
+<p>操作列はテキストで書きます（<a class="ref" href="../packages/webrtc/tests/pbt/scenario/scenarios.ts" title="packages/webrtc/tests/pbt/scenario/scenarios.ts:140">scenario()</a>）。1 行か <code>;</code> で 1 ステップです。</p>
 <pre class="figure"><code>a offer restart; b reply pranswer edit=inactive; alive silent; a rollback</code></pre>
 <p>「a が ICE restart の offer を出す → b が inactive に書き換えた pranswer を返す → どのストリームも届かないこと（<code>alive silent</code>）を確かめる → rollback する」という意味です。各ステップの後に、宣言した結果（受理・拒否とエラー名）、両 peer の invariant、JSEP の状態遷移、その property の判定を行います。</p>
 
@@ -356,9 +379,9 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
   <li class="commit"><b>毎回検査する</b><br>invariant → 通信の性質 → 11 種のオラクル</li>
   <li><b>最後に</b><br>DataChannel が開くこと、<code>expectSessionContinues</code></li>
 </ul>
-<p>両 peer の設定は <code>modelConfig</code>（<a class="ref" href="../packages/webrtc/tests/pbt/modelPropertyUtils.ts" title="packages/webrtc/tests/pbt/modelPropertyUtils.ts:49">modelPropertyUtils.ts:49</a>）です。VP8（NACK・PLI・REMB・transport-cc）と RTX、H264、Opus、PCMU、MID と transport-cc の header extension を持たせ、codec・feedback・RTX・extension の変化を作れるようにしています。</p>
+<p>両 peer の設定は <code>modelConfig</code>（<a class="ref" href="../packages/webrtc/tests/pbt/model/generator.ts" title="packages/webrtc/tests/pbt/model/generator.ts:49">model/generator.ts:49</a>）です。VP8（NACK・PLI・REMB・transport-cc）と RTX、H264、Opus、PCMU、MID と transport-cc の header extension を持たせ、codec・feedback・RTX・extension の変化を作れるようにしています。</p>
 
-<h3 id="model-ops">7.1 操作（<a class="ref" href="../packages/webrtc/tests/pbt/modelPropertyUtils.ts" title="packages/webrtc/tests/pbt/modelPropertyUtils.ts:133">STEPS</a>）</h3>
+<h3 id="model-ops">7.1 操作（<a class="ref" href="../packages/webrtc/tests/pbt/model/generator.ts" title="packages/webrtc/tests/pbt/model/generator.ts:133">STEPS</a>）</h3>
 <table>
   <thead><tr><th style="width:20%">分類</th><th>操作</th></tr></thead>
   <tbody>
@@ -370,7 +393,7 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
   </tbody>
 </table>
 
-<h3 id="model-wire">7.2 通信路の SDP 書き換え（<a class="ref" href="../packages/webrtc/tests/pbt/modelMutations.ts" title="packages/webrtc/tests/pbt/modelMutations.ts:94">modelMutations.ts</a>）</h3>
+<h3 id="model-wire">7.2 通信路の SDP 書き換え（<a class="ref" href="../packages/webrtc/tests/pbt/model/wireMutations.ts" title="packages/webrtc/tests/pbt/model/wireMutations.ts:94">model/wireMutations.ts</a>）</h3>
 <p>offer・pranswer・answer を配送する途中で、19 種の書き換えのどれかを掛けます。書き換えは 2 種類に分かれ、扱いが違います。</p>
 <div class="two-layer">
   <div class="layer committed"><h4><span class="tag now">same</span> 同じ session を表す（8 種）</h4>
@@ -378,9 +401,9 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
   <div class="layer staged"><h4><span class="tag stage">誤記述</span> 送り手を誤って記述する（11 種）</h4>
     m-line の inactive・拒否、SSRC の入れ替え・更新、RTX の削除、payload type の付け替え、header extension ID の移動・入れ替え。<br>両 peer は食い違ったままになるので通信は求めず、次の書き換えのない交渉で回復することを求める。</div>
 </div>
-<p>どちらも、current の session が交渉した payload type や header extension ID を付け替える書き換えなら、<code>InvalidModificationError</code> での拒否を求めます（RFC 3264 8.3.2、RFC 8285 7。<a class="ref" href="../packages/webrtc/tests/pbt/modelMutations.ts" title="packages/webrtc/tests/pbt/modelMutations.ts:155">remapsCurrentKeys</a>）。それ以外は、受理されるか、状態を変えずに拒否されるかのどちらでもよく、拒否されたら元の description を配送し直します（<a class="ref" href="../packages/webrtc/tests/pbt/modelPropertyUtils.ts" title="packages/webrtc/tests/pbt/modelPropertyUtils.ts:441">deliver</a>）。final answer には same の書き換えだけを使います。answerer が自分の answer と違う session を持ち続ける状態は、実在の peer 同士では起きないためです。</p>
+<p>どちらも、current の session が交渉した payload type や header extension ID を付け替える書き換えなら、<code>InvalidModificationError</code> での拒否を求めます（RFC 3264 8.3.2、RFC 8285 7。<a class="ref" href="../packages/webrtc/tests/pbt/model/wireMutations.ts" title="packages/webrtc/tests/pbt/model/wireMutations.ts:155">remapsCurrentKeys</a>）。それ以外は、受理されるか、状態を変えずに拒否されるかのどちらでもよく、拒否されたら元の description を配送し直します（<a class="ref" href="../packages/webrtc/tests/pbt/model/generator.ts" title="packages/webrtc/tests/pbt/model/generator.ts:441">deliver</a>）。final answer には same の書き換えだけを使います。answerer が自分の answer と違う session を持ち続ける状態は、実在の peer 同士では起きないためです。</p>
 
-<h3 id="model-oracles">7.3 オラクル（<a class="ref" href="../packages/webrtc/tests/pbt/modelOracles.ts" title="packages/webrtc/tests/pbt/modelOracles.ts:343">ModelOracles.after</a>）</h3>
+<h3 id="model-oracles">7.3 オラクル（<a class="ref" href="../packages/webrtc/tests/pbt/model/oracles.ts" title="packages/webrtc/tests/pbt/model/oracles.ts:343">ModelOracles.after</a>）</h3>
 <p>記述操作のたびに、ハーネスが invariant と通信の性質を検査した後、次のオラクルを呼びます。</p>
 <table>
   <thead><tr><th style="width:15%">オラクル</th><th>主張</th></tr></thead>
@@ -513,10 +536,10 @@ smallest failing scene: {"start":"unnegotiated","ops":[…]}   ← 縮小した�
 <table>
   <thead><tr><th style="width:26%">やりたいこと</th><th>どこを変えるか</th></tr></thead>
   <tbody>
-    <tr><td>どの操作の後でも成り立つ主張を足す</td><td><code>modelOracles.ts</code> にオラクルを足す。1,000 seed を実行して、誤検出（性質の定義の誤り）を直してから使う</td></tr>
-    <tr><td>新しい操作を探索させる</td><td><code>modelPropertyUtils.ts</code> の <code>STEPS</code> に <code>applies</code>（いつ適用できるか）・<code>draw</code>（乱数で選ぶ値）・<code>run</code> を足す。既存の seed の操作列は変わる</td></tr>
-    <tr><td>相手の SDP の変化を足す</td><td><code>modelMutations.ts</code> に書き換えを足し、<code>same</code> か誤記述かを決める</td></tr>
-    <tr><td>見つかった不具合を残す</td><td>最小シーンを <code>modelScenes.ts</code> に、名前と <code>ref</code>（仕様 ID と由来）を付けて追加する</td></tr>
+    <tr><td>どの操作の後でも成り立つ主張を足す</td><td><code>model/oracles.ts</code> にオラクルを足す。1,000 seed を実行して、誤検出（性質の定義の誤り）を直してから使う</td></tr>
+    <tr><td>新しい操作を探索させる</td><td><code>model/generator.ts</code> の <code>STEPS</code> に <code>applies</code>（いつ適用できるか）・<code>draw</code>（乱数で選ぶ値）・<code>run</code> を足す。既存の seed の操作列は変わる</td></tr>
+    <tr><td>相手の SDP の変化を足す</td><td><code>model/wireMutations.ts</code> に書き換えを足し、<code>same</code> か誤記述かを決める</td></tr>
+    <tr><td>見つかった不具合を残す</td><td>最小シーンを <code>model/scenes.ts</code> に、名前と <code>ref</code>（仕様 ID と由来）を付けて追加する</td></tr>
     <tr><td>episode fuzzer / シナリオ property</td><td>既存の seed の再現性を守るため、生成器は変えない。足すなら別の乱数系統から引く</td></tr>
   </tbody>
 </table>
@@ -524,12 +547,12 @@ smallest failing scene: {"start":"unnegotiated","ops":[…]}   ← 縮小した�
 <!-- ============================================================ -->
 <h2 id="readorder">14. おすすめの読み順</h2>
 <ol class="readorder">
-  <li><a class="ref" href="../packages/webrtc/tests/pbt/negotiationModelProperty.test.ts" title="packages/webrtc/tests/pbt/negotiationModelProperty.test.ts">negotiationModelProperty.test.ts</a>（86 行）: 固定シーンと乱数シーンの登録、縮小の呼び出し</li>
-  <li><a class="ref" href="../packages/webrtc/tests/pbt/modelScenes.ts" title="packages/webrtc/tests/pbt/modelScenes.ts">modelScenes.ts</a>: 固定シーンの例。名前と ref で何を守っているか分かる</li>
-  <li><a class="ref" href="../packages/webrtc/tests/pbt/modelPropertyUtils.ts" title="packages/webrtc/tests/pbt/modelPropertyUtils.ts:133">modelPropertyUtils.ts の STEPS</a>: 操作の一覧</li>
-  <li><a class="ref" href="../packages/webrtc/tests/pbt/modelOracles.ts" title="packages/webrtc/tests/pbt/modelOracles.ts:343">modelOracles.ts の after()</a>: 各操作の後に何を判定するか</li>
+  <li><a class="ref" href="../packages/webrtc/tests/pbt/model/negotiationModelProperty.test.ts" title="packages/webrtc/tests/pbt/model/negotiationModelProperty.test.ts">model/negotiationModelProperty.test.ts</a>（86 行）: 固定シーンと乱数シーンの登録、縮小の呼び出し</li>
+  <li><a class="ref" href="../packages/webrtc/tests/pbt/model/scenes.ts" title="packages/webrtc/tests/pbt/model/scenes.ts">model/scenes.ts</a>: 固定シーンの例。名前と ref で何を守っているか分かる</li>
+  <li><a class="ref" href="../packages/webrtc/tests/pbt/model/generator.ts" title="packages/webrtc/tests/pbt/model/generator.ts:133">model/generator.ts の STEPS</a>: 操作の一覧</li>
+  <li><a class="ref" href="../packages/webrtc/tests/pbt/model/oracles.ts" title="packages/webrtc/tests/pbt/model/oracles.ts:343">model/oracles.ts の after()</a>: 各操作の後に何を判定するか</li>
   <li><a class="ref" href="../packages/webrtc/tests/negotiation/harness/negotiationCase.ts" title="packages/webrtc/tests/negotiation/harness/negotiationCase.ts">negotiationCase.ts</a>: 記述操作ごとの invariant と通信の性質、操作ログ</li>
-  <li><a class="ref" href="../packages/webrtc/tests/pbt/negotiationScenarioProperty.test.ts" title="packages/webrtc/tests/pbt/negotiationScenarioProperty.test.ts">negotiationScenarioProperty.test.ts</a> と <a class="ref" href="../packages/webrtc/tests/pbt/negotiationTransactionProperty.test.ts" title="packages/webrtc/tests/pbt/negotiationTransactionProperty.test.ts">negotiationTransactionProperty.test.ts</a>: 古い 2 つの PBT</li>
+  <li><a class="ref" href="../packages/webrtc/tests/pbt/scenario/negotiationScenarioProperty.test.ts" title="packages/webrtc/tests/pbt/scenario/negotiationScenarioProperty.test.ts">scenario/negotiationScenarioProperty.test.ts</a> と <a class="ref" href="../packages/webrtc/tests/pbt/fuzz/negotiationTransactionProperty.test.ts" title="packages/webrtc/tests/pbt/fuzz/negotiationTransactionProperty.test.ts">fuzz/negotiationTransactionProperty.test.ts</a>: 古い 2 つの PBT</li>
   <li><a class="ref" href="../packages/webrtc/NEGOTIATION_TRANSACTION.md" title="packages/webrtc/NEGOTIATION_TRANSACTION.md">NEGOTIATION_TRANSACTION.md</a>「Test layout」: 設計としての正</li>
 </ol>
 </main>

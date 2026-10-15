@@ -11,13 +11,13 @@ cases"）。途中の版（eb66685a）は独自 DSL のテキストで書いて�
 ように引用符を付けていた 5 件だけ表示が変わる）。略記は `NEGOTIATION_SPEC_COVERAGE.md` と同じ。
 
 通信の到達を判定に含み特殊な環境（TURN・simulcast・モック・タイミング指定）を使わない 51 件
-（展開 61 件）は、`tests/pbt/negotiationModelProperty.test.ts` のモデル property に置き換えた
+（展開 61 件）は、`tests/pbt/model/negotiationModelProperty.test.ts` のモデル property に置き換えた
 （表の「→ Model」の行。形式の列にモデル property での扱いを書く）。操作列を固定シーン
-（`tests/pbt/modelScenes.ts`、数行の操作のリスト）にしたもの、オラクル（`modelOracles.ts`）と乱数生成で
+（`tests/pbt/model/scenes.ts`、数行の操作のリスト）にしたもの、オラクル（`model/oracles.ts`）と乱数生成で
 一般化したもの、具体値の検査を手放した「対象外」がある。検出力の比較は TICKET 2.17。
 テスト全体で検出できなくなったバグ（R2・C3・I2）を検出していた 3 宣言（展開 4 件）は TICKET 2.18 で
 ケースに戻した（表の「→ Model」が付かない Reg / NT / Route の行）。
-TICKET 2.19 では、相手の SDP を通信路上で書き換える操作（`modelMutations.ts`）、受信 feedback
+TICKET 2.19 では、相手の SDP を通信路上で書き換える操作（`model/wireMutations.ts`）、受信 feedback
 （PLI・transport-cc）のオラクル、ICE の選択ペアと DTLS transport の継続のオラクルなどをモデル property に
 加え、そのオラクルで判定できる 29 宣言（展開 37 件）を固定シーンに置き換えた（形式の列が
 「シーン: …（TICKET 2.19）」の行。2.18 で戻した R2・I2・C3 の 3 宣言も含む）。ICE（EOC・資格情報・
