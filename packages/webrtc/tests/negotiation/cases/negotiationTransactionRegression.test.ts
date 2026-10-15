@@ -39,7 +39,7 @@ const nextMacrotask = () => new Promise((resolve) => setImmediate(resolve));
 
 /**
  * Deterministic regressions for what the negotiation property test found
- * (see tests/pbt/negotiationTransactionProperty.test.ts for the seeds).
+ * (see tests/pbt/fuzz/negotiationTransactionProperty.test.ts for the seeds).
  */
 describeCases("negotiation transaction regressions", () => {
   negotiationCase.for([

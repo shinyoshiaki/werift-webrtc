@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 
-import { SessionDescription } from "../../src";
+import { SessionDescription } from "../../../src";
 import type {
   RTCDataChannel,
   RTCDtlsTransport,
@@ -8,19 +8,19 @@ import type {
   RTCPeerConnection,
   RTCRtpReceiver,
   RTCRtpTransceiver,
-} from "../../src";
+} from "../../../src";
 import type {
   AppliedStep,
   NegotiationCase,
   Observer,
-} from "../negotiation/harness/negotiationCase";
+} from "../../negotiation/harness/negotiationCase";
 import {
   type NegotiationEvents,
   negotiationSnapshot,
   recordNegotiationEvents,
   registeredDataChannels,
   waitUntil,
-} from "../negotiation/harness/negotiationTransactionUtils";
+} from "../../negotiation/harness/negotiationTransactionUtils";
 
 /**
  * The oracles of the model property: claims of the negotiation transaction

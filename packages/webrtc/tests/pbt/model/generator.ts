@@ -12,30 +12,30 @@ import {
   useTWCC,
   useTransportWideCC,
   useVP8,
-} from "../../src";
+} from "../../../src";
 import {
   type CaseMeta,
   NegotiationCase,
-} from "../negotiation/harness/negotiationCase";
+} from "../../negotiation/harness/negotiationCase";
 import {
   createDuplexSession,
   createPeerPair,
   createSplitOffer,
   rtxCodec,
-} from "../negotiation/harness/negotiationTransactionUtils";
+} from "../../negotiation/harness/negotiationTransactionUtils";
+import { type SeededRandom, seededRandom } from "../shared/random";
+import { ModelOracles } from "./oracles";
 import {
   WIRE_MUTATIONS,
   WIRE_MUTATION_NAMES,
   remapsCurrentKeys,
-} from "./modelMutations";
-import { ModelOracles } from "./modelOracles";
-import { type SeededRandom, seededRandom } from "./propertyUtils";
+} from "./wireMutations";
 
 /**
  * Scenes of the model property: a start state and a list of operations
  * (data, so a failing scene can be shrunk and a regression written in a few
  * lines). `runScene` applies them through the case harness, which checks the
- * invariants, the traffic property and the oracles of `modelOracles.ts`
+ * invariants, the traffic property and the oracles of `model/oracles.ts`
  * after every description operation; `generateScene` draws the operations
  * from a seed, one applicable operation at a time.
  */
@@ -434,7 +434,7 @@ export const STEPS: Record<string, Step> = {
 
 /**
  * Act: deliver `from`'s local description to `to`, rewritten on the wire by
- * `name` (`modelMutations.ts`). A rewrite that remaps a key of `to`'s current
+ * `name` (`model/wireMutations.ts`). A rewrite that remaps a key of `to`'s current
  * session must be rejected; any other may be accepted, or rejected without a
  * change. After a rejection the original description is delivered.
  */
