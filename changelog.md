@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.25.1
+
+### 🔧 Maintenance
+
+- **Removed the `binary-data` runtime dependency** (#756): the `binary-data` package is ported to TypeScript as `packages/common/src/binaryData.ts` (exported from `werift-common`) and used by `werift-dtls` for DTLS record / handshake encoding. `werift-dtls` and `werift` no longer depend on the `binary-data` npm package. Wire formats are unchanged.
+
 ## v0.25.0
 
 ### ⚠️ Breaking changes
