@@ -1,4 +1,6 @@
-import { decode, encode, types } from "@shinyoshiaki/binary-data";
+import { binaryData } from "../../imports/common";
+
+const { decode, encode, types } = binaryData;
 
 export class RenegotiationIndication {
   static type = 65281;
@@ -26,8 +28,7 @@ export class RenegotiationIndication {
   }
 
   serialize() {
-    const res = encode(this, RenegotiationIndication.spec).slice();
-    return Buffer.from(res);
+    return encode(this, RenegotiationIndication.spec);
   }
 
   get extension() {
