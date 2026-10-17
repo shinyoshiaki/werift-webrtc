@@ -1,7 +1,7 @@
 import { createHash, createHmac } from "crypto";
-import { createDecode } from "@shinyoshiaki/binary-data";
 import nacl from "tweetnacl";
 
+import { binaryData } from "../imports/common";
 import { NamedCurveAlgorithm, type NamedCurveAlgorithms } from "./const";
 import { p256PreMasterSecret } from "./ec";
 
@@ -131,7 +131,7 @@ export function prfEncryptionKeys(
     size,
     algorithm,
   );
-  const stream = createDecode(keyBlock);
+  const stream = new binaryData.BinaryReader(keyBlock);
 
   const clientWriteKey = stream.readBuffer(prfKeyLen);
   const serverWriteKey = stream.readBuffer(prfKeyLen);

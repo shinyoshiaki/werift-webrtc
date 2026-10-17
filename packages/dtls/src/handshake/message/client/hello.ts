@@ -1,10 +1,12 @@
-import { decode, encode, types } from "@shinyoshiaki/binary-data";
+import { binaryData } from "../../../imports/common";
 
 import { FragmentedHandshake } from "../../../record/message/fragment";
 import type { Extension } from "../../../typings/domain";
 import { ExtensionList } from "../../binary";
 import { HandshakeType } from "../../const";
 import { DtlsRandom } from "../../random";
+
+const { decode, encode, types } = binaryData;
 
 // 7.4.1.2.  Client Hello
 
@@ -51,8 +53,7 @@ export class ClientHello {
   }
 
   serialize() {
-    const res = encode(this, ClientHello.spec).slice();
-    return Buffer.from(res);
+    return encode(this, ClientHello.spec);
   }
 
   toFragment() {

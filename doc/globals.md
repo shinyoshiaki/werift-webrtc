@@ -4,6 +4,10 @@
 
 # werift
 
+## Namespaces
+
+- [binaryData](namespaces/binaryData/README.md)
+
 ## Enumerations
 
 - [CandidatePairState](enumerations/CandidatePairState.md)

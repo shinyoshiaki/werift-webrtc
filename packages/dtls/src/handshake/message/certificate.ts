@@ -1,9 +1,11 @@
-import { decode, encode, types } from "@shinyoshiaki/binary-data";
+import { binaryData } from "../../imports/common";
 
 import { FragmentedHandshake } from "../../record/message/fragment";
 import type { Handshake } from "../../typings/domain";
 import { ASN11Cert } from "../binary";
 import { HandshakeType } from "../const";
+
+const { decode, encode, types } = binaryData;
 
 // 7.4.2.  Server Certificate
 // 7.4.6.  Client Certificate
@@ -29,8 +31,7 @@ export class Certificate implements Handshake {
   }
 
   serialize() {
-    const res = encode(this, Certificate.spec).slice();
-    return Buffer.from(res);
+    return encode(this, Certificate.spec);
   }
 
   toFragment() {

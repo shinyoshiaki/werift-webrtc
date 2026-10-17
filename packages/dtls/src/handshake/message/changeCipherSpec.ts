@@ -1,4 +1,6 @@
-import { decode, encode, types } from "@shinyoshiaki/binary-data";
+import { binaryData } from "../../imports/common";
+
+const { decode, encode, types } = binaryData;
 
 // 7.1.  Change Cipher Spec Protocol
 
@@ -21,7 +23,6 @@ export class ChangeCipherSpec {
   }
 
   serialize() {
-    const res = encode(this, ChangeCipherSpec.spec).slice();
-    return Buffer.from(res);
+    return encode(this, ChangeCipherSpec.spec);
   }
 }

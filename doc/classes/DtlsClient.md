@@ -256,19 +256,19 @@
 
 ##### localKey
 
-> **localKey**: `any` = `clientKey`
+> **localKey**: `Buffer`\<`ArrayBufferLike`\> = `clientKey`
 
 ##### localSalt
 
-> **localSalt**: `any` = `clientSalt`
+> **localSalt**: `Buffer`\<`ArrayBufferLike`\> = `clientSalt`
 
 ##### remoteKey
 
-> **remoteKey**: `any` = `serverKey`
+> **remoteKey**: `Buffer`\<`ArrayBufferLike`\> = `serverKey`
 
 ##### remoteSalt
 
-> **remoteSalt**: `any` = `serverSalt`
+> **remoteSalt**: `Buffer`\<`ArrayBufferLike`\> = `serverSalt`
 
 #### Inherited from
 

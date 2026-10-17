@@ -1,5 +1,7 @@
-import { encode } from "@shinyoshiaki/binary-data";
+import { binaryData } from "../imports/common";
 
-export function encodeBuffer(obj: object, spec: object) {
-  return Buffer.from(encode(obj, spec).slice());
+const { encode } = binaryData;
+
+export function encodeBuffer(obj: object, spec: binaryData.Schema) {
+  return encode(obj, spec);
 }

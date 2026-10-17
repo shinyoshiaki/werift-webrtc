@@ -1,4 +1,4 @@
-import { decode, encode, types } from "@shinyoshiaki/binary-data";
+import { binaryData } from "../../../imports/common";
 
 import type { CipherSuites } from "../../../cipher/const";
 import { FragmentedHandshake } from "../../../record/message/fragment";
@@ -11,6 +11,8 @@ import type {
 import { ExtensionList, ProtocolVersion } from "../../binary";
 import { HandshakeType } from "../../const";
 import { DtlsRandom } from "../../random";
+
+const { decode, encode, types } = binaryData;
 
 // 7.4.1.3.  Server Hello
 
@@ -64,14 +66,12 @@ export class ServerHello implements Handshake {
   }
 
   serialize() {
-    const res =
-      this.extensions === undefined
-        ? encode(this, ServerHello.spec).slice()
-        : encode(this, {
-            ...ServerHello.spec,
-            extensions: ExtensionList,
-          }).slice();
-    return Buffer.from(res);
+    return this.extensions === undefined
+      ? encode(this, ServerHello.spec)
+      : encode(this, {
+          ...ServerHello.spec,
+          extensions: ExtensionList,
+        });
   }
 
   toFragment() {

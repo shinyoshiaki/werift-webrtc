@@ -1,4 +1,7 @@
-import { types } from "@shinyoshiaki/binary-data";
+import { binaryData } from "../imports/common";
+
+const { types } = binaryData;
+
 const { uint16be, uint24be, buffer, array, uint8, string } = types;
 
 // export const Random = {

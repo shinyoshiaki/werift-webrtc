@@ -1,8 +1,10 @@
-import { decode, encode, types } from "@shinyoshiaki/binary-data";
+import { binaryData } from "../../../imports/common";
 
 import { FragmentedHandshake } from "../../../record/message/fragment";
 import type { Handshake } from "../../../typings/domain";
 import { HandshakeType } from "../../const";
+
+const { decode, encode, types } = binaryData;
 
 export class ClientKeyExchange implements Handshake {
   msgType = HandshakeType.client_key_exchange_16;
@@ -27,8 +29,7 @@ export class ClientKeyExchange implements Handshake {
   }
 
   serialize() {
-    const res = encode(this, ClientKeyExchange.spec).slice();
-    return Buffer.from(res);
+    return encode(this, ClientKeyExchange.spec);
   }
 
   toFragment() {

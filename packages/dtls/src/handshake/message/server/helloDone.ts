@@ -1,8 +1,10 @@
-import { decode, encode } from "@shinyoshiaki/binary-data";
+import { binaryData } from "../../../imports/common";
 
 import { FragmentedHandshake } from "../../../record/message/fragment";
 import type { Handshake } from "../../../typings/domain";
 import { HandshakeType } from "../../const";
+
+const { decode, encode } = binaryData;
 
 // 7.4.5.  Server Hello Done
 
@@ -23,8 +25,7 @@ export class ServerHelloDone implements Handshake {
   }
 
   serialize() {
-    const res = encode(this, ServerHelloDone.spec).slice();
-    return Buffer.from(res);
+    return encode(this, ServerHelloDone.spec);
   }
 
   toFragment() {
