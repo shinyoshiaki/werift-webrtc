@@ -65,7 +65,6 @@
     "@fidm/x509": "^1.2.1",
     "@noble/curves": "^1.8.1",
     "@peculiar/x509": "^1.12.3",
-    "@shinyoshiaki/binary-data": "^0.6.1",
     "buffer": "^6.0.3",
     "debug": "4.4.0",
     "mediabunny": "^1.45.2",
