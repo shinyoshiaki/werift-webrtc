@@ -1,21 +1,17 @@
 /// <reference types="@vitest/browser/providers/playwright" />
 
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-
-import { defineConfig } from "vitest/config";
+import { createRequire } from "node:module";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
 
+import { defineConfig } from "vitest/config";
+
+// Loaded via require so Vite does not bundle the CommonJS helper.
+const { resolveChromeExecutable } = createRequire(import.meta.url)(
+  "./browser-paths.js",
+) as { resolveChromeExecutable: () => string | undefined };
+
 /** Prefer Google Chrome for proprietary H.264 (P0 codec E2E). */
-const chromiumExecutablePath = [
-  process.env.CHROME_BIN,
-  process.env.GOOGLE_CHROME_BIN,
-  join(__dirname, ".cache/google-chrome/opt/google/chrome/google-chrome"),
-  "/usr/bin/google-chrome",
-  "/usr/bin/google-chrome-stable",
-  "/usr/bin/chromium",
-  "/usr/bin/chromium-browser",
-].find((candidate) => candidate && existsSync(candidate));
+const chromiumExecutablePath = resolveChromeExecutable();
 
 export default defineConfig({
   plugins: [nodePolyfills()],
@@ -28,6 +24,8 @@ export default defineConfig({
   },
   test: {
     globals: true,
+    // Node-only tests live in tools/tests (npm run test:tools)
+    include: ["tests/**/*.test.ts"],
     testTimeout: 20_000,
     // fileParallelism: false,
     retry: 1,
