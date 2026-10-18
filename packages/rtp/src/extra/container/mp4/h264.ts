@@ -225,6 +225,86 @@ export function annexb2avcc(data: Buffer) {
   return avcc.getData();
 }
 
+export interface AvcDecoderConfig {
+  /** AVCDecoderConfigurationRecord (avcC) bytes */
+  avcc: Uint8Array;
+  /** coded frame size after SPS cropping */
+  codedSize: { width: number; height: number };
+  /**
+   * sample (pixel) aspect ratio from the SPS VUI.
+   * `1:1` when absent or unspecified (e.g. extended SAR `0:0`).
+   */
+  sampleAspectRatio: { width: number; height: number };
+}
+
+/**
+ * Builds the avcC record and frame dimensions from the SPS / PPS contained in
+ * an Annex B access unit.
+ *
+ * Unlike {@link annexb2avcc}, this does not throw: it returns `undefined` when
+ * the access unit lacks an SPS or PPS, when the SPS cannot be parsed, or when
+ * the SPS does not describe positive integer dimensions.
+ */
+export function parseAvcDecoderConfig(
+  data: Buffer,
+): AvcDecoderConfig | undefined {
+  const annexbParser = new H264AnnexBParser(data);
+  let naluPayload: H264NaluPayload | null = null;
+  let sps: H264NaluPayload | undefined;
+  let pps: H264NaluPayload | undefined;
+
+  while ((naluPayload = annexbParser.readNextNaluPayload()) != null) {
+    if (naluPayload.type === H264NaluType.kSliceSPS) {
+      sps = naluPayload;
+    } else if (naluPayload.type === H264NaluType.kSlicePPS) {
+      pps = naluPayload;
+    }
+  }
+
+  if (!sps || !pps) {
+    return undefined;
+  }
+
+  let details: ReturnType<typeof SPSParser.parseSPS>;
+  try {
+    // Notice: parseSPS requires Nalu without startcode or length-header
+    details = SPSParser.parseSPS(sps.data);
+  } catch {
+    // ExpGolomb throws when a truncated SPS runs out of bits.
+    return undefined;
+  }
+
+  const { codec_size: codedSize, sar_ratio: sar } = details;
+  if (
+    !isPositiveInteger(codedSize.width) ||
+    !isPositiveInteger(codedSize.height)
+  ) {
+    return undefined;
+  }
+  // present_size is not used: it rounds the SAR-scaled width (427 for
+  // 320x240 @ 4:3) and becomes NaN when the SPS signals SAR 0:0.
+  const sampleAspectRatio =
+    isPositiveInteger(sar.width) && isPositiveInteger(sar.height)
+      ? { width: sar.width, height: sar.height }
+      : { width: 1, height: 1 };
+
+  const avcc = new AVCDecoderConfigurationRecord(
+    sps.data,
+    pps.data,
+    details,
+  ).getData();
+
+  return {
+    avcc,
+    codedSize: { width: codedSize.width, height: codedSize.height },
+    sampleAspectRatio,
+  };
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
+}
+
 export function annexb2avcSample(data: Buffer) {
   const annexbParser = new H264AnnexBParser(data);
   const nalUnits: Buffer[] = [];
