@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import type { Page } from "playwright";
-import type { TaskContext } from "vitest";
+import type { TestContext } from "vitest";
 
 import type { CatalogEntry } from "./catalog.js";
 import { type ExampleHandles, cleanupExample } from "./cleanup.js";
@@ -55,7 +55,7 @@ function expectsProcessExit(entry: CatalogEntry) {
   return entry.kind === "process-exit" || entry.expectExit != null;
 }
 
-function skipMissingBinary(entry: CatalogEntry, ctx?: TaskContext) {
+function skipMissingBinary(entry: CatalogEntry, ctx?: TestContext) {
   if (!entry.binary) {
     return false;
   }
@@ -75,7 +75,7 @@ function skipMissingBinary(entry: CatalogEntry, ctx?: TaskContext) {
 export async function withExample(
   entry: CatalogEntry,
   act: (session: ExampleSession) => Promise<void>,
-  ctx?: TaskContext,
+  ctx?: TestContext,
 ) {
   if (skipMissingBinary(entry, ctx)) {
     return;

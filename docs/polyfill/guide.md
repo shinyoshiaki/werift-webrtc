@@ -24,7 +24,8 @@ fails.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `mediaRegister` | yes | An array of media registers. An empty array is valid. |
+| `mediaRegister` | yes | An array of media registers. An empty array uses the built-in plain empty-track register. |
+| `peerConnectionConfig` | no | Defaults applied to every polyfill-created `RTCPeerConnection`. Explicit constructor values win; `codecs` and `headerExtensions` are replaced per media kind. |
 | `target` | no | Object receiving the globals. Defaults to `globalThis`. |
 | `existingMediaDevices` | no | How an existing `navigator.mediaDevices` is handled. Defaults to `"overwrite"`. |
 | `userAgent` | no | A non-empty string to install as `navigator.userAgent`. |
@@ -105,6 +106,36 @@ This value is a compatibility hint for browser-oriented libraries that select
 an implementation from the User-Agent. It does not turn werift into Chromium
 and does not provide browser media capture.
 
+### Codec capabilities, fixed-codec sources, and preferences
+
+Effective sending codecs are the intersection of PeerConnection capabilities,
+the fixed codec of an encoded source, and preferences set with
+`RTCRtpTransceiver.setCodecPreferences()`. Passing `[]` clears preferences.
+Changing preferences invalidates the transceiver's resolved codecs, so the
+next `createOffer()` or `createAnswer()` re-resolves them.
+Fixed encoded sources do not add codecs to the PeerConnection: incompatible
+`addTrack()` or `addTransceiver()` calls throw `NotSupportedError`. H264
+`profile-level-id` and `packetization-mode` must match when both are specified;
+empty/raw tracks have no source constraint.
+
+Install defaults cover libraries such as mediasoup-client, whose capability
+probe and transports construct their own PeerConnections:
+
+```ts
+import { useH264, useOPUS } from "werift";
+
+installPolyfill({
+  mediaRegister,
+  peerConnectionConfig: {
+    codecs: { audio: [useOPUS()], video: [useH264()] },
+  },
+});
+```
+
+Constructor values override install defaults. Codec and header-extension
+arrays use kind-level replacement, so an explicit video array does not append
+to the install array and does not replace the audio array.
+
 ## Media registers and input formats
 
 `mediaRegister` is the bridge between `getUserMedia()` and an application
@@ -120,6 +151,9 @@ import type { MediaStreamTrack } from "werift";
 
 interface MediaRegister {
   readonly mimeType: string;
+  readonly mimeTypeByKind?: Partial<
+    Readonly<Record<"audio" | "video", string>>
+  >;
   readonly kinds: readonly ("audio" | "video")[];
   readonly deviceId?: string;
   readonly groupId?: string;
@@ -147,11 +181,18 @@ in the form `werift-device-N`. Explicit duplicate IDs are rejected.
 
 | Factory | Source | Notes |
 | --- | --- | --- |
-| `createMp4WebmRegister()` | MP4/WebM file, bytes, or stream | Plays a container source and creates audio/video tracks found in it. Supports `loop` and per-kind codec hints. |
-| `createRtpRtcpRegister()` | RTP/RTCP over UDP or a Node/Web stream | Delivers RTP and muxed RTCP directly to the track. `mimeType` is required. |
-| `createEncodedBinaryRegister()` | Encoded access units over UDP or a Node/Web stream | Packetizes VP8, VP9, H.264/AVC, AV1, or Opus into RTP. |
-| `createCallbackRegister()` | Application-defined source | Passes the selected kind, device ID, normalized constraints, and abort signal to `createTracks()`. |
-| `createDummyRegister()` | Generated test media | Convenient audio/video source for tests and smoke examples. |
+| `createEmptyRegister()` | Plain empty audio/video tracks | Identical to the empty-array default: no generated RTP and no track codec; PeerConnection defaults drive codec negotiation. Selection placeholders are `audio/opus` for audio and `video/VP8` for video; they are not copied onto the track. |
+| `createMp4WebmRegister()` | MP4/WebM file, bytes, or stream | Creates fixed-codec tracks that constrain PC capabilities. Supports `loop` and per-kind codec hints. |
+| `createRtpRtcpRegister()` | RTP/RTCP over UDP or a Node/Web stream | Delivers RTP and muxed RTCP to a fixed-codec track. `mimeType` is required. |
+| `createEncodedBinaryRegister()` | Encoded access units over UDP or a Node/Web stream | Packetizes encoded media; its codec constrains the PC. |
+| `createCallbackRegister()` | Application-defined source | Passes selection inputs to `createTracks()`; its advertised codec constrains returned tracks. |
+| `createDummyRegister()` | Generated test media | Convenient fixed-codec audio/video source for tests and smoke examples. |
+
+`mediaRegister` itself remains required. Use `mediaRegister: []` for the
+implicit empty register, or `[createEmptyRegister()]` to document that intent
+or select it by `deviceId` alongside other registers. Unlike
+`createDummyRegister()`, empty tracks do not generate RTP and leave `codec`
+unset so PeerConnection defaults determine negotiation.
 
 All factories accept the common `deviceId`, `groupId`, and `label` options.
 
@@ -331,7 +372,9 @@ The following fields are used to select a register:
 Basic `exact` values filter candidates. Basic `ideal` values influence the
 fitness distance, while `advanced` entries narrow the candidates only when an
 entry still leaves at least one match. If multiple candidates have the same
-fitness distance, registration order wins.
+fitness distance, registration order wins. Dual-kind registers may advertise
+`mimeTypeByKind`; selection then compares the placeholder for the requested
+kind instead of the single `mimeType` string.
 
 `getSupportedConstraints()` reports the three selection fields above. Other
 constraint keys are not used by the built-in selector.

@@ -143,7 +143,7 @@ ICE consent / SCTP RTO / DTLS 再送など**タイマー依存の挙動は実時
 
 | 症状 | 対処 |
 | --- | --- |
-| `global.gc is not exposed` | config の `poolOptions.forks.execArgv` を確認。フォールバック: `NODE_OPTIONS=--expose-gc npm run memleak` |
+| `global.gc is not exposed` | config の `test.execArgv` を確認。フォールバック: `NODE_OPTIONS=--expose-gc npm run memleak` |
 | DataChannel receive timeout | `MEMLEAK_DC_MESSAGES` を減らす、またはマシン負荷を下げる |
 | ディスク不足 | スナップショット間隔を広げる（`MEMLEAK_SNAPSHOT_INTERVAL`）、または `artifacts/memleak` を削除 |
 | 誤検知（フレーク） | `MEMLEAK_WARMUP` を増やす / `MEMLEAK_SLOPE_THRESHOLD` や `MEMLEAK_MARGIN_RATIO` を緩和 |

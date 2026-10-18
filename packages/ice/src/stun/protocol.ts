@@ -129,10 +129,10 @@ export class StunProtocol implements Protocol {
     }
 
     // Match DNS family to the bound socket so STUN hostname targets resolve correctly.
-    const socketType = (this.transport as unknown as { socketType?: string })
-      .socketType;
-    const family: 4 | 6 = socketType === "udp6" ? 6 : 4;
-    const resolvedAddr = await resolveRequestAddress(addr, family);
+    const resolvedAddr = await resolveRequestAddress(
+      addr,
+      this.transport.addressFamily,
+    );
 
     const options = buildTransactionOptions(
       integrityKey,

@@ -147,6 +147,16 @@ Defaults to 8.
 
 ***
 
+### turnUdpFamily?
+
+> `optional` **turnUdpFamily**: `4` \| `6`
+
+Preferred IP family of the TURN/UDP socket, applied only when turnServer
+is a hostname. Ignored for an IP literal turnServer, whose own family
+always selects the socket. Defaults to 4.
+
+***
+
 ### turnUsername?
 
 > `optional` **turnUsername**: `string`

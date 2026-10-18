@@ -23,6 +23,7 @@ import type { PeerConfig } from "../peerConnection";
 import type { RTCDtlsTransport } from "../transport/dtls";
 import type { Kind } from "../types/domain";
 import { compactNtp, ntpTimeToEpochMs, timestampSeconds } from "../utils";
+import { deliveredTrackCodec } from "./codecCompatibility";
 import type {
   RTCRtpCodecParameters,
   RTCRtpReceiveParameters,
@@ -164,6 +165,39 @@ export class RTCRtpReceiver {
   }
 
   /**
+   * negotiated codec と receiver の実処理状態を再同期する。
+   * codec map と RTX mapping を置換し、既存 remote track の codec
+   * metadata も新しい先頭 codec に更新する。
+   * 既存の receiverTWCC は破棄し、新しい codec が transport-cc を持ち
+   * remote SSRC が分かる場合だけ再生成する。
+   * setCodecPreferences() 後の createAnswer() 再解決や remote からの
+   * 再交渉では、除外された payload type の RTP を受け付けないようにする。
+   */
+  resyncCodecs(params: RTCRtpReceiveParameters, mediaSourceSsrc?: number) {
+    for (const key of Object.keys(this.codecs)) {
+      delete this.codecs[Number(key)];
+    }
+    for (const key of Object.keys(this.ssrcByRtx)) {
+      delete this.ssrcByRtx[Number(key)];
+    }
+    this.prepareReceive(params);
+    const codec = deliveredTrackCodec(
+      this.kind,
+      params.codecs[0],
+      params.codecs,
+    );
+    if (codec) {
+      for (const track of this.tracks) {
+        track.codec = codec;
+      }
+    }
+    this.receiverTWCC = undefined;
+    if (mediaSourceSsrc != undefined) {
+      this.setupTWCC(mediaSourceSsrc);
+    }
+  }
+
+  /**
    * Attach this receiver to the DTLS-transport-scoped TWCC generator.
    * BUNDLE audio/video share one {@link ReceiverTWCC} so interleaved
    * transport-wide sequences are not reported as loss.
@@ -215,6 +249,13 @@ export class RTCRtpReceiver {
     }
     this.receiverTWCC = undefined;
     this.nack.close();
+  }
+
+  /**transceiver の停止確定時に remote track を ended にする */
+  endTracks() {
+    for (const track of [...this.tracks, this.defaultTrack]) {
+      track.stop();
+    }
   }
 
   async runRtcp() {

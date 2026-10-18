@@ -15,7 +15,7 @@
     "strictNullChecks": true,
     "noImplicitAny": false,
     "useDefineForClassFields": true,
-    "types": ["vitest/globals"]
+    "types": ["node", "vitest/globals"]
   },
   "include": ["src", "tests"]
 }

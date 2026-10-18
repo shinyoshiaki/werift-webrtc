@@ -1238,6 +1238,16 @@ Advertised local SCTP max-message-size in SDP. Use 0 for unlimited.
 
 > **midSuffix**: `boolean`
 
+##### mLineReuse
+
+> **mLineReuse**: [`MLineReuse`](../type-aliases/MLineReuse.md)
+
+How local SDP marks inactive / stopped m-lines. Cannot be changed after construction.
+- `"compatible"` (default): an accepted `inactive` m-line keeps a non-zero port.
+  Only rejected (no common codec / remote port 0) or stopped m-lines use port 0,
+  and only those negotiated port 0 positions are reused by new transceivers.
+- `"aggressive"`: legacy behavior. `inactive` m-lines are also written with port 0.
+
 ##### pendingRtp
 
 > **pendingRtp**: `boolean` \| \{ `enabled`: `boolean`; `maxLength`: `number`; \}
@@ -1252,6 +1262,14 @@ Advertised local SCTP max-message-size in SDP. Use 0 for unlimited.
 
 > **rtcpMuxPolicy**: `"require"`
 
+##### sctp
+
+> **sctp**: `object`
+
+###### sctp.mtu
+
+> **mtu**: `number`
+
 ##### turnTlsOptions
 
 > **turnTlsOptions**: `undefined` \| [`TlsConnectionOptions`](../type-aliases/TlsConnectionOptions.md)
@@ -1259,6 +1277,14 @@ Advertised local SCTP max-message-size in SDP. Use 0 for unlimited.
 ##### turnTransport
 
 > **turnTransport**: `undefined` \| `"tcp"` \| `"tls"` \| `"udp"`
+
+##### turnUdpFamily
+
+> **turnUdpFamily**: `undefined` \| `4` \| `6`
+
+Preferred IP family of the TURN/UDP socket, applied only when the TURN
+server is a hostname. Ignored for an IP literal server, whose own family
+always selects the socket. Defaults to 4 when undefined.
 
 ***
 

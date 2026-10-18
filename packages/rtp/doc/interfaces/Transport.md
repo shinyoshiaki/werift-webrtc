@@ -14,6 +14,16 @@
 
 ***
 
+### addressFamily?
+
+> `optional` **addressFamily**: [`IpAddressFamily`](../type-aliases/IpAddressFamily.md)
+
+IP family of a datagram socket. A datagram transport can only reach
+addresses of this family. Built-in UDP transports always set it; a custom
+transport that leaves it unset gets no family preference.
+
+***
+
 ### close()
 
 > **close**: () => `Promise`\<`void`\>
@@ -47,6 +57,15 @@ readonly \[`string`, `number`\]
 #### Returns
 
 `void`
+
+***
+
+### remoteAddress?
+
+> `optional` **remoteAddress**: readonly \[`string`, `number`\]
+
+The peer a connected (stream) transport is talking to. Responses arrive
+from this address. Built-in TCP/TLS transports set it once connected.
 
 ***
 

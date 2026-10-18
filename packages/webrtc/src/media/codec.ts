@@ -52,6 +52,27 @@ export const usePCMU = (props: Partial<RTCRtpCodecParameters> = {}) =>
     ...props,
   });
 
+export function defaultCodecs() {
+  return {
+    audio: [useOPUS(), usePCMU()],
+    video: [useVP8()],
+  };
+}
+
+export function cloneCodecParameters(codec: RTCRtpCodecParameters) {
+  return new RTCRtpCodecParameters({
+    mimeType: codec.mimeType,
+    clockRate: codec.clockRate,
+    ...(codec.channels != undefined ? { channels: codec.channels } : {}),
+    ...(codec.payloadType != undefined
+      ? { payloadType: codec.payloadType }
+      : {}),
+    rtcpFeedback: codec.rtcpFeedback.map((feedback) => ({ ...feedback })),
+    ...(codec.parameters != undefined ? { parameters: codec.parameters } : {}),
+    direction: codec.direction,
+  });
+}
+
 export const supportedCodecs = [
   useAV1X(),
   useVP9(),

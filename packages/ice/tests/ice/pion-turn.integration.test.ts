@@ -6,12 +6,15 @@ import { createTestConnection } from "../utils";
  * Opt-in interop against a third-party pion TURN server.
  *
  * Gate: set PION_TURN_HOST (and usually PION_TURN_PORT / credentials).
- * Recommended (trap always downs compose):
+ * Recommended (starts UDP + TCP servers; trap always downs compose):
  *   npm run test:pion-turn --workspace packages/ice
  * Manual:
  *   eval "$(./packages/ice/scripts/run-pion-turn.sh --print-env)"
  *   npm test --workspace packages/ice -- pion-turn
  *   ./packages/ice/scripts/run-pion-turn.sh --down
+ *
+ * TCP control-connection test: additionally set PION_TURN_TCP_PORT to the port of
+ * a pion TURN TCP server (docker/pion-turn-tcp, run with TCP_PORT=<port>).
  *
  * Without PION_TURN_HOST this suite is skipped so default CI stays green.
  */
@@ -19,7 +22,9 @@ const pionHost = process.env.PION_TURN_HOST;
 const pionPort = Number(process.env.PION_TURN_PORT ?? "3478");
 const pionUsername = process.env.PION_TURN_USERNAME ?? "username";
 const pionPassword = process.env.PION_TURN_PASSWORD ?? "password";
+const pionTcpPort = Number(process.env.PION_TURN_TCP_PORT);
 const describePion = pionHost ? describe : describe.skip;
+const describePionTcp = pionHost && pionTcpPort ? describe : describe.skip;
 
 describePion("pion TURN interop (opt-in via PION_TURN_HOST)", () => {
   const turnServer: Address = [pionHost!, pionPort];
@@ -130,3 +135,44 @@ describePion("pion TURN interop (opt-in via PION_TURN_HOST)", () => {
     }
   }, 60_000);
 });
+
+describePionTcp(
+  "pion TURN interop over TCP (opt-in via PION_TURN_TCP_PORT)",
+  () => {
+    test("createTurnClient pair over TCP can ChannelBind and exchange ChannelData via pion", async () => {
+      // Arrange: TCP 制御接続で TURN client を 2 つ allocation
+      const turnServer: Address = [pionHost!, pionTcpPort];
+      const config = {
+        address: turnServer,
+        username: pionUsername,
+        password: pionPassword,
+      };
+      const receiver = await createTurnClient(config, { transport: "tcp" });
+      const sender = await createTurnClient(config, { transport: "tcp" });
+
+      try {
+        // Act: 相互 ChannelBind
+        await sender.getChannel(receiver.relayedAddress);
+        await receiver.getChannel(sender.relayedAddress);
+
+        const received = new Promise<string>((resolve) => {
+          receiver.onData.subscribe((data) => {
+            resolve(data.toString());
+          });
+        });
+
+        // Act: ChannelData 送信
+        await sender.sendData(
+          Buffer.from("pion-channel-data-tcp"),
+          receiver.relayedAddress,
+        );
+
+        // Assert: TCP 経由でも ChannelData が届く
+        await expect(received).resolves.toBe("pion-channel-data-tcp");
+      } finally {
+        await sender.close();
+        await receiver.close();
+      }
+    }, 60_000);
+  },
+);

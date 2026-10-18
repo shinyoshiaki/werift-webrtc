@@ -6,6 +6,7 @@ import { PassThrough } from "stream";
 import { OverconstrainedError } from "../../src/errors";
 import { MediaStreamTrack } from "../../src/media/track";
 import {
+  type InstallPolyfillOptions,
   type MediaRegister,
   createCallbackRegister,
   installPolyfill,
@@ -37,8 +38,11 @@ export function compilePolyfillFixture(fixtureName: string) {
   return result;
 }
 
-export function installTestPolyfill(mediaRegister: MediaRegister[]) {
-  return installPolyfill({ mediaRegister });
+export function installTestPolyfill(
+  mediaRegister: MediaRegister[],
+  options: Omit<InstallPolyfillOptions, "mediaRegister"> = {},
+) {
+  return installPolyfill({ mediaRegister, ...options });
 }
 
 export function createVideoCallbackRegister(
@@ -156,5 +160,22 @@ export async function waitForRtp(
         resolve(packets);
       }
     });
+  });
+}
+
+export async function receivesRtpWithin(
+  track: MediaStreamTrack,
+  timeoutMs = 100,
+) {
+  return new Promise<boolean>((resolve) => {
+    const { unSubscribe } = track.onReceiveRtp.subscribe(() => {
+      clearTimeout(timer);
+      unSubscribe();
+      resolve(true);
+    });
+    const timer = setTimeout(() => {
+      unSubscribe();
+      resolve(false);
+    }, timeoutMs);
   });
 }

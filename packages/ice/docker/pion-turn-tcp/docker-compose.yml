@@ -17,8 +17,8 @@ services:
       - REALM=${PION_TURN_REALM:-localhost}
       - USERS=${PION_TURN_USERS:-username=password}
       - PUBLIC_IP=${PION_TURN_PUBLIC_IP:-127.0.0.1}
-      - UDP_PORT=${PION_TURN_UDP_PORT:-3478}
-    # Host networking so dynamic UDP_PORT and relay ports are reachable from the host.
+      - TCP_PORT=${PION_TURN_TCP_PORT:-3478}
+    # Host networking so dynamic TCP_PORT and relay ports are reachable from the host.
     network_mode: host
     cap_add:
       - NET_ADMIN

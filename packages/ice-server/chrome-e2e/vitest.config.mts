@@ -1,7 +1,6 @@
-/// <reference types="@vitest/browser/providers/playwright" />
-
 import { existsSync } from "node:fs";
 
+import { playwright } from "@vitest/browser-playwright";
 import { defineConfig } from "vitest/config";
 
 const chromiumExecutablePath = [
@@ -21,20 +20,21 @@ export default defineConfig({
     fileParallelism: false,
     retry: 1,
     browser: {
-      provider: "playwright",
+      provider: playwright({
+        launchOptions: {
+          ...(chromiumExecutablePath
+            ? { executablePath: chromiumExecutablePath }
+            : {}),
+          args: [
+            "--ignore-certificate-errors",
+            "--allow-insecure-localhost",
+          ],
+        },
+      }),
       enabled: true,
       instances: [
         {
           browser: "chromium",
-          launch: {
-            ...(chromiumExecutablePath
-              ? { executablePath: chromiumExecutablePath }
-              : {}),
-            args: [
-              "--ignore-certificate-errors",
-              "--allow-insecure-localhost",
-            ],
-          },
         },
       ],
     },

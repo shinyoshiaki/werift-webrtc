@@ -41,7 +41,7 @@ beforeAll(async () => {
   console.log(`[memleak] ${buildEnvBanner(env)}`);
   if (!hasGcExposed()) {
     console.warn(
-      "[memleak] global.gc is not exposed. Run with --expose-gc (vitest poolOptions.execArgv or NODE_OPTIONS).",
+      "[memleak] global.gc is not exposed. Run with --expose-gc (vitest test.execArgv or NODE_OPTIONS).",
     );
   }
   clearSyntheticLeak();

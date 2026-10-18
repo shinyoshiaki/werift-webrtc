@@ -278,6 +278,19 @@ survive estimator swaps. Algorithm-specific events remain on concrete instances.
 
 ***
 
+### detachTrack()
+
+> **detachTrack**(): `void`
+
+Detach the current track without stopping the sender (`removeTrack`).
+The same sender can resume sending after `replaceTrack(track)`.
+
+#### Returns
+
+`void`
+
+***
+
 ### getParameters()
 
 > **getParameters**(): `object`
@@ -573,7 +586,15 @@ Re-subscribe algorithm-specific events on the new concrete instance.
 
 ### stop()
 
-> **stop**(): `void`
+> **stop**(`__namedParameters`): `void`
+
+#### Parameters
+
+##### \_\_namedParameters
+
+###### keepTrack?
+
+`boolean` = `false`
 
 #### Returns
 

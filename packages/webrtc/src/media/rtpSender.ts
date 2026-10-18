@@ -33,6 +33,7 @@ import {
 } from "../imports/common";
 
 import { codecParametersFromString } from "..";
+import { createWebRtcDomException } from "../errors";
 import {
   type Extension,
   GenericNack,
@@ -64,6 +65,7 @@ import {
 import { RTCDtlsTransport } from "../transport/dtls";
 import type { Kind } from "../types/domain";
 import { compactNtp, milliTime, ntpTime, timestampSeconds } from "../utils";
+import { isCodecCompatible } from "./codecCompatibility";
 import type {
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
@@ -87,7 +89,12 @@ import {
   generateStatsId,
   getStatsTimestamp,
 } from "./stats";
-import type { MediaStream, MediaStreamTrack } from "./track";
+import {
+  type MediaStream,
+  type MediaStreamTrack,
+  captureTrackSourceCodecs,
+  getTrackSourceCodecs,
+} from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");
 
@@ -390,6 +397,8 @@ export class RTCRtpSender {
   private readonly pendingRtpEnabled: boolean;
   private readonly pendingRtpMaxLength: number;
   codec?: RTCRtpCodecParameters;
+  private negotiatedCodecs: RTCRtpCodecParameters[] = [];
+  private sendPrimaryCodec?: RTCRtpCodecParameters;
   public dtlsTransport!: RTCDtlsTransport;
   private dtlsDisposer: (() => void)[] = [];
 
@@ -588,25 +597,43 @@ export class RTCRtpSender {
     this.rtpStreamId = params.rtpStreamId;
     this.repairedRtpStreamId = params.repairedRtpStreamId;
 
-    this.codec = params.codecs[0];
+    this.negotiatedCodecs = [...params.codecs];
+    this.codec =
+      params.codecs.find((codec) => codec.name.toLowerCase() !== "rtx") ??
+      params.codecs[0];
+    const redPrimaryPayloadType =
+      this.codec?.name.toLowerCase() === "red"
+        ? Number((this.codec.parameters ?? "").split("/")[0])
+        : undefined;
+    this.sendPrimaryCodec =
+      this.codec?.name.toLowerCase() === "red"
+        ? params.codecs.find(
+            (codec) =>
+              !["red", "rtx"].includes(codec.name.toLowerCase()) &&
+              codec.payloadType === redPrimaryPayloadType,
+          )
+        : this.codec;
     if (this.track) {
       this.track.codec = this.codec;
     }
 
+    this.rtxPayloadType = undefined;
+    this.redRedundantPayloadType = undefined;
     params.codecs.forEach((codec) => {
       const codecParams = codecParametersFromString(codec.parameters ?? "");
       if (
         codec.name.toLowerCase() === "rtx" &&
-        codecParams["apt"] === this.codec?.payloadType
+        this.sendPrimaryCodec?.payloadType === codecParams["apt"]
       ) {
         this.rtxPayloadType = codec.payloadType;
       }
-      if (codec.name.toLowerCase() === "red") {
-        this.redRedundantPayloadType = Number(
-          (codec.parameters ?? "").split("/")[0],
-        );
-      }
     });
+    if (
+      this.codec?.name.toLowerCase() === "red" &&
+      this.sendPrimaryCodec != undefined
+    ) {
+      this.redRedundantPayloadType = this.sendPrimaryCodec.payloadType;
+    }
     void this.drainPendingRtp();
   }
 
@@ -686,6 +713,8 @@ export class RTCRtpSender {
   registerTrack(track: MediaStreamTrack) {
     if (track.stopped) throw new Error("track is ended");
 
+    captureTrackSourceCodecs(track);
+
     if (this.disposeTrack) {
       this.disposeTrack();
     }
@@ -728,16 +757,26 @@ export class RTCRtpSender {
 
   async replaceTrack(track: MediaStreamTrack | null) {
     if (track === null) {
-      this.rtpContinuityPending = false;
-      this.discardPendingRtp();
-      if (this.disposeTrack) {
-        this.disposeTrack();
-      }
-      this.track = null;
+      this.detachTrack();
       return;
     }
 
     if (track.stopped) throw new Error("track is ended");
+
+    captureTrackSourceCodecs(track);
+    const sourceCodecs = getTrackSourceCodecs(track);
+    if (
+      this.sendPrimaryCodec != undefined &&
+      sourceCodecs != undefined &&
+      !sourceCodecs.some((source) =>
+        isCodecCompatible(source, this.sendPrimaryCodec!),
+      )
+    ) {
+      throw createWebRtcDomException(
+        "InvalidModificationError",
+        `Track codec ${sourceCodecs.map((codec) => codec.mimeType).join(", ")} is incompatible with negotiated codecs ${this.negotiatedCodecs.map((codec) => codec.mimeType).join(", ")}`,
+      );
+    }
 
     if (this.sequenceNumber != undefined) {
       this.scheduleRtpContinuity();
@@ -747,7 +786,21 @@ export class RTCRtpSender {
     log("replaceTrack", "ssrc", track.ssrc, "rid", track.rid);
   }
 
-  stop() {
+  /**
+   * Detach the current track without stopping the sender (`removeTrack`).
+   * The same sender can resume sending after `replaceTrack(track)`.
+   */
+  detachTrack() {
+    this.rtpContinuityPending = false;
+    this.discardPendingRtp();
+    if (this.disposeTrack) {
+      this.disposeTrack();
+      this.disposeTrack = undefined;
+    }
+    this.track = null;
+  }
+
+  stop({ keepTrack = false }: { keepTrack?: boolean } = {}) {
     this.stopped = true;
     this.rtpContinuityPending = false;
     this.discardPendingRtp();
@@ -768,6 +821,10 @@ export class RTCRtpSender {
     }
     if (this.disposeTrack) {
       this.disposeTrack();
+      this.disposeTrack = undefined;
+    }
+    if (!keepTrack) {
+      this.track = null;
     }
     this.track = null;
     this.dtlsDisposer.forEach((dispose) => dispose());

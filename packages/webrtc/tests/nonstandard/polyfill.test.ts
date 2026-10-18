@@ -1,13 +1,14 @@
 import { createSocket } from "dgram";
 import { PassThrough } from "stream";
 
-import { RTCPeerConnection } from "../../src";
+import { RTCPeerConnection, useH264, useVP8 } from "../../src";
 import { OverconstrainedError } from "../../src/errors";
 import { RtcpRrPacket, RtpPacket } from "../../src/imports/rtp";
 import { MediaStream, MediaStreamTrack } from "../../src/media/track";
 import { createFileMediaPlayer } from "../../src/nonstandard/userMedia";
 import {
   createCallbackRegister,
+  createEmptyRegister,
   createEncodedBinaryRegister,
   createMp4WebmRegister,
   createRtpRtcpRegister,
@@ -28,6 +29,7 @@ import {
   expectDomException,
   expectOverconstrainedError,
   installTestPolyfill,
+  receivesRtpWithin,
   waitForRtp,
   waitUntil,
   withUdpSocketCounter,
@@ -54,31 +56,165 @@ describe("werift/polyfill installPolyfill", () => {
     );
   });
 
-  test("empty mediaRegister allows PeerConnection but getUserMedia fails with NotFoundError / TypeError", async () => {
+  test("empty mediaRegister provides plain empty audio and video tracks", async () => {
     const uninstall = installTestPolyfill([]);
     try {
-      // 実行: 空配列でインストールし、PC と不正な GUM を試す。
+      // 実行: 空配列でインストールし、PC、デバイス列挙、各種 GUM を試す。
       const pc = new globalThis.RTCPeerConnection();
       const channel = pc.createDataChannel("polyfill");
+      const devices = await navigator.mediaDevices.enumerateDevices();
       let emptyError: unknown;
       try {
         await navigator.mediaDevices.getUserMedia({});
       } catch (error) {
         emptyError = error;
       }
-      let notFound: unknown;
-      try {
-        await navigator.mediaDevices.getUserMedia({ video: true });
-      } catch (error) {
-        notFound = error;
-      }
+      const videoStream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+      });
+      const audioStream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+      });
+      const avStream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: true,
+      });
+      const videoTrack = videoStream.getVideoTracks()[0] as MediaStreamTrack;
 
-      // 検証: DataChannel は使え、空制約は TypeError、video 要求は NotFoundError。
+      // 検証: 空制約だけは失敗し、要求した kind のプレーンな live track が返る。
       expect(pc).toBeInstanceOf(RTCPeerConnection);
       expect(channel).toBeDefined();
       expect(emptyError).toBeInstanceOf(TypeError);
-      expectDomException(notFound, "NotFoundError");
+      expect(devices.map((device) => device.kind)).toEqual([
+        "audioinput",
+        "videoinput",
+      ]);
+      expect(videoTrack).toBeInstanceOf(MediaStreamTrack);
+      expect(videoTrack).toMatchObject({
+        kind: "video",
+        readyState: "live",
+        muted: true,
+        codec: undefined,
+      });
+      expect(audioStream.getAudioTracks()[0]).toMatchObject({
+        kind: "audio",
+        codec: undefined,
+      });
+      expect(avStream.getAudioTracks()).toHaveLength(1);
+      expect(avStream.getVideoTracks()).toHaveLength(1);
+      expect(await receivesRtpWithin(videoTrack)).toBe(false);
       await pc.close();
+    } finally {
+      uninstall();
+    }
+  });
+
+  test("createEmptyRegister exposes selectable plain empty tracks", async () => {
+    const uninstall = installTestPolyfill([
+      createVideoCallbackRegister({ deviceId: "video-source" }),
+      createEmptyRegister({ deviceId: "empty", label: "silent source" }),
+    ]);
+    try {
+      // 実行: 明示した空 register を列挙し、deviceId で audio/video を取得する。
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { deviceId: { exact: "empty" } },
+        video: { deviceId: { exact: "empty" } },
+      });
+      const audioStream = await navigator.mediaDevices.getUserMedia({
+        audio: { deviceId: { exact: "empty" } },
+      });
+      const videoStream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: "empty" } },
+      });
+      const [audioTrack] = stream.getAudioTracks() as MediaStreamTrack[];
+      const [videoTrack] = stream.getVideoTracks() as MediaStreamTrack[];
+
+      // 検証: 列挙情報と選択規則を保ち、codec も RTP もない空 track を返す。
+      expect(devices).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            deviceId: "empty",
+            kind: "audioinput",
+            label: "silent source",
+          }),
+          expect.objectContaining({
+            deviceId: "empty",
+            kind: "videoinput",
+            label: "silent source",
+          }),
+        ]),
+      );
+      expect(audioTrack).toMatchObject({
+        kind: "audio",
+        readyState: "live",
+        muted: true,
+        codec: undefined,
+      });
+      expect(videoTrack).toMatchObject({
+        kind: "video",
+        readyState: "live",
+        muted: true,
+        codec: undefined,
+      });
+      expect(audioStream.getAudioTracks()).toHaveLength(1);
+      expect(audioStream.getVideoTracks()).toHaveLength(0);
+      expect(videoStream.getAudioTracks()).toHaveLength(0);
+      expect(videoStream.getVideoTracks()).toHaveLength(1);
+      expect(
+        await Promise.all([
+          receivesRtpWithin(audioTrack),
+          receivesRtpWithin(videoTrack),
+        ]),
+      ).toEqual([false, false]);
+    } finally {
+      uninstall();
+    }
+  });
+
+  test("empty register mimeType placeholders follow the requested kind", async () => {
+    const register = createEmptyRegister();
+    const uninstall = installTestPolyfill([register]);
+    try {
+      // 実行: kind ごとのプレースホルダと、不一致な exact mimeType を確認する。
+      const audioStream = await navigator.mediaDevices.getUserMedia({
+        audio: { mimeType: { exact: "audio/opus" } } as any,
+      });
+      const videoStream = await navigator.mediaDevices.getUserMedia({
+        video: { mimeType: { exact: "video/VP8" } } as any,
+      });
+      let audioMismatch: unknown;
+      try {
+        await navigator.mediaDevices.getUserMedia({
+          audio: { mimeType: { exact: "video/VP8" } } as any,
+        });
+      } catch (error) {
+        audioMismatch = error;
+      }
+      let videoMismatch: unknown;
+      try {
+        await navigator.mediaDevices.getUserMedia({
+          video: { mimeType: { exact: "audio/opus" } } as any,
+        });
+      } catch (error) {
+        videoMismatch = error;
+      }
+
+      // 検証: 選択用 mimeType は kind に合わせ、track.codec には載せない。
+      expect(register.mimeTypeByKind).toEqual({
+        audio: "audio/opus",
+        video: "video/VP8",
+      });
+      expect(audioStream.getAudioTracks()[0]).toMatchObject({
+        kind: "audio",
+        codec: undefined,
+      });
+      expect(videoStream.getVideoTracks()[0]).toMatchObject({
+        kind: "video",
+        codec: undefined,
+      });
+      expectOverconstrainedError(audioMismatch, "mimeType");
+      expectOverconstrainedError(videoMismatch, "mimeType");
     } finally {
       uninstall();
     }
@@ -443,21 +579,30 @@ describe("werift/polyfill installPolyfill", () => {
     expect("window" in target).toBe(false);
   });
 
-  test("callback register の mimeType は PC codecs なしで offer に載る", async () => {
+  test("callback register の fixed codec は PC capability を制約する", async () => {
     const arranged = await arrangePolyfillVideoTrack(
       createH264CallbackRegister(),
     );
-    const pc = new RTCPeerConnection();
+    const defaultPc = new RTCPeerConnection();
+    const h264Pc = new RTCPeerConnection({
+      codecs: { video: [useVP8(), useH264()] },
+    });
     try {
-      // Act: デフォルト codecs の PeerConnection に H264 track を載せて offer する。
-      pc.addTransceiver(arranged.track, { direction: "sendonly" });
-      const offer = await pc.createOffer();
+      // Act / Assert: デフォルト VP8 capability では H264 source を拒否する。
+      expect(() =>
+        defaultPc.addTransceiver(arranged.track, { direction: "sendonly" }),
+      ).toThrow(expect.objectContaining({ name: "NotSupportedError" }));
+
+      // Act: H264 capability を明示した PC で offer する。
+      h264Pc.addTransceiver(arranged.track, { direction: "sendonly" });
+      const offer = await h264Pc.createOffer();
 
       // Assert: register の H264 が track.codec と SDP の両方に出る。
       expect(arranged.track.codec?.mimeType.toLowerCase()).toContain("h264");
       expect(offer.sdp).toMatch(/a=rtpmap:\d+ H264\/90000/i);
     } finally {
-      await pc.close();
+      await defaultPc.close();
+      await h264Pc.close();
       arranged.uninstall();
     }
   });
@@ -901,7 +1046,7 @@ describe("werift/polyfill builtin registers", () => {
     }
   }, 20_000);
 
-  test("mp4/webm は mediabunny で検出したコーデックを PC codecs なしで offer する", async () => {
+  test("mp4/webm の検出 codec は PC capability を制約する", async () => {
     const webm = await createAvWebmBuffer();
     const mp4 = await createAvMp4Buffer();
     await withRegister(createMp4WebmRegister({ binary: webm }), async () => {
@@ -934,16 +1079,25 @@ describe("werift/polyfill builtin registers", () => {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       const video = stream.getVideoTracks()[0] as MediaStreamTrack;
       const pc = new RTCPeerConnection();
+      const h264Pc = new RTCPeerConnection({
+        codecs: { video: [video.codec!] },
+      });
       try {
-        pc.addTransceiver(video, { direction: "sendonly" });
-        const offer = await pc.createOffer();
+        // 実行 / 検証: H264 を持たない default PC は fixed source を拒否する。
+        expect(() =>
+          pc.addTransceiver(video, { direction: "sendonly" }),
+        ).toThrow(expect.objectContaining({ name: "NotSupportedError" }));
 
-        // 検証: H264 ファイルでも PC に codecs を渡さず SDP に載る。
+        h264Pc.addTransceiver(video, { direction: "sendonly" });
+        const offer = await h264Pc.createOffer();
+
+        // 検証: container と同じ H264 capability なら SDP に載る。
         expect(video.codec?.mimeType.toLowerCase()).toContain("h264");
         expect(video.codec?.clockRate).toBe(90_000);
         expect(offer.sdp).toMatch(/H264\/90000/i);
       } finally {
         await pc.close();
+        await h264Pc.close();
       }
     });
   }, 20_000);
