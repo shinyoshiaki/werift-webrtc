@@ -108,6 +108,9 @@ export class RtpMediaTimeline {
    * (default) returns only the latest reached slot and reports the slots in
    * between as `skippedFrames`; `"delay"` returns `nextFrameIndex` with its
    * original deadline, so `lateness` shows how far behind the clock is.
+   * `skippedFrames` counts the slots between `lastFrameIndex` and the returned
+   * slot, so a `nextFrameIndex` moved forward (e.g. by `resume()`) is reported
+   * as skipped too.
    */
   resolveTick({
     anchor,
@@ -135,7 +138,9 @@ export class RtpMediaTimeline {
       elapsedSamples:
         this.elapsedSamples(frameIndex) -
         this.elapsedSamples(lastFrameIndex ?? nextFrameIndex),
-      skippedFrames: frameIndex - nextFrameIndex,
+      skippedFrames:
+        frameIndex -
+        (lastFrameIndex !== undefined ? lastFrameIndex + 1 : nextFrameIndex),
       deadline,
       lateness: now - deadline,
     };
@@ -296,8 +301,10 @@ export class RtpMediaClock {
           this.nextFrameIndex,
           this.timeline.latestFrameIndex(this.anchor, now),
         );
-    // re-anchor the origin to the resume time so that resume never bursts
+    // re-anchor the origin to the resume time so that resume never bursts, and
+    // resolve the resume tick from that slot so that "delay" honors the gap too
     this.anchor = { time: now, frameIndex };
+    this.nextFrameIndex = frameIndex;
     this._state = "running";
     this.schedule(0);
   }

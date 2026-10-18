@@ -215,7 +215,7 @@ clock.stop();       // 終了。この後に timer handle が残らないこと
 - エンコード済みのデルタフレームを skip すると次のキーフレームまで映像が乱れるため、映像向けに skip しないモードを用意する。
 - `RtpMediaClock` に `stallPolicy: "skip" | "delay"` を追加する（既定 `"skip"` で従来どおり）。
   - `"delay"`: ストール時も次のスロットを 1 回だけ発火し、その時刻に re-anchor する。ストールはギャップではなく遅延として吸収し、burst しない。1 フレーム未満の遅れでは re-anchor しない（ドリフトしない）。
-  - `"delay"` では `resume()` の既定を `continuous: true` にする。
+  - `"delay"` では `resume()` の既定を `continuous: true` にする。`resume({ continuous: false })` を明示した場合は、`"skip"` と同じく pause 期間を timestamp のギャップに反映する（tick の `timestamp`・`elapsedSamples`・`skippedFrames` に反映し、再開直後に burst しない）。回帰テストで確認する。
 
 ### 7.2 可変フレームレート（`RtpMediaPacer`）
 

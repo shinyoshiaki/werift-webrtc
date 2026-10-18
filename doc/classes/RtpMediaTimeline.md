@@ -126,6 +126,9 @@ reached yet. When several slots have elapsed, `stallPolicy: "skip"`
 (default) returns only the latest reached slot and reports the slots in
 between as `skippedFrames`; `"delay"` returns `nextFrameIndex` with its
 original deadline, so `lateness` shows how far behind the clock is.
+`skippedFrames` counts the slots between `lastFrameIndex` and the returned
+slot, so a `nextFrameIndex` moved forward (e.g. by `resume()`) is reported
+as skipped too.
 
 #### Parameters
 

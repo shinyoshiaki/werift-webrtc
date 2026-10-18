@@ -427,6 +427,49 @@ describe("rtp/mediaClock", () => {
       expect(clock.state).toBe("stopped");
     });
 
+    test("stallPolicy delay でも resume({ continuous: false }) は pause 期間を timestamp ギャップに反映し burst しない", () => {
+      // Arrange: frame 10 まで進めて 1 秒 pause する
+      const harness = createManualMediaClockHarness();
+      const clock = harness.createClock({
+        clockRate: 48_000,
+        frameSamples: 960,
+        initialTimestamp: 0,
+        stallPolicy: "delay",
+      });
+      const ticks = harness.collectTicks(clock);
+      clock.start();
+      harness.advance(200);
+      clock.pause();
+      harness.advance(1000);
+
+      // Act: ギャップ反映を明示して resume する
+      clock.resume({ continuous: false });
+      harness.advance(0);
+
+      // Assert: resume で 1 回だけ発火し、pause 期間分のギャップが入る
+      expect(ticks).toHaveLength(12);
+      expect(ticks.at(-1)).toMatchObject({
+        frameIndex: 60,
+        timestamp: 57600,
+        elapsedSamples: 48000,
+        skippedFrames: 49,
+        deadline: 1200,
+        lateness: 0,
+      });
+
+      // Act: 40ms 進める
+      harness.advance(40);
+
+      // Assert: 再開時刻を origin に 20ms 間隔で 1 フレームずつ続き、追いつき burst はしない
+      expect(ticks.slice(-2).map((t) => [t.frameIndex, t.deadline])).toEqual([
+        [61, 1220],
+        [62, 1240],
+      ]);
+      expect(ticks).toHaveLength(14);
+      expect(ticks.slice(-2).every((t) => t.skippedFrames === 0)).toBe(true);
+      clock.stop();
+    });
+
     test("stallPolicy delay の resume は既定で pause 期間を詰める", () => {
       // Arrange: frame 10 まで進めて 1 秒 pause する
       const harness = createManualMediaClockHarness();

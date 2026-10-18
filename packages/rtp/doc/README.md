@@ -62,7 +62,8 @@ clock.start();
   is reflected as a timestamp gap by default (same as a stall), which keeps RTP
   time aligned with real time for RTCP SR / lip-sync. `resume({ continuous: true })`
   collapses the pause and advances by exactly one frame; this is the default
-  for `"delay"`.
+  for `"delay"`. `resume({ continuous: false })` reflects the pause as a gap
+  with either policy.
 - `onTick` subscribers run synchronously after the clock state and the next
   timer are committed. Returned promises are **not** awaited (no backpressure).
 - Inject `now` / `scheduler` options for deterministic tests.
