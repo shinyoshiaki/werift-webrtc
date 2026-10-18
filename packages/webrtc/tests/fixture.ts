@@ -118,6 +118,26 @@ export type ConnectedRtpSenderSetup = ReturnType<
   typeof createConnectedRtpSender
 >;
 
+/**
+ * Hold the first DTLS RTP write of a {@link createConnectedRtpSender} setup
+ * until `release()` so later sends stay in the sender's outgoing queue.
+ */
+export function holdFirstDtlsWrite(
+  sendRtp: ConnectedRtpSenderSetup["sendRtp"],
+) {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  sendRtp.mockImplementation(async () => {
+    if (sendRtp.mock.calls.length === 1) {
+      await held;
+    }
+    return 12;
+  });
+  return { release };
+}
+
 export function sentRtpHeaders(sendRtp: ConnectedRtpSenderSetup["sendRtp"]) {
   return sendRtp.mock.calls.map(([, header]) => header);
 }

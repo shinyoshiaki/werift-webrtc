@@ -117,6 +117,8 @@ type OutgoingQueued = {
   enqueuedAtMs: number;
   start: () => void;
   drop: () => void;
+  /** Source epoch of a queued media packet; undefined for padding / RTX. */
+  sourceEpoch?: number;
 };
 
 function freezeRtpContinuityOffsets(
@@ -155,6 +157,7 @@ export type RTCRtpSenderOptions = {
 
 type PendingRtpItem = {
   packet: RtpPacket;
+  sourceEpoch: number;
   resolve: () => void;
   reject: (error: unknown) => void;
 };
@@ -398,6 +401,13 @@ export class RTCRtpSender {
   private pendingTimestampStep = 1;
   private rtpCache: RtpPacket[] = [];
   private pendingRtp: PendingRtpItem[] = [];
+  /**
+   * Bumped on replaceTrack / detachTrack / onSourceChanged. Media accepted
+   * under an older epoch is dropped before it can allocate seq/timestamp, so
+   * it neither consumes the new source's continuity offset nor leaks out
+   * after `replaceTrack(null)`.
+   */
+  private sourceEpoch = 0;
   private drainingPendingRtp = false;
   private readonly pendingRtpEnabled: boolean;
   private readonly pendingRtpMaxLength: number;
@@ -672,7 +682,12 @@ export class RTCRtpSender {
     const packet = Buffer.isBuffer(rtp)
       ? RtpPacket.deSerialize(rtp)
       : rtp.clone();
-    this.pendingRtp.push({ packet, resolve, reject });
+    this.pendingRtp.push({
+      packet,
+      resolve,
+      reject,
+      sourceEpoch: this.sourceEpoch,
+    });
     while (this.pendingRtp.length > this.pendingRtpMaxLength) {
       const dropped = this.pendingRtp.shift();
       if (dropped) {
@@ -700,8 +715,15 @@ export class RTCRtpSender {
         try {
           await this.enqueueOutgoing(
             () =>
-              this.sendRtpInternal(item.packet, { injectProbePadding: true }),
-            { kind: "media", bytes: estimateOutgoingBytes(item.packet) },
+              this.sendRtpInternal(item.packet, {
+                injectProbePadding: true,
+                sourceEpoch: item.sourceEpoch,
+              }),
+            {
+              kind: "media",
+              bytes: estimateOutgoingBytes(item.packet),
+              sourceEpoch: item.sourceEpoch,
+            },
           );
           this.settlePendingRtp(item);
         } catch (error) {
@@ -792,6 +814,8 @@ export class RTCRtpSender {
 
     if (this.sequenceNumber != undefined) {
       this.scheduleRtpContinuity();
+    } else {
+      this.invalidateQueuedSource();
     }
 
     this.registerTrack(track);
@@ -805,6 +829,7 @@ export class RTCRtpSender {
   detachTrack() {
     this.rtpContinuityPending = false;
     this.discardPendingRtp();
+    this.invalidateQueuedSource();
     if (this.disposeTrack) {
       this.disposeTrack();
       this.disposeTrack = undefined;
@@ -913,7 +938,37 @@ export class RTCRtpSender {
     );
   }
 
+  /**
+   * Start a new source epoch and drop queued media of the previous source.
+   * A packet already past sequence allocation (in its DTLS write) completes;
+   * one still waiting on pacing/probe is dropped by {@link sendRtpInternal}.
+   */
+  private invalidateQueuedSource() {
+    this.sourceEpoch++;
+    const stale = this.outgoingQueue.filter(
+      (queued) =>
+        queued.sourceEpoch !== undefined &&
+        queued.sourceEpoch !== this.sourceEpoch,
+    );
+    this.outgoingQueue = this.outgoingQueue.filter(
+      (queued) => !stale.includes(queued),
+    );
+    for (const queued of stale) {
+      queued.drop();
+    }
+    const stalePending = this.pendingRtp.filter(
+      (item) => item.sourceEpoch !== this.sourceEpoch,
+    );
+    this.pendingRtp = this.pendingRtp.filter(
+      (item) => item.sourceEpoch === this.sourceEpoch,
+    );
+    for (const item of stalePending) {
+      this.settlePendingRtp(item);
+    }
+  }
+
   private scheduleRtpContinuity(timestampStep = 1) {
+    this.invalidateQueuedSource();
     this.rtpContinuityPending = true;
     this.pendingTimestampStep = timestampStep;
     this.rtpCache = [];
@@ -1037,7 +1092,7 @@ export class RTCRtpSender {
    */
   private enqueueOutgoing<T>(
     task: () => Promise<T>,
-    meta: { kind: OutgoingKind; bytes: number },
+    meta: { kind: OutgoingKind; bytes: number; sourceEpoch?: number },
   ): Promise<T | undefined> {
     return new Promise<T | undefined>((resolve, reject) => {
       let settled = false;
@@ -1068,6 +1123,7 @@ export class RTCRtpSender {
         enqueuedAtMs: milliTime(),
         start,
         drop: () => settleOk(undefined),
+        sourceEpoch: meta.sourceEpoch,
       };
       if (this.outgoingRunning) {
         this.outgoingQueue.push(item);
@@ -1139,9 +1195,14 @@ export class RTCRtpSender {
       const packet = Buffer.isBuffer(rtp)
         ? RtpPacket.deSerialize(rtp)
         : rtp.clone();
+      const sourceEpoch = this.sourceEpoch;
       await this.enqueueOutgoing(
-        () => this.sendRtpInternal(packet, { injectProbePadding: true }),
-        { kind: "media", bytes: estimateOutgoingBytes(packet) },
+        () =>
+          this.sendRtpInternal(packet, {
+            injectProbePadding: true,
+            sourceEpoch,
+          }),
+        { kind: "media", bytes: estimateOutgoingBytes(packet), sourceEpoch },
       );
       return;
     }
@@ -1324,6 +1385,8 @@ export class RTCRtpSender {
        * RTX sequence). Still allocate a **new** transport-wide seq.
        */
       isRetransmission?: boolean;
+      /** Source epoch at sendRtp acceptance; stale media is dropped. */
+      sourceEpoch?: number;
     } = {},
   ) {
     if (this.stopped) return;
@@ -1457,6 +1520,14 @@ export class RTCRtpSender {
     }
 
     if (this.stopped || sendGeneration !== this.bweGeneration) {
+      return;
+    }
+    // Accepted under a replaced/detached source: never send it, and never let
+    // it consume the new source's continuity offset.
+    if (
+      opts.sourceEpoch !== undefined &&
+      opts.sourceEpoch !== this.sourceEpoch
+    ) {
       return;
     }
 

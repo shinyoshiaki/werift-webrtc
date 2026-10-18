@@ -26,6 +26,7 @@ import {
   createConnectedRtpSender,
   createDtlsTransport,
   createRtpPacket,
+  holdFirstDtlsWrite,
   sentRtpHeaders,
 } from "../fixture";
 import { createVideoReceiver } from "./rtpReceiverTestUtils";
@@ -1024,6 +1025,55 @@ describe("media/rtpSender RTP continuity", () => {
     const [header] = sentRtpHeaders(sendRtp);
     expect(header.sequenceNumber).toBe((last.sequenceNumber + 1) & 0xffff);
     expect(header.timestamp).toBe((last.timestamp + 1) >>> 0);
+  });
+
+  test("送信キュー待ちの旧パケットは replaceTrack 後に送られず、新ソース先頭が連続性補正を受ける", async () => {
+    const { sender, track, sendRtp } = arrangeSender();
+    const { release } = holdFirstDtlsWrite(sendRtp);
+    const track2 = new MediaStreamTrack({ kind: "audio", remote: true });
+
+    // Arrange: 旧ソース 1 件目の DTLS 送信を保留し、2〜3 件目を送信キューに残す。
+    track.onReceiveRtp.execute(createRtpPacket(1, 1000));
+    await waitForSent(sendRtp, 1);
+    track.onReceiveRtp.execute(createRtpPacket(2, 1040));
+    track.onReceiveRtp.execute(createRtpPacket(3, 1080));
+    const first = sentRtpHeaders(sendRtp)[0];
+
+    // Act: キュー待ちのまま新 track へ差し替え、新ソース先頭を送ってから保留を解く。
+    await sender.replaceTrack(track2);
+    track2.onReceiveRtp.execute(createRtpPacket(100, 5000));
+    release();
+    await waitForSent(sendRtp, 2);
+    await setTimeout(10);
+
+    // Assert: 旧 2〜3 件目は送られず、新ソース先頭は保留中の旧 1 件目から seq+1 / ts+1 で続く。
+    const headers = sentRtpHeaders(sendRtp);
+    expect(headers).toHaveLength(2);
+    expect(headers[1].sequenceNumber).toBe((first.sequenceNumber + 1) & 0xffff);
+    expect(headers[1].timestamp).toBe((first.timestamp + 1) >>> 0);
+  });
+
+  test("replaceTrack(null) 後は送信キュー待ちの旧パケットを送らない", async () => {
+    const { sender, track, sendRtp } = arrangeSender();
+    const { release } = holdFirstDtlsWrite(sendRtp);
+
+    // Arrange: 1 件目の DTLS 送信を保留し、2〜3 件目を送信キューに残す。
+    track.onReceiveRtp.execute(createRtpPacket(1, 1000));
+    await waitForSent(sendRtp, 1);
+    const queued = [
+      sender.sendRtp(createRtpPacket(2, 1040)),
+      sender.sendRtp(createRtpPacket(3, 1080)),
+    ];
+
+    // Act: track を解除してから保留を解く。
+    await sender.replaceTrack(null);
+    release();
+    await Promise.all(queued);
+    await setTimeout(10);
+
+    // Assert: 解除前に DTLS へ渡した 1 件目だけが送られ、キュー待ちの promise も解決する。
+    expect(sendRtp).toHaveBeenCalledTimes(1);
+    expect(sender.track).toBeNull();
   });
 
   test("onSourceChanged は pending にし、直後の実送出でオフセットを確定する", async () => {
