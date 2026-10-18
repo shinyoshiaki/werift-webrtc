@@ -7,13 +7,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import {
-  BufferSource,
-  EncodedPacketSink,
-  Input,
-  MP4,
-  WEBM,
-} from "mediabunny";
+import { BufferSource, EncodedPacketSink, Input, MP4, WEBM } from "mediabunny";
 
 import type { DepacketizerCodec, RtpPacket } from ".";
 import {
@@ -196,7 +190,9 @@ export function parseAvcDecoderConfiguration(
     if (offset + 2 > description.length) break;
     const length = description.readUInt16BE(offset);
     offset += 2;
-    parameterSets.push(Buffer.from(description.subarray(offset, offset + length)));
+    parameterSets.push(
+      Buffer.from(description.subarray(offset, offset + length)),
+    );
     offset += length;
   }
 
@@ -209,7 +205,9 @@ export function parseAvcDecoderConfiguration(
     if (offset + 2 > description.length) break;
     const length = description.readUInt16BE(offset);
     offset += 2;
-    parameterSets.push(Buffer.from(description.subarray(offset, offset + length)));
+    parameterSets.push(
+      Buffer.from(description.subarray(offset, offset + length)),
+    );
     offset += length;
   }
 
@@ -258,9 +256,7 @@ export function computeFixtureTiming(samples: EncodedFrameSample[]): {
     if (d > 0) gaps.push(d);
   }
   const averageIntervalSec =
-    gaps.length > 0
-      ? gaps.reduce((a, b) => a + b, 0) / gaps.length
-      : 1 / 30;
+    gaps.length > 0 ? gaps.reduce((a, b) => a + b, 0) / gaps.length : 1 / 30;
   // Full pass ends one interval after the last sample so looping does not collapse timestamps
   const durationSec = last + averageIntervalSec;
   return { durationSec, averageIntervalSec };
@@ -441,11 +437,12 @@ export async function streamPacketizedFixture(options: {
     averageIntervalSec: demuxed.averageIntervalSec,
   });
 
+  // One clock for all loops: due time uses cumulative media time, so the start
+  // must not be reset per loop (otherwise later loops stall for loop*duration).
+  const startedAt = performance.now();
   try {
     do {
-      // Pace every loop from fixture media times + loop duration offset
       const loopMediaOffsetSec = loopIndex * demuxed.durationSec;
-      const startedAt = performance.now();
       for (let i = 0; i < demuxed.samples.length; i++) {
         if (signal.aborted) {
           break;
@@ -580,9 +577,7 @@ export function attachDepacketizer(options: {
       stats.keyframeCount++;
     }
     const rtpTimestamp =
-      typeof output.frame.timestamp === "number"
-        ? output.frame.timestamp
-        : 0;
+      typeof output.frame.timestamp === "number" ? output.frame.timestamp : 0;
     if (stats.firstRtpTimestamp === undefined) {
       stats.firstRtpTimestamp = rtpTimestamp;
     } else if (stats.lastRtpTimestamp !== undefined) {

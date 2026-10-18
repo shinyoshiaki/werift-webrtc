@@ -292,4 +292,24 @@ describe("packages/rtp/tests/codec/h264.test.ts", () => {
     expect(sample.subarray(0, 4)).toEqual(Buffer.from([0, 0, 1, 0x2c]));
     expect(nalus).toEqual([nal]);
   });
+
+  it("packetizes header-only end-of-sequence / end-of-stream NALs (types 10, 11)", () => {
+    // Arrange: RBSP が空の終端 NAL（1 byte）を IDR の後ろに置く
+    const idr = makeNal(NalUnitType.idrSlice, Buffer.alloc(20, 0x44));
+    for (const type of [10, 11]) {
+      const sample = annexB(idr, Buffer.from([type]));
+      const packetizer = new H264Packetizer({ sequenceNumber: 1 });
+      // Act
+      const packets = packetizer.packetize(sample, 90_000);
+      // Assert: 1 byte の Single NAL としてそのまま送られ、受信側で復元できる
+      expect(packets.length).toBe(2);
+      expect(packets[1].payload).toEqual(Buffer.from([type]));
+      expect(packets[1].header.marker).toBe(true);
+      expect(dePacketizeRtpPackets("MPEG4/ISO/AVC", packets).data).toEqual(sample);
+    }
+    // 他の type の 1 byte NAL は従来どおり拒否
+    expect(() =>
+      new H264Packetizer().packetize(annexB(Buffer.from([0x65])), 0),
+    ).toThrow(/too short/);
+  });
 });

@@ -2,6 +2,17 @@ const { spawnSync } = require("node:child_process");
 const { existsSync, chmodSync } = require("node:fs");
 const { basename, dirname, join } = require("node:path");
 
+/**
+ * The auto-downloaded package is the Linux amd64 .deb only. Elsewhere (macOS,
+ * arm64, ...) it would extract an unrunnable binary, so do not use it.
+ */
+function canAutoDownloadGoogleChrome(
+  platform = process.platform,
+  arch = process.arch,
+) {
+  return platform === "linux" && arch === "x64";
+}
+
 function resolveSystemChrome() {
   return [
     process.env.CHROME_BIN,
@@ -14,6 +25,9 @@ function resolveSystemChrome() {
 }
 
 function resolveCachedGoogleChrome() {
+  if (!canAutoDownloadGoogleChrome()) {
+    return undefined;
+  }
   const cached = join(
     __dirname,
     ".cache/google-chrome/opt/google/chrome/google-chrome",
@@ -36,6 +50,10 @@ function ensureGoogleChromeForH264() {
 
   // Skip auto-download when explicitly disabled
   if (process.env.E2E_SKIP_GOOGLE_CHROME === "1") {
+    return existing;
+  }
+
+  if (!canAutoDownloadGoogleChrome()) {
     return existing;
   }
 
@@ -84,6 +102,12 @@ function hasPlaywrightChromium() {
   } catch {
     return false;
   }
+}
+
+module.exports = { canAutoDownloadGoogleChrome };
+
+if (require.main !== module) {
+  return;
 }
 
 const chrome = ensureGoogleChromeForH264();

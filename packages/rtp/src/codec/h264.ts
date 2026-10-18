@@ -319,6 +319,15 @@ export function selectMissingH264ParameterSets(
 /** Minimum NAL size: 1-byte header + at least 1 payload octet (packetizer contract). */
 export const H264_MIN_NAL_LENGTH = 2;
 
+/**
+ * End of sequence (10) / end of stream (11) NALs have an empty RBSP, so the
+ * 1-byte header alone is valid (ITU-T H.264 §7.4.1.2.4 / §7.3.2.5-6).
+ */
+function minH264NalLength(nal: Buffer): number {
+  const type = nal.length > 0 ? nal[0] & 0x1f : 0;
+  return type === 10 || type === 11 ? 1 : H264_MIN_NAL_LENGTH;
+}
+
 export function buildH264StapA(nalus: Buffer[]): Buffer {
   if (nalus.length < 2) {
     throw new Error("H.264 STAP-A requires at least two NAL units");
@@ -326,9 +335,9 @@ export function buildH264StapA(nalus: Buffer[]): Buffer {
   let f = 0;
   let nri = 0;
   for (const n of nalus) {
-    if (n.length < H264_MIN_NAL_LENGTH) {
+    if (n.length < minH264NalLength(n)) {
       throw new Error(
-        `H.264 STAP-A: NAL unit too short (need ≥${H264_MIN_NAL_LENGTH} bytes, got ${n.length})`,
+        `H.264 STAP-A: NAL unit too short (need ≥${minH264NalLength(n)} bytes, got ${n.length})`,
       );
     }
     if (n.length > 0xffff) {
@@ -457,10 +466,10 @@ export class H264Packetizer extends PacketizerBase {
       const nal = nalUnits[index];
       const marker = index === nalUnits.length - 1;
 
-      // Reject empty / 1-byte (header-only) NALs: depacketizer and FU need ≥2 octets
-      if (nal.length < H264_MIN_NAL_LENGTH) {
+      // Reject empty NALs and 1-byte NALs other than end-of-seq/stream (FU needs ≥2 octets)
+      if (nal.length < minH264NalLength(nal)) {
         throw new Error(
-          `H.264 NAL unit too short: expected at least ${H264_MIN_NAL_LENGTH} bytes (NAL header + data), got ${nal.length}`,
+          `H.264 NAL unit too short: expected at least ${minH264NalLength(nal)} bytes (NAL header + data), got ${nal.length}`,
         );
       }
 
