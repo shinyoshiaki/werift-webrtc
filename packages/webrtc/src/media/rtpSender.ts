@@ -599,7 +599,8 @@ export class RTCRtpSender {
     this.cname = params.rtcp?.cname;
     this.mid = params.muxId;
     this.headerExtensions = params.headerExtensions;
-    this.rtpStreamId = params.rtpStreamId;
+    // Keep a RID set via sendEncodings/setParameters when SDP carries none.
+    this.rtpStreamId = params.rtpStreamId ?? this.rtpStreamId;
     this.repairedRtpStreamId = params.repairedRtpStreamId;
 
     this.negotiatedCodecs = [...params.codecs];
@@ -1132,9 +1133,15 @@ export class RTCRtpSender {
       if (!this.canSendRtp()) {
         return;
       }
+      // Own the packet before any pacing wait: a track shared by several
+      // senders hands every subscriber the same RtpPacket, and header
+      // rewrites (SSRC/seq/extensions) must not leak across senders.
+      const packet = Buffer.isBuffer(rtp)
+        ? RtpPacket.deSerialize(rtp)
+        : rtp.clone();
       await this.enqueueOutgoing(
-        () => this.sendRtpInternal(rtp, { injectProbePadding: true }),
-        { kind: "media", bytes: estimateOutgoingBytes(rtp) },
+        () => this.sendRtpInternal(packet, { injectProbePadding: true }),
+        { kind: "media", bytes: estimateOutgoingBytes(packet) },
       );
       return;
     }

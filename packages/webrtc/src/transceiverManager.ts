@@ -19,14 +19,14 @@ import {
   Sendrecv,
   type TransceiverOptions,
 } from "./media";
-import { createBandwidthEstimator } from "./media/sender/createBandwidthEstimator";
-import type { RTCStats } from "./media/stats";
 import {
   assertCodecsSupported,
   hasCommonPrimaryMimeType,
   isCodecCompatible,
   resolveCodecs,
 } from "./media/codecCompatibility";
+import { createBandwidthEstimator } from "./media/sender/createBandwidthEstimator";
+import type { RTCStats } from "./media/stats";
 import { captureTrackSourceCodecs, getTrackSourceCodecs } from "./media/track";
 import type { PeerConfig } from "./peerConnection";
 import {

@@ -22,6 +22,7 @@ import { RTCRtpSender } from "../../src/media/rtpSender";
 import { RTCStatsReport } from "../../src/media/stats";
 import { milliTime } from "../../src/utils";
 import {
+  createAudioCodec,
   createConnectedRtpSender,
   createDtlsTransport,
   createRtpPacket,
@@ -538,6 +539,43 @@ describe("media/rtpSender", () => {
     cloned.sender.stop();
   });
 
+  test("同じ track を共有する sender は送信待ち中も自分の SSRC で送る", async () => {
+    // Arrange: 1 つの track を 2 つの sender で共有し、A の DTLS 送信を保留可能にする。
+    const track = new MediaStreamTrack({ kind: "audio" });
+    const a = createConnectedRtpSender({ track });
+    const b = createConnectedRtpSender({ track });
+    const release = deferred();
+    a.sendRtp.mockImplementation(async () => {
+      if (a.sendRtp.mock.calls.length === 1) {
+        await release.promise;
+      }
+      return 12;
+    });
+
+    // Act: A の 1 件目を保留させ、2 件目は A の送信キューで待たせる。
+    track.writeRtp(createRtpPacket(1, 1000));
+    await waitForSent(a.sendRtp, 1);
+    track.writeRtp(createRtpPacket(2, 1040));
+    await waitForSent(b.sendRtp, 2);
+
+    // Act: B が共有パケットのヘッダーを書き換えた後で A を再開する。
+    release.resolve();
+    await waitForSent(a.sendRtp, 2);
+
+    // Assert: 各 sender の全送信が自分自身の SSRC を持つ。
+    expect(a.sender.ssrc).not.toBe(b.sender.ssrc);
+    expect(sentRtpHeaders(a.sendRtp).map((h) => h.ssrc)).toEqual([
+      a.sender.ssrc,
+      a.sender.ssrc,
+    ]);
+    expect(sentRtpHeaders(b.sendRtp).map((h) => h.ssrc)).toEqual([
+      b.sender.ssrc,
+      b.sender.ssrc,
+    ]);
+    a.sender.stop();
+    b.sender.stop();
+  });
+
   test("RTP fan-out copies packets before the first subscriber mutates them", () => {
     const source = new MediaStreamTrack({ kind: "audio" });
     const clone = source.clone();
@@ -916,6 +954,29 @@ describe("media/rtpSender encodings", () => {
     await sender.sendRtp(createRtpPacket(1, 1000));
 
     // Assert: 送信ヘッダーに RID 拡張（id=4, "high"）が載る。
+    const [header] = sentRtpHeaders(sendRtp);
+    const rid = header.extensions.find((extension) => extension.id === 4);
+    expect(rid?.payload.toString()).toBe("high");
+    sender.stop();
+  });
+
+  test("encoding の RID は RID を含まない送信準備（SDP 交渉）後も保持される", async () => {
+    const { sender, sendRtp } = createConnectedRtpSender({ rid: true });
+
+    // Act: RID を設定した後、SDP 交渉相当の prepareSend を rtpStreamId なしで再実行する。
+    sender.setParameters({ encodings: [{ rid: "high" }] });
+    sender.prepareSend({
+      codecs: [createAudioCodec()],
+      headerExtensions: [
+        new RTCRtpHeaderExtensionParameters({
+          id: 4,
+          uri: RTP_EXTENSION_URI.sdesRTPStreamID,
+        }),
+      ],
+    });
+    await sender.sendRtp(createRtpPacket(1, 1000));
+
+    // Assert: RID 拡張に "high" が残る。
     const [header] = sentRtpHeaders(sendRtp);
     const rid = header.extensions.find((extension) => extension.id === 4);
     expect(rid?.payload.toString()).toBe("high");

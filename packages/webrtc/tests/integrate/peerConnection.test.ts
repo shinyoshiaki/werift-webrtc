@@ -8,7 +8,11 @@ import {
   type RTCDataChannel,
   RTCPeerConnection,
   RTCTrackEvent,
+  RTP_EXTENSION_URI,
+  RtpHeader,
+  RtpPacket,
   createSelfSignedCertificate,
+  useSdesRTPStreamId,
 } from "../../src";
 import { SignatureAlgorithm } from "../../src/const";
 
@@ -604,6 +608,55 @@ a=ssrc:1001 cname:some
       expect(offer.sdp).toMatch(/a=simulcast:send r0;r1;r2/);
     } finally {
       await pc.close();
+    }
+  });
+
+  test("sendEncodings の RID は offer/answer 交渉後も送信 RID 拡張に載る", async () => {
+    // Arrange: 両端で RID ヘッダー拡張を有効にする。
+    const config = {
+      headerExtensions: { video: [useSdesRTPStreamId()] },
+    };
+    const pc1 = new RTCPeerConnection(config);
+    const pc2 = new RTCPeerConnection(config);
+    const track = new MediaStreamTrack({ kind: "video" });
+
+    try {
+      // Arrange: RID 付き sendEncodings の送信 transceiver を作る。
+      const { sender } = pc1.addTransceiver(track, {
+        direction: "sendonly",
+        sendEncodings: [{ rid: "high" }],
+      });
+
+      // Act: 通常の offer/answer を実行する（prepareSend が走る）。
+      await pc1.setLocalDescription(await pc1.createOffer());
+      await pc2.setRemoteDescription(pc1.localDescription!);
+      await pc2.setLocalDescription(await pc2.createAnswer());
+      await pc1.setRemoteDescription(pc2.localDescription!);
+
+      // Act: DTLS 接続済みとみなし、送信 RTP を捕捉して 1 パケット送る。
+      const dtls = sender.dtlsTransport;
+      dtls.state = "connected";
+      const sendRtp = vi.spyOn(dtls, "sendRtp").mockResolvedValue(12);
+      await sender.sendRtp(
+        new RtpPacket(
+          new RtpHeader({ sequenceNumber: 1, timestamp: 1000 }),
+          Buffer.alloc(10),
+        ),
+      );
+
+      // Assert: 交渉済み RID 拡張に encoding の RID "high" が入っている。
+      const ridId = pc1
+        .getTransceivers()[0]
+        .headerExtensions.find(
+          (ext) => ext.uri === RTP_EXTENSION_URI.sdesRTPStreamID,
+        )?.id;
+      expect(ridId).toBeDefined();
+      const [, header] = sendRtp.mock.calls[0];
+      const rid = header.extensions.find((ext) => ext.id === ridId);
+      expect(rid?.payload.toString()).toBe("high");
+    } finally {
+      await pc1.close();
+      await pc2.close();
     }
   });
 
