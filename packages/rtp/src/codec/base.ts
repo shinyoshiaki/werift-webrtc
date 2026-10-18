@@ -66,6 +66,24 @@ export abstract class PacketizerBase implements Packetizer {
 
   abstract packetize(data: Buffer, rtpTimestamp: number): RtpPacket[];
 
+  /** Audio only: next packet begins a talkspurt (RFC 3551 §4.1 marker). */
+  private talkspurtPending = true;
+
+  /**
+   * Mark the next audio packet as the first of a talkspurt (e.g. after
+   * silence suppression). The first packet of a new packetizer is also one.
+   */
+  startTalkspurt(): void {
+    this.talkspurtPending = true;
+  }
+
+  /** Marker for audio packets: true once per talkspurt, false otherwise. */
+  protected takeTalkspurtMarker(): boolean {
+    const marker = this.talkspurtPending;
+    this.talkspurtPending = false;
+    return marker;
+  }
+
   protected buildPacket(
     payload: Buffer,
     timestamp: number,

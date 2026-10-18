@@ -3,6 +3,15 @@ import { codecParametersFromString } from "../sdp";
 import type { Kind } from "../types/domain";
 import type { RTCRtpCodecParameters } from "./parameters";
 
+/**
+ * Lower-cased MIME type with the legacy `video/AV1X` name folded into
+ * `video/av1`, so both names negotiate with each other.
+ */
+export function normalizeCodecMimeType(mimeType: string) {
+  const lower = mimeType.toLowerCase();
+  return lower === "video/av1x" ? "video/av1" : lower;
+}
+
 function codecName(codec: RTCRtpCodecParameters) {
   return codec.name.toLowerCase();
 }
@@ -23,7 +32,10 @@ export function isCodecCompatible(
   source: RTCRtpCodecParameters,
   configured: RTCRtpCodecParameters,
 ) {
-  if (source.mimeType.toLowerCase() !== configured.mimeType.toLowerCase()) {
+  if (
+    normalizeCodecMimeType(source.mimeType) !==
+    normalizeCodecMimeType(configured.mimeType)
+  ) {
     return false;
   }
   if (source.clockRate !== configured.clockRate) return false;
@@ -87,8 +99,8 @@ export function hasCommonPrimaryMimeType(
       !isAuxiliary(localCodec) &&
       remote.some(
         (remoteCodec) =>
-          remoteCodec.mimeType.toLowerCase() ===
-          localCodec.mimeType.toLowerCase(),
+          normalizeCodecMimeType(remoteCodec.mimeType) ===
+          normalizeCodecMimeType(localCodec.mimeType),
       ),
   );
 }
@@ -143,7 +155,8 @@ function matchesPreference(
   preference: RTCRtpCodecParameters,
 ) {
   return (
-    candidate.mimeType.toLowerCase() === preference.mimeType.toLowerCase() &&
+    normalizeCodecMimeType(candidate.mimeType) ===
+      normalizeCodecMimeType(preference.mimeType) &&
     optionalEqual(candidate.clockRate, preference.clockRate)
   );
 }

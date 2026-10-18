@@ -276,4 +276,20 @@ describe("packages/rtp/tests/codec/h264.test.ts", () => {
       Buffer.from([0x00, 0x00, 0x00, 0x01]),
     );
   });
+
+  it("treats 4-byte length 300 (00 00 01 2c) as length-prefixed, not an Annex-B start code", () => {
+    // Arrange: 長さ 300 の NAL を 4 byte 長前置で並べた入力（元の NAL が期待値）
+    const nal = Buffer.concat([
+      Buffer.from([0x65]),
+      Buffer.alloc(300 - 1, 0x55),
+    ]);
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(nal.length, 0);
+    const sample = Buffer.concat([length, nal]);
+    // Act
+    const nalus = splitH264NalUnits(sample, 4);
+    // Assert: 先頭 3 byte が 00 00 01 でも 300 byte の NAL 1 つに分割される
+    expect(sample.subarray(0, 4)).toEqual(Buffer.from([0, 0, 1, 0x2c]));
+    expect(nalus).toEqual([nal]);
+  });
 });

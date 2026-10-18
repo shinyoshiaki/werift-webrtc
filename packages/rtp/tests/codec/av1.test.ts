@@ -131,6 +131,25 @@ describe("codec/av1 packetizer", () => {
     expect(depacketized.data.equals(frame)).toBe(true);
   });
 
+  it("round-trips two adjacent fragmented OBUs without dropping the second", () => {
+    // Arrange: size field 付き OBU を 2 つ、どちらも MTU を超える（元データが期待値）
+    const makeObu = (fill: number) =>
+      Buffer.concat([
+        Buffer.from([0x32]),
+        Buffer.from(leb128encode(1_500)),
+        Buffer.alloc(1_500, fill),
+      ]);
+    const frame = Buffer.concat([makeObu(0x11), makeObu(0x22)]);
+    const packetizer = new Av1Packetizer({ sequenceNumber: 1 });
+    // Act
+    const packets = packetizer.packetize(frame, 90_000, { isKeyframe: true });
+    const depacketized = dePacketizeRtpPackets("AV1", packets);
+    // Assert: 両 OBU が元のバイト列のまま復元される
+    expect(packets.length).toBeGreaterThan(2);
+    expect(depacketized.data.length).toBe(frame.length);
+    expect(depacketized.data.equals(frame)).toBe(true);
+  });
+
   it("delta frame does not set N bit", () => {
     // Arrange
     const frame = Buffer.concat([Buffer.from([0x30]), Buffer.alloc(50, 0x11)]);

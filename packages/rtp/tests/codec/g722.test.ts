@@ -83,7 +83,8 @@ describe("packages/rtp/tests/codec/g722.test.ts", () => {
     expect(packets[1].header.timestamp).toBe(8100);
     expect(packets[2].header.timestamp).toBe(8200);
     expect(packets[2].payload.length).toBe(50);
-    expect(packets.every((p) => p.header.marker)).toBe(true);
+    // marker は発話開始のみ (RFC 3551 §4.1)
+    expect(packets.map((p) => p.header.marker)).toEqual([true, false, false]);
   });
 
   it("loads committed vector_g722.bin and round-trips expected body", () => {

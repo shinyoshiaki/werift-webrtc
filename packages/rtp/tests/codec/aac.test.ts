@@ -182,18 +182,117 @@ describe("packages/rtp/tests/codec/aac.test.ts", () => {
   });
 
   it("rejects continuation that exceeds declared AU-size", () => {
-    // Arrange: first fragment claims size=10, delivers 6 bytes; second delivers 8 → overflow
-    const first = Buffer.concat([
-      Buffer.from([0x00, 0x10]),
-      Buffer.from([0x00, 0x50]), // size=10 (10<<3=80=0x50)
-      Buffer.alloc(6, 0x11),
-    ]);
-    const part1 = AacHbrRtpPayload.deSerialize(first);
+    // Arrange: 先頭断片は size=10 のうち 6 byte、継続はヘッダ付きで 8 byte → 超過
+    const header = Buffer.from([0x00, 0x10, 0x00, 0x50]); // size=10
+    const part1 = AacHbrRtpPayload.deSerialize(
+      Buffer.concat([header, Buffer.alloc(6, 0x11)]),
+    );
     expect(part1.fragment).toBeDefined();
     // Act / Assert: 余剰バイトを切り捨てず例外
     expect(() =>
-      AacHbrRtpPayload.deSerialize(Buffer.alloc(8, 0x22), part1.fragment),
+      AacHbrRtpPayload.deSerialize(
+        Buffer.concat([header, Buffer.alloc(8, 0x22)]),
+        part1.fragment,
+      ),
     ).toThrow(/exceeds AU-size/);
+  });
+
+  it("rejects continuation whose AU-header size differs from the first fragment", () => {
+    // Arrange
+    const part1 = AacHbrRtpPayload.deSerialize(
+      Buffer.concat([Buffer.from([0x00, 0x10, 0x00, 0x50]), Buffer.alloc(6)]),
+    );
+    // Act / Assert: AU-size=11 の継続は拒否
+    expect(() =>
+      AacHbrRtpPayload.deSerialize(
+        Buffer.concat([Buffer.from([0x00, 0x10, 0x00, 0x58]), Buffer.alloc(4)]),
+        part1.fragment,
+      ),
+    ).toThrow(/header mismatch/);
+  });
+
+  it("every fragment carries the AU header and round-trips a 314 byte AU (RFC 3640 §3.2.3.1)", () => {
+    // Arrange: 元の AU データ（期待値は depacketizer ではなく入力そのもの）
+    const au = Buffer.from(
+      Array.from({ length: 314 }, (_, i) => (i * 7) & 0xff),
+    );
+    const packetizer = new AacHbrPacketizer({
+      maxPayloadSize: 104,
+      sequenceNumber: 1,
+    });
+    // Act
+    const packets = packetizer.packetize(au, 48000);
+    // Assert: 全断片が AU-headers-length=16 / AU-size=314 のヘッダを持つ
+    expect(packets.length).toBe(4);
+    for (const p of packets) {
+      expect(p.payload.readUInt16BE(0)).toBe(16);
+      expect(p.payload.readUInt16BE(2) >> 3).toBe(314);
+      expect(p.header.timestamp).toBe(48000);
+    }
+    expect(packets.map((p) => p.header.marker)).toEqual([
+      false,
+      false,
+      false,
+      true,
+    ]);
+    // 受信側: 断片を順に結合して元の AU に戻る
+    let fragment: Buffer | undefined;
+    let out: Buffer | undefined;
+    for (const p of packets) {
+      const r = AacHbrRtpPayload.deSerialize(p.payload, fragment);
+      fragment = r.fragment;
+      if (!r.fragment) out = r.payload;
+    }
+    expect(out).toEqual(au);
+  });
+
+  it("gives AUs in different packets distinct timestamps and index 0", () => {
+    // Arrange: 1 packet に 1 AU しか入らない MTU
+    const aus = [Buffer.alloc(60, 1), Buffer.alloc(60, 2), Buffer.alloc(60, 3)];
+    const packetizer = new AacHbrPacketizer({
+      maxPayloadSize: 70,
+      sequenceNumber: 1,
+    });
+    // Act
+    const packets = packetizer.packetizeAccessUnits(aus, 48000);
+    // Assert: timestamp は AU ごとに 1024 ずつ進む (RFC 3640 §3.1)
+    expect(packets.map((p) => p.header.timestamp)).toEqual([
+      48000, 49024, 50048,
+    ]);
+    expect(packets.map((p) => p.payload.subarray(4))).toEqual(aus);
+  });
+
+  it("aggregates AUs greedily when they fit and splits only on overflow", () => {
+    // Arrange: 2 AU は 1 packet に収まり 3 つ目は次 packet
+    const aus = [Buffer.alloc(30, 1), Buffer.alloc(30, 2), Buffer.alloc(30, 3)];
+    const packetizer = new AacHbrPacketizer({ maxPayloadSize: 75 });
+    // Act
+    const packets = packetizer.packetizeAccessUnits(aus, 0);
+    // Assert
+    expect(packets.length).toBe(2);
+    expect(
+      AacHbrRtpPayload.deSerialize(packets[0].payload).auHeaders.length,
+    ).toBe(2);
+    expect(packets[1].header.timestamp).toBe(2048);
+  });
+
+  it("accepts an 18-bit extended header with both CTS/DTS flags 0 (padding allowed)", () => {
+    // Arrange: AU-size=3,index=0 + CTS-flag=0 + DTS-flag=0 = 18 bit, 末尾 6 bit padding
+    const header = Buffer.from([0x00, 0x12, 0x00, 0x18, 0x00]);
+    const payload = Buffer.concat([header, Buffer.from([1, 2, 3])]);
+    // Act
+    const res = AacHbrRtpPayload.deSerialize(payload, undefined, {
+      ctsDtsPresent: true,
+    });
+    // Assert
+    expect(res.auHeaders).toEqual([
+      { size: 3, index: 0, hasCts: false, hasDts: false },
+    ]);
+    expect(res.payload).toEqual(Buffer.from([1, 2, 3]));
+    // 既定 (hbr) では 16 の倍数でない長さは拒否
+    expect(() => AacHbrRtpPayload.deSerialize(payload)).toThrow(
+      /multiple of 16/,
+    );
   });
 
   it("rejects empty buffer and short AU header length field", () => {

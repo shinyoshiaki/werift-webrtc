@@ -377,30 +377,43 @@ export function splitH265NalUnits(
   if (sample.length === 0) {
     return [];
   }
+  // A length prefix such as 00 00 01 2c (NAL length 300) is byte-identical to an
+  // Annex-B start code, so a start-code-looking prefix alone is not proof of
+  // Annex-B. Prefer length-prefixed when its lengths chain exactly to the end.
+  const prefixed = parseLengthPrefixed(sample, naluLengthSize);
+  if (prefixed.nalus) {
+    return prefixed.nalus;
+  }
   if (looksLikeAnnexB(sample)) {
     return new H265AnnexBParser(sample).readAll();
   }
+  throw new Error(prefixed.error);
+}
 
+function parseLengthPrefixed(
+  sample: Buffer,
+  naluLengthSize: number,
+): { nalus?: Buffer[]; error: string } {
   const nalus: Buffer[] = [];
   let offset = 0;
   while (offset < sample.length) {
     if (offset + naluLengthSize > sample.length) {
-      throw new Error("H.265 length-prefixed sample truncated (length field)");
+      return { error: "H.265 length-prefixed sample truncated (length field)" };
     }
     const length = readUintLength(sample, offset, naluLengthSize);
     offset += naluLengthSize;
     if (length === 0) {
-      throw new Error("H.265 length-prefixed sample: NAL length 0 is invalid");
+      return { error: "H.265 length-prefixed sample: NAL length 0 is invalid" };
     }
     if (offset + length > sample.length) {
-      throw new Error(
-        `H.265 length-prefixed sample: NAL length ${length} exceeds buffer`,
-      );
+      return {
+        error: `H.265 length-prefixed sample: NAL length ${length} exceeds buffer`,
+      };
     }
     nalus.push(sample.subarray(offset, offset + length));
     offset += length;
   }
-  return nalus;
+  return { nalus, error: "" };
 }
 
 function nalTypeOf(nal: Buffer): number {

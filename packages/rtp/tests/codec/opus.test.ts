@@ -81,4 +81,19 @@ describe("packages/rtp/tests/codec/opus.test.ts", () => {
     expect(restored).toEqual(expected);
     expect(restored.length).toBeGreaterThan(0);
   });
+
+  it("sets marker only on the first packet of a talkspurt (RFC 7587 §4.1)", () => {
+    // Arrange
+    const packetizer = new OpusPacketizer({ sequenceNumber: 1 });
+    const frame = Buffer.alloc(20, 0x78);
+    // Act
+    const markers = [0, 960, 1920].map(
+      (ts) => packetizer.packetize(frame, ts)[0].header.marker,
+    );
+    packetizer.startTalkspurt();
+    const resumed = packetizer.packetize(frame, 2880)[0].header.marker;
+    // Assert: 連続送信では 2 つ目以降 marker なし、無音明け先頭のみ marker
+    expect(markers).toEqual([true, false, false]);
+    expect(resumed).toBe(true);
+  });
 });

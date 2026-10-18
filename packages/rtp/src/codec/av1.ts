@@ -85,7 +85,14 @@ export class AV1RtpPayload {
    * MUST be set to 1 if the packet is the first packet of a coded video sequence, and MUST be set to 0 otherwise.
    */
   nBit_RtpStartsNewCodedVideoSequence!: number;
-  obu_or_fragment: { data: Buffer; isFragment: boolean }[] = [];
+  obu_or_fragment: {
+    data: Buffer;
+    isFragment: boolean;
+    /** Fragment continues in the next packet (last element with Y=1). */
+    continues?: boolean;
+    /** Fragment continues an OBU from the previous packet (first element with Z=1). */
+    isContinuation?: boolean;
+  }[] = [];
 
   static deSerialize = (buf: Buffer) => {
     const p = new AV1RtpPayload();
@@ -112,7 +119,12 @@ export class AV1RtpPayload {
       if (p.zBit_RtpStartsWithFragment && i === 0) {
         isFragment = true;
       }
-      p.obu_or_fragment.push({ data: buf.subarray(start, end), isFragment });
+      p.obu_or_fragment.push({
+        data: buf.subarray(start, end),
+        isFragment,
+        continues: false,
+        isContinuation: isFragment,
+      });
 
       offset += bytes + elementSize;
     });
@@ -126,6 +138,8 @@ export class AV1RtpPayload {
     p.obu_or_fragment.push({
       data: buf.subarray(offset),
       isFragment: isFragment,
+      continues: !!p.yBit_RtpEndsWithFragment,
+      isContinuation: !!p.zBit_RtpStartsWithFragment && p.w_RtpNumObus === 1,
     });
 
     return p;
@@ -141,45 +155,48 @@ export class AV1RtpPayload {
 
   static getFrame(payloads: AV1RtpPayload[]) {
     const frames: Buffer[] = [];
-    const objects = payloads
-      .flatMap((p) => p.obu_or_fragment)
-      .reduce(
-        (
-          acc: Record<number, { data: Buffer; isFragment: boolean }>,
-          cur,
-          i,
-        ) => {
-          acc[i] = cur;
-          return acc;
-        },
-        {},
-      );
-    const length = Object.keys(objects).length;
-
-    for (const i of Object.keys(objects).map(Number)) {
-      const exist = objects[i];
-      if (!exist) continue;
-      const { data, isFragment } = exist;
-      if (isFragment) {
-        let fragments: Buffer[] = [];
-        for (let head = i; head < length; head++) {
-          const target = objects[head];
-          if (target.isFragment) {
-            fragments.push(target.data);
-            delete objects[head];
-          } else {
-            break;
-          }
-        }
-        if (fragments.length <= 1) {
-          log("fragment lost, maybe packet lost");
-          fragments = [];
-        }
-        frames.push(Buffer.concat(fragments));
-      } else {
+    // Adjacent fragmented OBUs (A ends and B starts in the same packet) share
+    // isFragment=true, so boundaries come from continues/isContinuation:
+    // an OBU starts at a fragment without isContinuation and ends at the first
+    // fragment that does not continue into the next packet.
+    let pending: Buffer[] = [];
+    const flushLost = () => {
+      if (pending.length > 0) {
+        log("fragment lost, maybe packet lost");
+        pending = [];
+      }
+    };
+    for (const {
+      data,
+      isFragment,
+      continues,
+      isContinuation,
+    } of payloads.flatMap((p) => p.obu_or_fragment)) {
+      if (!isFragment) {
+        flushLost();
         frames.push(data);
+        continue;
+      }
+      if (!isContinuation) {
+        flushLost();
+        pending = [data];
+      } else if (pending.length === 0) {
+        // continuation without a start: head of the OBU was lost
+        log("fragment lost, maybe packet lost");
+        continue;
+      } else {
+        pending.push(data);
+      }
+      if (!continues) {
+        if (pending.length > 1) {
+          frames.push(Buffer.concat(pending));
+        } else {
+          log("fragment lost, maybe packet lost");
+        }
+        pending = [];
       }
     }
+    flushLost();
     // Re-serialize OBUs. Non-last OBUs always carry a size field so the
     // bitstream is self-delimiting; the last OBU keeps its original
     // obu_has_size_field (size present or remainder-of-buffer).

@@ -79,7 +79,8 @@ export class G722Packetizer extends PacketizerBase {
     for (let offset = 0; offset < data.length; offset += chunkSize) {
       const end = Math.min(data.length, offset + chunkSize);
       const chunk = data.subarray(offset, end);
-      packets.push(this.buildPacket(chunk, ts, true));
+      // RFC 3551 §4.1: marker only on the first packet of a talkspurt
+      packets.push(this.buildPacket(chunk, ts, this.takeTalkspurtMarker()));
       // 1 octet = 1 RTP clock unit @ 8000 Hz (RFC 3551 §4.5.2)
       ts = (ts + chunk.length) >>> 0;
     }

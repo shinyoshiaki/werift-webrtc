@@ -11,8 +11,11 @@
 // (generic / extended AU-header layouts). Presence is also reported when the
 // AU-headers-length cannot be explained by pure 16-bit hbr headers alone.
 //
-// Fragmentation: first fragment carries AU Header Section (AU-size = full AU);
-// subsequent fragments are raw AU data only (§3.2.3.1 marker-on-last).
+// Fragmentation (§3.2.3.1): every fragment carries an AU Header Section whose
+// AU-size is the size of the complete AU; the data section holds that
+// fragment's slice. Marker is set on the last fragment only. Packets holding
+// different AUs must have different timestamps, so multi-AU splits advance
+// the timestamp by `auDurationInSamples` (default 1024 for AAC-LC).
 // Registry name: MPEG4-GENERIC (SDP encoding name).
 
 import type { RtpHeader, RtpPacket } from "../rtp/rtp";
@@ -92,31 +95,6 @@ export class AacHbrRtpPayload implements DePacketizerBase {
   ): AacHbrRtpPayload {
     const result = new AacHbrRtpPayload();
 
-    // Continuation fragment: raw AU data only
-    if (fragment && fragment.length >= FRAG_SIZE_PREFIX) {
-      result.isContinuationFragment = true;
-      const expected = fragment.readUInt32BE(0);
-      const prev = fragment.subarray(FRAG_SIZE_PREFIX);
-      if (prev.length > expected) {
-        throw new Error(
-          `AAC continuation: accumulated fragment already exceeds AU-size ${expected}`,
-        );
-      }
-      const acc = Buffer.concat([prev, buf]);
-      if (acc.length > expected) {
-        throw new Error(
-          `AAC continuation fragment exceeds AU-size: got ${acc.length}, expected ${expected}`,
-        );
-      }
-      if (acc.length === expected) {
-        result.payload = acc;
-        result.fragment = undefined;
-      } else {
-        result.fragment = packFragment(expected, acc);
-      }
-      return result;
-    }
-
     if (buf.length < 2) {
       throw new Error(
         `AAC AU Header Section too short: expected at least 2 bytes, got ${buf.length}`,
@@ -130,7 +108,7 @@ export class AacHbrRtpPayload implements DePacketizerBase {
         `AAC AU-headers-length too small: ${auHeadersLengthBits} bits (minimum 16 for hbr)`,
       );
     }
-    if (auHeadersLengthBits % 16 !== 0) {
+    if (!options.ctsDtsPresent && auHeadersLengthBits % 16 !== 0) {
       throw new Error(
         `AAC AU-headers-length must be a multiple of 16, got ${auHeadersLengthBits}`,
       );
@@ -159,7 +137,36 @@ export class AacHbrRtpPayload implements DePacketizerBase {
       totalSize += h.size;
     }
 
-    // Single AU fragment: AU-size is full size, data section is partial
+    // Continuation of a fragmented AU: the header repeats the full AU-size
+    if (fragment && fragment.length >= FRAG_SIZE_PREFIX) {
+      result.isContinuationFragment = true;
+      const expected = fragment.readUInt32BE(0);
+      if (headers.length !== 1 || headers[0].size !== expected) {
+        throw new Error(
+          `AAC continuation fragment header mismatch: expected a single AU-header with AU-size ${expected}`,
+        );
+      }
+      if (dataSection.length === 0) {
+        throw new Error("AAC fragmented AU with empty data section");
+      }
+      const acc = Buffer.concat([
+        fragment.subarray(FRAG_SIZE_PREFIX),
+        dataSection,
+      ]);
+      if (acc.length > expected) {
+        throw new Error(
+          `AAC continuation fragment exceeds AU-size: got ${acc.length}, expected ${expected}`,
+        );
+      }
+      if (acc.length === expected) {
+        result.payload = acc;
+      } else {
+        result.fragment = packFragment(expected, acc);
+      }
+      return result;
+    }
+
+    // First fragment of a single AU: AU-size is full size, data is partial
     // RFC 3640 §3.2.1.1
     if (headers.length === 1 && dataSection.length < headers[0].size) {
       if (dataSection.length === 0) {
@@ -264,6 +271,13 @@ function parseAuHeaders(
       isFirst = false;
       optionalFieldsDetected = true;
     }
+    // AU-headers-length is an exact bit count; only the trailing padding
+    // (outside the length) may be unused.
+    if (bitPos !== lengthBits) {
+      throw new Error(
+        `AAC AU-headers-length ${lengthBits} does not match parsed AU-headers (${bitPos} bits)`,
+      );
+    }
   } else {
     // Default aac-hbr: fixed 16-bit AU-headers (RFC 3640 §3.3.6)
     while (bitPos + AAC_HBR_AU_HEADER_BITS <= lengthBits) {
@@ -332,79 +346,104 @@ function writeBits(
   }
 }
 
-export type AacHbrPacketizerOptions = PacketizerBaseOptions;
+export type AacHbrPacketizerOptions = PacketizerBaseOptions & {
+  /**
+   * RTP clock ticks per AU (default 1024 = AAC-LC frame). Used to give AUs that
+   * land in different packets distinct timestamps (RFC 3640 §3.1).
+   */
+  auDurationInSamples?: number;
+};
 
 /**
  * AAC-hbr packetizer (RFC 3640 §3.3.6).
  * AU-size fields store the Access Unit size in octets (not size−1).
  */
 export class AacHbrPacketizer extends PacketizerBase {
+  private readonly auDurationInSamples: number;
+
   constructor(options: AacHbrPacketizerOptions = {}) {
     super(options);
+    const d = options.auDurationInSamples ?? 1024;
+    if (!Number.isInteger(d) || d <= 0) {
+      throw new Error(
+        `AacHbrPacketizer: auDurationInSamples must be a positive integer, got ${d}`,
+      );
+    }
+    this.auDurationInSamples = d;
   }
 
   packetize(data: Buffer, rtpTimestamp: number): RtpPacket[] {
     return this.packetizeAccessUnits([data], rtpTimestamp);
   }
 
+  /**
+   * Packetize consecutive AUs. AUs are aggregated greedily into packets; an AU
+   * that cannot fit in a single packet is fragmented. Each packet's timestamp
+   * is that of its first AU (rtpTimestamp + n × auDurationInSamples).
+   */
   packetizeAccessUnits(aus: Buffer[], rtpTimestamp: number): RtpPacket[] {
-    if (aus.length === 0) {
-      return [];
-    }
-
-    if (aus.length === 1) {
-      return this.packetizeOneAu(aus[0], rtpTimestamp);
-    }
-
-    const headerBits = aus.length * AAC_HBR_AU_HEADER_BITS;
-    const headerBytes = 2 + Math.ceil(headerBits / 8);
-    const dataBytes = aus.reduce((n, a) => n + a.length, 0);
-    if (headerBytes + dataBytes <= this.maxPayloadSize) {
-      return [this.buildPacket(buildAuPayload(aus), rtpTimestamp, true)];
-    }
-
     const packets: RtpPacket[] = [];
-    for (const au of aus) {
-      packets.push(...this.packetizeOneAu(au, rtpTimestamp));
-    }
+    let group: Buffer[] = [];
+    let groupStart = 0;
+    const flush = () => {
+      if (group.length > 0) {
+        packets.push(
+          this.buildPacket(
+            buildAuPayload(group),
+            this.tsOf(rtpTimestamp, groupStart),
+            true,
+          ),
+        );
+        group = [];
+      }
+    };
+    const groupSize = (list: Buffer[]) =>
+      2 +
+      Math.ceil((list.length * AAC_HBR_AU_HEADER_BITS) / 8) +
+      list.reduce((n, a) => n + a.length, 0);
+
+    aus.forEach((au, i) => {
+      if (au.length === 0) {
+        throw new Error("AAC AU must not be empty");
+      }
+      if (groupSize([au]) > this.maxPayloadSize) {
+        flush();
+        packets.push(...this.fragmentAu(au, this.tsOf(rtpTimestamp, i)));
+        return;
+      }
+      if (group.length > 0 && groupSize([...group, au]) > this.maxPayloadSize) {
+        flush();
+      }
+      if (group.length === 0) {
+        groupStart = i;
+      }
+      group.push(au);
+    });
+    flush();
     return packets;
   }
 
-  private packetizeOneAu(au: Buffer, rtpTimestamp: number): RtpPacket[] {
-    const firstHeaderOverhead = 4; // 2 length + 2 AU-header
-    const maxFirstData = this.maxPayloadSize - firstHeaderOverhead;
+  private tsOf(base: number, auIndex: number): number {
+    return ((base >>> 0) + auIndex * this.auDurationInSamples) >>> 0;
+  }
 
-    if (maxFirstData <= 0) {
+  private fragmentAu(au: Buffer, timestamp: number): RtpPacket[] {
+    // Every fragment repeats the AU Header Section (2 length + 2 AU-header)
+    const maxData = this.maxPayloadSize - 4;
+    if (maxData <= 0) {
       throw new Error("invalid AAC RTP maxPayloadSize for fragmentation");
     }
-
-    if (au.length <= maxFirstData) {
-      return [this.buildPacket(buildAuPayload([au]), rtpTimestamp, true)];
-    }
-
     const packets: RtpPacket[] = [];
-    let offset = 0;
-
-    const firstChunk = au.subarray(0, maxFirstData);
-    packets.push(
-      this.buildPacket(
-        buildAuPayload([au], firstChunk),
-        rtpTimestamp,
-        firstChunk.length >= au.length,
-      ),
-    );
-    offset = firstChunk.length;
-
-    while (offset < au.length) {
-      const chunk = au.subarray(
-        offset,
-        Math.min(au.length, offset + this.maxPayloadSize),
+    for (let offset = 0; offset < au.length; offset += maxData) {
+      const chunk = au.subarray(offset, Math.min(au.length, offset + maxData));
+      packets.push(
+        this.buildPacket(
+          buildAuPayload([au], chunk),
+          timestamp,
+          offset + chunk.length >= au.length,
+        ),
       );
-      const isLast = offset + chunk.length >= au.length;
-      packets.push(this.buildPacket(chunk, rtpTimestamp, isLast));
-      offset += chunk.length;
     }
-
     return packets;
   }
 }

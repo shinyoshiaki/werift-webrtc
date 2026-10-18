@@ -2,8 +2,8 @@
 // docs/rfc/rfc7587.txt
 //
 // Opus RTP has no codec-specific payload header: the RTP payload is one
-// complete Opus packet (RFC 7587 §3 / §4.1). Marker is always true for a
-// single-packet frame. Simple MTU splitting would break the TOC and is
+// complete Opus packet (RFC 7587 §3 / §4.1). Marker is set only on the first
+// packet of a talkspurt. Simple MTU splitting would break the TOC and is
 // rejected (caller must keep Opus packets ≤ maxPayloadSize).
 
 import { bufferWriter, bufferWriterLE } from "../../../common/src";
@@ -60,7 +60,7 @@ export class OpusPacketizer extends PacketizerBase {
         `OpusPacketizer: Opus packet length ${data.length} exceeds maxPayloadSize ${this.maxPayloadSize} (RFC 7587 forbids blind MTU fragmentation of the TOC)`,
       );
     }
-    // Single complete Opus packet → marker always true
-    return [this.buildPacket(data, rtpTimestamp, true)];
+    // RFC 7587 §4.1: marker only on the first packet of a talkspurt
+    return [this.buildPacket(data, rtpTimestamp, this.takeTalkspurtMarker())];
   }
 }

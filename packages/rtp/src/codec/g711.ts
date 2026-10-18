@@ -82,8 +82,8 @@ abstract class G711Packetizer extends PacketizerBase {
     for (let offset = 0; offset < data.length; offset += chunkSize) {
       const end = Math.min(data.length, offset + chunkSize);
       const chunk = data.subarray(offset, end);
-      // G.711: each packet is a complete sample frame → marker always true
-      packets.push(this.buildPacket(chunk, ts, true));
+      // RFC 3551 §4.1: marker only on the first packet of a talkspurt
+      packets.push(this.buildPacket(chunk, ts, this.takeTalkspurtMarker()));
       // Advance timestamp by samples in this packet (1 sample = 1 byte)
       ts = (ts + chunk.length) >>> 0;
     }

@@ -10,6 +10,14 @@
   - Committed fixtures under `e2e/fixtures/media/`; CI does not require GStreamer. Generator: `e2e/tools/generateCodecFixtures.sh`.
   - **SDP `video/AV1`**: add `useAV1()`; keep `useAV1X()` as legacy. `findCodecByMimeType` treats AV1 ↔ AV1X as aliases.
 
+### 🐛 Fixes (review follow-ups)
+
+- **AAC (RFC 3640 §3.2.3.1)**: every fragment now carries its AU Header Section; the depacketizer strips it from continuations and validates AU-size. Multi-AU splits give each packet a distinct timestamp (`auDurationInSamples`, default 1024). Extended CTS/DTS headers accept non-16-bit lengths with trailing padding.
+- **H.264 / H.265**: length-prefixed input whose prefix looks like a start code (e.g. length 300 = `00 00 01 2c`) is no longer misread as Annex-B.
+- **AV1**: adjacent fragmented OBUs are no longer merged; boundaries come from Z/Y.
+- **Audio marker** (G.711 / G.722 / Opus): marker is set only on the first packet of a talkspurt (`startTalkspurt()` to re-arm), per RFC 3551 §4.1 / RFC 7587 §4.1.
+- **AV1 ↔ AV1X** normalization now applies to SDP answer, codec matching, and file playback validation, not only `findCodecByMimeType`.
+
 ### 🚀 Features & Improvements
 
 - **werift-rtp existing-codec packetizers** (`packages/rtp`): Add package-local packetizers for codecs that previously only had depacketizers (non-WebRTC / SIP / RTSP).

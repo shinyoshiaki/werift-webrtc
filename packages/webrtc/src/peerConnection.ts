@@ -26,6 +26,7 @@ import {
   type TransceiverOptions,
   defaultCodecs,
 } from "./media";
+import { normalizeCodecMimeType } from "./media/codecCompatibility";
 import {
   type RTCPeerConnectionStats,
   type RTCStats,
@@ -1881,15 +1882,6 @@ export interface PeerConfig {
    */
   mLineReuse: MLineReuse;
 }
-
-/** Normalize codec names so AV1 and legacy AV1X match each other. */
-const normalizeCodecMimeType = (mimeType: string) => {
-  const lower = mimeType.toLowerCase();
-  if (lower === "video/av1x") {
-    return "video/av1";
-  }
-  return lower;
-};
 
 const MLineReuseModes: readonly MLineReuse[] = ["compatible", "aggressive"];
 

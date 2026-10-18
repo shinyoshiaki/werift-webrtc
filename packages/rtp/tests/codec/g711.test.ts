@@ -127,7 +127,7 @@ describe("packages/rtp/tests/codec/g711.test.ts", () => {
     );
   });
 
-  it("MTU split advances timestamp and sets marker on each audio chunk", () => {
+  it("MTU split advances timestamp and marks only the talkspurt start", () => {
     // Arrange: maxPayloadSize がフレームより小さい場合の境界
     const data = Buffer.alloc(250, 0x42);
     const packetizer = new PcmuPacketizer({
@@ -137,9 +137,17 @@ describe("packages/rtp/tests/codec/g711.test.ts", () => {
     });
     // Act
     const packets = packetizer.packetize(data, 5000);
-    // Assert: 各チャンクは完結フレーム扱い (marker=true)、TS はサンプル数分進む
+    // Assert: marker は発話開始パケットのみ (RFC 3551 §4.1)、TS はサンプル数分進む
     expect(packets.length).toBe(3);
-    expect(packets.every((p) => p.header.marker)).toBe(true);
+    expect(packets.map((p) => p.header.marker)).toEqual([true, false, false]);
+    // 続けて送っても marker は立たず、startTalkspurt() 後の先頭だけ立つ
+    expect(
+      packetizer.packetize(data.subarray(0, 10), 6000)[0].header.marker,
+    ).toBe(false);
+    packetizer.startTalkspurt();
+    expect(
+      packetizer.packetize(data.subarray(0, 10), 7000)[0].header.marker,
+    ).toBe(true);
     expect(packets[0].header.timestamp).toBe(5000);
     expect(packets[1].header.timestamp).toBe(5100);
     expect(packets[2].header.timestamp).toBe(5200);
