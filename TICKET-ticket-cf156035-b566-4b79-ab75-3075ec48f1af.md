@@ -1,0 +1,1 @@
+ICE の keepalive(consent freshness)間隔を見直したい。値は後で決める。対象パッケージ、既定値、公開 API として設定可能にするかは未定。
