@@ -110,10 +110,9 @@ export class sim_gcc_twcc_chrome {
       this.mediaRtpAttempts++;
       try {
         const sent = await orig(payload, header);
-        const n = typeof sent === "number" ? sent : sent.size;
-        if (n > 0) {
+        if (sent > 0) {
           this.mediaRtpSentOk++;
-          this.mediaRtpBytes += n;
+          this.mediaRtpBytes += sent;
         }
         return sent;
       } catch (error) {

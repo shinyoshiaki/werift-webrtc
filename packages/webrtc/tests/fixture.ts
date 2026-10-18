@@ -67,6 +67,8 @@ export function createConnectedRtpSender(options?: {
   track?: MediaStreamTrack;
   rtx?: boolean;
   twcc?: boolean;
+  /** Negotiate the SDES RTP stream id (RID) header extension as id 4. */
+  rid?: boolean;
   cname?: string;
 }) {
   const kind = options?.kind ?? "audio";
@@ -80,14 +82,23 @@ export function createConnectedRtpSender(options?: {
   if (options?.rtx) {
     codecs.push(createRtxCodec());
   }
-  const headerExtensions = options?.twcc
-    ? [
-        new RTCRtpHeaderExtensionParameters({
-          id: 3,
-          uri: RTP_EXTENSION_URI.transportWideCC,
-        }),
-      ]
-    : [];
+  const headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
+  if (options?.twcc) {
+    headerExtensions.push(
+      new RTCRtpHeaderExtensionParameters({
+        id: 3,
+        uri: RTP_EXTENSION_URI.transportWideCC,
+      }),
+    );
+  }
+  if (options?.rid) {
+    headerExtensions.push(
+      new RTCRtpHeaderExtensionParameters({
+        id: 4,
+        uri: RTP_EXTENSION_URI.sdesRTPStreamID,
+      }),
+    );
+  }
 
   sender.prepareSend({
     codecs,

@@ -381,11 +381,16 @@ export class RTCRtpSender {
   private highWaterWireSeq?: number;
   /** Recently allocated wire sequences (padding must not reuse media or padding). */
   private usedWireSeqs = new Set<number>();
-  /**
-   * Wire sequences allocated to probe padding. Media reuses its own preferred
-   * seq on source duplicates; it only remaps when this set owns the candidate.
-   */
+  /** Wire sequences allocated to probe padding. */
   private paddingWireSeqs = new Set<number>();
+  /**
+   * Recent source media seq → wire seq. A delayed source duplicate keeps the
+   * wire seq of its first copy instead of taking a fresh one that the next
+   * in-order packet would also map to.
+   */
+  private sourceToWireSeq = new Map<number, number>();
+  /** Reverse of {@link sourceToWireSeq}, used when pruning old wire seqs. */
+  private wireToSourceSeq = new Map<number, number>();
   private timestamp?: number;
   private timestampOffset = 0;
   private seqOffset = 0;
@@ -753,6 +758,12 @@ export class RTCRtpSender {
       encodings.length > 0
         ? encodings.map((encoding) => ({ ...encoding }))
         : [{}];
+    const rid = this.sendEncodings.find(
+      (encoding) => typeof encoding.rid === "string",
+    )?.rid;
+    if (typeof rid === "string") {
+      this.rtpStreamId = rid;
+    }
   }
 
   async replaceTrack(track: MediaStreamTrack | null) {
@@ -826,7 +837,6 @@ export class RTCRtpSender {
     if (!keepTrack) {
       this.track = null;
     }
-    this.track = null;
     this.dtlsDisposer.forEach((dispose) => dispose());
     this.dtlsDisposer = [];
   }
@@ -910,6 +920,8 @@ export class RTCRtpSender {
     // ranges cannot collide with the replaced stream.
     this.usedWireSeqs.clear();
     this.paddingWireSeqs.clear();
+    this.sourceToWireSeq.clear();
+    this.wireToSourceSeq.clear();
     this.highWaterWireSeq = undefined;
   }
 
@@ -933,6 +945,13 @@ export class RTCRtpSender {
         if (dist > 4096 && dist < 0x8000) {
           this.usedWireSeqs.delete(s);
           this.paddingWireSeqs.delete(s);
+          const src = this.wireToSourceSeq.get(s);
+          if (src !== undefined) {
+            this.wireToSourceSeq.delete(s);
+            if (this.sourceToWireSeq.get(src) === s) {
+              this.sourceToWireSeq.delete(src);
+            }
+          }
         }
       }
     }
@@ -949,30 +968,37 @@ export class RTCRtpSender {
   }
 
   /**
-   * Media: prefer `sourceSeq + seqOffset` so source gaps/reorders/duplicates
-   * stay visible. Never reuse a wire seq already given to a different packet
-   * (padding or earlier media). After a padding-driven offset bump, a late
-   * reorder still occupies its original source seq when that hole is free.
+   * Media: prefer `sourceSeq + seqOffset` so source gaps/reorders stay
+   * visible. A source duplicate reuses the wire seq of its first copy (as
+   * develop forwarded the input seq unchanged). Otherwise never reuse a wire
+   * seq already given to a different packet (padding or earlier media). After
+   * a padding-driven offset bump, a late reorder still occupies its original
+   * source seq when that hole is free.
    */
   private allocateMediaSequence(sourceSeq: number): number {
     const src = sourceSeq & 0xffff;
+    const known = this.sourceToWireSeq.get(src);
+    if (known !== undefined) {
+      return known;
+    }
+    const wire = this.pickMediaWireSeq(src);
+    this.markWireSeqUsed(wire);
+    this.sourceToWireSeq.set(src, wire);
+    this.wireToSourceSeq.set(wire, src);
+    return wire;
+  }
+
+  private pickMediaWireSeq(src: number): number {
     const preferred = uint16Add(src, this.seqOffset);
     if (!this.usedWireSeqs.has(preferred)) {
-      this.markWireSeqUsed(preferred);
       return preferred;
     }
 
     const behind = this.isWireSeqBehindHighWater(preferred);
-    if (behind) {
-      // Offset bump mapped this late packet onto an already-sent seq.
-      // Keep the source-relative hole when it is still free (10→pad→11→late 9).
-      if (!this.usedWireSeqs.has(src)) {
-        this.markWireSeqUsed(src);
-        return src;
-      }
-    } else if (!this.paddingWireSeqs.has(preferred)) {
-      // Same source seq sent again: reuse so NACK still finds that packet.
-      return preferred;
+    // Offset bump mapped this late packet onto an already-sent seq.
+    // Keep the source-relative hole when it is still free (10→pad→11→late 9).
+    if (behind && !this.usedWireSeqs.has(src)) {
+      return src;
     }
 
     let wire =
@@ -985,7 +1011,6 @@ export class RTCRtpSender {
     if (!behind) {
       this.seqOffset = uint16Add(wire, -src);
     }
-    this.markWireSeqUsed(wire);
     return wire;
   }
 

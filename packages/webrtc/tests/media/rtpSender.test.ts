@@ -907,6 +907,22 @@ async function waitForSent(
   await waitUntil(() => sendRtp.mock.calls.length >= count);
 }
 
+describe("media/rtpSender encodings", () => {
+  test("setParameters の encoding RID を RID ヘッダー拡張で送信する", async () => {
+    const { sender, sendRtp } = createConnectedRtpSender({ rid: true });
+
+    // Act: encoding に RID を設定してから RTP を送る。
+    sender.setParameters({ encodings: [{ rid: "high" }] });
+    await sender.sendRtp(createRtpPacket(1, 1000));
+
+    // Assert: 送信ヘッダーに RID 拡張（id=4, "high"）が載る。
+    const [header] = sentRtpHeaders(sendRtp);
+    const rid = header.extensions.find((extension) => extension.id === 4);
+    expect(rid?.payload.toString()).toBe("high");
+    sender.stop();
+  });
+});
+
 describe("media/rtpSender RTP continuity", () => {
   const started: RTCRtpSender[] = [];
 
@@ -1089,6 +1105,26 @@ describe("media/rtpSender RTP continuity", () => {
       (baseTs + 80) >>> 0,
       (baseTs + 40) >>> 0,
       (baseTs + 80) >>> 0,
+    ]);
+  });
+
+  test("遅れて届いた重複 RTP は初回と同じ seq を使い、後続 media と衝突しない", async () => {
+    const { sender, sendRtp } = arrangeSender();
+
+    // Act: 10, 11 の後に 10 の重複が遅着し、続けて 12 を送る。
+    await sender.sendRtp(createRtpPacket(10, 1000));
+    await sender.sendRtp(createRtpPacket(11, 1040));
+    await sender.sendRtp(createRtpPacket(10, 1000));
+    await sender.sendRtp(createRtpPacket(12, 1080));
+
+    // Assert: 重複は初回の seq を再利用し、12 は新しい seq を得る（10,11,12,12 にならない）。
+    const seqs = sentRtpHeaders(sendRtp).map((header) => header.sequenceNumber);
+    const base = seqs[0];
+    expect(seqs).toEqual([
+      base,
+      (base + 1) & 0xffff,
+      base,
+      (base + 2) & 0xffff,
     ]);
   });
 
