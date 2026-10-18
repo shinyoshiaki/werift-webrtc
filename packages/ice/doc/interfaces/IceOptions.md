@@ -86,9 +86,40 @@ Advertise and operate as an ICE lite agent.
 
 ***
 
+### stunGatherTimeout?
+
+> `optional` **stunGatherTimeout**: `number`
+
+Seconds to wait for server-reflexive candidates while gathering.
+Defaults to 5. Where UDP is blocked these STUN queries are never answered,
+so the wait always runs to the timeout; agents that must not stall on such
+networks can lower it.
+
+***
+
 ### stunServer?
 
 > `optional` **stunServer**: readonly \[`string`, `number`\]
+
+***
+
+### tcpPassive?
+
+> `optional` **tcpPassive**: `boolean`
+
+Gather passive TCP host candidates (opens a listening TCP server per
+interface). Defaults to true. Send-only agents that never accept inbound
+connections can set this false to avoid the listener while still gathering
+active TCP candidates.
+
+***
+
+### turnConnectTimeout?
+
+> `optional` **turnConnectTimeout**: `number`
+
+Seconds to wait for a TURN TCP/TLS connection to be established.
+Defaults to 8.
 
 ***
 
@@ -113,6 +144,16 @@ Advertise and operate as an ICE lite agent.
 ### turnTransport?
 
 > `optional` **turnTransport**: `"udp"` \| `"tcp"` \| `"tls"`
+
+***
+
+### turnUdpFamily?
+
+> `optional` **turnUdpFamily**: `4` \| `6`
+
+Preferred IP family of the TURN/UDP socket, applied only when turnServer
+is a hostname. Ignored for an IP literal turnServer, whose own family
+always selects the socket. Defaults to 4.
 
 ***
 

@@ -6,49 +6,17 @@
 
 # Function: createStunOverTurnClient()
 
-> **createStunOverTurnClient**(`__namedParameters`, `__namedParameters`): `Promise`\<[`StunOverTurnProtocol`](../classes/StunOverTurnProtocol.md)\>
+> **createStunOverTurnClient**(`config`, `options`): `Promise`\<[`StunOverTurnProtocol`](../classes/StunOverTurnProtocol.md)\>
 
 ## Parameters
 
-### \_\_namedParameters
+### config
 
-#### address
+[`TurnClientConfig`](../interfaces/TurnClientConfig.md)
 
-readonly \[`string`, `number`\]
+### options
 
-#### password
-
-`string`
-
-#### username
-
-`string`
-
-### \_\_namedParameters
-
-#### interfaceAddresses?
-
-`InterfaceAddresses`
-
-#### lifetime?
-
-`number`
-
-#### portRange?
-
-\[`number`, `number`\]
-
-#### ssl?
-
-`boolean`
-
-#### tlsOptions?
-
-`TlsConnectionOptions`
-
-#### transport?
-
-`"udp"` \| `"tcp"` \| `"tls"`
+[`TurnClientOptions`](../interfaces/TurnClientOptions.md) = `{}`
 
 ## Returns
 

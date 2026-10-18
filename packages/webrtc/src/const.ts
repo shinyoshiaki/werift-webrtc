@@ -46,6 +46,8 @@ export const FMTP_INT_PARAMETERS = [
   "max-fs",
   "maxplaybackrate",
   "minptime",
+  "packetization-mode",
+  "level-asymmetry-allowed",
   "stereo",
   "useinbandfec",
 ];

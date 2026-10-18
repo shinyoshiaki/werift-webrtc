@@ -12,6 +12,7 @@ import {
   debug,
   rtpHeaderExtensionsParser,
 } from "../imports/rtp";
+import { deliveredTrackCodec } from "./codecCompatibility";
 import type {
   RTCRtpReceiveParameters,
   RTCRtpSimulcastParameters,
@@ -55,7 +56,11 @@ export class RtpRouter {
             kind: transceiver.kind,
             id: transceiver.sender.trackId,
             remote: true,
-            codec: params.codecs[i],
+            codec: deliveredTrackCodec(
+              transceiver.kind,
+              params.codecs[i],
+              params.codecs,
+            ),
           }),
         );
         if (encode.rtx) {
@@ -89,6 +94,24 @@ export class RtpRouter {
     this.ridTable[param.rid] = transceiver.receiver;
   }
 
+  /**停止した transceiver の SSRC / RID 登録を解除する */
+  unregisterTransceiver(transceiver: RTCRtpTransceiver) {
+    const owners: (RTCRtpReceiver | RTCRtpSender)[] = [
+      transceiver.sender,
+      transceiver.receiver,
+    ];
+    for (const [ssrc, owner] of Object.entries(this.ssrcTable)) {
+      if (owners.includes(owner)) {
+        delete this.ssrcTable[Number(ssrc)];
+      }
+    }
+    for (const [rid, owner] of Object.entries(this.ridTable)) {
+      if (owners.includes(owner)) {
+        delete this.ridTable[rid];
+      }
+    }
+  }
+
   routeRtp = (packet: RtpPacket) => {
     const extensions: Extensions = rtpHeaderExtensionsParser(
       packet.header.extensions,
@@ -101,9 +124,11 @@ export class RtpRouter {
 
     const rid = extensions[RTP_EXTENSION_URI.sdesRTPStreamID];
     if (typeof rid === "string") {
-      rtpReceiver = this.ridTable[rid] as RTCRtpReceiver;
-      rtpReceiver.latestRid = rid;
-      rtpReceiver.handleRtpByRid(packet, rid, extensions);
+      rtpReceiver = this.ridTable[rid] as RTCRtpReceiver | undefined;
+      if (rtpReceiver) {
+        rtpReceiver.latestRid = rid;
+        rtpReceiver.handleRtpByRid(packet, rid, extensions);
+      }
     } else if (rtpReceiver) {
       rtpReceiver.handleRtpBySsrc(packet, extensions);
     } else {

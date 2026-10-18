@@ -33,12 +33,11 @@
     "@fidm/x509": "^1.2.1",
     "@noble/curves": "^1.8.1",
     "@peculiar/x509": "^1.12.3",
-    "@shinyoshiaki/binary-data": "^0.6.1",
     "debug": "4.4.0",
     "tweetnacl": "^1.0.3"
   },
   "engines": {
-    "node": ">=16"
+    "node": ">=22"
   },
   "readme": "README.md"
 }

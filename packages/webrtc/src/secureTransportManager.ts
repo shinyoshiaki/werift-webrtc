@@ -64,18 +64,23 @@ export class SecureTransportManager {
     }
   }
 
+  /**live な m-line (停止確定していない transceiver / SCTP) が使う transport */
   get dtlsTransports() {
-    const transports = [
+    return uniqueTransports([
+      ...this.transceiverManager
+        .getTransceivers()
+        .filter((t) => !t.stopped)
+        .map((t) => t?.dtlsTransport),
+      this.sctpManager.sctpTransport?.dtlsTransport,
+    ]);
+  }
+
+  /**停止済み transceiver の transport も含めた全 transport */
+  private get allDtlsTransports() {
+    return uniqueTransports([
       ...this.transceiverManager.getTransceivers().map((t) => t?.dtlsTransport),
       this.sctpManager.sctpTransport?.dtlsTransport,
-    ].filter((t) => t != undefined);
-
-    return transports.reduce((acc: RTCDtlsTransport[], cur) => {
-      if (!acc.map((d) => d.id).includes(cur.id)) {
-        acc.push(cur);
-      }
-      return acc;
-    }, []);
+    ]);
   }
 
   get iceTransports() {
@@ -90,19 +95,61 @@ export class SecureTransportManager {
     );
   }
 
-  createTransport() {
-    const existing = this.iceTransports.find(
-      (transport) => transport.state !== "closed",
-    );
+  /**
+   * Resolve STUN/TURN options from the current PeerConfig.
+   * Always returns every server-related field (including undefined) so
+   * Connection.setIceServers can fully replace residual TURN credentials.
+   */
+  private resolveIceServerOptions() {
     const iceServerOptions = parseIceServers(this.config.iceServers);
     const turnTransport = resolveTurnTransport({
       parsedTurnTransport: iceServerOptions.turnTransport,
       configuredTurnTransport: this.config.turnTransport,
       forceTurnTCP: this.config.forceTurnTCP,
     });
+    return {
+      stunServer: iceServerOptions.stunServer,
+      turnServer: iceServerOptions.turnServer,
+      turnUsername: iceServerOptions.turnUsername,
+      turnPassword: iceServerOptions.turnPassword,
+      turnTransport,
+    };
+  }
+
+  /**
+   * Re-apply ICE servers from the current config to ICE transports that have
+   * not started gathering yet (`gatheringState === "new"`).
+   *
+   * JSEP (RFC 8829 §4.1.18) / ticket scope: server changes affect the next
+   * gathering phase. Once gathering has started or finished, leave the live
+   * Connection alone so existing candidates and TURN protocols are not
+   * disturbed. Used when TURN is learned after the gatherer was built
+   * (e.g. from a WHIP Link header) but before setLocalDescription gathers.
+   */
+  updateIceServers() {
+    const options = {
+      ...this.resolveIceServerOptions(),
+      forceTurn: this.config.iceTransportPolicy === "relay",
+      useTcp: this.config.iceUseTcp,
+      turnUdpFamily: this.config.turnUdpFamily,
+    };
+    for (const iceTransport of this.iceTransports) {
+      // Only update gatherers that have never gathered in this generation.
+      // Applying after gathering would leave stale TURN protocols in
+      // Connection.protocols that get re-advertised on a later restart.
+      if (iceTransport.gatheringState === "new") {
+        iceTransport.setIceServers(options);
+      }
+    }
+  }
+
+  createTransport({ inheritCredentials = true } = {}) {
+    const existing = inheritCredentials
+      ? this.iceTransports.find((transport) => transport.state !== "closed")
+      : undefined;
 
     const iceGatherer = new RTCIceGatherer({
-      ...iceServerOptions,
+      ...this.resolveIceServerOptions(),
       iceLite: this.config.iceLite,
       forceTurn: this.config.iceTransportPolicy === "relay",
       portRange: this.config.icePortRange,
@@ -114,8 +161,11 @@ export class SecureTransportManager {
       useIpv4: this.config.iceUseIpv4,
       useIpv6: this.config.iceUseIpv6,
       useTcp: this.config.iceUseTcp,
-      turnTransport,
+      tcpPassive: this.config.iceTcpPassive,
+      stunGatherTimeout: this.config.iceStunGatherTimeout,
+      turnConnectTimeout: this.config.iceTurnConnectTimeout,
       turnTlsOptions: this.config.turnTlsOptions,
+      turnUdpFamily: this.config.turnUdpFamily,
       useLinkLocalAddress: this.config.iceUseLinkLocalAddress,
     });
 
@@ -144,37 +194,21 @@ export class SecureTransportManager {
     return dtlsTransport;
   }
 
+  /**
+   * sdpMid / sdpMLineIndex は ICE transport を所有する受け入れ済み m-line
+   * (BUNDLE なら tag) を呼び出し側で解決して渡す。
+   */
   handleNewIceCandidate({
     candidate,
-    media,
-    remoteIsBundled,
-    transceiver,
-    sctpTransport,
-    bundlePolicy,
+    sdpMid,
+    sdpMLineIndex,
   }: {
     candidate: IceCandidate;
-    media?: MediaDescription;
-    remoteIsBundled: boolean;
-    transceiver?: RTCRtpTransceiver;
-    sctpTransport?: RTCSctpTransport;
-    bundlePolicy?: BundlePolicy;
+    sdpMid?: string;
+    sdpMLineIndex?: number;
   }) {
-    // Assign sdpMid and sdpMLineIndex
-    if (bundlePolicy === "max-bundle" || remoteIsBundled) {
-      candidate.sdpMLineIndex = 0;
-      if (media) {
-        candidate.sdpMid = media.rtp.muxId;
-      }
-    } else {
-      if (transceiver) {
-        candidate.sdpMLineIndex = transceiver.mLineIndex;
-        candidate.sdpMid = transceiver.mid ?? undefined;
-      }
-      if (sctpTransport) {
-        candidate.sdpMLineIndex = sctpTransport.mLineIndex;
-        candidate.sdpMid = sctpTransport.mid;
-      }
-    }
+    candidate.sdpMid = sdpMid;
+    candidate.sdpMLineIndex = sdpMLineIndex;
 
     if (
       candidate.foundation &&
@@ -252,6 +286,14 @@ export class SecureTransportManager {
     const iceTransport = this.getTransportByMLineIndex(sdp, targetMediaIndex);
 
     if (!iceTransport) {
+      if (this.isRejectedMedia(targetMedia)) {
+        // 拒否 / 停止した m-line の候補は MID / index を保ったまま記録だけする
+        return {
+          kind: "candidate" as const,
+          candidate,
+          mediaIndices: [targetMediaIndex],
+        };
+      }
       throw createWebRtcDomException(
         "OperationError",
         "ICE transport not found for candidate",
@@ -325,6 +367,24 @@ export class SecureTransportManager {
     return mediaIndices;
   }
 
+  private isRejectedMedia(media: MediaDescription) {
+    if (media.port === 0) {
+      return true;
+    }
+    if (!["audio", "video"].includes(media.kind)) {
+      return false;
+    }
+    const transceiver = this.transceiverManager
+      .getTransceivers()
+      .find((t) => t.mid != undefined && t.mid === media.rtp.muxId);
+    return (
+      !transceiver ||
+      transceiver.stopped ||
+      transceiver.stopping ||
+      transceiver.pendingRejection
+    );
+  }
+
   private getTransportByMid(mid?: string) {
     if (!mid) {
       return;
@@ -335,11 +395,14 @@ export class SecureTransportManager {
       .getTransceivers()
       .find((t) => t.mid === mid);
     if (transceiver) {
-      iceTransport = transceiver.dtlsTransport.iceTransport;
+      iceTransport = transceiver.dtlsTransport?.iceTransport;
     } else if (!iceTransport && this.sctpManager.sctpTransport?.mid === mid) {
       iceTransport = this.sctpManager.sctpTransport.dtlsTransport.iceTransport;
     }
 
+    if (iceTransport?.state === "closed") {
+      return;
+    }
     return iceTransport;
   }
 
@@ -357,14 +420,21 @@ export class SecureTransportManager {
     for (const transport of this.iceTransports) {
       transport.restart();
     }
+    // restart() resets each gatherer to "new"; refresh the aggregate cache
+    // even if a gatherer failed to emit onGatheringStateChange.
+    this.updateIceGatheringState();
   }
 
   setLocalRole({
     type,
     role,
+    roleOfTransport,
   }: {
     type: "offer" | "answer";
+    /**transport 個別の role がない場合に使う local description 先頭の role */
     role: "auto" | "client" | "server" | undefined;
+    /**local description でその transport を使う m-line の role */
+    roleOfTransport?: Map<RTCDtlsTransport, "auto" | "client" | "server">;
   }) {
     for (const dtlsTransport of this.dtlsTransports) {
       const iceTransport = dtlsTransport.iceTransport;
@@ -381,8 +451,9 @@ export class SecureTransportManager {
 
       // # set DTLS role for mediasoup
       if (type === "answer") {
-        if (role) {
-          dtlsTransport.role = role;
+        const transportRole = roleOfTransport?.get(dtlsTransport) ?? role;
+        if (transportRole) {
+          dtlsTransport.role = transportRole;
         }
       }
     }
@@ -473,22 +544,19 @@ export class SecureTransportManager {
     }
   }
 
-  async gatherCandidates(remoteIsBundled: boolean) {
-    const connected = this.iceTransports.find(
-      (transport) =>
-        transport.state === "connected" || transport.state === "completed",
-    );
-    if (remoteIsBundled && connected) {
-      // no need to gather ice candidates on an existing bundled connection
-      log("skipping ICE gathering for bundled connection");
-    } else {
-      await Promise.allSettled(
-        this.iceTransports.map((iceTransport) => iceTransport.gather()),
-      ).catch((e) => {
-        // エラーハンドリングを追加 (例: ログ出力)
-        log("gatherCandidates failed", e);
-      });
-    }
+  /**
+   * 未収集 (gatheringState=new) の ICE transport だけ候補を収集する。
+   * 収集済み transport は gather() が何もしないので、確立済み BUNDLE の transport は再収集されず、
+   * BUNDLE group 外に新設した独立 transport だけが候補を収集する。
+   */
+  async gatherCandidates() {
+    await Promise.allSettled(
+      this.iceTransports
+        .filter((iceTransport) => iceTransport.state !== "closed")
+        .map((iceTransport) => iceTransport.gather()),
+    ).catch((e) => {
+      log("gatherCandidates failed", e);
+    });
   }
 
   setConnectionState(state: ConnectionState) {
@@ -526,13 +594,22 @@ export class SecureTransportManager {
   async close() {
     this.setConnectionState("closed");
 
-    await Promise.allSettled([...this.dtlsTransports.map((t) => t.stop())]);
+    await Promise.allSettled([...this.allDtlsTransports.map((t) => t.stop())]);
 
     this.iceGatheringStateChange.allUnsubscribe();
     this.iceConnectionStateChange.allUnsubscribe();
     this.onIceCandidate.allUnsubscribe();
     this.connectionStateChange.allUnsubscribe();
   }
+}
+
+function uniqueTransports(transports: (RTCDtlsTransport | undefined)[]) {
+  return transports.reduce((acc: RTCDtlsTransport[], cur) => {
+    if (cur && !acc.map((d) => d.id).includes(cur.id)) {
+      acc.push(cur);
+    }
+    return acc;
+  }, []);
 }
 
 const srtpProfiles = [

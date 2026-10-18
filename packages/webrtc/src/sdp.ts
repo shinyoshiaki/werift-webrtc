@@ -704,6 +704,7 @@ export function addSDPHeader(
 export function codecParametersFromString(str: string) {
   const parameters: any = {};
   str.split(";").forEach((param) => {
+    if (param.length === 0) return;
     if (param.includes("=")) {
       const [k, v] = divide(param, "=");
       if (FMTP_INT_PARAMETERS.includes(k)) {
@@ -723,14 +724,13 @@ export function codecParametersFromString(str: string) {
 
 export function codecParametersToString(
   parameters: {
-    [key: string]: string | number;
+    [key: string]: string | number | undefined;
   },
   joint: string = "=",
 ) {
-  const params = Object.entries(parameters).map(([k, v]) => {
-    if (v) return `${k}${joint}${v}`;
-    else return k;
-  });
+  const params = Object.entries(parameters)
+    .filter(([key, value]) => key.length > 0 && value !== undefined)
+    .map(([key, value]) => `${key}${joint}${value}`);
   if (params.length > 0) {
     return params.join(";");
   }

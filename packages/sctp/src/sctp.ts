@@ -15,6 +15,9 @@ import {
   InitChunk,
   ReConfigChunk,
   ReconfigChunk,
+  SCTP_COMMON_HEADER_SIZE,
+  SCTP_DATA_CHUNK_HEADER_SIZE,
+  SCTP_PADDING_MULTIPLE,
   SackChunk,
   ShutdownAckChunk,
   ShutdownChunk,
@@ -51,7 +54,31 @@ const log = debug("werift/sctp/sctp");
 const COOKIE_LENGTH = 24;
 const COOKIE_LIFETIME = 60;
 const MAX_STREAMS = 65535;
-const USERDATA_MAX_LENGTH = 1200;
+export const DEFAULT_SCTP_MTU = 1191;
+
+export interface SCTPOptions {
+  /** SCTP packet MTU used for outbound DATA chunk fragmentation. */
+  mtu?: number;
+}
+
+export function maxPayloadSizeForMtu(
+  mtu: number,
+  dataChunkHeaderSize = SCTP_DATA_CHUNK_HEADER_SIZE,
+): number {
+  const headerSize = SCTP_COMMON_HEADER_SIZE + dataChunkHeaderSize;
+  if (mtu <= headerSize) return 0;
+  const payloadBudget = mtu - headerSize;
+  return payloadBudget - (payloadBudget % SCTP_PADDING_MULTIPLE);
+}
+
+export function validateSctpMtu(mtu: number): void {
+  if (!Number.isSafeInteger(mtu) || mtu <= 0) {
+    throw new Error("SCTP MTU must be a positive integer");
+  }
+  if (maxPayloadSizeForMtu(mtu) === 0) {
+    throw new Error("SCTP MTU is too small for a DATA chunk");
+  }
+}
 
 // # protocol constants
 const SCTP_DATA_LAST_FRAG = 0x01;
@@ -135,7 +162,9 @@ export class SCTP {
   private sackTimeout: NodeJS.Timeout | undefined;
 
   // # outbound
-  private cwnd = 3 * USERDATA_MAX_LENGTH; // Congestion Window
+  private cwnd: number; // Congestion Window
+  readonly mtu: number;
+  private readonly maxPayloadSize: number;
   private fastRecoveryExit?: number;
   private fastRecoveryTransmit = false;
   private forwardTsnChunk?: ForwardTsnChunk;
@@ -189,7 +218,12 @@ export class SCTP {
   constructor(
     public transport: Transport,
     public port = 5000,
+    options: SCTPOptions = {},
   ) {
+    this.mtu = options.mtu ?? DEFAULT_SCTP_MTU;
+    validateSctpMtu(this.mtu);
+    this.maxPayloadSize = maxPayloadSizeForMtu(this.mtu);
+    this.cwnd = 3 * this.maxPayloadSize;
     this.localPort = this.port;
     this.transport.onData = (buf) => {
       this.handleData(buf);
@@ -207,14 +241,14 @@ export class SCTP {
     return undefined;
   }
 
-  static client(transport: Transport, port = 5000) {
-    const sctp = new SCTP(transport, port);
+  static client(transport: Transport, port = 5000, options: SCTPOptions = {}) {
+    const sctp = new SCTP(transport, port, options);
     sctp.isServer = false;
     return sctp;
   }
 
-  static server(transport: Transport, port = 5000) {
-    const sctp = new SCTP(transport, port);
+  static server(transport: Transport, port = 5000, options: SCTPOptions = {}) {
+    const sctp = new SCTP(transport, port, options);
     sctp.isServer = true;
     return sctp;
   }
@@ -707,19 +741,19 @@ export class SCTP {
     if (this.fastRecoveryExit === undefined) {
       if (done && cwndFullyUtilized) {
         if (this.cwnd <= this.ssthresh!) {
-          this.cwnd += Math.min(doneBytes, USERDATA_MAX_LENGTH);
+          this.cwnd += Math.min(doneBytes, this.maxPayloadSize);
         } else {
           this.partialBytesAcked += doneBytes;
           if (this.partialBytesAcked >= this.cwnd) {
             this.partialBytesAcked -= this.cwnd;
-            this.cwnd += USERDATA_MAX_LENGTH;
+            this.cwnd += this.maxPayloadSize;
           }
         }
       }
       if (loss) {
         this.ssthresh = Math.max(
           Math.floor(this.cwnd / 2),
-          4 * USERDATA_MAX_LENGTH,
+          4 * this.maxPayloadSize,
         );
         this.cwnd = this.ssthresh;
         this.partialBytesAcked = 0;
@@ -853,7 +887,7 @@ export class SCTP {
   ) => {
     const streamSeqNum = ordered ? this.outboundStreamSeq[streamId] || 0 : 0;
 
-    const fragments = Math.ceil(userData.length / USERDATA_MAX_LENGTH);
+    const fragments = Math.ceil(userData.length / this.maxPayloadSize);
     let pos = 0;
     const chunks: DataChunk[] = [];
     for (let fragment = 0; fragment < fragments; fragment++) {
@@ -872,12 +906,12 @@ export class SCTP {
       chunk.streamId = streamId;
       chunk.streamSeqNum = streamSeqNum;
       chunk.protocol = ppId;
-      chunk.userData = userData.slice(pos, pos + USERDATA_MAX_LENGTH);
+      chunk.userData = userData.slice(pos, pos + this.maxPayloadSize);
       chunk.bookSize = chunk.userData.length;
       chunk.expiry = expiry;
       chunk.maxRetransmits = maxRetransmits;
 
-      pos += USERDATA_MAX_LENGTH;
+      pos += this.maxPayloadSize;
       this.localTsn = tsnPlusOne(this.localTsn);
       chunks.push(chunk);
     }
@@ -934,8 +968,8 @@ export class SCTP {
 
     const burstSize =
       this.fastRecoveryExit != undefined
-        ? 2 * USERDATA_MAX_LENGTH
-        : 4 * USERDATA_MAX_LENGTH;
+        ? 2 * this.maxPayloadSize
+        : 4 * this.maxPayloadSize;
     const cwnd = Math.min(this.flightSize + burstSize, this.cwnd);
 
     let retransmitEarliest = true;
@@ -1153,9 +1187,9 @@ export class SCTP {
 
     this.ssthresh = Math.max(
       Math.floor(this.cwnd / 2),
-      4 * USERDATA_MAX_LENGTH,
+      4 * this.maxPayloadSize,
     );
-    this.cwnd = USERDATA_MAX_LENGTH;
+    this.cwnd = this.maxPayloadSize;
 
     this.transmit();
   };

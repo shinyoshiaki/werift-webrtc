@@ -43,6 +43,8 @@ export interface IceConnection {
 
   restart(): void;
 
+  setIceServers(options: Partial<IceOptions>): void;
+
   setRemoteParams(params: {
     iceLite: boolean;
     usernameFragment: string;
@@ -232,12 +234,37 @@ export interface IceOptions {
   /** Advertise and operate as an ICE lite agent. */
   iceLite: boolean;
   useTcp: boolean;
+  /**
+   * Gather passive TCP host candidates (opens a listening TCP server per
+   * interface). Defaults to true. Send-only agents that never accept inbound
+   * connections can set this false to avoid the listener while still gathering
+   * active TCP candidates.
+   */
+  tcpPassive?: boolean;
+  /**
+   * Seconds to wait for server-reflexive candidates while gathering.
+   * Defaults to 5. Where UDP is blocked these STUN queries are never answered,
+   * so the wait always runs to the timeout; agents that must not stall on such
+   * networks can lower it.
+   */
+  stunGatherTimeout?: number;
+  /**
+   * Seconds to wait for a TURN TCP/TLS connection to be established.
+   * Defaults to 8.
+   */
+  turnConnectTimeout?: number;
   stunServer?: Address;
   turnServer?: Address;
   turnUsername?: string;
   turnPassword?: string;
   turnTransport?: "udp" | "tcp" | "tls";
   turnTlsOptions?: TlsConnectionOptions;
+  /**
+   * Preferred IP family of the TURN/UDP socket, applied only when turnServer
+   * is a hostname. Ignored for an IP literal turnServer, whose own family
+   * always selects the socket. Defaults to 4.
+   */
+  turnUdpFamily?: 4 | 6;
   forceTurn?: boolean;
   localPasswordPrefix?: string;
   useIpv4: boolean;

@@ -93,6 +93,29 @@ export const useG722 = (props: Partial<RTCRtpCodecParameters> = {}) =>
     ...props,
   });
 
+export function defaultCodecs() {
+  return {
+    audio: [useOPUS(), usePCMU()],
+    // Default remains VP8 for negotiation stability; AV1/VP9/H264 are opt-in
+    // via useAV1() / PeerConnection codecs config (see supportedCodecs).
+    video: [useVP8()],
+  };
+}
+
+export function cloneCodecParameters(codec: RTCRtpCodecParameters) {
+  return new RTCRtpCodecParameters({
+    mimeType: codec.mimeType,
+    clockRate: codec.clockRate,
+    ...(codec.channels != undefined ? { channels: codec.channels } : {}),
+    ...(codec.payloadType != undefined
+      ? { payloadType: codec.payloadType }
+      : {}),
+    rtcpFeedback: codec.rtcpFeedback.map((feedback) => ({ ...feedback })),
+    ...(codec.parameters != undefined ? { parameters: codec.parameters } : {}),
+    direction: codec.direction,
+  });
+}
+
 export const supportedCodecs = [
   useAV1(),
   useAV1X(),

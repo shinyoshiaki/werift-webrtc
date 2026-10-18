@@ -18,11 +18,16 @@
     "noImplicitAny": false,
     "useDefineForClassFields": true,
     "types": [
+      "node",
       "vitest/globals"
     ]
   },
   "include": [
     "src",
     "tests"
+  ],
+  "exclude": [
+    "tests/nonstandard/polyfillDomCompile",
+    "tests/nonstandard/polyfillNodeCompile"
   ]
 }

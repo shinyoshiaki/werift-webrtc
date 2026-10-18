@@ -30,15 +30,18 @@ import {
   validateAddress,
   validateRemoteCandidate,
 } from "./iceBase";
-import { classes, methods } from "./stun/const";
+import { TCP_CHECK_RESPONSE_TIMEOUT_MS, classes, methods } from "./stun/const";
 import { Message } from "./stun/message";
 import { StunProtocol } from "./stun/protocol";
 import { TcpActiveProtocol, TcpPassiveProtocol } from "./stun/tcpProtocol";
 import { createStunOverTurnClient } from "./turn/protocol";
-import type { Protocol } from "./types/model";
+import type { Protocol, TransactionRequestOptions } from "./types/model";
 import { getHostAddresses } from "./utils";
 
 const log = debug("werift-ice : packages/ice/src/ice.ts : log");
+
+/** Fallback STUN server when none is configured (constructor / setIceServers). */
+const DEFAULT_STUN_SERVER: Address = ["stun.l.google.com", 19302];
 
 export class Connection implements IceConnection {
   localUsername = randomString(4);
@@ -92,14 +95,57 @@ export class Connection implements IceConnection {
     if (this.iceLite) {
       this._iceControlling = false;
     }
-    const { stunServer, turnServer } = this.options;
-    this.stunServer = validateAddress(stunServer) ?? [
-      "stun.l.google.com",
-      19302,
-    ];
-    this.turnServer = validateAddress(turnServer);
+    this.applyStunTurnServersFromOptions();
     this.restart();
     log("new Connection", this.options);
+  }
+
+  /**
+   * Replace STUN/TURN servers after construction.
+   * Server-related fields are replaced (not partial-merged) so that removing
+   * TURN clears residual credentials. W3C setConfiguration replaces the ICE
+   * server list rather than merging additively.
+   *
+   * Used when servers are learned after the gatherer was built (e.g. WHIP
+   * Link headers) and must take effect before the next gather pass.
+   */
+  setIceServers(options: Partial<IceOptions>) {
+    // Explicitly assign server fields even when undefined so a STUN-only
+    // update cannot leave a previous TURN host/credential in options.
+    this.options = {
+      ...this.options,
+      stunServer: options.stunServer,
+      turnServer: options.turnServer,
+      turnUsername: options.turnUsername,
+      turnPassword: options.turnPassword,
+      turnTransport: options.turnTransport,
+    };
+    if (options.forceTurn !== undefined) {
+      this.options.forceTurn = options.forceTurn;
+    }
+    if (options.useTcp !== undefined) {
+      this.options.useTcp = options.useTcp;
+    }
+    if (options.turnTlsOptions !== undefined) {
+      this.options.turnTlsOptions = options.turnTlsOptions;
+    }
+    if (options.turnUdpFamily !== undefined) {
+      this.options.turnUdpFamily = options.turnUdpFamily;
+    }
+
+    this.applyStunTurnServersFromOptions();
+    log("Connection ice servers updated", this.options);
+  }
+
+  /**
+   * Derive Connection.stunServer / turnServer from this.options.
+   * Shared by the constructor and setIceServers so both paths validate and
+   * default identically.
+   */
+  private applyStunTurnServersFromOptions() {
+    this.stunServer =
+      validateAddress(this.options.stunServer) ?? DEFAULT_STUN_SERVER;
+    this.turnServer = validateAddress(this.options.turnServer);
   }
 
   get iceControlling() {
@@ -226,7 +272,10 @@ export class Connection implements IceConnection {
         );
       }
 
-      const candidatePromises = this.getCandidatePromises(address, 5);
+      const candidatePromises = this.getCandidatePromises(
+        address,
+        this.options.stunGatherTimeout,
+      );
       await Promise.allSettled(candidatePromises);
 
       this.localCandidatesEnd = true;
@@ -320,6 +369,32 @@ export class Connection implements IceConnection {
         log("dataReceived", error);
       }
     });
+    protocol.onConnectionClosed?.subscribe((remoteAddr) => {
+      this.handleConnectionClosed(protocol, remoteAddr);
+    });
+  }
+
+  /**
+   * RFC 6544: the selected TCP connection is the only path for this component;
+   * once it is closed no application data or consent check can reach the peer,
+   * so fail the same way as a consent expiry instead of waiting for it.
+   */
+  private handleConnectionClosed(protocol: Protocol, remoteAddr: Address) {
+    const nominated = this.nominated;
+    if (
+      !nominated ||
+      nominated.protocol !== protocol ||
+      nominated.remoteAddr[0] !== remoteAddr[0] ||
+      nominated.remoteAddr[1] !== remoteAddr[1]
+    ) {
+      return;
+    }
+    if (this.state === "closed" || this.state === "failed") {
+      return;
+    }
+    log("selected tcp connection closed", nominated.toJSON());
+    this.stopConsentLifecycle();
+    this.setState("failed");
   }
 
   private getCandidatePromises(addresses: string[], timeout = 5) {
@@ -400,29 +475,34 @@ export class Connection implements IceConnection {
 
     if (!gatherRelayOnly && this.options.useTcp) {
       const tcpCandidatePromises = addresses.map(async (address) => {
-        const passiveProtocol = new TcpPassiveProtocol();
-        this.ensureProtocol(passiveProtocol);
-        await passiveProtocol.connectionMade(address, this.options.portRange);
-        passiveProtocol.localIp = address;
-        passiveProtocol.localCandidate = new Candidate(
-          candidateFoundation("host", "tcp", address),
-          1,
-          "tcp",
-          candidatePriority("host", {
-            transport: "tcp",
-            tcptype: "passive",
-          }),
-          address,
-          passiveProtocol.listeningPort,
-          "host",
-          undefined,
-          undefined,
-          "passive",
-          this.generation,
-          this.localUsername,
-        );
-        this.protocols.push(passiveProtocol);
-        this.appendLocalCandidate(passiveProtocol.localCandidate);
+        // Passive candidates open a listening TCP server; skip them when the
+        // agent only makes outbound connections (tcpPassive === false). Active
+        // candidates below still dial out, so direct TCP egress is unaffected.
+        if (this.options.tcpPassive !== false) {
+          const passiveProtocol = new TcpPassiveProtocol();
+          this.ensureProtocol(passiveProtocol);
+          await passiveProtocol.connectionMade(address, this.options.portRange);
+          passiveProtocol.localIp = address;
+          passiveProtocol.localCandidate = new Candidate(
+            candidateFoundation("host", "tcp", address),
+            1,
+            "tcp",
+            candidatePriority("host", {
+              transport: "tcp",
+              tcptype: "passive",
+            }),
+            address,
+            passiveProtocol.listeningPort,
+            "host",
+            undefined,
+            undefined,
+            "passive",
+            this.generation,
+            this.localUsername,
+          );
+          this.protocols.push(passiveProtocol);
+          this.appendLocalCandidate(passiveProtocol.localCandidate);
+        }
 
         if (!gatherIceLite) {
           const activeProtocol = new TcpActiveProtocol();
@@ -510,6 +590,8 @@ export class Connection implements IceConnection {
             interfaceAddresses: this.options.interfaceAddresses,
             transport: turnTransport,
             tlsOptions: this.options.turnTlsOptions,
+            connectTimeoutMs: (this.options.turnConnectTimeout ?? 8) * 1000,
+            udpFamily: this.options.turnUdpFamily,
           },
         ).catch(async (e) => {
           if (turnTransport === "udp") {
@@ -523,6 +605,7 @@ export class Connection implements IceConnection {
                 portRange: this.options.portRange,
                 interfaceAddresses: this.options.interfaceAddresses,
                 transport: "tcp",
+                connectTimeoutMs: (this.options.turnConnectTimeout ?? 8) * 1000,
               },
             );
           } else {
@@ -1197,6 +1280,13 @@ export class Connection implements IceConnection {
       }
     }
 
+    this.nominateTcpPairIfReady();
+
+    // A nomination request is still in flight; its result decides the outcome.
+    if (this.nominating) {
+      return;
+    }
+
     {
       const list = [CandidatePairState.SUCCEEDED, CandidatePairState.FAILED];
       if (this.checkList.find(({ state }) => !list.includes(state))) {
@@ -1235,7 +1325,9 @@ export class Connection implements IceConnection {
       const { remotePassword, remoteUsername, generation } = this;
       const localUsername = pair.localCandidate.ufrag ?? this.localUsername;
 
-      const nominate = this.iceControlling && !this.remoteIsLite;
+      // TCP pairs use regular nomination (see nominateTcpPairIfReady).
+      const nominate =
+        this.iceControlling && !this.remoteIsLite && !this.isTcpPair(pair);
       const request = this.buildRequest({
         nominate,
         localUsername,
@@ -1253,12 +1345,7 @@ export class Connection implements IceConnection {
           request,
           pair.remoteAddr,
           Buffer.from(remotePassword, "utf8"),
-          pair.localCandidate.transport.toLowerCase() === "tcp" ? 0 : 4,
-          (attempt) => {
-            if (attempt > 0) {
-              pair.retransmissionsSent++;
-            }
-          },
+          this.checkRequestOptions(pair),
         );
         pair.responsesReceived++;
 
@@ -1335,6 +1422,8 @@ export class Connection implements IceConnection {
       if (nominate || pair.remoteNominated) {
         // # nominated by agressive nomination or the remote party
         pair.nominated = true;
+      } else if (this.usesTcpRegularNomination(pair)) {
+        // # nominated later by nominateTcpPairIfReady (from checkComplete)
       } else if (this.iceControlling && !this.nominating) {
         // # perform regular nomination
         this.nominating = true;
@@ -1351,15 +1440,11 @@ export class Connection implements IceConnection {
             request,
             pair.remoteAddr,
             Buffer.from(this.remotePassword, "utf8"),
-            pair.localCandidate.transport.toLowerCase() === "tcp" ? 0 : 4,
-            (attempt) => {
-              if (attempt > 0) {
-                pair.retransmissionsSent++;
-              }
-            },
+            this.checkRequestOptions(pair),
           );
           pair.responsesReceived++;
         } catch (error) {
+          this.nominating = false;
           pair.updateState(CandidatePairState.FAILED);
           this.checkComplete(pair);
           return;
@@ -1371,6 +1456,117 @@ export class Connection implements IceConnection {
       this.checkComplete(pair);
       r();
     });
+
+  private isTcpPair(pair: CandidatePair) {
+    return pair.localCandidate.transport.toLowerCase() === "tcp";
+  }
+
+  /**
+   * Aggressive nomination lets each side settle on whichever TCP connection
+   * finished first; the two sides can then pick different connections and
+   * pruning destroys the peer's choice. For TCP the controlling agent instead
+   * nominates exactly one valid pair (RFC 8445 §8.1.1 regular nomination).
+   */
+  private usesTcpRegularNomination(pair: CandidatePair) {
+    return this.iceControlling && !this.remoteIsLite && this.isTcpPair(pair);
+  }
+
+  private checkRequestOptions(pair: CandidatePair): TransactionRequestOptions {
+    const onRequestSent = (attempt: number) => {
+      if (attempt > 0) {
+        pair.retransmissionsSent++;
+      }
+    };
+    if (this.isTcpPair(pair)) {
+      // RFC 5389 §7.2.2: no retransmissions over a reliable transport.
+      return {
+        retransmissions: 0,
+        responseTimeout: TCP_CHECK_RESPONSE_TIMEOUT_MS,
+        onRequestSent,
+      };
+    }
+    return { retransmissions: 4, onRequestSent };
+  }
+
+  /**
+   * Controlling side: nominate the highest-priority TCP pair once every
+   * higher-priority TCP pair has finished its check, so the choice does not
+   * depend on which connection happened to complete first.
+   */
+  private nominateTcpPairIfReady() {
+    if (
+      !this.iceControlling ||
+      this.remoteIsLite ||
+      this.nominated ||
+      this.nominating
+    ) {
+      return;
+    }
+
+    for (const pair of this.checkList) {
+      if (!this.isTcpPair(pair)) {
+        continue;
+      }
+      if (pair.state === CandidatePairState.SUCCEEDED) {
+        this.nominateTcpPair(pair);
+        return;
+      }
+      if (pair.state !== CandidatePairState.FAILED) {
+        // A higher-priority pair may still succeed.
+        return;
+      }
+    }
+  }
+
+  private nominateTcpPair(pair: CandidatePair) {
+    this.nominating = true;
+    const { generation } = this;
+    const request = this.buildRequest({
+      nominate: true,
+      localUsername: pair.localCandidate.ufrag ?? this.localUsername,
+      remoteUsername: this.remoteUsername,
+      iceControlling: this.iceControlling,
+      localCandidate: pair.localCandidate,
+    });
+    pair.requestsSent++;
+
+    pair.protocol
+      .request(
+        request,
+        pair.remoteAddr,
+        Buffer.from(this.remotePassword, "utf8"),
+        this.checkRequestOptions(pair),
+      )
+      .then(
+        () => {
+          if (this.isStaleNomination(pair, generation)) {
+            return;
+          }
+          pair.responsesReceived++;
+          pair.nominated = true;
+          this.nominating = false;
+          this.checkComplete(pair);
+        },
+        (error) => {
+          if (this.isStaleNomination(pair, generation)) {
+            return;
+          }
+          log("tcp nomination failed", pair.toJSON(), error);
+          this.nominating = false;
+          pair.updateState(CandidatePairState.FAILED);
+          this.checkComplete(pair);
+        },
+      );
+  }
+
+  /** The agent was closed or restarted while the nomination was in flight. */
+  private isStaleNomination(pair: CandidatePair, generation: number) {
+    return (
+      this.state === "closed" ||
+      this.generation !== generation ||
+      !this.checkList.includes(pair)
+    );
+  }
 
   private addPair(pair: CandidatePair) {
     this.checkList.push(pair);

@@ -1,3 +1,4 @@
+import type { SCTPOptions } from "../../sctp/src";
 import { createWebRtcTypeError } from "./errors";
 import { Event, debug } from "./imports/common";
 
@@ -24,8 +25,8 @@ export class SctpTransportManager {
 
   constructor() {}
 
-  createSctpTransport(maxMessageSize?: number) {
-    const sctp = new RTCSctpTransport(5000, maxMessageSize);
+  createSctpTransport(maxMessageSize?: number, sctpOptions?: SCTPOptions) {
+    const sctp = new RTCSctpTransport(5000, maxMessageSize, sctpOptions);
     sctp.mid = undefined;
     sctp.onDataChannel.subscribe((channel) => {
       this.dataChannelsOpened++;
@@ -138,6 +139,9 @@ export class SctpTransportManager {
   async close() {
     if (this.sctpTransport) {
       await this.sctpTransport.stop();
+      // UdpTransport.send は既知アドレスでは callback を待たない。呼び出し側が
+      // 直後に ICE ソケットを閉じると queued な AbortChunk が落ちるので、1 tick 譲る。
+      await new Promise<void>((resolve) => setImmediate(resolve));
     }
 
     this.onDataChannel.allUnsubscribe();

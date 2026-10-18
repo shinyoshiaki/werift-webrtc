@@ -19,6 +19,7 @@
     "strictNullChecks": false,
     "noImplicitAny": false,
     "types": [
+      "node",
       "vitest/globals"
     ]
   },

@@ -84,6 +84,28 @@ readonly \[`string`, `number`\]
 
 ***
 
+### addressFamily
+
+#### Get Signature
+
+> **get** **addressFamily**(): [`IpAddressFamily`](../type-aliases/IpAddressFamily.md)
+
+IP family of the bound socket: 4 for udp4, 6 for udp6.
+
+##### Returns
+
+[`IpAddressFamily`](../type-aliases/IpAddressFamily.md)
+
+IP family of a datagram socket. A datagram transport can only reach
+addresses of this family. Built-in UDP transports always set it; a custom
+transport that leaves it unset gets no family preference.
+
+#### Implementation of
+
+[`Transport`](../interfaces/Transport.md).[`addressFamily`](../interfaces/Transport.md#addressfamily)
+
+***
+
 ### host
 
 #### Get Signature

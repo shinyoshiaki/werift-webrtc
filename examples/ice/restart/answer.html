@@ -15,6 +15,7 @@
     <script type="text/babel">
         let pc;
         let socket;
+        const pendingCandidates = [];
 
         const App = () => {
             const videoRef = React.useRef();
@@ -64,17 +65,30 @@
                 socket.onmessage = async (ev) => {
                     const msg = JSON.parse(ev.data);
                     console.log("message", msg);
+                    if (!msg) {
+                        return;
+                    }
                     if (msg.candidate) {
-                        await pc.addIceCandidate(msg);
+                        if (pc.remoteDescription) {
+                            await pc.addIceCandidate(msg);
+                        } else {
+                            pendingCandidates.push(msg);
+                        }
                     } else {
                         if (msg.type === "offer") {
                             await pc.setRemoteDescription(msg);
+                            for (const candidate of pendingCandidates.splice(0)) {
+                                await pc.addIceCandidate(candidate);
+                            }
                             const answer = await pc.createAnswer();
                             await pc.setLocalDescription(answer);
                             const sdp = JSON.stringify(pc.localDescription);
                             socket.send(sdp);
-                        } else {
+                        } else if (msg.type === "answer" || msg.sdp) {
                             await pc.setRemoteDescription(msg);
+                            for (const candidate of pendingCandidates.splice(0)) {
+                                await pc.addIceCandidate(candidate);
+                            }
                         }
                     }
                 };

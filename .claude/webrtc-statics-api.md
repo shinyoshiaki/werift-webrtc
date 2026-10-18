@@ -37,7 +37,7 @@ WebRTC標準準拠の統計情報API `getStats()` が完全実装されていま
 ### テスト実装
 
 - **単体テスト**: `packages/webrtc/tests/integrate/getStats.test.ts` で包括的テスト実装
-- **動作確認**: `examples/getStats/demo.ts` で実際の動作確認プログラム実装
+- **動作確認**: `examples/untested/getStats/demo.ts` で実際の動作確認プログラム実装
 - **11テストケース**: 基本機能から詳細機能まで網羅的テスト
 
 ### 使用例

@@ -89,3 +89,39 @@
 #### Returns
 
 `Promise`\<`void`\>
+
+***
+
+### setGatheringState()
+
+> **setGatheringState**(`state`): `void`
+
+Set gathering state and notify listeners.
+ICE restart must use this instead of writing gatheringState directly so
+SecureTransportManager can refresh its aggregate iceGatheringState.
+
+#### Parameters
+
+##### state
+
+`"complete"` | `"new"` | `"gathering"`
+
+#### Returns
+
+`void`
+
+***
+
+### setIceServers()
+
+> **setIceServers**(`options`): `void`
+
+#### Parameters
+
+##### options
+
+`Partial`\<[`IceOptions`](../interfaces/IceOptions.md)\>
+
+#### Returns
+
+`void`

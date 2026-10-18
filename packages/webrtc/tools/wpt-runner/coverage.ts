@@ -1,9 +1,7 @@
 import { mergeProcessCovs } from "@bcoe/v8-coverage";
-import { V8CoverageProvider } from "@vitest/coverage-v8/dist/provider.js";
-import { transform as esbuildTransform } from "esbuild";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
-import { dirname, extname, resolve } from "path";
+import { dirname, resolve } from "path";
 import { spawnSync } from "child_process";
 import { fileURLToPath } from "url";
 import {
@@ -17,6 +15,8 @@ import {
   formatMarkdownReport,
   type WptRunReport,
 } from "./runner";
+
+import { convertCoverage, generateCoverageReports } from "./coverageProvider";
 
 const toolDir = dirname(fileURLToPath(import.meta.url));
 const packageDir = resolve(toolDir, "..", "..");
@@ -47,25 +47,11 @@ async function main() {
 
     const markdown = await readMarkdownReport();
     const mergedCoverage = await mergeRawCoverage(rawCoverageDir);
-    const provider = createCoverageProvider();
-    await provider.clean();
-
-    const coverageFilePath = resolve(provider.coverageFilesDirectory, "coverage-wpt.json");
-    await writeFile(coverageFilePath, JSON.stringify(mergedCoverage), "utf8");
-    provider.coverageFiles.set("wpt", {
-      browser: {},
-      ssr: {
-        "wpt-runner": coverageFilePath,
-      },
-      web: {},
-    });
-
-    const coverageMap = await provider.generateCoverage({ allTestsRun: true });
+    const coverageMap = await convertCoverage(mergedCoverage);
     coverageMap.filter((filePath) => {
       return filePath.startsWith(sourceDir) && filePath.endsWith(".ts");
     });
-    await provider.generateReports(coverageMap, true);
-    await provider.cleanAfterRun();
+    await generateCoverageReports(coverageMap, coverageDir);
     await mkdir(dirname(defaultMarkdownReportPath), { recursive: true });
     await writeFile(defaultMarkdownReportPath, markdown, "utf8");
 
@@ -96,92 +82,6 @@ async function main() {
   } finally {
     await rm(rawCoverageDir, { recursive: true, force: true });
   }
-}
-
-function createCoverageProvider() {
-  const project = createProject();
-  const provider = new V8CoverageProvider();
-  provider.initialize({
-    config: {
-      coverage: {
-        all: false,
-        allowExternal: false,
-        clean: true,
-        cleanOnRerun: true,
-        exclude: [],
-        excludeAfterRemap: false,
-        extension: [".ts"],
-        ignoreEmptyLines: true,
-        include: ["src/**/*.ts"],
-        provider: "v8",
-        reporter: [
-          ["json-summary", { file: "coverage-summary.json" }],
-          ["lcovonly", { file: "lcov.info" }],
-          ["html", { subdir: "html" }],
-        ],
-        reportsDirectory: resolve(coverageDir),
-        reportOnFailure: true,
-        skipFull: false,
-      },
-      root: packageDir,
-      shard: undefined,
-    },
-    getProjectByName() {
-      return project;
-    },
-    getRootProject() {
-      return project;
-    },
-    logger: {
-      error: console.error,
-      log: console.log,
-      warn: console.warn,
-    },
-    server: {
-      config: {
-        configFile: undefined,
-      },
-    },
-    version: "3.0.5",
-    vitenode: {
-      fetchCache: new Map(),
-    },
-  } as any);
-
-  return provider;
-}
-
-function createProject() {
-  const fetchCache = new Map();
-  return {
-    browser: undefined,
-    config: {
-      root: packageDir,
-    },
-    vitenode: {
-      fetchCache,
-      fetchCaches: {
-        browser: fetchCache,
-        ssr: fetchCache,
-        web: fetchCache,
-      },
-      async transformRequest(filePath: string) {
-        const source = await readFile(filePath, "utf8");
-        const result = await esbuildTransform(source, {
-          format: "esm",
-          loader: resolveLoader(filePath),
-          sourcefile: filePath,
-          sourcemap: true,
-          target: "es2022",
-        });
-
-        return {
-          code: result.code,
-          map: typeof result.map === "string" ? JSON.parse(result.map) : result.map,
-        };
-      },
-    },
-  };
 }
 
 async function mergeRawCoverage(directoryPath: string) {
@@ -229,23 +129,6 @@ async function updateBaselineIfRequested(totals: CoverageTotals) {
       2,
     )}\n`,
   );
-}
-
-function resolveLoader(filePath: string) {
-  switch (extname(filePath)) {
-    case ".ts":
-      return "ts";
-    case ".tsx":
-      return "tsx";
-    case ".mts":
-      return "ts";
-    case ".cts":
-      return "ts";
-    case ".js":
-      return "js";
-    default:
-      return "ts";
-  }
 }
 
 function isTargetSourceUrl(value: unknown) {
