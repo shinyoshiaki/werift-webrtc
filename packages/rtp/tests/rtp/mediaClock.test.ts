@@ -541,6 +541,59 @@ describe("rtp/mediaClock", () => {
       clock.stop();
     });
 
+    test.each(["skip", "delay"] as const)(
+      "初回 tick 前の pause/resume (%s) でも skip 数と経過サンプル数は初回ストールと一致する",
+      (stallPolicy) => {
+        // Arrange: 同じ設定のクロックを 2 つ用意する
+        const harness = createManualMediaClockHarness();
+        const options = {
+          clockRate: 48_000,
+          frameSamples: 960,
+          initialTimestamp: 0,
+          stallPolicy,
+        };
+        const pausedClock = harness.createClock(options);
+        const stalledClock = harness.createClock(options);
+        const pausedTicks = harness.collectTicks(pausedClock);
+        const stalledTicks = harness.collectTicks(stalledClock);
+
+        // Act: 片方は start 直後に pause して 1 秒後に resume (ギャップ反映)、
+        // もう片方は start 直後に 1 秒ストールさせる
+        pausedClock.start();
+        pausedClock.pause();
+        stalledClock.start();
+        harness.block(1000);
+        pausedClock.resume({ continuous: false });
+        harness.advance(0);
+
+        // Assert: どちらも初回 tick は frame 50 で、飛ばした 50 スロット分が報告される
+        const expected = {
+          frameIndex: 50,
+          timestamp: 48000,
+          skippedFrames: 50,
+          elapsedSamples: 48000,
+        };
+        expect(pausedTicks).toHaveLength(1);
+        expect(pausedTicks[0]).toMatchObject(expected);
+        if (stallPolicy === "skip") {
+          expect(stalledTicks).toEqual([expect.objectContaining(expected)]);
+        }
+
+        // Act: 20ms 進める
+        harness.advance(20);
+
+        // Assert: pause 側は次のフレームが skip なしで 1 つだけ続く (burst しない)
+        expect(pausedTicks).toHaveLength(2);
+        expect(pausedTicks[1]).toMatchObject({
+          frameIndex: 51,
+          skippedFrames: 0,
+          elapsedSamples: 960,
+        });
+        pausedClock.stop();
+        stalledClock.stop();
+      },
+    );
+
     test("pause/resume continuous: pause 期間を詰めて 1 フレームだけ進める", () => {
       // Arrange
       const harness = createManualMediaClockHarness();

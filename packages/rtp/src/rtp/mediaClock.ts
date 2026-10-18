@@ -108,14 +108,15 @@ export class RtpMediaTimeline {
    * (default) returns only the latest reached slot and reports the slots in
    * between as `skippedFrames`; `"delay"` returns `nextFrameIndex` with its
    * original deadline, so `lateness` shows how far behind the clock is.
-   * `skippedFrames` counts the slots between `lastFrameIndex` and the returned
-   * slot, so a `nextFrameIndex` moved forward (e.g. by `resume()`) is reported
-   * as skipped too.
+   * `skippedFrames` and `elapsedSamples` are counted from `lastFrameIndex`
+   * (or from `baseFrameIndex` before the first tick), so a `nextFrameIndex`
+   * moved forward (e.g. by `resume()`) is reported as skipped too.
    */
   resolveTick({
     anchor,
     nextFrameIndex,
     lastFrameIndex,
+    baseFrameIndex = nextFrameIndex,
     now,
     stallPolicy = "skip",
   }: {
@@ -123,6 +124,11 @@ export class RtpMediaTimeline {
     nextFrameIndex: number;
     /** Frame index of the previous tick, if any. */
     lastFrameIndex?: number;
+    /**
+     * First slot of the timeline, used as the counting origin while there is no
+     * previous tick. Default: `nextFrameIndex`.
+     */
+    baseFrameIndex?: number;
     now: number;
     stallPolicy?: RtpMediaClockStallPolicy;
   }): RtpMediaClockTick | undefined {
@@ -137,10 +143,10 @@ export class RtpMediaTimeline {
       timestamp: this.timestamp(frameIndex),
       elapsedSamples:
         this.elapsedSamples(frameIndex) -
-        this.elapsedSamples(lastFrameIndex ?? nextFrameIndex),
+        this.elapsedSamples(lastFrameIndex ?? baseFrameIndex),
       skippedFrames:
         frameIndex -
-        (lastFrameIndex !== undefined ? lastFrameIndex + 1 : nextFrameIndex),
+        (lastFrameIndex !== undefined ? lastFrameIndex + 1 : baseFrameIndex),
       deadline,
       lateness: now - deadline,
     };
@@ -348,6 +354,9 @@ export class RtpMediaClock {
       anchor: this.anchor,
       nextFrameIndex: this.nextFrameIndex,
       lastFrameIndex: this._lastTick?.frameIndex,
+      // the timeline starts at slot 0; keep counting from there even if
+      // resume() moved nextFrameIndex before the first tick
+      baseFrameIndex: 0,
       now,
       stallPolicy: this.stallPolicy,
     });

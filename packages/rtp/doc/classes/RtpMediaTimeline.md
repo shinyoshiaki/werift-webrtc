@@ -126,9 +126,9 @@ reached yet. When several slots have elapsed, `stallPolicy: "skip"`
 (default) returns only the latest reached slot and reports the slots in
 between as `skippedFrames`; `"delay"` returns `nextFrameIndex` with its
 original deadline, so `lateness` shows how far behind the clock is.
-`skippedFrames` counts the slots between `lastFrameIndex` and the returned
-slot, so a `nextFrameIndex` moved forward (e.g. by `resume()`) is reported
-as skipped too.
+`skippedFrames` and `elapsedSamples` are counted from `lastFrameIndex`
+(or from `baseFrameIndex` before the first tick), so a `nextFrameIndex`
+moved forward (e.g. by `resume()`) is reported as skipped too.
 
 #### Parameters
 
@@ -137,6 +137,13 @@ as skipped too.
 ###### anchor
 
 [`RtpMediaTimelineAnchor`](../interfaces/RtpMediaTimelineAnchor.md)
+
+###### baseFrameIndex?
+
+`number` = `nextFrameIndex`
+
+First slot of the timeline, used as the counting origin while there is no
+previous tick. Default: `nextFrameIndex`.
 
 ###### lastFrameIndex?
 
