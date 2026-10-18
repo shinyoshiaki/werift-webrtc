@@ -1083,6 +1083,36 @@ describe("media/rtpSender RTP continuity", () => {
     expect(sendRtp).toHaveBeenCalledTimes(1);
   });
 
+  test("pacing 待ち中に setBandwidthEstimator すると旧 estimator の待ちが解除され、新しい送信を遅らせない", async () => {
+    const { sender, track, sendRtp } = arrangeSender({ twcc: true });
+    vi.spyOn(sender, "maybeInjectProbePadding").mockResolvedValue(0);
+    // Arrange: 旧 estimator は 80 bps の pacing（1 パケットに数秒待つ）、probe なし。
+    const slow = new GccBandwidthEstimator(300_000);
+    slow.getPacingBitrateBps = () => 80;
+    slow.shouldTagProbePacket = () => false;
+    sender.setBandwidthEstimator(slow);
+    // Arrange: 新 estimator は pacing・probe なし。
+    const fast = new GccBandwidthEstimator(300_000);
+    fast.getPacingBitrateBps = () => 0;
+    fast.shouldTagProbePacket = () => false;
+
+    // Act: 旧 estimator の pacing 待ちに入れたまま estimator を差し替え、次のパケットを送る。
+    track.onReceiveRtp.execute(createRtpPacket(1, 1000));
+    await setTimeout(10);
+    expect(sendRtp).not.toHaveBeenCalled();
+    sender.setBandwidthEstimator(fast);
+    track.onReceiveRtp.execute(createRtpPacket(2, 1040));
+    // 旧待ちは 100ms 刻みで眠るため、残り約 90ms より十分短い 30ms で観測する。
+    await setTimeout(30);
+
+    // Assert: 新しい送信は旧 pacing の待ち時間（次の 100ms 刻み）を待たずに出る。
+    expect(sendRtp).toHaveBeenCalledTimes(1);
+    // Assert: 旧パケットはその後も送られない。
+    await setTimeout(150);
+    expect(sendRtp).toHaveBeenCalledTimes(1);
+    expect(sentRtpHeaders(sendRtp)[0].timestamp).toBe(1040);
+  });
+
   test("replaceTrack(null) 後は送信キュー待ちの旧パケットを送らない", async () => {
     const { sender, track, sendRtp } = arrangeSender();
     const { release } = holdFirstDtlsWrite(sendRtp);

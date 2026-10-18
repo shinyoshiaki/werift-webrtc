@@ -410,6 +410,8 @@ export class RTCRtpSender {
   private sourceEpoch = 0;
   /** Aborted on every source epoch bump to wake probe / pacing waits. */
   private sourceEpochCancel = new AbortController();
+  /** Aborted on every BWE generation bump to wake probe / pacing waits. */
+  private bweGenerationCancel = new AbortController();
   private drainingPendingRtp = false;
   private readonly pendingRtpEnabled: boolean;
   private readonly pendingRtpMaxLength: number;
@@ -498,7 +500,7 @@ export class RTCRtpSender {
   setBandwidthEstimator(impl: BandwidthEstimator): void {
     // Invalidate in-flight media/padding so they do not touch the next estimator
     // (or revive a disposed probe controller after dispose/reset).
-    this.bweGeneration++;
+    this.bumpBweGeneration();
     const prev = this._senderBWE;
     if (prev === impl) {
       // Same instance: still reset so callers get a clean estimator state.
@@ -845,7 +847,7 @@ export class RTCRtpSender {
     this.discardPendingRtp();
     // Invalidate in-flight sendRtp / maybeInjectProbePadding before dispose
     // so they cannot emit padding or revive a disposed estimator.
-    this.bweGeneration++;
+    this.bumpBweGeneration();
     this.rtcpRunning = false;
     this.rtcpCancel.abort();
     this.stopBweProcessTimer();
@@ -978,13 +980,26 @@ export class RTCRtpSender {
   }
 
   /** Abort signal for a send wait: sender stop, plus source switch for media. */
+  /**
+   * Invalidate sends planned under the current estimator and release any
+   * probe / pacing wait still running at the old estimator's rate.
+   */
+  private bumpBweGeneration() {
+    this.bweGeneration++;
+    this.bweGenerationCancel.abort();
+    this.bweGenerationCancel = new AbortController();
+  }
+
+  /**
+   * Abort signal for a send wait: sender stop, estimator swap, plus source
+   * switch for media.
+   */
   private sendWaitSignal(sourceEpoch: number | undefined): AbortSignal {
-    return sourceEpoch === undefined
-      ? this.rtcpCancel.signal
-      : AbortSignal.any([
-          this.rtcpCancel.signal,
-          this.sourceEpochCancel.signal,
-        ]);
+    const signals = [this.rtcpCancel.signal, this.bweGenerationCancel.signal];
+    if (sourceEpoch !== undefined) {
+      signals.push(this.sourceEpochCancel.signal);
+    }
+    return AbortSignal.any(signals);
   }
 
   private scheduleRtpContinuity(timestampStep = 1) {
@@ -1540,7 +1555,13 @@ export class RTCRtpSender {
       twccOn &&
       estimatorAtStart.getPacingBitrateBps() > 0
     ) {
-      if (!(await this.awaitPacingBudget(constructedBytes, opts.sourceEpoch))) {
+      if (
+        !(await this.awaitPacingBudget(
+          constructedBytes,
+          sendGeneration,
+          opts.sourceEpoch,
+        ))
+      ) {
         return;
       }
     }
@@ -1718,14 +1739,19 @@ export class RTCRtpSender {
   /**
    * Token-bucket wait against {@link pacingBitrateBps} for **media**.
    * Probe packets use {@link awaitProbeSendTime} instead.
-   * Returns false if the sender is stopped, or the packet's source is
-   * replaced/detached, while waiting (budget is not consumed then).
+   * Returns false if the sender is stopped, the estimator is swapped
+   * (`generation` changes), or the packet's source is replaced/detached while
+   * waiting (budget is not consumed then).
    */
   private async awaitPacingBudget(
     packetBytes: number,
+    generation: number,
     sourceEpoch?: number,
   ): Promise<boolean> {
-    const alive = () => !this.stopped && !this.isStaleSource(sourceEpoch);
+    const alive = () =>
+      !this.stopped &&
+      generation === this.bweGeneration &&
+      !this.isStaleSource(sourceEpoch);
     const rateBps = this.pacingBitrateBps;
     if (rateBps <= 0) {
       return true;

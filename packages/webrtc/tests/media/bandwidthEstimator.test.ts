@@ -1839,9 +1839,9 @@ describe("media/sender bandwidth estimator", () => {
         releaseVideo = resolve;
       });
       const origPace = (video as any).awaitPacingBudget.bind(video);
-      (video as any).awaitPacingBudget = async (n: number) => {
+      (video as any).awaitPacingBudget = async (...args: unknown[]) => {
         await holdVideo;
-        return origPace(n);
+        return origPace(...args);
       };
 
       const wireTsns: number[] = [];
@@ -2102,9 +2102,12 @@ describe("media/sender bandwidth estimator", () => {
       });
       const paced: number[] = [];
       const orig = (sender as any).awaitPacingBudget.bind(sender);
-      (sender as any).awaitPacingBudget = async (n: number) => {
+      (sender as any).awaitPacingBudget = async (
+        n: number,
+        ...rest: unknown[]
+      ) => {
         paced.push(n);
-        return orig(n);
+        return orig(n, ...rest);
       };
 
       // Act: 小さな payload を RED 経路で送る
