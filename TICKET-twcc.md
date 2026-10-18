@@ -371,24 +371,42 @@ set availableBitrate(v: number) {
 
 ### 機能
 
-- [ ] 帯域推定が **インターフェース（または同等の抽象）** として定義され、TWCC 入出力と **`availableBitrate` / `onAvailableBitrate` のみ** が共通契約になっている（congestion 系は共通に含めない）。
-- [ ] **現行アルゴリズム**が abstract の一実装として動き、**デフォルト**で従来と実用上同等の推定を保つ。legacy 固有の `onCongestion` / `onCongestionScore` も具象側で維持する。
-- [ ] **GCC アルゴリズム**が abstract の一実装として提供され、TWCC feedback から **delay-based / loss-based / probe** を用いて推定帯域を更新する。GCC 固有状態は具象イベント / state として分離する。
-- [ ] GCC 実装が draft-ietf-rmcat-gcc および **libwebrtc 参照実装に可能な限り最大互換**である（主要コンポーネント・更新規則・定数。既知差分は文書化）。
-- [ ] 推定送信可能帯域が **変動したとき** `onAvailableBitrate`（共通契約）で **bps** が通知されることが、実装と JSDoc/ドキュメントで明確である（値不変時の不要通知を避ける実装が望ましい）。
-- [ ] **`setBandwidthEstimator`（インスタンス差し替え）** が提供され、デフォルトは現行実装、ドキュメントまたは example で差し替え方が分かる。
+- [x] 帯域推定が **インターフェース（または同等の抽象）** として定義され、TWCC 入出力と **`availableBitrate` / `onAvailableBitrate` のみ** が共通契約になっている（congestion 系は共通に含めない）。
+  - 根拠: `BandwidthEstimator`（`media/sender/bandwidthEstimator.ts`）。legacy 互換の `onCongestion` は `LegacyCongestionCompatibility` として共通契約の外に置いている。
+- [x] **現行アルゴリズム**が abstract の一実装として動き、**デフォルト**で従来と実用上同等の推定を保つ。legacy 固有の `onCongestion` / `onCongestionScore` も具象側で維持する。
+  - 根拠: `SenderBandwidthEstimator`（既定・cumulative min(send,recv)）。`PeerConfig.bandwidthEstimator` の既定値は `"legacy"`。
+- [x] **GCC アルゴリズム**が abstract の一実装として提供され、TWCC feedback から **delay-based / loss-based / probe** を用いて推定帯域を更新する。GCC 固有状態は具象イベント / state として分離する。
+  - 根拠: `GccBandwidthEstimator`（Trendline + overuse + AIMD / LossBased / ProbeController）。
+- [x] GCC 実装が draft-ietf-rmcat-gcc および **libwebrtc 参照実装に可能な限り最大互換**である（主要コンポーネント・更新規則・定数。既知差分は文書化）。
+  - 根拠: 既知差分は `GCC_KNOWN_DIFFERENCES`（`estimators/gcc/constants.ts`）に記載。ALR 専用 probe、完全な PacedSender、REMB、RR 由来の `updatePacketsLost` 配線は未対応で、差分または今後の課題として扱う。
+- [x] 推定送信可能帯域が **変動したとき** `onAvailableBitrate`（共通契約）で **bps** が通知されることが、実装と JSDoc/ドキュメントで明確である（値不変時の不要通知を避ける実装が望ましい）。
+  - 根拠: `onAvailableBitrate` は bps が変化したときだけ発火する（JSDoc と `packages/webrtc/README.md`）。
+- [x] **`setBandwidthEstimator`（インスタンス差し替え）** が提供され、デフォルトは現行実装、ドキュメントまたは example で差し替え方が分かる。
+  - 根拠: `RTCRtpSender.setBandwidthEstimator`。差し替え方は `packages/webrtc/README.md` に記載。
 - [x] `PeerConfig.bandwidthEstimator` で新規 sender の estimator を `"legacy"` / `"gcc"` / 無効化 / factory から選べる（§2.10）。
 - [x] `rtpSender.ts` が GCC 定数・型ガードを import せず、GCC 必要フックは `BandwidthEstimator` 上（legacy / disabled は no-op）。
 
 ### 品質
 
-- [ ] 現行 / GCC それぞれについて、合成入力による単体テストが追加されている（`onAvailableBitrate` 発火条件を含む）。
-- [ ] `setBandwidthEstimator` 差し替え後に新実装へ入力が渡り、共通イベントが新実装から発火することをテストする。
-- [ ] GCC について、overuse / loss / probe を含む制御応答テストがあり、可能なら決定的入力に対する期待 bitrate 系列（許容誤差付き）で回帰できる。
-- [ ] libwebrtc / draft との意図的差分一覧（無ければ「既知差分なし」）が docs または実装コメントで辿れる。
-- [ ] `packages/webrtc` の type-check および関連テストが通る（例: `cd packages/webrtc && npm run type` / 追加テスト実行。必要に応じて `npm run test:small`）。
-- [ ] 既存 example（特に `simulcast/abr.ts`、`twcc/offer.ts`）がコンパイル・利用パターンとして破綻しない（legacy 固有イベント購読を含む）。
-- [ ] 破壊的変更がある場合は CHANGELOG または README に移行手順を記載。ない場合はデフォルト互換を確認済みであること。
+- [x] 現行 / GCC それぞれについて、合成入力による単体テストが追加されている（`onAvailableBitrate` 発火条件を含む）。
+  - 根拠: `tests/media/bandwidthEstimator.test.ts`。
+- [x] `setBandwidthEstimator` 差し替え後に新実装へ入力が渡り、共通イベントが新実装から発火することをテストする。
+  - 根拠: `tests/media/bandwidthEstimator.test.ts`、`tests/media/rtpSender.test.ts`。
+- [x] GCC について、overuse / loss / probe を含む制御応答テストがあり、可能なら決定的入力に対する期待 bitrate 系列（許容誤差付き）で回帰できる。
+  - 根拠: overuse / loss / probe の応答テストと、形状＋許容レンジでの回帰（`tests/media/bandwidthEstimator.test.ts`）。libwebrtc 公開ベクトルとの bit 単位一致は未実施（非ゴール）。
+- [x] libwebrtc / draft との意図的差分一覧（無ければ「既知差分なし」）が docs または実装コメントで辿れる。
+  - 根拠: `GCC_KNOWN_DIFFERENCES`。
+- [x] `packages/webrtc` の type-check および関連テストが通る（例: `cd packages/webrtc && npm run type` / 追加テスト実行。必要に応じて `npm run test:small`）。
+  - 根拠: `cd packages/webrtc && npm run type`、`npm test`、ルートの `npm run type` と `npm run test:small` が成功（2026-10-19）。
+- [x] 既存 example（特に `simulcast/abr.ts`、`twcc/offer.ts`）がコンパイル・利用パターンとして破綻しない（legacy 固有イベント購読を含む）。
+  - 根拠: ルートの `npm run type`（`tsconfig.json` は `examples` を含む）が成功。`examples/mediachannel/simulcast/abr.ts` と `examples/mediachannel/twcc/offer.ts` もこれでコンパイル確認済み。
+- [x] 破壊的変更がある場合は CHANGELOG または README に移行手順を記載。ない場合はデフォルト互換を確認済みであること。
+  - 根拠: `changelog.md` の Unreleased「⚠️ Breaking changes」に `senderBWE` の型、transport 単位の TWCC、`filterProbePaddingOnReceiveRtp` の既定値、GCC 送信経路を記載。
+
+### 未対応・未確認（完了条件外の残課題）
+
+- ALR 専用 probe、完全な PacedSender、REMB の取り込み、RR 由来の loss 配線（`updatePacketsLost`）。
+- WPT 指定リビジョンとの一致、mediasoup interop、libwebrtc 実行結果との数値比較、E2E 全体実行時の ICE-TCP タイムアウトの原因。
 
 ### 非ゴール（本チケットでは必須としない）
 

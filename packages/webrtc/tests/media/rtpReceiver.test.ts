@@ -288,6 +288,22 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
     });
     receiver.setupTWCC(111);
     receiver.receiverTWCC!.handleTWCC(1);
+    // Arrange: 同じ DTLS transport（BUNDLE）の別 receiver も共有 TWCC を保持する。
+    const bundled = new RTCRtpReceiver(defaultPeerConfig, "audio", 5678);
+    bundled.setDtlsTransport(dtls);
+    bundled.prepareReceive({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "audio/opus",
+          clockRate: 48000,
+          payloadType: 111,
+          rtcpFeedback: [useTWCC()],
+        }),
+      ],
+      encodings: [new RTCRtpCodingParameters({ ssrc: 555, payloadType: 111 })],
+      headerExtensions: [],
+    });
+    bundled.setupTWCC(555);
 
     // Act: transport-cc なしの codec と新しい SSRC に再同期する。
     receiver.resyncCodecs(
@@ -327,8 +343,45 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
 
     // Assert: transport-wide 履歴は codec 再交渉をまたいで共有される。
     expect(receiver.receiverTWCC).toBeDefined();
+    expect(receiver.receiverTWCC).toBe(bundled.receiverTWCC);
     expect(Object.keys(receiver.receiverTWCC!.extensionInfo)).toContain("1");
     receiver.stop();
+    bundled.stop();
+  });
+
+  test("resyncCodecs を繰り返しても共有 TWCC の参照は増えず、stop で定期処理が止まる", () => {
+    const dtls = createDtlsTransport();
+    const receiver = new RTCRtpReceiver(defaultPeerConfig, "video", 1234);
+    receiver.setDtlsTransport(dtls);
+    const params = (ssrc: number) => ({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "video/vp8",
+          clockRate: 90000,
+          payloadType: 96,
+          rtcpFeedback: [useTWCC()],
+        }),
+      ],
+      encodings: [new RTCRtpCodingParameters({ ssrc, payloadType: 96 })],
+      headerExtensions: [],
+    });
+
+    // Arrange: transport-cc ありで受信準備し、共有 TWCC を取得する。
+    receiver.prepareReceive(params(111));
+    receiver.setupTWCC(111);
+    const twcc = receiver.receiverTWCC!;
+
+    // Act: 再交渉相当の resyncCodecs を複数回実行してから stop する。
+    receiver.resyncCodecs(params(222), 222);
+    receiver.resyncCodecs(params(333), 333);
+    receiver.resyncCodecs(params(444), 444);
+    const shared = receiver.receiverTWCC;
+    receiver.stop();
+
+    // Assert: 同じ transport の共有インスタンスが使われ、最後の解放で 100ms 定期処理が止まる。
+    expect(shared).toBe(twcc);
+    expect(twcc.twccRunning).toBe(false);
+    expect(receiver.receiverTWCC).toBeUndefined();
   });
 
   test("getStats returns report with seconds-based jitter and byte counters", async () => {

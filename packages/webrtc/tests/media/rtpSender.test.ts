@@ -1053,6 +1053,36 @@ describe("media/rtpSender RTP continuity", () => {
     expect(headers[1].timestamp).toBe((first.timestamp + 1) >>> 0);
   });
 
+  test("probe 待ち中の旧パケットは replaceTrack で待ちから解除され、新ソースを遅らせない", async () => {
+    const { sender, track, sendRtp } = arrangeSender({ twcc: true });
+    const gcc = new GccBandwidthEstimator(300_000);
+    sender.setBandwidthEstimator(gcc);
+    vi.spyOn(sender, "maybeInjectProbePadding").mockResolvedValue(0);
+    // Arrange: 最初の 1 件だけ 5 秒先の probe 予約を返し、media pacing は無効にする。
+    let reserved = 0;
+    gcc.getPacingBitrateBps = () => 0;
+    gcc.shouldTagProbePacket = () => reserved === 0;
+    gcc.reserveOutgoingProbe = () =>
+      reserved++ === 0
+        ? { clusterId: 1, nextSendTimeMs: milliTime() + 5_000 }
+        : undefined;
+    const track2 = new MediaStreamTrack({ kind: "audio", remote: true });
+
+    // Act: 旧パケットを probe 待ちにさせたまま新 track へ差し替え、新ソース先頭を送る。
+    track.onReceiveRtp.execute(createRtpPacket(1, 1000));
+    await setTimeout(10);
+    expect(sendRtp).not.toHaveBeenCalled();
+    const t0 = milliTime();
+    await sender.replaceTrack(track2);
+    track2.onReceiveRtp.execute(createRtpPacket(100, 5000));
+    await waitForSent(sendRtp, 1);
+
+    // Assert: 新ソースは probe 待ちの終了を待たずに送られ、旧パケットは送られない。
+    expect(milliTime() - t0).toBeLessThan(1_000);
+    await setTimeout(20);
+    expect(sendRtp).toHaveBeenCalledTimes(1);
+  });
+
   test("replaceTrack(null) 後は送信キュー待ちの旧パケットを送らない", async () => {
     const { sender, track, sendRtp } = arrangeSender();
     const { release } = holdFirstDtlsWrite(sendRtp);

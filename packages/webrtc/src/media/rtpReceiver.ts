@@ -89,6 +89,8 @@ export class RTCRtpReceiver {
   latestRepairedRid?: string;
 
   receiverTWCC?: ReceiverTWCC;
+  /** DTLS transport {@link receiverTWCC} was acquired from (release key). */
+  private receiverTWCCTransport?: RTCDtlsTransport;
   stopped = false;
   remoteStreamId?: string;
   remoteStreamIds: string[] = [];
@@ -129,7 +131,22 @@ export class RTCRtpReceiver {
   }
 
   setDtlsTransport(dtls: RTCDtlsTransport) {
+    if (this.receiverTWCCTransport && this.receiverTWCCTransport !== dtls) {
+      this.releaseReceiverTWCC();
+    }
     this.dtlsTransport = dtls;
+  }
+
+  /** Drop this receiver's reference to the transport-shared TWCC generator. */
+  private releaseReceiverTWCC() {
+    if (this.receiverTWCC && this.receiverTWCCTransport) {
+      releaseTransportReceiverTWCC(
+        this.receiverTWCCTransport,
+        this.receiverTWCC,
+      );
+    }
+    this.receiverTWCC = undefined;
+    this.receiverTWCCTransport = undefined;
   }
 
   // todo fix
@@ -191,9 +208,17 @@ export class RTCRtpReceiver {
         track.codec = codec;
       }
     }
+    // Re-acquire before releasing the previous reference so a still-enabled
+    // receiver keeps the same transport-wide history instead of recreating it.
+    const previous = this.receiverTWCC;
+    const previousTransport = this.receiverTWCCTransport;
     this.receiverTWCC = undefined;
+    this.receiverTWCCTransport = undefined;
     if (mediaSourceSsrc != undefined) {
       this.setupTWCC(mediaSourceSsrc);
+    }
+    if (previous && previousTransport) {
+      releaseTransportReceiverTWCC(previousTransport, previous);
     }
   }
 
@@ -212,6 +237,7 @@ export class RTCRtpReceiver {
         this.rtcpSsrc,
         mediaSourceSsrc,
       );
+      this.receiverTWCCTransport = this.dtlsTransport;
       return;
     }
     this.receiverTWCC.setMediaSourceSsrc(mediaSourceSsrc);
@@ -244,10 +270,7 @@ export class RTCRtpReceiver {
     this.rtcpRunning = false;
     this.rtcpCancel.abort();
 
-    if (this.receiverTWCC && this.dtlsTransport) {
-      releaseTransportReceiverTWCC(this.dtlsTransport, this.receiverTWCC);
-    }
-    this.receiverTWCC = undefined;
+    this.releaseReceiverTWCC();
     this.nack.close();
   }
 

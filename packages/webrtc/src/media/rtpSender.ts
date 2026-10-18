@@ -408,6 +408,8 @@ export class RTCRtpSender {
    * after `replaceTrack(null)`.
    */
   private sourceEpoch = 0;
+  /** Aborted on every source epoch bump to wake probe / pacing waits. */
+  private sourceEpochCancel = new AbortController();
   private drainingPendingRtp = false;
   private readonly pendingRtpEnabled: boolean;
   private readonly pendingRtpMaxLength: number;
@@ -945,6 +947,10 @@ export class RTCRtpSender {
    */
   private invalidateQueuedSource() {
     this.sourceEpoch++;
+    // Release the running FIFO task if it is a stale packet parked in a
+    // probe / pacing wait, so new-source media is not held behind it.
+    this.sourceEpochCancel.abort();
+    this.sourceEpochCancel = new AbortController();
     const stale = this.outgoingQueue.filter(
       (queued) =>
         queued.sourceEpoch !== undefined &&
@@ -965,6 +971,20 @@ export class RTCRtpSender {
     for (const item of stalePending) {
       this.settlePendingRtp(item);
     }
+  }
+
+  private isStaleSource(sourceEpoch: number | undefined): boolean {
+    return sourceEpoch !== undefined && sourceEpoch !== this.sourceEpoch;
+  }
+
+  /** Abort signal for a send wait: sender stop, plus source switch for media. */
+  private sendWaitSignal(sourceEpoch: number | undefined): AbortSignal {
+    return sourceEpoch === undefined
+      ? this.rtcpCancel.signal
+      : AbortSignal.any([
+          this.rtcpCancel.signal,
+          this.sourceEpochCancel.signal,
+        ]);
   }
 
   private scheduleRtpContinuity(timestampStep = 1) {
@@ -1406,6 +1426,11 @@ export class RTCRtpSender {
 
     const twccOn = this.isTransportCcNegotiated();
 
+    // Stale source: drop before touching probe reservation or pacing budget.
+    if (this.isStaleSource(opts.sourceEpoch)) {
+      return;
+    }
+
     // pin CurrentCluster: reserve probe id **before** the async send so a
     // concurrent completion cannot re-attribute this packet to the next cluster.
     let reservedClusterId: number | undefined;
@@ -1419,6 +1444,7 @@ export class RTCRtpSender {
           !(await this.awaitProbeSendTime(
             reservation.nextSendTimeMs,
             sendGeneration,
+            opts.sourceEpoch,
           ))
         ) {
           return;
@@ -1514,7 +1540,7 @@ export class RTCRtpSender {
       twccOn &&
       estimatorAtStart.getPacingBitrateBps() > 0
     ) {
-      if (!(await this.awaitPacingBudget(constructedBytes))) {
+      if (!(await this.awaitPacingBudget(constructedBytes, opts.sourceEpoch))) {
         return;
       }
     }
@@ -1524,10 +1550,7 @@ export class RTCRtpSender {
     }
     // Accepted under a replaced/detached source: never send it, and never let
     // it consume the new source's continuity offset.
-    if (
-      opts.sourceEpoch !== undefined &&
-      opts.sourceEpoch !== this.sourceEpoch
-    ) {
+    if (this.isStaleSource(opts.sourceEpoch)) {
       return;
     }
 
@@ -1671,28 +1694,38 @@ export class RTCRtpSender {
   private async awaitProbeSendTime(
     nextSendTimeMs: number,
     generation: number,
+    sourceEpoch?: number,
   ): Promise<boolean> {
-    if (!Number.isFinite(nextSendTimeMs)) return true;
-    while (!this.stopped && generation === this.bweGeneration) {
+    const alive = () =>
+      !this.stopped &&
+      generation === this.bweGeneration &&
+      !this.isStaleSource(sourceEpoch);
+    if (!Number.isFinite(nextSendTimeMs)) return alive();
+    while (alive()) {
       const waitMs = nextSendTimeMs - milliTime();
       if (waitMs <= 0) return true;
       try {
         await setTimeout(Math.min(waitMs, 100), undefined, {
-          signal: this.rtcpCancel.signal,
+          signal: this.sendWaitSignal(sourceEpoch),
         });
       } catch {
-        return !this.stopped && generation === this.bweGeneration;
+        return alive();
       }
     }
-    return !this.stopped && generation === this.bweGeneration;
+    return alive();
   }
 
   /**
    * Token-bucket wait against {@link pacingBitrateBps} for **media**.
    * Probe packets use {@link awaitProbeSendTime} instead.
-   * Returns false only if the sender is stopped while waiting.
+   * Returns false if the sender is stopped, or the packet's source is
+   * replaced/detached, while waiting (budget is not consumed then).
    */
-  private async awaitPacingBudget(packetBytes: number): Promise<boolean> {
+  private async awaitPacingBudget(
+    packetBytes: number,
+    sourceEpoch?: number,
+  ): Promise<boolean> {
+    const alive = () => !this.stopped && !this.isStaleSource(sourceEpoch);
     const rateBps = this.pacingBitrateBps;
     if (rateBps <= 0) {
       return true;
@@ -1710,17 +1743,17 @@ export class RTCRtpSender {
     // Cap accumulation so a single large packet is still eventually sendable.
     const maxBudget = Math.max((rateBps / 8) * 0.1, packetBytes);
     while (this.paceBudgetBytes < packetBytes) {
-      if (this.stopped) return false;
+      if (!alive()) return false;
       const need = packetBytes - this.paceBudgetBytes;
       const waitMs = Math.max(1, Math.ceil((need * 8 * 1000) / rateBps));
       try {
         await setTimeout(Math.min(waitMs, 100), undefined, {
-          signal: this.rtcpCancel.signal,
+          signal: this.sendWaitSignal(sourceEpoch),
         });
       } catch {
-        return !this.stopped;
+        return false;
       }
-      if (this.stopped) return false;
+      if (!alive()) return false;
       this.refillPaceBudget(rateBps, milliTime(), maxBudget);
     }
 
