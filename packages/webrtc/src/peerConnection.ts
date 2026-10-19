@@ -494,32 +494,7 @@ export class RTCPeerConnection extends EventTarget {
         this.config.maxMessageSize;
     }
 
-    for (const [i, codecParams] of enumerate([
-      ...(this.config.codecs.audio || []),
-      ...(this.config.codecs.video || []),
-    ])) {
-      if (codecParams.payloadType != undefined) {
-        continue;
-      }
-
-      codecParams.payloadType = 96 + i;
-      switch (codecParams.name.toLowerCase()) {
-        case "rtx":
-          {
-            codecParams.parameters = `apt=${codecParams.payloadType - 1}`;
-          }
-          break;
-        case "red":
-          {
-            if (codecParams.contentType === "audio") {
-              const redundant = codecParams.payloadType + 1;
-              codecParams.parameters = `${redundant}/${redundant}`;
-              codecParams.payloadType = 63;
-            }
-          }
-          break;
-      }
-    }
+    assignDynamicPayloadTypes(this.config);
 
     [
       ...(this.config.headerExtensions.audio || []),

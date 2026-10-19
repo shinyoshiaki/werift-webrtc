@@ -403,10 +403,21 @@ set availableBitrate(v: number) {
 - [x] 破壊的変更がある場合は CHANGELOG または README に移行手順を記載。ない場合はデフォルト互換を確認済みであること。
   - 根拠: `changelog.md` の Unreleased「⚠️ Breaking changes」に `senderBWE` の型、transport 単位の TWCC、`filterProbePaddingOnReceiveRtp` の既定値、GCC 送信経路を記載。
 
+### 検証記録（2026-10-19）
+
+- `npm run wpt --workspace packages/webrtc`: PASS 429 / FAIL 479 / TIMEOUT 43 / **REGRESSION 0**（runner の判定は success。FAIL は既存の upstream baseline）。ただし `third_party/wpt/.git` が存在しない `/tmp/wpt-gitdir` を指しているため、チェックアウト内容が指定リビジョンと一致するかは未確認。
+- `cd e2e && npm run test:sim`（werift↔Chrome ボトルネック sim）: 1 件成功。
+- `packages/webrtc` の `npm run type` / `npm test`（708 件成功・3 件 skip）、ルートの `npm run type` / `npm run test:small`: 成功。
+
+### ライセンス
+
+- GCC 実装（`packages/webrtc/src/media/sender/estimators/gcc/`）は libwebrtc（BSD-3-Clause + PATENTS）の移植。帰属はルート `NOTICE`、各ファイル先頭の `/*!` ヘッダー、`third_party/libwebrtc-ref/{LICENSE,PATENTS,AUTHORS}`（pin と同じコミットから取得）で示す。
+
 ### 未対応・未確認（完了条件外の残課題）
 
 - ALR 専用 probe、完全な PacedSender、REMB の取り込み、RR 由来の loss 配線（`updatePacketsLost`）。
 - WPT 指定リビジョンとの一致、mediasoup interop、libwebrtc 実行結果との数値比較、E2E 全体実行時の ICE-TCP タイムアウトの原因。
+- 統合送信キュー（`enqueueOutgoing`）と RTP seq remap は legacy 既定でも通る。実トラフィック（Chrome 実機・mediasoup）での挙動は sim と単体テスト以外では未検証。
 
 ### 非ゴール（本チケットでは必須としない）
 

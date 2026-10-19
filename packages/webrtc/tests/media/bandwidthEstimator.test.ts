@@ -8447,9 +8447,7 @@ describe("media/sender bandwidth estimator", () => {
       }
 
       // Assert: 1s 以内なら 2048 を超えて残る
-      expect(Object.keys((legacy as any).sentInfos).length).toBeGreaterThan(
-        2048,
-      );
+      expect((legacy as any).sentInfos.size).toBeGreaterThan(2048);
 
       // Act: 10s 超の古い packet
       legacy.rtpPacketSent({
@@ -8460,10 +8458,41 @@ describe("media/sender bandwidth estimator", () => {
       });
 
       // Assert: 時間窓外は消える
-      const remaining = Object.values((legacy as any).sentInfos) as SentInfo[];
+      const remaining = [
+        ...((legacy as any).sentInfos as Map<number, SentInfo>).values(),
+      ];
       expect(remaining.every((s) => s.sendingAtMs >= 1_000 + 3_000 + 1)).toBe(
         true,
       );
+    });
+
+    test("legacy sentInfos の時間窓 prune は先頭からのみ削除し、窓内件数で線形に走査しない", () => {
+      // Arrange: 1000 pps で 10s 窓が満杯（約 10,000 件）になる送信列
+      const legacy = new SenderBandwidthEstimator();
+      const send = (i: number) =>
+        legacy.rtpPacketSent({
+          wideSeq: i,
+          size: 100,
+          sendingAtMs: i,
+          sentAtMs: i,
+        });
+
+      // Act: 20,000 件送る（後半 10,000 件は毎回 1 件ずつ窓外になる）
+      const t0 = performance.now();
+      for (let i = 1; i <= 20_000; i++) {
+        send(i);
+      }
+      const elapsedMs = performance.now() - t0;
+
+      // Assert: 窓内（直近 10s）だけが送信順のまま残る
+      const keys = [
+        ...((legacy as any).sentInfos as Map<number, SentInfo>).keys(),
+      ];
+      expect(keys.length).toBe(10_001);
+      expect(keys[0]).toBe(10_000);
+      expect(keys.at(-1)).toBe(20_000);
+      // Assert: 全走査（旧実装で約 2.5s）ではなく償却 O(1)。余裕を持たせた上限
+      expect(elapsedMs).toBeLessThan(500);
     });
 
     test("RobustThroughput は prior_unacked を send/recv size に足す", () => {

@@ -4,6 +4,9 @@
   "commit": "0fda16159e33adf59c71a7ad1173dcbe5a632102",
   "pinned_at": "2026-08-11",
   "files": [
+    "LICENSE",
+    "PATENTS",
+    "AUTHORS",
     "modules/congestion_controller/goog_cc/goog_cc_network_control.h",
     "modules/congestion_controller/goog_cc/goog_cc_network_control.cc",
     "modules/congestion_controller/goog_cc/delay_based_bwe.h",

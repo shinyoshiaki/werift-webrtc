@@ -15,6 +15,15 @@ Browse tree:
 
 https://webrtc.googlesource.com/src/+/0fda16159e33adf59c71a7ad1173dcbe5a632102/modules/congestion_controller/goog_cc/
 
+## License
+
+The files in this directory are copied unmodified from libwebrtc and remain
+under its BSD-3-Clause license (`LICENSE`) with the additional patent grant in
+`PATENTS`; contributors are listed in `AUTHORS`. All three are fetched from the
+same pinned commit. The TypeScript GCC port in
+`packages/webrtc/src/media/sender/estimators/gcc/` is derived from these files;
+attribution is in the repository root `NOTICE`.
+
 ## Included paths
 
 - `modules/congestion_controller/goog_cc/` — network control, delay BWE, trendline, inter-arrival, acked/robust throughput, loss-based V2, probe controller/estimator, **send_side_bandwidth_estimation, link_capacity_estimator** (RttBasedBackoff / IsRttAboveLimit / UpdatePropagationRtt), **alr_detector**

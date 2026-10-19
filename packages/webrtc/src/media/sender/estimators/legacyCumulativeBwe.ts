@@ -56,7 +56,11 @@ export class SenderBandwidthEstimator
 
   private congestionCounter = 0;
   private cumulativeResult = new CumulativeResult();
-  private sentInfos: { [key: number]: SentInfo } = {};
+  /**
+   * Sent packets in send order (Map keeps insertion order), so the 10s window
+   * is trimmed from the head in amortized O(1) per packet.
+   */
+  private sentInfos = new Map<number, SentInfo>();
   private latestWideSeq: number | undefined;
   private _congestionScore = 1;
 
@@ -104,10 +108,10 @@ export class SenderBandwidthEstimator
       const wideSeq = lookupUnwrappedSentSeq(
         result.sequenceNumber,
         this.latestWideSeq,
-        (key) => this.sentInfos[key] != undefined,
+        (key) => this.sentInfos.has(key),
       );
       if (wideSeq === undefined) continue;
-      const info = this.sentInfos[wideSeq];
+      const info = this.sentInfos.get(wideSeq);
       if (!info) continue;
       // Timing sample: not WithoutDelta; receivedAtMs===0 is valid (not falsy).
       if (!hasTwccReceiveTiming(result)) continue;
@@ -153,13 +157,15 @@ export class SenderBandwidthEstimator
   rtpPacketSent(sentInfo: SentInfo) {
     const seq = sentInfo.wideSeq;
     const nowMs = sentInfo.sendingAtMs;
-    for (const key of Object.keys(this.sentInfos)) {
-      const info = this.sentInfos[Number(key)];
-      if (!info || nowMs - info.sendingAtMs > kLegacySentInfoMaxAgeMs) {
-        delete this.sentInfos[Number(key)];
-      }
+    // Evict expired entries from the oldest end only; stop at the first
+    // entry still inside the window.
+    for (const [key, info] of this.sentInfos) {
+      if (nowMs - info.sendingAtMs <= kLegacySentInfoMaxAgeMs) break;
+      this.sentInfos.delete(key);
     }
-    this.sentInfos[seq] = sentInfo;
+    // Re-insert so a reused key moves to the newest end.
+    this.sentInfos.delete(seq);
+    this.sentInfos.set(seq, sentInfo);
     if (this.latestWideSeq === undefined || seq > this.latestWideSeq) {
       this.latestWideSeq = seq;
     }
@@ -171,7 +177,7 @@ export class SenderBandwidthEstimator
     this._congestionScore = 1;
     this._availableBitrate = 0;
     this.cumulativeResult.reset();
-    this.sentInfos = {};
+    this.sentInfos.clear();
     this.latestWideSeq = undefined;
   }
 

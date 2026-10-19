@@ -22,6 +22,10 @@ REPO = "https://webrtc.googlesource.com/src"
 
 # Curated list — keep in sync with MANIFEST.md
 FILES = [
+    # License / attribution files of the source tree (BSD-3-Clause + PATENTS).
+    "LICENSE",
+    "PATENTS",
+    "AUTHORS",
     "modules/congestion_controller/goog_cc/goog_cc_network_control.h",
     "modules/congestion_controller/goog_cc/goog_cc_network_control.cc",
     "modules/congestion_controller/goog_cc/delay_based_bwe.h",
