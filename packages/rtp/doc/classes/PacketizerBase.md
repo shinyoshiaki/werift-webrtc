@@ -114,3 +114,28 @@ telephone-event is the RFC 4733 exception: marker on the first event packet).
 #### Implementation of
 
 [`Packetizer`](../interfaces/Packetizer.md).[`packetize`](../interfaces/Packetizer.md#packetize)
+
+***
+
+### startTalkspurt()
+
+> **startTalkspurt**(): `void`
+
+Mark the next audio packet as the first of a talkspurt (e.g. after
+silence suppression). The first packet of a new packetizer is also one.
+
+#### Returns
+
+`void`
+
+***
+
+### takeTalkspurtMarker()
+
+> `protected` **takeTalkspurtMarker**(): `boolean`
+
+Marker for audio packets: true once per talkspurt, false otherwise.
+
+#### Returns
+
+`boolean`

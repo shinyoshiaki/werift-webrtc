@@ -23,7 +23,7 @@ AU-size fields store the Access Unit size in octets (not size−1).
 
 ##### options
 
-[`PacketizerBaseOptions`](../type-aliases/PacketizerBaseOptions.md) = `{}`
+[`AacHbrPacketizerOptions`](../type-aliases/AacHbrPacketizerOptions.md) = `{}`
 
 #### Returns
 
@@ -131,6 +131,10 @@ AU-size fields store the Access Unit size in octets (not size−1).
 
 > **packetizeAccessUnits**(`aus`, `rtpTimestamp`): [`RtpPacket`](RtpPacket.md)[]
 
+Packetize consecutive AUs. AUs are aggregated greedily into packets; an AU
+that cannot fit in a single packet is fragmented. Each packet's timestamp
+is that of its first AU (rtpTimestamp + n × auDurationInSamples).
+
 #### Parameters
 
 ##### aus
@@ -144,3 +148,36 @@ AU-size fields store the Access Unit size in octets (not size−1).
 #### Returns
 
 [`RtpPacket`](RtpPacket.md)[]
+
+***
+
+### startTalkspurt()
+
+> **startTalkspurt**(): `void`
+
+Mark the next audio packet as the first of a talkspurt (e.g. after
+silence suppression). The first packet of a new packetizer is also one.
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`PacketizerBase`](PacketizerBase.md).[`startTalkspurt`](PacketizerBase.md#starttalkspurt)
+
+***
+
+### takeTalkspurtMarker()
+
+> `protected` **takeTalkspurtMarker**(): `boolean`
+
+Marker for audio packets: true once per talkspurt, false otherwise.
+
+#### Returns
+
+`boolean`
+
+#### Inherited from
+
+[`PacketizerBase`](PacketizerBase.md).[`takeTalkspurtMarker`](PacketizerBase.md#taketalkspurtmarker)

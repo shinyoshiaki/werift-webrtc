@@ -128,3 +128,36 @@ Uses W=1 single-element payloads; fragments large OBUs with Z/Y bits.
 #### Overrides
 
 [`PacketizerBase`](PacketizerBase.md).[`packetize`](PacketizerBase.md#packetize)
+
+***
+
+### startTalkspurt()
+
+> **startTalkspurt**(): `void`
+
+Mark the next audio packet as the first of a talkspurt (e.g. after
+silence suppression). The first packet of a new packetizer is also one.
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`PacketizerBase`](PacketizerBase.md).[`startTalkspurt`](PacketizerBase.md#starttalkspurt)
+
+***
+
+### takeTalkspurtMarker()
+
+> `protected` **takeTalkspurtMarker**(): `boolean`
+
+Marker for audio packets: true once per talkspurt, false otherwise.
+
+#### Returns
+
+`boolean`
+
+#### Inherited from
+
+[`PacketizerBase`](PacketizerBase.md).[`takeTalkspurtMarker`](PacketizerBase.md#taketalkspurtmarker)

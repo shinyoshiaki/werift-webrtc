@@ -416,6 +416,7 @@
 - [microTime](functions/microTime.md)
 - [milliTime](functions/milliTime.md)
 - [nodeIpAddress](functions/nodeIpAddress.md)
+- [normalizeCodecMimeType](functions/normalizeCodecMimeType.md)
 - [normalizeFamilyNodeV18](functions/normalizeFamilyNodeV18.md)
 - [normalizeFingerprintAlgorithm](functions/normalizeFingerprintAlgorithm.md)
 - [normalizeFingerprintValue](functions/normalizeFingerprintValue.md)

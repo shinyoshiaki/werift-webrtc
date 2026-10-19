@@ -131,3 +131,36 @@
 #### Inherited from
 
 `G711Packetizer.packetize`
+
+***
+
+### startTalkspurt()
+
+> **startTalkspurt**(): `void`
+
+Mark the next audio packet as the first of a talkspurt (e.g. after
+silence suppression). The first packet of a new packetizer is also one.
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+`G711Packetizer.startTalkspurt`
+
+***
+
+### takeTalkspurtMarker()
+
+> `protected` **takeTalkspurtMarker**(): `boolean`
+
+Marker for audio packets: true once per talkspurt, false otherwise.
+
+#### Returns
+
+`boolean`
+
+#### Inherited from
+
+`G711Packetizer.takeTalkspurtMarker`

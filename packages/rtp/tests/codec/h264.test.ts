@@ -305,7 +305,9 @@ describe("packages/rtp/tests/codec/h264.test.ts", () => {
       expect(packets.length).toBe(2);
       expect(packets[1].payload).toEqual(Buffer.from([type]));
       expect(packets[1].header.marker).toBe(true);
-      expect(dePacketizeRtpPackets("MPEG4/ISO/AVC", packets).data).toEqual(sample);
+      expect(dePacketizeRtpPackets("MPEG4/ISO/AVC", packets).data).toEqual(
+        sample,
+      );
     }
     // 他の type の 1 byte NAL は従来どおり拒否
     expect(() =>
