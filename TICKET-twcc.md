@@ -405,8 +405,11 @@ set availableBitrate(v: number) {
 
 ### 検証記録（2026-10-19）
 
-- `npm run wpt --workspace packages/webrtc`: PASS 429 / FAIL 479 / TIMEOUT 43 / **REGRESSION 0**（runner の判定は success。FAIL は既存の upstream baseline）。ただし `third_party/wpt/.git` が存在しない `/tmp/wpt-gitdir` を指しているため、チェックアウト内容が指定リビジョンと一致するかは未確認。
-- `cd e2e && npm run test:sim`（werift↔Chrome ボトルネック sim）: 1 件成功。
+- `npm run wpt --workspace packages/webrtc`: 2 回実行し、どちらも **REGRESSION 0**（runner の判定は success。FAIL は既存の upstream baseline）。
+  - 1 回目: PASS 429 / FAIL 479 / TIMEOUT 43 / TOTAL 951
+  - 2 回目: PASS 422 / FAIL 479 / TIMEOUT 44 / TOTAL 945（timeout したファイルは subtest 数が減るため、総数が実行ごとに揺れる）
+- WPT リビジョン一致: `third_party/wpt/.git` が存在しない `/tmp/wpt-gitdir` を指しており `git submodule` では確認できないため、main checkout の module object store（読み取りのみ）で pin `121babb3c1d6a78dd0f638593c82d6cdcd0bcd18` の blob と照合した。runner が使う `webrtc/`（255 ファイル）と `resources/`（171 ファイル）、テストが参照する `common/` / `html/` / `mediacapture-streams/` の 8 ファイルがすべて一致し、余分なファイルもなかった。
+- `cd e2e && npm run test:sim`（werift↔Chrome ボトルネック sim）: 2 回とも 1 件成功。
 - `packages/webrtc` の `npm run type` / `npm test`（708 件成功・3 件 skip）、ルートの `npm run type` / `npm run test:small`: 成功。
 
 ### ライセンス
@@ -416,7 +419,8 @@ set availableBitrate(v: number) {
 ### 未対応・未確認（完了条件外の残課題）
 
 - ALR 専用 probe、完全な PacedSender、REMB の取り込み、RR 由来の loss 配線（`updatePacketsLost`）。
-- WPT 指定リビジョンとの一致、mediasoup interop、libwebrtc 実行結果との数値比較、E2E 全体実行時の ICE-TCP タイムアウトの原因。
+- mediasoup interop、libwebrtc 実行結果との数値比較、E2E 全体実行時の ICE-TCP タイムアウトの原因。
+- worktree の `third_party/wpt/.git` の gitdir 破損そのもの（main checkout の module を共有すると HEAD / index が干渉するため修復していない。上記のとおり内容は pin と一致）。
 - 統合送信キュー（`enqueueOutgoing`）と RTP seq remap は legacy 既定でも通る。実トラフィック（Chrome 実機・mediasoup）での挙動は sim と単体テスト以外では未検証。
 
 ### 非ゴール（本チケットでは必須としない）

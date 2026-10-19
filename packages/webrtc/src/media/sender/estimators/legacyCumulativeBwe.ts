@@ -7,8 +7,8 @@ import {
   setAvailableBitrateIfChanged,
 } from "../bandwidthEstimator";
 import { CumulativeResult } from "../cumulativeResult";
-import { lookupUnwrappedSentSeq } from "./gcc/sequenceNumber";
 import { hasTwccReceiveTiming } from "./twccReceiveTiming";
+import { lookupUnwrappedSentSeq } from "./twccSentSeqLookup";
 
 const COUNTER_MAX = 20;
 const SCORE_MAX = 10;

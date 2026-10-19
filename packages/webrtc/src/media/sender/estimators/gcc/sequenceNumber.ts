@@ -7,9 +7,10 @@
  * third_party/libwebrtc-ref/PATENTS.
  */
 import { uint16Gt } from "../../../../imports/common";
+import { TWCC_SEQ_MOD } from "../twccSentSeqLookup";
 
-/** 16-bit transport-wide sequence modulus. */
-export const TWCC_SEQ_MOD = 0x10000;
+// Shared with the legacy estimator; re-exported to keep the public API.
+export { TWCC_SEQ_MOD, lookupUnwrappedSentSeq } from "../twccSentSeqLookup";
 
 /**
  * pin `rtc_base/numerics/sequence_number_unwrapper.h` `SeqNumUnwrapper<uint16_t>`.
@@ -147,25 +148,4 @@ export function sortPacketResultsByWideSeq<
  */
 export function isOlderTransportWideSeq(seq: number, ref: number): boolean {
   return compareTransportWideSeq(seq, ref) < 0;
-}
-
-/**
- * Map a 16-bit TWCC feedback sequence onto an unwrapped sentInfos key.
- * Tries the newest generation first (latest send on this estimator).
- */
-export function lookupUnwrappedSentSeq(
-  seq16: number,
-  latestExtended: number | undefined,
-  isCandidate: (key: number) => boolean,
-): number | undefined {
-  const s = seq16 & 0xffff;
-  if (latestExtended === undefined) {
-    return isCandidate(s) ? s : undefined;
-  }
-  const maxGen = Math.floor(latestExtended / TWCC_SEQ_MOD);
-  for (let gen = maxGen; gen >= 0 && maxGen - gen < 8; gen--) {
-    const key = gen * TWCC_SEQ_MOD + s;
-    if (isCandidate(key)) return key;
-  }
-  return undefined;
 }
