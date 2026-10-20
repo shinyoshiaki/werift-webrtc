@@ -1,9 +1,9 @@
 /// <reference types="@vitest/browser/providers/playwright" />
 
 import { createRequire } from "node:module";
-import { nodePolyfills } from "vite-plugin-node-polyfills";
 
 import { defineConfig } from "vitest/config";
+import { nodePolyfills } from "vite-plugin-node-polyfills";
 
 // Loaded via require so Vite does not bundle the CommonJS helper.
 const { resolveChromeExecutable } = createRequire(import.meta.url)(
