@@ -2,8 +2,8 @@
 
 import { createRequire } from "node:module";
 
-import { defineConfig } from "vitest/config";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
+import { defineConfig } from "vitest/config";
 
 // Loaded via require so Vite does not bundle the CommonJS helper.
 const { resolveChromeExecutable } = createRequire(import.meta.url)(
@@ -27,7 +27,10 @@ export default defineConfig({
     // Node-only tests live in tools/tests (npm run test:tools)
     include: ["tests/**/*.test.ts"],
     testTimeout: 20_000,
-    // fileParallelism: false,
+    // Browser テストは 1 台のブラウザと e2e サーバ資源を共有するため、
+    // ファイル並列で実行すると負荷でタイミング依存のテストが不安定になる。
+    // ice-server の chrome-e2e ハーネスと同じく直列実行に固定する。
+    fileParallelism: false,
     retry: 1,
     browser: {
       provider: "playwright",
