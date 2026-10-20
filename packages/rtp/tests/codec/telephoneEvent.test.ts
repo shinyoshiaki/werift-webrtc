@@ -137,4 +137,20 @@ describe("packages/rtp/tests/codec/telephoneEvent.test.ts", () => {
     expect(end.end).toBe(true);
     expect(end.duration).toBe(800);
   });
+
+  it("rejects out-of-range event / volume / duration instead of masking (RFC 4733 §2.3, §2.5.1.3)", () => {
+    // Arrange
+    const packetizer = new TelephoneEventPacketizer({ sequenceNumber: 1 });
+    // Act / Assert: 境界値は受理し、範囲外は RangeError
+    expect(packetizer.packetizeEnd(255, 63, 0xffff, 0).payload).toEqual(
+      Buffer.from([0xff, 0xbf, 0xff, 0xff]),
+    );
+    expect(() => packetizer.packetizeEnd(1, 10, 70_000, 0)).toThrow(RangeError);
+    expect(() => packetizer.packetizeEnd(1, 10, 0x10000, 0)).toThrow(
+      /duration/,
+    );
+    expect(() => packetizer.packetizeStart(256, 10, 0, 0)).toThrow(/event/);
+    expect(() => packetizer.packetizeStart(1, 64, 0, 0)).toThrow(/volume/);
+    expect(() => packetizer.packetizeStart(1, 10, -1, 0)).toThrow(RangeError);
+  });
 });

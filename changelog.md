@@ -16,6 +16,10 @@
 - **H.264 / H.265**: length-prefixed input whose prefix looks like a start code (e.g. length 300 = `00 00 01 2c`) is no longer misread as Annex-B.
 - **AV1**: adjacent fragmented OBUs are no longer merged; boundaries come from Z/Y.
 - **Audio marker** (G.711 / G.722 / Opus): marker is set only on the first packet of a talkspurt (`startTalkspurt()` to re-arm), per RFC 3551 §4.1 / RFC 7587 §4.1.
+- **H.264 / H.265 input layout**: new `inputFormat: "auto" | "annexb" | "length-prefixed"` on the packetizers and `split*NalUnits`. `auto` (default) treats a leading start code as Annex-B (a 3-byte `00 00 01 HH` is otherwise indistinguishable from a 4-byte length `0x1HH`); pass `"length-prefixed"` for MP4/MKV samples. Supersedes the earlier length-first heuristic, which corrupted 3-byte-start-code NALs.
+- **telephone-event**: `event` / `volume` / `duration` outside 0–255 / 0–63 / 0–0xFFFF now throw `RangeError` instead of being masked (RFC 4733 §2.5.1.3: split longer events).
+- **AAC**: a complete AU arriving while a fragment is pending drops the stale fragment instead of throwing. **H.265 FU** with S=E=1 is rejected.
+- **`useH264()`** now returns `video/H264` (uppercase, as Chrome expects); codec names are compared case-insensitively.
 - **AV1 ↔ AV1X** normalization now applies to SDP answer, codec matching, and file playback validation, not only `findCodecByMimeType`.
 
 ### 🚀 Features & Improvements
@@ -33,7 +37,7 @@
   - **H.265 / HEVC** (RFC 7798): `H265RtpPayload` + `H265Packetizer` — single NAL, AP (Type 48), FU (Type 49), Annex-B and length-prefixed input, IRAP keyframe detection, optional parameter-set AP on keyframes.
   - **G.711**: `PcmuRtpPayload` / `PcmaRtpPayload` + packetizers; static PT 0 / 8, clock 8000 Hz (RFC 3551).
   - **G.722**: `G722RtpPayload` + `G722Packetizer`; static PT 9, **RTP clock 8000 Hz** (RFC 3551 §4.5.2).
-  - **AAC-hbr** (RFC 3640): `AacHbrRtpPayload` + `AacHbrPacketizer`; registry name `MPEG4-GENERIC`; AU Header Section validation; MTU fragmentation (header on first fragment).
+  - **AAC-hbr** (RFC 3640): `AacHbrRtpPayload` + `AacHbrPacketizer`; registry name `MPEG4-GENERIC`; AU Header Section validation; MTU fragmentation (every fragment repeats the AU Header Section).
   - **telephone-event** (RFC 4733): `TelephoneEventRtpPayload` (serialize/deSerialize) + `TelephoneEventPacketizer`; marker on event start; not frame-aggregated in `dePacketizeRtpPackets`.
   - **PacketizerBase** in `codec/base.ts` (sequence/`random16`, MTU default 1200, marker left to codecs).
   - Registry: `depacketizerCodecs` / `dePacketizeRtpPackets` gain `H265`, `PCMU`, `PCMA`, `G722`, `MPEG4-GENERIC`.

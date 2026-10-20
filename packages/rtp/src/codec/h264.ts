@@ -11,7 +11,11 @@ import { BitStream, getBit } from "../../../common/src";
 import { H264AnnexBParser } from "../extra/container/mp4/h264";
 import type { RtpHeader, RtpPacket } from "../rtp/rtp";
 import type { DePacketizerBase } from "./base";
-import { PacketizerBase, type PacketizerBaseOptions } from "./base";
+import {
+  type NalInputFormat,
+  PacketizerBase,
+  type PacketizerBaseOptions,
+} from "./base";
 
 // FU indicator octet
 // +---------------+
@@ -224,6 +228,7 @@ function readUintLength(buf: Buffer, offset: number, size: number): number {
 export function splitH264NalUnits(
   sample: Buffer,
   naluLengthSize = 4,
+  inputFormat: NalInputFormat = "auto",
 ): Buffer[] {
   if (
     naluLengthSize < 1 ||
@@ -237,14 +242,18 @@ export function splitH264NalUnits(
   if (sample.length === 0) {
     return [];
   }
-  // A length prefix such as 00 00 01 2c (NAL length 300) is byte-identical to an
-  // Annex-B start code, so a start-code-looking prefix alone is not proof of
-  // Annex-B. Prefer length-prefixed when its lengths chain exactly to the end.
-  const prefixed = parseLengthPrefixed(sample, naluLengthSize);
-  if (prefixed.nalus) {
-    return prefixed.nalus;
-  }
-  if (looksLikeAnnexB(sample)) {
+  const format =
+    inputFormat === "auto"
+      ? looksLikeAnnexB(sample)
+        ? "annexb"
+        : "length-prefixed"
+      : inputFormat;
+  if (format === "annexb") {
+    if (!looksLikeAnnexB(sample)) {
+      throw new Error(
+        "H.264 inputFormat annexb: sample does not start with a start code",
+      );
+    }
     const parser = new H264AnnexBParser(sample);
     const nalus: Buffer[] = [];
     let payload = parser.readNextNaluPayload();
@@ -253,6 +262,10 @@ export function splitH264NalUnits(
       payload = parser.readNextNaluPayload();
     }
     return nalus;
+  }
+  const prefixed = parseLengthPrefixed(sample, naluLengthSize);
+  if (prefixed.nalus) {
+    return prefixed.nalus;
   }
   throw new Error(prefixed.error);
 }
@@ -364,6 +377,8 @@ export function buildH264StapA(nalus: Buffer[]): Buffer {
 export type H264PacketizerOptions = PacketizerBaseOptions & {
   /** Length field size for AVCC input (default 4). Ignored for Annex-B. */
   naluLengthSize?: number;
+  /** Sample layout (default "auto"); see {@link NalInputFormat}. */
+  inputFormat?: NalInputFormat;
   /**
    * Parameter sets (SPS/PPS as raw NAL units without start codes).
    * On IDR / keyframe, only types missing from the sample are prepended
@@ -388,6 +403,7 @@ export type H264PacketizeOptions = {
  */
 export class H264Packetizer extends PacketizerBase {
   private readonly naluLengthSize: number;
+  private readonly inputFormat: NalInputFormat;
   private readonly parameterSets: Buffer[];
   private readonly defaultIsKeyframe: boolean | undefined;
 
@@ -400,6 +416,7 @@ export class H264Packetizer extends PacketizerBase {
       );
     }
     this.naluLengthSize = nls;
+    this.inputFormat = options.inputFormat ?? "auto";
     this.parameterSets = options.parameterSets ?? [];
     this.defaultIsKeyframe = options.isKeyframe;
   }
@@ -409,7 +426,11 @@ export class H264Packetizer extends PacketizerBase {
     rtpTimestamp: number,
     options: H264PacketizeOptions = {},
   ): RtpPacket[] {
-    let nalUnits = splitH264NalUnits(data, this.naluLengthSize);
+    let nalUnits = splitH264NalUnits(
+      data,
+      this.naluLengthSize,
+      this.inputFormat,
+    );
     if (nalUnits.length === 0) {
       return [];
     }

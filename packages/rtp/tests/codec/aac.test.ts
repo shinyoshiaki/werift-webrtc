@@ -181,34 +181,39 @@ describe("packages/rtp/tests/codec/aac.test.ts", () => {
     expect(() => AacHbrRtpPayload.deSerialize(payload)).toThrow(/surplus/);
   });
 
-  it("rejects continuation that exceeds declared AU-size", () => {
-    // Arrange: 先頭断片は size=10 のうち 6 byte、継続はヘッダ付きで 8 byte → 超過
-    const header = Buffer.from([0x00, 0x10, 0x00, 0x50]); // size=10
+  it("recovers from a lost final fragment when the next packet is a complete AU", () => {
+    // Arrange: size=10 の先頭断片 (6 byte) の後続が欠落し、完全な 3 byte AU が届く
+    const header = Buffer.from([0x00, 0x10, 0x00, 0x50]);
     const part1 = AacHbrRtpPayload.deSerialize(
       Buffer.concat([header, Buffer.alloc(6, 0x11)]),
     );
     expect(part1.fragment).toBeDefined();
-    // Act / Assert: 余剰バイトを切り捨てず例外
-    expect(() =>
-      AacHbrRtpPayload.deSerialize(
-        Buffer.concat([header, Buffer.alloc(8, 0x22)]),
-        part1.fragment,
-      ),
-    ).toThrow(/exceeds AU-size/);
+    const complete = Buffer.concat([
+      Buffer.from([0x00, 0x10, 0x00, 0x18]), // size=3
+      Buffer.from([0xaa, 0xbb, 0xcc]),
+    ]);
+    // Act
+    const res = AacHbrRtpPayload.deSerialize(complete, part1.fragment);
+    // Assert: 古い断片は捨てられ、新しい AU が正常に処理される
+    expect(res.isContinuationFragment).toBe(false);
+    expect(res.fragment).toBeUndefined();
+    expect(res.payload).toEqual(Buffer.from([0xaa, 0xbb, 0xcc]));
   });
 
-  it("rejects continuation whose AU-header size differs from the first fragment", () => {
-    // Arrange
+  it("treats a continuation that would overflow the AU-size as a new AU start", () => {
+    // Arrange: 6 + 8 > 10 なので継続ではなく同サイズの新しい AU の先頭断片
+    const header = Buffer.from([0x00, 0x10, 0x00, 0x50]);
     const part1 = AacHbrRtpPayload.deSerialize(
-      Buffer.concat([Buffer.from([0x00, 0x10, 0x00, 0x50]), Buffer.alloc(6)]),
+      Buffer.concat([header, Buffer.alloc(6, 0x11)]),
     );
-    // Act / Assert: AU-size=11 の継続は拒否
-    expect(() =>
-      AacHbrRtpPayload.deSerialize(
-        Buffer.concat([Buffer.from([0x00, 0x10, 0x00, 0x58]), Buffer.alloc(4)]),
-        part1.fragment,
-      ),
-    ).toThrow(/header mismatch/);
+    // Act
+    const res = AacHbrRtpPayload.deSerialize(
+      Buffer.concat([header, Buffer.alloc(8, 0x22)]),
+      part1.fragment,
+    );
+    // Assert: 余剰データを切り詰めず、新しい断片として保持される
+    expect(res.isContinuationFragment).toBe(false);
+    expect(res.fragment?.subarray(4)).toEqual(Buffer.alloc(8, 0x22));
   });
 
   it("every fragment carries the AU header and round-trips a 314 byte AU (RFC 3640 §3.2.3.1)", () => {

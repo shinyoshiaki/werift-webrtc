@@ -19,6 +19,14 @@ export const TELEPHONE_EVENT_DEFAULT_CLOCK_RATE = 8000;
 
 const PAYLOAD_SIZE = 4;
 
+function assertUintRange(name: string, value: number, max: number) {
+  if (!Number.isInteger(value) || value < 0 || value > max) {
+    throw new RangeError(
+      `telephone-event ${name} must be an integer in 0..${max}, got ${value}`,
+    );
+  }
+}
+
 export type TelephoneEventFields = {
   /** Event code (0–255). DTMF 0–9, *, #, A–D use 0–15 (RFC 4733 Table 7). */
   event: number;
@@ -69,11 +77,15 @@ export class TelephoneEventRtpPayload {
 
   /** Serialize to 4-byte payload (RFC 4733 §2.3). */
   serialize(): Buffer {
+    assertUintRange("event", this.event, 0xff);
+    assertUintRange("volume", this.volume, 0x3f);
+    // RFC 4733 §2.5.1.3: events longer than 0xFFFF must be split by the caller
+    assertUintRange("duration", this.duration, 0xffff);
     const buf = Buffer.alloc(PAYLOAD_SIZE);
     buf[0] = this.event & 0xff;
     buf[1] =
       (this.end ? 0x80 : 0) | (this.reserved ? 0x40 : 0) | (this.volume & 0x3f);
-    buf.writeUInt16BE(this.duration & 0xffff, 2);
+    buf.writeUInt16BE(this.duration, 2);
     return buf;
   }
 

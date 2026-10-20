@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "fs";
+import { readFileSync } from "fs";
 import { join } from "path";
 
 import {
@@ -11,24 +11,9 @@ import {
   PcmuRtpPayload,
   dePacketizeRtpPackets,
 } from "../../src";
+import { loadPayloadVector } from "../utils";
 
 // RFC 3551 §4.5.14 / Table 4 — PCMU PT=0, PCMA PT=8, clock 8000 Hz
-
-/** Decode [u16be length][payload]... vector files from tools/generateVectors. */
-function loadPayloadVector(name: string): Buffer[] {
-  const path = join(__dirname, "../data", name);
-  if (!existsSync(path)) return [];
-  const buf = readFileSync(path);
-  const out: Buffer[] = [];
-  let offset = 0;
-  while (offset + 2 <= buf.length) {
-    const len = buf.readUInt16BE(offset);
-    offset += 2;
-    out.push(buf.subarray(offset, offset + len));
-    offset += len;
-  }
-  return out;
-}
 
 describe("packages/rtp/tests/codec/g711.test.ts", () => {
   // Arrange: synthetic G.711 samples (identity for round-trip)

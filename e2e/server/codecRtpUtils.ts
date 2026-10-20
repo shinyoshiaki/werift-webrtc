@@ -163,6 +163,8 @@ export function createRtpPacketizer(
         ...base,
         parameterSets: options.parameterSets,
         naluLengthSize: options.naluLengthSize,
+        // Fixtures come from MP4 (AVCC); never guess Annex-B from the first bytes
+        inputFormat: options.naluLengthSize ? "length-prefixed" : "auto",
       });
     case "opus":
       return new OpusPacketizer({ ...base, maxPayloadSize: 1200 });

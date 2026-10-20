@@ -137,31 +137,31 @@ export class AacHbrRtpPayload implements DePacketizerBase {
       totalSize += h.size;
     }
 
-    // Continuation of a fragmented AU: the header repeats the full AU-size
-    if (fragment && fragment.length >= FRAG_SIZE_PREFIX) {
+    // Continuation of a fragmented AU: the header repeats the full AU-size.
+    // A packet that is itself a complete AU (or the start of a different AU)
+    // means the pending fragment's tail was lost, so drop the stale fragment
+    // and parse this packet on its own (RFC 3640 §3.2.1.1).
+    const pendingExpected =
+      fragment && fragment.length >= FRAG_SIZE_PREFIX
+        ? fragment.readUInt32BE(0)
+        : undefined;
+    const isContinuation =
+      pendingExpected !== undefined &&
+      headers.length === 1 &&
+      headers[0].size === pendingExpected &&
+      dataSection.length > 0 &&
+      fragment!.length - FRAG_SIZE_PREFIX + dataSection.length <=
+        pendingExpected;
+    if (isContinuation) {
       result.isContinuationFragment = true;
-      const expected = fragment.readUInt32BE(0);
-      if (headers.length !== 1 || headers[0].size !== expected) {
-        throw new Error(
-          `AAC continuation fragment header mismatch: expected a single AU-header with AU-size ${expected}`,
-        );
-      }
-      if (dataSection.length === 0) {
-        throw new Error("AAC fragmented AU with empty data section");
-      }
       const acc = Buffer.concat([
-        fragment.subarray(FRAG_SIZE_PREFIX),
+        fragment!.subarray(FRAG_SIZE_PREFIX),
         dataSection,
       ]);
-      if (acc.length > expected) {
-        throw new Error(
-          `AAC continuation fragment exceeds AU-size: got ${acc.length}, expected ${expected}`,
-        );
-      }
-      if (acc.length === expected) {
+      if (acc.length === pendingExpected) {
         result.payload = acc;
       } else {
-        result.fragment = packFragment(expected, acc);
+        result.fragment = packFragment(pendingExpected, acc);
       }
       return result;
     }

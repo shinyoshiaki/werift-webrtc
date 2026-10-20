@@ -518,7 +518,7 @@ describe("packages/rtp/tests/codec/h265.test.ts", () => {
     expect(dePacketizeRtpPackets("H265", packets).data).toEqual(annexB(nal));
   });
 
-  it("treats 4-byte length 300 (00 00 01 2c) as length-prefixed, not an Annex-B start code", () => {
+  it("explicit length-prefixed format reads 4-byte length 300 (00 00 01 2c) as a length", () => {
     // Arrange: 長さ 300 の NAL を 4 byte 長前置で並べた入力（元の NAL が期待値）
     const nal = Buffer.concat([
       Buffer.from([0x26, 0x01]),
@@ -528,9 +528,39 @@ describe("packages/rtp/tests/codec/h265.test.ts", () => {
     length.writeUInt32BE(nal.length, 0);
     const sample = Buffer.concat([length, nal]);
     // Act
-    const nalus = splitH265NalUnits(sample, 4);
+    const nalus = splitH265NalUnits(sample, 4, "length-prefixed");
     // Assert: 先頭 3 byte が 00 00 01 でも 300 byte の NAL 1 つに分割される
     expect(sample.subarray(0, 4)).toEqual(Buffer.from([0, 0, 1, 0x2c]));
     expect(nalus).toEqual([nal]);
+  });
+
+  it("auto-detects a 3-byte start code whose next byte looks like a length (00 00 01 HH)", () => {
+    // Arrange: 3 byte start code + NAL 長が 0x1HH + 1 になる単一 NAL (誤判定の再現条件)
+    const nal = Buffer.concat([
+      Buffer.from([0x26, 0x01]),
+      Buffer.alloc(293, 0xaa),
+    ]);
+    const sample = Buffer.concat([Buffer.from([0, 0, 1]), nal]);
+    // Act
+    const auto = splitH265NalUnits(sample);
+    const annexb = splitH265NalUnits(sample, 4, "annexb");
+    // Assert: NAL のヘッダが失われず元のまま取り出される
+    expect(auto).toEqual([nal]);
+    expect(annexb).toEqual([nal]);
+    // packetizer 経由でもヘッダが保たれる
+    const packets = new H265Packetizer({
+      sequenceNumber: 1,
+      maxPayloadSize: 2000,
+    }).packetize(sample, 0);
+    expect(packets[0].payload).toEqual(nal);
+    // Annex-B 指定で先頭が start code でなければ明示エラー
+    expect(() => splitH265NalUnits(nal, 4, "annexb")).toThrow(/start code/);
+  });
+
+  it("rejects an FU with both S and E set (RFC 7798 §4.4.3)", () => {
+    // Arrange: PayloadHdr(type 49) + FU header S=1,E=1,type=19 + payload
+    const buf = Buffer.from([49 << 1, 0x01, 0xc0 | 19, 0xaa]);
+    // Act / Assert
+    expect(() => H265RtpPayload.deSerialize(buf)).toThrow(/S and E/);
   });
 });

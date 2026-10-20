@@ -1,5 +1,5 @@
-import { nodePolyfills } from "vite-plugin-node-polyfills";
 /// <reference types="@vitest/browser/providers/playwright" />
+import { nodePolyfills } from "vite-plugin-node-polyfills";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
