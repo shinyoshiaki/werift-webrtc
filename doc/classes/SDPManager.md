@@ -150,7 +150,7 @@
 
 ### addTransportDescription()
 
-> **addTransportDescription**(`media`, `dtlsTransport`): `void`
+> **addTransportDescription**(`media`, `dtlsTransport`, `__namedParameters`): `void`
 
 トランスポートの情報をMediaDescriptionに追加
 
@@ -163,6 +163,12 @@
 ##### dtlsTransport
 
 [`RTCDtlsTransport`](RTCDtlsTransport.md)
+
+##### \_\_namedParameters
+
+###### applied?
+
+`boolean` = `false`
 
 #### Returns
 

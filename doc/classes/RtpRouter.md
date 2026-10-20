@@ -41,7 +41,7 @@ sent), not from SDP. Negotiation rollback keeps these entries.
 
 > **ridTable**: `object` = `{}`
 
-Keyed by [ridRouteKey](../functions/ridRouteKey.md) (MID + RID).
+Keyed by ridRouteKey (MID + RID).
 
 #### Index Signature
 
@@ -78,6 +78,18 @@ Test-only observation of staged routes.
 > **commitStaged**(): `void`
 
 Internal: the negotiation committed, staged routes replace current ones.
+
+#### Returns
+
+`void`
+
+***
+
+### discardProvisional()
+
+> **discardProvisional**(): `void`
+
+Internal: drop the routes an earlier pending description added at once.
 
 #### Returns
 

@@ -248,6 +248,26 @@
 
 ***
 
+### gathersFromServers
+
+#### Get Signature
+
+> **get** **gathersFromServers**(): `boolean`
+
+Whether gathering contacts a STUN or TURN server (more than re-advertising sockets).
+
+##### Returns
+
+`boolean`
+
+Whether gathering contacts a STUN or TURN server.
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`gathersFromServers`](../interfaces/IceConnection.md#gathersfromservers)
+
+***
+
 ### iceControlling
 
 #### Get Signature
@@ -526,9 +546,41 @@ Called after restart, before re-gathering the chosen generation.
 
 ***
 
+### dropOtherRemoteGenerations()
+
+> **dropOtherRemoteGenerations**(`usernameFragment`): `void`
+
+Drop the remote candidates (and their pairs) that name a ufrag other than
+`usernameFragment`: they belong to another remote generation and cannot
+pass checks with its credentials. Candidates without a ufrag stay.
+
+#### Parameters
+
+##### usernameFragment
+
+`string`
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`dropOtherRemoteGenerations`](../interfaces/IceConnection.md#dropotherremotegenerations)
+
+***
+
 ### gatherCandidates()
 
 > **gatherCandidates**(): `Promise`\<`void`\>
+
+Gather the local candidates of the current generation.
+
+After an ICE restart everything the kept sockets already advertised is
+advertised again synchronously, before this method first awaits: the host
+candidates and the server-reflexive address each kept socket had. Only
+work that needs a server follows (a fresh STUN query, a new TURN
+allocation), so a caller may let it finish in the background.
 
 #### Returns
 
@@ -579,6 +631,24 @@ Called after restart, before re-gathering the chosen generation.
 #### Implementation of
 
 [`IceConnection`](../interfaces/IceConnection.md).[`restart`](../interfaces/IceConnection.md#restart)
+
+***
+
+### restartRemote()
+
+> **restartRemote**(): `void`
+
+Only the remote side restarted (new remote credentials in an answer to an
+offer that kept the local ones): the remote generation, its checks and
+the selected pair start over; local credentials and candidates stay.
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`restartRemote`](../interfaces/IceConnection.md#restartremote)
 
 ***
 

@@ -191,12 +191,26 @@ export class SDPManager {
   addTransportDescription(
     media: MediaDescription,
     dtlsTransport: RTCDtlsTransport,
+    { applied = false }: { applied?: boolean } = {},
   ): void {
-    const iceTransport = dtlsTransport.iceTransport;
+    const generation = dtlsTransport.iceTransport.describedLocalGeneration({
+      applied,
+    });
+    // An applied description keeps the credentials it applied: an m-line
+    // BUNDLE later moved onto another transport (the tag of a first max-compat
+    // offer) is not rewritten with that transport's generation.
+    if (
+      applied &&
+      media.iceParams &&
+      media.iceParams.usernameFragment !==
+        generation.parameters?.usernameFragment
+    ) {
+      return;
+    }
 
-    media.iceCandidates = iceTransport.localCandidates;
-    media.iceCandidatesComplete = iceTransport.localCandidatesComplete;
-    media.iceParams = iceTransport.localParameters;
+    media.iceCandidates = generation.candidates;
+    media.iceCandidatesComplete = generation.complete;
+    media.iceParams = generation.parameters;
     media.iceOptions = "trickle";
 
     media.host = DISCARD_HOST;
@@ -247,9 +261,53 @@ export class SDPManager {
   }): SessionDescription {
     const description = SessionDescription.parse(sdp);
     this.validateDescription({ description, isLocal, signalingState, type });
+    if (!isLocal && type !== "offer") this.alignInitialAnswerMids(description);
     this.validateSections(description, type, isLocal);
     description.type = type;
     return description;
+  }
+
+  /**
+   * RFC 3264 pairs the m-lines of an answer with the offer's by position.
+   * Some servers (issue #142) answer a first offer with MIDs of their own
+   * (`0_srtp` for the offered `0`): such an m-line, of the offered kind at the
+   * offered position, takes the offered MID, and BUNDLE entries naming it
+   * follow. This applies only before a session exists; afterwards an answer
+   * MID must equal the offered one (RFC 8843), and any other mismatch is
+   * rejected by validateSections.
+   */
+  private alignInitialAnswerMids(answer: SessionDescription) {
+    const offer = this.pendingLocalDescription;
+    if (
+      this.currentLocalDescription ||
+      this.currentRemoteDescription ||
+      !offer ||
+      offer.media.length !== answer.media.length
+    ) {
+      return;
+    }
+    const offeredMids = new Set(offer.media.map((media) => media.rtp.muxId));
+    const renamed = new Map<string, string>();
+    for (const [index, media] of answer.media.entries()) {
+      const offered = offer.media[index];
+      const mid = media.rtp.muxId;
+      const offeredMid = offered.rtp.muxId;
+      if (
+        !mid ||
+        !offeredMid ||
+        mid === offeredMid ||
+        offeredMids.has(mid) ||
+        media.kind !== offered.kind ||
+        answer.media.some((other) => other.rtp.muxId === offeredMid)
+      ) {
+        continue;
+      }
+      renamed.set(mid, offeredMid);
+      media.rtp.muxId = offeredMid;
+    }
+    for (const group of answer.group) {
+      group.items = group.items.map((item) => renamed.get(item) ?? item);
+    }
   }
 
   /** Checks cross-section constraints before any media or transport is changed. */
@@ -285,8 +343,14 @@ export class SDPManager {
     if (previous) {
       for (const [index, oldMedia] of previous.media.entries()) {
         const next = description.media[index];
+        // Rejected by either side of the current session (JSEP 5.2.2).
+        const counterpart = isLocal
+          ? this.currentRemoteDescription
+          : this.currentLocalDescription;
         const reusable =
-          oldMedia.port === 0 || oldMedia.direction === "inactive";
+          oldMedia.port === 0 ||
+          counterpart?.media[index]?.port === 0 ||
+          oldMedia.direction === "inactive";
         if (
           !next ||
           (next.kind !== oldMedia.kind && oldMedia.port !== 0) ||
@@ -300,17 +364,25 @@ export class SDPManager {
           );
         }
         if (!isLocal && !reusable && next.port !== 0) {
-          this.assertStablePayloadTypes(oldMedia, next);
+          this.assertStablePayloadTypes(this.negotiatedCodecs(index), next);
         }
       }
-      if (!isLocal) this.assertStableHeaderExtensionIds(previous, description);
+      if (!isLocal) this.assertStableHeaderExtensionIds(description);
     }
 
     if (type === "offer") return;
     const offer = isLocal
       ? this.pendingRemoteDescription
       : this.pendingLocalDescription;
-    if (!offer || description.media.length !== offer.media.length) {
+    // RFC 3264 §6 asks for exactly the offer's m-lines. A remote answer that
+    // answers only the leading ones (a peer re-sending its previous answer)
+    // is accepted as develop did: the m-lines it leaves out are rejected by it.
+    const shorterRemote =
+      !isLocal && !!offer && description.media.length < offer.media.length;
+    if (
+      !offer ||
+      (description.media.length !== offer.media.length && !shorterRemote)
+    ) {
       throw createWebRtcDomException(
         "InvalidModificationError",
         "Answer m-lines must match the offer",
@@ -337,20 +409,46 @@ export class SDPManager {
   }
 
   /**
+   * The current session uses only what both current descriptions carry for an
+   * m-line: an offer may list payload types and header extensions the answer
+   * did not accept, and those are free to be offered again with another value.
+   */
+  private negotiatedMedia(index: number) {
+    const remote = this.currentRemoteDescription?.media[index];
+    const local = this.currentLocalDescription?.media[index];
+    if (!remote || !local || remote.port === 0 || local.port === 0) return;
+    return { remote, local };
+  }
+
+  private negotiatedCodecs(index: number) {
+    const media = this.negotiatedMedia(index);
+    if (!media) return [];
+    return media.remote.rtp.codecs.filter((codec) =>
+      media.local.rtp.codecs.some((c) => c.payloadType === codec.payloadType),
+    );
+  }
+
+  private negotiatedHeaderExtensions(index: number) {
+    const media = this.negotiatedMedia(index);
+    if (!media) return [];
+    return media.remote.rtp.headerExtensions.filter((extension) =>
+      media.local.rtp.headerExtensions.some(
+        (e) => e.id === extension.id && e.uri === extension.uri,
+      ),
+    );
+  }
+
+  /**
    * RFC 8285 section 7: a header extension ID in use must not be remapped to
    * another URI within the session (Chrome rejects it too). The router's ID
    * map is shared by every m-line, so a remap in the proposal would reparse
    * current RTP while the description is still pending. Adding extensions,
    * or moving a URI to a new ID, stays allowed.
    */
-  private assertStableHeaderExtensionIds(
-    current: SessionDescription,
-    next: SessionDescription,
-  ) {
+  private assertStableHeaderExtensionIds(next: SessionDescription) {
     const active = new Map<number, string>();
-    for (const media of current.media) {
-      if (media.port === 0) continue;
-      for (const extension of media.rtp.headerExtensions) {
+    for (const index of this.currentRemoteDescription?.media.keys() ?? []) {
+      for (const extension of this.negotiatedHeaderExtensions(index)) {
         active.set(extension.id, extension.uri);
       }
     }
@@ -374,11 +472,11 @@ export class SDPManager {
    * the new description is still pending, so it is rejected before mutation.
    */
   private assertStablePayloadTypes(
-    oldMedia: MediaDescription,
+    negotiated: RTCRtpCodecParameters[],
     next: MediaDescription,
   ) {
     for (const codec of next.rtp.codecs) {
-      const previous = oldMedia.rtp.codecs.find(
+      const previous = negotiated.find(
         (c) => c.payloadType === codec.payloadType,
       );
       if (!previous) continue;
@@ -496,7 +594,11 @@ export class SDPManager {
         m.kind !== "application" &&
         (!owner || owner.stopped) &&
         (m.port === 0 || this.currentRemoteDescription?.media[i]?.port === 0);
-      const recycled = recyclable ? added.shift() : undefined;
+      // A stopped position is reused only by the same kind (issue 705 design).
+      const index = recyclable
+        ? added.findIndex((transceiver) => transceiver.kind === m.kind)
+        : -1;
+      const recycled = index >= 0 ? added.splice(index, 1)[0] : undefined;
       if (recycled) {
         recycled.mid = this.allocateMid(this.midSuffix ? "av" : "");
         recycled.mLineIndex = i;
@@ -513,12 +615,39 @@ export class SDPManager {
         return;
       }
       if (m.kind === "application") {
-        if (!sctpTransport) {
-          throw new Error("sctpTransport not found");
+        // The m-line keeps its position without an SCTP transport: the
+        // current description, not the transport, records it.
+        const rejected =
+          m.port === 0 || this.currentRemoteDescription?.media[i]?.port === 0;
+        let placed = sctpTransport?.mid === mid;
+        if (sctpTransport && sctpTransport.mid == undefined) {
+          // An unbound transport (createDataChannel) takes a rejected
+          // position with a new MID, like a transceiver reusing a stopped
+          // position of its kind, and keeps the MID of any other position.
+          sctpTransport.mid = rejected
+            ? this.allocateMid(this.midSuffix ? "dc" : "")
+            : mid;
+          placed = true;
         }
-        sctpTransport.mLineIndex = i;
+        if (sctpTransport && placed) {
+          sctpTransport.mLineIndex = i;
+          description.media.push(
+            this.createMediaDescriptionForSctp(sctpTransport),
+          );
+          return;
+        }
+        // No SCTP transport for this position: it stays rejected (port 0).
         description.media.push(
-          this.createMediaDescriptionForSctp(sctpTransport),
+          this.createRejectedMediaDescription(
+            {
+              kind: m.kind,
+              profile: m.profile,
+              fmt: m.fmt,
+              codecs: [],
+              mid,
+            },
+            fallbackDtlsTransport,
+          ),
         );
       } else {
         const transceiver = transceivers.find((t) => t.mid === mid);
@@ -604,7 +733,12 @@ export class SDPManager {
 
     if (
       sctpTransport &&
-      !description.media.find((m) => m.kind === "application")
+      !description.media.find(
+        (m) =>
+          m.kind === "application" &&
+          m.port !== 0 &&
+          m.rtp.muxId === sctpTransport.mid,
+      )
     ) {
       sctpTransport.mLineIndex = description.media.length;
       if (sctpTransport.mid == undefined) {
@@ -728,11 +862,28 @@ export class SDPManager {
             `Transceiver with mid=${remoteMedia.rtp.muxId} not found`,
           );
         }
+        // answerer の stop() だけでは port 0 にせず、次の自分の offer で停止を交渉する
+        const answered =
+          transceiver &&
+          remoteMedia.port !== 0 &&
+          !transceiver.stopped &&
+          !transceiver.pendingRejection
+            ? this.createMediaDescriptionForTransceiver(
+                transceiver,
+                transceiver.stopping
+                  ? "inactive"
+                  : andDirection(
+                      transceiver.direction,
+                      transceiver.offerDirection,
+                    ),
+              )
+            : undefined;
         if (
           !transceiver ||
-          remoteMedia.port === 0 ||
-          transceiver.stopped ||
-          transceiver.pendingRejection
+          !answered ||
+          // codec のない m-line は答えられない (JSEP 5.3.1: 拒否する)。
+          // stop() 直後に setCodecPreferences した transceiver など。
+          answered.rtp.codecs.length === 0
         ) {
           accepted = false;
           if (remoteMedia.rtp.muxId) rejectedMids.add(remoteMedia.rtp.muxId);
@@ -751,13 +902,7 @@ export class SDPManager {
             dtlsTransport,
           );
         } else {
-          // answerer の stop() だけでは port 0 にせず、次の自分の offer で停止を交渉する
-          media = this.createMediaDescriptionForTransceiver(
-            transceiver,
-            transceiver.stopping
-              ? "inactive"
-              : andDirection(transceiver.direction, transceiver.offerDirection),
-          );
+          media = answered;
           dtlsTransport = transceiver.dtlsTransport;
         }
       } else if (remoteMedia.kind === "application") {
@@ -1041,6 +1186,10 @@ export class SDPManager {
     const fallbackDtlsTransport =
       transceivers.find((transceiver) => transceiver?.dtlsTransport)
         ?.dtlsTransport ?? sctpTransport?.dtlsTransport;
+    // Refreshing an applied description keeps the ICE generation it applied.
+    const applied =
+      description === this.currentLocalDescription ||
+      description === this.pendingLocalDescription;
     // SCTP が RTP より先にある SDP でも元の m-line index で transceiver を引く
     description.media.forEach((m, i) => {
       if (!["audio", "video"].includes(m.kind)) return;
@@ -1061,16 +1210,19 @@ export class SDPManager {
       if (!dtlsTransport)
         throw new Error(`dtls transport not found for media index ${i}`);
       const port = m.port;
-      this.addTransportDescription(m, dtlsTransport);
+      this.addTransportDescription(m, dtlsTransport, { applied });
       this.offerNewAssociation(description, m, dtlsTransport, transportByMid);
       if (port === 0) m.port = 0;
     });
-    const sctpMedia = description.media.find((m) => m.kind === "application");
+    // A rejected (port 0) application m-line carries no transport.
+    const sctpMedia = description.media.find(
+      (m) => m.kind === "application" && m.port !== 0,
+    );
     if (sctpTransport && sctpMedia) {
       const dtlsTransport =
         (sctpMedia.rtp.muxId && transportByMid?.get(sctpMedia.rtp.muxId)) ||
         sctpTransport.dtlsTransport;
-      this.addTransportDescription(sctpMedia, dtlsTransport);
+      this.addTransportDescription(sctpMedia, dtlsTransport, { applied });
       this.offerNewAssociation(
         description,
         sctpMedia,
@@ -1079,6 +1231,9 @@ export class SDPManager {
       );
     }
 
+    // Refreshing the transport lines of the current description (candidates
+    // an ICE restart gathers after its commit) keeps it current.
+    if (description === this.currentLocalDescription) return;
     this.setLocalDescription(description);
   }
 }

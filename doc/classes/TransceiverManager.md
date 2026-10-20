@@ -438,7 +438,7 @@ sender から track を外す。
 
 ### restoreNegotiationState()
 
-> **restoreNegotiationState**(`snapshot`, `added`): [`RTCDtlsTransport`](RTCDtlsTransport.md)[]
+> **restoreNegotiationState**(`snapshot`, `added`, `createdState`, `carried`): [`RTCDtlsTransport`](RTCDtlsTransport.md)[]
 
 Internal: return to a negotiation baseline. Transceivers in `added` were
 created by the rolled-back proposal: they are removed unless the
@@ -448,11 +448,19 @@ application uses them, in which case only their m-line association goes.
 
 ##### snapshot
 
-[`TransceiversNegotiationState`](../type-aliases/TransceiversNegotiationState.md)
+`TransceiversNegotiationState`
 
 ##### added
 
 `Iterable`\<[`RTCRtpTransceiver`](RTCRtpTransceiver.md)\>
+
+##### createdState
+
+(`transceiver`) => `undefined` \| \{ `applicationStopRevision`: `number`; `codecChangeRevision`: `number`; `codecPreferencesNeedResolution`: `boolean`; `codecs`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]; `currentDirection`: `null` \| [`CurrentDirection`](../type-aliases/CurrentDirection.md); `dtlsTransport`: [`RTCDtlsTransport`](RTCDtlsTransport.md); `firedReceiving`: `boolean`; `headerExtensions`: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]; `mid`: `null` \| `string`; `mLineIndex`: `undefined` \| `number`; `offerDirection`: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`; `pendingLocalOfferCodecs`: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]; `pendingRejection`: `boolean`; `receiver`: \{ `receiverTWCC`: `undefined` \| `ReceiverTWCC`; `receiveTables`: \{ `codecs`: \{\}; `ssrcByRtx`: \{\}; `stagedCodecs`: \{\}; `stagedSsrcByRtx`: \{\}; \}; `remoteStreamId`: `undefined` \| `string`; `remoteStreamIds`: `string`[]; `remoteTrackId`: `undefined` \| `string`; `trackByRID`: \{\}; `trackBySSRC`: \{\}; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; `unboundTracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \}; `rejected`: `boolean`; `sender`: \{ `cname`: `undefined` \| `string`; `codec`: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `headerExtensions`: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]; `mid`: `undefined` \| `string`; `negotiatedCodecs`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]; `proposedPrimaryCodec`: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `redRedundantPayloadType`: `undefined` \| `number`; `repairedRtpStreamId`: `undefined` \| `string`; `rtpStreamId`: `undefined` \| `string`; `rtxPayloadType`: `undefined` \| `number`; `sendPrimaryCodec`: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `track`: `null` \| [`MediaStreamTrack`](MediaStreamTrack.md); `trackCodec`: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stopped`: `boolean`; `stopping`: `boolean`; \}
+
+##### carried
+
+`ReadonlySet`\<[`RTCRtpTransceiver`](RTCRtpTransceiver.md)\> = `...`
 
 #### Returns
 
@@ -475,7 +483,7 @@ description is set). Transceivers the session never negotiated go back to
 
 ##### snapshot
 
-[`TransceiversNegotiationState`](../type-aliases/TransceiversNegotiationState.md)
+`TransceiversNegotiationState`
 
 #### Returns
 
@@ -547,10 +555,10 @@ answer 確定後に、stopping のまま交渉対象になり得ない transceiv
 
 ### snapshotNegotiationState()
 
-> **snapshotNegotiationState**(): [`TransceiversNegotiationState`](../type-aliases/TransceiversNegotiationState.md)
+> **snapshotNegotiationState**(): `TransceiversNegotiationState`
 
 Internal: the transceivers, their order and negotiation state, for a rollback baseline.
 
 #### Returns
 
-[`TransceiversNegotiationState`](../type-aliases/TransceiversNegotiationState.md)
+`TransceiversNegotiationState`

@@ -253,6 +253,46 @@ Keep ICE servers for the next gathering (an ICE restart).
 
 ***
 
+### deliverProvisionalRemoteCandidate()
+
+> **deliverProvisionalRemoteCandidate**(`candidate`?): `void`
+
+`deliverRemoteCandidate` for the provisional (pranswer) generation.
+
+#### Parameters
+
+##### candidate?
+
+[`IceCandidate`](IceCandidate.md)
+
+#### Returns
+
+`void`
+
+***
+
+### deliverRemoteCandidate()
+
+> **deliverRemoteCandidate**(`candidate`?): `void`
+
+Hand a remote candidate (`undefined`: end-of-candidates) to the ICE agent
+without waiting for it. A host candidate is added synchronously; an mDNS
+name may take seconds to resolve, and the agent itself orders that
+resolution against end-of-candidates and generation changes, so the
+description operation queue must not wait for it.
+
+#### Parameters
+
+##### candidate?
+
+[`IceCandidate`](IceCandidate.md)
+
+#### Returns
+
+`void`
+
+***
+
 ### discardUnappliedLocalRestart()
 
 > **discardUnappliedLocalRestart**(): `void`
@@ -284,6 +324,8 @@ Drop only what an unapplied createOffer staged; keep the applied one.
 ### emitCommittedCandidates()
 
 > **emitCommittedCandidates**(): `void`
+
+Signal the candidates an ICE restart committed by a local answer gathered.
 
 #### Returns
 
@@ -413,6 +455,20 @@ The staged generation now belongs to an applied description.
 
 ***
 
+### resetRemoteGeneration()
+
+> **resetRemoteGeneration**(): `void`
+
+Internal: drop the remote generation and its checks, keeping the local
+credentials and candidates a description already carries (a remote-only
+restart, or a proposal transport a replacement pranswer left unused).
+
+#### Returns
+
+`void`
+
+***
+
 ### restart()
 
 > **restart**(`notifyNegotiation`, `applyNextGatherIceServers`): `void`
@@ -479,7 +535,12 @@ Feed a pranswer's ICE generation to the provisional checklist.
 
 ### setRemoteParams()
 
-> **setRemoteParams**(`remoteParameters`, `renomination`): `void`
+> **setRemoteParams**(`remoteParameters`, `renomination`, `__namedParameters`): `void`
+
+`keepLocalCredentials`: the remote credentials come from an answer or
+pranswer, so the local ones are fixed by the applied local offer. Changed
+remote credentials restart the checks for the new remote generation
+without new local credentials (nothing would describe them to the peer).
 
 #### Parameters
 
@@ -491,6 +552,12 @@ Feed a pranswer's ICE generation to the provisional checklist.
 
 `boolean` = `false`
 
+##### \_\_namedParameters
+
+###### keepLocalCredentials?
+
+`boolean` = `false`
+
 #### Returns
 
 `void`
@@ -499,9 +566,24 @@ Feed a pranswer's ICE generation to the provisional checklist.
 
 ### stageLocalRestart()
 
-> **stageLocalRestart**(): `void`
+> **stageLocalRestart**(`__namedParameters`): `void`
 
 Prepare an ICE generation for SDP without touching the selected pair.
+`answering` is the remote offer an answer is created for.
+
+#### Parameters
+
+##### \_\_namedParameters
+
+###### answering?
+
+`object`
+
+###### replacing?
+
+`ReadonlySet`\<`string`\>
+
+Credentials restartIce() asked to replace (W3C [[LocalIceCredentialsToReplace]]).
 
 #### Returns
 

@@ -20,6 +20,14 @@
 
 ***
 
+### gathersFromServers?
+
+> `readonly` `optional` **gathersFromServers**: `boolean`
+
+Whether gathering contacts a STUN or TURN server.
+
+***
+
 ### generation
 
 > **generation**: `number`
@@ -240,9 +248,31 @@
 
 ***
 
+### dropOtherRemoteGenerations()?
+
+> `optional` **dropOtherRemoteGenerations**(`usernameFragment`): `void`
+
+Drop remote candidates and pairs that name another remote ufrag.
+
+#### Parameters
+
+##### usernameFragment
+
+`string`
+
+#### Returns
+
+`void`
+
+***
+
 ### gatherCandidates()
 
 > **gatherCandidates**(): `Promise`\<`void`\>
+
+Gather the current generation's candidates. After an ICE restart the
+candidates the kept sockets advertised are re-advertised synchronously;
+only server work (STUN, TURN) is awaited.
 
 #### Returns
 
@@ -273,6 +303,20 @@
 ### restart()
 
 > **restart**(): `void`
+
+#### Returns
+
+`void`
+
+***
+
+### restartRemote()?
+
+> `optional` **restartRemote**(): `void`
+
+The remote side alone restarted (new remote credentials in an answer):
+drop the remote generation and its checks, keep the local credentials
+and gathered candidates.
 
 #### Returns
 

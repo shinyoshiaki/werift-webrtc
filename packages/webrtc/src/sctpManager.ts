@@ -202,6 +202,16 @@ export class SctpTransportManager {
     log("sctp connected");
   }
 
+  /**
+   * A renegotiation pranswer / answer keeps the association (and its port)
+   * but updates the data max message size it negotiates.
+   */
+  updateRemoteMaxMessageSize(remoteMedia: MediaDescription) {
+    this.sctpTransport?.setRemoteMaxMessageSize(
+      remoteMedia.sctpCapabilities?.maxMessageSize,
+    );
+  }
+
   setRemoteSCTP(remoteMedia: MediaDescription, mLineIndex: number) {
     if (!this.sctpTransport) {
       return;

@@ -40,6 +40,8 @@ export class RTCSctpTransport {
   mLineIndex?: number;
   bundled = false;
   dataChannels: { [key: number]: RTCDataChannel } = {};
+  /** Set by stop(); nothing received afterwards reaches the application. */
+  private stopped = false;
   remoteMaxMessageSize = DEFAULT_MAX_MESSAGE_SIZE;
 
   private dataChannelQueue: [RTCDataChannel, number, Buffer][] = [];
@@ -64,6 +66,8 @@ export class RTCSctpTransport {
     this.eventDisposer.forEach((dispose) => dispose());
 
     this.dtlsTransport = dtlsTransport;
+    // A new association: the transport delivers again.
+    this.stopped = false;
     this.sctp = new SCTP(
       new BridgeDtls(this.dtlsTransport),
       this.port,
@@ -112,7 +116,9 @@ export class RTCSctpTransport {
   }
 
   private get isServer() {
-    return this.dtlsTransport.iceTransport.role !== "controlling";
+    const role =
+      this.dtlsTransport.iceRoleAtStart ?? this.dtlsTransport.iceTransport.role;
+    return role !== "controlling";
   }
 
   channelByLabel(label: string) {
@@ -124,6 +130,9 @@ export class RTCSctpTransport {
     ppId: number,
     data: Buffer,
   ) => {
+    // A stopped transport (rolled back, replaced or closed) delivers no
+    // message a callback still queued for it carries.
+    if (this.stopped) return;
     if (ppId === WEBRTC_DCEP && data.length > 0) {
       log("DCEP", streamId, ppId, data);
       switch (data[0]) {
@@ -296,6 +305,9 @@ export class RTCSctpTransport {
     // """
 
     if (this.sctp.associationState != SCTP_STATE.ESTABLISHED) return;
+    // The peer's INIT can establish an association that joined a connected
+    // DTLS transport before start() ran here; the same side decides the IDs.
+    this.dataChannelId ??= this.isServer ? 0 : 1;
 
     while (this.dataChannelQueue.length > 0) {
       const [channel, protocol, userData] = this.dataChannelQueue.shift()!;
@@ -390,6 +402,7 @@ export class RTCSctpTransport {
   }
 
   async stop() {
+    this.stopped = true;
     this.dtlsTransport.dataReceiver = () => {};
     await this.sctp.stop();
   }

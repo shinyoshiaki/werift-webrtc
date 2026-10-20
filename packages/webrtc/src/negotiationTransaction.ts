@@ -1,10 +1,9 @@
+import type { RTCRtpTransceiver, RtpRouter, TransceiverManager } from "./media";
 import type {
-  RTCRtpTransceiver,
   RouterSnapshot,
-  RtpRouter,
-  TransceiverManager,
+  TransceiverNegotiationState,
   TransceiversNegotiationState,
-} from "./media";
+} from "./negotiation/internalState";
 import type { SctpNegotiationState, SctpTransportManager } from "./sctpManager";
 import type { SessionDescription } from "./sdp";
 import type { SDPManager } from "./sdpManager";
@@ -95,6 +94,11 @@ export class NegotiationTransaction {
    * commit (e.g. a data channel's own transport that BUNDLE replaced) stops.
    */
   private readonly createdTransports = new Set<RTCDtlsTransport>();
+  /** Negotiation state of each transceiver a remote offer created, at creation. */
+  private readonly createdStates = new WeakMap<
+    RTCRtpTransceiver,
+    TransceiverNegotiationState
+  >();
   private revision = 0;
   private phase:
     | "idle"
@@ -207,15 +211,64 @@ export class NegotiationTransaction {
     );
   }
 
-  /** A replacement proposal: back to the baseline, which stays for the new one. */
-  async replace() {
+  /**
+   * A pranswer replaced an earlier one: a transport the proposal prepared that
+   * neither a live binding nor the pranswer (`used`) puts an m-line on stops
+   * the checks the earlier pranswer started. It
+   * stays held (a final answer may still use it) with its local generation.
+   */
+  stopUnusedProposalChecks(used: ReadonlySet<RTCDtlsTransport>) {
+    const inUse = this.transportsInUse({ includeStopped: false });
+    for (const transport of used) inUse.add(transport);
+    for (const transport of new Set([
+      ...this.createdTransports,
+      ...this.resources.speculativeTransports,
+    ])) {
+      if (inUse.has(transport)) continue;
+      if (["new", "closed"].includes(transport.iceTransport.state)) continue;
+      transport.iceTransport.resetRemoteGeneration();
+    }
+  }
+
+  /**
+   * A replacement proposal: back to the baseline, which stays for the new one.
+   * A transceiver the replaced remote offer created for a MID the replacing
+   * one describes again (same kind) is carried over in its created state, so
+   * the new offer associates the same object and nothing is notified twice.
+   */
+  async replace(next?: SessionDescription) {
     if (!this.baseline) return;
+    const describedAgain = (transceiver: RTCRtpTransceiver) =>
+      !!next?.media.some(
+        (media) =>
+          media.port !== 0 &&
+          media.kind === transceiver.kind &&
+          media.rtp.muxId === transceiver.mid,
+      );
+    const carried = new Set(
+      [...this.resources.remoteCreated].filter(describedAgain),
+    );
+    // A transceiver that existed before the transaction and that the
+    // replacing offer describes again keeps the track it already notified,
+    // so the replacement fires no second track event (W3C [[FiredDirection]]).
+    const notified = new Set(
+      this.transceivers
+        .getTransceivers()
+        .filter(
+          (t) => !this.resources.remoteCreated.has(t) && describedAgain(t),
+        ),
+    );
     await this.restoreState(
       this.baseline,
       this.resources.remoteCreated,
       this.resources.speculativeTransports,
+      carried,
+      notified,
     );
     this.resources.clear();
+    for (const transceiver of carried) {
+      this.resources.remoteCreated.add(transceiver);
+    }
     this.revision++;
     this.phase = "pending";
   }
@@ -255,11 +308,24 @@ export class NegotiationTransaction {
     this.phase = "pending";
   }
 
-  /** PeerConnection close: drop every reference the transaction holds. */
-  dispose() {
+  /**
+   * PeerConnection close: stop every transport only the negotiation holds
+   * (created for a proposal, pending-only, BUNDLE owners, prepared for a
+   * topology), which no transceiver or SCTP binding would stop, then drop
+   * every reference.
+   */
+  async dispose() {
+    const transports = new Set([
+      ...this.createdTransports,
+      ...this.resources.speculativeTransports,
+      ...this.resources.prepared.values(),
+    ]);
     this.createdTransports.clear();
     this.offerSnapshot = undefined;
     this.cleanup();
+    await Promise.allSettled(
+      [...transports].map((transport) => transport.stop()),
+    );
   }
 
   // # proposal resources
@@ -274,6 +340,9 @@ export class NegotiationTransaction {
 
   rememberRemoteTransceiver(transceiver: RTCRtpTransceiver) {
     this.resources.remoteCreated.add(transceiver);
+    // Before the offer negotiates anything on it: a rollback that keeps the
+    // transceiver (the application uses it) returns it to this state.
+    this.createdStates.set(transceiver, transceiver.snapshotNegotiationState());
   }
 
   rememberOwnerTransport(transport: RTCDtlsTransport) {
@@ -337,6 +406,7 @@ export class NegotiationTransaction {
    * carries.
    */
   discardStagedRemoteAnswer() {
+    this.router.discardProvisional();
     this.router.restoreStaged({ ssrc: [], rid: [] });
     for (const transceiver of this.transceivers.getTransceivers()) {
       transceiver.receiver.discardStagedReceive();
@@ -382,10 +452,15 @@ export class NegotiationTransaction {
     baseline: Baseline,
     added: Iterable<RTCRtpTransceiver>,
     speculative: Iterable<RTCDtlsTransport>,
+    carried: ReadonlySet<RTCRtpTransceiver> = new Set(),
+    notified: ReadonlySet<RTCRtpTransceiver> = new Set(),
   ) {
     const removedTransports = this.transceivers.restoreNegotiationState(
       baseline.transceivers,
       added,
+      (transceiver) => this.createdStates.get(transceiver),
+      carried,
+      notified,
     );
     const live = this.transceivers.getTransceivers();
     this.router.restoreRoutes(baseline.routes, {
@@ -394,10 +469,17 @@ export class NegotiationTransaction {
         .filter((t) => !t.stopped && !t.stopping)
         .map((t) => t.sender),
     });
+    // The transport an SCTP transport the proposal created ran on (a remote
+    // offer's application m-line) stops with it unless something else uses it.
+    const proposedSctp = this.sctp.sctpTransport?.dtlsTransport;
     await this.sctp.restoreNegotiationState(baseline.sctp);
 
     const inUse = this.transportsInUse({ includeStopped: true });
-    for (const transport of new Set([...speculative, ...removedTransports])) {
+    for (const transport of new Set([
+      ...speculative,
+      ...removedTransports,
+      ...(proposedSctp ? [proposedSctp] : []),
+    ])) {
       if (!inUse.has(transport)) await transport.stop();
     }
   }

@@ -1,7 +1,5 @@
-import { decode, types } from "@shinyoshiaki/binary-data";
-
 import { setTimeout } from "timers/promises";
-import { Event, debug } from "./imports/common";
+import { Event, binaryData, debug } from "./imports/common";
 import type { Address, Transport } from "./imports/common";
 
 import {
@@ -26,6 +24,8 @@ import { ContentType } from "./record/const";
 import { FragmentedHandshake } from "./record/message/fragment";
 import { parsePacket, parsePlainText } from "./record/receive";
 import type { Extension } from "./typings/domain";
+
+const { decode, types } = binaryData;
 
 const log = debug("werift-dtls : packages/dtls/src/socket.ts : log");
 const err = debug("werift-dtls : packages/dtls/src/socket.ts : err");

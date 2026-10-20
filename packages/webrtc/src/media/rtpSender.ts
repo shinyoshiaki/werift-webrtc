@@ -353,9 +353,27 @@ export class RTCRtpSender {
     void this.drainPendingRtp();
   }
 
+  /**
+   * The negotiated direction in effect (the answer's, or a pranswer's while
+   * it is pending) does not include sending: RTP is dropped, not queued.
+   * @internal
+   */
+  sendSuppressed = false;
+
+  /** @internal Follow the transceiver's currentDirection. */
+  setSendSuppressed(suppressed: boolean) {
+    if (this.sendSuppressed === suppressed) return;
+    this.sendSuppressed = suppressed;
+    if (suppressed) this.discardPendingRtp();
+    else void this.drainPendingRtp();
+  }
+
   private canSendRtp() {
     return (
-      !this.stopped && this.dtlsTransport?.state === "connected" && !!this.codec
+      !this.stopped &&
+      !this.sendSuppressed &&
+      this.dtlsTransport?.state === "connected" &&
+      !!this.codec
     );
   }
 
@@ -601,7 +619,7 @@ export class RTCRtpSender {
    * dropped, even if a drain is already in progress.
    */
   async sendRtp(rtp: Buffer | RtpPacket) {
-    if (this.stopped) {
+    if (this.stopped || this.sendSuppressed) {
       return;
     }
     if (!this.pendingRtpEnabled) {

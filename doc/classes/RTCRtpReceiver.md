@@ -408,6 +408,25 @@ transceiver の停止確定時に remote track を ended にする
 
 ***
 
+### keepUnboundTracks()
+
+> **keepUnboundTracks**(`tracks`): `void`
+
+Internal: tracks a replaced remote offer gave this receiver stay its
+tracks; the SSRCs the replacing offer gives take them over.
+
+#### Parameters
+
+##### tracks
+
+[`MediaStreamTrack`](MediaStreamTrack.md)[]
+
+#### Returns
+
+`void`
+
+***
+
 ### pliNegotiation()
 
 > **pliNegotiation**(`mediaSsrc`): `object`
@@ -458,6 +477,24 @@ until the transaction commits, and rollback drops the staged value.
 ###### deferConflicts?
 
 `boolean` = `false`
+
+#### Returns
+
+`void`
+
+***
+
+### releaseProvisionalSsrc()
+
+> **releaseProvisionalSsrc**(`ssrc`): `void`
+
+Internal: a superseded pending description no longer routes `ssrc`.
+
+#### Parameters
+
+##### ssrc
+
+`number`
 
 #### Returns
 
@@ -520,6 +557,10 @@ Internal: return to a negotiation baseline taken by `snapshotNegotiationState`.
 \{\} = `...`
 
 ###### tracks
+
+[`MediaStreamTrack`](MediaStreamTrack.md)[] = `...`
+
+###### unboundTracks
 
 [`MediaStreamTrack`](MediaStreamTrack.md)[] = `...`
 
@@ -629,7 +670,7 @@ prepareReceive() so the current decode path remains available.
 
 ### setupTWCC()
 
-> **setupTWCC**(`mediaSourceSsrc`): `void`
+> **setupTWCC**(`mediaSourceSsrc`, `negotiated`): `void`
 
 setup TWCC if supported
 
@@ -638,6 +679,10 @@ setup TWCC if supported
 ##### mediaSourceSsrc
 
 `number`
+
+##### negotiated
+
+`boolean` = `...`
 
 #### Returns
 
@@ -728,6 +773,10 @@ part of it.
 ##### tracks
 
 > **tracks**: [`MediaStreamTrack`](MediaStreamTrack.md)[]
+
+##### unboundTracks
+
+> **unboundTracks**: [`MediaStreamTrack`](MediaStreamTrack.md)[]
 
 ***
 

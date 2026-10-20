@@ -12,6 +12,7 @@ import {
   debug,
   rtpHeaderExtensionsParser,
 } from "../imports/rtp";
+import { type RouterSnapshot, ridRouteKey } from "../negotiation/internalState";
 import { deliveredTrackCodec } from "./codecCompatibility";
 import type {
   RTCRtpReceiveParameters,
@@ -24,19 +25,12 @@ import { MediaStreamTrack } from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/router.ts");
 
-/**
- * RIDs are scoped to their m-line (RFC 8851), so simulcast routes are keyed
- * by MID and RID: two m-lines may reuse the same RID names.
- */
-export const ridRouteKey = (mid: string, rid: string) => `${mid}\u0000${rid}`;
 const ridOfRouteKey = (key: string) => key.slice(key.indexOf("\u0000") + 1);
-
-/** The routes of a router, for a negotiation rollback baseline. */
-export type RouterSnapshot = ReturnType<RtpRouter["snapshotRoutes"]>;
 
 type StagedRoutes = {
   ssrc: [number, RTCRtpReceiver][];
   rid: [string, RTCRtpReceiver][];
+  provisional?: [number, RTCRtpReceiver][];
 };
 
 export class RtpRouter {
@@ -50,6 +44,11 @@ export class RtpRouter {
    */
   private stagedSsrc = new Map<number, RTCRtpReceiver>();
   private stagedRid = new Map<string, RTCRtpReceiver>();
+  /**
+   * New SSRC routes a pending description added at once (no conflict). A
+   * later remote pranswer / answer replaces them, the commit keeps them.
+   */
+  private provisionalSsrc = new Map<number, RTCRtpReceiver>();
   extIdUriMap: { [id: number]: string } = {};
   /**
    * SSRCs registered from received packets (simulcast after RID stops being
@@ -75,17 +74,34 @@ export class RtpRouter {
     }
     this.stagedSsrc.clear();
     this.stagedRid.clear();
+    this.provisionalSsrc.clear();
+  }
+
+  /** Internal: drop the routes an earlier pending description added at once. */
+  discardProvisional() {
+    for (const [ssrc, receiver] of this.provisionalSsrc) {
+      if (this.ssrcTable[ssrc] === receiver && !this.learnedSsrcs.has(ssrc)) {
+        delete this.ssrcTable[ssrc];
+        receiver.releaseProvisionalSsrc(ssrc);
+      }
+    }
+    this.provisionalSsrc.clear();
   }
 
   /** Internal: capture staged routes for a transaction baseline or checkpoint. */
   snapshotStaged(): StagedRoutes {
-    return { ssrc: [...this.stagedSsrc], rid: [...this.stagedRid] };
+    return {
+      ssrc: [...this.stagedSsrc],
+      rid: [...this.stagedRid],
+      provisional: [...this.provisionalSsrc],
+    };
   }
 
   /** Internal: restore staged routes (an empty snapshot discards them). */
   restoreStaged(snapshot: StagedRoutes) {
     this.stagedSsrc = new Map(snapshot.ssrc);
     this.stagedRid = new Map(snapshot.rid);
+    this.provisionalSsrc = new Map(snapshot.provisional);
   }
 
   /** Internal: every route a negotiation may change, for a rollback baseline. */
@@ -173,6 +189,8 @@ export class RtpRouter {
       this.stagedSsrc.set(ssrc, receiver);
       return;
     }
+    if (deferConflicts && !existing) this.provisionalSsrc.set(ssrc, receiver);
+    if (!deferConflicts) this.provisionalSsrc.delete(ssrc);
     this.stagedSsrc.delete(ssrc);
     this.ssrcTable[ssrc] = receiver;
     // Registration from SDP makes the route description state again; the
@@ -258,11 +276,13 @@ export class RtpRouter {
 
   /**
    * The receiver of an RTP stream ID: by MID and RID when the packet carries
-   * the MID extension, otherwise the first m-line that uses that RID.
+   * a MID extension that names a route, otherwise (no MID extension, or a MID
+   * value no route uses) the first m-line that uses that RID, as develop does.
    */
   private receiverByRid(rid: string, mid: unknown) {
     if (typeof mid === "string") {
-      return this.ridTable[ridRouteKey(mid, rid)] as RTCRtpReceiver | undefined;
+      const byMid = this.ridTable[ridRouteKey(mid, rid)];
+      if (byMid) return byMid as RTCRtpReceiver;
     }
     const key = Object.keys(this.ridTable).find(
       (candidate) => ridOfRouteKey(candidate) === rid,

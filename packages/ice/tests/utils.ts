@@ -18,6 +18,7 @@ import { Message, parseMessage } from "../src/stun/message";
 import { splitTurnTcpFrames } from "../src/turn/frame";
 import type { StunOverTurnProtocol } from "../src/turn/protocol";
 import type { Protocol, TransactionRequestOptions } from "../src/types/model";
+import { getHostAddresses } from "../src/utils";
 
 export const TURN_TEST_USERNAME = "turn-user";
 export const TURN_TEST_PASSWORD = "turn-password";
@@ -356,6 +357,20 @@ export async function createConnectedPair() {
   const a = createTestConnection(true);
   const b = createTestConnection(false);
   await inviteAccept(a, b);
+  await Promise.all([a.connect(), b.connect()]);
+  return { a, b };
+}
+
+/**
+ * Shared Arrange: a full controlling agent `a` connected to an ICE-lite agent
+ * `b` (which sends no checks of its own, so `a` selects a pair only from the
+ * candidates it was given).
+ */
+export async function createConnectedLitePair() {
+  const a = createTestConnection(true);
+  const b = createTestConnection(false, { iceLite: true });
+  await inviteAccept(a, b);
+  a.remoteIsLite = true;
   await Promise.all([a.connect(), b.connect()]);
   return { a, b };
 }
@@ -804,4 +819,198 @@ export function localRelayCandidates(connection: Connection) {
   return connection.localCandidates.filter(
     (candidate) => candidate.type === "relay",
   );
+}
+
+/**
+ * Arrange: a UDP proxy in front of `target` (a local TURN server) that holds
+ * client-to-server datagrams until `release()`, so a gather's TURN
+ * allocation (or STUN query) completes only when the test lets it.
+ */
+export async function createHeldUdpProxy(target: Address) {
+  const host = target[0];
+  const family = net.isIPv4(host) ? "udp4" : "udp6";
+  const front = dgram.createSocket(family);
+  await new Promise<void>((resolve) => front.bind(0, host, resolve));
+  const upstream = new Map<string, dgram.Socket>();
+  const queued: (() => void)[] = [];
+  let held = true;
+  front.on("message", (data, rinfo) => {
+    const key = `${rinfo.address}:${rinfo.port}`;
+    let socket = upstream.get(key);
+    if (!socket) {
+      socket = dgram.createSocket(family);
+      socket.bind(0, host);
+      socket.on("message", (reply) => {
+        front.send(reply, rinfo.port, rinfo.address);
+      });
+      upstream.set(key, socket);
+    }
+    const forward = () => socket!.send(data, target[1], target[0]);
+    if (held) queued.push(forward);
+    else forward();
+  });
+  return {
+    address: [host, front.address().port] as Address,
+    release() {
+      held = false;
+      for (const forward of queued.splice(0)) forward();
+    },
+    /** Queue the following datagrams again until the next `release()`. */
+    hold() {
+      held = true;
+    },
+    close() {
+      for (const socket of upstream.values()) socket.close();
+      front.close();
+    },
+  };
+}
+
+/**
+ * Shared Arrange: give each connection the other's current ICE credentials
+ * (as the descriptions of a negotiation would).
+ */
+export function exchangeIceCredentials(a: Connection, b: Connection) {
+  a.remoteUsername = b.localUsername;
+  a.remotePassword = b.localPassword;
+  b.remoteUsername = a.localUsername;
+  b.remotePassword = a.localPassword;
+}
+
+/** Shared Arrange: deliver `from`'s local candidates (and optionally end-of-candidates) to `to`. */
+export async function deliverLocalCandidates(
+  from: Connection,
+  to: Connection,
+  { endOfCandidates }: { endOfCandidates: boolean },
+) {
+  for (const candidate of from.localCandidates) {
+    await to.addRemoteCandidate(Candidate.fromSdp(candidate.toSdp()));
+  }
+  if (endOfCandidates) await to.addRemoteCandidate(undefined);
+}
+
+/**
+ * Shared Arrange: two relay-only connections (b reaches the TURN server
+ * through `proxy`, released) with a nominated relay pair.
+ */
+export async function createConnectedRelayOnlyPair() {
+  const server = await createLocalTurnServer(getHostAddresses(true, false)[0]!);
+  const proxy = await createHeldUdpProxy(server.address!);
+  proxy.release();
+  const a = createTestConnection(true, localTurnOptions(server));
+  const b = createTestConnection(false, proxiedTurnOptions(proxy));
+  await Promise.all([a.gatherCandidates(), b.gatherCandidates()]);
+  exchangeIceCredentials(a, b);
+  await deliverLocalCandidates(a, b, { endOfCandidates: true });
+  await deliverLocalCandidates(b, a, { endOfCandidates: true });
+  await Promise.all([a.connect(), b.connect()]);
+  return {
+    a,
+    b,
+    proxy,
+    close: async () => {
+      await Promise.allSettled([a.close(), b.close()]);
+      proxy.close();
+      await server.close();
+    },
+  };
+}
+
+/** Relay-only TURN options that reach `server` through `proxy`. */
+export function proxiedTurnOptions(proxy: { address: Address }) {
+  return {
+    stunServer: undefined,
+    turnServer: proxy.address,
+    turnUsername: TURN_TEST_USERNAME,
+    turnPassword: TURN_TEST_PASSWORD,
+    forceTurn: true,
+  };
+}
+
+/**
+ * Act helper: send one connectivity check from `from`'s selected pair to its
+ * peer, addressed to `remoteUfrag` and signed with `remotePassword`, claiming
+ * the controlled role with the highest tie-breaker (a role conflict for a
+ * controlled peer). Resolves with the ERROR-CODE the verified response
+ * carries; a response the password cannot verify is dropped (timeout).
+ */
+export async function sendRoleConflictCheck(
+  from: Connection,
+  {
+    remoteUfrag,
+    localUfrag,
+    remotePassword,
+  }: { remoteUfrag: string; localUfrag: string; remotePassword: string },
+) {
+  const pair = from.nominated!;
+  const request = new Message(methods.BINDING, classes.REQUEST)
+    .setAttribute("USERNAME", `${remoteUfrag}:${localUfrag}`)
+    .setAttribute("PRIORITY", 1)
+    .setAttribute("ICE-CONTROLLED", 2n ** 64n - 1n);
+  try {
+    await pair.protocol.request(
+      request,
+      pair.remoteAddr,
+      Buffer.from(remotePassword, "utf8"),
+      0,
+    );
+    return undefined;
+  } catch (error) {
+    return (error as { response?: Message }).response?.getAttributeValue(
+      "ERROR-CODE",
+    )?.[0] as number | undefined;
+  }
+}
+
+/** Requests `connection` sends from now on, over every protocol it holds. */
+export function recordCheckRequests(connection: Connection) {
+  let count = 0;
+  for (const protocol of (connection as unknown as { protocols: Protocol[] })
+    .protocols) {
+    const original = protocol.request.bind(protocol);
+    protocol.request = ((...args: Parameters<typeof original>) => {
+      count++;
+      return original(...args);
+    }) as typeof protocol.request;
+  }
+  return { count: () => count };
+}
+
+// --- spec coverage: ice ---
+
+/**
+ * Arrange: run `atSelection` right after `connection` selects its first pair
+ * (in the microtask that follows the successful check that nominated it),
+ * before `connect()` resolves and before any consent request is sent. The
+ * returned promise settles with what `atSelection` returned.
+ */
+export function atFirstSelection<T>(
+  connection: Connection,
+  atSelection: (pair: CandidatePair) => T,
+) {
+  let selected: CandidatePair | undefined;
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const result = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  Object.defineProperty(connection, "nominated", {
+    configurable: true,
+    enumerable: true,
+    get: () => selected,
+    set: (pair: CandidatePair | undefined) => {
+      const first = !selected && !!pair;
+      selected = pair;
+      if (!first) return;
+      queueMicrotask(() => {
+        try {
+          resolve(atSelection(pair!));
+        } catch (error) {
+          reject(error);
+        }
+      });
+    },
+  });
+  return result;
 }

@@ -66,12 +66,18 @@ type StagedLocalRestart = {
   candidates: IceCandidate[];
   emitted: boolean;
   /**
-   * ICE servers changed since the current candidates were gathered, so the
-   * relay candidates and end-of-candidates of this generation are signalled
-   * only after the commit gathers with the new servers.
+   * The generation gathers from its servers again after the commit (a new TURN
+   * allocation, a fresh STUN mapping, changed ICE servers): its relay
+   * candidates and end-of-candidates are trickled then, not with the offer.
    */
   endDeferred?: boolean;
-  emittedCandidates?: IceCandidate[];
+  /** The remote offer an answer staged this generation for, if any. */
+  answering?: object;
+  /**
+   * The kind of description that created it. The latest created offer and
+   * the latest created answer each keep their generation registered.
+   */
+  createdBy: "offer" | "answer";
 };
 
 export class RTCIceTransport {
@@ -81,15 +87,43 @@ export class RTCIceTransport {
   readonly component = "rtp";
   iceRestarts = 0;
   private waitStart?: Event<[]>;
+  /**
+   * Connectivity checks were started for the current generation. A restart
+   * resets it; the state alone cannot tell (an agent that finished gathering
+   * reports "completed" before any check ran).
+   * @internal
+   */
+  checksStarted = false;
   private renominating = false;
+  /**
+   * The restart generation selected for the description being created or
+   * applied (the one createOffer / createAnswer put in its SDP, or the one an
+   * applied description carries).
+   */
   private stagedLocalRestart?: StagedLocalRestart;
+  /**
+   * The restart generations the latest created offer and the latest created
+   * answer carry, by ufrag (their generation records). One stays registered
+   * until a newer description of the same kind replaces it (unless an
+   * applied description still carries it) or the transport stops, whatever
+   * is applied, rolled back or committed meanwhile; applying a description
+   * that carries it selects it (an ICE restart to those credentials on the
+   * kept sockets).
+   */
+  private readonly localGenerations = new Map<string, StagedLocalRestart>();
   /**
    * The staged generation an applied description (pending local offer, or a
    * remote offer being answered) carries. It stays until that description is
    * committed, replaced or rolled back; an unapplied createOffer cannot drop it.
    */
   private appliedLocalRestart?: StagedLocalRestart;
-  private committedCandidateEvents?: IceCandidate[];
+  /**
+   * Gatherer events of an ICE restart committed by a local answer, held until
+   * that answer is applied (`emitCommittedCandidates`), in their order: the
+   * re-advertised candidates first, then what the servers add and
+   * end-of-candidates.
+   */
+  private heldCandidateEvents?: (IceCandidate | undefined)[];
   /**
    * ICE servers set (setConfiguration) after this transport gathered. They
    * apply to the next gathering, that is the next ICE restart (JSEP 4.1.18).
@@ -109,7 +143,8 @@ export class RTCIceTransport {
       this.setState(state);
     });
     this.iceGather.onIceCandidate = (candidate) => {
-      this.onIceCandidate.execute(candidate);
+      if (this.heldCandidateEvents) this.heldCandidateEvents.push(candidate);
+      else this.onIceCandidate.execute(candidate);
     };
     this.iceGather.onGatheringStateChange.subscribe(() => {
       this.ongatheringstatechange?.();
@@ -144,53 +179,101 @@ export class RTCIceTransport {
   }
 
   get localCandidates() {
-    const staged = this.stagedLocalRestart;
-    if (!staged) return this.iceGather.localCandidates;
-    return this.stagedGatherPending()
-      ? staged.candidates.filter((candidate) => candidate.type !== "relay")
-      : staged.candidates;
+    return this.describedLocalGeneration().candidates;
   }
 
   /** Whether the local description may carry `a=end-of-candidates`. */
   get localCandidatesComplete() {
-    return this.gatheringState === "complete" && !this.stagedGatherPending();
+    return this.describedLocalGeneration().complete;
   }
 
   /**
-   * A staged restart whose generation is gathered again at the commit because
-   * the ICE servers changed; its relay candidates are not final before that.
+   * The local ICE generation a description carries: its credentials,
+   * candidates and whether they are complete. A description being created
+   * carries a staged restart. One already applied (refreshed when the live
+   * generation gathers more) carries the staged restart only if it applied
+   * it; a later createOffer() that staged another generation without applying
+   * it does not change an applied description.
+   * @internal
+   */
+  describedLocalGeneration({ applied = false }: { applied?: boolean } = {}) {
+    const staged = this.stagedLocalRestart;
+    if (!staged || (applied && staged !== this.appliedLocalRestart)) {
+      return {
+        parameters: this.iceGather.localParameters,
+        candidates: this.iceGather.localCandidates,
+        // The gatherer signals end-of-candidates (and the description that
+        // records it refreshes) just before its state becomes "complete".
+        complete:
+          this.gatheringState === "complete" ||
+          this.connection.localCandidatesEnd,
+      };
+    }
+    const pending = this.stagedGatherPending();
+    return {
+      parameters: new RTCIceParameters({
+        iceLite: this.connection.iceLite,
+        usernameFragment: staged.usernameFragment,
+        password: staged.password,
+      }),
+      candidates: pending
+        ? staged.candidates.filter((candidate) => candidate.type !== "relay")
+        : staged.candidates,
+      complete: this.gatheringState === "complete" && !pending,
+    };
+  }
+
+  /**
+   * A staged restart whose generation keeps gathering from its servers after
+   * the commit; its relay candidates and end-of-candidates come then.
    */
   private stagedGatherPending() {
     const staged = this.stagedLocalRestart;
     if (!staged) return false;
     if (staged.emitted) return !!staged.endDeferred;
-    return !!this.nextGatherIceServers;
+    return !!this.nextGatherIceServers || !!this.connection.gathersFromServers;
   }
 
   get localParameters() {
-    const pending = this.stagedLocalRestart;
-    return pending
-      ? new RTCIceParameters({
-          iceLite: this.connection.iceLite,
-          usernameFragment: pending.usernameFragment,
-          password: pending.password,
-        })
-      : this.iceGather.localParameters;
+    return this.describedLocalGeneration().parameters;
   }
 
-  /** Prepare an ICE generation for SDP without touching the selected pair. */
-  stageLocalRestart() {
-    // JSEP 5.2.1: a new offer reuses the credentials of the pending applied
-    // offer, which already restarts ICE.
-    if (
-      this.stagedLocalRestart &&
-      this.stagedLocalRestart === this.appliedLocalRestart
-    ) {
+  /**
+   * Prepare an ICE generation for SDP without touching the selected pair.
+   * `answering` is the remote offer an answer is created for.
+   */
+  stageLocalRestart({
+    answering,
+    replacing,
+  }: {
+    answering?: object;
+    /** Credentials restartIce() asked to replace (W3C [[LocalIceCredentialsToReplace]]). */
+    replacing?: ReadonlySet<string>;
+  } = {}) {
+    // The generation a description of this kind already carries is reused,
+    // whatever was selected since: a new offer reuses the one of the pending
+    // applied offer (JSEP 5.2.1) unless restartIce() asked to replace it, and
+    // an answer created again for the same remote offer reuses the one the
+    // earlier answer carries (JSEP 5.3.1).
+    const applied = this.appliedLocalRestart;
+    const reused = answering
+      ? [...this.localGenerations.values()].find(
+          (generation) => generation.answering === answering,
+        )
+      : applied && !replacing?.has(applied.usernameFragment)
+        ? applied
+        : undefined;
+    if (reused) {
+      this.selectGeneration(reused);
       return;
     }
-    this.rollbackLocalRestart();
+    this.unselectLocalRestart();
     const usernameFragment = randomBytes(6).toString("base64url");
-    const password = randomBytes(24).toString("base64url");
+    const random = randomBytes(24).toString("base64url");
+    // The configured prefix (icePasswordPrefix) marks every generation's
+    // password, as the agent's own restart does.
+    const prefix = this.connection.options.localPasswordPrefix ?? "";
+    const password = prefix + random.slice(prefix.length);
     const candidates = this.iceGather.localCandidates.map((candidate) => {
       const copy = Object.assign(
         new IceCandidate(
@@ -212,15 +295,82 @@ export class RTCIceTransport {
       );
       return copy;
     });
-    this.stagedLocalRestart = {
+    const generation: StagedLocalRestart = {
       usernameFragment,
       password,
       candidates,
       emitted: false,
+      answering,
+      createdBy: answering ? "answer" : "offer",
     };
+    // The previous description of this kind is no longer the latest one.
+    for (const [ufrag, previous] of this.localGenerations) {
+      if (
+        previous.createdBy === generation.createdBy &&
+        previous !== this.appliedLocalRestart
+      ) {
+        this.localGenerations.delete(ufrag);
+      }
+    }
+    this.localGenerations.set(usernameFragment, generation);
+    this.stagedLocalRestart = generation;
     // Existing sockets can respond to provisional STUN checks for the new
     // ufrag while the old generation continues to carry media.
     this.connection.stageLocalCredentials?.(usernameFragment, password);
+  }
+
+  /**
+   * The local generation a description with these credentials carries:
+   * `"live"` for the agent's current credentials, the restart generation the
+   * latest created offer or answer carries, or `undefined` when the
+   * credentials belong to no generation the transport can take.
+   * @internal
+   */
+  localGenerationFor(usernameFragment: string, password: string) {
+    const live = this.iceGather.localParameters;
+    if (
+      live.usernameFragment === usernameFragment &&
+      live.password === password
+    ) {
+      return "live" as const;
+    }
+    const generation = this.localGenerations.get(usernameFragment);
+    if (generation?.password === password) return generation;
+    return undefined;
+  }
+
+  /**
+   * Select the local generation an applied description carries (see
+   * `localGenerationFor`). Returns false if the credentials belong to none.
+   * @internal
+   */
+  selectLocalGeneration(usernameFragment: string, password: string) {
+    const generation = this.localGenerationFor(usernameFragment, password);
+    if (!generation) return false;
+    if (generation === "live") {
+      this.unselectLocalRestart();
+      return true;
+    }
+    this.selectGeneration(generation);
+    return true;
+  }
+
+  private selectGeneration(generation: StagedLocalRestart) {
+    if (this.stagedLocalRestart === generation) return;
+    this.unselectLocalRestart();
+    this.stagedLocalRestart = generation;
+    this.connection.stageLocalCredentials?.(
+      generation.usernameFragment,
+      generation.password,
+    );
+  }
+
+  /** Stop answering checks for the selected generation; it stays registered. */
+  private unselectLocalRestart() {
+    const staged = this.stagedLocalRestart;
+    if (!staged) return;
+    this.connection.discardStagedLocalCredentials?.(staged.usernameFragment);
+    this.stagedLocalRestart = undefined;
   }
 
   get hasStagedRestart() {
@@ -240,6 +390,26 @@ export class RTCIceTransport {
     );
   }
 
+  /**
+   * Hand a remote candidate (`undefined`: end-of-candidates) to the ICE agent
+   * without waiting for it. A host candidate is added synchronously; an mDNS
+   * name may take seconds to resolve, and the agent itself orders that
+   * resolution against end-of-candidates and generation changes, so the
+   * description operation queue must not wait for it.
+   */
+  deliverRemoteCandidate(candidate?: IceCandidate) {
+    void Promise.resolve(this.addRemoteCandidate(candidate)).catch((error) =>
+      log("addRemoteCandidate failed", error),
+    );
+  }
+
+  /** `deliverRemoteCandidate` for the provisional (pranswer) generation. */
+  deliverProvisionalRemoteCandidate(candidate?: IceCandidate) {
+    void Promise.resolve(this.addProvisionalRemoteCandidate(candidate)).catch(
+      (error) => log("addProvisionalRemoteCandidate failed", error),
+    );
+  }
+
   startProvisionalChecks() {
     if (!this.stagedLocalRestart) return;
     this.connection.startProvisionalChecks?.();
@@ -251,20 +421,25 @@ export class RTCIceTransport {
     const candidates = this.localCandidates;
     staged.endDeferred = this.stagedGatherPending();
     staged.emitted = true;
-    staged.emittedCandidates = candidates;
     for (const candidate of candidates) {
-      this.onIceCandidate.execute(candidate);
+      // A copy: the listener rewrites the event's foundation and m-line,
+      // while these candidates still render the local description.
+      this.onIceCandidate.execute(
+        Object.assign(
+          Object.create(Object.getPrototypeOf(candidate)),
+          candidate,
+        ) as IceCandidate,
+      );
     }
     if (!staged.endDeferred) this.onIceCandidate.execute(undefined);
   }
 
   rollbackLocalRestart() {
     this.appliedLocalRestart = undefined;
-    if (!this.stagedLocalRestart) return;
-    this.connection.discardStagedLocalCredentials?.(
-      this.stagedLocalRestart.usernameFragment,
-    );
-    this.stagedLocalRestart = undefined;
+    // A description applying this generation again signals its candidates
+    // again (the remote side rolled back too).
+    if (this.stagedLocalRestart) this.stagedLocalRestart.emitted = false;
+    this.unselectLocalRestart();
   }
 
   /** The staged generation now belongs to an applied description. */
@@ -277,9 +452,9 @@ export class RTCIceTransport {
     const staged = this.stagedLocalRestart;
     const applied = this.appliedLocalRestart;
     if (!staged || staged === applied) return;
-    this.connection.discardStagedLocalCredentials?.(staged.usernameFragment);
-    this.stagedLocalRestart = applied;
+    this.unselectLocalRestart();
     if (applied) {
+      this.stagedLocalRestart = applied;
       this.connection.stageLocalCredentials?.(
         applied.usernameFragment,
         applied.password,
@@ -294,9 +469,13 @@ export class RTCIceTransport {
   async commitLocalRestartIfStaged() {
     const staged = this.stagedLocalRestart;
     if (!staged) return;
-    // Candidates already signalled with end-of-candidates fix this
-    // generation's servers; a later server change waits for the next restart.
-    this.restart(false, !staged.emitted || !!staged.endDeferred);
+    // The description already finalized this generation's candidates with
+    // end-of-candidates: it only re-advertises the kept sockets, and a server
+    // change waits for the next restart. Otherwise the generation keeps
+    // gathering from its servers (a fresh STUN mapping, a new TURN allocation)
+    // after the commit and trickles what they add.
+    const regather = this.stagedGatherPending();
+    this.restart(false, regather);
     if (this.connection.commitLocalCredentials) {
       this.connection.commitLocalCredentials(
         staged.usernameFragment,
@@ -308,33 +487,32 @@ export class RTCIceTransport {
     }
     this.stagedLocalRestart = undefined;
     this.appliedLocalRestart = undefined;
-    await this.gather();
-    if (!staged.emitted) {
-      this.committedCandidateEvents = this.iceGather.localCandidates;
-    } else if (staged.endDeferred) {
-      // Trickle what the new servers added, then end the generation.
-      const signalled = staged.emittedCandidates ?? [];
-      this.committedCandidateEvents = this.iceGather.localCandidates.filter(
-        (candidate) =>
-          !signalled.some(
-            (sent) =>
-              sent.ip === candidate.ip &&
-              sent.port === candidate.port &&
-              sent.protocol === candidate.protocol &&
-              sent.type === candidate.type,
-          ),
-      );
+    // A local answer signals its candidates after it is applied.
+    if (!staged.emitted) this.heldCandidateEvents = [];
+    // The generation is live now. Its registration stays with the
+    // description that carries it (a later commit of another generation does
+    // not end it): applying that description again restarts to it, and its
+    // candidates are signalled again then.
+    staged.emitted = false;
+    staged.endDeferred = undefined;
+    // The kept sockets are re-advertised synchronously; nothing here waits
+    // for a server, so the commit never holds the new generation's checks.
+    const gathering = this.gather();
+    if (regather) {
+      void gathering.catch((error) => log("restart gathering failed", error));
+    } else {
+      await gathering;
     }
   }
 
+  /** Signal the candidates an ICE restart committed by a local answer gathered. */
   emitCommittedCandidates() {
-    const candidates = this.committedCandidateEvents;
-    if (!candidates) return;
-    this.committedCandidateEvents = undefined;
-    for (const candidate of candidates) {
+    const held = this.heldCandidateEvents;
+    if (!held) return;
+    this.heldCandidateEvents = undefined;
+    for (const candidate of held) {
       this.onIceCandidate.execute(candidate);
     }
-    this.onIceCandidate.execute(undefined);
   }
 
   getRemoteCandidates() {
@@ -380,6 +558,9 @@ export class RTCIceTransport {
   }
 
   private setState(state: RTCIceConnectionState, emitEvent = true) {
+    // closed is final: checks that stop() interrupted must not report
+    // "failed" (or anything else) afterwards.
+    if (this.state === "closed") return;
     if (state !== this.state) {
       this.state = state;
 
@@ -413,7 +594,17 @@ export class RTCIceTransport {
     }
   };
 
-  setRemoteParams(remoteParameters: RTCIceParameters, renomination = false) {
+  /**
+   * `keepLocalCredentials`: the remote credentials come from an answer or
+   * pranswer, so the local ones are fixed by the applied local offer. Changed
+   * remote credentials restart the checks for the new remote generation
+   * without new local credentials (nothing would describe them to the peer).
+   */
+  setRemoteParams(
+    remoteParameters: RTCIceParameters,
+    renomination = false,
+    { keepLocalCredentials = false }: { keepLocalCredentials?: boolean } = {},
+  ) {
     if (renomination) {
       this.renominating = true;
     }
@@ -426,13 +617,34 @@ export class RTCIceTransport {
       if (this.renominating) {
         log("renomination", remoteParameters);
         this.connection.resetNominatedPair();
+        // The kept checklist holds only the new remote generation's
+        // candidates (and ones without a ufrag, as develop kept them).
+        this.connection.dropOtherRemoteGenerations?.(
+          remoteParameters.usernameFragment,
+        );
         this.renominating = false;
+      } else if (keepLocalCredentials && this.connection.restartRemote) {
+        log("remote restart", remoteParameters);
+        this.resetRemoteGeneration();
       } else {
         log("restart", remoteParameters);
         this.restart();
       }
     }
     this.connection.setRemoteParams(remoteParameters);
+  }
+
+  /**
+   * Internal: drop the remote generation and its checks, keeping the local
+   * credentials and candidates a description already carries (a remote-only
+   * restart, or a proposal transport a replacement pranswer left unused).
+   */
+  resetRemoteGeneration() {
+    if (!this.connection.restartRemote) return;
+    this.connection.restartRemote();
+    this.setState("new");
+    this.waitStart = undefined;
+    this.checksStarted = false;
   }
 
   restart(notifyNegotiation = true, applyNextGatherIceServers = true) {
@@ -445,6 +657,7 @@ export class RTCIceTransport {
     // SecureTransportManager aggregate iceGatheringState stays in sync.
     this.iceGather.setGatheringState("new");
     this.waitStart = undefined;
+    this.checksStarted = false;
     if (notifyNegotiation) this.onNegotiationNeeded.execute();
   }
 
@@ -459,7 +672,9 @@ export class RTCIceTransport {
     if (this.waitStart) {
       await this.waitStart.asPromise();
     }
-    this.waitStart = new Event();
+    const waitStart = new Event<[]>();
+    this.waitStart = waitStart;
+    this.checksStarted = true;
 
     this.setState("checking");
 
@@ -468,14 +683,34 @@ export class RTCIceTransport {
     } catch (error) {
       this.setState("failed");
       throw error;
+    } finally {
+      // A failed start releases its waiters too.
+      if (!waitStart.ended) {
+        waitStart.execute();
+        waitStart.complete();
+      }
+      if (this.waitStart === waitStart) this.waitStart = undefined;
     }
+  }
 
-    this.waitStart.execute();
-    this.waitStart.complete();
-    this.waitStart = undefined;
+  /**
+   * Settles when the checks a running start() makes finish (at once if none run).
+   * @internal
+   */
+  async checksSettled() {
+    const waitStart = this.waitStart;
+    if (waitStart) await waitStart.asPromise();
   }
 
   async stop() {
+    this.localGenerations.clear();
+    // Whoever awaits the checks of this transport settles now (checksSettled).
+    const waitStart = this.waitStart;
+    this.waitStart = undefined;
+    if (waitStart && !waitStart.ended) {
+      waitStart.execute();
+      waitStart.complete();
+    }
     if (this.state !== "closed") {
       this.setState("closed", false);
       await this.connection.close();
@@ -609,7 +844,16 @@ export class RTCIceGatherer {
   async gather() {
     if (this.gatheringState === "new") {
       this.setState("gathering");
+      const generation = this.connection.generation;
       await this.connection.gatherCandidates();
+      // Gathering an ICE restart (or close) replaced in the meantime does not
+      // complete the new generation: that one signals its own end.
+      if (
+        this.connection.generation !== generation ||
+        this.connection.state === "closed"
+      ) {
+        return;
+      }
       this.onIceCandidate(undefined);
       this.setState("complete");
     }

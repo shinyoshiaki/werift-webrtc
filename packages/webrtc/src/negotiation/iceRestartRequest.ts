@@ -27,6 +27,11 @@ export class IceRestartRequest {
     ]);
   }
 
+  /** The local ufrags the next offer must not carry again. */
+  get replacing(): ReadonlySet<string> {
+    return this.toReplace;
+  }
+
   /** Nothing current to replace: fresh credentials satisfy the request. */
   clear() {
     this.requested = false;

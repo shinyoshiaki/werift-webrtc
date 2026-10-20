@@ -18,7 +18,6 @@ import {
   type RtpRouter,
   Sendonly,
   Sendrecv,
-  type TransceiverNegotiationState,
   type TransceiverOptions,
 } from "./media";
 import {
@@ -29,6 +28,10 @@ import {
 } from "./media/codecCompatibility";
 import type { RTCStats } from "./media/stats";
 import { captureTrackSourceCodecs, getTrackSourceCodecs } from "./media/track";
+import type {
+  TransceiverNegotiationState,
+  TransceiversNegotiationState,
+} from "./negotiation/internalState";
 import {
   type MediaDescription,
   type SessionDescription,
@@ -68,18 +71,6 @@ export function negotiateRemoteCodecs(
     return true;
   });
 }
-
-/** The transceivers of a PeerConnection and their negotiation state. */
-export type TransceiversNegotiationState = {
-  order: RTCRtpTransceiver[];
-  states: Map<
-    RTCRtpTransceiver,
-    {
-      transceiver: TransceiverNegotiationState;
-      notifiedRemoteTrack?: { track: MediaStreamTrack; streams: string[] };
-    }
-  >;
-};
 
 function simulcastFromSendEncodings(
   encodings: RTCRtpEncodingParameters[] | undefined,
@@ -137,19 +128,51 @@ export class TransceiverManager {
    * Internal: return to a negotiation baseline. Transceivers in `added` were
    * created by the rolled-back proposal: they are removed unless the
    * application uses them, in which case only their m-line association goes.
+   * Transceivers in `notified` (a replacement offer describes them again)
+   * keep the track event they delivered.
    * @returns transports of the removed transceivers (the caller stops unused ones)
    */
   restoreNegotiationState(
     snapshot: TransceiversNegotiationState,
     added: Iterable<RTCRtpTransceiver>,
+    createdState: (
+      transceiver: RTCRtpTransceiver,
+    ) => TransceiverNegotiationState | undefined = () => undefined,
+    carried: ReadonlySet<RTCRtpTransceiver> = new Set(),
+    notified: ReadonlySet<RTCRtpTransceiver> = new Set(),
   ) {
     for (const [transceiver, state] of snapshot.states) {
+      // A transceiver a replacement offer describes again keeps the track
+      // event it already delivered (it is not repeated).
+      const { firedReceiving } = transceiver.snapshotNegotiationState();
+      const tracks = [...transceiver.receiver.tracks];
       transceiver.restoreNegotiationState(state.transceiver);
+      if (notified.has(transceiver)) {
+        // The same track objects stay for the SSRCs the replacing offer gives.
+        transceiver.receiver.keepUnboundTracks(tracks);
+        transceiver.firedReceiving = firedReceiving;
+        continue;
+      }
       this.restoreNotifiedRemoteTrack(transceiver, state.notifiedRemoteTrack);
     }
     const removedTransports: RTCDtlsTransport[] = [];
     for (const transceiver of added) {
+      if (carried.has(transceiver)) {
+        // A replacement remote offer describes its MID again: it keeps its
+        // MID, m-line and notified track and goes back to its created state.
+        const tracks = [...transceiver.receiver.tracks];
+        const created = createdState(transceiver);
+        if (created) transceiver.restoreNegotiationState(created);
+        transceiver.receiver.keepUnboundTracks(tracks);
+        continue;
+      }
       if (transceiver.heldByApplication) {
+        // Kept for the application, it returns to the state it was created
+        // with (no direction, codecs or routes the proposal negotiated) and
+        // loses its m-line association.
+        const created = createdState(transceiver);
+        if (created) transceiver.restoreNegotiationState(created);
+        this.notifiedRemoteTrack.delete(transceiver);
         transceiver.mid = null;
         transceiver.mLineIndex = undefined;
         continue;
@@ -165,8 +188,28 @@ export class TransceiverManager {
       ),
     );
     for (const transceiver of this.transceivers) {
+      if (snapshot.states.has(transceiver)) continue;
+      // One the application added during the transaction was never
+      // committed (a final answer ends the transaction): it loses the MID /
+      // m-line the rolled-back offer gave it (W3C), also when a replacement
+      // offer gave them, and the direction a pranswer gave it provisionally.
+      if (!transceiver.stopped) {
+        // What the proposal negotiated goes back to the created state; a
+        // delivered track event is not taken back: its track stays, unbound,
+        // for the SSRC a later negotiation gives.
+        const created = transceiver.createdNegotiationState;
+        if (created) {
+          const tracks = [...transceiver.receiver.tracks];
+          const { firedReceiving } = transceiver.snapshotNegotiationState();
+          transceiver.restoreNegotiationState({ ...created, firedReceiving });
+          transceiver.receiver.keepUnboundTracks(tracks);
+        }
+        transceiver.mid = null;
+        transceiver.mLineIndex = undefined;
+        transceiver.setCurrentDirection(undefined);
+        continue;
+      }
       if (
-        !snapshot.states.has(transceiver) &&
         transceiver.mLineIndex != undefined &&
         baselineIndexes.has(transceiver.mLineIndex)
       ) {
@@ -407,6 +450,8 @@ export class TransceiverManager {
       ).map((encoding) => ({ ...encoding })),
     );
     this.router.registerRtpSender(newTransceiver.sender);
+    newTransceiver.createdNegotiationState =
+      newTransceiver.snapshotNegotiationState();
 
     // 旧 transceiver は復活させず、MID は次の offer で新しく割り当てる。
     // 同じ kind で拒否 / 停止の交渉が確定した位置だけを再利用する (inactive は奪わない)
@@ -617,9 +662,16 @@ export class TransceiverManager {
       rtcp: media.rtp.rtcp,
       codecs: transceiver.codecs,
       headerExtensions: transceiver.headerExtensions,
+      // RTX pairs with its `apt` codec wherever the description lists it (an
+      // answer may put RTX before its primary codec), so primaries come first.
       encodings: Object.values(
-        transceiver.codecs.reduce(
-          (acc: { [pt: number]: RTCRtpCodingParameters }, codec) => {
+        [...transceiver.codecs]
+          .sort(
+            (x, y) =>
+              Number(x.name.toLowerCase() === "rtx") -
+              Number(y.name.toLowerCase() === "rtx"),
+          )
+          .reduce((acc: { [pt: number]: RTCRtpCodingParameters }, codec) => {
             if (codec.name.toLowerCase() === "rtx") {
               const params = codecParametersFromString(codec.parameters ?? "");
               const apt = acc[params["apt"]];
@@ -633,9 +685,7 @@ export class TransceiverManager {
               payloadType: codec.payloadType,
             });
             return acc;
-          },
-          {},
-        ),
+          }, {}),
       ),
     };
 
@@ -663,19 +713,24 @@ export class TransceiverManager {
         .filter((payloadType) => !Number.isNaN(payloadType));
     const remoteByLocal = new Map<
       RTCRtpCodecParameters,
-      RTCRtpCodecParameters[]
+      RTCRtpCodecParameters
     >();
+    const usedRemote = new Set<RTCRtpCodecParameters>();
     for (const localCodec of localCodecs) {
       if (["red", "rtx"].includes(codecName(localCodec))) continue;
-      const remoteCodecs = remoteMedia.rtp.codecs.filter(
+      const remoteCodec = remoteMedia.rtp.codecs.find(
         (codec) =>
+          !usedRemote.has(codec) &&
           codec.mimeType.toLowerCase() === localCodec.mimeType.toLowerCase() &&
           (source == undefined ||
             source.some((sourceCodec) =>
               isCodecCompatible(sourceCodec, codec),
             )),
       );
-      if (remoteCodecs.length > 0) remoteByLocal.set(localCodec, remoteCodecs);
+      if (remoteCodec) {
+        remoteByLocal.set(localCodec, remoteCodec);
+        usedRemote.add(remoteCodec);
+      }
     }
 
     const negotiated = localCodecs.flatMap((localCodec) => {
@@ -688,11 +743,11 @@ export class TransceiverManager {
             const remotePrimary = localPrimary
               ? remoteByLocal.get(localPrimary)
               : undefined;
-            return remotePrimary?.map((codec) => codec.payloadType) ?? [];
+            return remotePrimary ? [remotePrimary.payloadType] : [];
           },
         );
         const remoteRed = remoteMedia.rtp.codecs.find((codec) => {
-          if (codecName(codec) !== "red") return false;
+          if (codecName(codec) !== "red" || usedRemote.has(codec)) return false;
           const referenced = redPayloadTypes(codec);
           return (
             referenced.length === remotePrimaryPayloadTypes.length &&
@@ -703,11 +758,13 @@ export class TransceiverManager {
           );
         });
         if (!remoteRed) return [];
+        usedRemote.add(remoteRed);
         return [remoteRed];
       }
 
       if (codecName(localCodec) !== "rtx") {
-        return remoteByLocal.get(localCodec) ?? [];
+        const remoteCodec = remoteByLocal.get(localCodec);
+        return remoteCodec ? [remoteCodec] : [];
       }
 
       const localApt = codecParametersFromString(
@@ -717,33 +774,36 @@ export class TransceiverManager {
         (codec) => codec.payloadType === localApt,
       );
       if (!localPrimary) return [];
-      const remotePrimaryPayloadTypes = new Set(
-        remoteByLocal.get(localPrimary)?.map((codec) => codec.payloadType),
-      );
-      return remoteMedia.rtp.codecs.filter(
-        (codec) =>
-          codecName(codec) === "rtx" &&
-          remotePrimaryPayloadTypes.has(
-            codecParametersFromString(codec.parameters ?? "").apt,
-          ),
-      );
+      const remotePrimary = remoteByLocal.get(localPrimary);
+      if (!remotePrimary) return [];
+      const remoteRtx = remoteMedia.rtp.codecs.find((codec) => {
+        if (codecName(codec) !== "rtx" || usedRemote.has(codec)) {
+          return false;
+        }
+        return (
+          codecParametersFromString(codec.parameters ?? "").apt ===
+          remotePrimary.payloadType
+        );
+      });
+      if (!remoteRtx) return [];
+      usedRemote.add(remoteRtx);
+      return [remoteRtx];
     });
-    const uniqueNegotiated = [...new Set(negotiated)];
     if (order === "remote") {
       const remoteOrder = new Map(
         remoteMedia.rtp.codecs.map((codec, index) => [codec, index]),
       );
-      uniqueNegotiated.sort(
+      negotiated.sort(
         (left, right) => remoteOrder.get(left)! - remoteOrder.get(right)!,
       );
     }
-    if (uniqueNegotiated.length === 0) {
+    if (negotiated.length === 0) {
       throw createWebRtcDomException(
         "NotSupportedError",
         "No compatible codec remains after remote negotiation.",
       );
     }
-    return uniqueNegotiated;
+    return negotiated;
   }
 
   refreshAnswerCodecs(
@@ -844,7 +904,9 @@ export class TransceiverManager {
           ? resolveCodecs(configured, source, transceiver?.codecPreferences)
           : localCodecs,
         remoteMedia,
-        "remote",
+        // An answer lists the answerer's preference order (RFC 3264 §6.1);
+        // a remote answer keeps the order it chose.
+        isOffer ? "local" : "remote",
         source,
       );
       if (source != undefined) {

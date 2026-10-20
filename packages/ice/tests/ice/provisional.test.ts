@@ -4,6 +4,8 @@ import {
   expectDataFlows,
   holdNextCheckResponse,
   provisionalGeneration,
+  recordCheckRequests,
+  sendRoleConflictCheck,
   stageProvisionalGeneration,
   waitProvisionalNominated,
 } from "../utils";
@@ -126,6 +128,88 @@ describe("provisional ICE generation", () => {
       // Assert: 旧 checklist の pair は新しい checklist に属さず、nominate もされない。
       expect(provisionalGeneration(a)!.pairs).not.toContain(pair);
       expect(a.provisionalNominated).toBeUndefined();
+    } finally {
+      await Promise.all([a.close(), b.close()]);
+    }
+  });
+
+  test("the provisional checklist applies filterCandidatePair like the live one", async () => {
+    const { a, b } = await createConnectedPair();
+    try {
+      // Arrange: 確立後に a の候補 pair をすべて拒否する filter を設定する。
+      a.options.filterCandidatePair = () => false;
+      await stageProvisionalGeneration(a, b);
+
+      // Act: a だけ provisional checks を開始する。
+      a.startProvisionalChecks();
+
+      // Assert: filter に拒否された pair は provisional checklist に入らず、nominate もされない。
+      expect(provisionalGeneration(a)!.pairs).toHaveLength(0);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(a.provisionalNominated).toBeUndefined();
+    } finally {
+      await Promise.all([a.close(), b.close()]);
+    }
+  });
+
+  test("an ICE-lite agent sends no provisional checks", async () => {
+    const { a, b } = await createConnectedPair();
+    try {
+      // Arrange: controlled 側の b を ICE-lite として provisional generation を用意する。
+      b.options.iceLite = true;
+      await stageProvisionalGeneration(a, b);
+      const sent = recordCheckRequests(b);
+
+      // Act: b で provisional checks を開始する。
+      b.startProvisionalChecks();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Assert: ICE-lite は接続確認を送らない (応答だけを行う)。
+      expect(sent.count()).toBe(0);
+    } finally {
+      await Promise.all([a.close(), b.close()]);
+    }
+  });
+
+  test("a role conflict on a staged ufrag is answered with that generation's password", async () => {
+    const { a, b } = await createConnectedPair();
+    try {
+      // Arrange: 両側に provisional generation を用意する (b は controlled)。
+      const credentials = await stageProvisionalGeneration(a, b);
+
+      // Act: b の staged ufrag 宛てに role conflict になる check を送る。
+      const code = await sendRoleConflictCheck(a, {
+        remoteUfrag: credentials.b.usernameFragment,
+        localUfrag: credentials.a.usernameFragment,
+        remotePassword: credentials.b.password,
+      });
+
+      // Assert: 487 応答は staged password で署名され、送信側で検証できる。
+      expect(code).toBe(487);
+    } finally {
+      await Promise.all([a.close(), b.close()]);
+    }
+  });
+
+  test("a full agent nominates a provisional pair toward an ICE-lite peer", async () => {
+    const { a, b } = await createConnectedPair();
+    try {
+      // Arrange: controlled 側の b を ICE-lite とし、a はそれを相手の性質として知っている。
+      b.options.iceLite = true;
+      a.remoteIsLite = true;
+      await stageProvisionalGeneration(a, b);
+
+      // Act: 両側で provisional checks を開始する (ICE-lite の b は応答だけを行う)。
+      a.startProvisionalChecks();
+      b.startProvisionalChecks();
+
+      // Assert: a は check 成功後に USE-CANDIDATE 付きの check で regular nomination を行い、
+      // 両側の provisional generation で同じ経路が nominate される。
+      const nominatedA = await waitProvisionalNominated(a);
+      const nominatedB = await waitProvisionalNominated(b);
+      expect(nominatedA.remoteAddr[1]).toBe(nominatedB.localCandidate.port);
+      expect(nominatedB.remoteAddr[1]).toBe(nominatedA.localCandidate.port);
+      expect(nominatedA.nominated).toBe(true);
     } finally {
       await Promise.all([a.close(), b.close()]);
     }

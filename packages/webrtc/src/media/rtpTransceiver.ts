@@ -4,6 +4,11 @@ import { Event } from "../imports/common";
 import type { RTCDtlsTransport } from "..";
 import { SenderDirections } from "../const";
 import { createWebRtcTypeError } from "../errors";
+import {
+  type TransceiverNegotiationState,
+  getApplicationStopRevision,
+  noteApplicationStop,
+} from "../negotiation/internalState";
 import type { Kind } from "../types/domain";
 import { cloneCodecParameters } from "./codec";
 import type {
@@ -20,18 +25,6 @@ import {
   getStatsTimestamp,
 } from "./stats";
 import type { MediaStream, MediaStreamTrack } from "./track";
-
-/** A transceiver's negotiation state, for a rollback baseline. */
-export type TransceiverNegotiationState = ReturnType<
-  RTCRtpTransceiver["snapshotNegotiationState"]
->;
-
-const applicationStops = new WeakMap<RTCRtpTransceiver, number>();
-
-/** Internal provenance used by negotiation rollback. */
-export function getApplicationStopRevision(transceiver: RTCRtpTransceiver) {
-  return applicationStops.get(transceiver) ?? 0;
-}
 
 export class RTCRtpTransceiver {
   readonly id = randomUUID().toString();
@@ -125,6 +118,12 @@ export class RTCRtpTransceiver {
     }
   }
 
+  /**
+   * Internal: the negotiation state the transceiver was created with, so a
+   * rollback can return one that no description committed to it.
+   */
+  createdNegotiationState?: TransceiverNegotiationState;
+
   get dtlsTransport() {
     return this.receiver.dtlsTransport;
   }
@@ -156,6 +155,13 @@ export class RTCRtpTransceiver {
 
   setCurrentDirection(direction: CurrentDirection | undefined) {
     this._currentDirection = direction;
+    // A negotiated direction without sending (inactive / recvonly, also a
+    // pranswer's while it is pending) stops the sender from sending.
+    this.sender.setSendSuppressed(
+      !!direction &&
+        direction !== "stopped" &&
+        !SenderDirections.includes(direction),
+    );
     if (
       direction &&
       direction !== "stopped" &&
@@ -237,11 +243,13 @@ export class RTCRtpTransceiver {
   }
 
   /**
-   * Internal: the application uses this transceiver (it attached a track or
-   * stopped it), so a rollback keeps it even if a remote offer created it.
+   * Internal: the application sends on this transceiver (its sender has a
+   * track), so a rollback keeps it even if a remote offer created it. As in
+   * develop, only a track counts: stop(), a direction or codec preferences
+   * set on a remote-created transceiver do not keep it.
    */
   get heldByApplication() {
-    return !!this.sender.track || getApplicationStopRevision(this) > 0;
+    return !!this.sender.track;
   }
 
   get msid() {
@@ -272,7 +280,7 @@ export class RTCRtpTransceiver {
    * 冪等で、2 回目以降は何もしない。
    */
   stop() {
-    applicationStops.set(this, getApplicationStopRevision(this) + 1);
+    noteApplicationStop(this);
     if (this.stopping) {
       return;
     }

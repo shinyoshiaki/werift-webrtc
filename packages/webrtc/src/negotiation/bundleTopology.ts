@@ -23,7 +23,23 @@ export class BundleTopology {
     private readonly negotiation: NegotiationTransaction,
     /** A new transport with its own ICE credentials. */
     private readonly createTransport: () => RTCDtlsTransport,
+    /** The PeerConnection was closed (checked after every await). */
+    private readonly isClosed: () => boolean = () => false,
   ) {}
+
+  /**
+   * After an await while preparing transports: a close() that ran meanwhile
+   * already disposed the negotiation, so the transports this preparation
+   * created are stopped here and it fails instead of creating more.
+   */
+  private async assertOpen(created: RTCDtlsTransport[]) {
+    if (!this.isClosed()) return;
+    await Promise.allSettled(created.map((transport) => transport.stop()));
+    throw createWebRtcDomException(
+      "InvalidStateError",
+      "RTCPeerConnection is closed",
+    );
+  }
 
   /**
    * BUNDLE tag (first MID) of the group of `description` that contains `mid`.
@@ -55,6 +71,30 @@ export class BundleTopology {
   }
 
   /** Live transport of every m-line (transceiver or SCTP) that has a MID. */
+  /** The transport the committed session uses for `mid` (ignoring a pending proposal). */
+  /**
+   * The transports `description` puts its accepted m-lines on: each m-line's
+   * BUNDLE owner (group tag, else itself), on the transport prepared for the
+   * proposal or else its live one.
+   */
+  transportsOf(description: SessionDescription) {
+    const transports = new Set<RTCDtlsTransport>();
+    for (const media of description.media) {
+      const mid = media.rtp.muxId;
+      if (media.port === 0 || !mid) continue;
+      const owner = this.bundleTagOf(description, mid) ?? mid;
+      const transport =
+        this.negotiation.transportByMid.get(owner) ??
+        this.liveTransportForMid(owner);
+      if (transport) transports.add(transport);
+    }
+    return transports;
+  }
+
+  liveTransportForMid(mid: string) {
+    return this.liveTransportByMid().get(mid);
+  }
+
   private liveTransportByMid() {
     const byMid = new Map<string, RTCDtlsTransport>();
     for (const transceiver of this.transceivers.getTransceivers()) {
@@ -71,18 +111,42 @@ export class BundleTopology {
    * transaction. A replacement offer is staged here first, so a failure (for
    * example ICE gathering of a new BUNDLE owner) stops only what was staged
    * and leaves the previous pending offer, its transports and the signaling
-   * state as they were.
+   * state as they were. `assigned` are the transports of transceivers the
+   * offer associates that are not associated yet (it is not applied yet).
+   * Only the new transports are kept: an owner that reuses a live transport
+   * takes the one it is bound to when the offer is installed.
    */
-  async stageLocalOffer(offer: SessionDescription) {
+  async stageLocalOffer(
+    offer: SessionDescription,
+    assigned: ReadonlyMap<string, RTCDtlsTransport> = new Map(),
+  ) {
+    const currentByMid = this.liveTransportByMid();
+    for (const [mid, transport] of assigned) {
+      if (!currentByMid.has(mid)) currentByMid.set(mid, transport);
+    }
+    // Until the peer has accepted BUNDLE in the committed session, an offered
+    // group is only a proposal under max-compat / balanced: a member keeps
+    // its own transport and candidates and the answer that accepts the group
+    // merges them (RFC 8843 section 7.2). It shares its tag's transport in
+    // the offer under max-bundle, once the peer bundles, or when it already
+    // does (or has no transport of its own yet).
+    const peerBundles = !!this.sdp.currentRemoteDescription?.group.some(
+      (group) => group.semantic === "BUNDLE",
+    );
     const ownerByMid = new Map<string, string>();
     for (const media of offer.media) {
-      if (media.port === 0 || !media.rtp.muxId) continue;
-      ownerByMid.set(
-        media.rtp.muxId,
-        this.bundleTagOf(offer, media.rtp.muxId) ?? media.rtp.muxId,
-      );
+      const mid = media.rtp.muxId;
+      if (media.port === 0 || !mid) continue;
+      const tag = this.bundleTagOf(offer, mid) ?? mid;
+      const own = currentByMid.get(mid);
+      const shared =
+        tag === mid ||
+        this.sdp.bundlePolicy === "max-bundle" ||
+        peerBundles ||
+        !own ||
+        own === currentByMid.get(tag);
+      ownerByMid.set(mid, shared ? tag : mid);
     }
-    const currentByMid = this.liveTransportByMid();
 
     // Select one transport per proposed owner, starting with the transport
     // already bound to the BUNDLE tag. Every member then follows that owner.
@@ -101,6 +165,7 @@ export class BundleTopology {
           created.push(transport);
           pendingOnly = true;
           await transport.iceTransport.gather();
+          await this.assertOpen(created);
         }
         used.add(transport);
         ownerTransport.set(owner, { transport, pendingOnly });
@@ -112,6 +177,7 @@ export class BundleTopology {
 
     return [...ownerByMid].map(([mid, owner]) => ({
       mid,
+      owner,
       ...ownerTransport.get(owner)!,
     }));
   }
@@ -121,10 +187,21 @@ export class BundleTopology {
     offer: SessionDescription,
     staged: Awaited<ReturnType<BundleTopology["stageLocalOffer"]>>,
   ) {
-    for (const { mid, transport, pendingOnly } of staged) {
+    const live = this.liveTransportByMid();
+    for (const {
+      mid,
+      owner,
+      transport: stagedTransport,
+      pendingOnly,
+    } of staged) {
       if (pendingOnly) {
-        this.negotiation.prepareTransport(offer, mid, transport, true);
+        this.negotiation.prepareTransport(offer, mid, stagedTransport, true);
+        this.negotiation.prepareTransport(offer, mid, stagedTransport);
+        continue;
       }
+      // The live transport the owner is bound to now (retiring a first
+      // negotiation's provisional connection may have replaced it).
+      const transport = live.get(owner) ?? stagedTransport;
       this.negotiation.prepareTransport(offer, mid, transport);
     }
   }
@@ -200,14 +277,17 @@ export class BundleTopology {
 
     this.assertPendingSctpBinding(offer);
     const { ownerByMid, owners } = this.planPending(offer);
+    const created: RTCDtlsTransport[] = [];
     try {
       const ownerTransports = new Map<string, RTCDtlsTransport>();
       for (const [owner, plan] of owners) {
         let transport = plan.reuse;
         if (!transport) {
           transport = this.createTransport();
+          created.push(transport);
           this.negotiation.prepareTransport(offer, owner, transport, true);
           await transport.iceTransport.gather();
+          await this.assertOpen(created);
         }
         ownerTransports.set(owner, transport);
       }
@@ -225,7 +305,7 @@ export class BundleTopology {
   }
 
   /** The answer commits: every m-line moves to the transport prepared for it. */
-  applyPending() {
+  applyPending(answer?: SessionDescription) {
     const transports = this.negotiation.transportByMid;
     if (transports.size === 0) return;
     for (const transceiver of this.transceivers.getTransceivers()) {
@@ -233,8 +313,22 @@ export class BundleTopology {
       if (transport) transceiver.setDtlsTransport(transport);
     }
     const sctp = this.sctp.sctpTransport;
-    if (sctp?.mid) {
-      const transport = transports.get(sctp.mid);
+    // An answer that rejects the application m-line negotiates no transport
+    // for it: the SCTP transport stays where it runs (as in develop).
+    const rejected =
+      !!answer &&
+      answer.media.find((media) => media.rtp.muxId === sctp?.mid)?.port === 0;
+    if (sctp?.mid && !rejected) {
+      // SCTP goes straight to the transport of its owner in the answer: a
+      // detour over its own prepared transport would replace the
+      // association (also one a first pranswer already connected).
+      const owner = (answer && this.bundleTagOf(answer, sctp.mid)) ?? sctp.mid;
+      const transport =
+        transports.get(owner) ??
+        (owner !== sctp.mid
+          ? this.transceivers.getTransceivers().find((t) => t.mid === owner)
+              ?.dtlsTransport
+          : undefined);
       if (transport) sctp.setDtlsTransport(transport);
     }
   }

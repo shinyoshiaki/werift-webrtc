@@ -39,23 +39,34 @@ export class DescriptionValidation {
    * A local description must use the ICE credentials of the transports
    * prepared for it and keep the DTLS role of a live association.
    */
-  validateLocal(description: SessionDescription) {
+  /**
+   * Validate a local description without changing anything. `transportForMid`
+   * resolves the transport of an m-line the description associates with a
+   * transceiver that is not associated yet.
+   */
+  validateLocal(
+    description: SessionDescription,
+    transportForMid: (mid: string) => RTCDtlsTransport | undefined = () =>
+      undefined,
+  ) {
     for (const media of description.media) {
       if (media.port === 0 || !media.iceParams) continue;
       const prepared =
         media.rtp.muxId && this.negotiation.transportByMid.get(media.rtp.muxId);
       const live =
-        media.kind === "application"
+        (media.kind === "application"
           ? this.sctp.sctpTransport?.dtlsTransport
           : this.transceivers
               .getTransceivers()
               .find((transceiver) => transceiver.mid === media.rtp.muxId)
-              ?.dtlsTransport;
+              ?.dtlsTransport) ?? transportForMid(media.rtp.muxId ?? "");
+      // The credentials are the transport's live ones, or a restart
+      // generation a created description carries that is still valid.
       const matches = (transport?: RTCDtlsTransport) =>
-        transport?.iceTransport.localParameters.usernameFragment ===
-          media.iceParams!.usernameFragment &&
-        transport.iceTransport.localParameters.password ===
-          media.iceParams!.password;
+        !!transport?.iceTransport.localGenerationFor(
+          media.iceParams!.usernameFragment,
+          media.iceParams!.password,
+        );
       // An answer must use the transport prepared for it. A (replacement)
       // offer is built from the live transports; re-applying the previous
       // pending offer may carry its prepared credentials instead.
@@ -104,12 +115,45 @@ export class DescriptionValidation {
    * transports, media kinds, SCTP port, codecs, DTLS fingerprint and role, and
    * SCTP binding are all checked before any state changes.
    */
+  /**
+   * A new MID on an existing m-line recycles it (JSEP 5.2.2). An m-line the
+   * current session did not reject belongs to a local transceiver; only a
+   * stopped one gives its slot up, an inactive one the application keeps
+   * does not.
+   */
+  private assertRecyclesOnlyStoppedMLines(remoteSdp: SessionDescription) {
+    const current = this.sdp.currentRemoteDescription;
+    if (remoteSdp.type !== "offer" || !current) return;
+    for (const [index, media] of remoteSdp.media.entries()) {
+      const previous = current.media[index];
+      const committedLocal = this.sdp.currentLocalDescription?.media[index];
+      if (
+        !previous?.rtp.muxId ||
+        media.rtp.muxId === previous.rtp.muxId ||
+        previous.port === 0 ||
+        committedLocal?.port === 0
+      ) {
+        continue;
+      }
+      const owner = this.transceivers
+        .getTransceivers()
+        .find((t) => t.mid === previous.rtp.muxId);
+      if (owner && !owner.stopped && !owner.stopping) {
+        throw createWebRtcDomException(
+          "InvalidModificationError",
+          "An m-line of a transceiver that is not stopped cannot be recycled",
+        );
+      }
+    }
+  }
+
   validateRemote(
     remoteSdp: SessionDescription,
     signalingState: RTCSignalingState,
   ) {
     this.sdp.validateRemoteDescription(remoteSdp);
     this.topology.assertAnswerKeepsSharedTransports(remoteSdp, signalingState);
+    this.assertRecyclesOnlyStoppedMLines(remoteSdp);
     for (const [mediaIndex, media] of remoteSdp.media.entries()) {
       if (!["audio", "video", "application"].includes(media.kind)) {
         throw createWebRtcDomException(
@@ -172,10 +216,19 @@ export class DescriptionValidation {
             );
           }
         }
-        // An answer or pranswer keeps the DTLS role of a live association
-        // (RFC 8842 section 5.5); only a new association, such as a BUNDLE
-        // split owner prepared for this proposal, may take another role.
-        // A non-tag BUNDLE member never sets a role, so it is not checked.
+      }
+      // An answer or pranswer keeps the DTLS role of a live association
+      // (RFC 8842 section 5.5), including one a first negotiation connected
+      // at its pranswer; only a new association, such as a BUNDLE split owner
+      // prepared for this proposal, may take another role. A non-tag BUNDLE
+      // member never sets a role, so it is not checked.
+      if (media.port !== 0 && remoteSdp.type !== "offer") {
+        const transport =
+          media.kind === "application"
+            ? this.sctp.sctpTransport?.dtlsTransport
+            : this.transceivers
+                .getTransceivers()
+                .find((t) => t.mid === media.rtp.muxId)?.dtlsTransport;
         const prepared = this.negotiation.transportByMid.get(
           media.rtp.muxId ?? "",
         );
@@ -184,10 +237,12 @@ export class DescriptionValidation {
           media.rtp.muxId,
         );
         const remoteRole = media.dtlsParams?.role;
+        // An answer's `actpass` (invalid per RFC 5763 section 5) names no role;
+        // werift keeps the role of a live association for it.
         if (
-          remoteSdp.type !== "offer" &&
           !bundledNonTag &&
           remoteRole &&
+          remoteRole !== "auto" &&
           transport &&
           ["connecting", "connected"].includes(transport.state) &&
           transport.role !== "auto" &&
