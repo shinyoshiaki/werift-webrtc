@@ -563,4 +563,33 @@ describe("packages/rtp/tests/codec/h265.test.ts", () => {
     // Act / Assert
     expect(() => H265RtpPayload.deSerialize(buf)).toThrow(/S and E/);
   });
+
+  it("rejects PACI (type 50) instead of emitting an invalid NAL", () => {
+    // Arrange: PayloadHdr type=50 + 任意の本文
+    const buf = Buffer.from([50 << 1, 0x01, 0x00, 0x00, 0xaa]);
+    // Act / Assert
+    expect(() => H265RtpPayload.deSerialize(buf)).toThrow(/PACI/);
+  });
+
+  it("inserts parameter sets after a leading AUD", () => {
+    // Arrange: AUD(35) + IDR_W_RADL(19)、VPS/SPS/PPS は未収録
+    const nal = (type: number) => Buffer.from([type << 1, 0x01, 0x80, 0x01]);
+    const [aud, idr, vps, sps, pps] = [35, 19, 32, 33, 34].map(nal);
+    const packetizer = new H265Packetizer({
+      sequenceNumber: 1,
+      parameterSets: [vps, sps, pps],
+      inputFormat: "annexb",
+    });
+    const sample = Buffer.concat(
+      [aud, idr].flatMap((n) => [Buffer.from([0, 0, 0, 1]), n]),
+    );
+    // Act
+    const out = dePacketizeRtpPackets(
+      "H265",
+      packetizer.packetize(sample, 0),
+    ).data;
+    // Assert: 先頭は AUD のまま、その直後に VPS/SPS/PPS、最後に IDR
+    const types = splitH265NalUnits(out).map((n) => (n[0] >> 1) & 0x3f);
+    expect(types).toEqual([35, 32, 33, 34, 19]);
+  });
 });

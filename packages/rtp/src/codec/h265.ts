@@ -28,6 +28,8 @@ import {
 export const H265_PAYLOAD_TYPE_AP = 48;
 /** RFC 7798 §4.4.3 Fragmentation Unit type. */
 export const H265_PAYLOAD_TYPE_FU = 49;
+/** PACI payload structure (RFC 7798 §4.4.4); not supported by the depacketizer. */
+export const H265_PAYLOAD_TYPE_PACI = 50;
 
 /** IRAP picture NAL unit types (HEVC); used for isKeyframe. */
 export const H265_IRAP_NAL_TYPES = {
@@ -237,6 +239,12 @@ export class H265RtpPayload implements DePacketizerBase {
         h265.fragment = acc;
       }
       return h265;
+    }
+
+    // PACI (type 50, RFC 7798 §4.4.4) carries a payload header extension that
+    // is not implemented; fail loudly rather than emit an invalid NAL.
+    if (hdr.type === H265_PAYLOAD_TYPE_PACI) {
+      throw new Error("H.265 PACI (type 50) is not supported");
     }
 
     // Single NAL unit packet (RFC 7798 §4.4.1)
@@ -491,7 +499,14 @@ export class H265Packetizer extends PacketizerBase {
       this.parameterSets.length > 0 &&
       !containsParameterSets(nalUnits)
     ) {
-      nalUnits = [...this.parameterSets, ...nalUnits];
+      // Keep a leading access unit delimiter (type 35) first in the AU
+      const at = nalUnits.findIndex((n) => nalTypeOf(n) !== 35);
+      const insertAt = at === -1 ? nalUnits.length : at;
+      nalUnits = [
+        ...nalUnits.slice(0, insertAt),
+        ...this.parameterSets,
+        ...nalUnits.slice(insertAt),
+      ];
     }
 
     const packets: RtpPacket[] = [];

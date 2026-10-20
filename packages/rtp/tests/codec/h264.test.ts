@@ -334,4 +334,24 @@ describe("packages/rtp/tests/codec/h264.test.ts", () => {
     // Annex-B 指定で先頭が start code でなければ明示エラー
     expect(() => splitH264NalUnits(nal, 4, "annexb")).toThrow(/start code/);
   });
+
+  it("inserts parameter sets after a leading AUD (type 9)", () => {
+    // Arrange: AUD + IDR、SPS/PPS は未収録
+    const aud = Buffer.from([0x09, 0xf0]);
+    const idr = makeNal(NalUnitType.idrSlice, Buffer.alloc(10, 0x44));
+    const sps = makeNal(NalUnitType.sps, Buffer.alloc(6, 0x01));
+    const pps = makeNal(NalUnitType.pps, Buffer.alloc(3, 0x02));
+    const packetizer = new H264Packetizer({
+      sequenceNumber: 1,
+      parameterSets: [sps, pps],
+    });
+    // Act
+    const out = dePacketizeRtpPackets(
+      "MPEG4/ISO/AVC",
+      packetizer.packetize(annexB(aud, idr), 0),
+    ).data;
+    // Assert: AUD が先頭のまま、SPS/PPS はその直後
+    const types = splitH264NalUnits(out).map((n) => n[0] & 0x1f);
+    expect(types).toEqual([9, 7, 8, 5]);
+  });
 });

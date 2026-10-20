@@ -19,6 +19,7 @@
 - **H.264 / H.265 input layout**: new `inputFormat: "auto" | "annexb" | "length-prefixed"` on the packetizers and `split*NalUnits`. `auto` (default) treats a leading start code as Annex-B (a 3-byte `00 00 01 HH` is otherwise indistinguishable from a 4-byte length `0x1HH`); pass `"length-prefixed"` for MP4/MKV samples. Supersedes the earlier length-first heuristic, which corrupted 3-byte-start-code NALs.
 - **telephone-event**: `event` / `volume` / `duration` outside 0–255 / 0–63 / 0–0xFFFF now throw `RangeError` instead of being masked (RFC 4733 §2.5.1.3: split longer events).
 - **AAC**: a complete AU arriving while a fragment is pending drops the stale fragment instead of throwing. **H.265 FU** with S=E=1 is rejected.
+- **H.265 PACI** (type 50) is rejected explicitly; **AV1 W=0** payloads are parsed; H.264/H.265 packetizers insert missing parameter sets after a leading AUD, not before it.
 - **`useH264()`** now returns `video/H264` (uppercase, as Chrome expects); codec names are compared case-insensitively.
 - **AV1 ↔ AV1X** normalization now applies to SDP answer, codec matching, and file playback validation, not only `findCodecByMimeType`.
 

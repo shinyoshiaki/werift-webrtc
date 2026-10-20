@@ -447,7 +447,15 @@ export class H264Packetizer extends PacketizerBase {
         nalUnits,
       );
       if (missing.length > 0) {
-        nalUnits = [...missing, ...nalUnits];
+        // An access unit delimiter (type 9) must stay first in the AU, so the
+        // parameter sets go right after it (ITU-T H.264 §7.4.1.2.3).
+        const at = nalUnits.findIndex((n) => h264NalType(n) !== 9);
+        const insertAt = at === -1 ? nalUnits.length : at;
+        nalUnits = [
+          ...nalUnits.slice(0, insertAt),
+          ...missing,
+          ...nalUnits.slice(insertAt),
+        ];
       }
     }
 

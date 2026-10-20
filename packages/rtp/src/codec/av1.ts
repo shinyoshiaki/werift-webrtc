@@ -109,6 +109,33 @@ export class AV1RtpPayload {
       throw new Error();
     }
 
+    if (p.w_RtpNumObus === 0) {
+      // W=0: every OBU element, including the last, is preceded by a length
+      let i = 0;
+      while (offset < buf.length) {
+        const [elementSize, bytes] = leb128decode(buf.subarray(offset));
+        const start = offset + bytes;
+        const end = start + elementSize;
+        if (end > buf.length) {
+          throw new Error("AV1 OBU element length exceeds payload");
+        }
+        const isFirst = i === 0;
+        const isLast = end >= buf.length;
+        const isFragment =
+          (isFirst && !!p.zBit_RtpStartsWithFragment) ||
+          (isLast && !!p.yBit_RtpEndsWithFragment);
+        p.obu_or_fragment.push({
+          data: buf.subarray(start, end),
+          isFragment,
+          continues: isLast && !!p.yBit_RtpEndsWithFragment,
+          isContinuation: isFirst && !!p.zBit_RtpStartsWithFragment,
+        });
+        offset = end;
+        i++;
+      }
+      return p;
+    }
+
     [...Array(p.w_RtpNumObus - 1).keys()].forEach((i) => {
       const [elementSize, bytes] = leb128decode(buf.subarray(offset));
 

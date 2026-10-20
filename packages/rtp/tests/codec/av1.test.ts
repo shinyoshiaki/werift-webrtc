@@ -268,4 +268,22 @@ describe("codec/av1 packetizer", () => {
     expect(frame).toEqual(expected);
     expect(frame.length).toBeGreaterThan(0);
   });
+
+  it("parses W=0 payloads where every OBU element has a length prefix", () => {
+    // Arrange: W=0, 2 つの OBU 要素（どちらも長さ前置）
+    const obuA = Buffer.from([0x30, 0x01, 0x02]);
+    const obuB = Buffer.from([0x30, 0x03]);
+    const buf = Buffer.concat([
+      Buffer.from([0x00]),
+      Buffer.from([obuA.length]),
+      obuA,
+      Buffer.from([obuB.length]),
+      obuB,
+    ]);
+    // Act
+    const p = AV1RtpPayload.deSerialize(buf);
+    // Assert
+    expect(p.obu_or_fragment.map((o) => o.data)).toEqual([obuA, obuB]);
+    expect(p.obu_or_fragment.every((o) => !o.isFragment)).toBe(true);
+  });
 });
