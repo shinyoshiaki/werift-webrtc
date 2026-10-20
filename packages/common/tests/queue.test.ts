@@ -73,13 +73,16 @@ describe("FifoQueue", () => {
       while (queue.length) queue.shift();
       return performance.now() - started;
     };
+    // 複数回の最小値を使い、GC やスケジューラによる揺れを除く
+    const best = (count: number) =>
+      Math.min(...Array.from({ length: 5 }, () => measure(count)));
     measure(100_000); // ウォームアップ
 
-    // Act: N と 4N の全件 shift 時間を計測する
-    const small = measure(200_000);
-    const large = measure(800_000);
+    // Act: N と 16N の全件 shift 時間を計測する
+    const small = best(50_000);
+    const large = best(800_000);
 
-    // Assert: 二次なら 16 倍になるところ、線形に近い比に収まる
-    expect(large / Math.max(small, 1)).toBeLessThan(8);
+    // Assert: 線形なら約 16 倍、二次なら約 256 倍。両者の中間 (64) を境にする
+    expect(large / Math.max(small, 0.5)).toBeLessThan(64);
   });
 });
