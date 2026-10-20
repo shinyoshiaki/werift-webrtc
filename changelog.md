@@ -12,6 +12,8 @@
 
 ### 🐛 Fixes (review follow-ups)
 
+- **H.264 `isKeyframe`** (RFC 6184 §5.7.1 / §5.8): the 2nd octet is read as an FU header only for FU-A / FU-B. A non-IDR STAP-A whose first NALU size upper byte has low 5 bits = 5 (e.g. size `0x05xx`) is no longer reported as a keyframe; STAP-A is a keyframe only when it aggregates an IDR slice (new `H264RtpPayload.aggregatedNalUnitTypes`). This affects `dePacketizeRtpPackets`, `waitForKeyframe` in the depacketizer, and WebM / MP4 key samples.
+  - **Minor breaking (types)**: `H264RtpPayload.s` / `e` / `r` / `nalUnitPayloadType` are now `number | undefined` and are left `undefined` for non-FU packets.
 - **AAC (RFC 3640 §3.2.3.1)**: every fragment now carries its AU Header Section; the depacketizer strips it from continuations and validates AU-size. Multi-AU splits give each packet a distinct timestamp (`auDurationInSamples`, default 1024). Extended CTS/DTS headers accept non-16-bit lengths with trailing padding.
 - **H.264 / H.265**: length-prefixed input whose prefix looks like a start code (e.g. length 300 = `00 00 01 2c`) is no longer misread as Annex-B.
 - **AV1**: adjacent fragmented OBUs are no longer merged; boundaries come from Z/Y.
