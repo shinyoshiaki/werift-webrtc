@@ -1,9 +1,6 @@
 const { spawnSync } = require("node:child_process");
-const { existsSync, chmodSync } = require("node:fs");
+const { existsSync } = require("node:fs");
 const { basename, dirname, join } = require("node:path");
-const { ensurePlaywrightBrowsersPath } = require("./browsers-path");
-
-ensurePlaywrightBrowsersPath();
 
 function resolveSystemChrome() {
   return [
@@ -47,9 +44,6 @@ function ensureGoogleChromeForH264() {
   }
 
   const script = join(__dirname, "tools/ensure-google-chrome.sh");
-  try {
-    chmodSync(script, 0o755);
-  } catch {}
   const result = spawnSync("bash", [script], {
     encoding: "utf8",
     env: process.env,
@@ -80,21 +74,15 @@ function hasPlaywrightChromium() {
 
     const chromiumDir = dirname(dirname(chromiumExecutablePath));
     const revision = basename(chromiumDir).replace("chromium-", "");
-    const headlessShellDir = join(
+    const headlessShellPath = join(
       dirname(chromiumDir),
       `chromium_headless_shell-${revision}`,
+      "chrome-linux",
+      "headless_shell",
     );
-    const headlessShellPaths = [
-      join(
-        headlessShellDir,
-        "chrome-headless-shell-linux64",
-        "chrome-headless-shell",
-      ),
-      join(headlessShellDir, "chrome-linux", "headless_shell"),
-    ];
 
-    return headlessShellPaths.some(existsSync);
-  } catch (error) {
+    return existsSync(headlessShellPath);
+  } catch {
     return false;
   }
 }
