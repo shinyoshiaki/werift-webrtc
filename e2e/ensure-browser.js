@@ -1,6 +1,9 @@
 const { spawnSync } = require("node:child_process");
 const { existsSync, mkdirSync } = require("node:fs");
 const { basename, dirname, join } = require("node:path");
+const { ensurePlaywrightBrowsersPath } = require("./browsers-path");
+
+ensurePlaywrightBrowsersPath();
 
 /**
  * Prefer a worktree-local browser cache so concurrent CI jobs sharing
