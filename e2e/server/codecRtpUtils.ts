@@ -129,7 +129,12 @@ export type RtpPacketizer = {
   packetize(
     data: Buffer,
     rtpTimestamp: number,
-    options?: { isKeyframe?: boolean; frameType?: "key" | "delta" },
+    options?: {
+      isKeyframe?: boolean;
+      frameType?: "key" | "delta";
+      /** AV1 only: N bit (start of a coded video sequence). */
+      startsNewCodedVideoSequence?: boolean;
+    },
   ): RtpPacket[];
 };
 
@@ -461,6 +466,9 @@ export async function streamPacketizedFixture(options: {
 
         const packets = packetizer.packetize(sample.data, rtpTimestamp, {
           isKeyframe: sample.isKeyframe,
+          // Fixture loops restart the stream, so only the loop's first keyframe
+          // begins a coded video sequence (not every keyframe, RFC 9628 §4.4)
+          startsNewCodedVideoSequence: i === 0 && sample.isKeyframe,
           frameType: sample.isKeyframe ? "key" : "delta",
         });
         if (packets.length > 1) {

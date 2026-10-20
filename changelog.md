@@ -20,6 +20,7 @@
 - **telephone-event**: `event` / `volume` / `duration` outside 0–255 / 0–63 / 0–0xFFFF now throw `RangeError` instead of being masked (RFC 4733 §2.5.1.3: split longer events).
 - **AAC**: a complete AU arriving while a fragment is pending drops the stale fragment instead of throwing. **H.265 FU** with S=E=1 is rejected.
 - **H.265 PACI** (type 50) is rejected explicitly; **AV1 W=0** payloads are parsed; H.264/H.265 packetizers insert missing parameter sets after a leading AUD, not before it.
+- **AV1 N bit** (RFC 9628 §4.4): `Av1Packetizer` no longer sets N on every keyframe. N is set when `startsNewCodedVideoSequence` is `true`, or by default for a keyframe whose temporal unit contains a Sequence Header OBU; mid-sequence keyframes keep N=0.
 - **`useH264()`** now returns `video/H264` (uppercase, as Chrome expects); codec names are compared case-insensitively.
 - **AV1 ↔ AV1X** normalization now applies to SDP answer, codec matching, and file playback validation, not only `findCodecByMimeType`.
 

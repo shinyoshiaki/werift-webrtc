@@ -97,7 +97,10 @@ describe("codec/av1 packetizer", () => {
     ]);
     const packetizer = new Av1Packetizer({ sequenceNumber: 1 });
     // Act
-    const packets = packetizer.packetize(frame, 90_000, { frameType: "key" });
+    const packets = packetizer.packetize(frame, 90_000, {
+      frameType: "key",
+      startsNewCodedVideoSequence: true,
+    });
     const payloads = packets.map((p) => AV1RtpPayload.deSerialize(p.payload));
     // Assert: N は先頭のみ、Z/Y 断片ビット、最終 marker
     expect(packets.length).toBeGreaterThan(2);
@@ -123,7 +126,10 @@ describe("codec/av1 packetizer", () => {
     ]);
     const packetizer = new Av1Packetizer({ sequenceNumber: 1 });
     // Act
-    const packets = packetizer.packetize(frame, 90_000, { isKeyframe: true });
+    const packets = packetizer.packetize(frame, 90_000, {
+      isKeyframe: true,
+      startsNewCodedVideoSequence: true,
+    });
     const depacketized = dePacketizeRtpPackets("AV1", packets);
     // Assert
     expect(packets.length).toBeGreaterThan(1);
@@ -142,7 +148,10 @@ describe("codec/av1 packetizer", () => {
     const frame = Buffer.concat([makeObu(0x11), makeObu(0x22)]);
     const packetizer = new Av1Packetizer({ sequenceNumber: 1 });
     // Act
-    const packets = packetizer.packetize(frame, 90_000, { isKeyframe: true });
+    const packets = packetizer.packetize(frame, 90_000, {
+      isKeyframe: true,
+      startsNewCodedVideoSequence: true,
+    });
     const depacketized = dePacketizeRtpPackets("AV1", packets);
     // Assert: 両 OBU が元のバイト列のまま復元される
     expect(packets.length).toBeGreaterThan(2);
@@ -213,7 +222,10 @@ describe("codec/av1 packetizer", () => {
     const frame = makeObuWithSize(6, Buffer.alloc(40, 0x55));
     const packetizer = new Av1Packetizer({ sequenceNumber: 1 });
     // Act
-    const packets = packetizer.packetize(frame, 0, { isKeyframe: true });
+    const packets = packetizer.packetize(frame, 0, {
+      isKeyframe: true,
+      startsNewCodedVideoSequence: true,
+    });
     const depacketized = dePacketizeRtpPackets("AV1", packets);
     // Assert: 元の OBU 列（size field 含む）へ復元
     expect(packets.length).toBe(1);
@@ -228,7 +240,10 @@ describe("codec/av1 packetizer", () => {
     const frame = Buffer.concat([obu1, obu2]);
     const packetizer = new Av1Packetizer({ sequenceNumber: 1 });
     // Act
-    const packets = packetizer.packetize(frame, 0, { frameType: "key" });
+    const packets = packetizer.packetize(frame, 0, {
+      frameType: "key",
+      startsNewCodedVideoSequence: true,
+    });
     const depacketized = dePacketizeRtpPackets("AV1", packets);
     // Assert
     expect(packets.length).toBe(2);
@@ -244,7 +259,10 @@ describe("codec/av1 packetizer", () => {
       maxPayloadSize: 80,
     });
     // Act
-    const packets = packetizer.packetize(frame, 90_000, { isKeyframe: true });
+    const packets = packetizer.packetize(frame, 90_000, {
+      isKeyframe: true,
+      startsNewCodedVideoSequence: true,
+    });
     const depacketized = dePacketizeRtpPackets("AV1", packets);
     // Assert: 断片 Z/Y 後も size field 付き元列へ復元
     expect(packets.length).toBeGreaterThan(1);
@@ -285,5 +303,37 @@ describe("codec/av1 packetizer", () => {
     // Assert
     expect(p.obu_or_fragment.map((o) => o.data)).toEqual([obuA, obuB]);
     expect(p.obu_or_fragment.every((o) => !o.isFragment)).toBe(true);
+  });
+
+  it("sets N only when a coded video sequence starts, not for every keyframe", () => {
+    // Arrange: Sequence Header OBU (type 1) 付き / 無しの keyframe
+    const seqHdr = Buffer.from([0x0a, 0x01, 0x00]); // type=1, has_size, size=1
+    const frameObu = Buffer.from([0x32, 0x02, 0x55, 0x55]); // type=6 (FRAME)
+    const nBit = (data: Buffer, opts: object) =>
+      AV1RtpPayload.deSerialize(
+        new Av1Packetizer({ sequenceNumber: 1 }).packetize(data, 0, opts)[0]
+          .payload,
+      ).nBit_RtpStartsNewCodedVideoSequence;
+    // Act / Assert
+    // シーケンスヘッダを含む keyframe → 新しい coded video sequence
+    expect(nBit(Buffer.concat([seqHdr, frameObu]), { frameType: "key" })).toBe(
+      1,
+    );
+    // シーケンス途中の keyframe (ヘッダ無し) → N=0
+    expect(nBit(frameObu, { frameType: "key" })).toBe(0);
+    // ヘッダが繰り返されていても、明示 false なら N=0
+    expect(
+      nBit(Buffer.concat([seqHdr, frameObu]), {
+        frameType: "key",
+        startsNewCodedVideoSequence: false,
+      }),
+    ).toBe(0);
+    // delta フレームは明示 true でも指定どおり (out-of-band header 用)
+    expect(
+      nBit(frameObu, { frameType: "key", startsNewCodedVideoSequence: true }),
+    ).toBe(1);
+    expect(
+      nBit(Buffer.concat([seqHdr, frameObu]), { frameType: "delta" }),
+    ).toBe(0);
   });
 });

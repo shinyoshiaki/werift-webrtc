@@ -16,6 +16,7 @@ import { createSocket } from "dgram";
 import {
   AacHbrPacketizer,
   Av1Packetizer,
+  type DepacketizerCodec,
   G722Packetizer,
   H264Packetizer,
   H265Packetizer,
@@ -26,7 +27,6 @@ import {
   Vp8Packetizer,
   Vp9Packetizer,
   dePacketizeRtpPackets,
-  type DepacketizerCodec,
   writeH265PayloadHeader,
 } from "../../../src";
 
@@ -76,18 +76,27 @@ async function selfTest() {
   switch (name) {
     case "pcmu": {
       expected = Buffer.alloc(160, 0x5a);
-      packets = new PcmuPacketizer({ sequenceNumber: 1 }).packetize(expected, 0);
+      packets = new PcmuPacketizer({ sequenceNumber: 1 }).packetize(
+        expected,
+        0,
+      );
       break;
     }
     case "pcma": {
       expected = Buffer.alloc(160, 0xa5);
-      packets = new PcmaPacketizer({ sequenceNumber: 1 }).packetize(expected, 0);
+      packets = new PcmaPacketizer({ sequenceNumber: 1 }).packetize(
+        expected,
+        0,
+      );
       break;
     }
     case "g722": {
       // RFC 3551 §4.5.2: 8000 octets/s → 20 ms = 160 octets
       expected = Buffer.alloc(160, 0x3c);
-      packets = new G722Packetizer({ sequenceNumber: 1 }).packetize(expected, 0);
+      packets = new G722Packetizer({ sequenceNumber: 1 }).packetize(
+        expected,
+        0,
+      );
       break;
     }
     case "aac": {
@@ -126,23 +135,29 @@ async function selfTest() {
       packets = new Vp9Packetizer({
         sequenceNumber: 1,
         maxPayloadSize: 120,
-      }).packetize(expected, 0, { frameType: "key" });
+      }).packetize(expected, 0, {
+        frameType: "key",
+        startsNewCodedVideoSequence: true,
+      });
       break;
     }
     case "av1": {
-      expected = Buffer.concat([
-        Buffer.from([0x30]),
-        Buffer.alloc(400, 0x55),
-      ]);
+      expected = Buffer.concat([Buffer.from([0x30]), Buffer.alloc(400, 0x55)]);
       packets = new Av1Packetizer({
         sequenceNumber: 1,
         maxPayloadSize: 120,
-      }).packetize(expected, 0, { frameType: "key" });
+      }).packetize(expected, 0, {
+        frameType: "key",
+        startsNewCodedVideoSequence: true,
+      });
       break;
     }
     case "opus": {
       expected = Buffer.from([0xfc, 0xaa, 0xbb, 0xcc, 0xdd]);
-      packets = new OpusPacketizer({ sequenceNumber: 1 }).packetize(expected, 0);
+      packets = new OpusPacketizer({ sequenceNumber: 1 }).packetize(
+        expected,
+        0,
+      );
       break;
     }
     case "h264": {
@@ -172,7 +187,10 @@ async function selfTest() {
 
   const received: RtpPacket[] = [];
   const done = new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("timeout waiting for RTP")), 3000);
+    const timer = setTimeout(
+      () => reject(new Error("timeout waiting for RTP")),
+      3000,
+    );
     recv.on("message", (msg) => {
       received.push(RtpPacket.deSerialize(msg));
       if (received.length >= packets.length) {

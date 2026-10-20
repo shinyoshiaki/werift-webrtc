@@ -438,17 +438,31 @@ export function splitAv1Obus(sample: Buffer): Buffer[] {
   return obus;
 }
 
+/** obu_type of a Sequence Header OBU (AV1 spec §6.2.2). */
+const OBU_SEQUENCE_HEADER = 1;
+
 export type Av1PacketizerOptions = PacketizerBaseOptions & {
   /**
-   * Default keyframe flag (N bit on first packet of the frame).
+   * Default keyframe flag. Keyframe-ness alone does not set the N bit; see
+   * {@link Av1PacketizeOptions.startsNewCodedVideoSequence}.
    * Override per call via packetize(..., { isKeyframe }).
    */
   isKeyframe?: boolean;
 };
 
 export type Av1PacketizeOptions = {
+  /** Keyframe flag. Does NOT by itself set the N bit (see below). */
   isKeyframe?: boolean;
   frameType?: "key" | "delta";
+  /**
+   * N bit (RFC 9628 §4.4): first packet of a new coded video sequence.
+   * A keyframe in the middle of a sequence must not set it. When omitted,
+   * N is set only for a keyframe whose temporal unit contains a Sequence
+   * Header OBU (a new coded video sequence cannot start without one); pass
+   * `false` to force it off for in-band repeated headers, `true` to force on
+   * (e.g. when the sequence header is carried out of band).
+   */
+  startsNewCodedVideoSequence?: boolean;
 };
 
 /**
@@ -482,6 +496,11 @@ export class Av1Packetizer extends PacketizerBase {
       throw new Error("AV1 sample did not contain any OBU data");
     }
 
+    const startsNewSequence =
+      options.startsNewCodedVideoSequence ??
+      (isKeyframe &&
+        obus.some((o) => ((o[0] >> 3) & 0x0f) === OBU_SEQUENCE_HEADER));
+
     // Aggregation header = 1 byte
     const fragmentSize = this.maxPayloadSize - 1;
     if (fragmentSize <= 0) {
@@ -498,7 +517,7 @@ export class Av1Packetizer extends PacketizerBase {
         const aggregationHeader = createAv1AggregationHeader({
           startsWithFragment: false,
           endsWithFragment: false,
-          startsNewCodedVideoSequence: firstPacketInFrame && isKeyframe,
+          startsNewCodedVideoSequence: firstPacketInFrame && startsNewSequence,
         });
         packets.push(
           this.buildPacket(
@@ -519,7 +538,7 @@ export class Av1Packetizer extends PacketizerBase {
         const aggregationHeader = createAv1AggregationHeader({
           startsWithFragment: offset > 0,
           endsWithFragment: offset + chunk.length < obu.length,
-          startsNewCodedVideoSequence: firstPacketInFrame && isKeyframe,
+          startsNewCodedVideoSequence: firstPacketInFrame && startsNewSequence,
         });
         packets.push(
           this.buildPacket(

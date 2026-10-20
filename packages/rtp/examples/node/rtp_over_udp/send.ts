@@ -43,7 +43,10 @@ function annexB(...nalus: Buffer[]): Buffer {
   return Buffer.concat(nalus.flatMap((n) => [sc, n]));
 }
 
-function buildFrames(codecName: string): { packets: import("../../../src").RtpPacket[]; label: string } {
+function buildFrames(codecName: string): {
+  packets: import("../../../src").RtpPacket[];
+  label: string;
+} {
   switch (codecName) {
     case "pcmu": {
       const data = Buffer.alloc(160, 0x5a);
@@ -105,7 +108,10 @@ function buildFrames(codecName: string): { packets: import("../../../src").RtpPa
         maxPayloadSize: 120,
       });
       return {
-        packets: p.packetize(frame, 0, { frameType: "key" }),
+        packets: p.packetize(frame, 0, {
+          frameType: "key",
+          startsNewCodedVideoSequence: true,
+        }),
         label: "VP9 keyframe",
       };
     }
@@ -121,7 +127,10 @@ function buildFrames(codecName: string): { packets: import("../../../src").RtpPa
         maxPayloadSize: 120,
       });
       return {
-        packets: p.packetize(frame, 0, { frameType: "key" }),
+        packets: p.packetize(frame, 0, {
+          frameType: "key",
+          startsNewCodedVideoSequence: true,
+        }),
         label: "AV1 keyframe",
       };
     }
@@ -141,7 +150,10 @@ function buildFrames(codecName: string): { packets: import("../../../src").RtpPa
         parameterSets: [sps, pps],
         maxPayloadSize: 80,
       });
-      return { packets: p.packetize(sample, 0), label: "H264 keyframe (STAP-A+FU)" };
+      return {
+        packets: p.packetize(sample, 0),
+        label: "H264 keyframe (STAP-A+FU)",
+      };
     }
     default:
       throw new Error(`unknown codec ${codecName}`);
@@ -151,7 +163,9 @@ function buildFrames(codecName: string): { packets: import("../../../src").RtpPa
 const { packets, label } = buildFrames(codec);
 const sock = createSocket("udp4");
 
-console.log(`Sending ${packets.length} RTP packet(s) [${label}] → ${host}:${port}`);
+console.log(
+  `Sending ${packets.length} RTP packet(s) [${label}] → ${host}:${port}`,
+);
 
 for (const pkt of packets) {
   const buf = pkt.serialize();
