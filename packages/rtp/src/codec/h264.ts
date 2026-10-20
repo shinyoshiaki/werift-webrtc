@@ -8,7 +8,7 @@
 // Depacketizer output is Annex-B (00 00 00 01 prefixed) for each NAL.
 
 import { BitStream, getBit } from "../../../common/src";
-import { H264AnnexBParser } from "../extra/container/mp4/h264";
+import { H265AnnexBParser } from "./h265";
 import type { RtpHeader, RtpPacket } from "../rtp/rtp";
 import type { DePacketizerBase } from "./base";
 import {
@@ -196,7 +196,8 @@ const stap_aNALULengthSize = 2;
 
 // ---------------------------------------------------------------------------
 // Annex-B / length-prefixed (AVCC) NAL splitting
-// Uses shared H264AnnexBParser (extra/container/mp4) — no duplicate splitter.
+// Annex-B syntax splitting is codec-agnostic (start codes only) and shared with
+// H.265; NAL contents are never interpreted or filtered at this stage.
 // ---------------------------------------------------------------------------
 
 function looksLikeAnnexB(sample: Buffer): boolean {
@@ -223,7 +224,7 @@ function readUintLength(buf: Buffer, offset: number, size: number): number {
 
 /**
  * Split H.264 sample into NAL units (no start codes).
- * Accepts Annex-B (via shared `H264AnnexBParser`) or length-prefixed (AVCC).
+ * Accepts Annex-B (start-code split, no NAL type filtering) or length-prefixed (AVCC).
  */
 export function splitH264NalUnits(
   sample: Buffer,
@@ -254,14 +255,10 @@ export function splitH264NalUnits(
         "H.264 inputFormat annexb: sample does not start with a start code",
       );
     }
-    const parser = new H264AnnexBParser(sample);
-    const nalus: Buffer[] = [];
-    let payload = parser.readNextNaluPayload();
-    while (payload) {
-      nalus.push(Buffer.from(payload.data));
-      payload = parser.readNextNaluPayload();
-    }
-    return nalus;
+    // Pure syntax split. H264AnnexBParser (MP4 demux helper) drops NAL types
+    // >= 14 (prefix NAL, subset SPS, slice extension, ...), but RFC 6184 §5.6
+    // carries types 1-23 as Single NAL units, so nothing may be filtered here.
+    return new H265AnnexBParser(sample).readAll();
   }
   const prefixed = parseLengthPrefixed(sample, naluLengthSize);
   if (prefixed.nalus) {

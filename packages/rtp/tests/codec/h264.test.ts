@@ -354,4 +354,30 @@ describe("packages/rtp/tests/codec/h264.test.ts", () => {
     const types = splitH264NalUnits(out).map((n) => n[0] & 0x1f);
     expect(types).toEqual([9, 7, 8, 5]);
   });
+
+  it.each([14, 15, 20])(
+    "keeps NAL type %i (prefix / subset SPS / slice extension) in Single NAL and FU-A",
+    (type) => {
+      // Arrange: 小さい NAL (Single NAL) と MTU 超過 NAL (FU-A) を IDR と並べる
+      const idr = makeNal(NalUnitType.idrSlice, Buffer.alloc(10, 0x44));
+      const small = makeNal(type, Buffer.from([0x11, 0x22]));
+      const large = makeNal(type, Buffer.alloc(300, 0x33));
+      for (const target of [small, large]) {
+        const sample = annexB(idr, target);
+        const packetizer = new H264Packetizer({
+          sequenceNumber: 1,
+          maxPayloadSize: 100,
+        });
+        // Act
+        const packets = packetizer.packetize(sample, 0);
+        const out = dePacketizeRtpPackets("MPEG4/ISO/AVC", packets).data;
+        // Assert: 入力 NAL が欠落せず元のバイト列で往復する
+        expect(splitH264NalUnits(sample)).toEqual([idr, target]);
+        expect(packets.length).toBeGreaterThan(1);
+        expect(splitH264NalUnits(out)).toEqual([idr, target]);
+      }
+      // 単独 (0 パケットにならない)
+      expect(new H264Packetizer().packetize(annexB(small), 0).length).toBe(1);
+    },
+  );
 });
