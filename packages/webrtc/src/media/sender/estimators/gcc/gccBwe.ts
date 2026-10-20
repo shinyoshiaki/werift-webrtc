@@ -62,6 +62,9 @@ import {
 } from "./sequenceNumber";
 import { TrendlineEstimator } from "./trendlineEstimator";
 
+/** Receive-time drift allowed when matching a repeated ACK to its packet. */
+const kDuplicateAckToleranceMs = 20;
+
 /**
  * Optional sender clock for tests. Production uses {@link milliTime} so
  * `sendingAtMs` and TWCC feedback arrival share one domain (pin Timestamp).
@@ -1431,7 +1434,8 @@ export class GccBandwidthEstimator
    * origin so a long-idle sender does not treat a large forward jump as
    * wrap-back. Prefers the newest generation that is still open. A newest
    * generation that is already finalized also matches when the ACK repeats
-   * its receive time (a duplicate, dropped by the caller); a different
+   * its receive time within the 250us delta quantization drift of corrective
+   * feedback (a duplicate, dropped by the caller); a clearly different
    * receive time is a late report for an older generation.
    */
   private resolveFeedbackSeq(
@@ -1442,7 +1446,13 @@ export class GccBandwidthEstimator
     return lookupUnwrappedSentSeq(seq16, this.seqUnwrapper.last, (key) => {
       if (!this.sentInfos.has(key)) return false;
       if (!this.finalizedSeqs.has(key)) return true;
-      return received && this.finalizedSeqs.get(key) === receivedAtMs;
+      const finalizedAtMs = this.finalizedSeqs.get(key);
+      return (
+        received &&
+        finalizedAtMs !== undefined &&
+        receivedAtMs !== undefined &&
+        Math.abs(finalizedAtMs - receivedAtMs) <= kDuplicateAckToleranceMs
+      );
     });
   }
 

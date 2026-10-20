@@ -1826,6 +1826,25 @@ describe("media/sender bandwidth estimator", () => {
       expect(gcc.availableBitrate).toBe(bitrateAfterFirst);
     });
 
+    test("補正 feedback の量子化で受信時刻がずれても重複 ACK を旧世代へ対応させない", () => {
+      // Arrange: 同じ 16bit 番号 1 を持つ 2 世代
+      const gcc = new GccBandwidthEstimator(100_000);
+      gcc.rtpPacketSent(sent(1, 120, 1_000));
+      gcc.rtpPacketSent(sent(65537, 120, 2_000));
+      const ack = (receivedAtMs: number) =>
+        makeTwccFeedback([
+          new PacketResult({ sequenceNumber: 1, received: true, receivedAtMs }),
+        ]);
+
+      // Act: 250us 量子化相当 (0.4ms) ずれた同一パケットの ACK を再投入
+      gcc.receiveTWCC(ack(2_010));
+      gcc.receiveTWCC(ack(2_010.4));
+
+      // Assert: 旧世代は確定されない
+      expect((gcc as any).finalizedSeqs.has(65537)).toBe(true);
+      expect((gcc as any).finalizedSeqs.has(1)).toBe(false);
+    });
+
     test("BUNDLE で pacing 中の TSN は wire send 順と一致する", async () => {
       // Arrange: video が pacer で止まり、audio が先に送る
       const gccVideo = new GccBandwidthEstimator(100_000);

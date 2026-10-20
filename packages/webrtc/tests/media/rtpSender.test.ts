@@ -1978,4 +1978,44 @@ describe("media/rtpSender RTP continuity", () => {
     const seqs = sentRtpHeaders(sendRtp).map((h) => h.sequenceNumber);
     expect(seqs.slice(0, 3)).toEqual([1000, 1001, 1002]);
   });
+  test("track 切替後の先頭 padding は連続性補正と二重に減算されない", async () => {
+    // Arrange: 旧 track で 100 を送ったあと新 track へ切り替える
+    const { sender, sendRtp } = createConnectedRtpSender({ kind: "video" });
+    const next = new MediaStreamTrack({ kind: "video", remote: true });
+    await sender.sendRtp(createRtpPacket(100, 9000, Buffer.from([1])));
+    await sender.replaceTrack(next);
+
+    // Act: 新 track は padding 1000 → media 1001 を流す
+    next.onReceiveRtp.execute(createRtpPacket(1000, 9000), undefined, {
+      type: "padding",
+    } as never);
+    next.onReceiveRtp.execute(createRtpPacket(1001, 9000, Buffer.from([2])));
+    await setTimeout(10);
+
+    // Assert: 先頭 media は 101 で、100 を再利用しない
+    expect(sentRtpHeaders(sendRtp).map((h) => h.sequenceNumber)).toEqual([
+      100, 101,
+    ]);
+  });
+
+  test("padding が履歴上限を超えても除去件数を保持する", async () => {
+    // Arrange
+    const { sender, track, sendRtp } = createConnectedRtpSender({
+      kind: "video",
+    });
+    await sender.sendRtp(createRtpPacket(1000, 3000, Buffer.from([1])));
+
+    // Act: padding 300 件 (1001..1300) のあと media 1301
+    for (let seq = 1001; seq <= 1300; seq++) {
+      track.onReceiveRtp.execute(createRtpPacket(seq, 3000), undefined, {
+        type: "padding",
+      } as never);
+    }
+    await sender.sendRtp(createRtpPacket(1301, 3000, Buffer.from([2])));
+
+    // Assert: 偽の欠損が無く 1000, 1001 と続く
+    expect(sentRtpHeaders(sendRtp).map((h) => h.sequenceNumber)).toEqual([
+      1000, 1001,
+    ]);
+  });
 });

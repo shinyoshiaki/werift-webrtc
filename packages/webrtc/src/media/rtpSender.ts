@@ -1031,7 +1031,9 @@ export class RTCRtpSender {
     if (this.skippedSourceSeqs.includes(skipped)) return;
     this.skippedSourceSeqs.push(skipped);
     if (this.skippedSourceSeqs.length > 256) {
+      // Bound the list but keep the count: fold the oldest into the offset.
       this.skippedSourceSeqs.shift();
+      this.seqOffset = uint16Add(this.seqOffset, -1);
     }
   }
 
@@ -1624,6 +1626,11 @@ export class RTCRtpSender {
           );
           this.seqOffset = offsets.seqOffset;
           this.timestampOffset = offsets.timestampOffset;
+          // Padding ahead of this first media is already absorbed by the
+          // freeze (offset is derived from this media's own seq).
+          this.skippedSourceSeqs = this.skippedSourceSeqs.filter(
+            (skipped) => !uint16Gt(inputSequenceNumber & 0xffff, skipped),
+          );
         }
         this.rtpContinuityPending = false;
         this.pendingTimestampStep = 1;
