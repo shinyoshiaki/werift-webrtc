@@ -335,7 +335,6 @@ RUN_SELF_TEST=1 npx tsx examples/node/rtp_over_udp/recv.ts _ vp8
 RUN_SELF_TEST=1 npx tsx examples/node/rtp_over_udp/recv.ts _ h264
 ```
 
-
 # test vectors
 
 Committed payloads under `tests/data/vector_*.bin` (and synthetic cases in tests),

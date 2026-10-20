@@ -14,5 +14,6 @@
 
 > `optional` **isKeyframe**: `boolean`
 
-Default keyframe flag (N bit on first packet of the frame).
+Default keyframe flag. Keyframe-ness alone does not set the N bit; see
+[Av1PacketizeOptions.startsNewCodedVideoSequence](Av1PacketizeOptions.md#startsnewcodedvideosequence).
 Override per call via packetize(..., { isKeyframe }).

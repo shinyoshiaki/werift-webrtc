@@ -8,7 +8,6 @@
 // Depacketizer output is Annex-B (00 00 00 01 prefixed) for each NAL.
 
 import { BitStream, getBit } from "../../../common/src";
-import { H265AnnexBParser } from "./h265";
 import type { RtpHeader, RtpPacket } from "../rtp/rtp";
 import type { DePacketizerBase } from "./base";
 import {
@@ -16,6 +15,7 @@ import {
   PacketizerBase,
   type PacketizerBaseOptions,
 } from "./base";
+import { H265AnnexBParser } from "./h265";
 
 // FU indicator octet
 // +---------------+

@@ -6,10 +6,10 @@
 
 # Function: splitH264NalUnits()
 
-> **splitH264NalUnits**(`sample`, `naluLengthSize`): `Buffer`\<`ArrayBufferLike`\>[]
+> **splitH264NalUnits**(`sample`, `naluLengthSize`, `inputFormat`): `Buffer`\<`ArrayBufferLike`\>[]
 
 Split H.264 sample into NAL units (no start codes).
-Accepts Annex-B (via shared `H264AnnexBParser`) or length-prefixed (AVCC).
+Accepts Annex-B (start-code split, no NAL type filtering) or length-prefixed (AVCC).
 
 ## Parameters
 
@@ -20,6 +20,10 @@ Accepts Annex-B (via shared `H264AnnexBParser`) or length-prefixed (AVCC).
 ### naluLengthSize
 
 `number` = `4`
+
+### inputFormat
+
+[`NalInputFormat`](../type-aliases/NalInputFormat.md) = `"auto"`
 
 ## Returns
 

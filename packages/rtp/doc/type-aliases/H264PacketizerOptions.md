@@ -10,6 +10,12 @@
 
 ## Type declaration
 
+### inputFormat?
+
+> `optional` **inputFormat**: [`NalInputFormat`](NalInputFormat.md)
+
+Sample layout (default "auto"); see [NalInputFormat](NalInputFormat.md).
+
 ### isKeyframe?
 
 > `optional` **isKeyframe**: `boolean`
