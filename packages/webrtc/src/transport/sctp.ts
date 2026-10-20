@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 
-import { Event, debug } from "../imports/common";
+import { Event, FifoQueue, debug } from "../imports/common";
 
 import {
   SCTP,
@@ -44,7 +44,7 @@ export class RTCSctpTransport {
   private stopped = false;
   remoteMaxMessageSize = DEFAULT_MAX_MESSAGE_SIZE;
 
-  private dataChannelQueue: [RTCDataChannel, number, Buffer][] = [];
+  private dataChannelQueue = new FifoQueue<[RTCDataChannel, number, Buffer]>();
   private dataChannelId?: number;
   private eventDisposer: (() => void)[] = [];
 
@@ -111,7 +111,7 @@ export class RTCSctpTransport {
     ];
 
     this.sctp.onSackReceived = async () => {
-      await this.dataChannelFlush();
+      this.dataChannelFlush();
     };
   }
 
@@ -193,7 +193,7 @@ export class RTCSctpTransport {
             const ack = Buffer.allocUnsafe(1);
             ack.writeUInt8(DATA_CHANNEL_ACK, 0);
             this.dataChannelQueue.push([channel, WEBRTC_DCEP, ack]);
-            await this.dataChannelFlush();
+            this.dataChannelFlush();
           }
           break;
         case DATA_CHANNEL_ACK:
@@ -295,7 +295,7 @@ export class RTCSctpTransport {
     this.dataChannelFlush();
   }
 
-  private async dataChannelFlush() {
+  private dataChannelFlush() {
     // """
     // Try to flush buffered data to the SCTP layer.
 
@@ -309,6 +309,9 @@ export class RTCSctpTransport {
     // DTLS transport before start() ran here; the same side decides the IDs.
     this.dataChannelId ??= this.isServer ? 0 : 1;
 
+    // Hands every queued message to SCTP synchronously (SCTP.send enqueues
+    // before its first await) and tracks completion per message, so repeated
+    // datachannelSend() calls never spawn concurrent flush loops.
     while (this.dataChannelQueue.length > 0) {
       const [channel, protocol, userData] = this.dataChannelQueue.shift()!;
 
@@ -323,25 +326,31 @@ export class RTCSctpTransport {
       }
 
       if (protocol === WEBRTC_DCEP) {
-        await this.sctp.send(streamId, protocol, userData, {
-          ordered: true,
-        });
+        this.sctp
+          .send(streamId, protocol, userData, {
+            ordered: true,
+          })
+          .catch((err: Error) => {
+            log("send DCEP failed", err.message);
+          });
       } else {
         const expiry =
           channel.maxPacketLifeTime !== null
             ? Date.now() + channel.maxPacketLifeTime / 1000
             : undefined;
 
-        await this.sctp.send(streamId, protocol, userData, {
-          expiry,
-          maxRetransmits: channel.maxRetransmits ?? undefined,
-          ordered: channel.ordered,
-        });
-        channel.addBufferedAmount(-userData.length);
+        this.sctp
+          .send(streamId, protocol, userData, {
+            expiry,
+            maxRetransmits: channel.maxRetransmits ?? undefined,
+            ordered: channel.ordered,
+          })
+          .catch((err: Error) => {
+            log("send data failed", err.message);
+          })
+          .then(() => channel.addBufferedAmount(-userData.length));
       }
     }
-    // Resetting the queue to empty array mitigates this.
-    this.dataChannelQueue = [];
   }
 
   private assertSendableMessageSize(size: number) {

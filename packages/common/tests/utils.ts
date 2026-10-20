@@ -1,5 +1,5 @@
 import * as net from "node:net";
-import { binaryData } from "../src";
+import { FifoQueue, binaryData } from "../src";
 
 export async function createHangingStreamServer() {
   const sockets = new Set<net.Socket>();
@@ -83,4 +83,9 @@ export function createBinaryDataFixture() {
   );
 
   return { spec, value, legacyEncoded };
+}
+
+/** 0..count-1 を順に積んだ FifoQueue を生成する。 */
+export function createFilledQueue(count: number) {
+  return new FifoQueue<number>([...Array(count).keys()]);
 }
