@@ -85,8 +85,18 @@
 ## Interfaces
 
 - [Extensions](interfaces/Extensions.md)
-- [Packetizer](interfaces/Packetizer.md)
+- [RtpBuilderCreateOptions](interfaces/RtpBuilderCreateOptions.md)
+- [RtpMediaClockOptions](interfaces/RtpMediaClockOptions.md)
+- [RtpMediaClockResumeOptions](interfaces/RtpMediaClockResumeOptions.md)
+- [RtpMediaClockScheduler](interfaces/RtpMediaClockScheduler.md)
+- [RtpMediaClockTick](interfaces/RtpMediaClockTick.md)
+- [RtpMediaPacerFrameTiming](interfaces/RtpMediaPacerFrameTiming.md)
+- [RtpMediaPacerOptions](interfaces/RtpMediaPacerOptions.md)
+- [RtpMediaPacerTick](interfaces/RtpMediaPacerTick.md)
+- [RtpMediaTimelineAnchor](interfaces/RtpMediaTimelineAnchor.md)
+- [RtpMediaTimelineOptions](interfaces/RtpMediaTimelineOptions.md)
 - [StreamTransportOptions](interfaces/StreamTransportOptions.md)
+- [Packetizer](interfaces/Packetizer.md)
 - [Transport](interfaces/Transport.md)
 - [videoOrientationPayload](interfaces/videoOrientationPayload.md)
 

@@ -1,18 +1,35 @@
 const { spawnSync } = require("node:child_process");
 const { existsSync, chmodSync } = require("node:fs");
 const { basename, dirname, join } = require("node:path");
-const {
-  canAutoDownloadGoogleChrome,
-  resolveCachedGoogleChrome,
-  resolveSystemChrome,
-} = require("./browser-paths");
+const { ensurePlaywrightBrowsersPath } = require("./browsers-path");
+
+ensurePlaywrightBrowsersPath();
+
+function resolveSystemChrome() {
+  return [
+    process.env.CHROME_BIN,
+    process.env.GOOGLE_CHROME_BIN,
+    "/usr/bin/google-chrome",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+  ].find((candidate) => candidate && existsSync(candidate));
+}
+
+const { canAutoDownloadGoogleChrome, resolveCachedGoogleChrome } = require(
+  "./browser-paths",
+);
 
 /**
  * Prefer Google Chrome (proprietary H.264) for P0 H.264 codec E2E.
  * Downloads a user-local extract when system Chrome is missing (no root).
  */
 function ensureGoogleChromeForH264() {
-  const existing = resolveSystemChrome() || resolveCachedGoogleChrome();
+  const systemChrome =
+    resolveSystemChrome() ||
+    (existsSync("/usr/bin/google-chrome-stable")
+      ? "/usr/bin/google-chrome-stable"
+      : undefined);
+  const existing = systemChrome || resolveCachedGoogleChrome();
   if (
     existing &&
     (existing.includes("google-chrome") || process.env.CHROME_BIN)
@@ -63,15 +80,21 @@ function hasPlaywrightChromium() {
 
     const chromiumDir = dirname(dirname(chromiumExecutablePath));
     const revision = basename(chromiumDir).replace("chromium-", "");
-    const headlessShellPath = join(
+    const headlessShellDir = join(
       dirname(chromiumDir),
       `chromium_headless_shell-${revision}`,
-      "chrome-linux",
-      "headless_shell",
     );
+    const headlessShellPaths = [
+      join(
+        headlessShellDir,
+        "chrome-headless-shell-linux64",
+        "chrome-headless-shell",
+      ),
+      join(headlessShellDir, "chrome-linux", "headless_shell"),
+    ];
 
-    return existsSync(headlessShellPath);
-  } catch {
+    return headlessShellPaths.some(existsSync);
+  } catch (error) {
     return false;
   }
 }
