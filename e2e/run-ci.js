@@ -1,6 +1,9 @@
 const net = require("node:net");
 const { spawn } = require("node:child_process");
 const { requestServerStop } = require("./stop");
+const { ensurePlaywrightBrowsersPath } = require("./browsers-path");
+
+ensurePlaywrightBrowsersPath();
 
 function npmCommand() {
   return process.platform === "win32" ? "npm.cmd" : "npm";

@@ -2,8 +2,8 @@
 
 import { existsSync } from "node:fs";
 
-import { defineConfig } from "vitest/config";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
+import { defineConfig } from "vitest/config";
 
 const chromiumExecutablePath = [
   process.env.CHROME_BIN,
@@ -25,7 +25,10 @@ export default defineConfig({
   test: {
     globals: true,
     testTimeout: 20_000,
-    // fileParallelism: false,
+    // Browser テストは 1 台のブラウザと e2e サーバ資源を共有するため、
+    // ファイル並列で実行すると負荷でタイミング依存のテストが不安定になる。
+    // ice-server の chrome-e2e ハーネスと同じく直列実行に固定する。
+    fileParallelism: false,
     retry: 1,
     browser: {
       provider: "playwright",
