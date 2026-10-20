@@ -315,6 +315,14 @@ export class RTCSctpTransport {
     while (this.dataChannelQueue.length > 0) {
       const [channel, protocol, userData] = this.dataChannelQueue.shift()!;
 
+      // A channel closed while its message was queued (e.g. the association
+      // closed and was re-established) is no longer managed; never announce it.
+      if (channel.readyState === "closed" || channel.readyState === "closing") {
+        if (protocol !== WEBRTC_DCEP)
+          channel.addBufferedAmount(-userData.length);
+        continue;
+      }
+
       let streamId = channel.id;
       if (streamId === undefined) {
         streamId = this.dataChannelId!;
@@ -419,16 +427,21 @@ export class RTCSctpTransport {
 
   // Messages not yet handed to SCTP belong to the stopped association and must
   // not leak into a later one. User messages are dropped and removed from
-  // bufferedAmount; DATA_CHANNEL_OPEN is kept so a channel that outlives the
-  // transport (e.g. rollback) can still be announced, while stale ACKs go.
+  // bufferedAmount; DATA_CHANNEL_OPEN is kept only for channels still alive, so
+  // a channel that outlives the transport (e.g. rollback) can be announced,
+  // while closed channels and stale ACKs go.
   private discardUnsentMessages() {
     const kept = new FifoQueue<[RTCDataChannel, number, Buffer]>();
     for (const item of this.dataChannelQueue.toArray()) {
       const [channel, protocol, userData] = item;
-      if (protocol === WEBRTC_DCEP) {
-        if (userData[0] === DATA_CHANNEL_OPEN) kept.push(item);
-      } else {
+      if (protocol !== WEBRTC_DCEP) {
         channel.addBufferedAmount(-userData.length);
+      } else if (
+        userData[0] === DATA_CHANNEL_OPEN &&
+        channel.readyState !== "closed" &&
+        channel.readyState !== "closing"
+      ) {
+        kept.push(item);
       }
     }
     this.dataChannelQueue = kept;
