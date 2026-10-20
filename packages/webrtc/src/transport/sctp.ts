@@ -413,7 +413,25 @@ export class RTCSctpTransport {
   async stop() {
     this.stopped = true;
     this.dtlsTransport.dataReceiver = () => {};
+    this.discardUnsentMessages();
     await this.sctp.stop();
+  }
+
+  // Messages not yet handed to SCTP belong to the stopped association and must
+  // not leak into a later one. User messages are dropped and removed from
+  // bufferedAmount; DATA_CHANNEL_OPEN is kept so a channel that outlives the
+  // transport (e.g. rollback) can still be announced, while stale ACKs go.
+  private discardUnsentMessages() {
+    const kept = new FifoQueue<[RTCDataChannel, number, Buffer]>();
+    for (const item of this.dataChannelQueue.toArray()) {
+      const [channel, protocol, userData] = item;
+      if (protocol === WEBRTC_DCEP) {
+        if (userData[0] === DATA_CHANNEL_OPEN) kept.push(item);
+      } else {
+        channel.addBufferedAmount(-userData.length);
+      }
+    }
+    this.dataChannelQueue = kept;
   }
 
   dataChannelClose(channel: RTCDataChannel) {
