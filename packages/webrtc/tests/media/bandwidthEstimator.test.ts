@@ -1800,6 +1800,32 @@ describe("media/sender bandwidth estimator", () => {
       expect((gcc as any).finalizedSeqs.has(100)).toBe(false);
     });
 
+    test("周回後の重複 ACK は過去世代の未確定履歴へ再対応しない", () => {
+      // Arrange: TSN 1 (旧世代) と TSN 65537 (最新世代) が同じ 16bit 番号 1
+      const gcc = new GccBandwidthEstimator(100_000);
+      gcc.rtpPacketSent(sent(1, 120, 1_000));
+      gcc.rtpPacketSent(sent(65537, 120, 2_000));
+      const ack = () =>
+        makeTwccFeedback([
+          new PacketResult({
+            sequenceNumber: 1,
+            received: true,
+            receivedAtMs: 2_010,
+          }),
+        ]);
+
+      // Act: 最新世代を ACK したあと、同じ ACK を再投入する
+      gcc.receiveTWCC(ack());
+      const bitrateAfterFirst = gcc.availableBitrate;
+      gcc.receiveTWCC(ack());
+
+      // Assert: 重複 ACK は無視され、旧世代 TSN 1 は確定も loss 計上もされない
+      expect((gcc as any).finalizedSeqs.has(65537)).toBe(true);
+      expect((gcc as any).finalizedSeqs.has(1)).toBe(false);
+      expect((gcc as any).softLostSeqs.has(1)).toBe(false);
+      expect(gcc.availableBitrate).toBe(bitrateAfterFirst);
+    });
+
     test("BUNDLE で pacing 中の TSN は wire send 順と一致する", async () => {
       // Arrange: video が pacer で止まり、audio が先に送る
       const gccVideo = new GccBandwidthEstimator(100_000);

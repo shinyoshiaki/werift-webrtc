@@ -397,6 +397,8 @@ export class RTCRtpSender {
   private timestamp?: number;
   private timestampOffset = 0;
   private seqOffset = 0;
+  /** Source seqs of non-forwarded padding, consumed by later media allocation. */
+  private skippedSourceSeqs: number[] = [];
   private rtpContinuityPending = false;
   private pendingTimestampStep = 1;
   private rtpCache: RtpPacket[] = [];
@@ -756,6 +758,9 @@ export class RTCRtpSender {
     const { unSubscribe: unSubscribeRtp } = track.onReceiveRtp.subscribe(
       async (rtp, _extensions, info) => {
         if (info?.type === "padding") {
+          // Padding is not forwarded; close its source seq so the media that
+          // follows stays contiguous for downstream NACK / depacketization.
+          this.skipSourceSequence(rtp);
           return;
         }
         await this.sendRtp(rtp);
@@ -1013,7 +1018,31 @@ export class RTCRtpSender {
     this.paddingWireSeqs.clear();
     this.sourceToWireSeq.clear();
     this.wireToSourceSeq.clear();
+    this.skippedSourceSeqs = [];
     this.highWaterWireSeq = undefined;
+  }
+
+  private skipSourceSequence(rtp: Buffer | RtpPacket) {
+    if (this.stopped) return;
+    const seq = Buffer.isBuffer(rtp)
+      ? rtp.readUInt16BE(2)
+      : rtp.header.sequenceNumber;
+    const skipped = seq & 0xffff;
+    if (this.skippedSourceSeqs.includes(skipped)) return;
+    this.skippedSourceSeqs.push(skipped);
+    if (this.skippedSourceSeqs.length > 256) {
+      this.skippedSourceSeqs.shift();
+    }
+  }
+
+  /** Shift the wire mapping down for every skipped source seq behind `src`. */
+  private consumeSkippedSourceSeqs(src: number) {
+    if (this.skippedSourceSeqs.length === 0) return;
+    this.skippedSourceSeqs = this.skippedSourceSeqs.filter((skipped) => {
+      if (!uint16Gt(src, skipped)) return true;
+      this.seqOffset = uint16Add(this.seqOffset, -1);
+      return false;
+    });
   }
 
   private markWireSeqUsed(wire: number, isPadding = false) {
@@ -1072,6 +1101,7 @@ export class RTCRtpSender {
     if (known !== undefined) {
       return known;
     }
+    this.consumeSkippedSourceSeqs(src);
     const wire = this.pickMediaWireSeq(src);
     this.markWireSeqUsed(wire);
     this.sourceToWireSeq.set(src, wire);
@@ -1186,6 +1216,13 @@ export class RTCRtpSender {
   }
 
   private trimOutgoingQueue() {
+    // Legacy / disabled estimators do not pace: a burst is written straight
+    // through, so dropping queued media would corrupt frames without any
+    // congestion signal. Only bound the queue when a pacing estimator (GCC)
+    // can actually stall the FIFO.
+    if (this._senderBWE.processIntervalMs <= 0) {
+      return;
+    }
     const { maxPackets, maxBytes, maxDurationMs } = this.outgoingQueueLimits();
     const now = milliTime();
     const queueBytes = () =>

@@ -2,9 +2,9 @@
  * Portions of this file are ported from libwebrtc
  * (https://webrtc.googlesource.com/src, commit 0fda16159e33adf59c71a7ad1173dcbe5a632102).
  * Copyright (c) 2011, The WebRTC project authors. All rights reserved.
- * Use of that source is governed by a BSD-style license (see NOTICE and
- * third_party/libwebrtc-ref/LICENSE); an additional patent grant is in
- * third_party/libwebrtc-ref/PATENTS.
+ * Use of that source is governed by a BSD-style license and an additional
+ * patent grant; both are reproduced in THIRD_PARTY_LICENSES_LIBWEBRTC.txt
+ * (shipped with this package).
  */
 import { uint16Gt } from "../../../../imports/common";
 import { TWCC_SEQ_MOD } from "../twccSentSeqLookup";

@@ -40,7 +40,8 @@
   "main": "lib/webrtc/src/index.js",
   "types": "lib/webrtc/src/index.d.ts",
   "files": [
-    "lib"
+    "lib",
+    "THIRD_PARTY_LICENSES_LIBWEBRTC.txt"
   ],
   "scripts": {
     "build": "npm i && rm -rf lib && run-s format compile:*",

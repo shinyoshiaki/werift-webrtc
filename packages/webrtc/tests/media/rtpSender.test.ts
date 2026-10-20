@@ -9,8 +9,8 @@ import {
   RTCRtpHeaderExtensionParameters,
   RTP_EXTENSION_URI,
   RtcpTransportLayerFeedback,
-  RtpHeader,
   RtpBuilder,
+  RtpHeader,
   RtpPacket,
   codecParametersToString,
   dePacketizeRtpPackets,
@@ -1944,4 +1944,38 @@ describe("media/rtpSender RTP continuity", () => {
     expect(gap).toBeGreaterThan(expected * 0.6);
     expect(gap).toBeLessThan(expected * 1.8);
   }, 10_000);
+  test("legacy は DTLS 即完了の 100 パケットバーストを欠落させず送る", async () => {
+    // Arrange: 既定 (legacy) の video sender
+    const { sender, sendRtp } = createConnectedRtpSender({ kind: "video" });
+
+    // Act: 送信完了を待たず 100 パケットを同時投入
+    await Promise.all(
+      Array.from({ length: 100 }, (_, i) =>
+        sender.sendRtp(createRtpPacket(i, 3000, Buffer.alloc(1200))),
+      ),
+    );
+
+    // Assert: 輻輳が無いので 1 本も破棄されない
+    expect(sendRtp).toHaveBeenCalledTimes(100);
+  });
+
+  test("転送で除去した padding の source seq は wire seq から詰める", async () => {
+    // Arrange: 受信 track を別 sender に接続する
+    const { sender, track, sendRtp } = createConnectedRtpSender({
+      kind: "video",
+    });
+
+    // Act: media 1000 → padding 1001 → media 1002 を受信側 track へ流す
+    track.onReceiveRtp.execute(createRtpPacket(1000, 3000, Buffer.alloc(10)));
+    track.onReceiveRtp.execute(createRtpPacket(1001, 3000), undefined, {
+      type: "padding",
+    } as never);
+    track.onReceiveRtp.execute(createRtpPacket(1002, 3000, Buffer.alloc(10)));
+    await sender.sendRtp(createRtpPacket(1003, 3000, Buffer.alloc(10)));
+    await setTimeout(10);
+
+    // Assert: padding を除いた経路で番号が連続する
+    const seqs = sentRtpHeaders(sendRtp).map((h) => h.sequenceNumber);
+    expect(seqs.slice(0, 3)).toEqual([1000, 1001, 1002]);
+  });
 });

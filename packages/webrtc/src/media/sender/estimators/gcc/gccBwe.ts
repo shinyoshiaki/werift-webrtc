@@ -2,9 +2,9 @@
  * Portions of this file are ported from libwebrtc
  * (https://webrtc.googlesource.com/src, commit 0fda16159e33adf59c71a7ad1173dcbe5a632102).
  * Copyright (c) 2011, The WebRTC project authors. All rights reserved.
- * Use of that source is governed by a BSD-style license (see NOTICE and
- * third_party/libwebrtc-ref/LICENSE); an additional patent grant is in
- * third_party/libwebrtc-ref/PATENTS.
+ * Use of that source is governed by a BSD-style license and an additional
+ * patent grant; both are reproduced in THIRD_PARTY_LICENSES_LIBWEBRTC.txt
+ * (shipped with this package).
  */
 import { Event } from "../../../../imports/common";
 import type { TransportWideCC } from "../../../../imports/rtp";
@@ -167,9 +167,11 @@ export class GccBandwidthEstimator
   /**
    * Sequences finalized as **received**. Not-received is never permanently
    * finalized — a later feedback may report the same seq as received
-   * (TWCC PacketNotReceived ≠ definitive loss).
+   * (TWCC PacketNotReceived ≠ definitive loss). The value is the reported
+   * receive time, used to tell a duplicate ACK from a late ACK for an older
+   * generation sharing the same 16-bit number.
    */
-  private finalizedSeqs = new Set<number>();
+  private finalizedSeqs = new Map<number, number | undefined>();
   /**
    * Sequences already reported as soft loss. Keep them eligible for a later
    * received correction. Repeated PacketNotReceived is still forwarded to
@@ -651,6 +653,7 @@ export class GccBandwidthEstimator
       const seq = this.resolveFeedbackSeq(
         result.sequenceNumber,
         result.received,
+        result.receivedAtMs,
       );
       if (seq === undefined) {
         // Unknown sequence (swap / late feedback) — do not count as loss.
@@ -686,7 +689,7 @@ export class GccBandwidthEstimator
 
       // Received — may unmark a prior soft loss inside LossBasedBwe partial map.
       received++;
-      this.finalizedSeqs.add(seq);
+      this.finalizedSeqs.set(seq, result.receivedAtMs);
       this.softLostSeqs.delete(seq);
       lossPackets.push({
         seq,
@@ -1410,7 +1413,7 @@ export class GccBandwidthEstimator
     }
     // Drop orphan finalize/soft-loss markers no longer backed by sentInfos.
     if (this.finalizedSeqs.size > this.sentInfos.size) {
-      for (const seq of this.finalizedSeqs) {
+      for (const seq of this.finalizedSeqs.keys()) {
         if (!this.sentInfos.has(seq)) this.finalizedSeqs.delete(seq);
       }
     }
@@ -1426,17 +1429,21 @@ export class GccBandwidthEstimator
    *
    * Uses this estimator's latest **sent** extended TSN as the generation
    * origin so a long-idle sender does not treat a large forward jump as
-   * wrap-back. Prefers the newest generation that is still open.
+   * wrap-back. Prefers the newest generation that is still open. A newest
+   * generation that is already finalized also matches when the ACK repeats
+   * its receive time (a duplicate, dropped by the caller); a different
+   * receive time is a late report for an older generation.
    */
   private resolveFeedbackSeq(
     seq16: number,
-    _received: boolean,
+    received: boolean,
+    receivedAtMs: number | undefined,
   ): number | undefined {
-    return lookupUnwrappedSentSeq(
-      seq16,
-      this.seqUnwrapper.last,
-      (key) => this.sentInfos.has(key) && !this.finalizedSeqs.has(key),
-    );
+    return lookupUnwrappedSentSeq(seq16, this.seqUnwrapper.last, (key) => {
+      if (!this.sentInfos.has(key)) return false;
+      if (!this.finalizedSeqs.has(key)) return true;
+      return received && this.finalizedSeqs.get(key) === receivedAtMs;
+    });
   }
 
   private pushInterArrival(
