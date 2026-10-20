@@ -63,7 +63,7 @@ import {
 import { TrendlineEstimator } from "./trendlineEstimator";
 
 /** Receive-time drift allowed when matching a repeated ACK to its packet. */
-const kDuplicateAckToleranceMs = 20;
+const kDuplicateAckToleranceMs = 1;
 
 /**
  * Optional sender clock for tests. Production uses {@link milliTime} so

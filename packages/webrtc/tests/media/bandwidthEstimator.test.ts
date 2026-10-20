@@ -1845,6 +1845,24 @@ describe("media/sender bandwidth estimator", () => {
       expect((gcc as any).finalizedSeqs.has(1)).toBe(false);
     });
 
+    test("最新世代と受信時刻が近い旧世代の corrective ACK は旧世代へ対応する", () => {
+      // Arrange: 最新世代 65537 を 20,020ms で確定済みにする
+      const gcc = new GccBandwidthEstimator(100_000);
+      gcc.rtpPacketSent(sent(1, 120, 1_000));
+      gcc.rtpPacketSent(sent(65537, 120, 2_000));
+      const ack = (receivedAtMs: number) =>
+        makeTwccFeedback([
+          new PacketResult({ sequenceNumber: 1, received: true, receivedAtMs }),
+        ]);
+      gcc.receiveTWCC(ack(20_020));
+
+      // Act: 量子化誤差 (<1ms) を超えて 10ms 差の ACK は旧世代の遅延 ACK
+      gcc.receiveTWCC(ack(20_010));
+
+      // Assert: 旧世代 TSN 1 が確定される
+      expect((gcc as any).finalizedSeqs.has(1)).toBe(true);
+    });
+
     test("BUNDLE で pacing 中の TSN は wire send 順と一致する", async () => {
       // Arrange: video が pacer で止まり、audio が先に送る
       const gccVideo = new GccBandwidthEstimator(100_000);
