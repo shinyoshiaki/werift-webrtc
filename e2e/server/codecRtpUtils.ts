@@ -255,9 +255,7 @@ export async function demuxCodecFixture(
       "description" in decoderConfig &&
       decoderConfig.description
     ) {
-      const avc = parseAvcDecoderConfigurationRecord(
-        decoderConfig.description,
-      );
+      const avc = parseAvcDecoderConfigurationRecord(decoderConfig.description);
       parameterSets = avc.parameterSets;
       naluLengthSize = avc.naluLengthSize;
     }
