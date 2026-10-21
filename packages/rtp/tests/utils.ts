@@ -159,6 +159,33 @@ export const avcTestPps = "0000000168ce06e2";
 export const avcTestIdrSlice = "0000000165888421a0";
 
 /**
+ * Build an avcC record (ISO/IEC 14496-15 §5.3.3.1) from raw SPS/PPS NAL units
+ * (no start code / length prefix).
+ */
+export function createAvcDecoderConfigurationRecord({
+  sps,
+  pps,
+  naluLengthSize = 4,
+}: {
+  sps: Buffer[];
+  pps: Buffer[];
+  naluLengthSize?: 1 | 2 | 4;
+}): Buffer {
+  const withLength = (nal: Buffer) => {
+    const length = Buffer.alloc(2);
+    length.writeUInt16BE(nal.length);
+    return [length, nal];
+  };
+  return Buffer.concat([
+    Buffer.from([0x01, sps[0][1], sps[0][2], sps[0][3]]),
+    Buffer.from([0xfc | (naluLengthSize - 1), 0xe0 | sps.length]),
+    ...sps.flatMap(withLength),
+    Buffer.from([pps.length]),
+    ...pps.flatMap(withLength),
+  ]);
+}
+
+/**
  * SPS/PPS + IDR keyframe followed by two delta frames.
  * `timeOffset` shifts every frame time (ms).
  */
