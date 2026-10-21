@@ -17,6 +17,8 @@ import {
 import { BottleneckLink } from "./bottleneckLink";
 
 export type TwccPeerPair = {
+  /** Sender-side RTP counts by stream (media SSRC vs RTX padding). */
+  wire: { media: number; mediaPadding: number; rtxPadding: number };
   senderPc: RTCPeerConnection;
   receiverPc: RTCPeerConnection;
   track: MediaStreamTrack;
@@ -41,7 +43,11 @@ function peerConfig() {
     iceUseIpv4: true,
     iceUseIpv6: false,
     codecs: {
-      video: [videoCodecWithTwcc()],
+      // RTX carries GCC probe / loss padding (media seq stays untouched).
+      video: [
+        videoCodecWithTwcc(),
+        new RTCRtpCodecParameters({ mimeType: "video/rtx", clockRate: 90000 }),
+      ],
     },
     headerExtensions: {
       video: [useTransportWideCC(), useAbsSendTime()],
@@ -117,6 +123,20 @@ export async function createGccTwccPeerPair(opts?: {
   link.install(senderIce, "a2b");
   link.install(receiverIce, "b2a");
 
+  // RTP の SSRC 別カウント（GCC padding は RTX SSRC にだけ出る）
+  const wire = { media: 0, mediaPadding: 0, rtxPadding: 0 };
+  const dtls = sender.dtlsTransport;
+  const sendRtpWithMeta = dtls.sendRtpWithMeta.bind(dtls);
+  dtls.sendRtpWithMeta = (payload, header) => {
+    if (header.ssrc === sender.ssrc) {
+      if (header.padding) wire.mediaPadding++;
+      else wire.media++;
+    } else if (header.ssrc === sender.rtxSsrc && header.padding) {
+      wire.rtxPadding++;
+    }
+    return sendRtpWithMeta(payload, header);
+  };
+
   return {
     senderPc,
     receiverPc,
@@ -125,6 +145,7 @@ export async function createGccTwccPeerPair(opts?: {
     gcc,
     link,
     bitrateSamples,
+    wire,
     close: async () => {
       link.close();
       await Promise.all([senderPc.close(), receiverPc.close()]);

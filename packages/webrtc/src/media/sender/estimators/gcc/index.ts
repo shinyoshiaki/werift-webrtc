@@ -77,7 +77,6 @@ export {
   TWCC_SEQ_MOD,
   TransportWideSeqUnwrapper,
   compareTransportWideSeq,
-  lookupUnwrappedSentSeq,
   sortPacketResultsByWideSeq,
 } from "./sequenceNumber";
 export { TrendlineEstimator } from "./trendlineEstimator";

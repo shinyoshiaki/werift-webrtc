@@ -7,10 +7,9 @@
  * (shipped with this package).
  */
 import { uint16Gt } from "../../../../imports/common";
-import { TWCC_SEQ_MOD } from "../twccSentSeqLookup";
 
-// Shared with the legacy estimator; re-exported to keep the public API.
-export { TWCC_SEQ_MOD, lookupUnwrappedSentSeq } from "../twccSentSeqLookup";
+/** 16-bit transport-wide sequence modulus. */
+export const TWCC_SEQ_MOD = 0x10000;
 
 /**
  * pin `rtc_base/numerics/sequence_number_unwrapper.h` `SeqNumUnwrapper<uint16_t>`.

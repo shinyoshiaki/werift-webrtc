@@ -233,6 +233,61 @@ RTP パケット生成・DTLS 送信・token-bucket 待ちは sender に残す�
 - [x] Legacy は GCC フックを no-op 実装し、既存の unpaced 送信を維持する
 - [x] 推定帯域の変化は従来どおり `sender.onAvailableBitrate` で **bps・変化時のみ**通知する
 
+### 2.11 TWCC feedback 正規化と送信経路の構造整理（追加要件・2026-10-21）
+
+#### 背景
+
+5 回のレビューで出た 11 件の指摘は、ほぼ次の 2 系統に集中していた。個別の境界条件を直すと別の反例が出る構造だったため、構造側で解消する。
+
+| 系統 | 該当する指摘 | 根本原因 |
+| --- | --- | --- |
+| TWCC の 16bit seq の世代解決・重複 ACK | 1-#2, 3-#2, 4, 5 | estimator ごとに「最新の送信 seq から世代を探索」し、受信時刻の近さで重複かどうかを推測していた |
+| media の wire seq の再割当・padding | 1-#1, 1-#3, 3-#1, 3-#3 | probe padding を media SSRC・media PT で送っていたため、入力 seq と padding seq の割り込み管理が必要だった |
+| 単発 | 1-#4（ライセンス） | 解決済み |
+
+レビュー 5 の残指摘（legacy に corrective feedback を渡すと、100・102 報告後の 101 遅着 + 102 再報告で 3 件ではなく 4 件加算される）も、手元で再現した。
+
+#### 要件
+
+- **A. TWCC feedback の正規化層を 1 つにする（libwebrtc `TransportFeedbackAdapter` 相当）**
+  - legacy と GCC の手前に共通の `TwccFeedbackAdapter` を置き、両 estimator はその出力 `{extSeq, sent, received, recvMs?}` だけを使う。
+  - feedback の 16bit seq は、直前の feedback を基準にした単調な unwrapper で拡張する（初回は最新送信 seq を基準にする）。最新送信 seq からの世代探索はやめる。
+  - 受信と確定した packet は履歴から消し、後の再報告は無視する。受信時刻による重複判定（`kDuplicateAckToleranceMs`）は廃止する。
+  - 未受信と報告された packet は履歴に残し、後の feedback で受信へ訂正できるようにする。
+  - 履歴の span は 32768 未満に制限し、16bit 番号ごとの候補を常に 1 つにする。
+- **B. probe padding を media SSRC の seq 空間から外す**
+  - RTX が negotiate されていれば、padding は RTX SSRC・RTX PT・RTX seq で送る。
+  - RTX が無い場合は padding を送らず、既知の差分として `GCC_KNOWN_DIFFERENCES` に記録する。
+  - media seq は develop と同じ `input + seqOffset`（replaceTrack / onSourceChanged のときだけ変わる）に戻す。`skipSourceSequence`、`usedWireSeqs` などの wire seq allocator と、転送時の padding 除去は削除する。
+- **C. 既定の legacy 経路を develop と同じ送信経路にする**
+  - `processIntervalMs === 0` かつ padding サイズ 0 の estimator（legacy / disabled）では、送信キュー・キュー上限・pacing / probe 待ちを通さず、develop と同じく直接 DTLS へ書く。
+  - corrective feedback は develop の挙動に戻す（dumb receiver。報告済みの番号に遅れて届いた packet は再報告しない）。
+- **D. 性質テストで先回りする**
+  - 周回・重複・並べ替え・corrective を混ぜた feedback 列で「各送信パケットは受信として高々 1 回だけ数える」「feedback が実際に覆った正しい世代以外には対応づけない」を確認する。
+  - seq 側は「epoch 内で出力 seq − 入力 seq が一定（重複・padding 起因の欠番なし）」「切替直後は直前出力 + 1」「注入 padding は RTX SSRC だけ」を確認する。
+
+#### 完了条件（この追加分）
+
+- [x] A: `packages/webrtc/src/media/sender/estimators/twccFeedbackAdapter.ts` を追加し、`SenderBandwidthEstimator` と `GccBandwidthEstimator` の両方が使う。GCC の `finalizedSeqs` / `softLostSeqs` / `kDuplicateAckToleranceMs`、共通 `lookupUnwrappedSentSeq`（`twccSentSeqLookup.ts`）は削除した。
+- [x] A: レビュー 5 の再現条件（legacy + corrective feedback）で加算が 3 件になる回帰テストを追加した。
+- [x] B: padding は `rtxSsrc` / `rtxPayloadType` / `rtxSequenceNumber` で送る。RTX が無ければ `maybeInjectProbePadding` / `maybeInjectLossPadding` は 0 を返して何も送らない。差分を `GCC_KNOWN_DIFFERENCES` に記録した。
+- [x] B: wire seq allocator と転送時の padding 除去を削除し、media seq は `input + seqOffset` に戻した。受信側は develop と同じく padding-only RTX を track に渡さない（TWCC には計上する）。
+- [x] C: `needsPacedSendPath()`（`processIntervalMs > 0 || probePaddingPacketBytes > 0`）が false の estimator では、`RTCRtpSender` が送信キューを通さず直接送る。キュー上限も適用しない。estimator 差し替え直後にキューが残っている間だけ、順序維持のためキューの後ろに並べる。
+- [x] C: `ReceiverTWCC` の corrective feedback（到着履歴・再報告）を削除した。transport 単位の共有、frontier からの loss 報告、RunLength 分割は維持している。
+- [x] D: `tests/media/twccFeedbackAdapter.test.ts`（seed 付き乱数で 8 系列 + legacy / GCC 各 1 系列）と、`tests/media/rtpSender.test.ts` の「sequence properties」（6 系列、legacy / GCC）を追加した。adapter の「受信確定で履歴から消す」「span 上限」を外すと失敗し、padding で `seqOffset` をずらすと seq 側の性質テストが失敗することを確認した。
+- [x] package sim（`npm run test:sim`）で RTX を negotiate し、padding が RTX SSRC にだけ出て media SSRC には出ないことを検証した。
+
+#### develop との差分として残るもの（legacy 既定経路）
+
+既定経路で develop と完全に同一ではない点は、次の不具合修正だけである。
+
+- TSN は送信前に同期的に割り当て、その値を `SentInfo.wideSeq` に使う（develop は await 後に transport の現在値を読むため、BUNDLE で他 sender の TSN を拾うことがあった）。
+- 転送元 packet の TWCC / abs-send-time 拡張で、新しく割り当てた値を上書きしない。
+- NACK 再送は新しい TSN を割り当てる（develop は元の TSN を再利用していた）。
+- padding-only packet は NACK 用の `rtpCache` に入れない。
+- `SentInfo.sendingAtMs` は ICE へ渡す直前の時刻を使う。
+- legacy の送信履歴は 10 秒の時間窓で捨てる（develop は削除処理が効かず無制限に増えていた）。
+
 ---
 
 ## 3. 技術的な実装アプローチ（調査結果の要約）
@@ -412,6 +467,15 @@ set availableBitrate(v: number) {
 - `cd e2e && npm run test:sim`（werift↔Chrome ボトルネック sim）: 2 回とも 1 件成功。
 - `packages/webrtc` の `npm run type` / `npm test`（708 件成功・3 件 skip）、ルートの `npm run type` / `npm run test:small`: 成功。
 
+### 検証記録（2026-10-21、§2.11 構造整理後）
+
+- `cd packages/webrtc && npm run type`: 成功。`npm test`: 44 ファイル、738 件成功・3 件 skip。
+- ルートの `npm run type` と `npm run test:small`: 成功。
+- `cd packages/webrtc && npm run test:sim`: 4 件成功（RTX を negotiate。各シナリオで RTX padding 32〜79 件、media SSRC の padding 0 件）。
+- `cd e2e && npm run test:sim`（werift↔Chrome）: 1 件成功。
+- Biome（`packages/webrtc` の `src` / `tests` / `simulations`）: 指摘なし。
+- WPT は今回再実行していない。
+
 ### ライセンス
 
 - GCC 実装（`packages/webrtc/src/media/sender/estimators/gcc/`）は libwebrtc（BSD-3-Clause + PATENTS）の移植。帰属はルート `NOTICE`、各ファイル先頭の `/*!` ヘッダー、`third_party/libwebrtc-ref/{LICENSE,PATENTS,AUTHORS}`（pin と同じコミットから取得）で示す。
@@ -421,7 +485,8 @@ set availableBitrate(v: number) {
 - ALR 専用 probe、完全な PacedSender、REMB の取り込み、RR 由来の loss 配線（`updatePacketsLost`）。
 - mediasoup interop、libwebrtc 実行結果との数値比較、E2E 全体実行時の ICE-TCP タイムアウトの原因。
 - worktree の `third_party/wpt/.git` の gitdir 破損そのもの（main checkout の module を共有すると HEAD / index が干渉するため修復していない。上記のとおり内容は pin と一致）。
-- 統合送信キュー（`enqueueOutgoing`）と RTP seq remap は legacy 既定でも通る。実トラフィック（Chrome 実機・mediasoup）での挙動は sim と単体テスト以外では未検証。
+- GCC の送信キュー（`enqueueOutgoing`）と RTX padding の実トラフィック（Chrome 実機・mediasoup）での挙動は、sim と単体テスト以外では未検証。
+- RTX を negotiate しない GCC sender は padding を送らない（`GCC_KNOWN_DIFFERENCES`）。media だけで probe cluster を埋められない場合の推定立ち上がりは libwebrtc より遅くなりうる。
 
 ### 非ゴール（本チケットでは必須としない）
 
@@ -468,3 +533,7 @@ set availableBitrate(v: number) {
 | congestion / overuse 等 | **アルゴリズム固有イベントとして分離**（legacy の `onCongestion*` は具象維持、GCC は固有 state/event） |
 | ピア間シミュレーション | **`packages/webrtc/simulations/`** で仮想帯域制限 + GCC/TWCC を検証。**CI 対象外**（`npm run test:sim`） |
 | Chrome シミュレーション | **`e2e/simulations/`** で werift↔Chrome。ネットワーク制限は **werift 側 ICE**。**CI 対象外**（`cd e2e && npm run test:sim`） |
+| TWCC feedback の照合 | 共通の **`TwccFeedbackAdapter`** が一度だけ正規化し、legacy / GCC はその出力だけを使う。受信確定で履歴から消し、受信時刻で重複を推測しない（§2.11） |
+| probe / loss padding | **RTX SSRC** でだけ送る。RTX が無ければ送らない（既知差分）。media seq は `input + seqOffset` のまま（§2.11） |
+| legacy / disabled の送信経路 | develop と同じ**直接送信**（送信キュー・pacing なし）。送信キューは GCC など pacing する estimator だけ（§2.11） |
+| ReceiverTWCC の corrective feedback | **持たない**（dumb receiver。§4.1 と非ゴールに合わせる）（§2.11） |

@@ -96,7 +96,12 @@ See [the design note](../../docs/design/705-media-rejection-and-removetrack.md) 
 | `sender.pacingBitrateBps` | Effective send rate including active GCC probe target. Legacy / disabled do not pace. |
 | `sender.onProbeClusterConfig` | Probe cluster targets (GCC fires; legacy / disabled never do) |
 
-GCC send-path hooks (`process`, `setRoundTripTime`, probe padding, pacing) live on `BandwidthEstimator`. Legacy and `DisabledBandwidthEstimator` implement them as no-ops so `RTCRtpSender` does not import GCC. Transport-wide sequence is a monotonic counter on `RTCDtlsTransport` (`transportSequenceNumber` is the 16-bit wire view). `RTCDtlsTransport.sendRtp` still returns `Promise<number>`; use `sendRtpWithMeta` for ICE-enqueue time. The per-sender send FIFO is bounded (stale video drop / audio latency cap); probe padding yields to queued media.
+GCC send-path hooks (`process`, `setRoundTripTime`, probe padding, pacing) live on `BandwidthEstimator`. Legacy and `DisabledBandwidthEstimator` implement them as no-ops so `RTCRtpSender` does not import GCC. Transport-wide sequence is a monotonic counter on `RTCDtlsTransport` (`transportSequenceNumber` is the 16-bit wire view). `RTCDtlsTransport.sendRtp` still returns `Promise<number>`; use `sendRtpWithMeta` for ICE-enqueue time.
+
+- Legacy / disabled (the default) write RTP straight through, as before the abstraction: no send FIFO, no pacing, no padding.
+- GCC uses a bounded per-sender send FIFO (stale video drop / audio latency cap). Probe padding yields to queued media.
+- Padding is padding-only RTP on the **RTX** SSRC, so media sequence numbers are never shifted. Without negotiated RTX, no padding is sent and probes use media only (`GCC_KNOWN_DIFFERENCES`).
+- Every estimator reads TWCC through `TwccFeedbackAdapter`. Each sent packet is counted as received at most once, including duplicate and reordered feedback.
 
 ```ts
 import {
@@ -120,7 +125,7 @@ sender.onAvailableBitrate.subscribe((bps) => {
 sender.setBandwidthEstimator(new GccBandwidthEstimator());
 // During probes (GCC only — legacy / disabled are unpaced):
 // - sender.pacingBitrateBps is raised to the probe target
-// - RTCRtpSender paces with a token-bucket and injects RTP padding when media
+// - RTCRtpSender paces with a token-bucket and injects RTX padding when media
 //   alone cannot fill the probe cluster (see maybeInjectProbePadding)
 sender.onProbeClusterConfig.subscribe((cfg) => {
   // optional: raise encoder toward cfg.targetBps for the cluster duration

@@ -563,10 +563,12 @@ export class RTCRtpReceiver {
       ? RtpReceivePacketType.padding
       : RtpReceivePacketType.media;
 
-    if (!paddingOnly && codec.name.toLowerCase() === "rtx") {
+    if (codec.name.toLowerCase() === "rtx") {
       const originalSsrc = this.ssrcByRtx[packet.header.ssrc];
       const codecParams = codecParametersFromString(codec.parameters ?? "");
       const rtxCodec = this.codecs[codecParams["apt"]];
+      // Padding-only RTX (probe / bandwidth padding) carries no original
+      // packet: TWCC above already observed it, nothing is delivered.
       if (packet.payload.length < 2) return;
 
       packet = unwrapRtx(packet, rtxCodec.payloadType, originalSsrc);

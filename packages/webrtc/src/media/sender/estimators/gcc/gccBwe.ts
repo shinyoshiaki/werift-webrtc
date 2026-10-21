@@ -18,8 +18,7 @@ import type {
   SentInfo,
 } from "../../bandwidthEstimator";
 import { setAvailableBitrateIfChanged } from "../../bandwidthEstimator";
-import { hasTwccReceiveTiming } from "../twccReceiveTiming";
-import { TwccReferenceTimeUnwrapper } from "../twccReferenceTime";
+import { TwccFeedbackAdapter } from "../twccFeedbackAdapter";
 import { AcknowledgedBitrateEstimator } from "./acknowledgedBitrateEstimator";
 import { AimdRateControl } from "./aimdRateControl";
 import { AlrDetector } from "./alrDetector";
@@ -55,15 +54,7 @@ import type { BandwidthUsage } from "./overuseDetector";
 import type { ProbeClusterConfig, ProbeState } from "./probeController";
 import { ProbeController } from "./probeController";
 import { RttBasedBackoff, computeFeedbackRttStats } from "./rttBasedBackoff";
-import {
-  TransportWideSeqUnwrapper,
-  lookupUnwrappedSentSeq,
-  sortPacketResultsByWideSeq,
-} from "./sequenceNumber";
 import { TrendlineEstimator } from "./trendlineEstimator";
-
-/** Receive-time drift allowed when matching a repeated ACK to its packet. */
-const kDuplicateAckToleranceMs = 1;
 
 /**
  * Optional sender clock for tests. Production uses {@link milliTime} so
@@ -152,7 +143,6 @@ export class GccBandwidthEstimator
   private disposed = false;
   private readonly interArrival = new InterArrivalDelta();
   /** Unwraps 24-bit TWCC reference_time across feedbacks. */
-  private readonly refTimeUnwrapper = new TwccReferenceTimeUnwrapper();
   /**
    * Sender clock. Production: {@link milliTime}. Tests may inject a synthetic
    * clock so send / feedback stay in one domain (no production clock heuristic).
@@ -160,27 +150,14 @@ export class GccBandwidthEstimator
   private readonly clock: GccClock;
 
   /**
-   * Sent-packet history keyed by **unwrapped** transport-wide sequence
-   * (pin TransportFeedbackAdapter `history_`). 16-bit wire seq alone would
-   * overwrite the previous generation after wrap.
+   * Send history + feedback normalization (pin TransportFeedbackAdapter
+   * `history_`). Received packets leave history, so duplicate / corrective
+   * reports are dropped before any subsystem sees them. Not-received packets
+   * stay so a later feedback can still report them as received.
    */
-  private sentInfos = new Map<number, SentInfo>();
-  /** pin `RtpSequenceNumberUnwrapper` shared by send and feedback lookup. */
-  private readonly seqUnwrapper = new TransportWideSeqUnwrapper();
-  /**
-   * Sequences finalized as **received**. Not-received is never permanently
-   * finalized — a later feedback may report the same seq as received
-   * (TWCC PacketNotReceived ≠ definitive loss). The value is the reported
-   * receive time, used to tell a duplicate ACK from a late ACK for an older
-   * generation sharing the same 16-bit number.
-   */
-  private finalizedSeqs = new Map<number, number | undefined>();
-  /**
-   * Sequences already reported as soft loss. Keep them eligible for a later
-   * received correction. Repeated PacketNotReceived is still forwarded to
-   * LossBasedBwe (pin PushBackObservation increments num_packets/size).
-   */
-  private softLostSeqs = new Set<number>();
+  private readonly feedbackAdapter = new TwccFeedbackAdapter(
+    kSendTimeHistoryWindowMs,
+  );
   private lastUsage: BandwidthUsage = "normal";
   /**
    * libwebrtc RobustThroughputEstimator (default acked bitrate path).
@@ -386,7 +363,7 @@ export class GccBandwidthEstimator
     if (this.disposed || !Number.isFinite(nowMs)) return;
     // Age-out send history even when media is idle (pin 60s window).
     // rtpPacketSent-only prune would leak after send stop.
-    this.pruneSentInfos(nowMs);
+    this.feedbackAdapter.prune(nowMs);
     this.accrueLossPadding(nowMs);
     // pin first OnProcessInterval ResetConstraints → ProbeController::SetBitrates
     this.ensureProbing(nowMs);
@@ -579,14 +556,7 @@ export class GccBandwidthEstimator
     this.paddingDueBytes = Math.max(0, this.paddingDueBytes - info.size);
     this.ackedBitrate.setAlr(this.alr.inAlr);
     this.aimd.setInApplicationLimitedRegion(this.alr.inAlr);
-    this.pruneSentInfos(info.sendingAtMs);
-    const seq = this.seqUnwrapper.advanceSent(info.wideSeq);
-    this.sentInfos.set(seq, info);
-    // Re-sending the same extended seq (true retransmit of that generation)
-    // clears prior finalize. A wrap creates a *new* key and leaves the old
-    // generation intact.
-    this.finalizedSeqs.delete(seq);
-    this.softLostSeqs.delete(seq);
+    const seq = this.feedbackAdapter.onSent(info);
     // pin GoogCcNetworkController::OnSentPacket — first packet seeds
     // UpdatePropagationRtt(send_time, 0) so CorrectedRtt grows while
     // packets are sent without feedback (ProcessInterval / sender clock).
@@ -632,17 +602,6 @@ export class GccBandwidthEstimator
     let lastSend = 0;
     const lossPackets: LossPacketFeedback[] = [];
 
-    // Expand 24-bit reference_time across feedbacks so receivedAtMs stays
-    // continuous through wrap (0xFFFFFF → 0).
-    const rebased = this.refTimeUnwrapper.rebasePacketResults(
-      feedback.packetResults,
-      feedback.referenceTime,
-    );
-    // Loss / soft-loss path: transport-seq (send) order is stable and matches
-    // sentInfos. Delay + acked + probe use receive-time order below (libwebrtc
-    // SortedByReceiveTime for those subsystems).
-    const results = sortPacketResultsByWideSeq(rebased);
-
     /** Received packets with valid TWCC timing for delay / acked / probe. */
     const timedReceived: {
       seq: number;
@@ -650,35 +609,24 @@ export class GccBandwidthEstimator
       sendMs: number;
       recvMs: number;
       isProbation: boolean;
+      priorUnackedBytes: number;
     }[] = [];
 
-    for (const result of results) {
-      const seq = this.resolveFeedbackSeq(
-        result.sequenceNumber,
-        result.received,
-        result.receivedAtMs,
-      );
-      if (seq === undefined) {
-        // Unknown sequence (swap / late feedback) — do not count as loss.
-        continue;
-      }
-      const info = this.sentInfos.get(seq);
-      if (!info) {
-        continue;
-      }
-      if (this.finalizedSeqs.has(seq)) {
-        // Already confirmed received — ignore duplicate / overlapping reports.
-        continue;
-      }
-
+    // Loss path uses transport-seq (send) order. Delay + acked + probe use
+    // receive-time order below (libwebrtc SortedByReceiveTime). The adapter
+    // already dropped unknown sequences (other BUNDLE senders) and packets
+    // previously reported as received.
+    for (const packet of this.feedbackAdapter.onFeedback(feedback)) {
+      const seq = packet.extSeq;
+      const info = packet.sent;
       matched++;
       batchBytes += info.size;
       if (info.sendingAtMs < firstSend) firstSend = info.sendingAtMs;
       if (info.sendingAtMs > lastSend) lastSend = info.sendingAtMs;
 
-      if (!result.received) {
-        // Soft loss: count for this observation, do NOT permanently finalize.
-        this.softLostSeqs.add(seq);
+      if (!packet.received) {
+        // Soft loss: counted for this observation. Repeated PacketNotReceived
+        // is forwarded again (pin PushBackObservation).
         lost++;
         lostBytes += info.size;
         lossPackets.push({
@@ -692,8 +640,6 @@ export class GccBandwidthEstimator
 
       // Received — may unmark a prior soft loss inside LossBasedBwe partial map.
       received++;
-      this.finalizedSeqs.set(seq, result.receivedAtMs);
-      this.softLostSeqs.delete(seq);
       lossPackets.push({
         seq,
         size: info.size,
@@ -701,9 +647,8 @@ export class GccBandwidthEstimator
         sendMs: info.sendingAtMs,
       });
 
-      // ReceivedWithoutDelta / no timing: received for loss only, skip delay path.
-      // Do not use falsy `!receivedAtMs` — 0 is a valid reference-relative time.
-      if (!hasTwccReceiveTiming(result)) {
+      // ReceivedWithoutDelta: received for loss only, skip delay path.
+      if (packet.recvMs === undefined) {
         continue;
       }
 
@@ -711,8 +656,9 @@ export class GccBandwidthEstimator
         seq,
         size: info.size,
         sendMs: info.sendingAtMs,
-        recvMs: result.receivedAtMs,
+        recvMs: packet.recvMs,
         isProbation: !!info.isProbation,
+        priorUnackedBytes: info.priorUnackedBytes ?? 0,
       });
     }
 
@@ -736,7 +682,7 @@ export class GccBandwidthEstimator
         receiveTimeMs: p.recvMs,
         sendTimeMs: p.sendMs,
         sizeBytes: p.size,
-        priorUnackedBytes: this.sentInfos.get(p.seq)?.priorUnackedBytes ?? 0,
+        priorUnackedBytes: p.priorUnackedBytes,
       })),
     );
 
@@ -996,11 +942,7 @@ export class GccBandwidthEstimator
     this.lossBwe.reset(this.startBitrateBps);
     this.probe.reset(this.clock());
     this.interArrival.reset();
-    this.refTimeUnwrapper.reset();
-    this.sentInfos.clear();
-    this.finalizedSeqs.clear();
-    this.softLostSeqs.clear();
-    this.seqUnwrapper.reset();
+    this.feedbackAdapter.reset();
     this.lastUsage = "normal";
     this.ackedBitrate.reset();
     this._availableBitrate = 0;
@@ -1391,69 +1333,6 @@ export class GccBandwidthEstimator
     )) {
       this.onProbeClusterActivated(cfg, nowMs);
     }
-  }
-
-  /**
-   * pin `TransportFeedbackAdapter` send-time history: drop entries older than
-   * {@link kSendTimeHistoryWindowMs} (60s). Called from `rtpPacketSent` **and**
-   * `process()` so idle / send-stop paths still expire history. No extra
-   * 2048-sequence cap — high-rate probe padding would otherwise evict
-   * late-ACK-able packets too early.
-   *
-   * Keys are unwrapped (extended) sequences; wrap does not bound the map.
-   *
-   * finalized/soft-lost sets are pruned to keys still present in sentInfos
-   * (never wholesale-cleared while live seqs remain — that would re-count
-   * received packets in LossBased partial observations).
-   */
-  private pruneSentInfos(nowMs: number) {
-    for (const [seq, info] of this.sentInfos) {
-      if (nowMs - info.sendingAtMs > kSendTimeHistoryWindowMs) {
-        this.sentInfos.delete(seq);
-        this.finalizedSeqs.delete(seq);
-        this.softLostSeqs.delete(seq);
-      }
-    }
-    // Drop orphan finalize/soft-loss markers no longer backed by sentInfos.
-    if (this.finalizedSeqs.size > this.sentInfos.size) {
-      for (const seq of this.finalizedSeqs.keys()) {
-        if (!this.sentInfos.has(seq)) this.finalizedSeqs.delete(seq);
-      }
-    }
-    if (this.softLostSeqs.size > this.sentInfos.size) {
-      for (const seq of this.softLostSeqs) {
-        if (!this.sentInfos.has(seq)) this.softLostSeqs.delete(seq);
-      }
-    }
-  }
-
-  /**
-   * Map a 16-bit TWCC feedback sequence onto the unwrapped sentInfos key.
-   *
-   * Uses this estimator's latest **sent** extended TSN as the generation
-   * origin so a long-idle sender does not treat a large forward jump as
-   * wrap-back. Prefers the newest generation that is still open. A newest
-   * generation that is already finalized also matches when the ACK repeats
-   * its receive time within the 250us delta quantization drift of corrective
-   * feedback (a duplicate, dropped by the caller); a clearly different
-   * receive time is a late report for an older generation.
-   */
-  private resolveFeedbackSeq(
-    seq16: number,
-    received: boolean,
-    receivedAtMs: number | undefined,
-  ): number | undefined {
-    return lookupUnwrappedSentSeq(seq16, this.seqUnwrapper.last, (key) => {
-      if (!this.sentInfos.has(key)) return false;
-      if (!this.finalizedSeqs.has(key)) return true;
-      const finalizedAtMs = this.finalizedSeqs.get(key);
-      return (
-        received &&
-        finalizedAtMs !== undefined &&
-        receivedAtMs !== undefined &&
-        Math.abs(finalizedAtMs - receivedAtMs) <= kDuplicateAckToleranceMs
-      );
-    });
   }
 
   private pushInterArrival(

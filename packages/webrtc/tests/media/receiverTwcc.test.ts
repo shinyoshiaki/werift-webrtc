@@ -144,7 +144,7 @@ describe("ReceiverTWCC", () => {
     expect(rx.nextReportTsn).toBe(103);
   });
 
-  test("late reorder で not-received を後から received として再 feedback する", () => {
+  test("報告済みの番号に遅れて届いた packet は再報告しない (dumb receiver)", () => {
     // Arrange
     const { rx, dtls } = makeReceiver();
 
@@ -169,9 +169,14 @@ describe("ReceiverTWCC", () => {
     ]);
     expect(rx.nextReportTsn).toBe(103);
 
-    // Act 2: 101 が遅れて到着 → corrective feedback
+    // Act 2: 101 が遅れて到着（報告済み区間）、続いて 103 が到着
     rx.handleTWCC(101);
     (rx as any).sendTWCC();
+    rx.handleTWCC(103);
+    (rx as any).sendTWCC();
+
+    // Assert: 報告済みの 101 は再報告せず（corrective feedback なし）、
+    //         次の feedback は frontier 103 から始まる
     expect(dtls.sendRtcp).toHaveBeenCalledTimes(2);
     const wire2 = (
       (dtls.sendRtcp as any).mock.calls[1][0] as { serialize: () => Buffer }[]
@@ -180,13 +185,10 @@ describe("ReceiverTWCC", () => {
       RtcpTransportLayerFeedback,
     ];
     const twcc2 = fb2.feedback as TransportWideCC;
-    // Assert: 101 を received として報告（frontier は 103 のまま or 前進しない後退なし）
-    expect(twcc2.baseSequenceNumber).toBe(101);
-    const map = new Map(
+    expect(
       twcc2.packetResults.map((r) => [r.sequenceNumber, r.received]),
-    );
-    expect(map.get(101)).toBe(true);
-    expect(rx.nextReportTsn).toBe(103);
+    ).toEqual([[103, true]]);
+    expect(rx.nextReportTsn).toBe(104);
   });
 
   test("RunLength は 13bit 上限(8191)を超える run を分割する", () => {

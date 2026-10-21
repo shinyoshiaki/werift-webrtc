@@ -41,6 +41,11 @@ export {
   isSenderBandwidthEstimator,
 } from "./sender/estimators/legacyCumulativeBwe";
 export {
+  TwccFeedbackAdapter,
+  kTwccFeedbackHistoryMaxSeqSpan,
+} from "./sender/estimators/twccFeedbackAdapter";
+export type { TwccPacketFeedback } from "./sender/estimators/twccFeedbackAdapter";
+export {
   AlrDetector,
   AcknowledgedBitrateEstimator,
   IntervalBudget,
@@ -98,7 +103,6 @@ export {
   kStartPhaseLossReportMinPackets,
   kTrendlineWindowSize,
   sortPacketResultsByWideSeq,
-  lookupUnwrappedSentSeq,
 } from "./sender/estimators/gcc";
 export type {
   AckedPacketSample,

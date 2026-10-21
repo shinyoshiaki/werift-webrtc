@@ -135,6 +135,9 @@ describe("simulations/gcc-twcc-congestion", () => {
       expect(stats.dropped).toBeLessThan(5);
       // 日本語: 転送は進んでいる
       expect(stats.forwarded).toBeGreaterThan(20);
+      // 日本語: 初期 probe の padding は RTX SSRC にだけ出て、media SSRC には出ない
+      expect(pair.wire.rtxPadding).toBeGreaterThan(0);
+      expect(pair.wire.mediaPadding).toBe(0);
     } finally {
       media.stop();
       await pair.close();

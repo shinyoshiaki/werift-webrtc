@@ -23,6 +23,7 @@ import { RTCRtpSender } from "../../src/media/rtpSender";
 import { RTCStatsReport } from "../../src/media/stats";
 import { milliTime } from "../../src/utils";
 import {
+  attachPacedFifoEstimator,
   createAudioCodec,
   createConnectedRtpSender,
   createDtlsTransport,
@@ -31,6 +32,7 @@ import {
   sentRtpHeaders,
 } from "../fixture";
 import { createVideoReceiver } from "./rtpReceiverTestUtils";
+import { seededRandom } from "./twccTestUtils";
 
 describe("media/rtpSender", () => {
   test("stop track", () => {
@@ -1061,6 +1063,8 @@ describe("media/rtpSender RTP continuity", () => {
 
   test("送信キュー待ちの旧パケットは replaceTrack 後に送られず、新ソース先頭が連続性補正を受ける", async () => {
     const { sender, track, sendRtp } = arrangeSender();
+    // Arrange: 送信キューを使う pacing 系 estimator（legacy はキューを持たない）
+    attachPacedFifoEstimator(sender);
     const { release } = holdFirstDtlsWrite(sendRtp);
     const track2 = new MediaStreamTrack({ kind: "audio", remote: true });
 
@@ -1147,6 +1151,8 @@ describe("media/rtpSender RTP continuity", () => {
 
   test("replaceTrack(null) 後は送信キュー待ちの旧パケットを送らない", async () => {
     const { sender, track, sendRtp } = arrangeSender();
+    // Arrange: 送信キューを使う pacing 系 estimator（legacy はキューを持たない）
+    attachPacedFifoEstimator(sender);
     const { release } = holdFirstDtlsWrite(sendRtp);
 
     // Arrange: 1 件目の DTLS 送信を保留し、2〜3 件目を送信キューに残す。
@@ -1638,7 +1644,8 @@ describe("media/rtpSender RTP continuity", () => {
   });
 
   test("ソース切替後の padding は timestampOffset を重ねて適用しない", async () => {
-    const { sender, sendRtp } = arrangeSender();
+    // Arrange: padding は RTX SSRC でだけ送るので RTX を交渉する
+    const { sender, sendRtp } = arrangeSender({ rtx: true });
 
     // Arrange: 切替後の先頭 media timestamp が 1001 になる状態
     await sender.sendRtp(createRtpPacket(1, 1000));
@@ -1678,7 +1685,7 @@ describe("media/rtpSender RTP continuity", () => {
     expect(pads[1]!.timestamp).toBe(mediaTs);
   });
 
-  test("registerTrack does not relay padding-only packets", () => {
+  test("registerTrack は padding-only も develop と同じく中継する", () => {
     // Arrange: SFU 的に受信 track を sender へつなぐ
     const track = new MediaStreamTrack({ kind: "video", remote: true });
     const dtls = createDtlsTransport();
@@ -1687,17 +1694,12 @@ describe("media/rtpSender RTP continuity", () => {
     const spy = vi.spyOn(sender, "sendRtp");
     const rtp = createRtpPacket();
 
-    // Act: padding 種別は再送しない
+    // Act: padding と media を流す
     track.onReceiveRtp.execute(rtp, undefined, { type: "padding" });
-
-    // Assert
-    expect(spy).not.toHaveBeenCalled();
-
-    // Act: メディアは従来どおり送る
     track.onReceiveRtp.execute(rtp, undefined, { type: "media" });
 
-    // Assert
-    expect(spy).toBeCalledTimes(1);
+    // Assert: 種別で間引かず、どちらも同じ seq 変換で中継する
+    expect(spy).toBeCalledTimes(2);
   });
 
   test("stop は DTLS state listener を解除する", () => {
@@ -1861,6 +1863,13 @@ describe("media/rtpSender RTP continuity", () => {
           clockRate: 90000,
           payloadType: 96,
         }),
+        // probe padding は RTX SSRC で送る
+        new RTCRtpCodecParameters({
+          mimeType: "video/rtx",
+          clockRate: 90000,
+          payloadType: 97,
+          parameters: "apt=96",
+        }),
       ],
       headerExtensions: [
         new RTCRtpHeaderExtensionParameters({
@@ -1913,6 +1922,13 @@ describe("media/rtpSender RTP continuity", () => {
           clockRate: 90000,
           payloadType: 96,
         }),
+        // probe padding は RTX SSRC で送る
+        new RTCRtpCodecParameters({
+          mimeType: "video/rtx",
+          clockRate: 90000,
+          payloadType: 97,
+          parameters: "apt=96",
+        }),
       ],
       headerExtensions: [
         new RTCRtpHeaderExtensionParameters({
@@ -1959,7 +1975,7 @@ describe("media/rtpSender RTP continuity", () => {
     expect(sendRtp).toHaveBeenCalledTimes(100);
   });
 
-  test("転送で除去した padding の source seq は wire seq から詰める", async () => {
+  test("転送では padding も source 相対の番号で中継し、欠番を作らない", async () => {
     // Arrange: 受信 track を別 sender に接続する
     const { sender, track, sendRtp } = createConnectedRtpSender({
       kind: "video",
@@ -1971,14 +1987,15 @@ describe("media/rtpSender RTP continuity", () => {
       type: "padding",
     } as never);
     track.onReceiveRtp.execute(createRtpPacket(1002, 3000, Buffer.alloc(10)));
-    await sender.sendRtp(createRtpPacket(1003, 3000, Buffer.alloc(10)));
     await setTimeout(10);
 
-    // Assert: padding を除いた経路で番号が連続する
+    // Assert: padding を間引かないので番号は入力どおり連続する
     const seqs = sentRtpHeaders(sendRtp).map((h) => h.sequenceNumber);
-    expect(seqs.slice(0, 3)).toEqual([1000, 1001, 1002]);
+    expect(seqs).toEqual([1000, 1001, 1002]);
+    sender.stop();
   });
-  test("track 切替後の先頭 padding は連続性補正と二重に減算されない", async () => {
+
+  test("track 切替後の先頭 padding も連続性補正を一度だけ受ける", async () => {
     // Arrange: 旧 track で 100 を送ったあと新 track へ切り替える
     const { sender, sendRtp } = createConnectedRtpSender({ kind: "video" });
     const next = new MediaStreamTrack({ kind: "video", remote: true });
@@ -1992,13 +2009,14 @@ describe("media/rtpSender RTP continuity", () => {
     next.onReceiveRtp.execute(createRtpPacket(1001, 9000, Buffer.from([2])));
     await setTimeout(10);
 
-    // Assert: 先頭 media は 101 で、100 を再利用しない
+    // Assert: 旧 track の 100 に続けて 101, 102。番号を再利用しない
     expect(sentRtpHeaders(sendRtp).map((h) => h.sequenceNumber)).toEqual([
-      100, 101,
+      100, 101, 102,
     ]);
+    sender.stop();
   });
 
-  test("padding が履歴上限を超えても除去件数を保持する", async () => {
+  test("padding が 300 件続いても転送番号に欠損が出ない", async () => {
     // Arrange
     const { sender, track, sendRtp } = createConnectedRtpSender({
       kind: "video",
@@ -2012,10 +2030,170 @@ describe("media/rtpSender RTP continuity", () => {
       } as never);
     }
     await sender.sendRtp(createRtpPacket(1301, 3000, Buffer.from([2])));
+    await setTimeout(10);
 
-    // Assert: 偽の欠損が無く 1000, 1001 と続く
-    expect(sentRtpHeaders(sendRtp).map((h) => h.sequenceNumber)).toEqual([
-      1000, 1001,
-    ]);
+    // Assert: 1000..1301 が欠番なく続く
+    expect(sentRtpHeaders(sendRtp).map((h) => h.sequenceNumber)).toEqual(
+      Array.from({ length: 302 }, (_, i) => 1000 + i),
+    );
+    sender.stop();
   });
+
+  test("legacy は DTLS 書き込みが保留中でも後続をキューに溜めず直接送る", async () => {
+    // Arrange: 既定 (legacy) で 1 件目の DTLS 書き込みを保留する
+    const { sender, sendRtp } = createConnectedRtpSender({ kind: "video" });
+    const { release } = holdFirstDtlsWrite(sendRtp);
+
+    // Act: 保留中に 2 件目・3 件目を送る
+    const first = sender.sendRtp(createRtpPacket(1, 3000, Buffer.from([1])));
+    await sender.sendRtp(createRtpPacket(2, 3000, Buffer.from([2])));
+    await sender.sendRtp(createRtpPacket(3, 3000, Buffer.from([3])));
+
+    // Assert: develop と同じく保留を待たずに DTLS へ渡す（送信キューなし）
+    expect(sendRtp).toHaveBeenCalledTimes(3);
+    expect((sender as any).outgoingRunning).toBe(false);
+    release();
+    await first;
+    sender.stop();
+  });
+});
+
+describe("media/rtpSender sequence properties", () => {
+  /**
+   * Arrange: forwarded input with gaps, reorder, duplicates, padding-only
+   * packets, and track switches. Returns the per-epoch input seqs in order.
+   */
+  const buildForwardScript = (seed: number) => {
+    const rand = seededRandom(seed);
+    const steps: (
+      | { type: "rtp"; seq: number; padding: boolean }
+      | { type: "switch" }
+      | { type: "probe" }
+    )[] = [];
+    let seq = Math.floor(rand() * 0x10000);
+    for (let i = 0; i < 600; i++) {
+      const r = rand();
+      if (r < 0.02) {
+        steps.push({ type: "switch" });
+        seq = Math.floor(rand() * 0x10000);
+        continue;
+      }
+      if (r < 0.1) {
+        steps.push({ type: "probe" });
+        continue;
+      }
+      // gap / reorder / duplicate around the running source seq
+      const jitter = rand();
+      const s =
+        jitter < 0.05
+          ? (seq - 2) & 0xffff
+          : jitter < 0.1
+            ? (seq - 1) & 0xffff
+            : jitter < 0.15
+              ? (seq = (seq + 3) & 0xffff)
+              : (seq = (seq + 1) & 0xffff);
+      steps.push({ type: "rtp", seq: s, padding: rand() < 0.2 });
+    }
+    return steps;
+  };
+
+  const runForwardScript = async (seed: number, paced: boolean) => {
+    const { sender, sendRtp } = createConnectedRtpSender({
+      kind: "video",
+      rtx: true,
+      twcc: true,
+    });
+    if (paced) {
+      const gcc = attachPacedFifoEstimator(sender);
+      // 毎回 1 件の RTX padding を許す
+      gcc.pendingLossPaddingPackets = () => 1;
+      (
+        gcc as unknown as { probePaddingPacketBytes: number }
+      ).probePaddingPacketBytes = 100;
+      (
+        gcc as unknown as { probePaddingMaxBurst: number }
+      ).probePaddingMaxBurst = 1;
+    }
+    const epochs: number[][] = [[]];
+    for (const step of buildForwardScript(seed)) {
+      if (step.type === "switch") {
+        await sender.replaceTrack(
+          new MediaStreamTrack({ kind: "video", remote: true }),
+        );
+        epochs.push([]);
+        continue;
+      }
+      if (step.type === "probe") {
+        await sender.maybeInjectLossPadding();
+        continue;
+      }
+      const rtp = createRtpPacket(
+        step.seq,
+        3000,
+        step.padding ? Buffer.alloc(0) : Buffer.from([1]),
+      );
+      if (step.padding) {
+        rtp.header.padding = true;
+        rtp.header.paddingSize = 4;
+      }
+      // registerTrack の中継と同じ sendRtp を、キュー上限で落ちないよう 1 件ずつ待つ
+      await sender.sendRtp(rtp);
+      epochs.at(-1)!.push(step.seq);
+    }
+    await setTimeout(20);
+    const headers = sentRtpHeaders(sendRtp);
+    sender.stop();
+    return { sender, headers, epochs };
+  };
+
+  test.each([
+    [1, false],
+    [2, false],
+    [3, false],
+    [4, true],
+    [5, true],
+    [6, true],
+  ])(
+    "seed %i (paced=%s): 出力 seq は epoch ごとに入力 + 一定オフセットで、重複も padding 起因の欠番も無い",
+    async (seed, paced) => {
+      // Act
+      const { sender, headers, epochs } = await runForwardScript(seed, paced);
+
+      // Assert: RTX SSRC 以外（media SSRC）に出たパケットだけを見る
+      const media = headers.filter((h) => h.ssrc === sender.ssrc);
+      const rtx = headers.filter((h) => h.ssrc === sender.rtxSsrc);
+      expect(media.length).toBe(epochs.flat().length);
+      // Assert: 注入 padding は RTX だけに出て、RTX 番号は連番
+      if (paced) expect(rtx.length).toBeGreaterThan(0);
+      for (let i = 1; i < rtx.length; i++) {
+        expect(rtx[i].sequenceNumber).toBe(
+          (rtx[i - 1].sequenceNumber + 1) & 0xffff,
+        );
+      }
+
+      let cursor = 0;
+      let prevLast: number | undefined;
+      for (const inputs of epochs) {
+        const outputs = media
+          .slice(cursor, cursor + inputs.length)
+          .map((h) => h.sequenceNumber);
+        cursor += inputs.length;
+        if (inputs.length === 0) continue;
+        // Assert: epoch 内は「出力 - 入力」が一定（gap / reorder / dup を保存し、
+        //         padding を挟んでも詰めたりずらしたりしない）
+        const offset = (outputs[0] - inputs[0]) & 0xffff;
+        outputs.forEach((out, i) => {
+          expect((out - inputs[i]) & 0xffff).toBe(offset);
+        });
+        // Assert: 切替直後の先頭は直前 epoch の最後の出力 + 1
+        if (prevLast !== undefined) {
+          expect(outputs[0]).toBe((prevLast + 1) & 0xffff);
+        }
+        // Assert: 異なる入力 seq が同じ出力 seq に重ならない
+        const distinctIn = new Set(inputs).size;
+        expect(new Set(outputs).size).toBe(distinctIn);
+        prevLast = outputs.at(-1);
+      }
+    },
+  );
 });

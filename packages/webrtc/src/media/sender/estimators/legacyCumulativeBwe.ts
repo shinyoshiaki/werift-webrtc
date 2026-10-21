@@ -7,8 +7,7 @@ import {
   setAvailableBitrateIfChanged,
 } from "../bandwidthEstimator";
 import { CumulativeResult } from "../cumulativeResult";
-import { hasTwccReceiveTiming } from "./twccReceiveTiming";
-import { lookupUnwrappedSentSeq } from "./twccSentSeqLookup";
+import { TwccFeedbackAdapter } from "./twccFeedbackAdapter";
 
 const COUNTER_MAX = 20;
 const SCORE_MAX = 10;
@@ -57,11 +56,10 @@ export class SenderBandwidthEstimator
   private congestionCounter = 0;
   private cumulativeResult = new CumulativeResult();
   /**
-   * Sent packets in send order (Map keeps insertion order), so the 10s window
-   * is trimmed from the head in amortized O(1) per packet.
+   * Send history + feedback normalization shared with GCC. Each sent packet
+   * is counted as received at most once, even across corrective feedback.
    */
-  private sentInfos = new Map<number, SentInfo>();
-  private latestWideSeq: number | undefined;
+  private feedbackAdapter = new TwccFeedbackAdapter(kLegacySentInfoMaxAgeMs);
   private _congestionScore = 1;
 
   /** 1–10; larger means worse congestion (legacy-specific). */
@@ -102,24 +100,15 @@ export class SenderBandwidthEstimator
       }
     }
 
-    for (const result of feedback.packetResults) {
-      if (!result.received) continue;
-
-      const wideSeq = lookupUnwrappedSentSeq(
-        result.sequenceNumber,
-        this.latestWideSeq,
-        (key) => this.sentInfos.has(key),
-      );
-      if (wideSeq === undefined) continue;
-      const info = this.sentInfos.get(wideSeq);
-      if (!info) continue;
-      // Timing sample: not WithoutDelta; receivedAtMs===0 is valid (not falsy).
-      if (!hasTwccReceiveTiming(result)) continue;
+    for (const packet of this.feedbackAdapter.onFeedback(feedback)) {
+      // Timing sample only: lost / ReceivedWithoutDelta carry no recvMs
+      // (recvMs === 0 is a valid time, not falsy).
+      if (packet.recvMs === undefined) continue;
 
       this.cumulativeResult.addPacket(
-        info.size,
-        info.sendingAtMs,
-        result.receivedAtMs,
+        packet.sent.size,
+        packet.sent.sendingAtMs,
+        packet.recvMs,
       );
     }
 
@@ -155,20 +144,7 @@ export class SenderBandwidthEstimator
   }
 
   rtpPacketSent(sentInfo: SentInfo) {
-    const seq = sentInfo.wideSeq;
-    const nowMs = sentInfo.sendingAtMs;
-    // Evict expired entries from the oldest end only; stop at the first
-    // entry still inside the window.
-    for (const [key, info] of this.sentInfos) {
-      if (nowMs - info.sendingAtMs <= kLegacySentInfoMaxAgeMs) break;
-      this.sentInfos.delete(key);
-    }
-    // Re-insert so a reused key moves to the newest end.
-    this.sentInfos.delete(seq);
-    this.sentInfos.set(seq, sentInfo);
-    if (this.latestWideSeq === undefined || seq > this.latestWideSeq) {
-      this.latestWideSeq = seq;
-    }
+    this.feedbackAdapter.onSent(sentInfo);
   }
 
   reset() {
@@ -177,8 +153,7 @@ export class SenderBandwidthEstimator
     this._congestionScore = 1;
     this._availableBitrate = 0;
     this.cumulativeResult.reset();
-    this.sentInfos.clear();
-    this.latestWideSeq = undefined;
+    this.feedbackAdapter.reset();
   }
 
   dispose() {

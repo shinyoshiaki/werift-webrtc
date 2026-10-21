@@ -18,6 +18,7 @@ import {
   defaultPeerConfig,
 } from "../src";
 import { RTCRtpSender } from "../src/media/rtpSender";
+import { GccBandwidthEstimator } from "../src/media/sender/estimators/gcc/gccBwe";
 
 export const createRtpPacket = (
   sequenceNumber = 0,
@@ -112,6 +113,21 @@ export function createConnectedRtpSender(options?: {
     .mockResolvedValue(undefined as never);
 
   return { sender, track, dtls, sendRtp, sendRtcp };
+}
+
+/**
+ * Attach a GCC estimator so the sender uses its paced send FIFO, with pacing,
+ * probing, and padding disabled. For tests about FIFO order / source epochs
+ * (legacy writes straight through and never queues).
+ */
+export function attachPacedFifoEstimator(sender: RTCRtpSender) {
+  const gcc = new GccBandwidthEstimator(300_000);
+  gcc.getPacingBitrateBps = () => 0;
+  gcc.shouldTagProbePacket = () => false;
+  gcc.pendingProbePaddingPackets = () => 0;
+  gcc.pendingLossPaddingPackets = () => 0;
+  sender.setBandwidthEstimator(gcc);
+  return gcc;
 }
 
 export type ConnectedRtpSenderSetup = ReturnType<

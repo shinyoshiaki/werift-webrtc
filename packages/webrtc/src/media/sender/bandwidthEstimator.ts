@@ -200,6 +200,16 @@ export function isProbePacingController(
   return e.probePaddingPacketBytes > 0;
 }
 
+/**
+ * True when the estimator needs the sender's paced send FIFO: a process
+ * timer (GCC) or probe padding. Legacy / disabled return false, and
+ * {@link RTCRtpSender} then writes RTP straight through without consulting the
+ * pacing / probe hooks (same send path as before the BWE abstraction).
+ */
+export function needsPacedSendPath(e: BandwidthEstimator): boolean {
+  return e.processIntervalMs > 0 || e.probePaddingPacketBytes > 0;
+}
+
 /** RTCP / network RTT consumer (pin OnRoundTripTimeUpdate). */
 export type RoundTripTimeConsumer = Pick<
   BandwidthEstimator,

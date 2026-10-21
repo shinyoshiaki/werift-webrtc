@@ -24,13 +24,7 @@ import { randomBytes } from "crypto";
 
 import { randomUUID } from "crypto";
 import { setTimeout } from "timers/promises";
-import {
-  Event,
-  random16,
-  uint16Add,
-  uint16Gt,
-  uint32Add,
-} from "../imports/common";
+import { Event, random16, uint16Add, uint32Add } from "../imports/common";
 
 import { codecParametersFromString } from "..";
 import { createWebRtcDomException } from "../errors";
@@ -71,10 +65,12 @@ import type {
   RTCRtpHeaderExtensionParameters,
   RTCRtpSendParameters,
 } from "./parameters";
-import type {
-  BandwidthEstimator,
-  LegacyCongestionCompatibility,
-  ProbeClusterConfig,
+import {
+  type BandwidthEstimator,
+  type LegacyCongestionCompatibility,
+  type ProbeClusterConfig,
+  isProbePacingController,
+  needsPacedSendPath,
 } from "./sender/bandwidthEstimator";
 import { SenderBandwidthEstimator, type SentInfo } from "./sender/senderBWE";
 import {
@@ -307,7 +303,7 @@ export class RTCRtpSender {
    */
   private pendingUntrackedBytes = 0;
   /**
-   * FIFO for reservation → pacing wait → sequence allocation → DTLS write.
+   * GCC send FIFO: reservation → pacing wait → seq / TSN assignment → DTLS write.
    * Idle calls start synchronously so Event.execute() tests observe the send.
    * Probe padding may call {@link sendRtpInternal} on this stack only after
    * the current packet's DTLS write ({@link nestOutgoingPadding}); timer /
@@ -376,29 +372,9 @@ export class RTCRtpSender {
 
   // rtp
   private sequenceNumber?: number;
-  /**
-   * Wrap-aware high-water of allocated outbound RTP sequences.
-   * Padding always allocates after this; media prefers `source + seqOffset`
-   * and only remaps when that candidate was already used (e.g. by padding).
-   */
-  private highWaterWireSeq?: number;
-  /** Recently allocated wire sequences (padding must not reuse media or padding). */
-  private usedWireSeqs = new Set<number>();
-  /** Wire sequences allocated to probe padding. */
-  private paddingWireSeqs = new Set<number>();
-  /**
-   * Recent source media seq → wire seq. A delayed source duplicate keeps the
-   * wire seq of its first copy instead of taking a fresh one that the next
-   * in-order packet would also map to.
-   */
-  private sourceToWireSeq = new Map<number, number>();
-  /** Reverse of {@link sourceToWireSeq}, used when pruning old wire seqs. */
-  private wireToSourceSeq = new Map<number, number>();
   private timestamp?: number;
   private timestampOffset = 0;
   private seqOffset = 0;
-  /** Source seqs of non-forwarded padding, consumed by later media allocation. */
-  private skippedSourceSeqs: number[] = [];
   private rtpContinuityPending = false;
   private pendingTimestampStep = 1;
   private rtpCache: RtpPacket[] = [];
@@ -719,18 +695,7 @@ export class RTCRtpSender {
           continue;
         }
         try {
-          await this.enqueueOutgoing(
-            () =>
-              this.sendRtpInternal(item.packet, {
-                injectProbePadding: true,
-                sourceEpoch: item.sourceEpoch,
-              }),
-            {
-              kind: "media",
-              bytes: estimateOutgoingBytes(item.packet),
-              sourceEpoch: item.sourceEpoch,
-            },
-          );
+          await this.dispatchMedia(item.packet, item.sourceEpoch);
           this.settlePendingRtp(item);
         } catch (error) {
           this.settlePendingRtp(item, error);
@@ -756,13 +721,7 @@ export class RTCRtpSender {
     track.id = this.trackId;
 
     const { unSubscribe: unSubscribeRtp } = track.onReceiveRtp.subscribe(
-      async (rtp, _extensions, info) => {
-        if (info?.type === "padding") {
-          // Padding is not forwarded; close its source seq so the media that
-          // follows stays contiguous for downstream NACK / depacketization.
-          this.skipSourceSequence(rtp);
-          return;
-        }
+      async (rtp) => {
         await this.sendRtp(rtp);
       },
     );
@@ -1012,148 +971,38 @@ export class RTCRtpSender {
     this.rtpContinuityPending = true;
     this.pendingTimestampStep = timestampStep;
     this.rtpCache = [];
-    // New source mapping — clear allocation bookkeeping so prior padding
-    // ranges cannot collide with the replaced stream.
-    this.usedWireSeqs.clear();
-    this.paddingWireSeqs.clear();
-    this.sourceToWireSeq.clear();
-    this.wireToSourceSeq.clear();
-    this.skippedSourceSeqs = [];
-    this.highWaterWireSeq = undefined;
   }
 
-  private skipSourceSequence(rtp: Buffer | RtpPacket) {
-    if (this.stopped) return;
-    const seq = Buffer.isBuffer(rtp)
-      ? rtp.readUInt16BE(2)
-      : rtp.header.sequenceNumber;
-    const skipped = seq & 0xffff;
-    if (this.skippedSourceSeqs.includes(skipped)) return;
-    this.skippedSourceSeqs.push(skipped);
-    if (this.skippedSourceSeqs.length > 256) {
-      // Bound the list but keep the count: fold the oldest into the offset.
-      this.skippedSourceSeqs.shift();
-      this.seqOffset = uint16Add(this.seqOffset, -1);
-    }
-  }
-
-  /** Shift the wire mapping down for every skipped source seq behind `src`. */
-  private consumeSkippedSourceSeqs(src: number) {
-    if (this.skippedSourceSeqs.length === 0) return;
-    this.skippedSourceSeqs = this.skippedSourceSeqs.filter((skipped) => {
-      if (!uint16Gt(src, skipped)) return true;
-      this.seqOffset = uint16Add(this.seqOffset, -1);
-      return false;
-    });
-  }
-
-  private markWireSeqUsed(wire: number, isPadding = false) {
-    const seq = wire & 0xffff;
-    this.usedWireSeqs.add(seq);
-    if (isPadding) {
-      this.paddingWireSeqs.add(seq);
-    }
-    if (
-      this.highWaterWireSeq === undefined ||
-      uint16Gt(seq, this.highWaterWireSeq)
-    ) {
-      this.highWaterWireSeq = seq;
-    }
-    // Prune sequences far behind high-water so 16-bit wrap can reuse them.
-    if (this.usedWireSeqs.size > 4096 && this.highWaterWireSeq !== undefined) {
-      const h = this.highWaterWireSeq;
-      for (const s of this.usedWireSeqs) {
-        const dist = uint16Add(h, -s);
-        if (dist > 4096 && dist < 0x8000) {
-          this.usedWireSeqs.delete(s);
-          this.paddingWireSeqs.delete(s);
-          const src = this.wireToSourceSeq.get(s);
-          if (src !== undefined) {
-            this.wireToSourceSeq.delete(s);
-            if (this.sourceToWireSeq.get(src) === s) {
-              this.sourceToWireSeq.delete(src);
-            }
-          }
-        }
-      }
-    }
+  private dispatchMedia(packet: RtpPacket, sourceEpoch: number) {
+    return this.dispatchOutgoing(
+      () =>
+        this.sendRtpInternal(packet, {
+          injectProbePadding: true,
+          sourceEpoch,
+        }),
+      { kind: "media", bytes: estimateOutgoingBytes(packet), sourceEpoch },
+    );
   }
 
   /**
-   * True when `seq` is strictly behind {@link highWaterWireSeq} in 16-bit
-   * wrap space (a reorder hole), not equal or ahead.
+   * Legacy / disabled estimators neither pace nor probe, so RTP is written
+   * straight through as before the BWE abstraction: no FIFO, no queue limit,
+   * and no wait before the DTLS write. Pacing estimators (GCC) go through
+   * {@link enqueueOutgoing}. A FIFO still draining after an estimator swap
+   * keeps its order by queuing behind it.
    */
-  private isWireSeqBehindHighWater(seq: number): boolean {
-    if (this.highWaterWireSeq === undefined) return false;
-    const dist = uint16Add(this.highWaterWireSeq, -(seq & 0xffff));
-    return dist > 0 && dist < 0x8000;
+  private dispatchOutgoing(
+    task: () => Promise<void>,
+    meta: { kind: OutgoingKind; bytes: number; sourceEpoch?: number },
+  ): Promise<void | undefined> {
+    if (!this.outgoingRunning && !needsPacedSendPath(this._senderBWE)) {
+      return task();
+    }
+    return this.enqueueOutgoing(task, meta);
   }
 
   /**
-   * Media: prefer `sourceSeq + seqOffset` so source gaps/reorders stay
-   * visible. A source duplicate reuses the wire seq of its first copy (as
-   * develop forwarded the input seq unchanged). Otherwise never reuse a wire
-   * seq already given to a different packet (padding or earlier media). After
-   * a padding-driven offset bump, a late reorder still occupies its original
-   * source seq when that hole is free.
-   */
-  private allocateMediaSequence(sourceSeq: number): number {
-    const src = sourceSeq & 0xffff;
-    const known = this.sourceToWireSeq.get(src);
-    if (known !== undefined) {
-      return known;
-    }
-    this.consumeSkippedSourceSeqs(src);
-    const wire = this.pickMediaWireSeq(src);
-    this.markWireSeqUsed(wire);
-    this.sourceToWireSeq.set(src, wire);
-    this.wireToSourceSeq.set(wire, src);
-    return wire;
-  }
-
-  private pickMediaWireSeq(src: number): number {
-    const preferred = uint16Add(src, this.seqOffset);
-    if (!this.usedWireSeqs.has(preferred)) {
-      return preferred;
-    }
-
-    const behind = this.isWireSeqBehindHighWater(preferred);
-    // Offset bump mapped this late packet onto an already-sent seq.
-    // Keep the source-relative hole when it is still free (10→pad→11→late 9).
-    if (behind && !this.usedWireSeqs.has(src)) {
-      return src;
-    }
-
-    let wire =
-      this.highWaterWireSeq === undefined
-        ? uint16Add(preferred, 1)
-        : uint16Add(this.highWaterWireSeq, 1);
-    while (this.usedWireSeqs.has(wire)) {
-      wire = uint16Add(wire, 1);
-    }
-    if (!behind) {
-      this.seqOffset = uint16Add(wire, -src);
-    }
-    return wire;
-  }
-
-  /** Padding: always after high-water so media holes (reorder) stay free. */
-  private allocatePaddingSequence(): number {
-    let wire =
-      this.highWaterWireSeq === undefined
-        ? this.sequenceNumber === undefined
-          ? 0
-          : uint16Add(this.sequenceNumber, 1)
-        : uint16Add(this.highWaterWireSeq, 1);
-    while (this.usedWireSeqs.has(wire)) {
-      wire = uint16Add(wire, 1);
-    }
-    this.markWireSeqUsed(wire, true);
-    return wire;
-  }
-
-  /**
-   * Serialize reservation → pacing → sequence allocation → DTLS write.
+   * Serialize reservation → pacing → seq / TSN assignment → DTLS write.
    * Idle calls start the task in this turn so Event.execute() observers
    * see the DTLS write. Concurrent callers wait on {@link outgoingQueue}.
    */
@@ -1218,11 +1067,11 @@ export class RTCRtpSender {
   }
 
   private trimOutgoingQueue() {
-    // Legacy / disabled estimators do not pace: a burst is written straight
-    // through, so dropping queued media would corrupt frames without any
-    // congestion signal. Only bound the queue when a pacing estimator (GCC)
-    // can actually stall the FIFO.
-    if (this._senderBWE.processIntervalMs <= 0) {
+    // Legacy / disabled estimators do not pace, so dropping queued media
+    // (left over from a previous pacing estimator) would corrupt frames
+    // without any congestion signal. Only bound the queue when a pacing
+    // estimator (GCC) can actually stall the FIFO.
+    if (!needsPacedSendPath(this._senderBWE)) {
       return;
     }
     const { maxPackets, maxBytes, maxDurationMs } = this.outgoingQueueLimits();
@@ -1269,15 +1118,7 @@ export class RTCRtpSender {
       const packet = Buffer.isBuffer(rtp)
         ? RtpPacket.deSerialize(rtp)
         : rtp.clone();
-      const sourceEpoch = this.sourceEpoch;
-      await this.enqueueOutgoing(
-        () =>
-          this.sendRtpInternal(packet, {
-            injectProbePadding: true,
-            sourceEpoch,
-          }),
-        { kind: "media", bytes: estimateOutgoingBytes(packet), sourceEpoch },
-      );
+      await this.dispatchMedia(packet, this.sourceEpoch);
       return;
     }
     await new Promise<void>((resolve, reject) => {
@@ -1286,18 +1127,6 @@ export class RTCRtpSender {
     });
   }
 
-  /**
-   * Inject RTP padding packets while a GCC probe cluster is active and media
-   * alone has not yet filled min packets / min bitrate×duration.
-   *
-   * Responsibility split:
-   * - Estimator (`ProbeController` / `pendingProbePaddingPackets`) decides need
-   * - Sender generates padding RTP with TWCC seq + `isProbation` and paces them
-   */
-  /**
-   * Dedicated probe-padding path: unique RTP sequence numbers and P-bit set.
-   * Media uses {@link sendRtp}; padding never re-enters media RED path.
-   */
   /** True when transport-wide CC header extension is negotiated. */
   private isTransportCcNegotiated(): boolean {
     return this.headerExtensions.some(
@@ -1305,7 +1134,32 @@ export class RTCRtpSender {
     );
   }
 
+  /**
+   * Padding needs an estimator that asks for it, TWCC so feedback can see it,
+   * and a negotiated RTX stream to carry it. Without RTX no padding is sent
+   * (see `GCC_KNOWN_DIFFERENCES`): media sequence numbers stay untouched.
+   */
+  private canSendPadding(): boolean {
+    return (
+      isProbePacingController(this._senderBWE) &&
+      this.rtxPayloadType !== undefined &&
+      this.isTransportCcNegotiated()
+    );
+  }
+
+  /**
+   * Inject RTP padding packets while a GCC probe cluster is active and media
+   * alone has not yet filled min packets / min bitrate×duration.
+   *
+   * Responsibility split:
+   * - Estimator (`ProbeController` / `pendingProbePaddingPackets`) decides need
+   * - Sender generates padding-only RTP on the RTX SSRC with a TWCC seq +
+   *   `isProbation` and paces them
+   */
   async maybeInjectProbePadding(): Promise<number> {
+    if (!this.canSendPadding()) {
+      return 0;
+    }
     if (this.nestOutgoingPadding) {
       return this.drainProbePadding();
     }
@@ -1322,8 +1176,7 @@ export class RTCRtpSender {
     if (this.dtlsTransport?.state !== "connected" || !this.codec) {
       return 0;
     }
-    // Probe padding requires TWCC so feedback can validate clusters.
-    if (!this.isTransportCcNegotiated()) {
+    if (!this.canSendPadding()) {
       return 0;
     }
     // Capture estimator + generation for the whole async drain. On swap,
@@ -1378,6 +1231,9 @@ export class RTCRtpSender {
    * Regular RTP padding (not probe/probation). Probe padding takes priority.
    */
   async maybeInjectLossPadding(): Promise<number> {
+    if (!this.canSendPadding()) {
+      return 0;
+    }
     return (
       (await this.enqueueOutgoing(() => this.drainLossPadding(), {
         kind: "padding",
@@ -1391,7 +1247,7 @@ export class RTCRtpSender {
     if (this.dtlsTransport?.state !== "connected" || !this.codec) {
       return 0;
     }
-    if (!this.isTransportCcNegotiated()) {
+    if (!this.canSendPadding()) {
       return 0;
     }
     const generation = this.bweGeneration;
@@ -1428,13 +1284,17 @@ export class RTCRtpSender {
     }
   }
 
+  /**
+   * Padding-only RTP on the **RTX** SSRC / payload type (pin libwebrtc
+   * `GeneratePadding` with RTX). The sequence is assigned at send time.
+   */
   private createPaddingRtpPacket(paddingSize: number): RtpPacket {
     return new RtpPacket(
       new RtpHeader({
         sequenceNumber: 0,
         timestamp: this.timestamp ?? 0,
-        payloadType: this.codec!.payloadType,
-        ssrc: this.ssrc,
+        payloadType: this.rtxPayloadType!,
+        ssrc: this.rtxSsrc,
         extension: true,
         extensions: [],
         marker: false,
@@ -1451,8 +1311,10 @@ export class RTCRtpSender {
     opts: {
       injectProbePadding?: boolean;
       forceProbeTag?: boolean;
-      /** @deprecated Prefer unified allocation; kept for explicit overrides. */
-      absoluteSequenceNumber?: number;
+      /**
+       * Padding-only packet on the RTX SSRC. Takes the next RTX sequence at
+       * send time and never touches the media sequence / timestamp mapping.
+       */
       isProbePadding?: boolean;
       /**
        * RTX / same-SSRC retransmission. Keep wrapRtx identity (ssrc / PT /
@@ -1479,6 +1341,8 @@ export class RTCRtpSender {
     const estimatorAtStart = this._senderBWE;
 
     const twccOn = this.isTransportCcNegotiated();
+    // Legacy / disabled: no probe reservation or pacing wait (direct path).
+    const paced = needsPacedSendPath(estimatorAtStart);
 
     // Stale source: drop before touching probe reservation or pacing budget.
     if (this.isStaleSource(opts.sourceEpoch)) {
@@ -1490,7 +1354,7 @@ export class RTCRtpSender {
     let reservedClusterId: number | undefined;
     const wantsProbe =
       opts.forceProbeTag === true || estimatorAtStart.shouldTagProbePacket();
-    if (twccOn && wantsProbe) {
+    if (paced && twccOn && wantsProbe) {
       const reservation = estimatorAtStart.reserveOutgoingProbe(milliTime());
       if (reservation) {
         reservedClusterId = reservation.clusterId;
@@ -1512,14 +1376,15 @@ export class RTCRtpSender {
     const inputSequenceNumber = header.sequenceNumber;
     const inputTimestamp = header.timestamp;
 
-    if (!opts.isRetransmission) {
+    if (opts.isProbePadding) {
+      // Padding is only ever sent on the negotiated RTX stream.
+      if (this.rtxPayloadType === undefined) return;
+      header.ssrc = this.rtxSsrc;
+      header.payloadType = this.rtxPayloadType;
+    } else if (!opts.isRetransmission) {
       header.ssrc = this.ssrc;
       header.payloadType = this.codec.payloadType;
-      if (opts.isProbePadding) {
-        header.timestamp = this.timestamp ?? header.timestamp;
-      } else {
-        header.timestamp = uint32Add(inputTimestamp, this.timestampOffset);
-      }
+      header.timestamp = uint32Add(inputTimestamp, this.timestampOffset);
     }
 
     const originalHeaderExtensions = [...header.extensions];
@@ -1589,6 +1454,7 @@ export class RTCRtpSender {
     const constructedBytes =
       header.serializeSize + estimatedPayloadLen + rfcPaddingLen;
     if (
+      paced &&
       reservedClusterId === undefined &&
       this.mediaPacingEnabled &&
       twccOn &&
@@ -1614,8 +1480,13 @@ export class RTCRtpSender {
       return;
     }
 
-    if (!opts.isRetransmission) {
-      if (this.rtpContinuityPending && !opts.isProbePadding) {
+    if (opts.isProbePadding) {
+      // RTX owns its sequence space, so padding never shifts media numbers.
+      header.sequenceNumber = this.rtxSequenceNumber;
+      this.rtxSequenceNumber = uint16Add(this.rtxSequenceNumber, 1);
+      header.timestamp = this.timestamp ?? header.timestamp;
+    } else if (!opts.isRetransmission) {
+      if (this.rtpContinuityPending) {
         if (this.sequenceNumber != undefined && this.timestamp != undefined) {
           const offsets = freezeRtpContinuityOffsets(
             this.sequenceNumber,
@@ -1626,30 +1497,13 @@ export class RTCRtpSender {
           );
           this.seqOffset = offsets.seqOffset;
           this.timestampOffset = offsets.timestampOffset;
-          // Padding ahead of this first media is already absorbed by the
-          // freeze (offset is derived from this media's own seq).
-          this.skippedSourceSeqs = this.skippedSourceSeqs.filter(
-            (skipped) => !uint16Gt(inputSequenceNumber & 0xffff, skipped),
-          );
         }
         this.rtpContinuityPending = false;
         this.pendingTimestampStep = 1;
       }
 
-      if (opts.isProbePadding) {
-        header.timestamp = this.timestamp ?? inputTimestamp;
-      } else {
-        header.timestamp = uint32Add(inputTimestamp, this.timestampOffset);
-      }
-      if (opts.absoluteSequenceNumber !== undefined) {
-        const abs = opts.absoluteSequenceNumber & 0xffff;
-        header.sequenceNumber = abs;
-        this.markWireSeqUsed(abs);
-      } else if (opts.isProbePadding) {
-        header.sequenceNumber = this.allocatePaddingSequence();
-      } else {
-        header.sequenceNumber = this.allocateMediaSequence(inputSequenceNumber);
-      }
+      header.timestamp = uint32Add(inputTimestamp, this.timestampOffset);
+      header.sequenceNumber = uint16Add(inputSequenceNumber, this.seqOffset);
       this.timestamp = header.timestamp;
       this.sequenceNumber = header.sequenceNumber;
     }
@@ -1685,14 +1539,16 @@ export class RTCRtpSender {
 
     this.ntpTimestamp = ntpTimestamp;
     this.rtpTimestamp = header.timestamp;
-    if (opts.isRetransmission) {
+    if (opts.isProbePadding) {
+      // RTX padding: not part of the media SSRC's SR packet / octet counts.
+    } else if (opts.isRetransmission) {
       this.retransmittedPacketsSent++;
       this.retransmittedBytesSent += payload.length;
       this.headerBytesSent += header.serializeSize;
     } else {
       this.headerBytesSent += header.serializeSize;
       this.packetCount = uint32Add(this.packetCount, 1);
-      if (!opts.isProbePadding && !isPaddingOnlyRtpPacket(rtp)) {
+      if (!isPaddingOnlyRtpPacket(rtp)) {
         this.rtpCache[header.sequenceNumber % RTP_HISTORY_SIZE] = rtp;
       }
       this.octetCount += payloadOctetsForSr;
@@ -1739,6 +1595,7 @@ export class RTCRtpSender {
     if (
       opts.injectProbePadding &&
       twccOn &&
+      isProbePacingController(estimatorAtStart) &&
       sendGeneration === this.bweGeneration
     ) {
       this.nestOutgoingPadding = true;
@@ -1921,7 +1778,7 @@ export class RTCRtpSender {
                     const retransmission = packet;
                     // Route through sendRtpInternal: new TWCC seq, pacing,
                     // BWE SentInfo. Do not reuse the original transport-wide seq.
-                    await this.enqueueOutgoing(
+                    await this.dispatchOutgoing(
                       () =>
                         this.sendRtpInternal(retransmission, {
                           injectProbePadding: false,

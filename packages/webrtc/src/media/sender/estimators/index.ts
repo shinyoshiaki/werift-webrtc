@@ -13,3 +13,8 @@ export {
   kMinBitrateBps,
 } from "./gcc";
 export type { BandwidthUsage, ProbeState } from "./gcc";
+export {
+  TwccFeedbackAdapter,
+  kTwccFeedbackHistoryMaxSeqSpan,
+} from "./twccFeedbackAdapter";
+export type { TwccPacketFeedback } from "./twccFeedbackAdapter";
