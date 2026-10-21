@@ -355,6 +355,7 @@
 - [TELEPHONE\_EVENT\_DEFAULT\_CLOCK\_RATE](variables/TELEPHONE_EVENT_DEFAULT_CLOCK_RATE.md)
 - [TELEPHONE\_EVENT\_DEFAULT\_PAYLOAD\_TYPE](variables/TELEPHONE_EVENT_DEFAULT_PAYLOAD_TYPE.md)
 - [timer](variables/timer.md)
+- [VP8\_PAYLOAD\_DESCRIPTOR\_LENGTH](variables/VP8_PAYLOAD_DESCRIPTOR_LENGTH.md)
 
 ## Functions
 
@@ -391,6 +392,7 @@
 - [createSelfSignedCertificate](functions/createSelfSignedCertificate.md)
 - [createStunOverTurnClient](functions/createStunOverTurnClient.md)
 - [createTurnClient](functions/createTurnClient.md)
+- [createVp8PayloadDescriptor](functions/createVp8PayloadDescriptor.md)
 - [deepMerge](functions/deepMerge.md)
 - [defaultCodecs](functions/defaultCodecs.md)
 - [deliveredTrackCodec](functions/deliveredTrackCodec.md)
