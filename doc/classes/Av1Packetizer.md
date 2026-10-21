@@ -7,7 +7,8 @@
 # Class: Av1Packetizer
 
 Packetize one AV1 access unit (OBU sequence) into RTP packets.
-Uses W=1 single-element payloads; fragments large OBUs with Z/Y bits.
+Uses W=0 length-prefixed OBU elements, aggregates them to the MTU, and
+fragments large OBUs with Z/Y bits.
 
 ## Extends
 
