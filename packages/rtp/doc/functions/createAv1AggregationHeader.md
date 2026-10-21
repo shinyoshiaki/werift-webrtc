@@ -8,7 +8,7 @@
 
 > **createAv1AggregationHeader**(`__namedParameters`): `Buffer`
 
-Build the 1-byte AV1 Aggregation Header (AV1 RTP §4.4) with W=1.
+Build the 1-byte AV1 Aggregation Header (AV1 RTP §4.4).
 N=1 and Z=1 must not both be set (deSerialize throws).
 
 ## Parameters
@@ -18,6 +18,12 @@ N=1 and Z=1 must not both be set (deSerialize throws).
 #### endsWithFragment
 
 `boolean`
+
+#### obuCount?
+
+`number` = `1`
+
+W field: number of OBU elements (1..3); the last one has no length.
 
 #### startsNewCodedVideoSequence
 
