@@ -153,10 +153,15 @@ describe("codec/av1 packetizer", () => {
       startsNewCodedVideoSequence: true,
     });
     const depacketized = dePacketizeRtpPackets("AV1", packets);
-    // Assert: 各 OBU は RTP 往復後の正規化形式で復元される
+    // Assert: RTP 上は size field なし。復元時は末尾以外のみ size field 付きで両 OBU が復元される
+    const expected = Buffer.concat([
+      makeObu(0x11),
+      Buffer.from([0x30]),
+      Buffer.alloc(1_500, 0x22),
+    ]);
     expect(packets.length).toBeGreaterThan(2);
-    expect(depacketized.data.length).toBe(canonicalizeObuSizes(frame).length);
-    expect(depacketized.data.equals(canonicalizeObuSizes(frame))).toBe(true);
+    expect(depacketized.data.length).toBe(expected.length);
+    expect(depacketized.data.equals(expected)).toBe(true);
   });
 
   it("delta frame does not set N bit", () => {
@@ -277,10 +282,13 @@ describe("codec/av1 packetizer", () => {
       startsNewCodedVideoSequence: true,
     });
     const depacketized = dePacketizeRtpPackets("AV1", packets);
-    // Assert: RTP から復元できる正規化 OBU 列になる
+    // Assert: RTP 要素は size field なし（S=0）で、復元後は size field なしの OBU になる
     expect(packets.length).toBe(1);
+    expect(packets[0].payload.subarray(1)[0] & 0x02).toBe(0);
     expect(depacketized.isKeyframe).toBe(true);
-    expect(depacketized.data.equals(canonicalizeObuSizes(frame))).toBe(true);
+    expect(
+      depacketized.data.equals(makeObuNoSize(6, Buffer.alloc(40, 0x55))),
+    ).toBe(true);
   });
 
   it("packetize/depacketize round-trips multi OBU with size fields", () => {
@@ -315,10 +323,36 @@ describe("codec/av1 packetizer", () => {
       startsNewCodedVideoSequence: true,
     });
     const depacketized = dePacketizeRtpPackets("AV1", packets);
-    // Assert: 断片 Z/Y 後に正規化された OBU 列へ復元
+    // Assert: 断片 Z/Y 後も size field なしの OBU として復元される
     expect(packets.length).toBeGreaterThan(1);
     expect(depacketized.isKeyframe).toBe(true);
-    expect(depacketized.data.equals(canonicalizeObuSizes(frame))).toBe(true);
+    expect(depacketized.data.equals(makeObuNoSize(6, body))).toBe(true);
+  });
+
+  it("drops temporal delimiter OBUs from RTP packets", () => {
+    // Arrange: TD(size 付き, 空 payload) + SEQUENCE_HEADER + FRAME
+    const frame = Buffer.concat([
+      makeObuWithSize(2, Buffer.alloc(0)),
+      makeObuWithSize(1, Buffer.from([0x01, 0x02])),
+      makeObuNoSize(6, Buffer.from([0xaa, 0xbb])),
+    ]);
+    // Act
+    const packets = new Av1Packetizer({ sequenceNumber: 1 }).packetize(
+      frame,
+      0,
+      { frameType: "key" },
+    );
+    const payloads = packets.map((p) => AV1RtpPayload.deSerialize(p.payload));
+    // Assert: TD は送られず、残りの OBU は size field なしで 1 packet に集約される
+    expect(packets.length).toBe(1);
+    expect(payloads[0].nBit_RtpStartsNewCodedVideoSequence).toBe(1);
+    expect(payloads[0].obu_or_fragment).toHaveLength(2);
+    expect(payloads[0].obu_or_fragment[0].data).toEqual(
+      makeObuNoSize(1, Buffer.from([0x01, 0x02])),
+    );
+    expect(payloads[0].obu_or_fragment[1].data).toEqual(
+      makeObuNoSize(6, Buffer.from([0xaa, 0xbb])),
+    );
   });
 
   it("loads committed AV1 vector and getFrame matches expected", () => {

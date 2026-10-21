@@ -444,6 +444,28 @@ export function splitAv1Obus(sample: Buffer): Buffer[] {
 
 /** obu_type of a Sequence Header OBU (AV1 spec §6.2.2). */
 const OBU_SEQUENCE_HEADER = 1;
+/** obu_type of a Temporal Delimiter OBU; MUST NOT be sent over RTP (AV1 RTP §5). */
+const OBU_TEMPORAL_DELIMITER = 2;
+
+/**
+ * Convert an OBU to its RTP element form: obu_has_size_field=0 and no LEB128
+ * size (AV1 RTP §5: senders SHOULD clear it; libwebrtc cannot reassemble
+ * fragments that still carry a size field).
+ */
+function toRtpObuElement(obu: Buffer): Buffer {
+  const header = obu[0];
+  if (!getBit(header, 6)) {
+    return obu;
+  }
+  const headerLength = getBit(header, 5) ? 2 : 1;
+  const [, sizeBytes] = leb128decode(obu.subarray(headerLength));
+  const out = Buffer.concat([
+    obu.subarray(0, headerLength),
+    obu.subarray(headerLength + sizeBytes),
+  ]);
+  out[0] = header & ~0x02;
+  return out;
+}
 
 /** temporal_id/spatial_id bits of the OBU extension header, if present. */
 function getAv1ObuLayerId(obu: Buffer): number | undefined {
@@ -502,24 +524,22 @@ export class Av1Packetizer extends PacketizerBase {
     else if (options.frameType === "delta") isKeyframe = false;
     else if (options.isKeyframe !== undefined) isKeyframe = options.isKeyframe;
 
-    const obus = splitAv1Obus(data).map((obu) => {
-      const parsed = AV1Obu.deSerialize(obu);
-      if (parsed.obu_has_size_field === 0) {
-        return obu;
-      }
-
-      // AV1 RTP §4.5 recommends omitting obu_size from RTP OBU elements.
-      parsed.obu_has_size_field = 0;
-      return parsed.serialize();
-    });
-    if (obus.length === 0) {
+    const allObus = splitAv1Obus(data);
+    if (allObus.length === 0) {
       throw new Error("AV1 sample did not contain any OBU data");
     }
 
     const startsNewSequence =
       options.startsNewCodedVideoSequence ??
       (isKeyframe &&
-        obus.some((o) => ((o[0] >> 3) & 0x0f) === OBU_SEQUENCE_HEADER));
+        allObus.some((o) => ((o[0] >> 3) & 0x0f) === OBU_SEQUENCE_HEADER));
+
+    const obus = allObus
+      .filter((o) => ((o[0] >> 3) & 0x0f) !== OBU_TEMPORAL_DELIMITER)
+      .map(toRtpObuElement);
+    if (obus.length === 0) {
+      return [];
+    }
 
     // W=0 では全 OBU element に LEB128 長さ field が必要なので、
     // aggregation header + size + 1 byte の最低 3 byte を確保する。
