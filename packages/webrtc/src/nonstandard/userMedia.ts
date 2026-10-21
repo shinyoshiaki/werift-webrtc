@@ -26,6 +26,7 @@ import type { RTCRtpCodecParameters } from "../media/parameters";
 import { MediaStreamTrack } from "../media/track";
 import { codecParametersFromString } from "../sdp";
 import {
+  type Packetizer,
   type SupportedSourceCodec,
   createPacketizer,
   supportedSourceCodecs,
@@ -256,6 +257,10 @@ class MediaPlayer {
 }
 
 class TrackPlaybackRunner {
+  // Reused across loops so per-stream packetizer state (e.g. VP8 PictureID)
+  // stays continuous; recreated only when the negotiated codec changes.
+  private packetizer?: { codec: RTCRtpCodecParameters; packetizer: Packetizer };
+
   constructor(
     private readonly props: PlaybackTrack & {
       mediaStartTimestamp: number;
@@ -272,11 +277,7 @@ class TrackPlaybackRunner {
     sourceChanged: boolean;
   }) {
     const codec = this.requireNegotiatedCodec();
-    const packetizer = createPacketizer({
-      codec,
-      sourceCodec: this.props.sourceCodec,
-      decoderDescription: this.props.decoderDescription,
-    });
+    const packetizer = this.getPacketizer(codec);
     const packetSink = new EncodedPacketSink(this.props.inputTrack);
     let sourceChangeNotified = false;
 
@@ -318,6 +319,20 @@ class TrackPlaybackRunner {
       }
       throw error;
     }
+  }
+
+  private getPacketizer(codec: RTCRtpCodecParameters) {
+    if (this.packetizer?.codec !== codec) {
+      this.packetizer = {
+        codec,
+        packetizer: createPacketizer({
+          codec,
+          sourceCodec: this.props.sourceCodec,
+          decoderDescription: this.props.decoderDescription,
+        }),
+      };
+    }
+    return this.packetizer.packetizer;
   }
 
   private requireNegotiatedCodec() {

@@ -2,6 +2,8 @@ import {
   BitWriter,
   RtpHeader,
   RtpPacket,
+  VP8_PAYLOAD_DESCRIPTOR_LENGTH,
+  createVp8PayloadDescriptor,
   getBit,
   leb128decode,
   random16,
@@ -108,13 +110,35 @@ class OpusPacketizer extends BasePacketizer {
   }
 }
 
-class Vp8Packetizer extends BasePacketizer {
+/**
+ * VP8 descriptor matches libwebrtc single-layer senders: X=1, I=1, M=1 with a
+ * 15-bit PictureID (L/T/K=0). X=1 lets SFUs such as mediasoup <= 3.19.2 parse
+ * the payload and detect keyframes.
+ */
+export class Vp8Packetizer extends BasePacketizer {
+  private pictureId: number;
+
+  constructor(
+    codec: RTCRtpCodecParameters,
+    {
+      pictureId = random16(),
+      maxPayloadSize,
+    }: { pictureId?: number; maxPayloadSize?: number } = {},
+  ) {
+    super(codec, maxPayloadSize);
+    this.pictureId = pictureId & 0x7fff;
+  }
+
   packetize(packet: EncodedPacket, rtpTimestamp: number): RtpPacket[] {
     const frame = toBuffer(packet.data);
-    const chunkSize = this.maxPayloadSize - 1;
+    const chunkSize = this.maxPayloadSize - VP8_PAYLOAD_DESCRIPTOR_LENGTH;
     if (chunkSize <= 0) {
       throw new Error("invalid VP8 RTP payload size");
     }
+
+    // 1 frame = 1 PictureID; every fragment of the frame shares it.
+    const pictureId = this.pictureId;
+    this.pictureId = (this.pictureId + 1) & 0x7fff;
 
     const packets: RtpPacket[] = [];
     for (let offset = 0; offset < frame.length; offset += chunkSize) {
@@ -122,7 +146,10 @@ class Vp8Packetizer extends BasePacketizer {
         offset,
         Math.min(frame.length, offset + chunkSize),
       );
-      const descriptor = Buffer.from([offset === 0 ? 0x10 : 0x00]);
+      const descriptor = createVp8PayloadDescriptor({
+        start: offset === 0,
+        pictureId,
+      });
       packets.push(
         this.buildPacket(
           Buffer.concat([descriptor, chunk]),

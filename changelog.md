@@ -12,6 +12,8 @@
 
 ### 🐛 Fixes (review follow-ups)
 
+- **VP8 payload descriptor now carries PictureID** (`packages/webrtc` file playback / encoded-binary / dummy media, `packages/rtp` `Vp8Packetizer`): werift-generated VP8 RTP uses the browser single-layer form `X=1, I=1, M=1` + 15-bit PictureID (4 octets; `90 80 ..` on the first fragment, `80 80 ..` on continuations; L/T/K unset). PictureID starts random (dummy media: deterministic per source), advances once per frame and wraps at `0x7fff`; file playback keeps it continuous across `loop`. Fragment size is `maxPayloadSize - 4`, so payloads stay within `maxPayloadSize`. Previously the 1-octet `X=0` descriptor was dropped by mediasoup ≤ 3.19.2 (before versatica/mediasoup#1612), which could not detect its keyframes, so subscribers received nothing; it now works on those versions without upgrading the SFU. Code that assumed a 1-octet descriptor must parse X/I/M (e.g. `Vp8RtpPayload`). `packages/rtp` `Vp8Packetizer` accepts `pictureId` to set the initial value; `createVp8PayloadDescriptor()` is exported.
+
 - **AAC (RFC 3640 §3.2.3.1)**: every fragment now carries its AU Header Section; the depacketizer strips it from continuations and validates AU-size. Multi-AU splits give each packet a distinct timestamp (`auDurationInSamples`, default 1024). Extended CTS/DTS headers accept non-16-bit lengths with trailing padding.
 - **H.264 / H.265**: length-prefixed input whose prefix looks like a start code (e.g. length 300 = `00 00 01 2c`) is no longer misread as Annex-B.
 - **AV1**: adjacent fragmented OBUs are no longer merged; boundaries come from Z/Y.
@@ -28,7 +30,7 @@
 ### 🚀 Features & Improvements
 
 - **werift-rtp existing-codec packetizers** (`packages/rtp`): Add package-local packetizers for codecs that previously only had depacketizers (non-WebRTC / SIP / RTSP).
-  - **VP8** (RFC 7741): `Vp8Packetizer` — minimal descriptor (`S`/`PID`), MTU fragmentation, final marker.
+  - **VP8** (RFC 7741): `Vp8Packetizer` — X/I/M descriptor with 15-bit PictureID (`S`/`PID`, same as browser single-layer senders), MTU fragmentation, final marker.
   - **VP9** (RFC 9628): `Vp9Packetizer` — `B`/`E`/`P` minimal descriptor; key/delta via options.
   - **AV1** (AV1 RTP): `Av1Packetizer` + `splitAv1Obus` / `createAv1AggregationHeader` — W=1, Z/Y/N, final marker.
   - **Opus** (RFC 7587): `OpusPacketizer` — raw one-packet RTP; rejects `maxPayloadSize` overrun (no TOC-blind split).

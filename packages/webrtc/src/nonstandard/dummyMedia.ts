@@ -1,4 +1,8 @@
-import { RtpHeader, RtpPacket } from "../imports/rtp";
+import {
+  RtpHeader,
+  RtpPacket,
+  createVp8PayloadDescriptor,
+} from "../imports/rtp";
 import { MediaStreamTrack } from "../media/track";
 
 const AUDIO_PACKET_MS = 20;
@@ -10,12 +14,15 @@ const VIDEO_TIMESTAMP_STEP = 3_000;
 const DUMMY_SSRC_BASE = 0x1a2b3c00;
 const DUMMY_SEQUENCE_BASE = 0x4000;
 const DUMMY_SEQUENCE_STEP = 0x0100;
+const DUMMY_PICTURE_ID_BASE = 0x0100;
+const DUMMY_PICTURE_ID_STEP = 0x0100;
 let nextDummySourceId = 0;
 
+// VP8 frame bodies without the RTP payload descriptor (prepended per frame).
 const VP8_KEYFRAME = Buffer.from([
-  0x10, 0x10, 0x00, 0x00, 0x9d, 0x01, 0x2a, 0x02, 0x00, 0x02, 0x00,
+  0x10, 0x00, 0x00, 0x9d, 0x01, 0x2a, 0x02, 0x00, 0x02, 0x00,
 ]);
-const VP8_DELTA_FRAME = Buffer.from([0x10, 0x11, 0x00, 0x00]);
+const VP8_DELTA_FRAME = Buffer.from([0x11, 0x00, 0x00]);
 
 export interface DummyAudioOptions {
   packetIntervalMs: number;
@@ -66,8 +73,12 @@ export function createDummyVideoTrack(
   const source = new ScheduledRtpSource({
     track,
     intervalMs,
-    buildPacket: ({ sequenceNumber, timestamp, ssrc, iteration }) => {
+    buildPacket: ({ sequenceNumber, timestamp, ssrc, iteration, sourceId }) => {
       const isKeyframe = iteration % keyframeIntervalFrames === 0;
+      // Deterministic per-source PictureID, +1 per frame (15-bit wrap).
+      const pictureId =
+        (DUMMY_PICTURE_ID_BASE + sourceId * DUMMY_PICTURE_ID_STEP + iteration) &
+        0x7fff;
       return new RtpPacket(
         new RtpHeader({
           version: 2,
@@ -77,7 +88,11 @@ export function createDummyVideoTrack(
           ssrc,
           marker: true,
         }),
-        Buffer.from(isKeyframe ? VP8_KEYFRAME : VP8_DELTA_FRAME),
+        Buffer.concat([
+          // One packet per frame: S=1 on every packet.
+          createVp8PayloadDescriptor({ start: true, pictureId }),
+          isKeyframe ? VP8_KEYFRAME : VP8_DELTA_FRAME,
+        ]),
       );
     },
     nextTimestamp: (timestamp) => timestamp + VIDEO_TIMESTAMP_STEP,
@@ -106,6 +121,7 @@ class ScheduledRtpSource implements DummySource {
         timestamp: number;
         ssrc: number;
         iteration: number;
+        sourceId: number;
       }): RtpPacket;
       nextTimestamp(timestamp: number): number;
     },
@@ -144,6 +160,7 @@ class ScheduledRtpSource implements DummySource {
         timestamp: this.timestamp,
         ssrc: this.ssrc,
         iteration: this.iteration,
+        sourceId: this.sourceId,
       });
       this.props.track.writeRtp(packet);
 

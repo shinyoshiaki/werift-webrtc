@@ -320,6 +320,25 @@ export function createVp8Frames() {
   ];
 }
 
+/**
+ * VP8 frame body (no RTP descriptor) wrapped as an EncodedPacket for
+ * packetizer tests. First byte carries the payload header P bit
+ * (P=0 keyframe, P=1 delta).
+ */
+export function createVp8EncodedPacket({
+  length = 1_500,
+  type = "key",
+  timestamp = 0,
+}: {
+  length?: number;
+  type?: "key" | "delta";
+  timestamp?: number;
+} = {}) {
+  const frame = Buffer.alloc(length, 0x7b);
+  frame[0] = type === "key" ? 0x10 : 0x11;
+  return { frame, packet: new EncodedPacket(frame, type, timestamp, 1 / 30) };
+}
+
 export function createVp9Frames() {
   return [
     createFrame(Buffer.alloc(1_500, 0x7b), true, 0),
