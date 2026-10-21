@@ -65,7 +65,7 @@ describe("codec/av1 leb128", () => {
   });
 });
 
-// AV1 RTP §4.4 Aggregation Header + packetizer (W=1, Z/Y/N)
+// AV1 RTP §4.4 Aggregation Header + packetizer (W=0, Z/Y/N)
 
 describe("codec/av1 packetizer", () => {
   it("createAv1AggregationHeader rejects N=1 and Z=1 together", () => {
@@ -153,10 +153,10 @@ describe("codec/av1 packetizer", () => {
       startsNewCodedVideoSequence: true,
     });
     const depacketized = dePacketizeRtpPackets("AV1", packets);
-    // Assert: 両 OBU が元のバイト列のまま復元される
+    // Assert: 各 OBU は RTP 往復後の正規化形式で復元される
     expect(packets.length).toBeGreaterThan(2);
-    expect(depacketized.data.length).toBe(frame.length);
-    expect(depacketized.data.equals(frame)).toBe(true);
+    expect(depacketized.data.length).toBe(canonicalizeObuSizes(frame).length);
+    expect(depacketized.data.equals(canonicalizeObuSizes(frame))).toBe(true);
   });
 
   it("delta frame does not set N bit", () => {
@@ -192,6 +192,18 @@ describe("codec/av1 packetizer", () => {
     return Buffer.concat([header, body]);
   }
 
+  /** RTP 往復後に非末尾 OBU は size field 付き、末尾 OBU は無しに正規化する */
+  function canonicalizeObuSizes(frame: Buffer): Buffer {
+    const obus = splitAv1Obus(frame);
+    return Buffer.concat(
+      obus.map((wire, index) => {
+        const obu = AV1Obu.deSerialize(wire);
+        obu.obu_has_size_field = index < obus.length - 1 ? 1 : 0;
+        return obu.serialize();
+      }),
+    );
+  }
+
   it("splitAv1Obus parses size-fielded single and multi OBU", () => {
     // Arrange: SEQUENCE_HEADER + FRAME both with size
     const obu1 = makeObuWithSize(1, Buffer.from([0xaa, 0xbb]));
@@ -217,6 +229,44 @@ describe("codec/av1 packetizer", () => {
     expect(obu.serialize().equals(wire)).toBe(true);
   });
 
+  it("omits internal OBU size fields from RTP elements", () => {
+    // Arrange: サイズ付きの Sequence Header と分割される Frame OBU を用意する
+    const sequenceHeader = makeObuWithSize(1, Buffer.from([0xaa, 0xbb]));
+    const frameObu = makeObuWithSize(6, Buffer.alloc(500, 0x55));
+    const frame = Buffer.concat([sequenceHeader, frameObu]);
+    const packetizer = new Av1Packetizer({
+      sequenceNumber: 1,
+      maxPayloadSize: 80,
+    });
+
+    // Act: RTP packet 化し、先頭 packet と各 OBU の先頭 fragment を読む
+    const packets = packetizer.packetize(frame, 90_000, {
+      frameType: "key",
+      startsNewCodedVideoSequence: true,
+    });
+    const firstPacket = AV1RtpPayload.deSerialize(packets[0].payload);
+    const obuStarts = packets
+      .flatMap(
+        (packet) => AV1RtpPayload.deSerialize(packet.payload).obu_or_fragment,
+      )
+      .filter((obu) => !obu.isContinuation);
+
+    // Assert: Sequence Header と Frame fragment を同じ packet にまとめ、内部 size field を省略する
+    expect(firstPacket.w_RtpNumObus).toBe(0);
+    expect(firstPacket.obu_or_fragment).toHaveLength(2);
+    expect(firstPacket.yBit_RtpEndsWithFragment).toBe(1);
+    expect(firstPacket.nBit_RtpStartsNewCodedVideoSequence).toBe(1);
+    expect(obuStarts).toHaveLength(2);
+    expect(
+      obuStarts.every(
+        (obu) => AV1Obu.deSerialize(obu.data).obu_has_size_field === 0,
+      ),
+    ).toBe(true);
+    expect(dePacketizeRtpPackets("AV1", packets).data).toEqual(
+      canonicalizeObuSizes(frame),
+    );
+  });
+
   it("packetize/depacketize round-trips size-fielded single OBU", () => {
     // Arrange: size field 付き単一 OBU
     const frame = makeObuWithSize(6, Buffer.alloc(40, 0x55));
@@ -227,10 +277,10 @@ describe("codec/av1 packetizer", () => {
       startsNewCodedVideoSequence: true,
     });
     const depacketized = dePacketizeRtpPackets("AV1", packets);
-    // Assert: 元の OBU 列（size field 含む）へ復元
+    // Assert: RTP から復元できる正規化 OBU 列になる
     expect(packets.length).toBe(1);
     expect(depacketized.isKeyframe).toBe(true);
-    expect(depacketized.data.equals(frame)).toBe(true);
+    expect(depacketized.data.equals(canonicalizeObuSizes(frame))).toBe(true);
   });
 
   it("packetize/depacketize round-trips multi OBU with size fields", () => {
@@ -245,8 +295,9 @@ describe("codec/av1 packetizer", () => {
       startsNewCodedVideoSequence: true,
     });
     const depacketized = dePacketizeRtpPackets("AV1", packets);
-    // Assert
-    expect(packets.length).toBe(2);
+    // Assert: 2 つの OBU は 1 packet に集約されて元の列へ復元される
+    expect(packets.length).toBe(1);
+    expect(AV1RtpPayload.deSerialize(packets[0].payload).w_RtpNumObus).toBe(0);
     expect(depacketized.data.equals(frame)).toBe(true);
   });
 
@@ -264,10 +315,10 @@ describe("codec/av1 packetizer", () => {
       startsNewCodedVideoSequence: true,
     });
     const depacketized = dePacketizeRtpPackets("AV1", packets);
-    // Assert: 断片 Z/Y 後も size field 付き元列へ復元
+    // Assert: 断片 Z/Y 後に正規化された OBU 列へ復元
     expect(packets.length).toBeGreaterThan(1);
     expect(depacketized.isKeyframe).toBe(true);
-    expect(depacketized.data.equals(frame)).toBe(true);
+    expect(depacketized.data.equals(canonicalizeObuSizes(frame))).toBe(true);
   });
 
   it("loads committed AV1 vector and getFrame matches expected", () => {
