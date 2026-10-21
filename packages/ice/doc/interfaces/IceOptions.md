@@ -80,6 +80,18 @@ Advertise and operate as an ICE lite agent.
 
 ***
 
+### nominationDelay?
+
+> `optional` **nominationDelay**: `number`
+
+Seconds the controlling agent waits, after the first valid pair, for
+higher-priority pairs before it nominates (RFC 8445 §8.1.1 regular
+nomination). Nomination happens immediately once both candidate sets are
+complete and no higher-priority pair is still being checked.
+Defaults to 0.5.
+
+***
+
 ### portRange?
 
 > `optional` **portRange**: \[`number`, `number`\]

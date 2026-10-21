@@ -42,6 +42,8 @@ const log = debug("werift-ice : packages/ice/src/ice.ts : log");
 
 /** Fallback STUN server when none is configured (constructor / setIceServers). */
 const DEFAULT_STUN_SERVER: Address = ["stun.l.google.com", 19302];
+/** Default IceOptions.nominationDelay (seconds). */
+const DEFAULT_NOMINATION_DELAY = 0.5;
 
 export class Connection implements IceConnection {
   localUsername = randomString(4);
@@ -66,6 +68,9 @@ export class Connection implements IceConnection {
   // P2P接続完了したソケット
   nominated?: CandidatePair;
   private nominating = false;
+  /** Regular nomination: bounds the wait for higher-priority pairs. */
+  private nominationTimer?: ReturnType<typeof setTimeout>;
+  private nominationDelayElapsed = false;
   private checkListDone = false;
   private checkListState = new PQueue<number>();
   private earlyChecks: [Message, Address, Protocol][] = [];
@@ -191,7 +196,7 @@ export class Connection implements IceConnection {
     this.lookup?.close?.();
     this.lookup = undefined;
     this.nominated = undefined;
-    this.nominating = false;
+    this.resetNominationState();
     this.checkList = [];
     this.checkListDone = false;
     this.checkListState = new PQueue<number>();
@@ -215,7 +220,7 @@ export class Connection implements IceConnection {
   resetNominatedPair() {
     log("resetNominatedPair");
     this.nominated = undefined;
-    this.nominating = false;
+    this.resetNominationState();
     // Drop old pair's consent timers/transactions; restarted when a new pair is nominated.
     this.stopConsentLifecycle();
   }
@@ -279,6 +284,7 @@ export class Connection implements IceConnection {
       await Promise.allSettled(candidatePromises);
 
       this.localCandidatesEnd = true;
+      this.nominatePairIfReady();
     }
     this.setState("completed");
   }
@@ -760,14 +766,7 @@ export class Connection implements IceConnection {
     {
       // # find the highest-priority pair that is in the waiting state
       const pair = this.checkList
-        .filter((pair) => {
-          if (
-            this.options.forceTurn &&
-            pair.protocol.type === StunProtocol.type
-          )
-            return false;
-          return true;
-        })
+        .filter((pair) => this.isCheckablePair(pair))
         .find((pair) => pair.state === CandidatePairState.WAITING);
       if (pair) {
         pair.handle = this.checkStart(pair);
@@ -1075,6 +1074,7 @@ export class Connection implements IceConnection {
     }
 
     this.nominated = undefined;
+    this.resetNominationState();
     for (const protocol of this.protocols) {
       if (protocol.close) {
         await protocol.close();
@@ -1104,6 +1104,8 @@ export class Connection implements IceConnection {
 
     if (!remoteCandidate) {
       this.remoteCandidatesEnd = true;
+      // End-of-candidates may complete the regular nomination stopping criterion.
+      this.nominatePairIfReady();
       return;
     }
 
@@ -1227,6 +1229,7 @@ export class Connection implements IceConnection {
         log("nominated", pair.toJSON());
         this.nominated = pair;
         this.nominating = false;
+        this.clearNominationTimer();
         this.pruneTcpConnections(pair);
 
         // After resetNominatedPair / renomination while already connected,
@@ -1280,10 +1283,16 @@ export class Connection implements IceConnection {
       }
     }
 
-    this.nominateTcpPairIfReady();
+    this.nominatePairIfReady();
 
     // A nomination request is still in flight; its result decides the outcome.
     if (this.nominating) {
+      return;
+    }
+
+    // A valid pair exists and nominatePairIfReady will nominate it once the
+    // stopping criterion (end-of-candidates or nominationDelay) is met.
+    if (this.nominationTimer) {
       return;
     }
 
@@ -1325,11 +1334,10 @@ export class Connection implements IceConnection {
       const { remotePassword, remoteUsername, generation } = this;
       const localUsername = pair.localCandidate.ufrag ?? this.localUsername;
 
-      // TCP pairs use regular nomination (see nominateTcpPairIfReady).
-      const nominate =
-        this.iceControlling && !this.remoteIsLite && !this.isTcpPair(pair);
+      // Ordinary checks never carry USE-CANDIDATE; nomination is a separate
+      // check (see nominatePairIfReady, or the ICE-lite path below).
       const request = this.buildRequest({
-        nominate,
+        nominate: false,
         localUsername,
         remoteUsername,
         iceControlling: this.iceControlling,
@@ -1419,13 +1427,13 @@ export class Connection implements IceConnection {
       }
 
       // # success
-      if (nominate || pair.remoteNominated) {
-        // # nominated by agressive nomination or the remote party
+      if (pair.remoteNominated) {
+        // # nominated by the remote party
         pair.nominated = true;
-      } else if (this.usesTcpRegularNomination(pair)) {
-        // # nominated later by nominateTcpPairIfReady (from checkComplete)
+      } else if (this.usesRegularNomination()) {
+        // # nominated later by nominatePairIfReady (from checkComplete)
       } else if (this.iceControlling && !this.nominating) {
-        // # perform regular nomination
+        // # remote is ICE-lite: nominate the first valid pair
         this.nominating = true;
         const request = this.buildRequest({
           nominate: true,
@@ -1462,13 +1470,20 @@ export class Connection implements IceConnection {
   }
 
   /**
-   * Aggressive nomination lets each side settle on whichever TCP connection
-   * finished first; the two sides can then pick different connections and
-   * pruning destroys the peer's choice. For TCP the controlling agent instead
-   * nominates exactly one valid pair (RFC 8445 §8.1.1 regular nomination).
+   * Full ICE peers: the controlling agent lets connectivity checks run and
+   * nominates exactly one valid pair afterwards (RFC 8445 §8.1.1 regular
+   * nomination), so the selected pair does not depend on which check finished
+   * first. ICE-lite peers keep nominating the first valid pair.
    */
-  private usesTcpRegularNomination(pair: CandidatePair) {
-    return this.iceControlling && !this.remoteIsLite && this.isTcpPair(pair);
+  private usesRegularNomination() {
+    return this.iceControlling && !this.remoteIsLite;
+  }
+
+  /** forceTurn skips host / srflx pairs, so they are never checked. */
+  private isCheckablePair(pair: CandidatePair) {
+    return !(
+      this.options.forceTurn && pair.protocol.type === StunProtocol.type
+    );
   }
 
   private checkRequestOptions(pair: CandidatePair): TransactionRequestOptions {
@@ -1489,36 +1504,76 @@ export class Connection implements IceConnection {
   }
 
   /**
-   * Controlling side: nominate the highest-priority TCP pair once every
-   * higher-priority TCP pair has finished its check, so the choice does not
-   * depend on which connection happened to complete first.
+   * Controlling side: nominate the highest-priority valid pair once the
+   * stopping criterion is met:
+   * - both candidate sets are complete and every higher-priority pair has
+   *   failed, or
+   * - nominationDelay has elapsed since the first valid pair (bounds the wait
+   *   for trickled candidates and for pairs whose checks are still running).
    */
-  private nominateTcpPairIfReady() {
+  private nominatePairIfReady() {
     if (
-      !this.iceControlling ||
-      this.remoteIsLite ||
+      !this.usesRegularNomination() ||
       this.nominated ||
-      this.nominating
+      this.nominating ||
+      this.state === "closed"
     ) {
       return;
     }
 
-    for (const pair of this.checkList) {
-      if (!this.isTcpPair(pair)) {
-        continue;
-      }
-      if (pair.state === CandidatePairState.SUCCEEDED) {
-        this.nominateTcpPair(pair);
-        return;
-      }
-      if (pair.state !== CandidatePairState.FAILED) {
-        // A higher-priority pair may still succeed.
-        return;
-      }
+    // checkList is sorted by pair priority (descending).
+    const best = this.checkList.find(
+      (pair) => pair.state === CandidatePairState.SUCCEEDED,
+    );
+    if (!best) {
+      return;
+    }
+
+    const higherPriorityPending = this.checkList
+      .slice(0, this.checkList.indexOf(best))
+      .some(
+        (pair) =>
+          pair.component === best.component &&
+          pair.state !== CandidatePairState.FAILED &&
+          this.isCheckablePair(pair),
+      );
+    const candidatesComplete =
+      this.remoteCandidatesEnd && this.localCandidatesEnd;
+
+    if (
+      this.nominationDelayElapsed ||
+      (candidatesComplete && !higherPriorityPending)
+    ) {
+      this.clearNominationTimer();
+      this.nominatePair(best);
+      return;
+    }
+
+    if (!this.nominationTimer) {
+      const delay = this.options.nominationDelay ?? DEFAULT_NOMINATION_DELAY;
+      this.nominationTimer = setTimeout(() => {
+        this.nominationTimer = undefined;
+        this.nominationDelayElapsed = true;
+        this.nominatePairIfReady();
+      }, delay * 1000);
     }
   }
 
-  private nominateTcpPair(pair: CandidatePair) {
+  private clearNominationTimer() {
+    if (this.nominationTimer) {
+      clearTimeout(this.nominationTimer);
+      this.nominationTimer = undefined;
+    }
+  }
+
+  private resetNominationState() {
+    this.nominating = false;
+    this.clearNominationTimer();
+    this.nominationDelayElapsed = false;
+  }
+
+  private nominatePair(pair: CandidatePair) {
+    log("nominate", pair.toJSON());
     this.nominating = true;
     const { generation } = this;
     const request = this.buildRequest({
@@ -1551,7 +1606,7 @@ export class Connection implements IceConnection {
           if (this.isStaleNomination(pair, generation)) {
             return;
           }
-          log("tcp nomination failed", pair.toJSON(), error);
+          log("nomination failed", pair.toJSON(), error);
           this.nominating = false;
           pair.updateState(CandidatePairState.FAILED);
           this.checkComplete(pair);

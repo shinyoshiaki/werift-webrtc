@@ -6,7 +6,7 @@ import * as net from "node:net";
 import * as tls from "node:tls";
 import { type Address, Event, type Transport } from "../../common/src";
 import { NodeStunServer, NodeTurnServer } from "../../ice-server/src";
-import { Candidate } from "../src/candidate";
+import { Candidate, candidatePriority } from "../src/candidate";
 import { Connection } from "../src/ice";
 import {
   CandidatePair,
@@ -101,6 +101,10 @@ export class ConsentMockProtocol implements Protocol {
       responseDelayMilliseconds?: number;
       /** When set, request() delegates to a real-style single-shot sendStun path. */
       useSendStunPath?: boolean;
+      /** Answer the first send instead of waiting out every retransmission. */
+      answerFirstAttempt?: boolean;
+      /** Respond from the request's destination instead of 192.0.2.2:5000. */
+      echoRemoteAddress?: boolean;
     } = {},
   ) {
     this.type = options.type ?? "udp";
@@ -112,7 +116,7 @@ export class ConsentMockProtocol implements Protocol {
 
     this.request = (async (
       message: Message,
-      _addr,
+      addr,
       _integrityKey?,
       retransmissionsOrOptions?: number | TransactionRequestOptions,
       onRequestSent?: (attempt: number) => void,
@@ -148,7 +152,7 @@ export class ConsentMockProtocol implements Protocol {
           : onRequestSent;
 
       // One initial send + retransmissions (consent uses 0).
-      const maxSends = 1 + retransmissions;
+      const maxSends = options.answerFirstAttempt ? 1 : 1 + retransmissions;
       for (let attempt = 0; attempt < maxSends; attempt++) {
         sentCb?.(attempt);
         this.sendStunCount++;
@@ -167,7 +171,7 @@ export class ConsentMockProtocol implements Protocol {
       }
       return [
         new Message(methods.BINDING, classes.RESPONSE),
-        ["192.0.2.2", 5000] as const,
+        options.echoRemoteAddress ? addr : (["192.0.2.2", 5000] as const),
       ];
     }) as Protocol["request"];
   }
@@ -362,6 +366,9 @@ export function createTcpCheckHarness() {
   const connection = new Connection(true);
   connection.remoteUsername = "remote";
   connection.remotePassword = "remote-password";
+  // Both candidate sets are complete, so nomination needs no trickle wait.
+  connection.remoteCandidatesEnd = true;
+  connection.localCandidatesEnd = true;
   // ConsentMockProtocol answers every request from this address.
   const remoteAddr: Address = ["192.0.2.2", 5000];
   return { connection, protocol, remoteAddr };
@@ -386,10 +393,10 @@ export function addTcpPair(harness: ReturnType<typeof createTcpCheckHarness>) {
   return pair;
 }
 
-/** Arrange: incoming ICE connectivity check sent by the controlled peer. */
+/** Arrange: incoming ICE connectivity check sent by the peer (controlled by default). */
 export function createIncomingCheck(
   connection: Connection,
-  options: { useCandidate?: boolean } = {},
+  options: { useCandidate?: boolean; fromControlling?: boolean } = {},
 ) {
   const request = new Message(methods.BINDING, classes.REQUEST);
   request
@@ -398,11 +405,82 @@ export function createIncomingCheck(
       `${connection.localUsername}:${connection.remoteUsername}`,
     )
     .setAttribute("PRIORITY", 1_000)
-    .setAttribute("ICE-CONTROLLED", 1n);
+    .setAttribute(
+      options.fromControlling ? "ICE-CONTROLLING" : "ICE-CONTROLLED",
+      1n,
+    );
   if (options.useCandidate) {
     request.setAttribute("USE-CANDIDATE", null);
   }
   return request;
+}
+
+/**
+ * Arrange: Connection with one UDP mock protocol whose checks are answered
+ * immediately. Pairs are created by addUdpRemoteCandidate and their checks
+ * driven explicitly with checkStart, so tests control which check succeeds first.
+ * `remoteCandidatesEnd` defaults to true; pass false to model trickle ICE.
+ */
+export function createUdpNominationHarness(
+  options: {
+    iceControlling?: boolean;
+    remoteIsLite?: boolean;
+    remoteCandidatesEnd?: boolean;
+    nominationDelay?: number;
+  } = {},
+) {
+  const protocol = new ConsentMockProtocol({
+    type: "udp",
+    localCandidate: createConsentCandidate("192.0.2.1", 4000, "local"),
+    answerFirstAttempt: true,
+    echoRemoteAddress: true,
+  });
+  const connection = new Connection(options.iceControlling ?? true, {
+    nominationDelay: options.nominationDelay,
+  });
+  connection.remoteUsername = "remote";
+  connection.remotePassword = "remote-password";
+  connection.remoteIsLite = options.remoteIsLite ?? false;
+  connection.localCandidatesEnd = true;
+  connection.remoteCandidatesEnd = options.remoteCandidatesEnd ?? true;
+  // Private field is reachable at runtime; lets addRemoteCandidate form pairs.
+  (connection as any).protocols = [protocol];
+  return { connection, protocol };
+}
+
+/**
+ * Arrange: add (trickle) a UDP remote candidate of the given type and return
+ * the pair formed with the harness protocol. Higher port = distinct address.
+ */
+export async function addUdpRemoteCandidate(
+  harness: ReturnType<typeof createUdpNominationHarness>,
+  type: "host" | "srflx" | "relay",
+  port: number,
+) {
+  const remoteCandidate = new Candidate(
+    `${type}${port}`,
+    1,
+    "udp",
+    candidatePriority(type),
+    "192.0.2.2",
+    port,
+    type,
+  );
+  await harness.connection.addRemoteCandidate(remoteCandidate);
+  const pair = harness.connection.checkList.find(
+    (p) => p.remoteCandidate === remoteCandidate,
+  );
+  if (!pair) {
+    throw new Error("pair was not formed");
+  }
+  return pair;
+}
+
+/** USE-CANDIDATE requests the agent has sent so far. */
+export function sentNominations(protocol: ConsentMockProtocol) {
+  return protocol.sentMessages.filter((m) =>
+    m.attributesKeys.includes("USE-CANDIDATE"),
+  );
 }
 
 /** Arrange: two agents (a = controlling) gathering TCP host candidates only. */

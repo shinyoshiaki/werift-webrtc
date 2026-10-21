@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### 🐛 Bug Fixes
+
+- **ICE: regular nomination for UDP / relay pairs** (`werift-ice`): the controlling agent no longer attaches `USE-CANDIDATE` to ordinary UDP / relay connectivity checks (aggressive nomination). Like ICE-TCP, it now lets checks run and nominates exactly one valid pair, the highest-priority one, with a separate `USE-CANDIDATE` check (RFC 8445 §8.1.1). Nomination happens as soon as end-of-candidates is known on both sides and no higher-priority pair is still being checked. Otherwise it waits at most `IceOptions.nominationDelay` (new, seconds, default 0.5; `PeerConfig.iceNominationDelay` in `werift`) after the first valid pair. Previously, a lower-priority pair such as a TURN-over-TCP relay that answered first was selected permanently, even when a higher-priority TURN/UDP pair became valid moments later. Controlled agents and connections to ICE-lite peers keep their current behavior.
+
 ## v0.25.1
 
 ### 🔧 Maintenance

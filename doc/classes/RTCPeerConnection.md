@@ -1161,6 +1161,16 @@ Return `true` if a STUN response should be sent, false if it should be skipped.
 
 Advertise local ICE lite and operate in the controlled role.
 
+##### iceNominationDelay
+
+> **iceNominationDelay**: `undefined` \| `number`
+
+Seconds the controlling ICE agent waits, after the first valid candidate
+pair, for higher-priority pairs before nominating one (regular
+nomination). Defaults to 0.5 when undefined. Nomination happens without
+this wait once end-of-candidates is known on both sides and no
+higher-priority pair is still being checked.
+
 ##### icePasswordPrefix
 
 > **icePasswordPrefix**: `undefined` \| `string`

@@ -1835,6 +1835,14 @@ export interface PeerConfig {
    * Defaults to 8 when undefined.
    */
   iceTurnConnectTimeout: number | undefined;
+  /**
+   * Seconds the controlling ICE agent waits, after the first valid candidate
+   * pair, for higher-priority pairs before nominating one (regular
+   * nomination). Defaults to 0.5 when undefined. Nomination happens without
+   * this wait once end-of-candidates is known on both sides and no
+   * higher-priority pair is still being checked.
+   */
+  iceNominationDelay: number | undefined;
   turnTransport: "udp" | "tcp" | "tls" | undefined;
   turnTlsOptions: TlsConnectionOptions | undefined;
   /**
@@ -1990,6 +1998,7 @@ function generateDefaultPeerConfig(): PeerConfig {
     iceTcpPassive: true,
     iceStunGatherTimeout: undefined,
     iceTurnConnectTimeout: undefined,
+    iceNominationDelay: undefined,
     turnTransport: undefined,
     turnTlsOptions: undefined,
     turnUdpFamily: undefined,
