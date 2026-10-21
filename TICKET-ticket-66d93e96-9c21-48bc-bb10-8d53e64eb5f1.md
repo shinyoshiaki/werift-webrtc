@@ -1,28 +1,28 @@
-## Summary
+## 概要
 
-werift currently uses aggressive nomination for non-TCP candidate pairs. This can make the selected ICE pair depend on which connectivity check completes first rather than on the intended candidate-pair preference.
+werift は現在、非 TCP の候補ペアに対して aggressive nomination を使用しています。このため、選択される ICE ペアが、意図した候補ペアの優先度ではなく、どの connectivity check が最初に完了するかに左右されることがあります。
 
-This was observed in a real Chrome ↔ werift deployment using TURN. A lower-priority relay path (TURN reached over TCP) completed first and was immediately nominated, while a higher-priority relay-over-UDP candidate became available shortly afterwards. The session then remained on the TCP relay path and accumulated severe latency even though the UDP relay path was usable.
+これは、TURN を利用した実際の Chrome ↔ werift のデプロイ環境で観測されました。優先度の低いリレー経路(TCP 経由の TURN)が先に完了してすぐに nominate され、その直後に優先度の高い UDP 経由のリレー候補が利用可能になりました。その結果、UDP リレー経路が利用可能であったにもかかわらず、セッションは TCP リレー経路に留まり、深刻なレイテンシが蓄積しました。
 
-Downstream reports / workarounds:
+下流側の報告 / 回避策:
 
 - Rkcr007/mfarm-cloud#258: https://github.com/Rkcr007/mfarm-cloud/pull/258
 - Rkcr007/mfarm-cloud#259: https://github.com/Rkcr007/mfarm-cloud/pull/259
 
-The downstream workaround is to hold the lower-priority relay candidate briefly so that the higher-priority UDP relay candidate can be checked first. That should not be necessary at the application layer.
+下流側の回避策は、優先度の低いリレー候補を短時間保留し、優先度の高い UDP リレー候補を先にチェックできるようにするものです。これはアプリケーション層で必要になるべきではありません。
 
-## Current behavior
+## 現在の挙動
 
-On current `develop`, `Connection.checkStart()` does this for every non-TCP pair:
+現在の `develop` では、`Connection.checkStart()` は非 TCP のすべてのペアに対して次のように処理しています。
 
 ```ts
 const nominate =
   this.iceControlling && !this.remoteIsLite && !this.isTcpPair(pair);
 ```
 
-That means the initial connectivity check itself carries `USE-CANDIDATE` for UDP / relay pairs.
+つまり、UDP / リレーペアでは最初の connectivity check 自体に `USE-CANDIDATE` が付与されます。
 
-When the first such check succeeds:
+そのようなチェックが最初に成功すると、次のようになります。
 
 ```ts
 if (nominate || pair.remoteNominated) {
@@ -32,7 +32,7 @@ if (nominate || pair.remoteNominated) {
 this.checkComplete(pair);
 ```
 
-and `checkComplete()` installs it as the selected pair only if `this.nominated == undefined`:
+そして `checkComplete()` は、`this.nominated == undefined` の場合に限り、そのペアを選択済みペアとして確定します。
 
 ```ts
 if (pair.nominated && ... && this.nominated == undefined) {
@@ -41,92 +41,92 @@ if (pair.nominated && ... && this.nominated == undefined) {
 }
 ```
 
-After that, ICE processing for the component is completed and remaining waiting/frozen pairs are failed.
+その後、コンポーネントの ICE 処理は完了し、残りの waiting / frozen 状態のペアは failed にされます。
 
-So for UDP / relay pairs the selected pair is effectively "first successful nominated check wins".
+したがって、UDP / リレーペアでは、選択されるペアは実質的に「最初に成功した nominate 付きチェックが勝つ」ことになります。
 
-By contrast, TCP pairs already have a separate regular-nomination path (`nominateTcpPairIfReady()`) specifically so selection does not depend on which connectivity check happens to finish first.
+一方、TCP ペアにはすでに独立した regular nomination の経路(`nominateTcpPairIfReady()`)があり、どの connectivity check がたまたま先に完了するかによって選択が左右されないようになっています。
 
-The current changelog also explicitly notes that the TCP regular-nomination fix does not change UDP / relay nomination behavior.
+現在の changelog にも、TCP の regular nomination 修正は UDP / リレーの nomination 挙動を変更しない、と明記されています。
 
-## Why this is a problem
+## なぜ問題なのか
 
-RFC 8445 §8.1.1 describes regular nomination:
+RFC 8445 §8.1.1 は regular nomination を次のように説明しています。
 
-1. allow connectivity checks to proceed until a stopping criterion is met;
-2. choose one valid pair according to an evaluation criterion;
-3. repeat the check for that chosen pair with `USE-CANDIDATE`.
+1. 停止条件が満たされるまで connectivity check を進行させる。
+2. 評価基準に従って valid pair を 1 つ選ぶ。
+3. 選んだペアに対して `USE-CANDIDATE` を付けてチェックを繰り返す。
 
-It also notes that aggressive nomination was an RFC 5245 behavior and is no longer needed.
+また、aggressive nomination は RFC 5245 の挙動であり、もはや必要ないとも記されています。
 
-The current UDP / relay path instead sends `USE-CANDIDATE` during ordinary connectivity checks before a nomination decision has been made.
+現在の UDP / リレーの経路は、nomination の判断が行われる前の通常の connectivity check の段階で `USE-CANDIDATE` を送信してしまっています。
 
-This matters especially with trickle ICE. A lower-priority candidate can arrive and succeed before a higher-priority candidate has even been signaled. Once the first pair is nominated, RFC 8445 does not permit nominating a different pair for the same component without ICE restart, so the correct fix is to avoid premature nomination rather than trying to switch pairs afterwards.
+これは特に trickle ICE で問題になります。優先度の低い候補が、優先度の高い候補がシグナリングされるよりも前に到着して成功することがあります。最初のペアが nominate されてしまうと、RFC 8445 では ICE restart なしに同じコンポーネントで別のペアを nominate することは認められていません。したがって、後からペアを切り替えようとするのではなく、早すぎる nomination を避けることが正しい修正です。
 
-## Real-world impact
+## 実環境での影響
 
-In mfarm-cloud:
+mfarm-cloud では次のことが起きました。
 
-- Chrome gathered relay candidates over both TURN/TCP and TURN/UDP.
-- The lower-priority TCP-backed relay candidate completed first.
-- werift nominated it immediately.
-- A higher-priority UDP relay candidate was available shortly afterwards but could no longer become selected.
-- A fixed ~4 Mbit/s video stream over TURN/TCP built up to ~6.2 s RTT.
-- Forcing the UDP relay path reduced RTT to ~88 ms.
+- Chrome は TURN/TCP と TURN/UDP の両方でリレー候補を収集した。
+- 優先度の低い TCP ベースのリレー候補が先に完了した。
+- werift はそれをすぐに nominate した。
+- 優先度の高い UDP リレー候補はその直後に利用可能になったが、もう選択されることはできなかった。
+- 約 4 Mbit/s 固定の映像ストリームが TURN/TCP 上で、RTT が約 6.2 秒にまで膨らんだ。
+- UDP リレー経路を強制すると、RTT は約 88 ms に低下した。
 
-Another related observation in the same deployment was that when werift itself also had relay candidates, the first nominated relay pair could disagree with the path Chrome ended up using, causing video to freeze. Removing werift-side relay candidates avoided that failure.
+同じデプロイ環境でのもう 1 つの関連する観測として、werift 側にもリレー候補がある場合、最初に nominate されたリレーペアが Chrome が最終的に使用する経路と一致せず、映像がフリーズすることがありました。werift 側のリレー候補を取り除くと、この障害は回避できました。
 
-## Expected behavior
+## 期待される挙動
 
-For full ICE ↔ full ICE sessions, UDP / relay candidate pairs should use regular nomination as well:
+full ICE ↔ full ICE のセッションでは、UDP / リレーの候補ペアでも regular nomination を使用すべきです。
 
-- ordinary connectivity checks should not automatically carry `USE-CANDIDATE`;
-- nomination should happen only after a stopping/evaluation criterion is met;
-- the chosen pair should be selected deterministically from valid pairs according to candidate-pair priority / policy;
-- trickled higher-priority candidates should have a chance to participate before nomination according to that stopping criterion;
-- exactly one pair should be nominated for the component.
+- 通常の connectivity check は、自動的に `USE-CANDIDATE` を付与しない。
+- nomination は、停止条件 / 評価基準が満たされた後にのみ行う。
+- 選択するペアは、候補ペアの優先度 / ポリシーに従い、valid pair の中から決定的に選ぶ。
+- trickle で後から届いた優先度の高い候補にも、その停止条件に従って nomination の前に参加する機会を与える。
+- コンポーネントに対して nominate されるペアは、ちょうど 1 つにする。
 
-ICE-lite interoperability can keep its specialized behavior where required.
+ICE-lite との相互運用では、必要な箇所に限り、現在の特殊な挙動を維持してよい。
 
-## Suggested implementation direction
+## 実装方針の提案
 
-Generalize the existing TCP regular-nomination machinery instead of maintaining a separate aggressive path for UDP:
+UDP 用に別の aggressive 経路を維持するのではなく、既存の TCP 向け regular nomination の仕組みを一般化します。
 
-- separate "connectivity check succeeded" from "nominate this pair";
-- track valid succeeded pairs for all transports;
-- introduce a trickle-aware nomination stopping criterion, for example:
-  - remote end-of-candidates when available, and/or
-  - a bounded nomination delay / policy hook for incremental trickle;
-- choose the best valid pair once the criterion is met;
-- send a dedicated `USE-CANDIDATE` check for that pair;
-- preserve current ICE-lite handling;
-- avoid renominating after a pair is successfully selected.
+- 「connectivity check が成功した」ことと「このペアを nominate する」ことを分離する。
+- すべてのトランスポートについて、成功した valid pair を追跡する。
+- trickle に対応した nomination の停止条件を導入する。例:
+  - 利用可能な場合は、リモートの end-of-candidates、および/または
+  - 逐次 trickle に対する、上限付きの nomination 遅延 / ポリシーフック
+- 条件が満たされたら、最良の valid pair を選ぶ。
+- そのペアに対して、専用の `USE-CANDIDATE` チェックを送信する。
+- 現在の ICE-lite の扱いは維持する。
+- ペアの選択に成功した後は、再 nominate を行わない。
 
-The exact stopping criterion is a policy decision; the important part is that ordinary UDP checks should not all be aggressive nomination checks.
+正確な停止条件はポリシー上の判断です。重要なのは、通常の UDP チェックのすべてが aggressive nomination のチェックにならないことです。
 
-## Regression tests
+## 回帰テスト
 
-Please add tests covering at least:
+少なくとも次をカバーするテストを追加してください。
 
-1. Two UDP candidate pairs are present:
-   - lower-priority pair succeeds first;
-   - higher-priority pair succeeds later;
-   - only the higher-priority valid pair is nominated.
+1. 2 つの UDP 候補ペアが存在する場合:
+   - 優先度の低いペアが先に成功する。
+   - 優先度の高いペアが後から成功する。
+   - 優先度の高い valid pair のみが nominate される。
 
 2. Trickle ICE:
-   - lower-priority relay candidate arrives and succeeds first;
-   - higher-priority candidate is added shortly afterwards;
-   - nomination is not irreversibly committed before the configured stopping criterion.
+   - 優先度の低いリレー候補が先に到着して成功する。
+   - 優先度の高い候補がその少し後に追加される。
+   - 設定された停止条件が満たされる前に、nomination が不可逆的に確定しない。
 
-3. Only one viable candidate:
-   - nomination still completes without unnecessary delay after end-of-candidates / stopping criterion.
+3. 有効な候補が 1 つだけの場合:
+   - end-of-candidates / 停止条件の後、不要な遅延なく nomination が完了する。
 
-4. Controlled / ICE-lite behavior remains unchanged.
+4. Controlled / ICE-lite の挙動が変わらない。
 
-5. No multiple `USE-CANDIDATE` nominations are emitted for the same component.
+5. 同じコンポーネントに対して、複数の `USE-CANDIDATE` による nomination が送信されない。
 
-## Affected versions
+## 影響を受けるバージョン
 
-Reproduced downstream with `werift 0.24.4`.
+下流側では `werift 0.24.4` で再現しました。
 
-Current `develop` still contains the aggressive non-TCP nomination path described above, so this appears to remain applicable after 0.24.4.
+現在の `develop` にも、上記の非 TCP の aggressive nomination 経路が残っているため、0.24.4 以降も該当すると考えられます。
