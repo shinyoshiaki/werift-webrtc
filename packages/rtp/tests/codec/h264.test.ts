@@ -7,10 +7,14 @@ import {
   NalUnitType,
   buildH264StapA,
   dePacketizeRtpPackets,
+  parseAvcDecoderConfigurationRecord,
   selectMissingH264ParameterSets,
   splitH264NalUnits,
 } from "../../src";
-import { loadPayloadVector } from "../utils";
+import {
+  createAvcDecoderConfigurationRecord,
+  loadPayloadVector,
+} from "../utils";
 
 // RFC 6184 — Single NAL §5.6, STAP-A §5.7.1, FU-A §5.8
 // from pion-rtp (singlePayload) + packetizer round-trips
@@ -380,4 +384,83 @@ describe("packages/rtp/tests/codec/h264.test.ts", () => {
       expect(new H264Packetizer().packetize(annexB(small), 0).length).toBe(1);
     },
   );
+
+  describe("parseAvcDecoderConfigurationRecord", () => {
+    const sps = makeNal(7, Buffer.from([0x42, 0x00, 0x1e, 0xda, 0x01]));
+    const pps = makeNal(8, Buffer.from([0xce, 0x06, 0xe2]));
+
+    it("returns NAL length size and SPS/PPS without length prefixes", () => {
+      // Arrange: lengthSizeMinusOne=1 (2-byte NAL length) の avcC
+      const record = createAvcDecoderConfigurationRecord({
+        sps: [sps],
+        pps: [pps],
+        naluLengthSize: 2,
+      });
+      // Act
+      const parsed = parseAvcDecoderConfigurationRecord(record);
+      // Assert: length size と SPS→PPS 順の parameterSets が取り出せる
+      expect(parsed.naluLengthSize).toBe(2);
+      expect(parsed.sps).toEqual([sps]);
+      expect(parsed.pps).toEqual([pps]);
+      expect(parsed.parameterSets).toEqual([sps, pps]);
+    });
+
+    it("accepts an ArrayBufferView with a non-zero byteOffset", () => {
+      // Arrange: 先頭に余分な byte を持つ backing buffer 上の view
+      const record = createAvcDecoderConfigurationRecord({
+        sps: [sps],
+        pps: [pps],
+      });
+      const backing = Buffer.concat([Buffer.from([0xaa, 0xbb]), record]);
+      const view = new Uint8Array(
+        backing.buffer,
+        backing.byteOffset + 2,
+        record.length,
+      );
+      // Act
+      const parsed = parseAvcDecoderConfigurationRecord(view);
+      // Assert: view の範囲だけを読む
+      expect(parsed.naluLengthSize).toBe(4);
+      expect(parsed.parameterSets).toEqual([sps, pps]);
+    });
+
+    it("throws on a truncated record instead of returning partial sets", () => {
+      // Arrange: PPS の途中で切れた avcC と 7 byte 未満の avcC
+      const record = createAvcDecoderConfigurationRecord({
+        sps: [sps],
+        pps: [pps],
+      });
+      // Act / Assert: どちらも明示的なエラーになる
+      expect(() =>
+        parseAvcDecoderConfigurationRecord(record.subarray(0, -1)),
+      ).toThrow(/truncated/);
+      expect(() =>
+        parseAvcDecoderConfigurationRecord(record.subarray(0, 6)),
+      ).toThrow(/at least 7 bytes/);
+    });
+
+    it("feeds H264Packetizer so AVCC keyframes get SPS/PPS prepended", () => {
+      // Arrange: avcC 由来の parameterSets と、IDR のみを含む AVCC サンプル
+      const avc = parseAvcDecoderConfigurationRecord(
+        createAvcDecoderConfigurationRecord({ sps: [sps], pps: [pps] }),
+      );
+      const idr = makeNal(5, Buffer.from([0x88, 0x84, 0x21]));
+      const length = Buffer.alloc(4);
+      length.writeUInt32BE(idr.length);
+      const packetizer = new H264Packetizer({
+        naluLengthSize: avc.naluLengthSize,
+        parameterSets: avc.parameterSets,
+        inputFormat: "length-prefixed",
+      });
+      // Act
+      const packets = packetizer.packetize(Buffer.concat([length, idr]), 0);
+      const frame = dePacketizeRtpPackets("MPEG4/ISO/AVC", packets);
+      // Assert: STAP-A(SPS/PPS) + IDR になり、Annex-B で SPS/PPS/IDR に復元される
+      expect(packets.map((p) => p.payload[0] & 0x1f)).toEqual([
+        NalUnitType.stap_a,
+        5,
+      ]);
+      expect(frame.data).toEqual(annexB(sps, pps, idr));
+    });
+  });
 });

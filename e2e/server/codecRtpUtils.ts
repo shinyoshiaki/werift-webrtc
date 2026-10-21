@@ -19,6 +19,7 @@ import {
   type RTCRtpCodecParameters,
   Vp8Packetizer,
   Vp9Packetizer,
+  parseAvcDecoderConfigurationRecord,
   useAV1,
   useH264,
   useOPUS,
@@ -176,58 +177,6 @@ export function createRtpPacketizer(
   }
 }
 
-/** Parse avcC decoder config → length size + SPS/PPS NAL units (no length prefix). */
-export function parseAvcDecoderConfiguration(
-  decoderDescription: ArrayBuffer | ArrayBufferView | null | undefined,
-): { naluLengthSize: number; parameterSets: Buffer[] } | null {
-  if (!decoderDescription) {
-    return null;
-  }
-  const description = toBuffer(decoderDescription);
-  if (description.length < 7) {
-    return null;
-  }
-
-  const naluLengthSize = (description[4] & 0x03) + 1;
-  const spsCount = description[5] & 0x1f;
-  let offset = 6;
-  const parameterSets: Buffer[] = [];
-
-  for (let i = 0; i < spsCount; i++) {
-    if (offset + 2 > description.length) break;
-    const length = description.readUInt16BE(offset);
-    offset += 2;
-    parameterSets.push(
-      Buffer.from(description.subarray(offset, offset + length)),
-    );
-    offset += length;
-  }
-
-  if (offset >= description.length) {
-    return { naluLengthSize, parameterSets };
-  }
-  const ppsCount = description[offset];
-  offset++;
-  for (let i = 0; i < ppsCount; i++) {
-    if (offset + 2 > description.length) break;
-    const length = description.readUInt16BE(offset);
-    offset += 2;
-    parameterSets.push(
-      Buffer.from(description.subarray(offset, offset + length)),
-    );
-    offset += length;
-  }
-
-  return { naluLengthSize, parameterSets };
-}
-
-function toBuffer(data: ArrayBuffer | ArrayBufferView): Buffer {
-  if (ArrayBuffer.isView(data)) {
-    return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
-  }
-  return Buffer.from(data);
-}
-
 export type DemuxedCodecSource = {
   samples: EncodedFrameSample[];
   parameterSets?: Buffer[];
@@ -300,14 +249,17 @@ export async function demuxCodecFixture(
     const decoderConfig = await track.getDecoderConfig();
     let parameterSets: Buffer[] | undefined;
     let naluLengthSize: number | undefined;
-    if (codec === "h264" && decoderConfig && "description" in decoderConfig) {
-      const avc = parseAvcDecoderConfiguration(
-        decoderConfig.description ?? null,
+    if (
+      codec === "h264" &&
+      decoderConfig &&
+      "description" in decoderConfig &&
+      decoderConfig.description
+    ) {
+      const avc = parseAvcDecoderConfigurationRecord(
+        decoderConfig.description,
       );
-      if (avc) {
-        parameterSets = avc.parameterSets;
-        naluLengthSize = avc.naluLengthSize;
-      }
+      parameterSets = avc.parameterSets;
+      naluLengthSize = avc.naluLengthSize;
     }
 
     const sink = new EncodedPacketSink(track);

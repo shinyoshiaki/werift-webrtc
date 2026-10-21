@@ -26,13 +26,20 @@
 - **H.264 Annex-B split** no longer drops NAL types ≥ 14 (prefix NAL, subset SPS, slice extension, ...); RFC 6184 §5.6 carries types 1–23 as Single NAL / FU-A.
 - **`useH264()`** now returns `video/H264` (uppercase, as Chrome expects); codec names are compared case-insensitively.
 - **AV1 ↔ AV1X** normalization now applies to SDP answer, codec matching, and file playback validation, not only `findCodecByMimeType`.
+- **AV1 packetizer → Chrome**: `Av1Packetizer` drops Temporal Delimiter OBUs, clears `obu_has_size_field` on RTP OBU elements, and packs up to three OBU elements per packet (W=1..3), splitting OBUs across packet boundaries like libwebrtc. Without a dependency descriptor libwebrtc treats Z=0 / Y=0 as frame start / end, so the previous one-OBU-per-packet layout split a temporal unit into two frames and Chrome 155 never rendered it.
+
+### 🔧 Maintenance
+
+- **userMedia packetizer consolidated into `packages/rtp`** (`packages/webrtc/src/nonstandard/userMedia/packetizer.ts`): the webrtc-local VP8 / VP9 / AV1 / H.264 / Opus packetizers, `BasePacketizer`, and the AV1 / H.264 split and avcC helpers are removed. `createPacketizer` now adapts mediabunny `EncodedPacket` onto the `packages/rtp` packetizers. New `parseAvcDecoderConfigurationRecord` in `packages/rtp` replaces the avcC parsers duplicated in webrtc and `e2e`.
+  - Kept: Opus marker on every packet, AV1 N=1 on every key packet, packetization-mode≠1 rejection.
+  - Changed on the wire (from `packages/rtp`): H.264 keyframe SPS/PPS go in one STAP-A and only missing parameter-set types are prepended; AVCC samples with avcC are split as length-prefixed; AV1 follows the aggregation above; Opus packets over 1200 bytes throw instead of being sent oversize; a truncated avcC throws.
 
 ### 🚀 Features & Improvements
 
 - **werift-rtp existing-codec packetizers** (`packages/rtp`): Add package-local packetizers for codecs that previously only had depacketizers (non-WebRTC / SIP / RTSP).
   - **VP8** (RFC 7741): `Vp8Packetizer` — X/I/M descriptor with 15-bit PictureID (`S`/`PID`, same as browser single-layer senders), MTU fragmentation, final marker.
   - **VP9** (RFC 9628): `Vp9Packetizer` — `B`/`E`/`P` minimal descriptor; key/delta via options.
-  - **AV1** (AV1 RTP): `Av1Packetizer` + `splitAv1Obus` / `createAv1AggregationHeader` — W=1, Z/Y/N, final marker.
+  - **AV1** (AV1 RTP): `Av1Packetizer` + `splitAv1Obus` / `createAv1AggregationHeader` — OBU aggregation (W=1..3), Z/Y/N, final marker.
   - **Opus** (RFC 7587): `OpusPacketizer` — raw one-packet RTP; rejects `maxPayloadSize` overrun (no TOC-blind split).
   - **H.264** (RFC 6184 mode=1): `H264Packetizer` — Single NAL / **STAP-A** (SPS+PPS preferred on keyframe) / FU-A; Annex-B and length-prefixed input.
   - Specs: `docs/rfc/rfc7741.txt`, `rfc6184.txt`, `rfc7587.txt`, `rfc9628.txt`, `av1-rtp-spec.html`.
