@@ -544,3 +544,61 @@ export class H264Packetizer extends PacketizerBase {
     return packets;
   }
 }
+
+// ---------------------------------------------------------------------------
+// AVCDecoderConfigurationRecord (avcC, ISO/IEC 14496-15 §5.3.3.1)
+// ---------------------------------------------------------------------------
+
+export type AvcDecoderConfigurationRecord = {
+  /** lengthSizeMinusOne + 1: NAL length field size of AVCC samples (1, 2 or 4). */
+  naluLengthSize: number;
+  sps: Buffer[];
+  pps: Buffer[];
+  /** SPS followed by PPS, ready for {@link H264PacketizerOptions.parameterSets}. */
+  parameterSets: Buffer[];
+};
+
+/**
+ * Parse an avcC record (e.g. WebCodecs / mediabunny `decoderConfig.description`)
+ * into the NAL length size and SPS/PPS NAL units (no length prefix).
+ * Throws on a truncated record instead of returning partial parameter sets.
+ */
+export function parseAvcDecoderConfigurationRecord(
+  description: ArrayBuffer | ArrayBufferView,
+): AvcDecoderConfigurationRecord {
+  const record = ArrayBuffer.isView(description)
+    ? Buffer.from(
+        description.buffer,
+        description.byteOffset,
+        description.byteLength,
+      )
+    : Buffer.from(description);
+  if (record.length < 7) {
+    throw new Error(
+      `invalid H.264 avcC: expected at least 7 bytes, got ${record.length}`,
+    );
+  }
+
+  const naluLengthSize = (record[4] & 0x03) + 1;
+  let offset = 5;
+  const readSets = (count: number) => {
+    const sets: Buffer[] = [];
+    for (let i = 0; i < count; i++) {
+      if (offset + 2 > record.length) {
+        throw new Error("invalid H.264 avcC: truncated parameter set length");
+      }
+      const length = record.readUInt16BE(offset);
+      offset += 2;
+      if (offset + length > record.length) {
+        throw new Error("invalid H.264 avcC: truncated parameter set");
+      }
+      sets.push(record.subarray(offset, offset + length));
+      offset += length;
+    }
+    return sets;
+  };
+
+  const sps = readSets(record[offset++] & 0x1f);
+  const pps = offset < record.length ? readSets(record[offset++]) : [];
+  return { naluLengthSize, sps, pps, parameterSets: [...sps, ...pps] };
+}

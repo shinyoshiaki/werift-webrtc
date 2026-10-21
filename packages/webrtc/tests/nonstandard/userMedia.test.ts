@@ -101,9 +101,10 @@ describe("nonstandard/userMedia file playback", () => {
       });
 
       // 実行: path source の MP4 を再生し、映像 3 フレームと音声 2 packet 分の RTP が揃うまで待つ。
+      // （keyframe の SPS/PPS は STAP-A に集約されるため packet 数ではなく marker 区切りのフレーム数で待つ）
       await media.start();
       await waitUntil(
-        () => videoPackets.length >= 5 && audioPackets.length >= 2,
+        () => splitFrames(videoPackets).length >= 3 && audioPackets.length >= 2,
         10_000,
       );
       media.stop();
