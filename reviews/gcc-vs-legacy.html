@@ -244,16 +244,16 @@
 
     <section id="pipeline">
       <h2>実装は、この順にフィードバックを処理する</h2>
-      <p>上のプレイヤーは比較のため legacy と GCC を順に見せました。実際の <code>RTCRtpSender</code> では選択した一方だけが動きます。TWCC は番号と受信状態・受信時刻の情報を返し、帯域を決めるのは送信側です。<a href="https://datatracker.ietf.org/doc/html/draft-holmer-rmcat-transport-wide-cc-extensions-01#section-3">TWCC draft §3</a></p>
+      <p>上のプレイヤーは比較のため legacy と GCC を順に見せました。実際の <code>RTCRtpSender</code> では選択した一方だけが動きます。TWCC は番号と受信状態・受信時刻の情報を返し、帯域を決めるのは送信側です。どちらの方式も、TWCC はまず共通の照合層 <code>TwccFeedbackAdapter</code> を通ります。照合層は 16-bit 番号を直前の TWCC を基準に拡張し、送信履歴と突き合わせます。受信と確定した番号は履歴から消すので、重複・重なり合う TWCC が来ても同じパケットを二度「受信」と数えません。<a href="https://datatracker.ietf.org/doc/html/draft-holmer-rmcat-transport-wide-cc-extensions-01#section-3">TWCC draft §3</a></p>
       <div class="split">
         <article class="card legacy"><span class="badge l">LEGACY</span><div class="timeline">
-          <p><strong>① 番号で照合</strong><br />送信履歴にあり、受信済みで時刻を持つ行を取り出す。</p>
+          <p><strong>① 共通の照合層で番号を照合</strong><br />照合層が返した行のうち、受信済みで時刻を持つ行だけを使う。受信確定済みの番号は照合層の時点で除かれている。</p>
           <p><strong>② サイズと時刻を累積</strong><br />合計 byte と送受信時刻の最小・最大を更新する。</p>
           <p><strong>③ 平均速度を計算</strong><br />サンプルが揃ったら min(send, recv) を採用し、累積をリセットする。</p>
           <p><strong>④ 値が変われば通知</strong><br />帯域イベントのほかに、legacy 固有の混雑カウンタの更新もある。</p>
         </div></article>
         <article class="card gcc"><span class="badge">GCC</span><div class="timeline">
-          <p><strong>① 番号順に照合・ロス用の記録を作成</strong><br />受信確認済みの重複を除き、未受信は後着で訂正できる状態にする。</p>
+          <p><strong>① 共通の照合層で番号順に照合・ロス用の記録を作成</strong><br />受信確定済みの重複は照合層の時点で除かれている。未受信は送信履歴に残り、後着で訂正できる。</p>
           <p><strong>② 受信時刻順で入力</strong><br />到達スループット、probe の受信結果、群間の遅延変化を更新する。</p>
           <p><strong>③ delay / probe → loss → 最終目標</strong><br />overuse なら AIMD の減速経路。有効な probe 結果があり overuse でなければ delay 推定へ反映。その後 LossBasedBwe を更新し、利用可能なら採用する。RTT 制限や上下限も適用する。</p>
           <p><strong>④ 変更を通知し、次の probe 条件を更新</strong><br />TWCC 処理中の通知は delay 結果の更新時。全未受信などで更新されない場合も、25 ms の process 経路で目標を公開できる。</p>
@@ -262,7 +262,9 @@
       <p class="note">単純な <code>min(delay, loss)</code> は loss 推定が利用可能な通常経路の説明です。開始直後・RTT 制限時・受信時刻のないフィードバックまで、常にこの一式で決まるわけではありません。</p>
       <details><summary>時刻・番号・タイマの補足</summary>
         <div class="table-scroll"><table><thead><tr><th>項目</th><th>legacy</th><th>GCC</th></tr></thead><tbody>
-          <tr><td>送信履歴</td><td>16-bit 番号をキーにする。送信時に 10 秒超の古い履歴を掃除。同じキーが残っていれば一周後に上書き。</td><td>番号を unwrap し、最大 60 秒の履歴を持つ。送信時・process 時に掃除。</td></tr>
+          <tr><td>送信履歴</td><td>共通の照合層が拡張番号をキーに持つ。10 秒の時間窓で、送信時に掃除。</td><td>同じ照合層で 60 秒の時間窓。送信時・process 時に掃除。</td></tr>
+          <tr><td>TWCC の番号の解決（共通）</td><td colspan="2">16-bit 番号は、直前の TWCC を基準に最も近い拡張番号へ戻す（初回は最新の送信番号が基準）。履歴は 32768 番号未満に制限するので、同じ 16-bit 番号の候補は常に 1 つ。受信時刻の近さで重複を推測しない。受信確定した番号は履歴から消え、未受信の番号は残る。他の BUNDLE sender の番号は履歴にないので捨てる。</td></tr>
+          <tr><td>送信経路</td><td>develop と同じく DTLS へ直接書く。送信キュー・キュー上限・pacing はない。</td><td>上限付きの送信 FIFO を通す（予約 → pacing 待ち → 番号付け → DTLS 書き込み）。</td></tr>
           <tr><td>送信時</td><td>送信履歴を記録。</td><td>履歴、アプリが送信量を制限している状態（ALR）、probe 送信量などを更新。ここで帯域を再推定しない。</td></tr>
           <tr><td>25 ms process</td><td>なし。</td><td>RTT backoff、probe の進行、目標の公開。新しい遅延サンプルを作る処理ではない。</td></tr>
           <tr><td>RTT</td><td>帯域計算には使わない。</td><td>TWCC 由来の補正 RTT は backoff に、RTCP RR 由来の生 RTT は AIMD の減速間隔などに使う。</td></tr>
@@ -287,7 +289,7 @@
 
     <section id="soft-loss">
       <h2>GCC の soft loss：未受信を「確定ロス」にしない</h2>
-      <p>TWCC の <code>PacketNotReceived</code> は、「この報告の対象範囲では、まだ届いていない」という意味です。経路で破棄された可能性も、フィードバックを作ったあとに届く可能性もあります。GCC は未受信番号を永久確定せず、後の受信報告で取り消せる状態として記録します。この訂正可能な未受信が <strong>soft loss</strong> です。</p>
+      <p>TWCC の <code>PacketNotReceived</code> は、「この報告の対象範囲では、まだ届いていない」という意味です。経路で破棄された可能性も、フィードバックを作ったあとに届く可能性もあります。GCC は未受信番号を永久確定せず、後の受信報告で取り消せる状態として記録します。この訂正可能な未受信が <strong>soft loss</strong> です。仕組みは単純で、共通の照合層が受信報告の来た番号だけを送信履歴から消し、未受信の番号は残します。履歴に残っている限り、後の受信報告を照合できます。</p>
       <p>1 件の未受信で一定割合減速する処理ではありません。LossBased が最終目標を動かすのは、既定では送信時刻幅 250 ms 以上の観測が最低 3 個揃ってからです。その前は delay 推定を返します。</p>
       <div class="card">
         <div class="scenario-buttons" role="group" aria-label="後着と観測確定のどちらが先か">
@@ -303,8 +305,8 @@
         <div class="legend"><span style="--color:var(--receive)">受信済み</span><span style="--color:var(--wait)">soft loss（訂正可能）</span><span style="--color:var(--loss)">観測確定後のロス</span><span style="--color:#d6cbbb">未照合</span></div>
         <p class="note scroll-hint">図は横にスクロールできます。</p>
         <div class="soft-maps">
-          <article id="map-finalized"><span class="badge">受信確定</span><strong>finalizedSeqs</strong><p class="value" id="map-finalized-value"></p><p class="note">受信報告だけが入ります。未受信は入れません。</p></article>
-          <article id="map-soft"><span class="badge">SOFT LOSS</span><strong>softLostSeqs</strong><p class="value" id="map-soft-value"></p><p class="note">未受信だが、後着の受信報告を受け付けます。</p></article>
+          <article id="map-finalized"><span class="badge">受信確定</span><strong>送信履歴から削除済み</strong><p class="value" id="map-finalized-value"></p><p class="note">受信報告が来た番号だけです。照合層の履歴から消えるので、以後の再報告は照合されません。</p></article>
+          <article id="map-soft"><span class="badge">SOFT LOSS</span><strong>送信履歴に残る未受信</strong><p class="value" id="map-soft-value"></p><p class="note">未受信の番号は照合層の履歴に残り、後着の受信報告を受け付けます。</p></article>
           <article id="map-partial"><span class="badge">LOSSBASED 未確定</span><strong>partial.lostPackets</strong><p class="value" id="map-partial-value"></p><p class="note">送信時刻幅が 250 ms 未満なら、まだ観測として確定しません。</p></article>
         </div>
         <div class="ratio-box" id="soft-ratio"></div>
@@ -315,10 +317,10 @@
         <thead><tr><th>入力</th><th>GCC の処理</th></tr></thead>
         <tbody>
           <tr><td>送信履歴にない番号</td><td>ロスにも受信にもしない。未知のフィードバックは捨てる。</td></tr>
-          <tr><td>すでに受信確定した番号</td><td>重複・重なり合う TWCC を無視する。</td></tr>
-          <tr><td>PacketNotReceived</td><td><code>softLostSeqs</code> に追加する。<code>finalizedSeqs</code> には入れない。LossBased の lost map に seq → size を載せる。遅延・到達スループット・probe には入れない（受信時刻がない）。</td></tr>
+          <tr><td>すでに受信確定した番号</td><td>照合層の履歴から消えているので、照合されない。重複・重なり合う TWCC はここで落ちる（legacy も同じ照合層を使う）。</td></tr>
+          <tr><td>PacketNotReceived</td><td>送信履歴に残したまま、LossBased の lost map に seq → size を載せる。遅延・到達スループット・probe には入れない（受信時刻がない）。</td></tr>
           <tr><td>同じ未受信の再報告</td><td>LossBased へ再び渡す。<code>numPackets</code> と <code>size</code> は加算する。lost map は初回の size を保つ（lost_size は増えない）。</td></tr>
-          <tr><td>受信報告（観測の確定前）</td><td>受信確定し、soft loss を外す。lost map からその番号を消す。未確定観測のロスだけが取り消される。</td></tr>
+          <tr><td>受信報告（観測の確定前）</td><td>受信確定し、送信履歴から消す。lost map からその番号を消す。未確定観測のロスだけが取り消される。</td></tr>
           <tr><td>受信報告（観測の確定後）</td><td>新しい未確定観測の受信として数える。すでに commit した observation のロス数・lostSize は書き換えない。</td></tr>
         </tbody>
       </table></div>
@@ -339,11 +341,11 @@
       </div>
       <div class="table-scroll" style="margin-top:20px"><table><thead><tr><th>項目</th><th>legacy</th><th>GCC の現在の実装</th></tr></thead><tbody>
         <tr><td>初期 probe</td><td>なし。</td><td>既定の内部開始値 300 kbps に対し 3 倍 / 6 倍のクラスタを要求（上限等の条件あり）。FIFO で一つずつ送信。</td></tr>
-        <tr><td>probe のパケット</td><td>なし。</td><td>メディアに加え、不足分を RTP padding で補う。送信前に cluster id を予約し、送信後に実サイズを記録。</td></tr>
+        <tr><td>probe のパケット</td><td>なし。</td><td>メディアに加え、不足分を padding だけの RTP で補う。padding は RTX の SSRC・payload type・番号で送るので、メディアの番号はずれない。RTX が交渉されていなければ padding は送らない（メディアだけで probe する）。送信前に cluster id を予約し、送信後に実サイズを記録。</td></tr>
         <tr><td>通常メディアの pacing</td><td>BWE による token bucket はなし。</td><td>目標の 2.5 倍（初回有効 TWCC 前）、1.1 倍（以降）。probe 中はそのレートまで引き上げる。エンコーダの目標値ではない。</td></tr>
         <tr><td>開始値・公開値</td><td>サンプルが揃うまで 0 bps。</td><td>内部開始値は既定 300 kbps。公開値も最初から 300 kbps になるわけではない。通常は有効 TWCC 後に公開し、RTT backoff の安全動作はそれより前に通知し得る。</td></tr>
       </tbody></table></div>
-      <p class="note">GCC には追加・回復・任意設定の ALR probe 等の経路もあります。この図は初期クラスタの流れです。werift の送信器は軽量な token bucket と padding 注入を使っており、libwebrtc の PacedSender 全体と同一ではありません。</p>
+      <p class="note">GCC には追加・回復・任意設定の ALR probe 等の経路もあります。この図は初期クラスタの流れです。werift の送信器は軽量な token bucket と RTX への padding 注入を使っており、libwebrtc の PacedSender 全体と同一ではありません。RTX がない場合に padding を送らない点も libwebrtc との差分です（<code>GCC_KNOWN_DIFFERENCES</code>）。</p>
     </section>
 
     <section id="events">
@@ -355,7 +357,7 @@
 });
 sender.setBandwidthEstimator(new GccBandwidthEstimator());</code></pre>
       <div class="split">
-        <article class="card"><h3>共通の入口と出口</h3><div class="formula">rtpPacketSent(SentInfo)<br />receiveTWCC(TransportWideCC)<br />availableBitrate<br />onAvailableBitrate → bps（値の変更時）</div><p class="note">既定は SenderBandwidthEstimator（legacy）。差し替えは setBandwidthEstimator を使います。通常の RTP/TWCC 観測と probe 送信・pacing は TWCC 拡張の交渉が前提です。</p></article>
+        <article class="card"><h3>共通の入口と出口</h3><div class="formula">rtpPacketSent(SentInfo)<br />receiveTWCC(TransportWideCC)<br />availableBitrate<br />onAvailableBitrate → bps（値の変更時）</div><p class="note">既定は SenderBandwidthEstimator（legacy）。差し替えは setBandwidthEstimator を使います。通常の RTP/TWCC 観測と probe 送信・pacing は TWCC 拡張の交渉が前提です。probe の padding はさらに RTX の交渉が前提です。</p></article>
         <article class="card"><h3>差し替え時は推定を引き継がない</h3><p>旧推定器を dispose / reset し、注入する推定器も reset します。sender の共通イベント購読は残ります。リセットで公開値が 0 に戻ること自体は、帯域変更通知を発火しません。</p><p class="note">legacy 固有: onCongestion / onCongestionScore（1〜10）。GCC 固有: onOveruseDetected / onProbeClusterConfig。これらは共通 interface の帯域イベントとは別です。</p></article>
       </div>
       <p class="callout">推定器は通知する帯域を決めます。実際にエンコーダの目標を下げたり、メディアの生成量を減らしたりする処理はアプリ側に必要です。pacing だけで生成量を減らせるわけではありません。</p>
@@ -368,7 +370,7 @@ sender.setBandwidthEstimator(new GccBandwidthEstimator());</code></pre>
         <tr><td>legacy の入力条件・計算</td><td><a href="../packages/webrtc/src/media/sender/estimators/legacyCumulativeBwe.ts">legacyCumulativeBwe.ts</a> / <a href="../packages/webrtc/src/media/sender/cumulativeResult.ts">cumulativeResult.ts</a></td></tr>
         <tr><td>群間の間隔差・傾き・AIMD</td><td><a href="../packages/webrtc/src/media/sender/estimators/gcc/interArrivalDelta.ts">interArrivalDelta.ts</a> / <a href="../packages/webrtc/src/media/sender/estimators/gcc/trendlineEstimator.ts">trendlineEstimator.ts</a> / <a href="../packages/webrtc/src/media/sender/estimators/gcc/aimdRateControl.ts">aimdRateControl.ts</a></td></tr>
         <tr><td>到達スループット・loss・probe</td><td><a href="../packages/webrtc/src/media/sender/estimators/gcc/acknowledgedBitrateEstimator.ts">acknowledgedBitrateEstimator.ts</a> / <a href="../packages/webrtc/src/media/sender/estimators/gcc/lossBasedBwe.ts">lossBasedBwe.ts</a> / <a href="../packages/webrtc/src/media/sender/estimators/gcc/probeController.ts">probeController.ts</a></td></tr>
-        <tr><td>soft loss（未受信の訂正可能な記録）</td><td><a href="../packages/webrtc/src/media/sender/estimators/gcc/gccBwe.ts">gccBwe.ts</a> の <code>softLostSeqs</code> / <code>finalizedSeqs</code>。LossBased の <code>partial.lostPackets</code>（commit 前だけ unmark）</td></tr>
+        <tr><td>TWCC の照合（両方式共通）・soft loss</td><td><a href="../packages/webrtc/src/media/sender/estimators/twccFeedbackAdapter.ts">twccFeedbackAdapter.ts</a>（受信確定で履歴から削除、未受信は残す）。LossBased の <code>partial.lostPackets</code>（commit 前だけ unmark）</td></tr>
         <tr><td>統合・イベント・差し替え</td><td><a href="../packages/webrtc/src/media/sender/estimators/gcc/gccBwe.ts">gccBwe.ts</a> / <a href="../packages/webrtc/src/media/sender/bandwidthEstimator.ts">bandwidthEstimator.ts</a> / <a href="../packages/webrtc/src/media/rtpSender.ts">rtpSender.ts</a></td></tr>
       </tbody></table></div>
       <details><summary>数値を現在のコードで再検証する</summary><p><a href="./gcc-vs-legacy.trace.ts">gcc-vs-legacy.trace.ts</a> が HTML 内のデータと現在の実装の出力を照合します。リポジトリのルートで実行してください。</p><pre><code>node_modules/.bin/tsx reviews/gcc-vs-legacy.trace.ts
@@ -598,7 +600,7 @@ node_modules/.bin/tsx reviews/gcc-vs-legacy.trace.ts --write</code></pre><p clas
     const lossCopy = [
       ["TWCC の受信済み行を送信履歴と照合します。12 は未受信なので、サイズ・時刻の累積対象にしません。", "12 はこの報告時点では未受信です。履歴にある 12 だけを soft loss として記録し、後着の受信報告を受け付けられるようにします。受信済みの 10・11・13・14 は受信確定です。"],
       ["10・11・13・14 の byte と送受信時刻幅を使います。12 の分だけ分子が小さくなるため、平均速度も下がり得ます。", "12 の送信サイズをロス観測に含めます。受信済み行は受信時刻順で delay / 到達スループット / probe に入力します。ロス観測の順番とは別です。"],
-      ["同じ「12 が未受信」の行は再びスキップします。明示的なロス率や、未受信回数に応じた減速係数はありません。", "12 の未受信報告は LossBasedBwe に再び渡します。観測のパケット数・byte は加算されますが、ロスの記録は番号で管理します。受信確認済みの行の重複は GCC 側で除外します。"],
+      ["同じ「12 が未受信」の行は再びスキップします。明示的なロス率や、未受信回数に応じた減速係数はありません。受信済みの 13・14 が再報告されても、共通の照合層が除くので二重に累積しません。", "12 の未受信報告は LossBasedBwe に再び渡します。観測のパケット数・byte は加算されますが、ロスの記録は番号で管理します。受信確認済みの行の重複は、両方式共通の照合層で除外されます。"],
       ["後の TWCC に 12 の受信時刻が載り、送信履歴が残っていれば、受信済みパケットとして累積に加えます。", "12 を受信済みに確定します。同じ番号のロスがまだ未確定の観測にあれば取り消します。すでに確定した過去の観測までは訂正しません。"],
     ];
     function renderLoss(index) {
@@ -610,7 +612,7 @@ node_modules/.bin/tsx reviews/gcc-vs-legacy.trace.ts --write</code></pre><p clas
     document.querySelectorAll("[data-loss]").forEach((b) => b.addEventListener("click", () => renderLoss(Number(b.dataset.loss))));
     const probeCopy = [
       "例: 内部開始目標 300 kbps に対し A = 900 kbps、B = 1,800 kbps を要求します（上限に当たらない場合）。送信可能なネットワークになると開始します。この段階で 1,800 kbps を利用可能帯域として通知するわけではありません。",
-      "A を pacing して送信し、必要な byte 数とパケット数の両方を満たしたら B へ進みます。メディアだけで不足する場合は padding を補います。進行条件は送った量です。80% の ACK を得たから送信を打ち切る、という処理ではありません。",
+      "A を pacing して送信し、必要な byte 数とパケット数の両方を満たしたら B へ進みます。メディアだけで不足する場合は RTX の SSRC で padding を補います（RTX がなければ補いません）。進行条件は送った量です。80% の ACK を得たから送信を打ち切る、という処理ではありません。",
       "TWCC を送信履歴・cluster id と照合し、送受信の byte と時刻幅から候補を計算します。受信数・byte の 80% 条件や時間幅・送受信レート比なども検証します。A の送信完了や B の開始と、A の測定結果が届く時刻は一致しません。",
       "overuse 中は probe 結果を採用せず AIMD の減速経路を使います。それ以外で有効な probe 結果があれば delay 推定へ反映し、その後 loss・RTT・上下限を適用します。最終値が変われば帯域イベントを通知します。混雑は新しい probe の開始も制限します。",
     ];
@@ -638,14 +640,14 @@ node_modules/.bin/tsx reviews/gcc-vs-legacy.trace.ts --write</code></pre><p clas
     const softCopy = {
       before: [
         "受信側は番号の穴を PacketNotReceived として返します。12 が破棄されたとは限りません。フィードバックを作ったあとに届くこともあります。この報告単体では帯域イベントは出ません。",
-        "送信履歴にある番号だけ照合します。10・11・13・14 は受信確定（finalizedSeqs）。12 は softLostSeqs に入れ、LossBased の lost map に 12 → 1,200 byte を載せます。未受信は finalized に入れません。受信時刻がないので遅延経路には入りません。",
-        "12 はまだ受信確定していないので、同じ未受信を LossBased へ再び渡します。numPackets と size は加算されますが、lost map は初回の 1,200 byte のままです。受信確定済みの 10・11・13・14 は重複として無視します。",
-        "12 の受信時刻が載った TWCC が、観測の確定前に届きます。finalizedSeqs に移し、softLostSeqs と lost map から消します。未確定観測のロスは 0 になります。受信時刻があれば、この後着は遅延経路にも入ります。",
+        "共通の照合層が、送信履歴にある番号だけ照合します。10・11・13・14 は受信確定として履歴から消します。12 は履歴に残し、LossBased の lost map に 12 → 1,200 byte を載せます。受信時刻がないので遅延経路には入りません。",
+        "12 はまだ履歴に残っているので、同じ未受信を LossBased へ再び渡します。numPackets と size は加算されますが、lost map は初回の 1,200 byte のままです。受信確定済みの 10・11・13・14 は履歴にないので、再報告されても照合されません。",
+        "12 の受信時刻が載った TWCC が、観測の確定前に届きます。12 を受信確定として履歴から消し、lost map からも消します。未確定観測のロスは 0 になります。受信時刻があれば、この後着は遅延経路にも入ります。",
       ],
       after: [
         "受信側は番号の穴を PacketNotReceived として返します。12 が破棄されたとは限りません。ただしこの分岐では、報告に含まれる送信時刻幅がすでに 300 ms あります。",
         "照合自体は左の分岐と同じです。10・11・13・14 を受信確定し、12 を soft loss として記録します。実装ではこの照合の直後に、送信時刻幅を見て commit するかを決めます。図では記録と確定を分けています。",
-        "同じ receiveTWCC の後半で、送信時刻幅 300 ms ≥ 250 ms のため partial を observation として commit します。確定内容は 5 パケット・6,000 byte・ロス 1 個・lostSize 1,200 byte です。commit すると lost map は空に戻ります。12 は送信側の softLostSeqs には残ります。",
+        "同じ receiveTWCC の後半で、送信時刻幅 300 ms ≥ 250 ms のため partial を observation として commit します。確定内容は 5 パケット・6,000 byte・ロス 1 個・lostSize 1,200 byte です。commit すると lost map は空に戻ります。12 は送信側の履歴には残ります。",
         "後から 12 の受信報告が来ても、確定済み observation のロス数と lostSize は変わりません。12 は新しい partial の受信として加算されます。受信時刻があれば遅延・到達スループット・probe にはこの後着を入力します。ただし、すでに確定したロス統計は戻りません。",
       ],
     };
@@ -727,7 +729,7 @@ node_modules/.bin/tsx reviews/gcc-vs-legacy.trace.ts --write</code></pre><p clas
       } else if (scene === "after" && index === 2) {
         report[12] = "committed";
         finalized = "10, 11, 13, 14";
-        softLost = "12（送信側の訂正待ち）";
+        softLost = "12（送信履歴で訂正待ち）";
         partialLost = "commit 済みのため空。observation: ロス 1 / 1,200 byte";
         packets = 5; size = 6000; lostSize = 1200; committed = true;
         active = [false, true, true];

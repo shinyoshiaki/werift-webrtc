@@ -1107,7 +1107,7 @@
         <p>荷物に番号を付けて「何時に出したか」をメモするだけ。この瞬間には速度を変えません。</p>
         <ol class="plain">
           <li>番号（TWCC seq）を貼る</li>
-          <li>サイズと時刻を控える</li>
+          <li>サイズと時刻を控える（控えは最長 60 秒・32768 個ぶん）</li>
         </ol>
       </article>
       <article class="card clock">
@@ -1157,7 +1157,7 @@
         <article class="step-explain" data-step="0">
           <div>
             <h3>1. 照合 — 番号で送り履歴を探す</h3>
-            <p class="caption">返事のカードには「何番の荷物か」だけが書いてあります。送り手が控えた番号と突き合わせます。履歴に無い番号（差し替え直後など）は捨てます。ここで初めて、サイズと送り時刻が遅延・ロスの計算に使えます。</p>
+            <p class="caption">返事のカードには「何番の荷物か」だけが書いてあります。番号は 65536 で一周するので、前回の返事を目安に「何周目の何番か」へ戻してから、送り手の控えと突き合わせます。控えに無い番号（同じ道を走る別の送り手の荷物、差し替え直後など）は捨てます。「届いた」と確定した荷物は控えから消すので、同じ返事が二度来ても二度は数えません。ここで初めて、サイズと送り時刻が遅延・ロスの計算に使えます。</p>
           </div>
           <div class="viz viz-match" aria-hidden="true">
             <span class="tag">送り履歴 ← 返事</span>
@@ -1177,7 +1177,7 @@
         <article class="step-explain" data-step="1">
           <div>
             <h3>2. ロス — 番号の順で数える</h3>
-            <p class="caption">穴（届いていない）は仮の印です。あとから同じ番号が「届いた」と来たら取り消します。何度「未到達」と言われても、ロス側の観察には数えます。遅延の計算とは順が違います。</p>
+            <p class="caption">穴（届いていない）は仮の印です。届いていない荷物は控えに残しておき、あとから同じ番号が「届いた」と来たら取り消します。何度「未到達」と言われても、ロス側の観察には数えます。遅延の計算とは順が違います。</p>
           </div>
           <div class="viz viz-loss" aria-hidden="true">
             <span class="tag">番号順 10 → 14</span>
@@ -1260,7 +1260,7 @@
       </div>
     </div>
     <p class="caption" style="margin-top:12px">
-      届いていない報告は「今回は見えなかった」です。あとから届いたら取り消せます。番号が履歴に無い返事は、捨てます（差し替え直後など）。
+      届いていない報告は「今回は見えなかった」です。控えに残っているので、あとから届いたら取り消せます。番号が控えに無い返事と、すでに「届いた」と確定した番号の再報告は、捨てます。この照合は既定の legacy と共通の仕組み（<code>TwccFeedbackAdapter</code>）です。
     </p>
   </section>
 
@@ -1325,7 +1325,7 @@
     </p>
     <div class="states sans">
       <span>increasing 上げてよい</span>
-      <span>increase_using_padding 空き埋めの余白を送る</span>
+      <span>increase_using_padding 空き埋めの余白（RTX の padding）を送る</span>
       <span>decreasing 下げる / 一時キープ</span>
       <span>delay_based 遅延側に任せる</span>
     </div>
@@ -1354,6 +1354,10 @@
       <p class="caption" style="margin-top:10px">
         最初の間隔は 20ms、そのあとは 2ms。予定より 10ms 以上遅れた固まりは捨てます。
         まだ送っていない待ち行列だけ、5秒で期限切れです。
+      </p>
+      <p class="caption" style="margin-top:10px">
+        映像だけでは固まりが埋まらないときは、中身のない詰め物（padding）を足します。詰め物は再送用の別レーン（RTX）で送るので、映像の荷物番号はずれません。
+        RTX が無い接続では詰め物を送らず、映像だけで試し打ちします（Chrome との既知の違いです）。
       </p>
     </div>
     <h3>いつ出してよいか</h3>
@@ -1540,7 +1544,7 @@ sender.onAvailableBitrate.subscribe((bps) => {
     apply("clear");
 
     const flowTexts = [
-      "番号（transport-wide sequence）で、送り履歴と返事を突き合わせます。履歴に無い番号は捨てます。",
+      "番号（transport-wide sequence）を前回の返事を目安に戻し、送り履歴と突き合わせます。履歴に無い番号と、届いたと確定済みの番号の再報告は捨てます。",
       "番号の順でロスを数えます。「届いていない」は仮の印。あとから届いたら取り消せます。",
       "届いた時刻の順で遅延を見ます。5ms の群れにまとめ、群れ間の傾きを Trendline が読みます。",
       "overuse なら減速。そうでなく試し打ちが成功していればその速度を載せます。上昇方向の独自キャップはありません。",
