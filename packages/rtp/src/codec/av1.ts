@@ -445,6 +445,12 @@ export function splitAv1Obus(sample: Buffer): Buffer[] {
 /** obu_type of a Sequence Header OBU (AV1 spec §6.2.2). */
 const OBU_SEQUENCE_HEADER = 1;
 
+/** temporal_id/spatial_id bits of the OBU extension header, if present. */
+function getAv1ObuLayerId(obu: Buffer): number | undefined {
+  if (!getBit(obu[0], 5) || obu.length < 2) return undefined;
+  return obu[1] & 0xf8;
+}
+
 export type Av1PacketizerOptions = PacketizerBaseOptions & {
   /**
    * Default keyframe flag. Keyframe-ness alone does not set the N bit; see
@@ -528,6 +534,8 @@ export class Av1Packetizer extends PacketizerBase {
     let packetSize = 1; // aggregation header
     let packetStartsWithFragment = false;
     let packetEndsWithFragment = false;
+    // 同一 packet 内の拡張ヘッダ付き OBU は temporal_id/spatial_id が同一でなければならない。
+    let packetLayerId: number | undefined;
 
     const flushPacket = () => {
       if (packetElements.length === 0) return;
@@ -549,9 +557,18 @@ export class Av1Packetizer extends PacketizerBase {
       packetSize = 1;
       packetStartsWithFragment = false;
       packetEndsWithFragment = false;
+      packetLayerId = undefined;
     };
 
     for (const obu of obus) {
+      const layerId = getAv1ObuLayerId(obu);
+      if (
+        layerId !== undefined &&
+        packetLayerId !== undefined &&
+        layerId !== packetLayerId
+      ) {
+        flushPacket();
+      }
       let offset = 0;
       let isContinuation = false;
       while (offset < obu.length) {
@@ -579,6 +596,7 @@ export class Av1Packetizer extends PacketizerBase {
         }
         const end = offset + chunkSize;
         packetElements.push(obu.subarray(offset, end));
+        if (layerId !== undefined) packetLayerId = layerId;
         packetSize += leb128encode(chunkSize).length + chunkSize;
         offset = end;
         packetEndsWithFragment = offset < obu.length;

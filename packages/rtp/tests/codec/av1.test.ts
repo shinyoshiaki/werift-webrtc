@@ -388,3 +388,71 @@ describe("codec/av1 packetizer", () => {
     ).toBe(0);
   });
 });
+
+describe("codec/av1 Av1Packetizer layer boundaries", () => {
+  // type=6 (FRAME) + extension flag + has_size, 拡張ヘッダの SID だけ変える
+  const layerObu = (extension: number) =>
+    Buffer.from([0x36, extension, 0x01, 0xaa]);
+  const payloadsOf = (data: Buffer) =>
+    new Av1Packetizer({ sequenceNumber: 1 }).packetize(data, 0);
+
+  test("異なる spatial_id の OBU は別 packet に分離する", () => {
+    // Arrange: SID=0 と SID=1 の OBU 列
+    const data = Buffer.concat([layerObu(0x00), layerObu(0x08)]);
+
+    // Act
+    const packets = payloadsOf(data);
+
+    // Assert: レイヤーごとに 1 packet、元の OBU が復元できる
+    expect(packets).toHaveLength(2);
+    expect(packets.at(-1)!.header.marker).toBe(true);
+    for (const p of packets) {
+      expect(AV1RtpPayload.deSerialize(p.payload).obu_or_fragment).toHaveLength(
+        1,
+      );
+    }
+  });
+
+  test("同一レイヤーの OBU は 1 packet に集約する", () => {
+    // Arrange
+    const data = Buffer.concat([layerObu(0x08), layerObu(0x08)]);
+
+    // Act
+    const packets = payloadsOf(data);
+
+    // Assert
+    expect(packets).toHaveLength(1);
+  });
+
+  test("拡張ヘッダなしの OBU はレイヤー付き OBU と集約できる", () => {
+    // Arrange: temporal delimiter (拡張なし) + SID=1 の OBU
+    const data = Buffer.concat([Buffer.from([0x12, 0x00]), layerObu(0x08)]);
+
+    // Act
+    const packets = payloadsOf(data);
+
+    // Assert
+    expect(packets).toHaveLength(1);
+  });
+
+  test("断片化された OBU の後に別レイヤーの OBU が来ても分離する", () => {
+    // Arrange: MTU を超える SID=0 の OBU と SID=1 の OBU
+    const big = Buffer.concat([
+      Buffer.from([0x36, 0x00, 0xc8, 0x01]),
+      Buffer.alloc(200, 1),
+    ]);
+    const data = Buffer.concat([big, layerObu(0x08)]);
+
+    // Act
+    const packets = new Av1Packetizer({
+      sequenceNumber: 1,
+      maxPayloadSize: 100,
+    }).packetize(data, 0);
+
+    // Assert: 最後の packet は SID=1 の OBU のみ
+    const last = AV1RtpPayload.deSerialize(packets.at(-1)!.payload);
+    expect(last.obu_or_fragment).toHaveLength(1);
+    expect(last.obu_or_fragment[0].data.length).toBe(3);
+    expect(packets.length).toBeGreaterThan(2);
+  });
+});
