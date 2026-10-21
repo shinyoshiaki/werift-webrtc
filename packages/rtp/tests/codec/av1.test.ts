@@ -253,8 +253,9 @@ describe("codec/av1 packetizer", () => {
       startsNewCodedVideoSequence: true,
     });
     const depacketized = dePacketizeRtpPackets("AV1", packets);
-    // Assert
-    expect(packets.length).toBe(2);
+    // Assert: 小さい OBU 2 つは W=2 で 1 パケットに集約され、元の AU に復元される
+    expect(packets.length).toBe(1);
+    expect(AV1RtpPayload.deSerialize(packets[0].payload).w_RtpNumObus).toBe(2);
     expect(depacketized.data.equals(frame)).toBe(true);
   });
 
@@ -293,14 +294,55 @@ describe("codec/av1 packetizer", () => {
     );
     const payloads = packets.map((p) => AV1RtpPayload.deSerialize(p.payload));
     // Assert: TD は送られず、残りの OBU は size field なしで N ビットは先頭に付く
-    expect(packets.length).toBe(2);
+    expect(packets.length).toBe(1);
     expect(payloads[0].nBit_RtpStartsNewCodedVideoSequence).toBe(1);
-    expect(payloads[0].obu_or_fragment[0].data).toEqual(
+    expect(payloads[0].obu_or_fragment.map((e) => e.data)).toEqual([
       makeObuNoSize(1, Buffer.from([0x01, 0x02])),
-    );
-    expect(payloads[1].obu_or_fragment[0].data).toEqual(
       makeObuNoSize(6, Buffer.from([0xaa, 0xbb])),
-    );
+    ]);
+  });
+
+  it("packs sequence header and fragmented frame so only first packet has Z=0 and only last has Y=0", () => {
+    // Arrange: TD + SEQUENCE_HEADER + 大きな FRAME（Chrome へ送る fixture と同じ構成）
+    const seqHdr = makeObuWithSize(1, Buffer.alloc(10, 0x01));
+    const frameObu = makeObuWithSize(6, Buffer.alloc(1_000, 0x66));
+    const frame = Buffer.concat([
+      makeObuWithSize(2, Buffer.alloc(0)),
+      seqHdr,
+      frameObu,
+    ]);
+    // Act
+    const packets = new Av1Packetizer({
+      sequenceNumber: 1,
+      maxPayloadSize: 400,
+    }).packetize(frame, 0, { frameType: "key" });
+    const payloads = packets.map((p) => AV1RtpPayload.deSerialize(p.payload));
+    const depacketized = dePacketizeRtpPackets("AV1", packets);
+    // Assert: libwebrtc は DD 無しだと Z=0 をフレーム先頭、Y=0 をフレーム末尾とみなすため、
+    // 先頭パケットだけ Z=0、末尾パケットだけ Y=0 になっていること
+    expect(packets.length).toBeGreaterThan(2);
+    expect(payloads.map((p) => p.zBit_RtpStartsWithFragment)).toEqual([
+      0,
+      ...payloads.slice(1).map(() => 1),
+    ]);
+    expect(payloads.map((p) => p.yBit_RtpEndsWithFragment)).toEqual([
+      ...payloads.slice(0, -1).map(() => 1),
+      0,
+    ]);
+    // 先頭パケットはシーケンスヘッダとフレーム先頭断片の 2 要素で N=1
+    expect(payloads[0].w_RtpNumObus).toBe(2);
+    expect(payloads[0].nBit_RtpStartsNewCodedVideoSequence).toBe(1);
+    // 全パケットが MTU 以内で、復元結果は TD を除いた AU になる
+    packets.forEach((p) => expect(p.payload.length).toBeLessThanOrEqual(400));
+    expect(depacketized.isKeyframe).toBe(true);
+    expect(
+      depacketized.data.equals(
+        Buffer.concat([
+          makeObuWithSize(1, Buffer.alloc(10, 0x01)),
+          makeObuNoSize(6, Buffer.alloc(1_000, 0x66)),
+        ]),
+      ),
+    ).toBe(true);
   });
 
   it("loads committed AV1 vector and getFrame matches expected", () => {
