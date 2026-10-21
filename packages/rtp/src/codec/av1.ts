@@ -4,7 +4,9 @@
 //
 // Aggregation Header (AV1 RTP §4.4):
 //   Z|Y|W|N|-|-|-
-// Packetizer uses W=1 (single OBU element, no size field) for webrtc parity.
+// Packetizer packs up to 3 OBU elements per packet (W=1..3), splitting OBUs
+// across packet boundaries like libwebrtc so only the first packet of a
+// temporal unit has Z=0 and only the last has Y=0.
 // Z/Y mark fragment continuation; N marks start of a new coded video sequence
 // (keyframe, first packet only). N=1 and Z=1 together are forbidden.
 
@@ -368,28 +370,34 @@ const OBU_TYPE_IDS: Record<OBU_TYPE, number> = Object.entries(OBU_TYPES).reduce(
 // ---------------------------------------------------------------------------
 
 /**
- * Build the 1-byte AV1 Aggregation Header (AV1 RTP §4.4) with W=1.
+ * Build the 1-byte AV1 Aggregation Header (AV1 RTP §4.4).
  * N=1 and Z=1 must not both be set (deSerialize throws).
  */
 export function createAv1AggregationHeader({
   startsWithFragment,
   endsWithFragment,
   startsNewCodedVideoSequence,
+  obuCount = 1,
 }: {
   startsWithFragment: boolean;
   endsWithFragment: boolean;
   startsNewCodedVideoSequence: boolean;
+  /** W field: number of OBU elements (1..3); the last one has no length. */
+  obuCount?: number;
 }): Buffer {
   if (startsWithFragment && startsNewCodedVideoSequence) {
     throw new Error(
       "AV1 aggregation header: N=1 and Z=1 must not both be set (AV1 RTP §4.4)",
     );
   }
-  // Z|Y|W=1|N|000
+  if (!Number.isInteger(obuCount) || obuCount < 1 || obuCount > 3) {
+    throw new Error(`AV1 aggregation header: invalid W=${obuCount}`);
+  }
+  // Z|Y|W|N|000
   return new BitWriter(8)
     .set(1, 0, startsWithFragment ? 1 : 0)
     .set(1, 1, endsWithFragment ? 1 : 0)
-    .set(2, 2, 1)
+    .set(2, 2, obuCount)
     .set(1, 4, startsNewCodedVideoSequence ? 1 : 0)
     .set(3, 5, 0).buffer;
 }
@@ -438,6 +446,8 @@ export function splitAv1Obus(sample: Buffer): Buffer[] {
   return obus;
 }
 
+/** Max OBU elements per packet expressible with W (W=0 is not emitted). */
+const MAX_W_ELEMENTS = 3;
 /** obu_type of a Sequence Header OBU (AV1 spec §6.2.2). */
 const OBU_SEQUENCE_HEADER = 1;
 /** obu_type of a Temporal Delimiter OBU; MUST NOT be sent over RTP (AV1 RTP §5). */
@@ -489,7 +499,7 @@ export type Av1PacketizeOptions = {
 
 /**
  * Packetize one AV1 access unit (OBU sequence) into RTP packets.
- * Uses W=1 single-element payloads; fragments large OBUs with Z/Y bits.
+ * Packs OBU elements (W=1..3) and fragments them across packets with Z/Y bits.
  */
 export class Av1Packetizer extends PacketizerBase {
   private readonly defaultIsKeyframe: boolean;
@@ -531,53 +541,71 @@ export class Av1Packetizer extends PacketizerBase {
     }
 
     // Aggregation header = 1 byte
-    const fragmentSize = this.maxPayloadSize - 1;
-    if (fragmentSize <= 0) {
+    const capacity = this.maxPayloadSize - 1;
+    if (capacity <= 0) {
       throw new Error(
         `Av1Packetizer: maxPayloadSize ${this.maxPayloadSize} too small for aggregation header`,
       );
     }
 
+    // OBU elements are packed back to back and split at packet boundaries
+    // (as libwebrtc RtpPacketizerAv1 does). Without a dependency descriptor,
+    // libwebrtc treats Z=0 as frame start and Y=0 as frame end, so starting
+    // every OBU in its own packet would split one temporal unit into frames.
     const packets: RtpPacket[] = [];
-    let firstPacketInFrame = true;
+    let obuIndex = 0;
+    let obuOffset = 0;
 
-    for (const obu of obus) {
-      if (obu.length <= fragmentSize) {
-        const aggregationHeader = createAv1AggregationHeader({
-          startsWithFragment: false,
-          endsWithFragment: false,
-          startsNewCodedVideoSequence: firstPacketInFrame && startsNewSequence,
-        });
-        packets.push(
-          this.buildPacket(
-            Buffer.concat([aggregationHeader, obu]),
-            rtpTimestamp,
-            false,
-          ),
-        );
-        firstPacketInFrame = false;
-        continue;
+    while (obuIndex < obus.length) {
+      const startsWithFragment = obuOffset > 0;
+      const elements: Buffer[] = [];
+      let used = 0;
+      let endsWithFragment = false;
+
+      while (obuIndex < obus.length && elements.length < MAX_W_ELEMENTS) {
+        const rest = obus[obuIndex].subarray(obuOffset);
+        // Adding an element gives the previous last element a length prefix
+        const prefix =
+          elements.length > 0
+            ? leb128encode(elements.at(-1)!.length).length
+            : 0;
+        const available = capacity - used - prefix;
+        if (available <= 0) {
+          break;
+        }
+        used += prefix;
+        if (rest.length <= available) {
+          elements.push(rest);
+          used += rest.length;
+          obuIndex++;
+          obuOffset = 0;
+          continue;
+        }
+        elements.push(rest.subarray(0, available));
+        used += available;
+        obuOffset += available;
+        endsWithFragment = true;
+        break;
       }
 
-      for (let offset = 0; offset < obu.length; offset += fragmentSize) {
-        const chunk = obu.subarray(
-          offset,
-          Math.min(obu.length, offset + fragmentSize),
-        );
-        const aggregationHeader = createAv1AggregationHeader({
-          startsWithFragment: offset > 0,
-          endsWithFragment: offset + chunk.length < obu.length,
-          startsNewCodedVideoSequence: firstPacketInFrame && startsNewSequence,
-        });
-        packets.push(
-          this.buildPacket(
-            Buffer.concat([aggregationHeader, chunk]),
-            rtpTimestamp,
-            false,
-          ),
-        );
-        firstPacketInFrame = false;
-      }
+      const aggregationHeader = createAv1AggregationHeader({
+        startsWithFragment,
+        endsWithFragment,
+        startsNewCodedVideoSequence: packets.length === 0 && startsNewSequence,
+        obuCount: elements.length,
+      });
+      const body = elements.flatMap((element, i) =>
+        i < elements.length - 1
+          ? [leb128encode(element.length), element]
+          : [element],
+      );
+      packets.push(
+        this.buildPacket(
+          Buffer.concat([aggregationHeader, ...body]),
+          rtpTimestamp,
+          false,
+        ),
+      );
     }
 
     // Marker on last packet of the frame (AV1 RTP marker bit semantics)
