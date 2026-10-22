@@ -259,7 +259,7 @@ class MediaPlayer {
 class TrackPlaybackRunner {
   // Reused across loops so per-stream packetizer state (e.g. VP8 PictureID)
   // stays continuous; recreated only when the negotiated codec changes.
-  private packetizer?: { codec: RTCRtpCodecParameters; packetizer: Packetizer };
+  private packetizer?: { codecKey: string; packetizer: Packetizer };
 
   constructor(
     private readonly props: PlaybackTrack & {
@@ -322,9 +322,13 @@ class TrackPlaybackRunner {
   }
 
   private getPacketizer(codec: RTCRtpCodecParameters) {
-    if (this.packetizer?.codec !== codec) {
+    // RTCRtpSender assigns a new codec object on every offer/answer (and the
+    // payload type may only be filled in after playback started), so compare
+    // by value; identity would reset PictureID at the next loop.
+    const codecKey = packetizerCodecKey(codec);
+    if (this.packetizer?.codecKey !== codecKey) {
       this.packetizer = {
-        codec,
+        codecKey,
         packetizer: createPacketizer({
           codec,
           sourceCodec: this.props.sourceCodec,
@@ -598,6 +602,19 @@ function toBuffer(value: Buffer | ArrayBuffer | ArrayBufferView | string) {
     return Buffer.from(value.buffer, value.byteOffset, value.byteLength);
   }
   return Buffer.from(new Uint8Array(value));
+}
+
+/**
+ * Codec fields that change `createPacketizer` output. The payload type is
+ * excluded: `MediaStreamTrack.writeRtp` rewrites it from `track.codec`.
+ */
+function packetizerCodecKey(codec: RTCRtpCodecParameters) {
+  return JSON.stringify([
+    normalizeMimeType(codec.mimeType),
+    codec.clockRate,
+    codec.channels,
+    codec.parameters,
+  ]);
 }
 
 function normalizeMimeType(mimeType: string) {

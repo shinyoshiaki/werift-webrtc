@@ -18,11 +18,20 @@ const DUMMY_PICTURE_ID_BASE = 0x0100;
 const DUMMY_PICTURE_ID_STEP = 0x0100;
 let nextDummySourceId = 0;
 
-// VP8 frame bodies without the RTP payload descriptor (prepended per frame).
-const VP8_KEYFRAME = Buffer.from([
-  0x10, 0x00, 0x00, 0x9d, 0x01, 0x2a, 0x02, 0x00, 0x02, 0x00,
-]);
-const VP8_DELTA_FRAME = Buffer.from([0x11, 0x00, 0x00]);
+// Decodable VP8 frame bodies without the RTP payload descriptor (prepended per
+// frame): a 16x16 black stream encoded by libvpx in error-resilient mode
+// (`ffmpeg -f lavfi -i color=c=black:s=16x16:r=30 -c:v libvpx
+// -error-resilient 1 -auto-alt-ref 0 -lag-in-frames 0`). Error-resilient
+// inter frames do not persist entropy updates, so repeating the same delta
+// frame after the keyframe keeps decoder state valid.
+const VP8_KEYFRAME = Buffer.from(
+  "7002009d012a10001000390500011c240c2c2c442c2440100000606ac0feffab5080",
+  "hex",
+);
+const VP8_DELTA_FRAME = Buffer.from(
+  "110300e34bd80467af104f4fae8f2fde3f801fc06160bfd000200000",
+  "hex",
+);
 
 export interface DummyAudioOptions {
   packetIntervalMs: number;
