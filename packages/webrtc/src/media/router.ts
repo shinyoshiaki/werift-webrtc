@@ -1,5 +1,7 @@
 import {
   type Extensions,
+  FullIntraRequest,
+  PictureLossIndication,
   RTP_EXTENSION_URI,
   ReceiverEstimatedMaxBitrate,
   type RtcpPacket,
@@ -383,6 +385,8 @@ export class RtpRouter {
       case RtcpPayloadSpecificFeedback.type:
         {
           const psfb = packet as RtcpPayloadSpecificFeedback;
+          // unknown FMT (SLI, RPSI, ...) is not parsed and is not routed
+          if (!psfb.feedback) break;
           switch (psfb.feedback.count) {
             case ReceiverEstimatedMaxBitrate.count:
               {
@@ -390,11 +394,30 @@ export class RtpRouter {
                 recipients.push(this.ssrcTable[remb.ssrcFeedbacks[0]]);
               }
               break;
+            case PictureLossIndication.count:
+              // RFC 4585 6.1: the target is the media source, never the sender of the feedback
+              recipients.push(this.ssrcTable[psfb.feedback.mediaSsrc]);
+              break;
+            case FullIntraRequest.count:
+              {
+                // RFC 5104 4.3.1: the media source SSRC SHALL be 0; the targets are the FCI entries
+                const fir = psfb.feedback as FullIntraRequest;
+                const targets = new Set(
+                  fir.fir.length > 0
+                    ? fir.fir.map(({ ssrc }) => this.ssrcTable[ssrc])
+                    : [
+                        fir.mediaSsrc
+                          ? this.ssrcTable[fir.mediaSsrc]
+                          : undefined,
+                      ],
+                );
+                targets.forEach((target) => {
+                  if (target) recipients.push(target);
+                });
+              }
+              break;
             default:
-              recipients.push(
-                this.ssrcTable[psfb.feedback.senderSsrc] ||
-                  this.ssrcTable[psfb.feedback.mediaSsrc],
-              );
+              recipients.push(this.ssrcTable[psfb.feedback.mediaSsrc]);
           }
         }
         break;

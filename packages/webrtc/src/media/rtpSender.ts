@@ -30,6 +30,7 @@ import { codecParametersFromString } from "..";
 import { createWebRtcDomException } from "../errors";
 import {
   type Extension,
+  FullIntraRequest,
   GenericNack,
   PictureLossIndication,
   RTP_EXTENSION_URI,
@@ -152,6 +153,8 @@ export class RTCRtpSender {
   readonly onRtcp = new Event<[RtcpPacket]>();
   readonly onPictureLossIndication = new Event<[]>();
   readonly onGenericNack = new Event<[GenericNack]>();
+  /** Fires for a FIR addressed to this sender with a new sequence number (RFC 5104 4.3.1). */
+  readonly onFullIntraRequest = new Event<[FullIntraRequest]>();
   readonly senderBWE = new SenderBandwidthEstimator();
 
   private cname?: string;
@@ -183,6 +186,8 @@ export class RTCRtpSender {
   private nackCount = 0;
   private pliCount = 0;
   private firCount = 0;
+  /** last FIR sequence number per FIR sender SSRC */
+  private lastFirSequenceNumbers = new Map<number, number>();
   private remotePacketsLost?: number;
   private remoteFractionLost?: number;
   receiverEstimatedMaxBitrate = 0n;
@@ -865,7 +870,7 @@ export class RTCRtpSender {
       case RtcpPayloadSpecificFeedback.type:
         {
           const packet = rtcpPacket as RtcpPayloadSpecificFeedback;
-          switch (packet.feedback.count) {
+          switch (packet.feedback?.count) {
             case ReceiverEstimatedMaxBitrate.count:
               {
                 const feedback = packet.feedback as ReceiverEstimatedMaxBitrate;
@@ -876,6 +881,31 @@ export class RTCRtpSender {
               {
                 this.pliCount++;
                 this.onPictureLossIndication.execute();
+              }
+              break;
+            case FullIntraRequest.count:
+              {
+                const feedback = packet.feedback as FullIntraRequest;
+                const entries = feedback.fir.filter(
+                  ({ ssrc }) => ssrc === this.ssrc,
+                );
+                if (entries.length === 0) break;
+
+                this.firCount += entries.length;
+                // a FIR with the same sequence number is a retransmission (RFC 5104 4.3.1)
+                const last = this.lastFirSequenceNumbers.get(
+                  feedback.senderSsrc,
+                );
+                const isNew = entries.some(
+                  ({ sequenceNumber }) => sequenceNumber !== last,
+                );
+                this.lastFirSequenceNumbers.set(
+                  feedback.senderSsrc,
+                  entries[entries.length - 1].sequenceNumber,
+                );
+                if (isNew) {
+                  this.onFullIntraRequest.execute(feedback);
+                }
               }
               break;
           }

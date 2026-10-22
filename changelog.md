@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### 🚀 Features
+
+- **`RTCRtpSender.onFullIntraRequest`**: a new `Event<[FullIntraRequest]>` fires when the sender receives a FIR (RFC 5104) whose FCI has an entry for its SSRC with a new sequence number. A retransmitted FIR (same sequence number from the same FIR sender) does not fire it again. FIR is not delivered to `onPictureLossIndication`; applications that refresh on both should subscribe to both events.
+- **`firCount` in outbound-rtp stats**: every FIR entry addressed to the sender is now counted (retransmissions included), so `getStats()` reports `firCount`.
+- **`FullIntraRequest` is exported** from `werift-rtp` and `werift`.
+
+### 🐛 Bug Fixes
+
+- **RTCP PLI / FIR routed to the targeted media source**: `RtpRouter.routeRtcp()` used to look up a payload-specific feedback by its sender SSRC first, so a PLI whose sender SSRC matched another local stream (e.g. a werift or Chrome peer in a sendrecv video session, or an SFU viewer's own stream) was delivered to the wrong `RTCRtpReceiver` / `RTCRtpSender` and never raised `onPictureLossIndication`. PLI is now routed only by its media SSRC (RFC 4585 §6.1), and FIR by the SSRC of each FCI entry (RFC 5104 §4.3.1; the media SSRC of the common header is 0 for libwebrtc), delivering once per target sender. A PLI whose media SSRC is not registered is no longer delivered to the stream matching its sender SSRC. Unknown payload-specific feedback types (SLI, RPSI, ...) are no longer routed, instead of throwing.
+
 ## v0.25.1
 
 ### 🔧 Maintenance

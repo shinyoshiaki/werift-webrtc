@@ -8,6 +8,7 @@ import {
   serializeAudioLevelIndication,
   useSdesMid,
 } from "../../src";
+import { createConnectedSendrecvVideoPeers } from "../fixture";
 
 describe("media", () => {
   test("test_sendonly_recvonly", async () =>
@@ -162,4 +163,24 @@ describe("media", () => {
       await recvonly.setLocalDescription(await recvonly.createAnswer());
       await sendonly.setRemoteDescription(recvonly.localDescription!);
     }));
+
+  test("PLI reaches the remote sender in a sendrecv video session", async () => {
+    // Arrange
+    const { pc1, pc2, transceiver1, transceiver2 } =
+      await createConnectedSendrecvVideoPeers();
+    const pliReceived = transceiver1.sender.onPictureLossIndication.asPromise();
+    const receiverRtcp: number[] = [];
+    transceiver1.receiver.onRtcp.subscribe((rtcp) =>
+      receiverRtcp.push(rtcp.type),
+    );
+
+    // Act: pc2 が pc1 の送信 SSRC に PLI を送る (sender SSRC は pc2 自身の送信 SSRC)
+    await transceiver2.receiver.sendRtcpPLI(transceiver1.sender.ssrc);
+    await pliReceived;
+
+    // Assert: PLI は pc1 の sender に届き、同じ transceiver の receiver には誤配送されない
+    expect(receiverRtcp).not.toContain(206);
+
+    await Promise.all([pc1.close(), pc2.close()]);
+  });
 });

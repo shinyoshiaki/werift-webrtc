@@ -46,6 +46,14 @@
 
 ***
 
+### onFullIntraRequest
+
+> `readonly` **onFullIntraRequest**: [`Event`](Event.md)\<\[[`FullIntraRequest`](FullIntraRequest.md)\]\>
+
+Fires for a FIR addressed to this sender with a new sequence number (RFC 5104 4.3.1).
+
+***
+
 ### onGenericNack
 
 > `readonly` **onGenericNack**: [`Event`](Event.md)\<\[[`GenericNack`](GenericNack.md)\]\>

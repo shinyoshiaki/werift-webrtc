@@ -1,6 +1,10 @@
+import { vi } from "vitest";
 import {
   MediaStreamTrack,
   RTCRtpTransceiver,
+  ReceiverEstimatedMaxBitrate,
+  RtcpHeader,
+  RtcpPayloadSpecificFeedback,
   RtpHeader,
   RtpPacket,
   defaultPeerConfig,
@@ -12,7 +16,12 @@ import {
 import { RtpRouter } from "../../src/media/router";
 import { RTCRtpReceiver } from "../../src/media/rtpReceiver";
 import { RTCRtpSender } from "../../src/media/rtpSender";
-import { createDtlsTransport } from "../fixture";
+import {
+  createDtlsTransport,
+  createFirPacket,
+  createPliPacket,
+  createRtcpFeedbackRouter,
+} from "../fixture";
 
 describe("media/router", () => {
   test("routeRtp", () =>
@@ -85,5 +94,153 @@ describe("media/router", () => {
     expect(transceiver.receiver.trackBySSRC[ssrc]?.ssrc).toBe(ssrc);
     expect(router.learnedSsrcs.has(ssrc)).toBe(false);
     expect(transceiver.receiver.learnedTrackSsrcs.has(ssrc)).toBe(false);
+  });
+
+  describe("routeRtcp payload-specific feedback", () => {
+    test("PLI is routed by media SSRC even when sender SSRC matches another stream", () => {
+      // Arrange
+      const { router, senderA, senderB, remoteSsrc, rtcpSpies } =
+        createRtcpFeedbackRouter();
+      const pliOfB = vi.fn();
+      senderB.onPictureLossIndication.subscribe(pliOfB);
+
+      // Act: sender SSRC が自分の sender A / 受信 stream に一致する PLI を B 宛に送る
+      router.routeRtcp(
+        createPliPacket({ senderSsrc: senderA.ssrc, mediaSsrc: senderB.ssrc }),
+      );
+      router.routeRtcp(
+        createPliPacket({ senderSsrc: remoteSsrc, mediaSsrc: senderB.ssrc }),
+      );
+
+      // Assert: media SSRC の sender B にだけ届き、PLI として処理される
+      expect(rtcpSpies.senderB).toHaveBeenCalledTimes(2);
+      expect(pliOfB).toHaveBeenCalledTimes(2);
+      expect(rtcpSpies.senderA).not.toHaveBeenCalled();
+      expect(rtcpSpies.senderC).not.toHaveBeenCalled();
+      expect(rtcpSpies.receiver).not.toHaveBeenCalled();
+    });
+
+    test("PLI with an unknown media SSRC is not routed", () => {
+      // Arrange
+      const { router, senderA, rtcpSpies } = createRtcpFeedbackRouter();
+
+      // Act: sender SSRC は登録済みだが media SSRC は未登録の PLI を配送する
+      router.routeRtcp(
+        createPliPacket({ senderSsrc: senderA.ssrc, mediaSsrc: 0x12345678 }),
+      );
+
+      // Assert: sender SSRC へフォールバックせず、誰にも配送されない
+      Object.values(rtcpSpies).forEach((spy) =>
+        expect(spy).not.toHaveBeenCalled(),
+      );
+    });
+
+    test("FIR with media SSRC 0 is routed by its FCI SSRC", () => {
+      // Arrange
+      const { router, senderA, senderB, rtcpSpies } =
+        createRtcpFeedbackRouter();
+
+      // Act: libwebrtc 形式 (media SSRC = 0) の FIR を B 宛に送る
+      router.routeRtcp(
+        createFirPacket({
+          senderSsrc: senderA.ssrc,
+          fir: [{ ssrc: senderB.ssrc, sequenceNumber: 1 }],
+        }),
+      );
+
+      // Assert: FCI の SSRC の sender B にだけ届く
+      expect(rtcpSpies.senderB).toHaveBeenCalledTimes(1);
+      expect(rtcpSpies.senderA).not.toHaveBeenCalled();
+      expect(rtcpSpies.senderC).not.toHaveBeenCalled();
+      expect(rtcpSpies.receiver).not.toHaveBeenCalled();
+    });
+
+    test("FIR with multiple and duplicated entries reaches each target once", () => {
+      // Arrange
+      const { router, senderA, senderB, senderC, rtcpSpies } =
+        createRtcpFeedbackRouter();
+
+      // Act: B, C, B (重複) と未登録 SSRC を含む FIR を配送する
+      router.routeRtcp(
+        createFirPacket({
+          senderSsrc: senderA.ssrc,
+          fir: [
+            { ssrc: senderB.ssrc, sequenceNumber: 1 },
+            { ssrc: senderC.ssrc, sequenceNumber: 1 },
+            { ssrc: senderB.ssrc, sequenceNumber: 1 },
+            { ssrc: 0x12345678, sequenceNumber: 1 },
+          ],
+        }),
+      );
+
+      // Assert: B と C に 1 回ずつ届き、sender SSRC の A には届かない
+      expect(rtcpSpies.senderB).toHaveBeenCalledTimes(1);
+      expect(rtcpSpies.senderC).toHaveBeenCalledTimes(1);
+      expect(rtcpSpies.senderA).not.toHaveBeenCalled();
+      expect(rtcpSpies.receiver).not.toHaveBeenCalled();
+    });
+
+    test("FIR without entries falls back to a non-zero media SSRC only", () => {
+      // Arrange
+      const { router, senderA, senderB, rtcpSpies } =
+        createRtcpFeedbackRouter();
+
+      // Act: FCI が空の FIR を media SSRC = 0 / B でそれぞれ配送する
+      router.routeRtcp(createFirPacket({ senderSsrc: senderA.ssrc, fir: [] }));
+      router.routeRtcp(
+        createFirPacket({
+          senderSsrc: senderA.ssrc,
+          mediaSsrc: senderB.ssrc,
+          fir: [],
+        }),
+      );
+
+      // Assert: media SSRC が 0 のものは配送されず、B 宛のものだけ B に届く
+      expect(rtcpSpies.senderB).toHaveBeenCalledTimes(1);
+      expect(rtcpSpies.senderA).not.toHaveBeenCalled();
+    });
+
+    test("REMB is still routed by its first SSRC feedback", () => {
+      // Arrange
+      const { router, senderA, senderB, rtcpSpies } =
+        createRtcpFeedbackRouter();
+
+      // Act: B を対象とする REMB を配送する
+      router.routeRtcp(
+        new RtcpPayloadSpecificFeedback({
+          feedback: new ReceiverEstimatedMaxBitrate({
+            senderSsrc: senderA.ssrc,
+            mediaSsrc: 0,
+            ssrcNum: 1,
+            ssrcFeedbacks: [senderB.ssrc],
+            bitrate: 300000n,
+          }),
+        }),
+      );
+
+      // Assert: 従来どおり ssrcFeedbacks[0] の B に届き、推定値が反映される
+      expect(rtcpSpies.senderB).toHaveBeenCalledTimes(1);
+      expect(rtcpSpies.senderA).not.toHaveBeenCalled();
+      expect(senderB.receiverEstimatedMaxBitrate).toBe(300000n);
+    });
+
+    test("PSFB with an unknown FMT is not routed and does not throw", () => {
+      // Arrange
+      const { router, senderB, rtcpSpies } = createRtcpFeedbackRouter();
+      const payload = Buffer.alloc(8);
+      payload.writeUInt32BE(senderB.ssrc, 4);
+      // FMT=2 (SLI) は parse されず feedback が undefined になる
+      const sli = RtcpPayloadSpecificFeedback.deSerialize(
+        payload,
+        new RtcpHeader({ type: RtcpPayloadSpecificFeedback.type, count: 2 }),
+      );
+
+      // Act / Assert: 例外を投げず、誰にも配送されない
+      expect(sli.feedback).toBeUndefined();
+      expect(() => router.routeRtcp(sli)).not.toThrow();
+      Object.values(rtcpSpies).forEach((spy) =>
+        expect(spy).not.toHaveBeenCalled(),
+      );
+    });
   });
 });

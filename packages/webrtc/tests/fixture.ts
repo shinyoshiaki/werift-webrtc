@@ -2,21 +2,28 @@ import { setTimeout } from "timers/promises";
 
 import { vi } from "vitest";
 import {
+  FullIntraRequest,
   type Kind,
   MediaStreamTrack,
+  PictureLossIndication,
   RTCDtlsTransport,
   RTCIceGatherer,
   RTCIceTransport,
   RTCPeerConnection,
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
+  RTCRtpTransceiver,
   type RTCSessionDescription,
   RTP_EXTENSION_URI,
+  RtcpPayloadSpecificFeedback,
   RtpHeader,
   RtpPacket,
   codecParametersToString,
   defaultPeerConfig,
 } from "../src";
+import { RTCRtpCodingParameters } from "../src/media/parameters";
+import { RtpRouter } from "../src/media/router";
+import { RTCRtpReceiver } from "../src/media/rtpReceiver";
 import { RTCRtpSender } from "../src/media/rtpSender";
 
 export const createRtpPacket = (
@@ -173,3 +180,112 @@ export const iceTransportPair = async () => {
 
   return [transport1, transport2];
 };
+
+/**
+ * router に送信 stream A / B / C と受信 stream R (sendrecv 相当) を登録する。
+ * RTCP feedback の配送先を検証するための Arrange。
+ */
+export function createRtcpFeedbackRouter() {
+  const router = new RtpRouter();
+  const createSender = () => {
+    const sender = new RTCRtpSender("video");
+    router.registerRtpSender(sender);
+    return sender;
+  };
+  const senderA = createSender();
+  const senderB = createSender();
+  const senderC = createSender();
+
+  const receiverTransceiver = new RTCRtpTransceiver(
+    "video",
+    createDtlsTransport(),
+    new RTCRtpReceiver(defaultPeerConfig, "video", 0),
+    new RTCRtpSender("video"),
+    "recvonly",
+  );
+  const remoteSsrc = 0x0abc0001;
+  router.registerRtpReceiverBySsrc(receiverTransceiver, {
+    encodings: [
+      new RTCRtpCodingParameters({ ssrc: remoteSsrc, payloadType: 96 }),
+    ],
+    codecs: [],
+    headerExtensions: [],
+  });
+  const receiver = receiverTransceiver.receiver;
+
+  const rtcpSpies = {
+    senderA: vi.spyOn(senderA, "handleRtcpPacket"),
+    senderB: vi.spyOn(senderB, "handleRtcpPacket"),
+    senderC: vi.spyOn(senderC, "handleRtcpPacket"),
+    receiver: vi.spyOn(receiver, "handleRtcpPacket"),
+  };
+
+  return { router, senderA, senderB, senderC, receiver, remoteSsrc, rtcpSpies };
+}
+
+export function createPliPacket(props: {
+  senderSsrc: number;
+  mediaSsrc: number;
+}) {
+  return new RtcpPayloadSpecificFeedback({
+    feedback: new PictureLossIndication(props),
+  });
+}
+
+export function createFirPacket(props: {
+  senderSsrc: number;
+  mediaSsrc?: number;
+  fir: { ssrc: number; sequenceNumber: number }[];
+}) {
+  return new RtcpPayloadSpecificFeedback({
+    feedback: new FullIntraRequest({ mediaSsrc: 0, ...props }),
+  });
+}
+
+export async function outboundRtpStats(sender: RTCRtpSender) {
+  const report = await sender.getStats();
+  return Array.from(report.values()).find(
+    (stat) => stat.type === "outbound-rtp",
+  ) as { pliCount?: number; firCount?: number };
+}
+
+/**
+ * werift 同士で sendrecv video を 1 本ずつ接続し、双方が相手の RTP を 1 つ受けた状態にする。
+ * 受信側の SSRC と codec が確定するので、PLI を送れる。
+ */
+export async function createConnectedSendrecvVideoPeers() {
+  const connect = (pc: RTCPeerConnection) => {
+    const track = new MediaStreamTrack({ kind: "video" });
+    const transceiver = pc.addTransceiver(track, { direction: "sendrecv" });
+    const received = new Promise<void>((resolve) =>
+      transceiver.onTrack.subscribe((remote) =>
+        remote.onReceiveRtp.once(() => resolve()),
+      ),
+    );
+    transceiver.sender.onReady.subscribe(() => {
+      const timer = setInterval(() => {
+        if (transceiver.sender.stopped) return clearInterval(timer);
+        track.writeRtp(new RtpPacket(new RtpHeader(), Buffer.from("rtp")));
+      }, 20);
+      received.finally(() => setTimeout(100).then(() => clearInterval(timer)));
+    });
+    return { transceiver, received };
+  };
+  const pc1 = new RTCPeerConnection();
+  const pc2 = new RTCPeerConnection();
+  const peer1 = connect(pc1);
+  const peer2 = connect(pc2);
+
+  await pc1.setLocalDescription(await pc1.createOffer());
+  await pc2.setRemoteDescription(pc1.localDescription!);
+  await pc2.setLocalDescription(await pc2.createAnswer());
+  await pc1.setRemoteDescription(pc2.localDescription!);
+  await Promise.all([peer1.received, peer2.received]);
+
+  return {
+    pc1,
+    pc2,
+    transceiver1: peer1.transceiver,
+    transceiver2: peer2.transceiver,
+  };
+}

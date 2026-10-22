@@ -27,6 +27,10 @@ server.on("connection", async (socket) => {
     video.sender.onPictureLossIndication.subscribe(() =>
       video.receiver.sendRtcpPLI(track.ssrc),
     );
+    // FIR (RFC 5104) is a separate event; request a key frame upstream as well
+    video.sender.onFullIntraRequest.subscribe(() =>
+      video.receiver.sendRtcpPLI(track.ssrc),
+    );
   });
 
   const audio = pc.addTransceiver("audio");

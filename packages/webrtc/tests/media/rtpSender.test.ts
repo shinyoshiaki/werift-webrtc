@@ -16,7 +16,10 @@ import { RTCStatsReport } from "../../src/media/stats";
 import {
   createConnectedRtpSender,
   createDtlsTransport,
+  createFirPacket,
+  createPliPacket,
   createRtpPacket,
+  outboundRtpStats,
   sentRtpHeaders,
 } from "../fixture";
 
@@ -1245,5 +1248,104 @@ describe("media/rtpSender RTP continuity", () => {
     const [header] = sentRtpHeaders(sendRtp);
     expect(header.sequenceNumber).toBe((last.sequenceNumber + 1) & 0xffff);
     expect(header.timestamp).toBe((last.timestamp + 1) >>> 0);
+  });
+
+  describe("keyframe requests", () => {
+    const remoteSsrc = 0x0abc0001;
+
+    test("FIR addressed to the sender counts firCount and fires onFullIntraRequest", async () => {
+      // Arrange
+      const { sender } = createConnectedRtpSender({ kind: "video" });
+      const onFir = vi.fn();
+      const onPli = vi.fn();
+      sender.onFullIntraRequest.subscribe(onFir);
+      sender.onPictureLossIndication.subscribe(onPli);
+      const fir = createFirPacket({
+        senderSsrc: remoteSsrc,
+        fir: [{ ssrc: sender.ssrc, sequenceNumber: 7 }],
+      });
+
+      // Act: 自分宛エントリを含む FIR を受ける
+      sender.handleRtcpPacket(fir);
+
+      // Assert: firCount が outbound-rtp に出て、FIR の Event だけが発火する
+      expect(onFir).toHaveBeenCalledTimes(1);
+      expect(onFir).toHaveBeenCalledWith(fir.feedback);
+      expect(onPli).not.toHaveBeenCalled();
+      const stats = await outboundRtpStats(sender);
+      expect(stats.firCount).toBe(1);
+      expect(stats.pliCount).toBeUndefined();
+    });
+
+    test("retransmitted FIR with the same sequence number counts but does not fire", async () => {
+      // Arrange
+      const { sender } = createConnectedRtpSender({ kind: "video" });
+      const onFir = vi.fn();
+      sender.onFullIntraRequest.subscribe(onFir);
+      const firWithSeq = (sequenceNumber: number, senderSsrc = remoteSsrc) =>
+        createFirPacket({
+          senderSsrc,
+          fir: [{ ssrc: sender.ssrc, sequenceNumber }],
+        });
+
+      // Act: 同じ送信元・同じ Seq nr の FIR を再送として 2 回受ける
+      sender.handleRtcpPacket(firWithSeq(1));
+      sender.handleRtcpPacket(firWithSeq(1));
+
+      // Assert: 数は 2 だが Event は初回の 1 回だけ
+      expect(onFir).toHaveBeenCalledTimes(1);
+      expect((await outboundRtpStats(sender)).firCount).toBe(2);
+
+      // Act: Seq nr を進めた FIR と、別の送信元からの同じ Seq nr の FIR を受ける
+      sender.handleRtcpPacket(firWithSeq(2));
+      sender.handleRtcpPacket(firWithSeq(2, remoteSsrc + 1));
+
+      // Assert: どちらも新しい要求として発火する
+      expect(onFir).toHaveBeenCalledTimes(3);
+      expect((await outboundRtpStats(sender)).firCount).toBe(4);
+    });
+
+    test("FIR not addressed to the sender is ignored except onRtcp", async () => {
+      // Arrange
+      const { sender } = createConnectedRtpSender({ kind: "video" });
+      const onFir = vi.fn();
+      const onRtcp = vi.fn();
+      sender.onFullIntraRequest.subscribe(onFir);
+      sender.onRtcp.subscribe(onRtcp);
+
+      // Act: 他の SSRC 宛エントリだけの FIR を受ける
+      sender.handleRtcpPacket(
+        createFirPacket({
+          senderSsrc: remoteSsrc,
+          fir: [{ ssrc: sender.ssrc + 1, sequenceNumber: 1 }],
+        }),
+      );
+
+      // Assert: firCount も Event も変わらず、onRtcp だけ従来どおり発火する
+      expect(onFir).not.toHaveBeenCalled();
+      expect(onRtcp).toHaveBeenCalledTimes(1);
+      expect((await outboundRtpStats(sender)).firCount).toBeUndefined();
+    });
+
+    test("PLI does not affect FIR handling", async () => {
+      // Arrange
+      const { sender } = createConnectedRtpSender({ kind: "video" });
+      const onFir = vi.fn();
+      const onPli = vi.fn();
+      sender.onFullIntraRequest.subscribe(onFir);
+      sender.onPictureLossIndication.subscribe(onPli);
+
+      // Act: PLI を受ける
+      sender.handleRtcpPacket(
+        createPliPacket({ senderSsrc: remoteSsrc, mediaSsrc: sender.ssrc }),
+      );
+
+      // Assert: PLI 側だけが数えられ、FIR 側は変わらない
+      expect(onPli).toHaveBeenCalledTimes(1);
+      expect(onFir).not.toHaveBeenCalled();
+      const stats = await outboundRtpStats(sender);
+      expect(stats.pliCount).toBe(1);
+      expect(stats.firCount).toBeUndefined();
+    });
   });
 });
