@@ -649,18 +649,22 @@ export function createRecordingTransport(
   metadata: Pick<Transport, "addressFamily" | "remoteAddress"> = {},
 ) {
   const sentTo: Address[] = [];
+  /** Every STUN message sent, in order. */
+  const sentMessages: Message[] = [];
   const transport: Transport = {
     type,
     closed: false,
     onData: () => {},
     address: { address: "127.0.0.1", port: 0, family: "IPv4" },
-    send: async (_data: Buffer, addr?: Address) => {
+    send: async (data: Buffer, addr?: Address) => {
       if (addr) sentTo.push(addr);
+      const message = parseMessage(data);
+      if (message) sentMessages.push(message);
     },
     close: async () => {},
     ...metadata,
   };
-  return { transport, sentTo };
+  return { transport, sentTo, sentMessages };
 }
 
 /**
@@ -729,15 +733,90 @@ export function createTurnSuccessResponse(request: Message) {
   return response;
 }
 
+/** Where a redirecting test TURN server sends clients; mutable. */
+export interface TurnRedirectTarget {
+  alternate?: Address;
+  alternateDomain?: string;
+}
+
+/** 300 (Try Alternate) error response a TURN server would send for a request. */
+export function createTurnTryAlternateResponse(
+  request: Message,
+  { alternate, alternateDomain }: TurnRedirectTarget,
+) {
+  const response = new Message(
+    request.messageMethod,
+    classes.ERROR,
+    request.transactionId,
+  ).setAttribute("ERROR-CODE", [300, "Try Alternate"]);
+  if (alternate) {
+    response.setAttribute("ALTERNATE-SERVER", alternate);
+  }
+  if (alternateDomain) {
+    response.setAttribute("ALTERNATE-DOMAIN", alternateDomain);
+  }
+  return response;
+}
+
+/**
+ * TURN server on UDP 127.0.0.1 that answers every request with 300 (Try
+ * Alternate) to `target`, read when each request arrives, and records the
+ * requests it receives.
+ */
+export async function createUdpTurnRedirectServer(
+  target: TurnRedirectTarget = {},
+) {
+  const requests: Message[] = [];
+  const socket = dgram.createSocket("udp4");
+  socket.on("message", (data, rinfo) => {
+    const request = parseMessage(data);
+    if (!request) return;
+    requests.push(request);
+    socket.send(
+      createTurnTryAlternateResponse(request, target).bytes,
+      rinfo.port,
+      rinfo.address,
+    );
+  });
+  await new Promise<void>((resolve) =>
+    socket.bind(0, "127.0.0.1", () => resolve()),
+  );
+  const address: Address = ["127.0.0.1", socket.address().port];
+  return {
+    address,
+    requests,
+    target,
+    close: () => new Promise<void>((resolve) => socket.close(() => resolve())),
+  };
+}
+
+/** Stream (TCP/TLS) counterpart of createUdpTurnRedirectServer. */
+export async function createStreamTurnRedirectServer(
+  target: TurnRedirectTarget = {},
+  { tls: useTls = false }: { tls?: boolean } = {},
+) {
+  const server = await createStreamTurnServer({
+    tls: useTls,
+    reply: (request) => createTurnTryAlternateResponse(request, target),
+  });
+  const address: Address = ["127.0.0.1", server.port];
+  return { ...server, address, target };
+}
+
 /**
  * Minimal TURN server over TCP or TLS on 127.0.0.1. It records the requests
- * it receives. With `respond`, it answers every request with
- * createTurnSuccessResponse (no authentication).
+ * it receives. With `respond`, it answers every request with `reply`,
+ * createTurnSuccessResponse (no authentication) by default.
  */
 export async function createStreamTurnServer({
   tls: useTls = false,
   respond = true,
-}: { tls?: boolean; respond?: boolean } = {}) {
+  reply = createTurnSuccessResponse,
+}: {
+  tls?: boolean;
+  respond?: boolean;
+  reply?: (request: Message) => Message;
+} = {}) {
   const requests: Message[] = [];
   const sockets = new Set<net.Socket>();
   const onConnection = (socket: net.Socket) => {
@@ -754,7 +833,7 @@ export async function createStreamTurnServer({
         if (!request) continue;
         requests.push(request);
         if (respond) {
-          socket.write(createTurnSuccessResponse(request).bytes);
+          socket.write(reply(request).bytes);
         }
       }
     });
