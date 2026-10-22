@@ -115,6 +115,7 @@
 - [TransceiverManager](classes/TransceiverManager.md)
 - [TransportWideCC](classes/TransportWideCC.md)
 - [TurnProtocol](classes/TurnProtocol.md)
+- [TurnRedirectError](classes/TurnRedirectError.md)
 - [UdpTransport](classes/UdpTransport.md)
 - [Vp8RtpPayload](classes/Vp8RtpPayload.md)
 - [Vp9RtpPayload](classes/Vp9RtpPayload.md)
@@ -237,6 +238,8 @@
 - [TcpCandidateType](type-aliases/TcpCandidateType.md)
 - [TlsConnectionOptions](type-aliases/TlsConnectionOptions.md)
 - [TransportWideCCPayload](type-aliases/TransportWideCCPayload.md)
+- [TurnRedirectFailureReason](type-aliases/TurnRedirectFailureReason.md)
+- [TurnStreamReconnect](type-aliases/TurnStreamReconnect.md)
 
 ## Variables
 
