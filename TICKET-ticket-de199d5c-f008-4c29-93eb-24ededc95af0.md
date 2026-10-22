@@ -381,9 +381,9 @@ packetize(data: Buffer, rtpTimestamp: number): RtpPacket[]
 
 | 項目 | 本タスクの扱い |
 |---|---|
-| `userMedia/packetizer.ts` の既存クラス | **参照実装**として仕様・ビットを照合。削除・統合は必須ではない |
-| mediabunny `EncodedPacket` | rtp 側 API に持ち込まない |
-| webrtc を rtp の Packetizer に差し替え | **任意 / 範囲外推奨**（差し替える場合は別チケット。回帰は `npm run test:small` + userMedia 系） |
+| `userMedia/packetizer.ts` の既存クラス | **追加要件（§12）により削除し `packages/rtp` へ統合済み** |
+| mediabunny `EncodedPacket` | rtp 側 API に持ち込まない（webrtc 側の薄いアダプタで変換） |
+| webrtc を rtp の Packetizer に差し替え | **追加要件（§12）として本チケットで実施**。回帰は `npm run test:small` + userMedia 系 + Chrome E2E |
 | `packages/webrtc/src/media/codec.ts` | 本タスクで必須の定数追加なし（useVP8 等は既存想定） |
 
 ### 7.6 仕様（RFC / ドラフト）の入手と照合
@@ -523,7 +523,7 @@ packetize(data: Buffer, rtpTimestamp: number): RtpPacket[]
 
 - **In scope**: 5 コーデックの Packetizer、仕様原文、テスト、ドキュメント、例の拡張、（推奨）ベクタ生成。
 - **Out of scope**:
-  - webrtc `userMedia` の必須リファクタ / mediabunny 除去
+  - webrtc `userMedia` の mediabunny 除去（packetizer の重複統合は追加要件 §12 で In scope）
   - VP9 flexible mode + scalability structure の完全送信、VP8 の複数 PID パーティション高度制御（最小合法サブセットで可。拡張はオプション）
   - H.264 interleaved mode（FU-B/MTAP）、packetization-mode=0 専用最適化
   - 新規 npm 依存の追加
@@ -1075,6 +1075,35 @@ new DepacketizeCallback("VP8", {
 - `packages/rtp/examples/node/rtp_over_udp/` — Node 単体 packetizer 例
 
 ---
+
+## 12. 追加要件: webrtc userMedia packetizer と packages/rtp の重複統合
+
+### 12.1 目的
+
+`packages/webrtc/src/nonstandard/userMedia/packetizer.ts` は `packages/rtp` の Packetizer と同じ RTP ペイロード生成を独自に実装していた。二重実装のため、rtp 側で直した不具合（AV1 の OBU 集約など）が webrtc 側に残っていた。重複を洗い出して `packages/rtp` を唯一の実装とし、webrtc 側は mediabunny `EncodedPacket` から rtp Packetizer への変換だけを持つ。
+
+### 12.2 重複一覧と統合先
+
+| # | webrtc（統合前） | packages/rtp（統合先） | 差分と扱い |
+|---|---|---|---|
+| 1 | `BasePacketizer`（random16 の連番、uint16 wrap、`buildPacket`） | `codec/base.ts` `PacketizerBase` | 同等。PT は `codec.payloadType ?? 96`、MTU 1200 を options で渡す |
+| 2 | `OpusPacketizer`（毎 packet marker=1） | `codec/opus.ts` `OpusPacketizer` | rtp は talkspurt 先頭のみ marker。**webrtc の挙動を維持**するため、アダプタで毎回 `startTalkspurt()` を呼ぶ。1200 byte 超は rtp に合わせて例外 |
+| 3 | `Vp8Packetizer` | `codec/vp8.ts` `Vp8Packetizer` | 同一ビット列 |
+| 4 | `Vp9Packetizer`（P bit は `packet.type`） | `codec/vp9.ts` `Vp9Packetizer` | 同一。`frameType: packet.type` を渡す |
+| 5 | `Av1Packetizer`、`createAv1AggregationHeader`、`splitAv1Obus` | `codec/av1.ts` の同名 API | rtp 側は TD 除去、size field 除去、OBU 集約（W=1..3。Chrome が 1 temporal unit を 1 フレームとして扱う）。N bit は **webrtc の挙動を維持**し、アダプタで `startsNewCodedVideoSequence: packet.type === "key"` を渡す（av1C だけに SH を持つソースへの配慮） |
+| 6 | `H264Packetizer`、`splitH264Sample`、`looksLikeAnnexB`、`readUintLength`、`containsH264ParameterSets` | `codec/h264.ts` `H264Packetizer`、`splitH264NalUnits`、`selectMissingH264ParameterSets` | rtp 側の仕様を採用する。SPS/PPS は STAP-A に集約し、欠けている型だけを補完し、AUD の後ろに挿入する。NAL type ≥14 は落とさない。avcC があれば `inputFormat: "length-prefixed"`、無ければ `"auto"`。keyframe 判定は `packet.type === "key"` |
+| 7 | `parseAvcDecoderConfiguration`、`toDescriptionBuffer`（webrtc）と `parseAvcDecoderConfiguration`、`toBuffer`（`e2e/server/codecRtpUtils.ts`） | **新規** `codec/h264.ts` `parseAvcDecoderConfigurationRecord` | 3 箇所の重複を 1 つにする。戻り値は `naluLengthSize` / `sps` / `pps` / `parameterSets`。途中で切れた avcC は部分結果を返さず例外にする |
+
+webrtc 側に残すもの（rtp に置くべきでない、webrtc 固有の処理）: `Packetizer` インターフェース（`EncodedPacket` 入力）、`createPacketizer`、`toSupportedMimeType`、`supportedSourceCodecs`、`getH264PacketizationMode`（SDP fmtp の解釈。mode≠1 は従来どおり例外）、`toBuffer`（`Uint8Array` から `Buffer` への変換）。
+
+### 12.3 完了条件
+
+- [x] webrtc の `userMedia/packetizer.ts` に codec ペイロード生成ロジックが残っていない（全 codec が `packages/rtp` の Packetizer に委譲される）
+- [x] avcC パーサが `packages/rtp` の `parseAvcDecoderConfigurationRecord` に一本化され、webrtc と e2e の重複が削除されている
+- [x] 単体テスト: rtp は avcC パーサ（正常系、byteOffset を持つ view、切れた入力）と H264Packetizer との連携。webrtc は AV1 の Z/Y 集約、avcC 付き H.264 の STAP-A、mode≠1 の拒否、Opus marker と PT、VP8 の連番。Arrange は `tests/utils.ts` と `userMediaTestUtils.ts` に集約する
+- [x] `userMedia.test.ts` の H.264 待機条件を packet 数からフレーム数（marker 区切り）に変更（STAP-A 化で packet 数が変わるため）
+- [x] `changelog.md` に統合と wire 上の挙動差分を記載
+- [x] `npm run type` / `npm run test:small` / Chrome E2E が成功
 
 ## 参考：親チケットとの境界
 
