@@ -23,6 +23,7 @@ import {
   assertCodecsSupported,
   hasCommonPrimaryMimeType,
   isCodecCompatible,
+  normalizeCodecMimeType,
   resolveCodecs,
 } from "./media/codecCompatibility";
 import type { RTCStats } from "./media/stats";
@@ -556,7 +557,8 @@ export class TransceiverManager {
       const remoteCodec = remoteMedia.rtp.codecs.find(
         (codec) =>
           !usedRemote.has(codec) &&
-          codec.mimeType.toLowerCase() === localCodec.mimeType.toLowerCase() &&
+          normalizeCodecMimeType(codec.mimeType) ===
+            normalizeCodecMimeType(localCodec.mimeType) &&
           (source == undefined ||
             source.some((sourceCodec) =>
               isCodecCompatible(sourceCodec, codec),

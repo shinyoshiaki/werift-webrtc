@@ -26,6 +26,7 @@ import {
   type TransceiverOptions,
   defaultCodecs,
 } from "./media";
+import { normalizeCodecMimeType } from "./media/codecCompatibility";
 import {
   type RTCPeerConnectionStats,
   type RTCStats,
@@ -1890,7 +1891,8 @@ export const findCodecByMimeType = (
 ) =>
   codecs.find(
     (localCodec) =>
-      localCodec.mimeType.toLowerCase() === target.mimeType.toLowerCase(),
+      normalizeCodecMimeType(localCodec.mimeType) ===
+      normalizeCodecMimeType(target.mimeType),
   )
     ? target
     : undefined;
