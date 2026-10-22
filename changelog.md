@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### ⚠️ Breaking changes
+
+- **`werift-sctp`: `SCTP.outboundQueue` is now a `FifoQueue<DataChunk>` instead of `DataChunk[]`**: the field is `readonly` and has no array-compatibility layer. `FifoQueue` is exported from `werift-common` and re-exported from `werift-sctp`. Migration: use `outboundQueue.length`, `peek()`, `at(i)`, `last()`, `toArray()` or `for...of` instead of array indexing / array methods, and do not reassign the field. Reason: draining a large queue with `Array.prototype.shift()` was quadratic and contributed to the DataChannel burst slowdown below.
+
 ### 🚀 Features
 
 - **`RTCRtpSender.onFullIntraRequest`**: a new `Event<[FullIntraRequest]>` fires when the sender receives a FIR (RFC 5104) whose FCI has an entry for its SSRC with a new sequence number. A retransmitted FIR (same sequence number from the same FIR sender) does not fire it again. FIR is not delivered to `onPictureLossIndication`; applications that refresh on both should subscribe to both events.
@@ -10,6 +14,11 @@
 
 ### 🐛 Bug Fixes
 
+- **Large `RTCDataChannel.send()` bursts no longer slow down quadratically or starve the event loop** (`werift-sctp`, `packages/webrtc`): queuing thousands of messages at once took time growing with the square of the queue length (2,000 × 1 KB: ~12 s, 5,000: minutes) and blocked the event loop for seconds per SACK, long enough to lose ICE consent mid-transfer.
+  - `SCTP.send()` now resolves when its own last chunk is handed to the network (moved from the outbound queue to the sent queue) instead of waiting until the whole outbound queue drains. Previously every pending `send()` waited on the `flush` event, so each transmit woke all N waiters and each re-subscribed with an O(N) unsubscribe.
+  - Pending `send()` calls settle when the association closes instead of staying pending forever.
+  - The SCTP sent / outbound queues and the DataChannel send queue use `FifoQueue` (amortized O(1) `shift()`).
+  - `RTCSctpTransport` hands queued DataChannel messages to SCTP in a single synchronous pass instead of starting one concurrent flush loop per `send()`. `bufferedAmount` now decreases per message as it is transmitted (previously only after the whole SCTP outbound queue drained), so `bufferedamountlow` fires during a burst. Messages not yet handed to SCTP are discarded when the transport stops.
 - **RTCP PLI / FIR routed to the targeted media source**: `RtpRouter.routeRtcp()` used to look up a payload-specific feedback by its sender SSRC first, so a PLI whose sender SSRC matched another local stream (e.g. a werift or Chrome peer in a sendrecv video session, or an SFU viewer's own stream) was delivered to the wrong `RTCRtpReceiver` / `RTCRtpSender` and never raised `onPictureLossIndication`. PLI is now routed only by its media SSRC (RFC 4585 §6.1), and FIR by the SSRC of each FCI entry (RFC 5104 §4.3.1; the media SSRC of the common header is 0 for libwebrtc), delivering once per target sender. A PLI whose media SSRC is not registered is no longer delivered to the stream matching its sender SSRC. Unknown payload-specific feedback types (SLI, RPSI, ...) are no longer routed, instead of throwing.
 
 ## v0.25.1
