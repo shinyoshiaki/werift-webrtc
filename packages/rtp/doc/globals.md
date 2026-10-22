@@ -24,6 +24,7 @@
 - [DePacketizerBase](classes/DePacketizerBase.md)
 - [Event](classes/Event.md)
 - [EventDisposer](classes/EventDisposer.md)
+- [FifoQueue](classes/FifoQueue.md)
 - [GenericNack](classes/GenericNack.md)
 - [H264RtpPayload](classes/H264RtpPayload.md)
 - [OpusRtpPayload](classes/OpusRtpPayload.md)
