@@ -234,8 +234,8 @@ export async function getInboundVideoDecodeStats(
     firCount: 0,
     nackCount: 0,
   };
-  for (const stat of report.values()) {
-    if (stat.type !== "inbound-rtp" || stat.kind !== "video") continue;
+  report.forEach((stat) => {
+    if (stat.type !== "inbound-rtp" || stat.kind !== "video") return;
     totals.packetsReceived += stat.packetsReceived ?? 0;
     totals.packetsLost += stat.packetsLost ?? 0;
     totals.framesReceived += stat.framesReceived ?? 0;
@@ -248,7 +248,7 @@ export async function getInboundVideoDecodeStats(
     totals.frameWidth ??= stat.frameWidth;
     totals.frameHeight ??= stat.frameHeight;
     totals.decoderImplementation ??= stat.decoderImplementation;
-  }
+  });
   return totals;
 }
 
