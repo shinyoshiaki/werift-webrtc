@@ -356,7 +356,10 @@ export class RTCSctpTransport {
           .catch((err: Error) => {
             log("send data failed", err.message);
           })
-          .then(() => channel.addBufferedAmount(-userData.length));
+          .then(() => channel.addBufferedAmount(-userData.length))
+          .catch((err: Error) => {
+            log("update bufferedAmount failed", err.message);
+          });
       }
     }
   }
