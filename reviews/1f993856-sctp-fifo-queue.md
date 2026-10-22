@@ -4,7 +4,7 @@ ide:
   version: 1
   title: "SCTP キュー O(N²) 解消のレビュー解説"
   dock: right
-  baseCommit: 792fa4e65e7866a5f85fba514815a147fba9dde0
+  baseCommit: 43c4ecb6fa8d5758d932f3a2f4e09e923b193618
 ---
 # SCTP キュー O(N²) 解消のレビュー解説
 
@@ -22,6 +22,124 @@ DataChannel で大量のメッセージを一気に `send()` すると、時間�
     <strong>After</strong><br>各 send() は「自分の最後のチャンクが送られた時」だけ解決<br>待ち行列の先頭だけを O(1) で解決<br><strong>合計 O(N)</strong>
   </div>
 </div>
+
+## 1.5 アルゴリズム解説：何がどう改善されたか
+
+遅さには **2つの原因** が重なっていました。効果が大きかったのは ① です。
+
+| | 原因 | 改善前 | 改善後 | 効果 |
+|---|---|---|---|---|
+| ① | `send()` の完了待ち | 全 `send()` が同じ `flush` イベントを待つ。1回の送信で **N 個全員を起こす**（合計 O(N²)） | 各 `send()` が自分専用の待ち札を持ち、先頭だけ解決（合計 O(N)） | **支配的**。キュー置換だけでは 13.7 s vs 12.0 s と改善せず |
+| ② | キューの取り出し | `Array.shift()` は残り全要素を詰め直す（1回 O(n)） | 先頭インデックスを進めるだけ（償却 O(1)） | ①の解消後に線形性を保つ土台 |
+
+### ① 待ち方の改善：N 人全員起こす → 先頭の 1 人だけ解決
+
+スライダーで同時に積んだ `send()` 件数 N を変え、「起床回数」を比べられます（1回の送信で全員が起きる前提、送信 N 回）。
+
+<style>
+  .wk{font-size:13px;color:var(--review-fg)}
+  .wk input{width:60%}
+  .wk .row{display:flex;align-items:center;gap:8px;margin:6px 0}
+  .wk .lab{width:110px;color:var(--review-muted)}
+  .wk .tr{flex:1;height:18px;background:var(--review-surface);border:1px solid var(--review-border);border-radius:4px}
+  .wk .b{height:100%;border-radius:3px}
+  .wk .v{width:120px;text-align:right}
+  .wk .dots{display:flex;flex-wrap:wrap;gap:3px;margin:4px 0 10px 118px}
+  .wk .dot{width:10px;height:10px;border-radius:50%;border:1px solid var(--review-border)}
+</style>
+<div class="wk" id="wk1">
+  <div>同時 send() 件数 N = <b id="wk-n">20</b> <input id="wk-s" type="range" min="2" max="200" value="20"></div>
+  <div class="row"><span class="lab">Before（全員起床）</span><div class="tr"><div class="b" id="wk-bb" style="background:var(--review-danger)"></div></div><span class="v" id="wk-bv"></span></div>
+  <div class="row"><span class="lab">After（先頭のみ）</span><div class="tr"><div class="b" id="wk-ab" style="background:var(--review-success)"></div></div><span class="v" id="wk-av"></span></div>
+  <div style="margin-top:8px"><b>1回の transmit で起きる waiter</b>（●=起床）</div>
+  <div style="color:var(--review-muted)">Before</div><div class="dots" id="wk-d1"></div>
+  <div style="color:var(--review-muted)">After</div><div class="dots" id="wk-d2"></div>
+</div>
+<script>
+(function(){
+var s=document.getElementById("wk-s");
+function draw(){
+  var n=+s.value; document.getElementById("wk-n").textContent=n;
+  var b=n*n,a=n;
+  document.getElementById("wk-bb").style.width="100%";
+  document.getElementById("wk-ab").style.cssText="background:var(--review-success);width:"+Math.max(a/b*100,1)+"%";
+  document.getElementById("wk-bv").textContent=b.toLocaleString()+" 回";
+  document.getElementById("wk-av").textContent=a.toLocaleString()+" 回";
+  var d1=document.getElementById("wk-d1"),d2=document.getElementById("wk-d2");
+  d1.innerHTML="";d2.innerHTML="";
+  var m=Math.min(n,60);
+  for(var i=0;i<m;i++){
+    var x=document.createElement("span");x.className="dot";x.style.background="var(--review-danger)";d1.appendChild(x);
+    var y=document.createElement("span");y.className="dot";if(i==0)y.style.background="var(--review-success)";d2.appendChild(y);
+  }
+}
+s.addEventListener("input",draw);draw();
+})();
+</script>
+
+**ポイント:** Before は N 件が `flush`（＝キューが空になる）を待つので、送信のたびに N 人が起きて条件を確認し、また待ち直していました（待ち直しの購読解除も配列 filter で O(N)）。After は「自分の最後のチャンクが `outboundQueue` から `sentQueue` に移った時」だけ解決するため、送信順＝待ち順で **先頭を見るだけ**で済みます。
+
+```mermaid
+sequenceDiagram
+  participant App as send() x N
+  participant S as SCTP.transmit
+  Note over App,S: Before
+  App->>S: N 件が flush を購読
+  S-->>App: 1 chunk 送信 → N 人全員起床 → 条件確認 → 再購読(O(N))
+  Note over App,S: After
+  App->>S: 最後の chunk を sendWaiters に push
+  S-->>App: chunk 送信 → 先頭 waiter が一致なら resolve(O(1))
+```
+
+実装: [packages/sctp/src/sctp.ts:933](review-file:packages/sctp/src/sctp.ts:933)（登録）、[packages/sctp/src/sctp.ts:947](review-file:packages/sctp/src/sctp.ts:947)（先頭だけ解決）。
+
+### ② キューの改善：`Array.shift()` → 先頭インデックス + 遅延コンパクション
+
+「取り出し」を押して、配列の動きを比べてください。
+
+<style>
+  .fq{font-size:13px;color:var(--review-fg)}
+  .fq button{border:1px solid var(--review-border);background:var(--review-surface);color:var(--review-fg);padding:2px 10px;cursor:pointer;margin-right:6px}
+  .fq .cells{display:flex;gap:3px;margin:4px 0 2px 0;min-height:30px;align-items:center}
+  .fq .c{width:28px;height:28px;border:1px solid var(--review-border);border-radius:4px;text-align:center;line-height:28px;background:var(--review-surface)}
+  .fq .gone{opacity:.25;text-decoration:line-through}
+  .fq .head{border-color:var(--review-accent);color:var(--review-accent)}
+</style>
+<div class="fq" id="fq1">
+  <button id="fq-go">取り出し（shift）</button><button id="fq-rs">リセット</button>
+  <div style="margin-top:6px"><b>Array.shift()</b> — 毎回、残り全部を1つ前へコピー：<span id="fq-ac" style="color:var(--review-danger)">0</span> 要素コピー</div>
+  <div class="cells" id="fq-a"></div>
+  <div style="margin-top:6px"><b>FifoQueue</b> — head を進めるだけ（空きが半分超でまとめて詰める）：<span id="fq-fc" style="color:var(--review-success)">0</span> 要素コピー</div>
+  <div class="cells" id="fq-f"></div>
+</div>
+<script>
+(function(){
+var N=12,arr,head,ac,fc,fb;
+function reset(){arr=[];for(var i=0;i<N;i++)arr.push(i+1);fb=arr.slice();head=0;ac=0;fc=0;draw();}
+function draw(){
+  var a=document.getElementById("fq-a"),f=document.getElementById("fq-f");
+  a.innerHTML="";f.innerHTML="";
+  arr.forEach(function(v){var e=document.createElement("span");e.className="c";e.textContent=v;a.appendChild(e);});
+  fb.forEach(function(v,i){var e=document.createElement("span");e.className="c"+(i<head?" gone":"")+(i==head?" head":"");e.textContent=v;f.appendChild(e);});
+  document.getElementById("fq-ac").textContent=ac;document.getElementById("fq-fc").textContent=fc;
+}
+document.getElementById("fq-go").addEventListener("click",function(){
+  if(arr.length==0)return;
+  ac+=arr.length-1;arr.shift();
+  head++;
+  if(head*2>fb.length&&head>=4){fc+=fb.length-head;fb=fb.slice(head);head=0;}
+  draw();
+});
+document.getElementById("fq-rs").addEventListener("click",reset);
+reset();
+})();
+</script>
+
+N 要素を全部取り出すと、`Array.shift()` は約 N²/2 回のコピー、`FifoQueue` はコンパクション分を合わせても約 N 回（各要素は高々1回だけ移動）で、**1回あたり償却 O(1)** です。実装: [packages/common/src/queue.ts:31](review-file:packages/common/src/queue.ts:31)（`shift()`）、[packages/common/src/queue.ts:123](review-file:packages/common/src/queue.ts:123)（`compact()`）。
+
+### 効果の裏付け（計測）
+
+N が 5倍（1,000→5,000）になると Before は **1.4 s → 256.7 s（約183倍＝ほぼ N² 以上）**、After は **24 ms → 108 ms（約4.5倍＝ほぼ線形）** でした。イベントループの最大停止も 69.0 s → 19 ms となり、停止が原因だった ICE consent 喪失も起きなくなります。詳細は次節の表を参照してください。
 
 ## 2. 計測結果（1 KB メッセージ、in-memory SCTP ペア）
 
