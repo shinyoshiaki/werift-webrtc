@@ -1240,8 +1240,9 @@ export class Connection implements IceConnection {
           this.generation,
           this.localUsername,
         );
-        // An allocation that completes after checks began (an ICE restart
-        // allocates afresh) pairs with the remote candidates already known.
+        // An allocation that completes after the remote candidates arrived
+        // (early signaling, or an ICE restart that allocates afresh) pairs
+        // with them; a connect() already running schedules the new pairs.
         this.pairLocalProtocol(protocol);
         this.appendLocalCandidate(protocol.localCandidate);
 
@@ -1948,7 +1949,14 @@ export class Connection implements IceConnection {
       }
     }
 
-    if (!this.checkListDone) {
+    // RFC 8838 §8: with trickle ICE the check list fails only once neither
+    // side can add candidates any more; a relay candidate still being gathered
+    // (or a remote one before end-of-candidates) may yet pair and succeed.
+    if (
+      !this.checkListDone &&
+      this.localCandidatesEnd &&
+      this.remoteCandidatesEnd
+    ) {
       log("ICE failed");
       this.checkListState.put(
         new Promise((r) => {
@@ -2344,7 +2352,16 @@ export class Connection implements IceConnection {
     }
   }
 
+  /**
+   * Pair a local candidate gathered after remote candidates arrived (a late
+   * TURN allocation, a slow host socket) with them.
+   */
   private pairLocalProtocol(protocol: Protocol) {
+    // RFC 8445 §8.1.2: once a pair is selected, the check list takes no more
+    // Waiting pairs, so a candidate gathered later starts no check.
+    if (this.nominated || this.checkListDone || this.state === "closed") {
+      return;
+    }
     for (const remoteCandidate of this.remoteCandidates) {
       this.tryPair(protocol, remoteCandidate);
     }
