@@ -27,6 +27,7 @@ import {
   defaultCodecs,
 } from "./media";
 import type { BandwidthEstimatorOption } from "./media/sender/createBandwidthEstimator";
+import { normalizeCodecMimeType } from "./media/codecCompatibility";
 import {
   type RTCPeerConnectionStats,
   type RTCStats,
@@ -1915,7 +1916,8 @@ export const findCodecByMimeType = (
 ) =>
   codecs.find(
     (localCodec) =>
-      localCodec.mimeType.toLowerCase() === target.mimeType.toLowerCase(),
+      normalizeCodecMimeType(localCodec.mimeType) ===
+      normalizeCodecMimeType(target.mimeType),
   )
     ? target
     : undefined;

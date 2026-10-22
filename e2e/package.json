@@ -19,6 +19,7 @@
     "server:dev": "DEBUG=werift* ts-node-dev --project tsconfig.server.json ./server/main.ts",
     "server:prod": "DEBUG=werift* node lib/e2e/server/main.js",
     "server:silent": "node lib/e2e/server/main.js",
+    "test:tools": "tsx --test tools/tests/*.test.ts tools/tests/*.test.js",
     "type": "tsc --noEmit -p tsconfig.server.json && tsc --noEmit -p tsconfig.json",
     "upgrade-interactive": "npx npm-check-updates -i",
     "knip": "npx knip --config ./knip.json",

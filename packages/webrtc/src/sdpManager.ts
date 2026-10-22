@@ -1,6 +1,7 @@
 import { DISCARD_HOST, DISCARD_PORT } from "./const";
 import { createWebRtcDomException } from "./errors";
 import type { RTCRtpTransceiver } from "./media";
+import { normalizeCodecMimeType } from "./media/codecCompatibility";
 import {
   type RTCRtpCodecParameters,
   RTCRtpSimulcastParameters,
@@ -651,8 +652,8 @@ export class SDPManager {
           codec.name.toLowerCase() !== "rtx" &&
           offered.rtp.codecs.some(
             (offeredCodec) =>
-              offeredCodec.mimeType.toLowerCase() ===
-              codec.mimeType.toLowerCase(),
+              normalizeCodecMimeType(offeredCodec.mimeType) ===
+              normalizeCodecMimeType(codec.mimeType),
           ),
       );
       if (!hasCommonCodec) {

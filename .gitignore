@@ -7,12 +7,14 @@ coverage
 dist
 *.webm
 !packages/webrtc/tests/data/nonstandard/userMedia-e2e/*.webm
+!e2e/fixtures/media/*.webm
 *.log
 *.key
 *.mpd
 *.mp3
 *.mp4
 !packages/webrtc/tests/data/nonstandard/userMedia-e2e/*.mp4
+!e2e/fixtures/media/*.mp4
 *.m4a
 credential.env
 __screenshots__
@@ -20,6 +22,8 @@ __screenshots__
 packages/webrtc/wpt/progress.md
 packages/webrtc/wpt/progress.state.json
 packages/webrtc/wpt/progress.md
+
+.cache/
 artifacts/
 e2e/.playwright-browsers/
 .sak
