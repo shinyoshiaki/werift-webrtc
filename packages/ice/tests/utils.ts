@@ -1014,3 +1014,100 @@ export function atFirstSelection<T>(
   });
   return result;
 }
+
+// --- late TURN relay candidates ---
+
+/** Poll until `predicate` holds (rejects after `timeoutMs`). */
+export async function waitUntil(predicate: () => boolean, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error("waitUntil timed out");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+/**
+ * Shared Arrange: deliver `from`'s local candidates gathered so far to `to`,
+ * and every later one as `from` trickles it.
+ */
+export function forwardLocalCandidates(from: Connection, to: Connection) {
+  for (const candidate of from.localCandidates) {
+    void to.addRemoteCandidate(Candidate.fromSdp(candidate.toSdp()));
+  }
+  from.onIceCandidate.subscribe((candidate) => {
+    void to.addRemoteCandidate(Candidate.fromSdp(candidate.toSdp()));
+  });
+}
+
+/**
+ * Shared Arrange: `late` (controlling) gathers host candidates and a TURN
+ * allocation that reaches the local server through a held proxy, so its relay
+ * candidate arrives only on `proxy.release()`. `early` (controlled) has
+ * finished gathering (relay-only by default) and both know each other's ICE
+ * credentials. `gathering` is `late`'s pending gatherCandidates().
+ */
+export async function createLateRelaySetup({
+  late: lateOptions = {},
+  early: earlyOptions,
+}: {
+  late?: Partial<IceOptions>;
+  early?: (
+    server: Awaited<ReturnType<typeof createLocalTurnServer>>,
+    late: Connection,
+  ) => Partial<IceOptions>;
+} = {}) {
+  const server = await createLocalTurnServer(getHostAddresses(true, false)[0]!);
+  const proxy = await createHeldUdpProxy(server.address!);
+  const late = createTestConnection(true, {
+    ...proxiedTurnOptions(proxy),
+    forceTurn: false,
+    ...lateOptions,
+  });
+  const early = createTestConnection(
+    false,
+    earlyOptions ? earlyOptions(server, late) : localTurnOptions(server),
+  );
+  await early.gatherCandidates();
+  const gathering = late.gatherCandidates();
+  exchangeIceCredentials(late, early);
+  return {
+    server,
+    proxy,
+    late,
+    early,
+    gathering,
+    close: async () => {
+      proxy.release();
+      await Promise.allSettled([late.close(), early.close()]);
+      proxy.close();
+      await server.close();
+    },
+  };
+}
+
+/** Pairs of `connection`'s check list whose local candidate is a relay. */
+export function relayPairs(connection: Connection) {
+  return connection.checkList.filter(
+    (pair) => pair.localCandidate.type === "relay",
+  );
+}
+
+/** Check list results `connection` has queued for connect() (ICE_FAILED / ICE_COMPLETED). */
+export function queuedCheckListResults(connection: Connection) {
+  return (
+    connection as unknown as {
+      checkListState: { queue: Promise<number>[] };
+    }
+  ).checkListState.queue.length;
+}
+
+/** Shared Arrange: a filterStunResponse that answers only checks from `peer`'s relay candidates. */
+export function answerOnlyRelayOf(peer: Connection) {
+  return (_message: Message, addr: Address) =>
+    peer.localCandidates.some(
+      (candidate) =>
+        candidate.type === "relay" &&
+        candidate.host === addr[0] &&
+        candidate.port === addr[1],
+    );
+}
