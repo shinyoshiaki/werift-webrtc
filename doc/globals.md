@@ -34,6 +34,7 @@
 - [DtlsSocket](classes/DtlsSocket.md)
 - [Event](classes/Event.md)
 - [EventDisposer](classes/EventDisposer.md)
+- [FifoQueue](classes/FifoQueue.md)
 - [GenericNack](classes/GenericNack.md)
 - [GroupDescription](classes/GroupDescription.md)
 - [H264RtpPayload](classes/H264RtpPayload.md)

@@ -183,3 +183,46 @@ export function assert_equals(a, b, msg: string) {
 export function assert_true(a, msg: string) {
   expect(a).toBeTruthy();
 }
+
+/**
+ * Measures how long the event loop is blocked: a heartbeat interval records
+ * the maximum delay between its expected and actual firing.
+ */
+export function startEventLoopLagMonitor(intervalMs = 10) {
+  let maxLagMs = 0;
+  let last = performance.now();
+  const timer = setInterval(() => {
+    const now = performance.now();
+    maxLagMs = Math.max(maxLagMs, now - last - intervalMs);
+    last = now;
+  }, intervalMs);
+  return {
+    stop: () => {
+      clearInterval(timer);
+      return maxLagMs;
+    },
+  };
+}
+
+/** Deterministic binary messages; message i carries its index in the first 4 bytes. */
+export function createIndexedMessages(count: number, size: number) {
+  return [...Array(count)].map((_, i) => {
+    const buf = Buffer.alloc(Math.max(4, size), i % 251);
+    buf.writeUInt32BE(i, 0);
+    return buf;
+  });
+}
+
+/** Resolves with the first `count` messages the channel receives. */
+export function collectChannelMessages(channel: RTCDataChannel, count: number) {
+  return new Promise<(string | Buffer)[]>((resolve) => {
+    const received: (string | Buffer)[] = [];
+    const { unSubscribe } = channel.onMessage.subscribe((data) => {
+      received.push(data);
+      if (received.length === count) {
+        unSubscribe();
+        resolve(received);
+      }
+    });
+  });
+}

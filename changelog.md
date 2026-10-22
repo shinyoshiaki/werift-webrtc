@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### ⚠️ Breaking changes
+
+- **`werift-sctp`: `SCTP.outboundQueue` is now a `FifoQueue<DataChunk>` instead of `DataChunk[]`**: the field is `readonly` and has no array-compatibility layer. `FifoQueue` is exported from `werift-common` and re-exported from `werift-sctp`. Migration: use `outboundQueue.length`, `peek()`, `at(i)`, `last()`, `toArray()` or `for...of` instead of array indexing / array methods, and do not reassign the field. Reason: draining a large queue with `Array.prototype.shift()` was quadratic and contributed to the DataChannel burst slowdown below.
+
+### 🐛 Bug Fixes
+
+- **Large `RTCDataChannel.send()` bursts no longer slow down quadratically or starve the event loop** (`werift-sctp`, `packages/webrtc`): queuing thousands of messages at once took time growing with the square of the queue length (2,000 × 1 KB: ~12 s, 5,000: minutes) and blocked the event loop for seconds per SACK, long enough to lose ICE consent mid-transfer.
+  - `SCTP.send()` now resolves when its own last chunk is handed to the network (moved from the outbound queue to the sent queue) instead of waiting until the whole outbound queue drains. Previously every pending `send()` waited on the `flush` event, so each transmit woke all N waiters and each re-subscribed with an O(N) unsubscribe.
+  - Pending `send()` calls settle when the association closes instead of staying pending forever.
+  - The SCTP sent / outbound queues and the DataChannel send queue use `FifoQueue` (amortized O(1) `shift()`).
+  - `RTCSctpTransport` hands queued DataChannel messages to SCTP in a single synchronous pass instead of starting one concurrent flush loop per `send()`. `bufferedAmount` now decreases per message as it is transmitted (previously only after the whole SCTP outbound queue drained), so `bufferedamountlow` fires during a burst. Messages not yet handed to SCTP are discarded when the transport stops.
+
 ## v0.25.1
 
 ### 🔧 Maintenance
