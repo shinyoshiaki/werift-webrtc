@@ -25,6 +25,34 @@ export function load(name: string) {
   return data;
 }
 
+/**
+ * Decode committed RTP payload vectors from tools/generateVectors:
+ * repeated [u16be length][payload] records.
+ */
+export function loadPayloadVector(name: string): Buffer[] {
+  const path = join(__dirname, "data", name);
+  let buf: Buffer;
+  try {
+    buf = readFileSync(path);
+  } catch {
+    return [];
+  }
+  const out: Buffer[] = [];
+  let offset = 0;
+  while (offset + 2 <= buf.length) {
+    const len = buf.readUInt16BE(offset);
+    offset += 2;
+    if (offset + len > buf.length) {
+      throw new Error(
+        `vector ${name}: truncated payload at offset ${offset}, len ${len}`,
+      );
+    }
+    out.push(buf.subarray(offset, offset + len));
+    offset += len;
+  }
+  return out;
+}
+
 export function createMockTransportPair(): [Transport, Transport] {
   class Mock implements Transport {
     onData!: (buf: Buffer) => void;
@@ -129,6 +157,33 @@ export const avcTestSps =
 export const avcTestPps = "0000000168ce06e2";
 /** IDR slice without parameter sets */
 export const avcTestIdrSlice = "0000000165888421a0";
+
+/**
+ * Build an avcC record (ISO/IEC 14496-15 §5.3.3.1) from raw SPS/PPS NAL units
+ * (no start code / length prefix).
+ */
+export function createAvcDecoderConfigurationRecord({
+  sps,
+  pps,
+  naluLengthSize = 4,
+}: {
+  sps: Buffer[];
+  pps: Buffer[];
+  naluLengthSize?: 1 | 2 | 4;
+}): Buffer {
+  const withLength = (nal: Buffer) => {
+    const length = Buffer.alloc(2);
+    length.writeUInt16BE(nal.length);
+    return [length, nal];
+  };
+  return Buffer.concat([
+    Buffer.from([0x01, sps[0][1], sps[0][2], sps[0][3]]),
+    Buffer.from([0xfc | (naluLengthSize - 1), 0xe0 | sps.length]),
+    ...sps.flatMap(withLength),
+    Buffer.from([pps.length]),
+    ...pps.flatMap(withLength),
+  ]);
+}
 
 /**
  * SPS/PPS + IDR keyframe followed by two delta frames.

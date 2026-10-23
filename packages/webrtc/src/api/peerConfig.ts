@@ -4,6 +4,7 @@
 import { DEFAULT_SCTP_MTU, validateSctpMtu } from "../../../sctp/src";
 import { createWebRtcDomException, createWebRtcTypeError } from "../errors";
 import { enumerate } from "../helper";
+import { normalizeCodecMimeType } from "../media/codecCompatibility";
 import type {
   Address,
   InterfaceAddresses,
@@ -127,7 +128,8 @@ export const findCodecByMimeType = (
 ) =>
   codecs.find(
     (localCodec) =>
-      localCodec.mimeType.toLowerCase() === target.mimeType.toLowerCase(),
+      normalizeCodecMimeType(localCodec.mimeType) ===
+      normalizeCodecMimeType(target.mimeType),
   )
     ? target
     : undefined;

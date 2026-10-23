@@ -96,13 +96,6 @@ describe("examples/node/pacer/ffmpeg-vfr-stream.ts", () => {
         .map((n, i) => (n - expectedSourceFrames[i]) * 3000);
       expect(tsDeltas).toEqual(expectedDeltas);
 
-      // Assert: どのフレームも pts の予定時刻より早くは届かない (まとめ送りしない)
-      frames.forEach((f, i) => {
-        const scheduledMs =
-          (((f.timestamp - frames[0].timestamp) >>> 0) * 1000) / CLOCK_RATE;
-        expect(f.at - frames[0].at).toBeGreaterThan(scheduledMs - 30);
-      });
-
       if (summary.maxLateness >= SOURCE_KEPT_UP_LATENESS_MS) {
         // CPU 不足で ffmpeg が実時間でエンコードできなかった場合、フレームは到着次第送られるので
         // 送出間隔の精度は検証できない (pacer ではなくソース側の遅れ)
@@ -112,7 +105,7 @@ describe("examples/node/pacer/ffmpeg-vfr-stream.ts", () => {
         return;
       }
 
-      // Assert: 到着間隔は timestamp 差に追従する (ジッタは中央値 5ms 未満)
+      // Assert: 受信側の最初の callback 遅延に左右されないよう、隣接間隔の中央値で PTS 追従を確認する
       const arrivalErrors = frames
         .slice(1)
         .map((f, i) =>

@@ -1,7 +1,18 @@
-// RTP Payload Format For AV1 https://aomediacodec.github.io/av1-rtp-spec/
+// RTP Payload Format For AV1
+// Spec: https://aomediacodec.github.io/av1-rtp-spec/
+// Saved: docs/rfc/av1-rtp-spec.html
+//
+// Aggregation Header (AV1 RTP §4.4):
+//   Z|Y|W|N|-|-|-
+// Packetizer packs up to 3 OBU elements per packet (W=1..3), splitting OBUs
+// across packet boundaries like libwebrtc so only the first packet of a
+// temporal unit has Z=0 and only the last has Y=0.
+// Z/Y mark fragment continuation; N marks start of a new coded video sequence
+// (keyframe, first packet only). N=1 and Z=1 together are forbidden.
 
-import type { RtpHeader } from "..";
-import { BitWriter2, debug, getBit } from "../imports/common";
+import { BitWriter, BitWriter2, debug, getBit } from "../imports/common";
+import type { RtpHeader, RtpPacket } from "../rtp/rtp";
+import { PacketizerBase, type PacketizerBaseOptions } from "./base";
 import { leb128encode } from "./leb128";
 
 const log = debug("werift-rtp : packages/rtp/src/codec/av1.ts");
@@ -76,7 +87,14 @@ export class AV1RtpPayload {
    * MUST be set to 1 if the packet is the first packet of a coded video sequence, and MUST be set to 0 otherwise.
    */
   nBit_RtpStartsNewCodedVideoSequence!: number;
-  obu_or_fragment: { data: Buffer; isFragment: boolean }[] = [];
+  obu_or_fragment: {
+    data: Buffer;
+    isFragment: boolean;
+    /** Fragment continues in the next packet (last element with Y=1). */
+    continues?: boolean;
+    /** Fragment continues an OBU from the previous packet (first element with Z=1). */
+    isContinuation?: boolean;
+  }[] = [];
 
   static deSerialize = (buf: Buffer) => {
     const p = new AV1RtpPayload();
@@ -93,6 +111,33 @@ export class AV1RtpPayload {
       throw new Error();
     }
 
+    if (p.w_RtpNumObus === 0) {
+      // W=0: every OBU element, including the last, is preceded by a length
+      let i = 0;
+      while (offset < buf.length) {
+        const [elementSize, bytes] = leb128decode(buf.subarray(offset));
+        const start = offset + bytes;
+        const end = start + elementSize;
+        if (end > buf.length) {
+          throw new Error("AV1 OBU element length exceeds payload");
+        }
+        const isFirst = i === 0;
+        const isLast = end >= buf.length;
+        const isFragment =
+          (isFirst && !!p.zBit_RtpStartsWithFragment) ||
+          (isLast && !!p.yBit_RtpEndsWithFragment);
+        p.obu_or_fragment.push({
+          data: buf.subarray(start, end),
+          isFragment,
+          continues: isLast && !!p.yBit_RtpEndsWithFragment,
+          isContinuation: isFirst && !!p.zBit_RtpStartsWithFragment,
+        });
+        offset = end;
+        i++;
+      }
+      return p;
+    }
+
     [...Array(p.w_RtpNumObus - 1).keys()].forEach((i) => {
       const [elementSize, bytes] = leb128decode(buf.subarray(offset));
 
@@ -103,7 +148,12 @@ export class AV1RtpPayload {
       if (p.zBit_RtpStartsWithFragment && i === 0) {
         isFragment = true;
       }
-      p.obu_or_fragment.push({ data: buf.subarray(start, end), isFragment });
+      p.obu_or_fragment.push({
+        data: buf.subarray(start, end),
+        isFragment,
+        continues: false,
+        isContinuation: isFragment,
+      });
 
       offset += bytes + elementSize;
     });
@@ -117,6 +167,8 @@ export class AV1RtpPayload {
     p.obu_or_fragment.push({
       data: buf.subarray(offset),
       isFragment: isFragment,
+      continues: !!p.yBit_RtpEndsWithFragment,
+      isContinuation: !!p.zBit_RtpStartsWithFragment && p.w_RtpNumObus === 1,
     });
 
     return p;
@@ -132,46 +184,57 @@ export class AV1RtpPayload {
 
   static getFrame(payloads: AV1RtpPayload[]) {
     const frames: Buffer[] = [];
-    const objects = payloads
-      .flatMap((p) => p.obu_or_fragment)
-      .reduce(
-        (
-          acc: Record<number, { data: Buffer; isFragment: boolean }>,
-          cur,
-          i,
-        ) => {
-          acc[i] = cur;
-          return acc;
-        },
-        {},
-      );
-    const length = Object.keys(objects).length;
-
-    for (const i of Object.keys(objects).map(Number)) {
-      const exist = objects[i];
-      if (!exist) continue;
-      const { data, isFragment } = exist;
-      if (isFragment) {
-        let fragments: Buffer[] = [];
-        for (let head = i; head < length; head++) {
-          const target = objects[head];
-          if (target.isFragment) {
-            fragments.push(target.data);
-            delete objects[head];
-          } else {
-            break;
-          }
-        }
-        if (fragments.length <= 1) {
-          log("fragment lost, maybe packet lost");
-          fragments = [];
-        }
-        frames.push(Buffer.concat(fragments));
-      } else {
+    // Adjacent fragmented OBUs (A ends and B starts in the same packet) share
+    // isFragment=true, so boundaries come from continues/isContinuation:
+    // an OBU starts at a fragment without isContinuation and ends at the first
+    // fragment that does not continue into the next packet.
+    let pending: Buffer[] = [];
+    const flushLost = () => {
+      if (pending.length > 0) {
+        log("fragment lost, maybe packet lost");
+        pending = [];
+      }
+    };
+    for (const {
+      data,
+      isFragment,
+      continues,
+      isContinuation,
+    } of payloads.flatMap((p) => p.obu_or_fragment)) {
+      if (!isFragment) {
+        flushLost();
         frames.push(data);
+        continue;
+      }
+      if (!isContinuation) {
+        flushLost();
+        pending = [data];
+      } else if (pending.length === 0) {
+        // continuation without a start: head of the OBU was lost
+        log("fragment lost, maybe packet lost");
+        continue;
+      } else {
+        pending.push(data);
+      }
+      if (!continues) {
+        if (pending.length > 1) {
+          frames.push(Buffer.concat(pending));
+        } else {
+          log("fragment lost, maybe packet lost");
+        }
+        pending = [];
       }
     }
+    flushLost();
+    // Re-serialize OBUs. Non-last OBUs always carry a size field so the
+    // bitstream is self-delimiting; the last OBU keeps its original
+    // obu_has_size_field (size present or remainder-of-buffer).
+    // Size-field LEB128 is re-encoded canonically from the payload body
+    // (AV1Obu.deSerialize strips LEB128 into payload-only).
     const obus = frames.map((f) => AV1Obu.deSerialize(f));
+    if (obus.length === 0) {
+      return Buffer.alloc(0);
+    }
     const lastObu = obus.pop()!;
     return Buffer.concat([
       ...obus.map((o) => {
@@ -189,9 +252,20 @@ export class AV1Obu {
   obu_extension_flag!: number;
   obu_has_size_field!: number;
   obu_reserved_1bit!: number;
+  /** Present when obu_extension_flag=1 (TID/SID byte). */
+  extension_header?: number;
+  /** OBU payload body only (LEB128 size field is not part of payload). */
   payload!: Buffer;
 
+  /**
+   * Parse one OBU element.
+   * When `obu_has_size_field` is set, consumes LEB128 size and takes exactly
+   * that many payload octets (AV1 bitstream / AV1 RTP OBU element).
+   */
   static deSerialize(buf: Buffer) {
+    if (buf.length < 1) {
+      throw new Error("AV1 OBU too short: expected at least 1 header byte");
+    }
     const obu = new AV1Obu();
     let offset = 0;
     obu.obu_forbidden_bit = getBit(buf[offset], 0);
@@ -202,7 +276,31 @@ export class AV1Obu {
     obu.obu_reserved_1bit = getBit(buf[offset], 7);
     offset++;
 
-    obu.payload = buf.subarray(offset);
+    if (obu.obu_extension_flag) {
+      if (offset >= buf.length) {
+        throw new Error(
+          "AV1 OBU: extension flag set but extension byte missing",
+        );
+      }
+      obu.extension_header = buf[offset];
+      offset++;
+    }
+
+    if (obu.obu_has_size_field) {
+      const [obuSize, leb128Length] = leb128decode(buf.subarray(offset));
+      offset += leb128Length;
+      const end = offset + obuSize;
+      if (end > buf.length) {
+        throw new Error(
+          `AV1 OBU size field ${obuSize} exceeds remaining buffer ${buf.length - offset}`,
+        );
+      }
+      // Payload is body only; size is re-encoded on serialize
+      obu.payload = buf.subarray(offset, end);
+    } else {
+      // No size field: remainder is the payload (typical last OBU)
+      obu.payload = buf.subarray(offset);
+    }
 
     return obu;
   }
@@ -214,11 +312,15 @@ export class AV1Obu {
       .set(this.obu_extension_flag)
       .set(this.obu_has_size_field)
       .set(this.obu_reserved_1bit).buffer;
+    const ext =
+      this.obu_extension_flag && this.extension_header !== undefined
+        ? Buffer.from([this.extension_header & 0xff])
+        : Buffer.alloc(0);
     let obuSize: Buffer = Buffer.alloc(0);
     if (this.obu_has_size_field) {
       obuSize = leb128encode(this.payload.length);
     }
-    return Buffer.concat([header, obuSize, this.payload]);
+    return Buffer.concat([header, ext, obuSize, this.payload]);
   }
 }
 
@@ -262,3 +364,252 @@ const OBU_TYPE_IDS: Record<OBU_TYPE, number> = Object.entries(OBU_TYPES).reduce(
   },
   {},
 );
+
+// ---------------------------------------------------------------------------
+// Packetizer helpers (canonical location; webrtc may mirror for EncodedPacket)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the 1-byte AV1 Aggregation Header (AV1 RTP §4.4).
+ * N=1 and Z=1 must not both be set (deSerialize throws).
+ */
+export function createAv1AggregationHeader({
+  startsWithFragment,
+  endsWithFragment,
+  startsNewCodedVideoSequence,
+  obuCount = 1,
+}: {
+  startsWithFragment: boolean;
+  endsWithFragment: boolean;
+  startsNewCodedVideoSequence: boolean;
+  /** W field: number of OBU elements (1..3); the last one has no length. */
+  obuCount?: number;
+}): Buffer {
+  if (startsWithFragment && startsNewCodedVideoSequence) {
+    throw new Error(
+      "AV1 aggregation header: N=1 and Z=1 must not both be set (AV1 RTP §4.4)",
+    );
+  }
+  if (!Number.isInteger(obuCount) || obuCount < 1 || obuCount > 3) {
+    throw new Error(`AV1 aggregation header: invalid W=${obuCount}`);
+  }
+  // Z|Y|W|N|000
+  return new BitWriter(8)
+    .set(1, 0, startsWithFragment ? 1 : 0)
+    .set(1, 1, endsWithFragment ? 1 : 0)
+    .set(2, 2, obuCount)
+    .set(1, 4, startsNewCodedVideoSequence ? 1 : 0)
+    .set(3, 5, 0).buffer;
+}
+
+/**
+ * Split an AV1 sample into OBU elements.
+ * Accepts size-field and no-size-field (remainder is last OBU) layouts.
+ */
+export function splitAv1Obus(sample: Buffer): Buffer[] {
+  const obus: Buffer[] = [];
+  let offset = 0;
+
+  while (offset < sample.length) {
+    const start = offset;
+    const header = sample[offset];
+    offset += 1;
+    if (header == undefined) {
+      break;
+    }
+
+    const extensionFlag = getBit(header, 5);
+    const hasSizeField = getBit(header, 6);
+    if (extensionFlag) {
+      if (offset >= sample.length) {
+        throw new Error("invalid AV1 OBU: extension flag set but buffer ends");
+      }
+      offset += 1;
+    }
+
+    if (!hasSizeField) {
+      // Remainder of the buffer is this OBU
+      obus.push(sample.subarray(start));
+      break;
+    }
+
+    const [obuSize, leb128Length] = leb128decode(sample.subarray(offset));
+    offset += leb128Length;
+    const end = offset + obuSize;
+    if (end > sample.length) {
+      throw new Error("invalid AV1 OBU size");
+    }
+    obus.push(sample.subarray(start, end));
+    offset = end;
+  }
+
+  return obus;
+}
+
+/** Max OBU elements per packet expressible with W (W=0 is not emitted). */
+const MAX_W_ELEMENTS = 3;
+/** obu_type of a Sequence Header OBU (AV1 spec §6.2.2). */
+const OBU_SEQUENCE_HEADER = 1;
+/** obu_type of a Temporal Delimiter OBU; MUST NOT be sent over RTP (AV1 RTP §5). */
+const OBU_TEMPORAL_DELIMITER = 2;
+
+/**
+ * Convert an OBU to its RTP element form: obu_has_size_field=0 and no LEB128
+ * size (AV1 RTP §5: senders SHOULD clear it; libwebrtc cannot reassemble
+ * fragments that still carry a size field).
+ */
+function toRtpObuElement(obu: Buffer): Buffer {
+  const header = obu[0];
+  if (!getBit(header, 6)) {
+    return obu;
+  }
+  const headerLength = getBit(header, 5) ? 2 : 1;
+  const [, sizeBytes] = leb128decode(obu.subarray(headerLength));
+  const out = Buffer.concat([
+    obu.subarray(0, headerLength),
+    obu.subarray(headerLength + sizeBytes),
+  ]);
+  out[0] = header & ~0x02;
+  return out;
+}
+
+export type Av1PacketizerOptions = PacketizerBaseOptions & {
+  /**
+   * Default keyframe flag. Keyframe-ness alone does not set the N bit; see
+   * {@link Av1PacketizeOptions.startsNewCodedVideoSequence}.
+   * Override per call via packetize(..., { isKeyframe }).
+   */
+  isKeyframe?: boolean;
+};
+
+export type Av1PacketizeOptions = {
+  /** Keyframe flag. Does NOT by itself set the N bit (see below). */
+  isKeyframe?: boolean;
+  frameType?: "key" | "delta";
+  /**
+   * N bit (RFC 9628 §4.4): first packet of a new coded video sequence.
+   * A keyframe in the middle of a sequence must not set it. When omitted,
+   * N is set only for a keyframe whose temporal unit contains a Sequence
+   * Header OBU (a new coded video sequence cannot start without one); pass
+   * `false` to force it off for in-band repeated headers, `true` to force on
+   * (e.g. when the sequence header is carried out of band).
+   */
+  startsNewCodedVideoSequence?: boolean;
+};
+
+/**
+ * Packetize one AV1 access unit (OBU sequence) into RTP packets.
+ * Packs OBU elements (W=1..3) and fragments them across packets with Z/Y bits.
+ */
+export class Av1Packetizer extends PacketizerBase {
+  private readonly defaultIsKeyframe: boolean;
+
+  constructor(options: Av1PacketizerOptions = {}) {
+    super(options);
+    this.defaultIsKeyframe = options.isKeyframe ?? false;
+  }
+
+  packetize(
+    data: Buffer,
+    rtpTimestamp: number,
+    options: Av1PacketizeOptions = {},
+  ): RtpPacket[] {
+    if (data.length === 0) {
+      return [];
+    }
+
+    let isKeyframe = this.defaultIsKeyframe;
+    if (options.frameType === "key") isKeyframe = true;
+    else if (options.frameType === "delta") isKeyframe = false;
+    else if (options.isKeyframe !== undefined) isKeyframe = options.isKeyframe;
+
+    const allObus = splitAv1Obus(data);
+    if (allObus.length === 0) {
+      throw new Error("AV1 sample did not contain any OBU data");
+    }
+
+    const startsNewSequence =
+      options.startsNewCodedVideoSequence ??
+      (isKeyframe &&
+        allObus.some((o) => ((o[0] >> 3) & 0x0f) === OBU_SEQUENCE_HEADER));
+
+    const obus = allObus
+      .filter((o) => ((o[0] >> 3) & 0x0f) !== OBU_TEMPORAL_DELIMITER)
+      .map(toRtpObuElement);
+    if (obus.length === 0) {
+      return [];
+    }
+
+    // Aggregation header = 1 byte
+    const capacity = this.maxPayloadSize - 1;
+    if (capacity <= 0) {
+      throw new Error(
+        `Av1Packetizer: maxPayloadSize ${this.maxPayloadSize} too small for aggregation header`,
+      );
+    }
+
+    // OBU elements are packed back to back and split at packet boundaries
+    // (as libwebrtc RtpPacketizerAv1 does). Without a dependency descriptor,
+    // libwebrtc treats Z=0 as frame start and Y=0 as frame end, so starting
+    // every OBU in its own packet would split one temporal unit into frames.
+    const packets: RtpPacket[] = [];
+    let obuIndex = 0;
+    let obuOffset = 0;
+
+    while (obuIndex < obus.length) {
+      const startsWithFragment = obuOffset > 0;
+      const elements: Buffer[] = [];
+      let used = 0;
+      let endsWithFragment = false;
+
+      while (obuIndex < obus.length && elements.length < MAX_W_ELEMENTS) {
+        const rest = obus[obuIndex].subarray(obuOffset);
+        // Adding an element gives the previous last element a length prefix
+        const prefix =
+          elements.length > 0
+            ? leb128encode(elements.at(-1)!.length).length
+            : 0;
+        const available = capacity - used - prefix;
+        if (available <= 0) {
+          break;
+        }
+        used += prefix;
+        if (rest.length <= available) {
+          elements.push(rest);
+          used += rest.length;
+          obuIndex++;
+          obuOffset = 0;
+          continue;
+        }
+        elements.push(rest.subarray(0, available));
+        used += available;
+        obuOffset += available;
+        endsWithFragment = true;
+        break;
+      }
+
+      const aggregationHeader = createAv1AggregationHeader({
+        startsWithFragment,
+        endsWithFragment,
+        startsNewCodedVideoSequence: packets.length === 0 && startsNewSequence,
+        obuCount: elements.length,
+      });
+      const body = elements.flatMap((element, i) =>
+        i < elements.length - 1
+          ? [leb128encode(element.length), element]
+          : [element],
+      );
+      packets.push(
+        this.buildPacket(
+          Buffer.concat([aggregationHeader, ...body]),
+          rtpTimestamp,
+          false,
+        ),
+      );
+    }
+
+    // Marker on last packet of the frame (AV1 RTP marker bit semantics)
+    packets.at(-1)!.header.marker = true;
+    return packets;
+  }
+}
