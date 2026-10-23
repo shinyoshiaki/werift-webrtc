@@ -4,7 +4,6 @@
 import { DEFAULT_SCTP_MTU, validateSctpMtu } from "../../../sctp/src";
 import { createWebRtcDomException, createWebRtcTypeError } from "../errors";
 import { enumerate } from "../helper";
-import { normalizeCodecMimeType } from "../media/codecCompatibility";
 import type {
   Address,
   InterfaceAddresses,
@@ -17,6 +16,7 @@ import {
   type RTCRtpSenderOptions,
   defaultCodecs,
 } from "../media";
+import { normalizeCodecMimeType } from "../media/codecCompatibility";
 import type { BundlePolicy } from "../sdp";
 import type { MLineReuse } from "../sdpManager";
 import type { DtlsKeys, RTCCertificate } from "../transport/dtls";
