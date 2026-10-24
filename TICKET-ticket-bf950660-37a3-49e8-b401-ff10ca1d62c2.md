@@ -69,7 +69,7 @@ R1〜R6 はすべて実施済み。4 章は実装方針の記録として残す�
   - `packages/rtp/tests` は Vitest 専用なので `__dirname` に戻した（`import.meta` は `module: commonjs` の `tsc` でエラーになる）。
   - `integration/werift-mediasoup-interop`（submodule）: `scripts/register-werift-ts.mjs` を追加し、`WERIFT_REPO_ROOT` → 親 checkout → sibling の順で werift の hook を読み込む。`test:*` を Node ネイティブ実行に置換、`tsx` を削除、README を更新。submodule を `63bc5d51` にコミットし、親の gitlink も更新した。submodule のブランチ `ticket/bf950660-37a3-49e8-b401-ff10ca1d62c2` は remote に push 済みで、fresh clone から gitlink のコミットを取得できることを確認した。
   - `import-test/test-cjs.cjs` を追加し、`import-test` の `npm test` で ESM（`test.mjs`）と CJS（`test-cjs.cjs`）の両方の import 経路を継続検証する。
-- **examples の監査対応**: `npm audit fix`（`examples`）で推移依存を更新し、9 件（moderate 2 / high 7）から 3 件（high 3）に減らした。残りは `ring-client-api@14.3.0` が固定する `werift@0.22.4` → `ip@2.0.1` の既存 upstream 依存で、`ip` に修正版がなく、`npm audit fix --force` は `ring-client-api` を 9.13.0 へダウングレードするため適用しない。
+- **examples の監査対応**: `npm audit fix`（`examples`）で推移依存を更新し、9 件（moderate 2 / high 7）から 3 件（high 3）に減らした。残りは `ring-client-api@14.3.0` が固定する `werift@0.22.4` → `ip@2.0.1` の既存 upstream 依存で、`ip` に修正版がなく、`npm audit fix --force` は `ring-client-api` を 9.13.0 へダウングレードするため適用しない。あわせて `@types/node` を他の manifest と同じ `^22.20.5` に揃え（lock は `22.20.5`）、`npm run doc` で `doc/_media/examples/` のミラーも再生成した。
 - **R5**: changelog の `buffer` / `tsx` / `localStorage.debug` の記述を実態に合わせた。
 - **追加の互換修正**: `@fidm/x509` はインデント付き PEM を受け付けていたが `node:crypto` は拒否する（`examples/certificate/offer.ts` が接続できなくなっていた）。`werift-dtls` に `normalizePem()` を追加し、`CipherContext.parseX509` と `RTCCertificate` で使用。テスト `packages/dtls/tests/context/cipher.test.ts` を追加。changelog の `### Fixes` に記載。
 - **vendor の復元**: 過去の `fmt` コミット（ea7d720c）で `examples/e2e/vendor/*.js` が書き換わり、ブラウザページが `E is not a constructor` で動かなくなっていた。`develop` の内容に戻した（現在の Biome 設定では vendor は対象外）。vendor と生成 doc 内のコピーは `.gitattributes` で `-whitespace` に指定し、`git diff --check` の空白誤検出を避けた。
@@ -82,7 +82,7 @@ R1〜R6 はすべて実施済み。4 章は実装方針の記録として残す�
 | `npm run format`（2 回目で差分なし） | 成功 |
 | `npm run type:all` / `npm run build` / `npm run test:small` | 成功 |
 | `cd import-test && npm test` | 成功（ESM と CJS の両方。CJS は `test-cjs.cjs` で継続検証） |
-| `npm run doc` | 成功（再生成済み） |
+| `npm run doc` | 成功（再生成済み。`doc/_media/examples/package.json` / `package-lock.json` のミラーも更新） |
 | `npm run wpt` / `npm run wpt:coverage` | 成功 |
 | `npm run e2e` | 21 files / 63 tests 成功 |
 | `npm run examples:e2e` | 6 files / 65 tests 成功 |
