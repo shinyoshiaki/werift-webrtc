@@ -172,7 +172,7 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
 <h1>werift の negotiation PBT<br>— プロパティベーステストの解説</h1>
 <p class="meta">
   <span>チケット: <a class="ref" href="../TICKET-support-fallback-state.md" title="TICKET-support-fallback-state.md">TICKET-support-fallback-state.md</a>（2.13〜2.20）</span>
-  <span>HEAD: <code>e5f9b28d</code>（＋ tests/pbt の再構成）</span>
+  <span>HEAD: <code>af3e1d7a</code></span>
   <span>設計の正: 各テストファイル冒頭の TSDoc と <a class="ref" href="../packages/webrtc/AGENTS.md" title="packages/webrtc/AGENTS.md">AGENTS.md</a> Do 6</span>
   <span>実装レビュー解説: <a class="ref" href="0ad06d37-negotiation-transaction.html">0ad06d37-negotiation-transaction.html</a></span>
 </p>
@@ -196,7 +196,7 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
   </ul></div>
   <div class="card"><h4>数字（16 コア）</h4><ul>
     <li>CI: fuzzer 12 件、シナリオ 70 件（固定 63 + 7 seed）、モデル 55 件（固定 51 + 4 seed）</li>
-    <li>深い探索 <code>npm run pbt:deep</code>: 2,820 件を 16 プロセスで約 2 分</li>
+    <li>深い探索 <code>npm run pbt:deep</code>: 2,820 件を 16 プロセスで約 3 分（af3e1d7a で 171 秒）</li>
     <li>PBT が見つけて直した実装の不具合: 10 件以上（10 章）</li>
   </ul></div>
 </div>
@@ -372,7 +372,7 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
     <text x="300" y="208" class="sub">→ そのまま model/scenes.ts に貼れる JSON で出力する</text>
   </g>
 </svg>
-<figcaption><code>shrinkScene</code>（<a class="ref" href="../packages/webrtc/tests/pbt/model/generator.ts" title="packages/webrtc/tests/pbt/model/generator.ts:584">model/generator.ts:584</a>）。縮小中に適用できなくなった操作は飛ばします。</figcaption>
+<figcaption><code>shrinkScene</code>（<a class="ref" href="../packages/webrtc/tests/pbt/model/generator.ts" title="packages/webrtc/tests/pbt/model/generator.ts:583">model/generator.ts:584</a>）。縮小中に適用できなくなった操作は飛ばします。</figcaption>
 </figure>
 <p>実例: 2.19 で見つけた「適用済みの local description が交渉の外で書き換わる」不具合は、seed 38 の 10 操作から次の 4 操作に縮みました。</p>
 <pre class="figure"><code>{"start":"unnegotiated","ops":[["a","addRecvonly",{"kind":"video"}],["a","offer",{"iceRestart":true}],["b","answer"],["a","splitOffer",{"mid":"1"}]]}</code></pre>
@@ -432,7 +432,7 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
 <p>実際のシーンを 1 つずつ追った例は 8.3 にあります。</p>
 <p>両 peer の設定は <code>modelConfig</code>（<a class="ref" href="../packages/webrtc/tests/pbt/model/generator.ts" title="packages/webrtc/tests/pbt/model/generator.ts:49">model/generator.ts:49</a>）です。VP8（NACK・PLI・REMB・transport-cc）と RTX、H264、Opus、PCMU、MID と transport-cc の header extension を持たせ、codec・feedback・RTX・extension の変化を作れるようにしています。</p>
 
-<h3 id="model-ops">7.1 操作（<a class="ref" href="../packages/webrtc/tests/pbt/model/generator.ts" title="packages/webrtc/tests/pbt/model/generator.ts:133">STEPS</a>）</h3>
+<h3 id="model-ops">7.1 操作（<a class="ref" href="../packages/webrtc/tests/pbt/model/generator.ts" title="packages/webrtc/tests/pbt/model/generator.ts:132">STEPS</a>）</h3>
 <table>
   <thead><tr><th style="width:20%">分類</th><th>操作</th></tr></thead>
   <tbody>
@@ -452,7 +452,7 @@ summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
   <div class="layer staged"><h4><span class="tag stage">誤記述</span> 送り手を誤って記述する（11 種）</h4>
     m-line の inactive・拒否、SSRC の入れ替え・更新、RTX の削除、payload type の付け替え、header extension ID の移動・入れ替え。<br>両 peer は食い違ったままになるので通信は求めず、次の書き換えのない交渉で回復することを求める。</div>
 </div>
-<p>どちらも、current の session が交渉した payload type や header extension ID を付け替える書き換えなら、<code>InvalidModificationError</code> での拒否を求めます（RFC 3264 8.3.2、RFC 8285 7。<a class="ref" href="../packages/webrtc/tests/pbt/model/wireMutations.ts" title="packages/webrtc/tests/pbt/model/wireMutations.ts:155">remapsCurrentKeys</a>）。それ以外は、受理されるか、状態を変えずに拒否されるかのどちらでもよく、拒否されたら元の description を配送し直します（<a class="ref" href="../packages/webrtc/tests/pbt/model/generator.ts" title="packages/webrtc/tests/pbt/model/generator.ts:441">deliver</a>）。final answer には same の書き換えだけを使います。answerer が自分の answer と違う session を持ち続ける状態は、実在の peer 同士では起きないためです。</p>
+<p>どちらも、current の session が交渉した payload type や header extension ID を付け替える書き換えなら、<code>InvalidModificationError</code> での拒否を求めます（RFC 3264 8.3.2、RFC 8285 7。<a class="ref" href="../packages/webrtc/tests/pbt/model/wireMutations.ts" title="packages/webrtc/tests/pbt/model/wireMutations.ts:155">remapsCurrentKeys</a>）。それ以外は、受理されるか、状態を変えずに拒否されるかのどちらでもよく、拒否されたら元の description を配送し直します（<a class="ref" href="../packages/webrtc/tests/pbt/model/generator.ts" title="packages/webrtc/tests/pbt/model/generator.ts:440">deliver</a>）。final answer には same の書き換えだけを使います。answerer が自分の answer と違う session を持ち続ける状態は、実在の peer 同士では起きないためです。</p>
 
 <h3 id="model-oracles">7.3 オラクル（<a class="ref" href="../packages/webrtc/tests/pbt/model/oracles.ts" title="packages/webrtc/tests/pbt/model/oracles.ts:343">ModelOracles.after</a>）</h3>
 <p>記述操作のたびに、ハーネスが invariant と通信の性質を検査した後、次のオラクルを呼びます。</p>
@@ -551,7 +551,7 @@ step 7  mutation b rtxPairing
 
 <h3 id="ex-model">8.3 モデル property: seed 1 と PLI のシーン</h3>
 <h4>乱数シーンの例: seed 1</h4>
-<p><b>① 入力</b>: <code>seed 1</code> からは、開始状態「未交渉（a が video と DataChannel を持つ）」と、次の 10 操作ができます（<a class="ref" href="../packages/webrtc/tests/pbt/model/generator.ts" title="packages/webrtc/tests/pbt/model/generator.ts:542">generateScene</a>）。モデル property は episode ではなく <b>1 操作ずつ</b>、その時点で適用できる操作の中から乱数で選びます。</p>
+<p><b>① 入力</b>: <code>seed 1</code> からは、開始状態「未交渉（a が video と DataChannel を持つ）」と、次の 10 操作ができます（<a class="ref" href="../packages/webrtc/tests/pbt/model/generator.ts" title="packages/webrtc/tests/pbt/model/generator.ts:541">generateScene</a>）。モデル property は episode ではなく <b>1 操作ずつ</b>、その時点で適用できる操作の中から乱数で選びます。</p>
 <table>
   <thead><tr><th style="width:5%">#</th><th style="width:36%">操作</th><th>意味</th><th style="width:30%">直後に判定するか</th></tr></thead>
   <tbody>
@@ -669,7 +669,7 @@ step 7  mutation b rtxPairing
   <thead><tr><th style="width:24%">実行方法</th><th>内容</th><th class="num" style="width:16%">時間（16 コア）</th></tr></thead>
   <tbody>
     <tr><td><code>npm test</code>（CI）</td><td>3 つの PBT の固定シーン・回帰 seed と、少数の乱数 seed。モデル property は固定 51 件 ＋ 4 seed</td><td class="num">package 全体で約 1 分半（モデル property のファイルは約 75 秒）</td></tr>
-    <tr><td><code>npm run pbt:deep</code></td><td>fuzzer 300 seed × 20 step、シナリオ 300 seed、モデル 300 seed を、seed の範囲ごとに別プロセスで並列実行する（<a class="ref" href="../packages/webrtc/tools/pbt-deep/run.ts" title="packages/webrtc/tools/pbt-deep/run.ts">tools/pbt-deep/run.ts</a>）。失敗は単独で再実行して flaky と区別する</td><td class="num">約 2 分</td></tr>
+    <tr><td><code>npm run pbt:deep</code></td><td>fuzzer 300 seed × 20 step、シナリオ 300 seed、モデル 300 seed を、seed の範囲ごとに別プロセスで並列実行する（<a class="ref" href="../packages/webrtc/tools/pbt-deep/run.ts" title="packages/webrtc/tools/pbt-deep/run.ts">tools/pbt-deep/run.ts</a>）。失敗は単独で再実行して flaky と区別する</td><td class="num">約 3 分</td></tr>
     <tr><td>seed の再生</td><td>テスト名に出るコマンド（例: <code>WERIFT_NEGOTIATION_MODEL_SEED=38 WERIFT_NEGOTIATION_MODEL_SEEDS=1 …</code>）で 1 seed だけ実行する</td><td class="num">数秒〜数十秒</td></tr>
   </tbody>
 </table>
@@ -729,7 +729,7 @@ smallest failing scene: {"start":"unnegotiated","ops":[…]}   ← 縮小した�
   <li>この文書の 2.1 と 8 章: 部品の分け方と、実際のテストに当てはめた例</li>
   <li><a class="ref" href="../packages/webrtc/tests/pbt/model/negotiationModelProperty.test.ts" title="packages/webrtc/tests/pbt/model/negotiationModelProperty.test.ts">model/negotiationModelProperty.test.ts</a>（86 行）: 固定シーンと乱数シーンの登録、縮小の呼び出し</li>
   <li><a class="ref" href="../packages/webrtc/tests/pbt/model/scenes.ts" title="packages/webrtc/tests/pbt/model/scenes.ts">model/scenes.ts</a>: 固定シーンの例。名前と ref で何を守っているか分かる</li>
-  <li><a class="ref" href="../packages/webrtc/tests/pbt/model/generator.ts" title="packages/webrtc/tests/pbt/model/generator.ts:133">model/generator.ts の STEPS</a>: 操作の一覧</li>
+  <li><a class="ref" href="../packages/webrtc/tests/pbt/model/generator.ts" title="packages/webrtc/tests/pbt/model/generator.ts:132">model/generator.ts の STEPS</a>: 操作の一覧</li>
   <li><a class="ref" href="../packages/webrtc/tests/pbt/model/oracles.ts" title="packages/webrtc/tests/pbt/model/oracles.ts:343">model/oracles.ts の after()</a>: 各操作の後に何を判定するか</li>
   <li><a class="ref" href="../packages/webrtc/tests/negotiation/harness/negotiationCase.ts" title="packages/webrtc/tests/negotiation/harness/negotiationCase.ts">negotiationCase.ts</a>: 記述操作ごとの invariant と通信の性質、操作ログ</li>
   <li><a class="ref" href="../packages/webrtc/tests/pbt/scenario/negotiationScenarioProperty.test.ts" title="packages/webrtc/tests/pbt/scenario/negotiationScenarioProperty.test.ts">scenario/negotiationScenarioProperty.test.ts</a> と <a class="ref" href="../packages/webrtc/tests/pbt/fuzz/negotiationTransactionProperty.test.ts" title="packages/webrtc/tests/pbt/fuzz/negotiationTransactionProperty.test.ts">fuzz/negotiationTransactionProperty.test.ts</a>: 古い 2 つの PBT</li>
