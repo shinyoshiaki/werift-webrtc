@@ -205,6 +205,18 @@ on it when they started DTLS.
 
 > **transportSequenceNumber**: `number` = `0`
 
+Wire 16-bit TWCC sequence (low bits of [transportSequenceNumberExtended](RTCDtlsTransport.md#transportsequencenumberextended)).
+
+***
+
+### transportSequenceNumberExtended
+
+> **transportSequenceNumberExtended**: `number` = `0`
+
+Monotonic transport-wide sequence allocated at ICE enqueue time.
+Never wraps in JS Number. [transportSequenceNumber](RTCDtlsTransport.md#transportsequencenumber) is the wire
+16-bit view (`extended & 0xffff`).
+
 ***
 
 ### localCertificate?
@@ -266,6 +278,28 @@ Internal: whether a description gave this transport the peer's DTLS parameters.
 #### Returns
 
 `void`
+
+***
+
+### allocateTransportWideSequence()
+
+> **allocateTransportWideSequence**(): `object`
+
+Allocate the next transport-wide sequence at send time.
+Call immediately before DTLS/ICE enqueue so BUNDLE senders cannot
+reserve a TSN then wait in a per-sender pacer.
+
+#### Returns
+
+`object`
+
+##### extended
+
+> **extended**: `number`
+
+##### wire
+
+> **wire**: `number`
 
 ***
 
@@ -357,6 +391,9 @@ Internal: whether a description gave this transport the peer's DTLS parameters.
 
 > **sendRtp**(`payload`, `header`): `Promise`\<`number`\>
 
+Encrypt RTP and enqueue on ICE. Returns on-wire size.
+Send-time metadata: [sendRtpWithMeta](RTCDtlsTransport.md#sendrtpwithmeta).
+
 #### Parameters
 
 ##### payload
@@ -370,6 +407,29 @@ Internal: whether a description gave this transport the peer's DTLS parameters.
 #### Returns
 
 `Promise`\<`number`\>
+
+***
+
+### sendRtpWithMeta()
+
+> **sendRtpWithMeta**(`payload`, `header`): `Promise`\<[`DtlsSendRtpResult`](../type-aliases/DtlsSendRtpResult.md)\>
+
+Encrypt RTP and enqueue on ICE, capturing the clock immediately before
+the ICE write (RFC 8888). Prefer [sendRtp](RTCDtlsTransport.md#sendrtp) unless send time is needed.
+
+#### Parameters
+
+##### payload
+
+`Buffer`
+
+##### header
+
+[`RtpHeader`](RtpHeader.md)
+
+#### Returns
+
+`Promise`\<[`DtlsSendRtpResult`](../type-aliases/DtlsSendRtpResult.md)\>
 
 ***
 

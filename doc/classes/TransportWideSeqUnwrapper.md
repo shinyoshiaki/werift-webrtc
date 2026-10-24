@@ -41,6 +41,28 @@ Last extended sequence, or `undefined` before the first unwrap.
 
 ## Methods
 
+### advanceSent()
+
+> **advanceSent**(`seq`): `number`
+
+Map a **send-time** TSN onto a monotonic key.
+
+Wire TSN only increases. A jump larger than half the 16-bit space is a
+gap (other BUNDLE senders while this one was idle), not wrap-back.
+[peek](TransportWideSeqUnwrapper.md#peek) still uses the half-modulus rule for 16-bit feedback.
+
+#### Parameters
+
+##### seq
+
+`number`
+
+#### Returns
+
+`number`
+
+***
+
 ### peek()
 
 > **peek**(`seq`): `number`

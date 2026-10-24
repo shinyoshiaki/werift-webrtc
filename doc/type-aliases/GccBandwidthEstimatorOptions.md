@@ -8,8 +8,8 @@
 
 > **GccBandwidthEstimatorOptions**: `object`
 
-Optional GCC constructor settings. Probe / RTT inputs stay off the thin
-[BandwidthEstimator](../interfaces/BandwidthEstimator.md) interface (capability + constructor, not common I/O).
+Optional GCC constructor settings. Probe / RTT / process hooks are on
+[BandwidthEstimator](../interfaces/BandwidthEstimator.md); this type is constructor-only (clock, ALR).
 
 ## Type declaration
 

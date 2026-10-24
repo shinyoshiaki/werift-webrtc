@@ -73,3 +73,6 @@ Packet size in bytes (on-wire after SRTP when measured by the sender).
 ### wideSeq
 
 > **wideSeq**: `number`
+
+Transport-wide sequence: monotonic extended value from
+[RTCDtlsTransport.transportSequenceNumberExtended](../classes/RTCDtlsTransport.md#transportsequencenumberextended) (wire is low 16 bits).

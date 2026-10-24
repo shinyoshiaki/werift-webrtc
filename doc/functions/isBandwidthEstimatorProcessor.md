@@ -8,7 +8,7 @@
 
 > **isBandwidthEstimatorProcessor**(`e`): `e is BandwidthEstimator & BandwidthEstimatorProcessor`
 
-Type guard for estimators that expose pin ProcessInterval-style process.
+True when the sender should run a process timer (`processIntervalMs > 0`).
 
 ## Parameters
 

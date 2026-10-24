@@ -8,6 +8,14 @@
 
 ## Properties
 
+### bandwidthEstimator
+
+> **bandwidthEstimator**: [`BandwidthEstimatorOption`](../type-aliases/BandwidthEstimatorOption.md)
+
+Send-side estimator used by each new sender; defaults to legacy.
+
+***
+
 ### bundlePolicy
 
 > **bundlePolicy**: [`BundlePolicy`](../type-aliases/BundlePolicy.md)
@@ -42,14 +50,8 @@
 
 > **filterProbePaddingOnReceiveRtp**: `boolean`
 
-When true (default), padding-only GCC probe RTP is not delivered on
-[MediaStreamTrack.onReceiveRtp](../classes/MediaStreamTrack.md#onreceivertp). Later media / retransmission
-packets have sequence numbers compacted with `uint16Add` so subscribers
-do not see holes. TWCC, NACK, and packet/octet stats still observe the
-original packets.
-
-Set false to receive original sequence numbers and `{ type: "padding" }`
-events (the application must skip or rewrite them).
+When true, padding-only RTP is omitted from onReceiveRtp and later media
+sequence numbers are compacted. Default false preserves wire RTP events.
 
 ***
 

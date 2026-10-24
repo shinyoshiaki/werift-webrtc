@@ -8,7 +8,8 @@
 
 > **isRoundTripTimeConsumer**(`e`): `e is BandwidthEstimator & RoundTripTimeConsumer`
 
-Type guard for estimators that consume RTCP RTT (e.g. GCC AIMD).
+True when the estimator consumes RTCP RTT for AIMD (non-zero process interval).
+Legacy / disabled `setRoundTripTime` is a no-op.
 
 ## Parameters
 

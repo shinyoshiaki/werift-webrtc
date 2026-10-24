@@ -8,7 +8,8 @@
 
 > **isProbePacingController**(`e`): `e is BandwidthEstimator & ProbePacingController`
 
-Type guard for estimators that drive probe padding / pacing.
+True when the estimator actually drives probe padding (non-zero padding size).
+Legacy / disabled no-ops return false.
 
 ## Parameters
 

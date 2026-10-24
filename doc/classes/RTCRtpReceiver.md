@@ -674,7 +674,9 @@ prepareReceive() so the current decode path remains available.
 
 > **setupTWCC**(`mediaSourceSsrc`, `negotiated`): `void`
 
-setup TWCC if supported
+Attach this receiver to the DTLS-transport-scoped TWCC generator.
+BUNDLE audio/video share one ReceiverTWCC so interleaved
+transport-wide sequences are not reported as loss.
 
 #### Parameters
 

@@ -10,7 +10,7 @@
 
 ### new RTCRtpSender()
 
-> **new RTCRtpSender**(`trackOrKind`, `options`): [`RTCRtpSender`](RTCRtpSender.md)
+> **new RTCRtpSender**(`trackOrKind`, `options`?): [`RTCRtpSender`](RTCRtpSender.md)
 
 #### Parameters
 
@@ -18,9 +18,9 @@
 
 [`Kind`](../type-aliases/Kind.md) | [`MediaStreamTrack`](MediaStreamTrack.md)
 
-##### options
+##### options?
 
-[`RTCRtpSenderOptions`](../type-aliases/RTCRtpSenderOptions.md) = `{}`
+[`RTCRtpSenderOptions`](../type-aliases/RTCRtpSenderOptions.md)
 
 #### Returns
 
@@ -72,10 +72,10 @@ Prefer this over `senderBWE.onAvailableBitrate` for application adaptation.
 
 ### onProbeClusterConfig
 
-> `readonly` **onProbeClusterConfig**: [`Event`](Event.md)\<\[\{ `id`: `number`; `minDurationMs`: `number`; `minPackets`: `number`; `targetBps`: `number`; \}\]\>
+> `readonly` **onProbeClusterConfig**: [`Event`](Event.md)\<\[[`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)\]\>
 
-GCC probe cluster configs (target bps / min packets). Bridged when the
-active estimator is [GccBandwidthEstimator](GccBandwidthEstimator.md).
+Probe cluster configs (target bps / min packets). Bridged from the active
+[BandwidthEstimator](../interfaces/BandwidthEstimator.md); GCC fires this, legacy / disabled never do.
 
 ***
 
@@ -170,7 +170,8 @@ active estimator is [GccBandwidthEstimator](GccBandwidthEstimator.md).
 > **get** **pacingBitrateBps**(): `number`
 
 Effective send pacing rate (bps): estimator estimate, raised to the active
-probe target while probing. 0 when unknown.
+probe target while probing. 0 when unknown. Legacy returns 0 from
+[BandwidthEstimator.getPacingBitrateBps](../interfaces/BandwidthEstimator.md#getpacingbitratebps) so media is unpaced.
 
 ##### Returns
 
@@ -208,7 +209,7 @@ probe target while probing. 0 when unknown.
 
 #### Get Signature
 
-> **get** **senderBWE**(): [`BandwidthEstimator`](../interfaces/BandwidthEstimator.md)
+> **get** **senderBWE**(): [`BandwidthEstimator`](../interfaces/BandwidthEstimator.md) & [`LegacyCongestionCompatibility`](../type-aliases/LegacyCongestionCompatibility.md)
 
 Active send-side bandwidth estimator (TWCC-driven).
 
@@ -218,9 +219,16 @@ Replace only with [setBandwidthEstimator](RTCRtpSender.md#setbandwidthestimator)
 Prefer [onAvailableBitrate](RTCRtpSender.md#onavailablebitrate) on this sender for bitrate notifications that
 survive estimator swaps. Algorithm-specific events remain on concrete instances.
 
+**TypeScript compatibility:** [LegacyCongestionCompatibility](../type-aliases/LegacyCongestionCompatibility.md) fields
+(`onCongestion` / `onCongestionScore`) are present on every estimator so
+existing `sender.senderBWE.onCongestion.subscribe(...)` still type-checks.
+They fire only on [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator.md); GCC / disabled are no-ops.
+Prefer `sender.senderBWE as SenderBandwidthEstimator` (or
+[isSenderBandwidthEstimator](../functions/isSenderBandwidthEstimator.md)) for legacy-only APIs.
+
 ##### Returns
 
-[`BandwidthEstimator`](../interfaces/BandwidthEstimator.md)
+[`BandwidthEstimator`](../interfaces/BandwidthEstimator.md) & [`LegacyCongestionCompatibility`](../type-aliases/LegacyCongestionCompatibility.md)
 
 ***
 
@@ -361,6 +369,14 @@ Regular RTP padding (not probe/probation). Probe padding takes priority.
 ### maybeInjectProbePadding()
 
 > **maybeInjectProbePadding**(): `Promise`\<`number`\>
+
+Inject RTP padding packets while a GCC probe cluster is active and media
+alone has not yet filled min packets / min bitrate×duration.
+
+Responsibility split:
+- Estimator (`ProbeController` / `pendingProbePaddingPackets`) decides need
+- Sender generates padding-only RTP on the RTX SSRC with a TWCC seq +
+  `isProbation` and paces them
 
 #### Returns
 
@@ -547,18 +563,8 @@ Internal: return to a negotiation baseline's send parameters.
 
 > **sendRtp**(`rtp`): `Promise`\<`void`\>
 
-Send an RTP packet. Pending RTP is disabled by default: the packet is
-written immediately if DTLS is connected and a codec is set, otherwise
-dropped.
-
-When pending RTP is enabled, the packet is queued until it can be sent.
-The returned promise then settles for this packet only:
-- resolve: DTLS send completed, or the packet was dropped by `stop()`,
-  `replaceTrack(null)`, or pending-queue overflow
-- reject: DTLS send threw while writing this packet
-
-Later `sendRtp()` calls stay pending until their own packet is sent or
-dropped, even if a drain is already in progress.
+Send immediately by default or queue until DTLS is ready when pending RTP
+is enabled. Each call settles only after its own packet is sent or dropped.
 
 #### Parameters
 
@@ -585,7 +591,9 @@ Behavior on swap:
 1. Bumps bweGeneration so in-flight sends discard `rtpPacketSent`
    delivery and in-flight [maybeInjectProbePadding](RTCRtpSender.md#maybeinjectprobepadding) loops exit
    (cancelled — no packets to disposed / previous estimator).
-2. Stops delivering `rtpPacketSent` / `receiveTWCC` to the previous instance.
+2. Clears pendingUntrackedBytes so the next estimator's first
+   `SentInfo.priorUnackedBytes` is 0.
+3. Stops delivering `rtpPacketSent` / `receiveTWCC` to the previous instance.
 3. Unbinds the stable [onAvailableBitrate](RTCRtpSender.md#onavailablebitrate) bridge, then `dispose()`/`reset()` the old instance.
 4. **Always** `reset()` the injected `impl` so a previously used instance
    starts clean (no implicit state merge), then rebinds the bridge.

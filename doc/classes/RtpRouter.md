@@ -261,13 +261,17 @@ Internal: restore staged routes (an empty snapshot discards them).
 
 ### routeRtcp()
 
-> **routeRtcp**(`packet`): `void`
+> **routeRtcp**(`packet`, `dtlsTransport`?): `void`
 
 #### Parameters
 
 ##### packet
 
 [`RtcpPacket`](../type-aliases/RtcpPacket.md)
+
+##### dtlsTransport?
+
+[`RTCDtlsTransport`](RTCDtlsTransport.md)
 
 #### Returns
 

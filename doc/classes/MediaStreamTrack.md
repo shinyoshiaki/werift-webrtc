@@ -86,21 +86,6 @@ todo impl
 
 > `readonly` **onReceiveRtp**: [`Event`](Event.md)\<\[[`RtpPacket`](RtpPacket.md), [`Extensions`](../interfaces/Extensions.md)?, [`RtpReceiveInfo`](../type-aliases/RtpReceiveInfo.md)?\]\>
 
-RTP packets delivered to this track.
-
-Arguments:
-1. `RtpPacket` — canonical form (`payload` is media only; padding-only probes have `payload.length === 0`)
-2. `Extensions` — parsed header extensions when present
-3. `RtpReceiveInfo` — packet kind (`media` / `padding` / `retransmission`).
-   Receiver and [writeRtp](MediaStreamTrack.md#writertp) always pass this; the type is optional so
-   existing 1- and 2-argument subscribers keep compiling.
-
-Padding-only packets (GCC `maybeInjectProbePadding`) are still received so
-TWCC can ACK them, but they are not decoded. By default
-(`PeerConfig.filterProbePaddingOnReceiveRtp`) they are omitted from this
-event and later sequence numbers are compacted. Unmute happens only for
-`media` and `retransmission`.
-
 ***
 
 ### onSourceChanged
@@ -362,7 +347,7 @@ v0.1.26
 
 ### applyIncomingRtp()
 
-> **applyIncomingRtp**(`packet`, `extensions`?): `void`
+> **applyIncomingRtp**(`packet`, `extensions`?, `info`?): `void`
 
 #### Parameters
 
@@ -373,6 +358,10 @@ v0.1.26
 ##### extensions?
 
 [`Extensions`](../interfaces/Extensions.md)
+
+##### info?
+
+[`RtpReceiveInfo`](../type-aliases/RtpReceiveInfo.md)
 
 #### Returns
 
