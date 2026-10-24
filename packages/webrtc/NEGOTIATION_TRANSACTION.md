@@ -919,6 +919,13 @@ without retry. A failure prints the seed, the scene or cycle, what was not
 collected or released and, unless `WERIFT_NEGOTIATION_LEAK_SHRINK=0`, the
 smallest failing scene (operations dropped) or cycle (templates dropped).
 
+A surplus `Timeout` is reported with the creation stack of every live timer
+(`live timer created at:`, from `async_hooks` in `leakProbe.ts`), so a client's
+timer (TURN refresh, retransmission) can be told from the test's own. P2 reads
+`process.timers` as the fewest timers over six samples 40 ms apart, because a
+transient timer (a STUN retransmission in flight) made the instantaneous count
+exceed its bound under heavy parallel load.
+
 ### Leak property evidence
 
 `npm run leak:verify -- repeat 10` runs `leak/negotiationLeakProperty.test.ts`

@@ -1,3 +1,4 @@
+import { createHook } from "node:async_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 
 import {
@@ -187,6 +188,46 @@ export function activeResources() {
     counts[type] = (counts[type] ?? 0) + 1;
   }
   return counts;
+}
+
+/**
+ * Where each live timer was created. `process.getActiveResourcesInfo()` only
+ * counts timers, so a surplus one is reported with its creation stack to tell
+ * a client's timer (TURN refresh, retransmission) from the test's own.
+ */
+const timerOrigins = new Map<
+  number,
+  { timer: WeakRef<object>; stack: string }
+>();
+createHook({
+  init(asyncId, type, _trigger, resource) {
+    if (type !== "Timeout") return;
+    const stack = (new Error().stack ?? "")
+      .split("\n")
+      .slice(2)
+      .filter(
+        (line) =>
+          !line.includes("node:internal") && !line.includes("leakProbe"),
+      )
+      .slice(0, 4)
+      .map((line) => line.trim().replace(/^at /, ""))
+      .join(" <- ");
+    timerOrigins.set(asyncId, { timer: new WeakRef(resource), stack });
+  },
+  destroy(asyncId) {
+    timerOrigins.delete(asyncId);
+  },
+}).enable();
+
+/** Creation stacks of the timers that keep the event loop alive, grouped. */
+export function liveTimerOrigins() {
+  const grouped = new Map<string, number>();
+  for (const { timer, stack } of timerOrigins.values()) {
+    const resource = timer.deref() as { hasRef?: () => boolean } | undefined;
+    if (!resource?.hasRef?.()) continue;
+    grouped.set(stack, (grouped.get(stack) ?? 0) + 1);
+  }
+  return [...grouped].map(([stack, count]) => `${count}x ${stack}`);
 }
 
 /** The resource types with more instances than in `before`, by how many. */
@@ -446,6 +487,20 @@ export async function settledFootprint(pcs: RTCPeerConnection[], ms = 3000) {
   }
 }
 
+/**
+ * The fewest timers alive across a short window: a transient timer (a STUN
+ * retransmission, a consent check in flight) comes and goes, a leaked one
+ * stays in every sample.
+ */
+async function quietTimerCount(samples = 6, gapMs = 40) {
+  let fewest = Infinity;
+  for (let i = 0; i < samples; i++) {
+    fewest = Math.min(fewest, activeResources().Timeout ?? 0);
+    await delay(gapMs);
+  }
+  return fewest;
+}
+
 /** Arrange helper: drop the strong references the negotiation harness keeps across a case. */
 export function releaseHarness() {
   releaseContinuationRecords();
@@ -683,6 +738,12 @@ export async function closedLeaks(
   }
   for (const [type, count] of Object.entries(resources)) {
     problems.push(`active resource left: ${type} +${count}`);
+  }
+  // 残った Timeout の生成元 (client の timer かテスト側の timer かを区別する)。
+  if (resources.Timeout) {
+    for (const origin of liveTimerOrigins()) {
+      problems.push(`  live timer created at: ${origin}`);
+    }
   }
   return problems;
 }
@@ -1002,6 +1063,8 @@ export async function runCycles(
   for (let round = 1; round <= repetitions; round++) {
     await session.repeat();
     const [fa, fb] = await settledFootprint([a, b]);
+    // timer 数は計測の瞬間に揺れる。短時間の最小値で、増え続けるものだけを見る。
+    fa["process.timers"] = fb["process.timers"] = await quietTimerCount();
     footprints.push({ a: fa, b: fb });
   }
   await session.finish();
