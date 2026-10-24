@@ -19,7 +19,7 @@ import {
   Vp9RtpPayload,
 } from "../../src";
 
-const DATA = join(__dirname, "../../tests/data");
+const DATA = join(import.meta.dirname, "../../tests/data");
 
 function loadPayloadVector(name: string): Buffer[] {
   const path = join(DATA, name);
@@ -191,6 +191,6 @@ export function buildExpectedFromVectors(): void {
   writeAv1Expected();
 }
 
-if (require.main === module || process.argv[1]?.includes("buildExpected")) {
+if (process.argv[1]?.includes("buildExpected")) {
   buildExpectedFromVectors();
 }

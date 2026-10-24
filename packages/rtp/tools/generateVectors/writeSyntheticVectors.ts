@@ -22,7 +22,7 @@ import {
 } from "../../src";
 import { leb128encode } from "../../src/codec/leb128";
 
-const OUT_DIR = join(__dirname, "../../tests/data");
+const OUT_DIR = join(import.meta.dirname, "../../tests/data");
 
 function encode(payloads: Buffer[]): Buffer {
   const parts: Buffer[] = [];
@@ -262,6 +262,6 @@ wire payloads from package packetizers with non-repeating PRNG media bodies
   console.log("[synthetic] wrote vector_*.bin under tests/data/");
 }
 
-if (require.main === module) {
+if (process.argv[1]?.includes("writeSyntheticVectors")) {
   writeSyntheticVectors();
 }

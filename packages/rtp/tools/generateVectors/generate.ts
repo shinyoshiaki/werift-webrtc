@@ -21,7 +21,7 @@ import { RtpPacket } from "../../src";
 import { buildExpectedFromVectors } from "./buildExpectedFromVectors";
 import { writeSyntheticVectors } from "./writeSyntheticVectors";
 
-const OUT_DIR = join(__dirname, "../../tests/data");
+const OUT_DIR = join(import.meta.dirname, "../../tests/data");
 const HOST = "127.0.0.1";
 const COLLECT_MS = 2500;
 const MAX_PACKETS = 8;
@@ -385,7 +385,7 @@ Docker (if host has no GStreamer):
 
 \`\`\`bash
 docker run --rm --network host -v "$(pwd)/../..":/workspace -w /workspace/packages/rtp \\
-  node:20-bookworm bash -c \\
+  node:24-bookworm bash -c \\
   "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \\
    gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \\
    gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-plugins-bad && \\

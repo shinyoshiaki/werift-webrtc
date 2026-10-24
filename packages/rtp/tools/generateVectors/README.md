@@ -6,7 +6,7 @@ committed binaries (and synthetic vectors in `*.test.ts`).
 
 ## Requirements
 
-- Node.js >= 10
+- Node.js >= 22.18 (native TypeScript execution)
 - `gst-launch-1.0` with plugins:
   - **good**: `mulawenc`, `alawenc`, `rtppcmupay`, `rtppcmapay`, `rtpg722pay`, `rtpmp4gpay` (or `rtpgstpay`)
   - **ugly / bad / libav**: `x265enc` or `h265parse`, `avenc_aac`, `g722enc`
@@ -25,7 +25,7 @@ node --experimental-transform-types --disable-warning=ExperimentalWarning --disa
 ```bash
 docker run --rm --network host \
   -v "$(pwd)/../..":/workspace -w /workspace/packages/rtp \
-  node:20-bookworm bash -c \
+  node:24-bookworm bash -c \
   "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
    gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
    gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-plugins-bad && \

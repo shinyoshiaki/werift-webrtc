@@ -74,6 +74,24 @@ describe("debug logger", () => {
     output.restore();
   });
 
+  test("forces colors on non-TTY with DEBUG_COLORS=1 but NO_COLOR wins", () => {
+    // Arrange
+    const output = createDebugOutput();
+    restoreTTY = setStderrIsTTYForTest(false);
+    process.env.DEBUG_COLORS = "1";
+    debug.enable("werift:force");
+
+    // Act: 非 TTY で DEBUG_COLORS=1 のまま出力し、その後 NO_COLOR を設定して出力する
+    debug("werift:force")("forced");
+    process.env.NO_COLOR = "1";
+    debug("werift:force")("nocolor");
+
+    // Assert: 1 件目は色付き、2 件目は NO_COLOR により色なしになる
+    expect(output.messages[0][0]).toContain("\u001b[");
+    expect(output.messages[1][0]).not.toContain("\u001b[");
+    output.restore();
+  });
+
   test("uses timestamps without TTY colors and honors DEBUG_COLORS=0", () => {
     // Arrange
     const output = createDebugOutput();
