@@ -173,4 +173,3 @@ describeCases("negotiation transaction spec coverage: transport", () => {
     },
   );
 });
-
