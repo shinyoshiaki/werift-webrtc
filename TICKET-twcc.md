@@ -7,7 +7,7 @@
 - TWCC（Transport-Wide Congestion Control）フィードバックを入力とする **送信側帯域推定（BWE）** を、単一ハードコード実装から **差し替え可能なアルゴリズム層** に分離する。
 - 初期の選択肢として次の 2 つを提供する。
   1. **現行アルゴリズム**（`SenderBandwidthEstimator` + `CumulativeResult` ベースの推定）
-  2. **GCC（Google Congestion Control）**（[draft-ietf-rmcat-gcc](https://datatracker.ietf.org/doc/html/draft-ietf-rmcat-gcc-02) および **libwebrtc 相当の実装挙動に可能な限り最大互換** な delay-based / loss-based / probe 推定）
+  2. **GCC（Google Congestion Control）**（[draft-ietf-rmcat-gcc](https://datatracker.ietf.org/doc/html/draft-ietf-rmcat-gcc-02) を一次仕様とし、libwebrtc を参照実装とする delay-based / loss-based / probe 推定。**GCC として正しく機能すること**を目標とし、libwebrtc との 1:1 の一致は求めない（§2.12）
 - TWCC 由来の **推定送信可能帯域（available / target bitrate）が変動したとき、イベントで帯域幅を通知する契約** を公開 API・ドキュメント上で明確化する。
 
 ### 背景（プロトコルと実装の役割分担）
@@ -92,7 +92,9 @@
 - `onCongestion` / `onCongestionScore` は **legacy 具象の固有イベント**として維持（共通 interface には含めない）。
 - 名称例: `LegacyCumulativeBandwidthEstimator` / `CumulativeMinBitrateEstimator` / 既存名の維持 + interface 適合。
 
-#### (B) GCC（最大互換を目標）
+#### (B) GCC（libwebrtc を参照実装とする）
+
+> §2.12（2026-10-24）により、完成度は「GCC として正しく機能すること」で判定する。以下の libwebrtc への寄せ方は実装方針として残すが、libwebrtc と同じ処理順・同じ境界値で動くことはテストで固定しない。
 
 - [draft-ietf-rmcat-gcc](https://datatracker.ietf.org/doc/html/draft-ietf-rmcat-gcc-02) を一次仕様とし、加えて **libwebrtc の send-side BWE / GCC 実装（現行の delay-based / loss-based / probe 周辺）を参照実装**として、**可能な限り最大の互換性**を目指す。
 - 「簡略 GCC で十分」とはしない。設計・定数・状態遷移・更新式は draft と libwebrtc の双方を突き合わせ、乖離がある場合は **理由をコメントまたは docs に記録**したうえで、実運用で使われる libwebrtc 側の挙動を優先する。
@@ -160,7 +162,7 @@
   2. 現行アルゴリズム: 帯域が変わったときだけ `onAvailableBitrate` が発火する（2.3 の契約）。
   3. GCC: loss 増加で推定が下がる / delay gradient 悪化（overuse）で推定が下がる / underuse で回復方向に動く。
   4. GCC: probe により初期または低 bitrate 状態から探索的に推定が上がる（参照実装の probe 意図に沿う）。
-  5. GCC: 可能なら参照実装の公開テストベクトル、または自前で固定した決定的入力に対する **期待 bitrate 系列**（許容誤差付き）で回帰する。
+  5. GCC: 仮想ボトルネックでの決定的シミュレーションにより、混雑・容量変化・ロス・feedback 途絶への **制御応答の傾向**（範囲判定）を回帰する。libwebrtc と同じ処理順・境界値の検証はしない（§2.12）。
   6. 選択 API: `setBandwidthEstimator` で GCC（または別実装）に差し替え後、以降の TWCC / sent が新実装に渡り、`onAvailableBitrate` が新実装から発火する。
   7. 共通 interface に congestion 系イベントが **含まれない** こと、legacy / GCC 固有イベントが具象側に残ることを型またはテストで確認する。
 - Act / Assert には日本語コメントを適切な粒度で付与（リポジトリ規約）。
@@ -288,6 +290,57 @@ RTP パケット生成・DTLS 送信・token-bucket 待ちは sender に残す�
 - `SentInfo.sendingAtMs` は ICE へ渡す直前の時刻を使う。
 - legacy の送信履歴は 10 秒の時間窓で捨てる（develop は削除処理が効かず無制限に増えていた）。
 
+### 2.12 GCC テストの方針転換：libwebrtc との 1:1 一致から「GCC として正しく機能すること」へ（追加要件・2026-10-24）
+
+#### 背景
+
+`tests/media/bandwidthEstimator.test.ts` は 8,607 行・221 件で、その大半が「libwebrtc と同じ処理順・同じ境界値で動くこと」を個別の例で固定していた（例: `2999` と `3000` の境界、`clamp→drop` の順序、内部状態遷移、`as any` による内部状態の直接操作 642 か所）。このため、実装の小さな改善でも大量のテストが落ち、テストが実装の写しになっていた。
+
+#### 要件
+
+- GCC の完成度は「**GCC として正しく機能すること**」で判定する。libwebrtc と 1:1 に対応する実装を目指すことは要件にしない。
+- **実装側の互換のための処理（境界値や順序の調整）は今回は残し、テストだけ整理する。**
+- libwebrtc と同じ処理順・同じ境界値で動くことを検証する厳密なテストは削除する。
+- 削除した範囲は次の 3 種類のテストで押さえる。
+  1. **GCC の仕様に基づく制御応答テスト**: 仮想ボトルネック（容量・片道遅延・キュー上限・ランダムロス）を通した決定的シミュレーションで、結果の傾向を範囲で判定する。
+  2. **不変条件の性質テスト**: ランダムな経路・送信レート・ロス・feedback 途絶を混ぜても成り立つ性質を確認する。
+  3. **werift 固有の回帰テスト**: 過去のレビューで見つかった werift の不具合（送信経路・番号・padding・差し替え・停止・TWCC 解釈）は例ベースで残す。
+
+#### 完了条件（この追加分）
+
+- [x] 制御応答テスト（`tests/media/bandwidthEstimator.test.ts` の「GCC 制御応答（仕様ベース）」）を追加した。
+  - 容量を超える送信を続けると、2 秒以内に容量付近まで下がる（0 には張り付かない）。
+  - 容量に余裕があれば probe padding で 1 秒以内に開始値の 3 倍以上へ上がり、収束後は容量の 70〜115%、キューあふれ 0。
+  - 容量が下がると 2 秒以内に追従し、最終値は新容量の 50〜110%。あふれは低下直後の過渡期だけで、追従後の 5 秒間は 0。
+  - 容量が回復すると推定が 2 倍以上に上がり、容量を大きく超えない。
+  - 片道 300ms の固定遅延だけでは推定を下げない（容量の 60〜120%）。
+  - ロス 20% の推定はロス 0% の半分未満で、0 にはならない。
+  - TWCC feedback が途絶えると、途絶前の半分未満まで下がり続ける。
+- [x] 不変条件の性質テスト（「GCC 不変条件（性質テスト）」24 系列）を追加した。通知値は有限で、`setBitrates` の [min, max] から出ず、同じ値を続けて通知せず、公開値は最後の通知値と一致する。
+- [x] シミュレーションは共有の Arrange ユーティリティ `tests/media/gccSimulation.ts` に置いた（1ms 刻みの FIFO ボトルネック、wire 形式の TWCC（250µs 量子化あり）、`RTCRtpSender` と同じ要領の probe padding）。
+- [x] テストが GCC の故障を検出できることを、実装を一時的に壊して確認した（確認後に元へ戻した）。
+  - overuse 時に減速しない → 2 件失敗
+  - probe padding を要求しない → 2 件失敗
+  - loss-based を採用しない → 4 件失敗
+  - RTT backoff を無効化 → feedback 途絶のテストが失敗
+  - 変化時のみ通知をやめる → 性質テスト 24 件すべて失敗
+- [x] libwebrtc との 1:1 一致を固定していたテストを削除した。`bandwidthEstimator.test.ts` は 8,607 行・221 件から 2,590 行・84 件（例ベース 53 件 + 制御応答 7 件 + 性質テスト 24 系列）になった。共有ユーティリティ `gccSimulation.ts` は 241 行。
+- [x] 実装（`src`）は変更していない。
+
+#### 残したテスト（werift 固有の回帰）
+
+- 共通契約: GCC フックの no-op、共通 interface に congestion 系を含めない、`senderBWE` は getter のみ、`onCongestion` の TypeScript 互換。
+- legacy: 合成 TWCC での推定範囲、変化時のみ通知、pacing しない、送信履歴の時間窓 prune。
+- TWCC 入力の解釈: wire 形式の TWCC、空 TWCC で通知しない、24-bit reference_time の周回、`receivedAtMs = 0` の扱い、周回した probe 番号、送信停止後の履歴 prune。
+- `RTCRtpSender` 送信経路: padding（RTX SSRC・padding bit・サイズ・SRTP 往復）、FIFO 直列化、BUNDLE での TSN 順、キュー上限、stop 時の commit、RED 後のサイズ、TWCC 未交渉時、メディア番号の保持、SR octetCount。
+- estimator の差し替え・停止: 差し替え後の配送、in-flight の汚染防止、ProcessInterval timer、dispose、ネットワーク可用性の同期。
+
+#### トレードオフ（了承済み）
+
+- Chrome（libwebrtc）との細かな挙動差（立ち上がりの速さ、probe の回数など）は検出しない。
+- 判定が範囲なので、わずかな性能劣化は検出しない。範囲はこの時点の実測値（`gccSimulation.ts` での結果）を基準に決めた。
+- 実装は libwebrtc の写しのまま残るため、実装の量・複雑さは変わらない。互換のための処理を削るかは別途判断する。
+
 ---
 
 ## 3. 技術的な実装アプローチ（調査結果の要約）
@@ -332,7 +385,7 @@ packages/webrtc/src/media/sender/
 - `CumulativeResult` は send/receive interval から bitrate を出す単純統計。現行 estimator のコアなので **legacy 実装内に閉じる**。
 - GCC は遅延勾配・ロス率を使うため `CumulativeResult` に依存しない別内部状態を持つ。
 
-### 3.4 GCC 実装の要点（最大互換）
+### 3.4 GCC 実装の要点（libwebrtc を参照）
 
 - **入力**: 各パケットの `sendingAtMs` / size / wideSeq と TWCC の `receivedAtMs`・到達/未到達。必要なら feedback 欠損の扱いも参照実装に合わせる。
 - **Delay-based**:
@@ -348,6 +401,7 @@ packages/webrtc/src/media/sender/
   3. 定数・状態機械・更新式を可能な限り 1:1 に写す。
   4. 差分は意図的なものだけ残し、理由を記録。
 - 簡略版へのフォールバックで完了としない。到達困難な差分のみ「既知の非互換」として明示する。
+- 上記の移植方針は実装の進め方であり、テストの合否基準ではない。合否は §2.12 の制御応答テストと不変条件テストで判定する。
 
 ### 3.5 イベント実装パターン
 
@@ -398,10 +452,10 @@ set availableBitrate(v: number) {
 5. **REMB との関係**  
    - 現状 REMB は `receiverEstimatedMaxBitrate` 保持のみで BWE に未統合。本タスクでは必須統合しない。GCC loss-based が REMB を取る設計もあるが、TWCC パスを主とし、REMB 統合は optional / 後続。
 
-6. **GCC の完成度（最大互換を目標）**  
-   - **可能な限り libwebrtc / draft-ietf-rmcat-gcc との最大互換**を目指す。delay-based・loss-based・probe・結合規則・主要定数まで含める。
-   - 「動く簡略版」で完了としない。数値の bit 完全一致が難しい箇所は許容誤差と既知差分の文書化で扱い、**アルゴリズム構造と制御応答の互換**を落とさない。
-   - pure TypeScript 制約の範囲で、参照実装に無い独自ヒューリスティックの追加は避ける。
+6. **GCC の完成度（GCC として正しく機能すること）**  
+   - draft-ietf-rmcat-gcc の delay-based・loss-based・probe・結合規則を備え、混雑で下げる・空けば上げる・ロスで下げる・probe で上限を探る・feedback 途絶で安全側へ下げる、という制御応答を満たすこと（§2.12）。
+   - libwebrtc は参照実装とし、libwebrtc と 1:1 に一致すること（同じ処理順・同じ境界値・同じ内部状態遷移）は求めない。既存の互換のための処理（境界値や順序の調整）は残すが、テストでは固定しない。
+   - 「動く簡略版」で完了としない。pure TypeScript 制約の範囲で、参照実装に無い独自ヒューリスティックの追加は避ける。
 
 7. **パフォーマンス**  
    - `sentInfos` の掃除は現行どおり wideSeq 未満削除。GCC でも履歴窓を有限に保つ。
@@ -432,7 +486,7 @@ set availableBitrate(v: number) {
   - 根拠: `SenderBandwidthEstimator`（既定・cumulative min(send,recv)）。`PeerConfig.bandwidthEstimator` の既定値は `"legacy"`。
 - [x] **GCC アルゴリズム**が abstract の一実装として提供され、TWCC feedback から **delay-based / loss-based / probe** を用いて推定帯域を更新する。GCC 固有状態は具象イベント / state として分離する。
   - 根拠: `GccBandwidthEstimator`（Trendline + overuse + AIMD / LossBased / ProbeController）。
-- [x] GCC 実装が draft-ietf-rmcat-gcc および **libwebrtc 参照実装に可能な限り最大互換**である（主要コンポーネント・更新規則・定数。既知差分は文書化）。
+- [x] GCC 実装が draft-ietf-rmcat-gcc の主要コンポーネント（delay-based / loss-based / probe / 結合）を備え、**GCC として正しく機能する**（§2.12 の制御応答テストで判定。libwebrtc との 1:1 一致は求めない）。
   - 根拠: 既知差分は `GCC_KNOWN_DIFFERENCES`（`estimators/gcc/constants.ts`）に記載。ALR 専用 probe、完全な PacedSender、REMB、RR 由来の `updatePacketsLost` 配線は未対応で、差分または今後の課題として扱う。
 - [x] 推定送信可能帯域が **変動したとき** `onAvailableBitrate`（共通契約）で **bps** が通知されることが、実装と JSDoc/ドキュメントで明確である（値不変時の不要通知を避ける実装が望ましい）。
   - 根拠: `onAvailableBitrate` は bps が変化したときだけ発火する（JSDoc と `packages/webrtc/README.md`）。
@@ -447,10 +501,10 @@ set availableBitrate(v: number) {
   - 根拠: `tests/media/bandwidthEstimator.test.ts`。
 - [x] `setBandwidthEstimator` 差し替え後に新実装へ入力が渡り、共通イベントが新実装から発火することをテストする。
   - 根拠: `tests/media/bandwidthEstimator.test.ts`、`tests/media/rtpSender.test.ts`。
-- [x] GCC について、overuse / loss / probe を含む制御応答テストがあり、可能なら決定的入力に対する期待 bitrate 系列（許容誤差付き）で回帰できる。
-  - 根拠: overuse / loss / probe の応答テストと、形状＋許容レンジでの回帰（`tests/media/bandwidthEstimator.test.ts`）。libwebrtc 公開ベクトルとの bit 単位一致は未実施（非ゴール）。
+- [x] GCC について、混雑・容量の低下と回復・固定遅延・ロス・feedback 途絶・probe を含む制御応答テストがあり、決定的シミュレーションの範囲判定で回帰できる。
+  - 根拠: `tests/media/bandwidthEstimator.test.ts` の「GCC 制御応答（仕様ベース）」7 件と「GCC 不変条件（性質テスト）」24 系列。シミュレーションは `tests/media/gccSimulation.ts`（§2.12）。
 - [x] libwebrtc / draft との意図的差分一覧（無ければ「既知差分なし」）が docs または実装コメントで辿れる。
-  - 根拠: `GCC_KNOWN_DIFFERENCES`。
+  - 根拠: `GCC_KNOWN_DIFFERENCES`。§2.12 以降は、libwebrtc との違いを把握するための参考情報として扱う（テストの合否基準ではない）。
 - [x] `packages/webrtc` の type-check および関連テストが通る（例: `cd packages/webrtc && npm run type` / 追加テスト実行。必要に応じて `npm run test:small`）。
   - 根拠: `cd packages/webrtc && npm run type`、`npm test`、ルートの `npm run type` と `npm run test:small` が成功（2026-10-19）。
 - [x] 既存 example（特に `simulcast/abr.ts`、`twcc/offer.ts`）がコンパイル・利用パターンとして破綻しない（legacy 固有イベント購読を含む）。
@@ -476,6 +530,14 @@ set availableBitrate(v: number) {
 - Biome（`packages/webrtc` の `src` / `tests` / `simulations`）: 指摘なし。
 - WPT は今回再実行していない。
 
+### 検証記録（2026-10-24、§2.12 テスト整理後）
+
+- 作業開始時のリビジョンは `cec474f1`（未コミット変更なし）。変更はテストとドキュメントだけで、`src` の実装は変更していない。
+- `cd packages/webrtc && npm run type`: 成功。`npx vitest run tests`: 60 ファイル、980 件成功・3 件 skip。
+- `tests/media/bandwidthEstimator.test.ts` を 3 回続けて実行し、3 回とも 84 件成功（シミュレーションは固定シードで決定的）。
+- 故障注入（overuse 減速・probe・loss-based・RTT backoff・変化時のみ通知をそれぞれ無効化）で、対応するテストが失敗することを確認した（§2.12）。
+- Biome（`tests/media`）: 指摘なし。
+
 ### ライセンス
 
 - GCC 実装（`packages/webrtc/src/media/sender/estimators/gcc/`）は libwebrtc（BSD-3-Clause + PATENTS）の移植。帰属はルート `NOTICE`、各ファイル先頭の `/*!` ヘッダー、`third_party/libwebrtc-ref/{LICENSE,PATENTS,AUTHORS}`（pin と同じコミットから取得）で示す。
@@ -491,7 +553,8 @@ set availableBitrate(v: number) {
 ### 非ゴール（本チケットでは必須としない）
 
 - NADA / SCReAM 等の第三アルゴリズム実装。
-- C++ libwebrtc のランタイムリンクや、Chrome 全体と bit 単位で同一の実行結果保証（言語・時刻源差による微小差は許容。ただし最大互換は必須目標）。
+- C++ libwebrtc のランタイムリンクや、Chrome 全体と bit 単位で同一の実行結果保証（言語・時刻源差による微小差は許容）。
+- libwebrtc と同じ処理順・同じ境界値・同じ内部状態遷移で動くことを、テストで保証すること（§2.12）。
 - エンコーダへの自動 bitrate 強制（アプリ側が `onAvailableBitrate` を購読して制御するのを基本とする）。
 - REMB のみに依存するレガシー経路の全面置き換え（GCC が REMB を参照実装どおり取り込む場合は可。必須の別経路統合ではない）。
 - Receiver 側 feedback 生成アルゴリズムの刷新（周期・バッチ条件の最適化は、互換に必要な範囲を除き別タスク可）。
@@ -537,3 +600,4 @@ set availableBitrate(v: number) {
 | probe / loss padding | **RTX SSRC** でだけ送る。RTX が無ければ送らない（既知差分）。media seq は `input + seqOffset` のまま（§2.11） |
 | legacy / disabled の送信経路 | develop と同じ**直接送信**（送信キュー・pacing なし）。送信キューは GCC など pacing する estimator だけ（§2.11） |
 | ReceiverTWCC の corrective feedback | **持たない**（dumb receiver。§4.1 と非ゴールに合わせる）（§2.11） |
+| GCC のテストの合否基準 | **GCC として正しく機能すること**（制御応答・不変条件・werift 固有の回帰）。libwebrtc と同じ処理順・境界値の検証はしない。実装側の互換のための処理は残す（§2.12） |

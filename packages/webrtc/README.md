@@ -143,7 +143,7 @@ Until TWCC is negotiated and enough samples arrive, `availableBitrate` may stay 
 
 - Transport-wide sequence numbers, `ReceiverTWCC`, and TWCC RTCP delivery are **per DTLS transport**. Each `RTCRtpSender` still has its own `BandwidthEstimator`; feedback is fanned out and each estimator matches only its own `SentInfo`. Transport-level GCC/pacer allocation is a non-goal.
 - `sender.senderBWE.onCongestion` / `onCongestionScore` remain a **one-release TypeScript compatibility surface**. They fire only on `SenderBandwidthEstimator`; GCC/disabled expose no-op Events. Prefer `sender.senderBWE as SenderBandwidthEstimator` or `isSenderBandwidthEstimator`.
-- GCC is structure-compatible with libwebrtc goog_cc, not bit-identical. See `GccBandwidthEstimator.knownDifferences` / `GCC_KNOWN_DIFFERENCES` for intentional gaps (no REMB, lightweight pacer, float/clock drift, etc.).
+- GCC follows libwebrtc goog_cc as a reference, but does not aim for a 1:1 match. Tests check GCC behavior in a simulated bottleneck: it backs off under congestion and loss, ramps up with probes, and backs off when feedback stops. They do not pin libwebrtc's exact order of operations or boundary values. `GCC_KNOWN_DIFFERENCES` (`GccBandwidthEstimator.knownDifferences`) lists known gaps (no REMB, lightweight pacer, float/clock drift, etc.) for reference.
 - Bottleneck simulations are **CI-excluded**: `cd packages/webrtc && npm run test:sim`, and `cd e2e && npm run test:sim` (Chrome). Run them before merging GCC/TWCC changes.
 
 ## Demos
