@@ -121,6 +121,8 @@ ide:
 ## 4. 判断理由
 
 - **PLI は `senderSsrc` へフォールバックしない**: フォールバックがあると、まさに今回の誤配送が再発するためです。
+  - 「`mediaSsrc` → なければ `senderSsrc`」をデフォルトにし、RFC 準拠をオプションにする案も検討しました。採用しなかった理由は、`senderSsrc` は要求を送った相手の SSRC なので、引いても自分の Sender に当たらないためです。werift 同士の sendrecv video で確かめたところ、相手 PLI の `senderSsrc` は自分の `ssrcTable` で `RTCRtpReceiver` に当たりました。つまりキーフレームは出ず、Receiver の `onRtcp` に PSFB が流れるだけです（下流の relay が回避していた誤配送と同じです）。
+  - `mediaSsrc` が引けない現実的なケース（0、RTX SSRC、再ネゴ後の古い SSRC）を救うなら、`senderSsrc` ではなく「RTX SSRC → primary の Sender」や「同じ transport に video Sender が 1 つだけならそこへ」といった対応付けが必要です。これは本チケットの範囲外とします。
 - **FIR の common header の media SSRC は使わない**: RFC 5104 で 0 と定められ、libwebrtc も 0 を送ります。
 - **`firCount` は再送も数える**: W3C stats の定義と libwebrtc の挙動に合わせました。通知だけを Seq nr で重複除去します。
 - **`onKeyFrameRequest` を追加**: PLI と FIR のどちらでも行う処理は結局キーフレーム要求だけ、というユーザーの指摘によります。既存イベントは変えず追加のみです。
