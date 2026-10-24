@@ -2,6 +2,7 @@ import { Readable } from "stream";
 
 import {
   type RtpPacket,
+  Vp8RtpPayload,
   dePacketizeRtpPackets,
   useAV1X,
   useH264,
@@ -79,6 +80,36 @@ describe("nonstandard/userMedia file playback", () => {
     expect(audioFrames[3][0].payload.equals(createOpusFrames()[0].data)).toBe(
       true,
     );
+  });
+
+  test("keeps VP8 PictureID continuous across loops when the sender re-assigns the negotiated codec", async () => {
+    const media = await createFileMediaPlayer({
+      buffer: await createAvWebmBuffer(),
+      loop: true,
+    });
+    media.audio!.codec = useOPUS();
+    media.video!.codec = useVP8();
+    // RTCRtpSender は offer / answer ごとに新しい codec オブジェクトを track に代入し、
+    // 再生開始後に payloadType が確定することもある。
+    const { unSubscribe } = media.video!.onReceiveRtp.subscribe(() => {
+      unSubscribe();
+      media.video!.codec = useVP8({ payloadType: 96 });
+    });
+    const videoFramesPromise = collectFrames(media.video!, 6);
+
+    // 実行: 1 周目の再生中に codec を payloadType 付きの新オブジェクトへ差し替え、2 周目のフレームまで受け取る。
+    const startPromise = media.start();
+    const videoFrames = await videoFramesPromise;
+    media.stop();
+    await startPromise;
+
+    // 検証: loop 境界（3 枚目 → 4 枚目）を含め、PictureID がフレームごとに +1 され続ける。
+    const pictureIds = videoFrames.map(
+      ([first]) => Vp8RtpPayload.deSerialize(first.payload).pictureId!,
+    );
+    for (let index = 1; index < pictureIds.length; index++) {
+      expect(pictureIds[index]).toBe((pictureIds[index - 1] + 1) & 0x7fff);
+    }
   });
 
   test("createFileMediaPlayer({ path }) packetizes MP4 H264/Opus in-process", async () => {

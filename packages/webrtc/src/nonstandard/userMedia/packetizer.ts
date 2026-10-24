@@ -1,5 +1,5 @@
 // EncodedPacket adapters over the packages/rtp packetizers.
-// Codec payload formats live in packages/rtp; this file only maps mediabunny
+// Codec payload formats live in packages/rtp; this file maps mediabunny
 // EncodedPacket (data + key/delta) and SDP codec parameters onto them.
 
 import {
@@ -14,6 +14,8 @@ import {
 import type { RTCRtpCodecParameters } from "../../media/parameters";
 
 import type { EncodedPacket } from "mediabunny";
+
+export { Vp8Packetizer } from "../../imports/rtp";
 
 const DEFAULT_MAX_RTP_PAYLOAD_SIZE = 1_200;
 
