@@ -27,10 +27,11 @@ Instructions for coding agents working in `packages/rtp`.
 | package tests and types | `npm test` |
 | browser entry smoke test | `npm run test:browser` |
 | type-check | `npm run type` |
+| public declaration check (`skipLibCheck: false`) | `npm run type:public` |
 
 ## Validation
 
-* RTP source changes: run `npm test`.
+* RTP source changes: run `npm test` (includes `type:public`, which type-checks generated declarations with `skipLibCheck: false`).
 * Public entry or browser compatibility changes: also run `npm run test:browser`.
 
 ## Maintenance
