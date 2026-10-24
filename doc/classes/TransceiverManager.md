@@ -148,19 +148,6 @@ remote offer 起因で作る場合の m-line index。確定済み停止位置の
 
 ***
 
-### beginRemoteOffer()
-
-> **beginRemoteOffer**(): `void`
-
-remote offer 適用前の transceiver 対応を保存する。
-同じ offer/answer 交換中に複数回呼ばれても最初の状態を保持する。
-
-#### Returns
-
-`void`
-
-***
-
 ### close()
 
 > **close**(): `void`
@@ -186,6 +173,28 @@ remote offer 適用前の transceiver 対応を保存する。
 #### Returns
 
 [`RTCStats`](../interfaces/RTCStats.md)[]
+
+***
+
+### commitAnswerCodecs()
+
+> **commitAnswerCodecs**(`transceiver`, `remoteMedia`): `void`
+
+Commit an answer's refreshed codec proposal to sender and receiver state.
+
+#### Parameters
+
+##### transceiver
+
+[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+
+##### remoteMedia
+
+[`MediaDescription`](MediaDescription.md)
+
+#### Returns
+
+`void`
 
 ***
 
@@ -427,38 +436,60 @@ sender から track を外す。
 
 ***
 
-### resyncAnswerCodecs()
+### restoreNegotiationState()
 
-> **resyncAnswerCodecs**(`transceiver`, `remoteMedia`): `void`
+> **restoreNegotiationState**(`snapshot`, `added`, `createdState`, `carried`, `notified`): [`RTCDtlsTransport`](RTCDtlsTransport.md)[]
 
-remote offer と local (source constraint + preferences) から
-answer 用の codec を再解決し、sender/receiver の codec 状態も
-新しい negotiated codec に同期する。
-setCodecPreferences() による無効化後に createAnswer() から呼ばれる。
-direction / headerExtensions / onTrack は setRemoteDescription() 時の
-まま変えない (track イベントの重複発火を避ける)。
+Internal: return to a negotiation baseline. Transceivers in `added` were
+created by the rolled-back proposal: they are removed unless the
+application uses them, in which case only their m-line association goes.
+Transceivers in `notified` (a replacement offer describes them again)
+keep the track event they delivered.
 
 #### Parameters
 
-##### transceiver
+##### snapshot
 
-[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+`TransceiversNegotiationState`
 
-##### remoteMedia
+##### added
 
-[`MediaDescription`](MediaDescription.md)
+`Iterable`\<[`RTCRtpTransceiver`](RTCRtpTransceiver.md)\>
+
+##### createdState
+
+(`transceiver`) => `undefined` \| \{ `applicationStopRevision`: `number`; `codecChangeRevision`: `number`; `codecPreferencesNeedResolution`: `boolean`; `codecs`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]; `currentDirection`: `null` \| [`CurrentDirection`](../type-aliases/CurrentDirection.md); `dtlsTransport`: [`RTCDtlsTransport`](RTCDtlsTransport.md); `firedReceiving`: `boolean`; `headerExtensions`: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]; `mid`: `null` \| `string`; `mLineIndex`: `undefined` \| `number`; `offerDirection`: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`; `pendingLocalOfferCodecs`: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]; `pendingRejection`: `boolean`; `receiver`: \{ `receiverTWCC`: `undefined` \| `ReceiverTWCC`; `receiveTables`: \{ `codecs`: \{\}; `ssrcByRtx`: \{\}; `stagedCodecs`: \{\}; `stagedSsrcByRtx`: \{\}; \}; `remoteStreamId`: `undefined` \| `string`; `remoteStreamIds`: `string`[]; `remoteTrackId`: `undefined` \| `string`; `trackByRID`: \{\}; `trackBySSRC`: \{\}; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; `unboundTracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \}; `rejected`: `boolean`; `sender`: \{ `cname`: `undefined` \| `string`; `codec`: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `headerExtensions`: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]; `mid`: `undefined` \| `string`; `negotiatedCodecs`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]; `proposedPrimaryCodec`: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `redRedundantPayloadType`: `undefined` \| `number`; `repairedRtpStreamId`: `undefined` \| `string`; `rtpStreamId`: `undefined` \| `string`; `rtxPayloadType`: `undefined` \| `number`; `sendPrimaryCodec`: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `track`: `null` \| [`MediaStreamTrack`](MediaStreamTrack.md); `trackCodec`: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stopped`: `boolean`; `stopping`: `boolean`; \}
+
+##### carried
+
+`ReadonlySet`\<[`RTCRtpTransceiver`](RTCRtpTransceiver.md)\> = `...`
+
+##### notified
+
+`ReadonlySet`\<[`RTCRtpTransceiver`](RTCRtpTransceiver.md)\> = `...`
 
 #### Returns
 
-`void`
+[`RTCDtlsTransport`](RTCDtlsTransport.md)[]
+
+transports of the removed transceivers (the caller stops unused ones)
 
 ***
 
-### rollbackRemoteOffer()
+### revertUnappliedAssociations()
 
-> **rollbackRemoteOffer**(): `void`
+> **revertUnappliedAssociations**(`snapshot`): `void`
 
-remote offer の rollback で transceiver 対応を元に戻す
+Internal: a created offer that was never applied must not leave its MID
+and m-line assignments behind (W3C associates a MID only when a
+description is set). Transceivers the session never negotiated go back to
+`snapshot`.
+
+#### Parameters
+
+##### snapshot
+
+`TransceiversNegotiationState`
 
 #### Returns
 
@@ -525,3 +556,15 @@ answer 確定後に、stopping のまま交渉対象になり得ない transceiv
 `boolean`
 
 次の自分の offer で port 0 を交渉すべき transceiver があるか
+
+***
+
+### snapshotNegotiationState()
+
+> **snapshotNegotiationState**(): `TransceiversNegotiationState`
+
+Internal: the transceivers, their order and negotiation state, for a rollback baseline.
+
+#### Returns
+
+`TransceiversNegotiationState`

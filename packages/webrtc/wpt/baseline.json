@@ -224,6 +224,30 @@
       "status": "PASS"
     },
     {
+      "file": "webrtc/RTCPeerConnection-setLocalDescription-offer.html",
+      "variant": "",
+      "subtest": "Set created offer other than last offer should reject with InvalidModificationError",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-setLocalDescription-offer.html",
+      "variant": "",
+      "subtest": "setLocalDescription() with offer not created by own createOffer() should reject with InvalidModificationError",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-setLocalDescription-offer.html",
+      "variant": "",
+      "subtest": "setLocalDescription with type offer and null sdp should use lastOffer generated from createOffer",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-setLocalDescription-offer.html",
+      "variant": "",
+      "subtest": "Creating and setting offer multiple times should succeed",
+      "status": "PASS"
+    },
+    {
       "file": "webrtc/RTCPeerConnection-setRemoteDescription-rollback.html",
       "variant": "?rest",
       "subtest": "setRemoteDescription(rollback) should ignore invalid sdp content and succeed",

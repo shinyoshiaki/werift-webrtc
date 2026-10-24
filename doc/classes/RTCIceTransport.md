@@ -6,27 +6,6 @@
 
 # Class: RTCIceTransport
 
-+------------+
-                                           |            |
-                                           |disconnected|
-                                           |            |
-                                           +------------+
-                                           ^           ^
-                                           |           |
-+------+      +----------+      +-----------+      +----------+
-|      |      |          |      |           |      |          |
-| new  | ---> | checking | ---> | connected | ---> | completed|
-|      |      |          |      |           |      |          |
-+------+      +----+-----+      +-----------+      +----------+
-                   |           
-                   |           
-                   v           
-               +-------+       
-               |       |      
-               | failed|      
-               |       |      
-               +-------+
-
 ## Constructors
 
 ### new RTCIceTransport()
@@ -103,13 +82,13 @@
 
 ### onStateChange
 
-> `readonly` **onStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`\]\>
+> `readonly` **onStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"new"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"failed"` \| `"checking"`\]\>
 
 ***
 
 ### state
 
-> **state**: `"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"` = `"new"`
+> **state**: `"closed"` \| `"new"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"failed"` \| `"checking"` = `"new"`
 
 ## Accessors
 
@@ -125,6 +104,18 @@
 
 ***
 
+### hasStagedRestart
+
+#### Get Signature
+
+> **get** **hasStagedRestart**(): `boolean`
+
+##### Returns
+
+`boolean`
+
+***
+
 ### localCandidates
 
 #### Get Signature
@@ -134,6 +125,20 @@
 ##### Returns
 
 [`IceCandidate`](IceCandidate.md)[]
+
+***
+
+### localCandidatesComplete
+
+#### Get Signature
+
+> **get** **localCandidatesComplete**(): `boolean`
+
+Whether the local description may carry `a=end-of-candidates`.
+
+##### Returns
+
+`boolean`
 
 ***
 
@@ -185,6 +190,22 @@
 
 ***
 
+### addProvisionalRemoteCandidate()
+
+> **addProvisionalRemoteCandidate**(`candidate`?): `undefined` \| `Promise`\<`void`\>
+
+#### Parameters
+
+##### candidate?
+
+[`IceCandidate`](IceCandidate.md)
+
+#### Returns
+
+`undefined` \| `Promise`\<`void`\>
+
+***
+
 ### addRemoteCandidate()
 
 > **addRemoteCandidate**(`candidate`?): `undefined` \| `Promise`\<`void`\>
@@ -201,6 +222,89 @@
 
 ***
 
+### commitLocalRestartIfStaged()
+
+> **commitLocalRestartIfStaged**(): `Promise`\<`void`\>
+
+Called unconditionally on every answer; actually restarts ICE only if
+this transport has a staged local restart. No-op otherwise.
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### deferIceServers()
+
+> **deferIceServers**(`options`): `void`
+
+Keep ICE servers for the next gathering (an ICE restart).
+
+#### Parameters
+
+##### options
+
+`Partial`\<[`IceOptions`](../interfaces/IceOptions.md)\>
+
+#### Returns
+
+`void`
+
+***
+
+### deliverProvisionalRemoteCandidate()
+
+> **deliverProvisionalRemoteCandidate**(`candidate`?): `void`
+
+`deliverRemoteCandidate` for the provisional (pranswer) generation.
+
+#### Parameters
+
+##### candidate?
+
+[`IceCandidate`](IceCandidate.md)
+
+#### Returns
+
+`void`
+
+***
+
+### deliverRemoteCandidate()
+
+> **deliverRemoteCandidate**(`candidate`?): `void`
+
+Hand a remote candidate (`undefined`: end-of-candidates) to the ICE agent
+without waiting for it. A host candidate is added synchronously; an mDNS
+name may take seconds to resolve, and the agent itself orders that
+resolution against end-of-candidates and generation changes, so the
+description operation queue must not wait for it.
+
+#### Parameters
+
+##### candidate?
+
+[`IceCandidate`](IceCandidate.md)
+
+#### Returns
+
+`void`
+
+***
+
+### discardUnappliedLocalRestart()
+
+> **discardUnappliedLocalRestart**(): `void`
+
+Drop only what an unapplied createOffer staged; keep the applied one.
+
+#### Returns
+
+`void`
+
+***
+
 ### dispatchEvent()
 
 > **dispatchEvent**(`event`): `boolean`
@@ -214,6 +318,28 @@
 #### Returns
 
 `boolean`
+
+***
+
+### emitCommittedCandidates()
+
+> **emitCommittedCandidates**(): `void`
+
+Signal the candidates an ICE restart committed by a local answer gathered.
+
+#### Returns
+
+`void`
+
+***
+
+### emitStagedCandidates()
+
+> **emitStagedCandidates**(): `void`
+
+#### Returns
+
+`void`
 
 ***
 
@@ -297,6 +423,18 @@
 
 ***
 
+### markLocalRestartApplied()
+
+> **markLocalRestartApplied**(): `void`
+
+The staged generation now belongs to an applied description.
+
+#### Returns
+
+`void`
+
+***
+
 ### removeEventListener()
 
 > **removeEventListener**(`type`, `listener`): `void`
@@ -317,9 +455,43 @@
 
 ***
 
+### resetRemoteGeneration()
+
+> **resetRemoteGeneration**(): `void`
+
+Internal: drop the remote generation and its checks, keeping the local
+credentials and candidates a description already carries (a remote-only
+restart, or a proposal transport a replacement pranswer left unused).
+
+#### Returns
+
+`void`
+
+***
+
 ### restart()
 
-> **restart**(): `void`
+> **restart**(`notifyNegotiation`, `applyNextGatherIceServers`): `void`
+
+#### Parameters
+
+##### notifyNegotiation
+
+`boolean` = `true`
+
+##### applyNextGatherIceServers
+
+`boolean` = `true`
+
+#### Returns
+
+`void`
+
+***
+
+### rollbackLocalRestart()
+
+> **rollbackLocalRestart**(): `void`
 
 #### Returns
 
@@ -343,9 +515,32 @@
 
 ***
 
+### setProvisionalRemoteParams()
+
+> **setProvisionalRemoteParams**(`remoteParameters`): `void`
+
+Feed a pranswer's ICE generation to the provisional checklist.
+
+#### Parameters
+
+##### remoteParameters
+
+[`RTCIceParameters`](RTCIceParameters.md)
+
+#### Returns
+
+`void`
+
+***
+
 ### setRemoteParams()
 
-> **setRemoteParams**(`remoteParameters`, `renomination`): `void`
+> **setRemoteParams**(`remoteParameters`, `renomination`, `__namedParameters`): `void`
+
+`keepLocalCredentials`: the remote credentials come from an answer or
+pranswer, so the local ones are fixed by the applied local offer. Changed
+remote credentials restart the checks for the new remote generation
+without new local credentials (nothing would describe them to the peer).
 
 #### Parameters
 
@@ -356,6 +551,39 @@
 ##### renomination
 
 `boolean` = `false`
+
+##### \_\_namedParameters
+
+###### keepLocalCredentials?
+
+`boolean` = `false`
+
+#### Returns
+
+`void`
+
+***
+
+### stageLocalRestart()
+
+> **stageLocalRestart**(`__namedParameters`): `void`
+
+Prepare an ICE generation for SDP without touching the selected pair.
+`answering` is the remote offer an answer is created for.
+
+#### Parameters
+
+##### \_\_namedParameters
+
+###### answering?
+
+`object`
+
+###### replacing?
+
+`ReadonlySet`\<`string`\>
+
+Credentials restartIce() asked to replace (W3C [[LocalIceCredentialsToReplace]]).
 
 #### Returns
 
@@ -370,6 +598,16 @@
 #### Returns
 
 `Promise`\<`void`\>
+
+***
+
+### startProvisionalChecks()
+
+> **startProvisionalChecks**(): `void`
+
+#### Returns
+
+`void`
 
 ***
 

@@ -82,6 +82,7 @@ See [the design note](../../docs/design/705-media-rejection-and-removetrack.md) 
 - [Examples](../../examples)
 - [Polyfill guide](../../docs/polyfill/README.md)
 - [Browser API compatibility differences](../../docs/browser-api-compatibility.md)
+- [Negotiation transaction design](NEGOTIATION_TRANSACTION.md)
 
 ## Demos
 

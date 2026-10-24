@@ -1,0 +1,1204 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>レビュー解説: PeerConnection negotiation transaction</title>
+<style>
+:root {
+  color-scheme: light;
+  --surface: #fcfcfb; --panel: #f3f2ee; --panel-2: #eae9e3; --line: #dcdbd5;
+  --ink: #0b0b0b; --ink-2: #52514e; --muted: #7a7974;
+  --blue: #2a78d6; --blue-wash: rgba(42,120,214,.12);
+  --orange: #eb6834; --orange-wash: rgba(235,104,52,.12);
+  --green: #008300; --green-wash: rgba(0,131,0,.10);
+  --violet: #4a3aa7; --violet-wash: rgba(74,58,167,.11);
+  --code-bg: #efeee8;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --surface: #1a1a19; --panel: #232321; --panel-2: #2c2c29; --line: #3a3a37;
+    --ink: #ffffff; --ink-2: #c3c2b7; --muted: #959489;
+    --blue: #3987e5; --blue-wash: rgba(57,135,229,.18);
+    --orange: #d95926; --orange-wash: rgba(217,89,38,.18);
+    --green: #2f9e2f; --green-wash: rgba(47,158,47,.16);
+    --violet: #9085e9; --violet-wash: rgba(144,133,233,.18);
+    --code-bg: #2c2c29;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--surface); color: var(--ink);
+  font: 15px/1.75 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Segoe UI", sans-serif;
+}
+.layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); max-width: 1320px; margin: 0 auto; }
+nav.toc {
+  position: sticky; top: 0; align-self: start; height: 100vh; overflow: auto;
+  padding: 28px 18px; border-right: 1px solid var(--line); font-size: 13px;
+}
+nav.toc b { display: block; margin-bottom: 8px; color: var(--ink-2); font-size: 12px; letter-spacing: .06em; }
+nav.toc a { display: block; padding: 3px 8px; border-radius: 6px; color: var(--ink-2); text-decoration: none; }
+nav.toc a:hover, nav.toc a.active { background: var(--panel); color: var(--ink); }
+main { padding: 32px 44px 80px; min-width: 0; }
+@media (max-width: 960px) { .layout { grid-template-columns: 1fr; } nav.toc { display: none; } main { padding: 20px; } }
+h1 { font-size: 28px; line-height: 1.35; margin: 0 0 6px; }
+h2 { font-size: 21px; margin: 56px 0 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+h3 { font-size: 16px; margin: 28px 0 8px; }
+p { margin: 8px 0; }
+code { font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+a { color: var(--blue); }
+a.ref {
+  font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap;
+  padding: 1px 6px; border: 1px solid var(--line); border-radius: 999px; text-decoration: none; color: var(--ink-2);
+}
+a.ref:hover { border-color: var(--blue); color: var(--blue); }
+.meta { color: var(--ink-2); font-size: 13px; }
+.meta span { margin-right: 14px; white-space: nowrap; }
+.invariant {
+  margin: 22px 0; padding: 18px 22px; border-left: 4px solid var(--green); background: var(--green-wash);
+  border-radius: 0 10px 10px 0; font-size: 16px;
+}
+.invariant small { display: block; color: var(--ink-2); font-size: 12px; margin-bottom: 4px; letter-spacing: .05em; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; margin: 16px 0; }
+.cards.wide { grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); }
+td code { white-space: nowrap; }
+.card { background: var(--panel); border-radius: 12px; padding: 14px 16px; }
+.card h4 { margin: 0 0 6px; font-size: 14px; }
+.card ul { margin: 0; padding-left: 18px; font-size: 13.5px; }
+.figure { background: var(--panel); border-radius: 12px; padding: 18px; margin: 16px 0; overflow-x: auto; }
+pre.figure code { display: block; background: none; padding: 0; white-space: pre; }
+.figure figcaption, .caption { color: var(--ink-2); font-size: 12.5px; margin-top: 8px; }
+svg text { fill: var(--ink); font-family: inherit; }
+svg .sub { fill: var(--ink-2); font-size: 11.5px; }
+svg .node { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; }
+table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13.5px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+th { color: var(--ink-2); font-weight: 600; font-size: 12.5px; background: var(--panel); }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.tag { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 1px 8px; border-radius: 999px; white-space: nowrap; border: 1px solid; }
+.tag.now { color: var(--blue); border-color: var(--blue); background: var(--blue-wash); }
+.tag.stage { color: var(--violet); border-color: var(--violet); background: var(--violet-wash); }
+.tag.reject { color: var(--orange); border-color: var(--orange); background: var(--orange-wash); }
+.tag.keep { color: var(--green); border-color: var(--green); background: var(--green-wash); }
+.flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; margin: 6px 0; padding: 0; list-style: none; counter-reset: step; }
+.flow li {
+  counter-increment: step; flex: 1 1 150px; position: relative; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px 10px 12px; font-size: 13px;
+}
+.flow li::before {
+  content: counter(step); display: inline-grid; place-items: center; width: 20px; height: 20px; margin-right: 6px;
+  border-radius: 50%; background: var(--ink); color: var(--surface); font-size: 11px; font-weight: 700;
+}
+.flow li b { font-size: 13.5px; }
+.flow li .fail { display: block; margin-top: 6px; color: var(--orange); font-size: 12px; }
+.flow li.commit { border-color: var(--green); background: var(--green-wash); }
+.flow li.guard { border-color: var(--blue); }
+.two-layer { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 760px) { .two-layer { grid-template-columns: 1fr; } }
+.layer { border-radius: 10px; padding: 12px 14px; border: 1.5px solid var(--line); background: var(--surface); font-size: 13px; }
+.layer.committed { border-color: var(--blue); }
+.layer.staged { border-color: var(--violet); border-style: dashed; }
+.layer h4 { margin: 0 0 6px; font-size: 14px; }
+.hub { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-top: 12px; }
+.hub .center { grid-column: 1 / -1; text-align: center; background: var(--ink); color: var(--surface); border-radius: 10px; padding: 10px; font-weight: 600; }
+.hub .center small { display: block; font-weight: 400; opacity: .8; }
+.hub .center a.ref { color: inherit; border-color: currentColor; opacity: .85; }
+.hub .comp { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 12.5px; }
+.hub .comp b { display: block; font-size: 13.5px; margin-bottom: 4px; }
+.hub .comp .keep { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); color: var(--ink-2); }
+.bundle { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+@media (max-width: 760px) { .bundle { grid-template-columns: 1fr; } }
+.bundle .grp { border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--surface); font-size: 12.5px; }
+.bundle .grp h4 { margin: 0 0 8px; font-size: 13.5px; }
+.mline { display: inline-block; margin: 2px; padding: 2px 8px; border-radius: 6px; background: var(--panel-2); font: 12px ui-monospace, monospace; }
+.mline.tag-mid { outline: 2px solid var(--blue); }
+.transport { margin-top: 8px; padding: 6px 8px; border-radius: 6px; background: var(--blue-wash); font-size: 12px; }
+.history { list-style: none; padding: 0; margin: 12px 0; border-left: 2px solid var(--line); }
+.history li { position: relative; padding: 4px 0 14px 22px; font-size: 13.5px; }
+.history li::before { content: ""; position: absolute; left: -7px; top: 10px; width: 12px; height: 12px; border-radius: 50%; background: var(--surface); border: 2px solid var(--blue); }
+.history li.req::before { border-color: var(--violet); }
+.history li.merge::before { border-color: var(--muted); }
+.history .sha { font: 12px ui-monospace, monospace; color: var(--ink-2); margin-right: 6px; }
+details { margin: 10px 0; }
+summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
+.legend { display: flex; gap: 18px; font-size: 12.5px; color: var(--ink-2); margin-bottom: 6px; }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 6px; }
+#tip {
+  position: fixed; pointer-events: none; z-index: 10; display: none; max-width: 340px;
+  background: var(--ink); color: var(--surface); padding: 6px 10px; border-radius: 8px; font-size: 12px; line-height: 1.5;
+}
+.status { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.status.ok::before { content: "✔"; color: var(--green); }
+.status.old::before { content: "◷"; color: var(--muted); }
+.status.warn::before { content: "▲"; color: var(--orange); }
+.readorder { counter-reset: r; list-style: none; padding: 0; }
+.readorder li { counter-increment: r; padding: 8px 0 8px 38px; position: relative; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.readorder li::before { content: counter(r); position: absolute; left: 4px; top: 8px; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--blue-wash); color: var(--blue); font-weight: 700; font-size: 12px; }
+</style>
+</head>
+<body>
+<div id="tip" role="tooltip"></div>
+<div class="layout">
+<nav class="toc" aria-label="目次">
+  <b>目次</b>
+  <a href="#summary">1. まず 1 分で</a>
+  <a href="#map">2. 変更範囲の全体像</a>
+  <a href="#lifecycle">3. 交渉のライフサイクル</a>
+  <a href="#effective" style="padding-left:20px">3.3 pranswer の暫定値</a>
+  <a href="#pipeline">4. description 適用の順序</a>
+  <a href="#routing">5. ルーティングキーの staging</a>
+  <a href="#snapshot">6. 状態 snapshot の持ち主</a>
+  <a href="#ice">7. ICE generation</a>
+  <a href="#provisional" style="padding-left:20px">7.1 provisional</a>
+  <a href="#eoc" style="padding-left:20px">7.2 EOC と候補</a>
+  <a href="#restart-gap" style="padding-left:20px">7.4 restart 中の通信</a>
+  <a href="#restart-gather" style="padding-left:20px">7.5 restart の収集と pair の選択</a>
+  <a href="#bundle">8. BUNDLE topology</a>
+  <a href="#bundle-policy" style="padding-left:20px">8.3 bundlePolicy</a>
+  <a href="#develop">9. develop 機能との統合</a>
+  <a href="#develop-audit" style="padding-left:20px">9.3 develop 機能の網羅確認</a>
+  <a href="#develop-diff" style="padding-left:20px">9.4 develop との挙動差</a>
+  <a href="#reuse">10. 生成済み description の再利用</a>
+  <a href="#continue">11. 拒否と継続確認</a>
+  <a href="#chain">12. 操作の連鎖・close・接続</a>
+  <a href="#explore">13. 自前の探索</a>
+  <a href="#property" style="padding-left:20px">13.1 property test の仕組み</a>
+  <a href="#modules">14. モジュール構成</a>
+  <a href="#why">15. 判断理由</a>
+  <a href="#risk">16. リスク・既知の制約</a>
+  <a href="#verify">17. 検証結果</a>
+  <a href="#history">18. 指摘・依頼の対応履歴</a>
+  <a href="#readorder">19. おすすめの読み順</a>
+</nav>
+<main>
+<h1>PeerConnection negotiation transaction<br>— 実装レビュー解説</h1>
+<p class="meta">
+  <span>チケット: <a class="ref" href="../TICKET-support-fallback-state.md" title="TICKET-support-fallback-state.md">TICKET-support-fallback-state.md</a></span>
+  <span>HEAD: <code>1a2dd102</code></span>
+  <span>比較基準: develop との merge base <code>71b6ddbf</code></span>
+  <span>仕様と試験の対応表: <a class="ref" href="../packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md" title="packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md">NEGOTIATION_SPEC_COVERAGE.md</a></span>
+  <span>設計の正: <a class="ref" href="../packages/webrtc/NEGOTIATION_TRANSACTION.md" title="packages/webrtc/NEGOTIATION_TRANSACTION.md">NEGOTIATION_TRANSACTION.md</a></span>
+</p>
+
+<!-- ============================================================ -->
+<h2 id="summary">1. まず 1 分で</h2>
+<div class="invariant">
+  <small>このチケットが守る唯一の不変条件</small>
+  最終 answer の適用だけが negotiated state の <b>commit 境界</b>。それまでの pending negotiation は、通信中の current session を壊さない。rollback した後の current session も通信できる。
+</div>
+<div class="cards">
+  <div class="card"><h4>何を変えたか</h4><ul>
+    <li>再交渉（offer / pranswer / answer / rollback / replacement、ICE restart、BUNDLE、SCTP、trickle ICE、m-line の拒否）を、<b>1 つの transaction</b> として扱うように作り直した</li>
+    <li>「live に書き、rollback で戻す」方式から、<b>「stage して、commit で切り替える」</b>方式へ変えた</li>
+  </ul></div>
+  <div class="card"><h4>なぜ必要だったか</h4><ul>
+    <li>以前の方式で守れるのは rollback した<i>後</i>だけで、pending の<i>間</i>に current の RTP が止まる反例が次々に見つかっていた</li>
+    <li>指摘を 1 件ずつ直すのをやめ、ルーティングキーの<b>種類ごと</b>に規則を決めて、まとめて塞いだ</li>
+    <li>レビューは「develop では成功し、HEAD では失敗する」操作を公開 API から探す。develop と挙動を変える箇所を棚卸しし、必須でないものは develop に戻した（9.4）</li>
+  </ul></div>
+  <div class="card"><h4>どう確かめたか</h4><ul>
+    <li>各操作の後に、current SDP と live の状態が一致するかを検査する invariant helper</li>
+    <li>seed を固定したランダム操作列の property test（深い探索は 300 seed × 20 step）</li>
+    <li>全試験の最後で「その後も使い続けられるか」を確認する共通 helper（11 章）</li>
+    <li>相手の SDP の変異、close のタイミング、設定・アプリの操作の軸を持つ develop 差分ファズ（13 章）</li>
+    <li>チケットの全 276 文と試験の対応表、webrtc / ice の全テスト、Chrome E2E、WPT</li>
+  </ul></div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="map">2. 変更範囲の全体像</h2>
+<p>merge base からの変更は、<code>packages/</code> 全体で <b>68 ファイル（+28,052 / −1,726）</b> です。このうち実装（<code>webrtc</code> と <code>ice</code> の <code>src</code>）は <b>26 ファイル（+7,271 / −1,698）</b> で、残りは主にテストと探索ツールです。下の図で、変更の重心がどこにあるかを確認できます。</p>
+<figure class="figure" id="churn">
+  <div class="legend" aria-hidden="true"><span><i style="background:var(--orange)"></i>削除行</span><span><i style="background:var(--blue)"></i>追加行</span></div>
+  <svg id="churn-svg" role="img" aria-label="ファイルごとの追加行数と削除行数"></svg>
+  <figcaption><code>peerConnection.ts</code> の大きな削除は、責務ごとに <code>negotiation/</code> と <code>api/</code> へ分割した結果です（14 章）。新規ファイルは削除行が 0 です。行にマウスを乗せると詳細が出ます。</figcaption>
+  <details><summary>表で見る</summary><table id="churn-table"><thead><tr><th>ファイル</th><th class="num">追加</th><th class="num">削除</th></tr></thead><tbody></tbody></table></details>
+</figure>
+
+<!-- ============================================================ -->
+<h2 id="lifecycle">3. 交渉のライフサイクル</h2>
+<h3>3.1 signaling state と transaction の操作</h3>
+<p>signaling state の遷移ごとに、transaction の操作が 1 つずつ対応します。<span class="tag now">begin</span> で baseline を取り、<span class="tag keep">commit</span> で確定し、<span class="tag reject">rollback</span> で baseline に戻します。</p>
+<figure class="figure">
+<svg viewBox="0 0 960 390" width="100%" role="img" aria-label="signaling state 遷移図">
+  <defs>
+    <marker id="aB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="var(--blue)"/></marker>
+    <marker id="aG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="var(--green)"/></marker>
+    <marker id="aO" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="var(--orange)"/></marker>
+    <marker id="aK" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="var(--ink-2)"/></marker>
+  </defs>
+  <g fill="none" stroke-width="2">
+    <path d="M160,180 C215,180 225,80 278,80" stroke="var(--blue)" marker-end="url(#aB)"/>
+    <path d="M160,200 C215,200 225,300 278,300" stroke="var(--blue)" marker-end="url(#aB)"/>
+    <path d="M440,80 L528,80" stroke="var(--ink-2)" marker-end="url(#aK)"/>
+    <path d="M440,300 L528,300" stroke="var(--ink-2)" marker-end="url(#aK)"/>
+    <path d="M710,80 C770,80 785,160 798,176" stroke="var(--green)" marker-end="url(#aG)"/>
+    <path d="M710,300 C770,300 785,220 798,204" stroke="var(--green)" marker-end="url(#aG)"/>
+    <path d="M410,54 C410,8 870,8 870,162" stroke="var(--green)" marker-end="url(#aG)"/>
+    <path d="M410,326 C410,382 870,382 870,218" stroke="var(--green)" marker-end="url(#aG)"/>
+    <path d="M330,106 C322,165 230,186 162,188" stroke="var(--orange)" stroke-dasharray="6 4" marker-end="url(#aO)"/>
+    <path d="M330,274 C322,215 230,194 162,192" stroke="var(--orange)" stroke-dasharray="6 4" marker-end="url(#aO)"/>
+    <path d="M300,54 C285,18 345,18 330,52" stroke="var(--violet)" marker-end="url(#aK)"/>
+    <path d="M300,326 C285,362 345,362 330,328" stroke="var(--violet)" marker-end="url(#aK)"/>
+  </g>
+  <g>
+    <rect class="node" x="20" y="164" width="140" height="52" rx="10"/><text x="90" y="186" text-anchor="middle" font-weight="600">stable</text><text class="sub" x="90" y="204" text-anchor="middle">current のみ</text>
+    <rect class="node" x="280" y="54" width="160" height="52" rx="10"/><text x="360" y="85" text-anchor="middle" font-weight="600">have-local-offer</text>
+    <rect class="node" x="530" y="54" width="180" height="52" rx="10"/><text x="620" y="85" text-anchor="middle" font-weight="600">have-remote-pranswer</text>
+    <rect class="node" x="280" y="274" width="160" height="52" rx="10"/><text x="360" y="305" text-anchor="middle" font-weight="600">have-remote-offer</text>
+    <rect class="node" x="530" y="274" width="180" height="52" rx="10"/><text x="620" y="305" text-anchor="middle" font-weight="600">have-local-pranswer</text>
+    <rect class="node" x="800" y="164" width="140" height="52" rx="10" style="stroke:var(--green)"/><text x="870" y="186" text-anchor="middle" font-weight="600">stable</text><text class="sub" x="870" y="204" text-anchor="middle">新しい current</text>
+  </g>
+  <g font-size="12">
+    <text x="30" y="124">SLD(offer)</text><text class="sub" x="30" y="139">begin: baseline を取得</text>
+    <text x="30" y="252">SRD(offer)</text><text class="sub" x="30" y="267">begin: baseline を取得</text>
+    <text x="484" y="68" text-anchor="middle">SRD(pranswer)</text><text class="sub" x="484" y="101" text-anchor="middle">checkpoint → 暫定適用</text>
+    <text x="484" y="288" text-anchor="middle">SLD(pranswer)</text><text class="sub" x="484" y="321" text-anchor="middle">checkpoint → 暫定適用</text>
+    <text x="640" y="22" text-anchor="middle">SRD(answer) — commit</text>
+    <text x="640" y="376" text-anchor="middle">SLD(answer) — commit</text>
+    <text x="752" y="132">answer</text><text class="sub" x="752" y="146">commit</text>
+    <text x="752" y="250">answer</text><text class="sub" x="752" y="264">commit</text>
+    <text x="258" y="187" style="fill:var(--orange)">rollback</text>
+    <text class="sub" x="258" y="203">baseline を復元</text>
+    <text class="sub" x="232" y="18">再 offer = replace</text>
+    <text class="sub" x="232" y="378">再 offer = replace</text>
+  </g>
+</svg>
+<figcaption>pranswer 状態からの rollback も同じく baseline に戻ります（図では省略）。replace は「pending は最後の offer、baseline は最初の offer の前」で、前の pending を baseline まで戻してから新しい offer を適用します。入口: <a class="ref" href="../packages/webrtc/src/negotiationTransaction.ts" title="packages/webrtc/src/negotiationTransaction.ts:147">negotiationTransaction.ts:147</a> / <a class="ref" href="../packages/webrtc/src/negotiationTransaction.ts" title="packages/webrtc/src/negotiationTransaction.ts:179">negotiationTransaction.ts:179</a> / <a class="ref" href="../packages/webrtc/src/negotiationTransaction.ts" title="packages/webrtc/src/negotiationTransaction.ts:239">negotiationTransaction.ts:239</a> / <a class="ref" href="../packages/webrtc/src/negotiationTransaction.ts" title="packages/webrtc/src/negotiationTransaction.ts:265">negotiationTransaction.ts:265</a></figcaption>
+</figure>
+
+<h3>3.2 交渉の途中で、どの設定が通信に使われているか</h3>
+<p>再交渉の途中には、「いま通信に使っている設定」と「相手と交渉中の新しい設定」が同時に存在します。この 2 つを混ぜずに扱うことが、このチケットの中心です。まず用語を定義し、具体例で流れを追います。</p>
+<div class="cards wide">
+  <div class="card"><h4><span class="tag now">current</span> 確定済みの設定</h4>最後に完了した offer / answer で合意した設定です（<code>currentLocalDescription</code> / <code>currentRemoteDescription</code>）。<b>実際に RTP や DataChannel を流しているのはこの設定</b>です。</div>
+  <div class="card"><h4><span class="tag stage">pending</span> 交渉中の設定</h4>offer を出したものの、まだ最終 answer で合意していない設定です（<code>pendingLocalDescription</code> / <code>pendingRemoteDescription</code>）。pranswer を受けても、まだ pending のままです。</div>
+  <div class="card"><h4>baseline 巻き戻し先</h4>交渉を始める直前の状態を丸ごと記録した snapshot です。交渉を取り消す（rollback する）ときに、ここへ戻します。</div>
+  <div class="card"><h4><span class="tag keep">commit</span> 確定する瞬間</h4><b>最終 answer（<code>type: "answer"</code>）の <code>setLocalDescription</code> / <code>setRemoteDescription</code> が成功した瞬間</b>です。ここで pending が current に入れ替わります。pranswer では commit しません。</div>
+</div>
+<p><b>例:</b> 音声だけで通話している（確定済みの設定 <b>A</b>）ときに、映像を追加する re-offer（新しい設定 <b>B</b>）を出し、相手から pranswer、最後に answer が返ってくる場合です。</p>
+<figure class="figure">
+<svg viewBox="0 0 960 330" width="100%" role="img" aria-label="映像を追加する再交渉での、確定済み・交渉中・巻き戻し先の変化">
+  <g font-size="12" text-anchor="middle">
+    <text x="110" y="18" font-weight="600">① 通話中</text><text class="sub" x="110" y="33">stable</text>
+    <text x="250" y="18" font-weight="600">② offer B を適用</text><text class="sub" x="250" y="33">have-local-offer</text>
+    <text x="460" y="18" font-weight="600">③ pranswer を適用</text><text class="sub" x="460" y="33">have-remote-pranswer</text>
+    <text x="700" y="18" font-weight="700" style="fill:var(--green)">④ answer を適用 = commit</text><text class="sub" x="700" y="33">stable</text>
+  </g>
+  <g>
+    <line x1="250" y1="40" x2="250" y2="320" stroke="var(--line)" stroke-dasharray="4 4"/>
+    <line x1="460" y1="40" x2="460" y2="320" stroke="var(--line)" stroke-dasharray="4 4"/>
+    <line x1="700" y1="40" x2="700" y2="250" stroke="var(--green)" stroke-width="2.5"/>
+  </g>
+  <g font-size="12.5" font-weight="600">
+    <text x="10" y="76">確定済み</text><text class="sub" x="10" y="91">current</text>
+    <text x="10" y="136">交渉中</text><text class="sub" x="10" y="151">pending</text>
+    <text x="10" y="196">巻き戻し先</text><text class="sub" x="10" y="211">baseline</text>
+  </g>
+  <rect x="100" y="62" width="598" height="32" rx="6" fill="var(--blue-wash)" stroke="var(--blue)"/>
+  <text x="114" y="83" font-size="12.5">A（音声のみ）で通話を続ける。②・③ の間も、通信は A の設定のまま</text>
+  <rect x="702" y="62" width="248" height="32" rx="6" fill="var(--blue)"/>
+  <text x="716" y="83" font-size="12.5" style="fill:#fff">B（音声＋映像）が確定済みになる</text>
+  <rect x="250" y="122" width="448" height="32" rx="6" fill="var(--violet-wash)" stroke="var(--violet)"/>
+  <text x="264" y="143" font-size="12.5">B（映像を追加する offer）。A に影響しない新しいキーだけ先に受け入れる</text>
+  <circle cx="460" cy="168" r="5" fill="var(--violet)"/>
+  <text class="sub" x="470" y="172">ICE は B 向けの check を裏で進めるだけ</text>
+  <rect x="250" y="182" width="448" height="30" rx="6" fill="none" stroke="var(--ink-2)" stroke-dasharray="6 4"/>
+  <text x="264" y="202" font-size="12.5">② の直前の状態の snapshot（rollback の戻り先）</text>
+  <path d="M600,214 C600,240 620,262 644,262" fill="none" stroke="var(--orange)" stroke-width="2" marker-end="url(#aO)"/>
+  <rect x="646" y="246" width="304" height="76" rx="6" fill="var(--orange-wash)" stroke="var(--orange)"/>
+  <text x="658" y="266" font-size="12" font-weight="600">④' answer の代わりに rollback した場合</text>
+  <text x="658" y="284" font-size="12">baseline に戻し、A で通話を続ける。</text>
+  <text x="658" y="301" font-size="12">B のために作った transceiver や</text>
+  <text x="658" y="317" font-size="12">transport は閉じる。</text>
+</svg>
+<figcaption>緑の縦線（④）が commit です。この線より左では、A が使っているキーと経路（SSRC・payload type・extmap ID・ICE の選択中の pair など）を書き換えません。</figcaption>
+</figure>
+<table>
+  <thead><tr><th>時点</th><th>signalingState</th><th>確定済み (current)</th><th>交渉中 (pending)</th><th>実際の通信と、この時点で起きること</th></tr></thead>
+  <tbody>
+    <tr><td>① 通話中</td><td><code>stable</code></td><td>A</td><td>なし</td><td>A で音声を送受信している。</td></tr>
+    <tr><td>② offer B を適用</td><td><code>have-local-offer</code></td><td>A</td><td>B</td><td>音声は A のまま流れる。baseline を記録する。B で増える映像の SSRC など、A と衝突しない<b>新しいキー</b>はすぐに追加する（相手が先に映像を送ってきても受け取れるように）。A が使っているキーを変える内容は、<span class="tag stage">staged</span>（保留）にするか、適用前に<span class="tag reject">拒否</span>する（5 章）。</td></tr>
+    <tr><td>③ pranswer を適用</td><td><code>have-remote-pranswer</code></td><td>A</td><td>B（相手の暫定回答つき）</td><td>音声は A のまま流れる。ICE restart を含む場合も、B 用の接続確認は裏で進めるだけで、通信中の経路は切り替えない（7 章）。</td></tr>
+    <tr><td>④ answer を適用（commit）</td><td><code>stable</code></td><td>B</td><td>なし</td><td>ここで初めて B に切り替える。staged にしていた変更、ICE restart、BUNDLE の組み替え、codec の変更を、この時点でまとめて反映する。</td></tr>
+    <tr><td>④' rollback</td><td><code>stable</code></td><td>A</td><td>なし（B は破棄）</td><td>baseline に戻す。A の通話は途切れずに続く。</td></tr>
+  </tbody>
+</table>
+
+<h3 id="effective">3.3 pranswer の間に暫定的に有効になる値</h3>
+<p>「pending の間は current を壊さない」は、pranswer で暫定的に有効にすべき値には当てはまりません（W3C は pranswer でも data の max message size を更新します）。そこで、交渉する値ごとに、remote offer・pranswer・replacement pranswer・final answer・rollback の各段階で通信に使う値を決めました（設計文書 <a class="ref" href="../packages/webrtc/NEGOTIATION_TRANSACTION.md" title="packages/webrtc/NEGOTIATION_TRANSACTION.md:501">NEGOTIATION_TRANSACTION.md:501</a>）。</p>
+<table>
+  <thead><tr><th>種類</th><th>意味</th><th>主な値</th></tr></thead>
+  <tbody>
+    <tr><td><span class="tag now">current</span></td><td>final answer まで確定済みの値を使う</td><td>ICE の選択中の pair、DTLS の role / fingerprint（接続済み）、受信 codec 表の既存キー</td></tr>
+    <tr><td><span class="tag stage">provisional</span></td><td>最後に適用した pranswer の値を使い、rollback で戻す</td><td>送信 codec、direction（<code>inactive</code> / <code>recvonly</code> の pranswer は送信を止める）、SCTP の max-message-size</td></tr>
+    <tr><td><span class="tag keep">both</span></td><td>current を保ち、衝突しない pending の値を追加する（衝突は commit まで保留）</td><td>remote の SSRC（置き換えた pranswer だけの SSRC は final answer で外し、その track を次の SSRC が引き継ぐ）</td></tr>
+    <tr><td><span class="tag reject">reject</span></td><td>live を変える前に拒否する</td><td>使用中の extmap ID の再割当て、接続中の SCTP port の変更</td></tr>
+  </tbody>
+</table>
+<p class="caption">invariant helper は、一律の「live = current SDP」ではなく、この表の規則（<code>expectedLive</code>）で各操作の後に検査します: <a class="ref" href="../packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts" title="packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:486">negotiationTransactionUtils.ts:486</a></p>
+
+<!-- ============================================================ -->
+<h2 id="pipeline">4. description 適用の順序</h2>
+<p><code>setRemoteDescription</code>（<a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1488">peerConnection.ts:1488</a>）は、<b>失敗しうる処理をすべて先に済ませ、live の transport を変える処理は最後に回す</b>順序で進みます。どの段階で失敗しても、状態はその操作の前に戻ります。</p>
+<div class="figure">
+<ol class="flow">
+  <li class="guard"><b>事前検証</b><br>状態は何も変えない<br><a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1540">peerConnection.ts:1540</a><span class="fail">✗ 失敗 → 状態不変で reject</span></li>
+  <li class="guard"><b>codec 計画</b><br>全 m-line の codec を副作用なしで先に決める<br><a class="ref" href="../packages/webrtc/src/negotiation/remoteMediaApplication.ts" title="packages/webrtc/src/negotiation/remoteMediaApplication.ts:69">remoteMediaApplication.ts:69</a><span class="fail">✗ 共通 codec なし → reject</span></li>
+  <li><b>checkpoint</b><br>この操作の分だけ戻せる地点<br><a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1606">peerConnection.ts:1606</a></li>
+  <li><b>m-line の適用（4 段階）</b><br>対応付け → BUNDLE 所有 → RTP / SCTP の受け入れ → transport 更新の<i>計画</i><br><a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1621">peerConnection.ts:1621</a><span class="fail">✗ 失敗 → checkpoint へ戻す</span></li>
+  <li><b>transport 更新を実行</b><br>計画した更新を最後にまとめて実行<br><a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1633">peerConnection.ts:1633</a></li>
+  <li class="commit"><b>answer なら commit</b><br>ICE restart の切替（stage したものだけ）・BUNDLE topology・staged 経路と受信設定を一斉に切り替える<br><a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1444">peerConnection.ts:1444</a></li>
+</ol>
+</div>
+<p>事前検証で拒否する内容（<a class="ref" href="../packages/webrtc/src/negotiation/descriptionValidation.ts" title="packages/webrtc/src/negotiation/descriptionValidation.ts:150">descriptionValidation.ts:150</a>）:</p>
+<ul>
+  <li>offer と共通の codec がない。使用中の payload type や extmap ID を別のものへ付け替える（<a class="ref" href="../packages/webrtc/src/sdpManager.ts" title="packages/webrtc/src/sdpManager.ts:459">sdpManager.ts:459</a>）</li>
+  <li>DTLS の fingerprint と role の変更（RFC 8842 §5.5）、SCTP port の変更、接続済み SCTP の別 transport への移動</li>
+  <li>offer で共有した transport を answer が分割する（RFC 8843 §7.3.2、<a class="ref" href="../packages/webrtc/src/negotiation/bundleTopology.ts" title="packages/webrtc/src/negotiation/bundleTopology.ts:343">bundleTopology.ts:343</a>）</li>
+</ul>
+<p>local 側（<a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:938">peerConnection.ts:938</a>）も同じ順序です。準備済みの ICE 資格情報を使っているか、DTLS role を変えていないかを <a class="ref" href="../packages/webrtc/src/negotiation/descriptionValidation.ts" title="packages/webrtc/src/negotiation/descriptionValidation.ts:47">descriptionValidation.ts:47</a> で先に検証します。</p>
+
+<p>すべての description 操作と <code>addIceCandidate</code> は、1 本の操作の連鎖に並びます（<a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:736">peerConnection.ts:736</a>）。途中で <code>close()</code> が割り込んだ場合の扱いは 12 章を参照してください。</p>
+
+<!-- ============================================================ -->
+<h2 id="routing">5. ルーティングキーの staging</h2>
+<p>レビューが収束しなかった主な原因は、pending の間に、current が使っている共有の live table（<code>ssrcTable</code>・<code>ridTable</code>・<code>extIdUriMap</code>・受信 codec 表）へ直接書き込んでいたことです。これをキーの<b>種類ごと</b>に、次の 1 つの規則で閉じました。</p>
+<div class="figure">
+<div class="two-layer">
+  <div class="layer committed"><h4>committed（current が使う）</h4>
+    RTP の解決は<b>常にこちらを優先</b>します。最終 answer の commit まで、既存キーの値は変えません。
+  </div>
+  <div class="layer staged"><h4>staged（pending の提案）</h4>
+    current のキーと競合する変更はここに置きます。<b>commit で committed へ移し、rollback で捨てます</b>。
+  </div>
+</div>
+<p class="caption">新しいキー（新しい SSRC・MID+RID・PT・extmap ID）は、暫定 RTP を受けるために即時に追加します。current にないキーなので、current の通信を奪いません。commit: <a class="ref" href="../packages/webrtc/src/media/router.ts" title="packages/webrtc/src/media/router.ts:67">router.ts:67</a>、後から来た pranswer / answer の前に古い staged 値を捨てる処理: <a class="ref" href="../packages/webrtc/src/negotiationTransaction.ts" title="packages/webrtc/src/negotiationTransaction.ts:397">negotiationTransaction.ts:397</a></p>
+</div>
+<table>
+  <thead><tr><th>キー</th><th>新しいキー</th><th>current キーの変更</th><th>実装</th></tr></thead>
+  <tbody>
+    <tr><td>payload type → codec</td><td><span class="tag now">即時追加</span></td><td><span class="tag reject">再割当ては拒否</span> <span class="tag stage">fmtp / rtcp-fb は staged</span></td><td><a class="ref" href="../packages/webrtc/src/media/rtpReceiver.ts" title="packages/webrtc/src/media/rtpReceiver.ts:196">rtpReceiver.ts:196</a></td></tr>
+    <tr><td>extmap ID → URI</td><td><span class="tag now">即時追加</span></td><td><span class="tag reject">再割当ては拒否</span>（RFC 8285 §7）</td><td><a class="ref" href="../packages/webrtc/src/sdpManager.ts" title="packages/webrtc/src/sdpManager.ts:437">sdpManager.ts:437</a></td></tr>
+    <tr><td>SSRC → receiver / RTX 対応</td><td><span class="tag now">即時追加</span></td><td><span class="tag stage">別 m-line への付け替えは staged</span></td><td><a class="ref" href="../packages/webrtc/src/media/router.ts" title="packages/webrtc/src/media/router.ts:152">router.ts:152</a></td></tr>
+    <tr><td>MID+RID → receiver</td><td><span class="tag now">即時追加</span></td><td>RID は m-line 単位のキーなので、他の m-line と衝突しない</td><td><a class="ref" href="../packages/webrtc/src/negotiation/internalState.ts" title="packages/webrtc/src/negotiation/internalState.ts:39">internalState.ts:39</a></td></tr>
+    <tr><td>sender SSRC → sender</td><td colspan="2"><span class="tag keep">アプリ側の状態として rollback 後も維持</span>（RTCP の PLI などを届けるため）</td><td><a class="ref" href="../packages/webrtc/src/media/router.ts" title="packages/webrtc/src/media/router.ts:123">router.ts:123</a></td></tr>
+    <tr><td>PLI を送るかどうか</td><td colspan="2">その SSRC の live な受信 codec の RTCP feedback に従う（pending の間は current の設定）</td><td><a class="ref" href="../packages/webrtc/src/media/rtpReceiver.ts" title="packages/webrtc/src/media/rtpReceiver.ts:577">rtpReceiver.ts:577</a></td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="snapshot">6. 状態 snapshot の持ち主</h2>
+<p>状態の snapshot は、<b>その状態を持つコンポーネントが自分で取り、自分で戻します</b>。transaction は組み合わせるだけです。状態を 1 つ追加するときは、持ち主の snapshot / restore の組だけを直せば済みます（以前は transaction の型・capture・restore の 3 か所を漏れなく直す必要がありました）。</p>
+<div class="figure">
+<div class="hub">
+  <div class="center">NegotiationTransaction <a class="ref" href="../packages/webrtc/src/negotiationTransaction.ts" title="packages/webrtc/src/negotiationTransaction.ts:87">negotiationTransaction.ts:87</a><small>baseline・checkpoint・提案の資源（ProposalResources）を所有し、各コンポーネントの snapshot / restore を順に呼ぶ</small></div>
+  <div class="comp"><b>RTCRtpTransceiver</b>sender と receiver の分も含む<br><a class="ref" href="../packages/webrtc/src/media/rtpTransceiver.ts" title="packages/webrtc/src/media/rtpTransceiver.ts:180">rtpTransceiver.ts:180</a><div class="keep">残す: transaction 中にアプリが呼んだ <code>stop()</code></div></div>
+  <div class="comp"><b>RTCRtpReceiver</b>受信 codec・RTX・staged 受信設定<br><a class="ref" href="../packages/webrtc/src/media/rtpReceiver.ts" title="packages/webrtc/src/media/rtpReceiver.ts:233">rtpReceiver.ts:233</a><div class="keep">残す: RID パケットから学習した SSRC（その track が残る場合）</div></div>
+  <div class="comp"><b>TransceiverManager</b>並び順、track の通知、提案が作った transceiver<br><a class="ref" href="../packages/webrtc/src/transceiverManager.ts" title="packages/webrtc/src/transceiverManager.ts:112">transceiverManager.ts:112</a><div class="keep">残す: remote offer が作ったもののうち sender に track があるもの（develop と同じ。<code>stop()</code>・direction・codec の選択では残さない）。アプリが追加して交渉していないものは MID と m-line を外す</div></div>
+  <div class="comp"><b>RtpRouter</b>SSRC / RID / staged 経路<br><a class="ref" href="../packages/webrtc/src/media/router.ts" title="packages/webrtc/src/media/router.ts:108">router.ts:108</a><div class="keep">残す: パケットから学習した経路、未停止の各 sender の経路</div></div>
+  <div class="comp"><b>SctpTransportManager</b>SCTP transport と port<br><a class="ref" href="../packages/webrtc/src/sctpManager.ts" title="packages/webrtc/src/sctpManager.ts:125">sctpManager.ts:125</a><div class="keep">残す: アプリが作った SCTP transport（association が動いていない場合）。提案の SCTP が使った DTLS transport は、他に使われなければ止める</div></div>
+</div>
+<p class="caption">提案が作った資源（remote offer が作った transceiver、置換された transceiver、準備済み・pending 専用・owner の transport、候補を通知済みの transport）は <code>ProposalResources</code> にまとめ、消去・複製・復元をこのクラスの 1 か所で行います: <a class="ref" href="../packages/webrtc/src/negotiationTransaction.ts" title="packages/webrtc/src/negotiationTransaction.ts:27">negotiationTransaction.ts:27</a></p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="ice">7. ICE generation（restart / pranswer / trickle / EOC）</h2>
+<figure class="figure">
+<svg viewBox="0 0 960 250" width="100%" role="img" aria-label="ICE restart のタイムライン">
+  <g font-size="12" class="sub">
+    <text x="150" y="20" text-anchor="middle">restart offer</text>
+    <text x="360" y="20" text-anchor="middle">pranswer</text>
+    <text x="540" y="20" text-anchor="middle">EOC</text>
+    <text x="720" y="20" text-anchor="middle" style="fill:var(--green);font-weight:700">answer = commit</text>
+  </g>
+  <line x1="150" y1="28" x2="150" y2="240" stroke="var(--line)" stroke-dasharray="4 4"/>
+  <line x1="360" y1="28" x2="360" y2="240" stroke="var(--line)" stroke-dasharray="4 4"/>
+  <line x1="540" y1="28" x2="540" y2="240" stroke="var(--orange)" stroke-dasharray="4 4"/>
+  <line x1="720" y1="28" x2="720" y2="240" stroke="var(--green)" stroke-width="2.5"/>
+  <g font-size="12.5" font-weight="600"><text x="10" y="64">live gen</text><text x="10" y="124">provisional</text><text x="10" y="184">local 資格情報</text></g>
+  <rect x="120" y="44" width="598" height="32" rx="6" fill="var(--blue-wash)" stroke="var(--blue)"/>
+  <text x="134" y="65" font-size="12.5">generation A — 選択中の pair で RTP を流し続ける</text>
+  <rect x="722" y="44" width="228" height="32" rx="6" fill="var(--blue)"/>
+  <text x="736" y="65" font-size="12.5" style="fill:#fff">generation B へ切替</text>
+  <rect x="360" y="104" width="358" height="32" rx="6" fill="var(--violet-wash)" stroke="var(--violet)"/>
+  <text x="372" y="125" font-size="12.5">B の check を進める（nominate は保留）</text>
+  <rect x="150" y="164" width="568" height="32" rx="6" fill="none" stroke="var(--violet)" stroke-dasharray="6 4"/>
+  <text x="164" y="185" font-size="12.5">B の資格情報は stage するだけ（live の ICE agent はまだ A）</text>
+  <text class="sub" x="532" y="222" text-anchor="end">EOC = 相手からの「候補はこれで全部」の通知</text>
+  <text class="sub" x="532" y="238" text-anchor="end">前後に届く候補の扱いは 7.2 の拡大図を参照</text>
+</svg>
+</figure>
+<ul>
+  <li><b>restart の切り替え</b>: offer の時点では資格情報を stage するだけで、live の ICE は answer の commit で切り替えます。answer は毎回 <a class="ref" href="../packages/webrtc/src/secureTransportManager.ts" title="packages/webrtc/src/secureTransportManager.ts:531">secureTransportManager.ts:531</a> を通りますが、実際に restart するのは restart を stage した transport だけです。</li>
+  <li><b>provisional check</b>（<a href="#provisional">7.1 で詳しく</a>）: 送信した時点の revision と pair の所属を記録し、応答を処理するときに照合します。replacement pranswer より前の遅延応答が、新しい checklist を nominate することはありません（<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:452">ice.ts:452</a>）。</li>
+  <li><b>EOC</b>（<a href="#eoc">7.2 拡大図</a>）: live と provisional のどちらの generation も完了させます（RFC 8838、<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:337">ice.ts:337</a>）。webrtc 層でも、EOC 済みの m-line への候補は無視します（<a class="ref" href="../packages/webrtc/src/secureTransportManager.ts" title="packages/webrtc/src/secureTransportManager.ts:321">secureTransportManager.ts:321</a>）。</li>
+  <li><b>trickle の振り分け</b>: 候補が対象とする m-line の ufrag で、current と pending のどちらの generation に属するかを決めます（<a class="ref" href="../packages/webrtc/src/negotiation/remoteCandidates.ts" title="packages/webrtc/src/negotiation/remoteCandidates.ts:44">remoteCandidates.ts:44</a>）。EOC は transport 単位なので、BUNDLE group 全体に及びます（<a class="ref" href="../packages/webrtc/src/negotiation/remoteCandidates.ts" title="packages/webrtc/src/negotiation/remoteCandidates.ts:234">remoteCandidates.ts:234</a>）。</li>
+  <li><b><code>restartIce()</code></b>: current と pending 両方のローカル ufrag を「置き換える対象」として記録します（W3C の <code>[[LocalIceCredentialsToReplace]]</code>）。rollback や glare の後も要求は残り、確定した資格情報がその対象と重ならなくなったときに解除します（<a class="ref" href="../packages/webrtc/src/negotiation/iceRestartRequest.ts" title="packages/webrtc/src/negotiation/iceRestartRequest.ts:18">iceRestartRequest.ts:18</a>、<a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1480">peerConnection.ts:1480</a>）。</li>
+</ul>
+
+<h3 id="provisional">7.1 provisional generation（pranswer の間の暫定 ICE）</h3>
+<p><b>provisional generation</b> は、確立済みの session で ICE restart を交渉している間だけ、live な ICE generation と<b>同じ ICE transport・同じ socket の上に並べて</b>置く、もう一つの checklist です。目的は、新しい資格情報（ufrag / pwd）での接続確認を pranswer の段階から始めつつ、通信中の selected pair には一切触れないことです（RFC 8829 §4.1.10 の pranswer の暫定動作、2.2 章）。RTP や DataChannel は流さず、STUN の接続確認だけを行います。</p>
+<figure class="figure">
+<svg viewBox="0 0 960 330" width="100%" role="img" aria-label="provisional generation のライフサイクル（offerer 側）">
+  <g font-size="12" text-anchor="middle">
+    <text x="150" y="18" font-weight="600">① restart の offer を作る</text><text class="sub" x="150" y="33">createOffer（restartIce 後）</text>
+    <text x="330" y="18" font-weight="600">② offer を適用</text><text class="sub" x="330" y="33">setLocalDescription</text>
+    <text x="510" y="18" font-weight="600">③ pranswer を適用</text><text class="sub" x="510" y="33">setRemoteDescription</text>
+    <text x="700" y="18" font-weight="700" style="fill:var(--green)">④ answer を適用 = commit</text><text class="sub" x="700" y="33">setRemoteDescription</text>
+  </g>
+  <g stroke="var(--line)" stroke-dasharray="4 4">
+    <line x1="150" y1="40" x2="150" y2="262"/><line x1="330" y1="40" x2="330" y2="262"/><line x1="510" y1="40" x2="510" y2="262"/>
+  </g>
+  <line x1="700" y1="40" x2="700" y2="262" stroke="var(--green)" stroke-width="2.5"/>
+  <g font-size="12.5" font-weight="600">
+    <text x="10" y="70">live generation</text><text class="sub" x="10" y="85">A（通信中）</text>
+    <text x="10" y="140">provisional</text><text class="sub" x="10" y="155">B（暫定）</text>
+    <text x="10" y="222">live generation</text><text class="sub" x="10" y="237">B（確定後）</text>
+  </g>
+  <rect x="110" y="54" width="588" height="32" rx="6" fill="var(--blue-wash)" stroke="var(--blue)"/>
+  <text x="122" y="75" font-size="12.5">selected pair A で RTP / DataChannel を流し続ける（provisional は触らない）</text>
+  <rect x="150" y="116" width="358" height="48" rx="6" fill="none" stroke="var(--violet)" stroke-dasharray="6 4"/>
+  <text x="160" y="136" font-size="12">作成: 自分の新しい資格情報だけを持つ</text>
+  <text x="160" y="153" font-size="12">相手からの早期 check に応答できる</text>
+  <rect x="512" y="116" width="186" height="48" rx="6" fill="var(--violet-wash)" stroke="var(--violet)"/>
+  <text x="522" y="136" font-size="12">相手の資格情報・候補を受けて</text>
+  <text x="522" y="153" font-size="12">check → 暫定 nominate</text>
+  <path d="M698,140 L742,140" stroke="var(--orange)" stroke-width="2" marker-end="url(#aO)"/>
+  <text x="748" y="136" font-size="12" style="fill:var(--orange)">破棄</text>
+  <text class="sub" x="748" y="152">nominate 結果は引き継がない</text>
+  <rect x="702" y="204" width="248" height="40" rx="6" fill="var(--blue)"/>
+  <text x="712" y="221" font-size="12" style="fill:#fff">ICE agent を B で作り直し、</text>
+  <text x="712" y="237" font-size="12" style="fill:#fff">check → nominate → RTP 再開</text>
+  <text class="sub" x="110" y="284">rollback・replacement offer・初回の交渉では provisional を作らない / 捨てる。replacement pranswer は provisional の checklist をやり直す（revision を進める）。</text>
+  <text class="sub" x="110" y="302">BUNDLE の非 tag m-line は tag の transport の provisional を共有する。新しく作る transport（split など）は provisional ではなく通常の接続を pranswer で始める。</text>
+  <text class="sub" x="110" y="320">answerer 側では ① が「restart の offer への createAnswer」、③ が「自分の pranswer の適用」、④ が「自分の answer の適用」になる。</text>
+</svg>
+</figure>
+<table>
+  <thead><tr><th style="width:16%">段階</th><th>何によって・いつ</th><th>何が起きるか</th><th>実装</th></tr></thead>
+  <tbody>
+    <tr><td>作成</td><td><b>offerer:</b> <code>restartIce()</code> の要求がある状態の <code>createOffer()</code>（または <code>createOffer({ iceRestart: true })</code>）<br><b>answerer:</b> 確立済みの transport の ufrag を変える remote offer に対する <code>createAnswer()</code></td><td>新しい資格情報を stage し（live の ICE agent は A のまま）、その ufrag 宛ての check を受け付ける provisional を作る。この時点では相手の資格情報も候補もない</td><td><a class="ref" href="../packages/webrtc/src/transport/ice.ts" title="packages/webrtc/src/transport/ice.ts:245">ice.ts:245</a> → <a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:275">ice.ts:275</a></td></tr>
+    <tr><td>早期の応答</td><td>作成後、相手が新しい ufrag 宛てに check を送ってきたとき</td><td>live の checklist には入れず、provisional に送信元を peer-reflexive 候補として加えて応答する。相手の資格情報が分かった後は、その資格情報からの check だけを数える</td><td><a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:564">ice.ts:564</a></td></tr>
+    <tr><td>相手の情報の投入</td><td><b>offerer:</b> remote pranswer の適用時（SDP の ice-ufrag / ice-pwd・候補・EOC）と、その後 pranswer の ufrag で届く trickle 候補<br><b>answerer:</b> 自分の pranswer の適用時（remote offer の資格情報・候補）</td><td>provisional の remote 資格情報と候補を設定し、pair を作る。replacement pranswer は資格情報を入れ替えて checklist をやり直す（revision を進め、古い応答は無視）。EOC で provisional も完了する（7.2）</td><td><a class="ref" href="../packages/webrtc/src/negotiation/transportActivation.ts" title="packages/webrtc/src/negotiation/transportActivation.ts:176">transportActivation.ts:176</a>、<a class="ref" href="../packages/webrtc/src/negotiation/remoteCandidates.ts" title="packages/webrtc/src/negotiation/remoteCandidates.ts:136">remoteCandidates.ts:136</a></td></tr>
+    <tr><td>check と暫定 nominate</td><td>pranswer の適用直後（offerer は remote、answerer は local の pranswer）</td><td>既存の socket の local 候補と相手の候補で STUN check を送る。controlling 側は USE-CANDIDATE を付け、成功した最初の pair を provisional の nominated pair にする。live の selected pair と送信先は変えない</td><td><a class="ref" href="../packages/webrtc/src/negotiation/transportActivation.ts" title="packages/webrtc/src/negotiation/transportActivation.ts:308">transportActivation.ts:308</a> → <a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:398">ice.ts:398</a></td></tr>
+    <tr><td>終了: commit</td><td>最終 answer の適用</td><td>ICE agent を新しい資格情報で作り直し、answer の remote 資格情報で live generation B の check を始める。<b>provisional（その nominate 結果を含む）は捨て、引き継がない</b>。そのため B が nominate されるまで RTP が途切れる（7.4）</td><td><a class="ref" href="../packages/webrtc/src/transport/ice.ts" title="packages/webrtc/src/transport/ice.ts:462">ice.ts:462</a> → <a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:200">ice.ts:200</a></td></tr>
+    <tr><td>終了: 取り消し</td><td>rollback、replacement offer、適用されなかった <code>createOffer()</code> の破棄</td><td>stage した資格情報と provisional を捨てる。live generation A はそのまま続く</td><td><a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:290">ice.ts:290</a></td></tr>
+  </tbody>
+</table>
+<p><b>何につながるか:</b> provisional が直接もたらすのは「pranswer の段階で、新しい資格情報の経路が通るかを確かめ、相手の check に応答し続けること」です。相手（Chrome など）は pranswer を受けた時点で新しい generation の check を始めることがあり、ここで応答しないとその check が失敗します。一方、provisional で nominate した pair は commit で live に昇格させていません。commit 後は live generation B が改めて check と nominate を行い、そこで初めて RTP が新しい経路に移ります。provisional の nominate 結果を commit で引き継げば 7.4 の途切れを短くできますが、このチケットでは扱っていません（12 章）。</p>
+<p class="caption">テスト: ICE 単体は <a class="ref" href="../packages/ice/tests/ice/provisional.test.ts" title="packages/ice/tests/ice/provisional.test.ts">provisional.test.ts</a>、PeerConnection では restart の pranswer を作る共有 Arrange <a class="ref" href="../packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts" title="packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:179">negotiationTransactionUtils.ts:179</a> と、provisional の nominate を待つ <a class="ref" href="../packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts" title="packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:258">negotiationTransactionUtils.ts:258</a> を使う回帰テスト。</p>
+
+<h3 id="eoc">7.2 拡大図: EOC と、その前後に届く候補</h3>
+<p><b>EOC（end-of-candidates）</b>は、相手からの「この ICE generation の候補はこれで全部です」という通知です。次の 2 つの経路で届きます。</p>
+<ul>
+  <li>trickle ICE で、<code>addIceCandidate(null)</code> または候補の文字列が空（<code>{ candidate: "" }</code>）で呼ばれたとき（<a class="ref" href="../packages/webrtc/src/secureTransportManager.ts" title="packages/webrtc/src/secureTransportManager.ts:256">secureTransportManager.ts:256</a>）</li>
+  <li>offer / pranswer / answer の SDP の m-line に <code>a=end-of-candidates</code> があるとき（<a class="ref" href="../packages/webrtc/src/sdp.ts" title="packages/webrtc/src/sdp.ts:153">sdp.ts:153</a>）</li>
+</ul>
+<p>EOC を受けると、ICE は「これ以上候補は来ない」と判断できます。すべての pair の check が失敗した時点で、それ以上待たずに <code>failed</code> にできます。EOC を受けていない間は、新しい候補が来るのを待ち続けます（<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:1399">ice.ts:1399</a>）。</p>
+<figure class="figure">
+<svg viewBox="0 0 960 360" width="100%" role="img" aria-label="EOC の前後に届く候補の扱い">
+  <g font-size="12" text-anchor="middle">
+    <text x="150" y="18" font-weight="600">候補 a 受信</text><text class="sub" x="150" y="33">host（IP アドレス）</text>
+    <text x="290" y="18" font-weight="600">候補 b 受信</text><text class="sub" x="290" y="33">xxxx.local（mDNS 名）</text>
+    <text x="440" y="18" font-weight="700" style="fill:var(--orange)">EOC 受信</text><text class="sub" x="440" y="33">受付を締め切る</text>
+    <text x="570" y="18" font-weight="600">候補 c 受信</text><text class="sub" x="570" y="33">EOC の後に到着</text>
+    <text x="720" y="18" font-weight="600">b の解決完了</text><text class="sub" x="720" y="33">IP アドレスが判明</text>
+  </g>
+  <g stroke-dasharray="4 4" stroke="var(--line)">
+    <line x1="150" y1="40" x2="150" y2="262"/><line x1="290" y1="40" x2="290" y2="262"/>
+    <line x1="570" y1="40" x2="570" y2="262"/>
+  </g>
+  <line x1="440" y1="40" x2="440" y2="262" stroke="var(--orange)" stroke-width="2"/>
+  <line x1="720" y1="40" x2="720" y2="262" stroke="var(--green)" stroke-width="2.5"/>
+  <g font-size="12.5" font-weight="600">
+    <text x="10" y="80">mDNS 解決</text>
+    <text x="10" y="150">checklist</text><text class="sub" x="10" y="165">接続確認の対象</text>
+    <text x="10" y="232">generation</text><text class="sub" x="10" y="247">の状態</text>
+  </g>
+  <!-- mDNS 解決 -->
+  <rect x="290" y="62" width="428" height="30" rx="6" fill="var(--violet-wash)" stroke="var(--violet)"/>
+  <text x="302" y="82" font-size="12.5">b の名前を解決中（最大 10 秒）。EOC の後も解決を待つ</text>
+  <!-- checklist -->
+  <rect x="150" y="132" width="132" height="44" rx="6" fill="var(--blue-wash)" stroke="var(--blue)"/>
+  <text x="160" y="150" font-size="12">a の pair を追加</text><text x="160" y="167" font-size="12">→ すぐ check</text>
+  <rect x="520" y="132" width="110" height="44" rx="6" fill="var(--orange-wash)" stroke="var(--orange)"/>
+  <text x="530" y="150" font-size="12" style="fill:var(--orange);font-weight:700">✗ c は捨てる</text><text x="530" y="167" font-size="11.5">SDP にも入れない</text>
+  <rect x="722" y="132" width="228" height="44" rx="6" fill="var(--blue-wash)" stroke="var(--blue)"/>
+  <text x="732" y="150" font-size="12">b を IP に置き換えて pair を追加</text><text x="732" y="167" font-size="12">→ a と同じように check する</text>
+  <!-- generation -->
+  <rect x="100" y="214" width="338" height="36" rx="6" fill="var(--blue-wash)" stroke="var(--blue)"/>
+  <text x="112" y="237" font-size="12.5">候補を受け付けている</text>
+  <rect x="442" y="214" width="276" height="36" rx="6" fill="var(--orange-wash)" stroke="var(--orange)"/>
+  <text x="452" y="231" font-size="12">締切済み・未完了: 新しい候補は拒否、</text><text x="452" y="246" font-size="12">解決中の b だけを待つ</text>
+  <rect x="722" y="214" width="228" height="36" rx="6" fill="var(--green-wash)" stroke="var(--green)"/>
+  <text x="732" y="231" font-size="12">完了: 全 pair が失敗したら</text><text x="732" y="246" font-size="12">待たずに failed と判定できる</text>
+  <!-- 例外 -->
+  <text class="sub" x="100" y="284">b の解決が失敗・10 秒でタイムアウトした場合: b は捨て、その時点で完了になる。</text>
+  <text class="sub" x="100" y="302">解決中に ICE restart や replacement pranswer が起きた場合: 解決結果は捨てる（b が属していた generation はもう使われないため）。</text>
+  <text class="sub" x="100" y="320">EOC は check を止めない。追加済みの a・b の pair の check は完了後も続き、成功すれば通常どおり nominate される。</text>
+  <text class="sub" x="100" y="338">live と provisional（pranswer 中の B 向け）の generation は、どちらもこの同じ規則で動く。</text>
+</svg>
+<figcaption>実装: live generation は <a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:1709">ice.ts:1709</a>、provisional generation は <a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:329">ice.ts:329</a>。テスト: <a class="ref" href="../packages/ice/tests/ice/end-of-candidates.test.ts" title="packages/ice/tests/ice/end-of-candidates.test.ts">end-of-candidates.test.ts</a></figcaption>
+</figure>
+
+<h3>7.3 Q&amp;A: EOC の後に届いた候補</h3>
+<table>
+  <thead><tr><th style="width:24%">質問</th><th>回答</th></tr></thead>
+  <tbody>
+    <tr><td>どういうときに起きるか</td><td>
+      仕様どおりの相手は、EOC を送った後に同じ generation の候補を送りません。起きるのは主に次の場合です。
+      <ul>
+        <li>シグナリングで順序が入れ替わった（EOC のメッセージが先に届き、その前に送られた候補が後から届く）</li>
+        <li>SDP が <code>a=end-of-candidates</code> を含んで「完了済み」になっている m-line に、アプリや相手が候補を追加した</li>
+        <li>相手の実装が EOC の後に候補を送る（仕様違反）</li>
+      </ul>
+      新しい ICE generation（ICE restart による新しい ufrag）の候補はこれに当たりません。その候補は新しい generation に振り分けられ、受け付けられます（7 章の trickle の振り分け）。
+    </td></tr>
+    <tr><td>単に捨てられるか</td><td>
+      はい。エラーにはせず、<code>addIceCandidate()</code> は成功として返ります。候補は remote description（SDP）にも checklist にも加わらず、mDNS の名前解決も始めません。webrtc 層（<a class="ref" href="../packages/webrtc/src/secureTransportManager.ts" title="packages/webrtc/src/secureTransportManager.ts:321">secureTransportManager.ts:321</a>）と ICE 層（<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:351">ice.ts:351</a>）の両方で捨てます。
+    </td></tr>
+    <tr><td>それで問題はないか</td><td>
+      通常は問題になりません。理由は次の 3 つです。
+      <ul>
+        <li><b>RFC 8838 の規則に従っている。</b>EOC で完了した generation は、それ以上候補を受け付けません。</li>
+        <li><b>受け付けると判定が矛盾する。</b>EOC の後は「全 pair が失敗した = <code>failed</code>」と判定できます。後から候補が増えると、<code>failed</code> と判定した後に check の対象が増えることになり、状態が合わなくなります。</li>
+        <li><b>救済経路がある。</b>捨てた候補のアドレスから相手が check を送ってくれば、ICE はその送信元を peer-reflexive 候補として学習し、pair を作ります（RFC 8445 §7.3.1.3、<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:2243">ice.ts:2243</a>）。この学習は EOC の後も止めていません。そのため、実際に通信できる経路であれば、多くの場合は接続できます。</li>
+      </ul>
+      <span class="status warn">残るリスク</span> 相手からの check がこちらに届かず、こちらからの check だけが通るネットワークでは、捨てた候補でしか繋がらないことがあります。その場合は接続が失敗します。これは EOC の後に候補を送る相手側の誤りや、シグナリングの順序の入れ替わりで起きるもので、仕様どおりの相手と順序を保つシグナリングの組み合わせでは起きません。
+    </td></tr>
+  </tbody>
+</table>
+
+<h3 id="restart-gap">7.4 ICE restart 中の通信: RFC・他の実装との比較</h3>
+<p>このチケットの werift は、ICE restart の commit（answer の適用）で旧 pair を手放します。そのため、新しい generation の pair が nominate されるまで、RTP / DataChannel を送れない時間があります。RFC の規定と Chrome の実装はこれより強く、<b>新しい pair が選ばれるまで旧 pair で送り続けます</b>。<b>RFC と同等ではありません</b>。一方で、Pion や develop の werift は restart を始めた時点で旧 pair を手放すので、それよりは途切れる時間が短くなっています。</p>
+<figure class="figure">
+<svg viewBox="0 0 960 300" width="100%" role="img" aria-label="ICE restart 中に送信できる区間の比較">
+  <g font-size="12" text-anchor="middle">
+    <text x="300" y="18" font-weight="600">① restart の offer を作る</text><text class="sub" x="300" y="33">createOffer({ iceRestart })</text>
+    <text x="560" y="18" font-weight="600">② answer を適用</text><text class="sub" x="560" y="33">commit</text>
+    <text x="740" y="18" font-weight="600">③ 新しい pair を nominate</text><text class="sub" x="740" y="33">新しい generation で接続確認が成功</text>
+  </g>
+  <g stroke="var(--line)" stroke-dasharray="4 4">
+    <line x1="300" y1="40" x2="300" y2="262"/><line x1="560" y1="40" x2="560" y2="262"/><line x1="740" y1="40" x2="740" y2="262"/>
+  </g>
+  <g font-size="12.5" font-weight="600">
+    <text x="10" y="70">RFC 8445 / 8839</text>
+    <text x="10" y="112">Chrome（libwebrtc）</text>
+    <text x="10" y="154">werift（このチケット）</text>
+    <text x="10" y="196">werift（develop）</text>
+    <text x="10" y="238">Pion（v4.2.22）</text>
+  </g>
+  <g>
+    <rect x="200" y="54" width="538" height="26" rx="5" fill="var(--blue-wash)" stroke="var(--blue)"/><rect x="742" y="54" width="208" height="26" rx="5" fill="var(--green-wash)" stroke="var(--green)"/>
+    <rect x="200" y="96" width="538" height="26" rx="5" fill="var(--blue-wash)" stroke="var(--blue)"/><rect x="742" y="96" width="208" height="26" rx="5" fill="var(--green-wash)" stroke="var(--green)"/>
+    <rect x="200" y="138" width="358" height="26" rx="5" fill="var(--blue-wash)" stroke="var(--blue)"/><rect x="562" y="138" width="176" height="26" rx="5" fill="var(--orange-wash)" stroke="var(--orange)"/><rect x="742" y="138" width="208" height="26" rx="5" fill="var(--green-wash)" stroke="var(--green)"/>
+    <rect x="200" y="180" width="98" height="26" rx="5" fill="var(--blue-wash)" stroke="var(--blue)"/><rect x="302" y="180" width="436" height="26" rx="5" fill="var(--orange-wash)" stroke="var(--orange)"/><rect x="742" y="180" width="208" height="26" rx="5" fill="var(--green-wash)" stroke="var(--green)"/>
+    <rect x="200" y="222" width="98" height="26" rx="5" fill="var(--blue-wash)" stroke="var(--blue)"/><rect x="302" y="222" width="436" height="26" rx="5" fill="var(--orange-wash)" stroke="var(--orange)"/><rect x="742" y="222" width="208" height="26" rx="5" fill="var(--green-wash)" stroke="var(--green)"/>
+  </g>
+  <g font-size="12">
+    <text x="210" y="72">旧 pair で送信を続ける</text><text x="752" y="72">新しい pair</text>
+    <text x="210" y="114">旧 pair で送信を続ける</text><text x="752" y="114">新しい pair</text>
+    <text x="210" y="156">旧 pair で送信（pranswer 中も）</text><text x="570" y="156">送れない</text><text x="752" y="156">新しい pair</text>
+    <text x="310" y="198">送れない（シグナリングの往復＋接続確認の間）</text><text x="752" y="198">新しい pair</text>
+    <text x="310" y="240">送れない（シグナリングの往復＋接続確認の間）</text><text x="752" y="240">新しい pair</text>
+  </g>
+  <g font-size="12" class="sub">
+    <rect x="200" y="272" width="12" height="12" rx="3" fill="var(--blue-wash)" stroke="var(--blue)"/><text x="218" y="282">旧 pair で送信できる</text>
+    <rect x="360" y="272" width="12" height="12" rx="3" fill="var(--orange-wash)" stroke="var(--orange)"/><text x="378" y="282">送信できない</text>
+    <rect x="490" y="272" width="12" height="12" rx="3" fill="var(--green-wash)" stroke="var(--green)"/><text x="508" y="282">新しい pair で送信</text>
+  </g>
+</svg>
+<figcaption>offerer 側の図です。answerer 側で restart が始まる時点は実装ごとに異なります（Pion は資格情報が変わった offer を <code>SetRemoteDescription</code> した時点）。区間の長さは模式的なもので、実測値ではありません。</figcaption>
+</figure>
+<table>
+  <thead><tr><th>対象</th><th>restart 中の送信</th><th>根拠</th></tr></thead>
+  <tbody>
+    <tr><td>RFC 8445 / RFC 8839</td><td><span class="tag keep">途切れない</span> restart 前に選ばれていた pair（previous selected pair）を記録し、新しい selected pair ができるまで、その pair で送り続ける</td><td>RFC 8445 §9「restart の間も、既存のセッションでデータを送り続けられる」、§12.1（checklist が Running の間の selected pair = previous selected pair）、RFC 8839 §4.4.3.1.1（previous selected pair を覚え、そこへ送り続ける）</td></tr>
+    <tr><td>Chrome（libwebrtc）</td><td><span class="tag keep">途切れない</span> 選択中の connection は restart の間も残し、新しい generation の connection が選ばれた時点で古いものを捨てる</td><td><code>p2p/base/p2p_transport_channel.cc</code> のコメント「Any selected connection is kept so that it can be used to send data during ICE restart per RFC 8445」（main <code>71b521e4af</code>）</td></tr>
+    <tr><td>werift（このチケット）</td><td><span class="tag stage">answer の commit から nominate まで途切れる</span> offer と pranswer の間は旧 pair で送り続け、commit で ICE agent を作り直す</td><td><a class="ref" href="../packages/webrtc/src/transport/ice.ts" title="packages/webrtc/src/transport/ice.ts:462">ice.ts:462</a> → <a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:200">ice.ts:200</a>（<code>nominated</code> を消す）</td></tr>
+    <tr><td>werift（develop）</td><td><span class="tag reject">restart を始めた時点から途切れる</span> <code>createOffer({ iceRestart })</code> の中で、その場で transport を restart する</td><td>develop の <code>createOffer</code> → <code>secureManager.restartIce()</code></td></tr>
+    <tr><td>Pion（pion/webrtc v4.2.22、pion/ice v4.4.6）</td><td><span class="tag reject">restart を始めた時点から途切れる</span> offerer は <code>CreateOffer(ICERestart)</code>、answerer は資格情報が変わった offer の <code>SetRemoteDescription</code> で <code>Agent.Restart</code> を呼び、selected pair・checklist・候補をすべて消す</td><td><code>icetransport.go</code> の <code>restart()</code> と <code>agent.go</code> の <code>Restart()</code>（<code>setSelectedPair(nil)</code>、<code>deleteAllCandidates()</code>）。開発版の pion/ice（v5.0.0-rc.7）も同じ動作</td></tr>
+  </tbody>
+</table>
+<p><b>RFC に合わせるには</b>、commit で ICE agent を作り直すのではなく、新しい generation の pair が nominate されるまで旧 generation の nominated pair を送信先として残し、nominate された時点で切り替える必要があります。このチケットでは pranswer の間の provisional generation までを扱い、ここは対象外の既知の制約として残しています（16 章）。</p>
+
+<h3 id="restart-gather">7.5 restart の収集・remote だけの restart・pair の選択</h3>
+<table>
+  <thead><tr><th style="width:22%">場面</th><th>規則</th><th>実装</th></tr></thead>
+  <tbody>
+    <tr><td>restart の候補と commit</td><td>restart の候補は offer / answer の作成時に確定し、commit はそれを再広告するだけでサーバーを待たない。背景の再収集（STUN の再問い合わせ、新しい TURN allocation）は開始時の generation に属し、次の restart や <code>close()</code> に追い越されたら何も足さずに閉じる。agent の close で収集の待機は終わる</td><td><a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:707">ice.ts:707</a>、<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:89">ice.ts:89</a></td></tr>
+    <tr><td>relay-only の restart</td><td>相手の候補と end-of-candidates が自分の新しい relay 候補より先に届いても、接続確認は自分の収集が終わるまで候補を待ち、後から確立した allocation を既知の相手候補とペアにする</td><td><a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:1245">ice.ts:1245</a>、<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:1399">ice.ts:1399</a></td></tr>
+    <tr><td>remote だけの restart</td><td>offer で restart していない transport の資格情報を answer が変えたら、local の資格情報を保ったまま新しい remote generation で接続確認をやり直す（Chrome と同じ）。remote 側は別の <code>remoteGeneration</code> で数え、local の収集には触れない</td><td><a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:253">ice.ts:253</a></td></tr>
+    <tr><td>pair の選択</td><td>現在の checklist にあり、相手候補が ufrag を名乗るならそれが live の ufrag と一致する pair を選ぶ。相手の SDP の <code>generation</code> 番号（相手自身の restart の回数）とローカルの番号は比べない。ICE-lite の相手が answer で資格情報を変えて <code>generation 1</code> を付けても接続する</td><td><a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:1865">ice.ts:1865</a></td></tr>
+    <tr><td>renomination（develop から既存）</td><td><code>inactive</code> の m-line があるときの資格情報の変更は develop の経路のまま残し、別の ufrag を名乗る相手候補と pair だけを checklist から落とす</td><td><a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:653">ice.ts:653</a></td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="bundle">8. BUNDLE topology</h2>
+<h3>8.1 BUNDLE group の仕組み</h3>
+<p><b>BUNDLE</b> は、複数の m-line（音声・映像・DataChannel など）を <b>1 本の ICE / DTLS 接続にまとめて流す</b>仕組みです（RFC 8843）。どの m-line をまとめるかは、SDP のセッション行 <code>a=group:BUNDLE &lt;mid&gt; &lt;mid&gt; …</code> で表します。</p>
+<ul>
+  <li><b>group は各 Peer が別々に持つものではなく、offer / answer で 2 者が合意するものです。</b>offerer が offer で group を<i>提案</i>し、answerer が answer でそのうち受け入れる m-line だけを返して<i>確定</i>します。確定した group は両側で同じです。</li>
+  <li>実体として、各 Peer は <b>group ごとに transport（ICE + DTLS）を 1 つ</b>持ちます。group 1 の音声と映像は、A 側の transport と B 側の transport の間の 1 本の接続を共有します。</li>
+  <li>group の先頭の MID を <b>tag</b> と呼びます。member が共有する transport のパラメータ（ICE 資格情報・DTLS fingerprint など）は、tag の m-line のものを使います。</li>
+  <li>1 つの SDP に group を<b>複数</b>置けます。m-line が属せる group は 1 つまでで、どの group にも属さない m-line もあり得ます。</li>
+</ul>
+<figure class="figure">
+<svg viewBox="0 0 960 300" width="100%" role="img" aria-label="BUNDLE group の提案・確定と transport の対応">
+  <g font-size="13" font-weight="700" text-anchor="middle">
+    <text x="150" y="22">Peer A（offerer）</text><text x="810" y="22">Peer B（answerer）</text>
+  </g>
+  <path d="M250,62 L708,62" stroke="var(--blue)" stroke-width="2" fill="none" marker-end="url(#aB)"/>
+  <text x="480" y="52" font-size="12.5" text-anchor="middle">offer: a=group:BUNDLE 0 1 2（提案）</text>
+  <path d="M708,102 L252,102" stroke="var(--green)" stroke-width="2" fill="none" marker-end="url(#aG)"/>
+  <text x="480" y="92" font-size="12.5" text-anchor="middle">answer: a=group:BUNDLE 0 1（受け入れた分だけ返して確定）</text>
+  <text class="sub" x="480" y="122" text-anchor="middle">mid 2 は answer で拒否（port 0）されたので group から外れた</text>
+  <g>
+    <rect x="40" y="150" width="220" height="96" rx="10" class="node"/>
+    <text x="54" y="172" font-size="12.5" font-weight="600">transport T1（A 側）</text>
+    <text class="sub" x="54" y="192">mid 0 (tag) / mid 1 が共有</text>
+    <text class="sub" x="54" y="210">ICE 資格情報・DTLS は 1 組</text>
+    <rect x="700" y="150" width="220" height="96" rx="10" class="node"/>
+    <text x="714" y="172" font-size="12.5" font-weight="600">transport T1'（B 側）</text>
+    <text class="sub" x="714" y="192">mid 0 (tag) / mid 1 が共有</text>
+    <text class="sub" x="714" y="210">ICE 資格情報・DTLS は 1 組</text>
+    <path d="M262,198 L698,198" stroke="var(--blue)" stroke-width="6" stroke-linecap="round" opacity=".55"/>
+    <text x="480" y="188" font-size="12.5" text-anchor="middle">1 本の ICE / DTLS 接続（同じ 5-tuple）</text>
+    <text class="sub" x="480" y="222" text-anchor="middle">音声（mid 0）と映像（mid 1）のパケットは MID などで振り分ける</text>
+  </g>
+  <text class="sub" x="480" y="280" text-anchor="middle">group が 2 つなら transport も 2 組（T1⇄T1'、T2⇄T2'）。group 外の m-line は、それぞれ専用の transport を持つ。</text>
+</svg>
+</figure>
+
+<h3>8.2 「group 外」はいつ現れるか</h3>
+<p>werift が自分で作る offer は、拒否済み（port 0）以外の<b>全 m-line を 1 つの group</b> に入れます（<a class="ref" href="../packages/webrtc/src/sdpManager.ts" title="packages/webrtc/src/sdpManager.ts:740">sdpManager.ts:740</a>）。そのため、werift 同士の通常の交渉では group 外も複数 group も現れません。現れるのは次の場合です。</p>
+<table>
+  <thead><tr><th>場面</th><th>何が起きるか</th><th>werift の扱い</th></tr></thead>
+  <tbody>
+    <tr><td>相手の offer が、m-line を group に入れていない、または group を複数に分けている</td><td>BUNDLE 非対応の実装や、意図的に transport を分ける SFU などが送ってくる</td><td>offer の group どおりに transport を割り当てる。group 外の m-line には、独立した ICE 資格情報を持つ専用の transport を作る（<a class="ref" href="../packages/webrtc/src/negotiation/remoteMediaApplication.ts" title="packages/webrtc/src/negotiation/remoteMediaApplication.ts:234">remoteMediaApplication.ts:234</a>）</td></tr>
+    <tr><td>確立済みの member を group から外す re-offer（RFC 8843 §7.5）</td><td>その m-line だけ別の transport に移る（split）</td><td>新しい transport を準備して <span class="tag stage">staged</span> にし、answer の commit で切り替える。それまでは共有中の transport で通信を続ける</td></tr>
+    <tr><td>answer で m-line を拒否する（port 0）</td><td>その m-line は group から外れ、transport も持たない</td><td>自分の answer は、受け入れた MID だけで group を作る（<a class="ref" href="../packages/webrtc/src/sdpManager.ts" title="packages/webrtc/src/sdpManager.ts:950">sdpManager.ts:950</a>）</td></tr>
+    <tr><td>自分が offer で共有させた transport を、相手の answer が分ける</td><td>offer で約束した共有が崩れる</td><td><span class="tag reject">answer を拒否</span>（RFC 8843 §7.3.2、<a class="ref" href="../packages/webrtc/src/negotiation/bundleTopology.ts" title="packages/webrtc/src/negotiation/bundleTopology.ts:343">bundleTopology.ts:343</a>）</td></tr>
+    <tr><td><code>bundlePolicy: "disable"</code>（werift 独自の値）</td><td>group を一切使わない</td><td>自分の offer / answer に group を書かず、相手の group も無視する。全 m-line が group 外になる</td></tr>
+  </tbody>
+</table>
+
+<h3 id="bundle-policy">8.3 bundlePolicy との関係</h3>
+<p><code>bundlePolicy</code> は <b>自分が作る offer で、transport をいつ共有し始めるか</b>を決める設定です（W3C の <code>RTCBundlePolicy</code>）。相手から来た offer の transport の割り当ては、<code>"disable"</code> を除いて policy に関係なく、<b>offer に書かれた group だけ</b>で決まります。</p>
+<table>
+  <thead><tr><th>bundlePolicy</th><th>自分の offer の group</th><th>初回 offer の時点の transport</th><th>answer が group を受け入れた後</th></tr></thead>
+  <tbody>
+    <tr><td><code>"max-bundle"</code></td><td>全 m-line で 1 group</td><td>最初から <b>1 つ</b>を全 m-line で共有（候補の収集も 1 回）</td><td>1 つのまま</td></tr>
+    <tr><td><code>"max-compat"</code>（既定。<code>"balanced"</code> もこれに読み替える）</td><td>全 m-line で 1 group</td><td>相手が BUNDLE に対応していると分かるまでは、<b>m-line ごとに別</b>（相手が BUNDLE 非対応でも、各 m-line が個別に繋がるように）</td><td>tag の transport <b>1 つ</b>にまとめる</td></tr>
+    <tr><td><code>"disable"</code>（werift 独自）</td><td>なし</td><td>m-line ごとに別</td><td>m-line ごとに別のまま</td></tr>
+  </tbody>
+</table>
+<p class="caption">分岐の実装: <a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:787">peerConnection.ts:787</a>。音声と映像の 2 m-line で実際に交渉して確認した結果、offerer の transport 数は max-bundle で 1 → 1、max-compat で 2 → 1、disable で 2 → 2 でした。max-compat の初回 offer の m-line ごとの transport は、ICE 資格情報（ufrag / pwd）を共有しています（develop からの既存の動作）。group 外の m-line や split で作る transport だけが、独立した資格情報を持ちます。</p>
+
+<h3>8.4 このチケットでの扱い</h3>
+<p>BUNDLE group は最初の 1 つだけでなく、<b>すべての group</b> を扱います。各 group の tag が、member の transport を決めます（<a class="ref" href="../packages/webrtc/src/negotiation/bundleTopology.ts" title="packages/webrtc/src/negotiation/bundleTopology.ts:48">bundleTopology.ts:48</a>）。レビュー指摘（<code>d8e4c4cc</code> で修正）の時点では、最初の group しか見ていない処理が 7 箇所あり、2 つ目の group の member が別々の transport に分かれていました。</p>
+<div class="figure">
+<div class="bundle">
+  <div class="grp"><h4>group 1: BUNDLE 0 1</h4><span class="mline tag-mid">mid 0 (tag)</span><span class="mline">mid 1</span><div class="transport">transport T1 を共有</div></div>
+  <div class="grp"><h4>group 2: BUNDLE 2 3</h4><span class="mline tag-mid">mid 2 (tag)</span><span class="mline">mid 3</span><div class="transport">transport T2 を共有</div></div>
+  <div class="grp"><h4>group 外</h4><span class="mline">mid 4</span><div class="transport">独自の ICE 資格情報を持つ transport T3</div></div>
+</div>
+<p class="caption">分割・統合・新しい owner は staged topology として準備し（local offer は <a class="ref" href="../packages/webrtc/src/negotiation/bundleTopology.ts" title="packages/webrtc/src/negotiation/bundleTopology.ts:186">bundleTopology.ts:186</a>、remote re-offer は <a class="ref" href="../packages/webrtc/src/negotiation/bundleTopology.ts" title="packages/webrtc/src/negotiation/bundleTopology.ts:213">bundleTopology.ts:213</a>）、answer の commit で切り替えます（<a class="ref" href="../packages/webrtc/src/negotiation/bundleTopology.ts" title="packages/webrtc/src/negotiation/bundleTopology.ts:308">bundleTopology.ts:308</a>）。所有のためだけに作った transport は rollback で閉じます。</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="develop">9. develop 機能との統合</h2>
+<p>このチケットの間に develop へ入った 2 つの機能を、transaction の規則の中で動くように統合しました。どちらも、develop 単独のときと挙動が変わる点があります。これは退行ではなく、意図した変更です。</p>
+<h3>9.1 issue 705（m-line の拒否・停止・再利用）</h3>
+<table>
+  <thead><tr><th>場面</th><th>705 単独</th><th>このチケット</th><th>根拠</th></tr></thead>
+  <tbody>
+    <tr><td>確立済みの member を BUNDLE 外へ出す re-offer</td><td>拒否</td><td><span class="tag stage">staged topology として受理</span></td><td>RFC 8843 §7.5</td></tr>
+    <tr><td>使用中の payload type で codec を付け替える re-offer</td><td>受理し、拒否予定にする</td><td><span class="tag reject">適用前に拒否</span></td><td>RFC 3264 §8.3.2</td></tr>
+    <tr><td>group 外 m-line の answer の <code>a=setup</code></td><td>常に <code>active</code></td><td>offer の逆</td><td>RFC 8842 §5.3</td></tr>
+  </tbody>
+</table>
+<p>あわせて、拒否予定（<code>pendingRejection</code>）を baseline に含め、remote が port 0 で出した m-line も拒否予定にしました。アプリによる m-line の再利用は、kind が一致し、停止が確定した位置に限ります（<a class="ref" href="../packages/webrtc/src/transceiverManager.ts" title="packages/webrtc/src/transceiverManager.ts:431">transceiverManager.ts:431</a>）。</p>
+<h3>9.2 codec 統合（<code>setCodecPreferences()</code> / track source codec）</h3>
+<table>
+  <thead><tr><th>処理</th><th>develop 単独</th><th>このチケット</th></tr></thead>
+  <tbody>
+    <tr><td>remote description の codec</td><td>適用前に計画する（<code>planRemoteRtpCodecs</code>）</td><td>同じ計画を採用し、checkpoint より前の副作用のない段階で全 m-line 分を決める（<a class="ref" href="../packages/webrtc/src/transceiverManager.ts" title="packages/webrtc/src/transceiverManager.ts:833">transceiverManager.ts:833</a>）</td></tr>
+    <tr><td>受信 codec 表の置き換え（<code>resyncCodecs</code>）</td><td>pending の offer / pranswer の時点</td><td><span class="tag stage">remote answer または commit の時点だけ</span>（<a class="ref" href="../packages/webrtc/src/media/rtpReceiver.ts" title="packages/webrtc/src/media/rtpReceiver.ts:287">rtpReceiver.ts:287</a>）</td></tr>
+    <tr><td><code>createAnswer()</code></td><td>sender と受信設定をその場で切り替える</td><td>提案として解決するだけ。切り替えは local answer の commit（<a class="ref" href="../packages/webrtc/src/transceiverManager.ts" title="packages/webrtc/src/transceiverManager.ts:805">transceiverManager.ts:805</a>）</td></tr>
+    <tr><td>rollback</td><td>—</td><td><code>pendingLocalOfferCodecs</code> と再解決の要求を baseline に含める。<code>setCodecPreferences()</code> 自体はアプリの選択なので戻さない</td></tr>
+  </tbody>
+</table>
+
+<h3 id="develop-audit">9.3 最新 develop にマージされた機能の網羅的な確認</h3>
+<p>分岐点 <code>62582c21</code> 以降に develop へマージされ、ソースに変更がある 5 つの PR について、pending 中に書き込む状態を「negotiated state（staged か baseline で戻す）」「application state（rollback で戻さない）」「configuration（baseline に含めない）」に分類し、規則に合わない箇所を直しました。</p>
+<table>
+  <thead><tr><th>develop の機能</th><th>見つかった問題</th><th>対応</th></tr></thead>
+  <tbody>
+    <tr><td>#716 SCTP の MTU</td><td>なし（全経路で設定の MTU を使う）</td><td>remote offer 経由と pending 中・rollback 後の変更可否をテストに追加</td></tr>
+    <tr><td>#688 / #731 TURN</td><td>restart を stage する方式のため、restart 前後に変えた ICE server 設定が使われない。restart のたびに使われない TURN allocation が増える</td><td>設定を次の restart まで保持し、restart では同じ設定の allocation を再利用・変わった allocation は閉じて作り直す。設定が変わった restart の offer は relay 候補と EOC を commit 後に trickle（<a class="ref" href="../packages/webrtc/src/transport/ice.ts" title="packages/webrtc/src/transport/ice.ts:462">ice.ts:462</a>、<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:707">ice.ts:707</a>）</td></tr>
+    <tr><td>#729 codec 統合</td><td><code>createAnswer()</code> と answer 適用の間の <code>setCodecPreferences()</code> / <code>addTrack()</code> で RTP が止まる・古い codec で送る。pending 中の codec 変更が rollback で消える。pending 中の <code>replaceTrack()</code> が answer の codec と照合されない</td><td>適用した answer の codec を commit して次の offer で再解決（<a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1142">peerConnection.ts:1142</a>）。アプリの変更を revision で区別して rollback 後も残す（<a class="ref" href="../packages/webrtc/src/media/rtpTransceiver.ts" title="packages/webrtc/src/media/rtpTransceiver.ts:82">rtpTransceiver.ts:82</a>）。answer が送信に使う codec とも照合（<a class="ref" href="../packages/webrtc/src/media/rtpSender.ts" title="packages/webrtc/src/media/rtpSender.ts:294">rtpSender.ts:294</a>）</td></tr>
+    <tr><td>#721 / issue 705 m-line 再利用</td><td>pending 中にアプリが追加した transceiver が、rollback 後も停止済み m-line の index を持ち続ける</td><td>rollback で baseline の位置と重なる index を外す（<a class="ref" href="../packages/webrtc/src/transceiverManager.ts" title="packages/webrtc/src/transceiverManager.ts:170">transceiverManager.ts:170</a>）</td></tr>
+  </tbody>
+</table>
+<p class="caption">回帰テスト: <a class="ref" href="../packages/webrtc/tests/negotiation/cases/negotiationTransactionDevelopIntegration.test.ts" title="packages/webrtc/tests/negotiation/cases/negotiationTransactionDevelopIntegration.test.ts">negotiationTransactionDevelopIntegration.test.ts</a>、<a class="ref" href="../packages/ice/tests/ice/turn-restart.test.ts" title="packages/ice/tests/ice/turn-restart.test.ts">turn-restart.test.ts</a>。いずれも修正前の実装で失敗し、修正後に通ることを確認しています。</p>
+
+<h3 id="develop-diff">9.4 develop と挙動が変わる箇所の棚卸し</h3>
+<p>develop と挙動を変える規則を、核の不変条件・W3C・RFC のどれに必須かで分類しました（設計文書 <a class="ref" href="../packages/webrtc/NEGOTIATION_TRANSACTION.md" title="packages/webrtc/NEGOTIATION_TRANSACTION.md:874">NEGOTIATION_TRANSACTION.md:874</a>）。必須でないと判断したもの（application の拒否で SCTP を閉じる）は develop に戻しました。新しく差を作るのは、develop で失敗していた操作を成功させるものか、11 章の継続確認を通るものに限ります。</p>
+<table>
+  <thead><tr><th>規則</th><th>develop</th><th>扱い</th></tr></thead>
+  <tbody>
+    <tr><td>application の拒否で SCTP を閉じる</td><td>閉じず、次の offer で再提案</td><td><span class="tag keep">develop に戻した</span></td></tr>
+    <tr><td>ICE restart を answer まで stage、provisional generation</td><td><code>createOffer</code> で restart</td><td><span class="tag now">維持</span>（核の不変条件）</td></tr>
+    <tr><td>pranswer の暫定適用（送信 codec・direction・max-message-size）</td><td>限定的</td><td><span class="tag now">維持</span>（pranswer の契約、W3C）</td></tr>
+    <tr><td>使用中の extmap ID の再割当て・接続中の DTLS / SCTP の変更を拒否</td><td>検査なし</td><td><span class="tag now">維持</span>（核の不変条件）</td></tr>
+    <tr><td>未適用の <code>createOffer()</code> は MID を関連付けない</td><td>作成時に割り当てる（次の offer と同じ MID を 2 つに与え、新しい m-line を止めることがある）</td><td><span class="tag now">維持</span>（W3C。差分ファズでは意図した差として数える）</td></tr>
+    <tr><td>pending の remote offer は current の送信 codec を変えず、rollback で戻す</td><td>適用時に切り替え、rollback でも戻さない</td><td><span class="tag now">維持</span>（核の不変条件）</td></tr>
+    <tr><td>close に追い越された操作は <code>InvalidStateError</code> で決着</td><td>一部は永久に pending</td><td><span class="tag stage">追加</span>（W3C は pending のまま。該当 WPT はもともと FAIL）</td></tr>
+    <tr><td>相手の port 0 の application に port 0 で答える、後から足した DataChannel の SCTP を開始する</td><td>port 9（sctp-port なし）で答える／開かない</td><td><span class="tag stage">追加</span>（develop の失敗を成功にする）</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="reuse">10. 生成済み description の再利用契約</h2>
+<p>保存した answer の後に <code>createOffer</code> する、rollback の後に同じ offer を再適用する、answer を作り直す――といった「生成済みの description を後から／再度適用する」操作を、1 件ずつの特例ではなく契約と構造で決めました（チケット 2.9）。</p>
+<div class="cards">
+  <div class="card"><h4>(a) W3C が求める適用</h4>必ず受理する（最後に作った offer / answer と一致するもの）。</div>
+  <div class="card"><h4>(b) develop で通信できた適用</h4>退行させない（受理し、通信まで成立させる）。</div>
+  <div class="card"><h4>(c) それ以外</h4><code>InvalidModificationError</code> で拒否し、状態を一切変えない。</div>
+</div>
+<ul>
+  <li><b>生成記録</b>: <code>createOffer()</code> / <code>createAnswer()</code> ごとに、transport ごとの ICE 資格情報と stage した generation、MID と m-line の割当て、m-line ごとの codec を不変の記録として残す（<a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:613">peerConnection.ts:613</a>、<a class="ref" href="../packages/webrtc/src/transport/ice.ts" title="packages/webrtc/src/transport/ice.ts:199">ice.ts:199</a>）。</li>
+  <li><b>適用</b>: SDP と記録から割当てを計画し（<a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:675">peerConnection.ts:675</a>）、状態に書き込まずに検証してから一括で反映する。各 transport は description が持つ generation に切り替わる（<a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:705">peerConnection.ts:705</a>）。失敗しても undo に頼らず、構造的に何も変わらない。</li>
+  <li><b>契約表</b>（操作順序ごとの受理／拒否と、develop の実測）: <a class="ref" href="../packages/webrtc/NEGOTIATION_TRANSACTION.md" title="packages/webrtc/NEGOTIATION_TRANSACTION.md:122">NEGOTIATION_TRANSACTION.md:122</a></li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="continue">11. 拒否された m-line と「その後も使い続けられるか」</h2>
+<p>application m-line を拒否した answer の commit で SCTP を閉じる規則を一度入れたところ、拒否の後の <code>createOffer()</code> が失敗する退行が起きました。拒否の直後だけを確認し、その後に続く操作を確認していなかったためです。規則を撤回して develop と同じ挙動に戻し、「その後」を全試験で確認する仕組みを入れました（チケット 2.11）。</p>
+<table>
+  <thead><tr><th style="width:24%">対象</th><th>規則</th><th>実装</th></tr></thead>
+  <tbody>
+    <tr><td>m-line の位置</td><td>MID・index・拒否されたかは、SCTP オブジェクトではなく current description が記録する。SCTP のない位置は同じ MID の port 0 で保ち、未束縛の SCTP（<code>createDataChannel</code>）は拒否された位置を新しい MID で使い直す</td><td><a class="ref" href="../packages/webrtc/src/sdpManager.ts" title="packages/webrtc/src/sdpManager.ts:606">sdpManager.ts:606</a></td></tr>
+    <tr><td>相手の offer の拒否</td><td>port 0 の application には port 0 で答える（RFC 3264 §6）。再利用された位置では SCTP がその MID に移る</td><td><a class="ref" href="../packages/webrtc/src/negotiation/remoteMediaApplication.ts" title="packages/webrtc/src/negotiation/remoteMediaApplication.ts:196">remoteMediaApplication.ts:196</a></td></tr>
+    <tr><td>後から足した DataChannel</td><td>接続済みの DTLS transport に後から載った SCTP も association を開始する。SCTP の client / server は DTLS を開始したときの ICE role で固定する</td><td><a class="ref" href="../packages/webrtc/src/negotiation/transportActivation.ts" title="packages/webrtc/src/negotiation/transportActivation.ts:292">transportActivation.ts:292</a>、<a class="ref" href="../packages/webrtc/src/transport/dtls.ts" title="packages/webrtc/src/transport/dtls.ts:99">dtls.ts:99</a></td></tr>
+  </tbody>
+</table>
+<div class="figure">
+<ol class="flow">
+  <li><b>stable に戻す</b><br>pending は rollback、pranswer は final answer で確定</li>
+  <li><b>次の offer</b><br>各操作の後に invariant</li>
+  <li><b>ICE restart の offer</b></li>
+  <li><b>DataChannel と transceiver を足した offer</b></li>
+  <li><b>相手からの offer</b></li>
+  <li class="commit"><b>実通信</b><br>追加した DataChannel と transceiver で双方向</li>
+</ol>
+<p class="caption"><code>expectSessionContinues(a, b)</code>（<a class="ref" href="../packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts" title="packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:1396">negotiationTransactionUtils.ts:1396</a>）。<code>enforceSessionContinuation()</code>（<a class="ref" href="../packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts" title="packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:1262">negotiationTransactionUtils.ts:1262</a>）が afterEach で呼び忘れを検出し、除外は理由付き（close が検査対象、実 peer のない合成 SDP、相手を誤って記述する SDP）に限ります。対応表の試験・回帰・変異・拒否の各試験で有効です。拒否の経路 × その後の操作の組み合わせは <code>negotiationTransactionApplicationRejection.test.ts</code>（TICKET 2.20 で削除） にあります。</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="chain">12. 操作の連鎖・close・接続の開始</h2>
+<table>
+  <thead><tr><th style="width:22%">対象</th><th>規則</th><th>実装</th></tr></thead>
+  <tbody>
+    <tr><td>操作の連鎖</td><td>W3C の "chain an operation" を 1 か所で実装。閉じた接続への登録はその場で reject し、前の操作を待った後や操作の途中で <code>close()</code> に追い越された操作は <code>InvalidStateError</code> で決着する。永久に pending の Promise はない。各 await と signaling 通知の後に閉鎖を確認し、閉じていれば何も変更せず回復処理も行わない。閉じた接続は transport を作らない</td><td><a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:736">peerConnection.ts:736</a>、<a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1888">peerConnection.ts:1888</a></td></tr>
+    <tr><td><code>addIceCandidate</code></td><td>前の操作が description を適用した時点まで待ち、<code>setLocalDescription</code> の収集の完了は待たない（develop と同じ遅延）。後続の description 操作は両方の完了を待つ</td><td><a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1372">peerConnection.ts:1372</a></td></tr>
+    <tr><td>接続の開始</td><td><code>connect()</code> は remote の ICE / DTLS パラメータを受けた transport だけを開始する（再交渉の pranswer で <code>failed</code> にならない）。<code>connectPending()</code> も同じ規則で、checks は generation ごとに一度だけ始め、実行中なら待ち、確立済みはやり直さない（pranswer の再適用で <code>checking</code> に戻らない）。ICE の停止は checks の待機を決着させる</td><td><a class="ref" href="../packages/webrtc/src/negotiation/transportActivation.ts" title="packages/webrtc/src/negotiation/transportActivation.ts:202">transportActivation.ts:202</a>、<a class="ref" href="../packages/webrtc/src/negotiation/transportActivation.ts" title="packages/webrtc/src/negotiation/transportActivation.ts:308">transportActivation.ts:308</a></td></tr>
+    <tr><td>simulcast の RID</td><td>MID+RID で見つからなければ、develop と同じく RID だけで引き直す</td><td><a class="ref" href="../packages/webrtc/src/media/router.ts" title="packages/webrtc/src/media/router.ts:282">router.ts:282</a></td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="explore">13. 自前の探索（レビュアーと同じ軸）</h2>
+<p>レビュアーは毎回、自前の探索に入っていない新しい軸（相手の SDP の違い、設定、タイミング、アプリの操作）を 1 つ見つけていました。同じ探索を依頼前に自分で回すため、次の仕組みを置いています。</p>
+<table>
+  <thead><tr><th style="width:18%">仕組み</th><th>内容</th><th>実行</th></tr></thead>
+  <tbody>
+    <tr><td>invariant helper</td><td>各操作の後に、current SDP と live 状態の一致・有効値・孤立 transport を検査</td><td>すべての交渉試験（<a class="ref" href="../packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts" title="packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:628">negotiationTransactionUtils.ts:628</a>）</td></tr>
+    <tr><td>property test</td><td>seed 固定のランダム操作列。description pool の再利用、相手が m-line を拒否する episode を含む。仕組みは <a href="#property">13.1 節</a></td><td>CI は固定 seed と回帰 seed、深い探索は 300 seed × 20 step</td></tr>
+    <tr><td>相手の SDP の変異</td><td>session 単位の手書きの変異と、「kind × 属性」の表から生成した変異（計 27 種類）を、offer / pranswer / answer、初回と再交渉に適用</td><td>CI は単独、手元で全ペア（<a class="ref" href="../packages/webrtc/tools/negotiation-diff/mutations.ts" title="packages/webrtc/tools/negotiation-diff/mutations.ts:246">mutations.ts:246</a>）</td></tr>
+    <tr><td>割り込み</td><td>gather・mDNS・DTLS・STUN の待機中に close / restartIce / 新しい offer / rollback</td><td>CI（<a class="ref" href="../packages/webrtc/tests/negotiation/cases/negotiationTransactionInterrupt.test.ts" title="packages/webrtc/tests/negotiation/cases/negotiationTransactionInterrupt.test.ts">negotiationTransactionInterrupt.test.ts</a>）</td></tr>
+    <tr><td>close のタイミング</td><td>10 種類の操作 × 0〜10 microtask 後と 1 macrotask 後の close（120 件）。全 Promise の決着と transport の停止</td><td>CI（<a class="ref" href="../packages/webrtc/tests/negotiation/cases/negotiationTransactionCloseTiming.test.ts" title="packages/webrtc/tests/negotiation/cases/negotiationTransactionCloseTiming.test.ts">negotiationTransactionCloseTiming.test.ts</a>）</td></tr>
+    <tr><td>develop 差分ファズ</td><td>公開 API だけの操作列を develop と HEAD で実行し比較する。軸: 設定（<code>bundlePolicy</code>・<code>rtcpMuxPolicy</code>・TURN の relay-only）、アプリの操作（stop・replaceTrack・direction・setCodecPreferences・createDataChannel・restartIce）、close のタイミング、相手の変異、2 つの合成操作。HEAD について、未決着の操作・故障のない試行での <code>failed</code>・transceiver の数と状態の差を常に検査する</td><td>手元（<a class="ref" href="../packages/webrtc/tools/negotiation-diff/run.ts" title="packages/webrtc/tools/negotiation-diff/run.ts:124">run.ts:124</a>、<a class="ref" href="../packages/webrtc/tools/negotiation-diff/compare.ts" title="packages/webrtc/tools/negotiation-diff/compare.ts:139">compare.ts:139</a>）</td></tr>
+    <tr><td>仕様と試験の対応表</td><td>チケットの全 276 文を試験名か「対象外（理由）」に対応づける（covered 253、対象外 23、partial / uncovered 0）</td><td><a class="ref" href="../packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md" title="packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md">NEGOTIATION_SPEC_COVERAGE.md</a></td></tr>
+  </tbody>
+</table>
+<p class="caption">修正前のビルド（<code>3da7c5a4</code>）に差分ファズを当てると、8 回目のレビューで確定した 3 件（disable の pranswer で <code>failed</code>、close のタイミングで未決着、stop 後の rollback で transceiver が残る）をすべて機械的に検出しました。</p>
+
+<h3 id="property">13.1 property test の仕組み</h3>
+<p>property test は、「<b>どんな操作の順序でも成り立つべき性質</b>」を決めておき、ランダムに作った操作列でそれが崩れないかを確かめる試験です。例ベースの試験が「この手順ならこうなる」を 1 本ずつ確かめるのに対し、property test は手順そのものを乱数で組み立てます。そのため、人が思いつかない組み合わせ（ICE restart の pranswer の後に、保存しておいた古い offer を再適用する、など）にも届きます。本体は <a class="ref" href="../packages/webrtc/tests/pbt/fuzz/negotiationTransactionProperty.test.ts" title="packages/webrtc/tests/pbt/fuzz/negotiationTransactionProperty.test.ts:51">fuzz/negotiationTransactionProperty.test.ts:51</a> の <code>playSeed</code> です。各 episode と乱数は <a class="ref" href="../packages/webrtc/tests/pbt/shared/random.ts" title="packages/webrtc/tests/pbt/shared/random.ts:6">shared/random.ts:6</a> 以降にあります。property test のファイルは <code>packages/webrtc/tests/pbt/</code> にまとめ、invariant の検査など他の試験と共有する helper は <code>negotiationTransactionUtils.ts</code> に残しています。</p>
+
+<div class="cards">
+  <div class="card"><h4>性質 1：各操作の後</h4><ul>
+    <li>両 peer の <b>invariant</b> が成り立つ（<code>step()</code> が操作のたびに <code>assertNegotiationInvariants</code> を呼ぶ）</li>
+    <li>pending 中かどうかに関係なく、どの signaling state でも検査する</li>
+  </ul></div>
+  <div class="card"><h4>性質 2：各 step の後</h4><ul>
+    <li>確定した session が<b>実際に通信できる</b></li>
+    <li>video の RTP（双方向）、DataChannel（双方向）、交渉済みの各 audio の RTP を実際に流して確認する</li>
+  </ul></div>
+  <div class="card"><h4>性質 3：拒否された操作</h4><ul>
+    <li>再利用契約で拒否される操作は、<b>状態を何も変えない</b>（原子性）</li>
+    <li>拒否の前後で、両 peer の snapshot が完全に一致することを確認する</li>
+  </ul></div>
+</div>
+
+<h4>1 seed の実行の流れ</h4>
+<p>試験の単位は seed です。1 つの seed から乱数列が決まり、その乱数列から操作列が決まります。<code>playSeed</code> は、まず video（VP8 + RTX、MID / abs-send-time の header extension）・audio（OPUS）・DataChannel を持つ接続済みの 2 peer（a と b）を作ります（<a class="ref" href="../packages/webrtc/tests/pbt/fuzz/episodes.ts" title="packages/webrtc/tests/pbt/fuzz/episodes.ts:37">fuzz/episodes.ts:37</a>）。RTX と header extension を入れているのは、ルーティングキー（RTX の SSRC、extmap の ID）を変える操作を選べるようにするためです。そのうえで次のループを <code>steps</code> 回（既定は 8 回）繰り返します。</p>
+<figure class="figure">
+<svg viewBox="0 0 960 470" width="100%" role="img" aria-label="property test で 1 seed を実行する流れ">
+  <g fill="none" stroke-width="2">
+    <path d="M150,62 L150,92" stroke="var(--ink-2)" marker-end="url(#aK)"/>
+    <path d="M150,62 C150,80 480,70 480,92" stroke="var(--ink-2)" marker-end="url(#aK)"/>
+    <path d="M150,62 C150,80 810,70 810,92" stroke="var(--ink-2)" marker-end="url(#aK)"/>
+    <path d="M150,140 L150,190" stroke="var(--blue)" marker-end="url(#aB)"/>
+    <path d="M480,140 L480,286" stroke="var(--violet)" stroke-dasharray="5 4" marker-end="url(#aK)"/>
+    <path d="M810,140 L810,286" stroke="var(--violet)" stroke-dasharray="5 4" marker-end="url(#aK)"/>
+    <path d="M150,252 L150,286" stroke="var(--blue)" marker-end="url(#aB)"/>
+    <path d="M232,310 L388,310" stroke="var(--blue)" marker-end="url(#aB)"/>
+    <path d="M572,310 L718,310" stroke="var(--blue)" marker-end="url(#aB)"/>
+    <path d="M480,334 L480,360" stroke="var(--green)" marker-end="url(#aG)"/>
+    <path d="M810,334 L810,360" stroke="var(--green)" marker-end="url(#aG)"/>
+    <path d="M150,334 L150,360" stroke="var(--green)" marker-end="url(#aG)"/>
+    <path d="M892,384 C950,384 950,164 240,164 L240,190" stroke="var(--ink-2)" stroke-dasharray="6 4" marker-end="url(#aK)"/>
+  </g>
+  <g>
+    <rect class="node" x="60" y="14" width="180" height="48" rx="10"/><text x="150" y="36" text-anchor="middle" font-weight="600">seed</text><text class="sub" x="150" y="53" text-anchor="middle">例: 19</text>
+    <rect class="node" x="40" y="94" width="220" height="46" rx="10" style="stroke:var(--blue)"/><text x="150" y="114" text-anchor="middle" font-weight="600">rng</text><text class="sub" x="150" y="131" text-anchor="middle">seededRandom(seed)</text>
+    <rect class="node" x="370" y="94" width="220" height="46" rx="10" style="stroke:var(--violet)"/><text x="480" y="114" text-anchor="middle" font-weight="600">poolRng</text><text class="sub" x="480" y="131" text-anchor="middle">seed × 7919 + 13</text>
+    <rect class="node" x="700" y="94" width="220" height="46" rx="10" style="stroke:var(--violet)"/><text x="810" y="114" text-anchor="middle" font-weight="600">rejectionRng</text><text class="sub" x="810" y="131" text-anchor="middle">seed × 104729 + 7</text>
+    <rect class="node" x="40" y="192" width="220" height="60" rx="10"/><text x="150" y="214" text-anchor="middle" font-weight="600">主操作を選ぶ</text><text class="sub" x="150" y="232" text-anchor="middle">70%: 交渉 episode</text><text class="sub" x="150" y="246" text-anchor="middle">30%: remote の routing key 変更</text>
+    <rect class="node" x="68" y="288" width="164" height="46" rx="10" style="stroke:var(--blue)"/><text x="150" y="316" text-anchor="middle" font-weight="600">主操作を実行</text>
+    <rect class="node" x="390" y="288" width="182" height="46" rx="10" style="stroke:var(--violet)"/><text x="480" y="308" text-anchor="middle" font-weight="600">50%: description pool</text><text class="sub" x="480" y="325" text-anchor="middle">保存した SDP の再利用</text>
+    <rect class="node" x="720" y="288" width="180" height="46" rx="10" style="stroke:var(--violet)"/><text x="810" y="308" text-anchor="middle" font-weight="600">30%: m-line の拒否</text><text class="sub" x="810" y="325" text-anchor="middle">相手が port 0 で拒否</text>
+    <rect class="node" x="68" y="362" width="164" height="44" rx="10" style="stroke:var(--green)"/><text x="150" y="389" text-anchor="middle">実通信を確認</text>
+    <rect class="node" x="398" y="362" width="164" height="44" rx="10" style="stroke:var(--green)"/><text x="480" y="389" text-anchor="middle">実通信を確認</text>
+    <rect class="node" x="728" y="362" width="164" height="44" rx="10" style="stroke:var(--green)"/><text x="810" y="389" text-anchor="middle">実通信を確認</text>
+  </g>
+  <g font-size="12">
+    <text x="272" y="184" class="sub">次の step へ（steps 回くり返す）</text>
+    <text x="270" y="276" class="sub">poolRng で</text><text x="270" y="291" class="sub">実行するか判定</text>
+    <text x="596" y="276" class="sub">rejectionRng で</text><text x="596" y="291" class="sub">実行するか判定</text>
+    <text x="40" y="440">各操作の後に両 peer の invariant を検査（<tspan font-weight="600">step()</tspan>）。どこかで失敗すると、seed と操作の記録（log）を付けて例外を投げる。</text>
+    <text x="40" y="460" class="sub">紫の 2 系統は、回帰 seed の再生（pool = false）では実行しない。</text>
+  </g>
+</svg>
+<figcaption>1 step = 主操作 1 回（＋ 確率で pool と拒否）。どの操作の後にも実通信を確認するので、「交渉は成功したのに RTP が止まった」という失敗も見逃しません（<a class="ref" href="../packages/webrtc/tests/pbt/fuzz/negotiationTransactionProperty.test.ts" title="packages/webrtc/tests/pbt/fuzz/negotiationTransactionProperty.test.ts:61">fuzz/negotiationTransactionProperty.test.ts:61</a>）。</figcaption>
+</figure>
+<p><b>乱数を 3 系統に分けている理由</b>：description pool と m-line の拒否は、主操作より後から追加した episode です。同じ乱数列から引くと、追加した時点で既存の seed の主操作の乱数がずれます。そうなると、過去に欠陥を見つけた seed が同じ操作を再生しなくなります。系統を分けておけば、主操作が使う乱数列は episode を足しても変わりません。さらに回帰 seed は <code>pool = false</code> で再生するので、欠陥を見つけたときの主操作だけの操作列をそのまま再現します。</p>
+
+<h4>4 種類の episode</h4>
+<p>どの episode も、最後には両 peer が stable に戻ります（rollback か answer で終える）。そのため、続けて実通信を確認できます。</p>
+<table>
+  <thead><tr><th style="width:17%">episode</th><th>乱数で選ぶもの</th><th style="width:30%">特に確認すること</th></tr></thead>
+  <tbody>
+    <tr><td>交渉 episode<br><a class="ref" href="../packages/webrtc/tests/pbt/fuzz/episodes.ts" title="packages/webrtc/tests/pbt/fuzz/episodes.ts:105">fuzz/episodes.ts:105</a></td><td>offerer（a / b）、offer の種類（下図の variant）、終わり方（下図の finish）、EOC を送るか（30%）</td><td>offer / pranswer / answer / rollback / replacement のすべての経路で invariant が成り立つ。ICE restart では、answer を保存 → 作り直し → 未適用の restart offer を作成 → 保存した answer を適用する。こうしても、同じ remote offer への answer が適用できる</td></tr>
+    <tr><td>remote の routing key 変更<br><a class="ref" href="../packages/webrtc/tests/pbt/fuzz/episodes.ts" title="packages/webrtc/tests/pbt/fuzz/episodes.ts:225">fuzz/episodes.ts:225</a></td><td>RTX の SSRC の付け替え / abs-send-time を新しい extmap ID へ移動 / 同じ extmap ID を別 URI に再割り当て</td><td>前の 2 つは pending のまま現在の RTP と DataChannel が双方向に流れることを確認し、その後 rollback する。ID の再割り当ては <code>InvalidModificationError</code> で拒否され、signaling state と current SDP が変わらない</td></tr>
+    <tr><td>description pool<br><a class="ref" href="../packages/webrtc/tests/pbt/fuzz/episodes.ts" title="packages/webrtc/tests/pbt/fuzz/episodes.ts:369">fuzz/episodes.ts:369</a></td><td>offerer、ICE restart（50%）、後から別の offer を作って古い方を適用（50%）、rollback して同じ offer を再適用（40%）、answer の作り直しと未適用の offer（50%、順序も 50%）、pranswer を先に適用（30%）</td><td>生成済み description の再利用契約（10 章）。古い offer の適用は拒否され、状態は何も変わらない（性質 3）。保存した answer は、作り直しや未適用の offer の後でも適用できる</td></tr>
+    <tr><td>m-line の拒否<br><a class="ref" href="../packages/webrtc/tests/pbt/fuzz/episodes.ts" title="packages/webrtc/tests/pbt/fuzz/episodes.ts:289">fuzz/episodes.ts:289</a></td><td>offerer、拒否する場所（offer / answer）、種類（application / 新しく足した video / 交渉済みの audio）</td><td>port 0 と BUNDLE から外す拒否の後も invariant が成り立ち、残りの経路で通信を続けられる。後の episode でも交渉を続けられる（application は develop と同じく同じ MID で再提案する。11 章）</td></tr>
+  </tbody>
+</table>
+
+<h4>交渉 episode の分岐</h4>
+<p>主操作の 70% を占める交渉 episode は、次の 4 つの選択を組み合わせた手順です。選べる variant は session の状態で変わります。audio を 2 本足した後は <code>addAudio</code> を選ばず、交渉済みの audio があるときだけ BUNDLE の分割・統合を選びます。</p>
+<figure class="figure">
+<svg viewBox="0 0 960 340" width="100%" role="img" aria-label="交渉 episode の分岐（offerer、variant、EOC、finish）">
+  <g fill="none" stroke-width="2">
+    <path d="M168,170 L208,170" stroke="var(--ink-2)" marker-end="url(#aK)"/>
+    <path d="M412,170 L452,170" stroke="var(--ink-2)" marker-end="url(#aK)"/>
+    <path d="M612,170 L652,170" stroke="var(--ink-2)" marker-end="url(#aK)"/>
+  </g>
+  <g>
+    <rect class="node" x="20" y="120" width="148" height="100" rx="10"/><text x="94" y="146" text-anchor="middle" font-weight="600">offerer</text><text class="sub" x="94" y="172" text-anchor="middle">a または b</text><text class="sub" x="94" y="190" text-anchor="middle">（50% ずつ）</text>
+    <rect class="node" x="210" y="30" width="202" height="280" rx="10" style="stroke:var(--blue)"/><text x="311" y="56" text-anchor="middle" font-weight="600">variant（offer の種類）</text>
+    <text x="226" y="90">plain</text><text class="sub" x="226" y="106">そのままの再 offer</text>
+    <text x="226" y="134">iceRestart</text><text class="sub" x="226" y="150">新しい ufrag / pwd</text>
+    <text x="226" y="178">addAudio</text><text class="sub" x="226" y="194">audio 2 本未満のとき</text>
+    <text x="226" y="222">splitAudio</text><text class="sub" x="226" y="238">audio を BUNDLE から外す</text>
+    <text x="226" y="266">mergeAudio</text><text class="sub" x="226" y="282">BUNDLE の末尾に戻す</text>
+    <rect class="node" x="454" y="120" width="158" height="100" rx="10" style="stroke:var(--violet)"/><text x="533" y="146" text-anchor="middle" font-weight="600">EOC</text><text class="sub" x="533" y="172" text-anchor="middle">30%: answerer に</text><text class="sub" x="533" y="190" text-anchor="middle">remote の EOC を追加</text>
+    <rect class="node" x="654" y="30" width="286" height="280" rx="10" style="stroke:var(--green)"/><text x="797" y="56" text-anchor="middle" font-weight="600">finish（終わり方）</text>
+    <text x="670" y="90">answer</text><text class="sub" x="670" y="106">offer → answer で確定</text>
+    <text x="670" y="134">pranswerAnswer</text><text class="sub" x="670" y="150">pranswer を挟んで確定</text>
+    <text x="670" y="178">pranswerRollback</text><text class="sub" x="670" y="194">pranswer の後に両側で rollback</text>
+    <text x="670" y="222">rollback</text><text class="sub" x="670" y="238">remote offer を受けた後に rollback</text>
+    <text x="670" y="266">replacementAnswer</text><text class="sub" x="670" y="282">offer を作り直して置き換え、確定</text>
+  </g>
+</svg>
+<figcaption>確定で終わると、ICE restart なら新しい generation の nomination を、BUNDLE の分割なら新しい transport の DTLS 確立を待ちます。そのうえで実通信を確認します。rollback で終わる場合は、current のまま通信が続くことを確認します。</figcaption>
+</figure>
+
+<h4>2 段の検査：各操作の後と各 step の後</h4>
+<p>検査は粒度の違う 2 段で行います。invariant は「状態の辻褄」を、実通信は「利用者から見た結果」を見ます。どちらか一方では見逃す欠陥があります。たとえば、invariant を満たしていても、まだ表にない理由で RTP が止まることがあります。逆に、通信は続いていても、pending の値が live に漏れていることがあります。</p>
+<figure class="figure">
+<svg viewBox="0 0 960 230" width="100%" role="img" aria-label="1 つの episode の中での invariant 検査と実通信の確認のタイミング">
+  <g fill="none" stroke-width="2"><path d="M30,80 L930,80" stroke="var(--line)"/></g>
+  <g>
+    <rect class="node" x="30" y="58" width="130" height="44" rx="8"/><text x="95" y="85" text-anchor="middle" font-size="12.5">a: SLD(offer)</text>
+    <rect class="node" x="190" y="58" width="130" height="44" rx="8"/><text x="255" y="85" text-anchor="middle" font-size="12.5">b: SRD(offer)</text>
+    <rect class="node" x="350" y="58" width="140" height="44" rx="8"/><text x="420" y="85" text-anchor="middle" font-size="12.5">b: SLD(pranswer)</text>
+    <rect class="node" x="520" y="58" width="140" height="44" rx="8"/><text x="590" y="85" text-anchor="middle" font-size="12.5">a: SRD(pranswer)</text>
+    <rect class="node" x="690" y="58" width="110" height="44" rx="8"/><text x="745" y="85" text-anchor="middle" font-size="12.5">… answer</text>
+    <rect class="node" x="826" y="52" width="104" height="56" rx="8" style="stroke:var(--green)"/><text x="878" y="76" text-anchor="middle" font-size="12.5" font-weight="600">実通信</text><text class="sub" x="878" y="94" text-anchor="middle">RTP・DC</text>
+  </g>
+  <g font-size="12" fill="var(--blue)">
+    <text x="95" y="128" text-anchor="middle" style="fill:var(--blue)">▲ inv(a, b)</text>
+    <text x="255" y="128" text-anchor="middle" style="fill:var(--blue)">▲ inv(a, b)</text>
+    <text x="420" y="128" text-anchor="middle" style="fill:var(--blue)">▲ inv(a, b)</text>
+    <text x="590" y="128" text-anchor="middle" style="fill:var(--blue)">▲ inv(a, b)</text>
+    <text x="745" y="128" text-anchor="middle" style="fill:var(--blue)">▲ inv(a, b)</text>
+  </g>
+  <g font-size="12.5">
+    <text x="30" y="30" font-weight="600">1 つの交渉 episode（pranswerAnswer の例）</text>
+    <text x="30" y="170"><tspan font-weight="600" style="fill:var(--blue)">inv</tspan>：<tspan font-family="ui-monospace, monospace">assertNegotiationInvariants</tspan>。SDP と live 状態の一致（router・BUNDLE・ICE generation・DTLS・SCTP・有効値・孤立 transport）</text>
+    <text x="30" y="194"><tspan font-weight="600" style="fill:var(--green)">実通信</tspan>：video の RTP（a→b、b→a）、DataChannel（a→b、b→a）、交渉済みの各 audio の RTP を実際に送って受信を待つ</text>
+    <text x="30" y="218" class="sub">remote の routing key 変更では、pending のまま（rollback の前に）実通信も確認する。</text>
+  </g>
+</svg>
+<figcaption>invariant の検査は試験専用の観測で、公開 API は増やしていません（<a class="ref" href="../packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts" title="packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:628">negotiationTransactionUtils.ts:628</a>、<a class="ref" href="../packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts" title="packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:1189">negotiationTransactionUtils.ts:1189</a>、<a class="ref" href="../packages/webrtc/tests/pbt/fuzz/episodes.ts" title="packages/webrtc/tests/pbt/fuzz/episodes.ts:71">fuzz/episodes.ts:71</a>）。</figcaption>
+</figure>
+<table>
+  <thead><tr><th style="width:22%">invariant の検査</th><th>確かめる内容</th></tr></thead>
+  <tbody>
+    <tr><td>description と transport</td><td>各 m-line の transport・BUNDLE の共有・ICE 資格情報が current SDP と一致する。current の local SDP が拒否した m-line には route がない</td></tr>
+    <tr><td>ルーティング表</td><td>SSRC・RTX の対・MID+RID・extmap ID が current SDP どおりに解決される。pending の提案はキーを追加するだけで、衝突するキーは commit まで stage に置く。stable では staged route が残らない</td></tr>
+    <tr><td>router と sender</td><td>router は peer に残る sender / receiver だけを参照する。停止していない sender は、交渉状態によらず自分の SSRC で RTCP を受け取れる</td></tr>
+    <tr><td>ICE generation</td><td>資格情報・候補・EOC・checklist・選択 pair が、その generation の description と一致する</td></tr>
+    <tr><td>DTLS / SCTP</td><td>接続済みの DTLS の role は current answer の <code>a=setup</code> と、fingerprint は current の local SDP と一致する。SCTP は current の application m-line（MID と m-line index）に束縛される</td></tr>
+    <tr><td>有効値</td><td>pending 中に live な値（direction、送信 codec など）が、有効値の表（3.3 節）の規則どおりである。規則は <code>expectedLive</code> にある。送信するのは currentDirection が送信を含むときだけ</td></tr>
+    <tr><td>孤立 transport</td><td>どの description にも属さない transport が残っていない</td></tr>
+  </tbody>
+</table>
+
+<h4>拒否された操作の原子性</h4>
+<p>description pool は、古い offer のように再利用契約で拒否される操作も混ぜます。拒否そのものは正しい動作です。ただし、拒否の途中で何かを書き換えていたら欠陥です。そこで <code>expectRejectedAtomically</code> は、拒否の前後で両 peer の snapshot を取り、完全一致を要求します（<a class="ref" href="../packages/webrtc/tests/pbt/fuzz/episodes.ts" title="packages/webrtc/tests/pbt/fuzz/episodes.ts:349">fuzz/episodes.ts:349</a>）。</p>
+<figure class="figure">
+<svg viewBox="0 0 960 220" width="100%" role="img" aria-label="拒否された操作の前後で snapshot が一致することを確認する流れ">
+  <g fill="none" stroke-width="2">
+    <path d="M250,70 L330,70" stroke="var(--ink-2)" marker-end="url(#aK)"/>
+    <path d="M590,70 L670,70" stroke="var(--orange)" marker-end="url(#aO)"/>
+    <path d="M140,100 C140,160 800,160 800,104" stroke="var(--green)" stroke-dasharray="6 4" marker-end="url(#aG)"/>
+  </g>
+  <g>
+    <rect class="node" x="30" y="40" width="220" height="60" rx="10"/><text x="140" y="64" text-anchor="middle" font-weight="600">snapshot（前）</text><text class="sub" x="140" y="84" text-anchor="middle">a と b の両方</text>
+    <rect class="node" x="332" y="40" width="258" height="60" rx="10" style="stroke:var(--orange)"/><text x="461" y="64" text-anchor="middle" font-weight="600">拒否される操作</text><text class="sub" x="461" y="84" text-anchor="middle">例: 古い offer の SLD → reject</text>
+    <rect class="node" x="672" y="40" width="258" height="60" rx="10"/><text x="801" y="64" text-anchor="middle" font-weight="600">snapshot（後）</text><text class="sub" x="801" y="84" text-anchor="middle">＋ 両 peer の invariant</text>
+  </g>
+  <g font-size="12.5">
+    <text x="470" y="176" text-anchor="middle" style="fill:var(--green)" font-weight="600">完全一致（toEqual）</text>
+    <text x="30" y="208" class="sub">snapshot：signaling state、current / pending の local・remote SDP、各 ICE transport の ufrag と staged restart、transceiver の MID と m-line index、SSRC / RID の表</text>
+  </g>
+</svg>
+<figcaption>snapshot の定義は <a class="ref" href="../packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts" title="packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:2526">negotiationTransactionUtils.ts:2526</a> です。SSRC / RID の表は、オブジェクトの同一性ではなく「peer の何番目の sender / receiver を指すか」で比べます。</figcaption>
+</figure>
+
+<h4>再現と、CI で回る seed</h4>
+<p>乱数は mulberry32 です（<a class="ref" href="../packages/webrtc/tests/pbt/shared/random.ts" title="packages/webrtc/tests/pbt/shared/random.ts:6">shared/random.ts:6</a>）。同じ seed からは同じ乱数列が出るので、操作の選択も同じになります。ただし、ICE や DTLS が終わるタイミングは実際のソケットの通信に依存します。そのため、タイミングに依存する欠陥は、同じ seed でも毎回は再現しないことがあります。失敗すると、seed と、それまでに選んだ操作の記録を付けた例外を投げます（元の例外は <code>cause</code> に残します）。出力の形式は次のとおりです（内容は例です）。</p>
+<pre class="figure"><code>AssertionError: expected 'checking' to be 'connected'
+seed 19 operations:
+  episode a iceRestart pranswerAnswer
+  pool b iceRestart
+    stale offer refused
+    pranswer first
+  rejection a video in answer
+  mutation b extmapMove</code></pre>
+<table>
+  <thead><tr><th style="width:24%">環境変数</th><th style="width:12%">既定値</th><th>意味</th></tr></thead>
+  <tbody>
+    <tr><td><code>WERIFT_NEGOTIATION_FUZZ_SEEDS</code></td><td>6</td><td>試す seed の数</td></tr>
+    <tr><td><code>WERIFT_NEGOTIATION_FUZZ_STEPS</code></td><td>8</td><td>1 seed あたりの step 数</td></tr>
+    <tr><td><code>WERIFT_NEGOTIATION_FUZZ_SEED</code></td><td>1</td><td>最初の seed。失敗した seed の再生に使う。指定すると回帰 seed は実行しない</td></tr>
+  </tbody>
+</table>
+<p>CI で既定値のまま回るのは次の 12 件です。</p>
+<table>
+  <thead><tr><th style="width:24%">種類</th><th style="width:22%">seed</th><th>実行方法</th></tr></thead>
+  <tbody>
+    <tr><td>固定 seed</td><td>1〜6</td><td>8 step。pool と拒否の episode も実行する</td></tr>
+    <tr><td>回帰 seed</td><td>17、19、28（3、4、6 は固定 seed と重複するので除く）</td><td>8 step。pool なしで、欠陥を見つけたときの操作列を再生する</td></tr>
+    <tr><td>長い回帰 seed</td><td>254、302、1385</td><td>20 step。pool なし</td></tr>
+  </tbody>
+</table>
+<p>回帰 seed は、この変更で直した欠陥を実際に見つけた seed です（<a class="ref" href="../packages/webrtc/tests/pbt/fuzz/negotiationTransactionProperty.test.ts" title="packages/webrtc/tests/pbt/fuzz/negotiationTransactionProperty.test.ts:39">fuzz/negotiationTransactionProperty.test.ts:39</a>）。</p>
+<table>
+  <thead><tr><th style="width:12%">seed</th><th>見つかった欠陥</th></tr></thead>
+  <tbody>
+    <tr><td>3</td><td>古い ufrag の connectivity check が、live の候補を付け替えた</td></tr>
+    <tr><td>6</td><td>pranswer で、ICE restart の資格情報を作り直した</td></tr>
+    <tr><td>17</td><td>fallback の DTLS role が、BUNDLE を分割した transport の owner を上書きした</td></tr>
+    <tr><td>19</td><td>古い check が、破棄済みの pair を選択した</td></tr>
+    <tr><td>28</td><td>まだ回答のない transceiver に answer が direction を与えた。未適用の <code>createOffer()</code> が MID を割り当てた</td></tr>
+    <tr><td>254、302</td><td>未適用の offer を繰り返すと、古い m-line index が残った（20 step）</td></tr>
+    <tr><td>1385</td><td>ICE restart の後に srflx 候補が落ちた（20 step）</td></tr>
+  </tbody>
+</table>
+<p class="caption">seed 4 は試験のコメントに欠陥の記載がありません。固定 seed 1〜6 にも含まれるため、CI では pool ありで実行されます。</p>
+<p><b>深い探索</b>：交渉の変更でレビューを依頼する前に、<code>WERIFT_NEGOTIATION_FUZZ_SEEDS=300 WERIFT_NEGOTIATION_FUZZ_STEPS=20</code> で 300 seed × 20 step を回します（<code>packages/webrtc/AGENTS.md</code> の手順）。結果は 17 章にあります。新しい欠陥を見つけたら、その seed を回帰 seed に加えます。</p>
+<p><b>この試験が扱わないもの</b>：相手は常に werift で、SDP の多様性は上の変異と拒否に限られます。設定（<code>bundlePolicy</code>・<code>rtcpMuxPolicy</code>・relay-only）、アプリの操作（stop・replaceTrack・<code>setCodecPreferences</code> など）、close のタイミングは扱いません。これらは、表の他の仕組み（相手の SDP の変異、close のタイミング、develop 差分ファズ）で探索します。</p>
+
+<!-- ============================================================ -->
+<h2 id="modules">14. モジュール構成</h2>
+<p><code>peerConnection.ts</code>（分割前は 3,514 行）を責務ごとに分割しました。<code>src/negotiation/</code> には交渉用の内部モジュール、<code>src/api/</code> には <code>peerConnection.ts</code> から re-export している公開型を置いています。公開 API の実行時の値は変えていません。</p>
+<table>
+  <thead><tr><th>ファイル</th><th>責務</th><th class="num">行数</th></tr></thead>
+  <tbody>
+    <tr><td><a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts">peerConnection.ts</a></td><td>公開 API と、各 description 操作の手順の組み立て</td><td class="num">2,015</td></tr>
+    <tr><td><a class="ref" href="../packages/webrtc/src/negotiationTransaction.ts" title="packages/webrtc/src/negotiationTransaction.ts">negotiationTransaction.ts</a></td><td>transaction coordinator（baseline / checkpoint / commit / rollback）</td><td class="num">509</td></tr>
+    <tr><td><a class="ref" href="../packages/webrtc/src/negotiation/remoteMediaApplication.ts" title="packages/webrtc/src/negotiation/remoteMediaApplication.ts">remoteMediaApplication.ts</a></td><td>remote m-line の適用（4 段階）と codec 計画</td><td class="num">524</td></tr>
+    <tr><td><a class="ref" href="../packages/webrtc/src/negotiation/remoteCandidates.ts" title="packages/webrtc/src/negotiation/remoteCandidates.ts">remoteCandidates.ts</a></td><td>trickle ICE、EOC の振り分け、SRD 前の候補キュー</td><td class="num">381</td></tr>
+    <tr><td><a class="ref" href="../packages/webrtc/src/negotiation/bundleTopology.ts" title="packages/webrtc/src/negotiation/bundleTopology.ts">bundleTopology.ts</a></td><td>全 BUNDLE group の tag、staged topology、共有 transport の検証</td><td class="num">397</td></tr>
+    <tr><td><a class="ref" href="../packages/webrtc/src/negotiation/descriptionValidation.ts" title="packages/webrtc/src/negotiation/descriptionValidation.ts">descriptionValidation.ts</a></td><td>状態を変える前の local / remote description の検証</td><td class="num">329</td></tr>
+    <tr><td><a class="ref" href="../packages/webrtc/src/negotiation/transportActivation.ts" title="packages/webrtc/src/negotiation/transportActivation.ts">transportActivation.ts</a></td><td>live / provisional transport の接続（remote パラメータを受けたものだけ、checks は generation ごとに一度）、staged パラメータの有効化、後から載った SCTP の開始</td><td class="num">374</td></tr>
+    <tr><td><a class="ref" href="../packages/webrtc/src/negotiation/negotiationNeeded.ts" title="packages/webrtc/src/negotiation/negotiationNeeded.ts">negotiationNeeded.ts</a></td><td><code>negotiationneeded</code> の予約（同じ tick は 1 回）と変更の通し番号</td><td class="num">94</td></tr>
+    <tr><td><a class="ref" href="../packages/webrtc/src/negotiation/iceRestartRequest.ts" title="packages/webrtc/src/negotiation/iceRestartRequest.ts">iceRestartRequest.ts</a></td><td><code>restartIce()</code> の要求の保持と解除</td><td class="num">49</td></tr>
+    <tr><td><a class="ref" href="../packages/webrtc/src/api/peerConfig.ts" title="packages/webrtc/src/api/peerConfig.ts">peerConfig.ts</a></td><td>設定の型・既定値・正規化、<code>setConfiguration</code> の検証とマージ（純粋関数）</td><td class="num">474</td></tr>
+    <tr><td><a class="ref" href="../packages/webrtc/src/api/peerConnectionEvents.ts" title="packages/webrtc/src/api/peerConnectionEvents.ts">peerConnectionEvents.ts</a></td><td><code>RTCTrackEvent</code> などのイベント型</td><td class="num">53</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="why">15. 判断理由</h2>
+<div class="cards">
+  <div class="card"><h4>stage → commit を選んだ</h4>live に書いて rollback で戻す方式では、rollback した後の状態しか守れません。キーの種類ごとに「追加は即時、変更は拒否か staged」と決めたことで、反例を 1 件ずつではなく種類ごとに閉じました。develop の codec 統合も同じ規則に合わせています。</div>
+  <div class="card"><h4>拒否か staged かの基準</h4>RFC と Chrome の実際の挙動に合わせました。extmap ID の再割当ては拒否します（RFC 8285 §7。Chrome も拒否）。SSRC の移動と RTX の付け替えは staged にします（Chrome は受理する）。</div>
+  <div class="card"><h4>snapshot を持ち主に置いた</h4>transaction が他のオブジェクトのプロパティを列挙すると、状態を追加するたびに漏れが生じます。実際、develop の codec 統合ではこの箇所の修正が必要になりました。</div>
+  <div class="card"><h4>機械的に検出する</h4>各操作の後に、current SDP と live 状態が一致するかを検査します（<a class="ref" href="../packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts" title="packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:628">negotiationTransactionUtils.ts:628</a>、ルーティング表は <a class="ref" href="../packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts" title="packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:698">negotiationTransactionUtils.ts:698</a>）。ランダムな操作列の生成は <a class="ref" href="../packages/webrtc/tests/pbt/fuzz/episodes.ts" title="packages/webrtc/tests/pbt/fuzz/episodes.ts:105">fuzz/episodes.ts:105</a> です。</div>
+  <div class="card"><h4>develop との差を増やさない</h4>develop と挙動を変える規則を棚卸しし、核の不変条件・W3C・RFC に必須でないものは develop に戻しました（9.4）。新しい差は、develop で失敗していた操作を成功させるものか、継続確認（11 章）を通るものに限ります。</div>
+  <div class="card"><h4>レビュアーと同じ軸で探す</h4>手で選んだ一覧だけでは、その外側に退行が残ります。設定・タイミング・アプリの操作・相手の SDP の軸を develop 差分ファズに入れ、未決着・<code>failed</code>・transceiver の状態の差を常に検査します（13 章）。</div>
+  <div class="card"><h4>完了条件を有限にした</h4>遷移表・mutation matrix・操作カタログに載っていない新しい組み合わせは、後続チケットで扱います（設計文書の Scope 章、チケットの 6 章）。</div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="risk">16. リスク・既知の制約</h2>
+<table>
+  <thead><tr><th>項目</th><th>内容</th></tr></thead>
+  <tbody>
+    <tr><td><span class="status warn">相互運用</span></td><td>確認したのは Chrome だけです。Firefox と Safari は対象外です。</td></tr>
+    <tr><td><span class="status warn">extmap の対応表</span></td><td>PeerConnection 全体で 1 つです。BUNDLE しない別の transport で同じ ID を別の URI に使う構成には対応していません。</td></tr>
+    <tr><td><span class="status warn">ICE restart の commit</span></td><td>旧 pair を手放すため、新しい generation が nominate するまで RTP が途切れます。RFC 8445 / 8839 と Chrome は新しい pair が選ばれるまで旧 pair で送り続けるので、それより弱い動作です。develop と Pion よりは途切れる時間が短くなっています（<a href="#restart-gap">7.4 の比較</a>）。</td></tr>
+    <tr><td><span class="status warn">拒否された application</span></td><td>application m-line を拒否しても SCTP transport と DataChannel は閉じません（develop と同じ。W3C は <code>sctpTransport</code> を null にします）。次の offer は同じ MID で application を再提案します。develop の werift が返す、port 0 の application への port 9（<code>a=sctp-port</code> なし）の answer は拒否します（状態は変えません）。</td></tr>
+    <tr><td><span class="status warn">close に追い越された操作</span></td><td>Promise は <code>InvalidStateError</code> で決着します。W3C は永久に pending にします（該当する WPT 2 件は、もともと FAIL で allowlist の外です）。</td></tr>
+    <tr><td><span class="status warn">develop との意図した差</span></td><td>未適用の <code>createOffer()</code> は MID を関連付けません。pending の remote offer は current の送信 codec を変えず、rollback で戻します（develop はこの漏れのおかげで、offer にない codec を含む相手の古い answer を後から適用しても通信できる場合があります）。差分ファズはこれらを意図した差として数えます（9.4）。</td></tr>
+    <tr><td><span class="status warn">公開される型</span></td><td>snapshot 用の型（<code>TransceiverNegotiationState</code> など 4 つ）は、<code>media/index.ts</code> の <code>export *</code> 経由で型として公開されます。内部用のフィールドとメソッド（<code>RTCDtlsTransport.iceRoleAtStart</code> / <code>hasRemoteParameters</code>、ICE の <code>Connection.dropOtherRemoteGenerations</code>）は doc に載りますが、公開 API として案内していません。</td></tr>
+    <tr><td><span class="status warn">WPT の残件</span></td><td>runner 判定は REGRESSION 0 ですが、upstream WPT の FAIL と TIMEOUT はまだ多く残っています。件数は実行時の負荷で変わります。</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="verify">17. 検証結果</h2>
+<table>
+  <thead><tr><th>検証</th><th>結果</th></tr></thead>
+  <tbody>
+    <tr><td>workspace の <code>npm run type</code> / <code>npm run test:small</code></td><td><span class="status ok">全パッケージ成功（ice 208 passed、webrtc 1031 passed / 3 skipped）</span></td></tr>
+    <tr><td>深い property 探索（300 seed × 20 step）</td><td><span class="status ok">303 / 303 passed</span></td></tr>
+    <tr><td>変異の全ペア</td><td><span class="status ok">2106 / 2106 passed</span></td></tr>
+    <tr><td>Chrome E2E</td><td><span class="status ok">46 / 46 passed</span></td></tr>
+    <tr><td>WPT（allowlist）</td><td><span class="status ok">REGRESSION 0（PASS 442）</span></td></tr>
+    <tr><td>develop 差分ファズ（60 seed × 12 step、変異なし）</td><td><span class="status ok">回帰・未決着・故障なしの failed・transceiver 状態の差がすべて 0 件</span></td></tr>
+    <tr><td>develop 差分ファズ（60 seed × 12 step、変異 0.3）</td><td><span class="status warn">1 件（意図した差。9.4 の送信 codec の行）</span></td></tr>
+  </tbody>
+</table>
+<p class="caption">最後の修正（<code>84734b92</code>）の時点で実行しました。WPT だけは 2 回前の修正（<code>65bd6ed9</code>）の時点です。</p>
+<p>主なテスト: 遷移マトリクス <a class="ref" href="../packages/webrtc/tests/negotiation/cases/negotiationTransactionMatrix.test.ts" title="packages/webrtc/tests/negotiation/cases/negotiationTransactionMatrix.test.ts">negotiationTransactionMatrix.test.ts</a>、ルーティングキー <a class="ref" href="../packages/webrtc/tests/negotiation/cases/negotiationTransactionRouting.test.ts" title="packages/webrtc/tests/negotiation/cases/negotiationTransactionRouting.test.ts">negotiationTransactionRouting.test.ts</a>、拒否の組み合わせ <code>negotiationTransactionApplicationRejection.test.ts</code>（TICKET 2.20 で削除）、有効値 <code>negotiationTransactionEffectiveValues.test.ts</code>（TICKET 2.20 で削除）、close のタイミング <a class="ref" href="../packages/webrtc/tests/negotiation/cases/negotiationTransactionCloseTiming.test.ts" title="packages/webrtc/tests/negotiation/cases/negotiationTransactionCloseTiming.test.ts">negotiationTransactionCloseTiming.test.ts</a>、レビュー指摘の再現を含む回帰テスト <a class="ref" href="../packages/webrtc/tests/negotiation/cases/negotiationTransactionRegression.test.ts" title="packages/webrtc/tests/negotiation/cases/negotiationTransactionRegression.test.ts">negotiationTransactionRegression.test.ts</a>、property test <a class="ref" href="../packages/webrtc/tests/pbt/fuzz/negotiationTransactionProperty.test.ts" title="packages/webrtc/tests/pbt/fuzz/negotiationTransactionProperty.test.ts:39">fuzz/negotiationTransactionProperty.test.ts:39</a>、ICE の EOC と mDNS の競合 <a class="ref" href="../packages/ice/tests/ice/end-of-candidates.test.ts" title="packages/ice/tests/ice/end-of-candidates.test.ts">end-of-candidates.test.ts</a></p>
+
+<!-- ============================================================ -->
+<h2 id="history">18. 指摘・依頼の対応履歴</h2>
+<p>各回とも、指摘された 1 件だけでなく同じ種類の経路をまとめて閉じ、回帰テストと invariant を追加しました。</p>
+<ul class="history">
+  <li><span class="sha">2da2bc5a</span><b>develop マージで 705 の挙動が 8 件退行</b> — 705 の挙動を transaction の中に復元（ICE candidate の MID、共通 codec の検証、古い pranswer の staged 値、BUNDLE の transport 分離、kind の一致、port 0、<code>mLineReuse</code>、<code>negotiationneeded</code> の重複）</li>
+  <li><span class="sha">0b2fa95b</span><b>provisional generation が EOC 後の候補を受け入れる</b> — EOC 後の候補を破棄し、解決中の mDNS 候補との競合に対応</li>
+  <li><span class="sha">d8e4c4cc</span><b>rollback で restart の要求が失われる / 複数 BUNDLE group / 遅延した provisional 応答</b> — 全 group への対応と revision の照合</li>
+  <li><span class="sha">233d566c</span><b>rollback 後に sender の RTCP 経路が消える / pending 中の <code>restartIce()</code></b> — sender 経路を維持し、pending の資格情報も記録</li>
+  <li><span class="sha">909c6991</span><b>同じ SSRC の再交渉後、PLI の判定が古いまま残る</b> — live な受信 codec で判定</li>
+  <li class="req"><span class="sha">69ff0059 / 922aa3bb</span><b>（依頼）<code>peerConnection.ts</code> の分割とディレクトリ整理</b> — 挙動を変えずに分割</li>
+  <li class="merge"><span class="sha">64f374a3 / d5cd6112</span><b>develop の codec 統合のマージと CI 対応</b> — codec の切り替えを commit 時に統一</li>
+  <li class="req"><span class="sha">98247860</span><b>（依頼）<code>negotiationTransaction.ts</code> のリファクタリング</b> — snapshot を各コンポーネントへ移し、提案の資源を集約（653 行 → 440 行）</li>
+  <li class="req"><span class="sha">73314962</span><b>ICE restart の commit 処理の名前とコメント</b> — answer のたびに呼ばれ、stage した transport だけが restart することを名前で表すようにした</li>
+  <li><span class="sha">74e50f9b / ebc6d797</span><b>develop との比較レビューで見つかった退行</b> — trickle、受信 codec、使用中の判定、close、#142、接続済み ICE の再 check を develop の挙動に戻した</li>
+  <li><span class="sha">0905b081 / 4e3f5e4f</span><b>背景の ICE 収集 / provisional check の規則</b> — 収集を generation に紐付け、provisional checklist に live と同じ規則を適用</li>
+  <li><span class="sha">78b25741 / b8270b09</span><b>BUNDLE の EOC、初回 pranswer の DTLS role、rollback 状態 / answer の codec</b> — 適用した SDP から codec を取る</li>
+  <li><span class="sha">dd85585d</span><b>生成済み description の再適用・後からの適用</b> — 生成記録と再利用契約（10 章）</li>
+  <li><span class="sha">5e9f5b00 / 85e1f01a</span><b>max-compat の BUNDLE、generation の寿命、ICE-lite / 提案の EOC、準備中の close</b> — BUNDLE を提案として扱い、提案の generation 単位で EOC</li>
+  <li><span class="sha">16016a77</span><b>pranswer の max-message-size、相手の多様性、割り込み、仕様の対応</b> — 有効値の表（3.3）、変異ライブラリ、割り込み試験、対応表</li>
+  <li><span class="sha">abd0c275</span><b>application を拒否した後の <code>createOffer()</code> が失敗（直前の修正の副作用）</b> — SCTP の close を撤回して develop に戻し、継続確認・kind × 属性の変異・拒否の property episode を追加（11 章）</li>
+  <li><span class="sha">9543d593</span><b>変異の全ペアの失敗</b> — renomination 経路の古い候補を落とす</li>
+  <li><span class="sha">2f51531a</span><b>relay-only の ICE restart で接続できない</b> — 自分の収集が終わるまで候補を待つ（7.5）</li>
+  <li><span class="sha">3da7c5a4</span><b>glare の <code>stable</code> 通知の中で close すると状態が残る</b> — await と通知の後に閉鎖を確認</li>
+  <li><span class="sha">65bd6ed9</span><b>8 回目: disable の pranswer で failed、close のタイミングで永久 pending、stop 後の rollback で transceiver が残る</b> — 操作の連鎖を 1 か所で実装し、未確認の 3 件も修正。差分ファズに探索の軸と検査を追加（12・13 章）</li>
+  <li><span class="sha">24d45a96</span><b>local pranswer の再適用で ICE checks が完了しない</b> — <code>connectPending()</code> も同じ generation の checks を再開始しない</li>
+  <li><span class="sha">84734b92</span><b>ICE-lite の相手が answer で資格情報を変え generation 1 を付けると接続できない</b> — pair の選択を checklist と ufrag の所属で判定（7.5）</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="readorder">19. おすすめの読み順</h2>
+<ol class="readorder">
+  <li>設計文書 <a class="ref" href="../packages/webrtc/NEGOTIATION_TRANSACTION.md" title="packages/webrtc/NEGOTIATION_TRANSACTION.md">NEGOTIATION_TRANSACTION.md</a> の遷移表と mutation matrix で、何を守るかを把握する</li>
+  <li><a class="ref" href="../packages/webrtc/src/negotiationTransaction.ts" title="packages/webrtc/src/negotiationTransaction.ts:87">negotiationTransaction.ts:87</a> で、begin / checkpoint / commit / rollback の流れを読む</li>
+  <li><a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:1488">peerConnection.ts:1488</a> と <a class="ref" href="../packages/webrtc/src/peerConnection.ts" title="packages/webrtc/src/peerConnection.ts:938">peerConnection.ts:938</a> で、適用の順序を追う（4 章）</li>
+  <li><a class="ref" href="../packages/webrtc/src/media/router.ts" title="packages/webrtc/src/media/router.ts:67">router.ts:67</a> と <a class="ref" href="../packages/webrtc/src/media/rtpReceiver.ts" title="packages/webrtc/src/media/rtpReceiver.ts:196">rtpReceiver.ts:196</a> で、staged 値の扱いを確認する（5 章）</li>
+  <li><code>src/negotiation/</code> の各モジュールを、関心のある順に読む（7・8 章）</li>
+  <li>設計文書の再利用契約・有効値の表・develop との挙動差（10 章、3.3、9.4）で、HEAD が develop と異なる理由を確認する</li>
+  <li>操作の連鎖（{A("packages/webrtc/src/peerConnection.ts",736)}）と接続の開始（{A("packages/webrtc/src/negotiation/transportActivation.ts",202)}）を読む（12 章）</li>
+  <li>ICE 層の provisional generation（<a class="ref" href="../packages/ice/src/ice.ts" title="packages/ice/src/ice.ts:398">ice.ts:398</a>）を確認する</li>
+  <li><a class="ref" href="../packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts" title="packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:628">negotiationTransactionUtils.ts:628</a> で、何が機械的に検査されているかを確認し、<a class="ref" href="../packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md" title="packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md">NEGOTIATION_SPEC_COVERAGE.md</a> でチケットの各文の試験を引く</li>
+</ol>
+</main>
+</div>
+<script>
+const churn = [{"path":"webrtc/src/peerConnection.ts","added":1162,"removed":1307},{"path":"ice/src/ice.ts","added":695,"removed":21},{"path":"webrtc/src/sdpManager.ts","added":461,"removed":94},{"path":"webrtc/src/negotiation/remoteMediaApplication.ts","added":524,"removed":0},{"path":"webrtc/src/negotiationTransaction.ts","added":509,"removed":0},{"path":"webrtc/src/transport/ice.ts","added":469,"removed":11},{"path":"webrtc/src/api/peerConfig.ts","added":474,"removed":0},{"path":"webrtc/src/negotiation/bundleTopology.ts","added":397,"removed":0},{"path":"webrtc/src/transceiverManager.ts","added":256,"removed":135},{"path":"webrtc/src/negotiation/remoteCandidates.ts","added":381,"removed":0},{"path":"webrtc/src/negotiation/transportActivation.ts","added":374,"removed":0},{"path":"webrtc/src/negotiation/descriptionValidation.ts","added":329,"removed":0},{"path":"webrtc/src/media/rtpReceiver.ts","added":253,"removed":28},{"path":"webrtc/src/media/router.ts","added":210,"removed":25},{"path":"webrtc/src/secureTransportManager.ts","added":153,"removed":42},{"path":"webrtc/src/media/rtpSender.ts","added":108,"removed":25},{"path":"webrtc/src/media/rtpTransceiver.ts","added":104,"removed":1},{"path":"webrtc/src/sctpManager.ts","added":99,"removed":2},{"path":"webrtc/src/negotiation/negotiationNeeded.ts","added":94,"removed":0},{"path":"webrtc/src/negotiation/internalState.ts","added":54,"removed":0},{"path":"webrtc/src/api/peerConnectionEvents.ts","added":53,"removed":0},{"path":"webrtc/src/negotiation/iceRestartRequest.ts","added":49,"removed":0},{"path":"ice/src/iceBase.ts","added":33,"removed":0},{"path":"webrtc/src/transport/dtls.ts","added":15,"removed":5},{"path":"webrtc/src/transport/sctp.ts","added":14,"removed":1},{"path":"webrtc/src/utils.ts","added":1,"removed":1}];
+const tip = document.getElementById("tip");
+const showTip = (e, html) => { tip.innerHTML = html; tip.style.display = "block"; tip.style.left = e.clientX + 14 + "px"; tip.style.top = e.clientY + 14 + "px"; };
+const hideTip = () => { tip.style.display = "none"; };
+(function drawChurn() {
+  const svg = document.getElementById("churn-svg");
+  const ns = "http://www.w3.org/2000/svg";
+  const rowH = 24, bar = 14, labelW = 330, half = 290, gap = 2, top = 8;
+  const width = labelW + half * 2 + 60, height = top + churn.length * rowH + 8;
+  const center = labelW + half + 30;
+  const max = Math.max(...churn.map((r) => Math.max(r.added, r.removed)));
+  const scale = (v) => (v / max) * (half - 10);
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("width", "100%");
+  const el = (tag, attrs, text) => { const n = document.createElementNS(ns, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); if (text != null) n.textContent = text; svg.appendChild(n); return n; };
+  // 0 の基準線（1 本だけ）
+  el("line", { x1: center, x2: center, y1: top - 4, y2: height - 4, stroke: "var(--line)" });
+  // データ端を 4px で丸め、基準線側は角を残すパス
+  const barPath = (x0, len, y, dir) => {
+    if (len <= 0) return "";
+    const r = Math.min(4, len);
+    const x1 = x0 + dir * len;
+    return dir > 0
+      ? `M${x0},${y}H${x1 - r}Q${x1},${y} ${x1},${y + r}V${y + bar - r}Q${x1},${y + bar} ${x1 - r},${y + bar}H${x0}Z`
+      : `M${x0},${y}H${x1 + r}Q${x1},${y} ${x1},${y + r}V${y + bar - r}Q${x1},${y + bar} ${x1 + r},${y + bar}H${x0}Z`;
+  };
+  churn.forEach((r, i) => {
+    const y = top + i * rowH + (rowH - bar) / 2;
+    const g = document.createElementNS(ns, "g");
+    svg.appendChild(g);
+    const add = (tag, attrs, text) => { const n = el(tag, attrs, text); g.appendChild(n); return n; };
+    add("rect", { x: 0, y: top + i * rowH, width, height: rowH, fill: "transparent" });
+    add("text", { x: labelW - 8, y: y + bar - 2, "text-anchor": "end", "font-size": 12, "font-family": "ui-monospace, monospace" }, r.path);
+    if (r.removed) add("path", { d: barPath(center - gap / 2, scale(r.removed), y, -1), fill: "var(--orange)" });
+    if (r.added) add("path", { d: barPath(center + gap / 2, scale(r.added), y, 1), fill: "var(--blue)" });
+    add("text", { x: center - scale(r.removed) - 6, y: y + bar - 2, "text-anchor": "end", "font-size": 11, class: "sub" }, r.removed ? "−" + r.removed.toLocaleString() : "");
+    add("text", { x: center + scale(r.added) + 6, y: y + bar - 2, "font-size": 11, class: "sub" }, r.added ? "+" + r.added.toLocaleString() : "");
+    g.addEventListener("mousemove", (e) => showTip(e, `<b>${r.path}</b><br>追加 +${r.added.toLocaleString()} / 削除 −${r.removed.toLocaleString()}`));
+    g.addEventListener("mouseleave", hideTip);
+  });
+  const tbody = document.querySelector("#churn-table tbody");
+  for (const r of churn) tbody.insertAdjacentHTML("beforeend", `<tr><td><code>${r.path}</code></td><td class="num">${r.added.toLocaleString()}</td><td class="num">${r.removed.toLocaleString()}</td></tr>`);
+})();
+// 目次の現在位置をハイライト
+const links = [...document.querySelectorAll("nav.toc a")];
+const observer = new IntersectionObserver((entries) => {
+  for (const entry of entries) if (entry.isIntersecting) {
+    links.forEach((a) => a.classList.toggle("active", a.getAttribute("href") === "#" + entry.target.id));
+  }
+}, { rootMargin: "0px 0px -70% 0px" });
+document.querySelectorAll("h2[id]").forEach((h) => observer.observe(h));
+</script>
+</body>
+</html>
