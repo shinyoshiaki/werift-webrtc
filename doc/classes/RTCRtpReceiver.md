@@ -75,6 +75,14 @@ compactNtp
 
 ***
 
+### learnedTrackSsrcs
+
+> `readonly` **learnedTrackSsrcs**: `Set`\<`number`\>
+
+SSRCs of `trackBySSRC` learned from RID packets rather than SDP.
+
+***
+
 ### onPacketLost
 
 > `readonly` **onPacketLost**: [`Event`](Event.md)\<\[[`GenericNack`](GenericNack.md)\]\>
@@ -203,6 +211,8 @@ seconds
 
 > **get** **pliEnabled**(): `undefined` \| [`RTCPFB`](../type-aliases/RTCPFB.md)
 
+`a=rtcp-fb:<pt> nack pli` (RFC 4585): a generic `nack` alone does not allow PLI.
+
 ##### Returns
 
 `undefined` \| [`RTCPFB`](../type-aliases/RTCPFB.md)
@@ -274,6 +284,31 @@ seconds
 #### Returns
 
 [`RTCStats`](../interfaces/RTCStats.md)[]
+
+***
+
+### commitStagedReceive()
+
+> **commitStagedReceive**(): `void`
+
+Internal: the transaction committed, staged payload types and RTX pairs apply.
+
+#### Returns
+
+`void`
+
+***
+
+### discardStagedReceive()
+
+> **discardStagedReceive**(): `void`
+
+Internal: drop values staged by an earlier remote pranswer. A later
+pranswer or the final answer replaces that proposal as a whole.
+
+#### Returns
+
+`void`
 
 ***
 
@@ -375,15 +410,193 @@ transceiver の停止確定時に remote track を ended にする
 
 ***
 
+### keepUnboundTracks()
+
+> **keepUnboundTracks**(`tracks`): `void`
+
+Internal: tracks a replaced remote offer gave this receiver stay its
+tracks; the SSRCs the replacing offer gives take them over.
+
+#### Parameters
+
+##### tracks
+
+[`MediaStreamTrack`](MediaStreamTrack.md)[]
+
+#### Returns
+
+`void`
+
+***
+
+### pliNegotiation()
+
+> **pliNegotiation**(`mediaSsrc`): `object`
+
+Internal: whether PLI is negotiated for `mediaSsrc`, and the payload type
+that decides it. PLI follows the negotiated receive codec of this SSRC:
+the live codec table (current while a proposal is pending, switched at
+commit and restored on rollback), not the codec its track was created with.
+
+#### Parameters
+
+##### mediaSsrc
+
+`number`
+
+#### Returns
+
+`object`
+
+##### allowed
+
+> **allowed**: `boolean`
+
+##### payloadType
+
+> **payloadType**: `undefined` \| `number`
+
+***
+
 ### prepareReceive()
 
-> **prepareReceive**(`params`): `void`
+> **prepareReceive**(`params`, `__namedParameters`): `void`
+
+Receive tables are keyed by payload type and RTX SSRC. With
+`deferConflicts` (a pending offer or pranswer), a new key applies at once
+so provisional RTP decodes, but a key the current session already uses
+with another value is staged: current RTP keeps its codec and RTX pairing
+until the transaction commits, and rollback drops the staged value.
 
 #### Parameters
 
 ##### params
 
 [`RTCRtpReceiveParameters`](../interfaces/RTCRtpReceiveParameters.md)
+
+##### \_\_namedParameters
+
+###### deferConflicts?
+
+`boolean` = `false`
+
+#### Returns
+
+`void`
+
+***
+
+### releaseProvisionalSsrc()
+
+> **releaseProvisionalSsrc**(`ssrc`): `void`
+
+Internal: a superseded pending description no longer routes `ssrc`.
+
+#### Parameters
+
+##### ssrc
+
+`number`
+
+#### Returns
+
+`void`
+
+***
+
+### restoreNegotiationState()
+
+> **restoreNegotiationState**(`state`): `void`
+
+Internal: return to a negotiation baseline taken by `snapshotNegotiationState`.
+
+#### Parameters
+
+##### state
+
+###### receiverTWCC
+
+`undefined` \| `ReceiverTWCC` = `...`
+
+###### receiveTables
+
+\{ `codecs`: \{\}; `ssrcByRtx`: \{\}; `stagedCodecs`: \{\}; `stagedSsrcByRtx`: \{\}; \} = `...`
+
+###### receiveTables.codecs
+
+\{\} = `...`
+
+###### receiveTables.ssrcByRtx
+
+\{\} = `...`
+
+###### receiveTables.stagedCodecs
+
+\{\} = `...`
+
+###### receiveTables.stagedSsrcByRtx
+
+\{\} = `...`
+
+###### remoteStreamId
+
+`undefined` \| `string` = `...`
+
+###### remoteStreamIds
+
+`string`[] = `...`
+
+###### remoteTrackId
+
+`undefined` \| `string` = `...`
+
+###### trackByRID
+
+\{\} = `...`
+
+###### trackBySSRC
+
+\{\} = `...`
+
+###### tracks
+
+[`MediaStreamTrack`](MediaStreamTrack.md)[] = `...`
+
+###### unboundTracks
+
+[`MediaStreamTrack`](MediaStreamTrack.md)[] = `...`
+
+#### Returns
+
+`void`
+
+***
+
+### restoreReceiveTables()
+
+> **restoreReceiveTables**(`snapshot`): `void`
+
+Internal: replace the decode tables with a rollback baseline.
+
+#### Parameters
+
+##### snapshot
+
+###### codecs
+
+\{\} = `...`
+
+###### ssrcByRtx
+
+\{\} = `...`
+
+###### stagedCodecs
+
+\{\} = `...`
+
+###### stagedSsrcByRtx
+
+\{\} = `...`
 
 #### Returns
 
@@ -395,13 +608,9 @@ transceiver の停止確定時に remote track を ended にする
 
 > **resyncCodecs**(`params`, `mediaSourceSsrc`?): `void`
 
-negotiated codec と receiver の実処理状態を再同期する。
-codec map と RTX mapping を置換し、既存 remote track の codec
-metadata も新しい先頭 codec に更新する。
-既存の receiverTWCC は破棄し、新しい codec が transport-cc を持ち
-remote SSRC が分かる場合だけ再生成する。
-setCodecPreferences() 後の createAnswer() 再解決や remote からの
-再交渉では、除外された payload type の RTP を受け付けないようにする。
+Replace receiver codec state after a negotiated codec preference change.
+Use only when the transaction commits; pending descriptions stage through
+prepareReceive() so the current decode path remains available.
 
 #### Parameters
 
@@ -463,7 +672,7 @@ setCodecPreferences() 後の createAnswer() 再解決や remote からの
 
 ### setupTWCC()
 
-> **setupTWCC**(`mediaSourceSsrc`): `void`
+> **setupTWCC**(`mediaSourceSsrc`, `negotiated`): `void`
 
 setup TWCC if supported
 
@@ -473,9 +682,147 @@ setup TWCC if supported
 
 `number`
 
+##### negotiated
+
+`boolean` = `...`
+
 #### Returns
 
 `void`
+
+***
+
+### snapshotNegotiationState()
+
+> **snapshotNegotiationState**(): `object`
+
+Internal: everything a negotiation may change on this receiver, for a
+rollback baseline. Packet-driven runtime (statistics, NACK, RTCP) is not
+part of it.
+
+#### Returns
+
+`object`
+
+##### receiverTWCC
+
+> **receiverTWCC**: `undefined` \| `ReceiverTWCC`
+
+##### receiveTables
+
+> **receiveTables**: `object`
+
+###### receiveTables.codecs
+
+> **codecs**: `object`
+
+###### Index Signature
+
+\[`key`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+###### receiveTables.ssrcByRtx
+
+> **ssrcByRtx**: `object`
+
+###### Index Signature
+
+\[`key`: `number`\]: `number`
+
+###### receiveTables.stagedCodecs
+
+> **stagedCodecs**: `object`
+
+###### Index Signature
+
+\[`key`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+###### receiveTables.stagedSsrcByRtx
+
+> **stagedSsrcByRtx**: `object`
+
+###### Index Signature
+
+\[`key`: `number`\]: `number`
+
+##### remoteStreamId
+
+> **remoteStreamId**: `undefined` \| `string`
+
+##### remoteStreamIds
+
+> **remoteStreamIds**: `string`[]
+
+##### remoteTrackId
+
+> **remoteTrackId**: `undefined` \| `string`
+
+##### trackByRID
+
+> **trackByRID**: `object`
+
+###### Index Signature
+
+\[`key`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
+
+##### trackBySSRC
+
+> **trackBySSRC**: `object`
+
+###### Index Signature
+
+\[`key`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
+
+##### tracks
+
+> **tracks**: [`MediaStreamTrack`](MediaStreamTrack.md)[]
+
+##### unboundTracks
+
+> **unboundTracks**: [`MediaStreamTrack`](MediaStreamTrack.md)[]
+
+***
+
+### snapshotReceiveTables()
+
+> **snapshotReceiveTables**(): `object`
+
+Internal: capture the decode tables for a negotiation rollback baseline.
+
+#### Returns
+
+`object`
+
+##### codecs
+
+> **codecs**: `object`
+
+###### Index Signature
+
+\[`key`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+##### ssrcByRtx
+
+> **ssrcByRtx**: `object`
+
+###### Index Signature
+
+\[`key`: `number`\]: `number`
+
+##### stagedCodecs
+
+> **stagedCodecs**: `object`
+
+###### Index Signature
+
+\[`key`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+##### stagedSsrcByRtx
+
+> **stagedSsrcByRtx**: `object`
+
+###### Index Signature
+
+\[`key`: `number`\]: `number`
 
 ***
 

@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { setTimeout } from "timers/promises";
 import { Event, int } from "../imports/common";
 
+import type { PeerConfig } from "../api/peerConfig";
 import {
   type Extensions,
   PictureLossIndication,
@@ -19,7 +20,7 @@ import {
   isPaddingOnlyRtpPacket,
   unwrapRtx,
 } from "../imports/rtp";
-import type { PeerConfig } from "../peerConnection";
+import type { ReceiverNegotiationState } from "../negotiation/internalState";
 import type { RTCDtlsTransport } from "../transport/dtls";
 import type { Kind } from "../types/domain";
 import { compactNtp, ntpTimeToEpochMs, timestampSeconds } from "../utils";
@@ -66,6 +67,10 @@ export class RTCRtpReceiver {
     );
   }
   private readonly ssrcByRtx: { [rtxSsrc: number]: number } = {};
+  private readonly stagedCodecs: { [pt: number]: RTCRtpCodecParameters } = {};
+  private readonly stagedSsrcByRtx: { [rtxSsrc: number]: number } = {};
+  /** SSRCs of `trackBySSRC` learned from RID packets rather than SDP. */
+  readonly learnedTrackSsrcs = new Set<number>();
   private readonly nack = new NackHandler(this);
   private readonly audioRedHandler = new RedHandler();
 
@@ -74,6 +79,12 @@ export class RTCRtpReceiver {
   readonly tracks: MediaStreamTrack[] = [];
   readonly trackBySSRC: { [ssrc: string]: MediaStreamTrack } = {};
   readonly trackByRID: { [rid: string]: MediaStreamTrack } = {};
+  /**
+   * Tracks whose SSRC a later pranswer / answer of the same offer replaced.
+   * The next SSRC a description gives this receiver takes one over, so the
+   * application keeps receiving on the same track object.
+   */
+  private unboundTracks: MediaStreamTrack[] = [];
   /**last sender Report Timestamp
    * compactNtp
    */
@@ -113,6 +124,8 @@ export class RTCRtpReceiver {
   private probePaddingCompactBySsrc: {
     [ssrc: number]: ProbePaddingCompactState;
   } = {};
+  /** Media payload type last received on each SSRC (RTX resolved to its media SSRC). */
+  private payloadTypeBySsrc: { [ssrc: number]: number } = {};
 
   constructor(
     readonly config: PeerConfig,
@@ -164,39 +177,155 @@ export class RTCRtpReceiver {
     );
   }
 
+  /** `a=rtcp-fb:<pt> nack pli` (RFC 4585): a generic `nack` alone does not allow PLI. */
   get pliEnabled() {
+    const pli = usePLI();
     return this.codecArray[0]?.rtcpFeedback.find(
-      (f) => f.type === usePLI().type,
+      (f) => f.type === pli.type && f.parameter === pli.parameter,
     );
   }
 
-  prepareReceive(params: RTCRtpReceiveParameters) {
+  /**
+   * Receive tables are keyed by payload type and RTX SSRC. With
+   * `deferConflicts` (a pending offer or pranswer), a new key applies at once
+   * so provisional RTP decodes, but a key the current session already uses
+   * with another value is staged: current RTP keeps its codec and RTX pairing
+   * until the transaction commits, and rollback drops the staged value.
+   */
+  prepareReceive(
+    params: RTCRtpReceiveParameters,
+    { deferConflicts = false }: { deferConflicts?: boolean } = {},
+  ) {
     params.codecs.forEach((c) => {
-      this.codecs[c.payloadType] = c;
+      const existing = this.codecs[c.payloadType];
+      if (deferConflicts && existing && !sameCodec(existing, c)) {
+        this.stagedCodecs[c.payloadType] = c;
+      } else {
+        // The latest description decides the key: an earlier staged value
+        // must not overwrite it at the commit.
+        delete this.stagedCodecs[c.payloadType];
+        this.codecs[c.payloadType] = c;
+      }
     });
     params.encodings.forEach((e) => {
-      if (e.rtx) {
+      if (!e.rtx) return;
+      const existing = this.ssrcByRtx[e.rtx.ssrc];
+      if (deferConflicts && existing !== undefined && existing !== e.ssrc) {
+        this.stagedSsrcByRtx[e.rtx.ssrc] = e.ssrc;
+      } else {
+        delete this.stagedSsrcByRtx[e.rtx.ssrc];
         this.ssrcByRtx[e.rtx.ssrc] = e.ssrc;
       }
     });
   }
 
   /**
-   * negotiated codec と receiver の実処理状態を再同期する。
-   * codec map と RTX mapping を置換し、既存 remote track の codec
-   * metadata も新しい先頭 codec に更新する。
-   * 既存の receiverTWCC は破棄し、新しい codec が transport-cc を持ち
-   * remote SSRC が分かる場合だけ再生成する。
-   * setCodecPreferences() 後の createAnswer() 再解決や remote からの
-   * 再交渉では、除外された payload type の RTP を受け付けないようにする。
+   * Internal: drop values staged by an earlier remote pranswer. A later
+   * pranswer or the final answer replaces that proposal as a whole.
+   */
+  discardStagedReceive() {
+    clearTable(this.stagedCodecs);
+    clearTable(this.stagedSsrcByRtx);
+  }
+
+  /** Internal: the transaction committed, staged payload types and RTX pairs apply. */
+  commitStagedReceive() {
+    Object.assign(this.codecs, this.stagedCodecs);
+    Object.assign(this.ssrcByRtx, this.stagedSsrcByRtx);
+    clearTable(this.stagedCodecs);
+    clearTable(this.stagedSsrcByRtx);
+  }
+
+  /** Internal: capture the decode tables for a negotiation rollback baseline. */
+  snapshotReceiveTables() {
+    return {
+      codecs: { ...this.codecs },
+      ssrcByRtx: { ...this.ssrcByRtx },
+      stagedCodecs: { ...this.stagedCodecs },
+      stagedSsrcByRtx: { ...this.stagedSsrcByRtx },
+    };
+  }
+
+  /** Internal: replace the decode tables with a rollback baseline. */
+  restoreReceiveTables(
+    snapshot: ReturnType<RTCRtpReceiver["snapshotReceiveTables"]>,
+  ) {
+    for (const [table, saved] of [
+      [this.codecs, snapshot.codecs],
+      [this.ssrcByRtx, snapshot.ssrcByRtx],
+      [this.stagedCodecs, snapshot.stagedCodecs],
+      [this.stagedSsrcByRtx, snapshot.stagedSsrcByRtx],
+    ] as [Record<number, unknown>, Record<number, unknown>][]) {
+      clearTable(table);
+      Object.assign(table, saved);
+    }
+  }
+
+  /**
+   * Internal: everything a negotiation may change on this receiver, for a
+   * rollback baseline. Packet-driven runtime (statistics, NACK, RTCP) is not
+   * part of it.
+   */
+  snapshotNegotiationState() {
+    return {
+      receiverTWCC: this.receiverTWCC,
+      remoteStreamIds: [...this.remoteStreamIds],
+      remoteStreamId: this.remoteStreamId,
+      remoteTrackId: this.remoteTrackId,
+      tracks: [...this.tracks],
+      trackBySSRC: { ...this.trackBySSRC },
+      trackByRID: { ...this.trackByRID },
+      unboundTracks: [...this.unboundTracks],
+      receiveTables: this.snapshotReceiveTables(),
+    };
+  }
+
+  /** Internal: return to a negotiation baseline taken by `snapshotNegotiationState`. */
+  restoreNegotiationState(state: ReceiverNegotiationState) {
+    // Transport-cc feedback a pending description started for this receiver
+    // stops; the current session's feedback (if any) remains.
+    if (this.receiverTWCC !== state.receiverTWCC) {
+      if (this.receiverTWCC) this.receiverTWCC.twccRunning = false;
+      this.receiverTWCC = state.receiverTWCC;
+    }
+    this.remoteStreamIds = state.remoteStreamIds;
+    this.remoteStreamId = state.remoteStreamId;
+    this.remoteTrackId = state.remoteTrackId;
+    this.tracks.splice(0, this.tracks.length, ...state.tracks);
+    // SSRCs learned from RID packets are live state, not SDP: keep those
+    // whose track survives the rollback.
+    const learnedTracks = Object.entries(this.trackBySSRC).filter(
+      ([ssrc, track]) =>
+        this.learnedTrackSsrcs.has(Number(ssrc)) &&
+        !(ssrc in state.trackBySSRC) &&
+        state.tracks.includes(track),
+    );
+    replaceTable(this.trackBySSRC, state.trackBySSRC);
+    for (const [ssrc, track] of learnedTracks) {
+      this.trackBySSRC[ssrc] = track;
+    }
+    replaceTable(this.trackByRID, state.trackByRID);
+    this.unboundTracks = [...state.unboundTracks];
+    // A track the rolled-back description rebound gets its SSRC back.
+    for (const [ssrc, track] of Object.entries(state.trackBySSRC)) {
+      if (!track.rid) track.ssrc = Number(ssrc);
+    }
+    // Codec/RTX tables added or changed by a pending description are
+    // dropped; current RTP is decoded exactly as before the transaction.
+    this.restoreReceiveTables(state.receiveTables);
+  }
+
+  /**
+   * Replace receiver codec state after a negotiated codec preference change.
+   * Use only when the transaction commits; pending descriptions stage through
+   * prepareReceive() so the current decode path remains available.
    */
   resyncCodecs(params: RTCRtpReceiveParameters, mediaSourceSsrc?: number) {
-    for (const key of Object.keys(this.codecs)) {
-      delete this.codecs[Number(key)];
-    }
-    for (const key of Object.keys(this.ssrcByRtx)) {
-      delete this.ssrcByRtx[Number(key)];
-    }
+    // The committed description replaces the tables as a whole: values a
+    // pending description staged must not come back at the commit.
+    this.discardStagedReceive();
+    clearTable(this.codecs);
+    clearTable(this.ssrcByRtx);
     this.prepareReceive(params);
     const codec = deliveredTrackCodec(
       this.kind,
@@ -204,9 +333,7 @@ export class RTCRtpReceiver {
       params.codecs,
     );
     if (codec) {
-      for (const track of this.tracks) {
-        track.codec = codec;
-      }
+      for (const track of this.tracks) track.codec = codec;
     }
     // Re-acquire before releasing the previous reference so a still-enabled
     // receiver keeps the same transport-wide history instead of recreating it.
@@ -227,8 +354,8 @@ export class RTCRtpReceiver {
    * BUNDLE audio/video share one {@link ReceiverTWCC} so interleaved
    * transport-wide sequences are not reported as loss.
    */
-  setupTWCC(mediaSourceSsrc: number) {
-    if (!this.twccEnabled || !this.dtlsTransport) {
+  setupTWCC(mediaSourceSsrc: number, negotiated = !!this.twccEnabled) {
+    if (!negotiated || !this.dtlsTransport) {
       return;
     }
     if (!this.receiverTWCC) {
@@ -243,8 +370,45 @@ export class RTCRtpReceiver {
     this.receiverTWCC.setMediaSourceSsrc(mediaSourceSsrc);
   }
 
+  /**
+   * Internal: tracks a replaced remote offer gave this receiver stay its
+   * tracks; the SSRCs the replacing offer gives take them over.
+   */
+  keepUnboundTracks(tracks: MediaStreamTrack[]) {
+    for (const track of tracks) {
+      if (track.rid || this.tracks.includes(track)) continue;
+      this.tracks.push(track);
+      this.unboundTracks.push(track);
+    }
+  }
+
+  /** Internal: a superseded pending description no longer routes `ssrc`. */
+  releaseProvisionalSsrc(ssrc: number) {
+    const track = this.trackBySSRC[ssrc];
+    if (!track || track.rid) return;
+    delete this.trackBySSRC[ssrc];
+    this.unboundTracks.push(track);
+  }
+
   addTrack(track: MediaStreamTrack) {
+    if (
+      track.ssrc &&
+      !track.rid &&
+      !this.trackBySSRC[track.ssrc] &&
+      this.unboundTracks.length > 0
+    ) {
+      const unbound =
+        this.unboundTracks.find((t) => t.ssrc === track.ssrc) ??
+        this.unboundTracks[0];
+      this.unboundTracks = this.unboundTracks.filter((t) => t !== unbound);
+      unbound.ssrc = track.ssrc;
+      unbound.codec = track.codec ?? unbound.codec;
+      this.trackBySSRC[track.ssrc] = unbound;
+      this.learnedTrackSsrcs.delete(track.ssrc);
+      return false;
+    }
     const exist = this.tracks.find((t) => {
+      if (this.unboundTracks.includes(t)) return false;
       if (t.rid) {
         return t.rid === track.rid;
       }
@@ -258,6 +422,7 @@ export class RTCRtpReceiver {
     this.tracks.push(track);
     if (track.ssrc) {
       this.trackBySSRC[track.ssrc] = track;
+      this.learnedTrackSsrcs.delete(track.ssrc);
     }
     if (track.rid) {
       this.trackByRID[track.rid] = track;
@@ -455,8 +620,28 @@ export class RTCRtpReceiver {
     return buildStatsReport(stats, this.getStatsRootIds());
   }
 
+  /**
+   * Internal: whether PLI is negotiated for `mediaSsrc`, and the payload type
+   * that decides it. PLI follows the negotiated receive codec of this SSRC:
+   * the live codec table (current while a proposal is pending, switched at
+   * commit and restored on rollback), not the codec its track was created with.
+   */
+  pliNegotiation(mediaSsrc: number) {
+    const payloadType =
+      this.payloadTypeBySsrc[mediaSsrc] ??
+      this.trackBySSRC[mediaSsrc]?.codec?.payloadType;
+    const codec =
+      payloadType != undefined ? this.codecs[payloadType] : undefined;
+    return {
+      payloadType: codec ? payloadType : undefined,
+      allowed: codec
+        ? hasFeedback(codec, usePLI().type, usePLI().parameter)
+        : !!this.pliEnabled,
+    };
+  }
+
   async sendRtcpPLI(mediaSsrc: number) {
-    if (!this.pliEnabled) {
+    if (!this.pliNegotiation(mediaSsrc).allowed) {
       log("pli not supported", { mediaSsrc });
       return;
     }
@@ -519,6 +704,7 @@ export class RTCRtpReceiver {
     const track = this.trackByRID[rid];
     if (!this.trackBySSRC[packet.header.ssrc]) {
       this.trackBySSRC[packet.header.ssrc] = track;
+      this.learnedTrackSsrcs.add(packet.header.ssrc);
     }
 
     this.handleRTP(packet, extensions, track);
@@ -544,8 +730,18 @@ export class RTCRtpReceiver {
       new StreamStatistics(codec.clockRate);
     this.remoteStreams[packet.header.ssrc].add(packet);
 
-    if (!this.receiverTWCC && this.twccEnabled) {
-      this.setupTWCC(packet.header.ssrc);
+    const paddingOnly = isPaddingOnlyRtpPacket(packet);
+    let receiveType: RtpReceivePacketType = paddingOnly
+      ? RtpReceivePacketType.padding
+      : RtpReceivePacketType.media;
+    let mediaCodec = codec;
+    if (codec.name.toLowerCase() === "rtx") {
+      const codecParams = codecParametersFromString(codec.parameters ?? "");
+      mediaCodec = this.codecs[codecParams.apt] ?? codec;
+    }
+
+    if (hasFeedback(mediaCodec, useTWCC().type)) {
+      this.setupTWCC(packet.header.ssrc, true);
     }
     if (this.receiverTWCC) {
       const transportSequenceNumber = extensions[
@@ -558,20 +754,15 @@ export class RTCRtpReceiver {
       }
     }
 
-    const paddingOnly = isPaddingOnlyRtpPacket(packet);
-    let receiveType: RtpReceivePacketType = paddingOnly
-      ? RtpReceivePacketType.padding
-      : RtpReceivePacketType.media;
-
+    // RTCP feedback follows the codec this packet was negotiated with, not
+    // whichever payload type happens to sort first in the receive table.
     if (codec.name.toLowerCase() === "rtx") {
       const originalSsrc = this.ssrcByRtx[packet.header.ssrc];
-      const codecParams = codecParametersFromString(codec.parameters ?? "");
-      const rtxCodec = this.codecs[codecParams["apt"]];
       // Padding-only RTX (probe / bandwidth padding) carries no original
       // packet: TWCC above already observed it, nothing is delivered.
       if (packet.payload.length < 2) return;
 
-      packet = unwrapRtx(packet, rtxCodec.payloadType, originalSsrc);
+      packet = unwrapRtx(packet, mediaCodec.payloadType, originalSsrc);
       track = this.trackBySSRC[originalSsrc];
       receiveType = RtpReceivePacketType.retransmission;
     }
@@ -588,7 +779,9 @@ export class RTCRtpReceiver {
       }
     }
 
-    if (track?.kind === "video" && this.nackEnabled) {
+    this.payloadTypeBySsrc[packet.header.ssrc] = mediaCodec.payloadType;
+
+    if (track?.kind === "video" && hasFeedback(mediaCodec, "nack")) {
       this.nack.addPacket(packet);
     }
 
@@ -727,4 +920,41 @@ function extendRtpSequence(seq: number, lastExt: number | undefined): number {
     roc -= 1;
   }
   return roc * 0x10000 + seq16;
+}
+
+function clearTable(table: Record<number, unknown>) {
+  for (const key of Object.keys(table)) delete table[Number(key)];
+}
+
+/** Replace the entries of a string-keyed table in place (keys may be RIDs). */
+function replaceTable<T>(table: Record<string, T>, source: Record<string, T>) {
+  for (const key of Object.keys(table)) delete table[key];
+  Object.assign(table, source);
+}
+
+const feedbackKey = (codec: RTCRtpCodecParameters) =>
+  codec.rtcpFeedback
+    .map((f) => `${f.type} ${f.parameter ?? ""}`)
+    .sort()
+    .join(",");
+
+function sameCodec(a: RTCRtpCodecParameters, b: RTCRtpCodecParameters) {
+  return (
+    a.mimeType.toLowerCase() === b.mimeType.toLowerCase() &&
+    a.clockRate === b.clockRate &&
+    (a.channels ?? 1) === (b.channels ?? 1) &&
+    (a.parameters ?? "") === (b.parameters ?? "") &&
+    feedbackKey(a) === feedbackKey(b)
+  );
+}
+
+function hasFeedback(
+  codec: RTCRtpCodecParameters | undefined,
+  type: string,
+  parameter?: string,
+) {
+  return !!codec?.rtcpFeedback.some(
+    (f) =>
+      f.type === type && (parameter === undefined || f.parameter === parameter),
+  );
 }

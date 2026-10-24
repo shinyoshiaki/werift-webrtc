@@ -1,4 +1,4 @@
-import type { SCTPOptions } from "../../sctp/src";
+import { type SCTPOptions, SCTP_STATE } from "../../sctp/src";
 import { createWebRtcTypeError } from "./errors";
 import { Event, debug } from "./imports/common";
 
@@ -10,16 +10,52 @@ import {
   getStatsTimestamp,
 } from "./media/stats";
 import type { MediaDescription } from "./sdp";
-import { RTCSctpTransport } from "./transport/sctp";
+import type { RTCDtlsTransport } from "./transport/dtls";
+import { DEFAULT_MAX_MESSAGE_SIZE, RTCSctpTransport } from "./transport/sctp";
 
 const log = debug("werift:packages/webrtc/src/transport/sctpManager.ts");
 
+/** The SCTP binding of a PeerConnection, for a negotiation rollback baseline. */
+export type SctpNegotiationState = ReturnType<
+  SctpTransportManager["snapshotNegotiationState"]
+>;
+
+/**
+ * The SCTP transport of a PeerConnection and its application m-line.
+ *
+ * - Rejection of the application m-line (port 0 in the peer's offer, an
+ *   answer or a pranswer) never closes the SCTP transport: it stays bound to
+ *   its MID and the next offer offers the application again with that MID
+ *   (W3C would set `sctpTransport` to null). The commit does not move it to a
+ *   transport the answer did not negotiate for it. An answer to an offer whose
+ *   application m-line has port 0 has port 0 (RFC 3264 section 6).
+ * - The position (MID, index, rejected) is recorded by the current
+ *   description, not by this object. An unbound transport takes a rejected
+ *   position with a new MID; an offer that does so moves the transport to that
+ *   MID (restored by rollback). A MID only an unapplied `createOffer`
+ *   reserved follows the MID of the peer's offer.
+ * - At the final answer SCTP moves straight to its owner's DTLS transport in
+ *   the answer. A transport joining an already connected DTLS transport
+ *   starts its association there; its client / server side follows the ICE
+ *   role at the DTLS start.
+ * - Rollback keeps an application-owned transport whose association never
+ *   ran (`detachFromDescription` clears what the description set) and stops
+ *   one a description created or whose association ran under the proposal;
+ *   channels opened on a pending-only association close with it.
+ * - `sctp.mtu` is configuration: every transport, also a pending one, is built
+ *   with it, and moving to another DTLS transport keeps it.
+ */
 export class SctpTransportManager {
   sctpTransport?: RTCSctpTransport;
   sctpRemotePort?: number;
   dataChannelsOpened = 0;
   dataChannelsClosed = 0;
   private dataChannels: RTCDataChannel[] = [];
+  /**
+   * SCTP transports that carry a `createDataChannel` call. They are
+   * application state: negotiation rollback keeps them instead of stopping.
+   */
+  private readonly applicationOwned = new WeakSet<RTCSctpTransport>();
 
   readonly onDataChannel = new Event<[RTCDataChannel]>();
 
@@ -79,6 +115,7 @@ export class SctpTransportManager {
     if (!this.sctpTransport) {
       this.sctpTransport = this.createSctpTransport();
     }
+    this.applicationOwned.add(this.sctpTransport);
 
     const parameters = new RTCDataChannelParameters({
       id: settings.id,
@@ -105,6 +142,81 @@ export class SctpTransportManager {
     return channel;
   }
 
+  isApplicationOwned(transport: RTCSctpTransport) {
+    return this.applicationOwned.has(transport);
+  }
+
+  /** Internal: the SCTP binding a negotiation may change, for a rollback baseline. */
+  snapshotNegotiationState() {
+    const transport = this.sctpTransport;
+    return {
+      transport,
+      dtlsTransport: transport?.dtlsTransport as RTCDtlsTransport | undefined,
+      remotePort: this.sctpRemotePort,
+      mid: transport?.mid,
+      mLineIndex: transport?.mLineIndex,
+      remoteMaxMessageSize: transport?.remoteMaxMessageSize,
+    };
+  }
+
+  /** Internal: return to a negotiation baseline taken by `snapshotNegotiationState`. */
+  async restoreNegotiationState(state: SctpNegotiationState) {
+    const added =
+      this.sctpTransport !== state.transport ? this.sctpTransport : undefined;
+    // createDataChannel is an application operation: its SCTP transport
+    // survives rollback, unbound from the rolled-back m-line, so the next
+    // offer carries m=application again. An association that already ran
+    // under the pending description is description state and is torn down.
+    const keepAdded =
+      !!added &&
+      this.isApplicationOwned(added) &&
+      added.sctp.associationState === SCTP_STATE.CLOSED;
+    if (added && !keepAdded) {
+      await added.stop();
+    }
+    this.sctpTransport = keepAdded ? added : state.transport;
+    if (
+      state.transport &&
+      state.dtlsTransport &&
+      state.transport.dtlsTransport !== state.dtlsTransport
+    ) {
+      state.transport.setDtlsTransport(state.dtlsTransport);
+    }
+    if (added && keepAdded) this.detachFromDescription(added);
+    this.sctpRemotePort = state.remotePort;
+    if (state.transport) {
+      state.transport.mid = state.mid;
+      state.transport.mLineIndex = state.mLineIndex;
+      if (state.remoteMaxMessageSize !== undefined) {
+        state.transport.remoteMaxMessageSize = state.remoteMaxMessageSize;
+      }
+    }
+  }
+
+  /**
+   * Internal: an SCTP transport that no description bound yet goes back to
+   * the MID / m-line index of `state` (see TransceiverManager's
+   * `revertUnappliedAssociations`).
+   */
+  revertUnappliedAssociation(state: SctpNegotiationState) {
+    const transport = this.sctpTransport;
+    if (
+      transport &&
+      transport === state.transport &&
+      this.sctpRemotePort === undefined
+    ) {
+      transport.mid = state.mid;
+      transport.mLineIndex = state.mLineIndex;
+    }
+  }
+
+  /** Drop what a rolled-back description set on a kept SCTP transport. */
+  detachFromDescription(transport: RTCSctpTransport) {
+    transport.mid = undefined;
+    transport.mLineIndex = undefined;
+    transport.remoteMaxMessageSize = DEFAULT_MAX_MESSAGE_SIZE;
+  }
+
   async connectSctp() {
     if (!this.sctpTransport || !this.sctpRemotePort) {
       return;
@@ -113,6 +225,16 @@ export class SctpTransportManager {
     await this.sctpTransport.start(this.sctpRemotePort);
     await this.sctpTransport.sctp.stateChanged.connected.asPromise();
     log("sctp connected");
+  }
+
+  /**
+   * A renegotiation pranswer / answer keeps the association (and its port)
+   * but updates the data max message size it negotiates.
+   */
+  updateRemoteMaxMessageSize(remoteMedia: MediaDescription) {
+    this.sctpTransport?.setRemoteMaxMessageSize(
+      remoteMedia.sctpCapabilities?.maxMessageSize,
+    );
   }
 
   setRemoteSCTP(remoteMedia: MediaDescription, mLineIndex: number) {

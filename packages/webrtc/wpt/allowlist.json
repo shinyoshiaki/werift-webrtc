@@ -90,6 +90,17 @@
       ]
     },
     {
+      "file": "webrtc/RTCPeerConnection-setLocalDescription-offer.html",
+      "enabled": true,
+      "reason": "Guards W3C setLocalDescription(offer) semantics: only the last createOffer result is accepted, local SDP munging is rejected.",
+      "subtests": [
+        "Set created offer other than last offer should reject with InvalidModificationError",
+        "setLocalDescription() with offer not created by own createOffer() should reject with InvalidModificationError",
+        "setLocalDescription with type offer and null sdp should use lastOffer generated from createOffer",
+        "Creating and setting offer multiple times should succeed"
+      ]
+    },
+    {
       "file": "webrtc/RTCPeerConnection-setRemoteDescription-rollback.html",
       "enabled": true,
       "variant": "?rest",

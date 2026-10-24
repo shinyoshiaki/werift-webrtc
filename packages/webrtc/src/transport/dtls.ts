@@ -5,6 +5,7 @@ import { setTimeout } from "timers/promises";
 import { Event, type Transport } from "../imports/common";
 
 import type { AddressInfo } from "net";
+import type { DebugConfig } from "../api/peerConfig";
 import { EventTarget as DomEventTarget } from "../helper";
 import {
   CipherContext,
@@ -41,7 +42,6 @@ import {
   generateStatsId,
   getStatsTimestamp,
 } from "../media/stats";
-import type { DebugConfig } from "../peerConnection";
 import {
   fingerprint,
   isDtls,
@@ -99,6 +99,13 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   id = randomUUID().toString();
   state: DtlsState = "new";
   role: DtlsRole = "auto";
+  /**
+   * Internal: the ICE role when the handshake started. werift sets the ICE role at
+   * every offer / answer, so an SCTP association that starts later on this
+   * transport takes its client / server side from here, as both peers agreed
+   * on it when they started DTLS.
+   */
+  iceRoleAtStart?: RTCIceTransport["role"];
   srtpStarted = false;
   /**
    * Monotonic transport-wide sequence allocated at ICE enqueue time.
@@ -190,15 +197,17 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   setRemoteParams(remoteParameters: RTCDtlsParameters) {
-    const fingerprints = deduplicateFingerprints([
-      ...(this.remoteParameters?.fingerprints ?? []),
-      ...remoteParameters.fingerprints,
-    ]);
+    const fingerprints = deduplicateFingerprints(remoteParameters.fingerprints);
     const role =
       remoteParameters.role === "auto" && this.remoteParameters?.role
         ? this.remoteParameters.role
         : remoteParameters.role;
     this.remoteParameters = new RTCDtlsParameters(fingerprints, role);
+  }
+
+  /** Internal: whether a description gave this transport the peer's DTLS parameters. */
+  get hasRemoteParameters() {
+    return (this.remoteParameters?.fingerprints.length ?? 0) > 0;
   }
 
   async start() {
@@ -212,6 +221,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       throw new Error("remote fingerprint not exist");
     }
 
+    this.iceRoleAtStart = this.iceTransport.role;
     if (this.role === "auto") {
       if (this.iceTransport.role === "controlling") {
         this.role = "server";
