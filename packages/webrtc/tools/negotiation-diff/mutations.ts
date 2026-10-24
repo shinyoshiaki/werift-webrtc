@@ -332,7 +332,6 @@ export const MUTATION_NAMES = Object.keys(MUTATIONS) as MutationName[];
 const lookup = (name: MutationName): Mutation =>
   MUTATIONS[(ALIASES as Record<string, string>)[name] ?? name];
 
-/** Apply mutations in order. */
 export function mutate(sdp: string, names: readonly MutationName[]) {
   return names.reduce((value, name) => lookup(name).apply(value), sdp);
 }

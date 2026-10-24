@@ -89,7 +89,6 @@ describeCases("negotiation transaction spec coverage: transport", () => {
       const audio = a.addTransceiver(audioOut, { direction: "sendonly" });
       const video = a.addTransceiver(videoOut, { direction: "sendonly" });
 
-      // Act: offer を作って適用する。
       await c.offer(a, { hold: true });
 
       // Assert: offer は BUNDLE を提案するが、各 m-line は自分の transport を持ち、その transport の候補を広告する。
@@ -140,7 +139,6 @@ describeCases("negotiation transaction spec coverage: transport", () => {
       const video = a.addTransceiver("video", { direction: "sendonly" });
       a.createDataChannel("dc");
 
-      // Act: offer を作って適用する。
       await c.offer(a, { hold: true });
 
       // Assert: 全 m-line の ufrag が同じで、transport も tag (audio) のものを共有する。
@@ -163,7 +161,6 @@ describeCases("negotiation transaction spec coverage: transport", () => {
       const { a, aVideo } = await c.given(createDuplexSession());
       const audio = a.addTransceiver("audio", { direction: "sendonly" });
 
-      // Act: offer を作って適用する。
       await c.offer(a, { hold: true });
 
       // Assert: 新しい m-line は tag と同じ ufrag で、tag の transport を共有する。

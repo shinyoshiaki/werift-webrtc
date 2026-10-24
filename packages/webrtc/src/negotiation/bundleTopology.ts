@@ -83,8 +83,6 @@ export class BundleTopology {
     );
   }
 
-  /** Live transport of every m-line (transceiver or SCTP) that has a MID. */
-  /** The transport the committed session uses for `mid` (ignoring a pending proposal). */
   /**
    * The transports `description` puts its accepted m-lines on: each m-line's
    * BUNDLE owner (group tag, else itself), on the transport prepared for the

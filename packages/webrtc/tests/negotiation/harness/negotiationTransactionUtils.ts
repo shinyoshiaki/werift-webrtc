@@ -1527,7 +1527,6 @@ export async function expectSessionContinues(
   }
 }
 
-/** The m-section identified by `mid`. */
 export function sectionOf(sdp: string, mid: string) {
   const section = sdp
     .split(/(?=^m=)/m)
@@ -2338,7 +2337,6 @@ export function forceIceState(
   ).setState(state);
 }
 
-/** Record the ICE connection states `pc` reports from now on. */
 export function recordIceConnectionStates(pc: RTCPeerConnection) {
   const states: string[] = [];
   pc.iceConnectionStateChange.subscribe((state) => {
@@ -2660,7 +2658,6 @@ export async function arrangeInterruptWait(wait: InterruptWait) {
 
 // --- spec coverage: events ---
 
-/** Poll `condition` until it holds (fails after the shared timeout). */
 export async function waitUntil(
   condition: () => boolean,
   message: string,
@@ -2864,7 +2861,6 @@ export async function createBundledIceRestartPranswer() {
   return { ...peers, ufrag, video, audio };
 }
 
-/** Record the connection states `pc` reports from now on. */
 export function recordConnectionStates(pc: RTCPeerConnection) {
   const states: string[] = [];
   pc.connectionStateChange.subscribe((state) => {

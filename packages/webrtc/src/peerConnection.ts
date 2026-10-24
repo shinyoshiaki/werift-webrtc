@@ -701,7 +701,6 @@ export class RTCPeerConnection extends EventTarget {
     return assignments;
   }
 
-  /** Select, on each transport, the ICE generation `description` carries. */
   private selectDescribedIceGenerations(description: SessionDescription) {
     for (const media of description.media) {
       if (media.port === 0 || !media.iceParams || !media.rtp.muxId) continue;

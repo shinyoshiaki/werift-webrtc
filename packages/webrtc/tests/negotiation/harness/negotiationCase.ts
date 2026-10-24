@@ -321,7 +321,6 @@ export class NegotiationCase {
     );
   }
 
-  /** Act: `addIceCandidate`. */
   async addCandidate(
     pc: RTCPeerConnection,
     candidate: Parameters<RTCPeerConnection["addIceCandidate"]>[0],
