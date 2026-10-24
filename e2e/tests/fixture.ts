@@ -13,7 +13,14 @@ console.log({ browserName, version: browser.getBrowserVersion() });
 const transport = new WebSocketTransport(`ws://localhost:${e2ePort}`);
 export const peer = new Peer(transport);
 
-export async function waitVideoPlay(track: MediaStreamTrack) {
+/**
+ * Wait until the video frame pixels change (decoded motion / content).
+ * Throws if no change within timeoutMs so E2E does not hang forever.
+ */
+export async function waitVideoPlay(
+  track: MediaStreamTrack,
+  timeoutMs = 30_000,
+) {
   const video = document.createElement("video");
   const media = new MediaStream([track]);
   video.srcObject = media;
@@ -32,7 +39,14 @@ export async function waitVideoPlay(track: MediaStreamTrack) {
     context.getImageData(0, 0, canvas.width, canvas.height).data,
   );
 
+  const started = performance.now();
   for (;;) {
+    if (performance.now() - started > timeoutMs) {
+      video.pause();
+      video.srcObject = null;
+      canvas.remove();
+      throw new Error(`waitVideoPlay timed out after ${timeoutMs}ms`);
+    }
     await new Promise((r) => setTimeout(r, 100));
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
     const data = await digestMessage(
@@ -44,6 +58,149 @@ export async function waitVideoPlay(track: MediaStreamTrack) {
 
   video.pause();
   video.srcObject = null;
+  canvas.remove();
+}
+
+/**
+ * Wait until AnalyserNode sees non-trivial audio energy (or timeout).
+ * Used for Opus Packetizer E2E (scenario B).
+ */
+export async function waitAudioPlay(
+  track: MediaStreamTrack,
+  timeoutMs = 15_000,
+) {
+  // Remote WebRTC audio needs an element sink in some Chromium builds
+  const audio = document.createElement("audio");
+  audio.autoplay = true;
+  audio.srcObject = new MediaStream([track]);
+  document.body.appendChild(audio);
+  try {
+    await audio.play();
+  } catch {
+    // autoplay policies may reject; Analyser may still work via MediaStream
+  }
+
+  const ctx = new AudioContext();
+  try {
+    await ctx.resume();
+  } catch {}
+  const source = ctx.createMediaStreamSource(new MediaStream([track]));
+  const analyser = ctx.createAnalyser();
+  analyser.fftSize = 512;
+  source.connect(analyser);
+  const data = new Uint8Array(analyser.frequencyBinCount);
+  const timeData = new Uint8Array(analyser.fftSize);
+  const started = performance.now();
+
+  try {
+    for (;;) {
+      if (performance.now() - started > timeoutMs) {
+        throw new Error("waitAudioPlay timed out");
+      }
+      analyser.getByteFrequencyData(data);
+      analyser.getByteTimeDomainData(timeData);
+      let sum = 0;
+      let peak = 0;
+      for (let i = 0; i < data.length; i++) sum += data[i];
+      for (let i = 0; i < timeData.length; i++) {
+        const d = Math.abs(timeData[i] - 128);
+        if (d > peak) peak = d;
+      }
+      if (sum / data.length > 2 || peak > 2) {
+        break;
+      }
+      await sleep(50);
+    }
+  } finally {
+    source.disconnect();
+    await ctx.close();
+    audio.pause();
+    audio.srcObject = null;
+    audio.remove();
+  }
+}
+
+/**
+ * Prefer a single codec via setCodecPreferences when the browser supports it.
+ * For H.264, prefer packetization-mode=1 entries first (mode=0 is out of scope).
+ */
+export function preferCodec(
+  transceiver: RTCRtpTransceiver,
+  mimeIncludes: string,
+  kind?: "audio" | "video",
+) {
+  const resolvedKind =
+    kind ??
+    transceiver.receiver?.track?.kind ??
+    transceiver.sender?.track?.kind;
+  if (resolvedKind !== "audio" && resolvedKind !== "video") {
+    return;
+  }
+  const caps = RTCRtpSender.getCapabilities(resolvedKind);
+  if (!caps?.codecs?.length) {
+    return;
+  }
+  const lower = mimeIncludes.toLowerCase();
+  let preferred = caps.codecs.filter((c) =>
+    c.mimeType.toLowerCase().includes(lower),
+  );
+  if (preferred.length === 0) {
+    return;
+  }
+  if (lower.includes("h264")) {
+    const mode1 = preferred.filter((c) =>
+      (c.sdpFmtpLine ?? "").includes("packetization-mode=1"),
+    );
+    if (mode1.length > 0) {
+      preferred = mode1;
+    }
+  }
+  const rest = caps.codecs.filter(
+    (c) => !c.mimeType.toLowerCase().includes(lower),
+  );
+  try {
+    (transceiver as any).setCodecPreferences([...preferred, ...rest]);
+  } catch {
+    // ignore if browser rejects
+  }
+}
+
+/** Inbound RTP stats: packets/bytes received (Chrome getStats). */
+export async function getInboundRtpTotals(pc: RTCPeerConnection) {
+  const report = await pc.getStats();
+  let packetsReceived = 0;
+  let bytesReceived = 0;
+  report.forEach((stat) => {
+    if (stat.type === "inbound-rtp") {
+      const s = stat as RTCInboundRtpStreamStats & {
+        packetsReceived?: number;
+        bytesReceived?: number;
+      };
+      packetsReceived += s.packetsReceived ?? 0;
+      bytesReceived += s.bytesReceived ?? 0;
+    }
+  });
+  return { packetsReceived, bytesReceived };
+}
+
+export async function waitInboundRtp(
+  pc: RTCPeerConnection,
+  minPackets = 5,
+  timeoutMs = 30_000,
+) {
+  const started = performance.now();
+  for (;;) {
+    const totals = await getInboundRtpTotals(pc);
+    if (totals.packetsReceived >= minPackets) {
+      return totals;
+    }
+    if (performance.now() - started > timeoutMs) {
+      throw new Error(
+        `waitInboundRtp timed out: packets=${totals.packetsReceived}`,
+      );
+    }
+    await sleep(100);
+  }
 }
 
 async function digestMessage(data: Uint8ClampedArray) {
