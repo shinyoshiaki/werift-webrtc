@@ -44,7 +44,7 @@ ide:
     <table>
       <tr><th></th><th>Before</th><th>After</th></tr>
       <tr><td>引くキー</td><td>senderSsrc → なければ mediaSsrc</td><td>mediaSsrc のみ</td></tr>
-      <tr><td>mediaSsrc が未登録</td><td>senderSsrc 側へ誤配送しうる</td><td>配送しない</td></tr>
+      <tr><td>mediaSsrc が未登録</td><td>senderSsrc 側へ誤配送しうる</td><td>compatible（既定）: RTX SSRC の持ち主 → 唯一の video Sender／strict: 配送しない（§4）</td></tr>
       <tr><td>根拠</td><td>-</td><td>RFC 4585 §6.1</td></tr>
     </table>
   </div>
@@ -53,6 +53,7 @@ ide:
       <tr><th></th><th>Before</th><th>After</th></tr>
       <tr><td>引くキー</td><td>senderSsrc → mediaSsrc（Chrome は 0）</td><td>FCI の <code>fir[].ssrc</code> 各エントリ</td></tr>
       <tr><td>複数エントリ</td><td>考慮なし</td><td>同じ recipient には 1 回だけ配送</td></tr>
+      <tr><td>エントリの ssrc が未登録</td><td>-</td><td>PLI と同じ解決（compatible / strict）。Sender には解決済みのエントリを渡す</td></tr>
       <tr><td>fir[] が空</td><td>-</td><td>mediaSsrc が 0 以外のときのみ fallback</td></tr>
       <tr><td>根拠</td><td>-</td><td>RFC 5104 §4.3.1</td></tr>
     </table>
@@ -120,16 +121,46 @@ ide:
 
 ## 4. 判断理由
 
-- **PLI は `senderSsrc` へフォールバックしない**: フォールバックがあると、まさに今回の誤配送が再発するためです。
-  - 「`mediaSsrc` → なければ `senderSsrc`」をデフォルトにし、RFC 準拠をオプションにする案も検討しました。採用しなかった理由は、`senderSsrc` は要求を送った相手の SSRC なので、引いても自分の Sender に当たらないためです。werift 同士の sendrecv video で確かめたところ、相手 PLI の `senderSsrc` は自分の `ssrcTable` で `RTCRtpReceiver` に当たりました。つまりキーフレームは出ず、Receiver の `onRtcp` に PSFB が流れるだけです（下流の relay が回避していた誤配送と同じです）。
-  - `mediaSsrc` が引けない現実的なケース（0、RTX SSRC、再ネゴ後の古い SSRC）を救うなら、`senderSsrc` ではなく「RTX SSRC → primary の Sender」や「同じ transport に video Sender が 1 つだけならそこへ」といった対応付けが必要です。これは本チケットの範囲外とします。
 - **FIR の common header の media SSRC は使わない**: RFC 5104 で 0 と定められ、libwebrtc も 0 を送ります。
 - **`firCount` は再送も数える**: W3C stats の定義と libwebrtc の挙動に合わせました。通知だけを Seq nr で重複除去します。
 - **`onKeyFrameRequest` を追加**: PLI と FIR のどちらでも行う処理は結局キーフレーム要求だけ、というユーザーの指摘によります。既存イベントは変えず追加のみです。
 
+### 4.1 「senderSsrc へフォールバック」案を採らない理由
+
+レビューで「`mediaSsrc` → なければ `senderSsrc`」をデフォルトにし、RFC 準拠をオプションにする案が出ました。キーフレーム要求に最大限応える、という狙いは採用しました（§4.2）。ただし、`senderSsrc` を引く方法では狙いを達成できません。
+
+| 観点 | 内容 |
+| --- | --- |
+| `senderSsrc` の意味 | 要求を**送ってきた相手**の SSRC（RFC 4585 §6.1）。自分の Sender の SSRC は自分で乱数で決めるため、ここに一致しない |
+| 実測 | werift 同士の sendrecv video で、相手 PLI の `senderSsrc` を自分の `ssrcTable` で引くと `RTCRtpReceiver` に当たった |
+| 結果 | Receiver は PSFB を処理しないので、キーフレームは出ない。Receiver の `onRtcp` に PSFB が流れるだけ |
+| SFU / relay | `senderSsrc` が別 endpoint の stream に当たり、無関係な相手に要求が届く。下流の relay が monkey-patch で避けていた誤配送そのもの |
+
+つまり、このフォールバックで救える要求はほぼなく、今回直した誤配送がデフォルトで戻ります。
+
+### 4.2 代わりに入れたもの: `keyFrameRequestRouting`
+
+`mediaSsrc`（FIR では FCI エントリの `ssrc`）が引けない現実的なケースは、SSRC 0、RTX の SSRC、再ネゴシエーション後の古い SSRC です。これらを、要求先の SSRC から**自分の Sender への対応付け**で救います。
+
+[packages/webrtc/src/media/router.ts](review-file:packages/webrtc/src/media/router.ts) の `keyFrameRequestTarget` が解決します。設定は `RTCPeerConnection` の `keyFrameRequestRouting` です（[packages/webrtc/src/api/peerConfig.ts](review-file:packages/webrtc/src/api/peerConfig.ts)）。
+
+| 対象 SSRC | `"compatible"`（既定） | `"strict"` |
+| --- | --- | --- |
+| `ssrcTable` に登録済み | そのまま配送 | そのまま配送 |
+| ある Sender の RTX SSRC | その Sender | 配送しない |
+| 上記以外で、video Sender が 1 つだけ | その Sender | 配送しない |
+| 上記以外（video Sender が 0 または複数） | 配送しない | 配送しない |
+| `senderSsrc` | 使わない | 使わない |
+
+- **複数 video Sender では推測しない**: SFU / relay のように Sender が複数あると、どれ宛か決められないためです。誤った相手へ送るより、配送しない方を選びました。
+- **FIR**: Router が解決したエントリを `handleRtcpPacket(packet, entries)` で Sender に渡します。これで RTX SSRC 宛や未登録 SSRC 宛のエントリも `firCount` と `onFullIntraRequest` / `onKeyFrameRequest` に反映されます。引数が無いとき（直接呼び出し）は、従来どおり自分の SSRC 宛のエントリだけを扱います。
+- **設定の変更**: `setConfiguration` でいつでも切り替えられます。未知の値は `TypeError` です。
+
 ## 5. リスク・互換性
 
 - **挙動変更**: `mediaSsrc` が未登録の PLI は、`senderSsrc` 側にも配送されなくなります。これは意図した変更で、changelog に記載しました。
+- **既定の救済（`"compatible"`）**: 未登録 SSRC 宛の PLI / FIR が、RTX の持ち主か唯一の video Sender に届きます。余分なキーフレームが出る可能性はありますが、要求に応えない場合よりも影響は小さいと判断しました。RFC どおりにしたい場合は `"strict"` を指定します。
+- **チケットとの差分**: チケット §2.1 は「`mediaSsrc` が無ければ配送しない」です。既定の `"compatible"` はレビューでの指示に基づく拡張で、`"strict"` がチケットどおりの挙動です。
 - **挙動変更**: 未知 FMT の PSFB は配送されなくなります。以前は `feedback` が無い場合に throw しうる経路でした。
 - **API は追加のみ**: 既存イベントと stats の名前は変更していません。
 - **未移行の example**: [examples/certificate/offer.ts](review-file:examples/certificate/offer.ts) と [examples/mediachannel/rtx/offer.ts](review-file:examples/mediachannel/rtx/offer.ts) は `onPictureLossIndication` のままです。動作は変わりませんが、FIR には反応しません。
@@ -141,14 +172,17 @@ ide:
 | Router | [packages/webrtc/tests/media/router.test.ts:100](review-file:packages/webrtc/tests/media/router.test.ts:100) | PLI の media SSRC 配送、未知 SSRC、FIR の FCI 配送・重複除去・fallback、REMB 維持、未知 FMT |
 | Sender | [packages/webrtc/tests/media/rtpSender.test.ts:1256](review-file:packages/webrtc/tests/media/rtpSender.test.ts:1256) | `firCount`、再送の扱い、他 SSRC 宛の FIR、`onKeyFrameRequest` の発火順 |
 | 結合 | [packages/webrtc/tests/integrate/mediaChannel.test.ts:167](review-file:packages/webrtc/tests/integrate/mediaChannel.test.ts:167) | sendrecv video で PLI が相手 Sender に届き、Receiver に誤配送されない |
+| Router（救済） | [packages/webrtc/tests/media/router.test.ts](review-file:packages/webrtc/tests/media/router.test.ts) | compatible: RTX SSRC 宛 PLI、唯一の video Sender への PLI、FIR エントリの解決と `firCount`／strict: 未登録 SSRC は配送しない／複数 video Sender では配送しない |
+| 結合（救済） | [packages/webrtc/tests/integrate/mediaChannel.test.ts](review-file:packages/webrtc/tests/integrate/mediaChannel.test.ts) | werift 同士で media SSRC 0 の PLI が既定で届き、strict では届かない。未知のモードは `TypeError` |
 
 ## 7. 検証結果
 
 | 項目 | 結果 | 備考 |
 | --- | --- | --- |
-| 上記 3 ファイルの vitest（この文書作成時に再実行） | 成功 | 3 ファイル・57 テスト |
-| `packages/webrtc` の `npm run type`、`tests/media` | 成功 | 直前の作業で実施（115 テスト） |
-| `examples/e2e` の `npm run type` | 成功 | 直前の作業で実施 |
-| 自動レビュー時の全テスト | 成功 | WebRTC 801、RTP 210、Chromium カタログ 65。ただし `onKeyFrameRequest` 追加前の結果 |
+| `packages/webrtc` の `npm test`（`keyFrameRequestRouting` 追加後） | 成功 | 56 ファイル・834 テスト成功（3 件 skip） |
+| ルートの `npm run type` | 成功 | `keyFrameRequestRouting` 追加後 |
+| ミューテーション確認 | 検出 | strict 判定を外す・唯一の video Sender への解決を外す、の 2 通りで追加テストが失敗することを確認し、元に戻した |
+| `npm run doc` | 成功 | `PeerConfig`・`RtpRouter`・`RTCRtpSender` などを再生成。警告は今回の変更と無関係なもののみ |
+| 自動レビュー時の全テスト | 成功 | WebRTC 801、RTP 210、Chromium カタログ 65。`onKeyFrameRequest` 追加前の結果 |
 
-**未確認**: `onKeyFrameRequest` 追加後の `npm run test:small`、WPT、Chromium の E2E カタログ（`npm run examples:e2e`）は実行していません。`npm run doc` では今回の変更と無関係な警告が 11 件出ています。
+**未確認**: `npm run test:small`（rtp など他パッケージ）、WPT、Chromium の E2E カタログ（`npm run examples:e2e`）、`npm run e2e` は、`onKeyFrameRequest` / `keyFrameRequestRouting` の追加後に実行していません。Chrome などが未登録 SSRC 宛の PLI / FIR を実際にどの程度送るかも調べていません。

@@ -21,6 +21,8 @@ import {
   createFirPacket,
   createPliPacket,
   createRtcpFeedbackRouter,
+  createSingleVideoSenderRouter,
+  outboundRtpStats,
 } from "../fixture";
 
 describe("media/router", () => {
@@ -120,7 +122,7 @@ describe("media/router", () => {
       expect(rtcpSpies.receiver).not.toHaveBeenCalled();
     });
 
-    test("PLI with an unknown media SSRC is not routed", () => {
+    test("PLI with an unknown media SSRC is not routed when several video senders exist", () => {
       // Arrange
       const { router, senderA, rtcpSpies } = createRtcpFeedbackRouter();
 
@@ -129,10 +131,72 @@ describe("media/router", () => {
         createPliPacket({ senderSsrc: senderA.ssrc, mediaSsrc: 0x12345678 }),
       );
 
-      // Assert: sender SSRC へフォールバックせず、誰にも配送されない
+      // Assert: sender SSRC へフォールバックせず、video sender が複数あるので対象も決められず誰にも配送されない
       Object.values(rtcpSpies).forEach((spy) =>
         expect(spy).not.toHaveBeenCalled(),
       );
+    });
+
+    test("compatible: PLI for the RTX SSRC reaches the sender of the primary stream", () => {
+      // Arrange
+      const { router, senderA, senderB, remoteSsrc, rtcpSpies } =
+        createRtcpFeedbackRouter();
+      const pliOfB = vi.fn();
+      senderB.onPictureLossIndication.subscribe(pliOfB);
+
+      // Act: B の RTX SSRC を media SSRC にした PLI を配送する
+      router.routeRtcp(
+        createPliPacket({ senderSsrc: remoteSsrc, mediaSsrc: senderB.rtxSsrc }),
+      );
+
+      // Assert: RTX SSRC の持ち主 B に PLI として届き、他の stream には届かない
+      expect(pliOfB).toHaveBeenCalledTimes(1);
+      expect(rtcpSpies.senderA).not.toHaveBeenCalled();
+      expect(rtcpSpies.senderC).not.toHaveBeenCalled();
+      expect(rtcpSpies.receiver).not.toHaveBeenCalled();
+    });
+
+    test("compatible: PLI with an unknown media SSRC reaches the only video sender", () => {
+      // Arrange
+      const { router, video, remoteSsrc, rtcpSpies } =
+        createSingleVideoSenderRouter();
+      const pli = vi.fn();
+      video.onPictureLossIndication.subscribe(pli);
+
+      // Act: media SSRC が 0 / 未登録 (古い SSRC 相当) の PLI を、sender SSRC = 受信 stream で配送する
+      router.routeRtcp(
+        createPliPacket({ senderSsrc: remoteSsrc, mediaSsrc: 0 }),
+      );
+      router.routeRtcp(
+        createPliPacket({ senderSsrc: remoteSsrc, mediaSsrc: 0x12345678 }),
+      );
+
+      // Assert: 唯一の video sender に届き、audio sender と sender SSRC の receiver には届かない
+      expect(pli).toHaveBeenCalledTimes(2);
+      expect(rtcpSpies.audio).not.toHaveBeenCalled();
+      expect(rtcpSpies.receiver).not.toHaveBeenCalled();
+    });
+
+    test("strict: PLI is routed only by a registered media SSRC", () => {
+      // Arrange
+      const { router, video, remoteSsrc, rtcpSpies } =
+        createSingleVideoSenderRouter("strict");
+
+      // Act: media SSRC が 0 / RTX SSRC / 自分の SSRC の PLI を順に配送する
+      router.routeRtcp(
+        createPliPacket({ senderSsrc: remoteSsrc, mediaSsrc: 0 }),
+      );
+      router.routeRtcp(
+        createPliPacket({ senderSsrc: remoteSsrc, mediaSsrc: video.rtxSsrc }),
+      );
+      router.routeRtcp(
+        createPliPacket({ senderSsrc: remoteSsrc, mediaSsrc: video.ssrc }),
+      );
+
+      // Assert: 登録済みの media SSRC 宛の 1 件だけが video sender に届く
+      expect(rtcpSpies.video).toHaveBeenCalledTimes(1);
+      expect(rtcpSpies.audio).not.toHaveBeenCalled();
+      expect(rtcpSpies.receiver).not.toHaveBeenCalled();
     });
 
     test("FIR with media SSRC 0 is routed by its FCI SSRC", () => {
@@ -178,6 +242,51 @@ describe("media/router", () => {
       expect(rtcpSpies.senderC).toHaveBeenCalledTimes(1);
       expect(rtcpSpies.senderA).not.toHaveBeenCalled();
       expect(rtcpSpies.receiver).not.toHaveBeenCalled();
+    });
+
+    test("compatible: FIR entries for the RTX SSRC or an unknown SSRC count on the resolved sender", async () => {
+      // Arrange
+      const { router, video, remoteSsrc } = createSingleVideoSenderRouter();
+      const onFir = vi.fn();
+      video.onFullIntraRequest.subscribe(onFir);
+
+      // Act: RTX SSRC 宛と未登録 SSRC 宛のエントリを持つ FIR を 1 つ配送する
+      router.routeRtcp(
+        createFirPacket({
+          senderSsrc: remoteSsrc,
+          fir: [
+            { ssrc: video.rtxSsrc, sequenceNumber: 1 },
+            { ssrc: 0x12345678, sequenceNumber: 1 },
+          ],
+        }),
+      );
+
+      // Assert: 両エントリが video sender に解決され、1 回だけ通知されて firCount に 2 件数えられる
+      expect(onFir).toHaveBeenCalledTimes(1);
+      expect((await outboundRtpStats(video)).firCount).toBe(2);
+    });
+
+    test("strict: FIR entries for an unregistered SSRC are not routed", async () => {
+      // Arrange
+      const { router, video, remoteSsrc, rtcpSpies } =
+        createSingleVideoSenderRouter("strict");
+
+      // Act: RTX SSRC 宛と未登録 SSRC 宛のエントリだけを持つ FIR を配送する
+      router.routeRtcp(
+        createFirPacket({
+          senderSsrc: remoteSsrc,
+          fir: [
+            { ssrc: video.rtxSsrc, sequenceNumber: 1 },
+            { ssrc: 0x12345678, sequenceNumber: 1 },
+          ],
+        }),
+      );
+
+      // Assert: どの endpoint にも配送されず、firCount も増えない
+      Object.values(rtcpSpies).forEach((spy) =>
+        expect(spy).not.toHaveBeenCalled(),
+      );
+      expect((await outboundRtpStats(video)).firCount).toBeUndefined();
     });
 
     test("FIR without entries falls back to a non-zero media SSRC only", () => {

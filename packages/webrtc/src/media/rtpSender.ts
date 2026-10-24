@@ -795,7 +795,15 @@ export class RTCRtpSender {
     this.senderBWE.rtpPacketSent(sentInfo);
   }
 
-  handleRtcpPacket(rtcpPacket: RtcpPacket) {
+  /**
+   * @param firEntries Internal: the FCI entries of a FIR the router resolved to
+   * this sender (see `KeyFrameRequestRouting`). Defaults to the entries for
+   * the own SSRC.
+   */
+  handleRtcpPacket(
+    rtcpPacket: RtcpPacket,
+    firEntries?: FullIntraRequest["fir"],
+  ) {
     switch (rtcpPacket.type) {
       case RtcpSrPacket.type:
       case RtcpRrPacket.type:
@@ -892,9 +900,9 @@ export class RTCRtpSender {
             case FullIntraRequest.count:
               {
                 const feedback = packet.feedback as FullIntraRequest;
-                const entries = feedback.fir.filter(
-                  ({ ssrc }) => ssrc === this.ssrc,
-                );
+                const entries =
+                  firEntries ??
+                  feedback.fir.filter(({ ssrc }) => ssrc === this.ssrc);
                 if (entries.length === 0) break;
 
                 this.firCount += entries.length;

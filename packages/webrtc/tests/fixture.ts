@@ -10,6 +10,7 @@ import {
   RTCIceGatherer,
   RTCIceTransport,
   RTCPeerConnection,
+  type RTCPeerConnectionConfig,
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
   RTCRtpTransceiver,
@@ -22,7 +23,7 @@ import {
   defaultPeerConfig,
 } from "../src";
 import { RTCRtpCodingParameters } from "../src/media/parameters";
-import { RtpRouter } from "../src/media/router";
+import { type KeyFrameRequestRouting, RtpRouter } from "../src/media/router";
 import { RTCRtpReceiver } from "../src/media/rtpReceiver";
 import { RTCRtpSender } from "../src/media/rtpSender";
 
@@ -181,21 +182,8 @@ export const iceTransportPair = async () => {
   return [transport1, transport2];
 };
 
-/**
- * router に送信 stream A / B / C と受信 stream R (sendrecv 相当) を登録する。
- * RTCP feedback の配送先を検証するための Arrange。
- */
-export function createRtcpFeedbackRouter() {
-  const router = new RtpRouter();
-  const createSender = () => {
-    const sender = new RTCRtpSender("video");
-    router.registerRtpSender(sender);
-    return sender;
-  };
-  const senderA = createSender();
-  const senderB = createSender();
-  const senderC = createSender();
-
+/** router に受信 stream R (sendrecv 相当) を SSRC で登録する。 */
+function registerRemoteVideoReceiver(router: RtpRouter) {
   const receiverTransceiver = new RTCRtpTransceiver(
     "video",
     createDtlsTransport(),
@@ -211,7 +199,24 @@ export function createRtcpFeedbackRouter() {
     codecs: [],
     headerExtensions: [],
   });
-  const receiver = receiverTransceiver.receiver;
+  return { receiver: receiverTransceiver.receiver, remoteSsrc };
+}
+
+/**
+ * router に送信 stream A / B / C と受信 stream R (sendrecv 相当) を登録する。
+ * RTCP feedback の配送先を検証するための Arrange。
+ */
+export function createRtcpFeedbackRouter() {
+  const router = new RtpRouter();
+  const createSender = () => {
+    const sender = new RTCRtpSender("video");
+    router.registerRtpSender(sender);
+    return sender;
+  };
+  const senderA = createSender();
+  const senderB = createSender();
+  const senderC = createSender();
+  const { receiver, remoteSsrc } = registerRemoteVideoReceiver(router);
 
   const rtcpSpies = {
     senderA: vi.spyOn(senderA, "handleRtcpPacket"),
@@ -223,6 +228,30 @@ export function createRtcpFeedbackRouter() {
   return { router, senderA, senderB, senderC, receiver, remoteSsrc, rtcpSpies };
 }
 
+/**
+ * video sender 1 本と audio sender 1 本、受信 stream R を登録した router。
+ * target SSRC が未登録の keyframe request の扱い (KeyFrameRequestRouting) を検証する Arrange。
+ */
+export function createSingleVideoSenderRouter(
+  keyFrameRequestRouting: KeyFrameRequestRouting = "compatible",
+) {
+  const router = new RtpRouter();
+  router.keyFrameRequestRouting = keyFrameRequestRouting;
+  const video = new RTCRtpSender("video");
+  const audio = new RTCRtpSender("audio");
+  router.registerRtpSender(video);
+  router.registerRtpSender(audio);
+  const { receiver, remoteSsrc } = registerRemoteVideoReceiver(router);
+
+  const rtcpSpies = {
+    video: vi.spyOn(video, "handleRtcpPacket"),
+    audio: vi.spyOn(audio, "handleRtcpPacket"),
+    receiver: vi.spyOn(receiver, "handleRtcpPacket"),
+  };
+
+  return { router, video, audio, receiver, remoteSsrc, rtcpSpies };
+}
+
 export function createPliPacket(props: {
   senderSsrc: number;
   mediaSsrc: number;
@@ -230,6 +259,14 @@ export function createPliPacket(props: {
   return new RtcpPayloadSpecificFeedback({
     feedback: new PictureLossIndication(props),
   });
+}
+
+/** transceiver の transport から RTCP をそのまま送る (sendRtcpPLI の codec 判定を通さない)。 */
+export function sendRawRtcp(
+  transceiver: RTCRtpTransceiver,
+  packet: RtcpPayloadSpecificFeedback,
+) {
+  return transceiver.dtlsTransport!.sendRtcp([packet]);
 }
 
 export function createFirPacket(props: {
@@ -253,7 +290,9 @@ export async function outboundRtpStats(sender: RTCRtpSender) {
  * werift 同士で sendrecv video を 1 本ずつ接続し、双方が相手の RTP を 1 つ受けた状態にする。
  * 受信側の SSRC と codec が確定するので、PLI を送れる。
  */
-export async function createConnectedSendrecvVideoPeers() {
+export async function createConnectedSendrecvVideoPeers(
+  pc1Config?: RTCPeerConnectionConfig,
+) {
   const connect = (pc: RTCPeerConnection) => {
     const track = new MediaStreamTrack({ kind: "video" });
     const transceiver = pc.addTransceiver(track, { direction: "sendrecv" });
@@ -271,7 +310,7 @@ export async function createConnectedSendrecvVideoPeers() {
     });
     return { transceiver, received };
   };
-  const pc1 = new RTCPeerConnection();
+  const pc1 = new RTCPeerConnection(pc1Config);
   const pc2 = new RTCPeerConnection();
   const peer1 = connect(pc1);
   const peer2 = connect(pc2);

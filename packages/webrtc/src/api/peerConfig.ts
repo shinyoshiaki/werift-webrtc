@@ -18,6 +18,10 @@ import {
 } from "../media";
 import { normalizeCodecMimeType } from "../media/codecCompatibility";
 import type { BundlePolicy } from "../sdp";
+import {
+  type KeyFrameRequestRouting,
+  KeyFrameRequestRoutingModes,
+} from "../media/router";
 import type { MLineReuse } from "../sdpManager";
 import type { DtlsKeys, RTCCertificate } from "../transport/dtls";
 import { DEFAULT_MAX_MESSAGE_SIZE } from "../transport/sctp";
@@ -118,6 +122,12 @@ export interface PeerConfig {
    * - `"aggressive"`: legacy behavior. `inactive` m-lines are also written with port 0.
    */
   mLineReuse: MLineReuse;
+  /**
+   * Where a PLI / FIR goes when no route has its target SSRC. See {@link KeyFrameRequestRouting}.
+   * - `"compatible"` (default): the sender whose RTX SSRC it is, else the only video sender.
+   * - `"strict"`: not delivered, as RFC 4585 / RFC 5104 define the target.
+   */
+  keyFrameRequestRouting: KeyFrameRequestRouting;
 }
 
 const MLineReuseModes: readonly MLineReuse[] = ["compatible", "aggressive"];
@@ -243,6 +253,7 @@ export function generateDefaultPeerConfig(): PeerConfig {
     sctp: { mtu: DEFAULT_SCTP_MTU },
     pendingRtp: false,
     mLineReuse: "compatible",
+    keyFrameRequestRouting: "compatible",
   };
 }
 export const defaultPeerConfig: PeerConfig = generateDefaultPeerConfig();
@@ -393,6 +404,17 @@ export function mergePeerConfiguration(
   ) {
     throw createWebRtcTypeError(
       `mLineReuse must be one of ${MLineReuseModes.join(", ")}`,
+    );
+  }
+
+  if (
+    normalizedConfig.keyFrameRequestRouting !== undefined &&
+    !KeyFrameRequestRoutingModes.includes(
+      normalizedConfig.keyFrameRequestRouting,
+    )
+  ) {
+    throw createWebRtcTypeError(
+      `keyFrameRequestRouting must be one of ${KeyFrameRequestRoutingModes.join(", ")}`,
     );
   }
 

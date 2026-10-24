@@ -176,6 +176,16 @@ such as google cloud run
 
 ***
 
+### keyFrameRequestRouting
+
+> **keyFrameRequestRouting**: [`KeyFrameRequestRouting`](../type-aliases/KeyFrameRequestRouting.md)
+
+Where a PLI / FIR goes when no route has its target SSRC. See [KeyFrameRequestRouting](../type-aliases/KeyFrameRequestRouting.md).
+- `"compatible"` (default): the sender whose RTX SSRC it is, else the only video sender.
+- `"strict"`: not delivered, as RFC 4585 / RFC 5104 define the target.
+
+***
+
 ### maxMessageSize
 
 > **maxMessageSize**: `number`
