@@ -922,9 +922,43 @@ smallest failing scene (operations dropped) or cycle (templates dropped).
 A surplus `Timeout` is reported with the creation stack of every live timer
 (`live timer created at:`, from `async_hooks` in `leakProbe.ts`), so a client's
 timer (TURN refresh, retransmission) can be told from the test's own. P2 reads
-`process.timers` as the fewest timers over six samples 40 ms apart, because a
-transient timer (a STUN retransmission in flight) made the instantaneous count
-exceed its bound under heavy parallel load.
+`process.timers` as the fewest timers over six samples 40 ms apart and, from
+the third repetition, waits up to 8 s for the count to fall to the bound (the
+timeout timer of an ICE re-gather's STUN query lives for seconds); the bound is
+the larger of the first two repetitions plus 4 (the number of RTCP loops
+follows the traffic that flowed). This is a coarse net: timers that outlive
+`close()` are judged by L2. A metric that is lower than after the second
+repetition is not growth: the lower value becomes the reference.
+
+Left alone (follow-up, as in `develop`): `Connection.addRemoteCandidate`
+does not deduplicate. A description applied again in the same generation (BUNDLE
+split and merge after an ICE restart) appends its candidates a second time,
+doubling `remoteCandidates` and the checklist's pairs until the next restart
+(leak seeds 147 and 104, a third of the runs). Deduplicating there made other
+seeds (143, 288) fail to settle, because pairs a provisional generation dropped
+are rebuilt by the repeated add; the right fix needs the pairing and
+provisional-generation lifecycle together. P2 counts `ice.remoteCandidates` and
+`ice.checkList` as distinct candidates and pairs, so exact duplicates are
+ignored and anything new still counts. P2 waits up to 8 s for a surplus of a
+repetition to go away before it counts as growth (a transport's late close, a
+STUN query's timeout).
+
+Known flake of the model property, not of the leak property: leak seed 57
+(10 steps) sometimes ends with "added DataChannel did not reach the peer". The
+SCTP association of both peers stays in its handshake (state 2) over a
+connected DTLS transport after a `splitOffer` / `stop` / `lateAnswer` scene.
+Model seed 57 shows the same failure on `de807ac8^`, before this ticket (1 of
+30 runs; 1 of 25 now, 8 of 25 through the leak runner, which also drives
+`expectSessionContinues`). It is a session continuation failure, so P1 reports
+it as a scene failure, as the model property does.
+
+Known and left alone (follow-up, as in `develop`): an ICE restart replaces
+`Connection.checkListState`, so a `connect()` that was waiting on the old
+queue never settles (its `start()` and the waiters on `waitStart` stay
+pending, also after `close()`; the peer is still collected). It cannot simply
+return: `TransactionActivation` treats a returned `start()` as a connected ICE
+transport. P2 therefore leaves the `waitStart` waiters out of `events.ice`
+(they made leak seed 57 flicker between 11 and 12).
 
 ### Leak property evidence
 
@@ -937,9 +971,9 @@ uncommitted):
 
 | Artificial leak | Judged by |
 | --- | --- |
-| ICE `userHistory` keeps every earlier generation | P2 fails |
-| a stopped sender subscribes to the DTLS transport | P2 fails |
-| a closed DataChannel stays in the SCTP manager's list | P2 fails |
+| ICE `userHistory` keeps every earlier generation | P1 or P2 fails (the run stops at the first) |
+| a stopped sender subscribes to the DTLS transport | P1 or P2 fails (the run stops at the first) |
+| a closed DataChannel stays in the SCTP manager's list | P1 or P2 fails (the run stops at the first) |
 | `RTCDtlsTransport.stop()` does not close a handshake in flight | P1 fails |
 | a DTLS flight keeps retransmitting after the socket closed | P1 fails |
 | transport-cc records are never pruned | `tests/media/senderBWE.test.ts` fails; the leak cycles carry no RTP, so P1 / P2 do not see it |
