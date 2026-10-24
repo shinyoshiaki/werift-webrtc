@@ -70,19 +70,29 @@ setConfiguration({ iceServers })                           // peerConnection.ts:
 
 1. **`generateDefaultPeerConfig()` の `iceServers` 既定値を `[]` にする**（A を除去）
    - `getConfiguration().iceServers` が既定で `[]` を返すようになり、W3C の既定値と一致する。
-2. **RTCPeerConnection から ICE 層へ「STUN なし」を明示的に渡す**（B を webrtc 経路で無効化）
-   - `iceServers` に STUN URL が無いときに、`Connection` が Google STUN で補わない仕組みが要る。方針は §4 で比較し、方針 1 を推奨する。
-   - constructor（`createTransport` → `new RTCIceGatherer`）、`setConfiguration` → `updateIceServers` → `setIceServers`、`deferIceServers` → ICE restart 時の `setIceServers` の **3 経路すべて** で同じ意味になること。
+2. **RTCPeerConnection の経路で Google STUN が補われないようにする**（B の除去）
+   - §3.2 で ice 層の補完そのものを廃止するので、webrtc 層で新しいフラグを渡す必要はない。`resolveIceServerOptions()` は今と同じく `stunServer: undefined` を渡せばよい（§4 の決定事項を参照）。
+   - constructor（`createTransport` → `new RTCIceGatherer`）、`setConfiguration` → `updateIceServers` → `setIceServers`、`deferIceServers` → ICE restart 時の `setIceServers` の **3 経路すべて** で同じ意味になることをテストで確かめる。
 3. Google STUN を使い続けたい利用者は、`iceServers: [{ urls: "stun:stun.l.google.com:19302" }]` を明示的に指定して使う（オプトイン）。専用の非標準フラグは基本的に追加しない（必要なら別チケットで検討）。
 
-### 3.2 ice 層（方針によって変わる）
+### 3.2 ice 層（決定: 補完を廃止する。`werift-ice` の破壊的変更）
 
-- 推奨の方針 1 では、`Connection` の `DEFAULT_STUN_SERVER` による補完をやめる（`werift-ice` の破壊的変更）。
-- `getGlobalIp()`（C）は呼び出し側が明示的に呼ぶユーティリティなので、対象外にしてよい。ただし方針をそろえるなら、引数を必須にするか、既定値を JSDoc に明記するかを判断する。
+1. `packages/ice/src/ice.ts`
+   - 定数 `DEFAULT_STUN_SERVER` とそのコメントを削除する。
+   - `applyStunTurnServersFromOptions()` を `this.stunServer = validateAddress(this.options.stunServer);` に変える。JSDoc の「default identically」を「`stunServer` を省略したら STUN を使わない」という説明に直す。
+2. `packages/ice/src/iceBase.ts` の `IceOptions.stunServer`（289 行目）に JSDoc を付ける: 「省略した場合は STUN を使わず、srflx 候補を収集しない。既定の公開 STUN サーバは無い」。
+3. テストの回避コードを片付ける（既定値をなくせば不要になる）
+   - `packages/ice/tests/utils.ts` の `createTestConnection()` で、直後に `connection.stunServer = options.stunServer;` を代入して既定値を打ち消している行を削除する。
+   - `packages/ice/tests/ice/consent-restart.test.ts:25,27` の `a.stunServer = undefined` / `b.stunServer = undefined` を削除する。
+4. `getGlobalIp()`（C）は変更しない。「公開 IP を STUN で問い合わせる」と明示的に呼ぶユーティリティであり、`Connection` の暗黙の通信とは性質が違うため。ただし JSDoc に「`stunServer` を省略すると `stun.l.google.com:19302` を使う」と明記する。
+5. バージョン: `werift-ice` は 0.x なので、破壊的変更は minor を上げて `0.2.3` → `0.3.0` とする。`werift` 本体も既定の挙動が変わるので minor を上げる（`0.25.x` → `0.26.0`）。実際のリリース作業はこのチケットの対象外とし、CHANGELOG に方針を書くまでにとどめる。
 
 ### 3.3 ドキュメント・CHANGELOG
 
-- `changelog.md` の `## Unreleased` → `### ⚠️ Breaking changes` に追記する。「`iceServers` 未指定・`[]`・TURN のみの場合に Google STUN を暗黙に使わなくなった。従来の挙動に戻すには `iceServers: [{ urls: "stun:stun.l.google.com:19302" }]` を明示する」と移行方法も書く（方針 1 なら `werift-ice` の `Connection` の既定値変更も書く）。
+- `changelog.md` の `## Unreleased` → `### ⚠️ Breaking changes` に次の 2 項目を追記する。
+  - **`werift`**: `iceServers` を指定しない場合、`[]` の場合、TURN のみの場合に、Google STUN を暗黙に使わなくなった。`getConfiguration().iceServers` の既定値も `[]` になった。移行方法: 従来の挙動に戻すには `iceServers: [{ urls: "stun:stun.l.google.com:19302" }]` を明示する。
+  - **`werift-ice`**: `Connection` は、`stunServer` を省略したときに `stun.l.google.com:19302` で補わなくなった。`setIceServers({ stunServer: undefined })` も STUN なしを意味する。移行方法: `stunServer: ["stun.l.google.com", 19302]` を明示する。
+  - あわせて `### 📦 Packaging / versions` に、§3.2 で決めたバージョンの方針を書く。
 - `PeerConfig.iceServers` / `RTCConfiguration.iceServers` の JSDoc に既定値 `[]` を明記する（`npm run doc` で `doc/interfaces/PeerConfig.md` などを再生成する）。
 - `docs/browser-api-compatibility.md` の `RTCConfiguration` の項目に、既定値の扱いが W3C に準拠したことを必要に応じて追記する。
 - `website/docs/doc1.md` に古い `iceConfig: { stunServer: [...] }` の記述がある。今回の対象外だが、ついでに直すかどうか判断する。
@@ -90,15 +100,29 @@ setConfiguration({ iceServers })                           // peerConnection.ts:
 
 ## 4. 技術的な方針
 
-### 「STUN なし」の伝え方の比較
+### 決定事項: ice 層の既定値を廃止する（方針 1 を採用）
 
-| 方針 | 内容 | 長所 | 短所 |
-|------|------|------|------|
-| **1. ice 層の既定値を廃止（推奨）** | `applyStunTurnServersFromOptions()` を `this.stunServer = validateAddress(this.options.stunServer)` にし、`DEFAULT_STUN_SERVER` を削除する | 最小の変更。2 層の意味がそろう。`setIceServers()` の「undefined を明示的に代入して置き換える」という既存の方針（コメントあり）とも整合する | `werift-ice` を直接使い、`stunServer` を省略していた利用者には破壊的変更になる。ice のテストや examples で既定値に頼っている箇所を確認する必要がある |
-| 2. ice 層に既定値を残し、オプトアウトを追加 | `IceOptions` に `useDefaultStunServer?: boolean`（既定 `true`）か `stunServer: null`（「なし」の明示）を追加し、webrtc 層は常にオプトアウトして渡す | `werift-ice` 単体の互換性を保てる（issue でも「低レベル ICE API は既定値を残してもよい」とされている） | オプション経路が増える。`setIceServers()` はサーバ関連のフィールドを丸ごと置き換えるので、新しいフラグも置き換え対象に含めないと状態が残る。`null` を使う場合は `Address \| null` の型変更が `validateAddress` などに波及する |
+| 方針 | 内容 | 判定 |
+|------|------|------|
+| **1. ice 層の既定値を廃止** | `DEFAULT_STUN_SERVER` を削除し、`stunServer` を省略したら STUN なしにする | **採用** |
+| 2. ice 層に既定値を残し、オプトアウトを追加 | `IceOptions` に `useDefaultStunServer?: boolean` か `stunServer: null` を追加し、webrtc 層は常にオプトアウトする | 不採用 |
 
-- 推奨理由: このリポジトリは werift 一式（webrtc の公開 API）が主体である。`werift-ice` を直接使う利用者の多くは、examples のように `stunServer` を明示している（`packages/ice/examples/*`、`packages/dtls/examples/ice/*`）。暗黙の外部通信をなくすというプライバシー上の目的とも一貫する。
-- 方針 2 を選ぶ場合は、webrtc 側で `resolveIceServerOptions()` が常にオプトアウトのフラグを返すようにし、`updateIceServers()` / `deferIceServers()` の経路でも同じフラグが渡ることをテストで固定する。
+採用の根拠（コードベースの調査結果）:
+
+1. **`stunServer: undefined` は既に「STUN なし」の意味で使われていて、既定値はそれと矛盾している。**
+   - `packages/ice/tests/utils.ts` の `createTestConnection()` は、構築した直後に `connection.stunServer = options.stunServer` を代入して既定値を打ち消している。
+   - `consent-restart.test.ts:25,27` も「外部 STUN 不要」として `a.stunServer = undefined` を手で代入している。
+   - `turn.test.ts`、`turn-late-candidate.test.ts`、`pion-turn.integration.test.ts`、`ice.test.ts:808,881`、`setIceServers.test.ts` は `stunServer: undefined` を明示して渡しているが、実際は Google STUN に置き換わっている。
+   - webrtc 層の `setIceServers()` のコメントも、「サーバ関連のフィールドは undefined でも明示的に代入して置き換える（W3C の setConfiguration は置き換えで、マージしない）」としている。undefined を既定値に戻すのはこの意図と食い違う。
+2. **プライバシー上の問題は `werift-ice` を直接使う利用者にも同じようにある。** webrtc 層だけを直して ice 層に暗黙の外部通信を残すと、問題が半分しか解決しない。
+3. **方針 2 は状態と経路が増える。** `setIceServers()` はサーバ関連のフィールドを丸ごと置き換えるので、新しいフラグも置き換え対象に加え、constructor、`updateIceServers()`、`deferIceServers()` → restart の 3 経路すべてで渡す必要がある。`null` を使う案は `Address | null` の型変更が `validateAddress` などに広がる。方針 1 は実質 1 行の変更で、webrtc 層で新しいフラグを受け渡す必要もない（webrtc 層の変更は §3.1 の `PeerConfig` の既定値だけ）。
+4. **互換性の影響は限定的で、semver でも許容できる。**
+   - `werift-ice` は `0.2.3`（0.x）であり、CHANGELOG にも過去に lower-level パッケージの挙動変更を記載した例がある。
+   - リポジトリ内の利用箇所（`packages/ice/examples/*`、`packages/dtls/examples/ice/*`、`packages/dtls/tests/e2e/ice.test.ts`）は srflx が必要な所ではすべて `stunServer` を明示している。
+   - `ice_turn.ts` は `forceTurn: true` なので STUN を使わない。
+   - `createConsentHarness` / `createTcpCheckHarness` の `new Connection(true)` は収集をしないので影響しない。
+   - 外部の利用者は `stunServer` を明示するだけで移行できる（CHANGELOG に書く）。
+5. issue でも「低レベル API は既定値を残してもよい」とあるだけで必須ではない。webrtc 層の意味がそろうことが主な要求であり、方針 1 はそれを満たす。
 
 ### `deepMerge` の挙動（確認済み）
 
@@ -113,8 +137,10 @@ setConfiguration({ iceServers })                           // peerConnection.ts:
 - **破壊的変更**: 既定で srflx 候補が出なくなる。NAT 越しにインターネット経由で接続していて、`iceServers` を指定していなかった利用者は疎通できなくなる可能性がある。CHANGELOG の Breaking changes に移行方法を必ず書く。
 - **既存テストへの影響**:
   - `packages/webrtc/tests` には `new RTCPeerConnection()` / `new RTCPeerConnection({ iceServers: [] })` を使うテストが多い（`tests/utils.ts:21`、`tests/issue/705.helpers.ts` など）。現在は `[]` でも裏で Google STUN を引いているので、修正後は外部通信と STUN の待ちがなくなる。gather 完了のタイミングが早くなり、タイミングに依存したテストの結果が変わる可能性がある。
-  - `packages/ice/tests/utils.ts:243,443` などの `new Connection(true)`（STUN 未指定）は、方針 1 では STUN なしになる。srflx を期待するテストが無いか確認する。
+  - `packages/ice/tests/utils.ts:243,443` の `new Connection(true)`（STUN 未指定）は STUN なしになる。どちらも収集をしない consent / TCP 用のハーネスなので影響はない見込み。srflx を期待するテスト（`restart-gather.test.ts` など）はローカルの STUN を明示しているので影響しない。
+  - `stunServer: undefined` を渡していた ice のテスト（`turn.test.ts`、`turn-late-candidate.test.ts`、`ice.test.ts:808,881` など）は、本当に STUN なしで動くようになる。今まで裏で Google STUN を待っていた分のタイミングが変わるので、全件通ることを確認する。
   - `packages/ice/tests/ice/setIceServers.test.ts` は `stunServer: undefined` での構築を含む。修正後は `connection.stunServer` が `undefined` になることを assert に加える。
+- **`werift-ice` の破壊的変更**: `Connection` を直接使い、`stunServer` を省略して srflx を得ていた外部の利用者は、srflx 候補を得られなくなる。CHANGELOG に移行方法を書き、minor を上げる（§3.2）。
   - e2e（`e2e/tests/**`）は多くが `iceServers: [{ urls: "stun:stun.l.google.com:19302" }]` を明示しているので影響は小さい見込み。それでも最終確認として `npm run e2e` を実行する。
 - **`iceTransportPolicy: "relay"` との関係**: relay のみの構成は `gatherRelayOnly` で STUN を飛ばしている。今回の変更でこの挙動は変わらないことを確認する。
 - **ICE restart / `deferIceServers`**: gather 済みのトランスポートは `nextGatherIceServers` を次の restart で適用する。restart 後も「STUN なし」が保たれ、Google STUN に戻らないことを確認する。
@@ -134,7 +160,8 @@ AGENTS.md の規約（Arrange / Act / Assert の 3 フェーズ、Act と Assert
 | 4 | STUN を明示 | 同上 | `connection.stunServer` が指定したアドレスになる。指定したホストだけが lookup される |
 | 5 | `setConfiguration()` で TURN のみに変更（gather 前） | 既存の `gathering 前の setConfiguration が Connection に TURN を反映する` を拡張 | `ice.connection.stunServer` が `undefined` のまま |
 | 6 | ICE restart 後も同じ扱い | 既存の `ICE restart 後 gatheringState が new なら…` を拡張 | restart 後の `stunServer` が `undefined`。`getConfiguration().iceServers` と実際の挙動が一致する |
-| 7 | ice 層: `new Connection(true)` / `setIceServers({ stunServer: undefined })` | `packages/ice/tests/ice/setIceServers.test.ts` | （方針 1）`stunServer` が `undefined`（方針 2）既定値が残り、オプトアウト時は `undefined` |
+| 7 | ice 層: `new Connection(true)` / `new Connection(true, { stunServer: undefined })` / STUN あり → `setIceServers({ stunServer: undefined })` | `packages/ice/tests/ice/setIceServers.test.ts` | いずれも `connection.stunServer` が `undefined` |
+| 8 | ice 層: STUN なしで gather | `packages/ice/tests/ice/`（新規または既存のファイル） | `stubLookup` で DNS lookup が 0 回。host 候補だけで収集が完了し、`stunGatherTimeout` を待たない |
 
 - 任意: WPT の `webrtc/RTCConfiguration-iceServers.html` は現在 `packages/webrtc/wpt/allowlist.json` に入っていない。既定値 `[]` を検証できるか確認し、通るなら allowlist に追加して `npm run wpt --workspace packages/webrtc` を実行する（追加しない場合は理由を残す）。
 
@@ -144,7 +171,9 @@ AGENTS.md の規約（Arrange / Act / Assert の 3 フェーズ、Act と Assert
 - [ ] TURN のみの `iceServers` で、設定した TURN だけを使い（Allocate が発生）、Google STUN を名前解決も通信もしない
 - [ ] STUN を明示したとき、そのエンドポイントだけを使う
 - [ ] constructor、`setConfiguration()`（gather 前）、ICE restart（`deferIceServers` 経由）のすべてで同じ扱いになる
-- [ ] ice 層の方針（既定値の廃止、またはオプトアウトの追加）を決めて実装し、`setIceServers.test.ts` などで挙動を固定する
+- [ ] ice 層の `DEFAULT_STUN_SERVER` を削除し、`stunServer` を省略・`undefined` にしたら STUN なしになる。`IceOptions.stunServer` の JSDoc にそう明記する
+- [ ] テストの回避コード（`createTestConnection` の再代入、`consent-restart.test.ts` の手動 `undefined` 代入）を削除しても ice のテストが通る
+- [ ] `getGlobalIp()` の JSDoc に、省略時は Google STUN を使うことを明記する（挙動は変えない）
 - [ ] §6 のテストを Arrange / Act / Assert と日本語コメント付きで追加し、外部ネットワークに依存せずに通る
 - [ ] `changelog.md` の Unreleased / Breaking changes に移行方法付きで追記する。JSDoc と生成ドキュメント（`npm run doc`）を更新する
 - [ ] `npm run type` と `npm run test:small` が通る。ice / webrtc にまたがる変更なので `npm run ci` も通る
