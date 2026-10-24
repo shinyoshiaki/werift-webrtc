@@ -68,13 +68,13 @@ reviewable diff does not depend on external PR text.
 
 ### connectionStateChange
 
-> `readonly` **connectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"failed"` \| `"connecting"`\]\>
+> `readonly` **connectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"disconnected"` \| `"failed"`\]\>
 
 ***
 
 ### iceConnectionStateChange
 
-> `readonly` **iceConnectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`\]\>
+> `readonly` **iceConnectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"new"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"failed"` \| `"checking"`\]\>
 
 ***
 
@@ -87,18 +87,6 @@ reviewable diff does not depend on external PR text.
 ### id
 
 > `readonly` **id**: `string`
-
-***
-
-### needRestart
-
-> **needRestart**: `boolean` = `false`
-
-***
-
-### negotiationneeded
-
-> **negotiationneeded**: `boolean` = `false`
 
 ***
 
@@ -271,11 +259,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **connectionState**(): `"closed"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"failed"` \| `"connecting"`
+> **get** **connectionState**(): `"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"disconnected"` \| `"failed"`
 
 ##### Returns
 
-`"closed"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"failed"` \| `"connecting"`
+`"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"disconnected"` \| `"failed"`
 
 ***
 
@@ -331,11 +319,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **iceConnectionState**(): `"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`
+> **get** **iceConnectionState**(): `"closed"` \| `"new"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"failed"` \| `"checking"`
 
 ##### Returns
 
-`"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`
+`"closed"` \| `"new"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"failed"` \| `"checking"`
 
 ***
 
@@ -396,6 +384,62 @@ v13.6.0, v12.17.0
 ##### Returns
 
 `null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+
+***
+
+### needRestart
+
+#### Get Signature
+
+> **get** **needRestart**(): `boolean`
+
+A `restartIce()` request that no committed negotiation satisfied yet.
+
+##### Returns
+
+`boolean`
+
+#### Set Signature
+
+> **set** **needRestart**(`value`): `void`
+
+##### Parameters
+
+###### value
+
+`boolean`
+
+##### Returns
+
+`void`
+
+***
+
+### negotiationneeded
+
+#### Get Signature
+
+> **get** **negotiationneeded**(): `boolean`
+
+W3C [[NegotiationNeeded]].
+
+##### Returns
+
+`boolean`
+
+#### Set Signature
+
+> **set** **negotiationneeded**(`value`): `void`
+
+##### Parameters
+
+###### value
+
+`boolean`
+
+##### Returns
+
+`void`
 
 ***
 
@@ -871,6 +915,11 @@ v0.1.26
 
 > **close**(): `Promise`\<`void`\>
 
+`"closed"` is final: a description operation that close() overtook
+rejects with InvalidStateError and changes nothing more, and every
+transport only the negotiation holds (proposal, pending-only, prepared)
+stops with the live ones.
+
 #### Returns
 
 `Promise`\<`void`\>
@@ -880,6 +929,8 @@ v0.1.26
 ### createAnswer()
 
 > **createAnswer**(): `Promise`\<[`RTCSessionDescription`](RTCSessionDescription.md)\>
+
+W3C operations chain: createAnswer is ordered with SLD/SRD calls.
 
 #### Returns
 
@@ -909,11 +960,15 @@ v0.1.26
 
 ### createOffer()
 
-> **createOffer**(`__namedParameters`): `Promise`\<[`RTCSessionDescription`](RTCSessionDescription.md)\>
+> **createOffer**(`options`): `Promise`\<[`RTCSessionDescription`](RTCSessionDescription.md)\>
+
+W3C operations chain: createOffer runs after every earlier description
+operation, so an offer it produces cannot invalidate a setLocalDescription
+that was called before it.
 
 #### Parameters
 
-##### \_\_namedParameters
+##### options
 
 ###### iceRestart?
 
@@ -1946,6 +2001,17 @@ v0.1.26
 
 > **setLocalDescription**(`sessionDescription`): `Promise`\<`void`\>
 
+Applying a created description is built only from its SDP and its
+generation record (`createdOffer`, the ICE generations registered on the
+transports), never from state kept elsewhere, so a description may be
+applied later or again (after other descriptions were created, after a
+rollback, as a replacement). First the proposal: parse, plan the MID /
+m-line assignments, validate every m-line's credentials against its
+transport and stage the transports the topology needs. Only after all of
+that passed are pending descriptions retired, assignments written and
+each transport switched to the generation the SDP carries, so a failure
+leaves the peer exactly as it was.
+
 ##### Parameters
 
 ###### sessionDescription
@@ -1961,6 +2027,17 @@ v0.1.26
 #### Call Signature
 
 > **setLocalDescription**(`sessionDescription`?): `Promise`\<[`SessionDescription`](SessionDescription.md)\>
+
+Applying a created description is built only from its SDP and its
+generation record (`createdOffer`, the ICE generations registered on the
+transports), never from state kept elsewhere, so a description may be
+applied later or again (after other descriptions were created, after a
+rollback, as a replacement). First the proposal: parse, plan the MID /
+m-line assignments, validate every m-line's credentials against its
+transport and stage the transports the topology needs. Only after all of
+that passed are pending descriptions retired, assignments written and
+each transport switched to the generation the SDP carries, so a failure
+leaves the peer exactly as it was.
 
 ##### Parameters
 

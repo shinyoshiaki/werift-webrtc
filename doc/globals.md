@@ -436,6 +436,7 @@
 - [makeIntegrityKey](functions/makeIntegrityKey.md)
 - [microTime](functions/microTime.md)
 - [milliTime](functions/milliTime.md)
+- [negotiateRemoteCodecs](functions/negotiateRemoteCodecs.md)
 - [nodeIpAddress](functions/nodeIpAddress.md)
 - [normalizeCodecMimeType](functions/normalizeCodecMimeType.md)
 - [normalizeFamilyNodeV18](functions/normalizeFamilyNodeV18.md)

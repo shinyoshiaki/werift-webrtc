@@ -110,17 +110,17 @@
 
 ***
 
-### negotiatedBundleTag
+### negotiatedBundleTags
 
 #### Get Signature
 
-> **get** **negotiatedBundleTag**(): `undefined` \| `string`
+> **get** **negotiatedBundleTags**(): `string`[]
 
-確定済み answer の BUNDLE tag (先頭 MID)
+確定済み answer の BUNDLE tag (各 group の先頭 MID)
 
 ##### Returns
 
-`undefined` \| `string`
+`string`[]
 
 ***
 
@@ -150,7 +150,7 @@
 
 ### addTransportDescription()
 
-> **addTransportDescription**(`media`, `dtlsTransport`): `void`
+> **addTransportDescription**(`media`, `dtlsTransport`, `__namedParameters`): `void`
 
 トランスポートの情報をMediaDescriptionに追加
 
@@ -163,6 +163,12 @@
 ##### dtlsTransport
 
 [`RTCDtlsTransport`](RTCDtlsTransport.md)
+
+##### \_\_namedParameters
+
+###### applied?
+
+`boolean` = `false`
 
 #### Returns
 
@@ -188,6 +194,22 @@
 
 ***
 
+### applyRemoteDescription()
+
+> **applyRemoteDescription**(`remoteSdp`): `void`
+
+#### Parameters
+
+##### remoteSdp
+
+[`SessionDescription`](SessionDescription.md)
+
+#### Returns
+
+`void`
+
+***
+
 ### buildAnswerSdp()
 
 > **buildAnswerSdp**(`__namedParameters`): [`SessionDescription`](SessionDescription.md)
@@ -209,6 +231,10 @@
 ###### transceivers
 
 [`RTCRtpTransceiver`](RTCRtpTransceiver.md)[]
+
+###### transportByMid?
+
+`Map`\<`string`, [`RTCDtlsTransport`](RTCDtlsTransport.md)\>
 
 #### Returns
 
@@ -383,7 +409,7 @@ port は 0、proto と MID は元の m-line を保ち、fmt は少なくとも 1
 
 ### setLocal()
 
-> **setLocal**(`description`, `transceivers`, `sctpTransport`?): `void`
+> **setLocal**(`description`, `transceivers`, `sctpTransport`?, `transportByMid`?): `void`
 
 ローカルセッション記述を設定し、トランスポート情報を追加する
 
@@ -406,6 +432,10 @@ port は 0、proto と MID は元の m-line を保ち、fmt は少なくとも 1
 ###### mid?
 
 `string`
+
+##### transportByMid?
+
+`Map`\<`string`, [`RTCDtlsTransport`](RTCDtlsTransport.md)\>
 
 #### Returns
 
@@ -446,3 +476,23 @@ port は 0、proto と MID は元の m-line を保ち、fmt は少なくとも 1
 #### Returns
 
 `undefined` \| [`SessionDescription`](SessionDescription.md)
+
+***
+
+### validateRemoteDescription()
+
+> **validateRemoteDescription**(`remoteSdp`): `void`
+
+状態を変更する前の remote description の検証。失敗時は signaling state /
+descriptions を保つ。answer / pranswer は pending local offer と共通 codec を持つ。
+(re-offer による BUNDLE の分割・統合は negotiation transaction が staged topology として扱う)
+
+#### Parameters
+
+##### remoteSdp
+
+[`SessionDescription`](SessionDescription.md)
+
+#### Returns
+
+`void`
