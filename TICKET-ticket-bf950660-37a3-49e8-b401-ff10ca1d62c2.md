@@ -96,6 +96,7 @@ R1〜R6 はすべて実施済み。4 章は実装方針の記録として残す�
 
 - 環境メモ: ホスト共有の `~/.cache/ms-playwright` が別プロセスにより実行中に削除されるため、Playwright 系は `PLAYWRIGHT_BROWSERS_PATH=/tmp/pw-browsers` で実行した。
 - 環境メモ: コンテナに ssh がないため submodule remote への push はできない。submodule のコミットと親 gitlink の更新は完了している。
+- `npm audit` の残りは今回の更新前から存在する推移的依存（`ring-client-api` が公開済み `werift` に依存する `ip` など）で、このブランチでは強制更新しない。
 
 ## 5. 制約・注意点
 
