@@ -11,12 +11,13 @@
 
 ### 2.1 リリース対象と PR の向き先
 
-- **対象リリースは `v0.26.0`** とし、**PR の base は `rc/0.26.0`** にする。
-  - 根拠: このリポジトリでは、破壊的変更を含む変更は `rc/0.26.0` に入れ（例: #772 は `SCTP.outboundQueue` の型変更、#777）、非破壊の修正は `develop` に入れて `0.25.x` パッチとして出している（例: #776、#778）。`rc/0.26.0` の `changelog.md` には、すでに `## Unreleased` / `### ⚠️ Breaking changes` 節がある。
-  - 今回は、下記のとおり `CipherContext.localPrivateKey` の型変更と `debug` の挙動変更という破壊的変更を含むため、`0.25.x` のパッチには入れない。
-- チケットブランチは `develop`（v0.25.2）から作られている。そのため PR を作る前に `rc/0.26.0` へ rebase するか、`rc/0.26.0` をマージして追従する（`rc/0.26.0` は `develop` より 159 コミット先行）。`package-lock.json` が衝突した場合は、手で直さず `npm install` で再生成する。
-- `develop` 向けに開いている dependabot PR（#779 body-parser / #780 undici（いずれも examples）、#781 `@vitest/browser`（e2e））と対象が重なる。今回の PR がマージされたら、これらは不要として close する（PR 本文にそのことを書く）。
-- 公開パッケージの版: `werift` は 0.26.0。`werift-dtls` と `werift-common` も公開 API が変わるので、次の公開時にマイナー版を上げる（0.x 系ではマイナー更新が破壊的変更を意味する）。
+- **PR の base は `develop`** とする（ユーザー決定）。リリース対象は、`develop` から出す次のリリースとする。
+- 前提となる現状（2026-10-24 時点で確認）:
+  - `rc/0.26.0` はすでに `develop` にマージ済み（`96f22931 Merge branch 'rc/0.26.0' into develop`）で、現時点では `develop` と `rc/0.26.0` が同じコミットを指している。そのため `develop` に向けても、0.26.0 系の変更（`SCTP.outboundQueue` の型変更など）を取りこぼすことはない。
+  - チケットブランチは `5606629f` で `rc/0.26.0` を取り込み済みだが、`develop` より 10 コミット遅れている（#782 など）。PR を作る前に `develop` をマージして追従する。`package-lock.json` が衝突した場合は、手で直さず `npm install` で再生成する。
+- 版番号: リリース時に決める。今回は破壊的変更（2.2 / 2.3）を含むため、**0.25.x のパッチではなく、0.x のマイナー更新（0.26.0 相当）にする**ことを PR 本文に明記する。`werift-dtls` と `werift-common` も公開 API が変わるので、次の公開時にマイナー版を上げる。
+- changelog: `develop` の `changelog.md` の先頭は公開済みの `## v0.25.2` である（npm の `werift@latest` も 0.25.2）。この節には追記せず、先頭に **`## Unreleased`** 節を新設してそこに書く。版番号の見出しへの書き換えはリリース作業で行う。
+- `develop` 向けに開いている dependabot PR のうち、今回の更新対象と重なるもの（#742 / #781 e2e の `@vitest/browser` 系、#769 / #770 `packages/ice-server/chrome-e2e` の vitest 系、#779 undici / #780 body-parser（いずれも examples））は、今回の PR がマージされたら不要として close する。PR 本文にもそのことを書く。
 
 ### 2.2 `CipherContext.localPrivateKey` の型変更 → 破壊的変更として受け入れる。互換ラッパーは作らない
 
@@ -25,7 +26,7 @@
   - リポジトリ内（`packages/*/src`、`examples`、`e2e`、`integration`）で、`localPrivateKey` を `CipherContext` の外から触る箇所はない。値を設定するのは内部の `parseX509()` だけで、読むのも同じクラス内の `signatureData()` / `generateKeySignature()` だけ。利用者が普段使う API（`RTCPeerConnection`、`RTCCertificate`、`DtlsClient` / `DtlsServer` の `cert` / `key` に PEM 文字列を渡す使い方）には影響しない。
   - `@fidm/x509` の `PrivateKey` には `toPEM()` / `sign()` 以外にも多くのメンバー（`version`、`oid`、`algo`、`keyRaw`、`publicKeyRaw`、`toASN1()`、`toDER()`、`toJSON()`）がある。2 メソッドだけのラッパーでは型の互換性を保てず、「互換っぽく見えて実は違う」中途半端な状態になる。
   - ラッパーを公開型にすると、独自の鍵クラスという保守対象が増え、依存を減らすという目的に反する。
-  - 0.26.0 はもともと破壊的変更を含むリリースである（`SCTP.outboundQueue` の型変更）。
+  - `develop` の次のリリースには、すでに破壊的変更（`SCTP.outboundQueue` の型変更）が含まれており、もともとマイナー更新になる。
 - 互換性を保つもの（変えない）:
   - `RTCCertificate.publicKey` / `privateKey`: PEM 文字列のまま。`privateKey` は PKCS#8（`-----BEGIN PRIVATE KEY-----`）で出力し、改行コードなどの形式も従来と同等にする。現行の出力とテストで比較する。
   - `CipherContext.localCert`: DER の `Buffer` のまま。
@@ -169,7 +170,7 @@
 
 ### 4.7 作業順序（推奨）
 
-0. `rc/0.26.0` に追従する（2.1）。
+0. `develop` に追従する（2.1）。
 1. 依存の削除・置き換え（`debug`、`buffer`、`tweetnacl`、`@noble/curves`、`@fidm/x509`）を、まず現行のツールチェーンで実装し、テストを通す。
 2. ランタイム依存のマイナー・メジャー更新（`mediabunny`、`@peculiar/x509@2`、`multicast-dns` 型）。
 3. ツールチェーンの更新（TypeScript 6 → Biome 2 → Vitest 5 → typedoc → knip / npm-run-all2 / tsx / esbuild 明示 / ts-node 系の削除）。
@@ -193,7 +194,7 @@
 
 - [ ] `npm outdated`（ルート workspace）で、意図的に据え置いたもの以外に更新漏れがない。据え置いたもの（例: `@types/node` を 22.x に留める、`typescript` を 6.0.x に留める）は、理由をこのチケットまたは PR に記載している。
 - [ ] `debug`、`buffer`、`tweetnacl`、`@noble/curves`、`@fidm/x509` が、すべての `packages/*/package.json` の `dependencies` から削除されている。
-- [ ] PR の base が `rc/0.26.0` になっていて、`rc/0.26.0` との衝突を解消している。
+- [ ] PR の base が `develop` になっていて、`develop` との衝突を解消している。PR 本文に、次のリリースをマイナー更新にする必要があることと、close 対象の dependabot PR を書いている。
 - [ ] `packages/common` に、2.3 の表で ✅ とした範囲の debug 互換ロガーがある。`DEBUG=werift*` でログが出ること、未指定時は出ないこと、`debug.enable()` / `disable()` で実行中に切り替わること、`logger.enabled`、書式指定子、色付け / `DEBUG_COLORS` をテストで確認している。
 - [ ] X25519 / P-256 の鍵交換と、証明書のパース・署名が `node:crypto` で動き、テストベクタによる単体テストがある。
 - [ ] `CipherContext.localPrivateKey` が `KeyObject` 型になっている。ビルドした `lib/**/*.d.ts` に `@fidm/x509` への参照が残っていない。`RTCCertificate.publicKey` / `privateKey` の PEM 出力が従来と同等であることをテストで確認している。
@@ -204,7 +205,7 @@
 - [ ] `npm run e2e` と `npm run examples:e2e` が成功する（環境的に実行できない場合は、その旨と代わりの確認内容を記載する）。
 - [ ] `import-test`（`cd import-test && npm test`）で CJS / ESM 両方の import が成功する。
 - [ ] `npm run format` が差分なく通る（Biome 2 の設定に移行済み）。
-- [ ] `changelog.md` の `## Unreleased`（0.26.0 向け）に、次の内容を記載している。
+- [ ] `changelog.md` の先頭に新設した `## Unreleased` 節（公開済みの `## v0.25.2` には追記しない）に、次の内容を記載している。
   - `### ⚠️ Breaking changes`: `CipherContext.localPrivateKey` の型変更とその移行方法、`debug` がアプリ側の `debug` パッケージと連動しなくなることと代わりの API、非対応の `DEBUG_*` / API
   - 依存の削除・更新の一覧
 - [ ] README のデバッグログの節に、`debug.enable()` の使い方を追記している。スクリプトを変えた場合は、関係する `AGENTS.md` も更新している。
