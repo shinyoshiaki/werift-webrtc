@@ -1,5 +1,4 @@
-import { createHash, createHmac } from "crypto";
-import nacl from "tweetnacl";
+import { createHash, createHmac, createPrivateKey, createPublicKey, diffieHellman } from "node:crypto";
 
 import { binaryData } from "../imports/common";
 import { NamedCurveAlgorithm, type NamedCurveAlgorithms } from "./const";
@@ -14,7 +13,18 @@ export function prfPreMasterSecret(
     case NamedCurveAlgorithm.secp256r1_23:
       return p256PreMasterSecret({ publicKey, privateKey });
     case NamedCurveAlgorithm.x25519_29:
-      return Buffer.from(nacl.scalarMult(privateKey, publicKey));
+      return diffieHellman({
+        privateKey: createPrivateKey({
+          key: Buffer.concat([Buffer.from("302e020100300506032b656e04220420", "hex"), privateKey]),
+          format: "der",
+          type: "pkcs8",
+        }),
+        publicKey: createPublicKey({
+          key: Buffer.concat([Buffer.from("302a300506032b656e032100", "hex"), publicKey]),
+          format: "der",
+          type: "spki",
+        }),
+      });
     default:
       throw new Error();
   }

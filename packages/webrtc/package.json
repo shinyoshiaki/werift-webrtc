@@ -63,14 +63,10 @@
     "wpt:coverage": "tsx --tsconfig ./tsconfig.json tools/wpt-runner/coverage.ts"
   },
   "dependencies": {
-    "@fidm/x509": "^1.2.1",
-    "@noble/curves": "^1.8.1",
-    "@peculiar/x509": "^1.12.3",
-    "buffer": "^6.0.3",
-    "debug": "4.4.0",
-    "mediabunny": "^1.45.2",
+    "@peculiar/x509": "^2.2.0",
+    "mediabunny": "^1.62.1",
     "multicast-dns": "^7.2.5",
-    "tweetnacl": "^1.0.3"
+    "esbuild": "^0.28.2"
   },
   "engines": {
     "node": ">=22"

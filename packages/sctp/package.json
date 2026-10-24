@@ -29,7 +29,6 @@
     "upgrade-interactive": "npx npm-check-updates -i"
   },
   "dependencies": {
-    "debug": "4.4.0"
   },
   "engines": {
     "node": ">=22"

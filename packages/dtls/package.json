@@ -30,11 +30,7 @@
     "upgrade-interactive": "npx npm-check-updates -i"
   },
   "dependencies": {
-    "@fidm/x509": "^1.2.1",
-    "@noble/curves": "^1.8.1",
-    "@peculiar/x509": "^1.12.3",
-    "debug": "4.4.0",
-    "tweetnacl": "^1.0.3"
+    "@peculiar/x509": "^2.2.0"
   },
   "engines": {
     "node": ">=22"

@@ -39,9 +39,7 @@
     "upgrade-interactive": "npx npm-check-updates -i"
   },
   "dependencies": {
-    "buffer": "^6.0.3",
-    "debug": "4.4.0",
-    "mediabunny": "^1.45.2"
+    "mediabunny": "^1.62.1"
   },
   "devDependencies": {},
   "engines": {

@@ -1,4 +1,4 @@
-import { Certificate } from "@fidm/x509";
+import { X509Certificate } from "node:crypto";
 import { setTimeout } from "timers/promises";
 
 import {
@@ -53,8 +53,8 @@ describe("RTCDtlsTransportTest", () => {
   test("dtls_start_prefers_most_preferred_supported_fingerprint_algorithm", async () => {
     const [session1, session2] = await createDtlsSessions();
     const expectedFingerprint = session2.localParameters.fingerprints[0];
-    const remoteCertificate = Certificate.fromPEM(
-      Buffer.from(session2.localCertificate!.certPem),
+    const remoteCertificate = new X509Certificate(
+      session2.localCertificate!.certPem,
     ).raw;
 
     try {

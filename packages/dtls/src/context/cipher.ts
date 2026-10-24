@@ -1,5 +1,4 @@
-import { createSign, randomBytes, webcrypto } from "crypto";
-import { Certificate, PrivateKey } from "@fidm/x509";
+import { createPrivateKey, createSign, randomBytes, webcrypto, X509Certificate, type KeyObject } from "node:crypto";
 import * as x509 from "@peculiar/x509";
 import { binaryData } from "../imports/common";
 
@@ -36,7 +35,7 @@ export class CipherContext {
   namedCurve!: NamedCurveAlgorithms;
   signatureHashAlgorithm?: SignatureHash;
   localCert!: Buffer;
-  localPrivateKey!: PrivateKey;
+  localPrivateKey!: KeyObject;
 
   constructor(
     public sessionType: SessionTypes,
@@ -160,10 +159,7 @@ export class CipherContext {
   }
 
   signatureData(data: Buffer, hash: string) {
-    const signature = createSign(hash).update(data);
-    const key = this.localPrivateKey.toPEM().toString();
-    const signed = signature.sign(key);
-    return signed;
+    return createSign(hash).update(data).sign(this.localPrivateKey);
   }
 
   generateKeySignature(hashAlgorithm: string) {
@@ -183,15 +179,12 @@ export class CipherContext {
       this.namedCurve,
     );
 
-    const enc = this.localPrivateKey.sign(sig, hashAlgorithm);
-    return enc;
+    return createSign(hashAlgorithm).update(sig).sign(this.localPrivateKey);
   }
 
   parseX509(certPem: string, keyPem: string, signatureHash: SignatureHash) {
-    const cert = Certificate.fromPEM(Buffer.from(certPem));
-    const sec = PrivateKey.fromPEM(Buffer.from(keyPem));
-    this.localCert = cert.raw;
-    this.localPrivateKey = sec;
+    this.localCert = new X509Certificate(certPem).raw;
+    this.localPrivateKey = createPrivateKey(keyPem);
     this.signatureHashAlgorithm = signatureHash;
   }
 

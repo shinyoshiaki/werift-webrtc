@@ -24,7 +24,6 @@
     "unused": "organize-imports-cli src/**/*.ts"
   },
   "dependencies": {
-    "debug": "4.4.0"
   },
   "devDependencies": {},
   "engines": {
