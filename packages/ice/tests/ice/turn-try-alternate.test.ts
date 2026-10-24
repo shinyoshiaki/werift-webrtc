@@ -313,6 +313,57 @@ describe("TURN Allocate follows 300 (Try Alternate)", () => {
       expect(c.requests).toHaveLength(0);
     });
 
+    test("with IPv6 then IPv4 ALTERNATE-SERVERs, a udp4 client uses the IPv4 one", async () => {
+      // Arrange: IPv6, IPv4 の順に ALTERNATE-SERVER を返すサーバと実 TURN サーバ
+      const alternate = await startTurnServer();
+      const redirector = await startUdpRedirector(["::1", 3478]);
+      redirector.target.extraAlternates = [alternate.address!];
+
+      // Act: IPv4 ソケットで Allocate する
+      const turn = await createTurnClient({
+        address: redirector.address,
+        ...credentials,
+      });
+      cleanups.push(() => turn.close());
+
+      // Assert: 到達可能な同一ファミリの候補(IPv4)で allocation できる
+      expect(turn.server).toEqual(alternate.address);
+      expect(turn.relayedAddress[0]).toBe(HOST);
+    });
+
+    test("with IPv4 then IPv6 ALTERNATE-SERVERs, a udp4 client uses the first IPv4", async () => {
+      // Arrange: IPv4, IPv6 の順に ALTERNATE-SERVER を返すサーバ
+      const alternate = await startTurnServer();
+      const redirector = await startUdpRedirector(alternate.address!);
+      redirector.target.extraAlternates = [["::1", 3478]];
+
+      // Act: IPv4 ソケットで Allocate する
+      const turn = await createTurnClient({
+        address: redirector.address,
+        ...credentials,
+      });
+      cleanups.push(() => turn.close());
+
+      // Assert: 先頭の IPv4 候補が使われる
+      expect(turn.server).toEqual(alternate.address);
+    });
+
+    test("a host name redirecting to its own resolved IP is rejected as a loop", async () => {
+      // Arrange: localhost で設定され、解決後の自身の IP へリダイレクトするサーバ
+      const redirector = await startUdpRedirector();
+      redirector.target.alternate = redirector.address;
+
+      // Act: ホスト名で設定して Allocate する
+      const allocation = createTurnClient({
+        address: ["localhost", redirector.address[1]],
+        ...credentials,
+      });
+
+      // Assert: 再送せずにループとして失敗する
+      await expect(allocation).rejects.toMatchObject({ reason: "loop" });
+      expect(redirector.requests).toHaveLength(1);
+    });
+
     test("an IPv6 ALTERNATE-SERVER cannot be reached from a udp4 socket", async () => {
       // Arrange: IPv6 の alternate を返すサーバ
       const redirector = await startUdpRedirector(["::1", 3478]);
@@ -350,6 +401,23 @@ describe("TURN Allocate follows 300 (Try Alternate)", () => {
       expect(turn.transport.remoteAddress).toEqual(alternate.address);
       expect(turn.serverEndpoint).toEqual(alternate.address);
       expect(turn.relayedAddress[0]).toBe(HOST);
+    });
+
+    test("tcp: a host name redirecting to its own resolved IP is rejected as a loop", async () => {
+      // Arrange: localhost で設定され、解決後の自身の IP へリダイレクトする TCP サーバ
+      const redirector = await createStreamTurnRedirectServer();
+      cleanups.push(redirector.close);
+      redirector.target.alternate = redirector.address;
+
+      // Act: ホスト名で TCP 接続して Allocate する
+      const allocation = createTurnClient(
+        { address: ["localhost", redirector.address[1]], ...credentials },
+        { transport: "tcp" },
+      );
+
+      // Assert: 再接続せずループとして失敗する
+      await expect(allocation).rejects.toMatchObject({ reason: "loop" });
+      expect(redirector.requests).toHaveLength(1);
     });
 
     test.each([

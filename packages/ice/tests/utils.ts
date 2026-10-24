@@ -736,13 +736,15 @@ export function createTurnSuccessResponse(request: Message) {
 /** Where a redirecting test TURN server sends clients; mutable. */
 export interface TurnRedirectTarget {
   alternate?: Address;
+  /** Sent after `alternate` as further ALTERNATE-SERVER attributes. */
+  extraAlternates?: Address[];
   alternateDomain?: string;
 }
 
 /** 300 (Try Alternate) error response a TURN server would send for a request. */
 export function createTurnTryAlternateResponse(
   request: Message,
-  { alternate, alternateDomain }: TurnRedirectTarget,
+  { alternate, extraAlternates = [], alternateDomain }: TurnRedirectTarget,
 ) {
   const response = new Message(
     request.messageMethod,
@@ -751,6 +753,14 @@ export function createTurnTryAlternateResponse(
   ).setAttribute("ERROR-CODE", [300, "Try Alternate"]);
   if (alternate) {
     response.setAttribute("ALTERNATE-SERVER", alternate);
+    // Message#setAttribute keeps one value per name, so the repeated
+    // attributes are appended as raw wire attributes (RFC 8489 §14.15).
+    for (const extra of extraAlternates) {
+      const packed = new Message(methods.ALLOCATE, classes.ERROR)
+        .setAttribute("ALTERNATE-SERVER", extra)
+        .bytes.subarray(24); // 20 byte header + 4 byte attribute header
+      response.appendRawAttribute(0x8023, packed);
+    }
   }
   if (alternateDomain) {
     response.setAttribute("ALTERNATE-DOMAIN", alternateDomain);

@@ -34,8 +34,10 @@ An Allocate answered with `300 (Try Alternate)` is retried against its
   previous server's realm/nonce are not reused.
 - After the redirect, the allocation and every later Refresh,
   CreatePermission, ChannelBind and data packet are pinned to the alternate.
-- UDP keeps the same socket. An alternate of the other IP family fails with
-  `AddressFamilyMismatch`.
+- When a 300 carries several `ALTERNATE-SERVER` attributes (e.g. one per IP
+  family), the first one the socket's IP family can reach is used.
+- UDP keeps the same socket. An alternate of the other IP family only fails
+  with `AddressFamilyMismatch` when no listed alternate matches.
 - TCP/TLS (via `createTurnClient`) close the stream and connect to the
   alternate. TLS validates the alternate's certificate against
   `ALTERNATE-DOMAIN` when present, otherwise against the name the original
@@ -44,7 +46,7 @@ An Allocate answered with `300 (Try Alternate)` is retried against its
   follow a redirect.
 - Only Allocate is redirected. A redirect fails with `TurnRedirectError`
   (`reason`: `missing-alternate`, `loop` for a server already tried by this
-  Allocate, `too-many-redirects` beyond `maxAllocateRedirects` (default 3),
+  Allocate, including the resolved IP of a configured host name, `too-many-redirects` beyond `maxAllocateRedirects` (default 3),
   or `unsupported-transport`).
 
 ## pion TURN interop (opt-in)

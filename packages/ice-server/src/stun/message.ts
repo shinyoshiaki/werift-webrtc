@@ -38,6 +38,7 @@ export function parseMessage(
 
   const attributeRepository = new AttributeRepository();
   const rawAttributes: RawAttribute[] = [];
+  const alternateServers: unknown[] = [];
   // When integrityKey is provided, MESSAGE-INTEGRITY must be present and valid
   // (RFC 5389 short-term credentials / RFC 7675 authenticated consent responses).
   let messageIntegrityVerified = false;
@@ -75,6 +76,11 @@ export function parseMessage(
         return undefined;
       }
       attributeRepository.setAttribute(attrName as AttributeKey, value);
+      if (attrName === "ALTERNATE-SERVER") {
+        // Repeatable (RFC 8489 §14.15, e.g. one per address family); the
+        // repository only keeps the last one.
+        alternateServers.push(value);
+      }
 
       if (attrName === "FINGERPRINT") {
         const fingerprint = messageFingerprint(data.slice(0, pos));
@@ -114,6 +120,7 @@ export function parseMessage(
     transactionId,
     attributeRepository.getAttributes(),
     rawAttributes,
+    alternateServers as [string, number][],
   );
 }
 
@@ -124,6 +131,8 @@ export class Message extends AttributeRepository {
     public transactionId: Buffer = randomBytes(12),
     attributes: AttributePair[] = [],
     public rawAttributes: RawAttribute[] = [],
+    /** Every ALTERNATE-SERVER attribute, in wire order. */
+    public alternateServers: [string, number][] = [],
   ) {
     super(attributes);
   }

@@ -297,11 +297,6 @@ export class TurnProtocol implements Protocol {
     const tried: Address[] = [];
 
     for (let redirects = 0; ; redirects++) {
-      tried.push(this.server);
-      if (this.pinnedServerEndpoint) {
-        tried.push(this.pinnedServerEndpoint);
-      }
-
       // A fresh request per server: a redirected request may already carry
       // MESSAGE-INTEGRITY for the previous server's realm and nonce.
       const request = new Message(methods.ALLOCATE, classes.REQUEST)
@@ -311,9 +306,15 @@ export class TurnProtocol implements Protocol {
       try {
         return await this.requestWithRetry(request, this.server);
       } catch (error) {
-        const alternate = tryAlternateOf(error);
+        const alternate = tryAlternateOf(error, this.transport.addressFamily);
         if (!alternate) {
           throw error;
+        }
+        // The request has resolved the configured host, so its endpoint is
+        // known here: a redirect to the resolved IP of a host name is a loop.
+        tried.push(this.server);
+        if (this.pinnedServerEndpoint) {
+          tried.push(this.pinnedServerEndpoint);
         }
         const failed = error as TransactionFailed;
         const fail = (
@@ -991,6 +992,7 @@ function alternateTlsOptions(
  */
 function tryAlternateOf(
   error: unknown,
+  addressFamily?: number,
 ): { server?: Address; domain?: string } | undefined {
   if (!(error instanceof TransactionFailed)) {
     return undefined;
@@ -999,10 +1001,20 @@ function tryAlternateOf(
   if (errorCode !== 300) {
     return undefined;
   }
+  // A response may carry one ALTERNATE-SERVER per address family (RFC 8489
+  // §10): take the first one this transport can reach, else the first.
+  const servers = error.response.alternateServers;
+  const reachable = servers.find(
+    ([host]) => addressFamily === undefined || ipFamily(host) === addressFamily,
+  );
   return {
-    server: error.response.getAttributeValue("ALTERNATE-SERVER"),
+    server: reachable ?? servers[0],
     domain: error.response.getAttributeValue("ALTERNATE-DOMAIN"),
   };
+}
+
+function ipFamily(host: string): number {
+  return host.includes(":") ? 6 : 4;
 }
 
 export function makeIntegrityKey(
