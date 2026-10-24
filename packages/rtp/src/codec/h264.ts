@@ -58,12 +58,16 @@ export class H264RtpPayload implements DePacketizerBase {
   nri!: number;
   /**nal_unit_types */
   nalUnitType!: number;
-  /**start of a fragmented NAL unit */
-  s!: number;
-  /**end of a fragmented NAL unit */
-  e!: number;
-  r!: number;
-  nalUnitPayloadType!: number;
+  /**start of a fragmented NAL unit (FU-A / FU-B only) */
+  s?: number;
+  /**end of a fragmented NAL unit (FU-A / FU-B only) */
+  e?: number;
+  /**reserved bit of the FU header (FU-A / FU-B only) */
+  r?: number;
+  /**nal_unit_type of the fragmented NAL unit (FU-A / FU-B only) */
+  nalUnitPayloadType?: number;
+  /**nal_unit_types of the NAL units aggregated in a STAP-A packet */
+  aggregatedNalUnitTypes: number[] = [];
   payload!: Buffer;
   fragment?: Buffer;
 
@@ -101,11 +105,18 @@ export class H264RtpPayload implements DePacketizerBase {
       );
     }
 
-    h264.s = getBit(buf[offset], 0);
-    h264.e = getBit(buf[offset], 1);
-    h264.r = getBit(buf[offset], 2);
-    h264.nalUnitPayloadType = getBit(buf[offset], 3, 5);
-    offset++;
+    // The FU header exists only in FU-A / FU-B (RFC 6184 §5.8).
+    // For STAP-A the 2nd octet is the upper byte of the first NALU size (§5.7.1).
+    if (
+      h264.nalUnitType === NalUnitType.fu_a ||
+      h264.nalUnitType === NalUnitType.fu_b
+    ) {
+      h264.s = getBit(buf[offset], 0);
+      h264.e = getBit(buf[offset], 1);
+      h264.r = getBit(buf[offset], 2);
+      h264.nalUnitPayloadType = getBit(buf[offset], 3, 5);
+      offset++;
+    }
 
     // Single-time aggregation packet
     if (h264.nalUnitType === NalUnitType.stap_a) {
@@ -119,6 +130,9 @@ export class H264RtpPayload implements DePacketizerBase {
         stapOffset += stap_aNALULengthSize;
         if (stapOffset + naluSize > buf.length) {
           throw new Error(`H.264 STAP-A: NALU size ${naluSize} exceeds buffer`);
+        }
+        if (naluSize > 0) {
+          h264.aggregatedNalUnitTypes.push(getBit(buf[stapOffset], 3, 5));
         }
         result = Buffer.concat([
           result,
@@ -136,7 +150,7 @@ export class H264RtpPayload implements DePacketizerBase {
       const fu = buf.subarray(offset);
       h264.fragment = Buffer.concat([fragment, fu]);
 
-      if (h264.e) {
+      if (h264.e && h264.nalUnitPayloadType !== undefined) {
         const bitStream = new BitStream(Buffer.alloc(1))
           .writeBits(1, 0)
           .writeBits(2, h264.nri)
@@ -158,11 +172,19 @@ export class H264RtpPayload implements DePacketizerBase {
     return header.marker;
   }
 
+  /** true only when this packet carries (a part of) an IDR slice */
   get isKeyframe() {
-    return (
-      this.nalUnitType === NalUnitType.idrSlice ||
-      this.nalUnitPayloadType === NalUnitType.idrSlice
-    );
+    switch (this.nalUnitType) {
+      case NalUnitType.idrSlice:
+        return true;
+      case NalUnitType.fu_a:
+      case NalUnitType.fu_b:
+        return this.nalUnitPayloadType === NalUnitType.idrSlice;
+      case NalUnitType.stap_a:
+        return this.aggregatedNalUnitTypes.includes(NalUnitType.idrSlice);
+      default:
+        return false;
+    }
   }
 
   get isPartitionHead() {

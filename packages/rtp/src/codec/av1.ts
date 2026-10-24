@@ -473,6 +473,12 @@ function toRtpObuElement(obu: Buffer): Buffer {
   return out;
 }
 
+/** temporal_id/spatial_id bits of the OBU extension header, if present. */
+function getAv1ObuLayerId(obu: Buffer): number | undefined {
+  if (!getBit(obu[0], 5) || obu.length < 2) return undefined;
+  return obu[1] & 0xf8;
+}
+
 export type Av1PacketizerOptions = PacketizerBaseOptions & {
   /**
    * Default keyframe flag. Keyframe-ness alone does not set the N bit; see
@@ -561,9 +567,21 @@ export class Av1Packetizer extends PacketizerBase {
       const elements: Buffer[] = [];
       let used = 0;
       let endsWithFragment = false;
+      // 同一 packet 内の拡張ヘッダ付き OBU は temporal_id/spatial_id が同じものに限る。
+      let packetLayerId: number | undefined;
 
       while (obuIndex < obus.length && elements.length < MAX_W_ELEMENTS) {
-        const rest = obus[obuIndex].subarray(obuOffset);
+        const obu = obus[obuIndex];
+        const layerId = getAv1ObuLayerId(obu);
+        if (
+          layerId !== undefined &&
+          packetLayerId !== undefined &&
+          layerId !== packetLayerId
+        ) {
+          break;
+        }
+
+        const rest = obu.subarray(obuOffset);
         // Adding an element gives the previous last element a length prefix
         const prefix =
           elements.length > 0
@@ -577,17 +595,18 @@ export class Av1Packetizer extends PacketizerBase {
         if (rest.length <= available) {
           elements.push(rest);
           used += rest.length;
+          if (layerId !== undefined) packetLayerId = layerId;
           obuIndex++;
           obuOffset = 0;
           continue;
         }
         elements.push(rest.subarray(0, available));
         used += available;
+        if (layerId !== undefined) packetLayerId = layerId;
         obuOffset += available;
         endsWithFragment = true;
         break;
       }
-
       const aggregationHeader = createAv1AggregationHeader({
         startsWithFragment,
         endsWithFragment,

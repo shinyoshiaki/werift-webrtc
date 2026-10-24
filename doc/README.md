@@ -86,7 +86,6 @@ See [the design note](_media/705-media-rejection-and-removetrack.md) for BUNDLE,
 - [Examples](../../examples)
 - [Polyfill guide](_media/README-1.md)
 - [Browser API compatibility differences](_media/browser-api-compatibility.md)
-- [Negotiation transaction design](_media/NEGOTIATION_TRANSACTION.md)
 
 ## Demos
 

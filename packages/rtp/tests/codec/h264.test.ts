@@ -13,6 +13,10 @@ import {
 } from "../../src";
 import {
   createAvcDecoderConfigurationRecord,
+  createH264FuAPayloads,
+  createH264Nal,
+  createH264RtpPackets,
+  createH264StapAPayload,
   loadPayloadVector,
 } from "../utils";
 
@@ -384,6 +388,163 @@ describe("packages/rtp/tests/codec/h264.test.ts", () => {
       expect(new H264Packetizer().packetize(annexB(small), 0).length).toBe(1);
     },
   );
+
+  describe("isKeyframe (only packets carrying an IDR slice)", () => {
+    const sps = createH264Nal(NalUnitType.sps, Buffer.from([0x42, 0x00, 0x1f]));
+    const pps = createH264Nal(NalUnitType.pps, Buffer.from([0xce, 0x06, 0xe2]));
+    const idr = createH264Nal(NalUnitType.idrSlice, Buffer.alloc(40, 0x88));
+    const nonIdr = createH264Nal(1, Buffer.alloc(40, 0x9a), 2);
+
+    it("Single NAL non-IDR whose 2nd byte low 5 bits are 5 is not a keyframe", () => {
+      // Arrange: 2 バイト目 0x85 (FU header として読むと type=5 に見える)
+      const buf = Buffer.from([0x41, 0x85, 0x00, 0x00]);
+      // Act
+      const h264 = H264RtpPayload.deSerialize(buf);
+      // Assert: 2 バイト目を FU header として解釈しない
+      expect(h264.nalUnitType).toBe(1);
+      expect(h264.nalUnitPayloadType).toBeUndefined();
+      expect(h264.s).toBeUndefined();
+      expect(h264.e).toBeUndefined();
+      expect(h264.r).toBeUndefined();
+      expect(h264.isKeyframe).toBe(false);
+    });
+
+    it("Single NAL IDR is a keyframe", () => {
+      // Arrange
+      const buf = Buffer.from([0x65, 0x88, 0x84, 0x21]);
+      // Act
+      const h264 = H264RtpPayload.deSerialize(buf);
+      // Assert: nal_unit_type=5 なので keyframe
+      expect(h264.nalUnitType).toBe(NalUnitType.idrSlice);
+      expect(h264.isKeyframe).toBe(true);
+    });
+
+    it("STAP-A non-IDR whose NALU size upper byte low 5 bits are 5 is not a keyframe", () => {
+      // Arrange: NALU size = 0x0501 → 2 バイト目 0x05 (FU header なら type=5)
+      const nal = createH264Nal(1, Buffer.alloc(0x0501 - 1, 0x11), 2);
+      const buf = createH264StapAPayload([nal]);
+      expect(buf[1]).toBe(0x05);
+      // Act
+      const h264 = H264RtpPayload.deSerialize(buf);
+      // Assert: FU header 由来のフィールドは未設定、内包 NAL type だけ記録
+      expect(h264.nalUnitType).toBe(NalUnitType.stap_a);
+      expect(h264.nalUnitPayloadType).toBeUndefined();
+      expect(h264.s).toBeUndefined();
+      expect(h264.e).toBeUndefined();
+      expect(h264.aggregatedNalUnitTypes).toEqual([1]);
+      expect(h264.isKeyframe).toBe(false);
+      // Assert: payload は Annex-B
+      expect(h264.payload).toEqual(annexB(nal));
+    });
+
+    it("STAP-A with SPS+PPS+IDR is a keyframe", () => {
+      // Arrange
+      const buf = createH264StapAPayload([sps, pps, idr]);
+      // Act
+      const h264 = H264RtpPayload.deSerialize(buf);
+      // Assert: 内包 NAL type に IDR が含まれる
+      expect(h264.aggregatedNalUnitTypes).toEqual([
+        NalUnitType.sps,
+        NalUnitType.pps,
+        NalUnitType.idrSlice,
+      ]);
+      expect(h264.isKeyframe).toBe(true);
+      // Assert: payload は Annex-B 連結
+      expect(h264.payload).toEqual(annexB(sps, pps, idr));
+    });
+
+    it("STAP-A with SPS+PPS only is not a keyframe", () => {
+      // Arrange
+      const buf = createH264StapAPayload([sps, pps]);
+      // Act
+      const h264 = H264RtpPayload.deSerialize(buf);
+      // Assert: IDR を含まないので false
+      expect(h264.aggregatedNalUnitTypes).toEqual([
+        NalUnitType.sps,
+        NalUnitType.pps,
+      ]);
+      expect(h264.isKeyframe).toBe(false);
+    });
+
+    it("STAP-A with zero-size NALU does not record a type", () => {
+      // Arrange: size=0 のエントリを含む
+      const buf = Buffer.concat([
+        createH264StapAPayload([sps]),
+        Buffer.from([0x00, 0x00]),
+      ]);
+      // Act
+      const h264 = H264RtpPayload.deSerialize(buf);
+      // Assert: size=0 の NALU からは先頭バイトを読まない
+      expect(h264.aggregatedNalUnitTypes).toEqual([NalUnitType.sps]);
+      expect(h264.isKeyframe).toBe(false);
+    });
+
+    it("FU-A IDR start / middle / end packets are all keyframes and reassemble", () => {
+      // Arrange: IDR を 3 分割 (FU header 0x85 / 0x05 / 0x45)
+      const payloads = createH264FuAPayloads(idr, 3);
+      expect(payloads.map((p) => p[1])).toEqual([0x85, 0x05, 0x45]);
+      // Act: フラグメントを順に渡して再構成
+      const results: H264RtpPayload[] = [];
+      let fragment: Buffer | undefined;
+      for (const payload of payloads) {
+        const h264 = H264RtpPayload.deSerialize(payload, fragment);
+        fragment = h264.fragment;
+        results.push(h264);
+      }
+      // Assert: 全パケットが keyframe
+      expect(results.map((r) => r.isKeyframe)).toEqual([true, true, true]);
+      expect(results.map((r) => r.isPartitionHead)).toEqual([
+        true,
+        false,
+        false,
+      ]);
+      // Assert: 終了パケットで 0x65 ヘッダの IDR NAL が Annex-B で再構成される
+      const last = results[2];
+      expect(last.payload[4]).toBe(0x65);
+      expect(last.payload).toEqual(annexB(idr));
+    });
+
+    it("FU-A non-IDR is not a keyframe", () => {
+      // Arrange: FU indicator 0x5c (NRI=2), FU header 0x81 (S=1, type=1)
+      const [start, end] = createH264FuAPayloads(nonIdr, 2);
+      expect(start.subarray(0, 2)).toEqual(Buffer.from([0x5c, 0x81]));
+      // Act
+      const first = H264RtpPayload.deSerialize(start);
+      const second = H264RtpPayload.deSerialize(end, first.fragment);
+      // Assert: FU header の type=1 なので false
+      expect(first.nalUnitPayloadType).toBe(1);
+      expect(first.isKeyframe).toBe(false);
+      expect(second.isKeyframe).toBe(false);
+      // Assert: 再構成結果は元の NAL
+      expect(second.payload).toEqual(annexB(nonIdr));
+    });
+
+    it("dePacketizeRtpPackets: non-IDR slices only → false, with IDR → true", () => {
+      // Arrange: non-IDR のみ (Single NAL 2 バイト目 0x85 / STAP-A size 上位 0x05 / FU-A)
+      const misleadingSingle = Buffer.from([0x41, 0x85, 0x00, 0x00]);
+      const misleadingStapA = createH264StapAPayload([
+        createH264Nal(1, Buffer.alloc(0x0501 - 1, 0x22), 2),
+      ]);
+      const nonIdrPackets = createH264RtpPackets([
+        misleadingSingle,
+        misleadingStapA,
+        ...createH264FuAPayloads(nonIdr, 2),
+      ]);
+      // Arrange: STAP-A(SPS+PPS) + FU-A(IDR)
+      const idrPackets = createH264RtpPackets([
+        createH264StapAPayload([sps, pps]),
+        ...createH264FuAPayloads(idr, 2),
+      ]);
+      // Act
+      const nonIdrFrame = dePacketizeRtpPackets("MPEG4/ISO/AVC", nonIdrPackets);
+      const idrFrame = dePacketizeRtpPackets("MPEG4/ISO/AVC", idrPackets);
+      // Assert: P フレームは keyframe にならない
+      expect(nonIdrFrame.isKeyframe).toBe(false);
+      // Assert: IDR を含むフレームは keyframe、データは Annex-B で復元
+      expect(idrFrame.isKeyframe).toBe(true);
+      expect(idrFrame.data).toEqual(annexB(sps, pps, idr));
+    });
+  });
 
   describe("parseAvcDecoderConfigurationRecord", () => {
     const sps = makeNal(7, Buffer.from([0x42, 0x00, 0x1e, 0xda, 0x01]));
