@@ -226,6 +226,9 @@
 
 > **userHistory**: `object` = `{}`
 
+Local credentials STUN requests may use, by ufrag: the current ones, the
+generation the last restart replaced and a staged (provisional) one.
+
 #### Index Signature
 
 \[`username`: `string`\]: `string`
