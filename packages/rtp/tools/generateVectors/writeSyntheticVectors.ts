@@ -137,6 +137,7 @@ export function writeSyntheticVectors(): void {
   const vp8Pkts = new Vp8Packetizer({
     sequenceNumber: 1,
     maxPayloadSize: 120,
+    pictureId: 0,
   }).packetize(vp8Frame, 0);
   writeFileSync(
     join(OUT_DIR, "vector_vp8.bin"),

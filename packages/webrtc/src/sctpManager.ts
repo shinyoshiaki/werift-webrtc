@@ -20,6 +20,31 @@ export type SctpNegotiationState = ReturnType<
   SctpTransportManager["snapshotNegotiationState"]
 >;
 
+/**
+ * The SCTP transport of a PeerConnection and its application m-line.
+ *
+ * - Rejection of the application m-line (port 0 in the peer's offer, an
+ *   answer or a pranswer) never closes the SCTP transport: it stays bound to
+ *   its MID and the next offer offers the application again with that MID
+ *   (W3C would set `sctpTransport` to null). The commit does not move it to a
+ *   transport the answer did not negotiate for it. An answer to an offer whose
+ *   application m-line has port 0 has port 0 (RFC 3264 section 6).
+ * - The position (MID, index, rejected) is recorded by the current
+ *   description, not by this object. An unbound transport takes a rejected
+ *   position with a new MID; an offer that does so moves the transport to that
+ *   MID (restored by rollback). A MID only an unapplied `createOffer`
+ *   reserved follows the MID of the peer's offer.
+ * - At the final answer SCTP moves straight to its owner's DTLS transport in
+ *   the answer. A transport joining an already connected DTLS transport
+ *   starts its association there; its client / server side follows the ICE
+ *   role at the DTLS start.
+ * - Rollback keeps an application-owned transport whose association never
+ *   ran (`detachFromDescription` clears what the description set) and stops
+ *   one a description created or whose association ran under the proposal;
+ *   channels opened on a pending-only association close with it.
+ * - `sctp.mtu` is configuration: every transport, also a pending one, is built
+ *   with it, and moving to another DTLS transport keeps it.
+ */
 export class SctpTransportManager {
   sctpTransport?: RTCSctpTransport;
   sctpRemotePort?: number;

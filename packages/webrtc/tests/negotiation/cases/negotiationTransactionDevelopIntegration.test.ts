@@ -313,7 +313,6 @@ describe("develop features inside the negotiation transaction", () => {
           "H264",
         ]);
 
-        // Act: offer に answer する。
         await c.setRemote(b, a.localDescription);
         await c.answer(b, { hold: true });
 
@@ -483,7 +482,6 @@ describe("develop features inside the negotiation transaction", () => {
           "sctp.mtu cannot be changed after SCTP transport creation",
         );
 
-        // Act: remote offer を rollback する。
         await c.setRemote(b, "rollback");
 
         // Assert: 提案が作った SCTP transport は消え、MTU を変更できる。
