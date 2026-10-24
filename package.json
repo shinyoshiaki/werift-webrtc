@@ -66,6 +66,11 @@
     "vitest": "5.0.5"
   },
   "packageManager": "npm@11.16.0",
+  "overrides": {
+    "mediabunny": {
+      "@types/dom-webcodecs": "0.1.19"
+    }
+  },
   "engines": {
     "node": ">=22"
   },
