@@ -40,8 +40,7 @@ export class SctpTransportManager {
     const sctp = new RTCSctpTransport(5000, maxMessageSize, sctpOptions);
     sctp.mid = undefined;
     sctp.onDataChannel.subscribe((channel) => {
-      this.dataChannelsOpened++;
-      this.dataChannels.push(channel);
+      this.track(channel);
       this.onDataChannel.execute(channel);
     });
 
@@ -103,6 +102,15 @@ export class SctpTransportManager {
     });
 
     const channel = new RTCDataChannel(this.sctpTransport, parameters);
+    this.track(channel);
+    return channel;
+  }
+
+  /**
+   * Count a channel (created here or announced by the remote peer) and keep
+   * it for getStats until it closes.
+   */
+  private track(channel: RTCDataChannel) {
     this.dataChannelsOpened++;
     this.dataChannels.push(channel);
     channel.stateChange.subscribe((state) => {
@@ -114,7 +122,6 @@ export class SctpTransportManager {
         }
       }
     });
-    return channel;
   }
 
   isApplicationOwned(transport: RTCSctpTransport) {

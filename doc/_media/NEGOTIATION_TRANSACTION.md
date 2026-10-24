@@ -846,14 +846,123 @@ operations. Before asking for review, run the deeper searches
 (`WERIFT_NEGOTIATION_FUZZ_SEEDS=300 WERIFT_NEGOTIATION_FUZZ_STEPS=20` for the
 episode fuzzer, `WERIFT_NEGOTIATION_SCENARIO_SEEDS=300` for the scenario
 properties, `WERIFT_NEGOTIATION_MODEL_SEEDS=300` with `-t seed` for the
-model property) — `npm run pbt:deep`
-runs all three in parallel vitest processes (`tools/pbt-deep/run.ts`: seed
+model property, and the leak property below) — `npm run pbt:deep`
+runs all four in parallel vitest processes (`tools/pbt-deep/run.ts`: seed
 ranges, `--jobs` defaults to the CPU count, a failure is
 replayed alone to tell a load-induced failure from a real one) — and a
 self-review that lists every path writing live tables while a description is
 pending.
 `NEGOTIATION_SPEC_COVERAGE.md` maps every requirement of the ticket to the
 tests that verify it.
+
+### Leak property (`tests/pbt/leak`)
+
+`tests/pbt/leak/negotiationLeakProperty.test.ts` checks what the operations
+leave behind, with deterministic verdicts (no heap slope in CI). Its Arrange
+and measurement are in `leak/leakProbe.ts` (the model property's
+`generator.ts`, `oracles.ts` and the harness are reused; `leakProbe.ts`
+only wraps them), its fixed scenes and cycles in `leak/scenes.ts`.
+
+| Kind | What leaks | Verdict |
+| --- | --- | --- |
+| L1 retention after close | an object the scene created stays reachable after both peers closed | after forced GCs (`v8.setFlagsFromString("--expose-gc")` when the process has no `gc`), every `WeakRef` registered during the scene is cleared |
+| L2 OS resources after close | a socket, timer or immediate outlives `close()` | `process.getActiveResourcesInfo()` counted by type returns to the count before the scene (polled for 2 s: DTLS / SCTP close asynchronously) |
+| L3 growth inside a session | a table, list or subscription grows with every negotiation | `leakFootprint(pc)` after each repetition of a cycle equals its value after the second one |
+
+- P1 (L1, L2): a scene of the model property (fixed in `CLOSED_SCENES`, or
+  drawn from a seed with `generateScene`), then `expectSessionContinues`,
+  optionally an operation of `CLOSE_TIMING_OPERATIONS` that `close()`
+  overtakes after 0..20 microtasks or a macrotask, then the harness closes
+  both peers. `LeakTracker` registers every object the peers hold (the peer,
+  every transport of `heldTransports` with its ICE transport and agent, SCTP
+  and its association, transceivers, senders, receivers, remote tracks,
+  DataChannels created or announced, transports the negotiation created)
+  after each description operation (the position of `c.observe()`), before
+  each operation and after the interrupt; a survivor is reported with its
+  kind and the operation it first appeared after. The close-timing matrix
+  (`arrangeCloseTimingOperation` x 0 / 2 ticks / macrotask), a close while a
+  DTLS handshake waits for its peer and a close during or after a TURN
+  allocation are fixed cases of the same check.
+- P2 (L3): a cycle of templates from `stable` back to `stable`
+  (`CYCLE_TEMPLATES`: re-offer, ICE restart, BUNDLE split and merge,
+  pranswer then final answer, replacement offer then rollback, glare, a
+  remote DataChannel opened and closed, a transceiver added, stopped and its
+  m-line reused, trickle and end-of-candidates) drawn from a seed and
+  repeated identically on a connected session (`modelConfig` without STUN
+  servers, so no server query's timer moves the counts) under the model
+  oracles. After every repetition and once the traffic settled, the metrics
+  of `leakFootprint` (transceivers, transports, router tables, ICE
+  generations, checklists, candidates and credential history, SCTP channel
+  lists, proposal resources, queued candidates, description m-lines and
+  candidate lines, `Event` subscriptions of the peer, media, DTLS, ICE, SCTP
+  and channels, active timers) must equal their value after the second
+  repetition plus the growth the cycle declares.
+- P3 (heap, statistical): a P2 cycle repeated 200 times, heapUsed after a
+  forced GC judged by `detectLeak` of `tests/memleak`; it runs without the
+  oracles' records and the invariants' candidate history (test-side state
+  that grows with every cycle). Only `WERIFT_NEGOTIATION_LEAK_HEAP=1`
+  (`npm run pbt:deep`) runs it; `npm run memleak` runs the same cycle as the
+  `renegotiation` scenario with heap snapshots.
+
+Peers that name no ICE servers use a STUN server in the test process
+(`useLocalStunServer`, addressed as `localhost` so a query still resolves a
+name) instead of the public default, so no verdict depends on the network.
+Besides the continuation and the interrupts, a scene may end closed as it
+is (`asIs`: a pending offer or pranswer and its proposal's transports
+included).
+
+CI runs the fixed scenes and cycles, `WERIFT_NEGOTIATION_LEAK_SEEDS`
+(default 2) seeds of `WERIFT_NEGOTIATION_LEAK_STEPS` (default 8) operations
+from `WERIFT_NEGOTIATION_LEAK_SEED` (default 1), and P2 with
+`WERIFT_NEGOTIATION_LEAK_CYCLES` (default 4) repetitions, every test
+without retry. A failure prints the seed, the scene or cycle, what was not
+collected or released and, unless `WERIFT_NEGOTIATION_LEAK_SHRINK=0`, the
+smallest failing scene (operations dropped) or cycle (templates dropped).
+
+State that stays on purpose, and its bound (P2 allows it; anything else must
+not change between repetitions):
+
+| State | Bound | Why |
+| --- | --- | --- |
+| `sdp.seenMid` | grows by one per m-line the application adds (declared by the cycle) | a MID is never reused within the session (RFC 8843); the set is as large as the m-lines ever created |
+| `negotiation.retiredRemoteUfrags` | 64 (`RETIRED_UFRAG_HISTORY`) | rejects late callbacks of retired remote generations |
+| ICE `userHistory` | current, replaced and staged credentials (3 per agent) | a check the peer sent before applying a restart is still answered |
+| ICE `localGenerations` | the latest created offer and answer, and the applied one | applying a created description again restarts to its generation |
+| routes of SSRCs a later answer no longer lists, stopped transceivers | the SSRCs and m-lines negotiated (see "Scope and known constraints") | existing since `develop`; the cycles do not change SSRCs |
+| active timers | the maximum after the first two repetitions | periodic timers (RTCP, consent, SCTP heartbeat) are counted at an instant; timers after close are judged by L2 |
+| sent packets awaiting transport-cc feedback | 5 s and 32768 packets per sender | feedback arrives within a round trip |
+
+In `stable`, the staged and provisional routes, the proposal's resources,
+the transports created since the last commit, queued remote candidates and
+held candidate events are 0 (`STABLE_ZERO_METRICS`). The TURN server of the
+TURN case is a fixture in the same process: the relay socket it keeps for
+the client's allocation is not counted, since the client does not delete
+its allocation on close (the server keeps it until its lifetime ends).
+Harness references that would look like leaks are released or bounded: the
+continuation records (`releaseContinuationRecords`), the operation log
+(the last 40 operations), and the case and its oracles, which stay inside
+the function that runs a scene (a suspended async function keeps its
+locals).
+
+What the property found and checked (TICKET 2.4):
+
+| Candidate | Result |
+| --- | --- |
+| A remote DataChannel stays in `sctpManager.dataChannels` after it closes | leak: removed on close and counted in `dataChannelsClosed` (cycle "a remote DataChannel that closed leaves the SCTP manager's list") |
+| `localGenerations` beyond the latest offer / answer | no leak: stays at its bound over ICE restart, replacement and rollback cycles; the agent's `userHistory` grew by two per restart (fixed in `packages/ice`, cycle "an ICE restart keeps the agent's credential history bounded") |
+| Discarded proposal transports referenced through `onRtp` subscriptions or closures | a transport only the rollback baseline still bound (a pending offer moved its m-lines into BUNDLE) was not stopped at close, and its ICE agent kept the peer reachable (fixed: `dispose()` stops the baseline's transports, scene "closed while an offer pending on the answerer moved its DataChannel transport into BUNDLE"); a stopped sender kept its `onStateChange` subscription on the BUNDLE transport, also when a rollback bound it again, so every stopped transceiver stayed reachable (fixed, cycles "a stopped sender releases its DTLS transport subscription", "a stopped sender a glare rollback binds again does not subscribe to its transport") |
+| Gathering and TURN allocations close overtook | leak: a STUN query whose DNS lookup outlived the socket started after close and retransmitted, and a cancelled transaction never settled (fixed in `packages/ice`, scene "a first negotiation closed while its answer is applied", the close-timing matrix); a TURN allocation close overtook kept its socket and retransmissions until it completed or timed out (fixed in `packages/ice`: `close()` aborts it, case "closing while a TURN allocation waits on a server that never answers"); after that the client releases its socket and refresh timer |
+| Staged / provisional router tables after commit or rollback, routes of stopped receivers | no leak: 0 in `stable`, `ssrcTable` steady over the recycling cycle |
+| Queued remote candidates and candidate lines over ICE restarts | no leak: steady over the trickle and ICE restart cycles |
+
+Found besides: in-flight connectivity checks of a replaced checklist (a
+restart, a completed checklist, a replaced pranswer generation) kept
+retransmitting for ~12 s (`packages/ice`: their transactions abort with the
+check's handle); a DTLS flight kept retransmitting for ~30 s after its
+transport stopped (`packages/dtls`: the flight stops when the socket closes,
+and `RTCDtlsTransport.stop()` closes it; fixed case "closing while a DTLS
+handshake waits for its peer"); the transport-cc send history of a sender
+was never pruned (one entry per RTP packet, found by P3; now 5 s).
 
 ### Negotiation cases (`tests/negotiation`)
 
@@ -1174,6 +1283,11 @@ no behavior difference unless they pass `expectSessionContinues`.
 | A refresh of an applied local description keeps the credentials it applied (2.19) | rewrites the current description with the BUNDLE tag's credentials at end-of-candidates | W3C (the current description changes only at a negotiation) | added, passes the helper (found by the model property) |
 | A MID only an unapplied createOffer reserved is released at the answer (2.19) | stops the transceiver as rejected (the peer's next m-line with that MID is answered with port 0); keeps the SCTP MID, which collides | W3C (a MID is associated when a description is set) | added, passes the helper (found by the model property; the differential runner counts the stopped-in-develop transceiver as the intended deferred MID) |
 | RTX pairs with its primary codec whatever the order of the codecs (2.19) | no RTX pairing when RTX precedes its primary codec | RFC 4588 (the order is a preference) | added, passes the helper (found by the model property) |
+| A remote DataChannel that closed leaves `getStats` and counts in `dataChannelsClosed` (leak property) | stays in the data-channel stats forever, never counted as closed | W3C `dataChannelsClosed`; L3 (no growth per remote channel) | added, passes the helper (found by the leak property) |
+| A cancelled connectivity check (restart, completed or replaced checklist, close) stops retransmitting and leaves its pair's state as it was; a STUN request whose lookup ends after close fails with `TransactionCancelled` | keeps retransmitting, then marks the pair failed | L2 (no timer of a discarded generation), RFC 8445 (cease retransmissions of cancelled checks) | added, passes the helper (found by the leak property) |
+| The ICE agent answers checks for its current, replaced and staged credentials only | answers every generation's credentials since the agent started | L3 (no growth per restart) | added, passes the helper (found by the leak property) |
+| `RTCDtlsTransport.stop()` closes the DTLS socket and a running handshake stops retransmitting | the flight retransmits ~30 s after stop | L1 / L2 | added, passes the helper (found by the leak property) |
+| `close()` aborts a TURN allocation still running (its client and socket close at once, no TCP fallback) | the allocation completes (or times out) after close, then closes | L1 / L2 | added, passes the helper (found by the leak property) |
 
 ## Scope and known constraints
 
@@ -1203,8 +1317,11 @@ not as a change of this contract. Known constraints:
 - The ICE layer drops the old selected pair when a restart commits; RTP pauses
   until the new generation nominates a pair.
 - Changing only `iceTransportPolicy` with `setConfiguration` does not reach an
-  existing ICE transport, and a TURN allocation that completes after
-  `close()` is not closed (both existing since `develop`).
+  existing ICE transport (existing since `develop`). A TURN allocation that
+  completes after `close()` releases the client's socket and refresh timer,
+  but the client does not delete the allocation on the server (no Refresh
+  with lifetime 0): the server keeps it until its lifetime ends (existing
+  since `develop`).
 - With STUN or TURN servers a restart's relay candidate and end-of-candidates
   follow the commit; a relay-only session has no candidate of the new
   generation until the new allocation completes.

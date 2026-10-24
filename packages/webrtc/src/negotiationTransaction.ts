@@ -74,6 +74,17 @@ export type NegotiationCheckpoint = {
   resources: ProposalResources;
 };
 
+/** The DTLS transports a baseline binds (transceivers and SCTP). */
+function baselineTransports(baseline: Baseline | undefined) {
+  if (!baseline) return [];
+  return [
+    ...[...baseline.transceivers.states.values()].map(
+      ({ transceiver }) => transceiver.dtlsTransport,
+    ),
+    baseline.sctp.dtlsTransport,
+  ].filter((transport): transport is RTCDtlsTransport => !!transport);
+}
+
 function replaceSet<T>(target: Set<T>, source: Iterable<T>) {
   const values = [...source];
   target.clear();
@@ -319,6 +330,11 @@ export class NegotiationTransaction {
       ...this.createdTransports,
       ...this.resources.speculativeTransports,
       ...this.resources.prepared.values(),
+      // A transport only the rollback baseline still binds (a pending
+      // description moved its m-lines to another transport): no binding
+      // stops it at close.
+      ...baselineTransports(this.baseline),
+      ...baselineTransports(this.offerSnapshot),
     ]);
     this.createdTransports.clear();
     this.offerSnapshot = undefined;

@@ -3,7 +3,7 @@ import { setTimeout } from "timers/promises";
 
 import { makeTurnIntegrityKey } from "../../../ice-server/src/turn/auth";
 import type { Candidate } from "../candidate";
-import { TransactionFailed } from "../exceptions";
+import { TransactionCancelled, TransactionFailed } from "../exceptions";
 import { type Cancelable, cancelable, randomTransactionId } from "../helper";
 import {
   type Address,
@@ -174,6 +174,8 @@ export class TurnProtocol implements Protocol {
   mappedAddress!: Address;
   localCandidate!: Candidate;
   transactions: { [hexId: string]: Transaction } = {};
+  /** close() ran: no new transaction starts. */
+  private closed = false;
   private refreshHandle?: Cancelable<void>;
   private channelNumber = 0x4000;
   private channelByAddr: { [key: string]: TurnChannel } = {};
@@ -399,6 +401,8 @@ export class TurnProtocol implements Protocol {
     // callers pass explicit options. Peer consent goes through StunOverTurnProtocol.
     // Prefer the TURN session integrity key for response verification.
     const resolvedAddr = await this.resolveRequestTarget(addr);
+    // close() ran during the lookup: no transaction starts on a closed client.
+    if (this.closed) throw new TransactionCancelled();
     const options = buildTransactionOptions(
       this.integrityKey,
       retransmissionsOrOptions,
@@ -707,6 +711,12 @@ export class TurnProtocol implements Protocol {
   }
 
   async close() {
+    if (this.closed) return;
+    this.closed = true;
+    // An allocation, refresh or ChannelBind still waiting settles now.
+    for (const transaction of Object.values(this.transactions)) {
+      transaction.cancel();
+    }
     this.refreshHandle?.resolve?.();
     await this.transport.close();
   }
@@ -732,6 +742,11 @@ export interface TurnClientOptions {
    * own family always selects the socket. Defaults to 4.
    */
   udpFamily?: 4 | 6;
+  /**
+   * Aborting it while the allocation runs closes the client (its socket and
+   * transactions) and rejects with `TransactionCancelled`.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -769,6 +784,7 @@ export async function createTurnClient(
     transport: transportType,
     connectTimeoutMs,
     udpFamily,
+    signal,
   }: TurnClientOptions = {},
 ) {
   lifetime ??= DEFAULT_ALLOCATION_LIFETIME;
@@ -790,9 +806,20 @@ export async function createTurnClient(
     lifetime,
     transport,
   );
+  // The owner (an ICE agent) closed while the allocation runs: release the
+  // socket and its retransmissions now instead of after the allocation.
+  const abort = () => {
+    turn
+      .close()
+      .catch((error) => log("failed to close aborted TURN client", error));
+  };
+  if (signal?.aborted) abort();
+  signal?.addEventListener("abort", abort, { once: true });
 
   try {
+    if (signal?.aborted) throw new TransactionCancelled();
     await turn.connectionMade();
+    if (signal?.aborted) throw new TransactionCancelled();
   } catch (error) {
     try {
       await turn.close();
@@ -800,6 +827,8 @@ export async function createTurnClient(
       log("failed to close TURN client after allocation failure", closeError);
     }
     throw error;
+  } finally {
+    signal?.removeEventListener("abort", abort);
   }
   return turn;
 }

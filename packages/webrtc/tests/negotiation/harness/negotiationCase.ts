@@ -112,6 +112,9 @@ export type Given<T> = T extends {
       }
     : Omit<T, "close">;
 
+/** Operations a failure prints (and the log keeps). */
+const OPERATION_LOG = 40;
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** An SDP without its candidate and end-of-candidates lines. */
@@ -177,7 +180,10 @@ async function flows<T>(
 export class NegotiationCase {
   private readonly peers = new Map<RTCPeerConnection, string>();
   private readonly cleanup: (() => unknown)[] = [];
+  /** The last `OPERATION_LOG` operations (a failure prints them). */
   private readonly operations: string[] = [];
+  /** Operations logged so far (numbers the log). */
+  private operationCount = 0;
   private session?: DuplexSession;
   private exemptReason?: string;
   private observer?: Observer;
@@ -669,24 +675,26 @@ export class NegotiationCase {
         cause: original,
       });
     }
-    const last = this.operations.length;
+    const last = this.operationCount;
+    const first = last - this.operations.length + 1;
     e.message = [
       `case "${this.name}" (${this.meta.ref})`,
       last
-        ? `after operation #${last}: ${this.operations[last - 1]}`
+        ? `after operation #${last}: ${this.operations.at(-1)}`
         : "before the first operation",
       e.message,
       `operations:\n${this.operations
-        .map((op, i) => `  #${i + 1} ${op}`)
-        .slice(-40)
+        .map((op, i) => `  #${first + i} ${op}`)
         .join("\n")}`,
     ].join("\n");
     return e;
   }
 
   private log(operation: string) {
+    // 失敗時に出すのは最後の分だけなので、それより古い記録は持たない (長い周期で増えない)。
     this.operations.push(operation);
-    return `op${this.operations.length}`;
+    if (this.operations.length > OPERATION_LOG) this.operations.shift();
+    return `op${++this.operationCount}`;
   }
 
   private label(pc: RTCPeerConnection) {

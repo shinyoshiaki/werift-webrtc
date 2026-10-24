@@ -15,6 +15,7 @@ import {
 } from "../src/iceBase";
 import { classes, methods } from "../src/stun/const";
 import { Message, parseMessage } from "../src/stun/message";
+import { StunProtocol } from "../src/stun/protocol";
 import { splitTurnTcpFrames } from "../src/turn/frame";
 import type { StunOverTurnProtocol } from "../src/turn/protocol";
 import type { Protocol, TransactionRequestOptions } from "../src/types/model";
@@ -1013,4 +1014,67 @@ export function atFirstSelection<T>(
     },
   });
   return result;
+}
+
+/**
+ * Stub dns.promises.lookup so every lookup waits until `release()`, then
+ * answers `address` (a request whose lookup outlives its protocol).
+ */
+export function holdLookup(address: string) {
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const spy = vi.spyOn(dns.promises, "lookup").mockImplementation((async () => {
+    await released;
+    return { address, family: net.isIP(address) };
+  }) as unknown as typeof dns.promises.lookup);
+  return { release, restore: () => spy.mockRestore() };
+}
+
+/** `process.getActiveResourcesInfo()` entries of `type` (e.g. `Timeout`). */
+export function activeResourceCount(type: string) {
+  return process.getActiveResourcesInfo().filter((t) => t === type).length;
+}
+
+/** Shared Arrange: a bound IPv4 STUN protocol on the loopback interface. */
+export async function createLoopbackStunProtocol() {
+  const protocol = new StunProtocol();
+  await protocol.connectionMade(true);
+  return protocol;
+}
+
+/**
+ * Shared Arrange: a controlling agent with gathered host candidates whose
+ * checks go to a remote candidate that never answers (the discard port), so
+ * a check stays in flight; `transactions()` counts the STUN transactions
+ * its sockets wait on.
+ */
+export async function createUnansweredCheckAgent() {
+  const agent = createTestConnection(true);
+  await agent.gatherCandidates();
+  agent.remoteUsername = "remote";
+  agent.remotePassword = "remote-password-0000000000";
+  await agent.addRemoteCandidate(remoteHostCandidate(9));
+  await agent.addRemoteCandidate(undefined);
+  const transactions = () =>
+    (
+      agent as unknown as {
+        protocols: { transactions?: Record<string, unknown> }[];
+      }
+    ).protocols.reduce(
+      (sum, p) => sum + Object.keys(p.transactions ?? {}).length,
+      0,
+    );
+  return { agent, transactions };
+}
+
+/** Shared Arrange: a UDP socket that receives and never answers (an unreachable TURN or STUN server). */
+export async function createSilentUdpServer(host = "127.0.0.1") {
+  const socket = dgram.createSocket("udp4");
+  await new Promise<void>((resolve) => socket.bind(0, host, () => resolve()));
+  return {
+    address: [host, socket.address().port] as Address,
+    close: () => new Promise<void>((resolve) => socket.close(() => resolve())),
+  };
 }

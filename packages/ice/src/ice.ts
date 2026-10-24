@@ -11,7 +11,7 @@ import {
   remoteTcpTypeForIncoming,
 } from "./candidate";
 import { MdnsLookup } from "./dns/lookup";
-import type { TransactionError } from "./exceptions";
+import { TransactionCancelled, type TransactionError } from "./exceptions";
 import { type Cancelable, PQueue, cancelable, randomString } from "./helper";
 import {
   CONSENT_INTERVAL,
@@ -75,7 +75,13 @@ export class Connection implements IceConnection {
    * local gathering's) alone.
    */
   private remoteGeneration = 0;
+  /**
+   * Local credentials STUN requests may use, by ufrag: the current ones, the
+   * generation the last restart replaced and a staged (provisional) one.
+   */
   userHistory: { [username: string]: string } = {};
+  /** restart() ran once (the constructor's first generation exists). */
+  private restarted = false;
   private readonly tieBreaker: bigint = randomBytes(8).readBigUInt64BE(0);
   state: IceState = "new";
   lookup?: MdnsLookup;
@@ -88,6 +94,8 @@ export class Connection implements IceConnection {
   /** Resolves when the agent closes: work that awaits the network stops waiting. */
   private readonly closedSignal: Promise<void>;
   private signalClosed!: () => void;
+  /** Aborted by close(): a TURN allocation still running is released. */
+  private readonly closing = new AbortController();
   private checkListState = new PQueue<number>();
   private earlyChecks: [Message, Address, Protocol][] = [];
   private earlyChecksDone = false;
@@ -201,6 +209,9 @@ export class Connection implements IceConnection {
     this.generation++;
     this.remoteGeneration++;
 
+    const previous = this.restarted
+      ? { [this.localUsername]: this.localPassword }
+      : {};
     this.localUsername = randomString(4);
     this.localPassword = randomString(22);
     if (this.options.localPasswordPrefix) {
@@ -208,7 +219,15 @@ export class Connection implements IceConnection {
         this.options.localPasswordPrefix +
         this.localPassword.slice(this.options.localPasswordPrefix.length);
     }
-    this.userHistory[this.localUsername] = this.localPassword;
+    // Only the replaced generation's credentials stay beside the new ones
+    // (a check the remote peer sent before it applied the restart is still
+    // answered); older generations and staged credentials are dropped, so
+    // the history does not grow with every restart.
+    this.userHistory = {
+      ...previous,
+      [this.localUsername]: this.localPassword,
+    };
+    this.restarted = true;
 
     this.remoteUsername = "";
     this.remotePassword = "";
@@ -224,6 +243,7 @@ export class Connection implements IceConnection {
     this.lookup = undefined;
     this.nominated = undefined;
     this.nominating = false;
+    this.cancelChecks();
     this.checkList = [];
     this.checkListDone = false;
     this.checkListState = new PQueue<number>();
@@ -242,7 +262,7 @@ export class Connection implements IceConnection {
 
     // Tear down consent timers/transactions; new credentials require a new session.
     this.stopConsentLifecycle();
-    this.provisional = undefined;
+    this.endProvisional();
   }
 
   /**
@@ -262,18 +282,34 @@ export class Connection implements IceConnection {
     this.state = "new";
     this.nominated = undefined;
     this.nominating = false;
+    this.cancelChecks();
     this.checkList = [];
     this.checkListDone = false;
     this.checkListState = new PQueue<number>();
     this.earlyChecks = [];
     this.earlyChecksDone = false;
     this.stopConsentLifecycle();
+    this.endProvisional();
+  }
+
+  /** Stop the checks in flight for the checklist a restart replaces. */
+  private cancelChecks() {
+    for (const pair of this.checkList) pair.handle?.resolve?.();
+  }
+
+  /**
+   * Drop the provisional generation and stop the checks still in flight for
+   * it (their retransmissions would outlive it).
+   */
+  private endProvisional() {
+    this.provisional?.checks.abort();
     this.provisional = undefined;
   }
 
   /** Accept provisional checks without changing the selected current pair. */
   stageLocalCredentials(usernameFragment: string, password: string) {
     this.userHistory[usernameFragment] = password;
+    this.endProvisional();
     this.provisional = {
       localUsername: usernameFragment,
       localPassword: password,
@@ -284,12 +320,13 @@ export class Connection implements IceConnection {
       revision: 0,
       pairs: [],
       started: false,
+      checks: new AbortController(),
     };
   }
 
   discardStagedLocalCredentials(usernameFragment: string) {
     if (this.provisional?.localUsername === usernameFragment) {
-      this.provisional = undefined;
+      this.endProvisional();
     }
     if (usernameFragment !== this.localUsername) {
       delete this.userHistory[usernameFragment];
@@ -321,6 +358,8 @@ export class Connection implements IceConnection {
     generation.remoteCandidatesEndRequested = false;
     generation.resolutions.clear();
     generation.revision++;
+    generation.checks.abort();
+    generation.checks = new AbortController();
     generation.pairs = [];
     generation.nominated = undefined;
     generation.nominating = false;
@@ -490,7 +529,11 @@ export class Connection implements IceConnection {
         request,
         pair.remoteAddr,
         Buffer.from(generation.remotePassword, "utf8"),
-        pair.localCandidate.transport.toLowerCase() === "tcp" ? 0 : 4,
+        {
+          retransmissions:
+            pair.localCandidate.transport.toLowerCase() === "tcp" ? 0 : 4,
+          signal: generation.checks.signal,
+        },
       );
       pair.responsesReceived++;
       if (!belongs()) return;
@@ -635,6 +678,10 @@ export class Connection implements IceConnection {
 
   /** Called after restart, before re-gathering the chosen generation. */
   commitLocalCredentials(usernameFragment: string, password: string) {
+    // The credentials restart() generated were never signalled: these replace them.
+    if (this.localUsername !== usernameFragment) {
+      delete this.userHistory[this.localUsername];
+    }
     this.localUsername = usernameFragment;
     this.localPassword = password;
     this.userHistory[usernameFragment] = password;
@@ -1192,9 +1239,11 @@ export class Connection implements IceConnection {
             tlsOptions: this.options.turnTlsOptions,
             connectTimeoutMs: (this.options.turnConnectTimeout ?? 8) * 1000,
             udpFamily: this.options.turnUdpFamily,
+            signal: this.closing.signal,
           },
         ).catch(async (e) => {
-          if (turnTransport === "udp") {
+          // close() cancelled the allocation: no TCP fallback.
+          if (turnTransport === "udp" && !this.closing.signal.aborted) {
             return await createStunOverTurnClient(
               {
                 address: turnServer,
@@ -1206,6 +1255,7 @@ export class Connection implements IceConnection {
                 interfaceAddresses: this.options.interfaceAddresses,
                 transport: "tcp",
                 connectTimeoutMs: (this.options.turnConnectTimeout ?? 8) * 1000,
+                signal: this.closing.signal,
               },
             );
           } else {
@@ -1674,6 +1724,7 @@ export class Connection implements IceConnection {
 
     this.setState("closed");
     this.signalClosed();
+    this.closing.abort();
 
     // # stop consent freshness tests
     this.stopConsentLifecycle();
@@ -1960,12 +2011,16 @@ export class Connection implements IceConnection {
 
   // 3.  Terminology : Check
   checkStart = (pair: CandidatePair) =>
-    cancelable<void>(async (r) => {
+    cancelable<void>(async (r, _f, onCancel) => {
       // """
       // Starts a check.
       // """
 
       log("check start", pair.toJSON());
+      // Resolving the handle (the checklist completed or was replaced) stops
+      // the request's retransmissions too.
+      const checks = new AbortController();
+      onCancel.once(() => checks.abort());
 
       pair.updateState(CandidatePairState.IN_PROGRESS);
       const result: { response?: Message; addr?: Address } = {};
@@ -1992,7 +2047,7 @@ export class Connection implements IceConnection {
           request,
           pair.remoteAddr,
           Buffer.from(remotePassword, "utf8"),
-          this.checkRequestOptions(pair),
+          { ...this.checkRequestOptions(pair), signal: checks.signal },
         );
         pair.responsesReceived++;
 
@@ -2015,6 +2070,12 @@ export class Connection implements IceConnection {
         result.response = response;
         result.addr = addr;
       } catch (error: any) {
+        // A cancelled check (its handle resolved, or the agent closed and
+        // cancelled its transactions) changes nothing.
+        if (checks.signal.aborted || error instanceof TransactionCancelled) {
+          r();
+          return;
+        }
         const exc: TransactionError = error;
         // 7.1.3.1.  Failure Cases
         log(
@@ -2466,4 +2527,6 @@ type ProvisionalGeneration = {
   /** A regular nomination (toward an ICE-lite peer) is in flight. */
   nominating?: boolean;
   started: boolean;
+  /** Aborts the checks in flight when the checklist is replaced or dropped. */
+  checks: AbortController;
 };
