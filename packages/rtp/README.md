@@ -241,7 +241,7 @@ Depacketizers implement `DePacketizerBase` and are registered in
 | H.265 / HEVC | `H265RtpPayload` | `H265Packetizer` | RFC 7798 — AP / FU / single NAL |
 | VP8 | `Vp8RtpPayload` | `Vp8Packetizer` | RFC 7741 — minimal descriptor (S/PID) |
 | VP9 | `Vp9RtpPayload` | `Vp9Packetizer` | RFC 9628 — B/E/P minimal descriptor |
-| AV1 | `AV1RtpPayload` | `Av1Packetizer` | AV1 RTP — W=0 length-prefixed aggregation, Z/Y/N |
+| AV1 | `AV1RtpPayload` | `Av1Packetizer` | AV1 RTP — W=1..3 OBU aggregation (W=0 accepted on receive), Z/Y/N |
 | Opus | `OpusRtpPayload` | `OpusPacketizer` | RFC 7587 — raw payload; no TOC-blind MTU split |
 | PCMU / PCMA | `PcmuRtpPayload` / `PcmaRtpPayload` | `PcmuPacketizer` / `PcmaPacketizer` | RFC 3551 PT 0 / 8, 8000 Hz |
 | G.722 | `G722RtpPayload` | `G722Packetizer` | RFC 3551 PT 9, **RTP clock 8000 Hz** |
