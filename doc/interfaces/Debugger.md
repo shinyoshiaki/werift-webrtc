@@ -22,7 +22,7 @@
 
 ### enabled
 
-> `readonly` **enabled**: `boolean`
+> **enabled**: `boolean`
 
 ***
 
