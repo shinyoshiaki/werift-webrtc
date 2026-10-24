@@ -117,12 +117,10 @@ function emit(namespace: string, args: unknown[]) {
   lastTime = now;
 
   if (isNodeRuntime()) {
-    const prefix =
-      colorsEnabled(process)
-        ? `\u001b[${colorFor(namespace)}m${namespace}\u001b[0m`
-        : `${new Date().toISOString()} ${namespace}`;
-    const suffix =
-      colorsEnabled(process) ? ` +${elapsed}ms` : "";
+    const prefix = colorsEnabled(process)
+      ? `\u001b[${colorFor(namespace)}m${namespace}\u001b[0m`
+      : `${new Date().toISOString()} ${namespace}`;
+    const suffix = colorsEnabled(process) ? ` +${elapsed}ms` : "";
     const output = [...args];
     if (typeof output[0] === "string")
       output[0] = `${prefix} ${output[0]}${suffix}`;
