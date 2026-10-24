@@ -9,10 +9,11 @@
 
 ## 2. 確定事項
 
-### 2.1 PR とリリース
+### 2.1 マージ先とリリース（参考）
 
-- PR の base は `develop`。チケットブランチは `develop` に追従済み（2026-10-24 時点で遅れ 0 コミット）。
-- 破壊的変更（2.2 / 2.3）を含むので、次のリリースはマイナー更新（0.26.0 相当）にする。このことを PR 本文に書く。`werift-dtls` / `werift-common` も次の公開時にマイナー版を上げる。
+- PR の作成は、このチケットの完了条件に含めない。以下は、PR を出すときの参考情報。
+- マージ先は `develop`。チケットブランチは `develop` に追従済み（2026-10-24 時点で遅れ 0 コミット）。
+- 破壊的変更（2.2 / 2.3）を含むので、次のリリースはマイナー更新（0.26.0 相当）にする。`werift-dtls` / `werift-common` も次の公開時にマイナー版を上げる。
 - changelog は `changelog.md` 先頭の `## Unreleased` に書く（公開済みの `## v0.25.2` には追記しない）。
 - 重複する dependabot PR（#742、#769、#770、#779、#780、#781）は、この PR のマージ後に close する。
 
@@ -177,5 +178,4 @@
   - `npm run e2e`、`npm run examples:e2e`、`packages/ice-server` の `chrome-e2e`、`examples/turn-loopback` の `server`
   - `cd import-test && npm test`（CJS / ESM の両方）
   - `npm run format` を実行して差分が出ない
-  - 環境の都合で実行できないものがあれば、その旨と代わりに確認した内容を PR に書く。
-- [ ] PR の base が `develop` で、PR 本文にマイナー更新が必要なことと、close する dependabot PR を書いている。
+  - 環境の都合で実行できないものがあれば、その旨と代わりに確認した内容をこのチケットに記録する。
