@@ -67,8 +67,9 @@ R1〜R6 はすべて実施済み。4 章は実装方針の記録として残す�
 - **R4**: `tools/node-ts/register.mjs`（`.` / `..` 指定子にも対応）と `register.test.mjs`（`npm run test:node-ts`、CI に追加）。全スクリプト・`.vscode/launch.json`・コメント / ドキュメントを置換。`devEngines` 追加。
   - ネイティブ ESM 化で表面化した問題を修正: `import { Server } from "ws"` → `WebSocketServer`（examples 66 箇所）、`yargs` 18 の default import + `hideBin`、examples の `__dirname` → `import.meta.dirname`、`coverageProvider.ts` の istanbul 系を default import に変更（`tsc` の commonjs と Node ESM の両立）、`spawnExample.ts` の `existsSync` import 欠落。
   - `packages/rtp/tests` は Vitest 専用なので `__dirname` に戻した（`import.meta` は `module: commonjs` の `tsc` でエラーになる）。
-  - `integration/werift-mediasoup-interop`（submodule）: `scripts/register-werift-ts.mjs` を追加し、`WERIFT_REPO_ROOT` → 親 checkout → sibling の順で werift の hook を読み込む。`test:*` を Node ネイティブ実行に置換、`tsx` を削除、README を更新。submodule を `63bc5d51` にコミットし、親の gitlink も更新した。ssh がない環境のため submodule remote への push は未実施。
+  - `integration/werift-mediasoup-interop`（submodule）: `scripts/register-werift-ts.mjs` を追加し、`WERIFT_REPO_ROOT` → 親 checkout → sibling の順で werift の hook を読み込む。`test:*` を Node ネイティブ実行に置換、`tsx` を削除、README を更新。submodule を `63bc5d51` にコミットし、親の gitlink も更新した。submodule のブランチ `ticket/bf950660-37a3-49e8-b401-ff10ca1d62c2` は remote に push 済みで、fresh clone から gitlink のコミットを取得できることを確認した。
   - `import-test/test-cjs.cjs` を追加し、`import-test` の `npm test` で ESM（`test.mjs`）と CJS（`test-cjs.cjs`）の両方の import 経路を継続検証する。
+- **examples の監査対応**: `npm audit fix`（`examples`）で推移依存を更新し、9 件（moderate 2 / high 7）から 3 件（high 3）に減らした。残りは `ring-client-api@14.3.0` が固定する `werift@0.22.4` → `ip@2.0.1` の既存 upstream 依存で、`ip` に修正版がなく、`npm audit fix --force` は `ring-client-api` を 9.13.0 へダウングレードするため適用しない。
 - **R5**: changelog の `buffer` / `tsx` / `localStorage.debug` の記述を実態に合わせた。
 - **追加の互換修正**: `@fidm/x509` はインデント付き PEM を受け付けていたが `node:crypto` は拒否する（`examples/certificate/offer.ts` が接続できなくなっていた）。`werift-dtls` に `normalizePem()` を追加し、`CipherContext.parseX509` と `RTCCertificate` で使用。テスト `packages/dtls/tests/context/cipher.test.ts` を追加。changelog の `### Fixes` に記載。
 - **vendor の復元**: 過去の `fmt` コミット（ea7d720c）で `examples/e2e/vendor/*.js` が書き換わり、ブラウザページが `E is not a constructor` で動かなくなっていた。`develop` の内容に戻した（現在の Biome 設定では vendor は対象外）。vendor と生成 doc 内のコピーは `.gitattributes` で `-whitespace` に指定し、`git diff --check` の空白誤検出を避けた。
@@ -92,11 +93,12 @@ R1〜R6 はすべて実施済み。4 章は実装方針の記録として残す�
 | mediasoup-interop `type` / `test:small` / `test:source-import` | 成功 |
 | mediasoup-interop `test:interop` | 27 件中 20 件成功。失敗 7 件はすべて `mediasoup-legacy`（3.19.2）で、このホスト（kernel 7）向けの prebuilt worker がなく、`pip` もないためビルドできない環境要因（`spawn ... mediasoup-worker ENOENT`）。`mediasoup` 3.26 のケースはすべて成功 |
 | `git diff --check develop...HEAD` | 成功（vendor は属性で除外） |
-| `npm audit --prefix examples --omit=dev` | 9 件（moderate 2 / high 7）。`develop` 時点は 21 件（moderate 10 / high 11）で、今回の更新で減少。残りは公開済み `werift` 経由の `ip` など既存の推移的依存 |
+| fresh clone + `git submodule update --init integration/werift-mediasoup-interop` | 成功（親 gitlink の `63bc5d51` をチェックアウト） |
+| `npm audit --prefix examples --omit=dev` | 3 件（high 3）。`npm audit fix` で 9 件から 6 件を解消。残りは `ring-client-api@14.3.0` → `werift@0.22.4` → `ip@2.0.1` の既存 upstream 依存 |
 
 - 環境メモ: ホスト共有の `~/.cache/ms-playwright` が別プロセスにより実行中に削除されるため、Playwright 系は `PLAYWRIGHT_BROWSERS_PATH=/tmp/pw-browsers` で実行した。
-- 環境メモ: コンテナに ssh がないため submodule remote への push はできない。submodule のコミットと親 gitlink の更新は完了している。
-- `npm audit` の残りは今回の更新前から存在する推移的依存（`ring-client-api` が公開済み `werift` に依存する `ip` など）で、このブランチでは強制更新しない。
+- 環境メモ: コンテナに ssh がないため、submodule の push は `gh` の HTTPS 認証で行った。fresh clone 検証では `git@github.com:` を `https://github.com/` に読み替えた。`third_party/wpt` は巨大なため fresh clone の対象から外した（gitlink は `develop` から変更なし）。
+- `npm audit` の残りは今回の更新前から存在する upstream の推移的依存（`ring-client-api` が固定する公開済み `werift` の `ip`）で、`ip` 側に修正版がない。`--force` は `ring-client-api` の大幅なダウングレードになるため適用せず、ring-client-api 側の更新待ちとして記録する。
 
 ## 5. 制約・注意点
 
@@ -117,7 +119,7 @@ R1〜R6 はすべて実施済み。4 章は実装方針の記録として残す�
 - [x] R1: `buffer` の依存と `import "buffer";` が `rtp` / `webrtc` に戻っている。
 - [x] R2: `log.ts` が `node:util` を import しておらず、トップレベルで `process` を参照していない。ブラウザ相当の環境でのテストがある。
 - [x] R3: `packages/rtp` の `test:browser` が Chromium で成功し、CI でも実行されている。
-- [x] R4: `tools/node-ts/register.mjs` とそのテストがある。`devEngines` がある。`tsx` が全 `package.json` から削除されている。`git grep -nE "\btsx (watch|--)|ts-node|--import tsx|TSX_"` に、古い起動方法が残っていない（`changelog.md` の過去の節、`loadtest/`、`benchmark/` を除く）。`integration/werift-mediasoup-interop` の変更は commit `63bc5d51` に含まれ、親の gitlink に反映されている。
+- [x] R4: `tools/node-ts/register.mjs` とそのテストがある。`devEngines` がある。`tsx` が全 `package.json` から削除されている。`git grep -nE "\btsx (watch|--)|ts-node|--import tsx|TSX_"` に、古い起動方法が残っていない（`changelog.md` の過去の節、`loadtest/`、`benchmark/` を除く）。`integration/werift-mediasoup-interop` の変更は commit `63bc5d51` に含まれ、親の gitlink に反映され、remote の `ticket/bf950660-37a3-49e8-b401-ff10ca1d62c2` ブランチから取得できる。
 - [x] R5: changelog の `buffer` と `tsx` に関する記述が実態と一致している。
 - [x] R6: 次がすべて成功する。
   - `npm run type`（`type:all`）、`npm run build`、`npm run test:small`
