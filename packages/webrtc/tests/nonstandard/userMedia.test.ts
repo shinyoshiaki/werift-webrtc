@@ -101,9 +101,10 @@ describe("nonstandard/userMedia file playback", () => {
       });
 
       // 実行: path source の MP4 を再生し、映像 3 フレームと音声 2 packet 分の RTP が揃うまで待つ。
+      // （keyframe の SPS/PPS は STAP-A に集約されるため packet 数ではなく marker 区切りのフレーム数で待つ）
       await media.start();
       await waitUntil(
-        () => videoPackets.length >= 5 && audioPackets.length >= 2,
+        () => splitFrames(videoPackets).length >= 3 && audioPackets.length >= 2,
         10_000,
       );
       media.stop();
@@ -283,8 +284,9 @@ describe("nonstandard/userMedia file playback", () => {
     const startPromise = media.start();
 
     // 検証: codec 不一致を明示するエラーで start が失敗する。
+    // useH264() は Chrome 互換のため mimeType が video/H264（大文字）
     await expect(startPromise).rejects.toThrow(
-      "Input video codec video/vp8 does not match negotiated codec video/h264",
+      "Input video codec video/vp8 does not match negotiated codec video/H264",
     );
   });
 

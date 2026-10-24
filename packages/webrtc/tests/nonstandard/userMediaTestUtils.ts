@@ -298,6 +298,61 @@ export function createH264Frames() {
   ];
 }
 
+/** AV1 OBU with obu_has_size_field=1 (LEB128 size, body < 16384 bytes). */
+function createAv1ObuWithSize(obuType: number, body: Buffer) {
+  const size =
+    body.length < 0x80
+      ? [body.length]
+      : [(body.length & 0x7f) | 0x80, body.length >> 7];
+  return Buffer.concat([Buffer.from([(obuType << 3) | 0x02, ...size]), body]);
+}
+
+/** Temporal Delimiter + Sequence Header + 2000-byte OBU_FRAME (all size-fielded). */
+export function createAv1TemporalUnitWithSequenceHeader() {
+  return Buffer.concat([
+    createAv1ObuWithSize(2, Buffer.alloc(0)),
+    createAv1ObuWithSize(1, Buffer.alloc(10, 0x01)),
+    createAv1ObuWithSize(6, Buffer.alloc(2_000, 0x66)),
+  ]);
+}
+
+/** SPS / PPS / IDR NAL units (no start code) matching createH264Frames()[0]. */
+export const h264TestNalUnits = {
+  sps: Buffer.from(
+    "6742e01fda01e0089f970110000003000100000300320f183196",
+    "hex",
+  ),
+  pps: Buffer.from("68ce06e2", "hex"),
+  idr: Buffer.from("65888421a0", "hex"),
+};
+
+/** avcC (4-byte NAL length) carrying {@link h264TestNalUnits} SPS/PPS. */
+export function createH264DecoderDescription() {
+  const { sps, pps } = h264TestNalUnits;
+  const withLength = (nal: Buffer) => {
+    const length = Buffer.alloc(2);
+    length.writeUInt16BE(nal.length);
+    return [length, nal];
+  };
+  return Buffer.concat([
+    Buffer.from([0x01, sps[1], sps[2], sps[3], 0xff, 0xe1]),
+    ...withLength(sps),
+    Buffer.from([0x01]),
+    ...withLength(pps),
+  ]);
+}
+
+/** 4-byte length-prefixed (AVCC) sample from NAL units. */
+export function toAvccSample(...nalUnits: Buffer[]) {
+  return Buffer.concat(
+    nalUnits.flatMap((nal) => {
+      const length = Buffer.alloc(4);
+      length.writeUInt32BE(nal.length);
+      return [length, nal];
+    }),
+  );
+}
+
 export function createOpusFrames() {
   return [
     createFrame(Buffer.from([0xf8, 0xff, 0xfe, 0x01]), true, 0),

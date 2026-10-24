@@ -16,6 +16,7 @@ import {
   type RTCRtpSenderOptions,
   defaultCodecs,
 } from "../media";
+import { normalizeCodecMimeType } from "../media/codecCompatibility";
 import type { BundlePolicy } from "../sdp";
 import type { MLineReuse } from "../sdpManager";
 import type { DtlsKeys, RTCCertificate } from "../transport/dtls";
@@ -127,7 +128,8 @@ export const findCodecByMimeType = (
 ) =>
   codecs.find(
     (localCodec) =>
-      localCodec.mimeType.toLowerCase() === target.mimeType.toLowerCase(),
+      normalizeCodecMimeType(localCodec.mimeType) ===
+      normalizeCodecMimeType(target.mimeType),
   )
     ? target
     : undefined;

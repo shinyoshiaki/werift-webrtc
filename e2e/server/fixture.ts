@@ -33,6 +33,8 @@ export class DtlsKeysContext {
       },
       NamedCurveAlgorithm.secp256r1_23,
     );
+
+    return Math.random() > 0.5 ? this.rsa : this.ecdsa;
   }
 }
 

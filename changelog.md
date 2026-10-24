@@ -14,6 +14,59 @@
   - The SCTP sent / outbound queues and the DataChannel send queue use `FifoQueue` (amortized O(1) `shift()`).
   - `RTCSctpTransport` hands queued DataChannel messages to SCTP in a single synchronous pass instead of starting one concurrent flush loop per `send()`. `bufferedAmount` now decreases per message as it is transmitted (previously only after the whole SCTP outbound queue drained), so `bufferedamountlow` fires during a burst. Messages not yet handed to SCTP are discarded when the transport stops.
 
+### 🧪 Testing & tooling
+
+- **Chrome E2E for packages/rtp Packetizer / Depacketizer** (`e2e`):
+  - Scenario A (Chrome → `packages/rtp` depacketize), B (fixture demux → `packages/rtp` Packetizer → Chrome), C (repacketize loop; VP8 required).
+  - Codecs: VP8, H.264, Opus (P0), VP9, AV1 (P1). H.264 accepts black frames (delivery + de/packetize only).
+  - Committed fixtures under `e2e/fixtures/media/`; CI does not require GStreamer. Generator: `e2e/tools/generateCodecFixtures.sh`.
+  - **SDP `video/AV1`**: add `useAV1()`; keep `useAV1X()` as legacy. `findCodecByMimeType` treats AV1 ↔ AV1X as aliases.
+
+### 🐛 Fixes (review follow-ups)
+
+- **AAC (RFC 3640 §3.2.3.1)**: every fragment now carries its AU Header Section; the depacketizer strips it from continuations and validates AU-size. Multi-AU splits give each packet a distinct timestamp (`auDurationInSamples`, default 1024). Extended CTS/DTS headers accept non-16-bit lengths with trailing padding.
+- **H.264 / H.265**: length-prefixed input whose prefix looks like a start code (e.g. length 300 = `00 00 01 2c`) is no longer misread as Annex-B.
+- **AV1**: adjacent fragmented OBUs are no longer merged; boundaries come from Z/Y.
+- **Audio marker** (G.711 / G.722 / Opus): marker is set only on the first packet of a talkspurt (`startTalkspurt()` to re-arm), per RFC 3551 §4.1 / RFC 7587 §4.1.
+- **H.264 / H.265 input layout**: new `inputFormat: "auto" | "annexb" | "length-prefixed"` on the packetizers and `split*NalUnits`. `auto` (default) treats a leading start code as Annex-B (a 3-byte `00 00 01 HH` is otherwise indistinguishable from a 4-byte length `0x1HH`); pass `"length-prefixed"` for MP4/MKV samples. Supersedes the earlier length-first heuristic, which corrupted 3-byte-start-code NALs.
+- **telephone-event**: `event` / `volume` / `duration` outside 0–255 / 0–63 / 0–0xFFFF now throw `RangeError` instead of being masked (RFC 4733 §2.5.1.3: split longer events).
+- **AAC**: a complete AU arriving while a fragment is pending drops the stale fragment instead of throwing. **H.265 FU** with S=E=1 is rejected.
+- **H.265 PACI** (type 50) is rejected explicitly; **AV1 W=0** payloads are parsed; H.264/H.265 packetizers insert missing parameter sets after a leading AUD, not before it.
+- **AV1 N bit** (RFC 9628 §4.4): `Av1Packetizer` no longer sets N on every keyframe. N is set when `startsNewCodedVideoSequence` is `true`, or by default for a keyframe whose temporal unit contains a Sequence Header OBU; mid-sequence keyframes keep N=0.
+- **H.264 Annex-B split** no longer drops NAL types ≥ 14 (prefix NAL, subset SPS, slice extension, ...); RFC 6184 §5.6 carries types 1–23 as Single NAL / FU-A.
+- **`useH264()`** now returns `video/H264` (uppercase, as Chrome expects); codec names are compared case-insensitively.
+- **AV1 ↔ AV1X** normalization now applies to SDP answer, codec matching, and file playback validation, not only `findCodecByMimeType`.
+- **AV1 packetizer → Chrome**: `Av1Packetizer` drops Temporal Delimiter OBUs, clears `obu_has_size_field` on RTP OBU elements, and packs up to three OBU elements per packet (W=1..3), splitting OBUs across packet boundaries like libwebrtc. Without a dependency descriptor libwebrtc treats Z=0 / Y=0 as frame start / end, so the previous one-OBU-per-packet layout split a temporal unit into two frames and Chrome 155 never rendered it.
+
+### 🔧 Maintenance
+
+- **userMedia packetizer consolidated into `packages/rtp`** (`packages/webrtc/src/nonstandard/userMedia/packetizer.ts`): the webrtc-local VP8 / VP9 / AV1 / H.264 / Opus packetizers, `BasePacketizer`, and the AV1 / H.264 split and avcC helpers are removed. `createPacketizer` now adapts mediabunny `EncodedPacket` onto the `packages/rtp` packetizers. New `parseAvcDecoderConfigurationRecord` in `packages/rtp` replaces the avcC parsers duplicated in webrtc and `e2e`.
+  - Kept: Opus marker on every packet, AV1 N=1 on every key packet, packetization-mode≠1 rejection.
+  - Changed on the wire (from `packages/rtp`): H.264 keyframe SPS/PPS go in one STAP-A and only missing parameter-set types are prepended; AVCC samples with avcC are split as length-prefixed; AV1 follows the aggregation above; Opus packets over 1200 bytes throw instead of being sent oversize; a truncated avcC throws.
+
+### 🚀 Features & Improvements
+
+- **werift-rtp existing-codec packetizers** (`packages/rtp`): Add package-local packetizers for codecs that previously only had depacketizers (non-WebRTC / SIP / RTSP).
+  - **VP8** (RFC 7741): `Vp8Packetizer` — minimal descriptor (`S`/`PID`), MTU fragmentation, final marker.
+  - **VP9** (RFC 9628): `Vp9Packetizer` — `B`/`E`/`P` minimal descriptor; key/delta via options.
+  - **AV1** (AV1 RTP): `Av1Packetizer` + `splitAv1Obus` / `createAv1AggregationHeader` — OBU aggregation (W=1..3), Z/Y/N, final marker.
+  - **Opus** (RFC 7587): `OpusPacketizer` — raw one-packet RTP; rejects `maxPayloadSize` overrun (no TOC-blind split).
+  - **H.264** (RFC 6184 mode=1): `H264Packetizer` — Single NAL / **STAP-A** (SPS+PPS preferred on keyframe) / FU-A; Annex-B and length-prefixed input.
+  - Specs: `docs/rfc/rfc7741.txt`, `rfc6184.txt`, `rfc7587.txt`, `rfc9628.txt`, `av1-rtp-spec.html`.
+  - Example codecs: `vp8` / `vp9` / `av1` / `opus` / `h264` in `packages/rtp/examples/node/rtp_over_udp/`.
+  - **GStreamer test vectors**: `vector_vp8` / `vp9` / `h264` / `opus` (real encoders + rtppay) and synthetic `vector_av1`; generator baseline + GST overwrite; tests load committed binaries.
+- **werift-rtp codec coverage** (`packages/rtp`): Add package-local packetizers and expanded depacketizers for non-WebRTC / SIP / RTSP reuse.
+  - **H.265 / HEVC** (RFC 7798): `H265RtpPayload` + `H265Packetizer` — single NAL, AP (Type 48), FU (Type 49), Annex-B and length-prefixed input, IRAP keyframe detection, optional parameter-set AP on keyframes.
+  - **G.711**: `PcmuRtpPayload` / `PcmaRtpPayload` + packetizers; static PT 0 / 8, clock 8000 Hz (RFC 3551).
+  - **G.722**: `G722RtpPayload` + `G722Packetizer`; static PT 9, **RTP clock 8000 Hz** (RFC 3551 §4.5.2).
+  - **AAC-hbr** (RFC 3640): `AacHbrRtpPayload` + `AacHbrPacketizer`; registry name `MPEG4-GENERIC`; AU Header Section validation; MTU fragmentation (every fragment repeats the AU Header Section).
+  - **telephone-event** (RFC 4733): `TelephoneEventRtpPayload` (serialize/deSerialize) + `TelephoneEventPacketizer`; marker on event start; not frame-aggregated in `dePacketizeRtpPackets`.
+  - **PacketizerBase** in `codec/base.ts` (sequence/`random16`, MTU default 1200, marker left to codecs).
+  - Registry: `depacketizerCodecs` / `dePacketizeRtpPackets` gain `H265`, `PCMU`, `PCMA`, `G722`, `MPEG4-GENERIC`.
+  - Example: `packages/rtp/examples/node/rtp_over_udp/` (Node UDP peer round-trip).
+  - Vector tooling: `packages/rtp/tools/generateVectors/`; RFCs `docs/rfc/rfc3551.txt`, `rfc3640.txt`, `rfc4733.txt`, `rfc7798.txt`.
+- **werift codec helpers** (`packages/webrtc`): `usePCMA` (PT 8 / 8000), `useG722` (PT 9 / 8000). Not added to `supportedCodecs` (negotiation still opt-in).
+
 ## v0.25.1
 
 ### 🔧 Maintenance

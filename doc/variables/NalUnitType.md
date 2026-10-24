@@ -30,6 +30,14 @@
 
 > `readonly` **mtap24**: `27` = `27`
 
+### pps
+
+> `readonly` **pps**: `8` = `8`
+
+### sps
+
+> `readonly` **sps**: `7` = `7`
+
 ### stap\_a
 
 > `readonly` **stap\_a**: `24` = `24`

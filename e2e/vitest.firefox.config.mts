@@ -1,6 +1,6 @@
 /// <reference types="@vitest/browser/providers/playwright" />
-import { defineConfig } from "vitest/config";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   plugins: [nodePolyfills()],
@@ -13,6 +13,8 @@ export default defineConfig({
   },
   test: {
     globals: true,
+    // Node-only tests live in tools/tests (npm run test:tools)
+    include: ["tests/**/*.test.ts"],
     testTimeout: 20_000,
     // fileParallelism: false,
     retry: 1,

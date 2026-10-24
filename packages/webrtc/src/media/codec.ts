@@ -1,9 +1,14 @@
 import { useNACK, usePLI, useREMB } from "./extension/rtcpFeedback";
 import { RTCRtpCodecParameters } from "./parameters";
 
+/**
+ * H.264 (RFC 6184). SDP encoding name must be **`H264`** (case-sensitive for
+ * Chrome-as-answerer software encode). Lowercase `h264` in a=rtpmap causes
+ * Chrome to negotiate H.264 but emit zero outbound RTP packets.
+ */
 export const useH264 = (props: Partial<RTCRtpCodecParameters> = {}) =>
   new RTCRtpCodecParameters({
-    mimeType: "video/h264",
+    mimeType: "video/H264",
     clockRate: 90000,
     rtcpFeedback: [useNACK(), usePLI(), useREMB()],
     parameters:
@@ -27,6 +32,22 @@ export const useVP9 = (props: Partial<RTCRtpCodecParameters> = {}) =>
     ...props,
   });
 
+/**
+ * Standard AV1 SDP name (`video/AV1`). Prefer this for Chrome and other
+ * modern browsers. See AV1 RTP payload format SDP mapping.
+ */
+export const useAV1 = (props: Partial<RTCRtpCodecParameters> = {}) =>
+  new RTCRtpCodecParameters({
+    mimeType: "video/AV1",
+    clockRate: 90000,
+    rtcpFeedback: [useNACK(), usePLI(), useREMB()],
+    ...props,
+  });
+
+/**
+ * Legacy experimental name (`video/AV1X`). Kept for backward compatibility
+ * with older peers; prefer {@link useAV1} for new code.
+ */
 export const useAV1X = (props: Partial<RTCRtpCodecParameters> = {}) =>
   new RTCRtpCodecParameters({
     mimeType: "video/AV1X",
@@ -52,9 +73,31 @@ export const usePCMU = (props: Partial<RTCRtpCodecParameters> = {}) =>
     ...props,
   });
 
+/** RFC 3551 static PT 8 / 8000 Hz. Not added to supportedCodecs (negotiation optional). */
+export const usePCMA = (props: Partial<RTCRtpCodecParameters> = {}) =>
+  new RTCRtpCodecParameters({
+    mimeType: "audio/PCMA",
+    clockRate: 8000,
+    channels: 1,
+    payloadType: 8,
+    ...props,
+  });
+
+/** RFC 3551 static PT 9 / RTP clock 8000 Hz (codec samples at 16 kHz). */
+export const useG722 = (props: Partial<RTCRtpCodecParameters> = {}) =>
+  new RTCRtpCodecParameters({
+    mimeType: "audio/G722",
+    clockRate: 8000,
+    channels: 1,
+    payloadType: 9,
+    ...props,
+  });
+
 export function defaultCodecs() {
   return {
     audio: [useOPUS(), usePCMU()],
+    // Default remains VP8 for negotiation stability; AV1/VP9/H264 are opt-in
+    // via useAV1() / PeerConnection codecs config (see supportedCodecs).
     video: [useVP8()],
   };
 }
@@ -74,6 +117,7 @@ export function cloneCodecParameters(codec: RTCRtpCodecParameters) {
 }
 
 export const supportedCodecs = [
+  useAV1(),
   useAV1X(),
   useVP9(),
   useVP8(),
