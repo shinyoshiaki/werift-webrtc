@@ -335,7 +335,7 @@ describe("packages/rtp/tests/codec/aac.test.ts", () => {
     const payloads = loadPayloadVector("vector_aac.bin");
     expect(payloads.length).toBeGreaterThan(0);
     const expected = readFileSync(
-      join(__dirname, "../data/vector_aac_expected.bin"),
+      join(import.meta.dirname, "../data/vector_aac_expected.bin"),
     );
     // Act: AU ヘッダを検証しながらフレームを復元
     let fragment: Buffer | undefined;

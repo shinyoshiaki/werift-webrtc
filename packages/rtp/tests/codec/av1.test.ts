@@ -397,11 +397,11 @@ describe("codec/av1 packetizer", () => {
 
   it("loads committed AV1 vector and getFrame matches expected", () => {
     // Arrange: synthetic size-field OBU（GST に rtpav1pay が無い環境向け）
-    const path = join(__dirname, "../data/vector_av1.bin");
+    const path = join(import.meta.dirname, "../data/vector_av1.bin");
     expect(existsSync(path)).toBe(true);
     const payloads = loadPayloadVector("vector_av1.bin");
     const expected = readFileSync(
-      join(__dirname, "../data/vector_av1_expected.bin"),
+      join(import.meta.dirname, "../data/vector_av1_expected.bin"),
     );
     // Act
     expect(payloads.length).toBeGreaterThan(0);

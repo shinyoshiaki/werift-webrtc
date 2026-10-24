@@ -1,10 +1,12 @@
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { TraceMap, eachMapping } from "@jridgewell/trace-mapping";
 import { transform } from "esbuild";
 import { type CoverageMap, createCoverageMap } from "istanbul-lib-coverage";
 import v8ToIstanbul from "v8-to-istanbul";
 
+const require = createRequire(import.meta.url);
 const { createContext } = require("istanbul-lib-report");
 const { create } = require("istanbul-reports");
 

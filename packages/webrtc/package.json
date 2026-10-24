@@ -54,12 +54,12 @@
     "knip": "knip",
     "test": "vitest run ./tests",
     "memleak": "vitest run --config ./tests/memleak/memleak.vitest.config.mts",
-    "pbt:deep": "tsx --tsconfig ./tsconfig.json tools/pbt-deep/run.ts",
+    "pbt:deep": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/pbt-deep/run.ts",
     "type": "tsc --noEmit --project ./tsconfig.json --rootDir ..",
     "upgrade-interactive": "npx npm-check-updates -i",
-    "wpt:list": "tsx --tsconfig ./tsconfig.json tools/wpt-runner/list.ts",
-    "wpt": "tsx --tsconfig ./tsconfig.json tools/wpt-runner/run.ts",
-    "wpt:coverage": "tsx --tsconfig ./tsconfig.json tools/wpt-runner/coverage.ts"
+    "wpt:list": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/wpt-runner/list.ts",
+    "wpt": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/wpt-runner/run.ts",
+    "wpt:coverage": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/wpt-runner/coverage.ts"
   },
   "dependencies": {
     "@peculiar/x509": "^2.2.0",

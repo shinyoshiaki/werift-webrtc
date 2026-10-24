@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -90,14 +90,6 @@ export async function waitForPortOpen(port: number, timeoutMs = 15_000) {
   throw new Error(`timed out waiting for port ${port}`);
 }
 
-function resolveTsx() {
-  const candidate = path.join(repoRoot, "node_modules", ".bin", "tsx");
-  if (existsSync(candidate)) {
-    return candidate;
-  }
-  return "npx";
-}
-
 export function spawnLogged(
   command: string,
   args: string[],
@@ -145,13 +137,22 @@ export function spawnLogged(
   };
 }
 
-export function spawnExampleTsx(
+export function spawnExampleNodeTs(
   entryFile: string,
   options: { cwd: string; env?: NodeJS.ProcessEnv },
 ) {
-  const tsx = resolveTsx();
-  const args = tsx.endsWith("tsx") ? [entryFile] : ["tsx", entryFile];
-  return spawnLogged(tsx, args, options);
+  return spawnLogged(
+    process.execPath,
+    [
+      "--experimental-transform-types",
+      "--disable-warning=ExperimentalWarning",
+      "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+      "--import",
+      path.join(repoRoot, "tools/node-ts/register.mjs"),
+      entryFile,
+    ],
+    options,
+  );
 }
 
 export async function waitForLog(

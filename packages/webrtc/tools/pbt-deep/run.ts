@@ -20,6 +20,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { cpus, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { createRequire } from "node:module";
 
 type Suite = "fuzz" | "scenario" | "model";
 type Shard = {
@@ -31,6 +32,7 @@ type Shard = {
 type Failure = { suite: Suite; title: string; shard: Shard };
 
 const args = process.argv.slice(2);
+const require = createRequire(import.meta.url);
 const option = (name: string) => {
   const index = args.indexOf(`--${name}`);
   return index >= 0 ? args[index + 1] : undefined;
@@ -45,7 +47,7 @@ const vitest = join(
   dirname(require.resolve("vitest/package.json")),
   "vitest.mjs",
 );
-const cwd = join(__dirname, "../..");
+const cwd = join(import.meta.dirname, "../..");
 const work = mkdtempSync(join(tmpdir(), "pbt-deep-"));
 
 /** Seed ranges of about `size` seeds each, at least `jobs * 3` shards for balance. */

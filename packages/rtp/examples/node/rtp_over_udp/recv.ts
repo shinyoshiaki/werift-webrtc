@@ -2,7 +2,7 @@
  * Plain RTP-over-UDP receiver using package-local depacketizers.
  *
  * Usage:
- *   npx tsx examples/node/rtp_over_udp/recv.ts [port] [codec]
+ *   node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs examples/node/rtp_over_udp/recv.ts [port] [codec]
  * codec: pcmu | pcma | g722 | aac | h265 | vp8 | vp9 | av1 | opus | h264
  *   (default pcmu)
  *

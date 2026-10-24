@@ -19,10 +19,10 @@
   "scripts": {
     "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json && node ../write-package-entrypoint.mjs sctp",
     "ci": "npm run type && npm run lint && npm run test",
-    "client": "tsx --tsconfig tsconfig.json examples/client.ts",
+    "client": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs examples/client.ts",
     "deploy": "npm run build && npm publish",
     "format": "biome check --write src",
-    "server": "tsx --tsconfig tsconfig.json examples/server.ts",
+    "server": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs examples/server.ts",
     "test": "npm run type && vitest run ./tests",
     "type": "tsc --noEmit -p . --rootDir ..",
     "upgrade-interactive": "npx npm-check-updates -i"

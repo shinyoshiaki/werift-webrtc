@@ -23,24 +23,25 @@
     "build": "npm run build --workspaces --if-present",
     "ci": "run-s type:all build test doc wpt wpt:coverage",
     "clean": "rm -rf e2e/node_modules && rm -rf packages/*/node_modules",
-    "datachannel": "tsx watch examples/datachannel/offer.ts",
-    "debug": "DEBUG=werift* tsx watch examples/mediachannel/sendrecv/answer.ts",
+    "datachannel": "node --watch --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tools/node-ts/register.mjs examples/datachannel/offer.ts",
+    "debug": "DEBUG=werift* node --watch --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tools/node-ts/register.mjs examples/mediachannel/sendrecv/answer.ts",
     "doc": "npm run doc --workspaces --if-present && rm -rf doc && cd packages/webrtc && mv doc ../..",
     "e2e": "cd e2e && npm i && npm run ci:silent",
     "e2e:verbose": "cd e2e && npm run ci",
-    "example": "tsx watch examples/ice/restart/offer.ts",
+    "example": "node --watch --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tools/node-ts/register.mjs examples/ice/restart/offer.ts",
     "examples:e2e": "npm i --prefix examples && cd examples/e2e && npm i && npm run ci:silent",
     "examples:e2e:install": "cd examples/e2e && npm i && npm run install:browsers",
     "format": "npm run format --workspaces --if-present && run-s format:examples format:e2e",
     "format:e2e": "cd e2e && cp ../biome.json ./ && npm run format",
     "format:examples": "cd examples && cp ../biome.json ./ && npm run format",
     "knip": "npx knip --config ./knip.json --dependencies --fix",
-    "media": "DEBUG=werift* tsx watch examples/mediachannel/pubsub/offer.ts",
+    "media": "DEBUG=werift* node --watch --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tools/node-ts/register.mjs examples/mediachannel/pubsub/offer.ts",
     "test": "run-s test:small e2e",
     "test:small": "npm run test --workspaces --if-present",
     "type": "npm run type:packages",
     "type:all": "run-s type:packages type:extra",
     "type:extra": "cd e2e && npm run type",
+    "test:node-ts": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tools/node-ts/register.mjs --test tools/node-ts/register.test.mjs",
     "type:packages": "npm run type --workspaces --if-present",
     "upgrade-interactive": "npx npm-check-updates -i --deep",
     "wpt:list": "npm run wpt:list --workspace packages/webrtc",
@@ -58,7 +59,6 @@
     "istanbul-reports": "3.2.0",
     "knip": "^6.42.1",
     "npm-run-all2": "^9.0.4",
-    "tsx": "^4.23.15",
     "typedoc": "0.28.20",
     "typedoc-plugin-markdown": "4.14.1",
     "typescript": "6.0.3",
@@ -73,6 +73,12 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": ">=22.18.0"
+    }
   },
   "readme": "README.md"
 }

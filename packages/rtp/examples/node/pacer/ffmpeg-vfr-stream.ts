@@ -6,8 +6,8 @@
  * reach Node.js through a pipe in bursts and with jitter; RtpMediaPacer sends
  * each frame at its own pts on a monotonic clock with the pts as RTP timestamp.
  *
- * run:  npx tsx packages/rtp/examples/node/pacer/ffmpeg-vfr-stream.ts
- * view: DEST_PORT=5004 npx tsx packages/rtp/examples/node/pacer/ffmpeg-vfr-stream.ts
+ * run:  node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs packages/rtp/examples/node/pacer/ffmpeg-vfr-stream.ts
+ * view: DEST_PORT=5004 node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs packages/rtp/examples/node/pacer/ffmpeg-vfr-stream.ts
  *       gst-launch-1.0 udpsrc port=5004 \
  *         caps="application/x-rtp,media=video,encoding-name=VP8,clock-rate=90000,payload=96" \
  *         ! rtpjitterbuffer ! rtpvp8depay ! vp8dec ! autovideosink

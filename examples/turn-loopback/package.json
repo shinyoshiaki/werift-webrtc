@@ -10,7 +10,7 @@
     "chrome-e2e:verbose": "cd chrome-e2e && npm i && npm run ci",
     "docker:build": ". ./.env && cd ../.. && docker build -f examples/turn-loopback/Dockerfile -t $IMAGE_TAG .",
     "preview": "vite preview",
-    "server": "tsx --tsconfig tsconfig.server.json server/main.ts",
+    "server": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs server/main.ts",
     "type": "tsc --noEmit -p tsconfig.client.json && tsc --noEmit -p tsconfig.server.json"
   },
   "devDependencies": {
@@ -18,7 +18,6 @@
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
     "@vitejs/plugin-react": "^6.1.2",
-    "tsx": "^4.23.15",
     "typescript": "6.0.3",
     "vite": "^8.3.5"
   },

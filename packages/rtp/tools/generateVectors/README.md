@@ -15,9 +15,9 @@ committed binaries (and synthetic vectors in `*.test.ts`).
 
 ```bash
 cd packages/rtp
-npx tsx tools/generateVectors/generate.ts
+node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/generateVectors/generate.ts
 # After capture, expected sidecars are rebuilt automatically.
-# Manual rebuild: npx tsx tools/generateVectors/buildExpectedFromVectors.ts
+# Manual rebuild: node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/generateVectors/buildExpectedFromVectors.ts
 ```
 
 ### Docker (when host has no GStreamer)
@@ -29,7 +29,7 @@ docker run --rm --network host \
   "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
    gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
    gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-plugins-bad && \
-   npx tsx tools/generateVectors/generate.ts"
+   node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/generateVectors/generate.ts"
 ```
 
 Each codec opens a UDP socket, launches a short `gst-launch-1.0` pipeline, and

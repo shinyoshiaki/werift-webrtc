@@ -19,7 +19,7 @@ import { RtpHeader, RtpPacket } from "../src/rtp/rtp";
 import type { Transport } from "../src/transport";
 
 export function load(name: string) {
-  const base = __dirname;
+  const base = import.meta.dirname;
   const data = readFileSync(`${base}/data/` + name);
   return data;
 }
@@ -29,7 +29,7 @@ export function load(name: string) {
  * repeated [u16be length][payload] records.
  */
 export function loadPayloadVector(name: string): Buffer[] {
-  const path = join(__dirname, "data", name);
+  const path = join(import.meta.dirname, "data", name);
   let buf: Buffer;
   try {
     buf = readFileSync(path);
@@ -601,10 +601,10 @@ export function deliverStreamingArrivals(
   }
 }
 
-const PACKAGE_ROOT = join(__dirname, "..");
+const PACKAGE_ROOT = join(import.meta.dirname, "..");
 
 /**
- * Runs `packages/rtp/<relativePath>` with tsx as a separate Node.js process,
+ * Runs `packages/rtp/<relativePath>` with Node's TypeScript support in a separate process,
  * the same way a user runs an example, and collects its output.
  */
 export function runExample(
@@ -613,7 +613,14 @@ export function runExample(
 ) {
   const child = spawn(
     process.execPath,
-    ["--import", "tsx", join(PACKAGE_ROOT, relativePath)],
+    [
+      "--experimental-transform-types",
+      "--disable-warning=ExperimentalWarning",
+      "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+      "--import",
+      join(PACKAGE_ROOT, "..", "..", "tools/node-ts/register.mjs"),
+      join(PACKAGE_ROOT, relativePath),
+    ],
     {
       cwd: PACKAGE_ROOT,
       env: { ...process.env, ...options.env },

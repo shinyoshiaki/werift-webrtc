@@ -283,7 +283,7 @@ describe("packages/rtp/tests/codec/h265.test.ts", () => {
 
   it("loads committed H.265 vector and matches vector_h265_expected.bin", () => {
     // Arrange: GStreamer rtph265pay 成果物
-    const path = join(__dirname, "../data/vector_h265.bin");
+    const path = join(import.meta.dirname, "../data/vector_h265.bin");
     expect(existsSync(path)).toBe(true);
     const buf = readFileSync(path);
     const payloads: Buffer[] = [];
@@ -295,7 +295,7 @@ describe("packages/rtp/tests/codec/h265.test.ts", () => {
       offset += len;
     }
     const expected = readFileSync(
-      join(__dirname, "../data/vector_h265_expected.bin"),
+      join(import.meta.dirname, "../data/vector_h265_expected.bin"),
     );
     // Act: 単一 NAL / AP / FU を順に復元
     expect(payloads.length).toBeGreaterThan(0);

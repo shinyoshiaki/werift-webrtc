@@ -7,7 +7,7 @@ Regenerate:
 
 ```bash
 cd packages/rtp
-npx tsx tools/generateVectors/generate.ts
+node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/generateVectors/generate.ts
 ```
 
 Docker (if host has no GStreamer):
@@ -18,7 +18,7 @@ docker run --rm --network host -v "$(pwd)/../..":/workspace -w /workspace/packag
   "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
    gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
    gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-plugins-bad && \
-   npx tsx tools/generateVectors/generate.ts"
+   node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/generateVectors/generate.ts"
 ```
 
 | File                   | Source (when GST available)                            |

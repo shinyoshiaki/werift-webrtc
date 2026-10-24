@@ -108,7 +108,7 @@ describe("packages/rtp/tests/codec/telephoneEvent.test.ts", () => {
 
   it("decodes existing rtp_dtmf.bin fixture when present", () => {
     // Arrange
-    const path = join(__dirname, "../data/rtp_dtmf.bin");
+    const path = join(import.meta.dirname, "../data/rtp_dtmf.bin");
     const raw = readFileSync(path);
     // Act
     const rtp = RtpPacket.deSerialize(raw);
