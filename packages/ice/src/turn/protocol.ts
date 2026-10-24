@@ -280,6 +280,8 @@ export class TurnProtocol implements Protocol {
     const exp = response.getAttributeValue("LIFETIME");
     log("connect", this.relayedAddress, this.mappedAddress, { exp });
 
+    // close() ran while the response was in flight: no refresh starts.
+    if (this.closed) throw new TransactionCancelled();
     this.refresh(exp);
   }
 
@@ -364,7 +366,15 @@ export class TurnProtocol implements Protocol {
       const previous = this.transport;
       previous.onData = () => {};
       await previous.close();
-      this.transport = await this.options.reconnect!(server, domain);
+      const reconnected = await this.options.reconnect!(server, domain);
+      // close() ran while reconnecting: it saw only the closed previous
+      // transport, so the new connection is released here.
+      if (this.closed) {
+        reconnected.onData = () => {};
+        await reconnected.close();
+        throw new TransactionCancelled();
+      }
+      this.transport = reconnected;
       this.tcpBuffer = Buffer.alloc(0);
       this.attachTransport();
       endpoint = this.transport.remoteAddress ?? server;
