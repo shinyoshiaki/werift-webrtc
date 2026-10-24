@@ -60,6 +60,15 @@ Fires for a FIR addressed to this sender with a new sequence number (RFC 5104 4.
 
 ***
 
+### onKeyFrameRequest
+
+> `readonly` **onKeyFrameRequest**: [`Event`](Event.md)\<\[`"fir"` \| `"pli"`\]\>
+
+Fires for every key frame request addressed to this sender: each PLI, and each FIR
+that is not a retransmission. Fires in addition to onPictureLossIndication / onFullIntraRequest.
+
+***
+
 ### onPictureLossIndication
 
 > `readonly` **onPictureLossIndication**: [`Event`](Event.md)\<\[\]\>

@@ -1327,6 +1327,29 @@ describe("media/rtpSender RTP continuity", () => {
       expect((await outboundRtpStats(sender)).firCount).toBeUndefined();
     });
 
+    test("onKeyFrameRequest fires for PLI and for new FIR only", () => {
+      // Arrange
+      const { sender } = createConnectedRtpSender({ kind: "video" });
+      const onRequest = vi.fn();
+      sender.onKeyFrameRequest.subscribe(onRequest);
+      const firWithSeq = (sequenceNumber: number) =>
+        createFirPacket({
+          senderSsrc: remoteSsrc,
+          fir: [{ ssrc: sender.ssrc, sequenceNumber }],
+        });
+
+      // Act: PLI、FIR、FIR の再送、新しい Seq nr の FIR を順に受ける
+      sender.handleRtcpPacket(
+        createPliPacket({ senderSsrc: remoteSsrc, mediaSsrc: sender.ssrc }),
+      );
+      sender.handleRtcpPacket(firWithSeq(1));
+      sender.handleRtcpPacket(firWithSeq(1));
+      sender.handleRtcpPacket(firWithSeq(2));
+
+      // Assert: 再送を除き、種別付きで 3 回発火する
+      expect(onRequest.mock.calls).toEqual([["pli"], ["fir"], ["fir"]]);
+    });
+
     test("PLI does not affect FIR handling", async () => {
       // Arrange
       const { sender } = createConnectedRtpSender({ kind: "video" });

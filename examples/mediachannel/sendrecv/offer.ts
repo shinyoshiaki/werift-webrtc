@@ -24,10 +24,10 @@ server.on("connection", async (socket) => {
   const video = pc.addTransceiver("video");
   video.onTrack.subscribe((track) => {
     video.sender.replaceTrack(track);
-    // PLI and FIR (RFC 5104) are separate events, but both just mean "send a key frame"
-    const requestKeyFrame = () => video.receiver.sendRtcpPLI(track.ssrc);
-    video.sender.onPictureLossIndication.subscribe(requestKeyFrame);
-    video.sender.onFullIntraRequest.subscribe(requestKeyFrame);
+    // PLI and FIR (RFC 5104) both arrive as a key frame request
+    video.sender.onKeyFrameRequest.subscribe(() =>
+      video.receiver.sendRtcpPLI(track.ssrc),
+    );
   });
 
   const audio = pc.addTransceiver("audio");

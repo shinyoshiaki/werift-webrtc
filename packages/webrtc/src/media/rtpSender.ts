@@ -155,6 +155,11 @@ export class RTCRtpSender {
   readonly onGenericNack = new Event<[GenericNack]>();
   /** Fires for a FIR addressed to this sender with a new sequence number (RFC 5104 4.3.1). */
   readonly onFullIntraRequest = new Event<[FullIntraRequest]>();
+  /**
+   * Fires for every key frame request addressed to this sender: each PLI, and each FIR
+   * that is not a retransmission. Fires in addition to onPictureLossIndication / onFullIntraRequest.
+   */
+  readonly onKeyFrameRequest = new Event<["pli" | "fir"]>();
   readonly senderBWE = new SenderBandwidthEstimator();
 
   private cname?: string;
@@ -881,6 +886,7 @@ export class RTCRtpSender {
               {
                 this.pliCount++;
                 this.onPictureLossIndication.execute();
+                this.onKeyFrameRequest.execute("pli");
               }
               break;
             case FullIntraRequest.count:
@@ -905,6 +911,7 @@ export class RTCRtpSender {
                 );
                 if (isNew) {
                   this.onFullIntraRequest.execute(feedback);
+                  this.onKeyFrameRequest.execute("fir");
                 }
               }
               break;

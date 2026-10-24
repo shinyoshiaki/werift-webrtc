@@ -8,7 +8,8 @@
 
 ### 🚀 Features
 
-- **`RTCRtpSender.onFullIntraRequest`**: a new `Event<[FullIntraRequest]>` fires when the sender receives a FIR (RFC 5104) whose FCI has an entry for its SSRC with a new sequence number. A retransmitted FIR (same sequence number from the same FIR sender) does not fire it again. FIR is not delivered to `onPictureLossIndication`; applications that refresh on both should subscribe to both events.
+- **`RTCRtpSender.onFullIntraRequest`**: a new `Event<[FullIntraRequest]>` fires when the sender receives a FIR (RFC 5104) whose FCI has an entry for its SSRC with a new sequence number. A retransmitted FIR (same sequence number from the same FIR sender) does not fire it again. FIR is not delivered to `onPictureLossIndication`; applications that refresh on both should subscribe to `onKeyFrameRequest`.
+- **`RTCRtpSender.onKeyFrameRequest`**: a new `Event<["pli" | "fir"]>` that fires for every PLI and every non-retransmitted FIR addressed to the sender, so applications that only need to request a key frame can use one subscription. `onPictureLossIndication` / `onFullIntraRequest` and the stats counters are unchanged.
 - **`firCount` in outbound-rtp stats**: every FIR entry addressed to the sender is now counted (retransmissions included), so `getStats()` reports `firCount`.
 - **`FullIntraRequest` is exported** from `werift-rtp` and `werift`.
 
