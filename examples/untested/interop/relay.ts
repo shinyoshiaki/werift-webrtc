@@ -1,9 +1,12 @@
-import { createSocket } from "dgram";
 import axios from "axios";
 import cors from "cors";
+import { createSocket } from "dgram";
 import express from "express";
 import * as yargs from "yargs";
-import { MediaStreamTrack, RTCPeerConnection } from "../../../packages/webrtc/src";
+import {
+  MediaStreamTrack,
+  RTCPeerConnection,
+} from "../../../packages/webrtc/src";
 import {
   createCallbackRegister,
   installPolyfill,

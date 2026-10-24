@@ -19,7 +19,7 @@ export const p256PreMasterSecret = ({
   publicKey: Buffer;
   privateKey: Buffer;
 }): Buffer => {
-  return createECDH("prime256v1")
-    .setPrivateKey(privateKey)
-    .computeSecret(publicKey);
+  const ecdh = createECDH("prime256v1");
+  ecdh.setPrivateKey(privateKey);
+  return ecdh.computeSecret(publicKey);
 };

@@ -1,9 +1,6 @@
+import * as timers from "node:timers/promises";
 import { randomBytes } from "crypto";
 import { isIPv4 } from "net";
-
-import * as timers from "node:timers/promises";
-import { type Address, Event, debug } from "./imports/common";
-
 import {
   Candidate,
   candidateFoundation,
@@ -12,25 +9,26 @@ import {
 } from "./candidate";
 import { MdnsLookup } from "./dns/lookup";
 import type { TransactionError } from "./exceptions";
-import { type Cancelable, PQueue, cancelable, randomString } from "./helper";
+import { type Cancelable, cancelable, PQueue, randomString } from "./helper";
 import {
-  CONSENT_INTERVAL,
-  CONSENT_TIMEOUT,
   CandidatePair,
   CandidatePairState,
+  CONSENT_INTERVAL,
+  CONSENT_TIMEOUT,
+  consentResponseTimeoutMs,
+  defaultOptions,
   ICE_COMPLETED,
   ICE_FAILED,
   type IceConnection,
   type IceOptions,
   type IceState,
-  consentResponseTimeoutMs,
-  defaultOptions,
   serverReflexiveCandidate,
   sortCandidatePairs,
   validateAddress,
   validateRemoteCandidate,
 } from "./iceBase";
-import { TCP_CHECK_RESPONSE_TIMEOUT_MS, classes, methods } from "./stun/const";
+import { type Address, debug, Event } from "./imports/common";
+import { classes, methods, TCP_CHECK_RESPONSE_TIMEOUT_MS } from "./stun/const";
 import { Message } from "./stun/message";
 import { StunProtocol } from "./stun/protocol";
 import { TcpActiveProtocol, TcpPassiveProtocol } from "./stun/tcpProtocol";

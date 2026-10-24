@@ -13,18 +13,18 @@
   },
   "main": "lib/ice-server/src/index.js",
   "types": "lib/ice-server/src/index.d.ts",
-  "files": ["lib"],
+  "files": [
+    "lib"
+  ],
   "scripts": {
-    "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
+    "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json && node ../write-package-entrypoint.mjs ice-server",
     "chrome-e2e": "cd chrome-e2e && npm i && npm run ci:silent",
     "deploy": "npm run build && npm publish",
     "format": "biome check --write src tests",
     "test": "vitest run --config ./vitest.config.mts && npm run chrome-e2e",
-    "type": "tsc --noEmit --project ./tsconfig.json",
-    "unused": "organize-imports-cli src/**/*.ts"
+    "type": "tsc --noEmit --project ./tsconfig.json --rootDir .."
   },
-  "dependencies": {
-  },
+  "dependencies": {},
   "devDependencies": {},
   "engines": {
     "node": ">=22"

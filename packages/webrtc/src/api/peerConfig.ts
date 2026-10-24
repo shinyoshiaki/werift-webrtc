@@ -11,10 +11,10 @@ import type {
 } from "../imports/common";
 import type { CandidatePair, Message, Protocol } from "../imports/ice";
 import {
+  defaultCodecs,
   type RTCRtpCodecParameters,
   type RTCRtpHeaderExtensionParameters,
   type RTCRtpSenderOptions,
-  defaultCodecs,
 } from "../media";
 import { normalizeCodecMimeType } from "../media/codecCompatibility";
 import type { BundlePolicy } from "../sdp";

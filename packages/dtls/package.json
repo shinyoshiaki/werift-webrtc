@@ -1,6 +1,6 @@
 {
   "name": "werift-dtls",
-  "version": "0.5.8",
+  "version": "0.6.0",
   "description": "DTLS protocol implementation for Node.js written in TypeScript.",
   "homepage": "https://github.com/shinyoshiaki/werift-dtls",
   "repository": {
@@ -17,20 +17,20 @@
     "lib"
   ],
   "scripts": {
-    "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
+    "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json && node ../write-package-entrypoint.mjs dtls",
     "ci": "npm run type && npm run test",
-    "client": "DEBUG=werift* ts-node-dev --files --project tsconfig.json examples/client.ts",
+    "client": "DEBUG=werift* tsx watch --tsconfig tsconfig.json examples/client.ts",
     "dep": "depcheck",
     "deploy": "npm run build && npm publish",
     "format": "biome check --write src tests",
-    "server": "DEBUG=werift* ts-node-dev --files --project tsconfig.json examples/server.ts",
+    "server": "DEBUG=werift* tsx watch --tsconfig tsconfig.json examples/server.ts",
     "test": "vitest run ./tests",
-    "type": "tsc --noEmit -p .",
-    "unused": "organize-imports-cli src/**/*.ts",
+    "type": "tsc --noEmit -p . --rootDir ..",
     "upgrade-interactive": "npx npm-check-updates -i"
   },
   "dependencies": {
-    "@peculiar/x509": "^2.2.0"
+    "@peculiar/x509": "^2.2.0",
+    "reflect-metadata": "^0.2.2"
   },
   "engines": {
     "node": ">=22"

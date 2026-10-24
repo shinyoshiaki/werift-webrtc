@@ -1,11 +1,14 @@
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
 import { debug } from "../src/log";
-import { createDebugOutput } from "./logUtils";
+import { createDebugOutput, setStderrIsTTYForTest } from "./logUtils";
+
+let restoreTTY: (() => void) | undefined;
 
 describe("debug logger", () => {
   afterEach(() => {
     debug.disable();
-    vi.restoreAllMocks();
+    restoreTTY?.();
+    restoreTTY = undefined;
     process.env.DEBUG_COLORS = "";
     delete process.env.DEBUG_COLORS;
     delete process.env.NO_COLOR;
@@ -43,7 +46,9 @@ describe("debug logger", () => {
     // Assert
     expect(previous).toBe("werift:test");
     expect(logger.enabled).toBe(false);
-    expect(output.messages[0]).toContain("value=ok count=3 json={\"a\":1} percent=%");
+    expect(output.messages[0]).toContain(
+      'value=ok count=3 json={"a":1} percent=%',
+    );
     expect(output.messages).toHaveLength(1);
     output.restore();
   });
@@ -52,7 +57,7 @@ describe("debug logger", () => {
     // Arrange
     const output = createDebugOutput();
     const logger = debug("werift:tty");
-    const tty = vi.spyOn(process.stderr, "isTTY", "get").mockReturnValue(true);
+    restoreTTY = setStderrIsTTYForTest(true);
     debug.enable("");
 
     // Act
@@ -65,14 +70,13 @@ describe("debug logger", () => {
     expect(output.messages).toHaveLength(1);
     expect(output.messages[0]).toContain("\u001b[");
     expect(output.messages[0]).toContain("visible +");
-    tty.mockRestore();
     output.restore();
   });
 
   test("uses timestamps without TTY colors and honors DEBUG_COLORS=0", () => {
     // Arrange
     const output = createDebugOutput();
-    vi.spyOn(process.stderr, "isTTY", "get").mockReturnValue(false);
+    restoreTTY = setStderrIsTTYForTest(false);
     process.env.DEBUG_COLORS = "0";
     debug.enable("werift:plain");
 
@@ -80,7 +84,9 @@ describe("debug logger", () => {
     debug("werift:plain")("plain");
 
     // Assert
-    expect(output.messages[0]).toMatch(/^\d{4}-\d\d-\d\dT.* werift:plain plain\n$/);
+    expect(output.messages[0]).toMatch(
+      /^\d{4}-\d\d-\d\dT.* werift:plain plain\n$/,
+    );
     expect(output.messages[0]).not.toContain("\u001b[");
     output.restore();
   });

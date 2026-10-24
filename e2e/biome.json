@@ -1,47 +1,72 @@
 {
-  "formatter": {
-    "indentStyle": "space"
-  },
-  "linter": {
-    "enabled": true,
-    "rules": {
-      "style": {
-        "noUnusedTemplateLiteral": "off",
-        "noNonNullAssertion": "off",
-        "useTemplate": "off",
-        "noUselessElse": "off",
-        "noParameterAssign": "off",
-        "useSingleVarDeclarator": "off",
-        "useDefaultParameterLast": "off",
-        "noInferrableTypes": "off",
-        "useNodejsImportProtocol": "off"
-      },
-      "complexity": {
-        "noStaticOnlyClass": "off",
-        "noUselessCatch": "off",
-        "noForEach": "warn",
-        "noThisInStatic": "off",
-        "useLiteralKeys": "off",
-        "noUselessConstructor": "off"
-      },
-      "a11y": {
-        "useButtonType": "off",
-        "useMediaCaption": "off"
-      },
-      "suspicious": {
-        "noAsyncPromiseExecutor": "off",
-        "noExplicitAny": "off",
-        "noDoubleEquals": "off",
-        "noFallthroughSwitchClause": "off",
-        "noAssignInExpressions": "off",
-        "noRedeclare": "off",
-        "noConfusingVoidType": "off",
-        "noImplicitAnyLet": "off"
-      },
-      "correctness": {
-        "noSwitchDeclarations": "error",
-        "noInvalidUseBeforeDeclaration": "off"
-      }
-    }
-  }
+	"files": {
+		"includes": [
+			"**",
+			"!**/.sak-link",
+			"!**/build",
+			"!**/build/**",
+			"!**/dist",
+			"!**/dist/**",
+			"!**/lib",
+			"!**/lib/**",
+			"!**/vendor/**"
+		]
+	},
+	"formatter": {
+		"indentStyle": "space"
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"style": {
+				"noUnusedTemplateLiteral": "off",
+				"noNonNullAssertion": "off",
+				"useTemplate": "off",
+				"noUselessElse": "off",
+				"noParameterAssign": "off",
+				"useSingleVarDeclarator": "off",
+				"useDefaultParameterLast": "off",
+				"noInferrableTypes": "off",
+				"useNodejsImportProtocol": "off"
+			},
+			"complexity": {
+				"noStaticOnlyClass": "off",
+				"noUselessCatch": "off",
+				"noForEach": "off",
+				"noThisInStatic": "off",
+				"useLiteralKeys": "off",
+				"noUselessConstructor": "off",
+				"noCommaOperator": "off",
+				"useIndexOf": "off",
+				"useMathMinMax": "off",
+				"useOptionalChain": "off"
+			},
+			"a11y": {
+				"useButtonType": "off",
+				"useMediaCaption": "off"
+			},
+			"suspicious": {
+				"noAsyncPromiseExecutor": "off",
+				"noExplicitAny": "off",
+				"noDoubleEquals": "off",
+				"useIterableCallbackReturn": "off",
+				"noFallthroughSwitchClause": "off",
+				"noAssignInExpressions": "off",
+				"noRedeclare": "off",
+				"noConfusingVoidType": "off",
+				"noImplicitAnyLet": "off",
+				"noNonNullAssertedOptionalChain": "off"
+			},
+			"correctness": {
+				"noSwitchDeclarations": "error",
+				"noInvalidUseBeforeDeclaration": "off",
+				"noInnerDeclarations": "off",
+				"noUnusedFunctionParameters": "off",
+				"noUnusedImports": "off",
+				"noUnusedPrivateClassMembers": "off",
+				"noUnusedVariables": "off",
+				"useParseIntRadix": "off"
+			}
+		}
+	}
 }

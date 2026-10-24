@@ -1,8 +1,8 @@
 import type { Connection } from "../../../../ice/src";
 import { StunOverTurnProtocol } from "../../../../ice/src/turn/protocol";
 import { turnAllocations } from "../../../../ice/tests/utils";
-import { MediaStreamTrack, useH264, useVP8 } from "../../../src";
 import type { RTCIceCandidate, RTCPeerConnection } from "../../../src";
+import { MediaStreamTrack, useH264, useVP8 } from "../../../src";
 import { describeCases, negotiationCase } from "../harness/negotiationCase";
 import {
   createConnectedMediaAndDataPeersWithTurnServer,

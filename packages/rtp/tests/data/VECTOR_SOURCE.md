@@ -21,16 +21,16 @@ docker run --rm --network host -v "$(pwd)/../..":/workspace -w /workspace/packag
    npx tsx tools/generateVectors/generate.ts"
 ```
 
-| File | Source (when GST available) |
-|------|------------------------------|
-| vector_pcmu / pcma | mulawenc/alawenc + rtppay |
-| vector_g722 | avenc_g722 + rtpg722pay |
-| vector_aac | avenc_aac + rtpmp4gpay |
-| vector_h265 | x265enc + rtph265pay |
-| vector_h264 | x264enc + rtph264pay |
-| vector_vp8 | vp8enc + rtpvp8pay |
-| vector_vp9 | vp9enc + rtpvp9pay |
-| vector_opus | opusenc + rtpopuspay |
-| vector_av1 | synthetic Av1Packetizer (no rtpav1pay on most distros) |
-| vector_telephone_event | synthetic RFC 4733 |
-| vector_*_expected.bin | depacketized / concatenated media for tests |
+| File                   | Source (when GST available)                            |
+| ---------------------- | ------------------------------------------------------ |
+| vector_pcmu / pcma     | mulawenc/alawenc + rtppay                              |
+| vector_g722            | avenc_g722 + rtpg722pay                                |
+| vector_aac             | avenc_aac + rtpmp4gpay                                 |
+| vector_h265            | x265enc + rtph265pay                                   |
+| vector_h264            | x264enc + rtph264pay                                   |
+| vector_vp8             | vp8enc + rtpvp8pay                                     |
+| vector_vp9             | vp9enc + rtpvp9pay                                     |
+| vector_opus            | opusenc + rtpopuspay                                   |
+| vector_av1             | synthetic Av1Packetizer (no rtpav1pay on most distros) |
+| vector_telephone_event | synthetic RFC 4733                                     |
+| vector_*_expected.bin  | depacketized / concatenated media for tests            |

@@ -11,7 +11,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "werift": "0.22.7",
+    "werift": "0.25.2",
     "werift-dev": "file:../packages/webrtc",
     "werift-sctp": "file:../packages/sctp"
   }

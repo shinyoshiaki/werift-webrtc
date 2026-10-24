@@ -1,6 +1,6 @@
 {
   "name": "werift-common",
-  "version": "0.0.3",
+  "version": "0.1.0",
   "description": "common",
   "keywords": [
     "WebRTC",
@@ -22,11 +22,10 @@
   ],
   "scripts": {
     "test": "vitest run ./tests",
-    "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
+    "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json && node ../write-package-entrypoint.mjs common",
     "deploy": "npm run build && npm publish",
     "format": "biome check --write src tests",
-    "type": "tsc --noEmit --project ./tsconfig.json",
-    "unused": "organize-imports-cli src/**/*.ts"
+    "type": "tsc --noEmit --project ./tsconfig.json --rootDir .."
   },
   "dependencies": {},
   "devDependencies": {},

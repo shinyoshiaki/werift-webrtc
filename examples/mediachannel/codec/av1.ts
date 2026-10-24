@@ -1,9 +1,9 @@
 import { Server } from "ws";
 import {
   AV1RtpPayload,
+  dumpBuffer,
   RTCPeerConnection,
   RTCRtpCodecParameters,
-  dumpBuffer,
 } from "../../../packages/webrtc/src";
 
 const server = new Server({ port: 8888 });

@@ -36,7 +36,9 @@ let generation = 0;
 let includePatterns: RegExp[] = [];
 let excludePatterns: RegExp[] = [];
 const colors = [31, 32, 33, 34, 35, 36];
-let debugWriter = (message: string) => process.stderr.write(message);
+let debugWriter: (message: string) => void = (message) => {
+  process.stderr.write(message);
+};
 
 const compilePattern = (pattern: string) =>
   new RegExp(`^${pattern.split("*").map(escapeRegExp).join(".*?")}$`);
@@ -47,26 +49,35 @@ function escapeRegExp(value: string) {
 
 function parseNamespaces(namespaces: string) {
   const tokens = namespaces.split(/[\s,]+/).filter(Boolean);
-  includePatterns = tokens.filter((token) => !token.startsWith("-")).map(compilePattern);
-  excludePatterns = tokens.filter((token) => token.startsWith("-")).map((token) => compilePattern(token.slice(1)));
+  includePatterns = tokens
+    .filter((token) => !token.startsWith("-"))
+    .map(compilePattern);
+  excludePatterns = tokens
+    .filter((token) => token.startsWith("-"))
+    .map((token) => compilePattern(token.slice(1)));
 }
 
 parseNamespaces(namespaceSetting);
 
 function isEnabled(namespace: string) {
-  return !excludePatterns.some((pattern) => pattern.test(namespace)) && includePatterns.some((pattern) => pattern.test(namespace));
+  return (
+    !excludePatterns.some((pattern) => pattern.test(namespace)) &&
+    includePatterns.some((pattern) => pattern.test(namespace))
+  );
 }
 
 function colorFor(namespace: string) {
   let hash = 0;
-  for (let i = 0; i < namespace.length; i++) hash = (hash << 5) - hash + namespace.charCodeAt(i);
+  for (let i = 0; i < namespace.length; i++)
+    hash = (hash << 5) - hash + namespace.charCodeAt(i);
   return colors[Math.abs(hash) % colors.length];
 }
 
 function colorsEnabled() {
   if (process.env.NO_COLOR !== undefined) return false;
   const setting = process.env.DEBUG_COLORS;
-  if (setting !== undefined) return !["no", "false", "0", "disabled"].includes(setting.toLowerCase());
+  if (setting !== undefined)
+    return !["no", "false", "0", "disabled"].includes(setting.toLowerCase());
   return Boolean(process.stderr.isTTY);
 }
 
@@ -74,7 +85,9 @@ function write(namespace: string, args: unknown[], elapsed: number) {
   const message = formatWithOptions({ colors: false }, ...args);
   if (process.stderr.isTTY && colorsEnabled()) {
     const color = colorFor(namespace);
-    debugWriter(`  \u001b[${color}m${namespace}\u001b[0m ${message} +${elapsed}ms\n`);
+    debugWriter(
+      `  \u001b[${color}m${namespace}\u001b[0m ${message} +${elapsed}ms\n`,
+    );
   } else {
     debugWriter(`${new Date().toISOString()} ${namespace} ${message}\n`);
   }
@@ -117,5 +130,9 @@ export const debug = debugFactory;
 
 /** @internal Replace the log sink in unit tests. */
 export function setDebugWriterForTest(writer?: (message: string) => void) {
-  debugWriter = writer ?? ((message) => process.stderr.write(message));
+  debugWriter =
+    writer ??
+    ((message) => {
+      process.stderr.write(message);
+    });
 }

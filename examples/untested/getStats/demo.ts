@@ -5,7 +5,10 @@
  * WebRTC statistics from a data channel connection.
  */
 
-import { MediaStreamTrack, RTCPeerConnection } from "../../../packages/webrtc/src";
+import {
+  MediaStreamTrack,
+  RTCPeerConnection,
+} from "../../../packages/webrtc/src";
 
 async function demonstrateGetStats() {
   console.log("=== RTCPeerConnection.getStats() Demo ===\n");

@@ -1,0 +1,1 @@
+{"version":3,"file":"const.js","sourceRoot":"","sources":["const.ts"],"names":[],"mappings":";;;AAAa,QAAA,GAAG,GAAG,IAAI,CAAC","sourcesContent":["export const MTU = 1200;\n"]}

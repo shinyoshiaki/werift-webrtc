@@ -8,3 +8,15 @@ export function createDebugOutput() {
     restore: () => setDebugWriterForTest(),
   };
 }
+
+export function setStderrIsTTYForTest(value: boolean) {
+  const original = Object.getOwnPropertyDescriptor(process.stderr, "isTTY");
+  Object.defineProperty(process.stderr, "isTTY", {
+    configurable: true,
+    value,
+  });
+  return () => {
+    if (original) Object.defineProperty(process.stderr, "isTTY", original);
+    else Reflect.deleteProperty(process.stderr, "isTTY");
+  };
+}

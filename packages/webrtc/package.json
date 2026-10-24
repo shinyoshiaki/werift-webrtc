@@ -1,6 +1,6 @@
 {
   "name": "werift",
-  "version": "0.25.2",
+  "version": "0.26.0",
   "description": "WebRTC Implementation for TypeScript (Node.js)",
   "keywords": [
     "WebRTC",
@@ -55,8 +55,7 @@
     "test": "vitest run ./tests",
     "memleak": "vitest run --config ./tests/memleak/memleak.vitest.config.mts",
     "pbt:deep": "tsx --tsconfig ./tsconfig.json tools/pbt-deep/run.ts",
-    "type": "tsc --noEmit --project ./tsconfig.json",
-    "unused": "organize-imports-cli src/**/*.ts",
+    "type": "tsc --noEmit --project ./tsconfig.json --rootDir ..",
     "upgrade-interactive": "npx npm-check-updates -i",
     "wpt:list": "tsx --tsconfig ./tsconfig.json tools/wpt-runner/list.ts",
     "wpt": "tsx --tsconfig ./tsconfig.json tools/wpt-runner/run.ts",
@@ -66,6 +65,9 @@
     "@peculiar/x509": "^2.2.0",
     "mediabunny": "^1.62.1",
     "multicast-dns": "^7.2.5",
+    "reflect-metadata": "^0.2.2"
+  },
+  "devDependencies": {
     "esbuild": "^0.28.2"
   },
   "engines": {

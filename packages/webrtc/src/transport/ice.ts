@@ -1,6 +1,4 @@
 import { randomBytes, randomUUID } from "crypto";
-import { Event, debug } from "../imports/common";
-
 import {
   Candidate,
   Connection,
@@ -8,13 +6,14 @@ import {
   type IceOptions,
 } from "../../../ice/src";
 import { EventTarget as DomEventTarget } from "../helper";
+import { debug, Event } from "../imports/common";
 import {
+  generateStatsId,
+  getStatsTimestamp,
   type RTCIceCandidatePairStats,
   type RTCIceCandidateStats,
   type RTCStats,
   type RTCStatsIceCandidatePairState,
-  generateStatsId,
-  getStatsTimestamp,
 } from "../media/stats";
 import { candidateFromSdp, candidateToSdp } from "../sdp";
 

@@ -1,7 +1,13 @@
-import { createPrivateKey, createSign, randomBytes, webcrypto, X509Certificate, type KeyObject } from "node:crypto";
+import {
+  createPrivateKey,
+  createSign,
+  type KeyObject,
+  randomBytes,
+  webcrypto,
+  X509Certificate,
+} from "node:crypto";
+import "reflect-metadata";
 import * as x509 from "@peculiar/x509";
-import { binaryData } from "../imports/common";
-
 import {
   type CipherSuites,
   CurveType,
@@ -16,6 +22,7 @@ import { prfVerifyDataClient, prfVerifyDataServer } from "../cipher/prf";
 import { SessionType, type SessionTypes } from "../cipher/suites/abstract";
 import type AEADCipher from "../cipher/suites/aead";
 import type { DtlsRandom } from "../handshake/random";
+import { binaryData } from "../imports/common";
 import type { DtlsPlaintext } from "../record/message/plaintext";
 
 const { encode, types } = binaryData;

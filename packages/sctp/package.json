@@ -17,19 +17,17 @@
     "lib"
   ],
   "scripts": {
-    "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
+    "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json && node ../write-package-entrypoint.mjs sctp",
     "ci": "npm run type && npm run lint && npm run test",
-    "client": "ts-node --files --project tsconfig.json examples/client.ts",
+    "client": "tsx --tsconfig tsconfig.json examples/client.ts",
     "deploy": "npm run build && npm publish",
     "format": "biome check --write src",
-    "server": "ts-node --files --project tsconfig.json examples/server.ts",
+    "server": "tsx --tsconfig tsconfig.json examples/server.ts",
     "test": "npm run type && vitest run ./tests",
-    "type": "tsc --noEmit -p .",
-    "unused": "organize-imports-cli **/*.ts",
+    "type": "tsc --noEmit -p . --rootDir ..",
     "upgrade-interactive": "npx npm-check-updates -i"
   },
-  "dependencies": {
-  },
+  "dependencies": {},
   "engines": {
     "node": ">=22"
   },

@@ -16,7 +16,8 @@
       "vitest/globals",
       "vite/client"
     ],
-    "moduleResolution": "bundler"
+    "moduleResolution": "bundler",
+    "rootDir": ".."
   },
   "include": [
     "tests"

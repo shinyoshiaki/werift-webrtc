@@ -1,7 +1,6 @@
-/// <reference types="@vitest/browser/providers/playwright" />
-
 import { createRequire } from "node:module";
 
+import { playwright } from "@vitest/browser-playwright";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
 import { defineConfig } from "vitest/config";
 
@@ -33,27 +32,27 @@ export default defineConfig({
     fileParallelism: false,
     retry: 1,
     browser: {
-      provider: "playwright",
+      provider: playwright({
+        launchOptions: {
+          ...(chromiumExecutablePath
+            ? { executablePath: chromiumExecutablePath }
+            : {}),
+          args: [
+            "--use-fake-ui-for-media-stream",
+            "--use-fake-device-for-media-stream",
+            "--ignore-certificate-errors",
+            "--allow-insecure-localhost",
+            "--disable-features=WebRtcHideLocalIpsWithMdns",
+            "--force-webrtc-ip-handling-policy=default_public_interface_only",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+          ],
+        },
+      }),
       enabled: true,
       instances: [
         {
           browser: "chromium",
-          launch: {
-            ...(chromiumExecutablePath
-              ? { executablePath: chromiumExecutablePath }
-              : {}),
-            args: [
-              "--use-fake-ui-for-media-stream",
-              "--use-fake-device-for-media-stream",
-              "--ignore-certificate-errors",
-              "--allow-insecure-localhost",
-              "--disable-features=WebRtcHideLocalIpsWithMdns",
-              "--force-webrtc-ip-handling-policy=default_public_interface_only",
-              // Extracted Chrome often needs these in CI/containers
-              "--no-sandbox",
-              "--disable-dev-shm-usage",
-            ],
-          },
         },
       ],
     },

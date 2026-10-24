@@ -1,6 +1,9 @@
 import { RingApi } from "ring-client-api";
 import { Server } from "ws";
-import { MediaStreamTrack, RTCPeerConnection } from "../../../packages/webrtc/src";
+import {
+  MediaStreamTrack,
+  RTCPeerConnection,
+} from "../../../packages/webrtc/src";
 import {
   createCallbackRegister,
   installPolyfill,

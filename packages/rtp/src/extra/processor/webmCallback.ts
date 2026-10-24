@@ -3,13 +3,13 @@ import { appendFile, open, stat } from "fs/promises";
 import { PromiseQueue } from "../..";
 import {
   DurationPosition,
+  replaceSegmentSize,
   SegmentSizePosition,
   WebmBase,
   type WebmInput,
   type WebmOption,
   type WebmOutput,
   type WebmTrack,
-  replaceSegmentSize,
 } from "./webm";
 
 export class WebmCallback extends WebmBase {

@@ -1,6 +1,6 @@
+import express from "express";
 import { readFileSync } from "fs";
 import https from "https";
-import express from "express";
 import * as yargs from "yargs";
 import { RTCPeerConnection } from "../../packages/webrtc/src";
 

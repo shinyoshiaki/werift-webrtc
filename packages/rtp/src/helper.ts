@@ -22,7 +22,7 @@ export const timer = {
       () => {
         args[0]();
       },
-      //@ts-ignore
+      //@ts-expect-error
       ...args.slice(1),
     );
     return () => clearInterval(id);

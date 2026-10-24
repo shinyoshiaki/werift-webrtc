@@ -1,5 +1,4 @@
 import { exec } from "child_process";
-import got from "got";
 import { setTimeout } from "timers/promises";
 import * as yargs from "yargs";
 import { RTCPeerConnection, randomPort } from "../../packages/webrtc/src";
@@ -82,6 +81,7 @@ new Promise<void>(async (done, failed) => {
 
   await pc.setLocalDescription(await pc.createOffer());
   console.log("local offer ", pc.localDescription?.sdp);
+  const { default: got } = await import("got");
   const data = await got
     .post(url, {
       json: pc.localDescription,

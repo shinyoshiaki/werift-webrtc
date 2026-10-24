@@ -6,7 +6,7 @@ import type { Page } from "playwright";
 import type { TestContext } from "vitest";
 
 import type { CatalogEntry } from "./catalog.js";
-import { type ExampleHandles, cleanupExample } from "./cleanup.js";
+import { cleanupExample, type ExampleHandles } from "./cleanup.js";
 import {
   attachFixtureFile,
   clickNamedButton,
@@ -25,9 +25,9 @@ import {
   commandExists,
   getAvailablePort,
   listMediaPids,
+  type SpawnedProcess,
   spawnExampleTsx,
   spawnVideotestsrc,
-  type SpawnedProcess,
   stopProcessTree,
   waitForLog,
   waitForMediaPids,
