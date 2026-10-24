@@ -80,6 +80,24 @@
   - スモークテストの内容: `../src/index.ts` を import できること、RTP / RTCP / RED の serialize / deserialize、`Buffer` を使うヘルパー、SRTP の暗号化 / 復号の往復、`debug("werift-rtp:test")` が `localStorage.debug` の有無にかかわらず例外を投げないこと（有効時は `console.debug` に出力されること）。
   - Arrange は共通ユーティリティにまとめ、Act / Assert には日本語コメントを付ける。CI（`.github/workflows/nodejs.yml`）でも実行し、`packages/rtp` に `AGENTS.md` があれば（なければ必要に応じて作成して）コマンドを追記する。
 
+### 2.5 TypeScript の実行: `tsx` / `ts-node` / `ts-node-dev` をやめ、Node.js の TypeScript 実行機能に移行する
+
+- **決定**（ユーザー決定）: workspace 内（ルート、`packages/*`、`e2e`、`examples`、`examples/*`、`packages/ice-server/chrome-e2e`、`integration/werift-mediasoup-interop`）で TypeScript を直接実行している箇所は、すべて Node.js の TypeScript 実行機能（type stripping）で動かす。`tsx`、`ts-node`、`ts-node-dev` は devDependencies から削除する。
+  - Vitest（Vite で変換する）、`tsc`、`esbuild`、typedoc はこの対象に含めない。
+  - `loadtest/` と `benchmark/` は、3.3 のとおり対象外。`ts-node` が残るが、workspace の外なので触らない。
+- **事前検証の結果**（Node v24.18.0、2026-10-24。`/tmp` に試作した resolve hook で確認）:
+  - **何もしない状態**で `node packages/webrtc/tools/wpt-runner/list.ts` を実行すると、`ERR_MODULE_NOT_FOUND` で失敗する。Node は import 先の拡張子を補完しないが、リポジトリ内の相対 import は約 1,549 箇所が拡張子なし（`from "./foo"`）である。ほかに、`.ts` を指す `.js` 拡張子の import（例: `rtp/src/extra/container/webm/util.ts` の `./ebml/ebml.js`）や、ディレクトリの import（`from ".."` → `index.ts`）もある。
+  - **拡張子を補う resolve hook を入れても**、標準の strip-only モードでは失敗する。`common/src/binary.ts` などの**パラメータプロパティ**（`constructor(private x: T)`。`packages/*/src` の 25 ファイル）と、**enum**（7 ファイル）を変換できないため（`ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`）。
+  - **resolve hook と `--experimental-transform-types` を併用すると**、`packages/rtp/src/index.ts` の import と、`npm run wpt:list` 相当（`tools/wpt-runner/list.ts`）が成功した。
+  - `e2e/server/main.ts` と `examples/turn-loopback/server/main.ts` は、試作 hook ではディレクトリ import と CJS（`require`）経由の解決に対応しきれず失敗した。本実装の hook ではこの 2 つにも対応する必要がある（下記）。
+- **方式**: **リポジトリ内に置く resolve hook と `--experimental-transform-types`** を採用する。
+  - 不採用にした案: ソースを「消すだけで JS になる構文」（`erasableSyntaxOnly`）だけで書き、import に `.ts` 拡張子を付ける（`allowImportingTsExtensions` + `rewriteRelativeImportExtensions`）。約 1,549 箇所の import と 32 ファイルの書き換えが必要になる。しかも enum は公開 API の一部（例: `CandidatePairState`、`H264NaluType`、`WEBRTC_PPID` など）なので、オブジェクトに置き換えると互換性が変わる。依存更新のチケットとしては影響が大きすぎる。将来やるなら別チケットにする。
+- **必要な Node のバージョン**（開発時のみ。公開パッケージの `engines` は `>=22` のまま変えない）:
+  - type stripping が既定で有効: v22.18.0 以上 / v23.6.0 以上
+  - `module.registerHooks`（同期 hook。`import` と `require` の両方に効く）: v22.15.0 以上 / v23.5.0 以上
+  - `--experimental-transform-types`: v22.7.0 以上
+  - 以上から、開発環境の要件は **Node >= 22.18.0**（CI は 24.x で問題なし）とする。ルートの `package.json` に `devEngines`（`{"runtime": {"name": "node", "version": ">=22.18.0"}}`）を追加し、README か `AGENTS.md` にも書く。
+
 ## 3. 現状調査結果
 
 ### 3.1 ランタイム依存（公開パッケージ）
@@ -91,7 +109,7 @@
 | `tweetnacl` | ^1.0.3 | 1.0.3 | `dtls/src/cipher/namedCurve.ts`（`nacl.box.keyPair()`）、`dtls/src/cipher/prf.ts`（`nacl.scalarMult`）。X25519 にだけ使っている | **`node:crypto` の X25519 に置き換えて削除** |
 | `@noble/curves` | ^1.8.1 | 2.4.0（v2 は ESM-only、Node >=20.19） | `dtls/src/cipher/ec.ts`（P-256 の鍵生成と ECDH） | **`node:crypto.createECDH("prime256v1")` に置き換えて削除**（下記 4.2 参照。v2 に上げると ESM-only・import パス変更・API 名変更の影響が大きいため） |
 | `@fidm/x509` | ^1.2.1 | 1.2.1（2022 年以降更新なし） | `dtls/src/context/cipher.ts`（`Certificate.fromPEM().raw`、`PrivateKey.fromPEM()`、`.toPEM()`、`.sign()`）、`webrtc/src/transport/dtls.ts`（`RTCCertificate`）、テスト 2 ファイル | **`node:crypto` の `X509Certificate` / `KeyObject` / `createSign` に置き換えて削除** |
-| `@peculiar/x509` | ^1.12.3 | 2.2.0（`reflect-metadata` が依存から外れた） | `dtls/src/context/cipher.ts`（自己署名証明書の生成 `X509CertificateGenerator.createSelfSigned`）、`dtls/examples/*` | **残して 2.x へ更新**（ASN.1/DER で証明書を生成する処理は「簡単に吸収」できる範囲を超える） |
+| `@peculiar/x509` | ^1.12.3 | 2.2.0（`reflect-metadata` が依存から外れた） | `dtls/src/context/cipher.ts`（自己署名証明書の生成 `X509CertificateGenerator.createSelfSigned`）、`dtls/examples/*` | **残して 2.x へ更新**（ASN.1/DER で証明書を生成する処理は「簡単に吸収」できる範囲を超える）。**注意**: 2.x は `reflect-metadata` を自分で読み込まなくなった。そのため WIP（2.2.0 に更新済み）では、tsx でも Node でも `tools/wpt-runner/list.ts` が `tsyringe requires a reflect polyfill` で失敗することを確認した。`reflect-metadata` を `dtls` / `webrtc` の dependencies に追加し、`@peculiar/x509` を import するモジュール（`dtls/src/context/cipher.ts`）の先頭で `import "reflect-metadata";` する（1.x が内部でしていたことと同じで、グローバルへの影響は変わらない） |
 | `multicast-dns` | ^7.2.5 | 7.2.5 | `ice/src/dns/lookup.ts` | **残す**（mDNS / DNS パケット処理を自前で持つのは割に合わない）。`@types/multicast-dns` だけ更新する |
 | `mediabunny` | ^1.45.2 | 1.62.1 | `rtp/src/extra/container/mp4`、`webrtc/src/nonstandard/userMedia*`、`polyfill/registers/rtpRtcp.ts` | **残して 1.62.x へ更新** |
 
@@ -105,10 +123,10 @@
 | `typedoc` / `typedoc-plugin-markdown` | 0.27.7 / 4.4.2 | 0.28.20 / 4.14.1 | プラグインは `typedoc 0.28.x` が前提。`npm run doc` で再生成し、`doc/` と `packages/*/doc` の差分を確認する |
 | `knip` | ^5.44.1 | 6.42.1 | 設定ファイル（`knip.json`、`e2e/knip.json`、`examples/knip.json`）の互換性を確認する |
 | `npm-run-all2` | ^7.0.2 | 9.0.4 | **engines が `node ^22.22.2 || ^24.15.0 || >=26`**。CI は Node 24.x なので問題ないが、ローカル開発の要件が上がる |
-| `tsx` | ^4.19.3 | 4.23.15 | マイナー更新 |
+| `tsx` | ^4.19.3（WIP では ^4.23.15） | 4.23.15 | **削除**（2.5）。Node.js の TypeScript 実行機能に置き換える |
 | `@types/node` | ^22.13.4 | 26.6.5 | `engines.node >=22` に合わせて **22.x 系の最新（22.20.x）に留める**ことを推奨。24 以降の型を使うと Node 22 にない API を誤って使う恐れがある |
 | `organize-imports-cli` | ^0.10.0 | 1.0.2（Node >=22.12、ESM） | 各パッケージの `unused` スクリプトでだけ使う。Biome 2 の import 整理（assist）で代わりがきくため、**削除を検討**する |
-| `ts-node` / `ts-node-dev` | 10.9.2 / 2.0.0 | 更新停滞 | ルートの `datachannel` / `media`、`dtls` / `sctp` / `ice` の example スクリプトで使っている。**tsx に統一して削除**することを推奨（TS 6 との相性問題も避けられる） |
+| `ts-node` / `ts-node-dev` | 10.9.2 / 2.0.0 | 更新停滞 | ルートの `datachannel` / `media`、`dtls` / `sctp` / `ice` の example スクリプトで使っている。**削除**（2.5）。WIP ですでに tsx に置き換えてあるので、それをさらに Node.js の TypeScript 実行機能に置き換える |
 | `esbuild` | 未宣言（vite / tsx 経由で 0.25.1 が hoist されている） | 0.28.2 | `packages/webrtc` の `compile:esm` が直接使っている。**`packages/webrtc` かルートの devDependencies に明示的に追加する** |
 | `istanbul-*`、`v8-to-istanbul`、`@jridgewell/trace-mapping` | 固定版 | マイナー差分あり | `packages/webrtc/tools/wpt-runner/coverageProvider.ts` で使用。`npm run wpt:coverage` で動作を確認する |
 | `packageManager` | npm@11.1.0 | — | ローカルは npm 11.16。必要なら更新する |
@@ -119,7 +137,7 @@
 | --- | --- | --- |
 | `examples/package.json` | express 4→5、dotenv 16→18、yargs 17→18、got 11→16（ESM-only）、googleapis 144→188、ring-client-api 13→14、sdp-transform 2→3 | example コードの API 変更に対応する。got / googleapis / ring-client-api の各 example を個別に確認する |
 | `examples/e2e`、`examples/turn-loopback` | vite 6→8、@vitejs/plugin-react 4→6（vite 8 が必須）、vitest 5、vite-plugin-node-polyfills 0.28、playwright 1.64、react 19.3 | `npm run examples:e2e` で確認する |
-| `e2e/package.json` | `@vitest/browser 3.2.4` → 5.x（`@vitest/browser-playwright` へ分割済み）、`werift ^0.24.3-alpha.0`、`werift-rtp ^0.8.4`、express 5.3、npm-run-all2 9、playwright 1.64 | `e2e/vitest.config.mts` の `/// <reference types="@vitest/browser/providers/playwright" />` や provider 指定を、Vitest 5 の browser provider 形式に移行する。`ts-node-dev` を使っている `server` スクリプトも tsx へ移す |
+| `e2e/package.json` | `@vitest/browser 3.2.4` → 5.x（`@vitest/browser-playwright` へ分割済み）、`werift ^0.24.3-alpha.0`、`werift-rtp ^0.8.4`、express 5.3、npm-run-all2 9、playwright 1.64 | `e2e/vitest.config.mts` の `/// <reference types="@vitest/browser/providers/playwright" />` や provider 指定を、Vitest 5 の browser provider 形式に移行する。`server` / `server:dev` / `test:tools` スクリプトを Node.js の TypeScript 実行に移す（4.7） |
 | `packages/ice-server/chrome-e2e` | vitest 5.0.0 → 5.0.5、`@vitest/browser-playwright` | 軽微 |
 | `import-test` | `werift 0.22.7` | 公開版との互換性テスト用。最新公開版（0.25.x）に上げるかどうかを判断する |
 | `integration/werift-mediasoup-interop` | 版を固定している | そのディレクトリの `AGENTS.md` に従う。必要がなければ今回は対象外でもよい |
@@ -192,15 +210,55 @@
 - ルートの `vitest.workspace.mjs` を削除するか、`vitest.config` の `projects` へ移行する。
 - `e2e` の `@vitest/browser@3` → `vitest@5` + `@vitest/browser-playwright` に移行し、config の `browser.provider` 指定を新形式に直す。
 
-### 4.7 作業順序（推奨）
+### 4.7 Node.js の TypeScript 実行への移行（2.5）
+
+- **resolve hook** を `tools/node-ts/register.mjs`（リポジトリのルート直下に新設）に置く。`module.registerHooks` で同期の `resolve` hook を登録し、`import` と `require` の両方に効かせる。
+  - 対象: 親モジュールが `.ts` / `.mts` / `.cts` で、指定子が相対パスか絶対パス、かつ `node_modules` の外を指す場合だけ。
+  - 解決する順序: ① 指定子がそのまま `.ts` ファイルなら何もしない → ② 拡張子なしなら `X.ts` → ③ `.js` / `.mjs` / `.cjs` で終わるなら、同名の `.ts` / `.mts` / `.cts` → ④ ディレクトリなら `X/index.ts`。どれにも当たらなければ、`next()` に任せる（Node 標準のエラーにする）。
+  - `.ts` から `X` を import したとき、`X.js` と `X.ts` の両方があれば **`.ts` を優先**する。古いビルド成果物が紛れ込まないようにするため。
+  - CJS の `require` 経由では、`file://` URL ではなく、ファイルパスとして解決結果を返す（試作では `examples/turn-loopback` がここで失敗した）。
+  - hook 自体にも Node 標準のテスト（`node --test`）を付ける。拡張子なし、`.js` → `.ts`、ディレクトリ index、`.ts` を優先すること、`node_modules` には介入しないこと、`require` 経由の解決を確認する。Arrange / Act / Assert で書き、日本語コメントを付ける。
+- **共通の起動フラグ**: `node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import <ルートからの相対パス>/tools/node-ts/register.mjs`
+  - `MODULE_TYPELESS_PACKAGE_JSON` は、`"type"` のない package にある ESM 構文の `.ts` を読み込むときに毎回出る警告。各 package に `"type": "module"` を足すと公開パッケージの CJS 出力に影響するので、足さずに警告だけを止める。
+  - フラグを各スクリプトに直書きするか、`NODE_OPTIONS` で渡すかは実装時に決める。ただし `NODE_OPTIONS` は子プロセス（Vitest、Playwright のブラウザ起動など）にも伝わるため、**スクリプトへの直書きを推奨**する。
+- **置き換えの対応表**:
+
+| 現在（WIP 含む） | 置き換え後 |
+| --- | --- |
+| `tsx <file>` / `tsx --tsconfig <cfg> <file>` | `node <共通フラグ> <file>`（リポジトリの tsconfig に `paths` / `baseUrl` はないため、`--tsconfig` の代わりは要らない） |
+| `tsx watch <file>` | `node --watch <共通フラグ> <file>` |
+| `tsx --test <glob>` / `TSX_TSCONFIG_PATH=... tsx --test ...` | `node --test <共通フラグ> "<glob>"`（`--test-concurrency` はそのまま引き継ぐ） |
+| `node --import tsx <file>`（`packages/rtp/tests/utils.ts` の子プロセス起動） | `node <共通フラグ> <file>` |
+| `ts-node-dev` 系（`.vscode/launch.json` の 5 構成） | `runtimeExecutable: node` + `runtimeArgs: [共通フラグ]` |
+
+- **置き換える箇所**（調査済み）:
+  - ルート `package.json`: `datachannel` / `debug` / `example` / `media`
+  - `packages/webrtc`: `wpt` / `wpt:list` / `wpt:coverage` / `pbt:deep`
+  - `packages/dtls`: `client` / `server`
+  - `packages/sctp`: `client` / `server`
+  - `packages/ice`: `start`
+  - `packages/ice-server/chrome-e2e`: `server`
+  - `e2e`: `server` / `server:dev` / `test:tools`
+  - `examples/turn-loopback`: `server` と `docker/entrypoint.sh`（`TSX_BIN`）。Docker イメージに `tools/node-ts/register.mjs` が入るよう、Dockerfile の COPY も確認する。
+  - `examples/e2e/tests/helpers/spawnExample.ts`: `resolveTsx()` で tsx のバイナリを探して起動している処理
+  - `integration/werift-mediasoup-interop`: `test:small` / `test:source-import` / `test:interop` / `test:browser`。そのディレクトリの `AGENTS.md` に従う。
+  - `packages/rtp/tests/utils.ts`: `--import tsx`
+  - `.vscode/launch.json`
+  - コメントとドキュメント: `e2e/server/codecRtpUtils.ts` のコメント、`packages/rtp/README.md`、`packages/rtp/examples/node/rtp_over_udp/README.md` と各 example のファイル先頭の実行例、`packages/rtp/tools/generateVectors/README.md`、`packages/rtp/tests/data/VECTOR_SOURCE.md`、`packages/webrtc/NEGOTIATION_TRANSACTION.md`。`changelog.md` の過去の節は書き換えない。生成物の `doc/` は `npm run doc` で再生成する。
+- **ESM として解釈されることへの注意**: ESM 構文の `.ts` は ES Module として読み込まれ、`__dirname` / `__filename` / `require` が使えない。これらを使っている次のファイルは、`import.meta.dirname` / `import.meta.filename` / `createRequire(import.meta.url)` に置き換えるか、実行して問題ないことを確認する: `packages/webrtc/tools/wpt-runner/coverageProvider.ts`、`packages/webrtc/tools/negotiation-diff/{run,scenarios}.ts`、`packages/webrtc/tools/pbt-deep/run.ts`、`examples/turn-loopback/server/main.ts`。CJS パッケージの named import も、tsx より厳密に判定されることがあるので、実行して確認する。
+- **古いビルド成果物の掃除**: 作業ツリーの `packages/*/src` に、git 管理外の `.js` / `.d.ts` / `.js.map` が約 186 ファイルある（`outDir` を指定せずに `tsc` を実行した残骸と思われる）。hook は `.ts` を優先するが、混乱のもとなので削除する。再発防止に、`packages/*/src/**/*.js` などを `.gitignore` に追加するかも検討する。
+- `knip.json` の `"tsx"` は拡張子の指定なので、変更しない。
+
+### 4.8 作業順序（推奨）
 
 1. `develop` に追従する（2.1）。
 2. 依存の削除・置き換え（`debug`、`tweetnacl`、`@noble/curves`、`@fidm/x509`）を、まず現行のツールチェーンで実装し、テストを通す。WIP で削除した `buffer` と `import "buffer"` は元に戻す（2.4）。
 3. `packages/rtp/browser-e2e` を追加し、ローカルの `rtp`（新しい `debug` 実装を含む）がブラウザで動くことを確認する（2.4）。
 4. ランタイム依存のマイナー・メジャー更新（`mediabunny`、`@peculiar/x509@2`、`multicast-dns` 型）。
-5. ツールチェーンの更新（TypeScript 6 → Biome 2 → Vitest 5 → typedoc → knip / npm-run-all2 / tsx / esbuild 明示 / ts-node 系の削除）。
-6. `e2e`、`examples`、`examples/e2e`、`import-test`、`ice-server/chrome-e2e` の更新。ここまで終わったら、ブラウザテスト（手順 3）をもう一度実行する。
-7. `npm run doc` の再生成、`changelog.md` / README / `AGENTS.md`（スクリプトを変えた場合）の更新。
+5. ツールチェーンの更新（TypeScript 6 → Biome 2 → Vitest 5 → typedoc → knip / npm-run-all2 / esbuild 明示）。
+6. `tools/node-ts/register.mjs` とそのテストを追加し、`tsx` / `ts-node` / `ts-node-dev` の実行箇所をすべて Node.js の TypeScript 実行に置き換えてから、これらのパッケージを削除する（4.7）。`@peculiar/x509@2` 用の `reflect-metadata` もこの前に入れておく。
+7. `e2e`、`examples`、`examples/e2e`、`import-test`、`ice-server/chrome-e2e` の更新。ここまで終わったら、ブラウザテスト（手順 3）をもう一度実行する。
+8. `npm run doc` の再生成、`changelog.md` / README / `AGENTS.md`（スクリプトを変えた場合）の更新。
 
 ## 5. 制約・注意点
 
@@ -213,6 +271,7 @@
 - **WPT**: wpt-runner の strict shim は `packages/webrtc/tools/wpt-runner/*` に閉じ込め、`src` に漏らさない。
 - **テストの規約**: 新規・修正するテストは Arrange / Act / Assert で書く。Arrange は共通ユーティリティに切り出し、Act / Assert には日本語コメントを付ける。
 - **失敗を握りつぶさない**: 型エラーやテスト失敗を `any` キャスト、`ignoreDeprecations`、テストの skip で黙らせない。やむを得ない場合は理由を残す。
+- **開発時の Node のバージョン**: TypeScript の直接実行には、Node >= 22.18.0 が必要（2.5）。公開パッケージの実行時の要件（`engines.node >=22`）とは分けて扱い、`devEngines` とドキュメントで示す。`--experimental-transform-types` は experimental なので、Node を更新したときに挙動が変わる可能性がある。将来、strip-only（`erasableSyntaxOnly`）に移行する余地は残しておく。
 - **lock ファイル**: ルートの `package-lock.json` に加え、`examples/`、`e2e/`、`import-test/`、`examples/e2e`、`packages/ice-server/chrome-e2e` の各 lock も更新する。
 - **対象外**: `website/`、`loadtest/`、`benchmark/`、`third_party/` は今回の対象外とする。`integration/werift-mediasoup-interop` は、そのディレクトリの方針に従い必要な場合だけ更新する。
 
@@ -227,6 +286,10 @@
 - [ ] X25519 / P-256 の鍵交換と、証明書のパース・署名が `node:crypto` で動き、テストベクタによる単体テストがある。
 - [ ] `CipherContext.localPrivateKey` が `KeyObject` 型になっている。ビルドした `lib/**/*.d.ts` に `@fidm/x509` への参照が残っていない。`RTCCertificate.publicKey` / `privateKey` の PEM 出力が従来と同等であることをテストで確認している。
 - [ ] `esbuild` が明示的な devDependency として宣言されている。
+- [ ] workspace 内のすべての `package.json`（3.3 で対象外としたものを除く）から `tsx` / `ts-node` / `ts-node-dev` が削除されている。`git grep -nE "\\btsx (watch|--)|ts-node|--import tsx|TSX_"` で、スクリプト・コード・ドキュメントに古い起動方法が残っていない（`changelog.md` の過去の節、`loadtest/`、`benchmark/` を除く）。
+- [ ] `tools/node-ts/register.mjs` とそのテストがあり、`node --test` で成功する。ルートの `package.json` に `devEngines`（Node >= 22.18.0）がある。
+- [ ] 置き換えたスクリプトが実際に動く: `npm run wpt:list` / `npm run wpt` / `npm run wpt:coverage`、`e2e` の `server` と `test:tools`、`packages/ice-server` の `chrome-e2e`、`examples/turn-loopback` の `server`、`npm run examples:e2e`、`packages/rtp` の子プロセスを使うテスト。
+- [ ] `@peculiar/x509@2` 向けに `reflect-metadata` を追加し、`tsyringe requires a reflect polyfill` が出ない。
 - [ ] `npm run type`（`type:all` を含む）、`npm run build`、`npm run test:small` が成功する。
 - [ ] `npm run doc` で生成ドキュメントを再生成し、コミットしている。
 - [ ] `npm run wpt` と `npm run wpt:coverage` が成功する。
