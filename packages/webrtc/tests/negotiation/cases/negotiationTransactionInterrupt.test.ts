@@ -14,12 +14,13 @@ import {
 } from "../harness/negotiationTransactionUtils";
 
 /**
- * Interrupt injection (NEGOTIATION_TRANSACTION.md "Interrupts"): while a
- * negotiation waits on gathering, the DTLS start or STUN checks, the
- * application closes the connection, requests an ICE restart or starts a new
- * offer. The held
- * operation must settle, the invariants hold, a later clean negotiation
- * communicates, and close() leaves no transport running.
+ * Interrupt injection: while a negotiation waits on gathering, the DTLS
+ * start or STUN checks, the application closes the connection, requests an
+ * ICE restart or starts a new offer. The held operation must settle (no
+ * hang), the invariants hold, a later clean negotiation communicates, and
+ * close() leaves every transport created so far closed (a closed ICE
+ * transport stays `closed`: checks that `stop()` interrupted do not report
+ * `failed` afterwards).
  */
 type Interrupt = "close" | "restartIce" | "newOffer";
 

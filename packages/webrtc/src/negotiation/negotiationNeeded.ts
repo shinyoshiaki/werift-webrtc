@@ -69,7 +69,6 @@ export class NegotiationNeeded {
     });
   }
 
-  /** `createOffer`: the offer carries every change made so far. */
   /** The change sequence a created offer includes (kept in its record). */
   noteCreatedOffer() {
     return this.changeSeq;
