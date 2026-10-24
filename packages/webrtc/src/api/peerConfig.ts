@@ -10,12 +10,12 @@ import type {
   TlsConnectionOptions,
 } from "../imports/common";
 import type { CandidatePair, Message, Protocol } from "../imports/ice";
-import {
-  defaultCodecs,
-  type RTCRtpCodecParameters,
-  type RTCRtpHeaderExtensionParameters,
-  type RTCRtpSenderOptions,
-} from "../media";
+import { defaultCodecs } from "../media/codec";
+import type {
+  RTCRtpCodecParameters,
+  RTCRtpHeaderExtensionParameters,
+} from "../media/parameters";
+import type { RTCRtpSenderOptions } from "../media/rtpSender";
 import { normalizeCodecMimeType } from "../media/codecCompatibility";
 import type { BundlePolicy } from "../sdp";
 import type { MLineReuse } from "../sdpManager";
