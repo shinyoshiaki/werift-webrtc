@@ -19,6 +19,22 @@ export interface SimpleProcessorCallback<Input = any, Output = any> {
   toJSON(): Record<string, any>;
 }
 
+export type SimpleProcessorCallbackInstance<
+  Input,
+  Output,
+  TBase extends new (
+    ...args: any[]
+  ) => Processor<Input, Output>,
+> = InstanceType<TBase> &
+  Omit<SimpleProcessorCallback<Input, Output>, "pipe"> & {
+    cb?: (o: Output) => void;
+    destructor?: () => void;
+    pipe: (
+      cb: (o: Output) => void,
+      destructor?: () => void,
+    ) => SimpleProcessorCallbackInstance<Input, Output, TBase>;
+  };
+
 export const SimpleProcessorCallbackBase = <
   Input,
   Output,
@@ -29,7 +45,7 @@ export const SimpleProcessorCallbackBase = <
   Base: TBase,
 ): (new (
   ...args: ConstructorParameters<TBase>
-) => InstanceType<TBase> & SimpleProcessorCallback<Input, Output>) => {
+) => SimpleProcessorCallbackInstance<Input, Output, TBase>) => {
   class CallbackBase
     extends Base
     implements SimpleProcessorCallback<Input, Output>
@@ -64,5 +80,5 @@ export const SimpleProcessorCallbackBase = <
 
   return CallbackBase as unknown as new (
     ...args: ConstructorParameters<TBase>
-  ) => InstanceType<TBase> & SimpleProcessorCallback<Input, Output>;
+  ) => SimpleProcessorCallbackInstance<Input, Output, TBase>;
 };

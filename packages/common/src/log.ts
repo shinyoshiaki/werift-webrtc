@@ -18,7 +18,7 @@ export class WeriftError extends Error {
 
 export interface Debugger {
   (...args: unknown[]): void;
-  readonly enabled: boolean;
+  enabled: boolean;
   readonly namespace: string;
 }
 
@@ -36,16 +36,30 @@ type RuntimeProcess = {
 };
 
 const colors = [31, 32, 33, 34, 35, 36];
-let namespaceSetting = initialNamespaces();
-let generation = 0;
-let includePatterns: RegExp[] = [];
-let excludePatterns: RegExp[] = [];
-let lastTime = Date.now();
-let debugWriter: (...args: unknown[]) => void = (...args) => {
-  writeToConsole(...args);
+
+type LogState = {
+  namespaceSetting: string;
+  generation: number;
+  includePatterns: RegExp[];
+  excludePatterns: RegExp[];
+  lastTime: number;
+  debugWriter: (...args: unknown[]) => void;
 };
 
-parseNamespaces(namespaceSetting);
+// ESM の各バンドル（werift / werift/nonstandard など）にこのモジュールが複製されても
+// 設定を共有できるよう、状態はグローバルに 1 つだけ持つ
+const stateKey = Symbol.for("werift-common.log.state");
+const state: LogState = ((globalThis as any)[stateKey] ??= {
+  namespaceSetting: initialNamespaces(),
+  generation: 0,
+  includePatterns: [],
+  excludePatterns: [],
+  lastTime: Date.now(),
+  debugWriter: (...args: unknown[]) => writeToConsole(...args),
+} satisfies LogState);
+
+if (state.generation === 0 && state.includePatterns.length === 0)
+  parseNamespaces(state.namespaceSetting);
 
 function runtimeProcess() {
   return (globalThis as typeof globalThis & { process?: RuntimeProcess })
@@ -75,18 +89,18 @@ function escapeRegExp(value: string) {
 
 function parseNamespaces(namespaces: string) {
   const tokens = namespaces.split(/[\s,]+/).filter(Boolean);
-  includePatterns = tokens
+  state.includePatterns = tokens
     .filter((token) => !token.startsWith("-"))
     .map(compilePattern);
-  excludePatterns = tokens
+  state.excludePatterns = tokens
     .filter((token) => token.startsWith("-"))
     .map((token) => compilePattern(token.slice(1)));
 }
 
 function isEnabled(namespace: string) {
   return (
-    !excludePatterns.some((pattern) => pattern.test(namespace)) &&
-    includePatterns.some((pattern) => pattern.test(namespace))
+    !state.excludePatterns.some((pattern) => pattern.test(namespace)) &&
+    state.includePatterns.some((pattern) => pattern.test(namespace))
   );
 }
 
@@ -113,8 +127,8 @@ function writeToConsole(...args: unknown[]) {
 function emit(namespace: string, args: unknown[]) {
   const process = runtimeProcess();
   const now = Date.now();
-  const elapsed = now - lastTime;
-  lastTime = now;
+  const elapsed = now - state.lastTime;
+  state.lastTime = now;
 
   if (isNodeRuntime()) {
     const prefix = colorsEnabled(process)
@@ -125,40 +139,51 @@ function emit(namespace: string, args: unknown[]) {
     if (typeof output[0] === "string")
       output[0] = `${prefix} ${output[0]}${suffix}`;
     else output.unshift(`${prefix}${suffix}`);
-    debugWriter(...output);
+    state.debugWriter(...output);
     return;
   }
 
   const output = [...args];
   if (typeof output[0] === "string") output[0] = `${namespace} ${output[0]}`;
   else output.unshift(namespace);
-  debugWriter(...output);
+  state.debugWriter(...output);
 }
 
 const debugFactory = ((namespace: string) => {
   let checkedGeneration = -1;
   let enabledCache = false;
-  const logger = ((...args: unknown[]) => {
-    if (checkedGeneration !== generation) {
+  let override: boolean | undefined;
+  const isLoggerEnabled = () => {
+    if (override !== undefined) return override;
+    if (checkedGeneration !== state.generation) {
       enabledCache = isEnabled(namespace);
-      checkedGeneration = generation;
+      checkedGeneration = state.generation;
     }
-    if (enabledCache) emit(namespace, args);
+    return enabledCache;
+  };
+  const logger = ((...args: unknown[]) => {
+    if (isLoggerEnabled()) emit(namespace, args);
   }) as Debugger;
   Object.defineProperties(logger, {
-    enabled: { get: () => debugFactory.enabled(namespace) },
+    enabled: {
+      get: isLoggerEnabled,
+      set: (value: boolean) => {
+        override = Boolean(value);
+      },
+      enumerable: true,
+    },
     namespace: { value: namespace, enumerable: true },
   });
   return logger;
 }) as DebugFactory;
 
 debugFactory.enable = (namespaces: string) => {
-  namespaceSetting = namespaces;
+  state.namespaceSetting = namespaces;
   parseNamespaces(namespaces);
-  generation++;
+  state.generation++;
 };
 debugFactory.disable = () => {
-  const previous = namespaceSetting;
+  const previous = state.namespaceSetting;
   debugFactory.enable("");
   return previous;
 };
@@ -168,5 +193,5 @@ export const debug = debugFactory;
 
 /** @internal Replace the console sink in unit tests. */
 export function setDebugWriterForTest(writer?: (...args: unknown[]) => void) {
-  debugWriter = writer ?? writeToConsole;
+  state.debugWriter = writer ?? writeToConsole;
 }

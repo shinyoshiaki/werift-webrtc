@@ -109,4 +109,40 @@ describe("debug logger", () => {
     expect(output.messages[0][0]).not.toContain("\u001b[");
     output.restore();
   });
+
+  test("allows overriding enabled per logger", () => {
+    // Arrange
+    const output = createDebugOutput();
+    debug.enable("");
+    const logger = debug("werift:override");
+
+    // Act: 個別 logger の enabled を true にして出力し、false にして再度出力する
+    logger.enabled = true;
+    logger("on");
+    logger.enabled = false;
+    logger("off");
+
+    // Assert: 代入した値が優先され、TypeError にならない
+    expect(output.messages).toHaveLength(1);
+    expect(output.messages[0][0]).toContain("on");
+    output.restore();
+  });
+
+  test("shares state between duplicated module instances", async () => {
+    // Arrange: クエリ付き import でバンドル複製を模擬する
+    const output = createDebugOutput();
+    const copy = (await import(
+      "../src/log?copy=1" as string
+    )) as typeof import("../src/log");
+    debug.enable("");
+    const copied = copy.debug("werift:shared");
+
+    // Act: 元のモジュールで有効化して複製側 logger を呼ぶ
+    debug.enable("werift*");
+    copied("shared");
+
+    // Assert: 複製側でも有効化が反映される
+    expect(output.messages).toHaveLength(1);
+    output.restore();
+  });
 });
