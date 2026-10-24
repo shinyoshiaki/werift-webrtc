@@ -327,6 +327,32 @@ RTP パケット生成・DTLS 送信・token-bucket 待ちは sender に残す�
 - [x] libwebrtc との 1:1 一致を固定していたテストを削除した。`bandwidthEstimator.test.ts` は 8,607 行・221 件から 2,590 行・84 件（例ベース 53 件 + 制御応答 7 件 + 性質テスト 24 系列）になった。共有ユーティリティ `gccSimulation.ts` は 241 行。
 - [x] 実装（`src`）は変更していない。
 
+#### 例ベースから性質テストへの置き換え（2026-10-25）
+
+不変条件として書けるものは、§2.12 で残した例ベースのテストからさらに性質テストへ置き換えた。生成器は共有の Arrange ユーティリティ `tests/media/twccTestUtils.ts`（`randomTwccWindow` / `randomSourceSeqScript` / `randomHistoryOps`）に置いた。
+
+| 置き換えた例ベースのテスト | 性質テスト（系列数） | 確かめる性質 |
+| --- | --- | --- |
+| legacy の一定レート推定、変化時のみ通知（2 件） | 16 + 8 | 推定値は受信できたパケットの min(送信レート, 受信レート) を独立に再計算した値と一致する。通知は値が変わったときだけ、その値で出る |
+| legacy の時間窓 prune、GCC の process 時 prune（2 件） | 12（legacy / GCC 交互） | 送信履歴は時間窓内（legacy 10 秒・GCC 60 秒）、拡張番号は送信順、番号 span は 32768 未満 |
+| TWCC の RunLength cursor、gap の wire 往復、周回順の並べ替え（3 件） | 32 + 16 | wire 往復で番号（周回含む）・受信状態・受信時刻（250µs 切り捨ての累積誤差内）が復元される。周回をまたぐ窓を送信順に並べる |
+| 24-bit reference_time の周回（1 件） | 16 | 周回付近を前後しても、展開後の時刻差は真の時刻差と一致する |
+| 並行 sendRtp の FIFO 直列化（probe なし / あり、2 件） | 8 | DTLS 書き込みは常に 1 本ずつ。TSN は 1 から連番で、wire の順と SentInfo の順が一致する |
+| media 番号と padding の衝突（5 件） | 8（legacy / GCC 交互） | 転送 media（gap・並べ替え・重複・上流の padding-only を含む）の番号と中身は source のまま。自前の padding は RTX SSRC だけで連番。NACK 用 cache は padding-only で上書きされない |
+
+- 例ベースで残したもの: 共通契約（型・getter・no-op）、draft の example2（既知の正解ベクトル）、SRTP 往復・RED 後のサイズ・stop 時の commit・TWCC 未交渉時など単一シナリオの回帰、差し替え・停止の競合（特定の割り込み順を再現する回帰）。
+- 故障注入での確認（確認後に元へ戻した）:
+  - legacy の min を max に変える → 16 件失敗
+  - 送信履歴の span 上限を外す → 12 件失敗
+  - 送信履歴の時間窓を外す → 12 件失敗
+  - RunLength 後の番号 cursor をずらす → 31 件失敗
+  - reference_time の後退 wrap / 前進 wrap を無視する → 8 件 / 15 件失敗
+  - legacy でも GCC でも FIFO を通さない → 6 件失敗
+  - padding で media の番号をずらす → 8 件失敗
+  - padding-only を NACK cache に入れる → 3 件失敗
+- 最初の生成器では、span 上限・reference_time の後退 wrap・cache 上書きの 3 つの故障を検出できなかった。生成器を強めて（idle を減らし番号の飛びを大きくする、周回付近を前後させる、上流の padding-only を混ぜる）検出できるようにした。
+- `bandwidthEstimator.test.ts` は 2,590 行から 2,262 行になった。例ベース 38 件、制御応答 7 件、性質テスト 140 系列（§2.12 の GCC 不変条件 24 系列を含む）、合計 185 ケース。`twccTestUtils.ts` は 143 行から 254 行。
+
 #### 残したテスト（werift 固有の回帰）
 
 - 共通契約: GCC フックの no-op、共通 interface に congestion 系を含めない、`senderBWE` は getter のみ、`onCongestion` の TypeScript 互換。
@@ -536,6 +562,13 @@ set availableBitrate(v: number) {
 - `cd packages/webrtc && npm run type`: 成功。`npx vitest run tests`: 60 ファイル、980 件成功・3 件 skip。
 - `tests/media/bandwidthEstimator.test.ts` を 3 回続けて実行し、3 回とも 84 件成功（シミュレーションは固定シードで決定的）。
 - 故障注入（overuse 減速・probe・loss-based・RTT backoff・変化時のみ通知をそれぞれ無効化）で、対応するテストが失敗することを確認した（§2.12）。
+- Biome（`tests/media`）: 指摘なし。
+
+### 検証記録（2026-10-25、性質テストへの置き換え後）
+
+- 作業開始時のリビジョンは `6178a6a6`（未コミット変更なし）。変更はテストとチケットだけで、`src` は変更していない（故障注入の一時変更は戻した）。
+- `cd packages/webrtc && npm run type`: 成功。`npx vitest run tests`: 60 ファイル、1,081 件成功・3 件 skip。
+- `tests/media/bandwidthEstimator.test.ts` を 3 回続けて実行し、3 回とも 185 件成功。
 - Biome（`tests/media`）: 指摘なし。
 
 ### ライセンス

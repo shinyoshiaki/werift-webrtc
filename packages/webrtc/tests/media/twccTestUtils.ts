@@ -141,3 +141,114 @@ export function captureMatchedFeedback(
 }
 
 export { PacketResult };
+
+/**
+ * Arrange: a contiguous TWCC window for wire round-trip properties.
+ * Starts near a 16-bit wrap about half of the time; receive times mostly
+ * advance (small / large deltas) with occasional reordering and losses.
+ * `recvUs[i]` is the receive time of `base16 + i` (µs) or `undefined`.
+ */
+export function randomTwccWindow(rand: () => number): {
+  base16: number;
+  recvUs: (number | undefined)[];
+} {
+  const length = 1 + Math.floor(rand() * 120);
+  const base16 =
+    rand() < 0.5
+      ? (0x10000 - Math.floor(rand() * length)) & 0xffff
+      : Math.floor(rand() * 0x10000);
+  let tUs = 1_000_000 + Math.floor(rand() * 60_000_000);
+  const recvUs = Array.from({ length }, () => {
+    if (rand() < 0.2) return undefined;
+    const r = rand();
+    // small delta (0–63ms), large forward gap (up to 2s), or reorder (−20ms)
+    const stepUs =
+      r < 0.8
+        ? Math.floor(rand() * 63_000)
+        : r < 0.9
+          ? 64_000 + Math.floor(rand() * 2_000_000)
+          : -Math.floor(rand() * 20_000);
+    tUs = Math.max(0, tUs + stepUs);
+    return tUs;
+  });
+  return { base16, recvUs };
+}
+
+/** One step of a forwarded media stream for sender sequence properties. */
+export type SourceSeqStep =
+  | {
+      type: "media";
+      seq: number;
+      payloadByte: number;
+      /** Upstream padding-only packet forwarded on the media path. */
+      forwardedPadding: boolean;
+    }
+  | { type: "padding"; count: number };
+
+/**
+ * Arrange: forwarded source media with gaps, reorders, duplicates, and
+ * upstream padding-only packets, interleaved with this sender's own
+ * probe-padding bursts.
+ */
+export function randomSourceSeqScript(
+  rand: () => number,
+  length: number,
+): SourceSeqStep[] {
+  const steps: SourceSeqStep[] = [];
+  let seq = Math.floor(rand() * 0x10000);
+  for (let i = 0; i < length; i++) {
+    if (rand() < 0.2) {
+      steps.push({ type: "padding", count: 1 + Math.floor(rand() * 4) });
+      continue;
+    }
+    const r = rand();
+    let s: number;
+    if (r < 0.1) s = (seq - 1 - Math.floor(rand() * 3)) & 0xffff;
+    else if (r < 0.15) s = seq;
+    else {
+      seq = (seq + 1 + (rand() < 0.15 ? Math.floor(rand() * 4) : 0)) & 0xffff;
+      s = seq;
+    }
+    steps.push({
+      type: "media",
+      seq: s,
+      payloadByte: i & 0xff,
+      forwardedPadding: rand() < 0.1,
+    });
+  }
+  return steps;
+}
+
+/** One operation on an estimator's send history. */
+export type HistoryOp = {
+  type: "send" | "process";
+  atMs: number;
+  seq16: number;
+};
+
+/**
+ * Arrange: send / process operations with non-decreasing times (dense bursts
+ * and rare multi-second idle gaps) and 16-bit TSNs that wrap and skip by up
+ * to 5,000 (other BUNDLE senders), so both the time window and the 32768
+ * sequence-span cap bound the history.
+ */
+export function randomHistoryOps(
+  rand: () => number,
+  count: number,
+  withProcess: boolean,
+): HistoryOp[] {
+  const ops: HistoryOp[] = [];
+  let atMs = 1_000;
+  let seq = Math.floor(rand() * 0x10000);
+  for (let i = 0; i < count; i++) {
+    const r = rand();
+    atMs += r < 0.98 ? Math.floor(rand() * 10) : Math.floor(rand() * 15_000);
+    if (withProcess && rand() < 0.2) {
+      ops.push({ type: "process", atMs, seq16: seq });
+      continue;
+    }
+    seq = (seq + 1 + (rand() < 0.1 ? Math.floor(rand() * 5_000) : 0)) & 0xffff;
+    ops.push({ type: "send", atMs, seq16: seq });
+  }
+  return ops;
+}
