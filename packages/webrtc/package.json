@@ -54,6 +54,7 @@
     "knip": "knip",
     "test": "vitest run ./tests",
     "memleak": "vitest run --config ./tests/memleak/memleak.vitest.config.mts",
+    "leak:verify": "bash tools/leak-verify/run.sh",
     "pbt:deep": "tsx --tsconfig ./tsconfig.json tools/pbt-deep/run.ts",
     "type": "tsc --noEmit --project ./tsconfig.json",
     "unused": "organize-imports-cli src/**/*.ts",

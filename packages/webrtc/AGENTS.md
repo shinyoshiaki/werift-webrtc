@@ -40,6 +40,7 @@ Instructions for coding agents working in `packages/webrtc`.
 | format package | `npm run format` |
 | memory leak test (Node 24+, local only) | `npm run memleak` |
 | deep negotiation property search incl. leak property (parallel, before review) | `npm run pbt:deep` |
+| leak property evidence: `repeat [N]` runs the leak tests N times, `inject` injects 6 artificial leaks in a temporary worktree | `npm run leak:verify -- repeat 10` / `npm run leak:verify -- inject` |
 | allowlisted upstream WPT | `npm run wpt` |
 | WPT coverage | `npm run wpt:coverage` |
 

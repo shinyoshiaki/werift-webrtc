@@ -919,6 +919,30 @@ without retry. A failure prints the seed, the scene or cycle, what was not
 collected or released and, unless `WERIFT_NEGOTIATION_LEAK_SHRINK=0`, the
 smallest failing scene (operations dropped) or cycle (templates dropped).
 
+### Leak property evidence
+
+`npm run leak:verify -- repeat 10` runs `leak/negotiationLeakProperty.test.ts`
+ten times without retry on the active tree; `npm run leak:verify -- inject`
+applies six artificial leaks one at a time in a temporary `git worktree`
+(`tools/leak-verify/run.sh`) and requires a failure for each. Result at
+`af0e8ae5` (only the script, `package.json` and the `doc/_media` copy
+uncommitted):
+
+| Artificial leak | Judged by |
+| --- | --- |
+| ICE `userHistory` keeps every earlier generation | P2 fails |
+| a stopped sender subscribes to the DTLS transport | P2 fails |
+| a closed DataChannel stays in the SCTP manager's list | P2 fails |
+| `RTCDtlsTransport.stop()` does not close a handshake in flight | P1 fails |
+| a DTLS flight keeps retransmitting after the socket closed | P1 fails |
+| transport-cc records are never pruned | `tests/media/senderBWE.test.ts` fails; the leak cycles carry no RTP, so P1 / P2 do not see it |
+
+Ten consecutive runs: 10 passed, 0 failed (53 passed, 2 skipped each; the two
+skipped are the `WERIFT_NEGOTIATION_LEAK_HEAP=1` tests). A first `inject` run
+failed to detect two of the six because the injected edit was too small (the
+flight timer still aborted through its signal; one pattern matched the wrong
+`close()`); the edits in the script are the corrected ones.
+
 State that stays on purpose, and its bound (P2 allows it; anything else must
 not change between repetitions):
 
