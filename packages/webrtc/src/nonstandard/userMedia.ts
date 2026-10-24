@@ -21,6 +21,7 @@ import {
 
 import { Event } from "../imports/common";
 import { useAV1X, useH264, useOPUS, useVP8, useVP9 } from "../media/codec";
+import { normalizeCodecMimeType } from "../media/codecCompatibility";
 import type { RTCRtpCodecParameters } from "../media/parameters";
 import { MediaStreamTrack } from "../media/track";
 import { codecParametersFromString } from "../sdp";
@@ -327,7 +328,9 @@ class TrackPlaybackRunner {
       );
     }
 
-    const expectedMimeType = toSupportedMimeType(this.props.sourceCodec);
+    const expectedMimeType = normalizeMimeType(
+      toSupportedMimeType(this.props.sourceCodec),
+    );
     const negotiatedMimeType = normalizeMimeType(codec.mimeType);
     if (negotiatedMimeType !== expectedMimeType) {
       throw new Error(
@@ -583,7 +586,7 @@ function toBuffer(value: Buffer | ArrayBuffer | ArrayBufferView | string) {
 }
 
 function normalizeMimeType(mimeType: string) {
-  return mimeType.toLowerCase();
+  return normalizeCodecMimeType(mimeType);
 }
 
 function assertSupportedOptions(options: FileMediaTrackSource) {
