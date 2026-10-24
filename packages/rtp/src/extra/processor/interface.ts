@@ -43,9 +43,10 @@ export const SimpleProcessorCallbackBase = <
   ) => Processor<Input, Output>,
 >(
   Base: TBase,
-): (new (
-  ...args: ConstructorParameters<TBase>
-) => SimpleProcessorCallbackInstance<Input, Output, TBase>) => {
+): Omit<TBase, "prototype"> &
+  (new (
+    ...args: ConstructorParameters<TBase>
+  ) => SimpleProcessorCallbackInstance<Input, Output, TBase>) => {
   class CallbackBase
     extends Base
     implements SimpleProcessorCallback<Input, Output>
@@ -78,7 +79,8 @@ export const SimpleProcessorCallbackBase = <
     };
   }
 
-  return CallbackBase as unknown as new (
-    ...args: ConstructorParameters<TBase>
-  ) => SimpleProcessorCallbackInstance<Input, Output, TBase>;
+  return CallbackBase as unknown as Omit<TBase, "prototype"> &
+    (new (
+      ...args: ConstructorParameters<TBase>
+    ) => SimpleProcessorCallbackInstance<Input, Output, TBase>);
 };

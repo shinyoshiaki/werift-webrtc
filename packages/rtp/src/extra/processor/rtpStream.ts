@@ -1,4 +1,4 @@
-import { ReadableStream } from "stream/web";
+import { ReadableStream, type ReadableStreamController } from "stream/web";
 
 import { RtpPacket } from "../../rtp/rtp";
 import type { RtpOutput } from "./rtpCallback";
@@ -6,7 +6,7 @@ import type { RtpOutput } from "./rtpCallback";
 export class RtpSourceStream {
   readable: ReadableStream<RtpOutput>;
   write!: (chunk: RtpOutput) => void;
-  protected controller!: { enqueue(chunk: RtpOutput): void };
+  protected controller!: ReadableStreamController<RtpOutput>;
 
   constructor(
     private options: {
@@ -18,9 +18,7 @@ export class RtpSourceStream {
 
     this.readable = new ReadableStream({
       start: (controller) => {
-        this.controller = controller as unknown as {
-          enqueue(chunk: RtpOutput): void;
-        };
+        this.controller = controller;
         this.write = (chunk) => controller.enqueue(chunk);
       },
     });
