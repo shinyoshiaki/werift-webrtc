@@ -11,7 +11,10 @@ const withBundle = (sdp: string, mids: string) =>
   sdp.replace(/^a=group:BUNDLE [^\r\n]+/m, `a=group:BUNDLE ${mids}`);
 
 /**
- * Transition matrix of NEGOTIATION_TRANSACTION.md. Every scenario runs twice so
+ * Rows of the transition matrix (`NegotiationTransaction`,
+ * src/negotiationTransaction.ts) that need their own values: transceiver stop
+ * and m-line reuse, BUNDLE split / tag change / merge; the other rows run as
+ * fixed scenes of the scenario properties. Every scenario runs twice so
  * that each peer is once the local offerer and once the remote offerer (which
  * also swaps the committed DTLS and ICE roles): `a` is the offerer and `b` the
  * answerer of `createDirectedDuplexSession(from)`. Invariants are checked after
