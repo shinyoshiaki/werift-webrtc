@@ -1,9 +1,10 @@
 # Changelog
 
-## Unreleased
+## v0.25.2
 
 ### 🧪 Testing & tooling
 
+- **CI**: GitHub Actions tests (`nodejs.yml`) now run on every pull request. Dependency bumps: `vite`, `markdown-it` 14.3.3, `follow-redirects` 1.16.1, `source-map-js` 1.2.2, `shell-quote` 1.12.0.
 - **Chrome E2E for packages/rtp Packetizer / Depacketizer** (`e2e`):
   - Scenario A (Chrome → `packages/rtp` depacketize), B (fixture demux → `packages/rtp` Packetizer → Chrome), C (repacketize loop; VP8 required).
   - Codecs: VP8, H.264, Opus (P0), VP9, AV1 (P1). H.264 accepts black frames (delivery + de/packetize only).
@@ -34,6 +35,8 @@
 - **AV1 ↔ AV1X** normalization now applies to SDP answer, codec matching, and file playback validation, not only `findCodecByMimeType`.
 - **AV1 packetizer → Chrome**: `Av1Packetizer` drops Temporal Delimiter OBUs, clears `obu_has_size_field` on RTP OBU elements, and packs up to three OBU elements per packet (W=1..3), splitting OBUs across packet boundaries like libwebrtc. Without a dependency descriptor libwebrtc treats Z=0 / Y=0 as frame start / end, so the previous one-OBU-per-packet layout split a temporal unit into two frames and Chrome 155 never rendered it.
 
+- **fMP4 muxer no longer loops forever when video dimensions are undefined** (`packages/rtp` `Mp4Container` / `MP4Processor`): a video config without `codedWidth` / `codedHeight` now reaches the "missing coded video dimensions" guard. When `Track.width` / `height` are not both positive integers, the coded size, `avcC`, and display aspect ratio (coded size × SAR, exact integers) come from the SPS of the first usable keyframe; if they cannot be resolved the keyframe is skipped and the muxer waits for the next one.
+
 ### 🔧 Maintenance
 
 - **userMedia packetizer consolidated into `packages/rtp`** (`packages/webrtc/src/nonstandard/userMedia/packetizer.ts`): the webrtc-local VP8 / VP9 / AV1 / H.264 / Opus packetizers, `BasePacketizer`, and the AV1 / H.264 split and avcC helpers are removed. `createPacketizer` now adapts mediabunny `EncodedPacket` onto the `packages/rtp` packetizers. New `parseAvcDecoderConfigurationRecord` in `packages/rtp` replaces the avcC parsers duplicated in webrtc and `e2e`.
@@ -42,6 +45,7 @@
 
 ### 🚀 Features & Improvements
 
+- **Real-time RTP media clock** (`packages/rtp`): `RtpMediaTimeline` (deterministic, drift-free timestamps from a frame index, fractional frame durations), `RtpMediaClock` (monotonic scheduler with `skip` / `delay` stall policies, pause / resume), and `RtpMediaPacer` (variable-frame-rate / streaming sources paced by `pts` with an optional `latencyMs` jitter buffer). `RtpBuilder` is wall-clock aware (`RtpBuilderProps` / `RtpBuilderCreateOptions`). Example: `packages/rtp/examples/node/pacer/ffmpeg-vfr-stream.ts`.
 - **werift-rtp existing-codec packetizers** (`packages/rtp`): Add package-local packetizers for codecs that previously only had depacketizers (non-WebRTC / SIP / RTSP).
   - **VP8** (RFC 7741): `Vp8Packetizer` — X/I/M descriptor with 15-bit PictureID (`S`/`PID`, same as browser single-layer senders), MTU fragmentation, final marker.
   - **VP9** (RFC 9628): `Vp9Packetizer` — `B`/`E`/`P` minimal descriptor; key/delta via options.
