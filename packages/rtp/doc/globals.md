@@ -175,6 +175,7 @@
 - [TELEPHONE\_EVENT\_DEFAULT\_CLOCK\_RATE](variables/TELEPHONE_EVENT_DEFAULT_CLOCK_RATE.md)
 - [TELEPHONE\_EVENT\_DEFAULT\_PAYLOAD\_TYPE](variables/TELEPHONE_EVENT_DEFAULT_PAYLOAD_TYPE.md)
 - [timer](variables/timer.md)
+- [VP8\_PAYLOAD\_DESCRIPTOR\_LENGTH](variables/VP8_PAYLOAD_DESCRIPTOR_LENGTH.md)
 
 ## Functions
 
@@ -189,6 +190,7 @@
 - [crc32c](functions/crc32c.md)
 - [createAv1AggregationHeader](functions/createAv1AggregationHeader.md)
 - [createBufferWriter](functions/createBufferWriter.md)
+- [createVp8PayloadDescriptor](functions/createVp8PayloadDescriptor.md)
 - [dePacketizeRtpPackets](functions/dePacketizeRtpPackets.md)
 - [deserializeAbsSendTime](functions/deserializeAbsSendTime.md)
 - [deserializeAudioLevelIndication](functions/deserializeAudioLevelIndication.md)

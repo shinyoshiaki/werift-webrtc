@@ -42,6 +42,7 @@ import {
   mediachannel_addTrack_answer,
   mediachannel_addTrack_offer,
 } from "./handler/mediachannel/addTrack";
+import { codecRtpHandlers } from "./handler/mediachannel/codecRtp";
 import {
   mediachannel_oneway_answer,
   mediachannel_oneway_offer,
@@ -73,7 +74,7 @@ import {
   mediachannel_simulcast_offer,
 } from "./handler/mediachannel/simulcast";
 import { sim_gcc_twcc_chrome } from "./simulations/gccTwccChrome";
-import { codecRtpHandlers } from "./handler/mediachannel/codecRtp";
+import { vp8PlaybackHandlers } from "./handler/mediachannel/vp8Playback";
 import { getTurnRelayConfig, startTurnServer, stopTurnServer } from "./turn";
 
 const app = express();
@@ -214,6 +215,8 @@ function attachWebSocketServer() {
       sim_gcc_twcc_chrome: new sim_gcc_twcc_chrome(),
       // packages/rtp Packetizer / Depacketizer Chrome E2E
       ...codecRtpHandlers,
+      // werift VP8 sources (file playback / dummy media) → Chrome decode E2E
+      ...vp8PlaybackHandlers,
     };
 
     const transport = accept();

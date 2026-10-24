@@ -425,6 +425,7 @@
 - [TWCC\_REFERENCE\_TIME\_MOD](variables/TWCC_REFERENCE_TIME_MOD.md)
 - [TWCC\_REFERENCE\_TIME\_UNIT\_MS](variables/TWCC_REFERENCE_TIME_UNIT_MS.md)
 - [TWCC\_SEQ\_MOD](variables/TWCC_SEQ_MOD.md)
+- [VP8\_PAYLOAD\_DESCRIPTOR\_LENGTH](variables/VP8_PAYLOAD_DESCRIPTOR_LENGTH.md)
 
 ## Functions
 
@@ -464,6 +465,7 @@
 - [createSelfSignedCertificate](functions/createSelfSignedCertificate.md)
 - [createStunOverTurnClient](functions/createStunOverTurnClient.md)
 - [createTurnClient](functions/createTurnClient.md)
+- [createVp8PayloadDescriptor](functions/createVp8PayloadDescriptor.md)
 - [deepMerge](functions/deepMerge.md)
 - [defaultCodecs](functions/defaultCodecs.md)
 - [deliveredTrackCodec](functions/deliveredTrackCodec.md)

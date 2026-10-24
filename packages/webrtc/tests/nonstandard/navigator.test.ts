@@ -1,6 +1,6 @@
 import { setTimeout as wait } from "timers/promises";
 
-import type { RtpPacket } from "../../src/imports/rtp";
+import { type RtpPacket, Vp8RtpPayload } from "../../src/imports/rtp";
 import { MediaStreamTrack } from "../../src/media/track";
 import { Navigator } from "../../src/nonstandard";
 
@@ -49,7 +49,7 @@ describe("nonstandard/navigator dummy media", () => {
     // 実行: keyframe 周期をまたぐまで dummy video RTP を収集する。
     await waitUntil(() => packets.length >= 31);
 
-    // 検証: sequence / timestamp / marker が連続し、先頭と 31 枚目が keyframe payload になる。
+    // 検証: sequence / timestamp / marker が連続し、先頭と 31 枚目が同じ keyframe 本体になる。
     expect(stream.getTracks()).toHaveLength(1);
     for (let index = 1; index < packets.length; index++) {
       expect(
@@ -61,8 +61,28 @@ describe("nonstandard/navigator dummy media", () => {
       ).toBe(3000);
       expect(packets[index].header.marker).toBe(true);
     }
-    expect(Buffer.compare(packets[0].payload, packets[1].payload)).not.toBe(0);
-    expect(Buffer.compare(packets[0].payload, packets[30].payload)).toBe(0);
+    const vp8 = packets.map((packet) =>
+      Vp8RtpPayload.deSerialize(packet.payload),
+    );
+    expect(Buffer.compare(vp8[0].payload, vp8[1].payload)).not.toBe(0);
+    expect(Buffer.compare(vp8[0].payload, vp8[30].payload)).toBe(0);
+    expect(vp8[0].isKeyframe).toBe(true);
+    expect(vp8[1].isKeyframe).toBe(false);
+    expect(vp8[30].isKeyframe).toBe(true);
+
+    // 検証: 全 packet がブラウザ同等の X/I/M descriptor (L/T/K なし) を持ち、PictureID が 1 frame ごとに +1 される。
+    for (const [index, payload] of vp8.entries()) {
+      expect([...packets[index].payload.subarray(0, 2)]).toEqual([0x90, 0x80]);
+      expect(payload.mBit).toBe(1);
+      expect(payload.lBit).toBe(0);
+      expect(payload.tBit).toBe(0);
+      expect(payload.kBit).toBe(0);
+      if (index > 0) {
+        expect(payload.pictureId).toBe(
+          ((vp8[index - 1].pictureId ?? 0) + 1) & 0x7fff,
+        );
+      }
+    }
 
     // 実行: stop 後に追加 packet が届かないことを確認する。
     const packetCountBeforeStop = packets.length;

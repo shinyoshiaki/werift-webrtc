@@ -203,6 +203,158 @@ export async function waitInboundRtp(
   }
 }
 
+/** Inbound video decode stats summed over inbound-rtp video streams (Chrome getStats). */
+export type InboundVideoDecodeStats = {
+  packetsReceived: number;
+  packetsLost: number;
+  framesReceived: number;
+  framesDecoded: number;
+  keyFramesDecoded: number;
+  framesDropped: number;
+  frameWidth?: number;
+  frameHeight?: number;
+  pliCount: number;
+  firCount: number;
+  nackCount: number;
+  decoderImplementation?: string;
+};
+
+export async function getInboundVideoDecodeStats(
+  pc: RTCPeerConnection,
+): Promise<InboundVideoDecodeStats> {
+  const report = await pc.getStats();
+  const totals: InboundVideoDecodeStats = {
+    packetsReceived: 0,
+    packetsLost: 0,
+    framesReceived: 0,
+    framesDecoded: 0,
+    keyFramesDecoded: 0,
+    framesDropped: 0,
+    pliCount: 0,
+    firCount: 0,
+    nackCount: 0,
+  };
+  report.forEach((stat) => {
+    if (stat.type !== "inbound-rtp" || stat.kind !== "video") return;
+    totals.packetsReceived += stat.packetsReceived ?? 0;
+    totals.packetsLost += stat.packetsLost ?? 0;
+    totals.framesReceived += stat.framesReceived ?? 0;
+    totals.framesDecoded += stat.framesDecoded ?? 0;
+    totals.keyFramesDecoded += stat.keyFramesDecoded ?? 0;
+    totals.framesDropped += stat.framesDropped ?? 0;
+    totals.pliCount += stat.pliCount ?? 0;
+    totals.firCount += stat.firCount ?? 0;
+    totals.nackCount += stat.nackCount ?? 0;
+    totals.frameWidth ??= stat.frameWidth;
+    totals.frameHeight ??= stat.frameHeight;
+    totals.decoderImplementation ??= stat.decoderImplementation;
+  });
+  return totals;
+}
+
+/** Wait until Chrome has decoded at least `minFrames` video frames. */
+export async function waitFramesDecoded(
+  pc: RTCPeerConnection,
+  minFrames: number,
+  timeoutMs = 30_000,
+) {
+  const started = performance.now();
+  for (;;) {
+    const stats = await getInboundVideoDecodeStats(pc);
+    if (stats.framesDecoded >= minFrames) {
+      return stats;
+    }
+    if (performance.now() - started > timeoutMs) {
+      throw new Error(`waitFramesDecoded timed out: ${JSON.stringify(stats)}`);
+    }
+    await sleep(200);
+  }
+}
+
+/**
+ * Attach a muted <video> to `track` and wait until playback advances
+ * (`currentTime` moves and intrinsic size is known).
+ */
+export async function waitVideoElementPlayback(
+  track: MediaStreamTrack,
+  timeoutMs = 30_000,
+) {
+  const video = document.createElement("video");
+  video.muted = true;
+  video.autoplay = true;
+  video.srcObject = new MediaStream([track]);
+  document.body.appendChild(video);
+  try {
+    await video.play().catch(() => {});
+    const started = performance.now();
+    let firstTime: number | undefined;
+    for (;;) {
+      if (video.videoWidth > 0 && video.currentTime > 0) {
+        firstTime ??= video.currentTime;
+        if (video.currentTime - firstTime >= 1) {
+          return {
+            videoWidth: video.videoWidth,
+            videoHeight: video.videoHeight,
+            currentTime: video.currentTime,
+          };
+        }
+      }
+      if (performance.now() - started > timeoutMs) {
+        throw new Error(
+          `waitVideoElementPlayback timed out: size=${video.videoWidth}x${video.videoHeight} currentTime=${video.currentTime}`,
+        );
+      }
+      await sleep(100);
+    }
+  } finally {
+    video.pause();
+    video.srcObject = null;
+    video.remove();
+  }
+}
+
+/**
+ * Arrange: Node offers a sendonly media section on `label`; Chrome answers
+ * (preferring `mimeIncludes`) and resolves with the received track.
+ */
+export async function connectToServerOffer(
+  label: string,
+  mimeIncludes: string,
+  kind: "audio" | "video",
+) {
+  await ensurePeerConnected();
+  const pc = new RTCPeerConnection({
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  });
+  pc.onicecandidate = ({ candidate }) => {
+    peer
+      .request(label, { type: "candidate", payload: candidate })
+      .catch(() => {});
+  };
+  const received = new Promise<MediaStreamTrack>((resolve) => {
+    pc.ontrack = (ev) => resolve(ev.track);
+  });
+
+  const offer = await peer.request(label, { type: "init" });
+  await pc.setRemoteDescription(offer);
+  for (const transceiver of pc.getTransceivers()) {
+    preferCodec(transceiver, mimeIncludes, kind);
+  }
+  await pc.setLocalDescription(await pc.createAnswer());
+  await peer.request(label, { type: "answer", payload: pc.localDescription });
+
+  return { pc, track: await received };
+}
+
+/** Ask the server handler to release its resources; never throws. */
+export async function requestServerDone(label: string) {
+  try {
+    await peer.request(label, { type: "done" });
+  } catch (error) {
+    console.warn(`server done cleanup failed for ${label}`, error);
+  }
+}
+
 async function digestMessage(data: Uint8ClampedArray) {
   const hashBuffer = await crypto.subtle.digest("SHA-1", data); // hash the message
   const hashArray = Array.from(new Uint8Array(hashBuffer)); // convert buffer to byte array
