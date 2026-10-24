@@ -2,7 +2,7 @@ import { createSocket } from "node:dgram";
 import { type Address, TcpTransport, UdpTransport } from "../../../common/src";
 import { AddressFamilyMismatch, TurnRedirectError } from "../../src/exceptions";
 import { classes, methods } from "../../src/stun/const";
-import { Message } from "../../src/stun/message";
+import { Message, parseMessage } from "../../src/stun/message";
 import {
   TurnProtocol,
   createTurnClient,
@@ -10,6 +10,10 @@ import {
 } from "../../src/turn/protocol";
 import {
   TURN_TEST_PASSWORD,
+  alternateServerValue,
+  appendStunAttributeBytes,
+  signStunMessageBytes,
+  stunAttributeBytes,
   TURN_TEST_USERNAME,
   createLocalTurnServer,
   createRecordingTransport,
@@ -502,5 +506,70 @@ describe("TURN Allocate without a redirect", () => {
     } finally {
       await server.close();
     }
+  });
+});
+
+describe("STUN parsing ignores attributes after MESSAGE-INTEGRITY", () => {
+  const key = Buffer.from("integrity-key");
+  const errorCode = (code: number) =>
+    Buffer.from([0, 0, Math.floor(code / 100), code % 100]);
+
+  test("an appended ERROR-CODE 300 and ALTERNATE-SERVER do not turn a signed 403 into a redirect", () => {
+    // Arrange: 署名済みの 403 応答に、署名範囲外として 300 と ALTERNATE-SERVER を追記する
+    const signed = signStunMessageBytes(
+      new Message(methods.ALLOCATE, classes.ERROR).setAttribute("ERROR-CODE", [
+        403,
+        "Forbidden",
+      ]),
+      key,
+    );
+    const forged = appendStunAttributeBytes(
+      appendStunAttributeBytes(
+        signed,
+        stunAttributeBytes(0x0009, errorCode(300)),
+      ),
+      stunAttributeBytes(0x8023, alternateServerValue(["192.0.2.1", 3478])),
+    );
+
+    // Act: 署名鍵付きで解析する(HMAC は署名範囲だけを見るので検証は通る)
+    const parsed = parseMessage(forged, key);
+
+    // Assert: 追記分は無視され、403 のままで alternate も存在しない
+    expect(parsed).toBeDefined();
+    expect(parsed!.getAttributeValue("ERROR-CODE")![0]).toBe(403);
+    expect(parsed!.alternateServers).toEqual([]);
+    expect(parsed!.getAttributeValue("ALTERNATE-SERVER")).toBeUndefined();
+  });
+
+  test("FINGERPRINT after MESSAGE-INTEGRITY is still parsed", () => {
+    // Arrange: 署名後に FINGERPRINT が付いた応答
+    const message = new Message(methods.ALLOCATE, classes.ERROR)
+      .setAttribute("ERROR-CODE", [403, "Forbidden"])
+      .addMessageIntegrity(key)
+      .addFingerprint();
+
+    // Act: 解析する
+    const parsed = parseMessage(message.bytes, key);
+
+    // Assert: FINGERPRINT は例外として扱われ、メッセージは有効
+    expect(parsed?.getAttributeValue("FINGERPRINT")).toBeDefined();
+  });
+
+  test("several signed ALTERNATE-SERVERs are all kept in wire order", () => {
+    // Arrange: 署名範囲内に IPv6, IPv4 の順で ALTERNATE-SERVER を持つ 300 応答
+    const message = new Message(methods.ALLOCATE, classes.ERROR)
+      .setAttribute("ERROR-CODE", [300, "Try Alternate"])
+      .setAttribute("ALTERNATE-SERVER", ["2001:db8::1", 3478])
+      .appendRawAttribute(0x8023, alternateServerValue(["192.0.2.1", 3478]));
+    const signed = signStunMessageBytes(message, key);
+
+    // Act: 署名鍵付きで解析する
+    const parsed = parseMessage(signed, key);
+
+    // Assert: 両方の alternate が順序どおりに残る
+    expect(parsed?.alternateServers).toEqual([
+      ["2001:db8::1", 3478],
+      ["192.0.2.1", 3478],
+    ]);
   });
 });

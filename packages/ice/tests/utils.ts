@@ -1200,3 +1200,40 @@ export function answerOnlyRelayOf(peer: Connection) {
         candidate.port === addr[1],
     );
 }
+
+/** Wire bytes of one STUN attribute (4 byte header, value padded to 4 bytes). */
+export function stunAttributeBytes(type: number, value: Buffer) {
+  const header = Buffer.alloc(4);
+  header.writeUInt16BE(type, 0);
+  header.writeUInt16BE(value.length, 2);
+  return Buffer.concat([
+    header,
+    value,
+    Buffer.alloc((4 - (value.length % 4)) % 4),
+  ]);
+}
+
+/** `message` bytes with `attribute` appended and the header length updated. */
+export function appendStunAttributeBytes(message: Buffer, attribute: Buffer) {
+  const bytes = Buffer.concat([message, attribute]);
+  bytes.writeUInt16BE(bytes.length - 20, 2);
+  return bytes;
+}
+
+/**
+ * Wire bytes of `message` (typed and raw attributes as they are) followed by a
+ * MESSAGE-INTEGRITY computed over all of them, so every attribute in `message`
+ * is inside the signed range.
+ */
+export function signStunMessageBytes(message: Message, key: Buffer) {
+  const body = message.bytes;
+  const integrity = stunAttributeBytes(0x0008, message.messageIntegrity(key));
+  return appendStunAttributeBytes(body, integrity);
+}
+
+/** Wire value of an ALTERNATE-SERVER attribute for `address`. */
+export function alternateServerValue(address: Address) {
+  return new Message(methods.ALLOCATE, classes.ERROR)
+    .setAttribute("ALTERNATE-SERVER", address)
+    .bytes.subarray(24);
+}

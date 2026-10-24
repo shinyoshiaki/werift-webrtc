@@ -217,3 +217,4 @@ This issue is present on current `develop` and is confirmed against werift 0.24.
 - [x] 複数の ALTERNATE-SERVER（RFC 8489 §10: ファミリごと等）を保持し、トランスポートのアドレスファミリで到達可能な先頭候補を使う（packages/ice-server の parseMessage が Message.alternateServers に全件保持。TurnProtocol は同一ファミリ優先、無ければ先頭）。IPv6→IPv4 / IPv4→IPv6 のどちらの順でも udp4 で成功する回帰テストを追加。
 - [x] ループ検出の tried に、ホスト名指定時の初回リクエストで解決・固定された端点を含める（リクエスト後に記録）。localhost→自身のIP のリダイレクトを UDP/TCP とも 1 回の Allocate でループとして拒否するテストを追加。A→B→A は既存テストで検証。
 - [x] README に複数 ALTERNATE-SERVER の選択とホスト名解決後IPのループ検出を追記。
+- [x] RFC 8489 §14.5/§14.6: MESSAGE-INTEGRITY 以降の属性（MESSAGE-INTEGRITY-SHA256 / FINGERPRINT を除く）を parseMessage で無視し、署名範囲外に追記した ERROR-CODE=300 / ALTERNATE-SERVER によるリダイレクトを防止。追記攻撃の回帰テストと、署名範囲内の複数 ALTERNATE-SERVER 選択テストを追加。
