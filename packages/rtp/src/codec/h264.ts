@@ -59,23 +59,22 @@ export class H264RtpPayload implements DePacketizerBase {
   nri!: number;
   /**nal_unit_types */
   nalUnitType!: number;
-  /**start of a fragmented NAL unit */
-  s!: number;
-  /**end of a fragmented NAL unit */
-  e!: number;
-  r!: number;
-  nalUnitPayloadType!: number;
+  /**start of a fragmented NAL unit (FU-A / FU-B only) */
+  s?: number;
+  /**end of a fragmented NAL unit (FU-A / FU-B only) */
+  e?: number;
+  /**reserved bit of the FU header (FU-A / FU-B only) */
+  r?: number;
+  /**nal_unit_type of the fragmented NAL unit (FU-A / FU-B only) */
+  nalUnitPayloadType?: number;
+  /**nal_unit_types of the NAL units aggregated in a STAP-A packet */
+  aggregatedNalUnitTypes: number[] = [];
   payload!: Buffer;
   fragment?: Buffer;
 
   static deSerialize(buf: Buffer, fragment?: Buffer) {
     const h264 = new H264RtpPayload();
-    if (buf.length === 0) {
-      throw new Error(
-        "H.264 RTP payload too short: expected at least 1 byte (NAL/FU indicator)",
-      );
-    }
-    assertRtpCodecPayloadLength(buf, 1, "H264");
+    assertH264MinimumPayloadLength(buf, 1);
 
     const naluHeader = buf[0];
     h264.f = getBit(naluHeader, 0);
@@ -90,9 +89,10 @@ export class H264RtpPayload implements DePacketizerBase {
 
     // Single-time aggregation packet
     if (h264.nalUnitType === NalUnitType.stap_a) {
-      if (buf.length < stap_aHeaderSize + stap_aNALULengthSize) {
-        throw new Error("H.264 RTP payload too short for STAP-A size field");
-      }
+      assertH264MinimumPayloadLength(
+        buf,
+        stap_aHeaderSize + stap_aNALULengthSize,
+      );
       let stapOffset = stap_aHeaderSize;
       let result: Buffer = Buffer.alloc(0);
       while (stapOffset < buf.length) {
@@ -105,6 +105,9 @@ export class H264RtpPayload implements DePacketizerBase {
         const naluSize = buf.readUInt16BE(stapOffset);
         stapOffset += stap_aNALULengthSize;
         assertRtpCodecPayloadLength(buf, naluSize, "H264", stapOffset);
+        if (naluSize > 0) {
+          h264.aggregatedNalUnitTypes.push(getBit(buf[stapOffset], 3, 5));
+        }
         result = Buffer.concat([
           result,
           this.packaging(buf.subarray(stapOffset, stapOffset + naluSize)),
@@ -118,10 +121,7 @@ export class H264RtpPayload implements DePacketizerBase {
       h264.nalUnitType === NalUnitType.fu_a ||
       h264.nalUnitType === NalUnitType.fu_b
     ) {
-      if (buf.length < 2) {
-        throw new Error("H.264 RTP payload too short for FU header");
-      }
-      assertRtpCodecPayloadLength(buf, 2, "H264");
+      assertH264MinimumPayloadLength(buf, 2);
       let offset = 1;
       h264.s = getBit(buf[offset], 0);
       h264.e = getBit(buf[offset], 1);
@@ -159,11 +159,19 @@ export class H264RtpPayload implements DePacketizerBase {
     return header.marker;
   }
 
+  /** true only when this packet carries (a part of) an IDR slice */
   get isKeyframe() {
-    return (
-      this.nalUnitType === NalUnitType.idrSlice ||
-      this.nalUnitPayloadType === NalUnitType.idrSlice
-    );
+    switch (this.nalUnitType) {
+      case NalUnitType.idrSlice:
+        return true;
+      case NalUnitType.fu_a:
+      case NalUnitType.fu_b:
+        return this.nalUnitPayloadType === NalUnitType.idrSlice;
+      case NalUnitType.stap_a:
+        return this.aggregatedNalUnitTypes.includes(NalUnitType.idrSlice);
+      default:
+        return false;
+    }
   }
 
   get isPartitionHead() {
@@ -194,6 +202,18 @@ const annex_bNALUStartCode = Buffer.from([0x00, 0x00, 0x00, 0x01]);
 
 const stap_aHeaderSize = 1;
 const stap_aNALULengthSize = 2;
+
+function assertH264MinimumPayloadLength(
+  buf: Buffer,
+  minLength: number,
+  offset = 0,
+) {
+  if (buf.length < offset + minLength) {
+    throw new Error(
+      `H264 RTP payload too short (truncated): need ${offset + minLength} bytes, got ${buf.length}`,
+    );
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Annex-B / length-prefixed (AVCC) NAL splitting
