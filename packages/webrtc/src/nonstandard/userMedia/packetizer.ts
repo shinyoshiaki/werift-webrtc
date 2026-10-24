@@ -62,7 +62,10 @@ export function createPacketizer({
 }: {
   codec: RTCRtpCodecParameters;
   sourceCodec: SupportedSourceCodec;
-  decoderDescription?: ArrayBuffer | ArrayBufferView | null;
+  decoderDescription?:
+    | ArrayBufferLike
+    | ArrayBufferView<ArrayBufferLike>
+    | null;
 }): Packetizer {
   const options = {
     payloadType: codec.payloadType ?? 96,

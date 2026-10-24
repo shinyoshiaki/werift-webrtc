@@ -1,5 +1,3 @@
-import { formatWithOptions } from "node:util";
-
 export class WeriftError extends Error {
   message!: string;
   payload?: object;
@@ -31,17 +29,45 @@ export interface DebugFactory {
   enabled(namespace: string): boolean;
 }
 
-let namespaceSetting = process.env.DEBUG ?? "";
+type RuntimeProcess = {
+  env?: Record<string, string | undefined>;
+  versions?: { node?: string };
+  stderr?: { isTTY?: boolean };
+};
+
+const colors = [31, 32, 33, 34, 35, 36];
+let namespaceSetting = initialNamespaces();
 let generation = 0;
 let includePatterns: RegExp[] = [];
 let excludePatterns: RegExp[] = [];
-const colors = [31, 32, 33, 34, 35, 36];
-let debugWriter: (message: string) => void = (message) => {
-  process.stderr.write(message);
+let lastTime = Date.now();
+let debugWriter: (...args: unknown[]) => void = (...args) => {
+  writeToConsole(...args);
 };
 
-const compilePattern = (pattern: string) =>
-  new RegExp(`^${pattern.split("*").map(escapeRegExp).join(".*?")}$`);
+parseNamespaces(namespaceSetting);
+
+function runtimeProcess() {
+  return (globalThis as typeof globalThis & { process?: RuntimeProcess })
+    .process;
+}
+
+function isNodeRuntime() {
+  return Boolean(runtimeProcess()?.versions?.node);
+}
+
+function initialNamespaces() {
+  if (isNodeRuntime()) return runtimeProcess()?.env?.DEBUG ?? "";
+  try {
+    return globalThis.localStorage?.getItem("debug") ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function compilePattern(pattern: string) {
+  return new RegExp(`^${pattern.split("*").map(escapeRegExp).join(".*?")}$`);
+}
 
 function escapeRegExp(value: string) {
   return value.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
@@ -57,8 +83,6 @@ function parseNamespaces(namespaces: string) {
     .map((token) => compilePattern(token.slice(1)));
 }
 
-parseNamespaces(namespaceSetting);
-
 function isEnabled(namespace: string) {
   return (
     !excludePatterns.some((pattern) => pattern.test(namespace)) &&
@@ -73,39 +97,54 @@ function colorFor(namespace: string) {
   return colors[Math.abs(hash) % colors.length];
 }
 
-function colorsEnabled() {
-  if (process.env.NO_COLOR !== undefined) return false;
-  const setting = process.env.DEBUG_COLORS;
+function colorsEnabled(process: RuntimeProcess | undefined) {
+  if (process?.env?.NO_COLOR !== undefined) return false;
+  const setting = process?.env?.DEBUG_COLORS;
   if (setting !== undefined)
     return !["no", "false", "0", "disabled"].includes(setting.toLowerCase());
-  return Boolean(process.stderr.isTTY);
+  return Boolean(process?.stderr?.isTTY);
 }
 
-function write(namespace: string, args: unknown[], elapsed: number) {
-  const message = formatWithOptions({ colors: false }, ...args);
-  if (process.stderr.isTTY && colorsEnabled()) {
-    const color = colorFor(namespace);
-    debugWriter(
-      `  \u001b[${color}m${namespace}\u001b[0m ${message} +${elapsed}ms\n`,
-    );
-  } else {
-    debugWriter(`${new Date().toISOString()} ${namespace} ${message}\n`);
+function writeToConsole(...args: unknown[]) {
+  if (isNodeRuntime()) console.error(...args);
+  else console.debug(...args);
+}
+
+function emit(namespace: string, args: unknown[]) {
+  const process = runtimeProcess();
+  const now = Date.now();
+  const elapsed = now - lastTime;
+  lastTime = now;
+
+  if (isNodeRuntime()) {
+    const prefix = process?.stderr?.isTTY && colorsEnabled(process)
+      ? `\u001b[${colorFor(namespace)}m${namespace}\u001b[0m`
+      : `${new Date().toISOString()} ${namespace}`;
+    const suffix = process?.stderr?.isTTY && colorsEnabled(process)
+      ? ` +${elapsed}ms`
+      : "";
+    const output = [...args];
+    if (typeof output[0] === "string") output[0] = `${prefix} ${output[0]}${suffix}`;
+    else output.unshift(`${prefix}${suffix ? ` ${suffix}` : ""}`);
+    debugWriter(...output);
+    return;
   }
+
+  const output = [...args];
+  if (typeof output[0] === "string") output[0] = `${namespace} ${output[0]}`;
+  else output.unshift(namespace);
+  debugWriter(...output);
 }
 
 const debugFactory = ((namespace: string) => {
   let checkedGeneration = -1;
   let enabledCache = false;
-  let lastTime = Date.now();
   const logger = ((...args: unknown[]) => {
     if (checkedGeneration !== generation) {
       enabledCache = isEnabled(namespace);
       checkedGeneration = generation;
     }
-    if (!enabledCache) return;
-    const now = Date.now();
-    write(namespace, args, now - lastTime);
-    lastTime = now;
+    if (enabledCache) emit(namespace, args);
   }) as Debugger;
   Object.defineProperties(logger, {
     enabled: { get: () => debugFactory.enabled(namespace) },
@@ -128,11 +167,7 @@ debugFactory.enabled = (namespace: string) => isEnabled(namespace);
 
 export const debug = debugFactory;
 
-/** @internal Replace the log sink in unit tests. */
-export function setDebugWriterForTest(writer?: (message: string) => void) {
-  debugWriter =
-    writer ??
-    ((message) => {
-      process.stderr.write(message);
-    });
+/** @internal Replace the console sink in unit tests. */
+export function setDebugWriterForTest(writer?: (...args: unknown[]) => void) {
+  debugWriter = writer ?? writeToConsole;
 }

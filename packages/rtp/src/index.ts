@@ -1,3 +1,5 @@
+import "buffer";
+
 export * from "../../common/src";
 export * from "./codec";
 export * from "./helper";

@@ -1,0 +1,66 @@
+import { spawn } from "child_process";
+import { createSocket } from "dgram";
+import { Server } from "ws";
+import {
+  RTCPeerConnection,
+  RTCRtpCodecParameters,
+  randomPort,
+  useNACK,
+  usePLI,
+} from "../../../packages/webrtc/src";
+
+// open ./answer.html
+
+const server = new Server({ port: 8888 });
+console.log("start");
+
+server.on("connection", async (socket) => {
+  const pc = new RTCPeerConnection({
+    codecs: {
+      video: [
+        new RTCRtpCodecParameters({
+          mimeType: "video/VP8",
+          clockRate: 90000,
+          rtcpFeedback: [useNACK(), usePLI()],
+        }),
+      ],
+    },
+  });
+
+  const udp = createSocket("udp4");
+  const port = await randomPort();
+
+  pc.addTransceiver("video").onTrack.subscribe((track, transceiver) => {
+    transceiver.sender.replaceTrack(track);
+    track.onReceiveRtp.subscribe((rtp) => {
+      udp.send(rtp.serialize(), port, "127.0.0.1");
+    });
+
+    setInterval(() => {
+      transceiver.receiver.sendRtcpPLI(track.ssrc);
+    }, 5000);
+  });
+
+  const args = [
+    `udpsrc port=${port}`,
+    "application/x-rtp, media=video, encoding-name=VP8, clock-rate=90000, payload=96",
+    "rtpjitterbuffer",
+    "rtpvp8depay wait-for-keyframe=true",
+    "webmmux",
+    `filesink location=./gst.webm`,
+  ].join(" ! ");
+  const gst = spawn(`gst-launch-1.0 -e ${args}`, { shell: true });
+
+  await pc.setLocalDescription(await pc.createOffer());
+  const sdp = JSON.stringify(pc.localDescription);
+  socket.send(sdp);
+
+  socket.on("message", (data: any) => {
+    pc.setRemoteDescription(JSON.parse(data));
+  });
+
+  setTimeout(() => {
+    gst.kill("SIGINT");
+    console.log("stop");
+  }, 15_000);
+});

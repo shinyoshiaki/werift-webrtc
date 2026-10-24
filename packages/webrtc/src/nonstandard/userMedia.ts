@@ -380,7 +380,10 @@ interface PlaybackTrack {
   inputTrack: InputTrack;
   track: MediaStreamTrack;
   sourceCodec: SupportedSourceCodec;
-  decoderDescription?: AllowSharedBufferSource | null;
+  decoderDescription?:
+    | ArrayBufferLike
+    | ArrayBufferView<ArrayBufferLike>
+    | null;
   sourceChannels?: number;
 }
 
@@ -475,7 +478,10 @@ async function createPlaybackTrack(
 
 function codecParametersForSource(
   sourceCodec: SupportedSourceCodec,
-  decoderDescription?: AllowSharedBufferSource | null,
+  decoderDescription?:
+    | ArrayBufferLike
+    | ArrayBufferView<ArrayBufferLike>
+    | null,
 ) {
   switch (sourceCodec) {
     case "avc": {
@@ -676,7 +682,10 @@ function assertCodecParameters({
   trackKind: "audio" | "video";
   codec: RTCRtpCodecParameters;
   sourceCodec: SupportedSourceCodec;
-  decoderDescription?: AllowSharedBufferSource | null;
+  decoderDescription?:
+    | ArrayBufferLike
+    | ArrayBufferView<ArrayBufferLike>
+    | null;
   sourceChannels?: number;
 }) {
   if (sourceCodec === "opus" && sourceChannels && codec.channels != undefined) {
@@ -728,7 +737,10 @@ function assertCodecParameters({
 }
 
 function getH264ProfileLevelId(
-  decoderDescription?: AllowSharedBufferSource | null,
+  decoderDescription?:
+    | ArrayBufferLike
+    | ArrayBufferView<ArrayBufferLike>
+    | null,
 ) {
   if (!decoderDescription) {
     return undefined;
@@ -768,7 +780,7 @@ function toError(error: unknown) {
 }
 
 function toDescriptionBuffer(
-  decoderDescription: AllowSharedBufferSource,
+  decoderDescription: ArrayBufferLike | ArrayBufferView<ArrayBufferLike>,
 ) {
   if (ArrayBuffer.isView(decoderDescription)) {
     return Buffer.from(

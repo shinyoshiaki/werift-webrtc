@@ -46,6 +46,8 @@ jobs:
           CI: true
         run: |
           npm run ci
+      - name: RTP browser smoke test
+        run: npm run test:browser --workspace packages/rtp
       - name: examples e2e
         env:
           CI: true

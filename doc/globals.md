@@ -6,7 +6,7 @@
 
 ## Namespaces
 
-- [binaryData](namespaces/binaryData/README.md)
+- [binaryData](werift/namespaces/binaryData/README.md)
 
 ## Enumerations
 
@@ -145,6 +145,8 @@
 
 - [CandidatePairStats](interfaces/CandidatePairStats.md)
 - [DataChannelStats](interfaces/DataChannelStats.md)
+- [DebugFactory](interfaces/DebugFactory.md)
+- [Debugger](interfaces/Debugger.md)
 - [DtlsTransportStats](interfaces/DtlsTransportStats.md)
 - [Extensions](interfaces/Extensions.md)
 - [IceConnection](interfaces/IceConnection.md)
@@ -301,6 +303,7 @@
 - [CONSENT\_RESPONSE\_TIMEOUT\_MIN](variables/CONSENT_RESPONSE_TIMEOUT_MIN.md)
 - [CONSENT\_TIMEOUT](variables/CONSENT_TIMEOUT.md)
 - [COOKIE](variables/COOKIE.md)
+- [createSelfSignedCertificate](variables/createSelfSignedCertificate.md)
 - [CurveType](variables/CurveType.md)
 - [debug](variables/debug.md)
 - [DEFAULT\_MAX\_MESSAGE\_SIZE](variables/DEFAULT_MAX_MESSAGE_SIZE.md)
@@ -332,6 +335,7 @@
 - [INTEGRITY\_LENGTH](variables/INTEGRITY_LENGTH.md)
 - [IPV4\_PROTOCOL](variables/IPV4_PROTOCOL.md)
 - [IPV6\_PROTOCOL](variables/IPV6_PROTOCOL.md)
+- [milliTime](variables/milliTime.md)
 - [MPEG4\_GENERIC\_ENCODING\_NAME](variables/MPEG4_GENERIC_ENCODING_NAME.md)
 - [NalUnitType](variables/NalUnitType.md)
 - [NamedCurveAlgorithm](variables/NamedCurveAlgorithm.md)
@@ -394,7 +398,6 @@
 - [crc32c](functions/crc32c.md)
 - [createAv1AggregationHeader](functions/createAv1AggregationHeader.md)
 - [createBufferWriter](functions/createBufferWriter.md)
-- [createSelfSignedCertificate](functions/createSelfSignedCertificate.md)
 - [createStunOverTurnClient](functions/createStunOverTurnClient.md)
 - [createTurnClient](functions/createTurnClient.md)
 - [createVp8PayloadDescriptor](functions/createVp8PayloadDescriptor.md)
@@ -439,7 +442,6 @@
 - [leb128decode](functions/leb128decode.md)
 - [makeIntegrityKey](functions/makeIntegrityKey.md)
 - [microTime](functions/microTime.md)
-- [milliTime](functions/milliTime.md)
 - [negotiateRemoteCodecs](functions/negotiateRemoteCodecs.md)
 - [nodeIpAddress](functions/nodeIpAddress.md)
 - [normalizeCodecMimeType](functions/normalizeCodecMimeType.md)

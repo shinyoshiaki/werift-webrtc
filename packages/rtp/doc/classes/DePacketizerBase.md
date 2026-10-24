@@ -4,23 +4,23 @@
 
 [werift-rtp](../globals.md) / DePacketizerBase
 
-# Class: `abstract` DePacketizerBase
+# Abstract Class: DePacketizerBase
 
 ## Constructors
 
-### new DePacketizerBase()
+### Constructor
 
-> **new DePacketizerBase**(): [`DePacketizerBase`](DePacketizerBase.md)
+> **new DePacketizerBase**(): `DePacketizerBase`
 
 #### Returns
 
-[`DePacketizerBase`](DePacketizerBase.md)
+`DePacketizerBase`
 
 ## Properties
 
 ### fragment?
 
-> `optional` **fragment**: `Buffer`\<`ArrayBufferLike`\>
+> `optional` **fragment?**: `Buffer`\<`ArrayBufferLike`\>
 
 ***
 
@@ -44,7 +44,7 @@
 
 ### deSerialize()
 
-> `static` **deSerialize**(`buf`, `fragment`?): [`DePacketizerBase`](DePacketizerBase.md)
+> `static` **deSerialize**(`buf`, `fragment?`): `DePacketizerBase`
 
 #### Parameters
 
@@ -58,7 +58,7 @@
 
 #### Returns
 
-[`DePacketizerBase`](DePacketizerBase.md)
+`DePacketizerBase`
 
 ***
 

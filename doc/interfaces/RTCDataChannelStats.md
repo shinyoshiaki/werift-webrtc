@@ -14,19 +14,19 @@
 
 ### bytesReceived?
 
-> `optional` **bytesReceived**: `number`
+> `optional` **bytesReceived?**: `number`
 
 ***
 
 ### bytesSent?
 
-> `optional` **bytesSent**: `number`
+> `optional` **bytesSent?**: `number`
 
 ***
 
 ### dataChannelIdentifier?
 
-> `optional` **dataChannelIdentifier**: `number`
+> `optional` **dataChannelIdentifier?**: `number`
 
 ***
 
@@ -42,25 +42,25 @@
 
 ### label?
 
-> `optional` **label**: `string`
+> `optional` **label?**: `string`
 
 ***
 
 ### messagesReceived?
 
-> `optional` **messagesReceived**: `number`
+> `optional` **messagesReceived?**: `number`
 
 ***
 
 ### messagesSent?
 
-> `optional` **messagesSent**: `number`
+> `optional` **messagesSent?**: `number`
 
 ***
 
 ### protocol?
 
-> `optional` **protocol**: `string`
+> `optional` **protocol?**: `string`
 
 ***
 

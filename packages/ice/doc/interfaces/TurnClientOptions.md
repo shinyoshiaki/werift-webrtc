@@ -10,7 +10,7 @@
 
 ### connectTimeoutMs?
 
-> `optional` **connectTimeoutMs**: `number`
+> `optional` **connectTimeoutMs?**: `number`
 
 Maximum time to wait for TCP/TLS connection establishment, in milliseconds.
 
@@ -18,43 +18,43 @@ Maximum time to wait for TCP/TLS connection establishment, in milliseconds.
 
 ### interfaceAddresses?
 
-> `optional` **interfaceAddresses**: `InterfaceAddresses`
+> `optional` **interfaceAddresses?**: `InterfaceAddresses`
 
 ***
 
 ### lifetime?
 
-> `optional` **lifetime**: `number`
+> `optional` **lifetime?**: `number`
 
 ***
 
 ### portRange?
 
-> `optional` **portRange**: \[`number`, `number`\]
+> `optional` **portRange?**: \[`number`, `number`\]
 
 ***
 
 ### ssl?
 
-> `optional` **ssl**: `boolean`
+> `optional` **ssl?**: `boolean`
 
 ***
 
 ### tlsOptions?
 
-> `optional` **tlsOptions**: `TlsConnectionOptions`
+> `optional` **tlsOptions?**: `TlsConnectionOptions`
 
 ***
 
 ### transport?
 
-> `optional` **transport**: `"udp"` \| `"tcp"` \| `"tls"`
+> `optional` **transport?**: `"udp"` \| `"tcp"` \| `"tls"`
 
 ***
 
 ### udpFamily?
 
-> `optional` **udpFamily**: `4` \| `6`
+> `optional` **udpFamily?**: `4` \| `6`
 
 Preferred IP family of the UDP socket, applied only when the server
 address is a hostname. Ignored for an IP literal server address, whose

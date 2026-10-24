@@ -6,4 +6,4 @@
 
 # Type Alias: MediaDirection
 
-> **MediaDirection**: *typeof* [`Directions`](../variables/Directions.md)\[`number`\]
+> **MediaDirection** = *typeof* [`Directions`](../variables/Directions.md)\[`number`\]

@@ -17,14 +17,8 @@ export const timer = {
     const id = setTimeout(...args);
     return () => clearTimeout(id);
   },
-  setInterval: (...args: Parameters<typeof setInterval>) => {
-    const id = setInterval(
-      () => {
-        args[0]();
-      },
-      //@ts-expect-error
-      ...args.slice(1),
-    );
+  setInterval: (callback: () => void, delay?: number) => {
+    const id = setInterval(callback, delay);
     return () => clearInterval(id);
   },
 };

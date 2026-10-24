@@ -46,9 +46,10 @@ describe("debug logger", () => {
     // Assert
     expect(previous).toBe("werift:test");
     expect(logger.enabled).toBe(false);
-    expect(output.messages[0]).toContain(
-      'value=ok count=3 json={"a":1} percent=%',
+    expect(output.messages[0][0]).toContain(
+      "value=%s count=%d json=%j percent=%%",
     );
+    expect(output.messages[0].slice(1)).toEqual(["ok", 3, { a: 1 }]);
     expect(output.messages).toHaveLength(1);
     output.restore();
   });
@@ -68,8 +69,8 @@ describe("debug logger", () => {
 
     // Assert
     expect(output.messages).toHaveLength(1);
-    expect(output.messages[0]).toContain("\u001b[");
-    expect(output.messages[0]).toContain("visible +");
+    expect(output.messages[0][0]).toContain("\u001b[");
+    expect(output.messages[0][0]).toContain("visible +");
     output.restore();
   });
 
@@ -84,10 +85,10 @@ describe("debug logger", () => {
     debug("werift:plain")("plain");
 
     // Assert
-    expect(output.messages[0]).toMatch(
-      /^\d{4}-\d\d-\d\dT.* werift:plain plain\n$/,
+    expect(output.messages[0][0]).toMatch(
+      /^\d{4}-\d\d-\d\dT.* werift:plain plain$/,
     );
-    expect(output.messages[0]).not.toContain("\u001b[");
+    expect(output.messages[0][0]).not.toContain("\u001b[");
     output.restore();
   });
 });

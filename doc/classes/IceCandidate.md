@@ -8,9 +8,9 @@
 
 ## Constructors
 
-### new IceCandidate()
+### Constructor
 
-> **new IceCandidate**(`component`, `foundation`, `ip`, `port`, `priority`, `protocol`, `type`, `generation`?, `ufrag`?): [`IceCandidate`](IceCandidate.md)
+> **new IceCandidate**(`component`, `foundation`, `ip`, `port`, `priority`, `protocol`, `type`, `generation?`, `ufrag?`): `IceCandidate`
 
 #### Parameters
 
@@ -52,7 +52,7 @@
 
 #### Returns
 
-[`IceCandidate`](IceCandidate.md)
+`IceCandidate`
 
 ## Properties
 
@@ -70,7 +70,7 @@
 
 ### generation?
 
-> `optional` **generation**: `number`
+> `optional` **generation?**: `number`
 
 ***
 
@@ -100,31 +100,31 @@
 
 ### relatedAddress?
 
-> `optional` **relatedAddress**: `string`
+> `optional` **relatedAddress?**: `string`
 
 ***
 
 ### relatedPort?
 
-> `optional` **relatedPort**: `number`
+> `optional` **relatedPort?**: `number`
 
 ***
 
 ### sdpMid?
 
-> `optional` **sdpMid**: `string`
+> `optional` **sdpMid?**: `string`
 
 ***
 
 ### sdpMLineIndex?
 
-> `optional` **sdpMLineIndex**: `number`
+> `optional` **sdpMLineIndex?**: `number`
 
 ***
 
 ### tcpType?
 
-> `optional` **tcpType**: `string`
+> `optional` **tcpType?**: `string`
 
 ***
 
@@ -136,7 +136,7 @@
 
 ### ufrag?
 
-> `optional` **ufrag**: `string`
+> `optional` **ufrag?**: `string`
 
 ## Methods
 
@@ -152,14 +152,14 @@
 
 ### fromJSON()
 
-> `static` **fromJSON**(`data`): `undefined` \| [`IceCandidate`](IceCandidate.md)
+> `static` **fromJSON**(`data`): `IceCandidate` \| `undefined`
 
 #### Parameters
 
 ##### data
 
-[`RTCIceCandidate`](RTCIceCandidate.md) | [`RTCIceCandidateInit`](../interfaces/RTCIceCandidateInit.md)
+[`RTCIceCandidate`](RTCIceCandidate.md) \| [`RTCIceCandidateInit`](../interfaces/RTCIceCandidateInit.md)
 
 #### Returns
 
-`undefined` \| [`IceCandidate`](IceCandidate.md)
+`IceCandidate` \| `undefined`

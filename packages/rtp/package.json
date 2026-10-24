@@ -34,10 +34,12 @@
     "doc": "rm -rf doc && typedoc --excludePrivate --disableSources --excludeInternal --plugin typedoc-plugin-markdown --out doc ./src/index.ts",
     "format": "biome check --write src tests",
     "test": "npm run type && vitest run ./tests",
+    "test:browser": "cd browser-e2e && npm install && npm run ci:silent",
     "type": "tsc --noEmit -p . --rootDir ..",
     "upgrade-interactive": "npx npm-check-updates -i"
   },
   "dependencies": {
+    "buffer": "^6.0.3",
     "mediabunny": "^1.62.1"
   },
   "devDependencies": {},
