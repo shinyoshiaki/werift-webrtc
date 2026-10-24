@@ -10,11 +10,9 @@ import {
 } from "../../src/turn/protocol";
 import {
   TURN_TEST_PASSWORD,
+  TURN_TEST_USERNAME,
   alternateServerValue,
   appendStunAttributeBytes,
-  signStunMessageBytes,
-  stunAttributeBytes,
-  TURN_TEST_USERNAME,
   createLocalTurnServer,
   createRecordingTransport,
   createStreamTurnRedirectServer,
@@ -25,6 +23,8 @@ import {
   getLocalTurnClientTlsOptions,
   getLocalTurnServerTlsOptions,
   localRelayCandidates,
+  signStunMessageBytes,
+  stunAttributeBytes,
 } from "../utils";
 
 const HOST = "127.0.0.1";
