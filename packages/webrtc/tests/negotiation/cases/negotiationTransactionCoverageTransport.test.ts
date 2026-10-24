@@ -174,14 +174,3 @@ describeCases("negotiation transaction spec coverage: transport", () => {
   );
 });
 
-/**
- * Transitions run in both offerer directions (each peer is once the local
- * and once the remote offerer, which also swaps the DTLS roles). `a` is the
- * offerer and `b` the answerer of `createDirectedDuplexSession(from)`.
- */
-for (const from of ["a", "b"] as const) {
-  describeCases(
-    `negotiation transaction spec coverage: transport (offerer=${from})`,
-    () => {},
-  );
-}
