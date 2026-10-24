@@ -70,4 +70,32 @@ describe("public type compatibility", () => {
     expect(() => new Source().finish()).not.toThrow();
     expect(typeof Source.prototype.fail).toBe("function");
   });
+
+  test("keeps protected static members and derived methods through the factory", () => {
+    // Arrange: protected static を持つ基底と、メソッドを追加した派生クラスを用意する
+    class ProtectedBase {
+      protected static setting = 7;
+      processInput(input: number): number[] {
+        return [input];
+      }
+      toJSON() {
+        return {};
+      }
+    }
+    class Custom extends SimpleProcessorCallbackBase<
+      number,
+      number,
+      typeof ProtectedBase
+    >(ProtectedBase) {
+      reset() {
+        return Custom.setting;
+      }
+    }
+
+    // Act: pipe の戻り値に対して派生クラスのメソッドを連鎖させる
+    const result = new Custom().pipe(() => {}).reset();
+
+    // Assert: protected static を参照でき、pipe は派生クラスの型を返す
+    expect(result).toBe(7);
+  });
 });

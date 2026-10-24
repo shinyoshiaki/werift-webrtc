@@ -19,22 +19,6 @@ export interface SimpleProcessorCallback<Input = any, Output = any> {
   toJSON(): Record<string, any>;
 }
 
-export type SimpleProcessorCallbackInstance<
-  Input,
-  Output,
-  TBase extends new (
-    ...args: any[]
-  ) => Processor<Input, Output>,
-> = InstanceType<TBase> &
-  Omit<SimpleProcessorCallback<Input, Output>, "pipe"> & {
-    cb?: (o: Output) => void;
-    destructor?: () => void;
-    pipe: (
-      cb: (o: Output) => void,
-      destructor?: () => void,
-    ) => SimpleProcessorCallbackInstance<Input, Output, TBase>;
-  };
-
 export const SimpleProcessorCallbackBase = <
   Input,
   Output,
@@ -43,18 +27,12 @@ export const SimpleProcessorCallbackBase = <
   ) => Processor<Input, Output>,
 >(
   Base: TBase,
-): Omit<TBase, "prototype"> &
-  (new (
-    ...args: ConstructorParameters<TBase>
-  ) => SimpleProcessorCallbackInstance<Input, Output, TBase>) => {
-  class CallbackBase
-    extends Base
-    implements SimpleProcessorCallback<Input, Output>
-  {
+) => {
+  return class extends Base implements SimpleProcessorCallback<Input, Output> {
     cb?: (o: Output) => void;
     destructor?: () => void;
 
-    pipe = (cb: (o: Output) => void, destructor?: () => void) => {
+    pipe = (cb: (o: Output) => void, destructor?: () => void): this => {
       this.cb = cb;
       this.destructor = destructor;
       cb = undefined as any;
@@ -77,10 +55,5 @@ export const SimpleProcessorCallbackBase = <
       }
       this.cb = undefined;
     };
-  }
-
-  return CallbackBase as unknown as Omit<TBase, "prototype"> &
-    (new (
-      ...args: ConstructorParameters<TBase>
-    ) => SimpleProcessorCallbackInstance<Input, Output, TBase>);
+  };
 };
