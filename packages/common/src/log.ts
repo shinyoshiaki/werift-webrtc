@@ -190,8 +190,3 @@ debugFactory.disable = () => {
 debugFactory.enabled = (namespace: string) => isEnabled(namespace);
 
 export const debug = debugFactory;
-
-/** @internal Replace the console sink in unit tests. */
-export function setDebugWriterForTest(writer?: (...args: unknown[]) => void) {
-  state.debugWriter = writer ?? writeToConsole;
-}

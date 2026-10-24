@@ -1,11 +1,21 @@
-import { setDebugWriterForTest } from "../src/log";
+type DebugWriter = (...args: unknown[]) => void;
+
+// 出力先は共有ロガー状態に保持されているため、公開 API を増やさずテストから差し替える
+function logState() {
+  return (globalThis as any)[Symbol.for("werift-common.log.state")] as {
+    debugWriter: DebugWriter;
+  };
+}
 
 export function createDebugOutput() {
   const messages: unknown[][] = [];
-  setDebugWriterForTest((...message) => messages.push(message));
+  const original = logState().debugWriter;
+  logState().debugWriter = (...message) => messages.push(message);
   return {
     messages,
-    restore: () => setDebugWriterForTest(),
+    restore: () => {
+      logState().debugWriter = original;
+    },
   };
 }
 
