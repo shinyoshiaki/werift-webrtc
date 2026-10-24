@@ -258,11 +258,11 @@ describe("packages/rtp/tests/codec/h264.test.ts", () => {
 
   it("loads committed H.264 vector (GStreamer rtph264pay) and matches expected", () => {
     // Arrange
-    const path = join(import.meta.dirname, "../data/vector_h264.bin");
+    const path = join(__dirname, "../data/vector_h264.bin");
     expect(existsSync(path)).toBe(true);
     const payloads = loadPayloadVector("vector_h264.bin");
     const expected = readFileSync(
-      join(import.meta.dirname, "../data/vector_h264_expected.bin"),
+      join(__dirname, "../data/vector_h264_expected.bin"),
     );
     // Act: Single / STAP-A / FU-A を順に復元
     expect(payloads.length).toBeGreaterThan(0);

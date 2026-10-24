@@ -190,8 +190,8 @@ export class CipherContext {
   }
 
   parseX509(certPem: string, keyPem: string, signatureHash: SignatureHash) {
-    this.localCert = new X509Certificate(certPem).raw;
-    this.localPrivateKey = createPrivateKey(keyPem);
+    this.localCert = new X509Certificate(normalizePem(certPem)).raw;
+    this.localPrivateKey = createPrivateKey(normalizePem(keyPem));
     this.signatureHashAlgorithm = signatureHash;
   }
 
@@ -211,4 +211,17 @@ export class CipherContext {
     );
     return Buffer.concat([clientRandom, serverRandom, serverParams, publicKey]);
   }
+}
+
+/**
+ * Trims indentation and blank lines from each PEM line.
+ * `node:crypto` rejects indented PEM (e.g. written in an indented template literal),
+ * which the previous `@fidm/x509` parser accepted.
+ */
+export function normalizePem(pem: string) {
+  return `${pem
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .join("\n")}\n`;
 }

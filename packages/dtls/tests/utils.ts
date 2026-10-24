@@ -119,3 +119,10 @@ export const verifyServerKeyExchangeSignature = ({
     keyExchange.signature,
   );
 };
+
+/** PEM の各行をインデントした文字列（インデント付きテンプレートリテラル相当）を作る。 */
+export const indentPem = (pem: string, indent = "    ") =>
+  pem
+    .split("\n")
+    .map((line) => `${indent}${line}`)
+    .join("\n");

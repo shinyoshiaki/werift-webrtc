@@ -2,7 +2,8 @@ import axios from "axios";
 import cors from "cors";
 import { createSocket } from "dgram";
 import express from "express";
-import * as yargs from "yargs";
+import yargs from "yargs";
+import { hideBin } from "yargs/helpers";
 import {
   MediaStreamTrack,
   RTCPeerConnection,
@@ -28,7 +29,7 @@ installPolyfill({
 });
 
 (async () => {
-  const args = await yargs
+  const args = await yargs(hideBin(process.argv))
     .option("host", {
       description: "Host for HTTP server (default: 0.0.0.0)",
       default: "0.0.0.0",

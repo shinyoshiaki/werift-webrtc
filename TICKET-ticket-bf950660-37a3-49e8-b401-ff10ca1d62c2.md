@@ -55,100 +55,42 @@
 
 ## 3. 現状（2026-10-24 時点の作業ツリー）
 
-### 3.1 完了済み（コードで確認。テストは未実行）
+R1〜R6 はすべて実施済み。4 章は実装方針の記録として残す。
 
-- **依存の削除**: `debug`、`tweetnacl`、`@noble/curves`、`@fidm/x509` を削除した。DTLS は `node:crypto` に移行済み（`localPrivateKey: KeyObject`、`prf.test.ts` を追加）。`vi.mock("debug")` と `chrome-e2e/types/debug.d.ts` も削除した。
-- **依存の更新**:
-  - `@peculiar/x509` 2.2 と `reflect-metadata`（`dtls` / `webrtc`）
-  - `mediabunny` 1.62
-  - TypeScript 6.0.3
-  - Biome 2.6.2（設定も移行済み）
-  - Vitest 5.0.5（`vitest.workspace.mjs` は削除）
-  - typedoc 0.28.20 / typedoc-plugin-markdown 4.14.1
-  - knip 6
-  - npm-run-all2 9
-  - `@types/node` 22.20.x
-  - `esbuild` を `packages/webrtc` に明示的に追加
-  - `ts-node` / `ts-node-dev` / `organize-imports-cli` を削除
-- **tsconfig**: `module: commonjs` と `moduleResolution: bundler` の組み合わせに移行した。
-- **周辺の package.json**: `e2e`、`examples`、`examples/e2e`、`import-test`、`packages/ice-server/chrome-e2e` を更新した。
-- **ドキュメント**: `changelog.md` に `## Unreleased` を追加し、README に `debug.enable()` を追記した。
-- **掃除**: `packages/*/src` に残っていた古いビルド成果物（git 管理外の `.js` / `.d.ts`）は、もう残っていない。
+### 3.1 実施内容
 
-### 3.2 残作業
+- **依存の削除**: `debug`、`tweetnacl`、`@noble/curves`、`@fidm/x509`、`ts-node`、`ts-node-dev`、`tsx`、`organize-imports-cli`。DTLS は `node:crypto`（`localPrivateKey: KeyObject`）。
+- **依存の更新**: `@peculiar/x509` 2.2 + `reflect-metadata`、`mediabunny` 1.62、TypeScript 6.0.3、Biome 2.6.2、Vitest 5.0.5、typedoc 0.28.20 / typedoc-plugin-markdown 4.14.1、knip 6、npm-run-all2 9、`@types/node` 22.20.x、`esbuild`（`packages/webrtc` に明示）。周辺の `package.json` / lockfile も更新済み。
+- **R1**: `rtp` / `webrtc` の `"buffer": "^6.0.3"` と `import "buffer";` を維持。
+- **R2**: `common/src/log.ts` は `node:util` もトップレベルの `process` 参照も持たない。`tests/browserLog.test.ts` で `process` なし・`localStorage.debug`・`localStorage` 例外を検証。
+- **R3**: `packages/rtp/browser-e2e/`（Vitest browser + Playwright + `vite-plugin-node-polyfills`）。`setup/localStorageDebug.ts` で読み込み前に `localStorage.debug` を設定し、有効 / 無効 / `debug.enable()` を検証。`npm run test:browser --workspace packages/rtp` を CI に追加。`packages/rtp/vitest.config.mts` で Node 実行から `browser-e2e/**` を除外。
+- **R4**: `tools/node-ts/register.mjs`（`.` / `..` 指定子にも対応）と `register.test.mjs`（`npm run test:node-ts`、CI に追加）。全スクリプト・`.vscode/launch.json`・コメント / ドキュメントを置換。`devEngines` 追加。
+  - ネイティブ ESM 化で表面化した問題を修正: `import { Server } from "ws"` → `WebSocketServer`（examples 66 箇所）、`yargs` 18 の default import + `hideBin`、examples の `__dirname` → `import.meta.dirname`、`coverageProvider.ts` の istanbul 系を default import に変更（`tsc` の commonjs と Node ESM の両立）、`spawnExample.ts` の `existsSync` import 欠落。
+  - `packages/rtp/tests` は Vitest 専用なので `__dirname` に戻した（`import.meta` は `module: commonjs` の `tsc` でエラーになる）。
+  - `integration/werift-mediasoup-interop`（submodule）: `scripts/register-werift-ts.mjs` を追加し、`WERIFT_REPO_ROOT` → 親 checkout → sibling の順で werift の hook を読み込む。`test:*` を Node ネイティブ実行に置換、`tsx` を削除、README を更新。**submodule 側のコミットと親の submodule ポインタ更新は未実施**（コンテナ内から submodule の git を操作できないため）。
+- **R5**: changelog の `buffer` / `tsx` / `localStorage.debug` の記述を実態に合わせた。
+- **追加の互換修正**: `@fidm/x509` はインデント付き PEM を受け付けていたが `node:crypto` は拒否する（`examples/certificate/offer.ts` が接続できなくなっていた）。`werift-dtls` に `normalizePem()` を追加し、`CipherContext.parseX509` と `RTCCertificate` で使用。テスト `packages/dtls/tests/context/cipher.test.ts` を追加。changelog の `### Fixes` に記載。
+- **vendor の復元**: 過去の `fmt` コミット（ea7d720c）で `examples/e2e/vendor/*.js` が書き換わり、ブラウザページが `E is not a constructor` で動かなくなっていた。`develop` の内容に戻した（現在の Biome 設定では vendor は対象外）。
+- **AGENTS.md**: ルートに `npm run test:node-ts` とサードパーティ TS ランナー禁止の方針を追記。
 
-| # | 内容 | 現状 |
-| --- | --- | --- |
-| R1 | `buffer` を元に戻す（2.4） | `rtp` / `webrtc` の依存と `import "buffer";` が削除されたまま |
-| R2 | `common/src/log.ts` をブラウザでも動くようにする（2.3） | `node:util` を import しており、トップレベルで `process.env` / `process.stderr` を参照している |
-| R3 | ローカルの `rtp` を検証するブラウザテストを追加する（2.4） | 未着手 |
-| R4 | Node.js ネイティブ実行への移行（2.5） | 未着手。`tsx` がルート / `chrome-e2e` / `turn-loopback` などに残っている |
-| R5 | changelog の修正 | `buffer` を削除したという記述と、`ts-node` → `tsx` の記述を、R1 / R4 の内容に合わせて直す |
-| R6 | 全体の検証 | 6 章のコマンドをすべて実行する |
+### 3.2 検証結果
 
-## 4. 残作業の実装方針
+| コマンド | 結果 |
+| --- | --- |
+| `npm run format`（2 回目で差分なし） | 成功 |
+| `npm run type:all` / `npm run build` / `npm run test:small` | 成功（import-test の ESM 実行と CJS `require` も確認） |
+| `npm run doc` | 成功（再生成済み） |
+| `npm run wpt` / `npm run wpt:coverage` | 成功 |
+| `npm run e2e` | 21 files / 63 tests 成功 |
+| `npm run examples:e2e` | 6 files / 65 tests 成功 |
+| `packages/ice-server` の `chrome-e2e` | 成功（`test:small` 内で実行） |
+| `npm run test:browser --workspace packages/rtp` | 3 tests 成功 |
+| `npm run test:node-ts` | 4 tests 成功 |
+| `examples/turn-loopback` の `server` | 起動ログを確認（20 秒で停止） |
+| mediasoup-interop `type` / `test:small` / `test:source-import` | 成功 |
+| mediasoup-interop `test:interop` | 27 件中 20 件成功。失敗 7 件はすべて `mediasoup-legacy`（3.19.2）で、このホスト（kernel 7）向けの prebuilt worker がなく、`pip` もないためビルドできない環境要因（`spawn ... mediasoup-worker ENOENT`）。`mediasoup` 3.26 のケースはすべて成功 |
 
-### R1. `buffer` を元に戻す
-
-- `packages/rtp/package.json` と `packages/webrtc/package.json` に `"buffer": "^6.0.3"` を戻す。
-- `packages/rtp/src/index.ts` の先頭に `import "buffer";` を戻す。
-
-### R2. `log.ts` をブラウザでも動くようにする
-
-- 環境の判定は `typeof process !== "undefined" && process.versions?.node` で行う。
-- 設定の読み込み元: Node では `process.env.DEBUG`、ブラウザでは `localStorage.getItem("debug")`。
-- 出力: Node では `console.error`。stderr が TTY のときは色付きの namespace と `+Nms`、そうでないときは ISO 時刻を付ける。ブラウザでは `console.debug` で、色は付けない。namespace の接頭辞は、第 1 引数が文字列ならその先頭に連結し、そうでなければ別の引数として先頭に入れる。
-- テスト用の出力差し替え（`setDebugWriterForTest`）は残し、`@internal` にする。
-- テストを追加する: `process` がない環境（`globalThis.process` をスタブ）で import しても例外にならないこと、`localStorage.debug` で有効化できること。
-
-### R3. `rtp` のブラウザテスト
-
-- `packages/ice-server/chrome-e2e` と同じ構成で `packages/rtp/browser-e2e/` を作る。独自の `package.json` に、`vitest` 5、`@vitest/browser-playwright`、`playwright`、`vite-plugin-node-polyfills` を入れる。
-- `packages/rtp/package.json` に `test:browser` を追加し、CI（`.github/workflows/nodejs.yml`）でも実行する。
-- スモークテストの内容:
-  - `../src/index.ts` を import できる
-  - RTP / RTCP / RED の serialize / deserialize
-  - SRTP の暗号化と復号の往復
-  - `debug()` が `localStorage.debug` の有無にかかわらず例外を投げず、有効時は `console.debug` に出力される
-
-### R4. Node.js ネイティブ実行への移行
-
-- **hook**: ルート直下に `tools/node-ts/register.mjs` を新設し、`module.registerHooks` の同期 `resolve` で `import` と `require` の両方を扱う。
-  - 対象は、親が `.ts` 系のファイルで、`node_modules` の外を指す相対 / 絶対パスの指定子だけ。
-  - 解決する順序: 拡張子なし → `X.ts`、`.js` / `.mjs` / `.cjs` → 同名の `.ts` / `.mts` / `.cts`、ディレクトリ → `X/index.ts`。`.js` と `.ts` が両方あるときは `.ts` を優先する。
-  - `require` 経由の場合は、`file://` URL ではなくファイルパスで返す。
-  - hook のテストを `node --test` で書く。
-- **共通フラグ**: `node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import <相対パス>/tools/node-ts/register.mjs`。子プロセスに伝わらないよう、`NODE_OPTIONS` ではなく各スクリプトに直書きする。
-- **置き換え方**:
-  - `tsx [--tsconfig X] f` → `node <共通フラグ> f`
-  - `tsx watch` → `node --watch <共通フラグ>`
-  - `tsx --test` → `node --test <共通フラグ>`
-  - `--import tsx` → `<共通フラグ>`
-- **置き換える箇所**:
-  - スクリプト:
-    - ルート: `datachannel` / `debug` / `example` / `media`
-    - `packages/webrtc`: `wpt*` / `pbt:deep`
-    - `packages/dtls` / `packages/sctp`: `client` / `server`
-    - `packages/ice`: `start`
-    - `packages/ice-server/chrome-e2e`: `server`
-    - `e2e`: `server` / `server:dev` / `test:tools`
-    - `examples/turn-loopback`: `server`
-    - `integration/werift-mediasoup-interop`: `test:*`（そのディレクトリの `AGENTS.md` に従う）
-  - コード・設定:
-    - `packages/rtp/tests/utils.ts`
-    - `examples/e2e/tests/helpers/spawnExample.ts`
-    - `examples/turn-loopback/docker/entrypoint.sh`（Docker イメージに hook が含まれるかも確認する）
-    - `.vscode/launch.json`
-  - 実行例を書いたコメントとドキュメント:
-    - `packages/rtp/README.md`
-    - `packages/rtp/examples/node/**`
-    - `packages/rtp/tools/generateVectors/**`
-    - `packages/rtp/tests/data/VECTOR_SOURCE.md`
-    - `packages/sctp/tests/bench/burstTransfer.ts`
-    - `packages/webrtc/tools/{negotiation-diff,wpt-runner}/*.ts`
-    - `e2e/server/codecRtpUtils.ts`
-- ESM として読み込まれるため、`__dirname` / `require` を使うファイル（`wpt-runner/coverageProvider.ts`、`negotiation-diff/{run,scenarios}.ts`、`pbt-deep/run.ts`、`turn-loopback/server/main.ts`）は、`import.meta.dirname` / `createRequire` に置き換える。
-- 最後に `tsx` を全 `package.json` から削除し、ルートに `devEngines: { runtime: { name: "node", version: ">=22.18.0" } }` を追加する。
+- 環境メモ: ホスト共有の `~/.cache/ms-playwright` が別プロセスにより実行中に削除されるため、Playwright 系は `PLAYWRIGHT_BROWSERS_PATH=/tmp/pw-browsers` で実行した。
 
 ## 5. 制約・注意点
 
@@ -166,12 +108,12 @@
 - [x] `debug`、`tweetnacl`、`@noble/curves`、`@fidm/x509`、`ts-node`、`ts-node-dev`、`organize-imports-cli` が依存から削除されている。
 - [x] `CipherContext.localPrivateKey` が `KeyObject` になり、DTLS の鍵交換・署名が `node:crypto` で動く。
 - [x] 3.1 の依存更新が反映され、changelog に `## Unreleased` がある。
-- [ ] R1: `buffer` の依存と `import "buffer";` が `rtp` / `webrtc` に戻っている。
-- [ ] R2: `log.ts` が `node:util` を import しておらず、トップレベルで `process` を参照していない。ブラウザ相当の環境でのテストがある。
-- [ ] R3: `packages/rtp` の `test:browser` が Chromium で成功し、CI でも実行されている。
-- [ ] R4: `tools/node-ts/register.mjs` とそのテストがある。`devEngines` がある。`tsx` が全 `package.json` から削除されている。`git grep -nE "\btsx (watch|--)|ts-node|--import tsx|TSX_"` に、古い起動方法が残っていない（`changelog.md` の過去の節、`loadtest/`、`benchmark/` を除く）。
-- [ ] R5: changelog の `buffer` と `tsx` に関する記述が実態と一致している。
-- [ ] R6: 次がすべて成功する。
+- [x] R1: `buffer` の依存と `import "buffer";` が `rtp` / `webrtc` に戻っている。
+- [x] R2: `log.ts` が `node:util` を import しておらず、トップレベルで `process` を参照していない。ブラウザ相当の環境でのテストがある。
+- [x] R3: `packages/rtp` の `test:browser` が Chromium で成功し、CI でも実行されている。
+- [x] R4: `tools/node-ts/register.mjs` とそのテストがある。`devEngines` がある。`tsx` が全 `package.json` から削除されている。`git grep -nE "\btsx (watch|--)|ts-node|--import tsx|TSX_"` に、古い起動方法が残っていない（`changelog.md` の過去の節、`loadtest/`、`benchmark/` を除く）。
+- [x] R5: changelog の `buffer` と `tsx` に関する記述が実態と一致している。
+- [x] R6: 次がすべて成功する。
   - `npm run type`（`type:all`）、`npm run build`、`npm run test:small`
   - `npm run doc`（再生成した結果をコミットする）
   - `npm run wpt` / `npm run wpt:coverage`

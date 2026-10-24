@@ -19,7 +19,7 @@ import { RtpHeader, RtpPacket } from "../src/rtp/rtp";
 import type { Transport } from "../src/transport";
 
 export function load(name: string) {
-  const base = import.meta.dirname;
+  const base = __dirname;
   const data = readFileSync(`${base}/data/` + name);
   return data;
 }
@@ -29,7 +29,7 @@ export function load(name: string) {
  * repeated [u16be length][payload] records.
  */
 export function loadPayloadVector(name: string): Buffer[] {
-  const path = join(import.meta.dirname, "data", name);
+  const path = join(__dirname, "data", name);
   let buf: Buffer;
   try {
     buf = readFileSync(path);
@@ -601,7 +601,7 @@ export function deliverStreamingArrivals(
   }
 }
 
-const PACKAGE_ROOT = join(import.meta.dirname, "..");
+const PACKAGE_ROOT = join(__dirname, "..");
 
 /**
  * Runs `packages/rtp/<relativePath>` with Node's TypeScript support in a separate process,

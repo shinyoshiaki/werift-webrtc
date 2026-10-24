@@ -23,7 +23,12 @@ export function resolveTypeScriptSpecifier(specifier, context, nextResolve) {
 
   let targetPath;
   if (path.isAbsolute(specifier)) targetPath = specifier;
-  else if (specifier.startsWith("./") || specifier.startsWith("../")) {
+  else if (
+    specifier === "." ||
+    specifier === ".." ||
+    specifier.startsWith("./") ||
+    specifier.startsWith("../")
+  ) {
     targetPath = path.resolve(parentDirectory, specifier);
   } else return nextResolve(specifier, context);
 

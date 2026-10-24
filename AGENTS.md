@@ -46,6 +46,7 @@ If a rule applies only to a specific package or subdirectory, put it in the near
 
 * Do not copy README-style feature catalogs, example payloads, or other fast-changing implementation details into `AGENTS.md`.
 * Do not list commands that are absent from the local `package.json`.
+* Do not reintroduce third-party TypeScript runners such as `tsx`. Run TypeScript scripts with `node --experimental-transform-types --import <rel>/tools/node-ts/register.mjs` (Node.js 22.18+, see `devEngines`).
 * Do not describe provider credentials, secrets, or machine-specific setup in this guide.
 * Do not let package guides drift in structure. Differences should mostly be limited to responsibilities, validation, references, and cross-package cautions.
 * Do not duplicate Arrange-phase setup across multiple test files when it can be safely shared through common utilities.
@@ -64,6 +65,7 @@ If a rule applies only to a specific package or subdirectory, put it in the near
 | run examples smoke (Chromium + gst/ffmpeg) | `npm run examples:e2e` |
 | install examples e2e Chromium | `npm run examples:e2e:install` |
 | type-check workspace         | `npm run type`        |
+| test TypeScript resolve hook | `npm run test:node-ts` |
 | run allowlisted upstream WPT | `npm run wpt`         |
 | measure WPT coverage         | `npm run wpt:coverage` |
 | format code                  | `npm run format`      |

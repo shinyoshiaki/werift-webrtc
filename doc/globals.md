@@ -448,6 +448,7 @@
 - [normalizeFamilyNodeV18](functions/normalizeFamilyNodeV18.md)
 - [normalizeFingerprintAlgorithm](functions/normalizeFingerprintAlgorithm.md)
 - [normalizeFingerprintValue](functions/normalizeFingerprintValue.md)
+- [normalizePem](functions/normalizePem.md)
 - [ntpTime](functions/ntpTime.md)
 - [ntpTime2Sec](functions/ntpTime2Sec.md)
 - [ntpTimeToEpochMs](functions/ntpTimeToEpochMs.md)

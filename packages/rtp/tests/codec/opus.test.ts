@@ -66,11 +66,11 @@ describe("packages/rtp/tests/codec/opus.test.ts", () => {
 
   it("loads committed Opus vector (GStreamer rtpopuspay) and matches expected", () => {
     // Arrange
-    const path = join(import.meta.dirname, "../data/vector_opus.bin");
+    const path = join(__dirname, "../data/vector_opus.bin");
     expect(existsSync(path)).toBe(true);
     const payloads = loadPayloadVector("vector_opus.bin");
     const expected = readFileSync(
-      join(import.meta.dirname, "../data/vector_opus_expected.bin"),
+      join(__dirname, "../data/vector_opus_expected.bin"),
     );
     // Act: 生ペイロード連結 = Opus パケット列
     expect(payloads.length).toBeGreaterThan(0);

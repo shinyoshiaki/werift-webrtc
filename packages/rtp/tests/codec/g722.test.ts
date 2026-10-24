@@ -91,7 +91,7 @@ describe("packages/rtp/tests/codec/g722.test.ts", () => {
     // Arrange: GStreamer (or synthetic) payloads + expected sidecar
     const payloads = loadPayloadVector("vector_g722.bin");
     expect(payloads.length).toBeGreaterThan(0);
-    const expectedPath = join(import.meta.dirname, "../data/vector_g722_expected.bin");
+    const expectedPath = join(__dirname, "../data/vector_g722_expected.bin");
     const expected = readFileSync(expectedPath);
     // Act
     const restored = Buffer.concat(

@@ -13,14 +13,16 @@ describe("browser logger runtime", () => {
     vi.stubGlobal("localStorage", {
       getItem: (key: string) => (key === "debug" ? "werift:browser" : null),
     });
-    const consoleDebug = vi.spyOn(console, "debug").mockImplementation(() => {});
+    const consoleDebug = vi
+      .spyOn(console, "debug")
+      .mockImplementation(() => {});
 
-    // Act
+    // Act: process がない環境で読み込み、logger を呼ぶ
     const { debug } = await import("../src/log");
     const logger = debug("werift:browser");
     logger("message %s", "value");
 
-    // Assert
+    // Assert: localStorage.debug で有効になり、console.debug に namespace 付きで出力する
     expect(logger.enabled).toBe(true);
     expect(consoleDebug).toHaveBeenCalledWith(
       "werift:browser message %s",
@@ -37,10 +39,10 @@ describe("browser logger runtime", () => {
       },
     });
 
-    // Act
+    // Act: localStorage が例外を投げる環境で読み込む
     const { debug } = await import("../src/log");
 
-    // Assert
+    // Assert: 読み込みも logger の生成も失敗しない
     expect(debug("werift:browser")).toBeTypeOf("function");
   });
 });

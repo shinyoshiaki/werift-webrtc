@@ -25,6 +25,7 @@ export default defineConfig({
   test: {
     globals: true,
     include: ["tests/**/*.test.ts"],
+    setupFiles: ["./setup/localStorageDebug.ts"],
     browser: {
       provider: playwright(),
       enabled: true,

@@ -183,11 +183,11 @@ describe("packages/rtp/tests/codec/vp9.test.ts", () => {
 
   it("loads committed VP9 vector (GStreamer rtpvp9pay) and matches expected", () => {
     // Arrange
-    const path = join(import.meta.dirname, "../data/vector_vp9.bin");
+    const path = join(__dirname, "../data/vector_vp9.bin");
     expect(existsSync(path)).toBe(true);
     const payloads = loadPayloadVector("vector_vp9.bin");
     const expected = readFileSync(
-      join(import.meta.dirname, "../data/vector_vp9_expected.bin"),
+      join(__dirname, "../data/vector_vp9_expected.bin"),
     );
     // Act
     expect(payloads.length).toBeGreaterThan(0);

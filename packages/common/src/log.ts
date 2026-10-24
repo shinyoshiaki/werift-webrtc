@@ -117,15 +117,16 @@ function emit(namespace: string, args: unknown[]) {
   lastTime = now;
 
   if (isNodeRuntime()) {
-    const prefix = process?.stderr?.isTTY && colorsEnabled(process)
-      ? `\u001b[${colorFor(namespace)}m${namespace}\u001b[0m`
-      : `${new Date().toISOString()} ${namespace}`;
-    const suffix = process?.stderr?.isTTY && colorsEnabled(process)
-      ? ` +${elapsed}ms`
-      : "";
+    const prefix =
+      process?.stderr?.isTTY && colorsEnabled(process)
+        ? `\u001b[${colorFor(namespace)}m${namespace}\u001b[0m`
+        : `${new Date().toISOString()} ${namespace}`;
+    const suffix =
+      process?.stderr?.isTTY && colorsEnabled(process) ? ` +${elapsed}ms` : "";
     const output = [...args];
-    if (typeof output[0] === "string") output[0] = `${prefix} ${output[0]}${suffix}`;
-    else output.unshift(`${prefix}${suffix ? ` ${suffix}` : ""}`);
+    if (typeof output[0] === "string")
+      output[0] = `${prefix} ${output[0]}${suffix}`;
+    else output.unshift(`${prefix}${suffix}`);
     debugWriter(...output);
     return;
   }

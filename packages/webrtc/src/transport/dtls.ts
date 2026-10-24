@@ -11,6 +11,7 @@ import {
   type DtlsSocket,
   HashAlgorithm,
   NamedCurveAlgorithm,
+  normalizePem,
   SignatureAlgorithm,
   type SignatureHash,
 } from "../imports/dtls";
@@ -617,11 +618,12 @@ export class RTCCertificate {
     public certPem: string,
     public signatureHash: SignatureHash,
   ) {
-    const cert = new X509Certificate(certPem);
+    this.certPem = normalizePem(certPem);
+    const cert = new X509Certificate(this.certPem);
     this.publicKey = cert.publicKey
       .export({ type: "spki", format: "pem" })
       .toString();
-    this.privateKey = createPrivateKey(privateKeyPem)
+    this.privateKey = createPrivateKey(normalizePem(privateKeyPem))
       .export({ type: "pkcs8", format: "pem" })
       .toString();
   }

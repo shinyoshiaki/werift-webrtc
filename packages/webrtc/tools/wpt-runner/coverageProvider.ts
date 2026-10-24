@@ -1,14 +1,15 @@
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
 import { TraceMap, eachMapping } from "@jridgewell/trace-mapping";
 import { transform } from "esbuild";
-import { type CoverageMap, createCoverageMap } from "istanbul-lib-coverage";
+import istanbulLibCoverage, { type CoverageMap } from "istanbul-lib-coverage";
+import istanbulLibReport from "istanbul-lib-report";
+import istanbulReports from "istanbul-reports";
 import v8ToIstanbul from "v8-to-istanbul";
 
-const require = createRequire(import.meta.url);
-const { createContext } = require("istanbul-lib-report");
-const { create } = require("istanbul-reports");
+const { createCoverageMap } = istanbulLibCoverage;
+const { createContext } = istanbulLibReport;
+const { create } = istanbulReports;
 
 type ProcessCoverage = {
   result: Array<{

@@ -26,7 +26,7 @@ describe("browser RTP entry", () => {
       keys: { localMasterKey: masterKey, localMasterSalt: masterSalt, remoteMasterKey: masterKey, remoteMasterSalt: masterSalt },
     });
 
-    // Act
+    // Act: RTP / RTCP / RED を serialize → deserialize し、SRTP で暗号化 → 復号する
     const rtp = new RtpPacket(header, payload);
     const parsedRtp = RtpPacket.deSerialize(rtp.serialize());
     const rtcp = new RtcpRrPacket({ ssrc: 42 });
@@ -37,7 +37,7 @@ describe("browser RTP entry", () => {
     const encrypted = sender.encrypt(payload, header);
     const decrypted = receiver.decrypt(encrypted);
 
-    // Assert
+    // Assert: いずれも元の内容に戻る
     expect(parsedRtp.serialize()).toEqual(rtp.serialize());
     expect(parsedRtcp).toHaveLength(1);
     expect((parsedRtcp[0] as RtcpRrPacket).ssrc).toBe(42);
@@ -45,24 +45,46 @@ describe("browser RTP entry", () => {
     expect(decrypted.subarray(12)).toEqual(payload);
   });
 
-  test("debug is safe with or without localStorage.debug", () => {
+  test("debug follows localStorage.debug and debug.enable()", () => {
     // Arrange
     const consoleDebug = vi.spyOn(console, "debug").mockImplementation(() => {});
+    const enabledLogger = debug("werift:browser-enabled");
+    const disabledLogger = debug("werift:browser-disabled");
 
-    // Act
-    localStorage.removeItem("debug");
-    const disabledLogger = debug("werift:browser-smoke");
+    // Act: localStorage.debug に一致する logger と一致しない logger を呼ぶ
     disabledLogger("disabled");
-    debug.enable("werift:browser-smoke");
-    const enabledLogger = debug("werift:browser-smoke");
     enabledLogger("enabled %s", "message");
 
-    // Assert
-    expect(disabledLogger).toBeTypeOf("function");
+    // Assert: 一致する logger だけが namespace 付きで console.debug へ出力する
+    expect(disabledLogger.enabled).toBe(false);
+    expect(enabledLogger.enabled).toBe(true);
+    expect(consoleDebug).toHaveBeenCalledTimes(1);
     expect(consoleDebug).toHaveBeenCalledWith(
-      "werift:browser-smoke enabled %s",
+      "werift:browser-enabled enabled %s",
       "message",
     );
+
+    // Act: export された debug.enable() / debug.disable() で切り替える
+    debug.enable("werift:browser-disabled");
+    const enabledAfterSwitch = disabledLogger.enabled;
     debug.disable();
+
+    // Assert: 設定の切り替えが既存の logger に反映される
+    expect(enabledAfterSwitch).toBe(true);
+    expect(disabledLogger.enabled).toBe(false);
+    expect(enabledLogger.enabled).toBe(false);
+  });
+
+  test("debug does not throw when localStorage.debug is absent", () => {
+    // Arrange
+    localStorage.removeItem("debug");
+
+    // Act: 設定なしで logger を作って呼ぶ
+    const logger = debug("werift:browser-unset");
+    const call = () => logger("ignored");
+
+    // Assert: 例外にならず、無効のまま
+    expect(call).not.toThrow();
+    expect(logger.enabled).toBe(false);
   });
 });

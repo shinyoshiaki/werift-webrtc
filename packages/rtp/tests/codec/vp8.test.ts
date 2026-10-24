@@ -163,11 +163,11 @@ describe("packages/rtp/tests/codec/vp8.test.ts", () => {
 
   it("loads committed VP8 vector (GStreamer rtpvp8pay) and matches expected", () => {
     // Arrange: tools/generateVectors 成果物
-    const path = join(import.meta.dirname, "../data/vector_vp8.bin");
+    const path = join(__dirname, "../data/vector_vp8.bin");
     expect(existsSync(path)).toBe(true);
     const payloads = loadPayloadVector("vector_vp8.bin");
     const expected = readFileSync(
-      join(import.meta.dirname, "../data/vector_vp8_expected.bin"),
+      join(__dirname, "../data/vector_vp8_expected.bin"),
     );
     // Act: descriptor 除去して連結
     expect(payloads.length).toBeGreaterThan(0);

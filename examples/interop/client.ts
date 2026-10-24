@@ -1,6 +1,7 @@
 import { exec } from "child_process";
 import { setTimeout } from "timers/promises";
-import * as yargs from "yargs";
+import yargs from "yargs";
+import { hideBin } from "yargs/helpers";
 import { RTCPeerConnection, randomPort } from "../../packages/webrtc/src";
 import {
   createRtpRtcpRegister,
@@ -9,7 +10,7 @@ import {
 
 const TestType = { PeerConnection: 0, DataChannelEcho: 1 };
 
-const args = yargs
+const args = yargs(hideBin(process.argv))
   .option("s", {
     default:
       process.argv.length === 3
@@ -19,7 +20,8 @@ const args = yargs
   .option("t", {
     default: TestType.PeerConnection,
   })
-  .help().argv;
+  .help()
+  .parseSync();
 const url = args["s"];
 const testType = args["t"];
 console.log(args, { url, testType });

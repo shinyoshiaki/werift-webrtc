@@ -20,12 +20,12 @@ describe("debug logger", () => {
     const included = debug("werift:ice");
     const excluded = debug("werift:ice:secret");
 
-    // Act
+    // Act: 包含・除外パターンを設定し、両方の logger を呼ぶ
     debug.enable("werift*,other exact,-werift:ice:secret");
     included("included");
     excluded("excluded");
 
-    // Assert
+    // Assert: 除外パターンが優先され、包含側だけが出力される
     expect(included.enabled).toBe(true);
     expect(excluded.enabled).toBe(false);
     expect(output.messages).toHaveLength(1);
@@ -38,12 +38,12 @@ describe("debug logger", () => {
     const logger = debug("werift:test");
     debug.enable("werift:test");
 
-    // Act
+    // Act: 書式指定子付きで出力した後、disable() してから再度呼ぶ
     logger("value=%s count=%d json=%j percent=%%", "ok", 3, { a: 1 });
     const previous = debug.disable();
     logger("hidden");
 
-    // Assert
+    // Assert: 書式指定子は console 側に任せて引数のまま渡し、disable() 後は出力しない
     expect(previous).toBe("werift:test");
     expect(logger.enabled).toBe(false);
     expect(output.messages[0][0]).toContain(
@@ -61,13 +61,13 @@ describe("debug logger", () => {
     restoreTTY = setStderrIsTTYForTest(true);
     debug.enable("");
 
-    // Act
+    // Act: 無効のまま呼んだ後、DEBUG_COLORS=1 で有効化して呼ぶ
     logger("hidden");
     process.env.DEBUG_COLORS = "1";
     debug.enable("werift:tty");
     logger("visible");
 
-    // Assert
+    // Assert: 有効化後の 1 件だけが色付き namespace と +Nms 付きで出力される
     expect(output.messages).toHaveLength(1);
     expect(output.messages[0][0]).toContain("\u001b[");
     expect(output.messages[0][0]).toContain("visible +");
@@ -81,10 +81,10 @@ describe("debug logger", () => {
     process.env.DEBUG_COLORS = "0";
     debug.enable("werift:plain");
 
-    // Act
+    // Act: TTY ではない stderr で出力する
     debug("werift:plain")("plain");
 
-    // Assert
+    // Assert: 色なしで ISO 時刻と namespace が先頭に付く
     expect(output.messages[0][0]).toMatch(
       /^\d{4}-\d\d-\d\dT.* werift:plain plain$/,
     );

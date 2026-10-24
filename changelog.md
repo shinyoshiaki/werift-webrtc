@@ -5,14 +5,20 @@
 ### ⚠️ Breaking changes
 
 - **`werift-dtls`: `CipherContext.localPrivateKey` is now a Node `KeyObject`** instead of the `@fidm/x509` `PrivateKey`. Replace `localPrivateKey.toPEM()` with `localPrivateKey.export({ type: "pkcs8", format: "pem" })`; replace `localPrivateKey.sign(data, hash)` with `createSign(hash).update(data).sign(localPrivateKey)`.
-- **werift logging no longer follows the application's `debug` package instance.** Use `debug.enable("werift*")` or `debug.disable()` from `werift`, or set `DEBUG=werift*` before startup. The built-in logger does not implement `DEBUG_HIDE_DATE`, `DEBUG_DEPTH`, `DEBUG_SHOW_HIDDEN`, `logger.extend()`, `logger.log`, `debug.log`, `debug.formatters`, `logger.destroy()`, `logger.color`, `useColors`, `inspectOpts`, or browser `localStorage.debug`.
+- **werift logging no longer follows the application's `debug` package instance.** Use `debug.enable("werift*")` or `debug.disable()` from `werift`, or set `DEBUG=werift*` before startup. The built-in logger does not implement `DEBUG_HIDE_DATE`, `DEBUG_DEPTH`, `DEBUG_SHOW_HIDDEN`, `logger.extend()`, `logger.log`, `debug.log`, `debug.formatters`, `logger.destroy()`, `logger.color`, `useColors`, or `inspectOpts`. In browsers, `localStorage.debug` is still read at load time.
+
+### Fixes
+
+- PEM passed to `dtls.keys` / `RTCCertificate` / `CipherContext` may still be indented (for example inside an indented template literal), as it was with `@fidm/x509`. `werift-dtls` exports the `normalizePem()` helper used for this.
 
 ### Dependencies
 
-- Removed `debug`, `buffer` (runtime side-effect import), `tweetnacl`, `@noble/curves`, and `@fidm/x509`; logger behavior now lives in `werift-common`, and X25519, P-256, certificate parsing, and signing use `node:crypto`.
+- Removed `debug`, `tweetnacl`, `@noble/curves`, and `@fidm/x509`; logger behavior now lives in `werift-common`, and X25519, P-256, certificate parsing, and signing use `node:crypto`.
 - Updated `@peculiar/x509` to 2.2.x and `mediabunny` to 1.62.x. Added a direct `reflect-metadata` runtime dependency because `tsyringe`, used by `@peculiar/x509`, still requires its polyfill after x509 v2 removed it as a transitive dependency.
-- Updated the TypeScript, Biome, Vitest, TypeDoc, Knip, npm-run-all2, tsx, Playwright, Vite, React, and example dependencies. TypeScript remains on 6.0.x because TypeDoc 0.28 does not support TypeScript 7; `@types/node` remains on 22.x to match the supported Node runtime.
-- Replaced `ts-node` / `ts-node-dev` scripts with `tsx` and removed `organize-imports-cli` unused-import scripts in favor of Biome 2.
+- Updated the TypeScript, Biome, Vitest, TypeDoc, Knip, npm-run-all2, Playwright, Vite, React, and example dependencies. TypeScript remains on 6.0.x because TypeDoc 0.28 does not support TypeScript 7; `@types/node` remains on 22.x to match the supported Node runtime.
+- Removed `ts-node`, `ts-node-dev`, and `tsx`. Repository scripts now run TypeScript with Node.js itself (`--experimental-transform-types` plus the `tools/node-ts/register.mjs` resolve hook for extensionless imports); local development requires Node.js 22.18.0 or later (`devEngines`). Published package `engines` are unchanged.
+- Removed `organize-imports-cli` unused-import scripts in favor of Biome 2.
+- `werift-rtp` keeps `buffer` and its `import "buffer"` side effect so browser bundlers can provide `Buffer`; a Chromium smoke test (`npm run test:browser --workspace packages/rtp`) now covers the main entry bundled with Vite and `vite-plugin-node-polyfills`.
 
 ## v0.25.2
 

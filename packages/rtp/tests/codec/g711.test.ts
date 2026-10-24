@@ -146,7 +146,7 @@ describe("packages/rtp/tests/codec/g711.test.ts", () => {
     const payloads = loadPayloadVector("vector_pcmu.bin");
     expect(payloads.length).toBeGreaterThan(0);
     const expected = readFileSync(
-      join(import.meta.dirname, "../data/vector_pcmu_expected.bin"),
+      join(__dirname, "../data/vector_pcmu_expected.bin"),
     );
     // Act
     const restored = Buffer.concat(
@@ -161,7 +161,7 @@ describe("packages/rtp/tests/codec/g711.test.ts", () => {
     const payloads = loadPayloadVector("vector_pcma.bin");
     expect(payloads.length).toBeGreaterThan(0);
     const expected = readFileSync(
-      join(import.meta.dirname, "../data/vector_pcma_expected.bin"),
+      join(__dirname, "../data/vector_pcma_expected.bin"),
     );
     // Act
     const restored = Buffer.concat(

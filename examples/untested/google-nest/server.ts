@@ -6,7 +6,7 @@ import {
 } from "../../../packages/webrtc/src";
 import { MediaRecorder } from "../../../packages/webrtc/src/nonstandard";
 
-config({ path: __dirname + "/../../../credential.env" });
+config({ path: import.meta.dirname + "/../../../credential.env" });
 
 const clientId = process.env.CLIENT_ID;
 const clientSecret = process.env.CLIENT_SECRET;
