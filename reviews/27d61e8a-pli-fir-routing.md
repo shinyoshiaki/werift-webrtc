@@ -156,6 +156,17 @@ ide:
 - **FIR**: Router が解決したエントリを `handleRtcpPacket(packet, entries)` で Sender に渡します。これで RTX SSRC 宛や未登録 SSRC 宛のエントリも `firCount` と `onFullIntraRequest` / `onKeyFrameRequest` に反映されます。引数が無いとき（直接呼び出し）は、従来どおり自分の SSRC 宛のエントリだけを扱います。
 - **設定の変更**: `setConfiguration` でいつでも切り替えられます。未知の値は `TypeError` です。
 
+### 4.3 複合 RTCP の境界と FIR の送信長（レビュー指摘への対応）
+
+- **受信側**: `RtcpPacketConverter.deSerialize` は、各パケットの payload を複合パケットの末尾まで渡していました（[packages/rtp/src/rtcp/rtcp.ts](review-file:packages/rtp/src/rtcp/rtcp.ts)）。`RR + SDES + FIR(A 宛) + PLI(B 宛)` では、後続の PLI のバイトが FIR の FCI として読まれ、B 宛の偽エントリができていました。FIR の配送と通知を追加したことで、この偽エントリが B への余分な FIR 通知と `firCount` の誤計上として表面化しました。各パケットを、ヘッダーで宣言された長さで区切るよう直しました。padding 長も、自分のパケットの末尾から読むようになります。
+- **送信側**: `FullIntraRequest.length` は 1 エントリで 3 を返していました。RFC 5104 §4.3.1.1 では 2 + 2 × N（1 エントリなら 4）です（[packages/rtp/src/rtcp/psfb/fullIntraRequest.ts](review-file:packages/rtp/src/rtcp/psfb/fullIntraRequest.ts)）。既存テストの期待値も誤った 3 で一致していたため、4 に直しました。
+
+| 例: `RR + SDES + FIR(A) + PLI(B)` | 修正前 | 修正後 |
+| --- | --- | --- |
+| FIR の FCI | A と、PLI のバイトから読んだ偽エントリ（B を含む） | A のみ |
+| B の通知 | PLI と、Seq nr が変われば余分な FIR | PLI のみ |
+| B の `firCount` | 増える | 増えない |
+
 ## 5. リスク・互換性
 
 - **挙動変更**: `mediaSsrc` が未登録の PLI は、`senderSsrc` 側にも配送されなくなります。これは意図した変更で、changelog に記載しました。
@@ -173,16 +184,20 @@ ide:
 | Sender | [packages/webrtc/tests/media/rtpSender.test.ts:1256](review-file:packages/webrtc/tests/media/rtpSender.test.ts:1256) | `firCount`、再送の扱い、他 SSRC 宛の FIR、`onKeyFrameRequest` の発火順 |
 | 結合 | [packages/webrtc/tests/integrate/mediaChannel.test.ts:167](review-file:packages/webrtc/tests/integrate/mediaChannel.test.ts:167) | sendrecv video で PLI が相手 Sender に届き、Receiver に誤配送されない |
 | Router（救済） | [packages/webrtc/tests/media/router.test.ts](review-file:packages/webrtc/tests/media/router.test.ts) | compatible: RTX SSRC 宛 PLI、唯一の video Sender への PLI、FIR エントリの解決と `firCount`／strict: 未登録 SSRC は配送しない／複数 video Sender では配送しない |
+| 複合 RTCP（rtp） | [packages/rtp/tests/rtcp/rtcp.test.ts](review-file:packages/rtp/tests/rtcp/rtcp.test.ts) | 実バイト列の `RR + SDES + FIR + PLI` が 4 パケットに分かれ FCI が 1 件のまま、padding 付きパケットの後続も復号、FIR の length が 2 + 2 × N で往復できる |
+| 複合 RTCP（Router） | [packages/webrtc/tests/media/router.test.ts](review-file:packages/webrtc/tests/media/router.test.ts) | 実バイト列を復号して配送し、A は FIR・B は PLI だけを受ける。同じパケットの再送では A の通知は出ず `firCount` だけ増え、B の `firCount` は増えない |
 | 結合（救済） | [packages/webrtc/tests/integrate/mediaChannel.test.ts](review-file:packages/webrtc/tests/integrate/mediaChannel.test.ts) | werift 同士で media SSRC 0 の PLI が既定で届き、strict では届かない。未知のモードは `TypeError` |
 
 ## 7. 検証結果
 
 | 項目 | 結果 | 備考 |
 | --- | --- | --- |
-| `packages/webrtc` の `npm test`（`keyFrameRequestRouting` 追加後） | 成功 | 56 ファイル・834 テスト成功（3 件 skip） |
-| ルートの `npm run type` | 成功 | `keyFrameRequestRouting` 追加後 |
-| ミューテーション確認 | 検出 | strict 判定を外す・唯一の video Sender への解決を外す、の 2 通りで追加テストが失敗することを確認し、元に戻した |
-| `npm run doc` | 成功 | `PeerConfig`・`RtpRouter`・`RTCRtpSender` などを再生成。警告は今回の変更と無関係なもののみ |
-| 自動レビュー時の全テスト | 成功 | WebRTC 801、RTP 210、Chromium カタログ 65。`onKeyFrameRequest` 追加前の結果 |
+| ルートの `npm run type` | 成功 | 複合 RTCP の境界・FIR length 修正後 |
+| ルートの `npm run test:small` | 成功 | 全パッケージ。rtp 368、webrtc 835（3 件 skip）を含む |
+| `packages/rtp` の `npm run type` / `npm test` | 成功 | 39 ファイル・368 テスト |
+| `packages/webrtc` の `npm run type` / `npm test` | 成功 | 56 ファイル・835 テスト（3 件 skip） |
+| レビュー指摘の再現コード | 期待どおり | FIR の FCI は A のみ、通知は A:`fir` / B:`pli`、B は `firCount: 1, pliCount: 1` |
+| ミューテーション確認 | 検出 | 受信 payload の区切りを外すと rtp の追加 3 件と Router の複合 RTCP テストが失敗。strict 判定・唯一の video Sender 解決を外すと救済テストが失敗。いずれも元に戻した |
+| `npm run doc` | 成功 | `keyFrameRequestRouting` 追加時に実行。今回の修正は公開シグネチャを変えないため再生成していない |
 
-**未確認**: `npm run test:small`（rtp など他パッケージ）、WPT、Chromium の E2E カタログ（`npm run examples:e2e`）、`npm run e2e` は、`onKeyFrameRequest` / `keyFrameRequestRouting` の追加後に実行していません。Chrome などが未登録 SSRC 宛の PLI / FIR を実際にどの程度送るかも調べていません。
+**未確認**: WPT、Chromium の E2E カタログ（`npm run examples:e2e`）、`npm run e2e` は、`onKeyFrameRequest` / `keyFrameRequestRouting` / 複合 RTCP 修正の後に実行していません。Chrome などが未登録 SSRC 宛の PLI / FIR を実際にどの程度送るかも調べていません。

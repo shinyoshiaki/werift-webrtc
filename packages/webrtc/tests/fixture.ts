@@ -279,6 +279,42 @@ export function createFirPacket(props: {
   });
 }
 
+/**
+ * RR + SDES + FIR + PLI の複合 RTCP を RFC どおりの実バイト列で組み立てる (serializer を通さない)。
+ * FIR は 1 エントリ (RFC 5104 4.3.1.1: length = 2 + 2 * 1)、media SSRC = 0 の libwebrtc 形式。
+ */
+export function createCompoundFeedbackBytes(props: {
+  senderSsrc: number;
+  fir: { ssrc: number; sequenceNumber: number };
+  pliMediaSsrc: number;
+}) {
+  const word = (value: number) => {
+    const buf = Buffer.alloc(4);
+    buf.writeUInt32BE(value >>> 0);
+    return buf;
+  };
+  const sender = word(props.senderSsrc);
+  return Buffer.concat([
+    // RR: rc=0, length=1
+    Buffer.from("80c90001", "hex"),
+    sender,
+    // SDES: sc=1, length=2, CNAME "r" + END
+    Buffer.from("81ca0002", "hex"),
+    sender,
+    Buffer.from("01017200", "hex"),
+    // FIR: FMT=4, length=4, media SSRC=0, FCI = SSRC + Seq nr + reserved
+    Buffer.from("84ce0004", "hex"),
+    sender,
+    word(0),
+    word(props.fir.ssrc),
+    Buffer.from([props.fir.sequenceNumber, 0, 0, 0]),
+    // PLI: FMT=1, length=2
+    Buffer.from("81ce0002", "hex"),
+    sender,
+    word(props.pliMediaSsrc),
+  ]);
+}
+
 export async function outboundRtpStats(sender: RTCRtpSender) {
   const report = await sender.getStats();
   return Array.from(report.values()).find(

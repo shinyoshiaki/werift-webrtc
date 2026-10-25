@@ -4,6 +4,7 @@ import {
   RTCRtpTransceiver,
   ReceiverEstimatedMaxBitrate,
   RtcpHeader,
+  RtcpPacketConverter,
   RtcpPayloadSpecificFeedback,
   RtpHeader,
   RtpPacket,
@@ -17,6 +18,7 @@ import { RtpRouter } from "../../src/media/router";
 import { RTCRtpReceiver } from "../../src/media/rtpReceiver";
 import { RTCRtpSender } from "../../src/media/rtpSender";
 import {
+  createCompoundFeedbackBytes,
   createDtlsTransport,
   createFirPacket,
   createPliPacket,
@@ -307,6 +309,51 @@ describe("media/router", () => {
       // Assert: media SSRC が 0 のものは配送されず、B 宛のものだけ B に届く
       expect(rtcpSpies.senderB).toHaveBeenCalledTimes(1);
       expect(rtcpSpies.senderA).not.toHaveBeenCalled();
+    });
+
+    test("decoded compound RTCP routes FIR and PLI to their own targets only", async () => {
+      // Arrange: B は同じ送信元から FIR (Seq nr 7) を受信済み
+      const { router, senderA, senderB, remoteSsrc } =
+        createRtcpFeedbackRouter();
+      const events = { a: [] as string[], b: [] as string[] };
+      senderA.onKeyFrameRequest.subscribe((kind) => events.a.push(kind));
+      senderB.onKeyFrameRequest.subscribe((kind) => events.b.push(kind));
+      router.routeRtcp(
+        createFirPacket({
+          senderSsrc: remoteSsrc,
+          fir: [{ ssrc: senderB.ssrc, sequenceNumber: 7 }],
+        }),
+      );
+      events.b.length = 0;
+      const compound = createCompoundFeedbackBytes({
+        senderSsrc: remoteSsrc,
+        fir: { ssrc: senderA.ssrc, sequenceNumber: 7 },
+        pliMediaSsrc: senderB.ssrc,
+      });
+      const routeCompound = () =>
+        RtcpPacketConverter.deSerialize(compound).forEach(router.routeRtcp);
+
+      // Act: RR + SDES + FIR(A 宛) + PLI(B 宛) の実バイト列を復号して配送する
+      routeCompound();
+
+      // Assert: A は FIR、B は PLI だけを受け、B の FIR は後続 PLI のバイトで増えない
+      expect(events).toEqual({ a: ["fir"], b: ["pli"] });
+      expect(await outboundRtpStats(senderA)).toMatchObject({ firCount: 1 });
+      expect(await outboundRtpStats(senderB)).toMatchObject({
+        firCount: 1,
+        pliCount: 1,
+      });
+
+      // Act: 同じ複合パケットを再送として再び配送する
+      routeCompound();
+
+      // Assert: A の FIR は再送なので通知されず数だけ増え、B は PLI を再び受ける
+      expect(events).toEqual({ a: ["fir"], b: ["pli", "pli"] });
+      expect(await outboundRtpStats(senderA)).toMatchObject({ firCount: 2 });
+      expect(await outboundRtpStats(senderB)).toMatchObject({
+        firCount: 1,
+        pliCount: 2,
+      });
     });
 
     test("REMB is still routed by its first SSRC feedback", () => {

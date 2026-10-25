@@ -17,11 +17,11 @@ import {
   defaultCodecs,
 } from "../media";
 import { normalizeCodecMimeType } from "../media/codecCompatibility";
-import type { BundlePolicy } from "../sdp";
 import {
   type KeyFrameRequestRouting,
   KeyFrameRequestRoutingModes,
 } from "../media/router";
+import type { BundlePolicy } from "../sdp";
 import type { MLineReuse } from "../sdpManager";
 import type { DtlsKeys, RTCCertificate } from "../transport/dtls";
 import { DEFAULT_MAX_MESSAGE_SIZE } from "../transport/sctp";
