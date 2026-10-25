@@ -204,8 +204,14 @@ export class UdpTransport implements Transport {
         return;
       }
       this.closed = true;
-      this.onError.complete();
       this.socket.once("close", r);
+      // A subscriber's completion handler must not prevent the socket from
+      // being released; otherwise the port stays bound forever.
+      try {
+        this.onError.complete();
+      } catch (error) {
+        log("onError complete error", error);
+      }
       try {
         this.socket.close();
       } catch (error) {

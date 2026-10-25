@@ -147,6 +147,26 @@ describe("UdpTransport socket error handling", () => {
     expect(transport.closed).toBe(true);
   });
 
+  test("releases the socket when an onError completion handler throws", async () => {
+    // Arrange: 完了コールバックが例外を投げる onError 購読者を持つ transport を用意する。
+    const transport = await createLoopbackUdpTransport();
+    const port = transport.port;
+    transport.onError.subscribe(
+      () => {},
+      () => {
+        throw new Error("onError complete failed");
+      },
+    );
+
+    // Act: 完了通知が例外を投げる状態で close する。
+    await expect(transport.close()).resolves.toBeUndefined();
+
+    // Assert: 例外後もソケットが解放され、同じポートを再利用できる。
+    const reused = await createLoopbackUdpTransport({ port });
+    expect(reused.port).toBe(port);
+    await reused.close();
+  });
+
   test("does not settle twice or notify errors after close", async () => {
     // Arrange: 初期化済みの transport とエラー受信の記録先を用意する。
     const transport = await createLoopbackUdpTransport();
