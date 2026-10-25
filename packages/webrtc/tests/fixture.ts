@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import { setTimeout } from "timers/promises";
 
 import { vi } from "vitest";
@@ -17,6 +18,10 @@ import {
   codecParametersToString,
   defaultPeerConfig,
 } from "../src";
+import {
+  ProtectionProfileAes128CmHmacSha1_80,
+  SrtpSession,
+} from "../src/imports/rtp";
 import { RTCRtpSender } from "../src/media/rtpSender";
 
 export const createRtpPacket = (
@@ -68,6 +73,8 @@ export function createConnectedRtpSender(options?: {
   rtx?: boolean;
   twcc?: boolean;
   cname?: string;
+  /** encrypt sendRtp with a real SrtpSession and decrypt it on a peer session */
+  srtpLoopback?: boolean;
 }) {
   const kind = options?.kind ?? "audio";
   const track = options?.track ?? new MediaStreamTrack({ kind, remote: true });
@@ -95,12 +102,65 @@ export function createConnectedRtpSender(options?: {
     rtcp: options?.cname ? { cname: options.cname, mux: false } : undefined,
   });
 
-  const sendRtp = vi.spyOn(dtls, "sendRtp").mockResolvedValue(12);
+  const srtp = options?.srtpLoopback ? createSrtpLoopback() : undefined;
+  const sendRtp = vi.spyOn(dtls, "sendRtp");
+  if (srtp) {
+    sendRtp.mockImplementation(async (payload, header) =>
+      srtp.transmit(payload, header),
+    );
+  } else {
+    sendRtp.mockResolvedValue(12);
+  }
   const sendRtcp = vi
     .spyOn(dtls, "sendRtcp")
     .mockResolvedValue(undefined as never);
 
-  return { sender, track, dtls, sendRtp, sendRtcp };
+  return { sender, track, dtls, sendRtp, sendRtcp, srtp };
+}
+
+/**
+ * SRTP sender session and a peer session with swapped keys.
+ * `transmit` encrypts like `RTCDtlsTransport.sendRtp` and decrypts on the peer,
+ * recording decrypted packets and authentication failures.
+ */
+export function createSrtpLoopback(
+  profile: number = ProtectionProfileAes128CmHmacSha1_80,
+) {
+  const local = { masterKey: randomBytes(16), masterSalt: randomBytes(14) };
+  const remote = { masterKey: randomBytes(16), masterSalt: randomBytes(14) };
+  const sender = new SrtpSession({
+    keys: {
+      localMasterKey: local.masterKey,
+      localMasterSalt: local.masterSalt,
+      remoteMasterKey: remote.masterKey,
+      remoteMasterSalt: remote.masterSalt,
+    },
+    profile,
+  });
+  const receiver = new SrtpSession({
+    keys: {
+      localMasterKey: remote.masterKey,
+      localMasterSalt: remote.masterSalt,
+      remoteMasterKey: local.masterKey,
+      remoteMasterSalt: local.masterSalt,
+    },
+    profile,
+  });
+
+  const received: RtpPacket[] = [];
+  const failures: { header: RtpHeader; error: Error }[] = [];
+
+  const transmit = (payload: Buffer, header: RtpHeader) => {
+    const encrypted = sender.encrypt(payload, header);
+    try {
+      received.push(RtpPacket.deSerialize(receiver.decrypt(encrypted)));
+    } catch (error) {
+      failures.push({ header, error: error as Error });
+    }
+    return encrypted.length;
+  };
+
+  return { sender, receiver, received, failures, transmit };
 }
 
 export type ConnectedRtpSenderSetup = ReturnType<

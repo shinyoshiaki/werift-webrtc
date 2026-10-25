@@ -1,8 +1,13 @@
 import type { RtpHeader } from "../../rtp/rtp";
 import { ProtectionProfileAeadAes128Gcm } from "../const";
 import type { SrtpProfile } from "../const";
+import { SrtpAuthenticationError } from "../error";
 import { parseSrtpRtpHeader } from "../packet";
-import { Context } from "./context";
+import {
+  Context,
+  SrtpRolloverCounterOverflowError,
+  type SrtpSsrcState,
+} from "./context";
 
 export class SrtpContext extends Context {
   constructor(masterKey: Buffer, masterSalt: Buffer, profile: SrtpProfile) {
@@ -11,9 +16,10 @@ export class SrtpContext extends Context {
 
   encryptRtp(payload: Buffer, header: RtpHeader) {
     const s = this.getSrtpSsrcState(header.ssrc);
-    this.updateRolloverCount(header.sequenceNumber, s);
+    const roc = this.estimateRolloverCounter(header.sequenceNumber, s);
 
-    const enc = this.cipher.encryptRtp(header, payload, s.rolloverCounter);
+    const enc = this.cipher.encryptRtp(header, payload, roc);
+    this.commitPacketIndex(header.sequenceNumber, roc, s);
     return enc;
   }
 
@@ -21,25 +27,27 @@ export class SrtpContext extends Context {
     const header = parseSrtpRtpHeader(cipherText, this.rtpAuthTagLength);
 
     const existingState = this.srtpSSRCStates[header.ssrc];
-    const nextState = existingState
-      ? { ...existingState }
-      : {
-          ssrc: header.ssrc,
-          rolloverCounter: 0,
-          lastSequenceNumber: 0,
-        };
-    this.updateRolloverCount(header.sequenceNumber, nextState);
-
-    const dec = this.cipher.decryptRtp(
-      cipherText,
-      nextState.rolloverCounter,
-      header,
-    );
-    if (existingState) {
-      Object.assign(existingState, nextState);
-    } else {
-      this.srtpSSRCStates[header.ssrc] = nextState;
+    const state: SrtpSsrcState = existingState ?? {
+      ssrc: header.ssrc,
+      rolloverCounter: 0,
+      lastSequenceNumber: 0,
+    };
+    let roc: number;
+    try {
+      roc = this.estimateRolloverCounter(header.sequenceNumber, state);
+    } catch (error) {
+      if (error instanceof SrtpRolloverCounterOverflowError) {
+        throw new SrtpAuthenticationError(error.message);
+      }
+      throw error;
     }
+
+    const dec = this.cipher.decryptRtp(cipherText, roc, header);
+    // commit only after authentication and decryption succeeded
+    if (!existingState) {
+      this.srtpSSRCStates[header.ssrc] = state;
+    }
+    this.commitPacketIndex(header.sequenceNumber, roc, state);
     return dec;
   }
 
