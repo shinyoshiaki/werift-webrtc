@@ -57,6 +57,8 @@
 
 R1〜R6 はすべて実施済み。4 章は実装方針の記録として残す。
 
+整形はこのチケットから分離し、サブタスク `8c641f42-8660-4a45-882c-8caaa13a3f0a` で実行する。ビルド時の自動整形は廃止し、このブランチは整形前の状態に戻した。
+
 ### 3.1 実施内容
 
 - **依存の削除**: `debug`、`tweetnacl`、`@noble/curves`、`@fidm/x509`、`ts-node`、`ts-node-dev`、`tsx`、`organize-imports-cli`。DTLS は `node:crypto`（`localPrivateKey: KeyObject`）。
@@ -74,12 +76,15 @@ R1〜R6 はすべて実施済み。4 章は実装方針の記録として残す�
 - **追加の互換修正**: `@fidm/x509` はインデント付き PEM を受け付けていたが `node:crypto` は拒否する（`examples/certificate/offer.ts` が接続できなくなっていた）。`werift-dtls` に `normalizePem()` を追加し、`CipherContext.parseX509` と `RTCCertificate` で使用。テスト `packages/dtls/tests/context/cipher.test.ts` を追加。changelog の `### Fixes` に記載。
 - **vendor の復元**: 過去の `fmt` コミット（ea7d720c）で `examples/e2e/vendor/*.js` が書き換わり、ブラウザページが `E is not a constructor` で動かなくなっていた。`develop` の内容に戻した（現在の Biome 設定では vendor は対象外）。vendor と生成 doc 内のコピーは `.gitattributes` で `-whitespace` に指定し、`git diff --check` の空白誤検出を避けた。
 - **AGENTS.md**: ルートに `npm run test:node-ts` とサードパーティ TS ランナー禁止の方針を追記。
+- **整形の分離**: 各パッケージの `build` から `npm run format` を削除し、ビルドがソースを整形しないようにした。リポジトリ全体の整形はサブタスク `8c641f42-8660-4a45-882c-8caaa13a3f0a` に移し、このブランチの整形済みコードは整形前に戻した（195 files）。`packages/dtls/src/handshake/message/changeCipherSpec.ts` の `//@ts-ignore` は Biome が `//@ts-expect-error` に変えて TS2578 になるため、サブタスク側で修正する。
 
 ### 3.2 検証結果
 
 | コマンド | 結果 |
 | --- | --- |
-| `npm run format`（2 回目で差分なし） | 成功 |
+| `npm run format`（2 回目で差分なし） | このチケットでは実施しない。サブタスク `8c641f42-8660-4a45-882c-8caaa13a3f0a` で実行する（このブランチでは整形前のため差分が出る） |
+| `git diff --check` / `npm run type:all` / `npm run build` / `npm run test:small` | 成功（整形分離後） |
+| `npm run e2e` / `npm run examples:e2e` | 63/63、65/65 成功（整形分離後） |
 | `npm run type:all` / `npm run build` / `npm run test:small` | 成功 |
 | `cd import-test && npm test` | 成功（ESM と CJS の両方。CJS は `test-cjs.cjs` で継続検証） |
 | `npm run doc` | 成功（再生成済み。`doc/_media/examples/package.json` / `package-lock.json` のミラーも更新） |
@@ -127,5 +132,5 @@ R1〜R6 はすべて実施済み。4 章は実装方針の記録として残す�
   - `npm run wpt` / `npm run wpt:coverage`
   - `npm run e2e`、`npm run examples:e2e`、`packages/ice-server` の `chrome-e2e`、`examples/turn-loopback` の `server`
   - `cd import-test && npm test`（CJS / ESM の両方）
-  - `npm run format` を実行して差分が出ない
+  - `npm run format` を実行して差分が出ない（整形はサブタスク `8c641f42-8660-4a45-882c-8caaa13a3f0a` に分離したため、このチケットのブランチでは対象外）
   - 環境の都合で実行できないものがあれば、その旨と代わりに確認した内容をこのチケットに記録する。
