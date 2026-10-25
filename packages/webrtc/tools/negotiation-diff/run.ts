@@ -6,10 +6,19 @@
  * resolved or rejected (error name), both signaling states, and, whenever
  * both peers are stable, RTP arrival per negotiated track and DataChannel
  * delivery in both directions. Run it on HEAD and on a temporary develop
- * worktree with the same seeds and compare the outputs with `compare.ts`.
+ * worktree with the same seeds and compare the outputs with `compare.ts`
+ * (never check out develop in the active worktree):
  *
- *   npx tsx tools/negotiation-diff/run.ts --root <repo> --seeds 200 \
- *     --steps 12 --out /tmp/head.jsonl [--mutate 0.3]
+ *   git worktree add --detach /tmp/werift-develop origin/develop
+ *   # share the dependencies: link node_modules (root and packages/*)
+ *   npx tsx --tsconfig ./tsconfig.json tools/negotiation-diff/run.ts \
+ *     --root /tmp/werift-develop --seeds 200 --steps 12 --out /tmp/develop.jsonl
+ *   npx tsx --tsconfig ./tsconfig.json tools/negotiation-diff/run.ts \
+ *     --root ../.. --seeds 200 --steps 12 --out /tmp/head.jsonl [--mutate 0.3]
+ *   npx tsx tools/negotiation-diff/compare.ts /tmp/develop.jsonl /tmp/head.jsonl
+ *
+ * A change to how created descriptions are applied later or again keeps the
+ * regression count of compare.ts at 0 and the contract of scenarios.ts.
  *
  * With `--mutate p`, a delivered description is rewritten on the wire by one
  * or two peer-diversity mutations (mutations.ts) with probability p.
