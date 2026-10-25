@@ -242,12 +242,15 @@ export class TransportActivation {
             // SPED: the DTLS handshake rides on the ICE Binding exchange, so
             // both start together instead of DTLS waiting for ICE.
             const dtlsPromise = dtlsTransport.start();
-            await Promise.all([iceTransport.start(), dtlsPromise]).catch(
-              (err) => {
-                log("sped ice/dtls start failed", err);
-                throw err;
-              },
-            );
+            const earlySctpPromise = this.startEarlySctp(dtlsTransport, config);
+            await Promise.all([
+              iceTransport.start(),
+              dtlsPromise,
+              earlySctpPromise,
+            ]).catch((err) => {
+              log("sped ice/dtls start failed", err);
+              throw err;
+            });
           } else {
             await iceTransport.start().catch((err) => {
               log("iceTransport.start failed", err);
@@ -290,10 +293,17 @@ export class TransportActivation {
         }
 
         this.secure.setConnectionState("connecting");
-        await dtlsTransport.start().catch((err) => {
-          log("dtlsTransport.start failed", err);
-          throw err;
-        });
+        const earlySctpPromise = this.startEarlySctp(dtlsTransport, config);
+        // Attach handlers to both starts immediately. A fingerprint failure
+        // can reject DTLS before the early SCTP association settles; awaiting
+        // them sequentially would then leave its rejection unhandled.
+        await Promise.all([
+          dtlsTransport.start().catch((err) => {
+            log("dtlsTransport.start failed", err);
+            throw err;
+          }),
+          earlySctpPromise,
+        ]);
 
         if (
           this.sctp.sctpTransport &&
@@ -313,6 +323,42 @@ export class TransportActivation {
     }
   }
 
+  /** Start or arm the SCTP role while SPED handshake writes become available. */
+  private startEarlySctp(
+    dtlsTransport: RTCDtlsTransport,
+    config: PeerConfig,
+  ) {
+    const sctp = this.sctp.sctpTransport;
+    if (
+      config.sped !== true ||
+      !sctp ||
+      sctp.dtlsTransport !== dtlsTransport
+    ) {
+      return Promise.resolve();
+    }
+    if (dtlsTransport.role === "client") {
+      // The passive association must be armed before an early server INIT.
+      return this.sctp.connectSctp();
+    }
+    if (
+      dtlsTransport.role === "server" &&
+      config.warp?.allowEarlyServerData === true
+    ) {
+      return dtlsTransport
+        .waitForWriteReady()
+        .then(() =>
+          dtlsTransport.isEarlyServerWriteAllowed()
+            ? this.sctp.connectSctp()
+            : undefined,
+        )
+        .catch((error) => {
+          // Early SCTP is optional; authenticated startup can retry it.
+          log("early SCTP start cancelled; retry after authentication", error);
+        });
+    }
+    return Promise.resolve();
+  }
+
   /**
    * An SCTP transport that joined an already connected DTLS transport (the
    * first application m-line of a renegotiation) starts its association
@@ -323,7 +369,6 @@ export class TransportActivation {
     if (
       !sctp ||
       sctp.dtlsTransport !== dtlsTransport ||
-      sctp.sctp.started ||
       sctp.sctp.associationState !== SCTP_STATE.CLOSED
     ) {
       return;

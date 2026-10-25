@@ -73,7 +73,7 @@ describe("examples/node/pacer/ffmpeg-vfr-stream.ts", () => {
       for (const { rtp, at } of packets) {
         firstPayload ??= rtp.payload;
         if (rtp.header.marker) {
-          frames.push({ timestamp: rtp.header.timestamp, at, firstPayload });
+          frames.push({ timestamp: rtp.header.timestamp, at, firstPayload: firstPayload ?? Buffer.alloc(0) });
           firstPayload = undefined;
         }
       }

@@ -102,6 +102,11 @@ export interface PeerConfig {
    * (SPED uses ICE-authenticated address validation, not a DTLS cookie).
    */
   sped?: boolean;
+  /** WARP early outbound and encrypted-media buffering policy. */
+  warp?: {
+    allowEarlyServerData?: boolean;
+    earlyMediaPolicy?: "drop" | "buffer";
+  };
   dtls: Partial<{
     keys: DtlsKeys;
     /**
@@ -266,6 +271,7 @@ export function generateDefaultPeerConfig(): Required<PeerConfig> {
     iceUseLinkLocalAddress: undefined,
     dtls: {},
     sped: false,
+    warp: { allowEarlyServerData: false, earlyMediaPolicy: "drop" },
     bundlePolicy: "max-compat",
     rtcpMuxPolicy: "require",
     iceCandidatePoolSize: 0,
@@ -321,6 +327,19 @@ function normalizePeerConfiguration(
 
   if ("sped" in input) {
     normalizedConfig.sped = input.sped === true;
+  }
+
+  if ("warp" in input) {
+    if (
+      input.warp?.earlyMediaPolicy !== undefined &&
+      input.warp.earlyMediaPolicy !== "drop" &&
+      input.warp.earlyMediaPolicy !== "buffer"
+    ) {
+      throw createWebRtcTypeError(
+        'warp.earlyMediaPolicy must be "drop" or "buffer"',
+      );
+    }
+    normalizedConfig.warp = input.warp ? { ...input.warp } : {};
   }
 
   return normalizedConfig;
@@ -382,6 +401,7 @@ export function clonePeerConfiguration(config: PeerConfig) {
         : undefined,
       helloRetryRequest: config.dtls.helloRetryRequest,
     },
+    warp: config.warp ? { ...config.warp } : undefined,
     certificates: [...config.certificates],
     debug: { ...config.debug },
     sctp: { ...config.sctp },
@@ -413,6 +433,9 @@ export function mergePeerConfiguration(
   },
 ) {
   const normalizedConfig = normalizePeerConfiguration(input);
+  if (normalizedConfig.warp !== undefined) {
+    normalizedConfig.warp = { ...config.warp, ...normalizedConfig.warp };
+  }
 
   if (
     normalizedConfig.rtcpMuxPolicy &&
@@ -494,6 +517,20 @@ export function mergePeerConfiguration(
   if (normalizedConfig.dtls !== undefined) {
     deepMerge(nextDtls, normalizedConfig.dtls);
     normalizedConfig.dtls = nextDtls;
+  }
+  const nextWarp = { ...config.warp, ...normalizedConfig.warp };
+  const nextSped = normalizedConfig.sped ?? config.sped;
+  const nextHasDtls13 = (nextDtls.protocolVersions ?? []).some(
+    (version) => String(version) === "1.3",
+  );
+  if (nextSped === true && !nextHasDtls13) {
+    throw new Error("PeerConfig.sped requires DTLS 1.3 in dtls.protocolVersions");
+  }
+  if (nextSped === true && nextDtls.helloRetryRequest) {
+    throw new Error("PeerConfig.sped cannot be combined with dtls.helloRetryRequest");
+  }
+  if (nextWarp.allowEarlyServerData === true && (nextSped !== true || !nextHasDtls13)) {
+    throw new Error("warp.allowEarlyServerData requires PeerConfig.sped and DTLS 1.3");
   }
 
   if (dtlsTransportCreated) {
