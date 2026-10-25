@@ -1,14 +1,12 @@
-import { appendFile, open, stat, unlink, writeFile } from "fs/promises";
+import { unlink, writeFile } from "fs/promises";
 import type { ReadableStreamDefaultReadResult } from "stream/web";
 
 import { getUserMedia } from "../../../webrtc/src";
 import {
   depacketizeTransformer,
-  DurationPosition,
   jitterBufferTransformer,
-  replaceSegmentSize,
   RtpSourceStream,
-  SegmentSizePosition,
+  saveToFileSystem,
   WebmStream,
   type WebmStreamOutput,
 } from "../../src";
@@ -75,6 +73,7 @@ console.log("start");
   });
   stream.start();
 
+  const save = saveToFileSystem(path);
   const reader = webm.webmStream.getReader();
   const readChunk = async ({
     value,
@@ -82,24 +81,8 @@ console.log("start");
   }: ReadableStreamDefaultReadResult<WebmStreamOutput>) => {
     if (done) return;
 
-    if (value.saveToFile) {
-      await appendFile(path, value.saveToFile);
-    } else if (value.eol) {
-      const { durationElement } = value.eol;
-      const handler = await open(path, "r+");
-      await handler.write(
-        durationElement,
-        0,
-        durationElement.length,
-        DurationPosition
-      );
-
-      const meta = await stat(path);
-      const resize = replaceSegmentSize(meta.size);
-      await handler.write(resize, 0, resize.length, SegmentSizePosition);
-
-      await handler.close();
-    }
+    // appends chunks, then fixes Duration / Segment / Cluster sizes on eol
+    await save(value);
 
     reader.read().then(readChunk);
   };

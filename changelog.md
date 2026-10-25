@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### 🐛 Bug Fixes
+
+- **WebM files saved with `saveToFileSystem` no longer contain unknown-size Clusters** (`werift-rtp`, `MediaRecorder` WebM output): when the recording ends, each Cluster's size field is rewritten in place with its real size. Before this fix, ffprobe warned `Unknown-sized element ... inside parent with finite size`, mkvalidator reported errors, and libwebm rejected the files.
+  - `WebmOutput.eol.clusters` (new; `{ position, size }[]`), `replaceClusterSize()` and `ClusterSizeOffset` are exported for custom writers. Streaming output (`WebmStream` without rewriting) still uses unknown-size Segment / Clusters.
+  - `replaceSegmentSize()` now writes an 8 byte VINT instead of a short VINT followed by a Void element. The old value was too large by the length of the size field, because it counted the field itself. Its Void padding also moved the Segment body start, so every CueClusterPosition pointed past its Cluster.
+  - The record examples now use `saveToFileSystem`.
+
 ## v0.25.2
 
 ### ⚠️ Breaking changes
